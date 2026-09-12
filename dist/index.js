@@ -40674,6 +40674,186 @@ var init_abba_ea_generator = __esm({
   }
 });
 
+// server/services/sol-brain.ts
+async function ensureTable2() {
+  if (_ensured) return;
+  try {
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS "sol_brain_outcomes" (
+        "id" serial PRIMARY KEY NOT NULL,
+        "user_id" integer NOT NULL,
+        "symbol" text NOT NULL,
+        "strategy" text NOT NULL,
+        "direction" text NOT NULL,
+        "entry_confidence" double precision,
+        "return_pct" double precision,
+        "hour_utc" integer,
+        "holding_minutes" integer,
+        "exit_reason" text,
+        "result" text NOT NULL,
+        "profit_loss" double precision NOT NULL DEFAULT 0,
+        "source" text NOT NULL DEFAULT 'live',
+        "closed_at" timestamp DEFAULT now() NOT NULL,
+        "created_at" timestamp DEFAULT now() NOT NULL
+      );
+      CREATE INDEX IF NOT EXISTS "idx_sol_brain_outcomes_user_symbol" ON "sol_brain_outcomes" ("user_id", "symbol");
+    `);
+    _ensured = true;
+  } catch (err) {
+    console.error("[sol-brain] ensureTable failed (non-fatal):", err?.message ?? err);
+  }
+}
+function bump2(map, key, win) {
+  const s = map[key] ??= { trades: 0, wins: 0, winRate: 0 };
+  s.trades++;
+  if (win) s.wins++;
+  s.winRate = Math.round(s.wins / s.trades * 100);
+}
+function sizeMult2(winRate2, rr, trades) {
+  if (trades < MIN_TRADES2) return 1;
+  const w = winRate2 / 100, r = rr > 0 ? rr : 1;
+  const kelly = w - (1 - w) / r;
+  return Math.max(0.25, Math.min(1.5, 1 + kelly));
+}
+async function backfillIfEmpty2(userId) {
+  const { rows } = await pool.query(`SELECT count(*)::int n FROM sol_brain_outcomes WHERE user_id=$1`, [userId]);
+  if (rows[0].n > 0) return;
+  const { rows: trades } = await pool.query(
+    `SELECT token_symbol, close_pnl_pct, closed_at FROM sol_engine_positions
+     WHERE user_id=$1 AND status='closed' AND close_pnl_pct IS NOT NULL ORDER BY closed_at DESC LIMIT 1000`,
+    [userId]
+  );
+  if (!trades.length) return;
+  for (const t of trades) {
+    const pnl = Number(t.close_pnl_pct) || 0;
+    const d = t.closed_at ? new Date(t.closed_at) : /* @__PURE__ */ new Date();
+    await pool.query(
+      `INSERT INTO sol_brain_outcomes (user_id, symbol, strategy, direction, result, profit_loss, return_pct, hour_utc, source, closed_at)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,'backfill',$9)`,
+      [userId, t.token_symbol || "UNKNOWN", "unknown", "long", pnl > 0 ? "WIN" : pnl < 0 ? "LOSS" : "BREAKEVEN", pnl, pnl, d.getUTCHours(), d]
+    ).catch(() => {
+    });
+  }
+}
+async function learnFromSolTrades(userId) {
+  await ensureTable2();
+  await backfillIfEmpty2(userId).catch(() => {
+  });
+  const { rows } = await pool.query(
+    `SELECT symbol, strategy, direction, result, profit_loss, hour_utc FROM sol_brain_outcomes
+     WHERE user_id=$1 ORDER BY closed_at DESC LIMIT 2000`,
+    [userId]
+  );
+  const symbols = {};
+  const winSum = {}, winN = {}, lossSum = {}, lossN = {};
+  let totalWins = 0, totalDecided = 0, totalPnl = 0;
+  for (const r of rows) {
+    const sym = r.symbol || "UNKNOWN";
+    const k = symbols[sym] ??= { totalTrades: 0, wins: 0, losses: 0, winRate: 0, totalPnl: 0, avgWin: 0, avgLoss: 0, riskReward: 0, byStrategy: {}, byHour: {}, bestStrategy: null, recommendedSizeMultiplier: 1 };
+    const pnl = Number(r.profit_loss) || 0;
+    const win = r.result === "WIN", loss = r.result === "LOSS";
+    k.totalTrades++;
+    k.totalPnl += pnl;
+    totalPnl += pnl;
+    if (win) {
+      k.wins++;
+      totalWins++;
+      winSum[sym] = (winSum[sym] ?? 0) + pnl;
+      winN[sym] = (winN[sym] ?? 0) + 1;
+    }
+    if (loss) {
+      k.losses++;
+      lossSum[sym] = (lossSum[sym] ?? 0) + Math.abs(pnl);
+      lossN[sym] = (lossN[sym] ?? 0) + 1;
+    }
+    if (win || loss) totalDecided++;
+    if (r.strategy) bump2(k.byStrategy, r.strategy, win);
+    if (r.hour_utc != null) bump2(k.byHour, String(r.hour_utc), win);
+  }
+  for (const [sym, k] of Object.entries(symbols)) {
+    const decided = k.wins + k.losses;
+    k.winRate = decided ? Math.round(k.wins / decided * 100) : 0;
+    k.avgWin = winN[sym] ? winSum[sym] / winN[sym] : 0;
+    k.avgLoss = lossN[sym] ? lossSum[sym] / lossN[sym] : 0;
+    k.riskReward = k.avgLoss > 0 ? k.avgWin / k.avgLoss : k.avgWin > 0 ? 2 : 1;
+    k.recommendedSizeMultiplier = sizeMult2(k.winRate, k.riskReward, decided);
+    let best = null, bestWr = -1;
+    for (const [s, b] of Object.entries(k.byStrategy)) if (b.trades >= 3 && b.winRate > bestWr) {
+      best = s;
+      bestWr = b.winRate;
+    }
+    k.bestStrategy = best;
+  }
+  const insights = [];
+  for (const [sym, k] of Object.entries(symbols)) {
+    if (k.wins + k.losses >= MIN_TRADES2) insights.push(`${sym}: ${k.winRate}% WR over ${k.wins + k.losses} \u2192 sizing \xD7${k.recommendedSizeMultiplier}${k.bestStrategy ? `, best on ${k.bestStrategy}` : ""}.`);
+    else insights.push(`${sym}: still learning (${k.wins + k.losses}/${MIN_TRADES2}).`);
+  }
+  const brain = { userId, lastLearned: (/* @__PURE__ */ new Date()).toISOString(), totalTrades: rows.length, overallWinRate: totalDecided ? Math.round(totalWins / totalDecided * 100) : 0, totalPnl: Math.round(totalPnl * 100) / 100, symbolKnowledge: symbols, insights };
+  _cache5.set(userId, { brain, at: Date.now() });
+  return brain;
+}
+async function getOrRefreshSolBrain(userId, force = false) {
+  const hit = _cache5.get(userId);
+  if (!force && hit && Date.now() - hit.at < REFRESH_TTL_MS3) return hit.brain;
+  return learnFromSolTrades(userId);
+}
+function solBrainSizeMultiplier(userId, symbol) {
+  const k = _cache5.get(userId)?.brain?.symbolKnowledge[symbol];
+  return k ? k.recommendedSizeMultiplier : 1;
+}
+function solBrainGate(userId, symbol, strategy, hourUtc) {
+  const k = _cache5.get(userId)?.brain?.symbolKnowledge[symbol];
+  if (!k) return { blocked: false, reason: "" };
+  const decided = k.wins + k.losses;
+  if (decided >= 15 && k.winRate < 35) return { blocked: true, reason: `\u{1F9E0} Sol brain: ${symbol} ${k.winRate}% WR over ${decided} \u2014 skipping symbol` };
+  if (strategy) {
+    const st = k.byStrategy[strategy];
+    if (st && st.trades >= 8 && st.winRate < 30) return { blocked: true, reason: `\u{1F9E0} Sol brain: ${symbol}/${strategy} ${st.winRate}% WR over ${st.trades} \u2014 skipping` };
+  }
+  if (hourUtc != null) {
+    const h = k.byHour[String(hourUtc)];
+    if (h && h.trades >= 8 && h.winRate < 30) return { blocked: true, reason: `\u{1F9E0} Sol brain: ${symbol} @ ${hourUtc}:00 UTC ${h.winRate}% WR over ${h.trades} \u2014 skipping this hour` };
+  }
+  return { blocked: false, reason: "" };
+}
+async function recordSolBrainOutcome(o) {
+  try {
+    await ensureTable2();
+    await pool.query(
+      `INSERT INTO sol_brain_outcomes (user_id, symbol, strategy, direction, entry_confidence, return_pct, hour_utc, holding_minutes, exit_reason, result, profit_loss, source)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,'live')`,
+      [
+        o.userId,
+        o.symbol,
+        o.strategy || "unknown",
+        o.direction || "long",
+        o.entryConfidence ?? null,
+        o.returnPct ?? null,
+        (/* @__PURE__ */ new Date()).getUTCHours(),
+        o.holdingMinutes ?? null,
+        o.exitReason ?? null,
+        o.profitLoss > 0 ? "WIN" : o.profitLoss < 0 ? "LOSS" : "BREAKEVEN",
+        o.profitLoss
+      ]
+    );
+    await learnFromSolTrades(o.userId);
+  } catch (err) {
+    console.error("[sol-brain] recordSolBrainOutcome failed (non-fatal):", err?.message ?? err);
+  }
+}
+var MIN_TRADES2, REFRESH_TTL_MS3, _ensured, _cache5;
+var init_sol_brain = __esm({
+  "server/services/sol-brain.ts"() {
+    "use strict";
+    init_db();
+    MIN_TRADES2 = 10;
+    REFRESH_TTL_MS3 = 60 * 1e3;
+    _ensured = false;
+    _cache5 = /* @__PURE__ */ new Map();
+  }
+});
+
 // server/services/sol-engine.ts
 var sol_engine_exports = {};
 __export(sol_engine_exports, {
@@ -40942,6 +41122,17 @@ async function executeServerSideSell(userId, pos, reason, state) {
     addActivity3(state, {
       type: "live_sell",
       message: `\u{1F916} Server auto-sold ${pos.symbol} [${label}] ${gainPct >= 0 ? "+" : ""}${gainPct.toFixed(2)}% \u2014 TX: ${signature.slice(0, 16)}...`
+    });
+    recordSolBrainOutcome({
+      userId,
+      symbol: pos.symbol,
+      strategy: pos.strategyId || "unknown",
+      direction: "long",
+      returnPct: gainPct,
+      holdingMinutes: Math.max(0, Math.round((Date.now() - new Date(pos.openedAt).getTime()) / 6e4)),
+      exitReason: reason,
+      profitLoss: pos.size * (gainPct / 100)
+    }).catch(() => {
     });
     upsertPosition(userId, pos).catch(() => {
     });
@@ -41483,7 +41674,7 @@ function getVolStatus(entryVol, currentVol) {
   if (ratio <= 0.75) return "below_average";
   return "average";
 }
-function monitorPaperPositions(state) {
+function monitorPaperPositions(userId, state) {
   const openPositions = state.paperPositions.filter((p) => p.status === "open");
   if (openPositions.length === 0) return;
   const priceMap = {};
@@ -41538,6 +41729,17 @@ function monitorPaperPositions(state) {
       pos.closeReason = reason;
       state.closedPaperPositions.unshift(pos);
       if (state.closedPaperPositions.length > 50) state.closedPaperPositions = state.closedPaperPositions.slice(0, 50);
+      recordSolBrainOutcome({
+        userId,
+        symbol: pos.symbol,
+        strategy: pos.strategyId || "unknown",
+        direction: "long",
+        returnPct: gainPct,
+        holdingMinutes: Math.max(0, Math.round((Date.now() - new Date(pos.openedAt).getTime()) / 6e4)),
+        exitReason: reason,
+        profitLoss: pos.size * (gainPct / 100)
+      }).catch(() => {
+      });
       state.autoTradeStats.totalTrades++;
       state.autoTradeStats.totalPnlPct += gainPct;
       const isProfit = gainPct > 0;
@@ -41688,6 +41890,8 @@ async function runScan(userId, state, triggerToken) {
       state.dailyTradeCount = 0;
     }
     await refreshServerWalletBalance(userId, state).catch(() => {
+    });
+    if (SOL_BRAIN_ENABLED) await getOrRefreshSolBrain(userId).catch(() => {
     });
     const macro = await fetchCryptoMacroContext().catch(() => null);
     state.lastMacro = macro;
@@ -41903,9 +42107,32 @@ async function runScan(userId, state, triggerToken) {
           const SIGNAL_COOLDOWN_MS = 5 * 60 * 1e3;
           const lastRejected = state.signalCooldowns.get(tokenMint);
           const onCooldown = lastRejected && Date.now() - lastRejected < SIGNAL_COOLDOWN_MS;
-          if (!alreadyOpen && !alreadyQueued && !onCooldown) {
+          const confluenceCount = SOL_STRATEGIES.filter((s) => {
+            if (analysis.confidence < s.minConfidence) return false;
+            if (s.minSignal === "STRONG_BUY" && analysis.signal !== "STRONG_BUY") return false;
+            if (s.maxRisk === "LOW" && (analysis.riskLevel === "HIGH" || analysis.riskLevel === "EXTREME")) return false;
+            if (!passesStrategyFilter(analysis, s)) return false;
+            return true;
+          }).length;
+          const compositeEdge = Math.min(100, analysis.confidence + Math.max(0, confluenceCount - 1) * SOL_CONFLUENCE_BONUS);
+          const confluenceOk = confluenceCount >= SOL_CONFLUENCE_REQUIRED && compositeEdge >= SOL_COMPOSITE_FLOOR;
+          const brainGate = SOL_BRAIN_ENABLED && SOL_BRAIN_GATING ? solBrainGate(userId, analysis.token.symbol, topStrat.id, (/* @__PURE__ */ new Date()).getUTCHours()) : { blocked: false, reason: "" };
+          const brainMult = SOL_BRAIN_ENABLED ? solBrainSizeMultiplier(userId, analysis.token.symbol) : 1;
+          const liveSizeSOL = brainMult !== 1 ? Math.round(sizeSOL * brainMult * 1e3) / 1e3 : sizeSOL;
+          if (!alreadyOpen && !alreadyQueued && !onCooldown && !confluenceOk) {
+            addActivity3(state, {
+              type: "info",
+              message: `\u{1F6A6} Live entry BLOCKED (confluence): ${analysis.token.symbol} \u2014 ${confluenceCount}/${SOL_CONFLUENCE_REQUIRED} strategies agree, composite ${compositeEdge.toFixed(0)} < ${SOL_COMPOSITE_FLOOR}. Paper still learning.`
+            });
+          } else if (!alreadyOpen && !alreadyQueued && !onCooldown && brainGate.blocked) {
+            addActivity3(state, {
+              type: "info",
+              message: `${brainGate.reason} (live entry skipped \u2014 paper still learning)`
+            });
+          } else if (!alreadyOpen && !alreadyQueued && !onCooldown) {
             const created = /* @__PURE__ */ new Date();
             const expires = new Date(created.getTime() + 9e4);
+            const brainNote = brainMult !== 1 ? ` \u{1F9E0} Brain ${brainMult}\xD7` : "";
             const sig = {
               id: `live_${Date.now()}_${analysis.token.symbol}`,
               symbol: analysis.token.symbol,
@@ -41913,7 +42140,7 @@ async function runScan(userId, state, triggerToken) {
               signal: "BUY",
               confidence: analysis.confidence,
               price: tokenPrice,
-              sizeSOL,
+              sizeSOL: liveSizeSOL,
               strategyId: topStrat.id,
               createdAt: created.toISOString(),
               expiresAt: expires.toISOString()
@@ -41921,14 +42148,14 @@ async function runScan(userId, state, triggerToken) {
             state.dailyTradeCount++;
             addActivity3(state, {
               type: "live_signal",
-              message: `\u26A1 Live signal: ${analysis.token.symbol} \u2014 ${sizeSOL.toFixed(3)} SOL @ $${tokenPrice.toFixed(6)} [${topStrat.icon}${topStrat.name}] | Attempting server-side execution...`
+              message: `\u26A1 Live signal: ${analysis.token.symbol} \u2014 ${liveSizeSOL.toFixed(3)} SOL @ $${tokenPrice.toFixed(6)} [${topStrat.icon}${topStrat.name}]${brainNote} | ${confluenceCount} strat confluence (edge ${compositeEdge.toFixed(0)}) | Attempting server-side execution...`
             });
             executeServerSideBuy(userId, sig, state).then((executed) => {
               if (!executed) {
                 state.pendingSignals.push(sig);
                 addActivity3(state, {
                   type: "live_signal",
-                  message: `\u26A1 Live signal queued: ${analysis.token.symbol} \u2014 ${sizeSOL.toFixed(3)} SOL @ $${tokenPrice.toFixed(6)} [${topStrat.icon}${topStrat.name}] | \u26A0\uFE0F APPROVE IN PHANTOM (90s window)`
+                  message: `\u26A1 Live signal queued: ${analysis.token.symbol} \u2014 ${liveSizeSOL.toFixed(3)} SOL @ $${tokenPrice.toFixed(6)} [${topStrat.icon}${topStrat.name}]${brainNote} | \u26A0\uFE0F APPROVE IN PHANTOM (90s window)`
                 });
               }
             }).catch(() => {
@@ -41943,7 +42170,7 @@ async function runScan(userId, state, triggerToken) {
       }
     }
     state.lastResults = scanResult;
-    monitorPaperPositions(state);
+    monitorPaperPositions(userId, state);
     await monitorLivePositions(userId, state);
     const label = triggerToken ? ` (trigger: ${triggerToken})` : "";
     const intervalSec = getAdaptiveScanInterval2(state.config) / 1e3;
@@ -42448,6 +42675,17 @@ function confirmLiveExit(userId, positionId, txHash) {
     type: "live_sell",
     message: `\u2705 Live SOLD: ${pos.symbol} \u2014 P&L: ${gainPct >= 0 ? "+" : ""}${gainPct.toFixed(2)}% [TX: ${txHash.slice(0, 12)}...]`
   });
+  recordSolBrainOutcome({
+    userId,
+    symbol: pos.symbol,
+    strategy: pos.strategyId || "unknown",
+    direction: "long",
+    returnPct: gainPct,
+    holdingMinutes: Math.max(0, Math.round((Date.now() - new Date(pos.openedAt).getTime()) / 6e4)),
+    exitReason: "manual",
+    profitLoss: pos.size * (gainPct / 100)
+  }).catch(() => {
+  });
   upsertPosition(userId, pos).catch(() => {
   });
   saveEngineState(userId, state).catch(() => {
@@ -42589,13 +42827,19 @@ async function getServerWalletStatus(userId) {
     return { hasServerWallet: false };
   }
 }
-var DEX_NAMES, SOL_STRATEGIES, DEFAULT_CONFIG4, DEFAULT_WEEKLY_GOAL, engineStates2, PAPER_DEFAULT_PORTFOLIO_SOL;
+var SOL_BRAIN_ENABLED, SOL_BRAIN_GATING, SOL_CONFLUENCE_REQUIRED, SOL_COMPOSITE_FLOOR, SOL_CONFLUENCE_BONUS, DEX_NAMES, SOL_STRATEGIES, DEFAULT_CONFIG4, DEFAULT_WEEKLY_GOAL, engineStates2, PAPER_DEFAULT_PORTFOLIO_SOL;
 var init_sol_engine = __esm({
   "server/services/sol-engine.ts"() {
     "use strict";
     init_solana_scanner();
     init_db();
     init_schema();
+    init_sol_brain();
+    SOL_BRAIN_ENABLED = true;
+    SOL_BRAIN_GATING = true;
+    SOL_CONFLUENCE_REQUIRED = 2;
+    SOL_COMPOSITE_FLOOR = 72;
+    SOL_CONFLUENCE_BONUS = 4;
     DEX_NAMES = ["raydium", "orca", "meteora", "pumpfun", "jupiter"];
     SOL_STRATEGIES = [
       {
@@ -49920,6 +50164,47 @@ CREATE INDEX IF NOT EXISTS "idx_crypto_brain_outcomes_user_symbol" ON "crypto_br
   }
 });
 
+// server/services/ensure-sol-brain-table.ts
+var ensure_sol_brain_table_exports = {};
+__export(ensure_sol_brain_table_exports, {
+  ensureSolBrainTable: () => ensureSolBrainTable
+});
+async function ensureSolBrainTable() {
+  try {
+    await pool.query(DDL17);
+    console.log("[startup] Sol brain feature store ensured (sol_brain_outcomes) \u2014 per-trade learning now durable.");
+  } catch (err) {
+    console.error("[startup] ensureSolBrainTable failed (non-fatal):", err?.message ?? err);
+  }
+}
+var DDL17;
+var init_ensure_sol_brain_table = __esm({
+  "server/services/ensure-sol-brain-table.ts"() {
+    "use strict";
+    init_db();
+    DDL17 = `
+CREATE TABLE IF NOT EXISTS "sol_brain_outcomes" (
+  "id" serial PRIMARY KEY NOT NULL,
+  "user_id" integer NOT NULL,
+  "symbol" text NOT NULL,
+  "strategy" text NOT NULL,
+  "direction" text NOT NULL,
+  "entry_confidence" double precision,
+  "return_pct" double precision,
+  "hour_utc" integer,
+  "holding_minutes" integer,
+  "exit_reason" text,
+  "result" text NOT NULL,
+  "profit_loss" double precision NOT NULL DEFAULT 0,
+  "source" text NOT NULL DEFAULT 'live',
+  "closed_at" timestamp DEFAULT now() NOT NULL,
+  "created_at" timestamp DEFAULT now() NOT NULL
+);
+CREATE INDEX IF NOT EXISTS "idx_sol_brain_outcomes_user_symbol" ON "sol_brain_outcomes" ("user_id", "symbol");
+`;
+  }
+});
+
 // server/services/ensure-coinbase-tables.ts
 var ensure_coinbase_tables_exports = {};
 __export(ensure_coinbase_tables_exports, {
@@ -49927,18 +50212,18 @@ __export(ensure_coinbase_tables_exports, {
 });
 async function ensureCoinbaseTables() {
   try {
-    await pool.query(DDL17);
+    await pool.query(DDL18);
     console.log("[startup] Coinbase connections table ensured (coinbase_connections) \u2014 read-only wallet balances.");
   } catch (err) {
     console.error("[startup] ensureCoinbaseTables failed (non-fatal):", err?.message ?? err);
   }
 }
-var DDL17;
+var DDL18;
 var init_ensure_coinbase_tables = __esm({
   "server/services/ensure-coinbase-tables.ts"() {
     "use strict";
     init_db();
-    DDL17 = `
+    DDL18 = `
 CREATE TABLE IF NOT EXISTS "coinbase_connections" (
   "id" serial PRIMARY KEY NOT NULL,
   "user_id" integer NOT NULL,
@@ -49963,18 +50248,18 @@ __export(ensure_kraken_tables_exports, {
 });
 async function ensureKrakenTables() {
   try {
-    await pool.query(DDL18);
+    await pool.query(DDL19);
     console.log("[startup] Kraken connections table ensured (kraken_connections) \u2014 read-only wallet balances.");
   } catch (err) {
     console.error("[startup] ensureKrakenTables failed (non-fatal):", err?.message ?? err);
   }
 }
-var DDL18;
+var DDL19;
 var init_ensure_kraken_tables = __esm({
   "server/services/ensure-kraken-tables.ts"() {
     "use strict";
     init_db();
-    DDL18 = `
+    DDL19 = `
 CREATE TABLE IF NOT EXISTS "kraken_connections" (
   "id" serial PRIMARY KEY NOT NULL,
   "user_id" integer NOT NULL,
@@ -49999,18 +50284,18 @@ __export(ensure_gemini_tables_exports, {
 });
 async function ensureGeminiTables() {
   try {
-    await pool.query(DDL19);
+    await pool.query(DDL20);
     console.log("[startup] Gemini connections table ensured (gemini_connections) \u2014 read-only wallet balances.");
   } catch (err) {
     console.error("[startup] ensureGeminiTables failed (non-fatal):", err?.message ?? err);
   }
 }
-var DDL19;
+var DDL20;
 var init_ensure_gemini_tables = __esm({
   "server/services/ensure-gemini-tables.ts"() {
     "use strict";
     init_db();
-    DDL19 = `
+    DDL20 = `
 CREATE TABLE IF NOT EXISTS "gemini_connections" (
   "id" serial PRIMARY KEY NOT NULL,
   "user_id" integer NOT NULL,
@@ -50035,18 +50320,18 @@ __export(ensure_defi_wallets_table_exports, {
 });
 async function ensureDefiWalletsTable() {
   try {
-    await pool.query(DDL20);
+    await pool.query(DDL21);
     console.log("[startup] DeFi wallets table ensured (defi_wallets) \u2014 public addresses only, on-chain read-only.");
   } catch (err) {
     console.error("[startup] ensureDefiWalletsTable failed (non-fatal):", err?.message ?? err);
   }
 }
-var DDL20;
+var DDL21;
 var init_ensure_defi_wallets_table = __esm({
   "server/services/ensure-defi-wallets-table.ts"() {
     "use strict";
     init_db();
-    DDL20 = `
+    DDL21 = `
 CREATE TABLE IF NOT EXISTS "defi_wallets" (
   "id" serial PRIMARY KEY NOT NULL,
   "user_id" integer NOT NULL,
@@ -50070,18 +50355,18 @@ __export(ensure_defi_hotwallet_table_exports, {
 });
 async function ensureDefiHotWalletTable() {
   try {
-    await pool.query(DDL21);
+    await pool.query(DDL22);
     console.log("[startup] DeFi hot-wallet table ensured (defi_hot_wallets) \u2014 encrypted key for unattended swaps.");
   } catch (err) {
     console.error("[startup] ensureDefiHotWalletTable failed (non-fatal):", err?.message ?? err);
   }
 }
-var DDL21;
+var DDL22;
 var init_ensure_defi_hotwallet_table = __esm({
   "server/services/ensure-defi-hotwallet-table.ts"() {
     "use strict";
     init_db();
-    DDL21 = `
+    DDL22 = `
 CREATE TABLE IF NOT EXISTS "defi_hot_wallets" (
   "id" serial PRIMARY KEY NOT NULL,
   "user_id" integer NOT NULL,
@@ -50104,19 +50389,19 @@ __export(ensure_dxtrade_tables_exports, {
 });
 async function ensureDxtradeTables() {
   try {
-    await pool.query(DDL22);
+    await pool.query(DDL23);
     await pool.query(ALTERS);
     console.log("[startup] DXtrade connections table ensured (dxtrade_connections).");
   } catch (err) {
     console.error("[startup] ensureDxtradeTables failed (non-fatal):", err?.message ?? err);
   }
 }
-var DDL22, ALTERS;
+var DDL23, ALTERS;
 var init_ensure_dxtrade_tables = __esm({
   "server/services/ensure-dxtrade-tables.ts"() {
     "use strict";
     init_db();
-    DDL22 = `
+    DDL23 = `
 CREATE TABLE IF NOT EXISTS "dxtrade_connections" (
   "id" serial PRIMARY KEY NOT NULL,
   "user_id" integer NOT NULL,
@@ -50155,18 +50440,18 @@ __export(ensure_engine_consensus_table_exports, {
 });
 async function ensureEngineConsensusTable() {
   try {
-    await pool.query(DDL23);
+    await pool.query(DDL24);
     console.log("[startup] Engine consensus table ensured (engine_consensus_log) \u2014 Dual-Vote Consensus panels now survive restarts.");
   } catch (err) {
     console.error("[startup] ensureEngineConsensusTable failed (non-fatal):", err?.message ?? err);
   }
 }
-var DDL23;
+var DDL24;
 var init_ensure_engine_consensus_table = __esm({
   "server/services/ensure-engine-consensus-table.ts"() {
     "use strict";
     init_db();
-    DDL23 = `
+    DDL24 = `
 CREATE TABLE IF NOT EXISTS "engine_consensus_log" (
   "id" serial PRIMARY KEY NOT NULL,
   "user_id" integer NOT NULL REFERENCES "users"("id"),
@@ -50194,18 +50479,18 @@ __export(ensure_micro_growth_milestones_table_exports, {
 });
 async function ensureMicroGrowthMilestonesTable() {
   try {
-    await pool.query(DDL24);
+    await pool.query(DDL25);
     console.log("[startup] Micro Growth milestones table ensured (micro_growth_milestones) \u2014 doubling challenge now survives restarts.");
   } catch (err) {
     console.error("[startup] ensureMicroGrowthMilestonesTable failed (non-fatal):", err?.message ?? err);
   }
 }
-var DDL24;
+var DDL25;
 var init_ensure_micro_growth_milestones_table = __esm({
   "server/services/ensure-micro-growth-milestones-table.ts"() {
     "use strict";
     init_db();
-    DDL24 = `
+    DDL25 = `
 CREATE TABLE IF NOT EXISTS "micro_growth_milestones" (
   "id" serial PRIMARY KEY NOT NULL,
   "user_id" integer NOT NULL UNIQUE REFERENCES "users"("id"),
@@ -50227,18 +50512,18 @@ __export(ensure_micro_growth_sessions_table_exports, {
 });
 async function ensureMicroGrowthSessionsTable() {
   try {
-    await pool.query(DDL25);
+    await pool.query(DDL26);
     console.log("[startup] Micro Growth sessions table ensured (micro_growth_sessions) \u2014 session history now survives restarts.");
   } catch (err) {
     console.error("[startup] ensureMicroGrowthSessionsTable failed (non-fatal):", err?.message ?? err);
   }
 }
-var DDL25;
+var DDL26;
 var init_ensure_micro_growth_sessions_table = __esm({
   "server/services/ensure-micro-growth-sessions-table.ts"() {
     "use strict";
     init_db();
-    DDL25 = `
+    DDL26 = `
 CREATE TABLE IF NOT EXISTS "micro_growth_sessions" (
   "id" text PRIMARY KEY NOT NULL,
   "user_id" integer NOT NULL REFERENCES "users"("id"),
@@ -50269,18 +50554,18 @@ __export(ensure_workforce_course_progress_table_exports, {
 });
 async function ensureWorkforceCourseProgressTable() {
   try {
-    await pool.query(DDL26);
+    await pool.query(DDL27);
     console.log('[startup] Workforce course progress table ensured (workforce_course_progress) \u2014 "where you left off" now survives restarts.');
   } catch (err) {
     console.error("[startup] ensureWorkforceCourseProgressTable failed (non-fatal):", err?.message ?? err);
   }
 }
-var DDL26;
+var DDL27;
 var init_ensure_workforce_course_progress_table = __esm({
   "server/services/ensure-workforce-course-progress-table.ts"() {
     "use strict";
     init_db();
-    DDL26 = `
+    DDL27 = `
 CREATE TABLE IF NOT EXISTS "workforce_course_progress" (
   "id" serial PRIMARY KEY NOT NULL,
   "user_id" integer NOT NULL REFERENCES "users"("id"),
@@ -50304,18 +50589,18 @@ __export(ensure_live_engine_config_table_exports, {
 });
 async function ensureLiveEngineConfigTable() {
   try {
-    await pool.query(DDL27);
+    await pool.query(DDL28);
     console.log("[startup] Live Engine config table ensured (live_engine_configs) \u2014 propFirmMode/consistency-rule settings now survive restarts.");
   } catch (err) {
     console.error("[startup] ensureLiveEngineConfigTable failed (non-fatal):", err?.message ?? err);
   }
 }
-var DDL27;
+var DDL28;
 var init_ensure_live_engine_config_table = __esm({
   "server/services/ensure-live-engine-config-table.ts"() {
     "use strict";
     init_db();
-    DDL27 = `
+    DDL28 = `
 CREATE TABLE IF NOT EXISTS "live_engine_configs" (
   "id" serial PRIMARY KEY,
   "user_id" integer NOT NULL UNIQUE REFERENCES "users"("id"),
@@ -50334,18 +50619,18 @@ __export(ensure_copy_trading_execution_columns_exports, {
 });
 async function ensureCopyTradingExecutionColumns() {
   try {
-    await pool.query(DDL28);
+    await pool.query(DDL29);
     console.log("[startup] Copy trading execution columns ensured (copier_connection_id, copier_fx_trade_id, broker_order_id, execution_status, execution_error).");
   } catch (err) {
     console.error("[startup] ensureCopyTradingExecutionColumns failed (non-fatal):", err?.message ?? err);
   }
 }
-var DDL28;
+var DDL29;
 var init_ensure_copy_trading_execution_columns = __esm({
   "server/services/ensure-copy-trading-execution-columns.ts"() {
     "use strict";
     init_db();
-    DDL28 = `
+    DDL29 = `
 ALTER TABLE "copy_relationships" ADD COLUMN IF NOT EXISTS "copier_connection_id" integer;
 ALTER TABLE "copy_trade_logs" ADD COLUMN IF NOT EXISTS "copier_fx_trade_id" integer;
 ALTER TABLE "copy_trade_logs" ADD COLUMN IF NOT EXISTS "broker_order_id" text;
@@ -50362,18 +50647,18 @@ __export(ensure_reasoning_propfirm_tables_exports, {
 });
 async function ensureReasoningPropFirmTables() {
   try {
-    await pool.query(DDL29);
+    await pool.query(DDL30);
     console.log("[startup] Reasoning + prop firm phase tables ensured (ai_confirmation_outcomes reasoning columns, prop_firm_account_state).");
   } catch (err) {
     console.error("[startup] ensureReasoningPropFirmTables failed (non-fatal):", err?.message ?? err);
   }
 }
-var DDL29;
+var DDL30;
 var init_ensure_reasoning_propfirm_tables = __esm({
   "server/services/ensure-reasoning-propfirm-tables.ts"() {
     "use strict";
     init_db();
-    DDL29 = `
+    DDL30 = `
 ALTER TABLE "ai_confirmation_outcomes" ADD COLUMN IF NOT EXISTS "reasoning_text" text;
 ALTER TABLE "ai_confirmation_outcomes" ADD COLUMN IF NOT EXISTS "bull_case" text;
 ALTER TABLE "ai_confirmation_outcomes" ADD COLUMN IF NOT EXISTS "bear_case" text;
@@ -50454,18 +50739,18 @@ __export(ensure_profit_split_tables_exports, {
 });
 async function ensureProfitSplitTables() {
   try {
-    await pool.query(DDL30);
+    await pool.query(DDL31);
     console.log("[startup] Profit Split tables ensured (profit_split_enrollments, profit_split_payments) \u2014 ambassador 30% prop-firm profit-split program.");
   } catch (err) {
     console.error("[startup] ensureProfitSplitTables failed (non-fatal):", err?.message ?? err);
   }
 }
-var DDL30;
+var DDL31;
 var init_ensure_profit_split_tables = __esm({
   "server/services/ensure-profit-split-tables.ts"() {
     "use strict";
     init_db();
-    DDL30 = `
+    DDL31 = `
 CREATE TABLE IF NOT EXISTS "profit_split_enrollments" (
   "id" serial PRIMARY KEY NOT NULL,
   "user_id" integer NOT NULL UNIQUE REFERENCES "users"("id"),
@@ -84671,6 +84956,12 @@ async function withRetry(fn, label, maxAttempts = 6, baseDelayMs = 2e3) {
     await ensureCryptoBrainTable2();
   } catch (err) {
     console.error(`[startup] ensureCryptoBrainTable import error (non-fatal):`, err?.message ?? err);
+  }
+  try {
+    const { ensureSolBrainTable: ensureSolBrainTable2 } = await Promise.resolve().then(() => (init_ensure_sol_brain_table(), ensure_sol_brain_table_exports));
+    await ensureSolBrainTable2();
+  } catch (err) {
+    console.error(`[startup] ensureSolBrainTable import error (non-fatal):`, err?.message ?? err);
   }
   try {
     const { ensureCoinbaseTables: ensureCoinbaseTables2 } = await Promise.resolve().then(() => (init_ensure_coinbase_tables(), ensure_coinbase_tables_exports));

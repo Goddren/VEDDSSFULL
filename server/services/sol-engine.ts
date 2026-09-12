@@ -3,6 +3,16 @@ import { db } from '../db';
 import { solEngineSettings, solEnginePositions } from '../../shared/schema';
 import { eq } from 'drizzle-orm';
 import crypto from 'crypto';
+import { getOrRefreshSolBrain, solBrainSizeMultiplier, solBrainGate, recordSolBrainOutcome } from './sol-brain';
+
+// ── Sol-engine "edge" config (ported from the proven crypto engine) ──────────
+// Brain + gating default ON to match the crypto engine. Confluence gate applies
+// to LIVE entries only (paper keeps trading so the brain keeps learning).
+const SOL_BRAIN_ENABLED = true;          // reweight-and-size (bounded, neutral until enough data)
+const SOL_BRAIN_GATING = true;           // hard-block proven-losing setups (live-only)
+const SOL_CONFLUENCE_REQUIRED = 2;       // min # of strategies that must independently confirm a live entry
+const SOL_COMPOSITE_FLOOR = 72;          // min composite edge score for a live entry
+const SOL_CONFLUENCE_BONUS = 4;          // composite bonus per extra confirming strategy beyond the first
 
 interface OpenPositionSummary {
   symbol: string;
@@ -609,6 +619,13 @@ async function executeServerSideSell(userId: number, pos: SolAutoPosition, reaso
       type: 'live_sell',
       message: `🤖 Server auto-sold ${pos.symbol} [${label}] ${gainPct >= 0 ? '+' : ''}${gainPct.toFixed(2)}% — TX: ${signature.slice(0, 16)}...`,
     });
+
+    // Feed the self-learning brain with this live close.
+    recordSolBrainOutcome({
+      userId, symbol: pos.symbol, strategy: pos.strategyId || 'unknown', direction: 'long',
+      returnPct: gainPct, holdingMinutes: Math.max(0, Math.round((Date.now() - new Date(pos.openedAt).getTime()) / 60000)),
+      exitReason: reason, profitLoss: pos.size * (gainPct / 100),
+    }).catch(() => {});
 
     upsertPosition(userId, pos).catch(() => {});
     saveEngineState(userId, state).catch(() => {});
@@ -1317,7 +1334,7 @@ function getVolStatus(entryVol: number, currentVol: number): string {
   return 'average';
 }
 
-function monitorPaperPositions(state: SolEngineState) {
+function monitorPaperPositions(userId: number, state: SolEngineState) {
   const openPositions = state.paperPositions.filter(p => p.status === 'open');
   if (openPositions.length === 0) return;
 
@@ -1392,6 +1409,13 @@ function monitorPaperPositions(state: SolEngineState) {
 
       state.closedPaperPositions.unshift(pos);
       if (state.closedPaperPositions.length > 50) state.closedPaperPositions = state.closedPaperPositions.slice(0, 50);
+
+      // Feed the self-learning brain (paper keeps learning even when live is gated).
+      recordSolBrainOutcome({
+        userId, symbol: pos.symbol, strategy: pos.strategyId || 'unknown', direction: 'long',
+        returnPct: gainPct, holdingMinutes: Math.max(0, Math.round((Date.now() - new Date(pos.openedAt).getTime()) / 60000)),
+        exitReason: reason, profitLoss: pos.size * (gainPct / 100),
+      }).catch(() => {});
 
       state.autoTradeStats.totalTrades++;
       state.autoTradeStats.totalPnlPct += gainPct;
@@ -1587,6 +1611,9 @@ async function runScan(userId: number, state: SolEngineState, triggerToken?: str
 
     // Sync server wallet balance before each scan so position sizing uses live SOL
     await refreshServerWalletBalance(userId, state).catch(() => {});
+
+    // Warm the self-learning brain once per cycle so sizing/gating read fresh learning.
+    if (SOL_BRAIN_ENABLED) await getOrRefreshSolBrain(userId).catch(() => {});
 
     const macro = await fetchCryptoMacroContext().catch(() => null);
     state.lastMacro = macro;
@@ -1870,9 +1897,44 @@ async function runScan(userId: number, state: SolEngineState, triggerToken?: str
           const SIGNAL_COOLDOWN_MS = 5 * 60 * 1000;
           const lastRejected = state.signalCooldowns.get(tokenMint);
           const onCooldown = lastRejected && (Date.now() - lastRejected) < SIGNAL_COOLDOWN_MS;
-          if (!alreadyOpen && !alreadyQueued && !onCooldown) {
+
+          // ── LIVE-only confluence + brain gates (ported from the crypto engine edge) ──
+          // Confluence: how many strategies independently confirm this token. We
+          // re-evaluate against ALL strategies (not just activeStrats) so the gate
+          // still works in adaptive mode, where activeStrats is collapsed to 1 —
+          // the user chose "confluence applies to live entries regardless of adaptive".
+          const confluenceCount = SOL_STRATEGIES.filter(s => {
+            if (analysis.confidence < s.minConfidence) return false;
+            if (s.minSignal === 'STRONG_BUY' && analysis.signal !== 'STRONG_BUY') return false;
+            if (s.maxRisk === 'LOW' && (analysis.riskLevel === 'HIGH' || analysis.riskLevel === 'EXTREME')) return false;
+            if (!passesStrategyFilter(analysis, s)) return false;
+            return true;
+          }).length;
+          // Composite edge = token AI confidence + a bonus per extra confirming strategy.
+          const compositeEdge = Math.min(100, analysis.confidence + Math.max(0, confluenceCount - 1) * SOL_CONFLUENCE_BONUS);
+          const confluenceOk = confluenceCount >= SOL_CONFLUENCE_REQUIRED && compositeEdge >= SOL_COMPOSITE_FLOOR;
+          // Brain gate (hard-block proven-losing setups).
+          const brainGate = (SOL_BRAIN_ENABLED && SOL_BRAIN_GATING)
+            ? solBrainGate(userId, analysis.token.symbol, topStrat.id, new Date().getUTCHours())
+            : { blocked: false, reason: '' };
+          // Brain size blend: scale the Kelly-blended live size by the brain multiplier.
+          const brainMult = SOL_BRAIN_ENABLED ? solBrainSizeMultiplier(userId, analysis.token.symbol) : 1.0;
+          const liveSizeSOL = brainMult !== 1.0 ? Math.round(sizeSOL * brainMult * 1000) / 1000 : sizeSOL;
+
+          if (!alreadyOpen && !alreadyQueued && !onCooldown && !confluenceOk) {
+            addActivity(state, {
+              type: 'info',
+              message: `🚦 Live entry BLOCKED (confluence): ${analysis.token.symbol} — ${confluenceCount}/${SOL_CONFLUENCE_REQUIRED} strategies agree, composite ${compositeEdge.toFixed(0)} < ${SOL_COMPOSITE_FLOOR}. Paper still learning.`,
+            });
+          } else if (!alreadyOpen && !alreadyQueued && !onCooldown && brainGate.blocked) {
+            addActivity(state, {
+              type: 'info',
+              message: `${brainGate.reason} (live entry skipped — paper still learning)`,
+            });
+          } else if (!alreadyOpen && !alreadyQueued && !onCooldown) {
             const created = new Date();
             const expires = new Date(created.getTime() + 90000); // extended to 90s
+            const brainNote = brainMult !== 1.0 ? ` 🧠 Brain ${brainMult}×` : '';
             const sig: SolPendingSignal = {
               id: `live_${Date.now()}_${analysis.token.symbol}`,
               symbol: analysis.token.symbol,
@@ -1880,7 +1942,7 @@ async function runScan(userId: number, state: SolEngineState, triggerToken?: str
               signal: 'BUY',
               confidence: analysis.confidence,
               price: tokenPrice,
-              sizeSOL,
+              sizeSOL: liveSizeSOL,
               strategyId: topStrat.id,
               createdAt: created.toISOString(),
               expiresAt: expires.toISOString(),
@@ -1890,7 +1952,7 @@ async function runScan(userId: number, state: SolEngineState, triggerToken?: str
             // Attempt fully-automated server-side buy (requires stored private key)
             addActivity(state, {
               type: 'live_signal',
-              message: `⚡ Live signal: ${analysis.token.symbol} — ${sizeSOL.toFixed(3)} SOL @ $${tokenPrice.toFixed(6)} [${topStrat.icon}${topStrat.name}] | Attempting server-side execution...`,
+              message: `⚡ Live signal: ${analysis.token.symbol} — ${liveSizeSOL.toFixed(3)} SOL @ $${tokenPrice.toFixed(6)} [${topStrat.icon}${topStrat.name}]${brainNote} | ${confluenceCount} strat confluence (edge ${compositeEdge.toFixed(0)}) | Attempting server-side execution...`,
             });
             executeServerSideBuy(userId, sig, state).then(executed => {
               if (!executed) {
@@ -1898,7 +1960,7 @@ async function runScan(userId: number, state: SolEngineState, triggerToken?: str
                 state.pendingSignals.push(sig);
                 addActivity(state, {
                   type: 'live_signal',
-                  message: `⚡ Live signal queued: ${analysis.token.symbol} — ${sizeSOL.toFixed(3)} SOL @ $${tokenPrice.toFixed(6)} [${topStrat.icon}${topStrat.name}] | ⚠️ APPROVE IN PHANTOM (90s window)`,
+                  message: `⚡ Live signal queued: ${analysis.token.symbol} — ${liveSizeSOL.toFixed(3)} SOL @ $${tokenPrice.toFixed(6)} [${topStrat.icon}${topStrat.name}]${brainNote} | ⚠️ APPROVE IN PHANTOM (90s window)`,
                 });
               }
             }).catch(() => {
@@ -1921,7 +1983,7 @@ async function runScan(userId: number, state: SolEngineState, triggerToken?: str
     state.lastResults = scanResult;
 
     // Monitor paper and live positions for SL/TP
-    monitorPaperPositions(state);
+    monitorPaperPositions(userId, state);
     await monitorLivePositions(userId, state);
 
     const label = triggerToken ? ` (trigger: ${triggerToken})` : '';
@@ -2515,6 +2577,13 @@ export function confirmLiveExit(userId: number, positionId: string, txHash: stri
     type: 'live_sell',
     message: `✅ Live SOLD: ${pos.symbol} — P&L: ${gainPct >= 0 ? '+' : ''}${gainPct.toFixed(2)}% [TX: ${txHash.slice(0, 12)}...]`,
   });
+
+  // Feed the self-learning brain with this manual live close.
+  recordSolBrainOutcome({
+    userId, symbol: pos.symbol, strategy: pos.strategyId || 'unknown', direction: 'long',
+    returnPct: gainPct, holdingMinutes: Math.max(0, Math.round((Date.now() - new Date(pos.openedAt).getTime()) / 60000)),
+    exitReason: 'manual', profitLoss: pos.size * (gainPct / 100),
+  }).catch(() => {});
 
   upsertPosition(userId, pos).catch(() => {});
   saveEngineState(userId, state).catch(() => {});

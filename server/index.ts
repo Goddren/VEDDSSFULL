@@ -373,6 +373,13 @@ async function withRetry<T>(
   }
 
   try {
+    const { ensureSolBrainTable } = await import('./services/ensure-sol-brain-table');
+    await ensureSolBrainTable();
+  } catch (err: any) {
+    console.error(`[startup] ensureSolBrainTable import error (non-fatal):`, err?.message ?? err);
+  }
+
+  try {
     const { ensureCoinbaseTables } = await import('./services/ensure-coinbase-tables');
     await ensureCoinbaseTables();
   } catch (err: any) {
