@@ -14,6 +14,11 @@ const SOL_CONFLUENCE_REQUIRED = 2;       // min # of strategies that must indepe
 const SOL_COMPOSITE_FLOOR = 72;          // min composite edge score for a live entry
 const SOL_CONFLUENCE_BONUS = 4;          // composite bonus per extra confirming strategy beyond the first
 
+// FIX 8 — max-hold time stop. Force-exit any open position older than this so
+// nothing can orphan indefinitely even if pricing fails. Override with env.
+const SOL_MAX_HOLD_HOURS = Number(process.env.SOL_MAX_HOLD_HOURS) || 12;
+const SOL_MAX_HOLD_MS = SOL_MAX_HOLD_HOURS * 60 * 60 * 1000;
+
 interface OpenPositionSummary {
   symbol: string;
   entryPrice: number;
@@ -68,7 +73,8 @@ export interface SolAutoPosition {
   breakevenActive?: boolean;
   trailActivationPct?: number;
   trailDistancePct?: number;
-  closeReason?: 'tp' | 'sl' | 'trail';
+  closeReason?: 'tp' | 'sl' | 'trail' | 'abandoned';
+  exitReason?: string;       // distinct terminal reason (e.g. 'abandoned_sell_failed')
   entryVolume24h?: number;
   stopLossPrice?: number;    // absolute price-level stop order (when stopOrdersEnabled)
   takeProfitPrice?: number;  // absolute price-level take profit (when stopOrdersEnabled)
@@ -521,6 +527,88 @@ async function loadEngineStateFromDb(userId: number, state: SolEngineState): Pro
   }
 }
 
+// ── Fresh price fetch BY MINT (independent of the trending scan) ─────────────
+// FIX 1: open positions must be marked continuously even after a token stops
+// trending, otherwise TP/SL never evaluate and positions get stuck open forever.
+// Batches DexScreener's tokens endpoint (highest-liquidity pair per mint), then
+// fills any misses via Jupiter's price API. Every network call is guarded so a
+// price-fetch failure can never crash the monitor cycle — it returns whatever it
+// managed to gather.
+async function fetchPricesByMint(mints: string[]): Promise<Record<string, number>> {
+  const out: Record<string, number> = {};
+  const unique = Array.from(new Set(mints.filter(Boolean)));
+  if (unique.length === 0) return out;
+
+  // DexScreener — up to 30 mints per call. Take the highest-liquidity pair per mint.
+  for (let i = 0; i < unique.length; i += 30) {
+    const batch = unique.slice(i, i + 30);
+    try {
+      const resp = await fetch(`https://api.dexscreener.com/latest/dex/tokens/${batch.join(',')}`);
+      if (!resp.ok) continue;
+      const data = await resp.json();
+      const pairs: any[] = data?.pairs || [];
+      const bestLiq: Record<string, number> = {};
+      for (const pair of pairs) {
+        if (pair?.chainId && pair.chainId !== 'solana') continue;
+        const mint = pair?.baseToken?.address;
+        if (!mint) continue;
+        const price = parseFloat(pair?.priceUsd) || 0;
+        const liq = pair?.liquidity?.usd || 0;
+        if (price <= 0) continue;
+        if (out[mint] === undefined || liq > (bestLiq[mint] ?? -1)) {
+          out[mint] = price;
+          bestLiq[mint] = liq;
+        }
+      }
+    } catch (err) {
+      console.warn('[SolEngine] fetchPricesByMint DexScreener batch failed:', err instanceof Error ? err.message : err);
+    }
+  }
+
+  // Jupiter fallback for any mint DexScreener missed.
+  const missing = unique.filter(m => !(out[m] > 0));
+  if (missing.length > 0) {
+    try {
+      const resp = await fetch(`https://lite-api.jup.ag/price/v2?ids=${missing.join(',')}`);
+      if (resp.ok) {
+        const data = await resp.json();
+        const priceData = data?.data || {};
+        for (const mint of missing) {
+          const p = parseFloat(priceData?.[mint]?.price) || 0;
+          if (p > 0) out[mint] = p;
+        }
+      }
+    } catch (err) {
+      console.warn('[SolEngine] fetchPricesByMint Jupiter fallback failed:', err instanceof Error ? err.message : err);
+    }
+  }
+
+  return out;
+}
+
+// ── Terminal-state reconciler for un-exitable live positions ─────────────────
+// FIX 4/5: give a live position a TERMINAL 'closed' state when it can never be
+// sold normally (sell repeatedly failed, or it holds zero tokens). This stops it
+// counting as open forever. Logged loudly for manual on-chain handling.
+function finalizeAbandonedPosition(userId: number, state: SolEngineState, pos: SolAutoPosition, reason: string): void {
+  const gainPct = pos.entryPrice > 0 ? ((pos.currentPrice - pos.entryPrice) / pos.entryPrice) * 100 : 0;
+  pos.status = 'closed';
+  pos.closedAt = new Date().toISOString();
+  pos.closePnlPct = gainPct;
+  pos.closeReason = 'abandoned';
+  pos.exitReason = reason;
+  state.livePositions = state.livePositions.filter(p => p.id !== pos.id);
+  state.closedLivePositions.unshift(pos);
+  if (state.closedLivePositions.length > 50) state.closedLivePositions = state.closedLivePositions.slice(0, 50);
+  addActivity(state, {
+    type: 'live_sell',
+    message: `🚨 ABANDONED: ${pos.symbol} marked closed (${reason}) — could not exit on-chain. MANUAL HANDLING REQUIRED. mint: ${pos.mint} | tokenAmount: ${pos.tokenAmount}`,
+  });
+  console.error(`[SolEngine] ABANDONED position ${pos.id} (${pos.symbol}) reason=${reason} mint=${pos.mint} tokenAmount=${pos.tokenAmount}`);
+  upsertPosition(userId, pos).catch(() => {});
+  saveEngineState(userId, state).catch(() => {});
+}
+
 // ── Server-side Jupiter sell execution ───────────────────────────────────────
 async function executeServerSideSell(userId: number, pos: SolAutoPosition, reason: 'tp' | 'sl', state: SolEngineState): Promise<boolean> {
   try {
@@ -536,35 +624,85 @@ async function executeServerSideSell(userId: number, pos: SolAutoPosition, reaso
 
     const SOL_MINT = 'So11111111111111111111111111111111111111112';
     const amount = Math.floor(pos.tokenAmount);
-    if (amount <= 0) return false;
-
-    const quoteResp = await fetch(
-      `https://quote-api.jup.ag/v6/quote?inputMint=${pos.mint}&outputMint=${SOL_MINT}&amount=${amount}&slippageBps=300`
-    );
-    if (!quoteResp.ok) return false;
-    const quote = await quoteResp.json();
-
-    const swapResp = await fetch('https://quote-api.jup.ag/v6/swap', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        quoteResponse: quote,
-        userPublicKey: keypair.publicKey.toBase58(),
-        wrapAndUnwrapSol: true,
-        dynamicComputeUnitLimit: true,
-        prioritizationFeeLamports: 'auto',
-      }),
-    });
-    if (!swapResp.ok) return false;
-    const { swapTransaction } = await swapResp.json();
-
-    const txBuffer = Buffer.from(swapTransaction, 'base64');
-    const transaction = VersionedTransaction.deserialize(txBuffer);
-    transaction.sign([keypair]);
+    if (amount <= 0) {
+      // Nothing to sell — reconcile to a terminal state (FIX 5).
+      finalizeAbandonedPosition(userId, state, pos, `${reason}_zero_amount`);
+      return true;
+    }
 
     const rpcUrl = process.env.SOLANA_RPC_URL || 'https://mainnet.helius-rpc.com/?api-key=15319bf4-5b40-4958-ac8d-6313aa55eb92';
     const connection = new Connection(rpcUrl, { commitment: 'confirmed' });
-    const signature = await connection.sendRawTransaction(transaction.serialize(), { skipPreflight: true, maxRetries: 3 });
+
+    // FIX 4: confirm the sell on-chain (err===null) and retry with escalating
+    // slippage before treating it as closed. A signature alone is NOT a fill.
+    const slippageLadder = [300, 800, 1500];
+    let signature: string | null = null;
+    for (let attempt = 0; attempt < slippageLadder.length; attempt++) {
+      const slippageBps = slippageLadder[attempt];
+      try {
+        const quoteResp = await fetch(
+          `https://quote-api.jup.ag/v6/quote?inputMint=${pos.mint}&outputMint=${SOL_MINT}&amount=${amount}&slippageBps=${slippageBps}`
+        );
+        if (!quoteResp.ok) continue;
+        const quote = await quoteResp.json();
+        if (quote?.error) continue;
+
+        const swapResp = await fetch('https://quote-api.jup.ag/v6/swap', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            quoteResponse: quote,
+            userPublicKey: keypair.publicKey.toBase58(),
+            wrapAndUnwrapSol: true,
+            dynamicComputeUnitLimit: true,
+            prioritizationFeeLamports: 'auto',
+          }),
+        });
+        if (!swapResp.ok) continue;
+        const { swapTransaction } = await swapResp.json();
+        if (!swapTransaction) continue;
+
+        const txBuffer = Buffer.from(swapTransaction, 'base64');
+        const transaction = VersionedTransaction.deserialize(txBuffer);
+        transaction.sign([keypair]);
+        const sig = await connection.sendRawTransaction(transaction.serialize(), { skipPreflight: true, maxRetries: 3 });
+
+        // Confirm on-chain — only a null err counts as a real fill.
+        let ok = false;
+        try {
+          const latest = await connection.getLatestBlockhash('confirmed');
+          const conf = await connection.confirmTransaction(
+            { signature: sig, blockhash: latest.blockhash, lastValidBlockHeight: latest.lastValidBlockHeight },
+            'confirmed'
+          );
+          ok = !conf.value.err;
+        } catch {
+          // confirmTransaction timed out — poll signature status up to ~40s.
+          for (let i = 0; i < 20; i++) {
+            await new Promise(r => setTimeout(r, 2000));
+            try {
+              const st = await connection.getSignatureStatuses([sig]);
+              const s = st.value[0];
+              if (s && (s.confirmationStatus === 'confirmed' || s.confirmationStatus === 'finalized')) { ok = !s.err; break; }
+              if (s && s.err) { ok = false; break; }
+            } catch { /* keep polling */ }
+          }
+        }
+        if (ok) { signature = sig; break; }
+        addActivity(state, {
+          type: 'live_sell',
+          message: `↻ Sell attempt ${attempt + 1}/${slippageLadder.length} unconfirmed for ${pos.symbol} (slippage ${slippageBps}bps) — retrying`,
+        });
+      } catch (attemptErr) {
+        console.warn(`[SolEngine] sell attempt ${attempt + 1} failed:`, attemptErr instanceof Error ? attemptErr.message : attemptErr);
+      }
+    }
+
+    if (!signature) {
+      // FIX 4: all retries failed — TERMINAL abandoned state so it stops counting as open.
+      finalizeAbandonedPosition(userId, state, pos, 'abandoned_sell_failed');
+      return true;
+    }
 
     const gainPct = pos.entryPrice > 0 ? ((pos.currentPrice - pos.entryPrice) / pos.entryPrice) * 100 : 0;
     const label = reason === 'tp' ? 'TP ✅' : 'SL 🛡️';
@@ -697,10 +835,62 @@ async function executeServerSideBuy(
       maxRetries: 3,
     });
 
-    // Parse output token amount from quote
-    const rawOut = parseInt(quote.outAmount || '0');
-    const decimals = 9; // default; positions track raw amount
-    const tokenAmount = rawOut;
+    // FIX 3: confirm the swap on-chain BEFORE recording a position. A reverted
+    // swap still returns a signature → phantom 'open'. Only proceed on err===null.
+    let confirmedOk = false;
+    try {
+      const latest = await connection.getLatestBlockhash('confirmed');
+      const conf = await connection.confirmTransaction(
+        { signature, blockhash: latest.blockhash, lastValidBlockHeight: latest.lastValidBlockHeight },
+        'confirmed'
+      );
+      confirmedOk = !conf.value.err;
+    } catch {
+      // confirmTransaction timed out — poll signature status up to ~60s.
+      for (let i = 0; i < 30; i++) {
+        await new Promise(r => setTimeout(r, 2000));
+        try {
+          const st = await connection.getSignatureStatuses([signature]);
+          const s = st.value[0];
+          if (s && (s.confirmationStatus === 'confirmed' || s.confirmationStatus === 'finalized')) { confirmedOk = !s.err; break; }
+          if (s && s.err) { confirmedOk = false; break; }
+        } catch { /* keep polling */ }
+      }
+    }
+
+    if (!confirmedOk) {
+      addActivity(state, {
+        type: 'live_signal',
+        message: `❌ Buy not confirmed — no position recorded: ${signal.symbol} (TX ${signature.slice(0, 16)}...). SOL not deployed.`,
+      });
+      return false;
+    }
+
+    // FIX 3: read the ACTUAL received SPL balance + real decimals for the bought
+    // mint. Never record the quote estimate or a hardcoded decimals=9.
+    let tokenAmount = 0;
+    let decimals = 9;
+    try {
+      const { PublicKey } = await import('@solana/web3.js');
+      const balResp = await connection.getParsedTokenAccountsByOwner(keypair.publicKey, { mint: new PublicKey(signal.mint) });
+      for (const acc of balResp.value) {
+        const info = acc.account?.data?.parsed?.info?.tokenAmount;
+        if (info) {
+          tokenAmount += Number(info.amount) || 0; // raw base units
+          if (info.decimals != null) decimals = Number(info.decimals);
+        }
+      }
+    } catch (balErr) {
+      console.warn('[SolEngine] getParsedTokenAccountsByOwner failed after buy:', balErr instanceof Error ? balErr.message : balErr);
+    }
+
+    if (!(tokenAmount > 0)) {
+      addActivity(state, {
+        type: 'live_signal',
+        message: `❌ Buy confirmed but zero token balance found — no position recorded: ${signal.symbol}. MANUAL CHECK (TX ${signature.slice(0, 16)}...).`,
+      });
+      return false;
+    }
 
     const pos: SolAutoPosition = {
       id: `live_pos_${Date.now()}_${signal.symbol}`,
@@ -1334,19 +1524,26 @@ function getVolStatus(entryVol: number, currentVol: number): string {
   return 'average';
 }
 
-function monitorPaperPositions(userId: number, state: SolEngineState) {
+async function monitorPaperPositions(userId: number, state: SolEngineState) {
   const openPositions = state.paperPositions.filter(p => p.status === 'open');
   if (openPositions.length === 0) return;
 
-  const priceMap: Record<string, number> = {};
+  // FIX 1/7: price is fetched FRESH BY MINT (not by scan membership) so a paper
+  // position is marked continuously even after its token stops trending. Volume
+  // is best-effort from the scan, keyed by MINT (symbols collide on memecoins).
   const volumeMap: Record<string, number> = {};
   for (const r of state.lastResults) {
-    priceMap[r.token.symbol] = parseFloat(r.token.priceUsd) || 0;
-    volumeMap[r.token.symbol] = r.token.volume24h || 0;
+    if (r.token.address) volumeMap[r.token.address] = r.token.volume24h || 0;
+  }
+  const priceMap = await fetchPricesByMint(openPositions.map(p => p.mint)).catch(() => ({} as Record<string, number>));
+  // Fall back to the scan price (by mint) for any mint the fresh fetch missed.
+  for (const r of state.lastResults) {
+    const m = r.token.address;
+    if (m && !(priceMap[m] > 0)) priceMap[m] = parseFloat(r.token.priceUsd) || 0;
   }
 
   for (const pos of openPositions) {
-    const currentPrice = priceMap[pos.symbol];
+    const currentPrice = priceMap[pos.mint];
     if (!currentPrice || currentPrice <= 0) continue;
 
     pos.currentPrice = currentPrice;
@@ -1358,7 +1555,7 @@ function monitorPaperPositions(userId: number, state: SolEngineState) {
     }
 
     // ── Volume status ────────────────────────────────────────────────────
-    const currentVol = volumeMap[pos.symbol] || 0;
+    const currentVol = volumeMap[pos.mint] || 0;
     const volStatus = getVolStatus(pos.entryVolume24h || 0, currentVol);
 
     // ── Staged volume-momentum trailing stop ─────────────────────────────
@@ -1485,23 +1682,63 @@ function monitorPaperPositions(userId: number, state: SolEngineState) {
 }
 
 async function monitorLivePositions(userId: number, state: SolEngineState) {
-  const openPositions = state.livePositions.filter(p => p.status === 'open' && p.entryPrice > 0 && p.tokenAmount > 0);
-  if (openPositions.length === 0) return;
+  const allOpen = state.livePositions.filter(p => p.status === 'open');
+  if (allOpen.length === 0) return;
 
   const now = Date.now();
 
   // Prune expired pending exits
   state.pendingExits = state.pendingExits.filter(e => new Date(e.expiresAt).getTime() > now);
 
-  const priceMap: Record<string, number> = {};
+  // FIX 5: reconcile any lingering zero-amount open positions to a terminal state
+  // instead of skipping them forever (they hold no tokens — can never be sold).
+  for (const pos of allOpen) {
+    if (!(pos.entryPrice > 0) || !(pos.tokenAmount > 0)) {
+      finalizeAbandonedPosition(userId, state, pos, 'reconciled_zero_amount');
+    }
+  }
+
+  const openPositions = state.livePositions.filter(p => p.status === 'open' && p.entryPrice > 0 && p.tokenAmount > 0);
+  if (openPositions.length === 0) return;
+
+  // FIX 1/7: price is fetched FRESH BY MINT (not by scan membership) so TP/SL
+  // evaluate every cycle even after a token stops trending. Volume is best-effort
+  // from the scan, keyed by MINT (memecoin symbols collide).
   const volumeMap: Record<string, number> = {};
   for (const r of state.lastResults) {
-    priceMap[r.token.symbol] = parseFloat(r.token.priceUsd) || 0;
-    volumeMap[r.token.symbol] = r.token.volume24h || 0;
+    if (r.token.address) volumeMap[r.token.address] = r.token.volume24h || 0;
+  }
+  const priceMap = await fetchPricesByMint(openPositions.map(p => p.mint)).catch(() => ({} as Record<string, number>));
+  for (const r of state.lastResults) {
+    const m = r.token.address;
+    if (m && !(priceMap[m] > 0)) priceMap[m] = parseFloat(r.token.priceUsd) || 0;
   }
 
   for (const pos of openPositions) {
-    const currentPrice = priceMap[pos.symbol];
+    // FIX 8: max-hold time stop — force-exit anything older than the limit so a
+    // position can never orphan indefinitely, even if pricing keeps failing.
+    const ageMs = Date.now() - new Date(pos.openedAt).getTime();
+    if (ageMs > SOL_MAX_HOLD_MS) {
+      const alreadyQueuedMH = state.pendingExits.some(e => e.positionId === pos.id);
+      if (!alreadyQueuedMH) {
+        addActivity(state, {
+          type: 'live_sell',
+          message: `⏱️ Max-hold reached: ${pos.symbol} held ${(ageMs / 3600000).toFixed(1)}h (limit ${SOL_MAX_HOLD_HOURS}h) — forcing exit`,
+        });
+        const forcedSold = await executeServerSideSell(userId, pos, 'sl', state);
+        if (!forcedSold) {
+          const createdMH = new Date();
+          state.pendingExits.push({
+            positionId: pos.id, symbol: pos.symbol, mint: pos.mint,
+            tokenAmount: pos.tokenAmount, decimals: pos.decimals, reason: 'sl',
+            createdAt: createdMH.toISOString(), expiresAt: new Date(createdMH.getTime() + 90000).toISOString(),
+          });
+        }
+      }
+      continue;
+    }
+
+    const currentPrice = priceMap[pos.mint];
     if (!currentPrice || currentPrice <= 0) continue;
 
     pos.currentPrice = currentPrice;
@@ -1516,7 +1753,7 @@ async function monitorLivePositions(userId: number, state: SolEngineState) {
 
     // Staged trail check (mirrors paper logic) — uses position's stored trailActivationPct
     const liveTrailActivation = (pos.trailActivationPct && pos.trailActivationPct > 0) ? pos.trailActivationPct : 20;
-    const volStatus = getVolStatus(pos.entryVolume24h || 0, volumeMap[pos.symbol] || 0);
+    const volStatus = getVolStatus(pos.entryVolume24h || 0, volumeMap[pos.mint] || 0);
     let trailHit = false;
     if (gainPct >= liveTrailActivation && pos.peakPrice) {
       if (!pos.trailingActive) {
@@ -1659,13 +1896,14 @@ async function runScan(userId: number, state: SolEngineState, triggerToken?: str
     const hasBuySignals = scanResult.some(t => t.signal === 'STRONG_BUY' || t.signal === 'BUY');
     const allOpenPositions = [
       ...state.livePositions.filter(p => p.status === 'open').map(p => {
-        const latestPrice = scanResult.find(r => r.token.symbol === p.symbol);
+        // FIX 7: match scan → position by MINT (memecoin symbols collide).
+        const latestPrice = scanResult.find(r => r.token.address === p.mint);
         const currentPrice = latestPrice ? parseFloat(latestPrice.token.priceUsd) || p.currentPrice : p.currentPrice;
         const gainPct = p.entryPrice > 0 ? ((currentPrice - p.entryPrice) / p.entryPrice) * 100 : 0;
         return { symbol: p.symbol, entryPrice: p.entryPrice, currentPrice, gainPct, volumeStatus: 'average' };
       }),
       ...state.paperPositions.filter(p => p.status === 'open').map(p => {
-        const latestPrice = scanResult.find(r => r.token.symbol === p.symbol);
+        const latestPrice = scanResult.find(r => r.token.address === p.mint);
         const currentPrice = latestPrice ? parseFloat(latestPrice.token.priceUsd) || p.currentPrice : p.currentPrice;
         const gainPct = p.entryPrice > 0 ? ((currentPrice - p.entryPrice) / p.entryPrice) * 100 : 0;
         return { symbol: p.symbol, entryPrice: p.entryPrice, currentPrice, gainPct, volumeStatus: 'average' };
@@ -1983,7 +2221,7 @@ async function runScan(userId: number, state: SolEngineState, triggerToken?: str
     state.lastResults = scanResult;
 
     // Monitor paper and live positions for SL/TP
-    monitorPaperPositions(userId, state);
+    await monitorPaperPositions(userId, state);
     await monitorLivePositions(userId, state);
 
     const label = triggerToken ? ` (trigger: ${triggerToken})` : '';

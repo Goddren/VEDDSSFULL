@@ -40719,7 +40719,7 @@ async function backfillIfEmpty2(userId) {
   const { rows } = await pool.query(`SELECT count(*)::int n FROM sol_brain_outcomes WHERE user_id=$1`, [userId]);
   if (rows[0].n > 0) return;
   const { rows: trades } = await pool.query(
-    `SELECT token_symbol, close_pnl_pct, closed_at FROM sol_engine_positions
+    `SELECT token_symbol, strategy_id, close_pnl_pct, closed_at FROM sol_engine_positions
      WHERE user_id=$1 AND status='closed' AND close_pnl_pct IS NOT NULL ORDER BY closed_at DESC LIMIT 1000`,
     [userId]
   );
@@ -40730,7 +40730,7 @@ async function backfillIfEmpty2(userId) {
     await pool.query(
       `INSERT INTO sol_brain_outcomes (user_id, symbol, strategy, direction, result, profit_loss, return_pct, hour_utc, source, closed_at)
        VALUES ($1,$2,$3,$4,$5,$6,$7,$8,'backfill',$9)`,
-      [userId, t.token_symbol || "UNKNOWN", "unknown", "long", pnl > 0 ? "WIN" : pnl < 0 ? "LOSS" : "BREAKEVEN", pnl, pnl, d.getUTCHours(), d]
+      [userId, t.token_symbol || "UNKNOWN", t.strategy_id || "unknown", "long", pnl > 0 ? "WIN" : pnl < 0 ? "LOSS" : "BREAKEVEN", pnl, pnl, d.getUTCHours(), d]
     ).catch(() => {
     });
   }
@@ -41040,6 +41040,72 @@ async function loadEngineStateFromDb(userId, state) {
     console.error("[SolEngine] loadEngineStateFromDb error:", err);
   }
 }
+async function fetchPricesByMint(mints) {
+  const out = {};
+  const unique2 = Array.from(new Set(mints.filter(Boolean)));
+  if (unique2.length === 0) return out;
+  for (let i = 0; i < unique2.length; i += 30) {
+    const batch = unique2.slice(i, i + 30);
+    try {
+      const resp = await fetch(`https://api.dexscreener.com/latest/dex/tokens/${batch.join(",")}`);
+      if (!resp.ok) continue;
+      const data = await resp.json();
+      const pairs = data?.pairs || [];
+      const bestLiq = {};
+      for (const pair of pairs) {
+        if (pair?.chainId && pair.chainId !== "solana") continue;
+        const mint = pair?.baseToken?.address;
+        if (!mint) continue;
+        const price = parseFloat(pair?.priceUsd) || 0;
+        const liq = pair?.liquidity?.usd || 0;
+        if (price <= 0) continue;
+        if (out[mint] === void 0 || liq > (bestLiq[mint] ?? -1)) {
+          out[mint] = price;
+          bestLiq[mint] = liq;
+        }
+      }
+    } catch (err) {
+      console.warn("[SolEngine] fetchPricesByMint DexScreener batch failed:", err instanceof Error ? err.message : err);
+    }
+  }
+  const missing = unique2.filter((m) => !(out[m] > 0));
+  if (missing.length > 0) {
+    try {
+      const resp = await fetch(`https://lite-api.jup.ag/price/v2?ids=${missing.join(",")}`);
+      if (resp.ok) {
+        const data = await resp.json();
+        const priceData = data?.data || {};
+        for (const mint of missing) {
+          const p = parseFloat(priceData?.[mint]?.price) || 0;
+          if (p > 0) out[mint] = p;
+        }
+      }
+    } catch (err) {
+      console.warn("[SolEngine] fetchPricesByMint Jupiter fallback failed:", err instanceof Error ? err.message : err);
+    }
+  }
+  return out;
+}
+function finalizeAbandonedPosition(userId, state, pos, reason) {
+  const gainPct = pos.entryPrice > 0 ? (pos.currentPrice - pos.entryPrice) / pos.entryPrice * 100 : 0;
+  pos.status = "closed";
+  pos.closedAt = (/* @__PURE__ */ new Date()).toISOString();
+  pos.closePnlPct = gainPct;
+  pos.closeReason = "abandoned";
+  pos.exitReason = reason;
+  state.livePositions = state.livePositions.filter((p) => p.id !== pos.id);
+  state.closedLivePositions.unshift(pos);
+  if (state.closedLivePositions.length > 50) state.closedLivePositions = state.closedLivePositions.slice(0, 50);
+  addActivity3(state, {
+    type: "live_sell",
+    message: `\u{1F6A8} ABANDONED: ${pos.symbol} marked closed (${reason}) \u2014 could not exit on-chain. MANUAL HANDLING REQUIRED. mint: ${pos.mint} | tokenAmount: ${pos.tokenAmount}`
+  });
+  console.error(`[SolEngine] ABANDONED position ${pos.id} (${pos.symbol}) reason=${reason} mint=${pos.mint} tokenAmount=${pos.tokenAmount}`);
+  upsertPosition(userId, pos).catch(() => {
+  });
+  saveEngineState(userId, state).catch(() => {
+  });
+}
 async function executeServerSideSell(userId, pos, reason, state) {
   try {
     const [settings] = await db.select({ serverWalletKey: solEngineSettings.serverWalletKey }).from(solEngineSettings).where(eq15(solEngineSettings.userId, userId));
@@ -41051,31 +41117,83 @@ async function executeServerSideSell(userId, pos, reason, state) {
     const keypair = Keypair2.fromSecretKey(secretKey);
     const SOL_MINT = "So11111111111111111111111111111111111111112";
     const amount = Math.floor(pos.tokenAmount);
-    if (amount <= 0) return false;
-    const quoteResp = await fetch(
-      `https://quote-api.jup.ag/v6/quote?inputMint=${pos.mint}&outputMint=${SOL_MINT}&amount=${amount}&slippageBps=300`
-    );
-    if (!quoteResp.ok) return false;
-    const quote = await quoteResp.json();
-    const swapResp = await fetch("https://quote-api.jup.ag/v6/swap", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        quoteResponse: quote,
-        userPublicKey: keypair.publicKey.toBase58(),
-        wrapAndUnwrapSol: true,
-        dynamicComputeUnitLimit: true,
-        prioritizationFeeLamports: "auto"
-      })
-    });
-    if (!swapResp.ok) return false;
-    const { swapTransaction } = await swapResp.json();
-    const txBuffer = Buffer.from(swapTransaction, "base64");
-    const transaction = VersionedTransaction.deserialize(txBuffer);
-    transaction.sign([keypair]);
+    if (amount <= 0) {
+      finalizeAbandonedPosition(userId, state, pos, `${reason}_zero_amount`);
+      return true;
+    }
     const rpcUrl = process.env.SOLANA_RPC_URL || "https://mainnet.helius-rpc.com/?api-key=15319bf4-5b40-4958-ac8d-6313aa55eb92";
     const connection2 = new Connection3(rpcUrl, { commitment: "confirmed" });
-    const signature = await connection2.sendRawTransaction(transaction.serialize(), { skipPreflight: true, maxRetries: 3 });
+    const slippageLadder = [300, 800, 1500];
+    let signature = null;
+    for (let attempt = 0; attempt < slippageLadder.length; attempt++) {
+      const slippageBps = slippageLadder[attempt];
+      try {
+        const quoteResp = await fetch(
+          `https://quote-api.jup.ag/v6/quote?inputMint=${pos.mint}&outputMint=${SOL_MINT}&amount=${amount}&slippageBps=${slippageBps}`
+        );
+        if (!quoteResp.ok) continue;
+        const quote = await quoteResp.json();
+        if (quote?.error) continue;
+        const swapResp = await fetch("https://quote-api.jup.ag/v6/swap", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            quoteResponse: quote,
+            userPublicKey: keypair.publicKey.toBase58(),
+            wrapAndUnwrapSol: true,
+            dynamicComputeUnitLimit: true,
+            prioritizationFeeLamports: "auto"
+          })
+        });
+        if (!swapResp.ok) continue;
+        const { swapTransaction } = await swapResp.json();
+        if (!swapTransaction) continue;
+        const txBuffer = Buffer.from(swapTransaction, "base64");
+        const transaction = VersionedTransaction.deserialize(txBuffer);
+        transaction.sign([keypair]);
+        const sig = await connection2.sendRawTransaction(transaction.serialize(), { skipPreflight: true, maxRetries: 3 });
+        let ok = false;
+        try {
+          const latest = await connection2.getLatestBlockhash("confirmed");
+          const conf = await connection2.confirmTransaction(
+            { signature: sig, blockhash: latest.blockhash, lastValidBlockHeight: latest.lastValidBlockHeight },
+            "confirmed"
+          );
+          ok = !conf.value.err;
+        } catch {
+          for (let i = 0; i < 20; i++) {
+            await new Promise((r) => setTimeout(r, 2e3));
+            try {
+              const st = await connection2.getSignatureStatuses([sig]);
+              const s = st.value[0];
+              if (s && (s.confirmationStatus === "confirmed" || s.confirmationStatus === "finalized")) {
+                ok = !s.err;
+                break;
+              }
+              if (s && s.err) {
+                ok = false;
+                break;
+              }
+            } catch {
+            }
+          }
+        }
+        if (ok) {
+          signature = sig;
+          break;
+        }
+        addActivity3(state, {
+          type: "live_sell",
+          message: `\u21BB Sell attempt ${attempt + 1}/${slippageLadder.length} unconfirmed for ${pos.symbol} (slippage ${slippageBps}bps) \u2014 retrying`
+        });
+      } catch (attemptErr) {
+        console.warn(`[SolEngine] sell attempt ${attempt + 1} failed:`, attemptErr instanceof Error ? attemptErr.message : attemptErr);
+      }
+    }
+    if (!signature) {
+      finalizeAbandonedPosition(userId, state, pos, "abandoned_sell_failed");
+      return true;
+    }
     const gainPct = pos.entryPrice > 0 ? (pos.currentPrice - pos.entryPrice) / pos.entryPrice * 100 : 0;
     const label = reason === "tp" ? "TP \u2705" : "SL \u{1F6E1}\uFE0F";
     pos.status = "closed";
@@ -41190,9 +41308,61 @@ async function executeServerSideBuy(userId, signal, state) {
       skipPreflight: true,
       maxRetries: 3
     });
-    const rawOut = parseInt(quote.outAmount || "0");
-    const decimals = 9;
-    const tokenAmount = rawOut;
+    let confirmedOk = false;
+    try {
+      const latest = await connection2.getLatestBlockhash("confirmed");
+      const conf = await connection2.confirmTransaction(
+        { signature, blockhash: latest.blockhash, lastValidBlockHeight: latest.lastValidBlockHeight },
+        "confirmed"
+      );
+      confirmedOk = !conf.value.err;
+    } catch {
+      for (let i = 0; i < 30; i++) {
+        await new Promise((r) => setTimeout(r, 2e3));
+        try {
+          const st = await connection2.getSignatureStatuses([signature]);
+          const s = st.value[0];
+          if (s && (s.confirmationStatus === "confirmed" || s.confirmationStatus === "finalized")) {
+            confirmedOk = !s.err;
+            break;
+          }
+          if (s && s.err) {
+            confirmedOk = false;
+            break;
+          }
+        } catch {
+        }
+      }
+    }
+    if (!confirmedOk) {
+      addActivity3(state, {
+        type: "live_signal",
+        message: `\u274C Buy not confirmed \u2014 no position recorded: ${signal.symbol} (TX ${signature.slice(0, 16)}...). SOL not deployed.`
+      });
+      return false;
+    }
+    let tokenAmount = 0;
+    let decimals = 9;
+    try {
+      const { PublicKey: PublicKey3 } = await import("@solana/web3.js");
+      const balResp = await connection2.getParsedTokenAccountsByOwner(keypair.publicKey, { mint: new PublicKey3(signal.mint) });
+      for (const acc of balResp.value) {
+        const info = acc.account?.data?.parsed?.info?.tokenAmount;
+        if (info) {
+          tokenAmount += Number(info.amount) || 0;
+          if (info.decimals != null) decimals = Number(info.decimals);
+        }
+      }
+    } catch (balErr) {
+      console.warn("[SolEngine] getParsedTokenAccountsByOwner failed after buy:", balErr instanceof Error ? balErr.message : balErr);
+    }
+    if (!(tokenAmount > 0)) {
+      addActivity3(state, {
+        type: "live_signal",
+        message: `\u274C Buy confirmed but zero token balance found \u2014 no position recorded: ${signal.symbol}. MANUAL CHECK (TX ${signature.slice(0, 16)}...).`
+      });
+      return false;
+    }
     const pos = {
       id: `live_pos_${Date.now()}_${signal.symbol}`,
       symbol: signal.symbol,
@@ -41674,24 +41844,27 @@ function getVolStatus(entryVol, currentVol) {
   if (ratio <= 0.75) return "below_average";
   return "average";
 }
-function monitorPaperPositions(userId, state) {
+async function monitorPaperPositions(userId, state) {
   const openPositions = state.paperPositions.filter((p) => p.status === "open");
   if (openPositions.length === 0) return;
-  const priceMap = {};
   const volumeMap = {};
   for (const r of state.lastResults) {
-    priceMap[r.token.symbol] = parseFloat(r.token.priceUsd) || 0;
-    volumeMap[r.token.symbol] = r.token.volume24h || 0;
+    if (r.token.address) volumeMap[r.token.address] = r.token.volume24h || 0;
+  }
+  const priceMap = await fetchPricesByMint(openPositions.map((p) => p.mint)).catch(() => ({}));
+  for (const r of state.lastResults) {
+    const m = r.token.address;
+    if (m && !(priceMap[m] > 0)) priceMap[m] = parseFloat(r.token.priceUsd) || 0;
   }
   for (const pos of openPositions) {
-    const currentPrice = priceMap[pos.symbol];
+    const currentPrice = priceMap[pos.mint];
     if (!currentPrice || currentPrice <= 0) continue;
     pos.currentPrice = currentPrice;
     const gainPct = (currentPrice - pos.entryPrice) / pos.entryPrice * 100;
     if (!pos.peakPrice || currentPrice > pos.peakPrice) {
       pos.peakPrice = currentPrice;
     }
-    const currentVol = volumeMap[pos.symbol] || 0;
+    const currentVol = volumeMap[pos.mint] || 0;
     const volStatus = getVolStatus(pos.entryVolume24h || 0, currentVol);
     const trailActivation = pos.trailActivationPct && pos.trailActivationPct > 0 ? pos.trailActivationPct : 20;
     let isTrailHit = false;
@@ -41800,18 +41973,53 @@ function monitorPaperPositions(userId, state) {
   state.paperPositions = state.paperPositions.filter((p) => p.status === "open");
 }
 async function monitorLivePositions(userId, state) {
-  const openPositions = state.livePositions.filter((p) => p.status === "open" && p.entryPrice > 0 && p.tokenAmount > 0);
-  if (openPositions.length === 0) return;
+  const allOpen = state.livePositions.filter((p) => p.status === "open");
+  if (allOpen.length === 0) return;
   const now = Date.now();
   state.pendingExits = state.pendingExits.filter((e) => new Date(e.expiresAt).getTime() > now);
-  const priceMap = {};
+  for (const pos of allOpen) {
+    if (!(pos.entryPrice > 0) || !(pos.tokenAmount > 0)) {
+      finalizeAbandonedPosition(userId, state, pos, "reconciled_zero_amount");
+    }
+  }
+  const openPositions = state.livePositions.filter((p) => p.status === "open" && p.entryPrice > 0 && p.tokenAmount > 0);
+  if (openPositions.length === 0) return;
   const volumeMap = {};
   for (const r of state.lastResults) {
-    priceMap[r.token.symbol] = parseFloat(r.token.priceUsd) || 0;
-    volumeMap[r.token.symbol] = r.token.volume24h || 0;
+    if (r.token.address) volumeMap[r.token.address] = r.token.volume24h || 0;
+  }
+  const priceMap = await fetchPricesByMint(openPositions.map((p) => p.mint)).catch(() => ({}));
+  for (const r of state.lastResults) {
+    const m = r.token.address;
+    if (m && !(priceMap[m] > 0)) priceMap[m] = parseFloat(r.token.priceUsd) || 0;
   }
   for (const pos of openPositions) {
-    const currentPrice = priceMap[pos.symbol];
+    const ageMs = Date.now() - new Date(pos.openedAt).getTime();
+    if (ageMs > SOL_MAX_HOLD_MS) {
+      const alreadyQueuedMH = state.pendingExits.some((e) => e.positionId === pos.id);
+      if (!alreadyQueuedMH) {
+        addActivity3(state, {
+          type: "live_sell",
+          message: `\u23F1\uFE0F Max-hold reached: ${pos.symbol} held ${(ageMs / 36e5).toFixed(1)}h (limit ${SOL_MAX_HOLD_HOURS}h) \u2014 forcing exit`
+        });
+        const forcedSold = await executeServerSideSell(userId, pos, "sl", state);
+        if (!forcedSold) {
+          const createdMH = /* @__PURE__ */ new Date();
+          state.pendingExits.push({
+            positionId: pos.id,
+            symbol: pos.symbol,
+            mint: pos.mint,
+            tokenAmount: pos.tokenAmount,
+            decimals: pos.decimals,
+            reason: "sl",
+            createdAt: createdMH.toISOString(),
+            expiresAt: new Date(createdMH.getTime() + 9e4).toISOString()
+          });
+        }
+      }
+      continue;
+    }
+    const currentPrice = priceMap[pos.mint];
     if (!currentPrice || currentPrice <= 0) continue;
     pos.currentPrice = currentPrice;
     const gainPct = (currentPrice - pos.entryPrice) / pos.entryPrice * 100;
@@ -41819,7 +42027,7 @@ async function monitorLivePositions(userId, state) {
     const alreadyQueued = state.pendingExits.some((e) => e.positionId === pos.id);
     if (alreadyQueued) continue;
     const liveTrailActivation = pos.trailActivationPct && pos.trailActivationPct > 0 ? pos.trailActivationPct : 20;
-    const volStatus = getVolStatus(pos.entryVolume24h || 0, volumeMap[pos.symbol] || 0);
+    const volStatus = getVolStatus(pos.entryVolume24h || 0, volumeMap[pos.mint] || 0);
     let trailHit = false;
     if (gainPct >= liveTrailActivation && pos.peakPrice) {
       if (!pos.trailingActive) {
@@ -41922,13 +42130,13 @@ async function runScan(userId, state, triggerToken) {
     const hasBuySignals = scanResult.some((t) => t.signal === "STRONG_BUY" || t.signal === "BUY");
     const allOpenPositions = [
       ...state.livePositions.filter((p) => p.status === "open").map((p) => {
-        const latestPrice = scanResult.find((r) => r.token.symbol === p.symbol);
+        const latestPrice = scanResult.find((r) => r.token.address === p.mint);
         const currentPrice = latestPrice ? parseFloat(latestPrice.token.priceUsd) || p.currentPrice : p.currentPrice;
         const gainPct = p.entryPrice > 0 ? (currentPrice - p.entryPrice) / p.entryPrice * 100 : 0;
         return { symbol: p.symbol, entryPrice: p.entryPrice, currentPrice, gainPct, volumeStatus: "average" };
       }),
       ...state.paperPositions.filter((p) => p.status === "open").map((p) => {
-        const latestPrice = scanResult.find((r) => r.token.symbol === p.symbol);
+        const latestPrice = scanResult.find((r) => r.token.address === p.mint);
         const currentPrice = latestPrice ? parseFloat(latestPrice.token.priceUsd) || p.currentPrice : p.currentPrice;
         const gainPct = p.entryPrice > 0 ? (currentPrice - p.entryPrice) / p.entryPrice * 100 : 0;
         return { symbol: p.symbol, entryPrice: p.entryPrice, currentPrice, gainPct, volumeStatus: "average" };
@@ -42170,7 +42378,7 @@ async function runScan(userId, state, triggerToken) {
       }
     }
     state.lastResults = scanResult;
-    monitorPaperPositions(userId, state);
+    await monitorPaperPositions(userId, state);
     await monitorLivePositions(userId, state);
     const label = triggerToken ? ` (trigger: ${triggerToken})` : "";
     const intervalSec = getAdaptiveScanInterval2(state.config) / 1e3;
@@ -42827,7 +43035,7 @@ async function getServerWalletStatus(userId) {
     return { hasServerWallet: false };
   }
 }
-var SOL_BRAIN_ENABLED, SOL_BRAIN_GATING, SOL_CONFLUENCE_REQUIRED, SOL_COMPOSITE_FLOOR, SOL_CONFLUENCE_BONUS, DEX_NAMES, SOL_STRATEGIES, DEFAULT_CONFIG4, DEFAULT_WEEKLY_GOAL, engineStates2, PAPER_DEFAULT_PORTFOLIO_SOL;
+var SOL_BRAIN_ENABLED, SOL_BRAIN_GATING, SOL_CONFLUENCE_REQUIRED, SOL_COMPOSITE_FLOOR, SOL_CONFLUENCE_BONUS, SOL_MAX_HOLD_HOURS, SOL_MAX_HOLD_MS, DEX_NAMES, SOL_STRATEGIES, DEFAULT_CONFIG4, DEFAULT_WEEKLY_GOAL, engineStates2, PAPER_DEFAULT_PORTFOLIO_SOL;
 var init_sol_engine = __esm({
   "server/services/sol-engine.ts"() {
     "use strict";
@@ -42840,6 +43048,8 @@ var init_sol_engine = __esm({
     SOL_CONFLUENCE_REQUIRED = 2;
     SOL_COMPOSITE_FLOOR = 72;
     SOL_CONFLUENCE_BONUS = 4;
+    SOL_MAX_HOLD_HOURS = Number(process.env.SOL_MAX_HOLD_HOURS) || 12;
+    SOL_MAX_HOLD_MS = SOL_MAX_HOLD_HOURS * 60 * 60 * 1e3;
     DEX_NAMES = ["raydium", "orca", "meteora", "pumpfun", "jupiter"];
     SOL_STRATEGIES = [
       {

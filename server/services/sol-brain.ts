@@ -71,14 +71,14 @@ function sizeMult(winRate: number, rr: number, trades: number): number {
 }
 
 /** One-time seed from sol_engine_positions closed rows when the store is empty.
- *  sol_engine_positions has no strategy/realized-pnl columns — only close_pnl_pct
- *  (gain %), token_symbol, closed_at, mode — so we seed strategy='unknown',
- *  direction='long', and use close_pnl_pct as the profit_loss proxy. */
+ *  sol_engine_positions has no realized-pnl column — only close_pnl_pct (gain %) —
+ *  so we use close_pnl_pct as the profit_loss proxy and direction='long'. It DOES
+ *  carry strategy_id, so we seed the real strategy (falling back to 'unknown'). */
 async function backfillIfEmpty(userId: number): Promise<void> {
   const { rows } = await pool.query(`SELECT count(*)::int n FROM sol_brain_outcomes WHERE user_id=$1`, [userId]);
   if (rows[0].n > 0) return;
   const { rows: trades } = await pool.query(
-    `SELECT token_symbol, close_pnl_pct, closed_at FROM sol_engine_positions
+    `SELECT token_symbol, strategy_id, close_pnl_pct, closed_at FROM sol_engine_positions
      WHERE user_id=$1 AND status='closed' AND close_pnl_pct IS NOT NULL ORDER BY closed_at DESC LIMIT 1000`, [userId]);
   if (!trades.length) return;
   for (const t of trades) {
@@ -87,7 +87,7 @@ async function backfillIfEmpty(userId: number): Promise<void> {
     await pool.query(
       `INSERT INTO sol_brain_outcomes (user_id, symbol, strategy, direction, result, profit_loss, return_pct, hour_utc, source, closed_at)
        VALUES ($1,$2,$3,$4,$5,$6,$7,$8,'backfill',$9)`,
-      [userId, t.token_symbol || 'UNKNOWN', 'unknown', 'long', pnl > 0 ? 'WIN' : pnl < 0 ? 'LOSS' : 'BREAKEVEN', pnl, pnl, d.getUTCHours(), d]
+      [userId, t.token_symbol || 'UNKNOWN', t.strategy_id || 'unknown', 'long', pnl > 0 ? 'WIN' : pnl < 0 ? 'LOSS' : 'BREAKEVEN', pnl, pnl, d.getUTCHours(), d]
     ).catch(() => {});
   }
 }
