@@ -1,7 +1,7 @@
 import { scanAndAnalyzeTokens, fetchCryptoMacroContext, type DexSource, type TokenAnalysis, type CryptoMacroContext } from '../solana-scanner';
 import { db } from '../db';
 import { solEngineSettings, solEnginePositions } from '../../shared/schema';
-import { eq } from 'drizzle-orm';
+import { eq, sql } from 'drizzle-orm';
 import crypto from 'crypto';
 import { getOrRefreshSolBrain, solBrainSizeMultiplier, solBrainGate, recordSolBrainOutcome } from './sol-brain';
 
@@ -2313,6 +2313,30 @@ export async function startSolEngine(userId: number, config: Partial<SolEngineCo
     await loadEngineStateFromDb(userId, state);
   }
 
+  // ── Restore persisted PAPER bankroll ─────────────────────────────────────
+  // paperBaseCapital / currentPortfolioValue are in-memory only and default to
+  // 0 on a cold start, which sizes every paper trade to 0 (no trades). Reload
+  // the user's real paper allocation from sol_engine_settings so both the UI
+  // Start and the boot-resume seed it automatically. This only seeds the paper
+  // bankroll — the live wallet-balance block below still wins for live users.
+  try {
+    const _res: any = await db.execute(
+      sql`SELECT paper_base_capital, server_wallet_key FROM sol_engine_settings WHERE user_id = ${userId}`,
+    );
+    const rows: any[] = Array.isArray(_res) ? _res : (_res?.rows ?? []);
+    const paperBase = Number(rows?.[0]?.paper_base_capital ?? 0);
+    const hasServerWallet = !!rows?.[0]?.server_wallet_key;
+    if (paperBase > 0) {
+      state.paperBaseCapital = paperBase;
+      if (state.paperPortfolioValue <= 0) state.paperPortfolioValue = paperBase;
+      // Only seed the sizing portfolio value for paper users — never override a
+      // live wallet balance (loaded above / below when serverWalletKey exists).
+      if (!hasServerWallet && state.currentPortfolioValue <= 0) state.currentPortfolioValue = paperBase;
+    }
+  } catch (err) {
+    console.warn('[SolEngine] paper_base_capital restore failed (non-fatal):', err);
+  }
+
   // ── Final safety check: if portfolio value still 0, try wallet balance now ─
   // Covers the case where the engine was previously running but portfolio
   // value was never set and the wallet balance fetch above didn't fire.
@@ -2675,6 +2699,10 @@ export function setCompoundSettings(
       type: 'info',
       message: `💼 Paper capital reset to ${opts.paperBaseCapital.toFixed(3)} SOL — compound growth clock starts now`,
     });
+    // Persist the paper bankroll so it survives deploys / cold starts (non-fatal).
+    const persistValue = opts.paperBaseCapital;
+    db.execute(sql`UPDATE sol_engine_settings SET paper_base_capital = ${persistValue} WHERE user_id = ${userId}`)
+      .catch(err => console.warn('[SolEngine] persist paper_base_capital (setCompoundSettings) failed:', err));
   }
 }
 
@@ -2862,6 +2890,10 @@ export function updateSolPortfolioValue(userId: number, solValue: number): { shi
 
   state.currentPortfolioValue = solValue;
   if (solValue > state.sessionHighWatermark) state.sessionHighWatermark = solValue;
+
+  // Persist the paper bankroll so it survives deploys / cold starts (non-fatal).
+  db.execute(sql`UPDATE sol_engine_settings SET paper_base_capital = ${solValue} WHERE user_id = ${userId}`)
+    .catch(err => console.warn('[SolEngine] persist paper_base_capital (updateSolPortfolioValue) failed:', err));
 
   if (!state.config.shieldEnabled) return { shieldActive: false };
 

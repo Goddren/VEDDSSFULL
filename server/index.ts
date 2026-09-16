@@ -1209,6 +1209,10 @@ async function withRetry<T>(
         created_at timestamp DEFAULT now() NOT NULL,
         updated_at timestamp DEFAULT now() NOT NULL
       )`);
+      // Persist the paper bankroll so it survives deploys — in-memory paperBaseCapital
+      // / currentPortfolioValue default to 0 on a cold start, which sizes every paper
+      // trade to 0 (no trades). Idempotent for existing installs.
+      await db.execute(sql`ALTER TABLE sol_engine_settings ADD COLUMN IF NOT EXISTS paper_base_capital double precision DEFAULT 0`);
       await db.execute(sql`CREATE TABLE IF NOT EXISTS sol_engine_positions (
         id serial PRIMARY KEY,
         user_id integer REFERENCES users(id) NOT NULL,
@@ -1544,7 +1548,18 @@ async function withRetry<T>(
       if (rows.length) {
         const { startSolEngine } = await import('./services/sol-engine');
         for (const r of rows) {
-          try { await startSolEngine(r.user_id); console.log(`[startup] SOL engine auto-resumed for user ${r.user_id}`); }
+          try {
+            // Ensure a paper bankroll exists so paper actually trades after a deploy.
+            // If never set (NULL/0), seed a sensible default (5 SOL simulated) before
+            // starting — startSolEngine restores paper_base_capital into the state.
+            try {
+              await pool.query(
+                `UPDATE sol_engine_settings SET paper_base_capital = 5 WHERE user_id = $1 AND (paper_base_capital IS NULL OR paper_base_capital = 0)`,
+                [r.user_id],
+              );
+            } catch (seedErr: any) { console.error(`[startup] SOL paper-capital seed failed for user ${r.user_id}:`, seedErr?.message ?? seedErr); }
+            await startSolEngine(r.user_id); console.log(`[startup] SOL engine auto-resumed for user ${r.user_id}`);
+          }
           catch (e: any) { console.error(`[startup] SOL engine resume failed for user ${r.user_id}:`, e?.message ?? e); }
         }
       } else {

@@ -2426,6 +2426,7 @@ export const solEngineSettings = pgTable("sol_engine_settings", {
   weeklyGoal: jsonb("weekly_goal").notNull().default({}),
   autoTradeStats: jsonb("auto_trade_stats").notNull().default({}),
   serverWalletKey: text("server_wallet_key"),
+  paperBaseCapital: doublePrecision("paper_base_capital").default(0), // persisted paper bankroll (SOL) so it survives deploys
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
 });
 
