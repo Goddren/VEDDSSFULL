@@ -2268,11 +2268,21 @@ export async function getAiVisionConfirmation(
     if (deepReasoningMode) {
       console.log(`[AI Vision Confirmation] Deep Reasoning Mode — running Bull/Bear/Veteran-Judge debate for ${symbol} ${proposedSignal}`);
       const debateResult = await runDeepReasoningDebate(prompt, userId);
-      return {
-        ...debateResult,
-        confluenceScore: confluenceResult.score,
-        confluenceGrade: confluenceResult.grade,
-      };
+      // Only trust the debate result when the Veteran-Judge pass actually ran.
+      // On failure (OpenRouter 402/insufficient credits, provider outage, or no
+      // OpenRouter key) it returns deepReasoningUsed:false with confidence 0 —
+      // which was silently REJECTING otherwise-tradeable setups and halting the
+      // whole FX engine on a billing hiccup. Degrade gracefully instead: fall
+      // through to the standard fast confirmation below, which runs the user's
+      // primary provider with its own multi-provider failover chain.
+      if (debateResult.deepReasoningUsed) {
+        return {
+          ...debateResult,
+          confluenceScore: confluenceResult.score,
+          confluenceGrade: confluenceResult.grade,
+        };
+      }
+      console.warn(`[AI Vision Confirmation] Deep Reasoning unavailable for ${symbol} ${proposedSignal} (${debateResult.reasoning}) — falling back to standard confirmation so a provider/billing outage doesn't halt trading`);
     }
 
     console.log(`[AI Vision Confirmation] Requesting ${provider}/${selectedModel} confirmation for ${symbol} ${proposedSignal}`);

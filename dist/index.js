@@ -10068,11 +10068,14 @@ async function getAiVisionConfirmation(candleData, indicators, proposedSignal, p
     if (deepReasoningMode) {
       console.log(`[AI Vision Confirmation] Deep Reasoning Mode \u2014 running Bull/Bear/Veteran-Judge debate for ${symbol} ${proposedSignal}`);
       const debateResult = await runDeepReasoningDebate(prompt, userId);
-      return {
-        ...debateResult,
-        confluenceScore: confluenceResult.score,
-        confluenceGrade: confluenceResult.grade
-      };
+      if (debateResult.deepReasoningUsed) {
+        return {
+          ...debateResult,
+          confluenceScore: confluenceResult.score,
+          confluenceGrade: confluenceResult.grade
+        };
+      }
+      console.warn(`[AI Vision Confirmation] Deep Reasoning unavailable for ${symbol} ${proposedSignal} (${debateResult.reasoning}) \u2014 falling back to standard confirmation so a provider/billing outage doesn't halt trading`);
     }
     console.log(`[AI Vision Confirmation] Requesting ${provider}/${selectedModel} confirmation for ${symbol} ${proposedSignal}`);
     let content = "";
