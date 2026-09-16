@@ -513,6 +513,16 @@ async function getCryptocomAiConfirmationLite(userId: number, symbol: string, re
 // cleanly for crypto pairs. On any failure it degrades to the lite numeric
 // second-opinion above so the gate never silently hard-blocks (vision + fallback).
 async function getCryptocomAiConfirmation(userId: number, symbol: string, result: StrategyResult): Promise<{ confirmed: boolean; confidence: number; reasoning: string }> {
+  // Priority back-off: crypto is lower priority than the FX engine and draws on
+  // the same AI provider budget. When that budget is exhausted (402) or rate
+  // limited (429), skip the AI confirmation (no new crypto entry this cycle) so
+  // FX keeps the budget. Exits/monitoring are unaffected.
+  try {
+    const { shouldDeferLowPriorityAi, aiBudgetDeferReason } = await import('./ai-budget-guard');
+    if (shouldDeferLowPriorityAi()) {
+      return { confirmed: false, confidence: 0, reasoning: `AI review deferred — shared AI budget ${aiBudgetDeferReason()} (FX priority)` };
+    }
+  } catch { /* non-fatal */ }
   try {
     const bars = await CryptoComService.getCandles(symbol, '5m', 100);
     if (!bars || bars.length < 30) return getCryptocomAiConfirmationLite(userId, symbol, result);
@@ -851,9 +861,43 @@ export async function runCryptocomEngineScan(): Promise<void> {
 
 let started = false;
 let scanInFlight = false;
+
+// Cross-process mutual exclusion. All in-process guards (started, scanInFlight)
+// are per-process, so nothing stops the in-process web scanner (if
+// ENABLE_CRYPTO_ENGINE is ever flipped true on web) from running the SAME users
+// against the SAME DB at the same time as the crypto-worker/cron — double orders,
+// doubled daily-trade accounting, and the shared-process OOM that forced crypto
+// out of the web process. A Postgres session-level advisory lock, held for the
+// process lifetime, makes only one crypto scanner active across all processes.
+const CRYPTO_RUN_LOCK_KEY = 918273645; // arbitrary constant unique to this scanner
+async function acquireCryptoRunLock(): Promise<boolean> {
+  try {
+    const { pool } = await import('../db');
+    const client = await pool.connect();
+    const r = await client.query('SELECT pg_try_advisory_lock($1) AS locked', [CRYPTO_RUN_LOCK_KEY]);
+    if (r.rows?.[0]?.locked === true) {
+      // Hold the client (never release) so the session-level lock persists.
+      (global as any).__cryptoRunLockClient = client;
+      return true;
+    }
+    client.release();
+    return false;
+  } catch (e: any) {
+    // Fail-open: a lock-infra error must not permanently disable the engine.
+    console.error('[cryptocom-scanner] advisory-lock check failed (allowing start):', e?.message);
+    return true;
+  }
+}
+
 export function startCryptocomEngineScanner(): void {
   if (started) return;
   started = true;
+  acquireCryptoRunLock().then((locked) => {
+    if (!locked) {
+      started = false; // permit a later retry
+      console.error('[cryptocom-scanner] REFUSING to start — another process already holds the crypto run lock (worker/cron already running). This prevents double-trading. Set ENABLE_CRYPTO_ENGINE=false on the web service if this is the web process.');
+      return;
+    }
   const LOOP_INTERVAL_MS = 60000;
   setInterval(() => {
     // Re-entrancy guard: a scan cycle (many symbols × AI calls × DeFi RPC) can
@@ -871,4 +915,5 @@ export function startCryptocomEngineScanner(): void {
       .finally(() => { scanInFlight = false; });
   }, LOOP_INTERVAL_MS);
   console.log('[cryptocom-scanner] Background Crypto.com perpetuals scan loop started (60s tick, re-entrancy guarded, per-user throttled, strategies: trend_following/momentum/auto).');
+  });
 }

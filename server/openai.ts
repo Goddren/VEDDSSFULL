@@ -2881,6 +2881,9 @@ function makeFailoverClient(clients: UniversalAIClient[], userId?: number): Univ
                 continue;
               }
               recordAiHealth(userId, { ok: false, provider: c.provider, model: p.model, failedOver: i > 0, attempts, lastError: e?.message || String(e) });
+              // Trip the shared budget breaker so lower-priority engines (Sol,
+              // crypto) back off and leave the shared provider budget for FX.
+              try { const { noteAiBudgetError } = await import('./services/ai-budget-guard'); noteAiBudgetError(e); } catch { /* non-fatal */ }
               throw e;
             }
           }

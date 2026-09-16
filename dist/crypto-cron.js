@@ -9728,6 +9728,49 @@ var init_breakoutEngine = __esm({
   }
 });
 
+// server/services/ai-budget-guard.ts
+var ai_budget_guard_exports = {};
+__export(ai_budget_guard_exports, {
+  aiBudgetDeferReason: () => aiBudgetDeferReason,
+  aiBudgetDeferSecondsLeft: () => aiBudgetDeferSecondsLeft,
+  noteAiBudgetError: () => noteAiBudgetError,
+  shouldDeferLowPriorityAi: () => shouldDeferLowPriorityAi
+});
+function noteAiBudgetError(err) {
+  const status = err?.status ?? err?.statusCode ?? err?.response?.status;
+  const msg = String(err?.message || err || "").toLowerCase();
+  const is402 = status === 402 || /insufficient credits|insufficient_quota|payment required|\b402\b/.test(msg);
+  const is429 = status === 429 || /rate.?limit|\b429\b|quota|too many requests/.test(msg);
+  const now = Date.now();
+  if (is402) {
+    deferUntil = Math.max(deferUntil, now + COOLDOWN_402_MS);
+    lastReason = "insufficient credits (402)";
+  } else if (is429) {
+    deferUntil = Math.max(deferUntil, now + COOLDOWN_429_MS);
+    lastReason = "rate limit (429)";
+  }
+}
+function shouldDeferLowPriorityAi() {
+  return Date.now() < deferUntil;
+}
+function aiBudgetDeferReason() {
+  return lastReason;
+}
+function aiBudgetDeferSecondsLeft() {
+  const left = deferUntil - Date.now();
+  return left > 0 ? Math.ceil(left / 1e3) : 0;
+}
+var deferUntil, lastReason, COOLDOWN_402_MS, COOLDOWN_429_MS;
+var init_ai_budget_guard = __esm({
+  "server/services/ai-budget-guard.ts"() {
+    "use strict";
+    deferUntil = 0;
+    lastReason = "";
+    COOLDOWN_402_MS = 5 * 6e4;
+    COOLDOWN_429_MS = 6e4;
+  }
+});
+
 // server/openai.ts
 var openai_exports = {};
 __export(openai_exports, {
@@ -11503,11 +11546,14 @@ async function getAiVisionConfirmation(candleData, indicators, proposedSignal, p
     if (deepReasoningMode) {
       console.log(`[AI Vision Confirmation] Deep Reasoning Mode \u2014 running Bull/Bear/Veteran-Judge debate for ${symbol} ${proposedSignal}`);
       const debateResult = await runDeepReasoningDebate(prompt, userId);
-      return {
-        ...debateResult,
-        confluenceScore: confluenceResult.score,
-        confluenceGrade: confluenceResult.grade
-      };
+      if (debateResult.deepReasoningUsed) {
+        return {
+          ...debateResult,
+          confluenceScore: confluenceResult.score,
+          confluenceGrade: confluenceResult.grade
+        };
+      }
+      console.warn(`[AI Vision Confirmation] Deep Reasoning unavailable for ${symbol} ${proposedSignal} (${debateResult.reasoning}) \u2014 falling back to standard confirmation so a provider/billing outage doesn't halt trading`);
     }
     console.log(`[AI Vision Confirmation] Requesting ${provider}/${selectedModel} confirmation for ${symbol} ${proposedSignal}`);
     let content = "";
@@ -11912,6 +11958,11 @@ function makeFailoverClient(clients, userId) {
                 continue;
               }
               recordAiHealth(userId, { ok: false, provider: c.provider, model: p.model, failedOver: i > 0, attempts, lastError: e?.message || String(e) });
+              try {
+                const { noteAiBudgetError: noteAiBudgetError2 } = await Promise.resolve().then(() => (init_ai_budget_guard(), ai_budget_guard_exports));
+                noteAiBudgetError2(e);
+              } catch {
+              }
               throw e;
             }
           }
@@ -14476,6 +14527,13 @@ Reasoning: ${result.reasoning}`;
 }
 async function getCryptocomAiConfirmation(userId, symbol, result) {
   try {
+    const { shouldDeferLowPriorityAi: shouldDeferLowPriorityAi2, aiBudgetDeferReason: aiBudgetDeferReason2 } = await Promise.resolve().then(() => (init_ai_budget_guard(), ai_budget_guard_exports));
+    if (shouldDeferLowPriorityAi2()) {
+      return { confirmed: false, confidence: 0, reasoning: `AI review deferred \u2014 shared AI budget ${aiBudgetDeferReason2()} (FX priority)` };
+    }
+  } catch {
+  }
+  try {
     const bars = await CryptoComService.getCandles(symbol, "5m", 100);
     if (!bars || bars.length < 30) return getCryptocomAiConfirmationLite(userId, symbol, result);
     const candles = convertToCandles(bars);
@@ -14788,24 +14846,47 @@ async function runCryptocomEngineScan() {
     console.error("[cryptocom-scanner] runCryptocomEngineScan failed:", err.message);
   }
 }
+async function acquireCryptoRunLock() {
+  try {
+    const { pool: pool2 } = await Promise.resolve().then(() => (init_db(), db_exports));
+    const client2 = await pool2.connect();
+    const r = await client2.query("SELECT pg_try_advisory_lock($1) AS locked", [CRYPTO_RUN_LOCK_KEY]);
+    if (r.rows?.[0]?.locked === true) {
+      global.__cryptoRunLockClient = client2;
+      return true;
+    }
+    client2.release();
+    return false;
+  } catch (e) {
+    console.error("[cryptocom-scanner] advisory-lock check failed (allowing start):", e?.message);
+    return true;
+  }
+}
 function startCryptocomEngineScanner() {
   if (started) return;
   started = true;
-  const LOOP_INTERVAL_MS = 6e4;
-  setInterval(() => {
-    if (scanInFlight) {
-      console.warn("[cryptocom-scanner] previous scan still running \u2014 skipping this tick to avoid overlap/OOM");
+  acquireCryptoRunLock().then((locked) => {
+    if (!locked) {
+      started = false;
+      console.error("[cryptocom-scanner] REFUSING to start \u2014 another process already holds the crypto run lock (worker/cron already running). This prevents double-trading. Set ENABLE_CRYPTO_ENGINE=false on the web service if this is the web process.");
       return;
     }
-    scanInFlight = true;
-    runCryptocomEngineScan().catch(() => {
-    }).finally(() => {
-      scanInFlight = false;
-    });
-  }, LOOP_INTERVAL_MS);
-  console.log("[cryptocom-scanner] Background Crypto.com perpetuals scan loop started (60s tick, re-entrancy guarded, per-user throttled, strategies: trend_following/momentum/auto).");
+    const LOOP_INTERVAL_MS = 6e4;
+    setInterval(() => {
+      if (scanInFlight) {
+        console.warn("[cryptocom-scanner] previous scan still running \u2014 skipping this tick to avoid overlap/OOM");
+        return;
+      }
+      scanInFlight = true;
+      runCryptocomEngineScan().catch(() => {
+      }).finally(() => {
+        scanInFlight = false;
+      });
+    }, LOOP_INTERVAL_MS);
+    console.log("[cryptocom-scanner] Background Crypto.com perpetuals scan loop started (60s tick, re-entrancy guarded, per-user throttled, strategies: trend_following/momentum/auto).");
+  });
 }
-var MIN_SCAN_INTERVAL_MS, lastScanAt, MAX_SYMBOLS_PER_CYCLE, scanCursor, STRATEGY_RUNNERS, AUTO_STRATEGIES, sessionPeakEquity, started, scanInFlight;
+var MIN_SCAN_INTERVAL_MS, lastScanAt, MAX_SYMBOLS_PER_CYCLE, scanCursor, STRATEGY_RUNNERS, AUTO_STRATEGIES, sessionPeakEquity, started, scanInFlight, CRYPTO_RUN_LOCK_KEY;
 var init_cryptocom_scanner = __esm({
   "server/services/cryptocom-scanner.ts"() {
     "use strict";
@@ -14830,6 +14911,7 @@ var init_cryptocom_scanner = __esm({
     sessionPeakEquity = /* @__PURE__ */ new Map();
     started = false;
     scanInFlight = false;
+    CRYPTO_RUN_LOCK_KEY = 918273645;
   }
 });
 

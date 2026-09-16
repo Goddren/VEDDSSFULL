@@ -8293,6 +8293,49 @@ var init_breakoutEngine = __esm({
   }
 });
 
+// server/services/ai-budget-guard.ts
+var ai_budget_guard_exports = {};
+__export(ai_budget_guard_exports, {
+  aiBudgetDeferReason: () => aiBudgetDeferReason,
+  aiBudgetDeferSecondsLeft: () => aiBudgetDeferSecondsLeft,
+  noteAiBudgetError: () => noteAiBudgetError,
+  shouldDeferLowPriorityAi: () => shouldDeferLowPriorityAi
+});
+function noteAiBudgetError(err) {
+  const status = err?.status ?? err?.statusCode ?? err?.response?.status;
+  const msg = String(err?.message || err || "").toLowerCase();
+  const is402 = status === 402 || /insufficient credits|insufficient_quota|payment required|\b402\b/.test(msg);
+  const is429 = status === 429 || /rate.?limit|\b429\b|quota|too many requests/.test(msg);
+  const now = Date.now();
+  if (is402) {
+    deferUntil = Math.max(deferUntil, now + COOLDOWN_402_MS);
+    lastReason = "insufficient credits (402)";
+  } else if (is429) {
+    deferUntil = Math.max(deferUntil, now + COOLDOWN_429_MS);
+    lastReason = "rate limit (429)";
+  }
+}
+function shouldDeferLowPriorityAi() {
+  return Date.now() < deferUntil;
+}
+function aiBudgetDeferReason() {
+  return lastReason;
+}
+function aiBudgetDeferSecondsLeft() {
+  const left = deferUntil - Date.now();
+  return left > 0 ? Math.ceil(left / 1e3) : 0;
+}
+var deferUntil, lastReason, COOLDOWN_402_MS, COOLDOWN_429_MS;
+var init_ai_budget_guard = __esm({
+  "server/services/ai-budget-guard.ts"() {
+    "use strict";
+    deferUntil = 0;
+    lastReason = "";
+    COOLDOWN_402_MS = 5 * 6e4;
+    COOLDOWN_429_MS = 6e4;
+  }
+});
+
 // server/openai.ts
 var openai_exports = {};
 __export(openai_exports, {
@@ -10480,6 +10523,11 @@ function makeFailoverClient(clients, userId) {
                 continue;
               }
               recordAiHealth(userId, { ok: false, provider: c.provider, model: p.model, failedOver: i > 0, attempts, lastError: e?.message || String(e) });
+              try {
+                const { noteAiBudgetError: noteAiBudgetError2 } = await Promise.resolve().then(() => (init_ai_budget_guard(), ai_budget_guard_exports));
+                noteAiBudgetError2(e);
+              } catch {
+              }
               throw e;
             }
           }
@@ -29760,7 +29808,13 @@ async function scanMarkets(userId) {
       await runORBAutonomousScan(userId);
     } catch {
     }
-    await runAILiveAnalysis(userId, marketAnalysis, brain, newsContext, crossAssets, triggerPairs, htfMarketData);
+    await Promise.race([
+      runAILiveAnalysis(userId, marketAnalysis, brain, newsContext, crossAssets, triggerPairs, htfMarketData),
+      new Promise((_, reject) => setTimeout(
+        () => reject(new Error("AI live analysis exceeded 150s wall-clock cap \u2014 abandoning this scan cycle")),
+        15e4
+      ))
+    ]);
   } catch (err) {
     addActivity2(userId, { type: "error", message: `Scan cycle error: ${err.message}` });
   } finally {
@@ -36348,6 +36402,13 @@ Reasoning: ${result.reasoning}`;
 }
 async function getCryptocomAiConfirmation(userId, symbol, result) {
   try {
+    const { shouldDeferLowPriorityAi: shouldDeferLowPriorityAi2, aiBudgetDeferReason: aiBudgetDeferReason2 } = await Promise.resolve().then(() => (init_ai_budget_guard(), ai_budget_guard_exports));
+    if (shouldDeferLowPriorityAi2()) {
+      return { confirmed: false, confidence: 0, reasoning: `AI review deferred \u2014 shared AI budget ${aiBudgetDeferReason2()} (FX priority)` };
+    }
+  } catch {
+  }
+  try {
     const bars = await CryptoComService.getCandles(symbol, "5m", 100);
     if (!bars || bars.length < 30) return getCryptocomAiConfirmationLite(userId, symbol, result);
     const candles = convertToCandles3(bars);
@@ -36660,24 +36721,47 @@ async function runCryptocomEngineScan() {
     console.error("[cryptocom-scanner] runCryptocomEngineScan failed:", err.message);
   }
 }
+async function acquireCryptoRunLock() {
+  try {
+    const { pool: pool2 } = await Promise.resolve().then(() => (init_db(), db_exports));
+    const client2 = await pool2.connect();
+    const r = await client2.query("SELECT pg_try_advisory_lock($1) AS locked", [CRYPTO_RUN_LOCK_KEY]);
+    if (r.rows?.[0]?.locked === true) {
+      global.__cryptoRunLockClient = client2;
+      return true;
+    }
+    client2.release();
+    return false;
+  } catch (e) {
+    console.error("[cryptocom-scanner] advisory-lock check failed (allowing start):", e?.message);
+    return true;
+  }
+}
 function startCryptocomEngineScanner() {
   if (started2) return;
   started2 = true;
-  const LOOP_INTERVAL_MS = 6e4;
-  setInterval(() => {
-    if (scanInFlight) {
-      console.warn("[cryptocom-scanner] previous scan still running \u2014 skipping this tick to avoid overlap/OOM");
+  acquireCryptoRunLock().then((locked) => {
+    if (!locked) {
+      started2 = false;
+      console.error("[cryptocom-scanner] REFUSING to start \u2014 another process already holds the crypto run lock (worker/cron already running). This prevents double-trading. Set ENABLE_CRYPTO_ENGINE=false on the web service if this is the web process.");
       return;
     }
-    scanInFlight = true;
-    runCryptocomEngineScan().catch(() => {
-    }).finally(() => {
-      scanInFlight = false;
-    });
-  }, LOOP_INTERVAL_MS);
-  console.log("[cryptocom-scanner] Background Crypto.com perpetuals scan loop started (60s tick, re-entrancy guarded, per-user throttled, strategies: trend_following/momentum/auto).");
+    const LOOP_INTERVAL_MS = 6e4;
+    setInterval(() => {
+      if (scanInFlight) {
+        console.warn("[cryptocom-scanner] previous scan still running \u2014 skipping this tick to avoid overlap/OOM");
+        return;
+      }
+      scanInFlight = true;
+      runCryptocomEngineScan().catch(() => {
+      }).finally(() => {
+        scanInFlight = false;
+      });
+    }, LOOP_INTERVAL_MS);
+    console.log("[cryptocom-scanner] Background Crypto.com perpetuals scan loop started (60s tick, re-entrancy guarded, per-user throttled, strategies: trend_following/momentum/auto).");
+  });
 }
-var MIN_SCAN_INTERVAL_MS, lastScanAt, MAX_SYMBOLS_PER_CYCLE, scanCursor, STRATEGY_RUNNERS, AUTO_STRATEGIES, sessionPeakEquity, started2, scanInFlight;
+var MIN_SCAN_INTERVAL_MS, lastScanAt, MAX_SYMBOLS_PER_CYCLE, scanCursor, STRATEGY_RUNNERS, AUTO_STRATEGIES, sessionPeakEquity, started2, scanInFlight, CRYPTO_RUN_LOCK_KEY;
 var init_cryptocom_scanner = __esm({
   "server/services/cryptocom-scanner.ts"() {
     "use strict";
@@ -36702,6 +36786,7 @@ var init_cryptocom_scanner = __esm({
     sessionPeakEquity = /* @__PURE__ */ new Map();
     started2 = false;
     scanInFlight = false;
+    CRYPTO_RUN_LOCK_KEY = 918273645;
   }
 });
 
@@ -41661,6 +41746,14 @@ function runQuantRulesAgent(token, macroBias) {
 async function runSolAIReview(userId, state, scanResult, openPositions) {
   const buySignals = scanResult.filter((t) => t.signal === "STRONG_BUY" || t.signal === "BUY").slice(0, 5);
   if (buySignals.length === 0 && openPositions.length === 0) return;
+  try {
+    const { shouldDeferLowPriorityAi: shouldDeferLowPriorityAi2, aiBudgetDeferReason: aiBudgetDeferReason2 } = await Promise.resolve().then(() => (init_ai_budget_guard(), ai_budget_guard_exports));
+    if (shouldDeferLowPriorityAi2()) {
+      addActivity3(state, { type: "info", message: `\u23F8 Sol AI review deferred \u2014 shared AI budget ${aiBudgetDeferReason2()} (FX priority). Quant filters still active.` });
+      return;
+    }
+  } catch {
+  }
   const cacheKey = [
     ...buySignals.map((t) => t.token.symbol).sort(),
     ...openPositions.map((p) => p.symbol).sort()
@@ -42095,6 +42188,25 @@ async function refreshServerWalletBalance(userId, state) {
     console.warn("[SolEngine] refreshServerWalletBalance failed:", err instanceof Error ? err.message : err);
   }
 }
+function pruneEngineMaps(state) {
+  const now = Date.now();
+  const ONE_HOUR = 60 * 6e4;
+  const REVIEW_TTL = 5 * 6e4;
+  const MAX_SNAPSHOTS = 500;
+  for (const k of Object.keys(state.lastTriggerAt)) {
+    if (now - (state.lastTriggerAt[k] || 0) > ONE_HOUR) delete state.lastTriggerAt[k];
+  }
+  for (const k of Object.keys(state.aiReviewCache)) {
+    if (now - (state.aiReviewCache[k]?.ts || 0) > REVIEW_TTL) delete state.aiReviewCache[k];
+  }
+  state.signalCooldowns.forEach((ts, k) => {
+    if (now - (ts || 0) > ONE_HOUR) state.signalCooldowns.delete(k);
+  });
+  const snapKeys = Object.keys(state.lastTokenSnapshot);
+  if (snapKeys.length > MAX_SNAPSHOTS) {
+    for (const k of snapKeys.slice(0, snapKeys.length - MAX_SNAPSHOTS)) delete state.lastTokenSnapshot[k];
+  }
+}
 async function runScan(userId, state, triggerToken) {
   if (!state.isRunning) return;
   if (state.isScanning) return;
@@ -42433,6 +42545,10 @@ async function runScan(userId, state, triggerToken) {
     });
   } finally {
     state.isScanning = false;
+  }
+  try {
+    pruneEngineMaps(state);
+  } catch {
   }
   saveEngineState(userId, state).catch(() => {
   });

@@ -1298,6 +1298,17 @@ async function runSolAIReview(
     .slice(0, 5);
   if (buySignals.length === 0 && openPositions.length === 0) return;
 
+  // Priority back-off: FX is the main engine and shares the AI provider budget
+  // with Sol. When that budget is exhausted (402) or rate-limited (429), skip the
+  // Sol AI review so FX keeps the budget — Sol's own quant filters still run.
+  try {
+    const { shouldDeferLowPriorityAi, aiBudgetDeferReason } = await import('./ai-budget-guard');
+    if (shouldDeferLowPriorityAi()) {
+      addActivity(state, { type: 'info', message: `⏸ Sol AI review deferred — shared AI budget ${aiBudgetDeferReason()} (FX priority). Quant filters still active.` });
+      return;
+    }
+  } catch { /* non-fatal */ }
+
   // ── Response cache ────────────────────────────────────────────────────────
   const cacheKey = [
     ...buySignals.map(t => t.token.symbol).sort(),
@@ -1853,6 +1864,31 @@ async function refreshServerWalletBalance(userId: number, state: SolEngineState)
   }
 }
 
+// Prune the per-token maps that otherwise grow one entry per unique memecoin
+// forever (Sol runs in the FX web process, so its memory is FX's memory). Called
+// once per scan — cheap, bounded work.
+function pruneEngineMaps(state: SolEngineState): void {
+  const now = Date.now();
+  const ONE_HOUR = 60 * 60_000;
+  const REVIEW_TTL = 5 * 60_000;
+  const MAX_SNAPSHOTS = 500;
+  // Timestamp-valued maps: drop stale entries.
+  for (const k of Object.keys(state.lastTriggerAt)) {
+    if (now - (state.lastTriggerAt[k] || 0) > ONE_HOUR) delete state.lastTriggerAt[k];
+  }
+  for (const k of Object.keys(state.aiReviewCache)) {
+    if (now - (state.aiReviewCache[k]?.ts || 0) > REVIEW_TTL) delete state.aiReviewCache[k];
+  }
+  state.signalCooldowns.forEach((ts, k) => {
+    if (now - (ts || 0) > ONE_HOUR) state.signalCooldowns.delete(k);
+  });
+  // lastTokenSnapshot has no timestamp — cap by size, evicting oldest-inserted.
+  const snapKeys = Object.keys(state.lastTokenSnapshot);
+  if (snapKeys.length > MAX_SNAPSHOTS) {
+    for (const k of snapKeys.slice(0, snapKeys.length - MAX_SNAPSHOTS)) delete state.lastTokenSnapshot[k];
+  }
+}
+
 async function runScan(userId: number, state: SolEngineState, triggerToken?: string) {
   if (!state.isRunning) return;
   // In-flight guard: a scan routinely outlives the 8s power-surge re-trigger and
@@ -2294,6 +2330,9 @@ async function runScan(userId: number, state: SolEngineState, triggerToken?: str
   } finally {
     state.isScanning = false;
   }
+
+  // Bound the per-token maps so days of memecoin churn can't leak FX's memory.
+  try { pruneEngineMaps(state); } catch { /* non-fatal */ }
 
   // Periodic DB save — persist settings + stats after every scan
   saveEngineState(userId, state).catch(() => {});

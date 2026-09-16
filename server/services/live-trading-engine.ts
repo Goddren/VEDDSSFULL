@@ -1758,7 +1758,20 @@ async function scanMarkets(userId: number): Promise<void> {
     // when SS AI Bot score ≥ 70. One trade per pair per day.
     try { await runORBAutonomousScan(userId); } catch { /* non-fatal */ }
 
-    await runAILiveAnalysis(userId, marketAnalysis, brain, newsContext, crossAssets, triggerPairs, htfMarketData);
+    // Wall-clock cap: each AI call is maxRetries×90s and the failover chain runs
+    // serially across up to 6 providers, so a rate-limit (429) storm — exactly
+    // what shared-budget contention with Sol/crypto causes — could otherwise hold
+    // currentlyScanning for many minutes and silently freeze FX scanning (the
+    // fixed-interval tick returns early every time while the guard is held). Bound
+    // the whole AI-analysis step; on timeout we abandon this cycle and the finally
+    // resets the guard so the next interval scans fresh.
+    await Promise.race([
+      runAILiveAnalysis(userId, marketAnalysis, brain, newsContext, crossAssets, triggerPairs, htfMarketData),
+      new Promise((_, reject) => setTimeout(
+        () => reject(new Error('AI live analysis exceeded 150s wall-clock cap — abandoning this scan cycle')),
+        150_000,
+      )),
+    ]);
 
   } catch (err: any) {
     addActivity(userId, { type: 'error', message: `Scan cycle error: ${err.message}` });
