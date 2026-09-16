@@ -1532,6 +1532,28 @@ async function withRetry<T>(
     const { startFxPaperMonitor } = await import('./services/fx-paper-monitor');
     startFxPaperMonitor();
 
+    // SOL engine — AUTO-RESUME for users who left auto-trade on. Previously the
+    // Sol engine had NO boot-resume (unlike FX/futures/options), so its scan loop
+    // silently died on every deploy and stayed dark until manually re-Started —
+    // which is why paper/live showed zero activity after a redeploy. Live vs paper
+    // is honored at runtime from each user's live_trade_enabled flag (live stays
+    // off unless their own setting says otherwise).
+    try {
+      const { pool } = await import('./db');
+      const { rows } = await pool.query(`SELECT user_id FROM sol_engine_settings WHERE auto_trade_enabled = true`);
+      if (rows.length) {
+        const { startSolEngine } = await import('./services/sol-engine');
+        for (const r of rows) {
+          try { await startSolEngine(r.user_id); console.log(`[startup] SOL engine auto-resumed for user ${r.user_id}`); }
+          catch (e: any) { console.error(`[startup] SOL engine resume failed for user ${r.user_id}:`, e?.message ?? e); }
+        }
+      } else {
+        console.log('[startup] SOL engine: no users with auto_trade_enabled — nothing to resume.');
+      }
+    } catch (err: any) {
+      console.error('[startup] SOL engine auto-resume error (non-fatal):', err?.message ?? err);
+    }
+
     // Crypto engine — gated OFF by default (set ENABLE_CRYPTO_ENGINE=true to run).
     // Importing the scanner pulls in ethers + the DeFi stack; keeping it out of the
     // boot path frees memory while the crypto engine is paused. Re-enable after the

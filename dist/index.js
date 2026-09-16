@@ -86211,6 +86211,25 @@ async function withRetry(fn, label, maxAttempts = 6, baseDelayMs = 2e3) {
     startFuturesEngineScanner2();
     const { startFxPaperMonitor: startFxPaperMonitor2 } = await Promise.resolve().then(() => (init_fx_paper_monitor(), fx_paper_monitor_exports));
     startFxPaperMonitor2();
+    try {
+      const { pool: pool2 } = await Promise.resolve().then(() => (init_db(), db_exports));
+      const { rows } = await pool2.query(`SELECT user_id FROM sol_engine_settings WHERE auto_trade_enabled = true`);
+      if (rows.length) {
+        const { startSolEngine: startSolEngine2 } = await Promise.resolve().then(() => (init_sol_engine(), sol_engine_exports));
+        for (const r of rows) {
+          try {
+            await startSolEngine2(r.user_id);
+            console.log(`[startup] SOL engine auto-resumed for user ${r.user_id}`);
+          } catch (e) {
+            console.error(`[startup] SOL engine resume failed for user ${r.user_id}:`, e?.message ?? e);
+          }
+        }
+      } else {
+        console.log("[startup] SOL engine: no users with auto_trade_enabled \u2014 nothing to resume.");
+      }
+    } catch (err) {
+      console.error("[startup] SOL engine auto-resume error (non-fatal):", err?.message ?? err);
+    }
     const _cryptoRaw = String(process.env.ENABLE_CRYPTO_ENGINE ?? "").trim().toLowerCase();
     const _cryptoEnabled = ["true", "1", "yes", "on"].includes(_cryptoRaw);
     global.__cryptoEnvSeen = process.env.ENABLE_CRYPTO_ENGINE !== void 0;
