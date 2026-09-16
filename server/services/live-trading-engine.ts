@@ -1402,8 +1402,11 @@ async function scanMarkets(userId: number): Promise<void> {
     return;
   }
 
-  // Reset daily mind state metrics at UTC midnight
-  {
+  // Reset daily mind state metrics at UTC midnight.
+  // Guard on `ms`: this runs OUTSIDE the try below, so a restored/legacy state
+  // without mindState throwing here would leave currentlyScanning=true and
+  // permanently freeze FX scanning for this user (silent death, no crash).
+  if (ms) {
     const mindDate = new Date().toISOString().split('T')[0];
     if ((state as any)._mindStateResetDate !== mindDate) {
       (state as any)._mindStateResetDate = mindDate;
@@ -1422,8 +1425,8 @@ async function scanMarkets(userId: number): Promise<void> {
     }
   }
 
-  // Clean up expired soft-blocked pairs
-  for (const sym of Object.keys(ms.softBlockedPairs)) {
+  // Clean up expired soft-blocked pairs (ms-guarded — see note above)
+  if (ms) for (const sym of Object.keys(ms.softBlockedPairs)) {
     if (ms.softBlockedPairs[sym].until < Date.now()) {
       delete ms.softBlockedPairs[sym];
       addActivity(userId, { type: 'info', message: `✅ ${sym} soft-block expired — restored to normal confidence threshold.` });

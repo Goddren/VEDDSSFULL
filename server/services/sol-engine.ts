@@ -159,6 +159,7 @@ interface SolEngineState {
   currentPortfolioValue: number;
   shieldActive: boolean;
   scanTimer: NodeJS.Timeout | null;
+  isScanning: boolean; // in-flight guard — prevents overlapping/surge-triggered parallel scans
   lastResults: TokenAnalysis[];
   lastMacro: CryptoMacroContext | null;
   weeklyGoal: SolWeeklyGoal;
@@ -356,6 +357,12 @@ const DEFAULT_WEEKLY_GOAL: SolWeeklyGoal = {
 };
 
 const engineStates = new Map<number, SolEngineState>();
+// Synchronous guard against double-start: startSolEngine awaits DB work before it
+// registers the new state, so two concurrent cold starts (boot-resume racing a
+// user Start, or two API calls) could each build a separate state and each launch
+// a runScan loop — two permanent loops on orphaned state objects the in-flight
+// guard can't see. Reserve the userId synchronously for the duration of a start.
+const startingSolUsers = new Set<number>();
 
 // ── Encryption helpers for server wallet key ──────────────────────────────────
 function getEncryptionKey(): Buffer {
@@ -1089,6 +1096,7 @@ function createInitialState(config: SolEngineConfig): SolEngineState {
     currentPortfolioValue: 0,
     shieldActive: false,
     scanTimer: null,
+    isScanning: false,
     lastResults: [],
     lastMacro: null,
     weeklyGoal: { ...DEFAULT_WEEKLY_GOAL },
@@ -1847,6 +1855,14 @@ async function refreshServerWalletBalance(userId: number, state: SolEngineState)
 
 async function runScan(userId: number, state: SolEngineState, triggerToken?: string) {
   if (!state.isRunning) return;
+  // In-flight guard: a scan routinely outlives the 8s power-surge re-trigger and
+  // can outlast the adaptive interval, so overlapping runScan calls (surge, manual,
+  // or a double-start race) must NOT execute concurrently — they would mutate the
+  // same position/stats arrays across await points and, via the tail reschedule,
+  // spawn additional permanent steady loops that compound Sol's draw on the shared
+  // AI provider / Solana RPC / DB pool and starve the FX engine. Skip re-entry.
+  if (state.isScanning) return;
+  state.isScanning = true;
   try {
     // ── Reset daily trade counter at UTC midnight ────────────────────────────
     const todayUTC = new Date().toISOString().slice(0, 10); // YYYY-MM-DD
@@ -2275,18 +2291,27 @@ async function runScan(userId: number, state: SolEngineState, triggerToken?: str
       type: 'info',
       message: `⚠️ Interruption in the cipher: ${err instanceof Error ? err.message : 'unknown'}`,
     });
+  } finally {
+    state.isScanning = false;
   }
 
   // Periodic DB save — persist settings + stats after every scan
   saveEngineState(userId, state).catch(() => {});
 
   if (state.isRunning) {
+    // Single-timer invariant: clear any existing timer before arming a new one so
+    // a surge/orphaned invocation can never leave two steady loops running.
+    if (state.scanTimer) clearTimeout(state.scanTimer);
     const nextMs = getAdaptiveScanInterval(state.config);
     state.scanTimer = setTimeout(() => runScan(userId, state), nextMs);
   }
 }
 
 export async function startSolEngine(userId: number, config: Partial<SolEngineConfig> = {}): Promise<void> {
+  // Reject a concurrent start for the same user (see startingSolUsers note above).
+  if (startingSolUsers.has(userId)) return;
+  startingSolUsers.add(userId);
+  try {
   const existing = engineStates.get(userId);
   if (existing?.isRunning) stopSolEngine(userId);
 
@@ -2390,6 +2415,9 @@ export async function startSolEngine(userId: number, config: Partial<SolEngineCo
   });
 
   runScan(userId, state);
+  } finally {
+    startingSolUsers.delete(userId);
+  }
 }
 
 export function stopSolEngine(userId: number): void {

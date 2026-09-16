@@ -29484,7 +29484,7 @@ async function scanMarkets(userId) {
     state.currentlyScanning = false;
     return;
   }
-  {
+  if (ms) {
     const mindDate = (/* @__PURE__ */ new Date()).toISOString().split("T")[0];
     if (state._mindStateResetDate !== mindDate) {
       state._mindStateResetDate = mindDate;
@@ -29502,7 +29502,7 @@ async function scanMarkets(userId) {
       addActivity2(userId, { type: "info", message: "\u{1F305} New day \u2014 mind state reset. Session counters cleared, confidence floor restored." });
     }
   }
-  for (const sym of Object.keys(ms.softBlockedPairs)) {
+  if (ms) for (const sym of Object.keys(ms.softBlockedPairs)) {
     if (ms.softBlockedPairs[sym].until < Date.now()) {
       delete ms.softBlockedPairs[sym];
       addActivity2(userId, { type: "info", message: `\u2705 ${sym} soft-block expired \u2014 restored to normal confidence threshold.` });
@@ -41510,6 +41510,7 @@ function createInitialState(config) {
     currentPortfolioValue: 0,
     shieldActive: false,
     scanTimer: null,
+    isScanning: false,
     lastResults: [],
     lastMacro: null,
     weeklyGoal: { ...DEFAULT_WEEKLY_GOAL },
@@ -42096,6 +42097,8 @@ async function refreshServerWalletBalance(userId, state) {
 }
 async function runScan(userId, state, triggerToken) {
   if (!state.isRunning) return;
+  if (state.isScanning) return;
+  state.isScanning = true;
   try {
     const todayUTC = (/* @__PURE__ */ new Date()).toISOString().slice(0, 10);
     if (state.dailyTradeDate !== todayUTC) {
@@ -42428,95 +42431,104 @@ async function runScan(userId, state, triggerToken) {
       type: "info",
       message: `\u26A0\uFE0F Interruption in the cipher: ${err instanceof Error ? err.message : "unknown"}`
     });
+  } finally {
+    state.isScanning = false;
   }
   saveEngineState(userId, state).catch(() => {
   });
   if (state.isRunning) {
+    if (state.scanTimer) clearTimeout(state.scanTimer);
     const nextMs = getAdaptiveScanInterval2(state.config);
     state.scanTimer = setTimeout(() => runScan(userId, state), nextMs);
   }
 }
 async function startSolEngine(userId, config = {}) {
-  const existing = engineStates2.get(userId);
-  if (existing?.isRunning) stopSolEngine(userId);
-  const fullConfig = { ...DEFAULT_CONFIG4, ...config };
-  const state = createInitialState(fullConfig);
-  if (existing) {
-    state.weeklyGoal = existing.weeklyGoal;
-    state.activeStrategy = existing.activeStrategy;
-    state.activeStrategies = existing.activeStrategies;
-    state.signalWeights = existing.signalWeights;
-    state.kellyStats = existing.kellyStats;
-    state.sessionHighWatermark = existing.sessionHighWatermark;
-    state.currentPortfolioValue = existing.currentPortfolioValue;
-    state.shieldActive = existing.shieldActive;
-    state.autoTradeEnabled = existing.autoTradeEnabled;
-    state.liveTradeEnabled = existing.liveTradeEnabled;
-    state.paperPositions = existing.paperPositions;
-    state.closedPaperPositions = existing.closedPaperPositions;
-    state.livePositions = existing.livePositions;
-    state.closedLivePositions = existing.closedLivePositions;
-    state.pendingExits = existing.pendingExits || [];
-    state.autoTradeStats = existing.autoTradeStats;
-    state.autoTradeTP = existing.autoTradeTP;
-    state.autoTradeSL = existing.autoTradeSL;
-    state.serverWalletBalance = existing.serverWalletBalance;
-    state.lastWalletRefreshAt = existing.lastWalletRefreshAt;
-    state.dailyTradeCount = existing.dailyTradeCount;
-    state.dailyTradeDate = existing.dailyTradeDate;
-  } else {
-    await loadEngineStateFromDb(userId, state);
-  }
+  if (startingSolUsers.has(userId)) return;
+  startingSolUsers.add(userId);
   try {
-    const _res = await db.execute(
-      sql11`SELECT paper_base_capital, server_wallet_key FROM sol_engine_settings WHERE user_id = ${userId}`
-    );
-    const rows = Array.isArray(_res) ? _res : _res?.rows ?? [];
-    const paperBase = Number(rows?.[0]?.paper_base_capital ?? 0);
-    const hasServerWallet = !!rows?.[0]?.server_wallet_key;
-    if (paperBase > 0) {
-      state.paperBaseCapital = paperBase;
-      if (state.paperPortfolioValue <= 0) state.paperPortfolioValue = paperBase;
-      if (!hasServerWallet && state.currentPortfolioValue <= 0) state.currentPortfolioValue = paperBase;
+    const existing = engineStates2.get(userId);
+    if (existing?.isRunning) stopSolEngine(userId);
+    const fullConfig = { ...DEFAULT_CONFIG4, ...config };
+    const state = createInitialState(fullConfig);
+    if (existing) {
+      state.weeklyGoal = existing.weeklyGoal;
+      state.activeStrategy = existing.activeStrategy;
+      state.activeStrategies = existing.activeStrategies;
+      state.signalWeights = existing.signalWeights;
+      state.kellyStats = existing.kellyStats;
+      state.sessionHighWatermark = existing.sessionHighWatermark;
+      state.currentPortfolioValue = existing.currentPortfolioValue;
+      state.shieldActive = existing.shieldActive;
+      state.autoTradeEnabled = existing.autoTradeEnabled;
+      state.liveTradeEnabled = existing.liveTradeEnabled;
+      state.paperPositions = existing.paperPositions;
+      state.closedPaperPositions = existing.closedPaperPositions;
+      state.livePositions = existing.livePositions;
+      state.closedLivePositions = existing.closedLivePositions;
+      state.pendingExits = existing.pendingExits || [];
+      state.autoTradeStats = existing.autoTradeStats;
+      state.autoTradeTP = existing.autoTradeTP;
+      state.autoTradeSL = existing.autoTradeSL;
+      state.serverWalletBalance = existing.serverWalletBalance;
+      state.lastWalletRefreshAt = existing.lastWalletRefreshAt;
+      state.dailyTradeCount = existing.dailyTradeCount;
+      state.dailyTradeDate = existing.dailyTradeDate;
+    } else {
+      await loadEngineStateFromDb(userId, state);
     }
-  } catch (err) {
-    console.warn("[SolEngine] paper_base_capital restore failed (non-fatal):", err);
-  }
-  if (state.currentPortfolioValue <= 0) {
     try {
-      const [settings] = await db.select({ serverWalletKey: solEngineSettings.serverWalletKey, liveTradeEnabled: solEngineSettings.liveTradeEnabled }).from(solEngineSettings).where(eq15(solEngineSettings.userId, userId));
-      if (settings?.serverWalletKey) {
-        const privateKeyBase58 = decryptWalletKey(settings.serverWalletKey);
-        const { Keypair: Keypair2, Connection: Connection3 } = await import("@solana/web3.js");
-        const bs58 = (await import("bs58")).default;
-        const keypair = Keypair2.fromSecretKey(bs58.decode(privateKeyBase58));
-        const rpcUrl = process.env.SOLANA_RPC_URL || "https://mainnet.helius-rpc.com/?api-key=15319bf4-5b40-4958-ac8d-6313aa55eb92";
-        const connection2 = new Connection3(rpcUrl, { commitment: "confirmed" });
-        const lamports = await connection2.getBalance(keypair.publicKey);
-        const solBalance = lamports / 1e9;
-        if (solBalance > 0) {
-          state.currentPortfolioValue = solBalance;
-          state.liveTradeEnabled = settings?.liveTradeEnabled === true;
-          console.log(`[SolEngine] Portfolio auto-set from wallet on start: ${solBalance.toFixed(4)} SOL (live=${state.liveTradeEnabled})`);
-        }
+      const _res = await db.execute(
+        sql11`SELECT paper_base_capital, server_wallet_key FROM sol_engine_settings WHERE user_id = ${userId}`
+      );
+      const rows = Array.isArray(_res) ? _res : _res?.rows ?? [];
+      const paperBase = Number(rows?.[0]?.paper_base_capital ?? 0);
+      const hasServerWallet = !!rows?.[0]?.server_wallet_key;
+      if (paperBase > 0) {
+        state.paperBaseCapital = paperBase;
+        if (state.paperPortfolioValue <= 0) state.paperPortfolioValue = paperBase;
+        if (!hasServerWallet && state.currentPortfolioValue <= 0) state.currentPortfolioValue = paperBase;
       }
-    } catch {
+    } catch (err) {
+      console.warn("[SolEngine] paper_base_capital restore failed (non-fatal):", err);
     }
+    if (state.currentPortfolioValue <= 0) {
+      try {
+        const [settings] = await db.select({ serverWalletKey: solEngineSettings.serverWalletKey, liveTradeEnabled: solEngineSettings.liveTradeEnabled }).from(solEngineSettings).where(eq15(solEngineSettings.userId, userId));
+        if (settings?.serverWalletKey) {
+          const privateKeyBase58 = decryptWalletKey(settings.serverWalletKey);
+          const { Keypair: Keypair2, Connection: Connection3 } = await import("@solana/web3.js");
+          const bs58 = (await import("bs58")).default;
+          const keypair = Keypair2.fromSecretKey(bs58.decode(privateKeyBase58));
+          const rpcUrl = process.env.SOLANA_RPC_URL || "https://mainnet.helius-rpc.com/?api-key=15319bf4-5b40-4958-ac8d-6313aa55eb92";
+          const connection2 = new Connection3(rpcUrl, { commitment: "confirmed" });
+          const lamports = await connection2.getBalance(keypair.publicKey);
+          const solBalance = lamports / 1e9;
+          if (solBalance > 0) {
+            state.currentPortfolioValue = solBalance;
+            state.liveTradeEnabled = settings?.liveTradeEnabled === true;
+            console.log(`[SolEngine] Portfolio auto-set from wallet on start: ${solBalance.toFixed(4)} SOL (live=${state.liveTradeEnabled})`);
+          }
+        }
+      } catch {
+      }
+    }
+    state.isRunning = true;
+    engineStates2.set(userId, state);
+    const intervalSec = getAdaptiveScanInterval2(fullConfig) / 1e3;
+    const windowLabel = intervalSec === 30 ? "peak hours (13\u201320 UTC)" : intervalSec === 60 ? "standard hours" : "overnight / weekend";
+    const activeIds = state.activeStrategies.length > 0 ? state.activeStrategies : [state.activeStrategy];
+    const stratLabel = activeIds.map((id) => {
+      const s = SOL_STRATEGIES.find((x) => x.id === id);
+      return s ? `${s.icon}${s.name}` : id;
+    }).join(" + ");
+    addActivity3(state, {
+      type: "info",
+      message: `\u26A1 Peace \u2014 Sol cipher activated. ${stratLabel} in rotation, dropping knowledge every ${intervalSec}s (${windowLabel})`
+    });
+    runScan(userId, state);
+  } finally {
+    startingSolUsers.delete(userId);
   }
-  state.isRunning = true;
-  engineStates2.set(userId, state);
-  const intervalSec = getAdaptiveScanInterval2(fullConfig) / 1e3;
-  const windowLabel = intervalSec === 30 ? "peak hours (13\u201320 UTC)" : intervalSec === 60 ? "standard hours" : "overnight / weekend";
-  const activeIds = state.activeStrategies.length > 0 ? state.activeStrategies : [state.activeStrategy];
-  const stratLabel = activeIds.map((id) => {
-    const s = SOL_STRATEGIES.find((x) => x.id === id);
-    return s ? `${s.icon}${s.name}` : id;
-  }).join(" + ");
-  addActivity3(state, {
-    type: "info",
-    message: `\u26A1 Peace \u2014 Sol cipher activated. ${stratLabel} in rotation, dropping knowledge every ${intervalSec}s (${windowLabel})`
-  });
-  runScan(userId, state);
 }
 function stopSolEngine(userId) {
   const state = engineStates2.get(userId);
@@ -43058,7 +43070,7 @@ async function getServerWalletStatus(userId) {
     return { hasServerWallet: false };
   }
 }
-var SOL_BRAIN_ENABLED, SOL_BRAIN_GATING, SOL_CONFLUENCE_REQUIRED, SOL_COMPOSITE_FLOOR, SOL_CONFLUENCE_BONUS, SOL_MAX_HOLD_HOURS, SOL_MAX_HOLD_MS, DEX_NAMES, SOL_STRATEGIES, DEFAULT_CONFIG4, DEFAULT_WEEKLY_GOAL, engineStates2, PAPER_DEFAULT_PORTFOLIO_SOL;
+var SOL_BRAIN_ENABLED, SOL_BRAIN_GATING, SOL_CONFLUENCE_REQUIRED, SOL_COMPOSITE_FLOOR, SOL_CONFLUENCE_BONUS, SOL_MAX_HOLD_HOURS, SOL_MAX_HOLD_MS, DEX_NAMES, SOL_STRATEGIES, DEFAULT_CONFIG4, DEFAULT_WEEKLY_GOAL, engineStates2, startingSolUsers, PAPER_DEFAULT_PORTFOLIO_SOL;
 var init_sol_engine = __esm({
   "server/services/sol-engine.ts"() {
     "use strict";
@@ -43223,6 +43235,7 @@ var init_sol_engine = __esm({
       tradeHistory: []
     };
     engineStates2 = /* @__PURE__ */ new Map();
+    startingSolUsers = /* @__PURE__ */ new Set();
     PAPER_DEFAULT_PORTFOLIO_SOL = 10;
   }
 });
