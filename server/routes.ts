@@ -17823,8 +17823,18 @@ Format each recommendation as a clear, concise action item.`;
       const dayStart = new Date(); dayStart.setUTCHours(0, 0, 0, 0);
       const todayRows = closed.filter((t: any) => new Date(t.closedAt) >= dayStart);
 
+      // Cumulative P&L curve (chronological) for the dashboard header chart.
+      // `closed` is sorted newest-first; reverse to walk oldest→newest.
+      const _chrono = [...closed].reverse();
+      let _cum = 0;
+      const equityCurve = _chrono.map((t: any) => {
+        _cum += (t.profitLoss || 0);
+        return { t: t.closedAt, v: Math.round(_cum * 100) / 100 };
+      });
+
       res.json({
         overall: tally(closed),
+        equityCurve,
         bySource: { mt5: tally(mt5Rows), tradelocker: tally(tlRows) },
         tradelockerAccounts,
         propFirm: { accounts: propFirmAccounts, ...propFirmTally },

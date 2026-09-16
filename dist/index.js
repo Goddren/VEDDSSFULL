@@ -72035,8 +72035,15 @@ Format each recommendation as a clear, concise action item.`;
       const dayStart = /* @__PURE__ */ new Date();
       dayStart.setUTCHours(0, 0, 0, 0);
       const todayRows = closed.filter((t) => new Date(t.closedAt) >= dayStart);
+      const _chrono = [...closed].reverse();
+      let _cum = 0;
+      const equityCurve = _chrono.map((t) => {
+        _cum += t.profitLoss || 0;
+        return { t: t.closedAt, v: Math.round(_cum * 100) / 100 };
+      });
       res.json({
         overall: tally(closed),
+        equityCurve,
         bySource: { mt5: tally(mt5Rows), tradelocker: tally(tlRows) },
         tradelockerAccounts,
         propFirm: { accounts: propFirmAccounts, ...propFirmTally },

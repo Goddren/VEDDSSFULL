@@ -445,6 +445,86 @@ function DailyToDoCard() {
   );
 }
 
+// ── Account P&L header chart ─────────────────────────────────────────────────
+// Trading-focused hero: the first thing you see on the dashboard is the live
+// cumulative P&L across all connected accounts, styled to match the command
+// center. Pulls /api/trade-performance (same source as the performance page).
+function AccountPnlHeaderChart() {
+  const { data, isLoading } = useQuery<any>({
+    queryKey: ['/api/trade-performance'],
+    refetchInterval: 60_000, // keep it fresh as trades close
+  });
+
+  const curve: { t: string; v: number }[] = data?.equityCurve ?? [];
+  const totalPnl: number = data?.overall?.totalPnl ?? 0;
+  const todayPnl: number = data?.today?.totalPnl ?? 0;
+  const trades: number = data?.overall?.trades ?? 0;
+  const winRate: number = data?.overall?.winRate ?? 0;
+  const up = totalPnl >= 0;
+  const accent = up ? '#22c55e' : '#ef4444';
+  const accentSoft = up ? '#4ade80' : '#f87171';
+  const fmt = (n: number) => `${n < 0 ? '-' : ''}$${Math.abs(n).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+
+  return (
+    <div className="rounded-xl mb-3 overflow-hidden" style={{ border: '1px solid rgba(255,255,255,0.06)', background: 'linear-gradient(135deg,rgba(15,17,26,0.6),rgba(11,14,26,0.4))' }}>
+      <div className="px-4 pt-3 pb-2 flex items-start justify-between gap-3">
+        <div className="min-w-0">
+          <div className="flex items-center gap-2">
+            <span className="w-1.5 h-1.5 rounded-full flex-shrink-0" style={{ background: accent, boxShadow: `0 0 8px ${accent}` }} />
+            <p className="text-[10px] font-black uppercase tracking-wider text-gray-400">Account P&amp;L</p>
+          </div>
+          <div className="flex items-baseline gap-2 mt-1 flex-wrap">
+            <span className="text-2xl font-black leading-none" style={{ color: accentSoft }}>
+              {isLoading ? '—' : `${up ? '+' : ''}${fmt(totalPnl)}`}
+            </span>
+            <span className="text-[10px] font-bold px-2 py-0.5 rounded-full border"
+              style={{
+                color: todayPnl >= 0 ? '#4ade80' : '#f87171',
+                borderColor: todayPnl >= 0 ? 'rgba(34,197,94,0.35)' : 'rgba(239,68,68,0.35)',
+                background: todayPnl >= 0 ? 'rgba(34,197,94,0.1)' : 'rgba(239,68,68,0.1)',
+              }}>
+              Today {todayPnl >= 0 ? '+' : ''}{fmt(todayPnl)}
+            </span>
+          </div>
+        </div>
+        <div className="text-right flex-shrink-0">
+          <p className="text-[10px] text-gray-500">{trades} closed trades</p>
+          <p className="text-[11px] font-bold text-gray-300">{winRate}% win rate</p>
+        </div>
+      </div>
+      <div className="h-[96px] w-full">
+        {isLoading ? (
+          <div className="h-full w-full flex items-center justify-center text-[11px] text-gray-600">Loading P&amp;L…</div>
+        ) : curve.length < 2 ? (
+          <div className="h-full w-full flex items-center justify-center text-[11px] text-gray-600">
+            No closed trades yet — your P&amp;L curve appears here as trades close.
+          </div>
+        ) : (
+          <ResponsiveContainer width="100%" height="100%">
+            <AreaChart data={curve} margin={{ top: 4, right: 0, bottom: 0, left: 0 }}>
+              <defs>
+                <linearGradient id="pnlFill" x1="0" y1="0" x2="0" y2="1">
+                  <stop offset="0%" stopColor={accent} stopOpacity={0.35} />
+                  <stop offset="100%" stopColor={accent} stopOpacity={0} />
+                </linearGradient>
+              </defs>
+              <YAxis hide domain={['auto', 'auto']} />
+              <XAxis dataKey="t" hide />
+              <Tooltip
+                contentStyle={{ background: '#0b0e1a', border: '1px solid rgba(255,255,255,0.1)', borderRadius: 8, fontSize: 11 }}
+                labelStyle={{ color: '#9ca3af' }}
+                labelFormatter={(t: any) => new Date(t).toLocaleString()}
+                formatter={(v: any) => [`${Number(v) >= 0 ? '+' : ''}${fmt(Number(v))}`, 'Cumulative P&L']}
+              />
+              <Area type="monotone" dataKey="v" stroke={accent} strokeWidth={2} fill="url(#pnlFill)" isAnimationActive={false} />
+            </AreaChart>
+          </ResponsiveContainer>
+        )}
+      </div>
+    </div>
+  );
+}
+
 // ── Manual Trade Dialog ──────────────────────────────────────────────────────
 function ManualTradeDialog({ open, onClose, onSaved }: { open: boolean; onClose: () => void; onSaved: () => void }) {
   const [symbol, setSymbol] = useState('');
@@ -1290,6 +1370,9 @@ const Dashboard: React.FC = () => {
               </button>
             </div>
           </div>
+
+          {/* Account P&L — trading-focused hero chart, first thing you see */}
+          <AccountPnlHeaderChart />
 
           {/* Getting Started checklist — the first thing a brand-new user with
               zero connections sees, front and center instead of buried in
