@@ -41594,7 +41594,7 @@ function computeAutoSolSize(state, dex, overrideStrategy, mode = "live") {
   if (mode === "paper" && state.paperTradeSize > 0) return state.paperTradeSize;
   let portfolio;
   if (mode === "paper") {
-    portfolio = state.compoundMode && state.paperPortfolioValue > 0 ? state.paperPortfolioValue : state.currentPortfolioValue > 0 ? state.currentPortfolioValue : PAPER_DEFAULT_PORTFOLIO_SOL;
+    portfolio = state.compoundMode && state.paperPortfolioValue > 0 ? state.paperPortfolioValue : state.paperBaseCapital > 0 ? state.paperBaseCapital : state.paperPortfolioValue > 0 ? state.paperPortfolioValue : state.currentPortfolioValue > 0 ? state.currentPortfolioValue : PAPER_DEFAULT_PORTFOLIO_SOL;
   } else {
     portfolio = state.currentPortfolioValue;
   }
@@ -42493,8 +42493,8 @@ async function startSolEngine(userId, config = {}) {
         const solBalance = lamports / 1e9;
         if (solBalance > 0) {
           state.currentPortfolioValue = solBalance;
-          state.liveTradeEnabled = true;
-          console.log(`[SolEngine] Portfolio auto-set from wallet on start: ${solBalance.toFixed(4)} SOL`);
+          state.liveTradeEnabled = settings?.liveTradeEnabled === true;
+          console.log(`[SolEngine] Portfolio auto-set from wallet on start: ${solBalance.toFixed(4)} SOL (live=${state.liveTradeEnabled})`);
         }
       }
     } catch {

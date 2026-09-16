@@ -1179,12 +1179,21 @@ function computeAutoSolSize(state: SolEngineState, dex: string, overrideStrategy
 
   let portfolio: number;
   if (mode === 'paper') {
-    // Paper: prefer compound pool → live portfolio → default virtual pool
+    // Paper: size off the PAPER bankroll — never the live wallet balance.
+    // (currentPortfolioValue holds the server-wallet SOL, which is often just
+    // dust; using it here rounded every paper size to 0 → zero paper trades.)
+    // Priority: compounded pool (when compounding) → fixed paper base capital
+    // → compounded pool even when compounding is off → live portfolio (only if
+    // no paper capital is configured at all) → default virtual pool.
     portfolio = (state.compoundMode && state.paperPortfolioValue > 0)
       ? state.paperPortfolioValue
-      : state.currentPortfolioValue > 0
-        ? state.currentPortfolioValue
-        : PAPER_DEFAULT_PORTFOLIO_SOL;
+      : state.paperBaseCapital > 0
+        ? state.paperBaseCapital
+        : state.paperPortfolioValue > 0
+          ? state.paperPortfolioValue
+          : state.currentPortfolioValue > 0
+            ? state.currentPortfolioValue
+            : PAPER_DEFAULT_PORTFOLIO_SOL;
   } else {
     portfolio = state.currentPortfolioValue;
   }
@@ -2355,8 +2364,12 @@ export async function startSolEngine(userId: number, config: Partial<SolEngineCo
         const solBalance = lamports / 1e9;
         if (solBalance > 0) {
           state.currentPortfolioValue = solBalance;
-          state.liveTradeEnabled = true;
-          console.log(`[SolEngine] Portfolio auto-set from wallet on start: ${solBalance.toFixed(4)} SOL`);
+          // Respect the persisted live flag — do NOT silently flip live trading
+          // on just because the wallet holds SOL/dust. Boot-resume must honor
+          // the user's live_trade_enabled=false hold; live is only enabled via
+          // an explicit toggle (setAutoTrade) or wallet-connect (saveServerWallet).
+          state.liveTradeEnabled = settings?.liveTradeEnabled === true;
+          console.log(`[SolEngine] Portfolio auto-set from wallet on start: ${solBalance.toFixed(4)} SOL (live=${state.liveTradeEnabled})`);
         }
       }
     } catch { /* non-fatal */ }
