@@ -5069,12 +5069,15 @@ async function processDecision(userId: number, decision: any, newsCtx?: any): Pr
         [userId],
       )).rows;
       if (dxRows.length > 0) {
-        const { DxtradeService, decryptApiSecret, extractAccountCode, extractBalance, computeRiskQuantity } = await import('../dxtrade');
+        const { getDxtradeService, decryptApiSecret, extractAccountCode, extractBalance, computeRiskQuantity } = await import('../dxtrade');
         const dxSymbol = String(decision.symbol).replace(/\//g, '').toUpperCase();
         for (const dc of dxRows) {
           try {
-            const svc = new DxtradeService(dc.host, dc.username, decryptApiSecret(dc.encrypted_password), dc.domain);
-            await svc.login();
+            // Reuse a cached, already-authenticated session per connection instead
+            // of logging in fresh every signal — a per-signal login stampeded
+            // Velotrade's rate limit (429) and dropped ~99% of DXtrade auto orders.
+            const svc = getDxtradeService(dc.host, dc.username, decryptApiSecret(dc.encrypted_password), dc.domain, String(dc.id));
+            await svc.ensureLoggedIn();
             const acct = dc.account_code || extractAccountCode(await svc.getAccounts());
             if (!acct) { addActivity(userId, { type: 'error', symbol: decision.symbol, message: `DXtrade [conn ${dc.id}]: no account code — skipped.` }); continue; }
             // Per-connection prop-firm consistency (parity with TradeLocker). Reads

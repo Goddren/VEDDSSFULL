@@ -28263,7 +28263,8 @@ __export(dxtrade_exports, {
   dxBase: () => dxBase,
   encryptApiSecret: () => encryptApiSecret2,
   extractAccountCode: () => extractAccountCode,
-  extractBalance: () => extractBalance
+  extractBalance: () => extractBalance,
+  getDxtradeService: () => getDxtradeService
 });
 function extractAccountCode(usersSelf) {
   const ud = usersSelf?.userDetails;
@@ -28315,7 +28316,14 @@ function dxBase(host) {
   if (!/\/dxsca-web$/i.test(h)) h = `${h}/dxsca-web`;
   return h;
 }
-var DxtradeService;
+function getDxtradeService(host, username, password, domain, cacheKey) {
+  const hit = _dxServiceCache.get(cacheKey);
+  if (hit && Date.now() - hit.ts < DX_SVC_TTL_MS) return hit.svc;
+  const svc = new DxtradeService(host, username, password, domain);
+  _dxServiceCache.set(cacheKey, { svc, ts: Date.now() });
+  return svc;
+}
+var DxtradeService, _dxServiceCache, DX_SVC_TTL_MS;
 var init_dxtrade = __esm({
   "server/dxtrade.ts"() {
     "use strict";
@@ -28326,31 +28334,50 @@ var init_dxtrade = __esm({
       password;
       domain;
       token = null;
+      loginPromise = null;
       constructor(host, username, password, domain = "default") {
         this.base = dxBase(host);
         this.username = username;
         this.password = password;
         this.domain = domain || "default";
       }
-      /** Authenticate and cache the session token. Throws on failure. */
+      /** Authenticate and cache the session token. Throws on failure.
+       *  In-flight dedup: concurrent callers (a scan firing multiple pairs) share a
+       *  single /login round-trip so we don't stampede Velotrade's login rate limit
+       *  (dxsca returns 429 "Too many requests" on rapid repeat logins). */
       async login() {
-        const res = await fetch(`${this.base}/login`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json", "Accept": "application/json" },
-          body: JSON.stringify({ username: this.username, domain: this.domain, password: this.password }),
-          signal: AbortSignal.timeout(2e4)
-        });
-        const text2 = await res.text();
-        if (!res.ok) throw new Error(`DXtrade login ${res.status}: ${text2.slice(0, 200)}`);
-        let token = "";
+        if (this.loginPromise) return this.loginPromise;
+        this.loginPromise = (async () => {
+          const res = await fetch(`${this.base}/login`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json", "Accept": "application/json" },
+            body: JSON.stringify({ username: this.username, domain: this.domain, password: this.password }),
+            signal: AbortSignal.timeout(2e4)
+          });
+          const text2 = await res.text();
+          if (!res.ok) throw new Error(`DXtrade login ${res.status}: ${text2.slice(0, 200)}`);
+          let token = "";
+          try {
+            token = JSON.parse(text2)?.sessionToken || "";
+          } catch {
+          }
+          if (!token) token = res.headers.get("authorization")?.replace(/^DXAPI\s+/i, "") || "";
+          if (!token) throw new Error("DXtrade login succeeded but no sessionToken returned");
+          this.token = token;
+          return token;
+        })();
         try {
-          token = JSON.parse(text2)?.sessionToken || "";
-        } catch {
+          return await this.loginPromise;
+        } finally {
+          this.loginPromise = null;
         }
-        if (!token) token = res.headers.get("authorization")?.replace(/^DXAPI\s+/i, "") || "";
-        if (!token) throw new Error("DXtrade login succeeded but no sessionToken returned");
-        this.token = token;
-        return token;
+      }
+      /** Log in only if we don't already hold a session token. Combined with the
+       *  module-level service cache (getDxtradeService), this collapses the previous
+       *  "fresh login per signal" — which 429-rate-limited DXtrade off ~99% of auto
+       *  signals — down to ~one login per session; authed() re-logins on 401 expiry. */
+      async ensureLoggedIn() {
+        if (!this.token) await this.login();
       }
       async authed(path17, init = {}) {
         if (!this.token) await this.login();
@@ -28646,6 +28673,8 @@ var init_dxtrade = __esm({
         }
       }
     };
+    _dxServiceCache = /* @__PURE__ */ new Map();
+    DX_SVC_TTL_MS = 30 * 6e4;
   }
 });
 
@@ -32511,12 +32540,12 @@ async function processDecision(userId, decision, newsCtx) {
         [userId]
       )).rows;
       if (dxRows.length > 0) {
-        const { DxtradeService: DxtradeService2, decryptApiSecret: decryptApiSecret3, extractAccountCode: extractAccountCode2, extractBalance: extractBalance2, computeRiskQuantity: computeRiskQuantity2 } = await Promise.resolve().then(() => (init_dxtrade(), dxtrade_exports));
+        const { getDxtradeService: getDxtradeService2, decryptApiSecret: decryptApiSecret3, extractAccountCode: extractAccountCode2, extractBalance: extractBalance2, computeRiskQuantity: computeRiskQuantity2 } = await Promise.resolve().then(() => (init_dxtrade(), dxtrade_exports));
         const dxSymbol = String(decision.symbol).replace(/\//g, "").toUpperCase();
         for (const dc of dxRows) {
           try {
-            const svc = new DxtradeService2(dc.host, dc.username, decryptApiSecret3(dc.encrypted_password), dc.domain);
-            await svc.login();
+            const svc = getDxtradeService2(dc.host, dc.username, decryptApiSecret3(dc.encrypted_password), dc.domain, String(dc.id));
+            await svc.ensureLoggedIn();
             const acct = dc.account_code || extractAccountCode2(await svc.getAccounts());
             if (!acct) {
               addActivity2(userId, { type: "error", symbol: decision.symbol, message: `DXtrade [conn ${dc.id}]: no account code \u2014 skipped.` });

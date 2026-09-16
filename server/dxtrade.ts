@@ -82,6 +82,7 @@ export class DxtradeService {
   private password: string;
   private domain: string;
   private token: string | null = null;
+  private loginPromise: Promise<string> | null = null;
 
   constructor(host: string, username: string, password: string, domain = 'default') {
     this.base = dxBase(host);
@@ -90,22 +91,38 @@ export class DxtradeService {
     this.domain = domain || 'default';
   }
 
-  /** Authenticate and cache the session token. Throws on failure. */
+  /** Authenticate and cache the session token. Throws on failure.
+   *  In-flight dedup: concurrent callers (a scan firing multiple pairs) share a
+   *  single /login round-trip so we don't stampede Velotrade's login rate limit
+   *  (dxsca returns 429 "Too many requests" on rapid repeat logins). */
   async login(): Promise<string> {
-    const res = await fetch(`${this.base}/login`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
-      body: JSON.stringify({ username: this.username, domain: this.domain, password: this.password }),
-      signal: AbortSignal.timeout(20000),
-    });
-    const text = await res.text();
-    if (!res.ok) throw new Error(`DXtrade login ${res.status}: ${text.slice(0, 200)}`);
-    let token = '';
-    try { token = JSON.parse(text)?.sessionToken || ''; } catch { /* token may be header-only */ }
-    if (!token) token = res.headers.get('authorization')?.replace(/^DXAPI\s+/i, '') || '';
-    if (!token) throw new Error('DXtrade login succeeded but no sessionToken returned');
-    this.token = token;
-    return token;
+    if (this.loginPromise) return this.loginPromise;
+    this.loginPromise = (async () => {
+      const res = await fetch(`${this.base}/login`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
+        body: JSON.stringify({ username: this.username, domain: this.domain, password: this.password }),
+        signal: AbortSignal.timeout(20000),
+      });
+      const text = await res.text();
+      if (!res.ok) throw new Error(`DXtrade login ${res.status}: ${text.slice(0, 200)}`);
+      let token = '';
+      try { token = JSON.parse(text)?.sessionToken || ''; } catch { /* token may be header-only */ }
+      if (!token) token = res.headers.get('authorization')?.replace(/^DXAPI\s+/i, '') || '';
+      if (!token) throw new Error('DXtrade login succeeded but no sessionToken returned');
+      this.token = token;
+      return token;
+    })();
+    try { return await this.loginPromise; }
+    finally { this.loginPromise = null; }
+  }
+
+  /** Log in only if we don't already hold a session token. Combined with the
+   *  module-level service cache (getDxtradeService), this collapses the previous
+   *  "fresh login per signal" — which 429-rate-limited DXtrade off ~99% of auto
+   *  signals — down to ~one login per session; authed() re-logins on 401 expiry. */
+  async ensureLoggedIn(): Promise<void> {
+    if (!this.token) await this.login();
   }
 
   private async authed(path: string, init: RequestInit = {}): Promise<Response> {
@@ -387,4 +404,24 @@ export class DxtradeService {
       return { ok: false, error: e?.message ?? String(e) };
     }
   }
+}
+
+// ── Session cache ───────────────────────────────────────────────────────────
+// The live-trading auto-exec fan-out used to `new DxtradeService(...)` + login()
+// on EVERY signal. During an active scan (many pairs) that stampeded Velotrade's
+// /login rate limit → 429 "Too many requests" → the order was dropped, so DXtrade
+// fired on only ~1% of auto signals. Reuse one authenticated service per
+// connection instead; authed() self-heals an expired token via a single 401
+// re-login. Keyed by a caller-supplied stable id (the connection id).
+const _dxServiceCache = new Map<string, { svc: DxtradeService; ts: number }>();
+const DX_SVC_TTL_MS = 30 * 60_000; // recycle every 30 min as a safety valve
+
+export function getDxtradeService(
+  host: string, username: string, password: string, domain: string, cacheKey: string,
+): DxtradeService {
+  const hit = _dxServiceCache.get(cacheKey);
+  if (hit && Date.now() - hit.ts < DX_SVC_TTL_MS) return hit.svc;
+  const svc = new DxtradeService(host, username, password, domain);
+  _dxServiceCache.set(cacheKey, { svc, ts: Date.now() });
+  return svc;
 }
