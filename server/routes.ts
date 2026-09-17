@@ -17802,6 +17802,9 @@ Format each recommendation as a clear, concise action item.`;
             balance: live?.balance ?? 0,
             equity: live?.equity ?? 0,
             currency: live?.currency || 'USD',
+            openCount: live?.openPositions ?? 0,
+            // Live unrealized P&L on currently-open positions = equity − balance.
+            unrealizedPnl: (live?.equity != null && live?.balance != null) ? Math.round((live.equity - live.balance) * 100) / 100 : 0,
             isConnected: live ? (Date.now() - new Date(live.lastUpdated).getTime() < 120_000 && !live.error) : false,
             ...tally(rows),
           };
@@ -17845,11 +17848,20 @@ Format each recommendation as a clear, concise action item.`;
         return chrono.map((t: any) => { c += (t.profitLoss || 0); return { t: t.closedAt, v: Math.round(c * 100) / 100 }; });
       };
       const todayOf = (rows: any[]) => Math.round(rows.filter((t: any) => new Date(t.closedAt) >= dayStart).reduce((s, r) => s + (r.profitLoss || 0), 0) * 100) / 100;
+      // Append a live "now" point so the chart tip reflects currently-OPEN
+      // positions (realized cumulative + unrealized floating P&L). Marked live:true.
+      const withLivePoint = (curve: any[], unrealized: number) => {
+        if (!unrealized) return curve;
+        const last = curve.length > 0 ? curve[curve.length - 1].v : 0;
+        return [...curve, { t: new Date().toISOString(), v: Math.round((last + unrealized) * 100) / 100, live: true }];
+      };
       const accountCurves: any[] = [];
-      // MT5 (EA + copier fills share one MT5 terminal)
+      // MT5 (EA + copier fills share one MT5 terminal) — live open positions from cache
       const mt5Only = closed.filter((t: any) => t.source === 'mt5_ea' || t.source === 'mt5_copier');
       if (mt5Only.length > 0) {
-        accountCurves.push({ key: 'mt5', label: 'MT5', platform: 'MT5', isConnected: true, ...tally(mt5Only), todayPnl: todayOf(mt5Only), curve: curveOf(mt5Only) });
+        const mt5Open: any[] = (global as any).mt5OpenPositions?.[userId]?.positions || [];
+        const mt5Unreal = Math.round(mt5Open.reduce((s: number, p: any) => s + (p.profit || 0), 0) * 100) / 100;
+        accountCurves.push({ key: 'mt5', label: 'MT5', platform: 'MT5', isConnected: true, ...tally(mt5Only), todayPnl: todayOf(mt5Only), openCount: mt5Open.length, unrealizedPnl: mt5Unreal, curve: withLivePoint(curveOf(mt5Only), mt5Unreal) });
       }
       // TradeLocker — one per active connection (with the same legacy fold tally used)
       const _singleTL = tradelockerAccounts.length === 1;
@@ -17862,7 +17874,8 @@ Format each recommendation as a clear, concise action item.`;
           platform: 'TradeLocker', isPropFirm: a.isPropFirm, propFirmName: a.propFirmName,
           balance: a.balance, equity: a.equity, isConnected: a.isConnected,
           trades: a.trades, wins: a.wins, losses: a.losses, winRate: a.winRate, totalPnl: a.totalPnl,
-          todayPnl: todayOf(rows), curve: curveOf(rows),
+          openCount: a.openCount, unrealizedPnl: a.unrealizedPnl,
+          todayPnl: todayOf(rows), curve: withLivePoint(curveOf(rows), a.unrealizedPnl),
         });
       }
       // DXtrade — one per active connection

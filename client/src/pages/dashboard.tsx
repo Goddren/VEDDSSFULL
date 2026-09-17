@@ -471,11 +471,19 @@ function AccountPnlCard({ acct }: { acct: any }) {
         <div className="text-right flex-shrink-0">
           <div className="text-lg font-black leading-none" style={{ color: accentSoft }}>{up ? '+' : ''}{_pnlFmt(totalPnl)}</div>
           <p className="text-[9px] text-gray-500 mt-0.5">{acct.trades ?? 0} trades · {acct.winRate ?? 0}%</p>
+          {(acct.openCount ?? 0) > 0 && (
+            <p className="text-[9px] font-bold mt-0.5" style={{ color: (acct.unrealizedPnl ?? 0) >= 0 ? '#4ade80' : '#f87171' }}>
+              <span className="inline-block w-1.5 h-1.5 rounded-full mr-1 align-middle animate-pulse" style={{ background: (acct.unrealizedPnl ?? 0) >= 0 ? '#22c55e' : '#ef4444' }} />
+              {acct.openCount} open · {(acct.unrealizedPnl ?? 0) >= 0 ? '+' : ''}{_pnlFmt(acct.unrealizedPnl ?? 0)} live
+            </p>
+          )}
         </div>
       </div>
       <div className="h-[70px] w-full">
         {curve.length < 2 ? (
-          <div className="h-full w-full flex items-center justify-center text-[10px] text-gray-600">No closed trades yet</div>
+          <div className="h-full w-full flex items-center justify-center text-[10px] text-gray-600">
+            {(acct.openCount ?? 0) > 0 ? `${acct.openCount} open position${acct.openCount === 1 ? '' : 's'} — curve builds as trades close` : 'No closed trades yet'}
+          </div>
         ) : (
           <ResponsiveContainer width="100%" height="100%">
             <AreaChart data={curve} margin={{ top: 2, right: 0, bottom: 0, left: 0 }}>

@@ -72012,6 +72012,9 @@ Format each recommendation as a clear, concise action item.`;
             balance: live?.balance ?? 0,
             equity: live?.equity ?? 0,
             currency: live?.currency || "USD",
+            openCount: live?.openPositions ?? 0,
+            // Live unrealized P&L on currently-open positions = equity − balance.
+            unrealizedPnl: live?.equity != null && live?.balance != null ? Math.round((live.equity - live.balance) * 100) / 100 : 0,
             isConnected: live ? Date.now() - new Date(live.lastUpdated).getTime() < 12e4 && !live.error : false,
             ...tally(rows)
           };
@@ -72051,10 +72054,17 @@ Format each recommendation as a clear, concise action item.`;
         });
       };
       const todayOf = (rows) => Math.round(rows.filter((t) => new Date(t.closedAt) >= dayStart).reduce((s, r) => s + (r.profitLoss || 0), 0) * 100) / 100;
+      const withLivePoint = (curve, unrealized) => {
+        if (!unrealized) return curve;
+        const last = curve.length > 0 ? curve[curve.length - 1].v : 0;
+        return [...curve, { t: (/* @__PURE__ */ new Date()).toISOString(), v: Math.round((last + unrealized) * 100) / 100, live: true }];
+      };
       const accountCurves = [];
       const mt5Only = closed.filter((t) => t.source === "mt5_ea" || t.source === "mt5_copier");
       if (mt5Only.length > 0) {
-        accountCurves.push({ key: "mt5", label: "MT5", platform: "MT5", isConnected: true, ...tally(mt5Only), todayPnl: todayOf(mt5Only), curve: curveOf(mt5Only) });
+        const mt5Open = global.mt5OpenPositions?.[userId]?.positions || [];
+        const mt5Unreal = Math.round(mt5Open.reduce((s, p) => s + (p.profit || 0), 0) * 100) / 100;
+        accountCurves.push({ key: "mt5", label: "MT5", platform: "MT5", isConnected: true, ...tally(mt5Only), todayPnl: todayOf(mt5Only), openCount: mt5Open.length, unrealizedPnl: mt5Unreal, curve: withLivePoint(curveOf(mt5Only), mt5Unreal) });
       }
       const _singleTL = tradelockerAccounts.length === 1;
       for (const a of tradelockerAccounts) {
@@ -72073,8 +72083,10 @@ Format each recommendation as a clear, concise action item.`;
           losses: a.losses,
           winRate: a.winRate,
           totalPnl: a.totalPnl,
+          openCount: a.openCount,
+          unrealizedPnl: a.unrealizedPnl,
           todayPnl: todayOf(rows),
-          curve: curveOf(rows)
+          curve: withLivePoint(curveOf(rows), a.unrealizedPnl)
         });
       }
       try {
