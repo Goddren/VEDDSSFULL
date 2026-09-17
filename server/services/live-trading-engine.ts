@@ -5184,8 +5184,17 @@ async function processDecision(userId: number, decision: any, newsCtx?: any): Pr
                 addActivity(userId, { type: 'error', symbol: decision.symbol, message: `🚨 DXtrade [${acct}] ${dxSymbol}: could NOT verify fill (broker read failed). Emergency close ${_emClosed ? 'sent' : 'FAILED'} + flagged NEEDS_RECONCILE — CHECK Velotrade manually.` });
                 logDxtradeSkip(userId, dc.id, dxSymbol, 'verify_fill_failed', `emergency_close=${_emClosed ? 'sent' : 'FAILED'}`);
               } else {
-                // Confirmed clean empty portfolio → the order genuinely did not fill.
+                // Confirmed clean empty portfolio → the order genuinely did not fill
+                // (or the fill hasn't surfaced within the verify window). Persist the
+                // broker's ORDER RESPONSE — it's the single most diagnostic datum for
+                // why an executable symbol (e.g. EURUSD) drops here. Also send a
+                // best-effort close-by-symbol: a no-op if truly unfilled, but it
+                // prevents a late-appearing fill from becoming a naked, untracked
+                // position (the verifyError branch already does this).
+                let _lateClosed = false;
+                try { await svc.closePosition(acct, dxSymbol, _dxSide, qty); _lateClosed = true; } catch { /* no-op if nothing filled */ }
                 addActivity(userId, { type: 'error', symbol: decision.symbol, message: `DXtrade [${acct}] ${dxSymbol}: order did NOT fill — no position on the broker (likely rejected). Not recorded. Response: ${JSON.stringify(r?.result ?? r).slice(0, 140)}` });
+                logDxtradeSkip(userId, dc.id, dxSymbol, 'no_fill', `qty=${qty} side=${_dxSide} lateClose=${_lateClosed ? 'sent' : 'noop'} orderResp=${JSON.stringify(r?.result ?? r).slice(0, 380)}`);
               }
               continue;
             }

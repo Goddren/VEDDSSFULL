@@ -32649,7 +32649,14 @@ async function processDecision(userId, decision, newsCtx) {
                 addActivity2(userId, { type: "error", symbol: decision.symbol, message: `\u{1F6A8} DXtrade [${acct}] ${dxSymbol}: could NOT verify fill (broker read failed). Emergency close ${_emClosed ? "sent" : "FAILED"} + flagged NEEDS_RECONCILE \u2014 CHECK Velotrade manually.` });
                 logDxtradeSkip(userId, dc.id, dxSymbol, "verify_fill_failed", `emergency_close=${_emClosed ? "sent" : "FAILED"}`);
               } else {
+                let _lateClosed = false;
+                try {
+                  await svc.closePosition(acct, dxSymbol, _dxSide, qty);
+                  _lateClosed = true;
+                } catch {
+                }
                 addActivity2(userId, { type: "error", symbol: decision.symbol, message: `DXtrade [${acct}] ${dxSymbol}: order did NOT fill \u2014 no position on the broker (likely rejected). Not recorded. Response: ${JSON.stringify(r?.result ?? r).slice(0, 140)}` });
+                logDxtradeSkip(userId, dc.id, dxSymbol, "no_fill", `qty=${qty} side=${_dxSide} lateClose=${_lateClosed ? "sent" : "noop"} orderResp=${JSON.stringify(r?.result ?? r).slice(0, 380)}`);
               }
               continue;
             }
