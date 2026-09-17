@@ -863,6 +863,25 @@ function addActivity(userId: number, activity: Omit<LiveActivity, 'id' | 'timest
   if (state.activityLog.length > 100) state.activityLog = state.activityLog.slice(0, 100);
 }
 
+// Durable DXtrade skip/failure log. The engine's activityLog is in-memory only,
+// so when the DXtrade fan-out drops an order the reason is lost on restart and
+// can't be queried. Persist each skip/failure to dxtrade_skips so we can see
+// exactly why an executable signal (e.g. EURUSD) didn't reach Velotrade.
+let _dxSkipTableReady = false;
+async function logDxtradeSkip(userId: number, connId: number | null, symbol: string, stage: string, detail: string): Promise<void> {
+  try {
+    const { pool } = await import('../db');
+    if (!_dxSkipTableReady) {
+      await pool.query(`CREATE TABLE IF NOT EXISTS dxtrade_skips (id serial primary key, user_id int, connection_id int, symbol text, stage text, detail text, created_at timestamptz default now())`);
+      _dxSkipTableReady = true;
+    }
+    await pool.query(
+      `INSERT INTO dxtrade_skips (user_id, connection_id, symbol, stage, detail) VALUES ($1,$2,$3,$4,$5)`,
+      [userId, connId, symbol, stage, String(detail).slice(0, 500)],
+    );
+  } catch (_) { /* non-fatal — logging must never break trading */ }
+}
+
 function getDefaultConfig(userId: number): LiveEngineConfig {
   const persisted = persistedConfigOverrides[userId];
   return {
@@ -5099,11 +5118,11 @@ async function processDecision(userId: number, decision: any, newsCtx?: any): Pr
             // ── F3: FAIL CLOSED when the instrument spec is unavailable. Without it
             // the contract multiplier is unknown and computeRiskQuantity silently
             // defaults multiplier=1 → wildly mis-sized orders. Skip rather than guess.
-            if (!spec) { addActivity(userId, { type: 'error', symbol: decision.symbol, message: `DXtrade [conn ${dc.id}] ${dxSymbol}: instrument spec not found on Velotrade — skipped (cannot size safely without contract multiplier).` }); continue; }
+            if (!spec) { addActivity(userId, { type: 'error', symbol: decision.symbol, message: `DXtrade [conn ${dc.id}] ${dxSymbol}: instrument spec not found on Velotrade — skipped (cannot size safely without contract multiplier).` }); logDxtradeSkip(userId, dc.id, dxSymbol, 'no_instrument_spec', 'not tradable on Velotrade'); continue; }
             // ── F1: NEVER open a DXtrade position without a stop to attach. dxsca
             // ignores inline SL on the entry; we attach protection separately after
             // the fill (below), so a signal with no stop must not enter at all.
-            if (!(Number(stopLoss) > 0)) { addActivity(userId, { type: 'error', symbol: decision.symbol, message: `DXtrade [conn ${dc.id}] ${dxSymbol}: no valid stop loss on the signal — skipped (no naked DXtrade entries).` }); continue; }
+            if (!(Number(stopLoss) > 0)) { addActivity(userId, { type: 'error', symbol: decision.symbol, message: `DXtrade [conn ${dc.id}] ${dxSymbol}: no valid stop loss on the signal — skipped (no naked DXtrade entries).` }); logDxtradeSkip(userId, dc.id, dxSymbol, 'no_stop_loss', `stopLoss=${stopLoss}`); continue; }
             if (dc.use_risk_percent !== false && entryPrice && stopLoss) {
               const balance = extractBalance(await svc.getMetrics(acct).catch(() => null));
               if (balance) {
@@ -5115,6 +5134,7 @@ async function processDecision(userId: number, decision: any, newsCtx?: any): Pr
                 const _notional = qty * (entryPrice || 0);
                 if (balance > 0 && _notional > balance * 50) {
                   addActivity(userId, { type: 'error', symbol: decision.symbol, message: `DXtrade [conn ${dc.id}] ${dxSymbol}: computed qty ${qty} (~$${Math.round(_notional).toLocaleString()} notional) exceeds 50x balance — BLOCKED as a sizing safety cap. Check the instrument contract size.` });
+                  logDxtradeSkip(userId, dc.id, dxSymbol, 'notional_cap', `qty=${qty} notional=${Math.round(_notional)} balance=${balance}`);
                   continue;
                 }
               }
@@ -5130,7 +5150,7 @@ async function processDecision(userId: number, decision: any, newsCtx?: any): Pr
               qty = Math.max(0, Math.round(qty * 1e8) / 1e8);
               if (_dxConsistencyMult < 1) sizeLabel += ` · consistency ${Math.round(_dxConsistencyMult * 100)}%`;
             }
-            if (!(qty > 0)) { addActivity(userId, { type: 'error', symbol: decision.symbol, message: `DXtrade [conn ${dc.id}] ${dxSymbol}: could not risk-size (need balance + stop). Skipped — set a stop or check the symbol exists on Velotrade.` }); continue; }
+            if (!(qty > 0)) { addActivity(userId, { type: 'error', symbol: decision.symbol, message: `DXtrade [conn ${dc.id}] ${dxSymbol}: could not risk-size (need balance + stop). Skipped — set a stop or check the symbol exists on Velotrade.` }); logDxtradeSkip(userId, dc.id, dxSymbol, 'zero_qty', `qty=${qty} entry=${entryPrice} stop=${stopLoss} riskPct=${dc.risk_percent}`); continue; }
             // Open with a bare MARKET order (dxsca silently drops inline SL/TP legs).
             const r = await svc.placeOrder(acct, { instrument: dxSymbol, side: _dxSide, quantity: qty, type: 'MARKET' });
             // ── B1: VERIFY THE FILL — POLL, and NEVER equate "couldn't verify" with
@@ -5162,6 +5182,7 @@ async function processDecision(userId: number, decision: any, newsCtx?: any): Pr
                   await storage.createAiTradeResult({ userId, symbol: dxSymbol, direction: _dxSide, entryPrice: entryPrice || 0, exitPrice: 0, stopLoss: stopLoss || 0, takeProfit: takeProfit || 0, aiConfidence: adjustedConfidence || 0, result: 'NEEDS_RECONCILE', profitLoss: 0, source: 'dxtrade', connectionId: dc.id, mt5Ticket: _rcTicket, notes: `DXtrade fill UNVERIFIED (broker read failed) — emergency close ${_emClosed ? 'sent' : 'FAILED'}; verify on Velotrade` } as any);
                 } catch { /* record best-effort */ }
                 addActivity(userId, { type: 'error', symbol: decision.symbol, message: `🚨 DXtrade [${acct}] ${dxSymbol}: could NOT verify fill (broker read failed). Emergency close ${_emClosed ? 'sent' : 'FAILED'} + flagged NEEDS_RECONCILE — CHECK Velotrade manually.` });
+                logDxtradeSkip(userId, dc.id, dxSymbol, 'verify_fill_failed', `emergency_close=${_emClosed ? 'sent' : 'FAILED'}`);
               } else {
                 // Confirmed clean empty portfolio → the order genuinely did not fill.
                 addActivity(userId, { type: 'error', symbol: decision.symbol, message: `DXtrade [${acct}] ${dxSymbol}: order did NOT fill — no position on the broker (likely rejected). Not recorded. Response: ${JSON.stringify(r?.result ?? r).slice(0, 140)}` });
@@ -5214,12 +5235,14 @@ async function processDecision(userId: number, decision: any, newsCtx?: any): Pr
             }
           } catch (dxe: any) {
             addActivity(userId, { type: 'error', symbol: decision.symbol, message: `DXtrade [conn ${dc.id}] execution failed: ${dxe?.message ?? dxe}` });
+            logDxtradeSkip(userId, dc.id, dxSymbol, 'execution_error', String(dxe?.message ?? dxe));
           }
         }
       }
     } catch (dxOuter: any) {
       console.error('[live-engine] DXtrade routing error:', dxOuter?.message ?? dxOuter);
       addActivity(userId, { type: 'error', symbol: decision.symbol, message: `DXtrade routing error (no order placed): ${dxOuter?.message ?? dxOuter}` });
+      logDxtradeSkip(userId, null, String(decision.symbol), 'routing_error', String(dxOuter?.message ?? dxOuter));
     }
 
     // ── Multi-account TradeLocker execution ──────────────────────────────

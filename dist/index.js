@@ -29129,6 +29129,20 @@ function addActivity2(userId, activity) {
   state.activityLog.unshift(entry);
   if (state.activityLog.length > 100) state.activityLog = state.activityLog.slice(0, 100);
 }
+async function logDxtradeSkip(userId, connId, symbol, stage, detail) {
+  try {
+    const { pool: pool2 } = await Promise.resolve().then(() => (init_db(), db_exports));
+    if (!_dxSkipTableReady) {
+      await pool2.query(`CREATE TABLE IF NOT EXISTS dxtrade_skips (id serial primary key, user_id int, connection_id int, symbol text, stage text, detail text, created_at timestamptz default now())`);
+      _dxSkipTableReady = true;
+    }
+    await pool2.query(
+      `INSERT INTO dxtrade_skips (user_id, connection_id, symbol, stage, detail) VALUES ($1,$2,$3,$4,$5)`,
+      [userId, connId, symbol, stage, String(detail).slice(0, 500)]
+    );
+  } catch (_) {
+  }
+}
 function getDefaultConfig(userId) {
   const persisted = persistedConfigOverrides[userId];
   return {
@@ -32571,10 +32585,12 @@ async function processDecision(userId, decision, newsCtx) {
             const spec = await svc.getInstrument(dxSymbol);
             if (!spec) {
               addActivity2(userId, { type: "error", symbol: decision.symbol, message: `DXtrade [conn ${dc.id}] ${dxSymbol}: instrument spec not found on Velotrade \u2014 skipped (cannot size safely without contract multiplier).` });
+              logDxtradeSkip(userId, dc.id, dxSymbol, "no_instrument_spec", "not tradable on Velotrade");
               continue;
             }
             if (!(Number(stopLoss) > 0)) {
               addActivity2(userId, { type: "error", symbol: decision.symbol, message: `DXtrade [conn ${dc.id}] ${dxSymbol}: no valid stop loss on the signal \u2014 skipped (no naked DXtrade entries).` });
+              logDxtradeSkip(userId, dc.id, dxSymbol, "no_stop_loss", `stopLoss=${stopLoss}`);
               continue;
             }
             if (dc.use_risk_percent !== false && entryPrice && stopLoss) {
@@ -32586,6 +32602,7 @@ async function processDecision(userId, decision, newsCtx) {
                 const _notional = qty * (entryPrice || 0);
                 if (balance > 0 && _notional > balance * 50) {
                   addActivity2(userId, { type: "error", symbol: decision.symbol, message: `DXtrade [conn ${dc.id}] ${dxSymbol}: computed qty ${qty} (~$${Math.round(_notional).toLocaleString()} notional) exceeds 50x balance \u2014 BLOCKED as a sizing safety cap. Check the instrument contract size.` });
+                  logDxtradeSkip(userId, dc.id, dxSymbol, "notional_cap", `qty=${qty} notional=${Math.round(_notional)} balance=${balance}`);
                   continue;
                 }
               }
@@ -32600,6 +32617,7 @@ async function processDecision(userId, decision, newsCtx) {
             }
             if (!(qty > 0)) {
               addActivity2(userId, { type: "error", symbol: decision.symbol, message: `DXtrade [conn ${dc.id}] ${dxSymbol}: could not risk-size (need balance + stop). Skipped \u2014 set a stop or check the symbol exists on Velotrade.` });
+              logDxtradeSkip(userId, dc.id, dxSymbol, "zero_qty", `qty=${qty} entry=${entryPrice} stop=${stopLoss} riskPct=${dc.risk_percent}`);
               continue;
             }
             const r = await svc.placeOrder(acct, { instrument: dxSymbol, side: _dxSide, quantity: qty, type: "MARKET" });
@@ -32629,6 +32647,7 @@ async function processDecision(userId, decision, newsCtx) {
                 } catch {
                 }
                 addActivity2(userId, { type: "error", symbol: decision.symbol, message: `\u{1F6A8} DXtrade [${acct}] ${dxSymbol}: could NOT verify fill (broker read failed). Emergency close ${_emClosed ? "sent" : "FAILED"} + flagged NEEDS_RECONCILE \u2014 CHECK Velotrade manually.` });
+                logDxtradeSkip(userId, dc.id, dxSymbol, "verify_fill_failed", `emergency_close=${_emClosed ? "sent" : "FAILED"}`);
               } else {
                 addActivity2(userId, { type: "error", symbol: decision.symbol, message: `DXtrade [${acct}] ${dxSymbol}: order did NOT fill \u2014 no position on the broker (likely rejected). Not recorded. Response: ${JSON.stringify(r?.result ?? r).slice(0, 140)}` });
               }
@@ -32679,12 +32698,14 @@ async function processDecision(userId, decision, newsCtx) {
             }
           } catch (dxe) {
             addActivity2(userId, { type: "error", symbol: decision.symbol, message: `DXtrade [conn ${dc.id}] execution failed: ${dxe?.message ?? dxe}` });
+            logDxtradeSkip(userId, dc.id, dxSymbol, "execution_error", String(dxe?.message ?? dxe));
           }
         }
       }
     } catch (dxOuter) {
       console.error("[live-engine] DXtrade routing error:", dxOuter?.message ?? dxOuter);
       addActivity2(userId, { type: "error", symbol: decision.symbol, message: `DXtrade routing error (no order placed): ${dxOuter?.message ?? dxOuter}` });
+      logDxtradeSkip(userId, null, String(decision.symbol), "routing_error", String(dxOuter?.message ?? dxOuter));
     }
     const tlConnections = await storage.getUserTradelockerConnections(userId);
     const activeTLConnections = tlConnections.filter((c) => c.isActive);
@@ -33810,7 +33831,7 @@ function getModelLockStatus(userId) {
   if (!state) return { locked: false, openPositions: 0 };
   return { locked: state.modelLocked, openPositions: state.openPositionCount };
 }
-var FX_MAX_OPEN_PER_SYMBOL, FX_SYMBOL_COOLDOWN_MS, mt5AccountQueues, mt5AccountRegistry, engineStates, engineIntervals, engineTimers, brainLearningIntervals, positionMonitorIntervals, _monitorBusy, persistedConfigOverrides, goalTrackerCache, ALL_STRATEGY_KEYS, TRAIL_METHOD_LABELS, NY_TIME_FMT, INDEX_BROKER_ALIASES;
+var FX_MAX_OPEN_PER_SYMBOL, FX_SYMBOL_COOLDOWN_MS, mt5AccountQueues, mt5AccountRegistry, engineStates, engineIntervals, engineTimers, brainLearningIntervals, positionMonitorIntervals, _monitorBusy, persistedConfigOverrides, goalTrackerCache, ALL_STRATEGY_KEYS, _dxSkipTableReady, TRAIL_METHOD_LABELS, NY_TIME_FMT, INDEX_BROKER_ALIASES;
 var init_live_trading_engine = __esm({
   "server/services/live-trading-engine.ts"() {
     "use strict";
@@ -33860,6 +33881,7 @@ var init_live_trading_engine = __esm({
       "sunday_gap",
       "order_flow"
     ];
+    _dxSkipTableReady = false;
     TRAIL_METHOD_LABELS = {
       staged_volume: "Staged Volume Trail",
       chandelier: "Chandelier Exit (ATR-based)",
