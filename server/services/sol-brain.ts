@@ -165,6 +165,14 @@ export async function recordSolBrainOutcome(o: {
 }): Promise<void> {
   try {
     await ensureTable();
+    // Final safety net: never persist a mathematically impossible return (a spot
+    // long can't lose >100% or gain thousands of % between minute samples). A
+    // corrupt price print that slips past the monitor's spike filter must not
+    // poison the self-learning brain (the RAY +484,517% incident).
+    if (o.returnPct != null && (o.returnPct > 1000 || o.returnPct < -100)) {
+      console.warn(`[sol-brain] rejected impossible return ${o.returnPct}% for ${o.symbol} — not recorded (bad price data)`);
+      return;
+    }
     await pool.query(
       `INSERT INTO sol_brain_outcomes (user_id, symbol, strategy, direction, entry_confidence, return_pct, hour_utc, holding_minutes, exit_reason, result, profit_loss, source)
        VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,'live')`,

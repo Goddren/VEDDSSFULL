@@ -18,6 +18,17 @@ const SOL_CONFLUENCE_BONUS = 4;          // composite bonus per extra confirming
 // nothing can orphan indefinitely even if pricing fails. Override with env.
 const SOL_MAX_HOLD_HOURS = Number(process.env.SOL_MAX_HOLD_HOURS) || 12;
 const SOL_MAX_HOLD_MS = SOL_MAX_HOLD_HOURS * 60 * 60 * 1000;
+// Price-spike guard: reject a monitor price sample that implies an implausible
+// single-cycle jump vs the last good price. A corrupt DexScreener/Jupiter print
+// (e.g. RAY read ~4,900× entry) would otherwise fire a phantom TP and poison the
+// self-learning brain with an impossible return. 10× per ~30-120s sample is far
+// beyond any real move between two monitor cycles; cumulative gains across many
+// cycles are unaffected (each step just has to be < 10×).
+const MAX_PRICE_SPIKE = 10;
+function isBadPriceSample(next: number, lastGood: number): boolean {
+  if (!(next > 0) || !(lastGood > 0)) return false;
+  return next / lastGood > MAX_PRICE_SPIKE || lastGood / next > MAX_PRICE_SPIKE;
+}
 
 interface OpenPositionSummary {
   symbol: string;
@@ -1573,6 +1584,11 @@ async function monitorPaperPositions(userId: number, state: SolEngineState) {
   for (const pos of openPositions) {
     const currentPrice = priceMap[pos.mint];
     if (!currentPrice || currentPrice <= 0) continue;
+    // Reject a corrupt price print before it can trigger a phantom TP/SL.
+    if (isBadPriceSample(currentPrice, pos.currentPrice > 0 ? pos.currentPrice : pos.entryPrice)) {
+      addActivity(state, { type: 'info', message: `⚠️ ${pos.symbol}: bad price sample ignored ($${currentPrice} vs $${(pos.currentPrice > 0 ? pos.currentPrice : pos.entryPrice)}) — skipping this cycle` });
+      continue;
+    }
 
     pos.currentPrice = currentPrice;
     const gainPct = ((currentPrice - pos.entryPrice) / pos.entryPrice) * 100;
@@ -1768,6 +1784,12 @@ async function monitorLivePositions(userId: number, state: SolEngineState) {
 
     const currentPrice = priceMap[pos.mint];
     if (!currentPrice || currentPrice <= 0) continue;
+    // Reject a corrupt price print before it can trigger a phantom TP/SL or bank
+    // an impossible live P&L (the RAY +484,517% bug).
+    if (isBadPriceSample(currentPrice, pos.currentPrice > 0 ? pos.currentPrice : pos.entryPrice)) {
+      addActivity(state, { type: 'live_signal', message: `⚠️ ${pos.symbol}: bad price sample ignored ($${currentPrice} vs $${(pos.currentPrice > 0 ? pos.currentPrice : pos.entryPrice)}) — not acting this cycle` });
+      continue;
+    }
 
     pos.currentPrice = currentPrice;
     const gainPct = ((currentPrice - pos.entryPrice) / pos.entryPrice) * 100;

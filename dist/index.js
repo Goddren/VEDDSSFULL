@@ -40939,6 +40939,10 @@ function solBrainGate(userId, symbol, strategy, hourUtc) {
 async function recordSolBrainOutcome(o) {
   try {
     await ensureTable2();
+    if (o.returnPct != null && (o.returnPct > 1e3 || o.returnPct < -100)) {
+      console.warn(`[sol-brain] rejected impossible return ${o.returnPct}% for ${o.symbol} \u2014 not recorded (bad price data)`);
+      return;
+    }
     await pool.query(
       `INSERT INTO sol_brain_outcomes (user_id, symbol, strategy, direction, entry_confidence, return_pct, hour_utc, holding_minutes, exit_reason, result, profit_loss, source)
        VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,'live')`,
@@ -41003,6 +41007,10 @@ __export(sol_engine_exports, {
 });
 import { eq as eq15, sql as sql11 } from "drizzle-orm";
 import crypto13 from "crypto";
+function isBadPriceSample(next, lastGood) {
+  if (!(next > 0) || !(lastGood > 0)) return false;
+  return next / lastGood > MAX_PRICE_SPIKE || lastGood / next > MAX_PRICE_SPIKE;
+}
 function getEncryptionKey6() {
   const seed = (process.env.DATABASE_URL || "vedd-sol-engine-fallback") + "sol-v1";
   return crypto13.createHash("sha256").update(seed).digest();
@@ -41987,6 +41995,10 @@ async function monitorPaperPositions(userId, state) {
   for (const pos of openPositions) {
     const currentPrice = priceMap[pos.mint];
     if (!currentPrice || currentPrice <= 0) continue;
+    if (isBadPriceSample(currentPrice, pos.currentPrice > 0 ? pos.currentPrice : pos.entryPrice)) {
+      addActivity3(state, { type: "info", message: `\u26A0\uFE0F ${pos.symbol}: bad price sample ignored ($${currentPrice} vs $${pos.currentPrice > 0 ? pos.currentPrice : pos.entryPrice}) \u2014 skipping this cycle` });
+      continue;
+    }
     pos.currentPrice = currentPrice;
     const gainPct = (currentPrice - pos.entryPrice) / pos.entryPrice * 100;
     if (!pos.peakPrice || currentPrice > pos.peakPrice) {
@@ -42149,6 +42161,10 @@ async function monitorLivePositions(userId, state) {
     }
     const currentPrice = priceMap[pos.mint];
     if (!currentPrice || currentPrice <= 0) continue;
+    if (isBadPriceSample(currentPrice, pos.currentPrice > 0 ? pos.currentPrice : pos.entryPrice)) {
+      addActivity3(state, { type: "live_signal", message: `\u26A0\uFE0F ${pos.symbol}: bad price sample ignored ($${currentPrice} vs $${pos.currentPrice > 0 ? pos.currentPrice : pos.entryPrice}) \u2014 not acting this cycle` });
+      continue;
+    }
     pos.currentPrice = currentPrice;
     const gainPct = (currentPrice - pos.entryPrice) / pos.entryPrice * 100;
     if (!pos.peakPrice || currentPrice > pos.peakPrice) pos.peakPrice = currentPrice;
@@ -43215,7 +43231,7 @@ async function getServerWalletStatus(userId) {
     return { hasServerWallet: false };
   }
 }
-var SOL_BRAIN_ENABLED, SOL_BRAIN_GATING, SOL_CONFLUENCE_REQUIRED, SOL_COMPOSITE_FLOOR, SOL_CONFLUENCE_BONUS, SOL_MAX_HOLD_HOURS, SOL_MAX_HOLD_MS, DEX_NAMES, SOL_STRATEGIES, DEFAULT_CONFIG4, DEFAULT_WEEKLY_GOAL, engineStates2, startingSolUsers, PAPER_DEFAULT_PORTFOLIO_SOL;
+var SOL_BRAIN_ENABLED, SOL_BRAIN_GATING, SOL_CONFLUENCE_REQUIRED, SOL_COMPOSITE_FLOOR, SOL_CONFLUENCE_BONUS, SOL_MAX_HOLD_HOURS, SOL_MAX_HOLD_MS, MAX_PRICE_SPIKE, DEX_NAMES, SOL_STRATEGIES, DEFAULT_CONFIG4, DEFAULT_WEEKLY_GOAL, engineStates2, startingSolUsers, PAPER_DEFAULT_PORTFOLIO_SOL;
 var init_sol_engine = __esm({
   "server/services/sol-engine.ts"() {
     "use strict";
@@ -43230,6 +43246,7 @@ var init_sol_engine = __esm({
     SOL_CONFLUENCE_BONUS = 4;
     SOL_MAX_HOLD_HOURS = Number(process.env.SOL_MAX_HOLD_HOURS) || 12;
     SOL_MAX_HOLD_MS = SOL_MAX_HOLD_HOURS * 60 * 60 * 1e3;
+    MAX_PRICE_SPIKE = 10;
     DEX_NAMES = ["raydium", "orca", "meteora", "pumpfun", "jupiter"];
     SOL_STRATEGIES = [
       {
