@@ -27522,7 +27522,8 @@ async function processDecision(userId, decision, newsCtx) {
         source: "vedd_live_engine"
       });
       const openResults = await Promise.allSettled(
-        activeTLConnections.map(async (tlConn) => {
+        activeTLConnections.map(async (tlConn, _tlIdx) => {
+          if (_tlIdx > 0) await new Promise((r) => setTimeout(r, _tlIdx * 400));
           const _tlVal = await getTLAccountValue(userId, tlConn);
           const _tlAcctBal = _tlVal.balance > 0 ? _tlVal.balance : null;
           const _tlAcctEq = _tlVal.equity > 0 ? _tlVal.equity : _tlAcctBal;
@@ -27584,7 +27585,7 @@ async function processDecision(userId, decision, newsCtx) {
             acctLot = Math.max(0.01, Math.round(acctLot * _consistencyMult * 100) / 100);
             acctSizeLabel += ` \xB7 consistency ${Math.round(_consistencyMult * 100)}%`;
           }
-          const tradeResult = await executeMT5SignalOnTradeLocker(tlConn, {
+          let tradeResult = await executeMT5SignalOnTradeLocker(tlConn, {
             action: "OPEN",
             symbol: decision.symbol,
             direction: decision.direction,
@@ -27594,6 +27595,19 @@ async function processDecision(userId, decision, newsCtx) {
             takeProfit,
             orderType: resolvedOrderType
           });
+          if (!tradeResult.success && /(^|\D)429(\D|$)|1015|rate.?limit|banned you temporarily/i.test(String(tradeResult.error || ""))) {
+            await new Promise((r) => setTimeout(r, 8e3));
+            tradeResult = await executeMT5SignalOnTradeLocker(tlConn, {
+              action: "OPEN",
+              symbol: decision.symbol,
+              direction: decision.direction,
+              volume: acctLot,
+              entryPrice,
+              stopLoss,
+              takeProfit,
+              orderType: resolvedOrderType
+            });
+          }
           await storage.createTradelockerTradeLog({
             connectionId: tlConn.id,
             userId,

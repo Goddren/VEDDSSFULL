@@ -5361,7 +5361,15 @@ async function processDecision(userId: number, decision: any, newsCtx?: any): Pr
 
       // Execute on ALL active accounts in parallel
       const openResults = await Promise.allSettled(
-        activeTLConnections.map(async (tlConn: any) => {
+        activeTLConnections.map(async (tlConn: any, _tlIdx: number) => {
+          // Stagger the per-account order POSTs instead of firing them all in the
+          // same instant. Observed live (signal 2903, 07:03): the simultaneous
+          // burst of 4 orders (+ their auth/instrument lookups) tripped Cloudflare's
+          // per-IP rate limit on demo.tradelocker.com (Error 1015 "banned you
+          // temporarily") — account 1 filled, accounts 2-4 all failed the same
+          // second. ~400ms apart keeps the fan-out under the edge's burst threshold
+          // while the whole spread still completes in ~1.2s.
+          if (_tlIdx > 0) await new Promise(r => setTimeout(r, _tlIdx * 400));
           // Proportional copying: each TL account gets a lot scaled to its own value
           // relative to the reference (MT5/primary) account balance.
           // Live-fetches the TL account's balance+equity (cached 60s) so sizing
@@ -5455,7 +5463,7 @@ async function processDecision(userId: number, decision: any, newsCtx?: any): Pr
             acctSizeLabel += ` · consistency ${Math.round(_consistencyMult * 100)}%`;
           }
 
-          const tradeResult = await executeMT5SignalOnTradeLocker(tlConn, {
+          let tradeResult = await executeMT5SignalOnTradeLocker(tlConn, {
             action: 'OPEN',
             symbol: decision.symbol,
             direction: decision.direction,
@@ -5465,6 +5473,25 @@ async function processDecision(userId: number, decision: any, newsCtx?: any): Pr
             takeProfit,
             orderType: resolvedOrderType,
           });
+          // Cloudflare 1015 / HTTP 429 = the broker's EDGE rate-limited this IP —
+          // the order never reached the broker, so ONE delayed retry is
+          // duplicate-safe. Observed live (signal 2903, 07:03): all accounts fired
+          // at once, account 1 filled, the IP got banned, accounts 2-4 all failed
+          // the same second. Bounded to a single 8s backoff so a stale entry
+          // isn't chased for long; if the ban outlasts it, fail cleanly (logged).
+          if (!tradeResult.success && /(^|\D)429(\D|$)|1015|rate.?limit|banned you temporarily/i.test(String(tradeResult.error || ''))) {
+            await new Promise(r => setTimeout(r, 8000));
+            tradeResult = await executeMT5SignalOnTradeLocker(tlConn, {
+              action: 'OPEN',
+              symbol: decision.symbol,
+              direction: decision.direction,
+              volume: acctLot,
+              entryPrice,
+              stopLoss,
+              takeProfit,
+              orderType: resolvedOrderType,
+            });
+          }
 
           await storage.createTradelockerTradeLog({
             connectionId: tlConn.id,
