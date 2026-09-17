@@ -17832,9 +17832,54 @@ Format each recommendation as a clear, concise action item.`;
         return { t: t.closedAt, v: Math.round(_cum * 100) / 100 };
       });
 
+      // ── Per-account equity curves ────────────────────────────────────────────
+      // One cumulative-P&L series per LIVE account so the dashboard can show a
+      // chart per account (MT5, each TradeLocker connection, each DXtrade conn).
+      const curveOf = (rows: any[]) => {
+        const chrono = [...rows].sort((a, b) => new Date(a.closedAt).getTime() - new Date(b.closedAt).getTime());
+        let c = 0;
+        return chrono.map((t: any) => { c += (t.profitLoss || 0); return { t: t.closedAt, v: Math.round(c * 100) / 100 }; });
+      };
+      const accountCurves: any[] = [];
+      // MT5 (EA + copier fills share one MT5 terminal)
+      const mt5Only = closed.filter((t: any) => t.source === 'mt5_ea' || t.source === 'mt5_copier');
+      if (mt5Only.length > 0) {
+        accountCurves.push({ key: 'mt5', label: 'MT5', platform: 'MT5', isConnected: true, ...tally(mt5Only), curve: curveOf(mt5Only) });
+      }
+      // TradeLocker — one per active connection (with the same legacy fold tally used)
+      const _singleTL = tradelockerAccounts.length === 1;
+      for (const a of tradelockerAccounts) {
+        const rows = tlRows.filter((t: any) =>
+          (t.connectionId != null && t.connectionId === a.connectionId) || (_singleTL && t.connectionId == null));
+        accountCurves.push({
+          key: `tl_${a.connectionId}`,
+          label: a.brokerName + (a.accountId ? ` · ${a.accountId}` : ''),
+          platform: 'TradeLocker', isPropFirm: a.isPropFirm, propFirmName: a.propFirmName,
+          balance: a.balance, equity: a.equity, isConnected: a.isConnected,
+          trades: a.trades, wins: a.wins, losses: a.losses, winRate: a.winRate, totalPnl: a.totalPnl,
+          curve: curveOf(rows),
+        });
+      }
+      // DXtrade — one per active connection
+      try {
+        const { pool: _perfPool } = await import('./db');
+        const dxConns = (await _perfPool.query(
+          `SELECT id, account_code, label FROM dxtrade_connections WHERE user_id=$1 AND is_active=true`, [userId],
+        )).rows;
+        for (const dc of dxConns) {
+          const rows = closed.filter((t: any) => t.source === 'dxtrade' && t.connectionId === dc.id);
+          accountCurves.push({
+            key: `dx_${dc.id}`,
+            label: 'DXtrade' + (dc.label ? ` · ${dc.label}` : dc.account_code ? ` · ${dc.account_code}` : ''),
+            platform: 'DXtrade', isConnected: true, ...tally(rows), curve: curveOf(rows),
+          });
+        }
+      } catch (_) { /* non-fatal */ }
+
       res.json({
         overall: tally(closed),
         equityCurve,
+        accountCurves,
         bySource: { mt5: tally(mt5Rows), tradelocker: tally(tlRows) },
         tradelockerAccounts,
         propFirm: { accounts: propFirmAccounts, ...propFirmTally },

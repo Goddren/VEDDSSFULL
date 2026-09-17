@@ -72041,9 +72041,62 @@ Format each recommendation as a clear, concise action item.`;
         _cum += t.profitLoss || 0;
         return { t: t.closedAt, v: Math.round(_cum * 100) / 100 };
       });
+      const curveOf = (rows) => {
+        const chrono = [...rows].sort((a, b) => new Date(a.closedAt).getTime() - new Date(b.closedAt).getTime());
+        let c = 0;
+        return chrono.map((t) => {
+          c += t.profitLoss || 0;
+          return { t: t.closedAt, v: Math.round(c * 100) / 100 };
+        });
+      };
+      const accountCurves = [];
+      const mt5Only = closed.filter((t) => t.source === "mt5_ea" || t.source === "mt5_copier");
+      if (mt5Only.length > 0) {
+        accountCurves.push({ key: "mt5", label: "MT5", platform: "MT5", isConnected: true, ...tally(mt5Only), curve: curveOf(mt5Only) });
+      }
+      const _singleTL = tradelockerAccounts.length === 1;
+      for (const a of tradelockerAccounts) {
+        const rows = tlRows.filter((t) => t.connectionId != null && t.connectionId === a.connectionId || _singleTL && t.connectionId == null);
+        accountCurves.push({
+          key: `tl_${a.connectionId}`,
+          label: a.brokerName + (a.accountId ? ` \xB7 ${a.accountId}` : ""),
+          platform: "TradeLocker",
+          isPropFirm: a.isPropFirm,
+          propFirmName: a.propFirmName,
+          balance: a.balance,
+          equity: a.equity,
+          isConnected: a.isConnected,
+          trades: a.trades,
+          wins: a.wins,
+          losses: a.losses,
+          winRate: a.winRate,
+          totalPnl: a.totalPnl,
+          curve: curveOf(rows)
+        });
+      }
+      try {
+        const { pool: _perfPool } = await Promise.resolve().then(() => (init_db(), db_exports));
+        const dxConns = (await _perfPool.query(
+          `SELECT id, account_code, label FROM dxtrade_connections WHERE user_id=$1 AND is_active=true`,
+          [userId]
+        )).rows;
+        for (const dc of dxConns) {
+          const rows = closed.filter((t) => t.source === "dxtrade" && t.connectionId === dc.id);
+          accountCurves.push({
+            key: `dx_${dc.id}`,
+            label: "DXtrade" + (dc.label ? ` \xB7 ${dc.label}` : dc.account_code ? ` \xB7 ${dc.account_code}` : ""),
+            platform: "DXtrade",
+            isConnected: true,
+            ...tally(rows),
+            curve: curveOf(rows)
+          });
+        }
+      } catch (_) {
+      }
       res.json({
         overall: tally(closed),
         equityCurve,
+        accountCurves,
         bySource: { mt5: tally(mt5Rows), tradelocker: tally(tlRows) },
         tradelockerAccounts,
         propFirm: { accounts: propFirmAccounts, ...propFirmTally },
