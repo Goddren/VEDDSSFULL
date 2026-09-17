@@ -71977,7 +71977,7 @@ Format each recommendation as a clear, concise action item.`;
     syncDxtradeOutcomes(userId).catch(() => {
     });
     try {
-      const all = await storage.getAiTradeResults(userId, 500);
+      const all = await storage.getAiTradeResults(userId, 5e3);
       const closed = all.filter((t) => t.result && t.result !== "PENDING" && t.closedAt).sort((a, b) => new Date(b.closedAt).getTime() - new Date(a.closedAt).getTime());
       const tally = (rows) => {
         const wins = rows.filter((r) => r.result === "WIN").length;
@@ -71987,8 +71987,9 @@ Format each recommendation as a clear, concise action item.`;
         const decided = wins + losses;
         return { trades: rows.length, wins, losses, breakeven: be, winRate: decided > 0 ? Math.round(wins / decided * 100) : 0, totalPnl: pnl };
       };
-      const mt5Rows = closed.filter((t) => t.source !== "tradelocker");
-      const tlRows = closed.filter((t) => t.source === "tradelocker");
+      const isTLSource = (s) => s === "tradelocker" || s === "tradelocker_auto";
+      const mt5Rows = closed.filter((t) => t.source === "mt5_ea" || t.source === "mt5_copier");
+      const tlRows = closed.filter((t) => isTLSource(t.source));
       let tradelockerAccounts = [];
       try {
         const tlConns = (await storage.getUserTradelockerConnections(userId)).filter((c) => c.isActive);
@@ -72049,10 +72050,11 @@ Format each recommendation as a clear, concise action item.`;
           return { t: t.closedAt, v: Math.round(c * 100) / 100 };
         });
       };
+      const todayOf = (rows) => Math.round(rows.filter((t) => new Date(t.closedAt) >= dayStart).reduce((s, r) => s + (r.profitLoss || 0), 0) * 100) / 100;
       const accountCurves = [];
       const mt5Only = closed.filter((t) => t.source === "mt5_ea" || t.source === "mt5_copier");
       if (mt5Only.length > 0) {
-        accountCurves.push({ key: "mt5", label: "MT5", platform: "MT5", isConnected: true, ...tally(mt5Only), curve: curveOf(mt5Only) });
+        accountCurves.push({ key: "mt5", label: "MT5", platform: "MT5", isConnected: true, ...tally(mt5Only), todayPnl: todayOf(mt5Only), curve: curveOf(mt5Only) });
       }
       const _singleTL = tradelockerAccounts.length === 1;
       for (const a of tradelockerAccounts) {
@@ -72071,6 +72073,7 @@ Format each recommendation as a clear, concise action item.`;
           losses: a.losses,
           winRate: a.winRate,
           totalPnl: a.totalPnl,
+          todayPnl: todayOf(rows),
           curve: curveOf(rows)
         });
       }
@@ -72088,15 +72091,20 @@ Format each recommendation as a clear, concise action item.`;
             platform: "DXtrade",
             isConnected: true,
             ...tally(rows),
+            todayPnl: todayOf(rows),
             curve: curveOf(rows)
           });
         }
       } catch (_) {
       }
+      const accountsTotalPnl = Math.round(accountCurves.reduce((s, a) => s + (a.totalPnl || 0), 0) * 100) / 100;
+      const accountsTodayPnl = Math.round(accountCurves.reduce((s, a) => s + (a.todayPnl || 0), 0) * 100) / 100;
       res.json({
         overall: tally(closed),
         equityCurve,
         accountCurves,
+        accountsTotalPnl,
+        accountsTodayPnl,
         bySource: { mt5: tally(mt5Rows), tradelocker: tally(tlRows) },
         tradelockerAccounts,
         propFirm: { accounts: propFirmAccounts, ...propFirmTally },

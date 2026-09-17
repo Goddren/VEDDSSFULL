@@ -513,8 +513,10 @@ function AccountPnlHeaderChart() {
   });
 
   const accounts: any[] = data?.accountCurves ?? [];
-  const totalPnl: number = data?.overall?.totalPnl ?? 0;
-  const todayPnl: number = data?.today?.totalPnl ?? 0;
+  // Accounts-only totals so the header equals the sum of the account cards
+  // (falls back to overall if the server hasn't been redeployed yet).
+  const totalPnl: number = data?.accountsTotalPnl ?? data?.overall?.totalPnl ?? 0;
+  const todayPnl: number = data?.accountsTodayPnl ?? data?.today?.totalPnl ?? 0;
   const up = totalPnl >= 0;
   const accent = up ? '#22c55e' : '#ef4444';
   const accentSoft = up ? '#4ade80' : '#f87171';

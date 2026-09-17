@@ -17756,7 +17756,7 @@ Format each recommendation as a clear, concise action item.`;
     syncTradeLockerOutcomes(userId).catch(() => {}); // keep it auto-fed on any view
     syncDxtradeOutcomes(userId).catch(() => {}); // DXtrade parity — auto-fed on any view
     try {
-      const all = await storage.getAiTradeResults(userId, 500);
+      const all = await storage.getAiTradeResults(userId, 5000);
       const closed = all.filter((t: any) => t.result && t.result !== 'PENDING' && t.closedAt)
         .sort((a: any, b: any) => new Date(b.closedAt).getTime() - new Date(a.closedAt).getTime());
 
@@ -17769,8 +17769,12 @@ Format each recommendation as a clear, concise action item.`;
         return { trades: rows.length, wins, losses, breakeven: be, winRate: decided > 0 ? Math.round((wins / decided) * 100) : 0, totalPnl: pnl };
       };
 
-      const mt5Rows = closed.filter((t: any) => t.source !== 'tradelocker');
-      const tlRows  = closed.filter((t: any) => t.source === 'tradelocker');
+      // Source classification. TradeLocker auto-executed trades use source
+      // 'tradelocker_auto' (the bulk of prop-firm P&L) — they MUST count as
+      // TradeLocker, not fall into the mt5 catch-all. MT5 = EA + copier only.
+      const isTLSource = (s: string) => s === 'tradelocker' || s === 'tradelocker_auto';
+      const mt5Rows = closed.filter((t: any) => t.source === 'mt5_ea' || t.source === 'mt5_copier');
+      const tlRows  = closed.filter((t: any) => isTLSource(t.source));
 
       // ── Per-account TradeLocker breakdown (tied to prop-firm accounts) ────────
       let tradelockerAccounts: any[] = [];
@@ -17840,11 +17844,12 @@ Format each recommendation as a clear, concise action item.`;
         let c = 0;
         return chrono.map((t: any) => { c += (t.profitLoss || 0); return { t: t.closedAt, v: Math.round(c * 100) / 100 }; });
       };
+      const todayOf = (rows: any[]) => Math.round(rows.filter((t: any) => new Date(t.closedAt) >= dayStart).reduce((s, r) => s + (r.profitLoss || 0), 0) * 100) / 100;
       const accountCurves: any[] = [];
       // MT5 (EA + copier fills share one MT5 terminal)
       const mt5Only = closed.filter((t: any) => t.source === 'mt5_ea' || t.source === 'mt5_copier');
       if (mt5Only.length > 0) {
-        accountCurves.push({ key: 'mt5', label: 'MT5', platform: 'MT5', isConnected: true, ...tally(mt5Only), curve: curveOf(mt5Only) });
+        accountCurves.push({ key: 'mt5', label: 'MT5', platform: 'MT5', isConnected: true, ...tally(mt5Only), todayPnl: todayOf(mt5Only), curve: curveOf(mt5Only) });
       }
       // TradeLocker — one per active connection (with the same legacy fold tally used)
       const _singleTL = tradelockerAccounts.length === 1;
@@ -17857,7 +17862,7 @@ Format each recommendation as a clear, concise action item.`;
           platform: 'TradeLocker', isPropFirm: a.isPropFirm, propFirmName: a.propFirmName,
           balance: a.balance, equity: a.equity, isConnected: a.isConnected,
           trades: a.trades, wins: a.wins, losses: a.losses, winRate: a.winRate, totalPnl: a.totalPnl,
-          curve: curveOf(rows),
+          todayPnl: todayOf(rows), curve: curveOf(rows),
         });
       }
       // DXtrade — one per active connection
@@ -17871,15 +17876,22 @@ Format each recommendation as a clear, concise action item.`;
           accountCurves.push({
             key: `dx_${dc.id}`,
             label: 'DXtrade' + (dc.label ? ` · ${dc.label}` : dc.account_code ? ` · ${dc.account_code}` : ''),
-            platform: 'DXtrade', isConnected: true, ...tally(rows), curve: curveOf(rows),
+            platform: 'DXtrade', isConnected: true, ...tally(rows), todayPnl: todayOf(rows), curve: curveOf(rows),
           });
         }
       } catch (_) { /* non-fatal */ }
+
+      // Accounts-only totals so the header matches the sum of the account cards
+      // (excludes non-broker sources like kalshi/manual that have no account card).
+      const accountsTotalPnl = Math.round(accountCurves.reduce((s, a) => s + (a.totalPnl || 0), 0) * 100) / 100;
+      const accountsTodayPnl = Math.round(accountCurves.reduce((s, a) => s + (a.todayPnl || 0), 0) * 100) / 100;
 
       res.json({
         overall: tally(closed),
         equityCurve,
         accountCurves,
+        accountsTotalPnl,
+        accountsTodayPnl,
         bySource: { mt5: tally(mt5Rows), tradelocker: tally(tlRows) },
         tradelockerAccounts,
         propFirm: { accounts: propFirmAccounts, ...propFirmTally },
