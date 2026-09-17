@@ -103,6 +103,15 @@ export function calculateADX(candles: CandleData[], period: number = 14): Advanc
     smoothMinusDM = (smoothMinusDM * (period - 1) + minusDMList[i]) / period;
   }
 
+  // A dead ATR (0/NaN — malformed or flat candles) collapses every DI and DX to 0,
+  // which used to be returned as `{ value: 0, trend: 'WEAK' }`. Downstream that
+  // phantom zero read as a genuine "ranging market": it applied the 0.8 ADX penalty
+  // to every directional confidence, told the quant agent "ADX 0 ranging ✗", and
+  // fed `adx: {value: 0}` to the LLM — so the reasoning treated broken data as a
+  // real regime. Return undefined (callers already guard `if (advanced.adx)`) so
+  // a missing ADX is treated as MISSING, not as a market condition.
+  if (!(atr > 0)) return undefined;
+
   const plusDI = atr > 0 ? (smoothPlusDM / atr) * 100 : 0;
   const minusDI = atr > 0 ? (smoothMinusDM / atr) * 100 : 0;
   const dx = (plusDI + minusDI) > 0 ? Math.abs(plusDI - minusDI) / (plusDI + minusDI) * 100 : 0;

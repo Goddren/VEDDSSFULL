@@ -120,6 +120,30 @@ export function markTlUserActive(userId: number): void {
  * table MT5 trades land in — so the trade feed stays current with zero
  * manual entry. Dedup key mirrors MT5's mt5Ticket pattern: `tl_<accountId>_<positionId>`.
  */
+// ── Feed the SS AI engine's adaptive brain on TradeLocker closes ─────────────
+// recordTradeResult drives strategyPerformanceWeights, Kelly stats, the drawdown
+// shield, pnlToday (daily-loss / profit-target halts), pairDirectionLock, the
+// autonomous cool-offs and the adapted confidence floor. It was ONLY ever called
+// from the MT5 EA `closedTrades` post — TradeLocker closes (where execution
+// actually happens now) never reached it, so the whole adaptive loop sat frozen
+// at its initial state for TL-executed users. Session names mirror the engine's
+// enforcer keys ('Asian','London','New York','Late NY'). Dynamic import avoids a
+// circular dependency with live-trading-engine.
+async function _feedEngineBrain(userId: number, symbol: string, profit: number, direction?: string, closeTime?: string | Date): Promise<void> {
+  try {
+    const { recordTradeResult } = await import('./live-trading-engine');
+    const h = new Date(closeTime || Date.now()).getUTCHours();
+    const session = h < 7 ? 'Asian' : h < 13 ? 'London' : h < 20 ? 'New York' : 'Late NY';
+    recordTradeResult(userId, {
+      symbol: String(symbol || '').toUpperCase().replace('/', ''),
+      profit: Number(profit) || 0,
+      strategy: 'unknown',
+      session,
+      direction,
+    });
+  } catch (_) { /* non-fatal — learning must never break the sync */ }
+}
+
 async function syncTradeLockerTrades(userId: number, conn: any, svc: any): Promise<void> {
   const cacheKey = `${userId}:${conn.accountId}`;
   const openPositions = await svc.getPositionsNormalized().catch(() => [] as any[]);
@@ -187,6 +211,7 @@ async function syncTradeLockerTrades(userId: number, conn: any, svc: any): Promi
         // fresh one — so the Brain Dashboard reflects real TradeLocker outcomes
         // instead of silently dropping trades with no bot-opened PENDING match.
         await _recordOrBackfillConfirmationOutcome(userId, existing.symbol, existing.direction, result, match.closeTime);
+        await _feedEngineBrain(userId, existing.symbol, profit, existing.direction, match.closeTime);
       }
     }
   }
@@ -245,6 +270,7 @@ async function syncTradeLockerTrades(userId: number, conn: any, svc: any): Promi
             if (needsResolve) {
               await recordRealizedPnl(userId, conn.id, 'tradelocker', p, reconDateStr);
               await _recordOrBackfillConfirmationOutcome(userId, existing.symbol, existing.direction, reconResult, o.closeTime);
+              await _feedEngineBrain(userId, existing.symbol, p, existing.direction, o.closeTime);
             }
           }
           continue;
@@ -268,6 +294,7 @@ async function syncTradeLockerTrades(userId: number, conn: any, svc: any): Promi
         } as any).catch(() => {});
         await recordRealizedPnl(userId, conn.id, 'tradelocker', p, reconDateStr);
         await _recordOrBackfillConfirmationOutcome(userId, reconSymbol, reconDirection, reconResult, o.closeTime);
+        await _feedEngineBrain(userId, reconSymbol, p, reconDirection, o.closeTime);
       }
     } catch (err: any) {
       console.error(`[TL-sync] Outcome reconciliation failed for ${conn.accountId} (non-fatal):`, err?.message);

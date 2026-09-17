@@ -8753,7 +8753,13 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
       
       if (indicators && typeof indicators === 'object') {
         try {
-          const rsi = typeof indicators.rsi === 'number' ? indicators.rsi : null;
+          // RSI is only valid strictly inside (0,100). The EA has been posting a
+          // numeric `rsi: 0` (typical MT5 CopyBuffer failure) since ~2026-08-31 and
+          // the old `typeof === 'number'` check ACCEPTED it — 0 then read as
+          // "oversold" → +1.5 phantom BUY votes + a +10/-10 quant tilt on every scan,
+          // giving the whole confirmation a built-in long bias on noise. Treat any
+          // out-of-range value as missing so it can fall back to the server RSI.
+          const rsi = (typeof indicators.rsi === 'number' && indicators.rsi > 0 && indicators.rsi < 100) ? indicators.rsi : null;
           const macdMain = indicators.macd?.main;
           const macdSignal = indicators.macd?.signal;
           const macdHist = indicators.macd?.histogram;
@@ -8902,6 +8908,20 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
           // Advanced indicators (ADX, Stochastic, VWAP, OBV, Pivot Points, Fibonacci, S/R, Candle Patterns, Session Context)
           const { computeAllAdvancedIndicators } = await import('./indicators');
           advanced = computeAllAdvancedIndicators(candles, atr || 0, sanitizedSymbol, sanitizedTimeframe);
+
+          // Server-side RSI fallback. computeAllAdvancedIndicators already computes
+          // RSI from the candles (indicators.ts:1140) but it was never copied into
+          // analysis.indicators — so when the EA's RSI is missing/invalid (see the
+          // (0,100) guard above) the confirmation ran RSI-blind. Use the server
+          // value instead of dropping the feature, mapping to the same shape.
+          if (!analysis.indicators.rsi && advanced.rsi && Number.isFinite(advanced.rsi.value) && advanced.rsi.value > 0 && advanced.rsi.value < 100) {
+            const _srv = advanced.rsi.value;
+            const _status = advanced.rsi.trend === 'oversold' ? 'OVERSOLD' : advanced.rsi.trend === 'overbought' ? 'OVERBOUGHT' : (_srv > 50 ? 'BULLISH' : 'BEARISH');
+            const _signal = advanced.rsi.trend === 'oversold' ? 'BUY' : advanced.rsi.trend === 'overbought' ? 'SELL' : 'NEUTRAL';
+            analysis.indicators.rsi = { value: _srv, status: _status, signal: _signal, source: 'server' } as any;
+            if (_signal === 'BUY') { analysis.patterns.push('RSI Oversold (<30)'); analysis.alerts.push('RSI indicates oversold conditions'); }
+            if (_signal === 'SELL') { analysis.patterns.push('RSI Overbought (>70)'); analysis.alerts.push('RSI indicates overbought conditions'); }
+          }
 
           if (advanced.adx) {
             analysis.indicators.adx = advanced.adx;
@@ -10608,7 +10628,14 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
             // EA-passing) trades are unaffected — only the low-EA override path.
             const _isAiOverride = aiPasses && !eaPasses;
             const _alignedVotes = Number((aiConfirmation as any).alignedVotes ?? NaN);
-            const _strongGrade = ['A+', 'A', 'B'].includes(String(breakoutGrade || '').toUpperCase());
+            // `breakoutGrade`/`alignedVotes` are only set by getBreakoutConfirmation.
+            // In the default VISION path getAiVisionConfirmation returns
+            // `confluenceGrade` instead — so this read was always '' → _strongGrade
+            // false → EVERY AI-pass/EA-fail override was rejected as "weak confluence
+            // (Grade ?)", making the override structurally impossible and the A–D
+            // grade purely informational. Fall back to the vision confluence grade.
+            const _gradeSrc = breakoutGrade || (aiConfirmation as any).confluenceGrade || '';
+            const _strongGrade = ['A+', 'A', 'B'].includes(String(_gradeSrc).toUpperCase());
             const _enoughAligned = Number.isFinite(_alignedVotes) ? _alignedVotes >= 2 : _strongGrade;
             const overrideTooWeak = _isAiOverride && !(_strongGrade && _enoughAligned);
             // ── Advisory confluence override ──────────────────────────────
