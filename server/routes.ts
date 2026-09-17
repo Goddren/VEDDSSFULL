@@ -8389,7 +8389,35 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
           lastUpdated: new Date().toISOString(),
           broker: broker || 'Unknown',
         };
-        
+
+        // ── Reconcile stale mt5_copier PENDING rows ──────────────────────────
+        // MT5 reports OPEN positions with POSITION tickets but CLOSED trades with
+        // DEAL tickets, so close-by-ticket never matches and these open rows
+        // (source='mt5_copier', created here) pile up as PENDING forever (the real
+        // closed outcome is recorded separately as mt5_ea). A position that has
+        // dropped off the active open set is closed → remove the phantom row.
+        // Self-healing: a still-open position is re-created below on the next poll.
+        // Throttled to once / 10 min per user; 6h grace so we never race a fresh open.
+        try {
+          const _g = (global as any); _g._mt5CopierReconAt = _g._mt5CopierReconAt || {};
+          if (Date.now() - (_g._mt5CopierReconAt[token.userId] || 0) > 10 * 60_000) {
+            _g._mt5CopierReconAt[token.userId] = Date.now();
+            const activeTix = mergedPositions.map((p: any) => String(p.ticket)).filter(Boolean);
+            const { pool: _rp } = await import('./db');
+            if (activeTix.length > 0) {
+              await _rp.query(
+                `DELETE FROM ai_trade_results WHERE user_id=$1 AND source='mt5_copier' AND result='PENDING' AND created_at < now() - interval '6 hours' AND (mt5_ticket IS NULL OR mt5_ticket <> ALL($2::text[]))`,
+                [token.userId, activeTix],
+              );
+            } else {
+              await _rp.query(
+                `DELETE FROM ai_trade_results WHERE user_id=$1 AND source='mt5_copier' AND result='PENDING' AND created_at < now() - interval '6 hours'`,
+                [token.userId],
+              );
+            }
+          }
+        } catch (_reconErr) { /* non-fatal */ }
+
         // Auto-sync positions to AI trade results for reversal detection
         for (const pos of openPositions) {
           if (pos.symbol && pos.direction && pos.ticket) {

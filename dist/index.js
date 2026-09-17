@@ -63880,6 +63880,27 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
           lastUpdated: (/* @__PURE__ */ new Date()).toISOString(),
           broker: broker || "Unknown"
         };
+        try {
+          const _g = global;
+          _g._mt5CopierReconAt = _g._mt5CopierReconAt || {};
+          if (Date.now() - (_g._mt5CopierReconAt[token.userId] || 0) > 10 * 6e4) {
+            _g._mt5CopierReconAt[token.userId] = Date.now();
+            const activeTix = mergedPositions.map((p) => String(p.ticket)).filter(Boolean);
+            const { pool: _rp } = await Promise.resolve().then(() => (init_db(), db_exports));
+            if (activeTix.length > 0) {
+              await _rp.query(
+                `DELETE FROM ai_trade_results WHERE user_id=$1 AND source='mt5_copier' AND result='PENDING' AND created_at < now() - interval '6 hours' AND (mt5_ticket IS NULL OR mt5_ticket <> ALL($2::text[]))`,
+                [token.userId, activeTix]
+              );
+            } else {
+              await _rp.query(
+                `DELETE FROM ai_trade_results WHERE user_id=$1 AND source='mt5_copier' AND result='PENDING' AND created_at < now() - interval '6 hours'`,
+                [token.userId]
+              );
+            }
+          }
+        } catch (_reconErr) {
+        }
         for (const pos of openPositions) {
           if (pos.symbol && pos.direction && pos.ticket) {
             const ticketStr = pos.ticket.toString();
