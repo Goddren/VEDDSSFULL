@@ -1182,6 +1182,11 @@ export function recordTradeResult(userId: number, result: {
   if ((state as any)._pnlTodayDate !== todayDate) {
     (state as any)._pnlTodayDate = todayDate;
     state.pnlToday = 0;
+    // New day → yesterday's halts no longer apply (mirrors the scan-start rollover).
+    state.dailyProfitHalted = false;
+    state.dailyProfitHaltedAt = null;
+    state.dailyLossHalted = false;
+    state.dailyLossHaltedAt = null;
   }
   state.pnlToday = Math.round((state.pnlToday + result.profit) * 100) / 100;
   checkDailyLossLimit(userId);
@@ -1320,6 +1325,26 @@ async function scanMarkets(userId: number): Promise<void> {
     }
   }
 
+  // ── UTC day rollover: clear yesterday's halts ─────────────────────────────
+  // dailyProfitHalted / dailyLossHalted were only ever set back to false at
+  // engine creation, so a daily-profit-target hit, a consistency-% halt or a
+  // daily-loss halt silently stopped ALL scanning until the next redeploy.
+  // Roll the day here (scan start) as well as on trade close so the reset
+  // happens even when no trade closes overnight.
+  {
+    const _todayDate = new Date().toISOString().split('T')[0];
+    if ((state as any)._pnlTodayDate !== _todayDate) {
+      const _hadHalt = state.dailyProfitHalted || state.dailyLossHalted;
+      (state as any)._pnlTodayDate = _todayDate;
+      state.pnlToday = 0;
+      state.dailyProfitHalted = false;
+      state.dailyProfitHaltedAt = null;
+      state.dailyLossHalted = false;
+      state.dailyLossHaltedAt = null;
+      if (_hadHalt) addActivity(userId, { type: 'info', message: `🌅 New trading day (${_todayDate} UTC) — yesterday's daily halt cleared, scanning resumes.` });
+    }
+  }
+
   // ── Daily profit target — early exit before AI call ───────────────────────
   // checkDailyProfitTarget fires after trade close; this gate prevents new
   // signals from being generated when the target is already hit intra-scan.
@@ -1393,7 +1418,15 @@ async function scanMarkets(userId: number): Promise<void> {
     // A veteran trader gets MORE conservative near a finish line, not less —
     // fewer, higher-conviction trades once most of the target is already banked.
     if ((state.config.weeklyProfitTarget ?? 0) > 0 && consistencyRiskMultiplier === 1.0) {
-      const pctOfTarget = (totalProfitAllTime / state.config.weeklyProfitTarget) * 100;
+      // WEEKLY target → compare against the trailing 7 UTC days only. This used
+      // to divide by totalProfitAllTime (the whole restored ~20-day window), so a
+      // $4k weekly target vs $11.5k cumulative read as "289% of target" and
+      // pinned risk at 50% on every scan indefinitely (2026-09-17 audit).
+      const _weekCutoff = new Date(Date.now() - 7 * 86400000).toISOString().split('T')[0];
+      const weekProfit = Object.entries(state.challengeDailyPnL)
+        .filter(([d]) => d >= _weekCutoff)
+        .reduce((s, [, v]) => s + Math.max(0, v ?? 0), 0);
+      const pctOfTarget = (weekProfit / state.config.weeklyProfitTarget) * 100;
       if (pctOfTarget >= 80) {
         consistencyRiskMultiplier = 0.5;
         (state as any)._consistencyRiskOverride = consistencyRiskMultiplier;
@@ -5144,7 +5177,11 @@ async function processDecision(userId: number, decision: any, newsCtx?: any): Pr
                 // ── F3: hard notional backstop. Reject any size whose notional
                 // exceeds 50x balance — catches a units/lots or contract-size blowup
                 // (e.g. the 33k-unit incident) BEFORE it reaches the broker.
-                const _notional = qty * (entryPrice || 0);
+                // Notional in USD: qty × price is quote-currency notional (JPY for
+                // USDJPY), so apply the same quote→USD factor used for sizing —
+                // otherwise a correct 15k-unit USDJPY order (~$15k) read as ¥2.4M
+                // "> 50× a $10k balance" and was falsely blocked (2026-09-17).
+                const _notional = qty * (entryPrice || 0) * _q2usd;
                 if (balance > 0 && _notional > balance * 50) {
                   addActivity(userId, { type: 'error', symbol: decision.symbol, message: `DXtrade [conn ${dc.id}] ${dxSymbol}: computed qty ${qty} (~$${Math.round(_notional).toLocaleString()} notional) exceeds 50x balance — BLOCKED as a sizing safety cap. Check the instrument contract size.` });
                   logDxtradeSkip(userId, dc.id, dxSymbol, 'notional_cap', `qty=${qty} notional=${Math.round(_notional)} balance=${balance}`);

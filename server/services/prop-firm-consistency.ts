@@ -311,12 +311,26 @@ export async function getConsistencyStatus(
   // real prop-firm consistency ratio. An account can be "stuck" (a PAST big day
   // already exceeds the cap) even on a fresh day when today's ratio is tiny.
   let maxDayPnl = 0;
+  let maxDayDate: string | null = null;
+  let positiveDays = 0;
   for (const r of rows) {
     const pnl = typeof r.realized_pnl === 'number' ? r.realized_pnl : parseFloat(r.realized_pnl || '0');
-    if (isFinite(pnl) && pnl > maxDayPnl) maxDayPnl = pnl;
+    if (!isFinite(pnl)) continue;
+    if (pnl > 0) positiveDays++;
+    if (pnl > maxDayPnl) { maxDayPnl = pnl; maxDayDate = r.trade_date; }
   }
   const maxDayRatioPct = totalPositivePnl > 0 ? (maxDayPnl / totalPositivePnl) * 100 : 0;
-  const stuck = maxDayRatioPct > threshold; // a past day already breaches → can only pass by diluting
+  // A PAST day already breaches → can only pass by diluting. Two guards keep
+  // this from misfiring on young accounts (2026-09-17 audit):
+  //  • With fewer than ceil(100/threshold) green days the ratio is mathematically
+  //    forced above the cap (2 days → ≥50%), so "stuck" is meaningless there — a
+  //    brand-new account was hard-blocked after its first $2.70 of profit.
+  //  • When TODAY is the max day, dailyCap = 0.8×maxDay is below today by
+  //    construction → instant hard block whenever today becomes the new high.
+  //    Today-is-max is handled by the normal today/total taper+breach below.
+  const minDaysForRule = Math.ceil(100 / threshold);
+  const todayIsMax = maxDayDate === dateStr;
+  const stuck = maxDayRatioPct > threshold && positiveDays >= minDaysForRule && !todayIsMax;
 
   const taperStartPct = threshold * TAPER_START_FRACTION;
   let status: ConsistencyStatus = 'safe';

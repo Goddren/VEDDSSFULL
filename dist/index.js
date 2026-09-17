@@ -18996,12 +18996,21 @@ async function getConsistencyStatus(connectionId, connectionType, thresholdPct, 
   const todayPositive = Math.max(0, todayPnl);
   const ratioPct = totalPositivePnl > 0 ? todayPositive / totalPositivePnl * 100 : 0;
   let maxDayPnl = 0;
+  let maxDayDate = null;
+  let positiveDays = 0;
   for (const r of rows) {
     const pnl = typeof r.realized_pnl === "number" ? r.realized_pnl : parseFloat(r.realized_pnl || "0");
-    if (isFinite(pnl) && pnl > maxDayPnl) maxDayPnl = pnl;
+    if (!isFinite(pnl)) continue;
+    if (pnl > 0) positiveDays++;
+    if (pnl > maxDayPnl) {
+      maxDayPnl = pnl;
+      maxDayDate = r.trade_date;
+    }
   }
   const maxDayRatioPct = totalPositivePnl > 0 ? maxDayPnl / totalPositivePnl * 100 : 0;
-  const stuck = maxDayRatioPct > threshold;
+  const minDaysForRule = Math.ceil(100 / threshold);
+  const todayIsMax = maxDayDate === dateStr;
+  const stuck = maxDayRatioPct > threshold && positiveDays >= minDaysForRule && !todayIsMax;
   const taperStartPct = threshold * TAPER_START_FRACTION;
   let status = "safe";
   let sizeMultiplier = 1;
@@ -24140,6 +24149,10 @@ function recordTradeResult(userId, result) {
   if (state._pnlTodayDate !== todayDate) {
     state._pnlTodayDate = todayDate;
     state.pnlToday = 0;
+    state.dailyProfitHalted = false;
+    state.dailyProfitHaltedAt = null;
+    state.dailyLossHalted = false;
+    state.dailyLossHaltedAt = null;
   }
   state.pnlToday = Math.round((state.pnlToday + result.profit) * 100) / 100;
   checkDailyLossLimit(userId);
@@ -24241,6 +24254,19 @@ async function scanMarkets(userId) {
       });
     }
   }
+  {
+    const _todayDate = (/* @__PURE__ */ new Date()).toISOString().split("T")[0];
+    if (state._pnlTodayDate !== _todayDate) {
+      const _hadHalt = state.dailyProfitHalted || state.dailyLossHalted;
+      state._pnlTodayDate = _todayDate;
+      state.pnlToday = 0;
+      state.dailyProfitHalted = false;
+      state.dailyProfitHaltedAt = null;
+      state.dailyLossHalted = false;
+      state.dailyLossHaltedAt = null;
+      if (_hadHalt) addActivity(userId, { type: "info", message: `\u{1F305} New trading day (${_todayDate} UTC) \u2014 yesterday's daily halt cleared, scanning resumes.` });
+    }
+  }
   if (state.dailyProfitHalted || state.dailyLossHalted) {
     state.currentlyScanning = false;
     return;
@@ -24289,7 +24315,9 @@ async function scanMarkets(userId) {
       }
     }
     if ((state.config.weeklyProfitTarget ?? 0) > 0 && consistencyRiskMultiplier === 1) {
-      const pctOfTarget = totalProfitAllTime / state.config.weeklyProfitTarget * 100;
+      const _weekCutoff = new Date(Date.now() - 7 * 864e5).toISOString().split("T")[0];
+      const weekProfit = Object.entries(state.challengeDailyPnL).filter(([d]) => d >= _weekCutoff).reduce((s, [, v]) => s + Math.max(0, v ?? 0), 0);
+      const pctOfTarget = weekProfit / state.config.weeklyProfitTarget * 100;
       if (pctOfTarget >= 80) {
         consistencyRiskMultiplier = 0.5;
         state._consistencyRiskOverride = consistencyRiskMultiplier;
@@ -27342,7 +27370,7 @@ async function processDecision(userId, decision, newsCtx) {
                 const s = computeRiskQuantity2({ balance, riskPercent: Number(dc.risk_percent) || 1, entryPrice, stopPrice: stopLoss, instrument: spec, quoteToUsd: _q2usd });
                 qty = s.quantity;
                 sizeLabel = ` (risk ${dc.risk_percent}% of $${balance.toLocaleString()})`;
-                const _notional = qty * (entryPrice || 0);
+                const _notional = qty * (entryPrice || 0) * _q2usd;
                 if (balance > 0 && _notional > balance * 50) {
                   addActivity(userId, { type: "error", symbol: decision.symbol, message: `DXtrade [conn ${dc.id}] ${dxSymbol}: computed qty ${qty} (~$${Math.round(_notional).toLocaleString()} notional) exceeds 50x balance \u2014 BLOCKED as a sizing safety cap. Check the instrument contract size.` });
                   logDxtradeSkip(userId, dc.id, dxSymbol, "notional_cap", `qty=${qty} notional=${Math.round(_notional)} balance=${balance}`);

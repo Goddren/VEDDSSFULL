@@ -6452,6 +6452,7 @@ function calculateADX(candles, period = 14) {
     smoothPlusDM = (smoothPlusDM * (period - 1) + plusDMList[i]) / period;
     smoothMinusDM = (smoothMinusDM * (period - 1) + minusDMList[i]) / period;
   }
+  if (!(atr > 0)) return void 0;
   const plusDI = atr > 0 ? smoothPlusDM / atr * 100 : 0;
   const minusDI = atr > 0 ? smoothMinusDM / atr * 100 : 0;
   const dx = plusDI + minusDI > 0 ? Math.abs(plusDI - minusDI) / (plusDI + minusDI) * 100 : 0;
