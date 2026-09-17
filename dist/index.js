@@ -23036,15 +23036,16 @@ function pickNum(obj, keys) {
 }
 function computeRiskQuantity(opts) {
   const { balance, riskPercent, entryPrice, stopPrice, instrument } = opts;
+  const quoteToUsd = Number(opts.quoteToUsd) > 0 ? Number(opts.quoteToUsd) : 1;
   const riskAmount = balance * (riskPercent / 100);
   const stopDistance = Math.abs(entryPrice - stopPrice);
   const multiplier = Number(instrument?.multiplier) > 0 ? Number(instrument.multiplier) : 1;
   const incr = Number(instrument?.quantityIncrement) > 0 ? Number(instrument.quantityIncrement) : Number(instrument?.lotSize) > 0 ? Number(instrument.lotSize) : 0;
   if (!(stopDistance > 0) || !(riskAmount > 0)) return { quantity: 0, riskAmount, stopDistance, note: "need a valid balance, risk% and stop distance" };
-  let qty = riskAmount / (stopDistance * multiplier);
+  let qty = riskAmount / (stopDistance * multiplier * quoteToUsd);
   if (incr > 0) qty = Math.floor(qty / incr) * incr;
   qty = Math.max(0, Math.round(qty * 1e8) / 1e8);
-  return { quantity: qty, riskAmount, stopDistance, note: `risk $${riskAmount.toFixed(2)} \xF7 (stop ${stopDistance} \xD7 mult ${multiplier})${incr ? ` snapped to ${incr}` : ""}` };
+  return { quantity: qty, riskAmount, stopDistance, note: `risk $${riskAmount.toFixed(2)} \xF7 (stop ${stopDistance} \xD7 mult ${multiplier} \xD7 quote\u2192USD ${quoteToUsd.toFixed(5)})${incr ? ` snapped to ${incr}` : ""}` };
 }
 function dxBase(host) {
   let h = (host || "").trim().replace(/\/+$/, "");
@@ -27332,7 +27333,13 @@ async function processDecision(userId, decision, newsCtx) {
             if (dc.use_risk_percent !== false && entryPrice && stopLoss) {
               const balance = extractBalance2(await svc.getMetrics(acct).catch(() => null));
               if (balance) {
-                const s = computeRiskQuantity2({ balance, riskPercent: Number(dc.risk_percent) || 1, entryPrice, stopPrice: stopLoss, instrument: spec });
+                let _q2usd = 1;
+                if (dxSymbol.toUpperCase().endsWith("JPY")) {
+                  const _mkt = state._lastMarketAnalysis || {};
+                  const _usdjpy = dxSymbol.toUpperCase() === "USDJPY" ? entryPrice : Number(_mkt["USDJPY"]?.price) || 0;
+                  _q2usd = _usdjpy > 0 ? 1 / _usdjpy : 1 / 100;
+                }
+                const s = computeRiskQuantity2({ balance, riskPercent: Number(dc.risk_percent) || 1, entryPrice, stopPrice: stopLoss, instrument: spec, quoteToUsd: _q2usd });
                 qty = s.quantity;
                 sizeLabel = ` (risk ${dc.risk_percent}% of $${balance.toLocaleString()})`;
                 const _notional = qty * (entryPrice || 0);

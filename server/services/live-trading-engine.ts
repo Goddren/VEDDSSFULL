@@ -5126,7 +5126,20 @@ async function processDecision(userId: number, decision: any, newsCtx?: any): Pr
             if (dc.use_risk_percent !== false && entryPrice && stopLoss) {
               const balance = extractBalance(await svc.getMetrics(acct).catch(() => null));
               if (balance) {
-                const s = computeRiskQuantity({ balance, riskPercent: Number(dc.risk_percent) || 1, entryPrice, stopPrice: stopLoss, instrument: spec });
+                // Quote→USD factor so JPY-quoted pairs size correctly (USDJPY was
+                // sizing to 199 units — ~155x too small — because the yen stop
+                // distance was divided into a USD risk amount as if it were USD).
+                // USD-quoted pairs → 1. JPY: for USDJPY the rate IS the entry price;
+                // for XXXJPY crosses read the live USDJPY price from the engine's
+                // own market data; if unavailable, assume a LOW USDJPY (100) which
+                // UNDER-sizes — the safe direction.
+                let _q2usd = 1;
+                if (dxSymbol.toUpperCase().endsWith('JPY')) {
+                  const _mkt = (state as any)._lastMarketAnalysis || {};
+                  const _usdjpy = dxSymbol.toUpperCase() === 'USDJPY' ? entryPrice : (Number(_mkt['USDJPY']?.price) || 0);
+                  _q2usd = _usdjpy > 0 ? 1 / _usdjpy : 1 / 100;
+                }
+                const s = computeRiskQuantity({ balance, riskPercent: Number(dc.risk_percent) || 1, entryPrice, stopPrice: stopLoss, instrument: spec, quoteToUsd: _q2usd });
                 qty = s.quantity; sizeLabel = ` (risk ${dc.risk_percent}% of $${balance.toLocaleString()})`;
                 // ── F3: hard notional backstop. Reject any size whose notional
                 // exceeds 50x balance — catches a units/lots or contract-size blowup

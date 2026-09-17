@@ -54,18 +54,26 @@ function pickNum(obj: any, keys: string[]): number | null {
  *  instrument's quantity increment. Returns the qty + a breakdown for review. */
 export function computeRiskQuantity(opts: {
   balance: number; riskPercent: number; entryPrice: number; stopPrice: number; instrument: any;
+  /** USD value of ONE unit of the pair's QUOTE currency (1 for USD-quoted pairs;
+   *  1/USDJPY for JPY-quoted). riskAmount is in the account currency (USD) but
+   *  stopDistance is in the quote currency, so without this the JPY pairs were
+   *  sized ~155x too small (USDJPY → qty 199 instead of ~30k; below the broker
+   *  minimum, so the order was accepted then never filled). Defaults to 1. */
+  quoteToUsd?: number;
 }): { quantity: number; riskAmount: number; stopDistance: number; note: string } {
   const { balance, riskPercent, entryPrice, stopPrice, instrument } = opts;
+  const quoteToUsd = Number(opts.quoteToUsd) > 0 ? Number(opts.quoteToUsd) : 1;
   const riskAmount = balance * (riskPercent / 100);
   const stopDistance = Math.abs(entryPrice - stopPrice);
   const multiplier = Number(instrument?.multiplier) > 0 ? Number(instrument.multiplier) : 1;
   const incr = Number(instrument?.quantityIncrement) > 0 ? Number(instrument.quantityIncrement)
     : (Number(instrument?.lotSize) > 0 ? Number(instrument.lotSize) : 0);
   if (!(stopDistance > 0) || !(riskAmount > 0)) return { quantity: 0, riskAmount, stopDistance, note: 'need a valid balance, risk% and stop distance' };
-  let qty = riskAmount / (stopDistance * multiplier);
+  // riskUSD = qty × stopDistance(quote) × quoteToUsd  →  qty = riskUSD / (stop × quoteToUsd × mult)
+  let qty = riskAmount / (stopDistance * multiplier * quoteToUsd);
   if (incr > 0) qty = Math.floor(qty / incr) * incr;      // snap down to increment
   qty = Math.max(0, Math.round(qty * 1e8) / 1e8);
-  return { quantity: qty, riskAmount, stopDistance, note: `risk $${riskAmount.toFixed(2)} ÷ (stop ${stopDistance} × mult ${multiplier})${incr ? ` snapped to ${incr}` : ''}` };
+  return { quantity: qty, riskAmount, stopDistance, note: `risk $${riskAmount.toFixed(2)} ÷ (stop ${stopDistance} × mult ${multiplier} × quote→USD ${quoteToUsd.toFixed(5)})${incr ? ` snapped to ${incr}` : ''}` };
 }
 
 /** Normalize a host into the dxsca-web base URL (no trailing slash). */
