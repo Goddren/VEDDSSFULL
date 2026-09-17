@@ -17664,13 +17664,21 @@ Format each recommendation as a clear, concise action item.`;
         [userId],
       )).rows;
       if (!rows.length) return 0;
-      const { DxtradeService, decryptApiSecret, extractAccountCode } = await import('./dxtrade');
+      const { getDxtradeService, decryptApiSecret, extractAccountCode } = await import('./dxtrade');
       const { recordRealizedPnl } = await import('./services/prop-firm-consistency');
-      const fromMs = Date.now() - 7 * 24 * 3600 * 1000; // last 7 days
+      // 30-day lookback (was 7). Positions that closed >7 days after this sync last
+      // saw them fell outside the window and were stuck PENDING forever (3 rows from
+      // 09-07/09-09). Bounded by the 30-min throttle + ticket dedup, so widening is cheap.
+      const fromMs = Date.now() - 30 * 24 * 3600 * 1000;
       for (const dc of rows) {
         try {
-          const svc = new DxtradeService(dc.host, dc.username, decryptApiSecret(dc.encrypted_password), dc.domain);
-          await svc.login();
+          // Share the fan-out's cached, already-authenticated session instead of a
+          // fresh login every 30s sync. This sync fires on every dashboard/performance
+          // view, so its login stream was competing with the auto-exec fan-out for
+          // Velotrade's login rate limit (429) — the same storm the fan-out fix
+          // removed from its own path.
+          const svc = getDxtradeService(dc.host, dc.username, decryptApiSecret(dc.encrypted_password), dc.domain, String(dc.id));
+          await svc.ensureLoggedIn();
           const acct = dc.account_code || extractAccountCode(await svc.getAccounts());
           if (!acct) continue;
           const closed = await svc.getClosedTradesWithPnl(acct, fromMs).catch(() => []);

@@ -71916,13 +71916,13 @@ Format each recommendation as a clear, concise action item.`;
         [userId]
       )).rows;
       if (!rows.length) return 0;
-      const { DxtradeService: DxtradeService2, decryptApiSecret: decryptApiSecret3, extractAccountCode: extractAccountCode2 } = await Promise.resolve().then(() => (init_dxtrade(), dxtrade_exports));
+      const { getDxtradeService: getDxtradeService2, decryptApiSecret: decryptApiSecret3, extractAccountCode: extractAccountCode2 } = await Promise.resolve().then(() => (init_dxtrade(), dxtrade_exports));
       const { recordRealizedPnl: recordRealizedPnl2 } = await Promise.resolve().then(() => (init_prop_firm_consistency(), prop_firm_consistency_exports));
-      const fromMs = Date.now() - 7 * 24 * 3600 * 1e3;
+      const fromMs = Date.now() - 30 * 24 * 3600 * 1e3;
       for (const dc of rows) {
         try {
-          const svc = new DxtradeService2(dc.host, dc.username, decryptApiSecret3(dc.encrypted_password), dc.domain);
-          await svc.login();
+          const svc = getDxtradeService2(dc.host, dc.username, decryptApiSecret3(dc.encrypted_password), dc.domain, String(dc.id));
+          await svc.ensureLoggedIn();
           const acct = dc.account_code || extractAccountCode2(await svc.getAccounts());
           if (!acct) continue;
           const closed = await svc.getClosedTradesWithPnl(acct, fromMs).catch(() => []);
