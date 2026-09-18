@@ -72209,12 +72209,29 @@ Format each recommendation as a clear, concise action item.`;
         const last = curve.length > 0 ? curve[curve.length - 1].v : 0;
         return [...curve, { t: (/* @__PURE__ */ new Date()).toISOString(), v: Math.round((last + unrealized) * 100) / 100, live: true }];
       };
+      const { pool: _perfPool } = await Promise.resolve().then(() => (init_db(), db_exports));
+      const _todayStr = (/* @__PURE__ */ new Date()).toISOString().slice(0, 10);
+      const _ledgerToday = /* @__PURE__ */ new Map();
+      try {
+        const { rows: _lt } = await _perfPool.query(
+          `SELECT connection_type, connection_id, realized_pnl FROM prop_firm_daily_pnl WHERE user_id=$1 AND trade_date=$2`,
+          [userId, _todayStr]
+        );
+        for (const r of _lt) _ledgerToday.set(`${r.connection_type}_${r.connection_id}`, Math.round((Number(r.realized_pnl) || 0) * 100) / 100);
+      } catch (_) {
+      }
+      const realizedTodayOf = (type, id, rows) => {
+        const k = `${type}_${id}`;
+        return _ledgerToday.has(k) ? _ledgerToday.get(k) : todayOf(rows);
+      };
+      const liveToday = (realized, unrealized) => Math.round((realized + (unrealized || 0)) * 100) / 100;
       const accountCurves = [];
       const mt5Only = closed.filter((t) => t.source === "mt5_ea" || t.source === "mt5_copier");
       if (mt5Only.length > 0) {
         const mt5Open = global.mt5OpenPositions?.[userId]?.positions || [];
         const mt5Unreal = Math.round(mt5Open.reduce((s, p) => s + (p.profit || 0), 0) * 100) / 100;
-        accountCurves.push({ key: "mt5", label: "MT5", platform: "MT5", isConnected: true, ...tally(mt5Only), todayPnl: todayOf(mt5Only), openCount: mt5Open.length, unrealizedPnl: mt5Unreal, curve: withLivePoint(curveOf(mt5Only), mt5Unreal) });
+        const mt5RealizedToday = todayOf(mt5Only);
+        accountCurves.push({ key: "mt5", label: "MT5", platform: "MT5", isConnected: true, ...tally(mt5Only), realizedTodayPnl: mt5RealizedToday, todayPnl: liveToday(mt5RealizedToday, mt5Unreal), openCount: mt5Open.length, unrealizedPnl: mt5Unreal, curve: withLivePoint(curveOf(mt5Only), mt5Unreal) });
       }
       const _singleTL = tradelockerAccounts.length === 1;
       for (const a of tradelockerAccounts) {
@@ -72235,25 +72252,28 @@ Format each recommendation as a clear, concise action item.`;
           totalPnl: a.totalPnl,
           openCount: a.openCount,
           unrealizedPnl: a.unrealizedPnl,
-          todayPnl: todayOf(rows),
+          realizedTodayPnl: realizedTodayOf("tradelocker", a.connectionId, rows),
+          todayPnl: liveToday(realizedTodayOf("tradelocker", a.connectionId, rows), a.unrealizedPnl),
           curve: withLivePoint(curveOf(rows), a.unrealizedPnl)
         });
       }
       try {
-        const { pool: _perfPool } = await Promise.resolve().then(() => (init_db(), db_exports));
         const dxConns = (await _perfPool.query(
           `SELECT id, account_code, label FROM dxtrade_connections WHERE user_id=$1 AND is_active=true`,
           [userId]
         )).rows;
         for (const dc of dxConns) {
           const rows = closed.filter((t) => t.source === "dxtrade" && t.connectionId === dc.id);
+          const dxRealizedToday = realizedTodayOf("dxtrade", dc.id, rows);
           accountCurves.push({
             key: `dx_${dc.id}`,
             label: "DXtrade" + (dc.label ? ` \xB7 ${dc.label}` : dc.account_code ? ` \xB7 ${dc.account_code}` : ""),
             platform: "DXtrade",
             isConnected: true,
             ...tally(rows),
-            todayPnl: todayOf(rows),
+            realizedTodayPnl: dxRealizedToday,
+            todayPnl: dxRealizedToday,
+            unrealizedPnl: 0,
             curve: curveOf(rows)
           });
         }

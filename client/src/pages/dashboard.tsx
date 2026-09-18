@@ -471,6 +471,20 @@ function AccountPnlCard({ acct }: { acct: any }) {
         <div className="text-right flex-shrink-0">
           <div className="text-lg font-black leading-none" style={{ color: accentSoft }}>{up ? '+' : ''}{_pnlFmt(totalPnl)}</div>
           <p className="text-[9px] text-gray-500 mt-0.5">{acct.trades ?? 0} trades · {acct.winRate ?? 0}%</p>
+          {/* Live day P&L: realized today (broker ledger) + floating on open positions */}
+          {(() => {
+            const today: number = acct.todayPnl ?? 0;
+            const realized: number = acct.realizedTodayPnl ?? today;
+            const open: number = acct.unrealizedPnl ?? 0;
+            const c = today >= 0 ? '#4ade80' : '#f87171';
+            const hasOpen = (acct.openCount ?? 0) > 0 && open !== 0;
+            return (
+              <p className="text-[9px] font-bold mt-0.5" style={{ color: c }} title={hasOpen ? `Realized today ${_pnlFmt(realized)} · open ${open >= 0 ? '+' : ''}${_pnlFmt(open)}` : 'Realized today'}>
+                Today {today >= 0 ? '+' : ''}{_pnlFmt(today)}
+                {hasOpen && <span className="text-gray-500 font-normal"> ({realized >= 0 ? '+' : ''}{_pnlFmt(realized)} closed)</span>}
+              </p>
+            );
+          })()}
           {(acct.openCount ?? 0) > 0 && (
             <p className="text-[9px] font-bold mt-0.5" style={{ color: (acct.unrealizedPnl ?? 0) >= 0 ? '#4ade80' : '#f87171' }}>
               <span className="inline-block w-1.5 h-1.5 rounded-full mr-1 align-middle animate-pulse" style={{ background: (acct.unrealizedPnl ?? 0) >= 0 ? '#22c55e' : '#ef4444' }} />

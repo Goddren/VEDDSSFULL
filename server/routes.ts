@@ -17918,13 +17918,38 @@ Format each recommendation as a clear, concise action item.`;
         const last = curve.length > 0 ? curve[curve.length - 1].v : 0;
         return [...curve, { t: new Date().toISOString(), v: Math.round((last + unrealized) * 100) / 100, live: true }];
       };
+      // ── Live "today" per account ─────────────────────────────────────────────
+      // Realized-today comes from the durable prop_firm_daily_pnl ledger (one row
+      // per connection per UTC day, rebuilt from the BROKER's own closed-trade
+      // history, so it includes manual closes and matches the prop-firm
+      // dashboard). ai_trade_results closes are only the fallback for accounts
+      // with no ledger row (MT5 has no ledger). The card's headline "today" is
+      // LIVE = realized today + unrealized on open positions, so a floating
+      // position moves the number in real time instead of only on close.
+      const { pool: _perfPool } = await import('./db');
+      const _todayStr = new Date().toISOString().slice(0, 10);
+      const _ledgerToday = new Map<string, number>();
+      try {
+        const { rows: _lt } = await _perfPool.query(
+          `SELECT connection_type, connection_id, realized_pnl FROM prop_firm_daily_pnl WHERE user_id=$1 AND trade_date=$2`,
+          [userId, _todayStr],
+        );
+        for (const r of _lt) _ledgerToday.set(`${r.connection_type}_${r.connection_id}`, Math.round((Number(r.realized_pnl) || 0) * 100) / 100);
+      } catch (_) { /* ledger unavailable → fall back to closes */ }
+      const realizedTodayOf = (type: string, id: number, rows: any[]) => {
+        const k = `${type}_${id}`;
+        return _ledgerToday.has(k) ? (_ledgerToday.get(k) as number) : todayOf(rows);
+      };
+      const liveToday = (realized: number, unrealized: number) => Math.round((realized + (unrealized || 0)) * 100) / 100;
+
       const accountCurves: any[] = [];
       // MT5 (EA + copier fills share one MT5 terminal) — live open positions from cache
       const mt5Only = closed.filter((t: any) => t.source === 'mt5_ea' || t.source === 'mt5_copier');
       if (mt5Only.length > 0) {
         const mt5Open: any[] = (global as any).mt5OpenPositions?.[userId]?.positions || [];
         const mt5Unreal = Math.round(mt5Open.reduce((s: number, p: any) => s + (p.profit || 0), 0) * 100) / 100;
-        accountCurves.push({ key: 'mt5', label: 'MT5', platform: 'MT5', isConnected: true, ...tally(mt5Only), todayPnl: todayOf(mt5Only), openCount: mt5Open.length, unrealizedPnl: mt5Unreal, curve: withLivePoint(curveOf(mt5Only), mt5Unreal) });
+        const mt5RealizedToday = todayOf(mt5Only);
+        accountCurves.push({ key: 'mt5', label: 'MT5', platform: 'MT5', isConnected: true, ...tally(mt5Only), realizedTodayPnl: mt5RealizedToday, todayPnl: liveToday(mt5RealizedToday, mt5Unreal), openCount: mt5Open.length, unrealizedPnl: mt5Unreal, curve: withLivePoint(curveOf(mt5Only), mt5Unreal) });
       }
       // TradeLocker — one per active connection (with the same legacy fold tally used)
       const _singleTL = tradelockerAccounts.length === 1;
@@ -17938,21 +17963,24 @@ Format each recommendation as a clear, concise action item.`;
           balance: a.balance, equity: a.equity, isConnected: a.isConnected,
           trades: a.trades, wins: a.wins, losses: a.losses, winRate: a.winRate, totalPnl: a.totalPnl,
           openCount: a.openCount, unrealizedPnl: a.unrealizedPnl,
-          todayPnl: todayOf(rows), curve: withLivePoint(curveOf(rows), a.unrealizedPnl),
+          realizedTodayPnl: realizedTodayOf('tradelocker', a.connectionId, rows),
+          todayPnl: liveToday(realizedTodayOf('tradelocker', a.connectionId, rows), a.unrealizedPnl),
+          curve: withLivePoint(curveOf(rows), a.unrealizedPnl),
         });
       }
-      // DXtrade — one per active connection
+      // DXtrade — one per active connection. No live equity cache for DXtrade in
+      // this route yet, so "today" is realized-only here (ledger-backed).
       try {
-        const { pool: _perfPool } = await import('./db');
         const dxConns = (await _perfPool.query(
           `SELECT id, account_code, label FROM dxtrade_connections WHERE user_id=$1 AND is_active=true`, [userId],
         )).rows;
         for (const dc of dxConns) {
           const rows = closed.filter((t: any) => t.source === 'dxtrade' && t.connectionId === dc.id);
+          const dxRealizedToday = realizedTodayOf('dxtrade', dc.id, rows);
           accountCurves.push({
             key: `dx_${dc.id}`,
             label: 'DXtrade' + (dc.label ? ` · ${dc.label}` : dc.account_code ? ` · ${dc.account_code}` : ''),
-            platform: 'DXtrade', isConnected: true, ...tally(rows), todayPnl: todayOf(rows), curve: curveOf(rows),
+            platform: 'DXtrade', isConnected: true, ...tally(rows), realizedTodayPnl: dxRealizedToday, todayPnl: dxRealizedToday, unrealizedPnl: 0, curve: curveOf(rows),
           });
         }
       } catch (_) { /* non-fatal */ }
