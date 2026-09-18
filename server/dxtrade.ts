@@ -203,6 +203,12 @@ export class DxtradeService {
     stopLoss?: number;                // optional protective stop price
     takeProfit?: number;              // optional protective take-profit price
     orderCode?: string;
+    /** Required for positionEffect:'CLOSE' on a hedging/position-based account
+     *  (confirmed live 2026-09-18: closing by symbol+side alone is rejected —
+     *  "errorCode 33: Incorrect request. <positionCode>" — every prior close
+     *  attempt across the app silently failed this way with no distinguishing
+     *  error surfaced to the caller). The specific position to flatten. */
+    positionCode?: string;
   }): Promise<any> {
     const body: any = {
       orderCode: o.orderCode || `vedd-${Date.now()}-${Math.floor(Math.random() * 1e6)}`,
@@ -217,6 +223,7 @@ export class DxtradeService {
     if (o.type === 'STOP' && o.stopPrice != null) { body.stopPrice = o.stopPrice; body.price = o.stopPrice; }
     if (o.stopLoss != null) body.stopLoss = o.stopLoss;
     if (o.takeProfit != null) body.takeProfit = o.takeProfit;
+    if (o.positionEffect === 'CLOSE' && o.positionCode) body.positionCode = o.positionCode;
     const res = await this.authed(`/accounts/${encodeURIComponent(accountCode)}/orders`, {
       method: 'POST', body: JSON.stringify(body),
     });
@@ -231,20 +238,31 @@ export class DxtradeService {
    *  (positionBased dxsca accounts attach these to the open position.) Returns
    *  both raw results so callers can confirm/calibrate. */
   async modifyProtection(accountCode: string, o: {
-    instrument: string; positionSide: 'BUY' | 'SELL'; quantity: number; stopLoss?: number; takeProfit?: number;
+    instrument: string; positionSide: 'BUY' | 'SELL'; quantity: number; stopLoss?: number; takeProfit?: number; positionCode?: string;
   }): Promise<{ stop?: any; takeProfit?: any; stopError?: string; tpError?: string }> {
     const closeSide = o.positionSide === 'BUY' ? 'SELL' : 'BUY';
     const out: { stop?: any; takeProfit?: any; stopError?: string; tpError?: string } = {};
+    // These are positionEffect:'CLOSE' orders, so on this hedging account they
+    // need positionCode too (same errorCode 33 as closePosition). Caller
+    // (the fan-out) now has it from the fixed getPositions() fill-verify.
+    let code = o.positionCode;
+    if (!code) {
+      try {
+        const norm = (s: string) => s.replace(/\//g, '').toUpperCase();
+        const positions = await this.getPositions(accountCode);
+        code = positions.find(p => p.instrument === norm(o.instrument) && p.side === o.positionSide)?.positionId;
+      } catch { /* fall through */ }
+    }
     // Resilient: each protective leg is placed independently so a take-profit
     // failure can NEVER discard an already-placed stop (which previously threw
     // out of here, lost the stop result, and triggered an emergency close that
     // orphaned the resting STOP). The stop is the safety-critical leg.
     if (o.stopLoss != null && o.stopLoss > 0) {
-      try { out.stop = await this.placeOrder(accountCode, { instrument: o.instrument, side: closeSide, quantity: o.quantity, type: 'STOP', stopPrice: o.stopLoss, positionEffect: 'CLOSE', tif: 'GTC' }); }
+      try { out.stop = await this.placeOrder(accountCode, { instrument: o.instrument, side: closeSide, quantity: o.quantity, type: 'STOP', stopPrice: o.stopLoss, positionEffect: 'CLOSE', tif: 'GTC', positionCode: code }); }
       catch (e: any) { out.stopError = e?.message || String(e); }
     }
     if (o.takeProfit != null && o.takeProfit > 0) {
-      try { out.takeProfit = await this.placeOrder(accountCode, { instrument: o.instrument, side: closeSide, quantity: o.quantity, type: 'LIMIT', limitPrice: o.takeProfit, positionEffect: 'CLOSE', tif: 'GTC' }); }
+      try { out.takeProfit = await this.placeOrder(accountCode, { instrument: o.instrument, side: closeSide, quantity: o.quantity, type: 'LIMIT', limitPrice: o.takeProfit, positionEffect: 'CLOSE', tif: 'GTC', positionCode: code }); }
       catch (e: any) { out.tpError = e?.message || String(e); }
     }
     return out;
@@ -301,10 +319,26 @@ export class DxtradeService {
 
   /** Close (or reduce) a position by placing an opposite-side market order, then
    *  cancel any resting protective orders for the instrument so a flatten never
-   *  leaves an orphaned stop/TP behind. */
-  async closePosition(accountCode: string, instrument: string, side: 'BUY' | 'SELL', quantity: number): Promise<any> {
+   *  leaves an orphaned stop/TP behind.
+   *
+   *  On this hedging/position-based account a close WITHOUT positionCode is
+   *  rejected (errorCode 33) — confirmed live 2026-09-18 across 19 stuck
+   *  positions. When `positionCode` isn't supplied, look it up via
+   *  getPositions() (best-effort match on instrument+side) so every existing
+   *  caller (fan-out emergency-close, manual flatten) gets a working close
+   *  without having to be individually updated to thread the code through. */
+  async closePosition(accountCode: string, instrument: string, side: 'BUY' | 'SELL', quantity: number, positionCode?: string): Promise<any> {
     const opposite = side === 'BUY' ? 'SELL' : 'BUY';
-    const res = await this.placeOrder(accountCode, { instrument, side: opposite, quantity, type: 'MARKET', positionEffect: 'CLOSE' });
+    let code = positionCode;
+    if (!code) {
+      try {
+        const norm = (s: string) => s.replace(/\//g, '').toUpperCase();
+        const positions = await this.getPositions(accountCode);
+        const match = positions.find(p => p.instrument === norm(instrument) && p.side === side);
+        code = match?.positionId;
+      } catch { /* fall through — placeOrder will surface the broker's own error */ }
+    }
+    const res = await this.placeOrder(accountCode, { instrument, side: opposite, quantity, type: 'MARKET', positionEffect: 'CLOSE', positionCode: code });
     try { await this.cancelProtectiveOrders(accountCode, instrument); } catch { /* best-effort cleanup */ }
     return res;
   }
@@ -344,10 +378,18 @@ export class DxtradeService {
    *  tolerant of dxsca shape (portfolio.positions | positions | flat array). */
   async getPositions(accountCode: string): Promise<Array<{ positionId?: string; instrument: string; side: string; quantity: number; openPrice?: number; raw: any }>> {
     const pf = await this.getPortfolio(accountCode).catch(() => null);
-    const arr: any[] = pf?.positions ?? pf?.openPositions ?? (Array.isArray(pf) ? pf : []) ?? [];
+    // dxsca ALWAYS nests under portfolios[0] — `GET .../portfolio` returns
+    // {"portfolios":[{"positions":[...], "balances":[...], ...}]}. The old
+    // `pf?.positions ?? pf?.openPositions` read the wrong level and returned []
+    // on every real account, so every fill looked unverified ("no_fill") and
+    // the fan-out's fill-verify loop never found the position it just opened —
+    // 20 positions accumulated silently over 2026-09-18 before this was caught.
+    // Keep the flat-shape fallbacks for any dxsca variant that doesn't nest.
+    const p0 = pf?.portfolios?.[0] ?? pf;
+    const arr: any[] = p0?.positions ?? p0?.openPositions ?? (Array.isArray(pf) ? pf : []) ?? [];
     if (!Array.isArray(arr)) return [];
     return arr.map((p: any) => ({
-      positionId: p.positionId != null ? String(p.positionId) : (p.id != null ? String(p.id) : (p.code != null ? String(p.code) : undefined)),
+      positionId: p.positionCode != null ? String(p.positionCode) : (p.positionId != null ? String(p.positionId) : (p.id != null ? String(p.id) : (p.code != null ? String(p.code) : undefined))),
       instrument: String(p.instrument ?? p.symbol ?? '').replace(/\//g, '').toUpperCase(),
       side: /sell|short/i.test(String(p.side ?? p.direction ?? (Number(p.quantity ?? p.qty ?? 0) < 0 ? 'SELL' : 'BUY'))) ? 'SELL' : 'BUY',
       quantity: Math.abs(Number(p.quantity ?? p.qty ?? p.size ?? 0)),

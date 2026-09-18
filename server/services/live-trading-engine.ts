@@ -5250,13 +5250,13 @@ async function processDecision(userId: number, decision: any, newsCtx?: any): Pr
             }
             // ── F1: attach protective SL (+ TP) as real STOP/LIMIT close orders.
             let _prot: { stop?: any; takeProfit?: any; stopError?: string; tpError?: string } = {};
-            try { _prot = await svc.modifyProtection(acct, { instrument: dxSymbol, positionSide: _dxSide, quantity: _pos.quantity || qty, stopLoss: stopLoss || undefined, takeProfit: takeProfit || undefined }); }
+            try { _prot = await svc.modifyProtection(acct, { instrument: dxSymbol, positionSide: _dxSide, quantity: _pos.quantity || qty, stopLoss: stopLoss || undefined, takeProfit: takeProfit || undefined, positionCode: _pos.positionId }); }
             catch (pe: any) { _prot = { stopError: pe?.message || String(pe) }; }
             // B2: only emergency-close when the STOP itself failed (a TP-only failure
             // still leaves the position protected — closing would orphan the resting STOP).
             if (!_prot.stop) {
               try {
-                await svc.closePosition(acct, dxSymbol, _dxSide, _pos.quantity || qty);
+                await svc.closePosition(acct, dxSymbol, _dxSide, _pos.quantity || qty, _pos.positionId);
                 addActivity(userId, { type: 'error', symbol: decision.symbol, message: `DXtrade [${acct}] ${dxSymbol}: STOP attach FAILED (${_prot.stopError || 'no stop returned'}) — position CLOSED immediately to avoid a naked entry.` });
               } catch (ce: any) {
                 addActivity(userId, { type: 'error', symbol: decision.symbol, message: `🚨 DXtrade [${acct}] ${dxSymbol}: STOP attach FAILED and emergency close ALSO failed (${ce?.message}) — MANUAL ACTION NEEDED, position may be naked.` });

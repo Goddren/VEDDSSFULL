@@ -23204,6 +23204,7 @@ var init_dxtrade = __esm({
         }
         if (o.stopLoss != null) body.stopLoss = o.stopLoss;
         if (o.takeProfit != null) body.takeProfit = o.takeProfit;
+        if (o.positionEffect === "CLOSE" && o.positionCode) body.positionCode = o.positionCode;
         const res = await this.authed(`/accounts/${encodeURIComponent(accountCode)}/orders`, {
           method: "POST",
           body: JSON.stringify(body)
@@ -23225,16 +23226,25 @@ var init_dxtrade = __esm({
       async modifyProtection(accountCode, o) {
         const closeSide = o.positionSide === "BUY" ? "SELL" : "BUY";
         const out = {};
+        let code = o.positionCode;
+        if (!code) {
+          try {
+            const norm = (s) => s.replace(/\//g, "").toUpperCase();
+            const positions = await this.getPositions(accountCode);
+            code = positions.find((p) => p.instrument === norm(o.instrument) && p.side === o.positionSide)?.positionId;
+          } catch {
+          }
+        }
         if (o.stopLoss != null && o.stopLoss > 0) {
           try {
-            out.stop = await this.placeOrder(accountCode, { instrument: o.instrument, side: closeSide, quantity: o.quantity, type: "STOP", stopPrice: o.stopLoss, positionEffect: "CLOSE", tif: "GTC" });
+            out.stop = await this.placeOrder(accountCode, { instrument: o.instrument, side: closeSide, quantity: o.quantity, type: "STOP", stopPrice: o.stopLoss, positionEffect: "CLOSE", tif: "GTC", positionCode: code });
           } catch (e) {
             out.stopError = e?.message || String(e);
           }
         }
         if (o.takeProfit != null && o.takeProfit > 0) {
           try {
-            out.takeProfit = await this.placeOrder(accountCode, { instrument: o.instrument, side: closeSide, quantity: o.quantity, type: "LIMIT", limitPrice: o.takeProfit, positionEffect: "CLOSE", tif: "GTC" });
+            out.takeProfit = await this.placeOrder(accountCode, { instrument: o.instrument, side: closeSide, quantity: o.quantity, type: "LIMIT", limitPrice: o.takeProfit, positionEffect: "CLOSE", tif: "GTC", positionCode: code });
           } catch (e) {
             out.tpError = e?.message || String(e);
           }
@@ -23295,10 +23305,27 @@ var init_dxtrade = __esm({
       }
       /** Close (or reduce) a position by placing an opposite-side market order, then
        *  cancel any resting protective orders for the instrument so a flatten never
-       *  leaves an orphaned stop/TP behind. */
-      async closePosition(accountCode, instrument, side, quantity) {
+       *  leaves an orphaned stop/TP behind.
+       *
+       *  On this hedging/position-based account a close WITHOUT positionCode is
+       *  rejected (errorCode 33) — confirmed live 2026-09-18 across 19 stuck
+       *  positions. When `positionCode` isn't supplied, look it up via
+       *  getPositions() (best-effort match on instrument+side) so every existing
+       *  caller (fan-out emergency-close, manual flatten) gets a working close
+       *  without having to be individually updated to thread the code through. */
+      async closePosition(accountCode, instrument, side, quantity, positionCode) {
         const opposite = side === "BUY" ? "SELL" : "BUY";
-        const res = await this.placeOrder(accountCode, { instrument, side: opposite, quantity, type: "MARKET", positionEffect: "CLOSE" });
+        let code = positionCode;
+        if (!code) {
+          try {
+            const norm = (s) => s.replace(/\//g, "").toUpperCase();
+            const positions = await this.getPositions(accountCode);
+            const match = positions.find((p) => p.instrument === norm(instrument) && p.side === side);
+            code = match?.positionId;
+          } catch {
+          }
+        }
+        const res = await this.placeOrder(accountCode, { instrument, side: opposite, quantity, type: "MARKET", positionEffect: "CLOSE", positionCode: code });
         try {
           await this.cancelProtectiveOrders(accountCode, instrument);
         } catch {
@@ -23340,10 +23367,11 @@ var init_dxtrade = __esm({
        *  tolerant of dxsca shape (portfolio.positions | positions | flat array). */
       async getPositions(accountCode) {
         const pf = await this.getPortfolio(accountCode).catch(() => null);
-        const arr2 = pf?.positions ?? pf?.openPositions ?? (Array.isArray(pf) ? pf : []) ?? [];
+        const p0 = pf?.portfolios?.[0] ?? pf;
+        const arr2 = p0?.positions ?? p0?.openPositions ?? (Array.isArray(pf) ? pf : []) ?? [];
         if (!Array.isArray(arr2)) return [];
         return arr2.map((p) => ({
-          positionId: p.positionId != null ? String(p.positionId) : p.id != null ? String(p.id) : p.code != null ? String(p.code) : void 0,
+          positionId: p.positionCode != null ? String(p.positionCode) : p.positionId != null ? String(p.positionId) : p.id != null ? String(p.id) : p.code != null ? String(p.code) : void 0,
           instrument: String(p.instrument ?? p.symbol ?? "").replace(/\//g, "").toUpperCase(),
           side: /sell|short/i.test(String(p.side ?? p.direction ?? (Number(p.quantity ?? p.qty ?? 0) < 0 ? "SELL" : "BUY"))) ? "SELL" : "BUY",
           quantity: Math.abs(Number(p.quantity ?? p.qty ?? p.size ?? 0)),
@@ -27436,13 +27464,13 @@ async function processDecision(userId, decision, newsCtx) {
             }
             let _prot = {};
             try {
-              _prot = await svc.modifyProtection(acct, { instrument: dxSymbol, positionSide: _dxSide, quantity: _pos.quantity || qty, stopLoss: stopLoss || void 0, takeProfit: takeProfit || void 0 });
+              _prot = await svc.modifyProtection(acct, { instrument: dxSymbol, positionSide: _dxSide, quantity: _pos.quantity || qty, stopLoss: stopLoss || void 0, takeProfit: takeProfit || void 0, positionCode: _pos.positionId });
             } catch (pe) {
               _prot = { stopError: pe?.message || String(pe) };
             }
             if (!_prot.stop) {
               try {
-                await svc.closePosition(acct, dxSymbol, _dxSide, _pos.quantity || qty);
+                await svc.closePosition(acct, dxSymbol, _dxSide, _pos.quantity || qty, _pos.positionId);
                 addActivity(userId, { type: "error", symbol: decision.symbol, message: `DXtrade [${acct}] ${dxSymbol}: STOP attach FAILED (${_prot.stopError || "no stop returned"}) \u2014 position CLOSED immediately to avoid a naked entry.` });
               } catch (ce) {
                 addActivity(userId, { type: "error", symbol: decision.symbol, message: `\u{1F6A8} DXtrade [${acct}] ${dxSymbol}: STOP attach FAILED and emergency close ALSO failed (${ce?.message}) \u2014 MANUAL ACTION NEEDED, position may be naked.` });
