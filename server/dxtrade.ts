@@ -66,12 +66,19 @@ export function computeRiskQuantity(opts: {
   const riskAmount = balance * (riskPercent / 100);
   const stopDistance = Math.abs(entryPrice - stopPrice);
   const multiplier = Number(instrument?.multiplier) > 0 ? Number(instrument.multiplier) : 1;
-  const incr = Number(instrument?.quantityIncrement) > 0 ? Number(instrument.quantityIncrement)
-    : (Number(instrument?.lotSize) > 0 ? Number(instrument.lotSize) : 0);
+  // Order-size step. Velotrade's instrument spec advertises quantityIncrement: 1
+  // for FX, but its execution engine REJECTS anything that isn't a multiple of
+  // 0.01 lot ("order size must be an increment of 1000.00" on EURUSD, order
+  // 4006590, 2026-09-18 — spec said 1, broker enforced 1000). So for a lot-based
+  // instrument the effective step is max(quantityIncrement, lotSize/100).
+  const specIncr = Number(instrument?.quantityIncrement) > 0 ? Number(instrument.quantityIncrement) : 0;
+  const lotSize = Number(instrument?.lotSize) > 0 ? Number(instrument.lotSize) : 0;
+  const isForex = /forex|fx/i.test(String(instrument?.type ?? instrument?.assetClass ?? '')) || lotSize >= 1000;
+  const incr = isForex && lotSize > 0 ? Math.max(specIncr, lotSize / 100) : specIncr;
   if (!(stopDistance > 0) || !(riskAmount > 0)) return { quantity: 0, riskAmount, stopDistance, note: 'need a valid balance, risk% and stop distance' };
   // riskUSD = qty × stopDistance(quote) × quoteToUsd  →  qty = riskUSD / (stop × quoteToUsd × mult)
   let qty = riskAmount / (stopDistance * multiplier * quoteToUsd);
-  if (incr > 0) qty = Math.floor(qty / incr) * incr;      // snap down to increment
+  if (incr > 0) qty = Math.floor(qty / incr) * incr;      // snap DOWN to the broker's step (never over-risk)
   qty = Math.max(0, Math.round(qty * 1e8) / 1e8);
   return { quantity: qty, riskAmount, stopDistance, note: `risk $${riskAmount.toFixed(2)} ÷ (stop ${stopDistance} × mult ${multiplier} × quote→USD ${quoteToUsd.toFixed(5)})${incr ? ` snapped to ${incr}` : ''}` };
 }

@@ -23049,7 +23049,10 @@ function computeRiskQuantity(opts) {
   const riskAmount = balance * (riskPercent / 100);
   const stopDistance = Math.abs(entryPrice - stopPrice);
   const multiplier = Number(instrument?.multiplier) > 0 ? Number(instrument.multiplier) : 1;
-  const incr = Number(instrument?.quantityIncrement) > 0 ? Number(instrument.quantityIncrement) : Number(instrument?.lotSize) > 0 ? Number(instrument.lotSize) : 0;
+  const specIncr = Number(instrument?.quantityIncrement) > 0 ? Number(instrument.quantityIncrement) : 0;
+  const lotSize = Number(instrument?.lotSize) > 0 ? Number(instrument.lotSize) : 0;
+  const isForex = /forex|fx/i.test(String(instrument?.type ?? instrument?.assetClass ?? "")) || lotSize >= 1e3;
+  const incr = isForex && lotSize > 0 ? Math.max(specIncr, lotSize / 100) : specIncr;
   if (!(stopDistance > 0) || !(riskAmount > 0)) return { quantity: 0, riskAmount, stopDistance, note: "need a valid balance, risk% and stop distance" };
   let qty = riskAmount / (stopDistance * multiplier * quoteToUsd);
   if (incr > 0) qty = Math.floor(qty / incr) * incr;
