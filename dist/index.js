@@ -18593,7 +18593,33 @@ var init_tradelocker = __esm({
        * — one entry per CLOSED position (positions with only one fill, i.e.
        * still open, are excluded).
        */
+      /** Position ids currently OPEN at the broker, or null when the open book
+       *  could not be read. Null is meaningful: callers must NOT treat "couldn't
+       *  read" as "nothing is open", or every position would look closed. */
+      async getOpenPositionIds() {
+        for (let attempt = 0; attempt < 3; attempt++) {
+          try {
+            const raw = await this.getPositions();
+            if (!Array.isArray(raw)) return null;
+            const ids = /* @__PURE__ */ new Set();
+            for (const p of raw) {
+              const id = Array.isArray(p) ? p[0] : p?.id ?? p?.positionId;
+              if (id != null && String(id).length > 0) ids.add(String(id));
+            }
+            return ids;
+          } catch (e) {
+            const transient = /429|rate.?limit|timeout|ECONN|502|503|504/i.test(e?.message || "");
+            if (!transient || attempt === 2) {
+              console.warn(`[TradeLocker] open-book read failed (${e?.message}) \u2014 close detection falls back to the conservative time guard for this pass.`);
+              return null;
+            }
+            await new Promise((r) => setTimeout(r, 1e3 * (attempt + 1)));
+          }
+        }
+        return null;
+      }
       async getClosedTradesWithPnl(fromTs) {
+        const openIds = await this.getOpenPositionIds();
         const fills = await this.getFilledOrders(fromTs ? fromTs - 30 * 24 * 3600 : void 0);
         const byPosition = /* @__PURE__ */ new Map();
         for (const f of fills) {
@@ -18625,7 +18651,11 @@ var init_tradelocker = __esm({
           const closeTime = closingLegs[closingLegs.length - 1]?.closeTime || legs[legs.length - 1].closeTime;
           const openMs = new Date(legs[0].closeTime).getTime();
           const closeMs = new Date(closeTime).getTime();
-          if (isFinite(openMs) && isFinite(closeMs) && closeMs - openMs < 6e4) continue;
+          if (openIds) {
+            if (openIds.has(String(positionId))) continue;
+          } else if (isFinite(openMs) && isFinite(closeMs) && closeMs - openMs < 6e4) {
+            continue;
+          }
           if (fromTs && closeMs < fromTs * 1e3) continue;
           let profit;
           if (String(legs[0].symbol).toUpperCase().includes("JPY") && exitAvg > 0) {

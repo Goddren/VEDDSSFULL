@@ -1258,7 +1258,39 @@ export class TradeLockerService {
    * — one entry per CLOSED position (positions with only one fill, i.e.
    * still open, are excluded).
    */
+  /** Position ids currently OPEN at the broker, or null when the open book
+   *  could not be read. Null is meaningful: callers must NOT treat "couldn't
+   *  read" as "nothing is open", or every position would look closed. */
+  private async getOpenPositionIds(): Promise<Set<string> | null> {
+    // Retry on transient failures (TradeLocker 429s this endpoint readily). This
+    // matters: a null result silently degrades close-detection back to the old
+    // broken time guard, so it's worth a couple of retries before giving up.
+    for (let attempt = 0; attempt < 3; attempt++) {
+      try {
+        const raw = await this.getPositions();
+        if (!Array.isArray(raw)) return null;
+        const ids = new Set<string>();
+        for (const p of raw) {
+          const id = Array.isArray(p) ? p[0] : (p?.id ?? p?.positionId);
+          if (id != null && String(id).length > 0) ids.add(String(id));
+        }
+        return ids;
+      } catch (e: any) {
+        const transient = /429|rate.?limit|timeout|ECONN|502|503|504/i.test(e?.message || '');
+        if (!transient || attempt === 2) {
+          console.warn(`[TradeLocker] open-book read failed (${e?.message}) — close detection falls back to the conservative time guard for this pass.`);
+          return null;
+        }
+        await new Promise(r => setTimeout(r, 1000 * (attempt + 1)));
+      }
+    }
+    return null;
+  }
+
   async getClosedTradesWithPnl(fromTs?: number): Promise<any[]> {
+    // Whether a position is closed is decided by the broker's OPEN BOOK, not by
+    // timestamps (see the guard below for why).
+    const openIds = await this.getOpenPositionIds();
     const fills = await this.getFilledOrders(fromTs ? fromTs - 30 * 24 * 3600 : undefined); // widen so entry legs older than fromTs still pair correctly
     const byPosition = new Map<string, any[]>();
     for (const f of fills) {
@@ -1293,15 +1325,35 @@ export class TradeLockerService {
       const priceDiff = direction === 'buy' ? (exitAvg - openAvg) : (openAvg - exitAvg);
       const closingLegs = direction === 'buy' ? sells : buys;
       const closeTime = closingLegs[closingLegs.length - 1]?.closeTime || legs[legs.length - 1].closeTime;
-      // GUARD: when a position opens, TradeLocker records its protective SL/TP as
-      // opposite-side orders under the SAME positionId within seconds — so a still-
-      // OPEN trade has a buy+sell pair that the offset check alone treats as closed
-      // (the phantom close: closeTime ≈ openTime). A real SS-AI trade is held far
-      // longer than this. If the "close" is within 60s of the open, it's the
-      // protective-order artifact, not a close — skip (leave the position open).
+      // GUARD — is this position actually closed?
+      //
+      // The problem being solved: when a position opens, TradeLocker records its
+      // protective SL/TP under the SAME positionId, so a still-OPEN trade shows a
+      // buy+sell pair that the offset check alone reads as closed (the phantom
+      // close). The original fix skipped any "close" landing within 60s of the
+      // open, on the assumption that timestamp proximity means artifact.
+      //
+      // That assumption is WRONG on these accounts: TradeLocker stamps these fills
+      // with the ORDER PLACEMENT time, not the execution time, so a trade that ran
+      // for hours still reports entry and exit ~0.01–0.7s apart (the gap is even
+      // constant per account: 0.01s, 0.19s, 0.45s). The guard therefore discarded
+      // GENUINE closes — audited 2026-09-18: 63 real closed positions worth
+      // -$1,785.62 were silently dropped, left PENDING forever, never recorded,
+      // never fed to the brain, never in the consistency ledger.
+      //
+      // Correct test: a position is closed iff the broker's OPEN BOOK no longer
+      // lists it. That's immune to timestamp quirks and still rejects the phantom
+      // (an open position with resting SL/TP IS in the open book, so it's skipped).
+      // Fail-safe: if the open book couldn't be read (openIds === null) we fall
+      // back to the old conservative time guard rather than risk booking phantom
+      // closes for every position at once.
       const openMs = new Date(legs[0].closeTime).getTime();
       const closeMs = new Date(closeTime).getTime();
-      if (isFinite(openMs) && isFinite(closeMs) && (closeMs - openMs) < 60_000) continue;
+      if (openIds) {
+        if (openIds.has(String(positionId))) continue; // still open at the broker
+      } else if (isFinite(openMs) && isFinite(closeMs) && (closeMs - openMs) < 60_000) {
+        continue; // open book unavailable — stay conservative
+      }
       if (fromTs && closeMs < fromTs * 1000) continue;
 
       // P&L conversion (see JPY note): USD-quoted pairs are already USD; JPY-quoted
