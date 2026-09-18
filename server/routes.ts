@@ -17949,7 +17949,19 @@ Format each recommendation as a clear, concise action item.`;
         const mt5Open: any[] = (global as any).mt5OpenPositions?.[userId]?.positions || [];
         const mt5Unreal = Math.round(mt5Open.reduce((s: number, p: any) => s + (p.profit || 0), 0) * 100) / 100;
         const mt5RealizedToday = todayOf(mt5Only);
-        accountCurves.push({ key: 'mt5', label: 'MT5', platform: 'MT5', isConnected: true, ...tally(mt5Only), realizedTodayPnl: mt5RealizedToday, todayPnl: liveToday(mt5RealizedToday, mt5Unreal), openCount: mt5Open.length, unrealizedPnl: mt5Unreal, curve: withLivePoint(curveOf(mt5Only), mt5Unreal) });
+        // Balance/equity from the freshest EA account post (mt5AccountData is keyed
+        // per broker account; take the most recently updated entry).
+        let mt5Balance = 0, mt5Equity = 0, mt5Fresh = false;
+        try {
+          const _acctMap: Record<string, any> = (global as any).mt5AccountData?.[userId] || {};
+          const _latest = Object.values(_acctMap).sort((a: any, b: any) => new Date(b?.lastUpdated || 0).getTime() - new Date(a?.lastUpdated || 0).getTime())[0] as any;
+          if (_latest) {
+            mt5Balance = Number(_latest.balance) || 0;
+            mt5Equity = Number(_latest.equity) || mt5Balance;
+            mt5Fresh = Date.now() - new Date(_latest.lastUpdated || 0).getTime() < 120_000;
+          }
+        } catch (_) { /* no EA data yet */ }
+        accountCurves.push({ key: 'mt5', label: 'MT5', platform: 'MT5', isConnected: mt5Fresh, balance: mt5Balance, equity: mt5Equity, ...tally(mt5Only), realizedTodayPnl: mt5RealizedToday, todayPnl: liveToday(mt5RealizedToday, mt5Unreal), openCount: mt5Open.length, unrealizedPnl: mt5Unreal, curve: withLivePoint(curveOf(mt5Only), mt5Unreal) });
       }
       // TradeLocker — one per active connection (with the same legacy fold tally used)
       const _singleTL = tradelockerAccounts.length === 1;

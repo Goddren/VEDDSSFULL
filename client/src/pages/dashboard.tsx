@@ -53,7 +53,7 @@ import {
   CheckCircle2,
   Circle,
 } from 'lucide-react';
-import { AreaChart, Area, XAxis, YAxis, Tooltip, ResponsiveContainer } from 'recharts';
+import { AreaChart, Area, LineChart, Line, ReferenceLine, XAxis, YAxis, Tooltip, ResponsiveContainer } from 'recharts';
 import { Input } from '@/components/ui/input';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
@@ -448,75 +448,89 @@ function DailyToDoCard() {
 // ── Per-account P&L card ─────────────────────────────────────────────────────
 const _pnlFmt = (n: number) => `${n < 0 ? '-' : ''}$${Math.abs(n).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 
+// Robinhood-style: the headline is the ACCOUNT BALANCE, the right side is
+// TODAY's profit/loss (live = realized + floating), and the chart is a thin
+// line colored by today's direction with a dashed baseline at where the day
+// started. When the broker balance is known the line is the account VALUE
+// over time (balance reconstructed backwards from the cumulative P&L curve);
+// otherwise it falls back to cumulative P&L.
 function AccountPnlCard({ acct }: { acct: any }) {
-  const curve: { t: string; v: number }[] = acct?.curve ?? [];
-  const totalPnl: number = acct?.totalPnl ?? 0;
-  const up = totalPnl >= 0;
-  const accent = up ? '#22c55e' : '#ef4444';
-  const accentSoft = up ? '#4ade80' : '#f87171';
-  const gradId = `pnlFill_${acct.key}`;
+  const raw: { t: string; v: number; live?: boolean }[] = acct?.curve ?? [];
+  const today: number = acct?.todayPnl ?? 0;
+  const realized: number = acct?.realizedTodayPnl ?? today;
+  const open: number = acct?.unrealizedPnl ?? 0;
+  const balance: number = Number(acct?.balance) || 0;
+  const equity: number = Number(acct?.equity) || balance;
+  const hasBalance = balance > 0;
+  // Live account value = balance + floating. The day started at value − today's P&L.
+  const liveValue = hasBalance ? Math.round((balance + open) * 100) / 100 : 0;
+  const dayStart = hasBalance ? Math.round((liveValue - today) * 100) / 100 : (raw.length ? (raw[raw.length - 1].v - today) : 0);
+  const up = today >= 0;
+  const accent = up ? '#00C805' : '#ff5000';
   const platformColor = acct.platform === 'DXtrade' ? '#60a5fa' : acct.platform === 'TradeLocker' ? '#c084fc' : '#fbbf24';
+  const pct = hasBalance && dayStart > 0 ? (today / dayStart) * 100 : null;
+
+  // Value series: shift the cumulative-P&L curve so its last point equals the
+  // live account value (so the line ends exactly at the balance shown above).
+  const curve = hasBalance && raw.length
+    ? (() => { const last = raw[raw.length - 1].v; return raw.map(p => ({ ...p, v: Math.round((liveValue - (last - p.v)) * 100) / 100 })); })()
+    : raw;
 
   return (
-    <div className="rounded-xl overflow-hidden" style={{ border: '1px solid rgba(255,255,255,0.06)', background: 'linear-gradient(135deg,rgba(15,17,26,0.6),rgba(11,14,26,0.4))' }}>
-      <div className="px-3 pt-2.5 pb-1.5 flex items-start justify-between gap-2">
+    <div className="rounded-xl overflow-hidden" style={{ border: '1px solid rgba(255,255,255,0.06)', background: 'rgba(11,14,26,0.55)' }}>
+      <div className="px-3 pt-2.5 pb-1 flex items-start justify-between gap-2">
         <div className="min-w-0">
           <div className="flex items-center gap-1.5">
             <span className="w-1.5 h-1.5 rounded-full flex-shrink-0" style={{ background: acct.isConnected ? accent : '#6b7280', boxShadow: acct.isConnected ? `0 0 6px ${accent}` : 'none' }} />
             <span className="text-[9px] font-black uppercase tracking-wider px-1.5 py-0.5 rounded" style={{ color: platformColor, background: `${platformColor}1a` }}>{acct.platform}</span>
             {acct.isPropFirm && <span className="text-[8px] font-bold text-amber-400/80">PROP</span>}
+            <span className="text-[10px] text-gray-500 truncate" title={acct.label}>{acct.label}</span>
           </div>
-          <p className="text-[11px] font-bold text-gray-300 truncate mt-1" title={acct.label}>{acct.label}</p>
+          {/* Balance — the Robinhood "account value" headline */}
+          <div className="text-xl font-black leading-none text-white mt-1.5 tabular-nums">
+            {hasBalance ? _pnlFmt(liveValue) : <span className="text-gray-600 text-base">Balance —</span>}
+          </div>
+          <p className="text-[9px] text-gray-500 mt-0.5 tabular-nums">
+            {hasBalance ? <>Balance {_pnlFmt(balance)}{equity !== balance ? <> · Equity {_pnlFmt(equity)}</> : null}</> : `${acct.trades ?? 0} trades · ${acct.winRate ?? 0}% win`}
+          </p>
         </div>
+        {/* Today's profit / loss — replaces the old cumulative +/− total */}
         <div className="text-right flex-shrink-0">
-          <div className="text-lg font-black leading-none" style={{ color: accentSoft }}>{up ? '+' : ''}{_pnlFmt(totalPnl)}</div>
-          <p className="text-[9px] text-gray-500 mt-0.5">{acct.trades ?? 0} trades · {acct.winRate ?? 0}%</p>
-          {/* Live day P&L: realized today (broker ledger) + floating on open positions */}
-          {(() => {
-            const today: number = acct.todayPnl ?? 0;
-            const realized: number = acct.realizedTodayPnl ?? today;
-            const open: number = acct.unrealizedPnl ?? 0;
-            const c = today >= 0 ? '#4ade80' : '#f87171';
-            const hasOpen = (acct.openCount ?? 0) > 0 && open !== 0;
-            return (
-              <p className="text-[9px] font-bold mt-0.5" style={{ color: c }} title={hasOpen ? `Realized today ${_pnlFmt(realized)} · open ${open >= 0 ? '+' : ''}${_pnlFmt(open)}` : 'Realized today'}>
-                Today {today >= 0 ? '+' : ''}{_pnlFmt(today)}
-                {hasOpen && <span className="text-gray-500 font-normal"> ({realized >= 0 ? '+' : ''}{_pnlFmt(realized)} closed)</span>}
-              </p>
-            );
-          })()}
+          <div className="text-base font-black leading-none tabular-nums" style={{ color: accent }}>
+            {up ? '+' : '−'}{_pnlFmt(Math.abs(today))}
+          </div>
+          <p className="text-[9px] font-bold mt-0.5 tabular-nums" style={{ color: accent }}>
+            {pct != null ? `${up ? '+' : '−'}${Math.abs(pct).toFixed(2)}% ` : ''}<span className="text-gray-500 font-medium">Today</span>
+          </p>
           {(acct.openCount ?? 0) > 0 && (
-            <p className="text-[9px] font-bold mt-0.5" style={{ color: (acct.unrealizedPnl ?? 0) >= 0 ? '#4ade80' : '#f87171' }}>
-              <span className="inline-block w-1.5 h-1.5 rounded-full mr-1 align-middle animate-pulse" style={{ background: (acct.unrealizedPnl ?? 0) >= 0 ? '#22c55e' : '#ef4444' }} />
-              {acct.openCount} open · {(acct.unrealizedPnl ?? 0) >= 0 ? '+' : ''}{_pnlFmt(acct.unrealizedPnl ?? 0)} live
+            <p className="text-[9px] text-gray-500 mt-0.5 tabular-nums" title={`Realized today ${realized >= 0 ? '+' : ''}${_pnlFmt(realized)} · floating ${open >= 0 ? '+' : ''}${_pnlFmt(open)}`}>
+              <span className="inline-block w-1.5 h-1.5 rounded-full mr-1 align-middle animate-pulse" style={{ background: accent }} />
+              {acct.openCount} open · {open >= 0 ? '+' : '−'}{_pnlFmt(Math.abs(open))} floating
             </p>
           )}
         </div>
       </div>
-      <div className="h-[70px] w-full">
+      <div className="h-[72px] w-full">
         {curve.length < 2 ? (
           <div className="h-full w-full flex items-center justify-center text-[10px] text-gray-600">
-            {(acct.openCount ?? 0) > 0 ? `${acct.openCount} open position${acct.openCount === 1 ? '' : 's'} — curve builds as trades close` : 'No closed trades yet'}
+            {(acct.openCount ?? 0) > 0 ? `${acct.openCount} open position${acct.openCount === 1 ? '' : 's'} — line builds as trades close` : 'No closed trades yet'}
           </div>
         ) : (
           <ResponsiveContainer width="100%" height="100%">
-            <AreaChart data={curve} margin={{ top: 2, right: 0, bottom: 0, left: 0 }}>
-              <defs>
-                <linearGradient id={gradId} x1="0" y1="0" x2="0" y2="1">
-                  <stop offset="0%" stopColor={accent} stopOpacity={0.35} />
-                  <stop offset="100%" stopColor={accent} stopOpacity={0} />
-                </linearGradient>
-              </defs>
+            <LineChart data={curve} margin={{ top: 6, right: 0, bottom: 4, left: 0 }}>
               <YAxis hide domain={['auto', 'auto']} />
               <XAxis dataKey="t" hide />
+              {/* Dashed baseline = where the day started (Robinhood's prior-close line) */}
+              <ReferenceLine y={dayStart} stroke="rgba(255,255,255,0.22)" strokeDasharray="2 4" strokeWidth={1} ifOverflow="extendDomain" />
               <Tooltip
-                contentStyle={{ background: '#0b0e1a', border: '1px solid rgba(255,255,255,0.1)', borderRadius: 8, fontSize: 11 }}
-                labelStyle={{ color: '#9ca3af' }}
-                labelFormatter={(t: any) => new Date(t).toLocaleString()}
-                formatter={(v: any) => [`${Number(v) >= 0 ? '+' : ''}${_pnlFmt(Number(v))}`, 'Cumulative P&L']}
+                cursor={{ stroke: 'rgba(255,255,255,0.25)', strokeWidth: 1 }}
+                contentStyle={{ background: '#0b0e1a', border: '1px solid rgba(255,255,255,0.1)', borderRadius: 8, fontSize: 11, padding: '4px 8px' }}
+                labelStyle={{ color: '#9ca3af', fontSize: 10 }}
+                labelFormatter={(t: any) => new Date(t).toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })}
+                formatter={(v: any) => [hasBalance ? _pnlFmt(Number(v)) : `${Number(v) >= 0 ? '+' : ''}${_pnlFmt(Number(v))}`, hasBalance ? 'Value' : 'P&L']}
               />
-              <Area type="monotone" dataKey="v" stroke={accent} strokeWidth={2} fill={`url(#${gradId})`} isAnimationActive={false} />
-            </AreaChart>
+              <Line type="monotone" dataKey="v" stroke={accent} strokeWidth={1.75} dot={false} activeDot={{ r: 3, fill: accent, stroke: '#0b0e1a', strokeWidth: 2 }} isAnimationActive={false} />
+            </LineChart>
           </ResponsiveContainer>
         )}
       </div>
@@ -535,13 +549,15 @@ function AccountPnlHeaderChart() {
   });
 
   const accounts: any[] = data?.accountCurves ?? [];
-  // Accounts-only totals so the header equals the sum of the account cards
-  // (falls back to overall if the server hasn't been redeployed yet).
+  // Header = total live account value across connected accounts (balance +
+  // floating), Robinhood-style; falls back to cumulative P&L when no broker
+  // balance is known. Today = sum of the per-card live day P&L.
+  const totalValue: number = accounts.reduce((s, a) => s + ((Number(a.balance) || 0) + (Number(a.unrealizedPnl) || 0)), 0);
+  const hasValue = accounts.some(a => Number(a.balance) > 0);
   const totalPnl: number = data?.accountsTotalPnl ?? data?.overall?.totalPnl ?? 0;
   const todayPnl: number = data?.accountsTodayPnl ?? data?.today?.totalPnl ?? 0;
-  const up = totalPnl >= 0;
-  const accent = up ? '#22c55e' : '#ef4444';
-  const accentSoft = up ? '#4ade80' : '#f87171';
+  const up = todayPnl >= 0;
+  const accent = up ? '#00C805' : '#ff5000';
 
   return (
     <div className="mb-3">
@@ -549,16 +565,14 @@ function AccountPnlHeaderChart() {
       <div className="flex items-center justify-between gap-3 mb-2 px-0.5">
         <div className="flex items-center gap-2 min-w-0">
           <span className="w-1.5 h-1.5 rounded-full flex-shrink-0" style={{ background: accent, boxShadow: `0 0 8px ${accent}` }} />
-          <p className="text-[10px] font-black uppercase tracking-wider text-gray-400">Account P&amp;L</p>
-          <span className="text-sm font-black leading-none" style={{ color: accentSoft }}>{isLoading ? '—' : `${up ? '+' : ''}${_pnlFmt(totalPnl)}`}</span>
+          <p className="text-[10px] font-black uppercase tracking-wider text-gray-400">{hasValue ? 'Accounts' : 'Account P&L'}</p>
+          <span className="text-sm font-black leading-none text-white tabular-nums">
+            {isLoading ? '—' : hasValue ? _pnlFmt(totalValue) : `${totalPnl >= 0 ? '+' : ''}${_pnlFmt(totalPnl)}`}
+          </span>
         </div>
-        <span className="text-[10px] font-bold px-2 py-0.5 rounded-full border flex-shrink-0"
-          style={{
-            color: todayPnl >= 0 ? '#4ade80' : '#f87171',
-            borderColor: todayPnl >= 0 ? 'rgba(34,197,94,0.35)' : 'rgba(239,68,68,0.35)',
-            background: todayPnl >= 0 ? 'rgba(34,197,94,0.1)' : 'rgba(239,68,68,0.1)',
-          }}>
-          Today {todayPnl >= 0 ? '+' : ''}{_pnlFmt(todayPnl)}
+        <span className="text-[10px] font-bold px-2 py-0.5 rounded-full border flex-shrink-0 tabular-nums"
+          style={{ color: accent, borderColor: `${accent}59`, background: `${accent}1a` }}>
+          Today {up ? '+' : '−'}{_pnlFmt(Math.abs(todayPnl))}
         </span>
       </div>
 

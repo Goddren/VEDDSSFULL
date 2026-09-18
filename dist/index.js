@@ -72234,7 +72234,18 @@ Format each recommendation as a clear, concise action item.`;
         const mt5Open = global.mt5OpenPositions?.[userId]?.positions || [];
         const mt5Unreal = Math.round(mt5Open.reduce((s, p) => s + (p.profit || 0), 0) * 100) / 100;
         const mt5RealizedToday = todayOf(mt5Only);
-        accountCurves.push({ key: "mt5", label: "MT5", platform: "MT5", isConnected: true, ...tally(mt5Only), realizedTodayPnl: mt5RealizedToday, todayPnl: liveToday(mt5RealizedToday, mt5Unreal), openCount: mt5Open.length, unrealizedPnl: mt5Unreal, curve: withLivePoint(curveOf(mt5Only), mt5Unreal) });
+        let mt5Balance = 0, mt5Equity = 0, mt5Fresh = false;
+        try {
+          const _acctMap = global.mt5AccountData?.[userId] || {};
+          const _latest = Object.values(_acctMap).sort((a, b) => new Date(b?.lastUpdated || 0).getTime() - new Date(a?.lastUpdated || 0).getTime())[0];
+          if (_latest) {
+            mt5Balance = Number(_latest.balance) || 0;
+            mt5Equity = Number(_latest.equity) || mt5Balance;
+            mt5Fresh = Date.now() - new Date(_latest.lastUpdated || 0).getTime() < 12e4;
+          }
+        } catch (_) {
+        }
+        accountCurves.push({ key: "mt5", label: "MT5", platform: "MT5", isConnected: mt5Fresh, balance: mt5Balance, equity: mt5Equity, ...tally(mt5Only), realizedTodayPnl: mt5RealizedToday, todayPnl: liveToday(mt5RealizedToday, mt5Unreal), openCount: mt5Open.length, unrealizedPnl: mt5Unreal, curve: withLivePoint(curveOf(mt5Only), mt5Unreal) });
       }
       const _singleTL = tradelockerAccounts.length === 1;
       for (const a of tradelockerAccounts) {
