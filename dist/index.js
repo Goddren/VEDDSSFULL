@@ -28532,40 +28532,71 @@ function startLiveEngine(userId, config) {
       console.log("[VEDD Live Engine] TradeLocker pre-warm skipped:", e.message);
     }
   })();
-  if (fullConfig.propFirmMode) {
-    (async () => {
-      try {
-        const { pool: _cPool } = await Promise.resolve().then(() => (init_db(), db_exports));
-        const days = Math.max(15, (fullConfig.consistencyPeriodDays || 15) + 5);
-        const cutoff = new Date(Date.now() - days * 864e5).toISOString();
-        const rows = (await _cPool.query(
-          `SELECT (closed_at AT TIME ZONE 'UTC')::date AS d, COALESCE(SUM(profit_loss),0) AS pnl
+  const _dayStateRestore = (async () => {
+    try {
+      const { pool: _cPool } = await Promise.resolve().then(() => (init_db(), db_exports));
+      const days = Math.max(15, (fullConfig.consistencyPeriodDays || 15) + 5);
+      const cutoff = new Date(Date.now() - days * 864e5).toISOString();
+      const _sources = `('tradelocker','tradelocker_auto','mt5_ea','mt5_copier','manual','brain_autoexec')`;
+      const rows = (await _cPool.query(
+        `SELECT (closed_at AT TIME ZONE 'UTC')::date AS d, COALESCE(SUM(profit_loss),0) AS pnl
            FROM ai_trade_results
-           WHERE user_id=$1 AND source IN ('tradelocker','tradelocker_auto','mt5_ea','mt5_copier','manual','brain_autoexec')
-             AND closed_at IS NOT NULL AND result IN ('WIN','LOSS','BREAKEVEN') AND closed_at > $2
-           GROUP BY 1`,
-          [userId, cutoff]
-        )).rows;
-        const st = engineStates[userId];
-        if (st) {
-          const todayStr = (/* @__PURE__ */ new Date()).toISOString().split("T")[0];
-          for (const r of rows) {
-            const dstr = new Date(r.d).toISOString().split("T")[0];
-            st.challengeDailyPnL[dstr] = Math.round(Number(r.pnl) * 100) / 100;
-          }
-          if (st.challengeDailyPnL[todayStr] !== void 0) {
-            st.pnlToday = st.challengeDailyPnL[todayStr];
-            st._pnlTodayDate = todayStr;
-          }
-          console.log(`[VEDD Live Engine] Restored prop-firm consistency history: ${rows.length} day(s) for user ${userId}`);
-        }
-      } catch (e) {
-        console.log("[VEDD Live Engine] consistency history restore skipped:", e.message);
+          WHERE user_id=$1 AND source IN ${_sources}
+            AND closed_at IS NOT NULL AND result IN ('WIN','LOSS','BREAKEVEN') AND closed_at > $2
+          GROUP BY 1`,
+        [userId, cutoff]
+      )).rows;
+      const st = engineStates[userId];
+      if (!st) return;
+      const todayStr = (/* @__PURE__ */ new Date()).toISOString().split("T")[0];
+      for (const r of rows) {
+        const dstr = new Date(r.d).toISOString().split("T")[0];
+        st.challengeDailyPnL[dstr] = Math.round(Number(r.pnl) * 100) / 100;
       }
-    })();
-  }
+      if (st.challengeDailyPnL[todayStr] !== void 0) {
+        st.pnlToday = st.challengeDailyPnL[todayStr];
+        st._pnlTodayDate = todayStr;
+      }
+      try {
+        const _tc = (await _cPool.query(
+          `SELECT count(*)::int AS n FROM ai_trade_results
+            WHERE user_id=$1 AND source IN ${_sources}
+              AND (created_at AT TIME ZONE 'UTC')::date = $2::date
+              AND (closed_at IS NULL OR (closed_at AT TIME ZONE 'UTC')::date >= $2::date)`,
+          [userId, todayStr]
+        )).rows?.[0]?.n;
+        if (Number.isFinite(Number(_tc))) st.tradesOpenedToday = Number(_tc);
+      } catch {
+      }
+      st.sessionHighWatermark = Math.max(0, st.pnlToday);
+      st.pnlSession = st.pnlToday;
+      const _bal = fullConfig.accountBalance;
+      if (_bal > 0) {
+        const _pct = st.pnlToday / _bal * 100;
+        const _lossLimit = fullConfig.dailyLossLimit ?? 0;
+        if (_lossLimit > 0 && _pct <= -_lossLimit) {
+          st.dailyLossHalted = true;
+          st.dailyLossHaltedAt = (/* @__PURE__ */ new Date()).toISOString();
+          addActivity(userId, { type: "error", message: `\u{1F6A8} RESTART: daily loss ${_pct.toFixed(2)}% already breaches the ${_lossLimit}% limit \u2014 engine resumed in HALTED state (it did not reset).` });
+        }
+        const _profitTarget = fullConfig.dailyProfitTarget ?? 0;
+        if (_profitTarget > 0 && _pct >= _profitTarget) {
+          st.dailyProfitHalted = true;
+          st.dailyProfitHaltedAt = (/* @__PURE__ */ new Date()).toISOString();
+          addActivity(userId, { type: "info", message: `\u{1F3C6} RESTART: daily gain +${_pct.toFixed(2)}% already meets the ${_profitTarget}% target \u2014 engine resumed HALTED to protect gains.` });
+        }
+      }
+      console.log(`[VEDD Live Engine] Restored day state for user ${userId}: ${rows.length} day(s), pnlToday=${st.pnlToday}, tradesOpenedToday=${st.tradesOpenedToday}, lossHalted=${st.dailyLossHalted}, profitHalted=${st.dailyProfitHalted}`);
+    } catch (e) {
+      console.log("[VEDD Live Engine] day-state restore skipped:", e.message);
+    }
+  })();
   setTimeout(() => {
-    scanMarkets(userId).then(() => scheduleScan(userId));
+    Promise.race([
+      _dayStateRestore,
+      new Promise((r) => setTimeout(r, 1e4))
+      // never block startup indefinitely
+    ]).then(() => scanMarkets(userId)).then(() => scheduleScan(userId));
   }, 2e3);
   if (positionMonitorIntervals[userId]) clearInterval(positionMonitorIntervals[userId]);
   positionMonitorIntervals[userId] = setInterval(() => monitorPositions(userId), 25 * 1e3);

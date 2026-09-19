@@ -6452,40 +6452,93 @@ export function startLiveEngine(userId: number, config?: Partial<LiveEngineConfi
   // max-single-day-%-of-total) — the engine would see an empty history after
   // each restart. Rebuild both from closed FX trades so consistency enforcement
   // actually survives, matching the durable ledger the options/futures engines use.
-  if (fullConfig.propFirmMode) {
-    (async () => {
-      try {
-        const { pool: _cPool } = await import('../db');
-        const days = Math.max(15, (fullConfig.consistencyPeriodDays || 15) + 5);
-        const cutoff = new Date(Date.now() - days * 86400000).toISOString();
-        const rows = (await _cPool.query(
-          `SELECT (closed_at AT TIME ZONE 'UTC')::date AS d, COALESCE(SUM(profit_loss),0) AS pnl
+  // Runs for EVERY user, not just propFirmMode. The state above is a hard reset
+  // of today's risk posture — pnlToday: 0, dailyLossHalted: false,
+  // sessionHighWatermark: 0, tradesOpenedToday: 0 — so before this, an engine
+  // that had halted at -4% on Tuesday afternoon would come back from a deploy
+  // believing the day was fresh and trade the remaining -4% down. The UTC
+  // rollover logic is correct; the gap was RESTART, and only the propFirmMode
+  // branch restored anything.
+  const _dayStateRestore = (async () => {
+    try {
+      const { pool: _cPool } = await import('../db');
+      const days = Math.max(15, (fullConfig.consistencyPeriodDays || 15) + 5);
+      const cutoff = new Date(Date.now() - days * 86400000).toISOString();
+      const _sources = `('tradelocker','tradelocker_auto','mt5_ea','mt5_copier','manual','brain_autoexec')`;
+      const rows = (await _cPool.query(
+        `SELECT (closed_at AT TIME ZONE 'UTC')::date AS d, COALESCE(SUM(profit_loss),0) AS pnl
            FROM ai_trade_results
-           WHERE user_id=$1 AND source IN ('tradelocker','tradelocker_auto','mt5_ea','mt5_copier','manual','brain_autoexec')
-             AND closed_at IS NOT NULL AND result IN ('WIN','LOSS','BREAKEVEN') AND closed_at > $2
-           GROUP BY 1`, [userId, cutoff])
-        ).rows;
-        const st = engineStates[userId];
-        if (st) {
-          const todayStr = new Date().toISOString().split('T')[0];
-          for (const r of rows) {
-            const dstr = new Date(r.d).toISOString().split('T')[0];
-            st.challengeDailyPnL[dstr] = Math.round(Number(r.pnl) * 100) / 100;
-          }
-          if (st.challengeDailyPnL[todayStr] !== undefined) {
-            st.pnlToday = st.challengeDailyPnL[todayStr];
-            (st as any)._pnlTodayDate = todayStr;
-          }
-          console.log(`[VEDD Live Engine] Restored prop-firm consistency history: ${rows.length} day(s) for user ${userId}`);
-        }
-      } catch (e) {
-        console.log('[VEDD Live Engine] consistency history restore skipped:', (e as Error).message);
-      }
-    })();
-  }
+          WHERE user_id=$1 AND source IN ${_sources}
+            AND closed_at IS NOT NULL AND result IN ('WIN','LOSS','BREAKEVEN') AND closed_at > $2
+          GROUP BY 1`, [userId, cutoff])
+      ).rows;
+      const st = engineStates[userId];
+      if (!st) return;
 
+      const todayStr = new Date().toISOString().split('T')[0];
+      for (const r of rows) {
+        const dstr = new Date(r.d).toISOString().split('T')[0];
+        st.challengeDailyPnL[dstr] = Math.round(Number(r.pnl) * 100) / 100;
+      }
+      if (st.challengeDailyPnL[todayStr] !== undefined) {
+        st.pnlToday = st.challengeDailyPnL[todayStr];
+        (st as any)._pnlTodayDate = todayStr;
+      }
+
+      // Trades already opened today — otherwise the daily cap restarts at 0 and
+      // the engine can open a second full day's worth of positions.
+      try {
+        // created_at is the open time for engine-placed rows, but the
+        // reconciler back-inserts rows for OLD closes with today's created_at.
+        // Excluding rows that closed before today keeps those out of the count
+        // (verified: 2 such rows existed on 2026-09-19 from Sep 2-3 closes).
+        const _tc = (await _cPool.query(
+          `SELECT count(*)::int AS n FROM ai_trade_results
+            WHERE user_id=$1 AND source IN ${_sources}
+              AND (created_at AT TIME ZONE 'UTC')::date = $2::date
+              AND (closed_at IS NULL OR (closed_at AT TIME ZONE 'UTC')::date >= $2::date)`,
+          [userId, todayStr])
+        ).rows?.[0]?.n;
+        if (Number.isFinite(Number(_tc))) st.tradesOpenedToday = Number(_tc);
+      } catch { /* non-fatal */ }
+
+      // Session peak: with no history, treat the restored P&L as the peak so the
+      // drawdown shield neither trips instantly nor ignores a real drawdown.
+      st.sessionHighWatermark = Math.max(0, st.pnlToday);
+      st.pnlSession = st.pnlToday;
+
+      // Re-arm the halts from the RESTORED figures rather than assuming false.
+      const _bal = fullConfig.accountBalance;
+      if (_bal > 0) {
+        const _pct = (st.pnlToday / _bal) * 100;
+        const _lossLimit = fullConfig.dailyLossLimit ?? 0;
+        if (_lossLimit > 0 && _pct <= -_lossLimit) {
+          st.dailyLossHalted = true;
+          st.dailyLossHaltedAt = new Date().toISOString();
+          addActivity(userId, { type: 'error', message: `🚨 RESTART: daily loss ${_pct.toFixed(2)}% already breaches the ${_lossLimit}% limit — engine resumed in HALTED state (it did not reset).` });
+        }
+        const _profitTarget = fullConfig.dailyProfitTarget ?? 0;
+        if (_profitTarget > 0 && _pct >= _profitTarget) {
+          st.dailyProfitHalted = true;
+          st.dailyProfitHaltedAt = new Date().toISOString();
+          addActivity(userId, { type: 'info', message: `🏆 RESTART: daily gain +${_pct.toFixed(2)}% already meets the ${_profitTarget}% target — engine resumed HALTED to protect gains.` });
+        }
+      }
+
+      console.log(`[VEDD Live Engine] Restored day state for user ${userId}: ${rows.length} day(s), pnlToday=${st.pnlToday}, tradesOpenedToday=${st.tradesOpenedToday}, lossHalted=${st.dailyLossHalted}, profitHalted=${st.dailyProfitHalted}`);
+    } catch (e) {
+      console.log('[VEDD Live Engine] day-state restore skipped:', (e as Error).message);
+    }
+  })();
+
+  // Wait for the day-state restore before the first scan. Without this the
+  // 2s timer could beat the DB read and the engine would take its first trade
+  // of the restart still believing pnlToday is 0 and no halt is active.
   setTimeout(() => {
-    scanMarkets(userId).then(() => scheduleScan(userId));
+    Promise.race([
+      _dayStateRestore,
+      new Promise(r => setTimeout(r, 10000)), // never block startup indefinitely
+    ]).then(() => scanMarkets(userId)).then(() => scheduleScan(userId));
   }, 2000);
 
   // Fast position monitor — trailing + reversal exits every 25s (protects open
