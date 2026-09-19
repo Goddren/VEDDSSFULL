@@ -29,6 +29,7 @@ import { abbaStrategistHandler, abbaChatHandler } from "./abba-strategist";
 import { marketInsightsHandler, contextualInsightHandler } from "./market-insights";
 import { createStopOrder, checkBreakoutTriggers, cancelStopOrder, getStopOrdersForUser } from "./services/stopOrderService";
 import { insertStopOrderSchema, stopOrders } from "@shared/schema";
+import { BUILD_COMMIT, BUILD_BRANCH, BUILT_AT } from "./build-info";
 import { 
   getSubscriptionPlans,
   getUserSubscription,
@@ -1237,11 +1238,43 @@ export async function registerRoutes(app: Express, existingServer?: Server): Pro
   });
 
   // Health check endpoint for keeping the app awake and verifying connectivity
+  // Health + BUILD IDENTITY. Unauthenticated on purpose: "which commit is
+  // actually running?" must be answerable without credentials, from a script or
+  // a phone. It previously returned only a static message, so a deploy could
+  // not be verified from outside at all — on 2026-09-19 that made it impossible
+  // to tell whether a fix was live or the build predated it, while the FX
+  // engine sat stopped.
+  //
+  // Two DIFFERENT questions, so two fields — do not conflate them:
+  //
+  //   deployCommit — what Render checked out. Answers "did my push deploy?".
+  //                  Compare it to the commit you expect. This is the one to
+  //                  read after a deploy.
+  //   buildCommit  — the commit the running BUNDLE was built from, baked in by
+  //                  scripts/gen-build-info.mjs. Answers "is committed dist/
+  //                  stale?", which is a live hazard here because Render does
+  //                  not regenerate dist.
+  //
+  // They are expected to differ by exactly one commit and that is NOT an error:
+  // dist/ is built and committed together, so a bundle can never contain its
+  // own future commit hash. Only a LARGE gap, or a builtAt far older than the
+  // deploy, means the dist is stale. An earlier draft of this endpoint compared
+  // the two and reported a mismatch — it would have cried wolf on every single
+  // deploy.
   app.get("/api/health", (_req: Request, res: Response) => {
     res.json({
       status: "ok",
       timestamp: new Date().toISOString(),
-      message: "VEDD AI is running"
+      message: "VEDD AI is running",
+      deployCommit: process.env.RENDER_GIT_COMMIT
+        ? String(process.env.RENDER_GIT_COMMIT).slice(0, 8)
+        : null,
+      deployBranch: process.env.RENDER_GIT_BRANCH ?? null,
+      buildCommit: BUILD_COMMIT, // "-dirty" suffix = built from uncommitted edits
+      buildBranch: BUILD_BRANCH,
+      builtAt: BUILT_AT,
+      startedAt: new Date(Date.now() - Math.round(process.uptime() * 1000)).toISOString(),
+      uptimeSeconds: Math.round(process.uptime()),
     });
   });
 

@@ -54213,6 +54213,11 @@ async function getStopOrdersForUser(userId, filters = {}) {
 // server/routes.ts
 init_schema();
 
+// server/build-info.ts
+var BUILD_COMMIT = "002ea192-dirty";
+var BUILD_BRANCH = "main";
+var BUILT_AT = "2026-09-19T10:13:19.838Z";
+
 // server/stripe.ts
 init_db();
 init_schema();
@@ -58501,7 +58506,15 @@ async function registerRoutes(app2, existingServer) {
     res.json({
       status: "ok",
       timestamp: (/* @__PURE__ */ new Date()).toISOString(),
-      message: "VEDD AI is running"
+      message: "VEDD AI is running",
+      deployCommit: process.env.RENDER_GIT_COMMIT ? String(process.env.RENDER_GIT_COMMIT).slice(0, 8) : null,
+      deployBranch: process.env.RENDER_GIT_BRANCH ?? null,
+      buildCommit: BUILD_COMMIT,
+      // "-dirty" suffix = built from uncommitted edits
+      buildBranch: BUILD_BRANCH,
+      builtAt: BUILT_AT,
+      startedAt: new Date(Date.now() - Math.round(process.uptime() * 1e3)).toISOString(),
+      uptimeSeconds: Math.round(process.uptime())
     });
   });
   app2.get("/api/sample-charts", (_req, res) => {
