@@ -23171,6 +23171,7 @@ var init_cryptocom = __esm({
 // server/dxtrade.ts
 var dxtrade_exports = {};
 __export(dxtrade_exports, {
+  DxtradeReadError: () => DxtradeReadError,
   DxtradeService: () => DxtradeService,
   computeRiskQuantity: () => computeRiskQuantity,
   decryptApiSecret: () => decryptApiSecret,
@@ -23241,11 +23242,17 @@ function getDxtradeService(host, username, password, domain, cacheKey) {
   _dxServiceCache.set(cacheKey, { svc, ts: Date.now() });
   return svc;
 }
-var DxtradeService, _dxServiceCache, DX_SVC_TTL_MS;
+var DxtradeReadError, DxtradeService, _dxServiceCache, DX_SVC_TTL_MS;
 var init_dxtrade = __esm({
   "server/dxtrade.ts"() {
     "use strict";
     init_cryptocom();
+    DxtradeReadError = class extends Error {
+      constructor(message) {
+        super(message);
+        this.name = "DxtradeReadError";
+      }
+    };
     DxtradeService = class {
       base;
       username;
@@ -23535,7 +23542,23 @@ var init_dxtrade = __esm({
       /** Normalized open positions for an account (id/instrument/side/qty/entry),
        *  tolerant of dxsca shape (portfolio.positions | positions | flat array). */
       async getPositions(accountCode) {
-        const pf = await this.getPortfolio(accountCode).catch(() => null);
+        let lastErr = null;
+        let pf = null;
+        for (let attempt = 0; attempt < 3; attempt++) {
+          try {
+            pf = await this.getPortfolio(accountCode);
+            lastErr = null;
+            break;
+          } catch (e) {
+            lastErr = e;
+            const transient = /429|timeout|ETIMEDOUT|ECONN|socket|network|50[234]/i.test(e?.message || "");
+            if (!transient || attempt === 2) break;
+            await new Promise((r) => setTimeout(r, 1e3 * (attempt + 1)));
+          }
+        }
+        if (lastErr) {
+          throw new DxtradeReadError(`positions read failed for ${accountCode}: ${lastErr?.message ?? lastErr}`);
+        }
         const p0 = pf?.portfolios?.[0] ?? pf;
         const arr2 = p0?.positions ?? p0?.openPositions ?? (Array.isArray(pf) ? pf : []) ?? [];
         if (!Array.isArray(arr2)) return [];

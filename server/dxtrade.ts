@@ -91,6 +91,19 @@ export function dxBase(host: string): string {
   return h;
 }
 
+/**
+ * Thrown when a DXtrade read could not be completed. Distinct from "the broker
+ * answered and there is nothing there" — conflating the two is what let a real
+ * filled position go untracked and stopless on 2026-09-18. Callers must treat
+ * this as "unknown", never as "empty".
+ */
+export class DxtradeReadError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'DxtradeReadError';
+  }
+}
+
 export class DxtradeService {
   private base: string;
   private username: string;
@@ -377,7 +390,37 @@ export class DxtradeService {
   /** Normalized open positions for an account (id/instrument/side/qty/entry),
    *  tolerant of dxsca shape (portfolio.positions | positions | flat array). */
   async getPositions(accountCode: string): Promise<Array<{ positionId?: string; instrument: string; side: string; quantity: number; openPrice?: number; raw: any }>> {
-    const pf = await this.getPortfolio(accountCode).catch(() => null);
+    // A FAILED READ MUST THROW. This used to be `.catch(() => null)`, which
+    // turned every 429 / 401-after-retry / timeout / HTML error page into an
+    // empty array — indistinguishable from "the account genuinely has no open
+    // positions". Consequences, all real:
+    //   * live-trading-engine's fill-verify sets `_verifyError` only in a catch
+    //     block. Since this never threw, that flag was permanently false and the
+    //     entire "could not confirm the fill -> emergency close + NEEDS_RECONCILE
+    //     row + alert" branch was UNREACHABLE dead code. A real fill during a
+    //     portfolio-read outage instead took the "confirmed clean empty
+    //     portfolio -> order did not fill" path: logged no_fill, no DB row, and
+    //     the best-effort close went out with no positionCode (errorCode 33 on
+    //     this hedging account). Net result: a live, stopless, untracked
+    //     position. That is precisely the 2026-09-18 incident shape.
+    //   * closePosition / modifyProtection resolve positionCode from here; an
+    //     empty read gave `code = undefined` and the close went out without it.
+    // Retries transient failures first, then throws so callers can tell the
+    // difference between "no positions" and "I could not look".
+    let lastErr: any = null;
+    let pf: any = null;
+    for (let attempt = 0; attempt < 3; attempt++) {
+      try { pf = await this.getPortfolio(accountCode); lastErr = null; break; }
+      catch (e: any) {
+        lastErr = e;
+        const transient = /429|timeout|ETIMEDOUT|ECONN|socket|network|50[234]/i.test(e?.message || '');
+        if (!transient || attempt === 2) break;
+        await new Promise(r => setTimeout(r, 1000 * (attempt + 1)));
+      }
+    }
+    if (lastErr) {
+      throw new DxtradeReadError(`positions read failed for ${accountCode}: ${lastErr?.message ?? lastErr}`);
+    }
     // dxsca ALWAYS nests under portfolios[0] — `GET .../portfolio` returns
     // {"portfolios":[{"positions":[...], "balances":[...], ...}]}. The old
     // `pf?.positions ?? pf?.openPositions` read the wrong level and returned []
