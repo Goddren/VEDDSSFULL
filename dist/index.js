@@ -17352,6 +17352,7 @@ __export(tradelocker_exports, {
   getTLAccountValue: () => getTLAccountValue,
   isOnAuth429Cooldown: () => isOnAuth429Cooldown,
   noteAuthResult: () => noteAuthResult,
+  setUsdJpyRate: () => setUsdJpyRate,
   warmTradeLockerConnection: () => warmTradeLockerConnection
 });
 import crypto2 from "crypto";
@@ -17431,6 +17432,27 @@ function decryptPassword(encryptedPassword) {
   let decrypted = decipher.update(encrypted, "hex", "utf8");
   decrypted += decipher.final("utf8");
   return decrypted;
+}
+function setUsdJpyRate(rate) {
+  const r = Number(rate);
+  if (isFinite(r) && r > 50 && r < 500) _usdJpyLive = { rate: r, at: Date.now() };
+}
+function noteUsdJpyObservation(atMs, rate) {
+  const r = Number(rate);
+  if (!isFinite(r) || r <= 50 || r >= 500 || !isFinite(atMs)) return;
+  _usdJpyObserved.push({ at: atMs, rate: r });
+  if (_usdJpyObserved.length > 2e3) _usdJpyObserved.splice(0, _usdJpyObserved.length - 2e3);
+}
+function usdJpyAt(atMs) {
+  let best = null;
+  for (const o of _usdJpyObserved) {
+    if (!best || Math.abs(o.at - atMs) < Math.abs(best.at - atMs)) best = o;
+  }
+  if (best && Math.abs(best.at - atMs) < 7 * 24 * 3600 * 1e3) return best.rate;
+  if (_usdJpyLive && Date.now() - _usdJpyLive.at < 24 * 3600 * 1e3) return _usdJpyLive.rate;
+  if (best) return best.rate;
+  console.warn(`[TradeLocker] no USD/JPY rate available for ${new Date(atMs).toISOString()} \u2014 using ${USDJPY_FALLBACK}; JPY P&L may be off by a few percent.`);
+  return USDJPY_FALLBACK;
 }
 async function getOrCreateService(connection2) {
   const connId = connection2.id || `pending_${connection2.accountType}_${connection2.accountId}_${connection2.accNum || ""}`;
@@ -17686,7 +17708,7 @@ async function executeMT5SignalOnTradeLocker(connection2, signal) {
     };
   }
 }
-var IV_LENGTH, DEFAULT_ENCRYPTION_KEY, SALT_LENGTH, INSTRUMENT_CACHE_TTL, instrumentCache, instrumentsListCache, serviceCache, SERVICE_CACHE_TTL, RETRY_DELAYS, RETRYABLE_STATUSES, AUTH_429_COOLDOWN_MS, authCooldownUntil, authChain, lastAuthAt, MIN_AUTH_GAP_MS, TradeLockerService, TL_VALUE_TTL;
+var IV_LENGTH, DEFAULT_ENCRYPTION_KEY, SALT_LENGTH, INSTRUMENT_CACHE_TTL, instrumentCache, instrumentsListCache, serviceCache, SERVICE_CACHE_TTL, RETRY_DELAYS, RETRYABLE_STATUSES, AUTH_429_COOLDOWN_MS, authCooldownUntil, authChain, lastAuthAt, MIN_AUTH_GAP_MS, USDJPY_FALLBACK, _usdJpyLive, _usdJpyObserved, TradeLockerService, TL_VALUE_TTL;
 var init_tradelocker = __esm({
   "server/tradelocker.ts"() {
     "use strict";
@@ -17705,6 +17727,9 @@ var init_tradelocker = __esm({
     authChain = Promise.resolve();
     lastAuthAt = 0;
     MIN_AUTH_GAP_MS = 1500;
+    USDJPY_FALLBACK = 150;
+    _usdJpyLive = null;
+    _usdJpyObserved = [];
     TradeLockerService = class _TradeLockerService {
       baseUrl;
       accessToken = null;
@@ -18520,12 +18545,37 @@ var init_tradelocker = __esm({
       // figure. Not exact (real pip/point values vary by broker/instrument
       // spec), but far closer than treating a JPY-pair price difference or a
       // 0.00001-precision FX price as if it were already in dollars.
-      static instrumentMultiplier(symbol) {
-        const s = symbol.toUpperCase();
-        if (s.includes("JPY")) return 1e3;
-        if (s === "XAUUSD" || s === "GOLD") return 100;
-        if (s === "XAGUSD" || s === "SILVER") return 5e3;
-        if (s.includes("BTC") || s.includes("ETH") || /^[A-Z]{2,5}USD$/.test(s) === false) return 1;
+      /**
+       * Strip broker decoration so symbol tests actually match. White-labels ship
+       * the same instrument as `EURUSD`, `EUR/USD`, `EURUSD.PRO`, `EURUSD-ECN`,
+       * `EURUSD_raw` … Previously an undecorated-only comparison meant `XAUUSD.PRO`
+       * missed the gold branch and fell through to multiplier 1 (100x understated,
+       * audited 2026-09-18: 4 live rows booked at $7.07 instead of ~$707).
+       */
+      static normalizeSymbol(symbol) {
+        return String(symbol ?? "").toUpperCase().split(".")[0].replace(/[^A-Z0-9]/g, "");
+      }
+      /**
+       * Contract size: units of the BASE asset per 1.0 of reported qty. This is the
+       * `(exit - entry) * qty * size` term only — it yields a figure in the QUOTE
+       * currency, which `quoteToUsd` then converts. Keeping the two concerns apart
+       * is deliberate: the old single "multiplier" tried to do both at once and got
+       * both wrong for non-USD-quoted instruments.
+       *
+       * Previous bug (fixed 2026-09-19): the crypto/index line read
+       *   `if (s.includes('BTC') || s.includes('ETH') || /^[A-Z]{2,5}USD$/.test(s) === false) return 1;`
+       * which returned BEFORE the 6-char FX line for every pair NOT ending in USD.
+       * EURGBP/AUDCAD/GBPCHF etc. were therefore booked at multiplier 1 — i.e. a
+       * ~100,000x understatement. Confirmed live: 7 AUDCAD rows booked at
+       * -$0.0008 total, which the sync then dropped as "zero P&L = not closed",
+       * leaving them PENDING forever.
+       */
+      static contractSize(symbol) {
+        const s = _TradeLockerService.normalizeSymbol(symbol);
+        if (s.startsWith("XAU") || s === "GOLD") return 100;
+        if (s.startsWith("XAG") || s === "SILVER") return 5e3;
+        if (s.startsWith("XPT") || s.startsWith("XPD")) return 100;
+        if (/^(BTC|ETH|LTC|XRP|BCH|ADA|SOL|DOGE|DOT|ETC|LINK)/.test(s)) return 1;
         if (/^[A-Z]{6}$/.test(s)) return 1e5;
         return 1;
       }
@@ -18623,6 +18673,9 @@ var init_tradelocker = __esm({
         const fills = await this.getFilledOrders(fromTs ? fromTs - 30 * 24 * 3600 : void 0);
         const byPosition = /* @__PURE__ */ new Map();
         for (const f of fills) {
+          if (_TradeLockerService.normalizeSymbol(f.symbol) === "USDJPY" && Number(f.avgPrice) > 0) {
+            noteUsdJpyObservation(new Date(f.closeTime).getTime(), Number(f.avgPrice));
+          }
           if (!f.positionId) continue;
           if (!byPosition.has(f.positionId)) byPosition.set(f.positionId, []);
           byPosition.get(f.positionId).push(f);
@@ -18657,12 +18710,17 @@ var init_tradelocker = __esm({
             continue;
           }
           if (fromTs && closeMs < fromTs * 1e3) continue;
-          let profit;
-          if (String(legs[0].symbol).toUpperCase().includes("JPY") && exitAvg > 0) {
-            profit = priceDiff * closedQty * 1e5 / exitAvg;
-          } else {
-            profit = priceDiff * closedQty * _TradeLockerService.instrumentMultiplier(legs[0].symbol);
+          const _symN = _TradeLockerService.normalizeSymbol(legs[0].symbol);
+          const _quote = /^[A-Z]{6}$/.test(_symN) ? _symN.slice(3) : "USD";
+          let _quoteToUsd = 1;
+          if (_quote === "JPY") {
+            const _usdJpy = _symN === "USDJPY" && exitAvg > 0 ? exitAvg : usdJpyAt(new Date(closeTime).getTime());
+            _quoteToUsd = _usdJpy > 0 ? 1 / _usdJpy : 0;
+          } else if (_quote !== "USD" && /^[A-Z]{6}$/.test(_symN)) {
+            _quoteToUsd = 1;
           }
+          const profit = priceDiff * closedQty * _TradeLockerService.contractSize(legs[0].symbol) * _quoteToUsd;
+          const _fxConverted = _quote === "USD" || _quote === "JPY" ? true : !/^[A-Z]{6}$/.test(_symN);
           closed.push({
             id: legs[legs.length - 1].id,
             positionId,
@@ -18673,7 +18731,10 @@ var init_tradelocker = __esm({
             openPrice: openAvg,
             closePrice: exitAvg,
             openTime: legs[0].closeTime,
-            closeTime
+            closeTime,
+            quoteCurrency: _quote,
+            // false => `profit` is in quoteCurrency, NOT USD (no rate available).
+            usdConverted: _fxConverted
           });
         }
         return closed;
@@ -24480,6 +24541,12 @@ async function scanMarkets(userId) {
         const rsi3 = indicators.stochastic?.k || 50;
         const atr2 = indicators.volatilityContext?.currentATR || 0;
         const volumeMetrics = computeVolumeMetrics(confirmedBars);
+        if (symbol.replace(/[^A-Za-z]/g, "").toUpperCase() === "USDJPY" && currentPrice > 0) {
+          try {
+            setUsdJpyRate(currentPrice);
+          } catch {
+          }
+        }
         state.marketSnapshot[symbol] = {
           price: currentPrice,
           change: Math.round(change * 100) / 100,

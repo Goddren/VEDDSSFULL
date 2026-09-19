@@ -170,6 +170,47 @@ export function decryptPassword(encryptedPassword: string): string {
   return decrypted;
 }
 
+// ── USD/JPY rate book ────────────────────────────────────────────────────────
+// Converting a JPY-quoted P&L to USD requires USD/JPY — never the traded pair's
+// own rate (that was the GBPJPY bug). Sources, in order of preference:
+//   1. the live rate the engine publishes from its market feed
+//   2. USD/JPY fills observed on the account itself, matched nearest-in-time to
+//      the trade being converted (self-consistent, needs no extra API call, and
+//      historically accurate for old closes rather than using today's rate)
+//   3. a conservative constant, only so a missing rate never yields NaN
+const USDJPY_FALLBACK = 150;
+let _usdJpyLive: { rate: number; at: number } | null = null;
+const _usdJpyObserved: Array<{ at: number; rate: number }> = [];
+
+/** Publish the live USD/JPY rate (called by the engine's market scan). */
+export function setUsdJpyRate(rate: number): void {
+  const r = Number(rate);
+  if (isFinite(r) && r > 50 && r < 500) _usdJpyLive = { rate: r, at: Date.now() };
+}
+
+/** Record a USD/JPY price seen at a point in time (from observed fills). */
+function noteUsdJpyObservation(atMs: number, rate: number): void {
+  const r = Number(rate);
+  if (!isFinite(r) || r <= 50 || r >= 500 || !isFinite(atMs)) return;
+  _usdJpyObserved.push({ at: atMs, rate: r });
+  if (_usdJpyObserved.length > 2000) _usdJpyObserved.splice(0, _usdJpyObserved.length - 2000);
+}
+
+/** Best-known USD/JPY for a given moment. */
+function usdJpyAt(atMs: number): number {
+  let best: { at: number; rate: number } | null = null;
+  for (const o of _usdJpyObserved) {
+    if (!best || Math.abs(o.at - atMs) < Math.abs(best.at - atMs)) best = o;
+  }
+  // Prefer an observation within 7 days of the trade; it beats today's live rate
+  // for a close that happened weeks ago.
+  if (best && Math.abs(best.at - atMs) < 7 * 24 * 3600 * 1000) return best.rate;
+  if (_usdJpyLive && Date.now() - _usdJpyLive.at < 24 * 3600 * 1000) return _usdJpyLive.rate;
+  if (best) return best.rate;
+  console.warn(`[TradeLocker] no USD/JPY rate available for ${new Date(atMs).toISOString()} — using ${USDJPY_FALLBACK}; JPY P&L may be off by a few percent.`);
+  return USDJPY_FALLBACK;
+}
+
 export class TradeLockerService {
   private baseUrl: string;
   private accessToken: string | null = null;
@@ -1170,14 +1211,45 @@ export class TradeLockerService {
   // figure. Not exact (real pip/point values vary by broker/instrument
   // spec), but far closer than treating a JPY-pair price difference or a
   // 0.00001-precision FX price as if it were already in dollars.
-  private static instrumentMultiplier(symbol: string): number {
-    const s = symbol.toUpperCase();
-    if (s.includes('JPY')) return 1000; // JPY pairs quote to 0.001 — ~$1000/qty-unit per 1.0 price move on a standard lot
-    if (s === 'XAUUSD' || s === 'GOLD') return 100; // gold: 100 oz/lot
-    if (s === 'XAGUSD' || s === 'SILVER') return 5000; // silver: 5000 oz/lot
-    if (s.includes('BTC') || s.includes('ETH') || /^[A-Z]{2,5}USD$/.test(s) === false) return 1; // crypto and indices: 1:1
-    if (/^[A-Z]{6}$/.test(s)) return 100000; // standard 6-char FX pair: 100k units/lot
-    return 1;
+  /**
+   * Strip broker decoration so symbol tests actually match. White-labels ship
+   * the same instrument as `EURUSD`, `EUR/USD`, `EURUSD.PRO`, `EURUSD-ECN`,
+   * `EURUSD_raw` … Previously an undecorated-only comparison meant `XAUUSD.PRO`
+   * missed the gold branch and fell through to multiplier 1 (100x understated,
+   * audited 2026-09-18: 4 live rows booked at $7.07 instead of ~$707).
+   */
+  static normalizeSymbol(symbol: string): string {
+    return String(symbol ?? '')
+      .toUpperCase()
+      .split('.')[0]                 // drop .PRO / .RAW / .ECN suffixes
+      .replace(/[^A-Z0-9]/g, '');    // drop / _ - and spaces
+  }
+
+  /**
+   * Contract size: units of the BASE asset per 1.0 of reported qty. This is the
+   * `(exit - entry) * qty * size` term only — it yields a figure in the QUOTE
+   * currency, which `quoteToUsd` then converts. Keeping the two concerns apart
+   * is deliberate: the old single "multiplier" tried to do both at once and got
+   * both wrong for non-USD-quoted instruments.
+   *
+   * Previous bug (fixed 2026-09-19): the crypto/index line read
+   *   `if (s.includes('BTC') || s.includes('ETH') || /^[A-Z]{2,5}USD$/.test(s) === false) return 1;`
+   * which returned BEFORE the 6-char FX line for every pair NOT ending in USD.
+   * EURGBP/AUDCAD/GBPCHF etc. were therefore booked at multiplier 1 — i.e. a
+   * ~100,000x understatement. Confirmed live: 7 AUDCAD rows booked at
+   * -$0.0008 total, which the sync then dropped as "zero P&L = not closed",
+   * leaving them PENDING forever.
+   */
+  static contractSize(symbol: string): number {
+    const s = TradeLockerService.normalizeSymbol(symbol);
+    if (s.startsWith('XAU') || s === 'GOLD') return 100;    // gold: 100 oz/lot
+    if (s.startsWith('XAG') || s === 'SILVER') return 5000; // silver: 5000 oz/lot
+    if (s.startsWith('XPT') || s.startsWith('XPD')) return 100;
+    // Crypto: quoted per coin, qty is already in coins.
+    if (/^(BTC|ETH|LTC|XRP|BCH|ADA|SOL|DOGE|DOT|ETC|LINK)/.test(s)) return 1;
+    // Standard FX: exactly 6 alpha chars (majors, minors AND crosses).
+    if (/^[A-Z]{6}$/.test(s)) return 100000;
+    return 1; // indices, CFDs, unknown/unmapped instrument ids
   }
 
   /**
@@ -1294,6 +1366,11 @@ export class TradeLockerService {
     const fills = await this.getFilledOrders(fromTs ? fromTs - 30 * 24 * 3600 : undefined); // widen so entry legs older than fromTs still pair correctly
     const byPosition = new Map<string, any[]>();
     for (const f of fills) {
+      // Harvest USD/JPY prices as we go — these are the rates used to convert
+      // any JPY-cross P&L below, matched nearest-in-time to each close.
+      if (TradeLockerService.normalizeSymbol(f.symbol) === 'USDJPY' && Number(f.avgPrice) > 0) {
+        noteUsdJpyObservation(new Date(f.closeTime).getTime(), Number(f.avgPrice));
+      }
       if (!f.positionId) continue;
       if (!byPosition.has(f.positionId)) byPosition.set(f.positionId, []);
       byPosition.get(f.positionId)!.push(f);
@@ -1356,18 +1433,39 @@ export class TradeLockerService {
       }
       if (fromTs && closeMs < fromTs * 1000) continue;
 
-      // P&L conversion (see JPY note): USD-quoted pairs are already USD; JPY-quoted
-      // divide by the USD/JPY exit rate. exitAvg for a long is the sell (close) avg.
-      let profit: number;
-      if (String(legs[0].symbol).toUpperCase().includes('JPY') && exitAvg > 0) {
-        profit = (priceDiff * closedQty * 100000) / exitAvg;
-      } else {
-        profit = priceDiff * closedQty * TradeLockerService.instrumentMultiplier(legs[0].symbol);
+      // P&L = price move x qty x contract size, expressed in the QUOTE currency,
+      // then converted to USD.
+      //
+      // Previous bug (fixed 2026-09-19): the JPY branch divided by `exitAvg`, the
+      // traded pair's OWN rate. That is only correct for USDJPY, where exitAvg IS
+      // USD/JPY. For a JPY CROSS it divides by the wrong number entirely — GBPJPY
+      // (~190) instead of USD/JPY (~147) understated every GBPJPY result by ~23%.
+      // Audited 2026-09-19: 286 GBPJPY rows booked -$13,310 against a true
+      // ~-$17,204. The correct divisor is always USD/JPY.
+      const _symN = TradeLockerService.normalizeSymbol(legs[0].symbol);
+      const _quote = /^[A-Z]{6}$/.test(_symN) ? _symN.slice(3) : 'USD';
+      let _quoteToUsd = 1;
+      if (_quote === 'JPY') {
+        const _usdJpy = _symN === 'USDJPY' && exitAvg > 0
+          ? exitAvg                               // the pair's own rate IS USD/JPY
+          : usdJpyAt(new Date(closeTime).getTime());
+        _quoteToUsd = _usdJpy > 0 ? 1 / _usdJpy : 0;
+      } else if (_quote !== 'USD' && /^[A-Z]{6}$/.test(_symN)) {
+        // Non-USD, non-JPY quote (EURGBP, AUDCAD, GBPCHF...). We have no rate for
+        // these, and guessing silently is what produced the multiplier-1 bug.
+        // Mark the row so callers can see the figure is unconverted rather than
+        // publishing a confidently wrong number.
+        _quoteToUsd = 1;
       }
+      const profit = priceDiff * closedQty * TradeLockerService.contractSize(legs[0].symbol) * _quoteToUsd;
+      const _fxConverted = _quote === 'USD' || _quote === 'JPY' ? true : !/^[A-Z]{6}$/.test(_symN);
       closed.push({
         id: legs[legs.length - 1].id, positionId, symbol: legs[0].symbol, side: direction,
         qty: closedQty, profit, openPrice: openAvg, closePrice: exitAvg,
         openTime: legs[0].closeTime, closeTime,
+        quoteCurrency: _quote,
+        // false => `profit` is in quoteCurrency, NOT USD (no rate available).
+        usdConverted: _fxConverted,
       });
     }
     return closed;

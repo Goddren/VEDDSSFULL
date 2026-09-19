@@ -1,5 +1,5 @@
 import { marketDataService } from '../market-data/service';
-import { executeMT5SignalOnTradeLocker, warmTradeLockerConnection, getTLAccountValue, getOrCreateService as getTradeLockerService } from '../tradelocker';
+import { executeMT5SignalOnTradeLocker, warmTradeLockerConnection, getTLAccountValue, getOrCreateService as getTradeLockerService, setUsdJpyRate } from '../tradelocker';
 import { refreshTlAfterTrade } from './tradelocker-sync';
 import { computeAllAdvancedIndicators, type CandleData } from '../indicators';
 import { storage } from '../storage';
@@ -1576,6 +1576,12 @@ async function scanMarkets(userId: number): Promise<void> {
         const atr = indicators.volatilityContext?.currentATR || 0;
 
         const volumeMetrics = computeVolumeMetrics(confirmedBars); // confirmed bars only
+
+        // Publish USD/JPY so TradeLocker P&L can convert JPY-quoted results to
+        // USD with the real cross rate (never the traded pair's own rate).
+        if (symbol.replace(/[^A-Za-z]/g, '').toUpperCase() === 'USDJPY' && currentPrice > 0) {
+          try { setUsdJpyRate(currentPrice); } catch { /* non-fatal */ }
+        }
 
         state.marketSnapshot[symbol] = {
           price: currentPrice,
