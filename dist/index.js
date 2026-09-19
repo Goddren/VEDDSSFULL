@@ -27553,13 +27553,38 @@ async function processDecision(userId, decision, newsCtx) {
       });
     }
     const _pairHardLot = (config.pairLotOverrides || {})[decision.symbol];
-    const lotSize = _pairHardLot && _pairHardLot > 0 ? Math.min(volCappedLot, _pairHardLot) : volCappedLot;
+    let lotSize = _pairHardLot && _pairHardLot > 0 ? Math.min(volCappedLot, _pairHardLot) : volCappedLot;
     if (_pairHardLot && _pairHardLot > 0 && volCappedLot !== lotSize) {
       addActivity(userId, {
         type: "info",
         symbol: decision.symbol,
         message: `\u{1F512} PAIR LOT BLOCK [${decision.symbol}]: engine sized ${volCappedLot} lots \u2192 hard-blocked to ${lotSize} lots (user set ${_pairHardLot} max for ${decision.symbol})`
       });
+    }
+    {
+      const _rcBal = config.accountBalance > 0 ? config.accountBalance : 0;
+      const _maxRiskPct = config.maxRiskPerTradePct ?? 0;
+      if (_rcBal > 0 && _maxRiskPct > 0 && entryPrice && stopLoss) {
+        const _pipSz = getPipSize(decision.symbol);
+        const _pipVal = getPipValue(decision.symbol);
+        const _slPips = Math.abs(entryPrice - stopLoss) / (_pipSz || 1);
+        if (_pipVal > 0 && _slPips > 0) {
+          const _capUsd = _rcBal * (_maxRiskPct / 100);
+          const _riskAtLot = lotSize * _slPips * _pipVal;
+          if (_riskAtLot > _capUsd) {
+            const _capped = Math.max(0.01, Math.floor(_capUsd / (_slPips * _pipVal) * 100) / 100);
+            if (_capped < lotSize) {
+              addActivity(userId, { type: "info", symbol: decision.symbol, message: `\u{1F6E1}\uFE0F RISK CAP: resized ${lotSize} \u2192 ${_capped} lots to keep per-trade risk \u2264 ${_maxRiskPct}% ($${_capUsd.toFixed(0)})` });
+              lotSize = _capped;
+            }
+          }
+        }
+      }
+      const _maxLotCfg = config.maxLot ?? 0;
+      if (_maxLotCfg > 0 && lotSize > _maxLotCfg) {
+        addActivity(userId, { type: "info", symbol: decision.symbol, message: `\u{1F6E1}\uFE0F RISK CAP: capped ${lotSize} \u2192 ${_maxLotCfg} lots (maxLot ceiling)` });
+        lotSize = _maxLotCfg;
+      }
     }
     {
       const _riskBal = config.accountBalance > 0 ? config.accountBalance : 0;
@@ -27944,6 +27969,8 @@ async function processDecision(userId, decision, newsCtx) {
           return { tlConn, tradeResult, acctLot, acctSizeLabel };
         })
       );
+      const _isPendingType = resolvedOrderType !== "market";
+      const _acceptedConns = [];
       let anySuccess = false;
       for (const result of openResults) {
         if (result.status === "fulfilled") {
@@ -27953,12 +27980,13 @@ async function processDecision(userId, decision, newsCtx) {
           const multLabel = acctSizeLabel ? acctSizeLabel : config.copyMode === "proportional" && _tlBal2 ? ` (proportional $${_tlBal2.toLocaleString()})` : (tlConn.lotMultiplier ?? 1) !== 1 ? ` (\xD7${tlConn.lotMultiplier})` : "";
           if (tradeResult.success) {
             anySuccess = true;
+            _acceptedConns.push(tlConn);
             addActivity(userId, {
               type: "trade_open",
               symbol: decision.symbol,
               direction: decision.direction,
               confidence: adjustedConfidence,
-              message: `TRADE EXECUTED via TradeLocker ${acctLabel}: ${decision.direction} ${decision.symbol} | Type: ${resolvedOrderType.toUpperCase()} | Entry: ${entryPrice || "market"} | Lot: ${executedLot}${multLabel} | SL: ${stopLoss || "N/A"} | TP: ${takeProfit || "N/A"} | Order: ${tradeResult.orderId}`,
+              message: `${_isPendingType ? "ORDER WORKING (not filled yet)" : "TRADE EXECUTED"} via TradeLocker ${acctLabel}: ${decision.direction} ${decision.symbol} | Type: ${resolvedOrderType.toUpperCase()} | Entry: ${entryPrice || "market"} | Lot: ${executedLot}${multLabel} | SL: ${stopLoss || "N/A"} | TP: ${takeProfit || "N/A"} | Order: ${tradeResult.orderId}`,
               details: { orderId: tradeResult.orderId, lotSize, stopLoss, takeProfit, orderType: resolvedOrderType, confluences: decision.confluences }
             });
           } else {
@@ -27976,10 +28004,41 @@ async function processDecision(userId, decision, newsCtx) {
           });
         }
       }
+      let _marketFilled = false;
+      if (anySuccess && !_isPendingType) {
+        const _want = decision.symbol.toUpperCase().replace(/[^A-Z0-9]/g, "");
+        for (const tlConn of _acceptedConns) {
+          let _found = false, _readFailed = false;
+          for (let _a = 0; _a < 3 && !_found; _a++) {
+            await new Promise((r) => setTimeout(r, 1e3));
+            try {
+              const svc = await getOrCreateService(tlConn);
+              const poss = await svc.getPositionsNormalized();
+              _readFailed = false;
+              _found = poss.some((p) => String(p.symbol || "").toUpperCase().replace(/[^A-Z0-9]/g, "") === _want);
+            } catch {
+              _readFailed = true;
+            }
+          }
+          if (_found) {
+            _marketFilled = true;
+            continue;
+          }
+          addActivity(userId, {
+            type: "error",
+            symbol: decision.symbol,
+            message: _readFailed ? `\u26A0\uFE0F TradeLocker [${tlConn.email || tlConn.id}]: order accepted but the position book could NOT be read \u2014 fill UNCONFIRMED for ${decision.symbol}. Check the account manually.` : `\u26A0\uFE0F TradeLocker [${tlConn.email || tlConn.id}]: order accepted but no ${decision.symbol} position appeared after 3s \u2014 it may not have filled. Check the account manually.`
+          });
+        }
+      }
       if (anySuccess) {
         state.tradesExecuted++;
         state.tradesOpenedToday++;
-        state.openPositionCount++;
+        if (_isPendingType) {
+          addActivity(userId, { type: "info", symbol: decision.symbol, message: `\u23F3 ${resolvedOrderType.toUpperCase()} order resting at the broker \u2014 not counted as an open position until it triggers.` });
+        } else if (_marketFilled) {
+          state.openPositionCount++;
+        }
         refreshTlAfterTrade(userId);
         mt5Signal.status = "executed";
       } else {

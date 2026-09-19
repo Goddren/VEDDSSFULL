@@ -5172,7 +5172,7 @@ async function processDecision(userId: number, decision: any, newsCtx?: any): Pr
     // If the user set a custom lot size for this specific pair in the engine UI,
     // the engine CANNOT exceed it regardless of dynamic sizing, Kelly, or volatility.
     const _pairHardLot = (config.pairLotOverrides || {})[decision.symbol];
-    const lotSize = (_pairHardLot && _pairHardLot > 0) ? Math.min(volCappedLot, _pairHardLot) : volCappedLot;
+    let lotSize = (_pairHardLot && _pairHardLot > 0) ? Math.min(volCappedLot, _pairHardLot) : volCappedLot;
     if (_pairHardLot && _pairHardLot > 0 && volCappedLot !== lotSize) {
       addActivity(userId, {
         type: 'info',
@@ -5181,7 +5181,42 @@ async function processDecision(userId: number, decision: any, newsCtx?: any): Pr
       });
     }
 
+    // ── Configured per-trade risk cap — RESIZE, then absolute maxLot ceiling ──
+    // maxRiskPerTradePct and maxLot are documented as "the direct guard against
+    // one oversized trade", but they were only ever enforced on the EA/chart-data
+    // path in routes.ts — processDecision never read either. The engine's only
+    // per-trade limit was the hard-coded 5% backstop below, i.e. 2.5x whatever
+    // the user configured. This ports the same resize-then-cap logic so the
+    // setting actually applies to autonomous trades.
+    {
+      const _rcBal = config.accountBalance > 0 ? config.accountBalance : 0;
+      const _maxRiskPct = config.maxRiskPerTradePct ?? 0;
+      if (_rcBal > 0 && _maxRiskPct > 0 && entryPrice && stopLoss) {
+        const _pipSz = getPipSize(decision.symbol);
+        const _pipVal = getPipValue(decision.symbol);
+        const _slPips = Math.abs(entryPrice - stopLoss) / (_pipSz || 1);
+        if (_pipVal > 0 && _slPips > 0) {
+          const _capUsd = _rcBal * (_maxRiskPct / 100);
+          const _riskAtLot = lotSize * _slPips * _pipVal;
+          if (_riskAtLot > _capUsd) {
+            const _capped = Math.max(0.01, Math.floor((_capUsd / (_slPips * _pipVal)) * 100) / 100);
+            if (_capped < lotSize) {
+              addActivity(userId, { type: 'info', symbol: decision.symbol, message: `🛡️ RISK CAP: resized ${lotSize} → ${_capped} lots to keep per-trade risk ≤ ${_maxRiskPct}% ($${_capUsd.toFixed(0)})` });
+              lotSize = _capped;
+            }
+          }
+        }
+      }
+      const _maxLotCfg = config.maxLot ?? 0;
+      if (_maxLotCfg > 0 && lotSize > _maxLotCfg) {
+        addActivity(userId, { type: 'info', symbol: decision.symbol, message: `🛡️ RISK CAP: capped ${lotSize} → ${_maxLotCfg} lots (maxLot ceiling)` });
+        lotSize = _maxLotCfg;
+      }
+    }
+
     // ── Per-trade 5% backstop + aggregate exposure cap (ports Gate 0d/0e) ──
+    // Kept as a final catch BELOW the configured cap above: if sizing is still
+    // absurd after the resize (e.g. no stop distance, unknown pip value), block.
     {
       const _riskBal = config.accountBalance > 0 ? config.accountBalance : 0;
       if (_riskBal > 0 && entryPrice && stopLoss) {
@@ -5665,6 +5700,16 @@ async function processDecision(userId: number, decision: any, newsCtx?: any): Pr
         })
       );
 
+      // TradeLocker placeOrder reports `status: 'submitted'` on HTTP-200
+      // acceptance and the wrapper maps that to success — acceptance is NOT a
+      // fill. For a pending order type the position legitimately does not exist
+      // yet, and for a market order we should confirm it actually appeared.
+      // Previously every accepted order incremented openPositionCount and was
+      // announced as "TRADE EXECUTED", so a resting limit that never triggered
+      // still consumed a maxOpenTrades slot and reported as a live position.
+      const _isPendingType = resolvedOrderType !== 'market';
+      const _acceptedConns: any[] = [];
+
       let anySuccess = false;
       for (const result of openResults) {
         if (result.status === 'fulfilled') {
@@ -5678,12 +5723,13 @@ async function processDecision(userId: number, decision: any, newsCtx?: any): Pr
             : (tlConn.lotMultiplier ?? 1) !== 1 ? ` (×${tlConn.lotMultiplier})` : '';
           if (tradeResult.success) {
             anySuccess = true;
+            _acceptedConns.push(tlConn);
             addActivity(userId, {
               type: 'trade_open',
               symbol: decision.symbol,
               direction: decision.direction,
               confidence: adjustedConfidence,
-              message: `TRADE EXECUTED via TradeLocker ${acctLabel}: ${decision.direction} ${decision.symbol} | Type: ${resolvedOrderType.toUpperCase()} | Entry: ${entryPrice || 'market'} | Lot: ${executedLot}${multLabel} | SL: ${stopLoss || 'N/A'} | TP: ${takeProfit || 'N/A'} | Order: ${tradeResult.orderId}`,
+              message: `${_isPendingType ? 'ORDER WORKING (not filled yet)' : 'TRADE EXECUTED'} via TradeLocker ${acctLabel}: ${decision.direction} ${decision.symbol} | Type: ${resolvedOrderType.toUpperCase()} | Entry: ${entryPrice || 'market'} | Lot: ${executedLot}${multLabel} | SL: ${stopLoss || 'N/A'} | TP: ${takeProfit || 'N/A'} | Order: ${tradeResult.orderId}`,
               details: { orderId: tradeResult.orderId, lotSize, stopLoss, takeProfit, orderType: resolvedOrderType, confluences: decision.confluences },
             });
           } else {
@@ -5702,10 +5748,45 @@ async function processDecision(userId: number, decision: any, newsCtx?: any): Pr
         }
       }
 
+      // ── Fill verification for MARKET orders ────────────────────────────────
+      // Confirm the position actually exists at the broker before counting it as
+      // open. A read failure is reported as UNKNOWN, never silently as "filled"
+      // or "not filled".
+      let _marketFilled = false;
+      if (anySuccess && !_isPendingType) {
+        const _want = decision.symbol.toUpperCase().replace(/[^A-Z0-9]/g, '');
+        for (const tlConn of _acceptedConns) {
+          let _found = false, _readFailed = false;
+          for (let _a = 0; _a < 3 && !_found; _a++) {
+            await new Promise(r => setTimeout(r, 1000));
+            try {
+              const svc = await getTradeLockerService(tlConn);
+              const poss = await svc.getPositionsNormalized();
+              _readFailed = false;
+              _found = poss.some((p: any) => String(p.symbol || '').toUpperCase().replace(/[^A-Z0-9]/g, '') === _want);
+            } catch { _readFailed = true; }
+          }
+          if (_found) { _marketFilled = true; continue; }
+          addActivity(userId, {
+            type: 'error',
+            symbol: decision.symbol,
+            message: _readFailed
+              ? `⚠️ TradeLocker [${tlConn.email || tlConn.id}]: order accepted but the position book could NOT be read — fill UNCONFIRMED for ${decision.symbol}. Check the account manually.`
+              : `⚠️ TradeLocker [${tlConn.email || tlConn.id}]: order accepted but no ${decision.symbol} position appeared after 3s — it may not have filled. Check the account manually.`,
+          });
+        }
+      }
+
       if (anySuccess) {
         state.tradesExecuted++;
         state.tradesOpenedToday++;
-        state.openPositionCount++;
+        // Only a CONFIRMED open position consumes a slot. A working pending
+        // order, or a market order whose fill could not be confirmed, does not.
+        if (_isPendingType) {
+          addActivity(userId, { type: 'info', symbol: decision.symbol, message: `⏳ ${resolvedOrderType.toUpperCase()} order resting at the broker — not counted as an open position until it triggers.` });
+        } else if (_marketFilled) {
+          state.openPositionCount++;
+        }
         // Refresh live TL balance cache so the dashboard reflects the new position immediately
         refreshTlAfterTrade(userId);
         // Mark the queued MT5 signal as already executed so the MT5 EA
