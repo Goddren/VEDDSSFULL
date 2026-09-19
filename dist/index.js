@@ -23592,6 +23592,7 @@ __export(live_trading_engine_exports, {
   broadcastMT5Signal: () => broadcastMT5Signal,
   confirmMT5Signal: () => confirmMT5Signal,
   emergencyStopEngine: () => emergencyStopEngine,
+  getAccountSafetySnapshot: () => getAccountSafetySnapshot,
   getAllMT5Signals: () => getAllMT5Signals,
   getLiveEngineActivity: () => getLiveEngineActivity,
   getLiveEngineState: () => getLiveEngineState,
@@ -24933,6 +24934,61 @@ function computeSteppedFixedTrailSL(position, fixedPips, stepPips, trailState) {
   } else {
     return !currentSL || rawSL <= currentSL - stepSize ? rawSL : currentSL;
   }
+}
+function getAccountSafetySnapshot(userId, state) {
+  const _raw = global.mt5AccountData?.[userId];
+  let _mt5 = null;
+  if (_raw) {
+    if (typeof _raw.balance === "number" && _raw.lastUpdated) _mt5 = _raw;
+    else for (const _k of Object.keys(_raw)) {
+      const _e = _raw[_k];
+      if (_e && typeof _e === "object" && typeof _e.balance === "number" && _e.lastUpdated) {
+        if (!_mt5 || new Date(_e.lastUpdated) > new Date(_mt5.lastUpdated)) _mt5 = _e;
+      }
+    }
+  }
+  if (_mt5?.lastUpdated && Date.now() - new Date(_mt5.lastUpdated).getTime() < 15 * 60 * 1e3 && _mt5.balance > 0) {
+    const positions = global.mt5OpenPositions?.[userId]?.positions ?? [];
+    return {
+      balance: _mt5.balance,
+      equity: typeof _mt5.equity === "number" ? _mt5.equity : _mt5.balance,
+      freeMargin: typeof _mt5.freeMargin === "number" ? _mt5.freeMargin : null,
+      marginLevel: typeof _mt5.marginLevel === "number" ? _mt5.marginLevel : null,
+      realizedToday: typeof _mt5.dailyPnL === "number" ? _mt5.dailyPnL : 0,
+      floating: positions.reduce((s, p) => s + (p.profit || 0), 0),
+      source: "mt5"
+    };
+  }
+  const _tl = global.tlAccountData?.[userId];
+  if (_tl) {
+    let balance = 0, equity = 0, margin = 0, freeMargin = 0, seen = 0, freshest = 0;
+    for (const acct of Object.values(_tl)) {
+      const a = acct;
+      if (!a || typeof a.balance !== "number" || a.balance <= 0) continue;
+      balance += a.balance;
+      equity += a.equity ?? a.balance;
+      margin += a.margin || 0;
+      freeMargin += a.freeMargin || 0;
+      seen++;
+      const t = a.lastUpdated ? new Date(a.lastUpdated).getTime() : 0;
+      if (t > freshest) freshest = t;
+    }
+    if (seen > 0 && balance > 0 && (!freshest || Date.now() - freshest < 30 * 60 * 1e3)) {
+      const today = (/* @__PURE__ */ new Date()).toISOString().split("T")[0];
+      const realizedToday = Number(state?.challengeDailyPnL?.[today] ?? state?.pnlToday ?? 0) || 0;
+      return {
+        balance,
+        equity,
+        freeMargin: margin > 0 || freeMargin > 0 ? freeMargin : null,
+        marginLevel: margin > 0 ? equity / margin * 100 : null,
+        realizedToday,
+        floating: equity - balance,
+        // TradeLocker equity already includes open P&L
+        source: `tradelocker(${seen})`
+      };
+    }
+  }
+  return null;
 }
 async function getMergedOpenPositions(userId, marketAnalysis) {
   const mt5Positions = (global.mt5OpenPositions?.[userId]?.positions || []).map((p) => ({ ...p, source: "mt5" }));
@@ -26824,21 +26880,14 @@ async function processDecision(userId, decision, newsCtx) {
       return;
     }
     {
-      const _raw = global.mt5AccountData?.[userId];
-      let _snap = null;
-      if (_raw) {
-        if (typeof _raw.balance === "number" && _raw.lastUpdated) _snap = _raw;
-        else for (const _k of Object.keys(_raw)) {
-          const _e = _raw[_k];
-          if (_e && typeof _e === "object" && typeof _e.balance === "number" && _e.lastUpdated) {
-            if (!_snap || new Date(_e.lastUpdated) > new Date(_snap.lastUpdated)) _snap = _e;
-          }
-        }
+      const _snap = getAccountSafetySnapshot(userId, state);
+      if (!_snap) {
+        addActivity(userId, { type: "info", symbol: decision.symbol, message: `\u{1F6E1}\uFE0F RISK BLOCK: no live account data from any broker \u2014 cannot verify margin/daily-loss, trade skipped` });
+        return;
       }
-      const _fresh = _snap?.lastUpdated && Date.now() - new Date(_snap.lastUpdated).getTime() < 15 * 60 * 1e3;
-      if (_fresh && _snap) {
-        const _freeMargin = typeof _snap.freeMargin === "number" ? _snap.freeMargin : null;
-        const _marginLevel = typeof _snap.marginLevel === "number" ? _snap.marginLevel : null;
+      {
+        const _freeMargin = _snap.freeMargin;
+        const _marginLevel = _snap.marginLevel;
         if (_freeMargin !== null && _freeMargin <= 0) {
           addActivity(userId, { type: "info", symbol: decision.symbol, message: `\u{1F6E1}\uFE0F RISK BLOCK: no free margin available \u2014 trade skipped` });
           return;
@@ -26850,13 +26899,10 @@ async function processDecision(userId, decision, newsCtx) {
         const _bal = _snap.balance > 0 ? _snap.balance : config.accountBalance || 0;
         const _effectiveDailyLimit = config.propFirmMode && config.propFirmDailyDrawdownLimit > 0 ? config.propFirmDailyDrawdownLimit * 0.8 : config.dailyLossLimit ?? 0;
         if (_effectiveDailyLimit > 0 && _bal > 0) {
-          const _positions = global.mt5OpenPositions?.[userId]?.positions ?? [];
-          const _floating = _positions.reduce((s, p) => s + (p.profit || 0), 0);
-          const _realized = typeof _snap.dailyPnL === "number" ? _snap.dailyPnL : 0;
-          const _lossPct = (_realized + _floating) / _bal * 100;
+          const _lossPct = (_snap.realizedToday + _snap.floating) / _bal * 100;
           if (_lossPct <= -_effectiveDailyLimit) {
             const _limitLabel = config.propFirmMode ? `prop firm limit ${config.propFirmDailyDrawdownLimit}% (80% buffer)` : `-${config.dailyLossLimit}%`;
-            addActivity(userId, { type: "info", symbol: decision.symbol, message: `\u{1F6E1}\uFE0F RISK BLOCK: daily loss ${_lossPct.toFixed(1)}% \u2264 ${_limitLabel} (incl. floating) \u2014 trade skipped` });
+            addActivity(userId, { type: "info", symbol: decision.symbol, message: `\u{1F6E1}\uFE0F RISK BLOCK: daily loss ${_lossPct.toFixed(1)}% \u2264 ${_limitLabel} (incl. floating, via ${_snap.source}) \u2014 trade skipped` });
             return;
           }
         }
@@ -26879,10 +26925,7 @@ async function processDecision(userId, decision, newsCtx) {
           decision.__markStrategyFired = lockKey;
         }
         if ((config.dailyProfitTarget ?? 0) > 0 && _bal > 0) {
-          const _positions = global.mt5OpenPositions?.[userId]?.positions ?? [];
-          const _floating = _positions.reduce((s, p) => s + (p.profit || 0), 0);
-          const _realized = typeof _snap.dailyPnL === "number" ? _snap.dailyPnL : 0;
-          const _gainPct = (_realized + _floating) / _bal * 100;
+          const _gainPct = (_snap.realizedToday + _snap.floating) / _bal * 100;
           if (_gainPct >= config.dailyProfitTarget) {
             addActivity(userId, { type: "info", symbol: decision.symbol, message: `\u{1F3C6} PROFIT GUARD: daily gain +${_gainPct.toFixed(1)}% \u2265 ${config.dailyProfitTarget}% target \u2014 new trade blocked to protect gains` });
             return;
@@ -28408,6 +28451,66 @@ function startLiveEngine(userId, config) {
   console.log(`[VEDD Live Engine] Started for user ${userId} | Strategy: ${fullConfig.strategyMode} | Interval: ${intervalDisplay}`);
   return engineStates[userId];
 }
+async function flattenAllBrokerPositions(userId, reason) {
+  let closed = 0, failed = 0;
+  try {
+    const conns = (await storage.getUserTradelockerConnections(userId)).filter((c) => c.isActive);
+    for (const conn of conns) {
+      try {
+        const svc = await getOrCreateService(conn);
+        const positions = await svc.getPositionsNormalized();
+        for (const p of positions) {
+          try {
+            await svc.closePosition(String(p.id));
+            closed++;
+          } catch (e) {
+            failed++;
+            addActivity(userId, { type: "error", symbol: p.symbol, message: `\u{1F6A8} EMERGENCY CLOSE FAILED (TradeLocker ${conn.accountId} pos ${p.id}): ${e?.message ?? e} \u2014 CLOSE MANUALLY` });
+          }
+        }
+      } catch (e) {
+        failed++;
+        addActivity(userId, { type: "error", message: `\u{1F6A8} EMERGENCY STOP: could not read TradeLocker ${conn.accountId} positions (${e?.message ?? e}) \u2014 POSITIONS MAY STILL BE OPEN` });
+      }
+    }
+  } catch (e) {
+    addActivity(userId, { type: "error", message: `\u{1F6A8} EMERGENCY STOP: TradeLocker connection lookup failed (${e?.message ?? e})` });
+  }
+  try {
+    const { pool: _pool } = await Promise.resolve().then(() => (init_db(), db_exports));
+    const { rows } = await _pool.query(
+      `SELECT id, host, username, encrypted_password, domain, account_code
+         FROM dxtrade_connections WHERE user_id=$1 AND is_active=true`,
+      [userId]
+    );
+    if (rows.length) {
+      const { getDxtradeService: getDxtradeService2, decryptApiSecret: decryptApiSecret3 } = await Promise.resolve().then(() => (init_dxtrade(), dxtrade_exports));
+      for (const dc of rows) {
+        try {
+          const svc = getDxtradeService2(dc.host, dc.username, decryptApiSecret3(dc.encrypted_password), dc.domain, `estop_${dc.id}`);
+          await svc.ensureLoggedIn();
+          const positions = await svc.getPositions(dc.account_code);
+          for (const p of positions) {
+            try {
+              await svc.closePosition(dc.account_code, p.instrument, p.side === "SELL" ? "SELL" : "BUY", p.quantity, p.positionId);
+              closed++;
+            } catch (e) {
+              failed++;
+              addActivity(userId, { type: "error", symbol: p.instrument, message: `\u{1F6A8} EMERGENCY CLOSE FAILED (DXtrade pos ${p.positionId}): ${e?.message ?? e} \u2014 CLOSE MANUALLY` });
+            }
+          }
+        } catch (e) {
+          failed++;
+          addActivity(userId, { type: "error", message: `\u{1F6A8} EMERGENCY STOP: could not read DXtrade ${dc.account_code} positions (${e?.message ?? e}) \u2014 POSITIONS MAY STILL BE OPEN` });
+        }
+      }
+    }
+  } catch (e) {
+    addActivity(userId, { type: "error", message: `\u{1F6A8} EMERGENCY STOP: DXtrade lookup failed (${e?.message ?? e})` });
+  }
+  console.log(`[VEDD Live Engine] Emergency flatten for user ${userId} (${reason}): ${closed} closed, ${failed} failed`);
+  return { closed, failed };
+}
 function queueCloseAllSignal(userId, reason) {
   broadcastMT5Signal(userId, {
     id: `close_all_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
@@ -28440,10 +28543,6 @@ function emergencyStopEngine(userId) {
     clearInterval(brainLearningIntervals[userId]);
     delete brainLearningIntervals[userId];
   }
-  if (positionMonitorIntervals[userId]) {
-    clearInterval(positionMonitorIntervals[userId]);
-    delete positionMonitorIntervals[userId];
-  }
   const state = engineStates[userId];
   if (state) {
     state.status = "stopped";
@@ -28451,10 +28550,22 @@ function emergencyStopEngine(userId) {
     state.dailyLossHaltedAt = (/* @__PURE__ */ new Date()).toISOString();
     addActivity(userId, {
       type: "error",
-      message: `\u{1F6A8} EMERGENCY STOP \u2014 CLOSE ALL signal sent to MT5 EA. Engine halted. All positions will be closed by the EA.`
+      message: `\u{1F6A8} EMERGENCY STOP \u2014 engine halted. Flattening all broker positions now\u2026`
     });
   }
   queueCloseAllSignal(userId, "Emergency stop triggered from dashboard");
+  void flattenAllBrokerPositions(userId, "emergency stop").then(({ closed, failed }) => {
+    addActivity(userId, {
+      type: failed > 0 ? "error" : "info",
+      message: failed > 0 ? `\u{1F6A8} EMERGENCY STOP: closed ${closed} position(s), ${failed} FAILED \u2014 check the account manually, some positions may still be open.` : `\u2705 EMERGENCY STOP: ${closed} broker position(s) closed.`
+    });
+    if (failed === 0 && positionMonitorIntervals[userId]) {
+      clearInterval(positionMonitorIntervals[userId]);
+      delete positionMonitorIntervals[userId];
+    }
+  }).catch((e) => {
+    addActivity(userId, { type: "error", message: `\u{1F6A8} EMERGENCY STOP: flatten threw (${e?.message ?? e}) \u2014 POSITIONS MAY STILL BE OPEN, check manually.` });
+  });
   return state || null;
 }
 function runAutonomousAdaptation(userId, tradeResult) {

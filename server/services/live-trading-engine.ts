@@ -2057,6 +2057,81 @@ function computeSteppedFixedTrailSL(
 // TradeLocker-only positions. This merges each active TL connection's own
 // open positions into the same shape MT5 positions use, so both paths see
 // the complete picture regardless of which broker is actually holding the trade.
+/**
+ * Broker-agnostic account snapshot for the safety gates.
+ *
+ * Gate 0 used to read ONLY `global.mt5AccountData` and run its entire body
+ * inside `if (_fresh && _snap)`. The MT5 EA has been silent for long stretches,
+ * and a TradeLocker/DXtrade-only account never produces that snapshot at all —
+ * so free-margin, margin-level, daily-loss and daily-profit protection were all
+ * silently skipped for the accounts actually being traded. An account already
+ * far down on the day kept opening trades because no MT5 snapshot ever existed.
+ *
+ * Returns null ONLY when no broker reports anything, in which case the caller
+ * must fail CLOSED rather than trade unprotected.
+ */
+export function getAccountSafetySnapshot(userId: number, state: any): {
+  balance: number; equity: number; freeMargin: number | null; marginLevel: number | null;
+  realizedToday: number; floating: number; source: string;
+} | null {
+  // 1. Prefer a FRESH MT5 snapshot — it carries real margin figures.
+  const _raw = (global as any).mt5AccountData?.[userId];
+  let _mt5: any = null;
+  if (_raw) {
+    if (typeof _raw.balance === 'number' && _raw.lastUpdated) _mt5 = _raw;
+    else for (const _k of Object.keys(_raw)) {
+      const _e = _raw[_k];
+      if (_e && typeof _e === 'object' && typeof _e.balance === 'number' && _e.lastUpdated) {
+        if (!_mt5 || new Date(_e.lastUpdated) > new Date(_mt5.lastUpdated)) _mt5 = _e;
+      }
+    }
+  }
+  if (_mt5?.lastUpdated && Date.now() - new Date(_mt5.lastUpdated).getTime() < 15 * 60 * 1000 && _mt5.balance > 0) {
+    const positions = (global as any).mt5OpenPositions?.[userId]?.positions ?? [];
+    return {
+      balance: _mt5.balance,
+      equity: typeof _mt5.equity === 'number' ? _mt5.equity : _mt5.balance,
+      freeMargin: typeof _mt5.freeMargin === 'number' ? _mt5.freeMargin : null,
+      marginLevel: typeof _mt5.marginLevel === 'number' ? _mt5.marginLevel : null,
+      realizedToday: typeof _mt5.dailyPnL === 'number' ? _mt5.dailyPnL : 0,
+      floating: positions.reduce((s: number, p: any) => s + (p.profit || 0), 0),
+      source: 'mt5',
+    };
+  }
+
+  // 2. Fall back to the live TradeLocker cache (tradelocker-sync refreshes it
+  //    every ~20s and persists across restarts), aggregated across connections.
+  const _tl = (global as any).tlAccountData?.[userId];
+  if (_tl) {
+    let balance = 0, equity = 0, margin = 0, freeMargin = 0, seen = 0, freshest = 0;
+    for (const acct of Object.values(_tl as Record<string, any>)) {
+      const a: any = acct;
+      if (!a || typeof a.balance !== 'number' || a.balance <= 0) continue;
+      balance += a.balance; equity += (a.equity ?? a.balance);
+      margin += (a.margin || 0); freeMargin += (a.freeMargin || 0);
+      seen++;
+      const t = a.lastUpdated ? new Date(a.lastUpdated).getTime() : 0;
+      if (t > freshest) freshest = t;
+    }
+    // Accept a slightly wider staleness window than MT5: this cache is seeded
+    // from the DB on boot, so it is valid before the first live refresh lands.
+    if (seen > 0 && balance > 0 && (!freshest || Date.now() - freshest < 30 * 60 * 1000)) {
+      const today = new Date().toISOString().split('T')[0];
+      const realizedToday = Number(state?.challengeDailyPnL?.[today] ?? state?.pnlToday ?? 0) || 0;
+      return {
+        balance, equity,
+        freeMargin: margin > 0 || freeMargin > 0 ? freeMargin : null,
+        marginLevel: margin > 0 ? (equity / margin) * 100 : null,
+        realizedToday,
+        floating: equity - balance, // TradeLocker equity already includes open P&L
+        source: `tradelocker(${seen})`,
+      };
+    }
+  }
+
+  return null;
+}
+
 async function getMergedOpenPositions(userId: number, marketAnalysis?: Record<string, any>): Promise<any[]> {
   const mt5Positions: any[] = ((global as any).mt5OpenPositions?.[userId]?.positions || [])
     .map((p: any) => ({ ...p, source: 'mt5' }));
@@ -4236,21 +4311,20 @@ async function processDecision(userId: number, decision: any, newsCtx?: any): Pr
     // ── Account-safety gate (ports Gate 0 from the chart-data path so ORB and ALL
     //    engine trades get identical margin-health + daily-loss protection) ──
     {
-      const _raw = (global as any).mt5AccountData?.[userId];
-      let _snap: any = null;
-      if (_raw) {
-        if (typeof _raw.balance === 'number' && _raw.lastUpdated) _snap = _raw;
-        else for (const _k of Object.keys(_raw)) {
-          const _e = _raw[_k];
-          if (_e && typeof _e === 'object' && typeof _e.balance === 'number' && _e.lastUpdated) {
-            if (!_snap || new Date(_e.lastUpdated) > new Date(_snap.lastUpdated)) _snap = _e;
-          }
-        }
+      // Works for MT5 **and** TradeLocker now — see getAccountSafetySnapshot.
+      // Previously this whole block was gated on a fresh MT5 snapshot, so every
+      // check below was skipped entirely on a TradeLocker/DXtrade-only account.
+      const _snap = getAccountSafetySnapshot(userId, state);
+      if (!_snap) {
+        // FAIL CLOSED: no broker could tell us the account state, so we cannot
+        // prove this trade is safe. Skipping is always recoverable; trading
+        // blind past a daily-loss wall is not.
+        addActivity(userId, { type: 'info', symbol: decision.symbol, message: `🛡️ RISK BLOCK: no live account data from any broker — cannot verify margin/daily-loss, trade skipped` });
+        return;
       }
-      const _fresh = _snap?.lastUpdated && (Date.now() - new Date(_snap.lastUpdated).getTime()) < 15 * 60 * 1000;
-      if (_fresh && _snap) {
-        const _freeMargin  = typeof _snap.freeMargin === 'number' ? _snap.freeMargin : null;
-        const _marginLevel = typeof _snap.marginLevel === 'number' ? _snap.marginLevel : null;
+      {
+        const _freeMargin  = _snap.freeMargin;
+        const _marginLevel = _snap.marginLevel;
         if (_freeMargin !== null && _freeMargin <= 0) {
           addActivity(userId, { type: 'info', symbol: decision.symbol, message: `🛡️ RISK BLOCK: no free margin available — trade skipped` });
           return;
@@ -4267,13 +4341,10 @@ async function processDecision(userId: number, decision: any, newsCtx?: any): Pr
           ? config.propFirmDailyDrawdownLimit * 0.8
           : (config.dailyLossLimit ?? 0);
         if (_effectiveDailyLimit > 0 && _bal > 0) {
-          const _positions = (global as any).mt5OpenPositions?.[userId]?.positions ?? [];
-          const _floating = _positions.reduce((s: number, p: any) => s + (p.profit || 0), 0);
-          const _realized = typeof _snap.dailyPnL === 'number' ? _snap.dailyPnL : 0;
-          const _lossPct = ((_realized + _floating) / _bal) * 100;
+          const _lossPct = ((_snap.realizedToday + _snap.floating) / _bal) * 100;
           if (_lossPct <= -_effectiveDailyLimit) {
             const _limitLabel = config.propFirmMode ? `prop firm limit ${config.propFirmDailyDrawdownLimit}% (80% buffer)` : `-${config.dailyLossLimit}%`;
-            addActivity(userId, { type: 'info', symbol: decision.symbol, message: `🛡️ RISK BLOCK: daily loss ${_lossPct.toFixed(1)}% ≤ ${_limitLabel} (incl. floating) — trade skipped` });
+            addActivity(userId, { type: 'info', symbol: decision.symbol, message: `🛡️ RISK BLOCK: daily loss ${_lossPct.toFixed(1)}% ≤ ${_limitLabel} (incl. floating, via ${_snap.source}) — trade skipped` });
             return;
           }
         }
@@ -4302,10 +4373,7 @@ async function processDecision(userId: number, decision: any, newsCtx?: any): Pr
 
         // Daily profit target guard — stop new trades once gain % target is reached
         if ((config.dailyProfitTarget ?? 0) > 0 && _bal > 0) {
-          const _positions = (global as any).mt5OpenPositions?.[userId]?.positions ?? [];
-          const _floating = _positions.reduce((s: number, p: any) => s + (p.profit || 0), 0);
-          const _realized = typeof _snap.dailyPnL === 'number' ? _snap.dailyPnL : 0;
-          const _gainPct = ((_realized + _floating) / _bal) * 100;
+          const _gainPct = ((_snap.realizedToday + _snap.floating) / _bal) * 100;
           if (_gainPct >= config.dailyProfitTarget) {
             addActivity(userId, { type: 'info', symbol: decision.symbol, message: `🏆 PROFIT GUARD: daily gain +${_gainPct.toFixed(1)}% ≥ ${config.dailyProfitTarget}% target — new trade blocked to protect gains` });
             return;
@@ -6331,6 +6399,82 @@ export function startLiveEngine(userId: number, config?: Partial<LiveEngineConfi
   return engineStates[userId];
 }
 
+/**
+ * Actually flatten every live broker position for this user.
+ *
+ * `queueCloseAllSignal` only pushes a CLOSE_ALL onto the MT5 EA queue. That is
+ * the terminal action for emergencyStopEngine, checkDailyLossLimit,
+ * checkDailyProfitTarget, checkMaxDrawdownBreakers and checkFloatingDrawdown —
+ * all of which log "all positions will be closed". With no EA polling (or a
+ * TradeLocker/DXtrade-only account) NOTHING was closed, while emergencyStop
+ * simultaneously cleared the position-monitor interval that had been running
+ * trailing/reversal exits. The breaker left the account worse off than doing
+ * nothing. This closes TradeLocker and DXtrade directly, and reports what it
+ * could not close rather than assuming success.
+ */
+async function flattenAllBrokerPositions(userId: number, reason: string): Promise<{ closed: number; failed: number }> {
+  let closed = 0, failed = 0;
+
+  // ── TradeLocker ──
+  try {
+    const conns = (await storage.getUserTradelockerConnections(userId)).filter((c: any) => c.isActive);
+    for (const conn of conns) {
+      try {
+        const svc = await getTradeLockerService(conn);
+        const positions = await svc.getPositionsNormalized();
+        for (const p of positions) {
+          try { await svc.closePosition(String(p.id)); closed++; }
+          catch (e: any) {
+            failed++;
+            addActivity(userId, { type: 'error', symbol: p.symbol, message: `🚨 EMERGENCY CLOSE FAILED (TradeLocker ${conn.accountId} pos ${p.id}): ${e?.message ?? e} — CLOSE MANUALLY` });
+          }
+        }
+      } catch (e: any) {
+        failed++;
+        addActivity(userId, { type: 'error', message: `🚨 EMERGENCY STOP: could not read TradeLocker ${conn.accountId} positions (${e?.message ?? e}) — POSITIONS MAY STILL BE OPEN` });
+      }
+    }
+  } catch (e: any) {
+    addActivity(userId, { type: 'error', message: `🚨 EMERGENCY STOP: TradeLocker connection lookup failed (${e?.message ?? e})` });
+  }
+
+  // ── DXtrade (hedging account: closes REQUIRE positionCode) ──
+  try {
+    const { pool: _pool } = await import('../db');
+    const { rows } = await _pool.query(
+      `SELECT id, host, username, encrypted_password, domain, account_code
+         FROM dxtrade_connections WHERE user_id=$1 AND is_active=true`, [userId]
+    );
+    if (rows.length) {
+      const { getDxtradeService, decryptApiSecret } = await import('../dxtrade');
+      for (const dc of rows) {
+        try {
+          const svc = getDxtradeService(dc.host, dc.username, decryptApiSecret(dc.encrypted_password), dc.domain, `estop_${dc.id}`);
+          await svc.ensureLoggedIn();
+          const positions = await svc.getPositions(dc.account_code);
+          for (const p of positions) {
+            try {
+              await svc.closePosition(dc.account_code, p.instrument, p.side === 'SELL' ? 'SELL' : 'BUY', p.quantity, p.positionId);
+              closed++;
+            } catch (e: any) {
+              failed++;
+              addActivity(userId, { type: 'error', symbol: p.instrument, message: `🚨 EMERGENCY CLOSE FAILED (DXtrade pos ${p.positionId}): ${e?.message ?? e} — CLOSE MANUALLY` });
+            }
+          }
+        } catch (e: any) {
+          failed++;
+          addActivity(userId, { type: 'error', message: `🚨 EMERGENCY STOP: could not read DXtrade ${dc.account_code} positions (${e?.message ?? e}) — POSITIONS MAY STILL BE OPEN` });
+        }
+      }
+    }
+  } catch (e: any) {
+    addActivity(userId, { type: 'error', message: `🚨 EMERGENCY STOP: DXtrade lookup failed (${e?.message ?? e})` });
+  }
+
+  console.log(`[VEDD Live Engine] Emergency flatten for user ${userId} (${reason}): ${closed} closed, ${failed} failed`);
+  return { closed, failed };
+}
+
 function queueCloseAllSignal(userId: number, reason: string): void {
   broadcastMT5Signal(userId, {
     id: `close_all_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
@@ -6364,10 +6508,9 @@ export function emergencyStopEngine(userId: number): EngineState | null {
     clearInterval(brainLearningIntervals[userId]);
     delete brainLearningIntervals[userId];
   }
-  if (positionMonitorIntervals[userId]) {
-    clearInterval(positionMonitorIntervals[userId]);
-    delete positionMonitorIntervals[userId];
-  }
+  // NOTE: the position monitor is deliberately left running until the flatten
+  // below reports back. Clearing it first (as this used to) removed trailing and
+  // reversal exits from positions that were then never actually closed.
 
   const state = engineStates[userId];
   if (state) {
@@ -6376,11 +6519,30 @@ export function emergencyStopEngine(userId: number): EngineState | null {
     state.dailyLossHaltedAt = new Date().toISOString();
     addActivity(userId, {
       type: 'error',
-      message: `🚨 EMERGENCY STOP — CLOSE ALL signal sent to MT5 EA. Engine halted. All positions will be closed by the EA.`,
+      message: `🚨 EMERGENCY STOP — engine halted. Flattening all broker positions now…`,
     });
   }
 
+  // MT5 EA (if one is listening) plus a REAL close of TradeLocker/DXtrade.
   queueCloseAllSignal(userId, 'Emergency stop triggered from dashboard');
+  void flattenAllBrokerPositions(userId, 'emergency stop')
+    .then(({ closed, failed }) => {
+      addActivity(userId, {
+        type: failed > 0 ? 'error' : 'info',
+        message: failed > 0
+          ? `🚨 EMERGENCY STOP: closed ${closed} position(s), ${failed} FAILED — check the account manually, some positions may still be open.`
+          : `✅ EMERGENCY STOP: ${closed} broker position(s) closed.`,
+      });
+      // Only stand the monitor down once we know the book is flat.
+      if (failed === 0 && positionMonitorIntervals[userId]) {
+        clearInterval(positionMonitorIntervals[userId]);
+        delete positionMonitorIntervals[userId];
+      }
+    })
+    .catch((e: any) => {
+      addActivity(userId, { type: 'error', message: `🚨 EMERGENCY STOP: flatten threw (${e?.message ?? e}) — POSITIONS MAY STILL BE OPEN, check manually.` });
+    });
+
   return state || null;
 }
 
