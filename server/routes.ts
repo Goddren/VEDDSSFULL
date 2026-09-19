@@ -17268,7 +17268,47 @@ Format each recommendation as a clear, concise action item.`;
     // event tickers, not currency pairs — including them here polluted the
     // Pair Knowledge Base with non-FX markets. Filter them out.
     const NON_FX_SOURCES = new Set(['kalshi', 'polymarket']);
-    const allTrades = allTradesRaw.filter(t => !NON_FX_SOURCES.has((t.source || '').toLowerCase()));
+
+    // Also drop TradeLocker rows belonging to connections that are gone or
+    // deactivated. Those are closed accounts, and a big slice of them holds P&L
+    // that is provably wrong and CANNOT be corrected: 274 GBPJPY rows (May–Aug
+    // 2026, net -$9,632) were written by a formula we can no longer identify —
+    // neither candidate formula reproduces a plausible lot size, the rows carry
+    // no qty/pips/SL/TP, and the brokers no longer exist to recompute from. So
+    // they can't be fixed, only excluded. Their symbols are real currency pairs,
+    // so unlike the Kalshi/Polymarket case nothing else filters them out and
+    // they silently skew winRate, avgWin/Loss, Kelly and the pair-direction
+    // gates for pairs still traded today.
+    //
+    // Scoped BY SOURCE on purpose: `connection_id` points at a different table
+    // per broker (tradelocker_connections vs dxtrade_connections), so a blanket
+    // id filter would wrongly delete DXtrade rows. Rows with no connection_id
+    // (MT5 EA, manual, paper) are always kept.
+    let activeTlConnIds: Set<number> | null = null;
+    try {
+      const _tlConns = await storage.getUserTradelockerConnections(userId);
+      activeTlConnIds = new Set(_tlConns.filter((c: any) => c.isActive).map((c: any) => Number(c.id)));
+    } catch (e: any) {
+      // Fail OPEN: if we can't read the connection list, keep every row rather
+      // than silently starving the brain of its entire TradeLocker history.
+      console.warn('[Brain] could not read TradeLocker connections — not filtering dead accounts this pass:', e?.message ?? e);
+      activeTlConnIds = null;
+    }
+    const TL_SOURCES = new Set(['tradelocker', 'tradelocker_auto']);
+    let _droppedDead = 0;
+    const allTrades = allTradesRaw.filter(t => {
+      const src = (t.source || '').toLowerCase();
+      if (NON_FX_SOURCES.has(src)) return false;
+      if (activeTlConnIds && TL_SOURCES.has(src) && t.connectionId != null
+          && !activeTlConnIds.has(Number(t.connectionId))) {
+        _droppedDead++;
+        return false;
+      }
+      return true;
+    });
+    if (_droppedDead > 0) {
+      console.log(`[Brain] excluded ${_droppedDead} row(s) from inactive/removed TradeLocker connections.`);
+    }
     const closedTradesCache = (global as any).mt5ClosedTrades?.[userId]?.trades || [];
     const connectedPairs = (global as any).mt5ConnectedPairs?.[userId] || {};
     const lastChartData = (global as any).mt5LastChartData?.[userId] || {};

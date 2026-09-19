@@ -54214,9 +54214,9 @@ async function getStopOrdersForUser(userId, filters = {}) {
 init_schema();
 
 // server/build-info.ts
-var BUILD_COMMIT = "002ea192-dirty";
+var BUILD_COMMIT = "50b1d3aa-dirty";
 var BUILD_BRANCH = "main";
-var BUILT_AT = "2026-09-19T10:13:19.838Z";
+var BUILT_AT = "2026-09-19T11:25:41.624Z";
 
 // server/stripe.ts
 init_db();
@@ -72061,7 +72061,28 @@ Format each recommendation as a clear, concise action item.`;
   async function runBrainLearning(userId) {
     const allTradesRaw = await storage.getAiTradeResults(userId, 1e3);
     const NON_FX_SOURCES = /* @__PURE__ */ new Set(["kalshi", "polymarket"]);
-    const allTrades = allTradesRaw.filter((t) => !NON_FX_SOURCES.has((t.source || "").toLowerCase()));
+    let activeTlConnIds = null;
+    try {
+      const _tlConns = await storage.getUserTradelockerConnections(userId);
+      activeTlConnIds = new Set(_tlConns.filter((c) => c.isActive).map((c) => Number(c.id)));
+    } catch (e) {
+      console.warn("[Brain] could not read TradeLocker connections \u2014 not filtering dead accounts this pass:", e?.message ?? e);
+      activeTlConnIds = null;
+    }
+    const TL_SOURCES = /* @__PURE__ */ new Set(["tradelocker", "tradelocker_auto"]);
+    let _droppedDead = 0;
+    const allTrades = allTradesRaw.filter((t) => {
+      const src = (t.source || "").toLowerCase();
+      if (NON_FX_SOURCES.has(src)) return false;
+      if (activeTlConnIds && TL_SOURCES.has(src) && t.connectionId != null && !activeTlConnIds.has(Number(t.connectionId))) {
+        _droppedDead++;
+        return false;
+      }
+      return true;
+    });
+    if (_droppedDead > 0) {
+      console.log(`[Brain] excluded ${_droppedDead} row(s) from inactive/removed TradeLocker connections.`);
+    }
     const closedTradesCache = global.mt5ClosedTrades?.[userId]?.trades || [];
     const connectedPairs = global.mt5ConnectedPairs?.[userId] || {};
     const lastChartData = global.mt5LastChartData?.[userId] || {};
