@@ -12612,30 +12612,22 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
           let connWeekPnL = 0;
 
           // Dedup guard — each position only feeds goalTracker once per server session
-          (global as any).tlProcessedOrders = (global as any).tlProcessedOrders || {};
-          (global as any).tlProcessedOrders[userId] = (global as any).tlProcessedOrders[userId] || new Set();
-          const _tlProcessed: Set<string> = (global as any).tlProcessedOrders[userId];
-
-          const { recordTradeResult: _tlRecordResult } = await import('./services/live-trading-engine');
-          const _nowH = new Date().getUTCHours();
-          const _tlSession = _nowH < 7 ? 'Asian' : _nowH < 13 ? 'London' : _nowH < 20 ? 'New York' : 'Late NY';
-
+          // NOTE: this endpoint is READ-ONLY. It used to call recordTradeResult
+          // for each closed trade, which was wrong twice over:
+          //  1. services/tradelocker-sync.ts already feeds every TL close to the
+          //     learner (_feedEngineBrain, 3 call sites), so each close was
+          //     recorded TWICE — double-counting wins/losses, pnlToday,
+          //     consecutiveLosses and pairDirectionLock.
+          //  2. its dedup set lived in memory (global.tlProcessedOrders), so
+          //     after any restart the first dashboard poll — the client polls
+          //     this every 30s — replayed EVERY close since the week start into
+          //     today's P&L in one burst, which can trip the daily-loss halt and
+          //     collapse the compound multiplier on losses that never happened.
+          // A GET that the UI polls must never mutate live risk state.
           for (const trade of closedTrades) {
             const closeTs = trade.closeTime ? new Date(trade.closeTime).getTime() : 0;
             if (closeTs >= todayStart.getTime()) connTodayPnL += (trade.profit || 0);
             if (closeTs >= weekStart.getTime())  connWeekPnL  += (trade.profit || 0);
-
-            // Feed TL closed trades into goalTracker for weekly P&L monitors
-            const _posId = trade.positionId?.toString();
-            if (_posId && !_tlProcessed.has(_posId) && closeTs >= weekStart.getTime()) {
-              _tlProcessed.add(_posId);
-              _tlRecordResult(userId, {
-                symbol: (trade.symbol || 'UNKNOWN').toUpperCase(),
-                profit: trade.profit || 0,
-                strategy: 'tradelocker',
-                session: _tlSession,
-              });
-            }
           }
           console.log(`[daily-summary] TL ${conn.accountId}: today=$${connTodayPnL.toFixed(2)} week=$${connWeekPnL.toFixed(2)} (${closedTrades.length} closed trades)`);
         } catch (connErr) {

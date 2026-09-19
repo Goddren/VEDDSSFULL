@@ -21694,7 +21694,8 @@ ${headlines}`
 var pipUtils_exports = {};
 __export(pipUtils_exports, {
   getPipSize: () => getPipSize,
-  getPipValue: () => getPipValue
+  getPipValue: () => getPipValue,
+  setFxRate: () => setFxRate
 });
 function matchesAny(symbol, patterns) {
   const s = symbol.toUpperCase();
@@ -21789,12 +21790,49 @@ function getPipValue(symbol) {
   if (matchesAny(symbol, ["NGAS", "NATGAS"])) return 10;
   if (matchesAny(symbol, ["BTC", "XBT"])) return 1;
   if (matchesAny(symbol, ["ETH", "BNB", "SOL", "ADA", "DOT", "AVAX", "MATIC", "LINK", "UNI"])) return 1;
-  if (matchesAny(symbol, ["JPY"])) return 10;
+  const s = symbol.toUpperCase().split(".")[0].replace(/[^A-Z]/g, "");
+  if (/^[A-Z]{6}$/.test(s)) {
+    const quote = s.slice(3);
+    const perLotQuote = 1e5 * getPipSize(symbol);
+    const rate = quoteToUsd(quote);
+    if (rate !== null) return perLotQuote * rate;
+  }
   return 10;
 }
+function setFxRate(pair, rate) {
+  const p = String(pair || "").toUpperCase().replace(/[^A-Z]/g, "");
+  const r = Number(rate);
+  if (!/^[A-Z]{6}$/.test(p) || !isFinite(r) || r <= 0) return;
+  _fxLive.set(p, { rate: r, at: Date.now() });
+}
+function rateOf(pair) {
+  const live = _fxLive.get(pair);
+  if (live && Date.now() - live.at < FX_LIVE_TTL_MS) return live.rate;
+  return FX_FALLBACK[pair];
+}
+function quoteToUsd(quote) {
+  if (quote === "USD") return 1;
+  const direct = rateOf(`${quote}USD`);
+  if (direct > 0) return direct;
+  const inverse = rateOf(`USD${quote}`);
+  if (inverse > 0) return 1 / inverse;
+  return null;
+}
+var FX_FALLBACK, _fxLive, FX_LIVE_TTL_MS;
 var init_pipUtils = __esm({
   "server/utils/pipUtils.ts"() {
     "use strict";
+    FX_FALLBACK = {
+      USDJPY: 140,
+      GBPUSD: 1.36,
+      EURUSD: 1.17,
+      AUDUSD: 0.7,
+      NZDUSD: 0.63,
+      USDCHF: 0.8,
+      USDCAD: 1.3
+    };
+    _fxLive = /* @__PURE__ */ new Map();
+    FX_LIVE_TTL_MS = 6 * 60 * 60 * 1e3;
   }
 });
 
@@ -23176,7 +23214,7 @@ function pickNum(obj, keys) {
 }
 function computeRiskQuantity(opts) {
   const { balance, riskPercent, entryPrice, stopPrice, instrument } = opts;
-  const quoteToUsd = Number(opts.quoteToUsd) > 0 ? Number(opts.quoteToUsd) : 1;
+  const quoteToUsd2 = Number(opts.quoteToUsd) > 0 ? Number(opts.quoteToUsd) : 1;
   const riskAmount = balance * (riskPercent / 100);
   const stopDistance = Math.abs(entryPrice - stopPrice);
   const multiplier = Number(instrument?.multiplier) > 0 ? Number(instrument.multiplier) : 1;
@@ -23185,10 +23223,10 @@ function computeRiskQuantity(opts) {
   const isForex = /forex|fx/i.test(String(instrument?.type ?? instrument?.assetClass ?? "")) || lotSize >= 1e3;
   const incr = isForex && lotSize > 0 ? Math.max(specIncr, lotSize / 100) : specIncr;
   if (!(stopDistance > 0) || !(riskAmount > 0)) return { quantity: 0, riskAmount, stopDistance, note: "need a valid balance, risk% and stop distance" };
-  let qty = riskAmount / (stopDistance * multiplier * quoteToUsd);
+  let qty = riskAmount / (stopDistance * multiplier * quoteToUsd2);
   if (incr > 0) qty = Math.floor(qty / incr) * incr;
   qty = Math.max(0, Math.round(qty * 1e8) / 1e8);
-  return { quantity: qty, riskAmount, stopDistance, note: `risk $${riskAmount.toFixed(2)} \xF7 (stop ${stopDistance} \xD7 mult ${multiplier} \xD7 quote\u2192USD ${quoteToUsd.toFixed(5)})${incr ? ` snapped to ${incr}` : ""}` };
+  return { quantity: qty, riskAmount, stopDistance, note: `risk $${riskAmount.toFixed(2)} \xF7 (stop ${stopDistance} \xD7 mult ${multiplier} \xD7 quote\u2192USD ${quoteToUsd2.toFixed(5)})${incr ? ` snapped to ${incr}` : ""}` };
 }
 function dxBase(host) {
   let h = (host || "").trim().replace(/\/+$/, "");
@@ -24584,9 +24622,16 @@ async function scanMarkets(userId) {
         const rsi3 = indicators.stochastic?.k || 50;
         const atr2 = indicators.volatilityContext?.currentATR || 0;
         const volumeMetrics = computeVolumeMetrics(confirmedBars);
-        if (symbol.replace(/[^A-Za-z]/g, "").toUpperCase() === "USDJPY" && currentPrice > 0) {
+        const _symUpper = symbol.replace(/[^A-Za-z]/g, "").toUpperCase();
+        if (_symUpper === "USDJPY" && currentPrice > 0) {
           try {
             setUsdJpyRate(currentPrice);
+          } catch {
+          }
+        }
+        if (currentPrice > 0 && /^[A-Z]{6}$/.test(_symUpper)) {
+          try {
+            setFxRate(_symUpper, currentPrice);
           } catch {
           }
         }
@@ -67794,26 +67839,10 @@ BEAR CASE: ${_bearCase || "n/a"}` : aiConfirmation.reasoning;
           const closedTrades = await tlSvc.getClosedTradesWithPnl(todayStartTs).catch(() => []);
           let connTodayPnL = 0;
           let connWeekPnL = 0;
-          global.tlProcessedOrders = global.tlProcessedOrders || {};
-          global.tlProcessedOrders[userId] = global.tlProcessedOrders[userId] || /* @__PURE__ */ new Set();
-          const _tlProcessed = global.tlProcessedOrders[userId];
-          const { recordTradeResult: _tlRecordResult } = await Promise.resolve().then(() => (init_live_trading_engine(), live_trading_engine_exports));
-          const _nowH = (/* @__PURE__ */ new Date()).getUTCHours();
-          const _tlSession = _nowH < 7 ? "Asian" : _nowH < 13 ? "London" : _nowH < 20 ? "New York" : "Late NY";
           for (const trade of closedTrades) {
             const closeTs = trade.closeTime ? new Date(trade.closeTime).getTime() : 0;
             if (closeTs >= todayStart.getTime()) connTodayPnL += trade.profit || 0;
             if (closeTs >= weekStart.getTime()) connWeekPnL += trade.profit || 0;
-            const _posId = trade.positionId?.toString();
-            if (_posId && !_tlProcessed.has(_posId) && closeTs >= weekStart.getTime()) {
-              _tlProcessed.add(_posId);
-              _tlRecordResult(userId, {
-                symbol: (trade.symbol || "UNKNOWN").toUpperCase(),
-                profit: trade.profit || 0,
-                strategy: "tradelocker",
-                session: _tlSession
-              });
-            }
           }
           console.log(`[daily-summary] TL ${conn.accountId}: today=$${connTodayPnL.toFixed(2)} week=$${connWeekPnL.toFixed(2)} (${closedTrades.length} closed trades)`);
         } catch (connErr) {

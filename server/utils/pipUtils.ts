@@ -115,9 +115,58 @@ export function getPipValue(symbol: string): number {
   // ETH and other mid crypto
   if (matchesAny(symbol, ['ETH', 'BNB', 'SOL', 'ADA', 'DOT', 'AVAX', 'MATIC', 'LINK', 'UNI'])) return 1;
 
-  // JPY pairs — pip value is ~$9 but use $10 as convention
-  if (matchesAny(symbol, ['JPY'])) return 10;
+  // ── FX: pip value depends on the QUOTE currency ──────────────────────────
+  // A standard lot is 100,000 units of the BASE currency, so one pip is worth
+  // (100,000 x pipSize) of the QUOTE currency — which is only $10 when the pair
+  // is quoted in USD. Returning a flat 10 for everything mis-sized every
+  // non-USD-quoted pair:
+  //   USDJPY  true ~$6.8  -> assumed $10 => lots ~32% too SMALL (under-risked)
+  //   EURGBP  true ~$13.4 -> assumed $10 => lots ~34% too LARGE (OVER-risked)
+  // since lots = riskUSD / (slPips * pipValue).
+  const s = symbol.toUpperCase().split('.')[0].replace(/[^A-Z]/g, '');
+  if (/^[A-Z]{6}$/.test(s)) {
+    const quote = s.slice(3);
+    const perLotQuote = 100000 * getPipSize(symbol); // pip value in QUOTE currency
+    const rate = quoteToUsd(quote);
+    if (rate !== null) return perLotQuote * rate;
+  }
 
   // Default standard forex: $10/pip/lot
   return 10;
+}
+
+// ── FX rate book for quote-currency conversion ───────────────────────────────
+// Live rates are published by the engine's market scan; the statics are only a
+// floor so a cold cache never produces a wild number. Each static is chosen to
+// err toward a HIGHER pip value, because a higher pip value yields a SMALLER
+// lot — the safe direction when we are unsure.
+const FX_FALLBACK: Record<string, number> = {
+  USDJPY: 140, GBPUSD: 1.36, EURUSD: 1.17, AUDUSD: 0.70,
+  NZDUSD: 0.63, USDCHF: 0.80, USDCAD: 1.30,
+};
+const _fxLive = new Map<string, { rate: number; at: number }>();
+const FX_LIVE_TTL_MS = 6 * 60 * 60 * 1000;
+
+/** Publish a live FX rate (called by the engine's market scan). */
+export function setFxRate(pair: string, rate: number): void {
+  const p = String(pair || '').toUpperCase().replace(/[^A-Z]/g, '');
+  const r = Number(rate);
+  if (!/^[A-Z]{6}$/.test(p) || !isFinite(r) || r <= 0) return;
+  _fxLive.set(p, { rate: r, at: Date.now() });
+}
+
+function rateOf(pair: string): number {
+  const live = _fxLive.get(pair);
+  if (live && Date.now() - live.at < FX_LIVE_TTL_MS) return live.rate;
+  return FX_FALLBACK[pair];
+}
+
+/** USD per 1 unit of `quote`, or null when we have no way to convert. */
+function quoteToUsd(quote: string): number | null {
+  if (quote === 'USD') return 1;
+  const direct = rateOf(`${quote}USD`);   // e.g. GBPUSD: 1 GBP = 1.36 USD
+  if (direct > 0) return direct;
+  const inverse = rateOf(`USD${quote}`);  // e.g. USDJPY: 1 JPY = 1/147 USD
+  if (inverse > 0) return 1 / inverse;
+  return null;
 }

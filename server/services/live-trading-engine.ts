@@ -4,7 +4,7 @@ import { refreshTlAfterTrade } from './tradelocker-sync';
 import { computeAllAdvancedIndicators, type CandleData } from '../indicators';
 import { storage } from '../storage';
 import { newsService } from '../news-service';
-import { getPipSize, getPipValue } from '../utils/pipUtils';
+import { getPipSize, getPipValue, setFxRate } from '../utils/pipUtils';
 import { getTLRisk } from './tl-risk-settings';
 import { detectBOSCHOCH, detectWyckoff, type BOSCHOCHResult, type WyckoffResult } from '../utils/smcUtils';
 import { getPremiumDiscountContext } from '../utils/ictMacroUtils';
@@ -1583,8 +1583,14 @@ async function scanMarkets(userId: number): Promise<void> {
 
         // Publish USD/JPY so TradeLocker P&L can convert JPY-quoted results to
         // USD with the real cross rate (never the traded pair's own rate).
-        if (symbol.replace(/[^A-Za-z]/g, '').toUpperCase() === 'USDJPY' && currentPrice > 0) {
+        const _symUpper = symbol.replace(/[^A-Za-z]/g, '').toUpperCase();
+        if (_symUpper === 'USDJPY' && currentPrice > 0) {
           try { setUsdJpyRate(currentPrice); } catch { /* non-fatal */ }
+        }
+        // Feed the pip-value rate book too, so non-USD-quoted pairs size against
+        // real rates instead of the static fallbacks.
+        if (currentPrice > 0 && /^[A-Z]{6}$/.test(_symUpper)) {
+          try { setFxRate(_symUpper, currentPrice); } catch { /* non-fatal */ }
         }
 
         state.marketSnapshot[symbol] = {
