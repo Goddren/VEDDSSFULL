@@ -17344,6 +17344,7 @@ var init_ea_generators = __esm({
 // server/tradelocker.ts
 var tradelocker_exports = {};
 __export(tradelocker_exports, {
+  TradeLockerReadError: () => TradeLockerReadError,
   TradeLockerService: () => TradeLockerService,
   decryptPassword: () => decryptPassword,
   encryptPassword: () => encryptPassword,
@@ -17708,7 +17709,7 @@ async function executeMT5SignalOnTradeLocker(connection2, signal) {
     };
   }
 }
-var IV_LENGTH, DEFAULT_ENCRYPTION_KEY, SALT_LENGTH, INSTRUMENT_CACHE_TTL, instrumentCache, instrumentsListCache, serviceCache, SERVICE_CACHE_TTL, RETRY_DELAYS, RETRYABLE_STATUSES, AUTH_429_COOLDOWN_MS, authCooldownUntil, authChain, lastAuthAt, MIN_AUTH_GAP_MS, USDJPY_FALLBACK, _usdJpyLive, _usdJpyObserved, TradeLockerService, TL_VALUE_TTL;
+var IV_LENGTH, DEFAULT_ENCRYPTION_KEY, SALT_LENGTH, INSTRUMENT_CACHE_TTL, instrumentCache, instrumentsListCache, serviceCache, SERVICE_CACHE_TTL, RETRY_DELAYS, RETRYABLE_STATUSES, TradeLockerReadError, AUTH_429_COOLDOWN_MS, authCooldownUntil, authChain, lastAuthAt, MIN_AUTH_GAP_MS, USDJPY_FALLBACK, _usdJpyLive, _usdJpyObserved, TradeLockerService, TL_VALUE_TTL;
 var init_tradelocker = __esm({
   "server/tradelocker.ts"() {
     "use strict";
@@ -17722,6 +17723,14 @@ var init_tradelocker = __esm({
     SERVICE_CACHE_TTL = 50 * 60 * 1e3;
     RETRY_DELAYS = [1e3, 2e3];
     RETRYABLE_STATUSES = /* @__PURE__ */ new Set([429, 500, 502, 503, 504]);
+    TradeLockerReadError = class extends Error {
+      status;
+      constructor(message, status) {
+        super(message);
+        this.name = "TradeLockerReadError";
+        this.status = status;
+      }
+    };
     AUTH_429_COOLDOWN_MS = 5 * 60 * 1e3;
     authCooldownUntil = /* @__PURE__ */ new Map();
     authChain = Promise.resolve();
@@ -18597,11 +18606,23 @@ var init_tradelocker = __esm({
           const toMs = Date.now();
           const fromMs = fromTs ? fromTs * 1e3 : toMs - 90 * 24 * 60 * 60 * 1e3;
           const histUrl = `${this.baseUrl}/trade/accounts/${this.accountId}/ordersHistory?from=${fromMs}&to=${toMs}`;
-          const response = await fetch(histUrl, {
-            method: "GET",
-            headers: { "Authorization": `Bearer ${this.accessToken}`, "Content-Type": "application/json", "accNum": this.accNum }
-          });
-          if (!response.ok) return [];
+          let response = null;
+          for (let attempt = 0; attempt <= RETRY_DELAYS.length; attempt++) {
+            response = await fetch(histUrl, {
+              method: "GET",
+              headers: { "Authorization": `Bearer ${this.accessToken}`, "Content-Type": "application/json", "accNum": this.accNum }
+            });
+            if (response.ok) break;
+            if (!RETRYABLE_STATUSES.has(response.status) || attempt === RETRY_DELAYS.length) break;
+            console.warn(`[TradeLocker] ordersHistory ${response.status} \u2014 retry ${attempt + 1}/${RETRY_DELAYS.length}`);
+            await new Promise((r) => setTimeout(r, RETRY_DELAYS[attempt]));
+          }
+          if (!response || !response.ok) {
+            throw new TradeLockerReadError(
+              `ordersHistory read failed (${response?.status ?? "no response"}) \u2014 refusing to report an empty fill history`,
+              response?.status
+            );
+          }
           const data = await response.json();
           const rows = data?.d?.ordersHistory || data?.ordersHistory || [];
           const instruments = await this.getInstruments().catch(() => []);
@@ -18628,6 +18649,7 @@ var init_tradelocker = __esm({
             return new Date(o.closeTime).getTime() >= fromTs * 1e3;
           });
         } catch (err) {
+          if (err instanceof TradeLockerReadError) throw err;
           console.error("[TradeLocker] getFilledOrders error:", err.message);
           return [];
         }
@@ -18987,7 +19009,7 @@ async function getConsistencyPlan(connectionId, connectionType, thresholdPct) {
 function round2(n) {
   return Math.round(n * 100) / 100;
 }
-async function rebuildDailyLedgerFromClosedTrades(userId, connectionId, connectionType, closedTrades) {
+async function rebuildDailyLedgerFromClosedTrades(userId, connectionId, connectionType, closedTrades, opts) {
   const byDay = /* @__PURE__ */ new Map();
   let used = 0;
   for (const t of closedTrades) {
@@ -18998,6 +19020,24 @@ async function rebuildDailyLedgerFromClosedTrades(userId, connectionId, connecti
     const day = d.toISOString().slice(0, 10);
     byDay.set(day, (byDay.get(day) ?? 0) + pnl);
     used++;
+  }
+  const { rows: existingRows } = await pool.query(
+    `SELECT count(*)::int AS days FROM prop_firm_daily_pnl WHERE connection_id = $1 AND connection_type = $2`,
+    [connectionId, connectionType]
+  );
+  const existingDays = Number(existingRows?.[0]?.days ?? 0);
+  if (opts?.force && existingDays > 0) {
+    console.warn(`[Consistency] FORCED rebuild for connection ${connectionId}: replacing ${existingDays} day(s) with ${byDay.size}.`);
+  }
+  if (!opts?.force && existingDays > 0 && byDay.size === 0) {
+    throw new Error(
+      `Refusing to rebuild ledger for connection ${connectionId}: would delete ${existingDays} day(s) and write 0. The broker returned no closed trades \u2014 treat this as a failed read, not an empty account.`
+    );
+  }
+  if (!opts?.force && existingDays >= 5 && byDay.size < existingDays / 2) {
+    throw new Error(
+      `Refusing to rebuild ledger for connection ${connectionId}: would shrink ${existingDays} day(s) to ${byDay.size}. This looks like a truncated broker read. Re-run when the broker history is complete, or pass force to override.`
+    );
   }
   const client2 = await pool.connect();
   try {

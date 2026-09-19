@@ -71,6 +71,20 @@ const SERVICE_CACHE_TTL = 50 * 60 * 1000;
 const RETRY_DELAYS = [1000, 2000];
 const RETRYABLE_STATUSES = new Set([429, 500, 502, 503, 504]);
 
+/**
+ * Thrown when a broker read could not be completed. Distinct from "the broker
+ * answered and the answer was empty" — conflating the two is what let a single
+ * 429 erase a connection's whole prop-firm ledger. Never convert this to [].
+ */
+export class TradeLockerReadError extends Error {
+  readonly status?: number;
+  constructor(message: string, status?: number) {
+    super(message);
+    this.name = 'TradeLockerReadError';
+    this.status = status;
+  }
+}
+
 // Per-connection login-rate-limit circuit breaker. authenticate()/refreshAccessToken()
 // hit the broker's login endpoint directly (not through the generic retryable
 // request() wrapper), so a 429 there previously threw immediately with no
@@ -1277,11 +1291,31 @@ export class TradeLockerService {
       const toMs = Date.now();
       const fromMs = fromTs ? fromTs * 1000 : toMs - 90 * 24 * 60 * 60 * 1000;
       const histUrl = `${this.baseUrl}/trade/accounts/${this.accountId}/ordersHistory?from=${fromMs}&to=${toMs}`;
-      const response = await fetch(histUrl, {
-        method: 'GET',
-        headers: { 'Authorization': `Bearer ${this.accessToken}`, 'Content-Type': 'application/json', 'accNum': this.accNum },
-      });
-      if (!response.ok) return [];
+      // Retry transient failures like every other method in this file, then FAIL
+      // LOUDLY. This used to be a bare `if (!response.ok) return [];` — no retry,
+      // no signal — so a single 429 was indistinguishable from "this account has
+      // no closed trades". That falsy result flowed into
+      // rebuildDailyLedgerFromClosedTrades, which DELETEs before it inserts, and
+      // erased a connection's entire prop-firm history (happened for real on
+      // 2026-09-18, conn 31, 13 days wiped). "I could not read" must never be
+      // returned as "there is nothing here".
+      let response: Response | null = null;
+      for (let attempt = 0; attempt <= RETRY_DELAYS.length; attempt++) {
+        response = await fetch(histUrl, {
+          method: 'GET',
+          headers: { 'Authorization': `Bearer ${this.accessToken}`, 'Content-Type': 'application/json', 'accNum': this.accNum },
+        });
+        if (response.ok) break;
+        if (!RETRYABLE_STATUSES.has(response.status) || attempt === RETRY_DELAYS.length) break;
+        console.warn(`[TradeLocker] ordersHistory ${response.status} — retry ${attempt + 1}/${RETRY_DELAYS.length}`);
+        await new Promise(r => setTimeout(r, RETRY_DELAYS[attempt]));
+      }
+      if (!response || !response.ok) {
+        throw new TradeLockerReadError(
+          `ordersHistory read failed (${response?.status ?? 'no response'}) — refusing to report an empty fill history`,
+          response?.status,
+        );
+      }
       const data = await response.json();
       const rows: any[] = data?.d?.ordersHistory || data?.ordersHistory || [];
 
@@ -1314,6 +1348,10 @@ export class TradeLockerService {
           return new Date(o.closeTime).getTime() >= fromTs * 1000;
         });
     } catch (err) {
+      // A failed READ must propagate — returning [] here would once again make
+      // "could not reach the broker" look identical to "no trades exist", which
+      // is the exact conflation that wiped a ledger.
+      if (err instanceof TradeLockerReadError) throw err;
       console.error('[TradeLocker] getFilledOrders error:', (err as Error).message);
       return [];
     }

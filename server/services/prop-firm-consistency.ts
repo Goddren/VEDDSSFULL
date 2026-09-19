@@ -182,6 +182,7 @@ export async function rebuildDailyLedgerFromClosedTrades(
   connectionId: number,
   connectionType: string,
   closedTrades: Array<{ profit: number; closeTime: string | number | Date }>,
+  opts?: { force?: boolean },
 ): Promise<{ days: number; totalPositive: number; maxDay: number; maxDayDate: string | null; tradesUsed: number }> {
   // Bucket realized P&L by UTC trading day.
   const byDay = new Map<string, number>();
@@ -194,6 +195,39 @@ export async function rebuildDailyLedgerFromClosedTrades(
     const day = d.toISOString().slice(0, 10);
     byDay.set(day, (byDay.get(day) ?? 0) + pnl);
     used++;
+  }
+
+  // ── Destructive-rebuild guard ──────────────────────────────────────────────
+  // This function REPLACES the connection's ledger, so a caller that hands it an
+  // empty or truncated closed-trade list silently destroys real history. That is
+  // not hypothetical: on 2026-09-18 a rate-limited ordersHistory read returned []
+  // and erased 13 days of connection 31's P&L, resetting its consistency ratio
+  // and the profit-split amount owed. getFilledOrders now throws instead of
+  // returning [] on a failed read, but this is the backstop: never let a rebuild
+  // delete substantially more than it restores.
+  const { rows: existingRows } = await pool.query(
+    `SELECT count(*)::int AS days FROM prop_firm_daily_pnl WHERE connection_id = $1 AND connection_type = $2`,
+    [connectionId, connectionType]
+  );
+  const existingDays = Number(existingRows?.[0]?.days ?? 0);
+  // `force` is the deliberate operator override — a guard with no escape hatch
+  // blocks legitimate corrections (e.g. genuinely removing bad days). It must
+  // never be wired to a default or a background job; only an explicit human
+  // action should set it.
+  if (opts?.force && existingDays > 0) {
+    console.warn(`[Consistency] FORCED rebuild for connection ${connectionId}: replacing ${existingDays} day(s) with ${byDay.size}.`);
+  }
+  if (!opts?.force && existingDays > 0 && byDay.size === 0) {
+    throw new Error(
+      `Refusing to rebuild ledger for connection ${connectionId}: would delete ${existingDays} day(s) and write 0. ` +
+      `The broker returned no closed trades — treat this as a failed read, not an empty account.`
+    );
+  }
+  if (!opts?.force && existingDays >= 5 && byDay.size < existingDays / 2) {
+    throw new Error(
+      `Refusing to rebuild ledger for connection ${connectionId}: would shrink ${existingDays} day(s) to ${byDay.size}. ` +
+      `This looks like a truncated broker read. Re-run when the broker history is complete, or pass force to override.`
+    );
   }
 
   // Replace the connection's ledger atomically.
