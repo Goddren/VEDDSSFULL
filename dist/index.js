@@ -23666,6 +23666,7 @@ __export(live_trading_engine_exports, {
   hydratePersistedEngineConfigs: () => hydratePersistedEngineConfigs,
   recordTradeResult: () => recordTradeResult,
   registerMT5Account: () => registerMT5Account,
+  restoreFxEngineStateFromDb: () => restoreFxEngineStateFromDb,
   setMT5AccountReceiveSignals: () => setMT5AccountReceiveSignals,
   setModelLock: () => setModelLock,
   startLiveEngine: () => startLiveEngine,
@@ -28423,6 +28424,39 @@ async function runSundayGapScanner(userId) {
     await new Promise((r) => setTimeout(r, 2e3));
   }
 }
+function _persistFxRunState(userId, isRunning) {
+  Promise.resolve().then(() => (init_db(), db_exports)).then(({ db: db2 }) => {
+    Promise.resolve().then(() => (init_schema(), schema_exports)).then(({ engineRunState: engineRunState2 }) => {
+      db2.insert(engineRunState2).values({ userId, engine: "fx", isRunning, isPaperMode: false }).onConflictDoUpdate({
+        target: [engineRunState2.userId, engineRunState2.engine],
+        set: { isRunning, updatedAt: /* @__PURE__ */ new Date() }
+      }).catch((e) => console.error("[VEDD Live Engine] persist run state failed (non-fatal):", e?.message ?? e));
+    });
+  }).catch(() => {
+  });
+}
+async function restoreFxEngineStateFromDb() {
+  try {
+    const { db: db2 } = await Promise.resolve().then(() => (init_db(), db_exports));
+    const { engineRunState: engineRunState2 } = await Promise.resolve().then(() => (init_schema(), schema_exports));
+    const { eq: eq21, and: and12 } = await import("drizzle-orm");
+    const rows = await db2.select().from(engineRunState2).where(and12(eq21(engineRunState2.engine, "fx"), eq21(engineRunState2.isRunning, true)));
+    if (!rows.length) {
+      console.log("[VEDD Live Engine] No FX engines were running before restart \u2014 nothing to restore.");
+      return;
+    }
+    for (const row of rows) {
+      try {
+        startLiveEngine(row.userId, void 0);
+        console.log(`[VEDD Live Engine] Restored running FX engine for user ${row.userId} after restart.`);
+      } catch (e) {
+        console.error(`[VEDD Live Engine] failed to restore FX engine for user ${row.userId}:`, e?.message ?? e);
+      }
+    }
+  } catch (e) {
+    console.error("[VEDD Live Engine] FX run-state restore failed (non-fatal):", e?.message ?? e);
+  }
+}
 function startLiveEngine(userId, config) {
   if (engineIntervals[userId]) {
     clearInterval(engineIntervals[userId]);
@@ -28618,6 +28652,7 @@ function startLiveEngine(userId, config) {
   if (brainLearningIntervals[userId]) clearInterval(brainLearningIntervals[userId]);
   brainLearningIntervals[userId] = setInterval(() => autoRetainBrain(userId), 30 * 60 * 1e3);
   console.log(`[VEDD Live Engine] Started for user ${userId} | Strategy: ${fullConfig.strategyMode} | Interval: ${intervalDisplay}`);
+  _persistFxRunState(userId, true);
   return engineStates[userId];
 }
 async function flattenAllBrokerPositions(userId, reason) {
@@ -28712,6 +28747,7 @@ function emergencyStopEngine(userId) {
     clearInterval(brainLearningIntervals[userId]);
     delete brainLearningIntervals[userId];
   }
+  _persistFxRunState(userId, false);
   const state = engineStates[userId];
   if (state) {
     state.status = "stopped";
@@ -28934,6 +28970,7 @@ function checkFloatingDrawdown(userId, floating) {
   }
 }
 function stopLiveEngine(userId) {
+  _persistFxRunState(userId, false);
   if (engineIntervals[userId]) {
     clearInterval(engineIntervals[userId]);
     delete engineIntervals[userId];
@@ -86110,8 +86147,9 @@ async function withRetry(fn, label, maxAttempts = 6, baseDelayMs = 2e3) {
   try {
     const { ensureLiveEngineConfigTable: ensureLiveEngineConfigTable2 } = await Promise.resolve().then(() => (init_ensure_live_engine_config_table(), ensure_live_engine_config_table_exports));
     await ensureLiveEngineConfigTable2();
-    const { hydratePersistedEngineConfigs: hydratePersistedEngineConfigs2 } = await Promise.resolve().then(() => (init_live_trading_engine(), live_trading_engine_exports));
+    const { hydratePersistedEngineConfigs: hydratePersistedEngineConfigs2, restoreFxEngineStateFromDb: restoreFxEngineStateFromDb2 } = await Promise.resolve().then(() => (init_live_trading_engine(), live_trading_engine_exports));
     await hydratePersistedEngineConfigs2();
+    await restoreFxEngineStateFromDb2();
   } catch (err) {
     console.error(`[startup] Live Engine config hydration error (non-fatal):`, err?.message ?? err);
   }

@@ -454,14 +454,26 @@ async function withRetry<T>(
     console.error(`[startup] ensureWorkforceCourseProgressTable import error (non-fatal):`, err?.message ?? err);
   }
 
-  // Ensure Live Engine (FX SS AI Engine) durable config table exists, then
-  // hydrate propFirmMode/consistency-rule defaults from it so they survive
-  // this restart — never auto-resumes live trading itself.
+  // Ensure Live Engine (FX SS AI Engine) durable config table exists, hydrate
+  // propFirmMode/consistency-rule defaults from it so they survive this
+  // restart, then resume any engine that was running when the process died.
   try {
     const { ensureLiveEngineConfigTable } = await import('./services/ensure-live-engine-config-table');
     await ensureLiveEngineConfigTable();
-    const { hydratePersistedEngineConfigs } = await import('./services/live-trading-engine');
+    const { hydratePersistedEngineConfigs, restoreFxEngineStateFromDb } = await import('./services/live-trading-engine');
     await hydratePersistedEngineConfigs();
+    // Resume any FX engine that was RUNNING when this process last died.
+    // Config hydration must come first so the restored engine uses the user's
+    // saved pairs/risk/strategy rather than defaults.
+    //
+    // Until now nothing restarted the FX engine: its run state was in-memory
+    // and the only caller of startLiveEngine is the dashboard Start button, so
+    // every deploy silently stopped FX trading (found 2026-09-19 after the
+    // engine had been dead since a 2026-09-18 21:22 restart, market open, with
+    // no alert — the MT5 EA token keeps ticking so it still looked healthy).
+    // An engine stopped by a breaker or by the user persists isRunning=false
+    // and is deliberately NOT resumed here.
+    await restoreFxEngineStateFromDb();
   } catch (err: any) {
     console.error(`[startup] Live Engine config hydration error (non-fatal):`, err?.message ?? err);
   }

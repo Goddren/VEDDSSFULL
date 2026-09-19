@@ -6318,6 +6318,66 @@ async function runSundayGapScanner(userId: number): Promise<void> {
   }
 }
 
+/**
+ * Durable mirror of whether the FX engine is running.
+ *
+ * The engine's run state lived ONLY in memory (engineStates / engineIntervals)
+ * and startLiveEngine's only caller is the authenticated dashboard Start
+ * button, so EVERY deploy silently stopped FX trading until someone noticed and
+ * clicked Start again. Observed 2026-09-19: the engine had been dead since a
+ * restart at 2026-09-18 21:22, with the market open, and nothing surfaced it —
+ * the MT5 EA token keeps ticking regardless, so the system still looked alive.
+ * The prediction-market engines already persist to engine_run_state and restore
+ * on boot; this gives FX the same treatment.
+ */
+function _persistFxRunState(userId: number, isRunning: boolean): void {
+  import('../db').then(({ db }) => {
+    import('../../shared/schema').then(({ engineRunState }) => {
+      db.insert(engineRunState)
+        .values({ userId, engine: 'fx', isRunning, isPaperMode: false })
+        .onConflictDoUpdate({
+          target: [engineRunState.userId, engineRunState.engine],
+          set: { isRunning, updatedAt: new Date() },
+        })
+        .catch((e: any) => console.error('[VEDD Live Engine] persist run state failed (non-fatal):', e?.message ?? e));
+    });
+  }).catch(() => { /* non-fatal */ });
+}
+
+/**
+ * Restart every FX engine that was running when the process died.
+ *
+ * Deliberately NOT resumed: an engine stopped by emergencyStopEngine (daily
+ * loss, drawdown breaker, manual emergency stop) persists isRunning=false, so a
+ * breached account stays down across the deploy rather than quietly resuming.
+ */
+export async function restoreFxEngineStateFromDb(): Promise<void> {
+  try {
+    const { db } = await import('../db');
+    const { engineRunState } = await import('../../shared/schema');
+    const { eq, and } = await import('drizzle-orm');
+    const rows = await db.select().from(engineRunState)
+      .where(and(eq(engineRunState.engine, 'fx'), eq(engineRunState.isRunning, true)));
+    if (!rows.length) {
+      console.log('[VEDD Live Engine] No FX engines were running before restart — nothing to restore.');
+      return;
+    }
+    for (const row of rows) {
+      try {
+        // startLiveEngine merges persistedConfigOverrides (already hydrated by
+        // hydratePersistedEngineConfigs on boot), so the user's saved pairs,
+        // risk and strategy come back with it.
+        startLiveEngine(row.userId, undefined);
+        console.log(`[VEDD Live Engine] Restored running FX engine for user ${row.userId} after restart.`);
+      } catch (e: any) {
+        console.error(`[VEDD Live Engine] failed to restore FX engine for user ${row.userId}:`, e?.message ?? e);
+      }
+    }
+  } catch (e: any) {
+    console.error('[VEDD Live Engine] FX run-state restore failed (non-fatal):', e?.message ?? e);
+  }
+}
+
 export function startLiveEngine(userId: number, config?: Partial<LiveEngineConfig>): EngineState {
   if (engineIntervals[userId]) {
     clearInterval(engineIntervals[userId]);
@@ -6571,6 +6631,9 @@ export function startLiveEngine(userId: number, config?: Partial<LiveEngineConfi
 
   console.log(`[VEDD Live Engine] Started for user ${userId} | Strategy: ${fullConfig.strategyMode} | Interval: ${intervalDisplay}`);
 
+  // Durably mark this engine as running so a deploy/restart brings it back.
+  _persistFxRunState(userId, true);
+
   return engineStates[userId];
 }
 
@@ -6686,6 +6749,10 @@ export function emergencyStopEngine(userId: number): EngineState | null {
   // NOTE: the position monitor is deliberately left running until the flatten
   // below reports back. Clearing it first (as this used to) removed trailing and
   // reversal exits from positions that were then never actually closed.
+
+  // Persist STOPPED before anything else: an emergency stop must survive a
+  // deploy. A breached account must not quietly resume trading on restart.
+  _persistFxRunState(userId, false);
 
   const state = engineStates[userId];
   if (state) {
@@ -6969,6 +7036,9 @@ function checkFloatingDrawdown(userId: number, floating: number): void {
 }
 
 export function stopLiveEngine(userId: number): EngineState | null {
+  // A deliberate stop must persist — otherwise the next deploy would restore an
+  // engine the user intentionally turned off.
+  _persistFxRunState(userId, false);
   if (engineIntervals[userId]) {
     clearInterval(engineIntervals[userId]);
     delete engineIntervals[userId];
