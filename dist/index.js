@@ -23592,6 +23592,7 @@ __export(live_trading_engine_exports, {
   broadcastMT5Signal: () => broadcastMT5Signal,
   confirmMT5Signal: () => confirmMT5Signal,
   emergencyStopEngine: () => emergencyStopEngine,
+  generateRuleBasedSignals: () => generateRuleBasedSignals,
   getAccountSafetySnapshot: () => getAccountSafetySnapshot,
   getAllMT5Signals: () => getAllMT5Signals,
   getLiveEngineActivity: () => getLiveEngineActivity,
@@ -24570,7 +24571,8 @@ async function scanMarkets(userId) {
         const change = prevPrice > 0 ? (currentPrice - prevPrice) / prevPrice * 100 : 0;
         let trend = "NEUTRAL";
         const adxData = indicators.adx;
-        const adxStrength = adxData?.adx ?? adxData?.value ?? 0;
+        const _adxSnapRaw = adxOrNull(indicators);
+        const adxStrength = _adxSnapRaw ?? 0;
         const plusDI = adxData?.plusDI ?? 0;
         const minusDI = adxData?.minusDI ?? 0;
         const diSeparation = Math.abs(plusDI - minusDI);
@@ -24594,8 +24596,8 @@ async function scanMarkets(userId) {
           trend,
           rsi: Math.round(rsi3),
           atr: Math.round(atr2 * 1e5) / 1e5,
-          adx: adxStrength,
-          // stored so processDecision can access it directly
+          adx: _adxSnapRaw ?? void 0,
+          // undefined = indicator unavailable (NOT flat)
           plusDI,
           // stored for DI-based conflict detection
           minusDI,
@@ -24934,6 +24936,11 @@ function computeSteppedFixedTrailSL(position, fixedPips, stepPips, trailState) {
   } else {
     return !currentSL || rawSL <= currentSL - stepSize ? rawSL : currentSL;
   }
+}
+function adxOrNull(src) {
+  const v = src?.adx?.adx ?? src?.adx?.value ?? (typeof src?.adx === "number" ? src.adx : void 0);
+  const n = Number(v);
+  return isFinite(n) && n > 0 ? n : null;
 }
 function getAccountSafetySnapshot(userId, state) {
   const _raw = global.mt5AccountData?.[userId];
@@ -25275,9 +25282,11 @@ function generateRuleBasedSignals(indicators, config, symbol) {
   let bull = 0;
   let bear = 0;
   const votes = [];
-  const adxVal = indicators.adx?.adx ?? indicators.adx?.value ?? 0;
+  const _adxRaw = adxOrNull(indicators);
+  const adxKnown = _adxRaw !== null;
+  const adxVal = _adxRaw ?? 0;
   const trend = indicators.trend ?? "NEUTRAL";
-  const trendIsStrong = adxVal > 18 && trend !== "NEUTRAL";
+  const trendIsStrong = adxKnown && adxVal > 18 && trend !== "NEUTRAL";
   const rsi3 = indicators.rsi?.value ?? indicators.stochastic?.k ?? 50;
   if (trendIsStrong) {
     if (trend === "BULLISH" && rsi3 > 50) {
@@ -25293,7 +25302,7 @@ function generateRuleBasedSignals(indicators, config, symbol) {
       bull++;
       votes.push(`RSI ${rsi3.toFixed(1)} extreme overbought (exhaustion warning)`);
     }
-  } else {
+  } else if (adxKnown) {
     if (rsi3 < 35) {
       bull++;
       votes.push(`RSI oversold (${rsi3.toFixed(1)})`);
@@ -25317,7 +25326,7 @@ function generateRuleBasedSignals(indicators, config, symbol) {
       bull++;
       votes.push(`Stoch K ${stochK.toFixed(1)} extreme (trend exhaustion)`);
     }
-  } else {
+  } else if (adxKnown) {
     if (stochK < 25) {
       bull++;
       votes.push(`Stoch K oversold (${stochK.toFixed(1)})`);
@@ -25351,7 +25360,7 @@ function generateRuleBasedSignals(indicators, config, symbol) {
       bear++;
       votes.push(`Price below VWAP ${vwapDev.toFixed(2)}% (bearish confirmation)`);
     }
-  } else {
+  } else if (adxKnown) {
     if (vwapDev < -0.1) {
       bull++;
       votes.push(`Price below VWAP (${vwapDev.toFixed(2)}%)`);
@@ -25436,8 +25445,10 @@ function countIndicatorAlignment(data) {
   let bull = 0;
   let bear = 0;
   const trend = data.trend ?? "NEUTRAL";
-  const adxVal = data.adx?.adx ?? data.adx?.value ?? 0;
-  const trendIsStrong = adxVal > 20 && trend !== "NEUTRAL";
+  const _adxRaw2 = adxOrNull(data);
+  const adxKnown = _adxRaw2 !== null;
+  const adxVal = _adxRaw2 ?? 0;
+  const trendIsStrong = adxKnown && adxVal > 20 && trend !== "NEUTRAL";
   const rsiVal = data.rsi?.value ?? 50;
   if (trendIsStrong) {
     if (trend === "BULLISH" && rsiVal > 50) bull++;
@@ -25858,13 +25869,13 @@ ${stratSummaryLines.join("\n")}`
       const htf = htfMarketData?.[sym];
       const inlineHTFLabel = (state.config.primaryTimeframe || "M15") === "H1" ? "H4" : "H1";
       const htfStr = htf ? `, ${inlineHTFLabel}_Bias=${htf.trend}, ${inlineHTFLabel}_BOS=${htf.bosChoch.detected ? `${htf.bosChoch.type}_${htf.bosChoch.direction}` : "NONE"}, ${inlineHTFLabel}_PD=${htf.premiumDiscount.zone}, ${inlineHTFLabel}_Wyckoff=${htf.wyckoff.detected ? htf.wyckoff.phase : "NONE"}` : "";
-      const adxNum = data.adx?.value ?? data.adx?.adx ?? 0;
+      const adxNumRaw = adxOrNull(data);
       const pDI = data.plusDI ?? data.adx?.plusDI ?? 0;
       const mDI = data.minusDI ?? data.adx?.minusDI ?? 0;
       const diDir = pDI > 0 || mDI > 0 ? pDI > mDI ? `BULL(+DI ${pDI.toFixed(1)}>-DI ${mDI.toFixed(1)})` : `BEAR(-DI ${mDI.toFixed(1)}>+DI ${pDI.toFixed(1)})` : "DI_UNAVAILABLE";
       const rec = pairStrategies[sym];
       const stratStr = rec && rec.priority !== "none" ? ` \u2605STRATEGY=${rec.strategy.toUpperCase()}(priority:${rec.priority},need:${rec.minConfluences}conf)[${rec.reason}]` : ` \u2605STRATEGY=WAIT[${rec?.reason || "no clear setup"}]`;
-      return `${sym}: Price=${data.currentPrice}, Trend=${data.trend}, ADX=${adxNum.toFixed(1)}, DI_Direction=${diDir}, RSI=${data.rsi?.value?.toFixed(1) || "N/A"}, Stoch K=${data.stochastic?.k?.toFixed(1) || "N/A"} D=${data.stochastic?.d?.toFixed(1) || "N/A"}, MACD=${data.macd?.macd?.toFixed(5) || "N/A"}(hist=${data.macd?.histogram?.toFixed(5) || "N/A"}), VWAP=${vwapVal?.toFixed(5) || "N/A"} (Dev${vwapDev}%), OBV Trend=${data.obv?.trend || "N/A"}, Patterns=[${(data.candlePatterns || []).join(",")}], Session=${data.sessionContext?.currentSession || "N/A"}, Volatility=${vol?.percentile?.toFixed(0) || "N/A"}%, ATR=${(vol?.currentATR ?? 0).toFixed(5)}, Support=${sr?.supports?.[0]?.toFixed(5) || "N/A"}, Resistance=${sr?.resistances?.[0]?.toFixed(5) || "N/A"}, Fib 38.2%=${fib?.retracementLevels?.["38.2"]?.toFixed(5) || "N/A"}, Volume=${vm ? `RelVol=${vm.relativeVolume}x (${vm.volumeTrend}), Spikes=${vm.volumeSpikes}` : "N/A"}${asiaRangeStr}${htfStr}${stratStr}`;
+      return `${sym}: Price=${data.currentPrice}, Trend=${data.trend}, ADX=${adxNumRaw === null ? "UNAVAILABLE(do NOT infer ranging)" : adxNumRaw.toFixed(1)}, DI_Direction=${diDir}, RSI=${data.rsi?.value?.toFixed(1) || "N/A"}, Stoch K=${data.stochastic?.k?.toFixed(1) || "N/A"} D=${data.stochastic?.d?.toFixed(1) || "N/A"}, MACD=${data.macd?.macd?.toFixed(5) || "N/A"}(hist=${data.macd?.histogram?.toFixed(5) || "N/A"}), VWAP=${vwapVal?.toFixed(5) || "N/A"} (Dev${vwapDev}%), OBV Trend=${data.obv?.trend || "N/A"}, Patterns=[${(data.candlePatterns || []).join(",")}], Session=${data.sessionContext?.currentSession || "N/A"}, Volatility=${vol?.percentile?.toFixed(0) || "N/A"}%, ATR=${(vol?.currentATR ?? 0).toFixed(5)}, Support=${sr?.supports?.[0]?.toFixed(5) || "N/A"}, Resistance=${sr?.resistances?.[0]?.toFixed(5) || "N/A"}, Fib 38.2%=${fib?.retracementLevels?.["38.2"]?.toFixed(5) || "N/A"}, Volume=${vm ? `RelVol=${vm.relativeVolume}x (${vm.volumeTrend}), Spikes=${vm.volumeSpikes}` : "N/A"}${asiaRangeStr}${htfStr}${stratStr}`;
     }).join("\n");
     let htfBiasSection = "";
     const promptHTFLabel = (state.config.primaryTimeframe || "M15") === "H1" ? "H4" : "H1";

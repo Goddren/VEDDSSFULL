@@ -1559,7 +1559,11 @@ async function scanMarkets(userId: number): Promise<void> {
         // ADX magnitude.
         let trend = 'NEUTRAL';
         const adxData = indicators.adx as any;
-        const adxStrength = adxData?.adx ?? adxData?.value ?? 0;
+        // Keep 0 for the local trend maths below (0 correctly fails every
+        // "trend is strong" test), but store UNDEFINED on the snapshot so
+        // downstream readers can tell "no data" from "genuinely flat".
+        const _adxSnapRaw = adxOrNull(indicators);
+        const adxStrength = _adxSnapRaw ?? 0;
         const plusDI = adxData?.plusDI ?? 0;
         const minusDI = adxData?.minusDI ?? 0;
         const diSeparation = Math.abs(plusDI - minusDI);
@@ -1589,7 +1593,7 @@ async function scanMarkets(userId: number): Promise<void> {
           trend,
           rsi: Math.round(rsi),
           atr: Math.round(atr * 100000) / 100000,
-          adx: adxStrength,       // stored so processDecision can access it directly
+          adx: _adxSnapRaw ?? undefined, // undefined = indicator unavailable (NOT flat)
           plusDI,                  // stored for DI-based conflict detection
           minusDI,                 // stored for DI-based conflict detection
           volumeTrend: volumeMetrics.volumeTrend,    // for volume gate in processDecision
@@ -2058,6 +2062,26 @@ function computeSteppedFixedTrailSL(
 // open positions into the same shape MT5 positions use, so both paths see
 // the complete picture regardless of which broker is actually holding the trade.
 /**
+ * ADX, or null when the indicator genuinely has no value.
+ *
+ * `indicators.ts` correctly returns undefined for a dead ADX, but every
+ * consumer coerced it back with `?? 0` — and ADX=0 does not read as "unknown",
+ * it reads as the strongest possible RANGING signal. So a missing ADX silently
+ * forced trend logic off and pushed the pair into mean-reversion: the LLM
+ * prompt literally carried "ADX=0.0", generateRuleBasedSignals fell into its
+ * `rsi < 35 => bullish` branch, and selectStrategyForPair chose ranging
+ * strategies. This is not an edge case — across 104,868 ai_confirmation_outcomes
+ * rows, adx_value has NEVER been non-zero, so this was the permanent state.
+ *
+ * Callers must treat null as "I don't know" and abstain, never as zero.
+ */
+function adxOrNull(src: any): number | null {
+  const v = src?.adx?.adx ?? src?.adx?.value ?? (typeof src?.adx === 'number' ? src.adx : undefined);
+  const n = Number(v);
+  return isFinite(n) && n > 0 ? n : null;
+}
+
+/**
  * Broker-agnostic account snapshot for the safety gates.
  *
  * Gate 0 used to read ONLY `global.mt5AccountData` and run its entire body
@@ -2446,15 +2470,17 @@ async function monitorPositions(userId: number): Promise<void> {
 }
 
 // ── Rule-Based Signal Generator (zero API cost) ─────────────────────────────
-function generateRuleBasedSignals(indicators: Record<string, any>, config: LiveEngineConfig, symbol: string): any {
+export function generateRuleBasedSignals(indicators: Record<string, any>, config: LiveEngineConfig, symbol: string): any {
   let bull = 0;
   let bear = 0;
   const votes: string[] = [];
 
-  const adxVal = indicators.adx?.adx ?? indicators.adx?.value ?? 0;
+  const _adxRaw = adxOrNull(indicators);
+  const adxKnown = _adxRaw !== null;
+  const adxVal = _adxRaw ?? 0;
   const trend = indicators.trend ?? 'NEUTRAL';
   // Lowered from 25→18 to match the updated trend detection (DI-based, ADX>12+diSep>8)
-  const trendIsStrong = adxVal > 18 && trend !== 'NEUTRAL';
+  const trendIsStrong = adxKnown && adxVal > 18 && trend !== 'NEUTRAL';
 
   // RSI — trend-aware: in a trending market, RSI confirms direction; in ranging, use extremes
   const rsi = indicators.rsi?.value ?? indicators.stochastic?.k ?? 50;
@@ -2463,7 +2489,10 @@ function generateRuleBasedSignals(indicators: Record<string, any>, config: LiveE
     else if (trend === 'BEARISH' && rsi < 50) { bear++; votes.push(`RSI ${rsi.toFixed(1)} below 50 (bearish trend confirmation)`); }
     else if (trend === 'BULLISH' && rsi < 30) { bear++; votes.push(`RSI ${rsi.toFixed(1)} extreme oversold (exhaustion warning)`); }
     else if (trend === 'BEARISH' && rsi > 70) { bull++; votes.push(`RSI ${rsi.toFixed(1)} extreme overbought (exhaustion warning)`); }
-  } else {
+  } else if (adxKnown) {
+    // Mean-reversion reading is only valid when we KNOW the market is ranging.
+    // Without ADX this branch used to fire anyway (missing ADX coerced to 0),
+    // manufacturing "oversold => bullish" votes in what may be a strong trend.
     if (rsi < 35) { bull++; votes.push(`RSI oversold (${rsi.toFixed(1)})`); }
     else if (rsi > 65) { bear++; votes.push(`RSI overbought (${rsi.toFixed(1)})`); }
   }
@@ -2475,7 +2504,7 @@ function generateRuleBasedSignals(indicators: Record<string, any>, config: LiveE
     else if (trend === 'BEARISH' && stochK < 50) { bear++; votes.push(`Stoch K ${stochK.toFixed(1)} below 50 (bearish confirmation)`); }
     else if (trend === 'BULLISH' && stochK < 20) { bear++; votes.push(`Stoch K ${stochK.toFixed(1)} extreme (trend exhaustion)`); }
     else if (trend === 'BEARISH' && stochK > 80) { bull++; votes.push(`Stoch K ${stochK.toFixed(1)} extreme (trend exhaustion)`); }
-  } else {
+  } else if (adxKnown) {
     if (stochK < 25) { bull++; votes.push(`Stoch K oversold (${stochK.toFixed(1)})`); }
     else if (stochK > 75) { bear++; votes.push(`Stoch K overbought (${stochK.toFixed(1)})`); }
   }
@@ -2493,7 +2522,7 @@ function generateRuleBasedSignals(indicators: Record<string, any>, config: LiveE
   if (trendIsStrong) {
     if (trend === 'BULLISH' && vwapDev > 0) { bull++; votes.push(`Price above VWAP +${vwapDev.toFixed(2)}% (bullish confirmation)`); }
     else if (trend === 'BEARISH' && vwapDev < 0) { bear++; votes.push(`Price below VWAP ${vwapDev.toFixed(2)}% (bearish confirmation)`); }
-  } else {
+  } else if (adxKnown) {
     if (vwapDev < -0.10) { bull++; votes.push(`Price below VWAP (${vwapDev.toFixed(2)}%)`); }
     else if (vwapDev > 0.10) { bear++; votes.push(`Price above VWAP (+${vwapDev.toFixed(2)}%)`); }
   }
@@ -2580,11 +2609,13 @@ function countIndicatorAlignment(data: any): { bull: number; bear: number } {
   let bear = 0;
 
   const trend = data.trend ?? 'NEUTRAL';
-  const adxVal = data.adx?.adx ?? data.adx?.value ?? 0;
+  const _adxRaw2 = adxOrNull(data);
+  const adxKnown = _adxRaw2 !== null;
+  const adxVal = _adxRaw2 ?? 0;
   // trendIsStrong: restored to ADX>20 (was lowered to 15, which flipped RSI/Stoch/VWAP
   // votes into "trend-confirming" mode in barely-trending markets and manufactured
   // false 4-vote agreement in chop — a contributor to the loss spike).
-  const trendIsStrong = adxVal > 20 && trend !== 'NEUTRAL';
+  const trendIsStrong = adxKnown && adxVal > 20 && trend !== 'NEUTRAL';
 
   // Vote 1: RSI — trend-aware
   // Trending: RSI above/below 50 CONFIRMS trend direction (momentum, not reversal)
@@ -3146,7 +3177,11 @@ async function runAILiveAnalysis(userId: number, marketAnalysis: Record<string, 
       const htf = htfMarketData?.[sym];
       const inlineHTFLabel = ((state.config as any).primaryTimeframe || 'M15') === 'H1' ? 'H4' : 'H1';
       const htfStr = htf ? `, ${inlineHTFLabel}_Bias=${htf.trend}, ${inlineHTFLabel}_BOS=${htf.bosChoch.detected ? `${htf.bosChoch.type}_${htf.bosChoch.direction}` : 'NONE'}, ${inlineHTFLabel}_PD=${htf.premiumDiscount.zone}, ${inlineHTFLabel}_Wyckoff=${htf.wyckoff.detected ? htf.wyckoff.phase : 'NONE'}` : '';
-      const adxNum = (data.adx?.value ?? data.adx?.adx ?? 0) as number;
+      // ADX_UNAVAILABLE, never "ADX=0.0" — zero is the strongest possible
+      // ranging reading, so printing it told the model the market was dead flat
+      // whenever the indicator simply had no data (which is the normal state:
+      // adx_value has never once been non-zero across 104,868 logged rows).
+      const adxNumRaw = adxOrNull(data);
       const pDI = (data.plusDI ?? data.adx?.plusDI ?? 0) as number;
       const mDI = (data.minusDI ?? data.adx?.minusDI ?? 0) as number;
       const diDir = pDI > 0 || mDI > 0
@@ -3157,7 +3192,7 @@ async function runAILiveAnalysis(userId: number, marketAnalysis: Record<string, 
       const stratStr = rec && rec.priority !== 'none'
         ? ` ★STRATEGY=${rec.strategy.toUpperCase()}(priority:${rec.priority},need:${rec.minConfluences}conf)[${rec.reason}]`
         : ` ★STRATEGY=WAIT[${rec?.reason || 'no clear setup'}]`;
-      return `${sym}: Price=${data.currentPrice}, Trend=${data.trend}, ADX=${adxNum.toFixed(1)}, DI_Direction=${diDir}, RSI=${data.rsi?.value?.toFixed(1) || 'N/A'}, Stoch K=${data.stochastic?.k?.toFixed(1) || 'N/A'} D=${data.stochastic?.d?.toFixed(1) || 'N/A'}, MACD=${data.macd?.macd?.toFixed(5) || 'N/A'}(hist=${data.macd?.histogram?.toFixed(5) || 'N/A'}), VWAP=${vwapVal?.toFixed(5) || 'N/A'} (Dev${vwapDev}%), OBV Trend=${data.obv?.trend || 'N/A'}, Patterns=[${(data.candlePatterns || []).join(',')}], Session=${data.sessionContext?.currentSession || 'N/A'}, Volatility=${vol?.percentile?.toFixed(0) || 'N/A'}%, ATR=${(vol?.currentATR ?? 0).toFixed(5)}, Support=${sr?.supports?.[0]?.toFixed(5) || 'N/A'}, Resistance=${sr?.resistances?.[0]?.toFixed(5) || 'N/A'}, Fib 38.2%=${fib?.retracementLevels?.['38.2']?.toFixed(5) || 'N/A'}, Volume=${vm ? `RelVol=${vm.relativeVolume}x (${vm.volumeTrend}), Spikes=${vm.volumeSpikes}` : 'N/A'}${asiaRangeStr}${htfStr}${stratStr}`;
+      return `${sym}: Price=${data.currentPrice}, Trend=${data.trend}, ADX=${adxNumRaw === null ? 'UNAVAILABLE(do NOT infer ranging)' : adxNumRaw.toFixed(1)}, DI_Direction=${diDir}, RSI=${data.rsi?.value?.toFixed(1) || 'N/A'}, Stoch K=${data.stochastic?.k?.toFixed(1) || 'N/A'} D=${data.stochastic?.d?.toFixed(1) || 'N/A'}, MACD=${data.macd?.macd?.toFixed(5) || 'N/A'}(hist=${data.macd?.histogram?.toFixed(5) || 'N/A'}), VWAP=${vwapVal?.toFixed(5) || 'N/A'} (Dev${vwapDev}%), OBV Trend=${data.obv?.trend || 'N/A'}, Patterns=[${(data.candlePatterns || []).join(',')}], Session=${data.sessionContext?.currentSession || 'N/A'}, Volatility=${vol?.percentile?.toFixed(0) || 'N/A'}%, ATR=${(vol?.currentATR ?? 0).toFixed(5)}, Support=${sr?.supports?.[0]?.toFixed(5) || 'N/A'}, Resistance=${sr?.resistances?.[0]?.toFixed(5) || 'N/A'}, Fib 38.2%=${fib?.retracementLevels?.['38.2']?.toFixed(5) || 'N/A'}, Volume=${vm ? `RelVol=${vm.relativeVolume}x (${vm.volumeTrend}), Spikes=${vm.volumeSpikes}` : 'N/A'}${asiaRangeStr}${htfStr}${stratStr}`;
     }).join('\n');
 
     let htfBiasSection = '';
