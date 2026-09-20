@@ -16498,10 +16498,41 @@ Rules:
   // secret. Lets us confirm the flag took effect after a Render deploy.
   app.get("/api/cryptocom-engine/health", async (_req: Request, res: Response) => {
     const g = global as any;
+    // The scanner runs in the crypto WORKER, a different process, so these
+    // in-memory globals only describe the web process. The heartbeat row is the
+    // only way to see the worker from here — and the difference between "idle"
+    // and "wedged" is `phase` plus a climbing `skippedTicks`.
+    let worker: any = { available: false, note: 'no heartbeat row yet — the worker has never booted against this database' };
+    try {
+      const { pool } = await import('./db');
+      const { rows } = await pool.query(`SELECT * FROM crypto_engine_heartbeat WHERE id=1`);
+      if (rows[0]) {
+        const r = rows[0];
+        const ageSec = r.tick_at ? Math.round((Date.now() - new Date(r.tick_at).getTime()) / 1000) : null;
+        worker = {
+          available: true,
+          workerId: r.worker_id, bootedAt: r.booted_at, lastTickAt: r.tick_at,
+          lastTickAgeSeconds: ageSec,
+          scanStartedAt: r.scan_started_at, scanFinishedAt: r.scan_finished_at,
+          lastDurationMs: r.last_duration_ms, phase: r.phase,
+          skippedTicks: r.skipped_ticks, scansCompleted: r.scans_completed,
+          lastError: r.last_error,
+          // The loop ticks every 60s, so no tick for 3 minutes means the process
+          // is gone; ticking while stuck on one phase means a scan is wedged.
+          verdict: ageSec === null ? 'unknown'
+            : ageSec > 180 ? 'DEAD — no tick in over 3 minutes'
+            : (r.skipped_ticks ?? 0) >= 3 ? `WEDGED — ${r.skipped_ticks} consecutive skipped ticks, stuck at phase "${r.phase}"`
+            : 'alive',
+        };
+      }
+    } catch (e: any) {
+      worker = { available: false, note: `could not read the heartbeat: ${e?.message}` };
+    }
     res.json({
       scannerStarted: !!g.__cryptoScannerStarted,
       envVarSeen: !!g.__cryptoEnvSeen,
       enabledParsed: !!g.__cryptoEnabled,
+      worker,
       note: g.__cryptoScannerStarted
         ? 'Crypto scanner is running.'
         : g.__cryptoEnvSeen

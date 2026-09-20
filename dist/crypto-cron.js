@@ -198,6 +198,27 @@ ALTER TABLE "cryptocom_engine_configs" ADD COLUMN IF NOT EXISTS "defi_chain" tex
 ALTER TABLE "cryptocom_engine_configs" ADD COLUMN IF NOT EXISTS "defi_notional_usd" double precision NOT NULL DEFAULT 25;
 ALTER TABLE "cryptocom_engine_configs" ADD COLUMN IF NOT EXISTS "defi_slippage_bps" integer NOT NULL DEFAULT 100;
 ALTER TABLE "cryptocom_engine_configs" ADD COLUMN IF NOT EXISTS "multi_venue_enabled" boolean NOT NULL DEFAULT false;
+
+-- Single-row liveness record for the crypto worker. Without it, "the engine is
+-- quiet" and "the engine is wedged" look identical from the outside: the worker
+-- holds the advisory lock either way, and a scan that never settles leaves
+-- scanInFlight true so every later tick is skipped in silence. Diagnosing that
+-- previously needed Render logs. The phase column says where a hung scan stopped.
+CREATE TABLE IF NOT EXISTS "crypto_engine_heartbeat" (
+  "id" integer PRIMARY KEY DEFAULT 1,
+  "worker_id" text,
+  "booted_at" timestamptz,
+  "tick_at" timestamptz,
+  "scan_started_at" timestamptz,
+  "scan_finished_at" timestamptz,
+  "last_duration_ms" integer,
+  "phase" text,
+  "skipped_ticks" integer NOT NULL DEFAULT 0,
+  "scans_completed" integer NOT NULL DEFAULT 0,
+  "last_error" text,
+  "updated_at" timestamptz NOT NULL DEFAULT now(),
+  CONSTRAINT "crypto_engine_heartbeat_single_row" CHECK ("id" = 1)
+);
 `;
   }
 });
@@ -14521,6 +14542,7 @@ async function closePosition(userId, trade, currentPrice, reason) {
     const venue = trade.venue && trade.venue !== "cryptocom" ? trade.venue : null;
     if (venue === "defi") {
       const cfg = await storage.getUserCryptocomEngineConfig(userId).catch(() => null);
+      await phase(`exit:trade_${trade.id}:defi_swap`);
       const { defiExitSell: defiExitSell2 } = await Promise.resolve().then(() => (init_defi_executor(), defi_executor_exports));
       const exit = await defiExitSell2(userId, cfg?.defiChain || "base", baseCoin(trade.symbol), trade.quantity, cfg?.defiSlippageBps ?? 100).catch((e) => ({ ok: false, exitPrice: 0, reason: e?.message || String(e) }));
       if (exit?.phantom) {
@@ -15033,17 +15055,20 @@ async function runCryptocomEngineScan() {
     }
   }
   try {
+    await phase("recover_stale_claims");
     const recovered = await storage.recoverStaleCryptocomCloseClaims().catch((e) => {
       console.error("[cryptocom-scanner] stale close-claim recovery failed:", e?.message);
       return 0;
     });
     if (recovered > 0) console.warn(`[cryptocom-scanner] re-opened ${recovered} trade(s) stranded in 'closing' by a dead process`);
+    await phase("exit_pass:list_holders");
     const holders = await storage.getUserIdsWithOpenCryptocomTrades().catch((e) => {
       console.error("[cryptocom-scanner] could not list users with open trades \u2014 exit management SKIPPED this cycle:", e?.message);
       return [];
     });
     for (const uid of holders) {
       try {
+        await phase(`exit_pass:user_${uid}`);
         const cfg = await storage.getUserCryptocomEngineConfig(uid);
         await monitorOpenPositions(uid, cfg ?? {
           trailMethod: "none",
@@ -15059,8 +15084,10 @@ async function runCryptocomEngineScan() {
         console.error(`[cryptocom-scanner] exit management failed for user ${uid}:`, e?.message);
       }
     }
+    await phase("entry_scan:list_configs");
     const configs = await storage.getAllActiveCryptocomEngineConfigs();
     for (const config of configs) {
+      await phase(`entry_scan:user_${config.userId}`);
       await scanOneUser(config.userId).catch((e) => console.error(`[cryptocom-scanner] user ${config.userId} scan failed:`, e.message));
     }
   } catch (err) {
@@ -15068,6 +15095,25 @@ async function runCryptocomEngineScan() {
   } finally {
     if (ownedHere) await releaseCryptoRunLock();
   }
+}
+async function hb(fields) {
+  try {
+    const { pool: pool2 } = await Promise.resolve().then(() => (init_db(), db_exports));
+    const set = { worker_id: WORKER_ID, updated_at: /* @__PURE__ */ new Date(), ...fields };
+    const cols = Object.keys(set);
+    const vals = cols.map((c) => set[c]);
+    const ph = cols.map((_, i) => `$${i + 1}`).join(",");
+    const upd = cols.filter((c) => c !== "id").map((c) => `"${c}"=EXCLUDED."${c}"`).join(",");
+    await pool2.query(
+      `INSERT INTO crypto_engine_heartbeat ("id",${cols.map((c) => `"${c}"`).join(",")})
+       VALUES (1,${ph}) ON CONFLICT ("id") DO UPDATE SET ${upd}`,
+      vals
+    );
+  } catch {
+  }
+}
+async function phase(name) {
+  await hb({ phase: name });
 }
 async function acquireCryptoRunLock() {
   try {
@@ -15115,21 +15161,34 @@ function startCryptocomEngineScanner() {
       const LOOP_INTERVAL_MS = 6e4;
       setInterval(() => {
         if (scanInFlight) {
-          console.warn("[cryptocom-scanner] previous scan still running \u2014 skipping this tick to avoid overlap/OOM");
+          _skippedTicks++;
+          console.warn(`[cryptocom-scanner] previous scan still running \u2014 skipping this tick to avoid overlap/OOM (consecutive skips: ${_skippedTicks})`);
+          void hb({ tick_at: /* @__PURE__ */ new Date(), skipped_ticks: _skippedTicks });
           return;
         }
+        _skippedTicks = 0;
         scanInFlight = true;
-        runCryptocomEngineScan().catch(() => {
+        const _t0 = Date.now();
+        void hb({ tick_at: /* @__PURE__ */ new Date(), scan_started_at: /* @__PURE__ */ new Date(), phase: "scan:start", skipped_ticks: 0 });
+        runCryptocomEngineScan().then(() => {
+          _scansCompleted++;
+          void hb({ scan_finished_at: /* @__PURE__ */ new Date(), last_duration_ms: Date.now() - _t0, phase: "idle", scans_completed: _scansCompleted, last_error: null });
+        }).catch((e) => {
+          void hb({ scan_finished_at: /* @__PURE__ */ new Date(), last_duration_ms: Date.now() - _t0, phase: "error", last_error: String(e?.message ?? e).slice(0, 500) });
         }).finally(() => {
           scanInFlight = false;
         });
       }, LOOP_INTERVAL_MS);
       console.log("[cryptocom-scanner] Background Crypto.com perpetuals scan loop started (60s tick, re-entrancy guarded, per-user throttled, strategies: trend_following/momentum/auto).");
+      if (!_hbBooted) {
+        _hbBooted = true;
+        void hb({ booted_at: /* @__PURE__ */ new Date(), phase: "booted", skipped_ticks: 0, last_error: null });
+      }
     });
   };
   tryStart();
 }
-var MIN_SCAN_INTERVAL_MS, lastScanAt, MAX_SYMBOLS_PER_CYCLE, scanCursor, STRATEGY_RUNNERS, AUTO_STRATEGIES, sessionPeakEquity, started, scanInFlight, CRYPTO_RUN_LOCK_KEY, _holdsRunLock;
+var MIN_SCAN_INTERVAL_MS, lastScanAt, MAX_SYMBOLS_PER_CYCLE, scanCursor, STRATEGY_RUNNERS, AUTO_STRATEGIES, sessionPeakEquity, started, scanInFlight, _skippedTicks, _scansCompleted, WORKER_ID, _hbBooted, CRYPTO_RUN_LOCK_KEY, _holdsRunLock;
 var init_cryptocom_scanner = __esm({
   "server/services/cryptocom-scanner.ts"() {
     "use strict";
@@ -15154,6 +15213,10 @@ var init_cryptocom_scanner = __esm({
     sessionPeakEquity = /* @__PURE__ */ new Map();
     started = false;
     scanInFlight = false;
+    _skippedTicks = 0;
+    _scansCompleted = 0;
+    WORKER_ID = `${process.pid}-${Date.now().toString(36)}`;
+    _hbBooted = false;
     CRYPTO_RUN_LOCK_KEY = 918273645;
     _holdsRunLock = false;
   }

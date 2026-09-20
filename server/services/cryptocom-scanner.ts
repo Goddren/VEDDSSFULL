@@ -388,6 +388,7 @@ async function closePosition(userId: number, trade: any, currentPrice: number, r
     if (venue === 'defi') {
       // DeFi exit — swap the held token back to USDC via the hot wallet.
       const cfg = await storage.getUserCryptocomEngineConfig(userId).catch(() => null);
+      await phase(`exit:trade_${trade.id}:defi_swap`); // the likeliest hang: an unbounded on-chain wait
       const { defiExitSell } = await import('./defi-executor'); // lazy — loads ethers only on a real DeFi exit
       const exit = await defiExitSell(userId, (cfg as any)?.defiChain || 'base', baseCoin(trade.symbol), trade.quantity, (cfg as any)?.defiSlippageBps ?? 100).catch((e: any) => ({ ok: false, exitPrice: 0, reason: e?.message || String(e) } as any));
       // A7: NEVER book a close the broker/chain didn't actually execute. If the
@@ -1009,18 +1010,21 @@ export async function runCryptocomEngineScan(): Promise<void> {
     // is left in 'closing', which getOpenCryptocomEngineTrades does not return —
     // i.e. an unmonitored position. Re-open anything that has been 'closing'
     // longer than any real close could take, before listing holders.
+    await phase('recover_stale_claims');
     const recovered = await storage.recoverStaleCryptocomCloseClaims().catch((e: any) => {
       console.error('[cryptocom-scanner] stale close-claim recovery failed:', e?.message);
       return 0;
     });
     if (recovered > 0) console.warn(`[cryptocom-scanner] re-opened ${recovered} trade(s) stranded in 'closing' by a dead process`);
 
+    await phase('exit_pass:list_holders');
     const holders = await storage.getUserIdsWithOpenCryptocomTrades().catch((e: any) => {
       console.error('[cryptocom-scanner] could not list users with open trades — exit management SKIPPED this cycle:', e?.message);
       return [] as number[];
     });
     for (const uid of holders) {
       try {
+        await phase(`exit_pass:user_${uid}`);
         // The config supplies trail parameters only. A missing config must not
         // block exits, so fall back to defaults that still honour SL/TP.
         const cfg = await storage.getUserCryptocomEngineConfig(uid);
@@ -1034,8 +1038,10 @@ export async function runCryptocomEngineScan(): Promise<void> {
       }
     }
 
+    await phase('entry_scan:list_configs');
     const configs = await storage.getAllActiveCryptocomEngineConfigs();
     for (const config of configs) {
+      await phase(`entry_scan:user_${config.userId}`);
       await scanOneUser(config.userId).catch((e: any) => console.error(`[cryptocom-scanner] user ${config.userId} scan failed:`, e.message));
     }
   } catch (err: any) {
@@ -1049,6 +1055,8 @@ export async function runCryptocomEngineScan(): Promise<void> {
 
 let started = false;
 let scanInFlight = false;
+let _skippedTicks = 0;
+let _scansCompleted = 0;
 
 // Cross-process mutual exclusion. All in-process guards (started, scanInFlight)
 // are per-process, so nothing stops the in-process web scanner (if
@@ -1057,6 +1065,38 @@ let scanInFlight = false;
 // doubled daily-trade accounting, and the shared-process OOM that forced crypto
 // out of the web process. A Postgres session-level advisory lock, held for the
 // process lifetime, makes only one crypto scanner active across all processes.
+// ── Liveness instrumentation ────────────────────────────────────────────────
+// On 2026-09-20 the worker held the run lock, reported healthy, and wrote
+// nothing for 45 minutes. From outside, a wedged scan and an idle engine are
+// indistinguishable: the lock is held either way, and if a scan never settles
+// `scanInFlight` stays true so every subsequent tick is skipped silently. This
+// records where each scan is, so the next stall is diagnosable from the database
+// instead of from Render's log viewer.
+//
+// Every write is best-effort: instrumentation must never be able to break or
+// slow the engine it measures.
+const WORKER_ID = `${process.pid}-${Date.now().toString(36)}`;
+let _hbBooted = false;
+
+async function hb(fields: Record<string, any>): Promise<void> {
+  try {
+    const { pool } = await import('../db');
+    const set: Record<string, any> = { worker_id: WORKER_ID, updated_at: new Date(), ...fields };
+    const cols = Object.keys(set);
+    const vals = cols.map((c) => set[c]);
+    const ph = cols.map((_, i) => `$${i + 1}`).join(',');
+    const upd = cols.filter((c) => c !== 'id').map((c) => `"${c}"=EXCLUDED."${c}"`).join(',');
+    await pool.query(
+      `INSERT INTO crypto_engine_heartbeat ("id",${cols.map((c) => `"${c}"`).join(',')})
+       VALUES (1,${ph}) ON CONFLICT ("id") DO UPDATE SET ${upd}`,
+      vals,
+    );
+  } catch { /* never let the heartbeat affect the engine */ }
+}
+
+/** Record which step the current scan is on, so a hang can be located. */
+async function phase(name: string): Promise<void> { await hb({ phase: name }); }
+
 const CRYPTO_RUN_LOCK_KEY = 918273645; // arbitrary constant unique to this scanner
 // True when THIS process is holding the advisory lock. Needed because advisory
 // locks are per-session: a process that already holds it must not open a second
@@ -1131,15 +1171,25 @@ export function startCryptocomEngineScanner(): void {
     // in memory simultaneously, compounding into an OOM. Skip the tick if the
     // previous cycle is still running.
     if (scanInFlight) {
-      console.warn('[cryptocom-scanner] previous scan still running — skipping this tick to avoid overlap/OOM');
+      // A handful of these is normal (a scan outran the 60s tick). A rising,
+      // unbounded count with no completed scan means the previous scan is WEDGED
+      // and the engine has silently stopped — check `phase` for where it stuck.
+      _skippedTicks++;
+      console.warn(`[cryptocom-scanner] previous scan still running — skipping this tick to avoid overlap/OOM (consecutive skips: ${_skippedTicks})`);
+      void hb({ tick_at: new Date(), skipped_ticks: _skippedTicks });
       return;
     }
+    _skippedTicks = 0;
     scanInFlight = true;
+    const _t0 = Date.now();
+    void hb({ tick_at: new Date(), scan_started_at: new Date(), phase: 'scan:start', skipped_ticks: 0 });
     runCryptocomEngineScan()
-      .catch(() => {})
+      .then(() => { _scansCompleted++; void hb({ scan_finished_at: new Date(), last_duration_ms: Date.now() - _t0, phase: 'idle', scans_completed: _scansCompleted, last_error: null }); })
+      .catch((e: any) => { void hb({ scan_finished_at: new Date(), last_duration_ms: Date.now() - _t0, phase: 'error', last_error: String(e?.message ?? e).slice(0, 500) }); })
       .finally(() => { scanInFlight = false; });
   }, LOOP_INTERVAL_MS);
   console.log('[cryptocom-scanner] Background Crypto.com perpetuals scan loop started (60s tick, re-entrancy guarded, per-user throttled, strategies: trend_following/momentum/auto).');
+  if (!_hbBooted) { _hbBooted = true; void hb({ booted_at: new Date(), phase: 'booted', skipped_ticks: 0, last_error: null }); }
     });
   };
   tryStart();

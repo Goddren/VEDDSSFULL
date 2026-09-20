@@ -25749,14 +25749,14 @@ function selectStrategyForPair(symbol, data, htfBias, asiaHigh, asiaLow, utcHour
     }
   }
   if (htfBias?.premiumDiscount && htfBias.wyckoff.detected) {
-    const phase = htfBias.wyckoff.phase;
+    const phase2 = htfBias.wyckoff.phase;
     const zone = htfBias.premiumDiscount.zone;
-    const isBull = (phase === "ACCUMULATION" || phase === "MARKUP") && zone === "DISCOUNT";
-    const isBear = (phase === "DISTRIBUTION" || phase === "MARKDOWN") && zone === "PREMIUM";
+    const isBull = (phase2 === "ACCUMULATION" || phase2 === "MARKUP") && zone === "DISCOUNT";
+    const isBear = (phase2 === "DISTRIBUTION" || phase2 === "MARKDOWN") && zone === "PREMIUM";
     if (isBull || isBear) {
       return {
         strategy: "smc_demand_supply",
-        reason: `HTF zone: ${zone} + Wyckoff ${phase}. Price ${isBull ? "at discount demand zone \u2192 BUY" : "at premium supply zone \u2192 SELL"}. Smart money footprint confirmed.`,
+        reason: `HTF zone: ${zone} + Wyckoff ${phase2}. Price ${isBull ? "at discount demand zone \u2192 BUY" : "at premium supply zone \u2192 SELL"}. Smart money footprint confirmed.`,
         priority: "high",
         minConfluences: 5
       };
@@ -36988,6 +36988,7 @@ async function closePosition(userId, trade, currentPrice, reason) {
     const venue = trade.venue && trade.venue !== "cryptocom" ? trade.venue : null;
     if (venue === "defi") {
       const cfg = await storage.getUserCryptocomEngineConfig(userId).catch(() => null);
+      await phase(`exit:trade_${trade.id}:defi_swap`);
       const { defiExitSell: defiExitSell2 } = await Promise.resolve().then(() => (init_defi_executor(), defi_executor_exports));
       const exit = await defiExitSell2(userId, cfg?.defiChain || "base", baseCoin(trade.symbol), trade.quantity, cfg?.defiSlippageBps ?? 100).catch((e) => ({ ok: false, exitPrice: 0, reason: e?.message || String(e) }));
       if (exit?.phantom) {
@@ -37500,17 +37501,20 @@ async function runCryptocomEngineScan() {
     }
   }
   try {
+    await phase("recover_stale_claims");
     const recovered = await storage.recoverStaleCryptocomCloseClaims().catch((e) => {
       console.error("[cryptocom-scanner] stale close-claim recovery failed:", e?.message);
       return 0;
     });
     if (recovered > 0) console.warn(`[cryptocom-scanner] re-opened ${recovered} trade(s) stranded in 'closing' by a dead process`);
+    await phase("exit_pass:list_holders");
     const holders = await storage.getUserIdsWithOpenCryptocomTrades().catch((e) => {
       console.error("[cryptocom-scanner] could not list users with open trades \u2014 exit management SKIPPED this cycle:", e?.message);
       return [];
     });
     for (const uid2 of holders) {
       try {
+        await phase(`exit_pass:user_${uid2}`);
         const cfg = await storage.getUserCryptocomEngineConfig(uid2);
         await monitorOpenPositions(uid2, cfg ?? {
           trailMethod: "none",
@@ -37526,8 +37530,10 @@ async function runCryptocomEngineScan() {
         console.error(`[cryptocom-scanner] exit management failed for user ${uid2}:`, e?.message);
       }
     }
+    await phase("entry_scan:list_configs");
     const configs = await storage.getAllActiveCryptocomEngineConfigs();
     for (const config of configs) {
+      await phase(`entry_scan:user_${config.userId}`);
       await scanOneUser(config.userId).catch((e) => console.error(`[cryptocom-scanner] user ${config.userId} scan failed:`, e.message));
     }
   } catch (err) {
@@ -37535,6 +37541,25 @@ async function runCryptocomEngineScan() {
   } finally {
     if (ownedHere) await releaseCryptoRunLock();
   }
+}
+async function hb(fields) {
+  try {
+    const { pool: pool2 } = await Promise.resolve().then(() => (init_db(), db_exports));
+    const set = { worker_id: WORKER_ID, updated_at: /* @__PURE__ */ new Date(), ...fields };
+    const cols = Object.keys(set);
+    const vals = cols.map((c) => set[c]);
+    const ph = cols.map((_, i) => `$${i + 1}`).join(",");
+    const upd = cols.filter((c) => c !== "id").map((c) => `"${c}"=EXCLUDED."${c}"`).join(",");
+    await pool2.query(
+      `INSERT INTO crypto_engine_heartbeat ("id",${cols.map((c) => `"${c}"`).join(",")})
+       VALUES (1,${ph}) ON CONFLICT ("id") DO UPDATE SET ${upd}`,
+      vals
+    );
+  } catch {
+  }
+}
+async function phase(name) {
+  await hb({ phase: name });
 }
 async function acquireCryptoRunLock() {
   try {
@@ -37582,21 +37607,34 @@ function startCryptocomEngineScanner() {
       const LOOP_INTERVAL_MS = 6e4;
       setInterval(() => {
         if (scanInFlight) {
-          console.warn("[cryptocom-scanner] previous scan still running \u2014 skipping this tick to avoid overlap/OOM");
+          _skippedTicks++;
+          console.warn(`[cryptocom-scanner] previous scan still running \u2014 skipping this tick to avoid overlap/OOM (consecutive skips: ${_skippedTicks})`);
+          void hb({ tick_at: /* @__PURE__ */ new Date(), skipped_ticks: _skippedTicks });
           return;
         }
+        _skippedTicks = 0;
         scanInFlight = true;
-        runCryptocomEngineScan().catch(() => {
+        const _t0 = Date.now();
+        void hb({ tick_at: /* @__PURE__ */ new Date(), scan_started_at: /* @__PURE__ */ new Date(), phase: "scan:start", skipped_ticks: 0 });
+        runCryptocomEngineScan().then(() => {
+          _scansCompleted++;
+          void hb({ scan_finished_at: /* @__PURE__ */ new Date(), last_duration_ms: Date.now() - _t0, phase: "idle", scans_completed: _scansCompleted, last_error: null });
+        }).catch((e) => {
+          void hb({ scan_finished_at: /* @__PURE__ */ new Date(), last_duration_ms: Date.now() - _t0, phase: "error", last_error: String(e?.message ?? e).slice(0, 500) });
         }).finally(() => {
           scanInFlight = false;
         });
       }, LOOP_INTERVAL_MS);
       console.log("[cryptocom-scanner] Background Crypto.com perpetuals scan loop started (60s tick, re-entrancy guarded, per-user throttled, strategies: trend_following/momentum/auto).");
+      if (!_hbBooted) {
+        _hbBooted = true;
+        void hb({ booted_at: /* @__PURE__ */ new Date(), phase: "booted", skipped_ticks: 0, last_error: null });
+      }
     });
   };
   tryStart();
 }
-var MIN_SCAN_INTERVAL_MS, lastScanAt, MAX_SYMBOLS_PER_CYCLE, scanCursor, STRATEGY_RUNNERS, AUTO_STRATEGIES, sessionPeakEquity, started2, scanInFlight, CRYPTO_RUN_LOCK_KEY, _holdsRunLock;
+var MIN_SCAN_INTERVAL_MS, lastScanAt, MAX_SYMBOLS_PER_CYCLE, scanCursor, STRATEGY_RUNNERS, AUTO_STRATEGIES, sessionPeakEquity, started2, scanInFlight, _skippedTicks, _scansCompleted, WORKER_ID, _hbBooted, CRYPTO_RUN_LOCK_KEY, _holdsRunLock;
 var init_cryptocom_scanner = __esm({
   "server/services/cryptocom-scanner.ts"() {
     "use strict";
@@ -37621,6 +37659,10 @@ var init_cryptocom_scanner = __esm({
     sessionPeakEquity = /* @__PURE__ */ new Map();
     started2 = false;
     scanInFlight = false;
+    _skippedTicks = 0;
+    _scansCompleted = 0;
+    WORKER_ID = `${process.pid}-${Date.now().toString(36)}`;
+    _hbBooted = false;
     CRYPTO_RUN_LOCK_KEY = 918273645;
     _holdsRunLock = false;
   }
@@ -42495,8 +42537,8 @@ function calculateSolKellySize2(wins, losses, totalGainPct, portfolioSol) {
   const fractional = Math.max(5e-3, Math.min(0.15, kelly * 0.25));
   return Math.round(portfolioSol * fractional * 1e3) / 1e3;
 }
-function getPhaseMultiplier(phase, winStreak) {
-  switch (phase) {
+function getPhaseMultiplier(phase2, winStreak) {
+  switch (phase2) {
     case "warming_up":
       return 0.8;
     case "building":
@@ -43381,11 +43423,11 @@ async function runScan(userId, state, triggerToken) {
       for (const analysis of scanResult) {
         if ((analysis.signal === "STRONG_BUY" || analysis.signal === "BUY") && analysis.recommendedSolAmount && analysis.recommendedSolAmount > 0) {
           const dexKey = (analysis.token.dexId || "").toLowerCase().split("_")[0];
-          const phase = state.weeklyGoal.phase;
-          const mult = getPhaseMultiplier(phase, state.weeklyGoal.winStreak);
+          const phase2 = state.weeklyGoal.phase;
+          const mult = getPhaseMultiplier(phase2, state.weeklyGoal.winStreak);
           addActivity3(state, {
             type: "kelly",
-            message: `\u{1F4D0} Mathematics: ${analysis.token.symbol} on ${dexKey} \u2192 ${analysis.recommendedSolAmount.toFixed(3)} SOL (${mult}\xD7 ${phase.replace("_", " ")} phase)`
+            message: `\u{1F4D0} Mathematics: ${analysis.token.symbol} on ${dexKey} \u2192 ${analysis.recommendedSolAmount.toFixed(3)} SOL (${mult}\xD7 ${phase2.replace("_", " ")} phase)`
           });
         }
       }
@@ -51334,6 +51376,27 @@ ALTER TABLE "cryptocom_engine_configs" ADD COLUMN IF NOT EXISTS "defi_chain" tex
 ALTER TABLE "cryptocom_engine_configs" ADD COLUMN IF NOT EXISTS "defi_notional_usd" double precision NOT NULL DEFAULT 25;
 ALTER TABLE "cryptocom_engine_configs" ADD COLUMN IF NOT EXISTS "defi_slippage_bps" integer NOT NULL DEFAULT 100;
 ALTER TABLE "cryptocom_engine_configs" ADD COLUMN IF NOT EXISTS "multi_venue_enabled" boolean NOT NULL DEFAULT false;
+
+-- Single-row liveness record for the crypto worker. Without it, "the engine is
+-- quiet" and "the engine is wedged" look identical from the outside: the worker
+-- holds the advisory lock either way, and a scan that never settles leaves
+-- scanInFlight true so every later tick is skipped in silence. Diagnosing that
+-- previously needed Render logs. The phase column says where a hung scan stopped.
+CREATE TABLE IF NOT EXISTS "crypto_engine_heartbeat" (
+  "id" integer PRIMARY KEY DEFAULT 1,
+  "worker_id" text,
+  "booted_at" timestamptz,
+  "tick_at" timestamptz,
+  "scan_started_at" timestamptz,
+  "scan_finished_at" timestamptz,
+  "last_duration_ms" integer,
+  "phase" text,
+  "skipped_ticks" integer NOT NULL DEFAULT 0,
+  "scans_completed" integer NOT NULL DEFAULT 0,
+  "last_error" text,
+  "updated_at" timestamptz NOT NULL DEFAULT now(),
+  CONSTRAINT "crypto_engine_heartbeat_single_row" CHECK ("id" = 1)
+);
 `;
   }
 });
@@ -54439,9 +54502,9 @@ async function getStopOrdersForUser(userId, filters = {}) {
 init_schema();
 
 // server/build-info.ts
-var BUILD_COMMIT = "86203256-dirty";
+var BUILD_COMMIT = "19ae5420-dirty";
 var BUILD_BRANCH = "main";
-var BUILT_AT = "2026-09-20T07:52:35.223Z";
+var BUILT_AT = "2026-09-20T11:14:27.798Z";
 
 // server/stripe.ts
 init_db();
@@ -60996,20 +61059,20 @@ Respond ONLY in valid JSON format with these exact keys:
               break;
             }
           }
-          let phase = "Range Set";
+          let phase2 = "Range Set";
           let dir = "";
           if (orbH > 0 && orbL > 0) {
             if (currPrice > orbH * 1.001) {
-              phase = "BREAKOUT LONG \u{1F680}";
+              phase2 = "BREAKOUT LONG \u{1F680}";
               dir = "LONG";
             } else if (currPrice < orbL * 0.999) {
-              phase = "BREAKOUT SHORT \u{1F53B}";
+              phase2 = "BREAKOUT SHORT \u{1F53B}";
               dir = "SHORT";
             } else if (currPrice >= orbH * 0.998 && currPrice <= orbH * 1.002) {
-              phase = "RETEST LONG \u26A1";
+              phase2 = "RETEST LONG \u26A1";
               dir = "LONG";
             } else if (currPrice >= orbL * 0.998 && currPrice <= orbL * 1.002) {
-              phase = "RETEST SHORT \u26A1";
+              phase2 = "RETEST SHORT \u26A1";
               dir = "SHORT";
             }
           }
@@ -61061,7 +61124,7 @@ Respond ONLY in valid JSON format with these exact keys:
           }
           const rng = orbH > 0 ? (orbH - orbL).toFixed(2) : "?";
           orbLiveContext.push(
-            `${sym} (${tf}): Price=${currPrice.toFixed(4)} | ORB High=${orbH > 0 ? orbH.toFixed(4) : "N/A"} | ORB Low=${orbL > 0 ? orbL.toFixed(4) : "N/A"} | Range=${rng} | Phase=${phase}${dir ? " " + dir : ""} | Pre-Mkt Bias=${pmBias} | Pattern=${pattern || "none"}`
+            `${sym} (${tf}): Price=${currPrice.toFixed(4)} | ORB High=${orbH > 0 ? orbH.toFixed(4) : "N/A"} | ORB Low=${orbL > 0 ? orbL.toFixed(4) : "N/A"} | Range=${rng} | Phase=${phase2}${dir ? " " + dir : ""} | Pre-Mkt Bias=${pmBias} | Pattern=${pattern || "none"}`
           );
           break;
         }
@@ -61562,12 +61625,12 @@ data: ${JSON.stringify(data)}
               break;
             }
           }
-          let phase = "Range Set";
+          let phase2 = "Range Set";
           if (oh > 0 && ol > 0) {
-            if (cp > oh * 1.001) phase = "BREAKOUT LONG \u{1F680}";
-            else if (cp < ol * 0.999) phase = "BREAKOUT SHORT \u{1F53B}";
-            else if (cp >= oh * 0.998 && cp <= oh * 1.002) phase = "RETEST LONG \u26A1";
-            else if (cp >= ol * 0.998 && cp <= ol * 1.002) phase = "RETEST SHORT \u26A1";
+            if (cp > oh * 1.001) phase2 = "BREAKOUT LONG \u{1F680}";
+            else if (cp < ol * 0.999) phase2 = "BREAKOUT SHORT \u{1F53B}";
+            else if (cp >= oh * 0.998 && cp <= oh * 1.002) phase2 = "RETEST LONG \u26A1";
+            else if (cp >= ol * 0.998 && cp <= ol * 1.002) phase2 = "RETEST SHORT \u26A1";
           }
           const c1 = ce.candles[0], c2 = ce.candles[1];
           let pat = "";
@@ -61590,7 +61653,7 @@ data: ${JSON.stringify(data)}
               }
             }
           }
-          orbStreamContext.push(`${sym}: ${cp.toFixed(4)} | ORB ${oh > 0 ? oh.toFixed(4) : "?"}/${ol > 0 ? ol.toFixed(4) : "?"} | ${phase} | Pattern: ${pat || "none"}`);
+          orbStreamContext.push(`${sym}: ${cp.toFixed(4)} | ORB ${oh > 0 ? oh.toFixed(4) : "?"}/${ol > 0 ? ol.toFixed(4) : "?"} | ${phase2} | Pattern: ${pat || "none"}`);
           break;
         }
       }
@@ -71670,10 +71733,39 @@ Rules:
   });
   app2.get("/api/cryptocom-engine/health", async (_req, res) => {
     const g = global;
+    let worker = { available: false, note: "no heartbeat row yet \u2014 the worker has never booted against this database" };
+    try {
+      const { pool: pool2 } = await Promise.resolve().then(() => (init_db(), db_exports));
+      const { rows } = await pool2.query(`SELECT * FROM crypto_engine_heartbeat WHERE id=1`);
+      if (rows[0]) {
+        const r = rows[0];
+        const ageSec = r.tick_at ? Math.round((Date.now() - new Date(r.tick_at).getTime()) / 1e3) : null;
+        worker = {
+          available: true,
+          workerId: r.worker_id,
+          bootedAt: r.booted_at,
+          lastTickAt: r.tick_at,
+          lastTickAgeSeconds: ageSec,
+          scanStartedAt: r.scan_started_at,
+          scanFinishedAt: r.scan_finished_at,
+          lastDurationMs: r.last_duration_ms,
+          phase: r.phase,
+          skippedTicks: r.skipped_ticks,
+          scansCompleted: r.scans_completed,
+          lastError: r.last_error,
+          // The loop ticks every 60s, so no tick for 3 minutes means the process
+          // is gone; ticking while stuck on one phase means a scan is wedged.
+          verdict: ageSec === null ? "unknown" : ageSec > 180 ? "DEAD \u2014 no tick in over 3 minutes" : (r.skipped_ticks ?? 0) >= 3 ? `WEDGED \u2014 ${r.skipped_ticks} consecutive skipped ticks, stuck at phase "${r.phase}"` : "alive"
+        };
+      }
+    } catch (e) {
+      worker = { available: false, note: `could not read the heartbeat: ${e?.message}` };
+    }
     res.json({
       scannerStarted: !!g.__cryptoScannerStarted,
       envVarSeen: !!g.__cryptoEnvSeen,
       enabledParsed: !!g.__cryptoEnabled,
+      worker,
       note: g.__cryptoScannerStarted ? "Crypto scanner is running." : g.__cryptoEnvSeen ? "ENABLE_CRYPTO_ENGINE is set but did not parse as truthy \u2014 value must be true/1/yes/on." : "ENABLE_CRYPTO_ENGINE is NOT set in this environment."
     });
   });
@@ -73296,13 +73388,13 @@ RULES: 1) Only trade instruments where ORB High/Low is in the ORB DATA section. 
             const slShort = (orbH + (orbH - orbL) * 0.1).toFixed(4);
             const tp1Long = (orbH + (orbH - orbL) * 2).toFixed(4);
             const tp1Short = (orbL - (orbH - orbL) * 2).toFixed(4);
-            let phase = "Range Set";
-            if (currPrice > orbH * 1.001) phase = "BREAKOUT LONG \u2014 retest entry zone";
-            else if (currPrice < orbL * 0.999) phase = "BREAKOUT SHORT \u2014 retest entry zone";
-            else if (Math.abs(currPrice - orbH) / orbH < 2e-3) phase = "AT ORB HIGH \u2014 breakout watch";
-            else if (Math.abs(currPrice - orbL) / orbL < 2e-3) phase = "AT ORB LOW \u2014 breakdown watch";
+            let phase2 = "Range Set";
+            if (currPrice > orbH * 1.001) phase2 = "BREAKOUT LONG \u2014 retest entry zone";
+            else if (currPrice < orbL * 0.999) phase2 = "BREAKOUT SHORT \u2014 retest entry zone";
+            else if (Math.abs(currPrice - orbH) / orbH < 2e-3) phase2 = "AT ORB HIGH \u2014 breakout watch";
+            else if (Math.abs(currPrice - orbL) / orbL < 2e-3) phase2 = "AT ORB LOW \u2014 breakdown watch";
             orbContextLines.push(
-              `${sym}: ORB_HIGH=${orbH} ORB_LOW=${orbL} RANGE=${range} PRICE=${currPrice.toFixed(4)} PHASE="${phase}" | Suggested BUY STOP entryPrice=${orbH} SL=${slLong} TP=${tp1Long} | Suggested SELL STOP entryPrice=${orbL} SL=${slShort} TP=${tp1Short}`
+              `${sym}: ORB_HIGH=${orbH} ORB_LOW=${orbL} RANGE=${range} PRICE=${currPrice.toFixed(4)} PHASE="${phase2}" | Suggested BUY STOP entryPrice=${orbH} SL=${slLong} TP=${tp1Long} | Suggested SELL STOP entryPrice=${orbL} SL=${slShort} TP=${tp1Short}`
             );
           }
           break;
@@ -83007,7 +83099,7 @@ Sitemap: ${SEO_BASE_URL}/sitemap.xml
         orbRangePct,
         aiScore,
         pattern,
-        phase
+        phase: phase2
       } = req.body;
       if (!symbol || !direction || aiScore === void 0) {
         return res.status(400).json({ error: "symbol, direction, and aiScore required" });
@@ -83031,7 +83123,7 @@ Sitemap: ${SEO_BASE_URL}/sitemap.xml
         orbRangePct,
         ssAIBotScore: aiScore,
         pattern: pattern || "none",
-        phase,
+        phase: phase2,
         timeframe: "6min",
         sessionRule: "one_trade_per_day",
         generatedAt: (/* @__PURE__ */ new Date()).toISOString(),
@@ -83054,7 +83146,7 @@ Sitemap: ${SEO_BASE_URL}/sitemap.xml
         orbRangePct,
         currentPrice,
         preMarketBias,
-        phase,
+        phase: phase2,
         pattern,
         breakoutCandle,
         tradeDirection
@@ -83070,7 +83162,7 @@ Sitemap: ${SEO_BASE_URL}/sitemap.xml
         orbRangePct: orbRangePct || (orbHigh - orbLow) / orbLow * 100,
         currentPrice: currentPrice || orbHigh,
         preMarketBias: preMarketBias || "neutral",
-        phase: phase || "RANGE_SET",
+        phase: phase2 || "RANGE_SET",
         pattern,
         breakoutCandle,
         tradeDirection
@@ -83325,15 +83417,15 @@ Sitemap: ${SEO_BASE_URL}/sitemap.xml
     6: { conservative: 1.5, moderate: 2, aggressive: 2.5 }
   };
   const _gpPhaseMaxTrades = { 1: 1, 2: 2, 3: 2, 4: 3, 5: 4, 6: 5 };
-  async function _syncGrowthPlanToEngine(userId, phase, riskProfile) {
+  async function _syncGrowthPlanToEngine(userId, phase2, riskProfile) {
     try {
       const { getLiveEngineState: _lgpES, updateLiveEngineConfig: _ugpEC } = await Promise.resolve().then(() => (init_live_trading_engine(), live_trading_engine_exports));
       const liveState = _lgpES(userId);
       if (!liveState) return;
-      const riskPct = _gpPhaseRisk[phase]?.[riskProfile] ?? 1;
-      const maxTrades = _gpPhaseMaxTrades[phase] ?? 3;
+      const riskPct = _gpPhaseRisk[phase2]?.[riskProfile] ?? 1;
+      const maxTrades = _gpPhaseMaxTrades[phase2] ?? 3;
       _ugpEC(userId, { riskPerTrade: riskPct, maxOpenTrades: maxTrades });
-      console.log(`[Growth Plan] Synced phase ${phase} to live engine: risk=${riskPct}%, maxTrades=${maxTrades}`);
+      console.log(`[Growth Plan] Synced phase ${phase2} to live engine: risk=${riskPct}%, maxTrades=${maxTrades}`);
     } catch {
     }
   }
@@ -83344,11 +83436,11 @@ Sitemap: ${SEO_BASE_URL}/sitemap.xml
     if (!startingBalance || !goalBalance) return res.status(400).json({ error: "startingBalance and goalBalance required" });
     try {
       const bal = Number(startingBalance);
-      const phase = _gpPhaseFromBal(bal);
+      const phase2 = _gpPhaseFromBal(bal);
       const profile = riskProfile || "conservative";
       await db.execute(sql13`
         INSERT INTO account_growth_plans (user_id, starting_balance, current_balance, goal_balance, risk_profile, trading_style, current_phase, weekly_target_pct)
-        VALUES (${userId}, ${bal}, ${bal}, ${Number(goalBalance)}, ${profile}, ${tradingStyle || "day"}, ${phase}, ${Number(weeklyTargetPct) || 3})
+        VALUES (${userId}, ${bal}, ${bal}, ${Number(goalBalance)}, ${profile}, ${tradingStyle || "day"}, ${phase2}, ${Number(weeklyTargetPct) || 3})
         ON CONFLICT (user_id) DO UPDATE SET
           starting_balance = EXCLUDED.starting_balance,
           current_balance = EXCLUDED.current_balance,
@@ -83361,8 +83453,8 @@ Sitemap: ${SEO_BASE_URL}/sitemap.xml
       `);
       const [updated] = await db.execute(sql13`SELECT * FROM account_growth_plans WHERE user_id = ${userId} LIMIT 1`);
       const rows = updated.rows ?? updated;
-      await _syncGrowthPlanToEngine(userId, phase, profile);
-      res.json({ success: true, plan: rows[0], currentPhase: phase });
+      await _syncGrowthPlanToEngine(userId, phase2, profile);
+      res.json({ success: true, plan: rows[0], currentPhase: phase2 });
     } catch (err) {
       res.status(500).json({ error: err.message });
     }

@@ -103,6 +103,27 @@ ALTER TABLE "cryptocom_engine_configs" ADD COLUMN IF NOT EXISTS "defi_chain" tex
 ALTER TABLE "cryptocom_engine_configs" ADD COLUMN IF NOT EXISTS "defi_notional_usd" double precision NOT NULL DEFAULT 25;
 ALTER TABLE "cryptocom_engine_configs" ADD COLUMN IF NOT EXISTS "defi_slippage_bps" integer NOT NULL DEFAULT 100;
 ALTER TABLE "cryptocom_engine_configs" ADD COLUMN IF NOT EXISTS "multi_venue_enabled" boolean NOT NULL DEFAULT false;
+
+-- Single-row liveness record for the crypto worker. Without it, "the engine is
+-- quiet" and "the engine is wedged" look identical from the outside: the worker
+-- holds the advisory lock either way, and a scan that never settles leaves
+-- scanInFlight true so every later tick is skipped in silence. Diagnosing that
+-- previously needed Render logs. The phase column says where a hung scan stopped.
+CREATE TABLE IF NOT EXISTS "crypto_engine_heartbeat" (
+  "id" integer PRIMARY KEY DEFAULT 1,
+  "worker_id" text,
+  "booted_at" timestamptz,
+  "tick_at" timestamptz,
+  "scan_started_at" timestamptz,
+  "scan_finished_at" timestamptz,
+  "last_duration_ms" integer,
+  "phase" text,
+  "skipped_ticks" integer NOT NULL DEFAULT 0,
+  "scans_completed" integer NOT NULL DEFAULT 0,
+  "last_error" text,
+  "updated_at" timestamptz NOT NULL DEFAULT now(),
+  CONSTRAINT "crypto_engine_heartbeat_single_row" CHECK ("id" = 1)
+);
 `;
 
 export async function ensureCryptocomEngineTables(): Promise<void> {
