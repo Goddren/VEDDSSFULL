@@ -3960,7 +3960,7 @@ __export(storage_exports, {
   DatabaseStorage: () => DatabaseStorage,
   storage: () => storage
 });
-import { eq, and, sql, desc, isNull, gte, inArray } from "drizzle-orm";
+import { eq, and, sql, desc, isNull, gte, lt, inArray } from "drizzle-orm";
 import session from "express-session";
 import connectPgSimple from "connect-pg-simple";
 import crypto from "crypto";
@@ -5184,8 +5184,60 @@ var init_storage = __esm({
       async getUserCryptocomEngineTrades(userId, limit = 50) {
         return db.select().from(cryptocomEngineTrades).where(eq(cryptocomEngineTrades.userId, userId)).orderBy(desc(cryptocomEngineTrades.createdAt)).limit(limit);
       }
+      /**
+       * ATOMICALLY claim an open trade for closing: 'open' -> 'closing'.
+       * Returns the row on success, UNDEFINED if another process already claimed it.
+       *
+       * This is what prevents a duplicate close ORDER. The DB guard on
+       * closeCryptocomEngineTrade only stops duplicate bookkeeping, and by then two
+       * market orders have already reached the venue — on a perpetual the second
+       * does not flatten, it opens an equal REVERSED position. Claiming before the
+       * order means the loser of the race never sends one.
+       *
+       * `getOpenCryptocomEngineTrades` filters on status='open', so a claimed trade
+       * is invisible to other monitors for the brief in-flight window. A process
+       * that dies mid-close leaves the row in 'closing' — recovered by
+       * recoverStaleCryptocomCloseClaims below.
+       */
+      async claimCryptocomEngineTradeForClose(id) {
+        const [row] = await db.update(cryptocomEngineTrades).set({ status: "closing", updatedAt: /* @__PURE__ */ new Date() }).where(and(eq(cryptocomEngineTrades.id, id), eq(cryptocomEngineTrades.status, "open"))).returning();
+        return row;
+      }
+      /** Hand a claimed trade back to 'open' when the close could not be executed. */
+      async releaseCryptocomEngineTradeClaim(id) {
+        await db.update(cryptocomEngineTrades).set({ status: "open", updatedAt: /* @__PURE__ */ new Date() }).where(and(eq(cryptocomEngineTrades.id, id), eq(cryptocomEngineTrades.status, "closing")));
+      }
+      /**
+       * Re-open trades stuck in 'closing' (process died between claim and finish).
+       * Without this a crash would strand a live position in a status nothing
+       * monitors — the same "invisible open position" failure the claim exists to
+       * avoid. Returns how many were recovered.
+       */
+      async recoverStaleCryptocomCloseClaims(olderThanMs = 5 * 60 * 1e3) {
+        const cutoff = new Date(Date.now() - olderThanMs);
+        const rows = await db.update(cryptocomEngineTrades).set({ status: "open", updatedAt: /* @__PURE__ */ new Date() }).where(and(eq(cryptocomEngineTrades.status, "closing"), lt(cryptocomEngineTrades.updatedAt, cutoff))).returning();
+        return rows.length;
+      }
+      /**
+       * Close a crypto trade. Returns the updated row, or UNDEFINED if the trade was
+       * already closed — callers MUST treat undefined as "someone else closed this"
+       * and skip all follow-up work.
+       *
+       * The `status='open'` predicate is the concurrency guard. Without it this was
+       * an unconditional overwrite, and two processes can reach it for the same
+       * trade: manualCloseCryptoTrade runs in the WEB process (the dashboard Close
+       * button) while monitorOpenPositions runs in the worker/cron. Both would
+       * "succeed", so: two market close orders — and on a perpetual the second does
+       * not flatten, it OPENS an equal position in the opposite direction — plus two
+       * crypto_brain_outcomes rows and two recordRealizedPnl calls into
+       * prop_firm_daily_pnl, which is a non-idempotent accumulator, so daily P&L,
+       * the loss limit and the consistency rule all double-count.
+       *
+       * UPDATE ... WHERE status='open' is atomic in Postgres: of two concurrent
+       * statements exactly one matches a row and the other returns none.
+       */
       async closeCryptocomEngineTrade(id, data) {
-        const [result] = await db.update(cryptocomEngineTrades).set({ status: "closed", exitPrice: data.exitPrice, exitOrderId: data.exitOrderId, exitReason: data.exitReason, realizedPnl: data.realizedPnl, closedAt: /* @__PURE__ */ new Date(), updatedAt: /* @__PURE__ */ new Date() }).where(eq(cryptocomEngineTrades.id, id)).returning();
+        const [result] = await db.update(cryptocomEngineTrades).set({ status: "closed", exitPrice: data.exitPrice, exitOrderId: data.exitOrderId, exitReason: data.exitReason, realizedPnl: data.realizedPnl, closedAt: /* @__PURE__ */ new Date(), updatedAt: /* @__PURE__ */ new Date() }).where(and(eq(cryptocomEngineTrades.id, id), eq(cryptocomEngineTrades.status, "closing"))).returning();
         return result;
       }
       async getTodayCryptocomEngineTradeCount(userId) {
@@ -9569,10 +9621,10 @@ ${"\u2550".repeat(59)}`;
     const elLine = equalHighsLows.equalLows.detected ? `Equal Lows at ~${equalHighsLows.equalLows.level?.toFixed(5)} (SSL below)` : "No equal lows";
     lines.push(`\u25BA Liquidity Map: ${ehLine} | ${elLine}`);
     if (smcContext.liquidityTargets) {
-      const lt = smcContext.liquidityTargets;
-      lines.push(`\u25BA Liquidity Targets: ${lt.description}`);
-      lines.push(`  Internal: ${lt.internalTarget.description}`);
-      lines.push(`  External: ${lt.externalTarget.description}`);
+      const lt2 = smcContext.liquidityTargets;
+      lines.push(`\u25BA Liquidity Targets: ${lt2.description}`);
+      lines.push(`  Internal: ${lt2.internalTarget.description}`);
+      lines.push(`  External: ${lt2.externalTarget.description}`);
     }
     if (wyckoff.detected) {
       const wIcon = wyckoff.aligns ? "\u2705" : "\u26A0\uFE0F";
@@ -36861,6 +36913,15 @@ async function monitorOpenPositions(userId, cfg) {
   }
 }
 async function closePosition(userId, trade, currentPrice, reason) {
+  const claimed = await storage.claimCryptocomEngineTradeForClose(trade.id).catch((e) => {
+    console.error(`[cryptocom-scanner] could not claim trade ${trade.id} for close (${e?.message}) \u2014 skipping to avoid a duplicate order`);
+    return void 0;
+  });
+  if (!claimed) {
+    console.warn(`[cryptocom-scanner] trade ${trade.id} already being closed by another process \u2014 skipping duplicate close`);
+    return;
+  }
+  let finished = false;
   try {
     const venue = trade.venue && trade.venue !== "cryptocom" ? trade.venue : null;
     if (venue === "defi") {
@@ -36904,7 +36965,13 @@ async function closePosition(userId, trade, currentPrice, reason) {
       }
     }
     const realizedPnl = (trade.direction === "long" ? currentPrice - trade.entryPrice : trade.entryPrice - currentPrice) * trade.quantity;
-    await storage.closeCryptocomEngineTrade(trade.id, { exitPrice: currentPrice, exitReason: reason, realizedPnl });
+    const closedRow = await storage.closeCryptocomEngineTrade(trade.id, { exitPrice: currentPrice, exitReason: reason, realizedPnl });
+    if (!closedRow) {
+      console.warn(`[cryptocom-scanner] trade ${trade.id} was already finalised elsewhere \u2014 skipping duplicate P&L/brain writes`);
+      finished = true;
+      return;
+    }
+    finished = true;
     await storage.createCryptocomEngineActivity({
       userId,
       symbol: trade.symbol,
@@ -36939,6 +37006,10 @@ async function closePosition(userId, trade, currentPrice, reason) {
     }
   } catch (err) {
     console.error(`[cryptocom-scanner] closePosition failed for trade ${trade.id}:`, err.message);
+  } finally {
+    if (!finished) {
+      await storage.releaseCryptocomEngineTradeClaim(trade.id).catch((e) => console.error(`[cryptocom-scanner] FAILED to release close-claim on trade ${trade.id} (${e?.message}) \u2014 stale-claim recovery will re-open it`));
+    }
   }
 }
 async function manualCloseCryptoTrade(userId, tradeId) {
@@ -37359,6 +37430,11 @@ async function runCryptocomEngineScan() {
     }
   }
   try {
+    const recovered = await storage.recoverStaleCryptocomCloseClaims().catch((e) => {
+      console.error("[cryptocom-scanner] stale close-claim recovery failed:", e?.message);
+      return 0;
+    });
+    if (recovered > 0) console.warn(`[cryptocom-scanner] re-opened ${recovered} trade(s) stranded in 'closing' by a dead process`);
     const holders = await storage.getUserIdsWithOpenCryptocomTrades().catch((e) => {
       console.error("[cryptocom-scanner] could not list users with open trades \u2014 exit management SKIPPED this cycle:", e?.message);
       return [];
@@ -54289,9 +54365,9 @@ async function getStopOrdersForUser(userId, filters = {}) {
 init_schema();
 
 // server/build-info.ts
-var BUILD_COMMIT = "e2da5a52-dirty";
+var BUILD_COMMIT = "734196d0-dirty";
 var BUILD_BRANCH = "main";
-var BUILT_AT = "2026-09-20T02:47:45.628Z";
+var BUILT_AT = "2026-09-20T03:22:08.300Z";
 
 // server/stripe.ts
 init_db();

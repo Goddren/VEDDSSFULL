@@ -363,6 +363,26 @@ async function monitorOpenPositions(userId: number, cfg: CryptocomEngineConfig):
 }
 
 async function closePosition(userId: number, trade: any, currentPrice: number, reason: string): Promise<void> {
+  // ── Claim the trade BEFORE sending any order ────────────────────────────────
+  // 'open' -> 'closing', atomically. Whoever loses the race gets undefined and
+  // returns without touching the venue. This is the guard against a DUPLICATE
+  // CLOSE ORDER: manualCloseCryptoTrade runs in the WEB process (dashboard Close
+  // button) while monitorOpenPositions runs in the worker/cron, and both could
+  // previously fire a market close for the same trade. On a perpetual the second
+  // order does not flatten — it opens an equal REVERSED position. It also
+  // double-wrote crypto_brain_outcomes and double-counted into
+  // prop_firm_daily_pnl, which is a non-idempotent accumulator.
+  const claimed = await storage.claimCryptocomEngineTradeForClose(trade.id).catch((e: any) => {
+    console.error(`[cryptocom-scanner] could not claim trade ${trade.id} for close (${e?.message}) — skipping to avoid a duplicate order`);
+    return undefined;
+  });
+  if (!claimed) {
+    console.warn(`[cryptocom-scanner] trade ${trade.id} already being closed by another process — skipping duplicate close`);
+    return;
+  }
+  // Any path that does NOT complete the close must hand the claim back, or the
+  // trade is stranded in 'closing' where nothing monitors it.
+  let finished = false;
   try {
     const venue = trade.venue && trade.venue !== 'cryptocom' ? trade.venue : null;
     if (venue === 'defi') {
@@ -429,7 +449,17 @@ async function closePosition(userId: number, trade: any, currentPrice: number, r
       }
     }
     const realizedPnl = (trade.direction === 'long' ? currentPrice - trade.entryPrice : trade.entryPrice - currentPrice) * trade.quantity;
-    await storage.closeCryptocomEngineTrade(trade.id, { exitPrice: currentPrice, exitReason: reason, realizedPnl });
+    const closedRow = await storage.closeCryptocomEngineTrade(trade.id, { exitPrice: currentPrice, exitReason: reason, realizedPnl });
+    if (!closedRow) {
+      // Belt-and-braces: the claim should make this unreachable, but if the row
+      // is no longer in 'closing' someone else finalised it. Do NOT run the
+      // follow-up writes again — recordRealizedPnl accumulates and the brain
+      // feature store has no unique key, so both would double-count.
+      console.warn(`[cryptocom-scanner] trade ${trade.id} was already finalised elsewhere — skipping duplicate P&L/brain writes`);
+      finished = true;
+      return;
+    }
+    finished = true;
     await storage.createCryptocomEngineActivity({
       userId, symbol: trade.symbol, decision: 'signal', strategy: trade.strategy,
       reasoning: `${trade.symbol}: CLOSED ${trade.quantity} @ ~$${currentPrice.toFixed(2)} (${reason.replace('_', ' ')}). Realized P&L: $${realizedPnl.toFixed(2)}.`,
@@ -450,6 +480,15 @@ async function closePosition(userId: number, trade: any, currentPrice: number, r
     } catch { /* non-critical */ }
   } catch (err: any) {
     console.error(`[cryptocom-scanner] closePosition failed for trade ${trade.id}:`, err.message);
+  } finally {
+    // Every early return above (failed DeFi/CeFi/perp exit, unavailable
+    // connection) and any thrown error lands here with finished=false, so the
+    // trade goes back to 'open' and the next cycle retries it. Only a completed
+    // close leaves it closed.
+    if (!finished) {
+      await storage.releaseCryptocomEngineTradeClaim(trade.id)
+        .catch((e: any) => console.error(`[cryptocom-scanner] FAILED to release close-claim on trade ${trade.id} (${e?.message}) — stale-claim recovery will re-open it`));
+    }
   }
 }
 
@@ -952,6 +991,17 @@ export async function runCryptocomEngineScan(): Promise<void> {
     // gates. Stopping the engine should stop new ENTRIES, never orphan live
     // positions. This pass runs for every user holding an open trade, whether
     // or not their engine is switched on, and is throttle-free.
+    // A close claim flips status open -> 'closing' so two processes can't fire
+    // the same exit. If the claimer dies mid-close (deploy, crash, OOM) the row
+    // is left in 'closing', which getOpenCryptocomEngineTrades does not return —
+    // i.e. an unmonitored position. Re-open anything that has been 'closing'
+    // longer than any real close could take, before listing holders.
+    const recovered = await storage.recoverStaleCryptocomCloseClaims().catch((e: any) => {
+      console.error('[cryptocom-scanner] stale close-claim recovery failed:', e?.message);
+      return 0;
+    });
+    if (recovered > 0) console.warn(`[cryptocom-scanner] re-opened ${recovered} trade(s) stranded in 'closing' by a dead process`);
+
     const holders = await storage.getUserIdsWithOpenCryptocomTrades().catch((e: any) => {
       console.error('[cryptocom-scanner] could not list users with open trades — exit management SKIPPED this cycle:', e?.message);
       return [] as number[];

@@ -98,7 +98,7 @@ import {
   type StopOrder,
 } from "@shared/schema";
 import { db, pool } from "./db";
-import { eq, and, sql, desc, isNull, gte, lte, inArray } from "drizzle-orm";
+import { eq, and, sql, desc, isNull, gte, lte, lt, inArray } from "drizzle-orm";
 import session from "express-session";
 import connectPgSimple from "connect-pg-simple";
 import crypto from "crypto";
@@ -436,6 +436,9 @@ export interface IStorage {
   createCryptocomEngineTrade(trade: InsertCryptocomEngineTrade): Promise<CryptocomEngineTrade>;
   getOpenCryptocomEngineTrades(userId: number): Promise<CryptocomEngineTrade[]>;
   getUserIdsWithOpenCryptocomTrades(): Promise<number[]>;
+  claimCryptocomEngineTradeForClose(id: number): Promise<CryptocomEngineTrade | undefined>;
+  releaseCryptocomEngineTradeClaim(id: number): Promise<void>;
+  recoverStaleCryptocomCloseClaims(olderThanMs?: number): Promise<number>;
   getUserCryptocomEngineTrades(userId: number, limit?: number): Promise<CryptocomEngineTrade[]>;
   closeCryptocomEngineTrade(id: number, data: { exitPrice: number; exitOrderId?: string; exitReason: string; realizedPnl: number }): Promise<CryptocomEngineTrade | undefined>;
   getTodayCryptocomEngineTradeCount(userId: number): Promise<number>;
@@ -2484,10 +2487,73 @@ export class DatabaseStorage implements IStorage {
       .limit(limit);
   }
 
+  /**
+   * ATOMICALLY claim an open trade for closing: 'open' -> 'closing'.
+   * Returns the row on success, UNDEFINED if another process already claimed it.
+   *
+   * This is what prevents a duplicate close ORDER. The DB guard on
+   * closeCryptocomEngineTrade only stops duplicate bookkeeping, and by then two
+   * market orders have already reached the venue — on a perpetual the second
+   * does not flatten, it opens an equal REVERSED position. Claiming before the
+   * order means the loser of the race never sends one.
+   *
+   * `getOpenCryptocomEngineTrades` filters on status='open', so a claimed trade
+   * is invisible to other monitors for the brief in-flight window. A process
+   * that dies mid-close leaves the row in 'closing' — recovered by
+   * recoverStaleCryptocomCloseClaims below.
+   */
+  async claimCryptocomEngineTradeForClose(id: number): Promise<CryptocomEngineTrade | undefined> {
+    const [row] = await db.update(cryptocomEngineTrades)
+      .set({ status: 'closing', updatedAt: new Date() })
+      .where(and(eq(cryptocomEngineTrades.id, id), eq(cryptocomEngineTrades.status, 'open')))
+      .returning();
+    return row;
+  }
+
+  /** Hand a claimed trade back to 'open' when the close could not be executed. */
+  async releaseCryptocomEngineTradeClaim(id: number): Promise<void> {
+    await db.update(cryptocomEngineTrades)
+      .set({ status: 'open', updatedAt: new Date() })
+      .where(and(eq(cryptocomEngineTrades.id, id), eq(cryptocomEngineTrades.status, 'closing')));
+  }
+
+  /**
+   * Re-open trades stuck in 'closing' (process died between claim and finish).
+   * Without this a crash would strand a live position in a status nothing
+   * monitors — the same "invisible open position" failure the claim exists to
+   * avoid. Returns how many were recovered.
+   */
+  async recoverStaleCryptocomCloseClaims(olderThanMs: number = 5 * 60 * 1000): Promise<number> {
+    const cutoff = new Date(Date.now() - olderThanMs);
+    const rows = await db.update(cryptocomEngineTrades)
+      .set({ status: 'open', updatedAt: new Date() })
+      .where(and(eq(cryptocomEngineTrades.status, 'closing'), lt(cryptocomEngineTrades.updatedAt, cutoff)))
+      .returning();
+    return rows.length;
+  }
+
+  /**
+   * Close a crypto trade. Returns the updated row, or UNDEFINED if the trade was
+   * already closed — callers MUST treat undefined as "someone else closed this"
+   * and skip all follow-up work.
+   *
+   * The `status='open'` predicate is the concurrency guard. Without it this was
+   * an unconditional overwrite, and two processes can reach it for the same
+   * trade: manualCloseCryptoTrade runs in the WEB process (the dashboard Close
+   * button) while monitorOpenPositions runs in the worker/cron. Both would
+   * "succeed", so: two market close orders — and on a perpetual the second does
+   * not flatten, it OPENS an equal position in the opposite direction — plus two
+   * crypto_brain_outcomes rows and two recordRealizedPnl calls into
+   * prop_firm_daily_pnl, which is a non-idempotent accumulator, so daily P&L,
+   * the loss limit and the consistency rule all double-count.
+   *
+   * UPDATE ... WHERE status='open' is atomic in Postgres: of two concurrent
+   * statements exactly one matches a row and the other returns none.
+   */
   async closeCryptocomEngineTrade(id: number, data: { exitPrice: number; exitOrderId?: string; exitReason: string; realizedPnl: number }): Promise<CryptocomEngineTrade | undefined> {
     const [result] = await db.update(cryptocomEngineTrades)
       .set({ status: 'closed', exitPrice: data.exitPrice, exitOrderId: data.exitOrderId, exitReason: data.exitReason, realizedPnl: data.realizedPnl, closedAt: new Date(), updatedAt: new Date() })
-      .where(eq(cryptocomEngineTrades.id, id))
+      .where(and(eq(cryptocomEngineTrades.id, id), eq(cryptocomEngineTrades.status, 'closing')))
       .returning();
     return result;
   }
