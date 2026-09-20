@@ -59,21 +59,56 @@ export async function defiEntryBuy(userId: number, chainKey: string, base: strin
 }
 
 /** Close a DeFi long: swap `qtyBase` of token -> USDC on the wallet's chain. */
-export async function defiExitSell(userId: number, chainKey: string, base: string, qtyBase: number, slippageBps: number): Promise<{ ok: boolean; exitPrice: number; proceedsUsd?: number; txHash?: string; reason?: string }> {
+export async function defiExitSell(userId: number, chainKey: string, base: string, qtyBase: number, slippageBps: number): Promise<{ ok: boolean; exitPrice: number; proceedsUsd?: number; txHash?: string; reason?: string; phantom?: boolean; soldQty?: number }> {
   const token = baseCoin(base);
   const hw = await loadHotWallet(userId);
   if (!hw) return { ok: false, exitPrice: 0, reason: 'no active DeFi hot wallet connected' };
 
   const q = await getAggregatedQuote(baseCoin(base)).catch(() => null);
   const price = q?.best?.price ?? 0;
+
+  // ── PRE-FLIGHT: does the wallet actually hold what the DB claims? ──────────
+  // Nothing reconciled DB trades against the chain, so a row could outlive the
+  // tokens it describes and the engine would retry its exit forever, paying gas
+  // each time. Ask the chain first.
+  //
+  // A read FAILURE is not a zero balance: on an RPC error we fall through and
+  // attempt the swap exactly as before, because refusing to exit a real position
+  // because we could not read it is the worse mistake.
+  const { getWalletTokenBalance, addressFromPrivateKey } = await import('./defi-swap');
+  const { decryptApiSecret } = await import('../cryptocom');
+  let sellQty = qtyBase;
+  try {
+    const walletAddr = addressFromPrivateKey(decryptApiSecret(hw.encryptedKey));
+    const held = await getWalletTokenBalance(chainKey || hw.chain, walletAddr, token);
+    // Dust tolerance: below this the position is not sellable in any meaningful
+    // sense, and 0x would quote against a balance worth less than the gas.
+    const DUST = 1e-8;
+    if (held <= DUST) {
+      return {
+        ok: false, exitPrice: price, phantom: true,
+        reason: `position is NOT on-chain — wallet ${walletAddr} holds ${held} ${token} but this trade claims ${qtyBase}. No swap attempted; needs reconciliation.`,
+      };
+    }
+    if (held < qtyBase) {
+      // The wallet balance is shared by every open trade in this token, so a
+      // shortfall cannot be attributed to one trade. Sell what is actually there
+      // rather than sending a swap that must revert, and report the real size.
+      console.warn(`[defi-executor] trade wants ${qtyBase} ${token} but wallet holds ${held} — selling the available balance instead`);
+      sellQty = held;
+    }
+  } catch (e: any) {
+    console.error(`[defi-executor] could not read ${token} balance (${e?.message}) — proceeding with the swap rather than assuming the position is gone`);
+  }
+
   const r = await executeDefiSwap({
     encryptedPrivateKey: hw.encryptedKey, chainKey: chainKey || hw.chain,
-    sellToken: token, buyToken: 'USDC', sellAmountHuman: qtyBase, slippageBps,
+    sellToken: token, buyToken: 'USDC', sellAmountHuman: sellQty, slippageBps,
     confirm: true, // wait for on-chain success — don't book a close that reverted
   });
-  if (!r.ok) return { ok: false, exitPrice: price, reason: r.reason };
+  if (!r.ok) return { ok: false, exitPrice: price, reason: r.reason, soldQty: sellQty };
   // A8: buyAmountHuman is the ACTUAL USDC received from the swap (after
   // slippage + fees). Return it so realized P&L is computed from real proceeds,
   // not the pre-swap quote price.
-  return { ok: true, exitPrice: price, proceedsUsd: (r.buyAmountHuman && Number.isFinite(r.buyAmountHuman) && r.buyAmountHuman > 0) ? r.buyAmountHuman : undefined, txHash: r.txHash };
+  return { ok: true, exitPrice: price, proceedsUsd: (r.buyAmountHuman && Number.isFinite(r.buyAmountHuman) && r.buyAmountHuman > 0) ? r.buyAmountHuman : undefined, txHash: r.txHash, soldQty: sellQty };
 }

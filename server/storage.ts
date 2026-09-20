@@ -439,6 +439,7 @@ export interface IStorage {
   claimCryptocomEngineTradeForClose(id: number): Promise<CryptocomEngineTrade | undefined>;
   releaseCryptocomEngineTradeClaim(id: number): Promise<void>;
   recoverStaleCryptocomCloseClaims(olderThanMs?: number): Promise<number>;
+  flagCryptocomEngineTradeUnreconciled(id: number, note: string): Promise<CryptocomEngineTrade | undefined>;
   getUserCryptocomEngineTrades(userId: number, limit?: number): Promise<CryptocomEngineTrade[]>;
   closeCryptocomEngineTrade(id: number, data: { exitPrice: number; exitOrderId?: string; exitReason: string; realizedPnl: number }): Promise<CryptocomEngineTrade | undefined>;
   getTodayCryptocomEngineTradeCount(userId: number): Promise<number>;
@@ -2530,6 +2531,27 @@ export class DatabaseStorage implements IStorage {
       .where(and(eq(cryptocomEngineTrades.status, 'closing'), lt(cryptocomEngineTrades.updatedAt, cutoff)))
       .returning();
     return rows.length;
+  }
+
+  /**
+   * Park a trade whose tokens are NOT on-chain: 'open' -> 'needs_reconciliation'.
+   *
+   * Deliberately does NOT write realized_pnl or closed_at. We know the position
+   * is gone; we do NOT know what it realized, and inventing a number would feed
+   * the daily ledger and the brain a fabricated outcome — the same phantom-close
+   * mistake this codebase has fixed twice already. A human reconciles the real
+   * proceeds from the chain.
+   *
+   * The status change is what stops the damage: getOpenCryptocomEngineTrades
+   * only returns 'open', so the trade leaves the exit loop and the engine stops
+   * paying gas to sell tokens that do not exist.
+   */
+  async flagCryptocomEngineTradeUnreconciled(id: number, note: string): Promise<CryptocomEngineTrade | undefined> {
+    const [row] = await db.update(cryptocomEngineTrades)
+      .set({ status: 'needs_reconciliation', exitReason: note, updatedAt: new Date() })
+      .where(and(eq(cryptocomEngineTrades.id, id), inArray(cryptocomEngineTrades.status, ['open', 'closing'])))
+      .returning();
+    return row;
   }
 
   /**

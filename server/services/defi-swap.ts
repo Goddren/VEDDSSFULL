@@ -192,6 +192,35 @@ export async function executeDefiSwap(opts: {
 }
 
 /** Derive the address for a raw private key (for storing a hot wallet). */
+/**
+ * How much of `token` the wallet ACTUALLY holds on-chain, in human units.
+ *
+ * The engine had no way to ask this, so a DB row saying "open 1.148 UNI" was
+ * taken as fact forever. When the tokens were no longer there, every exit
+ * attempt built a swap for a balance that did not exist, failed, and retried on
+ * the next cycle — a loop that burns gas indefinitely and can never succeed.
+ * Seen live on 2026-09-20: three UNI longs open in the DB, wallet balance
+ * 0.000000, 18 failed exits in 30 minutes.
+ *
+ * Throws on RPC failure rather than returning 0: "could not read the balance"
+ * must never be mistaken for "the balance is zero", which would strand a real
+ * position as phantom.
+ */
+export async function getWalletTokenBalance(chainKey: string, walletAddress: string, token: string): Promise<number> {
+  const chain = DEFI_CHAINS[chainKey];
+  if (!chain) throw new Error(`unsupported chain ${chainKey}`);
+  const provider = new ethers.JsonRpcProvider(chain.rpc, chain.chainId);
+  try {
+    const addr = await resolveToken(chainKey, token);
+    if (addr === NATIVE_PSEUDO) return Number(ethers.formatEther(await provider.getBalance(walletAddress)));
+    const erc = new ethers.Contract(addr, ERC20_ABI, provider);
+    const [raw, dec] = await Promise.all([erc.balanceOf(walletAddress), erc.decimals()]);
+    return Number(ethers.formatUnits(raw, Number(dec)));
+  } finally {
+    try { provider.destroy(); } catch { /* ignore */ }
+  }
+}
+
 export function addressFromPrivateKey(pk: string): string {
   return new ethers.Wallet(pk.trim()).address;
 }

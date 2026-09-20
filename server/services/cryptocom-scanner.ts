@@ -394,6 +394,17 @@ async function closePosition(userId: number, trade: any, currentPrice: number, r
       // swap failed (needs token approval, no liquidity, RPC error, etc.) leave
       // the trade OPEN for retry next cycle — booking a phantom close would
       // record fabricated P&L while the tokens still sit in the hot wallet.
+      // The tokens are not on-chain. Retrying cannot help: every attempt builds
+      // a swap for a balance that does not exist, fails, and costs gas. Park the
+      // trade so it leaves the exit loop, WITHOUT inventing a P&L for it.
+      if ((exit as any)?.phantom) {
+        console.error(`[cryptocom-scanner] trade ${trade.id} (${trade.symbol}) is NOT on-chain: ${(exit as any).reason} — flagging for reconciliation, no further exit attempts`);
+        await storage.flagCryptocomEngineTradeUnreconciled(trade.id, String((exit as any).reason).slice(0, 500)).catch((e: any) =>
+          console.error(`[cryptocom-scanner] could not flag trade ${trade.id} (${e?.message}) — it will keep retrying until this succeeds`));
+        await storage.createCryptocomEngineActivity({ userId, symbol: trade.symbol, decision: 'skipped', strategy: trade.strategy, reasoning: `${trade.symbol}: position NOT on-chain — wallet holds none of this token. Trade parked as needs_reconciliation; NO P&L booked (real proceeds unknown). Verify on a block explorer.`, score: null, price: currentPrice, dailyChangePercent: null, source: 'cryptocom' }).catch(() => {});
+        finished = true; // parked, not open — the claim must not be handed back
+        return;
+      }
       if (!exit?.ok) {
         console.error(`[cryptocom-scanner] DeFi exit FAILED for trade ${trade.id} (${trade.symbol}): ${(exit as any)?.reason || 'unknown'} — position left OPEN`);
         await storage.createCryptocomEngineActivity({ userId, symbol: trade.symbol, decision: 'signal', strategy: trade.strategy, reasoning: `${trade.symbol}: DeFi EXIT FAILED (${(exit as any)?.reason || 'error'}) — position still OPEN, will retry next cycle. No P&L booked.`, score: null, price: currentPrice, dailyChangePercent: null, source: 'cryptocom' }).catch(() => {});

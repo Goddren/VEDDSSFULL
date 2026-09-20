@@ -4958,6 +4958,23 @@ var init_storage = __esm({
         return rows.length;
       }
       /**
+       * Park a trade whose tokens are NOT on-chain: 'open' -> 'needs_reconciliation'.
+       *
+       * Deliberately does NOT write realized_pnl or closed_at. We know the position
+       * is gone; we do NOT know what it realized, and inventing a number would feed
+       * the daily ledger and the brain a fabricated outcome — the same phantom-close
+       * mistake this codebase has fixed twice already. A human reconciles the real
+       * proceeds from the chain.
+       *
+       * The status change is what stops the damage: getOpenCryptocomEngineTrades
+       * only returns 'open', so the trade leaves the exit loop and the engine stops
+       * paying gas to sell tokens that do not exist.
+       */
+      async flagCryptocomEngineTradeUnreconciled(id, note) {
+        const [row] = await db.update(cryptocomEngineTrades).set({ status: "needs_reconciliation", exitReason: note, updatedAt: /* @__PURE__ */ new Date() }).where(and(eq(cryptocomEngineTrades.id, id), inArray(cryptocomEngineTrades.status, ["open", "closing"]))).returning();
+        return row;
+      }
+      /**
        * Close a crypto trade. Returns the updated row, or UNDEFINED if the trade was
        * already closed — callers MUST treat undefined as "someone else closed this"
        * and skip all follow-up work.
@@ -6238,6 +6255,12 @@ var init_storage = __esm({
 });
 
 // server/cryptocom.ts
+var cryptocom_exports = {};
+__export(cryptocom_exports, {
+  CryptoComService: () => CryptoComService,
+  decryptApiSecret: () => decryptApiSecret,
+  encryptApiSecret: () => encryptApiSecret
+});
 import crypto2 from "crypto";
 function getEncryptionKey2() {
   const key = process.env.CRYPTOCOM_ENCRYPTION_KEY;
@@ -6879,6 +6902,16 @@ var init_cefi_executor = __esm({
 });
 
 // server/services/defi-swap.ts
+var defi_swap_exports = {};
+__export(defi_swap_exports, {
+  DEFI_CHAINS: () => DEFI_CHAINS,
+  addressFromPrivateKey: () => addressFromPrivateKey,
+  executeDefiSwap: () => executeDefiSwap,
+  getWalletTokenBalance: () => getWalletTokenBalance,
+  isDefiSwapAvailable: () => isDefiSwapAvailable,
+  isTokenTradeable: () => isTokenTradeable,
+  resolveToken: () => resolveToken
+});
 import { ethers } from "ethers";
 function isDefiSwapAvailable() {
   return !!process.env.ZEROX_API_KEY;
@@ -7011,6 +7044,26 @@ async function executeDefiSwap(opts) {
     }
   }
 }
+async function getWalletTokenBalance(chainKey, walletAddress, token) {
+  const chain = DEFI_CHAINS[chainKey];
+  if (!chain) throw new Error(`unsupported chain ${chainKey}`);
+  const provider = new ethers.JsonRpcProvider(chain.rpc, chain.chainId);
+  try {
+    const addr = await resolveToken(chainKey, token);
+    if (addr === NATIVE_PSEUDO) return Number(ethers.formatEther(await provider.getBalance(walletAddress)));
+    const erc = new ethers.Contract(addr, ERC20_ABI, provider);
+    const [raw, dec] = await Promise.all([erc.balanceOf(walletAddress), erc.decimals()]);
+    return Number(ethers.formatUnits(raw, Number(dec)));
+  } finally {
+    try {
+      provider.destroy();
+    } catch {
+    }
+  }
+}
+function addressFromPrivateKey(pk) {
+  return new ethers.Wallet(pk.trim()).address;
+}
 var DEFI_CHAINS, NATIVE_PSEUDO, ERC20_ABI, tokenIndexCache, tokenIndexLoadedAt, TOKEN_LIST_URL, SYMBOL_ALIASES;
 var init_defi_swap = __esm({
   "server/services/defi-swap.ts"() {
@@ -7090,18 +7143,40 @@ async function defiExitSell(userId, chainKey, base, qtyBase, slippageBps) {
   if (!hw) return { ok: false, exitPrice: 0, reason: "no active DeFi hot wallet connected" };
   const q = await getAggregatedQuote(baseCoin(base)).catch(() => null);
   const price = q?.best?.price ?? 0;
+  const { getWalletTokenBalance: getWalletTokenBalance2, addressFromPrivateKey: addressFromPrivateKey2 } = await Promise.resolve().then(() => (init_defi_swap(), defi_swap_exports));
+  const { decryptApiSecret: decryptApiSecret2 } = await Promise.resolve().then(() => (init_cryptocom(), cryptocom_exports));
+  let sellQty = qtyBase;
+  try {
+    const walletAddr = addressFromPrivateKey2(decryptApiSecret2(hw.encryptedKey));
+    const held = await getWalletTokenBalance2(chainKey || hw.chain, walletAddr, token);
+    const DUST = 1e-8;
+    if (held <= DUST) {
+      return {
+        ok: false,
+        exitPrice: price,
+        phantom: true,
+        reason: `position is NOT on-chain \u2014 wallet ${walletAddr} holds ${held} ${token} but this trade claims ${qtyBase}. No swap attempted; needs reconciliation.`
+      };
+    }
+    if (held < qtyBase) {
+      console.warn(`[defi-executor] trade wants ${qtyBase} ${token} but wallet holds ${held} \u2014 selling the available balance instead`);
+      sellQty = held;
+    }
+  } catch (e) {
+    console.error(`[defi-executor] could not read ${token} balance (${e?.message}) \u2014 proceeding with the swap rather than assuming the position is gone`);
+  }
   const r = await executeDefiSwap({
     encryptedPrivateKey: hw.encryptedKey,
     chainKey: chainKey || hw.chain,
     sellToken: token,
     buyToken: "USDC",
-    sellAmountHuman: qtyBase,
+    sellAmountHuman: sellQty,
     slippageBps,
     confirm: true
     // wait for on-chain success — don't book a close that reverted
   });
-  if (!r.ok) return { ok: false, exitPrice: price, reason: r.reason };
-  return { ok: true, exitPrice: price, proceedsUsd: r.buyAmountHuman && Number.isFinite(r.buyAmountHuman) && r.buyAmountHuman > 0 ? r.buyAmountHuman : void 0, txHash: r.txHash };
+  if (!r.ok) return { ok: false, exitPrice: price, reason: r.reason, soldQty: sellQty };
+  return { ok: true, exitPrice: price, proceedsUsd: r.buyAmountHuman && Number.isFinite(r.buyAmountHuman) && r.buyAmountHuman > 0 ? r.buyAmountHuman : void 0, txHash: r.txHash, soldQty: sellQty };
 }
 var init_defi_executor = __esm({
   "server/services/defi-executor.ts"() {
@@ -14443,6 +14518,14 @@ async function closePosition(userId, trade, currentPrice, reason) {
       const cfg = await storage.getUserCryptocomEngineConfig(userId).catch(() => null);
       const { defiExitSell: defiExitSell2 } = await Promise.resolve().then(() => (init_defi_executor(), defi_executor_exports));
       const exit = await defiExitSell2(userId, cfg?.defiChain || "base", baseCoin(trade.symbol), trade.quantity, cfg?.defiSlippageBps ?? 100).catch((e) => ({ ok: false, exitPrice: 0, reason: e?.message || String(e) }));
+      if (exit?.phantom) {
+        console.error(`[cryptocom-scanner] trade ${trade.id} (${trade.symbol}) is NOT on-chain: ${exit.reason} \u2014 flagging for reconciliation, no further exit attempts`);
+        await storage.flagCryptocomEngineTradeUnreconciled(trade.id, String(exit.reason).slice(0, 500)).catch((e) => console.error(`[cryptocom-scanner] could not flag trade ${trade.id} (${e?.message}) \u2014 it will keep retrying until this succeeds`));
+        await storage.createCryptocomEngineActivity({ userId, symbol: trade.symbol, decision: "skipped", strategy: trade.strategy, reasoning: `${trade.symbol}: position NOT on-chain \u2014 wallet holds none of this token. Trade parked as needs_reconciliation; NO P&L booked (real proceeds unknown). Verify on a block explorer.`, score: null, price: currentPrice, dailyChangePercent: null, source: "cryptocom" }).catch(() => {
+        });
+        finished = true;
+        return;
+      }
       if (!exit?.ok) {
         console.error(`[cryptocom-scanner] DeFi exit FAILED for trade ${trade.id} (${trade.symbol}): ${exit?.reason || "unknown"} \u2014 position left OPEN`);
         await storage.createCryptocomEngineActivity({ userId, symbol: trade.symbol, decision: "signal", strategy: trade.strategy, reasoning: `${trade.symbol}: DeFi EXIT FAILED (${exit?.reason || "error"}) \u2014 position still OPEN, will retry next cycle. No P&L booked.`, score: null, price: currentPrice, dailyChangePercent: null, source: "cryptocom" }).catch(() => {
