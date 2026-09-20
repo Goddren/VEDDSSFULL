@@ -303,12 +303,44 @@ async function monitorOpenPositions(userId: number, cfg: CryptocomEngineConfig):
         if (trade.stopLoss && px <= trade.stopLoss) { await closePosition(userId, trade, px, 'stop_loss'); continue; }
         continue;
       }
-      if (cfg.trailMethod === 'none') continue; // perp trailing only when enabled
+      // ── PERPS ───────────────────────────────────────────────────────────────
+      // Entry places a bare MARKET order — nothing is ever attached at the
+      // venue — so trade.stopLoss / trade.takeProfit exist ONLY as DB columns
+      // and this loop is the entire protection. It used to open with
+      //     if (cfg.trailMethod === 'none') continue;
+      // which sat ABOVE the hard-stop check. trail_method defaults to 'none'
+      // (schema.ts:913), so on a default config the loop skipped every position
+      // on every cycle: no venue stop, no software stop, a leveraged position
+      // running to liquidation. Take-profit was never checked here in ANY
+      // config, so a perp could blow through its TP and round-trip.
+      //
+      // Stop-loss and take-profit are protection and now ALWAYS run. Only the
+      // TRAILING logic — which is an optimisation, not protection — stays gated
+      // on trailMethod.
       const currentPrice = await CryptoComService.getTicker(trade.symbol);
-      if (!currentPrice || !trade.stopLoss) continue;
+      // A failed/zero ticker read must not be mistaken for a price: getTicker
+      // returns null on a non-ok response, and closing on a bogus 0 would book
+      // a catastrophic fake loss.
+      if (!currentPrice || currentPrice <= 0) continue;
+
+      const isLong = trade.direction === 'long';
+
+      // Absolute price stops first — these work even when riskDistance is
+      // unusable (e.g. stopLoss equal to entry), which the R-multiple path below
+      // cannot evaluate.
+      if (trade.takeProfit && (isLong ? currentPrice >= trade.takeProfit : currentPrice <= trade.takeProfit)) {
+        await closePosition(userId, trade, currentPrice, 'take_profit');
+        continue;
+      }
+      if (trade.stopLoss && (isLong ? currentPrice <= trade.stopLoss : currentPrice >= trade.stopLoss)) {
+        await closePosition(userId, trade, currentPrice, 'stop_loss');
+        continue;
+      }
+
+      // R-multiple bookkeeping + trailing. Needs a usable risk distance.
+      if (!trade.stopLoss) continue;
       const riskDistance = Math.abs(trade.entryPrice - trade.stopLoss);
       if (riskDistance <= 0) continue;
-      const isLong = trade.direction === 'long';
       const currentR = isLong ? (currentPrice - trade.entryPrice) / riskDistance : (trade.entryPrice - currentPrice) / riskDistance;
       const peakR = Math.max(trade.peakRMultiple, currentR);
       const armed = trade.trailArmed || peakR >= cfg.trailActivationR;
@@ -317,7 +349,7 @@ async function monitorOpenPositions(userId: number, cfg: CryptocomEngineConfig):
         await closePosition(userId, trade, currentPrice, 'stop_loss');
         continue;
       }
-      if (armed) {
+      if (cfg.trailMethod !== 'none' && armed) {
         const floor = Math.max(computeTrailFloorR(cfg, peakR), cfg.breakevenBufferR);
         if (currentR <= floor) { await closePosition(userId, trade, currentPrice, 'trailing_stop'); continue; }
       }

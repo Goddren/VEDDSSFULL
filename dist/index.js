@@ -23162,7 +23162,7 @@ var init_cryptocom = __esm({
         if (!res.ok) return null;
         const data = await res.json();
         const t = data.result?.data?.[0];
-        return t ? parseFloat(t.a ?? t.l ?? "0") || null : null;
+        return t ? parseFloat(t.a ?? t.k ?? "0") || null : null;
       }
     };
   }
@@ -36814,12 +36814,20 @@ async function monitorOpenPositions(userId, cfg) {
         }
         continue;
       }
-      if (cfg.trailMethod === "none") continue;
       const currentPrice = await CryptoComService.getTicker(trade.symbol);
-      if (!currentPrice || !trade.stopLoss) continue;
+      if (!currentPrice || currentPrice <= 0) continue;
+      const isLong = trade.direction === "long";
+      if (trade.takeProfit && (isLong ? currentPrice >= trade.takeProfit : currentPrice <= trade.takeProfit)) {
+        await closePosition(userId, trade, currentPrice, "take_profit");
+        continue;
+      }
+      if (trade.stopLoss && (isLong ? currentPrice <= trade.stopLoss : currentPrice >= trade.stopLoss)) {
+        await closePosition(userId, trade, currentPrice, "stop_loss");
+        continue;
+      }
+      if (!trade.stopLoss) continue;
       const riskDistance = Math.abs(trade.entryPrice - trade.stopLoss);
       if (riskDistance <= 0) continue;
-      const isLong = trade.direction === "long";
       const currentR = isLong ? (currentPrice - trade.entryPrice) / riskDistance : (trade.entryPrice - currentPrice) / riskDistance;
       const peakR = Math.max(trade.peakRMultiple, currentR);
       const armed = trade.trailArmed || peakR >= cfg.trailActivationR;
@@ -36827,7 +36835,7 @@ async function monitorOpenPositions(userId, cfg) {
         await closePosition(userId, trade, currentPrice, "stop_loss");
         continue;
       }
-      if (armed) {
+      if (cfg.trailMethod !== "none" && armed) {
         const floor = Math.max(computeTrailFloorR(cfg, peakR), cfg.breakevenBufferR);
         if (currentR <= floor) {
           await closePosition(userId, trade, currentPrice, "trailing_stop");
@@ -54251,9 +54259,9 @@ async function getStopOrdersForUser(userId, filters = {}) {
 init_schema();
 
 // server/build-info.ts
-var BUILD_COMMIT = "58c19182-dirty";
+var BUILD_COMMIT = "f52f379a-dirty";
 var BUILD_BRANCH = "main";
-var BUILT_AT = "2026-09-20T00:54:58.978Z";
+var BUILT_AT = "2026-09-20T01:50:16.874Z";
 
 // server/stripe.ts
 init_db();

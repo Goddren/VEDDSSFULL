@@ -159,6 +159,15 @@ export class CryptoComService {
     if (!res.ok) return null;
     const data = await res.json();
     const t = data.result?.data?.[0];
-    return t ? parseFloat(t.a ?? t.l ?? '0') || null : null;
+    // Crypto.com get-tickers fields: a = latest trade price, b = best bid,
+    // k = best ask, h = 24h HIGH, l = 24h LOW.
+    // The fallback was `t.l` — the 24-hour LOW. Whenever `a` was missing this
+    // returned a price potentially far below market, and monitorOpenPositions
+    // feeds this straight into the stop check: a long would look deeply
+    // underwater and get market-closed at a real loss on a fabricated price,
+    // with the bogus number also booked as realized P&L. The sibling reader in
+    // crypto-market-data.ts already uses `a ?? k`, which confirms `l` was a typo
+    // for `k`.
+    return t ? parseFloat(t.a ?? t.k ?? '0') || null : null;
   }
 }
