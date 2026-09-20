@@ -30,8 +30,17 @@ async function loadHotWallet(userId: number): Promise<{ encryptedKey: string; ch
 export interface DefiEntryResult { ok: boolean; token: string; qtyBase: number; entryPrice: number; txHash?: string; reason?: string; }
 
 /** Open a DeFi long: swap `notionalUsd` of USDC -> token for `base` on the wallet's chain. */
+/** A 0x contract address must pass through untouched; only tickers get normalised. */
+function tokenRef(base: string): string {
+  const t = String(base ?? '').trim();
+  return /^0x[a-fA-F0-9]{40}$/i.test(t) ? t : baseCoin(t);
+}
+
 export async function defiEntryBuy(userId: number, chainKey: string, base: string, notionalUsd: number, slippageBps: number): Promise<DefiEntryResult> {
-  const token = baseCoin(base);
+  // baseCoin() uppercases and strips trailing USD/USDC/USDT — harmless for a
+  // ticker, destructive for a contract address, which is what the scanner now
+  // passes to avoid symbol collisions.
+  const token = tokenRef(base);
   const chain = chainKey || 'base';
   if (!(await isTokenTradeable(chain, token))) {
     return { ok: false, token, qtyBase: 0, entryPrice: 0, reason: `DeFi venue can't trade ${token} on ${chain} — not on the chain's token list (try a token that exists on ${chain}, or a different chain)` };
@@ -60,7 +69,7 @@ export async function defiEntryBuy(userId: number, chainKey: string, base: strin
 
 /** Close a DeFi long: swap `qtyBase` of token -> USDC on the wallet's chain. */
 export async function defiExitSell(userId: number, chainKey: string, base: string, qtyBase: number, slippageBps: number): Promise<{ ok: boolean; exitPrice: number; proceedsUsd?: number; txHash?: string; reason?: string; phantom?: boolean; soldQty?: number }> {
-  const token = baseCoin(base);
+  const token = tokenRef(base);
   const hw = await loadHotWallet(userId);
   if (!hw) return { ok: false, exitPrice: 0, reason: 'no active DeFi hot wallet connected' };
 

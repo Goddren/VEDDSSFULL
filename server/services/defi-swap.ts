@@ -111,7 +111,12 @@ const SYMBOL_ALIASES: Record<string, string[]> = {
 export async function resolveToken(chainKey: string, token: string): Promise<string> {
   const c = DEFI_CHAINS[chainKey];
   const t = token.trim();
-  if (/^0x[a-fA-F0-9]{40}$/.test(t)) return t;
+  // Case-INSENSITIVE, and normalised. Callers upstream pass addresses through
+  // baseCoin(), which uppercases — so a perfectly valid contract arrived as
+  // "0XC1CB..." and failed a case-sensitive test, fell through to the symbol
+  // lookup, and was reported as "this venue can't trade it". Every DeFi entry
+  // was rejected that way.
+  if (/^0x[a-fA-F0-9]{40}$/i.test(t)) return '0x' + t.slice(2).toLowerCase();
   const up = t.toUpperCase();
   if (up === c.native || up === 'ETH' || up === 'NATIVE' || up === 'POL' || up === 'MATIC') return NATIVE_PSEUDO;
   if (up === 'USDC') return c.usdc;

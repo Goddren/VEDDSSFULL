@@ -8459,7 +8459,7 @@ async function loadTokenIndex(chainKey) {
 async function resolveToken(chainKey, token) {
   const c = DEFI_CHAINS[chainKey];
   const t = token.trim();
-  if (/^0x[a-fA-F0-9]{40}$/.test(t)) return t;
+  if (/^0x[a-fA-F0-9]{40}$/i.test(t)) return "0x" + t.slice(2).toLowerCase();
   const up = t.toUpperCase();
   if (up === c.native || up === "ETH" || up === "NATIVE" || up === "POL" || up === "MATIC") return NATIVE_PSEUDO;
   if (up === "USDC") return c.usdc;
@@ -8643,8 +8643,12 @@ async function loadHotWallet(userId) {
   if (!rows.length) return null;
   return { encryptedKey: rows[0].k, chain: rows[0].chain || "base" };
 }
+function tokenRef(base) {
+  const t = String(base ?? "").trim();
+  return /^0x[a-fA-F0-9]{40}$/i.test(t) ? t : baseCoin(t);
+}
 async function defiEntryBuy(userId, chainKey, base, notionalUsd, slippageBps) {
-  const token = baseCoin(base);
+  const token = tokenRef(base);
   const chain = chainKey || "base";
   if (!await isTokenTradeable(chain, token)) {
     return { ok: false, token, qtyBase: 0, entryPrice: 0, reason: `DeFi venue can't trade ${token} on ${chain} \u2014 not on the chain's token list (try a token that exists on ${chain}, or a different chain)` };
@@ -8671,7 +8675,7 @@ async function defiEntryBuy(userId, chainKey, base, notionalUsd, slippageBps) {
   return { ok: true, token, qtyBase, entryPrice: price, txHash: r.txHash };
 }
 async function defiExitSell(userId, chainKey, base, qtyBase, slippageBps) {
-  const token = baseCoin(base);
+  const token = tokenRef(base);
   const hw = await loadHotWallet(userId);
   if (!hw) return { ok: false, exitPrice: 0, reason: "no active DeFi hot wallet connected" };
   const q = await getAggregatedQuote(baseCoin(base)).catch(() => null);
