@@ -36,7 +36,7 @@ function tokenRef(base: string): string {
   return /^0x[a-fA-F0-9]{40}$/i.test(t) ? t : baseCoin(t);
 }
 
-export async function defiEntryBuy(userId: number, chainKey: string, base: string, notionalUsd: number, slippageBps: number): Promise<DefiEntryResult> {
+export async function defiEntryBuy(userId: number, chainKey: string, base: string, notionalUsd: number, slippageBps: number, priceHint?: number): Promise<DefiEntryResult> {
   // baseCoin() uppercases and strips trailing USD/USDC/USDT — harmless for a
   // ticker, destructive for a contract address, which is what the scanner now
   // passes to avoid symbol collisions.
@@ -48,8 +48,20 @@ export async function defiEntryBuy(userId: number, chainKey: string, base: strin
   const hw = await loadHotWallet(userId);
   if (!hw) return { ok: false, token, qtyBase: 0, entryPrice: 0, reason: 'no active DeFi hot wallet connected' };
 
-  const q = await getAggregatedQuote(token).catch(() => null);
-  const price = q?.best?.price ?? 0;
+  // Price. getAggregatedQuote asks Coinbase/Kraken/Gemini by TICKER, which is
+  // useless for a token discovered on-chain: it has no CEX listing, and since
+  // the scanner now passes a contract address the lookup was being handed
+  // "0x4200...0006" and returning nothing. Observed live as
+  // "no live price for 0x4200000000000000000000000000000000000006" on WETH.
+  //
+  // The caller already knows the price — discovery returns it and the strategy
+  // computed its signal from the same candles — so take it. Fall back to the
+  // CEX aggregate only for ticker-based callers (the pre-discovery path).
+  let price = Number(priceHint) > 0 ? Number(priceHint) : 0;
+  if (!price) {
+    const q = await getAggregatedQuote(token).catch(() => null);
+    price = q?.best?.price ?? 0;
+  }
   if (!price) return { ok: false, token, qtyBase: 0, entryPrice: 0, reason: `no live price for ${token}` };
 
   const r = await executeDefiSwap({
@@ -68,13 +80,18 @@ export async function defiEntryBuy(userId: number, chainKey: string, base: strin
 }
 
 /** Close a DeFi long: swap `qtyBase` of token -> USDC on the wallet's chain. */
-export async function defiExitSell(userId: number, chainKey: string, base: string, qtyBase: number, slippageBps: number): Promise<{ ok: boolean; exitPrice: number; proceedsUsd?: number; txHash?: string; reason?: string; phantom?: boolean; soldQty?: number }> {
+export async function defiExitSell(userId: number, chainKey: string, base: string, qtyBase: number, slippageBps: number, priceHint?: number): Promise<{ ok: boolean; exitPrice: number; proceedsUsd?: number; txHash?: string; reason?: string; phantom?: boolean; soldQty?: number }> {
   const token = tokenRef(base);
   const hw = await loadHotWallet(userId);
   if (!hw) return { ok: false, exitPrice: 0, reason: 'no active DeFi hot wallet connected' };
 
-  const q = await getAggregatedQuote(baseCoin(base)).catch(() => null);
-  const price = q?.best?.price ?? 0;
+  // Same trap on the way out: a chain-discovered token has no CEX quote. The
+  // caller passes the pool price; this stays as a fallback for tickers.
+  let price = Number(priceHint) > 0 ? Number(priceHint) : 0;
+  if (!price) {
+    const q = await getAggregatedQuote(baseCoin(base)).catch(() => null);
+    price = q?.best?.price ?? 0;
+  }
 
   // ── PRE-FLIGHT: does the wallet actually hold what the DB claims? ──────────
   // Nothing reconciled DB trades against the chain, so a row could outlive the

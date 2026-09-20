@@ -658,7 +658,7 @@ async function closePosition(userId: number, trade: any, currentPrice: number, r
       // Sell the pinned contract; fall back to the ticker only for legacy rows
       // written before token_address existed.
       const sellToken = ((trade as any).tokenAddress as string | null) || baseCoin(trade.symbol);
-      const exit = await defiExitSell(userId, (cfg as any)?.defiChain || 'base', sellToken, trade.quantity, (cfg as any)?.defiSlippageBps ?? 100).catch((e: any) => ({ ok: false, exitPrice: 0, reason: e?.message || String(e) } as any));
+      const exit = await defiExitSell(userId, (cfg as any)?.defiChain || 'base', sellToken, trade.quantity, (cfg as any)?.defiSlippageBps ?? 100, currentPrice > 0 ? currentPrice : undefined).catch((e: any) => ({ ok: false, exitPrice: 0, reason: e?.message || String(e) } as any));
       // A7: NEVER book a close the broker/chain didn't actually execute. If the
       // swap failed (needs token approval, no liquidity, RPC error, etc.) leave
       // the trade OPEN for retry next cycle — booking a phantom close would
@@ -1050,7 +1050,10 @@ async function executeSignalSingle(service: CryptoComService, connection: Crypto
       // unrelated Base tokens share tickers with major assets, and buying the
       // wrong contract is unrecoverable.
       const disc = getDefiUniverseEntry(symbol);
-      const r = await defiEntryBuy(userId, chain, disc?.address ?? symbol, notionalD, slip);
+      // Hand over the price we already have: discovery's pool price, else the
+      // price the strategy computed from the same on-chain candles. Without it
+      // the executor asks a CEX for a contract address and gets nothing.
+      const r = await defiEntryBuy(userId, chain, disc?.address ?? symbol, notionalD, slip, disc?.priceUsd ?? result.price ?? undefined);
       if (!r.ok) {
         await storage.createCryptocomEngineActivity({ userId, symbol, decision: r.reason?.includes("can't trade") ? 'skipped' : 'error', strategy: result.strategy, reasoning: `${symbol}: DeFi swap entry ${r.reason?.includes("can't trade") ? 'skipped' : 'failed'} — ${r.reason}.`, score: result.score, price: result.price, dailyChangePercent: result.dailyChangePercent, source: 'cryptocom' });
         return;

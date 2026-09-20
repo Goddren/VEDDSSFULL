@@ -36888,7 +36888,7 @@ function tokenRef(base) {
   const t = String(base ?? "").trim();
   return /^0x[a-fA-F0-9]{40}$/i.test(t) ? t : baseCoin(t);
 }
-async function defiEntryBuy(userId, chainKey, base, notionalUsd, slippageBps) {
+async function defiEntryBuy(userId, chainKey, base, notionalUsd, slippageBps, priceHint) {
   const token = tokenRef(base);
   const chain = chainKey || "base";
   if (!await isTokenTradeable(chain, token)) {
@@ -36896,8 +36896,11 @@ async function defiEntryBuy(userId, chainKey, base, notionalUsd, slippageBps) {
   }
   const hw = await loadHotWallet(userId);
   if (!hw) return { ok: false, token, qtyBase: 0, entryPrice: 0, reason: "no active DeFi hot wallet connected" };
-  const q = await getAggregatedQuote(token).catch(() => null);
-  const price = q?.best?.price ?? 0;
+  let price = Number(priceHint) > 0 ? Number(priceHint) : 0;
+  if (!price) {
+    const q = await getAggregatedQuote(token).catch(() => null);
+    price = q?.best?.price ?? 0;
+  }
   if (!price) return { ok: false, token, qtyBase: 0, entryPrice: 0, reason: `no live price for ${token}` };
   const r = await executeDefiSwap({
     encryptedPrivateKey: hw.encryptedKey,
@@ -36915,12 +36918,15 @@ async function defiEntryBuy(userId, chainKey, base, notionalUsd, slippageBps) {
   qtyBase = Math.max(0, Math.round(qtyBase * 1e8) / 1e8);
   return { ok: true, token, qtyBase, entryPrice: price, txHash: r.txHash };
 }
-async function defiExitSell(userId, chainKey, base, qtyBase, slippageBps) {
+async function defiExitSell(userId, chainKey, base, qtyBase, slippageBps, priceHint) {
   const token = tokenRef(base);
   const hw = await loadHotWallet(userId);
   if (!hw) return { ok: false, exitPrice: 0, reason: "no active DeFi hot wallet connected" };
-  const q = await getAggregatedQuote(baseCoin(base)).catch(() => null);
-  const price = q?.best?.price ?? 0;
+  let price = Number(priceHint) > 0 ? Number(priceHint) : 0;
+  if (!price) {
+    const q = await getAggregatedQuote(baseCoin(base)).catch(() => null);
+    price = q?.best?.price ?? 0;
+  }
   const { getWalletTokenBalance: getWalletTokenBalance2, addressFromPrivateKey: addressFromPrivateKey2 } = await Promise.resolve().then(() => (init_defi_swap(), defi_swap_exports));
   const { decryptApiSecret: decryptApiSecret3 } = await Promise.resolve().then(() => (init_cryptocom(), cryptocom_exports));
   let sellQty = qtyBase;
@@ -37499,7 +37505,7 @@ async function closePosition(userId, trade, currentPrice, reason) {
       await phase(`exit:trade_${trade.id}:defi_swap`);
       const { defiExitSell: defiExitSell2 } = await Promise.resolve().then(() => (init_defi_executor(), defi_executor_exports));
       const sellToken = trade.tokenAddress || baseCoin(trade.symbol);
-      const exit = await defiExitSell2(userId, cfg?.defiChain || "base", sellToken, trade.quantity, cfg?.defiSlippageBps ?? 100).catch((e) => ({ ok: false, exitPrice: 0, reason: e?.message || String(e) }));
+      const exit = await defiExitSell2(userId, cfg?.defiChain || "base", sellToken, trade.quantity, cfg?.defiSlippageBps ?? 100, currentPrice > 0 ? currentPrice : void 0).catch((e) => ({ ok: false, exitPrice: 0, reason: e?.message || String(e) }));
       if (exit?.phantom) {
         console.error(`[cryptocom-scanner] trade ${trade.id} (${trade.symbol}) is NOT on-chain: ${exit.reason} \u2014 flagging for reconciliation, no further exit attempts`);
         await storage.flagCryptocomEngineTradeUnreconciled(trade.id, String(exit.reason).slice(0, 500)).catch((e) => console.error(`[cryptocom-scanner] could not flag trade ${trade.id} (${e?.message}) \u2014 it will keep retrying until this succeeds`));
@@ -37824,7 +37830,7 @@ async function executeSignalSingle(service, connection2, userId, symbol, result,
     try {
       const { defiEntryBuy: defiEntryBuy2 } = await Promise.resolve().then(() => (init_defi_executor(), defi_executor_exports));
       const disc = getDefiUniverseEntry(symbol);
-      const r = await defiEntryBuy2(userId, chain, disc?.address ?? symbol, notionalD, slip);
+      const r = await defiEntryBuy2(userId, chain, disc?.address ?? symbol, notionalD, slip, disc?.priceUsd ?? result.price ?? void 0);
       if (!r.ok) {
         await storage.createCryptocomEngineActivity({ userId, symbol, decision: r.reason?.includes("can't trade") ? "skipped" : "error", strategy: result.strategy, reasoning: `${symbol}: DeFi swap entry ${r.reason?.includes("can't trade") ? "skipped" : "failed"} \u2014 ${r.reason}.`, score: result.score, price: result.price, dailyChangePercent: result.dailyChangePercent, source: "cryptocom" });
         return;
@@ -55102,9 +55108,9 @@ async function getStopOrdersForUser(userId, filters = {}) {
 init_schema();
 
 // server/build-info.ts
-var BUILD_COMMIT = "57a3a42b-dirty";
+var BUILD_COMMIT = "2ae5db86-dirty";
 var BUILD_BRANCH = "main";
-var BUILT_AT = "2026-09-20T21:52:56.572Z";
+var BUILT_AT = "2026-09-20T23:39:44.111Z";
 
 // server/stripe.ts
 init_db();
