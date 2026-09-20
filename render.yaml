@@ -49,13 +49,18 @@ services:
       # Required. Same value as the web service.
       - key: DATABASE_URL
         sync: false
-      # Required. Decrypts BOTH the Crypto.com API secret and the DeFi hot-wallet
-      # private key (server/services/defi-swap.ts imports decryptApiSecret from
-      # server/cryptocom.ts). If this does not byte-match the web service's value,
-      # every decrypt fails and the engine can neither enter nor exit.
-      - key: CRYPTOCOM_ENCRYPTION_KEY
-        sync: false
+      # DELIBERATELY ABSENT: CRYPTOCOM_ENCRYPTION_KEY. Verified 2026-09-20 by
+      # decrypting the stored hot-wallet key with the hardcoded DEFAULT and
+      # deriving the matching address — the variable is UNSET in production.
+      # Setting it here while the web service leaves it unset would break every
+      # decrypt, and the engine could neither enter nor exit.
       # Required for DeFi swaps — isDefiSwapAvailable() is just !!ZEROX_API_KEY,
       # so without it the live execution path is silently unavailable.
       - key: ZEROX_API_KEY
+        sync: false
+      # CoinGecko Demo key. Without it GeckoTerminal throttles this IP to ~3-4
+      # calls/min and the scanner falls back to a 15s interval, which makes a
+      # single scan take ~9 minutes. The scanner reports whether it can see this
+      # (heartbeat cg_key, and /api/cryptocom-engine/health).
+      - key: COINGECKO_API_KEY
         sync: false

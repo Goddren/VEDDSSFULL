@@ -55066,9 +55066,9 @@ async function getStopOrdersForUser(userId, filters = {}) {
 init_schema();
 
 // server/build-info.ts
-var BUILD_COMMIT = "7cf6d49e-dirty";
+var BUILD_COMMIT = "306254af-dirty";
 var BUILD_BRANCH = "main";
-var BUILT_AT = "2026-09-20T17:30:57.671Z";
+var BUILT_AT = "2026-09-20T18:06:41.582Z";
 
 // server/stripe.ts
 init_db();
@@ -72320,9 +72320,12 @@ Rules:
           // Reported by the scanner process itself, not guessed from timing.
           coingeckoKey: r.cg_key === null ? "unknown (scanner has not reported yet)" : r.cg_key ? "present" : "MISSING on the scanner service",
           callIntervalMs: r.cg_interval_ms,
-          // The loop ticks every 60s, so no tick for 3 minutes means the process
-          // is gone; ticking while stuck on one phase means a scan is wedged.
-          verdict: ageSec === null ? "unknown" : ageSec > 180 ? "DEAD \u2014 no tick in over 3 minutes" : (r.skipped_ticks ?? 0) >= 3 ? `WEDGED \u2014 ${r.skipped_ticks} consecutive skipped ticks, stuck at phase "${r.phase}"` : "alive"
+          // Liveness depends on WHICH runner this is, and the first version of
+          // this got it wrong: the 3-minute threshold assumes the worker's 60s
+          // loop, so a perfectly healthy 3-minute cron was reported DEAD.
+          // booted_at is only ever written by the long-lived worker.
+          runner: r.booted_at ? "background worker (60s loop)" : "cron job (per-invocation process)",
+          verdict: ageSec === null ? "unknown" : ageSec > (r.booted_at ? 180 : 600) ? `DEAD \u2014 no tick in ${Math.round(ageSec / 60)} minutes` : (r.skipped_ticks ?? 0) >= 3 ? `WEDGED \u2014 ${r.skipped_ticks} consecutive skipped ticks, stuck at phase "${r.phase}"` : "alive"
         };
       }
     } catch (e) {

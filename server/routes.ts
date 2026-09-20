@@ -16520,10 +16520,13 @@ Rules:
           // Reported by the scanner process itself, not guessed from timing.
           coingeckoKey: r.cg_key === null ? 'unknown (scanner has not reported yet)' : (r.cg_key ? 'present' : 'MISSING on the scanner service'),
           callIntervalMs: r.cg_interval_ms,
-          // The loop ticks every 60s, so no tick for 3 minutes means the process
-          // is gone; ticking while stuck on one phase means a scan is wedged.
+          // Liveness depends on WHICH runner this is, and the first version of
+          // this got it wrong: the 3-minute threshold assumes the worker's 60s
+          // loop, so a perfectly healthy 3-minute cron was reported DEAD.
+          // booted_at is only ever written by the long-lived worker.
+          runner: r.booted_at ? 'background worker (60s loop)' : 'cron job (per-invocation process)',
           verdict: ageSec === null ? 'unknown'
-            : ageSec > 180 ? 'DEAD — no tick in over 3 minutes'
+            : ageSec > (r.booted_at ? 180 : 600) ? `DEAD — no tick in ${Math.round(ageSec / 60)} minutes`
             : (r.skipped_ticks ?? 0) >= 3 ? `WEDGED — ${r.skipped_ticks} consecutive skipped ticks, stuck at phase "${r.phase}"`
             : 'alive',
         };
