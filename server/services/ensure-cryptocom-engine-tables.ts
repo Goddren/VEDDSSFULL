@@ -105,6 +105,11 @@ ALTER TABLE "cryptocom_engine_configs" ADD COLUMN IF NOT EXISTS "defi_slippage_b
 ALTER TABLE "cryptocom_engine_configs" ADD COLUMN IF NOT EXISTS "multi_venue_enabled" boolean NOT NULL DEFAULT false;
 ALTER TABLE "cryptocom_engine_trades" ADD COLUMN IF NOT EXISTS "token_address" text;
 ALTER TABLE "cryptocom_engine_trades" ADD COLUMN IF NOT EXISTS "pool_address" text;
+-- Whether the SCANNER process can see a CoinGecko key. Inferring this from scan
+-- timing wasted a lot of time: the key lives in one Render service's env and
+-- nothing else could observe it. Now the process that actually reads it says so.
+ALTER TABLE "crypto_engine_heartbeat" ADD COLUMN IF NOT EXISTS "cg_key" boolean;
+ALTER TABLE "crypto_engine_heartbeat" ADD COLUMN IF NOT EXISTS "cg_interval_ms" integer;
 
 -- Single-row liveness record for the crypto worker. Without it, "the engine is
 -- quiet" and "the engine is wedged" look identical from the outside: the worker

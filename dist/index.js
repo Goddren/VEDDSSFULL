@@ -37994,7 +37994,14 @@ async function runCryptocomEngineScan() {
     }
   }
   const _scanT0 = Date.now();
-  await hb({ tick_at: /* @__PURE__ */ new Date(), scan_started_at: /* @__PURE__ */ new Date(), phase: "scan:start" });
+  let _cg = { hasKey: false, minIntervalMs: 0 };
+  try {
+    const m = await Promise.resolve().then(() => (init_defi_market_data(), defi_market_data_exports));
+    const b = m.callBudget();
+    _cg = { hasKey: b.hasKey, minIntervalMs: b.minIntervalMs };
+  } catch {
+  }
+  await hb({ tick_at: /* @__PURE__ */ new Date(), scan_started_at: /* @__PURE__ */ new Date(), phase: "scan:start", cg_key: _cg.hasKey, cg_interval_ms: _cg.minIntervalMs });
   try {
     await phase("recover_stale_claims");
     const recovered = await storage.recoverStaleCryptocomCloseClaims().catch((e) => {
@@ -51928,6 +51935,11 @@ ALTER TABLE "cryptocom_engine_configs" ADD COLUMN IF NOT EXISTS "defi_slippage_b
 ALTER TABLE "cryptocom_engine_configs" ADD COLUMN IF NOT EXISTS "multi_venue_enabled" boolean NOT NULL DEFAULT false;
 ALTER TABLE "cryptocom_engine_trades" ADD COLUMN IF NOT EXISTS "token_address" text;
 ALTER TABLE "cryptocom_engine_trades" ADD COLUMN IF NOT EXISTS "pool_address" text;
+-- Whether the SCANNER process can see a CoinGecko key. Inferring this from scan
+-- timing wasted a lot of time: the key lives in one Render service's env and
+-- nothing else could observe it. Now the process that actually reads it says so.
+ALTER TABLE "crypto_engine_heartbeat" ADD COLUMN IF NOT EXISTS "cg_key" boolean;
+ALTER TABLE "crypto_engine_heartbeat" ADD COLUMN IF NOT EXISTS "cg_interval_ms" integer;
 
 -- Single-row liveness record for the crypto worker. Without it, "the engine is
 -- quiet" and "the engine is wedged" look identical from the outside: the worker
@@ -55054,9 +55066,9 @@ async function getStopOrdersForUser(userId, filters = {}) {
 init_schema();
 
 // server/build-info.ts
-var BUILD_COMMIT = "813f1147-dirty";
+var BUILD_COMMIT = "7cf6d49e-dirty";
 var BUILD_BRANCH = "main";
-var BUILT_AT = "2026-09-20T16:19:46.543Z";
+var BUILT_AT = "2026-09-20T17:30:57.671Z";
 
 // server/stripe.ts
 init_db();
@@ -72305,6 +72317,9 @@ Rules:
           skippedTicks: r.skipped_ticks,
           scansCompleted: r.scans_completed,
           lastError: r.last_error,
+          // Reported by the scanner process itself, not guessed from timing.
+          coingeckoKey: r.cg_key === null ? "unknown (scanner has not reported yet)" : r.cg_key ? "present" : "MISSING on the scanner service",
+          callIntervalMs: r.cg_interval_ms,
           // The loop ticks every 60s, so no tick for 3 minutes means the process
           // is gone; ticking while stuck on one phase means a scan is wedged.
           verdict: ageSec === null ? "unknown" : ageSec > 180 ? "DEAD \u2014 no tick in over 3 minutes" : (r.skipped_ticks ?? 0) >= 3 ? `WEDGED \u2014 ${r.skipped_ticks} consecutive skipped ticks, stuck at phase "${r.phase}"` : "alive"

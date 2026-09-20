@@ -1301,7 +1301,12 @@ export async function runCryptocomEngineScan(): Promise<void> {
   // (dist/crypto-cron.js) calls this function directly from a fresh process and
   // never touches the tick handler. Without it, tick_at stayed NULL in cron mode
   // and the health verdict read 'unknown' — blind in the mode actually running.
-  await hb({ tick_at: new Date(), scan_started_at: new Date(), phase: 'scan:start' });
+  // Report whether THIS process can see a CoinGecko key, and the call spacing it
+  // implies. Without this the only evidence was scan timing, which is indirect
+  // and easy to misread.
+  let _cg = { hasKey: false, minIntervalMs: 0 };
+  try { const m = await import('./defi-market-data'); const b = m.callBudget(); _cg = { hasKey: b.hasKey, minIntervalMs: b.minIntervalMs }; } catch { /* non-fatal */ }
+  await hb({ tick_at: new Date(), scan_started_at: new Date(), phase: 'scan:start', cg_key: _cg.hasKey, cg_interval_ms: _cg.minIntervalMs });
   try {
     // ── EXIT MANAGEMENT FIRST, and unconditionally ──────────────────────────
     // monitorOpenPositions used to be reachable only from inside scanOneUser,

@@ -16517,6 +16517,9 @@ Rules:
           lastDurationMs: r.last_duration_ms, phase: r.phase,
           skippedTicks: r.skipped_ticks, scansCompleted: r.scans_completed,
           lastError: r.last_error,
+          // Reported by the scanner process itself, not guessed from timing.
+          coingeckoKey: r.cg_key === null ? 'unknown (scanner has not reported yet)' : (r.cg_key ? 'present' : 'MISSING on the scanner service'),
+          callIntervalMs: r.cg_interval_ms,
           // The loop ticks every 60s, so no tick for 3 minutes means the process
           // is gone; ticking while stuck on one phase means a scan is wedged.
           verdict: ageSec === null ? 'unknown'
