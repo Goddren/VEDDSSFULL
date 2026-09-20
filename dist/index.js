@@ -5171,6 +5171,16 @@ var init_storage = __esm({
       async getOpenCryptocomEngineTrades(userId) {
         return db.select().from(cryptocomEngineTrades).where(and(eq(cryptocomEngineTrades.userId, userId), eq(cryptocomEngineTrades.status, "open")));
       }
+      /**
+       * Every user holding an open crypto position, REGARDLESS of whether their
+       * engine config is active. Exit management must not depend on the engine
+       * being switched on — stopping the engine should stop new entries, not
+       * abandon live positions to run unprotected.
+       */
+      async getUserIdsWithOpenCryptocomTrades() {
+        const rows = await db.selectDistinct({ userId: cryptocomEngineTrades.userId }).from(cryptocomEngineTrades).where(eq(cryptocomEngineTrades.status, "open"));
+        return rows.map((r) => r.userId);
+      }
       async getUserCryptocomEngineTrades(userId, limit = 50) {
         return db.select().from(cryptocomEngineTrades).where(eq(cryptocomEngineTrades.userId, userId)).orderBy(desc(cryptocomEngineTrades.createdAt)).limit(limit);
       }
@@ -37304,7 +37314,6 @@ async function scanOneUser(userId) {
     await storage.createCryptocomEngineActivity({ userId, symbol: "\u2014", decision: "error", reasoning: `Could not decrypt credentials: ${err.message}`, score: null, price: null, dailyChangePercent: null, source: "cryptocom", strategy: null });
     return;
   }
-  await monitorOpenPositions(userId, config).catch((e) => console.error(`[cryptocom-scanner] monitorOpenPositions failed for user ${userId}:`, e.message));
   if (config.cryptoBrainEnabled !== false) await getOrRefreshCryptoBrain(userId).catch(() => {
   });
   const canAutoExecute = activeConn.autoExecute && config.enableAutoExecution;
@@ -37350,6 +37359,27 @@ async function runCryptocomEngineScan() {
     }
   }
   try {
+    const holders = await storage.getUserIdsWithOpenCryptocomTrades().catch((e) => {
+      console.error("[cryptocom-scanner] could not list users with open trades \u2014 exit management SKIPPED this cycle:", e?.message);
+      return [];
+    });
+    for (const uid2 of holders) {
+      try {
+        const cfg = await storage.getUserCryptocomEngineConfig(uid2);
+        await monitorOpenPositions(uid2, cfg ?? {
+          trailMethod: "none",
+          trailActivationR: 1,
+          trailFixedR: 0.5,
+          trailStepR: 0.5,
+          trailProfitLockPct: 50,
+          trailSarInitialAf: 0.02,
+          trailSarMaxAf: 0.2,
+          breakevenBufferR: 0
+        });
+      } catch (e) {
+        console.error(`[cryptocom-scanner] exit management failed for user ${uid2}:`, e?.message);
+      }
+    }
     const configs = await storage.getAllActiveCryptocomEngineConfigs();
     for (const config of configs) {
       await scanOneUser(config.userId).catch((e) => console.error(`[cryptocom-scanner] user ${config.userId} scan failed:`, e.message));
@@ -54259,9 +54289,9 @@ async function getStopOrdersForUser(userId, filters = {}) {
 init_schema();
 
 // server/build-info.ts
-var BUILD_COMMIT = "f52f379a-dirty";
+var BUILD_COMMIT = "e2da5a52-dirty";
 var BUILD_BRANCH = "main";
-var BUILT_AT = "2026-09-20T01:50:16.874Z";
+var BUILT_AT = "2026-09-20T02:47:45.628Z";
 
 // server/stripe.ts
 init_db();

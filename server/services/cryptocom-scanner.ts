@@ -863,7 +863,11 @@ async function scanOneUser(userId: number): Promise<void> {
     return;
   }
 
-  await monitorOpenPositions(userId, config).catch((e: any) => console.error(`[cryptocom-scanner] monitorOpenPositions failed for user ${userId}:`, e.message));
+  // NOTE: monitorOpenPositions is deliberately NOT called here any more. It now
+  // runs unconditionally at the top of runCryptocomEngineScan, before any of
+  // this function's four early-return gates, so exits keep working when the
+  // engine is stopped or a connection is deactivated. Calling it here too would
+  // evaluate the same position twice per cycle and risk a duplicate close.
 
   // Warm the self-learning brain once per cycle so sizing/gating read fresh learning.
   if ((config as any).cryptoBrainEnabled !== false) await getOrRefreshCryptoBrain(userId).catch(() => {});
@@ -936,6 +940,37 @@ export async function runCryptocomEngineScan(): Promise<void> {
     }
   }
   try {
+    // ── EXIT MANAGEMENT FIRST, and unconditionally ──────────────────────────
+    // monitorOpenPositions used to be reachable only from inside scanOneUser,
+    // which returns early on FOUR separate conditions: no config, config not
+    // active, the per-user scan-interval throttle, and no active connection. So
+    // stopping the engine, deactivating a connection, or rotating an API key
+    // silently abandoned every open position — and since perp entries attach no
+    // exchange-side stop, "abandoned" means unprotected.
+    //
+    // Exits are not part of scanning for new entries and must not share its
+    // gates. Stopping the engine should stop new ENTRIES, never orphan live
+    // positions. This pass runs for every user holding an open trade, whether
+    // or not their engine is switched on, and is throttle-free.
+    const holders = await storage.getUserIdsWithOpenCryptocomTrades().catch((e: any) => {
+      console.error('[cryptocom-scanner] could not list users with open trades — exit management SKIPPED this cycle:', e?.message);
+      return [] as number[];
+    });
+    for (const uid of holders) {
+      try {
+        // The config supplies trail parameters only. A missing config must not
+        // block exits, so fall back to defaults that still honour SL/TP.
+        const cfg = await storage.getUserCryptocomEngineConfig(uid);
+        await monitorOpenPositions(uid, (cfg ?? {
+          trailMethod: 'none', trailActivationR: 1, trailFixedR: 0.5,
+          trailStepR: 0.5, trailProfitLockPct: 50, trailSarInitialAf: 0.02,
+          trailSarMaxAf: 0.2, breakevenBufferR: 0,
+        }) as any);
+      } catch (e: any) {
+        console.error(`[cryptocom-scanner] exit management failed for user ${uid}:`, e?.message);
+      }
+    }
+
     const configs = await storage.getAllActiveCryptocomEngineConfigs();
     for (const config of configs) {
       await scanOneUser(config.userId).catch((e: any) => console.error(`[cryptocom-scanner] user ${config.userId} scan failed:`, e.message));

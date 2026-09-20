@@ -435,6 +435,7 @@ export interface IStorage {
   getUserCryptocomEngineActivity(userId: number, limit?: number): Promise<CryptocomEngineActivity[]>;
   createCryptocomEngineTrade(trade: InsertCryptocomEngineTrade): Promise<CryptocomEngineTrade>;
   getOpenCryptocomEngineTrades(userId: number): Promise<CryptocomEngineTrade[]>;
+  getUserIdsWithOpenCryptocomTrades(): Promise<number[]>;
   getUserCryptocomEngineTrades(userId: number, limit?: number): Promise<CryptocomEngineTrade[]>;
   closeCryptocomEngineTrade(id: number, data: { exitPrice: number; exitOrderId?: string; exitReason: string; realizedPnl: number }): Promise<CryptocomEngineTrade | undefined>;
   getTodayCryptocomEngineTradeCount(userId: number): Promise<number>;
@@ -2461,6 +2462,19 @@ export class DatabaseStorage implements IStorage {
   async getOpenCryptocomEngineTrades(userId: number): Promise<CryptocomEngineTrade[]> {
     return db.select().from(cryptocomEngineTrades)
       .where(and(eq(cryptocomEngineTrades.userId, userId), eq(cryptocomEngineTrades.status, 'open')));
+  }
+
+  /**
+   * Every user holding an open crypto position, REGARDLESS of whether their
+   * engine config is active. Exit management must not depend on the engine
+   * being switched on — stopping the engine should stop new entries, not
+   * abandon live positions to run unprotected.
+   */
+  async getUserIdsWithOpenCryptocomTrades(): Promise<number[]> {
+    const rows = await db.selectDistinct({ userId: cryptocomEngineTrades.userId })
+      .from(cryptocomEngineTrades)
+      .where(eq(cryptocomEngineTrades.status, 'open'));
+    return rows.map(r => r.userId);
   }
 
   async getUserCryptocomEngineTrades(userId: number, limit: number = 50): Promise<CryptocomEngineTrade[]> {
