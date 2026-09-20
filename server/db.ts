@@ -18,6 +18,20 @@ const DATABASE_URL =
   process.env.DATABASE_URL ||
   'postgres://localhost:5432/veddai';
 
+// The localhost fallback is a convenience for local dev and a TRAP in production:
+// a Render service created without env vars silently "connects" to a database
+// that does not exist, so every query fails with a connection error rather than
+// anything that names the real problem. That is exactly how vedd-crypto-worker
+// went dark — the crypto scanner's lock check threw, it reported lock contention,
+// and the engine stayed down. Say it loudly instead.
+if (process.env.NODE_ENV === 'production' && !process.env.DATABASE_URL && !buildHeliumUrl()) {
+  console.error(
+    '[db] FATAL-ish: DATABASE_URL is NOT SET in a production process — falling back to ' +
+    'postgres://localhost:5432/veddai, which will fail every query. Render does NOT copy ' +
+    'env vars between services: set DATABASE_URL on THIS service.'
+  );
+}
+
 const isNeon = DATABASE_URL.includes('neon.tech');
 const isSupabase = DATABASE_URL.includes('supabase.co') || DATABASE_URL.includes('supabase.com');
 const isSupabasePooler = DATABASE_URL.includes('pooler.supabase.com');

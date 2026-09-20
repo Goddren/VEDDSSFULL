@@ -3660,6 +3660,11 @@ var init_db = __esm({
       return null;
     };
     DATABASE_URL = buildHeliumUrl() || process.env.DATABASE_URL || "postgres://localhost:5432/veddai";
+    if (process.env.NODE_ENV === "production" && !process.env.DATABASE_URL && !buildHeliumUrl()) {
+      console.error(
+        "[db] FATAL-ish: DATABASE_URL is NOT SET in a production process \u2014 falling back to postgres://localhost:5432/veddai, which will fail every query. Render does NOT copy env vars between services: set DATABASE_URL on THIS service."
+      );
+    }
     isNeon = DATABASE_URL.includes("neon.tech");
     isSupabase = DATABASE_URL.includes("supabase.co") || DATABASE_URL.includes("supabase.com");
     isSupabasePooler = DATABASE_URL.includes("pooler.supabase.com");
@@ -14917,8 +14922,8 @@ async function runCryptocomEngineScan() {
   const ownedHere = !_holdsRunLock;
   if (ownedHere) {
     const locked = await acquireCryptoRunLock();
-    if (!locked) {
-      console.error("[cryptocom-scanner] SKIPPING scan \u2014 another process holds the crypto run lock (or the lock could not be verified). This prevents double-trading.");
+    if (locked !== "acquired") {
+      console.error(locked === "held_elsewhere" ? "[cryptocom-scanner] SKIPPING scan \u2014 another process holds the crypto run lock. This prevents double-trading." : "[cryptocom-scanner] SKIPPING scan \u2014 the run lock could not be VERIFIED (database unreachable?). Failing closed.");
       return;
     }
   }
@@ -14971,13 +14976,13 @@ async function acquireCryptoRunLock() {
     if (r.rows?.[0]?.locked === true) {
       global.__cryptoRunLockClient = client2;
       _holdsRunLock = true;
-      return true;
+      return "acquired";
     }
     client2.release();
-    return false;
+    return "held_elsewhere";
   } catch (e) {
     console.error("[cryptocom-scanner] advisory-lock check FAILED \u2014 refusing to scan this cycle (fail-closed to prevent double-trading):", e?.message);
-    return false;
+    return "check_failed";
   }
 }
 async function releaseCryptoRunLock() {
@@ -14998,26 +15003,30 @@ async function releaseCryptoRunLock() {
 function startCryptocomEngineScanner() {
   if (started) return;
   started = true;
-  acquireCryptoRunLock().then((locked) => {
-    if (!locked) {
-      started = false;
-      console.error("[cryptocom-scanner] REFUSING to start \u2014 another process already holds the crypto run lock (worker/cron already running). This prevents double-trading. Set ENABLE_CRYPTO_ENGINE=false on the web service if this is the web process.");
-      return;
-    }
-    const LOOP_INTERVAL_MS = 6e4;
-    setInterval(() => {
-      if (scanInFlight) {
-        console.warn("[cryptocom-scanner] previous scan still running \u2014 skipping this tick to avoid overlap/OOM");
+  const RETRY_MS = 6e4;
+  const tryStart = () => {
+    acquireCryptoRunLock().then((locked) => {
+      if (locked !== "acquired") {
+        console.error(locked === "held_elsewhere" ? `[cryptocom-scanner] NOT starting \u2014 another process already holds the crypto run lock (worker/cron already running). This prevents double-trading. Set ENABLE_CRYPTO_ENGINE=false on the web service if this is the web process. Retrying in ${RETRY_MS / 1e3}s.` : `[cryptocom-scanner] NOT starting \u2014 the run lock could not be VERIFIED, so the database is probably unreachable. Check DATABASE_URL on THIS service (Render does not copy env vars between services). Retrying in ${RETRY_MS / 1e3}s.`);
+        setTimeout(tryStart, RETRY_MS);
         return;
       }
-      scanInFlight = true;
-      runCryptocomEngineScan().catch(() => {
-      }).finally(() => {
-        scanInFlight = false;
-      });
-    }, LOOP_INTERVAL_MS);
-    console.log("[cryptocom-scanner] Background Crypto.com perpetuals scan loop started (60s tick, re-entrancy guarded, per-user throttled, strategies: trend_following/momentum/auto).");
-  });
+      const LOOP_INTERVAL_MS = 6e4;
+      setInterval(() => {
+        if (scanInFlight) {
+          console.warn("[cryptocom-scanner] previous scan still running \u2014 skipping this tick to avoid overlap/OOM");
+          return;
+        }
+        scanInFlight = true;
+        runCryptocomEngineScan().catch(() => {
+        }).finally(() => {
+          scanInFlight = false;
+        });
+      }, LOOP_INTERVAL_MS);
+      console.log("[cryptocom-scanner] Background Crypto.com perpetuals scan loop started (60s tick, re-entrancy guarded, per-user throttled, strategies: trend_following/momentum/auto).");
+    });
+  };
+  tryStart();
 }
 
 // server/crypto-worker.ts

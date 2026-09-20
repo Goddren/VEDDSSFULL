@@ -973,8 +973,10 @@ export async function runCryptocomEngineScan(): Promise<void> {
   const ownedHere = !_holdsRunLock;
   if (ownedHere) {
     const locked = await acquireCryptoRunLock();
-    if (!locked) {
-      console.error('[cryptocom-scanner] SKIPPING scan — another process holds the crypto run lock (or the lock could not be verified). This prevents double-trading.');
+    if (locked !== 'acquired') {
+      console.error(locked === 'held_elsewhere'
+        ? '[cryptocom-scanner] SKIPPING scan — another process holds the crypto run lock. This prevents double-trading.'
+        : '[cryptocom-scanner] SKIPPING scan — the run lock could not be VERIFIED (database unreachable?). Failing closed.');
       return;
     }
   }
@@ -1050,7 +1052,9 @@ const CRYPTO_RUN_LOCK_KEY = 918273645; // arbitrary constant unique to this scan
 // session and ask again, or it would refuse itself.
 let _holdsRunLock = false;
 
-async function acquireCryptoRunLock(): Promise<boolean> {
+type LockResult = 'acquired' | 'held_elsewhere' | 'check_failed';
+
+async function acquireCryptoRunLock(): Promise<LockResult> {
   try {
     const { pool } = await import('../db');
     const client = await pool.connect();
@@ -1059,10 +1063,10 @@ async function acquireCryptoRunLock(): Promise<boolean> {
       // Hold the client so the session-level lock persists until we release it.
       (global as any).__cryptoRunLockClient = client;
       _holdsRunLock = true;
-      return true;
+      return 'acquired';
     }
     client.release();
-    return false;
+    return 'held_elsewhere';
   } catch (e: any) {
     // FAIL CLOSED. This used to `return true` on any error, reasoning that a
     // lock-infra problem shouldn't disable the engine — but the failure it
@@ -1072,7 +1076,7 @@ async function acquireCryptoRunLock(): Promise<boolean> {
     // applied across this codebase: "could not verify" is never "safe to
     // proceed".
     console.error('[cryptocom-scanner] advisory-lock check FAILED — refusing to scan this cycle (fail-closed to prevent double-trading):', e?.message);
-    return false;
+    return 'check_failed';
   }
 }
 
@@ -1090,10 +1094,22 @@ async function releaseCryptoRunLock(): Promise<void> {
 export function startCryptocomEngineScanner(): void {
   if (started) return;
   started = true;
-  acquireCryptoRunLock().then((locked) => {
-    if (!locked) {
-      started = false; // permit a later retry
-      console.error('[cryptocom-scanner] REFUSING to start — another process already holds the crypto run lock (worker/cron already running). This prevents double-trading. Set ENABLE_CRYPTO_ENGINE=false on the web service if this is the web process.');
+  // RETRY, never give up. This used to ask for the lock once and `return` on any
+  // answer but yes — which left NOTHING holding the event loop open, so the
+  // always-on worker exited silently with code 0. Render logged a clean restart,
+  // not a crash, and the engine stayed dark. Seen live: a worker with no
+  // DATABASE_URL fell back to localhost, the lock check threw, this path fired,
+  // and crypto was down until someone went looking. A transient DB blip at boot
+  // must not be permanent downtime, so we keep a timer alive and re-ask.
+  const RETRY_MS = 60000;
+  const tryStart = () => {
+    acquireCryptoRunLock().then((locked) => {
+    if (locked !== 'acquired') {
+      console.error(locked === 'held_elsewhere'
+        ? `[cryptocom-scanner] NOT starting — another process already holds the crypto run lock (worker/cron already running). This prevents double-trading. Set ENABLE_CRYPTO_ENGINE=false on the web service if this is the web process. Retrying in ${RETRY_MS / 1000}s.`
+        : `[cryptocom-scanner] NOT starting — the run lock could not be VERIFIED, so the database is probably unreachable. Check DATABASE_URL on THIS service (Render does not copy env vars between services). Retrying in ${RETRY_MS / 1000}s.`);
+      // This timer is also what keeps the process alive to retry at all.
+      setTimeout(tryStart, RETRY_MS);
       return;
     }
   const LOOP_INTERVAL_MS = 60000;
@@ -1113,5 +1129,7 @@ export function startCryptocomEngineScanner(): void {
       .finally(() => { scanInFlight = false; });
   }, LOOP_INTERVAL_MS);
   console.log('[cryptocom-scanner] Background Crypto.com perpetuals scan loop started (60s tick, re-entrancy guarded, per-user throttled, strategies: trend_following/momentum/auto).');
-  });
+    });
+  };
+  tryStart();
 }
