@@ -37641,7 +37641,18 @@ function startCryptocomEngineScanner() {
         scanInFlight = true;
         const _t0 = Date.now();
         void hb({ tick_at: /* @__PURE__ */ new Date(), scan_started_at: /* @__PURE__ */ new Date(), phase: "scan:start", skipped_ticks: 0 });
-        runCryptocomEngineScan().then(() => {
+        const SCAN_TIMEOUT_MS = 4 * 60 * 1e3;
+        let _timedOut = false;
+        const _watchdog = new Promise((resolve) => setTimeout(() => {
+          _timedOut = true;
+          resolve();
+        }, SCAN_TIMEOUT_MS));
+        Promise.race([runCryptocomEngineScan(), _watchdog]).then(() => {
+          if (_timedOut) {
+            console.error(`[cryptocom-scanner] scan EXCEEDED ${SCAN_TIMEOUT_MS / 1e3}s and was abandoned \u2014 the loop continues so the engine cannot freeze. Check the heartbeat phase for where it hung.`);
+            void hb({ scan_finished_at: /* @__PURE__ */ new Date(), last_duration_ms: Date.now() - _t0, phase: "timed_out", last_error: `scan abandoned after ${SCAN_TIMEOUT_MS / 1e3}s` });
+            return;
+          }
           _scansCompleted++;
           void hb({ scan_finished_at: /* @__PURE__ */ new Date(), last_duration_ms: Date.now() - _t0, phase: "idle", scans_completed: _scansCompleted, last_error: null });
         }).catch((e) => {
@@ -54528,9 +54539,9 @@ async function getStopOrdersForUser(userId, filters = {}) {
 init_schema();
 
 // server/build-info.ts
-var BUILD_COMMIT = "6de6b2d0-dirty";
+var BUILD_COMMIT = "c8bda16b-dirty";
 var BUILD_BRANCH = "main";
-var BUILT_AT = "2026-09-20T12:58:48.190Z";
+var BUILT_AT = "2026-09-20T13:36:27.229Z";
 
 // server/stripe.ts
 init_db();

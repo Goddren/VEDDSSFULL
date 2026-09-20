@@ -1236,8 +1236,33 @@ export function startCryptocomEngineScanner(): void {
     scanInFlight = true;
     const _t0 = Date.now();
     void hb({ tick_at: new Date(), scan_started_at: new Date(), phase: 'scan:start', skipped_ticks: 0 });
-    runCryptocomEngineScan()
-      .then(() => { _scansCompleted++; void hb({ scan_finished_at: new Date(), last_duration_ms: Date.now() - _t0, phase: 'idle', scans_completed: _scansCompleted, last_error: null }); })
+
+    // WATCHDOG. A scan that never settles freezes the engine permanently: the
+    // re-entrancy guard keeps skipping every tick, and the run lock is held for
+    // the process lifetime, so no replacement worker can start either.
+    // Observed 2026-09-20: the worker stopped mid DeFi exit at 07:15:50 and did
+    // nothing for the next six hours while holding the lock. The hang is inside
+    // ethers' sendTransaction (gas estimation has no timeout of its own), so
+    // nothing below this level can be relied on to return.
+    //
+    // The timed-out work cannot be cancelled — it dangles until its socket
+    // gives up — but the LOOP must recover. Booking a close it might still
+    // complete is prevented by the close-claim (the trade sits in 'closing')
+    // and by the pre-flight balance check.
+    const SCAN_TIMEOUT_MS = 4 * 60 * 1000; // > a 90s confirm wait plus overhead
+    let _timedOut = false;
+    const _watchdog = new Promise<void>((resolve) => setTimeout(() => { _timedOut = true; resolve(); }, SCAN_TIMEOUT_MS));
+
+    Promise.race([runCryptocomEngineScan(), _watchdog])
+      .then(() => {
+        if (_timedOut) {
+          console.error(`[cryptocom-scanner] scan EXCEEDED ${SCAN_TIMEOUT_MS / 1000}s and was abandoned — the loop continues so the engine cannot freeze. Check the heartbeat phase for where it hung.`);
+          void hb({ scan_finished_at: new Date(), last_duration_ms: Date.now() - _t0, phase: 'timed_out', last_error: `scan abandoned after ${SCAN_TIMEOUT_MS / 1000}s` });
+          return;
+        }
+        _scansCompleted++;
+        void hb({ scan_finished_at: new Date(), last_duration_ms: Date.now() - _t0, phase: 'idle', scans_completed: _scansCompleted, last_error: null });
+      })
       .catch((e: any) => { void hb({ scan_finished_at: new Date(), last_duration_ms: Date.now() - _t0, phase: 'error', last_error: String(e?.message ?? e).slice(0, 500) }); })
       .finally(() => { scanInFlight = false; });
   }, LOOP_INTERVAL_MS);
