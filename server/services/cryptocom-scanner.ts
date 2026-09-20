@@ -876,7 +876,33 @@ async function scanOneUser(userId: number): Promise<void> {
   }
 }
 
+/**
+ * ONE scan cycle across all active users, guarded by the cross-process run lock.
+ *
+ * The lock lives HERE rather than only in startCryptocomEngineScanner() because
+ * this function is also the direct entry point for crypto-cron.ts, which called
+ * it with no lock at all. Worker + cron both deployed therefore scanned the same
+ * user in the same window and placed two orders for one signal. That is not
+ * theoretical: trades 27/28 are the same UNI signal 22.5s apart with two order
+ * ids, and 9/10 and 11/12 show the same pattern. Putting the acquire/release at
+ * the single choke point means every caller — worker loop, cron, web — is
+ * covered by construction rather than by remembering to wrap the call.
+ *
+ * A process that already holds the lock for its lifetime (the worker, via
+ * startCryptocomEngineScanner) must NOT try to take it again: advisory locks are
+ * per-session, so a second session would be refused and the worker would block
+ * itself. `_holdsRunLock` distinguishes those cases.
+ */
 export async function runCryptocomEngineScan(): Promise<void> {
+  // Only acquire if this process isn't already holding it for its lifetime.
+  const ownedHere = !_holdsRunLock;
+  if (ownedHere) {
+    const locked = await acquireCryptoRunLock();
+    if (!locked) {
+      console.error('[cryptocom-scanner] SKIPPING scan — another process holds the crypto run lock (or the lock could not be verified). This prevents double-trading.');
+      return;
+    }
+  }
   try {
     const configs = await storage.getAllActiveCryptocomEngineConfigs();
     for (const config of configs) {
@@ -884,6 +910,10 @@ export async function runCryptocomEngineScan(): Promise<void> {
     }
   } catch (err: any) {
     console.error('[cryptocom-scanner] runCryptocomEngineScan failed:', err.message);
+  } finally {
+    // Release only what this call took, so the next cron invocation can acquire.
+    // The long-lived worker keeps its lock (ownedHere === false there).
+    if (ownedHere) await releaseCryptoRunLock();
   }
 }
 
@@ -898,23 +928,46 @@ let scanInFlight = false;
 // out of the web process. A Postgres session-level advisory lock, held for the
 // process lifetime, makes only one crypto scanner active across all processes.
 const CRYPTO_RUN_LOCK_KEY = 918273645; // arbitrary constant unique to this scanner
+// True when THIS process is holding the advisory lock. Needed because advisory
+// locks are per-session: a process that already holds it must not open a second
+// session and ask again, or it would refuse itself.
+let _holdsRunLock = false;
+
 async function acquireCryptoRunLock(): Promise<boolean> {
   try {
     const { pool } = await import('../db');
     const client = await pool.connect();
     const r = await client.query('SELECT pg_try_advisory_lock($1) AS locked', [CRYPTO_RUN_LOCK_KEY]);
     if (r.rows?.[0]?.locked === true) {
-      // Hold the client (never release) so the session-level lock persists.
+      // Hold the client so the session-level lock persists until we release it.
       (global as any).__cryptoRunLockClient = client;
+      _holdsRunLock = true;
       return true;
     }
     client.release();
     return false;
   } catch (e: any) {
-    // Fail-open: a lock-infra error must not permanently disable the engine.
-    console.error('[cryptocom-scanner] advisory-lock check failed (allowing start):', e?.message);
-    return true;
+    // FAIL CLOSED. This used to `return true` on any error, reasoning that a
+    // lock-infra problem shouldn't disable the engine — but the failure it
+    // permits is two processes trading the same signal with real money, which
+    // is strictly worse than not trading for a cycle. A transient DB error now
+    // skips the cycle; the next tick/cron retries. Consistent with the rule
+    // applied across this codebase: "could not verify" is never "safe to
+    // proceed".
+    console.error('[cryptocom-scanner] advisory-lock check FAILED — refusing to scan this cycle (fail-closed to prevent double-trading):', e?.message);
+    return false;
   }
+}
+
+/** Release the run lock held by this process, if any. */
+async function releaseCryptoRunLock(): Promise<void> {
+  const client = (global as any).__cryptoRunLockClient;
+  (global as any).__cryptoRunLockClient = null;
+  _holdsRunLock = false;
+  if (!client) return;
+  try { await client.query('SELECT pg_advisory_unlock($1)', [CRYPTO_RUN_LOCK_KEY]); }
+  catch (e: any) { console.error('[cryptocom-scanner] advisory-unlock failed (session close will release it):', e?.message); }
+  try { client.release(); } catch { /* pool already gone */ }
 }
 
 export function startCryptocomEngineScanner(): void {

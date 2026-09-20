@@ -37333,6 +37333,14 @@ async function scanOneUser(userId) {
   }
 }
 async function runCryptocomEngineScan() {
+  const ownedHere = !_holdsRunLock;
+  if (ownedHere) {
+    const locked = await acquireCryptoRunLock();
+    if (!locked) {
+      console.error("[cryptocom-scanner] SKIPPING scan \u2014 another process holds the crypto run lock (or the lock could not be verified). This prevents double-trading.");
+      return;
+    }
+  }
   try {
     const configs = await storage.getAllActiveCryptocomEngineConfigs();
     for (const config of configs) {
@@ -37340,6 +37348,8 @@ async function runCryptocomEngineScan() {
     }
   } catch (err) {
     console.error("[cryptocom-scanner] runCryptocomEngineScan failed:", err.message);
+  } finally {
+    if (ownedHere) await releaseCryptoRunLock();
   }
 }
 async function acquireCryptoRunLock() {
@@ -37349,13 +37359,29 @@ async function acquireCryptoRunLock() {
     const r = await client2.query("SELECT pg_try_advisory_lock($1) AS locked", [CRYPTO_RUN_LOCK_KEY]);
     if (r.rows?.[0]?.locked === true) {
       global.__cryptoRunLockClient = client2;
+      _holdsRunLock = true;
       return true;
     }
     client2.release();
     return false;
   } catch (e) {
-    console.error("[cryptocom-scanner] advisory-lock check failed (allowing start):", e?.message);
-    return true;
+    console.error("[cryptocom-scanner] advisory-lock check FAILED \u2014 refusing to scan this cycle (fail-closed to prevent double-trading):", e?.message);
+    return false;
+  }
+}
+async function releaseCryptoRunLock() {
+  const client2 = global.__cryptoRunLockClient;
+  global.__cryptoRunLockClient = null;
+  _holdsRunLock = false;
+  if (!client2) return;
+  try {
+    await client2.query("SELECT pg_advisory_unlock($1)", [CRYPTO_RUN_LOCK_KEY]);
+  } catch (e) {
+    console.error("[cryptocom-scanner] advisory-unlock failed (session close will release it):", e?.message);
+  }
+  try {
+    client2.release();
+  } catch {
   }
 }
 function startCryptocomEngineScanner() {
@@ -37382,7 +37408,7 @@ function startCryptocomEngineScanner() {
     console.log("[cryptocom-scanner] Background Crypto.com perpetuals scan loop started (60s tick, re-entrancy guarded, per-user throttled, strategies: trend_following/momentum/auto).");
   });
 }
-var MIN_SCAN_INTERVAL_MS, lastScanAt, MAX_SYMBOLS_PER_CYCLE, scanCursor, STRATEGY_RUNNERS, AUTO_STRATEGIES, sessionPeakEquity, started2, scanInFlight, CRYPTO_RUN_LOCK_KEY;
+var MIN_SCAN_INTERVAL_MS, lastScanAt, MAX_SYMBOLS_PER_CYCLE, scanCursor, STRATEGY_RUNNERS, AUTO_STRATEGIES, sessionPeakEquity, started2, scanInFlight, CRYPTO_RUN_LOCK_KEY, _holdsRunLock;
 var init_cryptocom_scanner = __esm({
   "server/services/cryptocom-scanner.ts"() {
     "use strict";
@@ -37408,6 +37434,7 @@ var init_cryptocom_scanner = __esm({
     started2 = false;
     scanInFlight = false;
     CRYPTO_RUN_LOCK_KEY = 918273645;
+    _holdsRunLock = false;
   }
 });
 
@@ -54224,9 +54251,9 @@ async function getStopOrdersForUser(userId, filters = {}) {
 init_schema();
 
 // server/build-info.ts
-var BUILD_COMMIT = "f22ab22f-dirty";
+var BUILD_COMMIT = "58c19182-dirty";
 var BUILD_BRANCH = "main";
-var BUILT_AT = "2026-09-20T00:37:40.670Z";
+var BUILT_AT = "2026-09-20T00:54:58.978Z";
 
 // server/stripe.ts
 init_db();
