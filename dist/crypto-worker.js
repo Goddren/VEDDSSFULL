@@ -15118,6 +15118,30 @@ async function acquireCryptoRunLock() {
     return "check_failed";
   }
 }
+var STALE_AFTER_MS = 5 * 60 * 1e3;
+async function breakStaleRunLock() {
+  try {
+    const { pool: pool2 } = await Promise.resolve().then(() => (init_db(), db_exports));
+    const { rows: hb2 } = await pool2.query(`SELECT worker_id, tick_at FROM crypto_engine_heartbeat WHERE id=1`);
+    const tick = hb2[0]?.tick_at ? new Date(hb2[0].tick_at).getTime() : 0;
+    const age = Date.now() - tick;
+    if (tick && age < STALE_AFTER_MS) return;
+    const { rows } = await pool2.query(
+      `SELECT a.pid, round(extract(epoch from now()-a.backend_start)/60) held_min
+         FROM pg_locks l JOIN pg_stat_activity a ON a.pid = l.pid
+        WHERE l.locktype='advisory' AND l.objid=$1
+          AND a.pid <> pg_backend_pid()
+          AND a.backend_start < now() - interval '5 minutes'`,
+      [CRYPTO_RUN_LOCK_KEY]
+    );
+    for (const r of rows) {
+      console.error(`[cryptocom-scanner] run lock held by pid ${r.pid} for ${r.held_min} min with a heartbeat ${tick ? Math.round(age / 6e4) + " min" : "never written"} \u2014 its process is gone. Terminating that session to release the lock.`);
+      await pool2.query(`SELECT pg_terminate_backend($1)`, [r.pid]);
+    }
+  } catch (e) {
+    console.error("[cryptocom-scanner] could not check/break a stale run lock:", e?.message);
+  }
+}
 async function releaseCryptoRunLock() {
   const client2 = global.__cryptoRunLockClient;
   global.__cryptoRunLockClient = null;
@@ -15141,6 +15165,8 @@ function startCryptocomEngineScanner() {
     acquireCryptoRunLock().then((locked) => {
       if (locked !== "acquired") {
         console.error(locked === "held_elsewhere" ? `[cryptocom-scanner] NOT starting \u2014 another process already holds the crypto run lock (worker/cron already running). This prevents double-trading. Set ENABLE_CRYPTO_ENGINE=false on the web service if this is the web process. Retrying in ${RETRY_MS / 1e3}s.` : `[cryptocom-scanner] NOT starting \u2014 the run lock could not be VERIFIED, so the database is probably unreachable. Check DATABASE_URL on THIS service (Render does not copy env vars between services). Retrying in ${RETRY_MS / 1e3}s.`);
+        void hb({ tick_at: /* @__PURE__ */ new Date(), phase: locked === "held_elsewhere" ? "waiting_for_lock" : "db_unreachable", last_error: `startup: ${locked}` });
+        if (locked === "held_elsewhere") void breakStaleRunLock();
         setTimeout(tryStart, RETRY_MS);
         return;
       }

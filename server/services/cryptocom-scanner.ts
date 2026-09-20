@@ -1131,6 +1131,51 @@ async function acquireCryptoRunLock(): Promise<LockResult> {
   }
 }
 
+/**
+ * Break the run lock when its holder is provably dead.
+ *
+ * An advisory lock lives on the SESSION, not the process, so a worker killed
+ * abruptly (deploy, OOM, container replacement) can leave its Postgres backend
+ * connected and idle for hours, still holding the lock. Seen live on
+ * 2026-09-20: pid 2315945 held it for 341 minutes, its last query being the
+ * pg_try_advisory_lock that took it, while the engine did nothing. Every
+ * replacement worker was refused and retried forever.
+ *
+ * A session-level lock can only be released by its owner, so the only remedy is
+ * to terminate that backend. This is deliberately narrow: it acts only on a
+ * session holding THIS key, and only when the heartbeat proves no scan has run
+ * for STALE_AFTER_MS. A live worker refreshes tick_at every 60s, so a healthy
+ * holder can never be targeted.
+ */
+const STALE_AFTER_MS = 5 * 60 * 1000;
+
+async function breakStaleRunLock(): Promise<void> {
+  try {
+    const { pool } = await import('../db');
+    const { rows: hb } = await pool.query(`SELECT worker_id, tick_at FROM crypto_engine_heartbeat WHERE id=1`);
+    const tick = hb[0]?.tick_at ? new Date(hb[0].tick_at).getTime() : 0;
+    const age = Date.now() - tick;
+    // No heartbeat at all means the holder predates this instrumentation, which
+    // is itself evidence it is stale — but only once it has held long enough
+    // that a live worker would certainly have written one.
+    if (tick && age < STALE_AFTER_MS) return; // holder is alive and working
+    const { rows } = await pool.query(
+      `SELECT a.pid, round(extract(epoch from now()-a.backend_start)/60) held_min
+         FROM pg_locks l JOIN pg_stat_activity a ON a.pid = l.pid
+        WHERE l.locktype='advisory' AND l.objid=$1
+          AND a.pid <> pg_backend_pid()
+          AND a.backend_start < now() - interval '5 minutes'`,
+      [CRYPTO_RUN_LOCK_KEY],
+    );
+    for (const r of rows) {
+      console.error(`[cryptocom-scanner] run lock held by pid ${r.pid} for ${r.held_min} min with a heartbeat ${tick ? Math.round(age / 60000) + ' min' : 'never written'} — its process is gone. Terminating that session to release the lock.`);
+      await pool.query(`SELECT pg_terminate_backend($1)`, [r.pid]);
+    }
+  } catch (e: any) {
+    console.error('[cryptocom-scanner] could not check/break a stale run lock:', e?.message);
+  }
+}
+
 /** Release the run lock held by this process, if any. */
 async function releaseCryptoRunLock(): Promise<void> {
   const client = (global as any).__cryptoRunLockClient;
@@ -1159,6 +1204,14 @@ export function startCryptocomEngineScanner(): void {
       console.error(locked === 'held_elsewhere'
         ? `[cryptocom-scanner] NOT starting — another process already holds the crypto run lock (worker/cron already running). This prevents double-trading. Set ENABLE_CRYPTO_ENGINE=false on the web service if this is the web process. Retrying in ${RETRY_MS / 1000}s.`
         : `[cryptocom-scanner] NOT starting — the run lock could not be VERIFIED, so the database is probably unreachable. Check DATABASE_URL on THIS service (Render does not copy env vars between services). Retrying in ${RETRY_MS / 1000}s.`);
+      // Report even while locked out. The first version of this heartbeat only
+      // began writing AFTER the lock was acquired, so a worker stuck in this
+      // retry loop stayed completely invisible — the exact blind spot the
+      // heartbeat exists to remove.
+      void hb({ tick_at: new Date(), phase: locked === 'held_elsewhere' ? 'waiting_for_lock' : 'db_unreachable', last_error: `startup: ${locked}` });
+      // A holder whose process is gone leaves its Postgres session — and the
+      // session-level lock with it — behind. Nothing then ever starts again.
+      if (locked === 'held_elsewhere') void breakStaleRunLock();
       // This timer is also what keeps the process alive to retry at all.
       setTimeout(tryStart, RETRY_MS);
       return;
