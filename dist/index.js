@@ -55098,9 +55098,9 @@ async function getStopOrdersForUser(userId, filters = {}) {
 init_schema();
 
 // server/build-info.ts
-var BUILD_COMMIT = "37e529ed-dirty";
+var BUILD_COMMIT = "35f8243e-dirty";
 var BUILD_BRANCH = "main";
-var BUILT_AT = "2026-09-20T19:38:25.147Z";
+var BUILT_AT = "2026-09-20T19:51:57.924Z";
 
 // server/stripe.ts
 init_db();
@@ -64946,15 +64946,20 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
         const ticketStr = ticket.toString();
         const closePnl = typeof profit === "number" ? profit : parseFloat(profit || "0") || 0;
         const closeExit = exitPrice || closePrice || 0;
+        const closeEntry = [entryPrice, req.body.openPrice, req.body.open_price, req.body.entry, req.body.entryPrice].map((v) => Number(v)).find((n) => Number.isFinite(n) && n > 0) ?? 0;
         const closeResult = closePnl > 0 ? "WIN" : closePnl < 0 ? "LOSS" : "BREAKEVEN";
         try {
           const existingResult = await storage.getAiTradeResultByTicket(token.userId, ticketStr);
           if (existingResult) {
             if (!existingResult.result || existingResult.result === "PENDING") {
+              const resolvedEntry = Number(existingResult.entryPrice) > 0 ? Number(existingResult.entryPrice) : closeEntry;
+              const resolvedExit = closeExit || Number(existingResult.exitPrice) || 0;
               await storage.updateAiTradeResult(existingResult.id, token.userId, {
                 result: closeResult,
                 exitPrice: closeExit || existingResult.exitPrice,
+                ...resolvedEntry > 0 && !(Number(existingResult.entryPrice) > 0) ? { entryPrice: resolvedEntry } : {},
                 profitLoss: closePnl,
+                profitLossPips: computePips(existingResult.symbol || symbol, resolvedEntry, resolvedExit, existingResult.direction || direction),
                 closedAt: /* @__PURE__ */ new Date()
               });
             }
@@ -64963,13 +64968,13 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
               userId: token.userId,
               symbol: (symbol || "UNKNOWN").toUpperCase(),
               direction: direction || "BUY",
-              entryPrice: entryPrice || 0,
+              entryPrice: closeEntry || 0,
               exitPrice: closeExit || 0,
               stopLoss: stopLoss || null,
               takeProfit: takeProfit || null,
               // Was never populated on any row, anywhere (2,225/2,225 NULL),
               // while avgWinPips and the brain's actualPips feature read it.
-              profitLossPips: computePips((symbol || "").toUpperCase(), entryPrice, closeExit, direction),
+              profitLossPips: computePips((symbol || "").toUpperCase(), closeEntry, closeExit, direction),
               aiConfidence: 0,
               result: closeResult,
               profitLoss: closePnl,

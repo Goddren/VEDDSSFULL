@@ -7911,17 +7911,32 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
         const ticketStr = ticket.toString();
         const closePnl = typeof profit === 'number' ? profit : parseFloat(profit || '0') || 0;
         const closeExit = exitPrice || closePrice || 0;
+        // entry_price is 0 on ALL 250 mt5_ea rows ever written, while exit_price
+        // is fine — because exitPrice/closePrice were aliased here and the entry
+        // never was. The EA sends it under a different name on CLOSE, so accept
+        // the spellings it actually uses. Without an entry price there is no pip
+        // count and no R-multiple; the trade records only its own outcome.
+        const closeEntry = [entryPrice, req.body.openPrice, req.body.open_price, req.body.entry, req.body.entryPrice]
+          .map((v: any) => Number(v))
+          .find((n: number) => Number.isFinite(n) && n > 0) ?? 0;
         const closeResult = closePnl > 0 ? 'WIN' : closePnl < 0 ? 'LOSS' : 'BREAKEVEN';
         try {
           const existingResult = await storage.getAiTradeResultByTicket(token.userId, ticketStr);
           if (existingResult) {
             if (!existingResult.result || existingResult.result === 'PENDING') {
+              // Prefer whatever the OPEN record already holds; only fill from the
+              // close payload when it is genuinely missing.
+              const resolvedEntry = Number((existingResult as any).entryPrice) > 0
+                ? Number((existingResult as any).entryPrice) : closeEntry;
+              const resolvedExit = closeExit || Number((existingResult as any).exitPrice) || 0;
               await storage.updateAiTradeResult(existingResult.id, token.userId, {
                 result: closeResult,
                 exitPrice: closeExit || existingResult.exitPrice,
+                ...(resolvedEntry > 0 && !(Number((existingResult as any).entryPrice) > 0) ? { entryPrice: resolvedEntry } : {}),
                 profitLoss: closePnl,
+                profitLossPips: computePips((existingResult as any).symbol || symbol, resolvedEntry, resolvedExit, (existingResult as any).direction || direction),
                 closedAt: new Date(),
-              });
+              } as any);
             }
           } else if (closePnl !== 0) {
             // No open record found — create a closed entry directly
@@ -7929,13 +7944,13 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
               userId: token.userId,
               symbol: (symbol || 'UNKNOWN').toUpperCase(),
               direction: direction || 'BUY',
-              entryPrice: entryPrice || 0,
+              entryPrice: closeEntry || 0,
               exitPrice: closeExit || 0,
               stopLoss: stopLoss || null,
               takeProfit: takeProfit || null,
               // Was never populated on any row, anywhere (2,225/2,225 NULL),
               // while avgWinPips and the brain's actualPips feature read it.
-              profitLossPips: computePips((symbol || '').toUpperCase(), entryPrice, closeExit, direction),
+              profitLossPips: computePips((symbol || '').toUpperCase(), closeEntry, closeExit, direction),
               aiConfidence: 0,
               result: closeResult,
               profitLoss: closePnl,
