@@ -13,3 +13,49 @@ services:
         value: 22.11.0
       - key: TRADELOCKER_ENCRYPTION_KEY
         value: vedd-tl-default-key-change-me-32chars!!
+
+  # ── Crypto engine owner ────────────────────────────────────────────────────
+  # ALWAYS-ON background worker, NOT a Cron Job. The 3-minute Render Cron Job
+  # that previously owned the crypto engine kept silently not firing: over
+  # 2026-09-10..19 it went dark 12 times, eight of those for exactly 720-722
+  # minutes (12h), plus one 37h outage. Scan timestamps sat on a fixed :00/:03/:06
+  # clock grid, which is what identified the cron (a setInterval loop drifts off
+  # the grid) — see server/crypto-worker.ts for the full rationale.
+  #
+  # A worker also restores two guards that CANNOT work under the cron: every
+  # in-process Map resets per invocation, so sessionPeakEquity always equals
+  # equity (Drawdown Shield + Ruin Guard can never fire) and scanCursor restarts
+  # at 0 (only the first 5 watchlist symbols ever get scanned).
+  #
+  # DELETE the old Cron Job when this goes live. If both run, the advisory run
+  # lock (f52f379a) refuses the second — not dangerous, just wasted spend.
+  #
+  # No drizzle push here: the web service owns schema migrations, and two
+  # services racing `drizzle-kit push --force` is how you lose a column. Build
+  # only installs deps — dist/ is committed and served as-is (Render's build
+  # does not regenerate it).
+  - type: worker
+    name: vedd-crypto-worker
+    env: node
+    region: oregon
+    plan: starter
+    buildCommand: npm install --legacy-peer-deps --ignore-scripts
+    startCommand: npm run crypto-worker
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: NODE_VERSION
+        value: 22.11.0
+      # Required. Same value as the web service.
+      - key: DATABASE_URL
+        sync: false
+      # Required. Decrypts BOTH the Crypto.com API secret and the DeFi hot-wallet
+      # private key (server/services/defi-swap.ts imports decryptApiSecret from
+      # server/cryptocom.ts). If this does not byte-match the web service's value,
+      # every decrypt fails and the engine can neither enter nor exit.
+      - key: CRYPTOCOM_ENCRYPTION_KEY
+        sync: false
+      # Required for DeFi swaps — isDefiSwapAvailable() is just !!ZEROX_API_KEY,
+      # so without it the live execution path is silently unavailable.
+      - key: ZEROX_API_KEY
+        sync: false
