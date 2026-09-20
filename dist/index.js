@@ -36867,12 +36867,22 @@ async function closePosition(userId, trade, currentPrice, reason) {
       }
       if (exit.exitPrice) currentPrice = exit.exitPrice;
     } else {
-      const connection2 = await storage.getUserCryptocomConnections(userId).then((c) => c.find((x) => x.id === trade.connectionId));
-      if (connection2) {
-        const service = new CryptoComService(connection2.apiKey, decryptApiSecret(connection2.encryptedApiSecret));
-        const closeSide = trade.direction === "long" ? "SELL" : "BUY";
-        await service.placeOrder({ instrumentName: trade.symbol, side: closeSide, quantity: trade.quantity, type: "MARKET" }).catch(() => {
+      const connection2 = await storage.getUserCryptocomConnections(userId).then((c) => c.find((x) => x.id === trade.connectionId)).catch(() => void 0);
+      if (!connection2) {
+        console.error(`[cryptocom-scanner] perp exit SKIPPED for trade ${trade.id} (${trade.symbol}): connection ${trade.connectionId} not found/inactive \u2014 position left OPEN`);
+        await storage.createCryptocomEngineActivity({ userId, symbol: trade.symbol, decision: "signal", strategy: trade.strategy, reasoning: `${trade.symbol}: perp EXIT SKIPPED (connection unavailable) \u2014 position still OPEN, will retry next cycle. No P&L booked.`, score: null, price: currentPrice, dailyChangePercent: null, source: "cryptocom" }).catch(() => {
         });
+        return;
+      }
+      const closeSide = trade.direction === "long" ? "SELL" : "BUY";
+      try {
+        const service = new CryptoComService(connection2.apiKey, decryptApiSecret(connection2.encryptedApiSecret));
+        await service.placeOrder({ instrumentName: trade.symbol, side: closeSide, quantity: trade.quantity, type: "MARKET" });
+      } catch (e) {
+        console.error(`[cryptocom-scanner] perp exit FAILED for trade ${trade.id} (${trade.symbol}): ${e?.message ?? e} \u2014 position left OPEN`);
+        await storage.createCryptocomEngineActivity({ userId, symbol: trade.symbol, decision: "signal", strategy: trade.strategy, reasoning: `${trade.symbol}: perp EXIT FAILED (${e?.message ?? "error"}) \u2014 position still OPEN, will retry next cycle. No P&L booked.`, score: null, price: currentPrice, dailyChangePercent: null, source: "cryptocom" }).catch(() => {
+        });
+        return;
       }
     }
     const realizedPnl = (trade.direction === "long" ? currentPrice - trade.entryPrice : trade.entryPrice - currentPrice) * trade.quantity;
@@ -54214,9 +54224,9 @@ async function getStopOrdersForUser(userId, filters = {}) {
 init_schema();
 
 // server/build-info.ts
-var BUILD_COMMIT = "50b1d3aa-dirty";
+var BUILD_COMMIT = "f22ab22f-dirty";
 var BUILD_BRANCH = "main";
-var BUILT_AT = "2026-09-19T11:25:41.624Z";
+var BUILT_AT = "2026-09-20T00:37:40.670Z";
 
 // server/stripe.ts
 init_db();

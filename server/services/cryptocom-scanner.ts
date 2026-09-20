@@ -361,11 +361,39 @@ async function closePosition(userId: number, trade: any, currentPrice: number, r
       }
       if (exit.exitPrice) currentPrice = exit.exitPrice;
     } else {
-      const connection = await storage.getUserCryptocomConnections(userId).then(c => c.find(x => x.id === trade.connectionId));
-      if (connection) {
+      // A7 (perp): NEVER book a close the venue didn't execute — same rule the
+      // DeFi and CeFi branches above already follow. This branch used to be
+      //     if (connection) { ... .placeOrder(...).catch(() => {}); }
+      // and then fell through to closeCryptocomEngineTrade UNCONDITIONALLY. So a
+      // rejected close (insufficient margin, rate limit, non-zero code, 12s
+      // timeout) — or simply a missing/inactive connection, which skipped the
+      // order entirely — flipped the row to `closed` with fabricated P&L. The
+      // brain and the prop-firm ledger then learned from that invented number,
+      // while a REAL leveraged position stayed open at the venue and dropped out
+      // of getOpenCryptocomEngineTrades, so nothing ever monitored or closed it
+      // again. Leaving the trade OPEN means the next monitor cycle retries.
+      const connection = await storage.getUserCryptocomConnections(userId)
+        .then(c => c.find(x => x.id === trade.connectionId))
+        .catch(() => undefined);
+      if (!connection) {
+        console.error(`[cryptocom-scanner] perp exit SKIPPED for trade ${trade.id} (${trade.symbol}): connection ${trade.connectionId} not found/inactive — position left OPEN`);
+        await storage.createCryptocomEngineActivity({ userId, symbol: trade.symbol, decision: 'signal', strategy: trade.strategy, reasoning: `${trade.symbol}: perp EXIT SKIPPED (connection unavailable) — position still OPEN, will retry next cycle. No P&L booked.`, score: null, price: currentPrice, dailyChangePercent: null, source: 'cryptocom' }).catch(() => {});
+        return;
+      }
+      const closeSide = trade.direction === 'long' ? 'SELL' : 'BUY';
+      try {
         const service = new CryptoComService(connection.apiKey, decryptApiSecret(connection.encryptedApiSecret));
-        const closeSide = trade.direction === 'long' ? 'SELL' : 'BUY';
-        await service.placeOrder({ instrumentName: trade.symbol, side: closeSide, quantity: trade.quantity, type: 'MARKET' }).catch(() => {});
+        // call() throws on HTTP failure and on any non-zero Crypto.com code, so
+        // reaching the next line means the venue ACCEPTED the close order.
+        // NOTE: acceptance is not proof of fill — verifying the position is gone
+        // needs a positions read, which CryptoComService does not implement yet.
+        // That is a separate gap; this guard only stops us booking a close the
+        // venue outright rejected.
+        await service.placeOrder({ instrumentName: trade.symbol, side: closeSide, quantity: trade.quantity, type: 'MARKET' });
+      } catch (e: any) {
+        console.error(`[cryptocom-scanner] perp exit FAILED for trade ${trade.id} (${trade.symbol}): ${e?.message ?? e} — position left OPEN`);
+        await storage.createCryptocomEngineActivity({ userId, symbol: trade.symbol, decision: 'signal', strategy: trade.strategy, reasoning: `${trade.symbol}: perp EXIT FAILED (${e?.message ?? 'error'}) — position still OPEN, will retry next cycle. No P&L booked.`, score: null, price: currentPrice, dailyChangePercent: null, source: 'cryptocom' }).catch(() => {});
+        return;
       }
     }
     const realizedPnl = (trade.direction === 'long' ? currentPrice - trade.entryPrice : trade.entryPrice - currentPrice) * trade.quantity;
