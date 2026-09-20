@@ -36,11 +36,13 @@ export interface DefiToken {
   volume24Usd: number;
 }
 
-/** Never trade the quote side of a pair as if it were a position. */
-const QUOTE_LIKE = new Set([
-  'USDC', 'USDT', 'DAI', 'USDBC', 'USDS', 'USDE', 'FRAX', 'LUSD', 'GHO', 'CRVUSD',
-  'WETH', 'ETH', 'CBETH', 'WSTETH', 'RETH', 'WEETH', 'EZETH', 'USAD',
-]);
+/**
+ * Only the SETTLEMENT currency is excluded. Every position is entered and exited
+ * as USDC -> token -> USDC, so buying USDC with USDC is the one meaningless
+ * trade. Other stablecoins (EURC, USDT, DAI) and tokenized equities are real
+ * positions with real price movement and stay in the universe.
+ */
+const SETTLEMENT = new Set(['USDC', 'USDBC', 'USDC.E']);
 
 export interface DiscoveryOptions {
   minLiquidityUsd?: number;
@@ -49,13 +51,44 @@ export interface DiscoveryOptions {
   pages?: number;
 }
 
+// GeckoTerminal's free tier allows roughly 30 calls/minute. A scan asks for
+// several timeframes per token, so an unthrottled cycle trips the limit within
+// seconds — and a 429 surfaced as zero candles is indistinguishable from a token
+// with no trading history, which would quietly mark healthy tokens untradeable.
+// Serialise every call behind a minimum interval, and back off on a real 429.
+const MIN_CALL_INTERVAL_MS = 2500; // ~24 calls/min, comfortably under the limit
+let callChain: Promise<any> = Promise.resolve();
+let lastCallAt = 0;
+
 async function gt(path: string): Promise<any> {
-  const res = await fetch(`${GT}${path}`, {
-    headers: { accept: 'application/json' },
-    signal: AbortSignal.timeout(20000),
-  });
-  if (!res.ok) throw new Error(`GeckoTerminal ${res.status} on ${path}`);
-  return res.json();
+  const run = async (): Promise<any> => {
+    for (let attempt = 0; attempt < 3; attempt++) {
+      const wait = Math.max(0, MIN_CALL_INTERVAL_MS - (Date.now() - lastCallAt));
+      if (wait > 0) await new Promise((r) => setTimeout(r, wait));
+      lastCallAt = Date.now();
+
+      const res = await fetch(`${GT}${path}`, {
+        headers: { accept: 'application/json' },
+        signal: AbortSignal.timeout(20000),
+      });
+      if (res.ok) return res.json();
+      if (res.status === 429) {
+        const retryAfter = Number(res.headers.get('retry-after')) || 0;
+        const backoff = retryAfter > 0 ? retryAfter * 1000 : 3000 * (attempt + 1);
+        console.warn(`[defi-market-data] rate limited on ${path}; waiting ${backoff}ms (attempt ${attempt + 1}/3)`);
+        await new Promise((r) => setTimeout(r, backoff));
+        continue;
+      }
+      throw new Error(`GeckoTerminal ${res.status} on ${path}`);
+    }
+    // Never silently return empty: the caller must be able to tell a throttled
+    // read from a token that genuinely has no data.
+    throw new Error(`GeckoTerminal rate limited after 3 attempts on ${path}`);
+  };
+  // Chain so concurrent callers queue instead of bursting.
+  const next = callChain.then(run, run);
+  callChain = next.catch(() => undefined);
+  return next;
 }
 
 // Discovery is the same for every caller in a cycle, and GeckoTerminal's free
@@ -102,7 +135,7 @@ export async function discoverDefiTokens(chainKey: string, opts: DiscoveryOption
 
         // "WETH / USDC 0.05%" → the base token is the left side.
         const symbol = String(a.name ?? '').split('/')[0].trim().toUpperCase();
-        if (!symbol || QUOTE_LIKE.has(symbol)) continue;
+        if (!symbol || SETTLEMENT.has(symbol)) continue;
 
         // relationships.base_token.data.id looks like "base_0xabc…"
         const rel = p?.relationships?.base_token?.data?.id ?? '';
@@ -153,11 +186,16 @@ export async function getDefiCandles(chainKey: string, poolAddress: string, time
   if (!net) throw new Error(`no GeckoTerminal network mapping for chain "${chainKey}"`);
   const [endpoint, aggregate] = TF[timeframe] ?? TF['5m'];
 
-  const key = `${net}:${poolAddress}:${endpoint}:${aggregate}:${count}`;
+  // Key deliberately EXCLUDES count. The strategies ask the same timeframe for
+  // different depths (5m x100 and 5m x60), which under a count-keyed cache meant
+  // two API calls for data that is a subset of itself — doubling traffic against
+  // a rate-limited free tier. Fetch a generous depth once, slice per caller.
+  const FETCH_DEPTH = 300;
+  const key = `${net}:${poolAddress}:${endpoint}:${aggregate}`;
   const hit = candleCache.get(key);
-  if (hit && Date.now() - hit.at < CANDLE_TTL_MS) return hit.bars;
+  if (hit && Date.now() - hit.at < CANDLE_TTL_MS) return hit.bars.slice(-count);
 
-  const d = await gt(`/networks/${net}/pools/${poolAddress}/ohlcv/${endpoint}?aggregate=${aggregate}&limit=${Math.min(count, 1000)}`);
+  const d = await gt(`/networks/${net}/pools/${poolAddress}/ohlcv/${endpoint}?aggregate=${aggregate}&limit=${FETCH_DEPTH}`);
   const list: any[] = d?.data?.attributes?.ohlcv_list ?? [];
   // GeckoTerminal returns newest-first; the indicators assume oldest-first.
   const bars = list
@@ -165,7 +203,7 @@ export async function getDefiCandles(chainKey: string, poolAddress: string, time
     .filter((b) => Number.isFinite(b.c) && b.c > 0)
     .reverse();
   candleCache.set(key, { at: Date.now(), bars });
-  return bars;
+  return bars.slice(-count);
 }
 
 /** Spot price from the freshest candle close. */

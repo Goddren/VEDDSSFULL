@@ -998,7 +998,14 @@ export const cryptocomEngineTrades = pgTable("cryptocom_engine_trades", {
   takeProfit: doublePrecision("take_profit"),
   entryOrderId: text("entry_order_id"),
   entryReasoning: text("entry_reasoning"),
-  status: text("status").notNull().default('open'), // 'open' | 'closed' | 'failed'
+  // DeFi positions: the exact contract that was bought and the pool its price
+  // comes from. Stored so an exit never depends on the token still appearing in
+  // discovery — a token whose liquidity drops out of the top pools must still be
+  // sellable, and resolving by SYMBOL risks selling a different contract that
+  // happens to share the ticker.
+  tokenAddress: text("token_address"),
+  poolAddress: text("pool_address"),
+  status: text("status").notNull().default('open'), // 'open' | 'closed' | 'failed' | 'closing' | 'needs_reconciliation'
   exitPrice: doublePrecision("exit_price"),
   exitOrderId: text("exit_order_id"),
   exitReason: text("exit_reason"),

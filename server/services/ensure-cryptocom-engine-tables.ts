@@ -103,6 +103,8 @@ ALTER TABLE "cryptocom_engine_configs" ADD COLUMN IF NOT EXISTS "defi_chain" tex
 ALTER TABLE "cryptocom_engine_configs" ADD COLUMN IF NOT EXISTS "defi_notional_usd" double precision NOT NULL DEFAULT 25;
 ALTER TABLE "cryptocom_engine_configs" ADD COLUMN IF NOT EXISTS "defi_slippage_bps" integer NOT NULL DEFAULT 100;
 ALTER TABLE "cryptocom_engine_configs" ADD COLUMN IF NOT EXISTS "multi_venue_enabled" boolean NOT NULL DEFAULT false;
+ALTER TABLE "cryptocom_engine_trades" ADD COLUMN IF NOT EXISTS "token_address" text;
+ALTER TABLE "cryptocom_engine_trades" ADD COLUMN IF NOT EXISTS "pool_address" text;
 
 -- Single-row liveness record for the crypto worker. Without it, "the engine is
 -- quiet" and "the engine is wedged" look identical from the outside: the worker

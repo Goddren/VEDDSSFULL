@@ -990,8 +990,15 @@ var init_schema = __esm({
       takeProfit: doublePrecision("take_profit"),
       entryOrderId: text("entry_order_id"),
       entryReasoning: text("entry_reasoning"),
+      // DeFi positions: the exact contract that was bought and the pool its price
+      // comes from. Stored so an exit never depends on the token still appearing in
+      // discovery — a token whose liquidity drops out of the top pools must still be
+      // sellable, and resolving by SYMBOL risks selling a different contract that
+      // happens to share the ticker.
+      tokenAddress: text("token_address"),
+      poolAddress: text("pool_address"),
       status: text("status").notNull().default("open"),
-      // 'open' | 'closed' | 'failed'
+      // 'open' | 'closed' | 'failed' | 'closing' | 'needs_reconciliation'
       exitPrice: doublePrecision("exit_price"),
       exitOrderId: text("exit_order_id"),
       exitReason: text("exit_reason"),
@@ -6898,6 +6905,136 @@ var init_cefi_executor = __esm({
     "use strict";
     init_db();
     init_crypto_market_data();
+  }
+});
+
+// server/services/defi-market-data.ts
+var defi_market_data_exports = {};
+__export(defi_market_data_exports, {
+  discoverDefiTokens: () => discoverDefiTokens,
+  getDefiCandles: () => getDefiCandles,
+  getDefiPrice: () => getDefiPrice
+});
+async function gt(path) {
+  const run = async () => {
+    for (let attempt = 0; attempt < 3; attempt++) {
+      const wait = Math.max(0, MIN_CALL_INTERVAL_MS - (Date.now() - lastCallAt));
+      if (wait > 0) await new Promise((r) => setTimeout(r, wait));
+      lastCallAt = Date.now();
+      const res = await fetch(`${GT}${path}`, {
+        headers: { accept: "application/json" },
+        signal: AbortSignal.timeout(2e4)
+      });
+      if (res.ok) return res.json();
+      if (res.status === 429) {
+        const retryAfter = Number(res.headers.get("retry-after")) || 0;
+        const backoff = retryAfter > 0 ? retryAfter * 1e3 : 3e3 * (attempt + 1);
+        console.warn(`[defi-market-data] rate limited on ${path}; waiting ${backoff}ms (attempt ${attempt + 1}/3)`);
+        await new Promise((r) => setTimeout(r, backoff));
+        continue;
+      }
+      throw new Error(`GeckoTerminal ${res.status} on ${path}`);
+    }
+    throw new Error(`GeckoTerminal rate limited after 3 attempts on ${path}`);
+  };
+  const next = callChain.then(run, run);
+  callChain = next.catch(() => void 0);
+  return next;
+}
+async function discoverDefiTokens(chainKey, opts = {}) {
+  const net = GT_NETWORK[chainKey];
+  if (!net) throw new Error(`no GeckoTerminal network mapping for chain "${chainKey}"`);
+  const minLiq = opts.minLiquidityUsd ?? 25e4;
+  const minVol = opts.minVolume24Usd ?? 1e5;
+  const maxTokens = opts.maxTokens ?? 40;
+  const pages = opts.pages ?? 3;
+  const key = `${chainKey}:${minLiq}:${minVol}:${maxTokens}:${pages}`;
+  if (discoveryCache && discoveryCache.key === key && Date.now() - discoveryCache.at < DISCOVERY_TTL_MS) {
+    return discoveryCache.tokens;
+  }
+  const best = /* @__PURE__ */ new Map();
+  let pagesRead = 0;
+  const errors = [];
+  for (let page = 1; page <= pages; page++) {
+    try {
+      const d = await gt(`/networks/${net}/pools?page=${page}&sort=h24_volume_usd_desc`);
+      pagesRead++;
+      for (const p of d?.data ?? []) {
+        const a = p?.attributes ?? {};
+        const liq = Number(a.reserve_in_usd ?? 0);
+        const vol = Number(a.volume_usd?.h24 ?? 0);
+        const price = Number(a.base_token_price_usd ?? 0);
+        const poolAddress = a.address;
+        if (!poolAddress || !price || liq < minLiq || vol < minVol) continue;
+        const symbol = String(a.name ?? "").split("/")[0].trim().toUpperCase();
+        if (!symbol || SETTLEMENT.has(symbol)) continue;
+        const rel = p?.relationships?.base_token?.data?.id ?? "";
+        const address = String(rel).split("_").pop() ?? "";
+        if (!/^0x[a-fA-F0-9]{40}$/.test(address)) continue;
+        const prev = best.get(address);
+        if (!prev || liq > prev.liquidityUsd) {
+          best.set(address, { symbol, address, poolAddress, priceUsd: price, liquidityUsd: liq, volume24Usd: vol });
+        }
+      }
+    } catch (e) {
+      errors.push(e?.message);
+    }
+  }
+  if (pagesRead === 0) {
+    throw new Error(`could not read any pool page for ${chainKey}: ${errors.join(" | ")}`);
+  }
+  if (errors.length) console.warn(`[defi-market-data] ${errors.length}/${pages} pool pages failed for ${chainKey}: ${errors.join(" | ")}`);
+  const tokens = Array.from(best.values()).sort((x, y) => y.volume24Usd - x.volume24Usd).slice(0, maxTokens);
+  discoveryCache = { key, at: Date.now(), tokens };
+  return tokens;
+}
+async function getDefiCandles(chainKey, poolAddress, timeframe, count) {
+  const net = GT_NETWORK[chainKey];
+  if (!net) throw new Error(`no GeckoTerminal network mapping for chain "${chainKey}"`);
+  const [endpoint, aggregate] = TF[timeframe] ?? TF["5m"];
+  const FETCH_DEPTH = 300;
+  const key = `${net}:${poolAddress}:${endpoint}:${aggregate}`;
+  const hit = candleCache.get(key);
+  if (hit && Date.now() - hit.at < CANDLE_TTL_MS) return hit.bars.slice(-count);
+  const d = await gt(`/networks/${net}/pools/${poolAddress}/ohlcv/${endpoint}?aggregate=${aggregate}&limit=${FETCH_DEPTH}`);
+  const list = d?.data?.attributes?.ohlcv_list ?? [];
+  const bars = list.map((r) => ({ t: Number(r[0]) * 1e3, o: Number(r[1]), h: Number(r[2]), l: Number(r[3]), c: Number(r[4]), v: Number(r[5]) })).filter((b) => Number.isFinite(b.c) && b.c > 0).reverse();
+  candleCache.set(key, { at: Date.now(), bars });
+  return bars.slice(-count);
+}
+async function getDefiPrice(chainKey, poolAddress) {
+  const bars = await getDefiCandles(chainKey, poolAddress, "5m", 2).catch(() => []);
+  const last = bars[bars.length - 1];
+  return last?.c && last.c > 0 ? last.c : null;
+}
+var GT, GT_NETWORK, SETTLEMENT, MIN_CALL_INTERVAL_MS, callChain, lastCallAt, discoveryCache, DISCOVERY_TTL_MS, TF, candleCache, CANDLE_TTL_MS;
+var init_defi_market_data = __esm({
+  "server/services/defi-market-data.ts"() {
+    "use strict";
+    GT = "https://api.geckoterminal.com/api/v2";
+    GT_NETWORK = {
+      ethereum: "eth",
+      base: "base",
+      arbitrum: "arbitrum",
+      optimism: "optimism",
+      polygon: "polygon_pos"
+    };
+    SETTLEMENT = /* @__PURE__ */ new Set(["USDC", "USDBC", "USDC.E"]);
+    MIN_CALL_INTERVAL_MS = 2500;
+    callChain = Promise.resolve();
+    lastCallAt = 0;
+    discoveryCache = null;
+    DISCOVERY_TTL_MS = 5 * 60 * 1e3;
+    TF = {
+      "1m": ["minute", 1],
+      "5m": ["minute", 5],
+      "15m": ["minute", 15],
+      "1h": ["hour", 1],
+      "4h": ["hour", 4],
+      "1d": ["day", 1]
+    };
+    candleCache = /* @__PURE__ */ new Map();
+    CANDLE_TTL_MS = 60 * 1e3;
   }
 });
 
@@ -13211,6 +13348,8 @@ ALTER TABLE "cryptocom_engine_configs" ADD COLUMN IF NOT EXISTS "defi_chain" tex
 ALTER TABLE "cryptocom_engine_configs" ADD COLUMN IF NOT EXISTS "defi_notional_usd" double precision NOT NULL DEFAULT 25;
 ALTER TABLE "cryptocom_engine_configs" ADD COLUMN IF NOT EXISTS "defi_slippage_bps" integer NOT NULL DEFAULT 100;
 ALTER TABLE "cryptocom_engine_configs" ADD COLUMN IF NOT EXISTS "multi_venue_enabled" boolean NOT NULL DEFAULT false;
+ALTER TABLE "cryptocom_engine_trades" ADD COLUMN IF NOT EXISTS "token_address" text;
+ALTER TABLE "cryptocom_engine_trades" ADD COLUMN IF NOT EXISTS "pool_address" text;
 
 -- Single-row liveness record for the crypto worker. Without it, "the engine is
 -- quiet" and "the engine is wedged" look identical from the outside: the worker
@@ -14252,11 +14391,37 @@ var MIN_SCAN_INTERVAL_MS = 6e4;
 var lastScanAt = /* @__PURE__ */ new Map();
 var MAX_SYMBOLS_PER_CYCLE = 5;
 var scanCursor = /* @__PURE__ */ new Map();
+var defiUniverse = /* @__PURE__ */ new Map();
+function getDefiUniverseEntry(symbol) {
+  return defiUniverse.get(symbol.toUpperCase());
+}
+async function fetchBars(symbol, timeframe, count) {
+  const entry = defiUniverse.get(symbol.toUpperCase());
+  if (entry) {
+    const { getDefiCandles: getDefiCandles2 } = await Promise.resolve().then(() => (init_defi_market_data(), defi_market_data_exports));
+    return getDefiCandles2(entry.chain, entry.poolAddress, timeframe, count);
+  }
+  return CryptoComService.getCandles(symbol, timeframe, count);
+}
+async function refreshDefiUniverse(chain) {
+  const { discoverDefiTokens: discoverDefiTokens2 } = await Promise.resolve().then(() => (init_defi_market_data(), defi_market_data_exports));
+  const tokens = await discoverDefiTokens2(chain);
+  for (const t of tokens) {
+    defiUniverse.set(t.symbol.toUpperCase(), {
+      chain,
+      address: t.address,
+      poolAddress: t.poolAddress,
+      priceUsd: t.priceUsd,
+      liquidityUsd: t.liquidityUsd
+    });
+  }
+  return tokens.map((t) => t.symbol.toUpperCase());
+}
 function convertToCandles(bars) {
   return bars.map((b) => ({ t: b.t, o: b.o, h: b.h, l: b.l, c: b.c, v: b.v }));
 }
 async function runTrendFollowing(symbol, cfg) {
-  const bars = await CryptoComService.getCandles(symbol, "5m", 100);
+  const bars = await fetchBars(symbol, "5m", 100);
   if (bars.length < 30) {
     return { decision: "error", reasoning: `${symbol}: not enough candle history returned.`, score: null, price: null, dailyChangePercent: null, strategy: "trend_following" };
   }
@@ -14302,7 +14467,7 @@ async function runTrendFollowing(symbol, cfg) {
   };
 }
 async function runMomentum(symbol, cfg) {
-  const bars = await CryptoComService.getCandles(symbol, "15m", 30);
+  const bars = await fetchBars(symbol, "15m", 30);
   if (bars.length < 10) {
     return { decision: "error", reasoning: `${symbol}: not enough candle history.`, score: null, price: null, dailyChangePercent: null, strategy: "momentum" };
   }
@@ -14320,7 +14485,7 @@ async function runMomentum(symbol, cfg) {
   return { decision: "signal", score, price, dailyChangePercent, strategy: "momentum", direction, reasoning: `${symbol}: momentum ${direction} \u2014 moved ${Math.abs(dailyChangePercent).toFixed(2)}% this window. Score ${score}/100.` };
 }
 async function runOrderFlow(symbol, cfg) {
-  const bars = await CryptoComService.getCandles(symbol, "5m", 60);
+  const bars = await fetchBars(symbol, "5m", 60);
   if (bars.length < 20) return { decision: "error", reasoning: `${symbol}: not enough candles for order flow.`, score: null, price: null, dailyChangePercent: null, strategy: "order_flow" };
   const c = convertToCandles(bars);
   const price = c[c.length - 1].c;
@@ -14351,7 +14516,7 @@ async function runOrderFlow(symbol, cfg) {
   return { decision: "signal", score, price, dailyChangePercent, strategy: "order_flow", direction, reasoning: `${symbol}: ${direction} order flow \u2014 CVD shift ${cvdShiftPct.toFixed(1)}%, price ${direction === "BUY" ? "above" : "below"} VWAP $${vwap.toFixed(2)}, ${rangePct.toFixed(2)}% range. Score ${score}/100.` };
 }
 async function runVolumeProfile(symbol, cfg) {
-  const bars = await CryptoComService.getCandles(symbol, "15m", 96);
+  const bars = await fetchBars(symbol, "15m", 96);
   if (bars.length < 40) return { decision: "error", reasoning: `${symbol}: not enough candles for volume profile.`, score: null, price: null, dailyChangePercent: null, strategy: "volume_profile" };
   const c = convertToCandles(bars);
   const price = c[c.length - 1].c;
@@ -14395,7 +14560,7 @@ async function runVolumeProfile(symbol, cfg) {
   return { decision: "signal", score, price, dailyChangePercent, strategy: "volume_profile", direction, reasoning: `${symbol}: ${direction} value-area ${direction === "BUY" ? "breakout above " + VAH.toFixed(2) : "breakdown below " + VAL.toFixed(2)} (POC ~$${(lo + (poc + 0.5) * binSize).toFixed(2)}), volume confirming. Score ${score}/100.` };
 }
 async function runBreakout(symbol, cfg) {
-  const bars = await CryptoComService.getCandles(symbol, "1h", 60);
+  const bars = await fetchBars(symbol, "1h", 60);
   if (bars.length < 25) return { decision: "error", reasoning: `${symbol}: not enough candles for breakout.`, score: null, price: null, dailyChangePercent: null, strategy: "breakout" };
   const c = convertToCandles(bars);
   const price = c[c.length - 1].c;
@@ -14513,9 +14678,17 @@ async function monitorOpenPositions(userId, cfg) {
   for (const trade of openTrades) {
     try {
       if (trade.venue && trade.venue !== "cryptocom") {
-        const { getAggregatedQuote: getAggregatedQuote2 } = await Promise.resolve().then(() => (init_crypto_market_data(), crypto_market_data_exports));
-        const q = await getAggregatedQuote2(baseCoin(trade.symbol)).catch(() => null);
-        const px = q?.best?.price ?? 0;
+        let px = 0;
+        const pool2 = trade.poolAddress;
+        if (pool2) {
+          const { getDefiPrice: getDefiPrice2 } = await Promise.resolve().then(() => (init_defi_market_data(), defi_market_data_exports));
+          px = await getDefiPrice2(cfg?.defiChain || "base", pool2).catch(() => null) ?? 0;
+        }
+        if (!px) {
+          const { getAggregatedQuote: getAggregatedQuote2 } = await Promise.resolve().then(() => (init_crypto_market_data(), crypto_market_data_exports));
+          const q = await getAggregatedQuote2(baseCoin(trade.symbol)).catch(() => null);
+          px = q?.best?.price ?? 0;
+        }
         if (!px) continue;
         if (trade.takeProfit && px >= trade.takeProfit) {
           await closePosition(userId, trade, px, "take_profit");
@@ -14579,7 +14752,8 @@ async function closePosition(userId, trade, currentPrice, reason) {
       const cfg = await storage.getUserCryptocomEngineConfig(userId).catch(() => null);
       await phase(`exit:trade_${trade.id}:defi_swap`);
       const { defiExitSell: defiExitSell2 } = await Promise.resolve().then(() => (init_defi_executor(), defi_executor_exports));
-      const exit = await defiExitSell2(userId, cfg?.defiChain || "base", baseCoin(trade.symbol), trade.quantity, cfg?.defiSlippageBps ?? 100).catch((e) => ({ ok: false, exitPrice: 0, reason: e?.message || String(e) }));
+      const sellToken = trade.tokenAddress || baseCoin(trade.symbol);
+      const exit = await defiExitSell2(userId, cfg?.defiChain || "base", sellToken, trade.quantity, cfg?.defiSlippageBps ?? 100).catch((e) => ({ ok: false, exitPrice: 0, reason: e?.message || String(e) }));
       if (exit?.phantom) {
         console.error(`[cryptocom-scanner] trade ${trade.id} (${trade.symbol}) is NOT on-chain: ${exit.reason} \u2014 flagging for reconciliation, no further exit attempts`);
         await storage.flagCryptocomEngineTradeUnreconciled(trade.id, String(exit.reason).slice(0, 500)).catch((e) => console.error(`[cryptocom-scanner] could not flag trade ${trade.id} (${e?.message}) \u2014 it will keep retrying until this succeeds`));
@@ -14762,7 +14936,7 @@ async function getCryptocomAiConfirmation(userId, symbol, result) {
   } catch {
   }
   try {
-    const bars = await CryptoComService.getCandles(symbol, "5m", 100);
+    const bars = await fetchBars(symbol, "5m", 100);
     if (!bars || bars.length < 30) return getCryptocomAiConfirmationLite(userId, symbol, result);
     const candles = convertToCandles(bars);
     const indicators = computeAllAdvancedIndicators(candles, 0, symbol, "M5");
@@ -14886,7 +15060,8 @@ async function executeSignalSingle(service, connection, userId, symbol, result, 
     const notionalD = Math.max(1, cfg.defiNotionalUsd ?? 25) * (gateD.riskMultiplier < 1 ? gateD.riskMultiplier : 1);
     try {
       const { defiEntryBuy: defiEntryBuy2 } = await Promise.resolve().then(() => (init_defi_executor(), defi_executor_exports));
-      const r = await defiEntryBuy2(userId, chain, symbol, notionalD, slip);
+      const disc = getDefiUniverseEntry(symbol);
+      const r = await defiEntryBuy2(userId, chain, disc?.address ?? symbol, notionalD, slip);
       if (!r.ok) {
         await storage.createCryptocomEngineActivity({ userId, symbol, decision: r.reason?.includes("can't trade") ? "skipped" : "error", strategy: result.strategy, reasoning: `${symbol}: DeFi swap entry ${r.reason?.includes("can't trade") ? "skipped" : "failed"} \u2014 ${r.reason}.`, score: result.score, price: result.price, dailyChangePercent: result.dailyChangePercent, source: "cryptocom" });
         return;
@@ -14906,7 +15081,12 @@ async function executeSignalSingle(service, connection, userId, symbol, result, 
         takeProfit: tp,
         entryOrderId: r.txHash ?? "",
         entryReasoning: result.reasoning,
-        status: "open"
+        status: "open",
+        // Pin the contract and its price source to the trade. Discovery is a
+        // moving window; a token that falls out of it must still be priceable
+        // and sellable.
+        tokenAddress: disc?.address ?? null,
+        poolAddress: disc?.poolAddress ?? null
       });
       await storage.createCryptocomEngineActivity({ userId, symbol, decision: "signal", strategy: result.strategy, reasoning: `${symbol}: EXECUTED on DeFi (${chain}) \u2014 swapped ~$${notionalD.toFixed(0)} USDC \u2192 ${r.qtyBase} ${r.token} @ ~$${r.entryPrice.toFixed(2)}. TP +${cfg.cefiTakeProfitPct ?? 3}% / SL -${cfg.cefiStopLossPct ?? 2}%. tx ${r.txHash?.slice(0, 12) ?? ""}\u2026 ${result.reasoning}`, score: result.score, price: result.price, dailyChangePercent: result.dailyChangePercent, source: "cryptocom" });
     } catch (err) {
@@ -15015,23 +15195,37 @@ async function scanOneUser(userId) {
   const last = lastScanAt.get(userId) || 0;
   if (now - last < Math.max(MIN_SCAN_INTERVAL_MS, config.scanIntervalMs)) return;
   lastScanAt.set(userId, now);
+  const isDefi = config.executionVenue === "defi";
   const connections = await storage.getUserCryptocomConnections(userId);
   const activeConn = connections.find((c) => c.isActive);
-  if (!activeConn) {
+  if (!activeConn && !isDefi) {
     await storage.createCryptocomEngineActivity({ userId, symbol: "\u2014", decision: "error", reasoning: "No active Crypto.com connection.", score: null, price: null, dailyChangePercent: null, source: "cryptocom", strategy: null });
     return;
   }
   let service;
   try {
-    service = new CryptoComService(activeConn.apiKey, decryptApiSecret(activeConn.encryptedApiSecret));
+    service = activeConn ? new CryptoComService(activeConn.apiKey, decryptApiSecret(activeConn.encryptedApiSecret)) : new CryptoComService("", "");
   } catch (err) {
-    await storage.createCryptocomEngineActivity({ userId, symbol: "\u2014", decision: "error", reasoning: `Could not decrypt credentials: ${err.message}`, score: null, price: null, dailyChangePercent: null, source: "cryptocom", strategy: null });
-    return;
+    if (!isDefi) {
+      await storage.createCryptocomEngineActivity({ userId, symbol: "\u2014", decision: "error", reasoning: `Could not decrypt credentials: ${err.message}`, score: null, price: null, dailyChangePercent: null, source: "cryptocom", strategy: null });
+      return;
+    }
+    service = new CryptoComService("", "");
   }
+  const conn = activeConn ?? { id: 0, autoExecute: true };
   if (config.cryptoBrainEnabled !== false) await getOrRefreshCryptoBrain(userId).catch(() => {
   });
-  const canAutoExecute = activeConn.autoExecute && config.enableAutoExecution;
-  const allSymbols = Array.isArray(config.symbols) ? config.symbols : [];
+  const canAutoExecute = conn.autoExecute && config.enableAutoExecution;
+  let allSymbols = Array.isArray(config.symbols) ? config.symbols : [];
+  if (isDefi) {
+    try {
+      allSymbols = await refreshDefiUniverse(config.defiChain || "base");
+      console.log(`[cryptocom-scanner] DeFi universe on ${config.defiChain || "base"}: ${allSymbols.length} tokens`);
+    } catch (e) {
+      await storage.createCryptocomEngineActivity({ userId, symbol: "\u2014", decision: "error", reasoning: `DeFi token discovery failed (${e?.message}) \u2014 skipping this scan rather than trading a stale or wrong universe.`, score: null, price: null, dailyChangePercent: null, source: "cryptocom", strategy: null });
+      return;
+    }
+  }
   let symbols = allSymbols;
   if (allSymbols.length > MAX_SYMBOLS_PER_CYCLE) {
     const start = (scanCursor.get(userId) || 0) % allSymbols.length;
@@ -15053,7 +15247,7 @@ async function scanOneUser(userId) {
         }
         const tradeAllowed = await assembleConsensus(userId, symbol, result, config).catch(() => true);
         if (tradeAllowed) {
-          await executeSignal(service, activeConn, userId, symbol, result, config).catch((e) => console.error(`[cryptocom-scanner] executeSignal failed for ${symbol}:`, e.message));
+          await executeSignal(service, conn, userId, symbol, result, config).catch((e) => console.error(`[cryptocom-scanner] executeSignal failed for ${symbol}:`, e.message));
         } else {
           await storage.createCryptocomEngineActivity({ userId, symbol, decision: "skipped", strategy: result.strategy, reasoning: `${symbol}: signal confirmed by quant scan, but Dual-Vote Consensus blocked execution.`, score: result.score, price: result.price, dailyChangePercent: result.dailyChangePercent, source: "cryptocom" });
         }
