@@ -55098,9 +55098,9 @@ async function getStopOrdersForUser(userId, filters = {}) {
 init_schema();
 
 // server/build-info.ts
-var BUILD_COMMIT = "35f8243e-dirty";
+var BUILD_COMMIT = "de88da30-dirty";
 var BUILD_BRANCH = "main";
-var BUILT_AT = "2026-09-20T19:51:57.924Z";
+var BUILT_AT = "2026-09-20T20:28:29.573Z";
 
 // server/stripe.ts
 init_db();
@@ -65827,8 +65827,35 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
             const volatility = atr2 > currentPrice * 0.02 ? "HIGH" : atr2 > currentPrice * 0.01 ? "MEDIUM" : "LOW";
             analysis.indicators.atr = { value: atr2, volatility };
           }
+          try {
+            const _n = Array.isArray(candles) ? candles.length : -1;
+            const _fin = (v) => typeof v === "number" && isFinite(v);
+            const _wellFormed = Array.isArray(candles) && candles.every((c) => _fin(c?.h) && _fin(c?.l) && _fin(c?.c));
+            let _trSum = 0, _distinctHL = 0;
+            if (Array.isArray(candles) && candles.length > 1) {
+              const chron = [...candles].reverse();
+              for (let i = 1; i < chron.length; i++) {
+                const hi = Number(chron[i]?.h), lo = Number(chron[i]?.l), pc = Number(chron[i - 1]?.c);
+                if (!_fin(hi) || !_fin(lo) || !_fin(pc)) continue;
+                if (hi !== lo) _distinctHL++;
+                _trSum += Math.max(hi - lo, Math.abs(hi - pc), Math.abs(lo - pc));
+              }
+            }
+            const _verdict = _n < 15 ? `TOO FEW CANDLES (${_n}, need >=15)` : !_wellFormed ? "MALFORMED CANDLES (non-numeric h/l/c present)" : !(_trSum > 0) ? `FLAT CANDLES (true range sums to ${_trSum} \u2014 every bar identical)` : "candles look usable";
+            console.log(`[ADX-DIAG] ${sanitizedSymbol} ${sanitizedTimeframe} | candles=${_n} wellFormed=${_wellFormed} barsWithHighNotEqualLow=${_distinctHL} trSum=${_trSum.toFixed(6)} | ${_verdict}`);
+            if (_n > 0) {
+              const _c0 = candles[0] || {};
+              console.log(`[ADX-DIAG] newest bar: o=${_c0.o} h=${_c0.h} l=${_c0.l} c=${_c0.c} v=${_c0.v} | keys=${Object.keys(_c0).join(",")}`);
+            }
+          } catch (_diagErr) {
+            console.error("[ADX-DIAG] diagnostic itself failed (non-fatal):", _diagErr?.message);
+          }
           const { computeAllAdvancedIndicators: computeAllAdvancedIndicators2 } = await Promise.resolve().then(() => (init_indicators(), indicators_exports));
           advanced = computeAllAdvancedIndicators2(candles, atr2 || 0, sanitizedSymbol, sanitizedTimeframe);
+          try {
+            console.log(`[ADX-DIAG] computed: adx=${advanced?.adx ? advanced.adx.value : "UNDEFINED"} rsi=${advanced?.rsi ? advanced.rsi.value : "UNDEFINED"} atrArg=${atr2 || 0}`);
+          } catch {
+          }
           if (!analysis.indicators.rsi && advanced.rsi && Number.isFinite(advanced.rsi.value) && advanced.rsi.value > 0 && advanced.rsi.value < 100) {
             const _srv = advanced.rsi.value;
             const _status = advanced.rsi.trend === "oversold" ? "OVERSOLD" : advanced.rsi.trend === "overbought" ? "OVERBOUGHT" : _srv > 50 ? "BULLISH" : "BEARISH";

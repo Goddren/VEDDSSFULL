@@ -8966,9 +8966,56 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
             analysis.indicators.atr = { value: atr, volatility };
           }
           
+          // ── CANDLE FEED DIAGNOSTIC ──────────────────────────────────────
+          // ADX has NEVER produced a non-zero value: 0 live readings across
+          // 104,868 ai_confirmation_outcomes rows, in every month since April.
+          // RSI managed 6. MACD is NEUTRAL on all 103,664. Three independent
+          // indicators dead from one shared input, while confluence score, AI
+          // confidence and SMC verdict (which come from elsewhere) are fine —
+          // so the fault is this `candles` array, not the indicator maths, which
+          // reads correctly and already returns undefined rather than a fake 0.
+          //
+          // calculateADX can only bail three ways, so measure exactly those:
+          // too few candles, or a true range that sums to zero (flat/duplicate
+          // bars). This logs once per request and says which.
+          try {
+            const _n = Array.isArray(candles) ? candles.length : -1;
+            const _fin = (v: any) => typeof v === 'number' && isFinite(v);
+            const _wellFormed = Array.isArray(candles) && candles.every((c: any) => _fin(c?.h) && _fin(c?.l) && _fin(c?.c));
+            // True range over the window, computed exactly as calculateADX does.
+            let _trSum = 0, _distinctHL = 0;
+            if (Array.isArray(candles) && candles.length > 1) {
+              const chron = [...candles].reverse();
+              for (let i = 1; i < chron.length; i++) {
+                const hi = Number(chron[i]?.h), lo = Number(chron[i]?.l), pc = Number(chron[i - 1]?.c);
+                if (!_fin(hi) || !_fin(lo) || !_fin(pc)) continue;
+                if (hi !== lo) _distinctHL++;
+                _trSum += Math.max(hi - lo, Math.abs(hi - pc), Math.abs(lo - pc));
+              }
+            }
+            const _verdict =
+              _n < 15 ? `TOO FEW CANDLES (${_n}, need >=15)` :
+              !_wellFormed ? 'MALFORMED CANDLES (non-numeric h/l/c present)' :
+              !(_trSum > 0) ? `FLAT CANDLES (true range sums to ${_trSum} — every bar identical)` :
+              'candles look usable';
+            console.log(`[ADX-DIAG] ${sanitizedSymbol} ${sanitizedTimeframe} | candles=${_n} wellFormed=${_wellFormed} barsWithHighNotEqualLow=${_distinctHL} trSum=${_trSum.toFixed(6)} | ${_verdict}`);
+            if (_n > 0) {
+              const _c0: any = candles[0] || {};
+              console.log(`[ADX-DIAG] newest bar: o=${_c0.o} h=${_c0.h} l=${_c0.l} c=${_c0.c} v=${_c0.v} | keys=${Object.keys(_c0).join(',')}`);
+            }
+          } catch (_diagErr: any) {
+            console.error('[ADX-DIAG] diagnostic itself failed (non-fatal):', _diagErr?.message);
+          }
+
           // Advanced indicators (ADX, Stochastic, VWAP, OBV, Pivot Points, Fibonacci, S/R, Candle Patterns, Session Context)
           const { computeAllAdvancedIndicators } = await import('./indicators');
           advanced = computeAllAdvancedIndicators(candles, atr || 0, sanitizedSymbol, sanitizedTimeframe);
+          // What the indicator layer actually produced, so a silent `undefined`
+          // is distinguishable from a value that was computed and then dropped
+          // somewhere between here and the confirmation row.
+          try {
+            console.log(`[ADX-DIAG] computed: adx=${advanced?.adx ? advanced.adx.value : 'UNDEFINED'} rsi=${advanced?.rsi ? advanced.rsi.value : 'UNDEFINED'} atrArg=${atr || 0}`);
+          } catch { /* ignore */ }
 
           // Server-side RSI fallback. computeAllAdvancedIndicators already computes
           // RSI from the candles (indicators.ts:1140) but it was never copied into
