@@ -203,6 +203,14 @@ async function syncTradeLockerTrades(userId: number, conn: any, svc: any): Promi
         await storage.updateAiTradeResult(existing.id, userId, {
           result,
           profitLoss: profit,
+          // Persist the exit price. Without it the reconstructed P&L on this row
+          // can never be checked against the prices it came from, and no
+          // R-multiple can be computed, so the brain only ever learns the SIGN
+          // of an outcome and not its quality.
+          ...(Number(match.closePrice) > 0 ? { exitPrice: Number(match.closePrice) } : {}),
+          // Backfill the entry too when the PENDING row was written before the
+          // broker reported an average fill price.
+          ...(!(Number((existing as any).entryPrice) > 0) && Number(match.openPrice) > 0 ? { entryPrice: Number(match.openPrice) } : {}),
           closedAt: match.closeTime ? new Date(match.closeTime) : new Date(),
         } as any);
         const dStr = match.closeTime ? new Date(match.closeTime).toISOString().slice(0, 10) : undefined;
@@ -265,6 +273,10 @@ async function syncTradeLockerTrades(userId: number, conn: any, svc: any): Promi
               result: reconResult,
               profitLoss: p,
               connectionId: conn.id,
+              // Same as the poll-and-diff path: record the prices the P&L was
+              // reconstructed FROM, so the number is auditable later.
+              ...(Number(o.closePrice) > 0 ? { exitPrice: Number(o.closePrice) } : {}),
+              ...(!(Number((existing as any).entryPrice) > 0) && Number(o.openPrice) > 0 ? { entryPrice: Number(o.openPrice) } : {}),
               closedAt: o.closeTime ? new Date(o.closeTime) : new Date(),
             } as any).catch(() => {});
             if (needsResolve) {

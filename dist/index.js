@@ -18859,7 +18859,7 @@ var init_tradelocker = __esm({
        */
       async getClosedPositions(fromTs) {
         const closed = await this.getClosedTradesWithPnl(fromTs);
-        return closed.map((c) => ({ id: c.id, positionId: c.positionId, symbol: c.symbol, side: c.side, profit: c.profit, closeTime: c.closeTime, qty: c.qty }));
+        return closed.map((c) => ({ id: c.id, positionId: c.positionId, symbol: c.symbol, side: c.side, profit: c.profit, closeTime: c.closeTime, qty: c.qty, openPrice: c.openPrice, closePrice: c.closePrice }));
       }
       async getPositions() {
         await this.ensureAuthenticated();
@@ -29371,6 +29371,14 @@ async function syncTradeLockerTrades(userId, conn, svc) {
         await storage.updateAiTradeResult(existing.id, userId, {
           result,
           profitLoss: profit,
+          // Persist the exit price. Without it the reconstructed P&L on this row
+          // can never be checked against the prices it came from, and no
+          // R-multiple can be computed, so the brain only ever learns the SIGN
+          // of an outcome and not its quality.
+          ...Number(match.closePrice) > 0 ? { exitPrice: Number(match.closePrice) } : {},
+          // Backfill the entry too when the PENDING row was written before the
+          // broker reported an average fill price.
+          ...!(Number(existing.entryPrice) > 0) && Number(match.openPrice) > 0 ? { entryPrice: Number(match.openPrice) } : {},
           closedAt: match.closeTime ? new Date(match.closeTime) : /* @__PURE__ */ new Date()
         });
         const dStr = match.closeTime ? new Date(match.closeTime).toISOString().slice(0, 10) : void 0;
@@ -29408,6 +29416,10 @@ async function syncTradeLockerTrades(userId, conn, svc) {
               result: reconResult,
               profitLoss: p,
               connectionId: conn.id,
+              // Same as the poll-and-diff path: record the prices the P&L was
+              // reconstructed FROM, so the number is auditable later.
+              ...Number(o.closePrice) > 0 ? { exitPrice: Number(o.closePrice) } : {},
+              ...!(Number(existing.entryPrice) > 0) && Number(o.openPrice) > 0 ? { entryPrice: Number(o.openPrice) } : {},
               closedAt: o.closeTime ? new Date(o.closeTime) : /* @__PURE__ */ new Date()
             }).catch(() => {
             });
@@ -55066,9 +55078,9 @@ async function getStopOrdersForUser(userId, filters = {}) {
 init_schema();
 
 // server/build-info.ts
-var BUILD_COMMIT = "306254af-dirty";
+var BUILD_COMMIT = "fc050752-dirty";
 var BUILD_BRANCH = "main";
-var BUILT_AT = "2026-09-20T18:06:41.582Z";
+var BUILT_AT = "2026-09-20T19:09:11.716Z";
 
 // server/stripe.ts
 init_db();

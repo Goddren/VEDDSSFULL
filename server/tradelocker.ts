@@ -1516,7 +1516,12 @@ export class TradeLockerService {
    */
   async getClosedPositions(fromTs?: number): Promise<any[]> {
     const closed = await this.getClosedTradesWithPnl(fromTs);
-    return closed.map(c => ({ id: c.id, positionId: c.positionId, symbol: c.symbol, side: c.side, profit: c.profit, closeTime: c.closeTime, qty: c.qty }));
+    // openPrice/closePrice were dropped here even though getClosedTradesWithPnl
+    // computes both. The sync layer therefore had no exit price to record, which
+    // is why every tradelocker_auto row has exit_price NULL — and with
+    // TradeLocker P&L being RECONSTRUCTED from fills rather than given by the
+    // broker, no exit price means a booked profit cannot be audited afterwards.
+    return closed.map(c => ({ id: c.id, positionId: c.positionId, symbol: c.symbol, side: c.side, profit: c.profit, closeTime: c.closeTime, qty: c.qty, openPrice: c.openPrice, closePrice: c.closePrice }));
   }
 
   async getPositions(): Promise<any[]> {
