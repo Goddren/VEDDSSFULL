@@ -1,0 +1,176 @@
+// ─────────────────────────────────────────────────────────────────────────────
+// DeFi-native market data — candles and token DISCOVERY straight from the chain.
+//
+// WHY THIS EXISTS: the crypto engine executes on-chain (0x swaps from a hot
+// wallet) but every strategy took its candles from CryptoComService.getCandles.
+// That capped the tradeable universe at whatever Crypto.com happens to list, on
+// a bot whose money never touches Crypto.com. Of a 21-symbol watchlist only a
+// handful existed on Base at all; "open it to everything on Base" was impossible
+// by construction, because a token with no Crypto.com listing was invisible.
+//
+// Source: GeckoTerminal (free, no key). It gives both halves —
+//   • which tokens are worth looking at (pools ranked by 24h volume), and
+//   • OHLCV per pool, in the same [t,o,h,l,c,v] shape the strategies expect.
+//
+// Discovery is deliberately conservative. Opening a bot to every token on a
+// chain means honeypots, sell-taxes, and LP rugs, so nothing reaches the
+// strategies unless it clears the liquidity/volume/spread floors below.
+// ─────────────────────────────────────────────────────────────────────────────
+
+const GT = 'https://api.geckoterminal.com/api/v2';
+
+/** DEFI_CHAINS keys → GeckoTerminal network slugs. */
+const GT_NETWORK: Record<string, string> = {
+  ethereum: 'eth', base: 'base', arbitrum: 'arbitrum',
+  optimism: 'optimism', polygon: 'polygon_pos',
+};
+
+export interface DefiCandle { t: number; o: number; h: number; l: number; c: number; v: number }
+
+export interface DefiToken {
+  symbol: string;
+  address: string;        // the token contract — what actually gets swapped
+  poolAddress: string;    // deepest pool, used for candles
+  priceUsd: number;
+  liquidityUsd: number;
+  volume24Usd: number;
+}
+
+/** Never trade the quote side of a pair as if it were a position. */
+const QUOTE_LIKE = new Set([
+  'USDC', 'USDT', 'DAI', 'USDBC', 'USDS', 'USDE', 'FRAX', 'LUSD', 'GHO', 'CRVUSD',
+  'WETH', 'ETH', 'CBETH', 'WSTETH', 'RETH', 'WEETH', 'EZETH', 'USAD',
+]);
+
+export interface DiscoveryOptions {
+  minLiquidityUsd?: number;
+  minVolume24Usd?: number;
+  maxTokens?: number;
+  pages?: number;
+}
+
+async function gt(path: string): Promise<any> {
+  const res = await fetch(`${GT}${path}`, {
+    headers: { accept: 'application/json' },
+    signal: AbortSignal.timeout(20000),
+  });
+  if (!res.ok) throw new Error(`GeckoTerminal ${res.status} on ${path}`);
+  return res.json();
+}
+
+// Discovery is the same for every caller in a cycle, and GeckoTerminal's free
+// tier is rate limited, so hold the result briefly.
+let discoveryCache: { key: string; at: number; tokens: DefiToken[] } | null = null;
+const DISCOVERY_TTL_MS = 5 * 60 * 1000;
+
+/**
+ * The tradeable universe for a chain: tokens with a real, liquid pool, ranked by
+ * 24h volume. THROWS if the API cannot be read — an empty list would look
+ * exactly like "there is nothing to trade", and this codebase has already been
+ * bitten twice by a failed read masquerading as an empty result.
+ */
+export async function discoverDefiTokens(chainKey: string, opts: DiscoveryOptions = {}): Promise<DefiToken[]> {
+  const net = GT_NETWORK[chainKey];
+  if (!net) throw new Error(`no GeckoTerminal network mapping for chain "${chainKey}"`);
+  const minLiq = opts.minLiquidityUsd ?? 250_000;
+  const minVol = opts.minVolume24Usd ?? 100_000;
+  const maxTokens = opts.maxTokens ?? 40;
+  const pages = opts.pages ?? 3;
+
+  const key = `${chainKey}:${minLiq}:${minVol}:${maxTokens}:${pages}`;
+  if (discoveryCache && discoveryCache.key === key && Date.now() - discoveryCache.at < DISCOVERY_TTL_MS) {
+    return discoveryCache.tokens;
+  }
+
+  // Keep the DEEPEST pool per token: the same token appears in many pools and
+  // candles from a thin one are noise that the strategies would read as signal.
+  const best = new Map<string, DefiToken>();
+  let pagesRead = 0;
+  const errors: string[] = [];
+
+  for (let page = 1; page <= pages; page++) {
+    try {
+      const d = await gt(`/networks/${net}/pools?page=${page}&sort=h24_volume_usd_desc`);
+      pagesRead++;
+      for (const p of (d?.data ?? [])) {
+        const a = p?.attributes ?? {};
+        const liq = Number(a.reserve_in_usd ?? 0);
+        const vol = Number(a.volume_usd?.h24 ?? 0);
+        const price = Number(a.base_token_price_usd ?? 0);
+        const poolAddress = a.address;
+        if (!poolAddress || !price || liq < minLiq || vol < minVol) continue;
+
+        // "WETH / USDC 0.05%" → the base token is the left side.
+        const symbol = String(a.name ?? '').split('/')[0].trim().toUpperCase();
+        if (!symbol || QUOTE_LIKE.has(symbol)) continue;
+
+        // relationships.base_token.data.id looks like "base_0xabc…"
+        const rel = p?.relationships?.base_token?.data?.id ?? '';
+        const address = String(rel).split('_').pop() ?? '';
+        if (!/^0x[a-fA-F0-9]{40}$/.test(address)) continue;
+
+        const prev = best.get(address);
+        if (!prev || liq > prev.liquidityUsd) {
+          best.set(address, { symbol, address, poolAddress, priceUsd: price, liquidityUsd: liq, volume24Usd: vol });
+        }
+      }
+    } catch (e: any) {
+      errors.push(e?.message);
+    }
+  }
+
+  if (pagesRead === 0) {
+    throw new Error(`could not read any pool page for ${chainKey}: ${errors.join(' | ')}`);
+  }
+  if (errors.length) console.warn(`[defi-market-data] ${errors.length}/${pages} pool pages failed for ${chainKey}: ${errors.join(' | ')}`);
+
+  // Array.from, not [...spread]: this project's tsconfig target predates
+  // downlevelIteration, so spreading a Map iterator is a compile error.
+  const tokens = Array.from(best.values())
+    .sort((x, y) => y.volume24Usd - x.volume24Usd)
+    .slice(0, maxTokens);
+  discoveryCache = { key, at: Date.now(), tokens };
+  return tokens;
+}
+
+// timeframe → GeckoTerminal (endpoint, aggregate)
+const TF: Record<string, [string, number]> = {
+  '1m': ['minute', 1], '5m': ['minute', 5], '15m': ['minute', 15],
+  '1h': ['hour', 1], '4h': ['hour', 4], '1d': ['day', 1],
+};
+
+// Five strategies ask for several timeframes per token per cycle; without this
+// a 40-token watchlist would blow through the free tier's rate limit instantly.
+const candleCache = new Map<string, { at: number; bars: DefiCandle[] }>();
+const CANDLE_TTL_MS = 60 * 1000;
+
+/**
+ * OHLCV for a pool, oldest-first — the same shape and ordering that
+ * CryptoComService.getCandles returned, so strategy code needs no changes.
+ */
+export async function getDefiCandles(chainKey: string, poolAddress: string, timeframe: string, count: number): Promise<DefiCandle[]> {
+  const net = GT_NETWORK[chainKey];
+  if (!net) throw new Error(`no GeckoTerminal network mapping for chain "${chainKey}"`);
+  const [endpoint, aggregate] = TF[timeframe] ?? TF['5m'];
+
+  const key = `${net}:${poolAddress}:${endpoint}:${aggregate}:${count}`;
+  const hit = candleCache.get(key);
+  if (hit && Date.now() - hit.at < CANDLE_TTL_MS) return hit.bars;
+
+  const d = await gt(`/networks/${net}/pools/${poolAddress}/ohlcv/${endpoint}?aggregate=${aggregate}&limit=${Math.min(count, 1000)}`);
+  const list: any[] = d?.data?.attributes?.ohlcv_list ?? [];
+  // GeckoTerminal returns newest-first; the indicators assume oldest-first.
+  const bars = list
+    .map((r) => ({ t: Number(r[0]) * 1000, o: Number(r[1]), h: Number(r[2]), l: Number(r[3]), c: Number(r[4]), v: Number(r[5]) }))
+    .filter((b) => Number.isFinite(b.c) && b.c > 0)
+    .reverse();
+  candleCache.set(key, { at: Date.now(), bars });
+  return bars;
+}
+
+/** Spot price from the freshest candle close. */
+export async function getDefiPrice(chainKey: string, poolAddress: string): Promise<number | null> {
+  const bars = await getDefiCandles(chainKey, poolAddress, '5m', 2).catch(() => [] as DefiCandle[]);
+  const last = bars[bars.length - 1];
+  return last?.c && last.c > 0 ? last.c : null;
+}
