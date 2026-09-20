@@ -19,6 +19,37 @@
 
 const GT = 'https://api.geckoterminal.com/api/v2';
 
+// A CoinGecko DEMO key lifts the per-minute ceiling to a documented 30/min.
+// Without it this IP measured ~3-4 calls/min before 429s, which is not enough to
+// run an engine. The Demo key rides the SAME host; only paid tiers move to
+// pro-api.coingecko.com/api/v3/onchain with an x-cg-pro-api-key header, so if
+// this is ever upgraded both the host and the header name must change.
+function cgHeaders(): Record<string, string> {
+  const h: Record<string, string> = { accept: 'application/json' };
+  const key = (process.env.COINGECKO_API_KEY ?? '').trim();
+  if (key) h['x-cg-demo-api-key'] = key;
+  return h;
+}
+
+/**
+ * Demo tier is 30 calls/min but only ~10,000 calls/MONTH, and the monthly cap is
+ * the binding constraint — roughly 330/day. Every default below is sized against
+ * that budget, not against the per-minute limit. Override via env when the plan
+ * changes rather than editing code.
+ */
+export function callBudget() {
+  const hasKey = !!(process.env.COINGECKO_API_KEY ?? '').trim();
+  return {
+    hasKey,
+    // With a key we can space calls at the documented rate; without one, crawl.
+    minIntervalMs: Number(process.env.COINGECKO_MIN_INTERVAL_MS ?? (hasKey ? 2100 : 15000)),
+    // Discovery is the same answer for everyone, so cache it hard: at 3 pages a
+    // refresh, a 5-minute TTL alone would spend 864 calls/day of a ~330 budget.
+    discoveryTtlMs: Number(process.env.COINGECKO_DISCOVERY_TTL_MS ?? (hasKey ? 60 * 60 * 1000 : 6 * 60 * 60 * 1000)),
+    candleTtlMs: Number(process.env.COINGECKO_CANDLE_TTL_MS ?? (hasKey ? 10 * 60 * 1000 : 30 * 60 * 1000)),
+  };
+}
+
 /** DEFI_CHAINS keys → GeckoTerminal network slugs. */
 const GT_NETWORK: Record<string, string> = {
   ethereum: 'eth', base: 'base', arbitrum: 'arbitrum',
@@ -56,19 +87,18 @@ export interface DiscoveryOptions {
 // seconds — and a 429 surfaced as zero candles is indistinguishable from a token
 // with no trading history, which would quietly mark healthy tokens untradeable.
 // Serialise every call behind a minimum interval, and back off on a real 429.
-const MIN_CALL_INTERVAL_MS = 2500; // ~24 calls/min, comfortably under the limit
 let callChain: Promise<any> = Promise.resolve();
 let lastCallAt = 0;
 
 async function gt(path: string): Promise<any> {
   const run = async (): Promise<any> => {
     for (let attempt = 0; attempt < 3; attempt++) {
-      const wait = Math.max(0, MIN_CALL_INTERVAL_MS - (Date.now() - lastCallAt));
+      const wait = Math.max(0, callBudget().minIntervalMs - (Date.now() - lastCallAt));
       if (wait > 0) await new Promise((r) => setTimeout(r, wait));
       lastCallAt = Date.now();
 
       const res = await fetch(`${GT}${path}`, {
-        headers: { accept: 'application/json' },
+        headers: cgHeaders(),
         signal: AbortSignal.timeout(20000),
       });
       if (res.ok) return res.json();
@@ -94,7 +124,6 @@ async function gt(path: string): Promise<any> {
 // Discovery is the same for every caller in a cycle, and GeckoTerminal's free
 // tier is rate limited, so hold the result briefly.
 let discoveryCache: { key: string; at: number; tokens: DefiToken[] } | null = null;
-const DISCOVERY_TTL_MS = 5 * 60 * 1000;
 
 /**
  * The tradeable universe for a chain: tokens with a real, liquid pool, ranked by
@@ -111,7 +140,7 @@ export async function discoverDefiTokens(chainKey: string, opts: DiscoveryOption
   const pages = opts.pages ?? 3;
 
   const key = `${chainKey}:${minLiq}:${minVol}:${maxTokens}:${pages}`;
-  if (discoveryCache && discoveryCache.key === key && Date.now() - discoveryCache.at < DISCOVERY_TTL_MS) {
+  if (discoveryCache && discoveryCache.key === key && Date.now() - discoveryCache.at < callBudget().discoveryTtlMs) {
     return discoveryCache.tokens;
   }
 
@@ -175,7 +204,6 @@ const TF: Record<string, [string, number]> = {
 // Five strategies ask for several timeframes per token per cycle; without this
 // a 40-token watchlist would blow through the free tier's rate limit instantly.
 const candleCache = new Map<string, { at: number; bars: DefiCandle[] }>();
-const CANDLE_TTL_MS = 60 * 1000;
 
 /**
  * OHLCV for a pool, oldest-first — the same shape and ordering that
@@ -193,7 +221,7 @@ export async function getDefiCandles(chainKey: string, poolAddress: string, time
   const FETCH_DEPTH = 300;
   const key = `${net}:${poolAddress}:${endpoint}:${aggregate}`;
   const hit = candleCache.get(key);
-  if (hit && Date.now() - hit.at < CANDLE_TTL_MS) return hit.bars.slice(-count);
+  if (hit && Date.now() - hit.at < callBudget().candleTtlMs) return hit.bars.slice(-count);
 
   const d = await gt(`/networks/${net}/pools/${poolAddress}/ohlcv/${endpoint}?aggregate=${aggregate}&limit=${FETCH_DEPTH}`);
   const list: any[] = d?.data?.attributes?.ohlcv_list ?? [];

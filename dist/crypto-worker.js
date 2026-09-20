@@ -7781,18 +7781,37 @@ var init_cefi_executor = __esm({
 // server/services/defi-market-data.ts
 var defi_market_data_exports = {};
 __export(defi_market_data_exports, {
+  callBudget: () => callBudget,
   discoverDefiTokens: () => discoverDefiTokens,
   getDefiCandles: () => getDefiCandles,
   getDefiPrice: () => getDefiPrice
 });
+function cgHeaders() {
+  const h = { accept: "application/json" };
+  const key = (process.env.COINGECKO_API_KEY ?? "").trim();
+  if (key) h["x-cg-demo-api-key"] = key;
+  return h;
+}
+function callBudget() {
+  const hasKey = !!(process.env.COINGECKO_API_KEY ?? "").trim();
+  return {
+    hasKey,
+    // With a key we can space calls at the documented rate; without one, crawl.
+    minIntervalMs: Number(process.env.COINGECKO_MIN_INTERVAL_MS ?? (hasKey ? 2100 : 15e3)),
+    // Discovery is the same answer for everyone, so cache it hard: at 3 pages a
+    // refresh, a 5-minute TTL alone would spend 864 calls/day of a ~330 budget.
+    discoveryTtlMs: Number(process.env.COINGECKO_DISCOVERY_TTL_MS ?? (hasKey ? 60 * 60 * 1e3 : 6 * 60 * 60 * 1e3)),
+    candleTtlMs: Number(process.env.COINGECKO_CANDLE_TTL_MS ?? (hasKey ? 10 * 60 * 1e3 : 30 * 60 * 1e3))
+  };
+}
 async function gt(path) {
   const run = async () => {
     for (let attempt = 0; attempt < 3; attempt++) {
-      const wait = Math.max(0, MIN_CALL_INTERVAL_MS - (Date.now() - lastCallAt));
+      const wait = Math.max(0, callBudget().minIntervalMs - (Date.now() - lastCallAt));
       if (wait > 0) await new Promise((r) => setTimeout(r, wait));
       lastCallAt = Date.now();
       const res = await fetch(`${GT}${path}`, {
-        headers: { accept: "application/json" },
+        headers: cgHeaders(),
         signal: AbortSignal.timeout(2e4)
       });
       if (res.ok) return res.json();
@@ -7819,7 +7838,7 @@ async function discoverDefiTokens(chainKey, opts = {}) {
   const maxTokens = opts.maxTokens ?? 40;
   const pages = opts.pages ?? 3;
   const key = `${chainKey}:${minLiq}:${minVol}:${maxTokens}:${pages}`;
-  if (discoveryCache && discoveryCache.key === key && Date.now() - discoveryCache.at < DISCOVERY_TTL_MS) {
+  if (discoveryCache && discoveryCache.key === key && Date.now() - discoveryCache.at < callBudget().discoveryTtlMs) {
     return discoveryCache.tokens;
   }
   const best = /* @__PURE__ */ new Map();
@@ -7865,7 +7884,7 @@ async function getDefiCandles(chainKey, poolAddress, timeframe, count) {
   const FETCH_DEPTH = 300;
   const key = `${net}:${poolAddress}:${endpoint}:${aggregate}`;
   const hit = candleCache.get(key);
-  if (hit && Date.now() - hit.at < CANDLE_TTL_MS) return hit.bars.slice(-count);
+  if (hit && Date.now() - hit.at < callBudget().candleTtlMs) return hit.bars.slice(-count);
   const d = await gt(`/networks/${net}/pools/${poolAddress}/ohlcv/${endpoint}?aggregate=${aggregate}&limit=${FETCH_DEPTH}`);
   const list = d?.data?.attributes?.ohlcv_list ?? [];
   const bars = list.map((r) => ({ t: Number(r[0]) * 1e3, o: Number(r[1]), h: Number(r[2]), l: Number(r[3]), c: Number(r[4]), v: Number(r[5]) })).filter((b) => Number.isFinite(b.c) && b.c > 0).reverse();
@@ -7877,7 +7896,7 @@ async function getDefiPrice(chainKey, poolAddress) {
   const last = bars[bars.length - 1];
   return last?.c && last.c > 0 ? last.c : null;
 }
-var GT, GT_NETWORK, SETTLEMENT, MIN_CALL_INTERVAL_MS, callChain, lastCallAt, discoveryCache, DISCOVERY_TTL_MS, TF, candleCache, CANDLE_TTL_MS;
+var GT, GT_NETWORK, SETTLEMENT, callChain, lastCallAt, discoveryCache, TF, candleCache;
 var init_defi_market_data = __esm({
   "server/services/defi-market-data.ts"() {
     "use strict";
@@ -7890,11 +7909,9 @@ var init_defi_market_data = __esm({
       polygon: "polygon_pos"
     };
     SETTLEMENT = /* @__PURE__ */ new Set(["USDC", "USDBC", "USDC.E"]);
-    MIN_CALL_INTERVAL_MS = 2500;
     callChain = Promise.resolve();
     lastCallAt = 0;
     discoveryCache = null;
-    DISCOVERY_TTL_MS = 5 * 60 * 1e3;
     TF = {
       "1m": ["minute", 1],
       "5m": ["minute", 5],
@@ -7904,7 +7921,6 @@ var init_defi_market_data = __esm({
       "1d": ["day", 1]
     };
     candleCache = /* @__PURE__ */ new Map();
-    CANDLE_TTL_MS = 60 * 1e3;
   }
 });
 
