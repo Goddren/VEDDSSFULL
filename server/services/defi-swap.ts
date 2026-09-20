@@ -27,25 +27,77 @@ export function isDefiSwapAvailable(): boolean { return !!process.env.ZEROX_API_
 // funds), we resolve unknown symbols at runtime from the canonical Uniswap token
 // list (chainId + symbol → address). Fast-paths for native/USDC/WETH stay hard-
 // coded (those are pinned in DEFI_CHAINS). Cached in-process after first load.
-let tokenIndexCache: Map<string, string> | null = null;
-let tokenIndexLoadedAt = 0;
-const TOKEN_LIST_URL = 'https://tokens.uniswap.org';
+// Per-chain caches. The old code kept ONE global index built from a single URL.
+const tokenIndexCache = new Map<string, Map<string, string>>();
+const tokenIndexLoadedAt = new Map<string, number>();
 
-async function loadTokenIndex(): Promise<Map<string, string>> {
-  // 6h cache; on failure keep any prior cache (or an empty map → symbols just skip).
-  if (tokenIndexCache && Date.now() - tokenIndexLoadedAt < 6 * 3600_000) return tokenIndexCache;
-  try {
-    const res = await fetch(TOKEN_LIST_URL, { signal: AbortSignal.timeout(10000) });
-    const data: any = await res.json();
-    const idx = new Map<string, string>();
-    for (const t of (data?.tokens ?? [])) {
-      if (t?.chainId && t?.symbol && t?.address) idx.set(`${t.chainId}:${String(t.symbol).toUpperCase()}`, t.address);
+/** Thrown when the token list could not be READ. Distinct from "not listed". */
+export class TokenListUnavailableError extends Error {}
+
+// CoinGecko publishes a list PER CHAIN; these slugs are its chain ids.
+const CG_SLUG: Record<string, string> = {
+  ethereum: 'ethereum', base: 'base', arbitrum: 'arbitrum-one',
+  optimism: 'optimistic-ethereum', polygon: 'polygon-pos',
+};
+
+// `https://tokens.uniswap.org` now serves the Uniswap web app's HTML, not JSON
+// (verified 2026-09-20: 200, content-type text/html, body "<!DOCTYPE html>").
+// The old loader did `await res.json()`, threw on the HTML, and its catch
+// returned an EMPTY map — so every symbol except the hardcoded native/USDC/WETH
+// failed to resolve, on every chain, and the engine could not enter any token.
+// The message it produced, "isn't listed on this chain", was actively wrong.
+//
+// Sources are tried in order and the first usable one wins. Uniswap stays last
+// in case it comes back.
+function sourcesFor(chainKey: string): string[] {
+  const slug = CG_SLUG[chainKey];
+  return [
+    ...(slug ? [`https://tokens.coingecko.com/${slug}/all.json`] : []),
+    'https://tokens.1inch.eth.link',
+    'https://tokens.uniswap.org',
+  ];
+}
+
+/**
+ * Build {chainId:SYMBOL -> address} for one chain.
+ * THROWS TokenListUnavailableError when every source fails, so callers can tell
+ * "we could not look it up" from "it does not exist here". Returning an empty
+ * map for an unreadable list is what made this failure invisible for eight days.
+ */
+async function loadTokenIndex(chainKey: string): Promise<Map<string, string>> {
+  const cached = tokenIndexCache.get(chainKey);
+  const at = tokenIndexLoadedAt.get(chainKey) ?? 0;
+  if (cached && Date.now() - at < 6 * 3600_000) return cached;
+
+  const chain = DEFI_CHAINS[chainKey];
+  const errors: string[] = [];
+  for (const url of sourcesFor(chainKey)) {
+    try {
+      const res = await fetch(url, { signal: AbortSignal.timeout(15000) });
+      const ct = res.headers.get('content-type') ?? '';
+      if (!res.ok || !ct.includes('json')) { errors.push(`${url} -> ${res.status} ${ct || 'no content-type'}`); continue; }
+      const data: any = await res.json();
+      const idx = new Map<string, string>();
+      for (const t of (data?.tokens ?? [])) {
+        if (!t?.symbol || !t?.address) continue;
+        // A per-chain list may omit chainId; assume it is the chain requested.
+        const cid = t.chainId ?? chain?.chainId;
+        if (cid === chain?.chainId) idx.set(String(t.symbol).toUpperCase(), t.address);
+      }
+      if (idx.size === 0) { errors.push(`${url} -> parsed but 0 tokens for chainId ${chain?.chainId}`); continue; }
+      tokenIndexCache.set(chainKey, idx);
+      tokenIndexLoadedAt.set(chainKey, Date.now());
+      return idx;
+    } catch (e: any) {
+      errors.push(`${url} -> ${e?.message}`);
     }
-    if (idx.size > 0) { tokenIndexCache = idx; tokenIndexLoadedAt = Date.now(); }
-    return tokenIndexCache ?? idx;
-  } catch {
-    return tokenIndexCache ?? new Map();
   }
+  // Stale beats nothing — an old list is still real data.
+  if (cached) {
+    console.warn(`[defi-swap] every token-list source failed for ${chainKey}; using the cached list from ${new Date(at).toISOString()}. ${errors.join(' | ')}`);
+    return cached;
+  }
+  throw new TokenListUnavailableError(`Could not load a token list for ${chainKey}: ${errors.join(' | ')}`);
 }
 
 // Aliases: engine "base coins" → the on-chain wrapped symbol(s) to try, in order.
@@ -64,19 +116,31 @@ export async function resolveToken(chainKey: string, token: string): Promise<str
   if (up === c.native || up === 'ETH' || up === 'NATIVE' || up === 'POL' || up === 'MATIC') return NATIVE_PSEUDO;
   if (up === 'USDC') return c.usdc;
   if (up === 'WETH') return c.weth;
-  // Everything else: look up by (chainId, symbol) in the canonical token list.
-  const idx = await loadTokenIndex();
+  // Everything else: look up by symbol in that chain's token list. A failure to
+  // LOAD the list propagates as TokenListUnavailableError — never as "not listed".
+  const idx = await loadTokenIndex(chainKey);
   const candidates = SYMBOL_ALIASES[up] ?? [up];
   for (const sym of candidates) {
-    const addr = idx.get(`${c.chainId}:${sym}`);
+    const addr = idx.get(sym);
     if (addr) return addr;
   }
   throw new Error(`Token "${token}" isn't listed on ${chainKey} — it may not exist on this chain. Use a 0x address, or pick a token that trades on ${chainKey}.`);
 }
 
-/** True if `token` (symbol/base coin) can be resolved to an address on `chainKey`. */
+/**
+ * True if `token` can be resolved to an address on `chainKey`.
+ * A list-load failure still returns false — we will not trade a symbol we could
+ * not verify — but it is LOUD, because "the lookup is broken" and "this coin is
+ * not on this chain" demand completely different responses from a human.
+ */
 export async function isTokenTradeable(chainKey: string, token: string): Promise<boolean> {
-  try { await resolveToken(chainKey, token); return true; } catch { return false; }
+  try { await resolveToken(chainKey, token); return true; }
+  catch (e: any) {
+    if (e instanceof TokenListUnavailableError) {
+      console.error(`[defi-swap] CANNOT VERIFY tokens on ${chainKey} — the token list is unreadable, so NOTHING will trade until it recovers: ${e.message}`);
+    }
+    return false;
+  }
 }
 
 async function zeroXQuote(chainId: number, params: Record<string, string>): Promise<any> {

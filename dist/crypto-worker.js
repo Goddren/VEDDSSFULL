@@ -6905,6 +6905,7 @@ var init_cefi_executor = __esm({
 var defi_swap_exports = {};
 __export(defi_swap_exports, {
   DEFI_CHAINS: () => DEFI_CHAINS,
+  TokenListUnavailableError: () => TokenListUnavailableError,
   addressFromPrivateKey: () => addressFromPrivateKey,
   executeDefiSwap: () => executeDefiSwap,
   getWalletTokenBalance: () => getWalletTokenBalance,
@@ -6916,23 +6917,51 @@ import { ethers } from "ethers";
 function isDefiSwapAvailable() {
   return !!process.env.ZEROX_API_KEY;
 }
-async function loadTokenIndex() {
-  if (tokenIndexCache && Date.now() - tokenIndexLoadedAt < 6 * 36e5) return tokenIndexCache;
-  try {
-    const res = await fetch(TOKEN_LIST_URL, { signal: AbortSignal.timeout(1e4) });
-    const data = await res.json();
-    const idx = /* @__PURE__ */ new Map();
-    for (const t of data?.tokens ?? []) {
-      if (t?.chainId && t?.symbol && t?.address) idx.set(`${t.chainId}:${String(t.symbol).toUpperCase()}`, t.address);
+function sourcesFor(chainKey) {
+  const slug = CG_SLUG[chainKey];
+  return [
+    ...slug ? [`https://tokens.coingecko.com/${slug}/all.json`] : [],
+    "https://tokens.1inch.eth.link",
+    "https://tokens.uniswap.org"
+  ];
+}
+async function loadTokenIndex(chainKey) {
+  const cached = tokenIndexCache.get(chainKey);
+  const at = tokenIndexLoadedAt.get(chainKey) ?? 0;
+  if (cached && Date.now() - at < 6 * 36e5) return cached;
+  const chain = DEFI_CHAINS[chainKey];
+  const errors = [];
+  for (const url of sourcesFor(chainKey)) {
+    try {
+      const res = await fetch(url, { signal: AbortSignal.timeout(15e3) });
+      const ct = res.headers.get("content-type") ?? "";
+      if (!res.ok || !ct.includes("json")) {
+        errors.push(`${url} -> ${res.status} ${ct || "no content-type"}`);
+        continue;
+      }
+      const data = await res.json();
+      const idx = /* @__PURE__ */ new Map();
+      for (const t of data?.tokens ?? []) {
+        if (!t?.symbol || !t?.address) continue;
+        const cid = t.chainId ?? chain?.chainId;
+        if (cid === chain?.chainId) idx.set(String(t.symbol).toUpperCase(), t.address);
+      }
+      if (idx.size === 0) {
+        errors.push(`${url} -> parsed but 0 tokens for chainId ${chain?.chainId}`);
+        continue;
+      }
+      tokenIndexCache.set(chainKey, idx);
+      tokenIndexLoadedAt.set(chainKey, Date.now());
+      return idx;
+    } catch (e) {
+      errors.push(`${url} -> ${e?.message}`);
     }
-    if (idx.size > 0) {
-      tokenIndexCache = idx;
-      tokenIndexLoadedAt = Date.now();
-    }
-    return tokenIndexCache ?? idx;
-  } catch {
-    return tokenIndexCache ?? /* @__PURE__ */ new Map();
   }
+  if (cached) {
+    console.warn(`[defi-swap] every token-list source failed for ${chainKey}; using the cached list from ${new Date(at).toISOString()}. ${errors.join(" | ")}`);
+    return cached;
+  }
+  throw new TokenListUnavailableError(`Could not load a token list for ${chainKey}: ${errors.join(" | ")}`);
 }
 async function resolveToken(chainKey, token) {
   const c = DEFI_CHAINS[chainKey];
@@ -6942,10 +6971,10 @@ async function resolveToken(chainKey, token) {
   if (up === c.native || up === "ETH" || up === "NATIVE" || up === "POL" || up === "MATIC") return NATIVE_PSEUDO;
   if (up === "USDC") return c.usdc;
   if (up === "WETH") return c.weth;
-  const idx = await loadTokenIndex();
+  const idx = await loadTokenIndex(chainKey);
   const candidates = SYMBOL_ALIASES[up] ?? [up];
   for (const sym of candidates) {
-    const addr = idx.get(`${c.chainId}:${sym}`);
+    const addr = idx.get(sym);
     if (addr) return addr;
   }
   throw new Error(`Token "${token}" isn't listed on ${chainKey} \u2014 it may not exist on this chain. Use a 0x address, or pick a token that trades on ${chainKey}.`);
@@ -6954,7 +6983,10 @@ async function isTokenTradeable(chainKey, token) {
   try {
     await resolveToken(chainKey, token);
     return true;
-  } catch {
+  } catch (e) {
+    if (e instanceof TokenListUnavailableError) {
+      console.error(`[defi-swap] CANNOT VERIFY tokens on ${chainKey} \u2014 the token list is unreadable, so NOTHING will trade until it recovers: ${e.message}`);
+    }
     return false;
   }
 }
@@ -7064,7 +7096,7 @@ async function getWalletTokenBalance(chainKey, walletAddress, token) {
 function addressFromPrivateKey(pk) {
   return new ethers.Wallet(pk.trim()).address;
 }
-var DEFI_CHAINS, NATIVE_PSEUDO, ERC20_ABI, tokenIndexCache, tokenIndexLoadedAt, TOKEN_LIST_URL, SYMBOL_ALIASES;
+var DEFI_CHAINS, NATIVE_PSEUDO, ERC20_ABI, tokenIndexCache, tokenIndexLoadedAt, TokenListUnavailableError, CG_SLUG, SYMBOL_ALIASES;
 var init_defi_swap = __esm({
   "server/services/defi-swap.ts"() {
     "use strict";
@@ -7078,9 +7110,17 @@ var init_defi_swap = __esm({
     };
     NATIVE_PSEUDO = "0xEeeeeEeeeEeEeeEeEeEeeEEEeeeeEeeeeeeeEEeE";
     ERC20_ABI = ["function allowance(address,address) view returns (uint256)", "function approve(address,uint256) returns (bool)", "function decimals() view returns (uint8)", "function balanceOf(address) view returns (uint256)"];
-    tokenIndexCache = null;
-    tokenIndexLoadedAt = 0;
-    TOKEN_LIST_URL = "https://tokens.uniswap.org";
+    tokenIndexCache = /* @__PURE__ */ new Map();
+    tokenIndexLoadedAt = /* @__PURE__ */ new Map();
+    TokenListUnavailableError = class extends Error {
+    };
+    CG_SLUG = {
+      ethereum: "ethereum",
+      base: "base",
+      arbitrum: "arbitrum-one",
+      optimism: "optimistic-ethereum",
+      polygon: "polygon-pos"
+    };
     SYMBOL_ALIASES = {
       ETH: ["WETH"],
       WETH: ["WETH"],
