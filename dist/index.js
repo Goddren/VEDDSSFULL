@@ -36514,6 +36514,79 @@ var init_defi_market_data = __esm({
   }
 });
 
+// server/utils/corporateActionGuard.ts
+var corporateActionGuard_exports = {};
+__export(corporateActionGuard_exports, {
+  assessPriceAnomaly: () => assessPriceAnomaly,
+  isTokenizedEquity: () => isTokenizedEquity
+});
+function nearestSplit(ratio) {
+  for (const [r, label] of SPLIT_RATIOS) {
+    if (Math.abs(ratio - r) / r < 0.02) return label;
+  }
+  return null;
+}
+function assessPriceAnomaly(bars, opts = {}) {
+  const moveThreshold = opts.moveThresholdPct ?? 20;
+  const volConfirm = opts.volumeConfirmRatio ?? 1.5;
+  const lookback = opts.lookback ?? 20;
+  const none = { suspect: false, reason: "no anomaly", movePct: 0, volumeRatio: 0, splitLike: null };
+  if (!bars || bars.length < 3) {
+    return { suspect: false, reason: "insufficient history to assess", movePct: 0, volumeRatio: 0, splitLike: null };
+  }
+  const last = bars[bars.length - 1];
+  const prev = bars[bars.length - 2];
+  if (!(prev.c > 0) || !(last.c > 0)) return none;
+  const ratio = last.c / prev.c;
+  const movePct = (ratio - 1) * 100;
+  if (Math.abs(movePct) < moveThreshold) return none;
+  const hist = bars.slice(Math.max(0, bars.length - 1 - lookback), bars.length - 1);
+  const vols = hist.map((b) => b.v ?? 0).filter((v) => v > 0);
+  const avgVol = vols.length ? vols.reduce((a, b) => a + b, 0) / vols.length : 0;
+  const lastVol = last.v ?? 0;
+  const volumeRatio = avgVol > 0 ? lastVol / avgVol : 0;
+  const splitLike = nearestSplit(ratio);
+  if (avgVol > 0 && volumeRatio >= volConfirm) {
+    return {
+      suspect: false,
+      reason: `${movePct.toFixed(1)}% move confirmed by ${volumeRatio.toFixed(1)}x volume \u2014 genuine`,
+      movePct,
+      volumeRatio,
+      splitLike
+    };
+  }
+  return {
+    suspect: true,
+    reason: splitLike ? `${movePct.toFixed(1)}% move on ${volumeRatio.toFixed(1)}x volume matches a ${splitLike} \u2014 refusing to act; verify the corporate action` : `${movePct.toFixed(1)}% move on only ${volumeRatio.toFixed(1)}x volume \u2014 unexplained by trading activity, refusing to act`,
+    movePct,
+    volumeRatio,
+    splitLike
+  };
+}
+function isTokenizedEquity(symbol, name) {
+  if (name && /tokenized stock/i.test(name)) return true;
+  return /^[A-Z]{2,5}C$/.test(symbol) && !["USDC", "ETHC", "BTCC"].includes(symbol);
+}
+var SPLIT_RATIOS;
+var init_corporateActionGuard = __esm({
+  "server/utils/corporateActionGuard.ts"() {
+    "use strict";
+    SPLIT_RATIOS = [
+      [1 / 2, "2:1 split"],
+      [1 / 3, "3:1 split"],
+      [1 / 4, "4:1 split"],
+      [1 / 5, "5:1 split"],
+      [1 / 10, "10:1 split"],
+      [2 / 3, "3:2 split"],
+      [3 / 4, "4:3 split"],
+      [2, "1:2 reverse split"],
+      [3, "1:3 reverse split"],
+      [5, "1:5 reverse split"],
+      [10, "1:10 reverse split"]
+    ];
+  }
+});
+
 // server/services/defi-swap.ts
 var defi_swap_exports = {};
 __export(defi_swap_exports, {
@@ -37039,7 +37112,167 @@ async function runBreakout(symbol, cfg) {
   if (score < cfg.minConfidence) return { decision: "watching", reasoning: `${symbol}: ${direction} volume-confirmed breakout but score ${score}/100 below ${cfg.minConfidence}.`, score, price, dailyChangePercent, strategy: "breakout" };
   return { decision: "signal", score, price, dailyChangePercent, strategy: "breakout", direction, reasoning: `${symbol}: ${direction} volume-confirmed breakout of ${lookback}h range ($${priorLow.toFixed(2)}\u2013$${priorHigh.toFixed(2)}), now $${price.toFixed(2)}. Score ${score}/100.` };
 }
+async function runStructure(symbol, cfg) {
+  const bars = await fetchBars(symbol, "15m", 120);
+  if (bars.length < 30) {
+    return { decision: "error", reasoning: symbol + ": not enough candle history for structure.", score: null, price: null, dailyChangePercent: null, strategy: "structure" };
+  }
+  const { detectBOSCHOCH: detectBOSCHOCH2, detectFairValueGap: detectFairValueGap2, detectOrderBlock: detectOrderBlock2 } = await Promise.resolve().then(() => (init_smcUtils(), smcUtils_exports));
+  const newestFirst = convertToCandles3(bars).slice().reverse();
+  const price = bars[bars.length - 1].c;
+  const bull = detectBOSCHOCH2(newestFirst, "BUY");
+  const bear = detectBOSCHOCH2(newestFirst, "SELL");
+  const struct = bull.detected && bull.direction === "BULLISH" ? bull : bear.detected && bear.direction === "BEARISH" ? bear : null;
+  if (!struct) {
+    return { decision: "watching", reasoning: symbol + ": no break of structure -- " + bull.description, score: 40, price, dailyChangePercent: null, strategy: "structure" };
+  }
+  const direction = struct.direction === "BULLISH" ? "BUY" : "SELL";
+  const fvg = detectFairValueGap2(newestFirst, direction);
+  const ob = detectOrderBlock2(newestFirst, direction);
+  let score = struct.type === "CHOCH" ? 70 : 62;
+  const parts = [struct.description];
+  if (fvg.detected && fvg.direction === (direction === "BUY" ? "BULLISH" : "BEARISH")) {
+    score += fvg.inZone ? 12 : 6;
+    parts.push(fvg.inZone ? "price inside the FVG" : "aligned FVG");
+  }
+  if (ob.detected && ob.aligns) {
+    score += ob.mitigation === "FRESH" ? 10 : 4;
+    parts.push((ob.mitigation === "FRESH" ? "fresh" : "mitigated") + " order block");
+  }
+  score = Math.min(97, score);
+  const directionAllowed = cfg.directionFilter === "both" || cfg.directionFilter === "long_only" && direction === "BUY" || cfg.directionFilter === "short_only" && direction === "SELL";
+  if (!directionAllowed) {
+    return { decision: "skipped", reasoning: symbol + ": " + direction + ' structure read, but direction filter is "' + cfg.directionFilter + '".', score, price, dailyChangePercent: null, strategy: "structure" };
+  }
+  const threshold = cfg.minConfidence != null ? cfg.minConfidence : 70;
+  const out = {
+    decision: score >= threshold ? "signal" : "watching",
+    reasoning: symbol + ": " + direction + " " + struct.type + " -- " + parts.join("; ") + ". Score " + score + "/100.",
+    score,
+    price,
+    dailyChangePercent: null,
+    strategy: "structure"
+  };
+  if (score >= threshold) out.direction = direction;
+  return out;
+}
+async function runDivergence(symbol, cfg) {
+  const bars = await fetchBars(symbol, "15m", 120);
+  if (bars.length < 40) {
+    return { decision: "error", reasoning: symbol + ": not enough candle history for divergence.", score: null, price: null, dailyChangePercent: null, strategy: "divergence" };
+  }
+  const { calculateRSI: calculateRSI2 } = await Promise.resolve().then(() => (init_indicators(), indicators_exports));
+  const candles = convertToCandles3(bars);
+  const price = bars[bars.length - 1].c;
+  const rsiAt = (endIdx) => {
+    const slice = candles.slice(0, endIdx + 1);
+    if (slice.length < 20) return null;
+    const r = calculateRSI2(slice, 14);
+    const v = typeof r === "number" ? r : r && r.value;
+    return Number.isFinite(v) ? Number(v) : null;
+  };
+  const n = candles.length;
+  const recent = n - 1;
+  const prior = n - 1 - 12;
+  if (prior < 20) {
+    return { decision: "watching", reasoning: symbol + ": not enough separation for a divergence read.", score: 40, price, dailyChangePercent: null, strategy: "divergence" };
+  }
+  const pRecent = candles[recent].c, pPrior = candles[prior].c;
+  const rRecent = rsiAt(recent), rPrior = rsiAt(prior);
+  if (rRecent === null || rPrior === null) {
+    return { decision: "error", reasoning: symbol + ": RSI unavailable for divergence.", score: null, price, dailyChangePercent: null, strategy: "divergence" };
+  }
+  let direction = null;
+  let label = "";
+  if (pRecent < pPrior * 0.998 && rRecent > rPrior + 2) {
+    direction = "BUY";
+    label = "bullish divergence -- lower price low, higher RSI low";
+  } else if (pRecent > pPrior * 1.002 && rRecent < rPrior - 2) {
+    direction = "SELL";
+    label = "bearish divergence -- higher price high, lower RSI high";
+  }
+  if (!direction) {
+    return { decision: "watching", reasoning: symbol + ": price and RSI agree (RSI " + rPrior.toFixed(0) + " -> " + rRecent.toFixed(0) + ") -- no divergence.", score: 45, price, dailyChangePercent: null, strategy: "divergence" };
+  }
+  const gap = Math.abs(rRecent - rPrior);
+  const extreme = direction === "BUY" ? Math.max(0, 40 - rRecent) : Math.max(0, rRecent - 60);
+  const score = Math.min(95, Math.round(58 + gap * 1.5 + extreme));
+  const directionAllowed = cfg.directionFilter === "both" || cfg.directionFilter === "long_only" && direction === "BUY" || cfg.directionFilter === "short_only" && direction === "SELL";
+  if (!directionAllowed) {
+    return { decision: "skipped", reasoning: symbol + ": " + direction + ' divergence, but direction filter is "' + cfg.directionFilter + '".', score, price, dailyChangePercent: null, strategy: "divergence" };
+  }
+  const threshold = cfg.minConfidence != null ? cfg.minConfidence : 70;
+  const out = {
+    decision: score >= threshold ? "signal" : "watching",
+    reasoning: symbol + ": " + label + " (RSI " + rPrior.toFixed(0) + " -> " + rRecent.toFixed(0) + "). Score " + score + "/100.",
+    score,
+    price,
+    dailyChangePercent: null,
+    strategy: "divergence"
+  };
+  if (score >= threshold) out.direction = direction;
+  return out;
+}
+async function getHtfBias(symbol) {
+  try {
+    const bars = await fetchBars(symbol, "1h", 60);
+    if (bars.length < 25) return null;
+    const closes = bars.map(function(b) {
+      return b.c;
+    });
+    const sma2 = function(arr2, p) {
+      return arr2.slice(-p).reduce(function(a, b) {
+        return a + b;
+      }, 0) / p;
+    };
+    const fast = sma2(closes, 10);
+    const slow = sma2(closes, 30);
+    if (!(fast > 0) || !(slow > 0)) return null;
+    const spread = (fast - slow) / slow;
+    if (spread > 4e-3) return "BUY";
+    if (spread < -4e-3) return "SELL";
+    return null;
+  } catch {
+    return null;
+  }
+}
+async function applySignalGates(symbol, result, cfg) {
+  if (result.decision !== "signal" || !result.direction) return result;
+  try {
+    const bars = await fetchBars(symbol, "15m", 40);
+    const { assessPriceAnomaly: assessPriceAnomaly2 } = await Promise.resolve().then(() => (init_corporateActionGuard(), corporateActionGuard_exports));
+    const anomaly = assessPriceAnomaly2(bars);
+    if (anomaly.suspect) {
+      return {
+        ...result,
+        decision: "skipped",
+        direction: void 0,
+        reasoning: symbol + ": BLOCKED by the corporate-action guard -- " + anomaly.reason + ". Original read: " + result.reasoning
+      };
+    }
+  } catch {
+    return {
+      ...result,
+      decision: "skipped",
+      direction: void 0,
+      reasoning: symbol + ": corporate-action guard could not run (no candles) -- refusing the entry rather than trading unchecked. Original read: " + result.reasoning
+    };
+  }
+  const bias = await getHtfBias(symbol);
+  if (bias && bias !== result.direction) {
+    return {
+      ...result,
+      decision: "watching",
+      direction: void 0,
+      reasoning: symbol + ": " + result.direction + " setup opposed by the 1h trend (" + bias + ") -- standing down. " + result.reasoning
+    };
+  }
+  return result;
+}
 async function scanSymbol(symbol, cfg) {
+  return applySignalGates(symbol, await scanSymbolRaw(symbol, cfg), cfg);
+}
+async function scanSymbolRaw(symbol, cfg) {
   if (cfg.strategyMode === "auto") {
     const results = await Promise.all(AUTO_STRATEGIES.map((k) => STRATEGY_RUNNERS[k](symbol, cfg).catch(() => null)));
     const valid = results.filter((r) => !!r);
@@ -37139,6 +37372,18 @@ async function monitorOpenPositions(userId, cfg) {
           px = q?.best?.price ?? 0;
         }
         if (!px) continue;
+        try {
+          const guardBars = await fetchBars(trade.symbol, "15m", 40);
+          const { assessPriceAnomaly: assessPriceAnomaly2 } = await Promise.resolve().then(() => (init_corporateActionGuard(), corporateActionGuard_exports));
+          const anomaly = assessPriceAnomaly2(guardBars);
+          if (anomaly.suspect) {
+            console.error("[cryptocom-scanner] HOLDING trade " + trade.id + " (" + trade.symbol + "): " + anomaly.reason);
+            await storage.createCryptocomEngineActivity({ userId, symbol: trade.symbol, decision: "skipped", strategy: trade.strategy, reasoning: trade.symbol + ": exit BLOCKED by the corporate-action guard -- " + anomaly.reason + ". Position held; verify whether a split or dividend occurred.", score: null, price: px, dailyChangePercent: null, source: "cryptocom" }).catch(() => {
+            });
+            continue;
+          }
+        } catch {
+        }
         if (trade.takeProfit && px >= trade.takeProfit) {
           await closePosition(userId, trade, px, "take_profit");
           continue;
@@ -37939,9 +38184,11 @@ var init_cryptocom_scanner = __esm({
       momentum: runMomentum,
       order_flow: runOrderFlow,
       volume_profile: runVolumeProfile,
-      breakout: runBreakout
+      breakout: runBreakout,
+      structure: runStructure,
+      divergence: runDivergence
     };
-    AUTO_STRATEGIES = ["trend_following", "momentum", "order_flow", "volume_profile", "breakout"];
+    AUTO_STRATEGIES = ["trend_following", "momentum", "order_flow", "volume_profile", "breakout", "structure", "divergence"];
     sessionPeakEquity = /* @__PURE__ */ new Map();
     started2 = false;
     scanInFlight = false;
@@ -54791,9 +55038,9 @@ async function getStopOrdersForUser(userId, filters = {}) {
 init_schema();
 
 // server/build-info.ts
-var BUILD_COMMIT = "7bec42f1-dirty";
+var BUILD_COMMIT = "20854bc4-dirty";
 var BUILD_BRANCH = "main";
-var BUILT_AT = "2026-09-20T15:15:57.104Z";
+var BUILT_AT = "2026-09-20T15:46:16.617Z";
 
 // server/stripe.ts
 init_db();

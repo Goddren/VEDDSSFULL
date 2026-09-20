@@ -232,17 +232,218 @@ async function runBreakout(symbol: string, cfg: CryptocomEngineConfig): Promise<
   return { decision: 'signal', score, price, dailyChangePercent, strategy: 'breakout', direction, reasoning: `${symbol}: ${direction} volume-confirmed breakout of ${lookback}h range ($${priorLow.toFixed(2)}–$${priorHigh.toFixed(2)}), now $${price.toFixed(2)}. Score ${score}/100.` };
 }
 
+// -- Strategy: market structure (BOS/CHOCH + FVG + order block) --------------
+// Ported from the FX engine, which already had these as pure candle functions
+// in server/utils/smcUtils.ts. Nothing in them is crypto-specific; it is price
+// action, so the port is a call, not a rewrite.
+//
+// ORDERING TRAP: smcUtils reads candles[0] as the CURRENT bar -- it expects
+// NEWEST-FIRST. fetchBars returns oldest-first. Passing them straight through
+// would analyse the OLDEST bar as "now" and emit confident, wrong signals, so
+// they are reversed here exactly once, at the boundary.
+async function runStructure(symbol: string, cfg: CryptocomEngineConfig): Promise<StrategyResult> {
+  const bars = await fetchBars(symbol, '15m', 120);
+  if (bars.length < 30) {
+    return { decision: 'error', reasoning: symbol + ': not enough candle history for structure.', score: null, price: null, dailyChangePercent: null, strategy: 'structure' };
+  }
+  const { detectBOSCHOCH, detectFairValueGap, detectOrderBlock } = await import('../utils/smcUtils');
+  const newestFirst = convertToCandles(bars).slice().reverse();
+  const price = bars[bars.length - 1].c;
+
+  // Ask the structure which way it points rather than assuming a side.
+  const bull = detectBOSCHOCH(newestFirst, 'BUY');
+  const bear = detectBOSCHOCH(newestFirst, 'SELL');
+  const struct = (bull.detected && bull.direction === 'BULLISH') ? bull
+    : (bear.detected && bear.direction === 'BEARISH') ? bear : null;
+  if (!struct) {
+    return { decision: 'watching', reasoning: symbol + ': no break of structure -- ' + bull.description, score: 40, price, dailyChangePercent: null, strategy: 'structure' };
+  }
+  const direction: 'BUY' | 'SELL' = struct.direction === 'BULLISH' ? 'BUY' : 'SELL';
+
+  const fvg = detectFairValueGap(newestFirst, direction);
+  const ob = detectOrderBlock(newestFirst, direction);
+
+  // A CHOCH (trend CHANGE) is a stronger read than a BOS (continuation).
+  let score = struct.type === 'CHOCH' ? 70 : 62;
+  const parts: string[] = [struct.description];
+  if (fvg.detected && fvg.direction === (direction === 'BUY' ? 'BULLISH' : 'BEARISH')) {
+    score += fvg.inZone ? 12 : 6;
+    parts.push(fvg.inZone ? 'price inside the FVG' : 'aligned FVG');
+  }
+  if (ob.detected && ob.aligns) {
+    score += ob.mitigation === 'FRESH' ? 10 : 4;
+    parts.push((ob.mitigation === 'FRESH' ? 'fresh' : 'mitigated') + ' order block');
+  }
+  score = Math.min(97, score);
+
+  const directionAllowed = cfg.directionFilter === 'both'
+    || (cfg.directionFilter === 'long_only' && direction === 'BUY')
+    || (cfg.directionFilter === 'short_only' && direction === 'SELL');
+  if (!directionAllowed) {
+    return { decision: 'skipped', reasoning: symbol + ': ' + direction + ' structure read, but direction filter is "' + cfg.directionFilter + '".', score, price, dailyChangePercent: null, strategy: 'structure' };
+  }
+  const threshold = cfg.minConfidence != null ? cfg.minConfidence : 70;
+  const out: StrategyResult = {
+    decision: score >= threshold ? 'signal' : 'watching',
+    reasoning: symbol + ': ' + direction + ' ' + struct.type + ' -- ' + parts.join('; ') + '. Score ' + score + '/100.',
+    score, price, dailyChangePercent: null, strategy: 'structure',
+  };
+  if (score >= threshold) out.direction = direction;
+  return out;
+}
+
+// -- Strategy: RSI / price divergence ----------------------------------------
+// Price makes a new extreme, momentum does not -- the exhaustion read the FX
+// engine uses. Compared across a 12-bar separation so one noisy wick cannot
+// manufacture a divergence.
+async function runDivergence(symbol: string, cfg: CryptocomEngineConfig): Promise<StrategyResult> {
+  const bars = await fetchBars(symbol, '15m', 120);
+  if (bars.length < 40) {
+    return { decision: 'error', reasoning: symbol + ': not enough candle history for divergence.', score: null, price: null, dailyChangePercent: null, strategy: 'divergence' };
+  }
+  const { calculateRSI } = await import('../indicators');
+  const candles = convertToCandles(bars);
+  const price = bars[bars.length - 1].c;
+
+  const rsiAt = (endIdx: number): number | null => {
+    const slice = candles.slice(0, endIdx + 1);
+    if (slice.length < 20) return null;
+    const r: any = calculateRSI(slice, 14);
+    const v = typeof r === 'number' ? r : (r && r.value);
+    return Number.isFinite(v) ? Number(v) : null;
+  };
+
+  const n = candles.length;
+  const recent = n - 1;
+  const prior = n - 1 - 12;
+  if (prior < 20) {
+    return { decision: 'watching', reasoning: symbol + ': not enough separation for a divergence read.', score: 40, price, dailyChangePercent: null, strategy: 'divergence' };
+  }
+
+  const pRecent = candles[recent].c, pPrior = candles[prior].c;
+  const rRecent = rsiAt(recent), rPrior = rsiAt(prior);
+  if (rRecent === null || rPrior === null) {
+    return { decision: 'error', reasoning: symbol + ': RSI unavailable for divergence.', score: null, price, dailyChangePercent: null, strategy: 'divergence' };
+  }
+
+  let direction: 'BUY' | 'SELL' | null = null;
+  let label = '';
+  if (pRecent < pPrior * 0.998 && rRecent > rPrior + 2) {
+    direction = 'BUY'; label = 'bullish divergence -- lower price low, higher RSI low';
+  } else if (pRecent > pPrior * 1.002 && rRecent < rPrior - 2) {
+    direction = 'SELL'; label = 'bearish divergence -- higher price high, lower RSI high';
+  }
+
+  if (!direction) {
+    return { decision: 'watching', reasoning: symbol + ': price and RSI agree (RSI ' + rPrior.toFixed(0) + ' -> ' + rRecent.toFixed(0) + ') -- no divergence.', score: 45, price, dailyChangePercent: null, strategy: 'divergence' };
+  }
+
+  // Strength scales with how far RSI pulled away, and counts for more from an
+  // extreme (a bullish divergence out of oversold is the textbook setup).
+  const gap = Math.abs(rRecent - rPrior);
+  const extreme = direction === 'BUY' ? Math.max(0, 40 - rRecent) : Math.max(0, rRecent - 60);
+  const score = Math.min(95, Math.round(58 + gap * 1.5 + extreme));
+
+  const directionAllowed = cfg.directionFilter === 'both'
+    || (cfg.directionFilter === 'long_only' && direction === 'BUY')
+    || (cfg.directionFilter === 'short_only' && direction === 'SELL');
+  if (!directionAllowed) {
+    return { decision: 'skipped', reasoning: symbol + ': ' + direction + ' divergence, but direction filter is "' + cfg.directionFilter + '".', score, price, dailyChangePercent: null, strategy: 'divergence' };
+  }
+  const threshold = cfg.minConfidence != null ? cfg.minConfidence : 70;
+  const out: StrategyResult = {
+    decision: score >= threshold ? 'signal' : 'watching',
+    reasoning: symbol + ': ' + label + ' (RSI ' + rPrior.toFixed(0) + ' -> ' + rRecent.toFixed(0) + '). Score ' + score + '/100.',
+    score, price, dailyChangePercent: null, strategy: 'divergence',
+  };
+  if (score >= threshold) out.direction = direction;
+  return out;
+}
+
+/**
+ * Higher-timeframe bias. The FX engine gates entries on HTF alignment; the
+ * crypto engine took every setup regardless of the bigger trend.
+ * Returns null when genuinely undecided -- and also when the read FAILS, because
+ * a failed read is not a bias and must not be treated as one.
+ */
+async function getHtfBias(symbol: string): Promise<'BUY' | 'SELL' | null> {
+  try {
+    const bars = await fetchBars(symbol, '1h', 60);
+    if (bars.length < 25) return null;
+    const closes = bars.map(function (b) { return b.c; });
+    const sma = function (arr: number[], p: number) { return arr.slice(-p).reduce(function (a, b) { return a + b; }, 0) / p; };
+    const fast = sma(closes, 10);
+    const slow = sma(closes, 30);
+    if (!(fast > 0) || !(slow > 0)) return null;
+    const spread = (fast - slow) / slow;
+    if (spread > 0.004) return 'BUY';
+    if (spread < -0.004) return 'SELL';
+    return null;
+  } catch {
+    return null;
+  }
+}
+
 const STRATEGY_RUNNERS: Record<string, (sym: string, cfg: CryptocomEngineConfig) => Promise<StrategyResult>> = {
   trend_following: runTrendFollowing,
   momentum: runMomentum,
   order_flow: runOrderFlow,
   volume_profile: runVolumeProfile,
   breakout: runBreakout,
+  structure: runStructure,
+  divergence: runDivergence,
 };
 
-const AUTO_STRATEGIES = ['trend_following', 'momentum', 'order_flow', 'volume_profile', 'breakout'];
+const AUTO_STRATEGIES = ['trend_following', 'momentum', 'order_flow', 'volume_profile', 'breakout', 'structure', 'divergence'];
+
+/**
+ * Gates every signal before it can become an order.
+ *
+ * 1. CORPORATE-ACTION GUARD. The engine can now trade Coinbase Tokenized Stocks
+ *    (AAPLC, NVDAC, TSLAC...) whose underlying really does split. A 4:1 split is
+ *    a -75% print on ordinary volume; without this the engine reads it as a
+ *    crash and trades it. The same check catches thin-liquidity wicks and bad
+ *    prints on ordinary tokens, so it is applied to everything.
+ * 2. HTF BIAS. The FX engine refuses setups that fight the higher timeframe;
+ *    the crypto engine took them all. A signal opposed by the 1h trend is
+ *    demoted to 'watching' rather than executed.
+ */
+async function applySignalGates(symbol: string, result: StrategyResult, cfg: CryptocomEngineConfig): Promise<StrategyResult> {
+  if (result.decision !== 'signal' || !result.direction) return result;
+
+  try {
+    const bars = await fetchBars(symbol, '15m', 40);
+    const { assessPriceAnomaly } = await import('../utils/corporateActionGuard');
+    const anomaly = assessPriceAnomaly(bars);
+    if (anomaly.suspect) {
+      return {
+        ...result, decision: 'skipped', direction: undefined,
+        reasoning: symbol + ': BLOCKED by the corporate-action guard -- ' + anomaly.reason + '. Original read: ' + result.reasoning,
+      };
+    }
+  } catch {
+    // A guard that cannot run must not silently wave the trade through.
+    return {
+      ...result, decision: 'skipped', direction: undefined,
+      reasoning: symbol + ': corporate-action guard could not run (no candles) -- refusing the entry rather than trading unchecked. Original read: ' + result.reasoning,
+    };
+  }
+
+  const bias = await getHtfBias(symbol);
+  if (bias && bias !== result.direction) {
+    return {
+      ...result, decision: 'watching', direction: undefined,
+      reasoning: symbol + ': ' + result.direction + ' setup opposed by the 1h trend (' + bias + ') -- standing down. ' + result.reasoning,
+    };
+  }
+  return result;
+}
 
 async function scanSymbol(symbol: string, cfg: CryptocomEngineConfig): Promise<StrategyResult> {
+  return applySignalGates(symbol, await scanSymbolRaw(symbol, cfg), cfg);
+}
+
+async function scanSymbolRaw(symbol: string, cfg: CryptocomEngineConfig): Promise<StrategyResult> {
   if (cfg.strategyMode === 'auto') {
     const results = await Promise.all(AUTO_STRATEGIES.map(k => STRATEGY_RUNNERS[k](symbol, cfg).catch(() => null)));
     const valid = results.filter((r): r is StrategyResult => !!r);
@@ -348,6 +549,21 @@ async function monitorOpenPositions(userId: number, cfg: CryptocomEngineConfig):
           px = q?.best?.price ?? 0;
         }
         if (!px) continue;
+        // A stop triggered by a corporate action is the expensive failure: a
+        // 4:1 split prints -75%, the stop fires, and the engine market-sells a
+        // non-event into thin liquidity. Verify the move is real trading before
+        // acting on it. Take-profits get the same treatment -- a bad print in
+        // the other direction would book a fictional win and a real exit.
+        try {
+          const guardBars = await fetchBars(trade.symbol, '15m', 40);
+          const { assessPriceAnomaly } = await import('../utils/corporateActionGuard');
+          const anomaly = assessPriceAnomaly(guardBars);
+          if (anomaly.suspect) {
+            console.error('[cryptocom-scanner] HOLDING trade ' + trade.id + ' (' + trade.symbol + '): ' + anomaly.reason);
+            await storage.createCryptocomEngineActivity({ userId, symbol: trade.symbol, decision: 'skipped', strategy: trade.strategy, reasoning: trade.symbol + ': exit BLOCKED by the corporate-action guard -- ' + anomaly.reason + '. Position held; verify whether a split or dividend occurred.', score: null, price: px, dailyChangePercent: null, source: 'cryptocom' }).catch(() => {});
+            continue;
+          }
+        } catch { /* no candles to check with: fall through to the normal rules */ }
         if (trade.takeProfit && px >= trade.takeProfit) { await closePosition(userId, trade, px, 'take_profit'); continue; }
         if (trade.stopLoss && px <= trade.stopLoss) { await closePosition(userId, trade, px, 'stop_loss'); continue; }
         continue;

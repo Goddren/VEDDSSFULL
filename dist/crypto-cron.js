@@ -6545,6 +6545,29 @@ var init_cryptocom = __esm({
 });
 
 // server/indicators.ts
+var indicators_exports = {};
+__export(indicators_exports, {
+  analyzeLocationAggression: () => analyzeLocationAggression,
+  calculateADX: () => calculateADX,
+  calculateFibonacci: () => calculateFibonacci,
+  calculateMACD: () => calculateMACD,
+  calculateOBV: () => calculateOBV,
+  calculatePivotPoints: () => calculatePivotPoints,
+  calculateRSI: () => calculateRSI,
+  calculateStochastic: () => calculateStochastic,
+  calculateVWAP: () => calculateVWAP,
+  calculateVolatilityContext: () => calculateVolatilityContext,
+  calculateVolumeProfile: () => calculateVolumeProfile,
+  computeAllAdvancedIndicators: () => computeAllAdvancedIndicators,
+  computeCVD: () => computeCVD,
+  computeKeltnerChannels: () => computeKeltnerChannels,
+  computeTrueVolumeProfile: () => computeTrueVolumeProfile,
+  detectCandlePatterns: () => detectCandlePatterns,
+  detectMarketOpenBreakout: () => detectMarketOpenBreakout,
+  findSupportResistance: () => findSupportResistance,
+  findSwingPoints: () => findSwingPoints,
+  getSessionContext: () => getSessionContext
+});
 function calculateADX(candles, period = 14) {
   if (candles.length < period + 1) return void 0;
   const chronological = [...candles].reverse();
@@ -8204,6 +8227,476 @@ var init_defi_market_data = __esm({
   }
 });
 
+// server/utils/smcUtils.ts
+var smcUtils_exports = {};
+__export(smcUtils_exports, {
+  classifyLiquidityTargets: () => classifyLiquidityTargets,
+  detectBOSCHOCH: () => detectBOSCHOCH,
+  detectEqualHighsLows: () => detectEqualHighsLows,
+  detectFairValueGap: () => detectFairValueGap,
+  detectOrderBlock: () => detectOrderBlock,
+  detectWyckoff: () => detectWyckoff
+});
+function findSwingHighs(candles, lookback = 20) {
+  const result = [];
+  const limit = Math.min(lookback, candles.length - 2);
+  for (let i = 1; i < limit; i++) {
+    if (candles[i].h > candles[i - 1].h && candles[i].h > candles[i + 1].h) {
+      result.push({ index: i, level: candles[i].h });
+    }
+  }
+  return result;
+}
+function findSwingLows(candles, lookback = 20) {
+  const result = [];
+  const limit = Math.min(lookback, candles.length - 2);
+  for (let i = 1; i < limit; i++) {
+    if (candles[i].l < candles[i - 1].l && candles[i].l < candles[i + 1].l) {
+      result.push({ index: i, level: candles[i].l });
+    }
+  }
+  return result;
+}
+function detectBOSCHOCH(candles, signal) {
+  const none = { detected: false, type: null, direction: null, level: null, candlesAgo: null, description: "No clear BOS or CHOCH detected in recent structure" };
+  if (!candles || candles.length < 10) return none;
+  const swingHighs = findSwingHighs(candles, 25);
+  const swingLows = findSwingLows(candles, 25);
+  const currentClose = candles[0].c;
+  const brokeHigh = swingHighs.find((sh) => currentClose > sh.level && sh.index >= 2);
+  if (brokeHigh) {
+    const priorHighs = swingHighs.filter((sh) => sh.index > brokeHigh.index);
+    const priorLows = swingLows.filter((sl) => sl.index > brokeHigh.index);
+    const priorTrendBearish = priorHighs.length >= 2 && priorHighs[0].level < priorHighs[priorHighs.length - 1].level && priorLows.length >= 1;
+    const type = priorTrendBearish ? "CHOCH" : "BOS";
+    return {
+      detected: true,
+      type,
+      direction: "BULLISH",
+      level: brokeHigh.level,
+      candlesAgo: brokeHigh.index,
+      description: `${type} BULLISH \u2014 price broke above swing high at ${brokeHigh.level.toFixed(5)} (${brokeHigh.index} candles ago)${type === "CHOCH" ? ", reversing prior bearish structure" : ", continuing bullish momentum"}`
+    };
+  }
+  const brokeLow = swingLows.find((sl) => currentClose < sl.level && sl.index >= 2);
+  if (brokeLow) {
+    const priorHighs = swingHighs.filter((sh) => sh.index > brokeLow.index);
+    const priorLows = swingLows.filter((sl) => sl.index > brokeLow.index);
+    const priorTrendBullish = priorLows.length >= 2 && priorLows[0].level > priorLows[priorLows.length - 1].level && priorHighs.length >= 1;
+    const type = priorTrendBullish ? "CHOCH" : "BOS";
+    return {
+      detected: true,
+      type,
+      direction: "BEARISH",
+      level: brokeLow.level,
+      candlesAgo: brokeLow.index,
+      description: `${type} BEARISH \u2014 price broke below swing low at ${brokeLow.level.toFixed(5)} (${brokeLow.index} candles ago)${type === "CHOCH" ? ", reversing prior bullish structure" : ", continuing bearish momentum"}`
+    };
+  }
+  return none;
+}
+function detectFairValueGap(candles, signal) {
+  const none = { detected: false, direction: null, top: null, bottom: null, inZone: false, candlesAgo: null, description: "No active Fair Value Gap detected" };
+  if (!candles || candles.length < 6) return none;
+  const currentClose = candles[0].c;
+  const lookback = Math.min(15, candles.length - 2);
+  for (let i = lookback - 1; i >= 1; i--) {
+    const newer = candles[i - 1];
+    const mid = candles[i];
+    const older = candles[i + 1];
+    if (older.h < newer.l) {
+      const top = newer.l;
+      const bottom = older.h;
+      const midpoint = (top + bottom) / 2;
+      const inZone = currentClose >= bottom && currentClose <= top;
+      const aligns = signal === "BUY";
+      if (!aligns) continue;
+      return {
+        detected: true,
+        direction: "BULLISH",
+        top,
+        bottom,
+        inZone,
+        candlesAgo: i,
+        description: `Bullish FVG at ${bottom.toFixed(5)}\u2013${top.toFixed(5)} (${i} candles ago)${inZone ? " \u2014 price INSIDE zone, potential support" : ` \u2014 price ${currentClose > top ? "above" : "below"} zone`}`
+      };
+    }
+    if (older.l > newer.h) {
+      const top = older.l;
+      const bottom = newer.h;
+      const inZone = currentClose >= bottom && currentClose <= top;
+      const aligns = signal === "SELL";
+      if (!aligns) continue;
+      return {
+        detected: true,
+        direction: "BEARISH",
+        top,
+        bottom,
+        inZone,
+        candlesAgo: i,
+        description: `Bearish FVG at ${bottom.toFixed(5)}\u2013${top.toFixed(5)} (${i} candles ago)${inZone ? " \u2014 price INSIDE zone, potential resistance" : ` \u2014 price ${currentClose < bottom ? "below" : "above"} zone`}`
+      };
+    }
+  }
+  return none;
+}
+function countOBMitigations(candles, obBottom, obTop, obIndex, isBullish) {
+  let count = 0;
+  for (let k = obIndex - 1; k >= 1; k--) {
+    const c = candles[k];
+    if (!c) continue;
+    if (isBullish) {
+      const low = c.l || c.low || Infinity;
+      if (low >= obBottom && low <= obTop) count++;
+    } else {
+      const high = c.h || c.high || 0;
+      if (high >= obBottom && high <= obTop) count++;
+    }
+  }
+  return count;
+}
+function getMitigation(count) {
+  if (count === 0) return "FRESH";
+  if (count === 1) return "PARTIALLY_MITIGATED";
+  return "FULLY_MITIGATED";
+}
+function detectOrderBlock(candles, signal) {
+  const none = { detected: false, type: null, top: null, bottom: null, aligns: false, mitigation: null, mitigationCount: 0, description: "No significant order block detected" };
+  if (!candles || candles.length < 6) return none;
+  const currentClose = candles[0].c;
+  const lookback = Math.min(20, candles.length - 2);
+  for (let i = 2; i < lookback; i++) {
+    const obCandle = candles[i];
+    const impulse = candles[i - 1];
+    const obBody = Math.abs(obCandle.c - obCandle.o);
+    const impulseBody = Math.abs(impulse.c - impulse.o);
+    if (obBody === 0 || impulseBody < obBody * 1.5) continue;
+    if (obCandle.c < obCandle.o && impulse.c > impulse.o) {
+      const obTop = obCandle.o;
+      const obBottom = obCandle.l;
+      const inZone = currentClose >= obBottom && currentClose <= obTop;
+      const breached = currentClose < obBottom;
+      const mitCount = countOBMitigations(candles, obBottom, obTop, i, true);
+      const mitStatus = getMitigation(mitCount);
+      if (breached) {
+        if (signal !== "SELL") continue;
+        return {
+          detected: true,
+          type: "BREAKER",
+          top: obTop,
+          bottom: obBottom,
+          aligns: true,
+          mitigation: mitStatus,
+          mitigationCount: mitCount,
+          description: `Bearish breaker at ${obBottom.toFixed(5)}\u2013${obTop.toFixed(5)} \u2014 bullish OB was breached, now acting as resistance (${i} candles ago) | Mitigation: ${mitStatus} (${mitCount} test${mitCount !== 1 ? "s" : ""})`
+        };
+      }
+      if (signal !== "BUY") continue;
+      return {
+        detected: true,
+        type: "BULLISH_OB",
+        top: obTop,
+        bottom: obBottom,
+        aligns: true,
+        mitigation: mitStatus,
+        mitigationCount: mitCount,
+        description: `${mitStatus} Bullish OB at ${obBottom.toFixed(5)}\u2013${obTop.toFixed(5)} (${i} candles ago)${inZone ? " \u2014 price retesting OB zone" : ""} | ${mitStatus === "FRESH" ? "Never tested \u2014 maximum institutional interest" : mitStatus === "PARTIALLY_MITIGATED" ? "Tested once \u2014 still valid but partially consumed" : "Fully consumed \u2014 weak OB, avoid using as primary entry reference"}`
+      };
+    }
+    if (obCandle.c > obCandle.o && impulse.c < impulse.o) {
+      const obTop = obCandle.h;
+      const obBottom = obCandle.o;
+      const inZone = currentClose >= obBottom && currentClose <= obTop;
+      const breached = currentClose > obTop;
+      const mitCount = countOBMitigations(candles, obBottom, obTop, i, false);
+      const mitStatus = getMitigation(mitCount);
+      if (breached) {
+        if (signal !== "BUY") continue;
+        return {
+          detected: true,
+          type: "BREAKER",
+          top: obTop,
+          bottom: obBottom,
+          aligns: true,
+          mitigation: mitStatus,
+          mitigationCount: mitCount,
+          description: `Bullish breaker at ${obBottom.toFixed(5)}\u2013${obTop.toFixed(5)} \u2014 bearish OB was breached, now acting as support (${i} candles ago) | Mitigation: ${mitStatus} (${mitCount} test${mitCount !== 1 ? "s" : ""})`
+        };
+      }
+      if (signal !== "SELL") continue;
+      return {
+        detected: true,
+        type: "BEARISH_OB",
+        top: obTop,
+        bottom: obBottom,
+        aligns: true,
+        mitigation: mitStatus,
+        mitigationCount: mitCount,
+        description: `${mitStatus} Bearish OB at ${obBottom.toFixed(5)}\u2013${obTop.toFixed(5)} (${i} candles ago)${inZone ? " \u2014 price retesting OB zone" : ""} | ${mitStatus === "FRESH" ? "Never tested \u2014 maximum institutional interest" : mitStatus === "PARTIALLY_MITIGATED" ? "Tested once \u2014 still valid but partially consumed" : "Fully consumed \u2014 weak OB, avoid using as primary entry reference"}`
+      };
+    }
+  }
+  return none;
+}
+function detectEqualHighsLows(candles) {
+  const swingHighs = findSwingHighs(candles, 30);
+  const swingLows = findSwingLows(candles, 30);
+  const tolerance = 5e-4;
+  let eqHighLevel = null;
+  let eqHighCount = 0;
+  for (let i = 0; i < swingHighs.length; i++) {
+    for (let j = i + 1; j < swingHighs.length; j++) {
+      const diff = Math.abs(swingHighs[i].level - swingHighs[j].level) / swingHighs[i].level;
+      if (diff <= tolerance) {
+        eqHighLevel = (swingHighs[i].level + swingHighs[j].level) / 2;
+        eqHighCount++;
+        break;
+      }
+    }
+    if (eqHighLevel) break;
+  }
+  let eqLowLevel = null;
+  let eqLowCount = 0;
+  for (let i = 0; i < swingLows.length; i++) {
+    for (let j = i + 1; j < swingLows.length; j++) {
+      const diff = Math.abs(swingLows[i].level - swingLows[j].level) / swingLows[i].level;
+      if (diff <= tolerance) {
+        eqLowLevel = (swingLows[i].level + swingLows[j].level) / 2;
+        eqLowCount++;
+        break;
+      }
+    }
+    if (eqLowLevel) break;
+  }
+  return {
+    equalHighs: {
+      detected: eqHighLevel !== null,
+      level: eqHighLevel,
+      count: eqHighCount + (eqHighLevel ? 2 : 0),
+      description: eqHighLevel ? `Equal highs at ~${eqHighLevel.toFixed(5)} \u2014 buy-side liquidity pool above, likely target for sell-side to sweep` : "No equal highs detected"
+    },
+    equalLows: {
+      detected: eqLowLevel !== null,
+      level: eqLowLevel,
+      count: eqLowCount + (eqLowLevel ? 2 : 0),
+      description: eqLowLevel ? `Equal lows at ~${eqLowLevel.toFixed(5)} \u2014 sell-side liquidity pool below, likely target for buy-side to sweep` : "No equal lows detected"
+    }
+  };
+}
+function detectWyckoff(candles) {
+  const none = { detected: false, phase: null, stage: null, aligns: false, description: "No clear Wyckoff phase detected" };
+  if (!candles || candles.length < 15) return none;
+  const lookback = Math.min(20, candles.length);
+  const rangeCandles = candles.slice(0, lookback);
+  const highs = rangeCandles.map((c) => c.h);
+  const lows = rangeCandles.map((c) => c.l);
+  const closes = rangeCandles.map((c) => c.c);
+  const rangeHigh = Math.max(...highs);
+  const rangeLow = Math.min(...lows);
+  const rangeSize = rangeHigh - rangeLow;
+  if (rangeSize === 0) return none;
+  const avgPrice = (rangeHigh + rangeLow) / 2;
+  const rangePercent = rangeSize / avgPrice;
+  const recentCloses = closes.slice(0, 8);
+  const midpoint = (rangeHigh + rangeLow) / 2;
+  const aboveMid = recentCloses.filter((c) => c > midpoint).length;
+  const risingCandles = recentCloses.filter((c, i) => i > 0 && c > recentCloses[i - 1]).length;
+  if (aboveMid >= 6 && risingCandles >= 5) {
+    return { detected: true, phase: "MARKUP", stage: null, aligns: true, description: "Wyckoff MARKUP \u2014 price in sustained uptrend above range midpoint, bullish momentum confirmed" };
+  }
+  const belowMid = recentCloses.filter((c) => c < midpoint).length;
+  const fallingCandles = recentCloses.filter((c, i) => i > 0 && c < recentCloses[i - 1]).length;
+  if (belowMid >= 6 && fallingCandles >= 5) {
+    return { detected: true, phase: "MARKDOWN", stage: null, aligns: true, description: "Wyckoff MARKDOWN \u2014 price in sustained downtrend below range midpoint, bearish momentum confirmed" };
+  }
+  if (rangePercent < 5e-3 && lookback >= 10) {
+    const spring = candles.slice(0, 8).find((c, i) => c.l < rangeLow && c.c > rangeLow);
+    if (spring) {
+      return {
+        detected: true,
+        phase: "ACCUMULATION",
+        stage: "SPRING",
+        aligns: true,
+        description: `Wyckoff ACCUMULATION Spring \u2014 price swept below range low (${rangeLow.toFixed(5)}) then closed back inside; institutional buy signal`
+      };
+    }
+    const upthrust = candles.slice(0, 8).find((c, i) => c.h > rangeHigh && c.c < rangeHigh);
+    if (upthrust) {
+      return {
+        detected: true,
+        phase: "DISTRIBUTION",
+        stage: "UPTHRUST",
+        aligns: true,
+        description: `Wyckoff DISTRIBUTION Upthrust \u2014 price swept above range high (${rangeHigh.toFixed(5)}) then closed back inside; institutional sell signal`
+      };
+    }
+    const latestClose = closes[0];
+    if (latestClose > midpoint + rangeSize * 0.3) {
+      return {
+        detected: true,
+        phase: "ACCUMULATION",
+        stage: "SOS",
+        aligns: true,
+        description: `Wyckoff Sign of Strength (SOS) \u2014 price pushing into upper range, accumulation nearing markup phase`
+      };
+    }
+    if (latestClose < midpoint - rangeSize * 0.3) {
+      return {
+        detected: true,
+        phase: "DISTRIBUTION",
+        stage: "SOW",
+        aligns: true,
+        description: `Wyckoff Sign of Weakness (SOW) \u2014 price dropping into lower range, distribution nearing markdown phase`
+      };
+    }
+  }
+  return none;
+}
+function classifyLiquidityTargets(candles, signal, bosCHOCH) {
+  const none = {
+    internalTarget: { level: null, type: "NONE", description: "No internal liquidity target identified" },
+    externalTarget: { level: null, type: "NONE", description: "No external liquidity target identified" },
+    priceIsTargetingInternal: false,
+    priceIsTargetingExternal: false,
+    description: "Insufficient data to classify liquidity targets"
+  };
+  if (!candles || candles.length < 10) return none;
+  const currentPrice = candles[0]?.c || 0;
+  const swingHighs = findSwingHighs(candles, 30);
+  const swingLows = findSwingLows(candles, 30);
+  const boundary = bosCHOCH.level;
+  let internalTarget = { level: null, type: "NONE", description: "No internal liquidity target" };
+  let externalTarget = { level: null, type: "NONE", description: "No external liquidity target" };
+  if (signal === "BUY") {
+    const extCandidates = boundary ? swingHighs.filter((s) => s.level > boundary) : swingHighs;
+    if (extCandidates.length > 0) {
+      const ext = extCandidates.reduce((a, b) => a.level > b.level ? a : b);
+      externalTarget = {
+        level: ext.level,
+        type: "SWING_HIGH (BSL)",
+        description: `External BSL (buy-side liquidity) at ${ext.level.toFixed(5)} \u2014 major swing high ${ext.index} candles ago, institutional draw on liquidity above`
+      };
+    }
+    const intCandidates = boundary ? swingHighs.filter((s) => s.level < boundary && s.level > currentPrice) : swingHighs.filter((s) => s.level > currentPrice);
+    if (intCandidates.length > 0) {
+      const intT = intCandidates.reduce((a, b) => Math.abs(a.level - currentPrice) < Math.abs(b.level - currentPrice) ? a : b);
+      internalTarget = {
+        level: intT.level,
+        type: "INTERNAL_BSL",
+        description: `Internal BSL at ${intT.level.toFixed(5)} \u2014 nearest swing high within current range (${intT.index} candles ago), price will likely tap here first before external draw`
+      };
+    }
+  } else {
+    const extCandidates = boundary ? swingLows.filter((s) => s.level < boundary) : swingLows;
+    if (extCandidates.length > 0) {
+      const ext = extCandidates.reduce((a, b) => a.level < b.level ? a : b);
+      externalTarget = {
+        level: ext.level,
+        type: "SWING_LOW (SSL)",
+        description: `External SSL (sell-side liquidity) at ${ext.level.toFixed(5)} \u2014 major swing low ${ext.index} candles ago, institutional draw on liquidity below`
+      };
+    }
+    const intCandidates = boundary ? swingLows.filter((s) => s.level > boundary && s.level < currentPrice) : swingLows.filter((s) => s.level < currentPrice);
+    if (intCandidates.length > 0) {
+      const intT = intCandidates.reduce((a, b) => Math.abs(a.level - currentPrice) < Math.abs(b.level - currentPrice) ? a : b);
+      internalTarget = {
+        level: intT.level,
+        type: "INTERNAL_SSL",
+        description: `Internal SSL at ${intT.level.toFixed(5)} \u2014 nearest swing low within current range (${intT.index} candles ago), price will likely tap here first before external draw`
+      };
+    }
+  }
+  const intCleared = internalTarget.level !== null && (signal === "BUY" ? currentPrice > internalTarget.level : currentPrice < internalTarget.level);
+  const priceIsTargetingExternal = intCleared && externalTarget.level !== null;
+  const priceIsTargetingInternal = !intCleared && internalTarget.level !== null;
+  const trajDesc = priceIsTargetingExternal ? `EXTERNAL \u2014 internal liquidity already cleared, now targeting ${externalTarget.type} at ${externalTarget.level?.toFixed(5)}` : priceIsTargetingInternal ? `INTERNAL \u2014 price targeting ${internalTarget.type} at ${internalTarget.level?.toFixed(5)} first before external draw` : "UNCLEAR \u2014 no dominant liquidity target identified";
+  return {
+    internalTarget,
+    externalTarget,
+    priceIsTargetingInternal,
+    priceIsTargetingExternal,
+    description: trajDesc
+  };
+}
+var init_smcUtils = __esm({
+  "server/utils/smcUtils.ts"() {
+    "use strict";
+  }
+});
+
+// server/utils/corporateActionGuard.ts
+var corporateActionGuard_exports = {};
+__export(corporateActionGuard_exports, {
+  assessPriceAnomaly: () => assessPriceAnomaly,
+  isTokenizedEquity: () => isTokenizedEquity
+});
+function nearestSplit(ratio) {
+  for (const [r, label] of SPLIT_RATIOS) {
+    if (Math.abs(ratio - r) / r < 0.02) return label;
+  }
+  return null;
+}
+function assessPriceAnomaly(bars, opts = {}) {
+  const moveThreshold = opts.moveThresholdPct ?? 20;
+  const volConfirm = opts.volumeConfirmRatio ?? 1.5;
+  const lookback = opts.lookback ?? 20;
+  const none = { suspect: false, reason: "no anomaly", movePct: 0, volumeRatio: 0, splitLike: null };
+  if (!bars || bars.length < 3) {
+    return { suspect: false, reason: "insufficient history to assess", movePct: 0, volumeRatio: 0, splitLike: null };
+  }
+  const last = bars[bars.length - 1];
+  const prev = bars[bars.length - 2];
+  if (!(prev.c > 0) || !(last.c > 0)) return none;
+  const ratio = last.c / prev.c;
+  const movePct = (ratio - 1) * 100;
+  if (Math.abs(movePct) < moveThreshold) return none;
+  const hist = bars.slice(Math.max(0, bars.length - 1 - lookback), bars.length - 1);
+  const vols = hist.map((b) => b.v ?? 0).filter((v) => v > 0);
+  const avgVol = vols.length ? vols.reduce((a, b) => a + b, 0) / vols.length : 0;
+  const lastVol = last.v ?? 0;
+  const volumeRatio = avgVol > 0 ? lastVol / avgVol : 0;
+  const splitLike = nearestSplit(ratio);
+  if (avgVol > 0 && volumeRatio >= volConfirm) {
+    return {
+      suspect: false,
+      reason: `${movePct.toFixed(1)}% move confirmed by ${volumeRatio.toFixed(1)}x volume \u2014 genuine`,
+      movePct,
+      volumeRatio,
+      splitLike
+    };
+  }
+  return {
+    suspect: true,
+    reason: splitLike ? `${movePct.toFixed(1)}% move on ${volumeRatio.toFixed(1)}x volume matches a ${splitLike} \u2014 refusing to act; verify the corporate action` : `${movePct.toFixed(1)}% move on only ${volumeRatio.toFixed(1)}x volume \u2014 unexplained by trading activity, refusing to act`,
+    movePct,
+    volumeRatio,
+    splitLike
+  };
+}
+function isTokenizedEquity(symbol, name) {
+  if (name && /tokenized stock/i.test(name)) return true;
+  return /^[A-Z]{2,5}C$/.test(symbol) && !["USDC", "ETHC", "BTCC"].includes(symbol);
+}
+var SPLIT_RATIOS;
+var init_corporateActionGuard = __esm({
+  "server/utils/corporateActionGuard.ts"() {
+    "use strict";
+    SPLIT_RATIOS = [
+      [1 / 2, "2:1 split"],
+      [1 / 3, "3:1 split"],
+      [1 / 4, "4:1 split"],
+      [1 / 5, "5:1 split"],
+      [1 / 10, "10:1 split"],
+      [2 / 3, "3:2 split"],
+      [3 / 4, "4:3 split"],
+      [2, "1:2 reverse split"],
+      [3, "1:3 reverse split"],
+      [5, "1:5 reverse split"],
+      [10, "1:10 reverse split"]
+    ];
+  }
+});
+
 // server/services/defi-swap.ts
 var defi_swap_exports = {};
 __export(defi_swap_exports, {
@@ -9022,403 +9515,6 @@ var init_ai_usage = __esm({
       "qwen/qwen3-vl-32b-instruct": { input: 10, output: 10 }
       // Groq
     };
-  }
-});
-
-// server/utils/smcUtils.ts
-var smcUtils_exports = {};
-__export(smcUtils_exports, {
-  classifyLiquidityTargets: () => classifyLiquidityTargets,
-  detectBOSCHOCH: () => detectBOSCHOCH,
-  detectEqualHighsLows: () => detectEqualHighsLows,
-  detectFairValueGap: () => detectFairValueGap,
-  detectOrderBlock: () => detectOrderBlock,
-  detectWyckoff: () => detectWyckoff
-});
-function findSwingHighs(candles, lookback = 20) {
-  const result = [];
-  const limit = Math.min(lookback, candles.length - 2);
-  for (let i = 1; i < limit; i++) {
-    if (candles[i].h > candles[i - 1].h && candles[i].h > candles[i + 1].h) {
-      result.push({ index: i, level: candles[i].h });
-    }
-  }
-  return result;
-}
-function findSwingLows(candles, lookback = 20) {
-  const result = [];
-  const limit = Math.min(lookback, candles.length - 2);
-  for (let i = 1; i < limit; i++) {
-    if (candles[i].l < candles[i - 1].l && candles[i].l < candles[i + 1].l) {
-      result.push({ index: i, level: candles[i].l });
-    }
-  }
-  return result;
-}
-function detectBOSCHOCH(candles, signal) {
-  const none = { detected: false, type: null, direction: null, level: null, candlesAgo: null, description: "No clear BOS or CHOCH detected in recent structure" };
-  if (!candles || candles.length < 10) return none;
-  const swingHighs = findSwingHighs(candles, 25);
-  const swingLows = findSwingLows(candles, 25);
-  const currentClose = candles[0].c;
-  const brokeHigh = swingHighs.find((sh) => currentClose > sh.level && sh.index >= 2);
-  if (brokeHigh) {
-    const priorHighs = swingHighs.filter((sh) => sh.index > brokeHigh.index);
-    const priorLows = swingLows.filter((sl) => sl.index > brokeHigh.index);
-    const priorTrendBearish = priorHighs.length >= 2 && priorHighs[0].level < priorHighs[priorHighs.length - 1].level && priorLows.length >= 1;
-    const type = priorTrendBearish ? "CHOCH" : "BOS";
-    return {
-      detected: true,
-      type,
-      direction: "BULLISH",
-      level: brokeHigh.level,
-      candlesAgo: brokeHigh.index,
-      description: `${type} BULLISH \u2014 price broke above swing high at ${brokeHigh.level.toFixed(5)} (${brokeHigh.index} candles ago)${type === "CHOCH" ? ", reversing prior bearish structure" : ", continuing bullish momentum"}`
-    };
-  }
-  const brokeLow = swingLows.find((sl) => currentClose < sl.level && sl.index >= 2);
-  if (brokeLow) {
-    const priorHighs = swingHighs.filter((sh) => sh.index > brokeLow.index);
-    const priorLows = swingLows.filter((sl) => sl.index > brokeLow.index);
-    const priorTrendBullish = priorLows.length >= 2 && priorLows[0].level > priorLows[priorLows.length - 1].level && priorHighs.length >= 1;
-    const type = priorTrendBullish ? "CHOCH" : "BOS";
-    return {
-      detected: true,
-      type,
-      direction: "BEARISH",
-      level: brokeLow.level,
-      candlesAgo: brokeLow.index,
-      description: `${type} BEARISH \u2014 price broke below swing low at ${brokeLow.level.toFixed(5)} (${brokeLow.index} candles ago)${type === "CHOCH" ? ", reversing prior bullish structure" : ", continuing bearish momentum"}`
-    };
-  }
-  return none;
-}
-function detectFairValueGap(candles, signal) {
-  const none = { detected: false, direction: null, top: null, bottom: null, inZone: false, candlesAgo: null, description: "No active Fair Value Gap detected" };
-  if (!candles || candles.length < 6) return none;
-  const currentClose = candles[0].c;
-  const lookback = Math.min(15, candles.length - 2);
-  for (let i = lookback - 1; i >= 1; i--) {
-    const newer = candles[i - 1];
-    const mid = candles[i];
-    const older = candles[i + 1];
-    if (older.h < newer.l) {
-      const top = newer.l;
-      const bottom = older.h;
-      const midpoint = (top + bottom) / 2;
-      const inZone = currentClose >= bottom && currentClose <= top;
-      const aligns = signal === "BUY";
-      if (!aligns) continue;
-      return {
-        detected: true,
-        direction: "BULLISH",
-        top,
-        bottom,
-        inZone,
-        candlesAgo: i,
-        description: `Bullish FVG at ${bottom.toFixed(5)}\u2013${top.toFixed(5)} (${i} candles ago)${inZone ? " \u2014 price INSIDE zone, potential support" : ` \u2014 price ${currentClose > top ? "above" : "below"} zone`}`
-      };
-    }
-    if (older.l > newer.h) {
-      const top = older.l;
-      const bottom = newer.h;
-      const inZone = currentClose >= bottom && currentClose <= top;
-      const aligns = signal === "SELL";
-      if (!aligns) continue;
-      return {
-        detected: true,
-        direction: "BEARISH",
-        top,
-        bottom,
-        inZone,
-        candlesAgo: i,
-        description: `Bearish FVG at ${bottom.toFixed(5)}\u2013${top.toFixed(5)} (${i} candles ago)${inZone ? " \u2014 price INSIDE zone, potential resistance" : ` \u2014 price ${currentClose < bottom ? "below" : "above"} zone`}`
-      };
-    }
-  }
-  return none;
-}
-function countOBMitigations(candles, obBottom, obTop, obIndex, isBullish) {
-  let count = 0;
-  for (let k = obIndex - 1; k >= 1; k--) {
-    const c = candles[k];
-    if (!c) continue;
-    if (isBullish) {
-      const low = c.l || c.low || Infinity;
-      if (low >= obBottom && low <= obTop) count++;
-    } else {
-      const high = c.h || c.high || 0;
-      if (high >= obBottom && high <= obTop) count++;
-    }
-  }
-  return count;
-}
-function getMitigation(count) {
-  if (count === 0) return "FRESH";
-  if (count === 1) return "PARTIALLY_MITIGATED";
-  return "FULLY_MITIGATED";
-}
-function detectOrderBlock(candles, signal) {
-  const none = { detected: false, type: null, top: null, bottom: null, aligns: false, mitigation: null, mitigationCount: 0, description: "No significant order block detected" };
-  if (!candles || candles.length < 6) return none;
-  const currentClose = candles[0].c;
-  const lookback = Math.min(20, candles.length - 2);
-  for (let i = 2; i < lookback; i++) {
-    const obCandle = candles[i];
-    const impulse = candles[i - 1];
-    const obBody = Math.abs(obCandle.c - obCandle.o);
-    const impulseBody = Math.abs(impulse.c - impulse.o);
-    if (obBody === 0 || impulseBody < obBody * 1.5) continue;
-    if (obCandle.c < obCandle.o && impulse.c > impulse.o) {
-      const obTop = obCandle.o;
-      const obBottom = obCandle.l;
-      const inZone = currentClose >= obBottom && currentClose <= obTop;
-      const breached = currentClose < obBottom;
-      const mitCount = countOBMitigations(candles, obBottom, obTop, i, true);
-      const mitStatus = getMitigation(mitCount);
-      if (breached) {
-        if (signal !== "SELL") continue;
-        return {
-          detected: true,
-          type: "BREAKER",
-          top: obTop,
-          bottom: obBottom,
-          aligns: true,
-          mitigation: mitStatus,
-          mitigationCount: mitCount,
-          description: `Bearish breaker at ${obBottom.toFixed(5)}\u2013${obTop.toFixed(5)} \u2014 bullish OB was breached, now acting as resistance (${i} candles ago) | Mitigation: ${mitStatus} (${mitCount} test${mitCount !== 1 ? "s" : ""})`
-        };
-      }
-      if (signal !== "BUY") continue;
-      return {
-        detected: true,
-        type: "BULLISH_OB",
-        top: obTop,
-        bottom: obBottom,
-        aligns: true,
-        mitigation: mitStatus,
-        mitigationCount: mitCount,
-        description: `${mitStatus} Bullish OB at ${obBottom.toFixed(5)}\u2013${obTop.toFixed(5)} (${i} candles ago)${inZone ? " \u2014 price retesting OB zone" : ""} | ${mitStatus === "FRESH" ? "Never tested \u2014 maximum institutional interest" : mitStatus === "PARTIALLY_MITIGATED" ? "Tested once \u2014 still valid but partially consumed" : "Fully consumed \u2014 weak OB, avoid using as primary entry reference"}`
-      };
-    }
-    if (obCandle.c > obCandle.o && impulse.c < impulse.o) {
-      const obTop = obCandle.h;
-      const obBottom = obCandle.o;
-      const inZone = currentClose >= obBottom && currentClose <= obTop;
-      const breached = currentClose > obTop;
-      const mitCount = countOBMitigations(candles, obBottom, obTop, i, false);
-      const mitStatus = getMitigation(mitCount);
-      if (breached) {
-        if (signal !== "BUY") continue;
-        return {
-          detected: true,
-          type: "BREAKER",
-          top: obTop,
-          bottom: obBottom,
-          aligns: true,
-          mitigation: mitStatus,
-          mitigationCount: mitCount,
-          description: `Bullish breaker at ${obBottom.toFixed(5)}\u2013${obTop.toFixed(5)} \u2014 bearish OB was breached, now acting as support (${i} candles ago) | Mitigation: ${mitStatus} (${mitCount} test${mitCount !== 1 ? "s" : ""})`
-        };
-      }
-      if (signal !== "SELL") continue;
-      return {
-        detected: true,
-        type: "BEARISH_OB",
-        top: obTop,
-        bottom: obBottom,
-        aligns: true,
-        mitigation: mitStatus,
-        mitigationCount: mitCount,
-        description: `${mitStatus} Bearish OB at ${obBottom.toFixed(5)}\u2013${obTop.toFixed(5)} (${i} candles ago)${inZone ? " \u2014 price retesting OB zone" : ""} | ${mitStatus === "FRESH" ? "Never tested \u2014 maximum institutional interest" : mitStatus === "PARTIALLY_MITIGATED" ? "Tested once \u2014 still valid but partially consumed" : "Fully consumed \u2014 weak OB, avoid using as primary entry reference"}`
-      };
-    }
-  }
-  return none;
-}
-function detectEqualHighsLows(candles) {
-  const swingHighs = findSwingHighs(candles, 30);
-  const swingLows = findSwingLows(candles, 30);
-  const tolerance = 5e-4;
-  let eqHighLevel = null;
-  let eqHighCount = 0;
-  for (let i = 0; i < swingHighs.length; i++) {
-    for (let j = i + 1; j < swingHighs.length; j++) {
-      const diff = Math.abs(swingHighs[i].level - swingHighs[j].level) / swingHighs[i].level;
-      if (diff <= tolerance) {
-        eqHighLevel = (swingHighs[i].level + swingHighs[j].level) / 2;
-        eqHighCount++;
-        break;
-      }
-    }
-    if (eqHighLevel) break;
-  }
-  let eqLowLevel = null;
-  let eqLowCount = 0;
-  for (let i = 0; i < swingLows.length; i++) {
-    for (let j = i + 1; j < swingLows.length; j++) {
-      const diff = Math.abs(swingLows[i].level - swingLows[j].level) / swingLows[i].level;
-      if (diff <= tolerance) {
-        eqLowLevel = (swingLows[i].level + swingLows[j].level) / 2;
-        eqLowCount++;
-        break;
-      }
-    }
-    if (eqLowLevel) break;
-  }
-  return {
-    equalHighs: {
-      detected: eqHighLevel !== null,
-      level: eqHighLevel,
-      count: eqHighCount + (eqHighLevel ? 2 : 0),
-      description: eqHighLevel ? `Equal highs at ~${eqHighLevel.toFixed(5)} \u2014 buy-side liquidity pool above, likely target for sell-side to sweep` : "No equal highs detected"
-    },
-    equalLows: {
-      detected: eqLowLevel !== null,
-      level: eqLowLevel,
-      count: eqLowCount + (eqLowLevel ? 2 : 0),
-      description: eqLowLevel ? `Equal lows at ~${eqLowLevel.toFixed(5)} \u2014 sell-side liquidity pool below, likely target for buy-side to sweep` : "No equal lows detected"
-    }
-  };
-}
-function detectWyckoff(candles) {
-  const none = { detected: false, phase: null, stage: null, aligns: false, description: "No clear Wyckoff phase detected" };
-  if (!candles || candles.length < 15) return none;
-  const lookback = Math.min(20, candles.length);
-  const rangeCandles = candles.slice(0, lookback);
-  const highs = rangeCandles.map((c) => c.h);
-  const lows = rangeCandles.map((c) => c.l);
-  const closes = rangeCandles.map((c) => c.c);
-  const rangeHigh = Math.max(...highs);
-  const rangeLow = Math.min(...lows);
-  const rangeSize = rangeHigh - rangeLow;
-  if (rangeSize === 0) return none;
-  const avgPrice = (rangeHigh + rangeLow) / 2;
-  const rangePercent = rangeSize / avgPrice;
-  const recentCloses = closes.slice(0, 8);
-  const midpoint = (rangeHigh + rangeLow) / 2;
-  const aboveMid = recentCloses.filter((c) => c > midpoint).length;
-  const risingCandles = recentCloses.filter((c, i) => i > 0 && c > recentCloses[i - 1]).length;
-  if (aboveMid >= 6 && risingCandles >= 5) {
-    return { detected: true, phase: "MARKUP", stage: null, aligns: true, description: "Wyckoff MARKUP \u2014 price in sustained uptrend above range midpoint, bullish momentum confirmed" };
-  }
-  const belowMid = recentCloses.filter((c) => c < midpoint).length;
-  const fallingCandles = recentCloses.filter((c, i) => i > 0 && c < recentCloses[i - 1]).length;
-  if (belowMid >= 6 && fallingCandles >= 5) {
-    return { detected: true, phase: "MARKDOWN", stage: null, aligns: true, description: "Wyckoff MARKDOWN \u2014 price in sustained downtrend below range midpoint, bearish momentum confirmed" };
-  }
-  if (rangePercent < 5e-3 && lookback >= 10) {
-    const spring = candles.slice(0, 8).find((c, i) => c.l < rangeLow && c.c > rangeLow);
-    if (spring) {
-      return {
-        detected: true,
-        phase: "ACCUMULATION",
-        stage: "SPRING",
-        aligns: true,
-        description: `Wyckoff ACCUMULATION Spring \u2014 price swept below range low (${rangeLow.toFixed(5)}) then closed back inside; institutional buy signal`
-      };
-    }
-    const upthrust = candles.slice(0, 8).find((c, i) => c.h > rangeHigh && c.c < rangeHigh);
-    if (upthrust) {
-      return {
-        detected: true,
-        phase: "DISTRIBUTION",
-        stage: "UPTHRUST",
-        aligns: true,
-        description: `Wyckoff DISTRIBUTION Upthrust \u2014 price swept above range high (${rangeHigh.toFixed(5)}) then closed back inside; institutional sell signal`
-      };
-    }
-    const latestClose = closes[0];
-    if (latestClose > midpoint + rangeSize * 0.3) {
-      return {
-        detected: true,
-        phase: "ACCUMULATION",
-        stage: "SOS",
-        aligns: true,
-        description: `Wyckoff Sign of Strength (SOS) \u2014 price pushing into upper range, accumulation nearing markup phase`
-      };
-    }
-    if (latestClose < midpoint - rangeSize * 0.3) {
-      return {
-        detected: true,
-        phase: "DISTRIBUTION",
-        stage: "SOW",
-        aligns: true,
-        description: `Wyckoff Sign of Weakness (SOW) \u2014 price dropping into lower range, distribution nearing markdown phase`
-      };
-    }
-  }
-  return none;
-}
-function classifyLiquidityTargets(candles, signal, bosCHOCH) {
-  const none = {
-    internalTarget: { level: null, type: "NONE", description: "No internal liquidity target identified" },
-    externalTarget: { level: null, type: "NONE", description: "No external liquidity target identified" },
-    priceIsTargetingInternal: false,
-    priceIsTargetingExternal: false,
-    description: "Insufficient data to classify liquidity targets"
-  };
-  if (!candles || candles.length < 10) return none;
-  const currentPrice = candles[0]?.c || 0;
-  const swingHighs = findSwingHighs(candles, 30);
-  const swingLows = findSwingLows(candles, 30);
-  const boundary = bosCHOCH.level;
-  let internalTarget = { level: null, type: "NONE", description: "No internal liquidity target" };
-  let externalTarget = { level: null, type: "NONE", description: "No external liquidity target" };
-  if (signal === "BUY") {
-    const extCandidates = boundary ? swingHighs.filter((s) => s.level > boundary) : swingHighs;
-    if (extCandidates.length > 0) {
-      const ext = extCandidates.reduce((a, b) => a.level > b.level ? a : b);
-      externalTarget = {
-        level: ext.level,
-        type: "SWING_HIGH (BSL)",
-        description: `External BSL (buy-side liquidity) at ${ext.level.toFixed(5)} \u2014 major swing high ${ext.index} candles ago, institutional draw on liquidity above`
-      };
-    }
-    const intCandidates = boundary ? swingHighs.filter((s) => s.level < boundary && s.level > currentPrice) : swingHighs.filter((s) => s.level > currentPrice);
-    if (intCandidates.length > 0) {
-      const intT = intCandidates.reduce((a, b) => Math.abs(a.level - currentPrice) < Math.abs(b.level - currentPrice) ? a : b);
-      internalTarget = {
-        level: intT.level,
-        type: "INTERNAL_BSL",
-        description: `Internal BSL at ${intT.level.toFixed(5)} \u2014 nearest swing high within current range (${intT.index} candles ago), price will likely tap here first before external draw`
-      };
-    }
-  } else {
-    const extCandidates = boundary ? swingLows.filter((s) => s.level < boundary) : swingLows;
-    if (extCandidates.length > 0) {
-      const ext = extCandidates.reduce((a, b) => a.level < b.level ? a : b);
-      externalTarget = {
-        level: ext.level,
-        type: "SWING_LOW (SSL)",
-        description: `External SSL (sell-side liquidity) at ${ext.level.toFixed(5)} \u2014 major swing low ${ext.index} candles ago, institutional draw on liquidity below`
-      };
-    }
-    const intCandidates = boundary ? swingLows.filter((s) => s.level > boundary && s.level < currentPrice) : swingLows.filter((s) => s.level < currentPrice);
-    if (intCandidates.length > 0) {
-      const intT = intCandidates.reduce((a, b) => Math.abs(a.level - currentPrice) < Math.abs(b.level - currentPrice) ? a : b);
-      internalTarget = {
-        level: intT.level,
-        type: "INTERNAL_SSL",
-        description: `Internal SSL at ${intT.level.toFixed(5)} \u2014 nearest swing low within current range (${intT.index} candles ago), price will likely tap here first before external draw`
-      };
-    }
-  }
-  const intCleared = internalTarget.level !== null && (signal === "BUY" ? currentPrice > internalTarget.level : currentPrice < internalTarget.level);
-  const priceIsTargetingExternal = intCleared && externalTarget.level !== null;
-  const priceIsTargetingInternal = !intCleared && internalTarget.level !== null;
-  const trajDesc = priceIsTargetingExternal ? `EXTERNAL \u2014 internal liquidity already cleared, now targeting ${externalTarget.type} at ${externalTarget.level?.toFixed(5)}` : priceIsTargetingInternal ? `INTERNAL \u2014 price targeting ${internalTarget.type} at ${internalTarget.level?.toFixed(5)} first before external draw` : "UNCLEAR \u2014 no dominant liquidity target identified";
-  return {
-    internalTarget,
-    externalTarget,
-    priceIsTargetingInternal,
-    priceIsTargetingExternal,
-    description: trajDesc
-  };
-}
-var init_smcUtils = __esm({
-  "server/utils/smcUtils.ts"() {
-    "use strict";
   }
 });
 
@@ -14595,7 +14691,167 @@ async function runBreakout(symbol, cfg) {
   if (score < cfg.minConfidence) return { decision: "watching", reasoning: `${symbol}: ${direction} volume-confirmed breakout but score ${score}/100 below ${cfg.minConfidence}.`, score, price, dailyChangePercent, strategy: "breakout" };
   return { decision: "signal", score, price, dailyChangePercent, strategy: "breakout", direction, reasoning: `${symbol}: ${direction} volume-confirmed breakout of ${lookback}h range ($${priorLow.toFixed(2)}\u2013$${priorHigh.toFixed(2)}), now $${price.toFixed(2)}. Score ${score}/100.` };
 }
+async function runStructure(symbol, cfg) {
+  const bars = await fetchBars(symbol, "15m", 120);
+  if (bars.length < 30) {
+    return { decision: "error", reasoning: symbol + ": not enough candle history for structure.", score: null, price: null, dailyChangePercent: null, strategy: "structure" };
+  }
+  const { detectBOSCHOCH: detectBOSCHOCH2, detectFairValueGap: detectFairValueGap2, detectOrderBlock: detectOrderBlock2 } = await Promise.resolve().then(() => (init_smcUtils(), smcUtils_exports));
+  const newestFirst = convertToCandles(bars).slice().reverse();
+  const price = bars[bars.length - 1].c;
+  const bull = detectBOSCHOCH2(newestFirst, "BUY");
+  const bear = detectBOSCHOCH2(newestFirst, "SELL");
+  const struct = bull.detected && bull.direction === "BULLISH" ? bull : bear.detected && bear.direction === "BEARISH" ? bear : null;
+  if (!struct) {
+    return { decision: "watching", reasoning: symbol + ": no break of structure -- " + bull.description, score: 40, price, dailyChangePercent: null, strategy: "structure" };
+  }
+  const direction = struct.direction === "BULLISH" ? "BUY" : "SELL";
+  const fvg = detectFairValueGap2(newestFirst, direction);
+  const ob = detectOrderBlock2(newestFirst, direction);
+  let score = struct.type === "CHOCH" ? 70 : 62;
+  const parts = [struct.description];
+  if (fvg.detected && fvg.direction === (direction === "BUY" ? "BULLISH" : "BEARISH")) {
+    score += fvg.inZone ? 12 : 6;
+    parts.push(fvg.inZone ? "price inside the FVG" : "aligned FVG");
+  }
+  if (ob.detected && ob.aligns) {
+    score += ob.mitigation === "FRESH" ? 10 : 4;
+    parts.push((ob.mitigation === "FRESH" ? "fresh" : "mitigated") + " order block");
+  }
+  score = Math.min(97, score);
+  const directionAllowed = cfg.directionFilter === "both" || cfg.directionFilter === "long_only" && direction === "BUY" || cfg.directionFilter === "short_only" && direction === "SELL";
+  if (!directionAllowed) {
+    return { decision: "skipped", reasoning: symbol + ": " + direction + ' structure read, but direction filter is "' + cfg.directionFilter + '".', score, price, dailyChangePercent: null, strategy: "structure" };
+  }
+  const threshold = cfg.minConfidence != null ? cfg.minConfidence : 70;
+  const out = {
+    decision: score >= threshold ? "signal" : "watching",
+    reasoning: symbol + ": " + direction + " " + struct.type + " -- " + parts.join("; ") + ". Score " + score + "/100.",
+    score,
+    price,
+    dailyChangePercent: null,
+    strategy: "structure"
+  };
+  if (score >= threshold) out.direction = direction;
+  return out;
+}
+async function runDivergence(symbol, cfg) {
+  const bars = await fetchBars(symbol, "15m", 120);
+  if (bars.length < 40) {
+    return { decision: "error", reasoning: symbol + ": not enough candle history for divergence.", score: null, price: null, dailyChangePercent: null, strategy: "divergence" };
+  }
+  const { calculateRSI: calculateRSI2 } = await Promise.resolve().then(() => (init_indicators(), indicators_exports));
+  const candles = convertToCandles(bars);
+  const price = bars[bars.length - 1].c;
+  const rsiAt = (endIdx) => {
+    const slice = candles.slice(0, endIdx + 1);
+    if (slice.length < 20) return null;
+    const r = calculateRSI2(slice, 14);
+    const v = typeof r === "number" ? r : r && r.value;
+    return Number.isFinite(v) ? Number(v) : null;
+  };
+  const n = candles.length;
+  const recent = n - 1;
+  const prior = n - 1 - 12;
+  if (prior < 20) {
+    return { decision: "watching", reasoning: symbol + ": not enough separation for a divergence read.", score: 40, price, dailyChangePercent: null, strategy: "divergence" };
+  }
+  const pRecent = candles[recent].c, pPrior = candles[prior].c;
+  const rRecent = rsiAt(recent), rPrior = rsiAt(prior);
+  if (rRecent === null || rPrior === null) {
+    return { decision: "error", reasoning: symbol + ": RSI unavailable for divergence.", score: null, price, dailyChangePercent: null, strategy: "divergence" };
+  }
+  let direction = null;
+  let label = "";
+  if (pRecent < pPrior * 0.998 && rRecent > rPrior + 2) {
+    direction = "BUY";
+    label = "bullish divergence -- lower price low, higher RSI low";
+  } else if (pRecent > pPrior * 1.002 && rRecent < rPrior - 2) {
+    direction = "SELL";
+    label = "bearish divergence -- higher price high, lower RSI high";
+  }
+  if (!direction) {
+    return { decision: "watching", reasoning: symbol + ": price and RSI agree (RSI " + rPrior.toFixed(0) + " -> " + rRecent.toFixed(0) + ") -- no divergence.", score: 45, price, dailyChangePercent: null, strategy: "divergence" };
+  }
+  const gap = Math.abs(rRecent - rPrior);
+  const extreme = direction === "BUY" ? Math.max(0, 40 - rRecent) : Math.max(0, rRecent - 60);
+  const score = Math.min(95, Math.round(58 + gap * 1.5 + extreme));
+  const directionAllowed = cfg.directionFilter === "both" || cfg.directionFilter === "long_only" && direction === "BUY" || cfg.directionFilter === "short_only" && direction === "SELL";
+  if (!directionAllowed) {
+    return { decision: "skipped", reasoning: symbol + ": " + direction + ' divergence, but direction filter is "' + cfg.directionFilter + '".', score, price, dailyChangePercent: null, strategy: "divergence" };
+  }
+  const threshold = cfg.minConfidence != null ? cfg.minConfidence : 70;
+  const out = {
+    decision: score >= threshold ? "signal" : "watching",
+    reasoning: symbol + ": " + label + " (RSI " + rPrior.toFixed(0) + " -> " + rRecent.toFixed(0) + "). Score " + score + "/100.",
+    score,
+    price,
+    dailyChangePercent: null,
+    strategy: "divergence"
+  };
+  if (score >= threshold) out.direction = direction;
+  return out;
+}
+async function getHtfBias(symbol) {
+  try {
+    const bars = await fetchBars(symbol, "1h", 60);
+    if (bars.length < 25) return null;
+    const closes = bars.map(function(b) {
+      return b.c;
+    });
+    const sma = function(arr, p) {
+      return arr.slice(-p).reduce(function(a, b) {
+        return a + b;
+      }, 0) / p;
+    };
+    const fast = sma(closes, 10);
+    const slow = sma(closes, 30);
+    if (!(fast > 0) || !(slow > 0)) return null;
+    const spread = (fast - slow) / slow;
+    if (spread > 4e-3) return "BUY";
+    if (spread < -4e-3) return "SELL";
+    return null;
+  } catch {
+    return null;
+  }
+}
+async function applySignalGates(symbol, result, cfg) {
+  if (result.decision !== "signal" || !result.direction) return result;
+  try {
+    const bars = await fetchBars(symbol, "15m", 40);
+    const { assessPriceAnomaly: assessPriceAnomaly2 } = await Promise.resolve().then(() => (init_corporateActionGuard(), corporateActionGuard_exports));
+    const anomaly = assessPriceAnomaly2(bars);
+    if (anomaly.suspect) {
+      return {
+        ...result,
+        decision: "skipped",
+        direction: void 0,
+        reasoning: symbol + ": BLOCKED by the corporate-action guard -- " + anomaly.reason + ". Original read: " + result.reasoning
+      };
+    }
+  } catch {
+    return {
+      ...result,
+      decision: "skipped",
+      direction: void 0,
+      reasoning: symbol + ": corporate-action guard could not run (no candles) -- refusing the entry rather than trading unchecked. Original read: " + result.reasoning
+    };
+  }
+  const bias = await getHtfBias(symbol);
+  if (bias && bias !== result.direction) {
+    return {
+      ...result,
+      decision: "watching",
+      direction: void 0,
+      reasoning: symbol + ": " + result.direction + " setup opposed by the 1h trend (" + bias + ") -- standing down. " + result.reasoning
+    };
+  }
+  return result;
+}
 async function scanSymbol(symbol, cfg) {
+  return applySignalGates(symbol, await scanSymbolRaw(symbol, cfg), cfg);
+}
+async function scanSymbolRaw(symbol, cfg) {
   if (cfg.strategyMode === "auto") {
     const results = await Promise.all(AUTO_STRATEGIES.map((k) => STRATEGY_RUNNERS[k](symbol, cfg).catch(() => null)));
     const valid = results.filter((r) => !!r);
@@ -14695,6 +14951,18 @@ async function monitorOpenPositions(userId, cfg) {
           px = q?.best?.price ?? 0;
         }
         if (!px) continue;
+        try {
+          const guardBars = await fetchBars(trade.symbol, "15m", 40);
+          const { assessPriceAnomaly: assessPriceAnomaly2 } = await Promise.resolve().then(() => (init_corporateActionGuard(), corporateActionGuard_exports));
+          const anomaly = assessPriceAnomaly2(guardBars);
+          if (anomaly.suspect) {
+            console.error("[cryptocom-scanner] HOLDING trade " + trade.id + " (" + trade.symbol + "): " + anomaly.reason);
+            await storage.createCryptocomEngineActivity({ userId, symbol: trade.symbol, decision: "skipped", strategy: trade.strategy, reasoning: trade.symbol + ": exit BLOCKED by the corporate-action guard -- " + anomaly.reason + ". Position held; verify whether a split or dividend occurred.", score: null, price: px, dailyChangePercent: null, source: "cryptocom" }).catch(() => {
+            });
+            continue;
+          }
+        } catch {
+        }
         if (trade.takeProfit && px >= trade.takeProfit) {
           await closePosition(userId, trade, px, "take_profit");
           continue;
@@ -15495,9 +15763,11 @@ var init_cryptocom_scanner = __esm({
       momentum: runMomentum,
       order_flow: runOrderFlow,
       volume_profile: runVolumeProfile,
-      breakout: runBreakout
+      breakout: runBreakout,
+      structure: runStructure,
+      divergence: runDivergence
     };
-    AUTO_STRATEGIES = ["trend_following", "momentum", "order_flow", "volume_profile", "breakout"];
+    AUTO_STRATEGIES = ["trend_following", "momentum", "order_flow", "volume_profile", "breakout", "structure", "divergence"];
     sessionPeakEquity = /* @__PURE__ */ new Map();
     started = false;
     scanInFlight = false;
