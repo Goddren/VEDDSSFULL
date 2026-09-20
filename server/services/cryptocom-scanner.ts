@@ -992,6 +992,12 @@ export async function runCryptocomEngineScan(): Promise<void> {
       return;
     }
   }
+  const _scanT0 = Date.now();
+  // Written HERE, not only in the interval tick, because the cron entry point
+  // (dist/crypto-cron.js) calls this function directly from a fresh process and
+  // never touches the tick handler. Without it, tick_at stayed NULL in cron mode
+  // and the health verdict read 'unknown' — blind in the mode actually running.
+  await hb({ tick_at: new Date(), scan_started_at: new Date(), phase: 'scan:start' });
   try {
     // ── EXIT MANAGEMENT FIRST, and unconditionally ──────────────────────────
     // monitorOpenPositions used to be reachable only from inside scanOneUser,
@@ -1047,6 +1053,9 @@ export async function runCryptocomEngineScan(): Promise<void> {
   } catch (err: any) {
     console.error('[cryptocom-scanner] runCryptocomEngineScan failed:', err.message);
   } finally {
+    // Counted in SQL, not from a module variable: each cron invocation is a new
+    // process starting from zero, so an in-process counter can never accumulate.
+    await hbFinishScan(Date.now() - _scanT0);
     // Release only what this call took, so the next cron invocation can acquire.
     // The long-lived worker keeps its lock (ownedHere === false there).
     if (ownedHere) await releaseCryptoRunLock();
@@ -1096,6 +1105,21 @@ async function hb(fields: Record<string, any>): Promise<void> {
 
 /** Record which step the current scan is on, so a hang can be located. */
 async function phase(name: string): Promise<void> { await hb({ phase: name }); }
+
+/** Close out a scan. Increments in SQL so cron invocations accumulate. */
+async function hbFinishScan(durationMs: number): Promise<void> {
+  try {
+    const { pool } = await import('../db');
+    await pool.query(
+      `UPDATE crypto_engine_heartbeat
+          SET scan_finished_at = now(), last_duration_ms = $1, phase = 'idle',
+              scans_completed = COALESCE(scans_completed, 0) + 1,
+              worker_id = $2, updated_at = now()
+        WHERE id = 1`,
+      [durationMs, WORKER_ID],
+    );
+  } catch { /* never let the heartbeat affect the engine */ }
+}
 
 const CRYPTO_RUN_LOCK_KEY = 918273645; // arbitrary constant unique to this scanner
 // True when THIS process is holding the advisory lock. Needed because advisory
@@ -1235,7 +1259,7 @@ export function startCryptocomEngineScanner(): void {
     _skippedTicks = 0;
     scanInFlight = true;
     const _t0 = Date.now();
-    void hb({ tick_at: new Date(), scan_started_at: new Date(), phase: 'scan:start', skipped_ticks: 0 });
+    void hb({ tick_at: new Date(), skipped_ticks: 0 });
 
     // WATCHDOG. A scan that never settles freezes the engine permanently: the
     // re-entrancy guard keeps skipping every tick, and the run lock is held for
@@ -1260,8 +1284,8 @@ export function startCryptocomEngineScanner(): void {
           void hb({ scan_finished_at: new Date(), last_duration_ms: Date.now() - _t0, phase: 'timed_out', last_error: `scan abandoned after ${SCAN_TIMEOUT_MS / 1000}s` });
           return;
         }
-        _scansCompleted++;
-        void hb({ scan_finished_at: new Date(), last_duration_ms: Date.now() - _t0, phase: 'idle', scans_completed: _scansCompleted, last_error: null });
+        _scansCompleted++; // in-process count, for logs only — the durable one is incremented in SQL by hbFinishScan
+        void hb({ last_error: null });
       })
       .catch((e: any) => { void hb({ scan_finished_at: new Date(), last_duration_ms: Date.now() - _t0, phase: 'error', last_error: String(e?.message ?? e).slice(0, 500) }); })
       .finally(() => { scanInFlight = false; });

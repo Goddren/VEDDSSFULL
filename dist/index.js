@@ -37500,6 +37500,8 @@ async function runCryptocomEngineScan() {
       return;
     }
   }
+  const _scanT0 = Date.now();
+  await hb({ tick_at: /* @__PURE__ */ new Date(), scan_started_at: /* @__PURE__ */ new Date(), phase: "scan:start" });
   try {
     await phase("recover_stale_claims");
     const recovered = await storage.recoverStaleCryptocomCloseClaims().catch((e) => {
@@ -37539,6 +37541,7 @@ async function runCryptocomEngineScan() {
   } catch (err) {
     console.error("[cryptocom-scanner] runCryptocomEngineScan failed:", err.message);
   } finally {
+    await hbFinishScan(Date.now() - _scanT0);
     if (ownedHere) await releaseCryptoRunLock();
   }
 }
@@ -37560,6 +37563,20 @@ async function hb(fields) {
 }
 async function phase(name) {
   await hb({ phase: name });
+}
+async function hbFinishScan(durationMs) {
+  try {
+    const { pool: pool2 } = await Promise.resolve().then(() => (init_db(), db_exports));
+    await pool2.query(
+      `UPDATE crypto_engine_heartbeat
+          SET scan_finished_at = now(), last_duration_ms = $1, phase = 'idle',
+              scans_completed = COALESCE(scans_completed, 0) + 1,
+              worker_id = $2, updated_at = now()
+        WHERE id = 1`,
+      [durationMs, WORKER_ID]
+    );
+  } catch {
+  }
 }
 async function acquireCryptoRunLock() {
   try {
@@ -37640,7 +37657,7 @@ function startCryptocomEngineScanner() {
         _skippedTicks = 0;
         scanInFlight = true;
         const _t0 = Date.now();
-        void hb({ tick_at: /* @__PURE__ */ new Date(), scan_started_at: /* @__PURE__ */ new Date(), phase: "scan:start", skipped_ticks: 0 });
+        void hb({ tick_at: /* @__PURE__ */ new Date(), skipped_ticks: 0 });
         const SCAN_TIMEOUT_MS = 4 * 60 * 1e3;
         let _timedOut = false;
         const _watchdog = new Promise((resolve) => setTimeout(() => {
@@ -37654,7 +37671,7 @@ function startCryptocomEngineScanner() {
             return;
           }
           _scansCompleted++;
-          void hb({ scan_finished_at: /* @__PURE__ */ new Date(), last_duration_ms: Date.now() - _t0, phase: "idle", scans_completed: _scansCompleted, last_error: null });
+          void hb({ last_error: null });
         }).catch((e) => {
           void hb({ scan_finished_at: /* @__PURE__ */ new Date(), last_duration_ms: Date.now() - _t0, phase: "error", last_error: String(e?.message ?? e).slice(0, 500) });
         }).finally(() => {
@@ -54539,9 +54556,9 @@ async function getStopOrdersForUser(userId, filters = {}) {
 init_schema();
 
 // server/build-info.ts
-var BUILD_COMMIT = "5a01c310-dirty";
+var BUILD_COMMIT = "32d7a7fc-dirty";
 var BUILD_BRANCH = "main";
-var BUILT_AT = "2026-09-20T13:44:57.421Z";
+var BUILT_AT = "2026-09-20T14:01:35.517Z";
 
 // server/stripe.ts
 init_db();
