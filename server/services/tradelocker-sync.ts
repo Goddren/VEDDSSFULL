@@ -7,6 +7,7 @@
 // global.tlAccountData, plus on-demand sync hooks fired when trades open/close.
 
 import { storage } from '../storage';
+import { computePips } from '../utils/pipUtils';
 import { getOrCreateService as tlGetOrCreateService } from '../tradelocker';
 import { recordRealizedPnl } from './prop-firm-consistency';
 
@@ -208,6 +209,10 @@ async function syncTradeLockerTrades(userId: number, conn: any, svc: any): Promi
           // R-multiple can be computed, so the brain only ever learns the SIGN
           // of an outcome and not its quality.
           ...(Number(match.closePrice) > 0 ? { exitPrice: Number(match.closePrice) } : {}),
+          ...(() => {
+            const pips = computePips(existing.symbol, (existing as any).entryPrice || match.openPrice, match.closePrice, existing.direction);
+            return pips === null ? {} : { profitLossPips: pips };
+          })(),
           // Backfill the entry too when the PENDING row was written before the
           // broker reported an average fill price.
           ...(!(Number((existing as any).entryPrice) > 0) && Number(match.openPrice) > 0 ? { entryPrice: Number(match.openPrice) } : {}),
@@ -276,6 +281,10 @@ async function syncTradeLockerTrades(userId: number, conn: any, svc: any): Promi
               // Same as the poll-and-diff path: record the prices the P&L was
               // reconstructed FROM, so the number is auditable later.
               ...(Number(o.closePrice) > 0 ? { exitPrice: Number(o.closePrice) } : {}),
+              ...(() => {
+                const pips = computePips(existing.symbol, (existing as any).entryPrice || o.openPrice, o.closePrice, existing.direction);
+                return pips === null ? {} : { profitLossPips: pips };
+              })(),
               ...(!(Number((existing as any).entryPrice) > 0) && Number(o.openPrice) > 0 ? { entryPrice: Number(o.openPrice) } : {}),
               closedAt: o.closeTime ? new Date(o.closeTime) : new Date(),
             } as any).catch(() => {});
@@ -295,6 +304,7 @@ async function syncTradeLockerTrades(userId: number, conn: any, svc: any): Promi
           direction: reconDirection,
           entryPrice: o.openPrice || 0,
           exitPrice: o.closePrice || 0,
+          profitLossPips: computePips(reconSymbol, o.openPrice, o.closePrice, reconDirection),
           aiConfidence: 0,
           result: reconResult,
           profitLoss: p,

@@ -79,6 +79,33 @@ export function getPipSize(symbol: string): number {
  *   US30    → $1    (typical prop-firm contract: $1/point)
  *   BTCUSD  → $1    (varies; conservative estimate)
  */
+/**
+ * Signed P&L in PIPS for a closed trade.
+ *
+ * ai_trade_results.profit_loss_pips has been NULL on all 2,225 rows ever
+ * written — nothing populated it, while several readers consume it
+ * (routes.ts avgWinPips, the brain's `actualPips` feature, the trade feed).
+ * Those all silently read blank.
+ *
+ * Returns null rather than 0 when it cannot be computed. A missing price must
+ * not be recorded as a zero-pip trade: zero is a real, meaningful outcome and
+ * would pollute every average that consumes this.
+ */
+export function computePips(
+  symbol: string,
+  entryPrice: number | null | undefined,
+  exitPrice: number | null | undefined,
+  direction: string | null | undefined,
+): number | null {
+  const entry = Number(entryPrice), exit = Number(exitPrice);
+  if (!Number.isFinite(entry) || !Number.isFinite(exit) || entry <= 0 || exit <= 0) return null;
+  const pipSize = getPipSize(symbol);
+  if (!(pipSize > 0)) return null;
+  const isSell = /sell|short/i.test(String(direction ?? ''));
+  const diff = isSell ? entry - exit : exit - entry;
+  return Math.round((diff / pipSize) * 10) / 10;
+}
+
 export function getPipValue(symbol: string): number {
   if (!symbol) return 10;
 

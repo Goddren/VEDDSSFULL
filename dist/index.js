@@ -17432,6 +17432,162 @@ var init_ea_generators = __esm({
   }
 });
 
+// server/utils/pipUtils.ts
+var pipUtils_exports = {};
+__export(pipUtils_exports, {
+  computePips: () => computePips,
+  getPipSize: () => getPipSize,
+  getPipValue: () => getPipValue,
+  setFxRate: () => setFxRate
+});
+function matchesAny(symbol, patterns) {
+  const s = symbol.toUpperCase();
+  return patterns.some((p) => s.includes(p.toUpperCase()));
+}
+function getPipSize(symbol) {
+  if (!symbol) return 1e-4;
+  if (matchesAny(symbol, ["JPY"])) return 0.01;
+  if (matchesAny(symbol, ["XAU", "GOLD"])) return 0.1;
+  if (matchesAny(symbol, ["XAG", "SILVER"])) return 1e-3;
+  if (matchesAny(symbol, ["XPT", "XPD"])) return 0.01;
+  if (matchesAny(symbol, [
+    "US30",
+    "DJ30",
+    "WALLST",
+    "DOW",
+    "NAS100",
+    "USTEC",
+    "US100",
+    "NDX",
+    "NASDAQ",
+    "US500",
+    "SPX",
+    "SP500",
+    "GER40",
+    "GER30",
+    "DAX",
+    "DE40",
+    "UK100",
+    "FTSE",
+    "UKX",
+    "JP225",
+    "NKY",
+    "NIKKEI",
+    "JPN225",
+    "N225",
+    "AUS200",
+    "ASX",
+    "HK50",
+    "HSI",
+    "FRA40",
+    "CAC",
+    "ESP35",
+    "IBEX",
+    "EUSTX50",
+    "SWI20"
+  ])) return 1;
+  if (matchesAny(symbol, ["USOIL", "WTI", "CRUDE", "BRENT", "UKOIL", "OIL"])) return 0.01;
+  if (matchesAny(symbol, ["NGAS", "NATGAS"])) return 1e-3;
+  if (matchesAny(symbol, ["BTC", "XBT"])) return 1;
+  if (matchesAny(symbol, ["ETH", "BNB", "SOL", "ADA", "DOT", "AVAX", "MATIC", "LINK", "UNI"])) return 0.01;
+  if (matchesAny(symbol, ["XRP", "DOGE", "SHIB", "LTC", "TRX"])) return 1e-4;
+  return 1e-4;
+}
+function computePips(symbol, entryPrice, exitPrice, direction) {
+  const entry = Number(entryPrice), exit = Number(exitPrice);
+  if (!Number.isFinite(entry) || !Number.isFinite(exit) || entry <= 0 || exit <= 0) return null;
+  const pipSize = getPipSize(symbol);
+  if (!(pipSize > 0)) return null;
+  const isSell = /sell|short/i.test(String(direction ?? ""));
+  const diff = isSell ? entry - exit : exit - entry;
+  return Math.round(diff / pipSize * 10) / 10;
+}
+function getPipValue(symbol) {
+  if (!symbol) return 10;
+  if (matchesAny(symbol, ["XAU", "GOLD"])) return 10;
+  if (matchesAny(symbol, ["XAG", "SILVER"])) return 5;
+  if (matchesAny(symbol, ["XPT", "XPD"])) return 10;
+  if (matchesAny(symbol, [
+    "US30",
+    "DJ30",
+    "WALLST",
+    "DOW",
+    "NAS100",
+    "USTEC",
+    "US100",
+    "NDX",
+    "NASDAQ",
+    "US500",
+    "SPX",
+    "SP500",
+    "GER40",
+    "GER30",
+    "DAX",
+    "DE40",
+    "UK100",
+    "FTSE",
+    "JP225",
+    "NKY",
+    "NIKKEI",
+    "JPN225",
+    "AUS200",
+    "ASX",
+    "HK50",
+    "FRA40",
+    "CAC",
+    "ESP35",
+    "EUSTX50"
+  ])) return 1;
+  if (matchesAny(symbol, ["USOIL", "WTI", "CRUDE", "BRENT", "UKOIL", "OIL"])) return 10;
+  if (matchesAny(symbol, ["NGAS", "NATGAS"])) return 10;
+  if (matchesAny(symbol, ["BTC", "XBT"])) return 1;
+  if (matchesAny(symbol, ["ETH", "BNB", "SOL", "ADA", "DOT", "AVAX", "MATIC", "LINK", "UNI"])) return 1;
+  const s = symbol.toUpperCase().split(".")[0].replace(/[^A-Z]/g, "");
+  if (/^[A-Z]{6}$/.test(s)) {
+    const quote = s.slice(3);
+    const perLotQuote = 1e5 * getPipSize(symbol);
+    const rate = quoteToUsd(quote);
+    if (rate !== null) return perLotQuote * rate;
+  }
+  return 10;
+}
+function setFxRate(pair, rate) {
+  const p = String(pair || "").toUpperCase().replace(/[^A-Z]/g, "");
+  const r = Number(rate);
+  if (!/^[A-Z]{6}$/.test(p) || !isFinite(r) || r <= 0) return;
+  _fxLive.set(p, { rate: r, at: Date.now() });
+}
+function rateOf(pair) {
+  const live = _fxLive.get(pair);
+  if (live && Date.now() - live.at < FX_LIVE_TTL_MS) return live.rate;
+  return FX_FALLBACK[pair];
+}
+function quoteToUsd(quote) {
+  if (quote === "USD") return 1;
+  const direct = rateOf(`${quote}USD`);
+  if (direct > 0) return direct;
+  const inverse = rateOf(`USD${quote}`);
+  if (inverse > 0) return 1 / inverse;
+  return null;
+}
+var FX_FALLBACK, _fxLive, FX_LIVE_TTL_MS;
+var init_pipUtils = __esm({
+  "server/utils/pipUtils.ts"() {
+    "use strict";
+    FX_FALLBACK = {
+      USDJPY: 140,
+      GBPUSD: 1.36,
+      EURUSD: 1.17,
+      AUDUSD: 0.7,
+      NZDUSD: 0.63,
+      USDCHF: 0.8,
+      USDCAD: 1.3
+    };
+    _fxLive = /* @__PURE__ */ new Map();
+    FX_LIVE_TTL_MS = 6 * 60 * 60 * 1e3;
+  }
+});
+
 // server/tradelocker.ts
 var tradelocker_exports = {};
 __export(tradelocker_exports, {
@@ -21778,152 +21934,6 @@ ${headlines}`
       }
     };
     newsService = new NewsService();
-  }
-});
-
-// server/utils/pipUtils.ts
-var pipUtils_exports = {};
-__export(pipUtils_exports, {
-  getPipSize: () => getPipSize,
-  getPipValue: () => getPipValue,
-  setFxRate: () => setFxRate
-});
-function matchesAny(symbol, patterns) {
-  const s = symbol.toUpperCase();
-  return patterns.some((p) => s.includes(p.toUpperCase()));
-}
-function getPipSize(symbol) {
-  if (!symbol) return 1e-4;
-  if (matchesAny(symbol, ["JPY"])) return 0.01;
-  if (matchesAny(symbol, ["XAU", "GOLD"])) return 0.1;
-  if (matchesAny(symbol, ["XAG", "SILVER"])) return 1e-3;
-  if (matchesAny(symbol, ["XPT", "XPD"])) return 0.01;
-  if (matchesAny(symbol, [
-    "US30",
-    "DJ30",
-    "WALLST",
-    "DOW",
-    "NAS100",
-    "USTEC",
-    "US100",
-    "NDX",
-    "NASDAQ",
-    "US500",
-    "SPX",
-    "SP500",
-    "GER40",
-    "GER30",
-    "DAX",
-    "DE40",
-    "UK100",
-    "FTSE",
-    "UKX",
-    "JP225",
-    "NKY",
-    "NIKKEI",
-    "JPN225",
-    "N225",
-    "AUS200",
-    "ASX",
-    "HK50",
-    "HSI",
-    "FRA40",
-    "CAC",
-    "ESP35",
-    "IBEX",
-    "EUSTX50",
-    "SWI20"
-  ])) return 1;
-  if (matchesAny(symbol, ["USOIL", "WTI", "CRUDE", "BRENT", "UKOIL", "OIL"])) return 0.01;
-  if (matchesAny(symbol, ["NGAS", "NATGAS"])) return 1e-3;
-  if (matchesAny(symbol, ["BTC", "XBT"])) return 1;
-  if (matchesAny(symbol, ["ETH", "BNB", "SOL", "ADA", "DOT", "AVAX", "MATIC", "LINK", "UNI"])) return 0.01;
-  if (matchesAny(symbol, ["XRP", "DOGE", "SHIB", "LTC", "TRX"])) return 1e-4;
-  return 1e-4;
-}
-function getPipValue(symbol) {
-  if (!symbol) return 10;
-  if (matchesAny(symbol, ["XAU", "GOLD"])) return 10;
-  if (matchesAny(symbol, ["XAG", "SILVER"])) return 5;
-  if (matchesAny(symbol, ["XPT", "XPD"])) return 10;
-  if (matchesAny(symbol, [
-    "US30",
-    "DJ30",
-    "WALLST",
-    "DOW",
-    "NAS100",
-    "USTEC",
-    "US100",
-    "NDX",
-    "NASDAQ",
-    "US500",
-    "SPX",
-    "SP500",
-    "GER40",
-    "GER30",
-    "DAX",
-    "DE40",
-    "UK100",
-    "FTSE",
-    "JP225",
-    "NKY",
-    "NIKKEI",
-    "JPN225",
-    "AUS200",
-    "ASX",
-    "HK50",
-    "FRA40",
-    "CAC",
-    "ESP35",
-    "EUSTX50"
-  ])) return 1;
-  if (matchesAny(symbol, ["USOIL", "WTI", "CRUDE", "BRENT", "UKOIL", "OIL"])) return 10;
-  if (matchesAny(symbol, ["NGAS", "NATGAS"])) return 10;
-  if (matchesAny(symbol, ["BTC", "XBT"])) return 1;
-  if (matchesAny(symbol, ["ETH", "BNB", "SOL", "ADA", "DOT", "AVAX", "MATIC", "LINK", "UNI"])) return 1;
-  const s = symbol.toUpperCase().split(".")[0].replace(/[^A-Z]/g, "");
-  if (/^[A-Z]{6}$/.test(s)) {
-    const quote = s.slice(3);
-    const perLotQuote = 1e5 * getPipSize(symbol);
-    const rate = quoteToUsd(quote);
-    if (rate !== null) return perLotQuote * rate;
-  }
-  return 10;
-}
-function setFxRate(pair, rate) {
-  const p = String(pair || "").toUpperCase().replace(/[^A-Z]/g, "");
-  const r = Number(rate);
-  if (!/^[A-Z]{6}$/.test(p) || !isFinite(r) || r <= 0) return;
-  _fxLive.set(p, { rate: r, at: Date.now() });
-}
-function rateOf(pair) {
-  const live = _fxLive.get(pair);
-  if (live && Date.now() - live.at < FX_LIVE_TTL_MS) return live.rate;
-  return FX_FALLBACK[pair];
-}
-function quoteToUsd(quote) {
-  if (quote === "USD") return 1;
-  const direct = rateOf(`${quote}USD`);
-  if (direct > 0) return direct;
-  const inverse = rateOf(`USD${quote}`);
-  if (inverse > 0) return 1 / inverse;
-  return null;
-}
-var FX_FALLBACK, _fxLive, FX_LIVE_TTL_MS;
-var init_pipUtils = __esm({
-  "server/utils/pipUtils.ts"() {
-    "use strict";
-    FX_FALLBACK = {
-      USDJPY: 140,
-      GBPUSD: 1.36,
-      EURUSD: 1.17,
-      AUDUSD: 0.7,
-      NZDUSD: 0.63,
-      USDCHF: 0.8,
-      USDCAD: 1.3
-    };
-    _fxLive = /* @__PURE__ */ new Map();
-    FX_LIVE_TTL_MS = 6 * 60 * 60 * 1e3;
   }
 });
 
@@ -29376,6 +29386,10 @@ async function syncTradeLockerTrades(userId, conn, svc) {
           // R-multiple can be computed, so the brain only ever learns the SIGN
           // of an outcome and not its quality.
           ...Number(match.closePrice) > 0 ? { exitPrice: Number(match.closePrice) } : {},
+          ...(() => {
+            const pips = computePips(existing.symbol, existing.entryPrice || match.openPrice, match.closePrice, existing.direction);
+            return pips === null ? {} : { profitLossPips: pips };
+          })(),
           // Backfill the entry too when the PENDING row was written before the
           // broker reported an average fill price.
           ...!(Number(existing.entryPrice) > 0) && Number(match.openPrice) > 0 ? { entryPrice: Number(match.openPrice) } : {},
@@ -29419,6 +29433,10 @@ async function syncTradeLockerTrades(userId, conn, svc) {
               // Same as the poll-and-diff path: record the prices the P&L was
               // reconstructed FROM, so the number is auditable later.
               ...Number(o.closePrice) > 0 ? { exitPrice: Number(o.closePrice) } : {},
+              ...(() => {
+                const pips = computePips(existing.symbol, existing.entryPrice || o.openPrice, o.closePrice, existing.direction);
+                return pips === null ? {} : { profitLossPips: pips };
+              })(),
               ...!(Number(existing.entryPrice) > 0) && Number(o.openPrice) > 0 ? { entryPrice: Number(o.openPrice) } : {},
               closedAt: o.closeTime ? new Date(o.closeTime) : /* @__PURE__ */ new Date()
             }).catch(() => {
@@ -29439,6 +29457,7 @@ async function syncTradeLockerTrades(userId, conn, svc) {
           direction: reconDirection,
           entryPrice: o.openPrice || 0,
           exitPrice: o.closePrice || 0,
+          profitLossPips: computePips(reconSymbol, o.openPrice, o.closePrice, reconDirection),
           aiConfidence: 0,
           result: reconResult,
           profitLoss: p,
@@ -29613,6 +29632,7 @@ var init_tradelocker_sync = __esm({
   "server/services/tradelocker-sync.ts"() {
     "use strict";
     init_storage();
+    init_pipUtils();
     init_tradelocker();
     init_prop_firm_consistency();
     lastOpenTickets = /* @__PURE__ */ new Map();
@@ -55078,9 +55098,9 @@ async function getStopOrdersForUser(userId, filters = {}) {
 init_schema();
 
 // server/build-info.ts
-var BUILD_COMMIT = "fc050752-dirty";
+var BUILD_COMMIT = "37e529ed-dirty";
 var BUILD_BRANCH = "main";
-var BUILT_AT = "2026-09-20T19:09:11.716Z";
+var BUILT_AT = "2026-09-20T19:38:25.147Z";
 
 // server/stripe.ts
 init_db();
@@ -64890,7 +64910,13 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
       if (!token.isActive) {
         return res.status(403).json({ error: "API key is disabled" });
       }
-      const { action, symbol, direction, volume, entryPrice, stopLoss, takeProfit, ticket, magic, comment, openTime, platform, profit, exitPrice, closePrice } = req.body;
+      const { action, symbol, direction, volume, entryPrice, ticket, magic, comment, openTime, platform, profit, exitPrice, closePrice } = req.body;
+      const _num = (v) => {
+        const n = Number(v);
+        return Number.isFinite(n) && n > 0 ? n : null;
+      };
+      const stopLoss = _num(req.body.stopLoss) ?? _num(req.body.sl) ?? _num(req.body.stop_loss);
+      const takeProfit = _num(req.body.takeProfit) ?? _num(req.body.tp) ?? _num(req.body.take_profit);
       if (!action || !symbol || !direction) {
         const missing = [];
         if (!action) missing.push("action");
@@ -64941,6 +64967,9 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
               exitPrice: closeExit || 0,
               stopLoss: stopLoss || null,
               takeProfit: takeProfit || null,
+              // Was never populated on any row, anywhere (2,225/2,225 NULL),
+              // while avgWinPips and the brain's actualPips feature read it.
+              profitLossPips: computePips((symbol || "").toUpperCase(), entryPrice, closeExit, direction),
               aiConfidence: 0,
               result: closeResult,
               profitLoss: closePnl,
@@ -65465,6 +65494,7 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
                   result: tradeResult,
                   profitLoss: closedTrade.profit || 0,
                   exitPrice: closedTrade.closePrice || 0,
+                  profitLossPips: computePips(tradeSymbol, closedTrade.openPrice, closedTrade.closePrice, closedTrade.direction),
                   source: "mt5_ea",
                   mt5Ticket: closedTrade.ticket.toString(),
                   notes: `EA closed trade`,
@@ -69136,7 +69166,10 @@ BEAR CASE: ${_bearCase || "n/a"}` : aiConfirmation.reasoning;
         mt5Ticket: null,
         stopLoss: null,
         takeProfit: null,
-        profitLossPips: null,
+        // Was hardcoded null. Computed from the prices on the row instead;
+        // computePips returns null itself when they are unusable, so an
+        // unknowable value stays unknown rather than becoming a fake 0.
+        profitLossPips: computePips(String(symbol || ""), entryPrice, exitPrice, direction),
         analysisId: null
       });
       res.json({ success: true, trade });

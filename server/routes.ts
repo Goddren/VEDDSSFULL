@@ -65,7 +65,7 @@ import { sendSubscriptionConfirmation } from "./email";
 import { extractFramesFromVideo, cleanupFrames } from "./video-processor";
 import { getGoldSentiment, getMockGoldSentiment, isTelegramConfigured } from "./telegram-sentiment";
 import { encryptPassword, executeMT5SignalOnTradeLocker, TradeLockerService, decryptPassword, getOrCreateService as tlGetOrCreateService, getTLAccountValue, isOnAuth429Cooldown as tlIsOnAuth429Cooldown, noteAuthResult as tlNoteAuthResult } from "./tradelocker";
-import { getPipSize, getPipValue } from "./utils/pipUtils";
+import { computePips, getPipSize, getPipValue } from "./utils/pipUtils";
 import { getTLRisk } from "./services/tl-risk-settings";
 import { AlpacaService, encryptApiSecret } from "./alpaca";
 import { TastyTradeService, encryptPassword as encryptTastytradePassword } from "./tastytrade";
@@ -7862,7 +7862,16 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
         return res.status(403).json({ error: "API key is disabled" });
       }
       
-      const { action, symbol, direction, volume, entryPrice, stopLoss, takeProfit, ticket, magic, comment, openTime, platform, profit, exitPrice, closePrice } = req.body;
+      const { action, symbol, direction, volume, entryPrice, ticket, magic, comment, openTime, platform, profit, exitPrice, closePrice } = req.body;
+      // The EA does not agree with itself on field names: the closed-trades
+      // handler below reads `sl`/`tp`, while this one only ever read
+      // `stopLoss`/`takeProfit`. When the payload used the short form the values
+      // silently became null, which is why all 19 mt5_ea rows this week have
+      // stop_loss NULL while tradelocker_auto rows have it populated. Accept
+      // every spelling, and treat MT5's 0 ("no stop set") as absent.
+      const _num = (v: any) => { const n = Number(v); return Number.isFinite(n) && n > 0 ? n : null; };
+      const stopLoss = _num(req.body.stopLoss) ?? _num(req.body.sl) ?? _num(req.body.stop_loss);
+      const takeProfit = _num(req.body.takeProfit) ?? _num(req.body.tp) ?? _num(req.body.take_profit);
 
       // Validate with detailed error messages
       if (!action || !symbol || !direction) {
@@ -7924,6 +7933,9 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
               exitPrice: closeExit || 0,
               stopLoss: stopLoss || null,
               takeProfit: takeProfit || null,
+              // Was never populated on any row, anywhere (2,225/2,225 NULL),
+              // while avgWinPips and the brain's actualPips feature read it.
+              profitLossPips: computePips((symbol || '').toUpperCase(), entryPrice, closeExit, direction),
               aiConfidence: 0,
               result: closeResult,
               profitLoss: closePnl,
@@ -8553,6 +8565,7 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
                   result: tradeResult,
                   profitLoss: closedTrade.profit || 0,
                   exitPrice: closedTrade.closePrice || 0,
+                  profitLossPips: computePips(tradeSymbol, closedTrade.openPrice, closedTrade.closePrice, closedTrade.direction),
                   source: 'mt5_ea',
                   mt5Ticket: closedTrade.ticket.toString(),
                   notes: `EA closed trade`,
@@ -13030,7 +13043,10 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
         mt5Ticket: null,
         stopLoss: null,
         takeProfit: null,
-        profitLossPips: null,
+        // Was hardcoded null. Computed from the prices on the row instead;
+        // computePips returns null itself when they are unusable, so an
+        // unknowable value stays unknown rather than becoming a fake 0.
+        profitLossPips: computePips(String(symbol || ''), entryPrice, exitPrice, direction),
         analysisId: null,
       });
       res.json({ success: true, trade });
