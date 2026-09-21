@@ -9007,9 +9007,28 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
             console.error('[ADX-DIAG] diagnostic itself failed (non-fatal):', _diagErr?.message);
           }
 
+          // ── Repair the feed before computing anything from it ────────────
+          // The EA posts bars with high === low (confirmed:
+          // barsWithHighNotEqualLow=0), so every range-based indicator is dead:
+          // ADX has never produced a value in 104,868 confirmations and MACD is
+          // NEUTRAL on essentially all of them. Closes are fine, which is why
+          // RSI works. repairCandles substitutes real Twelve Data bars ONLY when
+          // the EA's are genuinely unusable, and returns the originals on any
+          // failure — so fixing the EA silently retires this, and a broken
+          // repair never leaves us worse off.
+          let _indicatorCandles: any[] = candles;
+          try {
+            const { repairCandles } = await import('./services/candle-repair');
+            const _rep = await repairCandles(sanitizedSymbol, sanitizedTimeframe, candles);
+            _indicatorCandles = _rep.candles;
+            if (_rep.repaired) console.log(`[ADX-DIAG] ${sanitizedSymbol} ${sanitizedTimeframe}: candles REPAIRED — ${_rep.reason}`);
+          } catch (_repErr: any) {
+            console.error('[candle-repair] repair layer threw (non-fatal), using the EA candles:', _repErr?.message);
+          }
+
           // Advanced indicators (ADX, Stochastic, VWAP, OBV, Pivot Points, Fibonacci, S/R, Candle Patterns, Session Context)
           const { computeAllAdvancedIndicators } = await import('./indicators');
-          advanced = computeAllAdvancedIndicators(candles, atr || 0, sanitizedSymbol, sanitizedTimeframe);
+          advanced = computeAllAdvancedIndicators(_indicatorCandles, atr || 0, sanitizedSymbol, sanitizedTimeframe);
           // What the indicator layer actually produced, so a silent `undefined`
           // is distinguishable from a value that was computed and then dropped
           // somewhere between here and the confirmation row.

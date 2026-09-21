@@ -28356,17 +28356,17 @@ function getNYTime(ts) {
   };
 }
 async function getBrokerIndexCandles(userId, symbol, mt5Tf) {
-  const cache5 = global.mt5ChartDataCache || {};
+  const cache6 = global.mt5ChartDataCache || {};
   const wanted = new Set(
     [symbol, ...INDEX_BROKER_ALIASES[symbol] || []].map((s) => s.replace(/[^A-Z0-9]/gi, "").toUpperCase())
   );
   const prefix = `mt5_chart_${userId}_`;
   const suffix = `_${mt5Tf}`;
-  for (const key of Object.keys(cache5)) {
+  for (const key of Object.keys(cache6)) {
     if (!key.startsWith(prefix) || !key.endsWith(suffix)) continue;
     const symPart = key.slice(prefix.length, key.length - suffix.length);
     if (wanted.has(symPart.replace(/[^A-Z0-9]/gi, "").toUpperCase())) {
-      const entry = cache5[key];
+      const entry = cache6[key];
       if (entry?.candles?.length) return entry.candles;
     }
   }
@@ -29791,8 +29791,8 @@ async function getLiveAccounts(userId) {
   const mt5 = [];
   const tradelocker = [];
   try {
-    const cache5 = global.mt5AccountData?.[userId];
-    const entries = cache5?.lastUpdated ? [cache5] : Object.values(cache5 || {});
+    const cache6 = global.mt5AccountData?.[userId];
+    const entries = cache6?.lastUpdated ? [cache6] : Object.values(cache6 || {});
     for (const a of entries) {
       if (!a?.lastUpdated) continue;
       const age = (Date.now() - new Date(a.lastUpdated).getTime()) / 1e3;
@@ -34639,6 +34639,75 @@ var init_share_card_service = __esm({
   }
 });
 
+// server/services/candle-repair.ts
+var candle_repair_exports = {};
+__export(candle_repair_exports, {
+  assessCandles: () => assessCandles,
+  repairCandles: () => repairCandles
+});
+function assessCandles(candles) {
+  if (!Array.isArray(candles) || candles.length < 15) {
+    return { usable: false, reason: `too few candles (${Array.isArray(candles) ? candles.length : 0}, need >=15)`, barsWithRange: 0 };
+  }
+  const fin = (v) => typeof v === "number" && isFinite(v);
+  if (!candles.every((c) => fin(c?.h) && fin(c?.l) && fin(c?.c))) {
+    return { usable: false, reason: "malformed candles (non-numeric h/l/c)", barsWithRange: 0 };
+  }
+  const barsWithRange = candles.filter((c) => Number(c.h) !== Number(c.l)).length;
+  if (barsWithRange === 0) {
+    return { usable: false, reason: "every bar has high === low (no true range)", barsWithRange: 0 };
+  }
+  if (barsWithRange < candles.length * 0.1) {
+    return { usable: false, reason: `only ${barsWithRange}/${candles.length} bars have any range`, barsWithRange };
+  }
+  return { usable: true, reason: "ok", barsWithRange };
+}
+async function repairCandles(symbol, timeframe, eaCandles) {
+  const verdict = assessCandles(eaCandles);
+  if (verdict.usable) return { candles: eaCandles, repaired: false, reason: verdict.reason };
+  const key = `${symbol}:${timeframe}`;
+  const hit = cache3.get(key);
+  if (hit && Date.now() - hit.at < CACHE_TTL_MS4) {
+    return { candles: hit.candles, repaired: true, reason: `${verdict.reason} \u2014 substituted cached Twelve Data bars` };
+  }
+  if (!process.env.TWELVE_DATA_API_KEY) {
+    return { candles: eaCandles, repaired: false, reason: `${verdict.reason} \u2014 no TWELVE_DATA_API_KEY, cannot repair` };
+  }
+  if (Date.now() - lastFetchAt < MIN_FETCH_GAP_MS) {
+    return { candles: eaCandles, repaired: false, reason: `${verdict.reason} \u2014 throttled, keeping the EA bars this cycle` };
+  }
+  try {
+    lastFetchAt = Date.now();
+    const { TwelveDataProvider: TwelveDataProvider2 } = await Promise.resolve().then(() => (init_twelve_data(), twelve_data_exports));
+    const provider = new TwelveDataProvider2(process.env.TWELVE_DATA_API_KEY);
+    const bars = await provider.fetchOHLCV({ symbol, assetType: "forex", timeframe, limit: 200 });
+    if (!Array.isArray(bars) || bars.length < 15) {
+      return { candles: eaCandles, repaired: false, reason: `${verdict.reason} \u2014 Twelve Data returned ${bars?.length ?? 0} bars, keeping the EA bars` };
+    }
+    const mapped = bars.map((b) => ({ t: b.timestamp, o: b.open, h: b.high, l: b.low, c: b.close, v: b.volume })).reverse();
+    const check = assessCandles(mapped);
+    if (!check.usable) {
+      return { candles: eaCandles, repaired: false, reason: `${verdict.reason} \u2014 replacement bars also unusable (${check.reason})` };
+    }
+    cache3.set(key, { at: Date.now(), candles: mapped });
+    console.log(`[candle-repair] ${symbol} ${timeframe}: EA feed unusable (${verdict.reason}); substituted ${mapped.length} Twelve Data bars, ${check.barsWithRange} with real range`);
+    return { candles: mapped, repaired: true, reason: `${verdict.reason} \u2014 substituted Twelve Data bars` };
+  } catch (e) {
+    console.error(`[candle-repair] ${symbol} ${timeframe}: could not fetch replacement bars (${e?.message}) \u2014 keeping the EA bars`);
+    return { candles: eaCandles, repaired: false, reason: `${verdict.reason} \u2014 fetch failed: ${e?.message}` };
+  }
+}
+var cache3, CACHE_TTL_MS4, lastFetchAt, MIN_FETCH_GAP_MS;
+var init_candle_repair = __esm({
+  "server/services/candle-repair.ts"() {
+    "use strict";
+    cache3 = /* @__PURE__ */ new Map();
+    CACHE_TTL_MS4 = 6e4;
+    lastFetchAt = 0;
+    MIN_FETCH_GAP_MS = 8e3;
+  }
+});
+
 // server/services/breakout-monitor.ts
 var breakout_monitor_exports = {};
 __export(breakout_monitor_exports, {
@@ -38769,7 +38838,7 @@ function buildPrediction(candles, fromCache, source = "binance", binanceSymbol =
 async function getCryptoPrediction(coin, forceRefresh = false) {
   const now = Date.now();
   const cached = predictionCache.get(coin);
-  if (!forceRefresh && cached && now - cached.ts < CACHE_TTL_MS4) {
+  if (!forceRefresh && cached && now - cached.ts < CACHE_TTL_MS5) {
     return { ...cached.prediction, fromCache: true };
   }
   if (coin === "GOLD") {
@@ -38805,14 +38874,14 @@ function clearBTCPredictionCache() {
 async function getBTCCandles(limit = 100) {
   return getCryptoCandles("BTC", limit);
 }
-var BINANCE_BASE, COINBASE_BASE, YAHOO_BASE, CACHE_TTL_MS4, COIN_MAP, YAHOO_SYMBOL, predictionCache;
+var BINANCE_BASE, COINBASE_BASE, YAHOO_BASE, CACHE_TTL_MS5, COIN_MAP, YAHOO_SYMBOL, predictionCache;
 var init_btc_5min_predictor = __esm({
   "server/services/btc-5min-predictor.ts"() {
     "use strict";
     BINANCE_BASE = "https://api.binance.com";
     COINBASE_BASE = "https://api.exchange.coinbase.com";
     YAHOO_BASE = "https://query1.finance.yahoo.com";
-    CACHE_TTL_MS4 = 3e4;
+    CACHE_TTL_MS5 = 3e4;
     COIN_MAP = {
       BTC: { binance: "BTCUSDT", coinbase: "BTC-USD" },
       ETH: { binance: "ETHUSDT", coinbase: "ETH-USD" },
@@ -38911,7 +38980,7 @@ function buildBrackets(rawMarkets) {
 async function getKalshiCryptoEvent(seriesTicker, currentPrice, forceRefresh = false) {
   const now = Date.now();
   const hit = eventCache.get(seriesTicker);
-  if (!forceRefresh && hit && now - hit.ts < CACHE_TTL_MS5) {
+  if (!forceRefresh && hit && now - hit.ts < CACHE_TTL_MS6) {
     return { ...hit.event, fromCache: true };
   }
   const nearestEvent = await fetchNearestEvent(seriesTicker);
@@ -38974,12 +39043,12 @@ function clearKalshiCache(seriesTicker) {
   if (seriesTicker) eventCache.delete(seriesTicker);
   else eventCache.clear();
 }
-var KALSHI_BASE, CACHE_TTL_MS5, KALSHI_SERIES_MAP, eventCache;
+var KALSHI_BASE, CACHE_TTL_MS6, KALSHI_SERIES_MAP, eventCache;
 var init_kalshi = __esm({
   "server/services/kalshi.ts"() {
     "use strict";
     KALSHI_BASE = "https://api.elections.kalshi.com/trade-api/v2";
-    CACHE_TTL_MS5 = 6e4;
+    CACHE_TTL_MS6 = 6e4;
     KALSHI_SERIES_MAP = {
       BTC: { hourly: "KXBTC", fifteenMin: "KXBTC15M" },
       ETH: { hourly: "KXETH", fifteenMin: "KXETH15M" },
@@ -42141,7 +42210,7 @@ async function runRuinConeSimulation(userId, params = {}) {
       },
       warning: `Only ${sourceTradeCount} closed '${source}' trade(s) on record \u2014 need at least 2 to simulate. Let the scanner build more history.`
     };
-    _cache4.set(_cacheKey(userId, resolved), { expires: Date.now() + CACHE_TTL_MS6, result: result2 });
+    _cache4.set(_cacheKey(userId, resolved), { expires: Date.now() + CACHE_TTL_MS7, result: result2 });
     return result2;
   }
   const paths = new Array(numSimulations);
@@ -42241,10 +42310,10 @@ async function runRuinConeSimulation(userId, params = {}) {
     },
     warning: sourceTradeCount < 20 ? `Thin history: only ${sourceTradeCount} closed '${source}' trade(s). Results are indicative only until more trades accumulate.` : void 0
   };
-  _cache4.set(_cacheKey(userId, resolved), { expires: Date.now() + CACHE_TTL_MS6, result });
+  _cache4.set(_cacheKey(userId, resolved), { expires: Date.now() + CACHE_TTL_MS7, result });
   return result;
 }
-var FTUK_DEFAULTS, DEFAULT_NUM_SIMULATIONS, DEFAULT_NUM_TRADES, DEFAULT_SOURCE_LIMIT, CACHE_TTL_MS6, _cache4;
+var FTUK_DEFAULTS, DEFAULT_NUM_SIMULATIONS, DEFAULT_NUM_TRADES, DEFAULT_SOURCE_LIMIT, CACHE_TTL_MS7, _cache4;
 var init_ruin_cone = __esm({
   "server/services/ruin-cone.ts"() {
     "use strict";
@@ -42264,7 +42333,7 @@ var init_ruin_cone = __esm({
     DEFAULT_NUM_SIMULATIONS = 2e3;
     DEFAULT_NUM_TRADES = 100;
     DEFAULT_SOURCE_LIMIT = 200;
-    CACHE_TTL_MS6 = 5 * 60 * 1e3;
+    CACHE_TTL_MS7 = 5 * 60 * 1e3;
     _cache4 = /* @__PURE__ */ new Map();
   }
 });
@@ -48510,33 +48579,33 @@ async function fetchAllPredictions() {
   return predictions;
 }
 async function getSportsPredictions() {
-  if (cache3 && Date.now() - cache3.fetchedAt < CACHE_TTL_MS7) {
-    return cache3.data;
+  if (cache4 && Date.now() - cache4.fetchedAt < CACHE_TTL_MS8) {
+    return cache4.data;
   }
   return refreshSportsPredictions();
 }
 async function refreshSportsPredictions() {
   try {
     const data = await fetchAllPredictions();
-    cache3 = { data, fetchedAt: Date.now() };
+    cache4 = { data, fetchedAt: Date.now() };
     return data;
   } catch (err) {
     console.error("[sports-predictor] Fatal error during refresh:", err);
-    return cache3?.data ?? [];
+    return cache4?.data ?? [];
   }
 }
-var ESPN_BASE, GAMMA_BASE2, GOOGLE_NEWS_BASE, CACHE_TTL_MS7, ELO_K, ELO_DEFAULT, eloRatings, cache3, SPORT_PATHS, KEY_POSITIONS, recentGameDates;
+var ESPN_BASE, GAMMA_BASE2, GOOGLE_NEWS_BASE, CACHE_TTL_MS8, ELO_K, ELO_DEFAULT, eloRatings, cache4, SPORT_PATHS, KEY_POSITIONS, recentGameDates;
 var init_sports_predictor = __esm({
   "server/services/sports-predictor.ts"() {
     "use strict";
     ESPN_BASE = "https://site.api.espn.com/apis/site/v2/sports";
     GAMMA_BASE2 = "https://gamma-api.polymarket.com";
     GOOGLE_NEWS_BASE = "https://news.google.com/rss/search";
-    CACHE_TTL_MS7 = 15 * 60 * 1e3;
+    CACHE_TTL_MS8 = 15 * 60 * 1e3;
     ELO_K = 20;
     ELO_DEFAULT = 1500;
     eloRatings = {};
-    cache3 = null;
+    cache4 = null;
     SPORT_PATHS = {
       nba: "basketball/nba",
       nfl: "football/nfl",
@@ -53039,7 +53108,7 @@ var prop_firm_consistency_audit_loop_exports = {};
 __export(prop_firm_consistency_audit_loop_exports, {
   startPropFirmConsistencyAuditLoop: () => startPropFirmConsistencyAuditLoop
 });
-function cache4() {
+function cache5() {
   global.tlConsistencyStatus = global.tlConsistencyStatus || {};
   return global.tlConsistencyStatus;
 }
@@ -53052,7 +53121,7 @@ async function auditOnce() {
     return;
   }
   if (!connections.length) return;
-  const store = cache4();
+  const store = cache5();
   for (const conn of connections) {
     try {
       const result = await getConsistencyStatus(conn.id, "tradelocker", conn.consistencyThresholdPct, conn.consistencyEnabled !== false);
@@ -55303,9 +55372,9 @@ async function getStopOrdersForUser(userId, filters = {}) {
 init_schema();
 
 // server/build-info.ts
-var BUILD_COMMIT = "821efd4b-dirty";
+var BUILD_COMMIT = "555ecf59-dirty";
 var BUILD_BRANCH = "main";
-var BUILT_AT = "2026-09-21T12:53:50.319Z";
+var BUILT_AT = "2026-09-21T16:58:53.177Z";
 
 // server/stripe.ts
 init_db();
@@ -66055,8 +66124,17 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
           } catch (_diagErr) {
             console.error("[ADX-DIAG] diagnostic itself failed (non-fatal):", _diagErr?.message);
           }
+          let _indicatorCandles = candles;
+          try {
+            const { repairCandles: repairCandles2 } = await Promise.resolve().then(() => (init_candle_repair(), candle_repair_exports));
+            const _rep = await repairCandles2(sanitizedSymbol, sanitizedTimeframe, candles);
+            _indicatorCandles = _rep.candles;
+            if (_rep.repaired) console.log(`[ADX-DIAG] ${sanitizedSymbol} ${sanitizedTimeframe}: candles REPAIRED \u2014 ${_rep.reason}`);
+          } catch (_repErr) {
+            console.error("[candle-repair] repair layer threw (non-fatal), using the EA candles:", _repErr?.message);
+          }
           const { computeAllAdvancedIndicators: computeAllAdvancedIndicators2 } = await Promise.resolve().then(() => (init_indicators(), indicators_exports));
-          advanced = computeAllAdvancedIndicators2(candles, atr2 || 0, sanitizedSymbol, sanitizedTimeframe);
+          advanced = computeAllAdvancedIndicators2(_indicatorCandles, atr2 || 0, sanitizedSymbol, sanitizedTimeframe);
           try {
             console.log(`[ADX-DIAG] computed: adx=${advanced?.adx ? advanced.adx.value : "UNDEFINED"} rsi=${advanced?.rsi ? advanced.rsi.value : "UNDEFINED"} atrArg=${atr2 || 0}`);
           } catch {
@@ -68990,8 +69068,8 @@ BEAR CASE: ${_bearCase || "n/a"}` : aiConfirmation.reasoning;
     const userId = req.user.id;
     const { symbol, timeframe } = req.params;
     const chartDataKey = `mt5_chart_${userId}_${symbol}_${timeframe}`;
-    const cache5 = global.mt5ChartDataCache || {};
-    const chartData = cache5[chartDataKey];
+    const cache6 = global.mt5ChartDataCache || {};
+    const chartData = cache6[chartDataKey];
     if (!chartData) {
       return res.status(404).json({ error: "No chart data found. Make sure your MT5 Chart Data EA is running." });
     }
@@ -70434,8 +70512,8 @@ Respond with ONLY valid JSON:
     strategy.progressWinRate = winRate2;
     strategy.progressPercentage = Math.min(100, Math.max(0, Math.round(closedProfit / strategy.profitTarget * 100)));
     const _mt5BalLive = (() => {
-      const cache5 = global.mt5AccountData?.[userId];
-      return cache5 ? Object.values(cache5).reduce((s, a) => s + (a?.balance || 0), 0) : 0;
+      const cache6 = global.mt5AccountData?.[userId];
+      return cache6 ? Object.values(cache6).reduce((s, a) => s + (a?.balance || 0), 0) : 0;
     })();
     const _tlBalLive = Object.values(global.tlAccountData?.[userId] || {}).reduce((s, a) => s + (a?.balance || 0), 0);
     const _liveBalance = _mt5BalLive + _tlBalLive;
@@ -83554,15 +83632,15 @@ Sitemap: ${SEO_BASE_URL}/sitemap.xml
     if (!req.isAuthenticated()) return res.status(401).json({ error: "Unauthorized" });
     const userId = req.user.id;
     const rawSymbol = req.params.symbol.toUpperCase().replace(/[^A-Za-z0-9/_.-]/g, "");
-    const cache5 = global.mt5ChartDataCache || {};
-    const allKeys = Object.keys(cache5);
+    const cache6 = global.mt5ChartDataCache || {};
+    const allKeys = Object.keys(cache6);
     const PREFER_TF = ["M6", "M5", "M1", "M15", "M30", "H1", "H4"];
     let found = null;
     let foundTf = "";
     for (const tf of PREFER_TF) {
       const key = `mt5_chart_${userId}_${rawSymbol}_${tf}`;
-      if (cache5[key]) {
-        found = cache5[key];
+      if (cache6[key]) {
+        found = cache6[key];
         foundTf = tf;
         break;
       }
@@ -83570,7 +83648,7 @@ Sitemap: ${SEO_BASE_URL}/sitemap.xml
     if (!found) {
       const partialKey = allKeys.find((k) => k.includes(`_${userId}_`) && k.includes(rawSymbol));
       if (partialKey) {
-        found = cache5[partialKey];
+        found = cache6[partialKey];
         foundTf = partialKey.split("_").pop() || "";
       }
     }
