@@ -55372,9 +55372,9 @@ async function getStopOrdersForUser(userId, filters = {}) {
 init_schema();
 
 // server/build-info.ts
-var BUILD_COMMIT = "555ecf59-dirty";
+var BUILD_COMMIT = "dab1942e-dirty";
 var BUILD_BRANCH = "main";
-var BUILT_AT = "2026-09-21T16:58:53.177Z";
+var BUILT_AT = "2026-09-21T18:30:21.146Z";
 
 // server/stripe.ts
 init_db();
@@ -66161,6 +66161,26 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
               analysis.patterns.push("ADX Very Strong Trend (" + advanced.adx.value.toFixed(1) + ")");
             }
           }
+          {
+            const _eaMacd = analysis.indicators.macd;
+            const _fin = (v) => typeof v === "number" && isFinite(v);
+            const _eaUsable = !!_eaMacd && _fin(_eaMacd.histogram) && !(Number(_eaMacd.main) === 0 && Number(_eaMacd.signal) === 0);
+            if (!_eaUsable && advanced.macd && _fin(advanced.macd.histogram)) {
+              const _h = advanced.macd.histogram;
+              const _status = _h > 0 ? "BULLISH" : _h < 0 ? "BEARISH" : "NEUTRAL";
+              const _dir = _h > 0 ? "BUY" : _h < 0 ? "SELL" : "NEUTRAL";
+              analysis.indicators.macd = {
+                main: advanced.macd.macd,
+                signal: advanced.macd.signal,
+                histogram: _h,
+                status: _status,
+                signalDir: _dir,
+                source: "server"
+              };
+              if (_h > 0 && advanced.macd.macd > advanced.macd.signal) analysis.patterns.push("MACD Bullish Crossover");
+              if (_h < 0 && advanced.macd.macd < advanced.macd.signal) analysis.patterns.push("MACD Bearish Crossover");
+            }
+          }
           if (advanced.stochastic) {
             analysis.indicators.stochastic = advanced.stochastic;
             if (advanced.stochastic.status === "OVERBOUGHT") analysis.patterns.push("Stochastic Overbought (" + advanced.stochastic.k.toFixed(1) + ")");
@@ -67716,7 +67736,7 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
                   confluenceGrade: aiConfirmation.confluenceGrade ?? null,
                   rsiValue: _num(_ind.rsi ?? _ind.rsi14),
                   adxValue: _num(_ind.adx),
-                  macdDirection: _macdHist === null ? "NEUTRAL" : _macdHist > 0 ? "BULLISH" : "BEARISH",
+                  macdDirection: _macdHist === null ? "NEUTRAL" : _macdHist > 0 ? "BULLISH" : _macdHist < 0 ? "BEARISH" : "NEUTRAL",
                   ictMacroValid: aiConfirmation.ictMacroValid ?? null,
                   smcVerdict: aiConfirmation.smcVerdict ?? null,
                   newsConflict: logExtraContext?.newsConflict ?? null,
@@ -67892,7 +67912,7 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
                 const confirmSession = utcH < 7 ? "Asian" : utcH < 13 ? "London" : "NY";
                 const ind = analysis.indicators || {};
                 const macdHist2 = ind.macd?.histogram ?? ind.macdHistogram ?? null;
-                const macdDir = macdHist2 === null ? "NEUTRAL" : macdHist2 > 0 ? "BULLISH" : "BEARISH";
+                const macdDir = macdHist2 === null ? "NEUTRAL" : macdHist2 > 0 ? "BULLISH" : macdHist2 < 0 ? "BEARISH" : "NEUTRAL";
                 const _n = (v) => {
                   if (typeof v === "number" && isFinite(v)) return v;
                   if (v && typeof v === "object") {

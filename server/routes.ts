@@ -9058,6 +9058,43 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
               analysis.patterns.push('ADX Very Strong Trend (' + advanced.adx.value.toFixed(1) + ')');
             }
           }
+          // MACD fallback, exactly parallel to the ADX merge above.
+          //
+          // analysis.indicators.macd is only ever written from the EA's own
+          // CopyBuffer output. That buffer arrives EMPTY — macd_direction was
+          // NEUTRAL on 186/186 confirmations after candle repair went live,
+          // which is only reachable when indicators.macd is undefined entirely
+          // (a real histogram of 0 would have stored BEARISH). Same class of
+          // failure ADX had, one layer over: the good server-side value is
+          // computed from the repaired candles and then discarded.
+          //
+          // Prefer the EA when it sends something usable, so fixing the EA
+          // retires this silently. A histogram of exactly 0 on BOTH lines is
+          // treated as absent, not as a flat market — that is the signature of
+          // an empty buffer, not of price.
+          {
+            const _eaMacd: any = analysis.indicators.macd;
+            const _fin = (v: any) => typeof v === 'number' && isFinite(v);
+            const _eaUsable = !!_eaMacd
+              && _fin(_eaMacd.histogram)
+              && !(Number(_eaMacd.main) === 0 && Number(_eaMacd.signal) === 0);
+            if (!_eaUsable && advanced.macd && _fin(advanced.macd.histogram)) {
+              const _h = advanced.macd.histogram;
+              const _status = _h > 0 ? 'BULLISH' : _h < 0 ? 'BEARISH' : 'NEUTRAL';
+              const _dir = _h > 0 ? 'BUY' : _h < 0 ? 'SELL' : 'NEUTRAL';
+              analysis.indicators.macd = {
+                main: advanced.macd.macd,
+                signal: advanced.macd.signal,
+                histogram: _h,
+                status: _status,
+                signalDir: _dir,
+                source: 'server',
+              } as any;
+              if (_h > 0 && advanced.macd.macd > advanced.macd.signal) analysis.patterns.push('MACD Bullish Crossover');
+              if (_h < 0 && advanced.macd.macd < advanced.macd.signal) analysis.patterns.push('MACD Bearish Crossover');
+            }
+          }
+
           if (advanced.stochastic) {
             analysis.indicators.stochastic = advanced.stochastic;
             if (advanced.stochastic.status === 'OVERBOUGHT') analysis.patterns.push('Stochastic Overbought (' + advanced.stochastic.k.toFixed(1) + ')');
@@ -10892,7 +10929,7 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
                   confluenceGrade: aiConfirmation.confluenceGrade ?? null,
                   rsiValue: _num(_ind.rsi ?? _ind.rsi14),
                   adxValue: _num(_ind.adx),
-                  macdDirection: _macdHist === null ? 'NEUTRAL' : _macdHist > 0 ? 'BULLISH' : 'BEARISH',
+                  macdDirection: _macdHist === null ? 'NEUTRAL' : _macdHist > 0 ? 'BULLISH' : _macdHist < 0 ? 'BEARISH' : 'NEUTRAL',
                   ictMacroValid: aiConfirmation.ictMacroValid ?? null,
                   smcVerdict: aiConfirmation.smcVerdict ?? null,
                   newsConflict: logExtraContext?.newsConflict ?? null,
@@ -11097,7 +11134,7 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
                 const confirmSession = utcH < 7 ? 'Asian' : utcH < 13 ? 'London' : 'NY';
                 const ind = analysis.indicators || {};
                 const macdHist = ind.macd?.histogram ?? ind.macdHistogram ?? null;
-                const macdDir = macdHist === null ? 'NEUTRAL' : macdHist > 0 ? 'BULLISH' : 'BEARISH';
+                const macdDir = macdHist === null ? 'NEUTRAL' : macdHist > 0 ? 'BULLISH' : macdHist < 0 ? 'BEARISH' : 'NEUTRAL';
                 // Coerce numeric fields — indicators may be objects, which Postgres
                 // rejects for `real` columns (see reject-path note above).
                 const _n = (v: any): number | null => {
