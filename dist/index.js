@@ -38251,9 +38251,13 @@ async function reconcileOpenQuantities() {
     } catch {
       continue;
     }
+    const byToken = /* @__PURE__ */ new Map();
     for (const t of defi) {
-      const sameToken = defi.filter((x) => String(x.tokenAddress).toLowerCase() === String(t.tokenAddress).toLowerCase());
-      if (sameToken.length > 1) continue;
+      const k = String(t.tokenAddress).toLowerCase();
+      byToken.set(k, [...byToken.get(k) ?? [], t]);
+    }
+    for (const t of defi) {
+      const sameToken = (byToken.get(String(t.tokenAddress).toLowerCase()) ?? []).slice().sort((a, b) => a.id - b.id);
       let held;
       try {
         held = await getWalletTokenBalance2(chain, wallet, t.tokenAddress);
@@ -38265,6 +38269,27 @@ async function reconcileOpenQuantities() {
         console.error(`[cryptocom-scanner] trade ${t.id} (${t.symbol}) claims ${t.quantity} but the wallet holds ${held} \u2014 the entry never landed; parking it`);
         await storage.flagCryptocomEngineTradeUnreconciled(t.id, `entry never landed: wallet holds ${held} ${t.symbol}`).catch(() => {
         });
+        continue;
+      }
+      if (sameToken.length > 1) {
+        let remaining = held;
+        for (const st of sameToken) {
+          const want = Number(st.quantity);
+          if (remaining >= want * 0.995) {
+            remaining -= want;
+            continue;
+          }
+          if (remaining > 1e-8) {
+            console.warn(`[cryptocom-scanner] trade ${st.id} (${st.symbol}) only partly backed \u2014 ${remaining} of ${want} held; correcting`);
+            await storage.updateCryptocomEngineTradeQuantity(st.id, remaining).catch(() => {
+            });
+            remaining = 0;
+          } else {
+            console.error(`[cryptocom-scanner] trade ${st.id} (${st.symbol}) is unbacked \u2014 the wallet's ${held} is already claimed by an older trade; parking it`);
+            await storage.flagCryptocomEngineTradeUnreconciled(st.id, `duplicate/unbacked: wallet holds ${held} ${st.symbol}, already attributed to an earlier open trade`).catch(() => {
+            });
+          }
+        }
         continue;
       }
       const drift = Math.abs(held - Number(t.quantity)) / Math.max(held, 1e-12);
@@ -55223,9 +55248,9 @@ async function getStopOrdersForUser(userId, filters = {}) {
 init_schema();
 
 // server/build-info.ts
-var BUILD_COMMIT = "7e6fc213-dirty";
+var BUILD_COMMIT = "3cf0f087-dirty";
 var BUILD_BRANCH = "main";
-var BUILT_AT = "2026-09-21T02:32:02.884Z";
+var BUILT_AT = "2026-09-21T02:57:27.046Z";
 
 // server/stripe.ts
 init_db();

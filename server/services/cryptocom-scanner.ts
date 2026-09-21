@@ -1566,11 +1566,20 @@ async function reconcileOpenQuantities(): Promise<void> {
     let wallet: string;
     try { wallet = addressFromPrivateKey(decryptApiSecret(rows[0].k)); } catch { continue; }
 
+    // Group by token: the wallet reports ONE balance per token, however many
+    // trades claim it. Skipping these entirely (the first version of this) meant
+    // duplicates could never be resolved — seen live when the engine re-entered
+    // ZEN and CBBTC, those swaps never landed, and the DB showed two open trades
+    // against one real position.
+    const byToken = new Map<string, any[]>();
     for (const t of defi) {
-      // Never split one token's balance across two open trades in the same
-      // token — the wallet cannot tell them apart.
-      const sameToken = defi.filter((x: any) => String(x.tokenAddress).toLowerCase() === String((t as any).tokenAddress).toLowerCase());
-      if (sameToken.length > 1) continue;
+      const k = String((t as any).tokenAddress).toLowerCase();
+      byToken.set(k, [...(byToken.get(k) ?? []), t]);
+    }
+
+    for (const t of defi) {
+      const sameToken = (byToken.get(String((t as any).tokenAddress).toLowerCase()) ?? [])
+        .slice().sort((a: any, b: any) => a.id - b.id); // oldest first
 
       let held: number;
       try { held = await getWalletTokenBalance(chain, wallet, (t as any).tokenAddress); }
@@ -1581,6 +1590,26 @@ async function reconcileOpenQuantities(): Promise<void> {
         await storage.flagCryptocomEngineTradeUnreconciled(t.id, `entry never landed: wallet holds ${held} ${t.symbol}`).catch(() => {});
         continue;
       }
+      // Several trades on one token: the balance is allocated oldest-first, and
+      // anything left unbacked is parked. The oldest entry is the one most
+      // likely to have actually landed.
+      if (sameToken.length > 1) {
+        let remaining = held;
+        for (const st of sameToken) {
+          const want = Number(st.quantity);
+          if (remaining >= want * 0.995) { remaining -= want; continue; }   // backed
+          if (remaining > 1e-8) {
+            console.warn(`[cryptocom-scanner] trade ${st.id} (${st.symbol}) only partly backed — ${remaining} of ${want} held; correcting`);
+            await storage.updateCryptocomEngineTradeQuantity(st.id, remaining).catch(() => {});
+            remaining = 0;
+          } else {
+            console.error(`[cryptocom-scanner] trade ${st.id} (${st.symbol}) is unbacked — the wallet's ${held} is already claimed by an older trade; parking it`);
+            await storage.flagCryptocomEngineTradeUnreconciled(st.id, `duplicate/unbacked: wallet holds ${held} ${st.symbol}, already attributed to an earlier open trade`).catch(() => {});
+          }
+        }
+        continue;
+      }
+
       const drift = Math.abs(held - Number(t.quantity)) / Math.max(held, 1e-12);
       if (drift > 0.005) {
         console.warn(`[cryptocom-scanner] trade ${t.id} (${t.symbol}) recorded ${t.quantity}, wallet holds ${held} — correcting to the chain`);
