@@ -10030,6 +10030,7 @@ __export(openai_exports, {
   isReasoningModel: () => isReasoningModel,
   isSMCStrategyEnabled: () => isSMCStrategyEnabled,
   isTrailingStopEnabled: () => isTrailingStopEnabled,
+  noteConfidenceSample: () => noteConfidenceSample,
   openai: () => openai,
   scanGrantsWithAI: () => scanGrantsWithAI,
   setAdaptiveRegimeEnabled: () => setAdaptiveRegimeEnabled,
@@ -10397,6 +10398,18 @@ function setAiMinConfidence(userId, minConfidence) {
 }
 function getAiMinConfidence(userId) {
   return aiMinConfidenceThreshold.get(userId) ?? 70;
+}
+function noteConfidenceSample(value) {
+  if (!Number.isFinite(value)) return;
+  _recentConfidence.push(value);
+  if (_recentConfidence.length > 40) _recentConfidence.shift();
+  if (_recentConfidence.length < 20) return;
+  const uniq = new Set(_recentConfidence);
+  if (uniq.size === 1) {
+    console.error(`[AI-GATE] WARNING: the last ${_recentConfidence.length} confirmations all returned confidence ${_recentConfidence[0]} \u2014 the model is not producing a real score, so the approval gate is not filtering anything. Check the prompt for a numeric anchor.`);
+  } else if (uniq.size <= 2) {
+    console.warn(`[AI-GATE] confidence has only ${uniq.size} distinct values across ${_recentConfidence.length} confirmations (${Array.from(uniq).join(", ")}) \u2014 suspiciously flat.`);
+  }
 }
 function setICTStrategyEnabled(userId, enabled) {
   ictStrategyEnabledMap.set(userId, enabled);
@@ -11042,7 +11055,10 @@ You are operating under STRICT prop firm rules. ALL of the following are require
 4. Entry MUST be at OB or FVG \u2014 no "middle of nowhere" entries
 5. Multi-TF alignment: at LEAST 2 higher timeframes agree
 6. No high-impact news within 30 minutes \u2014 hard rule
-7. Maximum confidence threshold: only CONFIRM if your confidence is > 75%
+7. Report your GENUINE calibrated confidence \u2014 the system applies its own
+   threshold, so do not round toward any particular number. State 40 if you are
+   40% sure and 95 if you are 95% sure; a setup you would not take yourself
+   belongs below 50.
 8. No counter-trend trades (check HTF bias \u2014 must align)
 This is the most conservative filter. Reject anything that isn't a near-perfect setup.
 \u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550`
@@ -11873,7 +11889,11 @@ async function getAiVisionConfirmation(candleData, indicators, proposedSignal, p
     return {
       confirmed: !!result.confirmed,
       aiDirection: result.direction || "NEUTRAL",
-      aiConfidence: coerceConfidence(result.confidence),
+      aiConfidence: (() => {
+        const c = coerceConfidence(result.confidence);
+        noteConfidenceSample(c);
+        return c;
+      })(),
       reasoning: result.reasoning || "No reasoning provided",
       adjustedEntry: typeof result.adjustedEntry === "number" ? result.adjustedEntry : void 0,
       adjustedStopLoss: typeof result.adjustedStopLoss === "number" ? result.adjustedStopLoss : void 0,
@@ -13957,7 +13977,7 @@ Respond with this exact JSON structure:
     };
   }
 }
-var TOP_PROFITABLE_STRATEGIES, _openaiInstance, openai, AVAILABLE_VISION_MODELS, userModelPreferences, DEPRECATED_MODEL_MAP, DEFAULT_AI_MODEL, VISION_FALLBACK, KNOWN_VISION_MODEL_IDS, aiVisionConfirmationEnabled, aiMinConfidenceThreshold, ictStrategyEnabledMap, breakoutModeEnabledMap, trailingStopEnabledMap, breakoutModePriorState, smcStrategyEnabledMap, propFirmModeMap, propFirmContextMap, aiConfirmationLogs2, logIdCounter, adaptiveRegimeEnabledMap, VETERAN_JUDGE_MODEL, VETERAN_PERSONA, PROVIDER_MODELS, AnthropicAsOpenAI, PROVIDER_PRIORITY, VEDD_IDENTITY_CONTEXT, MASTER_GRANT_WRITER_SYSTEM;
+var TOP_PROFITABLE_STRATEGIES, _openaiInstance, openai, AVAILABLE_VISION_MODELS, userModelPreferences, DEPRECATED_MODEL_MAP, DEFAULT_AI_MODEL, VISION_FALLBACK, KNOWN_VISION_MODEL_IDS, aiVisionConfirmationEnabled, aiMinConfidenceThreshold, ictStrategyEnabledMap, breakoutModeEnabledMap, trailingStopEnabledMap, breakoutModePriorState, _recentConfidence, smcStrategyEnabledMap, propFirmModeMap, propFirmContextMap, aiConfirmationLogs2, logIdCounter, adaptiveRegimeEnabledMap, VETERAN_JUDGE_MODEL, VETERAN_PERSONA, PROVIDER_MODELS, AnthropicAsOpenAI, PROVIDER_PRIORITY, VEDD_IDENTITY_CONTEXT, MASTER_GRANT_WRITER_SYSTEM;
 var init_openai = __esm({
   "server/openai.ts"() {
     "use strict";
@@ -14044,6 +14064,7 @@ var init_openai = __esm({
     breakoutModeEnabledMap = /* @__PURE__ */ new Map();
     trailingStopEnabledMap = /* @__PURE__ */ new Map();
     breakoutModePriorState = /* @__PURE__ */ new Map();
+    _recentConfidence = [];
     smcStrategyEnabledMap = /* @__PURE__ */ new Map();
     propFirmModeMap = /* @__PURE__ */ new Map();
     propFirmContextMap = /* @__PURE__ */ new Map();

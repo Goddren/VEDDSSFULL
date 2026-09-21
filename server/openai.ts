@@ -543,6 +543,31 @@ export function getAiMinConfidence(userId: number): number {
   return aiMinConfidenceThreshold.get(userId) ?? 70;
 }
 
+/**
+ * Watch for a confidence that never moves.
+ *
+ * On 2026-09-21 every one of 266 confirmations returned EXACTLY 75 — min, mean
+ * and max identical — because the prompt said "only CONFIRM if your confidence
+ * is > 75%" and the model anchored on the number. Paired with a 70 threshold
+ * that made the gate approve 100% of trades while looking like it was working.
+ *
+ * A confidence with no variance is not a confidence. This says so in the log
+ * rather than letting it pass as a healthy signal.
+ */
+const _recentConfidence: number[] = [];
+export function noteConfidenceSample(value: number): void {
+  if (!Number.isFinite(value)) return;
+  _recentConfidence.push(value);
+  if (_recentConfidence.length > 40) _recentConfidence.shift();
+  if (_recentConfidence.length < 20) return;
+  const uniq = new Set(_recentConfidence);
+  if (uniq.size === 1) {
+    console.error(`[AI-GATE] WARNING: the last ${_recentConfidence.length} confirmations all returned confidence ${_recentConfidence[0]} — the model is not producing a real score, so the approval gate is not filtering anything. Check the prompt for a numeric anchor.`);
+  } else if (uniq.size <= 2) {
+    console.warn(`[AI-GATE] confidence has only ${uniq.size} distinct values across ${_recentConfidence.length} confirmations (${Array.from(uniq).join(', ')}) — suspiciously flat.`);
+  }
+}
+
 export function setICTStrategyEnabled(userId: number, enabled: boolean) {
   ictStrategyEnabledMap.set(userId, enabled);
 }
@@ -1443,7 +1468,10 @@ You are operating under STRICT prop firm rules. ALL of the following are require
 4. Entry MUST be at OB or FVG — no "middle of nowhere" entries
 5. Multi-TF alignment: at LEAST 2 higher timeframes agree
 6. No high-impact news within 30 minutes — hard rule
-7. Maximum confidence threshold: only CONFIRM if your confidence is > 75%
+7. Report your GENUINE calibrated confidence — the system applies its own
+   threshold, so do not round toward any particular number. State 40 if you are
+   40% sure and 95 if you are 95% sure; a setup you would not take yourself
+   belongs below 50.
 8. No counter-trend trades (check HTF bias — must align)
 This is the most conservative filter. Reject anything that isn't a near-perfect setup.
 ═══════════════════════════════════════════`,
@@ -2413,7 +2441,7 @@ export async function getAiVisionConfirmation(
     return {
       confirmed: !!result.confirmed,
       aiDirection: result.direction || 'NEUTRAL',
-      aiConfidence: coerceConfidence(result.confidence),
+      aiConfidence: (() => { const c = coerceConfidence(result.confidence); noteConfidenceSample(c); return c; })(),
       reasoning: result.reasoning || 'No reasoning provided',
       adjustedEntry: typeof result.adjustedEntry === 'number' ? result.adjustedEntry : undefined,
       adjustedStopLoss: typeof result.adjustedStopLoss === 'number' ? result.adjustedStopLoss : undefined,
