@@ -8846,7 +8846,7 @@ async function executeDefiSwap(opts) {
       decimals = Number(await erc.decimals());
     }
     const sellAmount = ethers.parseUnits(String(opts.sellAmountHuman), decimals).toString();
-    const quote = await zeroXQuote(chain.chainId, {
+    let quote = await zeroXQuote(chain.chainId, {
       sellToken,
       buyToken,
       sellAmount,
@@ -8864,7 +8864,32 @@ async function executeDefiSwap(opts) {
       if (current < BigInt(sellAmount)) {
         const aTx = await erc.approve(spender, ethers.MaxUint256);
         approveTxHash = aTx.hash;
-        return { ok: false, approveTxHash, reason: `One-time token approval submitted (tx ${aTx.hash.slice(0, 10)}\u2026). Wait ~20s for it to confirm, then run the swap again \u2014 this only happens once per token.` };
+        if (opts.confirm) {
+          const aRcpt = await aTx.wait(1, 12e4).catch(() => null);
+          if (!aRcpt) {
+            return { ok: false, approveTxHash, reason: `token approval broadcast but unconfirmed after 120s (tx ${aTx.hash}) \u2014 the next cycle will see the allowance and swap` };
+          }
+          if (aRcpt.status !== 1) {
+            return { ok: false, approveTxHash, reason: `token approval REVERTED on-chain (tx ${aTx.hash})` };
+          }
+          const after = await erc.allowance(wallet.address, spender).catch(() => BigInt(0));
+          if (after < BigInt(sellAmount)) {
+            return { ok: false, approveTxHash, reason: `approval mined but allowance is still ${after.toString()} < ${sellAmount} \u2014 not swapping` };
+          }
+          quote = await zeroXQuote(chain.chainId, {
+            sellToken,
+            buyToken,
+            sellAmount,
+            taker: wallet.address,
+            slippageBps: String(opts.slippageBps)
+          }).catch(() => null);
+          if (!quote) return { ok: false, approveTxHash, reason: "approval confirmed but re-quote failed \u2014 the next cycle will swap with the allowance in place" };
+          if (!quote?.liquidityAvailable && quote?.liquidityAvailable !== void 0) {
+            return { ok: false, approveTxHash, reason: "approval confirmed but liquidity vanished on re-quote" };
+          }
+        } else {
+          return { ok: false, approveTxHash, reason: `One-time token approval submitted (tx ${aTx.hash.slice(0, 10)}\u2026). Wait ~20s for it to confirm, then run the swap again \u2014 this only happens once per token.` };
+        }
       }
     }
     let buyAmountHuman;

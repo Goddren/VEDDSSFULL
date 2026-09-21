@@ -207,7 +207,7 @@ export async function executeDefiSwap(opts: {
   }
   const sellAmount = ethers.parseUnits(String(opts.sellAmountHuman), decimals).toString();
 
-  const quote = await zeroXQuote(chain.chainId, {
+  let quote = await zeroXQuote(chain.chainId, {
     sellToken, buyToken, sellAmount, taker: wallet.address, slippageBps: String(opts.slippageBps),
   });
   if (!quote?.liquidityAvailable && quote?.liquidityAvailable !== undefined) {
@@ -227,7 +227,41 @@ export async function executeDefiSwap(opts: {
       // clear retry message — the next attempt sees the allowance and swaps fast.
       const aTx = await erc.approve(spender, ethers.MaxUint256);
       approveTxHash = aTx.hash;
-      return { ok: false, approveTxHash, reason: `One-time token approval submitted (tx ${aTx.hash.slice(0, 10)}…). Wait ~20s for it to confirm, then run the swap again — this only happens once per token.` };
+
+      // The unattended path has no gateway timeout to respect, so WAIT for the
+      // approval and carry straight on to the swap. Returning here instead meant
+      // an approval was submitted, the caller recorded a failure, and the next
+      // cycle had moved the scan cursor to other tokens — so approvals never
+      // converted into a trade. Live example: VVV scored 100/100, paid for an
+      // approval, and never traded.
+      if (opts.confirm) {
+        const aRcpt = await aTx.wait(1, 120_000).catch(() => null);
+        if (!aRcpt) {
+          return { ok: false, approveTxHash, reason: `token approval broadcast but unconfirmed after 120s (tx ${aTx.hash}) — the next cycle will see the allowance and swap` };
+        }
+        if (aRcpt.status !== 1) {
+          return { ok: false, approveTxHash, reason: `token approval REVERTED on-chain (tx ${aTx.hash})` };
+        }
+        // Confirm the allowance really is in place before spending gas on a swap
+        // that would otherwise revert.
+        const after: bigint = await erc.allowance(wallet.address, spender).catch(() => BigInt(0));
+        if (after < BigInt(sellAmount)) {
+          return { ok: false, approveTxHash, reason: `approval mined but allowance is still ${after.toString()} < ${sellAmount} — not swapping` };
+        }
+        // The original quote is now seconds old and 0x quotes expire, so take a
+        // fresh one rather than broadcasting stale calldata.
+        quote = await zeroXQuote(chain.chainId, {
+          sellToken, buyToken, sellAmount, taker: wallet.address, slippageBps: String(opts.slippageBps),
+        }).catch(() => null);
+        if (!quote) return { ok: false, approveTxHash, reason: 'approval confirmed but re-quote failed — the next cycle will swap with the allowance in place' };
+        if (!quote?.liquidityAvailable && quote?.liquidityAvailable !== undefined) {
+          return { ok: false, approveTxHash, reason: 'approval confirmed but liquidity vanished on re-quote' };
+        }
+      } else {
+        // HTTP path: returning immediately keeps the request under the gateway
+        // timeout. The user retries and the allowance is already there.
+        return { ok: false, approveTxHash, reason: `One-time token approval submitted (tx ${aTx.hash.slice(0, 10)}…). Wait ~20s for it to confirm, then run the swap again — this only happens once per token.` };
+      }
     }
   }
 
