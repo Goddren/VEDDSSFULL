@@ -1055,6 +1055,24 @@ async function executeSignalSingle(service: CryptoComService, connection: Crypto
       // the executor asks a CEX for a contract address and gets nothing.
       const r = await defiEntryBuy(userId, chain, disc?.address ?? symbol, notionalD, slip, disc?.priceUsd ?? result.price ?? undefined);
       if (!r.ok) {
+        // BROADCAST but unconfirmed is NOT a failure. The transaction is live
+        // and will almost certainly land, so recording nothing is the one
+        // genuinely unsafe option: on 2026-09-21 that spent $8 and left ZEN and
+        // CBBTC in the wallet with no trade row, no stop, and nothing watching
+        // them. Record it OPEN with the expected size — reconcileOpenQuantities
+        // corrects it from the wallet next cycle, or parks it if it never landed.
+        if ((r as any).pending && r.txHash) {
+          const slP = r.entryPrice * (1 - ((cfg as any).cefiStopLossPct ?? 2) / 100);
+          const tpP = r.entryPrice * (1 + ((cfg as any).cefiTakeProfitPct ?? 3) / 100);
+          await storage.createCryptocomEngineTrade({
+            userId, connectionId: connection?.id ?? 0, venue: 'defi', symbol, strategy: result.strategy,
+            direction: 'long', quantity: r.qtyBase, entryPrice: r.entryPrice, stopLoss: slP, takeProfit: tpP,
+            entryOrderId: r.txHash, entryReasoning: `UNCONFIRMED at entry: ${r.reason}. Recorded so the position is monitored; quantity reconciled from the wallet next cycle.`,
+            status: 'open', tokenAddress: disc?.address ?? null, poolAddress: disc?.poolAddress ?? null,
+          } as any);
+          await storage.createCryptocomEngineActivity({ userId, symbol, decision: 'signal', strategy: result.strategy, reasoning: `${symbol}: entry BROADCAST but unconfirmed (tx ${r.txHash.slice(0, 12)}…) — recorded OPEN so it is monitored rather than abandoned; quantity will be reconciled from the wallet.`, score: result.score, price: result.price, dailyChangePercent: result.dailyChangePercent, source: 'cryptocom' }).catch(() => {});
+          return;
+        }
         await storage.createCryptocomEngineActivity({ userId, symbol, decision: r.reason?.includes("can't trade") ? 'skipped' : 'error', strategy: result.strategy, reasoning: `${symbol}: DeFi swap entry ${r.reason?.includes("can't trade") ? 'skipped' : 'failed'} — ${r.reason}.`, score: result.score, price: result.price, dailyChangePercent: result.dailyChangePercent, source: 'cryptocom' });
         return;
       }
@@ -1335,6 +1353,13 @@ export async function runCryptocomEngineScan(): Promise<void> {
     });
     if (recovered > 0) console.warn(`[cryptocom-scanner] re-opened ${recovered} trade(s) stranded in 'closing' by a dead process`);
 
+    // Correct any position whose recorded size never matched the chain (the
+    // unconfirmed-entry case), BEFORE exits run — an exit must sell what is
+    // actually held, not an estimate.
+    await phase('reconcile_open_quantities');
+    await reconcileOpenQuantities().catch((e: any) =>
+      console.error('[cryptocom-scanner] open-quantity reconciliation failed (non-fatal):', e?.message));
+
     await phase('exit_pass:list_holders');
     const holders = await storage.getUserIdsWithOpenCryptocomTrades().catch((e: any) => {
       console.error('[cryptocom-scanner] could not list users with open trades — exit management SKIPPED this cycle:', e?.message);
@@ -1509,6 +1534,60 @@ async function breakStaleRunLock(): Promise<void> {
     }
   } catch (e: any) {
     console.error('[cryptocom-scanner] could not check/break a stale run lock:', e?.message);
+  }
+}
+
+/**
+ * Make every OPEN DeFi trade's quantity match the wallet.
+ *
+ * An entry recorded while its swap was still unconfirmed carries an ESTIMATED
+ * size. Once the swap lands, the true amount is whatever the wallet received
+ * after slippage and fees — and that is what must be sold on exit. A stale
+ * estimate either strands dust or tries to sell more than is held.
+ *
+ * If the wallet holds nothing for that token, the swap never landed: the trade
+ * is parked rather than left open, so nothing tries to exit a position that
+ * does not exist. A failed BALANCE READ changes nothing — "could not read" is
+ * never treated as "not there".
+ */
+async function reconcileOpenQuantities(): Promise<void> {
+  const userIds = await storage.getUserIdsWithOpenCryptocomTrades();
+  for (const uid of userIds) {
+    const trades = await storage.getOpenCryptocomEngineTrades(uid).catch(() => [] as any[]);
+    const defi = trades.filter((t: any) => t.venue === 'defi' && t.tokenAddress);
+    if (!defi.length) continue;
+    const cfg = await storage.getUserCryptocomEngineConfig(uid).catch(() => null);
+    const chain = (cfg as any)?.defiChain || 'base';
+    const { getWalletTokenBalance, addressFromPrivateKey } = await import('./defi-swap');
+    const { decryptApiSecret } = await import('../cryptocom');
+    const { pool } = await import('../db');
+    const { rows } = await pool.query(`SELECT encrypted_private_key k FROM defi_hot_wallets WHERE user_id=$1 AND is_active=true LIMIT 1`, [uid]);
+    if (!rows[0]) continue;
+    let wallet: string;
+    try { wallet = addressFromPrivateKey(decryptApiSecret(rows[0].k)); } catch { continue; }
+
+    for (const t of defi) {
+      // Never split one token's balance across two open trades in the same
+      // token — the wallet cannot tell them apart.
+      const sameToken = defi.filter((x: any) => String(x.tokenAddress).toLowerCase() === String((t as any).tokenAddress).toLowerCase());
+      if (sameToken.length > 1) continue;
+
+      let held: number;
+      try { held = await getWalletTokenBalance(chain, wallet, (t as any).tokenAddress); }
+      catch (e: any) { console.error(`[cryptocom-scanner] could not read ${t.symbol} balance (${e?.message}) — leaving trade ${t.id} untouched`); continue; }
+
+      if (!(held > 1e-8)) {
+        console.error(`[cryptocom-scanner] trade ${t.id} (${t.symbol}) claims ${t.quantity} but the wallet holds ${held} — the entry never landed; parking it`);
+        await storage.flagCryptocomEngineTradeUnreconciled(t.id, `entry never landed: wallet holds ${held} ${t.symbol}`).catch(() => {});
+        continue;
+      }
+      const drift = Math.abs(held - Number(t.quantity)) / Math.max(held, 1e-12);
+      if (drift > 0.005) {
+        console.warn(`[cryptocom-scanner] trade ${t.id} (${t.symbol}) recorded ${t.quantity}, wallet holds ${held} — correcting to the chain`);
+        await storage.updateCryptocomEngineTradeQuantity(t.id, held)
+          .catch((e: any) => console.error(`[cryptocom-scanner] could not correct trade ${t.id}: ${e?.message}`));
+      }
+    }
   }
 }
 

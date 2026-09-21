@@ -440,6 +440,7 @@ export interface IStorage {
   releaseCryptocomEngineTradeClaim(id: number): Promise<void>;
   recoverStaleCryptocomCloseClaims(olderThanMs?: number): Promise<number>;
   flagCryptocomEngineTradeUnreconciled(id: number, note: string): Promise<CryptocomEngineTrade | undefined>;
+  updateCryptocomEngineTradeQuantity(id: number, quantity: number): Promise<void>;
   getUserCryptocomEngineTrades(userId: number, limit?: number): Promise<CryptocomEngineTrade[]>;
   closeCryptocomEngineTrade(id: number, data: { exitPrice: number; exitOrderId?: string; exitReason: string; realizedPnl: number }): Promise<CryptocomEngineTrade | undefined>;
   getTodayCryptocomEngineTradeCount(userId: number): Promise<number>;
@@ -2546,6 +2547,18 @@ export class DatabaseStorage implements IStorage {
    * only returns 'open', so the trade leaves the exit loop and the engine stops
    * paying gas to sell tokens that do not exist.
    */
+  /**
+   * Correct an OPEN trade's size to what the wallet actually holds.
+   * Scoped to status='open' on purpose — a closed row's quantity is part of its
+   * settled P&L and must never move.
+   */
+  async updateCryptocomEngineTradeQuantity(id: number, quantity: number): Promise<void> {
+    if (!(quantity > 0)) return;
+    await db.update(cryptocomEngineTrades)
+      .set({ quantity, updatedAt: new Date() })
+      .where(and(eq(cryptocomEngineTrades.id, id), eq(cryptocomEngineTrades.status, 'open')));
+  }
+
   async flagCryptocomEngineTradeUnreconciled(id: number, note: string): Promise<CryptocomEngineTrade | undefined> {
     const [row] = await db.update(cryptocomEngineTrades)
       .set({ status: 'needs_reconciliation', exitReason: note, updatedAt: new Date() })

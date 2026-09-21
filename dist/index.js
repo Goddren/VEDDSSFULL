@@ -5243,6 +5243,15 @@ var init_storage = __esm({
        * only returns 'open', so the trade leaves the exit loop and the engine stops
        * paying gas to sell tokens that do not exist.
        */
+      /**
+       * Correct an OPEN trade's size to what the wallet actually holds.
+       * Scoped to status='open' on purpose — a closed row's quantity is part of its
+       * settled P&L and must never move.
+       */
+      async updateCryptocomEngineTradeQuantity(id, quantity) {
+        if (!(quantity > 0)) return;
+        await db.update(cryptocomEngineTrades).set({ quantity, updatedAt: /* @__PURE__ */ new Date() }).where(and(eq(cryptocomEngineTrades.id, id), eq(cryptocomEngineTrades.status, "open")));
+      }
       async flagCryptocomEngineTradeUnreconciled(id, note) {
         const [row] = await db.update(cryptocomEngineTrades).set({ status: "needs_reconciliation", exitReason: note, updatedAt: /* @__PURE__ */ new Date() }).where(and(eq(cryptocomEngineTrades.id, id), inArray(cryptocomEngineTrades.status, ["open", "closing"]))).returning();
         return row;
@@ -36794,7 +36803,16 @@ async function executeDefiSwap(opts) {
     });
     if (opts.confirm) {
       const rcpt = await txResp.wait(1, 9e4).catch(() => null);
-      if (!rcpt) return { ok: false, txHash: txResp.hash, reason: "swap not confirmed within 90s \u2014 treat as unfilled (verify on explorer)" };
+      if (!rcpt) {
+        return {
+          ok: false,
+          pending: true,
+          txHash: txResp.hash,
+          buyAmount: quote.buyAmount,
+          buyAmountHuman,
+          reason: `swap BROADCAST but unconfirmed after 90s (tx ${txResp.hash}) \u2014 treated as PENDING, not failed`
+        };
+      }
       if (rcpt.status !== 1) return { ok: false, txHash: txResp.hash, reason: "swap reverted on-chain (no tokens received)" };
       return { ok: true, txHash: txResp.hash, approveTxHash, buyAmount: quote.buyAmount, buyAmountHuman };
     }
@@ -36912,7 +36930,10 @@ async function defiEntryBuy(userId, chainKey, base, notionalUsd, slippageBps, pr
     confirm: true
     // wait for on-chain success — no phantom entries on a revert
   });
-  if (!r.ok) return { ok: false, token, qtyBase: 0, entryPrice: price, reason: r.reason };
+  if (!r.ok) {
+    const qtyHint = r.buyAmountHuman && Number.isFinite(r.buyAmountHuman) && r.buyAmountHuman > 0 ? r.buyAmountHuman : price > 0 ? notionalUsd / price : 0;
+    return { ok: false, pending: !!r.pending, token, qtyBase: r.pending ? qtyHint : 0, entryPrice: price, txHash: r.txHash, reason: r.reason };
+  }
   let qtyBase = notionalUsd / price;
   if (r.buyAmountHuman && Number.isFinite(r.buyAmountHuman) && r.buyAmountHuman > 0) qtyBase = r.buyAmountHuman;
   qtyBase = Math.max(0, Math.round(qtyBase * 1e8) / 1e8);
@@ -37832,6 +37853,30 @@ async function executeSignalSingle(service, connection2, userId, symbol, result,
       const disc = getDefiUniverseEntry(symbol);
       const r = await defiEntryBuy2(userId, chain, disc?.address ?? symbol, notionalD, slip, disc?.priceUsd ?? result.price ?? void 0);
       if (!r.ok) {
+        if (r.pending && r.txHash) {
+          const slP = r.entryPrice * (1 - (cfg.cefiStopLossPct ?? 2) / 100);
+          const tpP = r.entryPrice * (1 + (cfg.cefiTakeProfitPct ?? 3) / 100);
+          await storage.createCryptocomEngineTrade({
+            userId,
+            connectionId: connection2?.id ?? 0,
+            venue: "defi",
+            symbol,
+            strategy: result.strategy,
+            direction: "long",
+            quantity: r.qtyBase,
+            entryPrice: r.entryPrice,
+            stopLoss: slP,
+            takeProfit: tpP,
+            entryOrderId: r.txHash,
+            entryReasoning: `UNCONFIRMED at entry: ${r.reason}. Recorded so the position is monitored; quantity reconciled from the wallet next cycle.`,
+            status: "open",
+            tokenAddress: disc?.address ?? null,
+            poolAddress: disc?.poolAddress ?? null
+          });
+          await storage.createCryptocomEngineActivity({ userId, symbol, decision: "signal", strategy: result.strategy, reasoning: `${symbol}: entry BROADCAST but unconfirmed (tx ${r.txHash.slice(0, 12)}\u2026) \u2014 recorded OPEN so it is monitored rather than abandoned; quantity will be reconciled from the wallet.`, score: result.score, price: result.price, dailyChangePercent: result.dailyChangePercent, source: "cryptocom" }).catch(() => {
+          });
+          return;
+        }
         await storage.createCryptocomEngineActivity({ userId, symbol, decision: r.reason?.includes("can't trade") ? "skipped" : "error", strategy: result.strategy, reasoning: `${symbol}: DeFi swap entry ${r.reason?.includes("can't trade") ? "skipped" : "failed"} \u2014 ${r.reason}.`, score: result.score, price: result.price, dailyChangePercent: result.dailyChangePercent, source: "cryptocom" });
         return;
       }
@@ -38051,6 +38096,8 @@ async function runCryptocomEngineScan() {
       return 0;
     });
     if (recovered > 0) console.warn(`[cryptocom-scanner] re-opened ${recovered} trade(s) stranded in 'closing' by a dead process`);
+    await phase("reconcile_open_quantities");
+    await reconcileOpenQuantities().catch((e) => console.error("[cryptocom-scanner] open-quantity reconciliation failed (non-fatal):", e?.message));
     await phase("exit_pass:list_holders");
     const holders = await storage.getUserIdsWithOpenCryptocomTrades().catch((e) => {
       console.error("[cryptocom-scanner] could not list users with open trades \u2014 exit management SKIPPED this cycle:", e?.message);
@@ -38158,6 +38205,49 @@ async function breakStaleRunLock() {
     }
   } catch (e) {
     console.error("[cryptocom-scanner] could not check/break a stale run lock:", e?.message);
+  }
+}
+async function reconcileOpenQuantities() {
+  const userIds = await storage.getUserIdsWithOpenCryptocomTrades();
+  for (const uid2 of userIds) {
+    const trades = await storage.getOpenCryptocomEngineTrades(uid2).catch(() => []);
+    const defi = trades.filter((t) => t.venue === "defi" && t.tokenAddress);
+    if (!defi.length) continue;
+    const cfg = await storage.getUserCryptocomEngineConfig(uid2).catch(() => null);
+    const chain = cfg?.defiChain || "base";
+    const { getWalletTokenBalance: getWalletTokenBalance2, addressFromPrivateKey: addressFromPrivateKey2 } = await Promise.resolve().then(() => (init_defi_swap(), defi_swap_exports));
+    const { decryptApiSecret: decryptApiSecret3 } = await Promise.resolve().then(() => (init_cryptocom(), cryptocom_exports));
+    const { pool: pool2 } = await Promise.resolve().then(() => (init_db(), db_exports));
+    const { rows } = await pool2.query(`SELECT encrypted_private_key k FROM defi_hot_wallets WHERE user_id=$1 AND is_active=true LIMIT 1`, [uid2]);
+    if (!rows[0]) continue;
+    let wallet;
+    try {
+      wallet = addressFromPrivateKey2(decryptApiSecret3(rows[0].k));
+    } catch {
+      continue;
+    }
+    for (const t of defi) {
+      const sameToken = defi.filter((x) => String(x.tokenAddress).toLowerCase() === String(t.tokenAddress).toLowerCase());
+      if (sameToken.length > 1) continue;
+      let held;
+      try {
+        held = await getWalletTokenBalance2(chain, wallet, t.tokenAddress);
+      } catch (e) {
+        console.error(`[cryptocom-scanner] could not read ${t.symbol} balance (${e?.message}) \u2014 leaving trade ${t.id} untouched`);
+        continue;
+      }
+      if (!(held > 1e-8)) {
+        console.error(`[cryptocom-scanner] trade ${t.id} (${t.symbol}) claims ${t.quantity} but the wallet holds ${held} \u2014 the entry never landed; parking it`);
+        await storage.flagCryptocomEngineTradeUnreconciled(t.id, `entry never landed: wallet holds ${held} ${t.symbol}`).catch(() => {
+        });
+        continue;
+      }
+      const drift = Math.abs(held - Number(t.quantity)) / Math.max(held, 1e-12);
+      if (drift > 5e-3) {
+        console.warn(`[cryptocom-scanner] trade ${t.id} (${t.symbol}) recorded ${t.quantity}, wallet holds ${held} \u2014 correcting to the chain`);
+        await storage.updateCryptocomEngineTradeQuantity(t.id, held).catch((e) => console.error(`[cryptocom-scanner] could not correct trade ${t.id}: ${e?.message}`));
+      }
+    }
   }
 }
 async function releaseCryptoRunLock() {
@@ -55108,9 +55198,9 @@ async function getStopOrdersForUser(userId, filters = {}) {
 init_schema();
 
 // server/build-info.ts
-var BUILD_COMMIT = "2ae5db86-dirty";
+var BUILD_COMMIT = "1e3180a0-dirty";
 var BUILD_BRANCH = "main";
-var BUILT_AT = "2026-09-20T23:39:44.111Z";
+var BUILT_AT = "2026-09-21T00:49:24.240Z";
 
 // server/stripe.ts
 init_db();

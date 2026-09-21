@@ -159,7 +159,17 @@ async function zeroXQuote(chainId: number, params: Record<string, string>): Prom
   return data;
 }
 
-export interface SwapResult { ok: boolean; txHash?: string; buyAmount?: string; buyAmountHuman?: number; approveTxHash?: string; reason?: string; }
+export interface SwapResult {
+  ok: boolean; txHash?: string; buyAmount?: string; buyAmountHuman?: number; approveTxHash?: string; reason?: string;
+  /**
+   * The swap was BROADCAST but not confirmed before the wait expired. It is
+   * neither a success nor a failure — the transaction is live and will very
+   * likely land. Callers must NOT treat this as "nothing happened": doing so
+   * spent $8 of real USDC on 2026-09-21 and left ZEN and CBBTC sitting in the
+   * wallet with no trade row, no stop and nothing monitoring them.
+   */
+  pending?: boolean;
+}
 
 /**
  * Execute a swap of `sellAmountHuman` of sellToken -> buyToken on `chainKey`,
@@ -244,7 +254,15 @@ export async function executeDefiSwap(opts: {
     // (insufficient balance, missing allowance, slippage) is mined but delivers
     // no tokens — returning ok:true here is what created phantom positions.
     const rcpt = await txResp.wait(1, 90_000).catch(() => null);
-    if (!rcpt) return { ok: false, txHash: txResp.hash, reason: 'swap not confirmed within 90s — treat as unfilled (verify on explorer)' };
+    if (!rcpt) {
+      // Base produces ~2s blocks, so a 90s timeout means the RPC is not
+      // returning receipts, not that the chain is slow — the same endpoint also
+      // throws "exceeded maximum retry limit". The transaction is already
+      // broadcast and unstoppable, so report it as PENDING and hand back the
+      // hash for reconciliation rather than pretending it never happened.
+      return { ok: false, pending: true, txHash: txResp.hash, buyAmount: quote.buyAmount, buyAmountHuman,
+        reason: `swap BROADCAST but unconfirmed after 90s (tx ${txResp.hash}) — treated as PENDING, not failed` };
+    }
     if (rcpt.status !== 1) return { ok: false, txHash: txResp.hash, reason: 'swap reverted on-chain (no tokens received)' };
     return { ok: true, txHash: txResp.hash, approveTxHash, buyAmount: quote.buyAmount, buyAmountHuman };
   }

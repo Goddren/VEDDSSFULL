@@ -27,7 +27,7 @@ async function loadHotWallet(userId: number): Promise<{ encryptedKey: string; ch
   return { encryptedKey: rows[0].k, chain: rows[0].chain || 'base' };
 }
 
-export interface DefiEntryResult { ok: boolean; token: string; qtyBase: number; entryPrice: number; txHash?: string; reason?: string; }
+export interface DefiEntryResult { ok: boolean; token: string; qtyBase: number; entryPrice: number; txHash?: string; reason?: string; pending?: boolean; }
 
 /** Open a DeFi long: swap `notionalUsd` of USDC -> token for `base` on the wallet's chain. */
 /** A 0x contract address must pass through untouched; only tickers get normalised. */
@@ -69,7 +69,13 @@ export async function defiEntryBuy(userId: number, chainKey: string, base: strin
     sellToken: 'USDC', buyToken: token, sellAmountHuman: notionalUsd, slippageBps,
     confirm: true, // wait for on-chain success — no phantom entries on a revert
   });
-  if (!r.ok) return { ok: false, token, qtyBase: 0, entryPrice: price, reason: r.reason };
+  if (!r.ok) {
+    // A broadcast-but-unconfirmed swap keeps its hash and its expected size, so
+    // the caller can record it and reconcile against the chain later.
+    const qtyHint = (r.buyAmountHuman && Number.isFinite(r.buyAmountHuman) && r.buyAmountHuman > 0)
+      ? r.buyAmountHuman : (price > 0 ? notionalUsd / price : 0);
+    return { ok: false, pending: !!r.pending, token, qtyBase: r.pending ? qtyHint : 0, entryPrice: price, txHash: r.txHash, reason: r.reason };
+  }
 
   // Prefer the actual on-chain amount received (decimals-correct); fall back to
   // notional/price if the quote didn't return one.
