@@ -9523,8 +9523,17 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
             // "approved but NO levels" block is unattributable: it reports that
             // the plan is missing but never why, and the three causes need
             // different fixes (dead votes vs a dead price vs a zero ATR).
+            // currentPrice = indicators.price?.bid || candles[0]?.c, computed
+            // BEFORE the candle repair, so it always reads the RAW EA feed. It
+            // came back nil on 428/428 skips including 66 DIRECTIONAL ones, so
+            // record which half is missing and what the newest raw bar actually
+            // looks like — "nil" alone cannot distinguish an absent bid from a
+            // malformed candle, and the two need different fixes.
+            const _c0: any = Array.isArray(candles) ? candles[0] : undefined;
             _diagCap.planSkip =
-              `sig=${analysis.signal} price=${currentPrice ?? 'nil'} atr=${atr ?? 'nil'} bars=${candles?.length ?? 0}`;
+              `sig=${analysis.signal} price=${currentPrice ?? 'nil'} atr=${atr ?? 'nil'} bars=${candles?.length ?? 0}`
+              + ` bid=${(indicators as any)?.price?.bid ?? 'nil'} hasPriceObj=${!!(indicators as any)?.price}`
+              + ` c0=${_c0 === undefined ? 'undefined' : `c:${_c0?.c ?? 'nil'}/keys:${Object.keys(_c0 ?? {}).join('|') || 'none'}`}`;
           }
           if (analysis.signal !== 'NEUTRAL' && currentPrice && atr) {
             const stopDistance = atr * 1.5;

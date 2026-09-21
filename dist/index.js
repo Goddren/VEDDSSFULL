@@ -55395,9 +55395,9 @@ async function getStopOrdersForUser(userId, filters = {}) {
 init_schema();
 
 // server/build-info.ts
-var BUILD_COMMIT = "3a8f94b2-dirty";
+var BUILD_COMMIT = "94e8dd83-dirty";
 var BUILD_BRANCH = "main";
-var BUILT_AT = "2026-09-21T22:43:14.756Z";
+var BUILT_AT = "2026-09-21T23:20:58.155Z";
 
 // server/stripe.ts
 init_db();
@@ -66562,7 +66562,8 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
           }
           analysis.trend = maTrend;
           if (!(analysis.signal !== "NEUTRAL" && currentPrice && atr2)) {
-            _diagCap.planSkip = `sig=${analysis.signal} price=${currentPrice ?? "nil"} atr=${atr2 ?? "nil"} bars=${candles?.length ?? 0}`;
+            const _c0 = Array.isArray(candles) ? candles[0] : void 0;
+            _diagCap.planSkip = `sig=${analysis.signal} price=${currentPrice ?? "nil"} atr=${atr2 ?? "nil"} bars=${candles?.length ?? 0} bid=${indicators?.price?.bid ?? "nil"} hasPriceObj=${!!indicators?.price} c0=${_c0 === void 0 ? "undefined" : `c:${_c0?.c ?? "nil"}/keys:${Object.keys(_c0 ?? {}).join("|") || "none"}`}`;
           }
           if (analysis.signal !== "NEUTRAL" && currentPrice && atr2) {
             const stopDistance = atr2 * 1.5;
