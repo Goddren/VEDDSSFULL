@@ -2768,22 +2768,47 @@ export class DatabaseStorage implements IStorage {
     return result;
   }
 
-  // Called when a trade closes: find the most recent PENDING confirmation for
-  // this user + symbol + direction within the last 24 hours and mark its outcome.
+  // Called when a trade closes: find the PENDING confirmation for this
+  // user + symbol + direction that was recorded in the 24 hours BEFORE the
+  // trade closed, and mark its outcome.
+  //
+  // The window is anchored to `closeTime`, NOT to wall-clock now. It used to be
+  // `now() - 24h`, which loses matches that plainly exist: the TradeLocker
+  // reconciliation pass processes historical orders, so by the time it runs the
+  // matching PENDING row is frequently already older than 24h *from now* even
+  // though it was created minutes before the trade closed. Every such close fell
+  // through to the bare `ea_only` backfill, which carries no ADX/RSI/grade at
+  // all. Measured 2026-09-21: 0 closed rows in the entire table had ever
+  // carried an ADX value, while 18,245 feature-bearing rows sat at PENDING.
+  // This window accounts for 2 of the 36 recent closes outright; the other 34
+  // had no PENDING row at ANY window, which is a SEPARATE problem (the trades
+  // that actually close are not the ones that produced a PENDING confirmation).
+  //
   // Returns whether a match was found and updated — false means this trade has
-  // no corresponding row in ai_confirmation_outcomes at all (e.g. it wasn't
-  // opened by the bot, or it was held longer than 24h), which callers that
-  // have their own full outcome data (like TradeLocker's reconciliation pass)
-  // can use to create a fresh row instead of the trade silently never
-  // reaching the Brain Dashboard.
+  // no corresponding row at all (e.g. it wasn't opened by the bot, or it was
+  // held longer than 24h), which callers that have their own full outcome data
+  // (like TradeLocker's reconciliation pass) use to create a fresh row instead
+  // of the trade silently never reaching the Brain Dashboard.
   async resolveConfirmationOutcome(
     userId: number,
     symbol: string,
     direction: string,
     tradeOutcome: string,
-    actualPips: number | null
+    actualPips: number | null,
+    closeTime?: Date | string | null
   ): Promise<boolean> {
-    const since = new Date(Date.now() - 24 * 60 * 60 * 1000);
+    // An unparseable or absent close time falls back to now — the old
+    // behaviour — rather than throwing away the resolution entirely.
+    const parsed = closeTime ? new Date(closeTime) : null;
+    const anchor = parsed && !isNaN(parsed.getTime()) ? parsed : new Date();
+
+    // A confirmation is written asynchronously and the broker's close timestamp
+    // can sit fractionally ahead of it, so allow a small grace after the anchor.
+    // Without it a confirmation recorded seconds "after" the close is invisible.
+    const GRACE_MS = 5 * 60 * 1000;
+    const windowStart = new Date(anchor.getTime() - 24 * 60 * 60 * 1000);
+    const windowEnd = new Date(anchor.getTime() + GRACE_MS);
+
     const rows = await db
       .select()
       .from(aiConfirmationOutcomes)
@@ -2791,18 +2816,21 @@ export class DatabaseStorage implements IStorage {
         and(
           eq(aiConfirmationOutcomes.userId, userId),
           eq(aiConfirmationOutcomes.symbol, symbol.toUpperCase()),
-          eq(aiConfirmationOutcomes.direction, direction),
+          eq(aiConfirmationOutcomes.direction, (direction ?? '').toUpperCase()),
           eq(aiConfirmationOutcomes.tradeOutcome, 'PENDING'),
-          gte(aiConfirmationOutcomes.confirmedAt, since)
+          gte(aiConfirmationOutcomes.confirmedAt, windowStart),
+          lte(aiConfirmationOutcomes.confirmedAt, windowEnd)
         )
       )
+      // Newest first: the confirmation closest to the close is the one that
+      // opened this trade, not some earlier same-direction signal.
       .orderBy(desc(aiConfirmationOutcomes.confirmedAt))
       .limit(1);
 
     if (rows.length > 0) {
       await db
         .update(aiConfirmationOutcomes)
-        .set({ tradeOutcome, actualPips, closedAt: new Date() })
+        .set({ tradeOutcome, actualPips, closedAt: anchor })
         .where(eq(aiConfirmationOutcomes.id, rows[0].id));
       return true;
     }

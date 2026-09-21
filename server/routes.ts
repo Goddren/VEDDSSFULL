@@ -8561,7 +8561,8 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
                 // figures. Store null (no pip data) rather than a wrong number.
                 const pips = typeof closedTrade.profitPips === 'number' ? closedTrade.profitPips : null;
                 await storage.resolveConfirmationOutcome(
-                  token.userId, tradeSymbol, existingResult.direction, tradeResult, pips
+                  token.userId, tradeSymbol, existingResult.direction, tradeResult, pips,
+                  closedTrade.closeTime || closedTrade.timestamp || null
                 );
                 const { clearLearningCache } = await import('./services/confirmation-learning');
                 clearLearningCache(token.userId);

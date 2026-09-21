@@ -30,7 +30,9 @@ async function _recordOrBackfillConfirmationOutcome(
   userId: number, symbol: string, direction: string, result: string, closeTime?: string | Date,
 ): Promise<void> {
   try {
-    const resolved = await storage.resolveConfirmationOutcome(userId, symbol, direction, result, null);
+    // Pass closeTime: the PENDING lookup window is anchored to when the trade
+    // CLOSED, not to when this reconciliation pass happens to run.
+    const resolved = await storage.resolveConfirmationOutcome(userId, symbol, direction, result, null, closeTime ?? null);
     if (resolved) return;
     const closedAt = closeTime ? new Date(closeTime) : new Date();
     const hour = closedAt.getUTCHours();
