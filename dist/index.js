@@ -52874,6 +52874,11 @@ CREATE TABLE IF NOT EXISTS "mt5_confirm_diag" (
 ALTER TABLE "mt5_confirm_diag" ADD COLUMN IF NOT EXISTS "buy_votes" real;
 ALTER TABLE "mt5_confirm_diag" ADD COLUMN IF NOT EXISTS "sell_votes" real;
 ALTER TABLE "mt5_confirm_diag" ADD COLUMN IF NOT EXISTS "neutral_reason" text;
+-- Why the trade plan was never built. The plan is only generated when
+-- signal/currentPrice/atr are ALL truthy; when it is missing, an approved
+-- setup hits the _noLevels branch, gets flipped to NEUTRAL and never
+-- executes. This records which of the three inputs was actually absent.
+ALTER TABLE "mt5_confirm_diag" ADD COLUMN IF NOT EXISTS "plan_skip" text;
 
 -- Per-account FTMO-style consistency cap (null = platform default 20%).
 ALTER TABLE "tradelocker_connections" ADD COLUMN IF NOT EXISTS "consistency_threshold_pct" double precision;
@@ -55390,9 +55395,9 @@ async function getStopOrdersForUser(userId, filters = {}) {
 init_schema();
 
 // server/build-info.ts
-var BUILD_COMMIT = "e07d766c-dirty";
+var BUILD_COMMIT = "3a8f94b2-dirty";
 var BUILD_BRANCH = "main";
-var BUILT_AT = "2026-09-21T18:59:57.879Z";
+var BUILT_AT = "2026-09-21T22:43:14.756Z";
 
 // server/stripe.ts
 init_db();
@@ -65981,7 +65986,7 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
         tradePlan: null,
         alerts: []
       };
-      const _diagCap = { buyVotes: null, sellVotes: null, neutralReason: null };
+      const _diagCap = { buyVotes: null, sellVotes: null, neutralReason: null, planSkip: null };
       let advanced = {};
       if (indicators && typeof indicators === "object") {
         try {
@@ -66556,6 +66561,9 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
             }
           }
           analysis.trend = maTrend;
+          if (!(analysis.signal !== "NEUTRAL" && currentPrice && atr2)) {
+            _diagCap.planSkip = `sig=${analysis.signal} price=${currentPrice ?? "nil"} atr=${atr2 ?? "nil"} bars=${candles?.length ?? 0}`;
+          }
           if (analysis.signal !== "NEUTRAL" && currentPrice && atr2) {
             const stopDistance = atr2 * 1.5;
             const targetDistance = atr2 * 2.5;
@@ -67273,8 +67281,8 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
         try {
           const { pool: _p } = await Promise.resolve().then(() => (init_db(), db_exports));
           await _p.query(
-            `INSERT INTO mt5_confirm_diag (user_id, symbol, timeframe, signal, confidence, gate_passed, vision_enabled, stage, decision, model, err, buy_votes, sell_votes, neutral_reason)
-             VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14)`,
+            `INSERT INTO mt5_confirm_diag (user_id, symbol, timeframe, signal, confidence, gate_passed, vision_enabled, stage, decision, model, err, buy_votes, sell_votes, neutral_reason, plan_skip)
+             VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15)`,
             [
               _cdiag.userId,
               _cdiag.symbol,
@@ -67289,7 +67297,8 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
               _cdiag.err ? String(_cdiag.err).slice(0, 300) : null,
               _diagCap.buyVotes,
               _diagCap.sellVotes,
-              _diagCap.neutralReason
+              _diagCap.neutralReason,
+              _diagCap.planSkip
             ]
           );
         } catch {
@@ -67797,7 +67806,7 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
                   aiConfirmation.confirmed = false;
                   analysis.signal = "NEUTRAL";
                   analysis.alerts.push("TRADE BLOCKED: approved by consensus but no valid entry/SL/TP levels available \u2014 not executing (no naked trades).");
-                  console.log(`[SS Consensus] ${sanitizedSymbol} \u2014 approved but NO levels; BLOCKED execution (signal\u2192NEUTRAL, unconfirmed) to prevent a stopless trade.`);
+                  console.log(`[SS Consensus] ${sanitizedSymbol} \u2014 approved but NO levels; BLOCKED execution (signal\u2192NEUTRAL, unconfirmed) to prevent a stopless trade. planSkip=${_diagCap.planSkip ?? "plan was built then lost"} preConfirm(entry=${preConfirmEntry ?? "nil"} sl=${preConfirmSL ?? "nil"} tp=${preConfirmTP ?? "nil"})`);
                 }
               }
               let hasAdjustments = false;

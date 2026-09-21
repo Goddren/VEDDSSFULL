@@ -55,6 +55,11 @@ CREATE TABLE IF NOT EXISTS "mt5_confirm_diag" (
 ALTER TABLE "mt5_confirm_diag" ADD COLUMN IF NOT EXISTS "buy_votes" real;
 ALTER TABLE "mt5_confirm_diag" ADD COLUMN IF NOT EXISTS "sell_votes" real;
 ALTER TABLE "mt5_confirm_diag" ADD COLUMN IF NOT EXISTS "neutral_reason" text;
+-- Why the trade plan was never built. The plan is only generated when
+-- signal/currentPrice/atr are ALL truthy; when it is missing, an approved
+-- setup hits the _noLevels branch, gets flipped to NEUTRAL and never
+-- executes. This records which of the three inputs was actually absent.
+ALTER TABLE "mt5_confirm_diag" ADD COLUMN IF NOT EXISTS "plan_skip" text;
 
 -- Per-account FTMO-style consistency cap (null = platform default 20%).
 ALTER TABLE "tradelocker_connections" ADD COLUMN IF NOT EXISTS "consistency_threshold_pct" double precision;

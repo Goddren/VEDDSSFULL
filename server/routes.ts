@@ -8808,8 +8808,8 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
         alerts: [] as string[],
       };
       // TEMP diag capture — vote outcome + which gate (if any) forced NEUTRAL.
-      const _diagCap: { buyVotes: number | null; sellVotes: number | null; neutralReason: string | null } =
-        { buyVotes: null, sellVotes: null, neutralReason: null };
+      const _diagCap: { buyVotes: number | null; sellVotes: number | null; neutralReason: string | null; planSkip: string | null } =
+        { buyVotes: null, sellVotes: null, neutralReason: null, planSkip: null };
 
       let advanced: any = {};
       
@@ -9518,6 +9518,14 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
           analysis.trend = maTrend;
           
           // Generate trade plan if we have a signal (S/R-enhanced)
+          if (!(analysis.signal !== 'NEUTRAL' && currentPrice && atr)) {
+            // Record which input was absent. Without this the downstream
+            // "approved but NO levels" block is unattributable: it reports that
+            // the plan is missing but never why, and the three causes need
+            // different fixes (dead votes vs a dead price vs a zero ATR).
+            _diagCap.planSkip =
+              `sig=${analysis.signal} price=${currentPrice ?? 'nil'} atr=${atr ?? 'nil'} bars=${candles?.length ?? 0}`;
+          }
           if (analysis.signal !== 'NEUTRAL' && currentPrice && atr) {
             const stopDistance = atr * 1.5;
             const targetDistance = atr * 2.5;
@@ -10398,12 +10406,12 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
         try {
           const { pool: _p } = await import('./db');
           await _p.query(
-            `INSERT INTO mt5_confirm_diag (user_id, symbol, timeframe, signal, confidence, gate_passed, vision_enabled, stage, decision, model, err, buy_votes, sell_votes, neutral_reason)
-             VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14)`,
+            `INSERT INTO mt5_confirm_diag (user_id, symbol, timeframe, signal, confidence, gate_passed, vision_enabled, stage, decision, model, err, buy_votes, sell_votes, neutral_reason, plan_skip)
+             VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15)`,
             [_cdiag.userId, _cdiag.symbol, _cdiag.timeframe, _cdiag.signal, _cdiag.confidence,
              _cdiag.gatePassed, _cdiag.visionEnabled, _cdiag.stage, _cdiag.decision, _cdiag.model,
              _cdiag.err ? String(_cdiag.err).slice(0, 300) : null,
-             _diagCap.buyVotes, _diagCap.sellVotes, _diagCap.neutralReason]
+             _diagCap.buyVotes, _diagCap.sellVotes, _diagCap.neutralReason, _diagCap.planSkip]
           );
         } catch { /* diag only — never disrupt trade flow */ }
       };
@@ -10987,7 +10995,7 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
                   aiConfirmation.confirmed = false;
                   analysis.signal = 'NEUTRAL';
                   analysis.alerts.push('TRADE BLOCKED: approved by consensus but no valid entry/SL/TP levels available — not executing (no naked trades).');
-                  console.log(`[SS Consensus] ${sanitizedSymbol} — approved but NO levels; BLOCKED execution (signal→NEUTRAL, unconfirmed) to prevent a stopless trade.`);
+                  console.log(`[SS Consensus] ${sanitizedSymbol} — approved but NO levels; BLOCKED execution (signal→NEUTRAL, unconfirmed) to prevent a stopless trade. planSkip=${_diagCap.planSkip ?? 'plan was built then lost'} preConfirm(entry=${preConfirmEntry ?? 'nil'} sl=${preConfirmSL ?? 'nil'} tp=${preConfirmTP ?? 'nil'})`);
                 }
               }
               let hasAdjustments = false;
