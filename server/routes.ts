@@ -66,6 +66,7 @@ import { extractFramesFromVideo, cleanupFrames } from "./video-processor";
 import { getGoldSentiment, getMockGoldSentiment, isTelegramConfigured } from "./telegram-sentiment";
 import { encryptPassword, executeMT5SignalOnTradeLocker, TradeLockerService, decryptPassword, getOrCreateService as tlGetOrCreateService, getTLAccountValue, isOnAuth429Cooldown as tlIsOnAuth429Cooldown, noteAuthResult as tlNoteAuthResult } from "./tradelocker";
 import { computePips, getPipSize, getPipValue } from "./utils/pipUtils";
+import { normalizeCandles, countReadableCloses } from "./utils/candleNormalize";
 import { getTLRisk } from "./services/tl-risk-settings";
 import { AlpacaService, encryptApiSecret } from "./alpaca";
 import { TastyTradeService, encryptPassword as encryptTastytradePassword } from "./tastytrade";
@@ -8310,7 +8311,13 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
         });
       }
       
-      const { symbol, timeframe, broker, timestamp, candles, indicators, account, eaSettings } = req.body;
+      const { symbol, timeframe, broker, timestamp, candles: _rawCandles, indicators, account, eaSettings } = req.body;
+      // The EA posts bars as either t|o|h|l|c|v or time|open|high|low|close|volume.
+      // Everything below reads the short names, so normalise ONCE at ingest —
+      // see server/utils/candleNormalize.ts for what the long-name shape broke.
+      // Non-arrays pass straight through so the validation below still sees
+      // exactly what the EA sent.
+      const candles = normalizeCandles(_rawCandles);
       
       // Validate required fields with detailed error messages for debugging
       if (!symbol || typeof symbol !== 'string') {
@@ -9530,10 +9537,12 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
             // looks like — "nil" alone cannot distinguish an absent bid from a
             // malformed candle, and the two need different fixes.
             const _c0: any = Array.isArray(candles) ? candles[0] : undefined;
+            const _readable = countReadableCloses(candles);
             _diagCap.planSkip =
               `sig=${analysis.signal} price=${currentPrice ?? 'nil'} atr=${atr ?? 'nil'} bars=${candles?.length ?? 0}`
               + ` bid=${(indicators as any)?.price?.bid ?? 'nil'} hasPriceObj=${!!(indicators as any)?.price}`
-              + ` c0=${_c0 === undefined ? 'undefined' : `c:${_c0?.c ?? 'nil'}/keys:${Object.keys(_c0 ?? {}).join('|') || 'none'}`}`;
+              + ` c0=${_c0 === undefined ? 'undefined' : `c:${_c0?.c ?? 'nil'}/keys:${Object.keys(_c0 ?? {}).join('|') || 'none'}`}`
+              + ` readableCloses=${_readable}/${candles?.length ?? 0}`;
           }
           if (analysis.signal !== 'NEUTRAL' && currentPrice && atr) {
             const stopDistance = atr * 1.5;

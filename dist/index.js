@@ -40494,7 +40494,7 @@ async function scanKalshiWeatherPicks(cityCodes, opts = {}) {
         const probW = 0.6 + modelProbPct / 100 * 0.4;
         const confW = 0.5 + conf / 100 * 0.5;
         const valueScore = Math.round(edgePct * probW * confW * 10) / 10;
-        const pick = {
+        const pick2 = {
           city: city.name,
           cityCode: city.code,
           ticker: b.ticker,
@@ -40508,8 +40508,8 @@ async function scanKalshiWeatherPicks(cityCodes, opts = {}) {
           targetDate,
           rationale: `${city.name} ${targetDate}: GEFS ensemble ${modelProbPct}% vs market ${ask}\xA2 \u2192 +${edgePct}\xA2 edge on "${b.subtitle}" (${members.length} members, spread-conf ${conf}%).`
         };
-        picks.push(pick);
-        if (!cityBest || pick.valueScore > cityBest.valueScore) cityBest = pick;
+        picks.push(pick2);
+        if (!cityBest || pick2.valueScore > cityBest.valueScore) cityBest = pick2;
       }
       perCityReasons.push(cityBest ? `${city.name}: best +${cityBest.edgePct}\xA2 edge on "${cityBest.subtitle}" (score ${cityBest.valueScore})` : `${city.name}: no positive-edge bucket (ensemble agrees with the market)`);
     } catch (err) {
@@ -51028,17 +51028,17 @@ async function sendPersonaContentEmail(subject, html) {
   console.error("[persona-content] All email channels failed:", reason);
   return { success: false, reason };
 }
-async function recordProgress(pick, contentDate, spine, emailSent) {
+async function recordProgress(pick2, contentDate, spine, emailSent) {
   await pool.query(
     `INSERT INTO persona_content_days (content_date, pillar, theme, arc_stage, arc_index, goal, platforms_count, email_sent)
      VALUES ($1,$2,$3,$4,$5,$6,8,$7)`,
-    [contentDate, pick.pillar, spine.daily_theme, pick.arcStage, pick.arcIndex, spine.goal, emailSent]
+    [contentDate, pick2.pillar, spine.daily_theme, pick2.arcStage, pick2.arcIndex, spine.goal, emailSent]
   );
   await pool.query(
     `UPDATE persona_pillar_rotation SET times_used = times_used + 1, last_used_date = $1 WHERE pillar = $2`,
-    [contentDate, pick.pillar]
+    [contentDate, pick2.pillar]
   );
-  const nextIndex = (pick.arcIndex + 1) % ARC_STAGES.length;
+  const nextIndex = (pick2.arcIndex + 1) % ARC_STAGES.length;
   const wrapped = nextIndex === 0;
   await pool.query(
     `UPDATE persona_arc_state SET current_index = $1, loops_completed = loops_completed + $2 WHERE id = 1`,
@@ -51049,25 +51049,25 @@ async function runPersonaContentEngine(trigger = "manual") {
   const contentDate = (/* @__PURE__ */ new Date()).toISOString().slice(0, 10);
   console.log(`[persona-content] Run started (${trigger}) for ${contentDate}`);
   try {
-    const pick = await pickPillarAndArc();
-    console.log(`[persona-content] Pillar="${pick.pillar}" arc="${pick.arcStage}" (${pick.arcIndex + 1}/7, loop ${pick.loopsCompleted + 1})`);
-    const spine = await generateSpine(pick.pillar, pick.arcStage, contentDate);
-    const draftPackages = await generatePlatformPackages(spine, pick.pillar, pick.arcStage);
+    const pick2 = await pickPillarAndArc();
+    console.log(`[persona-content] Pillar="${pick2.pillar}" arc="${pick2.arcStage}" (${pick2.arcIndex + 1}/7, loop ${pick2.loopsCompleted + 1})`);
+    const spine = await generateSpine(pick2.pillar, pick2.arcStage, contentDate);
+    const draftPackages = await generatePlatformPackages(spine, pick2.pillar, pick2.arcStage);
     const packages = await humanizePackages(draftPackages);
-    const replies = await generateReplyTemplates(pick.pillar);
+    const replies = await generateReplyTemplates(pick2.pillar);
     const html = buildEmailHtml({
       contentDate,
-      pillar: pick.pillar,
-      arcStage: pick.arcStage,
-      arcIndex: pick.arcIndex,
-      loopsCompleted: pick.loopsCompleted,
+      pillar: pick2.pillar,
+      arcStage: pick2.arcStage,
+      arcIndex: pick2.arcIndex,
+      loopsCompleted: pick2.loopsCompleted,
       spine,
       packages,
       replies
     });
-    const subject = `VEDD Content Package - ${contentDate} - ${spine.daily_theme} (${pick.pillar})`;
+    const subject = `VEDD Content Package - ${contentDate} - ${spine.daily_theme} (${pick2.pillar})`;
     const emailResult = await sendPersonaContentEmail(subject, html);
-    await recordProgress(pick, contentDate, spine, emailResult.success);
+    await recordProgress(pick2, contentDate, spine, emailResult.success);
     if (!emailResult.success) {
       console.error("[persona-content] Run completed but email failed:", emailResult.reason);
       return { success: false, reason: emailResult.reason };
@@ -55395,9 +55395,9 @@ async function getStopOrdersForUser(userId, filters = {}) {
 init_schema();
 
 // server/build-info.ts
-var BUILD_COMMIT = "94e8dd83-dirty";
+var BUILD_COMMIT = "eb3cd49a-dirty";
 var BUILD_BRANCH = "main";
-var BUILT_AT = "2026-09-21T23:20:58.155Z";
+var BUILT_AT = "2026-09-21T23:45:44.088Z";
 
 // server/stripe.ts
 init_db();
@@ -56387,6 +56387,49 @@ function isTelegramConfigured() {
 // server/routes.ts
 init_tradelocker();
 init_pipUtils();
+
+// server/utils/candleNormalize.ts
+function pick(src, keys) {
+  for (const k of keys) {
+    const v = src?.[k];
+    if (typeof v === "number" && isFinite(v)) return v;
+    if (typeof v === "string" && v.trim() !== "") {
+      const n = Number(v);
+      if (isFinite(n)) return n;
+    }
+  }
+  return void 0;
+}
+var O = ["o", "open", "Open", "O"];
+var H = ["h", "high", "High", "H"];
+var L = ["l", "low", "Low", "L"];
+var C = ["c", "close", "Close", "C"];
+var V = ["v", "volume", "Volume", "tick_volume", "tickVolume", "V"];
+function normalizeCandle(raw) {
+  if (!raw || typeof raw !== "object") return raw;
+  const o = pick(raw, O), h = pick(raw, H), l = pick(raw, L), c = pick(raw, C);
+  if (o === void 0 && h === void 0 && l === void 0 && c === void 0) return raw;
+  const out = { ...raw };
+  if (o !== void 0) out.o = o;
+  if (h !== void 0) out.h = h;
+  if (l !== void 0) out.l = l;
+  if (c !== void 0) out.c = c;
+  const v = pick(raw, V);
+  if (v !== void 0) out.v = v;
+  const tRaw = raw.t ?? raw.time ?? raw.Time ?? raw.timestamp ?? raw.T;
+  if (tRaw !== void 0) out.t = tRaw;
+  return out;
+}
+function normalizeCandles(raw) {
+  if (!Array.isArray(raw)) return raw;
+  return raw.map(normalizeCandle);
+}
+function countReadableCloses(candles) {
+  if (!Array.isArray(candles)) return 0;
+  return candles.filter((b) => typeof b?.c === "number" && isFinite(b.c) && b.c > 0).length;
+}
+
+// server/routes.ts
 init_tl_risk_settings();
 init_alpaca();
 init_tastytrade();
@@ -65570,7 +65613,8 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
           eaDisabled: true
         });
       }
-      const { symbol, timeframe, broker, timestamp: timestamp2, candles, indicators, account, eaSettings } = req.body;
+      const { symbol, timeframe, broker, timestamp: timestamp2, candles: _rawCandles, indicators, account, eaSettings } = req.body;
+      const candles = normalizeCandles(_rawCandles);
       if (!symbol || typeof symbol !== "string") {
         return res.status(400).json({
           error: "Invalid or missing symbol",
@@ -66563,7 +66607,8 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
           analysis.trend = maTrend;
           if (!(analysis.signal !== "NEUTRAL" && currentPrice && atr2)) {
             const _c0 = Array.isArray(candles) ? candles[0] : void 0;
-            _diagCap.planSkip = `sig=${analysis.signal} price=${currentPrice ?? "nil"} atr=${atr2 ?? "nil"} bars=${candles?.length ?? 0} bid=${indicators?.price?.bid ?? "nil"} hasPriceObj=${!!indicators?.price} c0=${_c0 === void 0 ? "undefined" : `c:${_c0?.c ?? "nil"}/keys:${Object.keys(_c0 ?? {}).join("|") || "none"}`}`;
+            const _readable = countReadableCloses(candles);
+            _diagCap.planSkip = `sig=${analysis.signal} price=${currentPrice ?? "nil"} atr=${atr2 ?? "nil"} bars=${candles?.length ?? 0} bid=${indicators?.price?.bid ?? "nil"} hasPriceObj=${!!indicators?.price} c0=${_c0 === void 0 ? "undefined" : `c:${_c0?.c ?? "nil"}/keys:${Object.keys(_c0 ?? {}).join("|") || "none"}`} readableCloses=${_readable}/${candles?.length ?? 0}`;
           }
           if (analysis.signal !== "NEUTRAL" && currentPrice && atr2) {
             const stopDistance = atr2 * 1.5;
@@ -71052,25 +71097,25 @@ Return this EXACT JSON (no markdown, no commentary):
         news_fade: "\u{1F4F0} News Fade",
         prop_firm_sniper: "\u{1F6E1}\uFE0F Prop Sniper"
       };
-      const W = 1080, H = 1280;
-      const canvas = createCanvas(W, H);
+      const W = 1080, H2 = 1280;
+      const canvas = createCanvas(W, H2);
       const ctx = canvas.getContext("2d");
-      const bg = ctx.createLinearGradient(0, 0, W, H);
+      const bg = ctx.createLinearGradient(0, 0, W, H2);
       bg.addColorStop(0, "#080e1c");
       bg.addColorStop(0.4, "#0f172a");
       bg.addColorStop(0.7, "#130a2a");
       bg.addColorStop(1, "#080e1c");
       ctx.fillStyle = bg;
-      ctx.fillRect(0, 0, W, H);
+      ctx.fillRect(0, 0, W, H2);
       ctx.strokeStyle = "rgba(255,255,255,0.03)";
       ctx.lineWidth = 1;
       for (let gx = 0; gx < W; gx += 60) {
         ctx.beginPath();
         ctx.moveTo(gx, 0);
-        ctx.lineTo(gx, H);
+        ctx.lineTo(gx, H2);
         ctx.stroke();
       }
-      for (let gy = 0; gy < H; gy += 60) {
+      for (let gy = 0; gy < H2; gy += 60) {
         ctx.beginPath();
         ctx.moveTo(0, gy);
         ctx.lineTo(W, gy);
