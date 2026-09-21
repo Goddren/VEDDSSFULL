@@ -64,3 +64,10 @@ services:
       # (heartbeat cg_key, and /api/cryptocom-engine/health).
       - key: COINGECKO_API_KEY
         sync: false
+      # Alchemy RPC for signing and broadcasting swaps. Optional — without it
+      # defi-swap falls back to the public endpoints, which on Base produced
+      # "exceeded maximum retry limit", 90s confirmation timeouts on a ~2s-block
+      # chain, and transactions broadcast then never mined. Each of those costs
+      # gas and leaves a position to reconcile.
+      - key: ALCHEMY_API_KEY
+        sync: false

@@ -36654,9 +36654,20 @@ __export(defi_swap_exports, {
   getWalletTokenBalance: () => getWalletTokenBalance,
   isDefiSwapAvailable: () => isDefiSwapAvailable,
   isTokenTradeable: () => isTokenTradeable,
-  resolveToken: () => resolveToken
+  resolveToken: () => resolveToken,
+  rpcUrlFor: () => rpcUrlFor,
+  usingKeyedRpc: () => usingKeyedRpc
 });
 import { ethers } from "ethers";
+function rpcUrlFor(chainKey) {
+  const key = (process.env.ALCHEMY_API_KEY ?? "").trim();
+  const net = ALCHEMY_NET[chainKey];
+  if (key && net) return `https://${net}.g.alchemy.com/v2/${key}`;
+  return DEFI_CHAINS[chainKey]?.rpc ?? "";
+}
+function usingKeyedRpc() {
+  return !!(process.env.ALCHEMY_API_KEY ?? "").trim();
+}
 function isDefiSwapAvailable() {
   return !!process.env.ZEROX_API_KEY;
 }
@@ -36747,7 +36758,7 @@ async function executeDefiSwap(opts) {
   if (!isDefiSwapAvailable()) return { ok: false, reason: "ZEROX_API_KEY not set on the server" };
   const chain = DEFI_CHAINS[opts.chainKey];
   if (!chain) return { ok: false, reason: `unsupported chain ${opts.chainKey}` };
-  const provider = new ethers.JsonRpcProvider(chain.rpc, chain.chainId);
+  const provider = new ethers.JsonRpcProvider(rpcUrlFor(opts.chainKey), chain.chainId);
   try {
     const wallet = new ethers.Wallet(decryptApiSecret(opts.encryptedPrivateKey), provider);
     let sellToken, buyToken;
@@ -36856,7 +36867,7 @@ async function executeDefiSwap(opts) {
 async function getWalletTokenBalance(chainKey, walletAddress, token) {
   const chain = DEFI_CHAINS[chainKey];
   if (!chain) throw new Error(`unsupported chain ${chainKey}`);
-  const provider = new ethers.JsonRpcProvider(chain.rpc, chain.chainId);
+  const provider = new ethers.JsonRpcProvider(rpcUrlFor(chainKey), chain.chainId);
   try {
     const addr = await resolveToken(chainKey, token);
     if (addr === NATIVE_PSEUDO) return Number(ethers.formatEther(await provider.getBalance(walletAddress)));
@@ -36873,11 +36884,18 @@ async function getWalletTokenBalance(chainKey, walletAddress, token) {
 function addressFromPrivateKey(pk) {
   return new ethers.Wallet(pk.trim()).address;
 }
-var DEFI_CHAINS, NATIVE_PSEUDO, ERC20_ABI, tokenIndexCache, tokenIndexLoadedAt, TokenListUnavailableError, CG_SLUG, SYMBOL_ALIASES;
+var ALCHEMY_NET, DEFI_CHAINS, NATIVE_PSEUDO, ERC20_ABI, tokenIndexCache, tokenIndexLoadedAt, TokenListUnavailableError, CG_SLUG, SYMBOL_ALIASES;
 var init_defi_swap = __esm({
   "server/services/defi-swap.ts"() {
     "use strict";
     init_cryptocom();
+    ALCHEMY_NET = {
+      ethereum: "eth-mainnet",
+      base: "base-mainnet",
+      arbitrum: "arb-mainnet",
+      optimism: "opt-mainnet",
+      polygon: "polygon-mainnet"
+    };
     DEFI_CHAINS = {
       ethereum: { chainId: 1, rpc: "https://ethereum-rpc.publicnode.com", name: "Ethereum", native: "ETH", usdc: "0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48", weth: "0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2" },
       base: { chainId: 8453, rpc: "https://base-rpc.publicnode.com", name: "Base", native: "ETH", usdc: "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913", weth: "0x4200000000000000000000000000000000000006" },
@@ -55248,9 +55266,9 @@ async function getStopOrdersForUser(userId, filters = {}) {
 init_schema();
 
 // server/build-info.ts
-var BUILD_COMMIT = "3cf0f087-dirty";
+var BUILD_COMMIT = "1e312cb9-dirty";
 var BUILD_BRANCH = "main";
-var BUILT_AT = "2026-09-21T02:57:27.046Z";
+var BUILT_AT = "2026-09-21T03:17:21.116Z";
 
 // server/stripe.ts
 init_db();

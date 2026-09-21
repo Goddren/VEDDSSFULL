@@ -9,6 +9,39 @@
 import { ethers } from 'ethers';
 import { decryptApiSecret } from '../cryptocom';
 
+/**
+ * Alchemy network slugs, matching server/services/onchain-indexer.ts so there is
+ * one mapping rather than two that can drift apart.
+ */
+const ALCHEMY_NET: Record<string, string> = {
+  ethereum: 'eth-mainnet', base: 'base-mainnet', arbitrum: 'arb-mainnet',
+  optimism: 'opt-mainnet', polygon: 'polygon-mainnet',
+};
+
+/**
+ * The RPC every swap is signed and broadcast through.
+ *
+ * The public endpoints are rate limited and, on Base, actively unreliable: over
+ * 2026-09-21 they produced "exceeded maximum retry limit", confirmation waits
+ * timing out at 90s on a chain with ~2s blocks, and — worst — transactions that
+ * were broadcast and then never mined at all (receipts not found, USDC never
+ * moved). Every one of those wasted gas and needed a reconciliation pass.
+ *
+ * With ALCHEMY_API_KEY set, swaps route through Alchemy instead. The public
+ * endpoint stays as the fallback so nothing breaks when the key is absent.
+ */
+export function rpcUrlFor(chainKey: string): string {
+  const key = (process.env.ALCHEMY_API_KEY ?? '').trim();
+  const net = ALCHEMY_NET[chainKey];
+  if (key && net) return `https://${net}.g.alchemy.com/v2/${key}`;
+  return DEFI_CHAINS[chainKey]?.rpc ?? '';
+}
+
+/** True when swaps are going through a keyed provider rather than a public one. */
+export function usingKeyedRpc(): boolean {
+  return !!(process.env.ALCHEMY_API_KEY ?? '').trim();
+}
+
 export const DEFI_CHAINS: Record<string, { chainId: number; rpc: string; name: string; native: string; usdc: string; weth: string }> = {
   ethereum: { chainId: 1, rpc: 'https://ethereum-rpc.publicnode.com', name: 'Ethereum', native: 'ETH', usdc: '0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48', weth: '0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2' },
   base: { chainId: 8453, rpc: 'https://base-rpc.publicnode.com', name: 'Base', native: 'ETH', usdc: '0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913', weth: '0x4200000000000000000000000000000000000006' },
@@ -188,7 +221,7 @@ export async function executeDefiSwap(opts: {
   const chain = DEFI_CHAINS[opts.chainKey];
   if (!chain) return { ok: false, reason: `unsupported chain ${opts.chainKey}` };
 
-  const provider = new ethers.JsonRpcProvider(chain.rpc, chain.chainId);
+  const provider = new ethers.JsonRpcProvider(rpcUrlFor(opts.chainKey), chain.chainId);
   try {
   const wallet = new ethers.Wallet(decryptApiSecret(opts.encryptedPrivateKey), provider);
   let sellToken: string, buyToken: string;
@@ -330,7 +363,7 @@ export async function executeDefiSwap(opts: {
 export async function getWalletTokenBalance(chainKey: string, walletAddress: string, token: string): Promise<number> {
   const chain = DEFI_CHAINS[chainKey];
   if (!chain) throw new Error(`unsupported chain ${chainKey}`);
-  const provider = new ethers.JsonRpcProvider(chain.rpc, chain.chainId);
+  const provider = new ethers.JsonRpcProvider(rpcUrlFor(chainKey), chain.chainId);
   try {
     const addr = await resolveToken(chainKey, token);
     if (addr === NATIVE_PSEUDO) return Number(ethers.formatEther(await provider.getBalance(walletAddress)));
