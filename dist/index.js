@@ -19085,6 +19085,12 @@ var init_tradelocker = __esm({
         } catch {
         }
         const norm = (v) => parseFloat(v) || 0;
+        const sanePrice = (v, ref) => {
+          if (!(v > 0)) return void 0;
+          if (!(ref > 0)) return v < 1e7 ? v : void 0;
+          const ratio = v / ref;
+          return ratio > 0.2 && ratio < 5 ? v : void 0;
+        };
         if (!Array.isArray(raw[0])) {
           return raw.map((p) => ({
             id: String(p.id ?? p.positionId ?? ""),
@@ -19094,8 +19100,8 @@ var init_tradelocker = __esm({
             avgPrice: norm(p.avgPrice ?? p.openPrice ?? p.price),
             unrealizedPl: norm(p.unrealizedPl ?? p.unrealizedPnL ?? p.uPnL ?? p.pl),
             openDate: p.openDate || p.createdDate || void 0,
-            stopLoss: norm(p.stopLoss ?? p.sl ?? p.stopLossPrice) || void 0,
-            takeProfit: norm(p.takeProfit ?? p.tp ?? p.takeProfitPrice) || void 0
+            stopLoss: sanePrice(norm(p.stopLoss ?? p.sl ?? p.stopLossPrice), norm(p.avgPrice ?? p.openPrice ?? p.price)),
+            takeProfit: sanePrice(norm(p.takeProfit ?? p.tp ?? p.takeProfitPrice), norm(p.avgPrice ?? p.openPrice ?? p.price))
           }));
         }
         let columns = [];
@@ -19127,8 +19133,15 @@ var init_tradelocker = __esm({
         const iAvg = idx(["avgprice", "openprice", "price"]);
         const iPl = idx(["unrealizedpl", "unrealizedpnl", "pnl", "pl"]);
         const iDate = idx(["opendate", "date"]);
-        const iSl = idx(["stoploss", "sl"]);
-        const iTp = idx(["takeprofit", "tp"]);
+        const idxPrice = (candidates) => {
+          for (const k of candidates) {
+            const exact = columns.indexOf(k);
+            if (exact >= 0) return exact;
+          }
+          return columns.findIndex((c) => !c.endsWith("id") && candidates.some((k) => c.includes(k)));
+        };
+        const iSl = idxPrice(["stoploss", "stoplossprice", "sl"]);
+        const iTp = idxPrice(["takeprofit", "takeprofitprice", "tp"]);
         return raw.map((row) => {
           const instId = iInst >= 0 ? String(row[iInst]) : "";
           return {
@@ -19139,8 +19152,11 @@ var init_tradelocker = __esm({
             avgPrice: iAvg >= 0 ? norm(row[iAvg]) : 0,
             unrealizedPl: iPl >= 0 ? norm(row[iPl]) : 0,
             openDate: iDate >= 0 ? String(row[iDate]) : void 0,
-            stopLoss: iSl >= 0 ? norm(row[iSl]) || void 0 : void 0,
-            takeProfit: iTp >= 0 ? norm(row[iTp]) || void 0 : void 0
+            // Second line of defence, independent of column naming: a protective
+            // level sits near the entry. Anything orders of magnitude away is an id
+            // or a sentinel, not a price, and must not be recorded as protection.
+            stopLoss: sanePrice(iSl >= 0 ? norm(row[iSl]) : 0, iAvg >= 0 ? norm(row[iAvg]) : 0),
+            takeProfit: sanePrice(iTp >= 0 ? norm(row[iTp]) : 0, iAvg >= 0 ? norm(row[iAvg]) : 0)
           };
         });
       }
@@ -55287,9 +55303,9 @@ async function getStopOrdersForUser(userId, filters = {}) {
 init_schema();
 
 // server/build-info.ts
-var BUILD_COMMIT = "47427e55-dirty";
+var BUILD_COMMIT = "821efd4b-dirty";
 var BUILD_BRANCH = "main";
-var BUILT_AT = "2026-09-21T06:23:15.021Z";
+var BUILT_AT = "2026-09-21T12:53:50.319Z";
 
 // server/stripe.ts
 init_db();

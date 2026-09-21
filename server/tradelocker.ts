@@ -1572,6 +1572,17 @@ export class TradeLockerService {
     } catch { /* symbol names degrade to instrument ids */ }
 
     const norm = (v: any) => parseFloat(v) || 0;
+    /**
+     * A stop/target must be within a plausible distance of the entry. Returns
+     * undefined for anything that clearly is not a price, so a bad read shows up
+     * as "no stop recorded" rather than as a stop that can never be hit.
+     */
+    const sanePrice = (v: number, ref: number): number | undefined => {
+      if (!(v > 0)) return undefined;
+      if (!(ref > 0)) return v < 1e7 ? v : undefined;
+      const ratio = v / ref;
+      return (ratio > 0.2 && ratio < 5) ? v : undefined;
+    };
 
     if (!Array.isArray(raw[0])) {
       // Object rows
@@ -1583,8 +1594,8 @@ export class TradeLockerService {
         avgPrice: norm(p.avgPrice ?? p.openPrice ?? p.price),
         unrealizedPl: norm(p.unrealizedPl ?? p.unrealizedPnL ?? p.uPnL ?? p.pl),
         openDate: p.openDate || p.createdDate || undefined,
-        stopLoss: norm(p.stopLoss ?? p.sl ?? p.stopLossPrice) || undefined,
-        takeProfit: norm(p.takeProfit ?? p.tp ?? p.takeProfitPrice) || undefined,
+        stopLoss: sanePrice(norm(p.stopLoss ?? p.sl ?? p.stopLossPrice), norm(p.avgPrice ?? p.openPrice ?? p.price)),
+        takeProfit: sanePrice(norm(p.takeProfit ?? p.tp ?? p.takeProfitPrice), norm(p.avgPrice ?? p.openPrice ?? p.price)),
       }));
     }
 
@@ -1624,8 +1635,22 @@ export class TradeLockerService {
     const iAvg = idx(['avgprice', 'openprice', 'price']);
     const iPl = idx(['unrealizedpl', 'unrealizedpnl', 'pnl', 'pl']);
     const iDate = idx(['opendate', 'date']);
-    const iSl = idx(['stoploss', 'sl']);
-    const iTp = idx(['takeprofit', 'tp']);
+    // Never match an *Id column. TradeLocker's positions schema carries
+    // `stopLossId`/`takeProfitId` — the IDs of the protective ORDERS — alongside
+    // (or instead of) the price columns, and the substring fallback matched
+    // those first. The result was a recorded stop of 288230376151711744 on a
+    // pair trading at 1.34: three constants, one per account, on 100% of
+    // tradelocker_auto rows since 2026-07-13. Anything reading stop_loss —
+    // risk sizing, R-multiples, the position monitor — was reading an order id.
+    const idxPrice = (candidates: string[]) => {
+      for (const k of candidates) {
+        const exact = columns.indexOf(k);
+        if (exact >= 0) return exact;
+      }
+      return columns.findIndex(c => !c.endsWith('id') && candidates.some(k => c.includes(k)));
+    };
+    const iSl = idxPrice(['stoploss', 'stoplossprice', 'sl']);
+    const iTp = idxPrice(['takeprofit', 'takeprofitprice', 'tp']);
 
     return raw.map((row: any[]) => {
       const instId = iInst >= 0 ? String(row[iInst]) : '';
@@ -1637,8 +1662,11 @@ export class TradeLockerService {
         avgPrice: iAvg >= 0 ? norm(row[iAvg]) : 0,
         unrealizedPl: iPl >= 0 ? norm(row[iPl]) : 0,
         openDate: iDate >= 0 ? String(row[iDate]) : undefined,
-        stopLoss: iSl >= 0 ? (norm(row[iSl]) || undefined) : undefined,
-        takeProfit: iTp >= 0 ? (norm(row[iTp]) || undefined) : undefined,
+        // Second line of defence, independent of column naming: a protective
+        // level sits near the entry. Anything orders of magnitude away is an id
+        // or a sentinel, not a price, and must not be recorded as protection.
+        stopLoss: sanePrice(iSl >= 0 ? norm(row[iSl]) : 0, iAvg >= 0 ? norm(row[iAvg]) : 0),
+        takeProfit: sanePrice(iTp >= 0 ? norm(row[iTp]) : 0, iAvg >= 0 ? norm(row[iAvg]) : 0),
       };
     });
   }
