@@ -55287,9 +55287,9 @@ async function getStopOrdersForUser(userId, filters = {}) {
 init_schema();
 
 // server/build-info.ts
-var BUILD_COMMIT = "37b17e24-dirty";
+var BUILD_COMMIT = "47427e55-dirty";
 var BUILD_BRANCH = "main";
-var BUILT_AT = "2026-09-21T04:40:17.167Z";
+var BUILT_AT = "2026-09-21T06:23:15.021Z";
 
 // server/stripe.ts
 init_db();
@@ -67552,7 +67552,12 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
             if (consensusLabel === "STRONG_SKIP") {
               console.log(`[Advisory] ${sanitizedSymbol} STRONG_SKIP inputs: breakout=${useBreakoutMode} propConf=${_propConf} conflict=${_confluenceConflicts} smcBOS=${smcContext?.bosCHOCH?.detected ?? "null"} \u2192 override=${_advisoryOverride}`);
             }
-            const tradeAllowed = consensusLabel !== "STRONG_SKIP" && aiPasses && !overrideTooWeak || _advisoryOverride;
+            const _smcOn = isSMCStrategyEnabled2(token.userId);
+            const _smcSaysNo = _smcOn && aiConfirmation.smcVerdict === "PASS";
+            if (_smcSaysNo) {
+              console.log(`[AI Gate] ${sanitizedSymbol} BLOCKED \u2014 SMC is ON and the model returned smcVerdict=PASS (against structure / into liquidity) while also setting confirmed=${aiConfirmation.confirmed}, confidence=${aiConfirmation.aiConfidence}. The verdict wins.`);
+            }
+            const tradeAllowed = !_smcSaysNo && (consensusLabel !== "STRONG_SKIP" && aiPasses && !overrideTooWeak || _advisoryOverride);
             if (_advisoryOverride) {
               aiConfirmation.confirmed = true;
               aiConfirmation.aiConfidence = Math.max(60, Math.min(preConfirmConfidence, 75));

@@ -10768,9 +10768,31 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
             if (consensusLabel === 'STRONG_SKIP') {
               console.log(`[Advisory] ${sanitizedSymbol} STRONG_SKIP inputs: breakout=${useBreakoutMode} propConf=${_propConf} conflict=${_confluenceConflicts} smcBOS=${smcContext?.bosCHOCH?.detected ?? 'null'} → override=${_advisoryOverride}`);
             }
-            // STRONG_SKIP = both agents independently say NO → hard block,
-            // UNLESS the advisory override applies (strong signal, no conflict).
-            const tradeAllowed = (consensusLabel !== 'STRONG_SKIP' && aiPasses && !overrideTooWeak) || _advisoryOverride;
+            // ── The model's OWN verdict is binding ──────────────────────────
+            // Measured 2026-09-21: the gate approved 286 of 286 confirmations —
+            // including 271 where the model returned smcVerdict='PASS', which its
+            // own prompt defines as "trading against structure or into liquidity",
+            // and 286 where it marked the ICT macro window invalid, on confluence
+            // grades of D (249) and C (37). Its reasoning text said so plainly:
+            // "no BOS/CHOCH on H1 and no fresh OB/FVG sweep - the setup ain't
+            // clean". None of that was consulted: only `confirmed` and a
+            // confidence that has been the constant 75 on every row ever logged.
+            //
+            // So the structured verdict now binds. A model that says PASS does not
+            // get overridden by a confidence number it also produced, and one that
+            // cannot even parrot its own analysis into the flags should not be
+            // trusted to set them.
+            // Only binding when SMC is actually switched on. Note the toggle lives
+            // in an in-memory Map with no DB hydration, so it defaults back to ON
+            // after every deploy whatever the user last chose — worth persisting
+            // separately.
+            const _smcOn = isSMCStrategyEnabled(token.userId);
+            const _smcSaysNo = _smcOn && aiConfirmation.smcVerdict === 'PASS';
+            if (_smcSaysNo) {
+              console.log(`[AI Gate] ${sanitizedSymbol} BLOCKED — SMC is ON and the model returned smcVerdict=PASS (against structure / into liquidity) while also setting confirmed=${aiConfirmation.confirmed}, confidence=${aiConfirmation.aiConfidence}. The verdict wins.`);
+            }
+            const tradeAllowed = !_smcSaysNo
+              && ((consensusLabel !== 'STRONG_SKIP' && aiPasses && !overrideTooWeak) || _advisoryOverride);
             if (_advisoryOverride) {
               // Trade proceeds on the strong signal-gen call; confluence was absent
               // (not conflicting). Confirm + temper the sizing confidence since it
