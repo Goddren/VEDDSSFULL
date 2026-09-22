@@ -12208,12 +12208,21 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
                 const _connGateMode = (tlConn as any).gateMode ?? 'basic';
                 if (_connGateMode === 'full') {
                   const _connEffConf = analysis.confidence - _tlM15ConfPenalty;
+                  // These two are the FIRST skip paths in the loop and were the
+                  // only ones left unrecorded. On 2026-09-22 a USDJPY BUY approved
+                  // 30 times at aiConf 85 / eaConf 98 produced no orders and
+                  // tl_skip was empty, which read as "the loop never runs" — it
+                  // was running and being stopped here, by brain enforcement,
+                  // correctly (USDJPY Asian session: 24.4% WR over 119 trades).
+                  // A skip that only reaches stdout is a skip nobody can find.
                   if (tlFullGatesBlocked) {
                     console.log(`[MT5 AutoTrade] FULL-MODE BLOCK on account ${tlConn.accountId} (${sanitizedSymbol}): ${tlFullGateReason}`);
+                    _markTlSkip(String(tlConn.accountId), `FULL-MODE BLOCK: ${tlFullGateReason}`);
                     continue;
                   }
                   if (_connEffConf < FULL_MODE_CONF_FLOOR) {
                     console.log(`[MT5 AutoTrade] FULL-MODE CONF BLOCK on account ${tlConn.accountId}: ${_connEffConf}% < ${FULL_MODE_CONF_FLOOR}% (penalty: ${_tlM15ConfPenalty}%)`);
+                    _markTlSkip(String(tlConn.accountId), `FULL-MODE CONF BLOCK: ${_connEffConf}% < ${FULL_MODE_CONF_FLOOR}% floor (M15 penalty ${_tlM15ConfPenalty}%)`);
                     continue;
                   }
                 }

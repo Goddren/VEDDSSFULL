@@ -55417,9 +55417,9 @@ async function getStopOrdersForUser(userId, filters = {}) {
 init_schema();
 
 // server/build-info.ts
-var BUILD_COMMIT = "cd2e6f39-dirty";
+var BUILD_COMMIT = "60cfc4f7-dirty";
 var BUILD_BRANCH = "main";
-var BUILT_AT = "2026-09-22T06:59:31.998Z";
+var BUILT_AT = "2026-09-22T07:47:32.017Z";
 
 // server/stripe.ts
 init_db();
@@ -68827,10 +68827,12 @@ BEAR CASE: ${_bearCase || "n/a"}` : aiConfirmation.reasoning;
                     const _connEffConf = analysis.confidence - _tlM15ConfPenalty;
                     if (tlFullGatesBlocked) {
                       console.log(`[MT5 AutoTrade] FULL-MODE BLOCK on account ${tlConn.accountId} (${sanitizedSymbol}): ${tlFullGateReason}`);
+                      _markTlSkip(String(tlConn.accountId), `FULL-MODE BLOCK: ${tlFullGateReason}`);
                       continue;
                     }
                     if (_connEffConf < FULL_MODE_CONF_FLOOR) {
                       console.log(`[MT5 AutoTrade] FULL-MODE CONF BLOCK on account ${tlConn.accountId}: ${_connEffConf}% < ${FULL_MODE_CONF_FLOOR}% (penalty: ${_tlM15ConfPenalty}%)`);
+                      _markTlSkip(String(tlConn.accountId), `FULL-MODE CONF BLOCK: ${_connEffConf}% < ${FULL_MODE_CONF_FLOOR}% floor (M15 penalty ${_tlM15ConfPenalty}%)`);
                       continue;
                     }
                   }
