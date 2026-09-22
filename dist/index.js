@@ -55401,9 +55401,9 @@ async function getStopOrdersForUser(userId, filters = {}) {
 init_schema();
 
 // server/build-info.ts
-var BUILD_COMMIT = "01b2c2b8-dirty";
+var BUILD_COMMIT = "a18a2492-dirty";
 var BUILD_BRANCH = "main";
-var BUILT_AT = "2026-09-22T05:03:54.299Z";
+var BUILT_AT = "2026-09-22T05:16:19.621Z";
 
 // server/stripe.ts
 init_db();
@@ -68617,9 +68617,13 @@ BEAR CASE: ${_bearCase || "n/a"}` : aiConfirmation.reasoning;
           } else {
             const { pool: _ocPool } = await Promise.resolve().then(() => (init_db(), db_exports));
             const _openRows = await _ocPool.query(
-              `SELECT COUNT(*)::int AS n FROM ai_trade_results
-                WHERE user_id = $1 AND result = 'PENDING'
-                  AND source IN ('tradelocker','tradelocker_auto')`,
+              `SELECT COUNT(*)::int AS n FROM ai_trade_results r
+                WHERE r.user_id = $1 AND r.result = 'PENDING'
+                  AND r.source IN ('tradelocker','tradelocker_auto')
+                  AND r.symbol IS NOT NULL AND r.symbol <> ''
+                  AND r.created_at > now() - interval '7 days'
+                  AND EXISTS (SELECT 1 FROM tradelocker_connections tc
+                               WHERE tc.id = r.connection_id AND tc.is_active = true)`,
               [token.userId]
             );
             _openCount = Number(_openRows.rows[0]?.n ?? 0);

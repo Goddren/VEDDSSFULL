@@ -11909,10 +11909,24 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
             // durable record the sync maintains, and it DOES decrement: a close
             // flips the row out of PENDING.
             const { pool: _ocPool } = await import('./db');
+            // Exclude rows that cannot correspond to a closeable position, or
+            // this trades one bad count for another. On 2026-09-22 four orphans
+            // from the phantom-close era (null symbol, one on connection 29 which
+            // no longer exists, aged 1-7 weeks) were enough to hold the count at
+            // 4 against a cap of 2 and block the engine indefinitely:
+            //   • no symbol  -> nothing could ever match or close it
+            //   • dead conn  -> the account it belonged to is gone
+            //   • >7 days    -> the sync polls continuously; a still-PENDING row
+            //                   that old is a bookkeeping failure, not a position
+            // A stale row must never be able to halt live trading.
             const _openRows = await _ocPool.query(
-              `SELECT COUNT(*)::int AS n FROM ai_trade_results
-                WHERE user_id = $1 AND result = 'PENDING'
-                  AND source IN ('tradelocker','tradelocker_auto')`,
+              `SELECT COUNT(*)::int AS n FROM ai_trade_results r
+                WHERE r.user_id = $1 AND r.result = 'PENDING'
+                  AND r.source IN ('tradelocker','tradelocker_auto')
+                  AND r.symbol IS NOT NULL AND r.symbol <> ''
+                  AND r.created_at > now() - interval '7 days'
+                  AND EXISTS (SELECT 1 FROM tradelocker_connections tc
+                               WHERE tc.id = r.connection_id AND tc.is_active = true)`,
               [token.userId]
             );
             _openCount = Number(_openRows.rows[0]?.n ?? 0);
