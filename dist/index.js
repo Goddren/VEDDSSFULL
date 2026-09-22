@@ -28384,17 +28384,17 @@ function getNYTime(ts) {
   };
 }
 async function getBrokerIndexCandles(userId, symbol, mt5Tf) {
-  const cache6 = global.mt5ChartDataCache || {};
+  const cache7 = global.mt5ChartDataCache || {};
   const wanted = new Set(
     [symbol, ...INDEX_BROKER_ALIASES[symbol] || []].map((s) => s.replace(/[^A-Z0-9]/gi, "").toUpperCase())
   );
   const prefix = `mt5_chart_${userId}_`;
   const suffix = `_${mt5Tf}`;
-  for (const key of Object.keys(cache6)) {
+  for (const key of Object.keys(cache7)) {
     if (!key.startsWith(prefix) || !key.endsWith(suffix)) continue;
     const symPart = key.slice(prefix.length, key.length - suffix.length);
     if (wanted.has(symPart.replace(/[^A-Z0-9]/gi, "").toUpperCase())) {
-      const entry = cache6[key];
+      const entry = cache7[key];
       if (entry?.candles?.length) return entry.candles;
     }
   }
@@ -29842,8 +29842,8 @@ async function getLiveAccounts(userId) {
   const mt5 = [];
   const tradelocker = [];
   try {
-    const cache6 = global.mt5AccountData?.[userId];
-    const entries = cache6?.lastUpdated ? [cache6] : Object.values(cache6 || {});
+    const cache7 = global.mt5AccountData?.[userId];
+    const entries = cache7?.lastUpdated ? [cache7] : Object.values(cache7 || {});
     for (const a of entries) {
       if (!a?.lastUpdated) continue;
       const age = (Date.now() - new Date(a.lastUpdated).getTime()) / 1e3;
@@ -34866,8 +34866,8 @@ async function pollBreakoutsForUser(userId) {
         const candleData = convertOHLCVToCandleData(result.bars);
         const breakout = detectMarketOpenBreakout(candleData, rawSymbol, "M15");
         if (breakout) {
-          const symbolKey = rawSymbol.toUpperCase().replace("/", "");
-          state.results[symbolKey] = {
+          const symbolKey2 = rawSymbol.toUpperCase().replace("/", "");
+          state.results[symbolKey2] = {
             symbol: rawSymbol,
             timeframe: "M15",
             session: breakout.session,
@@ -35014,6 +35014,75 @@ var init_ambassador_market_briefing = __esm({
     init_db();
     init_schema();
     MAX_CONFIDENCE_BOOST = 5;
+  }
+});
+
+// server/services/ai-confirmation-cache.ts
+var ai_confirmation_cache_exports = {};
+__export(ai_confirmation_cache_exports, {
+  confirmationCacheStats: () => confirmationCacheStats,
+  getCachedConfirmation: () => getCachedConfirmation,
+  putCachedConfirmation: () => putCachedConfirmation
+});
+function bandKey(userId, symbol, timeframe, direction, eaConf, price) {
+  const cBand = Math.round((Number(eaConf) || 0) / CONF_BAND);
+  const pBand = price > 0 ? Math.round(Math.log(price) / Math.log(1 + PRICE_BAND_PCT / 100)) : 0;
+  return `${userId}:${symbol}:${timeframe}:${direction}:${cBand}:${pBand}`;
+}
+function symbolKey(userId, symbol, timeframe) {
+  return `${userId}:${symbol}:${timeframe}`;
+}
+function getCachedConfirmation(userId, symbol, timeframe, direction, eaConfidence, price) {
+  const now = Date.now();
+  const k = bandKey(userId, symbol, timeframe, direction, eaConfidence, price);
+  const hit = cache4.get(k);
+  if (hit && now - hit.at < TTL_MS) {
+    hits++;
+    return { verdict: hit.verdict, reason: `cached ${Math.round((now - hit.at) / 1e3)}s ago (same setup)` };
+  }
+  const sk = symbolKey(userId, symbol, timeframe);
+  const last = lastCallAt.get(sk) ?? 0;
+  if (now - last < FLOOR_MS) {
+    let best = null;
+    for (const [ck, v] of Array.from(cache4.entries())) {
+      if (!ck.startsWith(`${userId}:${symbol}:${timeframe}:${direction}:`)) continue;
+      if (now - v.at > STALE_USABLE_MS) continue;
+      if (!best || v.at > best.at) best = v;
+    }
+    if (best) {
+      throttled++;
+      return { verdict: best.verdict, reason: `throttled (floor ${Math.round(FLOOR_MS / 1e3)}s) \u2014 reusing verdict from ${Math.round((now - best.at) / 1e3)}s ago` };
+    }
+  }
+  misses++;
+  return null;
+}
+function putCachedConfirmation(userId, symbol, timeframe, direction, eaConfidence, price, verdict) {
+  const now = Date.now();
+  cache4.set(bandKey(userId, symbol, timeframe, direction, eaConfidence, price), { verdict, at: now, eaConfidence, price });
+  lastCallAt.set(symbolKey(userId, symbol, timeframe), now);
+  if (cache4.size > 500) {
+    for (const [k, v] of Array.from(cache4.entries())) if (now - v.at > STALE_USABLE_MS) cache4.delete(k);
+  }
+}
+function confirmationCacheStats() {
+  const total = hits + misses + throttled;
+  return { hits, misses, throttled, total, savedPct: total ? Math.round((hits + throttled) / total * 100) : 0, entries: cache4.size };
+}
+var TTL_MS, FLOOR_MS, STALE_USABLE_MS, CONF_BAND, PRICE_BAND_PCT, cache4, lastCallAt, hits, misses, throttled;
+var init_ai_confirmation_cache = __esm({
+  "server/services/ai-confirmation-cache.ts"() {
+    "use strict";
+    TTL_MS = Number(process.env.AI_CONFIRM_CACHE_TTL_MS ?? 3 * 60 * 1e3);
+    FLOOR_MS = Number(process.env.AI_CONFIRM_MIN_INTERVAL_MS ?? 60 * 1e3);
+    STALE_USABLE_MS = Number(process.env.AI_CONFIRM_STALE_MS ?? 10 * 60 * 1e3);
+    CONF_BAND = Number(process.env.AI_CONFIRM_CONF_BAND ?? 5);
+    PRICE_BAND_PCT = Number(process.env.AI_CONFIRM_PRICE_BAND_PCT ?? 0.1);
+    cache4 = /* @__PURE__ */ new Map();
+    lastCallAt = /* @__PURE__ */ new Map();
+    hits = 0;
+    misses = 0;
+    throttled = 0;
   }
 });
 
@@ -35747,7 +35816,7 @@ async function cryptocomTicker(sym) {
 async function getAggregatedQuote(symbol) {
   const sym = symbol.toUpperCase().replace(/[^A-Z0-9]/g, "");
   const hit = _cache.get(sym);
-  if (hit && Date.now() - hit.ts < TTL_MS) return hit.q;
+  if (hit && Date.now() - hit.ts < TTL_MS2) return hit.q;
   const venues = await Promise.all([coinbaseSpot(sym), krakenTicker(sym), geminiTicker(sym), cryptocomTicker(sym)]);
   const priced = venues.filter((v) => typeof v.price === "number" && v.price > 0);
   let best = null;
@@ -35766,11 +35835,11 @@ async function getAggregatedQuotes(symbols) {
   const uniq = Array.from(new Set(symbols.map((s) => s.toUpperCase().replace(/[^A-Z0-9]/g, "")))).slice(0, 25);
   return Promise.all(uniq.map(getAggregatedQuote));
 }
-var TTL_MS, _cache;
+var TTL_MS2, _cache;
 var init_crypto_market_data = __esm({
   "server/services/crypto-market-data.ts"() {
     "use strict";
-    TTL_MS = 15e3;
+    TTL_MS2 = 15e3;
     _cache = /* @__PURE__ */ new Map();
   }
 });
@@ -36611,9 +36680,9 @@ function callBudget() {
 async function gt(path17) {
   const run = async () => {
     for (let attempt = 0; attempt < 3; attempt++) {
-      const wait = Math.max(0, callBudget().minIntervalMs - (Date.now() - lastCallAt));
+      const wait = Math.max(0, callBudget().minIntervalMs - (Date.now() - lastCallAt2));
       if (wait > 0) await new Promise((r) => setTimeout(r, wait));
-      lastCallAt = Date.now();
+      lastCallAt2 = Date.now();
       const res = await fetch(`${GT}${path17}`, {
         headers: cgHeaders(),
         signal: AbortSignal.timeout(2e4)
@@ -36700,7 +36769,7 @@ async function getDefiPrice(chainKey, poolAddress) {
   const last = bars[bars.length - 1];
   return last?.c && last.c > 0 ? last.c : null;
 }
-var GT, GT_NETWORK, SETTLEMENT, callChain, lastCallAt, discoveryCache, TF, candleCache;
+var GT, GT_NETWORK, SETTLEMENT, callChain, lastCallAt2, discoveryCache, TF, candleCache;
 var init_defi_market_data = __esm({
   "server/services/defi-market-data.ts"() {
     "use strict";
@@ -36714,7 +36783,7 @@ var init_defi_market_data = __esm({
     };
     SETTLEMENT = /* @__PURE__ */ new Set(["USDC", "USDBC", "USDC.E"]);
     callChain = Promise.resolve();
-    lastCallAt = 0;
+    lastCallAt2 = 0;
     discoveryCache = null;
     TF = {
       "1m": ["minute", 1],
@@ -48630,22 +48699,22 @@ async function fetchAllPredictions() {
   return predictions;
 }
 async function getSportsPredictions() {
-  if (cache4 && Date.now() - cache4.fetchedAt < CACHE_TTL_MS8) {
-    return cache4.data;
+  if (cache5 && Date.now() - cache5.fetchedAt < CACHE_TTL_MS8) {
+    return cache5.data;
   }
   return refreshSportsPredictions();
 }
 async function refreshSportsPredictions() {
   try {
     const data = await fetchAllPredictions();
-    cache4 = { data, fetchedAt: Date.now() };
+    cache5 = { data, fetchedAt: Date.now() };
     return data;
   } catch (err) {
     console.error("[sports-predictor] Fatal error during refresh:", err);
-    return cache4?.data ?? [];
+    return cache5?.data ?? [];
   }
 }
-var ESPN_BASE, GAMMA_BASE2, GOOGLE_NEWS_BASE, CACHE_TTL_MS8, ELO_K, ELO_DEFAULT, eloRatings, cache4, SPORT_PATHS, KEY_POSITIONS, recentGameDates;
+var ESPN_BASE, GAMMA_BASE2, GOOGLE_NEWS_BASE, CACHE_TTL_MS8, ELO_K, ELO_DEFAULT, eloRatings, cache5, SPORT_PATHS, KEY_POSITIONS, recentGameDates;
 var init_sports_predictor = __esm({
   "server/services/sports-predictor.ts"() {
     "use strict";
@@ -48656,7 +48725,7 @@ var init_sports_predictor = __esm({
     ELO_K = 20;
     ELO_DEFAULT = 1500;
     eloRatings = {};
-    cache4 = null;
+    cache5 = null;
     SPORT_PATHS = {
       nba: "basketball/nba",
       nfl: "football/nfl",
@@ -53176,7 +53245,7 @@ var prop_firm_consistency_audit_loop_exports = {};
 __export(prop_firm_consistency_audit_loop_exports, {
   startPropFirmConsistencyAuditLoop: () => startPropFirmConsistencyAuditLoop
 });
-function cache5() {
+function cache6() {
   global.tlConsistencyStatus = global.tlConsistencyStatus || {};
   return global.tlConsistencyStatus;
 }
@@ -53189,7 +53258,7 @@ async function auditOnce() {
     return;
   }
   if (!connections.length) return;
-  const store = cache5();
+  const store = cache6();
   for (const conn of connections) {
     try {
       const result = await getConsistencyStatus(conn.id, "tradelocker", conn.consistencyThresholdPct, conn.consistencyEnabled !== false);
@@ -55440,9 +55509,9 @@ async function getStopOrdersForUser(userId, filters = {}) {
 init_schema();
 
 // server/build-info.ts
-var BUILD_COMMIT = "c7a6cdc6-dirty";
+var BUILD_COMMIT = "36b1717c-dirty";
 var BUILD_BRANCH = "main";
-var BUILT_AT = "2026-09-22T12:53:09.885Z";
+var BUILT_AT = "2026-09-22T18:54:54.427Z";
 
 // server/stripe.ts
 init_db();
@@ -67628,20 +67697,33 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
                   console.warn("[Breakout Master] Failed to fetch supplemental TF candles:", btfErr);
                 }
               }
-              _cdiag.stage = "breakout_called";
-              aiConfirmation = await getBreakoutConfirmation2(
-                candles,
-                analysis.indicators,
-                analysis.signal,
-                analysis.confidence,
-                analysis.tradePlan,
-                sanitizedSymbol,
-                sanitizedTimeframe,
-                token.userId,
-                multiTFCandles,
-                propFirmCtx
-              );
-              _cdiag.stage = "breakout_returned";
+              const { getCachedConfirmation: _getBC, putCachedConfirmation: _putBC } = await Promise.resolve().then(() => (init_ai_confirmation_cache(), ai_confirmation_cache_exports));
+              const _bcDir = `${analysis.signal}:breakout`;
+              const _bcPrice = Number(analysis.tradePlan?.entry ?? candles?.[0]?.c ?? 0);
+              const _bcHit = _getBC(token.userId, sanitizedSymbol, sanitizedTimeframe, _bcDir, analysis.confidence, _bcPrice);
+              if (_bcHit) {
+                aiConfirmation = _bcHit.verdict;
+                _cdiag.stage = "breakout_cached";
+                console.log(`[Breakout Confirmation] ${sanitizedSymbol}: reused verdict \u2014 ${_bcHit.reason}`);
+              } else {
+                _cdiag.stage = "breakout_called";
+                aiConfirmation = await getBreakoutConfirmation2(
+                  candles,
+                  analysis.indicators,
+                  analysis.signal,
+                  analysis.confidence,
+                  analysis.tradePlan,
+                  sanitizedSymbol,
+                  sanitizedTimeframe,
+                  token.userId,
+                  multiTFCandles,
+                  propFirmCtx
+                );
+                if (aiConfirmation && Number(aiConfirmation.aiConfidence) > 0) {
+                  _putBC(token.userId, sanitizedSymbol, sanitizedTimeframe, _bcDir, analysis.confidence, _bcPrice, aiConfirmation);
+                }
+              }
+              _cdiag.stage = _cdiag.stage === "breakout_cached" ? "breakout_cached" : "breakout_returned";
               _cdiag.decision = aiConfirmation ? aiConfirmation.confirmed ? "CONFIRMED" : "REJECTED" : "NULL";
               _cdiag.model = aiConfirmation?.modelUsed || aiConfirmation?.breakoutGrade || "breakout-engine";
               if (analysis.tradePlan) {
@@ -67763,27 +67845,39 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
               const _weeklyStrat = global.mt5WeeklyStrategies?.[token.userId];
               const resolvedStrategyMode = _stratEngineState?.config?.strategyMode || _weeklyStrat?.strategyMode || _weeklyStrat?.plan?.strategyType || "aggressive";
               console.log(`[AI Confirmation] Strategy mode for ${sanitizedSymbol}: ${resolvedStrategyMode}`);
-              _cdiag.stage = "ai_called";
-              aiConfirmation = await getAiVisionConfirmation2(
-                candles,
-                analysis.indicators,
-                analysis.signal,
-                analysis.confidence,
-                analysis.tradePlan,
-                sanitizedSymbol,
-                sanitizedTimeframe,
-                token.userId,
-                newsContextForAI,
-                ictContext,
-                smcContext,
-                htfLevels.length > 0 ? htfLevels : void 0,
-                propFirmCtx,
-                symbolPerfStats,
-                learnedInsights,
-                resolvedStrategyMode,
-                !!_stratEngineState?.config?.deepReasoningMode
-              );
-              _cdiag.stage = "ai_returned";
+              const { getCachedConfirmation: _getCC, putCachedConfirmation: _putCC } = await Promise.resolve().then(() => (init_ai_confirmation_cache(), ai_confirmation_cache_exports));
+              const _ccPrice = Number(analysis.tradePlan?.entry ?? candles?.[0]?.c ?? 0);
+              const _ccHit = _getCC(token.userId, sanitizedSymbol, sanitizedTimeframe, analysis.signal, analysis.confidence, _ccPrice);
+              if (_ccHit) {
+                aiConfirmation = _ccHit.verdict;
+                _cdiag.stage = "ai_cached";
+                console.log(`[AI Confirmation] ${sanitizedSymbol}: reused verdict \u2014 ${_ccHit.reason}`);
+              } else {
+                _cdiag.stage = "ai_called";
+                aiConfirmation = await getAiVisionConfirmation2(
+                  candles,
+                  analysis.indicators,
+                  analysis.signal,
+                  analysis.confidence,
+                  analysis.tradePlan,
+                  sanitizedSymbol,
+                  sanitizedTimeframe,
+                  token.userId,
+                  newsContextForAI,
+                  ictContext,
+                  smcContext,
+                  htfLevels.length > 0 ? htfLevels : void 0,
+                  propFirmCtx,
+                  symbolPerfStats,
+                  learnedInsights,
+                  resolvedStrategyMode,
+                  !!_stratEngineState?.config?.deepReasoningMode
+                );
+                if (aiConfirmation && Number(aiConfirmation.aiConfidence) > 0) {
+                  _putCC(token.userId, sanitizedSymbol, sanitizedTimeframe, analysis.signal, analysis.confidence, _ccPrice, aiConfirmation);
+                }
+              }
+              _cdiag.stage = _cdiag.stage === "ai_cached" ? "ai_cached" : "ai_returned";
               _cdiag.decision = aiConfirmation ? aiConfirmation.confirmed ? "CONFIRMED" : "REJECTED" : "NULL";
               _cdiag.model = aiConfirmation?.modelUsed || getUserModelPreference2(token.userId);
             }
@@ -69393,8 +69487,8 @@ BEAR CASE: ${_bearCase || "n/a"}` : aiConfirmation.reasoning;
     const userId = req.user.id;
     const { symbol, timeframe } = req.params;
     const chartDataKey = `mt5_chart_${userId}_${symbol}_${timeframe}`;
-    const cache6 = global.mt5ChartDataCache || {};
-    const chartData = cache6[chartDataKey];
+    const cache7 = global.mt5ChartDataCache || {};
+    const chartData = cache7[chartDataKey];
     if (!chartData) {
       return res.status(404).json({ error: "No chart data found. Make sure your MT5 Chart Data EA is running." });
     }
@@ -70837,8 +70931,8 @@ Respond with ONLY valid JSON:
     strategy.progressWinRate = winRate2;
     strategy.progressPercentage = Math.min(100, Math.max(0, Math.round(closedProfit / strategy.profitTarget * 100)));
     const _mt5BalLive = (() => {
-      const cache6 = global.mt5AccountData?.[userId];
-      return cache6 ? Object.values(cache6).reduce((s, a) => s + (a?.balance || 0), 0) : 0;
+      const cache7 = global.mt5AccountData?.[userId];
+      return cache7 ? Object.values(cache7).reduce((s, a) => s + (a?.balance || 0), 0) : 0;
     })();
     const _tlBalLive = Object.values(global.tlAccountData?.[userId] || {}).reduce((s, a) => s + (a?.balance || 0), 0);
     const _liveBalance = _mt5BalLive + _tlBalLive;
@@ -83966,15 +84060,15 @@ Sitemap: ${SEO_BASE_URL}/sitemap.xml
     if (!req.isAuthenticated()) return res.status(401).json({ error: "Unauthorized" });
     const userId = req.user.id;
     const rawSymbol = req.params.symbol.toUpperCase().replace(/[^A-Za-z0-9/_.-]/g, "");
-    const cache6 = global.mt5ChartDataCache || {};
-    const allKeys = Object.keys(cache6);
+    const cache7 = global.mt5ChartDataCache || {};
+    const allKeys = Object.keys(cache7);
     const PREFER_TF = ["M6", "M5", "M1", "M15", "M30", "H1", "H4"];
     let found = null;
     let foundTf = "";
     for (const tf of PREFER_TF) {
       const key = `mt5_chart_${userId}_${rawSymbol}_${tf}`;
-      if (cache6[key]) {
-        found = cache6[key];
+      if (cache7[key]) {
+        found = cache7[key];
         foundTf = tf;
         break;
       }
@@ -83982,7 +84076,7 @@ Sitemap: ${SEO_BASE_URL}/sitemap.xml
     if (!found) {
       const partialKey = allKeys.find((k) => k.includes(`_${userId}_`) && k.includes(rawSymbol));
       if (partialKey) {
-        found = cache6[partialKey];
+        found = cache7[partialKey];
         foundTf = partialKey.split("_").pop() || "";
       }
     }

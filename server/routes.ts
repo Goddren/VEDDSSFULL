@@ -10644,13 +10644,30 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
                   console.warn('[Breakout Master] Failed to fetch supplemental TF candles:', btfErr);
                 }
               }
+              // Same verdict cache as the vision path. The direction key carries a
+              // ':breakout' suffix so the two confirmation types can never serve
+              // each other's answers — they ask different questions.
+              const { getCachedConfirmation: _getBC, putCachedConfirmation: _putBC } =
+                await import('./services/ai-confirmation-cache');
+              const _bcDir = `${analysis.signal}:breakout`;
+              const _bcPrice = Number(analysis.tradePlan?.entry ?? candles?.[0]?.c ?? 0);
+              const _bcHit = _getBC(token.userId, sanitizedSymbol, sanitizedTimeframe, _bcDir, analysis.confidence, _bcPrice);
+              if (_bcHit) {
+                aiConfirmation = _bcHit.verdict;
+                _cdiag.stage = 'breakout_cached';
+                console.log(`[Breakout Confirmation] ${sanitizedSymbol}: reused verdict — ${_bcHit.reason}`);
+              } else {
               _cdiag.stage = 'breakout_called';
               aiConfirmation = await getBreakoutConfirmation(
                 candles, analysis.indicators, analysis.signal, analysis.confidence,
                 analysis.tradePlan, sanitizedSymbol, sanitizedTimeframe,
                 token.userId, multiTFCandles, propFirmCtx
               );
-              _cdiag.stage = 'breakout_returned';
+              if (aiConfirmation && Number((aiConfirmation as any).aiConfidence) > 0) {
+                _putBC(token.userId, sanitizedSymbol, sanitizedTimeframe, _bcDir, analysis.confidence, _bcPrice, aiConfirmation);
+              }
+              }
+              _cdiag.stage = _cdiag.stage === 'breakout_cached' ? 'breakout_cached' : 'breakout_returned';
               _cdiag.decision = aiConfirmation ? (aiConfirmation.confirmed ? 'CONFIRMED' : 'REJECTED') : 'NULL';
               _cdiag.model = (aiConfirmation as any)?.modelUsed || (aiConfirmation as any)?.breakoutGrade || 'breakout-engine';
               // Enforce fixed TP targets in breakout mode — remove trailing stop fields entirely
@@ -10782,6 +10799,20 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
                 'aggressive';
               console.log(`[AI Confirmation] Strategy mode for ${sanitizedSymbol}: ${resolvedStrategyMode}`);
 
+              // Reuse a recent verdict when the setup has not materially moved.
+              // This changes no decision — it avoids re-asking a question already
+              // answered. Measured 2026-09-22: 1,666 calls in 3h resolved to 49
+              // distinct setups (BTCUSD BUY alone asked 273 times), 11,354 calls
+              // in a day, which exhausted the OpenRouter balance mid-session.
+              const { getCachedConfirmation: _getCC, putCachedConfirmation: _putCC } =
+                await import('./services/ai-confirmation-cache');
+              const _ccPrice = Number(analysis.tradePlan?.entry ?? candles?.[0]?.c ?? 0);
+              const _ccHit = _getCC(token.userId, sanitizedSymbol, sanitizedTimeframe, analysis.signal, analysis.confidence, _ccPrice);
+              if (_ccHit) {
+                aiConfirmation = _ccHit.verdict;
+                _cdiag.stage = 'ai_cached';
+                console.log(`[AI Confirmation] ${sanitizedSymbol}: reused verdict — ${_ccHit.reason}`);
+              } else {
               _cdiag.stage = 'ai_called';
               aiConfirmation = await getAiVisionConfirmation(
                 candles, analysis.indicators, analysis.signal, analysis.confidence,
@@ -10791,7 +10822,14 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
                 symbolPerfStats, learnedInsights, resolvedStrategyMode,
                 !!_stratEngineState?.config?.deepReasoningMode
               );
-              _cdiag.stage = 'ai_returned';
+              // Only a REAL answer is cached. An error result (aiConfidence 0 —
+              // e.g. a 402, a timeout) must never be reused: that would pin a
+              // failure in place for the whole TTL instead of retrying.
+              if (aiConfirmation && Number((aiConfirmation as any).aiConfidence) > 0) {
+                _putCC(token.userId, sanitizedSymbol, sanitizedTimeframe, analysis.signal, analysis.confidence, _ccPrice, aiConfirmation);
+              }
+              }
+              _cdiag.stage = _cdiag.stage === 'ai_cached' ? 'ai_cached' : 'ai_returned';
               _cdiag.decision = aiConfirmation ? (aiConfirmation.confirmed ? 'CONFIRMED' : 'REJECTED') : 'NULL';
               _cdiag.model = (aiConfirmation as any)?.modelUsed || getUserModelPreference(token.userId);
             }
