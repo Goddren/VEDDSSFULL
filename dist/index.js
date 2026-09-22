@@ -55401,9 +55401,9 @@ async function getStopOrdersForUser(userId, filters = {}) {
 init_schema();
 
 // server/build-info.ts
-var BUILD_COMMIT = "eb38bf99-dirty";
+var BUILD_COMMIT = "01b2c2b8-dirty";
 var BUILD_BRANCH = "main";
-var BUILT_AT = "2026-09-22T04:36:43.771Z";
+var BUILT_AT = "2026-09-22T05:03:54.299Z";
 
 // server/stripe.ts
 init_db();
@@ -68272,6 +68272,7 @@ BEAR CASE: ${_bearCase || "n/a"}` : aiConfirmation.reasoning;
         if (!_acctBalKnown) {
           tlGateBlocked = true;
           tlGateReason = "Account balance unknown/stale (>15m) \u2014 cannot verify margin/exposure safely";
+          _markGateBlock(tlGateReason);
         }
         if (!tlGateBlocked && _acctBalKnown) {
           const _freeMargin = typeof accountData.freeMargin === "number" ? accountData.freeMargin : null;
@@ -68279,9 +68280,11 @@ BEAR CASE: ${_bearCase || "n/a"}` : aiConfirmation.reasoning;
           if (_freeMargin !== null && _freeMargin <= 0) {
             tlGateBlocked = true;
             tlGateReason = "No free margin available";
+            _markGateBlock(tlGateReason);
           } else if (_marginLevel !== null && _marginLevel > 0 && _marginLevel < 200) {
             tlGateBlocked = true;
             tlGateReason = `Margin level ${_marginLevel.toFixed(0)}% below 200% safety floor`;
+            _markGateBlock(tlGateReason);
           }
         }
         if (!tlGateBlocked && _acctBalKnown) {
@@ -68294,6 +68297,7 @@ BEAR CASE: ${_bearCase || "n/a"}` : aiConfirmation.reasoning;
             if (_lossPct <= -_limit) {
               tlGateBlocked = true;
               tlGateReason = `Daily loss ${_lossPct.toFixed(1)}% \u2264 -${_limit}% circuit breaker (incl. floating)`;
+              _markGateBlock(tlGateReason);
             }
           }
         }
@@ -68305,6 +68309,7 @@ BEAR CASE: ${_bearCase || "n/a"}` : aiConfirmation.reasoning;
           if (_openLots + mt5Volume > _aggCap) {
             tlGateBlocked = true;
             tlGateReason = `Aggregate exposure ${(_openLots + mt5Volume).toFixed(2)} lots exceeds cap ${_aggCap.toFixed(2)}`;
+            _markGateBlock(tlGateReason);
           }
         }
         if (!tlGateBlocked && !mt5PerTradeCapBlocked && _acctBalKnown && analysis.tradePlan?.entry && analysis.tradePlan?.stopLoss) {
@@ -68341,6 +68346,7 @@ BEAR CASE: ${_bearCase || "n/a"}` : aiConfirmation.reasoning;
           if (_ddPct >= _ddLimit) {
             tlGateBlocked = true;
             tlGateReason = `Max drawdown ${_ddPct.toFixed(1)}% \u2265 ${_ddLimit}% from peak $${_peak.toFixed(0)} (equity $${_equity.toFixed(0)})`;
+            _markGateBlock(tlGateReason);
           }
         }
         if (tlGateBlocked) {
@@ -68374,6 +68380,7 @@ BEAR CASE: ${_bearCase || "n/a"}` : aiConfirmation.reasoning;
               if (_pairG?.direction && _pairG.direction !== "BOTH" && _pairG.direction !== analysis.signal) {
                 tlGateBlocked = true;
                 tlGateReason = `Direction blocked: plan=${_pairG.direction}, signal=${analysis.signal}`;
+                _markGateBlock(tlGateReason);
                 analysis.signal = "NEUTRAL";
                 analysis.alerts = analysis.alerts || [];
                 analysis.alerts.push(`BLOCKED: ${analysis.signal !== "NEUTRAL" ? analysis.signal : "Signal"} rejected \u2014 plan only allows ${_pairG.direction} on ${_normG} today`);
@@ -68404,6 +68411,7 @@ BEAR CASE: ${_bearCase || "n/a"}` : aiConfirmation.reasoning;
                 if (_count2 >= _cap2) {
                   tlGateBlocked = true;
                   tlGateReason = `Daily cap: ${_count2}/${_cap2} trades on ${_norm2} today`;
+                  _markGateBlock(tlGateReason);
                   analysis.alerts = analysis.alerts || [];
                   analysis.alerts.push(`BLOCKED: Daily cap reached ${_count2}/${_cap2} for ${_norm2}. Resets midnight UTC.`);
                   console.log(`[TL Gate] ${tlGateReason}`);
@@ -68424,6 +68432,7 @@ BEAR CASE: ${_bearCase || "n/a"}` : aiConfirmation.reasoning;
               if (_dailyPnl <= -_pfCtxG.maxDailyDrawdownPct) {
                 tlGateBlocked = true;
                 tlGateReason = `Prop firm daily DD limit hit (${_dailyPnl.toFixed(2)}%)`;
+                _markGateBlock(tlGateReason);
                 analysis.alerts = analysis.alerts || [];
                 analysis.alerts.push(`\u{1F6E1}\uFE0F PROP FIRM: Daily drawdown limit reached. No more trades today.`);
                 console.log(`[TL Gate] ${tlGateReason}`);
@@ -68433,6 +68442,7 @@ BEAR CASE: ${_bearCase || "n/a"}` : aiConfirmation.reasoning;
                 if (_utcH >= 21 || _utcH < 3) {
                   tlGateBlocked = true;
                   tlGateReason = `Prop firm overnight block (${_utcH}:00 UTC)`;
+                  _markGateBlock(tlGateReason);
                   console.log(`[TL Gate] ${tlGateReason}`);
                 }
               }
@@ -68453,6 +68463,7 @@ BEAR CASE: ${_bearCase || "n/a"}` : aiConfirmation.reasoning;
             if (_count2b >= _liveMaxDaily) {
               tlGateBlocked = true;
               tlGateReason = `Hard daily cap (no plan): ${_count2b}/${_liveMaxDaily} trades on ${_norm2b} today`;
+              _markGateBlock(tlGateReason);
               analysis.alerts = analysis.alerts || [];
               analysis.alerts.push(`BLOCKED: Daily cap reached ${_count2b}/${_liveMaxDaily} for ${_norm2b} (from engine config). Resets midnight UTC.`);
               console.log(`[TL Gate 2b] ${tlGateReason}`);
@@ -68467,12 +68478,14 @@ BEAR CASE: ${_bearCase || "n/a"}` : aiConfirmation.reasoning;
           if (_dirFilter === "buy_only" && (analysis.signal === "SELL" || analysis.signal === "STRONG_SELL")) {
             tlGateBlocked = true;
             tlGateReason = `Direction filter: engine set to BUY_ONLY, blocked ${analysis.signal}`;
+            _markGateBlock(tlGateReason);
             analysis.alerts = analysis.alerts || [];
             analysis.alerts.push(`BLOCKED: Engine direction filter is BUY ONLY \u2014 ${analysis.signal} signal on ${sanitizedSymbol} rejected.`);
             console.log(`[TL Gate 2c] ${tlGateReason}`);
           } else if (_dirFilter === "sell_only" && (analysis.signal === "BUY" || analysis.signal === "STRONG_BUY")) {
             tlGateBlocked = true;
             tlGateReason = `Direction filter: engine set to SELL_ONLY, blocked ${analysis.signal}`;
+            _markGateBlock(tlGateReason);
             analysis.alerts = analysis.alerts || [];
             analysis.alerts.push(`BLOCKED: Engine direction filter is SELL ONLY \u2014 ${analysis.signal} signal on ${sanitizedSymbol} rejected.`);
             console.log(`[TL Gate 2c] ${tlGateReason}`);
@@ -68494,6 +68507,7 @@ BEAR CASE: ${_bearCase || "n/a"}` : aiConfirmation.reasoning;
             if (_todayTradeCount >= _maxDailyTrades) {
               tlGateBlocked = true;
               tlGateReason = `Max daily trades reached: ${_todayTradeCount}/${_maxDailyTrades} (engine config)`;
+              _markGateBlock(tlGateReason);
               analysis.alerts = analysis.alerts || [];
               analysis.alerts.push(`BLOCKED: Max daily trades reached (${_todayTradeCount}/${_maxDailyTrades} from engine config). Resets midnight UTC.`);
               console.log(`[TL Gate 2d] ${tlGateReason}`);
@@ -68601,17 +68615,20 @@ BEAR CASE: ${_bearCase || "n/a"}` : aiConfirmation.reasoning;
           if (_posFresh && Array.isArray(_posData.positions)) {
             _openCount = _posData.positions.length;
           } else {
-            const _logs = await storage.getTradelockerTradeLogs(token.userId, 100);
-            const _dayStart = /* @__PURE__ */ new Date();
-            _dayStart.setUTCHours(0, 0, 0, 0);
-            const _today = _logs.filter((t) => t.createdAt && new Date(t.createdAt) >= _dayStart && t.status === "executed");
-            const _opens = _today.filter((t) => t.action === "OPEN").length;
-            const _closes = _today.filter((t) => t.action === "CLOSE" || t.action === "CLOSE_ALL").length;
-            _openCount = Math.max(0, _opens - _closes);
+            const { pool: _ocPool } = await Promise.resolve().then(() => (init_db(), db_exports));
+            const _openRows = await _ocPool.query(
+              `SELECT COUNT(*)::int AS n FROM ai_trade_results
+                WHERE user_id = $1 AND result = 'PENDING'
+                  AND source IN ('tradelocker','tradelocker_auto')`,
+              [token.userId]
+            );
+            _openCount = Number(_openRows.rows[0]?.n ?? 0);
+            console.log(`[TL Gate 4] live MT5 position data stale \u2014 counting ${_openCount} still-open TradeLocker position(s) from ai_trade_results.`);
           }
           if (_openCount >= tlMaxOpen) {
             tlGateBlocked = true;
             tlGateReason = `Max open trades reached (${_openCount}/${tlMaxOpen})`;
+            _markGateBlock(tlGateReason);
             analysis.alerts = analysis.alerts || [];
             analysis.alerts.push(`BLOCKED: Max open trades ${_openCount}/${tlMaxOpen} on TradeLocker.`);
             console.log(`[TL Gate] ${tlGateReason}`);
@@ -68637,6 +68654,7 @@ BEAR CASE: ${_bearCase || "n/a"}` : aiConfirmation.reasoning;
               tlGateBlocked = true;
               analysis.signal = "NEUTRAL";
               tlGateReason = `Correlation cap: ${_sameBias} ${_newBias.replace("_", " ")} positions already open (max ${_MAX_SAME_USD})`;
+              _markGateBlock(tlGateReason);
               analysis.alerts = analysis.alerts || [];
               analysis.alerts.push(`\u{1F6E1}\uFE0F RISK BLOCK: ${tlGateReason}. Avoiding over-concentration in one currency.`);
               console.warn(`[TL Gate 5 correlation] ${tlGateReason}`);
@@ -68651,6 +68669,7 @@ BEAR CASE: ${_bearCase || "n/a"}` : aiConfirmation.reasoning;
           tlGateBlocked = true;
           analysis.signal = "NEUTRAL";
           tlGateReason = `Counter-trend: ${analysis.signal} against macro ${_htfMacroTrend} HTF trend at ${analysis.confidence}% (<82% needed)`;
+          _markGateBlock(tlGateReason);
           analysis.alerts = analysis.alerts || [];
           analysis.alerts.push(`\u{1F6E1}\uFE0F RISK BLOCK: counter-trend trade against the higher-timeframe ${_htfMacroTrend} trend blocked (needs 82%+ confidence).`);
           console.warn(`[TL Gate 6 counter-trend] ${tlGateReason}`);

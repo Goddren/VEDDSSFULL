@@ -11473,6 +11473,7 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
         if (!_acctBalKnown) {
           tlGateBlocked = true;
           tlGateReason = 'Account balance unknown/stale (>15m) — cannot verify margin/exposure safely';
+          _markGateBlock(tlGateReason);
         }
 
         // 0b. Margin health — broker-reported free margin & margin level
@@ -11482,9 +11483,11 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
           if (_freeMargin !== null && _freeMargin <= 0) {
             tlGateBlocked = true;
             tlGateReason = 'No free margin available';
+            _markGateBlock(tlGateReason);
           } else if (_marginLevel !== null && _marginLevel > 0 && _marginLevel < 200) {
             tlGateBlocked = true;
             tlGateReason = `Margin level ${_marginLevel.toFixed(0)}% below 200% safety floor`;
+            _markGateBlock(tlGateReason);
           }
         }
 
@@ -11502,6 +11505,7 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
             if (_lossPct <= -_limit) {
               tlGateBlocked = true;
               tlGateReason = `Daily loss ${_lossPct.toFixed(1)}% ≤ -${_limit}% circuit breaker (incl. floating)`;
+              _markGateBlock(tlGateReason);
             }
           }
         }
@@ -11515,6 +11519,7 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
           if (_openLots + mt5Volume > _aggCap) {
             tlGateBlocked = true;
             tlGateReason = `Aggregate exposure ${(_openLots + mt5Volume).toFixed(2)} lots exceeds cap ${_aggCap.toFixed(2)}`;
+            _markGateBlock(tlGateReason);
           }
         }
 
@@ -11574,6 +11579,7 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
           if (_ddPct >= _ddLimit) {
             tlGateBlocked = true;
             tlGateReason = `Max drawdown ${_ddPct.toFixed(1)}% ≥ ${_ddLimit}% from peak $${_peak.toFixed(0)} (equity $${_equity.toFixed(0)})`;
+            _markGateBlock(tlGateReason);
           }
         }
 
@@ -11622,6 +11628,7 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
               if (_pairG?.direction && _pairG.direction !== 'BOTH' && _pairG.direction !== analysis.signal) {
                 tlGateBlocked = true;
                 tlGateReason = `Direction blocked: plan=${_pairG.direction}, signal=${analysis.signal}`;
+                _markGateBlock(tlGateReason);
                 analysis.signal = 'NEUTRAL'; // neutralise so downstream also stops
                 analysis.alerts = analysis.alerts || [];
                 analysis.alerts.push(`BLOCKED: ${analysis.signal !== 'NEUTRAL' ? analysis.signal : 'Signal'} rejected — plan only allows ${_pairG.direction} on ${_normG} today`);
@@ -11653,6 +11660,7 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
                 if (_count2 >= _cap2) {
                   tlGateBlocked = true;
                   tlGateReason = `Daily cap: ${_count2}/${_cap2} trades on ${_norm2} today`;
+                  _markGateBlock(tlGateReason);
                   analysis.alerts = analysis.alerts || [];
                   analysis.alerts.push(`BLOCKED: Daily cap reached ${_count2}/${_cap2} for ${_norm2}. Resets midnight UTC.`);
                   console.log(`[TL Gate] ${tlGateReason}`);
@@ -11674,6 +11682,7 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
               if (_dailyPnl <= -(_pfCtxG.maxDailyDrawdownPct)) {
                 tlGateBlocked = true;
                 tlGateReason = `Prop firm daily DD limit hit (${_dailyPnl.toFixed(2)}%)`;
+                _markGateBlock(tlGateReason);
                 analysis.alerts = analysis.alerts || [];
                 analysis.alerts.push(`🛡️ PROP FIRM: Daily drawdown limit reached. No more trades today.`);
                 console.log(`[TL Gate] ${tlGateReason}`);
@@ -11683,6 +11692,7 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
                 if (_utcH >= 21 || _utcH < 3) {
                   tlGateBlocked = true;
                   tlGateReason = `Prop firm overnight block (${_utcH}:00 UTC)`;
+                  _markGateBlock(tlGateReason);
                   console.log(`[TL Gate] ${tlGateReason}`);
                 }
               }
@@ -11706,6 +11716,7 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
             if (_count2b >= _liveMaxDaily) {
               tlGateBlocked = true;
               tlGateReason = `Hard daily cap (no plan): ${_count2b}/${_liveMaxDaily} trades on ${_norm2b} today`;
+              _markGateBlock(tlGateReason);
               analysis.alerts = analysis.alerts || [];
               analysis.alerts.push(`BLOCKED: Daily cap reached ${_count2b}/${_liveMaxDaily} for ${_norm2b} (from engine config). Resets midnight UTC.`);
               console.log(`[TL Gate 2b] ${tlGateReason}`);
@@ -11721,12 +11732,14 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
           if (_dirFilter === 'buy_only' && (analysis.signal === 'SELL' || analysis.signal === 'STRONG_SELL')) {
             tlGateBlocked = true;
             tlGateReason = `Direction filter: engine set to BUY_ONLY, blocked ${analysis.signal}`;
+            _markGateBlock(tlGateReason);
             analysis.alerts = analysis.alerts || [];
             analysis.alerts.push(`BLOCKED: Engine direction filter is BUY ONLY — ${analysis.signal} signal on ${sanitizedSymbol} rejected.`);
             console.log(`[TL Gate 2c] ${tlGateReason}`);
           } else if (_dirFilter === 'sell_only' && (analysis.signal === 'BUY' || analysis.signal === 'STRONG_BUY')) {
             tlGateBlocked = true;
             tlGateReason = `Direction filter: engine set to SELL_ONLY, blocked ${analysis.signal}`;
+            _markGateBlock(tlGateReason);
             analysis.alerts = analysis.alerts || [];
             analysis.alerts.push(`BLOCKED: Engine direction filter is SELL ONLY — ${analysis.signal} signal on ${sanitizedSymbol} rejected.`);
             console.log(`[TL Gate 2c] ${tlGateReason}`);
@@ -11749,6 +11762,7 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
             if (_todayTradeCount >= _maxDailyTrades) {
               tlGateBlocked = true;
               tlGateReason = `Max daily trades reached: ${_todayTradeCount}/${_maxDailyTrades} (engine config)`;
+              _markGateBlock(tlGateReason);
               analysis.alerts = analysis.alerts || [];
               analysis.alerts.push(`BLOCKED: Max daily trades reached (${_todayTradeCount}/${_maxDailyTrades} from engine config). Resets midnight UTC.`);
               console.log(`[TL Gate 2d] ${tlGateReason}`);
@@ -11882,16 +11896,32 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
           if (_posFresh && Array.isArray(_posData.positions)) {
             _openCount = _posData.positions.length; // real-time truth
           } else {
-            const _logs = await storage.getTradelockerTradeLogs(token.userId, 100);
-            const _dayStart = new Date(); _dayStart.setUTCHours(0, 0, 0, 0);
-            const _today = _logs.filter((t: any) => t.createdAt && new Date(t.createdAt) >= _dayStart && t.status === 'executed');
-            const _opens = _today.filter((t: any) => t.action === 'OPEN').length;
-            const _closes = _today.filter((t: any) => t.action === 'CLOSE' || t.action === 'CLOSE_ALL').length;
-            _openCount = Math.max(0, _opens - _closes);
+            // OPENs-minus-CLOSEs over the trade log CANNOT WORK: closes are
+            // detected by the TradeLocker sync poller and written to
+            // ai_trade_results — nothing ever writes a CLOSE row to
+            // tradelocker_trade_logs. The subtraction is always minus zero, so
+            // this count only ever rose. Measured 2026-09-22: 8 OPEN rows, 0
+            // CLOSE rows, all 8 positions closed at the broker — the gate saw 8
+            // open against a cap of 3 and blocked every signal for the rest of
+            // the UTC day.
+            //
+            // Count what is actually still open instead. ai_trade_results is the
+            // durable record the sync maintains, and it DOES decrement: a close
+            // flips the row out of PENDING.
+            const { pool: _ocPool } = await import('./db');
+            const _openRows = await _ocPool.query(
+              `SELECT COUNT(*)::int AS n FROM ai_trade_results
+                WHERE user_id = $1 AND result = 'PENDING'
+                  AND source IN ('tradelocker','tradelocker_auto')`,
+              [token.userId]
+            );
+            _openCount = Number(_openRows.rows[0]?.n ?? 0);
+            console.log(`[TL Gate 4] live MT5 position data stale — counting ${_openCount} still-open TradeLocker position(s) from ai_trade_results.`);
           }
           if (_openCount >= tlMaxOpen) {
             tlGateBlocked = true;
             tlGateReason = `Max open trades reached (${_openCount}/${tlMaxOpen})`;
+            _markGateBlock(tlGateReason);
             analysis.alerts = analysis.alerts || [];
             analysis.alerts.push(`BLOCKED: Max open trades ${_openCount}/${tlMaxOpen} on TradeLocker.`);
             console.log(`[TL Gate] ${tlGateReason}`);
@@ -11921,6 +11951,7 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
               tlGateBlocked = true;
               analysis.signal = 'NEUTRAL';
               tlGateReason = `Correlation cap: ${_sameBias} ${_newBias.replace('_', ' ')} positions already open (max ${_MAX_SAME_USD})`;
+              _markGateBlock(tlGateReason);
               analysis.alerts = analysis.alerts || [];
               analysis.alerts.push(`🛡️ RISK BLOCK: ${tlGateReason}. Avoiding over-concentration in one currency.`);
               console.warn(`[TL Gate 5 correlation] ${tlGateReason}`);
@@ -11939,6 +11970,7 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
           tlGateBlocked = true;
           analysis.signal = 'NEUTRAL';
           tlGateReason = `Counter-trend: ${analysis.signal} against macro ${_htfMacroTrend} HTF trend at ${analysis.confidence}% (<82% needed)`;
+          _markGateBlock(tlGateReason);
           analysis.alerts = analysis.alerts || [];
           analysis.alerts.push(`🛡️ RISK BLOCK: counter-trend trade against the higher-timeframe ${_htfMacroTrend} trend blocked (needs 82%+ confidence).`);
           console.warn(`[TL Gate 6 counter-trend] ${tlGateReason}`);
