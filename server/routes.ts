@@ -12025,12 +12025,27 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
         }
       }
 
+      // Record when the fan-out is not entered at all. Every skip INSIDE the loop
+      // reports itself, but the four conditions guarding the loop did not — so a
+      // signal that cleared all 17 gates and still produced no order left tl_skip
+      // empty, which reads as "nothing was skipped" rather than "nothing was
+      // reached". Same for an empty connection list.
+      if (!(!tlGateBlocked && analysis.signal !== 'NEUTRAL' &&
+            analysis.confidence >= MIN_CONFIDENCE_FOR_AUTO_TRADE &&
+            analysis.tradePlan)) {
+        if (analysis.signal !== 'NEUTRAL') {
+          _markTlSkip('fan-out', `NOT ENTERED: gateBlocked=${tlGateBlocked} signal=${analysis.signal} conf=${analysis.confidence} required=${MIN_CONFIDENCE_FOR_AUTO_TRADE} hasPlan=${!!analysis.tradePlan} sl=${analysis.tradePlan?.stopLoss ?? 'n/a'}`);
+        }
+      }
       if (!tlGateBlocked && analysis.signal !== 'NEUTRAL' &&
           analysis.confidence >= MIN_CONFIDENCE_FOR_AUTO_TRADE &&
           analysis.tradePlan) {
 
         const tlAllConns = await storage.getUserTradelockerConnections(token.userId);
         const tlActiveConns = tlAllConns.filter((c: any) => c.isActive && c.autoExecute);
+        if (tlActiveConns.length === 0) {
+          _markTlSkip('fan-out', `NO ACTIVE CONNECTIONS: ${tlAllConns.length} total, 0 with isActive && autoExecute`);
+        }
         console.log(`[KNOWLEDGE] Signal MANIFESTED for ${sanitizedSymbol}:`, {
           signal: analysis.signal,
           confidence: analysis.confidence,

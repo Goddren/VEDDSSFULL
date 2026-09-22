@@ -55417,9 +55417,9 @@ async function getStopOrdersForUser(userId, filters = {}) {
 init_schema();
 
 // server/build-info.ts
-var BUILD_COMMIT = "60cfc4f7-dirty";
+var BUILD_COMMIT = "fabc5aa5-dirty";
 var BUILD_BRANCH = "main";
-var BUILT_AT = "2026-09-22T07:47:32.017Z";
+var BUILT_AT = "2026-09-22T07:59:33.300Z";
 
 // server/stripe.ts
 init_db();
@@ -68709,9 +68709,17 @@ BEAR CASE: ${_bearCase || "n/a"}` : aiConfirmation.reasoning;
           console.warn(`[TL Gate 6 counter-trend] ${tlGateReason}`);
         }
       }
+      if (!(!tlGateBlocked && analysis.signal !== "NEUTRAL" && analysis.confidence >= MIN_CONFIDENCE_FOR_AUTO_TRADE && analysis.tradePlan)) {
+        if (analysis.signal !== "NEUTRAL") {
+          _markTlSkip("fan-out", `NOT ENTERED: gateBlocked=${tlGateBlocked} signal=${analysis.signal} conf=${analysis.confidence} required=${MIN_CONFIDENCE_FOR_AUTO_TRADE} hasPlan=${!!analysis.tradePlan} sl=${analysis.tradePlan?.stopLoss ?? "n/a"}`);
+        }
+      }
       if (!tlGateBlocked && analysis.signal !== "NEUTRAL" && analysis.confidence >= MIN_CONFIDENCE_FOR_AUTO_TRADE && analysis.tradePlan) {
         const tlAllConns = await storage.getUserTradelockerConnections(token.userId);
         const tlActiveConns = tlAllConns.filter((c) => c.isActive && c.autoExecute);
+        if (tlActiveConns.length === 0) {
+          _markTlSkip("fan-out", `NO ACTIVE CONNECTIONS: ${tlAllConns.length} total, 0 with isActive && autoExecute`);
+        }
         console.log(`[KNOWLEDGE] Signal MANIFESTED for ${sanitizedSymbol}:`, {
           signal: analysis.signal,
           confidence: analysis.confidence,
