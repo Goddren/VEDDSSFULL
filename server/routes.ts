@@ -11476,18 +11476,24 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
           _markGateBlock(tlGateReason);
         }
 
-        // 0b. Margin health — broker-reported free margin & margin level
-        if (!tlGateBlocked && _acctBalKnown) {
+        // 0b. Margin health — broker-reported free margin & margin level.
+        // MT5-SCOPED: freeMargin and marginLevel are the MT5 terminal's own
+        // figures. They describe that account's health and say nothing about the
+        // TradeLocker prop accounts, so they suppress the EA and nothing else.
+        // There is no TradeLocker equivalent because the API does not expose a
+        // margin level — the prop accounts are instead protected by the
+        // per-account daily-loss, exposure and 5% per-trade checks in the fan-out.
+        if (!tlGateBlocked && !mt5PerTradeCapBlocked && _acctBalKnown) {
           const _freeMargin  = typeof accountData.freeMargin === 'number' ? accountData.freeMargin : null;
           const _marginLevel = typeof accountData.marginLevel === 'number' ? accountData.marginLevel : null;
           if (_freeMargin !== null && _freeMargin <= 0) {
-            tlGateBlocked = true;
-            tlGateReason = 'No free margin available';
-            _markGateBlock(tlGateReason);
+            mt5PerTradeCapBlocked = true;
+            mt5PerTradeCapReason = 'No free margin available on the MT5 account';
+            _markGateBlock(`MT5-only: ${mt5PerTradeCapReason}`);
           } else if (_marginLevel !== null && _marginLevel > 0 && _marginLevel < 200) {
-            tlGateBlocked = true;
-            tlGateReason = `Margin level ${_marginLevel.toFixed(0)}% below 200% safety floor`;
-            _markGateBlock(tlGateReason);
+            mt5PerTradeCapBlocked = true;
+            mt5PerTradeCapReason = `MT5 margin level ${_marginLevel.toFixed(0)}% below 200% safety floor`;
+            _markGateBlock(`MT5-only: ${mt5PerTradeCapReason}`);
           }
         }
 
@@ -11495,7 +11501,15 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
         // opens. Uses the STRICTER of the legacy dailyLossLimit and the new
         // maxDailyLossPct breaker (default 4%), so protection is active even when
         // the legacy field was never set.
-        if (!tlGateBlocked && _acctBalKnown) {
+        // MT5-SCOPED: dailyPnL and _floating both come from the MT5 terminal, and
+        // the denominator is the MT5 balance. On 2026-09-22 that balance was
+        // $3.62, so a 34-cent floating loss read as -9.4% and hard-killed trading
+        // on three funded prop accounts ($106k/$103k/$100k) that were nowhere near
+        // their own limits. Each TradeLocker account now runs this same breaker
+        // against its OWN realized P&L, floating and equity in the fan-out
+        // (see the per-account safety block), so the protection is not lost —
+        // it is applied to the account it actually describes.
+        if (!tlGateBlocked && !mt5PerTradeCapBlocked && _acctBalKnown) {
           const _limits = [_liveState?.config?.dailyLossLimit ?? 0, _liveState?.config?.maxDailyLossPct ?? 0].filter((x: number) => x > 0);
           if (_limits.length) {
             const _limit = Math.min(..._limits);
@@ -11503,23 +11517,28 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
             const _totalDayPnl = _realizedToday + _floating;
             const _lossPct = (_totalDayPnl / accountData.balance) * 100;
             if (_lossPct <= -_limit) {
-              tlGateBlocked = true;
-              tlGateReason = `Daily loss ${_lossPct.toFixed(1)}% ≤ -${_limit}% circuit breaker (incl. floating)`;
-              _markGateBlock(tlGateReason);
+              mt5PerTradeCapBlocked = true;
+              mt5PerTradeCapReason = `MT5 daily loss ${_lossPct.toFixed(1)}% ≤ -${_limit}% circuit breaker (incl. floating; $${_totalDayPnl.toFixed(2)} on balance $${accountData.balance.toFixed(2)})`;
+              _markGateBlock(`MT5-only: ${mt5PerTradeCapReason}`);
             }
           }
         }
 
-        // 0d. Aggregate exposure cap — total open lots across all positions
-        if (!tlGateBlocked && _acctBalKnown) {
+        // 0d. Aggregate exposure cap — total open lots across all positions.
+        // MT5-SCOPED: _positions is the MT5 terminal's own open-position list and
+        // the cap is derived from the MT5 balance, so both sides of this
+        // comparison describe the MT5 account. Each TradeLocker account runs the
+        // same exposure cap against its own positions and its own equity in the
+        // fan-out, which is the account the lots would actually land on.
+        if (!tlGateBlocked && !mt5PerTradeCapBlocked && _acctBalKnown) {
           const _openLots = _positions.reduce((sum: number, p: any) => sum + (p.lots || p.volume || p.size || 0), 0);
           const _maxLot  = effectiveMaxLot(_liveState?.config?.maxLotSize, accountData.balance, sanitizedSymbol);
           const _maxOpen = _liveState?.config?.maxOpenTrades ?? 3;
           const _aggCap  = _maxLot * _maxOpen * 1.5; // 50% headroom over count×size
           if (_openLots + mt5Volume > _aggCap) {
-            tlGateBlocked = true;
-            tlGateReason = `Aggregate exposure ${(_openLots + mt5Volume).toFixed(2)} lots exceeds cap ${_aggCap.toFixed(2)}`;
-            _markGateBlock(tlGateReason);
+            mt5PerTradeCapBlocked = true;
+            mt5PerTradeCapReason = `MT5 aggregate exposure ${(_openLots + mt5Volume).toFixed(2)} lots exceeds cap ${_aggCap.toFixed(2)}`;
+            _markGateBlock(`MT5-only: ${mt5PerTradeCapReason}`);
           }
         }
 

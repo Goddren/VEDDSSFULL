@@ -55401,9 +55401,9 @@ async function getStopOrdersForUser(userId, filters = {}) {
 init_schema();
 
 // server/build-info.ts
-var BUILD_COMMIT = "a18a2492-dirty";
+var BUILD_COMMIT = "35bfb6ad-dirty";
 var BUILD_BRANCH = "main";
-var BUILT_AT = "2026-09-22T05:16:19.621Z";
+var BUILT_AT = "2026-09-22T05:35:26.742Z";
 
 // server/stripe.ts
 init_db();
@@ -68274,20 +68274,20 @@ BEAR CASE: ${_bearCase || "n/a"}` : aiConfirmation.reasoning;
           tlGateReason = "Account balance unknown/stale (>15m) \u2014 cannot verify margin/exposure safely";
           _markGateBlock(tlGateReason);
         }
-        if (!tlGateBlocked && _acctBalKnown) {
+        if (!tlGateBlocked && !mt5PerTradeCapBlocked && _acctBalKnown) {
           const _freeMargin = typeof accountData.freeMargin === "number" ? accountData.freeMargin : null;
           const _marginLevel = typeof accountData.marginLevel === "number" ? accountData.marginLevel : null;
           if (_freeMargin !== null && _freeMargin <= 0) {
-            tlGateBlocked = true;
-            tlGateReason = "No free margin available";
-            _markGateBlock(tlGateReason);
+            mt5PerTradeCapBlocked = true;
+            mt5PerTradeCapReason = "No free margin available on the MT5 account";
+            _markGateBlock(`MT5-only: ${mt5PerTradeCapReason}`);
           } else if (_marginLevel !== null && _marginLevel > 0 && _marginLevel < 200) {
-            tlGateBlocked = true;
-            tlGateReason = `Margin level ${_marginLevel.toFixed(0)}% below 200% safety floor`;
-            _markGateBlock(tlGateReason);
+            mt5PerTradeCapBlocked = true;
+            mt5PerTradeCapReason = `MT5 margin level ${_marginLevel.toFixed(0)}% below 200% safety floor`;
+            _markGateBlock(`MT5-only: ${mt5PerTradeCapReason}`);
           }
         }
-        if (!tlGateBlocked && _acctBalKnown) {
+        if (!tlGateBlocked && !mt5PerTradeCapBlocked && _acctBalKnown) {
           const _limits = [_liveState?.config?.dailyLossLimit ?? 0, _liveState?.config?.maxDailyLossPct ?? 0].filter((x) => x > 0);
           if (_limits.length) {
             const _limit = Math.min(..._limits);
@@ -68295,21 +68295,21 @@ BEAR CASE: ${_bearCase || "n/a"}` : aiConfirmation.reasoning;
             const _totalDayPnl = _realizedToday + _floating;
             const _lossPct = _totalDayPnl / accountData.balance * 100;
             if (_lossPct <= -_limit) {
-              tlGateBlocked = true;
-              tlGateReason = `Daily loss ${_lossPct.toFixed(1)}% \u2264 -${_limit}% circuit breaker (incl. floating)`;
-              _markGateBlock(tlGateReason);
+              mt5PerTradeCapBlocked = true;
+              mt5PerTradeCapReason = `MT5 daily loss ${_lossPct.toFixed(1)}% \u2264 -${_limit}% circuit breaker (incl. floating; $${_totalDayPnl.toFixed(2)} on balance $${accountData.balance.toFixed(2)})`;
+              _markGateBlock(`MT5-only: ${mt5PerTradeCapReason}`);
             }
           }
         }
-        if (!tlGateBlocked && _acctBalKnown) {
+        if (!tlGateBlocked && !mt5PerTradeCapBlocked && _acctBalKnown) {
           const _openLots = _positions.reduce((sum, p) => sum + (p.lots || p.volume || p.size || 0), 0);
           const _maxLot = effectiveMaxLot(_liveState?.config?.maxLotSize, accountData.balance, sanitizedSymbol);
           const _maxOpen = _liveState?.config?.maxOpenTrades ?? 3;
           const _aggCap = _maxLot * _maxOpen * 1.5;
           if (_openLots + mt5Volume > _aggCap) {
-            tlGateBlocked = true;
-            tlGateReason = `Aggregate exposure ${(_openLots + mt5Volume).toFixed(2)} lots exceeds cap ${_aggCap.toFixed(2)}`;
-            _markGateBlock(tlGateReason);
+            mt5PerTradeCapBlocked = true;
+            mt5PerTradeCapReason = `MT5 aggregate exposure ${(_openLots + mt5Volume).toFixed(2)} lots exceeds cap ${_aggCap.toFixed(2)}`;
+            _markGateBlock(`MT5-only: ${mt5PerTradeCapReason}`);
           }
         }
         if (!tlGateBlocked && !mt5PerTradeCapBlocked && _acctBalKnown && analysis.tradePlan?.entry && analysis.tradePlan?.stopLoss) {
