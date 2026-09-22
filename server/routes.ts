@@ -11453,6 +11453,10 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
       // ═══════════════════════════════════════════════════════════════════
       let tlGateBlocked = false;
       let tlGateReason = '';
+      // Blocks the EA/MT5 destination ONLY — never the TradeLocker fan-out, which
+      // is capped per connection against each account's own balance.
+      let mt5PerTradeCapBlocked = false;
+      let mt5PerTradeCapReason = '';
 
       // ── Gate 0: ACCOUNT SAFETY (margin / balance / daily-loss / exposure) ──
       // Fail-safe: when account health can't be confirmed or risk limits are hit,
@@ -11514,8 +11518,20 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
           }
         }
 
-        // 0e. Per-trade max-loss backstop — hard 5% ceiling regardless of sizing path
-        if (!tlGateBlocked && _acctBalKnown && analysis.tradePlan?.entry && analysis.tradePlan?.stopLoss) {
+        // 0e. Per-trade max-loss backstop — hard 5% ceiling regardless of sizing path.
+        //
+        // SCOPED TO THE MT5/EA ACCOUNT ONLY. accountData is the MT5 terminal's
+        // snapshot, but this used to set tlGateBlocked, which is a hard kill that
+        // also stops the TradeLocker fan-out. On 2026-09-22 that meant an MT5
+        // account holding under ~$32 was blocking trades destined for three funded
+        // prop accounts ($106k / $103k / $100k): the cap printed as "$0" purely
+        // because toFixed(0) rounds anything under $0.50.
+        //
+        // Each destination is now capped against ITS OWN balance — this one guards
+        // the EA, and the per-connection backstop in the TradeLocker fan-out guards
+        // each prop account. Protection is unchanged per account; what is removed
+        // is one account's size vetoing every other account's trade.
+        if (!tlGateBlocked && !mt5PerTradeCapBlocked && _acctBalKnown && analysis.tradePlan?.entry && analysis.tradePlan?.stopLoss) {
           const _slDist = Math.abs(analysis.tradePlan.entry - analysis.tradePlan.stopLoss);
           const _pipSz = getPipSize(sanitizedSymbol);
           const _pipVal = getPipValue(sanitizedSymbol);
@@ -11532,8 +11548,12 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
                 console.warn(`[Gate 0e] ${sanitizedSymbol}: resized ${mt5Volume}→${_cappedVol} lots to fit 5% per-trade cap ($${_maxLossUsd.toFixed(0)})`);
                 mt5Volume = _cappedVol;
               } else {
-                tlGateBlocked = true;
-                tlGateReason = `Per-trade risk exceeds 5% cap even at the 0.01 minimum lot (${_slPips.toFixed(0)} pip stop, $${_maxLossUsd.toFixed(0)} cap)`;
+                mt5PerTradeCapBlocked = true;
+                // Two decimals: a sub-dollar cap is the signal that the account is
+                // tiny, and rounding it to "$0" made a live block look like a bug.
+                mt5PerTradeCapReason = `Per-trade risk exceeds 5% cap even at the 0.01 minimum lot (${_slPips.toFixed(0)} pip stop, $${_maxLossUsd.toFixed(2)} cap on MT5 balance $${accountData.balance.toFixed(2)})`;
+                console.warn(`[Gate 0e MT5-ONLY BLOCK] ${sanitizedSymbol}: ${mt5PerTradeCapReason} — EA suppressed; TradeLocker accounts evaluated on their own balances.`);
+                _markGateBlock(`MT5-only: ${mt5PerTradeCapReason}`);
               }
             }
           }
@@ -12179,6 +12199,46 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
                 if (_eaVolCap) connLot = Math.min(connLot, _eaVolCap.hardMaxLot);
                 console.log(`[TL sizing] ${tlConn.accountId}: ${connLot} lots — ${_sizeLabel}`);
 
+                // ── Per-trade 5% max-loss backstop, PER DESTINATION ACCOUNT ──────
+                // The mirror of Gate 0e, applied to the account that will actually
+                // receive this order. Gate 0e guards the MT5 terminal against its
+                // own balance; this guards each prop account against its own. That
+                // is the whole point of the split: previously a single account's
+                // size could veto every other account's trade, or — worse in the
+                // other direction — a large MT5 balance could wave a trade through
+                // to a small prop account that could not absorb it.
+                //
+                // FAILS CLOSED. If this account's balance cannot be read we skip
+                // the account rather than send an order we cannot size safely.
+                {
+                  const _capEq = _tlEq ?? _tlBal;
+                  if (!(typeof _capEq === 'number' && _capEq > 0)) {
+                    console.warn(`[TL per-trade cap] ${tlConn.accountId} ${sanitizedSymbol}: SKIPPED — account value unavailable, cannot verify the 5% per-trade cap (failing closed).`);
+                    analysis.alerts.push(`RISK SKIP: ${tlConn.accountId} — account balance unreadable, trade not sent.`);
+                    continue;
+                  }
+                  const _cPipSz = getPipSize(sanitizedSymbol);
+                  const _cPipVal = getPipValue(sanitizedSymbol);
+                  const _cSlDist = (_entryPrice && analysis.tradePlan?.stopLoss)
+                    ? Math.abs(_entryPrice - analysis.tradePlan.stopLoss) : 0;
+                  if (_cPipSz > 0 && _cPipVal > 0 && _cSlDist > 0) {
+                    const _cSlPips = _cSlDist / _cPipSz;
+                    const _cCapUsd = _capEq * 0.05;
+                    const _cRisk = connLot * _cSlPips * _cPipVal;
+                    if (_cRisk > _cCapUsd) {
+                      const _cCapped = Math.floor((_cCapUsd / (_cSlPips * _cPipVal)) * 100) / 100;
+                      if (_cCapped >= 0.01) {
+                        console.warn(`[TL per-trade cap] ${tlConn.accountId} ${sanitizedSymbol}: resized ${connLot}→${_cCapped} lots to fit 5% of $${_capEq.toFixed(2)} ($${_cCapUsd.toFixed(2)} cap, ${_cSlPips.toFixed(0)} pip stop)`);
+                        connLot = _cCapped;
+                      } else {
+                        console.warn(`[TL per-trade cap] ${tlConn.accountId} ${sanitizedSymbol}: SKIPPED — even 0.01 lots risks more than 5% of $${_capEq.toFixed(2)} ($${_cCapUsd.toFixed(2)} cap, ${_cSlPips.toFixed(0)} pip stop).`);
+                        analysis.alerts.push(`RISK SKIP: ${tlConn.accountId} — 0.01 lots exceeds the 5% per-trade cap on $${_capEq.toFixed(2)}.`);
+                        continue;
+                      }
+                    }
+                  }
+                }
+
                 // ── Gate 0f: PROP FIRM CONSISTENCY (per-account, HARD gate) ──────────
                 // FTMO-style rule: no single day's profit may exceed a set % of total
                 // profit. Durable (survives restarts) — see server/services/prop-firm-consistency.ts.
@@ -12425,10 +12485,20 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
       if (tlGateBlocked) {
         analysis.tradePlan = null;
       }
+      // The MT5-only per-trade cap suppresses the EA without touching the plan —
+      // the TradeLocker fan-out above needs the stop-loss and has already run with
+      // its own per-account cap. Clearing analysis.tradePlan here would be wrong
+      // for the same reason it is right for tlGateBlocked: this block applies to
+      // ONE destination, not to the signal.
+      if (mt5PerTradeCapBlocked) {
+        console.warn(`[Gate 0e] ${sanitizedSymbol}: EA execution suppressed — ${mt5PerTradeCapReason}`);
+        analysis.alerts.push(`RISK BLOCK (MT5 account only): ${mt5PerTradeCapReason}. Other connected accounts are evaluated separately.`);
+      }
 
       const shouldMT5Execute = !mt5CooldownActive &&
                                 !globalDailyCapBlocked &&
                                 !propFirmDrawdownBlocked &&
+                                !mt5PerTradeCapBlocked &&
                                 analysis.signal !== 'NEUTRAL' &&
                                 analysis.confidence >= MIN_CONFIDENCE_FOR_AUTO_TRADE &&
                                 analysis.tradePlan !== null;
@@ -12552,7 +12622,7 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
         mt5StopLoss: analysis.tradePlan?.stopLoss || 0,
         mt5TakeProfit: analysis.tradePlan?.takeProfit || 0,
         mt5RiskReward: analysis.tradePlan?.riskReward || "0",
-        mt5HasTradePlan: analysis.tradePlan ? true : false,
+        mt5HasTradePlan: (analysis.tradePlan && !mt5PerTradeCapBlocked) ? true : false,
         // Session recommendation for Auto mode
         mt5RecommendedSession: recommendedSession,
         mt5SessionAnalysis: sessionAnalysis,

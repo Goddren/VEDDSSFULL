@@ -55401,9 +55401,9 @@ async function getStopOrdersForUser(userId, filters = {}) {
 init_schema();
 
 // server/build-info.ts
-var BUILD_COMMIT = "e278fc27-dirty";
+var BUILD_COMMIT = "9a8ab21a-dirty";
 var BUILD_BRANCH = "main";
-var BUILT_AT = "2026-09-22T03:59:01.113Z";
+var BUILT_AT = "2026-09-22T04:15:55.624Z";
 
 // server/stripe.ts
 init_db();
@@ -68264,6 +68264,8 @@ BEAR CASE: ${_bearCase || "n/a"}` : aiConfirmation.reasoning;
       }
       let tlGateBlocked = false;
       let tlGateReason = "";
+      let mt5PerTradeCapBlocked = false;
+      let mt5PerTradeCapReason = "";
       if (analysis.signal !== "NEUTRAL") {
         const _positions = global.mt5OpenPositions?.[token.userId]?.positions ?? [];
         const _floating = _positions.reduce((sum, p) => sum + (p.profit || 0), 0);
@@ -68305,7 +68307,7 @@ BEAR CASE: ${_bearCase || "n/a"}` : aiConfirmation.reasoning;
             tlGateReason = `Aggregate exposure ${(_openLots + mt5Volume).toFixed(2)} lots exceeds cap ${_aggCap.toFixed(2)}`;
           }
         }
-        if (!tlGateBlocked && _acctBalKnown && analysis.tradePlan?.entry && analysis.tradePlan?.stopLoss) {
+        if (!tlGateBlocked && !mt5PerTradeCapBlocked && _acctBalKnown && analysis.tradePlan?.entry && analysis.tradePlan?.stopLoss) {
           const _slDist = Math.abs(analysis.tradePlan.entry - analysis.tradePlan.stopLoss);
           const _pipSz = getPipSize(sanitizedSymbol);
           const _pipVal = getPipValue(sanitizedSymbol);
@@ -68319,8 +68321,10 @@ BEAR CASE: ${_bearCase || "n/a"}` : aiConfirmation.reasoning;
                 console.warn(`[Gate 0e] ${sanitizedSymbol}: resized ${mt5Volume}\u2192${_cappedVol} lots to fit 5% per-trade cap ($${_maxLossUsd.toFixed(0)})`);
                 mt5Volume = _cappedVol;
               } else {
-                tlGateBlocked = true;
-                tlGateReason = `Per-trade risk exceeds 5% cap even at the 0.01 minimum lot (${_slPips.toFixed(0)} pip stop, $${_maxLossUsd.toFixed(0)} cap)`;
+                mt5PerTradeCapBlocked = true;
+                mt5PerTradeCapReason = `Per-trade risk exceeds 5% cap even at the 0.01 minimum lot (${_slPips.toFixed(0)} pip stop, $${_maxLossUsd.toFixed(2)} cap on MT5 balance $${accountData.balance.toFixed(2)})`;
+                console.warn(`[Gate 0e MT5-ONLY BLOCK] ${sanitizedSymbol}: ${mt5PerTradeCapReason} \u2014 EA suppressed; TradeLocker accounts evaluated on their own balances.`);
+                _markGateBlock(`MT5-only: ${mt5PerTradeCapReason}`);
               }
             }
           }
@@ -68822,6 +68826,33 @@ BEAR CASE: ${_bearCase || "n/a"}` : aiConfirmation.reasoning;
                   }
                   if (_eaVolCap) connLot = Math.min(connLot, _eaVolCap.hardMaxLot);
                   console.log(`[TL sizing] ${tlConn.accountId}: ${connLot} lots \u2014 ${_sizeLabel}`);
+                  {
+                    const _capEq = _tlEq ?? _tlBal;
+                    if (!(typeof _capEq === "number" && _capEq > 0)) {
+                      console.warn(`[TL per-trade cap] ${tlConn.accountId} ${sanitizedSymbol}: SKIPPED \u2014 account value unavailable, cannot verify the 5% per-trade cap (failing closed).`);
+                      analysis.alerts.push(`RISK SKIP: ${tlConn.accountId} \u2014 account balance unreadable, trade not sent.`);
+                      continue;
+                    }
+                    const _cPipSz = getPipSize(sanitizedSymbol);
+                    const _cPipVal = getPipValue(sanitizedSymbol);
+                    const _cSlDist = _entryPrice && analysis.tradePlan?.stopLoss ? Math.abs(_entryPrice - analysis.tradePlan.stopLoss) : 0;
+                    if (_cPipSz > 0 && _cPipVal > 0 && _cSlDist > 0) {
+                      const _cSlPips = _cSlDist / _cPipSz;
+                      const _cCapUsd = _capEq * 0.05;
+                      const _cRisk = connLot * _cSlPips * _cPipVal;
+                      if (_cRisk > _cCapUsd) {
+                        const _cCapped = Math.floor(_cCapUsd / (_cSlPips * _cPipVal) * 100) / 100;
+                        if (_cCapped >= 0.01) {
+                          console.warn(`[TL per-trade cap] ${tlConn.accountId} ${sanitizedSymbol}: resized ${connLot}\u2192${_cCapped} lots to fit 5% of $${_capEq.toFixed(2)} ($${_cCapUsd.toFixed(2)} cap, ${_cSlPips.toFixed(0)} pip stop)`);
+                          connLot = _cCapped;
+                        } else {
+                          console.warn(`[TL per-trade cap] ${tlConn.accountId} ${sanitizedSymbol}: SKIPPED \u2014 even 0.01 lots risks more than 5% of $${_capEq.toFixed(2)} ($${_cCapUsd.toFixed(2)} cap, ${_cSlPips.toFixed(0)} pip stop).`);
+                          analysis.alerts.push(`RISK SKIP: ${tlConn.accountId} \u2014 0.01 lots exceeds the 5% per-trade cap on $${_capEq.toFixed(2)}.`);
+                          continue;
+                        }
+                      }
+                    }
+                  }
                   if (tlConn.isPropFirmAccount) {
                     try {
                       const { getConsistencyStatus: getConsistencyStatus2 } = await Promise.resolve().then(() => (init_prop_firm_consistency(), prop_firm_consistency_exports));
@@ -69028,7 +69059,11 @@ BEAR CASE: ${_bearCase || "n/a"}` : aiConfirmation.reasoning;
       if (tlGateBlocked) {
         analysis.tradePlan = null;
       }
-      const shouldMT5Execute = !mt5CooldownActive && !globalDailyCapBlocked && !propFirmDrawdownBlocked && analysis.signal !== "NEUTRAL" && analysis.confidence >= MIN_CONFIDENCE_FOR_AUTO_TRADE && analysis.tradePlan !== null;
+      if (mt5PerTradeCapBlocked) {
+        console.warn(`[Gate 0e] ${sanitizedSymbol}: EA execution suppressed \u2014 ${mt5PerTradeCapReason}`);
+        analysis.alerts.push(`RISK BLOCK (MT5 account only): ${mt5PerTradeCapReason}. Other connected accounts are evaluated separately.`);
+      }
+      const shouldMT5Execute = !mt5CooldownActive && !globalDailyCapBlocked && !propFirmDrawdownBlocked && !mt5PerTradeCapBlocked && analysis.signal !== "NEUTRAL" && analysis.confidence >= MIN_CONFIDENCE_FOR_AUTO_TRADE && analysis.tradePlan !== null;
       if (analysis.signal !== "NEUTRAL") {
         if (analysis.confidence < MIN_CONFIDENCE_FOR_AUTO_TRADE) {
           console.log(`[UNDERSTANDING] No rush G - ${sanitizedSymbol} at ${analysis.confidence}% ain't ready. Need ${MIN_CONFIDENCE_FOR_AUTO_TRADE}% to BUILD.`);
@@ -69127,7 +69162,7 @@ BEAR CASE: ${_bearCase || "n/a"}` : aiConfirmation.reasoning;
         mt5StopLoss: analysis.tradePlan?.stopLoss || 0,
         mt5TakeProfit: analysis.tradePlan?.takeProfit || 0,
         mt5RiskReward: analysis.tradePlan?.riskReward || "0",
-        mt5HasTradePlan: analysis.tradePlan ? true : false,
+        mt5HasTradePlan: analysis.tradePlan && !mt5PerTradeCapBlocked ? true : false,
         // Session recommendation for Auto mode
         mt5RecommendedSession: recommendedSession,
         mt5SessionAnalysis: sessionAnalysis,
