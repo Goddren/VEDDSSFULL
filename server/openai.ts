@@ -409,15 +409,21 @@ const DEPRECATED_MODEL_MAP: Record<string, string> = {
   'claude-3-5-sonnet-20241022': 'claude-sonnet-4-6',
   // Groq models decommissioned 2026-06-17 → migrate to current Groq models
   'llama-3.3-70b-versatile': 'openai/gpt-oss-120b',
-  'llama-3.1-8b-instant': 'openai/gpt-oss-20b',
+  'llama-3.1-8b-instant': 'openai/gpt-4o-mini',
   'meta-llama/llama-4-scout-17b-16e-instruct': 'qwen/qwen3-vl-32b-instruct',
   'mixtral-8x7b-32768': 'openai/gpt-oss-120b',
   'qwen/qwen3-32b': 'qwen/qwen3.6-27b',
-  // OpenRouter retired these free slugs (confirmed 404 on live test 2026-07-26) → migrate to a live free model
-  'deepseek/deepseek-chat-v3-0324:free': 'openai/gpt-oss-20b',
-  'deepseek/deepseek-r1:free': 'openai/gpt-oss-20b',
-  'meta-llama/llama-3.3-70b-instruct:free': 'openai/gpt-oss-20b',
-  'qwen/qwen3-235b-a22b:free': 'openai/gpt-oss-20b',
+  // OpenRouter retired these free slugs (confirmed 404 on live test 2026-07-26) → migrate to a live model.
+  // These land on a user's MODEL PREFERENCE, which is what trade confirmation
+  // runs on, so they must not point at a text-only model: gpt-oss-20b cannot read
+  // a chart and returned a constant 75 on 298/298 calls (2026-09-22), making a
+  // minConfidence of 85 unreachable and confirming nothing.
+  'deepseek/deepseek-chat-v3-0324:free': 'openai/gpt-4o-mini',
+  'deepseek/deepseek-r1:free': 'openai/gpt-4o-mini',
+  'meta-llama/llama-3.3-70b-instruct:free': 'openai/gpt-4o-mini',
+  'qwen/qwen3-235b-a22b:free': 'openai/gpt-4o-mini',
+  // Anyone already sitting on the text-only Groq model gets migrated off it too.
+  'openai/gpt-oss-20b': 'openai/gpt-4o-mini',
 };
 
 // Default model when a user hasn't explicitly picked one in AI API Keys settings.
@@ -425,7 +431,19 @@ const DEPRECATED_MODEL_MAP: Record<string, string> = {
 // (SS AI, options/futures/crypto/SOL scanners, ABBA, brain, content gen) routes
 // there by default instead of silently defaulting to paid OpenAI/Groq usage.
 // An explicit per-user selection (via userModelPreferences.set) always wins.
-const DEFAULT_AI_MODEL = 'openai/gpt-oss-20b';
+// Vision-capable by default. userModelPreferences is an in-memory Map, so every
+// deploy resets every user to this value — which meant the default WAS the
+// effective model most of the time, not a rarely-hit fallback.
+//
+// It used to be 'openai/gpt-oss-20b', which is textOnly: it cannot read a chart
+// image, and measured on 2026-09-22 it returned EXACTLY 75 on all 298 calls —
+// a constant, not an assessment. Against a minConfidence of 85 that made the
+// gate unpassable, so the engine confirmed nothing no matter how good the setup.
+// gpt-4o-mini is what VISION_FALLBACK.openrouter already promotes text-only
+// models to, and the comment there describes it as scoring trade confirmations
+// reliably; using it directly means confirmation starts on a capable model
+// instead of depending on the promotion path catching every caller.
+const DEFAULT_AI_MODEL = 'openai/gpt-4o-mini';
 
 export function getUserModelPreference(userId: number): string {
   const pref = userModelPreferences.get(userId) || DEFAULT_AI_MODEL;
