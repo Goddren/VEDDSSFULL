@@ -18,7 +18,12 @@ export interface TLRiskSetting {
   riskPercent: number;     // % of account balance to risk per trade (e.g. 1 = 1%)
 }
 
-const DEFAULT: TLRiskSetting = { useRiskPercent: false, riskPercent: 1.0 };
+// Kept in step with the tradelocker_connections column defaults, so the sidecar
+// fallback can never contradict the durable record. These returned false/1.0
+// while the DB held true/0.5, and a caller that spread this over a row silently
+// reverted the user's chosen sizing — see the GET /api/tradelocker/connections
+// note. The DB is the source of truth; this is a fallback for rows predating it.
+const DEFAULT: TLRiskSetting = { useRiskPercent: true, riskPercent: 0.5 };
 
 function loadAll(): Record<string, TLRiskSetting> {
   try {

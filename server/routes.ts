@@ -15803,8 +15803,27 @@ Rules:
     }
     const userId = (req.user as User).id;
     const connections = await storage.getUserTradelockerConnections(userId);
+    // Risk sizing lives in the DB columns (durable). The JSON sidecar is a
+    // backward-compat fallback ONLY.
+    //
+    // This used to spread getTLRisk() over the row, which silently undid the
+    // user's setting on every deploy: data/*.json sits on Render's ephemeral
+    // disk and is wiped each time, after which getTLRisk() returns hardcoded
+    // defaults ({useRiskPercent:false, riskPercent:1.0}) rather than "unknown" —
+    // and the spread overwrote the correct DB values with them. The engine reads
+    // the DB and kept sizing correctly, so the setting looked reset in the UI
+    // while trades still used the real value, and re-saving it was the only
+    // apparent cure. The sidecar now fills a column only when it is actually
+    // null; a stored value is never overwritten by a default.
     const { getTLRisk } = await import('./services/tl-risk-settings');
-    const safe = connections.map(({ encryptedPassword, accessToken, refreshToken, ...c }) => ({ ...c, ...getTLRisk(c.id) }));
+    const safe = connections.map(({ encryptedPassword, accessToken, refreshToken, ...c }) => {
+      const _json = getTLRisk(c.id);
+      return {
+        ...c,
+        useRiskPercent: (c as any).useRiskPercent ?? _json.useRiskPercent,
+        riskPercent: (c as any).riskPercent ?? _json.riskPercent,
+      };
+    });
     res.json(safe);
   });
 

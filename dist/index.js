@@ -1007,9 +1007,13 @@ var init_schema = __esm({
       // 'basic' = original EA permissive mode (70%) | 'full' = strict gates (74%+brain+HTF)
       brokerName: text("broker_name"),
       // Human-readable broker name derived from serverId (e.g. "Atlas", "FTUK")
-      useRiskPercent: boolean("use_risk_percent").notNull().default(false),
+      // Defaults match the settings actually in use (2026-09-22): risk-% sizing ON at
+      // 0.5% of equity. A new prop account then inherits the intended behaviour
+      // instead of silently copying the source lot at 1% — which had to be corrected
+      // by hand on every connection.
+      useRiskPercent: boolean("use_risk_percent").notNull().default(true),
       // Size by % of this account's equity instead of copying source lot
-      riskPercent: doublePrecision("risk_percent").notNull().default(1),
+      riskPercent: doublePrecision("risk_percent").notNull().default(0.5),
       // % of equity to risk per trade when useRiskPercent=true
       isPropFirmAccount: boolean("is_prop_firm_account").notNull().default(false),
       // Mark this TL account as a prop-firm/funded account
@@ -22054,7 +22058,7 @@ var init_tl_risk_settings = __esm({
   "server/services/tl-risk-settings.ts"() {
     "use strict";
     FILE = path.join(process.cwd(), "data", "tl_risk_settings.json");
-    DEFAULT = { useRiskPercent: false, riskPercent: 1 };
+    DEFAULT = { useRiskPercent: true, riskPercent: 0.5 };
   }
 });
 
@@ -55401,9 +55405,9 @@ async function getStopOrdersForUser(userId, filters = {}) {
 init_schema();
 
 // server/build-info.ts
-var BUILD_COMMIT = "35bfb6ad-dirty";
+var BUILD_COMMIT = "1db8169a-dirty";
 var BUILD_BRANCH = "main";
-var BUILT_AT = "2026-09-22T05:35:26.742Z";
+var BUILT_AT = "2026-09-22T06:12:19.242Z";
 
 // server/stripe.ts
 init_db();
@@ -71838,7 +71842,14 @@ Rules:
     const userId = req.user.id;
     const connections = await storage.getUserTradelockerConnections(userId);
     const { getTLRisk: getTLRisk2 } = await Promise.resolve().then(() => (init_tl_risk_settings(), tl_risk_settings_exports));
-    const safe = connections.map(({ encryptedPassword, accessToken, refreshToken, ...c }) => ({ ...c, ...getTLRisk2(c.id) }));
+    const safe = connections.map(({ encryptedPassword, accessToken, refreshToken, ...c }) => {
+      const _json = getTLRisk2(c.id);
+      return {
+        ...c,
+        useRiskPercent: c.useRiskPercent ?? _json.useRiskPercent,
+        riskPercent: c.riskPercent ?? _json.riskPercent
+      };
+    });
     res.json(safe);
   });
   app2.get("/api/tradelocker/account-balance", async (req, res) => {

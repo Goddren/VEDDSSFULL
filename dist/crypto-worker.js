@@ -741,9 +741,13 @@ var init_schema = __esm({
       // 'basic' = original EA permissive mode (70%) | 'full' = strict gates (74%+brain+HTF)
       brokerName: text("broker_name"),
       // Human-readable broker name derived from serverId (e.g. "Atlas", "FTUK")
-      useRiskPercent: boolean("use_risk_percent").notNull().default(false),
+      // Defaults match the settings actually in use (2026-09-22): risk-% sizing ON at
+      // 0.5% of equity. A new prop account then inherits the intended behaviour
+      // instead of silently copying the source lot at 1% — which had to be corrected
+      // by hand on every connection.
+      useRiskPercent: boolean("use_risk_percent").notNull().default(true),
       // Size by % of this account's equity instead of copying source lot
-      riskPercent: doublePrecision("risk_percent").notNull().default(1),
+      riskPercent: doublePrecision("risk_percent").notNull().default(0.5),
       // % of equity to risk per trade when useRiskPercent=true
       isPropFirmAccount: boolean("is_prop_firm_account").notNull().default(false),
       // Mark this TL account as a prop-firm/funded account
