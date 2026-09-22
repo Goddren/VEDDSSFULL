@@ -29422,6 +29422,29 @@ async function syncTradeLockerTrades(userId, conn, svc) {
     const ticket = `tl_${conn.accountId}_${p.id}`;
     const existing = await storage.getAiTradeResultByTicket(userId, ticket);
     if (existing) continue;
+    let _sl = p.stopLoss || 0;
+    let _tp = p.takeProfit || 0;
+    if (!(_sl > 0)) {
+      try {
+        const { pool: _slPool } = await Promise.resolve().then(() => (init_db(), db_exports));
+        const _sym = String(p.symbol || "").toUpperCase().replace(/[^A-Z0-9]/g, "");
+        const { rows: _lg } = await _slPool.query(
+          `SELECT stop_loss, take_profit FROM tradelocker_trade_logs
+            WHERE user_id = $1 AND connection_id = $2 AND action = 'OPEN' AND status = 'executed'
+              AND upper(regexp_replace(symbol, '[^A-Za-z0-9]', '', 'g')) = $3
+              AND created_at > now() - interval '7 days'
+            ORDER BY created_at DESC LIMIT 1`,
+          [userId, conn.id, _sym]
+        );
+        if (_lg[0]) {
+          if (!(_sl > 0) && Number(_lg[0].stop_loss) > 0) _sl = Number(_lg[0].stop_loss);
+          if (!(_tp > 0) && Number(_lg[0].take_profit) > 0) _tp = Number(_lg[0].take_profit);
+          if (_sl > 0) console.log(`[TL-sync] ${ticket}: broker reported no stop price; recovered SL=${_sl} TP=${_tp || "n/a"} from the order we placed.`);
+        }
+      } catch (e) {
+        console.error(`[TL-sync] ${ticket}: could not recover SL/TP from the trade log (${e?.message}); recording 0.`);
+      }
+    }
     await storage.createAiTradeResult({
       userId,
       symbol: p.symbol,
@@ -29430,8 +29453,8 @@ async function syncTradeLockerTrades(userId, conn, svc) {
       // F5: persist the broker's SL/TP so the row reflects real protection state
       // (was omitted → every tradelocker_auto row showed SL=null/TP=null, masking
       // whether a live position was actually protected).
-      stopLoss: p.stopLoss || 0,
-      takeProfit: p.takeProfit || 0,
+      stopLoss: _sl,
+      takeProfit: _tp,
       aiConfidence: 0,
       result: "PENDING",
       source: "tradelocker_auto",
@@ -55417,9 +55440,9 @@ async function getStopOrdersForUser(userId, filters = {}) {
 init_schema();
 
 // server/build-info.ts
-var BUILD_COMMIT = "fabc5aa5-dirty";
+var BUILD_COMMIT = "c7a6cdc6-dirty";
 var BUILD_BRANCH = "main";
-var BUILT_AT = "2026-09-22T07:59:33.300Z";
+var BUILT_AT = "2026-09-22T12:53:09.885Z";
 
 // server/stripe.ts
 init_db();
