@@ -52895,6 +52895,12 @@ ALTER TABLE "mt5_confirm_diag" ADD COLUMN IF NOT EXISTS "plan_skip" text;
 -- 2026-09-22 a EURUSD SELL was approved 57 times in an hour and placed zero
 -- orders, with no record anywhere of which guard stopped it.
 ALTER TABLE "mt5_confirm_diag" ADD COLUMN IF NOT EXISTS "gate_block" text;
+-- Why the TradeLocker fan-out skipped every connection. Gate blocks are
+-- recorded, but a signal that passes every gate and is then skipped PER
+-- ACCOUNT inside the fan-out left no durable trace \u2014 on 2026-09-22 a USDJPY
+-- BUY approved 30 times at aiConf 85 / eaConf 98 produced zero orders and the
+-- reason existed only in stdout.
+ALTER TABLE "mt5_confirm_diag" ADD COLUMN IF NOT EXISTS "tl_skip" text;
 
 -- Per-account FTMO-style consistency cap (null = platform default 20%).
 ALTER TABLE "tradelocker_connections" ADD COLUMN IF NOT EXISTS "consistency_threshold_pct" double precision;
@@ -55411,9 +55417,9 @@ async function getStopOrdersForUser(userId, filters = {}) {
 init_schema();
 
 // server/build-info.ts
-var BUILD_COMMIT = "8e62adbe-dirty";
+var BUILD_COMMIT = "cd2e6f39-dirty";
 var BUILD_BRANCH = "main";
-var BUILT_AT = "2026-09-22T06:34:08.722Z";
+var BUILT_AT = "2026-09-22T06:59:31.998Z";
 
 // server/stripe.ts
 init_db();
@@ -67400,6 +67406,20 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
         })();
         return _cdiagIdP;
       };
+      const _tlSkips = [];
+      const _markTlSkip = (acct, reason) => {
+        const line = `${acct}: ${reason}`;
+        _tlSkips.push(line);
+        void (async () => {
+          try {
+            const id = await _cdiagIdP;
+            if (!id) return;
+            const { pool: _p } = await Promise.resolve().then(() => (init_db(), db_exports));
+            await _p.query(`UPDATE mt5_confirm_diag SET tl_skip=$1 WHERE id=$2`, [_tlSkips.join(" | ").slice(0, 900), id]);
+          } catch {
+          }
+        })();
+      };
       const _markGateBlock = (reason) => {
         _diagCap.gateBlock = String(reason).slice(0, 300);
         void (async () => {
@@ -68864,6 +68884,7 @@ BEAR CASE: ${_bearCase || "n/a"}` : aiConfirmation.reasoning;
                     if (!(typeof _capEq === "number" && _capEq > 0)) {
                       console.warn(`[TL per-trade cap] ${tlConn.accountId} ${sanitizedSymbol}: SKIPPED \u2014 account value unavailable, cannot verify the 5% per-trade cap (failing closed).`);
                       analysis.alerts.push(`RISK SKIP: ${tlConn.accountId} \u2014 account balance unreadable, trade not sent.`);
+                      _markTlSkip(String(tlConn.accountId), `RISK SKIP: ${tlConn.accountId} \u2014 account balance unreadable, trade not sent.`);
                       continue;
                     }
                     const _cPipSz = getPipSize(sanitizedSymbol);
@@ -68881,6 +68902,7 @@ BEAR CASE: ${_bearCase || "n/a"}` : aiConfirmation.reasoning;
                         } else {
                           console.warn(`[TL per-trade cap] ${tlConn.accountId} ${sanitizedSymbol}: SKIPPED \u2014 even 0.01 lots risks more than 5% of $${_capEq.toFixed(2)} ($${_cCapUsd.toFixed(2)} cap, ${_cSlPips.toFixed(0)} pip stop).`);
                           analysis.alerts.push(`RISK SKIP: ${tlConn.accountId} \u2014 0.01 lots exceeds the 5% per-trade cap on $${_capEq.toFixed(2)}.`);
+                          _markTlSkip(String(tlConn.accountId), `RISK SKIP: ${tlConn.accountId} \u2014 0.01 lots exceeds the 5% per-trade cap on $${_capEq.toFixed(2)}.`);
                           continue;
                         }
                       }
@@ -68892,6 +68914,7 @@ BEAR CASE: ${_bearCase || "n/a"}` : aiConfirmation.reasoning;
                       const _consistency = await getConsistencyStatus2(tlConn.id, "tradelocker", tlConn.consistencyThresholdPct, tlConn.consistencyEnabled !== false);
                       if (_consistency.hardBlocked) {
                         console.log(`[Consistency BLOCK] ${tlConn.accountId}: ${_consistency.guidance}`);
+                        _markTlSkip(String(tlConn.accountId), `[Consistency BLOCK] ${tlConn.accountId}: ${_consistency.guidance}`);
                         continue;
                       }
                       if (_consistency.sizeMultiplier < 1) {
@@ -68921,12 +68944,14 @@ BEAR CASE: ${_bearCase || "n/a"}` : aiConfirmation.reasoning;
                   } catch (_posErr) {
                     console.error(`[TL safety] ${tlConn.accountId}: could not read positions (${_posErr?.message}) \u2014 SKIPPING this account (failing closed).`);
                     analysis.alerts.push(`RISK SKIP: ${tlConn.accountId} \u2014 positions unreadable, trade not sent.`);
+                    _markTlSkip(String(tlConn.accountId), `RISK SKIP: ${tlConn.accountId} \u2014 positions unreadable, trade not sent.`);
                     continue;
                   }
                   try {
                     const _saEq = _tlEq ?? _tlBal;
                     if (!(typeof _saEq === "number" && _saEq > 0)) {
                       console.warn(`[TL safety] ${tlConn.accountId}: SKIPPED \u2014 account value unavailable, cannot evaluate daily-loss or exposure.`);
+                      _markTlSkip(String(tlConn.accountId), `[TL safety] ${tlConn.accountId}: SKIPPED \u2014 account value unavailable, cannot evaluate daily-loss or exposure.`);
                       continue;
                     }
                     const _saFloating = _connPos.reduce((sum, p) => sum + (Number(p.unrealizedPl) || 0), 0);
@@ -68945,6 +68970,7 @@ BEAR CASE: ${_bearCase || "n/a"}` : aiConfirmation.reasoning;
                       if (_saLossPct <= -_saLimit) {
                         console.warn(`[TL safety] ${tlConn.accountId} ${sanitizedSymbol}: SKIPPED \u2014 daily loss ${_saLossPct.toFixed(2)}% \u2264 -${_saLimit}% (realized $${_saRealized.toFixed(2)} + floating $${_saFloating.toFixed(2)} on $${_saEq.toFixed(2)}).`);
                         analysis.alerts.push(`RISK SKIP: ${tlConn.accountId} \u2014 daily loss ${_saLossPct.toFixed(2)}% hit the -${_saLimit}% breaker.`);
+                        _markTlSkip(String(tlConn.accountId), `RISK SKIP: ${tlConn.accountId} \u2014 daily loss ${_saLossPct.toFixed(2)}% hit the -${_saLimit}% breaker.`);
                         continue;
                       }
                     }
@@ -68955,11 +68981,13 @@ BEAR CASE: ${_bearCase || "n/a"}` : aiConfirmation.reasoning;
                     if (_saAggCap > 0 && _saOpenLots + connLot > _saAggCap) {
                       console.warn(`[TL safety] ${tlConn.accountId} ${sanitizedSymbol}: SKIPPED \u2014 exposure ${(_saOpenLots + connLot).toFixed(2)} lots exceeds cap ${_saAggCap.toFixed(2)} for a $${_saEq.toFixed(2)} account.`);
                       analysis.alerts.push(`RISK SKIP: ${tlConn.accountId} \u2014 aggregate exposure cap ${_saAggCap.toFixed(2)} lots reached.`);
+                      _markTlSkip(String(tlConn.accountId), `RISK SKIP: ${tlConn.accountId} \u2014 aggregate exposure cap ${_saAggCap.toFixed(2)} lots reached.`);
                       continue;
                     }
                   } catch (_saErr) {
                     console.error(`[TL safety] ${tlConn.accountId}: safety evaluation failed (${_saErr?.message}) \u2014 SKIPPING this account (failing closed).`);
                     analysis.alerts.push(`RISK SKIP: ${tlConn.accountId} \u2014 safety check errored, trade not sent.`);
+                    _markTlSkip(String(tlConn.accountId), `RISK SKIP: ${tlConn.accountId} \u2014 safety check errored, trade not sent.`);
                     continue;
                   }
                   try {
@@ -68975,6 +69003,7 @@ BEAR CASE: ${_bearCase || "n/a"}` : aiConfirmation.reasoning;
                     if (_loser) {
                       console.log(`[Re-entry THROTTLE] ${tlConn.accountId}: skip ${sanitizedSymbol} ${_wantSide.toUpperCase()} \u2014 existing ${_wantSide.toUpperCase()} position down $${Math.abs(_loser.unrealizedPl).toFixed(2)}. Not stacking into a loser.`);
                       analysis.alerts.push(`RE-ENTRY BLOCKED: existing ${_wantSide.toUpperCase()} ${sanitizedSymbol} position down $${Math.abs(_loser.unrealizedPl).toFixed(2)} \u2014 not adding size.`);
+                      _markTlSkip(String(tlConn.accountId), `RE-ENTRY BLOCKED: existing ${_wantSide.toUpperCase()} ${sanitizedSymbol} position down $${Math.abs(_loser.unrealizedPl).toFixed(2)} \u2014 not adding size.`);
                       continue;
                     }
                   } catch (_thrErr) {
@@ -68982,6 +69011,7 @@ BEAR CASE: ${_bearCase || "n/a"}` : aiConfirmation.reasoning;
                   }
                   if (analysis.tradePlan?._noLevels || !(Number(analysis.tradePlan?.stopLoss) > 0)) {
                     console.warn(`[TL fan-out] ${tlConn.accountId} ${sanitizedSymbol}: skipped \u2014 no valid stop loss on the plan (no naked entries).`);
+                    _markTlSkip(String(tlConn.accountId), `no valid stop loss on the plan (no naked entries) \u2014 sl=${analysis.tradePlan?.stopLoss} noLevels=${!!analysis.tradePlan?._noLevels}`);
                     continue;
                   }
                   try {

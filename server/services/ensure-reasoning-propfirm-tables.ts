@@ -66,6 +66,12 @@ ALTER TABLE "mt5_confirm_diag" ADD COLUMN IF NOT EXISTS "plan_skip" text;
 -- 2026-09-22 a EURUSD SELL was approved 57 times in an hour and placed zero
 -- orders, with no record anywhere of which guard stopped it.
 ALTER TABLE "mt5_confirm_diag" ADD COLUMN IF NOT EXISTS "gate_block" text;
+-- Why the TradeLocker fan-out skipped every connection. Gate blocks are
+-- recorded, but a signal that passes every gate and is then skipped PER
+-- ACCOUNT inside the fan-out left no durable trace — on 2026-09-22 a USDJPY
+-- BUY approved 30 times at aiConf 85 / eaConf 98 produced zero orders and the
+-- reason existed only in stdout.
+ALTER TABLE "mt5_confirm_diag" ADD COLUMN IF NOT EXISTS "tl_skip" text;
 
 -- Per-account FTMO-style consistency cap (null = platform default 20%).
 ALTER TABLE "tradelocker_connections" ADD COLUMN IF NOT EXISTS "consistency_threshold_pct" double precision;

@@ -10456,6 +10456,21 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
       };
       // Annotate that row once a gate decides. Fire-and-forget: a diagnostic must
       // never be able to block or fail a trade.
+      // Per-connection fan-out skips, appended (several accounts can skip for
+      // different reasons on the same signal).
+      const _tlSkips: string[] = [];
+      const _markTlSkip = (acct: string, reason: string) => {
+        const line = `${acct}: ${reason}`;
+        _tlSkips.push(line);
+        void (async () => {
+          try {
+            const id = await _cdiagIdP;
+            if (!id) return;
+            const { pool: _p } = await import('./db');
+            await _p.query(`UPDATE mt5_confirm_diag SET tl_skip=$1 WHERE id=$2`, [_tlSkips.join(' | ').slice(0, 900), id]);
+          } catch { /* diag only */ }
+        })();
+      };
       const _markGateBlock = (reason: string) => {
         _diagCap.gateBlock = String(reason).slice(0, 300);
         void (async () => {
@@ -12280,6 +12295,7 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
                   if (!(typeof _capEq === 'number' && _capEq > 0)) {
                     console.warn(`[TL per-trade cap] ${tlConn.accountId} ${sanitizedSymbol}: SKIPPED — account value unavailable, cannot verify the 5% per-trade cap (failing closed).`);
                     analysis.alerts.push(`RISK SKIP: ${tlConn.accountId} — account balance unreadable, trade not sent.`);
+                    _markTlSkip(String(tlConn.accountId), `RISK SKIP: ${tlConn.accountId} — account balance unreadable, trade not sent.`);
                     continue;
                   }
                   const _cPipSz = getPipSize(sanitizedSymbol);
@@ -12298,6 +12314,7 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
                       } else {
                         console.warn(`[TL per-trade cap] ${tlConn.accountId} ${sanitizedSymbol}: SKIPPED — even 0.01 lots risks more than 5% of $${_capEq.toFixed(2)} ($${_cCapUsd.toFixed(2)} cap, ${_cSlPips.toFixed(0)} pip stop).`);
                         analysis.alerts.push(`RISK SKIP: ${tlConn.accountId} — 0.01 lots exceeds the 5% per-trade cap on $${_capEq.toFixed(2)}.`);
+                        _markTlSkip(String(tlConn.accountId), `RISK SKIP: ${tlConn.accountId} — 0.01 lots exceeds the 5% per-trade cap on $${_capEq.toFixed(2)}.`);
                         continue;
                       }
                     }
@@ -12315,6 +12332,7 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
                     const _consistency = await getConsistencyStatus(tlConn.id, 'tradelocker', (tlConn as any).consistencyThresholdPct, (tlConn as any).consistencyEnabled !== false);
                     if (_consistency.hardBlocked) {
                       console.log(`[Consistency BLOCK] ${tlConn.accountId}: ${_consistency.guidance}`);
+                      _markTlSkip(String(tlConn.accountId), `[Consistency BLOCK] ${tlConn.accountId}: ${_consistency.guidance}`);
                       continue; // skip this account entirely for the rest of today
                     }
                     if (_consistency.sizeMultiplier < 1) {
@@ -12349,6 +12367,7 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
               } catch (_posErr: any) {
                 console.error(`[TL safety] ${tlConn.accountId}: could not read positions (${_posErr?.message}) — SKIPPING this account (failing closed).`);
                 analysis.alerts.push(`RISK SKIP: ${tlConn.accountId} — positions unreadable, trade not sent.`);
+                _markTlSkip(String(tlConn.accountId), `RISK SKIP: ${tlConn.accountId} — positions unreadable, trade not sent.`);
                 continue;
               }
 
@@ -12366,6 +12385,7 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
                 const _saEq = _tlEq ?? _tlBal;
                 if (!(typeof _saEq === 'number' && _saEq > 0)) {
                   console.warn(`[TL safety] ${tlConn.accountId}: SKIPPED — account value unavailable, cannot evaluate daily-loss or exposure.`);
+                  _markTlSkip(String(tlConn.accountId), `[TL safety] ${tlConn.accountId}: SKIPPED — account value unavailable, cannot evaluate daily-loss or exposure.`);
                   continue;
                 }
 
@@ -12386,6 +12406,7 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
                   if (_saLossPct <= -_saLimit) {
                     console.warn(`[TL safety] ${tlConn.accountId} ${sanitizedSymbol}: SKIPPED — daily loss ${_saLossPct.toFixed(2)}% ≤ -${_saLimit}% (realized $${_saRealized.toFixed(2)} + floating $${_saFloating.toFixed(2)} on $${_saEq.toFixed(2)}).`);
                     analysis.alerts.push(`RISK SKIP: ${tlConn.accountId} — daily loss ${_saLossPct.toFixed(2)}% hit the -${_saLimit}% breaker.`);
+                    _markTlSkip(String(tlConn.accountId), `RISK SKIP: ${tlConn.accountId} — daily loss ${_saLossPct.toFixed(2)}% hit the -${_saLimit}% breaker.`);
                     continue;
                   }
                 }
@@ -12398,11 +12419,13 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
                 if (_saAggCap > 0 && _saOpenLots + connLot > _saAggCap) {
                   console.warn(`[TL safety] ${tlConn.accountId} ${sanitizedSymbol}: SKIPPED — exposure ${(_saOpenLots + connLot).toFixed(2)} lots exceeds cap ${_saAggCap.toFixed(2)} for a $${_saEq.toFixed(2)} account.`);
                   analysis.alerts.push(`RISK SKIP: ${tlConn.accountId} — aggregate exposure cap ${_saAggCap.toFixed(2)} lots reached.`);
+                  _markTlSkip(String(tlConn.accountId), `RISK SKIP: ${tlConn.accountId} — aggregate exposure cap ${_saAggCap.toFixed(2)} lots reached.`);
                   continue;
                 }
               } catch (_saErr: any) {
                 console.error(`[TL safety] ${tlConn.accountId}: safety evaluation failed (${_saErr?.message}) — SKIPPING this account (failing closed).`);
                 analysis.alerts.push(`RISK SKIP: ${tlConn.accountId} — safety check errored, trade not sent.`);
+                _markTlSkip(String(tlConn.accountId), `RISK SKIP: ${tlConn.accountId} — safety check errored, trade not sent.`);
                 continue;
               }
 
@@ -12419,6 +12442,7 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
                 if (_loser) {
                   console.log(`[Re-entry THROTTLE] ${tlConn.accountId}: skip ${sanitizedSymbol} ${_wantSide.toUpperCase()} — existing ${_wantSide.toUpperCase()} position down $${Math.abs(_loser.unrealizedPl).toFixed(2)}. Not stacking into a loser.`);
                   analysis.alerts.push(`RE-ENTRY BLOCKED: existing ${_wantSide.toUpperCase()} ${sanitizedSymbol} position down $${Math.abs(_loser.unrealizedPl).toFixed(2)} — not adding size.`);
+                  _markTlSkip(String(tlConn.accountId), `RE-ENTRY BLOCKED: existing ${_wantSide.toUpperCase()} ${sanitizedSymbol} position down $${Math.abs(_loser.unrealizedPl).toFixed(2)} — not adding size.`);
                   continue;
                 }
               } catch (_thrErr: any) {
@@ -12429,6 +12453,7 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
               // the broker, even if some path reaches here with one.
               if ((analysis.tradePlan as any)?._noLevels || !(Number(analysis.tradePlan?.stopLoss) > 0)) {
                 console.warn(`[TL fan-out] ${tlConn.accountId} ${sanitizedSymbol}: skipped — no valid stop loss on the plan (no naked entries).`);
+                _markTlSkip(String(tlConn.accountId), `no valid stop loss on the plan (no naked entries) — sl=${analysis.tradePlan?.stopLoss} noLevels=${!!(analysis.tradePlan as any)?._noLevels}`);
                 continue;
               }
               try {
