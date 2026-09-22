@@ -55401,9 +55401,9 @@ async function getStopOrdersForUser(userId, filters = {}) {
 init_schema();
 
 // server/build-info.ts
-var BUILD_COMMIT = "9a8ab21a-dirty";
+var BUILD_COMMIT = "eb38bf99-dirty";
 var BUILD_BRANCH = "main";
-var BUILT_AT = "2026-09-22T04:15:55.624Z";
+var BUILT_AT = "2026-09-22T04:36:43.771Z";
 
 // server/stripe.ts
 init_db();
@@ -68881,9 +68881,56 @@ BEAR CASE: ${_bearCase || "n/a"}` : aiConfirmation.reasoning;
                     mt5Bal: accountBalance,
                     orderType: _eaOrderType
                   });
+                  let _connPos = null;
                   try {
-                    const _thrSvc = await getOrCreateService(tlConn);
-                    const _thrPos = await _thrSvc.getPositionsNormalized();
+                    const _posSvc = await getOrCreateService(tlConn);
+                    _connPos = await _posSvc.getPositionsNormalized();
+                  } catch (_posErr) {
+                    console.error(`[TL safety] ${tlConn.accountId}: could not read positions (${_posErr?.message}) \u2014 SKIPPING this account (failing closed).`);
+                    analysis.alerts.push(`RISK SKIP: ${tlConn.accountId} \u2014 positions unreadable, trade not sent.`);
+                    continue;
+                  }
+                  try {
+                    const _saEq = _tlEq ?? _tlBal;
+                    if (!(typeof _saEq === "number" && _saEq > 0)) {
+                      console.warn(`[TL safety] ${tlConn.accountId}: SKIPPED \u2014 account value unavailable, cannot evaluate daily-loss or exposure.`);
+                      continue;
+                    }
+                    const _saFloating = _connPos.reduce((sum, p) => sum + (Number(p.unrealizedPl) || 0), 0);
+                    const { pool: _saPool } = await Promise.resolve().then(() => (init_db(), db_exports));
+                    const _saRows = await _saPool.query(
+                      `SELECT COALESCE(SUM(realized_pnl),0) AS pnl FROM prop_firm_daily_pnl
+                    WHERE user_id=$1 AND connection_id=$2 AND trade_date = (now() AT TIME ZONE 'UTC')::date`,
+                      [token.userId, tlConn.id]
+                    );
+                    const _saRealized = Number(_saRows.rows[0]?.pnl ?? 0);
+                    const _saLimits = [_liveState?.config?.dailyLossLimit ?? 0, _liveState?.config?.maxDailyLossPct ?? 0].filter((x) => x > 0);
+                    if (_saLimits.length) {
+                      const _saLimit = Math.min(..._saLimits);
+                      const _saDayPnl = _saRealized + _saFloating;
+                      const _saLossPct = _saDayPnl / _saEq * 100;
+                      if (_saLossPct <= -_saLimit) {
+                        console.warn(`[TL safety] ${tlConn.accountId} ${sanitizedSymbol}: SKIPPED \u2014 daily loss ${_saLossPct.toFixed(2)}% \u2264 -${_saLimit}% (realized $${_saRealized.toFixed(2)} + floating $${_saFloating.toFixed(2)} on $${_saEq.toFixed(2)}).`);
+                        analysis.alerts.push(`RISK SKIP: ${tlConn.accountId} \u2014 daily loss ${_saLossPct.toFixed(2)}% hit the -${_saLimit}% breaker.`);
+                        continue;
+                      }
+                    }
+                    const _saOpenLots = _connPos.reduce((sum, p) => sum + (Number(p.lots ?? p.volume ?? p.size) || 0), 0);
+                    const _saMaxLot = effectiveMaxLot(_liveState?.config?.maxLotSize, _saEq, sanitizedSymbol);
+                    const _saMaxOpen = _liveState?.config?.maxOpenTrades ?? 3;
+                    const _saAggCap = _saMaxLot * _saMaxOpen * 1.5;
+                    if (_saAggCap > 0 && _saOpenLots + connLot > _saAggCap) {
+                      console.warn(`[TL safety] ${tlConn.accountId} ${sanitizedSymbol}: SKIPPED \u2014 exposure ${(_saOpenLots + connLot).toFixed(2)} lots exceeds cap ${_saAggCap.toFixed(2)} for a $${_saEq.toFixed(2)} account.`);
+                      analysis.alerts.push(`RISK SKIP: ${tlConn.accountId} \u2014 aggregate exposure cap ${_saAggCap.toFixed(2)} lots reached.`);
+                      continue;
+                    }
+                  } catch (_saErr) {
+                    console.error(`[TL safety] ${tlConn.accountId}: safety evaluation failed (${_saErr?.message}) \u2014 SKIPPING this account (failing closed).`);
+                    analysis.alerts.push(`RISK SKIP: ${tlConn.accountId} \u2014 safety check errored, trade not sent.`);
+                    continue;
+                  }
+                  try {
+                    const _thrPos = _connPos;
                     const _ts = sanitizedSymbol.toUpperCase().replace(/[^A-Z0-9]/g, "");
                     const _wantSide = String(analysis.signal || "").toLowerCase().startsWith("b") ? "buy" : "sell";
                     const _loser = _thrPos.find((p) => {

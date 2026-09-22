@@ -12275,9 +12275,74 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
               // new OPEN when an open position on the SAME symbol+direction is
               // currently losing. A winning same-direction position is allowed to
               // scale; only losers are protected from stacking.
+              // Positions are fetched ONCE and shared by the re-entry throttle and
+              // the per-account safety checks that follow.
+              let _connPos: any[] | null = null;
               try {
-                const _thrSvc = await tlGetOrCreateService(tlConn);
-                const _thrPos = await _thrSvc.getPositionsNormalized();
+                const _posSvc = await tlGetOrCreateService(tlConn);
+                _connPos = await _posSvc.getPositionsNormalized();
+              } catch (_posErr: any) {
+                console.error(`[TL safety] ${tlConn.accountId}: could not read positions (${_posErr?.message}) — SKIPPING this account (failing closed).`);
+                analysis.alerts.push(`RISK SKIP: ${tlConn.accountId} — positions unreadable, trade not sent.`);
+                continue;
+              }
+
+              // ── Per-account safety checks ────────────────────────────────────
+              // ADDITIVE. These can only ever SKIP an account; they never widen
+              // what an account may do. They exist because Gate 0 evaluates the
+              // MT5 terminal's balance, margin, daily P&L and positions — numbers
+              // that describe the MT5 account and say nothing about these prop
+              // accounts. Until now the prop accounts had no daily-loss or
+              // exposure guard of their own at all.
+              //
+              // Everything here fails CLOSED: anything we cannot read means the
+              // account is skipped, never waved through.
+              try {
+                const _saEq = _tlEq ?? _tlBal;
+                if (!(typeof _saEq === 'number' && _saEq > 0)) {
+                  console.warn(`[TL safety] ${tlConn.accountId}: SKIPPED — account value unavailable, cannot evaluate daily-loss or exposure.`);
+                  continue;
+                }
+
+                // Daily loss: this account's own realized P&L today + its own floating.
+                const _saFloating = _connPos.reduce((sum: number, p: any) => sum + (Number(p.unrealizedPl) || 0), 0);
+                const { pool: _saPool } = await import('./db');
+                const _saRows = await _saPool.query(
+                  `SELECT COALESCE(SUM(realized_pnl),0) AS pnl FROM prop_firm_daily_pnl
+                    WHERE user_id=$1 AND connection_id=$2 AND trade_date = (now() AT TIME ZONE 'UTC')::date`,
+                  [token.userId, tlConn.id]
+                );
+                const _saRealized = Number(_saRows.rows[0]?.pnl ?? 0);
+                const _saLimits = [_liveState?.config?.dailyLossLimit ?? 0, _liveState?.config?.maxDailyLossPct ?? 0].filter((x: number) => x > 0);
+                if (_saLimits.length) {
+                  const _saLimit = Math.min(..._saLimits);
+                  const _saDayPnl = _saRealized + _saFloating;
+                  const _saLossPct = (_saDayPnl / _saEq) * 100;
+                  if (_saLossPct <= -_saLimit) {
+                    console.warn(`[TL safety] ${tlConn.accountId} ${sanitizedSymbol}: SKIPPED — daily loss ${_saLossPct.toFixed(2)}% ≤ -${_saLimit}% (realized $${_saRealized.toFixed(2)} + floating $${_saFloating.toFixed(2)} on $${_saEq.toFixed(2)}).`);
+                    analysis.alerts.push(`RISK SKIP: ${tlConn.accountId} — daily loss ${_saLossPct.toFixed(2)}% hit the -${_saLimit}% breaker.`);
+                    continue;
+                  }
+                }
+
+                // Aggregate exposure: this account's own open lots.
+                const _saOpenLots = _connPos.reduce((sum: number, p: any) => sum + (Number(p.lots ?? p.volume ?? p.size) || 0), 0);
+                const _saMaxLot = effectiveMaxLot(_liveState?.config?.maxLotSize, _saEq, sanitizedSymbol);
+                const _saMaxOpen = _liveState?.config?.maxOpenTrades ?? 3;
+                const _saAggCap = _saMaxLot * _saMaxOpen * 1.5;
+                if (_saAggCap > 0 && _saOpenLots + connLot > _saAggCap) {
+                  console.warn(`[TL safety] ${tlConn.accountId} ${sanitizedSymbol}: SKIPPED — exposure ${(_saOpenLots + connLot).toFixed(2)} lots exceeds cap ${_saAggCap.toFixed(2)} for a $${_saEq.toFixed(2)} account.`);
+                  analysis.alerts.push(`RISK SKIP: ${tlConn.accountId} — aggregate exposure cap ${_saAggCap.toFixed(2)} lots reached.`);
+                  continue;
+                }
+              } catch (_saErr: any) {
+                console.error(`[TL safety] ${tlConn.accountId}: safety evaluation failed (${_saErr?.message}) — SKIPPING this account (failing closed).`);
+                analysis.alerts.push(`RISK SKIP: ${tlConn.accountId} — safety check errored, trade not sent.`);
+                continue;
+              }
+
+              try {
+                const _thrPos = _connPos;
                 const _ts = sanitizedSymbol.toUpperCase().replace(/[^A-Z0-9]/g, '');
                 const _wantSide = String(analysis.signal || '').toLowerCase().startsWith('b') ? 'buy' : 'sell';
                 const _loser = _thrPos.find((p) => {
