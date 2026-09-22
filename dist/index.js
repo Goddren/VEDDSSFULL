@@ -55395,9 +55395,9 @@ async function getStopOrdersForUser(userId, filters = {}) {
 init_schema();
 
 // server/build-info.ts
-var BUILD_COMMIT = "eb3cd49a-dirty";
+var BUILD_COMMIT = "fc924783-dirty";
 var BUILD_BRANCH = "main";
-var BUILT_AT = "2026-09-21T23:45:44.088Z";
+var BUILT_AT = "2026-09-22T03:06:45.727Z";
 
 // server/stripe.ts
 init_db();
@@ -69337,7 +69337,7 @@ BEAR CASE: ${_bearCase || "n/a"}` : aiConfirmation.reasoning;
     const dailyTarget = weeklyTarget > 0 ? Math.round(weeklyTarget / 5 * 100) / 100 : 0;
     const weekProgressPct = weeklyTarget > 0 ? Math.max(0, Math.min(100, Math.round(weekClosedProfit / weeklyTarget * 100))) : 0;
     const dayProgressPct = dailyTarget > 0 ? Math.max(0, Math.min(100, Math.round(todayClosedProfit / dailyTarget * 100))) : 0;
-    const allTimeClosed = allDbTrades.filter((t) => t.result && t.result !== "PENDING");
+    const allTimeClosed = allDbTrades.filter((t) => t.result && t.result !== "PENDING" && t.result !== "CLOSED_UNKNOWN");
     const allTimeDbTickets = new Set(allTimeClosed.map((t) => t.mt5Ticket).filter(Boolean));
     const allTimeCacheExtra = (global.mt5ClosedTrades?.[userId]?.trades || []).filter(
       (t) => !t.ticket || !allTimeDbTickets.has(t.ticket.toString())
@@ -74745,7 +74745,9 @@ Respond with ONLY valid JSON:
                       aiConfidence: confidence2,
                       result: "PENDING",
                       source: "brain_autoexec",
-                      notes: `Brain AutoExec | ${sig.strategy || strategyModesArr.join("+")} | orderId:${tradeResult.orderId || "n/a"} | reason:${(sig.reason || "").slice(0, 120)}`
+                      mt5Ticket: tradeResult.orderId ? String(tradeResult.orderId) : null,
+                      connectionId: tlConnection.id,
+                      notes: `Brain AutoExec | ${sig.strategy || strategyModesArr.join("+")} | orderId:${tradeResult.orderId || "n/a"} | acct:${tlConnection.accountId} | reason:${(sig.reason || "").slice(0, 120)}`
                     }).catch((err) => console.error("[Brain AutoExec] Failed to save ai_trade_result:", err));
                   }
                 } else {

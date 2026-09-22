@@ -12882,7 +12882,13 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
 
     // ── All-time engine scoreboard ─────────────────────────────────────
     // Only count fully resolved trades (WIN/LOSS/BREAKEVEN), not PENDING
-    const allTimeClosed = allDbTrades.filter((t: any) => t.result && t.result !== 'PENDING');
+    // CLOSED_UNKNOWN = the trade is known to have closed at the broker but its
+    // outcome is NOT recoverable (see the brain_autoexec reconciliation, 2026-09-22:
+    // no ticket was ever stored, so no fill could be matched back). It is excluded
+    // here deliberately. Counting it would make allTimeBreakeven — which is derived
+    // as trades minus wins minus losses — invent a breakeven that never happened.
+    // A trade we cannot score must not be scored as a flat one.
+    const allTimeClosed = allDbTrades.filter((t: any) => t.result && t.result !== 'PENDING' && t.result !== 'CLOSED_UNKNOWN');
     // Supplement with cache trades not already in DB
     const allTimeDbTickets = new Set(allTimeClosed.map((t: any) => t.mt5Ticket).filter(Boolean));
     const allTimeCacheExtra = ((global as any).mt5ClosedTrades?.[userId]?.trades || []).filter(
@@ -18966,6 +18972,18 @@ Respond with ONLY valid JSON:
                 // Record once per signal (not once per account to avoid duplicate counting)
                 if (!aiTradeResultRecorded) {
                   aiTradeResultRecorded = true;
+                  // mt5Ticket + connectionId are LOAD-BEARING, not metadata: every
+                  // close path in this app matches an open row by ticket or
+                  // connection. They were previously omitted and the broker order
+                  // id went only into the free-text `notes`, so nothing could ever
+                  // match these rows — brain_autoexec opened 10 positions between
+                  // 2026-06-05 and 2026-07-30 and closed exactly 0 of them, ever.
+                  // The trades closed at the broker; the app just never learned it.
+                  //
+                  // NOTE: one row is recorded per SIGNAL while execution may fan out
+                  // to several accounts, so this pins the FIRST account that filled.
+                  // That is enough to close the row, but a true per-account ledger
+                  // would need one row per fill — deliberately not changed here.
                   storage.createAiTradeResult({
                     userId,
                     symbol: sig.symbol.toUpperCase().replace('/', ''),
@@ -18976,8 +18994,10 @@ Respond with ONLY valid JSON:
                     aiConfidence: confidence,
                     result: 'PENDING',
                     source: 'brain_autoexec',
-                    notes: `Brain AutoExec | ${sig.strategy || strategyModesArr.join('+')} | orderId:${tradeResult.orderId || 'n/a'} | reason:${(sig.reason || '').slice(0, 120)}`,
-                  }).catch(err => console.error('[Brain AutoExec] Failed to save ai_trade_result:', err));
+                    mt5Ticket: tradeResult.orderId ? String(tradeResult.orderId) : null,
+                    connectionId: tlConnection.id,
+                    notes: `Brain AutoExec | ${sig.strategy || strategyModesArr.join('+')} | orderId:${tradeResult.orderId || 'n/a'} | acct:${tlConnection.accountId} | reason:${(sig.reason || '').slice(0, 120)}`,
+                  } as any).catch(err => console.error('[Brain AutoExec] Failed to save ai_trade_result:', err));
                 }
               } else {
                 await storage.updateTradelockerConnection(tlConnection.id, { lastError: tradeResult.error });
