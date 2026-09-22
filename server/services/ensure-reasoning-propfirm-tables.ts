@@ -60,6 +60,12 @@ ALTER TABLE "mt5_confirm_diag" ADD COLUMN IF NOT EXISTS "neutral_reason" text;
 -- setup hits the _noLevels branch, gets flipped to NEUTRAL and never
 -- executes. This records which of the three inputs was actually absent.
 ALTER TABLE "mt5_confirm_diag" ADD COLUMN IF NOT EXISTS "plan_skip" text;
+-- Why Gate 0 / Gate 1 killed an already-APPROVED, directional signal. Gate 0
+-- has six distinct block reasons and only ever logged to the console, so an
+-- approved setup that never reached the broker was unattributable: on
+-- 2026-09-22 a EURUSD SELL was approved 57 times in an hour and placed zero
+-- orders, with no record anywhere of which guard stopped it.
+ALTER TABLE "mt5_confirm_diag" ADD COLUMN IF NOT EXISTS "gate_block" text;
 
 -- Per-account FTMO-style consistency cap (null = platform default 20%).
 ALTER TABLE "tradelocker_connections" ADD COLUMN IF NOT EXISTS "consistency_threshold_pct" double precision;

@@ -52879,6 +52879,12 @@ ALTER TABLE "mt5_confirm_diag" ADD COLUMN IF NOT EXISTS "neutral_reason" text;
 -- setup hits the _noLevels branch, gets flipped to NEUTRAL and never
 -- executes. This records which of the three inputs was actually absent.
 ALTER TABLE "mt5_confirm_diag" ADD COLUMN IF NOT EXISTS "plan_skip" text;
+-- Why Gate 0 / Gate 1 killed an already-APPROVED, directional signal. Gate 0
+-- has six distinct block reasons and only ever logged to the console, so an
+-- approved setup that never reached the broker was unattributable: on
+-- 2026-09-22 a EURUSD SELL was approved 57 times in an hour and placed zero
+-- orders, with no record anywhere of which guard stopped it.
+ALTER TABLE "mt5_confirm_diag" ADD COLUMN IF NOT EXISTS "gate_block" text;
 
 -- Per-account FTMO-style consistency cap (null = platform default 20%).
 ALTER TABLE "tradelocker_connections" ADD COLUMN IF NOT EXISTS "consistency_threshold_pct" double precision;
@@ -55395,9 +55401,9 @@ async function getStopOrdersForUser(userId, filters = {}) {
 init_schema();
 
 // server/build-info.ts
-var BUILD_COMMIT = "fc924783-dirty";
+var BUILD_COMMIT = "e278fc27-dirty";
 var BUILD_BRANCH = "main";
-var BUILT_AT = "2026-09-22T03:06:45.727Z";
+var BUILT_AT = "2026-09-22T03:59:01.113Z";
 
 // server/stripe.ts
 init_db();
@@ -66030,7 +66036,7 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
         tradePlan: null,
         alerts: []
       };
-      const _diagCap = { buyVotes: null, sellVotes: null, neutralReason: null, planSkip: null };
+      const _diagCap = { buyVotes: null, sellVotes: null, neutralReason: null, planSkip: null, gateBlock: null };
       let advanced = {};
       if (indicators && typeof indicators === "object") {
         try {
@@ -67323,12 +67329,13 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
         model: null,
         err: null
       };
+      let _cdiagIdP = null;
       const _writeCdiag = async () => {
         try {
           const { pool: _p } = await Promise.resolve().then(() => (init_db(), db_exports));
           await _p.query(
-            `INSERT INTO mt5_confirm_diag (user_id, symbol, timeframe, signal, confidence, gate_passed, vision_enabled, stage, decision, model, err, buy_votes, sell_votes, neutral_reason, plan_skip)
-             VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15)`,
+            `INSERT INTO mt5_confirm_diag (user_id, symbol, timeframe, signal, confidence, gate_passed, vision_enabled, stage, decision, model, err, buy_votes, sell_votes, neutral_reason, plan_skip, gate_block)
+             VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16)`,
             [
               _cdiag.userId,
               _cdiag.symbol,
@@ -67344,11 +67351,56 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
               _diagCap.buyVotes,
               _diagCap.sellVotes,
               _diagCap.neutralReason,
-              _diagCap.planSkip
+              _diagCap.planSkip,
+              _diagCap.gateBlock
             ]
           );
         } catch {
         }
+      };
+      const _writeCdiagTracked = () => {
+        _cdiagIdP = (async () => {
+          try {
+            const { pool: _p } = await Promise.resolve().then(() => (init_db(), db_exports));
+            const r = await _p.query(
+              `INSERT INTO mt5_confirm_diag (user_id, symbol, timeframe, signal, confidence, gate_passed, vision_enabled, stage, decision, model, err, buy_votes, sell_votes, neutral_reason, plan_skip)
+               VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15) RETURNING id`,
+              [
+                _cdiag.userId,
+                _cdiag.symbol,
+                _cdiag.timeframe,
+                _cdiag.signal,
+                _cdiag.confidence,
+                _cdiag.gatePassed,
+                _cdiag.visionEnabled,
+                _cdiag.stage,
+                _cdiag.decision,
+                _cdiag.model,
+                _cdiag.err ? String(_cdiag.err).slice(0, 300) : null,
+                _diagCap.buyVotes,
+                _diagCap.sellVotes,
+                _diagCap.neutralReason,
+                _diagCap.planSkip
+              ]
+            );
+            return r.rows[0]?.id ?? null;
+          } catch {
+            return null;
+          }
+        })();
+        return _cdiagIdP;
+      };
+      const _markGateBlock = (reason) => {
+        _diagCap.gateBlock = String(reason).slice(0, 300);
+        void (async () => {
+          try {
+            const id = await _cdiagIdP;
+            if (!id) return;
+            const { pool: _p } = await Promise.resolve().then(() => (init_db(), db_exports));
+            await _p.query(`UPDATE mt5_confirm_diag SET gate_block=$1 WHERE id=$2`, [_diagCap.gateBlock, id]);
+          } catch {
+          }
+        })();
       };
       if (analysis.signal !== "NEUTRAL" && analysis.confidence >= Math.min(60, MIN_CONFIDENCE_FOR_AUTO_TRADE)) {
         _cdiag.gatePassed = true;
@@ -68105,10 +68157,10 @@ BEAR CASE: ${_bearCase || "n/a"}` : aiConfirmation.reasoning;
             reasoning: "AI unavailable - using EA analysis only"
           };
         }
-        void _writeCdiag();
+        void _writeCdiagTracked();
       } else {
         _cdiag.stage = "gate_failed";
-        void _writeCdiag();
+        void _writeCdiagTracked();
       }
       const useRiskPercent = matchingEA?.useRiskPercent ?? true;
       const { getLiveEngineState: _getLES } = await Promise.resolve().then(() => (init_live_trading_engine(), live_trading_engine_exports));
@@ -68293,6 +68345,7 @@ BEAR CASE: ${_bearCase || "n/a"}` : aiConfirmation.reasoning;
           analysis.alerts = analysis.alerts || [];
           analysis.alerts.push(`\u{1F6E1}\uFE0F RISK BLOCK: ${tlGateReason}. Trade stopped to protect the account.`);
           console.warn(`[Gate 0 RISK BLOCK] ${sanitizedSymbol}: ${tlGateReason}`);
+          _markGateBlock(tlGateReason);
           const _isBreaker = /Daily loss|Max drawdown/.test(tlGateReason);
           if (_isBreaker && _liveState?.config?.autoFlattenOnBreach) {
             analysis.command = "CLOSE_ALL";

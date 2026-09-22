@@ -8815,8 +8815,8 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
         alerts: [] as string[],
       };
       // TEMP diag capture — vote outcome + which gate (if any) forced NEUTRAL.
-      const _diagCap: { buyVotes: number | null; sellVotes: number | null; neutralReason: string | null; planSkip: string | null } =
-        { buyVotes: null, sellVotes: null, neutralReason: null, planSkip: null };
+      const _diagCap: { buyVotes: number | null; sellVotes: number | null; neutralReason: string | null; planSkip: string | null; gateBlock: string | null } =
+        { buyVotes: null, sellVotes: null, neutralReason: null, planSkip: null, gateBlock: null };
 
       let advanced: any = {};
       
@@ -10420,18 +10420,52 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
         gatePassed: false, visionEnabled: null, stage: 'pre_gate',
         decision: null, model: null, err: null,
       };
+      // Gate 0 runs ~250 lines AFTER this row is inserted, so gate_block cannot be
+      // set on the insert. Keep the new row's id so the gate can update it.
+      let _cdiagIdP: Promise<number | null> | null = null;
       const _writeCdiag = async () => {
         try {
           const { pool: _p } = await import('./db');
           await _p.query(
-            `INSERT INTO mt5_confirm_diag (user_id, symbol, timeframe, signal, confidence, gate_passed, vision_enabled, stage, decision, model, err, buy_votes, sell_votes, neutral_reason, plan_skip)
-             VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15)`,
+            `INSERT INTO mt5_confirm_diag (user_id, symbol, timeframe, signal, confidence, gate_passed, vision_enabled, stage, decision, model, err, buy_votes, sell_votes, neutral_reason, plan_skip, gate_block)
+             VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16)`,
             [_cdiag.userId, _cdiag.symbol, _cdiag.timeframe, _cdiag.signal, _cdiag.confidence,
              _cdiag.gatePassed, _cdiag.visionEnabled, _cdiag.stage, _cdiag.decision, _cdiag.model,
              _cdiag.err ? String(_cdiag.err).slice(0, 300) : null,
-             _diagCap.buyVotes, _diagCap.sellVotes, _diagCap.neutralReason, _diagCap.planSkip]
+             _diagCap.buyVotes, _diagCap.sellVotes, _diagCap.neutralReason, _diagCap.planSkip, _diagCap.gateBlock]
           );
         } catch { /* diag only — never disrupt trade flow */ }
+      };
+      // Same insert, but hands back the row id so a later gate can annotate it.
+      const _writeCdiagTracked = () => {
+        _cdiagIdP = (async () => {
+          try {
+            const { pool: _p } = await import('./db');
+            const r = await _p.query(
+              `INSERT INTO mt5_confirm_diag (user_id, symbol, timeframe, signal, confidence, gate_passed, vision_enabled, stage, decision, model, err, buy_votes, sell_votes, neutral_reason, plan_skip)
+               VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15) RETURNING id`,
+              [_cdiag.userId, _cdiag.symbol, _cdiag.timeframe, _cdiag.signal, _cdiag.confidence,
+               _cdiag.gatePassed, _cdiag.visionEnabled, _cdiag.stage, _cdiag.decision, _cdiag.model,
+               _cdiag.err ? String(_cdiag.err).slice(0, 300) : null,
+               _diagCap.buyVotes, _diagCap.sellVotes, _diagCap.neutralReason, _diagCap.planSkip]
+            );
+            return r.rows[0]?.id ?? null;
+          } catch { return null; }
+        })();
+        return _cdiagIdP;
+      };
+      // Annotate that row once a gate decides. Fire-and-forget: a diagnostic must
+      // never be able to block or fail a trade.
+      const _markGateBlock = (reason: string) => {
+        _diagCap.gateBlock = String(reason).slice(0, 300);
+        void (async () => {
+          try {
+            const id = await _cdiagIdP;
+            if (!id) return;
+            const { pool: _p } = await import('./db');
+            await _p.query(`UPDATE mt5_confirm_diag SET gate_block=$1 WHERE id=$2`, [_diagCap.gateBlock, id]);
+          } catch { /* diag only */ }
+        })();
       };
       // Second Opinion fires on any non-NEUTRAL signal ≥ 60% — tradePlan NOT required.
       // Auto-execution (TradeLocker) still needs MIN_CONFIDENCE + tradePlan — checked later.
@@ -11282,10 +11316,10 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
             reasoning: 'AI unavailable - using EA analysis only',
           };
         }
-        void _writeCdiag();
+        void _writeCdiagTracked();
       } else {
         _cdiag.stage = 'gate_failed';
-        void _writeCdiag();
+        void _writeCdiagTracked();
       }
 
       // Calculate position sizing — priority: EA override → live engine riskPerTrade → 1% default
@@ -11531,6 +11565,10 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
           analysis.alerts = analysis.alerts || [];
           analysis.alerts.push(`🛡️ RISK BLOCK: ${tlGateReason}. Trade stopped to protect the account.`);
           console.warn(`[Gate 0 RISK BLOCK] ${sanitizedSymbol}: ${tlGateReason}`);
+          // Persist it. Gate 0 runs AFTER the confirmation row is written, so an
+          // approved directional setup can be killed here and leave no trace of
+          // why anywhere durable — which is exactly what happened on 2026-09-22.
+          _markGateBlock(tlGateReason);
 
           // Auto-flatten on breach (opt-in): when a LOSS-LIMIT breaker trips (daily
           // loss or drawdown — not routine margin/exposure blocks), also signal the
