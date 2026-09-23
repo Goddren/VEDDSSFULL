@@ -8165,6 +8165,37 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
           }
         }
 
+        // Hour filter + FX brain condition gate. Both lived only on the
+        // chart-data chain, so a relayed signal skipped them entirely — and the
+        // relay is a REAL execution path: today's GBPJPY fills came through it
+        // as source='tradelocker_auto'. Without these the relay would happily
+        // open USDJPY in New York (16.7% WR over 24 trades / 16 days) and in
+        // hours the account loses money in. Both fail open.
+        if (!relayBlocked) {
+          try {
+            const { hourFilterVerdict } = await import('./services/hour-filter');
+            const _rhf = await hourFilterVerdict(token.userId, new Date().getUTCHours());
+            if (_rhf) {
+              relayBlocked = true;
+              console.log(`[Relay Gate] ${_rhf.reason} — relay blocked`);
+            }
+          } catch (_rhfErr: any) {
+            console.error('[Relay Gate] hour filter check failed (non-blocking):', _rhfErr?.message);
+          }
+        }
+        if (!relayBlocked) {
+          try {
+            const { fxBrainGateVerdict } = await import('./services/fx-brain');
+            const _rfb = await fxBrainGateVerdict(token.userId, symbol, direction);
+            if (_rfb) {
+              relayBlocked = true;
+              console.log(`[Relay Gate] ${_rfb.reason} — relay blocked`);
+            }
+          } catch (_rfbErr: any) {
+            console.error('[Relay Gate] fx brain gate check failed (non-blocking):', _rfbErr?.message);
+          }
+        }
+
         // Per-pair daily stop — the relay bypasses the chart-data gate chain
         // entirely, so without this an instrument stopped for the day could
         // still be opened by a relayed EA signal.
@@ -12039,7 +12070,10 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
       if (!tlGateBlocked && analysis.signal !== 'NEUTRAL') {
         try {
           const _eaBrain = (global as any).veddAIBrain?.[token.userId];
-          const _eaBrainK = _eaBrain?.pairKnowledge?.[sanitizedSymbol];
+          // Tolerant lookup: an exact index missed every suffixed symbol
+          // ('XAUUSD.PRO'), and a miss silently disables this whole gate.
+          const { lookupPairKnowledge } = await import('./utils/pair-key');
+          const _eaBrainK = lookupPairKnowledge(_eaBrain?.pairKnowledge, sanitizedSymbol);
           if (_eaBrainK && _eaBrainK.totalTrades >= 3) {
             const _eaNow = new Date();
             const _eaHour = _eaNow.getUTCHours();
@@ -12359,7 +12393,8 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
               // ── Signal quality gate — post-loss confidence escalation ──────
               // 1 loss on symbol → 82% required; 2+ consecutive → 86% required.
               // Keeps you in the session without risking revenge setups.
-              const _postLossBrainK = (global as any).veddAIBrain?.[token.userId]?.pairKnowledge?.[sanitizedSymbol];
+              const { lookupPairKnowledge: _lookupPK } = await import('./utils/pair-key');
+              const _postLossBrainK = _lookupPK((global as any).veddAIBrain?.[token.userId]?.pairKnowledge, sanitizedSymbol);
               const _consecutiveLosses = _postLossBrainK?.consecutiveLossesToday ?? (lastTradeWasLoss ? 1 : 0);
               const _dynamicLossFloor = _consecutiveLosses >= 2 ? 86 : (_consecutiveLosses >= 1 ? POST_LOSS_CONF_FLOOR : 0);
               const effectiveConfFloor = _dynamicLossFloor > 0
@@ -19452,6 +19487,29 @@ Respond with ONLY valid JSON:
             }
           } catch (_aePfErr: any) {
             console.error('[VEDD Brain AutoExec] pair filter check failed (non-blocking):', _aePfErr?.message);
+          }
+
+          // ── Hour filter + FX brain condition gate ────────────────
+          // Same reason as the relay: these only ran on the chart-data chain, so
+          // a sniper signal could enter a pair in exactly the session the brain
+          // has measured it losing in. Both fail open.
+          try {
+            const { hourFilterVerdict } = await import('./services/hour-filter');
+            const _aeHf = await hourFilterVerdict(userId, new Date().getUTCHours());
+            if (_aeHf) {
+              console.log(`[VEDD Brain AutoExec] BLOCKED ${sig.symbol} — ${_aeHf.reason}`);
+              executionResults.push({ sigId, symbol: sig.symbol, direction: sig.direction, status: 'skipped', reason: _aeHf.reason });
+              continue;
+            }
+            const { fxBrainGateVerdict } = await import('./services/fx-brain');
+            const _aeFb = await fxBrainGateVerdict(userId, sig.symbol, sig.direction);
+            if (_aeFb) {
+              console.log(`[VEDD Brain AutoExec] BLOCKED ${sig.symbol} — ${_aeFb.reason}`);
+              executionResults.push({ sigId, symbol: sig.symbol, direction: sig.direction, status: 'skipped', reason: _aeFb.reason });
+              continue;
+            }
+          } catch (_aeGErr: any) {
+            console.error('[VEDD Brain AutoExec] hour/brain gate check failed (non-blocking):', _aeGErr?.message);
           }
 
           // ── Per-pair daily stop ──────────────────────────────────

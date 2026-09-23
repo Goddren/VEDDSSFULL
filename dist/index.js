@@ -19866,6 +19866,32 @@ var init_pair_daily_stop = __esm({
   }
 });
 
+// server/utils/pair-key.ts
+var pair_key_exports = {};
+__export(pair_key_exports, {
+  basePairKey: () => basePairKey,
+  lookupPairKnowledge: () => lookupPairKnowledge
+});
+function basePairKey(symbol) {
+  return String(symbol ?? "").split(".")[0].toUpperCase().replace(/[^A-Z0-9]/g, "");
+}
+function lookupPairKnowledge(pairKnowledge, symbol) {
+  if (!pairKnowledge || !symbol) return void 0;
+  const direct = pairKnowledge[symbol];
+  if (direct) return direct;
+  const want = basePairKey(symbol);
+  if (!want) return void 0;
+  for (const k of Object.keys(pairKnowledge)) {
+    if (basePairKey(k) === want) return pairKnowledge[k];
+  }
+  return void 0;
+}
+var init_pair_key = __esm({
+  "server/utils/pair-key.ts"() {
+    "use strict";
+  }
+});
+
 // server/market-data/cache.ts
 var MarketDataCache, marketDataCache;
 var init_cache = __esm({
@@ -24374,7 +24400,7 @@ function applyBrainEnforcement(userId, symbol, proposedDirection, currentATR, ne
   };
   const brain = global.veddAIBrain?.[userId];
   if (!brain?.pairKnowledge) return passthrough;
-  const k = brain.pairKnowledge[symbol];
+  const k = lookupPairKnowledge(brain.pairKnowledge, symbol);
   if (!k || k.totalTrades < 3) return passthrough;
   const now = /* @__PURE__ */ new Date();
   const hour = now.getUTCHours();
@@ -29636,6 +29662,7 @@ var init_live_trading_engine = __esm({
   "server/services/live-trading-engine.ts"() {
     "use strict";
     init_session();
+    init_pair_key();
     init_service();
     init_tradelocker();
     init_tradelocker_sync();
@@ -35324,6 +35351,76 @@ var init_share_card_service = __esm({
   }
 });
 
+// server/services/hour-filter.ts
+var hour_filter_exports = {};
+__export(hour_filter_exports, {
+  hourFilterTable: () => hourFilterTable,
+  hourFilterVerdict: () => hourFilterVerdict
+});
+async function compute2(userId) {
+  const { pool: pool2 } = await Promise.resolve().then(() => (init_db(), db_exports));
+  const { rows } = await pool2.query(
+    `SELECT EXTRACT(hour FROM created_at)::int AS hour,
+            COUNT(*)::int AS trades,
+            ROUND(100.0 * SUM(CASE WHEN result='WIN' THEN 1 ELSE 0 END) / COUNT(*), 1) AS win_rate
+       FROM ai_trade_results
+      WHERE user_id = $1
+        AND result IN ('WIN','LOSS')
+        AND source IN ('tradelocker','tradelocker_auto')
+        AND symbol NOT LIKE 'KALSHI%'
+        -- ACTIVE connections only. 73% of ai_trade_results comes from two
+        -- accounts (2188895, 1991352) that are no longer connected \u2014 including
+        -- 1,020 positions the sync ingested from 1991352 in a single hour on
+        -- 2026-08-05, which is 64% of the whole table. Calibrating a live filter
+        -- on dead accounts got four hours wrong: it blocked 08:00 (46.2% on the
+        -- real book) and 18:00/21:00 (samples under the floor), while missing
+        -- 13:00 (26.7% over 15 trades).
+        AND connection_id IN (SELECT id FROM tradelocker_connections WHERE is_active = true)
+        AND created_at > now() - ($2 || ' days')::interval
+      GROUP BY 1`,
+    [userId, String(LOOKBACK_DAYS2)]
+  );
+  const stats = rows.map((r) => ({ hour: Number(r.hour), trades: Number(r.trades), winRate: Number(r.win_rate) }));
+  const blocked = new Set(
+    stats.filter((s) => s.trades >= MIN_SAMPLE && s.winRate < WR_FLOOR).map((s) => s.hour)
+  );
+  return { stats, blocked };
+}
+async function hourFilterVerdict(userId, hourUtc) {
+  if (process.env.HOUR_FILTER_ENABLED === "false") return null;
+  try {
+    let entry = cache6.get(userId);
+    if (!entry || Date.now() - entry.at > TTL_MS4) {
+      const fresh = await compute2(userId);
+      entry = { at: Date.now(), ...fresh };
+      cache6.set(userId, entry);
+      const list = Array.from(fresh.blocked).sort((a, b) => a - b).map((h) => `${h}:00`).join(", ");
+      console.log(`[HourFilter] user ${userId}: recomputed over ${LOOKBACK_DAYS2}d \u2014 blocking ${fresh.blocked.size} hour(s)${list ? ": " + list : ""} (floor ${WR_FLOOR}% on ${MIN_SAMPLE}+ trades)`);
+    }
+    if (!entry.blocked.has(hourUtc)) return null;
+    const s = entry.stats.find((x) => x.hour === hourUtc);
+    return { blocked: true, reason: `Hour filter: ${hourUtc}:00 UTC is ${s?.winRate}% WR over ${s?.trades} trades \u2014 below the ${WR_FLOOR}% floor` };
+  } catch (e) {
+    console.error(`[HourFilter] could not evaluate (${e?.message}) \u2014 allowing the trade.`);
+    return null;
+  }
+}
+async function hourFilterTable(userId) {
+  const { stats, blocked } = await compute2(userId);
+  return { stats: stats.sort((a, b) => a.hour - b.hour), blocked: Array.from(blocked).sort((a, b) => a - b) };
+}
+var MIN_SAMPLE, WR_FLOOR, TTL_MS4, LOOKBACK_DAYS2, cache6;
+var init_hour_filter = __esm({
+  "server/services/hour-filter.ts"() {
+    "use strict";
+    MIN_SAMPLE = Number(process.env.HOUR_FILTER_MIN_TRADES ?? 15);
+    WR_FLOOR = Number(process.env.HOUR_FILTER_MIN_WINRATE ?? 45);
+    TTL_MS4 = Number(process.env.HOUR_FILTER_TTL_MS ?? 60 * 60 * 1e3);
+    LOOKBACK_DAYS2 = Number(process.env.HOUR_FILTER_LOOKBACK_DAYS ?? 180);
+    cache6 = /* @__PURE__ */ new Map();
+  }
+});
+
 // server/services/candle-repair.ts
 var candle_repair_exports = {};
 __export(candle_repair_exports, {
@@ -35351,7 +35448,7 @@ async function repairCandles(symbol, timeframe, eaCandles) {
   const verdict = assessCandles(eaCandles);
   if (verdict.usable) return { candles: eaCandles, repaired: false, reason: verdict.reason };
   const key = `${symbol}:${timeframe}`;
-  const hit = cache6.get(key);
+  const hit = cache7.get(key);
   if (hit && Date.now() - hit.at < CACHE_TTL_MS4) {
     return { candles: hit.candles, repaired: true, reason: `${verdict.reason} \u2014 substituted cached Twelve Data bars` };
   }
@@ -35374,7 +35471,7 @@ async function repairCandles(symbol, timeframe, eaCandles) {
     if (!check.usable) {
       return { candles: eaCandles, repaired: false, reason: `${verdict.reason} \u2014 replacement bars also unusable (${check.reason})` };
     }
-    cache6.set(key, { at: Date.now(), candles: mapped });
+    cache7.set(key, { at: Date.now(), candles: mapped });
     console.log(`[candle-repair] ${symbol} ${timeframe}: EA feed unusable (${verdict.reason}); substituted ${mapped.length} Twelve Data bars, ${check.barsWithRange} with real range`);
     return { candles: mapped, repaired: true, reason: `${verdict.reason} \u2014 substituted Twelve Data bars` };
   } catch (e) {
@@ -35382,11 +35479,11 @@ async function repairCandles(symbol, timeframe, eaCandles) {
     return { candles: eaCandles, repaired: false, reason: `${verdict.reason} \u2014 fetch failed: ${e?.message}` };
   }
 }
-var cache6, CACHE_TTL_MS4, lastFetchAt, MIN_FETCH_GAP_MS;
+var cache7, CACHE_TTL_MS4, lastFetchAt, MIN_FETCH_GAP_MS;
 var init_candle_repair = __esm({
   "server/services/candle-repair.ts"() {
     "use strict";
-    cache6 = /* @__PURE__ */ new Map();
+    cache7 = /* @__PURE__ */ new Map();
     CACHE_TTL_MS4 = 6e4;
     lastFetchAt = 0;
     MIN_FETCH_GAP_MS = 8e3;
@@ -35648,76 +35745,6 @@ var init_ambassador_market_briefing = __esm({
     init_db();
     init_schema();
     MAX_CONFIDENCE_BOOST = 5;
-  }
-});
-
-// server/services/hour-filter.ts
-var hour_filter_exports = {};
-__export(hour_filter_exports, {
-  hourFilterTable: () => hourFilterTable,
-  hourFilterVerdict: () => hourFilterVerdict
-});
-async function compute2(userId) {
-  const { pool: pool2 } = await Promise.resolve().then(() => (init_db(), db_exports));
-  const { rows } = await pool2.query(
-    `SELECT EXTRACT(hour FROM created_at)::int AS hour,
-            COUNT(*)::int AS trades,
-            ROUND(100.0 * SUM(CASE WHEN result='WIN' THEN 1 ELSE 0 END) / COUNT(*), 1) AS win_rate
-       FROM ai_trade_results
-      WHERE user_id = $1
-        AND result IN ('WIN','LOSS')
-        AND source IN ('tradelocker','tradelocker_auto')
-        AND symbol NOT LIKE 'KALSHI%'
-        -- ACTIVE connections only. 73% of ai_trade_results comes from two
-        -- accounts (2188895, 1991352) that are no longer connected \u2014 including
-        -- 1,020 positions the sync ingested from 1991352 in a single hour on
-        -- 2026-08-05, which is 64% of the whole table. Calibrating a live filter
-        -- on dead accounts got four hours wrong: it blocked 08:00 (46.2% on the
-        -- real book) and 18:00/21:00 (samples under the floor), while missing
-        -- 13:00 (26.7% over 15 trades).
-        AND connection_id IN (SELECT id FROM tradelocker_connections WHERE is_active = true)
-        AND created_at > now() - ($2 || ' days')::interval
-      GROUP BY 1`,
-    [userId, String(LOOKBACK_DAYS2)]
-  );
-  const stats = rows.map((r) => ({ hour: Number(r.hour), trades: Number(r.trades), winRate: Number(r.win_rate) }));
-  const blocked = new Set(
-    stats.filter((s) => s.trades >= MIN_SAMPLE && s.winRate < WR_FLOOR).map((s) => s.hour)
-  );
-  return { stats, blocked };
-}
-async function hourFilterVerdict(userId, hourUtc) {
-  if (process.env.HOUR_FILTER_ENABLED === "false") return null;
-  try {
-    let entry = cache7.get(userId);
-    if (!entry || Date.now() - entry.at > TTL_MS4) {
-      const fresh = await compute2(userId);
-      entry = { at: Date.now(), ...fresh };
-      cache7.set(userId, entry);
-      const list = Array.from(fresh.blocked).sort((a, b) => a - b).map((h) => `${h}:00`).join(", ");
-      console.log(`[HourFilter] user ${userId}: recomputed over ${LOOKBACK_DAYS2}d \u2014 blocking ${fresh.blocked.size} hour(s)${list ? ": " + list : ""} (floor ${WR_FLOOR}% on ${MIN_SAMPLE}+ trades)`);
-    }
-    if (!entry.blocked.has(hourUtc)) return null;
-    const s = entry.stats.find((x) => x.hour === hourUtc);
-    return { blocked: true, reason: `Hour filter: ${hourUtc}:00 UTC is ${s?.winRate}% WR over ${s?.trades} trades \u2014 below the ${WR_FLOOR}% floor` };
-  } catch (e) {
-    console.error(`[HourFilter] could not evaluate (${e?.message}) \u2014 allowing the trade.`);
-    return null;
-  }
-}
-async function hourFilterTable(userId) {
-  const { stats, blocked } = await compute2(userId);
-  return { stats: stats.sort((a, b) => a.hour - b.hour), blocked: Array.from(blocked).sort((a, b) => a - b) };
-}
-var MIN_SAMPLE, WR_FLOOR, TTL_MS4, LOOKBACK_DAYS2, cache7;
-var init_hour_filter = __esm({
-  "server/services/hour-filter.ts"() {
-    "use strict";
-    MIN_SAMPLE = Number(process.env.HOUR_FILTER_MIN_TRADES ?? 15);
-    WR_FLOOR = Number(process.env.HOUR_FILTER_MIN_WINRATE ?? 45);
-    TTL_MS4 = Number(process.env.HOUR_FILTER_TTL_MS ?? 60 * 60 * 1e3);
-    LOOKBACK_DAYS2 = Number(process.env.HOUR_FILTER_LOOKBACK_DAYS ?? 180);
-    cache7 = /* @__PURE__ */ new Map();
   }
 });
 
@@ -56248,9 +56275,9 @@ async function getStopOrdersForUser(userId, filters = {}) {
 init_schema();
 
 // server/build-info.ts
-var BUILD_COMMIT = "e1b43d67-dirty";
+var BUILD_COMMIT = "78fbb4c5-dirty";
 var BUILD_BRANCH = "main";
-var BUILT_AT = "2026-09-23T19:50:07.326Z";
+var BUILT_AT = "2026-09-23T20:27:53.285Z";
 
 // server/stripe.ts
 init_db();
@@ -66354,6 +66381,30 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
         }
         if (!relayBlocked) {
           try {
+            const { hourFilterVerdict: hourFilterVerdict2 } = await Promise.resolve().then(() => (init_hour_filter(), hour_filter_exports));
+            const _rhf = await hourFilterVerdict2(token.userId, (/* @__PURE__ */ new Date()).getUTCHours());
+            if (_rhf) {
+              relayBlocked = true;
+              console.log(`[Relay Gate] ${_rhf.reason} \u2014 relay blocked`);
+            }
+          } catch (_rhfErr) {
+            console.error("[Relay Gate] hour filter check failed (non-blocking):", _rhfErr?.message);
+          }
+        }
+        if (!relayBlocked) {
+          try {
+            const { fxBrainGateVerdict: fxBrainGateVerdict2 } = await Promise.resolve().then(() => (init_fx_brain(), fx_brain_exports));
+            const _rfb = await fxBrainGateVerdict2(token.userId, symbol, direction);
+            if (_rfb) {
+              relayBlocked = true;
+              console.log(`[Relay Gate] ${_rfb.reason} \u2014 relay blocked`);
+            }
+          } catch (_rfbErr) {
+            console.error("[Relay Gate] fx brain gate check failed (non-blocking):", _rfbErr?.message);
+          }
+        }
+        if (!relayBlocked) {
+          try {
             const { pairDailyStopVerdict: pairDailyStopVerdict2 } = await Promise.resolve().then(() => (init_pair_daily_stop(), pair_daily_stop_exports));
             const _rdsVerdict = await pairDailyStopVerdict2(token.userId, symbol);
             if (_rdsVerdict) {
@@ -69520,7 +69571,8 @@ BEAR CASE: ${_bearCase || "n/a"}` : aiConfirmation.reasoning;
       if (!tlGateBlocked && analysis.signal !== "NEUTRAL") {
         try {
           const _eaBrain = global.veddAIBrain?.[token.userId];
-          const _eaBrainK = _eaBrain?.pairKnowledge?.[sanitizedSymbol];
+          const { lookupPairKnowledge: lookupPairKnowledge2 } = await Promise.resolve().then(() => (init_pair_key(), pair_key_exports));
+          const _eaBrainK = lookupPairKnowledge2(_eaBrain?.pairKnowledge, sanitizedSymbol);
           if (_eaBrainK && _eaBrainK.totalTrades >= 3) {
             const _eaNow = /* @__PURE__ */ new Date();
             const _eaHour = _eaNow.getUTCHours();
@@ -69738,7 +69790,8 @@ BEAR CASE: ${_bearCase || "n/a"}` : aiConfirmation.reasoning;
               console.log(`[MT5 Chart Data AutoTrade] Skipping trade - existing open position on ${sanitizedSymbol}`);
               global.recentTrades[recentTradeKey] = _prevCooldown;
             } else {
-              const _postLossBrainK = global.veddAIBrain?.[token.userId]?.pairKnowledge?.[sanitizedSymbol];
+              const { lookupPairKnowledge: _lookupPK } = await Promise.resolve().then(() => (init_pair_key(), pair_key_exports));
+              const _postLossBrainK = _lookupPK(global.veddAIBrain?.[token.userId]?.pairKnowledge, sanitizedSymbol);
               const _consecutiveLosses = _postLossBrainK?.consecutiveLossesToday ?? (lastTradeWasLoss ? 1 : 0);
               const _dynamicLossFloor = _consecutiveLosses >= 2 ? 86 : _consecutiveLosses >= 1 ? POST_LOSS_CONF_FLOOR : 0;
               const effectiveConfFloor = _dynamicLossFloor > 0 ? Math.max(MIN_CONFIDENCE_FOR_AUTO_TRADE, _dynamicLossFloor) : MIN_CONFIDENCE_FOR_AUTO_TRADE;
@@ -75854,6 +75907,24 @@ Respond with ONLY valid JSON:
               }
             } catch (_aePfErr) {
               console.error("[VEDD Brain AutoExec] pair filter check failed (non-blocking):", _aePfErr?.message);
+            }
+            try {
+              const { hourFilterVerdict: hourFilterVerdict2 } = await Promise.resolve().then(() => (init_hour_filter(), hour_filter_exports));
+              const _aeHf = await hourFilterVerdict2(userId, (/* @__PURE__ */ new Date()).getUTCHours());
+              if (_aeHf) {
+                console.log(`[VEDD Brain AutoExec] BLOCKED ${sig.symbol} \u2014 ${_aeHf.reason}`);
+                executionResults.push({ sigId, symbol: sig.symbol, direction: sig.direction, status: "skipped", reason: _aeHf.reason });
+                continue;
+              }
+              const { fxBrainGateVerdict: fxBrainGateVerdict2 } = await Promise.resolve().then(() => (init_fx_brain(), fx_brain_exports));
+              const _aeFb = await fxBrainGateVerdict2(userId, sig.symbol, sig.direction);
+              if (_aeFb) {
+                console.log(`[VEDD Brain AutoExec] BLOCKED ${sig.symbol} \u2014 ${_aeFb.reason}`);
+                executionResults.push({ sigId, symbol: sig.symbol, direction: sig.direction, status: "skipped", reason: _aeFb.reason });
+                continue;
+              }
+            } catch (_aeGErr) {
+              console.error("[VEDD Brain AutoExec] hour/brain gate check failed (non-blocking):", _aeGErr?.message);
             }
             try {
               const { pairDailyStopVerdict: pairDailyStopVerdict2 } = await Promise.resolve().then(() => (init_pair_daily_stop(), pair_daily_stop_exports));

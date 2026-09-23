@@ -1,4 +1,5 @@
 import { sessionForHour, sameSession } from '../utils/session';
+import { lookupPairKnowledge } from '../utils/pair-key';
 import { marketDataService } from '../market-data/service';
 import { executeMT5SignalOnTradeLocker, warmTradeLockerConnection, getTLAccountValue, getOrCreateService as getTradeLockerService, setUsdJpyRate } from '../tradelocker';
 import { refreshTlAfterTrade } from './tradelocker-sync';
@@ -563,7 +564,9 @@ function applyBrainEnforcement(
   const brain = (global as any).veddAIBrain?.[userId];
   if (!brain?.pairKnowledge) return passthrough;
 
-  const k = brain.pairKnowledge[symbol];
+  // Tolerant lookup — an exact index silently disabled every rule below for
+  // any broker-suffixed symbol.
+  const k = lookupPairKnowledge(brain.pairKnowledge, symbol);
   if (!k || k.totalTrades < 3) return passthrough; // not enough data to enforce
 
   const now = new Date();
