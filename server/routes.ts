@@ -66,6 +66,7 @@ import { extractFramesFromVideo, cleanupFrames } from "./video-processor";
 import { getGoldSentiment, getMockGoldSentiment, isTelegramConfigured } from "./telegram-sentiment";
 import { encryptPassword, executeMT5SignalOnTradeLocker, TradeLockerService, decryptPassword, getOrCreateService as tlGetOrCreateService, getTLAccountValue, isOnAuth429Cooldown as tlIsOnAuth429Cooldown, noteAuthResult as tlNoteAuthResult } from "./tradelocker";
 import { computePips, getPipSize, getPipValue } from "./utils/pipUtils";
+import { confirmationCacheStats as aiConfirmationCacheStats } from "./services/ai-confirmation-cache";
 import { normalizeCandles, countReadableCloses } from "./utils/candleNormalize";
 import { getTLRisk } from "./services/tl-risk-settings";
 import { AlpacaService, encryptApiSecret } from "./alpaca";
@@ -1276,6 +1277,13 @@ export async function registerRoutes(app: Express, existingServer?: Server): Pro
       builtAt: BUILT_AT,
       startedAt: new Date(Date.now() - Math.round(process.uptime() * 1000)).toISOString(),
       uptimeSeconds: Math.round(process.uptime()),
+      // AI confirmation cache effectiveness. Exposed here because the saving was
+      // being INFERRED from call counts and inference was wrong twice: the first
+      // version measured 91% of posts still reaching the model while a synthetic
+      // test claimed 98% saved. hits/misses/throttled is the ground truth — a low
+      // savedPct with high misses means the key is still churning, which is a
+      // different fix from a low savedPct with high throttles.
+      aiCache: aiConfirmationCacheStats(),
     });
   });
 

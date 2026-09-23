@@ -30492,6 +30492,73 @@ var init_image_processor = __esm({
   }
 });
 
+// server/services/ai-confirmation-cache.ts
+var ai_confirmation_cache_exports = {};
+__export(ai_confirmation_cache_exports, {
+  confirmationCacheStats: () => confirmationCacheStats,
+  getCachedConfirmation: () => getCachedConfirmation,
+  putCachedConfirmation: () => putCachedConfirmation
+});
+function bandKey(userId, symbol, timeframe, direction, eaConf, _price) {
+  const cBand = Math.round((Number(eaConf) || 0) / CONF_BAND);
+  return `${userId}:${symbol}:${timeframe}:${direction}:${cBand}`;
+}
+function symbolKey(userId, symbol, timeframe) {
+  return `${userId}:${symbol}:${timeframe}`;
+}
+function getCachedConfirmation(userId, symbol, timeframe, direction, eaConfidence, price) {
+  const now = Date.now();
+  const k = bandKey(userId, symbol, timeframe, direction, eaConfidence, price);
+  const hit = cache3.get(k);
+  if (hit && now - hit.at < TTL_MS) {
+    hits++;
+    return { verdict: hit.verdict, reason: `cached ${Math.round((now - hit.at) / 1e3)}s ago (same setup)` };
+  }
+  const sk = symbolKey(userId, symbol, timeframe);
+  const last = lastCallAt.get(sk) ?? 0;
+  if (now - last < FLOOR_MS) {
+    let best = null;
+    for (const [ck, v] of Array.from(cache3.entries())) {
+      if (!ck.startsWith(`${userId}:${symbol}:${timeframe}:${direction}:`)) continue;
+      if (now - v.at > STALE_USABLE_MS) continue;
+      if (!best || v.at > best.at) best = v;
+    }
+    if (best) {
+      throttled++;
+      return { verdict: best.verdict, reason: `throttled (floor ${Math.round(FLOOR_MS / 1e3)}s) \u2014 reusing verdict from ${Math.round((now - best.at) / 1e3)}s ago` };
+    }
+  }
+  misses++;
+  return null;
+}
+function putCachedConfirmation(userId, symbol, timeframe, direction, eaConfidence, price, verdict) {
+  const now = Date.now();
+  cache3.set(bandKey(userId, symbol, timeframe, direction, eaConfidence, price), { verdict, at: now, eaConfidence, price });
+  lastCallAt.set(symbolKey(userId, symbol, timeframe), now);
+  if (cache3.size > 500) {
+    for (const [k, v] of Array.from(cache3.entries())) if (now - v.at > STALE_USABLE_MS) cache3.delete(k);
+  }
+}
+function confirmationCacheStats() {
+  const total = hits + misses + throttled;
+  return { hits, misses, throttled, total, savedPct: total ? Math.round((hits + throttled) / total * 100) : 0, entries: cache3.size };
+}
+var TTL_MS, FLOOR_MS, STALE_USABLE_MS, CONF_BAND, cache3, lastCallAt, hits, misses, throttled;
+var init_ai_confirmation_cache = __esm({
+  "server/services/ai-confirmation-cache.ts"() {
+    "use strict";
+    TTL_MS = Number(process.env.AI_CONFIRM_CACHE_TTL_MS ?? 3 * 60 * 1e3);
+    FLOOR_MS = Number(process.env.AI_CONFIRM_MIN_INTERVAL_MS ?? 60 * 1e3);
+    STALE_USABLE_MS = Number(process.env.AI_CONFIRM_STALE_MS ?? 10 * 60 * 1e3);
+    CONF_BAND = Number(process.env.AI_CONFIRM_CONF_BAND ?? 5);
+    cache3 = /* @__PURE__ */ new Map();
+    lastCallAt = /* @__PURE__ */ new Map();
+    hits = 0;
+    misses = 0;
+    throttled = 0;
+  }
+});
+
 // server/alpaca.ts
 var alpaca_exports = {};
 __export(alpaca_exports, {
@@ -34854,7 +34921,7 @@ async function repairCandles(symbol, timeframe, eaCandles) {
   const verdict = assessCandles(eaCandles);
   if (verdict.usable) return { candles: eaCandles, repaired: false, reason: verdict.reason };
   const key = `${symbol}:${timeframe}`;
-  const hit = cache3.get(key);
+  const hit = cache4.get(key);
   if (hit && Date.now() - hit.at < CACHE_TTL_MS4) {
     return { candles: hit.candles, repaired: true, reason: `${verdict.reason} \u2014 substituted cached Twelve Data bars` };
   }
@@ -34877,7 +34944,7 @@ async function repairCandles(symbol, timeframe, eaCandles) {
     if (!check.usable) {
       return { candles: eaCandles, repaired: false, reason: `${verdict.reason} \u2014 replacement bars also unusable (${check.reason})` };
     }
-    cache3.set(key, { at: Date.now(), candles: mapped });
+    cache4.set(key, { at: Date.now(), candles: mapped });
     console.log(`[candle-repair] ${symbol} ${timeframe}: EA feed unusable (${verdict.reason}); substituted ${mapped.length} Twelve Data bars, ${check.barsWithRange} with real range`);
     return { candles: mapped, repaired: true, reason: `${verdict.reason} \u2014 substituted Twelve Data bars` };
   } catch (e) {
@@ -34885,11 +34952,11 @@ async function repairCandles(symbol, timeframe, eaCandles) {
     return { candles: eaCandles, repaired: false, reason: `${verdict.reason} \u2014 fetch failed: ${e?.message}` };
   }
 }
-var cache3, CACHE_TTL_MS4, lastFetchAt, MIN_FETCH_GAP_MS;
+var cache4, CACHE_TTL_MS4, lastFetchAt, MIN_FETCH_GAP_MS;
 var init_candle_repair = __esm({
   "server/services/candle-repair.ts"() {
     "use strict";
-    cache3 = /* @__PURE__ */ new Map();
+    cache4 = /* @__PURE__ */ new Map();
     CACHE_TTL_MS4 = 6e4;
     lastFetchAt = 0;
     MIN_FETCH_GAP_MS = 8e3;
@@ -35231,11 +35298,11 @@ async function compute(userId) {
 async function hourFilterVerdict(userId, hourUtc) {
   if (process.env.HOUR_FILTER_ENABLED === "false") return null;
   try {
-    let entry = cache4.get(userId);
-    if (!entry || Date.now() - entry.at > TTL_MS) {
+    let entry = cache5.get(userId);
+    if (!entry || Date.now() - entry.at > TTL_MS2) {
       const fresh = await compute(userId);
       entry = { at: Date.now(), ...fresh };
-      cache4.set(userId, entry);
+      cache5.set(userId, entry);
       const list = Array.from(fresh.blocked).sort((a, b) => a - b).map((h) => `${h}:00`).join(", ");
       console.log(`[HourFilter] user ${userId}: recomputed over ${LOOKBACK_DAYS}d \u2014 blocking ${fresh.blocked.size} hour(s)${list ? ": " + list : ""} (floor ${WR_FLOOR}% on ${MIN_SAMPLE}+ trades)`);
     }
@@ -35251,82 +35318,15 @@ async function hourFilterTable(userId) {
   const { stats, blocked } = await compute(userId);
   return { stats: stats.sort((a, b) => a.hour - b.hour), blocked: Array.from(blocked).sort((a, b) => a - b) };
 }
-var MIN_SAMPLE, WR_FLOOR, TTL_MS, LOOKBACK_DAYS, cache4;
+var MIN_SAMPLE, WR_FLOOR, TTL_MS2, LOOKBACK_DAYS, cache5;
 var init_hour_filter = __esm({
   "server/services/hour-filter.ts"() {
     "use strict";
     MIN_SAMPLE = Number(process.env.HOUR_FILTER_MIN_TRADES ?? 15);
     WR_FLOOR = Number(process.env.HOUR_FILTER_MIN_WINRATE ?? 45);
-    TTL_MS = Number(process.env.HOUR_FILTER_TTL_MS ?? 60 * 60 * 1e3);
+    TTL_MS2 = Number(process.env.HOUR_FILTER_TTL_MS ?? 60 * 60 * 1e3);
     LOOKBACK_DAYS = Number(process.env.HOUR_FILTER_LOOKBACK_DAYS ?? 180);
-    cache4 = /* @__PURE__ */ new Map();
-  }
-});
-
-// server/services/ai-confirmation-cache.ts
-var ai_confirmation_cache_exports = {};
-__export(ai_confirmation_cache_exports, {
-  confirmationCacheStats: () => confirmationCacheStats,
-  getCachedConfirmation: () => getCachedConfirmation,
-  putCachedConfirmation: () => putCachedConfirmation
-});
-function bandKey(userId, symbol, timeframe, direction, eaConf, _price) {
-  const cBand = Math.round((Number(eaConf) || 0) / CONF_BAND);
-  return `${userId}:${symbol}:${timeframe}:${direction}:${cBand}`;
-}
-function symbolKey(userId, symbol, timeframe) {
-  return `${userId}:${symbol}:${timeframe}`;
-}
-function getCachedConfirmation(userId, symbol, timeframe, direction, eaConfidence, price) {
-  const now = Date.now();
-  const k = bandKey(userId, symbol, timeframe, direction, eaConfidence, price);
-  const hit = cache5.get(k);
-  if (hit && now - hit.at < TTL_MS2) {
-    hits++;
-    return { verdict: hit.verdict, reason: `cached ${Math.round((now - hit.at) / 1e3)}s ago (same setup)` };
-  }
-  const sk = symbolKey(userId, symbol, timeframe);
-  const last = lastCallAt.get(sk) ?? 0;
-  if (now - last < FLOOR_MS) {
-    let best = null;
-    for (const [ck, v] of Array.from(cache5.entries())) {
-      if (!ck.startsWith(`${userId}:${symbol}:${timeframe}:${direction}:`)) continue;
-      if (now - v.at > STALE_USABLE_MS) continue;
-      if (!best || v.at > best.at) best = v;
-    }
-    if (best) {
-      throttled++;
-      return { verdict: best.verdict, reason: `throttled (floor ${Math.round(FLOOR_MS / 1e3)}s) \u2014 reusing verdict from ${Math.round((now - best.at) / 1e3)}s ago` };
-    }
-  }
-  misses++;
-  return null;
-}
-function putCachedConfirmation(userId, symbol, timeframe, direction, eaConfidence, price, verdict) {
-  const now = Date.now();
-  cache5.set(bandKey(userId, symbol, timeframe, direction, eaConfidence, price), { verdict, at: now, eaConfidence, price });
-  lastCallAt.set(symbolKey(userId, symbol, timeframe), now);
-  if (cache5.size > 500) {
-    for (const [k, v] of Array.from(cache5.entries())) if (now - v.at > STALE_USABLE_MS) cache5.delete(k);
-  }
-}
-function confirmationCacheStats() {
-  const total = hits + misses + throttled;
-  return { hits, misses, throttled, total, savedPct: total ? Math.round((hits + throttled) / total * 100) : 0, entries: cache5.size };
-}
-var TTL_MS2, FLOOR_MS, STALE_USABLE_MS, CONF_BAND, cache5, lastCallAt, hits, misses, throttled;
-var init_ai_confirmation_cache = __esm({
-  "server/services/ai-confirmation-cache.ts"() {
-    "use strict";
-    TTL_MS2 = Number(process.env.AI_CONFIRM_CACHE_TTL_MS ?? 3 * 60 * 1e3);
-    FLOOR_MS = Number(process.env.AI_CONFIRM_MIN_INTERVAL_MS ?? 60 * 1e3);
-    STALE_USABLE_MS = Number(process.env.AI_CONFIRM_STALE_MS ?? 10 * 60 * 1e3);
-    CONF_BAND = Number(process.env.AI_CONFIRM_CONF_BAND ?? 5);
     cache5 = /* @__PURE__ */ new Map();
-    lastCallAt = /* @__PURE__ */ new Map();
-    hits = 0;
-    misses = 0;
-    throttled = 0;
   }
 });
 
@@ -55857,9 +55857,9 @@ async function getStopOrdersForUser(userId, filters = {}) {
 init_schema();
 
 // server/build-info.ts
-var BUILD_COMMIT = "b6060512-dirty";
+var BUILD_COMMIT = "3eeb409a-dirty";
 var BUILD_BRANCH = "main";
-var BUILT_AT = "2026-09-23T08:56:40.910Z";
+var BUILT_AT = "2026-09-23T10:08:44.438Z";
 
 // server/stripe.ts
 init_db();
@@ -56849,6 +56849,7 @@ function isTelegramConfigured() {
 // server/routes.ts
 init_tradelocker();
 init_pipUtils();
+init_ai_confirmation_cache();
 
 // server/utils/candleNormalize.ts
 function pick(src, keys) {
@@ -60200,7 +60201,14 @@ async function registerRoutes(app2, existingServer) {
       buildBranch: BUILD_BRANCH,
       builtAt: BUILT_AT,
       startedAt: new Date(Date.now() - Math.round(process.uptime() * 1e3)).toISOString(),
-      uptimeSeconds: Math.round(process.uptime())
+      uptimeSeconds: Math.round(process.uptime()),
+      // AI confirmation cache effectiveness. Exposed here because the saving was
+      // being INFERRED from call counts and inference was wrong twice: the first
+      // version measured 91% of posts still reaching the model while a synthetic
+      // test claimed 98% saved. hits/misses/throttled is the ground truth — a low
+      // savedPct with high misses means the key is still churning, which is a
+      // different fix from a low savedPct with high throttles.
+      aiCache: confirmationCacheStats()
     });
   });
   app2.get("/api/sample-charts", (_req, res) => {
