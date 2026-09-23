@@ -372,6 +372,15 @@ async function withRetry<T>(
     console.error(`[startup] ensureCryptoBrainTable import error (non-fatal):`, err?.message ?? err);
   }
 
+  // FX was the only engine without a durable per-trade feature store, despite
+  // carrying the most money. See ensure-fx-brain-table.ts.
+  try {
+    const { ensureFxBrainTable } = await import('./services/ensure-fx-brain-table');
+    await ensureFxBrainTable();
+  } catch (err: any) {
+    console.error(`[startup] ensureFxBrainTable import error (non-fatal):`, err?.message ?? err);
+  }
+
   try {
     const { ensureSolBrainTable } = await import('./services/ensure-sol-brain-table');
     await ensureSolBrainTable();

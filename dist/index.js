@@ -29392,6 +29392,89 @@ async function _recordOrBackfillConfirmationOutcome(userId, symbol, direction, r
   } catch {
   }
 }
+async function _recordFxBrainOutcome(userId, conn, existing, match, result, profit) {
+  try {
+    const { pool: pool2 } = await Promise.resolve().then(() => (init_db(), db_exports));
+    const closedAt = match?.closeTime ? new Date(match.closeTime) : /* @__PURE__ */ new Date();
+    const symbol = String(existing.symbol || "").toUpperCase().replace(/[^A-Z0-9.]/g, "");
+    const direction = String(existing.direction || "").toUpperCase();
+    const ticket = String(existing.mt5Ticket || "");
+    if (!symbol || !direction) return;
+    const { rows: cf } = await pool2.query(
+      `SELECT adx_value, rsi_value, macd_direction, confluence_grade, confluence_score,
+              smc_verdict, ict_macro_valid, htf_aligned, ai_confidence, proposed_confidence,
+              timeframe, session, confirmed_at
+         FROM ai_confirmation_outcomes
+        WHERE user_id = $1 AND symbol = $2 AND direction = $3
+          AND confirmed_at BETWEEN $4::timestamp - interval '24 hours' AND $4::timestamp + interval '5 minutes'
+        ORDER BY confirmed_at DESC LIMIT 1`,
+      [userId, symbol, direction, closedAt.toISOString()]
+    );
+    const f = cf[0] || {};
+    const entry = Number(existing.entryPrice ?? match?.openPrice) || null;
+    const exit = Number(match?.closePrice) || null;
+    const sl = Number(existing.stopLoss) || null;
+    const tp = Number(existing.takeProfit) || null;
+    const plannedRR = entry && sl && tp && Math.abs(entry - sl) > 0 ? Math.abs(tp - entry) / Math.abs(entry - sl) : null;
+    const realisedRR = entry && exit && sl && Math.abs(entry - sl) > 0 ? Math.abs(exit - entry) / Math.abs(entry - sl) * (result === "WIN" ? 1 : -1) : null;
+    const maePnl = Number(existing.maePnl);
+    const mfePnl = Number(existing.mfePnl);
+    const openedAt = existing.createdAt ? new Date(existing.createdAt) : null;
+    const holdMins = openedAt && closedAt > openedAt ? Math.round((closedAt.getTime() - openedAt.getTime()) / 6e4) : null;
+    const hour = closedAt.getUTCHours();
+    const session3 = f.session || (hour < 7 ? "Asian" : hour < 13 ? "London" : hour < 20 ? "New York" : "Late NY");
+    await pool2.query(
+      `INSERT INTO fx_brain_outcomes
+        (user_id, symbol, direction, timeframe, hour_utc, session, day_of_week,
+         adx_value, rsi_value, macd_direction, confluence_grade, confluence_score,
+         smc_verdict, ict_macro_valid, htf_aligned, ea_confidence, ai_confidence,
+         entry_price, exit_price, stop_loss, take_profit, planned_rr, realised_rr,
+         result, profit_loss, holding_minutes, connection_id, account_id, ticket, closed_at,
+         mae_pnl, mfe_pnl, minutes_to_mae, minutes_to_mfe)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25,$26,$27,$28,$29,$30,$31,$32,$33,$34)
+       ON CONFLICT (user_id, ticket) WHERE ticket IS NOT NULL DO NOTHING`,
+      [
+        userId,
+        symbol,
+        direction,
+        f.timeframe ?? null,
+        hour,
+        session3,
+        closedAt.getUTCDay(),
+        f.adx_value ?? null,
+        f.rsi_value ?? null,
+        f.macd_direction ?? null,
+        f.confluence_grade ?? null,
+        f.confluence_score ?? null,
+        f.smc_verdict ?? null,
+        f.ict_macro_valid ?? null,
+        f.htf_aligned ?? null,
+        f.proposed_confidence ?? null,
+        f.ai_confidence ?? null,
+        entry,
+        exit,
+        sl,
+        tp,
+        plannedRR,
+        realisedRR,
+        result,
+        profit,
+        holdMins,
+        conn?.id ?? null,
+        String(conn?.accountId ?? ""),
+        ticket || null,
+        closedAt,
+        Number.isFinite(maePnl) ? maePnl : null,
+        Number.isFinite(mfePnl) ? mfePnl : null,
+        existing.maeAt && openedAt ? Math.max(0, Math.round((new Date(existing.maeAt).getTime() - openedAt.getTime()) / 6e4)) : null,
+        existing.mfeAt && openedAt ? Math.max(0, Math.round((new Date(existing.mfeAt).getTime() - openedAt.getTime()) / 6e4)) : null
+      ]
+    );
+    console.log(`[FxBrain] recorded ${symbol} ${direction} ${result} ${profit >= 0 ? "+" : ""}${profit.toFixed(2)}` + (f.adx_value != null ? ` (adx ${Number(f.adx_value).toFixed(1)}, grade ${f.confluence_grade ?? "n/a"})` : " (setup unknown)"));
+  } catch (e) {
+    console.error("[FxBrain] outcome record failed (non-fatal):", e?.message);
+  }
+}
 function cache2() {
   global.tlAccountData = global.tlAccountData || {};
   return global.tlAccountData;
@@ -29497,6 +29580,24 @@ async function syncTradeLockerTrades(userId, conn, svc) {
       notes: `TradeLocker position${_pfNote}`
     });
   }
+  for (const p of openPositions) {
+    const upl = Number(p.unrealizedPl);
+    if (!Number.isFinite(upl)) continue;
+    const ticket = `tl_${conn.accountId}_${p.id}`;
+    try {
+      const { pool: _exPool } = await Promise.resolve().then(() => (init_db(), db_exports));
+      await _exPool.query(
+        `UPDATE ai_trade_results
+            SET mae_pnl = LEAST(COALESCE(mae_pnl, $2), $2),
+                mfe_pnl = GREATEST(COALESCE(mfe_pnl, $2), $2),
+                mae_at  = CASE WHEN $2 < COALESCE(mae_pnl, $2) OR mae_pnl IS NULL THEN now() ELSE mae_at END,
+                mfe_at  = CASE WHEN $2 > COALESCE(mfe_pnl, $2) OR mfe_pnl IS NULL THEN now() ELSE mfe_at END
+          WHERE user_id = $1 AND mt5_ticket = $3 AND result = 'PENDING'`,
+        [userId, upl, ticket]
+      );
+    } catch {
+    }
+  }
   const previousTickets = lastOpenTickets.get(cacheKey);
   if (previousTickets) {
     const closedTicketIds = Array.from(previousTickets).filter((t) => !currentTickets.has(t));
@@ -29531,6 +29632,7 @@ async function syncTradeLockerTrades(userId, conn, svc) {
         await recordRealizedPnl(userId, conn.id, "tradelocker", profit, dStr);
         await _recordOrBackfillConfirmationOutcome(userId, existing.symbol, existing.direction, result, match.closeTime);
         await _feedEngineBrain(userId, existing.symbol, profit, existing.direction, match.closeTime);
+        await _recordFxBrainOutcome(userId, conn, existing, match, result, profit);
       }
     }
   }
@@ -52574,6 +52676,110 @@ CREATE INDEX IF NOT EXISTS "idx_crypto_brain_outcomes_user_symbol" ON "crypto_br
   }
 });
 
+// server/services/ensure-fx-brain-table.ts
+var ensure_fx_brain_table_exports = {};
+__export(ensure_fx_brain_table_exports, {
+  ensureFxBrainTable: () => ensureFxBrainTable
+});
+async function ensureFxBrainTable() {
+  try {
+    await pool.query(DDL17);
+    console.log("[startup] FX brain feature store ensured (fx_brain_outcomes) \u2014 per-trade condition learning now durable.");
+  } catch (err) {
+    console.error("[startup] ensureFxBrainTable failed (non-fatal):", err?.message ?? err);
+  }
+}
+var DDL17;
+var init_ensure_fx_brain_table = __esm({
+  "server/services/ensure-fx-brain-table.ts"() {
+    "use strict";
+    init_db();
+    DDL17 = `
+CREATE TABLE IF NOT EXISTS "fx_brain_outcomes" (
+  "id" serial PRIMARY KEY NOT NULL,
+  "user_id" integer NOT NULL,
+  "symbol" text NOT NULL,
+  "direction" text NOT NULL,
+  "timeframe" text,
+
+  -- WHEN: the strongest predictor in this account's history
+  "hour_utc" integer,
+  "session" text,
+  "day_of_week" integer,
+
+  -- SETUP: what the engine saw at entry
+  "adx_value" double precision,
+  "rsi_value" double precision,
+  "macd_direction" text,
+  "atr_value" double precision,
+  "confluence_grade" text,
+  "confluence_score" double precision,
+  "smc_verdict" text,
+  "ict_macro_valid" boolean,
+  "htf_aligned" boolean,
+  "ea_confidence" double precision,
+  "ai_confidence" double precision,
+  "strategy_mode" text,
+
+  -- EXECUTION: plan vs reality
+  "entry_price" double precision,
+  "exit_price" double precision,
+  "stop_loss" double precision,
+  "take_profit" double precision,
+  "planned_rr" double precision,
+  "realised_rr" double precision,
+  "lot_size" double precision,
+
+  -- RESULT
+  "result" text NOT NULL,
+  "profit_loss" double precision NOT NULL DEFAULT 0,
+  "profit_loss_pips" double precision,
+  "holding_minutes" integer,
+  "exit_reason" text,
+
+  -- EXCURSION: the highest-value fields in any trade-outcome store, and the ones
+  -- that answer the two questions this engine actually has.
+  --   MAE (worst unrealised point) on WINNERS says how close the stop came to
+  --       being hit \u2014 high MAE on winners means the stop is too tight, which is
+  --       exactly the 20-pip/0-7-minute problem measured on 2026-09-22.
+  --   MFE (best unrealised point) on LOSERS says how much open profit was handed
+  --       back \u2014 high MFE on losers means exits are too late or targets too far.
+  -- Together they separate "bad entry" from "bad exit", which win rate alone
+  -- cannot do. Duration-to-extreme tells you the holding period that actually
+  -- pays: the live book wins 93.4% on trades held over 4 hours.
+  "mae_price" double precision,          -- worst adverse PRICE distance from entry
+  "mfe_price" double precision,          -- best favourable PRICE distance from entry
+  "mae_pnl" double precision,            -- worst unrealised P&L seen
+  "mfe_pnl" double precision,            -- best unrealised P&L seen
+  "minutes_to_mae" integer,
+  "minutes_to_mfe" integer,
+  -- EXECUTION QUALITY: a 2.7-pip adverse fill cost 18% of the planned R:R on
+  -- 2026-09-23 and nothing recorded it.
+  "entry_slippage" double precision,     -- signed: negative = filled worse than planned
+  "planned_entry" double precision,
+  "spread_at_entry" double precision,
+  "commission" double precision,
+  "swap" double precision,
+  -- CONTEXT at entry, for regime and tilt analysis
+  "equity_at_entry" double precision,
+  "open_positions_at_entry" integer,
+  "consecutive_losses_before" integer,
+  "connection_id" integer,
+  "account_id" text,
+  "ticket" text,
+  "source" text NOT NULL DEFAULT 'live',
+  "closed_at" timestamp DEFAULT now() NOT NULL,
+  "created_at" timestamp DEFAULT now() NOT NULL
+);
+CREATE INDEX IF NOT EXISTS "idx_fx_brain_user_symbol" ON "fx_brain_outcomes" ("user_id", "symbol");
+CREATE INDEX IF NOT EXISTS "idx_fx_brain_closed" ON "fx_brain_outcomes" ("closed_at");
+-- One row per closed position: the sync is a poller and re-reads the same close
+-- on overlapping cycles, so without this a single trade would be learned twice.
+CREATE UNIQUE INDEX IF NOT EXISTS "uq_fx_brain_ticket" ON "fx_brain_outcomes" ("user_id", "ticket") WHERE "ticket" IS NOT NULL;
+`;
+  }
+});
+
 // server/services/ensure-sol-brain-table.ts
 var ensure_sol_brain_table_exports = {};
 __export(ensure_sol_brain_table_exports, {
@@ -52581,18 +52787,18 @@ __export(ensure_sol_brain_table_exports, {
 });
 async function ensureSolBrainTable() {
   try {
-    await pool.query(DDL17);
+    await pool.query(DDL18);
     console.log("[startup] Sol brain feature store ensured (sol_brain_outcomes) \u2014 per-trade learning now durable.");
   } catch (err) {
     console.error("[startup] ensureSolBrainTable failed (non-fatal):", err?.message ?? err);
   }
 }
-var DDL17;
+var DDL18;
 var init_ensure_sol_brain_table = __esm({
   "server/services/ensure-sol-brain-table.ts"() {
     "use strict";
     init_db();
-    DDL17 = `
+    DDL18 = `
 CREATE TABLE IF NOT EXISTS "sol_brain_outcomes" (
   "id" serial PRIMARY KEY NOT NULL,
   "user_id" integer NOT NULL,
@@ -52622,18 +52828,18 @@ __export(ensure_coinbase_tables_exports, {
 });
 async function ensureCoinbaseTables() {
   try {
-    await pool.query(DDL18);
+    await pool.query(DDL19);
     console.log("[startup] Coinbase connections table ensured (coinbase_connections) \u2014 read-only wallet balances.");
   } catch (err) {
     console.error("[startup] ensureCoinbaseTables failed (non-fatal):", err?.message ?? err);
   }
 }
-var DDL18;
+var DDL19;
 var init_ensure_coinbase_tables = __esm({
   "server/services/ensure-coinbase-tables.ts"() {
     "use strict";
     init_db();
-    DDL18 = `
+    DDL19 = `
 CREATE TABLE IF NOT EXISTS "coinbase_connections" (
   "id" serial PRIMARY KEY NOT NULL,
   "user_id" integer NOT NULL,
@@ -52658,18 +52864,18 @@ __export(ensure_kraken_tables_exports, {
 });
 async function ensureKrakenTables() {
   try {
-    await pool.query(DDL19);
+    await pool.query(DDL20);
     console.log("[startup] Kraken connections table ensured (kraken_connections) \u2014 read-only wallet balances.");
   } catch (err) {
     console.error("[startup] ensureKrakenTables failed (non-fatal):", err?.message ?? err);
   }
 }
-var DDL19;
+var DDL20;
 var init_ensure_kraken_tables = __esm({
   "server/services/ensure-kraken-tables.ts"() {
     "use strict";
     init_db();
-    DDL19 = `
+    DDL20 = `
 CREATE TABLE IF NOT EXISTS "kraken_connections" (
   "id" serial PRIMARY KEY NOT NULL,
   "user_id" integer NOT NULL,
@@ -52694,18 +52900,18 @@ __export(ensure_gemini_tables_exports, {
 });
 async function ensureGeminiTables() {
   try {
-    await pool.query(DDL20);
+    await pool.query(DDL21);
     console.log("[startup] Gemini connections table ensured (gemini_connections) \u2014 read-only wallet balances.");
   } catch (err) {
     console.error("[startup] ensureGeminiTables failed (non-fatal):", err?.message ?? err);
   }
 }
-var DDL20;
+var DDL21;
 var init_ensure_gemini_tables = __esm({
   "server/services/ensure-gemini-tables.ts"() {
     "use strict";
     init_db();
-    DDL20 = `
+    DDL21 = `
 CREATE TABLE IF NOT EXISTS "gemini_connections" (
   "id" serial PRIMARY KEY NOT NULL,
   "user_id" integer NOT NULL,
@@ -52730,18 +52936,18 @@ __export(ensure_defi_wallets_table_exports, {
 });
 async function ensureDefiWalletsTable() {
   try {
-    await pool.query(DDL21);
+    await pool.query(DDL22);
     console.log("[startup] DeFi wallets table ensured (defi_wallets) \u2014 public addresses only, on-chain read-only.");
   } catch (err) {
     console.error("[startup] ensureDefiWalletsTable failed (non-fatal):", err?.message ?? err);
   }
 }
-var DDL21;
+var DDL22;
 var init_ensure_defi_wallets_table = __esm({
   "server/services/ensure-defi-wallets-table.ts"() {
     "use strict";
     init_db();
-    DDL21 = `
+    DDL22 = `
 CREATE TABLE IF NOT EXISTS "defi_wallets" (
   "id" serial PRIMARY KEY NOT NULL,
   "user_id" integer NOT NULL,
@@ -52765,18 +52971,18 @@ __export(ensure_defi_hotwallet_table_exports, {
 });
 async function ensureDefiHotWalletTable() {
   try {
-    await pool.query(DDL22);
+    await pool.query(DDL23);
     console.log("[startup] DeFi hot-wallet table ensured (defi_hot_wallets) \u2014 encrypted key for unattended swaps.");
   } catch (err) {
     console.error("[startup] ensureDefiHotWalletTable failed (non-fatal):", err?.message ?? err);
   }
 }
-var DDL22;
+var DDL23;
 var init_ensure_defi_hotwallet_table = __esm({
   "server/services/ensure-defi-hotwallet-table.ts"() {
     "use strict";
     init_db();
-    DDL22 = `
+    DDL23 = `
 CREATE TABLE IF NOT EXISTS "defi_hot_wallets" (
   "id" serial PRIMARY KEY NOT NULL,
   "user_id" integer NOT NULL,
@@ -52799,19 +53005,19 @@ __export(ensure_dxtrade_tables_exports, {
 });
 async function ensureDxtradeTables() {
   try {
-    await pool.query(DDL23);
+    await pool.query(DDL24);
     await pool.query(ALTERS);
     console.log("[startup] DXtrade connections table ensured (dxtrade_connections).");
   } catch (err) {
     console.error("[startup] ensureDxtradeTables failed (non-fatal):", err?.message ?? err);
   }
 }
-var DDL23, ALTERS;
+var DDL24, ALTERS;
 var init_ensure_dxtrade_tables = __esm({
   "server/services/ensure-dxtrade-tables.ts"() {
     "use strict";
     init_db();
-    DDL23 = `
+    DDL24 = `
 CREATE TABLE IF NOT EXISTS "dxtrade_connections" (
   "id" serial PRIMARY KEY NOT NULL,
   "user_id" integer NOT NULL,
@@ -52850,18 +53056,18 @@ __export(ensure_engine_consensus_table_exports, {
 });
 async function ensureEngineConsensusTable() {
   try {
-    await pool.query(DDL24);
+    await pool.query(DDL25);
     console.log("[startup] Engine consensus table ensured (engine_consensus_log) \u2014 Dual-Vote Consensus panels now survive restarts.");
   } catch (err) {
     console.error("[startup] ensureEngineConsensusTable failed (non-fatal):", err?.message ?? err);
   }
 }
-var DDL24;
+var DDL25;
 var init_ensure_engine_consensus_table = __esm({
   "server/services/ensure-engine-consensus-table.ts"() {
     "use strict";
     init_db();
-    DDL24 = `
+    DDL25 = `
 CREATE TABLE IF NOT EXISTS "engine_consensus_log" (
   "id" serial PRIMARY KEY NOT NULL,
   "user_id" integer NOT NULL REFERENCES "users"("id"),
@@ -52889,18 +53095,18 @@ __export(ensure_micro_growth_milestones_table_exports, {
 });
 async function ensureMicroGrowthMilestonesTable() {
   try {
-    await pool.query(DDL25);
+    await pool.query(DDL26);
     console.log("[startup] Micro Growth milestones table ensured (micro_growth_milestones) \u2014 doubling challenge now survives restarts.");
   } catch (err) {
     console.error("[startup] ensureMicroGrowthMilestonesTable failed (non-fatal):", err?.message ?? err);
   }
 }
-var DDL25;
+var DDL26;
 var init_ensure_micro_growth_milestones_table = __esm({
   "server/services/ensure-micro-growth-milestones-table.ts"() {
     "use strict";
     init_db();
-    DDL25 = `
+    DDL26 = `
 CREATE TABLE IF NOT EXISTS "micro_growth_milestones" (
   "id" serial PRIMARY KEY NOT NULL,
   "user_id" integer NOT NULL UNIQUE REFERENCES "users"("id"),
@@ -52922,18 +53128,18 @@ __export(ensure_micro_growth_sessions_table_exports, {
 });
 async function ensureMicroGrowthSessionsTable() {
   try {
-    await pool.query(DDL26);
+    await pool.query(DDL27);
     console.log("[startup] Micro Growth sessions table ensured (micro_growth_sessions) \u2014 session history now survives restarts.");
   } catch (err) {
     console.error("[startup] ensureMicroGrowthSessionsTable failed (non-fatal):", err?.message ?? err);
   }
 }
-var DDL26;
+var DDL27;
 var init_ensure_micro_growth_sessions_table = __esm({
   "server/services/ensure-micro-growth-sessions-table.ts"() {
     "use strict";
     init_db();
-    DDL26 = `
+    DDL27 = `
 CREATE TABLE IF NOT EXISTS "micro_growth_sessions" (
   "id" text PRIMARY KEY NOT NULL,
   "user_id" integer NOT NULL REFERENCES "users"("id"),
@@ -52964,18 +53170,18 @@ __export(ensure_workforce_course_progress_table_exports, {
 });
 async function ensureWorkforceCourseProgressTable() {
   try {
-    await pool.query(DDL27);
+    await pool.query(DDL28);
     console.log('[startup] Workforce course progress table ensured (workforce_course_progress) \u2014 "where you left off" now survives restarts.');
   } catch (err) {
     console.error("[startup] ensureWorkforceCourseProgressTable failed (non-fatal):", err?.message ?? err);
   }
 }
-var DDL27;
+var DDL28;
 var init_ensure_workforce_course_progress_table = __esm({
   "server/services/ensure-workforce-course-progress-table.ts"() {
     "use strict";
     init_db();
-    DDL27 = `
+    DDL28 = `
 CREATE TABLE IF NOT EXISTS "workforce_course_progress" (
   "id" serial PRIMARY KEY NOT NULL,
   "user_id" integer NOT NULL REFERENCES "users"("id"),
@@ -52999,18 +53205,18 @@ __export(ensure_live_engine_config_table_exports, {
 });
 async function ensureLiveEngineConfigTable() {
   try {
-    await pool.query(DDL28);
+    await pool.query(DDL29);
     console.log("[startup] Live Engine config table ensured (live_engine_configs) \u2014 propFirmMode/consistency-rule settings now survive restarts.");
   } catch (err) {
     console.error("[startup] ensureLiveEngineConfigTable failed (non-fatal):", err?.message ?? err);
   }
 }
-var DDL28;
+var DDL29;
 var init_ensure_live_engine_config_table = __esm({
   "server/services/ensure-live-engine-config-table.ts"() {
     "use strict";
     init_db();
-    DDL28 = `
+    DDL29 = `
 CREATE TABLE IF NOT EXISTS "live_engine_configs" (
   "id" serial PRIMARY KEY,
   "user_id" integer NOT NULL UNIQUE REFERENCES "users"("id"),
@@ -53029,18 +53235,18 @@ __export(ensure_copy_trading_execution_columns_exports, {
 });
 async function ensureCopyTradingExecutionColumns() {
   try {
-    await pool.query(DDL29);
+    await pool.query(DDL30);
     console.log("[startup] Copy trading execution columns ensured (copier_connection_id, copier_fx_trade_id, broker_order_id, execution_status, execution_error).");
   } catch (err) {
     console.error("[startup] ensureCopyTradingExecutionColumns failed (non-fatal):", err?.message ?? err);
   }
 }
-var DDL29;
+var DDL30;
 var init_ensure_copy_trading_execution_columns = __esm({
   "server/services/ensure-copy-trading-execution-columns.ts"() {
     "use strict";
     init_db();
-    DDL29 = `
+    DDL30 = `
 ALTER TABLE "copy_relationships" ADD COLUMN IF NOT EXISTS "copier_connection_id" integer;
 ALTER TABLE "copy_trade_logs" ADD COLUMN IF NOT EXISTS "copier_fx_trade_id" integer;
 ALTER TABLE "copy_trade_logs" ADD COLUMN IF NOT EXISTS "broker_order_id" text;
@@ -53057,18 +53263,18 @@ __export(ensure_reasoning_propfirm_tables_exports, {
 });
 async function ensureReasoningPropFirmTables() {
   try {
-    await pool.query(DDL30);
+    await pool.query(DDL31);
     console.log("[startup] Reasoning + prop firm phase tables ensured (ai_confirmation_outcomes reasoning columns, prop_firm_account_state).");
   } catch (err) {
     console.error("[startup] ensureReasoningPropFirmTables failed (non-fatal):", err?.message ?? err);
   }
 }
-var DDL30;
+var DDL31;
 var init_ensure_reasoning_propfirm_tables = __esm({
   "server/services/ensure-reasoning-propfirm-tables.ts"() {
     "use strict";
     init_db();
-    DDL30 = `
+    DDL31 = `
 ALTER TABLE "ai_confirmation_outcomes" ADD COLUMN IF NOT EXISTS "reasoning_text" text;
 ALTER TABLE "ai_confirmation_outcomes" ADD COLUMN IF NOT EXISTS "bull_case" text;
 ALTER TABLE "ai_confirmation_outcomes" ADD COLUMN IF NOT EXISTS "bear_case" text;
@@ -53166,18 +53372,18 @@ __export(ensure_profit_split_tables_exports, {
 });
 async function ensureProfitSplitTables() {
   try {
-    await pool.query(DDL31);
+    await pool.query(DDL32);
     console.log("[startup] Profit Split tables ensured (profit_split_enrollments, profit_split_payments) \u2014 ambassador 30% prop-firm profit-split program.");
   } catch (err) {
     console.error("[startup] ensureProfitSplitTables failed (non-fatal):", err?.message ?? err);
   }
 }
-var DDL31;
+var DDL32;
 var init_ensure_profit_split_tables = __esm({
   "server/services/ensure-profit-split-tables.ts"() {
     "use strict";
     init_db();
-    DDL31 = `
+    DDL32 = `
 CREATE TABLE IF NOT EXISTS "profit_split_enrollments" (
   "id" serial PRIMARY KEY NOT NULL,
   "user_id" integer NOT NULL UNIQUE REFERENCES "users"("id"),
@@ -55651,9 +55857,9 @@ async function getStopOrdersForUser(userId, filters = {}) {
 init_schema();
 
 // server/build-info.ts
-var BUILD_COMMIT = "70954663-dirty";
+var BUILD_COMMIT = "b6060512-dirty";
 var BUILD_BRANCH = "main";
-var BUILT_AT = "2026-09-23T07:51:07.380Z";
+var BUILT_AT = "2026-09-23T08:56:40.910Z";
 
 // server/stripe.ts
 init_db();
@@ -87965,6 +88171,12 @@ async function withRetry(fn, label, maxAttempts = 6, baseDelayMs = 2e3) {
     await ensureCryptoBrainTable2();
   } catch (err) {
     console.error(`[startup] ensureCryptoBrainTable import error (non-fatal):`, err?.message ?? err);
+  }
+  try {
+    const { ensureFxBrainTable: ensureFxBrainTable2 } = await Promise.resolve().then(() => (init_ensure_fx_brain_table(), ensure_fx_brain_table_exports));
+    await ensureFxBrainTable2();
+  } catch (err) {
+    console.error(`[startup] ensureFxBrainTable import error (non-fatal):`, err?.message ?? err);
   }
   try {
     const { ensureSolBrainTable: ensureSolBrainTable2 } = await Promise.resolve().then(() => (init_ensure_sol_brain_table(), ensure_sol_brain_table_exports));

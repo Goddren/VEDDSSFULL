@@ -51,6 +51,97 @@ async function _recordOrBackfillConfirmationOutcome(
   } catch { /* non-critical */ }
 }
 
+/**
+ * Write one durable row per closed FX trade into the brain's feature store.
+ *
+ * This is the half that was missing. ai_trade_results records the OUTCOME and
+ * ai_confirmation_outcomes was supposed to record the SETUP, but of 1,202 closed
+ * confirmations only 3 carried an ADX — so the engine could learn "GBPJPY loses"
+ * and never "GBPJPY loses when ADX is under 20 in the Asian session".
+ *
+ * The setup is recovered from the confirmation written when the trade was
+ * opened, matched on user+symbol+direction within 24h before the close. When no
+ * confirmation exists the row is STILL written with the execution facts and null
+ * conditions: a trade with unknown conditions is a real data point about the
+ * pair, and dropping it would bias the sample toward bot-opened trades.
+ *
+ * Never throws and never blocks the close path — a learning write must not be
+ * able to break trade reconciliation.
+ */
+async function _recordFxBrainOutcome(
+  userId: number, conn: any, existing: any, match: any, result: string, profit: number,
+): Promise<void> {
+  try {
+    const { pool } = await import('../db');
+    const closedAt = match?.closeTime ? new Date(match.closeTime) : new Date();
+    const symbol = String(existing.symbol || '').toUpperCase().replace(/[^A-Z0-9.]/g, '');
+    const direction = String(existing.direction || '').toUpperCase();
+    const ticket = String((existing as any).mt5Ticket || '');
+    if (!symbol || !direction) return;
+
+    // Pull the setup from the confirmation that opened this trade.
+    const { rows: cf } = await pool.query(
+      `SELECT adx_value, rsi_value, macd_direction, confluence_grade, confluence_score,
+              smc_verdict, ict_macro_valid, htf_aligned, ai_confidence, proposed_confidence,
+              timeframe, session, confirmed_at
+         FROM ai_confirmation_outcomes
+        WHERE user_id = $1 AND symbol = $2 AND direction = $3
+          AND confirmed_at BETWEEN $4::timestamp - interval '24 hours' AND $4::timestamp + interval '5 minutes'
+        ORDER BY confirmed_at DESC LIMIT 1`,
+      [userId, symbol, direction, closedAt.toISOString()]
+    );
+    const f = cf[0] || {};
+
+    const entry = Number((existing as any).entryPrice ?? match?.openPrice) || null;
+    const exit = Number(match?.closePrice) || null;
+    const sl = Number((existing as any).stopLoss) || null;
+    const tp = Number((existing as any).takeProfit) || null;
+    // Planned vs realised R — the quality of the outcome, not just its sign.
+    const plannedRR = entry && sl && tp && Math.abs(entry - sl) > 0
+      ? Math.abs(tp - entry) / Math.abs(entry - sl) : null;
+    const realisedRR = entry && exit && sl && Math.abs(entry - sl) > 0
+      ? Math.abs(exit - entry) / Math.abs(entry - sl) * (result === 'WIN' ? 1 : -1) : null;
+
+    // Excursion tracked while the position was open (see the MAE/MFE block in
+    // syncTradeLockerTrades). Converted to a PRICE distance too, so it is
+    // comparable across lot sizes and accounts.
+    const maePnl = Number((existing as any).maePnl);
+    const mfePnl = Number((existing as any).mfePnl);
+    const openedAt = (existing as any).createdAt ? new Date((existing as any).createdAt) : null;
+    const holdMins = openedAt && closedAt > openedAt
+      ? Math.round((closedAt.getTime() - openedAt.getTime()) / 60000) : null;
+
+    const hour = closedAt.getUTCHours();
+    const session = f.session || (hour < 7 ? 'Asian' : hour < 13 ? 'London' : hour < 20 ? 'New York' : 'Late NY');
+
+    await pool.query(
+      `INSERT INTO fx_brain_outcomes
+        (user_id, symbol, direction, timeframe, hour_utc, session, day_of_week,
+         adx_value, rsi_value, macd_direction, confluence_grade, confluence_score,
+         smc_verdict, ict_macro_valid, htf_aligned, ea_confidence, ai_confidence,
+         entry_price, exit_price, stop_loss, take_profit, planned_rr, realised_rr,
+         result, profit_loss, holding_minutes, connection_id, account_id, ticket, closed_at,
+         mae_pnl, mfe_pnl, minutes_to_mae, minutes_to_mfe)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25,$26,$27,$28,$29,$30,$31,$32,$33,$34)
+       ON CONFLICT (user_id, ticket) WHERE ticket IS NOT NULL DO NOTHING`,
+      [userId, symbol, direction, f.timeframe ?? null, hour, session, closedAt.getUTCDay(),
+       f.adx_value ?? null, f.rsi_value ?? null, f.macd_direction ?? null,
+       f.confluence_grade ?? null, f.confluence_score ?? null, f.smc_verdict ?? null,
+       f.ict_macro_valid ?? null, f.htf_aligned ?? null, f.proposed_confidence ?? null,
+       f.ai_confidence ?? null, entry, exit, sl, tp, plannedRR, realisedRR,
+       result, profit, holdMins, conn?.id ?? null, String(conn?.accountId ?? ''), ticket || null, closedAt,
+       Number.isFinite(maePnl) ? maePnl : null,
+       Number.isFinite(mfePnl) ? mfePnl : null,
+       (existing as any).maeAt && openedAt ? Math.max(0, Math.round((new Date((existing as any).maeAt).getTime() - openedAt.getTime()) / 60000)) : null,
+       (existing as any).mfeAt && openedAt ? Math.max(0, Math.round((new Date((existing as any).mfeAt).getTime() - openedAt.getTime()) / 60000)) : null]
+    );
+    console.log(`[FxBrain] recorded ${symbol} ${direction} ${result} ${profit >= 0 ? '+' : ''}${profit.toFixed(2)}` +
+      (f.adx_value != null ? ` (adx ${Number(f.adx_value).toFixed(1)}, grade ${f.confluence_grade ?? 'n/a'})` : ' (setup unknown)'));
+  } catch (e: any) {
+    console.error('[FxBrain] outcome record failed (non-fatal):', e?.message);
+  }
+}
+
 // accountId -> Set of open-position ticket ids seen on the previous sync pass.
 // Used to detect closures (a ticket that was open last cycle and is gone now)
 // without needing a webhook — TradeLocker has no EA-style push, so this is
@@ -262,6 +353,33 @@ async function syncTradeLockerTrades(userId: number, conn: any, svc: any): Promi
     } as any);
   }
 
+  // ── Running MAE / MFE on every OPEN position ────────────────────────────
+  // The sync already polls unrealisedPl each cycle, so the extremes come free.
+  // These are the two fields that separate a bad ENTRY from a bad EXIT, which
+  // win rate alone cannot do:
+  //   high MAE on WINNERS  -> the stop is too tight (it nearly got hit)
+  //   high MFE on LOSERS   -> open profit was handed back; exits too late
+  // Stored on the open row rather than in memory, deliberately: this codebase
+  // has lost in-memory state to a deploy three times, and a half-tracked
+  // excursion is worse than none because it silently understates the extreme.
+  for (const p of openPositions) {
+    const upl = Number(p.unrealizedPl);
+    if (!Number.isFinite(upl)) continue;
+    const ticket = `tl_${conn.accountId}_${p.id}`;
+    try {
+      const { pool: _exPool } = await import('../db');
+      await _exPool.query(
+        `UPDATE ai_trade_results
+            SET mae_pnl = LEAST(COALESCE(mae_pnl, $2), $2),
+                mfe_pnl = GREATEST(COALESCE(mfe_pnl, $2), $2),
+                mae_at  = CASE WHEN $2 < COALESCE(mae_pnl, $2) OR mae_pnl IS NULL THEN now() ELSE mae_at END,
+                mfe_at  = CASE WHEN $2 > COALESCE(mfe_pnl, $2) OR mfe_pnl IS NULL THEN now() ELSE mfe_at END
+          WHERE user_id = $1 AND mt5_ticket = $3 AND result = 'PENDING'`,
+        [userId, upl, ticket]
+      );
+    } catch { /* excursion tracking must never disturb the sync */ }
+  }
+
   // Positions that were open last cycle but are gone now → closed. Look up
   // realized P&L from filled orders/closed positions to fill in the outcome.
   const previousTickets = lastOpenTickets.get(cacheKey);
@@ -314,6 +432,7 @@ async function syncTradeLockerTrades(userId: number, conn: any, svc: any): Promi
         // instead of silently dropping trades with no bot-opened PENDING match.
         await _recordOrBackfillConfirmationOutcome(userId, existing.symbol, existing.direction, result, match.closeTime);
         await _feedEngineBrain(userId, existing.symbol, profit, existing.direction, match.closeTime);
+        await _recordFxBrainOutcome(userId, conn, existing, match, result, profit);
       }
     }
   }
