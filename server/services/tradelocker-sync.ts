@@ -500,6 +500,12 @@ async function syncTradeLockerTrades(userId: number, conn: any, svc: any): Promi
               await recordRealizedPnl(userId, conn.id, 'tradelocker', p, reconDateStr);
               await _recordOrBackfillConfirmationOutcome(userId, existing.symbol, existing.direction, reconResult, o.closeTime);
               await _feedEngineBrain(userId, existing.symbol, p, existing.direction, o.closeTime);
+              // The brain must learn from EVERY close, not just the ones the
+              // poller happened to witness. This path handles closes that
+              // happened across a deploy or between polls — with deploys as
+              // frequent as they are, that is most of them.
+              await _recordFxBrainOutcome(userId, conn, existing,
+                { closeTime: o.closeTime, closePrice: o.closePrice, openPrice: o.openPrice }, reconResult, p);
             }
           }
           continue;
@@ -525,6 +531,13 @@ async function syncTradeLockerTrades(userId: number, conn: any, svc: any): Promi
         await recordRealizedPnl(userId, conn.id, 'tradelocker', p, reconDateStr);
         await _recordOrBackfillConfirmationOutcome(userId, reconSymbol, reconDirection, reconResult, o.closeTime);
         await _feedEngineBrain(userId, reconSymbol, p, reconDirection, o.closeTime);
+        // No open row ever existed for this one (the poller never saw it open),
+        // so there is no stored SL/TP or excursion — but the outcome, pair,
+        // direction and timing are real and the brain should not be blind to it.
+        // Excluding these would bias the sample toward bot-witnessed trades.
+        await _recordFxBrainOutcome(userId, conn,
+          { symbol: reconSymbol, direction: reconDirection, entryPrice: o.openPrice, mt5Ticket: tk },
+          { closeTime: o.closeTime, closePrice: o.closePrice, openPrice: o.openPrice }, reconResult, p);
       }
     } catch (err: any) {
       console.error(`[TL-sync] Outcome reconciliation failed for ${conn.accountId} (non-fatal):`, err?.message);

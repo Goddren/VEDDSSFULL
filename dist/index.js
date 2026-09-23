@@ -29679,6 +29679,14 @@ async function syncTradeLockerTrades(userId, conn, svc) {
               await recordRealizedPnl(userId, conn.id, "tradelocker", p, reconDateStr);
               await _recordOrBackfillConfirmationOutcome(userId, existing.symbol, existing.direction, reconResult, o.closeTime);
               await _feedEngineBrain(userId, existing.symbol, p, existing.direction, o.closeTime);
+              await _recordFxBrainOutcome(
+                userId,
+                conn,
+                existing,
+                { closeTime: o.closeTime, closePrice: o.closePrice, openPrice: o.openPrice },
+                reconResult,
+                p
+              );
             }
           }
           continue;
@@ -29705,6 +29713,14 @@ async function syncTradeLockerTrades(userId, conn, svc) {
         await recordRealizedPnl(userId, conn.id, "tradelocker", p, reconDateStr);
         await _recordOrBackfillConfirmationOutcome(userId, reconSymbol, reconDirection, reconResult, o.closeTime);
         await _feedEngineBrain(userId, reconSymbol, p, reconDirection, o.closeTime);
+        await _recordFxBrainOutcome(
+          userId,
+          conn,
+          { symbol: reconSymbol, direction: reconDirection, entryPrice: o.openPrice, mt5Ticket: tk },
+          { closeTime: o.closeTime, closePrice: o.closePrice, openPrice: o.openPrice },
+          reconResult,
+          p
+        );
       }
     } catch (err) {
       console.error(`[TL-sync] Outcome reconciliation failed for ${conn.accountId} (non-fatal):`, err?.message);
@@ -55857,9 +55873,9 @@ async function getStopOrdersForUser(userId, filters = {}) {
 init_schema();
 
 // server/build-info.ts
-var BUILD_COMMIT = "3eeb409a-dirty";
+var BUILD_COMMIT = "eae0f5de-dirty";
 var BUILD_BRANCH = "main";
-var BUILT_AT = "2026-09-23T10:08:44.438Z";
+var BUILT_AT = "2026-09-23T10:23:05.755Z";
 
 // server/stripe.ts
 init_db();
