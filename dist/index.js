@@ -28384,17 +28384,17 @@ function getNYTime(ts) {
   };
 }
 async function getBrokerIndexCandles(userId, symbol, mt5Tf) {
-  const cache7 = global.mt5ChartDataCache || {};
+  const cache8 = global.mt5ChartDataCache || {};
   const wanted = new Set(
     [symbol, ...INDEX_BROKER_ALIASES[symbol] || []].map((s) => s.replace(/[^A-Z0-9]/gi, "").toUpperCase())
   );
   const prefix = `mt5_chart_${userId}_`;
   const suffix = `_${mt5Tf}`;
-  for (const key of Object.keys(cache7)) {
+  for (const key of Object.keys(cache8)) {
     if (!key.startsWith(prefix) || !key.endsWith(suffix)) continue;
     const symPart = key.slice(prefix.length, key.length - suffix.length);
     if (wanted.has(symPart.replace(/[^A-Z0-9]/gi, "").toUpperCase())) {
-      const entry = cache7[key];
+      const entry = cache8[key];
       if (entry?.candles?.length) return entry.candles;
     }
   }
@@ -29842,8 +29842,8 @@ async function getLiveAccounts(userId) {
   const mt5 = [];
   const tradelocker = [];
   try {
-    const cache7 = global.mt5AccountData?.[userId];
-    const entries = cache7?.lastUpdated ? [cache7] : Object.values(cache7 || {});
+    const cache8 = global.mt5AccountData?.[userId];
+    const entries = cache8?.lastUpdated ? [cache8] : Object.values(cache8 || {});
     for (const a of entries) {
       if (!a?.lastUpdated) continue;
       const age = (Date.now() - new Date(a.lastUpdated).getTime()) / 1e3;
@@ -35017,6 +35017,68 @@ var init_ambassador_market_briefing = __esm({
   }
 });
 
+// server/services/hour-filter.ts
+var hour_filter_exports = {};
+__export(hour_filter_exports, {
+  hourFilterTable: () => hourFilterTable,
+  hourFilterVerdict: () => hourFilterVerdict
+});
+async function compute(userId) {
+  const { pool: pool2 } = await Promise.resolve().then(() => (init_db(), db_exports));
+  const { rows } = await pool2.query(
+    `SELECT EXTRACT(hour FROM created_at)::int AS hour,
+            COUNT(*)::int AS trades,
+            ROUND(100.0 * SUM(CASE WHEN result='WIN' THEN 1 ELSE 0 END) / COUNT(*), 1) AS win_rate
+       FROM ai_trade_results
+      WHERE user_id = $1
+        AND result IN ('WIN','LOSS')
+        AND source IN ('tradelocker','tradelocker_auto')
+        AND symbol NOT LIKE 'KALSHI%'
+        AND created_at > now() - ($2 || ' days')::interval
+      GROUP BY 1`,
+    [userId, String(LOOKBACK_DAYS)]
+  );
+  const stats = rows.map((r) => ({ hour: Number(r.hour), trades: Number(r.trades), winRate: Number(r.win_rate) }));
+  const blocked = new Set(
+    stats.filter((s) => s.trades >= MIN_SAMPLE && s.winRate < WR_FLOOR).map((s) => s.hour)
+  );
+  return { stats, blocked };
+}
+async function hourFilterVerdict(userId, hourUtc) {
+  if (process.env.HOUR_FILTER_ENABLED === "false") return null;
+  try {
+    let entry = cache4.get(userId);
+    if (!entry || Date.now() - entry.at > TTL_MS) {
+      const fresh = await compute(userId);
+      entry = { at: Date.now(), ...fresh };
+      cache4.set(userId, entry);
+      const list = Array.from(fresh.blocked).sort((a, b) => a - b).map((h) => `${h}:00`).join(", ");
+      console.log(`[HourFilter] user ${userId}: recomputed over ${LOOKBACK_DAYS}d \u2014 blocking ${fresh.blocked.size} hour(s)${list ? ": " + list : ""} (floor ${WR_FLOOR}% on ${MIN_SAMPLE}+ trades)`);
+    }
+    if (!entry.blocked.has(hourUtc)) return null;
+    const s = entry.stats.find((x) => x.hour === hourUtc);
+    return { blocked: true, reason: `Hour filter: ${hourUtc}:00 UTC is ${s?.winRate}% WR over ${s?.trades} trades \u2014 below the ${WR_FLOOR}% floor` };
+  } catch (e) {
+    console.error(`[HourFilter] could not evaluate (${e?.message}) \u2014 allowing the trade.`);
+    return null;
+  }
+}
+async function hourFilterTable(userId) {
+  const { stats, blocked } = await compute(userId);
+  return { stats: stats.sort((a, b) => a.hour - b.hour), blocked: Array.from(blocked).sort((a, b) => a - b) };
+}
+var MIN_SAMPLE, WR_FLOOR, TTL_MS, LOOKBACK_DAYS, cache4;
+var init_hour_filter = __esm({
+  "server/services/hour-filter.ts"() {
+    "use strict";
+    MIN_SAMPLE = Number(process.env.HOUR_FILTER_MIN_TRADES ?? 15);
+    WR_FLOOR = Number(process.env.HOUR_FILTER_MIN_WINRATE ?? 45);
+    TTL_MS = Number(process.env.HOUR_FILTER_TTL_MS ?? 60 * 60 * 1e3);
+    LOOKBACK_DAYS = Number(process.env.HOUR_FILTER_LOOKBACK_DAYS ?? 120);
+    cache4 = /* @__PURE__ */ new Map();
+  }
+});
+
 // server/services/ai-confirmation-cache.ts
 var ai_confirmation_cache_exports = {};
 __export(ai_confirmation_cache_exports, {
@@ -35035,8 +35097,8 @@ function symbolKey(userId, symbol, timeframe) {
 function getCachedConfirmation(userId, symbol, timeframe, direction, eaConfidence, price) {
   const now = Date.now();
   const k = bandKey(userId, symbol, timeframe, direction, eaConfidence, price);
-  const hit = cache4.get(k);
-  if (hit && now - hit.at < TTL_MS) {
+  const hit = cache5.get(k);
+  if (hit && now - hit.at < TTL_MS2) {
     hits++;
     return { verdict: hit.verdict, reason: `cached ${Math.round((now - hit.at) / 1e3)}s ago (same setup)` };
   }
@@ -35044,7 +35106,7 @@ function getCachedConfirmation(userId, symbol, timeframe, direction, eaConfidenc
   const last = lastCallAt.get(sk) ?? 0;
   if (now - last < FLOOR_MS) {
     let best = null;
-    for (const [ck, v] of Array.from(cache4.entries())) {
+    for (const [ck, v] of Array.from(cache5.entries())) {
       if (!ck.startsWith(`${userId}:${symbol}:${timeframe}:${direction}:`)) continue;
       if (now - v.at > STALE_USABLE_MS) continue;
       if (!best || v.at > best.at) best = v;
@@ -35059,26 +35121,26 @@ function getCachedConfirmation(userId, symbol, timeframe, direction, eaConfidenc
 }
 function putCachedConfirmation(userId, symbol, timeframe, direction, eaConfidence, price, verdict) {
   const now = Date.now();
-  cache4.set(bandKey(userId, symbol, timeframe, direction, eaConfidence, price), { verdict, at: now, eaConfidence, price });
+  cache5.set(bandKey(userId, symbol, timeframe, direction, eaConfidence, price), { verdict, at: now, eaConfidence, price });
   lastCallAt.set(symbolKey(userId, symbol, timeframe), now);
-  if (cache4.size > 500) {
-    for (const [k, v] of Array.from(cache4.entries())) if (now - v.at > STALE_USABLE_MS) cache4.delete(k);
+  if (cache5.size > 500) {
+    for (const [k, v] of Array.from(cache5.entries())) if (now - v.at > STALE_USABLE_MS) cache5.delete(k);
   }
 }
 function confirmationCacheStats() {
   const total = hits + misses + throttled;
-  return { hits, misses, throttled, total, savedPct: total ? Math.round((hits + throttled) / total * 100) : 0, entries: cache4.size };
+  return { hits, misses, throttled, total, savedPct: total ? Math.round((hits + throttled) / total * 100) : 0, entries: cache5.size };
 }
-var TTL_MS, FLOOR_MS, STALE_USABLE_MS, CONF_BAND, PRICE_BAND_PCT, cache4, lastCallAt, hits, misses, throttled;
+var TTL_MS2, FLOOR_MS, STALE_USABLE_MS, CONF_BAND, PRICE_BAND_PCT, cache5, lastCallAt, hits, misses, throttled;
 var init_ai_confirmation_cache = __esm({
   "server/services/ai-confirmation-cache.ts"() {
     "use strict";
-    TTL_MS = Number(process.env.AI_CONFIRM_CACHE_TTL_MS ?? 3 * 60 * 1e3);
+    TTL_MS2 = Number(process.env.AI_CONFIRM_CACHE_TTL_MS ?? 3 * 60 * 1e3);
     FLOOR_MS = Number(process.env.AI_CONFIRM_MIN_INTERVAL_MS ?? 60 * 1e3);
     STALE_USABLE_MS = Number(process.env.AI_CONFIRM_STALE_MS ?? 10 * 60 * 1e3);
     CONF_BAND = Number(process.env.AI_CONFIRM_CONF_BAND ?? 5);
     PRICE_BAND_PCT = Number(process.env.AI_CONFIRM_PRICE_BAND_PCT ?? 0.1);
-    cache4 = /* @__PURE__ */ new Map();
+    cache5 = /* @__PURE__ */ new Map();
     lastCallAt = /* @__PURE__ */ new Map();
     hits = 0;
     misses = 0;
@@ -35816,7 +35878,7 @@ async function cryptocomTicker(sym) {
 async function getAggregatedQuote(symbol) {
   const sym = symbol.toUpperCase().replace(/[^A-Z0-9]/g, "");
   const hit = _cache.get(sym);
-  if (hit && Date.now() - hit.ts < TTL_MS2) return hit.q;
+  if (hit && Date.now() - hit.ts < TTL_MS3) return hit.q;
   const venues = await Promise.all([coinbaseSpot(sym), krakenTicker(sym), geminiTicker(sym), cryptocomTicker(sym)]);
   const priced = venues.filter((v) => typeof v.price === "number" && v.price > 0);
   let best = null;
@@ -35835,11 +35897,11 @@ async function getAggregatedQuotes(symbols) {
   const uniq = Array.from(new Set(symbols.map((s) => s.toUpperCase().replace(/[^A-Z0-9]/g, "")))).slice(0, 25);
   return Promise.all(uniq.map(getAggregatedQuote));
 }
-var TTL_MS2, _cache;
+var TTL_MS3, _cache;
 var init_crypto_market_data = __esm({
   "server/services/crypto-market-data.ts"() {
     "use strict";
-    TTL_MS2 = 15e3;
+    TTL_MS3 = 15e3;
     _cache = /* @__PURE__ */ new Map();
   }
 });
@@ -48699,22 +48761,22 @@ async function fetchAllPredictions() {
   return predictions;
 }
 async function getSportsPredictions() {
-  if (cache5 && Date.now() - cache5.fetchedAt < CACHE_TTL_MS8) {
-    return cache5.data;
+  if (cache6 && Date.now() - cache6.fetchedAt < CACHE_TTL_MS8) {
+    return cache6.data;
   }
   return refreshSportsPredictions();
 }
 async function refreshSportsPredictions() {
   try {
     const data = await fetchAllPredictions();
-    cache5 = { data, fetchedAt: Date.now() };
+    cache6 = { data, fetchedAt: Date.now() };
     return data;
   } catch (err) {
     console.error("[sports-predictor] Fatal error during refresh:", err);
-    return cache5?.data ?? [];
+    return cache6?.data ?? [];
   }
 }
-var ESPN_BASE, GAMMA_BASE2, GOOGLE_NEWS_BASE, CACHE_TTL_MS8, ELO_K, ELO_DEFAULT, eloRatings, cache5, SPORT_PATHS, KEY_POSITIONS, recentGameDates;
+var ESPN_BASE, GAMMA_BASE2, GOOGLE_NEWS_BASE, CACHE_TTL_MS8, ELO_K, ELO_DEFAULT, eloRatings, cache6, SPORT_PATHS, KEY_POSITIONS, recentGameDates;
 var init_sports_predictor = __esm({
   "server/services/sports-predictor.ts"() {
     "use strict";
@@ -48725,7 +48787,7 @@ var init_sports_predictor = __esm({
     ELO_K = 20;
     ELO_DEFAULT = 1500;
     eloRatings = {};
-    cache5 = null;
+    cache6 = null;
     SPORT_PATHS = {
       nba: "basketball/nba",
       nfl: "football/nfl",
@@ -53245,7 +53307,7 @@ var prop_firm_consistency_audit_loop_exports = {};
 __export(prop_firm_consistency_audit_loop_exports, {
   startPropFirmConsistencyAuditLoop: () => startPropFirmConsistencyAuditLoop
 });
-function cache6() {
+function cache7() {
   global.tlConsistencyStatus = global.tlConsistencyStatus || {};
   return global.tlConsistencyStatus;
 }
@@ -53258,7 +53320,7 @@ async function auditOnce() {
     return;
   }
   if (!connections.length) return;
-  const store = cache6();
+  const store = cache7();
   for (const conn of connections) {
     try {
       const result = await getConsistencyStatus(conn.id, "tradelocker", conn.consistencyThresholdPct, conn.consistencyEnabled !== false);
@@ -55509,9 +55571,9 @@ async function getStopOrdersForUser(userId, filters = {}) {
 init_schema();
 
 // server/build-info.ts
-var BUILD_COMMIT = "36b1717c-dirty";
+var BUILD_COMMIT = "c3b632df-dirty";
 var BUILD_BRANCH = "main";
-var BUILT_AT = "2026-09-22T18:54:54.427Z";
+var BUILT_AT = "2026-09-23T00:46:23.881Z";
 
 // server/stripe.ts
 init_db();
@@ -67280,6 +67342,21 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
       } catch (veddErr) {
         console.error("[VEDD SS AI] Error checking plan:", veddErr);
       }
+      if (analysis.signal !== "NEUTRAL") {
+        try {
+          const { hourFilterVerdict: hourFilterVerdict2 } = await Promise.resolve().then(() => (init_hour_filter(), hour_filter_exports));
+          const _hfVerdict = await hourFilterVerdict2(token.userId, (/* @__PURE__ */ new Date()).getUTCHours());
+          if (_hfVerdict) {
+            console.log(`[HourFilter] BLOCKED ${sanitizedSymbol} ${analysis.signal} \u2014 ${_hfVerdict.reason}`);
+            _diagCap.neutralReason = `hour_filter (${_hfVerdict.reason})`;
+            analysis.signal = "NEUTRAL";
+            analysis.alerts = analysis.alerts || [];
+            analysis.alerts.push(`\u23F0 ${_hfVerdict.reason}. Waiting for a better window.`);
+          }
+        } catch (_hfErr) {
+          console.error("[HourFilter] check failed (non-blocking):", _hfErr?.message);
+        }
+      }
       let goalPaceMode = "ON_PACE";
       let goalLotMultiplier = 1;
       let goalIntelligenceActive = false;
@@ -69487,8 +69564,8 @@ BEAR CASE: ${_bearCase || "n/a"}` : aiConfirmation.reasoning;
     const userId = req.user.id;
     const { symbol, timeframe } = req.params;
     const chartDataKey = `mt5_chart_${userId}_${symbol}_${timeframe}`;
-    const cache7 = global.mt5ChartDataCache || {};
-    const chartData = cache7[chartDataKey];
+    const cache8 = global.mt5ChartDataCache || {};
+    const chartData = cache8[chartDataKey];
     if (!chartData) {
       return res.status(404).json({ error: "No chart data found. Make sure your MT5 Chart Data EA is running." });
     }
@@ -70931,8 +71008,8 @@ Respond with ONLY valid JSON:
     strategy.progressWinRate = winRate2;
     strategy.progressPercentage = Math.min(100, Math.max(0, Math.round(closedProfit / strategy.profitTarget * 100)));
     const _mt5BalLive = (() => {
-      const cache7 = global.mt5AccountData?.[userId];
-      return cache7 ? Object.values(cache7).reduce((s, a) => s + (a?.balance || 0), 0) : 0;
+      const cache8 = global.mt5AccountData?.[userId];
+      return cache8 ? Object.values(cache8).reduce((s, a) => s + (a?.balance || 0), 0) : 0;
     })();
     const _tlBalLive = Object.values(global.tlAccountData?.[userId] || {}).reduce((s, a) => s + (a?.balance || 0), 0);
     const _liveBalance = _mt5BalLive + _tlBalLive;
@@ -84060,15 +84137,15 @@ Sitemap: ${SEO_BASE_URL}/sitemap.xml
     if (!req.isAuthenticated()) return res.status(401).json({ error: "Unauthorized" });
     const userId = req.user.id;
     const rawSymbol = req.params.symbol.toUpperCase().replace(/[^A-Za-z0-9/_.-]/g, "");
-    const cache7 = global.mt5ChartDataCache || {};
-    const allKeys = Object.keys(cache7);
+    const cache8 = global.mt5ChartDataCache || {};
+    const allKeys = Object.keys(cache8);
     const PREFER_TF = ["M6", "M5", "M1", "M15", "M30", "H1", "H4"];
     let found = null;
     let foundTf = "";
     for (const tf of PREFER_TF) {
       const key = `mt5_chart_${userId}_${rawSymbol}_${tf}`;
-      if (cache7[key]) {
-        found = cache7[key];
+      if (cache8[key]) {
+        found = cache8[key];
         foundTf = tf;
         break;
       }
@@ -84076,7 +84153,7 @@ Sitemap: ${SEO_BASE_URL}/sitemap.xml
     if (!found) {
       const partialKey = allKeys.find((k) => k.includes(`_${userId}_`) && k.includes(rawSymbol));
       if (partialKey) {
-        found = cache7[partialKey];
+        found = cache8[partialKey];
         foundTf = partialKey.split("_").pop() || "";
       }
     }

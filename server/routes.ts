@@ -10217,6 +10217,31 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
         console.error('[VEDD SS AI] Error checking plan:', veddErr);
       }
 
+      // ── Hour-of-day performance filter ──────────────────────────────────────
+      // Entry hour is the strongest predictor in this account's history and was
+      // being ignored. 01:00 UTC runs 38% WR over 1,058 trades; 20:00 is 26%.
+      // On the week of 2026-09-21 two signals in the 01:00 hour cost -$2,093 and
+      // turned the week negative.
+      //
+      // Placed BEFORE the AI confirmation deliberately: a trade we will not take
+      // should not cost a credit to evaluate. Skipped entirely when the signal is
+      // already NEUTRAL, and it FAILS OPEN — a stats failure allows the trade.
+      if (analysis.signal !== 'NEUTRAL') {
+        try {
+          const { hourFilterVerdict } = await import('./services/hour-filter');
+          const _hfVerdict = await hourFilterVerdict(token.userId, new Date().getUTCHours());
+          if (_hfVerdict) {
+            console.log(`[HourFilter] BLOCKED ${sanitizedSymbol} ${analysis.signal} — ${_hfVerdict.reason}`);
+            _diagCap.neutralReason = `hour_filter (${_hfVerdict.reason})`;
+            analysis.signal = 'NEUTRAL';
+            analysis.alerts = analysis.alerts || [];
+            analysis.alerts.push(`⏰ ${_hfVerdict.reason}. Waiting for a better window.`);
+          }
+        } catch (_hfErr: any) {
+          console.error('[HourFilter] check failed (non-blocking):', _hfErr?.message);
+        }
+      }
+
       // ── VEDD Goal Intelligence Layer ────────────────────────────────────────
       // Adapts lot sizing and pair access based on progress toward the daily/weekly goal.
       // Three modes: CATCH_UP (behind pace), ON_PACE (normal), LOCK_IN (goal achieved)
