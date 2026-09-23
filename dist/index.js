@@ -10414,7 +10414,9 @@ async function getAiVisionConfirmation(candleData, indicators, proposedSignal, p
       confirmed: false,
       aiDirection: "NEUTRAL",
       aiConfidence: 0,
-      reasoning: userReason
+      reasoning: userReason,
+      aiError: true,
+      aiErrorStatus: typeof statusCode === "number" ? statusCode : null
     };
   }
 }
@@ -24574,13 +24576,21 @@ function recordTradeResult(userId, result) {
     });
   }
   const brainForUser = global.veddAIBrain?.[userId];
-  if (brainForUser?.pairKnowledge?.[result.symbol]) {
-    const pk = brainForUser.pairKnowledge[result.symbol];
-    if (result.profit < 0) {
-      pk.consecutiveLossesToday = (pk.consecutiveLossesToday || 0) + 1;
-      pk.lastLossAt = (/* @__PURE__ */ new Date()).toISOString();
-    } else {
-      pk.consecutiveLossesToday = 0;
+  const _normSym = (v) => String(v || "").toUpperCase().replace(/[^A-Z0-9]/g, "");
+  if (brainForUser?.pairKnowledge && result.symbol) {
+    const _want = _normSym(result.symbol);
+    const _key = Object.keys(brainForUser.pairKnowledge).find((k) => _normSym(k) === _want) ?? Object.keys(brainForUser.pairKnowledge).find((k) => {
+      const n = _normSym(k);
+      return n.length >= 6 && (_want.startsWith(n) || n.startsWith(_want));
+    });
+    if (_key) {
+      const pk = brainForUser.pairKnowledge[_key];
+      if (result.profit < 0) {
+        pk.consecutiveLossesToday = (pk.consecutiveLossesToday || 0) + 1;
+        pk.lastLossAt = (/* @__PURE__ */ new Date()).toISOString();
+      } else {
+        pk.consecutiveLossesToday = 0;
+      }
     }
   }
   if (result.profit < 0 && result.symbol && result.direction) {
@@ -55873,9 +55883,9 @@ async function getStopOrdersForUser(userId, filters = {}) {
 init_schema();
 
 // server/build-info.ts
-var BUILD_COMMIT = "eae0f5de-dirty";
+var BUILD_COMMIT = "dc28536d-dirty";
 var BUILD_BRANCH = "main";
-var BUILT_AT = "2026-09-23T10:23:05.755Z";
+var BUILT_AT = "2026-09-23T14:27:22.914Z";
 
 // server/stripe.ts
 init_db();
@@ -68339,7 +68349,11 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
             const ADVISORY_SIGNAL_FLOOR = 85;
             let _propConf = Number(preConfirmConfidence) || 0;
             if (_propConf > 0 && _propConf <= 1) _propConf *= 100;
-            const _advisoryOverride = consensusLabel === "STRONG_SKIP" && _propConf >= ADVISORY_SIGNAL_FLOOR && !_confluenceConflicts;
+            const _aiErrored = aiConfirmation.aiError === true;
+            if (_aiErrored) {
+              console.warn(`[AI Gate] ${sanitizedSymbol} \u2014 AI confirmation FAILED (${aiConfirmation.aiErrorStatus ?? "no status"}): ${aiConfirmation.reasoning}. Advisory override suppressed; no trade will be taken on an unverified signal.`);
+            }
+            const _advisoryOverride = consensusLabel === "STRONG_SKIP" && _propConf >= ADVISORY_SIGNAL_FLOOR && !_confluenceConflicts && !_aiErrored;
             if (consensusLabel === "STRONG_SKIP") {
               console.log(`[Advisory] ${sanitizedSymbol} STRONG_SKIP inputs: breakout=${useBreakoutMode} propConf=${_propConf} conflict=${_confluenceConflicts} smcBOS=${smcContext?.bosCHOCH?.detected ?? "null"} \u2192 override=${_advisoryOverride}`);
             }
@@ -68357,7 +68371,7 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
               analysis.alerts.push(`\u2696\uFE0F ADVISORY ENTRY: strong ${preConfirmConfidence}% signal, no structural conflict \u2014 traded at reduced size despite low ICT confluence.`);
             }
             if (!tradeAllowed) {
-              const reason = consensusLabel === "STRONG_SKIP" ? `Dual-agent STRONG_SKIP \u2014 Quant:${quantResult.verdict}(${quantResult.score}) + AI:${aiVerdict}(${aiConfirmation.aiConfidence}%) both reject` : overrideTooWeak ? `AI override blocked \u2014 weak confluence (Grade ${breakoutGrade || "?"}${Number.isFinite(_alignedVotes) ? `, ${_alignedVotes} aligned` : ""}); override requires Grade B / \u22652 aligned. EA ${preConfirmConfidence}% < ${EA_MIN_CONFIDENCE_FOR_AI_GATE}%` : useBreakoutMode ? `Breakout grade insufficient (Grade ${breakoutGrade || "PASS"} \u2014 Grade A (\u226570%) or B (\u226550%) required to CONFIRM)` : !eaPasses ? `Both below threshold (AI: ${aiConfirmation.aiConfidence}% < ${AI_MIN_CONFIDENCE}%, EA: ${preConfirmConfidence}% < ${EA_MIN_CONFIDENCE_FOR_AI_GATE}%)` : `AI confidence too low (AI: ${aiConfirmation.aiConfidence}% < ${AI_MIN_CONFIDENCE}%, EA: ${preConfirmConfidence}%)`;
+              const reason = _aiErrored ? `AI confirmation unavailable (${aiConfirmation.aiErrorStatus ?? "error"}) \u2014 refusing to trade an unverified signal` : consensusLabel === "STRONG_SKIP" ? `Dual-agent STRONG_SKIP \u2014 Quant:${quantResult.verdict}(${quantResult.score}) + AI:${aiVerdict}(${aiConfirmation.aiConfidence}%) both reject` : overrideTooWeak ? `AI override blocked \u2014 weak confluence (Grade ${breakoutGrade || "?"}${Number.isFinite(_alignedVotes) ? `, ${_alignedVotes} aligned` : ""}); override requires Grade B / \u22652 aligned. EA ${preConfirmConfidence}% < ${EA_MIN_CONFIDENCE_FOR_AI_GATE}%` : useBreakoutMode ? `Breakout grade insufficient (Grade ${breakoutGrade || "PASS"} \u2014 Grade A (\u226570%) or B (\u226550%) required to CONFIRM)` : !eaPasses ? `Both below threshold (AI: ${aiConfirmation.aiConfidence}% < ${AI_MIN_CONFIDENCE}%, EA: ${preConfirmConfidence}% < ${EA_MIN_CONFIDENCE_FOR_AI_GATE}%)` : `AI confidence too low (AI: ${aiConfirmation.aiConfidence}% < ${AI_MIN_CONFIDENCE}%, EA: ${preConfirmConfidence}%)`;
               console.log(`[AI Vision Confirmation] BLOCKED trade on ${sanitizedSymbol} - ${reason}: ${aiConfirmation.reasoning}`);
               analysis.alerts.push(`TRADE BLOCKED [${consensusLabel}]: ${reason} - ${aiConfirmation.reasoning}`);
               aiConfirmation.confirmed = false;
@@ -74140,6 +74154,28 @@ Format each recommendation as a clear, concise action item.`;
     }
   });
   global.veddAIBrain = global.veddAIBrain || {};
+  const LOSS_STREAK_GROUP_MS = Number(process.env.BRAIN_LOSS_GROUP_MS ?? 12e4);
+  const LOSS_STREAK_WINDOW_MS = Number(process.env.BRAIN_LOSS_WINDOW_MS ?? 12 * 60 * 60 * 1e3);
+  function computeLossStreak(symTrades) {
+    const cutoff = Date.now() - LOSS_STREAK_WINDOW_MS;
+    const rows = symTrades.filter((t) => t.result === "WIN" || t.result === "LOSS").map((t) => ({ ...t, _ts: Number(t.closedTs || t.timestamp || 0) })).filter((t) => t._ts > 0 && t._ts >= cutoff).sort((a, b) => b._ts - a._ts);
+    if (!rows.length) return { consecutiveLosses: 0, lastLossAt: null };
+    const signals = [];
+    for (const r of rows) {
+      const prev = signals[signals.length - 1];
+      const sameSignal = !!prev && prev.result === r.result && prev.ts - r._ts <= LOSS_STREAK_GROUP_MS && prev.dir === String(r.direction ?? "");
+      if (sameSignal) continue;
+      signals.push({ result: r.result, ts: r._ts, dir: String(r.direction ?? "") });
+    }
+    let consecutiveLosses = 0;
+    let lastLossAt = null;
+    for (const sig of signals) {
+      if (sig.result !== "LOSS") break;
+      if (consecutiveLosses === 0) lastLossAt = new Date(sig.ts).toISOString();
+      consecutiveLosses++;
+    }
+    return { consecutiveLosses, lastLossAt };
+  }
   async function runBrainLearning(userId) {
     const allTradesRaw = await storage.getAiTradeResults(userId, 1e3);
     const NON_FX_SOURCES = /* @__PURE__ */ new Set(["kalshi", "polymarket"]);
@@ -74190,6 +74226,9 @@ Format each recommendation as a clear, concise action item.`;
         tp: t.takeProfit,
         timeframe: t.timeframe,
         timestamp: t.createdAt ? new Date(t.createdAt).getTime() : 0,
+        // Close time, for the consecutive-loss streak. `timestamp` above is the
+        // OPEN time, which orders fills wrongly when a later entry closes first.
+        closedTs: t.closedAt ? new Date(t.closedAt).getTime() : t.createdAt ? new Date(t.createdAt).getTime() : 0,
         hour: t.createdAt ? new Date(t.createdAt).getUTCHours() : 0,
         day: t.createdAt ? new Date(t.createdAt).getUTCDay() : 0,
         notes: t.notes
@@ -74210,6 +74249,7 @@ Format each recommendation as a clear, concise action item.`;
           tp: t.take_profit,
           timeframe: "M5",
           timestamp: closed ? closed.getTime() : 0,
+          closedTs: closed ? closed.getTime() : 0,
           hour: closed ? closed.getUTCHours() : 0,
           day: closed ? closed.getUTCDay() : 0,
           notes: "paper"
@@ -74228,6 +74268,7 @@ Format each recommendation as a clear, concise action item.`;
         tp: t.tp,
         timeframe: t.timeframe || "M15",
         timestamp: t.closeTime ? new Date(t.closeTime).getTime() : 0,
+        closedTs: t.closeTime ? new Date(t.closeTime).getTime() : 0,
         hour: t.closeTime ? new Date(t.closeTime).getUTCHours() : 0,
         day: t.closeTime ? new Date(t.closeTime).getUTCDay() : 0,
         notes: ""
@@ -74244,6 +74285,7 @@ Format each recommendation as a clear, concise action item.`;
     const pairKnowledge = {};
     for (const sym of uniqueSymbols) {
       const symTrades = combinedTrades.filter((t) => t.symbol === sym);
+      const _lossStreak = computeLossStreak(symTrades);
       const wins = symTrades.filter((t) => t.result === "WIN");
       const losses = symTrades.filter((t) => t.result === "LOSS");
       const totalCompleted = wins.length + losses.length;
@@ -74367,9 +74409,10 @@ Format each recommendation as a clear, concise action item.`;
         optimalTrailPips,
         minProfitableATR,
         recommendedLotMultiplier: Math.round(kellyClamped * 100) / 100,
-        consecutiveLossesToday: 0,
-        // updated live by BrainEnforcer
-        lastLossAt: null
+        // Derived from closed trades (see computeLossStreak above) rather than
+        // held in memory — a 60s rebuild used to reset both every minute.
+        consecutiveLossesToday: _lossStreak.consecutiveLosses,
+        lastLossAt: _lossStreak.lastLossAt
       };
     }
     const overallWins = combinedTrades.filter((t) => t.result === "WIN").length;

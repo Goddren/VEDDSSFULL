@@ -11959,7 +11959,9 @@ async function getAiVisionConfirmation(candleData, indicators, proposedSignal, p
       confirmed: false,
       aiDirection: "NEUTRAL",
       aiConfidence: 0,
-      reasoning: userReason
+      reasoning: userReason,
+      aiError: true,
+      aiErrorStatus: typeof statusCode === "number" ? statusCode : null
     };
   }
 }

@@ -11003,9 +11003,21 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
             // STRONG_SKIP (and this confluence hard-block) fires in breakout mode too.
             let _propConf = Number(preConfirmConfidence) || 0;
             if (_propConf > 0 && _propConf <= 1) _propConf *= 100;
+            // An AI that never answered is not an AI that said skip. When the
+            // provider call errored (credits, auth, rate limit, network), the
+            // override must NOT rescue the trade — otherwise an outage converts
+            // this gate into a passthrough that trades on EA indicators alone,
+            // while logging a confidence of 75 that is just the cap constant
+            // below. Measured 2026-09-23: 30h of `402 Insufficient credits`,
+            // every approval carrying aiConf=75, no model reasoning involved.
+            const _aiErrored = (aiConfirmation as any).aiError === true;
+            if (_aiErrored) {
+              console.warn(`[AI Gate] ${sanitizedSymbol} — AI confirmation FAILED (${(aiConfirmation as any).aiErrorStatus ?? 'no status'}): ${aiConfirmation.reasoning}. Advisory override suppressed; no trade will be taken on an unverified signal.`);
+            }
             const _advisoryOverride = consensusLabel === 'STRONG_SKIP'
               && _propConf >= ADVISORY_SIGNAL_FLOOR
-              && !_confluenceConflicts;
+              && !_confluenceConflicts
+              && !_aiErrored;
             if (consensusLabel === 'STRONG_SKIP') {
               console.log(`[Advisory] ${sanitizedSymbol} STRONG_SKIP inputs: breakout=${useBreakoutMode} propConf=${_propConf} conflict=${_confluenceConflicts} smcBOS=${smcContext?.bosCHOCH?.detected ?? 'null'} → override=${_advisoryOverride}`);
             }
@@ -11046,7 +11058,9 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
             }
 
             if (!tradeAllowed) {
-              const reason = consensusLabel === 'STRONG_SKIP'
+              const reason = _aiErrored
+                ? `AI confirmation unavailable (${(aiConfirmation as any).aiErrorStatus ?? 'error'}) — refusing to trade an unverified signal`
+                : consensusLabel === 'STRONG_SKIP'
                 ? `Dual-agent STRONG_SKIP — Quant:${quantResult.verdict}(${quantResult.score}) + AI:${aiVerdict}(${aiConfirmation.aiConfidence}%) both reject`
                 : overrideTooWeak
                 ? `AI override blocked — weak confluence (Grade ${breakoutGrade || '?'}${Number.isFinite(_alignedVotes) ? `, ${_alignedVotes} aligned` : ''}); override requires Grade B / ≥2 aligned. EA ${preConfirmConfidence}% < ${EA_MIN_CONFIDENCE_FOR_AI_GATE}%`
@@ -17902,6 +17916,63 @@ Format each recommendation as a clear, concise action item.`;
 
   (global as any).veddAIBrain = (global as any).veddAIBrain || {};
 
+  // ───────────────────────────────────────────────────────────────────────────
+  // Consecutive-loss streak, DERIVED from closed trades.
+  //
+  // These two fields used to be initialised to 0/null here and incremented in
+  // memory by recordTradeResult. The brain rebuilds on a 60s timer, so every
+  // rebuild wiped the counter: for the 3-loss cooldown (Gate 2e Rule 5) to fire,
+  // three losses would have had to close inside the same 60-second window. It
+  // never fired. Proof from 2026-09-23: four GBPJPY losses closed 10:08:39-43,
+  // and a fresh GBPJPY entry opened at 12:11 — two hours into what should have
+  // been a three-hour lockout.
+  //
+  // Deriving it from the trade history makes it correct after every rebuild,
+  // survives deploys, and sees all accounts rather than only the closes this
+  // process happened to witness.
+  //
+  // FILLS ARE GROUPED INTO SIGNALS. One signal fans out to every active
+  // connection, so a single bad setup produces four closes within seconds of
+  // each other. Counting fills would trip a 3-loss threshold on the FIRST
+  // losing signal and lock the pair permanently. Same direction + same result
+  // closing inside GROUP_MS counts once.
+  const LOSS_STREAK_GROUP_MS = Number(process.env.BRAIN_LOSS_GROUP_MS ?? 120_000);
+  const LOSS_STREAK_WINDOW_MS = Number(process.env.BRAIN_LOSS_WINDOW_MS ?? 12 * 60 * 60 * 1000);
+
+  function computeLossStreak(symTrades: any[]): { consecutiveLosses: number; lastLossAt: string | null } {
+    const cutoff = Date.now() - LOSS_STREAK_WINDOW_MS;
+    // Bounded to a rolling window on purpose: the post-loss confidence floor
+    // (82%/86%) reads this WITHOUT a time check, so an unbounded streak from
+    // weeks ago would raise the bar forever on a pair that has since recovered.
+    const rows = symTrades
+      .filter((t) => (t.result === 'WIN' || t.result === 'LOSS'))
+      .map((t) => ({ ...t, _ts: Number(t.closedTs || t.timestamp || 0) }))
+      .filter((t) => t._ts > 0 && t._ts >= cutoff)
+      .sort((a, b) => b._ts - a._ts);
+    if (!rows.length) return { consecutiveLosses: 0, lastLossAt: null };
+
+    // Collapse fan-out fills into one entry per signal.
+    const signals: { result: string; ts: number; dir: string }[] = [];
+    for (const r of rows) {
+      const prev = signals[signals.length - 1];
+      const sameSignal = !!prev
+        && prev.result === r.result
+        && (prev.ts - r._ts) <= LOSS_STREAK_GROUP_MS
+        && prev.dir === String(r.direction ?? '');
+      if (sameSignal) continue;
+      signals.push({ result: r.result, ts: r._ts, dir: String(r.direction ?? '') });
+    }
+
+    let consecutiveLosses = 0;
+    let lastLossAt: string | null = null;
+    for (const sig of signals) {
+      if (sig.result !== 'LOSS') break;   // a win ends the run
+      if (consecutiveLosses === 0) lastLossAt = new Date(sig.ts).toISOString();
+      consecutiveLosses++;
+    }
+    return { consecutiveLosses, lastLossAt };
+  }
+
   async function runBrainLearning(userId: number): Promise<any> {
     const allTradesRaw = await storage.getAiTradeResults(userId, 1000);
     // The FX engine brain must only learn from FX trades. Prediction-market
@@ -17972,6 +18043,9 @@ Format each recommendation as a clear, concise action item.`;
         confidence: t.aiConfidence || 0, entry: t.entryPrice, exit: t.exitPrice,
         sl: t.stopLoss, tp: t.takeProfit, timeframe: t.timeframe,
         timestamp: t.createdAt ? new Date(t.createdAt).getTime() : 0,
+        // Close time, for the consecutive-loss streak. `timestamp` above is the
+        // OPEN time, which orders fills wrongly when a later entry closes first.
+        closedTs: t.closedAt ? new Date(t.closedAt).getTime() : (t.createdAt ? new Date(t.createdAt).getTime() : 0),
         hour: t.createdAt ? new Date(t.createdAt).getUTCHours() : 0,
         day: t.createdAt ? new Date(t.createdAt).getUTCDay() : 0,
         notes: t.notes,
@@ -17987,6 +18061,7 @@ Format each recommendation as a clear, concise action item.`;
           confidence: Number(t.confidence) || 0, entry: t.entry_price, exit: t.exit_price,
           sl: t.stop_loss, tp: t.take_profit, timeframe: 'M5',
           timestamp: closed ? closed.getTime() : 0,
+          closedTs: closed ? closed.getTime() : 0,
           hour: closed ? closed.getUTCHours() : 0,
           day: closed ? closed.getUTCDay() : 0,
           notes: 'paper',
@@ -17998,6 +18073,7 @@ Format each recommendation as a clear, concise action item.`;
         profit: t.profit || 0, pips: t.pips || 0, confidence: 0,
         entry: t.openPrice, exit: t.closePrice, sl: t.sl, tp: t.tp,
         timeframe: t.timeframe || 'M15', timestamp: t.closeTime ? new Date(t.closeTime).getTime() : 0,
+        closedTs: t.closeTime ? new Date(t.closeTime).getTime() : 0,
         hour: t.closeTime ? new Date(t.closeTime).getUTCHours() : 0,
         day: t.closeTime ? new Date(t.closeTime).getUTCDay() : 0,
         notes: '',
@@ -18016,6 +18092,7 @@ Format each recommendation as a clear, concise action item.`;
     const pairKnowledge: Record<string, any> = {};
     for (const sym of uniqueSymbols) {
       const symTrades = combinedTrades.filter(t => t.symbol === sym);
+      const _lossStreak = computeLossStreak(symTrades);
       const wins = symTrades.filter(t => t.result === 'WIN');
       const losses = symTrades.filter(t => t.result === 'LOSS');
       const totalCompleted = wins.length + losses.length;
@@ -18132,8 +18209,10 @@ Format each recommendation as a clear, concise action item.`;
         optimalTrailPips,
         minProfitableATR,
         recommendedLotMultiplier: Math.round(kellyClamped * 100) / 100,
-        consecutiveLossesToday: 0,   // updated live by BrainEnforcer
-        lastLossAt: null as string | null,
+        // Derived from closed trades (see computeLossStreak above) rather than
+        // held in memory — a 60s rebuild used to reset both every minute.
+        consecutiveLossesToday: _lossStreak.consecutiveLosses,
+        lastLossAt: _lossStreak.lastLossAt,
       };
     }
 

@@ -1220,14 +1220,32 @@ export function recordTradeResult(userId: number, result: {
   }
 
   // ── T003: Update per-pair consecutive loss tracking in brain ──────
+  // This is now only a fast in-between-rebuild nudge. The authoritative value is
+  // recomputed from closed trades by computeLossStreak() in runBrainLearning on
+  // every 60s rebuild, so an increment missed here self-corrects within a minute
+  // instead of being lost forever.
+  //
+  // Symbol keys are matched loosely: the brain keys pairs as 'GBPJPY' while a
+  // broker can close 'GBPJPY.PRO' or 'GBP/JPY'. An exact lookup silently no-oped
+  // on those, so the pair that most needed the cooldown never got one.
   const brainForUser = (global as any).veddAIBrain?.[userId];
-  if (brainForUser?.pairKnowledge?.[result.symbol]) {
-    const pk = brainForUser.pairKnowledge[result.symbol];
-    if (result.profit < 0) {
-      pk.consecutiveLossesToday = (pk.consecutiveLossesToday || 0) + 1;
-      pk.lastLossAt = new Date().toISOString();
-    } else {
-      pk.consecutiveLossesToday = 0; // reset on win
+  const _normSym = (v: any) => String(v || '').toUpperCase().replace(/[^A-Z0-9]/g, '');
+  if (brainForUser?.pairKnowledge && result.symbol) {
+    const _want = _normSym(result.symbol);
+    const _key = Object.keys(brainForUser.pairKnowledge).find((k) => _normSym(k) === _want)
+      // Fall back to a prefix match so 'GBPJPY.PRO' still finds 'GBPJPY'.
+      ?? Object.keys(brainForUser.pairKnowledge).find((k) => {
+        const n = _normSym(k);
+        return n.length >= 6 && (_want.startsWith(n) || n.startsWith(_want));
+      });
+    if (_key) {
+      const pk = brainForUser.pairKnowledge[_key];
+      if (result.profit < 0) {
+        pk.consecutiveLossesToday = (pk.consecutiveLossesToday || 0) + 1;
+        pk.lastLossAt = new Date().toISOString();
+      } else {
+        pk.consecutiveLossesToday = 0; // reset on win
+      }
     }
   }
 

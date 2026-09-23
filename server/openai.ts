@@ -698,6 +698,19 @@ export interface AiVisionConfirmation {
   aiDirection: string;
   aiConfidence: number;
   reasoning: string;
+  /**
+   * True when the provider call FAILED (credits, auth, rate limit, network,
+   * unparseable JSON) rather than the model actually declining the trade.
+   *
+   * These two states used to be indistinguishable: both came back as
+   * confirmed=false, aiConfidence=0. Downstream that reads as "the AI says
+   * skip", which the advisory override is allowed to overrule on a strong EA
+   * signal — so an outage silently turned the AI gate into a passthrough.
+   * On 2026-09-23 every confirmation for 30h was `402 Insufficient credits`
+   * and trades kept firing on EA indicators alone.
+   */
+  aiError?: boolean;
+  aiErrorStatus?: number | null;
   adjustedEntry?: number;
   adjustedStopLoss?: number;
   adjustedTakeProfit?: number;
@@ -2504,6 +2517,8 @@ export async function getAiVisionConfirmation(
       aiDirection: 'NEUTRAL',
       aiConfidence: 0,
       reasoning: userReason,
+      aiError: true,
+      aiErrorStatus: typeof statusCode === 'number' ? statusCode : null,
     };
   }
 }
