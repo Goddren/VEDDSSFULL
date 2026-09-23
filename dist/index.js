@@ -23570,6 +23570,123 @@ var init_composite_signal = __esm({
   }
 });
 
+// server/services/pair-filter.ts
+var pair_filter_exports = {};
+__export(pair_filter_exports, {
+  pairFilterConfig: () => pairFilterConfig,
+  pairFilterVerdict: () => pairFilterVerdict
+});
+function parseList(v) {
+  return (v ?? "").split(",").map((s) => s.trim().toUpperCase()).filter(Boolean);
+}
+function listFromEnv(name, fallback) {
+  const raw = process.env[name];
+  const parsed = parseList(raw);
+  if (parsed.length) return parsed;
+  if (raw != null && raw.trim() !== "") return parsed;
+  return parseList(fallback);
+}
+function pairFilterVerdict(symbol, direction) {
+  if (process.env.PAIR_FILTER_ENABLED === "false") return null;
+  const sym = norm2(symbol);
+  const dir = String(direction || "").toUpperCase();
+  for (const b of BLOCKED_PAIRS) {
+    if (norm2(b) === sym) {
+      return { blocked: true, reason: `Pair filter: ${sym} is on the blocked list (34% WR over 310 trades, avg win $59 vs avg loss $100)` };
+    }
+  }
+  for (const entry of BLOCKED_DIRECTIONS) {
+    const [s, d] = entry.split(":");
+    if (s && d && norm2(s) === sym && d.toUpperCase() === dir) {
+      return { blocked: true, reason: `Pair filter: ${sym} ${dir} is on the blocked list` };
+    }
+  }
+  return null;
+}
+function pairFilterConfig() {
+  return { enabled: process.env.PAIR_FILTER_ENABLED !== "false", pairs: BLOCKED_PAIRS, directions: BLOCKED_DIRECTIONS };
+}
+var norm2, BLOCKED_PAIRS, BLOCKED_DIRECTIONS;
+var init_pair_filter = __esm({
+  "server/services/pair-filter.ts"() {
+    "use strict";
+    norm2 = (s) => String(s || "").toUpperCase().replace(/[^A-Z0-9]/g, "");
+    BLOCKED_PAIRS = listFromEnv("BLOCKED_PAIRS", "GBPJPY");
+    BLOCKED_DIRECTIONS = listFromEnv("BLOCKED_PAIR_DIRECTIONS", "");
+    console.log(`[PairFilter] enabled=${process.env.PAIR_FILTER_ENABLED !== "false"} pairs=[${BLOCKED_PAIRS.join(", ") || "none"}] directions=[${BLOCKED_DIRECTIONS.join(", ") || "none"}]`);
+  }
+});
+
+// server/services/hour-filter.ts
+var hour_filter_exports = {};
+__export(hour_filter_exports, {
+  hourFilterTable: () => hourFilterTable,
+  hourFilterVerdict: () => hourFilterVerdict
+});
+async function compute2(userId) {
+  const { pool: pool2 } = await Promise.resolve().then(() => (init_db(), db_exports));
+  const { rows } = await pool2.query(
+    `SELECT EXTRACT(hour FROM created_at)::int AS hour,
+            COUNT(*)::int AS trades,
+            ROUND(100.0 * SUM(CASE WHEN result='WIN' THEN 1 ELSE 0 END) / COUNT(*), 1) AS win_rate
+       FROM ai_trade_results
+      WHERE user_id = $1
+        AND result IN ('WIN','LOSS')
+        AND source IN ('tradelocker','tradelocker_auto')
+        AND symbol NOT LIKE 'KALSHI%'
+        -- ACTIVE connections only. 73% of ai_trade_results comes from two
+        -- accounts (2188895, 1991352) that are no longer connected \u2014 including
+        -- 1,020 positions the sync ingested from 1991352 in a single hour on
+        -- 2026-08-05, which is 64% of the whole table. Calibrating a live filter
+        -- on dead accounts got four hours wrong: it blocked 08:00 (46.2% on the
+        -- real book) and 18:00/21:00 (samples under the floor), while missing
+        -- 13:00 (26.7% over 15 trades).
+        AND connection_id IN (SELECT id FROM tradelocker_connections WHERE is_active = true)
+        AND created_at > now() - ($2 || ' days')::interval
+      GROUP BY 1`,
+    [userId, String(LOOKBACK_DAYS2)]
+  );
+  const stats = rows.map((r) => ({ hour: Number(r.hour), trades: Number(r.trades), winRate: Number(r.win_rate) }));
+  const blocked = new Set(
+    stats.filter((s) => s.trades >= MIN_SAMPLE && s.winRate < WR_FLOOR).map((s) => s.hour)
+  );
+  return { stats, blocked };
+}
+async function hourFilterVerdict(userId, hourUtc) {
+  if (process.env.HOUR_FILTER_ENABLED === "false") return null;
+  try {
+    let entry = cache4.get(userId);
+    if (!entry || Date.now() - entry.at > TTL_MS3) {
+      const fresh = await compute2(userId);
+      entry = { at: Date.now(), ...fresh };
+      cache4.set(userId, entry);
+      const list = Array.from(fresh.blocked).sort((a, b) => a - b).map((h) => `${h}:00`).join(", ");
+      console.log(`[HourFilter] user ${userId}: recomputed over ${LOOKBACK_DAYS2}d \u2014 blocking ${fresh.blocked.size} hour(s)${list ? ": " + list : ""} (floor ${WR_FLOOR}% on ${MIN_SAMPLE}+ trades)`);
+    }
+    if (!entry.blocked.has(hourUtc)) return null;
+    const s = entry.stats.find((x) => x.hour === hourUtc);
+    return { blocked: true, reason: `Hour filter: ${hourUtc}:00 UTC is ${s?.winRate}% WR over ${s?.trades} trades \u2014 below the ${WR_FLOOR}% floor` };
+  } catch (e) {
+    console.error(`[HourFilter] could not evaluate (${e?.message}) \u2014 allowing the trade.`);
+    return null;
+  }
+}
+async function hourFilterTable(userId) {
+  const { stats, blocked } = await compute2(userId);
+  return { stats: stats.sort((a, b) => a.hour - b.hour), blocked: Array.from(blocked).sort((a, b) => a - b) };
+}
+var MIN_SAMPLE, WR_FLOOR, TTL_MS3, LOOKBACK_DAYS2, cache4;
+var init_hour_filter = __esm({
+  "server/services/hour-filter.ts"() {
+    "use strict";
+    MIN_SAMPLE = Number(process.env.HOUR_FILTER_MIN_TRADES ?? 15);
+    WR_FLOOR = Number(process.env.HOUR_FILTER_MIN_WINRATE ?? 45);
+    TTL_MS3 = Number(process.env.HOUR_FILTER_TTL_MS ?? 60 * 60 * 1e3);
+    LOOKBACK_DAYS2 = Number(process.env.HOUR_FILTER_LOOKBACK_DAYS ?? 180);
+    cache4 = /* @__PURE__ */ new Map();
+  }
+});
+
 // server/cryptocom.ts
 var cryptocom_exports = {};
 __export(cryptocom_exports, {
@@ -28159,6 +28276,46 @@ async function processDecision(userId, decision, newsCtx) {
         return;
       }
     }
+    {
+      const _gSym = decision.symbol.toUpperCase().replace("/", "");
+      const _gDir = decision.direction;
+      try {
+        const { pairFilterVerdict: pairFilterVerdict2 } = await Promise.resolve().then(() => (init_pair_filter(), pair_filter_exports));
+        const _v = pairFilterVerdict2(_gSym, _gDir);
+        if (_v) {
+          addActivity(userId, { type: "info", symbol: decision.symbol, message: `\u{1F6AB} ${_v.reason} \u2014 skipped (live engine).` });
+          return;
+        }
+      } catch {
+      }
+      try {
+        const { hourFilterVerdict: hourFilterVerdict2 } = await Promise.resolve().then(() => (init_hour_filter(), hour_filter_exports));
+        const _v = await hourFilterVerdict2(userId, (/* @__PURE__ */ new Date()).getUTCHours());
+        if (_v) {
+          addActivity(userId, { type: "info", symbol: decision.symbol, message: `\u23F0 ${_v.reason} \u2014 skipped (live engine).` });
+          return;
+        }
+      } catch {
+      }
+      try {
+        const { pairDailyStopVerdict: pairDailyStopVerdict2 } = await Promise.resolve().then(() => (init_pair_daily_stop(), pair_daily_stop_exports));
+        const _v = await pairDailyStopVerdict2(userId, _gSym);
+        if (_v) {
+          addActivity(userId, { type: "info", symbol: decision.symbol, message: `\u{1F6D1} ${_v.reason} \u2014 skipped (live engine).` });
+          return;
+        }
+      } catch {
+      }
+      try {
+        const { fxBrainGateVerdict: fxBrainGateVerdict2 } = await Promise.resolve().then(() => (init_fx_brain(), fx_brain_exports));
+        const _v = await fxBrainGateVerdict2(userId, _gSym, _gDir);
+        if (_v) {
+          addActivity(userId, { type: "info", symbol: decision.symbol, message: `\u{1F9E0} ${_v.reason} \u2014 skipped (live engine).` });
+          return;
+        }
+      } catch {
+      }
+    }
     const mt5Signal = {
       id: `sig_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
       timestamp: (/* @__PURE__ */ new Date()).toISOString(),
@@ -29866,7 +30023,7 @@ async function _recordFxBrainOutcome(userId, conn, existing, match, result, prof
     console.error("[FxBrain] outcome record failed (non-fatal):", e?.message);
   }
 }
-function cache4() {
+function cache5() {
   global.tlAccountData = global.tlAccountData || {};
   return global.tlAccountData;
 }
@@ -30126,17 +30283,17 @@ async function syncUserTradeLocker(userId, force = false) {
   if (!force) {
     const last = lastSyncAt.get(userId) || 0;
     if (now - last < MIN_RESYNC_GAP_MS) {
-      return Object.values(cache4()[userId] || {});
+      return Object.values(cache5()[userId] || {});
     }
   }
   if (inFlight.has(userId)) {
-    return Object.values(cache4()[userId] || {});
+    return Object.values(cache5()[userId] || {});
   }
   inFlight.add(userId);
   try {
     const connections = await storage.getUserTradelockerConnections(userId);
     const active = connections.filter((c) => c.isActive);
-    const store = cache4();
+    const store = cache5();
     store[userId] = store[userId] || {};
     const activeIds = new Set(active.map((c) => c.accountId));
     for (const key of Object.keys(store[userId])) {
@@ -30235,7 +30392,7 @@ async function syncUserTradeLocker(userId, force = false) {
 }
 function getTlAccountData(userId) {
   markTlUserActive(userId);
-  const store = cache4()[userId] || {};
+  const store = cache5()[userId] || {};
   const now = Date.now();
   const accounts = Object.values(store).map((a) => {
     const secondsAgo = Math.floor((now - new Date(a.lastUpdated).getTime()) / 1e3);
@@ -30919,8 +31076,8 @@ function symbolKey(userId, symbol, timeframe) {
 function getCachedConfirmation(userId, symbol, timeframe, direction, eaConfidence, price) {
   const now = Date.now();
   const k = bandKey(userId, symbol, timeframe, direction, eaConfidence, price);
-  const hit = cache5.get(k);
-  if (hit && now - hit.at < TTL_MS3) {
+  const hit = cache6.get(k);
+  if (hit && now - hit.at < TTL_MS4) {
     hits++;
     return { verdict: hit.verdict, reason: `cached ${Math.round((now - hit.at) / 1e3)}s ago (same setup)` };
   }
@@ -30928,7 +31085,7 @@ function getCachedConfirmation(userId, symbol, timeframe, direction, eaConfidenc
   const last = lastCallAt.get(sk) ?? 0;
   if (now - last < FLOOR_MS) {
     let best = null;
-    for (const [ck, v] of Array.from(cache5.entries())) {
+    for (const [ck, v] of Array.from(cache6.entries())) {
       if (!ck.startsWith(`${userId}:${symbol}:${timeframe}:${direction}:`)) continue;
       if (now - v.at > STALE_USABLE_MS) continue;
       if (!best || v.at > best.at) best = v;
@@ -30943,25 +31100,25 @@ function getCachedConfirmation(userId, symbol, timeframe, direction, eaConfidenc
 }
 function putCachedConfirmation(userId, symbol, timeframe, direction, eaConfidence, price, verdict) {
   const now = Date.now();
-  cache5.set(bandKey(userId, symbol, timeframe, direction, eaConfidence, price), { verdict, at: now, eaConfidence, price });
+  cache6.set(bandKey(userId, symbol, timeframe, direction, eaConfidence, price), { verdict, at: now, eaConfidence, price });
   lastCallAt.set(symbolKey(userId, symbol, timeframe), now);
-  if (cache5.size > 500) {
-    for (const [k, v] of Array.from(cache5.entries())) if (now - v.at > STALE_USABLE_MS) cache5.delete(k);
+  if (cache6.size > 500) {
+    for (const [k, v] of Array.from(cache6.entries())) if (now - v.at > STALE_USABLE_MS) cache6.delete(k);
   }
 }
 function confirmationCacheStats() {
   const total = hits + misses + throttled;
-  return { hits, misses, throttled, total, savedPct: total ? Math.round((hits + throttled) / total * 100) : 0, entries: cache5.size };
+  return { hits, misses, throttled, total, savedPct: total ? Math.round((hits + throttled) / total * 100) : 0, entries: cache6.size };
 }
-var TTL_MS3, FLOOR_MS, STALE_USABLE_MS, CONF_BAND, cache5, lastCallAt, hits, misses, throttled;
+var TTL_MS4, FLOOR_MS, STALE_USABLE_MS, CONF_BAND, cache6, lastCallAt, hits, misses, throttled;
 var init_ai_confirmation_cache = __esm({
   "server/services/ai-confirmation-cache.ts"() {
     "use strict";
-    TTL_MS3 = Number(process.env.AI_CONFIRM_CACHE_TTL_MS ?? 3 * 60 * 1e3);
+    TTL_MS4 = Number(process.env.AI_CONFIRM_CACHE_TTL_MS ?? 3 * 60 * 1e3);
     FLOOR_MS = Number(process.env.AI_CONFIRM_MIN_INTERVAL_MS ?? 60 * 1e3);
     STALE_USABLE_MS = Number(process.env.AI_CONFIRM_STALE_MS ?? 10 * 60 * 1e3);
     CONF_BAND = Number(process.env.AI_CONFIRM_CONF_BAND ?? 5);
-    cache5 = /* @__PURE__ */ new Map();
+    cache6 = /* @__PURE__ */ new Map();
     lastCallAt = /* @__PURE__ */ new Map();
     hits = 0;
     misses = 0;
@@ -34528,53 +34685,6 @@ var init_solana_scanner = __esm({
   }
 });
 
-// server/services/pair-filter.ts
-var pair_filter_exports = {};
-__export(pair_filter_exports, {
-  pairFilterConfig: () => pairFilterConfig,
-  pairFilterVerdict: () => pairFilterVerdict
-});
-function parseList(v) {
-  return (v ?? "").split(",").map((s) => s.trim().toUpperCase()).filter(Boolean);
-}
-function listFromEnv(name, fallback) {
-  const raw = process.env[name];
-  const parsed = parseList(raw);
-  if (parsed.length) return parsed;
-  if (raw != null && raw.trim() !== "") return parsed;
-  return parseList(fallback);
-}
-function pairFilterVerdict(symbol, direction) {
-  if (process.env.PAIR_FILTER_ENABLED === "false") return null;
-  const sym = norm2(symbol);
-  const dir = String(direction || "").toUpperCase();
-  for (const b of BLOCKED_PAIRS) {
-    if (norm2(b) === sym) {
-      return { blocked: true, reason: `Pair filter: ${sym} is on the blocked list (34% WR over 310 trades, avg win $59 vs avg loss $100)` };
-    }
-  }
-  for (const entry of BLOCKED_DIRECTIONS) {
-    const [s, d] = entry.split(":");
-    if (s && d && norm2(s) === sym && d.toUpperCase() === dir) {
-      return { blocked: true, reason: `Pair filter: ${sym} ${dir} is on the blocked list` };
-    }
-  }
-  return null;
-}
-function pairFilterConfig() {
-  return { enabled: process.env.PAIR_FILTER_ENABLED !== "false", pairs: BLOCKED_PAIRS, directions: BLOCKED_DIRECTIONS };
-}
-var norm2, BLOCKED_PAIRS, BLOCKED_DIRECTIONS;
-var init_pair_filter = __esm({
-  "server/services/pair-filter.ts"() {
-    "use strict";
-    norm2 = (s) => String(s || "").toUpperCase().replace(/[^A-Z0-9]/g, "");
-    BLOCKED_PAIRS = listFromEnv("BLOCKED_PAIRS", "GBPJPY");
-    BLOCKED_DIRECTIONS = listFromEnv("BLOCKED_PAIR_DIRECTIONS", "");
-    console.log(`[PairFilter] enabled=${process.env.PAIR_FILTER_ENABLED !== "false"} pairs=[${BLOCKED_PAIRS.join(", ") || "none"}] directions=[${BLOCKED_DIRECTIONS.join(", ") || "none"}]`);
-  }
-});
-
 // server/veddPayment.ts
 var veddPayment_exports = {};
 __export(veddPayment_exports, {
@@ -35348,76 +35458,6 @@ var init_share_card_service = __esm({
     SUCCESS_COLOR = "#22c55e";
     DANGER_COLOR = "#ef4444";
     WARNING_COLOR = "#f59e0b";
-  }
-});
-
-// server/services/hour-filter.ts
-var hour_filter_exports = {};
-__export(hour_filter_exports, {
-  hourFilterTable: () => hourFilterTable,
-  hourFilterVerdict: () => hourFilterVerdict
-});
-async function compute2(userId) {
-  const { pool: pool2 } = await Promise.resolve().then(() => (init_db(), db_exports));
-  const { rows } = await pool2.query(
-    `SELECT EXTRACT(hour FROM created_at)::int AS hour,
-            COUNT(*)::int AS trades,
-            ROUND(100.0 * SUM(CASE WHEN result='WIN' THEN 1 ELSE 0 END) / COUNT(*), 1) AS win_rate
-       FROM ai_trade_results
-      WHERE user_id = $1
-        AND result IN ('WIN','LOSS')
-        AND source IN ('tradelocker','tradelocker_auto')
-        AND symbol NOT LIKE 'KALSHI%'
-        -- ACTIVE connections only. 73% of ai_trade_results comes from two
-        -- accounts (2188895, 1991352) that are no longer connected \u2014 including
-        -- 1,020 positions the sync ingested from 1991352 in a single hour on
-        -- 2026-08-05, which is 64% of the whole table. Calibrating a live filter
-        -- on dead accounts got four hours wrong: it blocked 08:00 (46.2% on the
-        -- real book) and 18:00/21:00 (samples under the floor), while missing
-        -- 13:00 (26.7% over 15 trades).
-        AND connection_id IN (SELECT id FROM tradelocker_connections WHERE is_active = true)
-        AND created_at > now() - ($2 || ' days')::interval
-      GROUP BY 1`,
-    [userId, String(LOOKBACK_DAYS2)]
-  );
-  const stats = rows.map((r) => ({ hour: Number(r.hour), trades: Number(r.trades), winRate: Number(r.win_rate) }));
-  const blocked = new Set(
-    stats.filter((s) => s.trades >= MIN_SAMPLE && s.winRate < WR_FLOOR).map((s) => s.hour)
-  );
-  return { stats, blocked };
-}
-async function hourFilterVerdict(userId, hourUtc) {
-  if (process.env.HOUR_FILTER_ENABLED === "false") return null;
-  try {
-    let entry = cache6.get(userId);
-    if (!entry || Date.now() - entry.at > TTL_MS4) {
-      const fresh = await compute2(userId);
-      entry = { at: Date.now(), ...fresh };
-      cache6.set(userId, entry);
-      const list = Array.from(fresh.blocked).sort((a, b) => a - b).map((h) => `${h}:00`).join(", ");
-      console.log(`[HourFilter] user ${userId}: recomputed over ${LOOKBACK_DAYS2}d \u2014 blocking ${fresh.blocked.size} hour(s)${list ? ": " + list : ""} (floor ${WR_FLOOR}% on ${MIN_SAMPLE}+ trades)`);
-    }
-    if (!entry.blocked.has(hourUtc)) return null;
-    const s = entry.stats.find((x) => x.hour === hourUtc);
-    return { blocked: true, reason: `Hour filter: ${hourUtc}:00 UTC is ${s?.winRate}% WR over ${s?.trades} trades \u2014 below the ${WR_FLOOR}% floor` };
-  } catch (e) {
-    console.error(`[HourFilter] could not evaluate (${e?.message}) \u2014 allowing the trade.`);
-    return null;
-  }
-}
-async function hourFilterTable(userId) {
-  const { stats, blocked } = await compute2(userId);
-  return { stats: stats.sort((a, b) => a.hour - b.hour), blocked: Array.from(blocked).sort((a, b) => a - b) };
-}
-var MIN_SAMPLE, WR_FLOOR, TTL_MS4, LOOKBACK_DAYS2, cache6;
-var init_hour_filter = __esm({
-  "server/services/hour-filter.ts"() {
-    "use strict";
-    MIN_SAMPLE = Number(process.env.HOUR_FILTER_MIN_TRADES ?? 15);
-    WR_FLOOR = Number(process.env.HOUR_FILTER_MIN_WINRATE ?? 45);
-    TTL_MS4 = Number(process.env.HOUR_FILTER_TTL_MS ?? 60 * 60 * 1e3);
-    LOOKBACK_DAYS2 = Number(process.env.HOUR_FILTER_LOOKBACK_DAYS ?? 180);
-    cache6 = /* @__PURE__ */ new Map();
   }
 });
 
@@ -56275,9 +56315,9 @@ async function getStopOrdersForUser(userId, filters = {}) {
 init_schema();
 
 // server/build-info.ts
-var BUILD_COMMIT = "78fbb4c5-dirty";
+var BUILD_COMMIT = "ca26d526-dirty";
 var BUILD_BRANCH = "main";
-var BUILT_AT = "2026-09-23T20:27:53.285Z";
+var BUILT_AT = "2026-09-23T20:57:08.093Z";
 
 // server/stripe.ts
 init_db();

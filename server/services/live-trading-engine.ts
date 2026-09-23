@@ -5265,6 +5265,42 @@ async function processDecision(userId: number, decision: any, newsCtx?: any): Pr
       }
     }
 
+    // ── FX pair/hour/brain/daily-stop gates ──────────────────────────────────
+    // This engine has its OWN decision path (technical signals, not the MT5-EA
+    // chart-data flow) and its OWN TradeLocker + DXtrade execution branches
+    // below. None of the four filters built 2026-09-23 after a -$9,430 week
+    // (explicit pair blocklist, hour-of-day win-rate floor, per-pair daily
+    // stop, and the FX brain's own learned per-condition losing patterns) were
+    // ever wired to this path — they only ran in the MT5 chart-data handler in
+    // routes.ts. A pair or hour banned there could still be opened from here,
+    // on TradeLocker AND on DXtrade, with nothing to say otherwise. All four
+    // fail open: a filter that cannot be evaluated must never block a live
+    // engine that is otherwise healthy.
+    {
+      const _gSym = decision.symbol.toUpperCase().replace('/', '');
+      const _gDir = decision.direction;
+      try {
+        const { pairFilterVerdict } = await import('../services/pair-filter');
+        const _v = pairFilterVerdict(_gSym, _gDir);
+        if (_v) { addActivity(userId, { type: 'info', symbol: decision.symbol, message: `🚫 ${_v.reason} — skipped (live engine).` }); return; }
+      } catch { /* fail open */ }
+      try {
+        const { hourFilterVerdict } = await import('../services/hour-filter');
+        const _v = await hourFilterVerdict(userId, new Date().getUTCHours());
+        if (_v) { addActivity(userId, { type: 'info', symbol: decision.symbol, message: `⏰ ${_v.reason} — skipped (live engine).` }); return; }
+      } catch { /* fail open */ }
+      try {
+        const { pairDailyStopVerdict } = await import('../services/pair-daily-stop');
+        const _v = await pairDailyStopVerdict(userId, _gSym);
+        if (_v) { addActivity(userId, { type: 'info', symbol: decision.symbol, message: `🛑 ${_v.reason} — skipped (live engine).` }); return; }
+      } catch { /* fail open */ }
+      try {
+        const { fxBrainGateVerdict } = await import('../services/fx-brain');
+        const _v = await fxBrainGateVerdict(userId, _gSym, _gDir);
+        if (_v) { addActivity(userId, { type: 'info', symbol: decision.symbol, message: `🧠 ${_v.reason} — skipped (live engine).` }); return; }
+      } catch { /* fail open */ }
+    }
+
     const mt5Signal: PendingMT5Signal = {
       id: `sig_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
       timestamp: new Date().toISOString(),
