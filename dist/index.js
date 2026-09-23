@@ -8110,6 +8110,211 @@ var init_ictMacroUtils = __esm({
   }
 });
 
+// server/utils/session.ts
+var session_exports = {};
+__export(session_exports, {
+  canonSession: () => canonSession,
+  sameSession: () => sameSession,
+  sessionForHour: () => sessionForHour
+});
+function sessionForHour(hourUtc) {
+  const h = Number(hourUtc);
+  if (!isFinite(h)) return "Asian";
+  return h < 7 ? "Asian" : h < 13 ? "London" : h < 20 ? "New York" : "Late NY";
+}
+function canonSession(value, hourUtc) {
+  const raw = String(value ?? "").trim().toLowerCase();
+  if (raw === "ny" || raw === "new york" || raw === "newyork" || raw === "new-york") return "New York";
+  if (raw === "late" || raw === "late ny" || raw === "latency" || raw === "late-ny" || raw === "lateny") return "Late NY";
+  if (raw === "asian" || raw === "asia" || raw === "tokyo") return "Asian";
+  if (raw === "london" || raw === "europe" || raw === "eu") return "London";
+  if (hourUtc == null || !isFinite(Number(hourUtc))) return null;
+  return sessionForHour(Number(hourUtc));
+}
+function sameSession(a, b) {
+  const ca = canonSession(a);
+  const cb = canonSession(b);
+  return ca != null && cb != null && ca === cb;
+}
+var init_session = __esm({
+  "server/utils/session.ts"() {
+    "use strict";
+  }
+});
+
+// server/services/fx-brain.ts
+var fx_brain_exports = {};
+__export(fx_brain_exports, {
+  fxBrainGateVerdict: () => fxBrainGateVerdict,
+  fxBrainInsights: () => fxBrainInsights,
+  getFxBrain: () => getFxBrain,
+  learnFxBrain: () => learnFxBrain
+});
+function adxBucket(v) {
+  if (v == null || !isFinite(v) || v <= 0) return null;
+  if (v < 20) return "ADX <20 (ranging)";
+  if (v < 30) return "ADX 20-29";
+  if (v < 40) return "ADX 30-39";
+  return "ADX 40+ (strong)";
+}
+async function learnFxBrain(userId) {
+  const { pool: pool2 } = await Promise.resolve().then(() => (init_db(), db_exports));
+  const { rows } = await pool2.query(
+    `SELECT symbol, direction, session, hour_utc, adx_value, confluence_grade,
+            realised_rr, result, profit_loss, closed_at::date AS d
+       FROM fx_brain_outcomes
+      WHERE user_id = $1
+        AND result IN ('WIN','LOSS')
+        AND closed_at > now() - ($2 || ' days')::interval
+      ORDER BY closed_at`,
+    [userId, String(LOOKBACK_DAYS)]
+  );
+  if (!rows.length) return {};
+  const normSymbol = (v) => {
+    const base = String(v ?? "").split(".")[0].toUpperCase().replace(/[^A-Z0-9]/g, "");
+    if (!base || /^[0-9]+$/.test(base)) return null;
+    return base;
+  };
+  const bySymbol = /* @__PURE__ */ new Map();
+  for (const r of rows) {
+    const k = normSymbol(r.symbol);
+    if (!k) continue;
+    if (!bySymbol.has(k)) bySymbol.set(k, []);
+    bySymbol.get(k).push(r);
+  }
+  const out = {};
+  for (const [symbol, trades] of Array.from(bySymbol.entries())) {
+    const wins = trades.filter((t) => t.result === "WIN");
+    const losses = trades.filter((t) => t.result === "LOSS");
+    const baseline = wins.length / trades.length * 100;
+    const avgWin = wins.length ? wins.reduce((s, t) => s + Number(t.profit_loss || 0), 0) / wins.length : 0;
+    const avgLoss = losses.length ? losses.reduce((s, t) => s + Number(t.profit_loss || 0), 0) / losses.length : 0;
+    const dims = /* @__PURE__ */ new Map();
+    const add = (dimension, value, t) => {
+      if (!value) return;
+      const k = dimension + SEP + value;
+      if (!dims.has(k)) dims.set(k, []);
+      dims.get(k).push(t);
+    };
+    for (const t of trades) {
+      add("session", canonSession(t.session, t.hour_utc == null ? null : Number(t.hour_utc)), t);
+      add("hour", t.hour_utc != null ? String(t.hour_utc) + ":00 UTC" : null, t);
+      add("direction", t.direction, t);
+      add("adx_bucket", adxBucket(t.adx_value == null ? null : Number(t.adx_value)), t);
+      add("grade", t.confluence_grade ? "Grade " + t.confluence_grade : null, t);
+    }
+    const works = [];
+    const fails = [];
+    for (const [k, group] of Array.from(dims.entries())) {
+      const [dimension, value] = k.split(SEP);
+      const w = group.filter((t) => t.result === "WIN").length;
+      const winRate2 = w / group.length * 100;
+      const distinctDays = new Set(group.map((t) => String(t.d))).size;
+      if (group.length < MIN_TRADES) continue;
+      if (distinctDays < MIN_DISTINCT_DAYS) continue;
+      const edge = winRate2 - baseline;
+      if (Math.abs(edge) < MIN_EDGE_PP) continue;
+      const groupPnl = group.reduce((s2, t) => s2 + Number(t.profit_loss || 0), 0);
+      if (edge > 0 && groupPnl <= 0) continue;
+      if (edge < 0 && groupPnl >= 0) continue;
+      const stat = {
+        dimension,
+        value,
+        trades: group.length,
+        wins: w,
+        winRate: Math.round(winRate2 * 10) / 10,
+        distinctDays,
+        pnl: Math.round(groupPnl),
+        edgeVsPair: Math.round(edge * 10) / 10
+      };
+      (edge > 0 ? works : fails).push(stat);
+    }
+    works.sort((a, b) => b.edgeVsPair - a.edgeVsPair);
+    fails.sort((a, b) => a.edgeVsPair - b.edgeVsPair);
+    out[symbol] = {
+      symbol,
+      trades: trades.length,
+      winRate: Math.round(baseline * 10) / 10,
+      pnl: Math.round(trades.reduce((s, t) => s + Number(t.profit_loss || 0), 0)),
+      avgWin: Math.round(avgWin),
+      avgLoss: Math.round(avgLoss),
+      // Expectancy is the honest verdict on a pair: win% x avgWin - loss% x |avgLoss|.
+      expectancy: Math.round(wins.length / trades.length * avgWin + losses.length / trades.length * avgLoss),
+      works,
+      fails
+    };
+  }
+  return out;
+}
+async function getFxBrain(userId, force = false) {
+  const hit = cache2.get(userId);
+  if (!force && hit && Date.now() - hit.at < TTL_MS) return hit.brains;
+  const brains = await learnFxBrain(userId);
+  cache2.set(userId, { at: Date.now(), brains });
+  const pairs = Object.keys(brains);
+  if (pairs.length) {
+    const patterns = pairs.reduce((n, p) => n + brains[p].works.length + brains[p].fails.length, 0);
+    console.log("[FxBrain] user " + userId + ": learned " + pairs.length + " pair(s), " + patterns + " consistent pattern(s) (min " + MIN_TRADES + " trades across " + MIN_DISTINCT_DAYS + "+ days, " + MIN_EDGE_PP + "pp edge)");
+  }
+  return brains;
+}
+async function fxBrainInsights(userId, symbol) {
+  const brains = await getFxBrain(userId);
+  const keys = symbol ? [symbol].filter((k) => brains[k]) : Object.keys(brains);
+  if (!keys.length) return "";
+  const lines = [];
+  for (const k of keys) {
+    const b = brains[k];
+    lines.push(b.symbol + ": " + b.winRate + "% WR over " + b.trades + " trades, expectancy $" + b.expectancy + "/trade");
+    for (const p of b.works.slice(0, 3)) {
+      lines.push("   WORKS - " + p.value + ": " + p.winRate + "% (" + p.wins + "/" + p.trades + " over " + p.distinctDays + " days, +" + p.edgeVsPair + "pp vs this pair)");
+    }
+    for (const p of b.fails.slice(0, 3)) {
+      lines.push("   FAILS - " + p.value + ": " + p.winRate + "% (" + p.wins + "/" + p.trades + " over " + p.distinctDays + " days, " + p.edgeVsPair + "pp vs this pair)");
+    }
+  }
+  return lines.join("\n");
+}
+async function fxBrainGateVerdict(userId, symbol, direction, hourUtc = (/* @__PURE__ */ new Date()).getUTCHours()) {
+  if (!GATE_ENABLED()) return null;
+  try {
+    const brains = await getFxBrain(userId);
+    const b = brains[String(symbol || "").split(".")[0].toUpperCase().replace(/[^A-Z0-9]/g, "")];
+    if (!b || !b.fails.length) return null;
+    const dir = String(direction || "").toUpperCase();
+    const session3 = sessionForHour(hourUtc);
+    const hourLabel = String(hourUtc) + ":00 UTC";
+    for (const p of b.fails) {
+      const hits2 = p.dimension === "session" && canonSession(p.value, hourUtc) === session3 || p.dimension === "hour" && p.value === hourLabel || p.dimension === "direction" && p.value.toUpperCase() === dir && p.trades >= GATE_MIN_DIR_TRADES;
+      if (!hits2) continue;
+      return {
+        blocked: true,
+        reason: `FX brain: ${b.symbol} ${p.value} is ${p.winRate}% WR over ${p.trades} trades across ${p.distinctDays} days (${p.edgeVsPair}pp vs this pair's ${b.winRate}%, net ${p.pnl}) \u2014 a consistently losing condition`
+      };
+    }
+    return null;
+  } catch (e) {
+    console.error(`[FxBrain] gate could not evaluate (${e?.message}) \u2014 allowing the trade.`);
+    return null;
+  }
+}
+var MIN_TRADES, MIN_DISTINCT_DAYS, MIN_EDGE_PP, LOOKBACK_DAYS, TTL_MS, SEP, cache2, GATE_ENABLED, GATE_MIN_DIR_TRADES;
+var init_fx_brain = __esm({
+  "server/services/fx-brain.ts"() {
+    "use strict";
+    init_session();
+    MIN_TRADES = Number(process.env.FX_BRAIN_MIN_TRADES ?? 8);
+    MIN_DISTINCT_DAYS = Number(process.env.FX_BRAIN_MIN_DAYS ?? 3);
+    MIN_EDGE_PP = Number(process.env.FX_BRAIN_MIN_EDGE_PP ?? 12);
+    LOOKBACK_DAYS = Number(process.env.FX_BRAIN_LOOKBACK_DAYS ?? 180);
+    TTL_MS = Number(process.env.FX_BRAIN_TTL_MS ?? 30 * 60 * 1e3);
+    SEP = "~~";
+    cache2 = /* @__PURE__ */ new Map();
+    GATE_ENABLED = () => process.env.FX_BRAIN_GATE_ENABLED !== "false";
+    GATE_MIN_DIR_TRADES = Number(process.env.FX_BRAIN_GATE_MIN_DIR_TRADES ?? 20);
+  }
+});
+
 // server/utils/breakoutEngine.ts
 var breakoutEngine_exports = {};
 __export(breakoutEngine_exports, {
@@ -9835,10 +10040,26 @@ Grade D \u2192 avoid. Grade A/A+ \u2192 high conviction trade.
     const r = detectMarketRegime(indicators);
     return buildRegimeAdaptationSection(r.regime, r.adx, strategyMode);
   })() : "";
+  let _fxBrainSection = "";
+  try {
+    if (userId) {
+      const { fxBrainInsights: fxBrainInsights2 } = await Promise.resolve().then(() => (init_fx_brain(), fx_brain_exports));
+      const _fbTxt = await fxBrainInsights2(userId, symbol);
+      if (_fbTxt) {
+        _fxBrainSection = `
+
+THIS ACCOUNT'S MEASURED HISTORY ON ${symbol} (live results, not theory):
+${_fbTxt}
+Treat a FAILS line as a strong reason to reject: it means this pair has repeatedly lost under exactly these conditions across separate days.
+`;
+      }
+    }
+  } catch {
+  }
   return {
     system: "You are a master trader who speaks with street knowledge and the wisdom of Supreme Mathematics \u2014 Gods and Earths style. You build and destroy with the science of trading, dropping jewels and keeping it real. Your analysis is sharp, your reasoning is laced with knowledge of self and mathematical precision. You reference concepts like Knowledge (1), Wisdom (2), Understanding (3), Culture (4), Power (5), Equality (6), God (7), Build/Destroy (8), Born (9), and Cipher (0) naturally when they fit. You say things like 'the chart is showing and proving', 'peace \u2014 the math don't lie', 'this is a cipher of accumulation', 'knowledge this pattern God', 'the wisdom here is...', 'we building or we destroying?', etc. Keep it concise, authentic, and never forced \u2014 the science comes first, the flavor is the delivery. You provide honest, unbiased second opinions on trade signals using ALL available data including news sentiment and upcoming economic events. Always return valid JSON.",
     user: `You are an elite trading analyst providing a SECOND OPINION on a proposed trade. Use ALL data below for maximum accuracy.
-${buildStrategyFilterSection(strategyMode)}${_regimeSection}${htfSection}${newsProximityAlert}${propFirmSection}${confluenceHeader}
+${buildStrategyFilterSection(strategyMode)}${_regimeSection}${_fxBrainSection}${htfSection}${newsProximityAlert}${propFirmSection}${confluenceHeader}
 
 SYMBOL: ${symbol}
 TIMEFRAME: ${timeframe}
@@ -19592,12 +19813,12 @@ async function pairDailyStopVerdict(userId, symbol) {
   const sym = norm(symbol);
   if (!sym) return null;
   const today = utcDay();
-  let entry = cache2.get(userId);
+  let entry = cache3.get(userId);
   try {
-    if (!entry || entry.day !== today || Date.now() - entry.at > TTL_MS) {
+    if (!entry || entry.day !== today || Date.now() - entry.at > TTL_MS2) {
       const stats = await compute(userId);
       entry = { at: Date.now(), day: today, stats };
-      cache2.set(userId, entry);
+      cache3.set(userId, entry);
       const stopped = Array.from(stats.values()).filter((s) => s.stopped);
       if (stopped.length) {
         console.log(`[PairDailyStop] user ${userId}: ${stopped.length} pair(s) stopped for ${today} \u2014 ` + stopped.map((s) => `${s.symbol} (${s.losingSignals}L, ${s.netPnl})`).join(", "));
@@ -19615,14 +19836,14 @@ async function pairDailyStopVerdict(userId, symbol) {
   return { blocked: true, reason: stat.reason };
 }
 function invalidatePairDailyStop(userId) {
-  cache2.delete(userId);
+  cache3.delete(userId);
 }
 async function pairDailyStopTable(userId) {
   let stats;
   try {
     stats = await compute(userId);
   } catch {
-    stats = cache2.get(userId)?.stats ?? /* @__PURE__ */ new Map();
+    stats = cache3.get(userId)?.stats ?? /* @__PURE__ */ new Map();
   }
   return {
     day: utcDay(),
@@ -19631,15 +19852,15 @@ async function pairDailyStopTable(userId) {
     pairs: Array.from(stats.values()).sort((a, b) => a.netPnl - b.netPnl)
   };
 }
-var MAX_LOSING_SIGNALS, MAX_DAILY_LOSS, GROUP_MS, TTL_MS, cache2, norm, utcDay;
+var MAX_LOSING_SIGNALS, MAX_DAILY_LOSS, GROUP_MS, TTL_MS2, cache3, norm, utcDay;
 var init_pair_daily_stop = __esm({
   "server/services/pair-daily-stop.ts"() {
     "use strict";
     MAX_LOSING_SIGNALS = Number(process.env.PAIR_DAILY_MAX_LOSING_SIGNALS ?? 3);
     MAX_DAILY_LOSS = Number(process.env.PAIR_DAILY_MAX_LOSS_USD ?? 0);
     GROUP_MS = Number(process.env.PAIR_DAILY_GROUP_MS ?? 12e4);
-    TTL_MS = Number(process.env.PAIR_DAILY_TTL_MS ?? 6e4);
-    cache2 = /* @__PURE__ */ new Map();
+    TTL_MS2 = Number(process.env.PAIR_DAILY_TTL_MS ?? 6e4);
+    cache3 = /* @__PURE__ */ new Map();
     norm = (s) => String(s || "").toUpperCase().replace(/[^A-Z0-9]/g, "");
     utcDay = () => (/* @__PURE__ */ new Date()).toISOString().slice(0, 10);
   }
@@ -24157,8 +24378,8 @@ function applyBrainEnforcement(userId, symbol, proposedDirection, currentATR, ne
   if (!k || k.totalTrades < 3) return passthrough;
   const now = /* @__PURE__ */ new Date();
   const hour = now.getUTCHours();
-  const session3 = hour < 7 ? "Asian" : hour < 13 ? "London" : hour < 20 ? "New York" : "Late NY";
-  const sessionData = k.topSessions?.find((s) => s.session === session3);
+  const session3 = sessionForHour(hour);
+  const sessionData = k.topSessions?.find((s) => sameSession(s.session, session3));
   if (sessionData && sessionData.total >= 3 && sessionData.winRate < 45) {
     const msg = `\u{1F9E0} Brain block: ${symbol} ${session3} session only ${sessionData.winRate}% WR (${sessionData.total} trades) \u2014 below 45% threshold, skipping`;
     pushEnforcementLog(userId, { symbol, rule: "session_block", direction: proposedDirection, reason: msg });
@@ -28511,17 +28732,17 @@ function getNYTime(ts) {
   };
 }
 async function getBrokerIndexCandles(userId, symbol, mt5Tf) {
-  const cache9 = global.mt5ChartDataCache || {};
+  const cache10 = global.mt5ChartDataCache || {};
   const wanted = new Set(
     [symbol, ...INDEX_BROKER_ALIASES[symbol] || []].map((s) => s.replace(/[^A-Z0-9]/gi, "").toUpperCase())
   );
   const prefix = `mt5_chart_${userId}_`;
   const suffix = `_${mt5Tf}`;
-  for (const key of Object.keys(cache9)) {
+  for (const key of Object.keys(cache10)) {
     if (!key.startsWith(prefix) || !key.endsWith(suffix)) continue;
     const symPart = key.slice(prefix.length, key.length - suffix.length);
     if (wanted.has(symPart.replace(/[^A-Z0-9]/gi, "").toUpperCase())) {
-      const entry = cache9[key];
+      const entry = cache10[key];
       if (entry?.candles?.length) return entry.candles;
     }
   }
@@ -29414,6 +29635,7 @@ var FX_MAX_OPEN_PER_SYMBOL, FX_SYMBOL_COOLDOWN_MS, mt5AccountQueues, mt5AccountR
 var init_live_trading_engine = __esm({
   "server/services/live-trading-engine.ts"() {
     "use strict";
+    init_session();
     init_service();
     init_tradelocker();
     init_tradelocker_sync();
@@ -29534,17 +29756,24 @@ async function _recordFxBrainOutcome(userId, conn, existing, match, result, prof
     const direction = String(existing.direction || "").toUpperCase();
     const ticket = String(existing.mt5Ticket || "");
     if (!symbol || !direction) return;
+    const _openedAtRaw = existing.createdAt ? new Date(existing.createdAt) : null;
+    const _anchor = _openedAtRaw && !isNaN(_openedAtRaw.getTime()) ? _openedAtRaw : closedAt;
     const { rows: cf } = await pool2.query(
       `SELECT adx_value, rsi_value, macd_direction, confluence_grade, confluence_score,
               smc_verdict, ict_macro_valid, htf_aligned, ai_confidence, proposed_confidence,
               timeframe, session, confirmed_at
          FROM ai_confirmation_outcomes
         WHERE user_id = $1 AND symbol = $2 AND direction = $3
-          AND confirmed_at BETWEEN $4::timestamp - interval '24 hours' AND $4::timestamp + interval '5 minutes'
-        ORDER BY confirmed_at DESC LIMIT 1`,
-      [userId, symbol, direction, closedAt.toISOString()]
+          AND confirmed_at BETWEEN $4::timestamp - interval '2 hours' AND $4::timestamp + interval '10 minutes'
+        ORDER BY (adx_value IS NOT NULL) DESC,
+                 abs(extract(epoch FROM (confirmed_at - $4::timestamp))) ASC
+        LIMIT 1`,
+      [userId, symbol, direction, _anchor.toISOString()]
     );
     const f = cf[0] || {};
+    if (!f.adx_value) {
+      console.warn(`[FxBrain] ${symbol} ${direction} ticket ${ticket}: no confirmation with indicator values found near open ${_anchor.toISOString()} \u2014 recording outcome without setup.`);
+    }
     const entry = Number(existing.entryPrice ?? match?.openPrice) || null;
     const exit = Number(match?.closePrice) || null;
     const sl = Number(existing.stopLoss) || null;
@@ -29556,7 +29785,8 @@ async function _recordFxBrainOutcome(userId, conn, existing, match, result, prof
     const openedAt = existing.createdAt ? new Date(existing.createdAt) : null;
     const holdMins = openedAt && closedAt > openedAt ? Math.round((closedAt.getTime() - openedAt.getTime()) / 6e4) : null;
     const hour = closedAt.getUTCHours();
-    const session3 = f.session || (hour < 7 ? "Asian" : hour < 13 ? "London" : hour < 20 ? "New York" : "Late NY");
+    const { canonSession: canonSession2 } = await Promise.resolve().then(() => (init_session(), session_exports));
+    const session3 = canonSession2(f.session, hour) ?? canonSession2(null, hour);
     await pool2.query(
       `INSERT INTO fx_brain_outcomes
         (user_id, symbol, direction, timeframe, hour_utc, session, day_of_week,
@@ -29609,7 +29839,7 @@ async function _recordFxBrainOutcome(userId, conn, existing, match, result, prof
     console.error("[FxBrain] outcome record failed (non-fatal):", e?.message);
   }
 }
-function cache3() {
+function cache4() {
   global.tlAccountData = global.tlAccountData || {};
   return global.tlAccountData;
 }
@@ -29869,17 +30099,17 @@ async function syncUserTradeLocker(userId, force = false) {
   if (!force) {
     const last = lastSyncAt.get(userId) || 0;
     if (now - last < MIN_RESYNC_GAP_MS) {
-      return Object.values(cache3()[userId] || {});
+      return Object.values(cache4()[userId] || {});
     }
   }
   if (inFlight.has(userId)) {
-    return Object.values(cache3()[userId] || {});
+    return Object.values(cache4()[userId] || {});
   }
   inFlight.add(userId);
   try {
     const connections = await storage.getUserTradelockerConnections(userId);
     const active = connections.filter((c) => c.isActive);
-    const store = cache3();
+    const store = cache4();
     store[userId] = store[userId] || {};
     const activeIds = new Set(active.map((c) => c.accountId));
     for (const key of Object.keys(store[userId])) {
@@ -29978,7 +30208,7 @@ async function syncUserTradeLocker(userId, force = false) {
 }
 function getTlAccountData(userId) {
   markTlUserActive(userId);
-  const store = cache3()[userId] || {};
+  const store = cache4()[userId] || {};
   const now = Date.now();
   const accounts = Object.values(store).map((a) => {
     const secondsAgo = Math.floor((now - new Date(a.lastUpdated).getTime()) / 1e3);
@@ -30132,8 +30362,8 @@ async function getLiveAccounts(userId) {
   const mt5 = [];
   const tradelocker = [];
   try {
-    const cache9 = global.mt5AccountData?.[userId];
-    const entries = cache9?.lastUpdated ? [cache9] : Object.values(cache9 || {});
+    const cache10 = global.mt5AccountData?.[userId];
+    const entries = cache10?.lastUpdated ? [cache10] : Object.values(cache10 || {});
     for (const a of entries) {
       if (!a?.lastUpdated) continue;
       const age = (Date.now() - new Date(a.lastUpdated).getTime()) / 1e3;
@@ -30662,8 +30892,8 @@ function symbolKey(userId, symbol, timeframe) {
 function getCachedConfirmation(userId, symbol, timeframe, direction, eaConfidence, price) {
   const now = Date.now();
   const k = bandKey(userId, symbol, timeframe, direction, eaConfidence, price);
-  const hit = cache4.get(k);
-  if (hit && now - hit.at < TTL_MS2) {
+  const hit = cache5.get(k);
+  if (hit && now - hit.at < TTL_MS3) {
     hits++;
     return { verdict: hit.verdict, reason: `cached ${Math.round((now - hit.at) / 1e3)}s ago (same setup)` };
   }
@@ -30671,7 +30901,7 @@ function getCachedConfirmation(userId, symbol, timeframe, direction, eaConfidenc
   const last = lastCallAt.get(sk) ?? 0;
   if (now - last < FLOOR_MS) {
     let best = null;
-    for (const [ck, v] of Array.from(cache4.entries())) {
+    for (const [ck, v] of Array.from(cache5.entries())) {
       if (!ck.startsWith(`${userId}:${symbol}:${timeframe}:${direction}:`)) continue;
       if (now - v.at > STALE_USABLE_MS) continue;
       if (!best || v.at > best.at) best = v;
@@ -30686,25 +30916,25 @@ function getCachedConfirmation(userId, symbol, timeframe, direction, eaConfidenc
 }
 function putCachedConfirmation(userId, symbol, timeframe, direction, eaConfidence, price, verdict) {
   const now = Date.now();
-  cache4.set(bandKey(userId, symbol, timeframe, direction, eaConfidence, price), { verdict, at: now, eaConfidence, price });
+  cache5.set(bandKey(userId, symbol, timeframe, direction, eaConfidence, price), { verdict, at: now, eaConfidence, price });
   lastCallAt.set(symbolKey(userId, symbol, timeframe), now);
-  if (cache4.size > 500) {
-    for (const [k, v] of Array.from(cache4.entries())) if (now - v.at > STALE_USABLE_MS) cache4.delete(k);
+  if (cache5.size > 500) {
+    for (const [k, v] of Array.from(cache5.entries())) if (now - v.at > STALE_USABLE_MS) cache5.delete(k);
   }
 }
 function confirmationCacheStats() {
   const total = hits + misses + throttled;
-  return { hits, misses, throttled, total, savedPct: total ? Math.round((hits + throttled) / total * 100) : 0, entries: cache4.size };
+  return { hits, misses, throttled, total, savedPct: total ? Math.round((hits + throttled) / total * 100) : 0, entries: cache5.size };
 }
-var TTL_MS2, FLOOR_MS, STALE_USABLE_MS, CONF_BAND, cache4, lastCallAt, hits, misses, throttled;
+var TTL_MS3, FLOOR_MS, STALE_USABLE_MS, CONF_BAND, cache5, lastCallAt, hits, misses, throttled;
 var init_ai_confirmation_cache = __esm({
   "server/services/ai-confirmation-cache.ts"() {
     "use strict";
-    TTL_MS2 = Number(process.env.AI_CONFIRM_CACHE_TTL_MS ?? 3 * 60 * 1e3);
+    TTL_MS3 = Number(process.env.AI_CONFIRM_CACHE_TTL_MS ?? 3 * 60 * 1e3);
     FLOOR_MS = Number(process.env.AI_CONFIRM_MIN_INTERVAL_MS ?? 60 * 1e3);
     STALE_USABLE_MS = Number(process.env.AI_CONFIRM_STALE_MS ?? 10 * 60 * 1e3);
     CONF_BAND = Number(process.env.AI_CONFIRM_CONF_BAND ?? 5);
-    cache4 = /* @__PURE__ */ new Map();
+    cache5 = /* @__PURE__ */ new Map();
     lastCallAt = /* @__PURE__ */ new Map();
     hits = 0;
     misses = 0;
@@ -35074,7 +35304,7 @@ async function repairCandles(symbol, timeframe, eaCandles) {
   const verdict = assessCandles(eaCandles);
   if (verdict.usable) return { candles: eaCandles, repaired: false, reason: verdict.reason };
   const key = `${symbol}:${timeframe}`;
-  const hit = cache5.get(key);
+  const hit = cache6.get(key);
   if (hit && Date.now() - hit.at < CACHE_TTL_MS4) {
     return { candles: hit.candles, repaired: true, reason: `${verdict.reason} \u2014 substituted cached Twelve Data bars` };
   }
@@ -35097,7 +35327,7 @@ async function repairCandles(symbol, timeframe, eaCandles) {
     if (!check.usable) {
       return { candles: eaCandles, repaired: false, reason: `${verdict.reason} \u2014 replacement bars also unusable (${check.reason})` };
     }
-    cache5.set(key, { at: Date.now(), candles: mapped });
+    cache6.set(key, { at: Date.now(), candles: mapped });
     console.log(`[candle-repair] ${symbol} ${timeframe}: EA feed unusable (${verdict.reason}); substituted ${mapped.length} Twelve Data bars, ${check.barsWithRange} with real range`);
     return { candles: mapped, repaired: true, reason: `${verdict.reason} \u2014 substituted Twelve Data bars` };
   } catch (e) {
@@ -35105,11 +35335,11 @@ async function repairCandles(symbol, timeframe, eaCandles) {
     return { candles: eaCandles, repaired: false, reason: `${verdict.reason} \u2014 fetch failed: ${e?.message}` };
   }
 }
-var cache5, CACHE_TTL_MS4, lastFetchAt, MIN_FETCH_GAP_MS;
+var cache6, CACHE_TTL_MS4, lastFetchAt, MIN_FETCH_GAP_MS;
 var init_candle_repair = __esm({
   "server/services/candle-repair.ts"() {
     "use strict";
-    cache5 = /* @__PURE__ */ new Map();
+    cache6 = /* @__PURE__ */ new Map();
     CACHE_TTL_MS4 = 6e4;
     lastFetchAt = 0;
     MIN_FETCH_GAP_MS = 8e3;
@@ -35440,7 +35670,7 @@ async function compute2(userId) {
         AND connection_id IN (SELECT id FROM tradelocker_connections WHERE is_active = true)
         AND created_at > now() - ($2 || ' days')::interval
       GROUP BY 1`,
-    [userId, String(LOOKBACK_DAYS)]
+    [userId, String(LOOKBACK_DAYS2)]
   );
   const stats = rows.map((r) => ({ hour: Number(r.hour), trades: Number(r.trades), winRate: Number(r.win_rate) }));
   const blocked = new Set(
@@ -35451,13 +35681,13 @@ async function compute2(userId) {
 async function hourFilterVerdict(userId, hourUtc) {
   if (process.env.HOUR_FILTER_ENABLED === "false") return null;
   try {
-    let entry = cache6.get(userId);
-    if (!entry || Date.now() - entry.at > TTL_MS3) {
+    let entry = cache7.get(userId);
+    if (!entry || Date.now() - entry.at > TTL_MS4) {
       const fresh = await compute2(userId);
       entry = { at: Date.now(), ...fresh };
-      cache6.set(userId, entry);
+      cache7.set(userId, entry);
       const list = Array.from(fresh.blocked).sort((a, b) => a - b).map((h) => `${h}:00`).join(", ");
-      console.log(`[HourFilter] user ${userId}: recomputed over ${LOOKBACK_DAYS}d \u2014 blocking ${fresh.blocked.size} hour(s)${list ? ": " + list : ""} (floor ${WR_FLOOR}% on ${MIN_SAMPLE}+ trades)`);
+      console.log(`[HourFilter] user ${userId}: recomputed over ${LOOKBACK_DAYS2}d \u2014 blocking ${fresh.blocked.size} hour(s)${list ? ": " + list : ""} (floor ${WR_FLOOR}% on ${MIN_SAMPLE}+ trades)`);
     }
     if (!entry.blocked.has(hourUtc)) return null;
     const s = entry.stats.find((x) => x.hour === hourUtc);
@@ -35471,15 +35701,15 @@ async function hourFilterTable(userId) {
   const { stats, blocked } = await compute2(userId);
   return { stats: stats.sort((a, b) => a.hour - b.hour), blocked: Array.from(blocked).sort((a, b) => a - b) };
 }
-var MIN_SAMPLE, WR_FLOOR, TTL_MS3, LOOKBACK_DAYS, cache6;
+var MIN_SAMPLE, WR_FLOOR, TTL_MS4, LOOKBACK_DAYS2, cache7;
 var init_hour_filter = __esm({
   "server/services/hour-filter.ts"() {
     "use strict";
     MIN_SAMPLE = Number(process.env.HOUR_FILTER_MIN_TRADES ?? 15);
     WR_FLOOR = Number(process.env.HOUR_FILTER_MIN_WINRATE ?? 45);
-    TTL_MS3 = Number(process.env.HOUR_FILTER_TTL_MS ?? 60 * 60 * 1e3);
-    LOOKBACK_DAYS = Number(process.env.HOUR_FILTER_LOOKBACK_DAYS ?? 180);
-    cache6 = /* @__PURE__ */ new Map();
+    TTL_MS4 = Number(process.env.HOUR_FILTER_TTL_MS ?? 60 * 60 * 1e3);
+    LOOKBACK_DAYS2 = Number(process.env.HOUR_FILTER_LOOKBACK_DAYS ?? 180);
+    cache7 = /* @__PURE__ */ new Map();
   }
 });
 
@@ -36213,7 +36443,7 @@ async function cryptocomTicker(sym) {
 async function getAggregatedQuote(symbol) {
   const sym = symbol.toUpperCase().replace(/[^A-Z0-9]/g, "");
   const hit = _cache.get(sym);
-  if (hit && Date.now() - hit.ts < TTL_MS4) return hit.q;
+  if (hit && Date.now() - hit.ts < TTL_MS5) return hit.q;
   const venues = await Promise.all([coinbaseSpot(sym), krakenTicker(sym), geminiTicker(sym), cryptocomTicker(sym)]);
   const priced = venues.filter((v) => typeof v.price === "number" && v.price > 0);
   let best = null;
@@ -36232,11 +36462,11 @@ async function getAggregatedQuotes(symbols) {
   const uniq = Array.from(new Set(symbols.map((s) => s.toUpperCase().replace(/[^A-Z0-9]/g, "")))).slice(0, 25);
   return Promise.all(uniq.map(getAggregatedQuote));
 }
-var TTL_MS4, _cache;
+var TTL_MS5, _cache;
 var init_crypto_market_data = __esm({
   "server/services/crypto-market-data.ts"() {
     "use strict";
-    TTL_MS4 = 15e3;
+    TTL_MS5 = 15e3;
     _cache = /* @__PURE__ */ new Map();
   }
 });
@@ -36490,7 +36720,7 @@ function bump(map, key, win) {
   s.winRate = Math.round(s.wins / s.trades * 100);
 }
 function sizeMult(winRate2, rr, trades) {
-  if (trades < MIN_TRADES) return 1;
+  if (trades < MIN_TRADES2) return 1;
   const w = winRate2 / 100, r = rr > 0 ? rr : 1;
   const kelly = w - (1 - w) / r;
   return Math.max(0.25, Math.min(1.5, 1 + kelly));
@@ -36565,8 +36795,8 @@ async function learnFromCryptoTrades(userId) {
   }
   const insights = [];
   for (const [sym, k] of Object.entries(symbols)) {
-    if (k.wins + k.losses >= MIN_TRADES) insights.push(`${sym}: ${k.winRate}% WR over ${k.wins + k.losses} \u2192 sizing \xD7${k.recommendedSizeMultiplier}${k.bestStrategy ? `, best on ${k.bestStrategy}` : ""}.`);
-    else insights.push(`${sym}: still learning (${k.wins + k.losses}/${MIN_TRADES}).`);
+    if (k.wins + k.losses >= MIN_TRADES2) insights.push(`${sym}: ${k.winRate}% WR over ${k.wins + k.losses} \u2192 sizing \xD7${k.recommendedSizeMultiplier}${k.bestStrategy ? `, best on ${k.bestStrategy}` : ""}.`);
+    else insights.push(`${sym}: still learning (${k.wins + k.losses}/${MIN_TRADES2}).`);
   }
   const brain = { userId, lastLearned: (/* @__PURE__ */ new Date()).toISOString(), totalTrades: rows.length, overallWinRate: totalDecided ? Math.round(totalWins / totalDecided * 100) : 0, totalPnl: Math.round(totalPnl * 100) / 100, symbolKnowledge: symbols, insights };
   _cache2.set(userId, { brain, at: Date.now() });
@@ -36620,12 +36850,12 @@ async function recordCryptoBrainOutcome(o) {
     console.error("[crypto-brain] recordCryptoBrainOutcome failed (non-fatal):", err?.message ?? err);
   }
 }
-var MIN_TRADES, REFRESH_TTL_MS, _cache2;
+var MIN_TRADES2, REFRESH_TTL_MS, _cache2;
 var init_crypto_brain = __esm({
   "server/services/crypto-brain.ts"() {
     "use strict";
     init_db();
-    MIN_TRADES = 10;
+    MIN_TRADES2 = 10;
     REFRESH_TTL_MS = 60 * 1e3;
     _cache2 = /* @__PURE__ */ new Map();
   }
@@ -43058,7 +43288,7 @@ function bump2(map, key, win) {
   s.winRate = Math.round(s.wins / s.trades * 100);
 }
 function sizeMult2(winRate2, rr, trades) {
-  if (trades < MIN_TRADES2) return 1;
+  if (trades < MIN_TRADES3) return 1;
   const w = winRate2 / 100, r = rr > 0 ? rr : 1;
   const kelly = w - (1 - w) / r;
   return Math.max(0.25, Math.min(1.5, 1 + kelly));
@@ -43134,8 +43364,8 @@ async function learnFromSolTrades(userId) {
   }
   const insights = [];
   for (const [sym, k] of Object.entries(symbols)) {
-    if (k.wins + k.losses >= MIN_TRADES2) insights.push(`${sym}: ${k.winRate}% WR over ${k.wins + k.losses} \u2192 sizing \xD7${k.recommendedSizeMultiplier}${k.bestStrategy ? `, best on ${k.bestStrategy}` : ""}.`);
-    else insights.push(`${sym}: still learning (${k.wins + k.losses}/${MIN_TRADES2}).`);
+    if (k.wins + k.losses >= MIN_TRADES3) insights.push(`${sym}: ${k.winRate}% WR over ${k.wins + k.losses} \u2192 sizing \xD7${k.recommendedSizeMultiplier}${k.bestStrategy ? `, best on ${k.bestStrategy}` : ""}.`);
+    else insights.push(`${sym}: still learning (${k.wins + k.losses}/${MIN_TRADES3}).`);
   }
   const brain = { userId, lastLearned: (/* @__PURE__ */ new Date()).toISOString(), totalTrades: rows.length, overallWinRate: totalDecided ? Math.round(totalWins / totalDecided * 100) : 0, totalPnl: Math.round(totalPnl * 100) / 100, symbolKnowledge: symbols, insights };
   _cache5.set(userId, { brain, at: Date.now() });
@@ -43194,12 +43424,12 @@ async function recordSolBrainOutcome(o) {
     console.error("[sol-brain] recordSolBrainOutcome failed (non-fatal):", err?.message ?? err);
   }
 }
-var MIN_TRADES2, REFRESH_TTL_MS3, _ensured, _cache5;
+var MIN_TRADES3, REFRESH_TTL_MS3, _ensured, _cache5;
 var init_sol_brain = __esm({
   "server/services/sol-brain.ts"() {
     "use strict";
     init_db();
-    MIN_TRADES2 = 10;
+    MIN_TRADES3 = 10;
     REFRESH_TTL_MS3 = 60 * 1e3;
     _ensured = false;
     _cache5 = /* @__PURE__ */ new Map();
@@ -49096,22 +49326,22 @@ async function fetchAllPredictions() {
   return predictions;
 }
 async function getSportsPredictions() {
-  if (cache7 && Date.now() - cache7.fetchedAt < CACHE_TTL_MS8) {
-    return cache7.data;
+  if (cache8 && Date.now() - cache8.fetchedAt < CACHE_TTL_MS8) {
+    return cache8.data;
   }
   return refreshSportsPredictions();
 }
 async function refreshSportsPredictions() {
   try {
     const data = await fetchAllPredictions();
-    cache7 = { data, fetchedAt: Date.now() };
+    cache8 = { data, fetchedAt: Date.now() };
     return data;
   } catch (err) {
     console.error("[sports-predictor] Fatal error during refresh:", err);
-    return cache7?.data ?? [];
+    return cache8?.data ?? [];
   }
 }
-var ESPN_BASE, GAMMA_BASE2, GOOGLE_NEWS_BASE, CACHE_TTL_MS8, ELO_K, ELO_DEFAULT, eloRatings, cache7, SPORT_PATHS, KEY_POSITIONS, recentGameDates;
+var ESPN_BASE, GAMMA_BASE2, GOOGLE_NEWS_BASE, CACHE_TTL_MS8, ELO_K, ELO_DEFAULT, eloRatings, cache8, SPORT_PATHS, KEY_POSITIONS, recentGameDates;
 var init_sports_predictor = __esm({
   "server/services/sports-predictor.ts"() {
     "use strict";
@@ -49122,7 +49352,7 @@ var init_sports_predictor = __esm({
     ELO_K = 20;
     ELO_DEFAULT = 1500;
     eloRatings = {};
-    cache7 = null;
+    cache8 = null;
     SPORT_PATHS = {
       nba: "basketball/nba",
       nfl: "football/nfl",
@@ -53746,7 +53976,7 @@ var prop_firm_consistency_audit_loop_exports = {};
 __export(prop_firm_consistency_audit_loop_exports, {
   startPropFirmConsistencyAuditLoop: () => startPropFirmConsistencyAuditLoop
 });
-function cache8() {
+function cache9() {
   global.tlConsistencyStatus = global.tlConsistencyStatus || {};
   return global.tlConsistencyStatus;
 }
@@ -53759,7 +53989,7 @@ async function auditOnce() {
     return;
   }
   if (!connections.length) return;
-  const store = cache8();
+  const store = cache9();
   for (const conn of connections) {
     try {
       const result = await getConsistencyStatus(conn.id, "tradelocker", conn.consistencyThresholdPct, conn.consistencyEnabled !== false);
@@ -56010,9 +56240,9 @@ async function getStopOrdersForUser(userId, filters = {}) {
 init_schema();
 
 // server/build-info.ts
-var BUILD_COMMIT = "38e4ea66-dirty";
+var BUILD_COMMIT = "09af60ba-dirty";
 var BUILD_BRANCH = "main";
-var BUILT_AT = "2026-09-23T16:15:54.272Z";
+var BUILT_AT = "2026-09-23T17:48:22.031Z";
 
 // server/stripe.ts
 init_db();
@@ -67820,6 +68050,21 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
       }
       if (analysis.signal !== "NEUTRAL") {
         try {
+          const { fxBrainGateVerdict: fxBrainGateVerdict2 } = await Promise.resolve().then(() => (init_fx_brain(), fx_brain_exports));
+          const _fbVerdict = await fxBrainGateVerdict2(token.userId, sanitizedSymbol, analysis.signal);
+          if (_fbVerdict) {
+            console.log(`[FxBrainGate] BLOCKED ${sanitizedSymbol} ${analysis.signal} \u2014 ${_fbVerdict.reason}`);
+            _diagCap.neutralReason = `fx_brain_gate (${_fbVerdict.reason})`;
+            analysis.signal = "NEUTRAL";
+            analysis.alerts = analysis.alerts || [];
+            analysis.alerts.push(`\u{1F9E0} ${_fbVerdict.reason}.`);
+          }
+        } catch (_fbErr) {
+          console.error("[FxBrainGate] check failed (non-blocking):", _fbErr?.message);
+        }
+      }
+      if (analysis.signal !== "NEUTRAL") {
+        try {
           const { pairDailyStopVerdict: pairDailyStopVerdict2 } = await Promise.resolve().then(() => (init_pair_daily_stop(), pair_daily_stop_exports));
           const _dsVerdict = await pairDailyStopVerdict2(token.userId, sanitizedSymbol);
           if (_dsVerdict) {
@@ -69245,8 +69490,9 @@ BEAR CASE: ${_bearCase || "n/a"}` : aiConfirmation.reasoning;
           if (_eaBrainK && _eaBrainK.totalTrades >= 3) {
             const _eaNow = /* @__PURE__ */ new Date();
             const _eaHour = _eaNow.getUTCHours();
-            const _eaSession = _eaHour < 7 ? "Asian" : _eaHour < 13 ? "London" : _eaHour < 20 ? "New York" : "Late NY";
-            const _eaSessionData = _eaBrainK.topSessions?.find((s) => s.session === _eaSession);
+            const { sessionForHour: sessionForHour2, sameSession: sameSession2 } = await Promise.resolve().then(() => (init_session(), session_exports));
+            const _eaSession = sessionForHour2(_eaHour);
+            const _eaSessionData = _eaBrainK.topSessions?.find((s) => sameSession2(s.session, _eaSession));
             if (_eaSessionData && _eaSessionData.total >= 3 && _eaSessionData.winRate < 45) {
               tlFullGatesBlocked = true;
               tlFullGateReason = `Brain: ${sanitizedSymbol} ${_eaSession} session ${_eaSessionData.winRate}% WR \u2014 below 45% threshold`;
@@ -70059,8 +70305,8 @@ BEAR CASE: ${_bearCase || "n/a"}` : aiConfirmation.reasoning;
     const userId = req.user.id;
     const { symbol, timeframe } = req.params;
     const chartDataKey = `mt5_chart_${userId}_${symbol}_${timeframe}`;
-    const cache9 = global.mt5ChartDataCache || {};
-    const chartData = cache9[chartDataKey];
+    const cache10 = global.mt5ChartDataCache || {};
+    const chartData = cache10[chartDataKey];
     if (!chartData) {
       return res.status(404).json({ error: "No chart data found. Make sure your MT5 Chart Data EA is running." });
     }
@@ -71503,8 +71749,8 @@ Respond with ONLY valid JSON:
     strategy.progressWinRate = winRate2;
     strategy.progressPercentage = Math.min(100, Math.max(0, Math.round(closedProfit / strategy.profitTarget * 100)));
     const _mt5BalLive = (() => {
-      const cache9 = global.mt5AccountData?.[userId];
-      return cache9 ? Object.values(cache9).reduce((s, a) => s + (a?.balance || 0), 0) : 0;
+      const cache10 = global.mt5AccountData?.[userId];
+      return cache10 ? Object.values(cache10).reduce((s, a) => s + (a?.balance || 0), 0) : 0;
     })();
     const _tlBalLive = Object.values(global.tlAccountData?.[userId] || {}).reduce((s, a) => s + (a?.balance || 0), 0);
     const _liveBalance = _mt5BalLive + _tlBalLive;
@@ -82107,6 +82353,15 @@ Generate an agenda with timing, topics, and hosting tips. Return JSON: {
     setSMCStrategyEnabled2(req.user.id, enabled);
     res.json({ success: true, enabled: isSMCStrategyEnabled2(req.user.id) });
   });
+  app2.get("/api/fx-brain", async (req, res) => {
+    if (!req.isAuthenticated()) return res.status(401).json({ message: "Not authenticated" });
+    try {
+      const { getFxBrain: getFxBrain2 } = await Promise.resolve().then(() => (init_fx_brain(), fx_brain_exports));
+      res.json(await getFxBrain2(req.user.id, req.query.force === "true"));
+    } catch (e) {
+      res.status(500).json({ message: e?.message || "failed to read fx brain" });
+    }
+  });
   app2.get("/api/pair-daily-stop", async (req, res) => {
     if (!req.isAuthenticated()) return res.status(401).json({ message: "Not authenticated" });
     try {
@@ -84681,15 +84936,15 @@ Sitemap: ${SEO_BASE_URL}/sitemap.xml
     if (!req.isAuthenticated()) return res.status(401).json({ error: "Unauthorized" });
     const userId = req.user.id;
     const rawSymbol = req.params.symbol.toUpperCase().replace(/[^A-Za-z0-9/_.-]/g, "");
-    const cache9 = global.mt5ChartDataCache || {};
-    const allKeys = Object.keys(cache9);
+    const cache10 = global.mt5ChartDataCache || {};
+    const allKeys = Object.keys(cache10);
     const PREFER_TF = ["M6", "M5", "M1", "M15", "M30", "H1", "H4"];
     let found = null;
     let foundTf = "";
     for (const tf of PREFER_TF) {
       const key = `mt5_chart_${userId}_${rawSymbol}_${tf}`;
-      if (cache9[key]) {
-        found = cache9[key];
+      if (cache10[key]) {
+        found = cache10[key];
         foundTf = tf;
         break;
       }
@@ -84697,7 +84952,7 @@ Sitemap: ${SEO_BASE_URL}/sitemap.xml
     if (!found) {
       const partialKey = allKeys.find((k) => k.includes(`_${userId}_`) && k.includes(rawSymbol));
       if (partialKey) {
-        found = cache9[partialKey];
+        found = cache10[partialKey];
         foundTf = partialKey.split("_").pop() || "";
       }
     }

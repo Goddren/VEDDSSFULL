@@ -9979,6 +9979,200 @@ var init_ictMacroUtils = __esm({
   }
 });
 
+// server/utils/session.ts
+function sessionForHour(hourUtc) {
+  const h = Number(hourUtc);
+  if (!isFinite(h)) return "Asian";
+  return h < 7 ? "Asian" : h < 13 ? "London" : h < 20 ? "New York" : "Late NY";
+}
+function canonSession(value, hourUtc) {
+  const raw = String(value ?? "").trim().toLowerCase();
+  if (raw === "ny" || raw === "new york" || raw === "newyork" || raw === "new-york") return "New York";
+  if (raw === "late" || raw === "late ny" || raw === "latency" || raw === "late-ny" || raw === "lateny") return "Late NY";
+  if (raw === "asian" || raw === "asia" || raw === "tokyo") return "Asian";
+  if (raw === "london" || raw === "europe" || raw === "eu") return "London";
+  if (hourUtc == null || !isFinite(Number(hourUtc))) return null;
+  return sessionForHour(Number(hourUtc));
+}
+var init_session = __esm({
+  "server/utils/session.ts"() {
+    "use strict";
+  }
+});
+
+// server/services/fx-brain.ts
+var fx_brain_exports = {};
+__export(fx_brain_exports, {
+  fxBrainGateVerdict: () => fxBrainGateVerdict,
+  fxBrainInsights: () => fxBrainInsights,
+  getFxBrain: () => getFxBrain,
+  learnFxBrain: () => learnFxBrain
+});
+function adxBucket(v) {
+  if (v == null || !isFinite(v) || v <= 0) return null;
+  if (v < 20) return "ADX <20 (ranging)";
+  if (v < 30) return "ADX 20-29";
+  if (v < 40) return "ADX 30-39";
+  return "ADX 40+ (strong)";
+}
+async function learnFxBrain(userId) {
+  const { pool: pool2 } = await Promise.resolve().then(() => (init_db(), db_exports));
+  const { rows } = await pool2.query(
+    `SELECT symbol, direction, session, hour_utc, adx_value, confluence_grade,
+            realised_rr, result, profit_loss, closed_at::date AS d
+       FROM fx_brain_outcomes
+      WHERE user_id = $1
+        AND result IN ('WIN','LOSS')
+        AND closed_at > now() - ($2 || ' days')::interval
+      ORDER BY closed_at`,
+    [userId, String(LOOKBACK_DAYS)]
+  );
+  if (!rows.length) return {};
+  const normSymbol = (v) => {
+    const base = String(v ?? "").split(".")[0].toUpperCase().replace(/[^A-Z0-9]/g, "");
+    if (!base || /^[0-9]+$/.test(base)) return null;
+    return base;
+  };
+  const bySymbol = /* @__PURE__ */ new Map();
+  for (const r of rows) {
+    const k = normSymbol(r.symbol);
+    if (!k) continue;
+    if (!bySymbol.has(k)) bySymbol.set(k, []);
+    bySymbol.get(k).push(r);
+  }
+  const out = {};
+  for (const [symbol, trades] of Array.from(bySymbol.entries())) {
+    const wins = trades.filter((t) => t.result === "WIN");
+    const losses = trades.filter((t) => t.result === "LOSS");
+    const baseline = wins.length / trades.length * 100;
+    const avgWin = wins.length ? wins.reduce((s, t) => s + Number(t.profit_loss || 0), 0) / wins.length : 0;
+    const avgLoss = losses.length ? losses.reduce((s, t) => s + Number(t.profit_loss || 0), 0) / losses.length : 0;
+    const dims = /* @__PURE__ */ new Map();
+    const add = (dimension, value, t) => {
+      if (!value) return;
+      const k = dimension + SEP + value;
+      if (!dims.has(k)) dims.set(k, []);
+      dims.get(k).push(t);
+    };
+    for (const t of trades) {
+      add("session", canonSession(t.session, t.hour_utc == null ? null : Number(t.hour_utc)), t);
+      add("hour", t.hour_utc != null ? String(t.hour_utc) + ":00 UTC" : null, t);
+      add("direction", t.direction, t);
+      add("adx_bucket", adxBucket(t.adx_value == null ? null : Number(t.adx_value)), t);
+      add("grade", t.confluence_grade ? "Grade " + t.confluence_grade : null, t);
+    }
+    const works = [];
+    const fails = [];
+    for (const [k, group] of Array.from(dims.entries())) {
+      const [dimension, value] = k.split(SEP);
+      const w = group.filter((t) => t.result === "WIN").length;
+      const winRate = w / group.length * 100;
+      const distinctDays = new Set(group.map((t) => String(t.d))).size;
+      if (group.length < MIN_TRADES2) continue;
+      if (distinctDays < MIN_DISTINCT_DAYS) continue;
+      const edge = winRate - baseline;
+      if (Math.abs(edge) < MIN_EDGE_PP) continue;
+      const groupPnl = group.reduce((s2, t) => s2 + Number(t.profit_loss || 0), 0);
+      if (edge > 0 && groupPnl <= 0) continue;
+      if (edge < 0 && groupPnl >= 0) continue;
+      const stat = {
+        dimension,
+        value,
+        trades: group.length,
+        wins: w,
+        winRate: Math.round(winRate * 10) / 10,
+        distinctDays,
+        pnl: Math.round(groupPnl),
+        edgeVsPair: Math.round(edge * 10) / 10
+      };
+      (edge > 0 ? works : fails).push(stat);
+    }
+    works.sort((a, b) => b.edgeVsPair - a.edgeVsPair);
+    fails.sort((a, b) => a.edgeVsPair - b.edgeVsPair);
+    out[symbol] = {
+      symbol,
+      trades: trades.length,
+      winRate: Math.round(baseline * 10) / 10,
+      pnl: Math.round(trades.reduce((s, t) => s + Number(t.profit_loss || 0), 0)),
+      avgWin: Math.round(avgWin),
+      avgLoss: Math.round(avgLoss),
+      // Expectancy is the honest verdict on a pair: win% x avgWin - loss% x |avgLoss|.
+      expectancy: Math.round(wins.length / trades.length * avgWin + losses.length / trades.length * avgLoss),
+      works,
+      fails
+    };
+  }
+  return out;
+}
+async function getFxBrain(userId, force = false) {
+  const hit = cache2.get(userId);
+  if (!force && hit && Date.now() - hit.at < TTL_MS2) return hit.brains;
+  const brains = await learnFxBrain(userId);
+  cache2.set(userId, { at: Date.now(), brains });
+  const pairs = Object.keys(brains);
+  if (pairs.length) {
+    const patterns = pairs.reduce((n, p) => n + brains[p].works.length + brains[p].fails.length, 0);
+    console.log("[FxBrain] user " + userId + ": learned " + pairs.length + " pair(s), " + patterns + " consistent pattern(s) (min " + MIN_TRADES2 + " trades across " + MIN_DISTINCT_DAYS + "+ days, " + MIN_EDGE_PP + "pp edge)");
+  }
+  return brains;
+}
+async function fxBrainInsights(userId, symbol) {
+  const brains = await getFxBrain(userId);
+  const keys = symbol ? [symbol].filter((k) => brains[k]) : Object.keys(brains);
+  if (!keys.length) return "";
+  const lines = [];
+  for (const k of keys) {
+    const b = brains[k];
+    lines.push(b.symbol + ": " + b.winRate + "% WR over " + b.trades + " trades, expectancy $" + b.expectancy + "/trade");
+    for (const p of b.works.slice(0, 3)) {
+      lines.push("   WORKS - " + p.value + ": " + p.winRate + "% (" + p.wins + "/" + p.trades + " over " + p.distinctDays + " days, +" + p.edgeVsPair + "pp vs this pair)");
+    }
+    for (const p of b.fails.slice(0, 3)) {
+      lines.push("   FAILS - " + p.value + ": " + p.winRate + "% (" + p.wins + "/" + p.trades + " over " + p.distinctDays + " days, " + p.edgeVsPair + "pp vs this pair)");
+    }
+  }
+  return lines.join("\n");
+}
+async function fxBrainGateVerdict(userId, symbol, direction, hourUtc = (/* @__PURE__ */ new Date()).getUTCHours()) {
+  if (!GATE_ENABLED()) return null;
+  try {
+    const brains = await getFxBrain(userId);
+    const b = brains[String(symbol || "").split(".")[0].toUpperCase().replace(/[^A-Z0-9]/g, "")];
+    if (!b || !b.fails.length) return null;
+    const dir = String(direction || "").toUpperCase();
+    const session2 = sessionForHour(hourUtc);
+    const hourLabel = String(hourUtc) + ":00 UTC";
+    for (const p of b.fails) {
+      const hits = p.dimension === "session" && canonSession(p.value, hourUtc) === session2 || p.dimension === "hour" && p.value === hourLabel || p.dimension === "direction" && p.value.toUpperCase() === dir && p.trades >= GATE_MIN_DIR_TRADES;
+      if (!hits) continue;
+      return {
+        blocked: true,
+        reason: `FX brain: ${b.symbol} ${p.value} is ${p.winRate}% WR over ${p.trades} trades across ${p.distinctDays} days (${p.edgeVsPair}pp vs this pair's ${b.winRate}%, net ${p.pnl}) \u2014 a consistently losing condition`
+      };
+    }
+    return null;
+  } catch (e) {
+    console.error(`[FxBrain] gate could not evaluate (${e?.message}) \u2014 allowing the trade.`);
+    return null;
+  }
+}
+var MIN_TRADES2, MIN_DISTINCT_DAYS, MIN_EDGE_PP, LOOKBACK_DAYS, TTL_MS2, SEP, cache2, GATE_ENABLED, GATE_MIN_DIR_TRADES;
+var init_fx_brain = __esm({
+  "server/services/fx-brain.ts"() {
+    "use strict";
+    init_session();
+    MIN_TRADES2 = Number(process.env.FX_BRAIN_MIN_TRADES ?? 8);
+    MIN_DISTINCT_DAYS = Number(process.env.FX_BRAIN_MIN_DAYS ?? 3);
+    MIN_EDGE_PP = Number(process.env.FX_BRAIN_MIN_EDGE_PP ?? 12);
+    LOOKBACK_DAYS = Number(process.env.FX_BRAIN_LOOKBACK_DAYS ?? 180);
+    TTL_MS2 = Number(process.env.FX_BRAIN_TTL_MS ?? 30 * 60 * 1e3);
+    SEP = "~~";
+    cache2 = /* @__PURE__ */ new Map();
+    GATE_ENABLED = () => process.env.FX_BRAIN_GATE_ENABLED !== "false";
+    GATE_MIN_DIR_TRADES = Number(process.env.FX_BRAIN_GATE_MIN_DIR_TRADES ?? 20);
+  }
+});
+
 // server/utils/breakoutEngine.ts
 var breakoutEngine_exports = {};
 __export(breakoutEngine_exports, {
@@ -11704,10 +11898,26 @@ Grade D \u2192 avoid. Grade A/A+ \u2192 high conviction trade.
     const r = detectMarketRegime(indicators);
     return buildRegimeAdaptationSection(r.regime, r.adx, strategyMode);
   })() : "";
+  let _fxBrainSection = "";
+  try {
+    if (userId) {
+      const { fxBrainInsights: fxBrainInsights2 } = await Promise.resolve().then(() => (init_fx_brain(), fx_brain_exports));
+      const _fbTxt = await fxBrainInsights2(userId, symbol);
+      if (_fbTxt) {
+        _fxBrainSection = `
+
+THIS ACCOUNT'S MEASURED HISTORY ON ${symbol} (live results, not theory):
+${_fbTxt}
+Treat a FAILS line as a strong reason to reject: it means this pair has repeatedly lost under exactly these conditions across separate days.
+`;
+      }
+    }
+  } catch {
+  }
   return {
     system: "You are a master trader who speaks with street knowledge and the wisdom of Supreme Mathematics \u2014 Gods and Earths style. You build and destroy with the science of trading, dropping jewels and keeping it real. Your analysis is sharp, your reasoning is laced with knowledge of self and mathematical precision. You reference concepts like Knowledge (1), Wisdom (2), Understanding (3), Culture (4), Power (5), Equality (6), God (7), Build/Destroy (8), Born (9), and Cipher (0) naturally when they fit. You say things like 'the chart is showing and proving', 'peace \u2014 the math don't lie', 'this is a cipher of accumulation', 'knowledge this pattern God', 'the wisdom here is...', 'we building or we destroying?', etc. Keep it concise, authentic, and never forced \u2014 the science comes first, the flavor is the delivery. You provide honest, unbiased second opinions on trade signals using ALL available data including news sentiment and upcoming economic events. Always return valid JSON.",
     user: `You are an elite trading analyst providing a SECOND OPINION on a proposed trade. Use ALL data below for maximum accuracy.
-${buildStrategyFilterSection(strategyMode)}${_regimeSection}${htfSection}${newsProximityAlert}${propFirmSection}${confluenceHeader}
+${buildStrategyFilterSection(strategyMode)}${_regimeSection}${_fxBrainSection}${htfSection}${newsProximityAlert}${propFirmSection}${confluenceHeader}
 
 SYMBOL: ${symbol}
 TIMEFRAME: ${timeframe}

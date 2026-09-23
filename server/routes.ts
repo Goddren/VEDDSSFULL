@@ -10279,6 +10279,31 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
         }
       }
 
+      // ── FX brain condition gate ─────────────────────────────────────────────
+      // The per-pair condition learner (services/fx-brain.ts) had never been
+      // called by anything: it computed which conditions a pair consistently
+      // loses under, and no decision ever read the answer. This is where its
+      // findings finally reach a trade.
+      //
+      // Only fires on a pattern that cleared all four consistency bars — 8+
+      // trades over 3+ separate days, 12+ points below the pair's OWN baseline,
+      // and losing money. Fails open.
+      if (analysis.signal !== 'NEUTRAL') {
+        try {
+          const { fxBrainGateVerdict } = await import('./services/fx-brain');
+          const _fbVerdict = await fxBrainGateVerdict(token.userId, sanitizedSymbol, analysis.signal);
+          if (_fbVerdict) {
+            console.log(`[FxBrainGate] BLOCKED ${sanitizedSymbol} ${analysis.signal} — ${_fbVerdict.reason}`);
+            _diagCap.neutralReason = `fx_brain_gate (${_fbVerdict.reason})`;
+            analysis.signal = 'NEUTRAL';
+            analysis.alerts = analysis.alerts || [];
+            analysis.alerts.push(`🧠 ${_fbVerdict.reason}.`);
+          }
+        } catch (_fbErr: any) {
+          console.error('[FxBrainGate] check failed (non-blocking):', _fbErr?.message);
+        }
+      }
+
       // ── Per-pair DAILY stop ─────────────────────────────────────────────────
       // Gate 2e Rule 5 only bought a 3-hour cooldown after 3 losing signals, so
       // a pair that was wrong all morning came back and tried again the same
@@ -11988,10 +12013,15 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
           if (_eaBrainK && _eaBrainK.totalTrades >= 3) {
             const _eaNow = new Date();
             const _eaHour = _eaNow.getUTCHours();
-            const _eaSession = _eaHour < 7 ? 'Asian' : _eaHour < 13 ? 'London' : _eaHour < 20 ? 'New York' : 'Late NY';
+            const { sessionForHour, sameSession } = await import('./utils/session');
+            const _eaSession = sessionForHour(_eaHour);
 
-            // Rule 1: Session win rate
-            const _eaSessionData = _eaBrainK.topSessions?.find((s: any) => s.session === _eaSession);
+            // Rule 1: Session win rate.
+            // Matched through sameSession(), NOT string equality: the brain
+            // stores 'NY'/'Late' while this computes 'New York'/'Late NY', so a
+            // === comparison never matched and this rule was dead for every hour
+            // from 13:00 UTC on. Gate 2e had never fired once, all-time.
+            const _eaSessionData = _eaBrainK.topSessions?.find((s: any) => sameSession(s.session, _eaSession));
             if (_eaSessionData && _eaSessionData.total >= 3 && _eaSessionData.winRate < 45) {
               tlFullGatesBlocked = true;
               tlFullGateReason = `Brain: ${sanitizedSymbol} ${_eaSession} session ${_eaSessionData.winRate}% WR — below 45% threshold`;
@@ -27294,6 +27324,18 @@ Generate an agenda with timing, topics, and hosting tips. Return JSON: {
     const { setSMCStrategyEnabled, isSMCStrategyEnabled } = await import('./openai');
     setSMCStrategyEnabled(req.user!.id, enabled);
     res.json({ success: true, enabled: isSMCStrategyEnabled(req.user!.id) });
+  });
+
+  // What the FX brain has actually learned per pair — the conditions that
+  // consistently beat or trail that pair's own baseline.
+  app.get("/api/fx-brain", async (req: Request, res: Response) => {
+    if (!req.isAuthenticated()) return res.status(401).json({ message: "Not authenticated" });
+    try {
+      const { getFxBrain } = await import('./services/fx-brain');
+      res.json(await getFxBrain(req.user!.id, req.query.force === 'true'));
+    } catch (e: any) {
+      res.status(500).json({ message: e?.message || 'failed to read fx brain' });
+    }
   });
 
   // Today's per-pair picture and which instruments are stopped for the day.

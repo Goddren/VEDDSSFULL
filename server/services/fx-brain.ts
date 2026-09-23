@@ -48,21 +48,11 @@ const LOOKBACK_DAYS = Number(process.env.FX_BRAIN_LOOKBACK_DAYS ?? 180);
 const TTL_MS = Number(process.env.FX_BRAIN_TTL_MS ?? 30 * 60 * 1000);
 const SEP = '~~';
 
-/**
- * Canonical session label. The confirmation writer emits 'NY' while the sync
- * computes 'New York' for the same hours, which split EURUSD's New York trades
- * into a "works, 80%" bucket and a "fails, 31.6%" bucket — the same session
- * giving opposite advice. Normalise before anything is grouped.
- */
-function canonSession(v: any, hourUtc: number | null): string | null {
-  const raw = String(v ?? '').trim().toLowerCase();
-  if (raw === 'ny' || raw === 'new york' || raw === 'newyork') return 'New York';
-  if (raw === 'late ny' || raw === 'latency' || raw === 'late-ny') return 'Late NY';
-  if (raw === 'asian' || raw === 'asia' || raw === 'tokyo') return 'Asian';
-  if (raw === 'london' || raw === 'europe') return 'London';
-  if (hourUtc == null) return null;
-  return hourUtc < 7 ? 'Asian' : hourUtc < 13 ? 'London' : hourUtc < 20 ? 'New York' : 'Late NY';
-}
+// Session labels come from the shared canonicaliser: the confirmation writer
+// emits 'NY' while the sync computes 'New York' for the same hours, which split
+// EURUSD's New York trades into a "works, 80%" and a "fails, 31.6%" bucket —
+// the same session giving opposite advice.
+import { canonSession, sessionForHour } from '../utils/session';
 
 const cache = new Map<number, { at: number; brains: Record<string, PairBrain> }>();
 
@@ -93,10 +83,25 @@ export async function learnFxBrain(userId: number): Promise<Record<string, PairB
   );
   if (!rows.length) return {};
 
+  // Normalise the instrument before grouping. Brokers append suffixes, so
+  // 'XAUUSD.PRO' and 'XAUUSD' were learned as two different instruments — each
+  // with too few trades to clear the consistency bars, which is the quietest
+  // possible failure: the pair simply never produces a pattern.
+  //
+  // Purely numeric "symbols" (314, 19965) are prediction-market ticket ids that
+  // leaked in from another engine. They are not tradeable pairs and must never
+  // reach a gate.
+  const normSymbol = (v: any): string | null => {
+    const base = String(v ?? '').split('.')[0].toUpperCase().replace(/[^A-Z0-9]/g, '');
+    if (!base || /^[0-9]+$/.test(base)) return null;
+    return base;
+  };
   const bySymbol = new Map<string, any[]>();
   for (const r of rows) {
-    if (!bySymbol.has(r.symbol)) bySymbol.set(r.symbol, []);
-    bySymbol.get(r.symbol)!.push(r);
+    const k = normSymbol(r.symbol);
+    if (!k) continue;
+    if (!bySymbol.has(k)) bySymbol.set(k, []);
+    bySymbol.get(k)!.push(r);
   }
 
   const out: Record<string, PairBrain> = {};
@@ -205,4 +210,60 @@ export async function fxBrainInsights(userId: number, symbol?: string): Promise<
     }
   }
   return lines.join('\n');
+}
+
+
+// ─────────────────────────────────────────────────────────────────────────────
+// The gate. Everything above only LEARNS; without this the brain was a report
+// nobody read — fx-brain.ts was imported nowhere except its table creation, so
+// not one of its findings had ever reached a trading decision.
+//
+// Blocks only on a `fails` pattern, which has already cleared all four bars in
+// learnFxBrain: 8+ trades, across 3+ separate days, 12+ points WORSE than the
+// pair's own baseline, AND losing money (a low win rate that still makes money
+// is not a failure). Anything short of that is not evidence.
+//
+// FAILS OPEN. A statistics query must never halt trading.
+// ─────────────────────────────────────────────────────────────────────────────
+
+const GATE_ENABLED = () => process.env.FX_BRAIN_GATE_ENABLED !== 'false';
+// Direction patterns need a bigger sample than session/hour ones: 'SELL' covers
+// half of every trade on the pair, so it drifts with the pair, not with a setup.
+const GATE_MIN_DIR_TRADES = Number(process.env.FX_BRAIN_GATE_MIN_DIR_TRADES ?? 20);
+
+export async function fxBrainGateVerdict(
+  userId: number,
+  symbol: string,
+  direction: string,
+  hourUtc = new Date().getUTCHours(),
+): Promise<{ blocked: true; reason: string } | null> {
+  if (!GATE_ENABLED()) return null;
+  try {
+    const brains = await getFxBrain(userId);
+    const b = brains[String(symbol || '').split('.')[0].toUpperCase().replace(/[^A-Z0-9]/g, '')];
+    if (!b || !b.fails.length) return null;
+
+    const dir = String(direction || '').toUpperCase();
+    const session = sessionForHour(hourUtc);
+    const hourLabel = String(hourUtc) + ':00 UTC';
+
+    for (const p of b.fails) {
+      const hits =
+        (p.dimension === 'session'   && canonSession(p.value, hourUtc) === session) ||
+        (p.dimension === 'hour'      && p.value === hourLabel) ||
+        (p.dimension === 'direction' && p.value.toUpperCase() === dir &&
+           p.trades >= GATE_MIN_DIR_TRADES);
+      if (!hits) continue;
+      return {
+        blocked: true,
+        reason: `FX brain: ${b.symbol} ${p.value} is ${p.winRate}% WR over ${p.trades} trades ` +
+                `across ${p.distinctDays} days (${p.edgeVsPair}pp vs this pair's ${b.winRate}%, ` +
+                `net ${p.pnl}) — a consistently losing condition`,
+      };
+    }
+    return null;
+  } catch (e: any) {
+    console.error(`[FxBrain] gate could not evaluate (${e?.message}) — allowing the trade.`);
+    return null;
+  }
 }

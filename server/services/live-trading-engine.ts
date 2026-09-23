@@ -1,3 +1,4 @@
+import { sessionForHour, sameSession } from '../utils/session';
 import { marketDataService } from '../market-data/service';
 import { executeMT5SignalOnTradeLocker, warmTradeLockerConnection, getTLAccountValue, getOrCreateService as getTradeLockerService, setUsdJpyRate } from '../tradelocker';
 import { refreshTlAfterTrade } from './tradelocker-sync';
@@ -567,10 +568,12 @@ function applyBrainEnforcement(
 
   const now = new Date();
   const hour = now.getUTCHours();
-  const session = hour < 7 ? 'Asian' : hour < 13 ? 'London' : hour < 20 ? 'New York' : 'Late NY';
+  const session = sessionForHour(hour);
 
   // ── RULE 1: Session block ──────────────────────────────────────────────
-  const sessionData = k.topSessions?.find((s: any) => s.session === session);
+  // sameSession(), not ===: the brain stores 'NY'/'Late' and this computes
+  // 'New York'/'Late NY', so the lookup silently missed for 13:00-24:00 UTC.
+  const sessionData = k.topSessions?.find((s: any) => sameSession(s.session, session));
   if (sessionData && sessionData.total >= 3 && sessionData.winRate < 45) {
     const msg = `🧠 Brain block: ${symbol} ${session} session only ${sessionData.winRate}% WR (${sessionData.total} trades) — below 45% threshold, skipping`;
     pushEnforcementLog(userId, { symbol, rule: 'session_block', direction: proposedDirection, reason: msg });

@@ -91,18 +91,36 @@ async function _recordFxBrainOutcome(
     const ticket = String((existing as any).mt5Ticket || '');
     if (!symbol || !direction) return;
 
-    // Pull the setup from the confirmation that opened this trade.
+    // Pull the setup from the confirmation that OPENED this trade.
+    //
+    // Two bugs lived here. It anchored the window on the CLOSE time and took the
+    // newest row, so the row it picked was usually the outcome record written at
+    // close — which carries NULL adx/rsi/grade. That is why every live row landed
+    // in fx_brain_outcomes with an outcome and no setup: the store knew USDJPY
+    // lost $1,021 in New York and nothing about the conditions, which is the only
+    // part that prevents a repeat.
+    //
+    // Now anchored on the OPEN time, and rows that actually carry indicator values
+    // are preferred over ones that do not, so a null-filled close record can never
+    // outrank the real confirmation.
+    const _openedAtRaw = (existing as any).createdAt ? new Date((existing as any).createdAt) : null;
+    const _anchor = (_openedAtRaw && !isNaN(_openedAtRaw.getTime())) ? _openedAtRaw : closedAt;
     const { rows: cf } = await pool.query(
       `SELECT adx_value, rsi_value, macd_direction, confluence_grade, confluence_score,
               smc_verdict, ict_macro_valid, htf_aligned, ai_confidence, proposed_confidence,
               timeframe, session, confirmed_at
          FROM ai_confirmation_outcomes
         WHERE user_id = $1 AND symbol = $2 AND direction = $3
-          AND confirmed_at BETWEEN $4::timestamp - interval '24 hours' AND $4::timestamp + interval '5 minutes'
-        ORDER BY confirmed_at DESC LIMIT 1`,
-      [userId, symbol, direction, closedAt.toISOString()]
+          AND confirmed_at BETWEEN $4::timestamp - interval '2 hours' AND $4::timestamp + interval '10 minutes'
+        ORDER BY (adx_value IS NOT NULL) DESC,
+                 abs(extract(epoch FROM (confirmed_at - $4::timestamp))) ASC
+        LIMIT 1`,
+      [userId, symbol, direction, _anchor.toISOString()]
     );
     const f = cf[0] || {};
+    if (!f.adx_value) {
+      console.warn(`[FxBrain] ${symbol} ${direction} ticket ${ticket}: no confirmation with indicator values found near open ${_anchor.toISOString()} — recording outcome without setup.`);
+    }
 
     const entry = Number((existing as any).entryPrice ?? match?.openPrice) || null;
     const exit = Number(match?.closePrice) || null;
@@ -124,7 +142,11 @@ async function _recordFxBrainOutcome(
       ? Math.round((closedAt.getTime() - openedAt.getTime()) / 60000) : null;
 
     const hour = closedAt.getUTCHours();
-    const session = f.session || (hour < 7 ? 'Asian' : hour < 13 ? 'London' : hour < 20 ? 'New York' : 'Late NY');
+    // Canonicalise. ai_confirmation_outcomes holds 'NY', 'New York' AND 'Late NY'
+    // for the same hours, which splits one session into contradictory buckets
+    // when the learner groups by it.
+    const { canonSession } = await import('../utils/session');
+    const session = canonSession(f.session, hour) ?? canonSession(null, hour);
 
     await pool.query(
       `INSERT INTO fx_brain_outcomes

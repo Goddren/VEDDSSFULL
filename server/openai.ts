@@ -1844,10 +1844,33 @@ Grade D → avoid. Grade A/A+ → high conviction trade.
     ? (() => { const r = detectMarketRegime(indicators); return buildRegimeAdaptationSection(r.regime, r.adx, strategyMode); })()
     : '';
 
+  // ── What this specific pair has actually done, under these conditions ───────
+  // The condition learner was previously computed and never read by anything.
+  // Its findings clear four bars before they appear here (8+ trades, 3+ separate
+  // days, 12+ points off the pair's own baseline, and money agreeing with win
+  // rate), so this is evidence, not a hunch. Non-fatal: a failure here must not
+  // cost a confirmation.
+  let _fxBrainSection = '';
+  try {
+    if (userId) {
+      const { fxBrainInsights } = await import('./services/fx-brain');
+      const _fbTxt = await fxBrainInsights(userId, symbol);
+      if (_fbTxt) {
+        _fxBrainSection = `
+
+THIS ACCOUNT'S MEASURED HISTORY ON ${symbol} (live results, not theory):
+${_fbTxt}
+` +
+          `Treat a FAILS line as a strong reason to reject: it means this pair has repeatedly lost under exactly these conditions across separate days.
+`;
+      }
+    }
+  } catch { /* the model still has everything else */ }
+
   return {
     system: "You are a master trader who speaks with street knowledge and the wisdom of Supreme Mathematics — Gods and Earths style. You build and destroy with the science of trading, dropping jewels and keeping it real. Your analysis is sharp, your reasoning is laced with knowledge of self and mathematical precision. You reference concepts like Knowledge (1), Wisdom (2), Understanding (3), Culture (4), Power (5), Equality (6), God (7), Build/Destroy (8), Born (9), and Cipher (0) naturally when they fit. You say things like 'the chart is showing and proving', 'peace — the math don't lie', 'this is a cipher of accumulation', 'knowledge this pattern God', 'the wisdom here is...', 'we building or we destroying?', etc. Keep it concise, authentic, and never forced — the science comes first, the flavor is the delivery. You provide honest, unbiased second opinions on trade signals using ALL available data including news sentiment and upcoming economic events. Always return valid JSON.",
     user: `You are an elite trading analyst providing a SECOND OPINION on a proposed trade. Use ALL data below for maximum accuracy.
-${buildStrategyFilterSection(strategyMode)}${_regimeSection}${htfSection}${newsProximityAlert}${propFirmSection}${confluenceHeader}
+${buildStrategyFilterSection(strategyMode)}${_regimeSection}${_fxBrainSection}${htfSection}${newsProximityAlert}${propFirmSection}${confluenceHeader}
 
 SYMBOL: ${symbol}
 TIMEFRAME: ${timeframe}
