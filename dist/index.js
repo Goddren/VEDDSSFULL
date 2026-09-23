@@ -6060,9 +6060,9 @@ var init_storage = __esm({
       // snapshot; a different pair scope is a distinct, coexisting listing.
       async getUserActiveBrainListingBySymbols(sellerId, sourceCategory, symbols) {
         const listings = await db.select().from(brainDataListings).where(and(eq(brainDataListings.sellerId, sellerId), eq(brainDataListings.isActive, true), eq(brainDataListings.sourceCategory, sourceCategory)));
-        const norm = (s) => Array.isArray(s) && s.length ? [...s].map((x) => x.toUpperCase()).sort().join(",") : "";
-        const target = norm(symbols);
-        return listings.find((l) => norm(l.symbolFilter) === target);
+        const norm2 = (s) => Array.isArray(s) && s.length ? [...s].map((x) => x.toUpperCase()).sort().join(",") : "";
+        const target = norm2(symbols);
+        return listings.find((l) => norm2(l.symbolFilter) === target);
       }
       async importBrainDataSnapshot(buyerId, snapshotData) {
         if (!snapshotData.length) return 0;
@@ -19112,7 +19112,7 @@ var init_tradelocker = __esm({
           }
         } catch {
         }
-        const norm = (v) => parseFloat(v) || 0;
+        const norm2 = (v) => parseFloat(v) || 0;
         const sanePrice = (v, ref) => {
           if (!(v > 0)) return void 0;
           if (!(ref > 0)) return v < 1e7 ? v : void 0;
@@ -19124,12 +19124,12 @@ var init_tradelocker = __esm({
             id: String(p.id ?? p.positionId ?? ""),
             symbol: p.s || p.symbol || instMap.get(String(p.tradableInstrumentId ?? "")) || String(p.tradableInstrumentId ?? ""),
             side: (p.side || "").toString().toLowerCase(),
-            qty: norm(p.qty),
-            avgPrice: norm(p.avgPrice ?? p.openPrice ?? p.price),
-            unrealizedPl: norm(p.unrealizedPl ?? p.unrealizedPnL ?? p.uPnL ?? p.pl),
+            qty: norm2(p.qty),
+            avgPrice: norm2(p.avgPrice ?? p.openPrice ?? p.price),
+            unrealizedPl: norm2(p.unrealizedPl ?? p.unrealizedPnL ?? p.uPnL ?? p.pl),
             openDate: p.openDate || p.createdDate || void 0,
-            stopLoss: sanePrice(norm(p.stopLoss ?? p.sl ?? p.stopLossPrice), norm(p.avgPrice ?? p.openPrice ?? p.price)),
-            takeProfit: sanePrice(norm(p.takeProfit ?? p.tp ?? p.takeProfitPrice), norm(p.avgPrice ?? p.openPrice ?? p.price))
+            stopLoss: sanePrice(norm2(p.stopLoss ?? p.sl ?? p.stopLossPrice), norm2(p.avgPrice ?? p.openPrice ?? p.price)),
+            takeProfit: sanePrice(norm2(p.takeProfit ?? p.tp ?? p.takeProfitPrice), norm2(p.avgPrice ?? p.openPrice ?? p.price))
           }));
         }
         let columns = [];
@@ -19176,15 +19176,15 @@ var init_tradelocker = __esm({
             id: iId >= 0 ? String(row[iId]) : "",
             symbol: instMap.get(instId) || instId,
             side: iSide >= 0 ? String(row[iSide]).toLowerCase() : "",
-            qty: iQty >= 0 ? norm(row[iQty]) : 0,
-            avgPrice: iAvg >= 0 ? norm(row[iAvg]) : 0,
-            unrealizedPl: iPl >= 0 ? norm(row[iPl]) : 0,
+            qty: iQty >= 0 ? norm2(row[iQty]) : 0,
+            avgPrice: iAvg >= 0 ? norm2(row[iAvg]) : 0,
+            unrealizedPl: iPl >= 0 ? norm2(row[iPl]) : 0,
             openDate: iDate >= 0 ? String(row[iDate]) : void 0,
             // Second line of defence, independent of column naming: a protective
             // level sits near the entry. Anything orders of magnitude away is an id
             // or a sentinel, not a price, and must not be recorded as protection.
-            stopLoss: sanePrice(iSl >= 0 ? norm(row[iSl]) : 0, iAvg >= 0 ? norm(row[iAvg]) : 0),
-            takeProfit: sanePrice(iTp >= 0 ? norm(row[iTp]) : 0, iAvg >= 0 ? norm(row[iAvg]) : 0)
+            stopLoss: sanePrice(iSl >= 0 ? norm2(row[iSl]) : 0, iAvg >= 0 ? norm2(row[iAvg]) : 0),
+            takeProfit: sanePrice(iTp >= 0 ? norm2(row[iTp]) : 0, iAvg >= 0 ? norm2(row[iAvg]) : 0)
           };
         });
       }
@@ -23580,9 +23580,9 @@ var init_dxtrade = __esm({
         let code = o.positionCode;
         if (!code) {
           try {
-            const norm = (s) => s.replace(/\//g, "").toUpperCase();
+            const norm2 = (s) => s.replace(/\//g, "").toUpperCase();
             const positions = await this.getPositions(accountCode);
-            code = positions.find((p) => p.instrument === norm(o.instrument) && p.side === o.positionSide)?.positionId;
+            code = positions.find((p) => p.instrument === norm2(o.instrument) && p.side === o.positionSide)?.positionId;
           } catch {
           }
         }
@@ -23637,12 +23637,12 @@ var init_dxtrade = __esm({
        *  avoid ever cancelling a genuine entry order. Best-effort — never throws. */
       async cancelProtectiveOrders(accountCode, instrument) {
         try {
-          const norm = (s) => String(s ?? "").replace(/\//g, "").toUpperCase();
-          const target = norm(instrument);
+          const norm2 = (s) => String(s ?? "").replace(/\//g, "").toUpperCase();
+          const target = norm2(instrument);
           const orders = await this.getWorkingOrders(accountCode);
           let n = 0;
           for (const o of orders) {
-            const sym = norm(o.instrument ?? o.symbol);
+            const sym = norm2(o.instrument ?? o.symbol);
             const effect = String(o.positionEffect ?? o.legs?.[0]?.positionEffect ?? "").toUpperCase();
             if (sym !== target || effect !== "CLOSE") continue;
             const id = o.orderId ?? o.id ?? o.orderCode ?? o.code;
@@ -23669,9 +23669,9 @@ var init_dxtrade = __esm({
         let code = positionCode;
         if (!code) {
           try {
-            const norm = (s) => s.replace(/\//g, "").toUpperCase();
+            const norm2 = (s) => s.replace(/\//g, "").toUpperCase();
             const positions = await this.getPositions(accountCode);
-            const match = positions.find((p) => p.instrument === norm(instrument) && p.side === side);
+            const match = positions.find((p) => p.instrument === norm2(instrument) && p.side === side);
             code = match?.positionId;
           } catch {
           }
@@ -35002,9 +35002,9 @@ async function getLatestMarketBriefing() {
 }
 function findBriefingPair(briefing, symbol) {
   if (!briefing) return null;
-  const norm = symbol.toUpperCase().replace("/", "");
+  const norm2 = symbol.toUpperCase().replace("/", "");
   const pairs = briefing.pairs || [];
-  const match = pairs.find((p) => (p.symbol || "").toUpperCase().replace("/", "") === norm);
+  const match = pairs.find((p) => (p.symbol || "").toUpperCase().replace("/", "") === norm2);
   return match ?? null;
 }
 var MAX_CONFIDENCE_BOOST;
@@ -35014,6 +35014,45 @@ var init_ambassador_market_briefing = __esm({
     init_db();
     init_schema();
     MAX_CONFIDENCE_BOOST = 5;
+  }
+});
+
+// server/services/pair-filter.ts
+var pair_filter_exports = {};
+__export(pair_filter_exports, {
+  pairFilterConfig: () => pairFilterConfig,
+  pairFilterVerdict: () => pairFilterVerdict
+});
+function parseList(v) {
+  return (v ?? "").split(",").map((s) => s.trim().toUpperCase()).filter(Boolean);
+}
+function pairFilterVerdict(symbol, direction) {
+  if (process.env.PAIR_FILTER_ENABLED === "false") return null;
+  const sym = norm(symbol);
+  const dir = String(direction || "").toUpperCase();
+  for (const b of BLOCKED_PAIRS) {
+    if (norm(b) === sym) {
+      return { blocked: true, reason: `Pair filter: ${sym} is on the blocked list (34% WR over 310 trades, avg win $59 vs avg loss $100)` };
+    }
+  }
+  for (const entry of BLOCKED_DIRECTIONS) {
+    const [s, d] = entry.split(":");
+    if (s && d && norm(s) === sym && d.toUpperCase() === dir) {
+      return { blocked: true, reason: `Pair filter: ${sym} ${dir} is on the blocked list` };
+    }
+  }
+  return null;
+}
+function pairFilterConfig() {
+  return { enabled: process.env.PAIR_FILTER_ENABLED !== "false", pairs: BLOCKED_PAIRS, directions: BLOCKED_DIRECTIONS };
+}
+var norm, BLOCKED_PAIRS, BLOCKED_DIRECTIONS;
+var init_pair_filter = __esm({
+  "server/services/pair-filter.ts"() {
+    "use strict";
+    norm = (s) => String(s || "").toUpperCase().replace(/[^A-Z0-9]/g, "");
+    BLOCKED_PAIRS = parseList(process.env.BLOCKED_PAIRS ?? "GBPJPY");
+    BLOCKED_DIRECTIONS = parseList(process.env.BLOCKED_PAIR_DIRECTIONS ?? "");
   }
 });
 
@@ -55571,9 +55610,9 @@ async function getStopOrdersForUser(userId, filters = {}) {
 init_schema();
 
 // server/build-info.ts
-var BUILD_COMMIT = "c3b632df-dirty";
+var BUILD_COMMIT = "7fc2aac0-dirty";
 var BUILD_BRANCH = "main";
-var BUILT_AT = "2026-09-23T00:46:23.881Z";
+var BUILT_AT = "2026-09-23T01:46:34.038Z";
 
 // server/stripe.ts
 init_db();
@@ -66787,8 +66826,10 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
             _diagCap.planSkip = `sig=${analysis.signal} price=${currentPrice ?? "nil"} atr=${atr2 ?? "nil"} bars=${candles?.length ?? 0} bid=${indicators?.price?.bid ?? "nil"} hasPriceObj=${!!indicators?.price} c0=${_c0 === void 0 ? "undefined" : `c:${_c0?.c ?? "nil"}/keys:${Object.keys(_c0 ?? {}).join("|") || "none"}`} readableCloses=${_readable}/${candles?.length ?? 0}`;
           }
           if (analysis.signal !== "NEUTRAL" && currentPrice && atr2) {
-            const stopDistance = atr2 * 1.5;
-            const targetDistance = atr2 * 2.5;
+            const _atrStopMult = Number(process.env.ATR_STOP_MULT ?? 2.4);
+            const _atrTargetMult = Number(process.env.ATR_TARGET_MULT ?? 4);
+            const stopDistance = atr2 * _atrStopMult;
+            const targetDistance = atr2 * _atrTargetMult;
             const sr = advanced.supportResistance;
             const pp = advanced.pivotPoints;
             if (analysis.signal === "BUY") {
@@ -67341,6 +67382,21 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
         }
       } catch (veddErr) {
         console.error("[VEDD SS AI] Error checking plan:", veddErr);
+      }
+      if (analysis.signal !== "NEUTRAL") {
+        try {
+          const { pairFilterVerdict: pairFilterVerdict2 } = await Promise.resolve().then(() => (init_pair_filter(), pair_filter_exports));
+          const _pfVerdict = pairFilterVerdict2(sanitizedSymbol, analysis.signal);
+          if (_pfVerdict) {
+            console.log(`[PairFilter] BLOCKED ${sanitizedSymbol} ${analysis.signal} \u2014 ${_pfVerdict.reason}`);
+            _diagCap.neutralReason = `pair_filter (${_pfVerdict.reason})`;
+            analysis.signal = "NEUTRAL";
+            analysis.alerts = analysis.alerts || [];
+            analysis.alerts.push(`\u{1F6AB} ${_pfVerdict.reason}.`);
+          }
+        } catch (_pfErr) {
+          console.error("[PairFilter] check failed (non-blocking):", _pfErr?.message);
+        }
       }
       if (analysis.signal !== "NEUTRAL") {
         try {

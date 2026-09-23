@@ -9545,8 +9545,25 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
               + ` readableCloses=${_readable}/${candles?.length ?? 0}`;
           }
           if (analysis.signal !== 'NEUTRAL' && currentPrice && atr) {
-            const stopDistance = atr * 1.5;
-            const targetDistance = atr * 2.5;
+            // Stop/target as ATR multiples. Raised from 1.5x/2.5x on 2026-09-23.
+            //
+            // 1.5x H1 ATR worked out to roughly 20 pips on the FX majors, which is
+            // inside the noise: EVERY trade in the week of 2026-09-21 closed within
+            // 0-7 minutes of opening. The history says that is exactly backwards —
+            // of the 141 trades with a usable hold time, those held over 4 hours won
+            // 93.4% and returned +$40,610, more than the entire net profit, while
+            // the sub-5-minute bucket lost money.
+            //
+            // A wider stop does NOT increase risk: lot size is derived from stop
+            // distance for a fixed % of equity, so a wider stop simply buys fewer
+            // lots for the same dollars at risk. What it buys is room for the setup
+            // to work rather than being taken out by spread.
+            //
+            // The 1:1.6 reward:risk ratio is preserved (2.5/1.5 = 4.0/2.4).
+            const _atrStopMult = Number(process.env.ATR_STOP_MULT ?? 2.4);
+            const _atrTargetMult = Number(process.env.ATR_TARGET_MULT ?? 4.0);
+            const stopDistance = atr * _atrStopMult;
+            const targetDistance = atr * _atrTargetMult;
             
             const sr = advanced.supportResistance;
             const pp = advanced.pivotPoints;
@@ -10215,6 +10232,27 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
         }
       } catch (veddErr) {
         console.error('[VEDD SS AI] Error checking plan:', veddErr);
+      }
+
+      // ── Pair / direction blocklist ──────────────────────────────────────────
+      // GBPJPY: 310 trades, 34% WR, avg win $59 against avg loss $100 — both
+      // halves of the edge inverted, -$14,284. Placed before the AI call for the
+      // same reason as the hour filter: a trade we will not take should not cost
+      // a credit. Synchronous and allocation-free, so it cannot fail or stall.
+      if (analysis.signal !== 'NEUTRAL') {
+        try {
+          const { pairFilterVerdict } = await import('./services/pair-filter');
+          const _pfVerdict = pairFilterVerdict(sanitizedSymbol, analysis.signal);
+          if (_pfVerdict) {
+            console.log(`[PairFilter] BLOCKED ${sanitizedSymbol} ${analysis.signal} — ${_pfVerdict.reason}`);
+            _diagCap.neutralReason = `pair_filter (${_pfVerdict.reason})`;
+            analysis.signal = 'NEUTRAL';
+            analysis.alerts = analysis.alerts || [];
+            analysis.alerts.push(`🚫 ${_pfVerdict.reason}.`);
+          }
+        } catch (_pfErr: any) {
+          console.error('[PairFilter] check failed (non-blocking):', _pfErr?.message);
+        }
       }
 
       // ── Hour-of-day performance filter ──────────────────────────────────────
