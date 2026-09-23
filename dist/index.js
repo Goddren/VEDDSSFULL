@@ -29445,6 +29445,38 @@ async function syncTradeLockerTrades(userId, conn, svc) {
         console.error(`[TL-sync] ${ticket}: could not recover SL/TP from the trade log (${e?.message}); recording 0.`);
       }
     }
+    const _pfDir = (p.side || "").toUpperCase() === "SELL" ? "SELL" : "BUY";
+    const _pfEntry = Number(p.avgPrice) || 0;
+    let _pfNote = "";
+    if (_pfEntry > 0 && _sl > 0 && _tp > 0) {
+      const _pfRisk = Math.abs(_pfEntry - _sl);
+      const _pfReward = Math.abs(_tp - _pfEntry);
+      const _slCorrect = _pfDir === "BUY" ? _sl < _pfEntry : _sl > _pfEntry;
+      const _tpCorrect = _pfDir === "BUY" ? _tp > _pfEntry : _tp < _pfEntry;
+      if (!_slCorrect || !_tpCorrect) {
+        console.error(`[TL-sync] ${ticket} ${p.symbol} ${_pfDir}: MALFORMED LEVELS \u2014 entry ${_pfEntry}, SL ${_sl}, TP ${_tp} (stop or target on the wrong side of entry).`);
+        _pfNote = ` | POST-FILL: malformed levels (SL ${_sl} / TP ${_tp} vs entry ${_pfEntry})`;
+      } else if (_pfRisk > 0) {
+        const _pfRR = _pfReward / _pfRisk;
+        const _softFloor = Number(process.env.POSTFILL_RR_MIN ?? 1.5);
+        const _hardFloor = Number(process.env.POSTFILL_RR_HARD_FLOOR ?? 1);
+        _pfNote = ` | POST-FILL R:R 1:${_pfRR.toFixed(2)} (risk ${_pfRisk.toFixed(5)}, reward ${_pfReward.toFixed(5)})`;
+        if (_pfRR < _hardFloor) {
+          console.error(`[TL-sync] ${ticket} ${p.symbol} ${_pfDir}: INVERTED R:R 1:${_pfRR.toFixed(2)} after fill \u2014 risks more than it can gain. Entry ${_pfEntry}, SL ${_sl}, TP ${_tp}.`);
+          if (process.env.POSTFILL_RR_AUTOCLOSE === "true") {
+            try {
+              await svc.closePosition(p.id);
+              console.warn(`[TL-sync] ${ticket}: closed on inverted post-fill R:R (POSTFILL_RR_AUTOCLOSE=true).`);
+              _pfNote += " \u2014 AUTO-CLOSED";
+            } catch (ce) {
+              console.error(`[TL-sync] ${ticket}: auto-close failed (${ce?.message}) \u2014 position left open, flagged.`);
+            }
+          }
+        } else if (_pfRR < _softFloor) {
+          console.warn(`[TL-sync] ${ticket} ${p.symbol} ${_pfDir}: post-fill R:R 1:${_pfRR.toFixed(2)} is below the ${_softFloor} floor the pre-trade gate required \u2014 slippage degraded the setup.`);
+        }
+      }
+    }
     await storage.createAiTradeResult({
       userId,
       symbol: p.symbol,
@@ -29459,7 +29491,10 @@ async function syncTradeLockerTrades(userId, conn, svc) {
       result: "PENDING",
       source: "tradelocker_auto",
       connectionId: conn.id,
-      mt5Ticket: ticket
+      mt5Ticket: ticket,
+      // Realised ratio, so it is measurable rather than assumed. The planned R:R
+      // is what the gate approved; this is what the fill actually produced.
+      notes: `TradeLocker position${_pfNote}`
     });
   }
   const previousTickets = lastOpenTickets.get(cacheKey);
@@ -55616,9 +55651,9 @@ async function getStopOrdersForUser(userId, filters = {}) {
 init_schema();
 
 // server/build-info.ts
-var BUILD_COMMIT = "0662cb0b-dirty";
+var BUILD_COMMIT = "70954663-dirty";
 var BUILD_BRANCH = "main";
-var BUILT_AT = "2026-09-23T02:19:47.663Z";
+var BUILT_AT = "2026-09-23T07:51:07.380Z";
 
 // server/stripe.ts
 init_db();
