@@ -1263,7 +1263,7 @@ export async function registerRoutes(app: Express, existingServer?: Server): Pro
   // deploy, means the dist is stale. An earlier draft of this endpoint compared
   // the two and reported a mismatch — it would have cried wolf on every single
   // deploy.
-  app.get("/api/health", (_req: Request, res: Response) => {
+  app.get("/api/health", async (_req: Request, res: Response) => {
     res.json({
       status: "ok",
       timestamp: new Date().toISOString(),
@@ -1284,6 +1284,18 @@ export async function registerRoutes(app: Express, existingServer?: Server): Pro
       // savedPct with high misses means the key is still churning, which is a
       // different fix from a low savedPct with high throttles.
       aiCache: aiConfirmationCacheStats(),
+      // Surfaced so an empty blocklist is visible at a glance instead of being
+      // inferred from the absence of block rows.
+      // await import, not require: this bundle is ESM and `require` is not
+      // defined there, so the try/catch would have swallowed a ReferenceError
+      // and reported null forever — the same invisible-failure shape this field
+      // exists to eliminate.
+      pairFilter: await (async () => {
+        try {
+          const { pairFilterConfig } = await import('./services/pair-filter');
+          return pairFilterConfig();
+        } catch { return null; }
+      })(),
     });
   });
 
@@ -8134,6 +8146,24 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
             }
           }
         } catch { /* non-blocking */ }
+
+        // Pair blocklist. The chart-data chain blocked GBPJPY 171 times between
+        // 01:53 and 03:14 UTC on 2026-09-23 while GBPJPY positions kept opening
+        // as source='tradelocker_auto' — because the blocklist was only ever
+        // wired into that one path and the relay had no idea the pair was
+        // excluded. A block that covers one of three doors is not a block.
+        if (!relayBlocked) {
+          try {
+            const { pairFilterVerdict } = await import('./services/pair-filter');
+            const _rpfVerdict = pairFilterVerdict(symbol, direction);
+            if (_rpfVerdict) {
+              relayBlocked = true;
+              console.log(`[Relay Gate] ${_rpfVerdict.reason} — relay blocked`);
+            }
+          } catch (_rpfErr: any) {
+            console.error('[Relay Gate] pair filter check failed (non-blocking):', _rpfErr?.message);
+          }
+        }
 
         // Per-pair daily stop — the relay bypasses the chart-data gate chain
         // entirely, so without this an instrument stopped for the day could
@@ -19408,6 +19438,21 @@ Respond with ONLY valid JSON:
           const entryPrice = parseNum(sig.entryZone);
           const stopLoss = parseNum(sig.stopLoss);
           const takeProfit = parseNum(sig.takeProfit);
+
+          // ── Pair blocklist ───────────────────────────────────────
+          // Third door. Same reason as the relay: an excluded instrument must be
+          // excluded everywhere, not only on the path that happens to log it.
+          try {
+            const { pairFilterVerdict } = await import('./services/pair-filter');
+            const _aePf = pairFilterVerdict(sig.symbol, sig.direction);
+            if (_aePf) {
+              console.log(`[VEDD Brain AutoExec] BLOCKED ${sig.symbol} — ${_aePf.reason}`);
+              executionResults.push({ sigId, symbol: sig.symbol, direction: sig.direction, status: 'skipped', reason: _aePf.reason });
+              continue;
+            }
+          } catch (_aePfErr: any) {
+            console.error('[VEDD Brain AutoExec] pair filter check failed (non-blocking):', _aePfErr?.message);
+          }
 
           // ── Per-pair daily stop ──────────────────────────────────
           // AutoExec is a third execution path that does not run the chart-data

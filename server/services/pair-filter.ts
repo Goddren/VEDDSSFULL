@@ -27,10 +27,33 @@ function parseList(v: string | undefined): string[] {
 }
 const norm = (s: string) => String(s || '').toUpperCase().replace(/[^A-Z0-9]/g, '');
 
+/**
+ * Read a list from the environment, falling back to the default when the
+ * variable is MISSING **or blank**.
+ *
+ * `process.env.X ?? 'GBPJPY'` only catches undefined, so a variable present but
+ * set to "" (or whitespace) silently produced an empty blocklist and nothing was
+ * ever blocked — a shape of failure that looks identical to the filter working
+ * and simply having nothing to block. Turning the filter off is an explicit
+ * PAIR_FILTER_ENABLED=false, never an empty string.
+ */
+function listFromEnv(name: string, fallback: string): string[] {
+  const raw = process.env[name];
+  const parsed = parseList(raw);
+  if (parsed.length) return parsed;
+  if (raw != null && raw.trim() !== '') return parsed;
+  return parseList(fallback);
+}
+
 // Whole instrument. Default: GBPJPY.
-const BLOCKED_PAIRS = parseList(process.env.BLOCKED_PAIRS ?? 'GBPJPY');
+const BLOCKED_PAIRS = listFromEnv('BLOCKED_PAIRS', 'GBPJPY');
 // One side only, as SYMBOL:DIRECTION (e.g. "USDJPY:SELL").
-const BLOCKED_DIRECTIONS = parseList(process.env.BLOCKED_PAIR_DIRECTIONS ?? '');
+const BLOCKED_DIRECTIONS = listFromEnv('BLOCKED_PAIR_DIRECTIONS', '');
+
+// Say what is in force at boot. Without this the only way to tell a working
+// filter from an empty one was to notice the absence of block rows.
+console.log(`[PairFilter] enabled=${process.env.PAIR_FILTER_ENABLED !== 'false'} ` +
+  `pairs=[${BLOCKED_PAIRS.join(', ') || 'none'}] directions=[${BLOCKED_DIRECTIONS.join(', ') || 'none'}]`);
 
 export function pairFilterVerdict(symbol: string, direction: string): { blocked: true; reason: string } | null {
   if (process.env.PAIR_FILTER_ENABLED === 'false') return null;

@@ -34501,6 +34501,53 @@ var init_solana_scanner = __esm({
   }
 });
 
+// server/services/pair-filter.ts
+var pair_filter_exports = {};
+__export(pair_filter_exports, {
+  pairFilterConfig: () => pairFilterConfig,
+  pairFilterVerdict: () => pairFilterVerdict
+});
+function parseList(v) {
+  return (v ?? "").split(",").map((s) => s.trim().toUpperCase()).filter(Boolean);
+}
+function listFromEnv(name, fallback) {
+  const raw = process.env[name];
+  const parsed = parseList(raw);
+  if (parsed.length) return parsed;
+  if (raw != null && raw.trim() !== "") return parsed;
+  return parseList(fallback);
+}
+function pairFilterVerdict(symbol, direction) {
+  if (process.env.PAIR_FILTER_ENABLED === "false") return null;
+  const sym = norm2(symbol);
+  const dir = String(direction || "").toUpperCase();
+  for (const b of BLOCKED_PAIRS) {
+    if (norm2(b) === sym) {
+      return { blocked: true, reason: `Pair filter: ${sym} is on the blocked list (34% WR over 310 trades, avg win $59 vs avg loss $100)` };
+    }
+  }
+  for (const entry of BLOCKED_DIRECTIONS) {
+    const [s, d] = entry.split(":");
+    if (s && d && norm2(s) === sym && d.toUpperCase() === dir) {
+      return { blocked: true, reason: `Pair filter: ${sym} ${dir} is on the blocked list` };
+    }
+  }
+  return null;
+}
+function pairFilterConfig() {
+  return { enabled: process.env.PAIR_FILTER_ENABLED !== "false", pairs: BLOCKED_PAIRS, directions: BLOCKED_DIRECTIONS };
+}
+var norm2, BLOCKED_PAIRS, BLOCKED_DIRECTIONS;
+var init_pair_filter = __esm({
+  "server/services/pair-filter.ts"() {
+    "use strict";
+    norm2 = (s) => String(s || "").toUpperCase().replace(/[^A-Z0-9]/g, "");
+    BLOCKED_PAIRS = listFromEnv("BLOCKED_PAIRS", "GBPJPY");
+    BLOCKED_DIRECTIONS = listFromEnv("BLOCKED_PAIR_DIRECTIONS", "");
+    console.log(`[PairFilter] enabled=${process.env.PAIR_FILTER_ENABLED !== "false"} pairs=[${BLOCKED_PAIRS.join(", ") || "none"}] directions=[${BLOCKED_DIRECTIONS.join(", ") || "none"}]`);
+  }
+});
+
 // server/veddPayment.ts
 var veddPayment_exports = {};
 __export(veddPayment_exports, {
@@ -35601,45 +35648,6 @@ var init_ambassador_market_briefing = __esm({
     init_db();
     init_schema();
     MAX_CONFIDENCE_BOOST = 5;
-  }
-});
-
-// server/services/pair-filter.ts
-var pair_filter_exports = {};
-__export(pair_filter_exports, {
-  pairFilterConfig: () => pairFilterConfig,
-  pairFilterVerdict: () => pairFilterVerdict
-});
-function parseList(v) {
-  return (v ?? "").split(",").map((s) => s.trim().toUpperCase()).filter(Boolean);
-}
-function pairFilterVerdict(symbol, direction) {
-  if (process.env.PAIR_FILTER_ENABLED === "false") return null;
-  const sym = norm2(symbol);
-  const dir = String(direction || "").toUpperCase();
-  for (const b of BLOCKED_PAIRS) {
-    if (norm2(b) === sym) {
-      return { blocked: true, reason: `Pair filter: ${sym} is on the blocked list (34% WR over 310 trades, avg win $59 vs avg loss $100)` };
-    }
-  }
-  for (const entry of BLOCKED_DIRECTIONS) {
-    const [s, d] = entry.split(":");
-    if (s && d && norm2(s) === sym && d.toUpperCase() === dir) {
-      return { blocked: true, reason: `Pair filter: ${sym} ${dir} is on the blocked list` };
-    }
-  }
-  return null;
-}
-function pairFilterConfig() {
-  return { enabled: process.env.PAIR_FILTER_ENABLED !== "false", pairs: BLOCKED_PAIRS, directions: BLOCKED_DIRECTIONS };
-}
-var norm2, BLOCKED_PAIRS, BLOCKED_DIRECTIONS;
-var init_pair_filter = __esm({
-  "server/services/pair-filter.ts"() {
-    "use strict";
-    norm2 = (s) => String(s || "").toUpperCase().replace(/[^A-Z0-9]/g, "");
-    BLOCKED_PAIRS = parseList(process.env.BLOCKED_PAIRS ?? "GBPJPY");
-    BLOCKED_DIRECTIONS = parseList(process.env.BLOCKED_PAIR_DIRECTIONS ?? "");
   }
 });
 
@@ -56240,9 +56248,9 @@ async function getStopOrdersForUser(userId, filters = {}) {
 init_schema();
 
 // server/build-info.ts
-var BUILD_COMMIT = "09af60ba-dirty";
+var BUILD_COMMIT = "e1b43d67-dirty";
 var BUILD_BRANCH = "main";
-var BUILT_AT = "2026-09-23T17:48:22.031Z";
+var BUILT_AT = "2026-09-23T19:50:07.326Z";
 
 // server/stripe.ts
 init_db();
@@ -60572,7 +60580,7 @@ async function registerRoutes(app2, existingServer) {
     });
     res.json({ version: SERVER_START_VERSION });
   });
-  app2.get("/api/health", (_req, res) => {
+  app2.get("/api/health", async (_req, res) => {
     res.json({
       status: "ok",
       timestamp: (/* @__PURE__ */ new Date()).toISOString(),
@@ -60591,7 +60599,21 @@ async function registerRoutes(app2, existingServer) {
       // test claimed 98% saved. hits/misses/throttled is the ground truth — a low
       // savedPct with high misses means the key is still churning, which is a
       // different fix from a low savedPct with high throttles.
-      aiCache: confirmationCacheStats()
+      aiCache: confirmationCacheStats(),
+      // Surfaced so an empty blocklist is visible at a glance instead of being
+      // inferred from the absence of block rows.
+      // await import, not require: this bundle is ESM and `require` is not
+      // defined there, so the try/catch would have swallowed a ReferenceError
+      // and reported null forever — the same invisible-failure shape this field
+      // exists to eliminate.
+      pairFilter: await (async () => {
+        try {
+          const { pairFilterConfig: pairFilterConfig2 } = await Promise.resolve().then(() => (init_pair_filter(), pair_filter_exports));
+          return pairFilterConfig2();
+        } catch {
+          return null;
+        }
+      })()
     });
   });
   app2.get("/api/sample-charts", (_req, res) => {
@@ -66317,6 +66339,18 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
             }
           }
         } catch {
+        }
+        if (!relayBlocked) {
+          try {
+            const { pairFilterVerdict: pairFilterVerdict2 } = await Promise.resolve().then(() => (init_pair_filter(), pair_filter_exports));
+            const _rpfVerdict = pairFilterVerdict2(symbol, direction);
+            if (_rpfVerdict) {
+              relayBlocked = true;
+              console.log(`[Relay Gate] ${_rpfVerdict.reason} \u2014 relay blocked`);
+            }
+          } catch (_rpfErr) {
+            console.error("[Relay Gate] pair filter check failed (non-blocking):", _rpfErr?.message);
+          }
         }
         if (!relayBlocked) {
           try {
@@ -75810,6 +75844,17 @@ Respond with ONLY valid JSON:
             const entryPrice = parseNum(sig.entryZone);
             const stopLoss = parseNum(sig.stopLoss);
             const takeProfit = parseNum(sig.takeProfit);
+            try {
+              const { pairFilterVerdict: pairFilterVerdict2 } = await Promise.resolve().then(() => (init_pair_filter(), pair_filter_exports));
+              const _aePf = pairFilterVerdict2(sig.symbol, sig.direction);
+              if (_aePf) {
+                console.log(`[VEDD Brain AutoExec] BLOCKED ${sig.symbol} \u2014 ${_aePf.reason}`);
+                executionResults.push({ sigId, symbol: sig.symbol, direction: sig.direction, status: "skipped", reason: _aePf.reason });
+                continue;
+              }
+            } catch (_aePfErr) {
+              console.error("[VEDD Brain AutoExec] pair filter check failed (non-blocking):", _aePfErr?.message);
+            }
             try {
               const { pairDailyStopVerdict: pairDailyStopVerdict2 } = await Promise.resolve().then(() => (init_pair_daily_stop(), pair_daily_stop_exports));
               const _aeStop = await pairDailyStopVerdict2(userId, sig.symbol);
