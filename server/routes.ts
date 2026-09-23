@@ -8135,6 +8135,22 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
           }
         } catch { /* non-blocking */ }
 
+        // Per-pair daily stop — the relay bypasses the chart-data gate chain
+        // entirely, so without this an instrument stopped for the day could
+        // still be opened by a relayed EA signal.
+        if (!relayBlocked) {
+          try {
+            const { pairDailyStopVerdict } = await import('./services/pair-daily-stop');
+            const _rdsVerdict = await pairDailyStopVerdict(token.userId, symbol);
+            if (_rdsVerdict) {
+              relayBlocked = true;
+              console.log(`[Relay Gate] ${_rdsVerdict.reason} — relay blocked`);
+            }
+          } catch (_rdsErr: any) {
+            console.error('[Relay Gate] pair daily stop check failed (non-blocking):', _rdsErr?.message);
+          }
+        }
+
         // Cooldown: share the same key as chart-data path so they don't double-fire
         // DB-backed hydration so cooldown survives server restarts/redeployments
         if (!relayBlocked) {
@@ -10260,6 +10276,34 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
           }
         } catch (_pfErr: any) {
           console.error('[PairFilter] check failed (non-blocking):', _pfErr?.message);
+        }
+      }
+
+      // ── Per-pair DAILY stop ─────────────────────────────────────────────────
+      // Gate 2e Rule 5 only bought a 3-hour cooldown after 3 losing signals, so
+      // a pair that was wrong all morning came back and tried again the same
+      // session. This stops the instrument until the next UTC day.
+      //
+      // Losing SIGNALS, not fills: one setup opens on every connection, so four
+      // closes within seconds are one loss. Derived from closed trades on every
+      // check (60s cache) rather than a counter in memory — the counter this
+      // replaces was reset every 60s by the brain rebuild and never once fired.
+      //
+      // Placed before the AI call with the other filters: a trade we will not
+      // take should not cost a credit to evaluate.
+      if (analysis.signal !== 'NEUTRAL') {
+        try {
+          const { pairDailyStopVerdict } = await import('./services/pair-daily-stop');
+          const _dsVerdict = await pairDailyStopVerdict(token.userId, sanitizedSymbol);
+          if (_dsVerdict) {
+            console.log(`[PairDailyStop] BLOCKED ${sanitizedSymbol} ${analysis.signal} — ${_dsVerdict.reason}`);
+            _diagCap.neutralReason = `pair_daily_stop (${_dsVerdict.reason})`;
+            analysis.signal = 'NEUTRAL';
+            analysis.alerts = analysis.alerts || [];
+            analysis.alerts.push(`🛑 ${_dsVerdict.reason}.`);
+          }
+        } catch (_dsErr: any) {
+          console.error('[PairDailyStop] check failed (non-blocking):', _dsErr?.message);
         }
       }
 
@@ -19335,6 +19379,22 @@ Respond with ONLY valid JSON:
           const stopLoss = parseNum(sig.stopLoss);
           const takeProfit = parseNum(sig.takeProfit);
 
+          // ── Per-pair daily stop ──────────────────────────────────
+          // AutoExec is a third execution path that does not run the chart-data
+          // gate chain, so the stop has to be checked here too or a pair that is
+          // stopped for the day still gets opened by a sniper signal.
+          try {
+            const { pairDailyStopVerdict } = await import('./services/pair-daily-stop');
+            const _aeStop = await pairDailyStopVerdict(userId, sig.symbol);
+            if (_aeStop) {
+              console.log(`[VEDD Brain AutoExec] BLOCKED ${sig.symbol} — ${_aeStop.reason}`);
+              executionResults.push({ sigId, symbol: sig.symbol, direction: sig.direction, status: 'skipped', reason: _aeStop.reason });
+              continue;
+            }
+          } catch (_aeStopErr: any) {
+            console.error('[VEDD Brain AutoExec] pair daily stop check failed (non-blocking):', _aeStopErr?.message);
+          }
+
           // ── Max open trades gate — check current open positions ──
           const currentOpenPositions: any[] = (global as any).mt5OpenPositions?.[userId]?.positions || [];
           if (currentOpenPositions.length >= userMaxTrades) {
@@ -27234,6 +27294,17 @@ Generate an agenda with timing, topics, and hosting tips. Return JSON: {
     const { setSMCStrategyEnabled, isSMCStrategyEnabled } = await import('./openai');
     setSMCStrategyEnabled(req.user!.id, enabled);
     res.json({ success: true, enabled: isSMCStrategyEnabled(req.user!.id) });
+  });
+
+  // Today's per-pair picture and which instruments are stopped for the day.
+  app.get("/api/pair-daily-stop", async (req: Request, res: Response) => {
+    if (!req.isAuthenticated()) return res.status(401).json({ message: "Not authenticated" });
+    try {
+      const { pairDailyStopTable } = await import('./services/pair-daily-stop');
+      res.json(await pairDailyStopTable(req.user!.id));
+    } catch (e: any) {
+      res.status(500).json({ message: e?.message || 'failed to read pair daily stops' });
+    }
   });
 
   app.get("/api/prop-firm-mode", async (req: Request, res: Response) => {

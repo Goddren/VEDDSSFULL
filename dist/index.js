@@ -6060,9 +6060,9 @@ var init_storage = __esm({
       // snapshot; a different pair scope is a distinct, coexisting listing.
       async getUserActiveBrainListingBySymbols(sellerId, sourceCategory, symbols) {
         const listings = await db.select().from(brainDataListings).where(and(eq(brainDataListings.sellerId, sellerId), eq(brainDataListings.isActive, true), eq(brainDataListings.sourceCategory, sourceCategory)));
-        const norm2 = (s) => Array.isArray(s) && s.length ? [...s].map((x) => x.toUpperCase()).sort().join(",") : "";
-        const target = norm2(symbols);
-        return listings.find((l) => norm2(l.symbolFilter) === target);
+        const norm3 = (s) => Array.isArray(s) && s.length ? [...s].map((x) => x.toUpperCase()).sort().join(",") : "";
+        const target = norm3(symbols);
+        return listings.find((l) => norm3(l.symbolFilter) === target);
       }
       async importBrainDataSnapshot(buyerId, snapshotData) {
         if (!snapshotData.length) return 0;
@@ -19114,7 +19114,7 @@ var init_tradelocker = __esm({
           }
         } catch {
         }
-        const norm2 = (v) => parseFloat(v) || 0;
+        const norm3 = (v) => parseFloat(v) || 0;
         const sanePrice = (v, ref) => {
           if (!(v > 0)) return void 0;
           if (!(ref > 0)) return v < 1e7 ? v : void 0;
@@ -19126,12 +19126,12 @@ var init_tradelocker = __esm({
             id: String(p.id ?? p.positionId ?? ""),
             symbol: p.s || p.symbol || instMap.get(String(p.tradableInstrumentId ?? "")) || String(p.tradableInstrumentId ?? ""),
             side: (p.side || "").toString().toLowerCase(),
-            qty: norm2(p.qty),
-            avgPrice: norm2(p.avgPrice ?? p.openPrice ?? p.price),
-            unrealizedPl: norm2(p.unrealizedPl ?? p.unrealizedPnL ?? p.uPnL ?? p.pl),
+            qty: norm3(p.qty),
+            avgPrice: norm3(p.avgPrice ?? p.openPrice ?? p.price),
+            unrealizedPl: norm3(p.unrealizedPl ?? p.unrealizedPnL ?? p.uPnL ?? p.pl),
             openDate: p.openDate || p.createdDate || void 0,
-            stopLoss: sanePrice(norm2(p.stopLoss ?? p.sl ?? p.stopLossPrice), norm2(p.avgPrice ?? p.openPrice ?? p.price)),
-            takeProfit: sanePrice(norm2(p.takeProfit ?? p.tp ?? p.takeProfitPrice), norm2(p.avgPrice ?? p.openPrice ?? p.price))
+            stopLoss: sanePrice(norm3(p.stopLoss ?? p.sl ?? p.stopLossPrice), norm3(p.avgPrice ?? p.openPrice ?? p.price)),
+            takeProfit: sanePrice(norm3(p.takeProfit ?? p.tp ?? p.takeProfitPrice), norm3(p.avgPrice ?? p.openPrice ?? p.price))
           }));
         }
         let columns = [];
@@ -19178,15 +19178,15 @@ var init_tradelocker = __esm({
             id: iId >= 0 ? String(row[iId]) : "",
             symbol: instMap.get(instId) || instId,
             side: iSide >= 0 ? String(row[iSide]).toLowerCase() : "",
-            qty: iQty >= 0 ? norm2(row[iQty]) : 0,
-            avgPrice: iAvg >= 0 ? norm2(row[iAvg]) : 0,
-            unrealizedPl: iPl >= 0 ? norm2(row[iPl]) : 0,
+            qty: iQty >= 0 ? norm3(row[iQty]) : 0,
+            avgPrice: iAvg >= 0 ? norm3(row[iAvg]) : 0,
+            unrealizedPl: iPl >= 0 ? norm3(row[iPl]) : 0,
             openDate: iDate >= 0 ? String(row[iDate]) : void 0,
             // Second line of defence, independent of column naming: a protective
             // level sits near the entry. Anything orders of magnitude away is an id
             // or a sentinel, not a price, and must not be recorded as protection.
-            stopLoss: sanePrice(iSl >= 0 ? norm2(row[iSl]) : 0, iAvg >= 0 ? norm2(row[iAvg]) : 0),
-            takeProfit: sanePrice(iTp >= 0 ? norm2(row[iTp]) : 0, iAvg >= 0 ? norm2(row[iAvg]) : 0)
+            stopLoss: sanePrice(iSl >= 0 ? norm3(row[iSl]) : 0, iAvg >= 0 ? norm3(row[iAvg]) : 0),
+            takeProfit: sanePrice(iTp >= 0 ? norm3(row[iTp]) : 0, iAvg >= 0 ? norm3(row[iAvg]) : 0)
           };
         });
       }
@@ -19525,6 +19525,123 @@ var init_prop_firm_consistency = __esm({
     TAPER_START_FRACTION = 0.7;
     TAPER_FLOOR_MULTIPLIER = 0.25;
     DILUTION_DAY_FRACTION = 0.8;
+  }
+});
+
+// server/services/pair-daily-stop.ts
+var pair_daily_stop_exports = {};
+__export(pair_daily_stop_exports, {
+  invalidatePairDailyStop: () => invalidatePairDailyStop,
+  pairDailyStopTable: () => pairDailyStopTable,
+  pairDailyStopVerdict: () => pairDailyStopVerdict
+});
+async function compute(userId) {
+  const { pool: pool2 } = await Promise.resolve().then(() => (init_db(), db_exports));
+  const { rows } = await pool2.query(
+    `SELECT symbol, direction, result, COALESCE(profit_loss, 0) AS pnl, closed_at
+       FROM ai_trade_results
+      WHERE user_id = $1
+        AND result IN ('WIN','LOSS')
+        AND closed_at IS NOT NULL
+        AND closed_at >= date_trunc('day', now() AT TIME ZONE 'UTC')
+        AND source NOT IN ('mt5_ea','mt5_copier','kalshi','polymarket')
+      ORDER BY closed_at DESC`,
+    [userId]
+  );
+  const bySymbol = /* @__PURE__ */ new Map();
+  for (const r of rows) {
+    const k = norm(r.symbol);
+    if (!k) continue;
+    if (!bySymbol.has(k)) bySymbol.set(k, []);
+    bySymbol.get(k).push(r);
+  }
+  const out = /* @__PURE__ */ new Map();
+  for (const [sym, list] of Array.from(bySymbol.entries())) {
+    const netPnl = list.reduce((s, r) => s + Number(r.pnl || 0), 0);
+    const signals = [];
+    for (const r of list) {
+      const ts = new Date(r.closed_at).getTime();
+      const dir = String(r.direction ?? "");
+      const prev = signals[signals.length - 1];
+      if (prev && prev.result === r.result && prev.dir === dir && prev.ts - ts <= GROUP_MS) continue;
+      signals.push({ result: r.result, ts, dir });
+    }
+    const losing = signals.filter((s) => s.result === "LOSS");
+    const stat = {
+      symbol: sym,
+      losingSignals: losing.length,
+      winningSignals: signals.length - losing.length,
+      netPnl: Math.round(netPnl * 100) / 100,
+      lastLossAt: losing.length ? new Date(losing[0].ts).toISOString() : null,
+      stopped: false,
+      reason: null
+    };
+    if (MAX_LOSING_SIGNALS > 0 && stat.losingSignals >= MAX_LOSING_SIGNALS) {
+      stat.stopped = true;
+      stat.reason = `Pair daily stop: ${sym} has ${stat.losingSignals} losing setups today (limit ${MAX_LOSING_SIGNALS}), net ${stat.netPnl} \u2014 stopped until 00:00 UTC`;
+    } else if (MAX_DAILY_LOSS > 0 && netPnl <= -Math.abs(MAX_DAILY_LOSS)) {
+      stat.stopped = true;
+      stat.reason = `Pair daily stop: ${sym} is down ${stat.netPnl} today (limit -${Math.abs(MAX_DAILY_LOSS)}) \u2014 stopped until 00:00 UTC`;
+    }
+    out.set(sym, stat);
+  }
+  return out;
+}
+async function pairDailyStopVerdict(userId, symbol) {
+  if (process.env.PAIR_DAILY_STOP_ENABLED === "false") return null;
+  const sym = norm(symbol);
+  if (!sym) return null;
+  const today = utcDay();
+  let entry = cache2.get(userId);
+  try {
+    if (!entry || entry.day !== today || Date.now() - entry.at > TTL_MS) {
+      const stats = await compute(userId);
+      entry = { at: Date.now(), day: today, stats };
+      cache2.set(userId, entry);
+      const stopped = Array.from(stats.values()).filter((s) => s.stopped);
+      if (stopped.length) {
+        console.log(`[PairDailyStop] user ${userId}: ${stopped.length} pair(s) stopped for ${today} \u2014 ` + stopped.map((s) => `${s.symbol} (${s.losingSignals}L, ${s.netPnl})`).join(", "));
+      }
+    }
+  } catch (e) {
+    if (!entry) {
+      console.error(`[PairDailyStop] could not evaluate and have no prior result (${e?.message}) \u2014 allowing ${sym}.`);
+      return null;
+    }
+    console.error(`[PairDailyStop] refresh failed (${e?.message}) \u2014 reusing the last known result from ${new Date(entry.at).toISOString()}.`);
+  }
+  const stat = entry.stats.get(sym);
+  if (!stat?.stopped) return null;
+  return { blocked: true, reason: stat.reason };
+}
+function invalidatePairDailyStop(userId) {
+  cache2.delete(userId);
+}
+async function pairDailyStopTable(userId) {
+  let stats;
+  try {
+    stats = await compute(userId);
+  } catch {
+    stats = cache2.get(userId)?.stats ?? /* @__PURE__ */ new Map();
+  }
+  return {
+    day: utcDay(),
+    limit: MAX_LOSING_SIGNALS,
+    maxLoss: MAX_DAILY_LOSS,
+    pairs: Array.from(stats.values()).sort((a, b) => a.netPnl - b.netPnl)
+  };
+}
+var MAX_LOSING_SIGNALS, MAX_DAILY_LOSS, GROUP_MS, TTL_MS, cache2, norm, utcDay;
+var init_pair_daily_stop = __esm({
+  "server/services/pair-daily-stop.ts"() {
+    "use strict";
+    MAX_LOSING_SIGNALS = Number(process.env.PAIR_DAILY_MAX_LOSING_SIGNALS ?? 3);
+    MAX_DAILY_LOSS = Number(process.env.PAIR_DAILY_MAX_LOSS_USD ?? 0);
+    GROUP_MS = Number(process.env.PAIR_DAILY_GROUP_MS ?? 12e4);
+    TTL_MS = Number(process.env.PAIR_DAILY_TTL_MS ?? 6e4);
+    cache2 = /* @__PURE__ */ new Map();
+    norm = (s) => String(s || "").toUpperCase().replace(/[^A-Z0-9]/g, "");
+    utcDay = () => (/* @__PURE__ */ new Date()).toISOString().slice(0, 10);
   }
 });
 
@@ -23582,9 +23699,9 @@ var init_dxtrade = __esm({
         let code = o.positionCode;
         if (!code) {
           try {
-            const norm2 = (s) => s.replace(/\//g, "").toUpperCase();
+            const norm3 = (s) => s.replace(/\//g, "").toUpperCase();
             const positions = await this.getPositions(accountCode);
-            code = positions.find((p) => p.instrument === norm2(o.instrument) && p.side === o.positionSide)?.positionId;
+            code = positions.find((p) => p.instrument === norm3(o.instrument) && p.side === o.positionSide)?.positionId;
           } catch {
           }
         }
@@ -23639,12 +23756,12 @@ var init_dxtrade = __esm({
        *  avoid ever cancelling a genuine entry order. Best-effort — never throws. */
       async cancelProtectiveOrders(accountCode, instrument) {
         try {
-          const norm2 = (s) => String(s ?? "").replace(/\//g, "").toUpperCase();
-          const target = norm2(instrument);
+          const norm3 = (s) => String(s ?? "").replace(/\//g, "").toUpperCase();
+          const target = norm3(instrument);
           const orders = await this.getWorkingOrders(accountCode);
           let n = 0;
           for (const o of orders) {
-            const sym = norm2(o.instrument ?? o.symbol);
+            const sym = norm3(o.instrument ?? o.symbol);
             const effect = String(o.positionEffect ?? o.legs?.[0]?.positionEffect ?? "").toUpperCase();
             if (sym !== target || effect !== "CLOSE") continue;
             const id = o.orderId ?? o.id ?? o.orderCode ?? o.code;
@@ -23671,9 +23788,9 @@ var init_dxtrade = __esm({
         let code = positionCode;
         if (!code) {
           try {
-            const norm2 = (s) => s.replace(/\//g, "").toUpperCase();
+            const norm3 = (s) => s.replace(/\//g, "").toUpperCase();
             const positions = await this.getPositions(accountCode);
-            const match = positions.find((p) => p.instrument === norm2(instrument) && p.side === side);
+            const match = positions.find((p) => p.instrument === norm3(instrument) && p.side === side);
             code = match?.positionId;
           } catch {
           }
@@ -25768,13 +25885,13 @@ function selectStrategyForPair(symbol, data, htfBias, asiaHigh, asiaLow, utcHour
   const isXau = symbol.includes("XAU");
   const symUpper = symbol.toUpperCase();
   const isCrypto = symUpper.includes("BTC") || symUpper.includes("XBT") || symUpper.includes("ETH") || symUpper.includes("LTC") || symUpper.includes("XRP") || symUpper.includes("ADA") || symUpper.includes("SOL") || symUpper.includes("BNB") || symUpper.includes("DOT");
-  const utcDay = (/* @__PURE__ */ new Date()).getUTCDay();
-  const isWeekend = utcDay === 0 || utcDay === 6;
+  const utcDay2 = (/* @__PURE__ */ new Date()).getUTCDay();
+  const isWeekend = utcDay2 === 0 || utcDay2 === 6;
   const pricePct = (a, b) => Math.abs(a - b) / Math.max(b, 1e-5) * 100;
   const hasPattern = (...names) => patterns.some((p) => names.some((n) => p.toLowerCase().includes(n.toLowerCase())));
   if (isCrypto && isWeekend) {
     const isVolumeOk = volTrend === "surging" || volTrend === "above_average" || volTrend === "average";
-    const dayLabel = utcDay === 6 ? "Saturday" : "Sunday";
+    const dayLabel = utcDay2 === 6 ? "Saturday" : "Sunday";
     if (adxVal >= 22 && trend !== "NEUTRAL" && diSep >= 8 && isVolumeOk) {
       return {
         strategy: "btc_weekend_momentum",
@@ -28394,17 +28511,17 @@ function getNYTime(ts) {
   };
 }
 async function getBrokerIndexCandles(userId, symbol, mt5Tf) {
-  const cache8 = global.mt5ChartDataCache || {};
+  const cache9 = global.mt5ChartDataCache || {};
   const wanted = new Set(
     [symbol, ...INDEX_BROKER_ALIASES[symbol] || []].map((s) => s.replace(/[^A-Z0-9]/gi, "").toUpperCase())
   );
   const prefix = `mt5_chart_${userId}_`;
   const suffix = `_${mt5Tf}`;
-  for (const key of Object.keys(cache8)) {
+  for (const key of Object.keys(cache9)) {
     if (!key.startsWith(prefix) || !key.endsWith(suffix)) continue;
     const symPart = key.slice(prefix.length, key.length - suffix.length);
     if (wanted.has(symPart.replace(/[^A-Z0-9]/gi, "").toUpperCase())) {
-      const entry = cache8[key];
+      const entry = cache9[key];
       if (entry?.candles?.length) return entry.candles;
     }
   }
@@ -29402,6 +29519,13 @@ async function _recordOrBackfillConfirmationOutcome(userId, symbol, direction, r
   } catch {
   }
 }
+async function _invalidateDailyStop(userId) {
+  try {
+    const { invalidatePairDailyStop: invalidatePairDailyStop2 } = await Promise.resolve().then(() => (init_pair_daily_stop(), pair_daily_stop_exports));
+    invalidatePairDailyStop2(userId);
+  } catch {
+  }
+}
 async function _recordFxBrainOutcome(userId, conn, existing, match, result, profit) {
   try {
     const { pool: pool2 } = await Promise.resolve().then(() => (init_db(), db_exports));
@@ -29485,7 +29609,7 @@ async function _recordFxBrainOutcome(userId, conn, existing, match, result, prof
     console.error("[FxBrain] outcome record failed (non-fatal):", e?.message);
   }
 }
-function cache2() {
+function cache3() {
   global.tlAccountData = global.tlAccountData || {};
   return global.tlAccountData;
 }
@@ -29643,6 +29767,7 @@ async function syncTradeLockerTrades(userId, conn, svc) {
         await _recordOrBackfillConfirmationOutcome(userId, existing.symbol, existing.direction, result, match.closeTime);
         await _feedEngineBrain(userId, existing.symbol, profit, existing.direction, match.closeTime);
         await _recordFxBrainOutcome(userId, conn, existing, match, result, profit);
+        await _invalidateDailyStop(userId);
       }
     }
   }
@@ -29689,6 +29814,7 @@ async function syncTradeLockerTrades(userId, conn, svc) {
               await recordRealizedPnl(userId, conn.id, "tradelocker", p, reconDateStr);
               await _recordOrBackfillConfirmationOutcome(userId, existing.symbol, existing.direction, reconResult, o.closeTime);
               await _feedEngineBrain(userId, existing.symbol, p, existing.direction, o.closeTime);
+              await _invalidateDailyStop(userId);
               await _recordFxBrainOutcome(
                 userId,
                 conn,
@@ -29723,6 +29849,7 @@ async function syncTradeLockerTrades(userId, conn, svc) {
         await recordRealizedPnl(userId, conn.id, "tradelocker", p, reconDateStr);
         await _recordOrBackfillConfirmationOutcome(userId, reconSymbol, reconDirection, reconResult, o.closeTime);
         await _feedEngineBrain(userId, reconSymbol, p, reconDirection, o.closeTime);
+        await _invalidateDailyStop(userId);
         await _recordFxBrainOutcome(
           userId,
           conn,
@@ -29742,17 +29869,17 @@ async function syncUserTradeLocker(userId, force = false) {
   if (!force) {
     const last = lastSyncAt.get(userId) || 0;
     if (now - last < MIN_RESYNC_GAP_MS) {
-      return Object.values(cache2()[userId] || {});
+      return Object.values(cache3()[userId] || {});
     }
   }
   if (inFlight.has(userId)) {
-    return Object.values(cache2()[userId] || {});
+    return Object.values(cache3()[userId] || {});
   }
   inFlight.add(userId);
   try {
     const connections = await storage.getUserTradelockerConnections(userId);
     const active = connections.filter((c) => c.isActive);
-    const store = cache2();
+    const store = cache3();
     store[userId] = store[userId] || {};
     const activeIds = new Set(active.map((c) => c.accountId));
     for (const key of Object.keys(store[userId])) {
@@ -29851,7 +29978,7 @@ async function syncUserTradeLocker(userId, force = false) {
 }
 function getTlAccountData(userId) {
   markTlUserActive(userId);
-  const store = cache2()[userId] || {};
+  const store = cache3()[userId] || {};
   const now = Date.now();
   const accounts = Object.values(store).map((a) => {
     const secondsAgo = Math.floor((now - new Date(a.lastUpdated).getTime()) / 1e3);
@@ -30005,8 +30132,8 @@ async function getLiveAccounts(userId) {
   const mt5 = [];
   const tradelocker = [];
   try {
-    const cache8 = global.mt5AccountData?.[userId];
-    const entries = cache8?.lastUpdated ? [cache8] : Object.values(cache8 || {});
+    const cache9 = global.mt5AccountData?.[userId];
+    const entries = cache9?.lastUpdated ? [cache9] : Object.values(cache9 || {});
     for (const a of entries) {
       if (!a?.lastUpdated) continue;
       const age = (Date.now() - new Date(a.lastUpdated).getTime()) / 1e3;
@@ -30535,8 +30662,8 @@ function symbolKey(userId, symbol, timeframe) {
 function getCachedConfirmation(userId, symbol, timeframe, direction, eaConfidence, price) {
   const now = Date.now();
   const k = bandKey(userId, symbol, timeframe, direction, eaConfidence, price);
-  const hit = cache3.get(k);
-  if (hit && now - hit.at < TTL_MS) {
+  const hit = cache4.get(k);
+  if (hit && now - hit.at < TTL_MS2) {
     hits++;
     return { verdict: hit.verdict, reason: `cached ${Math.round((now - hit.at) / 1e3)}s ago (same setup)` };
   }
@@ -30544,7 +30671,7 @@ function getCachedConfirmation(userId, symbol, timeframe, direction, eaConfidenc
   const last = lastCallAt.get(sk) ?? 0;
   if (now - last < FLOOR_MS) {
     let best = null;
-    for (const [ck, v] of Array.from(cache3.entries())) {
+    for (const [ck, v] of Array.from(cache4.entries())) {
       if (!ck.startsWith(`${userId}:${symbol}:${timeframe}:${direction}:`)) continue;
       if (now - v.at > STALE_USABLE_MS) continue;
       if (!best || v.at > best.at) best = v;
@@ -30559,25 +30686,25 @@ function getCachedConfirmation(userId, symbol, timeframe, direction, eaConfidenc
 }
 function putCachedConfirmation(userId, symbol, timeframe, direction, eaConfidence, price, verdict) {
   const now = Date.now();
-  cache3.set(bandKey(userId, symbol, timeframe, direction, eaConfidence, price), { verdict, at: now, eaConfidence, price });
+  cache4.set(bandKey(userId, symbol, timeframe, direction, eaConfidence, price), { verdict, at: now, eaConfidence, price });
   lastCallAt.set(symbolKey(userId, symbol, timeframe), now);
-  if (cache3.size > 500) {
-    for (const [k, v] of Array.from(cache3.entries())) if (now - v.at > STALE_USABLE_MS) cache3.delete(k);
+  if (cache4.size > 500) {
+    for (const [k, v] of Array.from(cache4.entries())) if (now - v.at > STALE_USABLE_MS) cache4.delete(k);
   }
 }
 function confirmationCacheStats() {
   const total = hits + misses + throttled;
-  return { hits, misses, throttled, total, savedPct: total ? Math.round((hits + throttled) / total * 100) : 0, entries: cache3.size };
+  return { hits, misses, throttled, total, savedPct: total ? Math.round((hits + throttled) / total * 100) : 0, entries: cache4.size };
 }
-var TTL_MS, FLOOR_MS, STALE_USABLE_MS, CONF_BAND, cache3, lastCallAt, hits, misses, throttled;
+var TTL_MS2, FLOOR_MS, STALE_USABLE_MS, CONF_BAND, cache4, lastCallAt, hits, misses, throttled;
 var init_ai_confirmation_cache = __esm({
   "server/services/ai-confirmation-cache.ts"() {
     "use strict";
-    TTL_MS = Number(process.env.AI_CONFIRM_CACHE_TTL_MS ?? 3 * 60 * 1e3);
+    TTL_MS2 = Number(process.env.AI_CONFIRM_CACHE_TTL_MS ?? 3 * 60 * 1e3);
     FLOOR_MS = Number(process.env.AI_CONFIRM_MIN_INTERVAL_MS ?? 60 * 1e3);
     STALE_USABLE_MS = Number(process.env.AI_CONFIRM_STALE_MS ?? 10 * 60 * 1e3);
     CONF_BAND = Number(process.env.AI_CONFIRM_CONF_BAND ?? 5);
-    cache3 = /* @__PURE__ */ new Map();
+    cache4 = /* @__PURE__ */ new Map();
     lastCallAt = /* @__PURE__ */ new Map();
     hits = 0;
     misses = 0;
@@ -32656,14 +32783,14 @@ async function assembleFuturesConsensus(userId, symbol, strategy, direction, dat
 }
 function isHighImpactNewsWindow() {
   const now = /* @__PURE__ */ new Date();
-  const utcDay = now.getUTCDay();
+  const utcDay2 = now.getUTCDay();
   const utcHour = now.getUTCHours();
   const utcMin = now.getUTCMinutes();
   const totalMin = utcHour * 60 + utcMin;
-  if (utcDay === 5 && now.getUTCDate() <= 7 && totalMin >= 795 && totalMin <= 825) return true;
-  if (utcDay === 3 && totalMin >= 915 && totalMin <= 945) return true;
-  if (utcDay >= 1 && utcDay <= 5 && totalMin >= 795 && totalMin <= 825) return true;
-  if (utcDay === 3 && (utcHour === 18 && utcMin >= 50 || utcHour === 19 && utcMin <= 10)) return true;
+  if (utcDay2 === 5 && now.getUTCDate() <= 7 && totalMin >= 795 && totalMin <= 825) return true;
+  if (utcDay2 === 3 && totalMin >= 915 && totalMin <= 945) return true;
+  if (utcDay2 >= 1 && utcDay2 <= 5 && totalMin >= 795 && totalMin <= 825) return true;
+  if (utcDay2 === 3 && (utcHour === 18 && utcMin >= 50 || utcHour === 19 && utcMin <= 10)) return true;
   return false;
 }
 function computeSmartMoney(candles) {
@@ -34947,7 +35074,7 @@ async function repairCandles(symbol, timeframe, eaCandles) {
   const verdict = assessCandles(eaCandles);
   if (verdict.usable) return { candles: eaCandles, repaired: false, reason: verdict.reason };
   const key = `${symbol}:${timeframe}`;
-  const hit = cache4.get(key);
+  const hit = cache5.get(key);
   if (hit && Date.now() - hit.at < CACHE_TTL_MS4) {
     return { candles: hit.candles, repaired: true, reason: `${verdict.reason} \u2014 substituted cached Twelve Data bars` };
   }
@@ -34970,7 +35097,7 @@ async function repairCandles(symbol, timeframe, eaCandles) {
     if (!check.usable) {
       return { candles: eaCandles, repaired: false, reason: `${verdict.reason} \u2014 replacement bars also unusable (${check.reason})` };
     }
-    cache4.set(key, { at: Date.now(), candles: mapped });
+    cache5.set(key, { at: Date.now(), candles: mapped });
     console.log(`[candle-repair] ${symbol} ${timeframe}: EA feed unusable (${verdict.reason}); substituted ${mapped.length} Twelve Data bars, ${check.barsWithRange} with real range`);
     return { candles: mapped, repaired: true, reason: `${verdict.reason} \u2014 substituted Twelve Data bars` };
   } catch (e) {
@@ -34978,11 +35105,11 @@ async function repairCandles(symbol, timeframe, eaCandles) {
     return { candles: eaCandles, repaired: false, reason: `${verdict.reason} \u2014 fetch failed: ${e?.message}` };
   }
 }
-var cache4, CACHE_TTL_MS4, lastFetchAt, MIN_FETCH_GAP_MS;
+var cache5, CACHE_TTL_MS4, lastFetchAt, MIN_FETCH_GAP_MS;
 var init_candle_repair = __esm({
   "server/services/candle-repair.ts"() {
     "use strict";
-    cache4 = /* @__PURE__ */ new Map();
+    cache5 = /* @__PURE__ */ new Map();
     CACHE_TTL_MS4 = 6e4;
     lastFetchAt = 0;
     MIN_FETCH_GAP_MS = 8e3;
@@ -35232,9 +35359,9 @@ async function getLatestMarketBriefing() {
 }
 function findBriefingPair(briefing, symbol) {
   if (!briefing) return null;
-  const norm2 = symbol.toUpperCase().replace("/", "");
+  const norm3 = symbol.toUpperCase().replace("/", "");
   const pairs = briefing.pairs || [];
-  const match = pairs.find((p) => (p.symbol || "").toUpperCase().replace("/", "") === norm2);
+  const match = pairs.find((p) => (p.symbol || "").toUpperCase().replace("/", "") === norm3);
   return match ?? null;
 }
 var MAX_CONFIDENCE_BOOST;
@@ -35258,16 +35385,16 @@ function parseList(v) {
 }
 function pairFilterVerdict(symbol, direction) {
   if (process.env.PAIR_FILTER_ENABLED === "false") return null;
-  const sym = norm(symbol);
+  const sym = norm2(symbol);
   const dir = String(direction || "").toUpperCase();
   for (const b of BLOCKED_PAIRS) {
-    if (norm(b) === sym) {
+    if (norm2(b) === sym) {
       return { blocked: true, reason: `Pair filter: ${sym} is on the blocked list (34% WR over 310 trades, avg win $59 vs avg loss $100)` };
     }
   }
   for (const entry of BLOCKED_DIRECTIONS) {
     const [s, d] = entry.split(":");
-    if (s && d && norm(s) === sym && d.toUpperCase() === dir) {
+    if (s && d && norm2(s) === sym && d.toUpperCase() === dir) {
       return { blocked: true, reason: `Pair filter: ${sym} ${dir} is on the blocked list` };
     }
   }
@@ -35276,11 +35403,11 @@ function pairFilterVerdict(symbol, direction) {
 function pairFilterConfig() {
   return { enabled: process.env.PAIR_FILTER_ENABLED !== "false", pairs: BLOCKED_PAIRS, directions: BLOCKED_DIRECTIONS };
 }
-var norm, BLOCKED_PAIRS, BLOCKED_DIRECTIONS;
+var norm2, BLOCKED_PAIRS, BLOCKED_DIRECTIONS;
 var init_pair_filter = __esm({
   "server/services/pair-filter.ts"() {
     "use strict";
-    norm = (s) => String(s || "").toUpperCase().replace(/[^A-Z0-9]/g, "");
+    norm2 = (s) => String(s || "").toUpperCase().replace(/[^A-Z0-9]/g, "");
     BLOCKED_PAIRS = parseList(process.env.BLOCKED_PAIRS ?? "GBPJPY");
     BLOCKED_DIRECTIONS = parseList(process.env.BLOCKED_PAIR_DIRECTIONS ?? "");
   }
@@ -35292,7 +35419,7 @@ __export(hour_filter_exports, {
   hourFilterTable: () => hourFilterTable,
   hourFilterVerdict: () => hourFilterVerdict
 });
-async function compute(userId) {
+async function compute2(userId) {
   const { pool: pool2 } = await Promise.resolve().then(() => (init_db(), db_exports));
   const { rows } = await pool2.query(
     `SELECT EXTRACT(hour FROM created_at)::int AS hour,
@@ -35324,11 +35451,11 @@ async function compute(userId) {
 async function hourFilterVerdict(userId, hourUtc) {
   if (process.env.HOUR_FILTER_ENABLED === "false") return null;
   try {
-    let entry = cache5.get(userId);
-    if (!entry || Date.now() - entry.at > TTL_MS2) {
-      const fresh = await compute(userId);
+    let entry = cache6.get(userId);
+    if (!entry || Date.now() - entry.at > TTL_MS3) {
+      const fresh = await compute2(userId);
       entry = { at: Date.now(), ...fresh };
-      cache5.set(userId, entry);
+      cache6.set(userId, entry);
       const list = Array.from(fresh.blocked).sort((a, b) => a - b).map((h) => `${h}:00`).join(", ");
       console.log(`[HourFilter] user ${userId}: recomputed over ${LOOKBACK_DAYS}d \u2014 blocking ${fresh.blocked.size} hour(s)${list ? ": " + list : ""} (floor ${WR_FLOOR}% on ${MIN_SAMPLE}+ trades)`);
     }
@@ -35341,18 +35468,18 @@ async function hourFilterVerdict(userId, hourUtc) {
   }
 }
 async function hourFilterTable(userId) {
-  const { stats, blocked } = await compute(userId);
+  const { stats, blocked } = await compute2(userId);
   return { stats: stats.sort((a, b) => a.hour - b.hour), blocked: Array.from(blocked).sort((a, b) => a - b) };
 }
-var MIN_SAMPLE, WR_FLOOR, TTL_MS2, LOOKBACK_DAYS, cache5;
+var MIN_SAMPLE, WR_FLOOR, TTL_MS3, LOOKBACK_DAYS, cache6;
 var init_hour_filter = __esm({
   "server/services/hour-filter.ts"() {
     "use strict";
     MIN_SAMPLE = Number(process.env.HOUR_FILTER_MIN_TRADES ?? 15);
     WR_FLOOR = Number(process.env.HOUR_FILTER_MIN_WINRATE ?? 45);
-    TTL_MS2 = Number(process.env.HOUR_FILTER_TTL_MS ?? 60 * 60 * 1e3);
+    TTL_MS3 = Number(process.env.HOUR_FILTER_TTL_MS ?? 60 * 60 * 1e3);
     LOOKBACK_DAYS = Number(process.env.HOUR_FILTER_LOOKBACK_DAYS ?? 180);
-    cache5 = /* @__PURE__ */ new Map();
+    cache6 = /* @__PURE__ */ new Map();
   }
 });
 
@@ -36086,7 +36213,7 @@ async function cryptocomTicker(sym) {
 async function getAggregatedQuote(symbol) {
   const sym = symbol.toUpperCase().replace(/[^A-Z0-9]/g, "");
   const hit = _cache.get(sym);
-  if (hit && Date.now() - hit.ts < TTL_MS3) return hit.q;
+  if (hit && Date.now() - hit.ts < TTL_MS4) return hit.q;
   const venues = await Promise.all([coinbaseSpot(sym), krakenTicker(sym), geminiTicker(sym), cryptocomTicker(sym)]);
   const priced = venues.filter((v) => typeof v.price === "number" && v.price > 0);
   let best = null;
@@ -36105,11 +36232,11 @@ async function getAggregatedQuotes(symbols) {
   const uniq = Array.from(new Set(symbols.map((s) => s.toUpperCase().replace(/[^A-Z0-9]/g, "")))).slice(0, 25);
   return Promise.all(uniq.map(getAggregatedQuote));
 }
-var TTL_MS3, _cache;
+var TTL_MS4, _cache;
 var init_crypto_market_data = __esm({
   "server/services/crypto-market-data.ts"() {
     "use strict";
-    TTL_MS3 = 15e3;
+    TTL_MS4 = 15e3;
     _cache = /* @__PURE__ */ new Map();
   }
 });
@@ -48969,22 +49096,22 @@ async function fetchAllPredictions() {
   return predictions;
 }
 async function getSportsPredictions() {
-  if (cache6 && Date.now() - cache6.fetchedAt < CACHE_TTL_MS8) {
-    return cache6.data;
+  if (cache7 && Date.now() - cache7.fetchedAt < CACHE_TTL_MS8) {
+    return cache7.data;
   }
   return refreshSportsPredictions();
 }
 async function refreshSportsPredictions() {
   try {
     const data = await fetchAllPredictions();
-    cache6 = { data, fetchedAt: Date.now() };
+    cache7 = { data, fetchedAt: Date.now() };
     return data;
   } catch (err) {
     console.error("[sports-predictor] Fatal error during refresh:", err);
-    return cache6?.data ?? [];
+    return cache7?.data ?? [];
   }
 }
-var ESPN_BASE, GAMMA_BASE2, GOOGLE_NEWS_BASE, CACHE_TTL_MS8, ELO_K, ELO_DEFAULT, eloRatings, cache6, SPORT_PATHS, KEY_POSITIONS, recentGameDates;
+var ESPN_BASE, GAMMA_BASE2, GOOGLE_NEWS_BASE, CACHE_TTL_MS8, ELO_K, ELO_DEFAULT, eloRatings, cache7, SPORT_PATHS, KEY_POSITIONS, recentGameDates;
 var init_sports_predictor = __esm({
   "server/services/sports-predictor.ts"() {
     "use strict";
@@ -48995,7 +49122,7 @@ var init_sports_predictor = __esm({
     ELO_K = 20;
     ELO_DEFAULT = 1500;
     eloRatings = {};
-    cache6 = null;
+    cache7 = null;
     SPORT_PATHS = {
       nba: "basketball/nba",
       nfl: "football/nfl",
@@ -53619,7 +53746,7 @@ var prop_firm_consistency_audit_loop_exports = {};
 __export(prop_firm_consistency_audit_loop_exports, {
   startPropFirmConsistencyAuditLoop: () => startPropFirmConsistencyAuditLoop
 });
-function cache7() {
+function cache8() {
   global.tlConsistencyStatus = global.tlConsistencyStatus || {};
   return global.tlConsistencyStatus;
 }
@@ -53632,7 +53759,7 @@ async function auditOnce() {
     return;
   }
   if (!connections.length) return;
-  const store = cache7();
+  const store = cache8();
   for (const conn of connections) {
     try {
       const result = await getConsistencyStatus(conn.id, "tradelocker", conn.consistencyThresholdPct, conn.consistencyEnabled !== false);
@@ -55883,9 +56010,9 @@ async function getStopOrdersForUser(userId, filters = {}) {
 init_schema();
 
 // server/build-info.ts
-var BUILD_COMMIT = "dc28536d-dirty";
+var BUILD_COMMIT = "38e4ea66-dirty";
 var BUILD_BRANCH = "main";
-var BUILT_AT = "2026-09-23T14:27:22.914Z";
+var BUILT_AT = "2026-09-23T16:15:54.272Z";
 
 // server/stripe.ts
 init_db();
@@ -65962,6 +66089,18 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
         } catch {
         }
         if (!relayBlocked) {
+          try {
+            const { pairDailyStopVerdict: pairDailyStopVerdict2 } = await Promise.resolve().then(() => (init_pair_daily_stop(), pair_daily_stop_exports));
+            const _rdsVerdict = await pairDailyStopVerdict2(token.userId, symbol);
+            if (_rdsVerdict) {
+              relayBlocked = true;
+              console.log(`[Relay Gate] ${_rdsVerdict.reason} \u2014 relay blocked`);
+            }
+          } catch (_rdsErr) {
+            console.error("[Relay Gate] pair daily stop check failed (non-blocking):", _rdsErr?.message);
+          }
+        }
+        if (!relayBlocked) {
           const _relaySymNorm = (symbol || "").toUpperCase().replace("/", "");
           const _relayKey = `last_trade_${token.userId}_${_relaySymNorm}`;
           global.recentTrades = global.recentTrades || {};
@@ -67677,6 +67816,21 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
           }
         } catch (_pfErr) {
           console.error("[PairFilter] check failed (non-blocking):", _pfErr?.message);
+        }
+      }
+      if (analysis.signal !== "NEUTRAL") {
+        try {
+          const { pairDailyStopVerdict: pairDailyStopVerdict2 } = await Promise.resolve().then(() => (init_pair_daily_stop(), pair_daily_stop_exports));
+          const _dsVerdict = await pairDailyStopVerdict2(token.userId, sanitizedSymbol);
+          if (_dsVerdict) {
+            console.log(`[PairDailyStop] BLOCKED ${sanitizedSymbol} ${analysis.signal} \u2014 ${_dsVerdict.reason}`);
+            _diagCap.neutralReason = `pair_daily_stop (${_dsVerdict.reason})`;
+            analysis.signal = "NEUTRAL";
+            analysis.alerts = analysis.alerts || [];
+            analysis.alerts.push(`\u{1F6D1} ${_dsVerdict.reason}.`);
+          }
+        } catch (_dsErr) {
+          console.error("[PairDailyStop] check failed (non-blocking):", _dsErr?.message);
         }
       }
       if (analysis.signal !== "NEUTRAL") {
@@ -69905,8 +70059,8 @@ BEAR CASE: ${_bearCase || "n/a"}` : aiConfirmation.reasoning;
     const userId = req.user.id;
     const { symbol, timeframe } = req.params;
     const chartDataKey = `mt5_chart_${userId}_${symbol}_${timeframe}`;
-    const cache8 = global.mt5ChartDataCache || {};
-    const chartData = cache8[chartDataKey];
+    const cache9 = global.mt5ChartDataCache || {};
+    const chartData = cache9[chartDataKey];
     if (!chartData) {
       return res.status(404).json({ error: "No chart data found. Make sure your MT5 Chart Data EA is running." });
     }
@@ -71349,8 +71503,8 @@ Respond with ONLY valid JSON:
     strategy.progressWinRate = winRate2;
     strategy.progressPercentage = Math.min(100, Math.max(0, Math.round(closedProfit / strategy.profitTarget * 100)));
     const _mt5BalLive = (() => {
-      const cache8 = global.mt5AccountData?.[userId];
-      return cache8 ? Object.values(cache8).reduce((s, a) => s + (a?.balance || 0), 0) : 0;
+      const cache9 = global.mt5AccountData?.[userId];
+      return cache9 ? Object.values(cache9).reduce((s, a) => s + (a?.balance || 0), 0) : 0;
     })();
     const _tlBalLive = Object.values(global.tlAccountData?.[userId] || {}).reduce((s, a) => s + (a?.balance || 0), 0);
     const _liveBalance = _mt5BalLive + _tlBalLive;
@@ -75410,6 +75564,17 @@ Respond with ONLY valid JSON:
             const entryPrice = parseNum(sig.entryZone);
             const stopLoss = parseNum(sig.stopLoss);
             const takeProfit = parseNum(sig.takeProfit);
+            try {
+              const { pairDailyStopVerdict: pairDailyStopVerdict2 } = await Promise.resolve().then(() => (init_pair_daily_stop(), pair_daily_stop_exports));
+              const _aeStop = await pairDailyStopVerdict2(userId, sig.symbol);
+              if (_aeStop) {
+                console.log(`[VEDD Brain AutoExec] BLOCKED ${sig.symbol} \u2014 ${_aeStop.reason}`);
+                executionResults.push({ sigId, symbol: sig.symbol, direction: sig.direction, status: "skipped", reason: _aeStop.reason });
+                continue;
+              }
+            } catch (_aeStopErr) {
+              console.error("[VEDD Brain AutoExec] pair daily stop check failed (non-blocking):", _aeStopErr?.message);
+            }
             const currentOpenPositions = global.mt5OpenPositions?.[userId]?.positions || [];
             if (currentOpenPositions.length >= userMaxTrades) {
               console.log(`[VEDD Brain AutoExec] MAX TRADES reached (${currentOpenPositions.length}/${userMaxTrades}) \u2014 skipping ${sig.symbol}`);
@@ -81942,6 +82107,15 @@ Generate an agenda with timing, topics, and hosting tips. Return JSON: {
     setSMCStrategyEnabled2(req.user.id, enabled);
     res.json({ success: true, enabled: isSMCStrategyEnabled2(req.user.id) });
   });
+  app2.get("/api/pair-daily-stop", async (req, res) => {
+    if (!req.isAuthenticated()) return res.status(401).json({ message: "Not authenticated" });
+    try {
+      const { pairDailyStopTable: pairDailyStopTable2 } = await Promise.resolve().then(() => (init_pair_daily_stop(), pair_daily_stop_exports));
+      res.json(await pairDailyStopTable2(req.user.id));
+    } catch (e) {
+      res.status(500).json({ message: e?.message || "failed to read pair daily stops" });
+    }
+  });
   app2.get("/api/prop-firm-mode", async (req, res) => {
     if (!req.isAuthenticated()) return res.status(401).json({ message: "Not authenticated" });
     const { isPropFirmModeEnabled: isPropFirmModeEnabled2 } = await Promise.resolve().then(() => (init_openai(), openai_exports));
@@ -84507,15 +84681,15 @@ Sitemap: ${SEO_BASE_URL}/sitemap.xml
     if (!req.isAuthenticated()) return res.status(401).json({ error: "Unauthorized" });
     const userId = req.user.id;
     const rawSymbol = req.params.symbol.toUpperCase().replace(/[^A-Za-z0-9/_.-]/g, "");
-    const cache8 = global.mt5ChartDataCache || {};
-    const allKeys = Object.keys(cache8);
+    const cache9 = global.mt5ChartDataCache || {};
+    const allKeys = Object.keys(cache9);
     const PREFER_TF = ["M6", "M5", "M1", "M15", "M30", "H1", "H4"];
     let found = null;
     let foundTf = "";
     for (const tf of PREFER_TF) {
       const key = `mt5_chart_${userId}_${rawSymbol}_${tf}`;
-      if (cache8[key]) {
-        found = cache8[key];
+      if (cache9[key]) {
+        found = cache9[key];
         foundTf = tf;
         break;
       }
@@ -84523,7 +84697,7 @@ Sitemap: ${SEO_BASE_URL}/sitemap.xml
     if (!found) {
       const partialKey = allKeys.find((k) => k.includes(`_${userId}_`) && k.includes(rawSymbol));
       if (partialKey) {
-        found = cache8[partialKey];
+        found = cache9[partialKey];
         foundTf = partialKey.split("_").pop() || "";
       }
     }

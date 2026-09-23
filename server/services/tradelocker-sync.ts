@@ -68,6 +68,18 @@ async function _recordOrBackfillConfirmationOutcome(
  * Never throws and never blocks the close path — a learning write must not be
  * able to break trade reconciliation.
  */
+/**
+ * Every close changes today's per-pair loss count, so the daily-stop cache must
+ * be dropped immediately rather than waiting out its TTL — a stale count lets
+ * the next entry through on a pair that has just hit its limit.
+ */
+async function _invalidateDailyStop(userId: number): Promise<void> {
+  try {
+    const { invalidatePairDailyStop } = await import('./pair-daily-stop');
+    invalidatePairDailyStop(userId);
+  } catch { /* non-fatal — the TTL still expires on its own */ }
+}
+
 async function _recordFxBrainOutcome(
   userId: number, conn: any, existing: any, match: any, result: string, profit: number,
 ): Promise<void> {
@@ -433,6 +445,7 @@ async function syncTradeLockerTrades(userId: number, conn: any, svc: any): Promi
         await _recordOrBackfillConfirmationOutcome(userId, existing.symbol, existing.direction, result, match.closeTime);
         await _feedEngineBrain(userId, existing.symbol, profit, existing.direction, match.closeTime);
         await _recordFxBrainOutcome(userId, conn, existing, match, result, profit);
+        await _invalidateDailyStop(userId);
       }
     }
   }
@@ -504,6 +517,7 @@ async function syncTradeLockerTrades(userId: number, conn: any, svc: any): Promi
               // poller happened to witness. This path handles closes that
               // happened across a deploy or between polls — with deploys as
               // frequent as they are, that is most of them.
+              await _invalidateDailyStop(userId);
               await _recordFxBrainOutcome(userId, conn, existing,
                 { closeTime: o.closeTime, closePrice: o.closePrice, openPrice: o.openPrice }, reconResult, p);
             }
@@ -535,6 +549,7 @@ async function syncTradeLockerTrades(userId: number, conn: any, svc: any): Promi
         // so there is no stored SL/TP or excursion — but the outcome, pair,
         // direction and timing are real and the brain should not be blind to it.
         // Excluding these would bias the sample toward bot-witnessed trades.
+        await _invalidateDailyStop(userId);
         await _recordFxBrainOutcome(userId, conn,
           { symbol: reconSymbol, direction: reconDirection, entryPrice: o.openPrice, mt5Ticket: tk },
           { closeTime: o.closeTime, closePrice: o.closePrice, openPrice: o.openPrice }, reconResult, p);
