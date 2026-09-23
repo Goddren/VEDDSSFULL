@@ -30,7 +30,8 @@ const MIN_SAMPLE = Number(process.env.HOUR_FILTER_MIN_TRADES ?? 15);
 const WR_FLOOR = Number(process.env.HOUR_FILTER_MIN_WINRATE ?? 45);
 const TTL_MS = Number(process.env.HOUR_FILTER_TTL_MS ?? 60 * 60 * 1000); // recompute hourly
 // Roll the window so the filter tracks how the account trades NOW, not in April.
-const LOOKBACK_DAYS = Number(process.env.HOUR_FILTER_LOOKBACK_DAYS ?? 120);
+// Wider window: the ACTIVE book is only ~275 trades, so 120d was too thin.
+const LOOKBACK_DAYS = Number(process.env.HOUR_FILTER_LOOKBACK_DAYS ?? 180);
 
 const cache = new Map<number, { at: number; stats: HourStat[]; blocked: Set<number> }>();
 
@@ -45,6 +46,14 @@ async function compute(userId: number): Promise<{ stats: HourStat[]; blocked: Se
         AND result IN ('WIN','LOSS')
         AND source IN ('tradelocker','tradelocker_auto')
         AND symbol NOT LIKE 'KALSHI%'
+        -- ACTIVE connections only. 73% of ai_trade_results comes from two
+        -- accounts (2188895, 1991352) that are no longer connected — including
+        -- 1,020 positions the sync ingested from 1991352 in a single hour on
+        -- 2026-08-05, which is 64% of the whole table. Calibrating a live filter
+        -- on dead accounts got four hours wrong: it blocked 08:00 (46.2% on the
+        -- real book) and 18:00/21:00 (samples under the floor), while missing
+        -- 13:00 (26.7% over 15 trades).
+        AND connection_id IN (SELECT id FROM tradelocker_connections WHERE is_active = true)
         AND created_at > now() - ($2 || ' days')::interval
       GROUP BY 1`,
     [userId, String(LOOKBACK_DAYS)]

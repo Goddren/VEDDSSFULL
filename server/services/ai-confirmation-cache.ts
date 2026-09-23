@@ -35,17 +35,25 @@ const FLOOR_MS = Number(process.env.AI_CONFIRM_MIN_INTERVAL_MS ?? 60 * 1000);  /
 const STALE_USABLE_MS = Number(process.env.AI_CONFIRM_STALE_MS ?? 10 * 60 * 1000);
 // Materiality: what counts as "the setup changed".
 const CONF_BAND = Number(process.env.AI_CONFIRM_CONF_BAND ?? 5);        // EA confidence points
-const PRICE_BAND_PCT = Number(process.env.AI_CONFIRM_PRICE_BAND_PCT ?? 0.1); // % of price
 
 const cache = new Map<string, CachedVerdict>();
 const lastCallAt = new Map<string, number>();
 let hits = 0, misses = 0, throttled = 0;
 
-function bandKey(userId: number, symbol: string, timeframe: string, direction: string, eaConf: number, price: number): string {
+function bandKey(userId: number, symbol: string, timeframe: string, direction: string, eaConf: number, _price: number): string {
   const cBand = Math.round((Number(eaConf) || 0) / CONF_BAND);
-  // Relative band so it works for 1.13 (EURUSD) and 81,000 (BTCUSD) alike.
-  const pBand = price > 0 ? Math.round(Math.log(price) / Math.log(1 + PRICE_BAND_PCT / 100)) : 0;
-  return `${userId}:${symbol}:${timeframe}:${direction}:${cBand}:${pBand}`;
+  // PRICE IS DELIBERATELY NOT IN THE KEY.
+  //
+  // It was, as a 0.1% band, and it made the cache useless: measured in
+  // production 91% of posts still reached the model (~919/hr, no better than
+  // before). The price is a live tick that moves on essentially every post, so
+  // on EURUSD at 1.1440 a 0.1% band is 11 pips — crossed constantly — and every
+  // crossing minted a new key.
+  //
+  // Direction and the confidence band already capture whether the SETUP changed,
+  // which is what the model reasons about. The exact tick does not change a
+  // verdict on an H1 signal, and the TTL bounds how stale a reused answer can be.
+  return `${userId}:${symbol}:${timeframe}:${direction}:${cBand}`;
 }
 function symbolKey(userId: number, symbol: string, timeframe: string): string {
   return `${userId}:${symbol}:${timeframe}`;

@@ -35073,6 +35073,14 @@ async function compute(userId) {
         AND result IN ('WIN','LOSS')
         AND source IN ('tradelocker','tradelocker_auto')
         AND symbol NOT LIKE 'KALSHI%'
+        -- ACTIVE connections only. 73% of ai_trade_results comes from two
+        -- accounts (2188895, 1991352) that are no longer connected \u2014 including
+        -- 1,020 positions the sync ingested from 1991352 in a single hour on
+        -- 2026-08-05, which is 64% of the whole table. Calibrating a live filter
+        -- on dead accounts got four hours wrong: it blocked 08:00 (46.2% on the
+        -- real book) and 18:00/21:00 (samples under the floor), while missing
+        -- 13:00 (26.7% over 15 trades).
+        AND connection_id IN (SELECT id FROM tradelocker_connections WHERE is_active = true)
         AND created_at > now() - ($2 || ' days')::interval
       GROUP BY 1`,
     [userId, String(LOOKBACK_DAYS)]
@@ -35113,7 +35121,7 @@ var init_hour_filter = __esm({
     MIN_SAMPLE = Number(process.env.HOUR_FILTER_MIN_TRADES ?? 15);
     WR_FLOOR = Number(process.env.HOUR_FILTER_MIN_WINRATE ?? 45);
     TTL_MS = Number(process.env.HOUR_FILTER_TTL_MS ?? 60 * 60 * 1e3);
-    LOOKBACK_DAYS = Number(process.env.HOUR_FILTER_LOOKBACK_DAYS ?? 120);
+    LOOKBACK_DAYS = Number(process.env.HOUR_FILTER_LOOKBACK_DAYS ?? 180);
     cache4 = /* @__PURE__ */ new Map();
   }
 });
@@ -35125,10 +35133,9 @@ __export(ai_confirmation_cache_exports, {
   getCachedConfirmation: () => getCachedConfirmation,
   putCachedConfirmation: () => putCachedConfirmation
 });
-function bandKey(userId, symbol, timeframe, direction, eaConf, price) {
+function bandKey(userId, symbol, timeframe, direction, eaConf, _price) {
   const cBand = Math.round((Number(eaConf) || 0) / CONF_BAND);
-  const pBand = price > 0 ? Math.round(Math.log(price) / Math.log(1 + PRICE_BAND_PCT / 100)) : 0;
-  return `${userId}:${symbol}:${timeframe}:${direction}:${cBand}:${pBand}`;
+  return `${userId}:${symbol}:${timeframe}:${direction}:${cBand}`;
 }
 function symbolKey(userId, symbol, timeframe) {
   return `${userId}:${symbol}:${timeframe}`;
@@ -35170,7 +35177,7 @@ function confirmationCacheStats() {
   const total = hits + misses + throttled;
   return { hits, misses, throttled, total, savedPct: total ? Math.round((hits + throttled) / total * 100) : 0, entries: cache5.size };
 }
-var TTL_MS2, FLOOR_MS, STALE_USABLE_MS, CONF_BAND, PRICE_BAND_PCT, cache5, lastCallAt, hits, misses, throttled;
+var TTL_MS2, FLOOR_MS, STALE_USABLE_MS, CONF_BAND, cache5, lastCallAt, hits, misses, throttled;
 var init_ai_confirmation_cache = __esm({
   "server/services/ai-confirmation-cache.ts"() {
     "use strict";
@@ -35178,7 +35185,6 @@ var init_ai_confirmation_cache = __esm({
     FLOOR_MS = Number(process.env.AI_CONFIRM_MIN_INTERVAL_MS ?? 60 * 1e3);
     STALE_USABLE_MS = Number(process.env.AI_CONFIRM_STALE_MS ?? 10 * 60 * 1e3);
     CONF_BAND = Number(process.env.AI_CONFIRM_CONF_BAND ?? 5);
-    PRICE_BAND_PCT = Number(process.env.AI_CONFIRM_PRICE_BAND_PCT ?? 0.1);
     cache5 = /* @__PURE__ */ new Map();
     lastCallAt = /* @__PURE__ */ new Map();
     hits = 0;
@@ -55610,9 +55616,9 @@ async function getStopOrdersForUser(userId, filters = {}) {
 init_schema();
 
 // server/build-info.ts
-var BUILD_COMMIT = "7fc2aac0-dirty";
+var BUILD_COMMIT = "0662cb0b-dirty";
 var BUILD_BRANCH = "main";
-var BUILT_AT = "2026-09-23T01:46:34.038Z";
+var BUILT_AT = "2026-09-23T02:19:47.663Z";
 
 // server/stripe.ts
 init_db();
