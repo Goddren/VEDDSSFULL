@@ -56370,9 +56370,9 @@ async function getStopOrdersForUser(userId, filters = {}) {
 init_schema();
 
 // server/build-info.ts
-var BUILD_COMMIT = "db45072e-dirty";
+var BUILD_COMMIT = "2eac14ab-dirty";
 var BUILD_BRANCH = "main";
-var BUILT_AT = "2026-09-26T03:22:49.603Z";
+var BUILT_AT = "2026-09-26T04:01:33.745Z";
 
 // server/stripe.ts
 init_db();
@@ -68314,7 +68314,8 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
               goalLotMultiplier = Math.min(1.5, 1 + deficit * 0.5);
             }
             console.log(`[VEDD Goal Intelligence] DailyTarget=$${dailyTarget.toFixed(2)} | Today=$${todayProfitGoal.toFixed(2)} | Unrealized=$${unrealizedGoal.toFixed(2)} | Pace=${(paceRatio * 100).toFixed(0)}% | Mode=${goalPaceMode} | LotMult=${goalLotMultiplier.toFixed(2)}`);
-            if (goalPaceMode === "CATCH_UP" && blockedByPlan && preFilterSignal !== "NEUTRAL") {
+            const _goalChaseSafeToUnlock = String(_diagCap.neutralReason || "").startsWith("plan_");
+            if (goalPaceMode === "CATCH_UP" && blockedByPlan && preFilterSignal !== "NEUTRAL" && _goalChaseSafeToUnlock) {
               const normalizedSym = sanitizedSymbol.toUpperCase().replace("/", "");
               const isHighFreqPair = GOAL_CHASE_PAIRS.some(
                 (p) => normalizedSym === p.replace("/", "") || normalizedSym.includes(p.replace("/", "")) || p.replace("/", "").includes(normalizedSym)
@@ -68374,7 +68375,7 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
                 analysis.alerts.push(
                   `AI PATH CONTROL \u2705: ${normalizedSym} is on your ${aiPathControl.pathType} path. Lot size \xD7${goalLotMultiplier.toFixed(2)} applied.`
                 );
-              } else if (isOnPath && blockedByPlan && preFilterSignal !== "NEUTRAL") {
+              } else if (isOnPath && blockedByPlan && preFilterSignal !== "NEUTRAL" && String(_diagCap.neutralReason || "").startsWith("plan_")) {
                 analysis.signal = preFilterSignal;
                 analysis.alerts = (analysis.alerts || []).filter((a) => !a.includes("Trade blocked") && !a.includes("NOT scheduled"));
                 analysis.alerts.push(
@@ -69946,6 +69947,7 @@ BEAR CASE: ${_bearCase || "n/a"}` : aiConfirmation.reasoning;
                   return "market";
                 })();
                 const _eaCopyMode = _liveState?.config?.copyMode ?? "proportional";
+                let _confirmationOutcomeRecorded = false;
                 for (const tlConn of tlActiveConns) {
                   const _connGateMode = tlConn.gateMode ?? "basic";
                   if (_connGateMode === "full") {
@@ -70175,7 +70177,8 @@ BEAR CASE: ${_bearCase || "n/a"}` : aiConfirmation.reasoning;
                         lastError: null
                       });
                       console.log(`[BUILD] BORN (9)! Trade MANIFESTED on TL account ${tlConn.accountId}! Order: ${connResult.orderId}.`);
-                      if (tlConn === tlActiveConns[0]) {
+                      if (!_confirmationOutcomeRecorded) {
+                        _confirmationOutcomeRecorded = true;
                         if (aiConfirmation && aiConfirmation.breakoutGrade) {
                           try {
                             await storage.createConfirmationOutcome({

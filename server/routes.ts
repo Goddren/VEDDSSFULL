@@ -10478,7 +10478,20 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
             console.log(`[VEDD Goal Intelligence] DailyTarget=$${dailyTarget.toFixed(2)} | Today=$${todayProfitGoal.toFixed(2)} | Unrealized=$${unrealizedGoal.toFixed(2)} | Pace=${(paceRatio * 100).toFixed(0)}% | Mode=${goalPaceMode} | LotMult=${goalLotMultiplier.toFixed(2)}`);
 
             // ── Goal Chase: unlock high-frequency pairs when behind pace ────
-            if (goalPaceMode === 'CATCH_UP' && blockedByPlan && preFilterSignal !== 'NEUTRAL') {
+            // GUARD ADDED: blockedByPlan is set once, early, and never cleared —
+            // but the pair blocklist, FX-brain condition gate, per-pair daily
+            // stop and hour filter all run AFTER it and can independently
+            // re-NEUTRAL the signal for their own (safety) reasons. Restoring
+            // preFilterSignal here used to ignore all of that and reinstate the
+            // ORIGINAL pre-gate EA signal regardless of why it's NEUTRAL now —
+            // a losing pair the blocklist just vetoed, or a pair the FX brain
+            // just proved loses in this exact hour, would trade anyway the
+            // moment the account fell behind its daily goal. Only unlock when
+            // _diagCap.neutralReason still starts with 'plan_' — i.e. nothing
+            // AFTER the plan check has since overwritten it with a real safety
+            // block.
+            const _goalChaseSafeToUnlock = String(_diagCap.neutralReason || '').startsWith('plan_');
+            if (goalPaceMode === 'CATCH_UP' && blockedByPlan && preFilterSignal !== 'NEUTRAL' && _goalChaseSafeToUnlock) {
               const normalizedSym = sanitizedSymbol.toUpperCase().replace('/', '');
               const isHighFreqPair = GOAL_CHASE_PAIRS.some(p =>
                 normalizedSym === p.replace('/', '') ||
@@ -10561,8 +10574,12 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
                 analysis.alerts.push(
                   `AI PATH CONTROL ✅: ${normalizedSym} is on your ${aiPathControl.pathType} path. Lot size ×${goalLotMultiplier.toFixed(2)} applied.`
                 );
-              } else if (isOnPath && blockedByPlan && preFilterSignal !== 'NEUTRAL') {
-                // Unlock this pair since it's on the selected path
+              } else if (isOnPath && blockedByPlan && preFilterSignal !== 'NEUTRAL' && String(_diagCap.neutralReason || '').startsWith('plan_')) {
+                // Unlock this pair since it's on the selected path.
+                // Same guard as Goal Chase above: only when nothing AFTER the
+                // plan check (pair blocklist / fx-brain gate / daily stop / hour
+                // filter) has since overwritten the NEUTRAL reason with a real
+                // safety block.
                 analysis.signal = preFilterSignal;
                 analysis.alerts = (analysis.alerts || []).filter((a: string) => !a.includes('Trade blocked') && !a.includes('NOT scheduled'));
                 analysis.alerts.push(
@@ -12480,6 +12497,17 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
               const _eaCopyMode = _liveState?.config?.copyMode ?? 'proportional';
 
               // Execute on ALL active TradeLocker connections
+              // Tracks whether ANY connection has recorded this signal into brain
+              // learning yet. The old guard compared identity to tlActiveConns[0]
+              // — "record only for the literal first connection" rather than
+              // "record once, for the first that actually succeeds". If that
+              // first connection was skipped earlier in its own iteration (a
+              // `continue` from an unreadable-balance or per-account safety
+              // check), a LATER connection's real, executed trade never got
+              // recorded into ai_confirmation_outcomes at all — invisible to the
+              // brain's pair-knowledge stats and the win-rate/session gates that
+              // key off that table, despite money having actually moved.
+              let _confirmationOutcomeRecorded = false;
               for (const tlConn of tlActiveConns) {
                 // Per-connection gate mode check — 'full' applies strict gates, 'basic' copies like MT5
                 const _connGateMode = (tlConn as any).gateMode ?? 'basic';
@@ -12781,8 +12809,10 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
                   });
                   console.log(`[BUILD] BORN (9)! Trade MANIFESTED on TL account ${tlConn.accountId}! Order: ${connResult.orderId}.`);
 
-                  // Record for brain learning (only once, on first success)
-                  if (tlConn === tlActiveConns[0]) {
+                  // Record for brain learning (only once, on the first SUCCESS —
+                  // not the first connection in the array; see the note above).
+                  if (!_confirmationOutcomeRecorded) {
+                    _confirmationOutcomeRecorded = true;
                     if (aiConfirmation && (aiConfirmation as any).breakoutGrade) {
                       try {
                         await storage.createConfirmationOutcome({
