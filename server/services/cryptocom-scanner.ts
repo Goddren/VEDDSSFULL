@@ -49,11 +49,24 @@ interface StrategyResult {
 // the engine passes around, so strategy code is unchanged.
 const defiUniverse = new Map<string, { chain: string; address: string; poolAddress: string; priceUsd: number; liquidityUsd: number }>();
 
-export function getDefiUniverseEntry(symbol: string) { return defiUniverse.get(symbol.toUpperCase()); }
+// Compound key: CHAIN + symbol. A single process serves every user, and this
+// map is rebuilt per user per cycle from whatever chain their config points
+// at — with a bare-symbol key, two different chains (or two users on
+// different chains) discovering the same ticker overwrite each other's
+// contract address. Since ERC-20 addresses are not globally unique across
+// chains, the next signal for that symbol could resolve to and swap real
+// money into a completely unrelated contract that happens to exist at that
+// address on the OTHER chain. Currently dormant (one active DeFi user, one
+// chain) but a real defect the moment either changes.
+function universeKey(chain: string, symbol: string): string {
+  return `${chain.toLowerCase()}::${symbol.toUpperCase()}`;
+}
 
-/** Candles for a symbol from whichever venue owns it. */
-async function fetchBars(symbol: string, timeframe: string, count: number): Promise<{ t: number; o: number; h: number; l: number; c: number; v: number }[]> {
-  const entry = defiUniverse.get(symbol.toUpperCase());
+export function getDefiUniverseEntry(symbol: string, chain: string) { return defiUniverse.get(universeKey(chain, symbol)); }
+
+/** Candles for a symbol from whichever venue owns it, on THIS chain. */
+async function fetchBars(symbol: string, timeframe: string, count: number, chain: string): Promise<{ t: number; o: number; h: number; l: number; c: number; v: number }[]> {
+  const entry = defiUniverse.get(universeKey(chain, symbol));
   if (entry) {
     const { getDefiCandles } = await import('./defi-market-data');
     return getDefiCandles(entry.chain, entry.poolAddress, timeframe, count);
@@ -70,7 +83,7 @@ async function refreshDefiUniverse(chain: string): Promise<string[]> {
   const { discoverDefiTokens } = await import('./defi-market-data');
   const tokens = await discoverDefiTokens(chain);
   for (const t of tokens) {
-    defiUniverse.set(t.symbol.toUpperCase(), {
+    defiUniverse.set(universeKey(chain, t.symbol), {
       chain, address: t.address, poolAddress: t.poolAddress,
       priceUsd: t.priceUsd, liquidityUsd: t.liquidityUsd,
     });
@@ -85,7 +98,7 @@ function convertToCandles(bars: { t: number; o: number; h: number; l: number; c:
 // ── Strategy: trend/momentum confluence — same read as the FX/futures rule-
 // based engines (ADX trend strength, RSI zone, MACD histogram direction). ───
 async function runTrendFollowing(symbol: string, cfg: CryptocomEngineConfig): Promise<StrategyResult> {
-  const bars = await fetchBars(symbol, '5m', 100);
+  const bars = await fetchBars(symbol, '5m', 100, (cfg as any).defiChain || 'base');
   if (bars.length < 30) {
     return { decision: 'error', reasoning: `${symbol}: not enough candle history returned.`, score: null, price: null, dailyChangePercent: null, strategy: 'trend_following' };
   }
@@ -128,7 +141,7 @@ async function runTrendFollowing(symbol: string, cfg: CryptocomEngineConfig): Pr
 }
 
 async function runMomentum(symbol: string, cfg: CryptocomEngineConfig): Promise<StrategyResult> {
-  const bars = await fetchBars(symbol, '15m', 30);
+  const bars = await fetchBars(symbol, '15m', 30, (cfg as any).defiChain || 'base');
   if (bars.length < 10) {
     return { decision: 'error', reasoning: `${symbol}: not enough candle history.`, score: null, price: null, dailyChangePercent: null, strategy: 'momentum' };
   }
@@ -151,7 +164,7 @@ async function runMomentum(symbol: string, cfg: CryptocomEngineConfig): Promise<
 // ── Strategy: Order Flow (CVD proxy + VWAP) — institutional-pressure read on
 // the 5-min candles, same shape as the options-engine order_flow strategy. ────
 async function runOrderFlow(symbol: string, cfg: CryptocomEngineConfig): Promise<StrategyResult> {
-  const bars = await fetchBars(symbol, '5m', 60);
+  const bars = await fetchBars(symbol, '5m', 60, (cfg as any).defiChain || 'base');
   if (bars.length < 20) return { decision: 'error', reasoning: `${symbol}: not enough candles for order flow.`, score: null, price: null, dailyChangePercent: null, strategy: 'order_flow' };
   const c = convertToCandles(bars);
   const price = c[c.length - 1].c;
@@ -181,7 +194,7 @@ async function runOrderFlow(symbol: string, cfg: CryptocomEngineConfig): Promise
 
 // ── Strategy: Volume Profile (POC / Value Area breakout) ─────────────────────
 async function runVolumeProfile(symbol: string, cfg: CryptocomEngineConfig): Promise<StrategyResult> {
-  const bars = await fetchBars(symbol, '15m', 96);
+  const bars = await fetchBars(symbol, '15m', 96, (cfg as any).defiChain || 'base');
   if (bars.length < 40) return { decision: 'error', reasoning: `${symbol}: not enough candles for volume profile.`, score: null, price: null, dailyChangePercent: null, strategy: 'volume_profile' };
   const c = convertToCandles(bars);
   const price = c[c.length - 1].c;
@@ -210,7 +223,7 @@ async function runVolumeProfile(symbol: string, cfg: CryptocomEngineConfig): Pro
 
 // ── Strategy: Breakout (N-period high/low with volume confirm) ───────────────
 async function runBreakout(symbol: string, cfg: CryptocomEngineConfig): Promise<StrategyResult> {
-  const bars = await fetchBars(symbol, '1h', 60);
+  const bars = await fetchBars(symbol, '1h', 60, (cfg as any).defiChain || 'base');
   if (bars.length < 25) return { decision: 'error', reasoning: `${symbol}: not enough candles for breakout.`, score: null, price: null, dailyChangePercent: null, strategy: 'breakout' };
   const c = convertToCandles(bars);
   const price = c[c.length - 1].c;
@@ -242,7 +255,7 @@ async function runBreakout(symbol: string, cfg: CryptocomEngineConfig): Promise<
 // would analyse the OLDEST bar as "now" and emit confident, wrong signals, so
 // they are reversed here exactly once, at the boundary.
 async function runStructure(symbol: string, cfg: CryptocomEngineConfig): Promise<StrategyResult> {
-  const bars = await fetchBars(symbol, '15m', 120);
+  const bars = await fetchBars(symbol, '15m', 120, (cfg as any).defiChain || 'base');
   if (bars.length < 30) {
     return { decision: 'error', reasoning: symbol + ': not enough candle history for structure.', score: null, price: null, dailyChangePercent: null, strategy: 'structure' };
   }
@@ -297,7 +310,7 @@ async function runStructure(symbol: string, cfg: CryptocomEngineConfig): Promise
 // engine uses. Compared across a 12-bar separation so one noisy wick cannot
 // manufacture a divergence.
 async function runDivergence(symbol: string, cfg: CryptocomEngineConfig): Promise<StrategyResult> {
-  const bars = await fetchBars(symbol, '15m', 120);
+  const bars = await fetchBars(symbol, '15m', 120, (cfg as any).defiChain || 'base');
   if (bars.length < 40) {
     return { decision: 'error', reasoning: symbol + ': not enough candle history for divergence.', score: null, price: null, dailyChangePercent: null, strategy: 'divergence' };
   }
@@ -366,9 +379,9 @@ async function runDivergence(symbol: string, cfg: CryptocomEngineConfig): Promis
  * Returns null when genuinely undecided -- and also when the read FAILS, because
  * a failed read is not a bias and must not be treated as one.
  */
-async function getHtfBias(symbol: string): Promise<'BUY' | 'SELL' | null> {
+async function getHtfBias(symbol: string, chain: string): Promise<'BUY' | 'SELL' | null> {
   try {
-    const bars = await fetchBars(symbol, '1h', 60);
+    const bars = await fetchBars(symbol, '1h', 60, chain);
     if (bars.length < 25) return null;
     const closes = bars.map(function (b) { return b.c; });
     const sma = function (arr: number[], p: number) { return arr.slice(-p).reduce(function (a, b) { return a + b; }, 0) / p; };
@@ -411,8 +424,9 @@ const AUTO_STRATEGIES = ['trend_following', 'momentum', 'order_flow', 'volume_pr
 async function applySignalGates(symbol: string, result: StrategyResult, cfg: CryptocomEngineConfig): Promise<StrategyResult> {
   if (result.decision !== 'signal' || !result.direction) return result;
 
+  const chain = (cfg as any).defiChain || 'base';
   try {
-    const bars = await fetchBars(symbol, '15m', 40);
+    const bars = await fetchBars(symbol, '15m', 40, chain);
     const { assessPriceAnomaly } = await import('../utils/corporateActionGuard');
     const anomaly = assessPriceAnomaly(bars);
     if (anomaly.suspect) {
@@ -429,7 +443,7 @@ async function applySignalGates(symbol: string, result: StrategyResult, cfg: Cry
     };
   }
 
-  const bias = await getHtfBias(symbol);
+  const bias = await getHtfBias(symbol, chain);
   if (bias && bias !== result.direction) {
     return {
       ...result, decision: 'watching', direction: undefined,
@@ -555,7 +569,7 @@ async function monitorOpenPositions(userId: number, cfg: CryptocomEngineConfig):
         // acting on it. Take-profits get the same treatment -- a bad print in
         // the other direction would book a fictional win and a real exit.
         try {
-          const guardBars = await fetchBars(trade.symbol, '15m', 40);
+          const guardBars = await fetchBars(trade.symbol, '15m', 40, (cfg as any).defiChain || 'base');
           const { assessPriceAnomaly } = await import('../utils/corporateActionGuard');
           const anomaly = assessPriceAnomaly(guardBars);
           if (anomaly.suspect) {
@@ -781,9 +795,14 @@ export async function manualCloseCryptoTrade(userId: number, tradeId: number): P
     const open = await storage.getOpenCryptocomEngineTrades(userId);
     const trade = open.find((t: any) => t.id === tradeId);
     if (!trade) return { ok: false, error: 'Trade not found or already closed' };
+    // No config is threaded into this manual-close handler, so the chain has to
+    // be looked up rather than assumed 'base' -- a wrong default here would
+    // read the closing price from the wrong chain's pool for a DeFi position.
+    const cfgForClose = await storage.getUserCryptocomEngineConfig(userId).catch(() => undefined);
+    const closeChain = (cfgForClose as any)?.defiChain || 'base';
     let px = 0;
     try {
-      const bars = await fetchBars(trade.symbol, '5m', 2);
+      const bars = await fetchBars(trade.symbol, '5m', 2, closeChain);
       px = bars?.[bars.length - 1]?.c ?? 0;
     } catch { /* fall through */ }
     if (!(px > 0)) return { ok: false, error: 'Could not fetch current price to close' };
@@ -891,7 +910,7 @@ async function getCryptocomAiConfirmationLite(userId: number, symbol: string, re
 // text-serialized candle/indicator context (not a screenshot), so it drops in
 // cleanly for crypto pairs. On any failure it degrades to the lite numeric
 // second-opinion above so the gate never silently hard-blocks (vision + fallback).
-async function getCryptocomAiConfirmation(userId: number, symbol: string, result: StrategyResult): Promise<{ confirmed: boolean; confidence: number; reasoning: string }> {
+async function getCryptocomAiConfirmation(userId: number, symbol: string, result: StrategyResult, chain: string): Promise<{ confirmed: boolean; confidence: number; reasoning: string }> {
   // Priority back-off: crypto is lower priority than the FX engine and draws on
   // the same AI provider budget. When that budget is exhausted (402) or rate
   // limited (429), skip the AI confirmation (no new crypto entry this cycle) so
@@ -903,7 +922,7 @@ async function getCryptocomAiConfirmation(userId: number, symbol: string, result
     }
   } catch { /* non-fatal */ }
   try {
-    const bars = await fetchBars(symbol, '5m', 100);
+    const bars = await fetchBars(symbol, '5m', 100, chain);
     if (!bars || bars.length < 30) return getCryptocomAiConfirmationLite(userId, symbol, result);
     const candles = convertToCandles(bars);
     const indicators = computeAllAdvancedIndicators(candles, 0, symbol, 'M5');
@@ -963,7 +982,7 @@ async function assembleConsensus(userId: number, symbol: string, result: Strateg
     });
     return tradeAllowed;
   }
-  const ai = await getCryptocomAiConfirmation(userId, symbol, result);
+  const ai = await getCryptocomAiConfirmation(userId, symbol, result, (cfg as any).defiChain || 'base');
   const aiVerdict: 'CONFIRM' | 'SKIP' = ai.confirmed && ai.confidence >= Math.max(60, cfg.minConfidence) ? 'CONFIRM' : 'SKIP';
   let consensus: ConsensusLabel;
   if (quantVerdict === 'CONFIRM' && aiVerdict === 'CONFIRM') consensus = 'STRONG_CONFIRM';
@@ -1049,7 +1068,7 @@ async function executeSignalSingle(service: CryptoComService, connection: Crypto
       // an address verbatim, which removes symbol collisions entirely — several
       // unrelated Base tokens share tickers with major assets, and buying the
       // wrong contract is unrecoverable.
-      const disc = getDefiUniverseEntry(symbol);
+      const disc = getDefiUniverseEntry(symbol, chain);
       // Hand over the price we already have: discovery's pool price, else the
       // price the strategy computed from the same on-chain candles. Without it
       // the executor asks a CEX for a contract address and gets nothing.

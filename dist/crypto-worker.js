@@ -14876,11 +14876,14 @@ var lastScanAt = /* @__PURE__ */ new Map();
 var MAX_SYMBOLS_PER_CYCLE = 5;
 var scanCursor = /* @__PURE__ */ new Map();
 var defiUniverse = /* @__PURE__ */ new Map();
-function getDefiUniverseEntry(symbol) {
-  return defiUniverse.get(symbol.toUpperCase());
+function universeKey(chain, symbol) {
+  return `${chain.toLowerCase()}::${symbol.toUpperCase()}`;
 }
-async function fetchBars(symbol, timeframe, count) {
-  const entry = defiUniverse.get(symbol.toUpperCase());
+function getDefiUniverseEntry(symbol, chain) {
+  return defiUniverse.get(universeKey(chain, symbol));
+}
+async function fetchBars(symbol, timeframe, count, chain) {
+  const entry = defiUniverse.get(universeKey(chain, symbol));
   if (entry) {
     const { getDefiCandles: getDefiCandles2 } = await Promise.resolve().then(() => (init_defi_market_data(), defi_market_data_exports));
     return getDefiCandles2(entry.chain, entry.poolAddress, timeframe, count);
@@ -14891,7 +14894,7 @@ async function refreshDefiUniverse(chain) {
   const { discoverDefiTokens: discoverDefiTokens2 } = await Promise.resolve().then(() => (init_defi_market_data(), defi_market_data_exports));
   const tokens = await discoverDefiTokens2(chain);
   for (const t of tokens) {
-    defiUniverse.set(t.symbol.toUpperCase(), {
+    defiUniverse.set(universeKey(chain, t.symbol), {
       chain,
       address: t.address,
       poolAddress: t.poolAddress,
@@ -14905,7 +14908,7 @@ function convertToCandles(bars) {
   return bars.map((b) => ({ t: b.t, o: b.o, h: b.h, l: b.l, c: b.c, v: b.v }));
 }
 async function runTrendFollowing(symbol, cfg) {
-  const bars = await fetchBars(symbol, "5m", 100);
+  const bars = await fetchBars(symbol, "5m", 100, cfg.defiChain || "base");
   if (bars.length < 30) {
     return { decision: "error", reasoning: `${symbol}: not enough candle history returned.`, score: null, price: null, dailyChangePercent: null, strategy: "trend_following" };
   }
@@ -14951,7 +14954,7 @@ async function runTrendFollowing(symbol, cfg) {
   };
 }
 async function runMomentum(symbol, cfg) {
-  const bars = await fetchBars(symbol, "15m", 30);
+  const bars = await fetchBars(symbol, "15m", 30, cfg.defiChain || "base");
   if (bars.length < 10) {
     return { decision: "error", reasoning: `${symbol}: not enough candle history.`, score: null, price: null, dailyChangePercent: null, strategy: "momentum" };
   }
@@ -14969,7 +14972,7 @@ async function runMomentum(symbol, cfg) {
   return { decision: "signal", score, price, dailyChangePercent, strategy: "momentum", direction, reasoning: `${symbol}: momentum ${direction} \u2014 moved ${Math.abs(dailyChangePercent).toFixed(2)}% this window. Score ${score}/100.` };
 }
 async function runOrderFlow(symbol, cfg) {
-  const bars = await fetchBars(symbol, "5m", 60);
+  const bars = await fetchBars(symbol, "5m", 60, cfg.defiChain || "base");
   if (bars.length < 20) return { decision: "error", reasoning: `${symbol}: not enough candles for order flow.`, score: null, price: null, dailyChangePercent: null, strategy: "order_flow" };
   const c = convertToCandles(bars);
   const price = c[c.length - 1].c;
@@ -15000,7 +15003,7 @@ async function runOrderFlow(symbol, cfg) {
   return { decision: "signal", score, price, dailyChangePercent, strategy: "order_flow", direction, reasoning: `${symbol}: ${direction} order flow \u2014 CVD shift ${cvdShiftPct.toFixed(1)}%, price ${direction === "BUY" ? "above" : "below"} VWAP $${vwap.toFixed(2)}, ${rangePct.toFixed(2)}% range. Score ${score}/100.` };
 }
 async function runVolumeProfile(symbol, cfg) {
-  const bars = await fetchBars(symbol, "15m", 96);
+  const bars = await fetchBars(symbol, "15m", 96, cfg.defiChain || "base");
   if (bars.length < 40) return { decision: "error", reasoning: `${symbol}: not enough candles for volume profile.`, score: null, price: null, dailyChangePercent: null, strategy: "volume_profile" };
   const c = convertToCandles(bars);
   const price = c[c.length - 1].c;
@@ -15044,7 +15047,7 @@ async function runVolumeProfile(symbol, cfg) {
   return { decision: "signal", score, price, dailyChangePercent, strategy: "volume_profile", direction, reasoning: `${symbol}: ${direction} value-area ${direction === "BUY" ? "breakout above " + VAH.toFixed(2) : "breakdown below " + VAL.toFixed(2)} (POC ~$${(lo + (poc + 0.5) * binSize).toFixed(2)}), volume confirming. Score ${score}/100.` };
 }
 async function runBreakout(symbol, cfg) {
-  const bars = await fetchBars(symbol, "1h", 60);
+  const bars = await fetchBars(symbol, "1h", 60, cfg.defiChain || "base");
   if (bars.length < 25) return { decision: "error", reasoning: `${symbol}: not enough candles for breakout.`, score: null, price: null, dailyChangePercent: null, strategy: "breakout" };
   const c = convertToCandles(bars);
   const price = c[c.length - 1].c;
@@ -15067,7 +15070,7 @@ async function runBreakout(symbol, cfg) {
   return { decision: "signal", score, price, dailyChangePercent, strategy: "breakout", direction, reasoning: `${symbol}: ${direction} volume-confirmed breakout of ${lookback}h range ($${priorLow.toFixed(2)}\u2013$${priorHigh.toFixed(2)}), now $${price.toFixed(2)}. Score ${score}/100.` };
 }
 async function runStructure(symbol, cfg) {
-  const bars = await fetchBars(symbol, "15m", 120);
+  const bars = await fetchBars(symbol, "15m", 120, cfg.defiChain || "base");
   if (bars.length < 30) {
     return { decision: "error", reasoning: symbol + ": not enough candle history for structure.", score: null, price: null, dailyChangePercent: null, strategy: "structure" };
   }
@@ -15111,7 +15114,7 @@ async function runStructure(symbol, cfg) {
   return out;
 }
 async function runDivergence(symbol, cfg) {
-  const bars = await fetchBars(symbol, "15m", 120);
+  const bars = await fetchBars(symbol, "15m", 120, cfg.defiChain || "base");
   if (bars.length < 40) {
     return { decision: "error", reasoning: symbol + ": not enough candle history for divergence.", score: null, price: null, dailyChangePercent: null, strategy: "divergence" };
   }
@@ -15167,9 +15170,9 @@ async function runDivergence(symbol, cfg) {
   if (score >= threshold) out.direction = direction;
   return out;
 }
-async function getHtfBias(symbol) {
+async function getHtfBias(symbol, chain) {
   try {
-    const bars = await fetchBars(symbol, "1h", 60);
+    const bars = await fetchBars(symbol, "1h", 60, chain);
     if (bars.length < 25) return null;
     const closes = bars.map(function(b) {
       return b.c;
@@ -15202,8 +15205,9 @@ var STRATEGY_RUNNERS = {
 var AUTO_STRATEGIES = ["trend_following", "momentum", "order_flow", "volume_profile", "breakout", "structure", "divergence"];
 async function applySignalGates(symbol, result, cfg) {
   if (result.decision !== "signal" || !result.direction) return result;
+  const chain = cfg.defiChain || "base";
   try {
-    const bars = await fetchBars(symbol, "15m", 40);
+    const bars = await fetchBars(symbol, "15m", 40, chain);
     const { assessPriceAnomaly: assessPriceAnomaly2 } = await Promise.resolve().then(() => (init_corporateActionGuard(), corporateActionGuard_exports));
     const anomaly = assessPriceAnomaly2(bars);
     if (anomaly.suspect) {
@@ -15222,7 +15226,7 @@ async function applySignalGates(symbol, result, cfg) {
       reasoning: symbol + ": corporate-action guard could not run (no candles) -- refusing the entry rather than trading unchecked. Original read: " + result.reasoning
     };
   }
-  const bias = await getHtfBias(symbol);
+  const bias = await getHtfBias(symbol, chain);
   if (bias && bias !== result.direction) {
     return {
       ...result,
@@ -15337,7 +15341,7 @@ async function monitorOpenPositions(userId, cfg) {
         }
         if (!px) continue;
         try {
-          const guardBars = await fetchBars(trade.symbol, "15m", 40);
+          const guardBars = await fetchBars(trade.symbol, "15m", 40, cfg.defiChain || "base");
           const { assessPriceAnomaly: assessPriceAnomaly2 } = await Promise.resolve().then(() => (init_corporateActionGuard(), corporateActionGuard_exports));
           const anomaly = assessPriceAnomaly2(guardBars);
           if (anomaly.suspect) {
@@ -15585,7 +15589,7 @@ Reasoning: ${result.reasoning}`;
     return { confirmed: false, confidence: 0, reasoning: `AI confirmation unavailable: ${err.message}` };
   }
 }
-async function getCryptocomAiConfirmation(userId, symbol, result) {
+async function getCryptocomAiConfirmation(userId, symbol, result, chain) {
   try {
     const { shouldDeferLowPriorityAi: shouldDeferLowPriorityAi2, aiBudgetDeferReason: aiBudgetDeferReason2 } = await Promise.resolve().then(() => (init_ai_budget_guard(), ai_budget_guard_exports));
     if (shouldDeferLowPriorityAi2()) {
@@ -15594,7 +15598,7 @@ async function getCryptocomAiConfirmation(userId, symbol, result) {
   } catch {
   }
   try {
-    const bars = await fetchBars(symbol, "5m", 100);
+    const bars = await fetchBars(symbol, "5m", 100, chain);
     if (!bars || bars.length < 30) return getCryptocomAiConfirmationLite(userId, symbol, result);
     const candles = convertToCandles(bars);
     const indicators = computeAllAdvancedIndicators(candles, 0, symbol, "M5");
@@ -15661,7 +15665,7 @@ async function assembleConsensus(userId, symbol, result, cfg) {
     });
     return tradeAllowed2;
   }
-  const ai = await getCryptocomAiConfirmation(userId, symbol, result);
+  const ai = await getCryptocomAiConfirmation(userId, symbol, result, cfg.defiChain || "base");
   const aiVerdict = ai.confirmed && ai.confidence >= Math.max(60, cfg.minConfidence) ? "CONFIRM" : "SKIP";
   let consensus;
   if (quantVerdict === "CONFIRM" && aiVerdict === "CONFIRM") consensus = "STRONG_CONFIRM";
@@ -15718,7 +15722,7 @@ async function executeSignalSingle(service, connection, userId, symbol, result, 
     const notionalD = Math.max(1, cfg.defiNotionalUsd ?? 25) * (gateD.riskMultiplier < 1 ? gateD.riskMultiplier : 1);
     try {
       const { defiEntryBuy: defiEntryBuy2 } = await Promise.resolve().then(() => (init_defi_executor(), defi_executor_exports));
-      const disc = getDefiUniverseEntry(symbol);
+      const disc = getDefiUniverseEntry(symbol, chain);
       const r = await defiEntryBuy2(userId, chain, disc?.address ?? symbol, notionalD, slip, disc?.priceUsd ?? result.price ?? void 0);
       if (!r.ok) {
         if (r.pending && r.txHash) {
