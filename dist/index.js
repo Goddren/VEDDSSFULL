@@ -43906,7 +43906,7 @@ async function executeServerSideSell(userId, pos, reason, state) {
       state.autoTradeStats.losses++;
       if (gainPct < state.autoTradeStats.worstTradePct) state.autoTradeStats.worstTradePct = gainPct;
     }
-    const dexKeyLive = (pos.strategyId || "unknown").toLowerCase().replace(/[^a-z]/g, "") || "unknown";
+    const dexKeyLive = (pos.dex || "unknown").toLowerCase().replace(/[^a-z]/g, "") || "unknown";
     if (!state.signalWeights[dexKeyLive]) state.signalWeights[dexKeyLive] = 1;
     if (!state.kellyStats[dexKeyLive]) state.kellyStats[dexKeyLive] = { wins: 0, losses: 0, totalGainPct: 0 };
     if (isWin) {
@@ -44074,9 +44074,11 @@ async function executeServerSideBuy(userId, signal, state) {
       openedAt: (/* @__PURE__ */ new Date()).toISOString(),
       status: "open",
       stopLossPrice: signal.stopLossPrice,
-      takeProfitPrice: signal.takeProfitPrice
+      takeProfitPrice: signal.takeProfitPrice,
+      dex: signal.dex
     };
     state.livePositions.push(pos);
+    state.dailyTradeCount++;
     addActivity3(state, {
       type: "live_buy",
       message: `\u{1F916} Server auto-bought ${signal.symbol} \u2014 ${signal.sizeSOL.toFixed(3)} SOL @ $${signal.price.toFixed(6)} | TX: ${signature.slice(0, 16)}... | TP: +${state.autoTradeTP}% | SL: -${state.autoTradeSL}%`
@@ -44652,7 +44654,7 @@ async function monitorPaperPositions(userId, state) {
         type: "paper_sell",
         message: `${emoji} Paper ${label}: ${pos.symbol} closed @ $${currentPrice.toFixed(6)} \u2014 ${gainPct >= 0 ? "+" : ""}${gainPct.toFixed(2)}% | ${pos.size.toFixed(3)} SOL ${isTrailHit ? "(trailing stop hit)" : isWin ? "profit sealed" : "lesson built"}`
       });
-      const dexKeyClose = (pos.strategyId || "unknown").toLowerCase().replace(/[^a-z]/g, "") || "unknown";
+      const dexKeyClose = (pos.dex || "unknown").toLowerCase().replace(/[^a-z]/g, "") || "unknown";
       if (!state.signalWeights[dexKeyClose]) state.signalWeights[dexKeyClose] = 1;
       if (!state.kellyStats[dexKeyClose]) state.kellyStats[dexKeyClose] = { wins: 0, losses: 0, totalGainPct: 0 };
       if (isProfit) {
@@ -45021,6 +45023,7 @@ async function runScan(userId, state, triggerToken) {
               tokenAmount: 0,
               decimals: 9,
               strategyId: topStrat.id,
+              dex: dexKey,
               mode: "paper",
               openedAt: now2,
               status: "open",
@@ -45092,9 +45095,9 @@ async function runScan(userId, state, triggerToken) {
               // live position stopOrdersEnabled believed it had never
               // actually recorded one.
               stopLossPrice,
-              takeProfitPrice
+              takeProfitPrice,
+              dex: dexKey
             };
-            state.dailyTradeCount++;
             addActivity3(state, {
               type: "live_signal",
               message: `\u26A1 Live signal: ${analysis.token.symbol} \u2014 ${liveSizeSOL.toFixed(3)} SOL @ $${tokenPrice.toFixed(6)} [${topStrat.icon}${topStrat.name}]${brainNote} | ${confluenceCount} strat confluence (edge ${compositeEdge.toFixed(0)}) | Attempting server-side execution...`
@@ -45604,9 +45607,11 @@ function confirmLiveTrade(userId, signalId, txHash, tradeData) {
     openedAt: (/* @__PURE__ */ new Date()).toISOString(),
     status: "open",
     stopLossPrice: signal?.stopLossPrice,
-    takeProfitPrice: signal?.takeProfitPrice
+    takeProfitPrice: signal?.takeProfitPrice,
+    dex: signal?.dex
   };
   state.livePositions.push(pos);
+  state.dailyTradeCount++;
   addActivity3(state, {
     type: "live_buy",
     message: `\u26A1 Live EXECUTED: ${symbol} \u2014 ${tradeData?.tokenAmount ? (tradeData.tokenAmount / Math.pow(10, tradeData.decimals || 9)).toFixed(4) + " tokens @ $" + (tradeData.entryPrice || 0).toFixed(6) : ""} tx: ${txHash.slice(0, 16)}...`
@@ -56359,9 +56364,9 @@ async function getStopOrdersForUser(userId, filters = {}) {
 init_schema();
 
 // server/build-info.ts
-var BUILD_COMMIT = "d9bd9256-dirty";
+var BUILD_COMMIT = "3d40bdcd-dirty";
 var BUILD_BRANCH = "main";
-var BUILT_AT = "2026-09-26T02:49:30.300Z";
+var BUILT_AT = "2026-09-26T03:14:09.719Z";
 
 // server/stripe.ts
 init_db();

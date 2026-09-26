@@ -89,6 +89,12 @@ export interface SolAutoPosition {
   entryVolume24h?: number;
   stopLossPrice?: number;    // absolute price-level stop order (when stopOrdersEnabled)
   takeProfitPrice?: number;  // absolute price-level take profit (when stopOrdersEnabled)
+  // DEX the token traded on at entry ('raydium'/'orca'/'pumpfun', from
+  // token.dexId.split('_')[0]). Recorded so a close can key kellyStats /
+  // signalWeights by the SAME dimension computeAutoSolSize reads them by —
+  // previously this field didn't exist, so the close side fell back to
+  // strategyId, and every DEX-keyed lookup at sizing time was a permanent miss.
+  dex?: string;
 }
 
 export interface SolPendingSignal {
@@ -104,6 +110,7 @@ export interface SolPendingSignal {
   expiresAt: string;
   stopLossPrice?: number;    // absolute price stop order
   takeProfitPrice?: number;  // absolute price TP order
+  dex?: string;              // carried onto the live SolAutoPosition on confirm
 }
 
 export interface SolPendingExit {
@@ -745,7 +752,12 @@ async function executeServerSideSell(userId: number, pos: SolAutoPosition, reaso
     }
 
     // Update DEX/strategy weights and Kelly stats from this live auto-close
-    const dexKeyLive = (pos.strategyId || 'unknown').toLowerCase().replace(/[^a-z]/g, '') || 'unknown';
+    // Was keyed by pos.strategyId (e.g. 'momentum_surfer'), while every read
+    // (computeAutoSolSize) looks up by DEX (e.g. 'raydium'/'orca'). Every close
+    // wrote win/loss history under a key sizing never consulted — Kelly sizing
+    // was a permanent no-op. pos.dex is only present on positions opened after
+    // this fix; 'unknown' is the correct bucket for older ones, not a silent miss.
+    const dexKeyLive = (pos.dex || 'unknown').toLowerCase().replace(/[^a-z]/g, '') || 'unknown';
     if (!state.signalWeights[dexKeyLive]) state.signalWeights[dexKeyLive] = 1.0;
     if (!state.kellyStats[dexKeyLive]) state.kellyStats[dexKeyLive] = { wins: 0, losses: 0, totalGainPct: 0 };
     if (isWin) {
@@ -928,8 +940,10 @@ async function executeServerSideBuy(
       status: 'open',
       stopLossPrice: signal.stopLossPrice,
       takeProfitPrice: signal.takeProfitPrice,
+      dex: signal.dex,
     };
     state.livePositions.push(pos);
+    state.dailyTradeCount++; // counted here, not at signal creation — see the note above
     addActivity(state, {
       type: 'live_buy',
       message: `🤖 Server auto-bought ${signal.symbol} — ${signal.sizeSOL.toFixed(3)} SOL @ $${signal.price.toFixed(6)} | TX: ${signature.slice(0, 16)}... | TP: +${state.autoTradeTP}% | SL: -${state.autoTradeSL}%`,
@@ -1695,7 +1709,8 @@ async function monitorPaperPositions(userId: number, state: SolEngineState) {
       });
 
       // Update DEX signal weights and Kelly stats from auto-closes
-      const dexKeyClose = (pos.strategyId || 'unknown').toLowerCase().replace(/[^a-z]/g, '') || 'unknown';
+      // Same fix as the live-close path above — key by DEX, not strategy.
+      const dexKeyClose = (pos.dex || 'unknown').toLowerCase().replace(/[^a-z]/g, '') || 'unknown';
       if (!state.signalWeights[dexKeyClose]) state.signalWeights[dexKeyClose] = 1.0;
       if (!state.kellyStats[dexKeyClose]) state.kellyStats[dexKeyClose] = { wins: 0, losses: 0, totalGainPct: 0 };
       if (isProfit) {
@@ -2188,6 +2203,7 @@ async function runScan(userId: number, state: SolEngineState, triggerToken?: str
               tokenAmount: 0,
               decimals: 9,
               strategyId: topStrat.id,
+              dex: dexKey,
               mode: 'paper',
               openedAt: now2,
               status: 'open',
@@ -2276,8 +2292,17 @@ async function runScan(userId: number, state: SolEngineState, triggerToken?: str
               // actually recorded one.
               stopLossPrice,
               takeProfitPrice,
+              dex: dexKey,
             };
-            state.dailyTradeCount++;
+            // NOT counted here. This is a SIGNAL, not a trade — it may never be
+            // confirmed (executeServerSideBuy can fail, or the 90s Phantom-approval
+            // window can lapse with the signal logged as "Missed" and dropped).
+            // Counting it here, with no rollback on either failure path, let five
+            // signals that all expired unconfirmed exhaust maxDailyTrades and lock
+            // out every further LIVE entry for the rest of the day despite zero
+            // real trades. Moved to the two places a live position is actually
+            // recorded: below (server-side auto-buy) and confirmLiveTrade()
+            // (the Phantom-approval path).
 
             // Attempt fully-automated server-side buy (requires stored private key)
             addActivity(state, {
@@ -2886,8 +2911,10 @@ export function confirmLiveTrade(
     status: 'open',
     stopLossPrice: signal?.stopLossPrice,
     takeProfitPrice: signal?.takeProfitPrice,
+    dex: signal?.dex,
   };
   state.livePositions.push(pos);
+  state.dailyTradeCount++; // counted here, not at signal creation — see executeServerSideBuy's note
   addActivity(state, {
     type: 'live_buy',
     message: `⚡ Live EXECUTED: ${symbol} — ${tradeData?.tokenAmount ? (tradeData.tokenAmount / Math.pow(10, tradeData.decimals || 9)).toFixed(4) + ' tokens @ $' + (tradeData.entryPrice || 0).toFixed(6) : ''} tx: ${txHash.slice(0, 16)}...`,
