@@ -7628,6 +7628,32 @@ var init_prop_firm_consistency = __esm({
   }
 });
 
+// server/services/weekend-boost.ts
+function isWeekendBoostWindow(d = /* @__PURE__ */ new Date()) {
+  const day = d.getUTCDay();
+  return day === 5 || day === 6 || day === 0;
+}
+function weekendBoostActive(d = /* @__PURE__ */ new Date()) {
+  return ENABLED && isWeekendBoostWindow(d);
+}
+function boostedMinConfidence(minConfidence, d = /* @__PURE__ */ new Date()) {
+  if (!weekendBoostActive(d)) return minConfidence;
+  return Math.max(CONF_HARD_FLOOR, minConfidence - CONF_DELTA);
+}
+function weekendBoostSizeMultiplier(d = /* @__PURE__ */ new Date()) {
+  return weekendBoostActive(d) ? SIZE_MULT : 1;
+}
+var ENABLED, CONF_DELTA, CONF_HARD_FLOOR, SIZE_MULT;
+var init_weekend_boost = __esm({
+  "server/services/weekend-boost.ts"() {
+    "use strict";
+    ENABLED = process.env.WEEKEND_BOOST_ENABLED !== "false";
+    CONF_DELTA = Number(process.env.WEEKEND_BOOST_CONF_DELTA ?? 5);
+    CONF_HARD_FLOOR = 50;
+    SIZE_MULT = Number(process.env.WEEKEND_BOOST_SIZE_MULT ?? 1.3);
+  }
+});
+
 // server/services/crypto-market-data.ts
 var crypto_market_data_exports = {};
 __export(crypto_market_data_exports, {
@@ -15893,6 +15919,16 @@ async function executeSignalSingle(service, connection, userId, symbol, result, 
 async function scanOneUser(userId) {
   const config = await storage.getUserCryptocomEngineConfig(userId);
   if (!config || !config.isActive) return;
+  try {
+    if (weekendBoostActive()) {
+      const sizeMult2 = weekendBoostSizeMultiplier();
+      config.minConfidence = boostedMinConfidence(config.minConfidence);
+      config.riskPerTrade = config.riskPerTrade * sizeMult2;
+      if (config.defiNotionalUsd != null) config.defiNotionalUsd = config.defiNotionalUsd * sizeMult2;
+      if (config.cefiNotionalUsd != null) config.cefiNotionalUsd = config.cefiNotionalUsd * sizeMult2;
+    }
+  } catch {
+  }
   const now = Date.now();
   const last = lastScanAt.get(userId) || 0;
   if (now - last < Math.max(MIN_SCAN_INTERVAL_MS, config.scanIntervalMs)) return;
@@ -16248,6 +16284,7 @@ var init_cryptocom_scanner = __esm({
     init_indicators();
     init_crypto_brain();
     init_prop_firm_consistency();
+    init_weekend_boost();
     init_cefi_executor();
     MIN_SCAN_INTERVAL_MS = 6e4;
     lastScanAt = /* @__PURE__ */ new Map();

@@ -4,6 +4,7 @@ import { solEngineSettings, solEnginePositions } from '../../shared/schema';
 import { eq, sql } from 'drizzle-orm';
 import crypto from 'crypto';
 import { getOrRefreshSolBrain, solBrainSizeMultiplier, solBrainGate, recordSolBrainOutcome } from './sol-brain';
+import { weekendBoostActive, boostedMinConfidence, weekendBoostSizeMultiplier } from './weekend-boost';
 
 // ── Sol-engine "edge" config (ported from the proven crypto engine) ──────────
 // Brain + gating default ON to match the crypto engine. Confluence gate applies
@@ -1234,11 +1235,17 @@ function computeAutoSolSize(state: SolEngineState, dex: string, overrideStrategy
   }
   if (portfolio <= 0) return 0;
 
+  // Weekend boost: Friday through Sunday, size up while FX is closed/thin.
+  // Applied to the fraction BEFORE the 0.005-0.15 clamp below, same as every
+  // other multiplier here (phase, Kelly) — the clamp is the real safety
+  // ceiling and always wins; the boost only matters when there's room under it.
+  const _sizeBoost = weekendBoostSizeMultiplier();
+
   // If riskPerTradePct is explicitly set (> 0), it overrides the strategy fraction
   const riskPct = state.config.riskPerTradePct;
   if (riskPct > 0) {
     const phaseMultiplier = getPhaseMultiplier(state.weeklyGoal.phase, state.weeklyGoal.winStreak);
-    const riskFraction = (riskPct / 100) * phaseMultiplier;
+    const riskFraction = (riskPct / 100) * phaseMultiplier * _sizeBoost;
     const capped = Math.max(0.005, Math.min(0.15, riskFraction));
     return Math.round(portfolio * capped * 1000) / 1000;
   }
@@ -1257,6 +1264,7 @@ function computeAutoSolSize(state: SolEngineState, dex: string, overrideStrategy
     }
   }
 
+  fraction = fraction * _sizeBoost;
   fraction = Math.max(0.005, Math.min(0.15, fraction));
   return Math.round(portfolio * fraction * 1000) / 1000;
 }
@@ -1939,6 +1947,14 @@ async function runScan(userId: number, state: SolEngineState, triggerToken?: str
   if (state.isScanning) return;
   state.isScanning = true;
   try {
+    // ── Weekend boost: Friday through Sunday, lower each strategy's confidence
+    // floor while FX is closed/thin so Sol carries more of the week's activity.
+    // Computed once per cycle; SOL_STRATEGIES' minConfidence values are fixed
+    // constants on the shared array, not per-user state, so the boost is
+    // applied at the comparison sites below rather than mutated onto the array.
+    const _boostActive = weekendBoostActive();
+    const _effMinConf = (s: SolStrategy) => _boostActive ? boostedMinConfidence(s.minConfidence) : s.minConfidence;
+
     // ── Reset daily trade counter at UTC midnight ────────────────────────────
     const todayUTC = new Date().toISOString().slice(0, 10); // YYYY-MM-DD
     if (state.dailyTradeDate !== todayUTC) {
@@ -2138,7 +2154,7 @@ async function runScan(userId: number, state: SolEngineState, triggerToken?: str
           .map(id => SOL_STRATEGIES.find(s => s.id === id))
           .filter((s): s is SolStrategy => !!s)
           .filter(s => {
-            if (analysis.confidence < s.minConfidence) return false;
+            if (analysis.confidence < _effMinConf(s)) return false;
             if (s.minSignal === 'STRONG_BUY' && analysis.signal !== 'STRONG_BUY') return false;
             if (s.maxRisk === 'LOW' && (analysis.riskLevel === 'HIGH' || analysis.riskLevel === 'EXTREME')) return false;
             // Strategy-specific entry criteria — each strategy has unique conditions
@@ -2243,7 +2259,7 @@ async function runScan(userId: number, state: SolEngineState, triggerToken?: str
           // still works in adaptive mode, where activeStrats is collapsed to 1 —
           // the user chose "confluence applies to live entries regardless of adaptive".
           const confluenceCount = SOL_STRATEGIES.filter(s => {
-            if (analysis.confidence < s.minConfidence) return false;
+            if (analysis.confidence < _effMinConf(s)) return false;
             if (s.minSignal === 'STRONG_BUY' && analysis.signal !== 'STRONG_BUY') return false;
             if (s.maxRisk === 'LOW' && (analysis.riskLevel === 'HIGH' || analysis.riskLevel === 'EXTREME')) return false;
             if (!passesStrategyFilter(analysis, s)) return false;

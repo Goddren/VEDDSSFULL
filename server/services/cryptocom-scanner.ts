@@ -13,6 +13,7 @@ import { computeAllAdvancedIndicators, type CandleData } from '../indicators';
 import type { CryptocomEngineConfig, CryptocomConnection } from '../../shared/schema';
 import { getOrRefreshCryptoBrain, cryptoBrainSizeMultiplier, cryptoBrainGate, cryptoBrainReady, recordCryptoBrainOutcome } from './crypto-brain';
 import { recordRealizedPnl } from './prop-firm-consistency';
+import { weekendBoostActive, boostedMinConfidence, weekendBoostSizeMultiplier } from './weekend-boost';
 import { cefiEntryBuy, cefiExitSell, baseCoin, type CefiVenue } from './cefi-executor';
 // NOTE: defi-executor is imported LAZILY (dynamic import at the two call sites
 // below) — it pulls in defi-swap → ethers, a heavy stack. Keeping it out of the
@@ -1210,6 +1211,22 @@ async function executeSignalSingle(service: CryptoComService, connection: Crypto
 async function scanOneUser(userId: number): Promise<void> {
   const config = await storage.getUserCryptocomEngineConfig(userId);
   if (!config || !config.isActive) return;
+
+  // ── Weekend boost: Friday through Sunday, shift more weight onto crypto ──
+  // while FX is closed/thin. Mutates this in-memory config for THIS cycle
+  // only -- nothing here writes it back to the DB, so the user's real stored
+  // settings are untouched and this reverts automatically once the window
+  // ends. Touches every sizing path that reads off this same object:
+  // riskPerTrade (CEX), defiNotionalUsd, cefiNotionalUsd.
+  try {
+    if (weekendBoostActive()) {
+      const sizeMult = weekendBoostSizeMultiplier();
+      (config as any).minConfidence = boostedMinConfidence(config.minConfidence);
+      (config as any).riskPerTrade = config.riskPerTrade * sizeMult;
+      if ((config as any).defiNotionalUsd != null) (config as any).defiNotionalUsd = (config as any).defiNotionalUsd * sizeMult;
+      if ((config as any).cefiNotionalUsd != null) (config as any).cefiNotionalUsd = (config as any).cefiNotionalUsd * sizeMult;
+    }
+  } catch { /* non-fatal — engine runs at normal settings if this fails */ }
 
   const now = Date.now();
   const last = lastScanAt.get(userId) || 0;

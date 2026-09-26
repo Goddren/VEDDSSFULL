@@ -14869,6 +14869,26 @@ async function recordRealizedPnl(userId, connectionId, connectionType, realizedP
   }
 }
 
+// server/services/weekend-boost.ts
+var ENABLED = process.env.WEEKEND_BOOST_ENABLED !== "false";
+var CONF_DELTA = Number(process.env.WEEKEND_BOOST_CONF_DELTA ?? 5);
+var CONF_HARD_FLOOR = 50;
+var SIZE_MULT = Number(process.env.WEEKEND_BOOST_SIZE_MULT ?? 1.3);
+function isWeekendBoostWindow(d = /* @__PURE__ */ new Date()) {
+  const day = d.getUTCDay();
+  return day === 5 || day === 6 || day === 0;
+}
+function weekendBoostActive(d = /* @__PURE__ */ new Date()) {
+  return ENABLED && isWeekendBoostWindow(d);
+}
+function boostedMinConfidence(minConfidence, d = /* @__PURE__ */ new Date()) {
+  if (!weekendBoostActive(d)) return minConfidence;
+  return Math.max(CONF_HARD_FLOOR, minConfidence - CONF_DELTA);
+}
+function weekendBoostSizeMultiplier(d = /* @__PURE__ */ new Date()) {
+  return weekendBoostActive(d) ? SIZE_MULT : 1;
+}
+
 // server/services/cryptocom-scanner.ts
 init_cefi_executor();
 var MIN_SCAN_INTERVAL_MS = 6e4;
@@ -15877,6 +15897,16 @@ async function executeSignalSingle(service, connection, userId, symbol, result, 
 async function scanOneUser(userId) {
   const config = await storage.getUserCryptocomEngineConfig(userId);
   if (!config || !config.isActive) return;
+  try {
+    if (weekendBoostActive()) {
+      const sizeMult2 = weekendBoostSizeMultiplier();
+      config.minConfidence = boostedMinConfidence(config.minConfidence);
+      config.riskPerTrade = config.riskPerTrade * sizeMult2;
+      if (config.defiNotionalUsd != null) config.defiNotionalUsd = config.defiNotionalUsd * sizeMult2;
+      if (config.cefiNotionalUsd != null) config.cefiNotionalUsd = config.cefiNotionalUsd * sizeMult2;
+    }
+  } catch {
+  }
   const now = Date.now();
   const last = lastScanAt.get(userId) || 0;
   if (now - last < Math.max(MIN_SCAN_INTERVAL_MS, config.scanIntervalMs)) return;

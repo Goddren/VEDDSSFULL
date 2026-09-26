@@ -36990,6 +36990,32 @@ var init_crypto_brain = __esm({
   }
 });
 
+// server/services/weekend-boost.ts
+function isWeekendBoostWindow(d = /* @__PURE__ */ new Date()) {
+  const day = d.getUTCDay();
+  return day === 5 || day === 6 || day === 0;
+}
+function weekendBoostActive(d = /* @__PURE__ */ new Date()) {
+  return ENABLED && isWeekendBoostWindow(d);
+}
+function boostedMinConfidence(minConfidence, d = /* @__PURE__ */ new Date()) {
+  if (!weekendBoostActive(d)) return minConfidence;
+  return Math.max(CONF_HARD_FLOOR, minConfidence - CONF_DELTA);
+}
+function weekendBoostSizeMultiplier(d = /* @__PURE__ */ new Date()) {
+  return weekendBoostActive(d) ? SIZE_MULT : 1;
+}
+var ENABLED, CONF_DELTA, CONF_HARD_FLOOR, SIZE_MULT;
+var init_weekend_boost = __esm({
+  "server/services/weekend-boost.ts"() {
+    "use strict";
+    ENABLED = process.env.WEEKEND_BOOST_ENABLED !== "false";
+    CONF_DELTA = Number(process.env.WEEKEND_BOOST_CONF_DELTA ?? 5);
+    CONF_HARD_FLOOR = 50;
+    SIZE_MULT = Number(process.env.WEEKEND_BOOST_SIZE_MULT ?? 1.3);
+  }
+});
+
 // server/coinbase.ts
 var coinbase_exports = {};
 __export(coinbase_exports, {
@@ -39059,6 +39085,16 @@ async function executeSignalSingle(service, connection2, userId, symbol, result,
 async function scanOneUser(userId) {
   const config = await storage.getUserCryptocomEngineConfig(userId);
   if (!config || !config.isActive) return;
+  try {
+    if (weekendBoostActive()) {
+      const sizeMult3 = weekendBoostSizeMultiplier();
+      config.minConfidence = boostedMinConfidence(config.minConfidence);
+      config.riskPerTrade = config.riskPerTrade * sizeMult3;
+      if (config.defiNotionalUsd != null) config.defiNotionalUsd = config.defiNotionalUsd * sizeMult3;
+      if (config.cefiNotionalUsd != null) config.cefiNotionalUsd = config.cefiNotionalUsd * sizeMult3;
+    }
+  } catch {
+  }
   const now = Date.now();
   const last = lastScanAt.get(userId) || 0;
   if (now - last < Math.max(MIN_SCAN_INTERVAL_MS, config.scanIntervalMs)) return;
@@ -39414,6 +39450,7 @@ var init_cryptocom_scanner = __esm({
     init_indicators();
     init_crypto_brain();
     init_prop_firm_consistency();
+    init_weekend_boost();
     init_cefi_executor();
     MIN_SCAN_INTERVAL_MS = 6e4;
     lastScanAt = /* @__PURE__ */ new Map();
@@ -44353,10 +44390,11 @@ function computeAutoSolSize(state, dex, overrideStrategy, mode = "live") {
     portfolio = state.currentPortfolioValue;
   }
   if (portfolio <= 0) return 0;
+  const _sizeBoost = weekendBoostSizeMultiplier();
   const riskPct = state.config.riskPerTradePct;
   if (riskPct > 0) {
     const phaseMultiplier2 = getPhaseMultiplier(state.weeklyGoal.phase, state.weeklyGoal.winStreak);
-    const riskFraction = riskPct / 100 * phaseMultiplier2;
+    const riskFraction = riskPct / 100 * phaseMultiplier2 * _sizeBoost;
     const capped = Math.max(5e-3, Math.min(0.15, riskFraction));
     return Math.round(portfolio * capped * 1e3) / 1e3;
   }
@@ -44371,6 +44409,7 @@ function computeAutoSolSize(state, dex, overrideStrategy, mode = "live") {
       fraction = (fraction + kellyFrac) / 2;
     }
   }
+  fraction = fraction * _sizeBoost;
   fraction = Math.max(5e-3, Math.min(0.15, fraction));
   return Math.round(portfolio * fraction * 1e3) / 1e3;
 }
@@ -44885,6 +44924,8 @@ async function runScan(userId, state, triggerToken) {
   if (state.isScanning) return;
   state.isScanning = true;
   try {
+    const _boostActive = weekendBoostActive();
+    const _effMinConf = (s) => _boostActive ? boostedMinConfidence(s.minConfidence) : s.minConfidence;
     const todayUTC = (/* @__PURE__ */ new Date()).toISOString().slice(0, 10);
     if (state.dailyTradeDate !== todayUTC) {
       state.dailyTradeDate = todayUTC;
@@ -45026,7 +45067,7 @@ async function runScan(userId, state, triggerToken) {
           activeStrats = [autoRec.strategyId];
         }
         const confirmingStrats = activeStrats.map((id) => SOL_STRATEGIES.find((s) => s.id === id)).filter((s) => !!s).filter((s) => {
-          if (analysis.confidence < s.minConfidence) return false;
+          if (analysis.confidence < _effMinConf(s)) return false;
           if (s.minSignal === "STRONG_BUY" && analysis.signal !== "STRONG_BUY") return false;
           if (s.maxRisk === "LOW" && (analysis.riskLevel === "HIGH" || analysis.riskLevel === "EXTREME")) return false;
           if (!passesStrategyFilter(analysis, s)) return false;
@@ -45110,7 +45151,7 @@ async function runScan(userId, state, triggerToken) {
           const lastRejected = state.signalCooldowns.get(tokenMint);
           const onCooldown = lastRejected && Date.now() - lastRejected < SIGNAL_COOLDOWN_MS;
           const confluenceCount = SOL_STRATEGIES.filter((s) => {
-            if (analysis.confidence < s.minConfidence) return false;
+            if (analysis.confidence < _effMinConf(s)) return false;
             if (s.minSignal === "STRONG_BUY" && analysis.signal !== "STRONG_BUY") return false;
             if (s.maxRisk === "LOW" && (analysis.riskLevel === "HIGH" || analysis.riskLevel === "EXTREME")) return false;
             if (!passesStrategyFilter(analysis, s)) return false;
@@ -45879,6 +45920,7 @@ var init_sol_engine = __esm({
     init_db();
     init_schema();
     init_sol_brain();
+    init_weekend_boost();
     SOL_BRAIN_ENABLED = true;
     SOL_BRAIN_GATING = true;
     SOL_CONFLUENCE_REQUIRED = 2;
@@ -56421,9 +56463,9 @@ async function getStopOrdersForUser(userId, filters = {}) {
 init_schema();
 
 // server/build-info.ts
-var BUILD_COMMIT = "2be1e59e-dirty";
+var BUILD_COMMIT = "8987fdc0-dirty";
 var BUILD_BRANCH = "main";
-var BUILT_AT = "2026-09-26T04:28:17.463Z";
+var BUILT_AT = "2026-09-26T14:25:50.029Z";
 
 // server/stripe.ts
 init_db();
