@@ -2224,7 +2224,74 @@ async function getMergedOpenPositions(userId: number, marketAnalysis?: Record<st
     tlPositions = perConn.flat();
   } catch { /* no TL connections — MT5 only */ }
 
-  return [...mt5Positions, ...tlPositions];
+  // DXtrade positions were entirely absent from this list. Everything that reads
+  // getMergedOpenPositions() — trailing-stop management, the deterministic
+  // reversal-exit, the conflicting-open-position gate, the USD-correlation
+  // guard, and the floating-drawdown circuit breaker — was consequently blind
+  // to any DXtrade exposure: a DXtrade position got its SL/TP set once at open
+  // and was then never trailed or protected by a reversal exit, a hedge against
+  // it on another broker was never blocked, and a large DXtrade unrealized loss
+  // could breach maxDrawdownPct without the shield ever seeing it. Read failures
+  // per connection are swallowed to [] (matching the TL branch above) so one
+  // broker's outage can't take down position monitoring for the others.
+  let dxPositions: any[] = [];
+  try {
+    const { pool: _dxPool2 } = await import('../db');
+    const dxConns = (await _dxPool2.query(
+      `SELECT id, host, username, encrypted_password, domain, account_code FROM dxtrade_connections WHERE user_id=$1 AND is_active=true`,
+      [userId],
+    )).rows;
+    if (dxConns.length > 0) {
+      const { getDxtradeService, decryptApiSecret, extractAccountCode } = await import('../dxtrade');
+      const perDxConn = await Promise.all(dxConns.map(async (dc: any) => {
+        try {
+          const svc = getDxtradeService(dc.host, dc.username, decryptApiSecret(dc.encrypted_password), dc.domain, String(dc.id));
+          await svc.ensureLoggedIn();
+          const acct = dc.account_code || extractAccountCode(await svc.getAccounts());
+          if (!acct) return [];
+          const positions = await svc.getPositions(acct).catch(() => []);
+          return positions.map((p: any) => {
+            const symbol = (p.instrument || '').toUpperCase().replace('/', '');
+            const direction = p.side === 'SELL' ? 'SELL' : 'BUY';
+            const openPrice = Number(p.openPrice) || 0;
+            const currentPrice = marketAnalysis?.[symbol]?.currentPrice ?? openPrice;
+            // No established DXtrade field name for OPEN-position unrealized P&L
+            // in this codebase (only closed-trade P&L field names are documented
+            // in getClosedTradesWithPnl). Rather than guess a raw field that may
+            // not exist and silently read as 0/undefined, compute it directly
+            // from price movement — the same quote→USD JPY correction used for
+            // entry sizing elsewhere, so a JPY pair's floating P&L isn't ~150x
+            // overstated in the drawdown shield's sum.
+            const qty = Number(p.quantity) || 0;
+            const dirSign = direction === 'BUY' ? 1 : -1;
+            const quoteToUsd = symbol.toUpperCase().endsWith('JPY')
+              ? (Number(marketAnalysis?.['USDJPY']?.currentPrice) > 0 ? 1 / Number(marketAnalysis!['USDJPY'].currentPrice) : 1 / 150)
+              : 1;
+            const profit = openPrice > 0 && currentPrice > 0
+              ? (currentPrice - openPrice) * qty * dirSign * quoteToUsd
+              : 0;
+            return {
+              symbol,
+              direction,
+              openPrice,
+              currentPrice,
+              sl: 0, // set via modifyProtection at open; not exposed on the position read
+              tp: 0,
+              profit,
+              volume: qty,
+              openTime: undefined,
+              ticket: `dx_${acct}_${p.positionId ?? ''}`,
+              source: 'dx',
+              connectionId: dc.id,
+            };
+          });
+        } catch { return []; }
+      }));
+      dxPositions = perDxConn.flat();
+    }
+  } catch { /* no DXtrade connections */ }
+
+  return [...mt5Positions, ...tlPositions, ...dxPositions];
 }
 
 async function applyServerSideTrails(
@@ -4042,8 +4109,15 @@ async function processDecision(userId: number, decision: any, newsCtx?: any): Pr
     // block the new signal. Running a BUY and SELL on the same pair simultaneously
     // is a net-zero hedge that pays double spread — never profitable.
     // To reverse a position, the open trade must be closed first.
+    // MT5-only source fixed: this used to read (global).mt5OpenPositions
+    // directly, so a user with only TradeLocker/DXtrade connections (no MT5 EA)
+    // had an always-empty array here — an opposite-direction hedge on an open
+    // TradeLocker or DXtrade position was never caught, and the USD-correlation
+    // guard just below had the same blind spot. getMergedOpenPositions() already
+    // exists specifically to combine all three sources; use it here too.
+    const _mergedPositionsForGates = await getMergedOpenPositions(userId, (state as any)._lastMarketAnalysis).catch(() => []);
     if (_signalDirRaw === 'BUY' || _signalDirRaw === 'SELL') {
-      const _livePositions: any[] = (global as any).mt5OpenPositions?.[userId]?.positions || [];
+      const _livePositions: any[] = _mergedPositionsForGates;
       const _existingOnPair = _livePositions.find(
         (p: any) => (p.symbol || '').toUpperCase().replace('/', '') === decision.symbol?.toUpperCase().replace('/', '')
       );
@@ -4082,7 +4156,7 @@ async function processDecision(userId: number, decision: any, newsCtx?: any): Pr
       const newSym = (decision.symbol || '').toUpperCase().replace('/', '');
       const newIsUSD = newSym.includes('USD');
       if (newIsUSD) {
-        const _livePositionsForCorr: any[] = (global as any).mt5OpenPositions?.[userId]?.positions || [];
+        const _livePositionsForCorr: any[] = _mergedPositionsForGates;
         const openUSDPositions = _livePositionsForCorr.filter((p: any) => {
           const pSym = (p.symbol || '').toUpperCase().replace('/', '');
           return pSym.includes('USD');
@@ -5498,6 +5572,12 @@ async function processDecision(userId: number, decision: any, newsCtx?: any): Pr
                   mt5Ticket: _dxTicket,
                   notes: `DXtrade open (qty ${qty}) SL ${stopLoss}${takeProfit ? ` TP ${takeProfit}` : ''} — protection attached, awaiting close sync`,
                 } as any);
+                // DXtrade fills never incremented this counter at all — the only
+                // increment site was on the TradeLocker success branch further
+                // down. A DXtrade-only user's maxDailyTrades cap therefore never
+                // engaged: the gate at the top of this function always read 0
+                // regardless of how many DXtrade trades had actually opened today.
+                state.tradesOpenedToday++;
               }
             } catch (_dxRec: any) {
               console.error('[live-engine] DXtrade open-record failed (non-fatal):', _dxRec?.message ?? _dxRec);

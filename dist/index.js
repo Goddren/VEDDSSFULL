@@ -22620,6 +22620,624 @@ var init_markov_chain = __esm({
   }
 });
 
+// server/cryptocom.ts
+var cryptocom_exports = {};
+__export(cryptocom_exports, {
+  CryptoComService: () => CryptoComService,
+  decryptApiSecret: () => decryptApiSecret,
+  encryptApiSecret: () => encryptApiSecret
+});
+import crypto3 from "crypto";
+function getEncryptionKey3() {
+  const key = process.env.CRYPTOCOM_ENCRYPTION_KEY;
+  if (!key) {
+    console.warn("[Crypto.com] CRYPTOCOM_ENCRYPTION_KEY not set \u2014 using default key. Set it in your Render environment variables.");
+    return DEFAULT_ENCRYPTION_KEY2;
+  }
+  if (key.length < 32) {
+    console.warn("[Crypto.com] CRYPTOCOM_ENCRYPTION_KEY is too short, padding to 32 chars.");
+    return key.padEnd(32, "0");
+  }
+  return key;
+}
+function encryptApiSecret(secret) {
+  const iv = crypto3.randomBytes(IV_LENGTH2);
+  const salt = crypto3.randomBytes(SALT_LENGTH2);
+  const key = crypto3.scryptSync(getEncryptionKey3(), salt, 32);
+  const cipher = crypto3.createCipheriv("aes-256-cbc", key, iv);
+  let encrypted = cipher.update(secret, "utf8", "hex");
+  encrypted += cipher.final("hex");
+  return salt.toString("hex") + ":" + iv.toString("hex") + ":" + encrypted;
+}
+function decryptApiSecret(encrypted) {
+  const parts = encrypted.split(":");
+  if (parts.length !== 3) throw new Error("Invalid encrypted secret format");
+  const [saltHex, ivHex, data] = parts;
+  const key = crypto3.scryptSync(getEncryptionKey3(), Buffer.from(saltHex, "hex"), 32);
+  const decipher = crypto3.createDecipheriv("aes-256-cbc", key, Buffer.from(ivHex, "hex"));
+  let decrypted = decipher.update(data, "hex", "utf8");
+  decrypted += decipher.final("utf8");
+  return decrypted;
+}
+var IV_LENGTH2, SALT_LENGTH2, DEFAULT_ENCRYPTION_KEY2, CryptoComService;
+var init_cryptocom = __esm({
+  "server/cryptocom.ts"() {
+    "use strict";
+    IV_LENGTH2 = 16;
+    SALT_LENGTH2 = 16;
+    DEFAULT_ENCRYPTION_KEY2 = "vedd-cryptocom-default-key-change-32ch";
+    CryptoComService = class {
+      baseUrl = "https://api.crypto.com/exchange/v1";
+      apiKey;
+      apiSecret;
+      constructor(apiKey, apiSecret) {
+        this.apiKey = apiKey;
+        this.apiSecret = apiSecret;
+      }
+      sign(method, id, params, nonce) {
+        const paramString = Object.keys(params).sort().map((k) => `${k}${typeof params[k] === "object" ? JSON.stringify(params[k]) : params[k]}`).join("");
+        const sigPayload = `${method}${id}${this.apiKey}${paramString}${nonce}`;
+        return crypto3.createHmac("sha256", this.apiSecret).update(sigPayload).digest("hex");
+      }
+      async call(method, params = {}) {
+        const id = Date.now();
+        const nonce = Date.now();
+        const sig = this.sign(method, id, params, nonce);
+        const body = { id, method, api_key: this.apiKey, params, nonce, sig };
+        const response = await fetch(`${this.baseUrl}/${method}`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(body),
+          signal: AbortSignal.timeout(12e3)
+        });
+        if (!response.ok) {
+          const text2 = await response.text();
+          throw new Error(`Crypto.com API failed: ${response.status} - ${text2}`);
+        }
+        const data = await response.json();
+        if (data.code !== void 0 && data.code !== 0) {
+          throw new Error(`Crypto.com error ${data.code}: ${data.message || "Unknown error"}`);
+        }
+        return data.result;
+      }
+      // "Authenticate" = verify the key/secret pair works before storing it.
+      async authenticate() {
+        return this.getAccountInfo();
+      }
+      async getAccountInfo() {
+        const result = await this.call("private/user-balance");
+        const account = result?.data?.[0];
+        if (!account) throw new Error("Crypto.com returned no account balance data");
+        return {
+          balance: parseFloat(account.total_cash_balance ?? "0"),
+          // Crypto.com's user-balance response has no `total_balance` field at all
+          // (confirmed via raw API response) — that typo silently returned 0 via
+          // the `?? '0'` fallback, every call, forever. `total_margin_balance` is
+          // the real equity figure (cash + collateral value, matches total_cash_balance
+          // when there's no open PnL). This 0 equity fed straight into
+          // computeCryptocomQuantity's `accountBalance <= 0` short-circuit, which is
+          // why the engine never sized a single trade since inception despite
+          // correctly detecting signals the whole time.
+          equity: parseFloat(account.total_margin_balance ?? account.total_cash_balance ?? "0"),
+          availableBalance: parseFloat(account.total_available_balance ?? "0"),
+          currency: "USD"
+        };
+      }
+      async placeOrder(order) {
+        const result = await this.call("private/create-order", {
+          instrument_name: order.instrumentName,
+          side: order.side,
+          type: order.type,
+          quantity: String(order.quantity),
+          ...order.type === "LIMIT" && order.price ? { price: String(order.price) } : {}
+        });
+        return {
+          orderId: String(result?.order_id ?? ""),
+          status: result?.status ?? "unknown"
+        };
+      }
+      // ── Public market data (no auth needed) — static so the scanner can pull
+      // candles/price without a per-user connection/credentials. ─────────────────
+      static async getCandles(instrumentName, timeframe, count) {
+        const url = `https://api.crypto.com/exchange/v1/public/get-candlestick?instrument_name=${encodeURIComponent(instrumentName)}&timeframe=${encodeURIComponent(timeframe)}&count=${count}`;
+        const res = await fetch(url, { signal: AbortSignal.timeout(15e3) });
+        if (!res.ok) throw new Error(`Crypto.com candlestick fetch failed: ${res.status}`);
+        const data = await res.json();
+        if (data.code !== void 0 && data.code !== 0) throw new Error(`Crypto.com candlestick error ${data.code}: ${data.message}`);
+        const rows = data.result?.data ?? [];
+        return rows.map((r) => ({ t: Number(r.t), o: parseFloat(r.o), h: parseFloat(r.h), l: parseFloat(r.l), c: parseFloat(r.c), v: parseFloat(r.v) }));
+      }
+      static async getTicker(instrumentName) {
+        const url = `https://api.crypto.com/exchange/v1/public/get-tickers?instrument_name=${encodeURIComponent(instrumentName)}`;
+        const res = await fetch(url, { signal: AbortSignal.timeout(1e4) });
+        if (!res.ok) return null;
+        const data = await res.json();
+        const t = data.result?.data?.[0];
+        return t ? parseFloat(t.a ?? t.k ?? "0") || null : null;
+      }
+    };
+  }
+});
+
+// server/dxtrade.ts
+var dxtrade_exports = {};
+__export(dxtrade_exports, {
+  DxtradeReadError: () => DxtradeReadError,
+  DxtradeService: () => DxtradeService,
+  computeRiskQuantity: () => computeRiskQuantity,
+  decryptApiSecret: () => decryptApiSecret,
+  dxBase: () => dxBase,
+  encryptApiSecret: () => encryptApiSecret,
+  extractAccountCode: () => extractAccountCode,
+  extractBalance: () => extractBalance,
+  getDxtradeService: () => getDxtradeService
+});
+function extractAccountCode(usersSelf) {
+  const ud = usersSelf?.userDetails;
+  const detail = Array.isArray(ud) ? ud[0] : ud ?? usersSelf;
+  const accs = detail?.accounts ?? usersSelf?.accounts;
+  if (!Array.isArray(accs) || !accs.length) return null;
+  const a0 = accs[0];
+  return typeof a0 === "string" ? a0 : a0?.account ?? a0?.accountCode ?? a0?.code ?? null;
+}
+function extractBalance(metrics) {
+  if (!metrics) return null;
+  const nodes = [metrics, metrics.metrics, metrics.balances, metrics.account, ...Array.isArray(metrics?.metrics) ? metrics.metrics : []].filter(Boolean);
+  const keys = ["equity", "balance", "availableFunds", "cashBalance", "netLiquidatingValue", "availableBalance"];
+  for (const n of nodes) {
+    if (Array.isArray(n)) {
+      for (const el of n) {
+        const v2 = pickNum(el, keys);
+        if (v2 != null) return v2;
+      }
+    }
+    const v = pickNum(n, keys);
+    if (v != null) return v;
+  }
+  return null;
+}
+function pickNum(obj, keys) {
+  if (!obj || typeof obj !== "object") return null;
+  for (const k of keys) {
+    const v = Number(obj[k]);
+    if (Number.isFinite(v) && v > 0) return v;
+  }
+  return null;
+}
+function computeRiskQuantity(opts) {
+  const { balance, riskPercent, entryPrice, stopPrice, instrument } = opts;
+  const quoteToUsd2 = Number(opts.quoteToUsd) > 0 ? Number(opts.quoteToUsd) : 1;
+  const riskAmount = balance * (riskPercent / 100);
+  const stopDistance = Math.abs(entryPrice - stopPrice);
+  const multiplier = Number(instrument?.multiplier) > 0 ? Number(instrument.multiplier) : 1;
+  const specIncr = Number(instrument?.quantityIncrement) > 0 ? Number(instrument.quantityIncrement) : 0;
+  const lotSize = Number(instrument?.lotSize) > 0 ? Number(instrument.lotSize) : 0;
+  const isForex = /forex|fx/i.test(String(instrument?.type ?? instrument?.assetClass ?? "")) || lotSize >= 1e3;
+  const incr = isForex && lotSize > 0 ? Math.max(specIncr, lotSize / 100) : specIncr;
+  if (!(stopDistance > 0) || !(riskAmount > 0)) return { quantity: 0, riskAmount, stopDistance, note: "need a valid balance, risk% and stop distance" };
+  let qty = riskAmount / (stopDistance * multiplier * quoteToUsd2);
+  if (incr > 0) qty = Math.floor(qty / incr) * incr;
+  qty = Math.max(0, Math.round(qty * 1e8) / 1e8);
+  return { quantity: qty, riskAmount, stopDistance, note: `risk $${riskAmount.toFixed(2)} \xF7 (stop ${stopDistance} \xD7 mult ${multiplier} \xD7 quote\u2192USD ${quoteToUsd2.toFixed(5)})${incr ? ` snapped to ${incr}` : ""}` };
+}
+function dxBase(host) {
+  let h = (host || "").trim().replace(/\/+$/, "");
+  if (!/^https?:\/\//i.test(h)) h = `https://${h}`;
+  if (!/\/dxsca-web$/i.test(h)) h = `${h}/dxsca-web`;
+  return h;
+}
+function getDxtradeService(host, username, password, domain, cacheKey) {
+  const hit = _dxServiceCache.get(cacheKey);
+  if (hit && Date.now() - hit.ts < DX_SVC_TTL_MS) return hit.svc;
+  const svc = new DxtradeService(host, username, password, domain);
+  _dxServiceCache.set(cacheKey, { svc, ts: Date.now() });
+  return svc;
+}
+var DxtradeReadError, DxtradeService, _dxServiceCache, DX_SVC_TTL_MS;
+var init_dxtrade = __esm({
+  "server/dxtrade.ts"() {
+    "use strict";
+    init_cryptocom();
+    DxtradeReadError = class extends Error {
+      constructor(message) {
+        super(message);
+        this.name = "DxtradeReadError";
+      }
+    };
+    DxtradeService = class {
+      base;
+      username;
+      password;
+      domain;
+      token = null;
+      loginPromise = null;
+      constructor(host, username, password, domain = "default") {
+        this.base = dxBase(host);
+        this.username = username;
+        this.password = password;
+        this.domain = domain || "default";
+      }
+      /** Authenticate and cache the session token. Throws on failure.
+       *  In-flight dedup: concurrent callers (a scan firing multiple pairs) share a
+       *  single /login round-trip so we don't stampede Velotrade's login rate limit
+       *  (dxsca returns 429 "Too many requests" on rapid repeat logins). */
+      async login() {
+        if (this.loginPromise) return this.loginPromise;
+        this.loginPromise = (async () => {
+          const res = await fetch(`${this.base}/login`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json", "Accept": "application/json" },
+            body: JSON.stringify({ username: this.username, domain: this.domain, password: this.password }),
+            signal: AbortSignal.timeout(2e4)
+          });
+          const text2 = await res.text();
+          if (!res.ok) throw new Error(`DXtrade login ${res.status}: ${text2.slice(0, 200)}`);
+          let token = "";
+          try {
+            token = JSON.parse(text2)?.sessionToken || "";
+          } catch {
+          }
+          if (!token) token = res.headers.get("authorization")?.replace(/^DXAPI\s+/i, "") || "";
+          if (!token) throw new Error("DXtrade login succeeded but no sessionToken returned");
+          this.token = token;
+          return token;
+        })();
+        try {
+          return await this.loginPromise;
+        } finally {
+          this.loginPromise = null;
+        }
+      }
+      /** Log in only if we don't already hold a session token. Combined with the
+       *  module-level service cache (getDxtradeService), this collapses the previous
+       *  "fresh login per signal" — which 429-rate-limited DXtrade off ~99% of auto
+       *  signals — down to ~one login per session; authed() re-logins on 401 expiry. */
+      async ensureLoggedIn() {
+        if (!this.token) await this.login();
+      }
+      async authed(path17, init = {}) {
+        if (!this.token) await this.login();
+        const doFetch = () => fetch(`${this.base}${path17}`, {
+          ...init,
+          headers: { "Accept": "application/json", "Content-Type": "application/json", "Authorization": `DXAPI ${this.token}`, ...init.headers || {} },
+          signal: AbortSignal.timeout(2e4)
+        });
+        let res = await doFetch();
+        if (res.status === 401) {
+          this.token = null;
+          await this.login();
+          res = await doFetch();
+        }
+        return res;
+      }
+      /** Current user + their accounts. dxsca exposes this at /users/self (there is no
+       *  bare /accounts list endpoint — that path 404s). Account codes look like
+       *  'default:12345' and appear in the returned `accounts` array. */
+      async getAccounts() {
+        const res = await this.authed("/users/self");
+        const text2 = await res.text();
+        if (!res.ok) throw new Error(`DXtrade users/self ${res.status}: ${text2.slice(0, 200)}`);
+        try {
+          return JSON.parse(text2);
+        } catch {
+          return { raw: text2 };
+        }
+      }
+      /** Portfolio (positions + balances) for one account. Falls back across the two
+       *  common dxsca shapes. Returns the raw payload too so we can lock field names. */
+      async getPortfolio(accountCode) {
+        let res = await this.authed(`/accounts/${encodeURIComponent(accountCode)}/portfolio`);
+        if (res.status === 404) res = await this.authed(`/accounts/${encodeURIComponent(accountCode)}/positions`);
+        const text2 = await res.text();
+        if (!res.ok) throw new Error(`DXtrade portfolio ${res.status}: ${text2.slice(0, 200)}`);
+        try {
+          return JSON.parse(text2);
+        } catch {
+          return { raw: text2 };
+        }
+      }
+      /** Account metrics/balance (equity, balance) for one account. Tolerant of shape. */
+      async getMetrics(accountCode) {
+        const res = await this.authed(`/accounts/${encodeURIComponent(accountCode)}/metrics`);
+        const text2 = await res.text();
+        if (!res.ok) return { error: `metrics ${res.status}` };
+        try {
+          return JSON.parse(text2);
+        } catch {
+          return { raw: text2 };
+        }
+      }
+      /**
+       * Place an order on an account. dxsca-web: POST /accounts/{accountCode}/orders.
+       * Velotrade-documented body fields: instrument, side, type, quantity,
+       * positionEffect, tif. We add a unique orderCode (client id / idempotency) and
+       * only include optional legs (SL/TP) when provided. Returns the raw response so
+       * callers can inspect status; throws on a non-2xx HTTP.
+       */
+      async placeOrder(accountCode, o) {
+        const body = {
+          orderCode: o.orderCode || `vedd-${Date.now()}-${Math.floor(Math.random() * 1e6)}`,
+          instrument: o.instrument,
+          side: o.side,
+          type: o.type || "MARKET",
+          quantity: o.quantity,
+          positionEffect: o.positionEffect || "OPEN",
+          tif: o.tif || "GTC"
+        };
+        if (o.type === "LIMIT" && o.limitPrice != null) body.limitPrice = o.limitPrice;
+        if (o.type === "STOP" && o.stopPrice != null) {
+          body.stopPrice = o.stopPrice;
+          body.price = o.stopPrice;
+        }
+        if (o.stopLoss != null) body.stopLoss = o.stopLoss;
+        if (o.takeProfit != null) body.takeProfit = o.takeProfit;
+        if (o.positionEffect === "CLOSE" && o.positionCode) body.positionCode = o.positionCode;
+        const res = await this.authed(`/accounts/${encodeURIComponent(accountCode)}/orders`, {
+          method: "POST",
+          body: JSON.stringify(body)
+        });
+        const text2 = await res.text();
+        if (!res.ok) throw new Error(`DXtrade order ${res.status}: ${text2.slice(0, 300)}`);
+        let data;
+        try {
+          data = JSON.parse(text2);
+        } catch {
+          data = { raw: text2 };
+        }
+        return { ...data, _sent: body };
+      }
+      /** Set/replace SL & TP on an open position by placing protective CLOSE-effect
+       *  orders: SL as a STOP, TP as a LIMIT, on the opposite side of the position.
+       *  (positionBased dxsca accounts attach these to the open position.) Returns
+       *  both raw results so callers can confirm/calibrate. */
+      async modifyProtection(accountCode, o) {
+        const closeSide = o.positionSide === "BUY" ? "SELL" : "BUY";
+        const out = {};
+        let code = o.positionCode;
+        if (!code) {
+          try {
+            const norm3 = (s) => s.replace(/\//g, "").toUpperCase();
+            const positions = await this.getPositions(accountCode);
+            code = positions.find((p) => p.instrument === norm3(o.instrument) && p.side === o.positionSide)?.positionId;
+          } catch {
+          }
+        }
+        if (o.stopLoss != null && o.stopLoss > 0) {
+          try {
+            out.stop = await this.placeOrder(accountCode, { instrument: o.instrument, side: closeSide, quantity: o.quantity, type: "STOP", stopPrice: o.stopLoss, positionEffect: "CLOSE", tif: "GTC", positionCode: code });
+          } catch (e) {
+            out.stopError = e?.message || String(e);
+          }
+        }
+        if (o.takeProfit != null && o.takeProfit > 0) {
+          try {
+            out.takeProfit = await this.placeOrder(accountCode, { instrument: o.instrument, side: closeSide, quantity: o.quantity, type: "LIMIT", limitPrice: o.takeProfit, positionEffect: "CLOSE", tif: "GTC", positionCode: code });
+          } catch (e) {
+            out.tpError = e?.message || String(e);
+          }
+        }
+        return out;
+      }
+      /** List working/pending orders for the account (from the portfolio payload). */
+      async getWorkingOrders(accountCode) {
+        const pf = await this.getPortfolio(accountCode).catch(() => null);
+        const p0 = pf?.portfolios?.[0] ?? pf;
+        const arr2 = p0?.orders ?? pf?.orders ?? [];
+        return Array.isArray(arr2) ? arr2 : [];
+      }
+      /** Cancel one order by id. dxsca cancel is DELETE on the order resource; the
+       *  exact path shape is UNVERIFIED against Velotrade, so try the candidates and
+       *  treat a 404 as already-gone. Best-effort — never throws. */
+      async cancelOrder(accountCode, orderId) {
+        const id = String(orderId);
+        const paths = [
+          `/accounts/${encodeURIComponent(accountCode)}/orders/${encodeURIComponent(id)}`,
+          `/orders/${encodeURIComponent(id)}`
+        ];
+        for (const p of paths) {
+          try {
+            const res = await this.authed(p, { method: "DELETE" });
+            if (res.ok || res.status === 404) {
+              console.log(`[dxtrade] cancelOrder ${id} via ${p} \u2192 ${res.status}`);
+              return true;
+            }
+          } catch {
+          }
+        }
+        return false;
+      }
+      /** Cancel resting protective (CLOSE-effect) orders for an instrument so a
+       *  flatten can't leave an orphaned STOP that later re-opens a position on
+       *  hedging/position-based accounts, and so the opposite leg doesn't rest after
+       *  an SL/TP fill (poor-man's OCO). Filters strictly on positionEffect=CLOSE to
+       *  avoid ever cancelling a genuine entry order. Best-effort — never throws. */
+      async cancelProtectiveOrders(accountCode, instrument) {
+        try {
+          const norm3 = (s) => String(s ?? "").replace(/\//g, "").toUpperCase();
+          const target = norm3(instrument);
+          const orders = await this.getWorkingOrders(accountCode);
+          let n = 0;
+          for (const o of orders) {
+            const sym = norm3(o.instrument ?? o.symbol);
+            const effect = String(o.positionEffect ?? o.legs?.[0]?.positionEffect ?? "").toUpperCase();
+            if (sym !== target || effect !== "CLOSE") continue;
+            const id = o.orderId ?? o.id ?? o.orderCode ?? o.code;
+            if (id != null && await this.cancelOrder(accountCode, id)) n++;
+          }
+          if (n > 0) console.log(`[dxtrade] cancelled ${n} resting protective order(s) for ${instrument} on ${accountCode}`);
+          return n;
+        } catch {
+          return 0;
+        }
+      }
+      /** Close (or reduce) a position by placing an opposite-side market order, then
+       *  cancel any resting protective orders for the instrument so a flatten never
+       *  leaves an orphaned stop/TP behind.
+       *
+       *  On this hedging/position-based account a close WITHOUT positionCode is
+       *  rejected (errorCode 33) — confirmed live 2026-09-18 across 19 stuck
+       *  positions. When `positionCode` isn't supplied, look it up via
+       *  getPositions() (best-effort match on instrument+side) so every existing
+       *  caller (fan-out emergency-close, manual flatten) gets a working close
+       *  without having to be individually updated to thread the code through. */
+      async closePosition(accountCode, instrument, side, quantity, positionCode) {
+        const opposite = side === "BUY" ? "SELL" : "BUY";
+        let code = positionCode;
+        if (!code) {
+          try {
+            const norm3 = (s) => s.replace(/\//g, "").toUpperCase();
+            const positions = await this.getPositions(accountCode);
+            const match = positions.find((p) => p.instrument === norm3(instrument) && p.side === side);
+            code = match?.positionId;
+          } catch {
+          }
+        }
+        const res = await this.placeOrder(accountCode, { instrument, side: opposite, quantity, type: "MARKET", positionEffect: "CLOSE", positionCode: code });
+        try {
+          await this.cancelProtectiveOrders(accountCode, instrument);
+        } catch {
+        }
+        return res;
+      }
+      /** Search tradable instruments (dxsca /instruments/query). Used to discover the
+       *  exact symbol format for this broker (Velotrade). Tries a couple of param
+       *  shapes and returns the raw payload. */
+      async getInstruments(query = "") {
+        const attempts = query ? [`/instruments/query?text=${encodeURIComponent(query)}`, `/instruments/query?symbol=${encodeURIComponent(query)}`, `/instruments/query?symbols=${encodeURIComponent(query)}`] : ["/instruments/query"];
+        let last = "";
+        for (const path17 of attempts) {
+          const res = await this.authed(path17);
+          const text2 = await res.text();
+          if (res.ok) {
+            try {
+              return JSON.parse(text2);
+            } catch {
+              return { raw: text2 };
+            }
+          }
+          last = `${res.status}: ${text2.slice(0, 150)}`;
+        }
+        throw new Error(`DXtrade instruments ${last}`);
+      }
+      /** Fetch a single instrument's spec (multiplier, increments) by exact symbol. */
+      async getInstrument(symbol) {
+        try {
+          const data = await this.getInstruments(symbol);
+          const list = data?.instruments ?? data;
+          if (Array.isArray(list)) return list.find((i) => String(i?.symbol).toUpperCase() === symbol.toUpperCase()) ?? null;
+          return null;
+        } catch {
+          return null;
+        }
+      }
+      /** Normalized open positions for an account (id/instrument/side/qty/entry),
+       *  tolerant of dxsca shape (portfolio.positions | positions | flat array). */
+      async getPositions(accountCode) {
+        let lastErr = null;
+        let pf = null;
+        for (let attempt = 0; attempt < 3; attempt++) {
+          try {
+            pf = await this.getPortfolio(accountCode);
+            lastErr = null;
+            break;
+          } catch (e) {
+            lastErr = e;
+            const transient = /429|timeout|ETIMEDOUT|ECONN|socket|network|50[234]/i.test(e?.message || "");
+            if (!transient || attempt === 2) break;
+            await new Promise((r) => setTimeout(r, 1e3 * (attempt + 1)));
+          }
+        }
+        if (lastErr) {
+          throw new DxtradeReadError(`positions read failed for ${accountCode}: ${lastErr?.message ?? lastErr}`);
+        }
+        const p0 = pf?.portfolios?.[0] ?? pf;
+        const arr2 = p0?.positions ?? p0?.openPositions ?? (Array.isArray(pf) ? pf : []) ?? [];
+        if (!Array.isArray(arr2)) return [];
+        return arr2.map((p) => ({
+          positionId: p.positionCode != null ? String(p.positionCode) : p.positionId != null ? String(p.positionId) : p.id != null ? String(p.id) : p.code != null ? String(p.code) : void 0,
+          instrument: String(p.instrument ?? p.symbol ?? "").replace(/\//g, "").toUpperCase(),
+          side: /sell|short/i.test(String(p.side ?? p.direction ?? (Number(p.quantity ?? p.qty ?? 0) < 0 ? "SELL" : "BUY"))) ? "SELL" : "BUY",
+          quantity: Math.abs(Number(p.quantity ?? p.qty ?? p.size ?? 0)),
+          openPrice: Number(p.openPrice ?? p.entryPrice ?? p.avgPrice ?? p.price ?? 0) || void 0,
+          raw: p
+        }));
+      }
+      /** Closed trades with REALIZED P&L since `fromMs`, for the brain / consistency
+       *  ledger (parity with TradeLocker's getClosedTradesWithPnl). dxsca-web has no
+       *  single standardized history path across brokers, so this tries the common
+       *  candidates in order and parses tolerantly. Returns [] when the broker exposes
+       *  none of them — callers must NEVER fabricate P&L from a miss. Each returned row
+       *  carries: positionId, id, symbol, side, openPrice, closePrice, profit, closeTime. */
+      async getClosedTradesWithPnl(accountCode, fromMs) {
+        const enc = encodeURIComponent(accountCode);
+        const fromIso = new Date(fromMs).toISOString();
+        const toIso = (/* @__PURE__ */ new Date()).toISOString();
+        const candidates = [
+          `/accounts/${enc}/history?from=${encodeURIComponent(fromIso)}&to=${encodeURIComponent(toIso)}`,
+          `/accounts/${enc}/orders/history?from=${encodeURIComponent(fromIso)}&to=${encodeURIComponent(toIso)}`,
+          `/accounts/${enc}/tradeHistory?from=${encodeURIComponent(fromIso)}&to=${encodeURIComponent(toIso)}`,
+          `/accounts/${enc}/reports/trades?from=${encodeURIComponent(fromIso)}&to=${encodeURIComponent(toIso)}`,
+          `/accounts/${enc}/positions/history?from=${encodeURIComponent(fromIso)}&to=${encodeURIComponent(toIso)}`
+        ];
+        for (const path17 of candidates) {
+          let res;
+          try {
+            res = await this.authed(path17);
+          } catch {
+            continue;
+          }
+          if (!res.ok) continue;
+          let data;
+          try {
+            data = JSON.parse(await res.text());
+          } catch {
+            continue;
+          }
+          const list = data?.history ?? data?.trades ?? data?.orders ?? data?.positions ?? data?.items ?? (Array.isArray(data) ? data : []);
+          if (!Array.isArray(list) || list.length === 0) {
+            if (Array.isArray(list)) {
+              console.log(`[dxtrade] history via ${path17.split("?")[0]} \u2014 0 rows in window`);
+              return [];
+            }
+            continue;
+          }
+          const closed = list.filter((o) => {
+            const status = String(o.status ?? o.state ?? "").toUpperCase();
+            const hasPnl = o.profit != null || o.pnl != null || o.realizedPnl != null || o.realizedPnL != null || o.grossProfit != null;
+            const looksClosed = !status || /CLOS|FILL|COMPLET|DONE|SETTLED/.test(status);
+            return hasPnl && looksClosed;
+          }).map((o) => ({
+            positionId: o.positionId != null ? String(o.positionId) : void 0,
+            id: String(o.id ?? o.orderId ?? o.tradeId ?? o.dealId ?? ""),
+            symbol: String(o.instrument ?? o.symbol ?? "UNKNOWN"),
+            side: o.side ?? o.direction ?? "",
+            openPrice: Number(o.openPrice ?? o.entryPrice ?? o.avgOpenPrice ?? 0) || 0,
+            closePrice: Number(o.closePrice ?? o.exitPrice ?? o.avgClosePrice ?? o.price ?? 0) || 0,
+            profit: o.profit ?? o.pnl ?? o.realizedPnl ?? o.realizedPnL ?? o.grossProfit,
+            closeTime: o.closeTime ?? o.closedAt ?? o.closeTimestamp ?? o.timestamp ?? o.updateTime ?? null
+          }));
+          console.log(`[dxtrade] history via ${path17.split("?")[0]} \u2014 ${closed.length} closed rows`);
+          return closed;
+        }
+        console.log(`[dxtrade] no working history endpoint found for ${accountCode} (tried ${candidates.length}) \u2014 close-sync will keep opens PENDING`);
+        return [];
+      }
+      /** One-shot connectivity check used by the connect/test routes. */
+      async verify() {
+        try {
+          await this.login();
+          const accounts = await this.getAccounts();
+          return { ok: true, accounts };
+        } catch (e) {
+          return { ok: false, error: e?.message ?? String(e) };
+        }
+      }
+    };
+    _dxServiceCache = /* @__PURE__ */ new Map();
+    DX_SVC_TTL_MS = 30 * 6e4;
+  }
+});
+
 // server/services/orderflow-strategy.ts
 var orderflow_strategy_exports = {};
 __export(orderflow_strategy_exports, {
@@ -23684,624 +24302,6 @@ var init_hour_filter = __esm({
     TTL_MS3 = Number(process.env.HOUR_FILTER_TTL_MS ?? 60 * 60 * 1e3);
     LOOKBACK_DAYS2 = Number(process.env.HOUR_FILTER_LOOKBACK_DAYS ?? 180);
     cache4 = /* @__PURE__ */ new Map();
-  }
-});
-
-// server/cryptocom.ts
-var cryptocom_exports = {};
-__export(cryptocom_exports, {
-  CryptoComService: () => CryptoComService,
-  decryptApiSecret: () => decryptApiSecret,
-  encryptApiSecret: () => encryptApiSecret
-});
-import crypto3 from "crypto";
-function getEncryptionKey3() {
-  const key = process.env.CRYPTOCOM_ENCRYPTION_KEY;
-  if (!key) {
-    console.warn("[Crypto.com] CRYPTOCOM_ENCRYPTION_KEY not set \u2014 using default key. Set it in your Render environment variables.");
-    return DEFAULT_ENCRYPTION_KEY2;
-  }
-  if (key.length < 32) {
-    console.warn("[Crypto.com] CRYPTOCOM_ENCRYPTION_KEY is too short, padding to 32 chars.");
-    return key.padEnd(32, "0");
-  }
-  return key;
-}
-function encryptApiSecret(secret) {
-  const iv = crypto3.randomBytes(IV_LENGTH2);
-  const salt = crypto3.randomBytes(SALT_LENGTH2);
-  const key = crypto3.scryptSync(getEncryptionKey3(), salt, 32);
-  const cipher = crypto3.createCipheriv("aes-256-cbc", key, iv);
-  let encrypted = cipher.update(secret, "utf8", "hex");
-  encrypted += cipher.final("hex");
-  return salt.toString("hex") + ":" + iv.toString("hex") + ":" + encrypted;
-}
-function decryptApiSecret(encrypted) {
-  const parts = encrypted.split(":");
-  if (parts.length !== 3) throw new Error("Invalid encrypted secret format");
-  const [saltHex, ivHex, data] = parts;
-  const key = crypto3.scryptSync(getEncryptionKey3(), Buffer.from(saltHex, "hex"), 32);
-  const decipher = crypto3.createDecipheriv("aes-256-cbc", key, Buffer.from(ivHex, "hex"));
-  let decrypted = decipher.update(data, "hex", "utf8");
-  decrypted += decipher.final("utf8");
-  return decrypted;
-}
-var IV_LENGTH2, SALT_LENGTH2, DEFAULT_ENCRYPTION_KEY2, CryptoComService;
-var init_cryptocom = __esm({
-  "server/cryptocom.ts"() {
-    "use strict";
-    IV_LENGTH2 = 16;
-    SALT_LENGTH2 = 16;
-    DEFAULT_ENCRYPTION_KEY2 = "vedd-cryptocom-default-key-change-32ch";
-    CryptoComService = class {
-      baseUrl = "https://api.crypto.com/exchange/v1";
-      apiKey;
-      apiSecret;
-      constructor(apiKey, apiSecret) {
-        this.apiKey = apiKey;
-        this.apiSecret = apiSecret;
-      }
-      sign(method, id, params, nonce) {
-        const paramString = Object.keys(params).sort().map((k) => `${k}${typeof params[k] === "object" ? JSON.stringify(params[k]) : params[k]}`).join("");
-        const sigPayload = `${method}${id}${this.apiKey}${paramString}${nonce}`;
-        return crypto3.createHmac("sha256", this.apiSecret).update(sigPayload).digest("hex");
-      }
-      async call(method, params = {}) {
-        const id = Date.now();
-        const nonce = Date.now();
-        const sig = this.sign(method, id, params, nonce);
-        const body = { id, method, api_key: this.apiKey, params, nonce, sig };
-        const response = await fetch(`${this.baseUrl}/${method}`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(body),
-          signal: AbortSignal.timeout(12e3)
-        });
-        if (!response.ok) {
-          const text2 = await response.text();
-          throw new Error(`Crypto.com API failed: ${response.status} - ${text2}`);
-        }
-        const data = await response.json();
-        if (data.code !== void 0 && data.code !== 0) {
-          throw new Error(`Crypto.com error ${data.code}: ${data.message || "Unknown error"}`);
-        }
-        return data.result;
-      }
-      // "Authenticate" = verify the key/secret pair works before storing it.
-      async authenticate() {
-        return this.getAccountInfo();
-      }
-      async getAccountInfo() {
-        const result = await this.call("private/user-balance");
-        const account = result?.data?.[0];
-        if (!account) throw new Error("Crypto.com returned no account balance data");
-        return {
-          balance: parseFloat(account.total_cash_balance ?? "0"),
-          // Crypto.com's user-balance response has no `total_balance` field at all
-          // (confirmed via raw API response) — that typo silently returned 0 via
-          // the `?? '0'` fallback, every call, forever. `total_margin_balance` is
-          // the real equity figure (cash + collateral value, matches total_cash_balance
-          // when there's no open PnL). This 0 equity fed straight into
-          // computeCryptocomQuantity's `accountBalance <= 0` short-circuit, which is
-          // why the engine never sized a single trade since inception despite
-          // correctly detecting signals the whole time.
-          equity: parseFloat(account.total_margin_balance ?? account.total_cash_balance ?? "0"),
-          availableBalance: parseFloat(account.total_available_balance ?? "0"),
-          currency: "USD"
-        };
-      }
-      async placeOrder(order) {
-        const result = await this.call("private/create-order", {
-          instrument_name: order.instrumentName,
-          side: order.side,
-          type: order.type,
-          quantity: String(order.quantity),
-          ...order.type === "LIMIT" && order.price ? { price: String(order.price) } : {}
-        });
-        return {
-          orderId: String(result?.order_id ?? ""),
-          status: result?.status ?? "unknown"
-        };
-      }
-      // ── Public market data (no auth needed) — static so the scanner can pull
-      // candles/price without a per-user connection/credentials. ─────────────────
-      static async getCandles(instrumentName, timeframe, count) {
-        const url = `https://api.crypto.com/exchange/v1/public/get-candlestick?instrument_name=${encodeURIComponent(instrumentName)}&timeframe=${encodeURIComponent(timeframe)}&count=${count}`;
-        const res = await fetch(url, { signal: AbortSignal.timeout(15e3) });
-        if (!res.ok) throw new Error(`Crypto.com candlestick fetch failed: ${res.status}`);
-        const data = await res.json();
-        if (data.code !== void 0 && data.code !== 0) throw new Error(`Crypto.com candlestick error ${data.code}: ${data.message}`);
-        const rows = data.result?.data ?? [];
-        return rows.map((r) => ({ t: Number(r.t), o: parseFloat(r.o), h: parseFloat(r.h), l: parseFloat(r.l), c: parseFloat(r.c), v: parseFloat(r.v) }));
-      }
-      static async getTicker(instrumentName) {
-        const url = `https://api.crypto.com/exchange/v1/public/get-tickers?instrument_name=${encodeURIComponent(instrumentName)}`;
-        const res = await fetch(url, { signal: AbortSignal.timeout(1e4) });
-        if (!res.ok) return null;
-        const data = await res.json();
-        const t = data.result?.data?.[0];
-        return t ? parseFloat(t.a ?? t.k ?? "0") || null : null;
-      }
-    };
-  }
-});
-
-// server/dxtrade.ts
-var dxtrade_exports = {};
-__export(dxtrade_exports, {
-  DxtradeReadError: () => DxtradeReadError,
-  DxtradeService: () => DxtradeService,
-  computeRiskQuantity: () => computeRiskQuantity,
-  decryptApiSecret: () => decryptApiSecret,
-  dxBase: () => dxBase,
-  encryptApiSecret: () => encryptApiSecret,
-  extractAccountCode: () => extractAccountCode,
-  extractBalance: () => extractBalance,
-  getDxtradeService: () => getDxtradeService
-});
-function extractAccountCode(usersSelf) {
-  const ud = usersSelf?.userDetails;
-  const detail = Array.isArray(ud) ? ud[0] : ud ?? usersSelf;
-  const accs = detail?.accounts ?? usersSelf?.accounts;
-  if (!Array.isArray(accs) || !accs.length) return null;
-  const a0 = accs[0];
-  return typeof a0 === "string" ? a0 : a0?.account ?? a0?.accountCode ?? a0?.code ?? null;
-}
-function extractBalance(metrics) {
-  if (!metrics) return null;
-  const nodes = [metrics, metrics.metrics, metrics.balances, metrics.account, ...Array.isArray(metrics?.metrics) ? metrics.metrics : []].filter(Boolean);
-  const keys = ["equity", "balance", "availableFunds", "cashBalance", "netLiquidatingValue", "availableBalance"];
-  for (const n of nodes) {
-    if (Array.isArray(n)) {
-      for (const el of n) {
-        const v2 = pickNum(el, keys);
-        if (v2 != null) return v2;
-      }
-    }
-    const v = pickNum(n, keys);
-    if (v != null) return v;
-  }
-  return null;
-}
-function pickNum(obj, keys) {
-  if (!obj || typeof obj !== "object") return null;
-  for (const k of keys) {
-    const v = Number(obj[k]);
-    if (Number.isFinite(v) && v > 0) return v;
-  }
-  return null;
-}
-function computeRiskQuantity(opts) {
-  const { balance, riskPercent, entryPrice, stopPrice, instrument } = opts;
-  const quoteToUsd2 = Number(opts.quoteToUsd) > 0 ? Number(opts.quoteToUsd) : 1;
-  const riskAmount = balance * (riskPercent / 100);
-  const stopDistance = Math.abs(entryPrice - stopPrice);
-  const multiplier = Number(instrument?.multiplier) > 0 ? Number(instrument.multiplier) : 1;
-  const specIncr = Number(instrument?.quantityIncrement) > 0 ? Number(instrument.quantityIncrement) : 0;
-  const lotSize = Number(instrument?.lotSize) > 0 ? Number(instrument.lotSize) : 0;
-  const isForex = /forex|fx/i.test(String(instrument?.type ?? instrument?.assetClass ?? "")) || lotSize >= 1e3;
-  const incr = isForex && lotSize > 0 ? Math.max(specIncr, lotSize / 100) : specIncr;
-  if (!(stopDistance > 0) || !(riskAmount > 0)) return { quantity: 0, riskAmount, stopDistance, note: "need a valid balance, risk% and stop distance" };
-  let qty = riskAmount / (stopDistance * multiplier * quoteToUsd2);
-  if (incr > 0) qty = Math.floor(qty / incr) * incr;
-  qty = Math.max(0, Math.round(qty * 1e8) / 1e8);
-  return { quantity: qty, riskAmount, stopDistance, note: `risk $${riskAmount.toFixed(2)} \xF7 (stop ${stopDistance} \xD7 mult ${multiplier} \xD7 quote\u2192USD ${quoteToUsd2.toFixed(5)})${incr ? ` snapped to ${incr}` : ""}` };
-}
-function dxBase(host) {
-  let h = (host || "").trim().replace(/\/+$/, "");
-  if (!/^https?:\/\//i.test(h)) h = `https://${h}`;
-  if (!/\/dxsca-web$/i.test(h)) h = `${h}/dxsca-web`;
-  return h;
-}
-function getDxtradeService(host, username, password, domain, cacheKey) {
-  const hit = _dxServiceCache.get(cacheKey);
-  if (hit && Date.now() - hit.ts < DX_SVC_TTL_MS) return hit.svc;
-  const svc = new DxtradeService(host, username, password, domain);
-  _dxServiceCache.set(cacheKey, { svc, ts: Date.now() });
-  return svc;
-}
-var DxtradeReadError, DxtradeService, _dxServiceCache, DX_SVC_TTL_MS;
-var init_dxtrade = __esm({
-  "server/dxtrade.ts"() {
-    "use strict";
-    init_cryptocom();
-    DxtradeReadError = class extends Error {
-      constructor(message) {
-        super(message);
-        this.name = "DxtradeReadError";
-      }
-    };
-    DxtradeService = class {
-      base;
-      username;
-      password;
-      domain;
-      token = null;
-      loginPromise = null;
-      constructor(host, username, password, domain = "default") {
-        this.base = dxBase(host);
-        this.username = username;
-        this.password = password;
-        this.domain = domain || "default";
-      }
-      /** Authenticate and cache the session token. Throws on failure.
-       *  In-flight dedup: concurrent callers (a scan firing multiple pairs) share a
-       *  single /login round-trip so we don't stampede Velotrade's login rate limit
-       *  (dxsca returns 429 "Too many requests" on rapid repeat logins). */
-      async login() {
-        if (this.loginPromise) return this.loginPromise;
-        this.loginPromise = (async () => {
-          const res = await fetch(`${this.base}/login`, {
-            method: "POST",
-            headers: { "Content-Type": "application/json", "Accept": "application/json" },
-            body: JSON.stringify({ username: this.username, domain: this.domain, password: this.password }),
-            signal: AbortSignal.timeout(2e4)
-          });
-          const text2 = await res.text();
-          if (!res.ok) throw new Error(`DXtrade login ${res.status}: ${text2.slice(0, 200)}`);
-          let token = "";
-          try {
-            token = JSON.parse(text2)?.sessionToken || "";
-          } catch {
-          }
-          if (!token) token = res.headers.get("authorization")?.replace(/^DXAPI\s+/i, "") || "";
-          if (!token) throw new Error("DXtrade login succeeded but no sessionToken returned");
-          this.token = token;
-          return token;
-        })();
-        try {
-          return await this.loginPromise;
-        } finally {
-          this.loginPromise = null;
-        }
-      }
-      /** Log in only if we don't already hold a session token. Combined with the
-       *  module-level service cache (getDxtradeService), this collapses the previous
-       *  "fresh login per signal" — which 429-rate-limited DXtrade off ~99% of auto
-       *  signals — down to ~one login per session; authed() re-logins on 401 expiry. */
-      async ensureLoggedIn() {
-        if (!this.token) await this.login();
-      }
-      async authed(path17, init = {}) {
-        if (!this.token) await this.login();
-        const doFetch = () => fetch(`${this.base}${path17}`, {
-          ...init,
-          headers: { "Accept": "application/json", "Content-Type": "application/json", "Authorization": `DXAPI ${this.token}`, ...init.headers || {} },
-          signal: AbortSignal.timeout(2e4)
-        });
-        let res = await doFetch();
-        if (res.status === 401) {
-          this.token = null;
-          await this.login();
-          res = await doFetch();
-        }
-        return res;
-      }
-      /** Current user + their accounts. dxsca exposes this at /users/self (there is no
-       *  bare /accounts list endpoint — that path 404s). Account codes look like
-       *  'default:12345' and appear in the returned `accounts` array. */
-      async getAccounts() {
-        const res = await this.authed("/users/self");
-        const text2 = await res.text();
-        if (!res.ok) throw new Error(`DXtrade users/self ${res.status}: ${text2.slice(0, 200)}`);
-        try {
-          return JSON.parse(text2);
-        } catch {
-          return { raw: text2 };
-        }
-      }
-      /** Portfolio (positions + balances) for one account. Falls back across the two
-       *  common dxsca shapes. Returns the raw payload too so we can lock field names. */
-      async getPortfolio(accountCode) {
-        let res = await this.authed(`/accounts/${encodeURIComponent(accountCode)}/portfolio`);
-        if (res.status === 404) res = await this.authed(`/accounts/${encodeURIComponent(accountCode)}/positions`);
-        const text2 = await res.text();
-        if (!res.ok) throw new Error(`DXtrade portfolio ${res.status}: ${text2.slice(0, 200)}`);
-        try {
-          return JSON.parse(text2);
-        } catch {
-          return { raw: text2 };
-        }
-      }
-      /** Account metrics/balance (equity, balance) for one account. Tolerant of shape. */
-      async getMetrics(accountCode) {
-        const res = await this.authed(`/accounts/${encodeURIComponent(accountCode)}/metrics`);
-        const text2 = await res.text();
-        if (!res.ok) return { error: `metrics ${res.status}` };
-        try {
-          return JSON.parse(text2);
-        } catch {
-          return { raw: text2 };
-        }
-      }
-      /**
-       * Place an order on an account. dxsca-web: POST /accounts/{accountCode}/orders.
-       * Velotrade-documented body fields: instrument, side, type, quantity,
-       * positionEffect, tif. We add a unique orderCode (client id / idempotency) and
-       * only include optional legs (SL/TP) when provided. Returns the raw response so
-       * callers can inspect status; throws on a non-2xx HTTP.
-       */
-      async placeOrder(accountCode, o) {
-        const body = {
-          orderCode: o.orderCode || `vedd-${Date.now()}-${Math.floor(Math.random() * 1e6)}`,
-          instrument: o.instrument,
-          side: o.side,
-          type: o.type || "MARKET",
-          quantity: o.quantity,
-          positionEffect: o.positionEffect || "OPEN",
-          tif: o.tif || "GTC"
-        };
-        if (o.type === "LIMIT" && o.limitPrice != null) body.limitPrice = o.limitPrice;
-        if (o.type === "STOP" && o.stopPrice != null) {
-          body.stopPrice = o.stopPrice;
-          body.price = o.stopPrice;
-        }
-        if (o.stopLoss != null) body.stopLoss = o.stopLoss;
-        if (o.takeProfit != null) body.takeProfit = o.takeProfit;
-        if (o.positionEffect === "CLOSE" && o.positionCode) body.positionCode = o.positionCode;
-        const res = await this.authed(`/accounts/${encodeURIComponent(accountCode)}/orders`, {
-          method: "POST",
-          body: JSON.stringify(body)
-        });
-        const text2 = await res.text();
-        if (!res.ok) throw new Error(`DXtrade order ${res.status}: ${text2.slice(0, 300)}`);
-        let data;
-        try {
-          data = JSON.parse(text2);
-        } catch {
-          data = { raw: text2 };
-        }
-        return { ...data, _sent: body };
-      }
-      /** Set/replace SL & TP on an open position by placing protective CLOSE-effect
-       *  orders: SL as a STOP, TP as a LIMIT, on the opposite side of the position.
-       *  (positionBased dxsca accounts attach these to the open position.) Returns
-       *  both raw results so callers can confirm/calibrate. */
-      async modifyProtection(accountCode, o) {
-        const closeSide = o.positionSide === "BUY" ? "SELL" : "BUY";
-        const out = {};
-        let code = o.positionCode;
-        if (!code) {
-          try {
-            const norm3 = (s) => s.replace(/\//g, "").toUpperCase();
-            const positions = await this.getPositions(accountCode);
-            code = positions.find((p) => p.instrument === norm3(o.instrument) && p.side === o.positionSide)?.positionId;
-          } catch {
-          }
-        }
-        if (o.stopLoss != null && o.stopLoss > 0) {
-          try {
-            out.stop = await this.placeOrder(accountCode, { instrument: o.instrument, side: closeSide, quantity: o.quantity, type: "STOP", stopPrice: o.stopLoss, positionEffect: "CLOSE", tif: "GTC", positionCode: code });
-          } catch (e) {
-            out.stopError = e?.message || String(e);
-          }
-        }
-        if (o.takeProfit != null && o.takeProfit > 0) {
-          try {
-            out.takeProfit = await this.placeOrder(accountCode, { instrument: o.instrument, side: closeSide, quantity: o.quantity, type: "LIMIT", limitPrice: o.takeProfit, positionEffect: "CLOSE", tif: "GTC", positionCode: code });
-          } catch (e) {
-            out.tpError = e?.message || String(e);
-          }
-        }
-        return out;
-      }
-      /** List working/pending orders for the account (from the portfolio payload). */
-      async getWorkingOrders(accountCode) {
-        const pf = await this.getPortfolio(accountCode).catch(() => null);
-        const p0 = pf?.portfolios?.[0] ?? pf;
-        const arr2 = p0?.orders ?? pf?.orders ?? [];
-        return Array.isArray(arr2) ? arr2 : [];
-      }
-      /** Cancel one order by id. dxsca cancel is DELETE on the order resource; the
-       *  exact path shape is UNVERIFIED against Velotrade, so try the candidates and
-       *  treat a 404 as already-gone. Best-effort — never throws. */
-      async cancelOrder(accountCode, orderId) {
-        const id = String(orderId);
-        const paths = [
-          `/accounts/${encodeURIComponent(accountCode)}/orders/${encodeURIComponent(id)}`,
-          `/orders/${encodeURIComponent(id)}`
-        ];
-        for (const p of paths) {
-          try {
-            const res = await this.authed(p, { method: "DELETE" });
-            if (res.ok || res.status === 404) {
-              console.log(`[dxtrade] cancelOrder ${id} via ${p} \u2192 ${res.status}`);
-              return true;
-            }
-          } catch {
-          }
-        }
-        return false;
-      }
-      /** Cancel resting protective (CLOSE-effect) orders for an instrument so a
-       *  flatten can't leave an orphaned STOP that later re-opens a position on
-       *  hedging/position-based accounts, and so the opposite leg doesn't rest after
-       *  an SL/TP fill (poor-man's OCO). Filters strictly on positionEffect=CLOSE to
-       *  avoid ever cancelling a genuine entry order. Best-effort — never throws. */
-      async cancelProtectiveOrders(accountCode, instrument) {
-        try {
-          const norm3 = (s) => String(s ?? "").replace(/\//g, "").toUpperCase();
-          const target = norm3(instrument);
-          const orders = await this.getWorkingOrders(accountCode);
-          let n = 0;
-          for (const o of orders) {
-            const sym = norm3(o.instrument ?? o.symbol);
-            const effect = String(o.positionEffect ?? o.legs?.[0]?.positionEffect ?? "").toUpperCase();
-            if (sym !== target || effect !== "CLOSE") continue;
-            const id = o.orderId ?? o.id ?? o.orderCode ?? o.code;
-            if (id != null && await this.cancelOrder(accountCode, id)) n++;
-          }
-          if (n > 0) console.log(`[dxtrade] cancelled ${n} resting protective order(s) for ${instrument} on ${accountCode}`);
-          return n;
-        } catch {
-          return 0;
-        }
-      }
-      /** Close (or reduce) a position by placing an opposite-side market order, then
-       *  cancel any resting protective orders for the instrument so a flatten never
-       *  leaves an orphaned stop/TP behind.
-       *
-       *  On this hedging/position-based account a close WITHOUT positionCode is
-       *  rejected (errorCode 33) — confirmed live 2026-09-18 across 19 stuck
-       *  positions. When `positionCode` isn't supplied, look it up via
-       *  getPositions() (best-effort match on instrument+side) so every existing
-       *  caller (fan-out emergency-close, manual flatten) gets a working close
-       *  without having to be individually updated to thread the code through. */
-      async closePosition(accountCode, instrument, side, quantity, positionCode) {
-        const opposite = side === "BUY" ? "SELL" : "BUY";
-        let code = positionCode;
-        if (!code) {
-          try {
-            const norm3 = (s) => s.replace(/\//g, "").toUpperCase();
-            const positions = await this.getPositions(accountCode);
-            const match = positions.find((p) => p.instrument === norm3(instrument) && p.side === side);
-            code = match?.positionId;
-          } catch {
-          }
-        }
-        const res = await this.placeOrder(accountCode, { instrument, side: opposite, quantity, type: "MARKET", positionEffect: "CLOSE", positionCode: code });
-        try {
-          await this.cancelProtectiveOrders(accountCode, instrument);
-        } catch {
-        }
-        return res;
-      }
-      /** Search tradable instruments (dxsca /instruments/query). Used to discover the
-       *  exact symbol format for this broker (Velotrade). Tries a couple of param
-       *  shapes and returns the raw payload. */
-      async getInstruments(query = "") {
-        const attempts = query ? [`/instruments/query?text=${encodeURIComponent(query)}`, `/instruments/query?symbol=${encodeURIComponent(query)}`, `/instruments/query?symbols=${encodeURIComponent(query)}`] : ["/instruments/query"];
-        let last = "";
-        for (const path17 of attempts) {
-          const res = await this.authed(path17);
-          const text2 = await res.text();
-          if (res.ok) {
-            try {
-              return JSON.parse(text2);
-            } catch {
-              return { raw: text2 };
-            }
-          }
-          last = `${res.status}: ${text2.slice(0, 150)}`;
-        }
-        throw new Error(`DXtrade instruments ${last}`);
-      }
-      /** Fetch a single instrument's spec (multiplier, increments) by exact symbol. */
-      async getInstrument(symbol) {
-        try {
-          const data = await this.getInstruments(symbol);
-          const list = data?.instruments ?? data;
-          if (Array.isArray(list)) return list.find((i) => String(i?.symbol).toUpperCase() === symbol.toUpperCase()) ?? null;
-          return null;
-        } catch {
-          return null;
-        }
-      }
-      /** Normalized open positions for an account (id/instrument/side/qty/entry),
-       *  tolerant of dxsca shape (portfolio.positions | positions | flat array). */
-      async getPositions(accountCode) {
-        let lastErr = null;
-        let pf = null;
-        for (let attempt = 0; attempt < 3; attempt++) {
-          try {
-            pf = await this.getPortfolio(accountCode);
-            lastErr = null;
-            break;
-          } catch (e) {
-            lastErr = e;
-            const transient = /429|timeout|ETIMEDOUT|ECONN|socket|network|50[234]/i.test(e?.message || "");
-            if (!transient || attempt === 2) break;
-            await new Promise((r) => setTimeout(r, 1e3 * (attempt + 1)));
-          }
-        }
-        if (lastErr) {
-          throw new DxtradeReadError(`positions read failed for ${accountCode}: ${lastErr?.message ?? lastErr}`);
-        }
-        const p0 = pf?.portfolios?.[0] ?? pf;
-        const arr2 = p0?.positions ?? p0?.openPositions ?? (Array.isArray(pf) ? pf : []) ?? [];
-        if (!Array.isArray(arr2)) return [];
-        return arr2.map((p) => ({
-          positionId: p.positionCode != null ? String(p.positionCode) : p.positionId != null ? String(p.positionId) : p.id != null ? String(p.id) : p.code != null ? String(p.code) : void 0,
-          instrument: String(p.instrument ?? p.symbol ?? "").replace(/\//g, "").toUpperCase(),
-          side: /sell|short/i.test(String(p.side ?? p.direction ?? (Number(p.quantity ?? p.qty ?? 0) < 0 ? "SELL" : "BUY"))) ? "SELL" : "BUY",
-          quantity: Math.abs(Number(p.quantity ?? p.qty ?? p.size ?? 0)),
-          openPrice: Number(p.openPrice ?? p.entryPrice ?? p.avgPrice ?? p.price ?? 0) || void 0,
-          raw: p
-        }));
-      }
-      /** Closed trades with REALIZED P&L since `fromMs`, for the brain / consistency
-       *  ledger (parity with TradeLocker's getClosedTradesWithPnl). dxsca-web has no
-       *  single standardized history path across brokers, so this tries the common
-       *  candidates in order and parses tolerantly. Returns [] when the broker exposes
-       *  none of them — callers must NEVER fabricate P&L from a miss. Each returned row
-       *  carries: positionId, id, symbol, side, openPrice, closePrice, profit, closeTime. */
-      async getClosedTradesWithPnl(accountCode, fromMs) {
-        const enc = encodeURIComponent(accountCode);
-        const fromIso = new Date(fromMs).toISOString();
-        const toIso = (/* @__PURE__ */ new Date()).toISOString();
-        const candidates = [
-          `/accounts/${enc}/history?from=${encodeURIComponent(fromIso)}&to=${encodeURIComponent(toIso)}`,
-          `/accounts/${enc}/orders/history?from=${encodeURIComponent(fromIso)}&to=${encodeURIComponent(toIso)}`,
-          `/accounts/${enc}/tradeHistory?from=${encodeURIComponent(fromIso)}&to=${encodeURIComponent(toIso)}`,
-          `/accounts/${enc}/reports/trades?from=${encodeURIComponent(fromIso)}&to=${encodeURIComponent(toIso)}`,
-          `/accounts/${enc}/positions/history?from=${encodeURIComponent(fromIso)}&to=${encodeURIComponent(toIso)}`
-        ];
-        for (const path17 of candidates) {
-          let res;
-          try {
-            res = await this.authed(path17);
-          } catch {
-            continue;
-          }
-          if (!res.ok) continue;
-          let data;
-          try {
-            data = JSON.parse(await res.text());
-          } catch {
-            continue;
-          }
-          const list = data?.history ?? data?.trades ?? data?.orders ?? data?.positions ?? data?.items ?? (Array.isArray(data) ? data : []);
-          if (!Array.isArray(list) || list.length === 0) {
-            if (Array.isArray(list)) {
-              console.log(`[dxtrade] history via ${path17.split("?")[0]} \u2014 0 rows in window`);
-              return [];
-            }
-            continue;
-          }
-          const closed = list.filter((o) => {
-            const status = String(o.status ?? o.state ?? "").toUpperCase();
-            const hasPnl = o.profit != null || o.pnl != null || o.realizedPnl != null || o.realizedPnL != null || o.grossProfit != null;
-            const looksClosed = !status || /CLOS|FILL|COMPLET|DONE|SETTLED/.test(status);
-            return hasPnl && looksClosed;
-          }).map((o) => ({
-            positionId: o.positionId != null ? String(o.positionId) : void 0,
-            id: String(o.id ?? o.orderId ?? o.tradeId ?? o.dealId ?? ""),
-            symbol: String(o.instrument ?? o.symbol ?? "UNKNOWN"),
-            side: o.side ?? o.direction ?? "",
-            openPrice: Number(o.openPrice ?? o.entryPrice ?? o.avgOpenPrice ?? 0) || 0,
-            closePrice: Number(o.closePrice ?? o.exitPrice ?? o.avgClosePrice ?? o.price ?? 0) || 0,
-            profit: o.profit ?? o.pnl ?? o.realizedPnl ?? o.realizedPnL ?? o.grossProfit,
-            closeTime: o.closeTime ?? o.closedAt ?? o.closeTimestamp ?? o.timestamp ?? o.updateTime ?? null
-          }));
-          console.log(`[dxtrade] history via ${path17.split("?")[0]} \u2014 ${closed.length} closed rows`);
-          return closed;
-        }
-        console.log(`[dxtrade] no working history endpoint found for ${accountCode} (tried ${candidates.length}) \u2014 close-sync will keep opens PENDING`);
-        return [];
-      }
-      /** One-shot connectivity check used by the connect/test routes. */
-      async verify() {
-        try {
-          await this.login();
-          const accounts = await this.getAccounts();
-          return { ok: true, accounts };
-        } catch (e) {
-          return { ok: false, error: e?.message ?? String(e) };
-        }
-      }
-    };
-    _dxServiceCache = /* @__PURE__ */ new Map();
-    DX_SVC_TTL_MS = 30 * 6e4;
   }
 });
 
@@ -25771,7 +25771,56 @@ async function getMergedOpenPositions(userId, marketAnalysis) {
     tlPositions = perConn.flat();
   } catch {
   }
-  return [...mt5Positions, ...tlPositions];
+  let dxPositions = [];
+  try {
+    const { pool: _dxPool2 } = await Promise.resolve().then(() => (init_db(), db_exports));
+    const dxConns = (await _dxPool2.query(
+      `SELECT id, host, username, encrypted_password, domain, account_code FROM dxtrade_connections WHERE user_id=$1 AND is_active=true`,
+      [userId]
+    )).rows;
+    if (dxConns.length > 0) {
+      const { getDxtradeService: getDxtradeService2, decryptApiSecret: decryptApiSecret3, extractAccountCode: extractAccountCode2 } = await Promise.resolve().then(() => (init_dxtrade(), dxtrade_exports));
+      const perDxConn = await Promise.all(dxConns.map(async (dc) => {
+        try {
+          const svc = getDxtradeService2(dc.host, dc.username, decryptApiSecret3(dc.encrypted_password), dc.domain, String(dc.id));
+          await svc.ensureLoggedIn();
+          const acct = dc.account_code || extractAccountCode2(await svc.getAccounts());
+          if (!acct) return [];
+          const positions = await svc.getPositions(acct).catch(() => []);
+          return positions.map((p) => {
+            const symbol = (p.instrument || "").toUpperCase().replace("/", "");
+            const direction = p.side === "SELL" ? "SELL" : "BUY";
+            const openPrice = Number(p.openPrice) || 0;
+            const currentPrice = marketAnalysis?.[symbol]?.currentPrice ?? openPrice;
+            const qty = Number(p.quantity) || 0;
+            const dirSign = direction === "BUY" ? 1 : -1;
+            const quoteToUsd2 = symbol.toUpperCase().endsWith("JPY") ? Number(marketAnalysis?.["USDJPY"]?.currentPrice) > 0 ? 1 / Number(marketAnalysis["USDJPY"].currentPrice) : 1 / 150 : 1;
+            const profit = openPrice > 0 && currentPrice > 0 ? (currentPrice - openPrice) * qty * dirSign * quoteToUsd2 : 0;
+            return {
+              symbol,
+              direction,
+              openPrice,
+              currentPrice,
+              sl: 0,
+              // set via modifyProtection at open; not exposed on the position read
+              tp: 0,
+              profit,
+              volume: qty,
+              openTime: void 0,
+              ticket: `dx_${acct}_${p.positionId ?? ""}`,
+              source: "dx",
+              connectionId: dc.id
+            };
+          });
+        } catch {
+          return [];
+        }
+      }));
+      dxPositions = perDxConn.flat();
+    }
+  } catch {
+  }
+  return [...mt5Positions, ...tlPositions, ...dxPositions];
 }
 async function applyServerSideTrails(userId, openPositions, marketAnalysis) {
   const state = engineStates[userId];
@@ -27355,8 +27404,9 @@ async function processDecision(userId, decision, newsCtx) {
       state.signalsGenerated++;
       return;
     }
+    const _mergedPositionsForGates = await getMergedOpenPositions(userId, state._lastMarketAnalysis).catch(() => []);
     if (_signalDirRaw === "BUY" || _signalDirRaw === "SELL") {
-      const _livePositions = global.mt5OpenPositions?.[userId]?.positions || [];
+      const _livePositions = _mergedPositionsForGates;
       const _existingOnPair = _livePositions.find(
         (p) => (p.symbol || "").toUpperCase().replace("/", "") === decision.symbol?.toUpperCase().replace("/", "")
       );
@@ -27387,7 +27437,7 @@ async function processDecision(userId, decision, newsCtx) {
       const newSym = (decision.symbol || "").toUpperCase().replace("/", "");
       const newIsUSD = newSym.includes("USD");
       if (newIsUSD) {
-        const _livePositionsForCorr = global.mt5OpenPositions?.[userId]?.positions || [];
+        const _livePositionsForCorr = _mergedPositionsForGates;
         const openUSDPositions = _livePositionsForCorr.filter((p) => {
           const pSym = (p.symbol || "").toUpperCase().replace("/", "");
           return pSym.includes("USD");
@@ -28492,6 +28542,7 @@ async function processDecision(userId, decision, newsCtx) {
                   mt5Ticket: _dxTicket,
                   notes: `DXtrade open (qty ${qty}) SL ${stopLoss}${takeProfit ? ` TP ${takeProfit}` : ""} \u2014 protection attached, awaiting close sync`
                 });
+                state.tradesOpenedToday++;
               }
             } catch (_dxRec) {
               console.error("[live-engine] DXtrade open-record failed (non-fatal):", _dxRec?.message ?? _dxRec);
@@ -56370,9 +56421,9 @@ async function getStopOrdersForUser(userId, filters = {}) {
 init_schema();
 
 // server/build-info.ts
-var BUILD_COMMIT = "2eac14ab-dirty";
+var BUILD_COMMIT = "2be1e59e-dirty";
 var BUILD_BRANCH = "main";
-var BUILT_AT = "2026-09-26T04:01:33.745Z";
+var BUILT_AT = "2026-09-26T04:28:17.463Z";
 
 // server/stripe.ts
 init_db();
