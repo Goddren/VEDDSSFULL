@@ -8565,6 +8565,29 @@ async function executeDefiSwap(opts) {
     if (!quote?.liquidityAvailable && quote?.liquidityAvailable !== void 0) {
       return { ok: false, reason: "no liquidity for this pair/size" };
     }
+    const ERC20_APPROVE_GAS_ESTIMATE = BigInt(6e4);
+    const GAS_PREFLIGHT_MARGIN = BigInt(130);
+    const willNeedApproval = sellToken !== NATIVE_PSEUDO && !!(quote?.issues?.allowance?.spender || quote?.allowanceTarget);
+    try {
+      const [nativeBalance, feeData] = await Promise.all([
+        provider.getBalance(wallet.address),
+        provider.getFeeData()
+      ]);
+      const gasPrice = feeData.maxFeePerGas ?? feeData.gasPrice ?? BigInt(0);
+      const swapGasUnits = BigInt(quote?.transaction?.gas ?? 3e5);
+      const approveGasUnits = willNeedApproval ? ERC20_APPROVE_GAS_ESTIMATE : BigInt(0);
+      const estimatedCost = (swapGasUnits + approveGasUnits) * gasPrice * GAS_PREFLIGHT_MARGIN / BigInt(100);
+      const nativeValueOut = sellToken === NATIVE_PSEUDO ? BigInt(sellAmount) : BigInt(0);
+      if (nativeBalance < estimatedCost + nativeValueOut) {
+        const short = ethers.formatEther(estimatedCost + nativeValueOut - nativeBalance);
+        return {
+          ok: false,
+          reason: `insufficient native gas balance on ${opts.chainKey}: have ${ethers.formatEther(nativeBalance)}, need ~${ethers.formatEther(estimatedCost + nativeValueOut)} (short ${short}) \u2014 refuel the hot wallet before this trade can execute`
+        };
+      }
+    } catch (gasCheckErr) {
+      console.error(`[defi-swap] gas preflight check failed (non-fatal, proceeding): ${gasCheckErr?.message ?? gasCheckErr}`);
+    }
     let approveTxHash;
     const spender = quote?.issues?.allowance?.spender || quote?.allowanceTarget;
     if (sellToken !== NATIVE_PSEUDO && spender) {
@@ -14684,6 +14707,9 @@ init_db();
 var MIN_TRADES = 10;
 var REFRESH_TTL_MS = 60 * 1e3;
 var _cache = /* @__PURE__ */ new Map();
+function cryptoBrainReady(userId) {
+  return _cache.has(userId);
+}
 function bump(map, key, win) {
   const s = map[key] ??= { trades: 0, wins: 0, winRate: 0 };
   s.trades++;
@@ -15869,8 +15895,11 @@ async function scanOneUser(userId) {
     service = new CryptoComService("", "");
   }
   const conn = activeConn ?? { id: 0, autoExecute: true };
-  if (config.cryptoBrainEnabled !== false) await getOrRefreshCryptoBrain(userId).catch(() => {
-  });
+  if (config.cryptoBrainEnabled !== false) {
+    await getOrRefreshCryptoBrain(userId).catch((e) => {
+      console.error(`[cryptocom-scanner] crypto brain warm-up failed for user ${userId} (gate/size reads will use their fail-safe this cycle):`, e?.message ?? e);
+    });
+  }
   const canAutoExecute = conn.autoExecute && config.enableAutoExecution;
   let allSymbols = Array.isArray(config.symbols) ? config.symbols : [];
   if (isDefi) {
@@ -15895,6 +15924,10 @@ async function scanOneUser(userId) {
       await storage.createCryptocomEngineActivity({ userId, symbol, decision: result.decision, reasoning: result.reasoning, score: result.score, price: result.price, dailyChangePercent: result.dailyChangePercent, source: "cryptocom", strategy: result.strategy });
       if (result.decision === "signal" && canAutoExecute) {
         if (config.cryptoBrainEnabled !== false && config.cryptoBrainGating) {
+          if (!cryptoBrainReady(userId)) {
+            await storage.createCryptocomEngineActivity({ userId, symbol, decision: "skipped", strategy: result.strategy, reasoning: "\u{1F9E0} Crypto brain gating is ON but the brain has not loaded yet this cycle \u2014 failing closed rather than trading ungated.", score: result.score, price: result.price, dailyChangePercent: result.dailyChangePercent, source: "cryptocom" });
+            continue;
+          }
           const g = cryptoBrainGate(userId, symbol, result.strategy, (/* @__PURE__ */ new Date()).getUTCHours());
           if (g.blocked) {
             await storage.createCryptocomEngineActivity({ userId, symbol, decision: "skipped", strategy: result.strategy, reasoning: g.reason, score: result.score, price: result.price, dailyChangePercent: result.dailyChangePercent, source: "cryptocom" });

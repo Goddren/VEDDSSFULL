@@ -26,6 +26,22 @@ export interface CryptoBrain {
 
 const _cache = new Map<number, { brain: CryptoBrain; at: number }>();
 
+/**
+ * Whether this process has EVER successfully learned a brain for this user.
+ *
+ * cryptoBrainGate()/cryptoBrainSizeMultiplier() are cache-only reads with no
+ * fallback to the DB on a miss. The one call site that warms the cache
+ * (cryptocom-scanner.ts) swallows a learn failure with `.catch(() => {})`, so
+ * a transient DB error on the FIRST cycle after a deploy left the cache empty
+ * and both functions read that identically to "symbol has no history yet" —
+ * a proven >65%-loss-rate symbol traded completely ungated, indistinguishable
+ * in the logs from a legitimately fresh one. Gating is opt-in specifically so
+ * a user can demand this hard block; an error must not silently waive it.
+ */
+export function cryptoBrainReady(userId: number): boolean {
+  return _cache.has(userId);
+}
+
 function bump(map: Record<string, Bucket>, key: string, win: boolean) {
   const s = (map[key] ??= { trades: 0, wins: 0, winRate: 0 });
   s.trades++; if (win) s.wins++; s.winRate = Math.round((s.wins / s.trades) * 100);

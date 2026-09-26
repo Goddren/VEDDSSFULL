@@ -926,6 +926,8 @@ async function executeServerSideBuy(
       txHash: signature,
       openedAt: new Date().toISOString(),
       status: 'open',
+      stopLossPrice: signal.stopLossPrice,
+      takeProfitPrice: signal.takeProfitPrice,
     };
     state.livePositions.push(pos);
     addActivity(state, {
@@ -2267,6 +2269,13 @@ async function runScan(userId: number, state: SolEngineState, triggerToken?: str
               strategyId: topStrat.id,
               createdAt: created.toISOString(),
               expiresAt: expires.toISOString(),
+              // Carried through to the live SolAutoPosition once confirmed
+              // (executeServerSideBuy / the Phantom-approval confirm path).
+              // Previously computed above for the paper position only, so a
+              // live position stopOrdersEnabled believed it had never
+              // actually recorded one.
+              stopLossPrice,
+              takeProfitPrice,
             };
             state.dailyTradeCount++;
 
@@ -2875,6 +2884,8 @@ export function confirmLiveTrade(
     txHash,
     openedAt: new Date().toISOString(),
     status: 'open',
+    stopLossPrice: signal?.stopLossPrice,
+    takeProfitPrice: signal?.takeProfitPrice,
   };
   state.livePositions.push(pos);
   addActivity(state, {

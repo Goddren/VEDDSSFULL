@@ -247,6 +247,49 @@ export async function executeDefiSwap(opts: {
     return { ok: false, reason: 'no liquidity for this pair/size' };
   }
 
+  // ── Native-gas preflight — for BOTH entry and exit swaps ──────────────────
+  // Every balance check up to this point verifies the SOLD TOKEN's balance;
+  // nothing ever checked whether the wallet can afford the gas to send the
+  // transaction at all. A wallet whose native balance gets drawn down across
+  // several entries can be unable to pay for its own EXIT at the exact moment
+  // a stop-loss needs to close a losing position — the tx is never broadcast,
+  // the position stays open, and the only trace is a generic send failure.
+  // Same root cause as the 2026-09 gas-outage incident, just the other side of
+  // it (that one was "ran out mid-campaign"; this is "never had enough to get
+  // out"). Checked BEFORE the approve tx too, so a doomed approval doesn't burn
+  // the little gas that's left before the swap even gets attempted.
+  const ERC20_APPROVE_GAS_ESTIMATE = BigInt(60_000);
+  const GAS_PREFLIGHT_MARGIN = BigInt(130); // 1.3x the estimate — underestimating gas is common
+  const willNeedApproval = sellToken !== NATIVE_PSEUDO
+    && !!(quote?.issues?.allowance?.spender || quote?.allowanceTarget);
+  try {
+    const [nativeBalance, feeData] = await Promise.all([
+      provider.getBalance(wallet.address),
+      provider.getFeeData(),
+    ]);
+    const gasPrice = feeData.maxFeePerGas ?? feeData.gasPrice ?? BigInt(0);
+    const swapGasUnits = BigInt(quote?.transaction?.gas ?? 300_000);
+    const approveGasUnits = willNeedApproval ? ERC20_APPROVE_GAS_ESTIMATE : BigInt(0);
+    const estimatedCost = ((swapGasUnits + approveGasUnits) * gasPrice * GAS_PREFLIGHT_MARGIN) / BigInt(100);
+    // The swap ALSO sends native value when selling the native token itself —
+    // that value plus gas both have to fit in the balance.
+    const nativeValueOut = sellToken === NATIVE_PSEUDO ? BigInt(sellAmount) : BigInt(0);
+    if (nativeBalance < estimatedCost + nativeValueOut) {
+      const short = ethers.formatEther(estimatedCost + nativeValueOut - nativeBalance);
+      return {
+        ok: false,
+        reason: `insufficient native gas balance on ${opts.chainKey}: have ${ethers.formatEther(nativeBalance)}, ` +
+          `need ~${ethers.formatEther(estimatedCost + nativeValueOut)} (short ${short}) — refuel the hot wallet before this trade can execute`,
+      };
+    }
+  } catch (gasCheckErr: any) {
+    // A failed fee-data/balance READ is not the same as "insufficient funds" —
+    // don't block a trade because an RPC call hiccuped. Log it so a pattern of
+    // these is visible, then proceed to the normal send (which will surface a
+    // real insufficient-funds revert if that's actually the case).
+    console.error(`[defi-swap] gas preflight check failed (non-fatal, proceeding): ${gasCheckErr?.message ?? gasCheckErr}`);
+  }
+
   // ERC-20 sells need an allowance to the AllowanceHolder (quote.issues.allowance.spender).
   let approveTxHash: string | undefined;
   const spender = quote?.issues?.allowance?.spender || quote?.allowanceTarget;

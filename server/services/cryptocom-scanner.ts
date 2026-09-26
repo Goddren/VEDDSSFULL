@@ -11,7 +11,7 @@ import { storage } from '../storage';
 import { CryptoComService, decryptApiSecret } from '../cryptocom';
 import { computeAllAdvancedIndicators, type CandleData } from '../indicators';
 import type { CryptocomEngineConfig, CryptocomConnection } from '../../shared/schema';
-import { getOrRefreshCryptoBrain, cryptoBrainSizeMultiplier, cryptoBrainGate, recordCryptoBrainOutcome } from './crypto-brain';
+import { getOrRefreshCryptoBrain, cryptoBrainSizeMultiplier, cryptoBrainGate, cryptoBrainReady, recordCryptoBrainOutcome } from './crypto-brain';
 import { recordRealizedPnl } from './prop-firm-consistency';
 import { cefiEntryBuy, cefiExitSell, baseCoin, type CefiVenue } from './cefi-executor';
 // NOTE: defi-executor is imported LAZILY (dynamic import at the two call sites
@@ -1231,7 +1231,13 @@ async function scanOneUser(userId: number): Promise<void> {
   // evaluate the same position twice per cycle and risk a duplicate close.
 
   // Warm the self-learning brain once per cycle so sizing/gating read fresh learning.
-  if ((config as any).cryptoBrainEnabled !== false) await getOrRefreshCryptoBrain(userId).catch(() => {});
+  if ((config as any).cryptoBrainEnabled !== false) {
+    await getOrRefreshCryptoBrain(userId).catch((e: any) => {
+      // Loud on purpose: a swallowed error here used to be indistinguishable
+      // from "no trade history yet" at every gate/size read this cycle.
+      console.error(`[cryptocom-scanner] crypto brain warm-up failed for user ${userId} (gate/size reads will use their fail-safe this cycle):`, e?.message ?? e);
+    });
+  }
 
   const canAutoExecute = conn.autoExecute && config.enableAutoExecution;
 
@@ -1269,6 +1275,16 @@ async function scanOneUser(userId: number): Promise<void> {
       if (result.decision === 'signal' && canAutoExecute) {
         // Brain gate (opt-in hard-block): skip symbols/strategies/hours proven to lose.
         if ((config as any).cryptoBrainEnabled !== false && (config as any).cryptoBrainGating) {
+          // The user explicitly opted into a hard safety block. If the brain has
+          // never successfully loaded this process (cold start right after a
+          // deploy, or the warm-up above just errored), FAIL CLOSED rather than
+          // read an empty cache as "nothing to block" — an opt-in safety gate
+          // that silently no-ops on error is worse than no gate at all, because
+          // it looks identical to a gate that is working.
+          if (!cryptoBrainReady(userId)) {
+            await storage.createCryptocomEngineActivity({ userId, symbol, decision: 'skipped', strategy: result.strategy, reasoning: '🧠 Crypto brain gating is ON but the brain has not loaded yet this cycle — failing closed rather than trading ungated.', score: result.score, price: result.price, dailyChangePercent: result.dailyChangePercent, source: 'cryptocom' });
+            continue;
+          }
           const g = cryptoBrainGate(userId, symbol, result.strategy, new Date().getUTCHours());
           if (g.blocked) {
             await storage.createCryptocomEngineActivity({ userId, symbol, decision: 'skipped', strategy: result.strategy, reasoning: g.reason, score: result.score, price: result.price, dailyChangePercent: result.dailyChangePercent, source: 'cryptocom' });
