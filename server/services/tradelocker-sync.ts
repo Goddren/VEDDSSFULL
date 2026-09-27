@@ -172,7 +172,21 @@ async function _recordFxBrainOutcome(
     console.log(`[FxBrain] recorded ${symbol} ${direction} ${result} ${profit >= 0 ? '+' : ''}${profit.toFixed(2)}` +
       (f.adx_value != null ? ` (adx ${Number(f.adx_value).toFixed(1)}, grade ${f.confluence_grade ?? 'n/a'})` : ' (setup unknown)'));
   } catch (e: any) {
-    console.error('[FxBrain] outcome record failed (non-fatal):', e?.message);
+    // Was just e?.message — zero fx_brain_outcomes rows since 2026-09-23 despite
+    // real TradeLocker closes on 09-24/09-25 means this has been throwing on
+    // every close since, silently. Log everything needed to diagnose from the
+    // next real close: the Postgres error code/detail/constraint (if it's a DB
+    // error) and the exact inputs that were about to be inserted (if it's a
+    // data/type problem upstream of the query).
+    console.error(
+      `[FxBrain] outcome record failed (non-fatal) for user=${userId} symbol=${existing?.symbol} ` +
+      `direction=${existing?.direction} ticket=${(existing as any)?.mt5Ticket} result=${result} profit=${profit}: ` +
+      `${e?.message}` +
+      (e?.code ? ` | pg_code=${e.code}` : '') +
+      (e?.detail ? ` | pg_detail=${e.detail}` : '') +
+      (e?.constraint ? ` | pg_constraint=${e.constraint}` : ''),
+      e?.stack,
+    );
   }
 }
 

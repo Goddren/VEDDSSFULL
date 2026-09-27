@@ -30063,7 +30063,10 @@ async function _recordFxBrainOutcome(userId, conn, existing, match, result, prof
     );
     console.log(`[FxBrain] recorded ${symbol} ${direction} ${result} ${profit >= 0 ? "+" : ""}${profit.toFixed(2)}` + (f.adx_value != null ? ` (adx ${Number(f.adx_value).toFixed(1)}, grade ${f.confluence_grade ?? "n/a"})` : " (setup unknown)"));
   } catch (e) {
-    console.error("[FxBrain] outcome record failed (non-fatal):", e?.message);
+    console.error(
+      `[FxBrain] outcome record failed (non-fatal) for user=${userId} symbol=${existing?.symbol} direction=${existing?.direction} ticket=${existing?.mt5Ticket} result=${result} profit=${profit}: ${e?.message}` + (e?.code ? ` | pg_code=${e.code}` : "") + (e?.detail ? ` | pg_detail=${e.detail}` : "") + (e?.constraint ? ` | pg_constraint=${e.constraint}` : ""),
+      e?.stack
+    );
   }
 }
 function cache5() {
@@ -56572,9 +56575,9 @@ async function getStopOrdersForUser(userId, filters = {}) {
 init_schema();
 
 // server/build-info.ts
-var BUILD_COMMIT = "b409da1a-dirty";
+var BUILD_COMMIT = "ae7ebea5-dirty";
 var BUILD_BRANCH = "main";
-var BUILT_AT = "2026-09-27T21:42:56.954Z";
+var BUILT_AT = "2026-09-27T21:51:14.341Z";
 
 // server/stripe.ts
 init_db();
