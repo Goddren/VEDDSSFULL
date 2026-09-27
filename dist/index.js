@@ -38110,7 +38110,14 @@ Would you independently confirm this ${opts.direction} setup on its own merits a
         { role: "user", content: user }
       ],
       response_format: { type: "json_object" },
-      max_tokens: 400,
+      // Was 400 -- measured live 2026-09-27: 4 of 7 calls came back with
+      // "Unterminated string in JSON" at position ~110-150, i.e. the model
+      // filled its confirmed/direction/confidence fields (which come first in
+      // the requested shape) and got cut off mid-"reasoning" string before it
+      // could close the JSON object. Raised for headroom; the salvage parse
+      // below is the real fix -- it recovers the short fields even when
+      // "reasoning" still gets cut off.
+      max_tokens: 700,
       temperature: 0.3
     });
     const content = r.choices?.[0]?.message?.content || "";
@@ -38119,8 +38126,24 @@ Would you independently confirm this ${opts.direction} setup on its own merits a
       parsed = JSON.parse(content);
     } catch {
       const m = content.match(/\{[\s\S]*\}/);
-      if (!m) throw new Error("AI returned no parseable JSON");
-      parsed = JSON.parse(m[0]);
+      try {
+        if (!m) throw new Error("no braces found");
+        parsed = JSON.parse(m[0]);
+      } catch {
+        const confirmedM = content.match(/"confirmed"\s*:\s*(true|false)/i);
+        const directionM = content.match(/"direction"\s*:\s*"(BUY|SELL|NEUTRAL)"/i);
+        const confidenceM = content.match(/"confidence"\s*:\s*(-?\d+(?:\.\d+)?)/i);
+        const reasoningM = content.match(/"reasoning"\s*:\s*"([\s\S]*)$/i);
+        if (!confirmedM && !directionM && !confidenceM) {
+          throw new Error(`AI returned no parseable JSON (truncated, ${content.length} chars)`);
+        }
+        parsed = {
+          confirmed: confirmedM ? confirmedM[1].toLowerCase() === "true" : false,
+          direction: directionM ? directionM[1].toUpperCase() : "NEUTRAL",
+          confidence: confidenceM ? Number(confidenceM[1]) : 0,
+          reasoning: reasoningM ? reasoningM[1].replace(/\\"/g, '"').trim() + " [reasoning cut off \u2014 response truncated]" : "[response truncated before reasoning was written]"
+        };
+      }
     }
     const confidence2 = coerceConfidence(parsed.confidence);
     noteConfidenceSample(confidence2);
@@ -56539,9 +56562,9 @@ async function getStopOrdersForUser(userId, filters = {}) {
 init_schema();
 
 // server/build-info.ts
-var BUILD_COMMIT = "0364c709-dirty";
+var BUILD_COMMIT = "6eb4f3d4-dirty";
 var BUILD_BRANCH = "main";
-var BUILT_AT = "2026-09-27T05:18:45.085Z";
+var BUILT_AT = "2026-09-27T15:21:04.817Z";
 
 // server/stripe.ts
 init_db();
