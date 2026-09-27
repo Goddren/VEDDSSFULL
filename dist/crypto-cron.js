@@ -14939,6 +14939,9 @@ Would you independently confirm this ${opts.direction} setup on its own merits a
         if (!m) throw new Error("no braces found");
         parsed = JSON.parse(m[0]);
       } catch {
+        console.warn(
+          `[crypto-ai-confirmation] ${opts.symbol}: primary JSON parse failed. finish_reason=${r.choices?.[0]?.finish_reason ?? "unknown"} model=${client2.defaultModel ?? "unknown"} contentLength=${content.length} content=${JSON.stringify(content)}`
+        );
         const confirmedM = content.match(/"confirmed"\s*:\s*(true|false)/i);
         const directionM = content.match(/"direction"\s*:\s*"(BUY|SELL|NEUTRAL)"/i);
         const confidenceM = content.match(/"confidence"\s*:\s*(-?\d+(?:\.\d+)?)/i);
@@ -15771,8 +15774,13 @@ Reasoning: ${result.reasoning}`;
       max_tokens: 300,
       temperature: 0.3
     });
-    const parsed = JSON.parse(r.choices?.[0]?.message?.content || "{}");
-    return { confirmed: !!parsed.confirmed, confidence: Math.max(0, Math.min(100, Number(parsed.confidence) || 0)), reasoning: String(parsed.reasoning || "") };
+    const rawContent = r.choices?.[0]?.message?.content || "{}";
+    const parsed = JSON.parse(rawContent);
+    if (parsed.reasoning == null || parsed.confidence == null) {
+      console.warn(`[cryptocom-scanner] lite confirmation for ${symbol}: model omitted ${parsed.reasoning == null ? "reasoning" : ""}${parsed.reasoning == null && parsed.confidence == null ? " and " : ""}${parsed.confidence == null ? "confidence" : ""} \u2014 raw: ${rawContent.slice(0, 200)}`);
+    }
+    const reasoning = parsed.reasoning != null && String(parsed.reasoning).trim() ? String(parsed.reasoning) : "(lite fallback: model returned no reasoning text)";
+    return { confirmed: !!parsed.confirmed, confidence: Math.max(0, Math.min(100, Number(parsed.confidence) || 0)), reasoning };
   } catch (err) {
     return { confirmed: false, confidence: 0, reasoning: `AI confirmation unavailable: ${err.message}` };
   }

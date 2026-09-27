@@ -126,6 +126,19 @@ Would you independently confirm this ${opts.direction} setup on its own merits a
         if (!m) throw new Error('no braces found');
         parsed = JSON.parse(m[0]);
       } catch {
+        // Diagnostic only. Measured 2026-09-27: raising max_tokens 400->700
+        // did NOT stop this -- a failure landed at content position 95, far
+        // under even the OLD 400-token (~1600 char) budget, so token-limit
+        // exhaustion is not the (whole) cause for at least some of these.
+        // finish_reason distinguishes "cut off by the token limit" (length)
+        // from "the model considered itself done but produced malformed JSON
+        // anyway" (stop) -- two different problems needing different fixes.
+        // Logged so the next occurrence gives facts instead of another guess.
+        console.warn(
+          `[crypto-ai-confirmation] ${opts.symbol}: primary JSON parse failed. ` +
+          `finish_reason=${r.choices?.[0]?.finish_reason ?? 'unknown'} model=${client.defaultModel ?? 'unknown'} ` +
+          `contentLength=${content.length} content=${JSON.stringify(content)}`
+        );
         // Truncated mid-string (max_tokens cut the response off before the
         // model closed its own JSON). confirmed/direction/confidence are
         // short fixed-shape fields that normally arrive intact even when the

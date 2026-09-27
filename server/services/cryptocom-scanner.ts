@@ -898,8 +898,21 @@ async function getCryptocomAiConfirmationLite(userId: number, symbol: string, re
       response_format: { type: 'json_object' },
       max_tokens: 300, temperature: 0.3,
     });
-    const parsed = JSON.parse(r.choices?.[0]?.message?.content || '{}');
-    return { confirmed: !!parsed.confirmed, confidence: Math.max(0, Math.min(100, Number(parsed.confidence) || 0)), reasoning: String(parsed.reasoning || '') };
+    const rawContent = r.choices?.[0]?.message?.content || '{}';
+    const parsed = JSON.parse(rawContent);
+    // Traced 2026-09-27: several consensus rows showed SKIP, confidence
+    // exactly 0, and a completely BLANK reasoning -- not an error, since
+    // JSON.parse succeeded, but the model's object simply omitted the
+    // "reasoning" and/or "confidence" keys, and `|| ''` / `|| 0` silently
+    // accepted the gap. That's indistinguishable in the log from "the model
+    // reviewed this and confidence is genuinely 0" unless it's labeled.
+    if (parsed.reasoning == null || parsed.confidence == null) {
+      console.warn(`[cryptocom-scanner] lite confirmation for ${symbol}: model omitted ${parsed.reasoning == null ? 'reasoning' : ''}${parsed.reasoning == null && parsed.confidence == null ? ' and ' : ''}${parsed.confidence == null ? 'confidence' : ''} — raw: ${rawContent.slice(0, 200)}`);
+    }
+    const reasoning = parsed.reasoning != null && String(parsed.reasoning).trim()
+      ? String(parsed.reasoning)
+      : '(lite fallback: model returned no reasoning text)';
+    return { confirmed: !!parsed.confirmed, confidence: Math.max(0, Math.min(100, Number(parsed.confidence) || 0)), reasoning };
   } catch (err: any) {
     return { confirmed: false, confidence: 0, reasoning: `AI confirmation unavailable: ${err.message}` };
   }
