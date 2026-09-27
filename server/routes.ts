@@ -1296,6 +1296,16 @@ export async function registerRoutes(app: Express, existingServer?: Server): Pro
           return pairFilterConfig();
         } catch { return null; }
       })(),
+      // Real trades closing while the brain records none of them ran silent for
+      // 4 days (2026-09-23 to 2026-09-27) before anyone noticed — same
+      // invisible-failure shape as aiCache/pairFilter above. Surfaced here so a
+      // stall is visible on the next health check instead of the next audit.
+      fxBrainHealth: await (async () => {
+        try {
+          const { checkFxBrainHealth } = await import('./services/fx-brain');
+          return await checkFxBrainHealth();
+        } catch { return null; }
+      })(),
     });
   });
 

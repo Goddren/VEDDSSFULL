@@ -9702,6 +9702,7 @@ var init_session = __esm({
 // server/services/fx-brain.ts
 var fx_brain_exports = {};
 __export(fx_brain_exports, {
+  checkFxBrainHealth: () => checkFxBrainHealth,
   fxBrainGateVerdict: () => fxBrainGateVerdict,
   fxBrainInsights: () => fxBrainInsights,
   getFxBrain: () => getFxBrain,
@@ -9831,6 +9832,30 @@ async function fxBrainInsights(userId, symbol) {
     }
   }
   return lines.join("\n");
+}
+async function checkFxBrainHealth(windowHours = 24) {
+  const { pool: pool2 } = await Promise.resolve().then(() => (init_db(), db_exports));
+  const [{ rows: closes }, { rows: brainRows }, { rows: lastRow }] = await Promise.all([
+    pool2.query(
+      `SELECT count(*)::int AS n FROM ai_trade_results
+        WHERE source IN ('tradelocker','tradelocker_auto')
+          AND result IN ('WIN','LOSS','BREAKEVEN')
+          AND closed_at > now() - ($1 || ' hours')::interval`,
+      [windowHours]
+    ),
+    pool2.query(
+      `SELECT count(*)::int AS n FROM fx_brain_outcomes WHERE closed_at > now() - ($1 || ' hours')::interval`,
+      [windowHours]
+    ),
+    pool2.query(`SELECT max(closed_at) AS last_at FROM fx_brain_outcomes`)
+  ]);
+  const realClosesInWindow = closes[0]?.n ?? 0;
+  const brainRowsInWindow = brainRows[0]?.n ?? 0;
+  const lastAt = lastRow[0]?.last_at ? new Date(lastRow[0].last_at) : null;
+  const hoursSinceLastBrainRow = lastAt ? Math.round((Date.now() - lastAt.getTime()) / 36e5 * 10) / 10 : null;
+  const stalled = realClosesInWindow > 0 && brainRowsInWindow === 0;
+  const message = stalled ? `FX BRAIN STALLED: ${realClosesInWindow} real TradeLocker close(s) in the last ${windowHours}h, 0 recorded to fx_brain_outcomes. Last successful brain row was ${hoursSinceLastBrainRow ?? "?"}h ago. The gate and AI prompt are running on stale data \u2014 check _recordFxBrainOutcome in tradelocker-sync.ts.` : `FX brain OK \u2014 ${brainRowsInWindow}/${realClosesInWindow} closes recorded in the last ${windowHours}h.`;
+  return { stalled, windowHours, realClosesInWindow, brainRowsInWindow, lastBrainRowAt: lastAt?.toISOString() ?? null, hoursSinceLastBrainRow, message };
 }
 async function fxBrainGateVerdict(userId, symbol, direction, hourUtc = (/* @__PURE__ */ new Date()).getUTCHours()) {
   if (!GATE_ENABLED()) return null;

@@ -212,6 +212,59 @@ export async function fxBrainInsights(userId: number, symbol?: string): Promise<
   return lines.join('\n');
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+// Data-integrity watchdog. 2026-09-23 through 2026-09-27: the recorder that
+// feeds this table (tradelocker-sync.ts _recordFxBrainOutcome) started
+// silently failing on every close the day after it shipped — swallowed by a
+// bare `catch { console.error(e.message) }` — and NOTHING surfaced it for 4
+// days while the gate and the AI prompt kept running on a frozen, one-day
+// snapshot. The fix for THAT bug fixes one exception; it does not fix the
+// class of bug (a learning pipeline can go silently stale and nothing
+// notices). This is the fix for the class: a cheap, standing comparison
+// between "real trades closed" and "the brain actually recorded them" that
+// fails LOUD (console.error, /api/health) instead of failing silent.
+// ─────────────────────────────────────────────────────────────────────────────
+export interface FxBrainHealth {
+  stalled: boolean;
+  windowHours: number;
+  realClosesInWindow: number;
+  brainRowsInWindow: number;
+  lastBrainRowAt: string | null;
+  hoursSinceLastBrainRow: number | null;
+  message: string;
+}
+
+export async function checkFxBrainHealth(windowHours = 24): Promise<FxBrainHealth> {
+  const { pool } = await import('../db');
+  const [{ rows: closes }, { rows: brainRows }, { rows: lastRow }] = await Promise.all([
+    pool.query(
+      `SELECT count(*)::int AS n FROM ai_trade_results
+        WHERE source IN ('tradelocker','tradelocker_auto')
+          AND result IN ('WIN','LOSS','BREAKEVEN')
+          AND closed_at > now() - ($1 || ' hours')::interval`,
+      [windowHours],
+    ),
+    pool.query(
+      `SELECT count(*)::int AS n FROM fx_brain_outcomes WHERE closed_at > now() - ($1 || ' hours')::interval`,
+      [windowHours],
+    ),
+    pool.query(`SELECT max(closed_at) AS last_at FROM fx_brain_outcomes`),
+  ]);
+
+  const realClosesInWindow = closes[0]?.n ?? 0;
+  const brainRowsInWindow = brainRows[0]?.n ?? 0;
+  const lastAt: Date | null = lastRow[0]?.last_at ? new Date(lastRow[0].last_at) : null;
+  const hoursSinceLastBrainRow = lastAt ? Math.round((Date.now() - lastAt.getTime()) / 36e5 * 10) / 10 : null;
+
+  // Real trades closed, the brain recorded NONE of them. Unambiguous: this is
+  // exactly the shape of the 4-day-silent failure, not a slow trading day.
+  const stalled = realClosesInWindow > 0 && brainRowsInWindow === 0;
+  const message = stalled
+    ? `FX BRAIN STALLED: ${realClosesInWindow} real TradeLocker close(s) in the last ${windowHours}h, 0 recorded to fx_brain_outcomes. Last successful brain row was ${hoursSinceLastBrainRow ?? '?'}h ago. The gate and AI prompt are running on stale data — check _recordFxBrainOutcome in tradelocker-sync.ts.`
+    : `FX brain OK — ${brainRowsInWindow}/${realClosesInWindow} closes recorded in the last ${windowHours}h.`;
+
+  return { stalled, windowHours, realClosesInWindow, brainRowsInWindow, lastBrainRowAt: lastAt?.toISOString() ?? null, hoursSinceLastBrainRow, message };
+}
 
 // ─────────────────────────────────────────────────────────────────────────────
 // The gate. Everything above only LEARNS; without this the brain was a report

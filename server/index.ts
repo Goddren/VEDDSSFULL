@@ -381,6 +381,22 @@ async function withRetry<T>(
     console.error(`[startup] ensureFxBrainTable import error (non-fatal):`, err?.message ?? err);
   }
 
+  // Standing watchdog for the exact failure that ran silent for 4 days
+  // (2026-09-23 to 2026-09-27): the FX brain's per-trade recorder threw on
+  // every TradeLocker close and nothing surfaced it, so the gate/AI prompt
+  // kept running on a frozen snapshot with no visible symptom. /api/health
+  // exposes this on request; this interval logs it into Render's log stream
+  // on its own, every 30 minutes, so a stall is loud even if nobody polls it.
+  setInterval(async () => {
+    try {
+      const { checkFxBrainHealth } = await import('./services/fx-brain');
+      const h = await checkFxBrainHealth();
+      if (h.stalled) console.error(`[fx-brain-watchdog] ${h.message}`);
+    } catch (err: any) {
+      console.error(`[fx-brain-watchdog] health check itself failed (non-fatal):`, err?.message ?? err);
+    }
+  }, 30 * 60 * 1000);
+
   try {
     const { ensureSolBrainTable } = await import('./services/ensure-sol-brain-table');
     await ensureSolBrainTable();
