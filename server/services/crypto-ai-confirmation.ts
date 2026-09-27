@@ -98,25 +98,35 @@ ${candleSummary}
 
 Would you independently confirm this ${opts.direction} setup on its own merits as a crypto perpetual trade?`;
 
-    const r = await client.chat.completions.create({
-      model: client.defaultModel || 'gpt-4o-mini',
+    const modelId = client.defaultModel || 'gpt-4o-mini';
+    const baseRequest = {
+      model: modelId,
       messages: [
-        { role: 'system', content: system },
-        { role: 'user', content: user },
+        { role: 'system' as const, content: system },
+        { role: 'user' as const, content: user },
       ],
-      response_format: { type: 'json_object' },
-      // Was 400 -- measured live 2026-09-27: 4 of 7 calls came back with
-      // "Unterminated string in JSON" at position ~110-150, i.e. the model
-      // filled its confirmed/direction/confidence fields (which come first in
-      // the requested shape) and got cut off mid-"reasoning" string before it
-      // could close the JSON object. Raised for headroom; the salvage parse
-      // below is the real fix -- it recovers the short fields even when
-      // "reasoning" still gets cut off.
-      max_tokens: 700,
+      response_format: { type: 'json_object' as const },
       temperature: 0.3,
-    });
+    };
 
-    const content = r.choices?.[0]?.message?.content || '';
+    // Was a flat 400, then 700 -- neither was the real fix. Diagnostic
+    // logging (added after 700 still failed) caught the actual shape live:
+    // finish_reason=length, contentLength=0, content="" on openai/gpt-4o-mini
+    // -- the ENTIRE token budget was consumed before any visible content was
+    // produced at all. This model isn't flagged by this codebase's own
+    // hasHiddenReasoningOverhead() heuristic (only matches actual reasoning
+    // models + gpt-oss/qwen3 by name), so whatever provider/routing is behind
+    // this specific call for this account is consuming hidden tokens this
+    // heuristic doesn't know about. Rather than pick a bigger static number
+    // and hope, detect this EXACT failure shape and retry once with a much
+    // larger budget before falling through to the salvage parser.
+    let r = await client.chat.completions.create({ ...baseRequest, max_tokens: 700 });
+    let content = r.choices?.[0]?.message?.content || '';
+    if (!content && r.choices?.[0]?.finish_reason === 'length') {
+      console.warn(`[crypto-ai-confirmation] ${opts.symbol}: 700-token budget produced zero content (finish_reason=length) on ${modelId} -- retrying once at 2500.`);
+      r = await client.chat.completions.create({ ...baseRequest, max_tokens: 2500 });
+      content = r.choices?.[0]?.message?.content || '';
+    }
     let parsed: any;
     try {
       parsed = JSON.parse(content);

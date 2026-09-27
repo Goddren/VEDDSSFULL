@@ -38104,24 +38104,23 @@ RECENT CANDLES (oldest to most recent):
 ${candleSummary}
 
 Would you independently confirm this ${opts.direction} setup on its own merits as a crypto perpetual trade?`;
-    const r = await client2.chat.completions.create({
-      model: client2.defaultModel || "gpt-4o-mini",
+    const modelId = client2.defaultModel || "gpt-4o-mini";
+    const baseRequest = {
+      model: modelId,
       messages: [
         { role: "system", content: system },
         { role: "user", content: user }
       ],
       response_format: { type: "json_object" },
-      // Was 400 -- measured live 2026-09-27: 4 of 7 calls came back with
-      // "Unterminated string in JSON" at position ~110-150, i.e. the model
-      // filled its confirmed/direction/confidence fields (which come first in
-      // the requested shape) and got cut off mid-"reasoning" string before it
-      // could close the JSON object. Raised for headroom; the salvage parse
-      // below is the real fix -- it recovers the short fields even when
-      // "reasoning" still gets cut off.
-      max_tokens: 700,
       temperature: 0.3
-    });
-    const content = r.choices?.[0]?.message?.content || "";
+    };
+    let r = await client2.chat.completions.create({ ...baseRequest, max_tokens: 700 });
+    let content = r.choices?.[0]?.message?.content || "";
+    if (!content && r.choices?.[0]?.finish_reason === "length") {
+      console.warn(`[crypto-ai-confirmation] ${opts.symbol}: 700-token budget produced zero content (finish_reason=length) on ${modelId} -- retrying once at 2500.`);
+      r = await client2.chat.completions.create({ ...baseRequest, max_tokens: 2500 });
+      content = r.choices?.[0]?.message?.content || "";
+    }
     let parsed;
     try {
       parsed = JSON.parse(content);
@@ -56573,9 +56572,9 @@ async function getStopOrdersForUser(userId, filters = {}) {
 init_schema();
 
 // server/build-info.ts
-var BUILD_COMMIT = "6e6468eb-dirty";
+var BUILD_COMMIT = "1a347f47-dirty";
 var BUILD_BRANCH = "main";
-var BUILT_AT = "2026-09-27T20:23:19.044Z";
+var BUILT_AT = "2026-09-27T21:01:46.489Z";
 
 // server/stripe.ts
 init_db();
