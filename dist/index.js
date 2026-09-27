@@ -54340,12 +54340,12 @@ function cache9() {
   global.tlConsistencyStatus = global.tlConsistencyStatus || {};
   return global.tlConsistencyStatus;
 }
-async function auditOnce() {
+async function auditTradeLocker() {
   let connections;
   try {
     connections = await storage.getAllPropFirmTradelockerConnections();
   } catch (e) {
-    console.error("[Consistency Audit] Failed to load prop-firm connections:", e.message);
+    console.error("[Consistency Audit] Failed to load prop-firm TradeLocker connections:", e.message);
     return;
   }
   if (!connections.length) return;
@@ -54361,9 +54361,43 @@ async function auditOnce() {
         console.log(`[Consistency Audit] ${conn.accountId}: WARNING \u2014 ${result.guidance}`);
       }
     } catch (e) {
-      console.error(`[Consistency Audit] Failed for connection ${conn.id}:`, e.message);
+      console.error(`[Consistency Audit] Failed for TradeLocker connection ${conn.id}:`, e.message);
     }
   }
+}
+async function auditDxtrade() {
+  let connections;
+  try {
+    const { rows } = await pool.query(
+      `SELECT id, account_code, label, prop_firm_name, consistency_enabled, consistency_threshold_pct
+         FROM dxtrade_connections WHERE is_prop_firm_account = true AND is_active = true`
+    );
+    connections = rows;
+  } catch (e) {
+    console.error("[Consistency Audit] Failed to load prop-firm DXtrade connections:", e.message);
+    return;
+  }
+  if (!connections.length) return;
+  const store = cache9();
+  for (const conn of connections) {
+    try {
+      const result = await getConsistencyStatus(conn.id, "dxtrade", conn.consistency_threshold_pct, conn.consistency_enabled === true);
+      store[`dx_${conn.id}`] = { ...result, checkedAt: (/* @__PURE__ */ new Date()).toISOString() };
+      if (!result.enabled) continue;
+      const label = conn.label || conn.account_code || `dxtrade #${conn.id}`;
+      if (result.status === "breached") {
+        console.warn(`[Consistency Audit] ${label} (${conn.prop_firm_name || "prop firm"}) BREACHED: ${result.guidance}`);
+      } else if (result.status === "warning") {
+        console.log(`[Consistency Audit] ${label}: WARNING \u2014 ${result.guidance}`);
+      }
+    } catch (e) {
+      console.error(`[Consistency Audit] Failed for DXtrade connection ${conn.id}:`, e.message);
+    }
+  }
+}
+async function auditOnce() {
+  await auditTradeLocker();
+  await auditDxtrade();
 }
 function startPropFirmConsistencyAuditLoop() {
   console.log(`[Consistency Audit] Background prop-firm consistency audit loop started (${POLL_INTERVAL_MS3 / 6e4}min interval).`);
@@ -54379,6 +54413,7 @@ var init_prop_firm_consistency_audit_loop = __esm({
   "server/services/prop-firm-consistency-audit-loop.ts"() {
     "use strict";
     init_storage();
+    init_db();
     init_prop_firm_consistency();
     POLL_INTERVAL_MS3 = 3 * 60 * 1e3;
   }
@@ -56600,9 +56635,9 @@ async function getStopOrdersForUser(userId, filters = {}) {
 init_schema();
 
 // server/build-info.ts
-var BUILD_COMMIT = "3462f6f3-dirty";
+var BUILD_COMMIT = "e6e0cdf4-dirty";
 var BUILD_BRANCH = "main";
-var BUILT_AT = "2026-09-27T22:17:51.508Z";
+var BUILT_AT = "2026-09-27T22:50:07.065Z";
 
 // server/stripe.ts
 init_db();
