@@ -905,12 +905,20 @@ async function getCryptocomAiConfirmationLite(userId: number, symbol: string, re
   }
 }
 
-// SS AI reasoning for crypto — reuses the EXACT same confirmation brain the FX
-// SS AI Engine runs (getAiVisionConfirmation), fed this pair's live candles +
-// full indicator suite. Despite the "vision" name that function reasons from a
-// text-serialized candle/indicator context (not a screenshot), so it drops in
-// cleanly for crypto pairs. On any failure it degrades to the lite numeric
-// second-opinion above so the gate never silently hard-blocks (vision + fallback).
+// Crypto-native SS AI reasoning for the Dual-Vote Consensus gate.
+//
+// Used to reuse getAiVisionConfirmation() verbatim -- the FX confirmation
+// function -- on the assumption a text-serialized candle/indicator prompt
+// "drops in cleanly" for any asset class. Measured 2026-09-27: quant scores
+// of 78-100 (CONFIRM) were paired with AI confidence 25-35 and "Confluence
+// Grade D" on nearly every signal, with reasoning built entirely around
+// FX/ICT concepts (order blocks, liquidity sweeps, an ICT macro window tied
+// to session timing) that don't describe a 24/7 perpetuals market. Net
+// effect: 0 real crypto trades over 24h+ despite plenty of 80+ quant setups.
+// Replaced with getCryptoAiConfirmation() (crypto-ai-confirmation.ts) -- same
+// underlying model selection/failover, a prompt built around what actually
+// matters for a perpetual (trend/momentum/volume/order-flow), explicitly
+// told not to reach for FX-only concepts.
 async function getCryptocomAiConfirmation(userId: number, symbol: string, result: StrategyResult, chain: string): Promise<{ confirmed: boolean; confidence: number; reasoning: string }> {
   // Priority back-off: crypto is lower priority than the FX engine and draws on
   // the same AI provider budget. When that budget is exhausted (402) or rate
@@ -927,24 +935,27 @@ async function getCryptocomAiConfirmation(userId: number, symbol: string, result
     if (!bars || bars.length < 30) return getCryptocomAiConfirmationLite(userId, symbol, result);
     const candles = convertToCandles(bars);
     const indicators = computeAllAdvancedIndicators(candles, 0, symbol, 'M5');
-    const { getAiVisionConfirmation } = await import('../openai');
+    const { getCryptoAiConfirmation } = await import('./crypto-ai-confirmation');
     const proposedSignal = result.direction === 'BUY' ? 'BUY' : result.direction === 'SELL' ? 'SELL' : 'NEUTRAL';
-    const tradePlan = { direction: proposedSignal, entry: result.price, strategy: result.strategy };
-    const conf: any = await getAiVisionConfirmation(
-      candles, indicators, proposedSignal, Math.max(0, Math.min(100, result.score ?? 0)),
-      tradePlan, symbol, 'M5', userId,
-      undefined, null, null, undefined, null, undefined, undefined,
-      `crypto-${result.strategy}`, false,
-    );
-    if (!conf || (conf.aiConfidence === undefined && conf.confirmed === undefined)) {
+    if (proposedSignal === 'NEUTRAL') return getCryptocomAiConfirmationLite(userId, symbol, result);
+    const conf = await getCryptoAiConfirmation({
+      userId, symbol, strategy: result.strategy, direction: proposedSignal,
+      price: result.price ?? 0, quantScore: Math.max(0, Math.min(100, result.score ?? 0)),
+      quantReasoning: result.reasoning ?? '', indicators, candles,
+    });
+    if (conf.aiError) {
+      // Same distinction fixed on the FX side: an outage is not the same as
+      // the model reviewing and rejecting the setup. Fall back to the lite
+      // numeric opinion rather than let the gate silently hard-block on a
+      // transient provider error.
       return getCryptocomAiConfirmationLite(userId, symbol, result);
     }
-    // SS AI must agree on DIRECTION too — a confirmed long on a SELL signal is a skip.
-    const dirOk = !conf.aiDirection || conf.aiDirection === 'NEUTRAL' || conf.aiDirection === proposedSignal;
+    // Second opinion must agree on DIRECTION too — a confirmed long on a SELL signal is a skip.
+    const dirOk = conf.aiDirection === 'NEUTRAL' || conf.aiDirection === proposedSignal;
     return {
-      confirmed: !!conf.confirmed && dirOk,
-      confidence: Math.max(0, Math.min(100, Number(conf.aiConfidence) || 0)),
-      reasoning: `[SS AI${conf.modelUsed ? ` · ${conf.modelUsed}` : ''}] ${String(conf.reasoning || 'no reasoning returned')}${dirOk ? '' : ` (direction mismatch: AI says ${conf.aiDirection}, signal is ${proposedSignal} — skipped)`}`,
+      confirmed: conf.confirmed && dirOk,
+      confidence: conf.aiConfidence,
+      reasoning: `[Crypto AI${conf.modelUsed ? ` · ${conf.modelUsed}` : ''}] ${conf.reasoning}${dirOk ? '' : ` (direction mismatch: AI says ${conf.aiDirection}, signal is ${proposedSignal} — skipped)`}`,
     };
   } catch (err: any) {
     // Never hard-fail the gate on an SS AI error — fall back to the numeric opinion.

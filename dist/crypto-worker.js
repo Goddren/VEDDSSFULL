@@ -14484,6 +14484,90 @@ You ALWAYS produce proposals that are ready to submit \u2014 no placeholders lik
   }
 });
 
+// server/services/crypto-ai-confirmation.ts
+var crypto_ai_confirmation_exports = {};
+__export(crypto_ai_confirmation_exports, {
+  getCryptoAiConfirmation: () => getCryptoAiConfirmation
+});
+async function getCryptoAiConfirmation(opts) {
+  try {
+    const client2 = await getUniversalAIClientForUser(opts.userId);
+    const recent = opts.candles.slice(-20);
+    const candleSummary = recent.map((c) => {
+      const tNum = Number(c.t);
+      const t = Number.isFinite(tNum) && tNum > 0 ? new Date(tNum * 1e3).toISOString().slice(11, 16) : "?";
+      return `${t} O:${c.o} H:${c.h} L:${c.l} C:${c.c} V:${Math.round(c.v ?? 0)}`;
+    }).join("\n");
+    const ind = opts.indicators || {};
+    const indicatorSummary = [
+      `RSI: ${ind.rsi ?? "n/a"}`,
+      `ADX: ${ind.adx ?? "n/a"}  +DI: ${ind.plusDI ?? "n/a"}  -DI: ${ind.minusDI ?? "n/a"}`,
+      `MACD histogram: ${ind.macdHistogram ?? ind.macd?.histogram ?? "n/a"}`,
+      `Trend: ${ind.trend ?? "n/a"}`,
+      `Relative volume: ${ind.relativeVolume ?? "n/a"}`,
+      `Volume trend: ${ind.volumeTrend ?? "n/a"}`
+    ].join("\n  ");
+    const system = 'You are a disciplined crypto perpetual futures trader giving a second, independent opinion on a signal a technical scanner already produced. Judge this on trend strength, momentum, volume/order-flow confirmation, and recent price structure. This is a 24/7 market with no session close or reopen -- do NOT reach for forex/ICT concepts like order blocks, liquidity sweeps, discount/premium zones, or session/macro-window timing; none of that describes how crypto perpetuals actually trade, and grading a setup down for lacking FX-specific structure it was never going to have is not a real assessment. Respond ONLY with JSON: {"confirmed": boolean, "direction": "BUY"|"SELL"|"NEUTRAL", "confidence": number (0-100), "reasoning": string}.';
+    const user = `SYMBOL: ${opts.symbol}
+PROPOSED: ${opts.direction} @ ${opts.price}
+SCANNER STRATEGY: ${opts.strategy} (score ${opts.quantScore}/100)
+SCANNER REASONING: ${opts.quantReasoning}
+
+INDICATORS:
+  ${indicatorSummary}
+
+RECENT CANDLES (oldest to most recent):
+${candleSummary}
+
+Would you independently confirm this ${opts.direction} setup on its own merits as a crypto perpetual trade?`;
+    const r = await client2.chat.completions.create({
+      model: client2.defaultModel || "gpt-4o-mini",
+      messages: [
+        { role: "system", content: system },
+        { role: "user", content: user }
+      ],
+      response_format: { type: "json_object" },
+      max_tokens: 400,
+      temperature: 0.3
+    });
+    const content = r.choices?.[0]?.message?.content || "";
+    let parsed;
+    try {
+      parsed = JSON.parse(content);
+    } catch {
+      const m = content.match(/\{[\s\S]*\}/);
+      if (!m) throw new Error("AI returned no parseable JSON");
+      parsed = JSON.parse(m[0]);
+    }
+    const confidence = coerceConfidence(parsed.confidence);
+    noteConfidenceSample(confidence);
+    const direction = ["BUY", "SELL", "NEUTRAL"].includes(parsed.direction) ? parsed.direction : "NEUTRAL";
+    return {
+      confirmed: !!parsed.confirmed,
+      aiDirection: direction,
+      aiConfidence: confidence,
+      reasoning: String(parsed.reasoning || "no reasoning returned"),
+      modelUsed: client2.defaultModel
+    };
+  } catch (err) {
+    const statusCode = err?.status || err?.statusCode || err?.response?.status;
+    return {
+      confirmed: false,
+      aiDirection: "NEUTRAL",
+      aiConfidence: 0,
+      reasoning: `Crypto AI confirmation error: ${err?.message ?? err}`,
+      aiError: true,
+      aiErrorStatus: typeof statusCode === "number" ? statusCode : null
+    };
+  }
+}
+var init_crypto_ai_confirmation = __esm({
+  "server/services/crypto-ai-confirmation.ts"() {
+    "use strict";
+    init_openai();
+  }
+});
+
 // server/services/engine-consensus.ts
 var engine_consensus_exports = {};
 __export(engine_consensus_exports, {
@@ -15622,36 +15706,28 @@ async function getCryptocomAiConfirmation(userId, symbol, result, chain) {
     if (!bars || bars.length < 30) return getCryptocomAiConfirmationLite(userId, symbol, result);
     const candles = convertToCandles(bars);
     const indicators = computeAllAdvancedIndicators(candles, 0, symbol, "M5");
-    const { getAiVisionConfirmation: getAiVisionConfirmation2 } = await Promise.resolve().then(() => (init_openai(), openai_exports));
+    const { getCryptoAiConfirmation: getCryptoAiConfirmation2 } = await Promise.resolve().then(() => (init_crypto_ai_confirmation(), crypto_ai_confirmation_exports));
     const proposedSignal = result.direction === "BUY" ? "BUY" : result.direction === "SELL" ? "SELL" : "NEUTRAL";
-    const tradePlan = { direction: proposedSignal, entry: result.price, strategy: result.strategy };
-    const conf = await getAiVisionConfirmation2(
-      candles,
-      indicators,
-      proposedSignal,
-      Math.max(0, Math.min(100, result.score ?? 0)),
-      tradePlan,
-      symbol,
-      "M5",
+    if (proposedSignal === "NEUTRAL") return getCryptocomAiConfirmationLite(userId, symbol, result);
+    const conf = await getCryptoAiConfirmation2({
       userId,
-      void 0,
-      null,
-      null,
-      void 0,
-      null,
-      void 0,
-      void 0,
-      `crypto-${result.strategy}`,
-      false
-    );
-    if (!conf || conf.aiConfidence === void 0 && conf.confirmed === void 0) {
+      symbol,
+      strategy: result.strategy,
+      direction: proposedSignal,
+      price: result.price ?? 0,
+      quantScore: Math.max(0, Math.min(100, result.score ?? 0)),
+      quantReasoning: result.reasoning ?? "",
+      indicators,
+      candles
+    });
+    if (conf.aiError) {
       return getCryptocomAiConfirmationLite(userId, symbol, result);
     }
-    const dirOk = !conf.aiDirection || conf.aiDirection === "NEUTRAL" || conf.aiDirection === proposedSignal;
+    const dirOk = conf.aiDirection === "NEUTRAL" || conf.aiDirection === proposedSignal;
     return {
-      confirmed: !!conf.confirmed && dirOk,
-      confidence: Math.max(0, Math.min(100, Number(conf.aiConfidence) || 0)),
-      reasoning: `[SS AI${conf.modelUsed ? ` \xB7 ${conf.modelUsed}` : ""}] ${String(conf.reasoning || "no reasoning returned")}${dirOk ? "" : ` (direction mismatch: AI says ${conf.aiDirection}, signal is ${proposedSignal} \u2014 skipped)`}`
+      confirmed: conf.confirmed && dirOk,
+      confidence: conf.aiConfidence,
+      reasoning: `[Crypto AI${conf.modelUsed ? ` \xB7 ${conf.modelUsed}` : ""}] ${conf.reasoning}${dirOk ? "" : ` (direction mismatch: AI says ${conf.aiDirection}, signal is ${proposedSignal} \u2014 skipped)`}`
     };
   } catch (err) {
     return getCryptocomAiConfirmationLite(userId, symbol, result);
