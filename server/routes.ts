@@ -18865,6 +18865,10 @@ Format each recommendation as a clear, concise action item.`;
         return chrono.map((t: any) => { c += (t.profitLoss || 0); return { t: t.closedAt, v: Math.round(c * 100) / 100 }; });
       };
       const todayOf = (rows: any[]) => Math.round(rows.filter((t: any) => new Date(t.closedAt) >= dayStart).reduce((s, r) => s + (r.profitLoss || 0), 0) * 100) / 100;
+      // Rolling 7-day P&L per account — same "closedAt" basis as todayOf, just a
+      // wider window, so the dashboard can show "this week" next to "today".
+      const weekAgo = new Date(dayStart.getTime() - 6 * 24 * 3600 * 1000);
+      const weekOf = (rows: any[]) => Math.round(rows.filter((t: any) => new Date(t.closedAt) >= weekAgo).reduce((s, r) => s + (r.profitLoss || 0), 0) * 100) / 100;
       // Append a live "now" point so the chart tip reflects currently-OPEN
       // positions (realized cumulative + unrealized floating P&L). Marked live:true.
       const withLivePoint = (curve: any[], unrealized: number) => {
@@ -18915,7 +18919,7 @@ Format each recommendation as a clear, concise action item.`;
             mt5Fresh = Date.now() - new Date(_latest.lastUpdated || 0).getTime() < 120_000;
           }
         } catch (_) { /* no EA data yet */ }
-        accountCurves.push({ key: 'mt5', label: 'MT5', platform: 'MT5', isConnected: mt5Fresh, balance: mt5Balance, equity: mt5Equity, ...tally(mt5Only), realizedTodayPnl: mt5RealizedToday, todayPnl: liveToday(mt5RealizedToday, mt5Unreal), openCount: mt5Open.length, unrealizedPnl: mt5Unreal, curve: withLivePoint(curveOf(mt5Only), mt5Unreal) });
+        accountCurves.push({ key: 'mt5', label: 'MT5', platform: 'MT5', isConnected: mt5Fresh, balance: mt5Balance, equity: mt5Equity, ...tally(mt5Only), realizedTodayPnl: mt5RealizedToday, todayPnl: liveToday(mt5RealizedToday, mt5Unreal), openCount: mt5Open.length, unrealizedPnl: mt5Unreal, weeklyPnl: weekOf(mt5Only), curve: withLivePoint(curveOf(mt5Only), mt5Unreal) });
       }
       // TradeLocker — one per active connection (with the same legacy fold tally used)
       const _singleTL = tradelockerAccounts.length === 1;
@@ -18931,22 +18935,33 @@ Format each recommendation as a clear, concise action item.`;
           openCount: a.openCount, unrealizedPnl: a.unrealizedPnl,
           realizedTodayPnl: realizedTodayOf('tradelocker', a.connectionId, rows),
           todayPnl: liveToday(realizedTodayOf('tradelocker', a.connectionId, rows), a.unrealizedPnl),
+          weeklyPnl: weekOf(rows),
           curve: withLivePoint(curveOf(rows), a.unrealizedPnl),
         });
       }
-      // DXtrade — one per active connection. No live equity cache for DXtrade in
-      // this route yet, so "today" is realized-only here (ledger-backed).
+      // DXtrade — one per active connection. Balance/equity/open-count come from
+      // the short-TTL cache the /api/dxtrade/connections list route populates on
+      // each of its (live-login) calls — this route is polled every 60s by the
+      // dashboard, so it reads that cache instead of doing its own broker login,
+      // same reasoning as MT5's mt5AccountData cache above.
       try {
         const dxConns = (await _perfPool.query(
           `SELECT id, account_code, label FROM dxtrade_connections WHERE user_id=$1 AND is_active=true`, [userId],
         )).rows;
+        const dxCache = (global as any).dxtradeAccountData?.[userId] || {};
         for (const dc of dxConns) {
           const rows = closed.filter((t: any) => t.source === 'dxtrade' && t.connectionId === dc.id);
           const dxRealizedToday = realizedTodayOf('dxtrade', dc.id, rows);
+          const cached = dxCache[dc.id];
+          const dxFresh = !!cached && Date.now() - cached.updatedAt < 300_000;
+          const dxBalance = dxFresh ? (Number(cached.balance) || 0) : 0;
           accountCurves.push({
             key: `dx_${dc.id}`,
             label: 'DXtrade' + (dc.label ? ` · ${dc.label}` : dc.account_code ? ` · ${dc.account_code}` : ''),
-            platform: 'DXtrade', isConnected: true, ...tally(rows), realizedTodayPnl: dxRealizedToday, todayPnl: dxRealizedToday, unrealizedPnl: 0, curve: curveOf(rows),
+            platform: 'DXtrade', isConnected: dxFresh, balance: dxBalance, equity: dxBalance,
+            ...tally(rows), realizedTodayPnl: dxRealizedToday, todayPnl: dxRealizedToday,
+            openCount: dxFresh ? (Number(cached.openPositions) || 0) : 0, unrealizedPnl: 0,
+            weeklyPnl: weekOf(rows), curve: curveOf(rows),
           });
         }
       } catch (_) { /* non-fatal */ }
@@ -21462,6 +21477,12 @@ Respond with ONLY valid JSON:
             const posArr = (portfolio?.positions ?? (Array.isArray(portfolio) ? portfolio : [])) as any[];
             openPositions = Array.isArray(posArr) ? posArr.length : 0;
           }
+          // Cache this live snapshot so /api/trade-performance's dashboard chart
+          // (polled every 60s) can show real DXtrade balance/open-count without
+          // its own broker login on every poll.
+          (global as any).dxtradeAccountData = (global as any).dxtradeAccountData || {};
+          (global as any).dxtradeAccountData[userId] = (global as any).dxtradeAccountData[userId] || {};
+          (global as any).dxtradeAccountData[userId][c.id] = { balance: balance || 0, openPositions, updatedAt: Date.now() };
           return { id: c.id, host: c.host, username: c.username, domain: c.domain, accountCode: accCode, label: c.label, isActive: c.is_active, autoTradeEnabled: c.auto_trade_enabled, useRiskPercent: c.use_risk_percent, riskPercent: c.risk_percent, lotMultiplier: c.lot_multiplier, isPropFirmAccount: c.is_prop_firm_account, propFirmName: c.prop_firm_name, propFirmAccountSize: c.prop_firm_account_size, weeklyProfitTarget: c.weekly_profit_target, consistencyEnabled: c.consistency_enabled, consistencyThresholdPct: c.consistency_threshold_pct, balance, currency: 'USD', openPositions, accounts, portfolio, metrics };
         } catch (e: any) {
           return { id: c.id, host: c.host, username: c.username, domain: c.domain, accountCode: c.account_code, label: c.label, isActive: c.is_active, autoTradeEnabled: c.auto_trade_enabled, useRiskPercent: c.use_risk_percent, riskPercent: c.risk_percent, lotMultiplier: c.lot_multiplier, isPropFirmAccount: c.is_prop_firm_account, propFirmName: c.prop_firm_name, propFirmAccountSize: c.prop_firm_account_size, weeklyProfitTarget: c.weekly_profit_target, consistencyEnabled: c.consistency_enabled, consistencyThresholdPct: c.consistency_threshold_pct, error: e.message };

@@ -56572,9 +56572,9 @@ async function getStopOrdersForUser(userId, filters = {}) {
 init_schema();
 
 // server/build-info.ts
-var BUILD_COMMIT = "1a347f47-dirty";
+var BUILD_COMMIT = "b409da1a-dirty";
 var BUILD_BRANCH = "main";
-var BUILT_AT = "2026-09-27T21:01:46.489Z";
+var BUILT_AT = "2026-09-27T21:42:56.954Z";
 
 // server/stripe.ts
 init_db();
@@ -75619,6 +75619,8 @@ Format each recommendation as a clear, concise action item.`;
         });
       };
       const todayOf = (rows) => Math.round(rows.filter((t) => new Date(t.closedAt) >= dayStart).reduce((s, r) => s + (r.profitLoss || 0), 0) * 100) / 100;
+      const weekAgo = new Date(dayStart.getTime() - 6 * 24 * 3600 * 1e3);
+      const weekOf = (rows) => Math.round(rows.filter((t) => new Date(t.closedAt) >= weekAgo).reduce((s, r) => s + (r.profitLoss || 0), 0) * 100) / 100;
       const withLivePoint = (curve, unrealized) => {
         if (!unrealized) return curve;
         const last = curve.length > 0 ? curve[curve.length - 1].v : 0;
@@ -75657,7 +75659,7 @@ Format each recommendation as a clear, concise action item.`;
           }
         } catch (_) {
         }
-        accountCurves.push({ key: "mt5", label: "MT5", platform: "MT5", isConnected: mt5Fresh, balance: mt5Balance, equity: mt5Equity, ...tally(mt5Only), realizedTodayPnl: mt5RealizedToday, todayPnl: liveToday(mt5RealizedToday, mt5Unreal), openCount: mt5Open.length, unrealizedPnl: mt5Unreal, curve: withLivePoint(curveOf(mt5Only), mt5Unreal) });
+        accountCurves.push({ key: "mt5", label: "MT5", platform: "MT5", isConnected: mt5Fresh, balance: mt5Balance, equity: mt5Equity, ...tally(mt5Only), realizedTodayPnl: mt5RealizedToday, todayPnl: liveToday(mt5RealizedToday, mt5Unreal), openCount: mt5Open.length, unrealizedPnl: mt5Unreal, weeklyPnl: weekOf(mt5Only), curve: withLivePoint(curveOf(mt5Only), mt5Unreal) });
       }
       const _singleTL = tradelockerAccounts.length === 1;
       for (const a of tradelockerAccounts) {
@@ -75680,6 +75682,7 @@ Format each recommendation as a clear, concise action item.`;
           unrealizedPnl: a.unrealizedPnl,
           realizedTodayPnl: realizedTodayOf("tradelocker", a.connectionId, rows),
           todayPnl: liveToday(realizedTodayOf("tradelocker", a.connectionId, rows), a.unrealizedPnl),
+          weeklyPnl: weekOf(rows),
           curve: withLivePoint(curveOf(rows), a.unrealizedPnl)
         });
       }
@@ -75688,18 +75691,26 @@ Format each recommendation as a clear, concise action item.`;
           `SELECT id, account_code, label FROM dxtrade_connections WHERE user_id=$1 AND is_active=true`,
           [userId]
         )).rows;
+        const dxCache = global.dxtradeAccountData?.[userId] || {};
         for (const dc of dxConns) {
           const rows = closed.filter((t) => t.source === "dxtrade" && t.connectionId === dc.id);
           const dxRealizedToday = realizedTodayOf("dxtrade", dc.id, rows);
+          const cached = dxCache[dc.id];
+          const dxFresh = !!cached && Date.now() - cached.updatedAt < 3e5;
+          const dxBalance = dxFresh ? Number(cached.balance) || 0 : 0;
           accountCurves.push({
             key: `dx_${dc.id}`,
             label: "DXtrade" + (dc.label ? ` \xB7 ${dc.label}` : dc.account_code ? ` \xB7 ${dc.account_code}` : ""),
             platform: "DXtrade",
-            isConnected: true,
+            isConnected: dxFresh,
+            balance: dxBalance,
+            equity: dxBalance,
             ...tally(rows),
             realizedTodayPnl: dxRealizedToday,
             todayPnl: dxRealizedToday,
+            openCount: dxFresh ? Number(cached.openPositions) || 0 : 0,
             unrealizedPnl: 0,
+            weeklyPnl: weekOf(rows),
             curve: curveOf(rows)
           });
         }
@@ -77847,6 +77858,9 @@ Respond with ONLY valid JSON:
             const posArr = portfolio?.positions ?? (Array.isArray(portfolio) ? portfolio : []);
             openPositions = Array.isArray(posArr) ? posArr.length : 0;
           }
+          global.dxtradeAccountData = global.dxtradeAccountData || {};
+          global.dxtradeAccountData[userId] = global.dxtradeAccountData[userId] || {};
+          global.dxtradeAccountData[userId][c.id] = { balance: balance || 0, openPositions, updatedAt: Date.now() };
           return { id: c.id, host: c.host, username: c.username, domain: c.domain, accountCode: accCode, label: c.label, isActive: c.is_active, autoTradeEnabled: c.auto_trade_enabled, useRiskPercent: c.use_risk_percent, riskPercent: c.risk_percent, lotMultiplier: c.lot_multiplier, isPropFirmAccount: c.is_prop_firm_account, propFirmName: c.prop_firm_name, propFirmAccountSize: c.prop_firm_account_size, weeklyProfitTarget: c.weekly_profit_target, consistencyEnabled: c.consistency_enabled, consistencyThresholdPct: c.consistency_threshold_pct, balance, currency: "USD", openPositions, accounts, portfolio, metrics };
         } catch (e) {
           return { id: c.id, host: c.host, username: c.username, domain: c.domain, accountCode: c.account_code, label: c.label, isActive: c.is_active, autoTradeEnabled: c.auto_trade_enabled, useRiskPercent: c.use_risk_percent, riskPercent: c.risk_percent, lotMultiplier: c.lot_multiplier, isPropFirmAccount: c.is_prop_firm_account, propFirmName: c.prop_firm_name, propFirmAccountSize: c.prop_firm_account_size, weeklyProfitTarget: c.weekly_profit_target, consistencyEnabled: c.consistency_enabled, consistencyThresholdPct: c.consistency_threshold_pct, error: e.message };

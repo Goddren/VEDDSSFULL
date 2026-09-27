@@ -508,6 +508,11 @@ function AccountPnlCard({ acct }: { acct: any }) {
               {acct.openCount} open · {open >= 0 ? '+' : '−'}{_pnlFmt(Math.abs(open))} floating
             </p>
           )}
+          {acct.weeklyPnl != null && (
+            <p className="text-[9px] font-bold mt-0.5 tabular-nums" style={{ color: acct.weeklyPnl >= 0 ? '#00C805' : '#ff5000' }}>
+              {acct.weeklyPnl >= 0 ? '+' : '−'}{_pnlFmt(Math.abs(acct.weeklyPnl))} <span className="text-gray-500 font-medium">This week</span>
+            </p>
+          )}
         </div>
       </div>
       <div className="h-[72px] w-full">
