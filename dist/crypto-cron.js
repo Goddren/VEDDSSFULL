@@ -10583,6 +10583,7 @@ __export(openai_exports, {
   coerceConfidence: () => coerceConfidence,
   detectMarketRegime: () => detectMarketRegime,
   enrichLeadWithAI: () => enrichLeadWithAI,
+  extractFirstJsonObject: () => extractFirstJsonObject,
   extractTextFromImage: () => extractTextFromImage,
   generateDailyDevotional: () => generateDailyDevotional,
   generateGrantProposal: () => generateGrantProposal,
@@ -10961,10 +10962,36 @@ function inferModelProvider(modelId) {
   if (m.includes("gpt-oss") || m.includes("llama") || m.includes("groq") || m.includes("gemma") || m.includes("qwen") || m.includes("deepseek")) return "groq";
   return getModelProvider(modelId);
 }
+function extractFirstJsonObject(text2) {
+  const start = text2.indexOf("{");
+  if (start === -1) return null;
+  let depth = 0;
+  let inString = false;
+  let escaped = false;
+  for (let i = start; i < text2.length; i++) {
+    const ch = text2[i];
+    if (inString) {
+      if (escaped) escaped = false;
+      else if (ch === "\\") escaped = true;
+      else if (ch === '"') inString = false;
+      continue;
+    }
+    if (ch === '"') {
+      inString = true;
+      continue;
+    }
+    if (ch === "{") depth++;
+    else if (ch === "}") {
+      depth--;
+      if (depth === 0) return text2.slice(start, i + 1);
+    }
+  }
+  return null;
+}
 function coerceConfidence(raw) {
   let c = typeof raw === "string" ? parseFloat(raw) : raw;
   if (typeof c !== "number" || !Number.isFinite(c)) return 50;
-  if (c > 0 && c <= 1) c *= 100;
+  if (c > 0 && c < 1) c *= 100;
   return Math.max(0, Math.min(100, Math.round(c)));
 }
 function resolveVisionModel(modelId) {
@@ -11341,10 +11368,11 @@ function computeConfluenceScore(signal, ictContext, smcContext, accountBalance =
   else if (score >= ictThresholds.c) grade = "C";
   else grade = "D";
   const gradeOrder = ["D", "C", "B", "A", "A+"];
-  if (gradeOrder.indexOf(grade) < gradeOrder.indexOf(ictThresholds.minGrade)) {
-    console.log(`[ICT] Grade ${grade} below min ${ictThresholds.minGrade} for $${accountBalance} account \u2014 blocked`);
+  const belowMinGrade = gradeOrder.indexOf(grade) < gradeOrder.indexOf(ictThresholds.minGrade);
+  if (belowMinGrade) {
+    console.log(`[ICT] Grade ${grade} below min ${ictThresholds.minGrade} for $${accountBalance} account \u2014 blocking`);
   }
-  return { score, maxScore: 12, grade, summary };
+  return { score, maxScore: 12, grade, summary, belowMinGrade, minGrade: ictThresholds.minGrade };
 }
 function computeNewsProximity(upcomingEvents, blockThresholdMinutes = 15) {
   if (!upcomingEvents || upcomingEvents.length === 0) {
@@ -12298,8 +12326,8 @@ ${prompt.system}`, user: judgeUser },
       }
     }
     if (!result.content) throw new Error("No response from Veteran-Judge model");
-    const jsonMatch = result.content.match(/\{[\s\S]*\}/);
-    const parsed = JSON.parse(jsonMatch ? jsonMatch[0] : result.content);
+    const jsonMatch = extractFirstJsonObject(result.content);
+    const parsed = JSON.parse(jsonMatch ?? result.content);
     const validTrailValues = ["NONE", "TIGHT", "STANDARD", "WIDE", "AGGRESSIVE"];
     return {
       confirmed: !!parsed.confirmed,
@@ -12341,7 +12369,18 @@ async function getAiVisionConfirmation(candleData, indicators, proposedSignal, p
     const wasPromoted = selectedModel !== rawModel;
     const provider = inferModelProvider(selectedModel);
     console.log(`[AI Confirmation] Vision model resolved: ${rawModel} \u2192 ${selectedModel} (${provider}) for userId=${userId}`);
-    const confluenceResult = computeConfluenceScore(proposedSignal, ictContext, smcContext);
+    const confluenceResult = computeConfluenceScore(proposedSignal, ictContext, smcContext, propFirmContext?.accountBalance ?? 0);
+    if (confluenceResult.belowMinGrade) {
+      console.log(`[Confluence] BLOCKED \u2014 Grade ${confluenceResult.grade} below required ${confluenceResult.minGrade} for this account`);
+      return {
+        confirmed: false,
+        aiDirection: "NEUTRAL",
+        aiConfidence: 0,
+        reasoning: `\u26D4 Confluence grade ${confluenceResult.grade} is below this account's required minimum (${confluenceResult.minGrade}). Setup rejected without spending an AI call.`,
+        confluenceScore: confluenceResult.score,
+        confluenceGrade: confluenceResult.grade
+      };
+    }
     if (propFirmContext?.enabled && userId && isPropFirmModeEnabled(userId)) {
       const blockMins = propFirmContext.newsBlockMinutes || 15;
       const newsProx = computeNewsProximity(newsContext?.upcomingEvents, blockMins);
@@ -12489,8 +12528,8 @@ async function getAiVisionConfirmation(candleData, indicators, proposedSignal, p
       }
     }
     if (!content) throw new Error("No response from AI");
-    const jsonMatch = content.match(/\{[\s\S]*\}/);
-    const result = JSON.parse(jsonMatch ? jsonMatch[0] : content);
+    const jsonMatch = extractFirstJsonObject(content);
+    const result = JSON.parse(jsonMatch ?? content);
     console.log(`[AI Vision Confirmation] ${symbol}: ${result.confirmed ? "CONFIRMED" : "REJECTED"} (AI says ${result.direction} at ${result.confidence}%) [${provider}/${selectedModel}]`);
     const validTrailValues = ["NONE", "TIGHT", "STANDARD", "WIDE", "AGGRESSIVE"];
     const trailRec = validTrailValues.includes(result.trailRecommendation) ? result.trailRecommendation : void 0;
@@ -12679,8 +12718,8 @@ ${breakoutResult.summary}`,
     const rawContent = response.choices?.[0]?.message?.content || "{}";
     let parsed = {};
     try {
-      const jsonMatch = rawContent.match(/\{[\s\S]*\}/);
-      parsed = JSON.parse(jsonMatch ? jsonMatch[0] : rawContent);
+      const jsonMatch = extractFirstJsonObject(rawContent);
+      parsed = JSON.parse(jsonMatch ?? rawContent);
     } catch {
       parsed = { confirmed: false, confidence: breakoutResult.percentage, reasoning: rawContent };
     }

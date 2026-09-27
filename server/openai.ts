@@ -511,10 +511,56 @@ const KNOWN_VISION_MODEL_IDS = new Set<string>([
 // it as a STRING ("85") or a 0-1 fraction (0.85); the old `typeof === 'number'`
 // check silently defaulted both to 50, which fell below the min-confidence gate
 // and dropped genuinely-confirmed trades. Returns 50 only when truly unparseable.
+/**
+ * Extract the FIRST complete top-level JSON object from a model's raw text,
+ * by brace-balancing (respecting string literals) rather than regex.
+ *
+ * The three call sites this replaces all used /\{[\s\S]*\}/ -- greedy, so it
+ * matches from the FIRST '{' to the LAST '}' in the whole string. If a model
+ * echoes back example JSON in its reasoning, or leaves trailing commentary
+ * that happens to contain a brace, the match spans across BOTH objects
+ * rather than isolating the real one. JSON.parse on that either throws
+ * (masking a benign formatting quirk as a full parse failure) or, worse, if
+ * the merged span still happens to be syntactically valid, silently parses
+ * to structurally-valid but semantically-wrong data instead of failing.
+ * Returns null when no complete object is found (caller falls back to
+ * parsing the raw content directly, same as before).
+ */
+export function extractFirstJsonObject(text: string): string | null {
+  const start = text.indexOf('{');
+  if (start === -1) return null;
+  let depth = 0;
+  let inString = false;
+  let escaped = false;
+  for (let i = start; i < text.length; i++) {
+    const ch = text[i];
+    if (inString) {
+      if (escaped) escaped = false;
+      else if (ch === '\\') escaped = true;
+      else if (ch === '"') inString = false;
+      continue;
+    }
+    if (ch === '"') { inString = true; continue; }
+    if (ch === '{') depth++;
+    else if (ch === '}') {
+      depth--;
+      if (depth === 0) return text.slice(start, i + 1);
+    }
+  }
+  return null; // never closed -- truncated, let the caller's own fallback handle it
+}
+
 export function coerceConfidence(raw: any): number {
   let c = typeof raw === 'string' ? parseFloat(raw) : raw;
   if (typeof c !== 'number' || !Number.isFinite(c)) return 50;
-  if (c > 0 && c <= 1) c *= 100; // 0-1 fraction → percent
+  // Was `c <= 1`, which is genuinely ambiguous at exactly 1: a model returning
+  // 1 meaning "1%" (a real, valid rock-bottom confidence -- prompts ask for
+  // 0-100) got silently flipped to 100, the exact opposite of what it meant.
+  // Every prompt in this file asks for an integer 0-100, so a compliant model
+  // would never emit a genuine percent as a bare fraction like 0.5 or 1 --
+  // only a NON-integer strictly between 0 and 1 is an unambiguous 0-1 scale
+  // signal. `c === 1` is now left alone and read as 1%, not 100%.
+  if (c > 0 && c < 1) c *= 100; // 0-1 fraction → percent
   return Math.max(0, Math.min(100, Math.round(c)));
 }
 
@@ -1022,7 +1068,7 @@ function computeConfluenceScore(
   ictContext: IctContext | null | undefined,
   smcContext: SmcContext | null | undefined,
   accountBalance: number = 0
-): { score: number; maxScore: number; grade: 'A+' | 'A' | 'B' | 'C' | 'D'; summary: string[] } {
+): { score: number; maxScore: number; grade: 'A+' | 'A' | 'B' | 'C' | 'D'; summary: string[]; belowMinGrade: boolean; minGrade: string } {
   let score = 0;
   const summary: string[] = [];
 
@@ -1148,14 +1194,22 @@ function computeConfluenceScore(
   else if (score >= ictThresholds.c) grade = 'C';
   else grade = 'D';
 
-  // Minimum grade gate — block below account-tier minimum
+  // Minimum grade gate — block below account-tier minimum.
+  // This used to only log ("blocked") and never actually return anything a
+  // caller could act on — grade fell through into the response unchanged and
+  // every downstream consumer only ever displayed it, so an account-tier
+  // minimum that was supposed to tighten as the account grows never once
+  // stopped a trade. gradeOrder comparisons in JS compare array INDEX
+  // correctly here since both sides are looked up the same way, but the
+  // caller needs an explicit boolean — a grade string alone doesn't carry
+  // "insufficient", only "what it is".
   const gradeOrder = ['D','C','B','A','A+'];
-  if (gradeOrder.indexOf(grade) < gradeOrder.indexOf(ictThresholds.minGrade)) {
-    console.log(`[ICT] Grade ${grade} below min ${ictThresholds.minGrade} for $${accountBalance} account — blocked`);
-    // Use a safe approach — don't throw, just mark grade as insufficient
+  const belowMinGrade = gradeOrder.indexOf(grade) < gradeOrder.indexOf(ictThresholds.minGrade);
+  if (belowMinGrade) {
+    console.log(`[ICT] Grade ${grade} below min ${ictThresholds.minGrade} for $${accountBalance} account — blocking`);
   }
 
-  return { score, maxScore: 12, grade, summary };
+  return { score, maxScore: 12, grade, summary, belowMinGrade, minGrade: ictThresholds.minGrade };
 }
 
 function computeNewsProximity(
@@ -2246,8 +2300,8 @@ async function runDeepReasoningDebate(
       }
     }
     if (!result.content) throw new Error('No response from Veteran-Judge model');
-    const jsonMatch = result.content.match(/\{[\s\S]*\}/);
-    const parsed = JSON.parse(jsonMatch ? jsonMatch[0] : result.content);
+    const jsonMatch = extractFirstJsonObject(result.content);
+    const parsed = JSON.parse(jsonMatch ?? result.content);
     const validTrailValues = ['NONE', 'TIGHT', 'STANDARD', 'WIDE', 'AGGRESSIVE'];
     return {
       confirmed: !!parsed.confirmed,
@@ -2306,7 +2360,24 @@ export async function getAiVisionConfirmation(
     const wasPromoted = selectedModel !== rawModel; // user's model was text-only/unlisted → promoted to a vision model
     const provider = inferModelProvider(selectedModel); // was getModelProvider — that defaulted unknown vendor/model slugs (e.g. google/gemma-3-4b-it, openai/gpt-oss-20b) to 'openai', misrouting AI confirmation to paid OpenAI instead of OpenRouter
     console.log(`[AI Confirmation] Vision model resolved: ${rawModel} → ${selectedModel} (${provider}) for userId=${userId}`);
-    const confluenceResult = computeConfluenceScore(proposedSignal, ictContext, smcContext);
+    const confluenceResult = computeConfluenceScore(proposedSignal, ictContext, smcContext, propFirmContext?.accountBalance ?? 0);
+
+    // Minimum-grade hard block. computeConfluenceScore's own internal check
+    // used to only log this and never return anything a caller could act on
+    // -- an account-tier minimum designed to tighten as the account grows
+    // (C -> B -> A -> A+) never once stopped a trade. Placed before the AI
+    // call so a setup that can't clear the bar doesn't cost a credit.
+    if (confluenceResult.belowMinGrade) {
+      console.log(`[Confluence] BLOCKED — Grade ${confluenceResult.grade} below required ${confluenceResult.minGrade} for this account`);
+      return {
+        confirmed: false,
+        aiDirection: 'NEUTRAL',
+        aiConfidence: 0,
+        reasoning: `⛔ Confluence grade ${confluenceResult.grade} is below this account's required minimum (${confluenceResult.minGrade}). Setup rejected without spending an AI call.`,
+        confluenceScore: confluenceResult.score,
+        confluenceGrade: confluenceResult.grade,
+      };
+    }
 
     // Pre-check: hard news block for prop firm mode (saves API credits)
     if (propFirmContext?.enabled && userId && isPropFirmModeEnabled(userId)) {
@@ -2486,8 +2557,8 @@ export async function getAiVisionConfirmation(
 
     if (!content) throw new Error("No response from AI");
 
-    const jsonMatch = content.match(/\{[\s\S]*\}/);
-    const result = JSON.parse(jsonMatch ? jsonMatch[0] : content);
+    const jsonMatch = extractFirstJsonObject(content);
+    const result = JSON.parse(jsonMatch ?? content);
     console.log(`[AI Vision Confirmation] ${symbol}: ${result.confirmed ? 'CONFIRMED' : 'REJECTED'} (AI says ${result.direction} at ${result.confidence}%) [${provider}/${selectedModel}]`);
 
     const validTrailValues = ['NONE', 'TIGHT', 'STANDARD', 'WIDE', 'AGGRESSIVE'];
@@ -2712,8 +2783,8 @@ INSTRUCTION: If grade is A (≥70%) or B (≥50%) AND ≥3 strategies align in s
     const rawContent = response.choices?.[0]?.message?.content || '{}';
     let parsed: any = {};
     try {
-      const jsonMatch = rawContent.match(/\{[\s\S]*\}/);
-      parsed = JSON.parse(jsonMatch ? jsonMatch[0] : rawContent);
+      const jsonMatch = extractFirstJsonObject(rawContent);
+      parsed = JSON.parse(jsonMatch ?? rawContent);
     } catch {
       parsed = { confirmed: false, confidence: breakoutResult.percentage, reasoning: rawContent };
     }
