@@ -21449,7 +21449,7 @@ var init_news_service = __esm({
   "server/news-service.ts"() {
     "use strict";
     FINNHUB_BASE_URL = "https://finnhub.io/api/v1";
-    NewsService = class {
+    NewsService = class _NewsService {
       apiKey = null;
       openai = null;
       initialized = false;
@@ -21676,114 +21676,67 @@ ${headlines}`
         }
         return null;
       }
+      // Keyword sets used to attribute a general forex headline to a currency.
+      // Deliberately includes each currency's central bank and finance-ministry
+      // terms, since a rate-decision or policy headline ("ECB holds rates") is
+      // exactly the kind of thing that should count as EUR-relevant even when it
+      // never says "Euro" by name.
+      static CURRENCY_KEYWORDS = {
+        EUR: ["euro", "eur", "ecb", "eurozone", "euro area", "lagarde"],
+        GBP: ["pound", "sterling", "gbp", "boe", "bank of england", "bailey", "uk economy", "british"],
+        USD: ["dollar", "usd", "fed ", "federal reserve", "fomc", "powell", "us economy", "treasury"],
+        JPY: ["yen", "jpy", "boj", "bank of japan", "ueda", "japan economy"],
+        CHF: ["franc", "chf", "snb", "swiss national bank", "swiss economy"],
+        AUD: ["aussie", "aud", "rba", "reserve bank of australia", "australian economy"],
+        CAD: ["loonie", "cad", "boc", "bank of canada", "canadian economy"],
+        NZD: ["kiwi", "nzd", "rbnz", "reserve bank of new zealand", "new zealand economy"]
+      };
+      matchesCurrency(item, currency) {
+        const keywords = _NewsService.CURRENCY_KEYWORDS[currency];
+        if (!keywords) return false;
+        const haystack = `${item.headline} ${item.summary}`.toLowerCase();
+        return keywords.some((k) => haystack.includes(k));
+      }
+      /**
+       * Real per-pair news, sourced from Finnhub's general forex news category --
+       * NOT the gated economic calendar, and NOT the old approach of asking for
+       * "company news" on a currency ETF ticker (FXE for EUR, UUP for USD, etc.).
+       * That ETF-proxy approach is broken in a way that's easy to miss: verified
+       * live 2026-09-27 that FXE/FXB/UUP/FXY (four DIFFERENT currencies) all
+       * returned the exact same generic headline ("Week Ahead: Dollar Bulls May
+       * Be Challenged") -- it wasn't differentiating currencies at all, it was
+       * one small ETF's sparse news feed repeated across every lookup. And when
+       * that lookup came back empty (which it often does for a quiet ETF), the
+       * OLD fallback (getCurrencyFallbackNews) fabricated a headline with
+       * Math.random() -- literally invented text attributed to "VEDD AI Market
+       * Analysis" -- fed to the AI as if it were real news.
+       *
+       * `/news?category=forex` is NOT gated (verified live: real ForexLive/
+       * investingLive market-wrap headlines came back on the free tier) and is
+       * the correct source for this -- forex-focused by construction, not a
+       * proxy. Keyword-matched per currency (name + central bank + governor,
+       * so a "Fed holds rates" headline counts as USD-relevant even without the
+       * word "dollar"). When NOTHING matches a currency this cycle -- a real,
+       * possible outcome on a quiet news day -- this returns the general forex
+       * feed for that slot rather than fabricating anything. Real but broader
+       * beats fake but specific.
+       */
       async fetchPairSpecificNews(symbol, daysBack = 7) {
         const currencies = this.getForexCurrencies(symbol);
         if (!currencies) {
           const news = await this.fetchCompanyNews(symbol, daysBack);
           return { baseNews: news, quoteNews: [], combined: news };
         }
-        const currencyStockMap = {
-          "EUR": ["FXE", "EUO"],
-          "GBP": ["FXB", "GBB"],
-          "USD": ["UUP", "USDU"],
-          "JPY": ["FXY", "YCL"],
-          "CHF": ["FXF"],
-          "AUD": ["FXA", "CROC"],
-          "CAD": ["FXC"],
-          "NZD": ["NZDUSD=X"]
-        };
-        const baseSymbols = currencyStockMap[currencies.base] || [currencies.base];
-        const quoteSymbols = currencyStockMap[currencies.quote] || [currencies.quote];
-        let baseNews = [];
-        let quoteNews = [];
-        for (const sym of baseSymbols) {
-          const news = await this.fetchCompanyNews(sym, daysBack);
-          if (news.length > 0 && !news[0].headline.includes("No specific news")) {
-            baseNews = news;
-            break;
-          }
-        }
-        for (const sym of quoteSymbols) {
-          const news = await this.fetchCompanyNews(sym, daysBack);
-          if (news.length > 0 && !news[0].headline.includes("No specific news")) {
-            quoteNews = news;
-            break;
-          }
-        }
-        if (baseNews.length === 0) {
-          baseNews = this.getCurrencyFallbackNews(currencies.base);
-        }
-        if (quoteNews.length === 0) {
-          quoteNews = this.getCurrencyFallbackNews(currencies.quote);
-        }
+        const forexFeed = await this.fetchMarketNews("forex");
+        const cutoffMs = Date.now() - daysBack * 24 * 3600 * 1e3;
+        const recentFeed = forexFeed.filter((item) => item.datetime >= cutoffMs);
+        const fallbackFeed = recentFeed.length > 0 ? recentFeed : forexFeed;
+        const baseMatched = recentFeed.filter((item) => this.matchesCurrency(item, currencies.base));
+        const quoteMatched = recentFeed.filter((item) => this.matchesCurrency(item, currencies.quote));
+        const baseNews = baseMatched.length > 0 ? baseMatched : fallbackFeed;
+        const quoteNews = quoteMatched.length > 0 ? quoteMatched : fallbackFeed;
         const combined = [...baseNews.slice(0, 10), ...quoteNews.slice(0, 10)].sort((a, b) => b.datetime - a.datetime);
         return { baseNews, quoteNews, combined };
-      }
-      getCurrencyFallbackNews(currency) {
-        const currencyNames = {
-          "EUR": "Euro",
-          "GBP": "British Pound",
-          "USD": "US Dollar",
-          "JPY": "Japanese Yen",
-          "CHF": "Swiss Franc",
-          "AUD": "Australian Dollar",
-          "CAD": "Canadian Dollar",
-          "NZD": "New Zealand Dollar"
-        };
-        const now = Date.now();
-        const randomSeed = Math.random();
-        const name = currencyNames[currency] || currency;
-        if (randomSeed > 0.5) {
-          return [
-            {
-              id: `fallback-${currency}-bull-${now}`,
-              headline: `${name} surges on strong economic growth data`,
-              summary: `${name} gains momentum as positive economic indicators boost bullish sentiment and drive buying interest.`,
-              source: "VEDD AI Forex Analysis",
-              url: "",
-              image: "",
-              datetime: now - 36e5,
-              related: currency,
-              category: "forex"
-            },
-            {
-              id: `fallback-${currency}-neutral-${now}`,
-              headline: `${name} traders watch central bank signals`,
-              summary: `Market participants monitor policy decisions for ${currency} direction.`,
-              source: "VEDD AI Forex Analysis",
-              url: "",
-              image: "",
-              datetime: now - 72e5,
-              related: currency,
-              category: "forex"
-            }
-          ];
-        } else {
-          return [
-            {
-              id: `fallback-${currency}-bear-${now}`,
-              headline: `${name} falls amid concerns over weak data`,
-              summary: `${name} drops as bearish pressure increases with risk factors weighing on sentiment.`,
-              source: "VEDD AI Forex Analysis",
-              url: "",
-              image: "",
-              datetime: now - 36e5,
-              related: currency,
-              category: "forex"
-            },
-            {
-              id: `fallback-${currency}-neutral-${now}`,
-              headline: `${name} volatility persists as markets assess risk`,
-              summary: `Traders remain cautious on ${currency} positions amid uncertain conditions.`,
-              source: "VEDD AI Forex Analysis",
-              url: "",
-              image: "",
-              datetime: now - 72e5,
-              related: currency,
-              category: "forex"
-            }
-          ];
-        }
       }
       async analyzePairSentiment(symbol, daysBack = 7, openaiOverride) {
         const { baseNews, quoteNews, combined } = await this.fetchPairSpecificNews(symbol, daysBack);
@@ -56601,9 +56554,9 @@ async function getStopOrdersForUser(userId, filters = {}) {
 init_schema();
 
 // server/build-info.ts
-var BUILD_COMMIT = "a1e88f72-dirty";
+var BUILD_COMMIT = "fff46de8-dirty";
 var BUILD_BRANCH = "main";
-var BUILT_AT = "2026-09-27T15:44:30.202Z";
+var BUILT_AT = "2026-09-27T15:54:24.565Z";
 
 // server/stripe.ts
 init_db();
