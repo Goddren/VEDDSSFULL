@@ -14,6 +14,7 @@ import type { CryptocomEngineConfig, CryptocomConnection } from '../../shared/sc
 import { getOrRefreshCryptoBrain, cryptoBrainSizeMultiplier, cryptoBrainGate, cryptoBrainReady, recordCryptoBrainOutcome } from './crypto-brain';
 import { recordRealizedPnl } from './prop-firm-consistency';
 import { weekendBoostActive, boostedMinConfidence, weekendBoostSizeMultiplier } from './weekend-boost';
+import { PROCESS_BOOT_ID } from './process-fingerprint';
 import { cefiEntryBuy, cefiExitSell, baseCoin, type CefiVenue } from './cefi-executor';
 // NOTE: defi-executor is imported LAZILY (dynamic import at the two call sites
 // below) — it pulls in defi-swap → ethers, a heavy stack. Keeping it out of the
@@ -996,12 +997,21 @@ function pushConsensus(userId: number, entry: ConsensusEntry): void {
 }
 
 async function assembleConsensus(userId: number, symbol: string, result: StrategyResult, cfg: CryptocomEngineConfig): Promise<boolean> {
+  // Single insertion point: EVERY consensus row, from every path this
+  // function can take, passes through one of the two pushConsensus() calls
+  // below -- so tagging both here covers rule-based, deferred, error,
+  // truncated-salvage, lite-fallback and full-success rows alike. Answers
+  // "which OS process wrote this row" with a SQL query against
+  // engine_consensus_log directly, rather than needing Render's own log UI
+  // (which isn't queryable from here) to prove or rule out a stale process
+  // still running old code in parallel with a correctly-redeployed one.
+  const procTag = ` [proc:${PROCESS_BOOT_ID}]`;
   const quantVerdict = quantVerdictFromScore(result.score);
   if (cfg.aiMode === 'rule_based') {
     const tradeAllowed = quantVerdict !== 'SKIP';
     pushConsensus(userId, {
       symbol, strategy: result.strategy, quantVerdict, quantScore: result.score ?? 0,
-      aiVerdict: 'CONFIRM', aiConfidence: 0, aiReasoning: 'Rule-based mode — AI confirmation skipped.',
+      aiVerdict: 'CONFIRM', aiConfidence: 0, aiReasoning: 'Rule-based mode — AI confirmation skipped.' + procTag,
       consensus: quantVerdict === 'CONFIRM' ? 'STRONG_CONFIRM' : quantVerdict === 'SKIP' ? 'STRONG_SKIP' : 'WATCH',
       tradeAllowed, timestamp: new Date().toISOString(),
     });
@@ -1015,7 +1025,10 @@ async function assembleConsensus(userId: number, symbol: string, result: Strateg
   else if ((quantVerdict === 'CONFIRM' && aiVerdict === 'SKIP') || (quantVerdict === 'SKIP' && aiVerdict === 'CONFIRM')) consensus = 'CAUTION';
   else consensus = 'WATCH';
   const tradeAllowed = consensus !== 'STRONG_SKIP' && aiVerdict === 'CONFIRM';
-  pushConsensus(userId, { symbol, strategy: result.strategy, quantVerdict, quantScore: result.score ?? 0, aiVerdict, aiConfidence: ai.confidence, aiReasoning: ai.reasoning, consensus, tradeAllowed, timestamp: new Date().toISOString() });
+  // Tag even a blank/empty ai.reasoning -- the tag itself is never empty, so a
+  // truly-blank-except-for-the-tag row is now unambiguous proof of which
+  // process produced it, instead of an untraceable empty string.
+  pushConsensus(userId, { symbol, strategy: result.strategy, quantVerdict, quantScore: result.score ?? 0, aiVerdict, aiConfidence: ai.confidence, aiReasoning: (ai.reasoning || '') + procTag, consensus, tradeAllowed, timestamp: new Date().toISOString() });
   return tradeAllowed;
 }
 

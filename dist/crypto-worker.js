@@ -15038,6 +15038,9 @@ function weekendBoostSizeMultiplier(d = /* @__PURE__ */ new Date()) {
   return weekendBoostActive(d) ? SIZE_MULT : 1;
 }
 
+// server/services/process-fingerprint.ts
+var PROCESS_BOOT_ID = `pid${process.pid}@${(/* @__PURE__ */ new Date()).toISOString()}`;
+
 // server/services/cryptocom-scanner.ts
 init_cefi_executor();
 var MIN_SCAN_INTERVAL_MS = 6e4;
@@ -15814,6 +15817,7 @@ function pushConsensus(userId, entry) {
   });
 }
 async function assembleConsensus(userId, symbol, result, cfg) {
+  const procTag = ` [proc:${PROCESS_BOOT_ID}]`;
   const quantVerdict = quantVerdictFromScore(result.score);
   if (cfg.aiMode === "rule_based") {
     const tradeAllowed2 = quantVerdict !== "SKIP";
@@ -15824,7 +15828,7 @@ async function assembleConsensus(userId, symbol, result, cfg) {
       quantScore: result.score ?? 0,
       aiVerdict: "CONFIRM",
       aiConfidence: 0,
-      aiReasoning: "Rule-based mode \u2014 AI confirmation skipped.",
+      aiReasoning: "Rule-based mode \u2014 AI confirmation skipped." + procTag,
       consensus: quantVerdict === "CONFIRM" ? "STRONG_CONFIRM" : quantVerdict === "SKIP" ? "STRONG_SKIP" : "WATCH",
       tradeAllowed: tradeAllowed2,
       timestamp: (/* @__PURE__ */ new Date()).toISOString()
@@ -15839,7 +15843,7 @@ async function assembleConsensus(userId, symbol, result, cfg) {
   else if (quantVerdict === "CONFIRM" && aiVerdict === "SKIP" || quantVerdict === "SKIP" && aiVerdict === "CONFIRM") consensus = "CAUTION";
   else consensus = "WATCH";
   const tradeAllowed = consensus !== "STRONG_SKIP" && aiVerdict === "CONFIRM";
-  pushConsensus(userId, { symbol, strategy: result.strategy, quantVerdict, quantScore: result.score ?? 0, aiVerdict, aiConfidence: ai.confidence, aiReasoning: ai.reasoning, consensus, tradeAllowed, timestamp: (/* @__PURE__ */ new Date()).toISOString() });
+  pushConsensus(userId, { symbol, strategy: result.strategy, quantVerdict, quantScore: result.score ?? 0, aiVerdict, aiConfidence: ai.confidence, aiReasoning: (ai.reasoning || "") + procTag, consensus, tradeAllowed, timestamp: (/* @__PURE__ */ new Date()).toISOString() });
   return tradeAllowed;
 }
 async function executeSignal(service, connection, userId, symbol, result, cfg) {

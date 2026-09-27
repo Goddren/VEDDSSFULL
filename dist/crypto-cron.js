@@ -7654,6 +7654,15 @@ var init_weekend_boost = __esm({
   }
 });
 
+// server/services/process-fingerprint.ts
+var PROCESS_BOOT_ID;
+var init_process_fingerprint = __esm({
+  "server/services/process-fingerprint.ts"() {
+    "use strict";
+    PROCESS_BOOT_ID = `pid${process.pid}@${(/* @__PURE__ */ new Date()).toISOString()}`;
+  }
+});
+
 // server/services/crypto-market-data.ts
 var crypto_market_data_exports = {};
 __export(crypto_market_data_exports, {
@@ -15836,6 +15845,7 @@ function pushConsensus(userId, entry) {
   });
 }
 async function assembleConsensus(userId, symbol, result, cfg) {
+  const procTag = ` [proc:${PROCESS_BOOT_ID}]`;
   const quantVerdict = quantVerdictFromScore(result.score);
   if (cfg.aiMode === "rule_based") {
     const tradeAllowed2 = quantVerdict !== "SKIP";
@@ -15846,7 +15856,7 @@ async function assembleConsensus(userId, symbol, result, cfg) {
       quantScore: result.score ?? 0,
       aiVerdict: "CONFIRM",
       aiConfidence: 0,
-      aiReasoning: "Rule-based mode \u2014 AI confirmation skipped.",
+      aiReasoning: "Rule-based mode \u2014 AI confirmation skipped." + procTag,
       consensus: quantVerdict === "CONFIRM" ? "STRONG_CONFIRM" : quantVerdict === "SKIP" ? "STRONG_SKIP" : "WATCH",
       tradeAllowed: tradeAllowed2,
       timestamp: (/* @__PURE__ */ new Date()).toISOString()
@@ -15861,7 +15871,7 @@ async function assembleConsensus(userId, symbol, result, cfg) {
   else if (quantVerdict === "CONFIRM" && aiVerdict === "SKIP" || quantVerdict === "SKIP" && aiVerdict === "CONFIRM") consensus = "CAUTION";
   else consensus = "WATCH";
   const tradeAllowed = consensus !== "STRONG_SKIP" && aiVerdict === "CONFIRM";
-  pushConsensus(userId, { symbol, strategy: result.strategy, quantVerdict, quantScore: result.score ?? 0, aiVerdict, aiConfidence: ai.confidence, aiReasoning: ai.reasoning, consensus, tradeAllowed, timestamp: (/* @__PURE__ */ new Date()).toISOString() });
+  pushConsensus(userId, { symbol, strategy: result.strategy, quantVerdict, quantScore: result.score ?? 0, aiVerdict, aiConfidence: ai.confidence, aiReasoning: (ai.reasoning || "") + procTag, consensus, tradeAllowed, timestamp: (/* @__PURE__ */ new Date()).toISOString() });
   return tradeAllowed;
 }
 async function executeSignal(service, connection, userId, symbol, result, cfg) {
@@ -16431,6 +16441,7 @@ var init_cryptocom_scanner = __esm({
     init_crypto_brain();
     init_prop_firm_consistency();
     init_weekend_boost();
+    init_process_fingerprint();
     init_cefi_executor();
     MIN_SCAN_INTERVAL_MS = 6e4;
     lastScanAt = /* @__PURE__ */ new Map();
