@@ -45,8 +45,14 @@ function listFromEnv(name: string, fallback: string): string[] {
   return parseList(fallback);
 }
 
-// Whole instrument. Default: GBPJPY.
-const BLOCKED_PAIRS = listFromEnv('BLOCKED_PAIRS', 'GBPJPY');
+// Whole instrument. Default: GBPJPY (permanent, negative-expectancy — see above)
+// + BTCUSD (temporary hold, 2026-09-28): call-rate floor bypass measured at
+// ~2x the intended 1/min cap (128 calls/hour vs the ~60/hour design ceiling)
+// plus AI confidence stuck in a narrow 12-22 band for over 30 minutes straight
+// — same shape as an earlier degenerate-model bug, cause not yet confirmed.
+// User asked to block it and defer investigation rather than trade it blind
+// mid-week. Remove BTCUSD here once the root cause is found and fixed.
+const BLOCKED_PAIRS = listFromEnv('BLOCKED_PAIRS', 'GBPJPY,BTCUSD');
 // One side only, as SYMBOL:DIRECTION (e.g. "USDJPY:SELL").
 const BLOCKED_DIRECTIONS = listFromEnv('BLOCKED_PAIR_DIRECTIONS', '');
 
@@ -62,7 +68,14 @@ export function pairFilterVerdict(symbol: string, direction: string): { blocked:
 
   for (const b of BLOCKED_PAIRS) {
     if (norm(b) === sym) {
-      return { blocked: true, reason: `Pair filter: ${sym} is on the blocked list (34% WR over 310 trades, avg win $59 vs avg loss $100)` };
+      // GBPJPY's reason cites its specific stats (see file header); every other
+      // blocked pair gets a generic message so it never wrongly borrows GBPJPY's
+      // numbers (e.g. BTCUSD, blocked 2026-09-28 for an unrelated call-rate/
+      // stuck-confidence issue, not a win-rate problem).
+      const reason = sym === 'GBPJPY'
+        ? `Pair filter: ${sym} is on the blocked list (34% WR over 310 trades, avg win $59 vs avg loss $100)`
+        : `Pair filter: ${sym} is on the blocked list`;
+      return { blocked: true, reason };
     }
   }
   for (const entry of BLOCKED_DIRECTIONS) {

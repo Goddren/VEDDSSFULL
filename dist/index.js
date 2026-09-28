@@ -24227,7 +24227,8 @@ function pairFilterVerdict(symbol, direction) {
   const dir = String(direction || "").toUpperCase();
   for (const b of BLOCKED_PAIRS) {
     if (norm2(b) === sym) {
-      return { blocked: true, reason: `Pair filter: ${sym} is on the blocked list (34% WR over 310 trades, avg win $59 vs avg loss $100)` };
+      const reason = sym === "GBPJPY" ? `Pair filter: ${sym} is on the blocked list (34% WR over 310 trades, avg win $59 vs avg loss $100)` : `Pair filter: ${sym} is on the blocked list`;
+      return { blocked: true, reason };
     }
   }
   for (const entry of BLOCKED_DIRECTIONS) {
@@ -24246,7 +24247,7 @@ var init_pair_filter = __esm({
   "server/services/pair-filter.ts"() {
     "use strict";
     norm2 = (s) => String(s || "").toUpperCase().replace(/[^A-Z0-9]/g, "");
-    BLOCKED_PAIRS = listFromEnv("BLOCKED_PAIRS", "GBPJPY");
+    BLOCKED_PAIRS = listFromEnv("BLOCKED_PAIRS", "GBPJPY,BTCUSD");
     BLOCKED_DIRECTIONS = listFromEnv("BLOCKED_PAIR_DIRECTIONS", "");
     console.log(`[PairFilter] enabled=${process.env.PAIR_FILTER_ENABLED !== "false"} pairs=[${BLOCKED_PAIRS.join(", ") || "none"}] directions=[${BLOCKED_DIRECTIONS.join(", ") || "none"}]`);
   }
@@ -56635,9 +56636,9 @@ async function getStopOrdersForUser(userId, filters = {}) {
 init_schema();
 
 // server/build-info.ts
-var BUILD_COMMIT = "e6e0cdf4-dirty";
+var BUILD_COMMIT = "a4893454-dirty";
 var BUILD_BRANCH = "main";
-var BUILT_AT = "2026-09-27T22:50:07.065Z";
+var BUILT_AT = "2026-09-28T05:16:55.058Z";
 
 // server/stripe.ts
 init_db();
