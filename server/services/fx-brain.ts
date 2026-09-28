@@ -64,6 +64,26 @@ function adxBucket(v: number | null): string | null {
   return 'ADX 40+ (strong)';
 }
 
+// Same spelling convention as every other day-of-week label in this codebase
+// (routes.ts, live-trading-engine.ts, indicators.ts all index this exact
+// array by Date#getUTCDay()) — matching it here means a pattern's `value`
+// reads the same in this table as everywhere else the AI prompt or dashboard
+// already prints a day name, instead of introducing a second spelling.
+const DOW_NAMES = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+function dowLabel(v: number | null): string | null {
+  if (v == null || !Number.isInteger(Number(v)) || Number(v) < 0 || Number(v) > 6) return null;
+  return DOW_NAMES[Number(v)];
+}
+
+function holdRegimeLabel(v: string | null): string | null {
+  if (!v) return null;
+  const s = String(v).toLowerCase();
+  if (s === 'trending') return 'Trending hold';
+  if (s === 'ranging') return 'Ranging hold';
+  if (s === 'volatile') return 'Volatile/choppy hold';
+  return null;
+}
+
 /**
  * Learn every pair's condition patterns from the durable feature store.
  * Returns {} when there is not yet enough closed history — an empty brain is
@@ -72,7 +92,7 @@ function adxBucket(v: number | null): string | null {
 export async function learnFxBrain(userId: number): Promise<Record<string, PairBrain>> {
   const { pool } = await import('../db');
   const { rows } = await pool.query(
-    `SELECT symbol, direction, session, hour_utc, adx_value, confluence_grade,
+    `SELECT symbol, direction, session, hour_utc, day_of_week, hold_regime, adx_value, confluence_grade,
             realised_rr, result, profit_loss, closed_at::date AS d
        FROM fx_brain_outcomes
       WHERE user_id = $1
@@ -125,6 +145,20 @@ export async function learnFxBrain(userId: number): Promise<Record<string, PairB
       add('direction', t.direction, t);
       add('adx_bucket', adxBucket(t.adx_value == null ? null : Number(t.adx_value)), t);
       add('grade', t.confluence_grade ? 'Grade ' + t.confluence_grade : null, t);
+      // day_of_week: was captured at write time (tradelocker-sync.ts) since
+      // this column was added but never actually grouped by — held to the
+      // EXACT same three bars as every other dimension below (trades/days/edge),
+      // not a looser one, so "Fridays lose" only surfaces once it has repeated
+      // the same way every other pattern here has to.
+      add('day_of_week', dowLabel(t.day_of_week == null ? null : Number(t.day_of_week)), t);
+      // hold_regime: what the market actually DID for the whole time the
+      // trade was open (trending/ranging/volatile), classified post-close from
+      // real candles — see _classifyHoldRegime in tradelocker-sync.ts. Unlike
+      // every other dimension here this is not knowable at entry, so it can
+      // never gate a live trade the way fxBrainGateVerdict's session/hour/
+      // direction checks do — it is retrospective, "avoid this pair when the
+      // hold chops" advice for the prompt, not a pre-trade condition.
+      add('hold_regime', holdRegimeLabel(t.hold_regime), t);
     }
 
     const works: PatternStat[] = [];
@@ -208,8 +242,52 @@ export async function fxBrainInsights(userId: number, symbol?: string): Promise<
       lines.push('   FAILS - ' + p.value + ': ' + p.winRate + '% (' + p.wins + '/' + p.trades +
         ' over ' + p.distinctDays + ' days, ' + p.edgeVsPair + 'pp vs this pair)');
     }
+    const dayStopLine = await dayStopInsightLine(userId, k);
+    if (dayStopLine) lines.push('   ' + dayStopLine);
   }
   return lines.join('\n');
+}
+
+// A day-stop is a DIFFERENT kind of signal than works/fails above (it counts
+// STOPPED DAYS, not trades), so it gets its own evidence bar rather than
+// reusing MIN_TRADES/MIN_DISTINCT_DAYS/MIN_EDGE_PP, which are trade-shaped.
+// Same spirit though: require the pair to have actually traded this weekday
+// more than a couple of times, and to have been stopped on a clear majority
+// of them, before calling it a pattern instead of two bad Fridays in a row.
+const DAY_STOP_MIN_DAYS_ACTIVE = Number(process.env.FX_BRAIN_DAY_STOP_MIN_DAYS ?? 3);
+const DAY_STOP_MIN_RATIO = Number(process.env.FX_BRAIN_DAY_STOP_MIN_RATIO ?? 0.5);
+
+/**
+ * "Does this pair have a history of getting day-stopped (pair-daily-stop.ts's
+ * 3-losing-signal cutoff) repeatedly on one weekday?" — a signal fxBrainInsights
+ * did not carry at all before, because pair-daily-stop is a completely separate
+ * system with no connection to the brain (it recomputes fresh from
+ * ai_trade_results every call and keeps no memory). This is the correlation:
+ * for the weekday with the most evidence, report how often that day ended in
+ * a stop, gated by DAY_STOP_MIN_DAYS_ACTIVE/DAY_STOP_MIN_RATIO above.
+ *
+ * Never allowed to break the rest of the insights text — pair-daily-stop is
+ * read-only history here, but a query failure must not blank out every other
+ * pair's works/fails lines just because this one extra line couldn't compute.
+ */
+async function dayStopInsightLine(userId: number, symbol: string): Promise<string | null> {
+  try {
+    const { pairDayStopHistory } = await import('./pair-daily-stop');
+    const history = await pairDayStopHistory(userId, symbol);
+    if (!history.length) return null;
+    const withRatio = history
+      .filter((h) => h.daysActive >= DAY_STOP_MIN_DAYS_ACTIVE)
+      .map((h) => ({ ...h, ratio: h.daysStopped / h.daysActive }))
+      .filter((h) => h.ratio >= DAY_STOP_MIN_RATIO)
+      .sort((a, b) => b.ratio - a.ratio);
+    if (!withRatio.length) return null;
+    const top = withRatio[0];
+    return `DAY-STOPPED - ${DOW_NAMES[top.dayOfWeek]}: hit the pair-daily-stop limit on ${top.daysStopped}/${top.daysActive} ` +
+      `${DOW_NAMES[top.dayOfWeek]}s (${Math.round(top.ratio * 100)}%) — this pair has a history of losing its daily budget on this weekday`;
+  } catch (e: any) {
+    console.error(`[FxBrain] day-stop history unavailable for ${symbol} (${e?.message}) — omitting that line only.`);
+    return null;
+  }
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

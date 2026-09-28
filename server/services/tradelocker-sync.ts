@@ -80,6 +80,76 @@ async function _invalidateDailyStop(userId: number): Promise<void> {
   } catch { /* non-fatal — the TTL still expires on its own */ }
 }
 
+/**
+ * Classify what the market actually DID for the whole time a trade was open —
+ * trending, ranging, or volatile/choppy — from the real candles spanning
+ * entry to close. Everything else _recordFxBrainOutcome writes (adx_value,
+ * rsi_value, confluence_grade, MAE/MFE) is either an ENTRY snapshot or a
+ * price-extreme; none of it says whether the market TRENDED or CHOPPED for
+ * the hours the trade was actually open, which is the piece needed to learn
+ * "this pair only wins in a trending hold, avoid it when it chops".
+ *
+ * Deliberately a single classification per trade, not the stored candle
+ * series — this table already carries the learning load for the whole FX
+ * engine, and storing every bar of every hold would multiply its size by
+ * whatever the average hold length is for no benefit this dimension needs.
+ *
+ * Reuses the exact ADX regime convention detectMarketRegime already
+ * established in openai.ts (ADX >= 25 trending, ADX < 20 ranging, 20-25
+ * transitional) instead of inventing a new cutoff — that function is the one
+ * place in this codebase that already turns an ADX value into "trending or
+ * ranging" (the sniper's Adaptive Regime Filter is built on those exact
+ * numbers), so a second, different threshold here would let the same market
+ * read as two different regimes depending on which code path looked at it.
+ * The 20-25 TRANSITIONAL band is mapped to 'volatile': this codebase already
+ * talks about sub-25 ADX as "choppy" in several places (live-trading-engine.ts's
+ * `_choppy` check, the confluence copy in routes.ts), so treating the
+ * ambiguous middle as chop rather than as a third flavour of trend matches
+ * how the rest of the code already reads it.
+ *
+ * Fails open, same as the `f.adx_value` warn below it: no candle history for
+ * that exact window (broker gap, instrument not found, rate limit), or too
+ * few bars to trust an ADX(14) read, returns null rather than throwing — a
+ * missing regime classification must never block the rest of the outcome
+ * row from being recorded.
+ */
+async function _classifyHoldRegime(
+  conn: any, symbol: string, openedAt: Date | null, closedAt: Date,
+): Promise<string | null> {
+  if (!openedAt || !(closedAt.getTime() > openedAt.getTime())) return null;
+  try {
+    const holdMinutes = (closedAt.getTime() - openedAt.getTime()) / 60000;
+    // Pick a resolution that leaves ADX(14) enough bars to warm up without
+    // pulling thousands of 1-minute candles for a multi-day swing hold.
+    const resolutionMinutes = holdMinutes < 100 ? 5 : holdMinutes < 300 ? 15 : holdMinutes < 1200 ? 30 : 60;
+    // Pad the window backwards ~20 bars so ADX's own smoothing has runway
+    // before the first bar that actually falls inside the hold, instead of
+    // pinning the whole read to its unsmoothed seed value.
+    const padMs = resolutionMinutes * 60 * 1000 * 20;
+    const fromTs = Math.floor((openedAt.getTime() - padMs) / 1000);
+    const toTs = Math.ceil(closedAt.getTime() / 1000);
+
+    const svc = await tlGetOrCreateService(conn);
+    const bars = await svc.getCandlesticks(symbol, resolutionMinutes, fromTs, toTs);
+    if (!bars || bars.length < 20) return null; // not enough history to say anything real
+
+    const { calculateADX } = await import('../indicators');
+    // getCandlesticks returns ascending (oldest-first); calculateADX expects
+    // the MT5-cache convention (newest-first — it reverses internally to walk
+    // forward in time), so reverse before handing it over.
+    const candles = bars.slice().reverse().map((b: any) => ({ o: b.o, h: b.h, l: b.l, c: b.c, v: b.v }));
+    const adx = calculateADX(candles, 14);
+    if (!adx) return null;
+
+    if (adx.value >= 25) return 'trending';
+    if (adx.value < 20) return 'ranging';
+    return 'volatile';
+  } catch (e: any) {
+    console.warn(`[FxBrain] hold-regime classification skipped for ${symbol} (${e?.message}) — recording outcome without it.`);
+    return null;
+  }
+}
+
 async function _recordFxBrainOutcome(
   userId: number, conn: any, existing: any, match: any, result: string, profit: number,
 ): Promise<void> {
@@ -148,6 +218,11 @@ async function _recordFxBrainOutcome(
     const { canonSession } = await import('../utils/session');
     const session = canonSession(f.session, hour) ?? canonSession(null, hour);
 
+    // One extra async fetch per closed trade — real broker candle history for
+    // the exact entry->close window — wrapped so a broker-history gap can
+    // never take out the rest of this row. See _classifyHoldRegime above.
+    const holdRegime = await _classifyHoldRegime(conn, symbol, openedAt, closedAt);
+
     await pool.query(
       `INSERT INTO fx_brain_outcomes
         (user_id, symbol, direction, timeframe, hour_utc, session, day_of_week,
@@ -155,8 +230,8 @@ async function _recordFxBrainOutcome(
          smc_verdict, ict_macro_valid, htf_aligned, ea_confidence, ai_confidence,
          entry_price, exit_price, stop_loss, take_profit, planned_rr, realised_rr,
          result, profit_loss, holding_minutes, connection_id, account_id, ticket, closed_at,
-         mae_pnl, mfe_pnl, minutes_to_mae, minutes_to_mfe)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25,$26,$27,$28,$29,$30,$31,$32,$33,$34)
+         mae_pnl, mfe_pnl, minutes_to_mae, minutes_to_mfe, hold_regime)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25,$26,$27,$28,$29,$30,$31,$32,$33,$34,$35)
        ON CONFLICT (user_id, ticket) WHERE ticket IS NOT NULL DO NOTHING`,
       [userId, symbol, direction, f.timeframe ?? null, hour, session, closedAt.getUTCDay(),
        f.adx_value ?? null, f.rsi_value ?? null, f.macd_direction ?? null,
@@ -167,7 +242,8 @@ async function _recordFxBrainOutcome(
        Number.isFinite(maePnl) ? maePnl : null,
        Number.isFinite(mfePnl) ? mfePnl : null,
        (existing as any).maeAt && openedAt ? Math.max(0, Math.round((new Date((existing as any).maeAt).getTime() - openedAt.getTime()) / 60000)) : null,
-       (existing as any).mfeAt && openedAt ? Math.max(0, Math.round((new Date((existing as any).mfeAt).getTime() - openedAt.getTime()) / 60000)) : null]
+       (existing as any).mfeAt && openedAt ? Math.max(0, Math.round((new Date((existing as any).mfeAt).getTime() - openedAt.getTime()) / 60000)) : null,
+       holdRegime]
     );
     console.log(`[FxBrain] recorded ${symbol} ${direction} ${result} ${profit >= 0 ? '+' : ''}${profit.toFixed(2)}` +
       (f.adx_value != null ? ` (adx ${Number(f.adx_value).toFixed(1)}, grade ${f.confluence_grade ?? 'n/a'})` : ' (setup unknown)'));

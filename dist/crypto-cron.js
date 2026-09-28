@@ -5943,9 +5943,9 @@ var init_storage = __esm({
       // snapshot; a different pair scope is a distinct, coexisting listing.
       async getUserActiveBrainListingBySymbols(sellerId, sourceCategory, symbols) {
         const listings = await db.select().from(brainDataListings).where(and(eq(brainDataListings.sellerId, sellerId), eq(brainDataListings.isActive, true), eq(brainDataListings.sourceCategory, sourceCategory)));
-        const norm = (s) => Array.isArray(s) && s.length ? [...s].map((x) => x.toUpperCase()).sort().join(",") : "";
-        const target = norm(symbols);
-        return listings.find((l) => norm(l.symbolFilter) === target);
+        const norm2 = (s) => Array.isArray(s) && s.length ? [...s].map((x) => x.toUpperCase()).sort().join(",") : "";
+        const target = norm2(symbols);
+        return listings.find((l) => norm2(l.symbolFilter) === target);
       }
       async importBrainDataSnapshot(buyerId, snapshotData) {
         if (!snapshotData.length) return 0;
@@ -10061,6 +10061,168 @@ var init_session = __esm({
   }
 });
 
+// server/services/pair-daily-stop.ts
+var pair_daily_stop_exports = {};
+__export(pair_daily_stop_exports, {
+  invalidatePairDailyStop: () => invalidatePairDailyStop,
+  pairDailyStopTable: () => pairDailyStopTable,
+  pairDailyStopVerdict: () => pairDailyStopVerdict,
+  pairDayStopHistory: () => pairDayStopHistory
+});
+async function compute(userId) {
+  const { pool: pool2 } = await Promise.resolve().then(() => (init_db(), db_exports));
+  const { rows } = await pool2.query(
+    `SELECT symbol, direction, result, COALESCE(profit_loss, 0) AS pnl, closed_at
+       FROM ai_trade_results
+      WHERE user_id = $1
+        AND result IN ('WIN','LOSS')
+        AND closed_at IS NOT NULL
+        AND closed_at >= date_trunc('day', now() AT TIME ZONE 'UTC')
+        AND source NOT IN ('mt5_ea','mt5_copier','kalshi','polymarket')
+      ORDER BY closed_at DESC`,
+    [userId]
+  );
+  const bySymbol = /* @__PURE__ */ new Map();
+  for (const r of rows) {
+    const k = norm(r.symbol);
+    if (!k) continue;
+    if (!bySymbol.has(k)) bySymbol.set(k, []);
+    bySymbol.get(k).push(r);
+  }
+  const out = /* @__PURE__ */ new Map();
+  for (const [sym, list] of Array.from(bySymbol.entries())) {
+    const netPnl = list.reduce((s, r) => s + Number(r.pnl || 0), 0);
+    const signals = [];
+    for (const r of list) {
+      const ts = new Date(r.closed_at).getTime();
+      const dir = String(r.direction ?? "");
+      const prev = signals[signals.length - 1];
+      if (prev && prev.result === r.result && prev.dir === dir && prev.ts - ts <= GROUP_MS) continue;
+      signals.push({ result: r.result, ts, dir });
+    }
+    const losing = signals.filter((s) => s.result === "LOSS");
+    const stat = {
+      symbol: sym,
+      losingSignals: losing.length,
+      winningSignals: signals.length - losing.length,
+      netPnl: Math.round(netPnl * 100) / 100,
+      lastLossAt: losing.length ? new Date(losing[0].ts).toISOString() : null,
+      stopped: false,
+      reason: null
+    };
+    if (MAX_LOSING_SIGNALS > 0 && stat.losingSignals >= MAX_LOSING_SIGNALS) {
+      stat.stopped = true;
+      stat.reason = `Pair daily stop: ${sym} has ${stat.losingSignals} losing setups today (limit ${MAX_LOSING_SIGNALS}), net ${stat.netPnl} \u2014 stopped until 00:00 UTC`;
+    } else if (MAX_DAILY_LOSS > 0 && netPnl <= -Math.abs(MAX_DAILY_LOSS)) {
+      stat.stopped = true;
+      stat.reason = `Pair daily stop: ${sym} is down ${stat.netPnl} today (limit -${Math.abs(MAX_DAILY_LOSS)}) \u2014 stopped until 00:00 UTC`;
+    }
+    out.set(sym, stat);
+  }
+  return out;
+}
+async function pairDailyStopVerdict(userId, symbol) {
+  if (process.env.PAIR_DAILY_STOP_ENABLED === "false") return null;
+  const sym = norm(symbol);
+  if (!sym) return null;
+  const today = utcDay();
+  let entry = cache2.get(userId);
+  try {
+    if (!entry || entry.day !== today || Date.now() - entry.at > TTL_MS2) {
+      const stats = await compute(userId);
+      entry = { at: Date.now(), day: today, stats };
+      cache2.set(userId, entry);
+      const stopped = Array.from(stats.values()).filter((s) => s.stopped);
+      if (stopped.length) {
+        console.log(`[PairDailyStop] user ${userId}: ${stopped.length} pair(s) stopped for ${today} \u2014 ` + stopped.map((s) => `${s.symbol} (${s.losingSignals}L, ${s.netPnl})`).join(", "));
+      }
+    }
+  } catch (e) {
+    if (!entry) {
+      console.error(`[PairDailyStop] could not evaluate and have no prior result (${e?.message}) \u2014 allowing ${sym}.`);
+      return null;
+    }
+    console.error(`[PairDailyStop] refresh failed (${e?.message}) \u2014 reusing the last known result from ${new Date(entry.at).toISOString()}.`);
+  }
+  const stat = entry.stats.get(sym);
+  if (!stat?.stopped) return null;
+  return { blocked: true, reason: stat.reason };
+}
+function invalidatePairDailyStop(userId) {
+  cache2.delete(userId);
+}
+async function pairDayStopHistory(userId, symbol, lookbackDays = 180) {
+  const { pool: pool2 } = await Promise.resolve().then(() => (init_db(), db_exports));
+  const sym = norm(symbol);
+  if (!sym) return [];
+  const { rows } = await pool2.query(
+    `SELECT symbol, direction, result, COALESCE(profit_loss, 0) AS pnl, closed_at,
+            closed_at::date AS d
+       FROM ai_trade_results
+      WHERE user_id = $1
+        AND result IN ('WIN','LOSS')
+        AND closed_at IS NOT NULL
+        AND closed_at > now() - ($2 || ' days')::interval
+        AND source NOT IN ('mt5_ea','mt5_copier','kalshi','polymarket')
+      ORDER BY closed_at ASC`,
+    [userId, String(lookbackDays)]
+  );
+  const bySym = rows.filter((r) => norm(r.symbol) === sym);
+  if (!bySym.length) return [];
+  const byDay = /* @__PURE__ */ new Map();
+  for (const r of bySym) {
+    const k = String(r.d);
+    if (!byDay.has(k)) byDay.set(k, []);
+    byDay.get(k).push(r);
+  }
+  const perDow = /* @__PURE__ */ new Map();
+  for (const [dateStr, list] of Array.from(byDay.entries())) {
+    const signals = [];
+    for (const r of list) {
+      const ts = new Date(r.closed_at).getTime();
+      const dir = String(r.direction ?? "");
+      const prev = signals[signals.length - 1];
+      if (prev && prev.result === r.result && prev.dir === dir && Math.abs(ts - prev.ts) <= GROUP_MS) continue;
+      signals.push({ result: r.result, ts, dir });
+    }
+    const losing = signals.filter((s) => s.result === "LOSS").length;
+    const stopped = MAX_LOSING_SIGNALS > 0 && losing >= MAX_LOSING_SIGNALS;
+    const dow = (/* @__PURE__ */ new Date(dateStr + "T00:00:00Z")).getUTCDay();
+    const cur = perDow.get(dow) || { active: 0, stopped: 0 };
+    cur.active += 1;
+    if (stopped) cur.stopped += 1;
+    perDow.set(dow, cur);
+  }
+  return Array.from(perDow.entries()).map(([dayOfWeek, v]) => ({ dayOfWeek, daysActive: v.active, daysStopped: v.stopped })).sort((a, b) => a.dayOfWeek - b.dayOfWeek);
+}
+async function pairDailyStopTable(userId) {
+  let stats;
+  try {
+    stats = await compute(userId);
+  } catch {
+    stats = cache2.get(userId)?.stats ?? /* @__PURE__ */ new Map();
+  }
+  return {
+    day: utcDay(),
+    limit: MAX_LOSING_SIGNALS,
+    maxLoss: MAX_DAILY_LOSS,
+    pairs: Array.from(stats.values()).sort((a, b) => a.netPnl - b.netPnl)
+  };
+}
+var MAX_LOSING_SIGNALS, MAX_DAILY_LOSS, GROUP_MS, TTL_MS2, cache2, norm, utcDay;
+var init_pair_daily_stop = __esm({
+  "server/services/pair-daily-stop.ts"() {
+    "use strict";
+    MAX_LOSING_SIGNALS = Number(process.env.PAIR_DAILY_MAX_LOSING_SIGNALS ?? 3);
+    MAX_DAILY_LOSS = Number(process.env.PAIR_DAILY_MAX_LOSS_USD ?? 0);
+    GROUP_MS = Number(process.env.PAIR_DAILY_GROUP_MS ?? 12e4);
+    TTL_MS2 = Number(process.env.PAIR_DAILY_TTL_MS ?? 6e4);
+    cache2 = /* @__PURE__ */ new Map();
+    norm = (s) => String(s || "").toUpperCase().replace(/[^A-Z0-9]/g, "");
+    utcDay = () => (/* @__PURE__ */ new Date()).toISOString().slice(0, 10);
+  }
+});
+
 // server/services/fx-brain.ts
 var fx_brain_exports = {};
 __export(fx_brain_exports, {
@@ -10077,10 +10239,22 @@ function adxBucket(v) {
   if (v < 40) return "ADX 30-39";
   return "ADX 40+ (strong)";
 }
+function dowLabel(v) {
+  if (v == null || !Number.isInteger(Number(v)) || Number(v) < 0 || Number(v) > 6) return null;
+  return DOW_NAMES[Number(v)];
+}
+function holdRegimeLabel(v) {
+  if (!v) return null;
+  const s = String(v).toLowerCase();
+  if (s === "trending") return "Trending hold";
+  if (s === "ranging") return "Ranging hold";
+  if (s === "volatile") return "Volatile/choppy hold";
+  return null;
+}
 async function learnFxBrain(userId) {
   const { pool: pool2 } = await Promise.resolve().then(() => (init_db(), db_exports));
   const { rows } = await pool2.query(
-    `SELECT symbol, direction, session, hour_utc, adx_value, confluence_grade,
+    `SELECT symbol, direction, session, hour_utc, day_of_week, hold_regime, adx_value, confluence_grade,
             realised_rr, result, profit_loss, closed_at::date AS d
        FROM fx_brain_outcomes
       WHERE user_id = $1
@@ -10122,6 +10296,8 @@ async function learnFxBrain(userId) {
       add("direction", t.direction, t);
       add("adx_bucket", adxBucket(t.adx_value == null ? null : Number(t.adx_value)), t);
       add("grade", t.confluence_grade ? "Grade " + t.confluence_grade : null, t);
+      add("day_of_week", dowLabel(t.day_of_week == null ? null : Number(t.day_of_week)), t);
+      add("hold_regime", holdRegimeLabel(t.hold_regime), t);
     }
     const works = [];
     const fails = [];
@@ -10167,10 +10343,10 @@ async function learnFxBrain(userId) {
   return out;
 }
 async function getFxBrain(userId, force = false) {
-  const hit = cache2.get(userId);
-  if (!force && hit && Date.now() - hit.at < TTL_MS2) return hit.brains;
+  const hit = cache3.get(userId);
+  if (!force && hit && Date.now() - hit.at < TTL_MS3) return hit.brains;
   const brains = await learnFxBrain(userId);
-  cache2.set(userId, { at: Date.now(), brains });
+  cache3.set(userId, { at: Date.now(), brains });
   const pairs = Object.keys(brains);
   if (pairs.length) {
     const patterns = pairs.reduce((n, p) => n + brains[p].works.length + brains[p].fails.length, 0);
@@ -10192,8 +10368,24 @@ async function fxBrainInsights(userId, symbol) {
     for (const p of b.fails.slice(0, 3)) {
       lines.push("   FAILS - " + p.value + ": " + p.winRate + "% (" + p.wins + "/" + p.trades + " over " + p.distinctDays + " days, " + p.edgeVsPair + "pp vs this pair)");
     }
+    const dayStopLine = await dayStopInsightLine(userId, k);
+    if (dayStopLine) lines.push("   " + dayStopLine);
   }
   return lines.join("\n");
+}
+async function dayStopInsightLine(userId, symbol) {
+  try {
+    const { pairDayStopHistory: pairDayStopHistory2 } = await Promise.resolve().then(() => (init_pair_daily_stop(), pair_daily_stop_exports));
+    const history = await pairDayStopHistory2(userId, symbol);
+    if (!history.length) return null;
+    const withRatio = history.filter((h) => h.daysActive >= DAY_STOP_MIN_DAYS_ACTIVE).map((h) => ({ ...h, ratio: h.daysStopped / h.daysActive })).filter((h) => h.ratio >= DAY_STOP_MIN_RATIO).sort((a, b) => b.ratio - a.ratio);
+    if (!withRatio.length) return null;
+    const top = withRatio[0];
+    return `DAY-STOPPED - ${DOW_NAMES[top.dayOfWeek]}: hit the pair-daily-stop limit on ${top.daysStopped}/${top.daysActive} ${DOW_NAMES[top.dayOfWeek]}s (${Math.round(top.ratio * 100)}%) \u2014 this pair has a history of losing its daily budget on this weekday`;
+  } catch (e) {
+    console.error(`[FxBrain] day-stop history unavailable for ${symbol} (${e?.message}) \u2014 omitting that line only.`);
+    return null;
+  }
 }
 async function checkFxBrainHealth(windowHours = 24) {
   const { pool: pool2 } = await Promise.resolve().then(() => (init_db(), db_exports));
@@ -10242,7 +10434,7 @@ async function fxBrainGateVerdict(userId, symbol, direction, hourUtc = (/* @__PU
     return null;
   }
 }
-var MIN_TRADES2, MIN_DISTINCT_DAYS, MIN_EDGE_PP, LOOKBACK_DAYS, TTL_MS2, SEP, cache2, GATE_ENABLED, GATE_MIN_DIR_TRADES;
+var MIN_TRADES2, MIN_DISTINCT_DAYS, MIN_EDGE_PP, LOOKBACK_DAYS, TTL_MS3, SEP, cache3, DOW_NAMES, DAY_STOP_MIN_DAYS_ACTIVE, DAY_STOP_MIN_RATIO, GATE_ENABLED, GATE_MIN_DIR_TRADES;
 var init_fx_brain = __esm({
   "server/services/fx-brain.ts"() {
     "use strict";
@@ -10251,9 +10443,12 @@ var init_fx_brain = __esm({
     MIN_DISTINCT_DAYS = Number(process.env.FX_BRAIN_MIN_DAYS ?? 3);
     MIN_EDGE_PP = Number(process.env.FX_BRAIN_MIN_EDGE_PP ?? 12);
     LOOKBACK_DAYS = Number(process.env.FX_BRAIN_LOOKBACK_DAYS ?? 180);
-    TTL_MS2 = Number(process.env.FX_BRAIN_TTL_MS ?? 30 * 60 * 1e3);
+    TTL_MS3 = Number(process.env.FX_BRAIN_TTL_MS ?? 30 * 60 * 1e3);
     SEP = "~~";
-    cache2 = /* @__PURE__ */ new Map();
+    cache3 = /* @__PURE__ */ new Map();
+    DOW_NAMES = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
+    DAY_STOP_MIN_DAYS_ACTIVE = Number(process.env.FX_BRAIN_DAY_STOP_MIN_DAYS ?? 3);
+    DAY_STOP_MIN_RATIO = Number(process.env.FX_BRAIN_DAY_STOP_MIN_RATIO ?? 0.5);
     GATE_ENABLED = () => process.env.FX_BRAIN_GATE_ENABLED !== "false";
     GATE_MIN_DIR_TRADES = Number(process.env.FX_BRAIN_GATE_MIN_DIR_TRADES ?? 20);
   }

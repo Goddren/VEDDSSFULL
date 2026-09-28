@@ -8142,6 +8142,168 @@ var init_session = __esm({
   }
 });
 
+// server/services/pair-daily-stop.ts
+var pair_daily_stop_exports = {};
+__export(pair_daily_stop_exports, {
+  invalidatePairDailyStop: () => invalidatePairDailyStop,
+  pairDailyStopTable: () => pairDailyStopTable,
+  pairDailyStopVerdict: () => pairDailyStopVerdict,
+  pairDayStopHistory: () => pairDayStopHistory
+});
+async function compute(userId) {
+  const { pool: pool2 } = await Promise.resolve().then(() => (init_db(), db_exports));
+  const { rows } = await pool2.query(
+    `SELECT symbol, direction, result, COALESCE(profit_loss, 0) AS pnl, closed_at
+       FROM ai_trade_results
+      WHERE user_id = $1
+        AND result IN ('WIN','LOSS')
+        AND closed_at IS NOT NULL
+        AND closed_at >= date_trunc('day', now() AT TIME ZONE 'UTC')
+        AND source NOT IN ('mt5_ea','mt5_copier','kalshi','polymarket')
+      ORDER BY closed_at DESC`,
+    [userId]
+  );
+  const bySymbol = /* @__PURE__ */ new Map();
+  for (const r of rows) {
+    const k = norm(r.symbol);
+    if (!k) continue;
+    if (!bySymbol.has(k)) bySymbol.set(k, []);
+    bySymbol.get(k).push(r);
+  }
+  const out = /* @__PURE__ */ new Map();
+  for (const [sym, list] of Array.from(bySymbol.entries())) {
+    const netPnl = list.reduce((s, r) => s + Number(r.pnl || 0), 0);
+    const signals = [];
+    for (const r of list) {
+      const ts = new Date(r.closed_at).getTime();
+      const dir = String(r.direction ?? "");
+      const prev = signals[signals.length - 1];
+      if (prev && prev.result === r.result && prev.dir === dir && prev.ts - ts <= GROUP_MS) continue;
+      signals.push({ result: r.result, ts, dir });
+    }
+    const losing = signals.filter((s) => s.result === "LOSS");
+    const stat = {
+      symbol: sym,
+      losingSignals: losing.length,
+      winningSignals: signals.length - losing.length,
+      netPnl: Math.round(netPnl * 100) / 100,
+      lastLossAt: losing.length ? new Date(losing[0].ts).toISOString() : null,
+      stopped: false,
+      reason: null
+    };
+    if (MAX_LOSING_SIGNALS > 0 && stat.losingSignals >= MAX_LOSING_SIGNALS) {
+      stat.stopped = true;
+      stat.reason = `Pair daily stop: ${sym} has ${stat.losingSignals} losing setups today (limit ${MAX_LOSING_SIGNALS}), net ${stat.netPnl} \u2014 stopped until 00:00 UTC`;
+    } else if (MAX_DAILY_LOSS > 0 && netPnl <= -Math.abs(MAX_DAILY_LOSS)) {
+      stat.stopped = true;
+      stat.reason = `Pair daily stop: ${sym} is down ${stat.netPnl} today (limit -${Math.abs(MAX_DAILY_LOSS)}) \u2014 stopped until 00:00 UTC`;
+    }
+    out.set(sym, stat);
+  }
+  return out;
+}
+async function pairDailyStopVerdict(userId, symbol) {
+  if (process.env.PAIR_DAILY_STOP_ENABLED === "false") return null;
+  const sym = norm(symbol);
+  if (!sym) return null;
+  const today = utcDay();
+  let entry = cache2.get(userId);
+  try {
+    if (!entry || entry.day !== today || Date.now() - entry.at > TTL_MS) {
+      const stats = await compute(userId);
+      entry = { at: Date.now(), day: today, stats };
+      cache2.set(userId, entry);
+      const stopped = Array.from(stats.values()).filter((s) => s.stopped);
+      if (stopped.length) {
+        console.log(`[PairDailyStop] user ${userId}: ${stopped.length} pair(s) stopped for ${today} \u2014 ` + stopped.map((s) => `${s.symbol} (${s.losingSignals}L, ${s.netPnl})`).join(", "));
+      }
+    }
+  } catch (e) {
+    if (!entry) {
+      console.error(`[PairDailyStop] could not evaluate and have no prior result (${e?.message}) \u2014 allowing ${sym}.`);
+      return null;
+    }
+    console.error(`[PairDailyStop] refresh failed (${e?.message}) \u2014 reusing the last known result from ${new Date(entry.at).toISOString()}.`);
+  }
+  const stat = entry.stats.get(sym);
+  if (!stat?.stopped) return null;
+  return { blocked: true, reason: stat.reason };
+}
+function invalidatePairDailyStop(userId) {
+  cache2.delete(userId);
+}
+async function pairDayStopHistory(userId, symbol, lookbackDays = 180) {
+  const { pool: pool2 } = await Promise.resolve().then(() => (init_db(), db_exports));
+  const sym = norm(symbol);
+  if (!sym) return [];
+  const { rows } = await pool2.query(
+    `SELECT symbol, direction, result, COALESCE(profit_loss, 0) AS pnl, closed_at,
+            closed_at::date AS d
+       FROM ai_trade_results
+      WHERE user_id = $1
+        AND result IN ('WIN','LOSS')
+        AND closed_at IS NOT NULL
+        AND closed_at > now() - ($2 || ' days')::interval
+        AND source NOT IN ('mt5_ea','mt5_copier','kalshi','polymarket')
+      ORDER BY closed_at ASC`,
+    [userId, String(lookbackDays)]
+  );
+  const bySym = rows.filter((r) => norm(r.symbol) === sym);
+  if (!bySym.length) return [];
+  const byDay = /* @__PURE__ */ new Map();
+  for (const r of bySym) {
+    const k = String(r.d);
+    if (!byDay.has(k)) byDay.set(k, []);
+    byDay.get(k).push(r);
+  }
+  const perDow = /* @__PURE__ */ new Map();
+  for (const [dateStr, list] of Array.from(byDay.entries())) {
+    const signals = [];
+    for (const r of list) {
+      const ts = new Date(r.closed_at).getTime();
+      const dir = String(r.direction ?? "");
+      const prev = signals[signals.length - 1];
+      if (prev && prev.result === r.result && prev.dir === dir && Math.abs(ts - prev.ts) <= GROUP_MS) continue;
+      signals.push({ result: r.result, ts, dir });
+    }
+    const losing = signals.filter((s) => s.result === "LOSS").length;
+    const stopped = MAX_LOSING_SIGNALS > 0 && losing >= MAX_LOSING_SIGNALS;
+    const dow = (/* @__PURE__ */ new Date(dateStr + "T00:00:00Z")).getUTCDay();
+    const cur = perDow.get(dow) || { active: 0, stopped: 0 };
+    cur.active += 1;
+    if (stopped) cur.stopped += 1;
+    perDow.set(dow, cur);
+  }
+  return Array.from(perDow.entries()).map(([dayOfWeek, v]) => ({ dayOfWeek, daysActive: v.active, daysStopped: v.stopped })).sort((a, b) => a.dayOfWeek - b.dayOfWeek);
+}
+async function pairDailyStopTable(userId) {
+  let stats;
+  try {
+    stats = await compute(userId);
+  } catch {
+    stats = cache2.get(userId)?.stats ?? /* @__PURE__ */ new Map();
+  }
+  return {
+    day: utcDay(),
+    limit: MAX_LOSING_SIGNALS,
+    maxLoss: MAX_DAILY_LOSS,
+    pairs: Array.from(stats.values()).sort((a, b) => a.netPnl - b.netPnl)
+  };
+}
+var MAX_LOSING_SIGNALS, MAX_DAILY_LOSS, GROUP_MS, TTL_MS, cache2, norm, utcDay;
+var init_pair_daily_stop = __esm({
+  "server/services/pair-daily-stop.ts"() {
+    "use strict";
+    MAX_LOSING_SIGNALS = Number(process.env.PAIR_DAILY_MAX_LOSING_SIGNALS ?? 3);
+    MAX_DAILY_LOSS = Number(process.env.PAIR_DAILY_MAX_LOSS_USD ?? 0);
+    GROUP_MS = Number(process.env.PAIR_DAILY_GROUP_MS ?? 12e4);
+    TTL_MS = Number(process.env.PAIR_DAILY_TTL_MS ?? 6e4);
+    cache2 = /* @__PURE__ */ new Map();
+    norm = (s) => String(s || "").toUpperCase().replace(/[^A-Z0-9]/g, "");
+    utcDay = () => (/* @__PURE__ */ new Date()).toISOString().slice(0, 10);
+  }
+});
+
 // server/services/fx-brain.ts
 var fx_brain_exports = {};
 __export(fx_brain_exports, {
@@ -8158,10 +8320,22 @@ function adxBucket(v) {
   if (v < 40) return "ADX 30-39";
   return "ADX 40+ (strong)";
 }
+function dowLabel(v) {
+  if (v == null || !Number.isInteger(Number(v)) || Number(v) < 0 || Number(v) > 6) return null;
+  return DOW_NAMES[Number(v)];
+}
+function holdRegimeLabel(v) {
+  if (!v) return null;
+  const s = String(v).toLowerCase();
+  if (s === "trending") return "Trending hold";
+  if (s === "ranging") return "Ranging hold";
+  if (s === "volatile") return "Volatile/choppy hold";
+  return null;
+}
 async function learnFxBrain(userId) {
   const { pool: pool2 } = await Promise.resolve().then(() => (init_db(), db_exports));
   const { rows } = await pool2.query(
-    `SELECT symbol, direction, session, hour_utc, adx_value, confluence_grade,
+    `SELECT symbol, direction, session, hour_utc, day_of_week, hold_regime, adx_value, confluence_grade,
             realised_rr, result, profit_loss, closed_at::date AS d
        FROM fx_brain_outcomes
       WHERE user_id = $1
@@ -8203,6 +8377,8 @@ async function learnFxBrain(userId) {
       add("direction", t.direction, t);
       add("adx_bucket", adxBucket(t.adx_value == null ? null : Number(t.adx_value)), t);
       add("grade", t.confluence_grade ? "Grade " + t.confluence_grade : null, t);
+      add("day_of_week", dowLabel(t.day_of_week == null ? null : Number(t.day_of_week)), t);
+      add("hold_regime", holdRegimeLabel(t.hold_regime), t);
     }
     const works = [];
     const fails = [];
@@ -8248,10 +8424,10 @@ async function learnFxBrain(userId) {
   return out;
 }
 async function getFxBrain(userId, force = false) {
-  const hit = cache2.get(userId);
-  if (!force && hit && Date.now() - hit.at < TTL_MS) return hit.brains;
+  const hit = cache3.get(userId);
+  if (!force && hit && Date.now() - hit.at < TTL_MS2) return hit.brains;
   const brains = await learnFxBrain(userId);
-  cache2.set(userId, { at: Date.now(), brains });
+  cache3.set(userId, { at: Date.now(), brains });
   const pairs = Object.keys(brains);
   if (pairs.length) {
     const patterns = pairs.reduce((n, p) => n + brains[p].works.length + brains[p].fails.length, 0);
@@ -8273,8 +8449,24 @@ async function fxBrainInsights(userId, symbol) {
     for (const p of b.fails.slice(0, 3)) {
       lines.push("   FAILS - " + p.value + ": " + p.winRate + "% (" + p.wins + "/" + p.trades + " over " + p.distinctDays + " days, " + p.edgeVsPair + "pp vs this pair)");
     }
+    const dayStopLine = await dayStopInsightLine(userId, k);
+    if (dayStopLine) lines.push("   " + dayStopLine);
   }
   return lines.join("\n");
+}
+async function dayStopInsightLine(userId, symbol) {
+  try {
+    const { pairDayStopHistory: pairDayStopHistory2 } = await Promise.resolve().then(() => (init_pair_daily_stop(), pair_daily_stop_exports));
+    const history = await pairDayStopHistory2(userId, symbol);
+    if (!history.length) return null;
+    const withRatio = history.filter((h) => h.daysActive >= DAY_STOP_MIN_DAYS_ACTIVE).map((h) => ({ ...h, ratio: h.daysStopped / h.daysActive })).filter((h) => h.ratio >= DAY_STOP_MIN_RATIO).sort((a, b) => b.ratio - a.ratio);
+    if (!withRatio.length) return null;
+    const top = withRatio[0];
+    return `DAY-STOPPED - ${DOW_NAMES[top.dayOfWeek]}: hit the pair-daily-stop limit on ${top.daysStopped}/${top.daysActive} ${DOW_NAMES[top.dayOfWeek]}s (${Math.round(top.ratio * 100)}%) \u2014 this pair has a history of losing its daily budget on this weekday`;
+  } catch (e) {
+    console.error(`[FxBrain] day-stop history unavailable for ${symbol} (${e?.message}) \u2014 omitting that line only.`);
+    return null;
+  }
 }
 async function checkFxBrainHealth(windowHours = 24) {
   const { pool: pool2 } = await Promise.resolve().then(() => (init_db(), db_exports));
@@ -8323,7 +8515,7 @@ async function fxBrainGateVerdict(userId, symbol, direction, hourUtc = (/* @__PU
     return null;
   }
 }
-var MIN_TRADES, MIN_DISTINCT_DAYS, MIN_EDGE_PP, LOOKBACK_DAYS, TTL_MS, SEP, cache2, GATE_ENABLED, GATE_MIN_DIR_TRADES;
+var MIN_TRADES, MIN_DISTINCT_DAYS, MIN_EDGE_PP, LOOKBACK_DAYS, TTL_MS2, SEP, cache3, DOW_NAMES, DAY_STOP_MIN_DAYS_ACTIVE, DAY_STOP_MIN_RATIO, GATE_ENABLED, GATE_MIN_DIR_TRADES;
 var init_fx_brain = __esm({
   "server/services/fx-brain.ts"() {
     "use strict";
@@ -8332,9 +8524,12 @@ var init_fx_brain = __esm({
     MIN_DISTINCT_DAYS = Number(process.env.FX_BRAIN_MIN_DAYS ?? 3);
     MIN_EDGE_PP = Number(process.env.FX_BRAIN_MIN_EDGE_PP ?? 12);
     LOOKBACK_DAYS = Number(process.env.FX_BRAIN_LOOKBACK_DAYS ?? 180);
-    TTL_MS = Number(process.env.FX_BRAIN_TTL_MS ?? 30 * 60 * 1e3);
+    TTL_MS2 = Number(process.env.FX_BRAIN_TTL_MS ?? 30 * 60 * 1e3);
     SEP = "~~";
-    cache2 = /* @__PURE__ */ new Map();
+    cache3 = /* @__PURE__ */ new Map();
+    DOW_NAMES = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
+    DAY_STOP_MIN_DAYS_ACTIVE = Number(process.env.FX_BRAIN_DAY_STOP_MIN_DAYS ?? 3);
+    DAY_STOP_MIN_RATIO = Number(process.env.FX_BRAIN_DAY_STOP_MIN_RATIO ?? 0.5);
     GATE_ENABLED = () => process.env.FX_BRAIN_GATE_ENABLED !== "false";
     GATE_MIN_DIR_TRADES = Number(process.env.FX_BRAIN_GATE_MIN_DIR_TRADES ?? 20);
   }
@@ -19813,786 +20008,6 @@ var init_prop_firm_consistency = __esm({
   }
 });
 
-// server/services/pair-daily-stop.ts
-var pair_daily_stop_exports = {};
-__export(pair_daily_stop_exports, {
-  invalidatePairDailyStop: () => invalidatePairDailyStop,
-  pairDailyStopTable: () => pairDailyStopTable,
-  pairDailyStopVerdict: () => pairDailyStopVerdict
-});
-async function compute(userId) {
-  const { pool: pool2 } = await Promise.resolve().then(() => (init_db(), db_exports));
-  const { rows } = await pool2.query(
-    `SELECT symbol, direction, result, COALESCE(profit_loss, 0) AS pnl, closed_at
-       FROM ai_trade_results
-      WHERE user_id = $1
-        AND result IN ('WIN','LOSS')
-        AND closed_at IS NOT NULL
-        AND closed_at >= date_trunc('day', now() AT TIME ZONE 'UTC')
-        AND source NOT IN ('mt5_ea','mt5_copier','kalshi','polymarket')
-      ORDER BY closed_at DESC`,
-    [userId]
-  );
-  const bySymbol = /* @__PURE__ */ new Map();
-  for (const r of rows) {
-    const k = norm(r.symbol);
-    if (!k) continue;
-    if (!bySymbol.has(k)) bySymbol.set(k, []);
-    bySymbol.get(k).push(r);
-  }
-  const out = /* @__PURE__ */ new Map();
-  for (const [sym, list] of Array.from(bySymbol.entries())) {
-    const netPnl = list.reduce((s, r) => s + Number(r.pnl || 0), 0);
-    const signals = [];
-    for (const r of list) {
-      const ts = new Date(r.closed_at).getTime();
-      const dir = String(r.direction ?? "");
-      const prev = signals[signals.length - 1];
-      if (prev && prev.result === r.result && prev.dir === dir && prev.ts - ts <= GROUP_MS) continue;
-      signals.push({ result: r.result, ts, dir });
-    }
-    const losing = signals.filter((s) => s.result === "LOSS");
-    const stat = {
-      symbol: sym,
-      losingSignals: losing.length,
-      winningSignals: signals.length - losing.length,
-      netPnl: Math.round(netPnl * 100) / 100,
-      lastLossAt: losing.length ? new Date(losing[0].ts).toISOString() : null,
-      stopped: false,
-      reason: null
-    };
-    if (MAX_LOSING_SIGNALS > 0 && stat.losingSignals >= MAX_LOSING_SIGNALS) {
-      stat.stopped = true;
-      stat.reason = `Pair daily stop: ${sym} has ${stat.losingSignals} losing setups today (limit ${MAX_LOSING_SIGNALS}), net ${stat.netPnl} \u2014 stopped until 00:00 UTC`;
-    } else if (MAX_DAILY_LOSS > 0 && netPnl <= -Math.abs(MAX_DAILY_LOSS)) {
-      stat.stopped = true;
-      stat.reason = `Pair daily stop: ${sym} is down ${stat.netPnl} today (limit -${Math.abs(MAX_DAILY_LOSS)}) \u2014 stopped until 00:00 UTC`;
-    }
-    out.set(sym, stat);
-  }
-  return out;
-}
-async function pairDailyStopVerdict(userId, symbol) {
-  if (process.env.PAIR_DAILY_STOP_ENABLED === "false") return null;
-  const sym = norm(symbol);
-  if (!sym) return null;
-  const today = utcDay();
-  let entry = cache3.get(userId);
-  try {
-    if (!entry || entry.day !== today || Date.now() - entry.at > TTL_MS2) {
-      const stats = await compute(userId);
-      entry = { at: Date.now(), day: today, stats };
-      cache3.set(userId, entry);
-      const stopped = Array.from(stats.values()).filter((s) => s.stopped);
-      if (stopped.length) {
-        console.log(`[PairDailyStop] user ${userId}: ${stopped.length} pair(s) stopped for ${today} \u2014 ` + stopped.map((s) => `${s.symbol} (${s.losingSignals}L, ${s.netPnl})`).join(", "));
-      }
-    }
-  } catch (e) {
-    if (!entry) {
-      console.error(`[PairDailyStop] could not evaluate and have no prior result (${e?.message}) \u2014 allowing ${sym}.`);
-      return null;
-    }
-    console.error(`[PairDailyStop] refresh failed (${e?.message}) \u2014 reusing the last known result from ${new Date(entry.at).toISOString()}.`);
-  }
-  const stat = entry.stats.get(sym);
-  if (!stat?.stopped) return null;
-  return { blocked: true, reason: stat.reason };
-}
-function invalidatePairDailyStop(userId) {
-  cache3.delete(userId);
-}
-async function pairDailyStopTable(userId) {
-  let stats;
-  try {
-    stats = await compute(userId);
-  } catch {
-    stats = cache3.get(userId)?.stats ?? /* @__PURE__ */ new Map();
-  }
-  return {
-    day: utcDay(),
-    limit: MAX_LOSING_SIGNALS,
-    maxLoss: MAX_DAILY_LOSS,
-    pairs: Array.from(stats.values()).sort((a, b) => a.netPnl - b.netPnl)
-  };
-}
-var MAX_LOSING_SIGNALS, MAX_DAILY_LOSS, GROUP_MS, TTL_MS2, cache3, norm, utcDay;
-var init_pair_daily_stop = __esm({
-  "server/services/pair-daily-stop.ts"() {
-    "use strict";
-    MAX_LOSING_SIGNALS = Number(process.env.PAIR_DAILY_MAX_LOSING_SIGNALS ?? 3);
-    MAX_DAILY_LOSS = Number(process.env.PAIR_DAILY_MAX_LOSS_USD ?? 0);
-    GROUP_MS = Number(process.env.PAIR_DAILY_GROUP_MS ?? 12e4);
-    TTL_MS2 = Number(process.env.PAIR_DAILY_TTL_MS ?? 6e4);
-    cache3 = /* @__PURE__ */ new Map();
-    norm = (s) => String(s || "").toUpperCase().replace(/[^A-Z0-9]/g, "");
-    utcDay = () => (/* @__PURE__ */ new Date()).toISOString().slice(0, 10);
-  }
-});
-
-// server/utils/pair-key.ts
-var pair_key_exports = {};
-__export(pair_key_exports, {
-  basePairKey: () => basePairKey,
-  lookupPairKnowledge: () => lookupPairKnowledge
-});
-function basePairKey(symbol) {
-  return String(symbol ?? "").split(".")[0].toUpperCase().replace(/[^A-Z0-9]/g, "");
-}
-function lookupPairKnowledge(pairKnowledge, symbol) {
-  if (!pairKnowledge || !symbol) return void 0;
-  const direct = pairKnowledge[symbol];
-  if (direct) return direct;
-  const want = basePairKey(symbol);
-  if (!want) return void 0;
-  for (const k of Object.keys(pairKnowledge)) {
-    if (basePairKey(k) === want) return pairKnowledge[k];
-  }
-  return void 0;
-}
-var init_pair_key = __esm({
-  "server/utils/pair-key.ts"() {
-    "use strict";
-  }
-});
-
-// server/market-data/cache.ts
-var MarketDataCache, marketDataCache;
-var init_cache = __esm({
-  "server/market-data/cache.ts"() {
-    "use strict";
-    MarketDataCache = class {
-      cache = /* @__PURE__ */ new Map();
-      generateKey(symbol, timeframe, provider) {
-        return `${symbol}:${timeframe}:${provider}`;
-      }
-      get(symbol, timeframe, provider) {
-        const key = this.generateKey(symbol, timeframe, provider);
-        const entry = this.cache.get(key);
-        if (!entry) return null;
-        const now = Date.now();
-        if (now - entry.timestamp > entry.ttlMs) {
-          this.cache.delete(key);
-          return null;
-        }
-        return entry.data;
-      }
-      set(symbol, timeframe, provider, data, ttlMs) {
-        const key = this.generateKey(symbol, timeframe, provider);
-        this.cache.set(key, {
-          data,
-          timestamp: Date.now(),
-          ttlMs
-        });
-      }
-      invalidate(symbol, timeframe, provider) {
-        const key = this.generateKey(symbol, timeframe, provider);
-        this.cache.delete(key);
-      }
-      clear() {
-        this.cache.clear();
-      }
-      getTTLForTimeframe(timeframe) {
-        const ttlMap = {
-          "1m": 30 * 1e3,
-          "5m": 2 * 60 * 1e3,
-          "15m": 5 * 60 * 1e3,
-          "30m": 10 * 60 * 1e3,
-          "1h": 15 * 60 * 1e3,
-          "4h": 30 * 60 * 1e3,
-          "1d": 60 * 60 * 1e3,
-          "1w": 4 * 60 * 60 * 1e3
-        };
-        return ttlMap[timeframe] || 5 * 60 * 1e3;
-      }
-    };
-    marketDataCache = new MarketDataCache();
-  }
-});
-
-// server/market-data/pattern-change-detector.ts
-var PatternChangeDetector, patternChangeDetector;
-var init_pattern_change_detector = __esm({
-  "server/market-data/pattern-change-detector.ts"() {
-    "use strict";
-    PatternChangeDetector = class {
-      calculateATR(bars, period = 14) {
-        if (bars.length < period + 1) return 0;
-        const trueRanges = [];
-        for (let i = 1; i < bars.length && i <= period; i++) {
-          const high = bars[i].high;
-          const low = bars[i].low;
-          const prevClose = bars[i - 1].close;
-          const tr = Math.max(
-            high - low,
-            Math.abs(high - prevClose),
-            Math.abs(low - prevClose)
-          );
-          trueRanges.push(tr);
-        }
-        return trueRanges.reduce((a, b) => a + b, 0) / trueRanges.length;
-      }
-      calculateVolatility(bars) {
-        if (bars.length < 2) return 0;
-        const returns = [];
-        for (let i = 1; i < bars.length; i++) {
-          const ret = (bars[i].close - bars[i - 1].close) / bars[i - 1].close;
-          returns.push(ret);
-        }
-        const mean = returns.reduce((a, b) => a + b, 0) / returns.length;
-        const variance = returns.reduce((sum, r) => sum + Math.pow(r - mean, 2), 0) / returns.length;
-        return Math.sqrt(variance) * 100;
-      }
-      detectTrendDirection(bars) {
-        if (bars.length < 5) return "sideways";
-        const firstHalf = bars.slice(0, Math.floor(bars.length / 2));
-        const secondHalf = bars.slice(Math.floor(bars.length / 2));
-        const firstAvg = firstHalf.reduce((sum, b) => sum + b.close, 0) / firstHalf.length;
-        const secondAvg = secondHalf.reduce((sum, b) => sum + b.close, 0) / secondHalf.length;
-        const changePercent = (secondAvg - firstAvg) / firstAvg * 100;
-        if (changePercent > 0.5) return "up";
-        if (changePercent < -0.5) return "down";
-        return "sideways";
-      }
-      compareSnapshots(oldBars, newBars, thresholds = { volatility: 30, atr: 20, price: 2 }) {
-        const oldVolatility = this.calculateVolatility(oldBars);
-        const newVolatility = this.calculateVolatility(newBars);
-        const volatilityDelta = Math.abs((newVolatility - oldVolatility) / (oldVolatility || 1) * 100);
-        const oldATR = this.calculateATR(oldBars);
-        const newATR = this.calculateATR(newBars);
-        const atrChange = Math.abs((newATR - oldATR) / (oldATR || 1) * 100);
-        const oldLastPrice = oldBars[oldBars.length - 1]?.close || 0;
-        const newLastPrice = newBars[newBars.length - 1]?.close || 0;
-        const priceChangePercent = Math.abs((newLastPrice - oldLastPrice) / (oldLastPrice || 1) * 100);
-        const oldTrend = this.detectTrendDirection(oldBars);
-        const newTrend = this.detectTrendDirection(newBars);
-        const trendReversal = oldTrend !== newTrend && oldTrend !== "sideways" && newTrend !== "sideways";
-        const hasSignificantChange = volatilityDelta > thresholds.volatility || atrChange > thresholds.atr || priceChangePercent > thresholds.price || trendReversal;
-        const details = [];
-        if (volatilityDelta > thresholds.volatility) {
-          details.push(`Volatility changed by ${volatilityDelta.toFixed(1)}%`);
-        }
-        if (atrChange > thresholds.atr) {
-          details.push(`ATR changed by ${atrChange.toFixed(1)}%`);
-        }
-        if (priceChangePercent > thresholds.price) {
-          details.push(`Price moved ${priceChangePercent.toFixed(2)}%`);
-        }
-        if (trendReversal) {
-          details.push(`Trend reversed from ${oldTrend} to ${newTrend}`);
-        }
-        return {
-          hasSignificantChange,
-          volatilityDelta,
-          atrChange,
-          priceChangePercent,
-          trendReversal,
-          details: details.join("; ") || "No significant changes detected"
-        };
-      }
-    };
-    patternChangeDetector = new PatternChangeDetector();
-  }
-});
-
-// server/market-data/rate-limiter.ts
-var RateLimiter, rateLimiter;
-var init_rate_limiter = __esm({
-  "server/market-data/rate-limiter.ts"() {
-    "use strict";
-    RateLimiter = class {
-      requests = /* @__PURE__ */ new Map();
-      configs = /* @__PURE__ */ new Map();
-      registerProvider(provider, config) {
-        this.configs.set(provider, config);
-        this.requests.set(provider, []);
-      }
-      async checkLimit(provider) {
-        const config = this.configs.get(provider);
-        if (!config) return true;
-        const timestamps = this.requests.get(provider) || [];
-        const now = Date.now();
-        const validTimestamps = timestamps.filter((t) => now - t < config.windowMs);
-        this.requests.set(provider, validTimestamps);
-        return validTimestamps.length < config.maxRequests;
-      }
-      recordRequest(provider) {
-        const timestamps = this.requests.get(provider) || [];
-        timestamps.push(Date.now());
-        this.requests.set(provider, timestamps);
-      }
-      async waitForSlot(provider) {
-        const config = this.configs.get(provider);
-        if (!config) return;
-        while (!await this.checkLimit(provider)) {
-          await new Promise((resolve) => setTimeout(resolve, config.retryAfterMs));
-        }
-      }
-      getRemainingRequests(provider) {
-        const config = this.configs.get(provider);
-        if (!config) return Infinity;
-        const timestamps = this.requests.get(provider) || [];
-        const now = Date.now();
-        const validTimestamps = timestamps.filter((t) => now - t < config.windowMs);
-        return Math.max(0, config.maxRequests - validTimestamps.length);
-      }
-    };
-    rateLimiter = new RateLimiter();
-  }
-});
-
-// server/market-data/providers/twelve-data.ts
-var twelve_data_exports = {};
-__export(twelve_data_exports, {
-  TwelveDataProvider: () => TwelveDataProvider
-});
-var TWELVE_DATA_BASE_URL, FOREX_PAIRS, CRYPTO_PAIRS, FUTURES_TD_SYMBOL_MAP, INDEX_TD_SYMBOL_MAP, VALID_TD_INDEX_SYMBOLS, INDEX_ALIAS_MAP, TwelveDataProvider;
-var init_twelve_data = __esm({
-  "server/market-data/providers/twelve-data.ts"() {
-    "use strict";
-    init_rate_limiter();
-    TWELVE_DATA_BASE_URL = "https://api.twelvedata.com";
-    FOREX_PAIRS = [
-      "EUR/USD",
-      "GBP/USD",
-      "USD/JPY",
-      "USD/CHF",
-      "AUD/USD",
-      "USD/CAD",
-      "NZD/USD",
-      "EUR/GBP",
-      "EUR/JPY",
-      "GBP/JPY",
-      "AUD/JPY",
-      "EUR/AUD",
-      "EUR/CAD",
-      "EUR/CHF",
-      "XAU/USD",
-      "XAG/USD",
-      "XPT/USD",
-      "XPD/USD"
-    ];
-    CRYPTO_PAIRS = [
-      "BTC/USD",
-      "ETH/USD",
-      "XRP/USD",
-      "LTC/USD",
-      "ADA/USD",
-      "DOT/USD",
-      "DOGE/USD",
-      "SOL/USD",
-      "AVAX/USD",
-      "MATIC/USD"
-    ];
-    FUTURES_TD_SYMBOL_MAP = {
-      NQ: "NQ1!:CME",
-      MNQ: "MNQ1!:CME",
-      ES: "ES1!:CME",
-      MES: "MES1!:CME",
-      YM: "YM1!:CBOT",
-      MYM: "MYM1!:CBOT",
-      RTY: "RTY1!:CME",
-      M2K: "M2K1!:CME",
-      GC: "GC1!:COMEX",
-      MGC: "MGC1!:COMEX",
-      SI: "SI1!:COMEX",
-      SIL: "SIL1!:COMEX",
-      CL: "CL1!:NYMEX",
-      MCL: "MCL1!:NYMEX",
-      NG: "NG1!:NYMEX",
-      ZN: "ZN1!:CBOT",
-      ZB: "ZB1!:CBOT"
-    };
-    INDEX_TD_SYMBOL_MAP = {
-      US30: "DJI",
-      // Dow Jones Industrial Average
-      US500: "SPX",
-      // S&P 500
-      US100: "NDX",
-      // Nasdaq 100
-      UK100: "FTSE",
-      // FTSE 100
-      GER40: "DAX",
-      // DAX 40
-      DE40: "DAX",
-      FRA40: "CAC40",
-      // CAC 40
-      JP225: "N225",
-      // Nikkei 225
-      JPN225: "N225",
-      AU200: "AS51",
-      // ASX 200
-      HK50: "HSI"
-      // Hang Seng
-    };
-    VALID_TD_INDEX_SYMBOLS = new Set(Object.values(INDEX_TD_SYMBOL_MAP));
-    INDEX_ALIAS_MAP = {
-      WS30: "US30",
-      DJIA: "US30",
-      DOW: "US30",
-      DOW30: "US30",
-      DOWJONES: "US30",
-      USA30: "US30",
-      CASH30: "US30",
-      DJA: "US30",
-      WALLST30: "US30",
-      WALLSTREET30: "US30",
-      USWALL: "US30",
-      YM: "US30",
-      USTEC: "US100",
-      NASDAQ100: "US100",
-      NDX100: "US100",
-      NASDAQ: "US100",
-      NQ: "US100",
-      QQQ: "US100",
-      NDAQ: "US100",
-      NA100: "US100",
-      NASUSD: "US100",
-      TECH100: "US100",
-      USTECH100: "US100",
-      NASD100: "US100",
-      NAS100: "US100",
-      SPXUSD: "US500",
-      SP500USD: "US500",
-      USINDEX: "US500",
-      SPX500USD: "US500",
-      ES: "US500",
-      SPXC: "US500",
-      SP500C: "US500",
-      SPXUSDM: "US500",
-      SP500: "US500",
-      SPX500: "US500",
-      FTSE100: "UK100",
-      UKX: "UK100",
-      GER30: "GER40",
-      DAX30: "GER40",
-      DAX40: "GER40",
-      NKY: "JP225",
-      NIKKEI: "JP225",
-      N225: "JP225",
-      AUS200: "AU200",
-      ASX: "AU200",
-      ASX200: "AU200",
-      HSI: "HK50"
-    };
-    TwelveDataProvider = class {
-      name = "twelvedata";
-      supportedAssets = ["forex", "stock", "crypto", "index", "futures"];
-      apiKey;
-      constructor(apiKey) {
-        this.apiKey = apiKey;
-        rateLimiter.registerProvider(this.name, {
-          maxRequests: 8,
-          windowMs: 60 * 1e3,
-          retryAfterMs: 8e3
-        });
-      }
-      normalizeSymbol(symbol, assetType) {
-        let normalized = symbol.toUpperCase().replace("_", "/");
-        if (assetType === "futures") {
-          const root = normalized.replace(/1!.*$/, "").replace(/:.*$/, "");
-          return FUTURES_TD_SYMBOL_MAP[root] || `${root}1!:CME`;
-        }
-        if (assetType === "index") {
-          const root = normalized.replace(/1!.*$/, "").replace(/:.*$/, "");
-          if (VALID_TD_INDEX_SYMBOLS.has(root)) return root;
-          if (INDEX_TD_SYMBOL_MAP[root]) return INDEX_TD_SYMBOL_MAP[root];
-          if (INDEX_ALIAS_MAP[root]) return INDEX_TD_SYMBOL_MAP[INDEX_ALIAS_MAP[root]] || INDEX_ALIAS_MAP[root];
-          const stripped = root.replace(/[.#]/g, "").replace(/(CASH|USD|RAW|PRO|ECN|MT5|SB|[MCI])$/, "");
-          const canonical = INDEX_ALIAS_MAP[stripped] || stripped;
-          return INDEX_TD_SYMBOL_MAP[canonical] || canonical;
-        }
-        if (!normalized.includes("/")) {
-          if (assetType === "forex" && normalized.length === 6) {
-            normalized = `${normalized.slice(0, 3)}/${normalized.slice(3)}`;
-          } else if (assetType === "crypto") {
-            const cryptoBases = ["BTC", "ETH", "XRP", "LTC", "ADA", "DOT", "DOGE", "SOL", "AVAX", "MATIC", "BNB", "LINK"];
-            for (const base of cryptoBases) {
-              if (normalized.startsWith(base)) {
-                normalized = `${base}/${normalized.slice(base.length)}`;
-                break;
-              }
-            }
-          }
-        }
-        return normalized;
-      }
-      mapTimeframe(timeframe) {
-        const map = {
-          "1m": "1min",
-          "5m": "5min",
-          "15m": "15min",
-          "30m": "30min",
-          "1h": "1h",
-          "4h": "4h",
-          "1d": "1day",
-          "1w": "1week"
-        };
-        return map[timeframe] || "1h";
-      }
-      isSymbolSupported(symbol, assetType) {
-        const normalized = this.normalizeSymbol(symbol, assetType);
-        if (assetType === "forex") {
-          return FOREX_PAIRS.some((p) => p === normalized || p.replace("/", "") === normalized.replace("/", ""));
-        }
-        if (assetType === "crypto") {
-          return CRYPTO_PAIRS.some((p) => p === normalized || p.replace("/", "") === normalized.replace("/", ""));
-        }
-        return true;
-      }
-      async fetchOHLCV(request) {
-        await rateLimiter.waitForSlot(this.name);
-        const symbol = this.normalizeSymbol(request.symbol, request.assetType);
-        const interval = this.mapTimeframe(request.timeframe);
-        const outputSize = request.limit || 50;
-        const url = new URL(`${TWELVE_DATA_BASE_URL}/time_series`);
-        url.searchParams.set("symbol", symbol);
-        url.searchParams.set("interval", interval);
-        url.searchParams.set("outputsize", outputSize.toString());
-        url.searchParams.set("apikey", this.apiKey);
-        try {
-          rateLimiter.recordRequest(this.name);
-          const response = await fetch(url.toString());
-          if (response.status === 401) {
-            throw new Error("Twelve Data API key is invalid or expired. Please check your TWELVE_DATA_API_KEY in secrets.");
-          }
-          if (response.status === 429) {
-            throw new Error("Twelve Data rate limit exceeded. Free tier: 8 requests/minute. Wait a moment and try again.");
-          }
-          if (!response.ok) {
-            throw new Error(`Twelve Data API error: ${response.status} ${response.statusText}`);
-          }
-          const data = await response.json();
-          if (data.status === "error") {
-            throw new Error(data.message || "Twelve Data API error");
-          }
-          if (!data.values || !Array.isArray(data.values)) {
-            throw new Error("Invalid response from Twelve Data");
-          }
-          return data.values.map((bar) => ({
-            timestamp: new Date(bar.datetime).getTime(),
-            open: parseFloat(bar.open),
-            high: parseFloat(bar.high),
-            low: parseFloat(bar.low),
-            close: parseFloat(bar.close),
-            volume: parseFloat(bar.volume) || 0
-          })).reverse();
-        } catch (error) {
-          console.error(`Twelve Data fetch error for ${symbol}:`, error);
-          throw error;
-        }
-      }
-      async fetchATR(symbol, assetType, timeframe = "1d", period = 14) {
-        await rateLimiter.waitForSlot(this.name);
-        const normalizedSymbol = this.normalizeSymbol(symbol, assetType);
-        const interval = this.mapTimeframe(timeframe);
-        const atrUrl = new URL(`${TWELVE_DATA_BASE_URL}/atr`);
-        atrUrl.searchParams.set("symbol", normalizedSymbol);
-        atrUrl.searchParams.set("interval", interval);
-        atrUrl.searchParams.set("time_period", period.toString());
-        atrUrl.searchParams.set("outputsize", "1");
-        atrUrl.searchParams.set("apikey", this.apiKey);
-        const priceUrl = new URL(`${TWELVE_DATA_BASE_URL}/price`);
-        priceUrl.searchParams.set("symbol", normalizedSymbol);
-        priceUrl.searchParams.set("apikey", this.apiKey);
-        try {
-          rateLimiter.recordRequest(this.name);
-          const [atrResponse, priceResponse] = await Promise.all([
-            fetch(atrUrl.toString()),
-            fetch(priceUrl.toString())
-          ]);
-          if (atrResponse.status === 401 || priceResponse.status === 401) {
-            throw new Error("Twelve Data API key is invalid or expired. Please check your TWELVE_DATA_API_KEY in secrets.");
-          }
-          if (atrResponse.status === 429 || priceResponse.status === 429) {
-            throw new Error("Twelve Data rate limit exceeded. Free tier: 8 requests/minute. Wait a moment and try again.");
-          }
-          if (!atrResponse.ok || !priceResponse.ok) {
-            throw new Error(`Twelve Data API error: ATR ${atrResponse.status}, Price ${priceResponse.status}`);
-          }
-          const atrData = await atrResponse.json();
-          const priceData = await priceResponse.json();
-          if (atrData.status === "error") {
-            throw new Error(atrData.message || "ATR fetch failed");
-          }
-          const atrValue = atrData.values && atrData.values[0] ? parseFloat(atrData.values[0].atr) : 0;
-          const currentPrice = parseFloat(priceData.price) || 0;
-          const atrPercent = currentPrice > 0 ? atrValue / currentPrice * 100 : 0;
-          const suggestedSL = {
-            conservative: atrValue * 2,
-            moderate: atrValue * 1.5,
-            aggressive: atrValue * 1
-          };
-          let suggestedSLPips;
-          if (assetType === "forex") {
-            const isJPYPair = normalizedSymbol.includes("JPY");
-            const pipMultiplier = isJPYPair ? 100 : 1e4;
-            suggestedSLPips = {
-              conservative: Math.round(suggestedSL.conservative * pipMultiplier),
-              moderate: Math.round(suggestedSL.moderate * pipMultiplier),
-              aggressive: Math.round(suggestedSL.aggressive * pipMultiplier)
-            };
-          }
-          return {
-            atr: atrValue,
-            atrPercent,
-            currentPrice,
-            suggestedSL,
-            suggestedSLPips
-          };
-        } catch (error) {
-          console.error(`Twelve Data ATR fetch error for ${symbol}:`, error);
-          throw error;
-        }
-      }
-    };
-  }
-});
-
-// server/market-data/service.ts
-var service_exports = {};
-__export(service_exports, {
-  initializeMarketDataService: () => initializeMarketDataService,
-  marketDataService: () => marketDataService
-});
-import { createHash } from "crypto";
-function initializeMarketDataService() {
-  const twelveDataKey = process.env.TWELVE_DATA_API_KEY;
-  if (twelveDataKey) {
-    const twelveData = new TwelveDataProvider(twelveDataKey);
-    marketDataService.registerProvider(twelveData, true);
-    console.log("Market data service initialized with Twelve Data provider");
-  } else {
-    console.log("Market data service: No TWELVE_DATA_API_KEY found, service not initialized");
-  }
-}
-var MarketDataService, marketDataService;
-var init_service = __esm({
-  "server/market-data/service.ts"() {
-    "use strict";
-    init_cache();
-    init_pattern_change_detector();
-    init_twelve_data();
-    MarketDataService = class {
-      providers = /* @__PURE__ */ new Map();
-      primaryProvider = null;
-      registerProvider(provider, isPrimary = false) {
-        this.providers.set(provider.name, provider);
-        if (isPrimary || !this.primaryProvider) {
-          this.primaryProvider = provider;
-        }
-      }
-      getProvider(name) {
-        return this.providers.get(name);
-      }
-      selectProvider(assetType) {
-        const values = Array.from(this.providers.values());
-        for (const provider of values) {
-          if (provider.supportedAssets.includes(assetType)) {
-            return provider;
-          }
-        }
-        return this.primaryProvider;
-      }
-      generateHash(bars) {
-        const data = bars.map((b) => `${b.timestamp}:${b.close}`).join("|");
-        return createHash("md5").update(data).digest("hex");
-      }
-      async fetchMarketData(request) {
-        const provider = this.selectProvider(request.assetType);
-        if (!provider) {
-          throw new Error(`No provider available for asset type: ${request.assetType}`);
-        }
-        const cached = marketDataCache.get(
-          request.symbol,
-          request.timeframe,
-          provider.name
-        );
-        if (cached) {
-          return {
-            bars: cached,
-            provider: provider.name,
-            hash: this.generateHash(cached),
-            fromCache: true
-          };
-        }
-        const bars = await provider.fetchOHLCV(request);
-        const hash = this.generateHash(bars);
-        const ttl = marketDataCache.getTTLForTimeframe(request.timeframe);
-        marketDataCache.set(request.symbol, request.timeframe, provider.name, bars, ttl);
-        return {
-          bars,
-          provider: provider.name,
-          hash,
-          fromCache: false
-        };
-      }
-      async checkForPatternChange(symbol, assetType, timeframe, previousBars) {
-        const result = await this.fetchMarketData({
-          symbol,
-          assetType,
-          timeframe,
-          limit: 50
-        });
-        const patternChange = patternChangeDetector.compareSnapshots(previousBars, result.bars);
-        return {
-          patternChange,
-          newBars: result.bars,
-          hash: result.hash
-        };
-      }
-      detectAssetType(symbol) {
-        const upper = symbol.toUpperCase().replace(/1!$/, "");
-        const futuresSymbols = ["NQ", "MNQ", "ES", "MES", "YM", "MYM", "RTY", "M2K", "GC", "MGC", "SI", "SIL", "CL", "MCL", "NG", "ZN", "ZB"];
-        if (futuresSymbols.includes(upper)) {
-          return "futures";
-        }
-        const metals = ["XAU", "XAG", "XPT", "XPD"];
-        if (metals.some((m) => upper.startsWith(m))) {
-          return "forex";
-        }
-        const forexPairs = ["EUR", "GBP", "USD", "JPY", "CHF", "AUD", "CAD", "NZD"];
-        const forexPattern = forexPairs.some((c) => upper.startsWith(c) || upper.includes(`/${c}`));
-        if (forexPattern && (upper.length === 6 || upper.includes("/"))) {
-          return "forex";
-        }
-        const cryptoSymbols = ["BTC", "ETH", "XRP", "LTC", "ADA", "DOT", "DOGE", "SOL", "AVAX", "MATIC"];
-        if (cryptoSymbols.some((c) => upper.startsWith(c))) {
-          return "crypto";
-        }
-        const indices = [
-          "SPX",
-          "NDX",
-          "DJI",
-          "VIX",
-          "FTSE",
-          "DAX",
-          "NI225",
-          "US30",
-          "US500",
-          "US100",
-          "UK100",
-          "GER40",
-          "DE40",
-          "FRA40",
-          "JP225",
-          "JPN225",
-          "AU200",
-          "HK50"
-        ];
-        if (indices.some((i) => upper.includes(i))) {
-          return "index";
-        }
-        return "stock";
-      }
-      isInitialized() {
-        return this.providers.size > 0;
-      }
-    };
-    marketDataService = new MarketDataService();
-  }
-});
-
 // server/indicators.ts
 var indicators_exports = {};
 __export(indicators_exports, {
@@ -21460,6 +20875,669 @@ function computeAllAdvancedIndicators(candles, currentATR, symbol, timeframe = "
 var init_indicators = __esm({
   "server/indicators.ts"() {
     "use strict";
+  }
+});
+
+// server/utils/pair-key.ts
+var pair_key_exports = {};
+__export(pair_key_exports, {
+  basePairKey: () => basePairKey,
+  lookupPairKnowledge: () => lookupPairKnowledge
+});
+function basePairKey(symbol) {
+  return String(symbol ?? "").split(".")[0].toUpperCase().replace(/[^A-Z0-9]/g, "");
+}
+function lookupPairKnowledge(pairKnowledge, symbol) {
+  if (!pairKnowledge || !symbol) return void 0;
+  const direct = pairKnowledge[symbol];
+  if (direct) return direct;
+  const want = basePairKey(symbol);
+  if (!want) return void 0;
+  for (const k of Object.keys(pairKnowledge)) {
+    if (basePairKey(k) === want) return pairKnowledge[k];
+  }
+  return void 0;
+}
+var init_pair_key = __esm({
+  "server/utils/pair-key.ts"() {
+    "use strict";
+  }
+});
+
+// server/market-data/cache.ts
+var MarketDataCache, marketDataCache;
+var init_cache = __esm({
+  "server/market-data/cache.ts"() {
+    "use strict";
+    MarketDataCache = class {
+      cache = /* @__PURE__ */ new Map();
+      generateKey(symbol, timeframe, provider) {
+        return `${symbol}:${timeframe}:${provider}`;
+      }
+      get(symbol, timeframe, provider) {
+        const key = this.generateKey(symbol, timeframe, provider);
+        const entry = this.cache.get(key);
+        if (!entry) return null;
+        const now = Date.now();
+        if (now - entry.timestamp > entry.ttlMs) {
+          this.cache.delete(key);
+          return null;
+        }
+        return entry.data;
+      }
+      set(symbol, timeframe, provider, data, ttlMs) {
+        const key = this.generateKey(symbol, timeframe, provider);
+        this.cache.set(key, {
+          data,
+          timestamp: Date.now(),
+          ttlMs
+        });
+      }
+      invalidate(symbol, timeframe, provider) {
+        const key = this.generateKey(symbol, timeframe, provider);
+        this.cache.delete(key);
+      }
+      clear() {
+        this.cache.clear();
+      }
+      getTTLForTimeframe(timeframe) {
+        const ttlMap = {
+          "1m": 30 * 1e3,
+          "5m": 2 * 60 * 1e3,
+          "15m": 5 * 60 * 1e3,
+          "30m": 10 * 60 * 1e3,
+          "1h": 15 * 60 * 1e3,
+          "4h": 30 * 60 * 1e3,
+          "1d": 60 * 60 * 1e3,
+          "1w": 4 * 60 * 60 * 1e3
+        };
+        return ttlMap[timeframe] || 5 * 60 * 1e3;
+      }
+    };
+    marketDataCache = new MarketDataCache();
+  }
+});
+
+// server/market-data/pattern-change-detector.ts
+var PatternChangeDetector, patternChangeDetector;
+var init_pattern_change_detector = __esm({
+  "server/market-data/pattern-change-detector.ts"() {
+    "use strict";
+    PatternChangeDetector = class {
+      calculateATR(bars, period = 14) {
+        if (bars.length < period + 1) return 0;
+        const trueRanges = [];
+        for (let i = 1; i < bars.length && i <= period; i++) {
+          const high = bars[i].high;
+          const low = bars[i].low;
+          const prevClose = bars[i - 1].close;
+          const tr = Math.max(
+            high - low,
+            Math.abs(high - prevClose),
+            Math.abs(low - prevClose)
+          );
+          trueRanges.push(tr);
+        }
+        return trueRanges.reduce((a, b) => a + b, 0) / trueRanges.length;
+      }
+      calculateVolatility(bars) {
+        if (bars.length < 2) return 0;
+        const returns = [];
+        for (let i = 1; i < bars.length; i++) {
+          const ret = (bars[i].close - bars[i - 1].close) / bars[i - 1].close;
+          returns.push(ret);
+        }
+        const mean = returns.reduce((a, b) => a + b, 0) / returns.length;
+        const variance = returns.reduce((sum, r) => sum + Math.pow(r - mean, 2), 0) / returns.length;
+        return Math.sqrt(variance) * 100;
+      }
+      detectTrendDirection(bars) {
+        if (bars.length < 5) return "sideways";
+        const firstHalf = bars.slice(0, Math.floor(bars.length / 2));
+        const secondHalf = bars.slice(Math.floor(bars.length / 2));
+        const firstAvg = firstHalf.reduce((sum, b) => sum + b.close, 0) / firstHalf.length;
+        const secondAvg = secondHalf.reduce((sum, b) => sum + b.close, 0) / secondHalf.length;
+        const changePercent = (secondAvg - firstAvg) / firstAvg * 100;
+        if (changePercent > 0.5) return "up";
+        if (changePercent < -0.5) return "down";
+        return "sideways";
+      }
+      compareSnapshots(oldBars, newBars, thresholds = { volatility: 30, atr: 20, price: 2 }) {
+        const oldVolatility = this.calculateVolatility(oldBars);
+        const newVolatility = this.calculateVolatility(newBars);
+        const volatilityDelta = Math.abs((newVolatility - oldVolatility) / (oldVolatility || 1) * 100);
+        const oldATR = this.calculateATR(oldBars);
+        const newATR = this.calculateATR(newBars);
+        const atrChange = Math.abs((newATR - oldATR) / (oldATR || 1) * 100);
+        const oldLastPrice = oldBars[oldBars.length - 1]?.close || 0;
+        const newLastPrice = newBars[newBars.length - 1]?.close || 0;
+        const priceChangePercent = Math.abs((newLastPrice - oldLastPrice) / (oldLastPrice || 1) * 100);
+        const oldTrend = this.detectTrendDirection(oldBars);
+        const newTrend = this.detectTrendDirection(newBars);
+        const trendReversal = oldTrend !== newTrend && oldTrend !== "sideways" && newTrend !== "sideways";
+        const hasSignificantChange = volatilityDelta > thresholds.volatility || atrChange > thresholds.atr || priceChangePercent > thresholds.price || trendReversal;
+        const details = [];
+        if (volatilityDelta > thresholds.volatility) {
+          details.push(`Volatility changed by ${volatilityDelta.toFixed(1)}%`);
+        }
+        if (atrChange > thresholds.atr) {
+          details.push(`ATR changed by ${atrChange.toFixed(1)}%`);
+        }
+        if (priceChangePercent > thresholds.price) {
+          details.push(`Price moved ${priceChangePercent.toFixed(2)}%`);
+        }
+        if (trendReversal) {
+          details.push(`Trend reversed from ${oldTrend} to ${newTrend}`);
+        }
+        return {
+          hasSignificantChange,
+          volatilityDelta,
+          atrChange,
+          priceChangePercent,
+          trendReversal,
+          details: details.join("; ") || "No significant changes detected"
+        };
+      }
+    };
+    patternChangeDetector = new PatternChangeDetector();
+  }
+});
+
+// server/market-data/rate-limiter.ts
+var RateLimiter, rateLimiter;
+var init_rate_limiter = __esm({
+  "server/market-data/rate-limiter.ts"() {
+    "use strict";
+    RateLimiter = class {
+      requests = /* @__PURE__ */ new Map();
+      configs = /* @__PURE__ */ new Map();
+      registerProvider(provider, config) {
+        this.configs.set(provider, config);
+        this.requests.set(provider, []);
+      }
+      async checkLimit(provider) {
+        const config = this.configs.get(provider);
+        if (!config) return true;
+        const timestamps = this.requests.get(provider) || [];
+        const now = Date.now();
+        const validTimestamps = timestamps.filter((t) => now - t < config.windowMs);
+        this.requests.set(provider, validTimestamps);
+        return validTimestamps.length < config.maxRequests;
+      }
+      recordRequest(provider) {
+        const timestamps = this.requests.get(provider) || [];
+        timestamps.push(Date.now());
+        this.requests.set(provider, timestamps);
+      }
+      async waitForSlot(provider) {
+        const config = this.configs.get(provider);
+        if (!config) return;
+        while (!await this.checkLimit(provider)) {
+          await new Promise((resolve) => setTimeout(resolve, config.retryAfterMs));
+        }
+      }
+      getRemainingRequests(provider) {
+        const config = this.configs.get(provider);
+        if (!config) return Infinity;
+        const timestamps = this.requests.get(provider) || [];
+        const now = Date.now();
+        const validTimestamps = timestamps.filter((t) => now - t < config.windowMs);
+        return Math.max(0, config.maxRequests - validTimestamps.length);
+      }
+    };
+    rateLimiter = new RateLimiter();
+  }
+});
+
+// server/market-data/providers/twelve-data.ts
+var twelve_data_exports = {};
+__export(twelve_data_exports, {
+  TwelveDataProvider: () => TwelveDataProvider
+});
+var TWELVE_DATA_BASE_URL, FOREX_PAIRS, CRYPTO_PAIRS, FUTURES_TD_SYMBOL_MAP, INDEX_TD_SYMBOL_MAP, VALID_TD_INDEX_SYMBOLS, INDEX_ALIAS_MAP, TwelveDataProvider;
+var init_twelve_data = __esm({
+  "server/market-data/providers/twelve-data.ts"() {
+    "use strict";
+    init_rate_limiter();
+    TWELVE_DATA_BASE_URL = "https://api.twelvedata.com";
+    FOREX_PAIRS = [
+      "EUR/USD",
+      "GBP/USD",
+      "USD/JPY",
+      "USD/CHF",
+      "AUD/USD",
+      "USD/CAD",
+      "NZD/USD",
+      "EUR/GBP",
+      "EUR/JPY",
+      "GBP/JPY",
+      "AUD/JPY",
+      "EUR/AUD",
+      "EUR/CAD",
+      "EUR/CHF",
+      "XAU/USD",
+      "XAG/USD",
+      "XPT/USD",
+      "XPD/USD"
+    ];
+    CRYPTO_PAIRS = [
+      "BTC/USD",
+      "ETH/USD",
+      "XRP/USD",
+      "LTC/USD",
+      "ADA/USD",
+      "DOT/USD",
+      "DOGE/USD",
+      "SOL/USD",
+      "AVAX/USD",
+      "MATIC/USD"
+    ];
+    FUTURES_TD_SYMBOL_MAP = {
+      NQ: "NQ1!:CME",
+      MNQ: "MNQ1!:CME",
+      ES: "ES1!:CME",
+      MES: "MES1!:CME",
+      YM: "YM1!:CBOT",
+      MYM: "MYM1!:CBOT",
+      RTY: "RTY1!:CME",
+      M2K: "M2K1!:CME",
+      GC: "GC1!:COMEX",
+      MGC: "MGC1!:COMEX",
+      SI: "SI1!:COMEX",
+      SIL: "SIL1!:COMEX",
+      CL: "CL1!:NYMEX",
+      MCL: "MCL1!:NYMEX",
+      NG: "NG1!:NYMEX",
+      ZN: "ZN1!:CBOT",
+      ZB: "ZB1!:CBOT"
+    };
+    INDEX_TD_SYMBOL_MAP = {
+      US30: "DJI",
+      // Dow Jones Industrial Average
+      US500: "SPX",
+      // S&P 500
+      US100: "NDX",
+      // Nasdaq 100
+      UK100: "FTSE",
+      // FTSE 100
+      GER40: "DAX",
+      // DAX 40
+      DE40: "DAX",
+      FRA40: "CAC40",
+      // CAC 40
+      JP225: "N225",
+      // Nikkei 225
+      JPN225: "N225",
+      AU200: "AS51",
+      // ASX 200
+      HK50: "HSI"
+      // Hang Seng
+    };
+    VALID_TD_INDEX_SYMBOLS = new Set(Object.values(INDEX_TD_SYMBOL_MAP));
+    INDEX_ALIAS_MAP = {
+      WS30: "US30",
+      DJIA: "US30",
+      DOW: "US30",
+      DOW30: "US30",
+      DOWJONES: "US30",
+      USA30: "US30",
+      CASH30: "US30",
+      DJA: "US30",
+      WALLST30: "US30",
+      WALLSTREET30: "US30",
+      USWALL: "US30",
+      YM: "US30",
+      USTEC: "US100",
+      NASDAQ100: "US100",
+      NDX100: "US100",
+      NASDAQ: "US100",
+      NQ: "US100",
+      QQQ: "US100",
+      NDAQ: "US100",
+      NA100: "US100",
+      NASUSD: "US100",
+      TECH100: "US100",
+      USTECH100: "US100",
+      NASD100: "US100",
+      NAS100: "US100",
+      SPXUSD: "US500",
+      SP500USD: "US500",
+      USINDEX: "US500",
+      SPX500USD: "US500",
+      ES: "US500",
+      SPXC: "US500",
+      SP500C: "US500",
+      SPXUSDM: "US500",
+      SP500: "US500",
+      SPX500: "US500",
+      FTSE100: "UK100",
+      UKX: "UK100",
+      GER30: "GER40",
+      DAX30: "GER40",
+      DAX40: "GER40",
+      NKY: "JP225",
+      NIKKEI: "JP225",
+      N225: "JP225",
+      AUS200: "AU200",
+      ASX: "AU200",
+      ASX200: "AU200",
+      HSI: "HK50"
+    };
+    TwelveDataProvider = class {
+      name = "twelvedata";
+      supportedAssets = ["forex", "stock", "crypto", "index", "futures"];
+      apiKey;
+      constructor(apiKey) {
+        this.apiKey = apiKey;
+        rateLimiter.registerProvider(this.name, {
+          maxRequests: 8,
+          windowMs: 60 * 1e3,
+          retryAfterMs: 8e3
+        });
+      }
+      normalizeSymbol(symbol, assetType) {
+        let normalized = symbol.toUpperCase().replace("_", "/");
+        if (assetType === "futures") {
+          const root = normalized.replace(/1!.*$/, "").replace(/:.*$/, "");
+          return FUTURES_TD_SYMBOL_MAP[root] || `${root}1!:CME`;
+        }
+        if (assetType === "index") {
+          const root = normalized.replace(/1!.*$/, "").replace(/:.*$/, "");
+          if (VALID_TD_INDEX_SYMBOLS.has(root)) return root;
+          if (INDEX_TD_SYMBOL_MAP[root]) return INDEX_TD_SYMBOL_MAP[root];
+          if (INDEX_ALIAS_MAP[root]) return INDEX_TD_SYMBOL_MAP[INDEX_ALIAS_MAP[root]] || INDEX_ALIAS_MAP[root];
+          const stripped = root.replace(/[.#]/g, "").replace(/(CASH|USD|RAW|PRO|ECN|MT5|SB|[MCI])$/, "");
+          const canonical = INDEX_ALIAS_MAP[stripped] || stripped;
+          return INDEX_TD_SYMBOL_MAP[canonical] || canonical;
+        }
+        if (!normalized.includes("/")) {
+          if (assetType === "forex" && normalized.length === 6) {
+            normalized = `${normalized.slice(0, 3)}/${normalized.slice(3)}`;
+          } else if (assetType === "crypto") {
+            const cryptoBases = ["BTC", "ETH", "XRP", "LTC", "ADA", "DOT", "DOGE", "SOL", "AVAX", "MATIC", "BNB", "LINK"];
+            for (const base of cryptoBases) {
+              if (normalized.startsWith(base)) {
+                normalized = `${base}/${normalized.slice(base.length)}`;
+                break;
+              }
+            }
+          }
+        }
+        return normalized;
+      }
+      mapTimeframe(timeframe) {
+        const map = {
+          "1m": "1min",
+          "5m": "5min",
+          "15m": "15min",
+          "30m": "30min",
+          "1h": "1h",
+          "4h": "4h",
+          "1d": "1day",
+          "1w": "1week"
+        };
+        return map[timeframe] || "1h";
+      }
+      isSymbolSupported(symbol, assetType) {
+        const normalized = this.normalizeSymbol(symbol, assetType);
+        if (assetType === "forex") {
+          return FOREX_PAIRS.some((p) => p === normalized || p.replace("/", "") === normalized.replace("/", ""));
+        }
+        if (assetType === "crypto") {
+          return CRYPTO_PAIRS.some((p) => p === normalized || p.replace("/", "") === normalized.replace("/", ""));
+        }
+        return true;
+      }
+      async fetchOHLCV(request) {
+        await rateLimiter.waitForSlot(this.name);
+        const symbol = this.normalizeSymbol(request.symbol, request.assetType);
+        const interval = this.mapTimeframe(request.timeframe);
+        const outputSize = request.limit || 50;
+        const url = new URL(`${TWELVE_DATA_BASE_URL}/time_series`);
+        url.searchParams.set("symbol", symbol);
+        url.searchParams.set("interval", interval);
+        url.searchParams.set("outputsize", outputSize.toString());
+        url.searchParams.set("apikey", this.apiKey);
+        try {
+          rateLimiter.recordRequest(this.name);
+          const response = await fetch(url.toString());
+          if (response.status === 401) {
+            throw new Error("Twelve Data API key is invalid or expired. Please check your TWELVE_DATA_API_KEY in secrets.");
+          }
+          if (response.status === 429) {
+            throw new Error("Twelve Data rate limit exceeded. Free tier: 8 requests/minute. Wait a moment and try again.");
+          }
+          if (!response.ok) {
+            throw new Error(`Twelve Data API error: ${response.status} ${response.statusText}`);
+          }
+          const data = await response.json();
+          if (data.status === "error") {
+            throw new Error(data.message || "Twelve Data API error");
+          }
+          if (!data.values || !Array.isArray(data.values)) {
+            throw new Error("Invalid response from Twelve Data");
+          }
+          return data.values.map((bar) => ({
+            timestamp: new Date(bar.datetime).getTime(),
+            open: parseFloat(bar.open),
+            high: parseFloat(bar.high),
+            low: parseFloat(bar.low),
+            close: parseFloat(bar.close),
+            volume: parseFloat(bar.volume) || 0
+          })).reverse();
+        } catch (error) {
+          console.error(`Twelve Data fetch error for ${symbol}:`, error);
+          throw error;
+        }
+      }
+      async fetchATR(symbol, assetType, timeframe = "1d", period = 14) {
+        await rateLimiter.waitForSlot(this.name);
+        const normalizedSymbol = this.normalizeSymbol(symbol, assetType);
+        const interval = this.mapTimeframe(timeframe);
+        const atrUrl = new URL(`${TWELVE_DATA_BASE_URL}/atr`);
+        atrUrl.searchParams.set("symbol", normalizedSymbol);
+        atrUrl.searchParams.set("interval", interval);
+        atrUrl.searchParams.set("time_period", period.toString());
+        atrUrl.searchParams.set("outputsize", "1");
+        atrUrl.searchParams.set("apikey", this.apiKey);
+        const priceUrl = new URL(`${TWELVE_DATA_BASE_URL}/price`);
+        priceUrl.searchParams.set("symbol", normalizedSymbol);
+        priceUrl.searchParams.set("apikey", this.apiKey);
+        try {
+          rateLimiter.recordRequest(this.name);
+          const [atrResponse, priceResponse] = await Promise.all([
+            fetch(atrUrl.toString()),
+            fetch(priceUrl.toString())
+          ]);
+          if (atrResponse.status === 401 || priceResponse.status === 401) {
+            throw new Error("Twelve Data API key is invalid or expired. Please check your TWELVE_DATA_API_KEY in secrets.");
+          }
+          if (atrResponse.status === 429 || priceResponse.status === 429) {
+            throw new Error("Twelve Data rate limit exceeded. Free tier: 8 requests/minute. Wait a moment and try again.");
+          }
+          if (!atrResponse.ok || !priceResponse.ok) {
+            throw new Error(`Twelve Data API error: ATR ${atrResponse.status}, Price ${priceResponse.status}`);
+          }
+          const atrData = await atrResponse.json();
+          const priceData = await priceResponse.json();
+          if (atrData.status === "error") {
+            throw new Error(atrData.message || "ATR fetch failed");
+          }
+          const atrValue = atrData.values && atrData.values[0] ? parseFloat(atrData.values[0].atr) : 0;
+          const currentPrice = parseFloat(priceData.price) || 0;
+          const atrPercent = currentPrice > 0 ? atrValue / currentPrice * 100 : 0;
+          const suggestedSL = {
+            conservative: atrValue * 2,
+            moderate: atrValue * 1.5,
+            aggressive: atrValue * 1
+          };
+          let suggestedSLPips;
+          if (assetType === "forex") {
+            const isJPYPair = normalizedSymbol.includes("JPY");
+            const pipMultiplier = isJPYPair ? 100 : 1e4;
+            suggestedSLPips = {
+              conservative: Math.round(suggestedSL.conservative * pipMultiplier),
+              moderate: Math.round(suggestedSL.moderate * pipMultiplier),
+              aggressive: Math.round(suggestedSL.aggressive * pipMultiplier)
+            };
+          }
+          return {
+            atr: atrValue,
+            atrPercent,
+            currentPrice,
+            suggestedSL,
+            suggestedSLPips
+          };
+        } catch (error) {
+          console.error(`Twelve Data ATR fetch error for ${symbol}:`, error);
+          throw error;
+        }
+      }
+    };
+  }
+});
+
+// server/market-data/service.ts
+var service_exports = {};
+__export(service_exports, {
+  initializeMarketDataService: () => initializeMarketDataService,
+  marketDataService: () => marketDataService
+});
+import { createHash } from "crypto";
+function initializeMarketDataService() {
+  const twelveDataKey = process.env.TWELVE_DATA_API_KEY;
+  if (twelveDataKey) {
+    const twelveData = new TwelveDataProvider(twelveDataKey);
+    marketDataService.registerProvider(twelveData, true);
+    console.log("Market data service initialized with Twelve Data provider");
+  } else {
+    console.log("Market data service: No TWELVE_DATA_API_KEY found, service not initialized");
+  }
+}
+var MarketDataService, marketDataService;
+var init_service = __esm({
+  "server/market-data/service.ts"() {
+    "use strict";
+    init_cache();
+    init_pattern_change_detector();
+    init_twelve_data();
+    MarketDataService = class {
+      providers = /* @__PURE__ */ new Map();
+      primaryProvider = null;
+      registerProvider(provider, isPrimary = false) {
+        this.providers.set(provider.name, provider);
+        if (isPrimary || !this.primaryProvider) {
+          this.primaryProvider = provider;
+        }
+      }
+      getProvider(name) {
+        return this.providers.get(name);
+      }
+      selectProvider(assetType) {
+        const values = Array.from(this.providers.values());
+        for (const provider of values) {
+          if (provider.supportedAssets.includes(assetType)) {
+            return provider;
+          }
+        }
+        return this.primaryProvider;
+      }
+      generateHash(bars) {
+        const data = bars.map((b) => `${b.timestamp}:${b.close}`).join("|");
+        return createHash("md5").update(data).digest("hex");
+      }
+      async fetchMarketData(request) {
+        const provider = this.selectProvider(request.assetType);
+        if (!provider) {
+          throw new Error(`No provider available for asset type: ${request.assetType}`);
+        }
+        const cached = marketDataCache.get(
+          request.symbol,
+          request.timeframe,
+          provider.name
+        );
+        if (cached) {
+          return {
+            bars: cached,
+            provider: provider.name,
+            hash: this.generateHash(cached),
+            fromCache: true
+          };
+        }
+        const bars = await provider.fetchOHLCV(request);
+        const hash = this.generateHash(bars);
+        const ttl = marketDataCache.getTTLForTimeframe(request.timeframe);
+        marketDataCache.set(request.symbol, request.timeframe, provider.name, bars, ttl);
+        return {
+          bars,
+          provider: provider.name,
+          hash,
+          fromCache: false
+        };
+      }
+      async checkForPatternChange(symbol, assetType, timeframe, previousBars) {
+        const result = await this.fetchMarketData({
+          symbol,
+          assetType,
+          timeframe,
+          limit: 50
+        });
+        const patternChange = patternChangeDetector.compareSnapshots(previousBars, result.bars);
+        return {
+          patternChange,
+          newBars: result.bars,
+          hash: result.hash
+        };
+      }
+      detectAssetType(symbol) {
+        const upper = symbol.toUpperCase().replace(/1!$/, "");
+        const futuresSymbols = ["NQ", "MNQ", "ES", "MES", "YM", "MYM", "RTY", "M2K", "GC", "MGC", "SI", "SIL", "CL", "MCL", "NG", "ZN", "ZB"];
+        if (futuresSymbols.includes(upper)) {
+          return "futures";
+        }
+        const metals = ["XAU", "XAG", "XPT", "XPD"];
+        if (metals.some((m) => upper.startsWith(m))) {
+          return "forex";
+        }
+        const forexPairs = ["EUR", "GBP", "USD", "JPY", "CHF", "AUD", "CAD", "NZD"];
+        const forexPattern = forexPairs.some((c) => upper.startsWith(c) || upper.includes(`/${c}`));
+        if (forexPattern && (upper.length === 6 || upper.includes("/"))) {
+          return "forex";
+        }
+        const cryptoSymbols = ["BTC", "ETH", "XRP", "LTC", "ADA", "DOT", "DOGE", "SOL", "AVAX", "MATIC"];
+        if (cryptoSymbols.some((c) => upper.startsWith(c))) {
+          return "crypto";
+        }
+        const indices = [
+          "SPX",
+          "NDX",
+          "DJI",
+          "VIX",
+          "FTSE",
+          "DAX",
+          "NI225",
+          "US30",
+          "US500",
+          "US100",
+          "UK100",
+          "GER40",
+          "DE40",
+          "FRA40",
+          "JP225",
+          "JPN225",
+          "AU200",
+          "HK50"
+        ];
+        if (indices.some((i) => upper.includes(i))) {
+          return "index";
+        }
+        return "stock";
+      }
+      isInitialized() {
+        return this.providers.size > 0;
+      }
+    };
+    marketDataService = new MarketDataService();
   }
 });
 
@@ -30001,6 +30079,29 @@ async function _invalidateDailyStop(userId) {
   } catch {
   }
 }
+async function _classifyHoldRegime(conn, symbol, openedAt, closedAt) {
+  if (!openedAt || !(closedAt.getTime() > openedAt.getTime())) return null;
+  try {
+    const holdMinutes = (closedAt.getTime() - openedAt.getTime()) / 6e4;
+    const resolutionMinutes = holdMinutes < 100 ? 5 : holdMinutes < 300 ? 15 : holdMinutes < 1200 ? 30 : 60;
+    const padMs = resolutionMinutes * 60 * 1e3 * 20;
+    const fromTs = Math.floor((openedAt.getTime() - padMs) / 1e3);
+    const toTs = Math.ceil(closedAt.getTime() / 1e3);
+    const svc = await getOrCreateService(conn);
+    const bars = await svc.getCandlesticks(symbol, resolutionMinutes, fromTs, toTs);
+    if (!bars || bars.length < 20) return null;
+    const { calculateADX: calculateADX2 } = await Promise.resolve().then(() => (init_indicators(), indicators_exports));
+    const candles = bars.slice().reverse().map((b) => ({ o: b.o, h: b.h, l: b.l, c: b.c, v: b.v }));
+    const adx = calculateADX2(candles, 14);
+    if (!adx) return null;
+    if (adx.value >= 25) return "trending";
+    if (adx.value < 20) return "ranging";
+    return "volatile";
+  } catch (e) {
+    console.warn(`[FxBrain] hold-regime classification skipped for ${symbol} (${e?.message}) \u2014 recording outcome without it.`);
+    return null;
+  }
+}
 async function _recordFxBrainOutcome(userId, conn, existing, match, result, profit) {
   try {
     const { pool: pool2 } = await Promise.resolve().then(() => (init_db(), db_exports));
@@ -30040,6 +30141,7 @@ async function _recordFxBrainOutcome(userId, conn, existing, match, result, prof
     const hour = closedAt.getUTCHours();
     const { canonSession: canonSession2 } = await Promise.resolve().then(() => (init_session(), session_exports));
     const session3 = canonSession2(f.session, hour) ?? canonSession2(null, hour);
+    const holdRegime = await _classifyHoldRegime(conn, symbol, openedAt, closedAt);
     await pool2.query(
       `INSERT INTO fx_brain_outcomes
         (user_id, symbol, direction, timeframe, hour_utc, session, day_of_week,
@@ -30047,8 +30149,8 @@ async function _recordFxBrainOutcome(userId, conn, existing, match, result, prof
          smc_verdict, ict_macro_valid, htf_aligned, ea_confidence, ai_confidence,
          entry_price, exit_price, stop_loss, take_profit, planned_rr, realised_rr,
          result, profit_loss, holding_minutes, connection_id, account_id, ticket, closed_at,
-         mae_pnl, mfe_pnl, minutes_to_mae, minutes_to_mfe)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25,$26,$27,$28,$29,$30,$31,$32,$33,$34)
+         mae_pnl, mfe_pnl, minutes_to_mae, minutes_to_mfe, hold_regime)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25,$26,$27,$28,$29,$30,$31,$32,$33,$34,$35)
        ON CONFLICT (user_id, ticket) WHERE ticket IS NOT NULL DO NOTHING`,
       [
         userId,
@@ -30084,7 +30186,8 @@ async function _recordFxBrainOutcome(userId, conn, existing, match, result, prof
         Number.isFinite(maePnl) ? maePnl : null,
         Number.isFinite(mfePnl) ? mfePnl : null,
         existing.maeAt && openedAt ? Math.max(0, Math.round((new Date(existing.maeAt).getTime() - openedAt.getTime()) / 6e4)) : null,
-        existing.mfeAt && openedAt ? Math.max(0, Math.round((new Date(existing.mfeAt).getTime() - openedAt.getTime()) / 6e4)) : null
+        existing.mfeAt && openedAt ? Math.max(0, Math.round((new Date(existing.mfeAt).getTime() - openedAt.getTime()) / 6e4)) : null,
+        holdRegime
       ]
     );
     console.log(`[FxBrain] recorded ${symbol} ${direction} ${result} ${profit >= 0 ? "+" : ""}${profit.toFixed(2)}` + (f.adx_value != null ? ` (adx ${Number(f.adx_value).toFixed(1)}, grade ${f.confluence_grade ?? "n/a"})` : " (setup unknown)"));
@@ -53520,6 +53623,26 @@ CREATE INDEX IF NOT EXISTS "idx_fx_brain_closed" ON "fx_brain_outcomes" ("closed
 -- One row per closed position: the sync is a poller and re-reads the same close
 -- on overlapping cycles, so without this a single trade would be learned twice.
 CREATE UNIQUE INDEX IF NOT EXISTS "uq_fx_brain_ticket" ON "fx_brain_outcomes" ("user_id", "ticket") WHERE "ticket" IS NOT NULL;
+
+-- HOLD-PERIOD REGIME: 'trending' | 'ranging' | 'volatile', classified AFTER
+-- close from the real candles spanning entry->close (see _classifyHoldRegime
+-- in tradelocker-sync.ts). Everything else on this row is an ENTRY snapshot \u2014
+-- adx_value/rsi_value/confluence_grade all describe the moment the trade
+-- opened, and say nothing about what the market did for the rest of the hold.
+-- This is deliberately a single classification, not the full candle series:
+-- storing per-trade OHLC history here would multiply this table's size by
+-- however many bars an average hold spans, on a table that already has to
+-- carry every other engine's learning load. NULL on any row where the entry
+-- time was unknown (the recon-path branch has no createdAt) or the broker's
+-- candle history was unavailable for that exact window \u2014 same fail-open
+-- philosophy as the rest of this table; a stats query must never block a
+-- learning write.
+--
+-- CREATE TABLE IF NOT EXISTS above does not add a column to a table that
+-- already exists in production (this table has existed since before this
+-- column did), so it needs its own ALTER \u2014 same pattern as
+-- ensure-cryptocom-engine-tables.ts.
+ALTER TABLE "fx_brain_outcomes" ADD COLUMN IF NOT EXISTS "hold_regime" text;
 `;
   }
 });
@@ -56636,9 +56759,9 @@ async function getStopOrdersForUser(userId, filters = {}) {
 init_schema();
 
 // server/build-info.ts
-var BUILD_COMMIT = "a4893454-dirty";
+var BUILD_COMMIT = "b2d077fa-dirty";
 var BUILD_BRANCH = "main";
-var BUILT_AT = "2026-09-28T05:16:55.058Z";
+var BUILT_AT = "2026-09-28T05:45:27.397Z";
 
 // server/stripe.ts
 init_db();

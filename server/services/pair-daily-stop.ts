@@ -163,6 +163,100 @@ export function invalidatePairDailyStop(userId: number): void {
   cache.delete(userId);
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+// Historical day-stop picture, for the brain's "does this pair get day-stopped
+// on a particular weekday, repeatedly?" correlation.
+//
+// DELIBERATELY DERIVED, NOT LOGGED. The obvious design is a new
+// pair_daily_stop_log table, written the moment pairDailyStopVerdict first
+// flips a pair to stopped:true for the day. That needs its own transition
+// detector, because this function is called from a hot loop across several
+// live paths (the relay gate and sniper gate in routes.ts, the autoexec path
+// in live-trading-engine.ts's decision loop, plus the engine's own decision
+// path a few lines below) many times per minute per symbol — logging on every
+// call would flood a table with duplicate rows for one real stop, so "first
+// time today" would need its own new in-memory-plus-DB dedup layer just to
+// keep the log honest. That is a second stateful system built to protect a
+// third one from itself.
+//
+// Every close that would have triggered today's stop is ALREADY a durable row
+// in ai_trade_results (this file already reads it in compute() above), so this
+// re-derives the same picture for past days instead: group those closes by
+// calendar day, collapse fan-out fills into signals with the SAME grouping
+// window compute() uses, and apply the SAME losing-signal threshold. One
+// query, no schema change, and it cannot drift from what pairDailyStopVerdict
+// actually does today because it is the identical rule run over older dates.
+// ─────────────────────────────────────────────────────────────────────────────
+
+export interface PairDayStopHistory {
+  dayOfWeek: number;      // 0=Sun..6=Sat (Date#getUTCDay())
+  daysActive: number;     // distinct calendar days this pair had a closed signal
+  daysStopped: number;    // of those, how many would have hit the daily stop
+}
+
+export async function pairDayStopHistory(
+  userId: number, symbol: string, lookbackDays = 180,
+): Promise<PairDayStopHistory[]> {
+  const { pool } = await import('../db');
+  const sym = norm(symbol);
+  if (!sym) return [];
+
+  // Same source table, same exclusions and threshold as compute() — this is
+  // the identical rule, just walked over every past day instead of "today".
+  // closed_at is stored as a naive UTC timestamp (same convention fx-brain.ts's
+  // own query relies on with `closed_at::date AS d`) — casting straight to
+  // ::date here, with no AT TIME ZONE conversion, keeps the calendar day this
+  // function groups by identical to the one the brain already groups by.
+  const { rows } = await pool.query(
+    `SELECT symbol, direction, result, COALESCE(profit_loss, 0) AS pnl, closed_at,
+            closed_at::date AS d
+       FROM ai_trade_results
+      WHERE user_id = $1
+        AND result IN ('WIN','LOSS')
+        AND closed_at IS NOT NULL
+        AND closed_at > now() - ($2 || ' days')::interval
+        AND source NOT IN ('mt5_ea','mt5_copier','kalshi','polymarket')
+      ORDER BY closed_at ASC`,
+    [userId, String(lookbackDays)]
+  );
+
+  const bySym = rows.filter((r: any) => norm(r.symbol) === sym);
+  if (!bySym.length) return [];
+
+  const byDay = new Map<string, any[]>();
+  for (const r of bySym) {
+    const k = String(r.d);
+    if (!byDay.has(k)) byDay.set(k, []);
+    byDay.get(k)!.push(r);
+  }
+
+  const perDow = new Map<number, { active: number; stopped: number }>();
+  for (const [dateStr, list] of Array.from(byDay.entries())) {
+    // Fan-out collapse identical to compute(): list is chronological here, so
+    // walk it the same direction and group same-result/same-direction closes
+    // within GROUP_MS as one signal.
+    const signals: { result: string }[] = [];
+    for (const r of list) {
+      const ts = new Date(r.closed_at).getTime();
+      const dir = String(r.direction ?? '');
+      const prev: any = (signals as any)[signals.length - 1];
+      if (prev && prev.result === r.result && prev.dir === dir && Math.abs(ts - prev.ts) <= GROUP_MS) continue;
+      (signals as any).push({ result: r.result, ts, dir });
+    }
+    const losing = signals.filter((s) => s.result === 'LOSS').length;
+    const stopped = MAX_LOSING_SIGNALS > 0 && losing >= MAX_LOSING_SIGNALS;
+    const dow = new Date(dateStr + 'T00:00:00Z').getUTCDay();
+    const cur = perDow.get(dow) || { active: 0, stopped: 0 };
+    cur.active += 1;
+    if (stopped) cur.stopped += 1;
+    perDow.set(dow, cur);
+  }
+
+  return Array.from(perDow.entries())
+    .map(([dayOfWeek, v]) => ({ dayOfWeek, daysActive: v.active, daysStopped: v.stopped }))
+    .sort((a, b) => a.dayOfWeek - b.dayOfWeek);
+}
+
 /** For /api/health and the dashboard: today's per-pair picture. */
 export async function pairDailyStopTable(userId: number): Promise<{ day: string; limit: number; maxLoss: number; pairs: PairDayStat[] }> {
   let stats: Map<string, PairDayStat>;

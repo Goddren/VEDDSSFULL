@@ -96,6 +96,26 @@ CREATE INDEX IF NOT EXISTS "idx_fx_brain_closed" ON "fx_brain_outcomes" ("closed
 -- One row per closed position: the sync is a poller and re-reads the same close
 -- on overlapping cycles, so without this a single trade would be learned twice.
 CREATE UNIQUE INDEX IF NOT EXISTS "uq_fx_brain_ticket" ON "fx_brain_outcomes" ("user_id", "ticket") WHERE "ticket" IS NOT NULL;
+
+-- HOLD-PERIOD REGIME: 'trending' | 'ranging' | 'volatile', classified AFTER
+-- close from the real candles spanning entry->close (see _classifyHoldRegime
+-- in tradelocker-sync.ts). Everything else on this row is an ENTRY snapshot —
+-- adx_value/rsi_value/confluence_grade all describe the moment the trade
+-- opened, and say nothing about what the market did for the rest of the hold.
+-- This is deliberately a single classification, not the full candle series:
+-- storing per-trade OHLC history here would multiply this table's size by
+-- however many bars an average hold spans, on a table that already has to
+-- carry every other engine's learning load. NULL on any row where the entry
+-- time was unknown (the recon-path branch has no createdAt) or the broker's
+-- candle history was unavailable for that exact window — same fail-open
+-- philosophy as the rest of this table; a stats query must never block a
+-- learning write.
+--
+-- CREATE TABLE IF NOT EXISTS above does not add a column to a table that
+-- already exists in production (this table has existed since before this
+-- column did), so it needs its own ALTER — same pattern as
+-- ensure-cryptocom-engine-tables.ts.
+ALTER TABLE "fx_brain_outcomes" ADD COLUMN IF NOT EXISTS "hold_regime" text;
 `;
 
 export async function ensureFxBrainTable(): Promise<void> {
