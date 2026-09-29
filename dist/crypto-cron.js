@@ -10411,7 +10411,28 @@ async function checkFxBrainHealth(windowHours = 24) {
   const message = stalled ? `FX BRAIN STALLED: ${realClosesInWindow} real TradeLocker close(s) in the last ${windowHours}h, 0 recorded to fx_brain_outcomes. Last successful brain row was ${hoursSinceLastBrainRow ?? "?"}h ago. The gate and AI prompt are running on stale data \u2014 check _recordFxBrainOutcome in tradelocker-sync.ts.` : `FX brain OK \u2014 ${brainRowsInWindow}/${realClosesInWindow} closes recorded in the last ${windowHours}h.`;
   return { stalled, windowHours, realClosesInWindow, brainRowsInWindow, lastBrainRowAt: lastAt?.toISOString() ?? null, hoursSinceLastBrainRow, message };
 }
-async function fxBrainGateVerdict(userId, symbol, direction, hourUtc = (/* @__PURE__ */ new Date()).getUTCHours()) {
+async function _logGateBlock(userId, symbol, direction, dimension, patternValue, reason, source) {
+  try {
+    const { pool: pool2 } = await Promise.resolve().then(() => (init_db(), db_exports));
+    if (!_gateBlockTableReady) {
+      await pool2.query(
+        `CREATE TABLE IF NOT EXISTS fx_brain_gate_blocks (
+           id serial primary key, user_id int, symbol text, direction text,
+           dimension text, pattern_value text, reason text, source text,
+           blocked_at timestamptz default now())`
+      );
+      _gateBlockTableReady = true;
+    }
+    await pool2.query(
+      `INSERT INTO fx_brain_gate_blocks (user_id, symbol, direction, dimension, pattern_value, reason, source)
+       VALUES ($1,$2,$3,$4,$5,$6,$7)`,
+      [userId, symbol, direction, dimension, patternValue, reason.slice(0, 500), source]
+    );
+  } catch (e) {
+    console.error(`[FxBrain] gate-block log failed (non-fatal): ${e?.message}`);
+  }
+}
+async function fxBrainGateVerdict(userId, symbol, direction, hourUtc = (/* @__PURE__ */ new Date()).getUTCHours(), source = "unknown") {
   if (!GATE_ENABLED()) return null;
   try {
     const brains = await getFxBrain(userId);
@@ -10423,10 +10444,10 @@ async function fxBrainGateVerdict(userId, symbol, direction, hourUtc = (/* @__PU
     for (const p of b.fails) {
       const hits = p.dimension === "session" && canonSession(p.value, hourUtc) === session2 || p.dimension === "hour" && p.value === hourLabel || p.dimension === "direction" && p.value.toUpperCase() === dir && p.trades >= GATE_MIN_DIR_TRADES;
       if (!hits) continue;
-      return {
-        blocked: true,
-        reason: `FX brain: ${b.symbol} ${p.value} is ${p.winRate}% WR over ${p.trades} trades across ${p.distinctDays} days (${p.edgeVsPair}pp vs this pair's ${b.winRate}%, net ${p.pnl}) \u2014 a consistently losing condition`
-      };
+      const reason = `FX brain: ${b.symbol} ${p.value} is ${p.winRate}% WR over ${p.trades} trades across ${p.distinctDays} days (${p.edgeVsPair}pp vs this pair's ${b.winRate}%, net ${p.pnl}) \u2014 a consistently losing condition`;
+      _logGateBlock(userId, b.symbol, dir, p.dimension, p.value, reason, source).catch(() => {
+      });
+      return { blocked: true, reason };
     }
     return null;
   } catch (e) {
@@ -10434,7 +10455,7 @@ async function fxBrainGateVerdict(userId, symbol, direction, hourUtc = (/* @__PU
     return null;
   }
 }
-var MIN_TRADES2, MIN_DISTINCT_DAYS, MIN_EDGE_PP, LOOKBACK_DAYS, TTL_MS3, SEP, cache3, DOW_NAMES, DAY_STOP_MIN_DAYS_ACTIVE, DAY_STOP_MIN_RATIO, GATE_ENABLED, GATE_MIN_DIR_TRADES;
+var MIN_TRADES2, MIN_DISTINCT_DAYS, MIN_EDGE_PP, LOOKBACK_DAYS, TTL_MS3, SEP, cache3, DOW_NAMES, DAY_STOP_MIN_DAYS_ACTIVE, DAY_STOP_MIN_RATIO, GATE_ENABLED, GATE_MIN_DIR_TRADES, _gateBlockTableReady;
 var init_fx_brain = __esm({
   "server/services/fx-brain.ts"() {
     "use strict";
@@ -10451,6 +10472,7 @@ var init_fx_brain = __esm({
     DAY_STOP_MIN_RATIO = Number(process.env.FX_BRAIN_DAY_STOP_MIN_RATIO ?? 0.5);
     GATE_ENABLED = () => process.env.FX_BRAIN_GATE_ENABLED !== "false";
     GATE_MIN_DIR_TRADES = Number(process.env.FX_BRAIN_GATE_MIN_DIR_TRADES ?? 20);
+    _gateBlockTableReady = false;
   }
 });
 

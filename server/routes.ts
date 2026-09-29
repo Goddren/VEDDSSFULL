@@ -8196,7 +8196,7 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
         if (!relayBlocked) {
           try {
             const { fxBrainGateVerdict } = await import('./services/fx-brain');
-            const _rfb = await fxBrainGateVerdict(token.userId, symbol, direction);
+            const _rfb = await fxBrainGateVerdict(token.userId, symbol, direction, new Date().getUTCHours(), 'relay_gate');
             if (_rfb) {
               relayBlocked = true;
               console.log(`[Relay Gate] ${_rfb.reason} — relay blocked`);
@@ -10362,7 +10362,7 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
       if (analysis.signal !== 'NEUTRAL') {
         try {
           const { fxBrainGateVerdict } = await import('./services/fx-brain');
-          const _fbVerdict = await fxBrainGateVerdict(token.userId, sanitizedSymbol, analysis.signal);
+          const _fbVerdict = await fxBrainGateVerdict(token.userId, sanitizedSymbol, analysis.signal, new Date().getUTCHours(), 'chart_analysis');
           if (_fbVerdict) {
             console.log(`[FxBrainGate] BLOCKED ${sanitizedSymbol} ${analysis.signal} — ${_fbVerdict.reason}`);
             _diagCap.neutralReason = `fx_brain_gate (${_fbVerdict.reason})`;
@@ -19557,7 +19557,7 @@ Respond with ONLY valid JSON:
               continue;
             }
             const { fxBrainGateVerdict } = await import('./services/fx-brain');
-            const _aeFb = await fxBrainGateVerdict(userId, sig.symbol, sig.direction);
+            const _aeFb = await fxBrainGateVerdict(userId, sig.symbol, sig.direction, new Date().getUTCHours(), 'brain_autoexec');
             if (_aeFb) {
               console.log(`[VEDD Brain AutoExec] BLOCKED ${sig.symbol} — ${_aeFb.reason}`);
               executionResults.push({ sigId, symbol: sig.symbol, direction: sig.direction, status: 'skipped', reason: _aeFb.reason });

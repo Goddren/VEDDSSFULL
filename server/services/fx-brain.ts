@@ -362,11 +362,47 @@ const GATE_ENABLED = () => process.env.FX_BRAIN_GATE_ENABLED !== 'false';
 // half of every trade on the pair, so it drifts with the pair, not with a setup.
 const GATE_MIN_DIR_TRADES = Number(process.env.FX_BRAIN_GATE_MIN_DIR_TRADES ?? 20);
 
+// ─────────────────────────────────────────────────────────────────────────────
+// Durable block log. Before this, a block only ever printed to whichever of
+// the 4 call sites (routes.ts relay/chart-analysis/autoexec, live-trading-
+// engine.ts) happened to fire — console-only or, at best, the live engine's
+// in-memory activityLog (100-entry ring buffer, wiped on every restart/deploy).
+// There was no way to answer "how often has this actually blocked something"
+// after the fact, only "is it blocking something right now, if I'm watching."
+// Same fix as dxtrade_skips (live-trading-engine.ts) for the same shape of gap.
+// ─────────────────────────────────────────────────────────────────────────────
+let _gateBlockTableReady = false;
+async function _logGateBlock(
+  userId: number, symbol: string, direction: string, dimension: string, patternValue: string, reason: string, source: string,
+): Promise<void> {
+  try {
+    const { pool } = await import('../db');
+    if (!_gateBlockTableReady) {
+      await pool.query(
+        `CREATE TABLE IF NOT EXISTS fx_brain_gate_blocks (
+           id serial primary key, user_id int, symbol text, direction text,
+           dimension text, pattern_value text, reason text, source text,
+           blocked_at timestamptz default now())`
+      );
+      _gateBlockTableReady = true;
+    }
+    await pool.query(
+      `INSERT INTO fx_brain_gate_blocks (user_id, symbol, direction, dimension, pattern_value, reason, source)
+       VALUES ($1,$2,$3,$4,$5,$6,$7)`,
+      [userId, symbol, direction, dimension, patternValue, reason.slice(0, 500), source],
+    );
+  } catch (e: any) {
+    // Never let a logging failure affect the gate's own fail-open guarantee.
+    console.error(`[FxBrain] gate-block log failed (non-fatal): ${e?.message}`);
+  }
+}
+
 export async function fxBrainGateVerdict(
   userId: number,
   symbol: string,
   direction: string,
   hourUtc = new Date().getUTCHours(),
+  source = 'unknown',
 ): Promise<{ blocked: true; reason: string } | null> {
   if (!GATE_ENABLED()) return null;
   try {
@@ -385,12 +421,14 @@ export async function fxBrainGateVerdict(
         (p.dimension === 'direction' && p.value.toUpperCase() === dir &&
            p.trades >= GATE_MIN_DIR_TRADES);
       if (!hits) continue;
-      return {
-        blocked: true,
-        reason: `FX brain: ${b.symbol} ${p.value} is ${p.winRate}% WR over ${p.trades} trades ` +
+      const reason = `FX brain: ${b.symbol} ${p.value} is ${p.winRate}% WR over ${p.trades} trades ` +
                 `across ${p.distinctDays} days (${p.edgeVsPair}pp vs this pair's ${b.winRate}%, ` +
-                `net ${p.pnl}) — a consistently losing condition`,
-      };
+                `net ${p.pnl}) — a consistently losing condition`;
+      // Fire-and-forget: the caller must not wait on a log write to get its
+      // trade-blocking verdict, and a slow/failed insert must never turn a
+      // real block into a missed one.
+      _logGateBlock(userId, b.symbol, dir, p.dimension, p.value, reason, source).catch(() => {});
+      return { blocked: true, reason };
     }
     return null;
   } catch (e: any) {

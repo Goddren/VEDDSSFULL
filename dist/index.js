@@ -8492,7 +8492,28 @@ async function checkFxBrainHealth(windowHours = 24) {
   const message = stalled ? `FX BRAIN STALLED: ${realClosesInWindow} real TradeLocker close(s) in the last ${windowHours}h, 0 recorded to fx_brain_outcomes. Last successful brain row was ${hoursSinceLastBrainRow ?? "?"}h ago. The gate and AI prompt are running on stale data \u2014 check _recordFxBrainOutcome in tradelocker-sync.ts.` : `FX brain OK \u2014 ${brainRowsInWindow}/${realClosesInWindow} closes recorded in the last ${windowHours}h.`;
   return { stalled, windowHours, realClosesInWindow, brainRowsInWindow, lastBrainRowAt: lastAt?.toISOString() ?? null, hoursSinceLastBrainRow, message };
 }
-async function fxBrainGateVerdict(userId, symbol, direction, hourUtc = (/* @__PURE__ */ new Date()).getUTCHours()) {
+async function _logGateBlock(userId, symbol, direction, dimension, patternValue, reason, source) {
+  try {
+    const { pool: pool2 } = await Promise.resolve().then(() => (init_db(), db_exports));
+    if (!_gateBlockTableReady) {
+      await pool2.query(
+        `CREATE TABLE IF NOT EXISTS fx_brain_gate_blocks (
+           id serial primary key, user_id int, symbol text, direction text,
+           dimension text, pattern_value text, reason text, source text,
+           blocked_at timestamptz default now())`
+      );
+      _gateBlockTableReady = true;
+    }
+    await pool2.query(
+      `INSERT INTO fx_brain_gate_blocks (user_id, symbol, direction, dimension, pattern_value, reason, source)
+       VALUES ($1,$2,$3,$4,$5,$6,$7)`,
+      [userId, symbol, direction, dimension, patternValue, reason.slice(0, 500), source]
+    );
+  } catch (e) {
+    console.error(`[FxBrain] gate-block log failed (non-fatal): ${e?.message}`);
+  }
+}
+async function fxBrainGateVerdict(userId, symbol, direction, hourUtc = (/* @__PURE__ */ new Date()).getUTCHours(), source = "unknown") {
   if (!GATE_ENABLED()) return null;
   try {
     const brains = await getFxBrain(userId);
@@ -8504,10 +8525,10 @@ async function fxBrainGateVerdict(userId, symbol, direction, hourUtc = (/* @__PU
     for (const p of b.fails) {
       const hits2 = p.dimension === "session" && canonSession(p.value, hourUtc) === session3 || p.dimension === "hour" && p.value === hourLabel || p.dimension === "direction" && p.value.toUpperCase() === dir && p.trades >= GATE_MIN_DIR_TRADES;
       if (!hits2) continue;
-      return {
-        blocked: true,
-        reason: `FX brain: ${b.symbol} ${p.value} is ${p.winRate}% WR over ${p.trades} trades across ${p.distinctDays} days (${p.edgeVsPair}pp vs this pair's ${b.winRate}%, net ${p.pnl}) \u2014 a consistently losing condition`
-      };
+      const reason = `FX brain: ${b.symbol} ${p.value} is ${p.winRate}% WR over ${p.trades} trades across ${p.distinctDays} days (${p.edgeVsPair}pp vs this pair's ${b.winRate}%, net ${p.pnl}) \u2014 a consistently losing condition`;
+      _logGateBlock(userId, b.symbol, dir, p.dimension, p.value, reason, source).catch(() => {
+      });
+      return { blocked: true, reason };
     }
     return null;
   } catch (e) {
@@ -8515,7 +8536,7 @@ async function fxBrainGateVerdict(userId, symbol, direction, hourUtc = (/* @__PU
     return null;
   }
 }
-var MIN_TRADES, MIN_DISTINCT_DAYS, MIN_EDGE_PP, LOOKBACK_DAYS, TTL_MS2, SEP, cache3, DOW_NAMES, DAY_STOP_MIN_DAYS_ACTIVE, DAY_STOP_MIN_RATIO, GATE_ENABLED, GATE_MIN_DIR_TRADES;
+var MIN_TRADES, MIN_DISTINCT_DAYS, MIN_EDGE_PP, LOOKBACK_DAYS, TTL_MS2, SEP, cache3, DOW_NAMES, DAY_STOP_MIN_DAYS_ACTIVE, DAY_STOP_MIN_RATIO, GATE_ENABLED, GATE_MIN_DIR_TRADES, _gateBlockTableReady;
 var init_fx_brain = __esm({
   "server/services/fx-brain.ts"() {
     "use strict";
@@ -8532,6 +8553,7 @@ var init_fx_brain = __esm({
     DAY_STOP_MIN_RATIO = Number(process.env.FX_BRAIN_DAY_STOP_MIN_RATIO ?? 0.5);
     GATE_ENABLED = () => process.env.FX_BRAIN_GATE_ENABLED !== "false";
     GATE_MIN_DIR_TRADES = Number(process.env.FX_BRAIN_GATE_MIN_DIR_TRADES ?? 20);
+    _gateBlockTableReady = false;
   }
 });
 
@@ -28454,7 +28476,7 @@ async function processDecision(userId, decision, newsCtx) {
       }
       try {
         const { fxBrainGateVerdict: fxBrainGateVerdict2 } = await Promise.resolve().then(() => (init_fx_brain(), fx_brain_exports));
-        const _v = await fxBrainGateVerdict2(userId, _gSym, _gDir);
+        const _v = await fxBrainGateVerdict2(userId, _gSym, _gDir, (/* @__PURE__ */ new Date()).getUTCHours(), "live_engine");
         if (_v) {
           addActivity(userId, { type: "info", symbol: decision.symbol, message: `\u{1F9E0} ${_v.reason} \u2014 skipped (live engine).` });
           return;
@@ -56759,9 +56781,9 @@ async function getStopOrdersForUser(userId, filters = {}) {
 init_schema();
 
 // server/build-info.ts
-var BUILD_COMMIT = "b2d077fa-dirty";
+var BUILD_COMMIT = "5ec5d42f-dirty";
 var BUILD_BRANCH = "main";
-var BUILT_AT = "2026-09-28T05:45:27.397Z";
+var BUILT_AT = "2026-09-29T18:57:33.091Z";
 
 // server/stripe.ts
 init_db();
@@ -66890,7 +66912,7 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
         if (!relayBlocked) {
           try {
             const { fxBrainGateVerdict: fxBrainGateVerdict2 } = await Promise.resolve().then(() => (init_fx_brain(), fx_brain_exports));
-            const _rfb = await fxBrainGateVerdict2(token.userId, symbol, direction);
+            const _rfb = await fxBrainGateVerdict2(token.userId, symbol, direction, (/* @__PURE__ */ new Date()).getUTCHours(), "relay_gate");
             if (_rfb) {
               relayBlocked = true;
               console.log(`[Relay Gate] ${_rfb.reason} \u2014 relay blocked`);
@@ -68632,7 +68654,7 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
       if (analysis.signal !== "NEUTRAL") {
         try {
           const { fxBrainGateVerdict: fxBrainGateVerdict2 } = await Promise.resolve().then(() => (init_fx_brain(), fx_brain_exports));
-          const _fbVerdict = await fxBrainGateVerdict2(token.userId, sanitizedSymbol, analysis.signal);
+          const _fbVerdict = await fxBrainGateVerdict2(token.userId, sanitizedSymbol, analysis.signal, (/* @__PURE__ */ new Date()).getUTCHours(), "chart_analysis");
           if (_fbVerdict) {
             console.log(`[FxBrainGate] BLOCKED ${sanitizedSymbol} ${analysis.signal} \u2014 ${_fbVerdict.reason}`);
             _diagCap.neutralReason = `fx_brain_gate (${_fbVerdict.reason})`;
@@ -76427,7 +76449,7 @@ Respond with ONLY valid JSON:
                 continue;
               }
               const { fxBrainGateVerdict: fxBrainGateVerdict2 } = await Promise.resolve().then(() => (init_fx_brain(), fx_brain_exports));
-              const _aeFb = await fxBrainGateVerdict2(userId, sig.symbol, sig.direction);
+              const _aeFb = await fxBrainGateVerdict2(userId, sig.symbol, sig.direction, (/* @__PURE__ */ new Date()).getUTCHours(), "brain_autoexec");
               if (_aeFb) {
                 console.log(`[VEDD Brain AutoExec] BLOCKED ${sig.symbol} \u2014 ${_aeFb.reason}`);
                 executionResults.push({ sigId, symbol: sig.symbol, direction: sig.direction, status: "skipped", reason: _aeFb.reason });

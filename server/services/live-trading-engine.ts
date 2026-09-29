@@ -5370,7 +5370,7 @@ async function processDecision(userId: number, decision: any, newsCtx?: any): Pr
       } catch { /* fail open */ }
       try {
         const { fxBrainGateVerdict } = await import('../services/fx-brain');
-        const _v = await fxBrainGateVerdict(userId, _gSym, _gDir);
+        const _v = await fxBrainGateVerdict(userId, _gSym, _gDir, new Date().getUTCHours(), 'live_engine');
         if (_v) { addActivity(userId, { type: 'info', symbol: decision.symbol, message: `🧠 ${_v.reason} — skipped (live engine).` }); return; }
       } catch { /* fail open */ }
     }
