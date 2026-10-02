@@ -12723,11 +12723,16 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
                 }
 
                 // Daily loss: this account's own realized P&L today + its own floating.
+                // trade_date is TEXT ('YYYY-MM-DD', written by recordRealizedPnl), so
+                // compare against a text date. Comparing it to a ::date threw
+                // "operator does not exist: text = date" on every call, and since this
+                // block fails closed, every EA-driven TradeLocker order was skipped on
+                // every account from 2026-09-22 to 2026-10-02.
                 const _saFloating = _connPos.reduce((sum: number, p: any) => sum + (Number(p.unrealizedPl) || 0), 0);
                 const { pool: _saPool } = await import('./db');
                 const _saRows = await _saPool.query(
                   `SELECT COALESCE(SUM(realized_pnl),0) AS pnl FROM prop_firm_daily_pnl
-                    WHERE user_id=$1 AND connection_id=$2 AND trade_date = (now() AT TIME ZONE 'UTC')::date`,
+                    WHERE user_id=$1 AND connection_id=$2 AND trade_date = to_char(now() AT TIME ZONE 'UTC', 'YYYY-MM-DD')`,
                   [token.userId, tlConn.id]
                 );
                 const _saRealized = Number(_saRows.rows[0]?.pnl ?? 0);

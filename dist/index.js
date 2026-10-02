@@ -56794,9 +56794,9 @@ async function getStopOrdersForUser(userId, filters = {}) {
 init_schema();
 
 // server/build-info.ts
-var BUILD_COMMIT = "bbc8cf94-dirty";
+var BUILD_COMMIT = "251f378d-dirty";
 var BUILD_BRANCH = "main";
-var BUILT_AT = "2026-10-02T01:08:23.812Z";
+var BUILT_AT = "2026-10-02T16:02:30.048Z";
 
 // server/stripe.ts
 init_db();
@@ -70525,7 +70525,7 @@ BEAR CASE: ${_bearCase || "n/a"}` : aiConfirmation.reasoning;
                     const { pool: _saPool } = await Promise.resolve().then(() => (init_db(), db_exports));
                     const _saRows = await _saPool.query(
                       `SELECT COALESCE(SUM(realized_pnl),0) AS pnl FROM prop_firm_daily_pnl
-                    WHERE user_id=$1 AND connection_id=$2 AND trade_date = (now() AT TIME ZONE 'UTC')::date`,
+                    WHERE user_id=$1 AND connection_id=$2 AND trade_date = to_char(now() AT TIME ZONE 'UTC', 'YYYY-MM-DD')`,
                       [token.userId, tlConn.id]
                     );
                     const _saRealized = Number(_saRows.rows[0]?.pnl ?? 0);
