@@ -8692,9 +8692,18 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
               } catch (_createErr) { /* non-critical */ }
             }
 
-            // Always update goalTracker for ALL closed trades — this feeds the weekly P&L monitors
-            if (recordEngineResult) {
+            // Count a close in the engine tracker only the FIRST time its outcome
+            // reaches the DB. The "is it new?" filter above is an in-memory cache
+            // that a restart empties, and the EA re-sends its recent closed-deal
+            // list on every post — so after the 2026-10-02 restart its whole
+            // history replayed into the tracker (25 W / 50 L with nothing real
+            // closing), feeding phantom losses into cool-offs, Kelly sizing and
+            // the daily-loss halt. A row already holding a final result was
+            // counted when it closed; counting it again is the bug.
+            const alreadyCounted = !!existingResult && !!existingResult.result && existingResult.result !== 'PENDING';
+            if (recordEngineResult && !alreadyCounted) {
               recordEngineResult(token.userId, {
+                tradeKey: `mt5:${closedTrade.ticket}`,
                 symbol: tradeSymbol,
                 profit: closedTrade.profit || 0,
                 strategy: existingResult?.notes?.includes('strategy:')

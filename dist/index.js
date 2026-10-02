@@ -25032,6 +25032,17 @@ function getDailyTargetFromGoal(tracker) {
 function recordTradeResult(userId, result) {
   const state = engineStates[userId];
   if (!state) return;
+  if (result.tradeKey) {
+    let seen = countedTradeKeys.get(userId);
+    if (!seen) {
+      seen = /* @__PURE__ */ new Set();
+      countedTradeKeys.set(userId, seen);
+    }
+    if (seen.has(result.tradeKey)) return;
+    seen.add(result.tradeKey);
+    if (seen.size > 5e3) countedTradeKeys.set(userId, new Set(Array.from(seen).slice(-2500)));
+  }
+  if (Math.abs(Number(result.profit) || 0) < 5e-3) return;
   const tracker = state.goalTracker;
   tracker.currentProfit = Math.round((tracker.currentProfit + result.profit) * 100) / 100;
   tracker.progressPercent = tracker.weeklyTarget > 0 ? Math.min(100, Math.max(0, Math.round(tracker.currentProfit / tracker.weeklyTarget * 100))) : 0;
@@ -29983,7 +29994,7 @@ function getModelLockStatus(userId) {
   if (!state) return { locked: false, openPositions: 0 };
   return { locked: state.modelLocked, openPositions: state.openPositionCount };
 }
-var FX_MAX_OPEN_PER_SYMBOL, FX_SYMBOL_COOLDOWN_MS, mt5AccountQueues, mt5AccountRegistry, engineStates, engineIntervals, engineTimers, brainLearningIntervals, positionMonitorIntervals, _monitorBusy, persistedConfigOverrides, goalTrackerCache, ALL_STRATEGY_KEYS, _dxSkipTableReady, TRAIL_METHOD_LABELS, NY_TIME_FMT, INDEX_BROKER_ALIASES;
+var FX_MAX_OPEN_PER_SYMBOL, FX_SYMBOL_COOLDOWN_MS, mt5AccountQueues, mt5AccountRegistry, engineStates, engineIntervals, engineTimers, brainLearningIntervals, positionMonitorIntervals, _monitorBusy, persistedConfigOverrides, goalTrackerCache, ALL_STRATEGY_KEYS, _dxSkipTableReady, countedTradeKeys, TRAIL_METHOD_LABELS, NY_TIME_FMT, INDEX_BROKER_ALIASES;
 var init_live_trading_engine = __esm({
   "server/services/live-trading-engine.ts"() {
     "use strict";
@@ -30036,6 +30047,7 @@ var init_live_trading_engine = __esm({
       "order_flow"
     ];
     _dxSkipTableReady = false;
+    countedTradeKeys = /* @__PURE__ */ new Map();
     TRAIL_METHOD_LABELS = {
       staged_volume: "Staged Volume Trail",
       chandelier: "Chandelier Exit (ATR-based)",
@@ -30227,7 +30239,7 @@ function cache5() {
 function markTlUserActive(userId) {
   activeUsers.set(userId, Date.now());
 }
-async function _feedEngineBrain(userId, symbol, profit, direction, closeTime) {
+async function _feedEngineBrain(userId, symbol, profit, direction, closeTime, ticket) {
   try {
     const { recordTradeResult: recordTradeResult2 } = await Promise.resolve().then(() => (init_live_trading_engine(), live_trading_engine_exports));
     const h = new Date(closeTime || Date.now()).getUTCHours();
@@ -30237,7 +30249,8 @@ async function _feedEngineBrain(userId, symbol, profit, direction, closeTime) {
       profit: Number(profit) || 0,
       strategy: "unknown",
       session: session3,
-      direction
+      direction,
+      ...ticket ? { tradeKey: `tl:${ticket}` } : {}
     });
   } catch (_) {
   }
@@ -30376,7 +30389,7 @@ async function syncTradeLockerTrades(userId, conn, svc) {
         const dStr = match.closeTime ? new Date(match.closeTime).toISOString().slice(0, 10) : void 0;
         await recordRealizedPnl(userId, conn.id, "tradelocker", profit, dStr);
         await _recordOrBackfillConfirmationOutcome(userId, existing.symbol, existing.direction, result, match.closeTime);
-        await _feedEngineBrain(userId, existing.symbol, profit, existing.direction, match.closeTime);
+        await _feedEngineBrain(userId, existing.symbol, profit, existing.direction, match.closeTime, ticket);
         await _recordFxBrainOutcome(userId, conn, existing, match, result, profit);
         await _invalidateDailyStop(userId);
       }
@@ -30424,7 +30437,7 @@ async function syncTradeLockerTrades(userId, conn, svc) {
             if (needsResolve) {
               await recordRealizedPnl(userId, conn.id, "tradelocker", p, reconDateStr);
               await _recordOrBackfillConfirmationOutcome(userId, existing.symbol, existing.direction, reconResult, o.closeTime);
-              await _feedEngineBrain(userId, existing.symbol, p, existing.direction, o.closeTime);
+              await _feedEngineBrain(userId, existing.symbol, p, existing.direction, o.closeTime, tk);
               await _invalidateDailyStop(userId);
               await _recordFxBrainOutcome(
                 userId,
@@ -30459,7 +30472,7 @@ async function syncTradeLockerTrades(userId, conn, svc) {
         });
         await recordRealizedPnl(userId, conn.id, "tradelocker", p, reconDateStr);
         await _recordOrBackfillConfirmationOutcome(userId, reconSymbol, reconDirection, reconResult, o.closeTime);
-        await _feedEngineBrain(userId, reconSymbol, p, reconDirection, o.closeTime);
+        await _feedEngineBrain(userId, reconSymbol, p, reconDirection, o.closeTime, tk);
         await _invalidateDailyStop(userId);
         await _recordFxBrainOutcome(
           userId,
@@ -56781,9 +56794,9 @@ async function getStopOrdersForUser(userId, filters = {}) {
 init_schema();
 
 // server/build-info.ts
-var BUILD_COMMIT = "5ec5d42f-dirty";
+var BUILD_COMMIT = "bbc8cf94-dirty";
 var BUILD_BRANCH = "main";
-var BUILT_AT = "2026-09-29T18:57:33.091Z";
+var BUILT_AT = "2026-10-02T01:08:23.812Z";
 
 // server/stripe.ts
 init_db();
@@ -67318,8 +67331,10 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
               } catch (_createErr) {
               }
             }
-            if (recordEngineResult) {
+            const alreadyCounted = !!existingResult && !!existingResult.result && existingResult.result !== "PENDING";
+            if (recordEngineResult && !alreadyCounted) {
               recordEngineResult(token.userId, {
+                tradeKey: `mt5:${closedTrade.ticket}`,
                 symbol: tradeSymbol,
                 profit: closedTrade.profit || 0,
                 strategy: existingResult?.notes?.includes("strategy:") ? existingResult.notes.split("strategy:")[1].trim().split(" ")[0] : "auto",

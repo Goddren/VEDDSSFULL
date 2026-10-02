@@ -347,7 +347,7 @@ export function markTlUserActive(userId: number): void {
 // at its initial state for TL-executed users. Session names mirror the engine's
 // enforcer keys ('Asian','London','New York','Late NY'). Dynamic import avoids a
 // circular dependency with live-trading-engine.
-async function _feedEngineBrain(userId: number, symbol: string, profit: number, direction?: string, closeTime?: string | Date): Promise<void> {
+async function _feedEngineBrain(userId: number, symbol: string, profit: number, direction?: string, closeTime?: string | Date, ticket?: string): Promise<void> {
   try {
     const { recordTradeResult } = await import('./live-trading-engine');
     const h = new Date(closeTime || Date.now()).getUTCHours();
@@ -358,6 +358,7 @@ async function _feedEngineBrain(userId: number, symbol: string, profit: number, 
       strategy: 'unknown',
       session,
       direction,
+      ...(ticket ? { tradeKey: `tl:${ticket}` } : {}),
     });
   } catch (_) { /* non-fatal — learning must never break the sync */ }
 }
@@ -555,7 +556,7 @@ async function syncTradeLockerTrades(userId: number, conn: any, svc: any): Promi
         // fresh one — so the Brain Dashboard reflects real TradeLocker outcomes
         // instead of silently dropping trades with no bot-opened PENDING match.
         await _recordOrBackfillConfirmationOutcome(userId, existing.symbol, existing.direction, result, match.closeTime);
-        await _feedEngineBrain(userId, existing.symbol, profit, existing.direction, match.closeTime);
+        await _feedEngineBrain(userId, existing.symbol, profit, existing.direction, match.closeTime, ticket);
         await _recordFxBrainOutcome(userId, conn, existing, match, result, profit);
         await _invalidateDailyStop(userId);
       }
@@ -624,7 +625,7 @@ async function syncTradeLockerTrades(userId: number, conn: any, svc: any): Promi
             if (needsResolve) {
               await recordRealizedPnl(userId, conn.id, 'tradelocker', p, reconDateStr);
               await _recordOrBackfillConfirmationOutcome(userId, existing.symbol, existing.direction, reconResult, o.closeTime);
-              await _feedEngineBrain(userId, existing.symbol, p, existing.direction, o.closeTime);
+              await _feedEngineBrain(userId, existing.symbol, p, existing.direction, o.closeTime, tk);
               // The brain must learn from EVERY close, not just the ones the
               // poller happened to witness. This path handles closes that
               // happened across a deploy or between polls — with deploys as
@@ -656,7 +657,7 @@ async function syncTradeLockerTrades(userId: number, conn: any, svc: any): Promi
         } as any).catch(() => {});
         await recordRealizedPnl(userId, conn.id, 'tradelocker', p, reconDateStr);
         await _recordOrBackfillConfirmationOutcome(userId, reconSymbol, reconDirection, reconResult, o.closeTime);
-        await _feedEngineBrain(userId, reconSymbol, p, reconDirection, o.closeTime);
+        await _feedEngineBrain(userId, reconSymbol, p, reconDirection, o.closeTime, tk);
         // No open row ever existed for this one (the poller never saw it open),
         // so there is no stored SL/TP or excursion — but the outcome, pair,
         // direction and timing are real and the brain should not be blind to it.

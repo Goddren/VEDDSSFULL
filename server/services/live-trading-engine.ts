@@ -1029,6 +1029,8 @@ function getDailyTargetFromGoal(tracker: GoalTracker): number {
   return Math.max(0, Math.round((remaining / daysLeft) * 100) / 100);
 }
 
+const countedTradeKeys = new Map<number, Set<string>>();
+
 export function recordTradeResult(userId: number, result: {
   symbol: string;
   profit: number;
@@ -1038,9 +1040,26 @@ export function recordTradeResult(userId: number, result: {
   // lock (pairDirectionLock) and win-clear logic both read result.direction,
   // which was always undefined, making Gate 5 permanently non-functional.
   direction?: string;
+  // Broker ticket (e.g. "mt5:123", "tl:tl_2449855_432...") — the same close
+  // arriving twice (EA re-send, sync reconciliation pass) is counted once.
+  tradeKey?: string;
 }) {
   const state = engineStates[userId];
   if (!state) return;
+
+  if (result.tradeKey) {
+    let seen = countedTradeKeys.get(userId);
+    if (!seen) { seen = new Set(); countedTradeKeys.set(userId, seen); }
+    if (seen.has(result.tradeKey)) return;
+    seen.add(result.tradeKey);
+    if (seen.size > 5000) countedTradeKeys.set(userId, new Set(Array.from(seen).slice(-2500)));
+  }
+
+  // A $0 close is a breakeven, not a loss. Counting it as one inflated the
+  // Losses tile, broke win streaks, cut strategy weights and fed the
+  // consecutive-loss cool-off. It is skipped entirely — it moves no P&L.
+  if (Math.abs(Number(result.profit) || 0) < 0.005) return;
+
   const tracker = state.goalTracker;
 
   tracker.currentProfit = Math.round((tracker.currentProfit + result.profit) * 100) / 100;
