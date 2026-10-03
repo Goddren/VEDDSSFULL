@@ -17408,7 +17408,10 @@ Rules:
       const nativeSym: Record<string, string> = { ethereum: 'ETH', base: 'ETH', arbitrum: 'ETH', optimism: 'ETH', polygon: 'POL' };
       const { getOnchainBalances } = await import('./services/onchain-balances');
       const bal = await getOnchainBalances(hw.address).catch(() => null);
-      const chainHoldings = (bal?.holdings ?? []).filter((h: any) => h.chain === chain);
+      // Holdings carry the display name ('Base'); the config stores the key
+      // ('base'). Compared exactly, nothing ever matched and the panel showed
+      // $0 USDC / 0 gas regardless of what the wallet held.
+      const chainHoldings = (bal?.holdings ?? []).filter((h: any) => String(h.chain).toLowerCase() === String(chain).toLowerCase());
       const usdc = chainHoldings.filter((h: any) => h.symbol === 'USDC').reduce((s: number, h: any) => s + (h.amount || 0), 0);
       const native = chainHoldings.filter((h: any) => h.symbol === (nativeSym[chain] || 'ETH')).reduce((s: number, h: any) => s + (h.amount || 0), 0);
       const walletUsd = chainHoldings.reduce((s: number, h: any) => s + (h.usdValue || 0), 0);

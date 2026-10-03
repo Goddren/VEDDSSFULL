@@ -56794,9 +56794,9 @@ async function getStopOrdersForUser(userId, filters = {}) {
 init_schema();
 
 // server/build-info.ts
-var BUILD_COMMIT = "251f378d-dirty";
+var BUILD_COMMIT = "8ab90b0b-dirty";
 var BUILD_BRANCH = "main";
-var BUILT_AT = "2026-10-02T16:02:30.048Z";
+var BUILT_AT = "2026-10-03T22:10:54.176Z";
 
 // server/stripe.ts
 init_db();
@@ -74615,7 +74615,7 @@ Rules:
       const nativeSym = { ethereum: "ETH", base: "ETH", arbitrum: "ETH", optimism: "ETH", polygon: "POL" };
       const { getOnchainBalances: getOnchainBalances2 } = await Promise.resolve().then(() => (init_onchain_balances(), onchain_balances_exports));
       const bal = await getOnchainBalances2(hw.address).catch(() => null);
-      const chainHoldings = (bal?.holdings ?? []).filter((h) => h.chain === chain);
+      const chainHoldings = (bal?.holdings ?? []).filter((h) => String(h.chain).toLowerCase() === String(chain).toLowerCase());
       const usdc = chainHoldings.filter((h) => h.symbol === "USDC").reduce((s, h) => s + (h.amount || 0), 0);
       const native = chainHoldings.filter((h) => h.symbol === (nativeSym[chain] || "ETH")).reduce((s, h) => s + (h.amount || 0), 0);
       const walletUsd = chainHoldings.reduce((s, h) => s + (h.usdValue || 0), 0);
