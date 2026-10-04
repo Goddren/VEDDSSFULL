@@ -1678,16 +1678,44 @@ async function scanOneUser(userId: number): Promise<void> {
   }
 }
 
+// Multi-user isolation. The 60s interval used to fire regardless of whether the
+// last pass had finished, and users ran strictly in order — so one slow Alpaca
+// account delayed (and could double-scan) everyone behind it, including their
+// exits. Now: no overlapping passes, a per-user time budget, a per-user
+// in-flight guard, and a rotating start so nobody is permanently last.
+const OPTIONS_USER_BUDGET_MS = 45_000;
+const optionsUserInFlight = new Set<number>();
+let optionsScanRunning = false;
+let optionsCycle = 0;
+
 export async function runOptionsEngineScan(): Promise<void> {
+  if (optionsScanRunning) return;
+  optionsScanRunning = true;
   try {
     const configs = await storage.getAllActiveOptionsEngineConfigs();
-    for (const config of configs) {
-      await scanOneUser(config.userId).catch((e: any) =>
-        console.error(`[options-scanner] user ${config.userId} scan failed:`, e.message)
-      );
+    const k = configs.length ? (optionsCycle++ % configs.length) : 0;
+    for (const config of configs.slice(k).concat(configs.slice(0, k))) {
+      const uid = config.userId;
+      if (optionsUserInFlight.has(uid)) {
+        console.warn(`[options-scanner] user ${uid} still running from a previous pass — skipping this pass`);
+        continue;
+      }
+      optionsUserInFlight.add(uid);
+      const work = scanOneUser(uid)
+        .catch((e: any) => console.error(`[options-scanner] user ${uid} scan failed:`, e.message))
+        .finally(() => optionsUserInFlight.delete(uid));
+      let timer: NodeJS.Timeout | undefined;
+      const outcome = await Promise.race([
+        work.then(() => 'done' as const),
+        new Promise<'timeout'>((r) => { timer = setTimeout(() => r('timeout'), OPTIONS_USER_BUDGET_MS); }),
+      ]);
+      if (timer) clearTimeout(timer);
+      if (outcome === 'timeout') console.error(`[options-scanner] user ${uid} exceeded ${OPTIONS_USER_BUDGET_MS / 1000}s — moving on (it keeps running in the background)`);
     }
   } catch (err: any) {
     console.error('[options-scanner] runOptionsEngineScan failed:', err.message);
+  } finally {
+    optionsScanRunning = false;
   }
 }
 

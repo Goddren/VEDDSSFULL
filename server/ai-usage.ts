@@ -114,6 +114,42 @@ export async function getEffectiveAiCostCapCents(userId: number): Promise<number
   }
 }
 
+// ── Per-user DAILY call cap on the shared platform key ──────────────────────
+// The monthly cost cap above can't bound volume: free/unpriced models cost $0,
+// so a single heavy user could make thousands of calls a day and drain the
+// shared provider balance / rate limit for everyone (observed: 11k calls in a
+// day exhausted OpenRouter mid-session). This caps CALLS, per user, per UTC day.
+// Admins are exempt; personal keys are never gated. Counted from ai_usage_log
+// so it survives deploys; cached briefly so it isn't a DB hit per AI call.
+const DAILY_PLATFORM_CALL_CAP = Math.max(1, Number(process.env.AI_PLATFORM_DAILY_CALLS_PER_USER) || 2000);
+const dailyCountCache = new Map<number, { at: number; day: string; count: number }>();
+
+async function getTodayPlatformKeyCalls(userId: number): Promise<number> {
+  const day = new Date().toISOString().slice(0, 10);
+  const hit = dailyCountCache.get(userId);
+  if (hit && hit.day === day && Date.now() - hit.at < 60_000) return hit.count;
+  try {
+    const dayStart = new Date(`${day}T00:00:00Z`);
+    const [row] = await db
+      .select({ n: sql<number>`count(*)` })
+      .from(aiUsageLog)
+      .where(and(eq(aiUsageLog.userId, userId), eq(aiUsageLog.usedPlatformKey, true), gte(aiUsageLog.createdAt, dayStart)));
+    const count = Number(row?.n || 0);
+    dailyCountCache.set(userId, { at: Date.now(), day, count });
+    return count;
+  } catch (e) {
+    console.error('[AI Usage] Failed to count daily calls (not capping this check):', e);
+    return 0;
+  }
+}
+
+async function isAdminUser(userId: number): Promise<boolean> {
+  try {
+    const [u] = await db.select({ isAdmin: users.isAdmin }).from(users).where(eq(users.id, userId));
+    return !!u?.isAdmin;
+  } catch { return false; }
+}
+
 // Whether platform-key AI calls should be allowed for this user right now.
 // Personal-key usage is never gated by this — only the shared platform key is.
 export async function isUnderPlatformKeyCostCap(userId: number): Promise<boolean> {
@@ -121,5 +157,12 @@ export async function isUnderPlatformKeyCostCap(userId: number): Promise<boolean
     getMonthlyPlatformKeyCostCents(userId),
     getEffectiveAiCostCapCents(userId),
   ]);
-  return usedCents < capCents;
+  if (usedCents >= capCents) return false;
+  if (await isAdminUser(userId)) return true;
+  const calls = await getTodayPlatformKeyCalls(userId);
+  if (calls >= DAILY_PLATFORM_CALL_CAP) {
+    console.warn(`[AI Usage] user ${userId} reached the daily platform-key cap (${calls}/${DAILY_PLATFORM_CALL_CAP} calls) — shared key paused for them until 00:00 UTC; personal keys still work`);
+    return false;
+  }
+  return true;
 }

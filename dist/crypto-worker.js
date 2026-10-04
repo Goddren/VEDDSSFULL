@@ -9903,14 +9903,44 @@ async function getEffectiveAiCostCapCents(userId) {
     return 50;
   }
 }
+async function getTodayPlatformKeyCalls(userId) {
+  const day = (/* @__PURE__ */ new Date()).toISOString().slice(0, 10);
+  const hit = dailyCountCache.get(userId);
+  if (hit && hit.day === day && Date.now() - hit.at < 6e4) return hit.count;
+  try {
+    const dayStart = /* @__PURE__ */ new Date(`${day}T00:00:00Z`);
+    const [row] = await db.select({ n: sql3`count(*)` }).from(aiUsageLog).where(and3(eq3(aiUsageLog.userId, userId), eq3(aiUsageLog.usedPlatformKey, true), gte3(aiUsageLog.createdAt, dayStart)));
+    const count = Number(row?.n || 0);
+    dailyCountCache.set(userId, { at: Date.now(), day, count });
+    return count;
+  } catch (e) {
+    console.error("[AI Usage] Failed to count daily calls (not capping this check):", e);
+    return 0;
+  }
+}
+async function isAdminUser(userId) {
+  try {
+    const [u] = await db.select({ isAdmin: users.isAdmin }).from(users).where(eq3(users.id, userId));
+    return !!u?.isAdmin;
+  } catch {
+    return false;
+  }
+}
 async function isUnderPlatformKeyCostCap(userId) {
   const [usedCents, capCents] = await Promise.all([
     getMonthlyPlatformKeyCostCents(userId),
     getEffectiveAiCostCapCents(userId)
   ]);
-  return usedCents < capCents;
+  if (usedCents >= capCents) return false;
+  if (await isAdminUser(userId)) return true;
+  const calls = await getTodayPlatformKeyCalls(userId);
+  if (calls >= DAILY_PLATFORM_CALL_CAP) {
+    console.warn(`[AI Usage] user ${userId} reached the daily platform-key cap (${calls}/${DAILY_PLATFORM_CALL_CAP} calls) \u2014 shared key paused for them until 00:00 UTC; personal keys still work`);
+    return false;
+  }
+  return true;
 }
-var MODEL_PRICING_CENTS_PER_1M;
+var MODEL_PRICING_CENTS_PER_1M, DAILY_PLATFORM_CALL_CAP, dailyCountCache;
 var init_ai_usage = __esm({
   "server/ai-usage.ts"() {
     "use strict";
@@ -9934,6 +9964,8 @@ var init_ai_usage = __esm({
       "qwen/qwen3-vl-32b-instruct": { input: 10, output: 10 }
       // Groq
     };
+    DAILY_PLATFORM_CALL_CAP = Math.max(1, Number(process.env.AI_PLATFORM_DAILY_CALLS_PER_USER) || 2e3);
+    dailyCountCache = /* @__PURE__ */ new Map();
   }
 });
 
@@ -17082,6 +17114,32 @@ async function scanOneUser(userId) {
     }
   }
 }
+var EXIT_BUDGET_MS = 45e3;
+var ENTRY_BUDGET_MS = 6e4;
+var userInFlight = /* @__PURE__ */ new Set();
+var _cycleNo = 0;
+function rotate(arr, n) {
+  if (arr.length < 2) return arr;
+  const k = n % arr.length;
+  return arr.slice(k).concat(arr.slice(0, k));
+}
+async function runUserBounded(key, budgetMs, fn) {
+  if (userInFlight.has(key)) {
+    console.warn(`[cryptocom-scanner] ${key} still running from a previous cycle \u2014 skipping this cycle`);
+    return;
+  }
+  userInFlight.add(key);
+  const work = fn().catch((e) => console.error(`[cryptocom-scanner] ${key} failed:`, e?.message ?? e)).finally(() => userInFlight.delete(key));
+  let timer;
+  const timedOut = new Promise((r) => {
+    timer = setTimeout(() => r("timeout"), budgetMs);
+  });
+  const outcome = await Promise.race([work.then(() => "done"), timedOut]);
+  if (timer) clearTimeout(timer);
+  if (outcome === "timeout") {
+    console.error(`[cryptocom-scanner] ${key} exceeded ${budgetMs / 1e3}s \u2014 moving on to the next user (it keeps running in the background)`);
+  }
+}
 async function runCryptocomEngineScan() {
   const ownedHere = !_holdsRunLock;
   if (ownedHere) {
@@ -17114,9 +17172,10 @@ async function runCryptocomEngineScan() {
       console.error("[cryptocom-scanner] could not list users with open trades \u2014 exit management SKIPPED this cycle:", e?.message);
       return [];
     });
-    for (const uid of holders) {
-      try {
-        await phase(`exit_pass:user_${uid}`);
+    _cycleNo++;
+    for (const uid of rotate(holders, _cycleNo)) {
+      await phase(`exit_pass:user_${uid}`);
+      await runUserBounded(`exit:${uid}`, EXIT_BUDGET_MS, async () => {
         const cfg = await storage.getUserCryptocomEngineConfig(uid);
         await monitorOpenPositions(uid, cfg ?? {
           trailMethod: "none",
@@ -17128,15 +17187,13 @@ async function runCryptocomEngineScan() {
           trailSarMaxAf: 0.2,
           breakevenBufferR: 0
         });
-      } catch (e) {
-        console.error(`[cryptocom-scanner] exit management failed for user ${uid}:`, e?.message);
-      }
+      });
     }
     await phase("entry_scan:list_configs");
     const configs = await storage.getAllActiveCryptocomEngineConfigs();
-    for (const config of configs) {
+    for (const config of rotate(configs, _cycleNo)) {
       await phase(`entry_scan:user_${config.userId}`);
-      await scanOneUser(config.userId).catch((e) => console.error(`[cryptocom-scanner] user ${config.userId} scan failed:`, e.message));
+      await runUserBounded(`entry:${config.userId}`, ENTRY_BUDGET_MS, () => scanOneUser(config.userId));
     }
   } catch (err) {
     console.error("[cryptocom-scanner] runCryptocomEngineScan failed:", err.message);

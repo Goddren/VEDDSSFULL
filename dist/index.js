@@ -7405,14 +7405,44 @@ async function getEffectiveAiCostCapCents(userId) {
     return 50;
   }
 }
+async function getTodayPlatformKeyCalls(userId) {
+  const day = (/* @__PURE__ */ new Date()).toISOString().slice(0, 10);
+  const hit = dailyCountCache.get(userId);
+  if (hit && hit.day === day && Date.now() - hit.at < 6e4) return hit.count;
+  try {
+    const dayStart = /* @__PURE__ */ new Date(`${day}T00:00:00Z`);
+    const [row] = await db.select({ n: sql4`count(*)` }).from(aiUsageLog).where(and4(eq4(aiUsageLog.userId, userId), eq4(aiUsageLog.usedPlatformKey, true), gte4(aiUsageLog.createdAt, dayStart)));
+    const count = Number(row?.n || 0);
+    dailyCountCache.set(userId, { at: Date.now(), day, count });
+    return count;
+  } catch (e) {
+    console.error("[AI Usage] Failed to count daily calls (not capping this check):", e);
+    return 0;
+  }
+}
+async function isAdminUser(userId) {
+  try {
+    const [u] = await db.select({ isAdmin: users.isAdmin }).from(users).where(eq4(users.id, userId));
+    return !!u?.isAdmin;
+  } catch {
+    return false;
+  }
+}
 async function isUnderPlatformKeyCostCap(userId) {
   const [usedCents, capCents] = await Promise.all([
     getMonthlyPlatformKeyCostCents(userId),
     getEffectiveAiCostCapCents(userId)
   ]);
-  return usedCents < capCents;
+  if (usedCents >= capCents) return false;
+  if (await isAdminUser(userId)) return true;
+  const calls = await getTodayPlatformKeyCalls(userId);
+  if (calls >= DAILY_PLATFORM_CALL_CAP) {
+    console.warn(`[AI Usage] user ${userId} reached the daily platform-key cap (${calls}/${DAILY_PLATFORM_CALL_CAP} calls) \u2014 shared key paused for them until 00:00 UTC; personal keys still work`);
+    return false;
+  }
+  return true;
 }
-var MODEL_PRICING_CENTS_PER_1M;
+var MODEL_PRICING_CENTS_PER_1M, DAILY_PLATFORM_CALL_CAP, dailyCountCache;
 var init_ai_usage = __esm({
   "server/ai-usage.ts"() {
     "use strict";
@@ -7436,6 +7466,8 @@ var init_ai_usage = __esm({
       "qwen/qwen3-vl-32b-instruct": { input: 10, output: 10 }
       // Groq
     };
+    DAILY_PLATFORM_CALL_CAP = Math.max(1, Number(process.env.AI_PLATFORM_DAILY_CALLS_PER_USER) || 2e3);
+    dailyCountCache = /* @__PURE__ */ new Map();
   }
 });
 
@@ -40218,6 +40250,28 @@ async function scanOneUser(userId) {
     }
   }
 }
+function rotate(arr2, n) {
+  if (arr2.length < 2) return arr2;
+  const k = n % arr2.length;
+  return arr2.slice(k).concat(arr2.slice(0, k));
+}
+async function runUserBounded(key, budgetMs, fn) {
+  if (userInFlight.has(key)) {
+    console.warn(`[cryptocom-scanner] ${key} still running from a previous cycle \u2014 skipping this cycle`);
+    return;
+  }
+  userInFlight.add(key);
+  const work = fn().catch((e) => console.error(`[cryptocom-scanner] ${key} failed:`, e?.message ?? e)).finally(() => userInFlight.delete(key));
+  let timer;
+  const timedOut = new Promise((r) => {
+    timer = setTimeout(() => r("timeout"), budgetMs);
+  });
+  const outcome = await Promise.race([work.then(() => "done"), timedOut]);
+  if (timer) clearTimeout(timer);
+  if (outcome === "timeout") {
+    console.error(`[cryptocom-scanner] ${key} exceeded ${budgetMs / 1e3}s \u2014 moving on to the next user (it keeps running in the background)`);
+  }
+}
 async function runCryptocomEngineScan() {
   const ownedHere = !_holdsRunLock;
   if (ownedHere) {
@@ -40250,9 +40304,10 @@ async function runCryptocomEngineScan() {
       console.error("[cryptocom-scanner] could not list users with open trades \u2014 exit management SKIPPED this cycle:", e?.message);
       return [];
     });
-    for (const uid2 of holders) {
-      try {
-        await phase(`exit_pass:user_${uid2}`);
+    _cycleNo++;
+    for (const uid2 of rotate(holders, _cycleNo)) {
+      await phase(`exit_pass:user_${uid2}`);
+      await runUserBounded(`exit:${uid2}`, EXIT_BUDGET_MS, async () => {
         const cfg = await storage.getUserCryptocomEngineConfig(uid2);
         await monitorOpenPositions(uid2, cfg ?? {
           trailMethod: "none",
@@ -40264,15 +40319,13 @@ async function runCryptocomEngineScan() {
           trailSarMaxAf: 0.2,
           breakevenBufferR: 0
         });
-      } catch (e) {
-        console.error(`[cryptocom-scanner] exit management failed for user ${uid2}:`, e?.message);
-      }
+      });
     }
     await phase("entry_scan:list_configs");
     const configs = await storage.getAllActiveCryptocomEngineConfigs();
-    for (const config of configs) {
+    for (const config of rotate(configs, _cycleNo)) {
       await phase(`entry_scan:user_${config.userId}`);
-      await scanOneUser(config.userId).catch((e) => console.error(`[cryptocom-scanner] user ${config.userId} scan failed:`, e.message));
+      await runUserBounded(`entry:${config.userId}`, ENTRY_BUDGET_MS, () => scanOneUser(config.userId));
     }
   } catch (err) {
     console.error("[cryptocom-scanner] runCryptocomEngineScan failed:", err.message);
@@ -40491,7 +40544,7 @@ function startCryptocomEngineScanner() {
   };
   tryStart();
 }
-var MIN_SCAN_INTERVAL_MS, lastScanAt, MAX_SYMBOLS_PER_CYCLE, scanCursor, defiUniverse, STRATEGY_RUNNERS, AUTO_STRATEGIES, sessionPeakEquity, started2, scanInFlight, _skippedTicks, _scansCompleted, WORKER_ID, _hbBooted, CRYPTO_RUN_LOCK_KEY, _holdsRunLock, STALE_AFTER_MS;
+var MIN_SCAN_INTERVAL_MS, lastScanAt, MAX_SYMBOLS_PER_CYCLE, scanCursor, defiUniverse, STRATEGY_RUNNERS, AUTO_STRATEGIES, sessionPeakEquity, EXIT_BUDGET_MS, ENTRY_BUDGET_MS, userInFlight, _cycleNo, started2, scanInFlight, _skippedTicks, _scansCompleted, WORKER_ID, _hbBooted, CRYPTO_RUN_LOCK_KEY, _holdsRunLock, STALE_AFTER_MS;
 var init_cryptocom_scanner = __esm({
   "server/services/cryptocom-scanner.ts"() {
     "use strict";
@@ -40519,6 +40572,10 @@ var init_cryptocom_scanner = __esm({
     };
     AUTO_STRATEGIES = ["trend_following", "momentum", "order_flow", "volume_profile", "breakout", "structure", "divergence"];
     sessionPeakEquity = /* @__PURE__ */ new Map();
+    EXIT_BUDGET_MS = 45e3;
+    ENTRY_BUDGET_MS = 6e4;
+    userInFlight = /* @__PURE__ */ new Set();
+    _cycleNo = 0;
     started2 = false;
     scanInFlight = false;
     _skippedTicks = 0;
@@ -56787,15 +56844,33 @@ async function scanOneUser2(userId) {
   }
 }
 async function runOptionsEngineScan() {
+  if (optionsScanRunning) return;
+  optionsScanRunning = true;
   try {
     const configs = await storage.getAllActiveOptionsEngineConfigs();
-    for (const config of configs) {
-      await scanOneUser2(config.userId).catch(
-        (e) => console.error(`[options-scanner] user ${config.userId} scan failed:`, e.message)
-      );
+    const k = configs.length ? optionsCycle++ % configs.length : 0;
+    for (const config of configs.slice(k).concat(configs.slice(0, k))) {
+      const uid2 = config.userId;
+      if (optionsUserInFlight.has(uid2)) {
+        console.warn(`[options-scanner] user ${uid2} still running from a previous pass \u2014 skipping this pass`);
+        continue;
+      }
+      optionsUserInFlight.add(uid2);
+      const work = scanOneUser2(uid2).catch((e) => console.error(`[options-scanner] user ${uid2} scan failed:`, e.message)).finally(() => optionsUserInFlight.delete(uid2));
+      let timer;
+      const outcome = await Promise.race([
+        work.then(() => "done"),
+        new Promise((r) => {
+          timer = setTimeout(() => r("timeout"), OPTIONS_USER_BUDGET_MS);
+        })
+      ]);
+      if (timer) clearTimeout(timer);
+      if (outcome === "timeout") console.error(`[options-scanner] user ${uid2} exceeded ${OPTIONS_USER_BUDGET_MS / 1e3}s \u2014 moving on (it keeps running in the background)`);
     }
   } catch (err) {
     console.error("[options-scanner] runOptionsEngineScan failed:", err.message);
+  } finally {
+    optionsScanRunning = false;
   }
 }
 function startOptionsEngineScanner() {
@@ -56808,7 +56883,7 @@ function startOptionsEngineScanner() {
   }, LOOP_INTERVAL_MS);
   console.log("[options-scanner] Background options-engine scan loop started (60s tick, per-user throttled, strategies: orb/volume_profile/breakout/momentum/order_flow/auto).");
 }
-var MIN_SCAN_INTERVAL_MS2, lastScanAt2, MAX_OPEN_PER_SYMBOL2, MAX_DAILY_ENTRIES_PER_SYMBOL2, SYMBOL_COOLDOWN_MS2, CORRELATED_BASKET_CAP, CORRELATED_BASKETS, STRATEGY_RUNNERS2, sessionPeakEquity2, started3;
+var MIN_SCAN_INTERVAL_MS2, lastScanAt2, MAX_OPEN_PER_SYMBOL2, MAX_DAILY_ENTRIES_PER_SYMBOL2, SYMBOL_COOLDOWN_MS2, CORRELATED_BASKET_CAP, CORRELATED_BASKETS, STRATEGY_RUNNERS2, sessionPeakEquity2, OPTIONS_USER_BUDGET_MS, optionsUserInFlight, optionsScanRunning, optionsCycle, started3;
 var init_options_scanner = __esm({
   "server/services/options-scanner.ts"() {
     "use strict";
@@ -56839,6 +56914,10 @@ var init_options_scanner = __esm({
       order_flow: runOrderFlow2
     };
     sessionPeakEquity2 = /* @__PURE__ */ new Map();
+    OPTIONS_USER_BUDGET_MS = 45e3;
+    optionsUserInFlight = /* @__PURE__ */ new Set();
+    optionsScanRunning = false;
+    optionsCycle = 0;
     started3 = false;
   }
 });
@@ -57583,9 +57662,9 @@ async function getStopOrdersForUser(userId, filters = {}) {
 init_schema();
 
 // server/build-info.ts
-var BUILD_COMMIT = "3efa000a-dirty";
+var BUILD_COMMIT = "f8ca0014-dirty";
 var BUILD_BRANCH = "main";
-var BUILT_AT = "2026-10-04T22:48:09.573Z";
+var BUILT_AT = "2026-10-04T23:19:56.437Z";
 
 // server/stripe.ts
 init_db();
@@ -75614,8 +75693,19 @@ Rules:
     }
     try {
       const userId = req.user.id;
+      const b = req.body || {};
       const result = await storage.createAiTradeResult({
-        ...req.body,
+        symbol: b.symbol,
+        timeframe: b.timeframe,
+        direction: b.direction,
+        entryPrice: b.entryPrice,
+        stopLoss: b.stopLoss,
+        takeProfit: b.takeProfit,
+        aiConfidence: b.aiConfidence,
+        analysisId: b.analysisId,
+        notes: b.notes,
+        result: "PENDING",
+        source: "manual",
         userId
       });
       res.json(result);
@@ -75631,19 +75721,16 @@ Rules:
     try {
       const userId = req.user.id;
       const id = parseInt(req.params.id);
-      const updated = await storage.updateAiTradeResult(id, userId, req.body);
+      const patch = {};
+      if (typeof req.body?.notes === "string") patch.notes = req.body.notes.slice(0, 2e3);
+      if (!Object.keys(patch).length) {
+        return res.status(400).json({ error: "Only 'notes' can be edited. Trade outcomes come from your broker." });
+      }
+      const updated = await storage.updateAiTradeResult(id, userId, patch);
       if (!updated) {
         return res.status(404).json({ error: "Trade result not found or access denied" });
       }
       res.json(updated);
-      const newResult = req.body.result;
-      if (newResult === "WIN" || newResult === "LOSS" || newResult === "BREAKEVEN") {
-        setTimeout(() => {
-          runBrainLearning(userId).catch(
-            (err) => console.error("[Brain] Auto re-learn after trade close failed:", err)
-          );
-        }, 2e3);
-      }
     } catch (error) {
       console.error("Error updating AI trade result:", error);
       res.status(500).json({ error: "Failed to update trade result" });
@@ -88035,6 +88122,7 @@ Sitemap: ${SEO_BASE_URL}/sitemap.xml
             created_at AS opened_at
           FROM ai_trade_results
           WHERE profit_loss IS NOT NULL
+            AND coalesce(source, '') <> 'manual' -- self-reported P&L doesn't rank a trader others pay to copy
         ) t ON t.user_id = u.id
         WHERE u.allow_copiers = true
         GROUP BY u.id, u.username

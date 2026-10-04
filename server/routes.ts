@@ -17673,10 +17673,19 @@ Rules:
     }
     try {
       const userId = (req.user as User).id;
+      // A user-created row is a PENDING entry only. Outcome fields (result, P&L,
+      // exit, ticket, source) are written by the broker sync / EA paths — never
+      // by the user — because they train the brain, rank the copy leaderboard
+      // and become brain-marketplace listings. Accepting them here let anyone
+      // manufacture a winning record and sell it.
+      const b = req.body || {};
       const result = await storage.createAiTradeResult({
-        ...req.body,
+        symbol: b.symbol, timeframe: b.timeframe, direction: b.direction,
+        entryPrice: b.entryPrice, stopLoss: b.stopLoss, takeProfit: b.takeProfit,
+        aiConfidence: b.aiConfidence, analysisId: b.analysisId, notes: b.notes,
+        result: 'PENDING', source: 'manual',
         userId,
-      });
+      } as any);
       res.json(result);
     } catch (error: any) {
       console.error("Error creating AI trade result:", error);
@@ -17691,21 +17700,19 @@ Rules:
     try {
       const userId = (req.user as User).id;
       const id = parseInt(req.params.id);
-      const updated = await storage.updateAiTradeResult(id, userId, req.body);
+      // Only notes are user-editable. The whole body used to go straight into
+      // .set(): a user could rewrite result/profitLoss (fake wins feeding the
+      // brain, the leaderboard and sellable brains) or even userId.
+      const patch: Record<string, any> = {};
+      if (typeof req.body?.notes === 'string') patch.notes = req.body.notes.slice(0, 2000);
+      if (!Object.keys(patch).length) {
+        return res.status(400).json({ error: "Only 'notes' can be edited. Trade outcomes come from your broker." });
+      }
+      const updated = await storage.updateAiTradeResult(id, userId, patch);
       if (!updated) {
         return res.status(404).json({ error: "Trade result not found or access denied" });
       }
       res.json(updated);
-      // ── Trigger brain re-learn when a trade is closed (WIN/LOSS recorded) ──
-      // This keeps win-rate, pair stats, and session stats current without user action.
-      const newResult = req.body.result;
-      if (newResult === 'WIN' || newResult === 'LOSS' || newResult === 'BREAKEVEN') {
-        setTimeout(() => {
-          runBrainLearning(userId).catch(err =>
-            console.error('[Brain] Auto re-learn after trade close failed:', err)
-          );
-        }, 2000); // 2s delay lets DB write settle
-      }
     } catch (error: any) {
       console.error("Error updating AI trade result:", error);
       res.status(500).json({ error: "Failed to update trade result" });
@@ -32466,6 +32473,7 @@ Generate an agenda with timing, topics, and hosting tips. Return JSON: {
             created_at AS opened_at
           FROM ai_trade_results
           WHERE profit_loss IS NOT NULL
+            AND coalesce(source, '') <> 'manual' -- self-reported P&L doesn't rank a trader others pay to copy
         ) t ON t.user_id = u.id
         WHERE u.allow_copiers = true
         GROUP BY u.id, u.username

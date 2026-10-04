@@ -1495,6 +1495,42 @@ async function scanOneUser(userId: number): Promise<void> {
  * per-session, so a second session would be refused and the worker would block
  * itself. `_holdsRunLock` distinguishes those cases.
  */
+// ── Per-user isolation inside one scan cycle ─────────────────────────────────
+const EXIT_BUDGET_MS = 45_000;   // one user's exit pass
+const ENTRY_BUDGET_MS = 60_000;  // one user's entry scan
+const userInFlight = new Set<string>();
+let _cycleNo = 0;
+
+function rotate<T>(arr: T[], n: number): T[] {
+  if (arr.length < 2) return arr;
+  const k = n % arr.length;
+  return arr.slice(k).concat(arr.slice(0, k));
+}
+
+/**
+ * Run one user's work with a time budget. Returns when it finishes OR the
+ * budget runs out — whichever is first — so the next user is never blocked.
+ * If that user's previous run is still going (it overran last cycle), skip
+ * rather than start a second concurrent copy for the same account.
+ */
+async function runUserBounded(key: string, budgetMs: number, fn: () => Promise<void>): Promise<void> {
+  if (userInFlight.has(key)) {
+    console.warn(`[cryptocom-scanner] ${key} still running from a previous cycle — skipping this cycle`);
+    return;
+  }
+  userInFlight.add(key);
+  const work = fn()
+    .catch((e: any) => console.error(`[cryptocom-scanner] ${key} failed:`, e?.message ?? e))
+    .finally(() => userInFlight.delete(key));
+  let timer: NodeJS.Timeout | undefined;
+  const timedOut = new Promise<'timeout'>((r) => { timer = setTimeout(() => r('timeout'), budgetMs); });
+  const outcome = await Promise.race([work.then(() => 'done' as const), timedOut]);
+  if (timer) clearTimeout(timer);
+  if (outcome === 'timeout') {
+    console.error(`[cryptocom-scanner] ${key} exceeded ${budgetMs / 1000}s — moving on to the next user (it keeps running in the background)`);
+  }
+}
+
 export async function runCryptocomEngineScan(): Promise<void> {
   // Only acquire if this process isn't already holding it for its lifetime.
   const ownedHere = !_holdsRunLock;
@@ -1555,9 +1591,18 @@ export async function runCryptocomEngineScan(): Promise<void> {
       console.error('[cryptocom-scanner] could not list users with open trades — exit management SKIPPED this cycle:', e?.message);
       return [] as number[];
     });
-    for (const uid of holders) {
-      try {
-        await phase(`exit_pass:user_${uid}`);
+    // Multi-user fairness. Users run one after another, so ONE hung user (e.g.
+    // a DeFi exit stuck waiting on gas — seen live) used to stall exit
+    // management for everyone after them, every cycle, in the same order.
+    // Now: each user gets a time budget, and the order rotates each cycle so
+    // nobody is permanently behind a stuck account. A timed-out call keeps
+    // running in the background; the per-user in-flight guard stops the next
+    // cycle from starting a second copy of it, and close-claims already stop
+    // a duplicate exit order.
+    _cycleNo++;
+    for (const uid of rotate(holders, _cycleNo)) {
+      await phase(`exit_pass:user_${uid}`);
+      await runUserBounded(`exit:${uid}`, EXIT_BUDGET_MS, async () => {
         // The config supplies trail parameters only. A missing config must not
         // block exits, so fall back to defaults that still honour SL/TP.
         const cfg = await storage.getUserCryptocomEngineConfig(uid);
@@ -1566,16 +1611,14 @@ export async function runCryptocomEngineScan(): Promise<void> {
           trailStepR: 0.5, trailProfitLockPct: 50, trailSarInitialAf: 0.02,
           trailSarMaxAf: 0.2, breakevenBufferR: 0,
         }) as any);
-      } catch (e: any) {
-        console.error(`[cryptocom-scanner] exit management failed for user ${uid}:`, e?.message);
-      }
+      });
     }
 
     await phase('entry_scan:list_configs');
     const configs = await storage.getAllActiveCryptocomEngineConfigs();
-    for (const config of configs) {
+    for (const config of rotate(configs, _cycleNo)) {
       await phase(`entry_scan:user_${config.userId}`);
-      await scanOneUser(config.userId).catch((e: any) => console.error(`[cryptocom-scanner] user ${config.userId} scan failed:`, e.message));
+      await runUserBounded(`entry:${config.userId}`, ENTRY_BUDGET_MS, () => scanOneUser(config.userId));
     }
   } catch (err: any) {
     console.error('[cryptocom-scanner] runCryptocomEngineScan failed:', err.message);
