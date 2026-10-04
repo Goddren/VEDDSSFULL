@@ -36,6 +36,26 @@ export interface SourceTrade {
 }
 
 const DAILY_LOSS_BACKSTOP_PCT = 10; // fixed conservative default until made configurable
+/** Hard ceiling on any mirrored lot, whatever the copier configured. */
+export const MAX_COPY_LOT = 1.0;
+/** A mirrored real order's stop must be on the correct side and within this % of entry. */
+const MAX_COPY_SL_DISTANCE_PCT = 5;
+
+/**
+ * The leader's trade arrives from a client-posted route, so its fields are not
+ * trustworthy on their own. A real order is only mirrored with a stop-loss that
+ * is on the losing side of entry and a sane distance away.
+ */
+function validateSourceForRealMirror(source: SourceTrade): string | null {
+  const isBuy = String(source.direction).toUpperCase() === 'BUY';
+  if (!(source.entryPrice > 0)) return 'Leader trade has no valid entry price';
+  if (!(Number(source.stopLoss) > 0)) return 'Leader trade has no stop-loss — real copies require one';
+  const sl = Number(source.stopLoss);
+  if (isBuy ? sl >= source.entryPrice : sl <= source.entryPrice) return 'Leader stop-loss is on the wrong side of entry';
+  const distPct = Math.abs(source.entryPrice - sl) / source.entryPrice * 100;
+  if (distPct > MAX_COPY_SL_DISTANCE_PCT) return `Leader stop-loss is ${distPct.toFixed(1)}% from entry (max ${MAX_COPY_SL_DISTANCE_PCT}%)`;
+  return null;
+}
 const MARGIN_LEVEL_FLOOR_PCT = 200; // matches Gate 0's floor elsewhere in the engine
 const STALE_CACHE_MS = 2 * 60 * 1000;
 
@@ -97,10 +117,11 @@ async function checkRealModeSafety(rel: CopyRelationshipRow, mirrorLot: number):
  * copy_trade_logs row itself so they're visible without blocking the leader's trade.
  */
 export async function executeCopyTradeOpen(rel: CopyRelationshipRow, source: SourceTrade, copyLogId: number): Promise<void> {
-  const mirrorLot = Math.min(parseFloat(String(rel.max_lot_size)) || 0.01, source.lotSize || 0.01);
+  const mirrorLot = Math.min(MAX_COPY_LOT, parseFloat(String(rel.max_lot_size)) || 0.01, source.lotSize || 0.01);
 
   if (rel.account_type === 'real') {
-    const safety = await checkRealModeSafety(rel, mirrorLot);
+    const badSource = validateSourceForRealMirror(source);
+    const safety = badSource ? { ok: false as const, reason: badSource } : await checkRealModeSafety(rel, mirrorLot);
     if (!safety.ok) {
       await db.update(copyTradeLogs).set({
         status: 'closed',

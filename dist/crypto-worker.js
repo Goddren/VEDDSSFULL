@@ -3708,6 +3708,7 @@ var init_db = __esm({
 var storage_exports = {};
 __export(storage_exports, {
   DatabaseStorage: () => DatabaseStorage,
+  InsufficientVeddError: () => InsufficientVeddError,
   storage: () => storage
 });
 import { eq, and, sql, desc, isNull, gte, lte, lt, inArray } from "drizzle-orm";
@@ -3742,7 +3743,7 @@ function decryptApiKey(encryptedKey) {
     return encryptedKey;
   }
 }
-var ENCRYPTION_KEY, ENCRYPTION_ALGORITHM, DatabaseStorage, storage;
+var ENCRYPTION_KEY, ENCRYPTION_ALGORITHM, InsufficientVeddError, DatabaseStorage, storage;
 var init_storage = __esm({
   "server/storage.ts"() {
     "use strict";
@@ -3753,6 +3754,13 @@ var init_storage = __esm({
     if (!ENCRYPTION_KEY || ENCRYPTION_KEY.length < 64) {
       console.warn("API_KEY_ENCRYPTION_SECRET not set or too short. User API key encryption will use a derived key.");
     }
+    InsufficientVeddError = class extends Error {
+      constructor(needed) {
+        super(`Insufficient VEDD balance (need ${needed})`);
+        this.needed = needed;
+        this.name = "InsufficientVeddError";
+      }
+    };
     DatabaseStorage = class {
       sessionStore;
       constructor() {
@@ -4161,6 +4169,19 @@ var init_storage = __esm({
           maturityDate: data.maturityDate
         }).returning();
         await db.update(investmentPools).set({ totalInvested: sql`total_invested + ${data.amountInvested}`, updatedAt: /* @__PURE__ */ new Date() }).where(eq(investmentPools.id, data.poolId));
+        return inv;
+      }
+      /**
+       * Atomically mark an investment withdrawn. Returns the row only for the ONE
+       * caller that flipped it; concurrent withdraw requests get undefined and must
+       * not pay out.
+       */
+      async claimInvestmentWithdrawal(id, userId) {
+        const [inv] = await db.update(tokenInvestments).set({ status: "withdrawn", withdrawnAt: /* @__PURE__ */ new Date(), updatedAt: /* @__PURE__ */ new Date() }).where(and(
+          eq(tokenInvestments.id, id),
+          eq(tokenInvestments.userId, userId),
+          sql`${tokenInvestments.status} NOT IN ('withdrawn', 'cancelled')`
+        )).returning();
         return inv;
       }
       async updateInvestment(id, data) {
@@ -5639,6 +5660,10 @@ var init_storage = __esm({
         const [result] = await db.insert(veddTransferJobs).values(job).returning();
         return result;
       }
+      async updateVeddTransferJob(id, data) {
+        const [result] = await db.update(veddTransferJobs).set(data).where(eq(veddTransferJobs.id, id)).returning();
+        return result;
+      }
       async updateAmbassadorReward(id, data) {
         const [result] = await db.update(ambassadorActionRewards).set(data).where(eq(ambassadorActionRewards.id, id)).returning();
         return result;
@@ -5661,7 +5686,7 @@ var init_storage = __esm({
       async addToWalletBalance(userId, amount, isPending = false) {
         const existing = await this.getInternalWallet(userId);
         if (existing) {
-          const updateData = isPending ? { pendingBalance: (existing.pendingBalance || 0) + amount } : { veddBalance: (existing.veddBalance || 0) + amount, totalEarned: (existing.totalEarned || 0) + amount };
+          const updateData = isPending ? { pendingBalance: sql`coalesce(${internalWallets.pendingBalance}, 0) + ${amount}` } : { veddBalance: sql`coalesce(${internalWallets.veddBalance}, 0) + ${amount}`, totalEarned: sql`coalesce(${internalWallets.totalEarned}, 0) + ${amount}` };
           const [result] = await db.update(internalWallets).set({ ...updateData, lastActivityAt: /* @__PURE__ */ new Date() }).where(eq(internalWallets.userId, userId)).returning();
           return result;
         } else {
@@ -5673,10 +5698,24 @@ var init_storage = __esm({
       async getOrCreateInternalWallet(userId) {
         return this.createOrUpdateInternalWallet(userId, {});
       }
+      /**
+       * Atomic balance change. A DEBIT only succeeds if the balance covers it, in
+       * the same statement — otherwise it throws InsufficientVeddError and nothing
+       * moves. This used to read the balance, compute max(0, balance + delta) and
+       * write it back: N concurrent purchases all passed their caller's balance
+       * check, the buyer was clamped at 0, and every seller credit still happened,
+       * minting VEDD from nothing.
+       */
       async updateInternalWalletBalance(userId, delta) {
-        const wallet = await this.getOrCreateInternalWallet(userId);
-        const newBalance = Math.max(0, (wallet.veddBalance || 0) + delta);
-        const [result] = await db.update(internalWallets).set({ veddBalance: newBalance, lastActivityAt: /* @__PURE__ */ new Date() }).where(eq(internalWallets.userId, userId)).returning();
+        if (!Number.isFinite(delta)) throw new Error(`invalid VEDD amount: ${delta}`);
+        await this.getOrCreateInternalWallet(userId);
+        if (delta < 0) {
+          const amount = -delta;
+          const [result2] = await db.update(internalWallets).set({ veddBalance: sql`${internalWallets.veddBalance} - ${amount}`, lastActivityAt: /* @__PURE__ */ new Date() }).where(and(eq(internalWallets.userId, userId), sql`coalesce(${internalWallets.veddBalance}, 0) >= ${amount}`)).returning();
+          if (!result2) throw new InsufficientVeddError(amount);
+          return result2;
+        }
+        const [result] = await db.update(internalWallets).set({ veddBalance: sql`coalesce(${internalWallets.veddBalance}, 0) + ${delta}`, lastActivityAt: /* @__PURE__ */ new Date() }).where(eq(internalWallets.userId, userId)).returning();
         return result;
       }
       // Brain Data Marketplace
@@ -5837,6 +5876,37 @@ var init_storage = __esm({
       }
       async getAllWithdrawalRequests() {
         return await db.select().from(withdrawalRequests).orderBy(desc(withdrawalRequests.requestedAt));
+      }
+      /** Atomically move `amount` from available to pending. Undefined = not enough balance (nothing moved). */
+      async reserveVeddForWithdrawal(userId, amount) {
+        const [w] = await db.update(internalWallets).set({
+          veddBalance: sql`${internalWallets.veddBalance} - ${amount}`,
+          pendingBalance: sql`coalesce(${internalWallets.pendingBalance}, 0) + ${amount}`,
+          lastActivityAt: /* @__PURE__ */ new Date()
+        }).where(and(eq(internalWallets.userId, userId), sql`coalesce(${internalWallets.veddBalance}, 0) >= ${amount}`)).returning();
+        return w;
+      }
+      /**
+       * Atomically move a withdrawal request from one of `fromStatuses` to `toStatus`.
+       * Only the caller that wins the transition gets the row back, so a balance
+       * side-effect (refund / finalize) can be applied exactly once.
+       */
+      async transitionWithdrawalRequest(id, fromStatuses, data) {
+        const [result] = await db.update(withdrawalRequests).set(data).where(and(eq(withdrawalRequests.id, id), inArray(withdrawalRequests.status, fromStatuses))).returning();
+        return result;
+      }
+      /** Atomic pending → final settlement for a withdrawal ('completed' or 'rejected'). */
+      async settleWithdrawalBalance(userId, amount, outcome) {
+        await db.update(internalWallets).set(outcome === "completed" ? { pendingBalance: sql`greatest(0, coalesce(${internalWallets.pendingBalance}, 0) - ${amount})`, totalWithdrawn: sql`coalesce(${internalWallets.totalWithdrawn}, 0) + ${amount}` } : { pendingBalance: sql`greatest(0, coalesce(${internalWallets.pendingBalance}, 0) - ${amount})`, veddBalance: sql`coalesce(${internalWallets.veddBalance}, 0) + ${amount}` }).where(eq(internalWallets.userId, userId));
+      }
+      /** Atomically attach still-unclaimed verified rewards to a transfer job; returns the rows this caller claimed. */
+      async claimRewardsForTransferJob(userId, rewardIds, transferJobId) {
+        if (!rewardIds.length) return [];
+        return await db.update(ambassadorActionRewards).set({ transferJobId }).where(and(
+          eq(ambassadorActionRewards.userId, userId),
+          inArray(ambassadorActionRewards.id, rewardIds),
+          isNull(ambassadorActionRewards.transferJobId)
+        )).returning();
       }
       async updateWithdrawalRequest(id, data) {
         const [result] = await db.update(withdrawalRequests).set(data).where(eq(withdrawalRequests.id, id)).returning();

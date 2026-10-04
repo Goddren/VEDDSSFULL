@@ -1504,6 +1504,14 @@ async function withRetry<T>(
       console.error('[startup] engine_run_state table (non-fatal):', (err as Error).message);
     }
 
+    // Copy-trading consent: a user can only be copied after opting in. Default
+    // OFF — nobody becomes a copy source without saying so.
+    try {
+      await db.execute(sql`ALTER TABLE users ADD COLUMN IF NOT EXISTS allow_copiers boolean NOT NULL DEFAULT false`);
+    } catch (err) {
+      console.error('[startup] users.allow_copiers column (non-fatal):', (err as Error).message);
+    }
+
     await withRetry(() => seedSubscriptionPlans(), 'seedSubscriptionPlans');
     await withRetry(() => seedAchievements(), 'seedAchievements');
 

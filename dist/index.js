@@ -3974,6 +3974,7 @@ var init_db = __esm({
 var storage_exports = {};
 __export(storage_exports, {
   DatabaseStorage: () => DatabaseStorage,
+  InsufficientVeddError: () => InsufficientVeddError,
   storage: () => storage
 });
 import { eq, and, sql, desc, isNull, gte, lte, lt, inArray } from "drizzle-orm";
@@ -4008,7 +4009,7 @@ function decryptApiKey(encryptedKey) {
     return encryptedKey;
   }
 }
-var ENCRYPTION_KEY, ENCRYPTION_ALGORITHM, DatabaseStorage, storage;
+var ENCRYPTION_KEY, ENCRYPTION_ALGORITHM, InsufficientVeddError, DatabaseStorage, storage;
 var init_storage = __esm({
   "server/storage.ts"() {
     "use strict";
@@ -4019,6 +4020,13 @@ var init_storage = __esm({
     if (!ENCRYPTION_KEY || ENCRYPTION_KEY.length < 64) {
       console.warn("API_KEY_ENCRYPTION_SECRET not set or too short. User API key encryption will use a derived key.");
     }
+    InsufficientVeddError = class extends Error {
+      constructor(needed) {
+        super(`Insufficient VEDD balance (need ${needed})`);
+        this.needed = needed;
+        this.name = "InsufficientVeddError";
+      }
+    };
     DatabaseStorage = class {
       sessionStore;
       constructor() {
@@ -4427,6 +4435,19 @@ var init_storage = __esm({
           maturityDate: data.maturityDate
         }).returning();
         await db.update(investmentPools).set({ totalInvested: sql`total_invested + ${data.amountInvested}`, updatedAt: /* @__PURE__ */ new Date() }).where(eq(investmentPools.id, data.poolId));
+        return inv;
+      }
+      /**
+       * Atomically mark an investment withdrawn. Returns the row only for the ONE
+       * caller that flipped it; concurrent withdraw requests get undefined and must
+       * not pay out.
+       */
+      async claimInvestmentWithdrawal(id, userId) {
+        const [inv] = await db.update(tokenInvestments).set({ status: "withdrawn", withdrawnAt: /* @__PURE__ */ new Date(), updatedAt: /* @__PURE__ */ new Date() }).where(and(
+          eq(tokenInvestments.id, id),
+          eq(tokenInvestments.userId, userId),
+          sql`${tokenInvestments.status} NOT IN ('withdrawn', 'cancelled')`
+        )).returning();
         return inv;
       }
       async updateInvestment(id, data) {
@@ -5905,6 +5926,10 @@ var init_storage = __esm({
         const [result] = await db.insert(veddTransferJobs).values(job).returning();
         return result;
       }
+      async updateVeddTransferJob(id, data) {
+        const [result] = await db.update(veddTransferJobs).set(data).where(eq(veddTransferJobs.id, id)).returning();
+        return result;
+      }
       async updateAmbassadorReward(id, data) {
         const [result] = await db.update(ambassadorActionRewards).set(data).where(eq(ambassadorActionRewards.id, id)).returning();
         return result;
@@ -5927,7 +5952,7 @@ var init_storage = __esm({
       async addToWalletBalance(userId, amount, isPending = false) {
         const existing = await this.getInternalWallet(userId);
         if (existing) {
-          const updateData = isPending ? { pendingBalance: (existing.pendingBalance || 0) + amount } : { veddBalance: (existing.veddBalance || 0) + amount, totalEarned: (existing.totalEarned || 0) + amount };
+          const updateData = isPending ? { pendingBalance: sql`coalesce(${internalWallets.pendingBalance}, 0) + ${amount}` } : { veddBalance: sql`coalesce(${internalWallets.veddBalance}, 0) + ${amount}`, totalEarned: sql`coalesce(${internalWallets.totalEarned}, 0) + ${amount}` };
           const [result] = await db.update(internalWallets).set({ ...updateData, lastActivityAt: /* @__PURE__ */ new Date() }).where(eq(internalWallets.userId, userId)).returning();
           return result;
         } else {
@@ -5939,10 +5964,24 @@ var init_storage = __esm({
       async getOrCreateInternalWallet(userId) {
         return this.createOrUpdateInternalWallet(userId, {});
       }
+      /**
+       * Atomic balance change. A DEBIT only succeeds if the balance covers it, in
+       * the same statement — otherwise it throws InsufficientVeddError and nothing
+       * moves. This used to read the balance, compute max(0, balance + delta) and
+       * write it back: N concurrent purchases all passed their caller's balance
+       * check, the buyer was clamped at 0, and every seller credit still happened,
+       * minting VEDD from nothing.
+       */
       async updateInternalWalletBalance(userId, delta) {
-        const wallet = await this.getOrCreateInternalWallet(userId);
-        const newBalance = Math.max(0, (wallet.veddBalance || 0) + delta);
-        const [result] = await db.update(internalWallets).set({ veddBalance: newBalance, lastActivityAt: /* @__PURE__ */ new Date() }).where(eq(internalWallets.userId, userId)).returning();
+        if (!Number.isFinite(delta)) throw new Error(`invalid VEDD amount: ${delta}`);
+        await this.getOrCreateInternalWallet(userId);
+        if (delta < 0) {
+          const amount = -delta;
+          const [result2] = await db.update(internalWallets).set({ veddBalance: sql`${internalWallets.veddBalance} - ${amount}`, lastActivityAt: /* @__PURE__ */ new Date() }).where(and(eq(internalWallets.userId, userId), sql`coalesce(${internalWallets.veddBalance}, 0) >= ${amount}`)).returning();
+          if (!result2) throw new InsufficientVeddError(amount);
+          return result2;
+        }
+        const [result] = await db.update(internalWallets).set({ veddBalance: sql`coalesce(${internalWallets.veddBalance}, 0) + ${delta}`, lastActivityAt: /* @__PURE__ */ new Date() }).where(eq(internalWallets.userId, userId)).returning();
         return result;
       }
       // Brain Data Marketplace
@@ -6103,6 +6142,37 @@ var init_storage = __esm({
       }
       async getAllWithdrawalRequests() {
         return await db.select().from(withdrawalRequests).orderBy(desc(withdrawalRequests.requestedAt));
+      }
+      /** Atomically move `amount` from available to pending. Undefined = not enough balance (nothing moved). */
+      async reserveVeddForWithdrawal(userId, amount) {
+        const [w] = await db.update(internalWallets).set({
+          veddBalance: sql`${internalWallets.veddBalance} - ${amount}`,
+          pendingBalance: sql`coalesce(${internalWallets.pendingBalance}, 0) + ${amount}`,
+          lastActivityAt: /* @__PURE__ */ new Date()
+        }).where(and(eq(internalWallets.userId, userId), sql`coalesce(${internalWallets.veddBalance}, 0) >= ${amount}`)).returning();
+        return w;
+      }
+      /**
+       * Atomically move a withdrawal request from one of `fromStatuses` to `toStatus`.
+       * Only the caller that wins the transition gets the row back, so a balance
+       * side-effect (refund / finalize) can be applied exactly once.
+       */
+      async transitionWithdrawalRequest(id, fromStatuses, data) {
+        const [result] = await db.update(withdrawalRequests).set(data).where(and(eq(withdrawalRequests.id, id), inArray(withdrawalRequests.status, fromStatuses))).returning();
+        return result;
+      }
+      /** Atomic pending → final settlement for a withdrawal ('completed' or 'rejected'). */
+      async settleWithdrawalBalance(userId, amount, outcome) {
+        await db.update(internalWallets).set(outcome === "completed" ? { pendingBalance: sql`greatest(0, coalesce(${internalWallets.pendingBalance}, 0) - ${amount})`, totalWithdrawn: sql`coalesce(${internalWallets.totalWithdrawn}, 0) + ${amount}` } : { pendingBalance: sql`greatest(0, coalesce(${internalWallets.pendingBalance}, 0) - ${amount})`, veddBalance: sql`coalesce(${internalWallets.veddBalance}, 0) + ${amount}` }).where(eq(internalWallets.userId, userId));
+      }
+      /** Atomically attach still-unclaimed verified rewards to a transfer job; returns the rows this caller claimed. */
+      async claimRewardsForTransferJob(userId, rewardIds, transferJobId) {
+        if (!rewardIds.length) return [];
+        return await db.update(ambassadorActionRewards).set({ transferJobId }).where(and(
+          eq(ambassadorActionRewards.userId, userId),
+          inArray(ambassadorActionRewards.id, rewardIds),
+          isNull(ambassadorActionRewards.transferJobId)
+        )).returning();
       }
       async updateWithdrawalRequest(id, data) {
         const [result] = await db.update(withdrawalRequests).set(data).where(eq(withdrawalRequests.id, id)).returning();
@@ -49978,10 +50048,21 @@ var init_micro_growth_milestones = __esm({
 // server/services/copy-trade-execution.ts
 var copy_trade_execution_exports = {};
 __export(copy_trade_execution_exports, {
+  MAX_COPY_LOT: () => MAX_COPY_LOT,
   executeCopyTradeClose: () => executeCopyTradeClose,
   executeCopyTradeOpen: () => executeCopyTradeOpen
 });
 import { eq as eq16 } from "drizzle-orm";
+function validateSourceForRealMirror(source) {
+  const isBuy = String(source.direction).toUpperCase() === "BUY";
+  if (!(source.entryPrice > 0)) return "Leader trade has no valid entry price";
+  if (!(Number(source.stopLoss) > 0)) return "Leader trade has no stop-loss \u2014 real copies require one";
+  const sl = Number(source.stopLoss);
+  if (isBuy ? sl >= source.entryPrice : sl <= source.entryPrice) return "Leader stop-loss is on the wrong side of entry";
+  const distPct = Math.abs(source.entryPrice - sl) / source.entryPrice * 100;
+  if (distPct > MAX_COPY_SL_DISTANCE_PCT) return `Leader stop-loss is ${distPct.toFixed(1)}% from entry (max ${MAX_COPY_SL_DISTANCE_PCT}%)`;
+  return null;
+}
 async function checkRealModeSafety(rel, mirrorLot) {
   if (!rel.copier_connection_id) {
     return { ok: false, reason: "No TradeLocker account selected for real-mode copying" };
@@ -50025,9 +50106,10 @@ async function checkRealModeSafety(rel, mirrorLot) {
   return { ok: true };
 }
 async function executeCopyTradeOpen(rel, source, copyLogId) {
-  const mirrorLot = Math.min(parseFloat(String(rel.max_lot_size)) || 0.01, source.lotSize || 0.01);
+  const mirrorLot = Math.min(MAX_COPY_LOT, parseFloat(String(rel.max_lot_size)) || 0.01, source.lotSize || 0.01);
   if (rel.account_type === "real") {
-    const safety = await checkRealModeSafety(rel, mirrorLot);
+    const badSource = validateSourceForRealMirror(source);
+    const safety = badSource ? { ok: false, reason: badSource } : await checkRealModeSafety(rel, mirrorLot);
     if (!safety.ok) {
       await db.update(copyTradeLogs).set({
         status: "closed",
@@ -50121,7 +50203,7 @@ async function executeCopyTradeClose(rel, log2, sourceExitPrice, sourcePnl, sour
   }
   return copierPnl;
 }
-var DAILY_LOSS_BACKSTOP_PCT, MARGIN_LEVEL_FLOOR_PCT, STALE_CACHE_MS;
+var DAILY_LOSS_BACKSTOP_PCT, MAX_COPY_LOT, MAX_COPY_SL_DISTANCE_PCT, MARGIN_LEVEL_FLOOR_PCT, STALE_CACHE_MS;
 var init_copy_trade_execution = __esm({
   "server/services/copy-trade-execution.ts"() {
     "use strict";
@@ -50130,6 +50212,8 @@ var init_copy_trade_execution = __esm({
     init_schema();
     init_tradelocker();
     DAILY_LOSS_BACKSTOP_PCT = 10;
+    MAX_COPY_LOT = 1;
+    MAX_COPY_SL_DISTANCE_PCT = 5;
     MARGIN_LEVEL_FLOOR_PCT = 200;
     STALE_CACHE_MS = 2 * 60 * 1e3;
   }
@@ -57499,9 +57583,9 @@ async function getStopOrdersForUser(userId, filters = {}) {
 init_schema();
 
 // server/build-info.ts
-var BUILD_COMMIT = "23d26344-dirty";
+var BUILD_COMMIT = "3efa000a-dirty";
 var BUILD_BRANCH = "main";
-var BUILT_AT = "2026-10-04T22:14:54.591Z";
+var BUILT_AT = "2026-10-04T22:48:09.573Z";
 
 // server/stripe.ts
 init_db();
@@ -82765,25 +82849,38 @@ This request will not trigger a transaction or cost any fees.`;
       if (verifiedRewards.length === 0) {
         return res.status(400).json({ error: "No verified rewards available for withdrawal." });
       }
-      const totalAmount = verifiedRewards.reduce((sum, r) => sum + r.totalReward, 0);
       const poolWallets = await storage.getVeddPoolWallets();
       const rewardsPool = poolWallets.find((w) => w.walletType === "rewards" && w.status === "active");
       if (!rewardsPool) {
         return res.status(500).json({ error: "Rewards pool not configured. Please contact support." });
       }
+      const rewardIds = verifiedRewards.map((r) => r.id).sort((a, b) => a - b);
       const transferJob = await storage.createVeddTransferJob({
         userId: user.id,
         sourceWalletId: rewardsPool.id,
         destinationWallet: user.walletAddress,
-        amount: totalAmount,
+        amount: 0,
+        // set below from the rewards THIS request actually claimed
         actionType: "ambassador_withdrawal",
-        status: "pending",
-        idempotencyKey: `withdrawal_${user.id}_${Date.now()}`,
-        metadata: { rewardIds: verifiedRewards.map((r) => r.id) }
+        status: "claiming",
+        // not processable until the claim below fills in the real amount
+        idempotencyKey: `withdrawal_${user.id}_${rewardIds.join("-")}`,
+        metadata: { rewardIds }
+      }).catch((e) => {
+        if (String(e?.message || e).match(/duplicate|unique/i)) return null;
+        throw e;
       });
-      for (const reward of verifiedRewards) {
-        await storage.updateAmbassadorReward(reward.id, { transferJobId: transferJob.id });
+      if (!transferJob) {
+        return res.status(409).json({ error: "A withdrawal for these rewards is already in progress." });
       }
+      const claimed = await storage.claimRewardsForTransferJob(user.id, rewardIds, transferJob.id);
+      const totalAmount = claimed.reduce((sum, r) => sum + r.totalReward, 0);
+      if (!claimed.length) {
+        await storage.updateVeddTransferJob(transferJob.id, { status: "cancelled", amount: 0 }).catch(() => {
+        });
+        return res.status(409).json({ error: "These rewards were already claimed by another withdrawal." });
+      }
+      await storage.updateVeddTransferJob(transferJob.id, { status: "pending", amount: totalAmount, metadata: { rewardIds: claimed.map((r) => r.id) } });
       res.json({
         success: true,
         transferId: transferJob.id,
@@ -82821,22 +82918,19 @@ This request will not trigger a transaction or cost any fees.`;
       return res.status(401).json({ error: "Authentication required" });
     }
     const user = req.user;
-    const { amount, destinationWallet } = req.body;
-    if (!amount || amount <= 0) {
+    const { destinationWallet } = req.body;
+    const amount = Number(req.body.amount);
+    if (!Number.isFinite(amount) || amount <= 0) {
       return res.status(400).json({ error: "Invalid withdrawal amount" });
     }
     if (!destinationWallet || !destinationWallet.match(/^[1-9A-HJ-NP-Za-km-z]{32,44}$/)) {
       return res.status(400).json({ error: "Invalid Solana wallet address" });
     }
     try {
-      const wallet = await storage.getInternalWallet(user.id);
-      if (!wallet || wallet.veddBalance < amount) {
+      const reserved = await storage.reserveVeddForWithdrawal(user.id, amount);
+      if (!reserved) {
         return res.status(400).json({ error: "Insufficient balance" });
       }
-      await storage.createOrUpdateInternalWallet(user.id, {
-        veddBalance: wallet.veddBalance - amount,
-        pendingBalance: (wallet.pendingBalance || 0) + amount
-      });
       const request = await storage.createWithdrawalRequest(user.id, amount, destinationWallet);
       res.json({
         success: true,
@@ -82897,27 +82991,20 @@ This request will not trigger a transaction or cost any fees.`;
       if (!request) {
         return res.status(404).json({ error: "Withdrawal request not found" });
       }
-      const wallet = await storage.getInternalWallet(request.userId);
-      if (wallet) {
-        if (status === "completed") {
-          await storage.createOrUpdateInternalWallet(request.userId, {
-            pendingBalance: Math.max(0, (wallet.pendingBalance || 0) - request.amount),
-            totalWithdrawn: (wallet.totalWithdrawn || 0) + request.amount
-          });
-        } else if (status === "rejected") {
-          await storage.createOrUpdateInternalWallet(request.userId, {
-            pendingBalance: Math.max(0, (wallet.pendingBalance || 0) - request.amount),
-            veddBalance: (wallet.veddBalance || 0) + request.amount
-          });
-        }
-      }
-      const updated = await storage.updateWithdrawalRequest(parseInt(id), {
+      const OPEN = ["pending", "approved", "processing"];
+      const updated = await storage.transitionWithdrawalRequest(parseInt(id), OPEN, {
         status,
         adminId: user.id,
         adminNotes,
         solanaTransactionSig,
         processedAt: /* @__PURE__ */ new Date()
       });
+      if (!updated) {
+        return res.status(409).json({ error: `Withdrawal is already ${request.status} and can't be changed.` });
+      }
+      if (status === "completed" || status === "rejected") {
+        await storage.settleWithdrawalBalance(request.userId, request.amount, status);
+      }
       res.json({ success: true, request: updated });
     } catch (err) {
       console.error("Error processing withdrawal:", err);
@@ -85276,8 +85363,9 @@ This request will not trigger a transaction or cost any fees.`;
   });
   app2.post("/api/investments/invest", async (req, res) => {
     if (!req.user) return res.status(401).json({ message: "Unauthorized" });
-    const { poolId, amount } = req.body;
-    if (!poolId || !amount || amount <= 0) return res.status(400).json({ message: "poolId and amount required" });
+    const { poolId } = req.body;
+    const amount = Number(req.body.amount);
+    if (!poolId || !Number.isFinite(amount) || amount <= 0) return res.status(400).json({ message: "poolId and amount required" });
     const pool2 = await storage.getInvestmentPool(poolId);
     if (!pool2) return res.status(404).json({ message: "Pool not found" });
     if (!pool2.isActive || pool2.isPaused) return res.status(400).json({ message: "This pool is not currently accepting investments" });
@@ -85285,7 +85373,12 @@ This request will not trigger a transaction or cost any fees.`;
     if (pool2.maxInvestment && amount > pool2.maxInvestment) return res.status(400).json({ message: `Maximum investment is ${pool2.maxInvestment} VEDD` });
     const wallet = await storage.getOrCreateInternalWallet(req.user.id);
     if (!wallet || wallet.veddBalance < amount) return res.status(400).json({ message: "Insufficient VEDD balance in your wallet" });
-    await storage.updateInternalWalletBalance(req.user.id, -amount);
+    try {
+      await storage.updateInternalWalletBalance(req.user.id, -amount);
+    } catch (e) {
+      if (e?.name === "InsufficientVeddError") return res.status(400).json({ message: "Insufficient VEDD balance in your wallet" });
+      throw e;
+    }
     const maturityDate = pool2.lockPeriodDays > 0 ? new Date(Date.now() + pool2.lockPeriodDays * 24 * 60 * 60 * 1e3) : null;
     const investment = await storage.createInvestment({ userId: req.user.id, poolId, amountInvested: amount, maturityDate });
     res.json(investment);
@@ -85307,8 +85400,8 @@ This request will not trigger a transaction or cost any fees.`;
       }
     }
     await accrueYieldForUser(req.user.id);
-    const updated = await storage.getInvestment(id);
-    if (!updated) return res.status(404).json({ message: "Investment not found" });
+    const updated = await storage.claimInvestmentWithdrawal(id, req.user.id);
+    if (!updated) return res.status(400).json({ message: "Investment is already withdrawn" });
     await storage.updateInternalWalletBalance(req.user.id, updated.currentValue);
     if (pool2) {
       await storage.updateInvestmentPool(pool2.id, {
@@ -85316,7 +85409,6 @@ This request will not trigger a transaction or cost any fees.`;
         totalYieldPaid: pool2.totalYieldPaid + updated.yieldEarned
       });
     }
-    await storage.updateInvestment(id, { status: "withdrawn", withdrawnAt: /* @__PURE__ */ new Date() });
     res.json({ success: true, returned: updated.currentValue, yieldEarned: updated.yieldEarned });
   });
   app2.get("/api/admin/investments/pools", async (req, res) => {
@@ -87755,14 +87847,24 @@ Sitemap: ${SEO_BASE_URL}/sitemap.xml
       `);
       const newTradeId = (Array.isArray(tradeRows) ? tradeRows[0] : tradeRows.rows?.[0])?.id;
       try {
+        const COPY_MAX_OPENS_PER_HOUR = 20;
         const copiers = await db.execute(sql13`
-          SELECT id, copier_id, account_type, max_lot_size, profit_share_pct, copier_connection_id
-          FROM copy_relationships WHERE source_user_id=${userId} AND is_active=true
+          SELECT cr.id, cr.copier_id, cr.account_type, cr.max_lot_size, cr.profit_share_pct, cr.copier_connection_id
+          FROM copy_relationships cr JOIN users u ON u.id = cr.source_user_id
+          WHERE cr.source_user_id=${userId} AND cr.is_active=true AND u.allow_copiers = true
         `);
-        const copierList = Array.isArray(copiers) ? copiers : copiers.rows ?? [];
-        const { executeCopyTradeOpen: executeCopyTradeOpen2 } = await Promise.resolve().then(() => (init_copy_trade_execution(), copy_trade_execution_exports));
+        let copierList = Array.isArray(copiers) ? copiers : copiers.rows ?? [];
+        if (copierList.length) {
+          const _recent = await db.execute(sql13`SELECT count(DISTINCT original_trade_id) AS n FROM copy_trade_logs WHERE source_user_id=${userId} AND opened_at > now() - interval '1 hour'`);
+          const _n = Number((Array.isArray(_recent) ? _recent[0] : _recent.rows?.[0])?.n ?? 0);
+          if (_n >= COPY_MAX_OPENS_PER_HOUR) {
+            console.warn(`[CopyTrading] source ${userId} hit ${COPY_MAX_OPENS_PER_HOUR} mirrored opens/hour \u2014 not mirroring trade ${newTradeId}`);
+            copierList = [];
+          }
+        }
+        const { executeCopyTradeOpen: executeCopyTradeOpen2, MAX_COPY_LOT: MAX_COPY_LOT2 } = await Promise.resolve().then(() => (init_copy_trade_execution(), copy_trade_execution_exports));
         for (const rel of copierList) {
-          const mirrorLot = Math.min(parseFloat(rel.max_lot_size) || 0.01, parseFloat(String(lotSize)) || 0.01);
+          const mirrorLot = Math.min(MAX_COPY_LOT2, parseFloat(rel.max_lot_size) || 0.01, parseFloat(String(lotSize)) || 0.01);
           const logRows = await db.execute(sql13`
             INSERT INTO copy_trade_logs (relationship_id, copier_id, source_user_id, original_trade_id, pair, direction, entry_price, stop_loss, take_profit, lot_size, status, opened_at)
             VALUES (${rel.id}, ${rel.copier_id}, ${userId}, ${newTradeId ?? null}, ${pair}, ${direction}, ${entryPrice}, ${stopLoss ?? null}, ${takeProfit ?? null}, ${mirrorLot}, 'open', now())
@@ -87877,6 +87979,22 @@ Sitemap: ${SEO_BASE_URL}/sitemap.xml
       res.status(500).json({ error: e.message });
     }
   });
+  app2.get("/api/copy/settings", async (req, res) => {
+    if (!req.isAuthenticated()) return res.status(401).json({ error: "Not authenticated" });
+    const r = await db.execute(sql13`SELECT allow_copiers FROM users WHERE id=${req.user.id}`);
+    const row = Array.isArray(r) ? r[0] : r.rows?.[0];
+    res.json({ allowCopiers: row?.allow_copiers === true });
+  });
+  app2.put("/api/copy/settings", async (req, res) => {
+    if (!req.isAuthenticated()) return res.status(401).json({ error: "Not authenticated" });
+    const userId = req.user.id;
+    if (typeof req.body?.allowCopiers !== "boolean") return res.status(400).json({ error: "allowCopiers (boolean) required" });
+    await db.execute(sql13`UPDATE users SET allow_copiers=${req.body.allowCopiers} WHERE id=${userId}`);
+    if (!req.body.allowCopiers) {
+      await db.execute(sql13`UPDATE copy_relationships SET is_active=false WHERE source_user_id=${userId} AND is_active=true`);
+    }
+    res.json({ allowCopiers: req.body.allowCopiers });
+  });
   app2.get("/api/copy/leaderboard", async (req, res) => {
     if (!req.isAuthenticated()) return res.status(401).json({ error: "Not authenticated" });
     try {
@@ -87918,6 +88036,7 @@ Sitemap: ${SEO_BASE_URL}/sitemap.xml
           FROM ai_trade_results
           WHERE profit_loss IS NOT NULL
         ) t ON t.user_id = u.id
+        WHERE u.allow_copiers = true
         GROUP BY u.id, u.username
         HAVING COUNT(t.id) >= 1
         ORDER BY
@@ -87952,9 +88071,24 @@ Sitemap: ${SEO_BASE_URL}/sitemap.xml
   app2.post("/api/copy/relationships", async (req, res) => {
     if (!req.isAuthenticated()) return res.status(401).json({ error: "Not authenticated" });
     const userId = req.user.id;
-    const { sourceUserId, accountType = "paper", maxLotSize = 0.01, profitSharePct = 20, copierConnectionId = null } = req.body;
-    if (!sourceUserId || sourceUserId === userId) {
+    const { accountType = "paper", profitSharePct = 20, copierConnectionId = null } = req.body;
+    const sourceUserId = Number(req.body.sourceUserId);
+    if (!Number.isInteger(sourceUserId) || sourceUserId <= 0 || sourceUserId === userId) {
       return res.status(400).json({ error: "Invalid sourceUserId" });
+    }
+    if (accountType !== "paper" && accountType !== "real") {
+      return res.status(400).json({ error: "accountType must be 'paper' or 'real'" });
+    }
+    const { MAX_COPY_LOT: MAX_COPY_LOT2 } = await Promise.resolve().then(() => (init_copy_trade_execution(), copy_trade_execution_exports));
+    const maxLotSize = Number(req.body.maxLotSize ?? 0.01);
+    if (!(maxLotSize > 0 && maxLotSize <= MAX_COPY_LOT2)) {
+      return res.status(400).json({ error: `maxLotSize must be greater than 0 and at most ${MAX_COPY_LOT2}` });
+    }
+    {
+      const _src = await db.execute(sql13`SELECT allow_copiers FROM users WHERE id=${sourceUserId} LIMIT 1`);
+      const _srcRow = Array.isArray(_src) ? _src[0] : _src.rows?.[0];
+      if (!_srcRow) return res.status(404).json({ error: "Trader not found" });
+      if (_srcRow.allow_copiers !== true) return res.status(403).json({ error: "This trader hasn't enabled copy trading" });
     }
     if (accountType === "real") {
       if (!copierConnectionId) {
@@ -87978,7 +88112,12 @@ Sitemap: ${SEO_BASE_URL}/sitemap.xml
           balance: copierBalance
         });
       }
-      await _stor.updateInternalWalletBalance(userId, -COPY_SUBSCRIPTION_FEE_VEDD);
+      try {
+        await _stor.updateInternalWalletBalance(userId, -COPY_SUBSCRIPTION_FEE_VEDD);
+      } catch (e) {
+        if (e?.name === "InsufficientVeddError") return res.status(402).json({ error: `You need ${COPY_SUBSCRIPTION_FEE_VEDD} VEDD to copy a trader.`, required: COPY_SUBSCRIPTION_FEE_VEDD });
+        throw e;
+      }
       await _stor.addToWalletBalance(sourceUserId, COPY_SUBSCRIPTION_FEE_VEDD);
       const clampedPct = Math.min(50, Math.max(5, Number(profitSharePct) || 20));
       await db.execute(sql13`
@@ -88010,7 +88149,20 @@ Sitemap: ${SEO_BASE_URL}/sitemap.xml
           return res.status(400).json({ error: "Selected TradeLocker connection is invalid or not yours" });
         }
       }
+      if (accountType !== void 0 && accountType !== "paper" && accountType !== "real") {
+        return res.status(400).json({ error: "accountType must be 'paper' or 'real'" });
+      }
+      if (copierConnectionId !== void 0 && copierConnectionId !== null) {
+        const conn = await storage.getTradelockerConnection(Number(copierConnectionId));
+        if (!conn || conn.userId !== userId) {
+          return res.status(400).json({ error: "Selected TradeLocker connection is invalid or not yours" });
+        }
+      }
       if (typeof maxLotSize === "number") {
+        const { MAX_COPY_LOT: MAX_COPY_LOT2 } = await Promise.resolve().then(() => (init_copy_trade_execution(), copy_trade_execution_exports));
+        if (!(maxLotSize > 0 && maxLotSize <= MAX_COPY_LOT2)) {
+          return res.status(400).json({ error: `maxLotSize must be greater than 0 and at most ${MAX_COPY_LOT2}` });
+        }
         await db.execute(sql13`UPDATE copy_relationships SET max_lot_size=${maxLotSize} WHERE id=${relId} AND copier_id=${userId}`);
       }
       if (accountType) {
@@ -88254,6 +88406,7 @@ Sitemap: ${SEO_BASE_URL}/sitemap.xml
       res.status(500).json({ error: e.message });
     }
   });
+  const brainBuyInFlight = /* @__PURE__ */ new Set();
   app2.post("/api/brain-marketplace/:id/buy", async (req, res) => {
     if (!req.isAuthenticated()) return res.status(401).json({ error: "Not authenticated" });
     const buyerId = req.user.id;
@@ -88275,7 +88428,19 @@ Sitemap: ${SEO_BASE_URL}/sitemap.xml
           balance: buyerBalance
         });
       }
-      await storage.updateInternalWalletBalance(buyerId, -listing.priceVedd);
+      const _buyKey = `${buyerId}:${listingId}`;
+      if (brainBuyInFlight.has(_buyKey)) return res.status(409).json({ error: "This purchase is already being processed" });
+      brainBuyInFlight.add(_buyKey);
+      res.on("finish", () => brainBuyInFlight.delete(_buyKey));
+      res.on("close", () => brainBuyInFlight.delete(_buyKey));
+      try {
+        await storage.updateInternalWalletBalance(buyerId, -listing.priceVedd);
+      } catch (e) {
+        if (e?.name === "InsufficientVeddError") {
+          return res.status(402).json({ error: `Insufficient VEDD balance. Need ${listing.priceVedd}.`, required: listing.priceVedd });
+        }
+        throw e;
+      }
       await storage.addToWalletBalance(listing.sellerId, listing.priceVedd);
       let tradesImported;
       if (listing.sourceCategory === "kalshi") {
@@ -91223,6 +91388,11 @@ async function withRetry(fn, label, maxAttempts = 6, baseDelayMs = 2e3) {
       console.log("[startup] engine_run_state table ready.");
     } catch (err) {
       console.error("[startup] engine_run_state table (non-fatal):", err.message);
+    }
+    try {
+      await db.execute(sql17`ALTER TABLE users ADD COLUMN IF NOT EXISTS allow_copiers boolean NOT NULL DEFAULT false`);
+    } catch (err) {
+      console.error("[startup] users.allow_copiers column (non-fatal):", err.message);
     }
     await withRetry(() => seedSubscriptionPlans(), "seedSubscriptionPlans");
     await withRetry(() => seedAchievements(), "seedAchievements");

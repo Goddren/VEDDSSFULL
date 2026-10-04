@@ -143,6 +143,14 @@ function decryptApiKey(encryptedKey: string): string {
 
 // In-memory storage will be implemented in the class
 
+/** Thrown by updateInternalWalletBalance when a debit isn't covered. Nothing was moved. */
+export class InsufficientVeddError extends Error {
+  constructor(public readonly needed: number) {
+    super(`Insufficient VEDD balance (need ${needed})`);
+    this.name = 'InsufficientVeddError';
+  }
+}
+
 export interface IStorage {
   sessionStore: session.Store;
   getUser(id: number): Promise<User | undefined>;
@@ -1326,6 +1334,23 @@ export class DatabaseStorage implements IStorage {
     await db.update(investmentPools)
       .set({ totalInvested: sql`total_invested + ${data.amountInvested}`, updatedAt: new Date() } as any)
       .where(eq(investmentPools.id, data.poolId));
+    return inv;
+  }
+
+  /**
+   * Atomically mark an investment withdrawn. Returns the row only for the ONE
+   * caller that flipped it; concurrent withdraw requests get undefined and must
+   * not pay out.
+   */
+  async claimInvestmentWithdrawal(id: number, userId: number): Promise<TokenInvestment | undefined> {
+    const [inv] = await db.update(tokenInvestments)
+      .set({ status: 'withdrawn', withdrawnAt: new Date(), updatedAt: new Date() } as any)
+      .where(and(
+        eq(tokenInvestments.id, id),
+        eq(tokenInvestments.userId, userId),
+        sql`${tokenInvestments.status} NOT IN ('withdrawn', 'cancelled')`,
+      ))
+      .returning();
     return inv;
   }
 
@@ -3534,6 +3559,11 @@ export class DatabaseStorage implements IStorage {
     return result;
   }
 
+  async updateVeddTransferJob(id: number, data: Partial<VeddTransferJob>): Promise<VeddTransferJob | undefined> {
+    const [result] = await db.update(veddTransferJobs).set(data as any).where(eq(veddTransferJobs.id, id)).returning();
+    return result;
+  }
+
   async updateAmbassadorReward(id: number, data: Partial<AmbassadorActionReward>): Promise<AmbassadorActionReward | undefined> {
     const [result] = await db.update(ambassadorActionRewards)
       .set(data)
@@ -3568,11 +3598,14 @@ export class DatabaseStorage implements IStorage {
   async addToWalletBalance(userId: number, amount: number, isPending: boolean = false): Promise<InternalWallet> {
     const existing = await this.getInternalWallet(userId);
     if (existing) {
-      const updateData = isPending 
-        ? { pendingBalance: (existing.pendingBalance || 0) + amount }
-        : { veddBalance: (existing.veddBalance || 0) + amount, totalEarned: (existing.totalEarned || 0) + amount };
+      // Increment IN SQL. Reading the balance and writing back an absolute
+      // value lost credits when two landed at once (both read the same old
+      // balance; the second write erased the first).
+      const updateData = isPending
+        ? { pendingBalance: sql`coalesce(${internalWallets.pendingBalance}, 0) + ${amount}` }
+        : { veddBalance: sql`coalesce(${internalWallets.veddBalance}, 0) + ${amount}`, totalEarned: sql`coalesce(${internalWallets.totalEarned}, 0) + ${amount}` };
       const [result] = await db.update(internalWallets)
-        .set({ ...updateData, lastActivityAt: new Date() })
+        .set({ ...(updateData as any), lastActivityAt: new Date() })
         .where(eq(internalWallets.userId, userId))
         .returning();
       return result;
@@ -3591,11 +3624,28 @@ export class DatabaseStorage implements IStorage {
     return this.createOrUpdateInternalWallet(userId, {});
   }
 
+  /**
+   * Atomic balance change. A DEBIT only succeeds if the balance covers it, in
+   * the same statement — otherwise it throws InsufficientVeddError and nothing
+   * moves. This used to read the balance, compute max(0, balance + delta) and
+   * write it back: N concurrent purchases all passed their caller's balance
+   * check, the buyer was clamped at 0, and every seller credit still happened,
+   * minting VEDD from nothing.
+   */
   async updateInternalWalletBalance(userId: number, delta: number): Promise<InternalWallet> {
-    const wallet = await this.getOrCreateInternalWallet(userId);
-    const newBalance = Math.max(0, (wallet.veddBalance || 0) + delta);
+    if (!Number.isFinite(delta)) throw new Error(`invalid VEDD amount: ${delta}`);
+    await this.getOrCreateInternalWallet(userId);
+    if (delta < 0) {
+      const amount = -delta;
+      const [result] = await db.update(internalWallets)
+        .set({ veddBalance: sql`${internalWallets.veddBalance} - ${amount}`, lastActivityAt: new Date() })
+        .where(and(eq(internalWallets.userId, userId), sql`coalesce(${internalWallets.veddBalance}, 0) >= ${amount}`))
+        .returning();
+      if (!result) throw new InsufficientVeddError(amount);
+      return result;
+    }
     const [result] = await db.update(internalWallets)
-      .set({ veddBalance: newBalance, lastActivityAt: new Date() })
+      .set({ veddBalance: sql`coalesce(${internalWallets.veddBalance}, 0) + ${delta}`, lastActivityAt: new Date() })
       .where(eq(internalWallets.userId, userId))
       .returning();
     return result;
@@ -3793,6 +3843,54 @@ export class DatabaseStorage implements IStorage {
   async getAllWithdrawalRequests(): Promise<WithdrawalRequest[]> {
     return await db.select().from(withdrawalRequests)
       .orderBy(desc(withdrawalRequests.requestedAt));
+  }
+
+  /** Atomically move `amount` from available to pending. Undefined = not enough balance (nothing moved). */
+  async reserveVeddForWithdrawal(userId: number, amount: number): Promise<InternalWallet | undefined> {
+    const [w] = await db.update(internalWallets)
+      .set({
+        veddBalance: sql`${internalWallets.veddBalance} - ${amount}`,
+        pendingBalance: sql`coalesce(${internalWallets.pendingBalance}, 0) + ${amount}`,
+        lastActivityAt: new Date(),
+      } as any)
+      .where(and(eq(internalWallets.userId, userId), sql`coalesce(${internalWallets.veddBalance}, 0) >= ${amount}`))
+      .returning();
+    return w;
+  }
+
+  /**
+   * Atomically move a withdrawal request from one of `fromStatuses` to `toStatus`.
+   * Only the caller that wins the transition gets the row back, so a balance
+   * side-effect (refund / finalize) can be applied exactly once.
+   */
+  async transitionWithdrawalRequest(id: number, fromStatuses: string[], data: Partial<WithdrawalRequest> & { status: string }): Promise<WithdrawalRequest | undefined> {
+    const [result] = await db.update(withdrawalRequests)
+      .set(data as any)
+      .where(and(eq(withdrawalRequests.id, id), inArray(withdrawalRequests.status, fromStatuses as any)))
+      .returning();
+    return result;
+  }
+
+  /** Atomic pending → final settlement for a withdrawal ('completed' or 'rejected'). */
+  async settleWithdrawalBalance(userId: number, amount: number, outcome: 'completed' | 'rejected'): Promise<void> {
+    await db.update(internalWallets)
+      .set((outcome === 'completed'
+        ? { pendingBalance: sql`greatest(0, coalesce(${internalWallets.pendingBalance}, 0) - ${amount})`, totalWithdrawn: sql`coalesce(${internalWallets.totalWithdrawn}, 0) + ${amount}` }
+        : { pendingBalance: sql`greatest(0, coalesce(${internalWallets.pendingBalance}, 0) - ${amount})`, veddBalance: sql`coalesce(${internalWallets.veddBalance}, 0) + ${amount}` }) as any)
+      .where(eq(internalWallets.userId, userId));
+  }
+
+  /** Atomically attach still-unclaimed verified rewards to a transfer job; returns the rows this caller claimed. */
+  async claimRewardsForTransferJob(userId: number, rewardIds: number[], transferJobId: number): Promise<AmbassadorActionReward[]> {
+    if (!rewardIds.length) return [];
+    return await db.update(ambassadorActionRewards)
+      .set({ transferJobId } as any)
+      .where(and(
+        eq(ambassadorActionRewards.userId, userId),
+        inArray(ambassadorActionRewards.id, rewardIds),
+        isNull(ambassadorActionRewards.transferJobId),
+      ))
+      .returning();
   }
 
   async updateWithdrawalRequest(id: number, data: Partial<WithdrawalRequest>): Promise<WithdrawalRequest | undefined> {

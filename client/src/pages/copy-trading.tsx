@@ -131,6 +131,17 @@ export default function CopyTradingPage() {
     },
   });
 
+  // Consent: whether other users may copy MY trades (off until I turn it on).
+  const { data: copySettings } = useQuery<{ allowCopiers: boolean }>({ queryKey: ["/api/copy/settings"] });
+  const allowCopiersMutation = useMutation({
+    mutationFn: async (allowCopiers: boolean) => (await apiRequest("PUT", "/api/copy/settings", { allowCopiers })).json(),
+    onSuccess: (d: any) => {
+      queryClient.invalidateQueries({ queryKey: ["/api/copy/settings"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/copy/leaderboard"] });
+      toast({ title: d?.allowCopiers ? "Others can now copy your trades" : "Copying turned off — existing copiers stopped" });
+    },
+  });
+
   const activeRels = (relationships as any[]).filter((r: any) => r.is_active);
   const activeRelIds = new Set(activeRels.map((r: any) => r.source_user_id));
   const openCopyTrades = (copyTrades as any[]).filter((t: any) => t.status === "open");
@@ -186,6 +197,21 @@ export default function CopyTradingPage() {
               <RefreshCw size={12} className={tradesFetching ? "animate-spin" : ""} /> Refresh
             </button>
           </div>
+        </div>
+
+        {/* Consent toggle — be a copy source */}
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, flexWrap: "wrap", background: "#0f1420", border: "1px solid #1a1f2e", borderRadius: 10, padding: "10px 14px", marginBottom: 16 }}>
+          <div style={{ minWidth: 0 }}>
+            <p style={{ margin: 0, fontSize: 13, fontWeight: 700, color: "#fff" }}>Allow others to copy my trades</p>
+            <p style={{ margin: 0, fontSize: 11, color: "#6b7280" }}>Off by default. When on, you appear on the leaderboard and earn the copy fee + profit share. Turning it off stops all current copiers.</p>
+          </div>
+          <button
+            onClick={() => allowCopiersMutation.mutate(!copySettings?.allowCopiers)}
+            disabled={allowCopiersMutation.isPending || !copySettings}
+            style={{ padding: "6px 14px", borderRadius: 20, border: `1px solid ${copySettings?.allowCopiers ? "#22c55e" : "#374151"}`, background: copySettings?.allowCopiers ? "#052e16" : "#111827", color: copySettings?.allowCopiers ? "#22c55e" : "#9ca3af", fontSize: 12, fontWeight: 700, cursor: "pointer", flexShrink: 0 }}
+          >
+            {copySettings?.allowCopiers ? "ON" : "OFF"}
+          </button>
         </div>
 
         {/* Stats bar — always visible */}
