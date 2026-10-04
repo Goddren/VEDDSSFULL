@@ -38138,11 +38138,30 @@ async function defiTokenAvailable(chainKey, symbol) {
 }
 async function loadHotWallet(userId) {
   const { rows } = await pool.query(
-    `SELECT encrypted_private_key AS k, chain FROM defi_hot_wallets WHERE user_id=$1 AND is_active=true ORDER BY id LIMIT 1`,
+    `SELECT encrypted_private_key AS k, chain, address FROM defi_hot_wallets WHERE user_id=$1 AND is_active=true ORDER BY id LIMIT 1`,
     [userId]
   );
   if (!rows.length) return null;
-  return { encryptedKey: rows[0].k, chain: rows[0].chain || "base" };
+  return { encryptedKey: rows[0].k, chain: rows[0].chain || "base", address: rows[0].address ?? null };
+}
+async function readUsdcBalance(chainKey, address) {
+  try {
+    const usdc = DEFI_CHAINS[chainKey]?.usdc;
+    const url = rpcUrlFor(chainKey);
+    if (!usdc || !url || !/^0x[0-9a-fA-F]{40}$/.test(address)) return null;
+    const data = "0x70a08231" + address.slice(2).toLowerCase().padStart(64, "0");
+    const r = await fetch(url, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "eth_call", params: [{ to: usdc, data }, "latest"] }),
+      signal: AbortSignal.timeout(1e4)
+    });
+    const j = await r.json();
+    if (j?.error || typeof j?.result !== "string") return null;
+    return Number(BigInt(j.result)) / 1e6;
+  } catch {
+    return null;
+  }
 }
 function tokenRef(base) {
   const t = String(base ?? "").trim();
@@ -38162,6 +38181,15 @@ async function defiEntryBuy(userId, chainKey, base, notionalUsd, slippageBps, pr
     price = q?.best?.price ?? 0;
   }
   if (!price) return { ok: false, token, qtyBase: 0, entryPrice: 0, reason: `no live price for ${token}` };
+  if (hw.address) {
+    const usdcBal = await readUsdcBalance(chain, hw.address);
+    if (usdcBal == null) {
+      return { ok: false, token, qtyBase: 0, entryPrice: 0, reason: `skipped \u2014 couldn't read the wallet's USDC balance on ${chain}` };
+    }
+    if (usdcBal < notionalUsd) {
+      return { ok: false, token, qtyBase: 0, entryPrice: 0, reason: `skipped \u2014 insufficient USDC: wallet holds $${usdcBal.toFixed(2)}, trade needs $${notionalUsd.toFixed(2)}` };
+    }
+  }
   const r = await executeDefiSwap({
     encryptedPrivateKey: hw.encryptedKey,
     chainKey: chain,
@@ -39206,6 +39234,20 @@ async function executeSignalSingle(service, connection2, userId, symbol, result,
     try {
       const { defiEntryBuy: defiEntryBuy2 } = await Promise.resolve().then(() => (init_defi_executor(), defi_executor_exports));
       const disc = getDefiUniverseEntry(symbol, chain);
+      {
+        const { pool: pool2 } = await Promise.resolve().then(() => (init_db(), db_exports));
+        const held = await pool2.query(
+          `SELECT 1 FROM cryptocom_engine_trades
+            WHERE user_id=$1 AND venue='defi' AND status IN ('open','closing')
+              AND (symbol=$2 OR ($3::text IS NOT NULL AND lower(token_address)=lower($3::text)))
+            LIMIT 1`,
+          [userId, symbol, disc?.address ?? null]
+        ).catch(() => null);
+        if (!held || held.rows.length) {
+          await storage.createCryptocomEngineActivity({ userId, symbol, decision: "skipped", strategy: result.strategy, reasoning: held ? `${symbol}: already holding an open DeFi position in this token \u2014 not adding another.` : `${symbol}: couldn't verify existing positions \u2014 skipping entry to be safe.`, score: result.score, price: result.price, dailyChangePercent: result.dailyChangePercent, source: "cryptocom" });
+          return;
+        }
+      }
       const r = await defiEntryBuy2(userId, chain, disc?.address ?? symbol, notionalD, slip, disc?.priceUsd ?? result.price ?? void 0);
       if (!r.ok) {
         if (r.pending && r.txHash) {
@@ -39232,7 +39274,8 @@ async function executeSignalSingle(service, connection2, userId, symbol, result,
           });
           return;
         }
-        await storage.createCryptocomEngineActivity({ userId, symbol, decision: r.reason?.includes("can't trade") ? "skipped" : "error", strategy: result.strategy, reasoning: `${symbol}: DeFi swap entry ${r.reason?.includes("can't trade") ? "skipped" : "failed"} \u2014 ${r.reason}.`, score: result.score, price: result.price, dailyChangePercent: result.dailyChangePercent, source: "cryptocom" });
+        const _isSkip = !!r.reason && (r.reason.includes("can't trade") || r.reason.startsWith("skipped"));
+        await storage.createCryptocomEngineActivity({ userId, symbol, decision: _isSkip ? "skipped" : "error", strategy: result.strategy, reasoning: `${symbol}: DeFi swap entry ${_isSkip ? "skipped" : "failed"} \u2014 ${r.reason}.`, score: result.score, price: result.price, dailyChangePercent: result.dailyChangePercent, source: "cryptocom" });
         return;
       }
       const tp = r.entryPrice * (1 + (cfg.cefiTakeProfitPct ?? 3) / 100);
@@ -56794,9 +56837,9 @@ async function getStopOrdersForUser(userId, filters = {}) {
 init_schema();
 
 // server/build-info.ts
-var BUILD_COMMIT = "8ab90b0b-dirty";
+var BUILD_COMMIT = "40d585c3-dirty";
 var BUILD_BRANCH = "main";
-var BUILT_AT = "2026-10-03T22:10:54.176Z";
+var BUILT_AT = "2026-10-04T09:31:30.800Z";
 
 // server/stripe.ts
 init_db();

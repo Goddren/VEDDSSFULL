@@ -10,7 +10,7 @@
 
 import { pool } from '../db';
 import { getAggregatedQuote } from './crypto-market-data';
-import { executeDefiSwap, isTokenTradeable } from './defi-swap';
+import { executeDefiSwap, isTokenTradeable, rpcUrlFor, DEFI_CHAINS } from './defi-swap';
 import { baseCoin } from './cefi-executor';
 
 /** Whether the engine can swap this symbol's base coin on the given chain. */
@@ -18,13 +18,33 @@ export async function defiTokenAvailable(chainKey: string, symbol: string): Prom
   return isTokenTradeable(chainKey, baseCoin(symbol));
 }
 
-async function loadHotWallet(userId: number): Promise<{ encryptedKey: string; chain: string } | null> {
+async function loadHotWallet(userId: number): Promise<{ encryptedKey: string; chain: string; address: string | null } | null> {
   const { rows } = await pool.query(
-    `SELECT encrypted_private_key AS k, chain FROM defi_hot_wallets WHERE user_id=$1 AND is_active=true ORDER BY id LIMIT 1`,
+    `SELECT encrypted_private_key AS k, chain, address FROM defi_hot_wallets WHERE user_id=$1 AND is_active=true ORDER BY id LIMIT 1`,
     [userId],
   );
   if (!rows.length) return null;
-  return { encryptedKey: rows[0].k, chain: rows[0].chain || 'base' };
+  return { encryptedKey: rows[0].k, chain: rows[0].chain || 'base', address: rows[0].address ?? null };
+}
+
+/** On-chain USDC balance of `address` on `chainKey`, or null if it can't be read. */
+async function readUsdcBalance(chainKey: string, address: string): Promise<number | null> {
+  try {
+    const usdc = DEFI_CHAINS[chainKey]?.usdc;
+    const url = rpcUrlFor(chainKey);
+    if (!usdc || !url || !/^0x[0-9a-fA-F]{40}$/.test(address)) return null;
+    const data = '0x70a08231' + address.slice(2).toLowerCase().padStart(64, '0');
+    const r = await fetch(url, {
+      method: 'POST', headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'eth_call', params: [{ to: usdc, data }, 'latest'] }),
+      signal: AbortSignal.timeout(10_000),
+    });
+    const j: any = await r.json();
+    if (j?.error || typeof j?.result !== 'string') return null;
+    return Number(BigInt(j.result)) / 1e6; // USDC has 6 decimals on every supported chain
+  } catch {
+    return null;
+  }
 }
 
 export interface DefiEntryResult { ok: boolean; token: string; qtyBase: number; entryPrice: number; txHash?: string; reason?: string; pending?: boolean; }
@@ -63,6 +83,20 @@ export async function defiEntryBuy(userId: number, chainKey: string, base: strin
     price = q?.best?.price ?? 0;
   }
   if (!price) return { ok: false, token, qtyBase: 0, entryPrice: 0, reason: `no live price for ${token}` };
+
+  // Never broadcast a swap the wallet can't fund. Without this, every signal
+  // after the USDC ran out was sent anyway, reverted on-chain, burned gas, and
+  // left a junk "entry never landed" row — 20 of them in the first 11h after
+  // funding on 2026-10-03. Fails closed: an unreadable balance skips the entry.
+  if (hw.address) {
+    const usdcBal = await readUsdcBalance(chain, hw.address);
+    if (usdcBal == null) {
+      return { ok: false, token, qtyBase: 0, entryPrice: 0, reason: `skipped — couldn't read the wallet's USDC balance on ${chain}` };
+    }
+    if (usdcBal < notionalUsd) {
+      return { ok: false, token, qtyBase: 0, entryPrice: 0, reason: `skipped — insufficient USDC: wallet holds $${usdcBal.toFixed(2)}, trade needs $${notionalUsd.toFixed(2)}` };
+    }
+  }
 
   const r = await executeDefiSwap({
     encryptedPrivateKey: hw.encryptedKey, chainKey: chain,

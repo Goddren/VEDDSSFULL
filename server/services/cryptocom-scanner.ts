@@ -1107,6 +1107,25 @@ async function executeSignalSingle(service: CryptoComService, connection: Crypto
       // unrelated Base tokens share tickers with major assets, and buying the
       // wrong contract is unrecoverable.
       const disc = getDefiUniverseEntry(symbol, chain);
+
+      // One position per token. Nothing stopped a re-entry into a token already
+      // held: on 2026-10-04 the engine re-bought POD, AERO, WETH and MORPHO while
+      // holding them (10 attempts in 11h). With USDC available that would have
+      // stacked several positions on one coin. Fails closed on a DB error.
+      {
+        const { pool } = await import('../db');
+        const held = await pool.query(
+          `SELECT 1 FROM cryptocom_engine_trades
+            WHERE user_id=$1 AND venue='defi' AND status IN ('open','closing')
+              AND (symbol=$2 OR ($3::text IS NOT NULL AND lower(token_address)=lower($3::text)))
+            LIMIT 1`,
+          [userId, symbol, disc?.address ?? null],
+        ).catch(() => null);
+        if (!held || held.rows.length) {
+          await storage.createCryptocomEngineActivity({ userId, symbol, decision: 'skipped', strategy: result.strategy, reasoning: held ? `${symbol}: already holding an open DeFi position in this token — not adding another.` : `${symbol}: couldn't verify existing positions — skipping entry to be safe.`, score: result.score, price: result.price, dailyChangePercent: result.dailyChangePercent, source: 'cryptocom' });
+          return;
+        }
+      }
       // Hand over the price we already have: discovery's pool price, else the
       // price the strategy computed from the same on-chain candles. Without it
       // the executor asks a CEX for a contract address and gets nothing.
@@ -1130,7 +1149,8 @@ async function executeSignalSingle(service: CryptoComService, connection: Crypto
           await storage.createCryptocomEngineActivity({ userId, symbol, decision: 'signal', strategy: result.strategy, reasoning: `${symbol}: entry BROADCAST but unconfirmed (tx ${r.txHash.slice(0, 12)}…) — recorded OPEN so it is monitored rather than abandoned; quantity will be reconciled from the wallet.`, score: result.score, price: result.price, dailyChangePercent: result.dailyChangePercent, source: 'cryptocom' }).catch(() => {});
           return;
         }
-        await storage.createCryptocomEngineActivity({ userId, symbol, decision: r.reason?.includes("can't trade") ? 'skipped' : 'error', strategy: result.strategy, reasoning: `${symbol}: DeFi swap entry ${r.reason?.includes("can't trade") ? 'skipped' : 'failed'} — ${r.reason}.`, score: result.score, price: result.price, dailyChangePercent: result.dailyChangePercent, source: 'cryptocom' });
+        const _isSkip = !!r.reason && (r.reason.includes("can't trade") || r.reason.startsWith('skipped'));
+        await storage.createCryptocomEngineActivity({ userId, symbol, decision: _isSkip ? 'skipped' : 'error', strategy: result.strategy, reasoning: `${symbol}: DeFi swap entry ${_isSkip ? 'skipped' : 'failed'} — ${r.reason}.`, score: result.score, price: result.price, dailyChangePercent: result.dailyChangePercent, source: 'cryptocom' });
         return;
       }
       const tp = r.entryPrice * (1 + ((cfg as any).cefiTakeProfitPct ?? 3) / 100);
