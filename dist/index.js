@@ -6425,15 +6425,15 @@ var init_storage = __esm({
         return await query;
       }
       async getBlogPostBySlug(slug) {
-        const [post] = await db.select().from(blogPosts).where(eq(blogPosts.slug, slug));
-        return post;
+        const [post2] = await db.select().from(blogPosts).where(eq(blogPosts.slug, slug));
+        return post2;
       }
       async getBlogPostById(id) {
-        const [post] = await db.select().from(blogPosts).where(eq(blogPosts.id, id));
-        return post;
+        const [post2] = await db.select().from(blogPosts).where(eq(blogPosts.id, id));
+        return post2;
       }
-      async createBlogPost(post) {
-        const [created] = await db.insert(blogPosts).values(post).returning();
+      async createBlogPost(post2) {
+        const [created] = await db.insert(blogPosts).values(post2).returning();
         return created;
       }
       async updateBlogPost(id, data) {
@@ -18383,9 +18383,9 @@ async function getTLAccountValue(userId, conn) {
   }
   try {
     const svc = await getOrCreateService(conn);
-    const info = await svc.getAccountInfo();
-    const bal = info.balance || 0;
-    const eq21 = info.equity || bal;
+    const info2 = await svc.getAccountInfo();
+    const bal = info2.balance || 0;
+    const eq21 = info2.equity || bal;
     if (bal > 0) {
       g.tlAccountBalances[userId][acctId] = bal;
       g.tlAccountEquity[userId][acctId] = eq21;
@@ -24550,7 +24550,7 @@ function broadcastMT5Signal(userId, signal) {
   }
   if (!mt5AccountQueues[userId]) mt5AccountQueues[userId] = {};
   const registry = mt5AccountRegistry[userId] || {};
-  const activeAliases = Object.entries(registry).filter(([, info]) => info.receiveSignals).map(([alias]) => alias);
+  const activeAliases = Object.entries(registry).filter(([, info2]) => info2.receiveSignals).map(([alias]) => alias);
   const targets = activeAliases.length > 0 ? activeAliases : ["default"];
   for (const alias of targets) {
     if (!mt5AccountQueues[userId][alias]) mt5AccountQueues[userId][alias] = [];
@@ -24560,15 +24560,15 @@ function broadcastMT5Signal(userId, signal) {
     }
   }
 }
-function registerMT5Account(userId, alias, info) {
+function registerMT5Account(userId, alias, info2) {
   if (!mt5AccountRegistry[userId]) mt5AccountRegistry[userId] = {};
   const existing = mt5AccountRegistry[userId][alias];
   const updated = {
     alias,
-    label: info.label ?? existing?.label ?? alias,
-    accountNumber: info.accountNumber ?? existing?.accountNumber ?? "",
+    label: info2.label ?? existing?.label ?? alias,
+    accountNumber: info2.accountNumber ?? existing?.accountNumber ?? "",
     lastSeen: Date.now(),
-    receiveSignals: info.receiveSignals ?? existing?.receiveSignals ?? true
+    receiveSignals: info2.receiveSignals ?? existing?.receiveSignals ?? true
   };
   mt5AccountRegistry[userId][alias] = updated;
   return updated;
@@ -30531,7 +30531,7 @@ async function syncUserTradeLocker(userId, force = false) {
     for (const conn of active) {
       try {
         const svc = await getOrCreateService(conn);
-        const info = await svc.getAccountInfo();
+        const info2 = await svc.getAccountInfo();
         if (conn.lastError) {
           storage.updateTradelockerConnection(conn.id, { lastError: null }).catch(() => {
           });
@@ -30542,25 +30542,25 @@ async function syncUserTradeLocker(userId, force = false) {
           accountType: conn.accountType,
           broker: conn.brokerName || "TradeLocker",
           label: `TradeLocker \u2013 ${conn.email} (${conn.accountType})`,
-          balance: info.balance || 0,
-          equity: info.equity || 0,
-          margin: info.margin || 0,
-          freeMargin: info.freeMargin || 0,
-          currency: info.currency || "USD",
+          balance: info2.balance || 0,
+          equity: info2.equity || 0,
+          margin: info2.margin || 0,
+          freeMargin: info2.freeMargin || 0,
+          currency: info2.currency || "USD",
           lastUpdated: (/* @__PURE__ */ new Date()).toISOString()
         };
         global.tlAccountBalances = global.tlAccountBalances || {};
         global.tlAccountBalances[userId] = global.tlAccountBalances[userId] || {};
-        global.tlAccountBalances[userId][conn.accountId] = info.balance || 0;
-        if (info.balance > 0) {
+        global.tlAccountBalances[userId][conn.accountId] = info2.balance || 0;
+        if (info2.balance > 0) {
           const pk = `${userId}:${conn.accountId}`;
           const prevPersist = lastBalancePersist.get(pk);
-          const changed = !prevPersist || Math.abs(prevPersist.balance - info.balance) > 0.01;
+          const changed = !prevPersist || Math.abs(prevPersist.balance - info2.balance) > 0.01;
           if (changed && (!prevPersist || Date.now() - prevPersist.at > BALANCE_PERSIST_MS)) {
-            lastBalancePersist.set(pk, { at: Date.now(), balance: info.balance });
+            lastBalancePersist.set(pk, { at: Date.now(), balance: info2.balance });
             storage.updateTradelockerConnection(conn.id, {
-              lastBalance: info.balance,
-              lastEquity: info.equity || info.balance,
+              lastBalance: info2.balance,
+              lastEquity: info2.equity || info2.balance,
               lastBalanceAt: /* @__PURE__ */ new Date()
             }).catch(() => {
             });
@@ -31433,9 +31433,9 @@ var init_alpaca = __esm({
       // Alpaca has no login step — keys are sent on every request. "Authenticate"
       // here means: verify the key/secret pair actually works before we store it.
       async authenticate() {
-        const info = await this.getAccountInfo();
-        this.accountId = info.accountId;
-        return info;
+        const info2 = await this.getAccountInfo();
+        this.accountId = info2.accountId;
+        return info2;
       }
       async getAccountInfo() {
         const response = await this.request(`${this.baseUrl}/v2/account`, { method: "GET" });
@@ -31739,9 +31739,9 @@ var init_tastytrade = __esm({
       // "Authenticate" = log in, then resolve + verify the first account works.
       async authenticate() {
         await this.login();
-        const info = await this.getAccountInfo();
-        this.accountNumber = info.accountNumber;
-        return info;
+        const info2 = await this.getAccountInfo();
+        this.accountNumber = info2.accountNumber;
+        return info2;
       }
       async getAccountInfo() {
         const accountsRes = await this.request("/customers/me/accounts");
@@ -32891,15 +32891,15 @@ var init_moomoo = __esm({
           });
           if (!res.ok) throw new Error(`OpenD ${res.status}`);
           const data = await res.json();
-          const info = data?.s2c?.acc_info_list?.[0];
-          if (!info) throw new Error("No account info returned");
+          const info2 = data?.s2c?.acc_info_list?.[0];
+          if (!info2) throw new Error("No account info returned");
           return {
             accountId: this.connection.accountId,
-            balance: info.cash || 0,
-            equity: info.net_asset_val || 0,
-            unrealizedPnl: info.unrealized_pl || 0,
-            marginUsed: info.margin_call_margin || 0,
-            availableMargin: info.avl_withdrawal_amount || 0,
+            balance: info2.cash || 0,
+            equity: info2.net_asset_val || 0,
+            unrealizedPnl: info2.unrealized_pl || 0,
+            marginUsed: info2.margin_call_margin || 0,
+            availableMargin: info2.avl_withdrawal_amount || 0,
             currency: "USD",
             isPaper: false
           };
@@ -33207,8 +33207,8 @@ async function getFuturesLiveAccount(userId) {
   try {
     const m = getMoomooService(userId);
     if (m && m.isConnected()) {
-      const info = await m.getAccountInfo();
-      return { equity: info.equity || 0, unrealizedPnl: info.unrealizedPnl || 0 };
+      const info2 = await m.getAccountInfo();
+      return { equity: info2.equity || 0, unrealizedPnl: info2.unrealizedPnl || 0 };
     }
   } catch {
   }
@@ -35031,14 +35031,14 @@ async function sendGmail(to, subject, text2, html) {
       service: "gmail",
       auth: { user, pass }
     });
-    const info = await transporter.sendMail({
+    const info2 = await transporter.sendMail({
       from: `"VEDD | Abba" <${user}>`,
       to,
       subject,
       text: text2,
       html: html || `<div style="font-family:sans-serif;max-width:600px;margin:0 auto"><h2 style="color:#7c3aed">VEDD \u2014 Abba AI</h2><div>${text2.replace(/\n/g, "<br/>")}</div></div>`
     });
-    return { success: true, channel: "gmail", id: info.messageId };
+    return { success: true, channel: "gmail", id: info2.messageId };
   } catch (e) {
     return { success: false, channel: "gmail", error: e.message };
   }
@@ -37601,6 +37601,284 @@ var init_cefi_executor = __esm({
   }
 });
 
+// server/services/hyperliquid.ts
+var hyperliquid_exports = {};
+__export(hyperliquid_exports, {
+  actionHash: () => actionHash,
+  agentAddress: () => agentAddress,
+  cancelOrders: () => cancelOrders,
+  floatToWire: () => floatToWire,
+  getAccount: () => getAccount,
+  getCandles: () => getCandles,
+  getFillsSince: () => getFillsSince,
+  getMeta: () => getMeta,
+  getMid: () => getMid,
+  getOpenOrders: () => getOpenOrders,
+  getUserRole: () => getUserRole,
+  info: () => info,
+  marketOrder: () => marketOrder,
+  msgpack: () => msgpack,
+  placeStopLoss: () => placeStopLoss,
+  roundPrice: () => roundPrice,
+  roundSize: () => roundSize,
+  tradedAddress: () => tradedAddress,
+  updateLeverage: () => updateLeverage
+});
+import { Wallet, keccak256, getBytes, Signature } from "ethers";
+function baseUrl(testnet) {
+  return testnet ? TESTNET_URL : MAINNET_URL;
+}
+function tradedAddress(c) {
+  return (c.vaultAddress || c.accountAddress).toLowerCase();
+}
+async function post(testnet, path17, body) {
+  const r = await fetch(baseUrl(testnet) + path17, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify(body),
+    signal: AbortSignal.timeout(15e3)
+  });
+  const text2 = await r.text();
+  let j;
+  try {
+    j = JSON.parse(text2);
+  } catch {
+    throw new Error(`Hyperliquid ${path17} HTTP ${r.status}: ${text2.slice(0, 200)}`);
+  }
+  if (!r.ok) throw new Error(`Hyperliquid ${path17} HTTP ${r.status}: ${text2.slice(0, 200)}`);
+  return j;
+}
+async function getMeta(testnet) {
+  const key = testnet ? "t" : "m";
+  const hit = metaCache.get(key);
+  if (hit && Date.now() - hit.at < 10 * 6e4) return hit.assets;
+  const j = await info(testnet, { type: "meta" });
+  const assets = /* @__PURE__ */ new Map();
+  (j?.universe ?? []).forEach((u, i) => {
+    assets.set(String(u.name).toUpperCase(), {
+      name: u.name,
+      index: i,
+      szDecimals: Number(u.szDecimals) || 0,
+      maxLeverage: Number(u.maxLeverage) || 1,
+      onlyIsolated: !!u.onlyIsolated,
+      isDelisted: !!u.isDelisted
+    });
+  });
+  if (!assets.size) throw new Error("Hyperliquid meta returned no assets");
+  metaCache.set(key, { at: Date.now(), assets });
+  return assets;
+}
+async function getMid(testnet, coin) {
+  const j = await info(testnet, { type: "allMids" }).catch(() => null);
+  const asset = (await getMeta(testnet).catch(() => null))?.get(coin.toUpperCase());
+  const v = Number(j?.[asset?.name ?? coin]);
+  return v > 0 ? v : null;
+}
+async function getCandles(coin, timeframe, count, testnet = false) {
+  const interval = HL_INTERVAL_MS[timeframe] ? timeframe : "5m";
+  const endTime = Date.now();
+  const startTime = endTime - HL_INTERVAL_MS[interval] * (count + 2);
+  const asset = (await getMeta(testnet)).get(coin.toUpperCase());
+  const j = await info(testnet, { type: "candleSnapshot", req: { coin: asset?.name ?? coin, interval, startTime, endTime } });
+  if (!Array.isArray(j)) return [];
+  return j.slice(-count).map((b) => ({ t: Number(b.t), o: Number(b.o), h: Number(b.h), l: Number(b.l), c: Number(b.c), v: Number(b.v) }));
+}
+async function getAccount(testnet, user) {
+  const j = await info(testnet, { type: "clearinghouseState", user });
+  if (!j || !j.marginSummary) throw new Error("Hyperliquid returned no account state");
+  const positions = (j.assetPositions ?? []).map((ap) => ap.position).filter(Boolean).map((p) => ({
+    coin: String(p.coin),
+    szi: Number(p.szi) || 0,
+    entryPx: Number(p.entryPx) || 0,
+    unrealizedPnl: Number(p.unrealizedPnl) || 0,
+    liquidationPx: p.liquidationPx != null ? Number(p.liquidationPx) : null,
+    leverage: p.leverage?.value != null ? Number(p.leverage.value) : null
+  })).filter((p) => p.szi !== 0);
+  return {
+    accountValue: Number(j.marginSummary.accountValue) || 0,
+    withdrawable: Number(j.withdrawable) || 0,
+    marginUsed: Number(j.marginSummary.totalMarginUsed) || 0,
+    positions
+  };
+}
+async function getOpenOrders(testnet, user) {
+  const j = await info(testnet, { type: "frontendOpenOrders", user });
+  return Array.isArray(j) ? j : [];
+}
+async function getFillsSince(testnet, user, startTime) {
+  const j = await info(testnet, { type: "userFillsByTime", user, startTime });
+  return Array.isArray(j) ? j : [];
+}
+async function getUserRole(testnet, user) {
+  const j = await info(testnet, { type: "userRole", user }).catch(() => null);
+  return { role: String(j?.role ?? "unknown"), master: j?.data?.user };
+}
+function agentAddress(agentKey) {
+  return new Wallet(agentKey.trim()).address;
+}
+function floatToWire(x) {
+  let s = x.toFixed(8);
+  if (Math.abs(Number(s) - x) >= 1e-12) {
+    throw new Error(`floatToWire would round ${x}`);
+  }
+  if (s.includes(".")) s = s.replace(/0+$/, "").replace(/\.$/, "");
+  if (s === "-0" || s === "") s = "0";
+  return s;
+}
+function roundPrice(px, szDecimals) {
+  if (Number.isInteger(px)) return px;
+  const sig = Number(px.toPrecision(5));
+  const dec = Math.max(0, 6 - szDecimals);
+  return Number(sig.toFixed(dec));
+}
+function roundSize(sz, szDecimals) {
+  const f = 10 ** szDecimals;
+  return Math.floor(sz * f + 1e-9) / f;
+}
+function packInto(out, v) {
+  if (v === null || v === void 0) {
+    out.push(192);
+    return;
+  }
+  if (v === true) {
+    out.push(195);
+    return;
+  }
+  if (v === false) {
+    out.push(194);
+    return;
+  }
+  if (typeof v === "number") {
+    if (!Number.isInteger(v) || v < 0) throw new Error(`msgpack: unsupported number ${v}`);
+    if (v < 128) out.push(v);
+    else if (v < 256) out.push(204, v);
+    else if (v < 65536) out.push(205, v >> 8, v & 255);
+    else if (v < 4294967296) out.push(206, v >>> 24 & 255, v >>> 16 & 255, v >>> 8 & 255, v & 255);
+    else {
+      const b = BigInt(v);
+      out.push(207);
+      for (let i = 7; i >= 0; i--) out.push(Number(b >> BigInt(i * 8) & BigInt(255)));
+    }
+    return;
+  }
+  if (typeof v === "string") {
+    const bytes = Array.from(new TextEncoder().encode(v));
+    const n = bytes.length;
+    if (n < 32) out.push(160 | n);
+    else if (n < 256) out.push(217, n);
+    else out.push(218, n >> 8, n & 255);
+    out.push(...bytes);
+    return;
+  }
+  if (Array.isArray(v)) {
+    if (v.length < 16) out.push(144 | v.length);
+    else out.push(220, v.length >> 8, v.length & 255);
+    for (const x of v) packInto(out, x);
+    return;
+  }
+  if (typeof v === "object") {
+    const keys = Object.keys(v).filter((k) => v[k] !== void 0);
+    if (keys.length < 16) out.push(128 | keys.length);
+    else out.push(222, keys.length >> 8, keys.length & 255);
+    for (const k of keys) {
+      packInto(out, k);
+      packInto(out, v[k]);
+    }
+    return;
+  }
+  throw new Error(`msgpack: unsupported type ${typeof v}`);
+}
+function msgpack(v) {
+  const out = [];
+  packInto(out, v);
+  return Uint8Array.from(out);
+}
+function actionHash(action, vaultAddress, nonce) {
+  const body = msgpack(action);
+  const tail = [];
+  const n = BigInt(nonce);
+  for (let i = 7; i >= 0; i--) tail.push(Number(n >> BigInt(i * 8) & BigInt(255)));
+  if (!vaultAddress) tail.push(0);
+  else {
+    tail.push(1);
+    tail.push(...Array.from(getBytes(vaultAddress)));
+  }
+  const data = new Uint8Array(body.length + tail.length);
+  data.set(body, 0);
+  data.set(tail, body.length);
+  return keccak256(data);
+}
+function nextNonce() {
+  const n = Math.max(Date.now(), lastNonce + 1);
+  lastNonce = n;
+  return n;
+}
+async function signL1(c, action, nonce) {
+  const vault = c.vaultAddress || null;
+  const connectionId = actionHash(action, vault, nonce);
+  const wallet = new Wallet(c.agentKey.trim());
+  const sig = await wallet.signTypedData(
+    { name: "Exchange", version: "1", chainId: 1337, verifyingContract: "0x0000000000000000000000000000000000000000" },
+    { Agent: [{ name: "source", type: "string" }, { name: "connectionId", type: "bytes32" }] },
+    { source: c.testnet ? "b" : "a", connectionId }
+  );
+  const s = Signature.from(sig);
+  return { r: s.r, s: s.s, v: s.v };
+}
+async function exchange(c, action) {
+  const nonce = nextNonce();
+  const signature = await signL1(c, action, nonce);
+  const j = await post(c.testnet, "/exchange", { action, nonce, signature, vaultAddress: c.vaultAddress || null });
+  if (j?.status !== "ok") throw new Error(`Hyperliquid rejected ${action.type}: ${typeof j?.response === "string" ? j.response : JSON.stringify(j).slice(0, 300)}`);
+  return j.response;
+}
+async function updateLeverage(c, asset, leverage, isCross) {
+  return exchange(c, { type: "updateLeverage", asset, isCross, leverage: Math.max(1, Math.floor(leverage)) });
+}
+function parseStatus(resp) {
+  const st = resp?.data?.statuses?.[0];
+  if (st?.filled) return { filled: true, resting: false, totalSz: Number(st.filled.totalSz) || 0, avgPx: Number(st.filled.avgPx) || 0, oid: st.filled.oid ?? null };
+  if (st?.resting) return { filled: false, resting: true, totalSz: 0, avgPx: 0, oid: st.resting.oid ?? null };
+  return { filled: false, resting: false, totalSz: 0, avgPx: 0, oid: null, error: st?.error ? String(st.error) : `unexpected order status ${JSON.stringify(st ?? resp).slice(0, 200)}` };
+}
+async function marketOrder(c, a, isBuy, size, refPx, reduceOnly, slippage = 0.01) {
+  const px = roundPrice(refPx * (isBuy ? 1 + slippage : 1 - slippage), a.szDecimals);
+  const sz = roundSize(size, a.szDecimals);
+  if (!(sz > 0)) return { filled: false, resting: false, totalSz: 0, avgPx: 0, oid: null, error: `size rounds to 0 at ${a.szDecimals} decimals` };
+  const order = { a: a.index, b: isBuy, p: floatToWire(px), s: floatToWire(sz), r: reduceOnly, t: { limit: { tif: "Ioc" } } };
+  return parseStatus(await exchange(c, { type: "order", orders: [order], grouping: "na" }));
+}
+async function placeStopLoss(c, a, positionIsLong, size, triggerPx) {
+  const trig = roundPrice(triggerPx, a.szDecimals);
+  const isBuy = !positionIsLong;
+  const limitPx = roundPrice(trig * (isBuy ? 1.1 : 0.9), a.szDecimals);
+  const order = {
+    a: a.index,
+    b: isBuy,
+    p: floatToWire(limitPx),
+    s: floatToWire(roundSize(size, a.szDecimals)),
+    r: true,
+    t: { trigger: { isMarket: true, triggerPx: floatToWire(trig), tpsl: "sl" } }
+  };
+  return parseStatus(await exchange(c, { type: "order", orders: [order], grouping: "na" }));
+}
+async function cancelOrders(c, cancels) {
+  if (!cancels.length) return null;
+  return exchange(c, { type: "cancel", cancels: cancels.map((x) => ({ a: x.a, o: x.o })) });
+}
+var MAINNET_URL, TESTNET_URL, info, metaCache, HL_INTERVAL_MS, lastNonce;
+var init_hyperliquid = __esm({
+  "server/services/hyperliquid.ts"() {
+    "use strict";
+    MAINNET_URL = "https://api.hyperliquid.xyz";
+    TESTNET_URL = "https://api.hyperliquid-testnet.xyz";
+    info = (testnet, body) => post(testnet, "/info", body);
+    metaCache = /* @__PURE__ */ new Map();
+    HL_INTERVAL_MS = { "1m": 6e4, "5m": 3e5, "15m": 9e5, "30m": 18e5, "1h": 36e5, "4h": 144e5, "1d": 864e5 };
+    lastNonce = 0;
+  }
+});
+
 // server/services/defi-market-data.ts
 var defi_market_data_exports = {};
 __export(defi_market_data_exports, {
@@ -37817,6 +38095,233 @@ var init_corporateActionGuard = __esm({
       [5, "1:5 reverse split"],
       [10, "1:10 reverse split"]
     ];
+  }
+});
+
+// server/services/hyperliquid-executor.ts
+var hyperliquid_executor_exports = {};
+__export(hyperliquid_executor_exports, {
+  HL_PREFIX: () => HL_PREFIX,
+  ensureHyperliquidTable: () => ensureHyperliquidTable,
+  getHyperliquidConnection: () => getHyperliquidConnection,
+  hlAccountValue: () => hlAccountValue,
+  hlCoin: () => hlCoin,
+  hlMid: () => hlMid,
+  hlPositionOpen: () => hlPositionOpen,
+  hyperliquidEntry: () => hyperliquidEntry,
+  hyperliquidExit: () => hyperliquidExit
+});
+async function ensureHyperliquidTable() {
+  try {
+    await pool.query(DDL);
+    console.log("[startup] Hyperliquid connections table ensured (hyperliquid_connections).");
+  } catch (err) {
+    console.error("[startup] ensureHyperliquidTable failed (non-fatal):", err?.message ?? err);
+  }
+}
+function rowToConn(r) {
+  return {
+    id: r.id,
+    userId: r.user_id,
+    label: r.label,
+    accountAddress: r.account_address,
+    vaultAddress: r.vault_address,
+    agentAddress: r.agent_address,
+    isTestnet: !!r.is_testnet,
+    isPropAccount: !!r.is_prop_account,
+    isActive: !!r.is_active,
+    autoTradeEnabled: !!r.auto_trade_enabled,
+    notionalUsd: Number(r.notional_usd) || 25,
+    leverage: Number(r.leverage) || 1,
+    stopLossPct: Number(r.stop_loss_pct) || 1.5,
+    takeProfitPct: Number(r.take_profit_pct) || 3,
+    symbols: String(r.symbols || "").split(",").map((s) => s.trim().toUpperCase()).filter(Boolean)
+  };
+}
+async function getHyperliquidConnection(userId) {
+  const { rows } = await pool.query(`SELECT * FROM hyperliquid_connections WHERE user_id=$1 AND is_active=true LIMIT 1`, [userId]).catch(() => ({ rows: [] }));
+  return rows[0] ? rowToConn(rows[0]) : null;
+}
+async function loadCreds(userId) {
+  const { rows } = await pool.query(`SELECT * FROM hyperliquid_connections WHERE user_id=$1 AND is_active=true LIMIT 1`, [userId]);
+  if (!rows[0]) return null;
+  const conn = rowToConn(rows[0]);
+  return { conn, creds: { agentKey: decryptApiSecret(rows[0].encrypted_agent_key), accountAddress: conn.accountAddress, vaultAddress: conn.vaultAddress, testnet: conn.isTestnet } };
+}
+function hlCoin(symbol) {
+  let s = String(symbol || "").toUpperCase();
+  if (s.startsWith(HL_PREFIX)) return s.slice(HL_PREFIX.length);
+  s = s.replace(/-PERP$/, "").replace(/[-_/]?(USDT|USDC|USD)$/, "");
+  const alias = { WETH: "ETH", WBTC: "BTC", CBBTC: "BTC" };
+  return alias[s] ?? s;
+}
+async function readAccount(userId, testnet, user, maxAgeMs = 15e3) {
+  const hit = acctCache.get(userId);
+  if (hit && Date.now() - hit.at < maxAgeMs) return hit.acct;
+  const acct = await getAccount(testnet, user);
+  acctCache.set(userId, { at: Date.now(), acct });
+  return acct;
+}
+async function hlAccountValue(userId) {
+  const c = await getHyperliquidConnection(userId);
+  if (!c) return null;
+  const a = await readAccount(userId, c.isTestnet, tradedAddress(c)).catch(() => null);
+  return a ? a.accountValue : null;
+}
+async function hlMid(userId, symbol) {
+  const c = await getHyperliquidConnection(userId);
+  return getMid(c?.isTestnet ?? false, hlCoin(symbol));
+}
+async function hlPositionOpen(userId, symbol, direction) {
+  const c = await getHyperliquidConnection(userId);
+  if (!c) return null;
+  const a = await readAccount(userId, c.isTestnet, tradedAddress(c)).catch(() => null);
+  if (!a) return null;
+  const coin = hlCoin(symbol);
+  const p = a.positions.find((x) => x.coin.toUpperCase() === coin);
+  return !!p && (direction === "long" ? p.szi > 0 : p.szi < 0);
+}
+async function hyperliquidEntry(userId, symbol, direction, riskMultiplier) {
+  const loaded = await loadCreds(userId);
+  if (!loaded) return { ok: false, skipped: true, reason: "no active Hyperliquid connection" };
+  const { conn, creds } = loaded;
+  if (!conn.autoTradeEnabled) return { ok: false, skipped: true, reason: "Hyperliquid auto-trade is OFF for this account" };
+  const coin = hlCoin(symbol);
+  if (!conn.symbols.includes(coin)) return { ok: false, skipped: true, reason: `${coin} isn't in this account's Hyperliquid symbol list (${conn.symbols.join(", ")})` };
+  const asset = (await getMeta(conn.isTestnet)).get(coin);
+  if (!asset || asset.isDelisted) return { ok: false, skipped: true, reason: `${coin} isn't a tradeable Hyperliquid perp` };
+  const user = tradedAddress(conn);
+  const acct = await readAccount(userId, conn.isTestnet, user, 0);
+  if (acct.positions.some((p) => p.coin.toUpperCase() === coin)) {
+    return { ok: false, skipped: true, reason: `already holding a ${coin} position on Hyperliquid \u2014 not adding another` };
+  }
+  const held = await pool.query(
+    `SELECT 1 FROM cryptocom_engine_trades WHERE user_id=$1 AND venue='hyperliquid' AND status IN ('open','closing') AND symbol=$2 LIMIT 1`,
+    [userId, HL_PREFIX + coin]
+  ).catch(() => null);
+  if (!held || held.rows.length) return { ok: false, skipped: true, reason: held ? `already tracking an open ${coin} trade` : `couldn't verify existing positions \u2014 skipping to be safe` };
+  const leverage = Math.max(1, Math.min(conn.leverage, asset.maxLeverage));
+  const notional = conn.notionalUsd * (riskMultiplier < 1 ? riskMultiplier : 1);
+  if (notional < 11) return { ok: false, skipped: true, reason: `order value $${notional.toFixed(2)} is below Hyperliquid's $10 minimum` };
+  const marginNeeded = notional / leverage;
+  if (acct.withdrawable < marginNeeded * 1.1) {
+    return { ok: false, skipped: true, reason: `insufficient margin: $${acct.withdrawable.toFixed(2)} available, trade needs ~$${marginNeeded.toFixed(2)} at ${leverage}x` };
+  }
+  const mid = await getMid(conn.isTestnet, coin);
+  if (!mid) return { ok: false, reason: `no Hyperliquid mid price for ${coin}` };
+  const size = roundSize(notional / mid, asset.szDecimals);
+  if (!(size > 0)) return { ok: false, skipped: true, reason: `size rounds to 0 for ${coin}` };
+  try {
+    await updateLeverage(creds, asset.index, leverage, false);
+  } catch (e) {
+    return { ok: false, reason: `couldn't set ${leverage}x isolated leverage \u2014 ${e?.message ?? e}` };
+  }
+  const isBuy = direction === "BUY";
+  const fill = await marketOrder(creds, asset, isBuy, size, mid, false);
+  acctCache.delete(userId);
+  if (!fill.filled || !(fill.totalSz > 0) || !(fill.avgPx > 0)) {
+    return { ok: false, reason: fill.error ? `order not filled \u2014 ${fill.error}` : "order not filled (IOC expired unfilled)" };
+  }
+  const isLong = isBuy;
+  const stopLoss = fill.avgPx * (isLong ? 1 - conn.stopLossPct / 100 : 1 + conn.stopLossPct / 100);
+  const takeProfit = fill.avgPx * (isLong ? 1 + conn.takeProfitPct / 100 : 1 - conn.takeProfitPct / 100);
+  let stopPlaced = false;
+  let stopNote = "";
+  try {
+    const sl = await placeStopLoss(creds, asset, isLong, fill.totalSz, stopLoss);
+    stopPlaced = sl.resting || sl.filled;
+    if (!stopPlaced) stopNote = sl.error ?? "unknown";
+  } catch (e) {
+    stopNote = e?.message ?? String(e);
+  }
+  if (!stopPlaced) console.error(`[hyperliquid] ${coin} filled but the exchange stop was NOT placed (${stopNote}) \u2014 the engine monitor is the only stop for this position`);
+  return {
+    ok: true,
+    connectionId: conn.id,
+    coin,
+    qty: fill.totalSz,
+    entryPrice: fill.avgPx,
+    orderId: String(fill.oid ?? ""),
+    stopLoss,
+    takeProfit,
+    stopPlaced,
+    reason: stopPlaced ? void 0 : `exchange stop not placed: ${stopNote}`,
+    notionalUsd: fill.totalSz * fill.avgPx,
+    testnet: conn.isTestnet
+  };
+}
+async function cancelCoinStops(creds, asset) {
+  const orders = await getOpenOrders(creds.testnet, tradedAddress(creds)).catch(() => []);
+  const mine = orders.filter((o) => String(o.coin).toUpperCase() === asset.name.toUpperCase() && o.reduceOnly && o.isTrigger);
+  if (mine.length) await cancelOrders(creds, mine.map((o) => ({ a: asset.index, o: Number(o.oid) }))).catch((e) => console.error(`[hyperliquid] couldn't cancel leftover ${asset.name} stop orders: ${e?.message ?? e}`));
+}
+async function hyperliquidExit(userId, trade) {
+  const loaded = await loadCreds(userId);
+  if (!loaded) return { ok: false, exitPrice: 0, reason: "no active Hyperliquid connection" };
+  const { conn, creds } = loaded;
+  const coin = hlCoin(trade.symbol);
+  const asset = (await getMeta(conn.isTestnet)).get(coin);
+  if (!asset) return { ok: false, exitPrice: 0, reason: `${coin} not found in Hyperliquid meta` };
+  const user = tradedAddress(conn);
+  const isLong = trade.direction === "long";
+  const acct = await readAccount(userId, conn.isTestnet, user, 0);
+  const pos = acct.positions.find((p) => p.coin.toUpperCase() === coin);
+  const held = pos && (isLong ? pos.szi > 0 : pos.szi < 0) ? Math.abs(pos.szi) : 0;
+  if (held <= 0) {
+    const since = trade.createdAt ? new Date(trade.createdAt).getTime() : Date.now() - 7 * 864e5;
+    const fills = await getFillsSince(conn.isTestnet, user, since).catch(() => null);
+    const closes = (fills ?? []).filter((f) => String(f.coin).toUpperCase() === coin && String(f.dir || "").startsWith("Close") && String(f.dir).includes(isLong ? "Long" : "Short"));
+    const sz = closes.reduce((s, f) => s + Number(f.sz || 0), 0);
+    if (sz > 0) {
+      const px = closes.reduce((s, f) => s + Number(f.px) * Number(f.sz), 0) / sz;
+      await cancelCoinStops(creds, asset);
+      return { ok: true, exitPrice: px, closedOnExchange: true };
+    }
+    return { ok: false, exitPrice: 0, phantom: fills !== null, reason: fills === null ? "couldn't read Hyperliquid fills" : `no ${coin} ${isLong ? "long" : "short"} on Hyperliquid and no closing fill found since entry` };
+  }
+  const qty = Math.min(held, trade.quantity);
+  const mid = await getMid(conn.isTestnet, coin);
+  if (!mid) return { ok: false, exitPrice: 0, reason: `no Hyperliquid mid price for ${coin}` };
+  const fill = await marketOrder(creds, asset, !isLong, qty, mid, true);
+  acctCache.delete(userId);
+  if (!fill.filled || !(fill.totalSz > 0)) return { ok: false, exitPrice: 0, reason: fill.error ? `close not filled \u2014 ${fill.error}` : "close not filled (IOC expired)" };
+  if (fill.totalSz < qty * 0.999) {
+    return { ok: false, exitPrice: fill.avgPx, reason: `close only partly filled (${fill.totalSz} of ${qty}) \u2014 retrying the rest next cycle` };
+  }
+  await cancelCoinStops(creds, asset);
+  return { ok: true, exitPrice: fill.avgPx };
+}
+var DDL, HL_PREFIX, acctCache;
+var init_hyperliquid_executor = __esm({
+  "server/services/hyperliquid-executor.ts"() {
+    "use strict";
+    init_db();
+    init_cryptocom();
+    init_hyperliquid();
+    DDL = `
+CREATE TABLE IF NOT EXISTS "hyperliquid_connections" (
+  "id" serial PRIMARY KEY NOT NULL,
+  "user_id" integer NOT NULL,
+  "label" text,
+  "account_address" text NOT NULL,
+  "vault_address" text,
+  "agent_address" text NOT NULL,
+  "encrypted_agent_key" text NOT NULL,
+  "is_testnet" boolean NOT NULL DEFAULT false,
+  "is_prop_account" boolean NOT NULL DEFAULT true,
+  "is_active" boolean NOT NULL DEFAULT true,
+  "auto_trade_enabled" boolean NOT NULL DEFAULT false,
+  "notional_usd" real NOT NULL DEFAULT 25,
+  "leverage" integer NOT NULL DEFAULT 3,
+  "stop_loss_pct" real NOT NULL DEFAULT 1.5,
+  "take_profit_pct" real NOT NULL DEFAULT 3,
+  "symbols" text NOT NULL DEFAULT 'BTC,ETH,SOL',
+  "created_at" timestamp DEFAULT now() NOT NULL,
+  CONSTRAINT "hyperliquid_connections_user_unique" UNIQUE ("user_id")
+);
+`;
+    HL_PREFIX = "HL:";
+    acctCache = /* @__PURE__ */ new Map();
   }
 });
 
@@ -38387,6 +38892,10 @@ function getDefiUniverseEntry(symbol, chain) {
   return defiUniverse.get(universeKey(chain, symbol));
 }
 async function fetchBars(symbol, timeframe, count, chain) {
+  if (symbol.toUpperCase().startsWith("HL:")) {
+    const { getCandles: getCandles2 } = await Promise.resolve().then(() => (init_hyperliquid(), hyperliquid_exports));
+    return getCandles2(symbol.slice(3), timeframe, count, false);
+  }
   const entry = defiUniverse.get(universeKey(chain, symbol));
   if (entry) {
     const { getDefiCandles: getDefiCandles2 } = await Promise.resolve().then(() => (init_defi_market_data(), defi_market_data_exports));
@@ -38821,7 +39330,8 @@ async function monitorOpenPositions(userId, cfg) {
   if (openTrades.length === 0) return;
   for (const trade of openTrades) {
     try {
-      if (trade.venue && trade.venue !== "cryptocom") {
+      const isHl = trade.venue === "hyperliquid";
+      if (trade.venue && trade.venue !== "cryptocom" && !isHl) {
         let px = 0;
         const pool2 = trade.poolAddress;
         if (pool2) {
@@ -38856,7 +39366,18 @@ async function monitorOpenPositions(userId, cfg) {
         }
         continue;
       }
-      const currentPrice = await CryptoComService.getTicker(trade.symbol);
+      let currentPrice;
+      if (isHl) {
+        const hlx = await Promise.resolve().then(() => (init_hyperliquid_executor(), hyperliquid_executor_exports));
+        currentPrice = await hlx.hlMid(userId, trade.symbol).catch(() => null);
+        const stillOpen = await hlx.hlPositionOpen(userId, trade.symbol, trade.direction).catch(() => null);
+        if (stillOpen === false) {
+          await closePosition(userId, trade, currentPrice ?? 0, "exchange_stop");
+          continue;
+        }
+      } else {
+        currentPrice = await CryptoComService.getTicker(trade.symbol);
+      }
       if (!currentPrice || currentPrice <= 0) continue;
       const isLong = trade.direction === "long";
       if (trade.takeProfit && (isLong ? currentPrice >= trade.takeProfit : currentPrice <= trade.takeProfit)) {
@@ -38904,7 +39425,27 @@ async function closePosition(userId, trade, currentPrice, reason) {
   let finished = false;
   try {
     const venue = trade.venue && trade.venue !== "cryptocom" ? trade.venue : null;
-    if (venue === "defi") {
+    if (venue === "hyperliquid") {
+      await phase(`exit:trade_${trade.id}:hyperliquid`);
+      const { hyperliquidExit: hyperliquidExit2 } = await Promise.resolve().then(() => (init_hyperliquid_executor(), hyperliquid_executor_exports));
+      const exit = await hyperliquidExit2(userId, trade).catch((e) => ({ ok: false, exitPrice: 0, reason: e?.message || String(e) }));
+      if (exit.phantom) {
+        console.error(`[cryptocom-scanner] trade ${trade.id} (${trade.symbol}) is NOT on Hyperliquid: ${exit.reason} \u2014 flagging for reconciliation`);
+        await storage.flagCryptocomEngineTradeUnreconciled(trade.id, String(exit.reason).slice(0, 500)).catch((e) => console.error(`[cryptocom-scanner] could not flag trade ${trade.id} (${e?.message})`));
+        await storage.createCryptocomEngineActivity({ userId, symbol: trade.symbol, decision: "skipped", strategy: trade.strategy, reasoning: `${trade.symbol}: position NOT on Hyperliquid and no closing fill found \u2014 parked as needs_reconciliation; NO P&L booked.`, score: null, price: currentPrice, dailyChangePercent: null, source: "cryptocom" }).catch(() => {
+        });
+        finished = true;
+        return;
+      }
+      if (!exit.ok) {
+        console.error(`[cryptocom-scanner] Hyperliquid exit FAILED for trade ${trade.id} (${trade.symbol}): ${exit.reason} \u2014 position left OPEN`);
+        await storage.createCryptocomEngineActivity({ userId, symbol: trade.symbol, decision: "signal", strategy: trade.strategy, reasoning: `${trade.symbol}: Hyperliquid EXIT FAILED (${exit.reason}) \u2014 position still OPEN, will retry next cycle. No P&L booked.`, score: null, price: currentPrice, dailyChangePercent: null, source: "cryptocom" }).catch(() => {
+        });
+        return;
+      }
+      currentPrice = exit.exitPrice;
+      if (exit.closedOnExchange) reason = "exchange_stop";
+    } else if (venue === "defi") {
       const cfg = await storage.getUserCryptocomEngineConfig(userId).catch(() => null);
       await phase(`exit:trade_${trade.id}:defi_swap`);
       const { defiExitSell: defiExitSell2 } = await Promise.resolve().then(() => (init_defi_executor(), defi_executor_exports));
@@ -38974,7 +39515,7 @@ async function closePosition(userId, trade, currentPrice, reason) {
       source: "cryptocom"
     });
     try {
-      await recordRealizedPnl(userId, trade.connectionId, "cryptocom", realizedPnl);
+      await recordRealizedPnl(userId, trade.connectionId, trade.venue === "hyperliquid" ? "hyperliquid" : "cryptocom", realizedPnl);
     } catch {
     }
     try {
@@ -39195,6 +39736,12 @@ async function executeSignal(service, connection2, userId, symbol, result, cfg) 
   const arms = [];
   if (connection2) arms.push({ venue: "cryptocom", label: "perps" });
   if (cfg.defiAutoTradeEnabled) arms.push({ venue: "defi", label: "DeFi" });
+  try {
+    const { getHyperliquidConnection: getHyperliquidConnection2 } = await Promise.resolve().then(() => (init_hyperliquid_executor(), hyperliquid_executor_exports));
+    const hlc = await getHyperliquidConnection2(userId);
+    if (hlc?.autoTradeEnabled) arms.push({ venue: "hyperliquid", label: "Hyperliquid" });
+  } catch {
+  }
   if (cfg.cefiAutoTradeEnabled) {
     try {
       const { pool: pool2 } = await Promise.resolve().then(() => (init_db(), db_exports));
@@ -39210,7 +39757,7 @@ async function executeSignal(service, connection2, userId, symbol, result, cfg) 
       ...cfg,
       executionVenue: arm.venue,
       defiAutoTradeEnabled: arm.venue === "defi",
-      cefiAutoTradeEnabled: arm.venue !== "defi" && arm.venue !== "cryptocom"
+      cefiAutoTradeEnabled: arm.venue !== "defi" && arm.venue !== "cryptocom" && arm.venue !== "hyperliquid"
     };
     await executeSignalSingle(service, connection2, userId, symbol, result, armCfg).catch((e) => console.error(`[cryptocom-scanner] fan-out ${arm.label} failed for ${symbol}:`, e?.message ?? e));
   }
@@ -39218,6 +39765,48 @@ async function executeSignal(service, connection2, userId, symbol, result, cfg) 
 async function executeSignalSingle(service, connection2, userId, symbol, result, cfg) {
   if (!result.direction || !result.price) return;
   const venue = cfg.executionVenue;
+  if (venue === "hyperliquid") {
+    const act = (decision, reasoning) => storage.createCryptocomEngineActivity({ userId, symbol, decision, strategy: result.strategy, reasoning, score: result.score, price: result.price, dailyChangePercent: result.dailyChangePercent, source: "cryptocom" }).catch(() => {
+    });
+    try {
+      const hlx = await Promise.resolve().then(() => (init_hyperliquid_executor(), hyperliquid_executor_exports));
+      const equity = await hlx.hlAccountValue(userId).catch(() => null) ?? 0;
+      if (!(equity > 0)) {
+        await act("skipped", `${symbol}: couldn't read the Hyperliquid account value \u2014 skipping entry.`);
+        return;
+      }
+      const gateH = await checkSafetyGates(userId, cfg, equity);
+      if (!gateH.allowed) {
+        await act("skipped", `${symbol}: signal confirmed, but execution blocked \u2014 ${gateH.reason}.`);
+        return;
+      }
+      const r = await hlx.hyperliquidEntry(userId, symbol, result.direction, gateH.riskMultiplier);
+      if (!r.ok) {
+        await act(r.skipped ? "skipped" : "error", `${symbol}: Hyperliquid entry ${r.skipped ? "skipped" : "failed"} \u2014 ${r.reason}.`);
+        return;
+      }
+      const dir = result.direction === "BUY" ? "long" : "short";
+      await storage.createCryptocomEngineTrade({
+        userId,
+        connectionId: r.connectionId,
+        venue: "hyperliquid",
+        symbol: hlx.HL_PREFIX + r.coin,
+        strategy: result.strategy,
+        direction: dir,
+        quantity: r.qty,
+        entryPrice: r.entryPrice,
+        stopLoss: r.stopLoss,
+        takeProfit: r.takeProfit,
+        entryOrderId: r.orderId ?? "",
+        entryReasoning: result.reasoning,
+        status: "open"
+      });
+      await act("signal", `${symbol}: EXECUTED on Hyperliquid${r.testnet ? " TESTNET" : ""} \u2014 ${dir} ${r.qty} ${r.coin} (~$${(r.notionalUsd ?? 0).toFixed(0)}) @ $${r.entryPrice.toFixed(4)}. SL $${r.stopLoss.toFixed(4)} ${r.stopPlaced ? "(on exchange)" : "(\u26A0 engine-only \u2014 exchange stop failed)"} / TP $${r.takeProfit.toFixed(4)}. ${result.reasoning}`);
+    } catch (err) {
+      await act("error", `${symbol}: Hyperliquid order error: ${err?.message ?? err}`);
+    }
+    return;
+  }
   if (venue === "defi" && cfg.defiAutoTradeEnabled) {
     if (result.direction !== "BUY") {
       await storage.createCryptocomEngineActivity({ userId, symbol, decision: "skipped", strategy: result.strategy, reasoning: `${symbol}: DeFi swaps are long-only \u2014 SELL/short signals aren't traded on-chain.`, score: result.score, price: result.price, dailyChangePercent: result.dailyChangePercent, source: "cryptocom" });
@@ -39418,9 +40007,10 @@ async function scanOneUser(userId) {
   if (now - last < Math.max(MIN_SCAN_INTERVAL_MS, config.scanIntervalMs)) return;
   lastScanAt.set(userId, now);
   const isDefi = config.executionVenue === "defi";
+  const isHyperliquid = config.executionVenue === "hyperliquid";
   const connections = await storage.getUserCryptocomConnections(userId);
   const activeConn = connections.find((c) => c.isActive);
-  if (!activeConn && !isDefi) {
+  if (!activeConn && !isDefi && !isHyperliquid) {
     await storage.createCryptocomEngineActivity({ userId, symbol: "\u2014", decision: "error", reasoning: "No active Crypto.com connection.", score: null, price: null, dailyChangePercent: null, source: "cryptocom", strategy: null });
     return;
   }
@@ -39428,7 +40018,7 @@ async function scanOneUser(userId) {
   try {
     service = activeConn ? new CryptoComService(activeConn.apiKey, decryptApiSecret(activeConn.encryptedApiSecret)) : new CryptoComService("", "");
   } catch (err) {
-    if (!isDefi) {
+    if (!isDefi && !isHyperliquid) {
       await storage.createCryptocomEngineActivity({ userId, symbol: "\u2014", decision: "error", reasoning: `Could not decrypt credentials: ${err.message}`, score: null, price: null, dailyChangePercent: null, source: "cryptocom", strategy: null });
       return;
     }
@@ -39442,7 +40032,15 @@ async function scanOneUser(userId) {
   }
   const canAutoExecute = conn.autoExecute && config.enableAutoExecution;
   let allSymbols = Array.isArray(config.symbols) ? config.symbols : [];
-  if (isDefi) {
+  if (isHyperliquid) {
+    const { getHyperliquidConnection: getHyperliquidConnection2, HL_PREFIX: HL_PREFIX2 } = await Promise.resolve().then(() => (init_hyperliquid_executor(), hyperliquid_executor_exports));
+    const hlc = await getHyperliquidConnection2(userId).catch(() => null);
+    if (!hlc) {
+      await storage.createCryptocomEngineActivity({ userId, symbol: "\u2014", decision: "error", reasoning: "Venue is Hyperliquid but no Hyperliquid account is connected.", score: null, price: null, dailyChangePercent: null, source: "cryptocom", strategy: null });
+      return;
+    }
+    allSymbols = hlc.symbols.map((c) => HL_PREFIX2 + c);
+  } else if (isDefi) {
     try {
       allSymbols = await refreshDefiUniverse(config.defiChain || "base");
       console.log(`[cryptocom-scanner] DeFi universe on ${config.defiChain || "base"}: ${allSymbols.length} tokens`);
@@ -44454,10 +45052,10 @@ async function executeServerSideBuy(userId, signal, state) {
       const { PublicKey: PublicKey3 } = await import("@solana/web3.js");
       const balResp = await connection2.getParsedTokenAccountsByOwner(keypair.publicKey, { mint: new PublicKey3(signal.mint) });
       for (const acc of balResp.value) {
-        const info = acc.account?.data?.parsed?.info?.tokenAmount;
-        if (info) {
-          tokenAmount += Number(info.amount) || 0;
-          if (info.decimals != null) decimals = Number(info.decimals);
+        const info2 = acc.account?.data?.parsed?.info?.tokenAmount;
+        if (info2) {
+          tokenAmount += Number(info2.amount) || 0;
+          if (info2.decimals != null) decimals = Number(info2.decimals);
         }
       }
     } catch (balErr) {
@@ -51585,17 +52183,17 @@ ${REFERRAL_LINK}`;
     }
   }
   if (batch2) {
-    for (const [idx, post] of [[1, batch2.linkedinPost1], [2, batch2.linkedinPost2]]) {
+    for (const [idx, post2] of [[1, batch2.linkedinPost1], [2, batch2.linkedinPost2]]) {
       try {
         const hasLinkedIn2 = !!process.env.LINKEDIN_ACCESS_TOKEN;
-        const postId = hasLinkedIn2 ? await postLinkedIn(post) : null;
+        const postId = hasLinkedIn2 ? await postLinkedIn(post2) : null;
         const status = postId ? "posted" : "ready_to_post";
         if (postId) linkedinPosts++;
         await db.insert(ambassadorDailyContent).values({
           runDate,
           platform: "linkedin",
           postType: `post_${idx}`,
-          contentText: post,
+          contentText: post2,
           postId: postId ?? void 0,
           status,
           referralLink: REFERRAL_LINK
@@ -51606,7 +52204,7 @@ ${REFERRAL_LINK}`;
           runDate,
           platform: "linkedin",
           postType: `post_${idx}`,
-          contentText: post,
+          contentText: post2,
           status: "ready_to_post",
           referralLink: REFERRAL_LINK
         }).catch(() => {
@@ -52499,7 +53097,7 @@ __export(ensure_kalshi_engine_config_table_exports, {
 });
 async function ensureKalshiEngineConfigTable() {
   try {
-    await pool.query(DDL);
+    await pool.query(DDL2);
     console.log("[startup] Kalshi engine config table ensured (kalshi_engine_configs) \u2014 coin selection/strategy/risk settings now survive restarts.");
     try {
       const res = await pool.query(
@@ -52544,12 +53142,12 @@ async function ensureKalshiEngineConfigTable() {
     console.error("[startup] ensureKalshiEngineConfigTable failed (non-fatal):", err?.message ?? err);
   }
 }
-var DDL;
+var DDL2;
 var init_ensure_kalshi_engine_config_table = __esm({
   "server/services/ensure-kalshi-engine-config-table.ts"() {
     "use strict";
     init_db();
-    DDL = `
+    DDL2 = `
 CREATE TABLE IF NOT EXISTS "kalshi_engine_configs" (
   "id" serial PRIMARY KEY NOT NULL,
   "user_id" integer NOT NULL UNIQUE REFERENCES "users"("id"),
@@ -52568,18 +53166,18 @@ __export(ensure_kalshi_brain_tables_exports, {
 });
 async function ensureKalshiBrainTables() {
   try {
-    await pool.query(DDL2);
+    await pool.query(DDL3);
     console.log("[startup] Kalshi brain table ensured (kalshi_brain_outcomes) \u2014 per-trade learning features now persist.");
   } catch (err) {
     console.error("[startup] ensureKalshiBrainTables failed (non-fatal):", err?.message ?? err);
   }
 }
-var DDL2;
+var DDL3;
 var init_ensure_kalshi_brain_tables = __esm({
   "server/services/ensure-kalshi-brain-tables.ts"() {
     "use strict";
     init_db();
-    DDL2 = `
+    DDL3 = `
 CREATE TABLE IF NOT EXISTS "kalshi_brain_outcomes" (
   "id" serial PRIMARY KEY NOT NULL,
   "user_id" integer NOT NULL REFERENCES "users"("id"),
@@ -52615,18 +53213,18 @@ __export(ensure_options_tables_exports, {
 });
 async function ensureOptionsTables() {
   try {
-    await pool.query(DDL3);
+    await pool.query(DDL4);
     console.log("[startup] Options-engine broker tables ensured (alpaca/tastytrade/cryptocom/options_engine_configs/options_engine_activity/options_engine_trades).");
   } catch (err) {
     console.error("[startup] ensureOptionsTables failed (non-fatal):", err?.message ?? err);
   }
 }
-var DDL3;
+var DDL4;
 var init_ensure_options_tables = __esm({
   "server/services/ensure-options-tables.ts"() {
     "use strict";
     init_db();
-    DDL3 = `
+    DDL4 = `
 CREATE TABLE IF NOT EXISTS "alpaca_connections" (
   "id" serial PRIMARY KEY NOT NULL,
   "user_id" integer NOT NULL REFERENCES "users"("id"),
@@ -52772,18 +53370,18 @@ __export(ensure_blog_tables_exports, {
 });
 async function ensureBlogTables() {
   try {
-    await pool.query(DDL4);
+    await pool.query(DDL5);
     console.log("[startup] Blog lead-gen tables ensured (blog_newsletter_subscribers).");
   } catch (err) {
     console.error("[startup] ensureBlogTables failed (non-fatal):", err?.message ?? err);
   }
 }
-var DDL4;
+var DDL5;
 var init_ensure_blog_tables = __esm({
   "server/services/ensure-blog-tables.ts"() {
     "use strict";
     init_db();
-    DDL4 = `
+    DDL5 = `
 CREATE TABLE IF NOT EXISTS "blog_newsletter_subscribers" (
   "id" serial PRIMARY KEY NOT NULL,
   "email" text NOT NULL UNIQUE,
@@ -52804,18 +53402,18 @@ __export(ensure_ambassador_prime_tables_exports, {
 });
 async function ensureAmbassadorPrimeTables() {
   try {
-    await pool.query(DDL5);
+    await pool.query(DDL6);
     console.log("[startup] Ambassador Prime tables ensured (run_summary, daily_content, daily_kpis, hook_variations, bonus_content, community_content, reddit_insights, run_step_log, weekly_calendar, market_briefing).");
   } catch (err) {
     console.error("[startup] ensureAmbassadorPrimeTables failed (non-fatal):", err?.message ?? err);
   }
 }
-var DDL5;
+var DDL6;
 var init_ensure_ambassador_prime_tables = __esm({
   "server/services/ensure-ambassador-prime-tables.ts"() {
     "use strict";
     init_db();
-    DDL5 = `
+    DDL6 = `
 CREATE TABLE IF NOT EXISTS "ambassador_run_summary" (
   "id" serial PRIMARY KEY NOT NULL,
   "run_date" varchar(20) NOT NULL UNIQUE,
@@ -52924,18 +53522,18 @@ __export(ensure_brain_marketplace_tables_exports, {
 });
 async function ensureBrainMarketplaceTables() {
   try {
-    await pool.query(DDL6);
+    await pool.query(DDL7);
     console.log("[startup] Brain Data Marketplace tables ensured (brain_data_listings, brain_data_purchases).");
   } catch (err) {
     console.error("[startup] ensureBrainMarketplaceTables failed (non-fatal):", err?.message ?? err);
   }
 }
-var DDL6;
+var DDL7;
 var init_ensure_brain_marketplace_tables = __esm({
   "server/services/ensure-brain-marketplace-tables.ts"() {
     "use strict";
     init_db();
-    DDL6 = `
+    DDL7 = `
 CREATE TABLE IF NOT EXISTS "brain_data_listings" (
   "id" serial PRIMARY KEY NOT NULL,
   "seller_id" integer NOT NULL REFERENCES "users"("id"),
@@ -52979,18 +53577,18 @@ __export(ensure_options_brain_outcomes_table_exports, {
 });
 async function ensureOptionsBrainOutcomesTable() {
   try {
-    await pool.query(DDL7);
+    await pool.query(DDL8);
     console.log("[startup] Options brain feature store ensured (options_brain_outcomes) \u2014 options brain is now durable + sellable on the marketplace.");
   } catch (err) {
     console.error("[startup] ensureOptionsBrainOutcomesTable failed (non-fatal):", err?.message ?? err);
   }
 }
-var DDL7;
+var DDL8;
 var init_ensure_options_brain_outcomes_table = __esm({
   "server/services/ensure-options-brain-outcomes-table.ts"() {
     "use strict";
     init_db();
-    DDL7 = `
+    DDL8 = `
 CREATE TABLE IF NOT EXISTS "options_brain_outcomes" (
   "id" serial PRIMARY KEY NOT NULL,
   "user_id" integer NOT NULL REFERENCES "users"("id"),
@@ -53022,18 +53620,18 @@ __export(ensure_options_iv_history_table_exports, {
 });
 async function ensureOptionsIvHistoryTable() {
   try {
-    await pool.query(DDL8);
+    await pool.query(DDL9);
     console.log("[startup] Options IV-history table ensured (options_iv_history) \u2014 IV Rank now self-builds from daily ATM IV snapshots.");
   } catch (err) {
     console.error("[startup] ensureOptionsIvHistoryTable failed (non-fatal):", err?.message ?? err);
   }
 }
-var DDL8;
+var DDL9;
 var init_ensure_options_iv_history_table = __esm({
   "server/services/ensure-options-iv-history-table.ts"() {
     "use strict";
     init_db();
-    DDL8 = `
+    DDL9 = `
 CREATE TABLE IF NOT EXISTS "options_iv_history" (
   "id" serial PRIMARY KEY NOT NULL,
   "underlying_symbol" text NOT NULL,
@@ -53053,7 +53651,7 @@ __export(ensure_persona_content_tables_exports, {
   ensurePersonaContentTables: () => ensurePersonaContentTables
 });
 async function ensurePersonaContentTables() {
-  await pool.query(DDL9);
+  await pool.query(DDL10);
   for (const pillar of PILLARS) {
     await pool.query(
       `INSERT INTO "persona_pillar_rotation" ("pillar") VALUES ($1) ON CONFLICT ("pillar") DO NOTHING`,
@@ -53064,7 +53662,7 @@ async function ensurePersonaContentTables() {
     `INSERT INTO "persona_arc_state" ("id", "current_index", "loops_completed") VALUES (1, 0, 0) ON CONFLICT ("id") DO NOTHING`
   );
 }
-var PILLARS, DDL9;
+var PILLARS, DDL10;
 var init_ensure_persona_content_tables = __esm({
   "server/services/ensure-persona-content-tables.ts"() {
     "use strict";
@@ -53081,7 +53679,7 @@ var init_ensure_persona_content_tables = __esm({
       "Behind-the-scenes",
       "Family/life balance/purpose"
     ];
-    DDL9 = `
+    DDL10 = `
 CREATE TABLE IF NOT EXISTS "persona_pillar_rotation" (
   "id" serial PRIMARY KEY NOT NULL,
   "pillar" text NOT NULL UNIQUE,
@@ -53118,18 +53716,18 @@ __export(ensure_content_image_columns_exports, {
 });
 async function ensureContentImageColumns() {
   try {
-    await pool.query(DDL10);
+    await pool.query(DDL11);
     console.log("[startup] Content image columns ensured (devotionals.hero_image, ambassador_daily_content/bonus_content/community_content.image_url).");
   } catch (err) {
     console.error("[startup] ensureContentImageColumns failed (non-fatal):", err?.message ?? err);
   }
 }
-var DDL10;
+var DDL11;
 var init_ensure_content_image_columns = __esm({
   "server/services/ensure-content-image-columns.ts"() {
     "use strict";
     init_db();
-    DDL10 = `
+    DDL11 = `
 ALTER TABLE "devotionals" ADD COLUMN IF NOT EXISTS "hero_image" text;
 ALTER TABLE "ambassador_daily_content" ADD COLUMN IF NOT EXISTS "image_url" text;
 ALTER TABLE "ambassador_bonus_content" ADD COLUMN IF NOT EXISTS "image_url" text;
@@ -53145,18 +53743,18 @@ __export(ensure_order_flow_column_exports, {
 });
 async function ensureOrderFlowColumn() {
   try {
-    await pool.query(DDL11);
+    await pool.query(DDL12);
     console.log("[startup] Options Engine order-flow column ensured (options_engine_configs.order_flow_lookback_bars).");
   } catch (err) {
     console.error("[startup] ensureOrderFlowColumn failed (non-fatal):", err?.message ?? err);
   }
 }
-var DDL11;
+var DDL12;
 var init_ensure_order_flow_column = __esm({
   "server/services/ensure-order-flow-column.ts"() {
     "use strict";
     init_db();
-    DDL11 = `
+    DDL12 = `
 ALTER TABLE "options_engine_configs" ADD COLUMN IF NOT EXISTS "order_flow_lookback_bars" integer NOT NULL DEFAULT 30;
 `;
   }
@@ -53169,18 +53767,18 @@ __export(ensure_options_engine_parity_columns_exports, {
 });
 async function ensureOptionsEngineParityColumns() {
   try {
-    await pool.query(DDL12);
+    await pool.query(DDL13);
     console.log("[startup] Options Engine FX-parity columns ensured (trailing stops, Drawdown Shield, Kelly, Brain Learning Mode, prop-firm presets + consistency rule, Copy Mode, Volatile Cap, Goal Tracker, scheduling, AI intelligence extras, liquidity filter, per-trade confidence/DTE/IV/spread).");
   } catch (err) {
     console.error("[startup] ensureOptionsEngineParityColumns failed (non-fatal):", err?.message ?? err);
   }
 }
-var DDL12;
+var DDL13;
 var init_ensure_options_engine_parity_columns = __esm({
   "server/services/ensure-options-engine-parity-columns.ts"() {
     "use strict";
     init_db();
-    DDL12 = `
+    DDL13 = `
 ALTER TABLE "options_engine_configs" ADD COLUMN IF NOT EXISTS "ai_mode" text NOT NULL DEFAULT 'full';
 ALTER TABLE "options_engine_configs" ADD COLUMN IF NOT EXISTS "use_kelly_criterion" boolean NOT NULL DEFAULT false;
 ALTER TABLE "options_engine_configs" ADD COLUMN IF NOT EXISTS "brain_learning_mode" boolean NOT NULL DEFAULT true;
@@ -53257,18 +53855,18 @@ __export(ensure_futures_engine_tables_exports, {
 });
 async function ensureFuturesEngineTables() {
   try {
-    await pool.query(DDL13);
+    await pool.query(DDL14);
     console.log("[startup] Futures Engine tables ensured (futures_engine_configs/activity/trades \u2014 FX-parity persisted config, trailing stops, Kelly, Brain Learning Mode, Drawdown Shield, consistency rule, scheduling).");
   } catch (err) {
     console.error("[startup] ensureFuturesEngineTables failed (non-fatal):", err?.message ?? err);
   }
 }
-var DDL13;
+var DDL14;
 var init_ensure_futures_engine_tables = __esm({
   "server/services/ensure-futures-engine-tables.ts"() {
     "use strict";
     init_db();
-    DDL13 = `
+    DDL14 = `
 CREATE TABLE IF NOT EXISTS "futures_engine_configs" (
   "id" serial PRIMARY KEY,
   "user_id" integer NOT NULL UNIQUE REFERENCES "users"("id"),
@@ -53376,18 +53974,18 @@ __export(ensure_content_studio_tables_exports, {
 });
 async function ensureContentStudioTables() {
   try {
-    await pool.query(DDL14);
+    await pool.query(DDL15);
     console.log("[startup] Content Studio durable media tables ensured (content_studio_assets/generations).");
   } catch (err) {
     console.error("[startup] ensureContentStudioTables failed (non-fatal):", err?.message ?? err);
   }
 }
-var DDL14;
+var DDL15;
 var init_ensure_content_studio_tables = __esm({
   "server/services/ensure-content-studio-tables.ts"() {
     "use strict";
     init_db();
-    DDL14 = `
+    DDL15 = `
 CREATE TABLE IF NOT EXISTS "content_studio_assets" (
   "id" serial PRIMARY KEY,
   "mime_type" text NOT NULL,
@@ -53418,18 +54016,18 @@ __export(ensure_cryptocom_engine_tables_exports, {
 });
 async function ensureCryptocomEngineTables() {
   try {
-    await pool.query(DDL15);
+    await pool.query(DDL16);
     console.log("[startup] Crypto.com Engine tables ensured (cryptocom_engine_configs/activity/trades).");
   } catch (err) {
     console.error("[startup] ensureCryptocomEngineTables failed (non-fatal):", err?.message ?? err);
   }
 }
-var DDL15;
+var DDL16;
 var init_ensure_cryptocom_engine_tables = __esm({
   "server/services/ensure-cryptocom-engine-tables.ts"() {
     "use strict";
     init_db();
-    DDL15 = `
+    DDL16 = `
 CREATE TABLE IF NOT EXISTS "cryptocom_engine_configs" (
   "id" serial PRIMARY KEY,
   "user_id" integer NOT NULL UNIQUE REFERENCES "users"("id"),
@@ -53567,18 +54165,18 @@ __export(ensure_crypto_brain_table_exports, {
 });
 async function ensureCryptoBrainTable() {
   try {
-    await pool.query(DDL16);
+    await pool.query(DDL17);
     console.log("[startup] Crypto brain feature store ensured (crypto_brain_outcomes) \u2014 per-trade learning now durable.");
   } catch (err) {
     console.error("[startup] ensureCryptoBrainTable failed (non-fatal):", err?.message ?? err);
   }
 }
-var DDL16;
+var DDL17;
 var init_ensure_crypto_brain_table = __esm({
   "server/services/ensure-crypto-brain-table.ts"() {
     "use strict";
     init_db();
-    DDL16 = `
+    DDL17 = `
 CREATE TABLE IF NOT EXISTS "crypto_brain_outcomes" (
   "id" serial PRIMARY KEY NOT NULL,
   "user_id" integer NOT NULL,
@@ -53608,18 +54206,18 @@ __export(ensure_fx_brain_table_exports, {
 });
 async function ensureFxBrainTable() {
   try {
-    await pool.query(DDL17);
+    await pool.query(DDL18);
     console.log("[startup] FX brain feature store ensured (fx_brain_outcomes) \u2014 per-trade condition learning now durable.");
   } catch (err) {
     console.error("[startup] ensureFxBrainTable failed (non-fatal):", err?.message ?? err);
   }
 }
-var DDL17;
+var DDL18;
 var init_ensure_fx_brain_table = __esm({
   "server/services/ensure-fx-brain-table.ts"() {
     "use strict";
     init_db();
-    DDL17 = `
+    DDL18 = `
 CREATE TABLE IF NOT EXISTS "fx_brain_outcomes" (
   "id" serial PRIMARY KEY NOT NULL,
   "user_id" integer NOT NULL,
@@ -53732,18 +54330,18 @@ __export(ensure_sol_brain_table_exports, {
 });
 async function ensureSolBrainTable() {
   try {
-    await pool.query(DDL18);
+    await pool.query(DDL19);
     console.log("[startup] Sol brain feature store ensured (sol_brain_outcomes) \u2014 per-trade learning now durable.");
   } catch (err) {
     console.error("[startup] ensureSolBrainTable failed (non-fatal):", err?.message ?? err);
   }
 }
-var DDL18;
+var DDL19;
 var init_ensure_sol_brain_table = __esm({
   "server/services/ensure-sol-brain-table.ts"() {
     "use strict";
     init_db();
-    DDL18 = `
+    DDL19 = `
 CREATE TABLE IF NOT EXISTS "sol_brain_outcomes" (
   "id" serial PRIMARY KEY NOT NULL,
   "user_id" integer NOT NULL,
@@ -53773,18 +54371,18 @@ __export(ensure_coinbase_tables_exports, {
 });
 async function ensureCoinbaseTables() {
   try {
-    await pool.query(DDL19);
+    await pool.query(DDL20);
     console.log("[startup] Coinbase connections table ensured (coinbase_connections) \u2014 read-only wallet balances.");
   } catch (err) {
     console.error("[startup] ensureCoinbaseTables failed (non-fatal):", err?.message ?? err);
   }
 }
-var DDL19;
+var DDL20;
 var init_ensure_coinbase_tables = __esm({
   "server/services/ensure-coinbase-tables.ts"() {
     "use strict";
     init_db();
-    DDL19 = `
+    DDL20 = `
 CREATE TABLE IF NOT EXISTS "coinbase_connections" (
   "id" serial PRIMARY KEY NOT NULL,
   "user_id" integer NOT NULL,
@@ -53809,18 +54407,18 @@ __export(ensure_kraken_tables_exports, {
 });
 async function ensureKrakenTables() {
   try {
-    await pool.query(DDL20);
+    await pool.query(DDL21);
     console.log("[startup] Kraken connections table ensured (kraken_connections) \u2014 read-only wallet balances.");
   } catch (err) {
     console.error("[startup] ensureKrakenTables failed (non-fatal):", err?.message ?? err);
   }
 }
-var DDL20;
+var DDL21;
 var init_ensure_kraken_tables = __esm({
   "server/services/ensure-kraken-tables.ts"() {
     "use strict";
     init_db();
-    DDL20 = `
+    DDL21 = `
 CREATE TABLE IF NOT EXISTS "kraken_connections" (
   "id" serial PRIMARY KEY NOT NULL,
   "user_id" integer NOT NULL,
@@ -53845,18 +54443,18 @@ __export(ensure_gemini_tables_exports, {
 });
 async function ensureGeminiTables() {
   try {
-    await pool.query(DDL21);
+    await pool.query(DDL22);
     console.log("[startup] Gemini connections table ensured (gemini_connections) \u2014 read-only wallet balances.");
   } catch (err) {
     console.error("[startup] ensureGeminiTables failed (non-fatal):", err?.message ?? err);
   }
 }
-var DDL21;
+var DDL22;
 var init_ensure_gemini_tables = __esm({
   "server/services/ensure-gemini-tables.ts"() {
     "use strict";
     init_db();
-    DDL21 = `
+    DDL22 = `
 CREATE TABLE IF NOT EXISTS "gemini_connections" (
   "id" serial PRIMARY KEY NOT NULL,
   "user_id" integer NOT NULL,
@@ -53881,18 +54479,18 @@ __export(ensure_defi_wallets_table_exports, {
 });
 async function ensureDefiWalletsTable() {
   try {
-    await pool.query(DDL22);
+    await pool.query(DDL23);
     console.log("[startup] DeFi wallets table ensured (defi_wallets) \u2014 public addresses only, on-chain read-only.");
   } catch (err) {
     console.error("[startup] ensureDefiWalletsTable failed (non-fatal):", err?.message ?? err);
   }
 }
-var DDL22;
+var DDL23;
 var init_ensure_defi_wallets_table = __esm({
   "server/services/ensure-defi-wallets-table.ts"() {
     "use strict";
     init_db();
-    DDL22 = `
+    DDL23 = `
 CREATE TABLE IF NOT EXISTS "defi_wallets" (
   "id" serial PRIMARY KEY NOT NULL,
   "user_id" integer NOT NULL,
@@ -53916,18 +54514,18 @@ __export(ensure_defi_hotwallet_table_exports, {
 });
 async function ensureDefiHotWalletTable() {
   try {
-    await pool.query(DDL23);
+    await pool.query(DDL24);
     console.log("[startup] DeFi hot-wallet table ensured (defi_hot_wallets) \u2014 encrypted key for unattended swaps.");
   } catch (err) {
     console.error("[startup] ensureDefiHotWalletTable failed (non-fatal):", err?.message ?? err);
   }
 }
-var DDL23;
+var DDL24;
 var init_ensure_defi_hotwallet_table = __esm({
   "server/services/ensure-defi-hotwallet-table.ts"() {
     "use strict";
     init_db();
-    DDL23 = `
+    DDL24 = `
 CREATE TABLE IF NOT EXISTS "defi_hot_wallets" (
   "id" serial PRIMARY KEY NOT NULL,
   "user_id" integer NOT NULL,
@@ -53950,19 +54548,19 @@ __export(ensure_dxtrade_tables_exports, {
 });
 async function ensureDxtradeTables() {
   try {
-    await pool.query(DDL24);
+    await pool.query(DDL25);
     await pool.query(ALTERS);
     console.log("[startup] DXtrade connections table ensured (dxtrade_connections).");
   } catch (err) {
     console.error("[startup] ensureDxtradeTables failed (non-fatal):", err?.message ?? err);
   }
 }
-var DDL24, ALTERS;
+var DDL25, ALTERS;
 var init_ensure_dxtrade_tables = __esm({
   "server/services/ensure-dxtrade-tables.ts"() {
     "use strict";
     init_db();
-    DDL24 = `
+    DDL25 = `
 CREATE TABLE IF NOT EXISTS "dxtrade_connections" (
   "id" serial PRIMARY KEY NOT NULL,
   "user_id" integer NOT NULL,
@@ -54001,18 +54599,18 @@ __export(ensure_engine_consensus_table_exports, {
 });
 async function ensureEngineConsensusTable() {
   try {
-    await pool.query(DDL25);
+    await pool.query(DDL26);
     console.log("[startup] Engine consensus table ensured (engine_consensus_log) \u2014 Dual-Vote Consensus panels now survive restarts.");
   } catch (err) {
     console.error("[startup] ensureEngineConsensusTable failed (non-fatal):", err?.message ?? err);
   }
 }
-var DDL25;
+var DDL26;
 var init_ensure_engine_consensus_table = __esm({
   "server/services/ensure-engine-consensus-table.ts"() {
     "use strict";
     init_db();
-    DDL25 = `
+    DDL26 = `
 CREATE TABLE IF NOT EXISTS "engine_consensus_log" (
   "id" serial PRIMARY KEY NOT NULL,
   "user_id" integer NOT NULL REFERENCES "users"("id"),
@@ -54040,18 +54638,18 @@ __export(ensure_micro_growth_milestones_table_exports, {
 });
 async function ensureMicroGrowthMilestonesTable() {
   try {
-    await pool.query(DDL26);
+    await pool.query(DDL27);
     console.log("[startup] Micro Growth milestones table ensured (micro_growth_milestones) \u2014 doubling challenge now survives restarts.");
   } catch (err) {
     console.error("[startup] ensureMicroGrowthMilestonesTable failed (non-fatal):", err?.message ?? err);
   }
 }
-var DDL26;
+var DDL27;
 var init_ensure_micro_growth_milestones_table = __esm({
   "server/services/ensure-micro-growth-milestones-table.ts"() {
     "use strict";
     init_db();
-    DDL26 = `
+    DDL27 = `
 CREATE TABLE IF NOT EXISTS "micro_growth_milestones" (
   "id" serial PRIMARY KEY NOT NULL,
   "user_id" integer NOT NULL UNIQUE REFERENCES "users"("id"),
@@ -54073,18 +54671,18 @@ __export(ensure_micro_growth_sessions_table_exports, {
 });
 async function ensureMicroGrowthSessionsTable() {
   try {
-    await pool.query(DDL27);
+    await pool.query(DDL28);
     console.log("[startup] Micro Growth sessions table ensured (micro_growth_sessions) \u2014 session history now survives restarts.");
   } catch (err) {
     console.error("[startup] ensureMicroGrowthSessionsTable failed (non-fatal):", err?.message ?? err);
   }
 }
-var DDL27;
+var DDL28;
 var init_ensure_micro_growth_sessions_table = __esm({
   "server/services/ensure-micro-growth-sessions-table.ts"() {
     "use strict";
     init_db();
-    DDL27 = `
+    DDL28 = `
 CREATE TABLE IF NOT EXISTS "micro_growth_sessions" (
   "id" text PRIMARY KEY NOT NULL,
   "user_id" integer NOT NULL REFERENCES "users"("id"),
@@ -54115,18 +54713,18 @@ __export(ensure_workforce_course_progress_table_exports, {
 });
 async function ensureWorkforceCourseProgressTable() {
   try {
-    await pool.query(DDL28);
+    await pool.query(DDL29);
     console.log('[startup] Workforce course progress table ensured (workforce_course_progress) \u2014 "where you left off" now survives restarts.');
   } catch (err) {
     console.error("[startup] ensureWorkforceCourseProgressTable failed (non-fatal):", err?.message ?? err);
   }
 }
-var DDL28;
+var DDL29;
 var init_ensure_workforce_course_progress_table = __esm({
   "server/services/ensure-workforce-course-progress-table.ts"() {
     "use strict";
     init_db();
-    DDL28 = `
+    DDL29 = `
 CREATE TABLE IF NOT EXISTS "workforce_course_progress" (
   "id" serial PRIMARY KEY NOT NULL,
   "user_id" integer NOT NULL REFERENCES "users"("id"),
@@ -54150,18 +54748,18 @@ __export(ensure_live_engine_config_table_exports, {
 });
 async function ensureLiveEngineConfigTable() {
   try {
-    await pool.query(DDL29);
+    await pool.query(DDL30);
     console.log("[startup] Live Engine config table ensured (live_engine_configs) \u2014 propFirmMode/consistency-rule settings now survive restarts.");
   } catch (err) {
     console.error("[startup] ensureLiveEngineConfigTable failed (non-fatal):", err?.message ?? err);
   }
 }
-var DDL29;
+var DDL30;
 var init_ensure_live_engine_config_table = __esm({
   "server/services/ensure-live-engine-config-table.ts"() {
     "use strict";
     init_db();
-    DDL29 = `
+    DDL30 = `
 CREATE TABLE IF NOT EXISTS "live_engine_configs" (
   "id" serial PRIMARY KEY,
   "user_id" integer NOT NULL UNIQUE REFERENCES "users"("id"),
@@ -54180,18 +54778,18 @@ __export(ensure_copy_trading_execution_columns_exports, {
 });
 async function ensureCopyTradingExecutionColumns() {
   try {
-    await pool.query(DDL30);
+    await pool.query(DDL31);
     console.log("[startup] Copy trading execution columns ensured (copier_connection_id, copier_fx_trade_id, broker_order_id, execution_status, execution_error).");
   } catch (err) {
     console.error("[startup] ensureCopyTradingExecutionColumns failed (non-fatal):", err?.message ?? err);
   }
 }
-var DDL30;
+var DDL31;
 var init_ensure_copy_trading_execution_columns = __esm({
   "server/services/ensure-copy-trading-execution-columns.ts"() {
     "use strict";
     init_db();
-    DDL30 = `
+    DDL31 = `
 ALTER TABLE "copy_relationships" ADD COLUMN IF NOT EXISTS "copier_connection_id" integer;
 ALTER TABLE "copy_trade_logs" ADD COLUMN IF NOT EXISTS "copier_fx_trade_id" integer;
 ALTER TABLE "copy_trade_logs" ADD COLUMN IF NOT EXISTS "broker_order_id" text;
@@ -54208,18 +54806,18 @@ __export(ensure_reasoning_propfirm_tables_exports, {
 });
 async function ensureReasoningPropFirmTables() {
   try {
-    await pool.query(DDL31);
+    await pool.query(DDL32);
     console.log("[startup] Reasoning + prop firm phase tables ensured (ai_confirmation_outcomes reasoning columns, prop_firm_account_state).");
   } catch (err) {
     console.error("[startup] ensureReasoningPropFirmTables failed (non-fatal):", err?.message ?? err);
   }
 }
-var DDL31;
+var DDL32;
 var init_ensure_reasoning_propfirm_tables = __esm({
   "server/services/ensure-reasoning-propfirm-tables.ts"() {
     "use strict";
     init_db();
-    DDL31 = `
+    DDL32 = `
 ALTER TABLE "ai_confirmation_outcomes" ADD COLUMN IF NOT EXISTS "reasoning_text" text;
 ALTER TABLE "ai_confirmation_outcomes" ADD COLUMN IF NOT EXISTS "bull_case" text;
 ALTER TABLE "ai_confirmation_outcomes" ADD COLUMN IF NOT EXISTS "bear_case" text;
@@ -54317,18 +54915,18 @@ __export(ensure_profit_split_tables_exports, {
 });
 async function ensureProfitSplitTables() {
   try {
-    await pool.query(DDL32);
+    await pool.query(DDL33);
     console.log("[startup] Profit Split tables ensured (profit_split_enrollments, profit_split_payments) \u2014 ambassador 30% prop-firm profit-split program.");
   } catch (err) {
     console.error("[startup] ensureProfitSplitTables failed (non-fatal):", err?.message ?? err);
   }
 }
-var DDL32;
+var DDL33;
 var init_ensure_profit_split_tables = __esm({
   "server/services/ensure-profit-split-tables.ts"() {
     "use strict";
     init_db();
-    DDL32 = `
+    DDL33 = `
 CREATE TABLE IF NOT EXISTS "profit_split_enrollments" (
   "id" serial PRIMARY KEY NOT NULL,
   "user_id" integer NOT NULL UNIQUE REFERENCES "users"("id"),
@@ -56837,9 +57435,9 @@ async function getStopOrdersForUser(userId, filters = {}) {
 init_schema();
 
 // server/build-info.ts
-var BUILD_COMMIT = "40d585c3-dirty";
+var BUILD_COMMIT = "6abf1396-dirty";
 var BUILD_BRANCH = "main";
-var BUILT_AT = "2026-10-04T09:31:30.800Z";
+var BUILT_AT = "2026-10-04T13:20:05.478Z";
 
 // server/stripe.ts
 init_db();
@@ -56973,7 +57571,7 @@ async function createSubscription(userId, planId, successUrl, cancelUrl) {
         checkoutUrl: null
       };
     }
-    const baseUrl = process.env.APP_URL || process.env.RENDER_EXTERNAL_URL || "http://localhost:5000";
+    const baseUrl2 = process.env.APP_URL || process.env.RENDER_EXTERNAL_URL || "http://localhost:5000";
     const session3 = await stripeClient.checkout.sessions.create({
       customer: user.stripeCustomerId,
       payment_method_types: ["card"],
@@ -56984,8 +57582,8 @@ async function createSubscription(userId, planId, successUrl, cancelUrl) {
         }
       ],
       mode: "subscription",
-      success_url: successUrl || `${baseUrl}/subscription?success=true&session_id={CHECKOUT_SESSION_ID}`,
-      cancel_url: cancelUrl || `${baseUrl}/subscription?canceled=true`,
+      success_url: successUrl || `${baseUrl2}/subscription?success=true&session_id={CHECKOUT_SESSION_ID}`,
+      cancel_url: cancelUrl || `${baseUrl2}/subscription?canceled=true`,
       metadata: {
         userId: user.id.toString(),
         planId: plan.id.toString()
@@ -59470,8 +60068,8 @@ router3.get("/moomoo/account", async (req, res) => {
   const svc = getMoomooService(getUserId2(req));
   if (!svc || !svc.isConnected()) return res.status(400).json({ error: "Moomoo not connected. Call POST /api/moomoo/connect first." });
   try {
-    const info = await svc.getAccountInfo();
-    res.json(info);
+    const info2 = await svc.getAccountInfo();
+    res.json(info2);
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
@@ -63220,8 +63818,8 @@ Respond ONLY in valid JSON format with these exact keys:
   app2.get("/api/vedd/payment-price-info", async (_req, res) => {
     try {
       const { getPriceInfo: getPriceInfo2 } = await Promise.resolve().then(() => (init_veddPayment(), veddPayment_exports));
-      const info = await getPriceInfo2();
-      res.json(info);
+      const info2 = await getPriceInfo2();
+      res.json(info2);
     } catch (err) {
       res.json({ veddPerUsd: 409836, priceUsd: 244e-8, source: "fallback" });
     }
@@ -64160,10 +64758,10 @@ PLAN: include [PLAN_PROPOSAL:{json}] to propose a plan.`;
     try {
       const { getUniversalAIClientForUser: getParserAI } = await Promise.resolve().then(() => (init_openai(), openai_exports));
       const aiClient = await getParserAI(userId);
-      const acctCache = global.mt5AccountData?.[userId];
+      const acctCache2 = global.mt5AccountData?.[userId];
       let knownBalance = 0;
-      if (acctCache) {
-        knownBalance = typeof acctCache === "object" && acctCache.balance ? acctCache.balance : Object.values(acctCache).reduce((s, a) => s + (a?.balance || 0), 0);
+      if (acctCache2) {
+        knownBalance = typeof acctCache2 === "object" && acctCache2.balance ? acctCache2.balance : Object.values(acctCache2).reduce((s, a) => s + (a?.balance || 0), 0);
       }
       const parsePrompt = `You are a trading plan parser for VEDD AI. Parse the following natural language description into a structured weekly trading strategy.
 
@@ -73394,19 +73992,19 @@ Rules:
     if (!conn) return res.status(404).json({ error: "Connection not found" });
     try {
       const svc = await getOrCreateService(conn);
-      const info = await svc.getAccountInfo();
-      if (info.balance > 0) {
+      const info2 = await svc.getAccountInfo();
+      if (info2.balance > 0) {
         global.tlAccountBalances = global.tlAccountBalances || {};
         global.tlAccountBalances[userId] = global.tlAccountBalances[userId] || {};
-        global.tlAccountBalances[userId][conn.accountId] = info.balance;
+        global.tlAccountBalances[userId][conn.accountId] = info2.balance;
       }
       res.json({
-        balance: info.balance,
-        equity: info.equity,
-        margin: info.margin,
-        freeMargin: info.freeMargin,
-        currency: info.currency,
-        accountId: info.accountId
+        balance: info2.balance,
+        equity: info2.equity,
+        margin: info2.margin,
+        freeMargin: info2.freeMargin,
+        currency: info2.currency,
+        accountId: info2.accountId
       });
     } catch (err) {
       console.error("[TL balance]", err);
@@ -73514,18 +74112,18 @@ Rules:
       for (const conn of activeConns) {
         try {
           const tlSvc = await getOrCreateService(conn);
-          const info = await tlSvc.getAccountInfo();
+          const info2 = await tlSvc.getAccountInfo();
           accounts.push({
             accountId: conn.accountId,
             accountType: conn.accountType,
-            balance: info.balance || 0,
-            equity: info.equity || 0,
-            currency: info.currency || "USD"
+            balance: info2.balance || 0,
+            equity: info2.equity || 0,
+            currency: info2.currency || "USD"
           });
-          totalBalance += info.balance || 0;
-          totalEquity += info.equity || 0;
-          global.tlAccountBalances[userId][conn.accountId] = info.balance || 0;
-          console.log(`[TL balance] Account ${conn.accountId}: balance=$${info.balance} equity=$${info.equity}`);
+          totalBalance += info2.balance || 0;
+          totalEquity += info2.equity || 0;
+          global.tlAccountBalances[userId][conn.accountId] = info2.balance || 0;
+          console.log(`[TL balance] Account ${conn.accountId}: balance=$${info2.balance} equity=$${info2.equity}`);
         } catch (err) {
           console.warn(`[TL balance] Failed for account ${conn.accountId}:`, err.message);
           accounts.push({ accountId: conn.accountId, accountType: conn.accountType, balance: 0, equity: 0, error: err.message });
@@ -73906,8 +74504,8 @@ Rules:
     let resolvedAccountId = null;
     try {
       const service = new AlpacaService(accountType === "live" ? "live" : "paper", apiKeyId, apiSecret);
-      const info = await service.authenticate();
-      resolvedAccountId = info.accountId;
+      const info2 = await service.authenticate();
+      resolvedAccountId = info2.accountId;
     } catch (err) {
       const msg = err instanceof Error ? err.message : "Unknown error";
       return res.status(400).json({ error: `Alpaca login failed: ${msg}` });
@@ -73981,9 +74579,9 @@ Rules:
       const { decryptApiSecret: decryptApiSecret3 } = await Promise.resolve().then(() => (init_alpaca(), alpaca_exports));
       const secret = decryptApiSecret3(connection2.encryptedApiSecret);
       const service = new AlpacaService(connection2.accountType, connection2.apiKeyId, secret);
-      const info = await service.authenticate();
-      await storage.updateAlpacaConnection(connId, { lastConnectedAt: /* @__PURE__ */ new Date(), lastError: null, accountId: info.accountId });
-      res.json({ success: true, account: info });
+      const info2 = await service.authenticate();
+      await storage.updateAlpacaConnection(connId, { lastConnectedAt: /* @__PURE__ */ new Date(), lastError: null, accountId: info2.accountId });
+      res.json({ success: true, account: info2 });
     } catch (err) {
       const errorMsg = err instanceof Error ? err.message : "Unknown error";
       await storage.updateAlpacaConnection(connId, { lastError: errorMsg });
@@ -74039,8 +74637,8 @@ Rules:
     let resolvedAccountNumber = null;
     try {
       const service = new TastyTradeService(accountType === "live" ? "live" : "sandbox", username, password);
-      const info = await service.authenticate();
-      resolvedAccountNumber = info.accountNumber;
+      const info2 = await service.authenticate();
+      resolvedAccountNumber = info2.accountNumber;
     } catch (err) {
       const msg = err instanceof Error ? err.message : "Unknown error";
       return res.status(400).json({ error: `TastyTrade login failed: ${msg}` });
@@ -74114,9 +74712,9 @@ Rules:
       const { decryptPassword: decryptTastytradePassword } = await Promise.resolve().then(() => (init_tastytrade(), tastytrade_exports));
       const password = decryptTastytradePassword(connection2.encryptedPassword);
       const service = new TastyTradeService(connection2.accountType, connection2.username, password);
-      const info = await service.authenticate();
-      await storage.updateTastytradeConnection(connId, { lastConnectedAt: /* @__PURE__ */ new Date(), lastError: null, accountNumber: info.accountNumber });
-      res.json({ success: true, account: info });
+      const info2 = await service.authenticate();
+      await storage.updateTastytradeConnection(connId, { lastConnectedAt: /* @__PURE__ */ new Date(), lastError: null, accountNumber: info2.accountNumber });
+      res.json({ success: true, account: info2 });
     } catch (err) {
       const errorMsg = err instanceof Error ? err.message : "Unknown error";
       await storage.updateTastytradeConnection(connId, { lastError: errorMsg });
@@ -74488,9 +75086,9 @@ Rules:
       const { decryptApiSecret: decryptApiSecret3 } = await Promise.resolve().then(() => (init_cryptocom(), cryptocom_exports));
       const secret = decryptApiSecret3(connection2.encryptedApiSecret);
       const service = new CryptoComService(connection2.apiKey, secret);
-      const info = await service.authenticate();
+      const info2 = await service.authenticate();
       await storage.updateCryptocomConnection(connId, { lastConnectedAt: /* @__PURE__ */ new Date(), lastError: null });
-      res.json({ success: true, account: info });
+      res.json({ success: true, account: info2 });
     } catch (err) {
       const errorMsg = err instanceof Error ? err.message : "Unknown error";
       await storage.updateCryptocomConnection(connId, { lastError: errorMsg });
@@ -78003,6 +78601,111 @@ Respond with ONLY valid JSON:
       res.status(400).json({ error: err?.message || "connect failed" });
     }
   });
+  app2.post("/api/hyperliquid/connect", async (req, res) => {
+    if (!req.isAuthenticated()) return res.status(401).json({ error: "Authentication required" });
+    const userId = req.user.id;
+    const { accountAddress, vaultAddress, agentPrivateKey, isTestnet, label, isPropAccount } = req.body || {};
+    const isAddr = (a) => typeof a === "string" && /^0x[0-9a-fA-F]{40}$/.test(a.trim());
+    if (!isAddr(accountAddress)) return res.status(400).json({ error: "accountAddress must be the 0x address of your Hyperliquid account" });
+    if (vaultAddress && !isAddr(vaultAddress)) return res.status(400).json({ error: "vaultAddress must be a 0x address (or leave it empty)" });
+    if (!agentPrivateKey) return res.status(400).json({ error: "agentPrivateKey (the API wallet key) required" });
+    try {
+      const hl = await Promise.resolve().then(() => (init_hyperliquid(), hyperliquid_exports));
+      const { encryptApiSecret: encryptApiSecret3 } = await Promise.resolve().then(() => (init_cryptocom(), cryptocom_exports));
+      const agent = hl.agentAddress(String(agentPrivateKey));
+      const acct = String(accountAddress).trim().toLowerCase();
+      if (agent.toLowerCase() === acct) return res.status(400).json({ error: "That is the account's MAIN wallet key. Create an API wallet on Hyperliquid (More \u2192 API) and use its key instead \u2014 an API wallet can't withdraw funds." });
+      const testnet = !!isTestnet;
+      const vault = vaultAddress ? String(vaultAddress).trim().toLowerCase() : null;
+      const state = await hl.getAccount(testnet, vault || acct);
+      const role = await hl.getUserRole(testnet, agent);
+      const enc = encryptApiSecret3(String(agentPrivateKey).trim());
+      const { pool: pool2 } = await Promise.resolve().then(() => (init_db(), db_exports));
+      await pool2.query(
+        `INSERT INTO hyperliquid_connections (user_id, label, account_address, vault_address, agent_address, encrypted_agent_key, is_testnet, is_prop_account, auto_trade_enabled)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,false)
+         ON CONFLICT (user_id) DO UPDATE SET label=$2, account_address=$3, vault_address=$4, agent_address=$5, encrypted_agent_key=$6, is_testnet=$7, is_prop_account=$8, is_active=true, auto_trade_enabled=false`,
+        [userId, label ? String(label) : null, acct, vault, agent, enc, testnet, isPropAccount !== false]
+      );
+      res.json({
+        ok: true,
+        agentAddress: agent,
+        accountValue: state.accountValue,
+        agentApproved: role.role === "agent" && (role.master || "").toLowerCase() === acct,
+        agentRole: role.role
+      });
+    } catch (err) {
+      res.status(400).json({ error: `Couldn't connect: ${err?.message || "unknown"}` });
+    }
+  });
+  app2.get("/api/hyperliquid", async (req, res) => {
+    if (!req.isAuthenticated()) return res.status(401).json({ error: "Authentication required" });
+    const userId = req.user.id;
+    try {
+      const { getHyperliquidConnection: getHyperliquidConnection2 } = await Promise.resolve().then(() => (init_hyperliquid_executor(), hyperliquid_executor_exports));
+      const c = await getHyperliquidConnection2(userId);
+      if (!c) return res.json(null);
+      const hl = await Promise.resolve().then(() => (init_hyperliquid(), hyperliquid_exports));
+      const [acct, role] = await Promise.all([
+        hl.getAccount(c.isTestnet, hl.tradedAddress(c)).catch((e) => ({ error: e?.message })),
+        hl.getUserRole(c.isTestnet, c.agentAddress)
+      ]);
+      res.json({ ...c, account: acct, agentApproved: role.role === "agent" && (role.master || "").toLowerCase() === c.accountAddress.toLowerCase(), agentRole: role.role });
+    } catch (err) {
+      res.status(500).json({ error: err?.message || "failed" });
+    }
+  });
+  app2.patch("/api/hyperliquid/settings", async (req, res) => {
+    if (!req.isAuthenticated()) return res.status(401).json({ error: "Authentication required" });
+    const userId = req.user.id;
+    const b = req.body || {};
+    const sets = [];
+    const vals = [];
+    const add = (col, v) => {
+      vals.push(v);
+      sets.push(`${col}=$${vals.length + 1}`);
+    };
+    if (typeof b.autoTradeEnabled === "boolean") add("auto_trade_enabled", b.autoTradeEnabled);
+    if (b.notionalUsd != null) {
+      const n = Number(b.notionalUsd);
+      if (!(n >= 11 && n <= 1e5)) return res.status(400).json({ error: "notionalUsd must be between 11 and 100000 (Hyperliquid's minimum order is $10)" });
+      add("notional_usd", n);
+    }
+    if (b.leverage != null) {
+      const n = Math.floor(Number(b.leverage));
+      if (!(n >= 1 && n <= 20)) return res.status(400).json({ error: "leverage must be 1\u201320" });
+      add("leverage", n);
+    }
+    if (b.stopLossPct != null) {
+      const n = Number(b.stopLossPct);
+      if (!(n >= 0.2 && n <= 20)) return res.status(400).json({ error: "stopLossPct must be 0.2\u201320" });
+      add("stop_loss_pct", n);
+    }
+    if (b.takeProfitPct != null) {
+      const n = Number(b.takeProfitPct);
+      if (!(n >= 0.2 && n <= 50)) return res.status(400).json({ error: "takeProfitPct must be 0.2\u201350" });
+      add("take_profit_pct", n);
+    }
+    if (b.symbols != null) {
+      const list = String(b.symbols).split(",").map((s) => s.trim().toUpperCase()).filter(Boolean);
+      if (!list.length || list.some((s) => !/^[A-Z0-9]{1,15}$/i.test(s))) return res.status(400).json({ error: "symbols must be a comma list like BTC,ETH,SOL" });
+      add("symbols", list.join(","));
+    }
+    if (!sets.length) return res.status(400).json({ error: "nothing to update" });
+    const { pool: pool2 } = await Promise.resolve().then(() => (init_db(), db_exports));
+    const r = await pool2.query(`UPDATE hyperliquid_connections SET ${sets.join(", ")} WHERE user_id=$1 RETURNING id`, [userId, ...vals]);
+    if (!r.rowCount) return res.status(404).json({ error: "No Hyperliquid account connected" });
+    res.json({ ok: true });
+  });
+  app2.delete("/api/hyperliquid", async (req, res) => {
+    if (!req.isAuthenticated()) return res.status(401).json({ error: "Authentication required" });
+    const userId = req.user.id;
+    const { pool: pool2 } = await Promise.resolve().then(() => (init_db(), db_exports));
+    const open = await pool2.query(`SELECT 1 FROM cryptocom_engine_trades WHERE user_id=$1 AND venue='hyperliquid' AND status IN ('open','closing') LIMIT 1`, [userId]);
+    if (open.rows.length) return res.status(409).json({ error: "Close the open Hyperliquid trades first \u2014 the engine needs this connection to manage them." });
+    await pool2.query(`DELETE FROM hyperliquid_connections WHERE user_id=$1`, [userId]);
+    res.json({ ok: true });
+  });
   app2.get("/api/defi/swap-status", async (_req, res) => {
     const { isDefiSwapAvailable: isDefiSwapAvailable2, DEFI_CHAINS: DEFI_CHAINS2 } = await Promise.resolve().then(() => (init_defi_swap(), defi_swap_exports));
     res.json({ zeroxConfigured: isDefiSwapAvailable2(), chains: Object.keys(DEFI_CHAINS2) });
@@ -78983,12 +79686,12 @@ Return ONLY JSON: {"topPicks":[{"market":"","winProbability":<0-100>,"whyItWins"
     if (!token) return res.status(401).json({ error: "Invalid API key" });
     const { accountAlias, accountLabel, accountNumber, receiveSignals } = req.body;
     if (!accountAlias) return res.status(400).json({ error: "accountAlias required" });
-    const info = registerMT5Account2(token.userId, accountAlias, {
+    const info2 = registerMT5Account2(token.userId, accountAlias, {
       label: accountLabel || accountAlias,
       accountNumber: accountNumber || "",
       receiveSignals: receiveSignals !== false
     });
-    res.json({ success: true, account: info });
+    res.json({ success: true, account: info2 });
   });
   app2.get("/api/mt5-accounts", async (req, res) => {
     const apiKey = req.headers["x-api-key"] || req.query.apiKey;
@@ -79566,8 +80269,8 @@ Return ONLY JSON: {"topPicks":[{"market":"","winProbability":<0-100>,"whyItWins"
           const { decryptApiSecret: decryptApiSecret3 } = await Promise.resolve().then(() => (init_alpaca(), alpaca_exports));
           const secret = decryptApiSecret3(conn.encryptedApiSecret);
           const service = new AlpacaService(conn.accountType, conn.apiKeyId, secret);
-          const info = await service.authenticate();
-          return { id: conn.id, broker: "alpaca", label: "Alpaca", balance: info.balance, equity: info.equity, currency: info.currency, error: null };
+          const info2 = await service.authenticate();
+          return { id: conn.id, broker: "alpaca", label: "Alpaca", balance: info2.balance, equity: info2.equity, currency: info2.currency, error: null };
         } catch (e) {
           return { id: conn.id, broker: "alpaca", label: "Alpaca", balance: 0, equity: 0, currency: "USD", error: e.message };
         }
@@ -79577,8 +80280,8 @@ Return ONLY JSON: {"topPicks":[{"market":"","winProbability":<0-100>,"whyItWins"
           const { decryptPassword: decryptTastytradePassword } = await Promise.resolve().then(() => (init_tastytrade(), tastytrade_exports));
           const password = decryptTastytradePassword(conn.encryptedPassword);
           const service = new TastyTradeService(conn.accountType, conn.username, password);
-          const info = await service.authenticate();
-          return { id: conn.id, broker: "tastytrade", label: "TastyTrade", balance: info.balance, equity: info.equity, currency: info.currency, error: null };
+          const info2 = await service.authenticate();
+          return { id: conn.id, broker: "tastytrade", label: "TastyTrade", balance: info2.balance, equity: info2.equity, currency: info2.currency, error: null };
         } catch (e) {
           return { id: conn.id, broker: "tastytrade", label: "TastyTrade", balance: 0, equity: 0, currency: "USD", error: e.message };
         }
@@ -79597,8 +80300,8 @@ Return ONLY JSON: {"topPicks":[{"market":"","winProbability":<0-100>,"whyItWins"
     }
     try {
       const password = decryptPassword(connection2.encryptedPassword);
-      const baseUrl = connection2.accountType === "demo" ? "https://demo.tradelocker.com/backend-api" : "https://live.tradelocker.com/backend-api";
-      const authResponse = await fetch(`${baseUrl}/auth/jwt/token`, {
+      const baseUrl2 = connection2.accountType === "demo" ? "https://demo.tradelocker.com/backend-api" : "https://live.tradelocker.com/backend-api";
+      const authResponse = await fetch(`${baseUrl2}/auth/jwt/token`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -79612,7 +80315,7 @@ Return ONLY JSON: {"topPicks":[{"market":"","winProbability":<0-100>,"whyItWins"
         return res.status(400).json({ error: "Auth failed", details: errText });
       }
       const authData = await authResponse.json();
-      const accountsResponse = await fetch(`${baseUrl}/auth/jwt/all-accounts`, {
+      const accountsResponse = await fetch(`${baseUrl2}/auth/jwt/all-accounts`, {
         method: "GET",
         headers: {
           "Authorization": `Bearer ${authData.accessToken}`,
@@ -82182,7 +82885,7 @@ Generate an agenda with timing, topics, and hosting tips. Return JSON: {
     const { platform, contentType, caption, mediaUrls, hashtags, sourceType, sourceId } = validation.data;
     try {
       const account = await storage.getConnectedSocialAccount(user.id, platform);
-      const post = await storage.createSocialPost({
+      const post2 = await storage.createSocialPost({
         userId: user.id,
         platform,
         contentType,
@@ -82194,13 +82897,13 @@ Generate an agenda with timing, topics, and hosting tips. Return JSON: {
         status: account?.isActive ? "published" : "pending"
       });
       if (account?.isActive) {
-        await storage.updateSocialPost(post.id, {
+        await storage.updateSocialPost(post2.id, {
           status: "published",
           publishedAt: /* @__PURE__ */ new Date(),
-          platformPostUrl: `https://${platform}.com/post/${post.id}`
+          platformPostUrl: `https://${platform}.com/post/${post2.id}`
         });
       }
-      res.json({ success: true, post });
+      res.json({ success: true, post: post2 });
     } catch (err) {
       res.status(500).json({ error: err instanceof Error ? err.message : "Unknown error" });
     }
@@ -82547,17 +83250,17 @@ Generate an agenda with timing, topics, and hosting tips. Return JSON: {
       const tokens = [];
       const tokenMints = [];
       for (const account of tokenAccounts) {
-        const info = account.account?.data?.parsed?.info;
-        if (!info) continue;
-        const uiAmount = info.tokenAmount?.uiAmount || 0;
+        const info2 = account.account?.data?.parsed?.info;
+        if (!info2) continue;
+        const uiAmount = info2.tokenAmount?.uiAmount || 0;
         if (uiAmount > 0) {
-          tokenMints.push(info.mint);
+          tokenMints.push(info2.mint);
           tokens.push({
-            mint: info.mint,
-            symbol: info.mint.slice(0, 6) + "...",
+            mint: info2.mint,
+            symbol: info2.mint.slice(0, 6) + "...",
             name: "Unknown",
-            amount: info.tokenAmount?.amount || "0",
-            decimals: info.tokenAmount?.decimals || 0,
+            amount: info2.tokenAmount?.amount || "0",
+            decimals: info2.tokenAmount?.decimals || 0,
             uiAmount,
             priceUsd: null,
             valueUsd: null
@@ -84626,11 +85329,11 @@ Generate an agenda with timing, topics, and hosting tips. Return JSON: {
   app2.get("/api/referral/my-link", async (req, res) => {
     if (!req.user) return res.status(401).json({ message: "Unauthorized" });
     const code = await ensureReferralCode(req.user.id);
-    const baseUrl = `${req.protocol}://${req.get("host")}`;
+    const baseUrl2 = `${req.protocol}://${req.get("host")}`;
     res.json({
       code,
-      url: `${baseUrl}/auth?ref=${code}`,
-      shortUrl: `${baseUrl}/r/${code}`
+      url: `${baseUrl2}/auth?ref=${code}`,
+      shortUrl: `${baseUrl2}/r/${code}`
     });
   });
   app2.get("/api/referral/leaderboard", async (req, res) => {
@@ -84881,11 +85584,11 @@ Generate an agenda with timing, topics, and hosting tips. Return JSON: {
     <changefreq>weekly</changefreq>
     <priority>${p === "" ? "1.0" : "0.6"}</priority>
   </url>`);
-      for (const post of posts) {
-        const lastmod = new Date(post.updatedAt || post.publishedAt || post.createdAt).toISOString();
+      for (const post2 of posts) {
+        const lastmod = new Date(post2.updatedAt || post2.publishedAt || post2.createdAt).toISOString();
         urls.push(`
   <url>
-    <loc>${SEO_BASE_URL}/blog/${post.slug}</loc>
+    <loc>${SEO_BASE_URL}/blog/${post2.slug}</loc>
     <lastmod>${lastmod}</lastmod>
     <changefreq>monthly</changefreq>
     <priority>0.8</priority>
@@ -84902,12 +85605,12 @@ Generate an agenda with timing, topics, and hosting tips. Return JSON: {
   app2.get("/og/blog/:slug.png", async (req, res) => {
     try {
       const slug = req.params.slug.replace(/\.png$/i, "");
-      const post = await storage.getBlogPostBySlug(slug);
-      if (!post || !post.isPublished) {
+      const post2 = await storage.getBlogPostBySlug(slug);
+      if (!post2 || !post2.isPublished) {
         return res.redirect(302, "/og-image.png");
       }
       const { generateBlogOgImage: generateBlogOgImage2 } = await Promise.resolve().then(() => (init_blog_og_image(), blog_og_image_exports));
-      const buffer = await generateBlogOgImage2(post.title, post.category || "Trading");
+      const buffer = await generateBlogOgImage2(post2.title, post2.category || "Trading");
       res.set({
         "Content-Type": "image/png",
         "Cache-Control": "public, max-age=86400, stale-while-revalidate=604800"
@@ -84943,14 +85646,14 @@ Sitemap: ${SEO_BASE_URL}/sitemap.xml
   });
   app2.get("/api/blog/:slug", async (req, res) => {
     try {
-      const post = await storage.getBlogPostBySlug(req.params.slug);
-      if (!post) return res.status(404).json({ error: "Post not found" });
-      if (!post.isPublished && !req.user?.isAdmin) {
+      const post2 = await storage.getBlogPostBySlug(req.params.slug);
+      if (!post2) return res.status(404).json({ error: "Post not found" });
+      if (!post2.isPublished && !req.user?.isAdmin) {
         return res.status(404).json({ error: "Post not found" });
       }
-      storage.incrementBlogPostViews(post.id).catch(() => {
+      storage.incrementBlogPostViews(post2.id).catch(() => {
       });
-      res.json(post);
+      res.json(post2);
     } catch (err) {
       res.status(500).json({ error: err.message });
     }
@@ -85032,8 +85735,8 @@ Sitemap: ${SEO_BASE_URL}/sitemap.xml
       } else if (data.publishedAt) {
         data.publishedAt = new Date(data.publishedAt);
       }
-      const post = await storage.createBlogPost(data);
-      res.status(201).json(post);
+      const post2 = await storage.createBlogPost(data);
+      res.status(201).json(post2);
     } catch (err) {
       res.status(500).json({ error: err.message });
     }
@@ -85277,11 +85980,11 @@ Sitemap: ${SEO_BASE_URL}/sitemap.xml
     if (!req.user?.isAdmin) return res.status(403).json({ error: "Admin only" });
     try {
       const id = parseInt(req.params.id, 10);
-      const post = await storage.getBlogPostById(id);
-      if (!post) return res.status(404).json({ error: "Post not found" });
+      const post2 = await storage.getBlogPostById(id);
+      if (!post2) return res.status(404).json({ error: "Post not found" });
       const updated = await storage.updateBlogPost(id, {
-        isPublished: !post.isPublished,
-        publishedAt: !post.isPublished ? /* @__PURE__ */ new Date() : post.publishedAt
+        isPublished: !post2.isPublished,
+        publishedAt: !post2.isPublished ? /* @__PURE__ */ new Date() : post2.publishedAt
       });
       res.json(updated);
     } catch (err) {
@@ -85292,9 +85995,9 @@ Sitemap: ${SEO_BASE_URL}/sitemap.xml
     if (!req.user?.isAdmin) return res.status(403).json({ error: "Admin only" });
     try {
       const id = parseInt(req.params.id, 10);
-      const post = await storage.getBlogPostById(id);
-      if (!post) return res.status(404).json({ error: "Post not found" });
-      const updated = await storage.updateBlogPost(id, { isFeatured: !post.isFeatured });
+      const post2 = await storage.getBlogPostById(id);
+      if (!post2) return res.status(404).json({ error: "Post not found" });
+      const updated = await storage.updateBlogPost(id, { isFeatured: !post2.isFeatured });
       res.json(updated);
     } catch (err) {
       res.status(500).json({ error: err.message });
@@ -88059,28 +88762,28 @@ function stripHtml(html) {
 async function injectBlogSeoMeta(html, url) {
   const match = url.match(/^\/blog\/([^/?]+)/);
   if (!match) return html;
-  let post;
+  let post2;
   try {
     const slug = decodeURIComponent(match[1]);
-    post = await storage.getBlogPostBySlug(slug);
+    post2 = await storage.getBlogPostBySlug(slug);
   } catch {
     return html;
   }
-  if (!post || !post.isPublished) return html;
-  const title = escapeHtml(`${post.title} | VEDD AI Trading Vault`);
+  if (!post2 || !post2.isPublished) return html;
+  const title = escapeHtml(`${post2.title} | VEDD AI Trading Vault`);
   const description = escapeHtml(
-    (post.excerpt || stripHtml(post.content || "")).slice(0, 200)
+    (post2.excerpt || stripHtml(post2.content || "")).slice(0, 200)
   );
-  const pageUrl = `${BASE_URL2}/blog/${post.slug}`;
-  const image = post.coverImage ? String(post.coverImage).startsWith("http") ? post.coverImage : `${BASE_URL2}${post.coverImage}` : `${BASE_URL2}/og/blog/${post.slug}.png`;
+  const pageUrl = `${BASE_URL2}/blog/${post2.slug}`;
+  const image = post2.coverImage ? String(post2.coverImage).startsWith("http") ? post2.coverImage : `${BASE_URL2}${post2.coverImage}` : `${BASE_URL2}/og/blog/${post2.slug}.png`;
   const jsonLd = {
     "@context": "https://schema.org",
     "@type": "BlogPosting",
-    "headline": post.title,
-    "description": post.excerpt || void 0,
+    "headline": post2.title,
+    "description": post2.excerpt || void 0,
     "image": image,
-    "datePublished": post.publishedAt ? new Date(post.publishedAt).toISOString() : void 0,
-    "dateModified": post.updatedAt ? new Date(post.updatedAt).toISOString() : void 0,
+    "datePublished": post2.publishedAt ? new Date(post2.publishedAt).toISOString() : void 0,
+    "dateModified": post2.updatedAt ? new Date(post2.updatedAt).toISOString() : void 0,
     "author": { "@type": "Organization", "name": "VEDD AI" },
     "publisher": {
       "@type": "Organization",
@@ -88371,12 +89074,12 @@ function setupAuth(app2) {
     }
   });
   app2.post("/api/login", (req, res, next) => {
-    passport.authenticate("local", (err, user, info) => {
+    passport.authenticate("local", (err, user, info2) => {
       if (err) return next(err);
       if (!user) {
         return res.status(401).json({
           success: false,
-          message: info?.message || "Invalid username or password"
+          message: info2?.message || "Invalid username or password"
         });
       }
       req.login(user, (loginErr) => {
@@ -88419,8 +89122,8 @@ function setupAuth(app2) {
       const user = await storage.getUserByEmail(email);
       if (!user) return res.json({ message: "If that email exists, a reset link has been sent." });
       const token = jwt2.sign({ userId: user.id, purpose: "password-reset" }, JWT_SECRET, { expiresIn: "1h" });
-      const baseUrl = process.env.APP_URL || process.env.RENDER_EXTERNAL_URL || "http://localhost:5000";
-      const resetLink = `${baseUrl}/reset-password?token=${token}`;
+      const baseUrl2 = process.env.APP_URL || process.env.RENDER_EXTERNAL_URL || "http://localhost:5000";
+      const resetLink = `${baseUrl2}/reset-password?token=${token}`;
       sendPasswordResetEmail(user.email || email, resetLink).catch(() => {
       });
       res.json({ message: "If that email exists, a reset link has been sent." });
@@ -89427,6 +90130,12 @@ async function withRetry(fn, label, maxAttempts = 6, baseDelayMs = 2e3) {
     await ensureDefiHotWalletTable2();
   } catch (err) {
     console.error(`[startup] ensureDefiHotWalletTable import error (non-fatal):`, err?.message ?? err);
+  }
+  try {
+    const { ensureHyperliquidTable: ensureHyperliquidTable2 } = await Promise.resolve().then(() => (init_hyperliquid_executor(), hyperliquid_executor_exports));
+    await ensureHyperliquidTable2();
+  } catch (err) {
+    console.error(`[startup] ensureHyperliquidTable import error (non-fatal):`, err?.message ?? err);
   }
   try {
     const { ensureDxtradeTables: ensureDxtradeTables2 } = await Promise.resolve().then(() => (init_ensure_dxtrade_tables(), ensure_dxtrade_tables_exports));

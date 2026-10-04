@@ -21357,6 +21357,95 @@ Respond with ONLY valid JSON:
     }
   });
 
+  // ── Hyperliquid perps connection (API/agent wallet — can trade, can't withdraw) ──
+  app.post("/api/hyperliquid/connect", async (req: Request, res: Response) => {
+    if (!req.isAuthenticated()) return res.status(401).json({ error: "Authentication required" });
+    const userId = (req.user as User).id;
+    const { accountAddress, vaultAddress, agentPrivateKey, isTestnet, label, isPropAccount } = req.body || {};
+    const isAddr = (a: any) => typeof a === 'string' && /^0x[0-9a-fA-F]{40}$/.test(a.trim());
+    if (!isAddr(accountAddress)) return res.status(400).json({ error: "accountAddress must be the 0x address of your Hyperliquid account" });
+    if (vaultAddress && !isAddr(vaultAddress)) return res.status(400).json({ error: "vaultAddress must be a 0x address (or leave it empty)" });
+    if (!agentPrivateKey) return res.status(400).json({ error: "agentPrivateKey (the API wallet key) required" });
+    try {
+      const hl = await import('./services/hyperliquid');
+      const { encryptApiSecret } = await import('./cryptocom');
+      const agent = hl.agentAddress(String(agentPrivateKey));
+      const acct = String(accountAddress).trim().toLowerCase();
+      if (agent.toLowerCase() === acct) return res.status(400).json({ error: "That is the account's MAIN wallet key. Create an API wallet on Hyperliquid (More → API) and use its key instead — an API wallet can't withdraw funds." });
+      const testnet = !!isTestnet;
+      const vault = vaultAddress ? String(vaultAddress).trim().toLowerCase() : null;
+      // Prove the account is readable before saving anything.
+      const state = await hl.getAccount(testnet, vault || acct);
+      const role = await hl.getUserRole(testnet, agent);
+      const enc = encryptApiSecret(String(agentPrivateKey).trim());
+      const { pool } = await import('./db');
+      await pool.query(
+        `INSERT INTO hyperliquid_connections (user_id, label, account_address, vault_address, agent_address, encrypted_agent_key, is_testnet, is_prop_account, auto_trade_enabled)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,false)
+         ON CONFLICT (user_id) DO UPDATE SET label=$2, account_address=$3, vault_address=$4, agent_address=$5, encrypted_agent_key=$6, is_testnet=$7, is_prop_account=$8, is_active=true, auto_trade_enabled=false`,
+        [userId, label ? String(label) : null, acct, vault, agent, enc, testnet, isPropAccount !== false]
+      );
+      res.json({
+        ok: true, agentAddress: agent, accountValue: state.accountValue,
+        agentApproved: role.role === 'agent' && (role.master || '').toLowerCase() === acct,
+        agentRole: role.role,
+      });
+    } catch (err: any) {
+      res.status(400).json({ error: `Couldn't connect: ${err?.message || 'unknown'}` });
+    }
+  });
+
+  app.get("/api/hyperliquid", async (req: Request, res: Response) => {
+    if (!req.isAuthenticated()) return res.status(401).json({ error: "Authentication required" });
+    const userId = (req.user as User).id;
+    try {
+      const { getHyperliquidConnection } = await import('./services/hyperliquid-executor');
+      const c = await getHyperliquidConnection(userId);
+      if (!c) return res.json(null);
+      const hl = await import('./services/hyperliquid');
+      const [acct, role] = await Promise.all([
+        hl.getAccount(c.isTestnet, hl.tradedAddress(c)).catch((e: any) => ({ error: e?.message } as any)),
+        hl.getUserRole(c.isTestnet, c.agentAddress),
+      ]);
+      res.json({ ...c, account: acct, agentApproved: role.role === 'agent' && (role.master || '').toLowerCase() === c.accountAddress.toLowerCase(), agentRole: role.role });
+    } catch (err: any) {
+      res.status(500).json({ error: err?.message || 'failed' });
+    }
+  });
+
+  app.patch("/api/hyperliquid/settings", async (req: Request, res: Response) => {
+    if (!req.isAuthenticated()) return res.status(401).json({ error: "Authentication required" });
+    const userId = (req.user as User).id;
+    const b = req.body || {};
+    const sets: string[] = []; const vals: any[] = [];
+    const add = (col: string, v: any) => { vals.push(v); sets.push(`${col}=$${vals.length + 1}`); };
+    if (typeof b.autoTradeEnabled === 'boolean') add('auto_trade_enabled', b.autoTradeEnabled);
+    if (b.notionalUsd != null) { const n = Number(b.notionalUsd); if (!(n >= 11 && n <= 100000)) return res.status(400).json({ error: "notionalUsd must be between 11 and 100000 (Hyperliquid's minimum order is $10)" }); add('notional_usd', n); }
+    if (b.leverage != null) { const n = Math.floor(Number(b.leverage)); if (!(n >= 1 && n <= 20)) return res.status(400).json({ error: "leverage must be 1–20" }); add('leverage', n); }
+    if (b.stopLossPct != null) { const n = Number(b.stopLossPct); if (!(n >= 0.2 && n <= 20)) return res.status(400).json({ error: "stopLossPct must be 0.2–20" }); add('stop_loss_pct', n); }
+    if (b.takeProfitPct != null) { const n = Number(b.takeProfitPct); if (!(n >= 0.2 && n <= 50)) return res.status(400).json({ error: "takeProfitPct must be 0.2–50" }); add('take_profit_pct', n); }
+    if (b.symbols != null) {
+      const list = String(b.symbols).split(',').map((s) => s.trim().toUpperCase()).filter(Boolean);
+      if (!list.length || list.some((s) => !/^[A-Z0-9]{1,15}$/i.test(s))) return res.status(400).json({ error: "symbols must be a comma list like BTC,ETH,SOL" });
+      add('symbols', list.join(','));
+    }
+    if (!sets.length) return res.status(400).json({ error: "nothing to update" });
+    const { pool } = await import('./db');
+    const r = await pool.query(`UPDATE hyperliquid_connections SET ${sets.join(', ')} WHERE user_id=$1 RETURNING id`, [userId, ...vals]);
+    if (!r.rowCount) return res.status(404).json({ error: "No Hyperliquid account connected" });
+    res.json({ ok: true });
+  });
+
+  app.delete("/api/hyperliquid", async (req: Request, res: Response) => {
+    if (!req.isAuthenticated()) return res.status(401).json({ error: "Authentication required" });
+    const userId = (req.user as User).id;
+    const { pool } = await import('./db');
+    const open = await pool.query(`SELECT 1 FROM cryptocom_engine_trades WHERE user_id=$1 AND venue='hyperliquid' AND status IN ('open','closing') LIMIT 1`, [userId]);
+    if (open.rows.length) return res.status(409).json({ error: "Close the open Hyperliquid trades first — the engine needs this connection to manage them." });
+    await pool.query(`DELETE FROM hyperliquid_connections WHERE user_id=$1`, [userId]);
+    res.json({ ok: true });
+  });
+
   // ── DeFi hot wallet (unattended swaps) — HIGH RISK, encrypted key ─────────
   app.get("/api/defi/swap-status", async (_req: Request, res: Response) => {
     const { isDefiSwapAvailable, DEFI_CHAINS } = await import('./services/defi-swap');

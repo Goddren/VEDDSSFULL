@@ -68,6 +68,12 @@ export function getDefiUniverseEntry(symbol: string, chain: string) { return def
 
 /** Candles for a symbol from whichever venue owns it, on THIS chain. */
 async function fetchBars(symbol: string, timeframe: string, count: number, chain: string): Promise<{ t: number; o: number; h: number; l: number; c: number; v: number }[]> {
+  // Hyperliquid perps ('HL:BTC'): signals come from Hyperliquid's own mainnet
+  // book, the market the position actually trades against.
+  if (symbol.toUpperCase().startsWith('HL:')) {
+    const { getCandles } = await import('./hyperliquid');
+    return getCandles(symbol.slice(3), timeframe, count, false);
+  }
   const entry = defiUniverse.get(universeKey(chain, symbol));
   if (entry) {
     const { getDefiCandles } = await import('./defi-market-data');
@@ -549,8 +555,9 @@ async function monitorOpenPositions(userId: number, cfg: CryptocomEngineConfig):
 
   for (const trade of openTrades) {
     try {
+      const isHl = (trade as any).venue === 'hyperliquid';
       // CeFi spot trades: fixed %-TP/%-SL against the public price, always checked.
-      if ((trade as any).venue && (trade as any).venue !== 'cryptocom') {
+      if ((trade as any).venue && (trade as any).venue !== 'cryptocom' && !isHl) {
         // A token discovered on-chain has no listing on Coinbase/Kraken, so the
         // aggregated quote returns nothing for it. Price it from its own pool.
         let px = 0;
@@ -598,7 +605,17 @@ async function monitorOpenPositions(userId: number, cfg: CryptocomEngineConfig):
       // Stop-loss and take-profit are protection and now ALWAYS run. Only the
       // TRAILING logic — which is an optimisation, not protection — stays gated
       // on trailMethod.
-      const currentPrice = await CryptoComService.getTicker(trade.symbol);
+      let currentPrice: number | null;
+      if (isHl) {
+        const hlx = await import('./hyperliquid-executor');
+        currentPrice = await hlx.hlMid(userId, trade.symbol).catch(() => null);
+        // The exchange-side stop can close the position without us (it is the
+        // point of having one). Resolve that from the real fills.
+        const stillOpen = await hlx.hlPositionOpen(userId, trade.symbol, trade.direction as 'long' | 'short').catch(() => null);
+        if (stillOpen === false) { await closePosition(userId, trade, currentPrice ?? 0, 'exchange_stop'); continue; }
+      } else {
+        currentPrice = await CryptoComService.getTicker(trade.symbol);
+      }
       // A failed/zero ticker read must not be mistaken for a price: getTicker
       // returns null on a non-ok response, and closing on a bogus 0 would book
       // a catastrophic fake loss.
@@ -666,7 +683,26 @@ async function closePosition(userId: number, trade: any, currentPrice: number, r
   let finished = false;
   try {
     const venue = trade.venue && trade.venue !== 'cryptocom' ? trade.venue : null;
-    if (venue === 'defi') {
+    if (venue === 'hyperliquid') {
+      await phase(`exit:trade_${trade.id}:hyperliquid`);
+      const { hyperliquidExit } = await import('./hyperliquid-executor');
+      const exit = await hyperliquidExit(userId, trade).catch((e: any) => ({ ok: false, exitPrice: 0, reason: e?.message || String(e) } as any));
+      if (exit.phantom) {
+        console.error(`[cryptocom-scanner] trade ${trade.id} (${trade.symbol}) is NOT on Hyperliquid: ${exit.reason} — flagging for reconciliation`);
+        await storage.flagCryptocomEngineTradeUnreconciled(trade.id, String(exit.reason).slice(0, 500)).catch((e: any) =>
+          console.error(`[cryptocom-scanner] could not flag trade ${trade.id} (${e?.message})`));
+        await storage.createCryptocomEngineActivity({ userId, symbol: trade.symbol, decision: 'skipped', strategy: trade.strategy, reasoning: `${trade.symbol}: position NOT on Hyperliquid and no closing fill found — parked as needs_reconciliation; NO P&L booked.`, score: null, price: currentPrice, dailyChangePercent: null, source: 'cryptocom' }).catch(() => {});
+        finished = true;
+        return;
+      }
+      if (!exit.ok) {
+        console.error(`[cryptocom-scanner] Hyperliquid exit FAILED for trade ${trade.id} (${trade.symbol}): ${exit.reason} — position left OPEN`);
+        await storage.createCryptocomEngineActivity({ userId, symbol: trade.symbol, decision: 'signal', strategy: trade.strategy, reasoning: `${trade.symbol}: Hyperliquid EXIT FAILED (${exit.reason}) — position still OPEN, will retry next cycle. No P&L booked.`, score: null, price: currentPrice, dailyChangePercent: null, source: 'cryptocom' }).catch(() => {});
+        return;
+      }
+      currentPrice = exit.exitPrice;
+      if (exit.closedOnExchange) reason = 'exchange_stop';
+    } else if (venue === 'defi') {
       // DeFi exit — swap the held token back to USDC via the hot wallet.
       const cfg = await storage.getUserCryptocomEngineConfig(userId).catch(() => null);
       await phase(`exit:trade_${trade.id}:defi_swap`); // the likeliest hang: an unbounded on-chain wait
@@ -763,7 +799,9 @@ async function closePosition(userId: number, trade: any, currentPrice: number, r
     });
     // Feed the shared prop-firm consistency ledger (no-op unless the connection
     // is flagged prop-firm) and the self-learning brain feature store.
-    try { await recordRealizedPnl(userId, trade.connectionId, 'cryptocom', realizedPnl); } catch { /* non-critical */ }
+    // Hyperliquid rows carry the hyperliquid_connections id, so they get their
+    // own ledger rather than colliding with a Crypto.com connection's ids.
+    try { await recordRealizedPnl(userId, trade.connectionId, trade.venue === 'hyperliquid' ? 'hyperliquid' : 'cryptocom', realizedPnl); } catch { /* non-critical */ }
     try {
       const notional = (trade.entryPrice || 0) * (trade.quantity || 0);
       const returnPct = notional > 0 ? (realizedPnl / notional) * 100 : 0;
@@ -1054,6 +1092,12 @@ async function executeSignal(service: CryptoComService, connection: CryptocomCon
   if (connection) arms.push({ venue: 'cryptocom', label: 'perps' });
   // DeFi hot wallet — only when explicitly enabled (a funded burner + ZEROX key).
   if ((cfg as any).defiAutoTradeEnabled) arms.push({ venue: 'defi', label: 'DeFi' });
+  // Hyperliquid perps — only when a connection exists with auto-trade switched on.
+  try {
+    const { getHyperliquidConnection } = await import('./hyperliquid-executor');
+    const hlc = await getHyperliquidConnection(userId);
+    if (hlc?.autoTradeEnabled) arms.push({ venue: 'hyperliquid', label: 'Hyperliquid' });
+  } catch { /* detection best-effort */ }
   // CeFi spot — every connected exchange, so a newly-connected wallet auto-joins.
   if ((cfg as any).cefiAutoTradeEnabled) {
     try {
@@ -1072,7 +1116,7 @@ async function executeSignal(service: CryptoComService, connection: CryptocomCon
       ...cfg,
       executionVenue: arm.venue,
       defiAutoTradeEnabled: arm.venue === 'defi',
-      cefiAutoTradeEnabled: arm.venue !== 'defi' && arm.venue !== 'cryptocom',
+      cefiAutoTradeEnabled: arm.venue !== 'defi' && arm.venue !== 'cryptocom' && arm.venue !== 'hyperliquid',
     } as CryptocomEngineConfig;
     await executeSignalSingle(service, connection, userId, symbol, result, armCfg)
       .catch((e: any) => console.error(`[cryptocom-scanner] fan-out ${arm.label} failed for ${symbol}:`, e?.message ?? e));
@@ -1083,6 +1127,33 @@ async function executeSignalSingle(service: CryptoComService, connection: Crypto
   if (!result.direction || !result.price) return;
 
   const venue = (cfg as any).executionVenue as string;
+
+  // ── Hyperliquid perps — long AND short, fill-confirmed, exchange-side stop ──
+  if (venue === 'hyperliquid') {
+    const act = (decision: Decision, reasoning: string) => storage.createCryptocomEngineActivity({ userId, symbol, decision, strategy: result.strategy, reasoning, score: result.score, price: result.price, dailyChangePercent: result.dailyChangePercent, source: 'cryptocom' }).catch(() => {});
+    try {
+      const hlx = await import('./hyperliquid-executor');
+      const equity = (await hlx.hlAccountValue(userId).catch(() => null)) ?? 0;
+      if (!(equity > 0)) { await act('skipped', `${symbol}: couldn't read the Hyperliquid account value — skipping entry.`); return; }
+      const gateH = await checkSafetyGates(userId, cfg, equity);
+      if (!gateH.allowed) { await act('skipped', `${symbol}: signal confirmed, but execution blocked — ${gateH.reason}.`); return; }
+      const r = await hlx.hyperliquidEntry(userId, symbol, result.direction, gateH.riskMultiplier);
+      if (!r.ok) {
+        await act(r.skipped ? 'skipped' : 'error', `${symbol}: Hyperliquid entry ${r.skipped ? 'skipped' : 'failed'} — ${r.reason}.`);
+        return;
+      }
+      const dir = result.direction === 'BUY' ? 'long' : 'short';
+      await storage.createCryptocomEngineTrade({
+        userId, connectionId: r.connectionId!, venue: 'hyperliquid', symbol: hlx.HL_PREFIX + r.coin, strategy: result.strategy,
+        direction: dir, quantity: r.qty!, entryPrice: r.entryPrice!, stopLoss: r.stopLoss!, takeProfit: r.takeProfit!,
+        entryOrderId: r.orderId ?? '', entryReasoning: result.reasoning, status: 'open',
+      } as any);
+      await act('signal', `${symbol}: EXECUTED on Hyperliquid${r.testnet ? ' TESTNET' : ''} — ${dir} ${r.qty} ${r.coin} (~$${(r.notionalUsd ?? 0).toFixed(0)}) @ $${r.entryPrice!.toFixed(4)}. SL $${r.stopLoss!.toFixed(4)} ${r.stopPlaced ? '(on exchange)' : '(⚠ engine-only — exchange stop failed)'} / TP $${r.takeProfit!.toFixed(4)}. ${result.reasoning}`);
+    } catch (err: any) {
+      await act('error', `${symbol}: Hyperliquid order error: ${err?.message ?? err}`);
+    }
+    return;
+  }
 
   // ── DeFi hot-wallet routing (Phase B) — unattended on-chain 0x swaps ────────
   // When the engine is set to the DeFi venue AND defiAutoTradeEnabled is on, route
@@ -1296,9 +1367,10 @@ async function scanOneUser(userId: number): Promise<void> {
   // hostage to an account it does not use. On the DeFi venue the connection is
   // optional; a placeholder carries the id the trade rows still require.
   const isDefi = (config as any).executionVenue === 'defi';
+  const isHyperliquid = (config as any).executionVenue === 'hyperliquid';
   const connections = await storage.getUserCryptocomConnections(userId);
   const activeConn = connections.find(c => c.isActive);
-  if (!activeConn && !isDefi) {
+  if (!activeConn && !isDefi && !isHyperliquid) {
     await storage.createCryptocomEngineActivity({ userId, symbol: '—', decision: 'error', reasoning: 'No active Crypto.com connection.', score: null, price: null, dailyChangePercent: null, source: 'cryptocom', strategy: null });
     return;
   }
@@ -1309,7 +1381,7 @@ async function scanOneUser(userId: number): Promise<void> {
       ? new CryptoComService(activeConn.apiKey, decryptApiSecret(activeConn.encryptedApiSecret))
       : new CryptoComService('', '');
   } catch (err: any) {
-    if (!isDefi) {
+    if (!isDefi && !isHyperliquid) {
       await storage.createCryptocomEngineActivity({ userId, symbol: '—', decision: 'error', reasoning: `Could not decrypt credentials: ${err.message}`, score: null, price: null, dailyChangePercent: null, source: 'cryptocom', strategy: null });
       return;
     }
@@ -1338,7 +1410,16 @@ async function scanOneUser(userId: number): Promise<void> {
   // volume, rediscovered each cycle. The stored `symbols` watchlist only applies
   // to exchange venues, where the exchange decides what exists.
   let allSymbols: string[] = Array.isArray(config.symbols) ? config.symbols : [];
-  if (isDefi) {
+  if (isHyperliquid) {
+    // The account's own Hyperliquid list, e.g. BTC,ETH,SOL → HL:BTC, HL:ETH, HL:SOL.
+    const { getHyperliquidConnection, HL_PREFIX } = await import('./hyperliquid-executor');
+    const hlc = await getHyperliquidConnection(userId).catch(() => null);
+    if (!hlc) {
+      await storage.createCryptocomEngineActivity({ userId, symbol: '—', decision: 'error', reasoning: 'Venue is Hyperliquid but no Hyperliquid account is connected.', score: null, price: null, dailyChangePercent: null, source: 'cryptocom', strategy: null });
+      return;
+    }
+    allSymbols = hlc.symbols.map((c) => HL_PREFIX + c);
+  } else if (isDefi) {
     try {
       allSymbols = await refreshDefiUniverse((config as any).defiChain || 'base');
       console.log(`[cryptocom-scanner] DeFi universe on ${(config as any).defiChain || 'base'}: ${allSymbols.length} tokens`);

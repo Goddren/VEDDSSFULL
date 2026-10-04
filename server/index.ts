@@ -440,6 +440,13 @@ async function withRetry<T>(
   }
 
   try {
+    const { ensureHyperliquidTable } = await import('./services/hyperliquid-executor');
+    await ensureHyperliquidTable();
+  } catch (err: any) {
+    console.error(`[startup] ensureHyperliquidTable import error (non-fatal):`, err?.message ?? err);
+  }
+
+  try {
     const { ensureDxtradeTables } = await import('./services/ensure-dxtrade-tables');
     await ensureDxtradeTables();
   } catch (err: any) {

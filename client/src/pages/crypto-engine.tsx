@@ -59,7 +59,7 @@ type CryptocomEngineConfig = {
   ruinGuardEnabled: boolean;
   dailyLossLimitPct: number;
   maxDrawdownLimitPct: number;
-  executionVenue: 'cryptocom' | 'coinbase' | 'kraken' | 'gemini' | 'defi';
+  executionVenue: 'cryptocom' | 'coinbase' | 'kraken' | 'gemini' | 'defi' | 'hyperliquid';
   cefiAutoTradeEnabled: boolean;
   cefiNotionalUsd: number;
   cefiTakeProfitPct: number;
@@ -320,6 +320,27 @@ export default function CryptoEnginePage() {
     mutationFn: async () => (await apiRequest('DELETE', '/api/defi/hotwallet')).json(),
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ['/api/defi/hotwallet'] }),
   });
+  // ── Hyperliquid perps (API wallet — trades, can't withdraw) ──────────────
+  const [showHlForm, setShowHlForm] = useState(false);
+  const [hlForm, setHlForm] = useState({ accountAddress: '', vaultAddress: '', agentPrivateKey: '', label: '', isTestnet: false, isPropAccount: true });
+  const [hlMsg, setHlMsg] = useState<string | null>(null);
+  const [hlAutoConfirm, setHlAutoConfirm] = useState(false);
+  const { data: hlData } = useQuery<any>({ queryKey: ['/api/hyperliquid'], queryFn: async () => (await apiRequest('GET', '/api/hyperliquid')).json(), retry: false, refetchInterval: 30000 });
+  const hlConnect = useMutation({
+    mutationFn: async () => { const r = await apiRequest('POST', '/api/hyperliquid/connect', hlForm); if (!r.ok) throw new Error((await r.json()).error || 'Failed'); return r.json(); },
+    onSuccess: (d: any) => { setHlForm({ accountAddress: '', vaultAddress: '', agentPrivateKey: '', label: '', isTestnet: false, isPropAccount: true }); setShowHlForm(false); setHlMsg(d?.agentApproved ? null : `Saved — but Hyperliquid doesn't list this API wallet as approved for the account yet (role: ${d?.agentRole}). Approve it on Hyperliquid before turning auto-trade on.`); queryClient.invalidateQueries({ queryKey: ['/api/hyperliquid'] }); },
+    onError: (e: any) => setHlMsg(e.message),
+  });
+  const hlSettings = useMutation({
+    mutationFn: async (body: any) => { const r = await apiRequest('PATCH', '/api/hyperliquid/settings', body); if (!r.ok) throw new Error((await r.json()).error || 'Failed'); return r.json(); },
+    onSuccess: () => { setHlMsg(null); queryClient.invalidateQueries({ queryKey: ['/api/hyperliquid'] }); },
+    onError: (e: any) => setHlMsg(e.message),
+  });
+  const hlRemove = useMutation({
+    mutationFn: async () => { const r = await apiRequest('DELETE', '/api/hyperliquid'); if (!r.ok) throw new Error((await r.json()).error || 'Failed'); return r.json(); },
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['/api/hyperliquid'] }),
+    onError: (e: any) => setHlMsg(e.message),
+  });
   const [swap, setSwap] = useState({ sellToken: 'USDC', buyToken: 'WETH', sellAmount: '', slippageBps: '100' });
   const [swapConfirm, setSwapConfirm] = useState(false);
   const swapMut = useMutation({
@@ -558,7 +579,7 @@ export default function CryptoEnginePage() {
           const netPnl = settled.reduce((a, t) => a + (t.realizedPnl ?? 0), 0);
           const wins = settled.filter(t => (t.realizedPnl ?? 0) > 0).length;
           const winRate = settled.length ? Math.round((wins / settled.length) * 100) : null;
-          const venueLabel: Record<string, string> = { cryptocom: 'Crypto.com', coinbase: 'Coinbase', kraken: 'Kraken', gemini: 'Gemini', defi: 'DeFi' };
+          const venueLabel: Record<string, string> = { cryptocom: 'Crypto.com', coinbase: 'Coinbase', kraken: 'Kraken', gemini: 'Gemini', defi: 'DeFi', hyperliquid: 'Hyperliquid' };
           const tiles = [
             { label: 'Open trades', value: String(openTrades.length), tone: 'text-white' },
             { label: 'Net P&L', value: `${netPnl >= 0 ? '+' : ''}$${netPnl.toLocaleString(undefined, { maximumFractionDigits: 2 })}`, tone: netPnl >= 0 ? 'text-emerald-400' : 'text-red-400' },
@@ -992,6 +1013,74 @@ export default function CryptoEnginePage() {
                 )}
               </CardContent>
             </Card>
+
+            {/* Hyperliquid perps — API wallet (can trade, cannot withdraw) */}
+            <Card className="bg-gray-900 border-red-800/40">
+              <CardHeader>
+                <CardTitle className="text-base flex items-center justify-between">
+                  <span>Hyperliquid Perps</span>
+                  <Badge variant="outline" className="text-[10px] border-red-700 text-red-400">{hlData?.isTestnet ? 'TESTNET' : 'API wallet · long + short'}</Badge>
+                </CardTitle>
+                <CardDescription>Uses a Hyperliquid <span className="font-semibold">API wallet</span> (app.hyperliquid.xyz → More → API). It can place and cancel orders but can't withdraw. Never paste your account's main wallet key here. If this is a prop account, check that your firm allows API or bot trading.</CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-3">
+                {hlMsg && <p className="text-[11px] text-amber-400">{hlMsg}</p>}
+                {hlData?.accountAddress ? (
+                  <>
+                    <div className="flex items-center justify-between rounded-lg border border-red-800/40 bg-red-500/[0.05] px-3 py-2">
+                      <div>
+                        <p className="text-xs font-mono text-gray-300">{(hlData.vaultAddress || hlData.accountAddress).slice(0, 8)}…{(hlData.vaultAddress || hlData.accountAddress).slice(-6)}{hlData.label ? ` · ${hlData.label}` : ''}</p>
+                        <p className="text-[10px] text-gray-500">
+                          {hlData.account?.error ? `account read failed: ${hlData.account.error}` : `Account value $${Number(hlData.account?.accountValue ?? 0).toFixed(2)} · available $${Number(hlData.account?.withdrawable ?? 0).toFixed(2)} · ${hlData.account?.positions?.length ?? 0} open position(s)`}
+                        </p>
+                        <p className={`text-[10px] ${hlData.agentApproved ? 'text-emerald-400' : 'text-amber-400'}`}>{hlData.agentApproved ? 'API wallet approved ✓' : `API wallet not approved for this account yet (role: ${hlData.agentRole})`}</p>
+                      </div>
+                      <button onClick={() => hlRemove.mutate()} className="text-[11px] text-gray-500 hover:text-red-400">remove</button>
+                    </div>
+                    {(hlData.account?.positions ?? []).map((p: any) => (
+                      <div key={p.coin} className="flex justify-between text-[11px] text-gray-400 px-1">
+                        <span>{p.coin} {p.szi > 0 ? 'LONG' : 'SHORT'} {Math.abs(p.szi)} @ {p.entryPx}</span>
+                        <span className={p.unrealizedPnl >= 0 ? 'text-emerald-400' : 'text-red-400'}>{p.unrealizedPnl >= 0 ? '+' : ''}${Number(p.unrealizedPnl).toFixed(2)}</span>
+                      </div>
+                    ))}
+                    <div className="grid grid-cols-2 gap-2">
+                      <div className="space-y-1"><Label className="text-[11px] text-gray-400">USD per entry (min $11)</Label><Input type="number" defaultValue={hlData.notionalUsd} onBlur={(e) => hlSettings.mutate({ notionalUsd: Number(e.target.value) })} className="bg-gray-800 border-gray-700 h-8 text-sm" /></div>
+                      <div className="space-y-1"><Label className="text-[11px] text-gray-400">Leverage (isolated)</Label><Input type="number" defaultValue={hlData.leverage} onBlur={(e) => hlSettings.mutate({ leverage: Number(e.target.value) })} className="bg-gray-800 border-gray-700 h-8 text-sm" /></div>
+                      <div className="space-y-1"><Label className="text-[11px] text-gray-400">Stop loss % (on exchange)</Label><Input type="number" step="0.1" defaultValue={hlData.stopLossPct} onBlur={(e) => hlSettings.mutate({ stopLossPct: Number(e.target.value) })} className="bg-gray-800 border-gray-700 h-8 text-sm" /></div>
+                      <div className="space-y-1"><Label className="text-[11px] text-gray-400">Take profit %</Label><Input type="number" step="0.1" defaultValue={hlData.takeProfitPct} onBlur={(e) => hlSettings.mutate({ takeProfitPct: Number(e.target.value) })} className="bg-gray-800 border-gray-700 h-8 text-sm" /></div>
+                    </div>
+                    <div className="space-y-1"><Label className="text-[11px] text-gray-400">Coins to trade</Label><Input defaultValue={(hlData.symbols ?? []).join(',')} onBlur={(e) => hlSettings.mutate({ symbols: e.target.value })} className="bg-gray-800 border-gray-700 h-8 text-sm" /></div>
+                    <div className="flex items-center justify-between rounded-lg border border-red-500/30 bg-red-500/[0.06] px-3 py-2">
+                      <div><Label className="text-xs text-white">Enable live Hyperliquid auto-trade</Label><p className="text-[10px] text-gray-500">Places REAL perp orders, long and short{hlData.isTestnet ? ' (testnet)' : ''}. Engine venue must be Hyperliquid, or multi-venue must be on.</p></div>
+                      {hlData.autoTradeEnabled || !hlAutoConfirm ? (
+                        <Switch checked={!!hlData.autoTradeEnabled} onCheckedChange={(v) => { if (v) setHlAutoConfirm(true); else hlSettings.mutate({ autoTradeEnabled: false }); }} />
+                      ) : (
+                        <div className="flex gap-1">
+                          <button onClick={() => { hlSettings.mutate({ autoTradeEnabled: true }); setHlAutoConfirm(false); }} className="text-[11px] font-bold px-2 py-1 rounded bg-amber-600 text-white">Confirm ON</button>
+                          <button onClick={() => setHlAutoConfirm(false)} className="text-[11px] px-2 py-1 rounded bg-gray-800 text-gray-400">Cancel</button>
+                        </div>
+                      )}
+                    </div>
+                  </>
+                ) : !showHlForm ? (
+                  <button onClick={() => setShowHlForm(true)} className="text-sm text-red-400 hover:text-red-300">+ Connect a Hyperliquid account</button>
+                ) : (
+                  <div className="space-y-2">
+                    <Input placeholder="Account address (0x… — the account that holds the funds)" value={hlForm.accountAddress} onChange={(e) => setHlForm(p => ({ ...p, accountAddress: e.target.value }))} className="bg-gray-800 border-gray-700 h-8 text-sm font-mono" />
+                    <Input placeholder="Sub-account / vault address (optional)" value={hlForm.vaultAddress} onChange={(e) => setHlForm(p => ({ ...p, vaultAddress: e.target.value }))} className="bg-gray-800 border-gray-700 h-8 text-sm font-mono" />
+                    <Input type="password" placeholder="API wallet private key (0x…)" value={hlForm.agentPrivateKey} onChange={(e) => setHlForm(p => ({ ...p, agentPrivateKey: e.target.value }))} className="bg-gray-800 border-gray-700 h-8 text-sm font-mono" />
+                    <Input placeholder="Label (e.g. UPCOMS 2)" value={hlForm.label} onChange={(e) => setHlForm(p => ({ ...p, label: e.target.value }))} className="bg-gray-800 border-gray-700 h-8 text-sm" />
+                    <label className="flex items-center gap-2 text-[11px] text-gray-400"><input type="checkbox" checked={hlForm.isTestnet} onChange={(e) => setHlForm(p => ({ ...p, isTestnet: e.target.checked }))} /> Testnet (practice with fake funds first)</label>
+                    <label className="flex items-center gap-2 text-[11px] text-gray-400"><input type="checkbox" checked={hlForm.isPropAccount} onChange={(e) => setHlForm(p => ({ ...p, isPropAccount: e.target.checked }))} /> Prop-firm account</label>
+                    <div className="flex gap-2">
+                      <button onClick={() => hlConnect.mutate()} disabled={hlConnect.isPending || !hlForm.agentPrivateKey || !hlForm.accountAddress} className="text-sm font-bold px-3 py-1.5 rounded-lg bg-red-600 hover:bg-red-500 text-white disabled:opacity-60">{hlConnect.isPending ? 'Connecting…' : 'Connect'}</button>
+                      <button onClick={() => setShowHlForm(false)} className="text-sm px-3 py-1.5 rounded-lg bg-gray-800 text-gray-400">Cancel</button>
+                    </div>
+                    <p className="text-[10px] text-gray-500">The key is encrypted at rest. Auto-trade starts OFF. Connecting reads your balance to confirm the account.</p>
+                  </div>
+                )}
+              </CardContent>
+            </Card>
             </div>
             )}
 
@@ -1279,6 +1368,9 @@ export default function CryptoEnginePage() {
                                 <option value="defi" disabled={!hwData?.address} title={hwData?.address ? 'Auto-swap on-chain via the hot wallet' : 'Connect a DeFi hot wallet below to enable'}>
                                   DeFi hot wallet {hwData?.address ? `(${String(hwData.address).slice(0, 6)}… · ${hwData.chain})` : '— connect a burner below'}
                                 </option>
+                                <option value="hyperliquid" disabled={!hlData?.accountAddress}>
+                                  Hyperliquid (perps, long + short){hlData?.accountAddress ? (hlData.isTestnet ? ' · testnet' : '') : ' — not connected'}
+                                </option>
                               </select>
                             );
                           })()}
@@ -1289,7 +1381,10 @@ export default function CryptoEnginePage() {
                           )}
                         </div>
                         {/* CeFi spot venue controls */}
-                        {config.executionVenue !== 'cryptocom' && config.executionVenue !== 'defi' && (
+                        {config.executionVenue === 'hyperliquid' && (
+                          <p className="text-[10px] text-gray-400">Hyperliquid size, leverage, stop and the live auto-trade switch are under <span className="font-semibold">Wallets &amp; connections → Hyperliquid Perps</span>. Auto-trade is {hlData?.autoTradeEnabled ? <span className="text-emerald-400 font-semibold">ON</span> : <span className="text-amber-400 font-semibold">OFF</span>}.</p>
+                        )}
+                        {config.executionVenue !== 'cryptocom' && config.executionVenue !== 'defi' && config.executionVenue !== 'hyperliquid' && (
                           <>
                             <div className="flex items-center justify-between rounded-lg border border-red-500/25 bg-red-500/[0.05] px-3 py-2">
                               <div><Label className="text-xs text-white">Enable live CeFi auto-trade</Label><p className="text-[10px] text-gray-500">Auto-places REAL spot orders on {config.executionVenue}</p></div>
