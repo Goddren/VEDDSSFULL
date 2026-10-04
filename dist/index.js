@@ -25012,13 +25012,27 @@ function getDefaultConfig(userId) {
     ...persisted ? { ...persisted, userId } : {}
   };
 }
+function tradingWeekStartISO() {
+  const now = /* @__PURE__ */ new Date();
+  const d = new Date(now);
+  d.setUTCHours(21, 0, 0, 0);
+  d.setUTCDate(d.getUTCDate() - d.getUTCDay());
+  if (d > now) d.setUTCDate(d.getUTCDate() - 7);
+  return d.toISOString();
+}
+function rollGoalTrackerWeek(state) {
+  const wk = tradingWeekStartISO();
+  if (state.goalTracker && state.goalTracker.weekStartedAt < wk) {
+    state.goalTracker = createGoalTracker(state.config);
+  }
+}
 function createGoalTracker(config) {
   return {
     weeklyTarget: config.weeklyProfitTarget,
     startBalance: config.accountBalance,
     currentProfit: 0,
     progressPercent: 0,
-    weekStartedAt: (/* @__PURE__ */ new Date()).toISOString(),
+    weekStartedAt: tradingWeekStartISO(),
     dailyPnL: {},
     wins: 0,
     losses: 0,
@@ -25087,6 +25101,7 @@ function recordTradeResult(userId, result) {
     if (seen.size > 5e3) countedTradeKeys.set(userId, new Set(Array.from(seen).slice(-2500)));
   }
   if (Math.abs(Number(result.profit) || 0) < 5e-3) return;
+  rollGoalTrackerWeek(state);
   const tracker = state.goalTracker;
   tracker.currentProfit = Math.round((tracker.currentProfit + result.profit) * 100) / 100;
   tracker.progressPercent = tracker.weeklyTarget > 0 ? Math.min(100, Math.max(0, Math.round(tracker.currentProfit / tracker.weeklyTarget * 100))) : 0;
@@ -25279,7 +25294,7 @@ function recordTradeResult(userId, result) {
       addActivity(userId, { type: "info", message: "\u{1F9E0} Brain updated after 3 new trade results" });
     });
   }
-  const weekKey = `${userId}_${tracker.weekStartedAt.split("T")[0].substring(0, 8)}`;
+  const weekKey = `${userId}_${tracker.weekStartedAt}`;
   goalTrackerCache[weekKey] = { ...tracker };
   if (state.modelLocked && state.openPositionCount === 0) {
     state.modelLocked = false;
@@ -29402,8 +29417,7 @@ function startLiveEngine(userId, config) {
   }
   const fullConfig = { ...getDefaultConfig(userId), ...config || {} };
   persistEngineConfig(userId, fullConfig);
-  const weekStart = (/* @__PURE__ */ new Date()).toISOString().substring(0, 8);
-  const weekKey = `${userId}_${weekStart}`;
+  const weekKey = `${userId}_${tradingWeekStartISO()}`;
   const cachedTracker = goalTrackerCache[weekKey];
   const restoredTracker = cachedTracker ? { ...cachedTracker, weeklyTarget: fullConfig.weeklyProfitTarget || cachedTracker.weeklyTarget } : createGoalTracker(fullConfig);
   const initWeights = Object.fromEntries(ALL_STRATEGY_KEYS.map((k) => [k, 1]));
@@ -29932,7 +29946,9 @@ function stopLiveEngine(userId) {
   return state || null;
 }
 function getLiveEngineState(userId) {
-  return engineStates[userId] || null;
+  const s = engineStates[userId];
+  if (s) rollGoalTrackerWeek(s);
+  return s || null;
 }
 function getLiveEngineActivity(userId, limit = 50) {
   const state = engineStates[userId];
@@ -57483,9 +57499,9 @@ async function getStopOrdersForUser(userId, filters = {}) {
 init_schema();
 
 // server/build-info.ts
-var BUILD_COMMIT = "203df491-dirty";
+var BUILD_COMMIT = "23d26344-dirty";
 var BUILD_BRANCH = "main";
-var BUILT_AT = "2026-10-04T19:54:43.520Z";
+var BUILT_AT = "2026-10-04T22:14:54.591Z";
 
 // server/stripe.ts
 init_db();
@@ -60809,6 +60825,14 @@ function getFreshestMt5Account(userId) {
     }
   }
   return best;
+}
+function tradingWeekStartUTC() {
+  const now = /* @__PURE__ */ new Date();
+  const d = new Date(now);
+  d.setUTCHours(21, 0, 0, 0);
+  d.setUTCDate(d.getUTCDate() - d.getUTCDay());
+  if (d > now) d.setUTCDate(d.getUTCDate() - 7);
+  return d;
 }
 function mondayWeekStartUTC() {
   const d = /* @__PURE__ */ new Date();
@@ -72492,6 +72516,11 @@ BEAR CASE: ${_bearCase || "n/a"}` : aiConfirmation.reasoning;
       }
     }
     if (!strategy) return res.json({ hasStrategy: false });
+    const _wk = tradingWeekStartUTC();
+    const _progressFresh = strategy.progressWeekStart === _wk.toISOString() || strategy.weekStart && new Date(strategy.weekStart) >= _wk;
+    if (!_progressFresh) {
+      return res.json({ hasStrategy: true, ...strategy, currentProfit: 0, progressTrades: 0, progressWinRate: 0, progressPercentage: 0 });
+    }
     res.json({ hasStrategy: true, ...strategy });
   });
   app2.post("/api/weekly-strategy/generate", async (req, res) => {
@@ -72961,7 +72990,8 @@ Respond with ONLY valid JSON:
       global.mt5WeeklyStrategies = global.mt5WeeklyStrategies || {};
       global.mt5WeeklyStrategies[userId] = strategy;
     }
-    const weekStart = new Date(strategy.weekStart);
+    const weekStart = tradingWeekStartUTC();
+    strategy.progressWeekStart = weekStart.toISOString();
     const planPairs = (strategy.pairs || []).map((p) => p.toUpperCase().replace("/", ""));
     const dbTrades = await storage.getAiTradeResults(userId, 500);
     const dbWeekTrades = dbTrades.filter((t) => {

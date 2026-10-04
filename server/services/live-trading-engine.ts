@@ -959,13 +959,35 @@ function getDefaultConfig(userId: number): LiveEngineConfig {
   };
 }
 
+/** Most recent Sunday 21:00 UTC (FX market open) — the start of the trading week. */
+function tradingWeekStartISO(): string {
+  const now = new Date();
+  const d = new Date(now);
+  d.setUTCHours(21, 0, 0, 0);
+  d.setUTCDate(d.getUTCDate() - d.getUTCDay());
+  if (d > now) d.setUTCDate(d.getUTCDate() - 7);
+  return d.toISOString();
+}
+
+/**
+ * Start a fresh goal tracker when a new trading week begins. The tracker used
+ * to be created once at engine start and never reset, so a running engine kept
+ * showing last week's profit, wins and losses all through the new week.
+ */
+function rollGoalTrackerWeek(state: EngineState): void {
+  const wk = tradingWeekStartISO();
+  if (state.goalTracker && state.goalTracker.weekStartedAt < wk) {
+    state.goalTracker = createGoalTracker(state.config);
+  }
+}
+
 function createGoalTracker(config: LiveEngineConfig): GoalTracker {
   return {
     weeklyTarget: config.weeklyProfitTarget,
     startBalance: config.accountBalance,
     currentProfit: 0,
     progressPercent: 0,
-    weekStartedAt: new Date().toISOString(),
+    weekStartedAt: tradingWeekStartISO(),
     dailyPnL: {},
     wins: 0,
     losses: 0,
@@ -1060,6 +1082,7 @@ export function recordTradeResult(userId: number, result: {
   // consecutive-loss cool-off. It is skipped entirely — it moves no P&L.
   if (Math.abs(Number(result.profit) || 0) < 0.005) return;
 
+  rollGoalTrackerWeek(state);
   const tracker = state.goalTracker;
 
   tracker.currentProfit = Math.round((tracker.currentProfit + result.profit) * 100) / 100;
@@ -1319,7 +1342,9 @@ export function recordTradeResult(userId: number, result: {
     });
   }
 
-  const weekKey = `${userId}_${tracker.weekStartedAt.split('T')[0].substring(0, 8)}`;
+  // Keyed by the trading week. This was substring(0, 8) of the date — "2026-10-"
+  // — i.e. one key per MONTH, so a restart mid-month restored an earlier week.
+  const weekKey = `${userId}_${tracker.weekStartedAt}`;
   goalTrackerCache[weekKey] = { ...tracker };
 
   if (state.modelLocked && state.openPositionCount === 0) {
@@ -6558,8 +6583,7 @@ export function startLiveEngine(userId: number, config?: Partial<LiveEngineConfi
   const fullConfig = { ...getDefaultConfig(userId), ...(config || {}) };
   persistEngineConfig(userId, fullConfig);
 
-  const weekStart = new Date().toISOString().substring(0, 8);
-  const weekKey = `${userId}_${weekStart}`;
+  const weekKey = `${userId}_${tradingWeekStartISO()}`;
   const cachedTracker = goalTrackerCache[weekKey];
   const restoredTracker = cachedTracker
     ? { ...cachedTracker, weeklyTarget: fullConfig.weeklyProfitTarget || cachedTracker.weeklyTarget }
@@ -7236,7 +7260,9 @@ export function stopLiveEngine(userId: number): EngineState | null {
 }
 
 export function getLiveEngineState(userId: number): EngineState | null {
-  return engineStates[userId] || null;
+  const s = engineStates[userId];
+  if (s) rollGoalTrackerWeek(s); // a quiet new week must not keep showing last week's tally
+  return s || null;
 }
 
 export function getLiveEngineActivity(userId: number, limit: number = 50): LiveActivity[] {

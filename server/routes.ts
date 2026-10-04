@@ -208,6 +208,20 @@ function getFreshestMt5Account(userId: number): {
 // Monday-start week boundary (UTC midnight). The inline `- getDay() + 1`
 // pattern returned TOMORROW on Sundays (getDay()===0 → date+1), making weekly
 // P&L exclude the entire current week every Sunday.
+/**
+ * Start of the current FX trading week: the most recent Sunday 21:00 UTC (the
+ * market open). Weekly goal progress counts from here, so it resets to zero the
+ * moment a new trading week starts — independent of when the plan was made.
+ */
+function tradingWeekStartUTC(): Date {
+  const now = new Date();
+  const d = new Date(now);
+  d.setUTCHours(21, 0, 0, 0);
+  d.setUTCDate(d.getUTCDate() - d.getUTCDay()); // this week's Sunday 21:00
+  if (d > now) d.setUTCDate(d.getUTCDate() - 7);  // before Sunday's open → last week's
+  return d;
+}
+
 function mondayWeekStartUTC(): Date {
   const d = new Date();
   const day = d.getUTCDay(); // 0=Sun..6=Sat, computed in UTC to match setUTCHours below
@@ -14346,6 +14360,16 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
       }
     }
     if (!strategy) return res.json({ hasStrategy: false });
+    // The stored progress is whatever update-progress last wrote. If that was
+    // computed for an earlier trading week (and the plan itself predates this
+    // week), show a fresh week rather than last week's numbers until the next
+    // progress refresh recomputes them.
+    const _wk = tradingWeekStartUTC();
+    const _progressFresh = strategy.progressWeekStart === _wk.toISOString()
+      || (strategy.weekStart && new Date(strategy.weekStart) >= _wk);
+    if (!_progressFresh) {
+      return res.json({ hasStrategy: true, ...strategy, currentProfit: 0, progressTrades: 0, progressWinRate: 0, progressPercentage: 0 });
+    }
     res.json({ hasStrategy: true, ...strategy });
   });
 
@@ -14877,7 +14901,12 @@ Respond with ONLY valid JSON:
       (global as any).mt5WeeklyStrategies[userId] = strategy;
     }
 
-    const weekStart = new Date(strategy.weekStart);
+    // Count from the start of the CURRENT trading week, not from the plan's
+    // weekStart. A plan carried into a new week (not regenerated) used to keep
+    // summing every trade since it was created, so last week's profit showed as
+    // this week's progress.
+    const weekStart = tradingWeekStartUTC();
+    strategy.progressWeekStart = weekStart.toISOString();
     const planPairs = (strategy.pairs || []).map((p: string) => p.toUpperCase().replace('/', ''));
 
     // ── Primary source: ai_trade_results DB (persists across deploys) ──
