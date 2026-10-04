@@ -103,7 +103,9 @@ export async function lsCancelSubscription(subscriptionId: string) {
 }
 
 export function lsVerifyWebhook(rawBody: Buffer, signature: string): boolean {
-  if (!LS_WEBHOOK_SECRET) return true;
+  // No secret = nothing to verify against = reject. Returning true here made
+  // every unsigned request trusted whenever the env var was missing.
+  if (!LS_WEBHOOK_SECRET || !signature) return false;
   const hmac = crypto.createHmac('sha256', LS_WEBHOOK_SECRET);
   hmac.update(rawBody);
   const digest = hmac.digest('hex');

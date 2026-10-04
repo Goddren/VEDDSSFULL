@@ -57483,9 +57483,9 @@ async function getStopOrdersForUser(userId, filters = {}) {
 init_schema();
 
 // server/build-info.ts
-var BUILD_COMMIT = "d0dca1de-dirty";
+var BUILD_COMMIT = "203df491-dirty";
 var BUILD_BRANCH = "main";
-var BUILT_AT = "2026-10-04T15:49:36.800Z";
+var BUILT_AT = "2026-10-04T19:54:43.520Z";
 
 // server/stripe.ts
 init_db();
@@ -57921,7 +57921,7 @@ async function lsCancelSubscription(subscriptionId) {
   return res.json();
 }
 function lsVerifyWebhook(rawBody, signature) {
-  if (!LS_WEBHOOK_SECRET) return true;
+  if (!LS_WEBHOOK_SECRET || !signature) return false;
   const hmac = crypto5.createHmac("sha256", LS_WEBHOOK_SECRET);
   hmac.update(rawBody);
   const digest = hmac.digest("hex");
@@ -63637,16 +63637,15 @@ Respond ONLY in valid JSON format with these exact keys:
     const rawBody = req.rawBody;
     const secret = process.env.STRIPE_WEBHOOK_SECRET;
     let event;
-    if (secret && rawBody && sig && stripe) {
-      try {
-        event = stripe.webhooks.constructEvent(rawBody, sig, secret);
-      } catch (err) {
-        console.error("[Stripe webhook] Signature verification failed:", err instanceof Error ? err.message : err);
-        return res.status(400).send(`Webhook Error: ${err instanceof Error ? err.message : "Unknown"}`);
-      }
-    } else {
-      if (!secret) console.warn("[Stripe webhook] STRIPE_WEBHOOK_SECRET not set \u2014 skipping signature check");
-      event = req.body;
+    if (!(secret && rawBody && sig && stripe)) {
+      console.error(`[Stripe webhook] REJECTED unsigned/unverifiable request (secret=${!!secret} sig=${!!sig} rawBody=${!!rawBody})`);
+      return res.status(400).send("Webhook Error: signature required");
+    }
+    try {
+      event = stripe.webhooks.constructEvent(rawBody, sig, secret);
+    } catch (err) {
+      console.error("[Stripe webhook] Signature verification failed:", err instanceof Error ? err.message : err);
+      return res.status(400).send(`Webhook Error: ${err instanceof Error ? err.message : "Unknown"}`);
     }
     try {
       switch (event.type) {
@@ -63829,12 +63828,9 @@ Respond ONLY in valid JSON format with these exact keys:
     try {
       const signature = req.headers["x-signature"];
       const rawBody = req.rawBody;
-      if (signature && rawBody) {
-        const valid = lsVerifyWebhook(rawBody, signature);
-        if (!valid) {
-          console.warn("[LS webhook] Invalid signature");
-          return res.status(401).json({ message: "Invalid webhook signature" });
-        }
+      if (!signature || !rawBody || !lsVerifyWebhook(rawBody, signature)) {
+        console.warn(`[LS webhook] REJECTED \u2014 ${!signature ? "no signature header" : !rawBody ? "no raw body" : "invalid signature (or LEMONSQUEEZY webhook secret not set)"}`);
+        return res.status(401).json({ message: "Invalid webhook signature" });
       }
       const event = typeof req.body === "string" ? JSON.parse(req.body) : req.body;
       const result = await lsHandleWebhookEvent(event);
@@ -82445,13 +82441,54 @@ Generate an agenda with timing, topics, and hosting tips. Return JSON: {
       return { veddBalance: 0, isAmbassador: false, ambassadorNftMint: null, hasVeddNft: false, membershipNftMint: null };
     }
   }
+  const WALLET_NONCE_TTL_MS = 5 * 60 * 1e3;
+  app2.post("/api/wallet/auth-nonce", async (req, res) => {
+    const { walletAddress } = req.body || {};
+    if (!walletAddress || !/^[1-9A-HJ-NP-Za-km-z]{32,44}$/.test(walletAddress)) {
+      return res.status(400).json({ error: "Invalid wallet address format" });
+    }
+    const { randomBytes: randomBytes4 } = await import("crypto");
+    const nonce = randomBytes4(16).toString("hex");
+    const issuedAt = (/* @__PURE__ */ new Date()).toISOString();
+    const message = `Sign in to VEDD AI
+
+Wallet: ${walletAddress}
+Nonce: ${nonce}
+Issued: ${issuedAt}
+
+This request will not trigger a transaction or cost any fees.`;
+    req.session.walletAuth = { walletAddress, message, issuedAt: Date.now() };
+    req.session.save(() => res.json({ message }));
+  });
   app2.post("/api/wallet/authenticate", async (req, res) => {
-    const { walletAddress } = req.body;
+    const { walletAddress, signature } = req.body;
     if (!walletAddress) {
       return res.status(400).json({ error: "Wallet address is required" });
     }
     if (!/^[1-9A-HJ-NP-Za-km-z]{32,44}$/.test(walletAddress)) {
       return res.status(400).json({ error: "Invalid wallet address format" });
+    }
+    {
+      const pending = req.session.walletAuth;
+      delete req.session.walletAuth;
+      if (!pending || pending.walletAddress !== walletAddress || Date.now() - pending.issuedAt > WALLET_NONCE_TTL_MS) {
+        return res.status(401).json({ error: "Login request expired \u2014 please try again." });
+      }
+      if (!signature || typeof signature !== "string") {
+        return res.status(401).json({ error: "Wallet signature required \u2014 approve the sign-in message in your wallet." });
+      }
+      try {
+        const nacl = (await import("tweetnacl")).default;
+        const { PublicKey: PublicKey3 } = await import("@solana/web3.js");
+        const ok = nacl.sign.detached.verify(
+          new TextEncoder().encode(pending.message),
+          Uint8Array.from(Buffer.from(signature, "base64")),
+          new PublicKey3(walletAddress).toBytes()
+        );
+        if (!ok) return res.status(401).json({ error: "Wallet signature didn't match this address." });
+      } catch (e) {
+        return res.status(401).json({ error: `Couldn't verify the wallet signature: ${e?.message ?? "invalid signature"}` });
+      }
     }
     try {
       const { veddBalance, isAmbassador, ambassadorNftMint, hasVeddNft, membershipNftMint } = await verifyTokenBalancesServerSide(walletAddress);

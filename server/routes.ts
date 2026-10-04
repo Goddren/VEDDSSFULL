@@ -3583,16 +3583,18 @@ Respond ONLY in valid JSON format with these exact keys:
 
     let event: any;
 
-    if (secret && rawBody && sig && stripe) {
-      try {
-        event = stripe.webhooks.constructEvent(rawBody, sig, secret);
-      } catch (err) {
-        console.error('[Stripe webhook] Signature verification failed:', err instanceof Error ? err.message : err);
-        return res.status(400).send(`Webhook Error: ${err instanceof Error ? err.message : 'Unknown'}`);
-      }
-    } else {
-      if (!secret) console.warn('[Stripe webhook] STRIPE_WEBHOOK_SECRET not set — skipping signature check');
-      event = req.body;
+    // Signature is MANDATORY. This used to fall back to trusting req.body when
+    // the stripe-signature header was simply left off — so anyone could POST a
+    // checkout.session.completed with any userId and grant a paid plan.
+    if (!(secret && rawBody && sig && stripe)) {
+      console.error(`[Stripe webhook] REJECTED unsigned/unverifiable request (secret=${!!secret} sig=${!!sig} rawBody=${!!rawBody})`);
+      return res.status(400).send('Webhook Error: signature required');
+    }
+    try {
+      event = stripe.webhooks.constructEvent(rawBody, sig, secret);
+    } catch (err) {
+      console.error('[Stripe webhook] Signature verification failed:', err instanceof Error ? err.message : err);
+      return res.status(400).send(`Webhook Error: ${err instanceof Error ? err.message : 'Unknown'}`);
     }
 
     try {
@@ -3804,12 +3806,10 @@ Respond ONLY in valid JSON format with these exact keys:
       const signature = req.headers['x-signature'] as string;
       const rawBody = (req as any).rawBody as Buffer;
 
-      if (signature && rawBody) {
-        const valid = lsVerifyWebhook(rawBody, signature);
-        if (!valid) {
-          console.warn('[LS webhook] Invalid signature');
-          return res.status(401).json({ message: 'Invalid webhook signature' });
-        }
+      // Signature is MANDATORY — leaving the header off used to skip the check.
+      if (!signature || !rawBody || !lsVerifyWebhook(rawBody, signature)) {
+        console.warn(`[LS webhook] REJECTED — ${!signature ? 'no signature header' : !rawBody ? 'no raw body' : 'invalid signature (or LEMONSQUEEZY webhook secret not set)'}`);
+        return res.status(401).json({ message: 'Invalid webhook signature' });
       }
 
       const event = typeof req.body === 'string' ? JSON.parse(req.body) : req.body;
@@ -25905,12 +25905,31 @@ Generate an agenda with timing, topics, and hosting tips. Return JSON: {
     }
   }
 
-  // Authenticate via Solana wallet
-  // Security model: Phantom's "Connect to site" popup IS the authentication proof.
-  // The user must explicitly approve the connection in Phantom before we receive their wallet address.
+  // Authenticate via Solana wallet — PROOF OF OWNERSHIP REQUIRED.
+  //
+  // This used to trust the posted address on the theory that Phantom's
+  // "Connect to site" popup was the proof. The server never sees that popup:
+  // anyone could POST any public wallet address (they are all on-chain) and be
+  // logged in as its owner. Now the server issues a one-time message, the
+  // wallet signs it, and the ed25519 signature is verified against the address
+  // before any login or account link happens.
+  const WALLET_NONCE_TTL_MS = 5 * 60 * 1000;
+  app.post("/api/wallet/auth-nonce", async (req: Request, res: Response) => {
+    const { walletAddress } = req.body || {};
+    if (!walletAddress || !/^[1-9A-HJ-NP-Za-km-z]{32,44}$/.test(walletAddress)) {
+      return res.status(400).json({ error: "Invalid wallet address format" });
+    }
+    const { randomBytes } = await import('crypto');
+    const nonce = randomBytes(16).toString('hex');
+    const issuedAt = new Date().toISOString();
+    const message = `Sign in to VEDD AI\n\nWallet: ${walletAddress}\nNonce: ${nonce}\nIssued: ${issuedAt}\n\nThis request will not trigger a transaction or cost any fees.`;
+    (req.session as any).walletAuth = { walletAddress, message, issuedAt: Date.now() };
+    req.session.save(() => res.json({ message }));
+  });
+
   app.post("/api/wallet/authenticate", async (req: Request, res: Response) => {
-    const { walletAddress } = req.body;
-    
+    const { walletAddress, signature } = req.body;
+
     if (!walletAddress) {
       return res.status(400).json({ error: "Wallet address is required" });
     }
@@ -25918,6 +25937,31 @@ Generate an agenda with timing, topics, and hosting tips. Return JSON: {
     // Validate it looks like a Solana address (32-44 base58 chars)
     if (!/^[1-9A-HJ-NP-Za-km-z]{32,44}$/.test(walletAddress)) {
       return res.status(400).json({ error: "Invalid wallet address format" });
+    }
+
+    // ── Verify the wallet signed OUR one-time message ──
+    {
+      const pending = (req.session as any).walletAuth;
+      // Single use: clear it whatever the outcome, so a signature can't be replayed.
+      delete (req.session as any).walletAuth;
+      if (!pending || pending.walletAddress !== walletAddress || Date.now() - pending.issuedAt > WALLET_NONCE_TTL_MS) {
+        return res.status(401).json({ error: "Login request expired — please try again." });
+      }
+      if (!signature || typeof signature !== 'string') {
+        return res.status(401).json({ error: "Wallet signature required — approve the sign-in message in your wallet." });
+      }
+      try {
+        const nacl = (await import('tweetnacl')).default;
+        const { PublicKey } = await import('@solana/web3.js');
+        const ok = nacl.sign.detached.verify(
+          new TextEncoder().encode(pending.message),
+          Uint8Array.from(Buffer.from(signature, 'base64')),
+          new PublicKey(walletAddress).toBytes(),
+        );
+        if (!ok) return res.status(401).json({ error: "Wallet signature didn't match this address." });
+      } catch (e: any) {
+        return res.status(401).json({ error: `Couldn't verify the wallet signature: ${e?.message ?? 'invalid signature'}` });
+      }
     }
 
     try {

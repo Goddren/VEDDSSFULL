@@ -21,7 +21,7 @@ const TIER_CONFIG: Record<string, { label: string; color: string; bgColor: strin
 };
 
 export function WalletLoginButton({ onWalletLogin, className }: WalletLoginButtonProps) {
-  const { connected, connecting, walletData, connect, disconnect, refreshWalletData, error } = useSolanaWallet();
+  const { connected, connecting, walletData, connect, disconnect, refreshWalletData, signMessage, error } = useSolanaWallet();
   const [isAuthenticating, setIsAuthenticating] = useState(false);
   const [showWalletOptions, setShowWalletOptions] = useState(false);
   const { toast } = useToast();
@@ -45,10 +45,18 @@ export function WalletLoginButton({ onWalletLogin, className }: WalletLoginButto
     try {
       setIsAuthenticating(true);
 
-      // Wallet connection approval by Phantom IS the authentication proof.
-      // No signMessage required — it causes "not authorized" errors in many environments.
+      // Prove wallet ownership: the server issues a one-time message and the
+      // wallet signs it. A connected address alone is public information and
+      // is not proof of anything.
+      const nonceRes = await apiRequest('POST', '/api/wallet/auth-nonce', { walletAddress: walletData.address });
+      const { message } = await nonceRes.json();
+      if (!message) throw new Error('Could not start wallet sign-in');
+      const signature = await signMessage(message);
+      if (!signature) throw new Error('Approve the sign-in message in your wallet to log in.');
+
       const response = await apiRequest('POST', '/api/wallet/authenticate', {
         walletAddress: walletData.address,
+        signature,
         veddBalance: walletData.veddBalance,
         isAmbassador: walletData.isAmbassador,
         ambassadorNftMint: walletData.ambassadorNftMint,
