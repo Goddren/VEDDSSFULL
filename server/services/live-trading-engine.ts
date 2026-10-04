@@ -5444,7 +5444,11 @@ async function processDecision(userId: number, decision: any, newsCtx?: any): Pr
                 const _dxcs = await getConsistencyStatus(dc.id, 'dxtrade', dc.consistency_threshold_pct, true);
                 if (_dxcs.hardBlocked) { addActivity(userId, { type: 'info', symbol: decision.symbol, message: `⚖️ DXtrade [${acct}]: consistency block — ${_dxcs.guidance}` }); continue; }
                 _dxConsistencyMult = _dxcs.sizeMultiplier;
-              } catch { /* non-fatal */ }
+              } catch (e: any) {
+                // Fail closed — an unreadable rule is not a passed rule.
+                addActivity(userId, { type: 'info', symbol: decision.symbol, message: `⚖️ DXtrade [${acct}]: consistency check errored — account skipped (${e?.message ?? 'unknown'})` });
+                continue;
+              }
             }
             // Risk-% sizing off this account's own balance + stop distance.
             let qty = 0; let sizeLabel = '';
@@ -5741,7 +5745,11 @@ async function processDecision(userId: number, decision: any, newsCtx?: any): Pr
                 return { tlConn, tradeResult: { success: false, error: 'consistency hard-block' }, acctLot: 0, acctSizeLabel: '', consistencyBlocked: true };
               }
               _consistencyMult = _cs.sizeMultiplier;
-            } catch { /* non-fatal — consistency ledger unavailable, size normally */ }
+            } catch (e: any) {
+              // Fail closed — an unreadable rule is not a passed rule.
+              addActivity(userId, { type: 'info', symbol: decision.symbol, message: `⚖️ ${tlConn.accountId || 'TL#' + tlConn.id}: consistency check errored — account skipped (${e?.message ?? 'unknown'})` });
+              return { tlConn, tradeResult: { success: false, error: 'consistency check errored' }, acctLot: 0, acctSizeLabel: '', consistencyBlocked: true };
+            }
           }
 
           let acctLot: number;

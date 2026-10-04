@@ -11599,7 +11599,14 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
           console.error('[AI Vision Confirmation] Error:', confirmError);
           _cdiag.stage = 'ai_error';
           _cdiag.err = confirmError instanceof Error ? confirmError.message : String(confirmError);
-          analysis.alerts.push('AI Second Opinion unavailable - proceeding with EA analysis only');
+          // FAIL CLOSED. This used to keep the EA signal and plan, and the
+          // TradeLocker fan-out doesn't check aiConfirmation — so any throw in
+          // this block (not just the AI call) sent an unconfirmed order to every
+          // account. Errors the AI call RETURNS are already blocked via
+          // _aiErrored; a THROWN error now gets the same treatment.
+          analysis.alerts.push('AI Second Opinion unavailable — trade blocked (no unconfirmed orders)');
+          analysis.signal = 'NEUTRAL';
+          analysis.tradePlan = null;
           const { addAiConfirmationLog, getUserModelPreference, AVAILABLE_VISION_MODELS } = await import('./openai');
           const errModelId = getUserModelPreference(token.userId);
           const errModelInfo = AVAILABLE_VISION_MODELS.find((m: any) => m.id === errModelId);
@@ -11609,7 +11616,7 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
             proposedSignal: preConfirmSignal, proposedConfidence: preConfirmConfidence,
             proposedEntry: preConfirmEntry, proposedSL: preConfirmSL, proposedTP: preConfirmTP,
             aiDecision: 'ERROR', aiDirection: 'NEUTRAL', aiConfidence: 0,
-            reasoning: `AI confirmation error: ${confirmError instanceof Error ? confirmError.message : 'Unknown error'} - trade proceeding with EA analysis`,
+            reasoning: `AI confirmation error: ${confirmError instanceof Error ? confirmError.message : 'Unknown error'} - trade blocked`,
             modelUsed: errModelInfo?.name || errModelId,
             ...logExtraContext,
           });
@@ -11617,7 +11624,7 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
             confirmed: false,
             aiDirection: 'NEUTRAL',
             aiConfidence: 0,
-            reasoning: 'AI unavailable - using EA analysis only',
+            reasoning: 'AI unavailable - trade blocked',
           };
         }
         void _writeCdiagTracked();
@@ -12674,7 +12681,10 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
                       console.log(`[Consistency TAPER] ${tlConn.accountId}: ${_preTaper} → ${connLot} lots (${Math.round(_consistency.sizeMultiplier * 100)}% — ${_consistency.guidance})`);
                     }
                   } catch (consErr: any) {
-                    console.error(`[Consistency] Check failed for ${tlConn.accountId} (non-fatal, trade proceeds):`, consErr?.message);
+                    // Fail closed, like every other per-account check in this loop.
+                    console.error(`[Consistency] Check failed for ${tlConn.accountId} — account SKIPPED:`, consErr?.message);
+                    _markTlSkip(String(tlConn.accountId), `[Consistency] check errored — account skipped: ${consErr?.message ?? 'unknown'}`);
+                    continue;
                   }
                 }
 

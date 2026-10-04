@@ -19170,6 +19170,31 @@ var init_tradelocker = __esm({
           let response = null;
           let responseText = "";
           let lastError = null;
+          let preIds = null;
+          if (order.type === "market") {
+            try {
+              preIds = new Set((await this.getPositionsNormalized()).map((p) => p.id));
+            } catch {
+              preIds = null;
+            }
+          }
+          const symKey = order.symbol.toUpperCase().replace(/[^A-Z0-9]/g, "");
+          const resolveAmbiguous = async (why) => {
+            if (preIds) {
+              try {
+                const now = await this.getPositionsNormalized();
+                const landed = now.find((p) => !preIds.has(p.id) && p.side === order.side && (p.symbol.toUpperCase().replace(/[^A-Z0-9]/g, "").startsWith(symKey) || p.symbol === String(tradableInstrumentId)));
+                if (landed) {
+                  console.warn(`[TradeLocker] ${why} \u2014 but a new ${order.symbol} ${order.side} position ${landed.id} appeared, so the order DID fill. Not resending.`);
+                  return { orderId: landed.id, status: "submitted", filledQuantity: landed.qty, filledPrice: landed.avgPrice, message: `Order filled (confirmed from positions after ${why}; id is the position id)` };
+                }
+                return null;
+              } catch {
+              }
+            }
+            console.error(`[TradeLocker] ${why} \u2014 could not verify whether ${order.symbol} filled. NOT retrying, to avoid a duplicate position. Check the account.`);
+            return { orderId: "", status: "rejected", message: `Outcome unknown after ${why} \u2014 not retried to avoid a duplicate order. Check the account for an open ${order.symbol} position.` };
+          };
           for (let attempt = 0; attempt <= RETRY_DELAYS.length; attempt++) {
             try {
               response = await fetch(`${this.baseUrl}/trade/accounts/${this.accountId}/orders`, {
@@ -19204,6 +19229,10 @@ var init_tradelocker = __esm({
               if (RETRYABLE_STATUSES.has(response.status) && attempt < RETRY_DELAYS.length) {
                 console.log(`[TradeLocker] Retryable status ${response.status} \u2014 waiting ${RETRY_DELAYS[attempt]}ms before retry ${attempt + 2}...`);
                 await new Promise((r) => setTimeout(r, RETRY_DELAYS[attempt]));
+                if (response.status !== 429) {
+                  const settled = await resolveAmbiguous(`HTTP ${response.status}`);
+                  if (settled) return settled;
+                }
                 continue;
               }
               throw new Error(`Order placement failed: ${response.status} - ${responseText}`);
@@ -19212,6 +19241,8 @@ var init_tradelocker = __esm({
               if (attempt < RETRY_DELAYS.length && !responseText) {
                 console.log(`[TradeLocker] Network error on attempt ${attempt + 1}: ${lastError.message} \u2014 retrying in ${RETRY_DELAYS[attempt]}ms...`);
                 await new Promise((r) => setTimeout(r, RETRY_DELAYS[attempt]));
+                const settled = await resolveAmbiguous(`network error (${lastError.message})`);
+                if (settled) return settled;
                 continue;
               }
               throw lastError;
@@ -19939,7 +19970,20 @@ async function getConsistencyStatus(connectionId, connectionType, thresholdPct, 
     );
     rows = r;
   } catch (err) {
-    console.error("[Consistency] Failed to read daily P&L (defaulting to safe/no-data):", err?.message ?? err);
+    console.error("[Consistency] Failed to read daily P&L \u2014 BLOCKING new trades on this account until it can be read:", err?.message ?? err);
+    return {
+      connectionId,
+      connectionType,
+      enabled: true,
+      thresholdPct: threshold,
+      todayPnl: 0,
+      totalPositivePnl: 0,
+      ratioPct: 0,
+      status: "breached",
+      sizeMultiplier: 0,
+      hardBlocked: true,
+      guidance: `Couldn't read this account's daily P&L ledger (${err?.message ?? "database error"}) \u2014 new trades are blocked on this account until it can be read, rather than trading blind on the consistency rule.`
+    };
   }
   let todayPnl = 0;
   let totalPositivePnl = 0;
@@ -28541,7 +28585,9 @@ async function processDecision(userId, decision, newsCtx) {
                   continue;
                 }
                 _dxConsistencyMult = _dxcs.sizeMultiplier;
-              } catch {
+              } catch (e) {
+                addActivity(userId, { type: "info", symbol: decision.symbol, message: `\u2696\uFE0F DXtrade [${acct}]: consistency check errored \u2014 account skipped (${e?.message ?? "unknown"})` });
+                continue;
               }
             }
             let qty = 0;
@@ -28768,7 +28814,9 @@ async function processDecision(userId, decision, newsCtx) {
                 return { tlConn, tradeResult: { success: false, error: "consistency hard-block" }, acctLot: 0, acctSizeLabel: "", consistencyBlocked: true };
               }
               _consistencyMult = _cs.sizeMultiplier;
-            } catch {
+            } catch (e) {
+              addActivity(userId, { type: "info", symbol: decision.symbol, message: `\u2696\uFE0F ${tlConn.accountId || "TL#" + tlConn.id}: consistency check errored \u2014 account skipped (${e?.message ?? "unknown"})` });
+              return { tlConn, tradeResult: { success: false, error: "consistency check errored" }, acctLot: 0, acctSizeLabel: "", consistencyBlocked: true };
             }
           }
           let acctLot;
@@ -57435,9 +57483,9 @@ async function getStopOrdersForUser(userId, filters = {}) {
 init_schema();
 
 // server/build-info.ts
-var BUILD_COMMIT = "6abf1396-dirty";
+var BUILD_COMMIT = "d0dca1de-dirty";
 var BUILD_BRANCH = "main";
-var BUILT_AT = "2026-10-04T13:20:05.478Z";
+var BUILT_AT = "2026-10-04T15:49:36.800Z";
 
 // server/stripe.ts
 init_db();
@@ -70354,7 +70402,9 @@ BEAR CASE: ${_bearCase || "n/a"}` : aiConfirmation.reasoning;
           console.error("[AI Vision Confirmation] Error:", confirmError);
           _cdiag.stage = "ai_error";
           _cdiag.err = confirmError instanceof Error ? confirmError.message : String(confirmError);
-          analysis.alerts.push("AI Second Opinion unavailable - proceeding with EA analysis only");
+          analysis.alerts.push("AI Second Opinion unavailable \u2014 trade blocked (no unconfirmed orders)");
+          analysis.signal = "NEUTRAL";
+          analysis.tradePlan = null;
           const { addAiConfirmationLog: addAiConfirmationLog2, getUserModelPreference: getUserModelPreference2, AVAILABLE_VISION_MODELS: AVAILABLE_VISION_MODELS2 } = await Promise.resolve().then(() => (init_openai(), openai_exports));
           const errModelId = getUserModelPreference2(token.userId);
           const errModelInfo = AVAILABLE_VISION_MODELS2.find((m) => m.id === errModelId);
@@ -70370,7 +70420,7 @@ BEAR CASE: ${_bearCase || "n/a"}` : aiConfirmation.reasoning;
             aiDecision: "ERROR",
             aiDirection: "NEUTRAL",
             aiConfidence: 0,
-            reasoning: `AI confirmation error: ${confirmError instanceof Error ? confirmError.message : "Unknown error"} - trade proceeding with EA analysis`,
+            reasoning: `AI confirmation error: ${confirmError instanceof Error ? confirmError.message : "Unknown error"} - trade blocked`,
             modelUsed: errModelInfo?.name || errModelId,
             ...logExtraContext
           });
@@ -70378,7 +70428,7 @@ BEAR CASE: ${_bearCase || "n/a"}` : aiConfirmation.reasoning;
             confirmed: false,
             aiDirection: "NEUTRAL",
             aiConfidence: 0,
-            reasoning: "AI unavailable - using EA analysis only"
+            reasoning: "AI unavailable - trade blocked"
           };
         }
         void _writeCdiagTracked();
@@ -71131,7 +71181,9 @@ BEAR CASE: ${_bearCase || "n/a"}` : aiConfirmation.reasoning;
                         console.log(`[Consistency TAPER] ${tlConn.accountId}: ${_preTaper} \u2192 ${connLot} lots (${Math.round(_consistency.sizeMultiplier * 100)}% \u2014 ${_consistency.guidance})`);
                       }
                     } catch (consErr) {
-                      console.error(`[Consistency] Check failed for ${tlConn.accountId} (non-fatal, trade proceeds):`, consErr?.message);
+                      console.error(`[Consistency] Check failed for ${tlConn.accountId} \u2014 account SKIPPED:`, consErr?.message);
+                      _markTlSkip(String(tlConn.accountId), `[Consistency] check errored \u2014 account skipped: ${consErr?.message ?? "unknown"}`);
+                      continue;
                     }
                   }
                   console.log(`[MT5 Chart Data AutoTrade] Executing on account ${tlConn.accountId} [${_connGateMode} mode]:`, {

@@ -989,6 +989,36 @@ export class TradeLockerService {
       let responseText = '';
       let lastError: Error | null = null;
 
+      // ── Duplicate-order guard ────────────────────────────────────────────
+      // A 5xx or a dropped connection does NOT mean the order was refused: the
+      // broker may have filled it and only the reply was lost. Blindly resending
+      // the same payload (there is no client order id to dedupe on) would open a
+      // SECOND live position. So: snapshot the open positions now, and on an
+      // ambiguous failure look for a new position before deciding anything.
+      // 429 and 401 are rejected before execution and stay safe to retry.
+      let preIds: Set<string> | null = null;
+      if (order.type === 'market') {
+        try { preIds = new Set((await this.getPositionsNormalized()).map(p => p.id)); } catch { preIds = null; }
+      }
+      const symKey = order.symbol.toUpperCase().replace(/[^A-Z0-9]/g, '');
+      const resolveAmbiguous = async (why: string): Promise<any> => {
+        if (preIds) {
+          try {
+            const now = await this.getPositionsNormalized();
+            const landed = now.find(p => !preIds!.has(p.id)
+              && p.side === order.side
+              && (p.symbol.toUpperCase().replace(/[^A-Z0-9]/g, '').startsWith(symKey) || p.symbol === String(tradableInstrumentId)));
+            if (landed) {
+              console.warn(`[TradeLocker] ${why} — but a new ${order.symbol} ${order.side} position ${landed.id} appeared, so the order DID fill. Not resending.`);
+              return { orderId: landed.id, status: 'submitted', filledQuantity: landed.qty, filledPrice: landed.avgPrice, message: `Order filled (confirmed from positions after ${why}; id is the position id)` };
+            }
+            return null; // verified: nothing landed, a retry is safe
+          } catch { /* fall through to "unknown" */ }
+        }
+        console.error(`[TradeLocker] ${why} — could not verify whether ${order.symbol} filled. NOT retrying, to avoid a duplicate position. Check the account.`);
+        return { orderId: '', status: 'rejected', message: `Outcome unknown after ${why} — not retried to avoid a duplicate order. Check the account for an open ${order.symbol} position.` };
+      };
+
       for (let attempt = 0; attempt <= RETRY_DELAYS.length; attempt++) {
         try {
           response = await fetch(`${this.baseUrl}/trade/accounts/${this.accountId}/orders`, {
@@ -1027,6 +1057,10 @@ export class TradeLockerService {
           if (RETRYABLE_STATUSES.has(response.status) && attempt < RETRY_DELAYS.length) {
             console.log(`[TradeLocker] Retryable status ${response.status} — waiting ${RETRY_DELAYS[attempt]}ms before retry ${attempt + 2}...`);
             await new Promise(r => setTimeout(r, RETRY_DELAYS[attempt]));
+            if (response.status !== 429) {
+              const settled = await resolveAmbiguous(`HTTP ${response.status}`);
+              if (settled) return settled;
+            }
             continue;
           }
 
@@ -1036,6 +1070,8 @@ export class TradeLockerService {
           if (attempt < RETRY_DELAYS.length && !responseText) {
             console.log(`[TradeLocker] Network error on attempt ${attempt + 1}: ${lastError.message} — retrying in ${RETRY_DELAYS[attempt]}ms...`);
             await new Promise(r => setTimeout(r, RETRY_DELAYS[attempt]));
+            const settled = await resolveAmbiguous(`network error (${lastError.message})`);
+            if (settled) return settled;
             continue;
           }
           throw lastError;

@@ -326,7 +326,17 @@ export async function getConsistencyStatus(
     );
     rows = r;
   } catch (err: any) {
-    console.error('[Consistency] Failed to read daily P&L (defaulting to safe/no-data):', err?.message ?? err);
+    // FAIL CLOSED. This used to carry on with no rows, which reads as ratio 0 →
+    // 'safe' → full size: a DB hiccup on a day that had already hit the cap let
+    // a funded account keep trading. Every trading caller already skips the
+    // account on hardBlocked, so a read failure now blocks new trades on it.
+    console.error('[Consistency] Failed to read daily P&L — BLOCKING new trades on this account until it can be read:', err?.message ?? err);
+    return {
+      connectionId, connectionType, enabled: true, thresholdPct: threshold,
+      todayPnl: 0, totalPositivePnl: 0, ratioPct: 0,
+      status: 'breached', sizeMultiplier: 0, hardBlocked: true,
+      guidance: `Couldn't read this account's daily P&L ledger (${err?.message ?? 'database error'}) — new trades are blocked on this account until it can be read, rather than trading blind on the consistency rule.`,
+    };
   }
 
   let todayPnl = 0;
