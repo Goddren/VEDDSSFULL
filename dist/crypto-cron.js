@@ -10724,7 +10724,7 @@ function collapseToSignals(fills) {
     const wins = rows.filter((r) => r.result === "WIN").length;
     const losses = rows.filter((r) => r.result === "LOSS").length;
     const sum = rows.reduce((s, r) => s + (Number(r.pnl) || 0), 0);
-    const result = wins > losses ? "WIN" : losses > wins ? "LOSS" : sum > 0 ? "WIN" : "LOSS";
+    const result = wins > losses ? "WIN" : losses > wins ? "LOSS" : wins === 0 ? "BREAKEVEN" : sum > 0 ? "WIN" : sum < 0 ? "LOSS" : "BREAKEVEN";
     return { ...rows[0], result, pnl: sum / rows.length, fills: rows.length };
   });
 }

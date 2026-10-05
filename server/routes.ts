@@ -12471,6 +12471,7 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
 
             if (hasOpenPosition) {
               console.log(`[MT5 Chart Data AutoTrade] Skipping trade - existing open position on ${sanitizedSymbol}`);
+              _markTlSkip('fan-out', `EXISTING POSITION: trade log shows an open ${sanitizedSymbol} position (last 24h)`);
               (global as any).recentTrades[recentTradeKey] = _prevCooldown; // no new trade — don't lock the symbol
             } else {
               // tradeVolume is computed below after volatile-pair cap check
@@ -12502,6 +12503,7 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
               });
               if (!analysisGuard.allow) {
                 console.log(`[MT5 Chart Data AutoTrade Guard] BLOCKED: ${analysisGuard.reason}`);
+                _markTlSkip('fan-out', `SIGNAL GUARD: ${analysisGuard.reason}`);
                 tradelockerResult = null;
                 (global as any).recentTrades[recentTradeKey] = _prevCooldown; // blocked — no trade opened, don't lock the symbol
               } else {
@@ -12576,6 +12578,7 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
               // brain's pair-knowledge stats and the win-rate/session gates that
               // key off that table, despite money having actually moved.
               let _confirmationOutcomeRecorded = false;
+              let _tlOpenedCount = 0; // how many accounts actually opened this signal
               for (const tlConn of tlActiveConns) {
                 // Per-connection gate mode check — 'full' applies strict gates, 'basic' copies like MT5
                 const _connGateMode = (tlConn as any).gateMode ?? 'basic';
@@ -12878,6 +12881,7 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
 
                 // Update connection stats per connection
                 if (connResult.success) {
+                  _tlOpenedCount++;
                   await storage.updateTradelockerConnection(tlConn.id, {
                     tradeCount: tlConn.tradeCount + 1,
                     lastConnectedAt: new Date(),
@@ -12926,11 +12930,19 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
                 tradelockerResult = { success: false, error: err instanceof Error ? err.message : 'Unknown error' };
               }
               } // end for (const tlConn of tlActiveConns)
+              // Nothing opened on any account (every account refused / failed) → hand the
+              // cooldown back. It was set before the loop to stop concurrent duplicates;
+              // keeping it after a non-trade locked the symbol for 30 min and silently
+              // dropped every later approved signal (54 on 2026-10-05 02:16–02:44 UTC).
+              if (_tlOpenedCount === 0) {
+                (global as any).recentTrades[recentTradeKey] = _prevCooldown;
+              }
               } // end else (analysisGuard.allow)
             }
           } else {
             const cooldownRemaining = Math.round((BASE_COOLDOWN_MS - (now - lastTradeTime)) / 1000);
             console.log(`[MT5 Chart Data AutoTrade] Skipping trade - cooldown active (${cooldownRemaining}s remaining)`);
+            _markTlSkip('fan-out', `COOLDOWN: ${sanitizedSymbol} traded <30 min ago (${cooldownRemaining}s left)`);
           }
         }
       }
@@ -18357,8 +18369,19 @@ Format each recommendation as a clear, concise action item.`;
     ];
 
     const pairKnowledge: Record<string, any> = {};
+    // ONE SIGNAL = ONE TRADE. A signal fans out to every active account, so
+    // one setup closed as 3–5 rows here and counted 3–5× toward the session /
+    // hour / direction win rates and loss streaks that Gate 2e blocks on (e.g.
+    // "USDJPY Asian session 43% WR"). Same grouping as the FX brain and the
+    // hour filter (utils/signal-groups.ts): fills of the same pair+direction
+    // closing within the window collapse into one, majority result, avg P&L.
+    const { collapseToSignals: _collapse } = await import('./utils/signal-groups');
     for (const sym of uniqueSymbols) {
-      const symTrades = combinedTrades.filter(t => t.symbol === sym);
+      const symTrades = _collapse(
+        combinedTrades
+          .filter(t => t.symbol === sym && (t.result === 'WIN' || t.result === 'LOSS' || t.result === 'BREAKEVEN'))
+          .map(t => ({ ...t, pnl: Number(t.profit) || 0, entryMs: Number(t.closedTs || t.timestamp) || 0 })),
+      ).map((g: any) => ({ ...g, profit: g.pnl }));
       const _lossStreak = computeLossStreak(symTrades);
       const wins = symTrades.filter(t => t.result === 'WIN');
       const losses = symTrades.filter(t => t.result === 'LOSS');

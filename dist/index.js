@@ -8272,7 +8272,7 @@ function collapseToSignals(fills) {
     const wins = rows.filter((r) => r.result === "WIN").length;
     const losses = rows.filter((r) => r.result === "LOSS").length;
     const sum = rows.reduce((s, r) => s + (Number(r.pnl) || 0), 0);
-    const result = wins > losses ? "WIN" : losses > wins ? "LOSS" : sum > 0 ? "WIN" : "LOSS";
+    const result = wins > losses ? "WIN" : losses > wins ? "LOSS" : wins === 0 ? "BREAKEVEN" : sum > 0 ? "WIN" : sum < 0 ? "LOSS" : "BREAKEVEN";
     return { ...rows[0], result, pnl: sum / rows.length, fills: rows.length };
   });
 }
@@ -57879,9 +57879,9 @@ async function getStopOrdersForUser(userId, filters = {}) {
 init_schema();
 
 // server/build-info.ts
-var BUILD_COMMIT = "f42204ef-dirty";
+var BUILD_COMMIT = "17e8f792-dirty";
 var BUILD_BRANCH = "main";
-var BUILT_AT = "2026-10-05T01:37:51.067Z";
+var BUILT_AT = "2026-10-05T18:34:33.226Z";
 
 // server/stripe.ts
 init_db();
@@ -71428,6 +71428,7 @@ BEAR CASE: ${_bearCase || "n/a"}` : aiConfirmation.reasoning;
             const hasOpenPosition = openCount - closeCount > 0;
             if (hasOpenPosition) {
               console.log(`[MT5 Chart Data AutoTrade] Skipping trade - existing open position on ${sanitizedSymbol}`);
+              _markTlSkip("fan-out", `EXISTING POSITION: trade log shows an open ${sanitizedSymbol} position (last 24h)`);
               global.recentTrades[recentTradeKey] = _prevCooldown;
             } else {
               const { lookupPairKnowledge: _lookupPK } = await Promise.resolve().then(() => (init_pair_key(), pair_key_exports));
@@ -71450,6 +71451,7 @@ BEAR CASE: ${_bearCase || "n/a"}` : aiConfirmation.reasoning;
               });
               if (!analysisGuard.allow) {
                 console.log(`[MT5 Chart Data AutoTrade Guard] BLOCKED: ${analysisGuard.reason}`);
+                _markTlSkip("fan-out", `SIGNAL GUARD: ${analysisGuard.reason}`);
                 tradelockerResult = null;
                 global.recentTrades[recentTradeKey] = _prevCooldown;
               } else {
@@ -71492,6 +71494,7 @@ BEAR CASE: ${_bearCase || "n/a"}` : aiConfirmation.reasoning;
                 })();
                 const _eaCopyMode = _liveState?.config?.copyMode ?? "proportional";
                 let _confirmationOutcomeRecorded = false;
+                let _tlOpenedCount = 0;
                 for (const tlConn of tlActiveConns) {
                   const _connGateMode = tlConn.gateMode ?? "basic";
                   if (_connGateMode === "full") {
@@ -71717,6 +71720,7 @@ BEAR CASE: ${_bearCase || "n/a"}` : aiConfirmation.reasoning;
                       errorMessage: connResult.error || null
                     });
                     if (connResult.success) {
+                      _tlOpenedCount++;
                       await storage.updateTradelockerConnection(tlConn.id, {
                         tradeCount: tlConn.tradeCount + 1,
                         lastConnectedAt: /* @__PURE__ */ new Date(),
@@ -71764,11 +71768,15 @@ BEAR CASE: ${_bearCase || "n/a"}` : aiConfirmation.reasoning;
                     tradelockerResult = { success: false, error: err instanceof Error ? err.message : "Unknown error" };
                   }
                 }
+                if (_tlOpenedCount === 0) {
+                  global.recentTrades[recentTradeKey] = _prevCooldown;
+                }
               }
             }
           } else {
             const cooldownRemaining = Math.round((BASE_COOLDOWN_MS - (now - lastTradeTime)) / 1e3);
             console.log(`[MT5 Chart Data AutoTrade] Skipping trade - cooldown active (${cooldownRemaining}s remaining)`);
+            _markTlSkip("fan-out", `COOLDOWN: ${sanitizedSymbol} traded <30 min ago (${cooldownRemaining}s left)`);
           }
         }
       }
@@ -76420,8 +76428,11 @@ Format each recommendation as a clear, concise action item.`;
       { name: "Late", start: 20, end: 24 }
     ];
     const pairKnowledge = {};
+    const { collapseToSignals: _collapse } = await Promise.resolve().then(() => (init_signal_groups(), signal_groups_exports));
     for (const sym of uniqueSymbols) {
-      const symTrades = combinedTrades.filter((t) => t.symbol === sym);
+      const symTrades = _collapse(
+        combinedTrades.filter((t) => t.symbol === sym && (t.result === "WIN" || t.result === "LOSS" || t.result === "BREAKEVEN")).map((t) => ({ ...t, pnl: Number(t.profit) || 0, entryMs: Number(t.closedTs || t.timestamp) || 0 }))
+      ).map((g) => ({ ...g, profit: g.pnl }));
       const _lossStreak = computeLossStreak(symTrades);
       const wins = symTrades.filter((t) => t.result === "WIN");
       const losses = symTrades.filter((t) => t.result === "LOSS");
