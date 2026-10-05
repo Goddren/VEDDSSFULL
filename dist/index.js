@@ -30762,6 +30762,18 @@ async function syncTradeLockerTrades(userId, conn, svc) {
       const lookbackDays = isDeepPass ? 90 : 14;
       const fromTs = Math.floor((Date.now() - lookbackDays * 24 * 3600 * 1e3) / 1e3);
       const closedTrades = await svc.getClosedTradesWithPnl(fromTs).catch(() => []);
+      let brainTickets = null;
+      try {
+        const { pool: _bp } = await Promise.resolve().then(() => (init_db(), db_exports));
+        const { rows: _bt } = await _bp.query(
+          `SELECT ticket FROM fx_brain_outcomes WHERE user_id = $1 AND ticket IS NOT NULL AND closed_at > now() - ($2 || ' days')::interval`,
+          [userId, String(lookbackDays + 1)]
+        );
+        brainTickets = new Set(_bt.map((r) => String(r.ticket)));
+      } catch {
+        brainTickets = null;
+      }
+      let _netBudget = 10;
       for (const o of closedTrades) {
         const rawProfit = o.profit ?? o.pnl ?? o.realizedPnl ?? o.realizedPnL ?? o.grossProfit ?? null;
         const p = typeof rawProfit === "number" ? rawProfit : parseFloat(rawProfit || "");
@@ -30803,7 +30815,21 @@ async function syncTradeLockerTrades(userId, conn, svc) {
                 reconResult,
                 p
               );
+              brainTickets?.add(tk);
             }
+          }
+          const _recent = o.closeTime && Date.now() - new Date(o.closeTime).getTime() < 3 * 864e5;
+          if (brainTickets && _netBudget > 0 && _recent && !brainTickets.has(tk) && (existing.result === "WIN" || existing.result === "LOSS")) {
+            _netBudget--;
+            await _recordFxBrainOutcome(
+              userId,
+              conn,
+              existing,
+              { closeTime: o.closeTime, closePrice: o.closePrice, openPrice: o.openPrice },
+              existing.result,
+              p
+            );
+            brainTickets.add(tk);
           }
           continue;
         }
@@ -30838,6 +30864,7 @@ async function syncTradeLockerTrades(userId, conn, svc) {
           reconResult,
           p
         );
+        brainTickets?.add(tk);
       }
     } catch (err) {
       console.error(`[TL-sync] Outcome reconciliation failed for ${conn.accountId} (non-fatal):`, err?.message);
@@ -57852,9 +57879,9 @@ async function getStopOrdersForUser(userId, filters = {}) {
 init_schema();
 
 // server/build-info.ts
-var BUILD_COMMIT = "c5dc1f41-dirty";
+var BUILD_COMMIT = "df283699-dirty";
 var BUILD_BRANCH = "main";
-var BUILT_AT = "2026-10-05T00:50:12.706Z";
+var BUILT_AT = "2026-10-05T01:18:37.514Z";
 
 // server/stripe.ts
 init_db();

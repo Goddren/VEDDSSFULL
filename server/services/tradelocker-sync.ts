@@ -587,6 +587,23 @@ async function syncTradeLockerTrades(userId: number, conn: any, svc: any): Promi
       const lookbackDays = isDeepPass ? 90 : 14;
       const fromTs = Math.floor((Date.now() - lookbackDays * 24 * 3600 * 1000) / 1000);
       const closedTrades = await svc.getClosedTradesWithPnl(fromTs).catch(() => [] as any[]);
+      // Brain safety net. Several paths resolve a PENDING row to WIN/LOSS, and
+      // not all of them feed fx_brain_outcomes (e.g. the closed-orders sync in
+      // routes.ts). Once a row is resolved, the branch below skipped it as "done",
+      // so the brain never saw it: 2026-10-04's four XAUUSD positions closed ~10s
+      // after opening never reached the brain ("1/5 closes recorded"). Any closed
+      // trade without a brain row is recorded here, whichever path resolved it.
+      // The insert is idempotent on (user_id, ticket).
+      let brainTickets: Set<string> | null = null;
+      try {
+        const { pool: _bp } = await import('../db');
+        const { rows: _bt } = await _bp.query(
+          `SELECT ticket FROM fx_brain_outcomes WHERE user_id = $1 AND ticket IS NOT NULL AND closed_at > now() - ($2 || ' days')::interval`,
+          [userId, String(lookbackDays + 1)]
+        );
+        brainTickets = new Set(_bt.map((r: any) => String(r.ticket)));
+      } catch { brainTickets = null; /* can't tell what's missing — skip the net this pass */ }
+      let _netBudget = 10;
       for (const o of closedTrades) {
         const rawProfit = o.profit ?? o.pnl ?? o.realizedPnl ?? o.realizedPnL ?? o.grossProfit ?? null;
         const p = typeof rawProfit === 'number' ? rawProfit : parseFloat(rawProfit || '');
@@ -633,7 +650,19 @@ async function syncTradeLockerTrades(userId: number, conn: any, svc: any): Promi
               await _invalidateDailyStop(userId);
               await _recordFxBrainOutcome(userId, conn, existing,
                 { closeTime: o.closeTime, closePrice: o.closePrice, openPrice: o.openPrice }, reconResult, p);
+              brainTickets?.add(tk);
             }
+          }
+          // Resolved elsewhere but never learned from → record it now. Bounded:
+          // recent closes only, and a few per pass — each record fetches broker
+          // candles, and the daily 90-day pass must not turn into a history-wide
+          // backfill that trips TradeLocker's rate limit.
+          const _recent = o.closeTime && Date.now() - new Date(o.closeTime).getTime() < 3 * 86400_000;
+          if (brainTickets && _netBudget > 0 && _recent && !brainTickets.has(tk) && (existing.result === 'WIN' || existing.result === 'LOSS')) {
+            _netBudget--;
+            await _recordFxBrainOutcome(userId, conn, existing,
+              { closeTime: o.closeTime, closePrice: o.closePrice, openPrice: o.openPrice }, existing.result, p);
+            brainTickets.add(tk);
           }
           continue;
         }
@@ -666,6 +695,7 @@ async function syncTradeLockerTrades(userId: number, conn: any, svc: any): Promi
         await _recordFxBrainOutcome(userId, conn,
           { symbol: reconSymbol, direction: reconDirection, entryPrice: o.openPrice, mt5Ticket: tk },
           { closeTime: o.closeTime, closePrice: o.closePrice, openPrice: o.openPrice }, reconResult, p);
+        brainTickets?.add(tk);
       }
     } catch (err: any) {
       console.error(`[TL-sync] Outcome reconciliation failed for ${conn.accountId} (non-fatal):`, err?.message);
