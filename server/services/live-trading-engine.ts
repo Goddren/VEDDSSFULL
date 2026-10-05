@@ -1883,6 +1883,7 @@ async function scanMarkets(userId: number): Promise<void> {
 
     (state as any)._lastMarketAnalysis = marketAnalysis; // reused by the fast position monitor
     const currentOpenPositions = await getMergedOpenPositions(userId, marketAnalysis);
+    await manageXauProfitLock(userId, currentOpenPositions).catch((e: any) => console.error('[XAU lock] scan pass failed (non-fatal):', e?.message));
     await applyServerSideTrails(userId, currentOpenPositions, marketAnalysis);
 
     // NOTE: Composite Autonomous (Markov × Polymarket) trading has been moved to
@@ -2338,6 +2339,63 @@ async function getMergedOpenPositions(userId: number, marketAnalysis?: Record<st
   return [...mt5Positions, ...tlPositions, ...dxPositions];
 }
 
+// ── XAUUSD profit lock (services/xau-rules.ts) ──────────────────────────────
+// Gold tends to run 40–110 points in a trade's favour and then reverse all the
+// way to the stop. At +40 the stop moves to +20, then trails 20 behind the best
+// price. Stop-only (MODIFY) — the take-profit is left in place, and the stop
+// only ever tightens. Runs independently of the user's trailing settings.
+const xauPeakPts = new Map<string, number>();   // ticket → best favourable move (points)
+const xauLockedPts = new Map<string, number>(); // ticket → stop already set (points in favour)
+
+async function manageXauProfitLock(userId: number, openPositions: any[]): Promise<void> {
+  const rules = await import('./xau-rules');
+  if (!rules.XAU_LOCK_ON()) return;
+  const live = new Set<string>();
+  let tlConns: any[] | null = null;
+  for (const pos of openPositions) {
+    if (pos.source !== 'tl' || !rules.isXau(pos.symbol)) continue;
+    const key = `${userId}:${pos.ticket}`; // per user — the maps are shared by every engine
+    live.add(key);
+    const qty = Number(pos.volume) || 0;
+    const entry = Number(pos.openPrice) || 0;
+    if (!(qty > 0) || !(entry > 0)) continue;
+    // Live favourable move in points, from the broker's own unrealized P&L
+    // (TL's position list carries no live price; the engine's analysis price
+    // is up to a scan old). P&L ÷ (lots × oz/lot) = points.
+    const favPts = (Number(pos.profit) || 0) / (qty * rules.XAU_CONTRACT_SIZE);
+    if (!Number.isFinite(favPts)) continue;
+    const peak = Math.max(xauPeakPts.get(key) ?? 0, favPts);
+    xauPeakPts.set(key, peak);
+    const want = rules.xauLockStopPts(peak);
+    if (want == null) continue;
+    const already = xauLockedPts.get(key) ?? -Infinity;
+    if (want < already + 1) continue;          // only tighten, in ≥1-point steps
+    if (favPts < want + 2) continue;           // never place the stop at/through the current price
+    const m = String(pos.ticket).match(/^tl_(\d+)_(.+)$/);
+    if (!m) continue;
+    if (!tlConns) tlConns = (await storage.getUserTradelockerConnections(userId)).filter((c: any) => c.isActive);
+    const tlConn = tlConns.find((c: any) => c.id === Number(m[1]));
+    if (!tlConn) continue;
+    const isBuy = pos.direction === 'BUY';
+    const newSl = Math.round((isBuy ? entry + want : entry - want) * 100) / 100;
+    try {
+      const r = await executeMT5SignalOnTradeLocker(tlConn, {
+        action: 'MODIFY', symbol: pos.symbol, direction: pos.direction, volume: 0, stopLoss: newSl, positionId: m[2],
+      });
+      if (r.success) {
+        xauLockedPts.set(key, want);
+        addActivity(userId, { type: 'position_update', symbol: pos.symbol, message: `🔒 XAUUSD profit lock on ${tlConn.accountId}: ${pos.direction} +${peak.toFixed(1)} pts peak → stop moved to ${newSl} (+${want.toFixed(1)} pts locked)` });
+      } else {
+        addActivity(userId, { type: 'error', symbol: pos.symbol, message: `⚠️ XAUUSD profit lock failed on ${tlConn.accountId}: ${r.error}` });
+      }
+    } catch (e: any) {
+      addActivity(userId, { type: 'error', symbol: pos.symbol, message: `⚠️ XAUUSD profit lock error on ${tlConn.accountId}: ${e?.message ?? e}` });
+    }
+  }
+  // Forget positions that have closed.
+  for (const k of Array.from(xauPeakPts.keys())) if (k.startsWith(`${userId}:`) && !live.has(k)) { xauPeakPts.delete(k); xauLockedPts.delete(k); }
+}
+
 async function applyServerSideTrails(
   userId: number,
   openPositions: any[],
@@ -2406,7 +2464,14 @@ async function applyServerSideTrails(
       if (_relVol >= 1.3) _revScore++;                                                  // reversal has volume behind it
       if (_diSep >= 12) _revScore++;                                                    // decisive DI cross (well beyond the ≥6 gate)
       const _sensitivity = config.reversalSensitivity ?? 3;
-      if (_against && !_choppy && _revScore >= _sensitivity) {
+      // XAUUSD minimum hold: a gold position's first minutes are dominated by
+      // spread, and closing then just books it (2026-10-04: −$154 in ~10s).
+      const { xauTooYoungToClose } = await import('./xau-rules');
+      const _xauHold = xauTooYoungToClose(pos.symbol, pos.openTime);
+      if (_xauHold && _against && !_choppy && _revScore >= _sensitivity) {
+        addActivity(userId, { type: 'info', symbol: pos.symbol, message: `⏳ Reversal exit held off: ${pos.symbol} opened under the XAUUSD minimum hold — the broker stop still protects it.` });
+      }
+      if (!_xauHold && _against && !_choppy && _revScore >= _sensitivity) {
         const _reason = `Reversal exit: ${pos.symbol} ${pos.direction} — ${_revScore}/5 reversal confluence in a trending market (ADX ${Math.round(_adx)}, DI sep ${Math.round(_diSep)}, need ${_sensitivity})`;
         addActivity(userId, { type: 'trade_close', symbol: pos.symbol, message: `🔄 ${_reason}` });
         if (pos.source !== 'tl') broadcastMT5Signal(userId, {
@@ -2606,7 +2671,10 @@ async function monitorPositions(userId: number): Promise<void> {
     const floating = positions.reduce((s: number, p: any) => s + (Number(p.profit) || 0), 0);
     checkFloatingDrawdown(userId, floating);
     if (!engineStates[userId] || !positionMonitorIntervals[userId]) return; // may have been halted by the breaker
-    if (positions.length) await applyServerSideTrails(userId, positions, lastAnalysis);
+    if (positions.length) {
+      await manageXauProfitLock(userId, positions).catch((e: any) => console.error('[XAU lock] monitor pass failed (non-fatal):', e?.message));
+      await applyServerSideTrails(userId, positions, lastAnalysis);
+    }
   } catch { /* non-fatal — retry next tick */ } finally { _monitorBusy[userId] = false; }
 }
 
@@ -5402,6 +5470,11 @@ async function processDecision(userId: number, decision: any, newsCtx?: any): Pr
         const _v = pairFilterVerdict(_gSym, _gDir);
         if (_v) { addActivity(userId, { type: 'info', symbol: decision.symbol, message: `🚫 ${_v.reason} — skipped (live engine).` }); return; }
       } catch { /* fail open */ }
+      {
+        const { xauEntryBlock } = await import('./xau-rules');
+        const _x = xauEntryBlock(_gSym);
+        if (_x) { addActivity(userId, { type: 'info', symbol: decision.symbol, message: `⏳ ${_x} — skipped (live engine).` }); return; }
+      }
       try {
         const { hourFilterVerdict } = await import('../services/hour-filter');
         const _v = await hourFilterVerdict(userId, new Date().getUTCHours());
@@ -6111,6 +6184,13 @@ async function processDecision(userId: number, decision: any, newsCtx?: any): Pr
             }
 
             if (signalAction === 'CLOSE') {
+              // XAUUSD minimum hold (services/xau-rules.ts): don't let an AI
+              // management close book the opening spread on a fresh gold fill.
+              const { xauTooYoungToClose } = await import('./xau-rules');
+              if (xauTooYoungToClose(decision.symbol, tlMatch.openDate)) {
+                addActivity(userId, { type: 'info', symbol: decision.symbol, message: `⏳ AI close held off on ${acctLabel}: ${decision.symbol} is inside the XAUUSD minimum hold — the broker stop still protects it.` });
+                return;
+              }
               const tradeResult = await executeMT5SignalOnTradeLocker(tlConn, {
                 action: 'CLOSE',
                 symbol: decision.symbol,

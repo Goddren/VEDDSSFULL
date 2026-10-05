@@ -8196,6 +8196,11 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
         // open USDJPY in New York (16.7% WR over 24 trades / 16 days) and in
         // hours the account loses money in. Both fail open.
         if (!relayBlocked) {
+          const { xauEntryBlock } = await import('./services/xau-rules');
+          const _rxau = xauEntryBlock(symbol);
+          if (_rxau) { relayBlocked = true; console.log(`[Relay Gate] ${_rxau} — relay blocked`); }
+        }
+        if (!relayBlocked) {
           try {
             const { hourFilterVerdict } = await import('./services/hour-filter');
             const _rhf = await hourFilterVerdict(token.userId, new Date().getUTCHours());
@@ -10435,6 +10440,19 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
       // Placed BEFORE the AI confirmation deliberately: a trade we will not take
       // should not cost a credit to evaluate. Skipped entirely when the signal is
       // already NEUTRAL, and it FAILS OPEN — a stats failure allows the trade.
+      // XAUUSD spread window (daily break + first 30 min after reopen) — see
+      // services/xau-rules.ts. Before the AI call for the same reason.
+      if (analysis.signal !== 'NEUTRAL') {
+        const { xauEntryBlock } = await import('./services/xau-rules');
+        const _xauBlock = xauEntryBlock(sanitizedSymbol);
+        if (_xauBlock) {
+          console.log(`[XAU] BLOCKED ${sanitizedSymbol} ${analysis.signal} — ${_xauBlock}`);
+          _diagCap.neutralReason = `xau_spread_window (${_xauBlock})`;
+          analysis.signal = 'NEUTRAL';
+          analysis.alerts = analysis.alerts || [];
+          analysis.alerts.push(`⏳ ${_xauBlock}.`);
+        }
+      }
       if (analysis.signal !== 'NEUTRAL') {
         try {
           const { hourFilterVerdict } = await import('./services/hour-filter');
@@ -19611,6 +19629,15 @@ Respond with ONLY valid JSON:
           // Same reason as the relay: these only ran on the chart-data chain, so
           // a sniper signal could enter a pair in exactly the session the brain
           // has measured it losing in. Both fail open.
+          {
+            const { xauEntryBlock } = await import('./services/xau-rules');
+            const _aeXau = xauEntryBlock(sig.symbol);
+            if (_aeXau) {
+              console.log(`[VEDD Brain AutoExec] BLOCKED ${sig.symbol} — ${_aeXau}`);
+              executionResults.push({ sigId, symbol: sig.symbol, direction: sig.direction, status: 'skipped', reason: _aeXau });
+              continue;
+            }
+          }
           try {
             const { hourFilterVerdict } = await import('./services/hour-filter');
             const _aeHf = await hourFilterVerdict(userId, new Date().getUTCHours());

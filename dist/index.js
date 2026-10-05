@@ -23547,6 +23547,59 @@ var init_dxtrade = __esm({
   }
 });
 
+// server/services/xau-rules.ts
+var xau_rules_exports = {};
+__export(xau_rules_exports, {
+  XAU_CONTRACT_SIZE: () => XAU_CONTRACT_SIZE,
+  XAU_LOCK_ACTIVATE_PTS: () => XAU_LOCK_ACTIVATE_PTS,
+  XAU_LOCK_AT_PTS: () => XAU_LOCK_AT_PTS,
+  XAU_LOCK_ON: () => XAU_LOCK_ON,
+  XAU_TRAIL_PTS: () => XAU_TRAIL_PTS,
+  isXau: () => isXau,
+  xauEntryBlock: () => xauEntryBlock,
+  xauLockStopPts: () => xauLockStopPts,
+  xauTooYoungToClose: () => xauTooYoungToClose
+});
+function isXau(symbol) {
+  return /^XAU/i.test(String(symbol || "").replace(/[^A-Za-z]/g, ""));
+}
+function xauEntryBlock(symbol, now = /* @__PURE__ */ new Date()) {
+  if (!ENTRY_BLOCK_ON() || !isXau(symbol)) return null;
+  const m = now.getUTCHours() * 60 + now.getUTCMinutes();
+  if (m >= BLOCK_START_MIN && m < BLOCK_END_MIN) {
+    const fmt = (x) => `${String(Math.floor(x / 60)).padStart(2, "0")}:${String(x % 60).padStart(2, "0")}`;
+    return `XAUUSD spread window: no gold entries ${fmt(BLOCK_START_MIN)}\u2013${fmt(BLOCK_END_MIN)} UTC (daily break + reopen, widest spreads)`;
+  }
+  return null;
+}
+function xauTooYoungToClose(symbol, openedAt) {
+  if (!MIN_HOLD_ON() || !isXau(symbol) || openedAt == null || openedAt === "") return false;
+  let ms = typeof openedAt === "number" ? openedAt : new Date(openedAt).getTime();
+  if (!Number.isFinite(ms) || ms <= 0) return false;
+  if (ms < 1e12) ms *= 1e3;
+  return Date.now() - ms < MIN_HOLD_MS;
+}
+function xauLockStopPts(peakFavPts) {
+  if (!XAU_LOCK_ON() || !(peakFavPts >= XAU_LOCK_ACTIVATE_PTS)) return null;
+  return Math.max(XAU_LOCK_AT_PTS, peakFavPts - XAU_TRAIL_PTS);
+}
+var ENTRY_BLOCK_ON, BLOCK_START_MIN, BLOCK_END_MIN, MIN_HOLD_ON, MIN_HOLD_MS, XAU_LOCK_ON, XAU_LOCK_ACTIVATE_PTS, XAU_LOCK_AT_PTS, XAU_TRAIL_PTS, XAU_CONTRACT_SIZE;
+var init_xau_rules = __esm({
+  "server/services/xau-rules.ts"() {
+    "use strict";
+    ENTRY_BLOCK_ON = () => process.env.XAU_OPEN_BLOCK_ENABLED !== "false";
+    BLOCK_START_MIN = Number(process.env.XAU_OPEN_BLOCK_START_MIN_UTC ?? 21 * 60);
+    BLOCK_END_MIN = Number(process.env.XAU_OPEN_BLOCK_END_MIN_UTC ?? 22 * 60 + 30);
+    MIN_HOLD_ON = () => process.env.XAU_MIN_HOLD_ENABLED !== "false";
+    MIN_HOLD_MS = Number(process.env.XAU_MIN_HOLD_MINUTES ?? 10) * 6e4;
+    XAU_LOCK_ON = () => process.env.XAU_PROFIT_LOCK_ENABLED !== "false";
+    XAU_LOCK_ACTIVATE_PTS = Number(process.env.XAU_LOCK_ACTIVATE_PTS ?? 40);
+    XAU_LOCK_AT_PTS = Number(process.env.XAU_LOCK_AT_PTS ?? 20);
+    XAU_TRAIL_PTS = Number(process.env.XAU_TRAIL_PTS ?? 20);
+    XAU_CONTRACT_SIZE = Number(process.env.XAU_CONTRACT_SIZE ?? 100);
+  }
+});
+
 // server/services/orderflow-strategy.ts
 var orderflow_strategy_exports = {};
 __export(orderflow_strategy_exports, {
@@ -25868,6 +25921,7 @@ async function scanMarkets(userId) {
     }
     state._lastMarketAnalysis = marketAnalysis;
     const currentOpenPositions = await getMergedOpenPositions(userId, marketAnalysis);
+    await manageXauProfitLock(userId, currentOpenPositions).catch((e) => console.error("[XAU lock] scan pass failed (non-fatal):", e?.message));
     await applyServerSideTrails(userId, currentOpenPositions, marketAnalysis);
     try {
       await runORBAutonomousScan(userId);
@@ -26173,6 +26227,58 @@ async function getMergedOpenPositions(userId, marketAnalysis) {
   }
   return [...mt5Positions, ...tlPositions, ...dxPositions];
 }
+async function manageXauProfitLock(userId, openPositions) {
+  const rules = await Promise.resolve().then(() => (init_xau_rules(), xau_rules_exports));
+  if (!rules.XAU_LOCK_ON()) return;
+  const live = /* @__PURE__ */ new Set();
+  let tlConns = null;
+  for (const pos of openPositions) {
+    if (pos.source !== "tl" || !rules.isXau(pos.symbol)) continue;
+    const key = `${userId}:${pos.ticket}`;
+    live.add(key);
+    const qty = Number(pos.volume) || 0;
+    const entry = Number(pos.openPrice) || 0;
+    if (!(qty > 0) || !(entry > 0)) continue;
+    const favPts = (Number(pos.profit) || 0) / (qty * rules.XAU_CONTRACT_SIZE);
+    if (!Number.isFinite(favPts)) continue;
+    const peak = Math.max(xauPeakPts.get(key) ?? 0, favPts);
+    xauPeakPts.set(key, peak);
+    const want = rules.xauLockStopPts(peak);
+    if (want == null) continue;
+    const already = xauLockedPts.get(key) ?? -Infinity;
+    if (want < already + 1) continue;
+    if (favPts < want + 2) continue;
+    const m = String(pos.ticket).match(/^tl_(\d+)_(.+)$/);
+    if (!m) continue;
+    if (!tlConns) tlConns = (await storage.getUserTradelockerConnections(userId)).filter((c) => c.isActive);
+    const tlConn = tlConns.find((c) => c.id === Number(m[1]));
+    if (!tlConn) continue;
+    const isBuy = pos.direction === "BUY";
+    const newSl = Math.round((isBuy ? entry + want : entry - want) * 100) / 100;
+    try {
+      const r = await executeMT5SignalOnTradeLocker(tlConn, {
+        action: "MODIFY",
+        symbol: pos.symbol,
+        direction: pos.direction,
+        volume: 0,
+        stopLoss: newSl,
+        positionId: m[2]
+      });
+      if (r.success) {
+        xauLockedPts.set(key, want);
+        addActivity(userId, { type: "position_update", symbol: pos.symbol, message: `\u{1F512} XAUUSD profit lock on ${tlConn.accountId}: ${pos.direction} +${peak.toFixed(1)} pts peak \u2192 stop moved to ${newSl} (+${want.toFixed(1)} pts locked)` });
+      } else {
+        addActivity(userId, { type: "error", symbol: pos.symbol, message: `\u26A0\uFE0F XAUUSD profit lock failed on ${tlConn.accountId}: ${r.error}` });
+      }
+    } catch (e) {
+      addActivity(userId, { type: "error", symbol: pos.symbol, message: `\u26A0\uFE0F XAUUSD profit lock error on ${tlConn.accountId}: ${e?.message ?? e}` });
+    }
+  }
+  for (const k of Array.from(xauPeakPts.keys())) if (k.startsWith(`${userId}:`) && !live.has(k)) {
+    xauPeakPts.delete(k);
+    xauLockedPts.delete(k);
+  }
+}
 async function applyServerSideTrails(userId, openPositions, marketAnalysis) {
   const state = engineStates[userId];
   if (!state) return;
@@ -26222,7 +26328,12 @@ async function applyServerSideTrails(userId, openPositions, marketAnalysis) {
       if (_relVol >= 1.3) _revScore++;
       if (_diSep >= 12) _revScore++;
       const _sensitivity = config.reversalSensitivity ?? 3;
-      if (_against && !_choppy && _revScore >= _sensitivity) {
+      const { xauTooYoungToClose: xauTooYoungToClose2 } = await Promise.resolve().then(() => (init_xau_rules(), xau_rules_exports));
+      const _xauHold = xauTooYoungToClose2(pos.symbol, pos.openTime);
+      if (_xauHold && _against && !_choppy && _revScore >= _sensitivity) {
+        addActivity(userId, { type: "info", symbol: pos.symbol, message: `\u23F3 Reversal exit held off: ${pos.symbol} opened under the XAUUSD minimum hold \u2014 the broker stop still protects it.` });
+      }
+      if (!_xauHold && _against && !_choppy && _revScore >= _sensitivity) {
         const _reason = `Reversal exit: ${pos.symbol} ${pos.direction} \u2014 ${_revScore}/5 reversal confluence in a trending market (ADX ${Math.round(_adx)}, DI sep ${Math.round(_diSep)}, need ${_sensitivity})`;
         addActivity(userId, { type: "trade_close", symbol: pos.symbol, message: `\u{1F504} ${_reason}` });
         if (pos.source !== "tl") broadcastMT5Signal(userId, {
@@ -26407,7 +26518,10 @@ async function monitorPositions(userId) {
     const floating = positions.reduce((s, p) => s + (Number(p.profit) || 0), 0);
     checkFloatingDrawdown(userId, floating);
     if (!engineStates[userId] || !positionMonitorIntervals[userId]) return;
-    if (positions.length) await applyServerSideTrails(userId, positions, lastAnalysis);
+    if (positions.length) {
+      await manageXauProfitLock(userId, positions).catch((e) => console.error("[XAU lock] monitor pass failed (non-fatal):", e?.message));
+      await applyServerSideTrails(userId, positions, lastAnalysis);
+    }
   } catch {
   } finally {
     _monitorBusy[userId] = false;
@@ -26534,8 +26648,8 @@ function generateRuleBasedSignals(indicators, config, symbol) {
   const entry = currentPrice;
   const pipSize = getPipSize(symbol);
   const isJpy = symbol.includes("JPY");
-  const isXau = symbol.includes("XAU");
-  const minSlPips = isXau ? 300 : isJpy ? 22 : 16;
+  const isXau2 = symbol.includes("XAU");
+  const minSlPips = isXau2 ? 300 : isJpy ? 22 : 16;
   const minSlDist = minSlPips * pipSize;
   const slMult = confidence2 >= 86 ? 2 : 1.8;
   const tpMult = confidence2 >= 86 ? 4 : 3.6;
@@ -26646,7 +26760,7 @@ function selectStrategyForPair(symbol, data, htfBias, asiaHigh, asiaLow, utcHour
   const macdHist2 = data.macd?.histogram ?? 0;
   const obvTrend = data.obv?.trend ?? "";
   const isJpy = symbol.includes("JPY");
-  const isXau = symbol.includes("XAU");
+  const isXau2 = symbol.includes("XAU");
   const symUpper = symbol.toUpperCase();
   const isCrypto = symUpper.includes("BTC") || symUpper.includes("XBT") || symUpper.includes("ETH") || symUpper.includes("LTC") || symUpper.includes("XRP") || symUpper.includes("ADA") || symUpper.includes("SOL") || symUpper.includes("BNB") || symUpper.includes("DOT");
   const utcDay2 = (/* @__PURE__ */ new Date()).getUTCDay();
@@ -28303,9 +28417,9 @@ async function processDecision(userId, decision, newsCtx) {
     if (entryPrice && stopLoss) {
       const pipSize = getPipSize(decision.symbol || "");
       const isJpy = (decision.symbol || "").includes("JPY");
-      const isXau = (decision.symbol || "").includes("XAU");
+      const isXau2 = (decision.symbol || "").includes("XAU");
       const currentATRForSL = state._lastATR?.[decision.symbol] || 0;
-      const minPipFloor = isXau ? 300 : isJpy ? 20 : 15;
+      const minPipFloor = isXau2 ? 300 : isJpy ? 20 : 15;
       const minPipDist = minPipFloor * pipSize;
       const atrFloor = currentATRForSL > 0 ? currentATRForSL * 1 : minPipDist;
       const effectiveMinSL = Math.max(minPipDist, atrFloor);
@@ -28688,6 +28802,14 @@ async function processDecision(userId, decision, newsCtx) {
           return;
         }
       } catch {
+      }
+      {
+        const { xauEntryBlock: xauEntryBlock2 } = await Promise.resolve().then(() => (init_xau_rules(), xau_rules_exports));
+        const _x = xauEntryBlock2(_gSym);
+        if (_x) {
+          addActivity(userId, { type: "info", symbol: decision.symbol, message: `\u23F3 ${_x} \u2014 skipped (live engine).` });
+          return;
+        }
       }
       try {
         const { hourFilterVerdict: hourFilterVerdict2 } = await Promise.resolve().then(() => (init_hour_filter(), hour_filter_exports));
@@ -29240,6 +29362,11 @@ async function processDecision(userId, decision, newsCtx) {
               return;
             }
             if (signalAction === "CLOSE") {
+              const { xauTooYoungToClose: xauTooYoungToClose2 } = await Promise.resolve().then(() => (init_xau_rules(), xau_rules_exports));
+              if (xauTooYoungToClose2(decision.symbol, tlMatch.openDate)) {
+                addActivity(userId, { type: "info", symbol: decision.symbol, message: `\u23F3 AI close held off on ${acctLabel}: ${decision.symbol} is inside the XAUUSD minimum hold \u2014 the broker stop still protects it.` });
+                return;
+              }
               const tradeResult = await executeMT5SignalOnTradeLocker(tlConn, {
                 action: "CLOSE",
                 symbol: decision.symbol,
@@ -30221,7 +30348,7 @@ function getModelLockStatus(userId) {
   if (!state) return { locked: false, openPositions: 0 };
   return { locked: state.modelLocked, openPositions: state.openPositionCount };
 }
-var FX_MAX_OPEN_PER_SYMBOL, FX_SYMBOL_COOLDOWN_MS, mt5AccountQueues, mt5AccountRegistry, engineStates, engineIntervals, engineTimers, brainLearningIntervals, positionMonitorIntervals, _monitorBusy, persistedConfigOverrides, goalTrackerCache, ALL_STRATEGY_KEYS, _dxSkipTableReady, countedTradeKeys, TRAIL_METHOD_LABELS, NY_TIME_FMT, INDEX_BROKER_ALIASES;
+var FX_MAX_OPEN_PER_SYMBOL, FX_SYMBOL_COOLDOWN_MS, mt5AccountQueues, mt5AccountRegistry, engineStates, engineIntervals, engineTimers, brainLearningIntervals, positionMonitorIntervals, _monitorBusy, persistedConfigOverrides, goalTrackerCache, ALL_STRATEGY_KEYS, _dxSkipTableReady, countedTradeKeys, TRAIL_METHOD_LABELS, xauPeakPts, xauLockedPts, NY_TIME_FMT, INDEX_BROKER_ALIASES;
 var init_live_trading_engine = __esm({
   "server/services/live-trading-engine.ts"() {
     "use strict";
@@ -30286,6 +30413,8 @@ var init_live_trading_engine = __esm({
       profit_lock: "Profit Lock %",
       stepped_fixed: "Stepped Fixed Trail"
     };
+    xauPeakPts = /* @__PURE__ */ new Map();
+    xauLockedPts = /* @__PURE__ */ new Map();
     NY_TIME_FMT = new Intl.DateTimeFormat("en-US", {
       timeZone: "America/New_York",
       hour12: false,
@@ -57723,9 +57852,9 @@ async function getStopOrdersForUser(userId, filters = {}) {
 init_schema();
 
 // server/build-info.ts
-var BUILD_COMMIT = "038dae65-dirty";
+var BUILD_COMMIT = "c5dc1f41-dirty";
 var BUILD_BRANCH = "main";
-var BUILT_AT = "2026-10-04T23:59:49.152Z";
+var BUILT_AT = "2026-10-05T00:50:12.706Z";
 
 // server/stripe.ts
 init_db();
@@ -67844,6 +67973,14 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
           }
         }
         if (!relayBlocked) {
+          const { xauEntryBlock: xauEntryBlock2 } = await Promise.resolve().then(() => (init_xau_rules(), xau_rules_exports));
+          const _rxau = xauEntryBlock2(symbol);
+          if (_rxau) {
+            relayBlocked = true;
+            console.log(`[Relay Gate] ${_rxau} \u2014 relay blocked`);
+          }
+        }
+        if (!relayBlocked) {
           try {
             const { hourFilterVerdict: hourFilterVerdict2 } = await Promise.resolve().then(() => (init_hour_filter(), hour_filter_exports));
             const _rhf = await hourFilterVerdict2(token.userId, (/* @__PURE__ */ new Date()).getUTCHours());
@@ -69627,6 +69764,17 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
           }
         } catch (_dsErr) {
           console.error("[PairDailyStop] check failed (non-blocking):", _dsErr?.message);
+        }
+      }
+      if (analysis.signal !== "NEUTRAL") {
+        const { xauEntryBlock: xauEntryBlock2 } = await Promise.resolve().then(() => (init_xau_rules(), xau_rules_exports));
+        const _xauBlock = xauEntryBlock2(sanitizedSymbol);
+        if (_xauBlock) {
+          console.log(`[XAU] BLOCKED ${sanitizedSymbol} ${analysis.signal} \u2014 ${_xauBlock}`);
+          _diagCap.neutralReason = `xau_spread_window (${_xauBlock})`;
+          analysis.signal = "NEUTRAL";
+          analysis.alerts = analysis.alerts || [];
+          analysis.alerts.push(`\u23F3 ${_xauBlock}.`);
         }
       }
       if (analysis.signal !== "NEUTRAL") {
@@ -77405,6 +77553,15 @@ Respond with ONLY valid JSON:
               }
             } catch (_aePfErr) {
               console.error("[VEDD Brain AutoExec] pair filter check failed (non-blocking):", _aePfErr?.message);
+            }
+            {
+              const { xauEntryBlock: xauEntryBlock2 } = await Promise.resolve().then(() => (init_xau_rules(), xau_rules_exports));
+              const _aeXau = xauEntryBlock2(sig.symbol);
+              if (_aeXau) {
+                console.log(`[VEDD Brain AutoExec] BLOCKED ${sig.symbol} \u2014 ${_aeXau}`);
+                executionResults.push({ sigId, symbol: sig.symbol, direction: sig.direction, status: "skipped", reason: _aeXau });
+                continue;
+              }
             }
             try {
               const { hourFilterVerdict: hourFilterVerdict2 } = await Promise.resolve().then(() => (init_hour_filter(), hour_filter_exports));
