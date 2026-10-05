@@ -57879,9 +57879,9 @@ async function getStopOrdersForUser(userId, filters = {}) {
 init_schema();
 
 // server/build-info.ts
-var BUILD_COMMIT = "17e8f792-dirty";
+var BUILD_COMMIT = "b15a1e9f-dirty";
 var BUILD_BRANCH = "main";
-var BUILT_AT = "2026-10-05T18:34:33.226Z";
+var BUILT_AT = "2026-10-05T23:40:16.381Z";
 
 // server/stripe.ts
 init_db();
@@ -71423,9 +71423,8 @@ BEAR CASE: ${_bearCase || "n/a"}` : aiConfirmation.reasoning;
             const symTrades = recentTrades.filter(
               (t) => (t.symbol || "").toUpperCase().replace("/", "") === sanitizedSymbol.toUpperCase().replace("/", "") && t.status === "executed" && t.createdAt && now - new Date(t.createdAt).getTime() < 24 * 60 * 60 * 1e3
             );
-            const openCount = symTrades.filter((t) => t.action === "OPEN").length;
-            const closeCount = symTrades.filter((t) => t.action === "CLOSE").length;
-            const hasOpenPosition = openCount - closeCount > 0;
+            void symTrades;
+            const hasOpenPosition = false;
             if (hasOpenPosition) {
               console.log(`[MT5 Chart Data AutoTrade] Skipping trade - existing open position on ${sanitizedSymbol}`);
               _markTlSkip("fan-out", `EXISTING POSITION: trade log shows an open ${sanitizedSymbol} position (last 24h)`);
@@ -71624,6 +71623,18 @@ BEAR CASE: ${_bearCase || "n/a"}` : aiConfirmation.reasoning;
                     analysis.alerts.push(`RISK SKIP: ${tlConn.accountId} \u2014 positions unreadable, trade not sent.`);
                     _markTlSkip(String(tlConn.accountId), `RISK SKIP: ${tlConn.accountId} \u2014 positions unreadable, trade not sent.`);
                     continue;
+                  }
+                  {
+                    const _wantSym = sanitizedSymbol.toUpperCase().replace(/[^A-Z0-9]/g, "");
+                    const _held = _connPos.find((p) => {
+                      const ps = String(p.symbol || "").toUpperCase().split(".")[0].replace(/[^A-Z0-9]/g, "");
+                      return ps === _wantSym || ps.startsWith(_wantSym);
+                    });
+                    if (_held) {
+                      console.log(`[MT5 Chart Data AutoTrade] ${tlConn.accountId}: already holding ${_held.symbol} ${String(_held.side || "").toUpperCase()} ${_held.qty} \u2014 not adding another`);
+                      _markTlSkip(String(tlConn.accountId), `EXISTING POSITION: ${tlConn.accountId} already holds ${_held.symbol} ${String(_held.side || "").toUpperCase()} ${_held.qty} (live broker data)`);
+                      continue;
+                    }
                   }
                   try {
                     const _saEq = _tlEq ?? _tlBal;

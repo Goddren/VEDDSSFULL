@@ -12464,10 +12464,15 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
               t.status === 'executed' &&
               t.createdAt && (now - new Date(t.createdAt).getTime()) < 24 * 60 * 60 * 1000
             );
-            const openCount = symTrades.filter((t: any) => t.action === 'OPEN').length;
-            const closeCount = symTrades.filter((t: any) => t.action === 'CLOSE').length;
-            // Net open positions = opens that haven't been closed
-            const hasOpenPosition = (openCount - closeCount) > 0;
+            // RETIRED as a gate: OPEN-minus-CLOSE log rows. Closes made by the broker
+            // (stop/target) or the position manager never write a CLOSE row, so one
+            // trade made a pair look open for 24h and every later approval was
+            // skipped — 128 XAUUSD approvals on 2026-10-05 06:00–10:17 UTC, then
+            // 81 US30 approvals after 12:50, with 0 positions actually open.
+            // The real check is per account, against LIVE broker positions, in the
+            // account loop below.
+            void symTrades;
+            const hasOpenPosition = false;
 
             if (hasOpenPosition) {
               console.log(`[MT5 Chart Data AutoTrade] Skipping trade - existing open position on ${sanitizedSymbol}`);
@@ -12757,6 +12762,22 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
                 analysis.alerts.push(`RISK SKIP: ${tlConn.accountId} — positions unreadable, trade not sent.`);
                 _markTlSkip(String(tlConn.accountId), `RISK SKIP: ${tlConn.accountId} — positions unreadable, trade not sent.`);
                 continue;
+              }
+
+              // ── Existing position on THIS account (live broker data) ──────────
+              // One position per pair per account. Read from the broker, not from
+              // our trade log, so a stop-out or manual close is seen immediately.
+              {
+                const _wantSym = sanitizedSymbol.toUpperCase().replace(/[^A-Z0-9]/g, '');
+                const _held = _connPos.find((p: any) => {
+                  const ps = String(p.symbol || '').toUpperCase().split('.')[0].replace(/[^A-Z0-9]/g, '');
+                  return ps === _wantSym || ps.startsWith(_wantSym); // 'XAUUSDPRO' / 'US30CASH' match their base
+                });
+                if (_held) {
+                  console.log(`[MT5 Chart Data AutoTrade] ${tlConn.accountId}: already holding ${_held.symbol} ${String(_held.side || '').toUpperCase()} ${_held.qty} — not adding another`);
+                  _markTlSkip(String(tlConn.accountId), `EXISTING POSITION: ${tlConn.accountId} already holds ${_held.symbol} ${String(_held.side || '').toUpperCase()} ${_held.qty} (live broker data)`);
+                  continue;
+                }
               }
 
               // ── Per-account safety checks ────────────────────────────────────
