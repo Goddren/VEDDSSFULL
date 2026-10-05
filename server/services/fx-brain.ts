@@ -91,9 +91,9 @@ function holdRegimeLabel(v: string | null): string | null {
  */
 export async function learnFxBrain(userId: number): Promise<Record<string, PairBrain>> {
   const { pool } = await import('../db');
-  const { rows } = await pool.query(
+  const { rows: rawRows } = await pool.query(
     `SELECT symbol, direction, session, hour_utc, day_of_week, hold_regime, adx_value, confluence_grade,
-            realised_rr, result, profit_loss, closed_at::date AS d
+            realised_rr, result, profit_loss, closed_at::date AS d, closed_at, holding_minutes
        FROM fx_brain_outcomes
       WHERE user_id = $1
         AND result IN ('WIN','LOSS')
@@ -101,7 +101,17 @@ export async function learnFxBrain(userId: number): Promise<Record<string, PairB
       ORDER BY closed_at`,
     [userId, String(LOOKBACK_DAYS)]
   );
-  if (!rows.length) return {};
+  if (!rawRows.length) return {};
+
+  // ONE SIGNAL = ONE TRADE. A signal fans out to every active account, so one
+  // setup closed as 3–5 rows and counted 3–5 times toward every win rate and
+  // block threshold below. Collapse the fills back into the signal first.
+  const { collapseToSignals } = await import('../utils/signal-groups');
+  const rows = collapseToSignals(rawRows.map((r: any) => ({
+    ...r,
+    pnl: Number(r.profit_loss || 0),
+    entryMs: new Date(r.closed_at).getTime() - (Number(r.holding_minutes) || 0) * 60_000,
+  }))).map((g: any) => ({ ...g, profit_loss: g.pnl }));
 
   // Normalise the instrument before grouping. Brokers append suffixes, so
   // 'XAUUSD.PRO' and 'XAUUSD' were learned as two different instruments — each

@@ -8244,6 +8244,46 @@ var init_session = __esm({
   }
 });
 
+// server/utils/signal-groups.ts
+var signal_groups_exports = {};
+__export(signal_groups_exports, {
+  collapseToSignals: () => collapseToSignals,
+  normSymbol: () => normSymbol
+});
+function normSymbol(v) {
+  return String(v ?? "").split(".")[0].toUpperCase().replace(/[^A-Z0-9]/g, "");
+}
+function collapseToSignals(fills) {
+  const sorted = [...fills].sort((a, b) => a.entryMs - b.entryMs);
+  const open = /* @__PURE__ */ new Map();
+  const groups = [];
+  for (const f of sorted) {
+    const key = normSymbol(f.symbol) + "|" + String(f.direction || "").toUpperCase();
+    const g = open.get(key);
+    if (g && f.entryMs - g.start <= WINDOW_MS) {
+      g.rows.push(f);
+      continue;
+    }
+    const fresh = { start: f.entryMs, rows: [f] };
+    open.set(key, fresh);
+    groups.push(fresh.rows);
+  }
+  return groups.map((rows) => {
+    const wins = rows.filter((r) => r.result === "WIN").length;
+    const losses = rows.filter((r) => r.result === "LOSS").length;
+    const sum = rows.reduce((s, r) => s + (Number(r.pnl) || 0), 0);
+    const result = wins > losses ? "WIN" : losses > wins ? "LOSS" : sum > 0 ? "WIN" : "LOSS";
+    return { ...rows[0], result, pnl: sum / rows.length, fills: rows.length };
+  });
+}
+var WINDOW_MS;
+var init_signal_groups = __esm({
+  "server/utils/signal-groups.ts"() {
+    "use strict";
+    WINDOW_MS = Number(process.env.SIGNAL_GROUP_WINDOW_MS ?? 18e4);
+  }
+});
+
 // server/services/pair-daily-stop.ts
 var pair_daily_stop_exports = {};
 __export(pair_daily_stop_exports, {
@@ -8436,9 +8476,9 @@ function holdRegimeLabel(v) {
 }
 async function learnFxBrain(userId) {
   const { pool: pool2 } = await Promise.resolve().then(() => (init_db(), db_exports));
-  const { rows } = await pool2.query(
+  const { rows: rawRows } = await pool2.query(
     `SELECT symbol, direction, session, hour_utc, day_of_week, hold_regime, adx_value, confluence_grade,
-            realised_rr, result, profit_loss, closed_at::date AS d
+            realised_rr, result, profit_loss, closed_at::date AS d, closed_at, holding_minutes
        FROM fx_brain_outcomes
       WHERE user_id = $1
         AND result IN ('WIN','LOSS')
@@ -8446,15 +8486,21 @@ async function learnFxBrain(userId) {
       ORDER BY closed_at`,
     [userId, String(LOOKBACK_DAYS)]
   );
-  if (!rows.length) return {};
-  const normSymbol = (v) => {
+  if (!rawRows.length) return {};
+  const { collapseToSignals: collapseToSignals2 } = await Promise.resolve().then(() => (init_signal_groups(), signal_groups_exports));
+  const rows = collapseToSignals2(rawRows.map((r) => ({
+    ...r,
+    pnl: Number(r.profit_loss || 0),
+    entryMs: new Date(r.closed_at).getTime() - (Number(r.holding_minutes) || 0) * 6e4
+  }))).map((g) => ({ ...g, profit_loss: g.pnl }));
+  const normSymbol2 = (v) => {
     const base = String(v ?? "").split(".")[0].toUpperCase().replace(/[^A-Z0-9]/g, "");
     if (!base || /^[0-9]+$/.test(base)) return null;
     return base;
   };
   const bySymbol = /* @__PURE__ */ new Map();
   for (const r of rows) {
-    const k = normSymbol(r.symbol);
+    const k = normSymbol2(r.symbol);
     if (!k) continue;
     if (!bySymbol.has(k)) bySymbol.set(k, []);
     bySymbol.get(k).push(r);
@@ -24507,10 +24553,8 @@ __export(hour_filter_exports, {
 });
 async function compute2(userId) {
   const { pool: pool2 } = await Promise.resolve().then(() => (init_db(), db_exports));
-  const { rows } = await pool2.query(
-    `SELECT EXTRACT(hour FROM created_at)::int AS hour,
-            COUNT(*)::int AS trades,
-            ROUND(100.0 * SUM(CASE WHEN result='WIN' THEN 1 ELSE 0 END) / COUNT(*), 1) AS win_rate
+  const { rows: fillRows } = await pool2.query(
+    `SELECT symbol, direction, result, COALESCE(profit_loss, 0) AS pnl, created_at
        FROM ai_trade_results
       WHERE user_id = $1
         AND result IN ('WIN','LOSS')
@@ -24524,11 +24568,28 @@ async function compute2(userId) {
         -- real book) and 18:00/21:00 (samples under the floor), while missing
         -- 13:00 (26.7% over 15 trades).
         AND connection_id IN (SELECT id FROM tradelocker_connections WHERE is_active = true)
-        AND created_at > now() - ($2 || ' days')::interval
-      GROUP BY 1`,
+        AND created_at > now() - ($2 || ' days')::interval`,
     [userId, String(LOOKBACK_DAYS2)]
   );
-  const stats = rows.map((r) => ({ hour: Number(r.hour), trades: Number(r.trades), winRate: Number(r.win_rate) }));
+  const { collapseToSignals: collapseToSignals2 } = await Promise.resolve().then(() => (init_signal_groups(), signal_groups_exports));
+  const signals = collapseToSignals2(fillRows.map((r) => ({
+    ...r,
+    pnl: Number(r.pnl) || 0,
+    entryMs: new Date(r.created_at).getTime()
+  })));
+  const byHour = /* @__PURE__ */ new Map();
+  for (const s of signals) {
+    const h = new Date(s.entryMs).getUTCHours();
+    const e = byHour.get(h) ?? { n: 0, w: 0 };
+    e.n++;
+    if (s.result === "WIN") e.w++;
+    byHour.set(h, e);
+  }
+  const stats = Array.from(byHour.entries()).map(([hour, e]) => ({
+    hour,
+    trades: e.n,
+    winRate: Math.round(1e3 * e.w / e.n) / 10
+  }));
   const blocked = new Set(
     stats.filter((s) => s.trades >= MIN_SAMPLE && s.winRate < WR_FLOOR).map((s) => s.hour)
   );
@@ -57662,9 +57723,9 @@ async function getStopOrdersForUser(userId, filters = {}) {
 init_schema();
 
 // server/build-info.ts
-var BUILD_COMMIT = "f8ca0014-dirty";
+var BUILD_COMMIT = "038dae65-dirty";
 var BUILD_BRANCH = "main";
-var BUILT_AT = "2026-10-04T23:19:56.437Z";
+var BUILT_AT = "2026-10-04T23:59:49.152Z";
 
 // server/stripe.ts
 init_db();

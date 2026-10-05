@@ -10334,6 +10334,46 @@ var init_session = __esm({
   }
 });
 
+// server/utils/signal-groups.ts
+var signal_groups_exports = {};
+__export(signal_groups_exports, {
+  collapseToSignals: () => collapseToSignals,
+  normSymbol: () => normSymbol
+});
+function normSymbol(v) {
+  return String(v ?? "").split(".")[0].toUpperCase().replace(/[^A-Z0-9]/g, "");
+}
+function collapseToSignals(fills) {
+  const sorted = [...fills].sort((a, b) => a.entryMs - b.entryMs);
+  const open = /* @__PURE__ */ new Map();
+  const groups = [];
+  for (const f of sorted) {
+    const key = normSymbol(f.symbol) + "|" + String(f.direction || "").toUpperCase();
+    const g = open.get(key);
+    if (g && f.entryMs - g.start <= WINDOW_MS) {
+      g.rows.push(f);
+      continue;
+    }
+    const fresh = { start: f.entryMs, rows: [f] };
+    open.set(key, fresh);
+    groups.push(fresh.rows);
+  }
+  return groups.map((rows) => {
+    const wins = rows.filter((r) => r.result === "WIN").length;
+    const losses = rows.filter((r) => r.result === "LOSS").length;
+    const sum = rows.reduce((s, r) => s + (Number(r.pnl) || 0), 0);
+    const result = wins > losses ? "WIN" : losses > wins ? "LOSS" : sum > 0 ? "WIN" : "LOSS";
+    return { ...rows[0], result, pnl: sum / rows.length, fills: rows.length };
+  });
+}
+var WINDOW_MS;
+var init_signal_groups = __esm({
+  "server/utils/signal-groups.ts"() {
+    "use strict";
+    WINDOW_MS = Number(process.env.SIGNAL_GROUP_WINDOW_MS ?? 18e4);
+  }
+});
+
 // server/services/pair-daily-stop.ts
 var pair_daily_stop_exports = {};
 __export(pair_daily_stop_exports, {
@@ -10526,9 +10566,9 @@ function holdRegimeLabel(v) {
 }
 async function learnFxBrain(userId) {
   const { pool: pool2 } = await Promise.resolve().then(() => (init_db(), db_exports));
-  const { rows } = await pool2.query(
+  const { rows: rawRows } = await pool2.query(
     `SELECT symbol, direction, session, hour_utc, day_of_week, hold_regime, adx_value, confluence_grade,
-            realised_rr, result, profit_loss, closed_at::date AS d
+            realised_rr, result, profit_loss, closed_at::date AS d, closed_at, holding_minutes
        FROM fx_brain_outcomes
       WHERE user_id = $1
         AND result IN ('WIN','LOSS')
@@ -10536,15 +10576,21 @@ async function learnFxBrain(userId) {
       ORDER BY closed_at`,
     [userId, String(LOOKBACK_DAYS)]
   );
-  if (!rows.length) return {};
-  const normSymbol = (v) => {
+  if (!rawRows.length) return {};
+  const { collapseToSignals: collapseToSignals2 } = await Promise.resolve().then(() => (init_signal_groups(), signal_groups_exports));
+  const rows = collapseToSignals2(rawRows.map((r) => ({
+    ...r,
+    pnl: Number(r.profit_loss || 0),
+    entryMs: new Date(r.closed_at).getTime() - (Number(r.holding_minutes) || 0) * 6e4
+  }))).map((g) => ({ ...g, profit_loss: g.pnl }));
+  const normSymbol2 = (v) => {
     const base = String(v ?? "").split(".")[0].toUpperCase().replace(/[^A-Z0-9]/g, "");
     if (!base || /^[0-9]+$/.test(base)) return null;
     return base;
   };
   const bySymbol = /* @__PURE__ */ new Map();
   for (const r of rows) {
-    const k = normSymbol(r.symbol);
+    const k = normSymbol2(r.symbol);
     if (!k) continue;
     if (!bySymbol.has(k)) bySymbol.set(k, []);
     bySymbol.get(k).push(r);

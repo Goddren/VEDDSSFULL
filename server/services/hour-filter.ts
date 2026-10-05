@@ -37,10 +37,10 @@ const cache = new Map<number, { at: number; stats: HourStat[]; blocked: Set<numb
 
 async function compute(userId: number): Promise<{ stats: HourStat[]; blocked: Set<number> }> {
   const { pool } = await import('../db');
-  const { rows } = await pool.query(
-    `SELECT EXTRACT(hour FROM created_at)::int AS hour,
-            COUNT(*)::int AS trades,
-            ROUND(100.0 * SUM(CASE WHEN result='WIN' THEN 1 ELSE 0 END) / COUNT(*), 1) AS win_rate
+  // Rows, not a GROUP BY count: fills are collapsed into signals in JS below,
+  // so one setup sent to four accounts counts as one trade in its hour.
+  const { rows: fillRows } = await pool.query(
+    `SELECT symbol, direction, result, COALESCE(profit_loss, 0) AS pnl, created_at
        FROM ai_trade_results
       WHERE user_id = $1
         AND result IN ('WIN','LOSS')
@@ -54,11 +54,23 @@ async function compute(userId: number): Promise<{ stats: HourStat[]; blocked: Se
         -- real book) and 18:00/21:00 (samples under the floor), while missing
         -- 13:00 (26.7% over 15 trades).
         AND connection_id IN (SELECT id FROM tradelocker_connections WHERE is_active = true)
-        AND created_at > now() - ($2 || ' days')::interval
-      GROUP BY 1`,
+        AND created_at > now() - ($2 || ' days')::interval`,
     [userId, String(LOOKBACK_DAYS)]
   );
-  const stats: HourStat[] = rows.map((r: any) => ({ hour: Number(r.hour), trades: Number(r.trades), winRate: Number(r.win_rate) }));
+  const { collapseToSignals } = await import('../utils/signal-groups');
+  const signals = collapseToSignals(fillRows.map((r: any) => ({
+    ...r, pnl: Number(r.pnl) || 0, entryMs: new Date(r.created_at).getTime(),
+  })));
+  const byHour = new Map<number, { n: number; w: number }>();
+  for (const s of signals) {
+    const h = new Date(s.entryMs).getUTCHours();
+    const e = byHour.get(h) ?? { n: 0, w: 0 };
+    e.n++; if (s.result === 'WIN') e.w++;
+    byHour.set(h, e);
+  }
+  const stats: HourStat[] = Array.from(byHour.entries()).map(([hour, e]) => ({
+    hour, trades: e.n, winRate: Math.round((1000 * e.w) / e.n) / 10,
+  }));
   const blocked = new Set<number>(
     stats.filter((s) => s.trades >= MIN_SAMPLE && s.winRate < WR_FLOOR).map((s) => s.hour)
   );
