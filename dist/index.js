@@ -57879,9 +57879,9 @@ async function getStopOrdersForUser(userId, filters = {}) {
 init_schema();
 
 // server/build-info.ts
-var BUILD_COMMIT = "df283699-dirty";
+var BUILD_COMMIT = "1d104f67-dirty";
 var BUILD_BRANCH = "main";
-var BUILT_AT = "2026-10-05T01:18:37.514Z";
+var BUILT_AT = "2026-10-05T01:33:05.079Z";
 
 // server/stripe.ts
 init_db();
@@ -61212,14 +61212,6 @@ function tradingWeekStartUTC() {
   d.setUTCHours(21, 0, 0, 0);
   d.setUTCDate(d.getUTCDate() - d.getUTCDay());
   if (d > now) d.setUTCDate(d.getUTCDate() - 7);
-  return d;
-}
-function mondayWeekStartUTC() {
-  const d = /* @__PURE__ */ new Date();
-  const day = d.getUTCDay();
-  const diff = day === 0 ? 6 : day - 1;
-  d.setUTCDate(d.getUTCDate() - diff);
-  d.setUTCHours(0, 0, 0, 0);
   return d;
 }
 function sumFreshMt5Balances(userId, maxAgeMs = 9e5) {
@@ -72143,9 +72135,7 @@ BEAR CASE: ${_bearCase || "n/a"}` : aiConfirmation.reasoning;
     }
     const now = /* @__PURE__ */ new Date();
     const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-    const dayOfWeek = now.getDay();
-    const daysToMon = dayOfWeek === 0 ? 6 : dayOfWeek - 1;
-    const weekStart = new Date(now.getFullYear(), now.getMonth(), now.getDate() - daysToMon);
+    const weekStart = tradingWeekStartUTC();
     const allDbTrades = await storage.getAiTradeResults(userId, 5e3);
     const cachedTrades = global.mt5ClosedTrades?.[userId]?.trades || [];
     const todayDb = allDbTrades.filter((t) => {
@@ -73331,7 +73321,7 @@ Respond with ONLY valid JSON:
       const dbStrat = await storage.getActiveWeeklyStrategy(userId);
       if (!dbStrat) {
         const dbTradesFallback = await storage.getAiTradeResults(userId, 500);
-        const weekStartFallback = mondayWeekStartUTC();
+        const weekStartFallback = tradingWeekStartUTC();
         const todayStartFallback = /* @__PURE__ */ new Date();
         todayStartFallback.setUTCHours(0, 0, 0, 0);
         const weekTradesFallback = dbTradesFallback.filter((t) => {
@@ -73646,7 +73636,7 @@ Respond with ONLY valid JSON:
         weekStart: dbStrat.weekStart
       };
     }
-    const weekStart = new Date(strategy.weekStart || mondayWeekStartUTC());
+    const weekStart = tradingWeekStartUTC();
     const dbTrades = await storage.getAiTradeResults(userId, 500);
     const dbWeekTrades = dbTrades.filter((t) => {
       const d = new Date(t.closedAt || t.createdAt);
@@ -74375,13 +74365,7 @@ Rules:
     }
   });
   function getWeekStart() {
-    const now = /* @__PURE__ */ new Date();
-    const dayOfWeek = now.getUTCDay();
-    const diff = dayOfWeek === 0 ? 6 : dayOfWeek - 1;
-    const monday = new Date(now);
-    monday.setUTCDate(now.getUTCDate() - diff);
-    monday.setUTCHours(0, 0, 0, 0);
-    return monday.toISOString();
+    return tradingWeekStartUTC().toISOString();
   }
   function getDaysRemainingInWeek() {
     const now = /* @__PURE__ */ new Date();
@@ -76981,7 +76965,7 @@ Format each recommendation as a clear, concise action item.`;
         });
       };
       const todayOf = (rows) => Math.round(rows.filter((t) => new Date(t.closedAt) >= dayStart).reduce((s, r) => s + (r.profitLoss || 0), 0) * 100) / 100;
-      const weekAgo = new Date(dayStart.getTime() - 6 * 24 * 3600 * 1e3);
+      const weekAgo = tradingWeekStartUTC();
       const weekOf = (rows) => Math.round(rows.filter((t) => new Date(t.closedAt) >= weekAgo).reduce((s, r) => s + (r.profitLoss || 0), 0) * 100) / 100;
       const withLivePoint = (curve, unrealized) => {
         if (!unrealized) return curve;
@@ -78020,7 +78004,7 @@ Respond with ONLY valid JSON:
       const strategy = global.mt5WeeklyStrategies?.[userId];
       const goalIntelligence = global.veddGoalIntelligence?.[userId];
       const aiPathControl = global.veddAiPathControl?.[userId];
-      const weekStart = mondayWeekStartUTC();
+      const weekStart = tradingWeekStartUTC();
       const dbTrades = await storage.getAiTradeResults(userId, 500);
       const weekDbTrades = dbTrades.filter((t) => {
         const d = new Date(t.closedAt || t.createdAt);
@@ -80581,9 +80565,7 @@ Return ONLY JSON: {"topPicks":[{"market":"","winProbability":<0-100>,"whyItWins"
     const { type } = req.params;
     const todayStart = /* @__PURE__ */ new Date();
     todayStart.setHours(0, 0, 0, 0);
-    const weekStart = /* @__PURE__ */ new Date();
-    weekStart.setDate(weekStart.getDate() - weekStart.getDay());
-    weekStart.setHours(0, 0, 0, 0);
+    const weekStart = tradingWeekStartUTC();
     try {
       if (type === "tradelocker") {
         const connId = parseInt(req.params.id, 10);

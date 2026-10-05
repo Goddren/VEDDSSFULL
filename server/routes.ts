@@ -13392,10 +13392,9 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
 
     const now = new Date();
     const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-    // Week start = last Monday (or today if Monday)
-    const dayOfWeek = now.getDay(); // 0=Sun,1=Mon,...
-    const daysToMon = dayOfWeek === 0 ? 6 : dayOfWeek - 1;
-    const weekStart = new Date(now.getFullYear(), now.getMonth(), now.getDate() - daysToMon);
+    // Week start = the current trading week's open (Sunday 21:00 UTC), the
+    // same boundary every other weekly figure uses.
+    const weekStart = tradingWeekStartUTC();
 
     // DB trades (all — not filtered by strategy pairs, high limit for all-time stats)
     const allDbTrades = await storage.getAiTradeResults(userId, 5000);
@@ -14874,7 +14873,7 @@ Respond with ONLY valid JSON:
       if (!dbStrat) {
         // No active strategy — still compute live profit so dashboard isn't dead
         const dbTradesFallback = await storage.getAiTradeResults(userId, 500);
-        const weekStartFallback = mondayWeekStartUTC();
+        const weekStartFallback = tradingWeekStartUTC();
         const todayStartFallback = new Date(); todayStartFallback.setUTCHours(0,0,0,0);
         const weekTradesFallback = dbTradesFallback.filter((t: any) => { const d = new Date(t.closedAt || t.createdAt); return d >= weekStartFallback && t.result !== 'PENDING'; });
         const todayTradesFallback = dbTradesFallback.filter((t: any) => { const d = new Date(t.closedAt || t.createdAt); return d >= todayStartFallback && t.result !== 'PENDING'; });
@@ -15268,7 +15267,9 @@ Respond with ONLY valid JSON:
     }
 
     // ── Gather week trades ─────────────────────────────────────────────
-    const weekStart = new Date(strategy.weekStart || mondayWeekStartUTC());
+    // Current trading week — not the plan's creation week (a carried-over plan
+    // kept counting last week's trades here).
+    const weekStart = tradingWeekStartUTC();
     const dbTrades = await storage.getAiTradeResults(userId, 500);
     const dbWeekTrades = dbTrades.filter((t: any) => {
       const d = new Date(t.closedAt || t.createdAt);
@@ -16006,13 +16007,9 @@ Rules:
   });
 
   function getWeekStart(): string {
-    const now = new Date();
-    const dayOfWeek = now.getUTCDay();
-    const diff = dayOfWeek === 0 ? 6 : dayOfWeek - 1;
-    const monday = new Date(now);
-    monday.setUTCDate(now.getUTCDate() - diff);
-    monday.setUTCHours(0, 0, 0, 0);
-    return monday.toISOString();
+    // The trading week opens Sunday 21:00 UTC — one boundary for every weekly
+    // figure (plans, platform monitors, dashboards, goal tracker).
+    return tradingWeekStartUTC().toISOString();
   }
 
   function getDaysRemainingInWeek(): number {
@@ -18956,9 +18953,10 @@ Format each recommendation as a clear, concise action item.`;
         return chrono.map((t: any) => { c += (t.profitLoss || 0); return { t: t.closedAt, v: Math.round(c * 100) / 100 }; });
       };
       const todayOf = (rows: any[]) => Math.round(rows.filter((t: any) => new Date(t.closedAt) >= dayStart).reduce((s, r) => s + (r.profitLoss || 0), 0) * 100) / 100;
-      // Rolling 7-day P&L per account — same "closedAt" basis as todayOf, just a
-      // wider window, so the dashboard can show "this week" next to "today".
-      const weekAgo = new Date(dayStart.getTime() - 6 * 24 * 3600 * 1000);
+      // "This week" per account = since the current trading week opened
+      // (Sunday 21:00 UTC). This was a ROLLING 7 days, so on Monday it still
+      // showed most of last week's profit under "This week".
+      const weekAgo = tradingWeekStartUTC();
       const weekOf = (rows: any[]) => Math.round(rows.filter((t: any) => new Date(t.closedAt) >= weekAgo).reduce((s, r) => s + (r.profitLoss || 0), 0) * 100) / 100;
       // Append a live "now" point so the chart tip reflects currently-OPEN
       // positions (realized cumulative + unrealized floating P&L). Marked live:true.
@@ -20152,7 +20150,7 @@ Respond with ONLY valid JSON:
       const aiPathControl = (global as any).veddAiPathControl?.[userId];
 
       // Gather week trades
-      const weekStart = mondayWeekStartUTC();
+      const weekStart = tradingWeekStartUTC();
 
       const dbTrades = await storage.getAiTradeResults(userId, 500);
       const weekDbTrades = dbTrades.filter((t: any) => {
@@ -23073,7 +23071,7 @@ Return ONLY JSON: {"topPicks":[{"market":"","winProbability":<0-100>,"whyItWins"
     const { type } = req.params;
 
     const todayStart = new Date(); todayStart.setHours(0, 0, 0, 0);
-    const weekStart = new Date(); weekStart.setDate(weekStart.getDate() - weekStart.getDay()); weekStart.setHours(0, 0, 0, 0);
+    const weekStart = tradingWeekStartUTC(); // same trading-week boundary as every other weekly figure
 
     try {
       if (type === 'tradelocker') {
