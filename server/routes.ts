@@ -4100,7 +4100,12 @@ Respond ONLY in valid JSON format with these exact keys:
 
       // Pacing
       const weekTarget = strategy?.profitTarget || 0;
-      const weekProfit = strategy?.currentProfit ?? todayProfit;
+      // Stored progress may still be last trading week's until update-progress
+      // recomputes it — don't present it as this week's.
+      const _wkNow = tradingWeekStartUTC();
+      const _progFresh = strategy?.progressWeekStart === _wkNow.toISOString()
+        || (strategy?.weekStart && new Date(strategy.weekStart) >= _wkNow);
+      const weekProfit = strategy ? (_progFresh ? (strategy.currentProfit ?? 0) : 0) : todayProfit;
       const weekPct = weekTarget > 0 ? Math.min(100, Math.round((weekProfit / weekTarget) * 100)) : 0;
       const weekStart = strategy?.weekStart ? new Date(strategy.weekStart) : null;
       const dayNames = ['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday'];
@@ -4710,7 +4715,12 @@ Keep follow-ups SHORT and conversational. One question max. Make it feel like yo
       const todayProfit = Math.round((todayClosed.reduce((s: number, t: any) => s + (t.profit || 0), 0)) * 100) / 100;
       const unrealizedPnL = Math.round(openPositions.reduce((s: number, p: any) => s + (p.profit || 0), 0) * 100) / 100;
       const weekTarget = strategy?.profitTarget || 0;
-      const weekProfit = strategy?.currentProfit ?? todayProfit;
+      // Stored progress may still be last trading week's until update-progress
+      // recomputes it — don't present it as this week's.
+      const _wkNow = tradingWeekStartUTC();
+      const _progFresh = strategy?.progressWeekStart === _wkNow.toISOString()
+        || (strategy?.weekStart && new Date(strategy.weekStart) >= _wkNow);
+      const weekProfit = strategy ? (_progFresh ? (strategy.currentProfit ?? 0) : 0) : todayProfit;
       const weekPct = weekTarget > 0 ? Math.min(100, Math.round((weekProfit / weekTarget) * 100)) : 0;
       const dayNames = ['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday'];
       const today = dayNames[new Date().getUTCDay()];

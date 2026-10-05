@@ -57879,9 +57879,9 @@ async function getStopOrdersForUser(userId, filters = {}) {
 init_schema();
 
 // server/build-info.ts
-var BUILD_COMMIT = "1d104f67-dirty";
+var BUILD_COMMIT = "f42204ef-dirty";
 var BUILD_BRANCH = "main";
-var BUILT_AT = "2026-10-05T01:33:05.079Z";
+var BUILT_AT = "2026-10-05T01:37:51.067Z";
 
 // server/stripe.ts
 init_db();
@@ -64449,7 +64449,9 @@ Respond ONLY in valid JSON format with these exact keys:
       const todayProfit = Math.round((todayDbTrades.reduce((s, t) => s + (t.profitLoss || 0), 0) + todayCacheDeduped.reduce((s, t) => s + (t.profit || 0), 0)) * 100) / 100;
       const unrealizedPnL = Math.round(openPositions.reduce((s, p) => s + (p.profit || 0), 0) * 100) / 100;
       const weekTarget = strategy?.profitTarget || 0;
-      const weekProfit = strategy?.currentProfit ?? todayProfit;
+      const _wkNow = tradingWeekStartUTC();
+      const _progFresh = strategy?.progressWeekStart === _wkNow.toISOString() || strategy?.weekStart && new Date(strategy.weekStart) >= _wkNow;
+      const weekProfit = strategy ? _progFresh ? strategy.currentProfit ?? 0 : 0 : todayProfit;
       const weekPct = weekTarget > 0 ? Math.min(100, Math.round(weekProfit / weekTarget * 100)) : 0;
       const weekStart = strategy?.weekStart ? new Date(strategy.weekStart) : null;
       const dayNames = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
@@ -65027,7 +65029,9 @@ data: ${JSON.stringify(data)}
       const todayProfit = Math.round(todayClosed.reduce((s, t) => s + (t.profit || 0), 0) * 100) / 100;
       const unrealizedPnL = Math.round(openPositions.reduce((s, p) => s + (p.profit || 0), 0) * 100) / 100;
       const weekTarget = strategy?.profitTarget || 0;
-      const weekProfit = strategy?.currentProfit ?? todayProfit;
+      const _wkNow = tradingWeekStartUTC();
+      const _progFresh = strategy?.progressWeekStart === _wkNow.toISOString() || strategy?.weekStart && new Date(strategy.weekStart) >= _wkNow;
+      const weekProfit = strategy ? _progFresh ? strategy.currentProfit ?? 0 : 0 : todayProfit;
       const weekPct = weekTarget > 0 ? Math.min(100, Math.round(weekProfit / weekTarget * 100)) : 0;
       const dayNames = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
       const today = dayNames[(/* @__PURE__ */ new Date()).getUTCDay()];
