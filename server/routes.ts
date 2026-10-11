@@ -29844,6 +29844,34 @@ Generate an agenda with timing, topics, and hosting tips. Return JSON: {
     try {
       const lead = await storage.submitQuizLead(req.params.slug, req.body);
       res.json(lead);
+      // Fire-and-forget: hand the lead to the VEDD onboarding email sequence
+      // (Supabase capture-lead). Optional — only runs when both env vars are set.
+      // Platform/keyword come from the landing-page URL, e.g. /lp/<slug>?src=instagram&kw=PROP
+      const hookUrl = process.env.VEDD_ONBOARDING_WEBHOOK_URL;
+      const hookSecret = process.env.VEDD_ONBOARDING_WEBHOOK_SECRET;
+      const email = typeof req.body?.email === "string" ? req.body.email.trim() : "";
+      if (hookUrl && hookSecret && email) {
+        let src = "website", kw = "SETUP";
+        try {
+          const ref = new URL(String(req.get("referer") || ""));
+          src = (ref.searchParams.get("src") || ref.searchParams.get("utm_source") || src).toLowerCase();
+          kw = (ref.searchParams.get("kw") || kw).toUpperCase();
+        } catch { /* no/invalid referer — keep defaults */ }
+        fetch(hookUrl, {
+          method: "POST",
+          headers: { "Content-Type": "application/json", "x-vedd-secret": hookSecret },
+          body: JSON.stringify({
+            email,
+            first_name: req.body?.firstName || null,
+            platform: src,
+            keyword: kw,
+            utm_source: src,
+            utm_medium: "landing_page",
+            utm_campaign: `lp_${req.params.slug}`,
+          }),
+          signal: AbortSignal.timeout(8000),
+        }).catch((e: any) => console.error("[LP] onboarding webhook failed:", e?.message));
+      }
     } catch (err: any) {
       res.status(400).json({ message: err.message });
     }
