@@ -634,6 +634,47 @@ export function noteConfidenceSample(value: number): void {
 
 export function setICTStrategyEnabled(userId: number, enabled: boolean) {
   ictStrategyEnabledMap.set(userId, enabled);
+  persistFxToggles(userId);
+}
+
+// ── Durable strategy toggles ─────────────────────────────────────────────────
+// ICT / SMC / trailing-stop / prop-firm-mode were in-memory only, so every
+// deploy quietly reset a user's choice to the default (ICT/SMC/trail ON,
+// prop-firm OFF). Mirror them to runtime_state and restore on boot. Only keys
+// that were explicitly set are saved; unset keys keep their defaults.
+const _lastSavedToggles = new Map<number, string>();
+function persistFxToggles(userId: number): void {
+  const v: Record<string, boolean> = {};
+  if (ictStrategyEnabledMap.has(userId)) v.ict = !!ictStrategyEnabledMap.get(userId);
+  if (smcStrategyEnabledMap.has(userId)) v.smc = !!smcStrategyEnabledMap.get(userId);
+  if (trailingStopEnabledMap.has(userId)) v.trail = !!trailingStopEnabledMap.get(userId);
+  if (propFirmModeMap.has(userId)) v.propFirm = !!propFirmModeMap.get(userId);
+  // Some setters run on every chart-data post (trailing stop is re-applied from
+  // the user row each time) — only write when something actually changed.
+  const snap = JSON.stringify(v);
+  if (_lastSavedToggles.get(userId) === snap) return;
+  _lastSavedToggles.set(userId, snap);
+  void import('./services/runtime-state').then(m => m.saveRuntimeState('fx_toggles', String(userId), v)).catch(() => {});
+}
+
+/** Boot: restore saved toggles. Never overrides a value already set this process. */
+export async function hydrateFxTogglesFromDb(): Promise<void> {
+  try {
+    const { loadRuntimeState } = await import('./services/runtime-state');
+    const rows = await loadRuntimeState('fx_toggles');
+    for (const r of rows) {
+      const uid = Number(r.key);
+      const v = r.value || {};
+      if (!Number.isFinite(uid)) continue;
+      if (typeof v.ict === 'boolean' && !ictStrategyEnabledMap.has(uid)) ictStrategyEnabledMap.set(uid, v.ict);
+      if (typeof v.smc === 'boolean' && !smcStrategyEnabledMap.has(uid)) smcStrategyEnabledMap.set(uid, v.smc);
+      if (typeof v.trail === 'boolean' && !trailingStopEnabledMap.has(uid)) trailingStopEnabledMap.set(uid, v.trail);
+      if (typeof v.propFirm === 'boolean' && !propFirmModeMap.has(uid)) propFirmModeMap.set(uid, v.propFirm);
+    }
+    if (rows.length) console.log(`[startup] restored strategy toggles for ${rows.length} user(s).`);
+  } catch (err: any) {
+    console.error('[startup] strategy toggle restore failed (non-fatal):', err?.message ?? err);
+  }
 }
 
 export function isICTStrategyEnabled(userId: number): boolean {
@@ -645,6 +686,7 @@ const smcStrategyEnabledMap = new Map<number, boolean>();
 
 export function setSMCStrategyEnabled(userId: number, enabled: boolean) {
   smcStrategyEnabledMap.set(userId, enabled);
+  persistFxToggles(userId);
 }
 
 export function isSMCStrategyEnabled(userId: number): boolean {
@@ -683,6 +725,7 @@ export function setBreakoutModeEnabled(userId: number, enabled: boolean) {
     }
   }
   breakoutModeEnabledMap.set(userId, enabled);
+  persistFxToggles(userId);
 }
 
 /** Hydrate in-memory map from DB value without triggering ICT/SMC/trail side effects. */
@@ -698,6 +741,7 @@ export function isBreakoutModeEnabled(userId: number): boolean {
 
 export function setTrailingStopEnabled(userId: number, enabled: boolean) {
   trailingStopEnabledMap.set(userId, enabled);
+  persistFxToggles(userId);
 }
 
 export function isTrailingStopEnabled(userId: number): boolean {
@@ -710,6 +754,7 @@ const propFirmContextMap = new Map<number, PropFirmContext>();
 
 export function setPropFirmMode(userId: number, enabled: boolean) {
   propFirmModeMap.set(userId, enabled);
+  persistFxToggles(userId);
 }
 
 export function isPropFirmModeEnabled(userId: number): boolean {

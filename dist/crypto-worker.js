@@ -8264,10 +8264,18 @@ async function getDefiCandles(chainKey, poolAddress, timeframe, count) {
   const key = `${net}:${poolAddress}:${endpoint}:${aggregate}`;
   const hit = candleCache.get(key);
   if (hit && Date.now() - hit.at < callBudget().candleTtlMs) return hit.bars.slice(-count);
-  const d = await gt(`/networks/${net}/pools/${poolAddress}/ohlcv/${endpoint}?aggregate=${aggregate}&limit=${FETCH_DEPTH}`);
-  const list = d?.data?.attributes?.ohlcv_list ?? [];
-  const bars = list.map((r) => ({ t: Number(r[0]) * 1e3, o: Number(r[1]), h: Number(r[2]), l: Number(r[3]), c: Number(r[4]), v: Number(r[5]) })).filter((b) => Number.isFinite(b.c) && b.c > 0).reverse();
-  candleCache.set(key, { at: Date.now(), bars });
+  let pending = candleInFlight.get(key);
+  if (!pending) {
+    pending = (async () => {
+      const d = await gt(`/networks/${net}/pools/${poolAddress}/ohlcv/${endpoint}?aggregate=${aggregate}&limit=${FETCH_DEPTH}`);
+      const list = d?.data?.attributes?.ohlcv_list ?? [];
+      const bars2 = list.map((r) => ({ t: Number(r[0]) * 1e3, o: Number(r[1]), h: Number(r[2]), l: Number(r[3]), c: Number(r[4]), v: Number(r[5]) })).filter((b) => Number.isFinite(b.c) && b.c > 0).reverse();
+      candleCache.set(key, { at: Date.now(), bars: bars2 });
+      return bars2;
+    })().finally(() => candleInFlight.delete(key));
+    candleInFlight.set(key, pending);
+  }
+  const bars = await pending;
   return bars.slice(-count);
 }
 async function getDefiPrice(chainKey, poolAddress) {
@@ -8275,7 +8283,7 @@ async function getDefiPrice(chainKey, poolAddress) {
   const last = bars[bars.length - 1];
   return last?.c && last.c > 0 ? last.c : null;
 }
-var GT, GT_NETWORK, SETTLEMENT, callChain, lastCallAt, discoveryCache, TF, candleCache;
+var GT, GT_NETWORK, SETTLEMENT, callChain, lastCallAt, discoveryCache, TF, candleCache, candleInFlight;
 var init_defi_market_data = __esm({
   "server/services/defi-market-data.ts"() {
     "use strict";
@@ -8300,6 +8308,7 @@ var init_defi_market_data = __esm({
       "1d": ["day", 1]
     };
     candleCache = /* @__PURE__ */ new Map();
+    candleInFlight = /* @__PURE__ */ new Map();
   }
 });
 
@@ -9992,6 +10001,64 @@ var init_ai_usage = __esm({
   }
 });
 
+// server/services/runtime-state.ts
+var runtime_state_exports = {};
+__export(runtime_state_exports, {
+  ensureRuntimeStateTable: () => ensureRuntimeStateTable,
+  loadRuntimeState: () => loadRuntimeState,
+  saveRuntimeState: () => saveRuntimeState
+});
+function ensureRuntimeStateTable() {
+  if (!ensured) {
+    ensured = pool.query(DDL2).then(() => void 0).catch((err) => {
+      console.error("[runtime-state] ensure table failed (non-fatal):", err?.message ?? err);
+      ensured = null;
+    });
+  }
+  return ensured;
+}
+function saveRuntimeState(scope, key, value) {
+  void (async () => {
+    try {
+      await ensureRuntimeStateTable();
+      await pool.query(
+        `INSERT INTO runtime_state (scope, key, value, updated_at) VALUES ($1, $2, $3::jsonb, now())
+         ON CONFLICT (scope, key) DO UPDATE SET value = EXCLUDED.value, updated_at = now()`,
+        [scope, key, JSON.stringify(value)]
+      );
+    } catch (err) {
+      console.error(`[runtime-state] save ${scope}/${key} failed (non-fatal):`, err?.message ?? err);
+    }
+  })();
+}
+async function loadRuntimeState(scope) {
+  try {
+    await ensureRuntimeStateTable();
+    const { rows } = await pool.query(`SELECT key, value FROM runtime_state WHERE scope = $1`, [scope]);
+    return rows;
+  } catch (err) {
+    console.error(`[runtime-state] load ${scope} failed (non-fatal):`, err?.message ?? err);
+    return [];
+  }
+}
+var DDL2, ensured;
+var init_runtime_state = __esm({
+  "server/services/runtime-state.ts"() {
+    "use strict";
+    init_db();
+    DDL2 = `
+CREATE TABLE IF NOT EXISTS "runtime_state" (
+  "scope" text NOT NULL,
+  "key" text NOT NULL,
+  "value" jsonb NOT NULL,
+  "updated_at" timestamp NOT NULL DEFAULT now(),
+  PRIMARY KEY ("scope", "key")
+);
+`;
+    ensured = null;
+  }
+});
+
 // server/utils/ictMacroUtils.ts
 var ictMacroUtils_exports = {};
 __export(ictMacroUtils_exports, {
@@ -11214,6 +11281,7 @@ __export(openai_exports, {
   hydrateAdaptiveRegimeMap: () => hydrateAdaptiveRegimeMap,
   hydrateAiVisionMap: () => hydrateAiVisionMap,
   hydrateBreakoutModeMap: () => hydrateBreakoutModeMap,
+  hydrateFxTogglesFromDb: () => hydrateFxTogglesFromDb,
   inferModelProvider: () => inferModelProvider,
   isAdaptiveRegimeEnabled: () => isAdaptiveRegimeEnabled,
   isAiVisionConfirmationEnabled: () => isAiVisionConfirmationEnabled,
@@ -11632,6 +11700,37 @@ function noteConfidenceSample(value) {
 }
 function setICTStrategyEnabled(userId, enabled) {
   ictStrategyEnabledMap.set(userId, enabled);
+  persistFxToggles(userId);
+}
+function persistFxToggles(userId) {
+  const v = {};
+  if (ictStrategyEnabledMap.has(userId)) v.ict = !!ictStrategyEnabledMap.get(userId);
+  if (smcStrategyEnabledMap.has(userId)) v.smc = !!smcStrategyEnabledMap.get(userId);
+  if (trailingStopEnabledMap.has(userId)) v.trail = !!trailingStopEnabledMap.get(userId);
+  if (propFirmModeMap.has(userId)) v.propFirm = !!propFirmModeMap.get(userId);
+  const snap = JSON.stringify(v);
+  if (_lastSavedToggles.get(userId) === snap) return;
+  _lastSavedToggles.set(userId, snap);
+  void Promise.resolve().then(() => (init_runtime_state(), runtime_state_exports)).then((m) => m.saveRuntimeState("fx_toggles", String(userId), v)).catch(() => {
+  });
+}
+async function hydrateFxTogglesFromDb() {
+  try {
+    const { loadRuntimeState: loadRuntimeState2 } = await Promise.resolve().then(() => (init_runtime_state(), runtime_state_exports));
+    const rows = await loadRuntimeState2("fx_toggles");
+    for (const r of rows) {
+      const uid = Number(r.key);
+      const v = r.value || {};
+      if (!Number.isFinite(uid)) continue;
+      if (typeof v.ict === "boolean" && !ictStrategyEnabledMap.has(uid)) ictStrategyEnabledMap.set(uid, v.ict);
+      if (typeof v.smc === "boolean" && !smcStrategyEnabledMap.has(uid)) smcStrategyEnabledMap.set(uid, v.smc);
+      if (typeof v.trail === "boolean" && !trailingStopEnabledMap.has(uid)) trailingStopEnabledMap.set(uid, v.trail);
+      if (typeof v.propFirm === "boolean" && !propFirmModeMap.has(uid)) propFirmModeMap.set(uid, v.propFirm);
+    }
+    if (rows.length) console.log(`[startup] restored strategy toggles for ${rows.length} user(s).`);
+  } catch (err) {
+    console.error("[startup] strategy toggle restore failed (non-fatal):", err?.message ?? err);
+  }
 }
 function isICTStrategyEnabled(userId) {
   const val = ictStrategyEnabledMap.get(userId);
@@ -11639,6 +11738,7 @@ function isICTStrategyEnabled(userId) {
 }
 function setSMCStrategyEnabled(userId, enabled) {
   smcStrategyEnabledMap.set(userId, enabled);
+  persistFxToggles(userId);
 }
 function isSMCStrategyEnabled(userId) {
   const val = smcStrategyEnabledMap.get(userId);
@@ -11672,6 +11772,7 @@ function setBreakoutModeEnabled(userId, enabled) {
     }
   }
   breakoutModeEnabledMap.set(userId, enabled);
+  persistFxToggles(userId);
 }
 function hydrateBreakoutModeMap(userId, enabled) {
   if (!breakoutModeEnabledMap.has(userId)) {
@@ -11683,6 +11784,7 @@ function isBreakoutModeEnabled(userId) {
 }
 function setTrailingStopEnabled(userId, enabled) {
   trailingStopEnabledMap.set(userId, enabled);
+  persistFxToggles(userId);
 }
 function isTrailingStopEnabled(userId) {
   const val = trailingStopEnabledMap.get(userId);
@@ -11690,6 +11792,7 @@ function isTrailingStopEnabled(userId) {
 }
 function setPropFirmMode(userId, enabled) {
   propFirmModeMap.set(userId, enabled);
+  persistFxToggles(userId);
 }
 function isPropFirmModeEnabled(userId) {
   const val = propFirmModeMap.get(userId);
@@ -15226,7 +15329,7 @@ Respond with this exact JSON structure:
     };
   }
 }
-var TOP_PROFITABLE_STRATEGIES, _openaiInstance, openai, AVAILABLE_VISION_MODELS, userModelPreferences, DEPRECATED_MODEL_MAP, DEFAULT_AI_MODEL, VISION_FALLBACK, KNOWN_VISION_MODEL_IDS, aiVisionConfirmationEnabled, aiMinConfidenceThreshold, ictStrategyEnabledMap, breakoutModeEnabledMap, trailingStopEnabledMap, breakoutModePriorState, _recentConfidence, smcStrategyEnabledMap, propFirmModeMap, propFirmContextMap, aiConfirmationLogs2, logIdCounter, adaptiveRegimeEnabledMap, VETERAN_JUDGE_MODEL, VETERAN_PERSONA, PROVIDER_MODELS, AnthropicAsOpenAI, PROVIDER_PRIORITY, VEDD_IDENTITY_CONTEXT, MASTER_GRANT_WRITER_SYSTEM;
+var TOP_PROFITABLE_STRATEGIES, _openaiInstance, openai, AVAILABLE_VISION_MODELS, userModelPreferences, DEPRECATED_MODEL_MAP, DEFAULT_AI_MODEL, VISION_FALLBACK, KNOWN_VISION_MODEL_IDS, aiVisionConfirmationEnabled, aiMinConfidenceThreshold, ictStrategyEnabledMap, breakoutModeEnabledMap, trailingStopEnabledMap, breakoutModePriorState, _recentConfidence, _lastSavedToggles, smcStrategyEnabledMap, propFirmModeMap, propFirmContextMap, aiConfirmationLogs2, logIdCounter, adaptiveRegimeEnabledMap, VETERAN_JUDGE_MODEL, VETERAN_PERSONA, PROVIDER_MODELS, AnthropicAsOpenAI, PROVIDER_PRIORITY, VEDD_IDENTITY_CONTEXT, MASTER_GRANT_WRITER_SYSTEM;
 var init_openai = __esm({
   "server/openai.ts"() {
     "use strict";
@@ -15320,6 +15423,7 @@ var init_openai = __esm({
     trailingStopEnabledMap = /* @__PURE__ */ new Map();
     breakoutModePriorState = /* @__PURE__ */ new Map();
     _recentConfidence = [];
+    _lastSavedToggles = /* @__PURE__ */ new Map();
     smcStrategyEnabledMap = /* @__PURE__ */ new Map();
     propFirmModeMap = /* @__PURE__ */ new Map();
     propFirmContextMap = /* @__PURE__ */ new Map();
@@ -15656,18 +15760,18 @@ __export(ensure_cryptocom_engine_tables_exports, {
 });
 async function ensureCryptocomEngineTables() {
   try {
-    await pool.query(DDL2);
+    await pool.query(DDL3);
     console.log("[startup] Crypto.com Engine tables ensured (cryptocom_engine_configs/activity/trades).");
   } catch (err) {
     console.error("[startup] ensureCryptocomEngineTables failed (non-fatal):", err?.message ?? err);
   }
 }
-var DDL2;
+var DDL3;
 var init_ensure_cryptocom_engine_tables = __esm({
   "server/services/ensure-cryptocom-engine-tables.ts"() {
     "use strict";
     init_db();
-    DDL2 = `
+    DDL3 = `
 CREATE TABLE IF NOT EXISTS "cryptocom_engine_configs" (
   "id" serial PRIMARY KEY,
   "user_id" integer NOT NULL UNIQUE REFERENCES "users"("id"),
@@ -17194,6 +17298,21 @@ var EXIT_BUDGET_MS = 45e3;
 var ENTRY_BUDGET_MS = 6e4;
 var userInFlight = /* @__PURE__ */ new Set();
 var _cycleNo = 0;
+var USER_CONCURRENCY = Math.max(1, Math.floor(Number(process.env.CRYPTO_USER_CONCURRENCY) || 4));
+async function runInPool(items, limit, fn) {
+  let next = 0;
+  const worker = async () => {
+    while (next < items.length) {
+      const item = items[next++];
+      try {
+        await fn(item);
+      } catch (e) {
+        console.error("[cryptocom-scanner] pool task failed:", e?.message ?? e);
+      }
+    }
+  };
+  await Promise.all(Array.from({ length: Math.min(limit, items.length) }, worker));
+}
 function rotate(arr, n) {
   if (arr.length < 2) return arr;
   const k = n % arr.length;
@@ -17249,7 +17368,7 @@ async function runCryptocomEngineScan() {
       return [];
     });
     _cycleNo++;
-    for (const uid of rotate(holders, _cycleNo)) {
+    await runInPool(rotate(holders, _cycleNo), USER_CONCURRENCY, async (uid) => {
       await phase(`exit_pass:user_${uid}`);
       await runUserBounded(`exit:${uid}`, EXIT_BUDGET_MS, async () => {
         const cfg = await storage.getUserCryptocomEngineConfig(uid);
@@ -17264,13 +17383,13 @@ async function runCryptocomEngineScan() {
           breakevenBufferR: 0
         });
       });
-    }
+    });
     await phase("entry_scan:list_configs");
     const configs = await storage.getAllActiveCryptocomEngineConfigs();
-    for (const config of rotate(configs, _cycleNo)) {
+    await runInPool(rotate(configs, _cycleNo), USER_CONCURRENCY, async (config) => {
       await phase(`entry_scan:user_${config.userId}`);
       await runUserBounded(`entry:${config.userId}`, ENTRY_BUDGET_MS, () => scanOneUser(config.userId));
-    }
+    });
   } catch (err) {
     console.error("[cryptocom-scanner] runCryptocomEngineScan failed:", err.message);
   } finally {

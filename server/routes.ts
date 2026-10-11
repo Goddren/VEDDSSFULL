@@ -16523,6 +16523,19 @@ Rules:
         ...(resolvedAccNum ? { accNum: resolvedAccNum } : {}),
       }))!;
     } else {
+      // Optional per-user account limit (off unless MAX_TL_ACCOUNTS_PER_USER is
+      // set). Only blocks adding a NEW account; reconnecting an existing one is
+      // always allowed. Admins are exempt.
+      const _maxAcc = Number(process.env.MAX_TL_ACCOUNTS_PER_USER) || 0;
+      if (_maxAcc > 0) {
+        const _u = await storage.getUser(userId);
+        if (!(_u as any)?.isAdmin) {
+          const _have = (await storage.getUserTradelockerConnections(userId)).length;
+          if (_have >= _maxAcc) {
+            return res.status(403).json({ error: `Account limit reached: your plan allows ${_maxAcc} TradeLocker account(s).` });
+          }
+        }
+      }
       connection = await storage.createTradelockerConnection({
         userId,
         email,

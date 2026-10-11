@@ -7494,6 +7494,64 @@ var init_ai_usage = __esm({
   }
 });
 
+// server/services/runtime-state.ts
+var runtime_state_exports = {};
+__export(runtime_state_exports, {
+  ensureRuntimeStateTable: () => ensureRuntimeStateTable,
+  loadRuntimeState: () => loadRuntimeState,
+  saveRuntimeState: () => saveRuntimeState
+});
+function ensureRuntimeStateTable() {
+  if (!ensured) {
+    ensured = pool.query(DDL).then(() => void 0).catch((err) => {
+      console.error("[runtime-state] ensure table failed (non-fatal):", err?.message ?? err);
+      ensured = null;
+    });
+  }
+  return ensured;
+}
+function saveRuntimeState(scope, key, value) {
+  void (async () => {
+    try {
+      await ensureRuntimeStateTable();
+      await pool.query(
+        `INSERT INTO runtime_state (scope, key, value, updated_at) VALUES ($1, $2, $3::jsonb, now())
+         ON CONFLICT (scope, key) DO UPDATE SET value = EXCLUDED.value, updated_at = now()`,
+        [scope, key, JSON.stringify(value)]
+      );
+    } catch (err) {
+      console.error(`[runtime-state] save ${scope}/${key} failed (non-fatal):`, err?.message ?? err);
+    }
+  })();
+}
+async function loadRuntimeState(scope) {
+  try {
+    await ensureRuntimeStateTable();
+    const { rows } = await pool.query(`SELECT key, value FROM runtime_state WHERE scope = $1`, [scope]);
+    return rows;
+  } catch (err) {
+    console.error(`[runtime-state] load ${scope} failed (non-fatal):`, err?.message ?? err);
+    return [];
+  }
+}
+var DDL, ensured;
+var init_runtime_state = __esm({
+  "server/services/runtime-state.ts"() {
+    "use strict";
+    init_db();
+    DDL = `
+CREATE TABLE IF NOT EXISTS "runtime_state" (
+  "scope" text NOT NULL,
+  "key" text NOT NULL,
+  "value" jsonb NOT NULL,
+  "updated_at" timestamp NOT NULL DEFAULT now(),
+  PRIMARY KEY ("scope", "key")
+);
+`;
+    ensured = null;
+  }
+});
+
 // server/utils/smcUtils.ts
 var smcUtils_exports = {};
 __export(smcUtils_exports, {
@@ -9124,6 +9182,7 @@ __export(openai_exports, {
   hydrateAdaptiveRegimeMap: () => hydrateAdaptiveRegimeMap,
   hydrateAiVisionMap: () => hydrateAiVisionMap,
   hydrateBreakoutModeMap: () => hydrateBreakoutModeMap,
+  hydrateFxTogglesFromDb: () => hydrateFxTogglesFromDb,
   inferModelProvider: () => inferModelProvider,
   isAdaptiveRegimeEnabled: () => isAdaptiveRegimeEnabled,
   isAiVisionConfirmationEnabled: () => isAiVisionConfirmationEnabled,
@@ -9542,6 +9601,37 @@ function noteConfidenceSample(value) {
 }
 function setICTStrategyEnabled(userId, enabled) {
   ictStrategyEnabledMap.set(userId, enabled);
+  persistFxToggles(userId);
+}
+function persistFxToggles(userId) {
+  const v = {};
+  if (ictStrategyEnabledMap.has(userId)) v.ict = !!ictStrategyEnabledMap.get(userId);
+  if (smcStrategyEnabledMap.has(userId)) v.smc = !!smcStrategyEnabledMap.get(userId);
+  if (trailingStopEnabledMap.has(userId)) v.trail = !!trailingStopEnabledMap.get(userId);
+  if (propFirmModeMap.has(userId)) v.propFirm = !!propFirmModeMap.get(userId);
+  const snap = JSON.stringify(v);
+  if (_lastSavedToggles.get(userId) === snap) return;
+  _lastSavedToggles.set(userId, snap);
+  void Promise.resolve().then(() => (init_runtime_state(), runtime_state_exports)).then((m) => m.saveRuntimeState("fx_toggles", String(userId), v)).catch(() => {
+  });
+}
+async function hydrateFxTogglesFromDb() {
+  try {
+    const { loadRuntimeState: loadRuntimeState2 } = await Promise.resolve().then(() => (init_runtime_state(), runtime_state_exports));
+    const rows = await loadRuntimeState2("fx_toggles");
+    for (const r of rows) {
+      const uid2 = Number(r.key);
+      const v = r.value || {};
+      if (!Number.isFinite(uid2)) continue;
+      if (typeof v.ict === "boolean" && !ictStrategyEnabledMap.has(uid2)) ictStrategyEnabledMap.set(uid2, v.ict);
+      if (typeof v.smc === "boolean" && !smcStrategyEnabledMap.has(uid2)) smcStrategyEnabledMap.set(uid2, v.smc);
+      if (typeof v.trail === "boolean" && !trailingStopEnabledMap.has(uid2)) trailingStopEnabledMap.set(uid2, v.trail);
+      if (typeof v.propFirm === "boolean" && !propFirmModeMap.has(uid2)) propFirmModeMap.set(uid2, v.propFirm);
+    }
+    if (rows.length) console.log(`[startup] restored strategy toggles for ${rows.length} user(s).`);
+  } catch (err) {
+    console.error("[startup] strategy toggle restore failed (non-fatal):", err?.message ?? err);
+  }
 }
 function isICTStrategyEnabled(userId) {
   const val = ictStrategyEnabledMap.get(userId);
@@ -9549,6 +9639,7 @@ function isICTStrategyEnabled(userId) {
 }
 function setSMCStrategyEnabled(userId, enabled) {
   smcStrategyEnabledMap.set(userId, enabled);
+  persistFxToggles(userId);
 }
 function isSMCStrategyEnabled(userId) {
   const val = smcStrategyEnabledMap.get(userId);
@@ -9582,6 +9673,7 @@ function setBreakoutModeEnabled(userId, enabled) {
     }
   }
   breakoutModeEnabledMap.set(userId, enabled);
+  persistFxToggles(userId);
 }
 function hydrateBreakoutModeMap(userId, enabled) {
   if (!breakoutModeEnabledMap.has(userId)) {
@@ -9593,6 +9685,7 @@ function isBreakoutModeEnabled(userId) {
 }
 function setTrailingStopEnabled(userId, enabled) {
   trailingStopEnabledMap.set(userId, enabled);
+  persistFxToggles(userId);
 }
 function isTrailingStopEnabled(userId) {
   const val = trailingStopEnabledMap.get(userId);
@@ -9600,6 +9693,7 @@ function isTrailingStopEnabled(userId) {
 }
 function setPropFirmMode(userId, enabled) {
   propFirmModeMap.set(userId, enabled);
+  persistFxToggles(userId);
 }
 function isPropFirmModeEnabled(userId) {
   const val = propFirmModeMap.get(userId);
@@ -13136,7 +13230,7 @@ Respond with this exact JSON structure:
     };
   }
 }
-var TOP_PROFITABLE_STRATEGIES, _openaiInstance, openai, AVAILABLE_VISION_MODELS, userModelPreferences, DEPRECATED_MODEL_MAP, DEFAULT_AI_MODEL, VISION_FALLBACK, KNOWN_VISION_MODEL_IDS, aiVisionConfirmationEnabled, aiMinConfidenceThreshold, ictStrategyEnabledMap, breakoutModeEnabledMap, trailingStopEnabledMap, breakoutModePriorState, _recentConfidence, smcStrategyEnabledMap, propFirmModeMap, propFirmContextMap, aiConfirmationLogs2, logIdCounter, adaptiveRegimeEnabledMap, VETERAN_JUDGE_MODEL, VETERAN_PERSONA, PROVIDER_MODELS, AnthropicAsOpenAI, PROVIDER_PRIORITY, VEDD_IDENTITY_CONTEXT, MASTER_GRANT_WRITER_SYSTEM;
+var TOP_PROFITABLE_STRATEGIES, _openaiInstance, openai, AVAILABLE_VISION_MODELS, userModelPreferences, DEPRECATED_MODEL_MAP, DEFAULT_AI_MODEL, VISION_FALLBACK, KNOWN_VISION_MODEL_IDS, aiVisionConfirmationEnabled, aiMinConfidenceThreshold, ictStrategyEnabledMap, breakoutModeEnabledMap, trailingStopEnabledMap, breakoutModePriorState, _recentConfidence, _lastSavedToggles, smcStrategyEnabledMap, propFirmModeMap, propFirmContextMap, aiConfirmationLogs2, logIdCounter, adaptiveRegimeEnabledMap, VETERAN_JUDGE_MODEL, VETERAN_PERSONA, PROVIDER_MODELS, AnthropicAsOpenAI, PROVIDER_PRIORITY, VEDD_IDENTITY_CONTEXT, MASTER_GRANT_WRITER_SYSTEM;
 var init_openai = __esm({
   "server/openai.ts"() {
     "use strict";
@@ -13230,6 +13324,7 @@ var init_openai = __esm({
     trailingStopEnabledMap = /* @__PURE__ */ new Map();
     breakoutModePriorState = /* @__PURE__ */ new Map();
     _recentConfidence = [];
+    _lastSavedToggles = /* @__PURE__ */ new Map();
     smcStrategyEnabledMap = /* @__PURE__ */ new Map();
     propFirmModeMap = /* @__PURE__ */ new Map();
     propFirmContextMap = /* @__PURE__ */ new Map();
@@ -28654,6 +28749,14 @@ async function processDecision(userId, decision, newsCtx) {
       const _gsym = decision.symbol.toUpperCase().replace("/", "");
       const _gkey = `last_trade_${userId}_${_gsym}`;
       global.recentTrades = global.recentTrades || {};
+      if (global.recentTrades[_gkey] === void 0) {
+        try {
+          const _logs = await storage.getTradelockerTradeLogs(userId, 200);
+          const _last = _logs.filter((t) => t.action === "OPEN" && t.status === "executed" && String(t.symbol || "").toUpperCase().replace("/", "") === _gsym && t.createdAt).map((t) => new Date(t.createdAt).getTime()).sort((a, b) => b - a)[0];
+          global.recentTrades[_gkey] = _last || 0;
+        } catch {
+        }
+      }
       const _glast = global.recentTrades[_gkey];
       if (_glast && Date.now() - _glast < FX_SYMBOL_COOLDOWN_MS) {
         addActivity(userId, { type: "info", symbol: decision.symbol, message: `\u23F3 ${decision.symbol}: cooldown active \u2014 last entry ${Math.round((Date.now() - _glast) / 6e4)} min ago (min gap ${Math.round(FX_SYMBOL_COOLDOWN_MS / 6e4)} min). Skipping.` });
@@ -38576,10 +38679,18 @@ async function getDefiCandles(chainKey, poolAddress, timeframe, count) {
   const key = `${net}:${poolAddress}:${endpoint}:${aggregate}`;
   const hit = candleCache.get(key);
   if (hit && Date.now() - hit.at < callBudget().candleTtlMs) return hit.bars.slice(-count);
-  const d = await gt(`/networks/${net}/pools/${poolAddress}/ohlcv/${endpoint}?aggregate=${aggregate}&limit=${FETCH_DEPTH}`);
-  const list = d?.data?.attributes?.ohlcv_list ?? [];
-  const bars = list.map((r) => ({ t: Number(r[0]) * 1e3, o: Number(r[1]), h: Number(r[2]), l: Number(r[3]), c: Number(r[4]), v: Number(r[5]) })).filter((b) => Number.isFinite(b.c) && b.c > 0).reverse();
-  candleCache.set(key, { at: Date.now(), bars });
+  let pending = candleInFlight.get(key);
+  if (!pending) {
+    pending = (async () => {
+      const d = await gt(`/networks/${net}/pools/${poolAddress}/ohlcv/${endpoint}?aggregate=${aggregate}&limit=${FETCH_DEPTH}`);
+      const list = d?.data?.attributes?.ohlcv_list ?? [];
+      const bars2 = list.map((r) => ({ t: Number(r[0]) * 1e3, o: Number(r[1]), h: Number(r[2]), l: Number(r[3]), c: Number(r[4]), v: Number(r[5]) })).filter((b) => Number.isFinite(b.c) && b.c > 0).reverse();
+      candleCache.set(key, { at: Date.now(), bars: bars2 });
+      return bars2;
+    })().finally(() => candleInFlight.delete(key));
+    candleInFlight.set(key, pending);
+  }
+  const bars = await pending;
   return bars.slice(-count);
 }
 async function getDefiPrice(chainKey, poolAddress) {
@@ -38587,7 +38698,7 @@ async function getDefiPrice(chainKey, poolAddress) {
   const last = bars[bars.length - 1];
   return last?.c && last.c > 0 ? last.c : null;
 }
-var GT, GT_NETWORK, SETTLEMENT, callChain, lastCallAt2, discoveryCache, TF, candleCache;
+var GT, GT_NETWORK, SETTLEMENT, callChain, lastCallAt2, discoveryCache, TF, candleCache, candleInFlight;
 var init_defi_market_data = __esm({
   "server/services/defi-market-data.ts"() {
     "use strict";
@@ -38612,6 +38723,7 @@ var init_defi_market_data = __esm({
       "1d": ["day", 1]
     };
     candleCache = /* @__PURE__ */ new Map();
+    candleInFlight = /* @__PURE__ */ new Map();
   }
 });
 
@@ -38703,7 +38815,7 @@ __export(hyperliquid_executor_exports, {
 });
 async function ensureHyperliquidTable() {
   try {
-    await pool.query(DDL);
+    await pool.query(DDL2);
     console.log("[startup] Hyperliquid connections table ensured (hyperliquid_connections).");
   } catch (err) {
     console.error("[startup] ensureHyperliquidTable failed (non-fatal):", err?.message ?? err);
@@ -38881,14 +38993,14 @@ async function hyperliquidExit(userId, trade) {
   await cancelCoinStops(creds, asset);
   return { ok: true, exitPrice: fill.avgPx };
 }
-var DDL, HL_PREFIX, acctCache;
+var DDL2, HL_PREFIX, acctCache;
 var init_hyperliquid_executor = __esm({
   "server/services/hyperliquid-executor.ts"() {
     "use strict";
     init_db();
     init_cryptocom();
     init_hyperliquid();
-    DDL = `
+    DDL2 = `
 CREATE TABLE IF NOT EXISTS "hyperliquid_connections" (
   "id" serial PRIMARY KEY NOT NULL,
   "user_id" integer NOT NULL,
@@ -40674,6 +40786,20 @@ async function scanOneUser(userId) {
     }
   }
 }
+async function runInPool(items, limit, fn) {
+  let next = 0;
+  const worker = async () => {
+    while (next < items.length) {
+      const item = items[next++];
+      try {
+        await fn(item);
+      } catch (e) {
+        console.error("[cryptocom-scanner] pool task failed:", e?.message ?? e);
+      }
+    }
+  };
+  await Promise.all(Array.from({ length: Math.min(limit, items.length) }, worker));
+}
 function rotate(arr2, n) {
   if (arr2.length < 2) return arr2;
   const k = n % arr2.length;
@@ -40729,7 +40855,7 @@ async function runCryptocomEngineScan() {
       return [];
     });
     _cycleNo++;
-    for (const uid2 of rotate(holders, _cycleNo)) {
+    await runInPool(rotate(holders, _cycleNo), USER_CONCURRENCY, async (uid2) => {
       await phase(`exit_pass:user_${uid2}`);
       await runUserBounded(`exit:${uid2}`, EXIT_BUDGET_MS, async () => {
         const cfg = await storage.getUserCryptocomEngineConfig(uid2);
@@ -40744,13 +40870,13 @@ async function runCryptocomEngineScan() {
           breakevenBufferR: 0
         });
       });
-    }
+    });
     await phase("entry_scan:list_configs");
     const configs = await storage.getAllActiveCryptocomEngineConfigs();
-    for (const config of rotate(configs, _cycleNo)) {
+    await runInPool(rotate(configs, _cycleNo), USER_CONCURRENCY, async (config) => {
       await phase(`entry_scan:user_${config.userId}`);
       await runUserBounded(`entry:${config.userId}`, ENTRY_BUDGET_MS, () => scanOneUser(config.userId));
-    }
+    });
   } catch (err) {
     console.error("[cryptocom-scanner] runCryptocomEngineScan failed:", err.message);
   } finally {
@@ -40968,7 +41094,7 @@ function startCryptocomEngineScanner() {
   };
   tryStart();
 }
-var MIN_SCAN_INTERVAL_MS, lastScanAt, MAX_SYMBOLS_PER_CYCLE, scanCursor, defiUniverse, STRATEGY_RUNNERS, AUTO_STRATEGIES, sessionPeakEquity, EXIT_BUDGET_MS, ENTRY_BUDGET_MS, userInFlight, _cycleNo, started2, scanInFlight, _skippedTicks, _scansCompleted, WORKER_ID, _hbBooted, CRYPTO_RUN_LOCK_KEY, _holdsRunLock, STALE_AFTER_MS;
+var MIN_SCAN_INTERVAL_MS, lastScanAt, MAX_SYMBOLS_PER_CYCLE, scanCursor, defiUniverse, STRATEGY_RUNNERS, AUTO_STRATEGIES, sessionPeakEquity, EXIT_BUDGET_MS, ENTRY_BUDGET_MS, userInFlight, _cycleNo, USER_CONCURRENCY, started2, scanInFlight, _skippedTicks, _scansCompleted, WORKER_ID, _hbBooted, CRYPTO_RUN_LOCK_KEY, _holdsRunLock, STALE_AFTER_MS;
 var init_cryptocom_scanner = __esm({
   "server/services/cryptocom-scanner.ts"() {
     "use strict";
@@ -41000,6 +41126,7 @@ var init_cryptocom_scanner = __esm({
     ENTRY_BUDGET_MS = 6e4;
     userInFlight = /* @__PURE__ */ new Set();
     _cycleNo = 0;
+    USER_CONCURRENCY = Math.max(1, Math.floor(Number(process.env.CRYPTO_USER_CONCURRENCY) || 4));
     started2 = false;
     scanInFlight = false;
     _skippedTicks = 0;
@@ -53726,7 +53853,7 @@ __export(ensure_kalshi_engine_config_table_exports, {
 });
 async function ensureKalshiEngineConfigTable() {
   try {
-    await pool.query(DDL2);
+    await pool.query(DDL3);
     console.log("[startup] Kalshi engine config table ensured (kalshi_engine_configs) \u2014 coin selection/strategy/risk settings now survive restarts.");
     try {
       const res = await pool.query(
@@ -53771,12 +53898,12 @@ async function ensureKalshiEngineConfigTable() {
     console.error("[startup] ensureKalshiEngineConfigTable failed (non-fatal):", err?.message ?? err);
   }
 }
-var DDL2;
+var DDL3;
 var init_ensure_kalshi_engine_config_table = __esm({
   "server/services/ensure-kalshi-engine-config-table.ts"() {
     "use strict";
     init_db();
-    DDL2 = `
+    DDL3 = `
 CREATE TABLE IF NOT EXISTS "kalshi_engine_configs" (
   "id" serial PRIMARY KEY NOT NULL,
   "user_id" integer NOT NULL UNIQUE REFERENCES "users"("id"),
@@ -53795,18 +53922,18 @@ __export(ensure_kalshi_brain_tables_exports, {
 });
 async function ensureKalshiBrainTables() {
   try {
-    await pool.query(DDL3);
+    await pool.query(DDL4);
     console.log("[startup] Kalshi brain table ensured (kalshi_brain_outcomes) \u2014 per-trade learning features now persist.");
   } catch (err) {
     console.error("[startup] ensureKalshiBrainTables failed (non-fatal):", err?.message ?? err);
   }
 }
-var DDL3;
+var DDL4;
 var init_ensure_kalshi_brain_tables = __esm({
   "server/services/ensure-kalshi-brain-tables.ts"() {
     "use strict";
     init_db();
-    DDL3 = `
+    DDL4 = `
 CREATE TABLE IF NOT EXISTS "kalshi_brain_outcomes" (
   "id" serial PRIMARY KEY NOT NULL,
   "user_id" integer NOT NULL REFERENCES "users"("id"),
@@ -53842,18 +53969,18 @@ __export(ensure_options_tables_exports, {
 });
 async function ensureOptionsTables() {
   try {
-    await pool.query(DDL4);
+    await pool.query(DDL5);
     console.log("[startup] Options-engine broker tables ensured (alpaca/tastytrade/cryptocom/options_engine_configs/options_engine_activity/options_engine_trades).");
   } catch (err) {
     console.error("[startup] ensureOptionsTables failed (non-fatal):", err?.message ?? err);
   }
 }
-var DDL4;
+var DDL5;
 var init_ensure_options_tables = __esm({
   "server/services/ensure-options-tables.ts"() {
     "use strict";
     init_db();
-    DDL4 = `
+    DDL5 = `
 CREATE TABLE IF NOT EXISTS "alpaca_connections" (
   "id" serial PRIMARY KEY NOT NULL,
   "user_id" integer NOT NULL REFERENCES "users"("id"),
@@ -53999,18 +54126,18 @@ __export(ensure_blog_tables_exports, {
 });
 async function ensureBlogTables() {
   try {
-    await pool.query(DDL5);
+    await pool.query(DDL6);
     console.log("[startup] Blog lead-gen tables ensured (blog_newsletter_subscribers).");
   } catch (err) {
     console.error("[startup] ensureBlogTables failed (non-fatal):", err?.message ?? err);
   }
 }
-var DDL5;
+var DDL6;
 var init_ensure_blog_tables = __esm({
   "server/services/ensure-blog-tables.ts"() {
     "use strict";
     init_db();
-    DDL5 = `
+    DDL6 = `
 CREATE TABLE IF NOT EXISTS "blog_newsletter_subscribers" (
   "id" serial PRIMARY KEY NOT NULL,
   "email" text NOT NULL UNIQUE,
@@ -54031,18 +54158,18 @@ __export(ensure_ambassador_prime_tables_exports, {
 });
 async function ensureAmbassadorPrimeTables() {
   try {
-    await pool.query(DDL6);
+    await pool.query(DDL7);
     console.log("[startup] Ambassador Prime tables ensured (run_summary, daily_content, daily_kpis, hook_variations, bonus_content, community_content, reddit_insights, run_step_log, weekly_calendar, market_briefing).");
   } catch (err) {
     console.error("[startup] ensureAmbassadorPrimeTables failed (non-fatal):", err?.message ?? err);
   }
 }
-var DDL6;
+var DDL7;
 var init_ensure_ambassador_prime_tables = __esm({
   "server/services/ensure-ambassador-prime-tables.ts"() {
     "use strict";
     init_db();
-    DDL6 = `
+    DDL7 = `
 CREATE TABLE IF NOT EXISTS "ambassador_run_summary" (
   "id" serial PRIMARY KEY NOT NULL,
   "run_date" varchar(20) NOT NULL UNIQUE,
@@ -54151,18 +54278,18 @@ __export(ensure_brain_marketplace_tables_exports, {
 });
 async function ensureBrainMarketplaceTables() {
   try {
-    await pool.query(DDL7);
+    await pool.query(DDL8);
     console.log("[startup] Brain Data Marketplace tables ensured (brain_data_listings, brain_data_purchases).");
   } catch (err) {
     console.error("[startup] ensureBrainMarketplaceTables failed (non-fatal):", err?.message ?? err);
   }
 }
-var DDL7;
+var DDL8;
 var init_ensure_brain_marketplace_tables = __esm({
   "server/services/ensure-brain-marketplace-tables.ts"() {
     "use strict";
     init_db();
-    DDL7 = `
+    DDL8 = `
 CREATE TABLE IF NOT EXISTS "brain_data_listings" (
   "id" serial PRIMARY KEY NOT NULL,
   "seller_id" integer NOT NULL REFERENCES "users"("id"),
@@ -54206,18 +54333,18 @@ __export(ensure_options_brain_outcomes_table_exports, {
 });
 async function ensureOptionsBrainOutcomesTable() {
   try {
-    await pool.query(DDL8);
+    await pool.query(DDL9);
     console.log("[startup] Options brain feature store ensured (options_brain_outcomes) \u2014 options brain is now durable + sellable on the marketplace.");
   } catch (err) {
     console.error("[startup] ensureOptionsBrainOutcomesTable failed (non-fatal):", err?.message ?? err);
   }
 }
-var DDL8;
+var DDL9;
 var init_ensure_options_brain_outcomes_table = __esm({
   "server/services/ensure-options-brain-outcomes-table.ts"() {
     "use strict";
     init_db();
-    DDL8 = `
+    DDL9 = `
 CREATE TABLE IF NOT EXISTS "options_brain_outcomes" (
   "id" serial PRIMARY KEY NOT NULL,
   "user_id" integer NOT NULL REFERENCES "users"("id"),
@@ -54249,18 +54376,18 @@ __export(ensure_options_iv_history_table_exports, {
 });
 async function ensureOptionsIvHistoryTable() {
   try {
-    await pool.query(DDL9);
+    await pool.query(DDL10);
     console.log("[startup] Options IV-history table ensured (options_iv_history) \u2014 IV Rank now self-builds from daily ATM IV snapshots.");
   } catch (err) {
     console.error("[startup] ensureOptionsIvHistoryTable failed (non-fatal):", err?.message ?? err);
   }
 }
-var DDL9;
+var DDL10;
 var init_ensure_options_iv_history_table = __esm({
   "server/services/ensure-options-iv-history-table.ts"() {
     "use strict";
     init_db();
-    DDL9 = `
+    DDL10 = `
 CREATE TABLE IF NOT EXISTS "options_iv_history" (
   "id" serial PRIMARY KEY NOT NULL,
   "underlying_symbol" text NOT NULL,
@@ -54280,7 +54407,7 @@ __export(ensure_persona_content_tables_exports, {
   ensurePersonaContentTables: () => ensurePersonaContentTables
 });
 async function ensurePersonaContentTables() {
-  await pool.query(DDL10);
+  await pool.query(DDL11);
   for (const pillar of PILLARS) {
     await pool.query(
       `INSERT INTO "persona_pillar_rotation" ("pillar") VALUES ($1) ON CONFLICT ("pillar") DO NOTHING`,
@@ -54291,7 +54418,7 @@ async function ensurePersonaContentTables() {
     `INSERT INTO "persona_arc_state" ("id", "current_index", "loops_completed") VALUES (1, 0, 0) ON CONFLICT ("id") DO NOTHING`
   );
 }
-var PILLARS, DDL10;
+var PILLARS, DDL11;
 var init_ensure_persona_content_tables = __esm({
   "server/services/ensure-persona-content-tables.ts"() {
     "use strict";
@@ -54308,7 +54435,7 @@ var init_ensure_persona_content_tables = __esm({
       "Behind-the-scenes",
       "Family/life balance/purpose"
     ];
-    DDL10 = `
+    DDL11 = `
 CREATE TABLE IF NOT EXISTS "persona_pillar_rotation" (
   "id" serial PRIMARY KEY NOT NULL,
   "pillar" text NOT NULL UNIQUE,
@@ -54345,18 +54472,18 @@ __export(ensure_content_image_columns_exports, {
 });
 async function ensureContentImageColumns() {
   try {
-    await pool.query(DDL11);
+    await pool.query(DDL12);
     console.log("[startup] Content image columns ensured (devotionals.hero_image, ambassador_daily_content/bonus_content/community_content.image_url).");
   } catch (err) {
     console.error("[startup] ensureContentImageColumns failed (non-fatal):", err?.message ?? err);
   }
 }
-var DDL11;
+var DDL12;
 var init_ensure_content_image_columns = __esm({
   "server/services/ensure-content-image-columns.ts"() {
     "use strict";
     init_db();
-    DDL11 = `
+    DDL12 = `
 ALTER TABLE "devotionals" ADD COLUMN IF NOT EXISTS "hero_image" text;
 ALTER TABLE "ambassador_daily_content" ADD COLUMN IF NOT EXISTS "image_url" text;
 ALTER TABLE "ambassador_bonus_content" ADD COLUMN IF NOT EXISTS "image_url" text;
@@ -54372,18 +54499,18 @@ __export(ensure_order_flow_column_exports, {
 });
 async function ensureOrderFlowColumn() {
   try {
-    await pool.query(DDL12);
+    await pool.query(DDL13);
     console.log("[startup] Options Engine order-flow column ensured (options_engine_configs.order_flow_lookback_bars).");
   } catch (err) {
     console.error("[startup] ensureOrderFlowColumn failed (non-fatal):", err?.message ?? err);
   }
 }
-var DDL12;
+var DDL13;
 var init_ensure_order_flow_column = __esm({
   "server/services/ensure-order-flow-column.ts"() {
     "use strict";
     init_db();
-    DDL12 = `
+    DDL13 = `
 ALTER TABLE "options_engine_configs" ADD COLUMN IF NOT EXISTS "order_flow_lookback_bars" integer NOT NULL DEFAULT 30;
 `;
   }
@@ -54396,18 +54523,18 @@ __export(ensure_options_engine_parity_columns_exports, {
 });
 async function ensureOptionsEngineParityColumns() {
   try {
-    await pool.query(DDL13);
+    await pool.query(DDL14);
     console.log("[startup] Options Engine FX-parity columns ensured (trailing stops, Drawdown Shield, Kelly, Brain Learning Mode, prop-firm presets + consistency rule, Copy Mode, Volatile Cap, Goal Tracker, scheduling, AI intelligence extras, liquidity filter, per-trade confidence/DTE/IV/spread).");
   } catch (err) {
     console.error("[startup] ensureOptionsEngineParityColumns failed (non-fatal):", err?.message ?? err);
   }
 }
-var DDL13;
+var DDL14;
 var init_ensure_options_engine_parity_columns = __esm({
   "server/services/ensure-options-engine-parity-columns.ts"() {
     "use strict";
     init_db();
-    DDL13 = `
+    DDL14 = `
 ALTER TABLE "options_engine_configs" ADD COLUMN IF NOT EXISTS "ai_mode" text NOT NULL DEFAULT 'full';
 ALTER TABLE "options_engine_configs" ADD COLUMN IF NOT EXISTS "use_kelly_criterion" boolean NOT NULL DEFAULT false;
 ALTER TABLE "options_engine_configs" ADD COLUMN IF NOT EXISTS "brain_learning_mode" boolean NOT NULL DEFAULT true;
@@ -54484,18 +54611,18 @@ __export(ensure_futures_engine_tables_exports, {
 });
 async function ensureFuturesEngineTables() {
   try {
-    await pool.query(DDL14);
+    await pool.query(DDL15);
     console.log("[startup] Futures Engine tables ensured (futures_engine_configs/activity/trades \u2014 FX-parity persisted config, trailing stops, Kelly, Brain Learning Mode, Drawdown Shield, consistency rule, scheduling).");
   } catch (err) {
     console.error("[startup] ensureFuturesEngineTables failed (non-fatal):", err?.message ?? err);
   }
 }
-var DDL14;
+var DDL15;
 var init_ensure_futures_engine_tables = __esm({
   "server/services/ensure-futures-engine-tables.ts"() {
     "use strict";
     init_db();
-    DDL14 = `
+    DDL15 = `
 CREATE TABLE IF NOT EXISTS "futures_engine_configs" (
   "id" serial PRIMARY KEY,
   "user_id" integer NOT NULL UNIQUE REFERENCES "users"("id"),
@@ -54603,18 +54730,18 @@ __export(ensure_content_studio_tables_exports, {
 });
 async function ensureContentStudioTables() {
   try {
-    await pool.query(DDL15);
+    await pool.query(DDL16);
     console.log("[startup] Content Studio durable media tables ensured (content_studio_assets/generations).");
   } catch (err) {
     console.error("[startup] ensureContentStudioTables failed (non-fatal):", err?.message ?? err);
   }
 }
-var DDL15;
+var DDL16;
 var init_ensure_content_studio_tables = __esm({
   "server/services/ensure-content-studio-tables.ts"() {
     "use strict";
     init_db();
-    DDL15 = `
+    DDL16 = `
 CREATE TABLE IF NOT EXISTS "content_studio_assets" (
   "id" serial PRIMARY KEY,
   "mime_type" text NOT NULL,
@@ -54645,18 +54772,18 @@ __export(ensure_cryptocom_engine_tables_exports, {
 });
 async function ensureCryptocomEngineTables() {
   try {
-    await pool.query(DDL16);
+    await pool.query(DDL17);
     console.log("[startup] Crypto.com Engine tables ensured (cryptocom_engine_configs/activity/trades).");
   } catch (err) {
     console.error("[startup] ensureCryptocomEngineTables failed (non-fatal):", err?.message ?? err);
   }
 }
-var DDL16;
+var DDL17;
 var init_ensure_cryptocom_engine_tables = __esm({
   "server/services/ensure-cryptocom-engine-tables.ts"() {
     "use strict";
     init_db();
-    DDL16 = `
+    DDL17 = `
 CREATE TABLE IF NOT EXISTS "cryptocom_engine_configs" (
   "id" serial PRIMARY KEY,
   "user_id" integer NOT NULL UNIQUE REFERENCES "users"("id"),
@@ -54794,18 +54921,18 @@ __export(ensure_crypto_brain_table_exports, {
 });
 async function ensureCryptoBrainTable() {
   try {
-    await pool.query(DDL17);
+    await pool.query(DDL18);
     console.log("[startup] Crypto brain feature store ensured (crypto_brain_outcomes) \u2014 per-trade learning now durable.");
   } catch (err) {
     console.error("[startup] ensureCryptoBrainTable failed (non-fatal):", err?.message ?? err);
   }
 }
-var DDL17;
+var DDL18;
 var init_ensure_crypto_brain_table = __esm({
   "server/services/ensure-crypto-brain-table.ts"() {
     "use strict";
     init_db();
-    DDL17 = `
+    DDL18 = `
 CREATE TABLE IF NOT EXISTS "crypto_brain_outcomes" (
   "id" serial PRIMARY KEY NOT NULL,
   "user_id" integer NOT NULL,
@@ -54835,18 +54962,18 @@ __export(ensure_fx_brain_table_exports, {
 });
 async function ensureFxBrainTable() {
   try {
-    await pool.query(DDL18);
+    await pool.query(DDL19);
     console.log("[startup] FX brain feature store ensured (fx_brain_outcomes) \u2014 per-trade condition learning now durable.");
   } catch (err) {
     console.error("[startup] ensureFxBrainTable failed (non-fatal):", err?.message ?? err);
   }
 }
-var DDL18;
+var DDL19;
 var init_ensure_fx_brain_table = __esm({
   "server/services/ensure-fx-brain-table.ts"() {
     "use strict";
     init_db();
-    DDL18 = `
+    DDL19 = `
 CREATE TABLE IF NOT EXISTS "fx_brain_outcomes" (
   "id" serial PRIMARY KEY NOT NULL,
   "user_id" integer NOT NULL,
@@ -54959,18 +55086,18 @@ __export(ensure_sol_brain_table_exports, {
 });
 async function ensureSolBrainTable() {
   try {
-    await pool.query(DDL19);
+    await pool.query(DDL20);
     console.log("[startup] Sol brain feature store ensured (sol_brain_outcomes) \u2014 per-trade learning now durable.");
   } catch (err) {
     console.error("[startup] ensureSolBrainTable failed (non-fatal):", err?.message ?? err);
   }
 }
-var DDL19;
+var DDL20;
 var init_ensure_sol_brain_table = __esm({
   "server/services/ensure-sol-brain-table.ts"() {
     "use strict";
     init_db();
-    DDL19 = `
+    DDL20 = `
 CREATE TABLE IF NOT EXISTS "sol_brain_outcomes" (
   "id" serial PRIMARY KEY NOT NULL,
   "user_id" integer NOT NULL,
@@ -55000,18 +55127,18 @@ __export(ensure_coinbase_tables_exports, {
 });
 async function ensureCoinbaseTables() {
   try {
-    await pool.query(DDL20);
+    await pool.query(DDL21);
     console.log("[startup] Coinbase connections table ensured (coinbase_connections) \u2014 read-only wallet balances.");
   } catch (err) {
     console.error("[startup] ensureCoinbaseTables failed (non-fatal):", err?.message ?? err);
   }
 }
-var DDL20;
+var DDL21;
 var init_ensure_coinbase_tables = __esm({
   "server/services/ensure-coinbase-tables.ts"() {
     "use strict";
     init_db();
-    DDL20 = `
+    DDL21 = `
 CREATE TABLE IF NOT EXISTS "coinbase_connections" (
   "id" serial PRIMARY KEY NOT NULL,
   "user_id" integer NOT NULL,
@@ -55036,18 +55163,18 @@ __export(ensure_kraken_tables_exports, {
 });
 async function ensureKrakenTables() {
   try {
-    await pool.query(DDL21);
+    await pool.query(DDL22);
     console.log("[startup] Kraken connections table ensured (kraken_connections) \u2014 read-only wallet balances.");
   } catch (err) {
     console.error("[startup] ensureKrakenTables failed (non-fatal):", err?.message ?? err);
   }
 }
-var DDL21;
+var DDL22;
 var init_ensure_kraken_tables = __esm({
   "server/services/ensure-kraken-tables.ts"() {
     "use strict";
     init_db();
-    DDL21 = `
+    DDL22 = `
 CREATE TABLE IF NOT EXISTS "kraken_connections" (
   "id" serial PRIMARY KEY NOT NULL,
   "user_id" integer NOT NULL,
@@ -55072,18 +55199,18 @@ __export(ensure_gemini_tables_exports, {
 });
 async function ensureGeminiTables() {
   try {
-    await pool.query(DDL22);
+    await pool.query(DDL23);
     console.log("[startup] Gemini connections table ensured (gemini_connections) \u2014 read-only wallet balances.");
   } catch (err) {
     console.error("[startup] ensureGeminiTables failed (non-fatal):", err?.message ?? err);
   }
 }
-var DDL22;
+var DDL23;
 var init_ensure_gemini_tables = __esm({
   "server/services/ensure-gemini-tables.ts"() {
     "use strict";
     init_db();
-    DDL22 = `
+    DDL23 = `
 CREATE TABLE IF NOT EXISTS "gemini_connections" (
   "id" serial PRIMARY KEY NOT NULL,
   "user_id" integer NOT NULL,
@@ -55108,18 +55235,18 @@ __export(ensure_defi_wallets_table_exports, {
 });
 async function ensureDefiWalletsTable() {
   try {
-    await pool.query(DDL23);
+    await pool.query(DDL24);
     console.log("[startup] DeFi wallets table ensured (defi_wallets) \u2014 public addresses only, on-chain read-only.");
   } catch (err) {
     console.error("[startup] ensureDefiWalletsTable failed (non-fatal):", err?.message ?? err);
   }
 }
-var DDL23;
+var DDL24;
 var init_ensure_defi_wallets_table = __esm({
   "server/services/ensure-defi-wallets-table.ts"() {
     "use strict";
     init_db();
-    DDL23 = `
+    DDL24 = `
 CREATE TABLE IF NOT EXISTS "defi_wallets" (
   "id" serial PRIMARY KEY NOT NULL,
   "user_id" integer NOT NULL,
@@ -55143,18 +55270,18 @@ __export(ensure_defi_hotwallet_table_exports, {
 });
 async function ensureDefiHotWalletTable() {
   try {
-    await pool.query(DDL24);
+    await pool.query(DDL25);
     console.log("[startup] DeFi hot-wallet table ensured (defi_hot_wallets) \u2014 encrypted key for unattended swaps.");
   } catch (err) {
     console.error("[startup] ensureDefiHotWalletTable failed (non-fatal):", err?.message ?? err);
   }
 }
-var DDL24;
+var DDL25;
 var init_ensure_defi_hotwallet_table = __esm({
   "server/services/ensure-defi-hotwallet-table.ts"() {
     "use strict";
     init_db();
-    DDL24 = `
+    DDL25 = `
 CREATE TABLE IF NOT EXISTS "defi_hot_wallets" (
   "id" serial PRIMARY KEY NOT NULL,
   "user_id" integer NOT NULL,
@@ -55177,19 +55304,19 @@ __export(ensure_dxtrade_tables_exports, {
 });
 async function ensureDxtradeTables() {
   try {
-    await pool.query(DDL25);
+    await pool.query(DDL26);
     await pool.query(ALTERS);
     console.log("[startup] DXtrade connections table ensured (dxtrade_connections).");
   } catch (err) {
     console.error("[startup] ensureDxtradeTables failed (non-fatal):", err?.message ?? err);
   }
 }
-var DDL25, ALTERS;
+var DDL26, ALTERS;
 var init_ensure_dxtrade_tables = __esm({
   "server/services/ensure-dxtrade-tables.ts"() {
     "use strict";
     init_db();
-    DDL25 = `
+    DDL26 = `
 CREATE TABLE IF NOT EXISTS "dxtrade_connections" (
   "id" serial PRIMARY KEY NOT NULL,
   "user_id" integer NOT NULL,
@@ -55228,18 +55355,18 @@ __export(ensure_engine_consensus_table_exports, {
 });
 async function ensureEngineConsensusTable() {
   try {
-    await pool.query(DDL26);
+    await pool.query(DDL27);
     console.log("[startup] Engine consensus table ensured (engine_consensus_log) \u2014 Dual-Vote Consensus panels now survive restarts.");
   } catch (err) {
     console.error("[startup] ensureEngineConsensusTable failed (non-fatal):", err?.message ?? err);
   }
 }
-var DDL26;
+var DDL27;
 var init_ensure_engine_consensus_table = __esm({
   "server/services/ensure-engine-consensus-table.ts"() {
     "use strict";
     init_db();
-    DDL26 = `
+    DDL27 = `
 CREATE TABLE IF NOT EXISTS "engine_consensus_log" (
   "id" serial PRIMARY KEY NOT NULL,
   "user_id" integer NOT NULL REFERENCES "users"("id"),
@@ -55267,18 +55394,18 @@ __export(ensure_micro_growth_milestones_table_exports, {
 });
 async function ensureMicroGrowthMilestonesTable() {
   try {
-    await pool.query(DDL27);
+    await pool.query(DDL28);
     console.log("[startup] Micro Growth milestones table ensured (micro_growth_milestones) \u2014 doubling challenge now survives restarts.");
   } catch (err) {
     console.error("[startup] ensureMicroGrowthMilestonesTable failed (non-fatal):", err?.message ?? err);
   }
 }
-var DDL27;
+var DDL28;
 var init_ensure_micro_growth_milestones_table = __esm({
   "server/services/ensure-micro-growth-milestones-table.ts"() {
     "use strict";
     init_db();
-    DDL27 = `
+    DDL28 = `
 CREATE TABLE IF NOT EXISTS "micro_growth_milestones" (
   "id" serial PRIMARY KEY NOT NULL,
   "user_id" integer NOT NULL UNIQUE REFERENCES "users"("id"),
@@ -55300,18 +55427,18 @@ __export(ensure_micro_growth_sessions_table_exports, {
 });
 async function ensureMicroGrowthSessionsTable() {
   try {
-    await pool.query(DDL28);
+    await pool.query(DDL29);
     console.log("[startup] Micro Growth sessions table ensured (micro_growth_sessions) \u2014 session history now survives restarts.");
   } catch (err) {
     console.error("[startup] ensureMicroGrowthSessionsTable failed (non-fatal):", err?.message ?? err);
   }
 }
-var DDL28;
+var DDL29;
 var init_ensure_micro_growth_sessions_table = __esm({
   "server/services/ensure-micro-growth-sessions-table.ts"() {
     "use strict";
     init_db();
-    DDL28 = `
+    DDL29 = `
 CREATE TABLE IF NOT EXISTS "micro_growth_sessions" (
   "id" text PRIMARY KEY NOT NULL,
   "user_id" integer NOT NULL REFERENCES "users"("id"),
@@ -55342,18 +55469,18 @@ __export(ensure_workforce_course_progress_table_exports, {
 });
 async function ensureWorkforceCourseProgressTable() {
   try {
-    await pool.query(DDL29);
+    await pool.query(DDL30);
     console.log('[startup] Workforce course progress table ensured (workforce_course_progress) \u2014 "where you left off" now survives restarts.');
   } catch (err) {
     console.error("[startup] ensureWorkforceCourseProgressTable failed (non-fatal):", err?.message ?? err);
   }
 }
-var DDL29;
+var DDL30;
 var init_ensure_workforce_course_progress_table = __esm({
   "server/services/ensure-workforce-course-progress-table.ts"() {
     "use strict";
     init_db();
-    DDL29 = `
+    DDL30 = `
 CREATE TABLE IF NOT EXISTS "workforce_course_progress" (
   "id" serial PRIMARY KEY NOT NULL,
   "user_id" integer NOT NULL REFERENCES "users"("id"),
@@ -55377,18 +55504,18 @@ __export(ensure_live_engine_config_table_exports, {
 });
 async function ensureLiveEngineConfigTable() {
   try {
-    await pool.query(DDL30);
+    await pool.query(DDL31);
     console.log("[startup] Live Engine config table ensured (live_engine_configs) \u2014 propFirmMode/consistency-rule settings now survive restarts.");
   } catch (err) {
     console.error("[startup] ensureLiveEngineConfigTable failed (non-fatal):", err?.message ?? err);
   }
 }
-var DDL30;
+var DDL31;
 var init_ensure_live_engine_config_table = __esm({
   "server/services/ensure-live-engine-config-table.ts"() {
     "use strict";
     init_db();
-    DDL30 = `
+    DDL31 = `
 CREATE TABLE IF NOT EXISTS "live_engine_configs" (
   "id" serial PRIMARY KEY,
   "user_id" integer NOT NULL UNIQUE REFERENCES "users"("id"),
@@ -55407,18 +55534,18 @@ __export(ensure_copy_trading_execution_columns_exports, {
 });
 async function ensureCopyTradingExecutionColumns() {
   try {
-    await pool.query(DDL31);
+    await pool.query(DDL32);
     console.log("[startup] Copy trading execution columns ensured (copier_connection_id, copier_fx_trade_id, broker_order_id, execution_status, execution_error).");
   } catch (err) {
     console.error("[startup] ensureCopyTradingExecutionColumns failed (non-fatal):", err?.message ?? err);
   }
 }
-var DDL31;
+var DDL32;
 var init_ensure_copy_trading_execution_columns = __esm({
   "server/services/ensure-copy-trading-execution-columns.ts"() {
     "use strict";
     init_db();
-    DDL31 = `
+    DDL32 = `
 ALTER TABLE "copy_relationships" ADD COLUMN IF NOT EXISTS "copier_connection_id" integer;
 ALTER TABLE "copy_trade_logs" ADD COLUMN IF NOT EXISTS "copier_fx_trade_id" integer;
 ALTER TABLE "copy_trade_logs" ADD COLUMN IF NOT EXISTS "broker_order_id" text;
@@ -55435,18 +55562,18 @@ __export(ensure_reasoning_propfirm_tables_exports, {
 });
 async function ensureReasoningPropFirmTables() {
   try {
-    await pool.query(DDL32);
+    await pool.query(DDL33);
     console.log("[startup] Reasoning + prop firm phase tables ensured (ai_confirmation_outcomes reasoning columns, prop_firm_account_state).");
   } catch (err) {
     console.error("[startup] ensureReasoningPropFirmTables failed (non-fatal):", err?.message ?? err);
   }
 }
-var DDL32;
+var DDL33;
 var init_ensure_reasoning_propfirm_tables = __esm({
   "server/services/ensure-reasoning-propfirm-tables.ts"() {
     "use strict";
     init_db();
-    DDL32 = `
+    DDL33 = `
 ALTER TABLE "ai_confirmation_outcomes" ADD COLUMN IF NOT EXISTS "reasoning_text" text;
 ALTER TABLE "ai_confirmation_outcomes" ADD COLUMN IF NOT EXISTS "bull_case" text;
 ALTER TABLE "ai_confirmation_outcomes" ADD COLUMN IF NOT EXISTS "bear_case" text;
@@ -55544,18 +55671,18 @@ __export(ensure_profit_split_tables_exports, {
 });
 async function ensureProfitSplitTables() {
   try {
-    await pool.query(DDL33);
+    await pool.query(DDL34);
     console.log("[startup] Profit Split tables ensured (profit_split_enrollments, profit_split_payments) \u2014 ambassador 30% prop-firm profit-split program.");
   } catch (err) {
     console.error("[startup] ensureProfitSplitTables failed (non-fatal):", err?.message ?? err);
   }
 }
-var DDL33;
+var DDL34;
 var init_ensure_profit_split_tables = __esm({
   "server/services/ensure-profit-split-tables.ts"() {
     "use strict";
     init_db();
-    DDL33 = `
+    DDL34 = `
 CREATE TABLE IF NOT EXISTS "profit_split_enrollments" (
   "id" serial PRIMARY KEY NOT NULL,
   "user_id" integer NOT NULL UNIQUE REFERENCES "users"("id"),
@@ -58086,9 +58213,9 @@ async function getStopOrdersForUser(userId, filters = {}) {
 init_schema();
 
 // server/build-info.ts
-var BUILD_COMMIT = "ebe54e48-dirty";
+var BUILD_COMMIT = "f44de0ee-dirty";
 var BUILD_BRANCH = "main";
-var BUILT_AT = "2026-10-11T19:09:36.522Z";
+var BUILT_AT = "2026-10-11T20:08:12.388Z";
 
 // server/stripe.ts
 init_db();
@@ -74960,6 +75087,16 @@ Rules:
         ...resolvedAccNum ? { accNum: resolvedAccNum } : {}
       });
     } else {
+      const _maxAcc = Number(process.env.MAX_TL_ACCOUNTS_PER_USER) || 0;
+      if (_maxAcc > 0) {
+        const _u = await storage.getUser(userId);
+        if (!_u?.isAdmin) {
+          const _have = (await storage.getUserTradelockerConnections(userId)).length;
+          if (_have >= _maxAcc) {
+            return res.status(403).json({ error: `Account limit reached: your plan allows ${_maxAcc} TradeLocker account(s).` });
+          }
+        }
+      }
       connection2 = await storage.createTradelockerConnection({
         userId,
         email,
@@ -91043,6 +91180,8 @@ async function withRetry(fn, label, maxAttempts = 6, baseDelayMs = 2e3) {
     await ensureLiveEngineConfigTable2();
     const { hydratePersistedEngineConfigs: hydratePersistedEngineConfigs2, restoreFxEngineStateFromDb: restoreFxEngineStateFromDb2 } = await Promise.resolve().then(() => (init_live_trading_engine(), live_trading_engine_exports));
     await hydratePersistedEngineConfigs2();
+    const { hydrateFxTogglesFromDb: hydrateFxTogglesFromDb2 } = await Promise.resolve().then(() => (init_openai(), openai_exports));
+    await hydrateFxTogglesFromDb2();
     await restoreFxEngineStateFromDb2();
     const { startFxLeaderElection: startFxLeaderElection2 } = await Promise.resolve().then(() => (init_live_trading_engine(), live_trading_engine_exports));
     await startFxLeaderElection2();

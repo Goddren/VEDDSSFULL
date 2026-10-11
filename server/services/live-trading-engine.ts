@@ -5167,6 +5167,21 @@ async function processDecision(userId: number, decision: any, newsCtx?: any): Pr
       const _gsym = decision.symbol.toUpperCase().replace('/', '');
       const _gkey = `last_trade_${userId}_${_gsym}`;
       (global as any).recentTrades = (global as any).recentTrades || {};
+      // The cooldown map is in-memory, so a deploy used to forget every
+      // cooldown and let the engine re-enter a pair it had just traded. Rebuild
+      // the entry from the broker trade log the first time it's needed (same
+      // approach the chart-data path already uses). A failed read leaves it
+      // unset — exactly today's behaviour.
+      if ((global as any).recentTrades[_gkey] === undefined) {
+        try {
+          const _logs = await storage.getTradelockerTradeLogs(userId, 200);
+          const _last = _logs
+            .filter((t: any) => t.action === 'OPEN' && t.status === 'executed' && String(t.symbol || '').toUpperCase().replace('/', '') === _gsym && t.createdAt)
+            .map((t: any) => new Date(t.createdAt).getTime())
+            .sort((a: number, b: number) => b - a)[0];
+          (global as any).recentTrades[_gkey] = _last || 0;
+        } catch { /* keep unset */ }
+      }
       const _glast = (global as any).recentTrades[_gkey];
       if (_glast && (Date.now() - _glast) < FX_SYMBOL_COOLDOWN_MS) {
         addActivity(userId, { type: 'info', symbol: decision.symbol, message: `⏳ ${decision.symbol}: cooldown active — last entry ${Math.round((Date.now() - _glast) / 60000)} min ago (min gap ${Math.round(FX_SYMBOL_COOLDOWN_MS / 60000)} min). Skipping.` });

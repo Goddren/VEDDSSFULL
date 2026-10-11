@@ -223,16 +223,28 @@ export async function getDefiCandles(chainKey: string, poolAddress: string, time
   const hit = candleCache.get(key);
   if (hit && Date.now() - hit.at < callBudget().candleTtlMs) return hit.bars.slice(-count);
 
-  const d = await gt(`/networks/${net}/pools/${poolAddress}/ohlcv/${endpoint}?aggregate=${aggregate}&limit=${FETCH_DEPTH}`);
-  const list: any[] = d?.data?.attributes?.ohlcv_list ?? [];
-  // GeckoTerminal returns newest-first; the indicators assume oldest-first.
-  const bars = list
-    .map((r) => ({ t: Number(r[0]) * 1000, o: Number(r[1]), h: Number(r[2]), l: Number(r[3]), c: Number(r[4]), v: Number(r[5]) }))
-    .filter((b) => Number.isFinite(b.c) && b.c > 0)
-    .reverse();
-  candleCache.set(key, { at: Date.now(), bars });
+  // Users now scan in parallel, so two of them can miss the cache for the same
+  // pool at the same moment. Share one in-flight request instead of spending
+  // two rate-limited calls on identical data.
+  let pending = candleInFlight.get(key);
+  if (!pending) {
+    pending = (async () => {
+      const d = await gt(`/networks/${net}/pools/${poolAddress}/ohlcv/${endpoint}?aggregate=${aggregate}&limit=${FETCH_DEPTH}`);
+      const list: any[] = d?.data?.attributes?.ohlcv_list ?? [];
+      // GeckoTerminal returns newest-first; the indicators assume oldest-first.
+      const bars = list
+        .map((r) => ({ t: Number(r[0]) * 1000, o: Number(r[1]), h: Number(r[2]), l: Number(r[3]), c: Number(r[4]), v: Number(r[5]) }))
+        .filter((b) => Number.isFinite(b.c) && b.c > 0)
+        .reverse();
+      candleCache.set(key, { at: Date.now(), bars });
+      return bars;
+    })().finally(() => candleInFlight.delete(key));
+    candleInFlight.set(key, pending);
+  }
+  const bars = await pending;
   return bars.slice(-count);
 }
+const candleInFlight = new Map<string, Promise<DefiCandle[]>>();
 
 /** Spot price from the freshest candle close. */
 export async function getDefiPrice(chainKey: string, poolAddress: string): Promise<number | null> {

@@ -1501,6 +1501,20 @@ const ENTRY_BUDGET_MS = 60_000;  // one user's entry scan
 const userInFlight = new Set<string>();
 let _cycleNo = 0;
 
+const USER_CONCURRENCY = Math.max(1, Math.floor(Number(process.env.CRYPTO_USER_CONCURRENCY) || 4));
+
+/** Run fn over items with at most `limit` in flight; order of starts preserved. */
+async function runInPool<T>(items: T[], limit: number, fn: (item: T) => Promise<void>): Promise<void> {
+  let next = 0;
+  const worker = async () => {
+    while (next < items.length) {
+      const item = items[next++];
+      try { await fn(item); } catch (e: any) { console.error('[cryptocom-scanner] pool task failed:', e?.message ?? e); }
+    }
+  };
+  await Promise.all(Array.from({ length: Math.min(limit, items.length) }, worker));
+}
+
 function rotate<T>(arr: T[], n: number): T[] {
   if (arr.length < 2) return arr;
   const k = n % arr.length;
@@ -1600,7 +1614,10 @@ export async function runCryptocomEngineScan(): Promise<void> {
     // cycle from starting a second copy of it, and close-claims already stop
     // a duplicate exit order.
     _cycleNo++;
-    for (const uid of rotate(holders, _cycleNo)) {
+    // Users are independent (own wallet, own config, own trades), so run up to
+    // USER_CONCURRENCY of them at once. With one user this is identical to the
+    // old one-at-a-time loop; at 100 users it turns a ~100-min cycle into ~25.
+    await runInPool(rotate(holders, _cycleNo), USER_CONCURRENCY, async (uid) => {
       await phase(`exit_pass:user_${uid}`);
       await runUserBounded(`exit:${uid}`, EXIT_BUDGET_MS, async () => {
         // The config supplies trail parameters only. A missing config must not
@@ -1612,14 +1629,14 @@ export async function runCryptocomEngineScan(): Promise<void> {
           trailSarMaxAf: 0.2, breakevenBufferR: 0,
         }) as any);
       });
-    }
+    });
 
     await phase('entry_scan:list_configs');
     const configs = await storage.getAllActiveCryptocomEngineConfigs();
-    for (const config of rotate(configs, _cycleNo)) {
+    await runInPool(rotate(configs, _cycleNo), USER_CONCURRENCY, async (config) => {
       await phase(`entry_scan:user_${config.userId}`);
       await runUserBounded(`entry:${config.userId}`, ENTRY_BUDGET_MS, () => scanOneUser(config.userId));
-    }
+    });
   } catch (err: any) {
     console.error('[cryptocom-scanner] runCryptocomEngineScan failed:', err.message);
   } finally {

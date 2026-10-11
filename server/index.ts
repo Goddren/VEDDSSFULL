@@ -494,6 +494,9 @@ async function withRetry<T>(
     await ensureLiveEngineConfigTable();
     const { hydratePersistedEngineConfigs, restoreFxEngineStateFromDb } = await import('./services/live-trading-engine');
     await hydratePersistedEngineConfigs();
+    // Strategy toggles (ICT/SMC/trailing/prop-firm) — previously reset on deploy.
+    const { hydrateFxTogglesFromDb } = await import('./openai');
+    await hydrateFxTogglesFromDb();
     // Resume any FX engine that was RUNNING when this process last died.
     // Config hydration must come first so the restored engine uses the user's
     // saved pairs/risk/strategy rather than defaults.
