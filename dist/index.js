@@ -12990,11 +12990,11 @@ Create 4-6 modules and 5 assessment questions. Make objectives measurable (Bloom
   }
 }
 async function analyzeORBSignal(params) {
-  const isIndex = ["US30", "NAS100", "SPX500", "UK100", "DAX40"].includes(params.symbol.toUpperCase());
+  const isIndex2 = ["US30", "NAS100", "SPX500", "UK100", "DAX40"].includes(params.symbol.toUpperCase());
   const isCommodity = ["XAUUSD", "XAGUSD", "USOIL"].includes(params.symbol.toUpperCase());
   let rangeMinPct = 0.1;
   let rangeMaxPct = 2.5;
-  if (isIndex) {
+  if (isIndex2) {
     rangeMinPct = 0.08;
     rangeMaxPct = 1.5;
   }
@@ -18310,6 +18310,8 @@ __export(tradelocker_exports, {
   getTLAccountValue: () => getTLAccountValue,
   isOnAuth429Cooldown: () => isOnAuth429Cooldown,
   noteAuthResult: () => noteAuthResult,
+  priceDecimals: () => priceDecimals,
+  roundToTick: () => roundToTick,
   setUsdJpyRate: () => setUsdJpyRate,
   warmTradeLockerConnection: () => warmTradeLockerConnection
 });
@@ -18325,6 +18327,20 @@ function getEncryptionKey2() {
     return key.padEnd(32, "0");
   }
   return key;
+}
+function priceDecimals(symbol) {
+  const s = String(symbol || "").toUpperCase().split(".")[0].replace(/[^A-Z0-9]/g, "");
+  if (/^XAU/.test(s)) return 2;
+  if (/^XAG/.test(s)) return 3;
+  if (/^(US30|DJ30|WS30|US100|NAS100|USTEC|US500|SPX500|GER40|DE40|UK100|JP225|AUS200|HK50|FRA40|EU50)/.test(s)) return 2;
+  if (/^(BTC|ETH|SOL|LTC|XRP)/.test(s)) return 2;
+  if (/JPY/.test(s)) return 3;
+  return 5;
+}
+function roundToTick(symbol, v) {
+  if (!Number.isFinite(v)) return v;
+  const d = priceDecimals(symbol);
+  return Number(v.toFixed(d));
 }
 function isOnAuth429Cooldown(key) {
   const until = authCooldownUntil.get(key) || 0;
@@ -18603,6 +18619,13 @@ async function executeMT5SignalOnTradeLocker(connection2, signal) {
         console.error(`[TradeLocker Execute] \u{1F6AB} NO-SL BLOCK: ${signal.symbol} ${signal.direction} rejected \u2014 no valid stop loss (SL=${signal.stopLoss}). Unprotected trades are never allowed (likely NaN ATR upstream).`);
         return { success: false, error: `Blocked: no valid stop loss (SL=${signal.stopLoss}) \u2014 unprotected trade rejected` };
       }
+      const _pauseKey = `${connection2.id ?? connection2.accountId}|${String(signal.symbol).toUpperCase().split(".")[0]}|${signal.direction.toUpperCase()}`;
+      const _pausedUntil = rejectPauseUntil.get(_pauseKey) || 0;
+      if (Date.now() < _pausedUntil) {
+        const mins = Math.ceil((_pausedUntil - Date.now()) / 6e4);
+        return { success: false, error: `REJECT PAUSE: broker rejected this ${signal.symbol} ${signal.direction} on this account recently \u2014 not resending for ${mins} more min` };
+      }
+      const _isBrokerReject = (msg) => /not valid|route is not active|instrument not found|forbidden|insufficient|market is closed|invalid/i.test(msg);
       console.log("[TradeLocker Execute] Placing order:", {
         symbol: signal.symbol,
         side: signal.direction.toLowerCase(),
@@ -18610,16 +18633,24 @@ async function executeMT5SignalOnTradeLocker(connection2, signal) {
         price: usePrice,
         quantity: signal.volume
       });
-      const orderResult = await service.placeOrder({
-        symbol: signal.symbol,
-        side: signal.direction.toLowerCase(),
-        type: resolvedType,
-        quantity: signal.volume,
-        price: usePrice,
-        stopLoss: signal.stopLoss || void 0,
-        takeProfit: signal.takeProfit || void 0
-      });
+      let orderResult;
+      try {
+        orderResult = await service.placeOrder({
+          symbol: signal.symbol,
+          side: signal.direction.toLowerCase(),
+          type: resolvedType,
+          quantity: signal.volume,
+          price: usePrice,
+          stopLoss: signal.stopLoss || void 0,
+          takeProfit: signal.takeProfit || void 0
+        });
+      } catch (e) {
+        const msg = e instanceof Error ? e.message : String(e);
+        if (_isBrokerReject(msg)) rejectPauseUntil.set(_pauseKey, Date.now() + REJECT_PAUSE_MS);
+        throw e;
+      }
       console.log("[TradeLocker Execute] Order result:", orderResult);
+      if (orderResult.status === "rejected") rejectPauseUntil.set(_pauseKey, Date.now() + REJECT_PAUSE_MS);
       return {
         success: orderResult.status !== "rejected",
         orderId: orderResult.orderId,
@@ -18666,7 +18697,7 @@ async function executeMT5SignalOnTradeLocker(connection2, signal) {
     };
   }
 }
-var IV_LENGTH, DEFAULT_ENCRYPTION_KEY, SALT_LENGTH, INSTRUMENT_CACHE_TTL, instrumentCache, instrumentsListCache, serviceCache, SERVICE_CACHE_TTL, RETRY_DELAYS, RETRYABLE_STATUSES, TradeLockerReadError, AUTH_429_COOLDOWN_MS, authCooldownUntil, authChain, lastAuthAt, MIN_AUTH_GAP_MS, USDJPY_FALLBACK, _usdJpyLive, _usdJpyObserved, TradeLockerService, TL_VALUE_TTL;
+var IV_LENGTH, DEFAULT_ENCRYPTION_KEY, SALT_LENGTH, INSTRUMENT_CACHE_TTL, instrumentCache, instrumentsListCache, serviceCache, SERVICE_CACHE_TTL, rejectPauseUntil, REJECT_PAUSE_MS, RETRY_DELAYS, RETRYABLE_STATUSES, TradeLockerReadError, AUTH_429_COOLDOWN_MS, authCooldownUntil, authChain, lastAuthAt, MIN_AUTH_GAP_MS, USDJPY_FALLBACK, _usdJpyLive, _usdJpyObserved, TradeLockerService, TL_VALUE_TTL;
 var init_tradelocker = __esm({
   "server/tradelocker.ts"() {
     "use strict";
@@ -18678,6 +18709,8 @@ var init_tradelocker = __esm({
     instrumentsListCache = /* @__PURE__ */ new Map();
     serviceCache = /* @__PURE__ */ new Map();
     SERVICE_CACHE_TTL = 50 * 60 * 1e3;
+    rejectPauseUntil = /* @__PURE__ */ new Map();
+    REJECT_PAUSE_MS = Number(process.env.TL_REJECT_PAUSE_MINUTES ?? 15) * 6e4;
     RETRY_DELAYS = [1e3, 2e3];
     RETRYABLE_STATUSES = /* @__PURE__ */ new Set([429, 500, 502, 503, 504]);
     TradeLockerReadError = class extends Error {
@@ -19303,15 +19336,16 @@ var init_tradelocker = __esm({
             price: 0
             // Required field - 0 for market orders
           };
+          const px = (v) => roundToTick(order.symbol, v);
           if ((order.type === "limit" || order.type === "stop") && order.price) {
-            orderPayload.price = order.price;
+            orderPayload.price = px(order.price);
           }
           if (order.stopLoss) {
-            orderPayload.stopLoss = order.stopLoss;
+            orderPayload.stopLoss = px(order.stopLoss);
             orderPayload.stopLossType = "absolute";
           }
           if (order.takeProfit) {
-            orderPayload.takeProfit = order.takeProfit;
+            orderPayload.takeProfit = px(order.takeProfit);
             orderPayload.takeProfitType = "absolute";
           }
           console.log("[TradeLocker] Order payload:", JSON.stringify(orderPayload));
@@ -19796,6 +19830,12 @@ var init_tradelocker = __esm({
         } catch {
         }
         const norm3 = (v) => parseFloat(v) || 0;
+        const toIsoDate = (v) => {
+          if (v == null || v === "") return void 0;
+          const n = typeof v === "number" ? v : /^\d+(\.\d+)?$/.test(String(v).trim()) ? Number(v) : NaN;
+          const ms = Number.isFinite(n) ? n < 1e12 ? n * 1e3 : n : new Date(String(v)).getTime();
+          return Number.isFinite(ms) && ms > 0 ? new Date(ms).toISOString() : void 0;
+        };
         const sanePrice = (v, ref) => {
           if (!(v > 0)) return void 0;
           if (!(ref > 0)) return v < 1e7 ? v : void 0;
@@ -19806,11 +19846,12 @@ var init_tradelocker = __esm({
           return raw.map((p) => ({
             id: String(p.id ?? p.positionId ?? ""),
             symbol: p.s || p.symbol || instMap.get(String(p.tradableInstrumentId ?? "")) || String(p.tradableInstrumentId ?? ""),
+            instrumentId: p.tradableInstrumentId != null ? String(p.tradableInstrumentId) : void 0,
             side: (p.side || "").toString().toLowerCase(),
             qty: norm3(p.qty),
             avgPrice: norm3(p.avgPrice ?? p.openPrice ?? p.price),
             unrealizedPl: norm3(p.unrealizedPl ?? p.unrealizedPnL ?? p.uPnL ?? p.pl),
-            openDate: p.openDate || p.createdDate || void 0,
+            openDate: toIsoDate(p.openDate || p.createdDate),
             stopLoss: sanePrice(norm3(p.stopLoss ?? p.sl ?? p.stopLossPrice), norm3(p.avgPrice ?? p.openPrice ?? p.price)),
             takeProfit: sanePrice(norm3(p.takeProfit ?? p.tp ?? p.takeProfitPrice), norm3(p.avgPrice ?? p.openPrice ?? p.price))
           }));
@@ -19858,11 +19899,12 @@ var init_tradelocker = __esm({
           return {
             id: iId >= 0 ? String(row[iId]) : "",
             symbol: instMap.get(instId) || instId,
+            instrumentId: instId || void 0,
             side: iSide >= 0 ? String(row[iSide]).toLowerCase() : "",
             qty: iQty >= 0 ? norm3(row[iQty]) : 0,
             avgPrice: iAvg >= 0 ? norm3(row[iAvg]) : 0,
             unrealizedPl: iPl >= 0 ? norm3(row[iPl]) : 0,
-            openDate: iDate >= 0 ? String(row[iDate]) : void 0,
+            openDate: iDate >= 0 ? toIsoDate(row[iDate]) : void 0,
             // Second line of defence, independent of column naming: a protective
             // level sits near the entry. Anything orders of magnitude away is an id
             // or a sentinel, not a price, and must not be recorded as protection.
@@ -23555,6 +23597,7 @@ __export(xau_rules_exports, {
   XAU_LOCK_AT_PTS: () => XAU_LOCK_AT_PTS,
   XAU_LOCK_ON: () => XAU_LOCK_ON,
   XAU_TRAIL_PTS: () => XAU_TRAIL_PTS,
+  isIndex: () => isIndex,
   isXau: () => isXau,
   xauEntryBlock: () => xauEntryBlock,
   xauLockStopPts: () => xauLockStopPts,
@@ -23573,17 +23616,24 @@ function xauEntryBlock(symbol, now = /* @__PURE__ */ new Date()) {
   return null;
 }
 function xauTooYoungToClose(symbol, openedAt) {
-  if (!MIN_HOLD_ON() || !isXau(symbol) || openedAt == null || openedAt === "") return false;
-  let ms = typeof openedAt === "number" ? openedAt : new Date(openedAt).getTime();
+  if (!MIN_HOLD_ON() || openedAt == null || openedAt === "") return false;
+  const holdMs = isXau(symbol) ? MIN_HOLD_MS : isIndex(symbol) ? INDEX_MIN_HOLD_MS : 0;
+  if (!(holdMs > 0)) return false;
+  const raw = typeof openedAt === "number" ? openedAt : /^\d+(\.\d+)?$/.test(String(openedAt).trim()) ? Number(openedAt) : new Date(openedAt).getTime();
+  let ms = raw;
   if (!Number.isFinite(ms) || ms <= 0) return false;
   if (ms < 1e12) ms *= 1e3;
-  return Date.now() - ms < MIN_HOLD_MS;
+  return Date.now() - ms < holdMs;
+}
+function isIndex(symbol) {
+  const s = String(symbol || "").toUpperCase().replace(/[^A-Z0-9]/g, "");
+  return /^(US30|DJ30|DJI|WS30|US100|NAS100|USTEC|NDX|US500|SPX500|SPX|GER40|DE40|DAX|UK100|FTSE|JP225|NIK225|AUS200|HK50|FRA40|EU50)/.test(s);
 }
 function xauLockStopPts(peakFavPts) {
   if (!XAU_LOCK_ON() || !(peakFavPts >= XAU_LOCK_ACTIVATE_PTS)) return null;
   return Math.max(XAU_LOCK_AT_PTS, peakFavPts - XAU_TRAIL_PTS);
 }
-var ENTRY_BLOCK_ON, BLOCK_START_MIN, BLOCK_END_MIN, MIN_HOLD_ON, MIN_HOLD_MS, XAU_LOCK_ON, XAU_LOCK_ACTIVATE_PTS, XAU_LOCK_AT_PTS, XAU_TRAIL_PTS, XAU_CONTRACT_SIZE;
+var ENTRY_BLOCK_ON, BLOCK_START_MIN, BLOCK_END_MIN, MIN_HOLD_ON, MIN_HOLD_MS, XAU_LOCK_ON, XAU_LOCK_ACTIVATE_PTS, XAU_LOCK_AT_PTS, XAU_TRAIL_PTS, XAU_CONTRACT_SIZE, INDEX_MIN_HOLD_MS;
 var init_xau_rules = __esm({
   "server/services/xau-rules.ts"() {
     "use strict";
@@ -23597,6 +23647,7 @@ var init_xau_rules = __esm({
     XAU_LOCK_AT_PTS = Number(process.env.XAU_LOCK_AT_PTS ?? 20);
     XAU_TRAIL_PTS = Number(process.env.XAU_TRAIL_PTS ?? 20);
     XAU_CONTRACT_SIZE = Number(process.env.XAU_CONTRACT_SIZE ?? 100);
+    INDEX_MIN_HOLD_MS = Number(process.env.INDEX_MIN_HOLD_MINUTES ?? 5) * 6e4;
   }
 });
 
@@ -26331,7 +26382,7 @@ async function applyServerSideTrails(userId, openPositions, marketAnalysis) {
       const { xauTooYoungToClose: xauTooYoungToClose2 } = await Promise.resolve().then(() => (init_xau_rules(), xau_rules_exports));
       const _xauHold = xauTooYoungToClose2(pos.symbol, pos.openTime);
       if (_xauHold && _against && !_choppy && _revScore >= _sensitivity) {
-        addActivity(userId, { type: "info", symbol: pos.symbol, message: `\u23F3 Reversal exit held off: ${pos.symbol} opened under the XAUUSD minimum hold \u2014 the broker stop still protects it.` });
+        addActivity(userId, { type: "info", symbol: pos.symbol, message: `\u23F3 Reversal exit held off: ${pos.symbol} opened under the gold/index minimum hold \u2014 the broker stop still protects it.` });
       }
       if (!_xauHold && _against && !_choppy && _revScore >= _sensitivity) {
         const _reason = `Reversal exit: ${pos.symbol} ${pos.direction} \u2014 ${_revScore}/5 reversal confluence in a trending market (ADX ${Math.round(_adx)}, DI sep ${Math.round(_diSep)}, need ${_sensitivity})`;
@@ -29364,7 +29415,7 @@ async function processDecision(userId, decision, newsCtx) {
             if (signalAction === "CLOSE") {
               const { xauTooYoungToClose: xauTooYoungToClose2 } = await Promise.resolve().then(() => (init_xau_rules(), xau_rules_exports));
               if (xauTooYoungToClose2(decision.symbol, tlMatch.openDate)) {
-                addActivity(userId, { type: "info", symbol: decision.symbol, message: `\u23F3 AI close held off on ${acctLabel}: ${decision.symbol} is inside the XAUUSD minimum hold \u2014 the broker stop still protects it.` });
+                addActivity(userId, { type: "info", symbol: decision.symbol, message: `\u23F3 AI close held off on ${acctLabel}: ${decision.symbol} is inside the gold/index minimum hold \u2014 the broker stop still protects it.` });
                 return;
               }
               const tradeResult = await executeMT5SignalOnTradeLocker(tlConn, {
@@ -57879,9 +57930,9 @@ async function getStopOrdersForUser(userId, filters = {}) {
 init_schema();
 
 // server/build-info.ts
-var BUILD_COMMIT = "b15a1e9f-dirty";
+var BUILD_COMMIT = "f2cca171-dirty";
 var BUILD_BRANCH = "main";
-var BUILT_AT = "2026-10-05T23:40:16.381Z";
+var BUILT_AT = "2026-10-11T05:55:50.911Z";
 
 // server/stripe.ts
 init_db();
@@ -71626,9 +71677,31 @@ BEAR CASE: ${_bearCase || "n/a"}` : aiConfirmation.reasoning;
                   }
                   {
                     const _wantSym = sanitizedSymbol.toUpperCase().replace(/[^A-Z0-9]/g, "");
+                    const _normSym = (s) => String(s || "").toUpperCase().split(".")[0].replace(/[^A-Z0-9]/g, "");
+                    let _wantIds = null;
+                    if (_connPos.some((p) => /^\d+$/.test(String(p.symbol || "")))) {
+                      try {
+                        const _svc = await getOrCreateService(tlConn);
+                        const _insts = await _svc.getInstruments();
+                        _wantIds = new Set(
+                          (_insts || []).filter((i) => {
+                            const n = _normSym(i.name || i.symbol);
+                            return n === _wantSym || n.startsWith(_wantSym);
+                          }).flatMap((i) => [i.tradableInstrumentId, i.id].filter((x) => x != null).map(String))
+                        );
+                      } catch {
+                        _wantIds = null;
+                      }
+                      if (!_wantIds || _wantIds.size === 0) {
+                        _markTlSkip(String(tlConn.accountId), `RISK SKIP: ${tlConn.accountId} \u2014 open positions show unresolved instrument ids; can't confirm no ${sanitizedSymbol} is held, trade not sent.`);
+                        continue;
+                      }
+                    }
                     const _held = _connPos.find((p) => {
-                      const ps = String(p.symbol || "").toUpperCase().split(".")[0].replace(/[^A-Z0-9]/g, "");
-                      return ps === _wantSym || ps.startsWith(_wantSym);
+                      const ps = _normSym(p.symbol);
+                      if (ps === _wantSym || ps.startsWith(_wantSym)) return true;
+                      const pid = String(p.instrumentId ?? (/^\d+$/.test(String(p.symbol || "")) ? p.symbol : ""));
+                      return !!(_wantIds && pid && _wantIds.has(pid));
                     });
                     if (_held) {
                       console.log(`[MT5 Chart Data AutoTrade] ${tlConn.accountId}: already holding ${_held.symbol} ${String(_held.side || "").toUpperCase()} ${_held.qty} \u2014 not adding another`);

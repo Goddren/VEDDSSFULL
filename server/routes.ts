@@ -12769,9 +12769,33 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
               // our trade log, so a stop-out or manual close is seen immediately.
               {
                 const _wantSym = sanitizedSymbol.toUpperCase().replace(/[^A-Z0-9]/g, '');
+                const _normSym = (s: any) => String(s || '').toUpperCase().split('.')[0].replace(/[^A-Z0-9]/g, '');
+                // When the broker's instrument list didn't load, a position's
+                // "symbol" is its numeric instrument id ("278"), which never
+                // matched "EURUSD" — accounts 30/31 got a second EURUSD SELL on
+                // 2026-10-09. Resolve this symbol's instrument ids and compare on
+                // those too; if a numeric symbol still can't be resolved, skip.
+                let _wantIds: Set<string> | null = null;
+                if (_connPos.some((p: any) => /^\d+$/.test(String(p.symbol || '')))) {
+                  try {
+                    const _svc = await tlGetOrCreateService(tlConn);
+                    const _insts = await _svc.getInstruments();
+                    _wantIds = new Set(
+                      (_insts || [])
+                        .filter((i: any) => { const n = _normSym(i.name || i.symbol); return n === _wantSym || n.startsWith(_wantSym); })
+                        .flatMap((i: any) => [i.tradableInstrumentId, i.id].filter((x: any) => x != null).map(String)),
+                    );
+                  } catch { _wantIds = null; }
+                  if (!_wantIds || _wantIds.size === 0) {
+                    _markTlSkip(String(tlConn.accountId), `RISK SKIP: ${tlConn.accountId} — open positions show unresolved instrument ids; can't confirm no ${sanitizedSymbol} is held, trade not sent.`);
+                    continue;
+                  }
+                }
                 const _held = _connPos.find((p: any) => {
-                  const ps = String(p.symbol || '').toUpperCase().split('.')[0].replace(/[^A-Z0-9]/g, '');
-                  return ps === _wantSym || ps.startsWith(_wantSym); // 'XAUUSDPRO' / 'US30CASH' match their base
+                  const ps = _normSym(p.symbol);
+                  if (ps === _wantSym || ps.startsWith(_wantSym)) return true; // 'XAUUSDPRO' / 'US30CASH' match their base
+                  const pid = String(p.instrumentId ?? (/^\d+$/.test(String(p.symbol || '')) ? p.symbol : ''));
+                  return !!(_wantIds && pid && _wantIds.has(pid));
                 });
                 if (_held) {
                   console.log(`[MT5 Chart Data AutoTrade] ${tlConn.accountId}: already holding ${_held.symbol} ${String(_held.side || '').toUpperCase()} ${_held.qty} — not adding another`);

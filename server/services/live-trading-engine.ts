@@ -2469,7 +2469,7 @@ async function applyServerSideTrails(
       const { xauTooYoungToClose } = await import('./xau-rules');
       const _xauHold = xauTooYoungToClose(pos.symbol, pos.openTime);
       if (_xauHold && _against && !_choppy && _revScore >= _sensitivity) {
-        addActivity(userId, { type: 'info', symbol: pos.symbol, message: `⏳ Reversal exit held off: ${pos.symbol} opened under the XAUUSD minimum hold — the broker stop still protects it.` });
+        addActivity(userId, { type: 'info', symbol: pos.symbol, message: `⏳ Reversal exit held off: ${pos.symbol} opened under the gold/index minimum hold — the broker stop still protects it.` });
       }
       if (!_xauHold && _against && !_choppy && _revScore >= _sensitivity) {
         const _reason = `Reversal exit: ${pos.symbol} ${pos.direction} — ${_revScore}/5 reversal confluence in a trending market (ADX ${Math.round(_adx)}, DI sep ${Math.round(_diSep)}, need ${_sensitivity})`;
@@ -6188,7 +6188,7 @@ async function processDecision(userId: number, decision: any, newsCtx?: any): Pr
               // management close book the opening spread on a fresh gold fill.
               const { xauTooYoungToClose } = await import('./xau-rules');
               if (xauTooYoungToClose(decision.symbol, tlMatch.openDate)) {
-                addActivity(userId, { type: 'info', symbol: decision.symbol, message: `⏳ AI close held off on ${acctLabel}: ${decision.symbol} is inside the XAUUSD minimum hold — the broker stop still protects it.` });
+                addActivity(userId, { type: 'info', symbol: decision.symbol, message: `⏳ AI close held off on ${acctLabel}: ${decision.symbol} is inside the gold/index minimum hold — the broker stop still protects it.` });
                 return;
               }
               const tradeResult = await executeMT5SignalOnTradeLocker(tlConn, {

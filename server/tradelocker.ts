@@ -68,6 +68,28 @@ const instrumentsListCache = new Map<string, { instruments: any[]; routes?: any[
 const serviceCache = new Map<number | string, { service: TradeLockerService; createdAt: number }>();
 const SERVICE_CACHE_TTL = 50 * 60 * 1000;
 
+/** Price decimals by instrument class (TradeLocker CFD conventions). */
+export function priceDecimals(symbol: string): number {
+  const s = String(symbol || '').toUpperCase().split('.')[0].replace(/[^A-Z0-9]/g, '');
+  if (/^XAU/.test(s)) return 2;
+  if (/^XAG/.test(s)) return 3;
+  if (/^(US30|DJ30|WS30|US100|NAS100|USTEC|US500|SPX500|GER40|DE40|UK100|JP225|AUS200|HK50|FRA40|EU50)/.test(s)) return 2;
+  if (/^(BTC|ETH|SOL|LTC|XRP)/.test(s)) return 2;
+  if (/JPY/.test(s)) return 3;
+  return 5;
+}
+export function roundToTick(symbol: string, v: number): number {
+  if (!Number.isFinite(v)) return v;
+  const d = priceDecimals(symbol);
+  return Number(v.toFixed(d));
+}
+
+// After the broker REJECTS an order (bad SL, closed route, …) the same signal
+// was resent on every new candle — 5 identical rejections in 2 minutes on one
+// account. Pause that account+symbol+side instead.
+const rejectPauseUntil = new Map<string, number>();
+const REJECT_PAUSE_MS = Number(process.env.TL_REJECT_PAUSE_MINUTES ?? 15) * 60_000;
+
 const RETRY_DELAYS = [1000, 2000];
 const RETRYABLE_STATUSES = new Set([429, 500, 502, 503, 504]);
 
@@ -966,20 +988,25 @@ export class TradeLockerService {
         price: 0,  // Required field - 0 for market orders
       };
       
+      // Absolute prices must sit on the instrument's tick grid. Sending the raw
+      // plan levels (1.3242466, 1.334682) got "SL price is not valid for the
+      // order." on GBPUSD/EURUSD.
+      const px = (v: number) => roundToTick(order.symbol, v);
+
       // Add price for limit and stop orders (override the 0)
       if ((order.type === 'limit' || order.type === 'stop') && order.price) {
-        orderPayload.price = order.price;
+        orderPayload.price = px(order.price);
       }
-      
+
       // Add stop loss if provided
       if (order.stopLoss) {
-        orderPayload.stopLoss = order.stopLoss;
+        orderPayload.stopLoss = px(order.stopLoss);
         orderPayload.stopLossType = 'absolute';
       }
-      
+
       // Add take profit if provided
       if (order.takeProfit) {
-        orderPayload.takeProfit = order.takeProfit;
+        orderPayload.takeProfit = px(order.takeProfit);
         orderPayload.takeProfitType = 'absolute';
       }
       
@@ -1590,7 +1617,7 @@ export class TradeLockerService {
   // /trade/config's positionsConfig). Also maps tradableInstrumentId → symbol
   // via the instruments list so the UI can show real pair names.
   async getPositionsNormalized(): Promise<Array<{
-    id: string; symbol: string; side: string; qty: number;
+    id: string; symbol: string; instrumentId?: string; side: string; qty: number;
     avgPrice: number; unrealizedPl: number; openDate?: string;
     stopLoss?: number; takeProfit?: number;
   }>> {
@@ -1608,6 +1635,15 @@ export class TradeLockerService {
     } catch { /* symbol names degrade to instrument ids */ }
 
     const norm = (v: any) => parseFloat(v) || 0;
+    // TradeLocker sends openDate as epoch-ms, often as a numeric STRING.
+    // new Date("1728659220000") is Invalid Date, which silently disabled every
+    // open-time check downstream (the XAUUSD minimum hold among them).
+    const toIsoDate = (v: any): string | undefined => {
+      if (v == null || v === '') return undefined;
+      const n = typeof v === 'number' ? v : (/^\d+(\.\d+)?$/.test(String(v).trim()) ? Number(v) : NaN);
+      const ms = Number.isFinite(n) ? (n < 1e12 ? n * 1000 : n) : new Date(String(v)).getTime();
+      return Number.isFinite(ms) && ms > 0 ? new Date(ms).toISOString() : undefined;
+    };
     /**
      * A stop/target must be within a plausible distance of the entry. Returns
      * undefined for anything that clearly is not a price, so a bad read shows up
@@ -1625,11 +1661,12 @@ export class TradeLockerService {
       return raw.map((p: any) => ({
         id: String(p.id ?? p.positionId ?? ''),
         symbol: p.s || p.symbol || instMap.get(String(p.tradableInstrumentId ?? '')) || String(p.tradableInstrumentId ?? ''),
+        instrumentId: p.tradableInstrumentId != null ? String(p.tradableInstrumentId) : undefined,
         side: (p.side || '').toString().toLowerCase(),
         qty: norm(p.qty),
         avgPrice: norm(p.avgPrice ?? p.openPrice ?? p.price),
         unrealizedPl: norm(p.unrealizedPl ?? p.unrealizedPnL ?? p.uPnL ?? p.pl),
-        openDate: p.openDate || p.createdDate || undefined,
+        openDate: toIsoDate(p.openDate || p.createdDate),
         stopLoss: sanePrice(norm(p.stopLoss ?? p.sl ?? p.stopLossPrice), norm(p.avgPrice ?? p.openPrice ?? p.price)),
         takeProfit: sanePrice(norm(p.takeProfit ?? p.tp ?? p.takeProfitPrice), norm(p.avgPrice ?? p.openPrice ?? p.price)),
       }));
@@ -1693,11 +1730,12 @@ export class TradeLockerService {
       return {
         id: iId >= 0 ? String(row[iId]) : '',
         symbol: instMap.get(instId) || instId,
+        instrumentId: instId || undefined,
         side: iSide >= 0 ? String(row[iSide]).toLowerCase() : '',
         qty: iQty >= 0 ? norm(row[iQty]) : 0,
         avgPrice: iAvg >= 0 ? norm(row[iAvg]) : 0,
         unrealizedPl: iPl >= 0 ? norm(row[iPl]) : 0,
-        openDate: iDate >= 0 ? String(row[iDate]) : undefined,
+        openDate: iDate >= 0 ? toIsoDate(row[iDate]) : undefined,
         // Second line of defence, independent of column naming: a protective
         // level sits near the entry. Anything orders of magnitude away is an id
         // or a sentinel, not a price, and must not be recorded as protection.
@@ -2050,6 +2088,15 @@ export async function executeMT5SignalOnTradeLocker(
         return { success: false, error: `Blocked: no valid stop loss (SL=${signal.stopLoss}) — unprotected trade rejected` };
       }
 
+      const _pauseKey = `${connection.id ?? connection.accountId}|${String(signal.symbol).toUpperCase().split('.')[0]}|${signal.direction.toUpperCase()}`;
+      const _pausedUntil = rejectPauseUntil.get(_pauseKey) || 0;
+      if (Date.now() < _pausedUntil) {
+        const mins = Math.ceil((_pausedUntil - Date.now()) / 60_000);
+        return { success: false, error: `REJECT PAUSE: broker rejected this ${signal.symbol} ${signal.direction} on this account recently — not resending for ${mins} more min` };
+      }
+      const _isBrokerReject = (msg: string) =>
+        /not valid|route is not active|instrument not found|forbidden|insufficient|market is closed|invalid/i.test(msg);
+
       console.log('[TradeLocker Execute] Placing order:', {
         symbol: signal.symbol,
         side: signal.direction.toLowerCase(),
@@ -2057,16 +2104,24 @@ export async function executeMT5SignalOnTradeLocker(
         price: usePrice,
         quantity: signal.volume,
       });
-      const orderResult = await service.placeOrder({
-        symbol: signal.symbol,
-        side: signal.direction.toLowerCase() as 'buy' | 'sell',
-        type: resolvedType,
-        quantity: signal.volume,
-        price: usePrice,
-        stopLoss: signal.stopLoss || undefined,
-        takeProfit: signal.takeProfit || undefined,
-      });
+      let orderResult: Awaited<ReturnType<typeof service.placeOrder>>;
+      try {
+        orderResult = await service.placeOrder({
+          symbol: signal.symbol,
+          side: signal.direction.toLowerCase() as 'buy' | 'sell',
+          type: resolvedType,
+          quantity: signal.volume,
+          price: usePrice,
+          stopLoss: signal.stopLoss || undefined,
+          takeProfit: signal.takeProfit || undefined,
+        });
+      } catch (e) {
+        const msg = e instanceof Error ? e.message : String(e);
+        if (_isBrokerReject(msg)) rejectPauseUntil.set(_pauseKey, Date.now() + REJECT_PAUSE_MS);
+        throw e;
+      }
       console.log('[TradeLocker Execute] Order result:', orderResult);
+      if (orderResult.status === 'rejected') rejectPauseUntil.set(_pauseKey, Date.now() + REJECT_PAUSE_MS);
 
       return {
         success: orderResult.status !== 'rejected',

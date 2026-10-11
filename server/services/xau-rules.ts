@@ -61,11 +61,29 @@ export function xauEntryBlock(symbol: string, now = new Date()): string | null {
  * ms, seconds or an ISO string; an unknown open time never blocks a close.
  */
 export function xauTooYoungToClose(symbol: string, openedAt: number | string | null | undefined): boolean {
-  if (!MIN_HOLD_ON() || !isXau(symbol) || openedAt == null || openedAt === '') return false;
-  let ms = typeof openedAt === 'number' ? openedAt : new Date(openedAt).getTime();
+  if (!MIN_HOLD_ON() || openedAt == null || openedAt === '') return false;
+  const holdMs = isXau(symbol) ? MIN_HOLD_MS : isIndex(symbol) ? INDEX_MIN_HOLD_MS : 0;
+  if (!(holdMs > 0)) return false;
+  // Numeric strings ("1728659220000") are epoch values — new Date() on them is
+  // Invalid Date, which used to switch the hold off silently.
+  const raw = typeof openedAt === 'number' ? openedAt
+    : /^\d+(\.\d+)?$/.test(String(openedAt).trim()) ? Number(openedAt)
+    : new Date(openedAt).getTime();
+  let ms = raw;
   if (!Number.isFinite(ms) || ms <= 0) return false;
   if (ms < 1e12) ms *= 1000; // seconds → ms
-  return Date.now() - ms < MIN_HOLD_MS;
+  return Date.now() - ms < holdMs;
+}
+
+/**
+ * Index CFDs (US30, NAS100, …) get the same protection with a shorter hold:
+ * 2026-10-08/09 every US30 fill was closed by the engine within ~15s for
+ * roughly the spread. The broker stop still protects the position meanwhile.
+ */
+const INDEX_MIN_HOLD_MS = Number(process.env.INDEX_MIN_HOLD_MINUTES ?? 5) * 60_000;
+export function isIndex(symbol: string | null | undefined): boolean {
+  const s = String(symbol || '').toUpperCase().replace(/[^A-Z0-9]/g, '');
+  return /^(US30|DJ30|DJI|WS30|US100|NAS100|USTEC|NDX|US500|SPX500|SPX|GER40|DE40|DAX|UK100|FTSE|JP225|NIK225|AUS200|HK50|FRA40|EU50)/.test(s);
 }
 
 /**
