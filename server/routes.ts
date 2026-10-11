@@ -10761,9 +10761,20 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
           } catch { /* diag only */ }
         })();
       };
+      // Weekend: the FX market is closed Fri 21:00 → Sun 21:00 UTC, but the EA keeps
+      // posting candles. Every post still bought an AI confirmation that could
+      // never trade (~1,300 calls/hour on 2026-10-11, all rejected). Skip the AI
+      // call then. Crypto symbols trade 24/7 and are left alone.
+      const _fxMarketClosed = (() => {
+        if (/^(BTC|ETH|SOL|LTC|XRP|DOGE|ADA|BNB)/i.test(sanitizedSymbol)) return false;
+        const _n = new Date();
+        const _d = _n.getUTCDay(), _h = _n.getUTCHours();
+        return _d === 6 || (_d === 5 && _h >= 21) || (_d === 0 && _h < 21);
+      })();
+      if (_fxMarketClosed) _cdiag.stage = 'market_closed';
       // Second Opinion fires on any non-NEUTRAL signal ≥ 60% — tradePlan NOT required.
       // Auto-execution (TradeLocker) still needs MIN_CONFIDENCE + tradePlan — checked later.
-      if (analysis.signal !== 'NEUTRAL' &&
+      if (!_fxMarketClosed && analysis.signal !== 'NEUTRAL' &&
           analysis.confidence >= Math.min(60, MIN_CONFIDENCE_FOR_AUTO_TRADE)) {
         _cdiag.gatePassed = true;
         try {
@@ -11669,6 +11680,13 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
             reasoning: 'AI unavailable - trade blocked',
           };
         }
+        void _writeCdiagTracked();
+      } else if (_fxMarketClosed) {
+        // No AI call → no approval → nothing may execute. Neutralise the signal
+        // so no later path can act on an unconfirmed weekend signal.
+        _cdiag.stage = 'market_closed';
+        _diagCap.neutralReason = _diagCap.neutralReason || 'market_closed (FX weekend: Fri 21:00 – Sun 21:00 UTC, no AI call)';
+        analysis.signal = 'NEUTRAL';
         void _writeCdiagTracked();
       } else {
         _cdiag.stage = 'gate_failed';

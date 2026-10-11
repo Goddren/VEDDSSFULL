@@ -57956,9 +57956,9 @@ async function getStopOrdersForUser(userId, filters = {}) {
 init_schema();
 
 // server/build-info.ts
-var BUILD_COMMIT = "db6fed6c-dirty";
+var BUILD_COMMIT = "1327f9cf-dirty";
 var BUILD_BRANCH = "main";
-var BUILT_AT = "2026-10-11T06:06:20.191Z";
+var BUILT_AT = "2026-10-11T12:33:33.558Z";
 
 // server/stripe.ts
 init_db();
@@ -70137,7 +70137,14 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
           }
         })();
       };
-      if (analysis.signal !== "NEUTRAL" && analysis.confidence >= Math.min(60, MIN_CONFIDENCE_FOR_AUTO_TRADE)) {
+      const _fxMarketClosed = (() => {
+        if (/^(BTC|ETH|SOL|LTC|XRP|DOGE|ADA|BNB)/i.test(sanitizedSymbol)) return false;
+        const _n = /* @__PURE__ */ new Date();
+        const _d = _n.getUTCDay(), _h = _n.getUTCHours();
+        return _d === 6 || _d === 5 && _h >= 21 || _d === 0 && _h < 21;
+      })();
+      if (_fxMarketClosed) _cdiag.stage = "market_closed";
+      if (!_fxMarketClosed && analysis.signal !== "NEUTRAL" && analysis.confidence >= Math.min(60, MIN_CONFIDENCE_FOR_AUTO_TRADE)) {
         _cdiag.gatePassed = true;
         try {
           const { isAiVisionConfirmationEnabled: isAiVisionConfirmationEnabled2, getAiVisionConfirmation: getAiVisionConfirmation2, getBreakoutConfirmation: getBreakoutConfirmation2, addAiConfirmationLog: addAiConfirmationLog2, getUserModelPreference: getUserModelPreference2, AVAILABLE_VISION_MODELS: AVAILABLE_VISION_MODELS2, isICTStrategyEnabled: isICTStrategyEnabled2, isSMCStrategyEnabled: isSMCStrategyEnabled2, isPropFirmModeEnabled: isPropFirmModeEnabled2, getPropFirmContext: getPropFirmContext2, isBreakoutModeEnabled: isBreakoutModeEnabled2, isTrailingStopEnabled: isTrailingStopEnabled2, setTrailingStopEnabled: setTrailingStopEnabled2, hydrateBreakoutModeMap: hydrateBreakoutModeMap2, hydrateAiVisionMap: hydrateAiVisionMap2, getAiMinConfidence: _getAiMinConf } = await Promise.resolve().then(() => (init_openai(), openai_exports));
@@ -70923,6 +70930,11 @@ BEAR CASE: ${_bearCase || "n/a"}` : aiConfirmation.reasoning;
             reasoning: "AI unavailable - trade blocked"
           };
         }
+        void _writeCdiagTracked();
+      } else if (_fxMarketClosed) {
+        _cdiag.stage = "market_closed";
+        _diagCap.neutralReason = _diagCap.neutralReason || "market_closed (FX weekend: Fri 21:00 \u2013 Sun 21:00 UTC, no AI call)";
+        analysis.signal = "NEUTRAL";
         void _writeCdiagTracked();
       } else {
         _cdiag.stage = "gate_failed";
