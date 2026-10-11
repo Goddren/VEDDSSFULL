@@ -8786,6 +8786,56 @@ var init_fx_brain = __esm({
   }
 });
 
+// server/services/ai-budget-guard.ts
+var ai_budget_guard_exports = {};
+__export(ai_budget_guard_exports, {
+  aiBudgetDeferReason: () => aiBudgetDeferReason,
+  aiBudgetDeferSecondsLeft: () => aiBudgetDeferSecondsLeft,
+  fxShouldPauseForCredits: () => fxShouldPauseForCredits,
+  noteAiBudgetError: () => noteAiBudgetError,
+  shouldDeferLowPriorityAi: () => shouldDeferLowPriorityAi
+});
+function noteAiBudgetError(err) {
+  const status = err?.status ?? err?.statusCode ?? err?.response?.status;
+  const msg = String(err?.message || err || "").toLowerCase();
+  const is402 = status === 402 || /insufficient credits|insufficient_quota|payment required|\b402\b/.test(msg);
+  const is429 = status === 429 || /rate.?limit|\b429\b|quota|too many requests/.test(msg);
+  const now = Date.now();
+  if (is402) {
+    deferUntil = Math.max(deferUntil, now + COOLDOWN_402_MS);
+    creditsOutUntil = Math.max(creditsOutUntil, now + FX_402_PAUSE_MS);
+    lastReason = "insufficient credits (402)";
+  } else if (is429) {
+    deferUntil = Math.max(deferUntil, now + COOLDOWN_429_MS);
+    lastReason = "rate limit (429)";
+  }
+}
+function shouldDeferLowPriorityAi() {
+  return Date.now() < deferUntil;
+}
+function aiBudgetDeferReason() {
+  return lastReason;
+}
+function fxShouldPauseForCredits() {
+  return Date.now() < creditsOutUntil;
+}
+function aiBudgetDeferSecondsLeft() {
+  const left = deferUntil - Date.now();
+  return left > 0 ? Math.ceil(left / 1e3) : 0;
+}
+var deferUntil, lastReason, COOLDOWN_402_MS, COOLDOWN_429_MS, creditsOutUntil, FX_402_PAUSE_MS;
+var init_ai_budget_guard = __esm({
+  "server/services/ai-budget-guard.ts"() {
+    "use strict";
+    deferUntil = 0;
+    lastReason = "";
+    COOLDOWN_402_MS = 5 * 6e4;
+    COOLDOWN_429_MS = 6e4;
+    creditsOutUntil = 0;
+    FX_402_PAUSE_MS = Number(process.env.FX_AI_402_PAUSE_SECONDS ?? 120) * 1e3;
+  }
+});
+
 // server/utils/breakoutEngine.ts
 var breakoutEngine_exports = {};
 __export(breakoutEngine_exports, {
@@ -9088,56 +9138,6 @@ async function computeBreakoutScore(currentPrice, m1Candles = [], m5Candles = []
 var init_breakoutEngine = __esm({
   "server/utils/breakoutEngine.ts"() {
     "use strict";
-  }
-});
-
-// server/services/ai-budget-guard.ts
-var ai_budget_guard_exports = {};
-__export(ai_budget_guard_exports, {
-  aiBudgetDeferReason: () => aiBudgetDeferReason,
-  aiBudgetDeferSecondsLeft: () => aiBudgetDeferSecondsLeft,
-  fxShouldPauseForCredits: () => fxShouldPauseForCredits,
-  noteAiBudgetError: () => noteAiBudgetError,
-  shouldDeferLowPriorityAi: () => shouldDeferLowPriorityAi
-});
-function noteAiBudgetError(err) {
-  const status = err?.status ?? err?.statusCode ?? err?.response?.status;
-  const msg = String(err?.message || err || "").toLowerCase();
-  const is402 = status === 402 || /insufficient credits|insufficient_quota|payment required|\b402\b/.test(msg);
-  const is429 = status === 429 || /rate.?limit|\b429\b|quota|too many requests/.test(msg);
-  const now = Date.now();
-  if (is402) {
-    deferUntil = Math.max(deferUntil, now + COOLDOWN_402_MS);
-    creditsOutUntil = Math.max(creditsOutUntil, now + FX_402_PAUSE_MS);
-    lastReason = "insufficient credits (402)";
-  } else if (is429) {
-    deferUntil = Math.max(deferUntil, now + COOLDOWN_429_MS);
-    lastReason = "rate limit (429)";
-  }
-}
-function shouldDeferLowPriorityAi() {
-  return Date.now() < deferUntil;
-}
-function aiBudgetDeferReason() {
-  return lastReason;
-}
-function fxShouldPauseForCredits() {
-  return Date.now() < creditsOutUntil;
-}
-function aiBudgetDeferSecondsLeft() {
-  const left = deferUntil - Date.now();
-  return left > 0 ? Math.ceil(left / 1e3) : 0;
-}
-var deferUntil, lastReason, COOLDOWN_402_MS, COOLDOWN_429_MS, creditsOutUntil, FX_402_PAUSE_MS;
-var init_ai_budget_guard = __esm({
-  "server/services/ai-budget-guard.ts"() {
-    "use strict";
-    deferUntil = 0;
-    lastReason = "";
-    COOLDOWN_402_MS = 5 * 6e4;
-    COOLDOWN_429_MS = 6e4;
-    creditsOutUntil = 0;
-    FX_402_PAUSE_MS = Number(process.env.FX_AI_402_PAUSE_SECONDS ?? 120) * 1e3;
   }
 });
 
@@ -11184,6 +11184,13 @@ async function getAiVisionConfirmation(candleData, indicators, proposedSignal, p
       userReason = `AI error: ${errMsg.substring(0, 120)}`;
     }
     console.error(`[AI Vision Confirmation] ERROR (${statusCode || "no status"}): ${errMsg}`);
+    if (statusCode === 402 || /insufficient credits|\b402\b/i.test(errMsg)) {
+      try {
+        const { noteAiBudgetError: noteAiBudgetError2 } = await Promise.resolve().then(() => (init_ai_budget_guard(), ai_budget_guard_exports));
+        noteAiBudgetError2(error);
+      } catch {
+      }
+    }
     return {
       confirmed: false,
       aiDirection: "NEUTRAL",
@@ -58213,9 +58220,9 @@ async function getStopOrdersForUser(userId, filters = {}) {
 init_schema();
 
 // server/build-info.ts
-var BUILD_COMMIT = "de59061d-dirty";
+var BUILD_COMMIT = "a9170e38-dirty";
 var BUILD_BRANCH = "main";
-var BUILT_AT = "2026-10-11T20:11:05.025Z";
+var BUILT_AT = "2026-10-11T21:53:45.993Z";
 
 // server/stripe.ts
 init_db();

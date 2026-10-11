@@ -2651,6 +2651,12 @@ export async function getAiVisionConfirmation(
       userReason = `AI error: ${errMsg.substring(0, 120)}`;
     }
     console.error(`[AI Vision Confirmation] ERROR (${statusCode || 'no status'}): ${errMsg}`);
+    // This path catches its own errors, so the FX 402 back-off never heard
+    // about them — 596 "402 Insufficient credits" confirmations in the first
+    // hour after the 2026-10-11 open. Report it so FX pauses and re-probes.
+    if (statusCode === 402 || /insufficient credits|\b402\b/i.test(errMsg)) {
+      try { const { noteAiBudgetError } = await import('./services/ai-budget-guard'); noteAiBudgetError(error); } catch { /* non-fatal */ }
+    }
     return {
       confirmed: false,
       aiDirection: 'NEUTRAL',
