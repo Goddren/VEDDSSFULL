@@ -7428,6 +7428,20 @@ async function isAdminUser(userId) {
     return false;
   }
 }
+async function getTodayPlatformKeyCallsAllUsers() {
+  const day = (/* @__PURE__ */ new Date()).toISOString().slice(0, 10);
+  if (platformTotalCache && platformTotalCache.day === day && Date.now() - platformTotalCache.at < 6e4) return platformTotalCache.count;
+  try {
+    const dayStart = /* @__PURE__ */ new Date(`${day}T00:00:00Z`);
+    const [row] = await db.select({ n: sql4`count(*)` }).from(aiUsageLog).where(and4(eq4(aiUsageLog.usedPlatformKey, true), gte4(aiUsageLog.createdAt, dayStart)));
+    const count = Number(row?.n || 0);
+    platformTotalCache = { at: Date.now(), day, count };
+    return count;
+  } catch (e) {
+    console.error("[AI Usage] Failed to count platform-wide daily calls (not capping this check):", e);
+    return 0;
+  }
+}
 async function isUnderPlatformKeyCostCap(userId) {
   const [usedCents, capCents] = await Promise.all([
     getMonthlyPlatformKeyCostCents(userId),
@@ -7435,6 +7449,13 @@ async function isUnderPlatformKeyCostCap(userId) {
   ]);
   if (usedCents >= capCents) return false;
   if (await isAdminUser(userId)) return true;
+  if (PLATFORM_TOTAL_CAP > 0) {
+    const total = await getTodayPlatformKeyCallsAllUsers();
+    if (total >= PLATFORM_TOTAL_CAP) {
+      console.warn(`[AI Usage] platform-wide daily cap reached (${total}/${PLATFORM_TOTAL_CAP}) \u2014 shared key paused for non-admin user ${userId} until 00:00 UTC`);
+      return false;
+    }
+  }
   const calls = await getTodayPlatformKeyCalls(userId);
   if (calls >= DAILY_PLATFORM_CALL_CAP) {
     console.warn(`[AI Usage] user ${userId} reached the daily platform-key cap (${calls}/${DAILY_PLATFORM_CALL_CAP} calls) \u2014 shared key paused for them until 00:00 UTC; personal keys still work`);
@@ -7442,7 +7463,7 @@ async function isUnderPlatformKeyCostCap(userId) {
   }
   return true;
 }
-var MODEL_PRICING_CENTS_PER_1M, DAILY_PLATFORM_CALL_CAP, dailyCountCache;
+var MODEL_PRICING_CENTS_PER_1M, DAILY_PLATFORM_CALL_CAP, dailyCountCache, PLATFORM_TOTAL_CAP, platformTotalCache;
 var init_ai_usage = __esm({
   "server/ai-usage.ts"() {
     "use strict";
@@ -7468,6 +7489,8 @@ var init_ai_usage = __esm({
     };
     DAILY_PLATFORM_CALL_CAP = Math.max(1, Number(process.env.AI_PLATFORM_DAILY_CALLS_PER_USER) || 2e3);
     dailyCountCache = /* @__PURE__ */ new Map();
+    PLATFORM_TOTAL_CAP = Number(process.env.AI_PLATFORM_DAILY_CALLS_TOTAL) || 0;
+    platformTotalCache = null;
   }
 });
 
@@ -9015,6 +9038,7 @@ var ai_budget_guard_exports = {};
 __export(ai_budget_guard_exports, {
   aiBudgetDeferReason: () => aiBudgetDeferReason,
   aiBudgetDeferSecondsLeft: () => aiBudgetDeferSecondsLeft,
+  fxShouldPauseForCredits: () => fxShouldPauseForCredits,
   noteAiBudgetError: () => noteAiBudgetError,
   shouldDeferLowPriorityAi: () => shouldDeferLowPriorityAi
 });
@@ -9026,6 +9050,7 @@ function noteAiBudgetError(err) {
   const now = Date.now();
   if (is402) {
     deferUntil = Math.max(deferUntil, now + COOLDOWN_402_MS);
+    creditsOutUntil = Math.max(creditsOutUntil, now + FX_402_PAUSE_MS);
     lastReason = "insufficient credits (402)";
   } else if (is429) {
     deferUntil = Math.max(deferUntil, now + COOLDOWN_429_MS);
@@ -9038,11 +9063,14 @@ function shouldDeferLowPriorityAi() {
 function aiBudgetDeferReason() {
   return lastReason;
 }
+function fxShouldPauseForCredits() {
+  return Date.now() < creditsOutUntil;
+}
 function aiBudgetDeferSecondsLeft() {
   const left = deferUntil - Date.now();
   return left > 0 ? Math.ceil(left / 1e3) : 0;
 }
-var deferUntil, lastReason, COOLDOWN_402_MS, COOLDOWN_429_MS;
+var deferUntil, lastReason, COOLDOWN_402_MS, COOLDOWN_429_MS, creditsOutUntil, FX_402_PAUSE_MS;
 var init_ai_budget_guard = __esm({
   "server/services/ai-budget-guard.ts"() {
     "use strict";
@@ -9050,6 +9078,8 @@ var init_ai_budget_guard = __esm({
     lastReason = "";
     COOLDOWN_402_MS = 5 * 6e4;
     COOLDOWN_429_MS = 6e4;
+    creditsOutUntil = 0;
+    FX_402_PAUSE_MS = Number(process.env.FX_AI_402_PAUSE_SECONDS ?? 120) * 1e3;
   }
 });
 
@@ -24751,11 +24781,13 @@ __export(live_trading_engine_exports, {
   getPersistedEngineConfigOverride: () => getPersistedEngineConfigOverride,
   heartbeatMT5Account: () => heartbeatMT5Account,
   hydratePersistedEngineConfigs: () => hydratePersistedEngineConfigs,
+  isFxLeader: () => isFxLeader,
   recordTradeResult: () => recordTradeResult,
   registerMT5Account: () => registerMT5Account,
   restoreFxEngineStateFromDb: () => restoreFxEngineStateFromDb,
   setMT5AccountReceiveSignals: () => setMT5AccountReceiveSignals,
   setModelLock: () => setModelLock,
+  startFxLeaderElection: () => startFxLeaderElection,
   startLiveEngine: () => startLiveEngine,
   stopLiveEngine: () => stopLiveEngine,
   updateLiveEngineConfig: () => updateLiveEngineConfig
@@ -25580,6 +25612,7 @@ function convertToCandles(bars) {
 async function scanMarkets(userId) {
   const state = engineStates[userId];
   if (!state || state.status !== "running" || state.currentlyScanning) return;
+  if (!isFxLeader()) return;
   state.currentlyScanning = true;
   state.scanCount++;
   state.lastScanAt = (/* @__PURE__ */ new Date()).toISOString();
@@ -26563,6 +26596,7 @@ async function applyServerSideTrails(userId, openPositions, marketAnalysis) {
 async function monitorPositions(userId) {
   const state = engineStates[userId];
   if (!state || !positionMonitorIntervals[userId]) return;
+  if (!isFxLeader()) return;
   if (_monitorBusy[userId]) return;
   const lastAnalysis = state._lastMarketAnalysis;
   if (!lastAnalysis) return;
@@ -29689,6 +29723,7 @@ async function runORBAutonomousScan(userId) {
 async function runSundayGapScanner(userId) {
   const state = engineStates[userId];
   if (!state) return;
+  if (!isFxLeader()) return;
   const config = state.config;
   const gapPairs = ["EURUSD", "GBPUSD", "USDJPY", "XAUUSD", "GBPJPY"].filter((p) => config.pairs.includes(p) || config.pairs.length === 0);
   addActivity(userId, { type: "scan", message: `\u{1F319} Sunday gap scan running for ${gapPairs.join(", ")}` });
@@ -29750,6 +29785,96 @@ function _persistFxRunState(userId, isRunning) {
     });
   }).catch(() => {
   });
+}
+function isFxLeader() {
+  if (process.env.FX_LEADER_LOCK_DISABLED === "true") return true;
+  return _fxIsLeader;
+}
+function _dropFxLeadership(reason) {
+  if (_fxIsLeader) console.error(`[FX leader] lost leadership: ${reason}`);
+  _fxIsLeader = false;
+  try {
+    _fxLeaderClient?.release(true);
+  } catch {
+  }
+  _fxLeaderClient = null;
+}
+async function _breakStaleFxLeader(pool2) {
+  try {
+    const { rows } = await pool2.query(
+      `SELECT a.pid, round(extract(epoch from now()-a.state_change)) idle_s
+         FROM pg_locks l JOIN pg_stat_activity a ON a.pid = l.pid
+        WHERE l.locktype='advisory' AND l.objid=$1 AND l.granted
+          AND a.pid <> pg_backend_pid()
+          AND a.state_change < now() - ($2::int * interval '1 millisecond')`,
+      [FX_LEADER_LOCK_KEY, FX_LEADER_STALE_MS]
+    );
+    for (const r of rows) {
+      console.error(`[FX leader] lock holder pid ${r.pid} silent for ${r.idle_s}s (keepalive is 30s) \u2014 its process is gone; terminating that session.`);
+      await pool2.query(`SELECT pg_terminate_backend($1)`, [r.pid]);
+    }
+  } catch (e) {
+    console.error("[FX leader] stale-holder check failed:", e?.message);
+  }
+}
+async function _fxLeaderTick() {
+  if (process.env.FX_LEADER_LOCK_DISABLED === "true") return;
+  const { pool: pool2 } = await Promise.resolve().then(() => (init_db(), db_exports));
+  if (_fxIsLeader && _fxLeaderClient) {
+    try {
+      await _fxLeaderClient.query("SELECT 1");
+    } catch (e) {
+      _dropFxLeadership(`keepalive failed (${e?.message})`);
+    }
+    return;
+  }
+  let client2 = null;
+  try {
+    client2 = await pool2.connect();
+    const r = await client2.query("SELECT pg_try_advisory_lock($1) AS locked", [FX_LEADER_LOCK_KEY]);
+    if (r.rows?.[0]?.locked === true) {
+      client2.on?.("error", (e) => _dropFxLeadership(`session error (${e?.message})`));
+      _fxLeaderClient = client2;
+      _fxIsLeader = true;
+      console.log(`[FX leader] this instance is now the FX engine leader (pid ${process.pid}).`);
+      await _restoreFxEnginesNotRunningHere();
+      return;
+    }
+    client2.release();
+    await _breakStaleFxLeader(pool2);
+  } catch (e) {
+    try {
+      client2?.release(true);
+    } catch {
+    }
+    console.error("[FX leader] lock check failed \u2014 not trading from this instance (fail-closed):", e?.message);
+  }
+}
+async function startFxLeaderElection() {
+  if (_fxLeaderLoop) return;
+  await _fxLeaderTick();
+  _fxLeaderLoop = setInterval(() => {
+    void _fxLeaderTick();
+  }, 3e4);
+}
+async function _restoreFxEnginesNotRunningHere() {
+  try {
+    const { db: db2 } = await Promise.resolve().then(() => (init_db(), db_exports));
+    const { engineRunState: engineRunState2 } = await Promise.resolve().then(() => (init_schema(), schema_exports));
+    const { eq: eq21, and: and12 } = await import("drizzle-orm");
+    const rows = await db2.select().from(engineRunState2).where(and12(eq21(engineRunState2.engine, "fx"), eq21(engineRunState2.isRunning, true)));
+    for (const row of rows) {
+      if (engineStates[row.userId]?.status === "running") continue;
+      try {
+        startLiveEngine(row.userId, void 0);
+        console.log(`[FX leader] restored FX engine for user ${row.userId}.`);
+      } catch (e) {
+        console.error(`[FX leader] restore failed for user ${row.userId}:`, e?.message ?? e);
+      }
+    }
+  } catch (e) {
+    console.error("[FX leader] restore on takeover failed:", e?.message ?? e);
+  }
 }
 async function restoreFxEngineStateFromDb() {
   try {
@@ -30425,7 +30550,7 @@ function getModelLockStatus(userId) {
   if (!state) return { locked: false, openPositions: 0 };
   return { locked: state.modelLocked, openPositions: state.openPositionCount };
 }
-var FX_MAX_OPEN_PER_SYMBOL, FX_SYMBOL_COOLDOWN_MS, mt5AccountQueues, mt5AccountRegistry, engineStates, engineIntervals, engineTimers, brainLearningIntervals, positionMonitorIntervals, _monitorBusy, persistedConfigOverrides, goalTrackerCache, ALL_STRATEGY_KEYS, _dxSkipTableReady, countedTradeKeys, TRAIL_METHOD_LABELS, xauPeakPts, xauLockedPts, NY_TIME_FMT, INDEX_BROKER_ALIASES;
+var FX_MAX_OPEN_PER_SYMBOL, FX_SYMBOL_COOLDOWN_MS, mt5AccountQueues, mt5AccountRegistry, engineStates, engineIntervals, engineTimers, brainLearningIntervals, positionMonitorIntervals, _monitorBusy, persistedConfigOverrides, goalTrackerCache, ALL_STRATEGY_KEYS, _dxSkipTableReady, countedTradeKeys, TRAIL_METHOD_LABELS, xauPeakPts, xauLockedPts, NY_TIME_FMT, INDEX_BROKER_ALIASES, FX_LEADER_LOCK_KEY, FX_LEADER_STALE_MS, _fxLeaderClient, _fxIsLeader, _fxLeaderLoop;
 var init_live_trading_engine = __esm({
   "server/services/live-trading-engine.ts"() {
     "use strict";
@@ -30506,6 +30631,11 @@ var init_live_trading_engine = __esm({
       NAS100: ["NAS100CASH", "NAS100C", "NASDAQ100", "USTEC", "NDX100", "US100", "NQ", "NASDAQ", "NASUSD", "NA100", "NDAQ", "QQQ", "TECH100", "USTECH100", "NASD100", "NAS100USD"],
       US500: ["SPXUSD", "US500CASH", "SP500USD", "USINDEX", "SPX500USD", "ES", "SPX", "SPXC", "SP500C", "SPXUSDM", "SPX500", "SP500"]
     };
+    FX_LEADER_LOCK_KEY = 918273646;
+    FX_LEADER_STALE_MS = 3 * 60 * 1e3;
+    _fxLeaderClient = null;
+    _fxIsLeader = false;
+    _fxLeaderLoop = null;
   }
 });
 
@@ -57956,9 +58086,9 @@ async function getStopOrdersForUser(userId, filters = {}) {
 init_schema();
 
 // server/build-info.ts
-var BUILD_COMMIT = "1327f9cf-dirty";
+var BUILD_COMMIT = "c75431f0-dirty";
 var BUILD_BRANCH = "main";
-var BUILT_AT = "2026-10-11T12:33:33.558Z";
+var BUILT_AT = "2026-10-11T13:06:12.448Z";
 
 // server/stripe.ts
 init_db();
@@ -62308,6 +62438,9 @@ async function registerRoutes(app2, existingServer) {
       // savedPct with high misses means the key is still churning, which is a
       // different fix from a low savedPct with high throttles.
       aiCache: confirmationCacheStats(),
+      // Which instance owns the FX engines (Postgres advisory lock). Hitting
+      // /api/health repeatedly should show exactly one instance with true.
+      fxLeader: await Promise.resolve().then(() => (init_live_trading_engine(), live_trading_engine_exports)).then((m) => m.isFxLeader()).catch(() => null),
       // Surfaced so an empty blocklist is visible at a glance instead of being
       // inferred from the absence of block rows.
       // await import, not require: this bundle is ESM and `require` is not
@@ -70144,7 +70277,9 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
         return _d === 6 || _d === 5 && _h >= 21 || _d === 0 && _h < 21;
       })();
       if (_fxMarketClosed) _cdiag.stage = "market_closed";
-      if (!_fxMarketClosed && analysis.signal !== "NEUTRAL" && analysis.confidence >= Math.min(60, MIN_CONFIDENCE_FOR_AUTO_TRADE)) {
+      const _aiCreditsOut = !_fxMarketClosed && await Promise.resolve().then(() => (init_ai_budget_guard(), ai_budget_guard_exports)).then((m) => m.fxShouldPauseForCredits()).catch(() => false);
+      const _skipAi = _fxMarketClosed || _aiCreditsOut;
+      if (!_skipAi && analysis.signal !== "NEUTRAL" && analysis.confidence >= Math.min(60, MIN_CONFIDENCE_FOR_AUTO_TRADE)) {
         _cdiag.gatePassed = true;
         try {
           const { isAiVisionConfirmationEnabled: isAiVisionConfirmationEnabled2, getAiVisionConfirmation: getAiVisionConfirmation2, getBreakoutConfirmation: getBreakoutConfirmation2, addAiConfirmationLog: addAiConfirmationLog2, getUserModelPreference: getUserModelPreference2, AVAILABLE_VISION_MODELS: AVAILABLE_VISION_MODELS2, isICTStrategyEnabled: isICTStrategyEnabled2, isSMCStrategyEnabled: isSMCStrategyEnabled2, isPropFirmModeEnabled: isPropFirmModeEnabled2, getPropFirmContext: getPropFirmContext2, isBreakoutModeEnabled: isBreakoutModeEnabled2, isTrailingStopEnabled: isTrailingStopEnabled2, setTrailingStopEnabled: setTrailingStopEnabled2, hydrateBreakoutModeMap: hydrateBreakoutModeMap2, hydrateAiVisionMap: hydrateAiVisionMap2, getAiMinConfidence: _getAiMinConf } = await Promise.resolve().then(() => (init_openai(), openai_exports));
@@ -70931,9 +71066,9 @@ BEAR CASE: ${_bearCase || "n/a"}` : aiConfirmation.reasoning;
           };
         }
         void _writeCdiagTracked();
-      } else if (_fxMarketClosed) {
-        _cdiag.stage = "market_closed";
-        _diagCap.neutralReason = _diagCap.neutralReason || "market_closed (FX weekend: Fri 21:00 \u2013 Sun 21:00 UTC, no AI call)";
+      } else if (_skipAi) {
+        _cdiag.stage = _fxMarketClosed ? "market_closed" : "ai_credits_out";
+        _diagCap.neutralReason = _diagCap.neutralReason || (_fxMarketClosed ? "market_closed (FX weekend: Fri 21:00 \u2013 Sun 21:00 UTC, no AI call)" : "ai_credits_out (every AI provider returned 402 \u2014 pausing AI calls, re-probing shortly)");
         analysis.signal = "NEUTRAL";
         void _writeCdiagTracked();
       } else {
@@ -90909,9 +91044,20 @@ async function withRetry(fn, label, maxAttempts = 6, baseDelayMs = 2e3) {
     const { hydratePersistedEngineConfigs: hydratePersistedEngineConfigs2, restoreFxEngineStateFromDb: restoreFxEngineStateFromDb2 } = await Promise.resolve().then(() => (init_live_trading_engine(), live_trading_engine_exports));
     await hydratePersistedEngineConfigs2();
     await restoreFxEngineStateFromDb2();
+    const { startFxLeaderElection: startFxLeaderElection2 } = await Promise.resolve().then(() => (init_live_trading_engine(), live_trading_engine_exports));
+    await startFxLeaderElection2();
   } catch (err) {
     console.error(`[startup] Live Engine config hydration error (non-fatal):`, err?.message ?? err);
   }
+  void (async () => {
+    try {
+      const { pool: pool2 } = await Promise.resolve().then(() => (init_db(), db_exports));
+      await pool2.query(`CREATE INDEX CONCURRENTLY IF NOT EXISTS ai_usage_log_user_platform_created_idx
+                          ON ai_usage_log (user_id, used_platform_key, created_at)`);
+    } catch (err) {
+      console.error("[startup] ai_usage_log index (non-fatal):", err?.message ?? err);
+    }
+  })();
   try {
     const { ensureCopyTradingExecutionColumns: ensureCopyTradingExecutionColumns2 } = await Promise.resolve().then(() => (init_ensure_copy_trading_execution_columns(), ensure_copy_trading_execution_columns_exports));
     await ensureCopyTradingExecutionColumns2();

@@ -9926,6 +9926,20 @@ async function isAdminUser(userId) {
     return false;
   }
 }
+async function getTodayPlatformKeyCallsAllUsers() {
+  const day = (/* @__PURE__ */ new Date()).toISOString().slice(0, 10);
+  if (platformTotalCache && platformTotalCache.day === day && Date.now() - platformTotalCache.at < 6e4) return platformTotalCache.count;
+  try {
+    const dayStart = /* @__PURE__ */ new Date(`${day}T00:00:00Z`);
+    const [row] = await db.select({ n: sql3`count(*)` }).from(aiUsageLog).where(and3(eq3(aiUsageLog.usedPlatformKey, true), gte3(aiUsageLog.createdAt, dayStart)));
+    const count = Number(row?.n || 0);
+    platformTotalCache = { at: Date.now(), day, count };
+    return count;
+  } catch (e) {
+    console.error("[AI Usage] Failed to count platform-wide daily calls (not capping this check):", e);
+    return 0;
+  }
+}
 async function isUnderPlatformKeyCostCap(userId) {
   const [usedCents, capCents] = await Promise.all([
     getMonthlyPlatformKeyCostCents(userId),
@@ -9933,6 +9947,13 @@ async function isUnderPlatformKeyCostCap(userId) {
   ]);
   if (usedCents >= capCents) return false;
   if (await isAdminUser(userId)) return true;
+  if (PLATFORM_TOTAL_CAP > 0) {
+    const total = await getTodayPlatformKeyCallsAllUsers();
+    if (total >= PLATFORM_TOTAL_CAP) {
+      console.warn(`[AI Usage] platform-wide daily cap reached (${total}/${PLATFORM_TOTAL_CAP}) \u2014 shared key paused for non-admin user ${userId} until 00:00 UTC`);
+      return false;
+    }
+  }
   const calls = await getTodayPlatformKeyCalls(userId);
   if (calls >= DAILY_PLATFORM_CALL_CAP) {
     console.warn(`[AI Usage] user ${userId} reached the daily platform-key cap (${calls}/${DAILY_PLATFORM_CALL_CAP} calls) \u2014 shared key paused for them until 00:00 UTC; personal keys still work`);
@@ -9940,7 +9961,7 @@ async function isUnderPlatformKeyCostCap(userId) {
   }
   return true;
 }
-var MODEL_PRICING_CENTS_PER_1M, DAILY_PLATFORM_CALL_CAP, dailyCountCache;
+var MODEL_PRICING_CENTS_PER_1M, DAILY_PLATFORM_CALL_CAP, dailyCountCache, PLATFORM_TOTAL_CAP, platformTotalCache;
 var init_ai_usage = __esm({
   "server/ai-usage.ts"() {
     "use strict";
@@ -9966,6 +9987,8 @@ var init_ai_usage = __esm({
     };
     DAILY_PLATFORM_CALL_CAP = Math.max(1, Number(process.env.AI_PLATFORM_DAILY_CALLS_PER_USER) || 2e3);
     dailyCountCache = /* @__PURE__ */ new Map();
+    PLATFORM_TOTAL_CAP = Number(process.env.AI_PLATFORM_DAILY_CALLS_TOTAL) || 0;
+    platformTotalCache = null;
   }
 });
 
@@ -11105,6 +11128,7 @@ var ai_budget_guard_exports = {};
 __export(ai_budget_guard_exports, {
   aiBudgetDeferReason: () => aiBudgetDeferReason,
   aiBudgetDeferSecondsLeft: () => aiBudgetDeferSecondsLeft,
+  fxShouldPauseForCredits: () => fxShouldPauseForCredits,
   noteAiBudgetError: () => noteAiBudgetError,
   shouldDeferLowPriorityAi: () => shouldDeferLowPriorityAi
 });
@@ -11116,6 +11140,7 @@ function noteAiBudgetError(err) {
   const now = Date.now();
   if (is402) {
     deferUntil = Math.max(deferUntil, now + COOLDOWN_402_MS);
+    creditsOutUntil = Math.max(creditsOutUntil, now + FX_402_PAUSE_MS);
     lastReason = "insufficient credits (402)";
   } else if (is429) {
     deferUntil = Math.max(deferUntil, now + COOLDOWN_429_MS);
@@ -11128,11 +11153,14 @@ function shouldDeferLowPriorityAi() {
 function aiBudgetDeferReason() {
   return lastReason;
 }
+function fxShouldPauseForCredits() {
+  return Date.now() < creditsOutUntil;
+}
 function aiBudgetDeferSecondsLeft() {
   const left = deferUntil - Date.now();
   return left > 0 ? Math.ceil(left / 1e3) : 0;
 }
-var deferUntil, lastReason, COOLDOWN_402_MS, COOLDOWN_429_MS;
+var deferUntil, lastReason, COOLDOWN_402_MS, COOLDOWN_429_MS, creditsOutUntil, FX_402_PAUSE_MS;
 var init_ai_budget_guard = __esm({
   "server/services/ai-budget-guard.ts"() {
     "use strict";
@@ -11140,6 +11168,8 @@ var init_ai_budget_guard = __esm({
     lastReason = "";
     COOLDOWN_402_MS = 5 * 6e4;
     COOLDOWN_429_MS = 6e4;
+    creditsOutUntil = 0;
+    FX_402_PAUSE_MS = Number(process.env.FX_AI_402_PAUSE_SECONDS ?? 120) * 1e3;
   }
 });
 

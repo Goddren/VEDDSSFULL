@@ -30,6 +30,7 @@ export function noteAiBudgetError(err: any): void {
   const now = Date.now();
   if (is402) {
     deferUntil = Math.max(deferUntil, now + COOLDOWN_402_MS);
+    creditsOutUntil = Math.max(creditsOutUntil, now + FX_402_PAUSE_MS);
     lastReason = 'insufficient credits (402)';
   } else if (is429) {
     deferUntil = Math.max(deferUntil, now + COOLDOWN_429_MS);
@@ -45,6 +46,17 @@ export function shouldDeferLowPriorityAi(): boolean {
 
 export function aiBudgetDeferReason(): string {
   return lastReason;
+}
+
+// FX back-off for 402 only. This trips only after EVERY provider in the failover
+// chain has failed, at which point an FX confirmation can only come back
+// "AI unavailable — trade blocked" anyway. On 2026-10-08 FX kept retrying ~650
+// times/hour against an empty account. FX now pauses briefly and re-probes, so
+// trading resumes within FX_402_PAUSE_MS of credits being topped up.
+let creditsOutUntil = 0;
+const FX_402_PAUSE_MS = Number(process.env.FX_AI_402_PAUSE_SECONDS ?? 120) * 1000;
+export function fxShouldPauseForCredits(): boolean {
+  return Date.now() < creditsOutUntil;
 }
 
 /** Seconds remaining on the current back-off (0 when not deferring). */

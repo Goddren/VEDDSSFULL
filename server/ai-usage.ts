@@ -152,6 +152,31 @@ async function isAdminUser(userId: number): Promise<boolean> {
 
 // Whether platform-key AI calls should be allowed for this user right now.
 // Personal-key usage is never gated by this — only the shared platform key is.
+// ── Optional PLATFORM-WIDE daily call cap on the shared key ─────────────────
+// The per-user cap alone lets 100 users × 2000 = 200k calls/day on one key.
+// Set AI_PLATFORM_DAILY_CALLS_TOTAL to bound the whole platform; once reached,
+// non-admin users fall back to "no AI" until 00:00 UTC (admins keep priority).
+// Unset = off (no change in behaviour).
+const PLATFORM_TOTAL_CAP = Number(process.env.AI_PLATFORM_DAILY_CALLS_TOTAL) || 0;
+let platformTotalCache: { at: number; day: string; count: number } | null = null;
+async function getTodayPlatformKeyCallsAllUsers(): Promise<number> {
+  const day = new Date().toISOString().slice(0, 10);
+  if (platformTotalCache && platformTotalCache.day === day && Date.now() - platformTotalCache.at < 60_000) return platformTotalCache.count;
+  try {
+    const dayStart = new Date(`${day}T00:00:00Z`);
+    const [row] = await db
+      .select({ n: sql<number>`count(*)` })
+      .from(aiUsageLog)
+      .where(and(eq(aiUsageLog.usedPlatformKey, true), gte(aiUsageLog.createdAt, dayStart)));
+    const count = Number(row?.n || 0);
+    platformTotalCache = { at: Date.now(), day, count };
+    return count;
+  } catch (e) {
+    console.error('[AI Usage] Failed to count platform-wide daily calls (not capping this check):', e);
+    return 0;
+  }
+}
+
 export async function isUnderPlatformKeyCostCap(userId: number): Promise<boolean> {
   const [usedCents, capCents] = await Promise.all([
     getMonthlyPlatformKeyCostCents(userId),
@@ -159,6 +184,13 @@ export async function isUnderPlatformKeyCostCap(userId: number): Promise<boolean
   ]);
   if (usedCents >= capCents) return false;
   if (await isAdminUser(userId)) return true;
+  if (PLATFORM_TOTAL_CAP > 0) {
+    const total = await getTodayPlatformKeyCallsAllUsers();
+    if (total >= PLATFORM_TOTAL_CAP) {
+      console.warn(`[AI Usage] platform-wide daily cap reached (${total}/${PLATFORM_TOTAL_CAP}) — shared key paused for non-admin user ${userId} until 00:00 UTC`);
+      return false;
+    }
+  }
   const calls = await getTodayPlatformKeyCalls(userId);
   if (calls >= DAILY_PLATFORM_CALL_CAP) {
     console.warn(`[AI Usage] user ${userId} reached the daily platform-key cap (${calls}/${DAILY_PLATFORM_CALL_CAP} calls) — shared key paused for them until 00:00 UTC; personal keys still work`);

@@ -1373,6 +1373,7 @@ function convertToCandles(bars: Array<{ timestamp: number; open: number; high: n
 async function scanMarkets(userId: number): Promise<void> {
   const state = engineStates[userId];
   if (!state || state.status !== 'running' || state.currentlyScanning) return;
+  if (!isFxLeader()) return; // another instance owns the FX engines — see fxLeader below
 
   state.currentlyScanning = true;
   state.scanCount++;
@@ -2668,6 +2669,7 @@ async function applyServerSideTrails(
 async function monitorPositions(userId: number): Promise<void> {
   const state = engineStates[userId];
   if (!state || !positionMonitorIntervals[userId]) return; // engine stopped
+  if (!isFxLeader()) return; // only the leader instance manages positions
   if (_monitorBusy[userId]) return; // don't overlap with a running monitor/scan
   const lastAnalysis = (state as any)._lastMarketAnalysis;
   if (!lastAnalysis) return;
@@ -6563,6 +6565,7 @@ async function runORBAutonomousScan(userId: number): Promise<void> {
 async function runSundayGapScanner(userId: number): Promise<void> {
   const state = engineStates[userId];
   if (!state) return;
+  if (!isFxLeader()) return;
   const config = state.config;
   const gapPairs = ['EURUSD', 'GBPUSD', 'USDJPY', 'XAUUSD', 'GBPJPY'].filter(p => config.pairs.includes(p) || config.pairs.length === 0);
 
@@ -6654,6 +6657,110 @@ function _persistFxRunState(userId: number, isRunning: boolean): void {
  * loss, drawdown breaker, manual emergency stop) persists isRunning=false, so a
  * breached account stays down across the deploy rather than quietly resuming.
  */
+// ─────────────────────────────────────────────────────────────────────────────
+// FX leader lock.
+//
+// Every instance used to restore and run every user's FX engine on boot, so
+// during a deploy overlap (or with >1 instance) two processes scanned the same
+// signals and both sent orders — 2026-10-08 accounts 32/34 got every order
+// twice, ~50s apart. Now exactly one process — the holder of a Postgres
+// session-level advisory lock — may scan, manage positions or run the gap
+// scanner. Others keep retrying and take over when the holder goes away.
+//
+// Fail closed: if leadership can't be confirmed, this instance does not trade.
+// The held session runs a keepalive query every 30s; a holder whose session has
+// been silent for STALE_MS is dead (its container was killed but Postgres kept
+// the backend), so its session is terminated to free the lock.
+// ─────────────────────────────────────────────────────────────────────────────
+const FX_LEADER_LOCK_KEY = 918273646; // distinct from the crypto scanner's 918273645
+const FX_LEADER_STALE_MS = 3 * 60 * 1000;
+let _fxLeaderClient: any = null;
+let _fxIsLeader = false;
+let _fxLeaderLoop: ReturnType<typeof setInterval> | null = null;
+
+export function isFxLeader(): boolean {
+  if (process.env.FX_LEADER_LOCK_DISABLED === 'true') return true;
+  return _fxIsLeader;
+}
+
+function _dropFxLeadership(reason: string) {
+  if (_fxIsLeader) console.error(`[FX leader] lost leadership: ${reason}`);
+  _fxIsLeader = false;
+  try { _fxLeaderClient?.release(true); } catch { /* already gone */ }
+  _fxLeaderClient = null;
+}
+
+async function _breakStaleFxLeader(pool: any): Promise<void> {
+  try {
+    const { rows } = await pool.query(
+      `SELECT a.pid, round(extract(epoch from now()-a.state_change)) idle_s
+         FROM pg_locks l JOIN pg_stat_activity a ON a.pid = l.pid
+        WHERE l.locktype='advisory' AND l.objid=$1 AND l.granted
+          AND a.pid <> pg_backend_pid()
+          AND a.state_change < now() - ($2::int * interval '1 millisecond')`,
+      [FX_LEADER_LOCK_KEY, FX_LEADER_STALE_MS],
+    );
+    for (const r of rows) {
+      console.error(`[FX leader] lock holder pid ${r.pid} silent for ${r.idle_s}s (keepalive is 30s) — its process is gone; terminating that session.`);
+      await pool.query(`SELECT pg_terminate_backend($1)`, [r.pid]);
+    }
+  } catch (e: any) {
+    console.error('[FX leader] stale-holder check failed:', e?.message);
+  }
+}
+
+async function _fxLeaderTick(): Promise<void> {
+  if (process.env.FX_LEADER_LOCK_DISABLED === 'true') return;
+  const { pool } = await import('../db');
+  if (_fxIsLeader && _fxLeaderClient) {
+    try { await _fxLeaderClient.query('SELECT 1'); } // keepalive — refreshes state_change
+    catch (e: any) { _dropFxLeadership(`keepalive failed (${e?.message})`); }
+    return;
+  }
+  let client: any = null;
+  try {
+    client = await pool.connect();
+    const r = await client.query('SELECT pg_try_advisory_lock($1) AS locked', [FX_LEADER_LOCK_KEY]);
+    if (r.rows?.[0]?.locked === true) {
+      client.on?.('error', (e: any) => _dropFxLeadership(`session error (${e?.message})`));
+      _fxLeaderClient = client;
+      _fxIsLeader = true;
+      console.log(`[FX leader] this instance is now the FX engine leader (pid ${process.pid}).`);
+      await _restoreFxEnginesNotRunningHere();
+      return;
+    }
+    client.release();
+    await _breakStaleFxLeader(pool);
+  } catch (e: any) {
+    try { client?.release(true); } catch { /* ignore */ }
+    console.error('[FX leader] lock check failed — not trading from this instance (fail-closed):', e?.message);
+  }
+}
+
+/** Boot hook: start contending for leadership; retries every 30s. */
+export async function startFxLeaderElection(): Promise<void> {
+  if (_fxLeaderLoop) return;
+  await _fxLeaderTick();
+  _fxLeaderLoop = setInterval(() => { void _fxLeaderTick(); }, 30_000);
+}
+
+async function _restoreFxEnginesNotRunningHere(): Promise<void> {
+  try {
+    const { db } = await import('../db');
+    const { engineRunState } = await import('../../shared/schema');
+    const { eq, and } = await import('drizzle-orm');
+    const rows = await db.select().from(engineRunState)
+      .where(and(eq(engineRunState.engine, 'fx'), eq(engineRunState.isRunning, true)));
+    for (const row of rows) {
+      if (engineStates[row.userId]?.status === 'running') continue;
+      try { startLiveEngine(row.userId, undefined); console.log(`[FX leader] restored FX engine for user ${row.userId}.`); }
+      catch (e: any) { console.error(`[FX leader] restore failed for user ${row.userId}:`, e?.message ?? e); }
+    }
+  } catch (e: any) {
+    console.error('[FX leader] restore on takeover failed:', e?.message ?? e);
+  }
+}
+
 export async function restoreFxEngineStateFromDb(): Promise<void> {
   try {
     const { db } = await import('../db');

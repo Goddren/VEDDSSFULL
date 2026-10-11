@@ -1298,6 +1298,9 @@ export async function registerRoutes(app: Express, existingServer?: Server): Pro
       // savedPct with high misses means the key is still churning, which is a
       // different fix from a low savedPct with high throttles.
       aiCache: aiConfirmationCacheStats(),
+      // Which instance owns the FX engines (Postgres advisory lock). Hitting
+      // /api/health repeatedly should show exactly one instance with true.
+      fxLeader: await import('./services/live-trading-engine').then(m => m.isFxLeader()).catch(() => null),
       // Surfaced so an empty blocklist is visible at a glance instead of being
       // inferred from the absence of block rows.
       // await import, not require: this bundle is ESM and `require` is not
@@ -10772,9 +10775,15 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
         return _d === 6 || (_d === 5 && _h >= 21) || (_d === 0 && _h < 21);
       })();
       if (_fxMarketClosed) _cdiag.stage = 'market_closed';
+      // Every AI provider just returned 402 (no credits): a confirmation now can
+      // only fail as "AI unavailable — trade blocked". Pause briefly instead of
+      // re-buying that failure on every candle (ai-budget-guard.ts).
+      const _aiCreditsOut = !_fxMarketClosed && await import('./services/ai-budget-guard')
+        .then(m => m.fxShouldPauseForCredits()).catch(() => false);
+      const _skipAi = _fxMarketClosed || _aiCreditsOut;
       // Second Opinion fires on any non-NEUTRAL signal ≥ 60% — tradePlan NOT required.
       // Auto-execution (TradeLocker) still needs MIN_CONFIDENCE + tradePlan — checked later.
-      if (!_fxMarketClosed && analysis.signal !== 'NEUTRAL' &&
+      if (!_skipAi && analysis.signal !== 'NEUTRAL' &&
           analysis.confidence >= Math.min(60, MIN_CONFIDENCE_FOR_AUTO_TRADE)) {
         _cdiag.gatePassed = true;
         try {
@@ -11681,11 +11690,13 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
           };
         }
         void _writeCdiagTracked();
-      } else if (_fxMarketClosed) {
+      } else if (_skipAi) {
         // No AI call → no approval → nothing may execute. Neutralise the signal
-        // so no later path can act on an unconfirmed weekend signal.
-        _cdiag.stage = 'market_closed';
-        _diagCap.neutralReason = _diagCap.neutralReason || 'market_closed (FX weekend: Fri 21:00 – Sun 21:00 UTC, no AI call)';
+        // so no later path can act on an unconfirmed signal.
+        _cdiag.stage = _fxMarketClosed ? 'market_closed' : 'ai_credits_out';
+        _diagCap.neutralReason = _diagCap.neutralReason || (_fxMarketClosed
+          ? 'market_closed (FX weekend: Fri 21:00 – Sun 21:00 UTC, no AI call)'
+          : 'ai_credits_out (every AI provider returned 402 — pausing AI calls, re-probing shortly)');
         analysis.signal = 'NEUTRAL';
         void _writeCdiagTracked();
       } else {
