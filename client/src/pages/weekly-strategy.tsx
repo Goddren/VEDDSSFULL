@@ -1414,6 +1414,9 @@ export default function WeeklyStrategyPage() {
   const [engineAutoFlatten, setEngineAutoFlatten] = useState(false);
   const [engineReversalExit, setEngineReversalExit] = useState(true);
   const [engineReversalSensitivity, setEngineReversalSensitivity] = useState(3);
+  const [enginePairLimitMode, setEnginePairLimitMode] = useState<'ai' | 'fixed'>('ai');
+  const [enginePairLimit, setEnginePairLimit] = useState(2);
+  const [enginePairLimitOverrides, setEnginePairLimitOverrides] = useState('');
   const [engineDailyProfitTarget, setEngineDailyProfitTarget] = useState(0);
   const [engineTrailMethod, setEngineTrailMethod] = useState<'staged_volume' | 'chandelier' | 'r_multiple' | 'swing_structure' | 'parabolic_sar' | 'none' | 'fixed_pip' | 'profit_lock' | 'stepped_fixed'>('staged_volume');
   const [engineTrailFixedPips, setEngineTrailFixedPips] = useState(20);
@@ -1571,6 +1574,9 @@ export default function WeeklyStrategyPage() {
     if (c.autoFlattenOnBreach != null) setEngineAutoFlatten(c.autoFlattenOnBreach);
     if (c.reversalExitEnabled != null) setEngineReversalExit(c.reversalExitEnabled);
     if (c.reversalSensitivity != null) setEngineReversalSensitivity(c.reversalSensitivity);
+    if (c.pairDailyLimitMode) setEnginePairLimitMode(c.pairDailyLimitMode);
+    if (c.maxTradesPerPairPerDay != null) setEnginePairLimit(c.maxTradesPerPairPerDay);
+    if (c.pairDailyLimitOverrides) setEnginePairLimitOverrides(Object.entries(c.pairDailyLimitOverrides).map(([k, v]) => `${k}:${v}`).join(', '));
   }, [liveEngineStatus]);
 
   const { data: liveEngineActivityData } = useQuery<any>({
@@ -2556,6 +2562,42 @@ export default function WeeklyStrategyPage() {
                           <option value={5}>5 of 5 — Strict (only near-certain)</option>
                         </select>
                         <p className="text-[10px] text-cyan-400/70 mt-0.5">Confluences: DI cross · MACD flip · RSI vs 50 · trend flip · volume. More required = fewer, higher-conviction exits.</p>
+                      </div>
+                    )}
+                    <div>
+                      <Label className="text-amber-400 text-xs font-semibold">Pair daily limit</Label>
+                      <select value={enginePairLimitMode}
+                        onChange={async e => { const v = e.target.value as 'ai' | 'fixed'; setEnginePairLimitMode(v); try { await apiRequest('PATCH', '/api/vedd-live-engine/config', { pairDailyLimitMode: v }); } catch { /* applied on start */ } }}
+                        className="mt-1 w-full bg-gray-800 border border-amber-900/50 text-white text-sm rounded-md h-8 px-2">
+                        <option value="ai">AI-managed (engine decides, current behaviour)</option>
+                        <option value="fixed">Fixed — my limit per pair per day</option>
+                      </select>
+                      <p className="text-[10px] text-amber-400/70 mt-0.5">
+                        {enginePairLimitMode === 'ai'
+                          ? 'The engine uses its own per-pair cap (Max open trades, counted per account fill).'
+                          : 'Counts trade signals: one signal sent to several accounts counts once.'}
+                      </p>
+                    </div>
+                    {enginePairLimitMode === 'fixed' && (
+                      <div>
+                        <Label className="text-amber-400 text-xs font-semibold">Trades per pair per day</Label>
+                        <Input type="number" value={enginePairLimit} min={0} max={20} step={1}
+                          onChange={e => setEnginePairLimit(Number(e.target.value))}
+                          onBlur={async () => { try { await apiRequest('PATCH', '/api/vedd-live-engine/config', { maxTradesPerPairPerDay: Math.max(0, Math.floor(enginePairLimit)) }); } catch { /* applied on start */ } }}
+                          className="mt-1 bg-gray-800 border-amber-900/50 text-white h-8 text-sm" />
+                        <Input type="text" value={enginePairLimitOverrides} placeholder="Per-pair overrides, e.g. XAUUSD:1, EURUSD:3"
+                          onChange={e => setEnginePairLimitOverrides(e.target.value)}
+                          onBlur={async () => {
+                            const map: Record<string, number> = {};
+                            for (const part of enginePairLimitOverrides.split(',')) {
+                              const [k, v] = part.split(':').map(s => s.trim());
+                              const n = Number(v);
+                              if (k && Number.isFinite(n) && n >= 0) map[k.toUpperCase()] = Math.floor(n);
+                            }
+                            try { await apiRequest('PATCH', '/api/vedd-live-engine/config', { pairDailyLimitOverrides: map }); } catch { /* applied on start */ }
+                          }}
+                          className="mt-1 bg-gray-800 border-amber-900/50 text-white h-8 text-xs" />
+                        <p className="text-[10px] text-amber-400/70 mt-0.5">0 = no trades on that pair. Saved when you leave the field.</p>
                       </div>
                     )}
                     <div>

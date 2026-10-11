@@ -205,6 +205,13 @@ interface LiveEngineConfig {
   reversalSensitivity: number; // 2-5: how many of the 5 reversal confluences must align to auto-exit (default 3)
   dailyProfitTarget: number;                   // stop trading when daily gain % hits this (0 = disabled)
   maxDailyTrades: number;                      // hard daily trade cap across all pairs (0 = unlimited)
+  // Per-pair daily limit. 'ai' = the engine's own cap (maxOpenTrades executed
+  // fills per pair per day, unchanged behaviour). 'fixed' = a user-set number of
+  // trade SIGNALS per pair per day (one signal fanned out to several accounts
+  // counts once), with optional per-pair overrides.
+  pairDailyLimitMode: 'ai' | 'fixed';
+  maxTradesPerPairPerDay: number;
+  pairDailyLimitOverrides: Record<string, number>;
   directionFilter: 'buy_only' | 'sell_only' | 'both'; // restrict signal direction (global)
   pairDirectionOverrides: Record<string, 'buy_only' | 'sell_only' | 'both'>; // per-pair overrides
   pairLotOverrides: Record<string, number>; // per-pair hard lot cap (0 = use engine default)
@@ -925,6 +932,9 @@ function getDefaultConfig(userId: number): LiveEngineConfig {
     reversalSensitivity: 4,     // if opted in, default to conservative (4 of 5) not 3
     dailyProfitTarget: 0,
     maxDailyTrades: 0,
+    pairDailyLimitMode: 'ai',
+    maxTradesPerPairPerDay: 2,
+    pairDailyLimitOverrides: {},
     challengeSessionFilterEnabled: false,
     consistencyEnforcementEnabled: false,
     consistencyMinProfitableDays: 10,
@@ -5748,20 +5758,41 @@ async function processDecision(userId: number, decision: any, newsCtx?: any): Pr
       // Check daily trade count against maxOpenTrades as a hard daily cap
       const _leDate = new Date().toISOString().slice(0, 10);
       const _leDailyLogs = await storage.getTradelockerTradeLogs(userId, 200);
-      const _leDailyCount = _leDailyLogs.filter((t: any) =>
+      const _leFills = _leDailyLogs.filter((t: any) =>
         t.symbol?.toUpperCase().replace('/', '') === decision.symbol.toUpperCase().replace('/', '') &&
         t.action === 'OPEN' &&
         t.status === 'executed' &&
         t.createdAt && new Date(t.createdAt).toISOString().slice(0, 10) === _leDate
-      ).length;
-      const _leMaxDaily = config.maxOpenTrades ?? 3;
-      if (_leDailyCount >= _leMaxDaily) {
-        addActivity(userId, {
-          type: 'info',
-          symbol: decision.symbol,
-          message: `[Live Engine] Daily cap reached for ${decision.symbol}: ${_leDailyCount}/${_leMaxDaily}. No more trades today.`,
-        });
-        return;
+      );
+      if (config.pairDailyLimitMode === 'fixed') {
+        // User-set limit: count SIGNALS (fills within 3 min of each other are
+        // one signal fanned out to several accounts).
+        const _pairKey = decision.symbol.toUpperCase().replace(/[^A-Z0-9]/g, '');
+        const _override = Object.entries(config.pairDailyLimitOverrides || {})
+          .find(([k]) => k.toUpperCase().replace(/[^A-Z0-9]/g, '') === _pairKey)?.[1];
+        const _limit = Math.max(0, Math.floor(Number(_override ?? config.maxTradesPerPairPerDay ?? 2)));
+        const _times = _leFills.map((t: any) => new Date(t.createdAt).getTime()).sort((a: number, b: number) => a - b);
+        let _signals = 0, _groupStart = -Infinity;
+        for (const ms of _times) { if (ms - _groupStart > 180_000) { _signals++; _groupStart = ms; } }
+        if (_signals >= _limit) {
+          addActivity(userId, {
+            type: 'info',
+            symbol: decision.symbol,
+            message: `[Live Engine] Pair daily limit reached for ${decision.symbol}: ${_signals}/${_limit} trades today (your fixed limit). No more ${decision.symbol} trades today.`,
+          });
+          return;
+        }
+      } else {
+        const _leDailyCount = _leFills.length;
+        const _leMaxDaily = config.maxOpenTrades ?? 3;
+        if (_leDailyCount >= _leMaxDaily) {
+          addActivity(userId, {
+            type: 'info',
+            symbol: decision.symbol,
+            message: `[Live Engine] Daily cap reached for ${decision.symbol}: ${_leDailyCount}/${_leMaxDaily}. No more trades today.`,
+          });
+          return;
+        }
       }
       // Reserve the cooldown slot before executing (prevents race conditions)
       (global as any).recentTrades[_leCooldownKey] = _leNow;

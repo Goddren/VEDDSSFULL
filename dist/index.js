@@ -25246,6 +25246,9 @@ function getDefaultConfig(userId) {
     // if opted in, default to conservative (4 of 5) not 3
     dailyProfitTarget: 0,
     maxDailyTrades: 0,
+    pairDailyLimitMode: "ai",
+    maxTradesPerPairPerDay: 2,
+    pairDailyLimitOverrides: {},
     challengeSessionFilterEnabled: false,
     consistencyEnforcementEnabled: false,
     consistencyMinProfitableDays: 10,
@@ -29107,17 +29110,40 @@ async function processDecision(userId, decision, newsCtx) {
       }
       const _leDate = (/* @__PURE__ */ new Date()).toISOString().slice(0, 10);
       const _leDailyLogs = await storage.getTradelockerTradeLogs(userId, 200);
-      const _leDailyCount = _leDailyLogs.filter(
+      const _leFills = _leDailyLogs.filter(
         (t) => t.symbol?.toUpperCase().replace("/", "") === decision.symbol.toUpperCase().replace("/", "") && t.action === "OPEN" && t.status === "executed" && t.createdAt && new Date(t.createdAt).toISOString().slice(0, 10) === _leDate
-      ).length;
-      const _leMaxDaily = config.maxOpenTrades ?? 3;
-      if (_leDailyCount >= _leMaxDaily) {
-        addActivity(userId, {
-          type: "info",
-          symbol: decision.symbol,
-          message: `[Live Engine] Daily cap reached for ${decision.symbol}: ${_leDailyCount}/${_leMaxDaily}. No more trades today.`
-        });
-        return;
+      );
+      if (config.pairDailyLimitMode === "fixed") {
+        const _pairKey = decision.symbol.toUpperCase().replace(/[^A-Z0-9]/g, "");
+        const _override = Object.entries(config.pairDailyLimitOverrides || {}).find(([k]) => k.toUpperCase().replace(/[^A-Z0-9]/g, "") === _pairKey)?.[1];
+        const _limit = Math.max(0, Math.floor(Number(_override ?? config.maxTradesPerPairPerDay ?? 2)));
+        const _times = _leFills.map((t) => new Date(t.createdAt).getTime()).sort((a, b) => a - b);
+        let _signals = 0, _groupStart = -Infinity;
+        for (const ms of _times) {
+          if (ms - _groupStart > 18e4) {
+            _signals++;
+            _groupStart = ms;
+          }
+        }
+        if (_signals >= _limit) {
+          addActivity(userId, {
+            type: "info",
+            symbol: decision.symbol,
+            message: `[Live Engine] Pair daily limit reached for ${decision.symbol}: ${_signals}/${_limit} trades today (your fixed limit). No more ${decision.symbol} trades today.`
+          });
+          return;
+        }
+      } else {
+        const _leDailyCount = _leFills.length;
+        const _leMaxDaily = config.maxOpenTrades ?? 3;
+        if (_leDailyCount >= _leMaxDaily) {
+          addActivity(userId, {
+            type: "info",
+            symbol: decision.symbol,
+            message: `[Live Engine] Daily cap reached for ${decision.symbol}: ${_leDailyCount}/${_leMaxDaily}. No more trades today.`
+          });
+          return;
+        }
       }
       global.recentTrades[_leCooldownKey] = _leNow;
     }
@@ -57930,9 +57956,9 @@ async function getStopOrdersForUser(userId, filters = {}) {
 init_schema();
 
 // server/build-info.ts
-var BUILD_COMMIT = "f2cca171-dirty";
+var BUILD_COMMIT = "db6fed6c-dirty";
 var BUILD_BRANCH = "main";
-var BUILT_AT = "2026-10-11T05:55:50.911Z";
+var BUILT_AT = "2026-10-11T06:06:20.191Z";
 
 // server/stripe.ts
 init_db();
