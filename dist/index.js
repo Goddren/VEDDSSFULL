@@ -58086,9 +58086,9 @@ async function getStopOrdersForUser(userId, filters = {}) {
 init_schema();
 
 // server/build-info.ts
-var BUILD_COMMIT = "ebe54e48-dirty";
-var BUILD_BRANCH = "main";
-var BUILT_AT = "2026-10-11T19:09:36.522Z";
+var BUILD_COMMIT = "0d15cad7-dirty";
+var BUILD_BRANCH = "lp-merge";
+var BUILT_AT = "2026-10-11T19:14:12.932Z";
 
 // server/stripe.ts
 init_db();
@@ -86264,6 +86264,32 @@ This request will not trigger a transaction or cost any fees.`;
     try {
       const lead = await storage.submitQuizLead(req.params.slug, req.body);
       res.json(lead);
+      const hookUrl = process.env.VEDD_ONBOARDING_WEBHOOK_URL;
+      const hookSecret = process.env.VEDD_ONBOARDING_WEBHOOK_SECRET;
+      const email = typeof req.body?.email === "string" ? req.body.email.trim() : "";
+      if (hookUrl && hookSecret && email) {
+        let src = "website", kw = "SETUP";
+        try {
+          const ref = new URL(String(req.get("referer") || ""));
+          src = (ref.searchParams.get("src") || ref.searchParams.get("utm_source") || src).toLowerCase();
+          kw = (ref.searchParams.get("kw") || kw).toUpperCase();
+        } catch {
+        }
+        fetch(hookUrl, {
+          method: "POST",
+          headers: { "Content-Type": "application/json", "x-vedd-secret": hookSecret },
+          body: JSON.stringify({
+            email,
+            first_name: req.body?.firstName || null,
+            platform: src,
+            keyword: kw,
+            utm_source: src,
+            utm_medium: "landing_page",
+            utm_campaign: `lp_${req.params.slug}`
+          }),
+          signal: AbortSignal.timeout(8e3)
+        }).catch((e) => console.error("[LP] onboarding webhook failed:", e?.message));
+      }
     } catch (err) {
       res.status(400).json({ message: err.message });
     }
