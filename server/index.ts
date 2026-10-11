@@ -514,19 +514,6 @@ async function withRetry<T>(
     console.error(`[startup] Live Engine config hydration error (non-fatal):`, err?.message ?? err);
   }
 
-  // Index for the per-user / platform-wide daily AI call caps (ai-usage.ts). The
-  // count(*) runs on every capped AI call (cached 60s); without this it scans
-  // ai_usage_log, which grows by every AI call made. CONCURRENTLY: no table lock.
-  void (async () => {
-    try {
-      const { pool } = await import('./db');
-      await pool.query(`CREATE INDEX CONCURRENTLY IF NOT EXISTS ai_usage_log_user_platform_created_idx
-                          ON ai_usage_log (user_id, used_platform_key, created_at)`);
-    } catch (err: any) {
-      console.error('[startup] ai_usage_log index (non-fatal):', err?.message ?? err);
-    }
-  })();
-
   // Ensure copy trading execution columns exist (real-mode broker execution + paper-mode mirroring)
   try {
     const { ensureCopyTradingExecutionColumns } = await import('./services/ensure-copy-trading-execution-columns');

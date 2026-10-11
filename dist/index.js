@@ -58086,9 +58086,9 @@ async function getStopOrdersForUser(userId, filters = {}) {
 init_schema();
 
 // server/build-info.ts
-var BUILD_COMMIT = "ebe54e4-dirty";
-var BUILD_BRANCH = "main";
-var BUILT_AT = "2026-10-11T13:59:57.420Z";
+var BUILD_COMMIT = "0d15cad7-dirty";
+var BUILD_BRANCH = "lp-merge";
+var BUILT_AT = "2026-10-11T19:14:12.932Z";
 
 // server/stripe.ts
 init_db();
@@ -91075,15 +91075,6 @@ async function withRetry(fn, label, maxAttempts = 6, baseDelayMs = 2e3) {
   } catch (err) {
     console.error(`[startup] Live Engine config hydration error (non-fatal):`, err?.message ?? err);
   }
-  void (async () => {
-    try {
-      const { pool: pool2 } = await Promise.resolve().then(() => (init_db(), db_exports));
-      await pool2.query(`CREATE INDEX CONCURRENTLY IF NOT EXISTS ai_usage_log_user_platform_created_idx
-                          ON ai_usage_log (user_id, used_platform_key, created_at)`);
-    } catch (err) {
-      console.error("[startup] ai_usage_log index (non-fatal):", err?.message ?? err);
-    }
-  })();
   try {
     const { ensureCopyTradingExecutionColumns: ensureCopyTradingExecutionColumns2 } = await Promise.resolve().then(() => (init_ensure_copy_trading_execution_columns(), ensure_copy_trading_execution_columns_exports));
     await ensureCopyTradingExecutionColumns2();
