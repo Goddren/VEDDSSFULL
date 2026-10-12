@@ -7,7 +7,7 @@ import { TOKEN_REWARDS, REFERRAL_SUBSCRIPTION_BASE_CREDITS, tierCommissionCredit
 import { creditWalletWithCap } from "./services/wallet-cap";
 import { eq, and, sql, desc } from "drizzle-orm";
 import { db } from "./db";
-import { scrypt, randomBytes } from "crypto";
+import { scrypt, randomBytes, timingSafeEqual } from "crypto";
 import { promisify } from "util";
 import { z } from "zod";
 import * as fs from "fs";
@@ -1277,6 +1277,114 @@ export async function registerRoutes(app: Express, existingServer?: Server): Pro
   // deploy, means the dist is stale. An earlier draft of this endpoint compared
   // the two and reported a mismatch — it would have cried wolf on every single
   // deploy.
+  // ── VEDD marketing integrations (server-to-server, read-only) ─────────────
+  // Used by the VEDD onboarding email system (Supabase) to (1) publish the daily
+  // results of ONE designated prop-firm account traded by the engine, and
+  // (2) check whether email leads have registered / started the FX engine.
+  // Both are disabled unless VEDD_INTEGRATION_KEY is set, require the key in the
+  // `x-vedd-feed-key` header (timing-safe compare), and never return account
+  // numbers, credentials, emails of other users, or broker identifiers.
+  const integrationKeyOk = (req: Request): boolean => {
+    const expected = process.env.VEDD_INTEGRATION_KEY || "";
+    const got = String(req.get("x-vedd-feed-key") || "");
+    if (expected.length < 24 || got.length !== expected.length) return false;
+    try {
+      return timingSafeEqual(Buffer.from(got), Buffer.from(expected));
+    } catch { return false; }
+  };
+  const rowsOf = (r: any): any[] => (Array.isArray(r) ? r : (r?.rows ?? []));
+
+  // GET /api/integrations/results-feed
+  // Every trading day (losses included, no gaps skipped) for the account set by
+  // RESULTS_FEED_CONNECTION_ID (+ RESULTS_FEED_CONNECTION_TYPE, default 'tradelocker').
+  app.get("/api/integrations/results-feed", async (req: Request, res: Response) => {
+    if (!integrationKeyOk(req)) return res.status(401).json({ error: "unauthorized" });
+    const connectionId = parseInt(process.env.RESULTS_FEED_CONNECTION_ID || "", 10);
+    const connectionType = (process.env.RESULTS_FEED_CONNECTION_TYPE || "tradelocker").toLowerCase();
+    if (!Number.isFinite(connectionId)) return res.status(503).json({ error: "results feed not configured" });
+    try {
+      const st = rowsOf(await db.execute(sql`
+        SELECT phase, phase_start_balance, profit_target, challenge_daily_drawdown_pct,
+               funded_daily_drawdown_pct, created_at, updated_at
+        FROM prop_firm_account_state
+        WHERE connection_id = ${connectionId} AND connection_type = ${connectionType} LIMIT 1`))[0];
+      let firm: string | null = null, accountType: string | null = null;
+      if (connectionType === "tradelocker") {
+        const c = rowsOf(await db.execute(sql`
+          SELECT prop_firm_name, account_type FROM tradelocker_connections WHERE id = ${connectionId} LIMIT 1`))[0];
+        firm = c?.prop_firm_name ?? null; accountType = c?.account_type ?? null;
+      }
+      const days = rowsOf(await db.execute(sql`
+        SELECT trade_date, realized_pnl FROM prop_firm_daily_pnl
+        WHERE connection_id = ${connectionId} AND connection_type = ${connectionType}
+        ORDER BY trade_date ASC`));
+      const closes = connectionType === "tradelocker" ? rowsOf(await db.execute(sql`
+        SELECT to_char(created_at AT TIME ZONE 'UTC', 'YYYY-MM-DD') AS d, count(*)::int AS n
+        FROM tradelocker_trade_logs
+        WHERE connection_id = ${connectionId} AND action = 'CLOSE' AND status = 'executed'
+        GROUP BY 1`)) : [];
+      const closesByDay: Record<string, number> = Object.fromEntries(closes.map((r: any) => [r.d, r.n]));
+      let cum = 0;
+      const series = days.map((d: any) => {
+        const pnl = Number(d.realized_pnl) || 0; cum += pnl;
+        return { date: d.trade_date, realizedPnl: Math.round(pnl * 100) / 100,
+                 cumulativePnl: Math.round(cum * 100) / 100, closedTrades: closesByDay[d.trade_date] ?? null };
+      });
+      res.set("Cache-Control", "no-store");
+      res.json({
+        generatedAt: new Date().toISOString(),
+        account: st ? {
+          firm, accountType, phase: st.phase,
+          phaseStartBalance: Number(st.phase_start_balance),
+          profitTarget: st.profit_target == null ? null : Number(st.profit_target),
+          dailyDrawdownPct: Number(st.phase === "funded" ? st.funded_daily_drawdown_pct : st.challenge_daily_drawdown_pct),
+          trackingSince: st.created_at, stateUpdatedAt: st.updated_at,
+        } : null,
+        totals: {
+          tradingDays: series.length,
+          greenDays: series.filter((d: any) => d.realizedPnl > 0).length,
+          redDays: series.filter((d: any) => d.realizedPnl < 0).length,
+          realizedPnl: Math.round(cum * 100) / 100,
+        },
+        days: series,
+        note: "Realized P&L as recorded by the VEDD engine ledger (UTC days). Broker statement is the source of truth.",
+      });
+    } catch (e: any) {
+      console.error("[integrations] results-feed failed:", e?.message);
+      res.status(500).json({ error: "feed error" });
+    }
+  });
+
+  // POST /api/integrations/lead-status   body: { emails: string[] } (max 200)
+  // Returns only, per requested email: registered + whether the FX engine was started.
+  app.post("/api/integrations/lead-status", async (req: Request, res: Response) => {
+    if (!integrationKeyOk(req)) return res.status(401).json({ error: "unauthorized" });
+    const emails: string[] = Array.isArray(req.body?.emails)
+      ? Array.from(new Set<string>(req.body.emails.map((e: any) => String(e || "").trim().toLowerCase()).filter((e: string) => e.includes("@")))).slice(0, 200)
+      : [];
+    if (!emails.length) return res.json({ results: [] });
+    try {
+      const rows = rowsOf(await db.execute(sql`
+        SELECT lower(u.email) AS email,
+               (fa.is_enabled IS TRUE) AS paper_enabled,
+               EXISTS (SELECT 1 FROM fx_paper_trades t WHERE t.user_id = u.id) AS has_paper_trades,
+               EXISTS (SELECT 1 FROM tradelocker_connections c WHERE c.user_id = u.id) AS has_live_connection
+        FROM users u
+        LEFT JOIN fx_paper_accounts fa ON fa.user_id = u.id
+        WHERE lower(u.email) IN (${sql.join(emails.map((e) => sql`${e}`), sql`, `)})`));
+      const byEmail: Record<string, any> = Object.fromEntries(rows.map((r: any) => [r.email, r]));
+      res.set("Cache-Control", "no-store");
+      res.json({ results: emails.map((e) => {
+        const r = byEmail[e];
+        return { email: e, registered: !!r,
+                 engineStarted: !!r && (r.paper_enabled || r.has_paper_trades || r.has_live_connection) };
+      }) });
+    } catch (e: any) {
+      console.error("[integrations] lead-status failed:", e?.message);
+      res.status(500).json({ error: "status error" });
+    }
+  });
+
   app.get("/api/health", async (_req: Request, res: Response) => {
     res.json({
       status: "ok",
