@@ -57690,7 +57690,7 @@ init_twilio();
 init_achievement_tracker();
 init_ea_generators();
 import { eq as eq18, and as and11, sql as sql13, desc as desc11 } from "drizzle-orm";
-import { scrypt, randomBytes } from "crypto";
+import { scrypt, randomBytes, timingSafeEqual } from "crypto";
 import { promisify } from "util";
 import { z as z2 } from "zod";
 import * as fs13 from "fs";
@@ -58220,9 +58220,9 @@ async function getStopOrdersForUser(userId, filters = {}) {
 init_schema();
 
 // server/build-info.ts
-var BUILD_COMMIT = "a9170e38-dirty";
-var BUILD_BRANCH = "main";
-var BUILT_AT = "2026-10-11T21:53:45.993Z";
+var BUILD_COMMIT = "5d93b1f2-dirty";
+var BUILD_BRANCH = "feature/results-feed-and-lead-status";
+var BUILT_AT = "2026-10-12T04:16:25.608Z";
 
 // server/stripe.ts
 init_db();
@@ -62551,6 +62551,111 @@ async function registerRoutes(app2, existingServer) {
       "Expires": "0"
     });
     res.json({ version: SERVER_START_VERSION });
+  });
+  const integrationKeyOk = (req) => {
+    const expected = process.env.VEDD_INTEGRATION_KEY || "";
+    const got = String(req.get("x-vedd-feed-key") || "");
+    if (expected.length < 24 || got.length !== expected.length) return false;
+    try {
+      return timingSafeEqual(Buffer.from(got), Buffer.from(expected));
+    } catch {
+      return false;
+    }
+  };
+  const rowsOf = (r) => Array.isArray(r) ? r : r?.rows ?? [];
+  app2.get("/api/integrations/results-feed", async (req, res) => {
+    if (!integrationKeyOk(req)) return res.status(401).json({ error: "unauthorized" });
+    const connectionId = parseInt(process.env.RESULTS_FEED_CONNECTION_ID || "", 10);
+    const connectionType = (process.env.RESULTS_FEED_CONNECTION_TYPE || "tradelocker").toLowerCase();
+    if (!Number.isFinite(connectionId)) return res.status(503).json({ error: "results feed not configured" });
+    try {
+      const st = rowsOf(await db.execute(sql13`
+        SELECT phase, phase_start_balance, profit_target, challenge_daily_drawdown_pct,
+               funded_daily_drawdown_pct, created_at, updated_at
+        FROM prop_firm_account_state
+        WHERE connection_id = ${connectionId} AND connection_type = ${connectionType} LIMIT 1`))[0];
+      let firm = null, accountType = null;
+      if (connectionType === "tradelocker") {
+        const c = rowsOf(await db.execute(sql13`
+          SELECT prop_firm_name, account_type FROM tradelocker_connections WHERE id = ${connectionId} LIMIT 1`))[0];
+        firm = c?.prop_firm_name ?? null;
+        accountType = c?.account_type ?? null;
+      }
+      const days = rowsOf(await db.execute(sql13`
+        SELECT trade_date, realized_pnl FROM prop_firm_daily_pnl
+        WHERE connection_id = ${connectionId} AND connection_type = ${connectionType}
+        ORDER BY trade_date ASC`));
+      const closes = connectionType === "tradelocker" ? rowsOf(await db.execute(sql13`
+        SELECT to_char(created_at AT TIME ZONE 'UTC', 'YYYY-MM-DD') AS d, count(*)::int AS n
+        FROM tradelocker_trade_logs
+        WHERE connection_id = ${connectionId} AND action = 'CLOSE' AND status = 'executed'
+        GROUP BY 1`)) : [];
+      const closesByDay = Object.fromEntries(closes.map((r) => [r.d, r.n]));
+      let cum = 0;
+      const series = days.map((d) => {
+        const pnl = Number(d.realized_pnl) || 0;
+        cum += pnl;
+        return {
+          date: d.trade_date,
+          realizedPnl: Math.round(pnl * 100) / 100,
+          cumulativePnl: Math.round(cum * 100) / 100,
+          closedTrades: closesByDay[d.trade_date] ?? null
+        };
+      });
+      res.set("Cache-Control", "no-store");
+      res.json({
+        generatedAt: (/* @__PURE__ */ new Date()).toISOString(),
+        account: st ? {
+          firm,
+          accountType,
+          phase: st.phase,
+          phaseStartBalance: Number(st.phase_start_balance),
+          profitTarget: st.profit_target == null ? null : Number(st.profit_target),
+          dailyDrawdownPct: Number(st.phase === "funded" ? st.funded_daily_drawdown_pct : st.challenge_daily_drawdown_pct),
+          trackingSince: st.created_at,
+          stateUpdatedAt: st.updated_at
+        } : null,
+        totals: {
+          tradingDays: series.length,
+          greenDays: series.filter((d) => d.realizedPnl > 0).length,
+          redDays: series.filter((d) => d.realizedPnl < 0).length,
+          realizedPnl: Math.round(cum * 100) / 100
+        },
+        days: series,
+        note: "Realized P&L as recorded by the VEDD engine ledger (UTC days). Broker statement is the source of truth."
+      });
+    } catch (e) {
+      console.error("[integrations] results-feed failed:", e?.message);
+      res.status(500).json({ error: "feed error" });
+    }
+  });
+  app2.post("/api/integrations/lead-status", async (req, res) => {
+    if (!integrationKeyOk(req)) return res.status(401).json({ error: "unauthorized" });
+    const emails = Array.isArray(req.body?.emails) ? Array.from(new Set(req.body.emails.map((e) => String(e || "").trim().toLowerCase()).filter((e) => e.includes("@")))).slice(0, 200) : [];
+    if (!emails.length) return res.json({ results: [] });
+    try {
+      const rows = rowsOf(await db.execute(sql13`
+        SELECT lower(u.email) AS email,
+               (fa.is_enabled IS TRUE) AS paper_enabled,
+               EXISTS (SELECT 1 FROM fx_paper_trades t WHERE t.user_id = u.id) AS has_paper_trades,
+               EXISTS (SELECT 1 FROM tradelocker_connections c WHERE c.user_id = u.id) AS has_live_connection
+        FROM users u
+        LEFT JOIN fx_paper_accounts fa ON fa.user_id = u.id
+        WHERE lower(u.email) IN (${sql13.join(emails.map((e) => sql13`${e}`), sql13`, `)})`));
+      const byEmail = Object.fromEntries(rows.map((r) => [r.email, r]));
+      res.set("Cache-Control", "no-store");
+      res.json({ results: emails.map((e) => {
+        const r = byEmail[e];
+        return {
+          email: e,
+          registered: !!r,
+          engineStarted: !!r && (r.paper_enabled || r.has_paper_trades || r.has_live_connection)
+        };
+      }) });
+    } catch (e) {
+      console.error("[integrations] lead-status failed:", e?.message);
+      res.status(500).json({ error: "status error" });
+    }
   });
   app2.get("/api/health", async (_req, res) => {
     res.json({
@@ -89994,7 +90099,7 @@ init_vedd_token_service();
 import passport from "passport";
 import { Strategy as LocalStrategy } from "passport-local";
 import session2 from "express-session";
-import { scrypt as scrypt2, randomBytes as randomBytes2, timingSafeEqual } from "crypto";
+import { scrypt as scrypt2, randomBytes as randomBytes2, timingSafeEqual as timingSafeEqual2 } from "crypto";
 import { promisify as promisify2 } from "util";
 import jwt2 from "jsonwebtoken";
 var scryptAsync2 = promisify2(scrypt2);
@@ -90007,7 +90112,7 @@ async function comparePasswords(supplied, stored) {
   const [hashed, salt] = stored.split(".");
   const hashedBuf = Buffer.from(hashed, "hex");
   const suppliedBuf = await scryptAsync2(supplied, salt, 64);
-  return timingSafeEqual(hashedBuf, suppliedBuf);
+  return timingSafeEqual2(hashedBuf, suppliedBuf);
 }
 function setupAuth(app2) {
   const sessionSettings = {
