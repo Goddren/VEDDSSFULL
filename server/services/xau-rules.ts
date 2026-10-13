@@ -46,14 +46,24 @@ export function isXau(symbol: string | null | undefined): boolean {
 
 /** Rule 1 — returns a block reason during gold's spread window, else null. */
 export function xauEntryBlock(symbol: string, now = new Date()): string | null {
-  if (!ENTRY_BLOCK_ON() || !isXau(symbol)) return null;
   const m = now.getUTCHours() * 60 + now.getUTCMinutes();
+  const fmt = (x: number) => `${String(Math.floor(x / 60)).padStart(2, '0')}:${String(x % 60).padStart(2, '0')}`;
+  // Every pair: the daily rollover (21:00 UTC; also the Sunday open) has the
+  // widest spreads and brokers may refuse stops ("SL orders are forbidden by
+  // trade session status"). 2026-10-12 21:04 a GBPUSD SELL filled on two
+  // accounts and closed within a minute for −$269; two others were refused.
+  if (ROLLOVER_BLOCK_ON() && m >= ROLLOVER_START_MIN && m < ROLLOVER_END_MIN) {
+    return `Rollover window: no FX entries ${fmt(ROLLOVER_START_MIN)}–${fmt(ROLLOVER_END_MIN)} UTC (daily rollover, widest spreads)`;
+  }
+  if (!ENTRY_BLOCK_ON() || !isXau(symbol)) return null;
   if (m >= BLOCK_START_MIN && m < BLOCK_END_MIN) {
-    const fmt = (x: number) => `${String(Math.floor(x / 60)).padStart(2, '0')}:${String(x % 60).padStart(2, '0')}`;
     return `XAUUSD spread window: no gold entries ${fmt(BLOCK_START_MIN)}–${fmt(BLOCK_END_MIN)} UTC (daily break + reopen, widest spreads)`;
   }
   return null;
 }
+const ROLLOVER_BLOCK_ON = () => process.env.FX_ROLLOVER_BLOCK_ENABLED !== 'false';
+const ROLLOVER_START_MIN = Number(process.env.FX_ROLLOVER_BLOCK_START_MIN_UTC ?? 20 * 60 + 55); // 20:55
+const ROLLOVER_END_MIN = Number(process.env.FX_ROLLOVER_BLOCK_END_MIN_UTC ?? 21 * 60 + 30);     // 21:30
 
 /**
  * Rule 2 — true when an ENGINE-initiated close of this gold position should be

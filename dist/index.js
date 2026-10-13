@@ -23739,10 +23739,13 @@ function isXau(symbol) {
   return /^XAU/i.test(String(symbol || "").replace(/[^A-Za-z]/g, ""));
 }
 function xauEntryBlock(symbol, now = /* @__PURE__ */ new Date()) {
-  if (!ENTRY_BLOCK_ON() || !isXau(symbol)) return null;
   const m = now.getUTCHours() * 60 + now.getUTCMinutes();
+  const fmt = (x) => `${String(Math.floor(x / 60)).padStart(2, "0")}:${String(x % 60).padStart(2, "0")}`;
+  if (ROLLOVER_BLOCK_ON() && m >= ROLLOVER_START_MIN && m < ROLLOVER_END_MIN) {
+    return `Rollover window: no FX entries ${fmt(ROLLOVER_START_MIN)}\u2013${fmt(ROLLOVER_END_MIN)} UTC (daily rollover, widest spreads)`;
+  }
+  if (!ENTRY_BLOCK_ON() || !isXau(symbol)) return null;
   if (m >= BLOCK_START_MIN && m < BLOCK_END_MIN) {
-    const fmt = (x) => `${String(Math.floor(x / 60)).padStart(2, "0")}:${String(x % 60).padStart(2, "0")}`;
     return `XAUUSD spread window: no gold entries ${fmt(BLOCK_START_MIN)}\u2013${fmt(BLOCK_END_MIN)} UTC (daily break + reopen, widest spreads)`;
   }
   return null;
@@ -23765,7 +23768,7 @@ function xauLockStopPts(peakFavPts) {
   if (!XAU_LOCK_ON() || !(peakFavPts >= XAU_LOCK_ACTIVATE_PTS)) return null;
   return Math.max(XAU_LOCK_AT_PTS, peakFavPts - XAU_TRAIL_PTS);
 }
-var ENTRY_BLOCK_ON, BLOCK_START_MIN, BLOCK_END_MIN, MIN_HOLD_ON, MIN_HOLD_MS, XAU_LOCK_ON, XAU_LOCK_ACTIVATE_PTS, XAU_LOCK_AT_PTS, XAU_TRAIL_PTS, XAU_CONTRACT_SIZE, INDEX_MIN_HOLD_MS;
+var ENTRY_BLOCK_ON, BLOCK_START_MIN, BLOCK_END_MIN, MIN_HOLD_ON, MIN_HOLD_MS, XAU_LOCK_ON, XAU_LOCK_ACTIVATE_PTS, XAU_LOCK_AT_PTS, XAU_TRAIL_PTS, XAU_CONTRACT_SIZE, ROLLOVER_BLOCK_ON, ROLLOVER_START_MIN, ROLLOVER_END_MIN, INDEX_MIN_HOLD_MS;
 var init_xau_rules = __esm({
   "server/services/xau-rules.ts"() {
     "use strict";
@@ -23779,6 +23782,9 @@ var init_xau_rules = __esm({
     XAU_LOCK_AT_PTS = Number(process.env.XAU_LOCK_AT_PTS ?? 20);
     XAU_TRAIL_PTS = Number(process.env.XAU_TRAIL_PTS ?? 20);
     XAU_CONTRACT_SIZE = Number(process.env.XAU_CONTRACT_SIZE ?? 100);
+    ROLLOVER_BLOCK_ON = () => process.env.FX_ROLLOVER_BLOCK_ENABLED !== "false";
+    ROLLOVER_START_MIN = Number(process.env.FX_ROLLOVER_BLOCK_START_MIN_UTC ?? 20 * 60 + 55);
+    ROLLOVER_END_MIN = Number(process.env.FX_ROLLOVER_BLOCK_END_MIN_UTC ?? 21 * 60 + 30);
     INDEX_MIN_HOLD_MS = Number(process.env.INDEX_MIN_HOLD_MINUTES ?? 5) * 6e4;
   }
 });
@@ -58220,9 +58226,9 @@ async function getStopOrdersForUser(userId, filters = {}) {
 init_schema();
 
 // server/build-info.ts
-var BUILD_COMMIT = "a9170e38-dirty";
+var BUILD_COMMIT = "5d93b1f2-dirty";
 var BUILD_BRANCH = "main";
-var BUILT_AT = "2026-10-11T21:53:45.993Z";
+var BUILT_AT = "2026-10-13T00:15:50.644Z";
 
 // server/stripe.ts
 init_db();
@@ -69957,9 +69963,18 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
             if (!t.createdAt) return false;
             const tradeDate = new Date(t.createdAt).toISOString().slice(0, 10);
             const symMatch = (t.symbol || "").toUpperCase().replace("/", "") === symbol2.toUpperCase().replace("/", "");
-            return tradeDate === dateStr && symMatch && t.action === "OPEN";
+            return tradeDate === dateStr && symMatch && t.action === "OPEN" && t.status === "executed";
           });
-          return rows.length;
+          const sorted = rows.map((t) => ({ ms: new Date(t.createdAt).getTime(), dir: String(t.direction || "").toUpperCase() })).sort((a, b) => a.ms - b.ms);
+          const groupStart = /* @__PURE__ */ new Map();
+          let signals = 0;
+          for (const r of sorted) {
+            const start = groupStart.get(r.dir);
+            if (start != null && r.ms - start <= 18e4) continue;
+            groupStart.set(r.dir, r.ms);
+            signals++;
+          }
+          return signals;
         } catch (err) {
           console.error("[TradeCapCheck] Failed, failing open:", err);
           return 0;
@@ -70138,7 +70153,7 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
         const _xauBlock = xauEntryBlock2(sanitizedSymbol);
         if (_xauBlock) {
           console.log(`[XAU] BLOCKED ${sanitizedSymbol} ${analysis.signal} \u2014 ${_xauBlock}`);
-          _diagCap.neutralReason = `xau_spread_window (${_xauBlock})`;
+          _diagCap.neutralReason = `${_xauBlock.startsWith("Rollover") ? "rollover_window" : "xau_spread_window"} (${_xauBlock})`;
           analysis.signal = "NEUTRAL";
           analysis.alerts = analysis.alerts || [];
           analysis.alerts.push(`\u23F3 ${_xauBlock}.`);
@@ -71391,9 +71406,10 @@ BEAR CASE: ${_bearCase || "n/a"}` : aiConfirmation.reasoning;
           const _peak = _byUser[_peakKey];
           const _ddPct = _peak > 0 ? (_peak - _equity) / _peak * 100 : 0;
           if (_ddPct >= _ddLimit) {
-            tlGateBlocked = true;
-            tlGateReason = `Max drawdown ${_ddPct.toFixed(1)}% \u2265 ${_ddLimit}% from peak $${_peak.toFixed(0)} (equity $${_equity.toFixed(0)})`;
-            _markGateBlock(tlGateReason);
+            mt5PerTradeCapBlocked = true;
+            mt5PerTradeCapReason = `Max drawdown ${_ddPct.toFixed(1)}% \u2265 ${_ddLimit}% from peak $${_peak.toFixed(0)} (equity $${_equity.toFixed(0)})`;
+            console.warn(`[Gate 0f MT5-ONLY BLOCK] ${sanitizedSymbol}: ${mt5PerTradeCapReason} \u2014 EA suppressed; TradeLocker accounts evaluated on their own balances.`);
+            _markGateBlock(`MT5-only: ${mt5PerTradeCapReason}`);
           }
         }
         if (tlGateBlocked) {

@@ -10206,9 +10206,24 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
             if (!t.createdAt) return false;
             const tradeDate = new Date(t.createdAt).toISOString().slice(0, 10);
             const symMatch = (t.symbol || '').toUpperCase().replace('/', '') === symbol.toUpperCase().replace('/', '');
-            return tradeDate === dateStr && symMatch && t.action === 'OPEN';
+            return tradeDate === dateStr && symMatch && t.action === 'OPEN' && t.status === 'executed';
           });
-          return rows.length;
+          // Count SIGNALS, not account fills: one signal fanned out to 4
+          // accounts used to burn 4 of the plan's maxTrades, and failed
+          // attempts counted too ("15/5" on 2026-10-12 after four signals).
+          // Fills of the same direction within 3 minutes are one signal.
+          const sorted = rows
+            .map((t: any) => ({ ms: new Date(t.createdAt).getTime(), dir: String(t.direction || '').toUpperCase() }))
+            .sort((a: any, b: any) => a.ms - b.ms);
+          const groupStart = new Map<string, number>();
+          let signals = 0;
+          for (const r of sorted) {
+            const start = groupStart.get(r.dir);
+            if (start != null && r.ms - start <= 180_000) continue;
+            groupStart.set(r.dir, r.ms);
+            signals++;
+          }
+          return signals;
         } catch (err) {
           console.error('[TradeCapCheck] Failed, failing open:', err);
           return 0; // fail-open — never block trades on DB error
@@ -10460,7 +10475,7 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
         const _xauBlock = xauEntryBlock(sanitizedSymbol);
         if (_xauBlock) {
           console.log(`[XAU] BLOCKED ${sanitizedSymbol} ${analysis.signal} — ${_xauBlock}`);
-          _diagCap.neutralReason = `xau_spread_window (${_xauBlock})`;
+          _diagCap.neutralReason = `${_xauBlock.startsWith('Rollover') ? 'rollover_window' : 'xau_spread_window'} (${_xauBlock})`;
           analysis.signal = 'NEUTRAL';
           analysis.alerts = analysis.alerts || [];
           analysis.alerts.push(`⏳ ${_xauBlock}.`);
@@ -11978,9 +11993,15 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
           const _peak = _byUser[_peakKey];
           const _ddPct = _peak > 0 ? ((_peak - _equity) / _peak) * 100 : 0;
           if (_ddPct >= _ddLimit) {
-            tlGateBlocked = true;
-            tlGateReason = `Max drawdown ${_ddPct.toFixed(1)}% ≥ ${_ddLimit}% from peak $${_peak.toFixed(0)} (equity $${_equity.toFixed(0)})`;
-            _markGateBlock(tlGateReason);
+            // MT5-ONLY, like Gate 0e. This measures the MT5 terminal's equity
+            // (a ~$6 account), yet it used to set tlGateBlocked and so killed
+            // every TradeLocker account too — ~430 approved XAUUSD signals on
+            // 2026-10-12 alone. TradeLocker accounts keep their own per-account
+            // daily-loss / drawdown checks in the fan-out below.
+            mt5PerTradeCapBlocked = true;
+            mt5PerTradeCapReason = `Max drawdown ${_ddPct.toFixed(1)}% ≥ ${_ddLimit}% from peak $${_peak.toFixed(0)} (equity $${_equity.toFixed(0)})`;
+            console.warn(`[Gate 0f MT5-ONLY BLOCK] ${sanitizedSymbol}: ${mt5PerTradeCapReason} — EA suppressed; TradeLocker accounts evaluated on their own balances.`);
+            _markGateBlock(`MT5-only: ${mt5PerTradeCapReason}`);
           }
         }
 
