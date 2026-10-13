@@ -2088,6 +2088,36 @@ export async function executeMT5SignalOnTradeLocker(
         return { success: false, error: `Blocked: no valid stop loss (SL=${signal.stopLoss}) — unprotected trade rejected` };
       }
 
+      // ── Minimum stop distance (FX pairs) ────────────────────────────────
+      // Position size is risk ÷ stop distance, so a 3-pip stop turned into a
+      // 17.6-lot GBPUSD order on 2026-10-13 07:00 (−$3,330 across two accounts)
+      // and 6.8-pip USDJPY stops into 12-lot orders. Refuse stops that tight.
+      // Gold, indices and crypto are left to their own rules.
+      {
+        const _sym = String(signal.symbol || '').toUpperCase();
+        const _isFx = /^[A-Z]{6}/.test(_sym) && !/^(XAU|XAG|BTC|ETH|SOL|US30|NAS|SPX|GER|UK1|JP2)/.test(_sym);
+        const _ref = Number(signal.entryPrice);
+        const _minPips = Number(process.env.TL_MIN_SL_PIPS ?? 10);
+        if (_isFx && _minPips > 0 && Number.isFinite(_ref) && _ref > 0) {
+          const _pip = /JPY/.test(_sym) ? 0.01 : 0.0001;
+          const _slPips = Math.abs(_ref - _slNum) / _pip;
+          if (_slPips < _minPips) {
+            console.error(`[TradeLocker Execute] 🚫 TIGHT-SL BLOCK: ${_sym} ${signal.direction} stop ${_slPips.toFixed(1)} pips < ${_minPips} — rejected (would inflate the lot size).`);
+            return { success: false, error: `Blocked: stop ${_slPips.toFixed(1)} pips is tighter than the ${_minPips}-pip minimum (prevents oversized lots)` };
+          }
+        }
+      }
+      // ── Hard lot cap per order ───────────────────────────────────────────
+      // Normal engine orders are ~2.5–3.6 lots on these accounts; the tight-stop
+      // orders above were 10–17.6. Clamp anything larger (never increases size).
+      {
+        const _cap = Number(process.env.TL_MAX_LOT_PER_ORDER ?? 5);
+        if (_cap > 0 && Number(signal.volume) > _cap) {
+          console.warn(`[TradeLocker Execute] lot ${signal.volume} on ${signal.symbol} clamped to the ${_cap}-lot per-order cap`);
+          signal = { ...signal, volume: _cap };
+        }
+      }
+
       const _pauseKey = `${connection.id ?? connection.accountId}|${String(signal.symbol).toUpperCase().split('.')[0]}|${signal.direction.toUpperCase()}`;
       const _pausedUntil = rejectPauseUntil.get(_pauseKey) || 0;
       if (Date.now() < _pausedUntil) {

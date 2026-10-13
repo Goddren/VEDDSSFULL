@@ -18751,6 +18751,27 @@ async function executeMT5SignalOnTradeLocker(connection2, signal) {
         console.error(`[TradeLocker Execute] \u{1F6AB} NO-SL BLOCK: ${signal.symbol} ${signal.direction} rejected \u2014 no valid stop loss (SL=${signal.stopLoss}). Unprotected trades are never allowed (likely NaN ATR upstream).`);
         return { success: false, error: `Blocked: no valid stop loss (SL=${signal.stopLoss}) \u2014 unprotected trade rejected` };
       }
+      {
+        const _sym = String(signal.symbol || "").toUpperCase();
+        const _isFx = /^[A-Z]{6}/.test(_sym) && !/^(XAU|XAG|BTC|ETH|SOL|US30|NAS|SPX|GER|UK1|JP2)/.test(_sym);
+        const _ref = Number(signal.entryPrice);
+        const _minPips = Number(process.env.TL_MIN_SL_PIPS ?? 10);
+        if (_isFx && _minPips > 0 && Number.isFinite(_ref) && _ref > 0) {
+          const _pip = /JPY/.test(_sym) ? 0.01 : 1e-4;
+          const _slPips = Math.abs(_ref - _slNum) / _pip;
+          if (_slPips < _minPips) {
+            console.error(`[TradeLocker Execute] \u{1F6AB} TIGHT-SL BLOCK: ${_sym} ${signal.direction} stop ${_slPips.toFixed(1)} pips < ${_minPips} \u2014 rejected (would inflate the lot size).`);
+            return { success: false, error: `Blocked: stop ${_slPips.toFixed(1)} pips is tighter than the ${_minPips}-pip minimum (prevents oversized lots)` };
+          }
+        }
+      }
+      {
+        const _cap = Number(process.env.TL_MAX_LOT_PER_ORDER ?? 5);
+        if (_cap > 0 && Number(signal.volume) > _cap) {
+          console.warn(`[TradeLocker Execute] lot ${signal.volume} on ${signal.symbol} clamped to the ${_cap}-lot per-order cap`);
+          signal = { ...signal, volume: _cap };
+        }
+      }
       const _pauseKey = `${connection2.id ?? connection2.accountId}|${String(signal.symbol).toUpperCase().split(".")[0]}|${signal.direction.toUpperCase()}`;
       const _pausedUntil = rejectPauseUntil.get(_pauseKey) || 0;
       if (Date.now() < _pausedUntil) {
@@ -58226,9 +58247,9 @@ async function getStopOrdersForUser(userId, filters = {}) {
 init_schema();
 
 // server/build-info.ts
-var BUILD_COMMIT = "5d93b1f2-dirty";
+var BUILD_COMMIT = "341947f0-dirty";
 var BUILD_BRANCH = "main";
-var BUILT_AT = "2026-10-13T00:15:50.644Z";
+var BUILT_AT = "2026-10-13T11:19:06.374Z";
 
 // server/stripe.ts
 init_db();
