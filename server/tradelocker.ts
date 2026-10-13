@@ -2039,6 +2039,87 @@ export async function warmTradeLockerConnection(connection: TLConnection): Promi
   }
 }
 
+/**
+ * Returns a block reason, or null if the order may go. Three checks:
+ *  1. Daily loss: equity vs the first equity seen this UTC day for the account
+ *     (persisted in runtime_state). Down ≥ TL_DAILY_LOSS_PCT (default 2%) → no
+ *     new entries until 00:00 UTC.
+ *  2. One position per pair per account: broker open positions AND the app's
+ *     own PENDING result rows. Either showing one → block.
+ *  3. Open-lot cap: total open lots on the account + this order must stay
+ *     ≤ TL_MAX_OPEN_LOTS (default 6).
+ * Set TL_RISK_GUARD_DISABLED=true to bypass (not recommended).
+ */
+async function tlAccountRiskGuard(service: any, connection: TLConnection, signal: { symbol: string; volume: number }): Promise<string | null> {
+  if (process.env.TL_RISK_GUARD_DISABLED === 'true') return null;
+  const connKey = String((connection as any).id ?? connection.accountId);
+  const norm = (s: any) => String(s || '').toUpperCase().split('.')[0].replace(/[^A-Z0-9]/g, '');
+  const want = norm(signal.symbol);
+
+  // 1. Daily loss
+  let equity: number;
+  try {
+    const info = await service.getAccountInfo();
+    equity = Number(info?.equity) > 0 ? Number(info.equity) : Number(info?.balance);
+    if (!(equity > 0)) return 'account equity unreadable — not trading this account (fail closed)';
+  } catch (e: any) {
+    return `account equity unreadable (${e?.message || e}) — not trading this account (fail closed)`;
+  }
+  const lossPct = Number(process.env.TL_DAILY_LOSS_PCT ?? 2);
+  if (lossPct > 0) {
+    const day = new Date().toISOString().slice(0, 10);
+    const key = `${connKey}:${day}`;
+    let start = tlDayStartEquity.get(key);
+    if (start == null) {
+      try {
+        const { loadRuntimeState, saveRuntimeState } = await import('./services/runtime-state');
+        const rows = await loadRuntimeState('tl_day_start');
+        const hit = rows.find((r) => r.key === key);
+        start = Number(hit?.value?.equity) > 0 ? Number(hit!.value.equity) : equity;
+        if (!hit) saveRuntimeState('tl_day_start', key, { equity: start });
+      } catch { start = equity; }
+      tlDayStartEquity.set(key, start);
+    }
+    const ddPct = start > 0 ? ((start - equity) / start) * 100 : 0;
+    if (ddPct >= lossPct) {
+      return `daily loss ${ddPct.toFixed(2)}% ≥ ${lossPct}% (equity $${equity.toFixed(0)} vs day start $${start.toFixed(0)}) — no new trades on this account until 00:00 UTC`;
+    }
+  }
+
+  // 2 + 3. Open positions
+  let positions: any[];
+  try {
+    positions = await service.getPositionsNormalized();
+  } catch (e: any) {
+    return `open positions unreadable (${e?.message || e}) — not trading this account (fail closed)`;
+  }
+  if (positions.some((p: any) => /^\d+$/.test(String(p.symbol || '')))) {
+    return 'open positions show unresolved instrument ids — cannot confirm the pair is flat (fail closed)';
+  }
+  const held = positions.find((p: any) => { const s = norm(p.symbol); return s === want || s.startsWith(want); });
+  if (held) return `already holding ${held.symbol} ${String(held.side || '').toUpperCase()} ${held.qty} on this account (one position per pair)`;
+  try {
+    const { pool } = await import('./db');
+    const { rows } = await pool.query(
+      `SELECT 1 FROM ai_trade_results WHERE connection_id = $1 AND result = 'PENDING'
+         AND upper(regexp_replace(split_part(symbol, '.', 1), '[^A-Za-z0-9]', '', 'g')) = $2 LIMIT 1`,
+      [(connection as any).id ?? -1, want],
+    );
+    if (rows.length) return `an open ${want} trade is recorded for this account (one position per pair)`;
+  } catch (e: any) {
+    return `could not check recorded open trades (${e?.message || e}) — fail closed`;
+  }
+  const maxLots = Number(process.env.TL_MAX_OPEN_LOTS ?? 6);
+  if (maxLots > 0) {
+    const openLots = positions.reduce((s: number, p: any) => s + (Number(p.qty) || 0), 0);
+    if (openLots + (Number(signal.volume) || 0) > maxLots) {
+      return `open lots ${openLots.toFixed(2)} + ${signal.volume} would exceed the ${maxLots}-lot account cap`;
+    }
+  }
+  return null;
+}
+const tlDayStartEquity = new Map<string, number>();
+
 export async function executeMT5SignalOnTradeLocker(
   connection: TLConnection,
   signal: {
@@ -2115,6 +2196,19 @@ export async function executeMT5SignalOnTradeLocker(
         if (_cap > 0 && Number(signal.volume) > _cap) {
           console.warn(`[TradeLocker Execute] lot ${signal.volume} on ${signal.symbol} clamped to the ${_cap}-lot per-order cap`);
           signal = { ...signal, volume: _cap };
+        }
+      }
+
+      // ── Per-account risk guard (every OPEN path) ─────────────────────────
+      // 2026-10-13: oversized GBPUSD/USDJPY entries kept stacking on the same
+      // accounts for five hours after a −$3,300 hit; FTUK was suspended for a
+      // daily-loss breach. Each check below can only BLOCK, and any read
+      // failure blocks (fail closed).
+      {
+        const _guard = await tlAccountRiskGuard(service, connection, signal);
+        if (_guard) {
+          console.error(`[TradeLocker Execute] 🚫 RISK GUARD ${connection.accountId} ${signal.symbol} ${signal.direction}: ${_guard}`);
+          return { success: false, error: `RISK GUARD: ${_guard}` };
         }
       }
 

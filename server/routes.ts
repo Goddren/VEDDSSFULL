@@ -12433,7 +12433,15 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
           _markTlSkip('fan-out', `NOT ENTERED: gateBlocked=${tlGateBlocked} signal=${analysis.signal} conf=${analysis.confidence} required=${MIN_CONFIDENCE_FOR_AUTO_TRADE} hasPlan=${!!analysis.tradePlan} sl=${analysis.tradePlan?.stopLoss ?? 'n/a'}`);
         }
       }
-      if (!tlGateBlocked && analysis.signal !== 'NEUTRAL' &&
+      // Chart-data (MT5 feed) auto-execution to TradeLocker is OFF unless
+      // CHART_DATA_AUTOTRADE_ENABLED=true. This path placed every oversized,
+      // stacked order of 2026-10-13 (−$10.3k, FTUK suspended); the FX live
+      // engine remains the trading path. The EA broadcast is unaffected.
+      const _chartAutoOn = process.env.CHART_DATA_AUTOTRADE_ENABLED === 'true';
+      if (!_chartAutoOn && !tlGateBlocked && analysis.signal !== 'NEUTRAL' && analysis.tradePlan) {
+        _markTlSkip('fan-out', 'CHART-DATA AUTOTRADE OFF (set CHART_DATA_AUTOTRADE_ENABLED=true to re-enable)');
+      }
+      if (_chartAutoOn && !tlGateBlocked && analysis.signal !== 'NEUTRAL' &&
           analysis.confidence >= MIN_CONFIDENCE_FOR_AUTO_TRADE &&
           analysis.tradePlan) {
 

@@ -18733,6 +18733,75 @@ async function warmTradeLockerConnection(connection2) {
     return { success: false, error: msg };
   }
 }
+async function tlAccountRiskGuard(service, connection2, signal) {
+  if (process.env.TL_RISK_GUARD_DISABLED === "true") return null;
+  const connKey = String(connection2.id ?? connection2.accountId);
+  const norm3 = (s) => String(s || "").toUpperCase().split(".")[0].replace(/[^A-Z0-9]/g, "");
+  const want = norm3(signal.symbol);
+  let equity;
+  try {
+    const info2 = await service.getAccountInfo();
+    equity = Number(info2?.equity) > 0 ? Number(info2.equity) : Number(info2?.balance);
+    if (!(equity > 0)) return "account equity unreadable \u2014 not trading this account (fail closed)";
+  } catch (e) {
+    return `account equity unreadable (${e?.message || e}) \u2014 not trading this account (fail closed)`;
+  }
+  const lossPct = Number(process.env.TL_DAILY_LOSS_PCT ?? 2);
+  if (lossPct > 0) {
+    const day = (/* @__PURE__ */ new Date()).toISOString().slice(0, 10);
+    const key = `${connKey}:${day}`;
+    let start = tlDayStartEquity.get(key);
+    if (start == null) {
+      try {
+        const { loadRuntimeState: loadRuntimeState2, saveRuntimeState: saveRuntimeState2 } = await Promise.resolve().then(() => (init_runtime_state(), runtime_state_exports));
+        const rows = await loadRuntimeState2("tl_day_start");
+        const hit = rows.find((r) => r.key === key);
+        start = Number(hit?.value?.equity) > 0 ? Number(hit.value.equity) : equity;
+        if (!hit) saveRuntimeState2("tl_day_start", key, { equity: start });
+      } catch {
+        start = equity;
+      }
+      tlDayStartEquity.set(key, start);
+    }
+    const ddPct = start > 0 ? (start - equity) / start * 100 : 0;
+    if (ddPct >= lossPct) {
+      return `daily loss ${ddPct.toFixed(2)}% \u2265 ${lossPct}% (equity $${equity.toFixed(0)} vs day start $${start.toFixed(0)}) \u2014 no new trades on this account until 00:00 UTC`;
+    }
+  }
+  let positions;
+  try {
+    positions = await service.getPositionsNormalized();
+  } catch (e) {
+    return `open positions unreadable (${e?.message || e}) \u2014 not trading this account (fail closed)`;
+  }
+  if (positions.some((p) => /^\d+$/.test(String(p.symbol || "")))) {
+    return "open positions show unresolved instrument ids \u2014 cannot confirm the pair is flat (fail closed)";
+  }
+  const held = positions.find((p) => {
+    const s = norm3(p.symbol);
+    return s === want || s.startsWith(want);
+  });
+  if (held) return `already holding ${held.symbol} ${String(held.side || "").toUpperCase()} ${held.qty} on this account (one position per pair)`;
+  try {
+    const { pool: pool2 } = await Promise.resolve().then(() => (init_db(), db_exports));
+    const { rows } = await pool2.query(
+      `SELECT 1 FROM ai_trade_results WHERE connection_id = $1 AND result = 'PENDING'
+         AND upper(regexp_replace(split_part(symbol, '.', 1), '[^A-Za-z0-9]', '', 'g')) = $2 LIMIT 1`,
+      [connection2.id ?? -1, want]
+    );
+    if (rows.length) return `an open ${want} trade is recorded for this account (one position per pair)`;
+  } catch (e) {
+    return `could not check recorded open trades (${e?.message || e}) \u2014 fail closed`;
+  }
+  const maxLots = Number(process.env.TL_MAX_OPEN_LOTS ?? 6);
+  if (maxLots > 0) {
+    const openLots = positions.reduce((s, p) => s + (Number(p.qty) || 0), 0);
+    if (openLots + (Number(signal.volume) || 0) > maxLots) {
+      return `open lots ${openLots.toFixed(2)} + ${signal.volume} would exceed the ${maxLots}-lot account cap`;
+    }
+  }
+  return null;
+}
 async function executeMT5SignalOnTradeLocker(connection2, signal) {
   console.log("[TradeLocker Execute] Starting trade execution:", {
     accountType: connection2.accountType,
@@ -18770,6 +18839,13 @@ async function executeMT5SignalOnTradeLocker(connection2, signal) {
         if (_cap > 0 && Number(signal.volume) > _cap) {
           console.warn(`[TradeLocker Execute] lot ${signal.volume} on ${signal.symbol} clamped to the ${_cap}-lot per-order cap`);
           signal = { ...signal, volume: _cap };
+        }
+      }
+      {
+        const _guard = await tlAccountRiskGuard(service, connection2, signal);
+        if (_guard) {
+          console.error(`[TradeLocker Execute] \u{1F6AB} RISK GUARD ${connection2.accountId} ${signal.symbol} ${signal.direction}: ${_guard}`);
+          return { success: false, error: `RISK GUARD: ${_guard}` };
         }
       }
       const _pauseKey = `${connection2.id ?? connection2.accountId}|${String(signal.symbol).toUpperCase().split(".")[0]}|${signal.direction.toUpperCase()}`;
@@ -18850,7 +18926,7 @@ async function executeMT5SignalOnTradeLocker(connection2, signal) {
     };
   }
 }
-var IV_LENGTH, DEFAULT_ENCRYPTION_KEY, SALT_LENGTH, INSTRUMENT_CACHE_TTL, instrumentCache, instrumentsListCache, serviceCache, SERVICE_CACHE_TTL, rejectPauseUntil, REJECT_PAUSE_MS, RETRY_DELAYS, RETRYABLE_STATUSES, TradeLockerReadError, AUTH_429_COOLDOWN_MS, authCooldownUntil, authChain, lastAuthAt, MIN_AUTH_GAP_MS, USDJPY_FALLBACK, _usdJpyLive, _usdJpyObserved, TradeLockerService, TL_VALUE_TTL;
+var IV_LENGTH, DEFAULT_ENCRYPTION_KEY, SALT_LENGTH, INSTRUMENT_CACHE_TTL, instrumentCache, instrumentsListCache, serviceCache, SERVICE_CACHE_TTL, rejectPauseUntil, REJECT_PAUSE_MS, RETRY_DELAYS, RETRYABLE_STATUSES, TradeLockerReadError, AUTH_429_COOLDOWN_MS, authCooldownUntil, authChain, lastAuthAt, MIN_AUTH_GAP_MS, USDJPY_FALLBACK, _usdJpyLive, _usdJpyObserved, TradeLockerService, TL_VALUE_TTL, tlDayStartEquity;
 var init_tradelocker = __esm({
   "server/tradelocker.ts"() {
     "use strict";
@@ -20120,6 +20196,7 @@ var init_tradelocker = __esm({
       }
     };
     TL_VALUE_TTL = 60 * 1e3;
+    tlDayStartEquity = /* @__PURE__ */ new Map();
   }
 });
 
@@ -58247,9 +58324,9 @@ async function getStopOrdersForUser(userId, filters = {}) {
 init_schema();
 
 // server/build-info.ts
-var BUILD_COMMIT = "341947f0-dirty";
+var BUILD_COMMIT = "1db95516-dirty";
 var BUILD_BRANCH = "main";
-var BUILT_AT = "2026-10-13T11:19:06.374Z";
+var BUILT_AT = "2026-10-13T18:43:58.796Z";
 
 // server/stripe.ts
 init_db();
@@ -71770,7 +71847,11 @@ BEAR CASE: ${_bearCase || "n/a"}` : aiConfirmation.reasoning;
           _markTlSkip("fan-out", `NOT ENTERED: gateBlocked=${tlGateBlocked} signal=${analysis.signal} conf=${analysis.confidence} required=${MIN_CONFIDENCE_FOR_AUTO_TRADE} hasPlan=${!!analysis.tradePlan} sl=${analysis.tradePlan?.stopLoss ?? "n/a"}`);
         }
       }
-      if (!tlGateBlocked && analysis.signal !== "NEUTRAL" && analysis.confidence >= MIN_CONFIDENCE_FOR_AUTO_TRADE && analysis.tradePlan) {
+      const _chartAutoOn = process.env.CHART_DATA_AUTOTRADE_ENABLED === "true";
+      if (!_chartAutoOn && !tlGateBlocked && analysis.signal !== "NEUTRAL" && analysis.tradePlan) {
+        _markTlSkip("fan-out", "CHART-DATA AUTOTRADE OFF (set CHART_DATA_AUTOTRADE_ENABLED=true to re-enable)");
+      }
+      if (_chartAutoOn && !tlGateBlocked && analysis.signal !== "NEUTRAL" && analysis.confidence >= MIN_CONFIDENCE_FOR_AUTO_TRADE && analysis.tradePlan) {
         const tlAllConns = await storage.getUserTradelockerConnections(token.userId);
         const tlActiveConns = tlAllConns.filter((c) => c.isActive && c.autoExecute);
         if (tlActiveConns.length === 0) {
