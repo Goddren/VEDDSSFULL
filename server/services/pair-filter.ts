@@ -52,7 +52,9 @@ function listFromEnv(name: string, fallback: string): string[] {
 // — same shape as an earlier degenerate-model bug, cause not yet confirmed.
 // User asked to block it and defer investigation rather than trade it blind
 // mid-week. Remove BTCUSD here once the root cause is found and fixed.
-const BLOCKED_PAIRS = listFromEnv('BLOCKED_PAIRS', 'GBPJPY,BTCUSD');
+// 2026-10-14: user removed GBPJPY and added GBPUSD (GBPUSD lost ≈ −$4.4k
+// 2026-10-12/13; 60-day GBPUSD BUY 1/11 wins).
+const BLOCKED_PAIRS = listFromEnv('BLOCKED_PAIRS', 'BTCUSD,GBPUSD');
 // One side only, as SYMBOL:DIRECTION (e.g. "USDJPY:SELL").
 const BLOCKED_DIRECTIONS = listFromEnv('BLOCKED_PAIR_DIRECTIONS', '');
 

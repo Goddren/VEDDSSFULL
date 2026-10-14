@@ -24879,7 +24879,7 @@ var init_pair_filter = __esm({
   "server/services/pair-filter.ts"() {
     "use strict";
     norm2 = (s) => String(s || "").toUpperCase().replace(/[^A-Z0-9]/g, "");
-    BLOCKED_PAIRS = listFromEnv("BLOCKED_PAIRS", "GBPJPY,BTCUSD");
+    BLOCKED_PAIRS = listFromEnv("BLOCKED_PAIRS", "BTCUSD,GBPUSD");
     BLOCKED_DIRECTIONS = listFromEnv("BLOCKED_PAIR_DIRECTIONS", "");
     console.log(`[PairFilter] enabled=${process.env.PAIR_FILTER_ENABLED !== "false"} pairs=[${BLOCKED_PAIRS.join(", ") || "none"}] directions=[${BLOCKED_DIRECTIONS.join(", ") || "none"}]`);
   }
@@ -58339,9 +58339,9 @@ async function getStopOrdersForUser(userId, filters = {}) {
 init_schema();
 
 // server/build-info.ts
-var BUILD_COMMIT = "67bc11b4-dirty";
+var BUILD_COMMIT = "04377a2a-dirty";
 var BUILD_BRANCH = "main";
-var BUILT_AT = "2026-10-14T09:00:10.005Z";
+var BUILT_AT = "2026-10-14T09:24:31.161Z";
 
 // server/stripe.ts
 init_db();
