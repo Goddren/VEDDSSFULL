@@ -589,6 +589,25 @@ async function monitorOpenPositions(userId: number, cfg: CryptocomEngineConfig):
         } catch { /* no candles to check with: fall through to the normal rules */ }
         if (trade.takeProfit && px >= trade.takeProfit) { await closePosition(userId, trade, px, 'take_profit'); continue; }
         if (trade.stopLoss && px <= trade.stopLoss) { await closePosition(userId, trade, px, 'stop_loss'); continue; }
+        // Time exit (opt-in): a position that has gone nowhere for
+        // CRYPTO_MAX_HOLD_DAYS ties up the small wallet — AERO/MORPHO/XDP sat
+        // 8–9 days between stop and target (2026-10-13). Close only when it is
+        // still near entry (|move| < CRYPTO_STALE_FLAT_PCT); a trade that is
+        // clearly moving keeps running to its stop or target. 0 = off.
+        {
+          const maxDays = Number(process.env.CRYPTO_MAX_HOLD_DAYS ?? 0);
+          const opened = new Date((trade as any).createdAt ?? (trade as any).openedAt ?? 0).getTime();
+          if (maxDays > 0 && opened > 0 && trade.entryPrice > 0) {
+            const ageDays = (Date.now() - opened) / 86_400_000;
+            const movePct = ((px - trade.entryPrice) / trade.entryPrice) * 100;
+            const flatPct = Number(process.env.CRYPTO_STALE_FLAT_PCT ?? 3);
+            if (ageDays >= maxDays && Math.abs(movePct) < flatPct) {
+              await storage.createCryptocomEngineActivity({ userId, symbol: trade.symbol, decision: 'exit', strategy: trade.strategy, reasoning: `${trade.symbol}: time exit — open ${ageDays.toFixed(1)} days (limit ${maxDays}) and only ${movePct.toFixed(2)}% from entry (flat band ±${flatPct}%).`, score: null, price: px, dailyChangePercent: null, source: 'cryptocom' }).catch(() => {});
+              await closePosition(userId, trade, px, 'time_exit');
+              continue;
+            }
+          }
+        }
         continue;
       }
       // ── PERPS ───────────────────────────────────────────────────────────────

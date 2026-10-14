@@ -40177,6 +40177,21 @@ async function monitorOpenPositions(userId, cfg) {
           await closePosition(userId, trade, px, "stop_loss");
           continue;
         }
+        {
+          const maxDays = Number(process.env.CRYPTO_MAX_HOLD_DAYS ?? 0);
+          const opened = new Date(trade.createdAt ?? trade.openedAt ?? 0).getTime();
+          if (maxDays > 0 && opened > 0 && trade.entryPrice > 0) {
+            const ageDays = (Date.now() - opened) / 864e5;
+            const movePct = (px - trade.entryPrice) / trade.entryPrice * 100;
+            const flatPct = Number(process.env.CRYPTO_STALE_FLAT_PCT ?? 3);
+            if (ageDays >= maxDays && Math.abs(movePct) < flatPct) {
+              await storage.createCryptocomEngineActivity({ userId, symbol: trade.symbol, decision: "exit", strategy: trade.strategy, reasoning: `${trade.symbol}: time exit \u2014 open ${ageDays.toFixed(1)} days (limit ${maxDays}) and only ${movePct.toFixed(2)}% from entry (flat band \xB1${flatPct}%).`, score: null, price: px, dailyChangePercent: null, source: "cryptocom" }).catch(() => {
+              });
+              await closePosition(userId, trade, px, "time_exit");
+              continue;
+            }
+          }
+        }
         continue;
       }
       let currentPrice;
@@ -58324,9 +58339,9 @@ async function getStopOrdersForUser(userId, filters = {}) {
 init_schema();
 
 // server/build-info.ts
-var BUILD_COMMIT = "1db95516-dirty";
+var BUILD_COMMIT = "67bc11b4-dirty";
 var BUILD_BRANCH = "main";
-var BUILT_AT = "2026-10-13T18:43:58.796Z";
+var BUILT_AT = "2026-10-14T09:00:10.005Z";
 
 // server/stripe.ts
 init_db();
