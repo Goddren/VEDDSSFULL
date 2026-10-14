@@ -5747,9 +5747,13 @@ async function processDecision(userId: number, decision: any, newsCtx?: any): Pr
     // the signal on each in parallel. Partial failures are logged per
     // account without blocking the other accounts.
     const tlConnections = await storage.getUserTradelockerConnections(userId);
-    const activeTLConnections = tlConnections.filter((c: any) => c.isActive);
+    // New entries go only to accounts with Auto-Execute ON (the per-account
+    // switch on the Webhooks page). It used to check isActive alone, so the
+    // engine traded accounts whose Auto-Execute was off. Position management
+    // (stops, closes) still covers every active account.
+    const activeTLConnections = tlConnections.filter((c: any) => c.isActive && c.autoExecute);
     if (activeTLConnections.length === 0) {
-      addActivity(userId, { type: 'info', symbol: decision.symbol, message: 'No active TradeLocker connections. Signal queued for MT5 EA pickup.' });
+      addActivity(userId, { type: 'info', symbol: decision.symbol, message: 'No TradeLocker accounts with Auto-Execute on. Signal queued for MT5 EA pickup.' });
       return;
     }
 

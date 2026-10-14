@@ -29336,9 +29336,9 @@ async function processDecision(userId, decision, newsCtx) {
       logDxtradeSkip(userId, null, String(decision.symbol), "routing_error", String(dxOuter?.message ?? dxOuter));
     }
     const tlConnections = await storage.getUserTradelockerConnections(userId);
-    const activeTLConnections = tlConnections.filter((c) => c.isActive);
+    const activeTLConnections = tlConnections.filter((c) => c.isActive && c.autoExecute);
     if (activeTLConnections.length === 0) {
-      addActivity(userId, { type: "info", symbol: decision.symbol, message: "No active TradeLocker connections. Signal queued for MT5 EA pickup." });
+      addActivity(userId, { type: "info", symbol: decision.symbol, message: "No TradeLocker accounts with Auto-Execute on. Signal queued for MT5 EA pickup." });
       return;
     }
     {
@@ -58339,9 +58339,9 @@ async function getStopOrdersForUser(userId, filters = {}) {
 init_schema();
 
 // server/build-info.ts
-var BUILD_COMMIT = "04377a2a-dirty";
+var BUILD_COMMIT = "b29a32c4-dirty";
 var BUILD_BRANCH = "main";
-var BUILT_AT = "2026-10-14T09:24:31.161Z";
+var BUILT_AT = "2026-10-14T23:50:21.167Z";
 
 // server/stripe.ts
 init_db();
