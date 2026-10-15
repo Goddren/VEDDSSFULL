@@ -27613,6 +27613,7 @@ async function processDecision(userId, decision, newsCtx) {
       addActivity(userId, { type: "info", symbol: decision.symbol, message: "No TradeLocker accounts with Auto-Execute on. Signal queued for MT5 EA pickup." });
       return;
     }
+    let _leReleaseCooldown = null;
     {
       const _leCooldownKey = `last_trade_${userId}_${decision.symbol.toUpperCase().replace("/", "")}`;
       global.recentTrades = global.recentTrades || {};
@@ -27673,6 +27674,9 @@ async function processDecision(userId, decision, newsCtx) {
         }
       }
       global.recentTrades[_leCooldownKey] = _leNow;
+      _leReleaseCooldown = () => {
+        if (global.recentTrades[_leCooldownKey] === _leNow) global.recentTrades[_leCooldownKey] = _leLastTime;
+      };
     }
     const resolvedOrderType = (() => {
       if (decision.orderType === "stop_entry" || decision.orderType === "limit_entry") return decision.orderType;
@@ -27892,6 +27896,11 @@ async function processDecision(userId, decision, newsCtx) {
           symbol: decision.symbol,
           message: `TradeLocker execution failed on all ${activeTLConnections.length} account(s). Signal still available for MT5 EA.`
         });
+        const _ambiguous = openResults.some((r) => r.status === "rejected" || /timeout|timed out|unknown|network|ECONN|socket|5\d\d|<html/i.test(String(r.value?.tradeResult?.error || "")));
+        if (!_ambiguous && _leReleaseCooldown) {
+          _leReleaseCooldown();
+          addActivity(userId, { type: "info", symbol: decision.symbol, message: `\u21A9\uFE0F ${decision.symbol}: no order was placed \u2014 4h cooldown released.` });
+        }
       }
     } catch (err) {
       state.tradesFailed++;
@@ -58409,9 +58418,9 @@ async function getStopOrdersForUser(userId, filters = {}) {
 init_schema();
 
 // server/build-info.ts
-var BUILD_COMMIT = "dc18e76b-dirty";
+var BUILD_COMMIT = "2b9dd40a-dirty";
 var BUILD_BRANCH = "main";
-var BUILT_AT = "2026-10-15T00:46:18.058Z";
+var BUILT_AT = "2026-10-15T02:42:58.255Z";
 
 // server/stripe.ts
 init_db();

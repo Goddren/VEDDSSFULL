@@ -5772,6 +5772,8 @@ async function processDecision(userId: number, decision: any, newsCtx?: any): Pr
       return;
     }
 
+    // Undoes the cooldown reservation below when no order reached the market.
+    let _leReleaseCooldown: (() => void) | null = null;
     // ── Live Engine TL Cooldown Gate ─────────────────────────────────────
     // Prevents the live engine from firing the same pair more than once per 4 hours.
     // Shares the same recentTrades map used by the chart-data handler so both
@@ -5836,6 +5838,9 @@ async function processDecision(userId: number, decision: any, newsCtx?: any): Pr
       }
       // Reserve the cooldown slot before executing (prevents race conditions)
       (global as any).recentTrades[_leCooldownKey] = _leNow;
+      _leReleaseCooldown = () => {
+        if ((global as any).recentTrades[_leCooldownKey] === _leNow) (global as any).recentTrades[_leCooldownKey] = _leLastTime;
+      };
     }
 
     // ── Determine optimal order type for best entry ──────────────────────────
@@ -6141,6 +6146,15 @@ async function processDecision(userId: number, decision: any, newsCtx?: any): Pr
           symbol: decision.symbol,
           message: `TradeLocker execution failed on all ${activeTLConnections.length} account(s). Signal still available for MT5 EA.`,
         });
+        // A failed order used to burn the pair's 4h cooldown, so a valid retry
+        // was skipped. Give the slot back — but only when every account gave a
+        // definite rejection. A timeout/unknown outcome may still have filled.
+        const _ambiguous = openResults.some((r: any) => r.status === 'rejected' ||
+          /timeout|timed out|unknown|network|ECONN|socket|5\d\d|<html/i.test(String(r.value?.tradeResult?.error || '')));
+        if (!_ambiguous && _leReleaseCooldown) {
+          _leReleaseCooldown();
+          addActivity(userId, { type: 'info', symbol: decision.symbol, message: `↩️ ${decision.symbol}: no order was placed — 4h cooldown released.` });
+        }
       }
     } catch (err: any) {
       state.tradesFailed++;
