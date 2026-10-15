@@ -27,8 +27,8 @@
 // ─────────────────────────────────────────────────────────────────────────────
 
 const ENTRY_BLOCK_ON = () => process.env.XAU_OPEN_BLOCK_ENABLED !== 'false';
-const BLOCK_START_MIN = Number(process.env.XAU_OPEN_BLOCK_START_MIN_UTC ?? 21 * 60);      // 21:00
-const BLOCK_END_MIN = Number(process.env.XAU_OPEN_BLOCK_END_MIN_UTC ?? 22 * 60 + 30);    // 22:30
+const XAU_BLOCK_START_BASE = Number(process.env.XAU_OPEN_BLOCK_START_MIN_UTC ?? 21 * 60);      // 21:00
+const XAU_BLOCK_END_BASE = Number(process.env.XAU_OPEN_BLOCK_END_MIN_UTC ?? 22 * 60 + 30);    // 22:30
 
 const MIN_HOLD_ON = () => process.env.XAU_MIN_HOLD_ENABLED !== 'false';
 const MIN_HOLD_MS = Number(process.env.XAU_MIN_HOLD_MINUTES ?? 10) * 60_000;
@@ -45,8 +45,26 @@ export function isXau(symbol: string | null | undefined): boolean {
 }
 
 /** Rule 1 — returns a block reason during gold's spread window, else null. */
+/**
+ * Rollover is 17:00 New York, i.e. 21:00 UTC in US summer time and 22:00 UTC
+ * in winter. The UTC defaults below are the summer values; in winter (and
+ * only when the window wasn't set explicitly in env) they shift by +60 min.
+ */
+function nyWinterShiftMin(now: Date): number {
+  try {
+    const nyHour = Number(new Intl.DateTimeFormat('en-US', { timeZone: 'America/New_York', hour: 'numeric', hour12: false }).format(now)) % 24;
+    const diff = (now.getUTCHours() - nyHour + 24) % 24; // 4 in EDT, 5 in EST
+    return diff === 5 ? 60 : 0;
+  } catch { return 0; }
+}
+
 export function xauEntryBlock(symbol: string, now = new Date()): string | null {
   const m = now.getUTCHours() * 60 + now.getUTCMinutes();
+  const sh = nyWinterShiftMin(now);
+  const ROLLOVER_START_MIN = ROLLOVER_START_BASE + (process.env.FX_ROLLOVER_BLOCK_START_MIN_UTC ? 0 : sh);
+  const ROLLOVER_END_MIN = ROLLOVER_END_BASE + (process.env.FX_ROLLOVER_BLOCK_END_MIN_UTC ? 0 : sh);
+  const BLOCK_START_MIN = XAU_BLOCK_START_BASE + (process.env.XAU_OPEN_BLOCK_START_MIN_UTC ? 0 : sh);
+  const BLOCK_END_MIN = XAU_BLOCK_END_BASE + (process.env.XAU_OPEN_BLOCK_END_MIN_UTC ? 0 : sh);
   const fmt = (x: number) => `${String(Math.floor(x / 60)).padStart(2, '0')}:${String(x % 60).padStart(2, '0')}`;
   // Every pair: the daily rollover (21:00 UTC; also the Sunday open) has the
   // widest spreads and brokers may refuse stops ("SL orders are forbidden by
@@ -62,8 +80,8 @@ export function xauEntryBlock(symbol: string, now = new Date()): string | null {
   return null;
 }
 const ROLLOVER_BLOCK_ON = () => process.env.FX_ROLLOVER_BLOCK_ENABLED !== 'false';
-const ROLLOVER_START_MIN = Number(process.env.FX_ROLLOVER_BLOCK_START_MIN_UTC ?? 20 * 60 + 55); // 20:55
-const ROLLOVER_END_MIN = Number(process.env.FX_ROLLOVER_BLOCK_END_MIN_UTC ?? 21 * 60 + 30);     // 21:30
+const ROLLOVER_START_BASE = Number(process.env.FX_ROLLOVER_BLOCK_START_MIN_UTC ?? 20 * 60 + 55); // 20:55
+const ROLLOVER_END_BASE = Number(process.env.FX_ROLLOVER_BLOCK_END_MIN_UTC ?? 21 * 60 + 30);     // 21:30
 
 /**
  * Rule 2 — true when an ENGINE-initiated close of this gold position should be

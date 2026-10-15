@@ -2050,8 +2050,8 @@ export async function warmTradeLockerConnection(connection: TLConnection): Promi
  *     ≤ TL_MAX_OPEN_LOTS (default 6).
  * Set TL_RISK_GUARD_DISABLED=true to bypass (not recommended).
  */
-async function tlAccountRiskGuard(service: any, connection: TLConnection, signal: { symbol: string; volume: number }): Promise<string | null> {
-  if (process.env.TL_RISK_GUARD_DISABLED === 'true') return null;
+async function tlAccountRiskGuard(service: any, connection: TLConnection, signal: { symbol: string; volume: number }): Promise<{ block?: string; maxVolume?: number }> {
+  if (process.env.TL_RISK_GUARD_DISABLED === 'true') return {};
   const connKey = String((connection as any).id ?? connection.accountId);
   const norm = (s: any) => String(s || '').toUpperCase().split('.')[0].replace(/[^A-Z0-9]/g, '');
   const want = norm(signal.symbol);
@@ -2061,9 +2061,9 @@ async function tlAccountRiskGuard(service: any, connection: TLConnection, signal
   try {
     const info = await service.getAccountInfo();
     equity = Number(info?.equity) > 0 ? Number(info.equity) : Number(info?.balance);
-    if (!(equity > 0)) return 'account equity unreadable — not trading this account (fail closed)';
+    if (!(equity > 0)) return { block: 'account equity unreadable — not trading this account (fail closed)' };
   } catch (e: any) {
-    return `account equity unreadable (${e?.message || e}) — not trading this account (fail closed)`;
+    return { block: `account equity unreadable (${e?.message || e}) — not trading this account (fail closed)` };
   }
   const lossPct = Number(process.env.TL_DAILY_LOSS_PCT ?? 2);
   if (lossPct > 0) {
@@ -2071,18 +2071,23 @@ async function tlAccountRiskGuard(service: any, connection: TLConnection, signal
     const key = `${connKey}:${day}`;
     let start = tlDayStartEquity.get(key);
     if (start == null) {
+      // Read THIS key only and fail closed on a read error: treating a failed
+      // read as "no baseline" used to overwrite the real day-start with the
+      // current (already lower) equity. Insert-if-absent so concurrent first
+      // calls can't overwrite each other.
       try {
-        const { loadRuntimeState, saveRuntimeState } = await import('./services/runtime-state');
-        const rows = await loadRuntimeState('tl_day_start');
-        const hit = rows.find((r) => r.key === key);
-        start = Number(hit?.value?.equity) > 0 ? Number(hit!.value.equity) : equity;
-        if (!hit) saveRuntimeState('tl_day_start', key, { equity: start });
-      } catch { start = equity; }
-      tlDayStartEquity.set(key, start);
+        const { getRuntimeStateStrict, insertRuntimeStateIfAbsent } = await import('./services/runtime-state');
+        const existing = await getRuntimeStateStrict('tl_day_start', key);
+        if (Number(existing?.equity) > 0) start = Number(existing.equity);
+        else start = Number((await insertRuntimeStateIfAbsent('tl_day_start', key, { equity }))?.equity) || equity;
+      } catch (e: any) {
+        return { block: `daily-loss baseline unreadable (${e?.message || e}) — not trading this account (fail closed)` };
+      }
+      tlDayStartEquity.set(key, start!);
     }
     const ddPct = start > 0 ? ((start - equity) / start) * 100 : 0;
     if (ddPct >= lossPct) {
-      return `daily loss ${ddPct.toFixed(2)}% ≥ ${lossPct}% (equity $${equity.toFixed(0)} vs day start $${start.toFixed(0)}) — no new trades on this account until 00:00 UTC`;
+      return { block: `daily loss ${ddPct.toFixed(2)}% ≥ ${lossPct}% (equity $${equity.toFixed(0)} vs day start $${start.toFixed(0)}) — no new trades on this account until 00:00 UTC` };
     }
   }
 
@@ -2091,32 +2096,42 @@ async function tlAccountRiskGuard(service: any, connection: TLConnection, signal
   try {
     positions = await service.getPositionsNormalized();
   } catch (e: any) {
-    return `open positions unreadable (${e?.message || e}) — not trading this account (fail closed)`;
+    return { block: `open positions unreadable (${e?.message || e}) — not trading this account (fail closed)` };
   }
   if (positions.some((p: any) => /^\d+$/.test(String(p.symbol || '')))) {
-    return 'open positions show unresolved instrument ids — cannot confirm the pair is flat (fail closed)';
+    return { block: 'open positions show unresolved instrument ids — cannot confirm the pair is flat (fail closed)' };
   }
-  const held = positions.find((p: any) => { const s = norm(p.symbol); return s === want || s.startsWith(want); });
-  if (held) return `already holding ${held.symbol} ${String(held.side || '').toUpperCase()} ${held.qty} on this account (one position per pair)`;
+  if (!want) return { block: 'order has no symbol' };
+  const held = positions.find((p: any) => { const s = norm(p.symbol); return s === want || s.startsWith(want) || (s.length >= 6 && want.startsWith(s)); });
+  if (held) return { block: `already holding ${held.symbol} ${String(held.side || '').toUpperCase()} ${held.qty} on this account (one position per pair)` };
   try {
     const { pool } = await import('./db');
     const { rows } = await pool.query(
+      // TradeLocker rows only (DXtrade rows reuse connection_id numbers), and
+      // only recent ones: a PENDING row whose close never synced (an XAUUSD
+      // row on account 31 since 2026-09-23) used to block that pair forever.
       `SELECT 1 FROM ai_trade_results WHERE connection_id = $1 AND result = 'PENDING'
+         AND source LIKE 'tradelocker%' AND created_at > now() - interval '3 days'
          AND upper(regexp_replace(split_part(symbol, '.', 1), '[^A-Za-z0-9]', '', 'g')) = $2 LIMIT 1`,
       [(connection as any).id ?? -1, want],
     );
-    if (rows.length) return `an open ${want} trade is recorded for this account (one position per pair)`;
+    if (rows.length) return { block: `an open ${want} trade is recorded for this account (one position per pair)` };
   } catch (e: any) {
-    return `could not check recorded open trades (${e?.message || e}) — fail closed`;
+    return { block: `could not check recorded open trades (${e?.message || e}) — fail closed` };
   }
-  const maxLots = Number(process.env.TL_MAX_OPEN_LOTS ?? 6);
-  if (maxLots > 0) {
-    const openLots = positions.reduce((s: number, p: any) => s + (Number(p.qty) || 0), 0);
-    if (openLots + (Number(signal.volume) || 0) > maxLots) {
-      return `open lots ${openLots.toFixed(2)} + ${signal.volume} would exceed the ${maxLots}-lot account cap`;
-    }
+  // Lot caps scale with account size (the flat 5/6-lot caps meant nothing on
+  // a $500 account). Per 100k of equity: TL_MAX_LOT_PER_100K per order (10)
+  // and TL_MAX_OPEN_LOTS_PER_100K open in total (12); the flat caps
+  // TL_MAX_LOT_PER_ORDER (5) and TL_MAX_OPEN_LOTS (6) still apply on top.
+  const scale = equity / 100_000;
+  const perOrder = Math.min(Number(process.env.TL_MAX_LOT_PER_ORDER ?? 5) || Infinity, (Number(process.env.TL_MAX_LOT_PER_100K ?? 10) || Infinity) * scale);
+  const openCap = Math.min(Number(process.env.TL_MAX_OPEN_LOTS ?? 6) || Infinity, (Number(process.env.TL_MAX_OPEN_LOTS_PER_100K ?? 12) || Infinity) * scale);
+  const openLots = positions.reduce((s: number, p: any) => s + (Number(p.qty) || 0), 0);
+  const room = Math.floor(Math.min(perOrder, openCap - openLots) * 100) / 100;
+  if (!(room >= 0.01)) {
+    return { block: `open lots ${openLots.toFixed(2)} already at the ${openCap.toFixed(2)}-lot cap for this account size` };
   }
-  return null;
+  return { maxVolume: room };
 }
 const tlDayStartEquity = new Map<string, number>();
 
@@ -2134,7 +2149,7 @@ export async function executeMT5SignalOnTradeLocker(
     /** 'market' = immediate fill | 'stop_entry' = BUY/SELL STOP at entryPrice | 'limit_entry' = BUY/SELL LIMIT at entryPrice */
     orderType?: 'market' | 'stop_entry' | 'limit_entry';
   }
-): Promise<{ success: boolean; orderId?: string; error?: string; message?: string }> {
+): Promise<{ success: boolean; orderId?: string; error?: string; message?: string; volume?: number }> {
   console.log('[TradeLocker Execute] Starting trade execution:', {
     accountType: connection.accountType,
     accountId: connection.accountId,
@@ -2191,13 +2206,7 @@ export async function executeMT5SignalOnTradeLocker(
       // ── Hard lot cap per order ───────────────────────────────────────────
       // Normal engine orders are ~2.5–3.6 lots on these accounts; the tight-stop
       // orders above were 10–17.6. Clamp anything larger (never increases size).
-      {
-        const _cap = Number(process.env.TL_MAX_LOT_PER_ORDER ?? 5);
-        if (_cap > 0 && Number(signal.volume) > _cap) {
-          console.warn(`[TradeLocker Execute] lot ${signal.volume} on ${signal.symbol} clamped to the ${_cap}-lot per-order cap`);
-          signal = { ...signal, volume: _cap };
-        }
-      }
+      // (now applied inside the risk guard below, scaled to account size)
 
       // ── Per-account risk guard (every OPEN path) ─────────────────────────
       // 2026-10-13: oversized GBPUSD/USDJPY entries kept stacking on the same
@@ -2205,10 +2214,20 @@ export async function executeMT5SignalOnTradeLocker(
       // daily-loss breach. Each check below can only BLOCK, and any read
       // failure blocks (fail closed).
       {
+        // Only the FX leader may open positions: a server that lost the lock
+        // mid-scan must not keep sending orders (the 2026-10-08 doubles).
+        try {
+          const { isFxLeader } = await import('./services/live-trading-engine');
+          if (!isFxLeader()) return { success: false, error: 'NOT LEADER: this server does not hold the FX lock — order not sent' };
+        } catch { return { success: false, error: 'NOT LEADER: leadership could not be confirmed — order not sent' }; }
         const _guard = await tlAccountRiskGuard(service, connection, signal);
-        if (_guard) {
-          console.error(`[TradeLocker Execute] 🚫 RISK GUARD ${connection.accountId} ${signal.symbol} ${signal.direction}: ${_guard}`);
-          return { success: false, error: `RISK GUARD: ${_guard}` };
+        if (_guard.block) {
+          console.error(`[TradeLocker Execute] 🚫 RISK GUARD ${connection.accountId} ${signal.symbol} ${signal.direction}: ${_guard.block}`);
+          return { success: false, error: `RISK GUARD: ${_guard.block}` };
+        }
+        if (_guard.maxVolume != null && Number(signal.volume) > _guard.maxVolume) {
+          console.warn(`[TradeLocker Execute] lot ${signal.volume} on ${signal.symbol} clamped to ${_guard.maxVolume} (account-size lot cap)`);
+          signal = { ...signal, volume: _guard.maxVolume };
         }
       }
 
@@ -2218,8 +2237,14 @@ export async function executeMT5SignalOnTradeLocker(
         const mins = Math.ceil((_pausedUntil - Date.now()) / 60_000);
         return { success: false, error: `REJECT PAUSE: broker rejected this ${signal.symbol} ${signal.direction} on this account recently — not resending for ${mins} more min` };
       }
-      const _isBrokerReject = (msg: string) =>
-        /not valid|route is not active|instrument not found|forbidden|insufficient|market is closed|invalid/i.test(msg);
+      // Pause only on a real broker REJECTION. Rate limits, 5xx, timeouts and
+      // "outcome unknown" are transient and must not cost 15 minutes.
+      const _isTransient = (msg: string) =>
+        /\b(429|5\d\d|1015)\b|rate.?limit|too many requests|timeout|timed out|network|ECONN|outcome unknown|<!doctype|<html/i.test(msg);
+      const _isBrokerReject = (msg: string) => {
+        const m = String(msg || '').slice(0, 300);
+        return !_isTransient(m) && /not valid|route is not active|instrument not found|forbidden|insufficient|market is closed|invalid/i.test(m);
+      };
 
       console.log('[TradeLocker Execute] Placing order:', {
         symbol: signal.symbol,
@@ -2245,12 +2270,15 @@ export async function executeMT5SignalOnTradeLocker(
         throw e;
       }
       console.log('[TradeLocker Execute] Order result:', orderResult);
-      if (orderResult.status === 'rejected') rejectPauseUntil.set(_pauseKey, Date.now() + REJECT_PAUSE_MS);
+      if (orderResult.status === 'rejected' && _isBrokerReject(String(orderResult.message || 'rejected'))) {
+        rejectPauseUntil.set(_pauseKey, Date.now() + REJECT_PAUSE_MS);
+      }
 
       return {
         success: orderResult.status !== 'rejected',
         orderId: orderResult.orderId,
         error: orderResult.status === 'rejected' ? orderResult.message : undefined,
+        volume: signal.volume, // size ACTUALLY sent (after caps) — log this, not the request
       };
     } else if (signal.action === 'CLOSE' || signal.action.toUpperCase() === 'CLOSE') {
       console.log('[TradeLocker Execute] Closing position:', signal.positionId);

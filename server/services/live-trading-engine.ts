@@ -2502,6 +2502,13 @@ async function applyServerSideTrails(
               (p.symbol || '').toUpperCase().replace('/', '') === pos.symbol?.toUpperCase().replace('/', '') &&
               (p.side || '').toUpperCase() === (matchDir === 'BUY' ? 'BUY' : 'SELL'));
             if (!tlMatch) continue;
+            {
+              const { xauTooYoungToClose } = await import('./xau-rules');
+              if (xauTooYoungToClose(pos.symbol, tlMatch.openDate)) {
+                addActivity(userId, { type: 'info', symbol: pos.symbol, message: `⏳ Reversal exit held off on ${tlConn.accountId}: this account's ${pos.symbol} fill is inside the gold/index minimum hold.` });
+                continue;
+              }
+            }
             const r = await executeMT5SignalOnTradeLocker(tlConn, {
               action: 'CLOSE', symbol: pos.symbol, direction: pos.direction || 'BUY', volume: 0, positionId: tlMatch.id,
             });
@@ -4239,7 +4246,15 @@ async function processDecision(userId: number, decision: any, newsCtx?: any): Pr
     // TradeLocker or DXtrade position was never caught, and the USD-correlation
     // guard just below had the same blind spot. getMergedOpenPositions() already
     // exists specifically to combine all three sources; use it here too.
-    const _mergedPositionsForGates = await getMergedOpenPositions(userId, (state as any)._lastMarketAnalysis).catch(() => []);
+    let _mergedPositionsForGates: any[];
+    try {
+      _mergedPositionsForGates = await getMergedOpenPositions(userId, (state as any)._lastMarketAnalysis);
+    } catch (e: any) {
+      // Fail closed: an unreadable book used to pass both the opposite- and
+      // same-direction blocks.
+      addActivity(userId, { type: 'info', symbol: decision.symbol, message: `⛔ ${decision.symbol}: open positions unreadable (${e?.message || e}) — not entering.` });
+      return;
+    }
     if (_signalDirRaw === 'BUY' || _signalDirRaw === 'SELL') {
       const _livePositions: any[] = _mergedPositionsForGates;
       const _existingOnPair = _livePositions.find(
@@ -5804,7 +5819,11 @@ async function processDecision(userId: number, decision: any, newsCtx?: any): Pr
           return;
         }
       } else {
-        const _leDailyCount = _leFills.length;
+        // Count SIGNALS (fills within 3 min = one signal fanned out to several
+        // accounts); counting fills let one signal use up the whole day.
+        const _aiTimes = _leFills.map((t: any) => new Date(t.createdAt).getTime()).sort((a: number, b: number) => a - b);
+        let _leDailyCount = 0, _aiGroupStart = -Infinity;
+        for (const ms of _aiTimes) { if (ms - _aiGroupStart > 180_000) { _leDailyCount++; _aiGroupStart = ms; } }
         const _leMaxDaily = config.maxOpenTrades ?? 3;
         if (_leDailyCount >= _leMaxDaily) {
           addActivity(userId, {
@@ -5960,6 +5979,12 @@ async function processDecision(userId: number, decision: any, newsCtx?: any): Pr
 
           // Still respect volatile pair hard cap per account
           if (_volCap) acctLot = Math.min(acctLot, _volCap.hardMaxLot);
+          // The engine's own lot ceilings used to apply only to the MT5 lot;
+          // risk-% / proportional TradeLocker sizing bypassed them.
+          {
+            const _ceil = [Number(config.maxLot) || 0, Number((config as any).maxLotSize) || 0].filter((x) => x > 0);
+            if (_ceil.length) acctLot = Math.min(acctLot, Math.min(..._ceil));
+          }
 
           // Apply this account's consistency taper (0.25–1×) as it nears its cap.
           if (_consistencyMult < 1) {
@@ -6004,7 +6029,7 @@ async function processDecision(userId: number, decision: any, newsCtx?: any): Pr
             action: 'OPEN',
             symbol: decision.symbol,
             direction: decision.direction,
-            volume: acctLot,
+            volume: (tradeResult as any).volume ?? acctLot, // size actually sent after caps
             entryPrice,
             stopLoss,
             takeProfit,
@@ -6013,7 +6038,7 @@ async function processDecision(userId: number, decision: any, newsCtx?: any): Pr
             errorMessage: tradeResult.error || null,
           });
 
-          return { tlConn, tradeResult, acctLot, acctSizeLabel };
+          return { tlConn, tradeResult, acctLot: (tradeResult as any).volume ?? acctLot, acctSizeLabel };
         })
       );
 
@@ -6222,10 +6247,13 @@ async function processDecision(userId: number, decision: any, newsCtx?: any): Pr
             // instead of trusting the MT5-scoped id.
             const svc = await getTradeLockerService(tlConn);
             const tlPositions = await svc.getPositionsNormalized().catch(() => []);
-            const matchDir = (decision.direction || 'BUY').toUpperCase();
+            // The AI often names only the symbol. Defaulting a missing
+            // direction to BUY meant a SELL was never found, so it was never
+            // closed or trailed. No direction → match either side.
+            const matchDir = decision.direction ? String(decision.direction).toUpperCase() : null;
             const tlMatch = tlPositions.find((p: any) =>
               (p.symbol || '').toUpperCase().replace('/', '') === decision.symbol?.toUpperCase().replace('/', '') &&
-              (p.side || '').toUpperCase() === (matchDir === 'BUY' ? 'BUY' : 'SELL')
+              (!matchDir || (p.side || '').toUpperCase() === (matchDir === 'BUY' ? 'BUY' : 'SELL'))
             );
             if (!tlMatch) {
               // No open position for this symbol on this account — nothing to

@@ -7498,6 +7498,8 @@ var init_ai_usage = __esm({
 var runtime_state_exports = {};
 __export(runtime_state_exports, {
   ensureRuntimeStateTable: () => ensureRuntimeStateTable,
+  getRuntimeStateStrict: () => getRuntimeStateStrict,
+  insertRuntimeStateIfAbsent: () => insertRuntimeStateIfAbsent,
   loadRuntimeState: () => loadRuntimeState,
   saveRuntimeState: () => saveRuntimeState
 });
@@ -7533,6 +7535,19 @@ async function loadRuntimeState(scope) {
     console.error(`[runtime-state] load ${scope} failed (non-fatal):`, err?.message ?? err);
     return [];
   }
+}
+async function getRuntimeStateStrict(scope, key) {
+  await ensureRuntimeStateTable();
+  const { rows } = await pool.query(`SELECT value FROM runtime_state WHERE scope = $1 AND key = $2`, [scope, key]);
+  return rows[0]?.value ?? null;
+}
+async function insertRuntimeStateIfAbsent(scope, key, value) {
+  await ensureRuntimeStateTable();
+  await pool.query(
+    `INSERT INTO runtime_state (scope, key, value) VALUES ($1, $2, $3::jsonb) ON CONFLICT (scope, key) DO NOTHING`,
+    [scope, key, JSON.stringify(value)]
+  );
+  return getRuntimeStateStrict(scope, key);
 }
 var DDL, ensured;
 var init_runtime_state = __esm({
@@ -18430,2067 +18445,666 @@ var init_pipUtils = __esm({
   }
 });
 
-// server/tradelocker.ts
-var tradelocker_exports = {};
-__export(tradelocker_exports, {
-  TradeLockerReadError: () => TradeLockerReadError,
-  TradeLockerService: () => TradeLockerService,
-  decryptPassword: () => decryptPassword,
-  encryptPassword: () => encryptPassword,
-  executeMT5SignalOnTradeLocker: () => executeMT5SignalOnTradeLocker,
-  getOrCreateService: () => getOrCreateService,
-  getTLAccountValue: () => getTLAccountValue,
-  isOnAuth429Cooldown: () => isOnAuth429Cooldown,
-  noteAuthResult: () => noteAuthResult,
-  priceDecimals: () => priceDecimals,
-  roundToTick: () => roundToTick,
-  setUsdJpyRate: () => setUsdJpyRate,
-  warmTradeLockerConnection: () => warmTradeLockerConnection
+// server/utils/pair-key.ts
+var pair_key_exports = {};
+__export(pair_key_exports, {
+  basePairKey: () => basePairKey,
+  lookupPairKnowledge: () => lookupPairKnowledge
 });
-import crypto2 from "crypto";
-function getEncryptionKey2() {
-  const key = process.env.TRADELOCKER_ENCRYPTION_KEY;
-  if (!key) {
-    console.warn("[TradeLocker] TRADELOCKER_ENCRYPTION_KEY not set \u2014 using default key. Set it in your Render environment variables.");
-    return DEFAULT_ENCRYPTION_KEY;
-  }
-  if (key.length < 32) {
-    console.warn("[TradeLocker] TRADELOCKER_ENCRYPTION_KEY is too short, padding to 32 chars.");
-    return key.padEnd(32, "0");
-  }
-  return key;
+function basePairKey(symbol) {
+  return String(symbol ?? "").split(".")[0].toUpperCase().replace(/[^A-Z0-9]/g, "");
 }
-function priceDecimals(symbol) {
-  const s = String(symbol || "").toUpperCase().split(".")[0].replace(/[^A-Z0-9]/g, "");
-  if (/^XAU/.test(s)) return 2;
-  if (/^XAG/.test(s)) return 3;
-  if (/^(US30|DJ30|WS30|US100|NAS100|USTEC|US500|SPX500|GER40|DE40|UK100|JP225|AUS200|HK50|FRA40|EU50)/.test(s)) return 2;
-  if (/^(BTC|ETH|SOL|LTC|XRP)/.test(s)) return 2;
-  if (/JPY/.test(s)) return 3;
-  return 5;
+function lookupPairKnowledge(pairKnowledge, symbol) {
+  if (!pairKnowledge || !symbol) return void 0;
+  const direct = pairKnowledge[symbol];
+  if (direct) return direct;
+  const want = basePairKey(symbol);
+  if (!want) return void 0;
+  for (const k of Object.keys(pairKnowledge)) {
+    if (basePairKey(k) === want) return pairKnowledge[k];
+  }
+  return void 0;
 }
-function roundToTick(symbol, v) {
-  if (!Number.isFinite(v)) return v;
-  const d = priceDecimals(symbol);
-  return Number(v.toFixed(d));
-}
-function isOnAuth429Cooldown(key) {
-  const until = authCooldownUntil.get(key) || 0;
-  return until > Date.now() ? until - Date.now() : 0;
-}
-function noteAuthResult(key, err) {
-  const is429 = err instanceof Error && /(^|\D)429(\D|$)/.test(err.message);
-  if (is429) {
-    authCooldownUntil.set(key, Date.now() + AUTH_429_COOLDOWN_MS);
-  } else {
-    authCooldownUntil.delete(key);
-  }
-}
-async function serializeAuth(label, fn) {
-  const run = authChain.then(async () => {
-    const wait = MIN_AUTH_GAP_MS - (Date.now() - lastAuthAt);
-    if (wait > 0) await new Promise((r) => setTimeout(r, wait));
-    try {
-      return await fn();
-    } finally {
-      lastAuthAt = Date.now();
-    }
-  });
-  authChain = run.then(() => {
-  }, () => {
-  });
-  return run;
-}
-async function loginFetchWith429Retry(url, body) {
-  const backoffs = [1500, 3500];
-  for (let attempt = 0; ; attempt++) {
-    const resp = await fetch(url, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(body),
-      signal: AbortSignal.timeout(12e3)
-    });
-    if (resp.status !== 429 || attempt >= backoffs.length) return resp;
-    await new Promise((r) => setTimeout(r, backoffs[attempt]));
-  }
-}
-function encryptPassword(password) {
-  const iv = crypto2.randomBytes(IV_LENGTH);
-  const salt = crypto2.randomBytes(SALT_LENGTH);
-  const encryptionKey = getEncryptionKey2();
-  const key = crypto2.scryptSync(encryptionKey, salt, 32);
-  const cipher = crypto2.createCipheriv("aes-256-cbc", key, iv);
-  let encrypted = cipher.update(password, "utf8", "hex");
-  encrypted += cipher.final("hex");
-  return salt.toString("hex") + ":" + iv.toString("hex") + ":" + encrypted;
-}
-function decryptPassword(encryptedPassword) {
-  const parts = encryptedPassword.split(":");
-  if (parts.length !== 3) {
-    throw new Error("Invalid encrypted password format");
-  }
-  const salt = Buffer.from(parts[0], "hex");
-  const iv = Buffer.from(parts[1], "hex");
-  const encrypted = parts[2];
-  const encryptionKey = getEncryptionKey2();
-  const key = crypto2.scryptSync(encryptionKey, salt, 32);
-  const decipher = crypto2.createDecipheriv("aes-256-cbc", key, iv);
-  let decrypted = decipher.update(encrypted, "hex", "utf8");
-  decrypted += decipher.final("utf8");
-  return decrypted;
-}
-function setUsdJpyRate(rate) {
-  const r = Number(rate);
-  if (isFinite(r) && r > 50 && r < 500) _usdJpyLive = { rate: r, at: Date.now() };
-}
-function noteUsdJpyObservation(atMs, rate) {
-  const r = Number(rate);
-  if (!isFinite(r) || r <= 50 || r >= 500 || !isFinite(atMs)) return;
-  _usdJpyObserved.push({ at: atMs, rate: r });
-  if (_usdJpyObserved.length > 2e3) _usdJpyObserved.splice(0, _usdJpyObserved.length - 2e3);
-}
-function usdJpyAt(atMs) {
-  let best = null;
-  for (const o of _usdJpyObserved) {
-    if (!best || Math.abs(o.at - atMs) < Math.abs(best.at - atMs)) best = o;
-  }
-  if (best && Math.abs(best.at - atMs) < 7 * 24 * 3600 * 1e3) return best.rate;
-  if (_usdJpyLive && Date.now() - _usdJpyLive.at < 24 * 3600 * 1e3) return _usdJpyLive.rate;
-  if (best) return best.rate;
-  console.warn(`[TradeLocker] no USD/JPY rate available for ${new Date(atMs).toISOString()} \u2014 using ${USDJPY_FALLBACK}; JPY P&L may be off by a few percent.`);
-  return USDJPY_FALLBACK;
-}
-async function getOrCreateService(connection2) {
-  const connId = connection2.id || `pending_${connection2.accountType}_${connection2.accountId}_${connection2.accNum || ""}`;
-  const cached = serviceCache.get(connId);
-  if (cached && Date.now() - cached.createdAt < SERVICE_CACHE_TTL) {
-    console.log("[TradeLocker] Reusing cached service for connection", connId);
-    return cached.service;
-  }
-  const service = new TradeLockerService(
-    connection2.accountType,
-    connection2.accountId,
-    connection2.serverId,
-    connection2.accNum || void 0
-  );
-  if (typeof connId === "number") {
-    service.onAccountIdCorrected = (accountId) => {
-      persistAccountIdCorrection(connId, accountId).catch(() => {
-      });
-    };
-  }
-  const TOKEN_BUFFER = 60 * 1e3;
-  const hasValidToken = connection2.accessToken && connection2.tokenExpiresAt && new Date(connection2.tokenExpiresAt).getTime() - TOKEN_BUFFER > Date.now();
-  if (hasValidToken) {
-    console.log("[TradeLocker] Using cached JWT tokens (expires:", connection2.tokenExpiresAt, ")");
-    service.setTokens(
-      connection2.accessToken,
-      connection2.refreshToken || "",
-      new Date(connection2.tokenExpiresAt)
-    );
-  } else if (connection2.refreshToken && connection2.accessToken) {
-    console.log("[TradeLocker] Token expired \u2014 attempting refresh...");
-    try {
-      service.setTokens(connection2.accessToken, connection2.refreshToken);
-      const refreshed = await service.refreshAccessToken(connection2.refreshToken);
-      noteAuthResult(String(connId), null);
-      await persistTokens(connection2, refreshed.accessToken, refreshed.refreshToken, refreshed.expiresIn, service.getResolvedAccNum());
-    } catch (refreshErr) {
-      console.log("[TradeLocker] Token refresh failed \u2014 falling back to full auth");
-      const cooldownMs = isOnAuth429Cooldown(String(connId));
-      if (cooldownMs > 0) {
-        throw new Error(`TradeLocker login is rate-limited (429) for this account \u2014 cooling down for another ${Math.ceil(cooldownMs / 1e3)}s before retrying, to avoid making the rate limit worse.`);
-      }
-      try {
-        const password = decryptPassword(connection2.encryptedPassword);
-        const authResult = await service.authenticate(connection2.email, password);
-        noteAuthResult(String(connId), null);
-        await persistTokens(connection2, authResult.accessToken, authResult.refreshToken, authResult.expiresIn, service.getResolvedAccNum());
-      } catch (authErr) {
-        noteAuthResult(String(connId), authErr);
-        throw authErr;
-      }
-    }
-  } else {
-    const cooldownMs = isOnAuth429Cooldown(String(connId));
-    if (cooldownMs > 0) {
-      throw new Error(`TradeLocker login is rate-limited (429) for this account \u2014 cooling down for another ${Math.ceil(cooldownMs / 1e3)}s before retrying, to avoid making the rate limit worse.`);
-    }
-    console.log("[TradeLocker] No cached tokens \u2014 performing full auth");
-    try {
-      const password = decryptPassword(connection2.encryptedPassword);
-      const authResult = await service.authenticate(connection2.email, password);
-      noteAuthResult(String(connId), null);
-      await persistTokens(connection2, authResult.accessToken, authResult.refreshToken, authResult.expiresIn, service.getResolvedAccNum());
-    } catch (authErr) {
-      noteAuthResult(String(connId), authErr);
-      throw authErr;
-    }
-  }
-  if (!connection2.accNum && connId) {
-    const origResolve = service.resolveAccNum.bind(service);
-    service.resolveAccNum = async () => {
-      const result = await origResolve();
-      if (result && result !== "0" && !connection2.accNum) {
-        persistTokens(connection2, connection2.accessToken || "", connection2.refreshToken || "", 3600, result).catch(() => {
-        });
-      }
-      return result;
-    };
-  }
-  service.onTokenRefresh = (accessToken, refreshToken, expiresIn) => {
-    persistTokens(connection2, accessToken, refreshToken, expiresIn, service.getResolvedAccNum()).catch(() => {
-    });
-  };
-  service.onReauthenticate = async () => {
-    const cooldownMs = isOnAuth429Cooldown(String(connId));
-    if (cooldownMs > 0) {
-      throw new Error(`TradeLocker login is rate-limited (429) for this account \u2014 cooling down for another ${Math.ceil(cooldownMs / 1e3)}s before retrying.`);
-    }
-    console.log("[TradeLocker] Full re-authentication triggered via callback");
-    try {
-      const password = decryptPassword(connection2.encryptedPassword);
-      const authResult = await service.authenticate(connection2.email, password);
-      noteAuthResult(String(connId), null);
-      await persistTokens(connection2, authResult.accessToken, authResult.refreshToken, authResult.expiresIn, service.getResolvedAccNum());
-    } catch (authErr) {
-      noteAuthResult(String(connId), authErr);
-      throw authErr;
-    }
-  };
-  serviceCache.set(connId, { service, createdAt: Date.now() });
-  return service;
-}
-async function getTLAccountValue(userId, conn) {
-  const g = global;
-  g.tlAccountBalances = g.tlAccountBalances || {};
-  g.tlAccountBalances[userId] = g.tlAccountBalances[userId] || {};
-  g.tlAccountEquity = g.tlAccountEquity || {};
-  g.tlAccountEquity[userId] = g.tlAccountEquity[userId] || {};
-  g.tlAccountValueAt = g.tlAccountValueAt || {};
-  g.tlAccountValueAt[userId] = g.tlAccountValueAt[userId] || {};
-  const acctId = conn.accountId;
-  const cachedBal = g.tlAccountBalances[userId][acctId];
-  const cachedEq = g.tlAccountEquity[userId][acctId];
-  const fetchedAt = g.tlAccountValueAt[userId][acctId] || 0;
-  const fresh = Date.now() - fetchedAt < TL_VALUE_TTL;
-  if (fresh && typeof cachedBal === "number" && cachedBal > 0) {
-    return { balance: cachedBal, equity: typeof cachedEq === "number" && cachedEq > 0 ? cachedEq : cachedBal };
-  }
-  try {
-    const svc = await getOrCreateService(conn);
-    const info2 = await svc.getAccountInfo();
-    const bal = info2.balance || 0;
-    const eq21 = info2.equity || bal;
-    if (bal > 0) {
-      g.tlAccountBalances[userId][acctId] = bal;
-      g.tlAccountEquity[userId][acctId] = eq21;
-      g.tlAccountValueAt[userId][acctId] = Date.now();
-      console.log(`[TL value] ${acctId}: balance=$${bal} equity=$${eq21} (live-fetched for sizing)`);
-      return { balance: bal, equity: eq21 };
-    }
-  } catch (e) {
-    console.warn(`[TL value] live-fetch failed for ${acctId}:`, e?.message ?? e);
-  }
-  return {
-    balance: typeof cachedBal === "number" ? cachedBal : 0,
-    equity: typeof cachedEq === "number" ? cachedEq : typeof cachedBal === "number" ? cachedBal : 0
-  };
-}
-async function persistTokens(connection2, accessToken, refreshToken, expiresIn, accNum) {
-  if (!connection2.id) return;
-  try {
-    const { storage: storage2 } = await Promise.resolve().then(() => (init_storage(), storage_exports));
-    await storage2.updateTradelockerConnection(connection2.id, {
-      accessToken,
-      refreshToken,
-      tokenExpiresAt: new Date(Date.now() + expiresIn * 1e3),
-      accNum: accNum !== "0" ? accNum : void 0
-    });
-    console.log("[TradeLocker] Persisted tokens to DB for connection", connection2.id);
-  } catch (e) {
-    console.log("[TradeLocker] Could not persist tokens to DB");
-  }
-}
-async function persistAccountIdCorrection(connectionId, accountId) {
-  try {
-    const { storage: storage2 } = await Promise.resolve().then(() => (init_storage(), storage_exports));
-    await storage2.updateTradelockerConnection(connectionId, { accountId });
-    console.log("[TradeLocker] Persisted corrected accountId to DB for connection", connectionId, ":", accountId);
-  } catch (e) {
-    console.log("[TradeLocker] Could not persist accountId correction to DB");
-  }
-}
-async function warmTradeLockerConnection(connection2) {
-  try {
-    console.log("[TradeLocker Warm] Pre-warming connection for account", connection2.accountId);
-    await getOrCreateService(connection2);
-    console.log("[TradeLocker Warm] Connection pre-warmed successfully");
-    return { success: true };
-  } catch (error) {
-    const msg = error instanceof Error ? error.message : "Unknown error";
-    console.error("[TradeLocker Warm] Pre-warm failed:", msg);
-    return { success: false, error: msg };
-  }
-}
-async function tlAccountRiskGuard(service, connection2, signal) {
-  if (process.env.TL_RISK_GUARD_DISABLED === "true") return null;
-  const connKey = String(connection2.id ?? connection2.accountId);
-  const norm3 = (s) => String(s || "").toUpperCase().split(".")[0].replace(/[^A-Z0-9]/g, "");
-  const want = norm3(signal.symbol);
-  let equity;
-  try {
-    const info2 = await service.getAccountInfo();
-    equity = Number(info2?.equity) > 0 ? Number(info2.equity) : Number(info2?.balance);
-    if (!(equity > 0)) return "account equity unreadable \u2014 not trading this account (fail closed)";
-  } catch (e) {
-    return `account equity unreadable (${e?.message || e}) \u2014 not trading this account (fail closed)`;
-  }
-  const lossPct = Number(process.env.TL_DAILY_LOSS_PCT ?? 2);
-  if (lossPct > 0) {
-    const day = (/* @__PURE__ */ new Date()).toISOString().slice(0, 10);
-    const key = `${connKey}:${day}`;
-    let start = tlDayStartEquity.get(key);
-    if (start == null) {
-      try {
-        const { loadRuntimeState: loadRuntimeState2, saveRuntimeState: saveRuntimeState2 } = await Promise.resolve().then(() => (init_runtime_state(), runtime_state_exports));
-        const rows = await loadRuntimeState2("tl_day_start");
-        const hit = rows.find((r) => r.key === key);
-        start = Number(hit?.value?.equity) > 0 ? Number(hit.value.equity) : equity;
-        if (!hit) saveRuntimeState2("tl_day_start", key, { equity: start });
-      } catch {
-        start = equity;
-      }
-      tlDayStartEquity.set(key, start);
-    }
-    const ddPct = start > 0 ? (start - equity) / start * 100 : 0;
-    if (ddPct >= lossPct) {
-      return `daily loss ${ddPct.toFixed(2)}% \u2265 ${lossPct}% (equity $${equity.toFixed(0)} vs day start $${start.toFixed(0)}) \u2014 no new trades on this account until 00:00 UTC`;
-    }
-  }
-  let positions;
-  try {
-    positions = await service.getPositionsNormalized();
-  } catch (e) {
-    return `open positions unreadable (${e?.message || e}) \u2014 not trading this account (fail closed)`;
-  }
-  if (positions.some((p) => /^\d+$/.test(String(p.symbol || "")))) {
-    return "open positions show unresolved instrument ids \u2014 cannot confirm the pair is flat (fail closed)";
-  }
-  const held = positions.find((p) => {
-    const s = norm3(p.symbol);
-    return s === want || s.startsWith(want);
-  });
-  if (held) return `already holding ${held.symbol} ${String(held.side || "").toUpperCase()} ${held.qty} on this account (one position per pair)`;
-  try {
-    const { pool: pool2 } = await Promise.resolve().then(() => (init_db(), db_exports));
-    const { rows } = await pool2.query(
-      `SELECT 1 FROM ai_trade_results WHERE connection_id = $1 AND result = 'PENDING'
-         AND upper(regexp_replace(split_part(symbol, '.', 1), '[^A-Za-z0-9]', '', 'g')) = $2 LIMIT 1`,
-      [connection2.id ?? -1, want]
-    );
-    if (rows.length) return `an open ${want} trade is recorded for this account (one position per pair)`;
-  } catch (e) {
-    return `could not check recorded open trades (${e?.message || e}) \u2014 fail closed`;
-  }
-  const maxLots = Number(process.env.TL_MAX_OPEN_LOTS ?? 6);
-  if (maxLots > 0) {
-    const openLots = positions.reduce((s, p) => s + (Number(p.qty) || 0), 0);
-    if (openLots + (Number(signal.volume) || 0) > maxLots) {
-      return `open lots ${openLots.toFixed(2)} + ${signal.volume} would exceed the ${maxLots}-lot account cap`;
-    }
-  }
-  return null;
-}
-async function executeMT5SignalOnTradeLocker(connection2, signal) {
-  console.log("[TradeLocker Execute] Starting trade execution:", {
-    accountType: connection2.accountType,
-    accountId: connection2.accountId,
-    serverId: connection2.serverId,
-    signal: { action: signal.action, symbol: signal.symbol, direction: signal.direction, volume: signal.volume }
-  });
-  try {
-    const service = await getOrCreateService(connection2);
-    if (signal.action === "OPEN" || signal.action.toUpperCase() === "OPEN") {
-      const tlOrderType = signal.orderType === "limit_entry" ? "limit" : signal.orderType === "stop_entry" ? "stop" : "market";
-      const usePrice = tlOrderType !== "market" && signal.entryPrice && signal.entryPrice > 0 ? signal.entryPrice : void 0;
-      const resolvedType = usePrice ? tlOrderType : "market";
-      const _slNum = Number(signal.stopLoss);
-      if (!Number.isFinite(_slNum) || _slNum <= 0) {
-        console.error(`[TradeLocker Execute] \u{1F6AB} NO-SL BLOCK: ${signal.symbol} ${signal.direction} rejected \u2014 no valid stop loss (SL=${signal.stopLoss}). Unprotected trades are never allowed (likely NaN ATR upstream).`);
-        return { success: false, error: `Blocked: no valid stop loss (SL=${signal.stopLoss}) \u2014 unprotected trade rejected` };
-      }
-      {
-        const _sym = String(signal.symbol || "").toUpperCase();
-        const _isFx = /^[A-Z]{6}/.test(_sym) && !/^(XAU|XAG|BTC|ETH|SOL|US30|NAS|SPX|GER|UK1|JP2)/.test(_sym);
-        const _ref = Number(signal.entryPrice);
-        const _minPips = Number(process.env.TL_MIN_SL_PIPS ?? 10);
-        if (_isFx && _minPips > 0 && Number.isFinite(_ref) && _ref > 0) {
-          const _pip = /JPY/.test(_sym) ? 0.01 : 1e-4;
-          const _slPips = Math.abs(_ref - _slNum) / _pip;
-          if (_slPips < _minPips) {
-            console.error(`[TradeLocker Execute] \u{1F6AB} TIGHT-SL BLOCK: ${_sym} ${signal.direction} stop ${_slPips.toFixed(1)} pips < ${_minPips} \u2014 rejected (would inflate the lot size).`);
-            return { success: false, error: `Blocked: stop ${_slPips.toFixed(1)} pips is tighter than the ${_minPips}-pip minimum (prevents oversized lots)` };
-          }
-        }
-      }
-      {
-        const _cap = Number(process.env.TL_MAX_LOT_PER_ORDER ?? 5);
-        if (_cap > 0 && Number(signal.volume) > _cap) {
-          console.warn(`[TradeLocker Execute] lot ${signal.volume} on ${signal.symbol} clamped to the ${_cap}-lot per-order cap`);
-          signal = { ...signal, volume: _cap };
-        }
-      }
-      {
-        const _guard = await tlAccountRiskGuard(service, connection2, signal);
-        if (_guard) {
-          console.error(`[TradeLocker Execute] \u{1F6AB} RISK GUARD ${connection2.accountId} ${signal.symbol} ${signal.direction}: ${_guard}`);
-          return { success: false, error: `RISK GUARD: ${_guard}` };
-        }
-      }
-      const _pauseKey = `${connection2.id ?? connection2.accountId}|${String(signal.symbol).toUpperCase().split(".")[0]}|${signal.direction.toUpperCase()}`;
-      const _pausedUntil = rejectPauseUntil.get(_pauseKey) || 0;
-      if (Date.now() < _pausedUntil) {
-        const mins = Math.ceil((_pausedUntil - Date.now()) / 6e4);
-        return { success: false, error: `REJECT PAUSE: broker rejected this ${signal.symbol} ${signal.direction} on this account recently \u2014 not resending for ${mins} more min` };
-      }
-      const _isBrokerReject = (msg) => /not valid|route is not active|instrument not found|forbidden|insufficient|market is closed|invalid/i.test(msg);
-      console.log("[TradeLocker Execute] Placing order:", {
-        symbol: signal.symbol,
-        side: signal.direction.toLowerCase(),
-        type: resolvedType,
-        price: usePrice,
-        quantity: signal.volume
-      });
-      let orderResult;
-      try {
-        orderResult = await service.placeOrder({
-          symbol: signal.symbol,
-          side: signal.direction.toLowerCase(),
-          type: resolvedType,
-          quantity: signal.volume,
-          price: usePrice,
-          stopLoss: signal.stopLoss || void 0,
-          takeProfit: signal.takeProfit || void 0
-        });
-      } catch (e) {
-        const msg = e instanceof Error ? e.message : String(e);
-        if (_isBrokerReject(msg)) rejectPauseUntil.set(_pauseKey, Date.now() + REJECT_PAUSE_MS);
-        throw e;
-      }
-      console.log("[TradeLocker Execute] Order result:", orderResult);
-      if (orderResult.status === "rejected") rejectPauseUntil.set(_pauseKey, Date.now() + REJECT_PAUSE_MS);
-      return {
-        success: orderResult.status !== "rejected",
-        orderId: orderResult.orderId,
-        error: orderResult.status === "rejected" ? orderResult.message : void 0
-      };
-    } else if (signal.action === "CLOSE" || signal.action.toUpperCase() === "CLOSE") {
-      console.log("[TradeLocker Execute] Closing position:", signal.positionId);
-      if (!signal.positionId) {
-        return { success: false, error: "Position ID required for close action" };
-      }
-      const closeResult = await service.closePosition(signal.positionId);
-      return {
-        success: true,
-        orderId: closeResult.orderId
-      };
-    } else if (signal.action === "MODIFY" || signal.action.toUpperCase() === "MODIFY") {
-      if (!signal.positionId) {
-        return { success: false, error: "Position ID required for modify action" };
-      }
-      console.log("[TradeLocker Execute] Modifying position:", {
-        positionId: signal.positionId,
-        stopLoss: signal.stopLoss,
-        takeProfit: signal.takeProfit
-      });
-      const modifyResult = await service.modifyPosition(
-        signal.positionId,
-        signal.stopLoss != null ? signal.stopLoss : void 0,
-        signal.takeProfit != null ? signal.takeProfit : void 0
-      );
-      console.log("[TradeLocker Execute] Modify result:", modifyResult);
-      return {
-        success: modifyResult.success,
-        error: modifyResult.error
-      };
-    }
-    console.log("[TradeLocker Execute] Unknown action type:", signal.action);
-    return { success: false, error: `Unknown action type: ${signal.action}` };
-  } catch (error) {
-    console.error("[TradeLocker Execute] Error:", error);
-    if (connection2.id) serviceCache.delete(connection2.id);
-    return {
-      success: false,
-      error: error instanceof Error ? error.message : "Unknown error"
-    };
-  }
-}
-var IV_LENGTH, DEFAULT_ENCRYPTION_KEY, SALT_LENGTH, INSTRUMENT_CACHE_TTL, instrumentCache, instrumentsListCache, serviceCache, SERVICE_CACHE_TTL, rejectPauseUntil, REJECT_PAUSE_MS, RETRY_DELAYS, RETRYABLE_STATUSES, TradeLockerReadError, AUTH_429_COOLDOWN_MS, authCooldownUntil, authChain, lastAuthAt, MIN_AUTH_GAP_MS, USDJPY_FALLBACK, _usdJpyLive, _usdJpyObserved, TradeLockerService, TL_VALUE_TTL, tlDayStartEquity;
-var init_tradelocker = __esm({
-  "server/tradelocker.ts"() {
+var init_pair_key = __esm({
+  "server/utils/pair-key.ts"() {
     "use strict";
-    IV_LENGTH = 16;
-    DEFAULT_ENCRYPTION_KEY = "vedd-tl-default-key-change-me-32chars!!";
-    SALT_LENGTH = 16;
-    INSTRUMENT_CACHE_TTL = 10 * 60 * 1e3;
-    instrumentCache = /* @__PURE__ */ new Map();
-    instrumentsListCache = /* @__PURE__ */ new Map();
-    serviceCache = /* @__PURE__ */ new Map();
-    SERVICE_CACHE_TTL = 50 * 60 * 1e3;
-    rejectPauseUntil = /* @__PURE__ */ new Map();
-    REJECT_PAUSE_MS = Number(process.env.TL_REJECT_PAUSE_MINUTES ?? 15) * 6e4;
-    RETRY_DELAYS = [1e3, 2e3];
-    RETRYABLE_STATUSES = /* @__PURE__ */ new Set([429, 500, 502, 503, 504]);
-    TradeLockerReadError = class extends Error {
-      status;
-      constructor(message, status) {
-        super(message);
-        this.name = "TradeLockerReadError";
-        this.status = status;
-      }
-    };
-    AUTH_429_COOLDOWN_MS = 5 * 60 * 1e3;
-    authCooldownUntil = /* @__PURE__ */ new Map();
-    authChain = Promise.resolve();
-    lastAuthAt = 0;
-    MIN_AUTH_GAP_MS = 1500;
-    USDJPY_FALLBACK = 150;
-    _usdJpyLive = null;
-    _usdJpyObserved = [];
-    TradeLockerService = class _TradeLockerService {
-      baseUrl;
-      accessToken = null;
-      refreshToken = null;
-      tokenExpiresAt = null;
-      accountId;
-      serverId;
-      accNum = "0";
-      accNumResolved = false;
-      connectionId = null;
-      accountDetailsConfig = null;
-      // cached column spec from /trade/config
-      onTokenRefresh = null;
-      onReauthenticate = null;
-      // Fired when resolveAccNum() corrects a mismatched accountId (see there) —
-      // wired up by getOrCreateService() to persist the correction to the DB.
-      onAccountIdCorrected = null;
-      constructor(accountType, accountId, serverId, cachedAccNum) {
-        this.baseUrl = accountType === "demo" ? "https://demo.tradelocker.com/backend-api" : "https://live.tradelocker.com/backend-api";
-        this.accountId = accountId.replace(/^#/, "").trim();
-        if (this.accountId !== accountId) {
-          console.log("[TradeLocker] Stripped # prefix from accountId:", accountId, "\u2192", this.accountId);
-        }
-        this.serverId = serverId;
-        if (cachedAccNum && cachedAccNum !== "0") {
-          this.accNum = cachedAccNum;
-          this.accNumResolved = true;
-          console.log("[TradeLocker] Using cached accNum:", cachedAccNum);
-        }
-      }
-      getResolvedAccNum() {
-        return this.accNum;
-      }
-      // The accountId TradeLocker's own /instruments, /state, /orders endpoints
-      // actually need — may differ from what was originally passed to the
-      // constructor if resolveAccNum() had to correct a mismatched ID (see there).
-      getResolvedAccountId() {
-        return this.accountId;
-      }
-      // Bypasses the accNumResolved short-circuit below — needed because the
-      // constructor marks accNumResolved=true whenever a cached accNum from a
-      // prior (possibly wrong) resolution exists, so a normal resolveAccNum()
-      // call would never re-run and never reach the accountId-correction logic.
-      async forceResolveAccNum() {
-        this.accNumResolved = false;
-        return this.resolveAccNum();
-      }
-      async resolveAccNum() {
-        if (this.accNumResolved && this.accNum !== "0") {
-          return this.accNum;
-        }
-        await this.ensureAuthenticated();
-        try {
-          const response = await fetch(`${this.baseUrl}/auth/jwt/all-accounts`, {
-            method: "GET",
-            headers: {
-              "Authorization": `Bearer ${this.accessToken}`,
-              "Content-Type": "application/json"
-            },
-            signal: AbortSignal.timeout(8e3)
-          });
-          if (response.ok) {
-            const data = await response.json();
-            console.log("[TradeLocker] All accounts raw response:", JSON.stringify(data));
-            const accounts = Array.isArray(data) ? data : data.accounts || data.d?.accounts || [];
-            if (accounts.length > 0) {
-              const account = accounts.find(
-                (acc) => acc.id?.toString() === this.accountId || acc.accountId?.toString() === this.accountId
-              );
-              if (account && account.accNum !== void 0) {
-                this.accNum = account.accNum.toString();
-                this.accNumResolved = true;
-                console.log("[TradeLocker] Found matching account, using accNum:", this.accNum);
-                return this.accNum;
-              } else {
-                const fallback = accounts[0];
-                this.accNum = fallback.accNum?.toString() ?? "1";
-                this.accNumResolved = true;
-                const realAccountId = fallback.id?.toString() ?? fallback.accountId?.toString();
-                if (realAccountId && realAccountId !== this.accountId) {
-                  console.log("[TradeLocker] accountId", this.accountId, "did not match any account \u2014 correcting to real account ID:", realAccountId);
-                  this.accountId = realAccountId;
-                  this.onAccountIdCorrected?.(realAccountId);
-                }
-                console.log("[TradeLocker] Using first account accNum:", this.accNum);
-                return this.accNum;
-              }
-            }
-          }
-        } catch (error) {
-          console.log("[TradeLocker] All-accounts endpoint failed:", error);
-        }
-        console.log("[TradeLocker] All-accounts returned empty, probing accNum values...");
-        for (const testNum of ["1", "2"]) {
-          try {
-            const testResponse = await fetch(`${this.baseUrl}/trade/accounts/${this.accountId}/instruments`, {
-              method: "GET",
-              headers: {
-                "Authorization": `Bearer ${this.accessToken}`,
-                "Content-Type": "application/json",
-                "accNum": testNum
-              },
-              signal: AbortSignal.timeout(5e3)
-            });
-            if (testResponse.ok) {
-              this.accNum = testNum;
-              this.accNumResolved = true;
-              console.log("[TradeLocker] Probing found valid accNum:", testNum);
-              return this.accNum;
-            }
-            console.log(`[TradeLocker] accNum ${testNum} failed: ${testResponse.status}`);
-          } catch (err) {
-            console.log(`[TradeLocker] accNum ${testNum} probe error`);
-          }
-        }
-        this.accNum = "1";
-        this.accNumResolved = true;
-        console.log("[TradeLocker] Could not resolve accNum, defaulting to 1");
-        return this.accNum;
-      }
-      async authenticate(email, password) {
-        console.log("[TradeLocker Auth] Attempting authentication:", {
-          baseUrl: this.baseUrl,
-          email,
-          serverId: this.serverId,
-          accountId: this.accountId
-        });
-        try {
-          const response = await serializeAuth(`login:${this.serverId}:${email}`, () => loginFetchWith429Retry(`${this.baseUrl}/auth/jwt/token`, {
-            email,
-            password,
-            server: this.serverId
-          }));
-          console.log("[TradeLocker Auth] Response status:", response.status);
-          if (!response.ok) {
-            const errorText = await response.text();
-            console.log("[TradeLocker Auth] Error response:", errorText);
-            throw new Error(`Authentication failed: ${response.status} - ${errorText}`);
-          }
-          const data = await response.json();
-          this.accessToken = data.accessToken;
-          this.refreshToken = data.refreshToken;
-          this.tokenExpiresAt = new Date(Date.now() + (data.expiresIn || 3600) * 1e3);
-          await this.resolveAccNum();
-          return {
-            accessToken: data.accessToken,
-            refreshToken: data.refreshToken,
-            expiresIn: data.expiresIn || 3600
-          };
-        } catch (error) {
-          console.error("TradeLocker authentication error:", error);
-          throw error;
-        }
-      }
-      async refreshAccessToken(refreshToken) {
-        try {
-          const response = await serializeAuth(`refresh:${this.serverId}`, () => loginFetchWith429Retry(`${this.baseUrl}/auth/jwt/refresh`, { refreshToken }));
-          if (!response.ok) {
-            throw new Error(`Token refresh failed: ${response.status}`);
-          }
-          const data = await response.json();
-          this.accessToken = data.accessToken;
-          this.refreshToken = data.refreshToken;
-          this.tokenExpiresAt = new Date(Date.now() + (data.expiresIn || 3600) * 1e3);
-          return {
-            accessToken: data.accessToken,
-            refreshToken: data.refreshToken,
-            expiresIn: data.expiresIn || 3600
-          };
-        } catch (error) {
-          console.error("TradeLocker token refresh error:", error);
-          throw error;
-        }
-      }
-      setTokens(accessToken, refreshToken, expiresAt) {
-        this.accessToken = accessToken;
-        this.refreshToken = refreshToken;
-        this.tokenExpiresAt = expiresAt || null;
-      }
-      async ensureAuthenticated() {
-        if (!this.accessToken) {
-          throw new Error("Not authenticated. Call authenticate() first.");
-        }
-        const TOKEN_BUFFER = 60 * 1e3;
-        if (this.tokenExpiresAt && (/* @__PURE__ */ new Date()).getTime() + TOKEN_BUFFER >= this.tokenExpiresAt.getTime() && this.refreshToken) {
-          const result = await this.refreshAccessToken(this.refreshToken);
-          if (this.onTokenRefresh) {
-            this.onTokenRefresh(result.accessToken, result.refreshToken, result.expiresIn);
-          }
-        }
-      }
-      /**
-       * Loads & caches the accountDetailsConfig column spec from /trade/config.
-       * The /state endpoint returns accountDetailsData as a flat array whose
-       * positions map to these columns (by `id`), so we need this to read balance.
-       */
-      async loadAccountDetailsConfig(accNum) {
-        if (this.accountDetailsConfig) return this.accountDetailsConfig;
-        const res = await fetch(`${this.baseUrl}/trade/config`, {
-          method: "GET",
-          headers: {
-            "Authorization": `Bearer ${this.accessToken}`,
-            "Content-Type": "application/json",
-            "accNum": accNum
-          },
-          signal: AbortSignal.timeout(8e3)
-        });
-        if (!res.ok) throw new Error(`config ${res.status}`);
-        const json2 = await res.json();
-        const cfg = json2?.d?.accountDetailsConfig ?? json2?.accountDetailsConfig ?? [];
-        const cols = Array.isArray(cfg) ? cfg : cfg?.columns ?? [];
-        this.accountDetailsConfig = cols;
-        return cols;
-      }
-      // Full /trade/config response, cached — used to resolve column order for
-      // any array-format response section (ordersHistoryConfig, positionsConfig,
-      // etc). TradeLocker returns rows as plain arrays whose column order is
-      // defined here, not as named-field objects — code that skipped this and
-      // read `row.symbol`/`row.profit` directly always got undefined/blank.
-      tradeConfigCache = null;
-      async loadTradeConfig() {
-        if (this.tradeConfigCache) return this.tradeConfigCache;
-        const res = await fetch(`${this.baseUrl}/trade/config`, {
-          method: "GET",
-          headers: { "Authorization": `Bearer ${this.accessToken}`, "Content-Type": "application/json", "accNum": this.accNum },
-          signal: AbortSignal.timeout(8e3)
-        });
-        if (!res.ok) throw new Error(`trade/config ${res.status}`);
-        const json2 = await res.json();
-        this.tradeConfigCache = json2?.d ?? json2 ?? {};
-        return this.tradeConfigCache;
-      }
-      async resolveColumns(configKey) {
-        try {
-          await this.ensureAuthenticated();
-          const cfg = await this.loadTradeConfig();
-          const cols = cfg?.[configKey]?.columns ?? [];
-          return cols.map((c) => String(c.id || c.name || "").toLowerCase());
-        } catch {
-          return [];
-        }
-      }
-      /** Normalize a label for fuzzy matching: lowercase, strip all non-alphanumerics */
-      normLabel(s) {
-        return (s ?? "").toString().toLowerCase().replace(/[^a-z0-9]/g, "");
-      }
-      /** Finds the value in a flat state-data array for a column matching any candidate id/title.
-       *  Matching is normalized (case/space/punctuation-insensitive) with exact-first then substring. */
-      pickStateValue(cols, data, candidates) {
-        const normCands = candidates.map((c) => this.normLabel(c));
-        for (const cand of normCands) {
-          const idx = cols.findIndex(
-            (c) => this.normLabel(c?.id) === cand || this.normLabel(c?.title) === cand
-          );
-          if (idx >= 0 && data[idx] != null) {
-            const n = parseFloat(data[idx]);
-            if (!isNaN(n)) return n;
-          }
-        }
-        for (const cand of normCands) {
-          const idx = cols.findIndex((c) => {
-            const id = this.normLabel(c?.id), title = this.normLabel(c?.title);
-            return id && (id === cand || id.includes(cand)) || title && (title === cand || title.includes(cand));
-          });
-          if (idx >= 0 && data[idx] != null) {
-            const n = parseFloat(data[idx]);
-            if (!isNaN(n)) return n;
-          }
-        }
-        return null;
-      }
-      /** Finds a value in an object-form state payload by normalized key match. */
-      pickObjValue(obj, candidates) {
-        const keys = Object.keys(obj);
-        const normCands = candidates.map((c) => this.normLabel(c));
-        for (const cand of normCands) {
-          let k = keys.find((key) => this.normLabel(key) === cand);
-          if (!k) k = keys.find((key) => this.normLabel(key).includes(cand));
-          if (k && obj[k] != null) {
-            const n = parseFloat(obj[k]);
-            if (!isNaN(n)) return n;
-          }
-        }
-        return null;
-      }
-      async getAccountInfo() {
-        await this.ensureAuthenticated();
-        if (!this.accNumResolved || this.accNum === "0") {
-          await this.resolveAccNum();
-        }
-        const accNum = this.accNum;
-        console.log("[TradeLocker] getAccountInfo using accNum:", accNum, "for accountId:", this.accountId);
-        try {
-          const [cols, stateRes] = await Promise.all([
-            this.loadAccountDetailsConfig(accNum).catch((e) => {
-              console.log("[TradeLocker] /config columns failed:", e instanceof Error ? e.message : e);
-              return [];
-            }),
-            fetch(`${this.baseUrl}/trade/accounts/${this.accountId}/state`, {
-              method: "GET",
-              headers: {
-                "Authorization": `Bearer ${this.accessToken}`,
-                "Content-Type": "application/json",
-                "accNum": accNum
-              },
-              signal: AbortSignal.timeout(8e3)
-            })
-          ]);
-          if (stateRes.ok) {
-            const stateJson = await stateRes.json();
-            const raw = stateJson?.d?.accountDetailsData ?? stateJson?.accountDetailsData;
-            let balance = null, equity = null;
-            let usedMargin = null, freeMargin = null;
-            if (Array.isArray(raw) && raw.length && Array.isArray(cols) && cols.length) {
-              balance = this.pickStateValue(cols, raw, ["balance", "accountbalance"]);
-              equity = this.pickStateValue(cols, raw, ["equity", "projectedbalance"]);
-              usedMargin = this.pickStateValue(cols, raw, ["marginused", "usedmargin", "blockedbalance", "margin"]);
-              freeMargin = this.pickStateValue(cols, raw, ["availablefunds", "marginavailable", "freemargin"]);
-            } else if (raw && typeof raw === "object" && !Array.isArray(raw)) {
-              balance = this.pickObjValue(raw, ["balance", "accountbalance"]);
-              equity = this.pickObjValue(raw, ["equity", "projectedbalance"]);
-              usedMargin = this.pickObjValue(raw, ["marginused", "usedmargin", "blockedbalance", "margin"]);
-              freeMargin = this.pickObjValue(raw, ["availablefunds", "marginavailable", "freemargin"]);
-            } else {
-              console.log("[TradeLocker] /state shape unexpected \u2014 cols:", Array.isArray(cols) ? cols.length : typeof cols, "data:", Array.isArray(raw) ? `array[${raw.length}]` : typeof raw);
-            }
-            if (balance != null) {
-              console.log("[TradeLocker] getAccountInfo via /state \u2014 balance:", balance, "equity:", equity);
-              return {
-                accountId: this.accountId,
-                balance,
-                equity: equity ?? balance,
-                margin: usedMargin ?? 0,
-                freeMargin: freeMargin ?? equity ?? balance,
-                currency: "USD"
-              };
-            }
-            console.log("[TradeLocker] /state returned but could not map balance; falling back to /accounts list");
-          } else {
-            console.log("[TradeLocker] /state endpoint status:", stateRes.status, "\u2014 falling back to /accounts list");
-          }
-        } catch (stateErr) {
-          console.log("[TradeLocker] /state path failed, falling back to /accounts list:", stateErr instanceof Error ? stateErr.message : stateErr);
-        }
-        try {
-          const response = await fetch(`${this.baseUrl}/trade/accounts`, {
-            method: "GET",
-            headers: {
-              "Authorization": `Bearer ${this.accessToken}`,
-              "Content-Type": "application/json",
-              "accNum": accNum
-            },
-            signal: AbortSignal.timeout(8e3)
-          });
-          if (!response.ok) {
-            const errorText = await response.text();
-            console.log("[TradeLocker] Account details error:", errorText);
-            throw new Error(`Failed to get account info: ${response.status} - ${errorText}`);
-          }
-          const data = await response.json();
-          console.log("[TradeLocker] Account details (list):", JSON.stringify(data));
-          const accounts = Array.isArray(data) ? data : Array.isArray(data?.d) ? data.d : data.accounts || data.d?.accounts || [];
-          const accountData = accounts.find(
-            (a) => a.id?.toString() === this.accountId || a.accountId?.toString() === this.accountId
-          ) || accounts[0];
-          if (!accountData || accountData.balance == null && accountData.accountBalance == null && accountData.projectedBalance == null) {
-            throw new Error("TradeLocker returned no usable account data \u2014 the account may have been reset/expired by the broker, or the response shape changed. Reconnect required.");
-          }
-          const balance = parseFloat(
-            accountData?.accountBalance ?? accountData?.balance ?? accountData?.projectedBalance ?? 0
-          ) || 0;
-          return {
-            accountId: accountData?.id?.toString() || this.accountId,
-            balance,
-            equity: parseFloat(accountData?.projectedBalance ?? accountData?.equity ?? balance) || balance,
-            margin: parseFloat(accountData?.usedMargin ?? accountData?.margin ?? 0) || 0,
-            freeMargin: parseFloat(accountData?.availableFunds ?? accountData?.freeMargin ?? balance) || balance,
-            currency: accountData?.currency || "USD"
-          };
-        } catch (error) {
-          console.error("TradeLocker get account info error:", error);
-          throw error;
-        }
-      }
-      /** Diagnostic: returns the raw shapes of /config, /state and /accounts for debugging balance issues. */
-      async debugAccountState() {
-        await this.ensureAuthenticated();
-        if (!this.accNumResolved || this.accNum === "0") await this.resolveAccNum();
-        const accNum = this.accNum;
-        const hdrs = {
-          "Authorization": `Bearer ${this.accessToken}`,
-          "Content-Type": "application/json",
-          "accNum": accNum
-        };
-        const out = { accountId: this.accountId, accNum, baseUrl: this.baseUrl };
-        try {
-          const r = await fetch(`${this.baseUrl}/trade/config`, { method: "GET", headers: hdrs, signal: AbortSignal.timeout(8e3) });
-          out.configStatus = r.status;
-          if (r.ok) {
-            const j = await r.json();
-            const cols = j?.d?.accountDetailsConfig ?? j?.accountDetailsConfig ?? [];
-            out.configColumns = Array.isArray(cols) ? cols.map((c) => ({ id: c?.id, title: c?.title })) : cols;
-          }
-        } catch (e) {
-          out.configError = e?.message ?? String(e);
-        }
-        try {
-          const r = await fetch(`${this.baseUrl}/trade/accounts/${this.accountId}/state`, { method: "GET", headers: hdrs, signal: AbortSignal.timeout(8e3) });
-          out.stateStatus = r.status;
-          if (r.ok) {
-            const j = await r.json();
-            out.stateData = j?.d?.accountDetailsData ?? j?.accountDetailsData ?? null;
-            out.stateDataType = Array.isArray(out.stateData) ? `array[${out.stateData.length}]` : typeof out.stateData;
-          } else {
-            out.stateBody = (await r.text()).slice(0, 300);
-          }
-        } catch (e) {
-          out.stateError = e?.message ?? String(e);
-        }
-        try {
-          const r = await fetch(`${this.baseUrl}/trade/accounts`, { method: "GET", headers: hdrs, signal: AbortSignal.timeout(8e3) });
-          out.accountsStatus = r.status;
-          if (r.ok) {
-            const j = await r.json();
-            const accts = Array.isArray(j) ? j : j.accounts || j.d?.accounts || [];
-            out.accountsSample = Array.isArray(accts) ? accts.slice(0, 3) : accts;
-          }
-        } catch (e) {
-          out.accountsError = e?.message ?? String(e);
-        }
-        return out;
-      }
-      // Shared, cached, rate-limit-aware instruments fetch. One network call per
-      // account per TTL serves EVERY symbol lookup (order placement, getInstruments,
-      // candle feed) so a burst of signals doesn't fire one /instruments request per
-      // symbol and hammer the broker into a 429. On 429/5xx it backs off and retries
-      // (RETRY_DELAYS) instead of throwing on the first rate-limit response — which
-      // is exactly what was aborting every auto-trade with
-      // "Failed to get instruments: 429 - <Cloudflare block page>".
-      async fetchInstrumentsPayload(forceRefresh = false) {
-        await this.ensureAuthenticated();
-        const listKey = `${this.baseUrl}:${this.accountId}`;
-        if (!forceRefresh) {
-          const cached = instrumentsListCache.get(listKey);
-          if (cached && Date.now() - cached.cachedAt < INSTRUMENT_CACHE_TTL) {
-            return { instruments: cached.instruments, routes: cached.routes ?? [] };
-          }
-        }
-        const doFetch = () => fetch(`${this.baseUrl}/trade/accounts/${this.accountId}/instruments`, {
-          method: "GET",
-          headers: {
-            "Authorization": `Bearer ${this.accessToken}`,
-            "Content-Type": "application/json",
-            "accNum": this.accNum
-          },
-          signal: AbortSignal.timeout(1e4)
-        });
-        let response = await doFetch();
-        if (response.status === 404) {
-          console.log("[TradeLocker] Instruments 404 for accountId", this.accountId, "\u2014 forcing accNum/accountId re-resolution");
-          await this.forceResolveAccNum();
-          response = await doFetch();
-        }
-        for (let i = 0; i < RETRY_DELAYS.length && RETRYABLE_STATUSES.has(response.status); i++) {
-          const delay = RETRY_DELAYS[i];
-          console.warn(`[TradeLocker] instruments ${response.status} \u2014 backing off ${delay}ms (retry ${i + 1}/${RETRY_DELAYS.length})`);
-          await new Promise((r) => setTimeout(r, delay));
-          response = await doFetch();
-        }
-        if (!response.ok) {
-          const errText = await response.text().catch(() => "");
-          throw new Error(`Failed to get instruments: ${response.status}${errText ? " - " + errText.slice(0, 120) : ""}`);
-        }
-        const data = await response.json();
-        const instruments = data?.d?.instruments ?? data?.instruments ?? (Array.isArray(data) ? data : []);
-        const routes = data?.d?.routes ?? data?.routes ?? [];
-        instrumentsListCache.set(listKey, { instruments, routes, cachedAt: Date.now() });
-        return { instruments, routes };
-      }
-      async getInstruments() {
-        try {
-          return (await this.fetchInstrumentsPayload()).instruments;
-        } catch (error) {
-          console.error("TradeLocker get instruments error:", error);
-          throw error;
-        }
-      }
-      async placeOrder(order) {
-        {
-          const _sl = Number(order.stopLoss);
-          if (!Number.isFinite(_sl) || _sl <= 0) {
-            console.error(`[TradeLocker] \u{1F6AB} NO-SL BLOCK (placeOrder): ${order.symbol} ${order.side} rejected \u2014 invalid stop loss (SL=${order.stopLoss}). Unprotected entry never allowed.`);
-            return { orderId: "", status: "rejected", message: `Blocked: no valid stop loss (SL=${order.stopLoss})` };
-          }
-        }
-        await this.ensureAuthenticated();
-        if (!this.accNumResolved || this.accNum === "0") {
-          await this.resolveAccNum();
-        }
-        try {
-          console.log("[TradeLocker] Placing order with accNum:", this.accNum, "(type:", typeof this.accNum, ") accountId:", this.accountId);
-          console.log("[TradeLocker] Order details:", order);
-          let tradableInstrumentId = null;
-          let routeId = null;
-          const instCacheKey = `${this.baseUrl}:${this.accountId}:${order.symbol.toUpperCase()}`;
-          const cachedInst = instrumentCache.get(instCacheKey);
-          if (cachedInst && Date.now() - cachedInst.cachedAt < INSTRUMENT_CACHE_TTL) {
-            tradableInstrumentId = cachedInst.tradableInstrumentId;
-            routeId = cachedInst.routeId;
-            console.log("[TradeLocker] Instrument cache HIT:", order.symbol, "\u2192 id:", tradableInstrumentId, "route:", routeId);
-          } else {
-            console.log("[TradeLocker] Instrument cache MISS \u2014 fetching instruments (shared cache + 429 backoff)...");
-            const { instruments, routes } = await this.fetchInstrumentsPayload();
-            if (Array.isArray(instruments)) {
-              const sym = order.symbol.toUpperCase();
-              const symVariants = [sym];
-              const suffixes = [".pro", "m", ".m", ".z", ".a", ".b", ".c", ".r", "_raw", ".ecn", ".stp", ".pro+", "PRO"];
-              for (const sfx of suffixes) {
-                symVariants.push(sym + sfx.toUpperCase());
-                symVariants.push(sym + sfx);
-              }
-              const strippedSym = sym.replace(/[._]?(PRO|ECN|STP|RAW|M|Z|A|B|C|R)\+?$/i, "");
-              if (strippedSym !== sym) symVariants.push(strippedSym);
-              const ALIASES = {
-                "XAUUSD": ["GOLD", "XAU/USD", "GOLD/USD", "XAUUSD.PRO", "XAUUSDPRO"],
-                "GOLD": ["XAUUSD", "XAU/USD"],
-                "XAGUSD": ["SILVER", "XAG/USD"],
-                "SILVER": ["XAGUSD", "XAG/USD"],
-                "USOIL": ["WTI", "CRUDE", "OIL", "USOUSD"],
-                "UKOIL": ["BRENT", "BRENTOIL"],
-                "NAS100": ["USTEC", "NDX100", "NASDAQ100", "US100", "NQ100"],
-                "US500": ["SPX500", "SP500", "US500", "SPX"],
-                "US30": ["DJ30", "WALLST30", "DJI30"],
-                "GER40": ["DAX40", "DE40", "GER30", "GER"],
-                "UK100": ["FTSE100", "UKX"],
-                "JP225": ["JPN225", "NIKKEI", "N225"]
-              };
-              const knownAliases = ALIASES[sym] || [];
-              for (const alias of knownAliases) {
-                symVariants.push(alias);
-                symVariants.push(alias.replace("/", ""));
-              }
-              const seen = /* @__PURE__ */ new Set();
-              const uniqueVariants = symVariants.filter((v) => {
-                if (seen.has(v)) return false;
-                seen.add(v);
-                return true;
-              });
-              console.log("[TradeLocker] Trying symbol variants:", uniqueVariants.slice(0, 10));
-              let matchedInstrument = null;
-              for (const variant of uniqueVariants) {
-                const found = instruments.find((inst) => {
-                  const instName = (inst.name || inst.symbol || "").toUpperCase().replace(/\s/g, "");
-                  const instDesc = (inst.description || inst.fullName || "").toUpperCase().replace(/\s/g, "");
-                  const v = variant.toUpperCase().replace(/\s/g, "");
-                  return instName === v || instDesc === v;
-                });
-                if (found) {
-                  matchedInstrument = found;
-                  console.log("[TradeLocker] Matched symbol variant:", variant, "\u2192", found.name, "tradableInstrumentId:", found.tradableInstrumentId || found.id);
-                  break;
-                }
-              }
-              if (matchedInstrument) {
-                tradableInstrumentId = matchedInstrument.tradableInstrumentId || matchedInstrument.id;
-                const instRoutes = Array.isArray(matchedInstrument.routes) ? matchedInstrument.routes : [];
-                console.log("[TradeLocker] Instrument routes:", JSON.stringify(instRoutes));
-                if (instRoutes.length > 0) {
-                  const tradeRoute = instRoutes.find((r) => r.type === "TRADE" || r.name === "TRADE") ?? instRoutes[0];
-                  routeId = tradeRoute.id;
-                  console.log("[TradeLocker] Using routeId", routeId, "from instrument routes");
-                }
-              }
-              if (Array.isArray(instruments) && instruments.length > 0) {
-                const sample = instruments.find((i) => (i.name || i.symbol || "").toUpperCase().includes(order.symbol.toUpperCase().slice(0, 3))) || instruments[0];
-                console.log("[TradeLocker] Sample instrument structure:", JSON.stringify(sample));
-              }
-            }
-            if (!routeId && Array.isArray(routes) && routes.length > 0) {
-              const tradeRoute = routes.find((r) => r.name === "TRADE" || r.type === "TRADE") ?? routes[0];
-              routeId = tradeRoute.id;
-              console.log("[TradeLocker] Using routeId", routeId, "from global routes fallback");
-            }
-            if (!tradableInstrumentId) {
-              const availableNames = Array.isArray(instruments) ? instruments.slice(0, 30).map((i) => i.name || i.symbol).filter(Boolean).join(", ") : "none";
-              throw new Error(
-                `Instrument not found: ${order.symbol}. Available symbols (first 30): ${availableNames}. Check the Instruments button on your TradeLocker connection to see exact names.`
-              );
-            }
-            if (!routeId) {
-              routeId = 1;
-              console.warn('[TradeLocker] WARNING: Could not find routeId from instrument or global routes. Defaulting to 1 \u2014 may cause "route forbidden".');
-            }
-            instrumentCache.set(instCacheKey, { tradableInstrumentId, routeId, cachedAt: Date.now() });
-            console.log("[TradeLocker] Instrument cached:", order.symbol, "\u2192 id:", tradableInstrumentId, "route:", routeId);
-          }
-          const orderPayload = {
-            tradableInstrumentId,
-            routeId: routeId || "TRADE",
-            // Use numeric routeId or string "TRADE" as fallback
-            qty: order.quantity,
-            side: order.side,
-            type: order.type,
-            validity: order.type === "market" ? "IOC" : "GTC",
-            price: 0
-            // Required field - 0 for market orders
-          };
-          const px = (v) => roundToTick(order.symbol, v);
-          if ((order.type === "limit" || order.type === "stop") && order.price) {
-            orderPayload.price = px(order.price);
-          }
-          if (order.stopLoss) {
-            orderPayload.stopLoss = px(order.stopLoss);
-            orderPayload.stopLossType = "absolute";
-          }
-          if (order.takeProfit) {
-            orderPayload.takeProfit = px(order.takeProfit);
-            orderPayload.takeProfitType = "absolute";
-          }
-          console.log("[TradeLocker] Order payload:", JSON.stringify(orderPayload));
-          let response = null;
-          let responseText = "";
-          let lastError = null;
-          let preIds = null;
-          if (order.type === "market") {
-            try {
-              preIds = new Set((await this.getPositionsNormalized()).map((p) => p.id));
-            } catch {
-              preIds = null;
-            }
-          }
-          const symKey = order.symbol.toUpperCase().replace(/[^A-Z0-9]/g, "");
-          const resolveAmbiguous = async (why) => {
-            if (preIds) {
-              try {
-                const now = await this.getPositionsNormalized();
-                const landed = now.find((p) => !preIds.has(p.id) && p.side === order.side && (p.symbol.toUpperCase().replace(/[^A-Z0-9]/g, "").startsWith(symKey) || p.symbol === String(tradableInstrumentId)));
-                if (landed) {
-                  console.warn(`[TradeLocker] ${why} \u2014 but a new ${order.symbol} ${order.side} position ${landed.id} appeared, so the order DID fill. Not resending.`);
-                  return { orderId: landed.id, status: "submitted", filledQuantity: landed.qty, filledPrice: landed.avgPrice, message: `Order filled (confirmed from positions after ${why}; id is the position id)` };
-                }
-                return null;
-              } catch {
-              }
-            }
-            console.error(`[TradeLocker] ${why} \u2014 could not verify whether ${order.symbol} filled. NOT retrying, to avoid a duplicate position. Check the account.`);
-            return { orderId: "", status: "rejected", message: `Outcome unknown after ${why} \u2014 not retried to avoid a duplicate order. Check the account for an open ${order.symbol} position.` };
-          };
-          for (let attempt = 0; attempt <= RETRY_DELAYS.length; attempt++) {
-            try {
-              response = await fetch(`${this.baseUrl}/trade/accounts/${this.accountId}/orders`, {
-                method: "POST",
-                headers: {
-                  "Authorization": `Bearer ${this.accessToken}`,
-                  "Content-Type": "application/json",
-                  "accNum": this.accNum
-                },
-                body: JSON.stringify(orderPayload)
-              });
-              responseText = await response.text();
-              console.log(`[TradeLocker] Order response (attempt ${attempt + 1}): status=${response.status} body=${responseText.substring(0, 300)}`);
-              if (response.ok) break;
-              if (response.status === 401 && attempt < RETRY_DELAYS.length) {
-                console.log("[TradeLocker] 401 on order \u2014 forcing full re-auth before retry...");
-                try {
-                  if (this.onReauthenticate) {
-                    await this.onReauthenticate();
-                  } else if (this.refreshToken) {
-                    const result = await this.refreshAccessToken(this.refreshToken);
-                    if (this.onTokenRefresh) {
-                      this.onTokenRefresh(result.accessToken, result.refreshToken, result.expiresIn);
-                    }
-                  }
-                } catch (authErr) {
-                  console.log("[TradeLocker] Re-auth failed during 401 retry:", authErr.message);
-                }
-                await new Promise((r) => setTimeout(r, RETRY_DELAYS[attempt]));
-                continue;
-              }
-              if (RETRYABLE_STATUSES.has(response.status) && attempt < RETRY_DELAYS.length) {
-                console.log(`[TradeLocker] Retryable status ${response.status} \u2014 waiting ${RETRY_DELAYS[attempt]}ms before retry ${attempt + 2}...`);
-                await new Promise((r) => setTimeout(r, RETRY_DELAYS[attempt]));
-                if (response.status !== 429) {
-                  const settled = await resolveAmbiguous(`HTTP ${response.status}`);
-                  if (settled) return settled;
-                }
-                continue;
-              }
-              throw new Error(`Order placement failed: ${response.status} - ${responseText}`);
-            } catch (err) {
-              lastError = err;
-              if (attempt < RETRY_DELAYS.length && !responseText) {
-                console.log(`[TradeLocker] Network error on attempt ${attempt + 1}: ${lastError.message} \u2014 retrying in ${RETRY_DELAYS[attempt]}ms...`);
-                await new Promise((r) => setTimeout(r, RETRY_DELAYS[attempt]));
-                const settled = await resolveAmbiguous(`network error (${lastError.message})`);
-                if (settled) return settled;
-                continue;
-              }
-              throw lastError;
-            }
-          }
-          if (!response || !response.ok) {
-            throw lastError || new Error("Order placement failed after retries");
-          }
-          const data = JSON.parse(responseText);
-          if (data.s !== "ok") {
-            const errorDetails = [];
-            if (data.errmsg) errorDetails.push(data.errmsg);
-            if (data.d?.errmsg) errorDetails.push(data.d.errmsg);
-            if (data.d?.message) errorDetails.push(data.d.message);
-            if (data.d?.messages && Array.isArray(data.d.messages)) errorDetails.push(...data.d.messages);
-            if (data.d?.error) errorDetails.push(data.d.error);
-            if (data.d?.errorCode) errorDetails.push(`Code: ${data.d.errorCode}`);
-            if (data.message) errorDetails.push(data.message);
-            if (data.error) errorDetails.push(data.error);
-            const errorMsg = errorDetails.length > 0 ? errorDetails.join(" | ") : `Rejected (status: ${data.s}, raw: ${responseText.substring(0, 200)})`;
-            console.log("[TradeLocker] Order rejected - Full response:", responseText);
-            console.log("[TradeLocker] Parsed error:", errorMsg);
-            return {
-              orderId: "",
-              status: "rejected",
-              message: errorMsg
-            };
-          }
-          const orderId = data.d?.orderId || data.d?.id || data.orderId || data.id;
-          if (!orderId) {
-            console.log("[TradeLocker] No orderId in response:", data);
-            return {
-              orderId: "",
-              status: "rejected",
-              message: "No order ID returned - order may not have been placed"
-            };
-          }
-          console.log("[TradeLocker] Order successfully placed with orderId:", orderId);
-          return {
-            orderId: orderId.toString(),
-            status: "submitted",
-            filledQuantity: data.d?.filledQty || data.filledQuantity,
-            filledPrice: data.d?.avgPrice || data.filledPrice,
-            message: "Order placed successfully"
-          };
-        } catch (error) {
-          console.error("TradeLocker place order error:", error);
-          throw error;
-        }
-      }
-      /**
-       * Fetch OHLCV candlestick bars for a symbol from TradeLocker.
-       * Returns candles in ascending time order (oldest first), same shape as MT5 cache:
-       * { t, o, h, l, c, v }
-       */
-      async getCandlesticks(symbol, resolutionMinutes = 5, fromTs, toTs) {
-        await this.ensureAuthenticated();
-        await this.resolveAccNum();
-        const instCacheKey = `${this.baseUrl}:${this.accountId}:${symbol.toUpperCase()}`;
-        let tradableInstrumentId = null;
-        let infoRouteId = null;
-        const cached = instrumentCache.get(instCacheKey);
-        if (cached && cached.infoRouteId != null && Date.now() - cached.cachedAt < INSTRUMENT_CACHE_TTL) {
-          tradableInstrumentId = cached.tradableInstrumentId;
-          infoRouteId = cached.infoRouteId;
-        } else {
-          const { instruments } = await this.fetchInstrumentsPayload();
-          const sym = symbol.toUpperCase();
-          const ALIASES = {
-            "XAUUSD": ["GOLD", "XAU/USD"],
-            "NAS100": ["USTEC", "US100", "NDX100"],
-            "US30": ["DJ30", "WALLST30"],
-            "US500": ["SPX500", "SP500", "SPX"]
-          };
-          const variants = [sym, ...ALIASES[sym] || []];
-          let matched = null;
-          for (const v of variants) {
-            matched = instruments.find((i) => (i.name || i.symbol || "").toUpperCase().replace(/\s/g, "") === v.replace(/\s/g, ""));
-            if (matched) break;
-          }
-          if (!matched) throw new Error(`Instrument not found in TradeLocker: ${symbol}`);
-          tradableInstrumentId = matched.tradableInstrumentId || matched.id;
-          const routes = Array.isArray(matched.routes) ? matched.routes : [];
-          const tradeRouteId = (routes.find((r) => r.type === "TRADE" || r.name === "TRADE") ?? routes[0])?.id ?? 1;
-          infoRouteId = (routes.find((r) => r.type === "INFO" || r.name === "INFO") ?? routes[0])?.id ?? tradeRouteId;
-          instrumentCache.set(instCacheKey, { tradableInstrumentId, routeId: tradeRouteId, infoRouteId, cachedAt: Date.now() });
-        }
-        const resolution = resolutionMinutes >= 1440 ? "1D" : resolutionMinutes >= 60 ? String(resolutionMinutes / 60) + "h" : String(resolutionMinutes) + "m";
-        const nowMs = Date.now();
-        const fromMs = fromTs != null ? fromTs * 1e3 : nowMs - 864e5;
-        const toMs = toTs != null ? toTs * 1e3 : nowMs;
-        const url = `${this.baseUrl}/trade/history?routeId=${infoRouteId}&tradableInstrumentId=${tradableInstrumentId}&resolution=${resolution}&from=${fromMs}&to=${toMs}`;
-        let histResp = null;
-        const backoffs = [400, 900];
-        for (let attempt = 0; ; attempt++) {
-          histResp = await fetch(url, {
-            headers: { "Authorization": `Bearer ${this.accessToken}`, "Content-Type": "application/json", "accNum": this.accNum }
-          });
-          if (histResp.status !== 429 || attempt >= backoffs.length) break;
-          await new Promise((r) => setTimeout(r, backoffs[attempt]));
-        }
-        if (!histResp.ok) {
-          const txt = await histResp.text();
-          throw new Error(`TradeLocker history error: ${histResp.status} \u2014 ${txt}`);
-        }
-        const histData = await histResp.json();
-        const bars = histData.d?.barDetails || histData.d?.bars || histData.barDetails || histData.bars || [];
-        return bars.map((b) => ({
-          t: b.t ?? b.time ?? b.timestamp ?? 0,
-          o: b.o ?? b.open ?? 0,
-          h: b.h ?? b.high ?? 0,
-          l: b.l ?? b.low ?? 0,
-          c: b.c ?? b.close ?? 0,
-          v: b.v ?? b.volume ?? 0
-        })).sort((a, b) => a.t - b.t);
-      }
-      async closePosition(positionId) {
-        await this.ensureAuthenticated();
-        try {
-          const response = await fetch(`${this.baseUrl}/trade/accounts/${this.accountId}/positions/${positionId}/close`, {
-            method: "POST",
-            headers: {
-              "Authorization": `Bearer ${this.accessToken}`,
-              "Content-Type": "application/json",
-              "accNum": this.accNum
-            }
-          });
-          if (!response.ok) {
-            const errorText = await response.text();
-            throw new Error(`Position close failed: ${response.status} - ${errorText}`);
-          }
-          const data = await response.json();
-          if (data.s && data.s !== "ok") {
-            throw new Error(`Position close rejected by broker: ${data.errmsg || JSON.stringify(data)}`);
-          }
-          return {
-            orderId: data.orderId || positionId,
-            status: "closed",
-            message: data.message
-          };
-        } catch (error) {
-          console.error("TradeLocker close position error:", error);
-          throw error;
-        }
-      }
-      // Approximate $ value per unit of price movement per 1.0 qty — TradeLocker's
-      // order/position endpoints report raw price levels, not realized $ P&L, so
-      // this is needed to convert (exit - entry) * qty into an actual dollar
-      // figure. Not exact (real pip/point values vary by broker/instrument
-      // spec), but far closer than treating a JPY-pair price difference or a
-      // 0.00001-precision FX price as if it were already in dollars.
-      /**
-       * Strip broker decoration so symbol tests actually match. White-labels ship
-       * the same instrument as `EURUSD`, `EUR/USD`, `EURUSD.PRO`, `EURUSD-ECN`,
-       * `EURUSD_raw` … Previously an undecorated-only comparison meant `XAUUSD.PRO`
-       * missed the gold branch and fell through to multiplier 1 (100x understated,
-       * audited 2026-09-18: 4 live rows booked at $7.07 instead of ~$707).
-       */
-      static normalizeSymbol(symbol) {
-        return String(symbol ?? "").toUpperCase().split(".")[0].replace(/[^A-Z0-9]/g, "");
-      }
-      /**
-       * Contract size: units of the BASE asset per 1.0 of reported qty. This is the
-       * `(exit - entry) * qty * size` term only — it yields a figure in the QUOTE
-       * currency, which `quoteToUsd` then converts. Keeping the two concerns apart
-       * is deliberate: the old single "multiplier" tried to do both at once and got
-       * both wrong for non-USD-quoted instruments.
-       *
-       * Previous bug (fixed 2026-09-19): the crypto/index line read
-       *   `if (s.includes('BTC') || s.includes('ETH') || /^[A-Z]{2,5}USD$/.test(s) === false) return 1;`
-       * which returned BEFORE the 6-char FX line for every pair NOT ending in USD.
-       * EURGBP/AUDCAD/GBPCHF etc. were therefore booked at multiplier 1 — i.e. a
-       * ~100,000x understatement. Confirmed live: 7 AUDCAD rows booked at
-       * -$0.0008 total, which the sync then dropped as "zero P&L = not closed",
-       * leaving them PENDING forever.
-       */
-      static contractSize(symbol) {
-        const s = _TradeLockerService.normalizeSymbol(symbol);
-        if (s.startsWith("XAU") || s === "GOLD") return 100;
-        if (s.startsWith("XAG") || s === "SILVER") return 5e3;
-        if (s.startsWith("XPT") || s.startsWith("XPD")) return 100;
-        if (/^(BTC|ETH|LTC|XRP|BCH|ADA|SOL|DOGE|DOT|ETC|LINK)/.test(s)) return 1;
-        if (/^[A-Z]{6}$/.test(s)) return 1e5;
-        return 1;
-      }
-      /**
-       * Fetch filled/closed orders from TradeLocker's actual order-history
-       * endpoint. TradeLocker returns rows as plain arrays whose column order is
-       * defined by /trade/config's ordersHistoryConfig — NOT named-field
-       * objects — so column order is resolved dynamically (same pattern
-       * getPositionsNormalized already uses for /positions) rather than reading
-       * row.symbol/row.profit directly, which always returned undefined/blank.
-       * Returns normalised array: { id, symbol, side, qty, avgPrice, status, createdDate, positionId }
-       */
-      async getFilledOrders(fromTs) {
-        await this.ensureAuthenticated();
-        try {
-          const columns = await this.resolveColumns("ordersHistoryConfig");
-          const idx = (name) => columns.indexOf(name.toLowerCase());
-          const iId = idx("id"), iInst = idx("tradableInstrumentId"), iSide = idx("side"), iQty = idx("qty"), iAvg = idx("avgPrice"), iStatus = idx("status"), iCreated = idx("createdDate"), iPosId = idx("positionId");
-          const toMs = Date.now();
-          const fromMs = fromTs ? fromTs * 1e3 : toMs - 90 * 24 * 60 * 60 * 1e3;
-          const histUrl = `${this.baseUrl}/trade/accounts/${this.accountId}/ordersHistory?from=${fromMs}&to=${toMs}`;
-          let response = null;
-          for (let attempt = 0; attempt <= RETRY_DELAYS.length; attempt++) {
-            response = await fetch(histUrl, {
-              method: "GET",
-              headers: { "Authorization": `Bearer ${this.accessToken}`, "Content-Type": "application/json", "accNum": this.accNum }
-            });
-            if (response.ok) break;
-            if (!RETRYABLE_STATUSES.has(response.status) || attempt === RETRY_DELAYS.length) break;
-            console.warn(`[TradeLocker] ordersHistory ${response.status} \u2014 retry ${attempt + 1}/${RETRY_DELAYS.length}`);
-            await new Promise((r) => setTimeout(r, RETRY_DELAYS[attempt]));
-          }
-          if (!response || !response.ok) {
-            throw new TradeLockerReadError(
-              `ordersHistory read failed (${response?.status ?? "no response"}) \u2014 refusing to report an empty fill history`,
-              response?.status
-            );
-          }
-          const data = await response.json();
-          const rows = data?.d?.ordersHistory || data?.ordersHistory || [];
-          const instruments = await this.getInstruments().catch(() => []);
-          const instMap = /* @__PURE__ */ new Map();
-          for (const inst of instruments) {
-            const id = String(inst.tradableInstrumentId ?? inst.id ?? "");
-            if (id) instMap.set(id, inst.name || inst.symbol || id);
-          }
-          return rows.map((row) => {
-            const instId = iInst >= 0 ? String(row[iInst]) : "";
-            const createdMs = iCreated >= 0 ? Number(row[iCreated]) : 0;
-            return {
-              id: iId >= 0 ? String(row[iId]) : "",
-              symbol: instMap.get(instId) || instId,
-              side: iSide >= 0 ? String(row[iSide]).toLowerCase() : "",
-              qty: iQty >= 0 ? parseFloat(row[iQty]) || 0 : 0,
-              avgPrice: iAvg >= 0 ? parseFloat(row[iAvg]) || 0 : 0,
-              status: iStatus >= 0 ? String(row[iStatus]) : "",
-              closeTime: createdMs ? new Date(createdMs).toISOString() : null,
-              positionId: iPosId >= 0 ? String(row[iPosId]) : ""
-            };
-          }).filter((o) => /^(filled|executed)$/i.test(o.status)).filter((o) => {
-            if (!fromTs || !o.closeTime) return true;
-            return new Date(o.closeTime).getTime() >= fromTs * 1e3;
-          });
-        } catch (err) {
-          if (err instanceof TradeLockerReadError) throw err;
-          console.error("[TradeLocker] getFilledOrders error:", err.message);
-          return [];
-        }
-      }
-      /**
-       * Pairs each position's entry and exit fills (matched by positionId) to
-       * compute realized P&L per closed trade — TradeLocker's order/position
-       * data reports price levels, not a ready-made "profit" field, so this
-       * does the pairing + $ conversion that server/routes.ts's outcome-sync
-       * previously assumed already existed on each row (it never did — every
-       * synced "trade" silently had profit=0 and got skipped).
-       * Returns: { id, symbol, side, qty, profit, openPrice, closePrice, closeTime }[]
-       * — one entry per CLOSED position (positions with only one fill, i.e.
-       * still open, are excluded).
-       */
-      /** Position ids currently OPEN at the broker, or null when the open book
-       *  could not be read. Null is meaningful: callers must NOT treat "couldn't
-       *  read" as "nothing is open", or every position would look closed. */
-      async getOpenPositionIds() {
-        for (let attempt = 0; attempt < 3; attempt++) {
-          try {
-            const raw = await this.getPositions();
-            if (!Array.isArray(raw)) return null;
-            const ids = /* @__PURE__ */ new Set();
-            for (const p of raw) {
-              const id = Array.isArray(p) ? p[0] : p?.id ?? p?.positionId;
-              if (id != null && String(id).length > 0) ids.add(String(id));
-            }
-            return ids;
-          } catch (e) {
-            const transient = /429|rate.?limit|timeout|ECONN|502|503|504/i.test(e?.message || "");
-            if (!transient || attempt === 2) {
-              console.warn(`[TradeLocker] open-book read failed (${e?.message}) \u2014 close detection falls back to the conservative time guard for this pass.`);
-              return null;
-            }
-            await new Promise((r) => setTimeout(r, 1e3 * (attempt + 1)));
-          }
-        }
-        return null;
-      }
-      async getClosedTradesWithPnl(fromTs) {
-        const openIds = await this.getOpenPositionIds();
-        const fills = await this.getFilledOrders(fromTs ? fromTs - 30 * 24 * 3600 : void 0);
-        const byPosition = /* @__PURE__ */ new Map();
-        for (const f of fills) {
-          if (_TradeLockerService.normalizeSymbol(f.symbol) === "USDJPY" && Number(f.avgPrice) > 0) {
-            noteUsdJpyObservation(new Date(f.closeTime).getTime(), Number(f.avgPrice));
-          }
-          if (!f.positionId) continue;
-          if (!byPosition.has(f.positionId)) byPosition.set(f.positionId, []);
-          byPosition.get(f.positionId).push(f);
-        }
-        const closed = [];
-        for (const [positionId, legs] of Array.from(byPosition)) {
-          if (legs.length < 2) continue;
-          legs.sort((a, b) => new Date(a.closeTime).getTime() - new Date(b.closeTime).getTime());
-          const buys = legs.filter((l) => String(l.side).toLowerCase() === "buy");
-          const sells = legs.filter((l) => String(l.side).toLowerCase() === "sell");
-          if (buys.length === 0 || sells.length === 0) continue;
-          const sumQty = (arr2) => arr2.reduce((s, l) => s + (Number(l.qty) || 0), 0);
-          const wAvg = (arr2) => {
-            const q = sumQty(arr2);
-            return q > 0 ? arr2.reduce((s, l) => s + Number(l.avgPrice) * (Number(l.qty) || 0), 0) / q : 0;
-          };
-          const buyQty = sumQty(buys), sellQty = sumQty(sells);
-          const closedQty = Math.min(buyQty, sellQty);
-          if (!(closedQty > 0)) continue;
-          const direction = String(legs[0].side).toLowerCase();
-          const buyAvg = wAvg(buys), sellAvg = wAvg(sells);
-          const openAvg = direction === "buy" ? buyAvg : sellAvg;
-          const exitAvg = direction === "buy" ? sellAvg : buyAvg;
-          const priceDiff = direction === "buy" ? exitAvg - openAvg : openAvg - exitAvg;
-          const closingLegs = direction === "buy" ? sells : buys;
-          const closeTime = closingLegs[closingLegs.length - 1]?.closeTime || legs[legs.length - 1].closeTime;
-          const openMs = new Date(legs[0].closeTime).getTime();
-          const closeMs = new Date(closeTime).getTime();
-          if (openIds) {
-            if (openIds.has(String(positionId))) continue;
-          } else if (isFinite(openMs) && isFinite(closeMs) && closeMs - openMs < 6e4) {
-            continue;
-          }
-          if (fromTs && closeMs < fromTs * 1e3) continue;
-          const _symN = _TradeLockerService.normalizeSymbol(legs[0].symbol);
-          const _quote = /^[A-Z]{6}$/.test(_symN) ? _symN.slice(3) : "USD";
-          let _quoteToUsd = 1;
-          if (_quote === "JPY") {
-            const _usdJpy = _symN === "USDJPY" && exitAvg > 0 ? exitAvg : usdJpyAt(new Date(closeTime).getTime());
-            _quoteToUsd = _usdJpy > 0 ? 1 / _usdJpy : 0;
-          } else if (_quote !== "USD" && /^[A-Z]{6}$/.test(_symN)) {
-            _quoteToUsd = 1;
-          }
-          const profit = priceDiff * closedQty * _TradeLockerService.contractSize(legs[0].symbol) * _quoteToUsd;
-          const _fxConverted = _quote === "USD" || _quote === "JPY" ? true : !/^[A-Z]{6}$/.test(_symN);
-          closed.push({
-            id: legs[legs.length - 1].id,
-            positionId,
-            symbol: legs[0].symbol,
-            side: direction,
-            qty: closedQty,
-            profit,
-            openPrice: openAvg,
-            closePrice: exitAvg,
-            openTime: legs[0].closeTime,
-            closeTime,
-            quoteCurrency: _quote,
-            // false => `profit` is in quoteCurrency, NOT USD (no rate available).
-            usdConverted: _fxConverted
-          });
-        }
-        return closed;
-      }
-      /**
-       * Fetch CLOSED positions (realized P&L) — now backed by the same
-       * ordersHistory + position-pairing logic as getClosedTradesWithPnl,
-       * shaped to match this method's original consumer expectations.
-       */
-      async getClosedPositions(fromTs) {
-        const closed = await this.getClosedTradesWithPnl(fromTs);
-        return closed.map((c) => ({ id: c.id, positionId: c.positionId, symbol: c.symbol, side: c.side, profit: c.profit, closeTime: c.closeTime, qty: c.qty, openPrice: c.openPrice, closePrice: c.closePrice }));
-      }
-      async getPositions() {
-        await this.ensureAuthenticated();
-        try {
-          const response = await fetch(`${this.baseUrl}/trade/accounts/${this.accountId}/positions`, {
-            method: "GET",
-            headers: {
-              "Authorization": `Bearer ${this.accessToken}`,
-              "Content-Type": "application/json",
-              "accNum": this.accNum
-            }
-          });
-          if (!response.ok) {
-            throw new Error(`Failed to get positions: ${response.status}`);
-          }
-          const data = await response.json();
-          return Array.isArray(data) ? data : data?.d?.positions || data?.positions || [];
-        } catch (error) {
-          console.error("TradeLocker get positions error:", error);
-          throw error;
-        }
-      }
-      // Normalized open positions — handles BOTH response shapes TradeLocker uses:
-      // object rows (named fields) and column-array rows (order defined by
-      // /trade/config's positionsConfig). Also maps tradableInstrumentId → symbol
-      // via the instruments list so the UI can show real pair names.
-      async getPositionsNormalized() {
-        const raw = await this.getPositions();
-        if (!raw || raw.length === 0) return [];
-        let instMap = /* @__PURE__ */ new Map();
-        try {
-          const instruments = await this.getInstruments();
-          for (const inst of instruments) {
-            const id = String(inst.tradableInstrumentId ?? inst.id ?? "");
-            if (id) instMap.set(id, inst.name || inst.symbol || id);
-          }
-        } catch {
-        }
-        const norm3 = (v) => parseFloat(v) || 0;
-        const toIsoDate = (v) => {
-          if (v == null || v === "") return void 0;
-          const n = typeof v === "number" ? v : /^\d+(\.\d+)?$/.test(String(v).trim()) ? Number(v) : NaN;
-          const ms = Number.isFinite(n) ? n < 1e12 ? n * 1e3 : n : new Date(String(v)).getTime();
-          return Number.isFinite(ms) && ms > 0 ? new Date(ms).toISOString() : void 0;
-        };
-        const sanePrice = (v, ref) => {
-          if (!(v > 0)) return void 0;
-          if (!(ref > 0)) return v < 1e7 ? v : void 0;
-          const ratio = v / ref;
-          return ratio > 0.2 && ratio < 5 ? v : void 0;
-        };
-        if (!Array.isArray(raw[0])) {
-          return raw.map((p) => ({
-            id: String(p.id ?? p.positionId ?? ""),
-            symbol: p.s || p.symbol || instMap.get(String(p.tradableInstrumentId ?? "")) || String(p.tradableInstrumentId ?? ""),
-            instrumentId: p.tradableInstrumentId != null ? String(p.tradableInstrumentId) : void 0,
-            side: (p.side || "").toString().toLowerCase(),
-            qty: norm3(p.qty),
-            avgPrice: norm3(p.avgPrice ?? p.openPrice ?? p.price),
-            unrealizedPl: norm3(p.unrealizedPl ?? p.unrealizedPnL ?? p.uPnL ?? p.pl),
-            openDate: toIsoDate(p.openDate || p.createdDate),
-            stopLoss: sanePrice(norm3(p.stopLoss ?? p.sl ?? p.stopLossPrice), norm3(p.avgPrice ?? p.openPrice ?? p.price)),
-            takeProfit: sanePrice(norm3(p.takeProfit ?? p.tp ?? p.takeProfitPrice), norm3(p.avgPrice ?? p.openPrice ?? p.price))
-          }));
-        }
-        let columns = [];
-        try {
-          await this.ensureAuthenticated();
-          const cfgRes = await fetch(`${this.baseUrl}/trade/config`, {
-            method: "GET",
-            headers: { "Authorization": `Bearer ${this.accessToken}`, "Content-Type": "application/json", "accNum": this.accNum },
-            signal: AbortSignal.timeout(1e4)
-          });
-          if (cfgRes.ok) {
-            const cfg = await cfgRes.json();
-            const cols = cfg?.d?.positionsConfig?.columns || cfg?.positionsConfig?.columns || [];
-            columns = cols.map((c) => String(c.id || c.name || "").toLowerCase());
-          }
-        } catch {
-        }
-        const idx = (candidates) => {
-          for (const k of candidates) {
-            const exact = columns.indexOf(k);
-            if (exact >= 0) return exact;
-          }
-          return columns.findIndex((c) => candidates.some((k) => c.includes(k)));
-        };
-        const iId = idx(["id"]);
-        const iInst = idx(["tradableinstrumentid", "tradableinstrument"]);
-        const iSide = idx(["side"]);
-        const iQty = idx(["qty", "quantity"]);
-        const iAvg = idx(["avgprice", "openprice", "price"]);
-        const iPl = idx(["unrealizedpl", "unrealizedpnl", "pnl", "pl"]);
-        const iDate = idx(["opendate", "date"]);
-        const idxPrice = (candidates) => {
-          for (const k of candidates) {
-            const exact = columns.indexOf(k);
-            if (exact >= 0) return exact;
-          }
-          return columns.findIndex((c) => !c.endsWith("id") && candidates.some((k) => c.includes(k)));
-        };
-        const iSl = idxPrice(["stoploss", "stoplossprice", "sl"]);
-        const iTp = idxPrice(["takeprofit", "takeprofitprice", "tp"]);
-        return raw.map((row) => {
-          const instId = iInst >= 0 ? String(row[iInst]) : "";
-          return {
-            id: iId >= 0 ? String(row[iId]) : "",
-            symbol: instMap.get(instId) || instId,
-            instrumentId: instId || void 0,
-            side: iSide >= 0 ? String(row[iSide]).toLowerCase() : "",
-            qty: iQty >= 0 ? norm3(row[iQty]) : 0,
-            avgPrice: iAvg >= 0 ? norm3(row[iAvg]) : 0,
-            unrealizedPl: iPl >= 0 ? norm3(row[iPl]) : 0,
-            openDate: iDate >= 0 ? toIsoDate(row[iDate]) : void 0,
-            // Second line of defence, independent of column naming: a protective
-            // level sits near the entry. Anything orders of magnitude away is an id
-            // or a sentinel, not a price, and must not be recorded as protection.
-            stopLoss: sanePrice(iSl >= 0 ? norm3(row[iSl]) : 0, iAvg >= 0 ? norm3(row[iAvg]) : 0),
-            takeProfit: sanePrice(iTp >= 0 ? norm3(row[iTp]) : 0, iAvg >= 0 ? norm3(row[iAvg]) : 0)
-          };
-        });
-      }
-      async modifyPosition(positionId, stopLoss, takeProfit) {
-        await this.ensureAuthenticated();
-        const body = {};
-        if (typeof stopLoss === "number" && stopLoss > 0) body.stopLoss = stopLoss;
-        if (typeof takeProfit === "number" && takeProfit > 0) body.takeProfit = takeProfit;
-        if (Object.keys(body).length === 0) {
-          return { success: false, error: "No SL or TP provided to modify" };
-        }
-        const url = `${this.baseUrl}/trade/positions/${positionId}`;
-        console.log(`[TradeLocker Modify] PATCH ${url} | SL=${stopLoss} TP=${takeProfit} accNum=${this.accNum}`);
-        try {
-          const response = await fetch(url, {
-            method: "PATCH",
-            headers: {
-              "Authorization": `Bearer ${this.accessToken}`,
-              "Content-Type": "application/json",
-              "accNum": this.accNum
-            },
-            body: JSON.stringify(body)
-          });
-          if (response.status === 405) {
-            console.log("[TradeLocker Modify] PATCH not supported, trying PUT");
-            const putResponse = await fetch(url, {
-              method: "PUT",
-              headers: {
-                "Authorization": `Bearer ${this.accessToken}`,
-                "Content-Type": "application/json",
-                "accNum": this.accNum
-              },
-              body: JSON.stringify(body)
-            });
-            if (!putResponse.ok) {
-              const errText = await putResponse.text();
-              console.log(`[TradeLocker Modify] PUT failed: ${putResponse.status} - ${errText}`);
-              return { success: false, error: `Modify failed: ${putResponse.status} - ${errText}` };
-            }
-            console.log("[TradeLocker Modify] PUT success");
-            return { success: true };
-          }
-          if (!response.ok) {
-            const errText = await response.text();
-            console.log(`[TradeLocker Modify] PATCH failed: ${response.status} - ${errText}`);
-            return { success: false, error: `Modify failed: ${response.status} - ${errText}` };
-          }
-          console.log("[TradeLocker Modify] PATCH success");
-          return { success: true };
-        } catch (error) {
-          const msg = error instanceof Error ? error.message : "Unknown error";
-          console.error("[TradeLocker Modify] Exception:", msg);
-          return { success: false, error: msg };
-        }
-      }
-    };
-    TL_VALUE_TTL = 60 * 1e3;
-    tlDayStartEquity = /* @__PURE__ */ new Map();
   }
 });
 
-// server/services/prop-firm-consistency.ts
-var prop_firm_consistency_exports = {};
-__export(prop_firm_consistency_exports, {
-  DEFAULT_CONSISTENCY_THRESHOLD_PCT: () => DEFAULT_CONSISTENCY_THRESHOLD_PCT,
-  getConsistencyPlan: () => getConsistencyPlan,
-  getConsistencyStatus: () => getConsistencyStatus,
-  rebuildDailyLedgerFromClosedTrades: () => rebuildDailyLedgerFromClosedTrades,
-  recordRealizedPnl: () => recordRealizedPnl
-});
-function todayUtcDateStr() {
-  return (/* @__PURE__ */ new Date()).toISOString().slice(0, 10);
-}
-async function getConsistencyPlan(connectionId, connectionType, thresholdPct) {
-  const threshold = typeof thresholdPct === "number" && thresholdPct > 0 ? thresholdPct : DEFAULT_CONSISTENCY_THRESHOLD_PCT;
-  const frac = threshold / 100;
-  let rows = [];
-  try {
-    const { rows: r } = await pool.query(
-      `SELECT trade_date, realized_pnl FROM prop_firm_daily_pnl WHERE connection_id = $1 AND connection_type = $2`,
-      [connectionId, connectionType]
-    );
-    rows = r;
-  } catch (err) {
-    console.error("[Consistency] Plan read failed (defaulting to empty):", err?.message ?? err);
-  }
-  let totalPositive = 0;
-  let maxDayPnl = 0;
-  let maxDayDate = null;
-  for (const r of rows) {
-    const pnl = typeof r.realized_pnl === "number" ? r.realized_pnl : parseFloat(r.realized_pnl || "0");
-    if (!isFinite(pnl) || pnl <= 0) continue;
-    totalPositive += pnl;
-    if (pnl > maxDayPnl) {
-      maxDayPnl = pnl;
-      maxDayDate = r.trade_date;
-    }
-  }
-  const maxDayRatioPct = totalPositive > 0 ? maxDayPnl / totalPositive * 100 : 0;
-  const passing = totalPositive <= 0 || maxDayRatioPct <= threshold;
-  const targetTotalPnl = maxDayPnl > 0 ? maxDayPnl / frac : 0;
-  const additionalProfitNeeded = Math.max(0, targetTotalPnl - totalPositive);
-  const safeDailyProfitCap = maxDayPnl > 0 ? Math.max(1, round2(maxDayPnl * DILUTION_DAY_FRACTION)) : 0;
-  const estDaysNeeded = additionalProfitNeeded > 0 && safeDailyProfitCap > 0 ? Math.ceil(additionalProfitNeeded / safeDailyProfitCap) : 0;
-  const growthMultiple = totalPositive > 0 && targetTotalPnl > 0 ? targetTotalPnl / totalPositive : 0;
-  let feasibility;
-  if (passing) feasibility = "passing";
-  else if (growthMultiple <= 1.5) feasibility = "achievable";
-  else if (growthMultiple <= 2.5) feasibility = "hard";
-  else feasibility = "unrealistic";
-  let recommendation;
-  if (passing) {
-    recommendation = "Consistency requirement met \u2014 request the payout / evaluation pass.";
-  } else if (feasibility === "achievable") {
-    recommendation = `Keep VEDD's auto-dilution on \u2014 small green days at \u2264 $${safeDailyProfitCap}/day will clear the cap in ~${estDaysNeeded} day(s).`;
-  } else if (feasibility === "hard") {
-    recommendation = `Doable but slow: total profit must ${growthMultiple.toFixed(1)}\xD7 (grind ~${estDaysNeeded} days at \u2264 $${safeDailyProfitCap}/day). Auto-dilution will handle it, but weigh the days against a fresh reset.`;
-  } else {
-    recommendation = `\u26A0\uFE0F Impractical to dilute: your biggest day ($${round2(maxDayPnl)}) is so large that total profit would have to ${growthMultiple.toFixed(1)}\xD7 (to ~$${round2(targetTotalPnl)}) to get it under ${threshold}%. That's ~${estDaysNeeded} more grind days. Consider RESETTING this account and trading smaller, even days from the start so no single day dominates.`;
-  }
-  let summary;
-  if (passing) {
-    summary = totalPositive > 0 ? `Consistency PASSING: biggest day $${round2(maxDayPnl)} is ${maxDayRatioPct.toFixed(1)}% of $${round2(totalPositive)} total (cap ${threshold}%).` : `No positive profit recorded yet \u2014 nothing to evaluate.`;
-  } else {
-    summary = `Consistency STUCK at ${maxDayRatioPct.toFixed(1)}% (cap ${threshold}%). Biggest day $${round2(maxDayPnl)} of $${round2(totalPositive)} total. To pass, grow total to $${round2(targetTotalPnl)} \u2014 about $${round2(additionalProfitNeeded)} more profit, spread across ~${estDaysNeeded} day(s) at \u2264 $${safeDailyProfitCap}/day so no new day breaches the cap.`;
-  }
-  return {
-    passing,
-    thresholdPct: threshold,
-    totalPositivePnl: round2(totalPositive),
-    maxDayPnl: round2(maxDayPnl),
-    maxDayDate,
-    maxDayRatioPct: round2(maxDayRatioPct),
-    targetTotalPnl: round2(targetTotalPnl),
-    additionalProfitNeeded: round2(additionalProfitNeeded),
-    safeDailyProfitCap,
-    estDaysNeeded,
-    growthMultiple: round2(growthMultiple),
-    feasibility,
-    recommendation,
-    summary
-  };
-}
-function round2(n) {
-  return Math.round(n * 100) / 100;
-}
-async function rebuildDailyLedgerFromClosedTrades(userId, connectionId, connectionType, closedTrades, opts) {
-  const byDay = /* @__PURE__ */ new Map();
-  let used = 0;
-  for (const t of closedTrades) {
-    const pnl = Number(t.profit);
-    if (!isFinite(pnl) || pnl === 0) continue;
-    const d = new Date(t.closeTime);
-    if (isNaN(d.getTime())) continue;
-    const day = d.toISOString().slice(0, 10);
-    byDay.set(day, (byDay.get(day) ?? 0) + pnl);
-    used++;
-  }
-  const { rows: existingRows } = await pool.query(
-    `SELECT count(*)::int AS days FROM prop_firm_daily_pnl WHERE connection_id = $1 AND connection_type = $2`,
-    [connectionId, connectionType]
-  );
-  const existingDays = Number(existingRows?.[0]?.days ?? 0);
-  if (opts?.force && existingDays > 0) {
-    console.warn(`[Consistency] FORCED rebuild for connection ${connectionId}: replacing ${existingDays} day(s) with ${byDay.size}.`);
-  }
-  if (!opts?.force && existingDays > 0 && byDay.size === 0) {
-    throw new Error(
-      `Refusing to rebuild ledger for connection ${connectionId}: would delete ${existingDays} day(s) and write 0. The broker returned no closed trades \u2014 treat this as a failed read, not an empty account.`
-    );
-  }
-  if (!opts?.force && existingDays >= 5 && byDay.size < existingDays / 2) {
-    throw new Error(
-      `Refusing to rebuild ledger for connection ${connectionId}: would shrink ${existingDays} day(s) to ${byDay.size}. This looks like a truncated broker read. Re-run when the broker history is complete, or pass force to override.`
-    );
-  }
-  const client2 = await pool.connect();
-  try {
-    await client2.query("BEGIN");
-    await client2.query(
-      `DELETE FROM prop_firm_daily_pnl WHERE connection_id = $1 AND connection_type = $2`,
-      [connectionId, connectionType]
-    );
-    for (const [day, pnl] of Array.from(byDay)) {
-      await client2.query(
-        `INSERT INTO prop_firm_daily_pnl (user_id, connection_id, connection_type, trade_date, realized_pnl)
-         VALUES ($1, $2, $3, $4, $5)
-         ON CONFLICT (connection_id, connection_type, trade_date)
-         DO UPDATE SET realized_pnl = $5, updated_at = now()`,
-        [userId, connectionId, connectionType, day, round2(pnl)]
-      );
-    }
-    await client2.query("COMMIT");
-  } catch (err) {
-    await client2.query("ROLLBACK").catch(() => {
-    });
-    throw err;
-  } finally {
-    client2.release();
-  }
-  let totalPositive = 0, maxDay = 0, maxDayDate = null;
-  for (const [day, pnl] of Array.from(byDay)) {
-    if (pnl > 0) totalPositive += pnl;
-    if (pnl > maxDay) {
-      maxDay = pnl;
-      maxDayDate = day;
-    }
-  }
-  return { days: byDay.size, totalPositive: round2(totalPositive), maxDay: round2(maxDay), maxDayDate, tradesUsed: used };
-}
-async function recordRealizedPnl(userId, connectionId, connectionType, realizedPnlDelta, tradeDate) {
-  if (!isFinite(realizedPnlDelta) || realizedPnlDelta === 0) return;
-  const dateStr = tradeDate || todayUtcDateStr();
-  try {
-    await pool.query(
-      `INSERT INTO prop_firm_daily_pnl (user_id, connection_id, connection_type, trade_date, realized_pnl)
-       VALUES ($1, $2, $3, $4, $5)
-       ON CONFLICT (connection_id, connection_type, trade_date)
-       DO UPDATE SET realized_pnl = prop_firm_daily_pnl.realized_pnl + $5, updated_at = now()`,
-      [userId, connectionId, connectionType, dateStr, realizedPnlDelta]
-    );
-  } catch (err) {
-    console.error("[Consistency] Failed to record daily P&L (non-fatal):", err?.message ?? err);
-  }
-}
-async function getConsistencyStatus(connectionId, connectionType, thresholdPct, enabled = true) {
-  const threshold = typeof thresholdPct === "number" && thresholdPct > 0 ? thresholdPct : DEFAULT_CONSISTENCY_THRESHOLD_PCT;
-  if (!enabled) {
-    return {
-      connectionId,
-      connectionType,
-      enabled: false,
-      thresholdPct: threshold,
-      todayPnl: 0,
-      totalPositivePnl: 0,
-      ratioPct: 0,
-      status: "disabled",
-      sizeMultiplier: 1,
-      hardBlocked: false,
-      guidance: "Consistency rule is turned off for this account \u2014 trades are not tapered or blocked based on daily profit share. Turn it on if your prop firm enforces a max-single-day-profit rule."
-    };
-  }
-  const dateStr = todayUtcDateStr();
-  let rows = [];
-  try {
-    const { rows: r } = await pool.query(
-      `SELECT trade_date, realized_pnl FROM prop_firm_daily_pnl WHERE connection_id = $1 AND connection_type = $2`,
-      [connectionId, connectionType]
-    );
-    rows = r;
-  } catch (err) {
-    console.error("[Consistency] Failed to read daily P&L \u2014 BLOCKING new trades on this account until it can be read:", err?.message ?? err);
-    return {
-      connectionId,
-      connectionType,
-      enabled: true,
-      thresholdPct: threshold,
-      todayPnl: 0,
-      totalPositivePnl: 0,
-      ratioPct: 0,
-      status: "breached",
-      sizeMultiplier: 0,
-      hardBlocked: true,
-      guidance: `Couldn't read this account's daily P&L ledger (${err?.message ?? "database error"}) \u2014 new trades are blocked on this account until it can be read, rather than trading blind on the consistency rule.`
-    };
-  }
-  let todayPnl = 0;
-  let totalPositivePnl = 0;
-  for (const r of rows) {
-    const pnl = typeof r.realized_pnl === "number" ? r.realized_pnl : parseFloat(r.realized_pnl || "0");
-    if (!isFinite(pnl)) continue;
-    if (r.trade_date === dateStr) todayPnl = pnl;
-    if (pnl > 0) totalPositivePnl += pnl;
-  }
-  const todayPositive = Math.max(0, todayPnl);
-  const ratioPct = totalPositivePnl > 0 ? todayPositive / totalPositivePnl * 100 : 0;
-  let maxDayPnl = 0;
-  let maxDayDate = null;
-  let positiveDays = 0;
-  for (const r of rows) {
-    const pnl = typeof r.realized_pnl === "number" ? r.realized_pnl : parseFloat(r.realized_pnl || "0");
-    if (!isFinite(pnl)) continue;
-    if (pnl > 0) positiveDays++;
-    if (pnl > maxDayPnl) {
-      maxDayPnl = pnl;
-      maxDayDate = r.trade_date;
-    }
-  }
-  const maxDayRatioPct = totalPositivePnl > 0 ? maxDayPnl / totalPositivePnl * 100 : 0;
-  const minDaysForRule = Math.ceil(100 / threshold);
-  const todayIsMax = maxDayDate === dateStr;
-  const stuck = maxDayRatioPct > threshold && positiveDays >= minDaysForRule && !todayIsMax;
-  const taperStartPct = threshold * TAPER_START_FRACTION;
-  let status = "safe";
-  let sizeMultiplier = 1;
-  let hardBlocked = false;
-  let guidance = `Today's profit is ${ratioPct.toFixed(1)}% of total realized profit \u2014 well within the ${threshold}% consistency cap.`;
-  if (stuck) {
-    const dailyCap = Math.max(1, maxDayPnl * DILUTION_DAY_FRACTION);
-    const targetTotal = maxDayPnl / (threshold / 100);
-    const addNeeded = Math.max(0, targetTotal - totalPositivePnl);
-    const daysLeft = dailyCap > 0 ? Math.ceil(addNeeded / dailyCap) : 0;
-    if (todayPositive >= dailyCap) {
-      status = "breached";
-      sizeMultiplier = 0;
-      hardBlocked = true;
-      guidance = `Consistency dilution: today's profit ($${todayPositive.toFixed(2)}) hit the per-day cap ($${dailyCap.toFixed(2)}). Trading paused for today so this day doesn't become a new breach. Biggest day is ${maxDayRatioPct.toFixed(1)}% of total (cap ${threshold}%) \u2014 grow total to $${targetTotal.toFixed(0)} (~$${addNeeded.toFixed(0)} more, ~${daysLeft} day(s)) to pass.`;
-    } else {
-      status = "warning";
-      const room = dailyCap - todayPositive;
-      const progress2 = dailyCap > 0 ? todayPositive / dailyCap : 1;
-      sizeMultiplier = Math.max(TAPER_FLOOR_MULTIPLIER, 1 - progress2 * (1 - TAPER_FLOOR_MULTIPLIER));
-      guidance = `Consistency dilution active: biggest day is ${maxDayRatioPct.toFixed(1)}% of total (cap ${threshold}%). Taking small green days \u2014 up to $${room.toFixed(2)} more today (cap $${dailyCap.toFixed(2)}). Need ~$${addNeeded.toFixed(0)} more total over ~${daysLeft} day(s) to pass.`;
-    }
-  } else if (ratioPct >= threshold) {
-    status = "breached";
-    sizeMultiplier = 0;
-    hardBlocked = true;
-    guidance = `Consistency cap breached: today's profit is ${ratioPct.toFixed(1)}% of total (cap ${threshold}%). New trades are blocked on this account until the next trading day. The ratio will come down as more profit accumulates on other days without adding to today's total.`;
-  } else if (ratioPct >= taperStartPct) {
-    status = "warning";
-    const span = threshold - taperStartPct;
-    const progress2 = span > 0 ? (ratioPct - taperStartPct) / span : 1;
-    sizeMultiplier = Math.max(TAPER_FLOOR_MULTIPLIER, 1 - progress2 * (1 - TAPER_FLOOR_MULTIPLIER));
-    guidance = `Approaching the consistency cap: today's profit is ${ratioPct.toFixed(1)}% of total (cap ${threshold}%). Position sizing is being reduced (${Math.round(sizeMultiplier * 100)}% of normal) to avoid crossing the line today.`;
-  }
-  return {
-    connectionId,
-    connectionType,
-    enabled: true,
-    thresholdPct: threshold,
-    todayPnl,
-    totalPositivePnl,
-    ratioPct,
-    maxDayPnl: round2(maxDayPnl),
-    maxDayRatioPct: round2(maxDayRatioPct),
-    dilutionActive: stuck,
-    status,
-    sizeMultiplier,
-    hardBlocked,
-    guidance
-  };
-}
-var DEFAULT_CONSISTENCY_THRESHOLD_PCT, TAPER_START_FRACTION, TAPER_FLOOR_MULTIPLIER, DILUTION_DAY_FRACTION;
-var init_prop_firm_consistency = __esm({
-  "server/services/prop-firm-consistency.ts"() {
+// server/market-data/cache.ts
+var MarketDataCache, marketDataCache;
+var init_cache = __esm({
+  "server/market-data/cache.ts"() {
     "use strict";
-    init_db();
-    DEFAULT_CONSISTENCY_THRESHOLD_PCT = 20;
-    TAPER_START_FRACTION = 0.7;
-    TAPER_FLOOR_MULTIPLIER = 0.25;
-    DILUTION_DAY_FRACTION = 0.8;
+    MarketDataCache = class {
+      cache = /* @__PURE__ */ new Map();
+      generateKey(symbol, timeframe, provider) {
+        return `${symbol}:${timeframe}:${provider}`;
+      }
+      get(symbol, timeframe, provider) {
+        const key = this.generateKey(symbol, timeframe, provider);
+        const entry = this.cache.get(key);
+        if (!entry) return null;
+        const now = Date.now();
+        if (now - entry.timestamp > entry.ttlMs) {
+          this.cache.delete(key);
+          return null;
+        }
+        return entry.data;
+      }
+      set(symbol, timeframe, provider, data, ttlMs) {
+        const key = this.generateKey(symbol, timeframe, provider);
+        this.cache.set(key, {
+          data,
+          timestamp: Date.now(),
+          ttlMs
+        });
+      }
+      invalidate(symbol, timeframe, provider) {
+        const key = this.generateKey(symbol, timeframe, provider);
+        this.cache.delete(key);
+      }
+      clear() {
+        this.cache.clear();
+      }
+      getTTLForTimeframe(timeframe) {
+        const ttlMap = {
+          "1m": 30 * 1e3,
+          "5m": 2 * 60 * 1e3,
+          "15m": 5 * 60 * 1e3,
+          "30m": 10 * 60 * 1e3,
+          "1h": 15 * 60 * 1e3,
+          "4h": 30 * 60 * 1e3,
+          "1d": 60 * 60 * 1e3,
+          "1w": 4 * 60 * 60 * 1e3
+        };
+        return ttlMap[timeframe] || 5 * 60 * 1e3;
+      }
+    };
+    marketDataCache = new MarketDataCache();
+  }
+});
+
+// server/market-data/pattern-change-detector.ts
+var PatternChangeDetector, patternChangeDetector;
+var init_pattern_change_detector = __esm({
+  "server/market-data/pattern-change-detector.ts"() {
+    "use strict";
+    PatternChangeDetector = class {
+      calculateATR(bars, period = 14) {
+        if (bars.length < period + 1) return 0;
+        const trueRanges = [];
+        for (let i = 1; i < bars.length && i <= period; i++) {
+          const high = bars[i].high;
+          const low = bars[i].low;
+          const prevClose = bars[i - 1].close;
+          const tr = Math.max(
+            high - low,
+            Math.abs(high - prevClose),
+            Math.abs(low - prevClose)
+          );
+          trueRanges.push(tr);
+        }
+        return trueRanges.reduce((a, b) => a + b, 0) / trueRanges.length;
+      }
+      calculateVolatility(bars) {
+        if (bars.length < 2) return 0;
+        const returns = [];
+        for (let i = 1; i < bars.length; i++) {
+          const ret = (bars[i].close - bars[i - 1].close) / bars[i - 1].close;
+          returns.push(ret);
+        }
+        const mean = returns.reduce((a, b) => a + b, 0) / returns.length;
+        const variance = returns.reduce((sum, r) => sum + Math.pow(r - mean, 2), 0) / returns.length;
+        return Math.sqrt(variance) * 100;
+      }
+      detectTrendDirection(bars) {
+        if (bars.length < 5) return "sideways";
+        const firstHalf = bars.slice(0, Math.floor(bars.length / 2));
+        const secondHalf = bars.slice(Math.floor(bars.length / 2));
+        const firstAvg = firstHalf.reduce((sum, b) => sum + b.close, 0) / firstHalf.length;
+        const secondAvg = secondHalf.reduce((sum, b) => sum + b.close, 0) / secondHalf.length;
+        const changePercent = (secondAvg - firstAvg) / firstAvg * 100;
+        if (changePercent > 0.5) return "up";
+        if (changePercent < -0.5) return "down";
+        return "sideways";
+      }
+      compareSnapshots(oldBars, newBars, thresholds = { volatility: 30, atr: 20, price: 2 }) {
+        const oldVolatility = this.calculateVolatility(oldBars);
+        const newVolatility = this.calculateVolatility(newBars);
+        const volatilityDelta = Math.abs((newVolatility - oldVolatility) / (oldVolatility || 1) * 100);
+        const oldATR = this.calculateATR(oldBars);
+        const newATR = this.calculateATR(newBars);
+        const atrChange = Math.abs((newATR - oldATR) / (oldATR || 1) * 100);
+        const oldLastPrice = oldBars[oldBars.length - 1]?.close || 0;
+        const newLastPrice = newBars[newBars.length - 1]?.close || 0;
+        const priceChangePercent = Math.abs((newLastPrice - oldLastPrice) / (oldLastPrice || 1) * 100);
+        const oldTrend = this.detectTrendDirection(oldBars);
+        const newTrend = this.detectTrendDirection(newBars);
+        const trendReversal = oldTrend !== newTrend && oldTrend !== "sideways" && newTrend !== "sideways";
+        const hasSignificantChange = volatilityDelta > thresholds.volatility || atrChange > thresholds.atr || priceChangePercent > thresholds.price || trendReversal;
+        const details = [];
+        if (volatilityDelta > thresholds.volatility) {
+          details.push(`Volatility changed by ${volatilityDelta.toFixed(1)}%`);
+        }
+        if (atrChange > thresholds.atr) {
+          details.push(`ATR changed by ${atrChange.toFixed(1)}%`);
+        }
+        if (priceChangePercent > thresholds.price) {
+          details.push(`Price moved ${priceChangePercent.toFixed(2)}%`);
+        }
+        if (trendReversal) {
+          details.push(`Trend reversed from ${oldTrend} to ${newTrend}`);
+        }
+        return {
+          hasSignificantChange,
+          volatilityDelta,
+          atrChange,
+          priceChangePercent,
+          trendReversal,
+          details: details.join("; ") || "No significant changes detected"
+        };
+      }
+    };
+    patternChangeDetector = new PatternChangeDetector();
+  }
+});
+
+// server/market-data/rate-limiter.ts
+var RateLimiter, rateLimiter;
+var init_rate_limiter = __esm({
+  "server/market-data/rate-limiter.ts"() {
+    "use strict";
+    RateLimiter = class {
+      requests = /* @__PURE__ */ new Map();
+      configs = /* @__PURE__ */ new Map();
+      registerProvider(provider, config) {
+        this.configs.set(provider, config);
+        this.requests.set(provider, []);
+      }
+      async checkLimit(provider) {
+        const config = this.configs.get(provider);
+        if (!config) return true;
+        const timestamps = this.requests.get(provider) || [];
+        const now = Date.now();
+        const validTimestamps = timestamps.filter((t) => now - t < config.windowMs);
+        this.requests.set(provider, validTimestamps);
+        return validTimestamps.length < config.maxRequests;
+      }
+      recordRequest(provider) {
+        const timestamps = this.requests.get(provider) || [];
+        timestamps.push(Date.now());
+        this.requests.set(provider, timestamps);
+      }
+      async waitForSlot(provider) {
+        const config = this.configs.get(provider);
+        if (!config) return;
+        while (!await this.checkLimit(provider)) {
+          await new Promise((resolve) => setTimeout(resolve, config.retryAfterMs));
+        }
+      }
+      getRemainingRequests(provider) {
+        const config = this.configs.get(provider);
+        if (!config) return Infinity;
+        const timestamps = this.requests.get(provider) || [];
+        const now = Date.now();
+        const validTimestamps = timestamps.filter((t) => now - t < config.windowMs);
+        return Math.max(0, config.maxRequests - validTimestamps.length);
+      }
+    };
+    rateLimiter = new RateLimiter();
+  }
+});
+
+// server/market-data/providers/twelve-data.ts
+var twelve_data_exports = {};
+__export(twelve_data_exports, {
+  TwelveDataProvider: () => TwelveDataProvider
+});
+var TWELVE_DATA_BASE_URL, FOREX_PAIRS, CRYPTO_PAIRS, FUTURES_TD_SYMBOL_MAP, INDEX_TD_SYMBOL_MAP, VALID_TD_INDEX_SYMBOLS, INDEX_ALIAS_MAP, TwelveDataProvider;
+var init_twelve_data = __esm({
+  "server/market-data/providers/twelve-data.ts"() {
+    "use strict";
+    init_rate_limiter();
+    TWELVE_DATA_BASE_URL = "https://api.twelvedata.com";
+    FOREX_PAIRS = [
+      "EUR/USD",
+      "GBP/USD",
+      "USD/JPY",
+      "USD/CHF",
+      "AUD/USD",
+      "USD/CAD",
+      "NZD/USD",
+      "EUR/GBP",
+      "EUR/JPY",
+      "GBP/JPY",
+      "AUD/JPY",
+      "EUR/AUD",
+      "EUR/CAD",
+      "EUR/CHF",
+      "XAU/USD",
+      "XAG/USD",
+      "XPT/USD",
+      "XPD/USD"
+    ];
+    CRYPTO_PAIRS = [
+      "BTC/USD",
+      "ETH/USD",
+      "XRP/USD",
+      "LTC/USD",
+      "ADA/USD",
+      "DOT/USD",
+      "DOGE/USD",
+      "SOL/USD",
+      "AVAX/USD",
+      "MATIC/USD"
+    ];
+    FUTURES_TD_SYMBOL_MAP = {
+      NQ: "NQ1!:CME",
+      MNQ: "MNQ1!:CME",
+      ES: "ES1!:CME",
+      MES: "MES1!:CME",
+      YM: "YM1!:CBOT",
+      MYM: "MYM1!:CBOT",
+      RTY: "RTY1!:CME",
+      M2K: "M2K1!:CME",
+      GC: "GC1!:COMEX",
+      MGC: "MGC1!:COMEX",
+      SI: "SI1!:COMEX",
+      SIL: "SIL1!:COMEX",
+      CL: "CL1!:NYMEX",
+      MCL: "MCL1!:NYMEX",
+      NG: "NG1!:NYMEX",
+      ZN: "ZN1!:CBOT",
+      ZB: "ZB1!:CBOT"
+    };
+    INDEX_TD_SYMBOL_MAP = {
+      US30: "DJI",
+      // Dow Jones Industrial Average
+      US500: "SPX",
+      // S&P 500
+      US100: "NDX",
+      // Nasdaq 100
+      UK100: "FTSE",
+      // FTSE 100
+      GER40: "DAX",
+      // DAX 40
+      DE40: "DAX",
+      FRA40: "CAC40",
+      // CAC 40
+      JP225: "N225",
+      // Nikkei 225
+      JPN225: "N225",
+      AU200: "AS51",
+      // ASX 200
+      HK50: "HSI"
+      // Hang Seng
+    };
+    VALID_TD_INDEX_SYMBOLS = new Set(Object.values(INDEX_TD_SYMBOL_MAP));
+    INDEX_ALIAS_MAP = {
+      WS30: "US30",
+      DJIA: "US30",
+      DOW: "US30",
+      DOW30: "US30",
+      DOWJONES: "US30",
+      USA30: "US30",
+      CASH30: "US30",
+      DJA: "US30",
+      WALLST30: "US30",
+      WALLSTREET30: "US30",
+      USWALL: "US30",
+      YM: "US30",
+      USTEC: "US100",
+      NASDAQ100: "US100",
+      NDX100: "US100",
+      NASDAQ: "US100",
+      NQ: "US100",
+      QQQ: "US100",
+      NDAQ: "US100",
+      NA100: "US100",
+      NASUSD: "US100",
+      TECH100: "US100",
+      USTECH100: "US100",
+      NASD100: "US100",
+      NAS100: "US100",
+      SPXUSD: "US500",
+      SP500USD: "US500",
+      USINDEX: "US500",
+      SPX500USD: "US500",
+      ES: "US500",
+      SPXC: "US500",
+      SP500C: "US500",
+      SPXUSDM: "US500",
+      SP500: "US500",
+      SPX500: "US500",
+      FTSE100: "UK100",
+      UKX: "UK100",
+      GER30: "GER40",
+      DAX30: "GER40",
+      DAX40: "GER40",
+      NKY: "JP225",
+      NIKKEI: "JP225",
+      N225: "JP225",
+      AUS200: "AU200",
+      ASX: "AU200",
+      ASX200: "AU200",
+      HSI: "HK50"
+    };
+    TwelveDataProvider = class {
+      name = "twelvedata";
+      supportedAssets = ["forex", "stock", "crypto", "index", "futures"];
+      apiKey;
+      constructor(apiKey) {
+        this.apiKey = apiKey;
+        rateLimiter.registerProvider(this.name, {
+          maxRequests: 8,
+          windowMs: 60 * 1e3,
+          retryAfterMs: 8e3
+        });
+      }
+      normalizeSymbol(symbol, assetType) {
+        let normalized = symbol.toUpperCase().replace("_", "/");
+        if (assetType === "futures") {
+          const root = normalized.replace(/1!.*$/, "").replace(/:.*$/, "");
+          return FUTURES_TD_SYMBOL_MAP[root] || `${root}1!:CME`;
+        }
+        if (assetType === "index") {
+          const root = normalized.replace(/1!.*$/, "").replace(/:.*$/, "");
+          if (VALID_TD_INDEX_SYMBOLS.has(root)) return root;
+          if (INDEX_TD_SYMBOL_MAP[root]) return INDEX_TD_SYMBOL_MAP[root];
+          if (INDEX_ALIAS_MAP[root]) return INDEX_TD_SYMBOL_MAP[INDEX_ALIAS_MAP[root]] || INDEX_ALIAS_MAP[root];
+          const stripped = root.replace(/[.#]/g, "").replace(/(CASH|USD|RAW|PRO|ECN|MT5|SB|[MCI])$/, "");
+          const canonical = INDEX_ALIAS_MAP[stripped] || stripped;
+          return INDEX_TD_SYMBOL_MAP[canonical] || canonical;
+        }
+        if (!normalized.includes("/")) {
+          if (assetType === "forex" && normalized.length === 6) {
+            normalized = `${normalized.slice(0, 3)}/${normalized.slice(3)}`;
+          } else if (assetType === "crypto") {
+            const cryptoBases = ["BTC", "ETH", "XRP", "LTC", "ADA", "DOT", "DOGE", "SOL", "AVAX", "MATIC", "BNB", "LINK"];
+            for (const base of cryptoBases) {
+              if (normalized.startsWith(base)) {
+                normalized = `${base}/${normalized.slice(base.length)}`;
+                break;
+              }
+            }
+          }
+        }
+        return normalized;
+      }
+      mapTimeframe(timeframe) {
+        const map = {
+          "1m": "1min",
+          "5m": "5min",
+          "15m": "15min",
+          "30m": "30min",
+          "1h": "1h",
+          "4h": "4h",
+          "1d": "1day",
+          "1w": "1week"
+        };
+        return map[timeframe] || "1h";
+      }
+      isSymbolSupported(symbol, assetType) {
+        const normalized = this.normalizeSymbol(symbol, assetType);
+        if (assetType === "forex") {
+          return FOREX_PAIRS.some((p) => p === normalized || p.replace("/", "") === normalized.replace("/", ""));
+        }
+        if (assetType === "crypto") {
+          return CRYPTO_PAIRS.some((p) => p === normalized || p.replace("/", "") === normalized.replace("/", ""));
+        }
+        return true;
+      }
+      async fetchOHLCV(request) {
+        await rateLimiter.waitForSlot(this.name);
+        const symbol = this.normalizeSymbol(request.symbol, request.assetType);
+        const interval = this.mapTimeframe(request.timeframe);
+        const outputSize = request.limit || 50;
+        const url = new URL(`${TWELVE_DATA_BASE_URL}/time_series`);
+        url.searchParams.set("symbol", symbol);
+        url.searchParams.set("interval", interval);
+        url.searchParams.set("outputsize", outputSize.toString());
+        url.searchParams.set("apikey", this.apiKey);
+        try {
+          rateLimiter.recordRequest(this.name);
+          const response = await fetch(url.toString());
+          if (response.status === 401) {
+            throw new Error("Twelve Data API key is invalid or expired. Please check your TWELVE_DATA_API_KEY in secrets.");
+          }
+          if (response.status === 429) {
+            throw new Error("Twelve Data rate limit exceeded. Free tier: 8 requests/minute. Wait a moment and try again.");
+          }
+          if (!response.ok) {
+            throw new Error(`Twelve Data API error: ${response.status} ${response.statusText}`);
+          }
+          const data = await response.json();
+          if (data.status === "error") {
+            throw new Error(data.message || "Twelve Data API error");
+          }
+          if (!data.values || !Array.isArray(data.values)) {
+            throw new Error("Invalid response from Twelve Data");
+          }
+          return data.values.map((bar) => ({
+            timestamp: new Date(bar.datetime).getTime(),
+            open: parseFloat(bar.open),
+            high: parseFloat(bar.high),
+            low: parseFloat(bar.low),
+            close: parseFloat(bar.close),
+            volume: parseFloat(bar.volume) || 0
+          })).reverse();
+        } catch (error) {
+          console.error(`Twelve Data fetch error for ${symbol}:`, error);
+          throw error;
+        }
+      }
+      async fetchATR(symbol, assetType, timeframe = "1d", period = 14) {
+        await rateLimiter.waitForSlot(this.name);
+        const normalizedSymbol = this.normalizeSymbol(symbol, assetType);
+        const interval = this.mapTimeframe(timeframe);
+        const atrUrl = new URL(`${TWELVE_DATA_BASE_URL}/atr`);
+        atrUrl.searchParams.set("symbol", normalizedSymbol);
+        atrUrl.searchParams.set("interval", interval);
+        atrUrl.searchParams.set("time_period", period.toString());
+        atrUrl.searchParams.set("outputsize", "1");
+        atrUrl.searchParams.set("apikey", this.apiKey);
+        const priceUrl = new URL(`${TWELVE_DATA_BASE_URL}/price`);
+        priceUrl.searchParams.set("symbol", normalizedSymbol);
+        priceUrl.searchParams.set("apikey", this.apiKey);
+        try {
+          rateLimiter.recordRequest(this.name);
+          const [atrResponse, priceResponse] = await Promise.all([
+            fetch(atrUrl.toString()),
+            fetch(priceUrl.toString())
+          ]);
+          if (atrResponse.status === 401 || priceResponse.status === 401) {
+            throw new Error("Twelve Data API key is invalid or expired. Please check your TWELVE_DATA_API_KEY in secrets.");
+          }
+          if (atrResponse.status === 429 || priceResponse.status === 429) {
+            throw new Error("Twelve Data rate limit exceeded. Free tier: 8 requests/minute. Wait a moment and try again.");
+          }
+          if (!atrResponse.ok || !priceResponse.ok) {
+            throw new Error(`Twelve Data API error: ATR ${atrResponse.status}, Price ${priceResponse.status}`);
+          }
+          const atrData = await atrResponse.json();
+          const priceData = await priceResponse.json();
+          if (atrData.status === "error") {
+            throw new Error(atrData.message || "ATR fetch failed");
+          }
+          const atrValue = atrData.values && atrData.values[0] ? parseFloat(atrData.values[0].atr) : 0;
+          const currentPrice = parseFloat(priceData.price) || 0;
+          const atrPercent = currentPrice > 0 ? atrValue / currentPrice * 100 : 0;
+          const suggestedSL = {
+            conservative: atrValue * 2,
+            moderate: atrValue * 1.5,
+            aggressive: atrValue * 1
+          };
+          let suggestedSLPips;
+          if (assetType === "forex") {
+            const isJPYPair = normalizedSymbol.includes("JPY");
+            const pipMultiplier = isJPYPair ? 100 : 1e4;
+            suggestedSLPips = {
+              conservative: Math.round(suggestedSL.conservative * pipMultiplier),
+              moderate: Math.round(suggestedSL.moderate * pipMultiplier),
+              aggressive: Math.round(suggestedSL.aggressive * pipMultiplier)
+            };
+          }
+          return {
+            atr: atrValue,
+            atrPercent,
+            currentPrice,
+            suggestedSL,
+            suggestedSLPips
+          };
+        } catch (error) {
+          console.error(`Twelve Data ATR fetch error for ${symbol}:`, error);
+          throw error;
+        }
+      }
+    };
+  }
+});
+
+// server/market-data/service.ts
+var service_exports = {};
+__export(service_exports, {
+  initializeMarketDataService: () => initializeMarketDataService,
+  marketDataService: () => marketDataService
+});
+import { createHash } from "crypto";
+function initializeMarketDataService() {
+  const twelveDataKey = process.env.TWELVE_DATA_API_KEY;
+  if (twelveDataKey) {
+    const twelveData = new TwelveDataProvider(twelveDataKey);
+    marketDataService.registerProvider(twelveData, true);
+    console.log("Market data service initialized with Twelve Data provider");
+  } else {
+    console.log("Market data service: No TWELVE_DATA_API_KEY found, service not initialized");
+  }
+}
+var MarketDataService, marketDataService;
+var init_service = __esm({
+  "server/market-data/service.ts"() {
+    "use strict";
+    init_cache();
+    init_pattern_change_detector();
+    init_twelve_data();
+    MarketDataService = class {
+      providers = /* @__PURE__ */ new Map();
+      primaryProvider = null;
+      registerProvider(provider, isPrimary = false) {
+        this.providers.set(provider.name, provider);
+        if (isPrimary || !this.primaryProvider) {
+          this.primaryProvider = provider;
+        }
+      }
+      getProvider(name) {
+        return this.providers.get(name);
+      }
+      selectProvider(assetType) {
+        const values = Array.from(this.providers.values());
+        for (const provider of values) {
+          if (provider.supportedAssets.includes(assetType)) {
+            return provider;
+          }
+        }
+        return this.primaryProvider;
+      }
+      generateHash(bars) {
+        const data = bars.map((b) => `${b.timestamp}:${b.close}`).join("|");
+        return createHash("md5").update(data).digest("hex");
+      }
+      async fetchMarketData(request) {
+        const provider = this.selectProvider(request.assetType);
+        if (!provider) {
+          throw new Error(`No provider available for asset type: ${request.assetType}`);
+        }
+        const cached = marketDataCache.get(
+          request.symbol,
+          request.timeframe,
+          provider.name
+        );
+        if (cached) {
+          return {
+            bars: cached,
+            provider: provider.name,
+            hash: this.generateHash(cached),
+            fromCache: true
+          };
+        }
+        const bars = await provider.fetchOHLCV(request);
+        const hash = this.generateHash(bars);
+        const ttl = marketDataCache.getTTLForTimeframe(request.timeframe);
+        marketDataCache.set(request.symbol, request.timeframe, provider.name, bars, ttl);
+        return {
+          bars,
+          provider: provider.name,
+          hash,
+          fromCache: false
+        };
+      }
+      async checkForPatternChange(symbol, assetType, timeframe, previousBars) {
+        const result = await this.fetchMarketData({
+          symbol,
+          assetType,
+          timeframe,
+          limit: 50
+        });
+        const patternChange = patternChangeDetector.compareSnapshots(previousBars, result.bars);
+        return {
+          patternChange,
+          newBars: result.bars,
+          hash: result.hash
+        };
+      }
+      detectAssetType(symbol) {
+        const upper = symbol.toUpperCase().replace(/1!$/, "");
+        const futuresSymbols = ["NQ", "MNQ", "ES", "MES", "YM", "MYM", "RTY", "M2K", "GC", "MGC", "SI", "SIL", "CL", "MCL", "NG", "ZN", "ZB"];
+        if (futuresSymbols.includes(upper)) {
+          return "futures";
+        }
+        const metals = ["XAU", "XAG", "XPT", "XPD"];
+        if (metals.some((m) => upper.startsWith(m))) {
+          return "forex";
+        }
+        const forexPairs = ["EUR", "GBP", "USD", "JPY", "CHF", "AUD", "CAD", "NZD"];
+        const forexPattern = forexPairs.some((c) => upper.startsWith(c) || upper.includes(`/${c}`));
+        if (forexPattern && (upper.length === 6 || upper.includes("/"))) {
+          return "forex";
+        }
+        const cryptoSymbols = ["BTC", "ETH", "XRP", "LTC", "ADA", "DOT", "DOGE", "SOL", "AVAX", "MATIC"];
+        if (cryptoSymbols.some((c) => upper.startsWith(c))) {
+          return "crypto";
+        }
+        const indices = [
+          "SPX",
+          "NDX",
+          "DJI",
+          "VIX",
+          "FTSE",
+          "DAX",
+          "NI225",
+          "US30",
+          "US500",
+          "US100",
+          "UK100",
+          "GER40",
+          "DE40",
+          "FRA40",
+          "JP225",
+          "JPN225",
+          "AU200",
+          "HK50"
+        ];
+        if (indices.some((i) => upper.includes(i))) {
+          return "index";
+        }
+        return "stock";
+      }
+      isInitialized() {
+        return this.providers.size > 0;
+      }
+    };
+    marketDataService = new MarketDataService();
   }
 });
 
@@ -21361,669 +19975,6 @@ function computeAllAdvancedIndicators(candles, currentATR, symbol, timeframe = "
 var init_indicators = __esm({
   "server/indicators.ts"() {
     "use strict";
-  }
-});
-
-// server/utils/pair-key.ts
-var pair_key_exports = {};
-__export(pair_key_exports, {
-  basePairKey: () => basePairKey,
-  lookupPairKnowledge: () => lookupPairKnowledge
-});
-function basePairKey(symbol) {
-  return String(symbol ?? "").split(".")[0].toUpperCase().replace(/[^A-Z0-9]/g, "");
-}
-function lookupPairKnowledge(pairKnowledge, symbol) {
-  if (!pairKnowledge || !symbol) return void 0;
-  const direct = pairKnowledge[symbol];
-  if (direct) return direct;
-  const want = basePairKey(symbol);
-  if (!want) return void 0;
-  for (const k of Object.keys(pairKnowledge)) {
-    if (basePairKey(k) === want) return pairKnowledge[k];
-  }
-  return void 0;
-}
-var init_pair_key = __esm({
-  "server/utils/pair-key.ts"() {
-    "use strict";
-  }
-});
-
-// server/market-data/cache.ts
-var MarketDataCache, marketDataCache;
-var init_cache = __esm({
-  "server/market-data/cache.ts"() {
-    "use strict";
-    MarketDataCache = class {
-      cache = /* @__PURE__ */ new Map();
-      generateKey(symbol, timeframe, provider) {
-        return `${symbol}:${timeframe}:${provider}`;
-      }
-      get(symbol, timeframe, provider) {
-        const key = this.generateKey(symbol, timeframe, provider);
-        const entry = this.cache.get(key);
-        if (!entry) return null;
-        const now = Date.now();
-        if (now - entry.timestamp > entry.ttlMs) {
-          this.cache.delete(key);
-          return null;
-        }
-        return entry.data;
-      }
-      set(symbol, timeframe, provider, data, ttlMs) {
-        const key = this.generateKey(symbol, timeframe, provider);
-        this.cache.set(key, {
-          data,
-          timestamp: Date.now(),
-          ttlMs
-        });
-      }
-      invalidate(symbol, timeframe, provider) {
-        const key = this.generateKey(symbol, timeframe, provider);
-        this.cache.delete(key);
-      }
-      clear() {
-        this.cache.clear();
-      }
-      getTTLForTimeframe(timeframe) {
-        const ttlMap = {
-          "1m": 30 * 1e3,
-          "5m": 2 * 60 * 1e3,
-          "15m": 5 * 60 * 1e3,
-          "30m": 10 * 60 * 1e3,
-          "1h": 15 * 60 * 1e3,
-          "4h": 30 * 60 * 1e3,
-          "1d": 60 * 60 * 1e3,
-          "1w": 4 * 60 * 60 * 1e3
-        };
-        return ttlMap[timeframe] || 5 * 60 * 1e3;
-      }
-    };
-    marketDataCache = new MarketDataCache();
-  }
-});
-
-// server/market-data/pattern-change-detector.ts
-var PatternChangeDetector, patternChangeDetector;
-var init_pattern_change_detector = __esm({
-  "server/market-data/pattern-change-detector.ts"() {
-    "use strict";
-    PatternChangeDetector = class {
-      calculateATR(bars, period = 14) {
-        if (bars.length < period + 1) return 0;
-        const trueRanges = [];
-        for (let i = 1; i < bars.length && i <= period; i++) {
-          const high = bars[i].high;
-          const low = bars[i].low;
-          const prevClose = bars[i - 1].close;
-          const tr = Math.max(
-            high - low,
-            Math.abs(high - prevClose),
-            Math.abs(low - prevClose)
-          );
-          trueRanges.push(tr);
-        }
-        return trueRanges.reduce((a, b) => a + b, 0) / trueRanges.length;
-      }
-      calculateVolatility(bars) {
-        if (bars.length < 2) return 0;
-        const returns = [];
-        for (let i = 1; i < bars.length; i++) {
-          const ret = (bars[i].close - bars[i - 1].close) / bars[i - 1].close;
-          returns.push(ret);
-        }
-        const mean = returns.reduce((a, b) => a + b, 0) / returns.length;
-        const variance = returns.reduce((sum, r) => sum + Math.pow(r - mean, 2), 0) / returns.length;
-        return Math.sqrt(variance) * 100;
-      }
-      detectTrendDirection(bars) {
-        if (bars.length < 5) return "sideways";
-        const firstHalf = bars.slice(0, Math.floor(bars.length / 2));
-        const secondHalf = bars.slice(Math.floor(bars.length / 2));
-        const firstAvg = firstHalf.reduce((sum, b) => sum + b.close, 0) / firstHalf.length;
-        const secondAvg = secondHalf.reduce((sum, b) => sum + b.close, 0) / secondHalf.length;
-        const changePercent = (secondAvg - firstAvg) / firstAvg * 100;
-        if (changePercent > 0.5) return "up";
-        if (changePercent < -0.5) return "down";
-        return "sideways";
-      }
-      compareSnapshots(oldBars, newBars, thresholds = { volatility: 30, atr: 20, price: 2 }) {
-        const oldVolatility = this.calculateVolatility(oldBars);
-        const newVolatility = this.calculateVolatility(newBars);
-        const volatilityDelta = Math.abs((newVolatility - oldVolatility) / (oldVolatility || 1) * 100);
-        const oldATR = this.calculateATR(oldBars);
-        const newATR = this.calculateATR(newBars);
-        const atrChange = Math.abs((newATR - oldATR) / (oldATR || 1) * 100);
-        const oldLastPrice = oldBars[oldBars.length - 1]?.close || 0;
-        const newLastPrice = newBars[newBars.length - 1]?.close || 0;
-        const priceChangePercent = Math.abs((newLastPrice - oldLastPrice) / (oldLastPrice || 1) * 100);
-        const oldTrend = this.detectTrendDirection(oldBars);
-        const newTrend = this.detectTrendDirection(newBars);
-        const trendReversal = oldTrend !== newTrend && oldTrend !== "sideways" && newTrend !== "sideways";
-        const hasSignificantChange = volatilityDelta > thresholds.volatility || atrChange > thresholds.atr || priceChangePercent > thresholds.price || trendReversal;
-        const details = [];
-        if (volatilityDelta > thresholds.volatility) {
-          details.push(`Volatility changed by ${volatilityDelta.toFixed(1)}%`);
-        }
-        if (atrChange > thresholds.atr) {
-          details.push(`ATR changed by ${atrChange.toFixed(1)}%`);
-        }
-        if (priceChangePercent > thresholds.price) {
-          details.push(`Price moved ${priceChangePercent.toFixed(2)}%`);
-        }
-        if (trendReversal) {
-          details.push(`Trend reversed from ${oldTrend} to ${newTrend}`);
-        }
-        return {
-          hasSignificantChange,
-          volatilityDelta,
-          atrChange,
-          priceChangePercent,
-          trendReversal,
-          details: details.join("; ") || "No significant changes detected"
-        };
-      }
-    };
-    patternChangeDetector = new PatternChangeDetector();
-  }
-});
-
-// server/market-data/rate-limiter.ts
-var RateLimiter, rateLimiter;
-var init_rate_limiter = __esm({
-  "server/market-data/rate-limiter.ts"() {
-    "use strict";
-    RateLimiter = class {
-      requests = /* @__PURE__ */ new Map();
-      configs = /* @__PURE__ */ new Map();
-      registerProvider(provider, config) {
-        this.configs.set(provider, config);
-        this.requests.set(provider, []);
-      }
-      async checkLimit(provider) {
-        const config = this.configs.get(provider);
-        if (!config) return true;
-        const timestamps = this.requests.get(provider) || [];
-        const now = Date.now();
-        const validTimestamps = timestamps.filter((t) => now - t < config.windowMs);
-        this.requests.set(provider, validTimestamps);
-        return validTimestamps.length < config.maxRequests;
-      }
-      recordRequest(provider) {
-        const timestamps = this.requests.get(provider) || [];
-        timestamps.push(Date.now());
-        this.requests.set(provider, timestamps);
-      }
-      async waitForSlot(provider) {
-        const config = this.configs.get(provider);
-        if (!config) return;
-        while (!await this.checkLimit(provider)) {
-          await new Promise((resolve) => setTimeout(resolve, config.retryAfterMs));
-        }
-      }
-      getRemainingRequests(provider) {
-        const config = this.configs.get(provider);
-        if (!config) return Infinity;
-        const timestamps = this.requests.get(provider) || [];
-        const now = Date.now();
-        const validTimestamps = timestamps.filter((t) => now - t < config.windowMs);
-        return Math.max(0, config.maxRequests - validTimestamps.length);
-      }
-    };
-    rateLimiter = new RateLimiter();
-  }
-});
-
-// server/market-data/providers/twelve-data.ts
-var twelve_data_exports = {};
-__export(twelve_data_exports, {
-  TwelveDataProvider: () => TwelveDataProvider
-});
-var TWELVE_DATA_BASE_URL, FOREX_PAIRS, CRYPTO_PAIRS, FUTURES_TD_SYMBOL_MAP, INDEX_TD_SYMBOL_MAP, VALID_TD_INDEX_SYMBOLS, INDEX_ALIAS_MAP, TwelveDataProvider;
-var init_twelve_data = __esm({
-  "server/market-data/providers/twelve-data.ts"() {
-    "use strict";
-    init_rate_limiter();
-    TWELVE_DATA_BASE_URL = "https://api.twelvedata.com";
-    FOREX_PAIRS = [
-      "EUR/USD",
-      "GBP/USD",
-      "USD/JPY",
-      "USD/CHF",
-      "AUD/USD",
-      "USD/CAD",
-      "NZD/USD",
-      "EUR/GBP",
-      "EUR/JPY",
-      "GBP/JPY",
-      "AUD/JPY",
-      "EUR/AUD",
-      "EUR/CAD",
-      "EUR/CHF",
-      "XAU/USD",
-      "XAG/USD",
-      "XPT/USD",
-      "XPD/USD"
-    ];
-    CRYPTO_PAIRS = [
-      "BTC/USD",
-      "ETH/USD",
-      "XRP/USD",
-      "LTC/USD",
-      "ADA/USD",
-      "DOT/USD",
-      "DOGE/USD",
-      "SOL/USD",
-      "AVAX/USD",
-      "MATIC/USD"
-    ];
-    FUTURES_TD_SYMBOL_MAP = {
-      NQ: "NQ1!:CME",
-      MNQ: "MNQ1!:CME",
-      ES: "ES1!:CME",
-      MES: "MES1!:CME",
-      YM: "YM1!:CBOT",
-      MYM: "MYM1!:CBOT",
-      RTY: "RTY1!:CME",
-      M2K: "M2K1!:CME",
-      GC: "GC1!:COMEX",
-      MGC: "MGC1!:COMEX",
-      SI: "SI1!:COMEX",
-      SIL: "SIL1!:COMEX",
-      CL: "CL1!:NYMEX",
-      MCL: "MCL1!:NYMEX",
-      NG: "NG1!:NYMEX",
-      ZN: "ZN1!:CBOT",
-      ZB: "ZB1!:CBOT"
-    };
-    INDEX_TD_SYMBOL_MAP = {
-      US30: "DJI",
-      // Dow Jones Industrial Average
-      US500: "SPX",
-      // S&P 500
-      US100: "NDX",
-      // Nasdaq 100
-      UK100: "FTSE",
-      // FTSE 100
-      GER40: "DAX",
-      // DAX 40
-      DE40: "DAX",
-      FRA40: "CAC40",
-      // CAC 40
-      JP225: "N225",
-      // Nikkei 225
-      JPN225: "N225",
-      AU200: "AS51",
-      // ASX 200
-      HK50: "HSI"
-      // Hang Seng
-    };
-    VALID_TD_INDEX_SYMBOLS = new Set(Object.values(INDEX_TD_SYMBOL_MAP));
-    INDEX_ALIAS_MAP = {
-      WS30: "US30",
-      DJIA: "US30",
-      DOW: "US30",
-      DOW30: "US30",
-      DOWJONES: "US30",
-      USA30: "US30",
-      CASH30: "US30",
-      DJA: "US30",
-      WALLST30: "US30",
-      WALLSTREET30: "US30",
-      USWALL: "US30",
-      YM: "US30",
-      USTEC: "US100",
-      NASDAQ100: "US100",
-      NDX100: "US100",
-      NASDAQ: "US100",
-      NQ: "US100",
-      QQQ: "US100",
-      NDAQ: "US100",
-      NA100: "US100",
-      NASUSD: "US100",
-      TECH100: "US100",
-      USTECH100: "US100",
-      NASD100: "US100",
-      NAS100: "US100",
-      SPXUSD: "US500",
-      SP500USD: "US500",
-      USINDEX: "US500",
-      SPX500USD: "US500",
-      ES: "US500",
-      SPXC: "US500",
-      SP500C: "US500",
-      SPXUSDM: "US500",
-      SP500: "US500",
-      SPX500: "US500",
-      FTSE100: "UK100",
-      UKX: "UK100",
-      GER30: "GER40",
-      DAX30: "GER40",
-      DAX40: "GER40",
-      NKY: "JP225",
-      NIKKEI: "JP225",
-      N225: "JP225",
-      AUS200: "AU200",
-      ASX: "AU200",
-      ASX200: "AU200",
-      HSI: "HK50"
-    };
-    TwelveDataProvider = class {
-      name = "twelvedata";
-      supportedAssets = ["forex", "stock", "crypto", "index", "futures"];
-      apiKey;
-      constructor(apiKey) {
-        this.apiKey = apiKey;
-        rateLimiter.registerProvider(this.name, {
-          maxRequests: 8,
-          windowMs: 60 * 1e3,
-          retryAfterMs: 8e3
-        });
-      }
-      normalizeSymbol(symbol, assetType) {
-        let normalized = symbol.toUpperCase().replace("_", "/");
-        if (assetType === "futures") {
-          const root = normalized.replace(/1!.*$/, "").replace(/:.*$/, "");
-          return FUTURES_TD_SYMBOL_MAP[root] || `${root}1!:CME`;
-        }
-        if (assetType === "index") {
-          const root = normalized.replace(/1!.*$/, "").replace(/:.*$/, "");
-          if (VALID_TD_INDEX_SYMBOLS.has(root)) return root;
-          if (INDEX_TD_SYMBOL_MAP[root]) return INDEX_TD_SYMBOL_MAP[root];
-          if (INDEX_ALIAS_MAP[root]) return INDEX_TD_SYMBOL_MAP[INDEX_ALIAS_MAP[root]] || INDEX_ALIAS_MAP[root];
-          const stripped = root.replace(/[.#]/g, "").replace(/(CASH|USD|RAW|PRO|ECN|MT5|SB|[MCI])$/, "");
-          const canonical = INDEX_ALIAS_MAP[stripped] || stripped;
-          return INDEX_TD_SYMBOL_MAP[canonical] || canonical;
-        }
-        if (!normalized.includes("/")) {
-          if (assetType === "forex" && normalized.length === 6) {
-            normalized = `${normalized.slice(0, 3)}/${normalized.slice(3)}`;
-          } else if (assetType === "crypto") {
-            const cryptoBases = ["BTC", "ETH", "XRP", "LTC", "ADA", "DOT", "DOGE", "SOL", "AVAX", "MATIC", "BNB", "LINK"];
-            for (const base of cryptoBases) {
-              if (normalized.startsWith(base)) {
-                normalized = `${base}/${normalized.slice(base.length)}`;
-                break;
-              }
-            }
-          }
-        }
-        return normalized;
-      }
-      mapTimeframe(timeframe) {
-        const map = {
-          "1m": "1min",
-          "5m": "5min",
-          "15m": "15min",
-          "30m": "30min",
-          "1h": "1h",
-          "4h": "4h",
-          "1d": "1day",
-          "1w": "1week"
-        };
-        return map[timeframe] || "1h";
-      }
-      isSymbolSupported(symbol, assetType) {
-        const normalized = this.normalizeSymbol(symbol, assetType);
-        if (assetType === "forex") {
-          return FOREX_PAIRS.some((p) => p === normalized || p.replace("/", "") === normalized.replace("/", ""));
-        }
-        if (assetType === "crypto") {
-          return CRYPTO_PAIRS.some((p) => p === normalized || p.replace("/", "") === normalized.replace("/", ""));
-        }
-        return true;
-      }
-      async fetchOHLCV(request) {
-        await rateLimiter.waitForSlot(this.name);
-        const symbol = this.normalizeSymbol(request.symbol, request.assetType);
-        const interval = this.mapTimeframe(request.timeframe);
-        const outputSize = request.limit || 50;
-        const url = new URL(`${TWELVE_DATA_BASE_URL}/time_series`);
-        url.searchParams.set("symbol", symbol);
-        url.searchParams.set("interval", interval);
-        url.searchParams.set("outputsize", outputSize.toString());
-        url.searchParams.set("apikey", this.apiKey);
-        try {
-          rateLimiter.recordRequest(this.name);
-          const response = await fetch(url.toString());
-          if (response.status === 401) {
-            throw new Error("Twelve Data API key is invalid or expired. Please check your TWELVE_DATA_API_KEY in secrets.");
-          }
-          if (response.status === 429) {
-            throw new Error("Twelve Data rate limit exceeded. Free tier: 8 requests/minute. Wait a moment and try again.");
-          }
-          if (!response.ok) {
-            throw new Error(`Twelve Data API error: ${response.status} ${response.statusText}`);
-          }
-          const data = await response.json();
-          if (data.status === "error") {
-            throw new Error(data.message || "Twelve Data API error");
-          }
-          if (!data.values || !Array.isArray(data.values)) {
-            throw new Error("Invalid response from Twelve Data");
-          }
-          return data.values.map((bar) => ({
-            timestamp: new Date(bar.datetime).getTime(),
-            open: parseFloat(bar.open),
-            high: parseFloat(bar.high),
-            low: parseFloat(bar.low),
-            close: parseFloat(bar.close),
-            volume: parseFloat(bar.volume) || 0
-          })).reverse();
-        } catch (error) {
-          console.error(`Twelve Data fetch error for ${symbol}:`, error);
-          throw error;
-        }
-      }
-      async fetchATR(symbol, assetType, timeframe = "1d", period = 14) {
-        await rateLimiter.waitForSlot(this.name);
-        const normalizedSymbol = this.normalizeSymbol(symbol, assetType);
-        const interval = this.mapTimeframe(timeframe);
-        const atrUrl = new URL(`${TWELVE_DATA_BASE_URL}/atr`);
-        atrUrl.searchParams.set("symbol", normalizedSymbol);
-        atrUrl.searchParams.set("interval", interval);
-        atrUrl.searchParams.set("time_period", period.toString());
-        atrUrl.searchParams.set("outputsize", "1");
-        atrUrl.searchParams.set("apikey", this.apiKey);
-        const priceUrl = new URL(`${TWELVE_DATA_BASE_URL}/price`);
-        priceUrl.searchParams.set("symbol", normalizedSymbol);
-        priceUrl.searchParams.set("apikey", this.apiKey);
-        try {
-          rateLimiter.recordRequest(this.name);
-          const [atrResponse, priceResponse] = await Promise.all([
-            fetch(atrUrl.toString()),
-            fetch(priceUrl.toString())
-          ]);
-          if (atrResponse.status === 401 || priceResponse.status === 401) {
-            throw new Error("Twelve Data API key is invalid or expired. Please check your TWELVE_DATA_API_KEY in secrets.");
-          }
-          if (atrResponse.status === 429 || priceResponse.status === 429) {
-            throw new Error("Twelve Data rate limit exceeded. Free tier: 8 requests/minute. Wait a moment and try again.");
-          }
-          if (!atrResponse.ok || !priceResponse.ok) {
-            throw new Error(`Twelve Data API error: ATR ${atrResponse.status}, Price ${priceResponse.status}`);
-          }
-          const atrData = await atrResponse.json();
-          const priceData = await priceResponse.json();
-          if (atrData.status === "error") {
-            throw new Error(atrData.message || "ATR fetch failed");
-          }
-          const atrValue = atrData.values && atrData.values[0] ? parseFloat(atrData.values[0].atr) : 0;
-          const currentPrice = parseFloat(priceData.price) || 0;
-          const atrPercent = currentPrice > 0 ? atrValue / currentPrice * 100 : 0;
-          const suggestedSL = {
-            conservative: atrValue * 2,
-            moderate: atrValue * 1.5,
-            aggressive: atrValue * 1
-          };
-          let suggestedSLPips;
-          if (assetType === "forex") {
-            const isJPYPair = normalizedSymbol.includes("JPY");
-            const pipMultiplier = isJPYPair ? 100 : 1e4;
-            suggestedSLPips = {
-              conservative: Math.round(suggestedSL.conservative * pipMultiplier),
-              moderate: Math.round(suggestedSL.moderate * pipMultiplier),
-              aggressive: Math.round(suggestedSL.aggressive * pipMultiplier)
-            };
-          }
-          return {
-            atr: atrValue,
-            atrPercent,
-            currentPrice,
-            suggestedSL,
-            suggestedSLPips
-          };
-        } catch (error) {
-          console.error(`Twelve Data ATR fetch error for ${symbol}:`, error);
-          throw error;
-        }
-      }
-    };
-  }
-});
-
-// server/market-data/service.ts
-var service_exports = {};
-__export(service_exports, {
-  initializeMarketDataService: () => initializeMarketDataService,
-  marketDataService: () => marketDataService
-});
-import { createHash } from "crypto";
-function initializeMarketDataService() {
-  const twelveDataKey = process.env.TWELVE_DATA_API_KEY;
-  if (twelveDataKey) {
-    const twelveData = new TwelveDataProvider(twelveDataKey);
-    marketDataService.registerProvider(twelveData, true);
-    console.log("Market data service initialized with Twelve Data provider");
-  } else {
-    console.log("Market data service: No TWELVE_DATA_API_KEY found, service not initialized");
-  }
-}
-var MarketDataService, marketDataService;
-var init_service = __esm({
-  "server/market-data/service.ts"() {
-    "use strict";
-    init_cache();
-    init_pattern_change_detector();
-    init_twelve_data();
-    MarketDataService = class {
-      providers = /* @__PURE__ */ new Map();
-      primaryProvider = null;
-      registerProvider(provider, isPrimary = false) {
-        this.providers.set(provider.name, provider);
-        if (isPrimary || !this.primaryProvider) {
-          this.primaryProvider = provider;
-        }
-      }
-      getProvider(name) {
-        return this.providers.get(name);
-      }
-      selectProvider(assetType) {
-        const values = Array.from(this.providers.values());
-        for (const provider of values) {
-          if (provider.supportedAssets.includes(assetType)) {
-            return provider;
-          }
-        }
-        return this.primaryProvider;
-      }
-      generateHash(bars) {
-        const data = bars.map((b) => `${b.timestamp}:${b.close}`).join("|");
-        return createHash("md5").update(data).digest("hex");
-      }
-      async fetchMarketData(request) {
-        const provider = this.selectProvider(request.assetType);
-        if (!provider) {
-          throw new Error(`No provider available for asset type: ${request.assetType}`);
-        }
-        const cached = marketDataCache.get(
-          request.symbol,
-          request.timeframe,
-          provider.name
-        );
-        if (cached) {
-          return {
-            bars: cached,
-            provider: provider.name,
-            hash: this.generateHash(cached),
-            fromCache: true
-          };
-        }
-        const bars = await provider.fetchOHLCV(request);
-        const hash = this.generateHash(bars);
-        const ttl = marketDataCache.getTTLForTimeframe(request.timeframe);
-        marketDataCache.set(request.symbol, request.timeframe, provider.name, bars, ttl);
-        return {
-          bars,
-          provider: provider.name,
-          hash,
-          fromCache: false
-        };
-      }
-      async checkForPatternChange(symbol, assetType, timeframe, previousBars) {
-        const result = await this.fetchMarketData({
-          symbol,
-          assetType,
-          timeframe,
-          limit: 50
-        });
-        const patternChange = patternChangeDetector.compareSnapshots(previousBars, result.bars);
-        return {
-          patternChange,
-          newBars: result.bars,
-          hash: result.hash
-        };
-      }
-      detectAssetType(symbol) {
-        const upper = symbol.toUpperCase().replace(/1!$/, "");
-        const futuresSymbols = ["NQ", "MNQ", "ES", "MES", "YM", "MYM", "RTY", "M2K", "GC", "MGC", "SI", "SIL", "CL", "MCL", "NG", "ZN", "ZB"];
-        if (futuresSymbols.includes(upper)) {
-          return "futures";
-        }
-        const metals = ["XAU", "XAG", "XPT", "XPD"];
-        if (metals.some((m) => upper.startsWith(m))) {
-          return "forex";
-        }
-        const forexPairs = ["EUR", "GBP", "USD", "JPY", "CHF", "AUD", "CAD", "NZD"];
-        const forexPattern = forexPairs.some((c) => upper.startsWith(c) || upper.includes(`/${c}`));
-        if (forexPattern && (upper.length === 6 || upper.includes("/"))) {
-          return "forex";
-        }
-        const cryptoSymbols = ["BTC", "ETH", "XRP", "LTC", "ADA", "DOT", "DOGE", "SOL", "AVAX", "MATIC"];
-        if (cryptoSymbols.some((c) => upper.startsWith(c))) {
-          return "crypto";
-        }
-        const indices = [
-          "SPX",
-          "NDX",
-          "DJI",
-          "VIX",
-          "FTSE",
-          "DAX",
-          "NI225",
-          "US30",
-          "US500",
-          "US100",
-          "UK100",
-          "GER40",
-          "DE40",
-          "FRA40",
-          "JP225",
-          "JPN225",
-          "AU200",
-          "HK50"
-        ];
-        if (indices.some((i) => upper.includes(i))) {
-          return "index";
-        }
-        return "stock";
-      }
-      isInitialized() {
-        return this.providers.size > 0;
-      }
-    };
-    marketDataService = new MarketDataService();
   }
 });
 
@@ -23208,12 +21159,12 @@ __export(cryptocom_exports, {
   decryptApiSecret: () => decryptApiSecret,
   encryptApiSecret: () => encryptApiSecret
 });
-import crypto3 from "crypto";
-function getEncryptionKey3() {
+import crypto2 from "crypto";
+function getEncryptionKey2() {
   const key = process.env.CRYPTOCOM_ENCRYPTION_KEY;
   if (!key) {
     console.warn("[Crypto.com] CRYPTOCOM_ENCRYPTION_KEY not set \u2014 using default key. Set it in your Render environment variables.");
-    return DEFAULT_ENCRYPTION_KEY2;
+    return DEFAULT_ENCRYPTION_KEY;
   }
   if (key.length < 32) {
     console.warn("[Crypto.com] CRYPTOCOM_ENCRYPTION_KEY is too short, padding to 32 chars.");
@@ -23222,10 +21173,10 @@ function getEncryptionKey3() {
   return key;
 }
 function encryptApiSecret(secret) {
-  const iv = crypto3.randomBytes(IV_LENGTH2);
-  const salt = crypto3.randomBytes(SALT_LENGTH2);
-  const key = crypto3.scryptSync(getEncryptionKey3(), salt, 32);
-  const cipher = crypto3.createCipheriv("aes-256-cbc", key, iv);
+  const iv = crypto2.randomBytes(IV_LENGTH);
+  const salt = crypto2.randomBytes(SALT_LENGTH);
+  const key = crypto2.scryptSync(getEncryptionKey2(), salt, 32);
+  const cipher = crypto2.createCipheriv("aes-256-cbc", key, iv);
   let encrypted = cipher.update(secret, "utf8", "hex");
   encrypted += cipher.final("hex");
   return salt.toString("hex") + ":" + iv.toString("hex") + ":" + encrypted;
@@ -23234,19 +21185,19 @@ function decryptApiSecret(encrypted) {
   const parts = encrypted.split(":");
   if (parts.length !== 3) throw new Error("Invalid encrypted secret format");
   const [saltHex, ivHex, data] = parts;
-  const key = crypto3.scryptSync(getEncryptionKey3(), Buffer.from(saltHex, "hex"), 32);
-  const decipher = crypto3.createDecipheriv("aes-256-cbc", key, Buffer.from(ivHex, "hex"));
+  const key = crypto2.scryptSync(getEncryptionKey2(), Buffer.from(saltHex, "hex"), 32);
+  const decipher = crypto2.createDecipheriv("aes-256-cbc", key, Buffer.from(ivHex, "hex"));
   let decrypted = decipher.update(data, "hex", "utf8");
   decrypted += decipher.final("utf8");
   return decrypted;
 }
-var IV_LENGTH2, SALT_LENGTH2, DEFAULT_ENCRYPTION_KEY2, CryptoComService;
+var IV_LENGTH, SALT_LENGTH, DEFAULT_ENCRYPTION_KEY, CryptoComService;
 var init_cryptocom = __esm({
   "server/cryptocom.ts"() {
     "use strict";
-    IV_LENGTH2 = 16;
-    SALT_LENGTH2 = 16;
-    DEFAULT_ENCRYPTION_KEY2 = "vedd-cryptocom-default-key-change-32ch";
+    IV_LENGTH = 16;
+    SALT_LENGTH = 16;
+    DEFAULT_ENCRYPTION_KEY = "vedd-cryptocom-default-key-change-32ch";
     CryptoComService = class {
       baseUrl = "https://api.crypto.com/exchange/v1";
       apiKey;
@@ -23258,7 +21209,7 @@ var init_cryptocom = __esm({
       sign(method, id, params, nonce) {
         const paramString = Object.keys(params).sort().map((k) => `${k}${typeof params[k] === "object" ? JSON.stringify(params[k]) : params[k]}`).join("");
         const sigPayload = `${method}${id}${this.apiKey}${paramString}${nonce}`;
-        return crypto3.createHmac("sha256", this.apiSecret).update(sigPayload).digest("hex");
+        return crypto2.createHmac("sha256", this.apiSecret).update(sigPayload).digest("hex");
       }
       async call(method, params = {}) {
         const id = Date.now();
@@ -23836,8 +21787,22 @@ __export(xau_rules_exports, {
 function isXau(symbol) {
   return /^XAU/i.test(String(symbol || "").replace(/[^A-Za-z]/g, ""));
 }
+function nyWinterShiftMin(now) {
+  try {
+    const nyHour = Number(new Intl.DateTimeFormat("en-US", { timeZone: "America/New_York", hour: "numeric", hour12: false }).format(now)) % 24;
+    const diff = (now.getUTCHours() - nyHour + 24) % 24;
+    return diff === 5 ? 60 : 0;
+  } catch {
+    return 0;
+  }
+}
 function xauEntryBlock(symbol, now = /* @__PURE__ */ new Date()) {
   const m = now.getUTCHours() * 60 + now.getUTCMinutes();
+  const sh = nyWinterShiftMin(now);
+  const ROLLOVER_START_MIN = ROLLOVER_START_BASE + (process.env.FX_ROLLOVER_BLOCK_START_MIN_UTC ? 0 : sh);
+  const ROLLOVER_END_MIN = ROLLOVER_END_BASE + (process.env.FX_ROLLOVER_BLOCK_END_MIN_UTC ? 0 : sh);
+  const BLOCK_START_MIN = XAU_BLOCK_START_BASE + (process.env.XAU_OPEN_BLOCK_START_MIN_UTC ? 0 : sh);
+  const BLOCK_END_MIN = XAU_BLOCK_END_BASE + (process.env.XAU_OPEN_BLOCK_END_MIN_UTC ? 0 : sh);
   const fmt = (x) => `${String(Math.floor(x / 60)).padStart(2, "0")}:${String(x % 60).padStart(2, "0")}`;
   if (ROLLOVER_BLOCK_ON() && m >= ROLLOVER_START_MIN && m < ROLLOVER_END_MIN) {
     return `Rollover window: no FX entries ${fmt(ROLLOVER_START_MIN)}\u2013${fmt(ROLLOVER_END_MIN)} UTC (daily rollover, widest spreads)`;
@@ -23866,13 +21831,13 @@ function xauLockStopPts(peakFavPts) {
   if (!XAU_LOCK_ON() || !(peakFavPts >= XAU_LOCK_ACTIVATE_PTS)) return null;
   return Math.max(XAU_LOCK_AT_PTS, peakFavPts - XAU_TRAIL_PTS);
 }
-var ENTRY_BLOCK_ON, BLOCK_START_MIN, BLOCK_END_MIN, MIN_HOLD_ON, MIN_HOLD_MS, XAU_LOCK_ON, XAU_LOCK_ACTIVATE_PTS, XAU_LOCK_AT_PTS, XAU_TRAIL_PTS, XAU_CONTRACT_SIZE, ROLLOVER_BLOCK_ON, ROLLOVER_START_MIN, ROLLOVER_END_MIN, INDEX_MIN_HOLD_MS;
+var ENTRY_BLOCK_ON, XAU_BLOCK_START_BASE, XAU_BLOCK_END_BASE, MIN_HOLD_ON, MIN_HOLD_MS, XAU_LOCK_ON, XAU_LOCK_ACTIVATE_PTS, XAU_LOCK_AT_PTS, XAU_TRAIL_PTS, XAU_CONTRACT_SIZE, ROLLOVER_BLOCK_ON, ROLLOVER_START_BASE, ROLLOVER_END_BASE, INDEX_MIN_HOLD_MS;
 var init_xau_rules = __esm({
   "server/services/xau-rules.ts"() {
     "use strict";
     ENTRY_BLOCK_ON = () => process.env.XAU_OPEN_BLOCK_ENABLED !== "false";
-    BLOCK_START_MIN = Number(process.env.XAU_OPEN_BLOCK_START_MIN_UTC ?? 21 * 60);
-    BLOCK_END_MIN = Number(process.env.XAU_OPEN_BLOCK_END_MIN_UTC ?? 22 * 60 + 30);
+    XAU_BLOCK_START_BASE = Number(process.env.XAU_OPEN_BLOCK_START_MIN_UTC ?? 21 * 60);
+    XAU_BLOCK_END_BASE = Number(process.env.XAU_OPEN_BLOCK_END_MIN_UTC ?? 22 * 60 + 30);
     MIN_HOLD_ON = () => process.env.XAU_MIN_HOLD_ENABLED !== "false";
     MIN_HOLD_MS = Number(process.env.XAU_MIN_HOLD_MINUTES ?? 10) * 6e4;
     XAU_LOCK_ON = () => process.env.XAU_PROFIT_LOCK_ENABLED !== "false";
@@ -23881,8 +21846,8 @@ var init_xau_rules = __esm({
     XAU_TRAIL_PTS = Number(process.env.XAU_TRAIL_PTS ?? 20);
     XAU_CONTRACT_SIZE = Number(process.env.XAU_CONTRACT_SIZE ?? 100);
     ROLLOVER_BLOCK_ON = () => process.env.FX_ROLLOVER_BLOCK_ENABLED !== "false";
-    ROLLOVER_START_MIN = Number(process.env.FX_ROLLOVER_BLOCK_START_MIN_UTC ?? 20 * 60 + 55);
-    ROLLOVER_END_MIN = Number(process.env.FX_ROLLOVER_BLOCK_END_MIN_UTC ?? 21 * 60 + 30);
+    ROLLOVER_START_BASE = Number(process.env.FX_ROLLOVER_BLOCK_START_MIN_UTC ?? 20 * 60 + 55);
+    ROLLOVER_END_BASE = Number(process.env.FX_ROLLOVER_BLOCK_END_MIN_UTC ?? 21 * 60 + 30);
     INDEX_MIN_HOLD_MS = Number(process.env.INDEX_MIN_HOLD_MINUTES ?? 5) * 6e4;
   }
 });
@@ -24967,6 +22932,300 @@ var init_hour_filter = __esm({
     TTL_MS3 = Number(process.env.HOUR_FILTER_TTL_MS ?? 60 * 60 * 1e3);
     LOOKBACK_DAYS2 = Number(process.env.HOUR_FILTER_LOOKBACK_DAYS ?? 180);
     cache4 = /* @__PURE__ */ new Map();
+  }
+});
+
+// server/services/prop-firm-consistency.ts
+var prop_firm_consistency_exports = {};
+__export(prop_firm_consistency_exports, {
+  DEFAULT_CONSISTENCY_THRESHOLD_PCT: () => DEFAULT_CONSISTENCY_THRESHOLD_PCT,
+  getConsistencyPlan: () => getConsistencyPlan,
+  getConsistencyStatus: () => getConsistencyStatus,
+  rebuildDailyLedgerFromClosedTrades: () => rebuildDailyLedgerFromClosedTrades,
+  recordRealizedPnl: () => recordRealizedPnl
+});
+function todayUtcDateStr() {
+  return (/* @__PURE__ */ new Date()).toISOString().slice(0, 10);
+}
+async function getConsistencyPlan(connectionId, connectionType, thresholdPct) {
+  const threshold = typeof thresholdPct === "number" && thresholdPct > 0 ? thresholdPct : DEFAULT_CONSISTENCY_THRESHOLD_PCT;
+  const frac = threshold / 100;
+  let rows = [];
+  try {
+    const { rows: r } = await pool.query(
+      `SELECT trade_date, realized_pnl FROM prop_firm_daily_pnl WHERE connection_id = $1 AND connection_type = $2`,
+      [connectionId, connectionType]
+    );
+    rows = r;
+  } catch (err) {
+    console.error("[Consistency] Plan read failed (defaulting to empty):", err?.message ?? err);
+  }
+  let totalPositive = 0;
+  let maxDayPnl = 0;
+  let maxDayDate = null;
+  for (const r of rows) {
+    const pnl = typeof r.realized_pnl === "number" ? r.realized_pnl : parseFloat(r.realized_pnl || "0");
+    if (!isFinite(pnl) || pnl <= 0) continue;
+    totalPositive += pnl;
+    if (pnl > maxDayPnl) {
+      maxDayPnl = pnl;
+      maxDayDate = r.trade_date;
+    }
+  }
+  const maxDayRatioPct = totalPositive > 0 ? maxDayPnl / totalPositive * 100 : 0;
+  const passing = totalPositive <= 0 || maxDayRatioPct <= threshold;
+  const targetTotalPnl = maxDayPnl > 0 ? maxDayPnl / frac : 0;
+  const additionalProfitNeeded = Math.max(0, targetTotalPnl - totalPositive);
+  const safeDailyProfitCap = maxDayPnl > 0 ? Math.max(1, round2(maxDayPnl * DILUTION_DAY_FRACTION)) : 0;
+  const estDaysNeeded = additionalProfitNeeded > 0 && safeDailyProfitCap > 0 ? Math.ceil(additionalProfitNeeded / safeDailyProfitCap) : 0;
+  const growthMultiple = totalPositive > 0 && targetTotalPnl > 0 ? targetTotalPnl / totalPositive : 0;
+  let feasibility;
+  if (passing) feasibility = "passing";
+  else if (growthMultiple <= 1.5) feasibility = "achievable";
+  else if (growthMultiple <= 2.5) feasibility = "hard";
+  else feasibility = "unrealistic";
+  let recommendation;
+  if (passing) {
+    recommendation = "Consistency requirement met \u2014 request the payout / evaluation pass.";
+  } else if (feasibility === "achievable") {
+    recommendation = `Keep VEDD's auto-dilution on \u2014 small green days at \u2264 $${safeDailyProfitCap}/day will clear the cap in ~${estDaysNeeded} day(s).`;
+  } else if (feasibility === "hard") {
+    recommendation = `Doable but slow: total profit must ${growthMultiple.toFixed(1)}\xD7 (grind ~${estDaysNeeded} days at \u2264 $${safeDailyProfitCap}/day). Auto-dilution will handle it, but weigh the days against a fresh reset.`;
+  } else {
+    recommendation = `\u26A0\uFE0F Impractical to dilute: your biggest day ($${round2(maxDayPnl)}) is so large that total profit would have to ${growthMultiple.toFixed(1)}\xD7 (to ~$${round2(targetTotalPnl)}) to get it under ${threshold}%. That's ~${estDaysNeeded} more grind days. Consider RESETTING this account and trading smaller, even days from the start so no single day dominates.`;
+  }
+  let summary;
+  if (passing) {
+    summary = totalPositive > 0 ? `Consistency PASSING: biggest day $${round2(maxDayPnl)} is ${maxDayRatioPct.toFixed(1)}% of $${round2(totalPositive)} total (cap ${threshold}%).` : `No positive profit recorded yet \u2014 nothing to evaluate.`;
+  } else {
+    summary = `Consistency STUCK at ${maxDayRatioPct.toFixed(1)}% (cap ${threshold}%). Biggest day $${round2(maxDayPnl)} of $${round2(totalPositive)} total. To pass, grow total to $${round2(targetTotalPnl)} \u2014 about $${round2(additionalProfitNeeded)} more profit, spread across ~${estDaysNeeded} day(s) at \u2264 $${safeDailyProfitCap}/day so no new day breaches the cap.`;
+  }
+  return {
+    passing,
+    thresholdPct: threshold,
+    totalPositivePnl: round2(totalPositive),
+    maxDayPnl: round2(maxDayPnl),
+    maxDayDate,
+    maxDayRatioPct: round2(maxDayRatioPct),
+    targetTotalPnl: round2(targetTotalPnl),
+    additionalProfitNeeded: round2(additionalProfitNeeded),
+    safeDailyProfitCap,
+    estDaysNeeded,
+    growthMultiple: round2(growthMultiple),
+    feasibility,
+    recommendation,
+    summary
+  };
+}
+function round2(n) {
+  return Math.round(n * 100) / 100;
+}
+async function rebuildDailyLedgerFromClosedTrades(userId, connectionId, connectionType, closedTrades, opts) {
+  const byDay = /* @__PURE__ */ new Map();
+  let used = 0;
+  for (const t of closedTrades) {
+    const pnl = Number(t.profit);
+    if (!isFinite(pnl) || pnl === 0) continue;
+    const d = new Date(t.closeTime);
+    if (isNaN(d.getTime())) continue;
+    const day = d.toISOString().slice(0, 10);
+    byDay.set(day, (byDay.get(day) ?? 0) + pnl);
+    used++;
+  }
+  const { rows: existingRows } = await pool.query(
+    `SELECT count(*)::int AS days FROM prop_firm_daily_pnl WHERE connection_id = $1 AND connection_type = $2`,
+    [connectionId, connectionType]
+  );
+  const existingDays = Number(existingRows?.[0]?.days ?? 0);
+  if (opts?.force && existingDays > 0) {
+    console.warn(`[Consistency] FORCED rebuild for connection ${connectionId}: replacing ${existingDays} day(s) with ${byDay.size}.`);
+  }
+  if (!opts?.force && existingDays > 0 && byDay.size === 0) {
+    throw new Error(
+      `Refusing to rebuild ledger for connection ${connectionId}: would delete ${existingDays} day(s) and write 0. The broker returned no closed trades \u2014 treat this as a failed read, not an empty account.`
+    );
+  }
+  if (!opts?.force && existingDays >= 5 && byDay.size < existingDays / 2) {
+    throw new Error(
+      `Refusing to rebuild ledger for connection ${connectionId}: would shrink ${existingDays} day(s) to ${byDay.size}. This looks like a truncated broker read. Re-run when the broker history is complete, or pass force to override.`
+    );
+  }
+  const client2 = await pool.connect();
+  try {
+    await client2.query("BEGIN");
+    await client2.query(
+      `DELETE FROM prop_firm_daily_pnl WHERE connection_id = $1 AND connection_type = $2`,
+      [connectionId, connectionType]
+    );
+    for (const [day, pnl] of Array.from(byDay)) {
+      await client2.query(
+        `INSERT INTO prop_firm_daily_pnl (user_id, connection_id, connection_type, trade_date, realized_pnl)
+         VALUES ($1, $2, $3, $4, $5)
+         ON CONFLICT (connection_id, connection_type, trade_date)
+         DO UPDATE SET realized_pnl = $5, updated_at = now()`,
+        [userId, connectionId, connectionType, day, round2(pnl)]
+      );
+    }
+    await client2.query("COMMIT");
+  } catch (err) {
+    await client2.query("ROLLBACK").catch(() => {
+    });
+    throw err;
+  } finally {
+    client2.release();
+  }
+  let totalPositive = 0, maxDay = 0, maxDayDate = null;
+  for (const [day, pnl] of Array.from(byDay)) {
+    if (pnl > 0) totalPositive += pnl;
+    if (pnl > maxDay) {
+      maxDay = pnl;
+      maxDayDate = day;
+    }
+  }
+  return { days: byDay.size, totalPositive: round2(totalPositive), maxDay: round2(maxDay), maxDayDate, tradesUsed: used };
+}
+async function recordRealizedPnl(userId, connectionId, connectionType, realizedPnlDelta, tradeDate) {
+  if (!isFinite(realizedPnlDelta) || realizedPnlDelta === 0) return;
+  const dateStr = tradeDate || todayUtcDateStr();
+  try {
+    await pool.query(
+      `INSERT INTO prop_firm_daily_pnl (user_id, connection_id, connection_type, trade_date, realized_pnl)
+       VALUES ($1, $2, $3, $4, $5)
+       ON CONFLICT (connection_id, connection_type, trade_date)
+       DO UPDATE SET realized_pnl = prop_firm_daily_pnl.realized_pnl + $5, updated_at = now()`,
+      [userId, connectionId, connectionType, dateStr, realizedPnlDelta]
+    );
+  } catch (err) {
+    console.error("[Consistency] Failed to record daily P&L (non-fatal):", err?.message ?? err);
+  }
+}
+async function getConsistencyStatus(connectionId, connectionType, thresholdPct, enabled = true) {
+  const threshold = typeof thresholdPct === "number" && thresholdPct > 0 ? thresholdPct : DEFAULT_CONSISTENCY_THRESHOLD_PCT;
+  if (!enabled) {
+    return {
+      connectionId,
+      connectionType,
+      enabled: false,
+      thresholdPct: threshold,
+      todayPnl: 0,
+      totalPositivePnl: 0,
+      ratioPct: 0,
+      status: "disabled",
+      sizeMultiplier: 1,
+      hardBlocked: false,
+      guidance: "Consistency rule is turned off for this account \u2014 trades are not tapered or blocked based on daily profit share. Turn it on if your prop firm enforces a max-single-day-profit rule."
+    };
+  }
+  const dateStr = todayUtcDateStr();
+  let rows = [];
+  try {
+    const { rows: r } = await pool.query(
+      `SELECT trade_date, realized_pnl FROM prop_firm_daily_pnl WHERE connection_id = $1 AND connection_type = $2`,
+      [connectionId, connectionType]
+    );
+    rows = r;
+  } catch (err) {
+    console.error("[Consistency] Failed to read daily P&L \u2014 BLOCKING new trades on this account until it can be read:", err?.message ?? err);
+    return {
+      connectionId,
+      connectionType,
+      enabled: true,
+      thresholdPct: threshold,
+      todayPnl: 0,
+      totalPositivePnl: 0,
+      ratioPct: 0,
+      status: "breached",
+      sizeMultiplier: 0,
+      hardBlocked: true,
+      guidance: `Couldn't read this account's daily P&L ledger (${err?.message ?? "database error"}) \u2014 new trades are blocked on this account until it can be read, rather than trading blind on the consistency rule.`
+    };
+  }
+  let todayPnl = 0;
+  let totalPositivePnl = 0;
+  for (const r of rows) {
+    const pnl = typeof r.realized_pnl === "number" ? r.realized_pnl : parseFloat(r.realized_pnl || "0");
+    if (!isFinite(pnl)) continue;
+    if (r.trade_date === dateStr) todayPnl = pnl;
+    if (pnl > 0) totalPositivePnl += pnl;
+  }
+  const todayPositive = Math.max(0, todayPnl);
+  const ratioPct = totalPositivePnl > 0 ? todayPositive / totalPositivePnl * 100 : 0;
+  let maxDayPnl = 0;
+  let maxDayDate = null;
+  let positiveDays = 0;
+  for (const r of rows) {
+    const pnl = typeof r.realized_pnl === "number" ? r.realized_pnl : parseFloat(r.realized_pnl || "0");
+    if (!isFinite(pnl)) continue;
+    if (pnl > 0) positiveDays++;
+    if (pnl > maxDayPnl) {
+      maxDayPnl = pnl;
+      maxDayDate = r.trade_date;
+    }
+  }
+  const maxDayRatioPct = totalPositivePnl > 0 ? maxDayPnl / totalPositivePnl * 100 : 0;
+  const minDaysForRule = Math.ceil(100 / threshold);
+  const todayIsMax = maxDayDate === dateStr;
+  const stuck = maxDayRatioPct > threshold && positiveDays >= minDaysForRule && !todayIsMax;
+  const taperStartPct = threshold * TAPER_START_FRACTION;
+  let status = "safe";
+  let sizeMultiplier = 1;
+  let hardBlocked = false;
+  let guidance = `Today's profit is ${ratioPct.toFixed(1)}% of total realized profit \u2014 well within the ${threshold}% consistency cap.`;
+  if (stuck) {
+    const dailyCap = Math.max(1, maxDayPnl * DILUTION_DAY_FRACTION);
+    const targetTotal = maxDayPnl / (threshold / 100);
+    const addNeeded = Math.max(0, targetTotal - totalPositivePnl);
+    const daysLeft = dailyCap > 0 ? Math.ceil(addNeeded / dailyCap) : 0;
+    if (todayPositive >= dailyCap) {
+      status = "breached";
+      sizeMultiplier = 0;
+      hardBlocked = true;
+      guidance = `Consistency dilution: today's profit ($${todayPositive.toFixed(2)}) hit the per-day cap ($${dailyCap.toFixed(2)}). Trading paused for today so this day doesn't become a new breach. Biggest day is ${maxDayRatioPct.toFixed(1)}% of total (cap ${threshold}%) \u2014 grow total to $${targetTotal.toFixed(0)} (~$${addNeeded.toFixed(0)} more, ~${daysLeft} day(s)) to pass.`;
+    } else {
+      status = "warning";
+      const room = dailyCap - todayPositive;
+      const progress2 = dailyCap > 0 ? todayPositive / dailyCap : 1;
+      sizeMultiplier = Math.max(TAPER_FLOOR_MULTIPLIER, 1 - progress2 * (1 - TAPER_FLOOR_MULTIPLIER));
+      guidance = `Consistency dilution active: biggest day is ${maxDayRatioPct.toFixed(1)}% of total (cap ${threshold}%). Taking small green days \u2014 up to $${room.toFixed(2)} more today (cap $${dailyCap.toFixed(2)}). Need ~$${addNeeded.toFixed(0)} more total over ~${daysLeft} day(s) to pass.`;
+    }
+  } else if (ratioPct >= threshold) {
+    status = "breached";
+    sizeMultiplier = 0;
+    hardBlocked = true;
+    guidance = `Consistency cap breached: today's profit is ${ratioPct.toFixed(1)}% of total (cap ${threshold}%). New trades are blocked on this account until the next trading day. The ratio will come down as more profit accumulates on other days without adding to today's total.`;
+  } else if (ratioPct >= taperStartPct) {
+    status = "warning";
+    const span = threshold - taperStartPct;
+    const progress2 = span > 0 ? (ratioPct - taperStartPct) / span : 1;
+    sizeMultiplier = Math.max(TAPER_FLOOR_MULTIPLIER, 1 - progress2 * (1 - TAPER_FLOOR_MULTIPLIER));
+    guidance = `Approaching the consistency cap: today's profit is ${ratioPct.toFixed(1)}% of total (cap ${threshold}%). Position sizing is being reduced (${Math.round(sizeMultiplier * 100)}% of normal) to avoid crossing the line today.`;
+  }
+  return {
+    connectionId,
+    connectionType,
+    enabled: true,
+    thresholdPct: threshold,
+    todayPnl,
+    totalPositivePnl,
+    ratioPct,
+    maxDayPnl: round2(maxDayPnl),
+    maxDayRatioPct: round2(maxDayRatioPct),
+    dilutionActive: stuck,
+    status,
+    sizeMultiplier,
+    hardBlocked,
+    guidance
+  };
+}
+var DEFAULT_CONSISTENCY_THRESHOLD_PCT, TAPER_START_FRACTION, TAPER_FLOOR_MULTIPLIER, DILUTION_DAY_FRACTION;
+var init_prop_firm_consistency = __esm({
+  "server/services/prop-firm-consistency.ts"() {
+    "use strict";
+    init_db();
+    DEFAULT_CONSISTENCY_THRESHOLD_PCT = 20;
+    TAPER_START_FRACTION = 0.7;
+    TAPER_FLOOR_MULTIPLIER = 0.25;
+    DILUTION_DAY_FRACTION = 0.8;
   }
 });
 
@@ -26655,6 +24914,13 @@ async function applyServerSideTrails(userId, openPositions, marketAnalysis) {
             const matchDir = (pos.direction || "BUY").toUpperCase();
             const tlMatch = tlPositions.find((p) => (p.symbol || "").toUpperCase().replace("/", "") === pos.symbol?.toUpperCase().replace("/", "") && (p.side || "").toUpperCase() === (matchDir === "BUY" ? "BUY" : "SELL"));
             if (!tlMatch) continue;
+            {
+              const { xauTooYoungToClose: xauTooYoungToClose3 } = await Promise.resolve().then(() => (init_xau_rules(), xau_rules_exports));
+              if (xauTooYoungToClose3(pos.symbol, tlMatch.openDate)) {
+                addActivity(userId, { type: "info", symbol: pos.symbol, message: `\u23F3 Reversal exit held off on ${tlConn.accountId}: this account's ${pos.symbol} fill is inside the gold/index minimum hold.` });
+                continue;
+              }
+            }
             const r = await executeMT5SignalOnTradeLocker(tlConn, {
               action: "CLOSE",
               symbol: pos.symbol,
@@ -28163,7 +26429,13 @@ async function processDecision(userId, decision, newsCtx) {
       state.signalsGenerated++;
       return;
     }
-    const _mergedPositionsForGates = await getMergedOpenPositions(userId, state._lastMarketAnalysis).catch(() => []);
+    let _mergedPositionsForGates;
+    try {
+      _mergedPositionsForGates = await getMergedOpenPositions(userId, state._lastMarketAnalysis);
+    } catch (e) {
+      addActivity(userId, { type: "info", symbol: decision.symbol, message: `\u26D4 ${decision.symbol}: open positions unreadable (${e?.message || e}) \u2014 not entering.` });
+      return;
+    }
     if (_signalDirRaw === "BUY" || _signalDirRaw === "SELL") {
       const _livePositions = _mergedPositionsForGates;
       const _existingOnPair = _livePositions.find(
@@ -29382,7 +27654,14 @@ async function processDecision(userId, decision, newsCtx) {
           return;
         }
       } else {
-        const _leDailyCount = _leFills.length;
+        const _aiTimes = _leFills.map((t) => new Date(t.createdAt).getTime()).sort((a, b) => a - b);
+        let _leDailyCount = 0, _aiGroupStart = -Infinity;
+        for (const ms of _aiTimes) {
+          if (ms - _aiGroupStart > 18e4) {
+            _leDailyCount++;
+            _aiGroupStart = ms;
+          }
+        }
         const _leMaxDaily = config.maxOpenTrades ?? 3;
         if (_leDailyCount >= _leMaxDaily) {
           addActivity(userId, {
@@ -29484,6 +27763,10 @@ async function processDecision(userId, decision, newsCtx) {
             acctSizeLabel = _refBal <= 0 ? ` (\u26A0\uFE0F multiplier ${acctMult}\xD7 \u2014 enable Risk% mode or set engine Reference Balance for auto-sizing)` : ` (\u26A0\uFE0F multiplier ${acctMult}\xD7 \u2014 TL account value unavailable, could not size proportionally)`;
           }
           if (_volCap) acctLot = Math.min(acctLot, _volCap.hardMaxLot);
+          {
+            const _ceil = [Number(config.maxLot) || 0, Number(config.maxLotSize) || 0].filter((x) => x > 0);
+            if (_ceil.length) acctLot = Math.min(acctLot, Math.min(..._ceil));
+          }
           if (_consistencyMult < 1) {
             acctLot = Math.max(0.01, Math.round(acctLot * _consistencyMult * 100) / 100);
             acctSizeLabel += ` \xB7 consistency ${Math.round(_consistencyMult * 100)}%`;
@@ -29518,7 +27801,8 @@ async function processDecision(userId, decision, newsCtx) {
             action: "OPEN",
             symbol: decision.symbol,
             direction: decision.direction,
-            volume: acctLot,
+            volume: tradeResult.volume ?? acctLot,
+            // size actually sent after caps
             entryPrice,
             stopLoss,
             takeProfit,
@@ -29526,7 +27810,7 @@ async function processDecision(userId, decision, newsCtx) {
             status: tradeResult.success ? "executed" : "failed",
             errorMessage: tradeResult.error || null
           });
-          return { tlConn, tradeResult, acctLot, acctSizeLabel };
+          return { tlConn, tradeResult, acctLot: tradeResult.volume ?? acctLot, acctSizeLabel };
         })
       );
       const _isPendingType = resolvedOrderType !== "market";
@@ -29679,9 +27963,9 @@ async function processDecision(userId, decision, newsCtx) {
           try {
             const svc = await getOrCreateService(tlConn);
             const tlPositions = await svc.getPositionsNormalized().catch(() => []);
-            const matchDir = (decision.direction || "BUY").toUpperCase();
+            const matchDir = decision.direction ? String(decision.direction).toUpperCase() : null;
             const tlMatch = tlPositions.find(
-              (p) => (p.symbol || "").toUpperCase().replace("/", "") === decision.symbol?.toUpperCase().replace("/", "") && (p.side || "").toUpperCase() === (matchDir === "BUY" ? "BUY" : "SELL")
+              (p) => (p.symbol || "").toUpperCase().replace("/", "") === decision.symbol?.toUpperCase().replace("/", "") && (!matchDir || (p.side || "").toUpperCase() === (matchDir === "BUY" ? "BUY" : "SELL"))
             );
             if (!tlMatch) {
               return;
@@ -30850,6 +29134,1792 @@ var init_live_trading_engine = __esm({
     _fxLeaderClient = null;
     _fxIsLeader = false;
     _fxLeaderLoop = null;
+  }
+});
+
+// server/tradelocker.ts
+var tradelocker_exports = {};
+__export(tradelocker_exports, {
+  TradeLockerReadError: () => TradeLockerReadError,
+  TradeLockerService: () => TradeLockerService,
+  decryptPassword: () => decryptPassword,
+  encryptPassword: () => encryptPassword,
+  executeMT5SignalOnTradeLocker: () => executeMT5SignalOnTradeLocker,
+  getOrCreateService: () => getOrCreateService,
+  getTLAccountValue: () => getTLAccountValue,
+  isOnAuth429Cooldown: () => isOnAuth429Cooldown,
+  noteAuthResult: () => noteAuthResult,
+  priceDecimals: () => priceDecimals,
+  roundToTick: () => roundToTick,
+  setUsdJpyRate: () => setUsdJpyRate,
+  warmTradeLockerConnection: () => warmTradeLockerConnection
+});
+import crypto3 from "crypto";
+function getEncryptionKey3() {
+  const key = process.env.TRADELOCKER_ENCRYPTION_KEY;
+  if (!key) {
+    console.warn("[TradeLocker] TRADELOCKER_ENCRYPTION_KEY not set \u2014 using default key. Set it in your Render environment variables.");
+    return DEFAULT_ENCRYPTION_KEY2;
+  }
+  if (key.length < 32) {
+    console.warn("[TradeLocker] TRADELOCKER_ENCRYPTION_KEY is too short, padding to 32 chars.");
+    return key.padEnd(32, "0");
+  }
+  return key;
+}
+function priceDecimals(symbol) {
+  const s = String(symbol || "").toUpperCase().split(".")[0].replace(/[^A-Z0-9]/g, "");
+  if (/^XAU/.test(s)) return 2;
+  if (/^XAG/.test(s)) return 3;
+  if (/^(US30|DJ30|WS30|US100|NAS100|USTEC|US500|SPX500|GER40|DE40|UK100|JP225|AUS200|HK50|FRA40|EU50)/.test(s)) return 2;
+  if (/^(BTC|ETH|SOL|LTC|XRP)/.test(s)) return 2;
+  if (/JPY/.test(s)) return 3;
+  return 5;
+}
+function roundToTick(symbol, v) {
+  if (!Number.isFinite(v)) return v;
+  const d = priceDecimals(symbol);
+  return Number(v.toFixed(d));
+}
+function isOnAuth429Cooldown(key) {
+  const until = authCooldownUntil.get(key) || 0;
+  return until > Date.now() ? until - Date.now() : 0;
+}
+function noteAuthResult(key, err) {
+  const is429 = err instanceof Error && /(^|\D)429(\D|$)/.test(err.message);
+  if (is429) {
+    authCooldownUntil.set(key, Date.now() + AUTH_429_COOLDOWN_MS);
+  } else {
+    authCooldownUntil.delete(key);
+  }
+}
+async function serializeAuth(label, fn) {
+  const run = authChain.then(async () => {
+    const wait = MIN_AUTH_GAP_MS - (Date.now() - lastAuthAt);
+    if (wait > 0) await new Promise((r) => setTimeout(r, wait));
+    try {
+      return await fn();
+    } finally {
+      lastAuthAt = Date.now();
+    }
+  });
+  authChain = run.then(() => {
+  }, () => {
+  });
+  return run;
+}
+async function loginFetchWith429Retry(url, body) {
+  const backoffs = [1500, 3500];
+  for (let attempt = 0; ; attempt++) {
+    const resp = await fetch(url, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+      signal: AbortSignal.timeout(12e3)
+    });
+    if (resp.status !== 429 || attempt >= backoffs.length) return resp;
+    await new Promise((r) => setTimeout(r, backoffs[attempt]));
+  }
+}
+function encryptPassword(password) {
+  const iv = crypto3.randomBytes(IV_LENGTH2);
+  const salt = crypto3.randomBytes(SALT_LENGTH2);
+  const encryptionKey = getEncryptionKey3();
+  const key = crypto3.scryptSync(encryptionKey, salt, 32);
+  const cipher = crypto3.createCipheriv("aes-256-cbc", key, iv);
+  let encrypted = cipher.update(password, "utf8", "hex");
+  encrypted += cipher.final("hex");
+  return salt.toString("hex") + ":" + iv.toString("hex") + ":" + encrypted;
+}
+function decryptPassword(encryptedPassword) {
+  const parts = encryptedPassword.split(":");
+  if (parts.length !== 3) {
+    throw new Error("Invalid encrypted password format");
+  }
+  const salt = Buffer.from(parts[0], "hex");
+  const iv = Buffer.from(parts[1], "hex");
+  const encrypted = parts[2];
+  const encryptionKey = getEncryptionKey3();
+  const key = crypto3.scryptSync(encryptionKey, salt, 32);
+  const decipher = crypto3.createDecipheriv("aes-256-cbc", key, iv);
+  let decrypted = decipher.update(encrypted, "hex", "utf8");
+  decrypted += decipher.final("utf8");
+  return decrypted;
+}
+function setUsdJpyRate(rate) {
+  const r = Number(rate);
+  if (isFinite(r) && r > 50 && r < 500) _usdJpyLive = { rate: r, at: Date.now() };
+}
+function noteUsdJpyObservation(atMs, rate) {
+  const r = Number(rate);
+  if (!isFinite(r) || r <= 50 || r >= 500 || !isFinite(atMs)) return;
+  _usdJpyObserved.push({ at: atMs, rate: r });
+  if (_usdJpyObserved.length > 2e3) _usdJpyObserved.splice(0, _usdJpyObserved.length - 2e3);
+}
+function usdJpyAt(atMs) {
+  let best = null;
+  for (const o of _usdJpyObserved) {
+    if (!best || Math.abs(o.at - atMs) < Math.abs(best.at - atMs)) best = o;
+  }
+  if (best && Math.abs(best.at - atMs) < 7 * 24 * 3600 * 1e3) return best.rate;
+  if (_usdJpyLive && Date.now() - _usdJpyLive.at < 24 * 3600 * 1e3) return _usdJpyLive.rate;
+  if (best) return best.rate;
+  console.warn(`[TradeLocker] no USD/JPY rate available for ${new Date(atMs).toISOString()} \u2014 using ${USDJPY_FALLBACK}; JPY P&L may be off by a few percent.`);
+  return USDJPY_FALLBACK;
+}
+async function getOrCreateService(connection2) {
+  const connId = connection2.id || `pending_${connection2.accountType}_${connection2.accountId}_${connection2.accNum || ""}`;
+  const cached = serviceCache.get(connId);
+  if (cached && Date.now() - cached.createdAt < SERVICE_CACHE_TTL) {
+    console.log("[TradeLocker] Reusing cached service for connection", connId);
+    return cached.service;
+  }
+  const service = new TradeLockerService(
+    connection2.accountType,
+    connection2.accountId,
+    connection2.serverId,
+    connection2.accNum || void 0
+  );
+  if (typeof connId === "number") {
+    service.onAccountIdCorrected = (accountId) => {
+      persistAccountIdCorrection(connId, accountId).catch(() => {
+      });
+    };
+  }
+  const TOKEN_BUFFER = 60 * 1e3;
+  const hasValidToken = connection2.accessToken && connection2.tokenExpiresAt && new Date(connection2.tokenExpiresAt).getTime() - TOKEN_BUFFER > Date.now();
+  if (hasValidToken) {
+    console.log("[TradeLocker] Using cached JWT tokens (expires:", connection2.tokenExpiresAt, ")");
+    service.setTokens(
+      connection2.accessToken,
+      connection2.refreshToken || "",
+      new Date(connection2.tokenExpiresAt)
+    );
+  } else if (connection2.refreshToken && connection2.accessToken) {
+    console.log("[TradeLocker] Token expired \u2014 attempting refresh...");
+    try {
+      service.setTokens(connection2.accessToken, connection2.refreshToken);
+      const refreshed = await service.refreshAccessToken(connection2.refreshToken);
+      noteAuthResult(String(connId), null);
+      await persistTokens(connection2, refreshed.accessToken, refreshed.refreshToken, refreshed.expiresIn, service.getResolvedAccNum());
+    } catch (refreshErr) {
+      console.log("[TradeLocker] Token refresh failed \u2014 falling back to full auth");
+      const cooldownMs = isOnAuth429Cooldown(String(connId));
+      if (cooldownMs > 0) {
+        throw new Error(`TradeLocker login is rate-limited (429) for this account \u2014 cooling down for another ${Math.ceil(cooldownMs / 1e3)}s before retrying, to avoid making the rate limit worse.`);
+      }
+      try {
+        const password = decryptPassword(connection2.encryptedPassword);
+        const authResult = await service.authenticate(connection2.email, password);
+        noteAuthResult(String(connId), null);
+        await persistTokens(connection2, authResult.accessToken, authResult.refreshToken, authResult.expiresIn, service.getResolvedAccNum());
+      } catch (authErr) {
+        noteAuthResult(String(connId), authErr);
+        throw authErr;
+      }
+    }
+  } else {
+    const cooldownMs = isOnAuth429Cooldown(String(connId));
+    if (cooldownMs > 0) {
+      throw new Error(`TradeLocker login is rate-limited (429) for this account \u2014 cooling down for another ${Math.ceil(cooldownMs / 1e3)}s before retrying, to avoid making the rate limit worse.`);
+    }
+    console.log("[TradeLocker] No cached tokens \u2014 performing full auth");
+    try {
+      const password = decryptPassword(connection2.encryptedPassword);
+      const authResult = await service.authenticate(connection2.email, password);
+      noteAuthResult(String(connId), null);
+      await persistTokens(connection2, authResult.accessToken, authResult.refreshToken, authResult.expiresIn, service.getResolvedAccNum());
+    } catch (authErr) {
+      noteAuthResult(String(connId), authErr);
+      throw authErr;
+    }
+  }
+  if (!connection2.accNum && connId) {
+    const origResolve = service.resolveAccNum.bind(service);
+    service.resolveAccNum = async () => {
+      const result = await origResolve();
+      if (result && result !== "0" && !connection2.accNum) {
+        persistTokens(connection2, connection2.accessToken || "", connection2.refreshToken || "", 3600, result).catch(() => {
+        });
+      }
+      return result;
+    };
+  }
+  service.onTokenRefresh = (accessToken, refreshToken, expiresIn) => {
+    persistTokens(connection2, accessToken, refreshToken, expiresIn, service.getResolvedAccNum()).catch(() => {
+    });
+  };
+  service.onReauthenticate = async () => {
+    const cooldownMs = isOnAuth429Cooldown(String(connId));
+    if (cooldownMs > 0) {
+      throw new Error(`TradeLocker login is rate-limited (429) for this account \u2014 cooling down for another ${Math.ceil(cooldownMs / 1e3)}s before retrying.`);
+    }
+    console.log("[TradeLocker] Full re-authentication triggered via callback");
+    try {
+      const password = decryptPassword(connection2.encryptedPassword);
+      const authResult = await service.authenticate(connection2.email, password);
+      noteAuthResult(String(connId), null);
+      await persistTokens(connection2, authResult.accessToken, authResult.refreshToken, authResult.expiresIn, service.getResolvedAccNum());
+    } catch (authErr) {
+      noteAuthResult(String(connId), authErr);
+      throw authErr;
+    }
+  };
+  serviceCache.set(connId, { service, createdAt: Date.now() });
+  return service;
+}
+async function getTLAccountValue(userId, conn) {
+  const g = global;
+  g.tlAccountBalances = g.tlAccountBalances || {};
+  g.tlAccountBalances[userId] = g.tlAccountBalances[userId] || {};
+  g.tlAccountEquity = g.tlAccountEquity || {};
+  g.tlAccountEquity[userId] = g.tlAccountEquity[userId] || {};
+  g.tlAccountValueAt = g.tlAccountValueAt || {};
+  g.tlAccountValueAt[userId] = g.tlAccountValueAt[userId] || {};
+  const acctId = conn.accountId;
+  const cachedBal = g.tlAccountBalances[userId][acctId];
+  const cachedEq = g.tlAccountEquity[userId][acctId];
+  const fetchedAt = g.tlAccountValueAt[userId][acctId] || 0;
+  const fresh = Date.now() - fetchedAt < TL_VALUE_TTL;
+  if (fresh && typeof cachedBal === "number" && cachedBal > 0) {
+    return { balance: cachedBal, equity: typeof cachedEq === "number" && cachedEq > 0 ? cachedEq : cachedBal };
+  }
+  try {
+    const svc = await getOrCreateService(conn);
+    const info2 = await svc.getAccountInfo();
+    const bal = info2.balance || 0;
+    const eq21 = info2.equity || bal;
+    if (bal > 0) {
+      g.tlAccountBalances[userId][acctId] = bal;
+      g.tlAccountEquity[userId][acctId] = eq21;
+      g.tlAccountValueAt[userId][acctId] = Date.now();
+      console.log(`[TL value] ${acctId}: balance=$${bal} equity=$${eq21} (live-fetched for sizing)`);
+      return { balance: bal, equity: eq21 };
+    }
+  } catch (e) {
+    console.warn(`[TL value] live-fetch failed for ${acctId}:`, e?.message ?? e);
+  }
+  return {
+    balance: typeof cachedBal === "number" ? cachedBal : 0,
+    equity: typeof cachedEq === "number" ? cachedEq : typeof cachedBal === "number" ? cachedBal : 0
+  };
+}
+async function persistTokens(connection2, accessToken, refreshToken, expiresIn, accNum) {
+  if (!connection2.id) return;
+  try {
+    const { storage: storage2 } = await Promise.resolve().then(() => (init_storage(), storage_exports));
+    await storage2.updateTradelockerConnection(connection2.id, {
+      accessToken,
+      refreshToken,
+      tokenExpiresAt: new Date(Date.now() + expiresIn * 1e3),
+      accNum: accNum !== "0" ? accNum : void 0
+    });
+    console.log("[TradeLocker] Persisted tokens to DB for connection", connection2.id);
+  } catch (e) {
+    console.log("[TradeLocker] Could not persist tokens to DB");
+  }
+}
+async function persistAccountIdCorrection(connectionId, accountId) {
+  try {
+    const { storage: storage2 } = await Promise.resolve().then(() => (init_storage(), storage_exports));
+    await storage2.updateTradelockerConnection(connectionId, { accountId });
+    console.log("[TradeLocker] Persisted corrected accountId to DB for connection", connectionId, ":", accountId);
+  } catch (e) {
+    console.log("[TradeLocker] Could not persist accountId correction to DB");
+  }
+}
+async function warmTradeLockerConnection(connection2) {
+  try {
+    console.log("[TradeLocker Warm] Pre-warming connection for account", connection2.accountId);
+    await getOrCreateService(connection2);
+    console.log("[TradeLocker Warm] Connection pre-warmed successfully");
+    return { success: true };
+  } catch (error) {
+    const msg = error instanceof Error ? error.message : "Unknown error";
+    console.error("[TradeLocker Warm] Pre-warm failed:", msg);
+    return { success: false, error: msg };
+  }
+}
+async function tlAccountRiskGuard(service, connection2, signal) {
+  if (process.env.TL_RISK_GUARD_DISABLED === "true") return {};
+  const connKey = String(connection2.id ?? connection2.accountId);
+  const norm3 = (s) => String(s || "").toUpperCase().split(".")[0].replace(/[^A-Z0-9]/g, "");
+  const want = norm3(signal.symbol);
+  let equity;
+  try {
+    const info2 = await service.getAccountInfo();
+    equity = Number(info2?.equity) > 0 ? Number(info2.equity) : Number(info2?.balance);
+    if (!(equity > 0)) return { block: "account equity unreadable \u2014 not trading this account (fail closed)" };
+  } catch (e) {
+    return { block: `account equity unreadable (${e?.message || e}) \u2014 not trading this account (fail closed)` };
+  }
+  const lossPct = Number(process.env.TL_DAILY_LOSS_PCT ?? 2);
+  if (lossPct > 0) {
+    const day = (/* @__PURE__ */ new Date()).toISOString().slice(0, 10);
+    const key = `${connKey}:${day}`;
+    let start = tlDayStartEquity.get(key);
+    if (start == null) {
+      try {
+        const { getRuntimeStateStrict: getRuntimeStateStrict2, insertRuntimeStateIfAbsent: insertRuntimeStateIfAbsent2 } = await Promise.resolve().then(() => (init_runtime_state(), runtime_state_exports));
+        const existing = await getRuntimeStateStrict2("tl_day_start", key);
+        if (Number(existing?.equity) > 0) start = Number(existing.equity);
+        else start = Number((await insertRuntimeStateIfAbsent2("tl_day_start", key, { equity }))?.equity) || equity;
+      } catch (e) {
+        return { block: `daily-loss baseline unreadable (${e?.message || e}) \u2014 not trading this account (fail closed)` };
+      }
+      tlDayStartEquity.set(key, start);
+    }
+    const ddPct = start > 0 ? (start - equity) / start * 100 : 0;
+    if (ddPct >= lossPct) {
+      return { block: `daily loss ${ddPct.toFixed(2)}% \u2265 ${lossPct}% (equity $${equity.toFixed(0)} vs day start $${start.toFixed(0)}) \u2014 no new trades on this account until 00:00 UTC` };
+    }
+  }
+  let positions;
+  try {
+    positions = await service.getPositionsNormalized();
+  } catch (e) {
+    return { block: `open positions unreadable (${e?.message || e}) \u2014 not trading this account (fail closed)` };
+  }
+  if (positions.some((p) => /^\d+$/.test(String(p.symbol || "")))) {
+    return { block: "open positions show unresolved instrument ids \u2014 cannot confirm the pair is flat (fail closed)" };
+  }
+  if (!want) return { block: "order has no symbol" };
+  const held = positions.find((p) => {
+    const s = norm3(p.symbol);
+    return s === want || s.startsWith(want) || s.length >= 6 && want.startsWith(s);
+  });
+  if (held) return { block: `already holding ${held.symbol} ${String(held.side || "").toUpperCase()} ${held.qty} on this account (one position per pair)` };
+  try {
+    const { pool: pool2 } = await Promise.resolve().then(() => (init_db(), db_exports));
+    const { rows } = await pool2.query(
+      // TradeLocker rows only (DXtrade rows reuse connection_id numbers), and
+      // only recent ones: a PENDING row whose close never synced (an XAUUSD
+      // row on account 31 since 2026-09-23) used to block that pair forever.
+      `SELECT 1 FROM ai_trade_results WHERE connection_id = $1 AND result = 'PENDING'
+         AND source LIKE 'tradelocker%' AND created_at > now() - interval '3 days'
+         AND upper(regexp_replace(split_part(symbol, '.', 1), '[^A-Za-z0-9]', '', 'g')) = $2 LIMIT 1`,
+      [connection2.id ?? -1, want]
+    );
+    if (rows.length) return { block: `an open ${want} trade is recorded for this account (one position per pair)` };
+  } catch (e) {
+    return { block: `could not check recorded open trades (${e?.message || e}) \u2014 fail closed` };
+  }
+  const scale = equity / 1e5;
+  const perOrder = Math.min(Number(process.env.TL_MAX_LOT_PER_ORDER ?? 5) || Infinity, (Number(process.env.TL_MAX_LOT_PER_100K ?? 10) || Infinity) * scale);
+  const openCap = Math.min(Number(process.env.TL_MAX_OPEN_LOTS ?? 6) || Infinity, (Number(process.env.TL_MAX_OPEN_LOTS_PER_100K ?? 12) || Infinity) * scale);
+  const openLots = positions.reduce((s, p) => s + (Number(p.qty) || 0), 0);
+  const room = Math.floor(Math.min(perOrder, openCap - openLots) * 100) / 100;
+  if (!(room >= 0.01)) {
+    return { block: `open lots ${openLots.toFixed(2)} already at the ${openCap.toFixed(2)}-lot cap for this account size` };
+  }
+  return { maxVolume: room };
+}
+async function executeMT5SignalOnTradeLocker(connection2, signal) {
+  console.log("[TradeLocker Execute] Starting trade execution:", {
+    accountType: connection2.accountType,
+    accountId: connection2.accountId,
+    serverId: connection2.serverId,
+    signal: { action: signal.action, symbol: signal.symbol, direction: signal.direction, volume: signal.volume }
+  });
+  try {
+    const service = await getOrCreateService(connection2);
+    if (signal.action === "OPEN" || signal.action.toUpperCase() === "OPEN") {
+      const tlOrderType = signal.orderType === "limit_entry" ? "limit" : signal.orderType === "stop_entry" ? "stop" : "market";
+      const usePrice = tlOrderType !== "market" && signal.entryPrice && signal.entryPrice > 0 ? signal.entryPrice : void 0;
+      const resolvedType = usePrice ? tlOrderType : "market";
+      const _slNum = Number(signal.stopLoss);
+      if (!Number.isFinite(_slNum) || _slNum <= 0) {
+        console.error(`[TradeLocker Execute] \u{1F6AB} NO-SL BLOCK: ${signal.symbol} ${signal.direction} rejected \u2014 no valid stop loss (SL=${signal.stopLoss}). Unprotected trades are never allowed (likely NaN ATR upstream).`);
+        return { success: false, error: `Blocked: no valid stop loss (SL=${signal.stopLoss}) \u2014 unprotected trade rejected` };
+      }
+      {
+        const _sym = String(signal.symbol || "").toUpperCase();
+        const _isFx = /^[A-Z]{6}/.test(_sym) && !/^(XAU|XAG|BTC|ETH|SOL|US30|NAS|SPX|GER|UK1|JP2)/.test(_sym);
+        const _ref = Number(signal.entryPrice);
+        const _minPips = Number(process.env.TL_MIN_SL_PIPS ?? 10);
+        if (_isFx && _minPips > 0 && Number.isFinite(_ref) && _ref > 0) {
+          const _pip = /JPY/.test(_sym) ? 0.01 : 1e-4;
+          const _slPips = Math.abs(_ref - _slNum) / _pip;
+          if (_slPips < _minPips) {
+            console.error(`[TradeLocker Execute] \u{1F6AB} TIGHT-SL BLOCK: ${_sym} ${signal.direction} stop ${_slPips.toFixed(1)} pips < ${_minPips} \u2014 rejected (would inflate the lot size).`);
+            return { success: false, error: `Blocked: stop ${_slPips.toFixed(1)} pips is tighter than the ${_minPips}-pip minimum (prevents oversized lots)` };
+          }
+        }
+      }
+      {
+        try {
+          const { isFxLeader: isFxLeader2 } = await Promise.resolve().then(() => (init_live_trading_engine(), live_trading_engine_exports));
+          if (!isFxLeader2()) return { success: false, error: "NOT LEADER: this server does not hold the FX lock \u2014 order not sent" };
+        } catch {
+          return { success: false, error: "NOT LEADER: leadership could not be confirmed \u2014 order not sent" };
+        }
+        const _guard = await tlAccountRiskGuard(service, connection2, signal);
+        if (_guard.block) {
+          console.error(`[TradeLocker Execute] \u{1F6AB} RISK GUARD ${connection2.accountId} ${signal.symbol} ${signal.direction}: ${_guard.block}`);
+          return { success: false, error: `RISK GUARD: ${_guard.block}` };
+        }
+        if (_guard.maxVolume != null && Number(signal.volume) > _guard.maxVolume) {
+          console.warn(`[TradeLocker Execute] lot ${signal.volume} on ${signal.symbol} clamped to ${_guard.maxVolume} (account-size lot cap)`);
+          signal = { ...signal, volume: _guard.maxVolume };
+        }
+      }
+      const _pauseKey = `${connection2.id ?? connection2.accountId}|${String(signal.symbol).toUpperCase().split(".")[0]}|${signal.direction.toUpperCase()}`;
+      const _pausedUntil = rejectPauseUntil.get(_pauseKey) || 0;
+      if (Date.now() < _pausedUntil) {
+        const mins = Math.ceil((_pausedUntil - Date.now()) / 6e4);
+        return { success: false, error: `REJECT PAUSE: broker rejected this ${signal.symbol} ${signal.direction} on this account recently \u2014 not resending for ${mins} more min` };
+      }
+      const _isTransient = (msg) => /\b(429|5\d\d|1015)\b|rate.?limit|too many requests|timeout|timed out|network|ECONN|outcome unknown|<!doctype|<html/i.test(msg);
+      const _isBrokerReject = (msg) => {
+        const m = String(msg || "").slice(0, 300);
+        return !_isTransient(m) && /not valid|route is not active|instrument not found|forbidden|insufficient|market is closed|invalid/i.test(m);
+      };
+      console.log("[TradeLocker Execute] Placing order:", {
+        symbol: signal.symbol,
+        side: signal.direction.toLowerCase(),
+        type: resolvedType,
+        price: usePrice,
+        quantity: signal.volume
+      });
+      let orderResult;
+      try {
+        orderResult = await service.placeOrder({
+          symbol: signal.symbol,
+          side: signal.direction.toLowerCase(),
+          type: resolvedType,
+          quantity: signal.volume,
+          price: usePrice,
+          stopLoss: signal.stopLoss || void 0,
+          takeProfit: signal.takeProfit || void 0
+        });
+      } catch (e) {
+        const msg = e instanceof Error ? e.message : String(e);
+        if (_isBrokerReject(msg)) rejectPauseUntil.set(_pauseKey, Date.now() + REJECT_PAUSE_MS);
+        throw e;
+      }
+      console.log("[TradeLocker Execute] Order result:", orderResult);
+      if (orderResult.status === "rejected" && _isBrokerReject(String(orderResult.message || "rejected"))) {
+        rejectPauseUntil.set(_pauseKey, Date.now() + REJECT_PAUSE_MS);
+      }
+      return {
+        success: orderResult.status !== "rejected",
+        orderId: orderResult.orderId,
+        error: orderResult.status === "rejected" ? orderResult.message : void 0,
+        volume: signal.volume
+        // size ACTUALLY sent (after caps) — log this, not the request
+      };
+    } else if (signal.action === "CLOSE" || signal.action.toUpperCase() === "CLOSE") {
+      console.log("[TradeLocker Execute] Closing position:", signal.positionId);
+      if (!signal.positionId) {
+        return { success: false, error: "Position ID required for close action" };
+      }
+      const closeResult = await service.closePosition(signal.positionId);
+      return {
+        success: true,
+        orderId: closeResult.orderId
+      };
+    } else if (signal.action === "MODIFY" || signal.action.toUpperCase() === "MODIFY") {
+      if (!signal.positionId) {
+        return { success: false, error: "Position ID required for modify action" };
+      }
+      console.log("[TradeLocker Execute] Modifying position:", {
+        positionId: signal.positionId,
+        stopLoss: signal.stopLoss,
+        takeProfit: signal.takeProfit
+      });
+      const modifyResult = await service.modifyPosition(
+        signal.positionId,
+        signal.stopLoss != null ? signal.stopLoss : void 0,
+        signal.takeProfit != null ? signal.takeProfit : void 0
+      );
+      console.log("[TradeLocker Execute] Modify result:", modifyResult);
+      return {
+        success: modifyResult.success,
+        error: modifyResult.error
+      };
+    }
+    console.log("[TradeLocker Execute] Unknown action type:", signal.action);
+    return { success: false, error: `Unknown action type: ${signal.action}` };
+  } catch (error) {
+    console.error("[TradeLocker Execute] Error:", error);
+    if (connection2.id) serviceCache.delete(connection2.id);
+    return {
+      success: false,
+      error: error instanceof Error ? error.message : "Unknown error"
+    };
+  }
+}
+var IV_LENGTH2, DEFAULT_ENCRYPTION_KEY2, SALT_LENGTH2, INSTRUMENT_CACHE_TTL, instrumentCache, instrumentsListCache, serviceCache, SERVICE_CACHE_TTL, rejectPauseUntil, REJECT_PAUSE_MS, RETRY_DELAYS, RETRYABLE_STATUSES, TradeLockerReadError, AUTH_429_COOLDOWN_MS, authCooldownUntil, authChain, lastAuthAt, MIN_AUTH_GAP_MS, USDJPY_FALLBACK, _usdJpyLive, _usdJpyObserved, TradeLockerService, TL_VALUE_TTL, tlDayStartEquity;
+var init_tradelocker = __esm({
+  "server/tradelocker.ts"() {
+    "use strict";
+    IV_LENGTH2 = 16;
+    DEFAULT_ENCRYPTION_KEY2 = "vedd-tl-default-key-change-me-32chars!!";
+    SALT_LENGTH2 = 16;
+    INSTRUMENT_CACHE_TTL = 10 * 60 * 1e3;
+    instrumentCache = /* @__PURE__ */ new Map();
+    instrumentsListCache = /* @__PURE__ */ new Map();
+    serviceCache = /* @__PURE__ */ new Map();
+    SERVICE_CACHE_TTL = 50 * 60 * 1e3;
+    rejectPauseUntil = /* @__PURE__ */ new Map();
+    REJECT_PAUSE_MS = Number(process.env.TL_REJECT_PAUSE_MINUTES ?? 15) * 6e4;
+    RETRY_DELAYS = [1e3, 2e3];
+    RETRYABLE_STATUSES = /* @__PURE__ */ new Set([429, 500, 502, 503, 504]);
+    TradeLockerReadError = class extends Error {
+      status;
+      constructor(message, status) {
+        super(message);
+        this.name = "TradeLockerReadError";
+        this.status = status;
+      }
+    };
+    AUTH_429_COOLDOWN_MS = 5 * 60 * 1e3;
+    authCooldownUntil = /* @__PURE__ */ new Map();
+    authChain = Promise.resolve();
+    lastAuthAt = 0;
+    MIN_AUTH_GAP_MS = 1500;
+    USDJPY_FALLBACK = 150;
+    _usdJpyLive = null;
+    _usdJpyObserved = [];
+    TradeLockerService = class _TradeLockerService {
+      baseUrl;
+      accessToken = null;
+      refreshToken = null;
+      tokenExpiresAt = null;
+      accountId;
+      serverId;
+      accNum = "0";
+      accNumResolved = false;
+      connectionId = null;
+      accountDetailsConfig = null;
+      // cached column spec from /trade/config
+      onTokenRefresh = null;
+      onReauthenticate = null;
+      // Fired when resolveAccNum() corrects a mismatched accountId (see there) —
+      // wired up by getOrCreateService() to persist the correction to the DB.
+      onAccountIdCorrected = null;
+      constructor(accountType, accountId, serverId, cachedAccNum) {
+        this.baseUrl = accountType === "demo" ? "https://demo.tradelocker.com/backend-api" : "https://live.tradelocker.com/backend-api";
+        this.accountId = accountId.replace(/^#/, "").trim();
+        if (this.accountId !== accountId) {
+          console.log("[TradeLocker] Stripped # prefix from accountId:", accountId, "\u2192", this.accountId);
+        }
+        this.serverId = serverId;
+        if (cachedAccNum && cachedAccNum !== "0") {
+          this.accNum = cachedAccNum;
+          this.accNumResolved = true;
+          console.log("[TradeLocker] Using cached accNum:", cachedAccNum);
+        }
+      }
+      getResolvedAccNum() {
+        return this.accNum;
+      }
+      // The accountId TradeLocker's own /instruments, /state, /orders endpoints
+      // actually need — may differ from what was originally passed to the
+      // constructor if resolveAccNum() had to correct a mismatched ID (see there).
+      getResolvedAccountId() {
+        return this.accountId;
+      }
+      // Bypasses the accNumResolved short-circuit below — needed because the
+      // constructor marks accNumResolved=true whenever a cached accNum from a
+      // prior (possibly wrong) resolution exists, so a normal resolveAccNum()
+      // call would never re-run and never reach the accountId-correction logic.
+      async forceResolveAccNum() {
+        this.accNumResolved = false;
+        return this.resolveAccNum();
+      }
+      async resolveAccNum() {
+        if (this.accNumResolved && this.accNum !== "0") {
+          return this.accNum;
+        }
+        await this.ensureAuthenticated();
+        try {
+          const response = await fetch(`${this.baseUrl}/auth/jwt/all-accounts`, {
+            method: "GET",
+            headers: {
+              "Authorization": `Bearer ${this.accessToken}`,
+              "Content-Type": "application/json"
+            },
+            signal: AbortSignal.timeout(8e3)
+          });
+          if (response.ok) {
+            const data = await response.json();
+            console.log("[TradeLocker] All accounts raw response:", JSON.stringify(data));
+            const accounts = Array.isArray(data) ? data : data.accounts || data.d?.accounts || [];
+            if (accounts.length > 0) {
+              const account = accounts.find(
+                (acc) => acc.id?.toString() === this.accountId || acc.accountId?.toString() === this.accountId
+              );
+              if (account && account.accNum !== void 0) {
+                this.accNum = account.accNum.toString();
+                this.accNumResolved = true;
+                console.log("[TradeLocker] Found matching account, using accNum:", this.accNum);
+                return this.accNum;
+              } else {
+                const fallback = accounts[0];
+                this.accNum = fallback.accNum?.toString() ?? "1";
+                this.accNumResolved = true;
+                const realAccountId = fallback.id?.toString() ?? fallback.accountId?.toString();
+                if (realAccountId && realAccountId !== this.accountId) {
+                  console.log("[TradeLocker] accountId", this.accountId, "did not match any account \u2014 correcting to real account ID:", realAccountId);
+                  this.accountId = realAccountId;
+                  this.onAccountIdCorrected?.(realAccountId);
+                }
+                console.log("[TradeLocker] Using first account accNum:", this.accNum);
+                return this.accNum;
+              }
+            }
+          }
+        } catch (error) {
+          console.log("[TradeLocker] All-accounts endpoint failed:", error);
+        }
+        console.log("[TradeLocker] All-accounts returned empty, probing accNum values...");
+        for (const testNum of ["1", "2"]) {
+          try {
+            const testResponse = await fetch(`${this.baseUrl}/trade/accounts/${this.accountId}/instruments`, {
+              method: "GET",
+              headers: {
+                "Authorization": `Bearer ${this.accessToken}`,
+                "Content-Type": "application/json",
+                "accNum": testNum
+              },
+              signal: AbortSignal.timeout(5e3)
+            });
+            if (testResponse.ok) {
+              this.accNum = testNum;
+              this.accNumResolved = true;
+              console.log("[TradeLocker] Probing found valid accNum:", testNum);
+              return this.accNum;
+            }
+            console.log(`[TradeLocker] accNum ${testNum} failed: ${testResponse.status}`);
+          } catch (err) {
+            console.log(`[TradeLocker] accNum ${testNum} probe error`);
+          }
+        }
+        this.accNum = "1";
+        this.accNumResolved = true;
+        console.log("[TradeLocker] Could not resolve accNum, defaulting to 1");
+        return this.accNum;
+      }
+      async authenticate(email, password) {
+        console.log("[TradeLocker Auth] Attempting authentication:", {
+          baseUrl: this.baseUrl,
+          email,
+          serverId: this.serverId,
+          accountId: this.accountId
+        });
+        try {
+          const response = await serializeAuth(`login:${this.serverId}:${email}`, () => loginFetchWith429Retry(`${this.baseUrl}/auth/jwt/token`, {
+            email,
+            password,
+            server: this.serverId
+          }));
+          console.log("[TradeLocker Auth] Response status:", response.status);
+          if (!response.ok) {
+            const errorText = await response.text();
+            console.log("[TradeLocker Auth] Error response:", errorText);
+            throw new Error(`Authentication failed: ${response.status} - ${errorText}`);
+          }
+          const data = await response.json();
+          this.accessToken = data.accessToken;
+          this.refreshToken = data.refreshToken;
+          this.tokenExpiresAt = new Date(Date.now() + (data.expiresIn || 3600) * 1e3);
+          await this.resolveAccNum();
+          return {
+            accessToken: data.accessToken,
+            refreshToken: data.refreshToken,
+            expiresIn: data.expiresIn || 3600
+          };
+        } catch (error) {
+          console.error("TradeLocker authentication error:", error);
+          throw error;
+        }
+      }
+      async refreshAccessToken(refreshToken) {
+        try {
+          const response = await serializeAuth(`refresh:${this.serverId}`, () => loginFetchWith429Retry(`${this.baseUrl}/auth/jwt/refresh`, { refreshToken }));
+          if (!response.ok) {
+            throw new Error(`Token refresh failed: ${response.status}`);
+          }
+          const data = await response.json();
+          this.accessToken = data.accessToken;
+          this.refreshToken = data.refreshToken;
+          this.tokenExpiresAt = new Date(Date.now() + (data.expiresIn || 3600) * 1e3);
+          return {
+            accessToken: data.accessToken,
+            refreshToken: data.refreshToken,
+            expiresIn: data.expiresIn || 3600
+          };
+        } catch (error) {
+          console.error("TradeLocker token refresh error:", error);
+          throw error;
+        }
+      }
+      setTokens(accessToken, refreshToken, expiresAt) {
+        this.accessToken = accessToken;
+        this.refreshToken = refreshToken;
+        this.tokenExpiresAt = expiresAt || null;
+      }
+      async ensureAuthenticated() {
+        if (!this.accessToken) {
+          throw new Error("Not authenticated. Call authenticate() first.");
+        }
+        const TOKEN_BUFFER = 60 * 1e3;
+        if (this.tokenExpiresAt && (/* @__PURE__ */ new Date()).getTime() + TOKEN_BUFFER >= this.tokenExpiresAt.getTime() && this.refreshToken) {
+          const result = await this.refreshAccessToken(this.refreshToken);
+          if (this.onTokenRefresh) {
+            this.onTokenRefresh(result.accessToken, result.refreshToken, result.expiresIn);
+          }
+        }
+      }
+      /**
+       * Loads & caches the accountDetailsConfig column spec from /trade/config.
+       * The /state endpoint returns accountDetailsData as a flat array whose
+       * positions map to these columns (by `id`), so we need this to read balance.
+       */
+      async loadAccountDetailsConfig(accNum) {
+        if (this.accountDetailsConfig) return this.accountDetailsConfig;
+        const res = await fetch(`${this.baseUrl}/trade/config`, {
+          method: "GET",
+          headers: {
+            "Authorization": `Bearer ${this.accessToken}`,
+            "Content-Type": "application/json",
+            "accNum": accNum
+          },
+          signal: AbortSignal.timeout(8e3)
+        });
+        if (!res.ok) throw new Error(`config ${res.status}`);
+        const json2 = await res.json();
+        const cfg = json2?.d?.accountDetailsConfig ?? json2?.accountDetailsConfig ?? [];
+        const cols = Array.isArray(cfg) ? cfg : cfg?.columns ?? [];
+        this.accountDetailsConfig = cols;
+        return cols;
+      }
+      // Full /trade/config response, cached — used to resolve column order for
+      // any array-format response section (ordersHistoryConfig, positionsConfig,
+      // etc). TradeLocker returns rows as plain arrays whose column order is
+      // defined here, not as named-field objects — code that skipped this and
+      // read `row.symbol`/`row.profit` directly always got undefined/blank.
+      tradeConfigCache = null;
+      async loadTradeConfig() {
+        if (this.tradeConfigCache) return this.tradeConfigCache;
+        const res = await fetch(`${this.baseUrl}/trade/config`, {
+          method: "GET",
+          headers: { "Authorization": `Bearer ${this.accessToken}`, "Content-Type": "application/json", "accNum": this.accNum },
+          signal: AbortSignal.timeout(8e3)
+        });
+        if (!res.ok) throw new Error(`trade/config ${res.status}`);
+        const json2 = await res.json();
+        this.tradeConfigCache = json2?.d ?? json2 ?? {};
+        return this.tradeConfigCache;
+      }
+      async resolveColumns(configKey) {
+        try {
+          await this.ensureAuthenticated();
+          const cfg = await this.loadTradeConfig();
+          const cols = cfg?.[configKey]?.columns ?? [];
+          return cols.map((c) => String(c.id || c.name || "").toLowerCase());
+        } catch {
+          return [];
+        }
+      }
+      /** Normalize a label for fuzzy matching: lowercase, strip all non-alphanumerics */
+      normLabel(s) {
+        return (s ?? "").toString().toLowerCase().replace(/[^a-z0-9]/g, "");
+      }
+      /** Finds the value in a flat state-data array for a column matching any candidate id/title.
+       *  Matching is normalized (case/space/punctuation-insensitive) with exact-first then substring. */
+      pickStateValue(cols, data, candidates) {
+        const normCands = candidates.map((c) => this.normLabel(c));
+        for (const cand of normCands) {
+          const idx = cols.findIndex(
+            (c) => this.normLabel(c?.id) === cand || this.normLabel(c?.title) === cand
+          );
+          if (idx >= 0 && data[idx] != null) {
+            const n = parseFloat(data[idx]);
+            if (!isNaN(n)) return n;
+          }
+        }
+        for (const cand of normCands) {
+          const idx = cols.findIndex((c) => {
+            const id = this.normLabel(c?.id), title = this.normLabel(c?.title);
+            return id && (id === cand || id.includes(cand)) || title && (title === cand || title.includes(cand));
+          });
+          if (idx >= 0 && data[idx] != null) {
+            const n = parseFloat(data[idx]);
+            if (!isNaN(n)) return n;
+          }
+        }
+        return null;
+      }
+      /** Finds a value in an object-form state payload by normalized key match. */
+      pickObjValue(obj, candidates) {
+        const keys = Object.keys(obj);
+        const normCands = candidates.map((c) => this.normLabel(c));
+        for (const cand of normCands) {
+          let k = keys.find((key) => this.normLabel(key) === cand);
+          if (!k) k = keys.find((key) => this.normLabel(key).includes(cand));
+          if (k && obj[k] != null) {
+            const n = parseFloat(obj[k]);
+            if (!isNaN(n)) return n;
+          }
+        }
+        return null;
+      }
+      async getAccountInfo() {
+        await this.ensureAuthenticated();
+        if (!this.accNumResolved || this.accNum === "0") {
+          await this.resolveAccNum();
+        }
+        const accNum = this.accNum;
+        console.log("[TradeLocker] getAccountInfo using accNum:", accNum, "for accountId:", this.accountId);
+        try {
+          const [cols, stateRes] = await Promise.all([
+            this.loadAccountDetailsConfig(accNum).catch((e) => {
+              console.log("[TradeLocker] /config columns failed:", e instanceof Error ? e.message : e);
+              return [];
+            }),
+            fetch(`${this.baseUrl}/trade/accounts/${this.accountId}/state`, {
+              method: "GET",
+              headers: {
+                "Authorization": `Bearer ${this.accessToken}`,
+                "Content-Type": "application/json",
+                "accNum": accNum
+              },
+              signal: AbortSignal.timeout(8e3)
+            })
+          ]);
+          if (stateRes.ok) {
+            const stateJson = await stateRes.json();
+            const raw = stateJson?.d?.accountDetailsData ?? stateJson?.accountDetailsData;
+            let balance = null, equity = null;
+            let usedMargin = null, freeMargin = null;
+            if (Array.isArray(raw) && raw.length && Array.isArray(cols) && cols.length) {
+              balance = this.pickStateValue(cols, raw, ["balance", "accountbalance"]);
+              equity = this.pickStateValue(cols, raw, ["equity", "projectedbalance"]);
+              usedMargin = this.pickStateValue(cols, raw, ["marginused", "usedmargin", "blockedbalance", "margin"]);
+              freeMargin = this.pickStateValue(cols, raw, ["availablefunds", "marginavailable", "freemargin"]);
+            } else if (raw && typeof raw === "object" && !Array.isArray(raw)) {
+              balance = this.pickObjValue(raw, ["balance", "accountbalance"]);
+              equity = this.pickObjValue(raw, ["equity", "projectedbalance"]);
+              usedMargin = this.pickObjValue(raw, ["marginused", "usedmargin", "blockedbalance", "margin"]);
+              freeMargin = this.pickObjValue(raw, ["availablefunds", "marginavailable", "freemargin"]);
+            } else {
+              console.log("[TradeLocker] /state shape unexpected \u2014 cols:", Array.isArray(cols) ? cols.length : typeof cols, "data:", Array.isArray(raw) ? `array[${raw.length}]` : typeof raw);
+            }
+            if (balance != null) {
+              console.log("[TradeLocker] getAccountInfo via /state \u2014 balance:", balance, "equity:", equity);
+              return {
+                accountId: this.accountId,
+                balance,
+                equity: equity ?? balance,
+                margin: usedMargin ?? 0,
+                freeMargin: freeMargin ?? equity ?? balance,
+                currency: "USD"
+              };
+            }
+            console.log("[TradeLocker] /state returned but could not map balance; falling back to /accounts list");
+          } else {
+            console.log("[TradeLocker] /state endpoint status:", stateRes.status, "\u2014 falling back to /accounts list");
+          }
+        } catch (stateErr) {
+          console.log("[TradeLocker] /state path failed, falling back to /accounts list:", stateErr instanceof Error ? stateErr.message : stateErr);
+        }
+        try {
+          const response = await fetch(`${this.baseUrl}/trade/accounts`, {
+            method: "GET",
+            headers: {
+              "Authorization": `Bearer ${this.accessToken}`,
+              "Content-Type": "application/json",
+              "accNum": accNum
+            },
+            signal: AbortSignal.timeout(8e3)
+          });
+          if (!response.ok) {
+            const errorText = await response.text();
+            console.log("[TradeLocker] Account details error:", errorText);
+            throw new Error(`Failed to get account info: ${response.status} - ${errorText}`);
+          }
+          const data = await response.json();
+          console.log("[TradeLocker] Account details (list):", JSON.stringify(data));
+          const accounts = Array.isArray(data) ? data : Array.isArray(data?.d) ? data.d : data.accounts || data.d?.accounts || [];
+          const accountData = accounts.find(
+            (a) => a.id?.toString() === this.accountId || a.accountId?.toString() === this.accountId
+          ) || accounts[0];
+          if (!accountData || accountData.balance == null && accountData.accountBalance == null && accountData.projectedBalance == null) {
+            throw new Error("TradeLocker returned no usable account data \u2014 the account may have been reset/expired by the broker, or the response shape changed. Reconnect required.");
+          }
+          const balance = parseFloat(
+            accountData?.accountBalance ?? accountData?.balance ?? accountData?.projectedBalance ?? 0
+          ) || 0;
+          return {
+            accountId: accountData?.id?.toString() || this.accountId,
+            balance,
+            equity: parseFloat(accountData?.projectedBalance ?? accountData?.equity ?? balance) || balance,
+            margin: parseFloat(accountData?.usedMargin ?? accountData?.margin ?? 0) || 0,
+            freeMargin: parseFloat(accountData?.availableFunds ?? accountData?.freeMargin ?? balance) || balance,
+            currency: accountData?.currency || "USD"
+          };
+        } catch (error) {
+          console.error("TradeLocker get account info error:", error);
+          throw error;
+        }
+      }
+      /** Diagnostic: returns the raw shapes of /config, /state and /accounts for debugging balance issues. */
+      async debugAccountState() {
+        await this.ensureAuthenticated();
+        if (!this.accNumResolved || this.accNum === "0") await this.resolveAccNum();
+        const accNum = this.accNum;
+        const hdrs = {
+          "Authorization": `Bearer ${this.accessToken}`,
+          "Content-Type": "application/json",
+          "accNum": accNum
+        };
+        const out = { accountId: this.accountId, accNum, baseUrl: this.baseUrl };
+        try {
+          const r = await fetch(`${this.baseUrl}/trade/config`, { method: "GET", headers: hdrs, signal: AbortSignal.timeout(8e3) });
+          out.configStatus = r.status;
+          if (r.ok) {
+            const j = await r.json();
+            const cols = j?.d?.accountDetailsConfig ?? j?.accountDetailsConfig ?? [];
+            out.configColumns = Array.isArray(cols) ? cols.map((c) => ({ id: c?.id, title: c?.title })) : cols;
+          }
+        } catch (e) {
+          out.configError = e?.message ?? String(e);
+        }
+        try {
+          const r = await fetch(`${this.baseUrl}/trade/accounts/${this.accountId}/state`, { method: "GET", headers: hdrs, signal: AbortSignal.timeout(8e3) });
+          out.stateStatus = r.status;
+          if (r.ok) {
+            const j = await r.json();
+            out.stateData = j?.d?.accountDetailsData ?? j?.accountDetailsData ?? null;
+            out.stateDataType = Array.isArray(out.stateData) ? `array[${out.stateData.length}]` : typeof out.stateData;
+          } else {
+            out.stateBody = (await r.text()).slice(0, 300);
+          }
+        } catch (e) {
+          out.stateError = e?.message ?? String(e);
+        }
+        try {
+          const r = await fetch(`${this.baseUrl}/trade/accounts`, { method: "GET", headers: hdrs, signal: AbortSignal.timeout(8e3) });
+          out.accountsStatus = r.status;
+          if (r.ok) {
+            const j = await r.json();
+            const accts = Array.isArray(j) ? j : j.accounts || j.d?.accounts || [];
+            out.accountsSample = Array.isArray(accts) ? accts.slice(0, 3) : accts;
+          }
+        } catch (e) {
+          out.accountsError = e?.message ?? String(e);
+        }
+        return out;
+      }
+      // Shared, cached, rate-limit-aware instruments fetch. One network call per
+      // account per TTL serves EVERY symbol lookup (order placement, getInstruments,
+      // candle feed) so a burst of signals doesn't fire one /instruments request per
+      // symbol and hammer the broker into a 429. On 429/5xx it backs off and retries
+      // (RETRY_DELAYS) instead of throwing on the first rate-limit response — which
+      // is exactly what was aborting every auto-trade with
+      // "Failed to get instruments: 429 - <Cloudflare block page>".
+      async fetchInstrumentsPayload(forceRefresh = false) {
+        await this.ensureAuthenticated();
+        const listKey = `${this.baseUrl}:${this.accountId}`;
+        if (!forceRefresh) {
+          const cached = instrumentsListCache.get(listKey);
+          if (cached && Date.now() - cached.cachedAt < INSTRUMENT_CACHE_TTL) {
+            return { instruments: cached.instruments, routes: cached.routes ?? [] };
+          }
+        }
+        const doFetch = () => fetch(`${this.baseUrl}/trade/accounts/${this.accountId}/instruments`, {
+          method: "GET",
+          headers: {
+            "Authorization": `Bearer ${this.accessToken}`,
+            "Content-Type": "application/json",
+            "accNum": this.accNum
+          },
+          signal: AbortSignal.timeout(1e4)
+        });
+        let response = await doFetch();
+        if (response.status === 404) {
+          console.log("[TradeLocker] Instruments 404 for accountId", this.accountId, "\u2014 forcing accNum/accountId re-resolution");
+          await this.forceResolveAccNum();
+          response = await doFetch();
+        }
+        for (let i = 0; i < RETRY_DELAYS.length && RETRYABLE_STATUSES.has(response.status); i++) {
+          const delay = RETRY_DELAYS[i];
+          console.warn(`[TradeLocker] instruments ${response.status} \u2014 backing off ${delay}ms (retry ${i + 1}/${RETRY_DELAYS.length})`);
+          await new Promise((r) => setTimeout(r, delay));
+          response = await doFetch();
+        }
+        if (!response.ok) {
+          const errText = await response.text().catch(() => "");
+          throw new Error(`Failed to get instruments: ${response.status}${errText ? " - " + errText.slice(0, 120) : ""}`);
+        }
+        const data = await response.json();
+        const instruments = data?.d?.instruments ?? data?.instruments ?? (Array.isArray(data) ? data : []);
+        const routes = data?.d?.routes ?? data?.routes ?? [];
+        instrumentsListCache.set(listKey, { instruments, routes, cachedAt: Date.now() });
+        return { instruments, routes };
+      }
+      async getInstruments() {
+        try {
+          return (await this.fetchInstrumentsPayload()).instruments;
+        } catch (error) {
+          console.error("TradeLocker get instruments error:", error);
+          throw error;
+        }
+      }
+      async placeOrder(order) {
+        {
+          const _sl = Number(order.stopLoss);
+          if (!Number.isFinite(_sl) || _sl <= 0) {
+            console.error(`[TradeLocker] \u{1F6AB} NO-SL BLOCK (placeOrder): ${order.symbol} ${order.side} rejected \u2014 invalid stop loss (SL=${order.stopLoss}). Unprotected entry never allowed.`);
+            return { orderId: "", status: "rejected", message: `Blocked: no valid stop loss (SL=${order.stopLoss})` };
+          }
+        }
+        await this.ensureAuthenticated();
+        if (!this.accNumResolved || this.accNum === "0") {
+          await this.resolveAccNum();
+        }
+        try {
+          console.log("[TradeLocker] Placing order with accNum:", this.accNum, "(type:", typeof this.accNum, ") accountId:", this.accountId);
+          console.log("[TradeLocker] Order details:", order);
+          let tradableInstrumentId = null;
+          let routeId = null;
+          const instCacheKey = `${this.baseUrl}:${this.accountId}:${order.symbol.toUpperCase()}`;
+          const cachedInst = instrumentCache.get(instCacheKey);
+          if (cachedInst && Date.now() - cachedInst.cachedAt < INSTRUMENT_CACHE_TTL) {
+            tradableInstrumentId = cachedInst.tradableInstrumentId;
+            routeId = cachedInst.routeId;
+            console.log("[TradeLocker] Instrument cache HIT:", order.symbol, "\u2192 id:", tradableInstrumentId, "route:", routeId);
+          } else {
+            console.log("[TradeLocker] Instrument cache MISS \u2014 fetching instruments (shared cache + 429 backoff)...");
+            const { instruments, routes } = await this.fetchInstrumentsPayload();
+            if (Array.isArray(instruments)) {
+              const sym = order.symbol.toUpperCase();
+              const symVariants = [sym];
+              const suffixes = [".pro", "m", ".m", ".z", ".a", ".b", ".c", ".r", "_raw", ".ecn", ".stp", ".pro+", "PRO"];
+              for (const sfx of suffixes) {
+                symVariants.push(sym + sfx.toUpperCase());
+                symVariants.push(sym + sfx);
+              }
+              const strippedSym = sym.replace(/[._]?(PRO|ECN|STP|RAW|M|Z|A|B|C|R)\+?$/i, "");
+              if (strippedSym !== sym) symVariants.push(strippedSym);
+              const ALIASES = {
+                "XAUUSD": ["GOLD", "XAU/USD", "GOLD/USD", "XAUUSD.PRO", "XAUUSDPRO"],
+                "GOLD": ["XAUUSD", "XAU/USD"],
+                "XAGUSD": ["SILVER", "XAG/USD"],
+                "SILVER": ["XAGUSD", "XAG/USD"],
+                "USOIL": ["WTI", "CRUDE", "OIL", "USOUSD"],
+                "UKOIL": ["BRENT", "BRENTOIL"],
+                "NAS100": ["USTEC", "NDX100", "NASDAQ100", "US100", "NQ100"],
+                "US500": ["SPX500", "SP500", "US500", "SPX"],
+                "US30": ["DJ30", "WALLST30", "DJI30"],
+                "GER40": ["DAX40", "DE40", "GER30", "GER"],
+                "UK100": ["FTSE100", "UKX"],
+                "JP225": ["JPN225", "NIKKEI", "N225"]
+              };
+              const knownAliases = ALIASES[sym] || [];
+              for (const alias of knownAliases) {
+                symVariants.push(alias);
+                symVariants.push(alias.replace("/", ""));
+              }
+              const seen = /* @__PURE__ */ new Set();
+              const uniqueVariants = symVariants.filter((v) => {
+                if (seen.has(v)) return false;
+                seen.add(v);
+                return true;
+              });
+              console.log("[TradeLocker] Trying symbol variants:", uniqueVariants.slice(0, 10));
+              let matchedInstrument = null;
+              for (const variant of uniqueVariants) {
+                const found = instruments.find((inst) => {
+                  const instName = (inst.name || inst.symbol || "").toUpperCase().replace(/\s/g, "");
+                  const instDesc = (inst.description || inst.fullName || "").toUpperCase().replace(/\s/g, "");
+                  const v = variant.toUpperCase().replace(/\s/g, "");
+                  return instName === v || instDesc === v;
+                });
+                if (found) {
+                  matchedInstrument = found;
+                  console.log("[TradeLocker] Matched symbol variant:", variant, "\u2192", found.name, "tradableInstrumentId:", found.tradableInstrumentId || found.id);
+                  break;
+                }
+              }
+              if (matchedInstrument) {
+                tradableInstrumentId = matchedInstrument.tradableInstrumentId || matchedInstrument.id;
+                const instRoutes = Array.isArray(matchedInstrument.routes) ? matchedInstrument.routes : [];
+                console.log("[TradeLocker] Instrument routes:", JSON.stringify(instRoutes));
+                if (instRoutes.length > 0) {
+                  const tradeRoute = instRoutes.find((r) => r.type === "TRADE" || r.name === "TRADE") ?? instRoutes[0];
+                  routeId = tradeRoute.id;
+                  console.log("[TradeLocker] Using routeId", routeId, "from instrument routes");
+                }
+              }
+              if (Array.isArray(instruments) && instruments.length > 0) {
+                const sample = instruments.find((i) => (i.name || i.symbol || "").toUpperCase().includes(order.symbol.toUpperCase().slice(0, 3))) || instruments[0];
+                console.log("[TradeLocker] Sample instrument structure:", JSON.stringify(sample));
+              }
+            }
+            if (!routeId && Array.isArray(routes) && routes.length > 0) {
+              const tradeRoute = routes.find((r) => r.name === "TRADE" || r.type === "TRADE") ?? routes[0];
+              routeId = tradeRoute.id;
+              console.log("[TradeLocker] Using routeId", routeId, "from global routes fallback");
+            }
+            if (!tradableInstrumentId) {
+              const availableNames = Array.isArray(instruments) ? instruments.slice(0, 30).map((i) => i.name || i.symbol).filter(Boolean).join(", ") : "none";
+              throw new Error(
+                `Instrument not found: ${order.symbol}. Available symbols (first 30): ${availableNames}. Check the Instruments button on your TradeLocker connection to see exact names.`
+              );
+            }
+            if (!routeId) {
+              routeId = 1;
+              console.warn('[TradeLocker] WARNING: Could not find routeId from instrument or global routes. Defaulting to 1 \u2014 may cause "route forbidden".');
+            }
+            instrumentCache.set(instCacheKey, { tradableInstrumentId, routeId, cachedAt: Date.now() });
+            console.log("[TradeLocker] Instrument cached:", order.symbol, "\u2192 id:", tradableInstrumentId, "route:", routeId);
+          }
+          const orderPayload = {
+            tradableInstrumentId,
+            routeId: routeId || "TRADE",
+            // Use numeric routeId or string "TRADE" as fallback
+            qty: order.quantity,
+            side: order.side,
+            type: order.type,
+            validity: order.type === "market" ? "IOC" : "GTC",
+            price: 0
+            // Required field - 0 for market orders
+          };
+          const px = (v) => roundToTick(order.symbol, v);
+          if ((order.type === "limit" || order.type === "stop") && order.price) {
+            orderPayload.price = px(order.price);
+          }
+          if (order.stopLoss) {
+            orderPayload.stopLoss = px(order.stopLoss);
+            orderPayload.stopLossType = "absolute";
+          }
+          if (order.takeProfit) {
+            orderPayload.takeProfit = px(order.takeProfit);
+            orderPayload.takeProfitType = "absolute";
+          }
+          console.log("[TradeLocker] Order payload:", JSON.stringify(orderPayload));
+          let response = null;
+          let responseText = "";
+          let lastError = null;
+          let preIds = null;
+          if (order.type === "market") {
+            try {
+              preIds = new Set((await this.getPositionsNormalized()).map((p) => p.id));
+            } catch {
+              preIds = null;
+            }
+          }
+          const symKey = order.symbol.toUpperCase().replace(/[^A-Z0-9]/g, "");
+          const resolveAmbiguous = async (why) => {
+            if (preIds) {
+              try {
+                const now = await this.getPositionsNormalized();
+                const landed = now.find((p) => !preIds.has(p.id) && p.side === order.side && (p.symbol.toUpperCase().replace(/[^A-Z0-9]/g, "").startsWith(symKey) || p.symbol === String(tradableInstrumentId)));
+                if (landed) {
+                  console.warn(`[TradeLocker] ${why} \u2014 but a new ${order.symbol} ${order.side} position ${landed.id} appeared, so the order DID fill. Not resending.`);
+                  return { orderId: landed.id, status: "submitted", filledQuantity: landed.qty, filledPrice: landed.avgPrice, message: `Order filled (confirmed from positions after ${why}; id is the position id)` };
+                }
+                return null;
+              } catch {
+              }
+            }
+            console.error(`[TradeLocker] ${why} \u2014 could not verify whether ${order.symbol} filled. NOT retrying, to avoid a duplicate position. Check the account.`);
+            return { orderId: "", status: "rejected", message: `Outcome unknown after ${why} \u2014 not retried to avoid a duplicate order. Check the account for an open ${order.symbol} position.` };
+          };
+          for (let attempt = 0; attempt <= RETRY_DELAYS.length; attempt++) {
+            try {
+              response = await fetch(`${this.baseUrl}/trade/accounts/${this.accountId}/orders`, {
+                method: "POST",
+                headers: {
+                  "Authorization": `Bearer ${this.accessToken}`,
+                  "Content-Type": "application/json",
+                  "accNum": this.accNum
+                },
+                body: JSON.stringify(orderPayload)
+              });
+              responseText = await response.text();
+              console.log(`[TradeLocker] Order response (attempt ${attempt + 1}): status=${response.status} body=${responseText.substring(0, 300)}`);
+              if (response.ok) break;
+              if (response.status === 401 && attempt < RETRY_DELAYS.length) {
+                console.log("[TradeLocker] 401 on order \u2014 forcing full re-auth before retry...");
+                try {
+                  if (this.onReauthenticate) {
+                    await this.onReauthenticate();
+                  } else if (this.refreshToken) {
+                    const result = await this.refreshAccessToken(this.refreshToken);
+                    if (this.onTokenRefresh) {
+                      this.onTokenRefresh(result.accessToken, result.refreshToken, result.expiresIn);
+                    }
+                  }
+                } catch (authErr) {
+                  console.log("[TradeLocker] Re-auth failed during 401 retry:", authErr.message);
+                }
+                await new Promise((r) => setTimeout(r, RETRY_DELAYS[attempt]));
+                continue;
+              }
+              if (RETRYABLE_STATUSES.has(response.status) && attempt < RETRY_DELAYS.length) {
+                console.log(`[TradeLocker] Retryable status ${response.status} \u2014 waiting ${RETRY_DELAYS[attempt]}ms before retry ${attempt + 2}...`);
+                await new Promise((r) => setTimeout(r, RETRY_DELAYS[attempt]));
+                if (response.status !== 429) {
+                  const settled = await resolveAmbiguous(`HTTP ${response.status}`);
+                  if (settled) return settled;
+                }
+                continue;
+              }
+              throw new Error(`Order placement failed: ${response.status} - ${responseText}`);
+            } catch (err) {
+              lastError = err;
+              if (attempt < RETRY_DELAYS.length && !responseText) {
+                console.log(`[TradeLocker] Network error on attempt ${attempt + 1}: ${lastError.message} \u2014 retrying in ${RETRY_DELAYS[attempt]}ms...`);
+                await new Promise((r) => setTimeout(r, RETRY_DELAYS[attempt]));
+                const settled = await resolveAmbiguous(`network error (${lastError.message})`);
+                if (settled) return settled;
+                continue;
+              }
+              throw lastError;
+            }
+          }
+          if (!response || !response.ok) {
+            throw lastError || new Error("Order placement failed after retries");
+          }
+          const data = JSON.parse(responseText);
+          if (data.s !== "ok") {
+            const errorDetails = [];
+            if (data.errmsg) errorDetails.push(data.errmsg);
+            if (data.d?.errmsg) errorDetails.push(data.d.errmsg);
+            if (data.d?.message) errorDetails.push(data.d.message);
+            if (data.d?.messages && Array.isArray(data.d.messages)) errorDetails.push(...data.d.messages);
+            if (data.d?.error) errorDetails.push(data.d.error);
+            if (data.d?.errorCode) errorDetails.push(`Code: ${data.d.errorCode}`);
+            if (data.message) errorDetails.push(data.message);
+            if (data.error) errorDetails.push(data.error);
+            const errorMsg = errorDetails.length > 0 ? errorDetails.join(" | ") : `Rejected (status: ${data.s}, raw: ${responseText.substring(0, 200)})`;
+            console.log("[TradeLocker] Order rejected - Full response:", responseText);
+            console.log("[TradeLocker] Parsed error:", errorMsg);
+            return {
+              orderId: "",
+              status: "rejected",
+              message: errorMsg
+            };
+          }
+          const orderId = data.d?.orderId || data.d?.id || data.orderId || data.id;
+          if (!orderId) {
+            console.log("[TradeLocker] No orderId in response:", data);
+            return {
+              orderId: "",
+              status: "rejected",
+              message: "No order ID returned - order may not have been placed"
+            };
+          }
+          console.log("[TradeLocker] Order successfully placed with orderId:", orderId);
+          return {
+            orderId: orderId.toString(),
+            status: "submitted",
+            filledQuantity: data.d?.filledQty || data.filledQuantity,
+            filledPrice: data.d?.avgPrice || data.filledPrice,
+            message: "Order placed successfully"
+          };
+        } catch (error) {
+          console.error("TradeLocker place order error:", error);
+          throw error;
+        }
+      }
+      /**
+       * Fetch OHLCV candlestick bars for a symbol from TradeLocker.
+       * Returns candles in ascending time order (oldest first), same shape as MT5 cache:
+       * { t, o, h, l, c, v }
+       */
+      async getCandlesticks(symbol, resolutionMinutes = 5, fromTs, toTs) {
+        await this.ensureAuthenticated();
+        await this.resolveAccNum();
+        const instCacheKey = `${this.baseUrl}:${this.accountId}:${symbol.toUpperCase()}`;
+        let tradableInstrumentId = null;
+        let infoRouteId = null;
+        const cached = instrumentCache.get(instCacheKey);
+        if (cached && cached.infoRouteId != null && Date.now() - cached.cachedAt < INSTRUMENT_CACHE_TTL) {
+          tradableInstrumentId = cached.tradableInstrumentId;
+          infoRouteId = cached.infoRouteId;
+        } else {
+          const { instruments } = await this.fetchInstrumentsPayload();
+          const sym = symbol.toUpperCase();
+          const ALIASES = {
+            "XAUUSD": ["GOLD", "XAU/USD"],
+            "NAS100": ["USTEC", "US100", "NDX100"],
+            "US30": ["DJ30", "WALLST30"],
+            "US500": ["SPX500", "SP500", "SPX"]
+          };
+          const variants = [sym, ...ALIASES[sym] || []];
+          let matched = null;
+          for (const v of variants) {
+            matched = instruments.find((i) => (i.name || i.symbol || "").toUpperCase().replace(/\s/g, "") === v.replace(/\s/g, ""));
+            if (matched) break;
+          }
+          if (!matched) throw new Error(`Instrument not found in TradeLocker: ${symbol}`);
+          tradableInstrumentId = matched.tradableInstrumentId || matched.id;
+          const routes = Array.isArray(matched.routes) ? matched.routes : [];
+          const tradeRouteId = (routes.find((r) => r.type === "TRADE" || r.name === "TRADE") ?? routes[0])?.id ?? 1;
+          infoRouteId = (routes.find((r) => r.type === "INFO" || r.name === "INFO") ?? routes[0])?.id ?? tradeRouteId;
+          instrumentCache.set(instCacheKey, { tradableInstrumentId, routeId: tradeRouteId, infoRouteId, cachedAt: Date.now() });
+        }
+        const resolution = resolutionMinutes >= 1440 ? "1D" : resolutionMinutes >= 60 ? String(resolutionMinutes / 60) + "h" : String(resolutionMinutes) + "m";
+        const nowMs = Date.now();
+        const fromMs = fromTs != null ? fromTs * 1e3 : nowMs - 864e5;
+        const toMs = toTs != null ? toTs * 1e3 : nowMs;
+        const url = `${this.baseUrl}/trade/history?routeId=${infoRouteId}&tradableInstrumentId=${tradableInstrumentId}&resolution=${resolution}&from=${fromMs}&to=${toMs}`;
+        let histResp = null;
+        const backoffs = [400, 900];
+        for (let attempt = 0; ; attempt++) {
+          histResp = await fetch(url, {
+            headers: { "Authorization": `Bearer ${this.accessToken}`, "Content-Type": "application/json", "accNum": this.accNum }
+          });
+          if (histResp.status !== 429 || attempt >= backoffs.length) break;
+          await new Promise((r) => setTimeout(r, backoffs[attempt]));
+        }
+        if (!histResp.ok) {
+          const txt = await histResp.text();
+          throw new Error(`TradeLocker history error: ${histResp.status} \u2014 ${txt}`);
+        }
+        const histData = await histResp.json();
+        const bars = histData.d?.barDetails || histData.d?.bars || histData.barDetails || histData.bars || [];
+        return bars.map((b) => ({
+          t: b.t ?? b.time ?? b.timestamp ?? 0,
+          o: b.o ?? b.open ?? 0,
+          h: b.h ?? b.high ?? 0,
+          l: b.l ?? b.low ?? 0,
+          c: b.c ?? b.close ?? 0,
+          v: b.v ?? b.volume ?? 0
+        })).sort((a, b) => a.t - b.t);
+      }
+      async closePosition(positionId) {
+        await this.ensureAuthenticated();
+        try {
+          const response = await fetch(`${this.baseUrl}/trade/accounts/${this.accountId}/positions/${positionId}/close`, {
+            method: "POST",
+            headers: {
+              "Authorization": `Bearer ${this.accessToken}`,
+              "Content-Type": "application/json",
+              "accNum": this.accNum
+            }
+          });
+          if (!response.ok) {
+            const errorText = await response.text();
+            throw new Error(`Position close failed: ${response.status} - ${errorText}`);
+          }
+          const data = await response.json();
+          if (data.s && data.s !== "ok") {
+            throw new Error(`Position close rejected by broker: ${data.errmsg || JSON.stringify(data)}`);
+          }
+          return {
+            orderId: data.orderId || positionId,
+            status: "closed",
+            message: data.message
+          };
+        } catch (error) {
+          console.error("TradeLocker close position error:", error);
+          throw error;
+        }
+      }
+      // Approximate $ value per unit of price movement per 1.0 qty — TradeLocker's
+      // order/position endpoints report raw price levels, not realized $ P&L, so
+      // this is needed to convert (exit - entry) * qty into an actual dollar
+      // figure. Not exact (real pip/point values vary by broker/instrument
+      // spec), but far closer than treating a JPY-pair price difference or a
+      // 0.00001-precision FX price as if it were already in dollars.
+      /**
+       * Strip broker decoration so symbol tests actually match. White-labels ship
+       * the same instrument as `EURUSD`, `EUR/USD`, `EURUSD.PRO`, `EURUSD-ECN`,
+       * `EURUSD_raw` … Previously an undecorated-only comparison meant `XAUUSD.PRO`
+       * missed the gold branch and fell through to multiplier 1 (100x understated,
+       * audited 2026-09-18: 4 live rows booked at $7.07 instead of ~$707).
+       */
+      static normalizeSymbol(symbol) {
+        return String(symbol ?? "").toUpperCase().split(".")[0].replace(/[^A-Z0-9]/g, "");
+      }
+      /**
+       * Contract size: units of the BASE asset per 1.0 of reported qty. This is the
+       * `(exit - entry) * qty * size` term only — it yields a figure in the QUOTE
+       * currency, which `quoteToUsd` then converts. Keeping the two concerns apart
+       * is deliberate: the old single "multiplier" tried to do both at once and got
+       * both wrong for non-USD-quoted instruments.
+       *
+       * Previous bug (fixed 2026-09-19): the crypto/index line read
+       *   `if (s.includes('BTC') || s.includes('ETH') || /^[A-Z]{2,5}USD$/.test(s) === false) return 1;`
+       * which returned BEFORE the 6-char FX line for every pair NOT ending in USD.
+       * EURGBP/AUDCAD/GBPCHF etc. were therefore booked at multiplier 1 — i.e. a
+       * ~100,000x understatement. Confirmed live: 7 AUDCAD rows booked at
+       * -$0.0008 total, which the sync then dropped as "zero P&L = not closed",
+       * leaving them PENDING forever.
+       */
+      static contractSize(symbol) {
+        const s = _TradeLockerService.normalizeSymbol(symbol);
+        if (s.startsWith("XAU") || s === "GOLD") return 100;
+        if (s.startsWith("XAG") || s === "SILVER") return 5e3;
+        if (s.startsWith("XPT") || s.startsWith("XPD")) return 100;
+        if (/^(BTC|ETH|LTC|XRP|BCH|ADA|SOL|DOGE|DOT|ETC|LINK)/.test(s)) return 1;
+        if (/^[A-Z]{6}$/.test(s)) return 1e5;
+        return 1;
+      }
+      /**
+       * Fetch filled/closed orders from TradeLocker's actual order-history
+       * endpoint. TradeLocker returns rows as plain arrays whose column order is
+       * defined by /trade/config's ordersHistoryConfig — NOT named-field
+       * objects — so column order is resolved dynamically (same pattern
+       * getPositionsNormalized already uses for /positions) rather than reading
+       * row.symbol/row.profit directly, which always returned undefined/blank.
+       * Returns normalised array: { id, symbol, side, qty, avgPrice, status, createdDate, positionId }
+       */
+      async getFilledOrders(fromTs) {
+        await this.ensureAuthenticated();
+        try {
+          const columns = await this.resolveColumns("ordersHistoryConfig");
+          const idx = (name) => columns.indexOf(name.toLowerCase());
+          const iId = idx("id"), iInst = idx("tradableInstrumentId"), iSide = idx("side"), iQty = idx("qty"), iAvg = idx("avgPrice"), iStatus = idx("status"), iCreated = idx("createdDate"), iPosId = idx("positionId");
+          const toMs = Date.now();
+          const fromMs = fromTs ? fromTs * 1e3 : toMs - 90 * 24 * 60 * 60 * 1e3;
+          const histUrl = `${this.baseUrl}/trade/accounts/${this.accountId}/ordersHistory?from=${fromMs}&to=${toMs}`;
+          let response = null;
+          for (let attempt = 0; attempt <= RETRY_DELAYS.length; attempt++) {
+            response = await fetch(histUrl, {
+              method: "GET",
+              headers: { "Authorization": `Bearer ${this.accessToken}`, "Content-Type": "application/json", "accNum": this.accNum }
+            });
+            if (response.ok) break;
+            if (!RETRYABLE_STATUSES.has(response.status) || attempt === RETRY_DELAYS.length) break;
+            console.warn(`[TradeLocker] ordersHistory ${response.status} \u2014 retry ${attempt + 1}/${RETRY_DELAYS.length}`);
+            await new Promise((r) => setTimeout(r, RETRY_DELAYS[attempt]));
+          }
+          if (!response || !response.ok) {
+            throw new TradeLockerReadError(
+              `ordersHistory read failed (${response?.status ?? "no response"}) \u2014 refusing to report an empty fill history`,
+              response?.status
+            );
+          }
+          const data = await response.json();
+          const rows = data?.d?.ordersHistory || data?.ordersHistory || [];
+          const instruments = await this.getInstruments().catch(() => []);
+          const instMap = /* @__PURE__ */ new Map();
+          for (const inst of instruments) {
+            const id = String(inst.tradableInstrumentId ?? inst.id ?? "");
+            if (id) instMap.set(id, inst.name || inst.symbol || id);
+          }
+          return rows.map((row) => {
+            const instId = iInst >= 0 ? String(row[iInst]) : "";
+            const createdMs = iCreated >= 0 ? Number(row[iCreated]) : 0;
+            return {
+              id: iId >= 0 ? String(row[iId]) : "",
+              symbol: instMap.get(instId) || instId,
+              side: iSide >= 0 ? String(row[iSide]).toLowerCase() : "",
+              qty: iQty >= 0 ? parseFloat(row[iQty]) || 0 : 0,
+              avgPrice: iAvg >= 0 ? parseFloat(row[iAvg]) || 0 : 0,
+              status: iStatus >= 0 ? String(row[iStatus]) : "",
+              closeTime: createdMs ? new Date(createdMs).toISOString() : null,
+              positionId: iPosId >= 0 ? String(row[iPosId]) : ""
+            };
+          }).filter((o) => /^(filled|executed)$/i.test(o.status)).filter((o) => {
+            if (!fromTs || !o.closeTime) return true;
+            return new Date(o.closeTime).getTime() >= fromTs * 1e3;
+          });
+        } catch (err) {
+          if (err instanceof TradeLockerReadError) throw err;
+          console.error("[TradeLocker] getFilledOrders error:", err.message);
+          return [];
+        }
+      }
+      /**
+       * Pairs each position's entry and exit fills (matched by positionId) to
+       * compute realized P&L per closed trade — TradeLocker's order/position
+       * data reports price levels, not a ready-made "profit" field, so this
+       * does the pairing + $ conversion that server/routes.ts's outcome-sync
+       * previously assumed already existed on each row (it never did — every
+       * synced "trade" silently had profit=0 and got skipped).
+       * Returns: { id, symbol, side, qty, profit, openPrice, closePrice, closeTime }[]
+       * — one entry per CLOSED position (positions with only one fill, i.e.
+       * still open, are excluded).
+       */
+      /** Position ids currently OPEN at the broker, or null when the open book
+       *  could not be read. Null is meaningful: callers must NOT treat "couldn't
+       *  read" as "nothing is open", or every position would look closed. */
+      async getOpenPositionIds() {
+        for (let attempt = 0; attempt < 3; attempt++) {
+          try {
+            const raw = await this.getPositions();
+            if (!Array.isArray(raw)) return null;
+            const ids = /* @__PURE__ */ new Set();
+            for (const p of raw) {
+              const id = Array.isArray(p) ? p[0] : p?.id ?? p?.positionId;
+              if (id != null && String(id).length > 0) ids.add(String(id));
+            }
+            return ids;
+          } catch (e) {
+            const transient = /429|rate.?limit|timeout|ECONN|502|503|504/i.test(e?.message || "");
+            if (!transient || attempt === 2) {
+              console.warn(`[TradeLocker] open-book read failed (${e?.message}) \u2014 close detection falls back to the conservative time guard for this pass.`);
+              return null;
+            }
+            await new Promise((r) => setTimeout(r, 1e3 * (attempt + 1)));
+          }
+        }
+        return null;
+      }
+      async getClosedTradesWithPnl(fromTs) {
+        const openIds = await this.getOpenPositionIds();
+        const fills = await this.getFilledOrders(fromTs ? fromTs - 30 * 24 * 3600 : void 0);
+        const byPosition = /* @__PURE__ */ new Map();
+        for (const f of fills) {
+          if (_TradeLockerService.normalizeSymbol(f.symbol) === "USDJPY" && Number(f.avgPrice) > 0) {
+            noteUsdJpyObservation(new Date(f.closeTime).getTime(), Number(f.avgPrice));
+          }
+          if (!f.positionId) continue;
+          if (!byPosition.has(f.positionId)) byPosition.set(f.positionId, []);
+          byPosition.get(f.positionId).push(f);
+        }
+        const closed = [];
+        for (const [positionId, legs] of Array.from(byPosition)) {
+          if (legs.length < 2) continue;
+          legs.sort((a, b) => new Date(a.closeTime).getTime() - new Date(b.closeTime).getTime());
+          const buys = legs.filter((l) => String(l.side).toLowerCase() === "buy");
+          const sells = legs.filter((l) => String(l.side).toLowerCase() === "sell");
+          if (buys.length === 0 || sells.length === 0) continue;
+          const sumQty = (arr2) => arr2.reduce((s, l) => s + (Number(l.qty) || 0), 0);
+          const wAvg = (arr2) => {
+            const q = sumQty(arr2);
+            return q > 0 ? arr2.reduce((s, l) => s + Number(l.avgPrice) * (Number(l.qty) || 0), 0) / q : 0;
+          };
+          const buyQty = sumQty(buys), sellQty = sumQty(sells);
+          const closedQty = Math.min(buyQty, sellQty);
+          if (!(closedQty > 0)) continue;
+          const direction = String(legs[0].side).toLowerCase();
+          const buyAvg = wAvg(buys), sellAvg = wAvg(sells);
+          const openAvg = direction === "buy" ? buyAvg : sellAvg;
+          const exitAvg = direction === "buy" ? sellAvg : buyAvg;
+          const priceDiff = direction === "buy" ? exitAvg - openAvg : openAvg - exitAvg;
+          const closingLegs = direction === "buy" ? sells : buys;
+          const closeTime = closingLegs[closingLegs.length - 1]?.closeTime || legs[legs.length - 1].closeTime;
+          const openMs = new Date(legs[0].closeTime).getTime();
+          const closeMs = new Date(closeTime).getTime();
+          if (openIds) {
+            if (openIds.has(String(positionId))) continue;
+          } else if (isFinite(openMs) && isFinite(closeMs) && closeMs - openMs < 6e4) {
+            continue;
+          }
+          if (fromTs && closeMs < fromTs * 1e3) continue;
+          const _symN = _TradeLockerService.normalizeSymbol(legs[0].symbol);
+          const _quote = /^[A-Z]{6}$/.test(_symN) ? _symN.slice(3) : "USD";
+          let _quoteToUsd = 1;
+          if (_quote === "JPY") {
+            const _usdJpy = _symN === "USDJPY" && exitAvg > 0 ? exitAvg : usdJpyAt(new Date(closeTime).getTime());
+            _quoteToUsd = _usdJpy > 0 ? 1 / _usdJpy : 0;
+          } else if (_quote !== "USD" && /^[A-Z]{6}$/.test(_symN)) {
+            _quoteToUsd = 1;
+          }
+          const profit = priceDiff * closedQty * _TradeLockerService.contractSize(legs[0].symbol) * _quoteToUsd;
+          const _fxConverted = _quote === "USD" || _quote === "JPY" ? true : !/^[A-Z]{6}$/.test(_symN);
+          closed.push({
+            id: legs[legs.length - 1].id,
+            positionId,
+            symbol: legs[0].symbol,
+            side: direction,
+            qty: closedQty,
+            profit,
+            openPrice: openAvg,
+            closePrice: exitAvg,
+            openTime: legs[0].closeTime,
+            closeTime,
+            quoteCurrency: _quote,
+            // false => `profit` is in quoteCurrency, NOT USD (no rate available).
+            usdConverted: _fxConverted
+          });
+        }
+        return closed;
+      }
+      /**
+       * Fetch CLOSED positions (realized P&L) — now backed by the same
+       * ordersHistory + position-pairing logic as getClosedTradesWithPnl,
+       * shaped to match this method's original consumer expectations.
+       */
+      async getClosedPositions(fromTs) {
+        const closed = await this.getClosedTradesWithPnl(fromTs);
+        return closed.map((c) => ({ id: c.id, positionId: c.positionId, symbol: c.symbol, side: c.side, profit: c.profit, closeTime: c.closeTime, qty: c.qty, openPrice: c.openPrice, closePrice: c.closePrice }));
+      }
+      async getPositions() {
+        await this.ensureAuthenticated();
+        try {
+          const response = await fetch(`${this.baseUrl}/trade/accounts/${this.accountId}/positions`, {
+            method: "GET",
+            headers: {
+              "Authorization": `Bearer ${this.accessToken}`,
+              "Content-Type": "application/json",
+              "accNum": this.accNum
+            }
+          });
+          if (!response.ok) {
+            throw new Error(`Failed to get positions: ${response.status}`);
+          }
+          const data = await response.json();
+          return Array.isArray(data) ? data : data?.d?.positions || data?.positions || [];
+        } catch (error) {
+          console.error("TradeLocker get positions error:", error);
+          throw error;
+        }
+      }
+      // Normalized open positions — handles BOTH response shapes TradeLocker uses:
+      // object rows (named fields) and column-array rows (order defined by
+      // /trade/config's positionsConfig). Also maps tradableInstrumentId → symbol
+      // via the instruments list so the UI can show real pair names.
+      async getPositionsNormalized() {
+        const raw = await this.getPositions();
+        if (!raw || raw.length === 0) return [];
+        let instMap = /* @__PURE__ */ new Map();
+        try {
+          const instruments = await this.getInstruments();
+          for (const inst of instruments) {
+            const id = String(inst.tradableInstrumentId ?? inst.id ?? "");
+            if (id) instMap.set(id, inst.name || inst.symbol || id);
+          }
+        } catch {
+        }
+        const norm3 = (v) => parseFloat(v) || 0;
+        const toIsoDate = (v) => {
+          if (v == null || v === "") return void 0;
+          const n = typeof v === "number" ? v : /^\d+(\.\d+)?$/.test(String(v).trim()) ? Number(v) : NaN;
+          const ms = Number.isFinite(n) ? n < 1e12 ? n * 1e3 : n : new Date(String(v)).getTime();
+          return Number.isFinite(ms) && ms > 0 ? new Date(ms).toISOString() : void 0;
+        };
+        const sanePrice = (v, ref) => {
+          if (!(v > 0)) return void 0;
+          if (!(ref > 0)) return v < 1e7 ? v : void 0;
+          const ratio = v / ref;
+          return ratio > 0.2 && ratio < 5 ? v : void 0;
+        };
+        if (!Array.isArray(raw[0])) {
+          return raw.map((p) => ({
+            id: String(p.id ?? p.positionId ?? ""),
+            symbol: p.s || p.symbol || instMap.get(String(p.tradableInstrumentId ?? "")) || String(p.tradableInstrumentId ?? ""),
+            instrumentId: p.tradableInstrumentId != null ? String(p.tradableInstrumentId) : void 0,
+            side: (p.side || "").toString().toLowerCase(),
+            qty: norm3(p.qty),
+            avgPrice: norm3(p.avgPrice ?? p.openPrice ?? p.price),
+            unrealizedPl: norm3(p.unrealizedPl ?? p.unrealizedPnL ?? p.uPnL ?? p.pl),
+            openDate: toIsoDate(p.openDate || p.createdDate),
+            stopLoss: sanePrice(norm3(p.stopLoss ?? p.sl ?? p.stopLossPrice), norm3(p.avgPrice ?? p.openPrice ?? p.price)),
+            takeProfit: sanePrice(norm3(p.takeProfit ?? p.tp ?? p.takeProfitPrice), norm3(p.avgPrice ?? p.openPrice ?? p.price))
+          }));
+        }
+        let columns = [];
+        try {
+          await this.ensureAuthenticated();
+          const cfgRes = await fetch(`${this.baseUrl}/trade/config`, {
+            method: "GET",
+            headers: { "Authorization": `Bearer ${this.accessToken}`, "Content-Type": "application/json", "accNum": this.accNum },
+            signal: AbortSignal.timeout(1e4)
+          });
+          if (cfgRes.ok) {
+            const cfg = await cfgRes.json();
+            const cols = cfg?.d?.positionsConfig?.columns || cfg?.positionsConfig?.columns || [];
+            columns = cols.map((c) => String(c.id || c.name || "").toLowerCase());
+          }
+        } catch {
+        }
+        const idx = (candidates) => {
+          for (const k of candidates) {
+            const exact = columns.indexOf(k);
+            if (exact >= 0) return exact;
+          }
+          return columns.findIndex((c) => candidates.some((k) => c.includes(k)));
+        };
+        const iId = idx(["id"]);
+        const iInst = idx(["tradableinstrumentid", "tradableinstrument"]);
+        const iSide = idx(["side"]);
+        const iQty = idx(["qty", "quantity"]);
+        const iAvg = idx(["avgprice", "openprice", "price"]);
+        const iPl = idx(["unrealizedpl", "unrealizedpnl", "pnl", "pl"]);
+        const iDate = idx(["opendate", "date"]);
+        const idxPrice = (candidates) => {
+          for (const k of candidates) {
+            const exact = columns.indexOf(k);
+            if (exact >= 0) return exact;
+          }
+          return columns.findIndex((c) => !c.endsWith("id") && candidates.some((k) => c.includes(k)));
+        };
+        const iSl = idxPrice(["stoploss", "stoplossprice", "sl"]);
+        const iTp = idxPrice(["takeprofit", "takeprofitprice", "tp"]);
+        return raw.map((row) => {
+          const instId = iInst >= 0 ? String(row[iInst]) : "";
+          return {
+            id: iId >= 0 ? String(row[iId]) : "",
+            symbol: instMap.get(instId) || instId,
+            instrumentId: instId || void 0,
+            side: iSide >= 0 ? String(row[iSide]).toLowerCase() : "",
+            qty: iQty >= 0 ? norm3(row[iQty]) : 0,
+            avgPrice: iAvg >= 0 ? norm3(row[iAvg]) : 0,
+            unrealizedPl: iPl >= 0 ? norm3(row[iPl]) : 0,
+            openDate: iDate >= 0 ? toIsoDate(row[iDate]) : void 0,
+            // Second line of defence, independent of column naming: a protective
+            // level sits near the entry. Anything orders of magnitude away is an id
+            // or a sentinel, not a price, and must not be recorded as protection.
+            stopLoss: sanePrice(iSl >= 0 ? norm3(row[iSl]) : 0, iAvg >= 0 ? norm3(row[iAvg]) : 0),
+            takeProfit: sanePrice(iTp >= 0 ? norm3(row[iTp]) : 0, iAvg >= 0 ? norm3(row[iAvg]) : 0)
+          };
+        });
+      }
+      async modifyPosition(positionId, stopLoss, takeProfit) {
+        await this.ensureAuthenticated();
+        const body = {};
+        if (typeof stopLoss === "number" && stopLoss > 0) body.stopLoss = stopLoss;
+        if (typeof takeProfit === "number" && takeProfit > 0) body.takeProfit = takeProfit;
+        if (Object.keys(body).length === 0) {
+          return { success: false, error: "No SL or TP provided to modify" };
+        }
+        const url = `${this.baseUrl}/trade/positions/${positionId}`;
+        console.log(`[TradeLocker Modify] PATCH ${url} | SL=${stopLoss} TP=${takeProfit} accNum=${this.accNum}`);
+        try {
+          const response = await fetch(url, {
+            method: "PATCH",
+            headers: {
+              "Authorization": `Bearer ${this.accessToken}`,
+              "Content-Type": "application/json",
+              "accNum": this.accNum
+            },
+            body: JSON.stringify(body)
+          });
+          if (response.status === 405) {
+            console.log("[TradeLocker Modify] PATCH not supported, trying PUT");
+            const putResponse = await fetch(url, {
+              method: "PUT",
+              headers: {
+                "Authorization": `Bearer ${this.accessToken}`,
+                "Content-Type": "application/json",
+                "accNum": this.accNum
+              },
+              body: JSON.stringify(body)
+            });
+            if (!putResponse.ok) {
+              const errText = await putResponse.text();
+              console.log(`[TradeLocker Modify] PUT failed: ${putResponse.status} - ${errText}`);
+              return { success: false, error: `Modify failed: ${putResponse.status} - ${errText}` };
+            }
+            console.log("[TradeLocker Modify] PUT success");
+            return { success: true };
+          }
+          if (!response.ok) {
+            const errText = await response.text();
+            console.log(`[TradeLocker Modify] PATCH failed: ${response.status} - ${errText}`);
+            return { success: false, error: `Modify failed: ${response.status} - ${errText}` };
+          }
+          console.log("[TradeLocker Modify] PATCH success");
+          return { success: true };
+        } catch (error) {
+          const msg = error instanceof Error ? error.message : "Unknown error";
+          console.error("[TradeLocker Modify] Exception:", msg);
+          return { success: false, error: msg };
+        }
+      }
+    };
+    TL_VALUE_TTL = 60 * 1e3;
+    tlDayStartEquity = /* @__PURE__ */ new Map();
   }
 });
 
@@ -58339,9 +58409,9 @@ async function getStopOrdersForUser(userId, filters = {}) {
 init_schema();
 
 // server/build-info.ts
-var BUILD_COMMIT = "b29a32c4-dirty";
+var BUILD_COMMIT = "dc18e76b-dirty";
 var BUILD_BRANCH = "main";
-var BUILT_AT = "2026-10-14T23:50:21.167Z";
+var BUILT_AT = "2026-10-15T00:46:18.058Z";
 
 // server/stripe.ts
 init_db();

@@ -10367,6 +10367,8 @@ var init_ai_usage = __esm({
 var runtime_state_exports = {};
 __export(runtime_state_exports, {
   ensureRuntimeStateTable: () => ensureRuntimeStateTable,
+  getRuntimeStateStrict: () => getRuntimeStateStrict,
+  insertRuntimeStateIfAbsent: () => insertRuntimeStateIfAbsent,
   loadRuntimeState: () => loadRuntimeState,
   saveRuntimeState: () => saveRuntimeState
 });
@@ -10402,6 +10404,19 @@ async function loadRuntimeState(scope) {
     console.error(`[runtime-state] load ${scope} failed (non-fatal):`, err?.message ?? err);
     return [];
   }
+}
+async function getRuntimeStateStrict(scope, key) {
+  await ensureRuntimeStateTable();
+  const { rows } = await pool.query(`SELECT value FROM runtime_state WHERE scope = $1 AND key = $2`, [scope, key]);
+  return rows[0]?.value ?? null;
+}
+async function insertRuntimeStateIfAbsent(scope, key, value) {
+  await ensureRuntimeStateTable();
+  await pool.query(
+    `INSERT INTO runtime_state (scope, key, value) VALUES ($1, $2, $3::jsonb) ON CONFLICT (scope, key) DO NOTHING`,
+    [scope, key, JSON.stringify(value)]
+  );
+  return getRuntimeStateStrict(scope, key);
 }
 var DDL3, ensured;
 var init_runtime_state = __esm({
