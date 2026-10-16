@@ -58642,9 +58642,9 @@ async function getStopOrdersForUser(userId, filters = {}) {
 init_schema();
 
 // server/build-info.ts
-var BUILD_COMMIT = "ae74908e-dirty";
+var BUILD_COMMIT = "c8086d6b-dirty";
 var BUILD_BRANCH = "main";
-var BUILT_AT = "2026-10-16T14:46:29.637Z";
+var BUILT_AT = "2026-10-16T15:08:44.586Z";
 
 // server/stripe.ts
 init_db();
@@ -70845,7 +70845,30 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
       })();
       if (_fxMarketClosed) _cdiag.stage = "market_closed";
       const _aiCreditsOut = !_fxMarketClosed && await Promise.resolve().then(() => (init_ai_budget_guard(), ai_budget_guard_exports)).then((m) => m.fxShouldPauseForCredits()).catch(() => false);
-      const _skipAi = _fxMarketClosed || _aiCreditsOut;
+      let _saverReason = null;
+      if (!_fxMarketClosed && !_aiCreditsOut && analysis.signal !== "NEUTRAL") {
+        if (process.env.CHART_DATA_AUTOTRADE_ENABLED !== "true" && process.env.CHART_DATA_AI_WHEN_OFF !== "true") {
+          _saverReason = "ai_skipped_autotrade_off (chart-data autotrade is off, so no AI call)";
+        } else {
+          try {
+            const { pairFilterVerdict: pairFilterVerdict2 } = await Promise.resolve().then(() => (init_pair_filter(), pair_filter_exports));
+            const _pf = pairFilterVerdict2(sanitizedSymbol, String(analysis.signal));
+            if (_pf?.blocked) _saverReason = `ai_skipped_blocked_pair (${_pf.reason})`;
+          } catch {
+          }
+          if (!_saverReason) {
+            const _tfMin = { M1: 1, M5: 5, M15: 15, M30: 30, H1: 60, H4: 240, D1: 1440 };
+            const _periodMs = (_tfMin[String(sanitizedTimeframe || "").toUpperCase()] || 60) * 6e4;
+            const _candle = Math.floor(Date.now() / _periodMs);
+            const _g = globalThis;
+            _g.__chartAiCandle = _g.__chartAiCandle || /* @__PURE__ */ new Map();
+            const _k = `${token.userId}|${sanitizedSymbol}|${sanitizedTimeframe}|${analysis.signal}`;
+            if (_g.__chartAiCandle.get(_k) === _candle) _saverReason = "ai_skipped_same_candle (already checked this candle)";
+            else _g.__chartAiCandle.set(_k, _candle);
+          }
+        }
+      }
+      const _skipAi = _fxMarketClosed || _aiCreditsOut || !!_saverReason;
       if (!_skipAi && analysis.signal !== "NEUTRAL" && analysis.confidence >= Math.min(60, MIN_CONFIDENCE_FOR_AUTO_TRADE)) {
         _cdiag.gatePassed = true;
         try {
@@ -71636,8 +71659,8 @@ BEAR CASE: ${_bearCase || "n/a"}` : aiConfirmation.reasoning;
         }
         void _writeCdiagTracked();
       } else if (_skipAi) {
-        _cdiag.stage = _fxMarketClosed ? "market_closed" : "ai_credits_out";
-        _diagCap.neutralReason = _diagCap.neutralReason || (_fxMarketClosed ? "market_closed (FX weekend: Fri 21:00 \u2013 Sun 21:00 UTC, no AI call)" : "ai_credits_out (every AI provider returned 402 \u2014 pausing AI calls, re-probing shortly)");
+        _cdiag.stage = _fxMarketClosed ? "market_closed" : _aiCreditsOut ? "ai_credits_out" : "ai_skipped";
+        _diagCap.neutralReason = _diagCap.neutralReason || (_fxMarketClosed ? "market_closed (FX weekend: Fri 21:00 \u2013 Sun 21:00 UTC, no AI call)" : _aiCreditsOut ? "ai_credits_out (every AI provider returned 402 \u2014 pausing AI calls, re-probing shortly)" : _saverReason);
         analysis.signal = "NEUTRAL";
         void _writeCdiagTracked();
       } else {

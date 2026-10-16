@@ -10797,7 +10797,36 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
       // re-buying that failure on every candle (ai-budget-guard.ts).
       const _aiCreditsOut = !_fxMarketClosed && await import('./services/ai-budget-guard')
         .then(m => m.fxShouldPauseForCredits()).catch(() => false);
-      const _skipAi = _fxMarketClosed || _aiCreditsOut;
+      // ── AI credit savers (2026-10-16) ─────────────────────────────────
+      // On 2026-10-14 this path bought ~3,850 vision calls in 16h (~4/min on
+      // H1 charts) while its autotrade was OFF, so none could ever trade, and
+      // it drained the OpenRouter credit the FX engine needs.
+      //  1. Autotrade off -> no AI call (CHART_DATA_AI_WHEN_OFF=true restores).
+      //  2. At most one AI check per symbol/timeframe/direction per candle.
+      //  3. Pairs on the pair-filter blocklist never reach the AI.
+      let _saverReason: string | null = null;
+      if (!_fxMarketClosed && !_aiCreditsOut && analysis.signal !== 'NEUTRAL') {
+        if (process.env.CHART_DATA_AUTOTRADE_ENABLED !== 'true' && process.env.CHART_DATA_AI_WHEN_OFF !== 'true') {
+          _saverReason = 'ai_skipped_autotrade_off (chart-data autotrade is off, so no AI call)';
+        } else {
+          try {
+            const { pairFilterVerdict } = await import('./services/pair-filter');
+            const _pf = pairFilterVerdict(sanitizedSymbol, String(analysis.signal));
+            if (_pf?.blocked) _saverReason = `ai_skipped_blocked_pair (${_pf.reason})`;
+          } catch { /* filter unavailable: fall through to the candle limit */ }
+          if (!_saverReason) {
+            const _tfMin: Record<string, number> = { M1: 1, M5: 5, M15: 15, M30: 30, H1: 60, H4: 240, D1: 1440 };
+            const _periodMs = (_tfMin[String(sanitizedTimeframe || '').toUpperCase()] || 60) * 60_000;
+            const _candle = Math.floor(Date.now() / _periodMs);
+            const _g: any = globalThis as any;
+            _g.__chartAiCandle = _g.__chartAiCandle || new Map<string, number>();
+            const _k = `${token.userId}|${sanitizedSymbol}|${sanitizedTimeframe}|${analysis.signal}`;
+            if (_g.__chartAiCandle.get(_k) === _candle) _saverReason = 'ai_skipped_same_candle (already checked this candle)';
+            else _g.__chartAiCandle.set(_k, _candle);
+          }
+        }
+      }
+      const _skipAi = _fxMarketClosed || _aiCreditsOut || !!_saverReason;
       // Second Opinion fires on any non-NEUTRAL signal ≥ 60% — tradePlan NOT required.
       // Auto-execution (TradeLocker) still needs MIN_CONFIDENCE + tradePlan — checked later.
       if (!_skipAi && analysis.signal !== 'NEUTRAL' &&
@@ -11713,10 +11742,11 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
       } else if (_skipAi) {
         // No AI call → no approval → nothing may execute. Neutralise the signal
         // so no later path can act on an unconfirmed signal.
-        _cdiag.stage = _fxMarketClosed ? 'market_closed' : 'ai_credits_out';
+        _cdiag.stage = _fxMarketClosed ? 'market_closed' : _aiCreditsOut ? 'ai_credits_out' : 'ai_skipped';
         _diagCap.neutralReason = _diagCap.neutralReason || (_fxMarketClosed
           ? 'market_closed (FX weekend: Fri 21:00 – Sun 21:00 UTC, no AI call)'
-          : 'ai_credits_out (every AI provider returned 402 — pausing AI calls, re-probing shortly)');
+          : _aiCreditsOut ? 'ai_credits_out (every AI provider returned 402 — pausing AI calls, re-probing shortly)'
+          : _saverReason);
         analysis.signal = 'NEUTRAL';
         void _writeCdiagTracked();
       } else {
