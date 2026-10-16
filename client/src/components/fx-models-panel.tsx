@@ -1,5 +1,6 @@
 import { useState } from "react";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useMutation } from "@tanstack/react-query";
+import { apiRequest, queryClient } from "@/lib/queryClient";
 import { Layers, TrendingUp, Waves, Award } from "lucide-react";
 
 // FX Model 1 (range) / Model 2 (trend) — shadow-phase brain panel.
@@ -53,6 +54,23 @@ export function FxModelsPanel({ className = "" }: { className?: string }) {
   const mastery = useQuery<{ models: MasteryRow[]; slices: MasteryRow[] }>({ queryKey: ["/api/fx-models/mastery"], refetchInterval: 120000 });
   const decisions = useQuery<{ decisions: DecisionRow[] }>({ queryKey: ["/api/fx-models/decisions?limit=60"], refetchInterval: 60000, enabled: tab === "ideas" });
 
+  const settingsQ = useQuery<{ settings: { live: boolean; m1DailyCap: number; m2DailyCap: number }; eligible: MasteryRow[] }>({ queryKey: ["/api/fx-models/settings"], refetchInterval: 120000 });
+  const live = !!settingsQ.data?.settings.live;
+  const eligible = settingsQ.data?.eligible || [];
+  const toggleLive = useMutation({
+    mutationFn: async (next: boolean) => (await apiRequest("POST", "/api/fx-models/settings", { live: next })).json(),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["/api/fx-models/settings"] }),
+  });
+  const onToggle = () => {
+    if (!live) {
+      const ok = window.confirm(
+        `Turn Model 1 / Model 2 LIVE trading on?\n\nReal orders will be placed, but only for scopes that are Proficient or Master (${eligible.length} right now), only with the model the day type calls for, max ${settingsQ.data?.settings.m1DailyCap ?? 3} Model 1 and ${settingsQ.data?.settings.m2DailyCap ?? 2} Model 2 trades a day. All engine gates and the risk guard still apply, and the FX engine must be running.`,
+      );
+      if (!ok) return;
+    }
+    toggleLive.mutate(!live);
+  };
+
   const models = mastery.data?.models || [];
   const modelStat = (m: "M1" | "M2") => models.find((x) => x.model === m);
 
@@ -63,10 +81,26 @@ export function FxModelsPanel({ className = "" }: { className?: string }) {
           <div className="flex items-center gap-2">
             <Layers className="w-4 h-4 text-sky-300 shrink-0" />
             <h3 className="text-sm font-bold text-gray-100">Model 1 / Model 2</h3>
-            <span className="text-[9px] font-semibold px-1.5 py-0.5 rounded bg-amber-500/15 text-amber-300 border border-amber-500/30">SHADOW</span>
+            {live ? (
+              <span className="text-[9px] font-semibold px-1.5 py-0.5 rounded bg-emerald-500/15 text-emerald-300 border border-emerald-500/30">LIVE · proven scopes</span>
+            ) : (
+              <span className="text-[9px] font-semibold px-1.5 py-0.5 rounded bg-amber-500/15 text-amber-300 border border-amber-500/30">SHADOW</span>
+            )}
           </div>
-          <p className="text-[10px] text-gray-500 mt-0.5">Recording what each model would trade. No orders are placed.</p>
+          <p className="text-[10px] text-gray-500 mt-0.5">
+            {live
+              ? `Trading only Proficient/Master scopes (${eligible.length} eligible now). Everything else stays in shadow.`
+              : "Recording what each model would trade. No orders are placed."}
+          </p>
         </div>
+        <button
+          onClick={onToggle}
+          disabled={toggleLive.isPending || !settingsQ.data}
+          className={`shrink-0 text-[10px] font-bold px-2.5 py-1 rounded-lg border transition-colors ${live ? "border-red-500/40 text-red-300 hover:bg-red-500/10" : "border-emerald-500/40 text-emerald-300 hover:bg-emerald-500/10"}`}
+          data-testid="fx-models-live-toggle"
+        >
+          {toggleLive.isPending ? "Saving…" : live ? "Stop live" : "Go live"}
+        </button>
       </div>
 
       {/* Model summary cards */}

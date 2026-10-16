@@ -21160,14 +21160,17 @@ __export(fx_models_exports, {
   ensureFxModelTables: () => ensureFxModelTables,
   fxModelRowsForStats: () => fxModelRowsForStats,
   getFxModelListingRows: () => getFxModelListingRows,
+  getFxModelSettings: () => getFxModelSettings,
   getModelMastery: () => getModelMastery,
   importFxModelSnapshot: () => importFxModelSnapshot,
+  liveEligibleSlices: () => liveEligibleSlices,
   m1Reject: () => m1Reject,
   masteryLevel: () => masteryLevel,
   parseFxModelScope: () => parseFxModelScope,
   rangeFeatures: () => rangeFeatures,
   resolveShadowDecisions: () => resolveShadowDecisions,
   runFxModelsCycle: () => runFxModelsCycle,
+  saveFxModelSettings: () => saveFxModelSettings,
   sessionFor: () => sessionFor
 });
 function ensureFxModelTables() {
@@ -21423,9 +21426,9 @@ Give exactly one M1 and one M2 entry per pair.`;
         ruleNote = `M2 rule: H1 ${ctx?.h1?.trend ?? "n/a"} / H4 ${ctx?.h4?.trend ?? "n/a"} not both ${want}`;
       }
     }
-    await pool.query(
+    const ins = await pool.query(
       `INSERT INTO fx_model_decisions (user_id, symbol, model, mode, day_type, session, direction, entry_price, stop_loss, take_profit, confidence, setup, reasoning, context, result)
-       VALUES ($1,$2,$3,'shadow',$4,$5,$6,$7,$8,$9,$10,$11,$12,$13::jsonb,$14)`,
+       VALUES ($1,$2,$3,'shadow',$4,$5,$6,$7,$8,$9,$10,$11,$12,$13::jsonb,$14) RETURNING id`,
       [
         userId,
         sym,
@@ -21442,8 +21445,24 @@ Give exactly one M1 and one M2 entry per pair.`;
         JSON.stringify(ctx),
         isTrade ? null : "NO_TRADE"
       ]
-    ).catch(() => {
-    });
+    ).catch(() => null);
+    if (isTrade && ins?.rows?.[0]?.id) {
+      await maybeGoLive(userId, {
+        id: ins.rows[0].id,
+        symbol: sym,
+        model,
+        dayType: ctx.dayType,
+        autoModel: ctx.autoModel,
+        session: session3,
+        direction: dir,
+        entry: price,
+        stopLoss: sl,
+        takeProfit: tp,
+        confidence: Math.round(Number(i?.confidence) || 0),
+        setup: String(i?.setup || ""),
+        reason: String(i?.reason || "")
+      }).catch((e) => console.error("[fx-models] live hand-off failed (non-fatal):", e?.message || e));
+    }
   }
 }
 async function resolveShadowDecisions() {
@@ -21574,6 +21593,66 @@ async function importFxModelSnapshot(buyerId, snapshot) {
   }
   return n;
 }
+async function getFxModelSettings(userId) {
+  try {
+    const { getRuntimeStateStrict: getRuntimeStateStrict2 } = await Promise.resolve().then(() => (init_runtime_state(), runtime_state_exports));
+    const v = await getRuntimeStateStrict2("fx_models", String(userId));
+    return { ...DEFAULT_SETTINGS, ...v || {} };
+  } catch {
+    return { ...DEFAULT_SETTINGS };
+  }
+}
+async function saveFxModelSettings(userId, patch) {
+  const cur = await getFxModelSettings(userId);
+  const next = {
+    live: typeof patch.live === "boolean" ? patch.live : cur.live,
+    m1DailyCap: clampInt(patch.m1DailyCap ?? cur.m1DailyCap, 0, 5),
+    m2DailyCap: clampInt(patch.m2DailyCap ?? cur.m2DailyCap, 0, 5)
+  };
+  const { pool: p } = await Promise.resolve().then(() => (init_db(), db_exports));
+  const { ensureRuntimeStateTable: ensureRuntimeStateTable2 } = await Promise.resolve().then(() => (init_runtime_state(), runtime_state_exports));
+  await ensureRuntimeStateTable2();
+  await p.query(
+    `INSERT INTO runtime_state (scope, key, value, updated_at) VALUES ('fx_models', $1, $2::jsonb, now())
+     ON CONFLICT (scope, key) DO UPDATE SET value = EXCLUDED.value, updated_at = now()`,
+    [String(userId), JSON.stringify(next)]
+  );
+  return next;
+}
+function clampInt(n, lo, hi) {
+  const x = Math.round(Number(n));
+  return Number.isFinite(x) ? Math.max(lo, Math.min(hi, x)) : lo;
+}
+async function liveEligibleSlices(userId) {
+  const m = await getModelMastery(userId);
+  return m.slices.filter((s) => LIVE_LEVELS.includes(s.level));
+}
+async function maybeGoLive(userId, idea) {
+  const settings = await getFxModelSettings(userId);
+  if (!settings.live) return;
+  if (idea.model !== idea.autoModel) return;
+  const mastery = await getModelMastery(userId);
+  const slice = mastery.slices.find((s) => s.model === idea.model && s.dayType === idea.dayType && s.symbol === idea.symbol && s.session === idea.session);
+  if (!slice || !LIVE_LEVELS.includes(slice.level)) return;
+  const cap = idea.model === "M1" ? settings.m1DailyCap : settings.m2DailyCap;
+  const { rows } = await pool.query(
+    `SELECT COUNT(*)::int AS n FROM fx_model_decisions WHERE user_id=$1 AND model=$2 AND mode='live' AND created_at >= date_trunc('day', now())`,
+    [userId, idea.model]
+  );
+  if (Number(rows[0]?.n) >= cap) return;
+  await pool.query(`UPDATE fx_model_decisions SET mode='live' WHERE id=$1`, [idea.id]);
+  const { submitFxModelTrade: submitFxModelTrade2 } = await Promise.resolve().then(() => (init_live_trading_engine(), live_trading_engine_exports));
+  await submitFxModelTrade2(userId, {
+    model: idea.model,
+    symbol: idea.symbol,
+    direction: idea.direction,
+    confidence: idea.confidence,
+    entryPrice: idea.entry,
+    stopLoss: idea.stopLoss,
+    takeProfit: idea.takeProfit,
+    reason: `${idea.model === "M1" ? "Model 1 \xB7 Range" : "Model 2 \xB7 Trend"} [${slice.level}, ${slice.trades} ideas, ${(slice.winRate * 100).toFixed(0)}% WR, ${slice.avgR >= 0 ? "+" : ""}${slice.avgR.toFixed(2)}R] ${idea.setup}: ${idea.reason}`.slice(0, 500)
+  });
+}
 function masteryLevel(trades, winRate2, avgR) {
   if (trades < 20) return "Learning";
   if (trades < 50) return avgR > 0 ? "Developing" : "Developing (negative)";
@@ -21615,7 +21694,7 @@ async function getModelMastery(userId) {
     slices: (await agg("model, day_type, symbol, session")).map(shape)
   };
 }
-var DDL2, ensured2, pipSize, lastShadowCandle, lastResolveAt, M1_PAIRS_EXCLUDED, rangeCache, FX_MODEL_MIN_TO_LIST;
+var DDL2, ensured2, pipSize, lastShadowCandle, lastResolveAt, M1_PAIRS_EXCLUDED, rangeCache, FX_MODEL_MIN_TO_LIST, DEFAULT_SETTINGS, LIVE_LEVELS;
 var init_fx_models = __esm({
   "server/services/fx-models.ts"() {
     "use strict";
@@ -21675,6 +21754,8 @@ ALTER TABLE fx_model_decisions ADD COLUMN IF NOT EXISTS source text NOT NULL DEF
     M1_PAIRS_EXCLUDED = (process.env.FX_M1_EXCLUDED_PAIRS || "GBPJPY,XAUUSD,BTCUSD,US30,NAS100").split(",").map((x) => x.trim().toUpperCase()).filter(Boolean);
     rangeCache = /* @__PURE__ */ new Map();
     FX_MODEL_MIN_TO_LIST = 20;
+    DEFAULT_SETTINGS = { live: false, m1DailyCap: 3, m2DailyCap: 2 };
+    LIVE_LEVELS = ["Proficient", "Master"];
   }
 });
 
@@ -23781,6 +23862,7 @@ __export(live_trading_engine_exports, {
   startFxLeaderElection: () => startFxLeaderElection,
   startLiveEngine: () => startLiveEngine,
   stopLiveEngine: () => stopLiveEngine,
+  submitFxModelTrade: () => submitFxModelTrade,
   updateLiveEngineConfig: () => updateLiveEngineConfig
 });
 import { sql as sql5 } from "drizzle-orm";
@@ -27187,7 +27269,7 @@ async function processDecision(userId, decision, newsCtx) {
     }
     {
       const _rule = (process.env.MTF_ENTRY_RULE || "strict").toLowerCase();
-      if (_rule !== "off" && decision.direction) {
+      if (_rule !== "off" && decision.direction && decision.fxModel !== "M1") {
         const _dir = decision.direction.toUpperCase();
         const _want = _dir === "BUY" ? "BULLISH" : "BEARISH";
         const _opp = _dir === "BUY" ? "BEARISH" : "BULLISH";
@@ -28933,6 +29015,27 @@ function _persistFxRunState(userId, isRunning) {
       }).catch((e) => console.error("[VEDD Live Engine] persist run state failed (non-fatal):", e?.message ?? e));
     });
   }).catch(() => {
+  });
+}
+async function submitFxModelTrade(userId, t) {
+  const state = engineStates[userId];
+  if (!state || state.status !== "running" || !isFxLeader()) return;
+  addActivity(userId, { type: "signal", symbol: t.symbol, direction: t.direction, confidence: t.confidence, message: `\u{1F9E0} ${t.model === "M1" ? "Model 1 \xB7 Range" : "Model 2 \xB7 Trend"} LIVE idea: ${t.direction} ${t.symbol} @ ${t.entryPrice} SL ${t.stopLoss} TP ${t.takeProfit} \u2014 ${t.reason}` });
+  await processDecision(userId, {
+    action: "OPEN_TRADE",
+    strategy: t.model === "M1" ? "fx_model_m1_range" : "fx_model_m2_trend",
+    fxModel: t.model,
+    symbol: t.symbol,
+    direction: t.direction,
+    confidence: t.confidence,
+    entryPrice: t.entryPrice,
+    stopLoss: t.stopLoss,
+    takeProfit: t.takeProfit,
+    lotSize: state.config.baseLotSize,
+    holdTime: t.model === "M1" ? "30m-3h" : "2-8 hours",
+    urgency: "ENTER_NOW",
+    reason: t.reason,
+    confluences: [t.reason]
   });
 }
 function isFxLeader() {
@@ -59207,9 +59310,9 @@ async function getStopOrdersForUser(userId, filters = {}) {
 init_schema();
 
 // server/build-info.ts
-var BUILD_COMMIT = "935e8768-dirty";
+var BUILD_COMMIT = "5d2adf43-dirty";
 var BUILD_BRANCH = "main";
-var BUILT_AT = "2026-10-16T20:59:45.086Z";
+var BUILT_AT = "2026-10-16T21:11:12.289Z";
 
 // server/stripe.ts
 init_db();
@@ -76628,6 +76731,28 @@ Rules:
     try {
       const { getModelMastery: getModelMastery2 } = await Promise.resolve().then(() => (init_fx_models(), fx_models_exports));
       res.json(await getModelMastery2(req.user.id));
+    } catch (e) {
+      res.status(500).json({ error: e?.message || "failed" });
+    }
+  });
+  app2.get("/api/fx-models/settings", async (req, res) => {
+    if (!req.isAuthenticated()) return res.status(401).json({ error: "Authentication required" });
+    try {
+      const fm = await Promise.resolve().then(() => (init_fx_models(), fx_models_exports));
+      const userId = req.user.id;
+      const [settings, eligible] = await Promise.all([fm.getFxModelSettings(userId), fm.liveEligibleSlices(userId)]);
+      res.json({ settings, eligible });
+    } catch (e) {
+      res.status(500).json({ error: e?.message || "failed" });
+    }
+  });
+  app2.post("/api/fx-models/settings", async (req, res) => {
+    if (!req.isAuthenticated()) return res.status(401).json({ error: "Authentication required" });
+    try {
+      const fm = await Promise.resolve().then(() => (init_fx_models(), fx_models_exports));
+      const { live, m1DailyCap, m2DailyCap } = req.body || {};
+      const settings = await fm.saveFxModelSettings(req.user.id, { live, m1DailyCap, m2DailyCap });
+      res.json({ settings });
     } catch (e) {
       res.status(500).json({ error: e?.message || "failed" });
     }

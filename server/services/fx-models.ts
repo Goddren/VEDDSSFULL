@@ -330,13 +330,20 @@ Give exactly one M1 and one M2 entry per pair.`;
       const want = dir === 'BUY' ? 'BULLISH' : 'BEARISH';
       if (ctx?.h1?.trend !== want || ctx?.h4?.trend !== want) { isTrade = false; ruleNote = `M2 rule: H1 ${ctx?.h1?.trend ?? 'n/a'} / H4 ${ctx?.h4?.trend ?? 'n/a'} not both ${want}`; }
     }
-    await pool.query(
+    const ins = await pool.query(
       `INSERT INTO fx_model_decisions (user_id, symbol, model, mode, day_type, session, direction, entry_price, stop_loss, take_profit, confidence, setup, reasoning, context, result)
-       VALUES ($1,$2,$3,'shadow',$4,$5,$6,$7,$8,$9,$10,$11,$12,$13::jsonb,$14)`,
+       VALUES ($1,$2,$3,'shadow',$4,$5,$6,$7,$8,$9,$10,$11,$12,$13::jsonb,$14) RETURNING id`,
       [userId, sym, model, ctx.dayType, session, isTrade ? dir : 'NONE', isTrade ? price : null, isTrade ? sl : null, isTrade ? tp : null,
         Math.max(0, Math.min(100, Math.round(Number(i?.confidence) || 0))), String(i?.setup || '').slice(0, 80), (ruleNote ? `[${ruleNote}] ` : '') + String(i?.reason || '').slice(0, 500),
         JSON.stringify(ctx), isTrade ? null : 'NO_TRADE'],
-    ).catch(() => {});
+    ).catch(() => null);
+    if (isTrade && ins?.rows?.[0]?.id) {
+      await maybeGoLive(userId, {
+        id: ins.rows[0].id, symbol: sym, model, dayType: ctx.dayType, autoModel: ctx.autoModel, session, direction: dir,
+        entry: price, stopLoss: sl, takeProfit: tp, confidence: Math.round(Number(i?.confidence) || 0),
+        setup: String(i?.setup || ''), reason: String(i?.reason || ''),
+      }).catch((e: any) => console.error('[fx-models] live hand-off failed (non-fatal):', e?.message || e));
+    }
   }
 }
 
@@ -447,6 +454,80 @@ export async function importFxModelSnapshot(buyerId: number, snapshot: any[]): P
     ).then(() => { n++; }).catch(() => {});
   }
   return n;
+}
+
+// ── Phase 4: live trading for PROVEN scopes only ─────────────────────────
+// OFF by default (per user, toggled in the brain panel). When on, an idea is
+// sent to the engine only if ALL hold:
+//   • it is the model the day type calls for (range → M1, trend → M2)
+//   • that exact slice (model × day type × pair × session) is Proficient or
+//     Master — 50+ resolved ideas with a positive average R
+//   • the model's live daily cap isn't used up (M1: 3, M2: 2 by default)
+// It then goes through the engine's normal processDecision path, so the
+// confidence floor, cooldowns, daily caps, MTF rule (M2), news/session
+// gates, risk guard, lot caps, leader check and logging all still apply.
+// M1 skips only the strict H1+H4 entry rule — its own range rules replace it.
+export interface FxModelSettings { live: boolean; m1DailyCap: number; m2DailyCap: number }
+const DEFAULT_SETTINGS: FxModelSettings = { live: false, m1DailyCap: 3, m2DailyCap: 2 };
+const LIVE_LEVELS = ['Proficient', 'Master'];
+
+export async function getFxModelSettings(userId: number): Promise<FxModelSettings> {
+  try {
+    const { getRuntimeStateStrict } = await import('./runtime-state');
+    const v = await getRuntimeStateStrict('fx_models', String(userId));
+    return { ...DEFAULT_SETTINGS, ...(v || {}) };
+  } catch {
+    return { ...DEFAULT_SETTINGS }; // unreadable → live stays OFF
+  }
+}
+export async function saveFxModelSettings(userId: number, patch: Partial<FxModelSettings>): Promise<FxModelSettings> {
+  const cur = await getFxModelSettings(userId);
+  const next: FxModelSettings = {
+    live: typeof patch.live === 'boolean' ? patch.live : cur.live,
+    m1DailyCap: clampInt(patch.m1DailyCap ?? cur.m1DailyCap, 0, 5),
+    m2DailyCap: clampInt(patch.m2DailyCap ?? cur.m2DailyCap, 0, 5),
+  };
+  const { pool: p } = await import('../db');
+  const { ensureRuntimeStateTable } = await import('./runtime-state');
+  await ensureRuntimeStateTable();
+  await p.query(
+    `INSERT INTO runtime_state (scope, key, value, updated_at) VALUES ('fx_models', $1, $2::jsonb, now())
+     ON CONFLICT (scope, key) DO UPDATE SET value = EXCLUDED.value, updated_at = now()`,
+    [String(userId), JSON.stringify(next)],
+  );
+  return next;
+}
+function clampInt(n: any, lo: number, hi: number) { const x = Math.round(Number(n)); return Number.isFinite(x) ? Math.max(lo, Math.min(hi, x)) : lo; }
+
+/** Which live-eligible slices exist right now (for the panel). */
+export async function liveEligibleSlices(userId: number): Promise<any[]> {
+  const m = await getModelMastery(userId);
+  return m.slices.filter((s: any) => LIVE_LEVELS.includes(s.level));
+}
+
+async function maybeGoLive(userId: number, idea: {
+  id: number; symbol: string; model: ModelId; dayType: DayType; autoModel: ModelId; session: string; direction: string;
+  entry: number; stopLoss: number; takeProfit: number; confidence: number; setup: string; reason: string;
+}): Promise<void> {
+  const settings = await getFxModelSettings(userId);
+  if (!settings.live) return;
+  if (idea.model !== idea.autoModel) return; // only the model the day type calls for
+  const mastery = await getModelMastery(userId);
+  const slice = mastery.slices.find((s: any) => s.model === idea.model && s.dayType === idea.dayType && s.symbol === idea.symbol && s.session === idea.session);
+  if (!slice || !LIVE_LEVELS.includes(slice.level)) return;
+  const cap = idea.model === 'M1' ? settings.m1DailyCap : settings.m2DailyCap;
+  const { rows } = await pool.query(
+    `SELECT COUNT(*)::int AS n FROM fx_model_decisions WHERE user_id=$1 AND model=$2 AND mode='live' AND created_at >= date_trunc('day', now())`,
+    [userId, idea.model],
+  );
+  if (Number(rows[0]?.n) >= cap) return;
+  await pool.query(`UPDATE fx_model_decisions SET mode='live' WHERE id=$1`, [idea.id]);
+  const { submitFxModelTrade } = await import('./live-trading-engine');
+  await submitFxModelTrade(userId, {
+    model: idea.model, symbol: idea.symbol, direction: idea.direction, confidence: idea.confidence,
+    entryPrice: idea.entry, stopLoss: idea.stopLoss, takeProfit: idea.takeProfit,
+    reason: `${idea.model === 'M1' ? 'Model 1 · Range' : 'Model 2 · Trend'} [${slice.level}, ${slice.trades} ideas, ${(slice.winRate * 100).toFixed(0)}% WR, ${slice.avgR >= 0 ? '+' : ''}${slice.avgR.toFixed(2)}R] ${idea.setup}: ${idea.reason}`.slice(0, 500),
+  });
 }
 
 export function masteryLevel(trades: number, winRate: number, avgR: number): string {

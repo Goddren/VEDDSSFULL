@@ -17159,6 +17159,24 @@ Rules:
       res.json(await getModelMastery((req.user as User).id));
     } catch (e: any) { res.status(500).json({ error: e?.message || 'failed' }); }
   });
+  app.get("/api/fx-models/settings", async (req: Request, res: Response) => {
+    if (!req.isAuthenticated()) return res.status(401).json({ error: "Authentication required" });
+    try {
+      const fm = await import('./services/fx-models');
+      const userId = (req.user as User).id;
+      const [settings, eligible] = await Promise.all([fm.getFxModelSettings(userId), fm.liveEligibleSlices(userId)]);
+      res.json({ settings, eligible });
+    } catch (e: any) { res.status(500).json({ error: e?.message || 'failed' }); }
+  });
+  app.post("/api/fx-models/settings", async (req: Request, res: Response) => {
+    if (!req.isAuthenticated()) return res.status(401).json({ error: "Authentication required" });
+    try {
+      const fm = await import('./services/fx-models');
+      const { live, m1DailyCap, m2DailyCap } = req.body || {};
+      const settings = await fm.saveFxModelSettings((req.user as User).id, { live, m1DailyCap, m2DailyCap });
+      res.json({ settings });
+    } catch (e: any) { res.status(500).json({ error: e?.message || 'failed' }); }
+  });
   app.get("/api/fx-models/decisions", async (req: Request, res: Response) => {
     if (!req.isAuthenticated()) return res.status(401).json({ error: "Authentication required" });
     try {

@@ -4512,7 +4512,9 @@ async function processDecision(userId: number, decision: any, newsCtx?: any): Pr
     // ── Multi-timeframe entry rule (H1 + H4) ─────────────────────────────
     {
       const _rule = (process.env.MTF_ENTRY_RULE || 'strict').toLowerCase();
-      if (_rule !== 'off' && decision.direction) {
+      // Model 1 range trades are validated by their own range rules (measured
+      // box, edge, sweep, no fading a trending H4) in fx-models.ts.
+      if (_rule !== 'off' && decision.direction && decision.fxModel !== 'M1') {
         const _dir = decision.direction.toUpperCase();
         const _want = _dir === 'BUY' ? 'BULLISH' : 'BEARISH';
         const _opp = _dir === 'BUY' ? 'BEARISH' : 'BULLISH';
@@ -6864,6 +6866,36 @@ const FX_LEADER_STALE_MS = 3 * 60 * 1000;
 let _fxLeaderClient: any = null;
 let _fxIsLeader = false;
 let _fxLeaderLoop: ReturnType<typeof setInterval> | null = null;
+
+/**
+ * Entry point for FX Model 1 / Model 2 live trades (fx-models.ts). Goes
+ * through processDecision like every other engine signal, so all gates,
+ * caps, the risk guard and logging apply. Requires the engine to be running.
+ */
+export async function submitFxModelTrade(userId: number, t: {
+  model: 'M1' | 'M2'; symbol: string; direction: string; confidence: number;
+  entryPrice: number; stopLoss: number; takeProfit: number; reason: string;
+}): Promise<void> {
+  const state = engineStates[userId];
+  if (!state || state.status !== 'running' || !isFxLeader()) return;
+  addActivity(userId, { type: 'signal', symbol: t.symbol, direction: t.direction, confidence: t.confidence, message: `🧠 ${t.model === 'M1' ? 'Model 1 · Range' : 'Model 2 · Trend'} LIVE idea: ${t.direction} ${t.symbol} @ ${t.entryPrice} SL ${t.stopLoss} TP ${t.takeProfit} — ${t.reason}` });
+  await processDecision(userId, {
+    action: 'OPEN_TRADE',
+    strategy: t.model === 'M1' ? 'fx_model_m1_range' : 'fx_model_m2_trend',
+    fxModel: t.model,
+    symbol: t.symbol,
+    direction: t.direction,
+    confidence: t.confidence,
+    entryPrice: t.entryPrice,
+    stopLoss: t.stopLoss,
+    takeProfit: t.takeProfit,
+    lotSize: state.config.baseLotSize,
+    holdTime: t.model === 'M1' ? '30m-3h' : '2-8 hours',
+    urgency: 'ENTER_NOW',
+    reason: t.reason,
+    confluences: [t.reason],
+  });
+}
 
 export function isFxLeader(): boolean {
   if (process.env.FX_LEADER_LOCK_DISABLED === 'true') return true;
