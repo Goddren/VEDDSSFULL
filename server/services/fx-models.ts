@@ -322,6 +322,16 @@ Give exactly one M1 and one M2 entry per pair.`;
     const near = price > 0 && Math.abs(entry - price) / price < 0.003;
     let isTrade = (dir === 'BUY' || dir === 'SELL') && valid && near;
     let ruleNote = '';
+    // The idea is recorded/traded at the LIVE price with the AI's stop and
+    // target, so they must still sit on the right sides of that price and the
+    // risk must stay close to what the AI planned (0.5x-1.5x).
+    if (isTrade) {
+      const sidesOk = dir === 'BUY' ? (sl < price && tp > price) : (sl > price && tp < price);
+      const planned = Math.abs(entry - sl), actual = Math.abs(price - sl);
+      const ratio = planned > 0 ? actual / planned : 0;
+      if (!sidesOk) { isTrade = false; ruleNote = `stop/target on the wrong side of live price ${price}`; }
+      else if (!(ratio >= 0.5 && ratio <= 1.5)) { isTrade = false; ruleNote = `risk at live price is ${ratio.toFixed(2)}x the planned risk`; }
+    }
     if (isTrade && model === 'M1') {
       const why = m1Reject(sym, dir, price, sl, ctx);
       if (why) { isTrade = false; ruleNote = `M1 rule: ${why}`; }
@@ -512,22 +522,40 @@ async function maybeGoLive(userId: number, idea: {
   const settings = await getFxModelSettings(userId);
   if (!settings.live) return;
   if (idea.model !== idea.autoModel) return; // only the model the day type calls for
-  const mastery = await getModelMastery(userId);
+  // Live eligibility counts ONLY the user's own record — purchased bundles
+  // inform the models but can never unlock real-money trading.
+  const mastery = await getModelMastery(userId, { ownOnly: true });
   const slice = mastery.slices.find((s: any) => s.model === idea.model && s.dayType === idea.dayType && s.symbol === idea.symbol && s.session === idea.session);
   if (!slice || !LIVE_LEVELS.includes(slice.level)) return;
   const cap = idea.model === 'M1' ? settings.m1DailyCap : settings.m2DailyCap;
-  const { rows } = await pool.query(
-    `SELECT COUNT(*)::int AS n FROM fx_model_decisions WHERE user_id=$1 AND model=$2 AND mode='live' AND created_at >= date_trunc('day', now())`,
-    [userId, idea.model],
-  );
-  if (Number(rows[0]?.n) >= cap) return;
-  await pool.query(`UPDATE fx_model_decisions SET mode='live' WHERE id=$1`, [idea.id]);
+  // Claim a cap slot atomically (per-user advisory lock serialises claims).
+  const client = await pool.connect();
+  let claimed = false;
+  try {
+    await client.query('BEGIN');
+    await client.query('SELECT pg_advisory_xact_lock(918273700, $1)', [userId]);
+    const { rows } = await client.query(
+      `SELECT COUNT(*)::int AS n FROM fx_model_decisions WHERE user_id=$1 AND model=$2 AND mode IN ('live','live_pending') AND created_at >= date_trunc('day', now())`,
+      [userId, idea.model],
+    );
+    if (Number(rows[0]?.n) < cap) {
+      await client.query(`UPDATE fx_model_decisions SET mode='live_pending' WHERE id=$1`, [idea.id]);
+      claimed = true;
+    }
+    await client.query('COMMIT');
+  } catch (e) {
+    await client.query('ROLLBACK').catch(() => {});
+    throw e;
+  } finally { client.release(); }
+  if (!claimed) return;
   const { submitFxModelTrade } = await import('./live-trading-engine');
-  await submitFxModelTrade(userId, {
+  const placed = await submitFxModelTrade(userId, {
     model: idea.model, symbol: idea.symbol, direction: idea.direction, confidence: idea.confidence,
     entryPrice: idea.entry, stopLoss: idea.stopLoss, takeProfit: idea.takeProfit,
     reason: `${idea.model === 'M1' ? 'Model 1 · Range' : 'Model 2 · Trend'} [${slice.level}, ${slice.trades} ideas, ${(slice.winRate * 100).toFixed(0)}% WR, ${slice.avgR >= 0 ? '+' : ''}${slice.avgR.toFixed(2)}R] ${idea.setup}: ${idea.reason}`.slice(0, 500),
-  });
+  }).catch(() => false);
+  // Only a trade the engine actually placed uses the cap; otherwise release it.
+  await pool.query(`UPDATE fx_model_decisions SET mode=$2 WHERE id=$1`, [idea.id, placed ? 'live' : 'shadow']).catch(() => {});
 }
 
 export function masteryLevel(trades: number, winRate: number, avgR: number): string {
@@ -538,7 +566,7 @@ export function masteryLevel(trades: number, winRate: number, avgR: number): str
 }
 
 /** Per model × day type × pair × session: data volume, accuracy, expectancy, level. */
-export async function getModelMastery(userId: number): Promise<{ models: any[]; slices: any[] }> {
+export async function getModelMastery(userId: number, opts: { ownOnly?: boolean } = {}): Promise<{ models: any[]; slices: any[] }> {
   await ensureFxModelTables();
   const agg = async (group: string) => (await pool.query(
     `SELECT ${group}, COUNT(*)::int AS trades,
@@ -546,7 +574,7 @@ export async function getModelMastery(userId: number): Promise<{ models: any[]; 
             COALESCE(AVG(r_multiple),0)::float AS avg_r,
             COALESCE(SUM(r_multiple),0)::float AS total_r
        FROM fx_model_decisions
-      WHERE user_id=$1 AND result IN ('WIN','LOSS','EXPIRED')
+      WHERE user_id=$1 AND result IN ('WIN','LOSS','EXPIRED')${opts.ownOnly ? " AND source='own'" : ''}
       GROUP BY ${group} ORDER BY trades DESC`, [userId])).rows;
   const shape = (r: any) => {
     const winRate = r.trades ? r.wins / r.trades : 0;

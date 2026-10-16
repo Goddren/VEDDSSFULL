@@ -10822,7 +10822,10 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
             _g.__chartAiCandle = _g.__chartAiCandle || new Map<string, number>();
             const _k = `${token.userId}|${sanitizedSymbol}|${sanitizedTimeframe}|${analysis.signal}`;
             if (_g.__chartAiCandle.get(_k) === _candle) _saverReason = 'ai_skipped_same_candle (already checked this candle)';
-            else _g.__chartAiCandle.set(_k, _candle);
+            // The key is recorded only once an AI call has actually returned
+            // (below), so a low-confidence post or a failed call doesn't use
+            // up the candle's one check.
+            else (_cdiag as any)._candleKey = { k: _k, c: _candle };
           }
         }
       }
@@ -11175,6 +11178,7 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
               }
               }
               _cdiag.stage = _cdiag.stage === 'ai_cached' ? 'ai_cached' : 'ai_returned';
+              if ((_cdiag as any)._candleKey) { const _ck = (_cdiag as any)._candleKey; ((globalThis as any).__chartAiCandle as Map<string, number>)?.set(_ck.k, _ck.c); }
               _cdiag.decision = aiConfirmation ? (aiConfirmation.confirmed ? 'CONFIRMED' : 'REJECTED') : 'NULL';
               _cdiag.model = (aiConfirmation as any)?.modelUsed || getUserModelPreference(token.userId);
             }

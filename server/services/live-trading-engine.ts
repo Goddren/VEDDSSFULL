@@ -2445,13 +2445,29 @@ async function manageBtcTrail(userId: number, openPositions: any[], marketAnalys
     const entry = Number(pos.openPrice) || 0;
     const brokerSl = Number(pos.brokerSl) || 0;
     if (!(entry > 0)) continue;
-    if (!btcInitialStop.has(key) && brokerSl > 0) btcInitialStop.set(key, brokerSl);
+    if (!btcInitialStop.has(key)) {
+      // Durable across deploys: the first stop ever seen for this ticket.
+      try {
+        const { getRuntimeStateStrict, insertRuntimeStateIfAbsent } = await import('./runtime-state');
+        const stored = await getRuntimeStateStrict('btc_initial_stop', key);
+        if (Number(stored?.sl) > 0) btcInitialStop.set(key, Number(stored.sl));
+        else if (brokerSl > 0) {
+          const v = await insertRuntimeStateIfAbsent('btc_initial_stop', key, { sl: brokerSl, entry });
+          btcInitialStop.set(key, Number(v?.sl) || brokerSl);
+        }
+      } catch { /* DB unreadable → skip this pass rather than guess */ }
+    }
     const initial = btcInitialStop.get(key);
     if (!initial) continue;
+    // Trail state lost (risk ~0, stop already at/through entry): don't trail on it.
+    if (Math.abs(entry - initial) < entry * 0.0005) continue;
+    const _isBuyPos = pos.direction === 'BUY';
+    const _stops = [btcLastStop.get(key), brokerSl].filter((x) => Number(x) > 0) as number[];
+    const _tightest = _stops.length ? (_isBuyPos ? Math.max(..._stops) : Math.min(..._stops)) : null;
     const price = Number(marketAnalysis?.[pos.symbol]?.currentPrice) || 0;
     const h1 = await btc.btcH1(pos.symbol);
     if (!h1) continue;
-    const want = btc.btcTrailStop({ direction: pos.direction, entry, initialStop: initial, price, currentStop: btcLastStop.get(key) ?? brokerSl, bars: h1.bars });
+    const want = btc.btcTrailStop({ direction: pos.direction, entry, initialStop: initial, price, currentStop: _tightest, bars: h1.bars });
     if (!want) continue;
     const m = String(pos.ticket).match(/^tl_(\d+)_(.+)$/);
     if (!m) continue;
@@ -4567,7 +4583,10 @@ async function processDecision(userId: number, decision: any, newsCtx?: any): Pr
 
     // ── Multi-timeframe entry rule (H1 + H4) ─────────────────────────────
     {
-      const _rule = (process.env.MTF_ENTRY_RULE || 'strict').toLowerCase();
+      // Default no_conflict: block only when H1/H4 actively OPPOSE the entry.
+      // Strict (both must agree) blocked on every NEUTRAL or missing read,
+      // which is most of the time — it would have silenced the engine.
+      const _rule = (process.env.MTF_ENTRY_RULE || 'no_conflict').toLowerCase();
       // Model 1 range trades are validated by their own range rules (measured
       // box, edge, sweep, no fading a trending H4) in fx-models.ts.
       if (_rule !== 'off' && decision.direction && decision.fxModel !== 'M1') {
@@ -4582,7 +4601,9 @@ async function processDecision(userId: number, decision: any, newsCtx?: any): Pr
           ? _tfs.some(([, b]) => !!b && b.trend === _opp)
           : _tfs.some(([, b]) => !b || b.trend !== _want);
         if (_fail) {
-          addActivity(userId, { type: 'info', symbol: decision.symbol, message: `🧭 MTF BLOCK: ${_dir} ${decision.symbol} (${_rule === 'strict' ? 'H1 and H4 must both agree' : 'H1/H4 oppose it'}: ${_desc}). Not entering.` });
+          const _why = _tfs.some(([, b]) => b && b.trend === _opp) ? 'opposed'
+            : _tfs.some(([, b]) => !b) ? 'data missing' : 'neutral';
+          addActivity(userId, { type: 'info', symbol: decision.symbol, message: `🧭 MTF BLOCK (${_why}): ${_dir} ${decision.symbol} (${_rule === 'strict' ? 'H1 and H4 must both agree' : 'H1/H4 oppose it'}: ${_desc}). Not entering.` });
           state.signalsGenerated++;
           return;
         }
@@ -4609,8 +4630,9 @@ async function processDecision(userId: number, decision: any, newsCtx?: any): Pr
         if (_chk.stopLoss != null) decision.stopLoss = _chk.stopLoss;
         if (_chk.takeProfit != null) decision.takeProfit = _chk.takeProfit;
         (decision as any)._lotScale = Math.min(1, Math.max(0.05, _chk.lotScale));
+        (decision as any)._lotScaleWeekend = Math.min(1, Math.max(0.05, Number((_chk as any).weekendScale ?? 1)));
         if (_chk.notes.length) addActivity(userId, { type: 'info', symbol: decision.symbol, message: `₿ BTC profile: ${_chk.notes.join('; ')}` });
-        _btc.markBtcEntry(decision.symbol);
+        (decision as any)._btcProfile = true; // one-per-candle mark set only after a fill
       }
     }
 
@@ -5651,6 +5673,15 @@ async function processDecision(userId: number, decision: any, newsCtx?: any): Pr
       }
     }
 
+    // BTC profile size scale on the base lot (MT5 / DXtrade / proportional and
+    // multiplier TradeLocker copies all derive from it). Stop-distance (risk-%)
+    // TradeLocker sizing already reflects the wider stop and only gets the
+    // weekend factor, in the per-account loop.
+    {
+      const _ls = Number((decision as any)._lotScale);
+      if (_ls > 0 && _ls < 1) lotSize = Math.max(0.01, Math.floor(lotSize * _ls * 100) / 100);
+    }
+
     // ── Per-trade 5% backstop + aggregate exposure cap (ports Gate 0d/0e) ──
     // Kept as a final catch BELOW the configured cap above: if sizing is still
     // absurd after the resize (e.g. no stop distance, unknown pip value), block.
@@ -6112,6 +6143,7 @@ async function processDecision(userId: number, decision: any, newsCtx?: any): Pr
           }
 
           let acctLot: number;
+          let _stopSized = false; // lot computed from stop distance (risk-%)
           let acctSizeLabel = '';
           // Read risk settings from DB column (persists across redeploys) with JSON sidecar fallback
           const _dbRisk = { useRiskPercent: tlConn.useRiskPercent ?? false, riskPercent: tlConn.riskPercent ?? 1.0 };
@@ -6131,6 +6163,7 @@ async function processDecision(userId: number, decision: any, newsCtx?: any): Pr
             const riskUsd = _tlAcctEq * (_risk.riskPercent / 100);
             if (_slPips > 0 && _pipValue > 0) {
               acctLot = Math.max(0.01, Math.round((riskUsd / (_slPips * _pipValue)) * 100) / 100);
+              _stopSized = true;
               acctSizeLabel = ` (risk ${_risk.riskPercent}% of $${_tlAcctEq.toLocaleString()} = ${_slPips.toFixed(0)}pip SL)`;
             } else if (_pipValue > 0) {
               // No SL distance — use conservative 20-pip equivalent so sizing stays proportional
@@ -6156,6 +6189,7 @@ async function processDecision(userId: number, decision: any, newsCtx?: any): Pr
             const autoRiskPct = _risk.riskPercent > 0 ? _risk.riskPercent : 1.0;
             const riskUsd = _tlAcctEq * (autoRiskPct / 100);
             acctLot = Math.max(0.01, Math.round((riskUsd / (_slPips * _pipValue)) * 100) / 100);
+            _stopSized = true;
             acctSizeLabel = ` (⚠️ auto ${autoRiskPct}% risk of $${_tlAcctEq.toLocaleString()} — set Reference Balance to enable proportional copy)`;
           } else {
             // Fall back to manual lotMultiplier (or 1.0 if not set)
@@ -6175,10 +6209,12 @@ async function processDecision(userId: number, decision: any, newsCtx?: any): Pr
             const _ceil = [Number(config.maxLot) || 0, Number((config as any).maxLotSize) || 0].filter((x) => x > 0);
             if (_ceil.length) acctLot = Math.min(acctLot, Math.min(..._ceil));
           }
-          // BTC profile: wider ATR stop / weekend → proportionally smaller lots.
-          {
-            const _ls = Number((decision as any)._lotScale);
-            if (_ls > 0 && _ls < 1) acctLot = Math.max(0.01, Math.floor(acctLot * _ls * 100) / 100);
+          // BTC profile: stop-sized lots already shrink with the wider stop —
+          // apply only the weekend factor there (lotSize-derived lots were
+          // scaled once above).
+          if (_stopSized) {
+            const _lw = Number((decision as any)._lotScaleWeekend);
+            if (_lw > 0 && _lw < 1) acctLot = Math.max(0.01, Math.floor(acctLot * _lw * 100) / 100);
           }
 
           // Apply this account's consistency taper (0.25–1×) as it nears its cap.
@@ -6317,6 +6353,9 @@ async function processDecision(userId: number, decision: any, newsCtx?: any): Pr
       if (anySuccess) {
         state.tradesExecuted++;
         state.tradesOpenedToday++;
+        if ((decision as any)._btcProfile) {
+          try { (await import('./btc-profile')).markBtcEntry(decision.symbol); } catch { /* non-fatal */ }
+        }
         // Only a CONFIRMED open position consumes a slot. A working pending
         // order, or a market order whose fill could not be confirmed, does not.
         if (_isPendingType) {
@@ -6476,10 +6515,14 @@ async function processDecision(userId: number, decision: any, newsCtx?: any): Pr
             // direction to BUY meant a SELL was never found, so it was never
             // closed or trailed. No direction → match either side.
             const matchDir = decision.direction ? String(decision.direction).toUpperCase() : null;
-            const tlMatch = tlPositions.find((p: any) =>
-              (p.symbol || '').toUpperCase().replace('/', '') === decision.symbol?.toUpperCase().replace('/', '') &&
-              (!matchDir || (p.side || '').toUpperCase() === (matchDir === 'BUY' ? 'BUY' : 'SELL'))
-            );
+            const _symMatches = tlPositions.filter((p: any) =>
+              (p.symbol || '').toUpperCase().replace('/', '') === decision.symbol?.toUpperCase().replace('/', ''));
+            if (!matchDir && new Set(_symMatches.map((p: any) => String(p.side || '').toUpperCase())).size > 1) {
+              addActivity(userId, { type: 'info', symbol: decision.symbol, message: `⚠️ ${acctLabel}: AI asked to manage ${decision.symbol} without a direction but this account holds both a BUY and a SELL — skipped rather than guess the leg.` });
+              return;
+            }
+            const tlMatch = _symMatches.find((p: any) =>
+              !matchDir || (p.side || '').toUpperCase() === (matchDir === 'BUY' ? 'BUY' : 'SELL'));
             if (!tlMatch) {
               // No open position for this symbol on this account — nothing to
               // close/modify here (the trade likely lives on MT5 or a
@@ -6960,9 +7003,10 @@ let _fxLeaderLoop: ReturnType<typeof setInterval> | null = null;
 export async function submitFxModelTrade(userId: number, t: {
   model: 'M1' | 'M2'; symbol: string; direction: string; confidence: number;
   entryPrice: number; stopLoss: number; takeProfit: number; reason: string;
-}): Promise<void> {
+}): Promise<boolean> {
   const state = engineStates[userId];
-  if (!state || state.status !== 'running' || !isFxLeader()) return;
+  if (!state || state.status !== 'running' || !isFxLeader()) return false;
+  const _before = state.tradesExecuted;
   addActivity(userId, { type: 'signal', symbol: t.symbol, direction: t.direction, confidence: t.confidence, message: `🧠 ${t.model === 'M1' ? 'Model 1 · Range' : 'Model 2 · Trend'} LIVE idea: ${t.direction} ${t.symbol} @ ${t.entryPrice} SL ${t.stopLoss} TP ${t.takeProfit} — ${t.reason}` });
   await processDecision(userId, {
     action: 'OPEN_TRADE',
@@ -6980,6 +7024,7 @@ export async function submitFxModelTrade(userId: number, t: {
     reason: t.reason,
     confluences: [t.reason],
   });
+  return state.tradesExecuted > _before; // processDecision bumps it only on a fill
 }
 
 export function isFxLeader(): boolean {

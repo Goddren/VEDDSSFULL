@@ -69,16 +69,18 @@ export async function btcDailyTrend(symbol: string): Promise<'BULLISH' | 'BEARIS
  * Entry rules 1, 2, 3 and 6. Returns a block reason, or adjusted stop / target
  * and a lot multiplier (≤ 1) to apply.
  */
-export interface BtcEntryResult { block?: string; stopLoss?: number; takeProfit?: number; lotScale: number; notes: string[] }
+export interface BtcEntryResult { block?: string; stopLoss?: number; takeProfit?: number; lotScale: number; weekendScale?: number; notes: string[] }
 export async function btcEntryCheck(d: { symbol: string; direction: string; entryPrice?: number; stopLoss?: number; takeProfit?: number }, h4Trend: string | null | undefined, now = new Date()): Promise<BtcEntryResult> {
   const notes: string[] = [];
   let lotScale = 1;
+  let weekendScale = 1;
   const h = now.getUTCHours();
   if (!(h >= HOURS[0] && h < HOURS[1])) return { block: `BTC trades only ${HOURS[0]}:00–${HOURS[1]}:00 UTC (late US/Asia lost −$4.3k over 90 days)`, lotScale: 0, notes: [] };
   const dow = now.getUTCDay();
   if (dow === 0 || dow === 6) {
     if (!(WEEKEND_SIZE > 0)) return { block: 'BTC weekend trading is off (thin liquidity)', lotScale: 0, notes: [] };
     lotScale *= WEEKEND_SIZE;
+    weekendScale = WEEKEND_SIZE;
     notes.push(`weekend size ×${WEEKEND_SIZE}`);
   }
   const dir = String(d.direction || '').toUpperCase();
@@ -108,7 +110,7 @@ export async function btcEntryCheck(d: { symbol: string; direction: string; entr
       notes.push(`target set to ${MIN_RR}R`);
     }
   }
-  return { stopLoss, takeProfit, lotScale, notes };
+  return { stopLoss, takeProfit, lotScale, weekendScale, notes };
 }
 
 export function markBtcEntry(symbol: string, now = new Date()): void {

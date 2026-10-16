@@ -21412,6 +21412,18 @@ Give exactly one M1 and one M2 entry per pair.`;
     const near = price > 0 && Math.abs(entry - price) / price < 3e-3;
     let isTrade = (dir === "BUY" || dir === "SELL") && valid && near;
     let ruleNote = "";
+    if (isTrade) {
+      const sidesOk = dir === "BUY" ? sl < price && tp > price : sl > price && tp < price;
+      const planned = Math.abs(entry - sl), actual = Math.abs(price - sl);
+      const ratio = planned > 0 ? actual / planned : 0;
+      if (!sidesOk) {
+        isTrade = false;
+        ruleNote = `stop/target on the wrong side of live price ${price}`;
+      } else if (!(ratio >= 0.5 && ratio <= 1.5)) {
+        isTrade = false;
+        ruleNote = `risk at live price is ${ratio.toFixed(2)}x the planned risk`;
+      }
+    }
     if (isTrade && model === "M1") {
       const why = m1Reject(sym, dir, price, sl, ctx);
       if (why) {
@@ -21631,18 +21643,34 @@ async function maybeGoLive(userId, idea) {
   const settings = await getFxModelSettings(userId);
   if (!settings.live) return;
   if (idea.model !== idea.autoModel) return;
-  const mastery = await getModelMastery(userId);
+  const mastery = await getModelMastery(userId, { ownOnly: true });
   const slice = mastery.slices.find((s) => s.model === idea.model && s.dayType === idea.dayType && s.symbol === idea.symbol && s.session === idea.session);
   if (!slice || !LIVE_LEVELS.includes(slice.level)) return;
   const cap = idea.model === "M1" ? settings.m1DailyCap : settings.m2DailyCap;
-  const { rows } = await pool.query(
-    `SELECT COUNT(*)::int AS n FROM fx_model_decisions WHERE user_id=$1 AND model=$2 AND mode='live' AND created_at >= date_trunc('day', now())`,
-    [userId, idea.model]
-  );
-  if (Number(rows[0]?.n) >= cap) return;
-  await pool.query(`UPDATE fx_model_decisions SET mode='live' WHERE id=$1`, [idea.id]);
+  const client2 = await pool.connect();
+  let claimed = false;
+  try {
+    await client2.query("BEGIN");
+    await client2.query("SELECT pg_advisory_xact_lock(918273700, $1)", [userId]);
+    const { rows } = await client2.query(
+      `SELECT COUNT(*)::int AS n FROM fx_model_decisions WHERE user_id=$1 AND model=$2 AND mode IN ('live','live_pending') AND created_at >= date_trunc('day', now())`,
+      [userId, idea.model]
+    );
+    if (Number(rows[0]?.n) < cap) {
+      await client2.query(`UPDATE fx_model_decisions SET mode='live_pending' WHERE id=$1`, [idea.id]);
+      claimed = true;
+    }
+    await client2.query("COMMIT");
+  } catch (e) {
+    await client2.query("ROLLBACK").catch(() => {
+    });
+    throw e;
+  } finally {
+    client2.release();
+  }
+  if (!claimed) return;
   const { submitFxModelTrade: submitFxModelTrade2 } = await Promise.resolve().then(() => (init_live_trading_engine(), live_trading_engine_exports));
-  await submitFxModelTrade2(userId, {
+  const placed = await submitFxModelTrade2(userId, {
     model: idea.model,
     symbol: idea.symbol,
     direction: idea.direction,
@@ -21651,6 +21679,8 @@ async function maybeGoLive(userId, idea) {
     stopLoss: idea.stopLoss,
     takeProfit: idea.takeProfit,
     reason: `${idea.model === "M1" ? "Model 1 \xB7 Range" : "Model 2 \xB7 Trend"} [${slice.level}, ${slice.trades} ideas, ${(slice.winRate * 100).toFixed(0)}% WR, ${slice.avgR >= 0 ? "+" : ""}${slice.avgR.toFixed(2)}R] ${idea.setup}: ${idea.reason}`.slice(0, 500)
+  }).catch(() => false);
+  await pool.query(`UPDATE fx_model_decisions SET mode=$2 WHERE id=$1`, [idea.id, placed ? "live" : "shadow"]).catch(() => {
   });
 }
 function masteryLevel(trades, winRate2, avgR) {
@@ -21659,7 +21689,7 @@ function masteryLevel(trades, winRate2, avgR) {
   if (trades < 150) return avgR > 0 ? "Proficient" : "Unproven";
   return avgR > 0.2 && winRate2 >= 0.45 ? "Master" : avgR > 0 ? "Proficient" : "Unproven";
 }
-async function getModelMastery(userId) {
+async function getModelMastery(userId, opts = {}) {
   await ensureFxModelTables();
   const agg = async (group) => (await pool.query(
     `SELECT ${group}, COUNT(*)::int AS trades,
@@ -21667,7 +21697,7 @@ async function getModelMastery(userId) {
             COALESCE(AVG(r_multiple),0)::float AS avg_r,
             COALESCE(SUM(r_multiple),0)::float AS total_r
        FROM fx_model_decisions
-      WHERE user_id=$1 AND result IN ('WIN','LOSS','EXPIRED')
+      WHERE user_id=$1 AND result IN ('WIN','LOSS','EXPIRED')${opts.ownOnly ? " AND source='own'" : ""}
       GROUP BY ${group} ORDER BY trades DESC`,
     [userId]
   )).rows;
@@ -22432,12 +22462,14 @@ async function btcDailyTrend(symbol) {
 async function btcEntryCheck(d, h4Trend, now = /* @__PURE__ */ new Date()) {
   const notes = [];
   let lotScale = 1;
+  let weekendScale = 1;
   const h = now.getUTCHours();
   if (!(h >= HOURS[0] && h < HOURS[1])) return { block: `BTC trades only ${HOURS[0]}:00\u2013${HOURS[1]}:00 UTC (late US/Asia lost \u2212$4.3k over 90 days)`, lotScale: 0, notes: [] };
   const dow = now.getUTCDay();
   if (dow === 0 || dow === 6) {
     if (!(WEEKEND_SIZE > 0)) return { block: "BTC weekend trading is off (thin liquidity)", lotScale: 0, notes: [] };
     lotScale *= WEEKEND_SIZE;
+    weekendScale = WEEKEND_SIZE;
     notes.push(`weekend size \xD7${WEEKEND_SIZE}`);
   }
   const dir = String(d.direction || "").toUpperCase();
@@ -22466,7 +22498,7 @@ async function btcEntryCheck(d, h4Trend, now = /* @__PURE__ */ new Date()) {
       notes.push(`target set to ${MIN_RR}R`);
     }
   }
-  return { stopLoss, takeProfit, lotScale, notes };
+  return { stopLoss, takeProfit, lotScale, weekendScale, notes };
 }
 function markBtcEntry(symbol, now = /* @__PURE__ */ new Date()) {
   lastEntryCandle.set(symbol, Math.floor(now.getTime() / 36e5));
@@ -25599,13 +25631,28 @@ async function manageBtcTrail(userId, openPositions, marketAnalysis) {
     const entry = Number(pos.openPrice) || 0;
     const brokerSl = Number(pos.brokerSl) || 0;
     if (!(entry > 0)) continue;
-    if (!btcInitialStop.has(key) && brokerSl > 0) btcInitialStop.set(key, brokerSl);
+    if (!btcInitialStop.has(key)) {
+      try {
+        const { getRuntimeStateStrict: getRuntimeStateStrict2, insertRuntimeStateIfAbsent: insertRuntimeStateIfAbsent2 } = await Promise.resolve().then(() => (init_runtime_state(), runtime_state_exports));
+        const stored = await getRuntimeStateStrict2("btc_initial_stop", key);
+        if (Number(stored?.sl) > 0) btcInitialStop.set(key, Number(stored.sl));
+        else if (brokerSl > 0) {
+          const v = await insertRuntimeStateIfAbsent2("btc_initial_stop", key, { sl: brokerSl, entry });
+          btcInitialStop.set(key, Number(v?.sl) || brokerSl);
+        }
+      } catch {
+      }
+    }
     const initial = btcInitialStop.get(key);
     if (!initial) continue;
+    if (Math.abs(entry - initial) < entry * 5e-4) continue;
+    const _isBuyPos = pos.direction === "BUY";
+    const _stops = [btcLastStop.get(key), brokerSl].filter((x) => Number(x) > 0);
+    const _tightest = _stops.length ? _isBuyPos ? Math.max(..._stops) : Math.min(..._stops) : null;
     const price = Number(marketAnalysis?.[pos.symbol]?.currentPrice) || 0;
     const h1 = await btc.btcH1(pos.symbol);
     if (!h1) continue;
-    const want = btc.btcTrailStop({ direction: pos.direction, entry, initialStop: initial, price, currentStop: btcLastStop.get(key) ?? brokerSl, bars: h1.bars });
+    const want = btc.btcTrailStop({ direction: pos.direction, entry, initialStop: initial, price, currentStop: _tightest, bars: h1.bars });
     if (!want) continue;
     const m = String(pos.ticket).match(/^tl_(\d+)_(.+)$/);
     if (!m) continue;
@@ -27462,7 +27509,7 @@ async function processDecision(userId, decision, newsCtx) {
       }
     }
     {
-      const _rule = (process.env.MTF_ENTRY_RULE || "strict").toLowerCase();
+      const _rule = (process.env.MTF_ENTRY_RULE || "no_conflict").toLowerCase();
       if (_rule !== "off" && decision.direction && decision.fxModel !== "M1") {
         const _dir = decision.direction.toUpperCase();
         const _want = _dir === "BUY" ? "BULLISH" : "BEARISH";
@@ -27473,7 +27520,8 @@ async function processDecision(userId, decision, newsCtx) {
         const _desc = _tfs.map(([l, b]) => `${l} ${b ? b.trend : "n/a"}`).join(", ");
         const _fail = _rule === "no_conflict" ? _tfs.some(([, b]) => !!b && b.trend === _opp) : _tfs.some(([, b]) => !b || b.trend !== _want);
         if (_fail) {
-          addActivity(userId, { type: "info", symbol: decision.symbol, message: `\u{1F9ED} MTF BLOCK: ${_dir} ${decision.symbol} (${_rule === "strict" ? "H1 and H4 must both agree" : "H1/H4 oppose it"}: ${_desc}). Not entering.` });
+          const _why = _tfs.some(([, b]) => b && b.trend === _opp) ? "opposed" : _tfs.some(([, b]) => !b) ? "data missing" : "neutral";
+          addActivity(userId, { type: "info", symbol: decision.symbol, message: `\u{1F9ED} MTF BLOCK (${_why}): ${_dir} ${decision.symbol} (${_rule === "strict" ? "H1 and H4 must both agree" : "H1/H4 oppose it"}: ${_desc}). Not entering.` });
           state.signalsGenerated++;
           return;
         }
@@ -27499,8 +27547,9 @@ async function processDecision(userId, decision, newsCtx) {
         if (_chk.stopLoss != null) decision.stopLoss = _chk.stopLoss;
         if (_chk.takeProfit != null) decision.takeProfit = _chk.takeProfit;
         decision._lotScale = Math.min(1, Math.max(0.05, _chk.lotScale));
+        decision._lotScaleWeekend = Math.min(1, Math.max(0.05, Number(_chk.weekendScale ?? 1)));
         if (_chk.notes.length) addActivity(userId, { type: "info", symbol: decision.symbol, message: `\u20BF BTC profile: ${_chk.notes.join("; ")}` });
-        _btc.markBtcEntry(decision.symbol);
+        decision._btcProfile = true;
       }
     }
     const m15Snap = state.marketSnapshot?.[decision.symbol];
@@ -28262,6 +28311,10 @@ async function processDecision(userId, decision, newsCtx) {
       }
     }
     {
+      const _ls = Number(decision._lotScale);
+      if (_ls > 0 && _ls < 1) lotSize = Math.max(0.01, Math.floor(lotSize * _ls * 100) / 100);
+    }
+    {
       const _riskBal = config.accountBalance > 0 ? config.accountBalance : 0;
       if (_riskBal > 0 && entryPrice && stopLoss) {
         const _slDist = Math.abs(entryPrice - stopLoss);
@@ -28647,6 +28700,7 @@ async function processDecision(userId, decision, newsCtx) {
             }
           }
           let acctLot;
+          let _stopSized = false;
           let acctSizeLabel = "";
           const _dbRisk = { useRiskPercent: tlConn.useRiskPercent ?? false, riskPercent: tlConn.riskPercent ?? 1 };
           const _jsonRisk = getTLRisk(tlConn.id);
@@ -28659,6 +28713,7 @@ async function processDecision(userId, decision, newsCtx) {
             const riskUsd = _tlAcctEq * (_risk.riskPercent / 100);
             if (_slPips > 0 && _pipValue > 0) {
               acctLot = Math.max(0.01, Math.round(riskUsd / (_slPips * _pipValue) * 100) / 100);
+              _stopSized = true;
               acctSizeLabel = ` (risk ${_risk.riskPercent}% of $${_tlAcctEq.toLocaleString()} = ${_slPips.toFixed(0)}pip SL)`;
             } else if (_pipValue > 0) {
               acctLot = Math.max(0.01, Math.round(riskUsd / (20 * _pipValue) * 100) / 100);
@@ -28679,6 +28734,7 @@ async function processDecision(userId, decision, newsCtx) {
             const autoRiskPct = _risk.riskPercent > 0 ? _risk.riskPercent : 1;
             const riskUsd = _tlAcctEq * (autoRiskPct / 100);
             acctLot = Math.max(0.01, Math.round(riskUsd / (_slPips * _pipValue) * 100) / 100);
+            _stopSized = true;
             acctSizeLabel = ` (\u26A0\uFE0F auto ${autoRiskPct}% risk of $${_tlAcctEq.toLocaleString()} \u2014 set Reference Balance to enable proportional copy)`;
           } else {
             const acctMult = typeof tlConn.lotMultiplier === "number" && tlConn.lotMultiplier > 0 ? tlConn.lotMultiplier : 1;
@@ -28690,9 +28746,9 @@ async function processDecision(userId, decision, newsCtx) {
             const _ceil = [Number(config.maxLot) || 0, Number(config.maxLotSize) || 0].filter((x) => x > 0);
             if (_ceil.length) acctLot = Math.min(acctLot, Math.min(..._ceil));
           }
-          {
-            const _ls = Number(decision._lotScale);
-            if (_ls > 0 && _ls < 1) acctLot = Math.max(0.01, Math.floor(acctLot * _ls * 100) / 100);
+          if (_stopSized) {
+            const _lw = Number(decision._lotScaleWeekend);
+            if (_lw > 0 && _lw < 1) acctLot = Math.max(0.01, Math.floor(acctLot * _lw * 100) / 100);
           }
           if (_consistencyMult < 1) {
             acctLot = Math.max(0.01, Math.round(acctLot * _consistencyMult * 100) / 100);
@@ -28805,6 +28861,12 @@ async function processDecision(userId, decision, newsCtx) {
       if (anySuccess) {
         state.tradesExecuted++;
         state.tradesOpenedToday++;
+        if (decision._btcProfile) {
+          try {
+            (await Promise.resolve().then(() => (init_btc_profile(), btc_profile_exports))).markBtcEntry(decision.symbol);
+          } catch {
+          }
+        }
         if (_isPendingType) {
           addActivity(userId, { type: "info", symbol: decision.symbol, message: `\u23F3 ${resolvedOrderType.toUpperCase()} order resting at the broker \u2014 not counted as an open position until it triggers.` });
         } else if (_marketFilled) {
@@ -28916,9 +28978,12 @@ async function processDecision(userId, decision, newsCtx) {
             const svc = await getOrCreateService(tlConn);
             const tlPositions = await svc.getPositionsNormalized().catch(() => []);
             const matchDir = decision.direction ? String(decision.direction).toUpperCase() : null;
-            const tlMatch = tlPositions.find(
-              (p) => (p.symbol || "").toUpperCase().replace("/", "") === decision.symbol?.toUpperCase().replace("/", "") && (!matchDir || (p.side || "").toUpperCase() === (matchDir === "BUY" ? "BUY" : "SELL"))
-            );
+            const _symMatches = tlPositions.filter((p) => (p.symbol || "").toUpperCase().replace("/", "") === decision.symbol?.toUpperCase().replace("/", ""));
+            if (!matchDir && new Set(_symMatches.map((p) => String(p.side || "").toUpperCase())).size > 1) {
+              addActivity(userId, { type: "info", symbol: decision.symbol, message: `\u26A0\uFE0F ${acctLabel}: AI asked to manage ${decision.symbol} without a direction but this account holds both a BUY and a SELL \u2014 skipped rather than guess the leg.` });
+              return;
+            }
+            const tlMatch = _symMatches.find((p) => !matchDir || (p.side || "").toUpperCase() === (matchDir === "BUY" ? "BUY" : "SELL"));
             if (!tlMatch) {
               return;
             }
@@ -29240,7 +29305,8 @@ function _persistFxRunState(userId, isRunning) {
 }
 async function submitFxModelTrade(userId, t) {
   const state = engineStates[userId];
-  if (!state || state.status !== "running" || !isFxLeader()) return;
+  if (!state || state.status !== "running" || !isFxLeader()) return false;
+  const _before = state.tradesExecuted;
   addActivity(userId, { type: "signal", symbol: t.symbol, direction: t.direction, confidence: t.confidence, message: `\u{1F9E0} ${t.model === "M1" ? "Model 1 \xB7 Range" : "Model 2 \xB7 Trend"} LIVE idea: ${t.direction} ${t.symbol} @ ${t.entryPrice} SL ${t.stopLoss} TP ${t.takeProfit} \u2014 ${t.reason}` });
   await processDecision(userId, {
     action: "OPEN_TRADE",
@@ -29258,6 +29324,7 @@ async function submitFxModelTrade(userId, t) {
     reason: t.reason,
     confluences: [t.reason]
   });
+  return state.tradesExecuted > _before;
 }
 function isFxLeader() {
   if (process.env.FX_LEADER_LOCK_DISABLED === "true") return true;
@@ -30254,7 +30321,7 @@ async function getOrCreateService(connection2) {
   const cached = serviceCache.get(connId);
   if (cached && Date.now() - cached.createdAt < SERVICE_CACHE_TTL) {
     console.log("[TradeLocker] Reusing cached service for connection", connId);
-    if (!cached.service.logConn) cached.service.logConn = { id: connection2.id, userId: connection2.userId };
+    cached.service.logConn = { id: connection2.id, userId: connection2.userId };
     return cached.service;
   }
   const service = new TradeLockerService(
@@ -30460,7 +30527,7 @@ async function tlAccountRiskGuard(service, connection2, signal) {
   }
   let positions;
   try {
-    positions = await guardRead(`pos:${connKey}`, () => service.getPositionsNormalized());
+    positions = await guardRead(`pos:${connKey}`, () => service.getPositionsNormalized(), 0);
   } catch (e) {
     return { block: `open positions unreadable (${e?.message || e}) \u2014 not trading this account (fail closed)` };
   }
@@ -30480,7 +30547,7 @@ async function tlAccountRiskGuard(service, connection2, signal) {
       // only recent ones: a PENDING row whose close never synced (an XAUUSD
       // row on account 31 since 2026-09-23) used to block that pair forever.
       `SELECT 1 FROM ai_trade_results WHERE connection_id = $1 AND result = 'PENDING'
-         AND source LIKE 'tradelocker%' AND created_at > now() - interval '3 days'
+         AND coalesce(source, '') NOT ILIKE 'dx%' AND created_at > now() - interval '3 days'
          AND upper(regexp_replace(split_part(symbol, '.', 1), '[^A-Za-z0-9]', '', 'g')) = $2 LIMIT 1`,
       [connection2.id ?? -1, want]
     );
@@ -30496,11 +30563,11 @@ async function tlAccountRiskGuard(service, connection2, signal) {
   if (!(room >= 0.01)) {
     return { block: `open lots ${openLots.toFixed(2)} already at the ${openCap.toFixed(2)}-lot cap for this account size` };
   }
-  return { maxVolume: room };
+  return { maxVolume: room, positionIds: positions.map((p) => String(p.id)) };
 }
-async function guardRead(key, fn) {
+async function guardRead(key, fn, ttlMs = GUARD_CACHE_MS) {
   const hit = guardCache.get(key);
-  if (hit && Date.now() - hit.at < GUARD_CACHE_MS) return hit.value;
+  if (ttlMs > 0 && hit && Date.now() - hit.at < ttlMs) return hit.value;
   let value;
   try {
     value = await fn();
@@ -30518,7 +30585,7 @@ function clearGuardPositions(connKey) {
 async function logTlClose(connection2, info2) {
   try {
     const userId = Number(connection2?.userId ?? connection2?.user_id);
-    if (!(userId > 0)) return;
+    if (!(userId > 0) || !(Number(connection2?.id) > 0)) return;
     const { pool: pool2 } = await Promise.resolve().then(() => (init_db(), db_exports));
     const pnl = Number.isFinite(Number(info2.pnl)) && info2.pnl != null ? ` | floating P&L at close ${Number(info2.pnl).toFixed(2)}` : "";
     const msg = `CLOSE reason: ${info2.reason}${pnl}${info2.positionId ? ` | position ${info2.positionId}` : ""}${info2.ok ? "" : ` | FAILED: ${String(info2.error || "").slice(0, 200)}`}`;
@@ -30563,6 +30630,7 @@ async function executeMT5SignalOnTradeLocker(connection2, signal) {
           }
         }
       }
+      let _preOrderIds = null;
       {
         try {
           const { isFxLeader: isFxLeader2 } = await Promise.resolve().then(() => (init_live_trading_engine(), live_trading_engine_exports));
@@ -30571,6 +30639,7 @@ async function executeMT5SignalOnTradeLocker(connection2, signal) {
           return { success: false, error: "NOT LEADER: leadership could not be confirmed \u2014 order not sent" };
         }
         const _guard = await tlAccountRiskGuard(service, connection2, signal);
+        _preOrderIds = _guard.positionIds ? new Set(_guard.positionIds) : null;
         if (_guard.block) {
           console.error(`[TradeLocker Execute] \u{1F6AB} RISK GUARD ${connection2.accountId} ${signal.symbol} ${signal.direction}: ${_guard.block}`);
           return { success: false, error: `RISK GUARD: ${_guard.block}` };
@@ -30612,6 +30681,10 @@ async function executeMT5SignalOnTradeLocker(connection2, signal) {
       } catch (e) {
         const msg = e instanceof Error ? e.message : String(e);
         if (_isBrokerReject(msg)) rejectPauseUntil.set(_pauseKey, Date.now() + REJECT_PAUSE_MS);
+        clearGuardPositions(String(connection2.id ?? connection2.accountId));
+        if (/timeout|timed out|outcome unknown|ECONN|socket|network|\b5\d\d\b/i.test(msg)) {
+          rejectPauseUntil.set(_pauseKey, Math.max(rejectPauseUntil.get(_pauseKey) || 0, Date.now() + UNKNOWN_OUTCOME_PAUSE_MS));
+        }
         throw e;
       }
       console.log("[TradeLocker Execute] Order result:", orderResult);
@@ -30624,17 +30697,27 @@ async function executeMT5SignalOnTradeLocker(connection2, signal) {
           const _plan = Number(signal.entryPrice), _sl = Number(signal.stopLoss), _tp = Number(signal.takeProfit);
           const _slDist = Math.abs(_plan - _sl);
           if (_plan > 0 && _sl > 0 && _slDist > 0) {
-            const _w = String(signal.symbol).toUpperCase().split(".")[0].replace(/[^A-Z0-9]/g, "");
+            const _nrm = (x) => String(x || "").toUpperCase().split(".")[0].replace(/[^A-Z0-9]/g, "");
+            const _w = _nrm(signal.symbol);
             const _isBuy = signal.direction.toUpperCase() === "BUY";
-            let _pos = null;
+            let _pos = null, _cands = 0;
             for (let i = 0; i < 3 && !_pos; i++) {
               await new Promise((r) => setTimeout(r, 1e3));
-              const ps = await service.getPositionsNormalized().catch(() => []);
-              _pos = ps.find((x) => String(x.symbol || "").toUpperCase().replace(/[^A-Z0-9]/g, "").startsWith(_w) && String(x.side || "").toUpperCase() === (_isBuy ? "BUY" : "SELL"));
+              let ps = [];
+              try {
+                ps = await guardRead(`pos:${String(connection2.id ?? connection2.accountId)}`, () => service.getPositionsNormalized(), 0);
+              } catch {
+                ps = [];
+              }
+              const c = ps.filter((x) => _nrm(x.symbol) === _w && String(x.side || "").toUpperCase() === (_isBuy ? "BUY" : "SELL") && !(_preOrderIds && _preOrderIds.has(String(x.id))));
+              _cands = c.length;
+              if (c.length === 1) _pos = c[0];
+              else if (c.length > 1) break;
             }
+            if (!_pos) console.warn(`[TradeLocker Execute] re-anchor skipped for ${_w} on ${connection2.accountId}: ${_cands > 1 ? `${_cands} new positions match \u2014 ambiguous` : "new position not found"}`);
             const _fill = Number(_pos?.avgPrice);
             const _off = _fill - _plan;
-            const _dec = /^XAU/.test(_w) ? 2 : /JPY/.test(_w) ? 3 : /^[A-Z]{6}$/.test(_w) ? 5 : -1;
+            const _dec = /^XAU/.test(_w) ? 2 : /^(XAG|BTC|ETH|LTC|XRP|SOL|ADA|DOGE)/.test(_w) ? -1 : /JPY/.test(_w) ? 3 : /^[A-Z]{6}$/.test(_w) ? 5 : -1;
             if (_dec >= 0 && _pos && _fill > 0 && Math.abs(_off) > _slDist * 0.15) {
               const _r = (x) => Number(x.toFixed(_dec));
               const newSl = _r(_sl + _off);
@@ -30703,7 +30786,7 @@ async function executeMT5SignalOnTradeLocker(connection2, signal) {
     };
   }
 }
-var IV_LENGTH2, DEFAULT_ENCRYPTION_KEY2, SALT_LENGTH2, INSTRUMENT_CACHE_TTL, instrumentCache, instrumentsListCache, serviceCache, SERVICE_CACHE_TTL, rejectPauseUntil, REJECT_PAUSE_MS, RETRY_DELAYS, RETRYABLE_STATUSES, TradeLockerReadError, AUTH_429_COOLDOWN_MS, authCooldownUntil, authChain, lastAuthAt, MIN_AUTH_GAP_MS, USDJPY_FALLBACK, _usdJpyLive, _usdJpyObserved, TradeLockerService, TL_VALUE_TTL, tlDayStartEquity, GUARD_CACHE_MS, guardCache, _isRateLimit;
+var IV_LENGTH2, DEFAULT_ENCRYPTION_KEY2, SALT_LENGTH2, INSTRUMENT_CACHE_TTL, instrumentCache, instrumentsListCache, serviceCache, SERVICE_CACHE_TTL, rejectPauseUntil, REJECT_PAUSE_MS, RETRY_DELAYS, RETRYABLE_STATUSES, TradeLockerReadError, AUTH_429_COOLDOWN_MS, authCooldownUntil, authChain, lastAuthAt, MIN_AUTH_GAP_MS, USDJPY_FALLBACK, _usdJpyLive, _usdJpyObserved, TradeLockerService, TL_VALUE_TTL, tlDayStartEquity, UNKNOWN_OUTCOME_PAUSE_MS, GUARD_CACHE_MS, guardCache, _isRateLimit;
 var init_tradelocker = __esm({
   "server/tradelocker.ts"() {
     "use strict";
@@ -31934,7 +32017,7 @@ var init_tradelocker = __esm({
           try {
             const c = this.logConn;
             const userId = Number(c?.userId);
-            if (!(userId > 0)) return;
+            if (!(userId > 0) || !(Number(c?.id) > 0)) return;
             const { pool: pool2 } = await Promise.resolve().then(() => (init_db(), db_exports));
             const msg = `MODIFY by ${caller} | position ${positionId} | SL ${stopLoss ?? "-"} TP ${takeProfit ?? "-"}${res.success ? "" : ` | FAILED: ${String(res.error || "").slice(0, 200)}`}`;
             await pool2.query(
@@ -32003,6 +32086,7 @@ var init_tradelocker = __esm({
     };
     TL_VALUE_TTL = 60 * 1e3;
     tlDayStartEquity = /* @__PURE__ */ new Map();
+    UNKNOWN_OUTCOME_PAUSE_MS = Number(process.env.TL_UNKNOWN_OUTCOME_PAUSE_SEC ?? 120) * 1e3;
     GUARD_CACHE_MS = Number(process.env.TL_GUARD_CACHE_MS ?? 5e3);
     guardCache = /* @__PURE__ */ new Map();
     _isRateLimit = (e) => /(429|1015)|rate.?limit|too many requests/i.test(String(e?.message || e).slice(0, 400));
@@ -59533,9 +59617,9 @@ async function getStopOrdersForUser(userId, filters = {}) {
 init_schema();
 
 // server/build-info.ts
-var BUILD_COMMIT = "bf66e195-dirty";
+var BUILD_COMMIT = "22a706bf-dirty";
 var BUILD_BRANCH = "main";
-var BUILT_AT = "2026-10-16T21:26:56.098Z";
+var BUILT_AT = "2026-10-16T21:56:26.874Z";
 
 // server/stripe.ts
 init_db();
@@ -71755,7 +71839,7 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
             _g.__chartAiCandle = _g.__chartAiCandle || /* @__PURE__ */ new Map();
             const _k = `${token.userId}|${sanitizedSymbol}|${sanitizedTimeframe}|${analysis.signal}`;
             if (_g.__chartAiCandle.get(_k) === _candle) _saverReason = "ai_skipped_same_candle (already checked this candle)";
-            else _g.__chartAiCandle.set(_k, _candle);
+            else _cdiag._candleKey = { k: _k, c: _candle };
           }
         }
       }
@@ -72114,6 +72198,10 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
                 }
               }
               _cdiag.stage = _cdiag.stage === "ai_cached" ? "ai_cached" : "ai_returned";
+              if (_cdiag._candleKey) {
+                const _ck = _cdiag._candleKey;
+                globalThis.__chartAiCandle?.set(_ck.k, _ck.c);
+              }
               _cdiag.decision = aiConfirmation ? aiConfirmation.confirmed ? "CONFIRMED" : "REJECTED" : "NULL";
               _cdiag.model = aiConfirmation?.modelUsed || getUserModelPreference2(token.userId);
             }

@@ -1766,7 +1766,7 @@ export class TradeLockerService {
       try {
         const c = this.logConn;
         const userId = Number(c?.userId);
-        if (!(userId > 0)) return;
+        if (!(userId > 0) || !(Number(c?.id) > 0)) return; // connection_id is NOT NULL
         const { pool } = await import('./db');
         const msg = `MODIFY by ${caller} | position ${positionId} | SL ${stopLoss ?? '-'} TP ${takeProfit ?? '-'}${res.success ? '' : ` | FAILED: ${String(res.error || '').slice(0, 200)}`}`;
         await pool.query(
@@ -1868,7 +1868,7 @@ export async function getOrCreateService(connection: TLConnection): Promise<Trad
   const cached = serviceCache.get(connId);
   if (cached && Date.now() - cached.createdAt < SERVICE_CACHE_TTL) {
     console.log('[TradeLocker] Reusing cached service for connection', connId);
-    if (!cached.service.logConn) cached.service.logConn = { id: connection.id, userId: (connection as any).userId };
+    cached.service.logConn = { id: connection.id, userId: (connection as any).userId };
     return cached.service;
   }
 
@@ -2088,7 +2088,7 @@ export async function warmTradeLockerConnection(connection: TLConnection): Promi
  *     ≤ TL_MAX_OPEN_LOTS (default 6).
  * Set TL_RISK_GUARD_DISABLED=true to bypass (not recommended).
  */
-async function tlAccountRiskGuard(service: any, connection: TLConnection, signal: { symbol: string; volume: number }): Promise<{ block?: string; maxVolume?: number }> {
+async function tlAccountRiskGuard(service: any, connection: TLConnection, signal: { symbol: string; volume: number }): Promise<{ block?: string; maxVolume?: number; positionIds?: string[] }> {
   if (process.env.TL_RISK_GUARD_DISABLED === 'true') return {};
   const connKey = String((connection as any).id ?? connection.accountId);
   const norm = (s: any) => String(s || '').toUpperCase().split('.')[0].replace(/[^A-Z0-9]/g, '');
@@ -2132,7 +2132,9 @@ async function tlAccountRiskGuard(service: any, connection: TLConnection, signal
   // 2 + 3. Open positions
   let positions: any[];
   try {
-    positions = await guardRead(`pos:${connKey}`, () => service.getPositionsNormalized());
+    // Positions are always read fresh (only the equity read is cached): a
+    // cached "flat" list let a second order through after a timed-out fill.
+    positions = await guardRead(`pos:${connKey}`, () => service.getPositionsNormalized(), 0);
   } catch (e: any) {
     return { block: `open positions unreadable (${e?.message || e}) — not trading this account (fail closed)` };
   }
@@ -2149,7 +2151,7 @@ async function tlAccountRiskGuard(service: any, connection: TLConnection, signal
       // only recent ones: a PENDING row whose close never synced (an XAUUSD
       // row on account 31 since 2026-09-23) used to block that pair forever.
       `SELECT 1 FROM ai_trade_results WHERE connection_id = $1 AND result = 'PENDING'
-         AND source LIKE 'tradelocker%' AND created_at > now() - interval '3 days'
+         AND coalesce(source, '') NOT ILIKE 'dx%' AND created_at > now() - interval '3 days'
          AND upper(regexp_replace(split_part(symbol, '.', 1), '[^A-Za-z0-9]', '', 'g')) = $2 LIMIT 1`,
       [(connection as any).id ?? -1, want],
     );
@@ -2169,9 +2171,10 @@ async function tlAccountRiskGuard(service: any, connection: TLConnection, signal
   if (!(room >= 0.01)) {
     return { block: `open lots ${openLots.toFixed(2)} already at the ${openCap.toFixed(2)}-lot cap for this account size` };
   }
-  return { maxVolume: room };
+  return { maxVolume: room, positionIds: positions.map((p: any) => String(p.id)) };
 }
 const tlDayStartEquity = new Map<string, number>();
+const UNKNOWN_OUTCOME_PAUSE_MS = Number(process.env.TL_UNKNOWN_OUTCOME_PAUSE_SEC ?? 120) * 1000;
 
 // Guard reads are cached briefly and retried once on a rate limit. Every guard
 // call used to hit /state and /positions fresh, and on 2026-10-15 TradeLocker
@@ -2180,9 +2183,9 @@ const tlDayStartEquity = new Map<string, number>();
 const GUARD_CACHE_MS = Number(process.env.TL_GUARD_CACHE_MS ?? 5000);
 const guardCache = new Map<string, { at: number; value: any }>();
 const _isRateLimit = (e: any) => /(429|1015)|rate.?limit|too many requests/i.test(String(e?.message || e).slice(0, 400));
-async function guardRead<T>(key: string, fn: () => Promise<T>): Promise<T> {
+async function guardRead<T>(key: string, fn: () => Promise<T>, ttlMs = GUARD_CACHE_MS): Promise<T> {
   const hit = guardCache.get(key);
-  if (hit && Date.now() - hit.at < GUARD_CACHE_MS) return hit.value as T;
+  if (ttlMs > 0 && hit && Date.now() - hit.at < ttlMs) return hit.value as T;
   let value: T;
   try {
     value = await fn();
@@ -2209,7 +2212,7 @@ export async function logTlClose(
 ): Promise<void> {
   try {
     const userId = Number(connection?.userId ?? connection?.user_id);
-    if (!(userId > 0)) return;
+    if (!(userId > 0) || !(Number(connection?.id) > 0)) return; // connection_id is NOT NULL
     const { pool } = await import('./db');
     const pnl = Number.isFinite(Number(info.pnl)) && info.pnl != null ? ` | floating P&L at close ${Number(info.pnl).toFixed(2)}` : '';
     const msg = `CLOSE reason: ${info.reason}${pnl}${info.positionId ? ` | position ${info.positionId}` : ''}${info.ok ? '' : ` | FAILED: ${String(info.error || '').slice(0, 200)}`}`;
@@ -2300,6 +2303,8 @@ export async function executeMT5SignalOnTradeLocker(
       // orders above were 10–17.6. Clamp anything larger (never increases size).
       // (now applied inside the risk guard below, scaled to account size)
 
+      // Positions open on this account before the order (for the re-anchor).
+      let _preOrderIds: Set<string> | null = null;
       // ── Per-account risk guard (every OPEN path) ─────────────────────────
       // 2026-10-13: oversized GBPUSD/USDJPY entries kept stacking on the same
       // accounts for five hours after a −$3,300 hit; FTUK was suspended for a
@@ -2313,6 +2318,7 @@ export async function executeMT5SignalOnTradeLocker(
           if (!isFxLeader()) return { success: false, error: 'NOT LEADER: this server does not hold the FX lock — order not sent' };
         } catch { return { success: false, error: 'NOT LEADER: leadership could not be confirmed — order not sent' }; }
         const _guard = await tlAccountRiskGuard(service, connection, signal);
+        _preOrderIds = _guard.positionIds ? new Set(_guard.positionIds) : null;
         if (_guard.block) {
           console.error(`[TradeLocker Execute] 🚫 RISK GUARD ${connection.accountId} ${signal.symbol} ${signal.direction}: ${_guard.block}`);
           return { success: false, error: `RISK GUARD: ${_guard.block}` };
@@ -2359,6 +2365,12 @@ export async function executeMT5SignalOnTradeLocker(
       } catch (e) {
         const msg = e instanceof Error ? e.message : String(e);
         if (_isBrokerReject(msg)) rejectPauseUntil.set(_pauseKey, Date.now() + REJECT_PAUSE_MS);
+        // A timeout / unknown outcome may still have filled: drop any cached
+        // read and hold this pair+side briefly so a retry can't double it.
+        clearGuardPositions(String((connection as any).id ?? connection.accountId));
+        if (/timeout|timed out|outcome unknown|ECONN|socket|network|\b5\d\d\b/i.test(msg)) {
+          rejectPauseUntil.set(_pauseKey, Math.max(rejectPauseUntil.get(_pauseKey) || 0, Date.now() + UNKNOWN_OUTCOME_PAUSE_MS));
+        }
         throw e;
       }
       console.log('[TradeLocker Execute] Order result:', orderResult);
@@ -2377,19 +2389,30 @@ export async function executeMT5SignalOnTradeLocker(
           const _plan = Number(signal.entryPrice), _sl = Number(signal.stopLoss), _tp = Number(signal.takeProfit);
           const _slDist = Math.abs(_plan - _sl);
           if (_plan > 0 && _sl > 0 && _slDist > 0) {
-            const _w = String(signal.symbol).toUpperCase().split('.')[0].replace(/[^A-Z0-9]/g, '');
+            const _nrm = (x: any) => String(x || '').toUpperCase().split('.')[0].replace(/[^A-Z0-9]/g, '');
+            const _w = _nrm(signal.symbol);
             const _isBuy = signal.direction.toUpperCase() === 'BUY';
-            let _pos: any = null;
+            // Only the position THIS order created: same pair (exact, after
+            // suffix normalisation) and side, and not open before the order.
+            // Ambiguous (0 or 2+ candidates) → leave every stop alone.
+            let _pos: any = null, _cands = 0;
             for (let i = 0; i < 3 && !_pos; i++) {
               await new Promise((r) => setTimeout(r, 1000));
-              const ps = await service.getPositionsNormalized().catch(() => []);
-              _pos = ps.find((x: any) => String(x.symbol || '').toUpperCase().replace(/[^A-Z0-9]/g, '').startsWith(_w)
-                && String(x.side || '').toUpperCase() === (_isBuy ? 'BUY' : 'SELL'));
+              let ps: any[] = [];
+              try { ps = await guardRead(`pos:${String((connection as any).id ?? connection.accountId)}`, () => service.getPositionsNormalized(), 0); } catch { ps = []; }
+              const c = ps.filter((x: any) => _nrm(x.symbol) === _w
+                && String(x.side || '').toUpperCase() === (_isBuy ? 'BUY' : 'SELL')
+                && !(_preOrderIds && _preOrderIds.has(String(x.id))));
+              _cands = c.length;
+              if (c.length === 1) _pos = c[0];
+              else if (c.length > 1) break;
             }
+            if (!_pos) console.warn(`[TradeLocker Execute] re-anchor skipped for ${_w} on ${connection.accountId}: ${_cands > 1 ? `${_cands} new positions match — ambiguous` : 'new position not found'}`);
             const _fill = Number(_pos?.avgPrice);
             const _off = _fill - _plan;
             // Only when the gap is a meaningful share of the stop (>15%).
-            const _dec = /^XAU/.test(_w) ? 2 : /JPY/.test(_w) ? 3 : /^[A-Z]{6}$/.test(_w) ? 5 : -1; // FX + gold only
+            // FX pairs + gold only (silver/crypto ticks differ → broker reject).
+            const _dec = /^XAU/.test(_w) ? 2 : /^(XAG|BTC|ETH|LTC|XRP|SOL|ADA|DOGE)/.test(_w) ? -1 : /JPY/.test(_w) ? 3 : /^[A-Z]{6}$/.test(_w) ? 5 : -1;
             if (_dec >= 0 && _pos && _fill > 0 && Math.abs(_off) > _slDist * 0.15) {
               const _r = (x: number) => Number(x.toFixed(_dec));
               const newSl = _r(_sl + _off);
