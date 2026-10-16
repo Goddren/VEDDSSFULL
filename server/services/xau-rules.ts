@@ -90,7 +90,8 @@ const ROLLOVER_END_BASE = Number(process.env.FX_ROLLOVER_BLOCK_END_MIN_UTC ?? 21
  */
 export function xauTooYoungToClose(symbol: string, openedAt: number | string | null | undefined): boolean {
   if (!MIN_HOLD_ON() || openedAt == null || openedAt === '') return false;
-  const holdMs = isXau(symbol) ? MIN_HOLD_MS : isIndex(symbol) ? INDEX_MIN_HOLD_MS : 0;
+  const holdMs = isXau(symbol) ? MIN_HOLD_MS : isIndex(symbol) ? INDEX_MIN_HOLD_MS
+    : (/^BTC/i.test(String(symbol || '')) && process.env.BTC_PROFILE !== 'off') ? BTC_MIN_HOLD_MS : 0;
   if (!(holdMs > 0)) return false;
   // Numeric strings ("1728659220000") are epoch values — new Date() on them is
   // Invalid Date, which used to switch the hold off silently.
@@ -109,6 +110,8 @@ export function xauTooYoungToClose(symbol: string, openedAt: number | string | n
  * roughly the spread. The broker stop still protects the position meanwhile.
  */
 const INDEX_MIN_HOLD_MS = Number(process.env.INDEX_MIN_HOLD_MINUTES ?? 5) * 60_000;
+// BTCUSD (btc-profile.ts): winners need time — holds over 4h won 10 of 12.
+const BTC_MIN_HOLD_MS = Number(process.env.BTC_MIN_HOLD_MINUTES ?? 60) * 60_000;
 export function isIndex(symbol: string | null | undefined): boolean {
   const s = String(symbol || '').toUpperCase().replace(/[^A-Z0-9]/g, '');
   return /^(US30|DJ30|DJI|WS30|US100|NAS100|USTEC|NDX|US500|SPX500|SPX|GER40|DE40|DAX|UK100|FTSE|JP225|NIK225|AUS200|HK50|FRA40|EU50)/.test(s);

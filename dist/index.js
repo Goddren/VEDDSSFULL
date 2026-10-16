@@ -22377,6 +22377,143 @@ var init_dxtrade = __esm({
   }
 });
 
+// server/services/btc-profile.ts
+var btc_profile_exports = {};
+__export(btc_profile_exports, {
+  BTC_PROFILE_ON: () => BTC_PROFILE_ON,
+  btcContextLine: () => btcContextLine,
+  btcDailyTrend: () => btcDailyTrend,
+  btcEntryCheck: () => btcEntryCheck,
+  btcH1: () => btcH1,
+  btcTrailStop: () => btcTrailStop,
+  isBtc: () => isBtc,
+  markBtcEntry: () => markBtcEntry
+});
+function isBtc(symbol) {
+  return /^BTC/i.test(String(symbol || "").replace(/[^A-Za-z]/g, ""));
+}
+async function btcH1(symbol) {
+  const hit = h1Cache.get(symbol);
+  if (hit && Date.now() - hit.at < 15 * 6e4) return hit;
+  try {
+    const r = await marketDataService.fetchMarketData({ symbol, assetType: marketDataService.detectAssetType(symbol), timeframe: "1h", limit: 60 });
+    const bars = (r?.bars || []).slice(0, -1);
+    if (bars.length < 20) return null;
+    const trs = bars.slice(1).map((b, i) => Math.max(b.high - b.low, Math.abs(b.high - bars[i].close), Math.abs(b.low - bars[i].close)));
+    const atr2 = trs.slice(-14).reduce((a, c) => a + c, 0) / 14;
+    const v = { at: Date.now(), bars, atr: atr2 };
+    h1Cache.set(symbol, v);
+    return v;
+  } catch {
+    return null;
+  }
+}
+async function btcDailyTrend(symbol) {
+  const hit = d1Cache.get(symbol);
+  if (hit && Date.now() - hit.at < 4 * 36e5) return hit.trend;
+  try {
+    const r = await marketDataService.fetchMarketData({ symbol, assetType: marketDataService.detectAssetType(symbol), timeframe: "1d", limit: 80 });
+    const closes = (r?.bars || []).slice(0, -1).map((b) => Number(b.close));
+    if (closes.length < 55) return null;
+    const ema3 = (n) => {
+      const k = 2 / (n + 1);
+      let e = closes.slice(0, n).reduce((a, c) => a + c, 0) / n;
+      for (const c of closes.slice(n)) e = c * k + e * (1 - k);
+      return e;
+    };
+    const e20 = ema3(20), e50 = ema3(50), last = closes[closes.length - 1];
+    const trend = e20 > e50 && last > e20 ? "BULLISH" : e20 < e50 && last < e20 ? "BEARISH" : "NEUTRAL";
+    d1Cache.set(symbol, { at: Date.now(), trend });
+    return trend;
+  } catch {
+    return null;
+  }
+}
+async function btcEntryCheck(d, h4Trend, now = /* @__PURE__ */ new Date()) {
+  const notes = [];
+  let lotScale = 1;
+  const h = now.getUTCHours();
+  if (!(h >= HOURS[0] && h < HOURS[1])) return { block: `BTC trades only ${HOURS[0]}:00\u2013${HOURS[1]}:00 UTC (late US/Asia lost \u2212$4.3k over 90 days)`, lotScale: 0, notes: [] };
+  const dow = now.getUTCDay();
+  if (dow === 0 || dow === 6) {
+    if (!(WEEKEND_SIZE > 0)) return { block: "BTC weekend trading is off (thin liquidity)", lotScale: 0, notes: [] };
+    lotScale *= WEEKEND_SIZE;
+    notes.push(`weekend size \xD7${WEEKEND_SIZE}`);
+  }
+  const dir = String(d.direction || "").toUpperCase();
+  if (dir === "BUY" && h4Trend !== "BULLISH") return { block: `BTC long needs H4 bullish (H4 ${h4Trend ?? "n/a"})`, lotScale: 0, notes: [] };
+  if (dir === "SELL") {
+    const d1 = await btcDailyTrend(d.symbol);
+    if (h4Trend !== "BEARISH" || d1 !== "BEARISH") return { block: `BTC short needs H4 and daily bearish (H4 ${h4Trend ?? "n/a"}, D1 ${d1 ?? "n/a"}) \u2014 shorts made only +$718 over 90 days`, lotScale: 0, notes: [] };
+  }
+  const candle = Math.floor(now.getTime() / 36e5);
+  if (lastEntryCandle.get(d.symbol) === candle) return { block: "BTC: one entry per H1 candle", lotScale: 0, notes: [] };
+  let stopLoss = d.stopLoss, takeProfit = d.takeProfit;
+  const entry = Number(d.entryPrice), sl = Number(d.stopLoss);
+  const h1 = await btcH1(d.symbol);
+  if (h1 && entry > 0 && sl > 0) {
+    const risk = Math.abs(entry - sl);
+    const minRisk = h1.atr * ATR_MULT;
+    if (risk > 0 && risk < minRisk) {
+      stopLoss = dir === "BUY" ? entry - minRisk : entry + minRisk;
+      lotScale *= risk / minRisk;
+      notes.push(`stop widened to ${ATR_MULT}\xD7 H1 ATR (${Math.round(minRisk)}), lots \xD7${(risk / minRisk).toFixed(2)}`);
+    }
+    const newRisk = Math.abs(entry - Number(stopLoss));
+    const tp = Number(takeProfit);
+    if (!(tp > 0) || Math.abs(tp - entry) < newRisk * MIN_RR) {
+      takeProfit = dir === "BUY" ? entry + newRisk * MIN_RR : entry - newRisk * MIN_RR;
+      notes.push(`target set to ${MIN_RR}R`);
+    }
+  }
+  return { stopLoss, takeProfit, lotScale, notes };
+}
+function markBtcEntry(symbol, now = /* @__PURE__ */ new Date()) {
+  lastEntryCandle.set(symbol, Math.floor(now.getTime() / 36e5));
+}
+function btcTrailStop(p) {
+  const buy = p.direction === "BUY";
+  const risk = Math.abs(p.entry - p.initialStop);
+  if (!(risk > 0) || !(p.price > 0)) return null;
+  const favR = (buy ? p.price - p.entry : p.entry - p.price) / risk;
+  if (favR < MIN_RR) return null;
+  let want = buy ? p.entry + risk : p.entry - risk;
+  let why = `+${favR.toFixed(1)}R \u2192 lock +1R`;
+  const last3 = p.bars.slice(-3);
+  if (last3.length === 3) {
+    const swing = buy ? Math.min(...last3.map((b) => b.low)) : Math.max(...last3.map((b) => b.high));
+    if (buy ? swing > want : swing < want) {
+      want = swing;
+      why = `+${favR.toFixed(1)}R \u2192 trail behind last 3 H1 ${buy ? "lows" : "highs"}`;
+    }
+  }
+  if (buy ? want >= p.price : want <= p.price) return null;
+  const cur = Number(p.currentStop);
+  if (cur > 0 && (buy ? want <= cur : want >= cur)) return null;
+  return { stop: Math.round(want * 100) / 100, why };
+}
+function btcContextLine(crossAssets, fridayClose, price) {
+  const eq21 = crossAssets?.US30?.trend, usd = crossAssets?.USDI?.trend;
+  const dow = (/* @__PURE__ */ new Date()).getUTCDay();
+  const gap = (dow === 0 || dow === 1) && fridayClose && price ? (price - fridayClose) / fridayClose * 100 : null;
+  return `BTCUSD CRYPTO CONTEXT: trades 24/7 but this engine only enters ${HOURS[0]}-${HOURS[1]} UTC. It is a TREND pair here (few large winners; longs far stronger than shorts; holds >4h won 10/12). US equities (US30) ${eq21 ?? "n/a"} \u2014 BTC usually moves WITH stocks; dollar (USDI) ${usd ?? "n/a"} \u2014 BTC usually moves AGAINST the dollar.` + (gap != null ? ` Weekend move vs Friday close: ${gap >= 0 ? "+" : ""}${gap.toFixed(2)}% (CME gap risk on Monday).` : "") + ` Prefer longs with H4 bullish; shorts only with H4 and daily bearish. Stops >= ${ATR_MULT}x H1 ATR, targets >= ${MIN_RR}R, let it run.`;
+}
+var BTC_PROFILE_ON, HOURS, ATR_MULT, MIN_RR, WEEKEND_SIZE, h1Cache, d1Cache, lastEntryCandle;
+var init_btc_profile = __esm({
+  "server/services/btc-profile.ts"() {
+    "use strict";
+    init_service();
+    BTC_PROFILE_ON = () => process.env.BTC_PROFILE !== "off";
+    HOURS = String(process.env.BTC_TRADE_HOURS_UTC || "6-16").split("-").map(Number);
+    ATR_MULT = Number(process.env.BTC_SL_ATR_MULT ?? 1.5);
+    MIN_RR = Number(process.env.BTC_MIN_RR ?? 2);
+    WEEKEND_SIZE = Number(process.env.BTC_WEEKEND_SIZE ?? 0.5);
+    h1Cache = /* @__PURE__ */ new Map();
+    d1Cache = /* @__PURE__ */ new Map();
+    lastEntryCandle = /* @__PURE__ */ new Map();
+  }
+});
+
 // server/services/xau-rules.ts
 var xau_rules_exports = {};
 __export(xau_rules_exports, {
@@ -22422,7 +22559,7 @@ function xauEntryBlock(symbol, now = /* @__PURE__ */ new Date()) {
 }
 function xauTooYoungToClose(symbol, openedAt) {
   if (!MIN_HOLD_ON() || openedAt == null || openedAt === "") return false;
-  const holdMs = isXau(symbol) ? MIN_HOLD_MS : isIndex(symbol) ? INDEX_MIN_HOLD_MS : 0;
+  const holdMs = isXau(symbol) ? MIN_HOLD_MS : isIndex(symbol) ? INDEX_MIN_HOLD_MS : /^BTC/i.test(String(symbol || "")) && process.env.BTC_PROFILE !== "off" ? BTC_MIN_HOLD_MS : 0;
   if (!(holdMs > 0)) return false;
   const raw = typeof openedAt === "number" ? openedAt : /^\d+(\.\d+)?$/.test(String(openedAt).trim()) ? Number(openedAt) : new Date(openedAt).getTime();
   let ms = raw;
@@ -22438,7 +22575,7 @@ function xauLockStopPts(peakFavPts) {
   if (!XAU_LOCK_ON() || !(peakFavPts >= XAU_LOCK_ACTIVATE_PTS)) return null;
   return Math.max(XAU_LOCK_AT_PTS, peakFavPts - XAU_TRAIL_PTS);
 }
-var ENTRY_BLOCK_ON, XAU_BLOCK_START_BASE, XAU_BLOCK_END_BASE, MIN_HOLD_ON, MIN_HOLD_MS, XAU_LOCK_ON, XAU_LOCK_ACTIVATE_PTS, XAU_LOCK_AT_PTS, XAU_TRAIL_PTS, XAU_CONTRACT_SIZE, ROLLOVER_BLOCK_ON, ROLLOVER_START_BASE, ROLLOVER_END_BASE, INDEX_MIN_HOLD_MS;
+var ENTRY_BLOCK_ON, XAU_BLOCK_START_BASE, XAU_BLOCK_END_BASE, MIN_HOLD_ON, MIN_HOLD_MS, XAU_LOCK_ON, XAU_LOCK_ACTIVATE_PTS, XAU_LOCK_AT_PTS, XAU_TRAIL_PTS, XAU_CONTRACT_SIZE, ROLLOVER_BLOCK_ON, ROLLOVER_START_BASE, ROLLOVER_END_BASE, INDEX_MIN_HOLD_MS, BTC_MIN_HOLD_MS;
 var init_xau_rules = __esm({
   "server/services/xau-rules.ts"() {
     "use strict";
@@ -22456,6 +22593,7 @@ var init_xau_rules = __esm({
     ROLLOVER_START_BASE = Number(process.env.FX_ROLLOVER_BLOCK_START_MIN_UTC ?? 20 * 60 + 55);
     ROLLOVER_END_BASE = Number(process.env.FX_ROLLOVER_BLOCK_END_MIN_UTC ?? 21 * 60 + 30);
     INDEX_MIN_HOLD_MS = Number(process.env.INDEX_MIN_HOLD_MINUTES ?? 5) * 6e4;
+    BTC_MIN_HOLD_MS = Number(process.env.BTC_MIN_HOLD_MINUTES ?? 60) * 6e4;
   }
 });
 
@@ -25142,6 +25280,7 @@ async function scanMarkets(userId) {
     state._lastMarketAnalysis = marketAnalysis;
     const currentOpenPositions = await getMergedOpenPositions(userId, marketAnalysis);
     await manageXauProfitLock(userId, currentOpenPositions).catch((e) => console.error("[XAU lock] scan pass failed (non-fatal):", e?.message));
+    await manageBtcTrail(userId, currentOpenPositions, marketAnalysis).catch((e) => console.error("[BTC trail] scan pass failed (non-fatal):", e?.message));
     await applyServerSideTrails(userId, currentOpenPositions, marketAnalysis);
     try {
       await runORBAutonomousScan(userId);
@@ -25383,6 +25522,7 @@ async function getMergedOpenPositions(userId, marketAnalysis) {
             tp: 0,
             profit: p.unrealizedPl,
             volume: p.qty,
+            brokerSl: Number(p.stopLoss) > 0 ? Number(p.stopLoss) : null,
             openTime: p.openDate ? Math.floor(new Date(p.openDate).getTime() / 1e3) : void 0,
             ticket: `tl_${tlConn.id}_${p.id}`,
             source: "tl",
@@ -25446,6 +25586,48 @@ async function getMergedOpenPositions(userId, marketAnalysis) {
   } catch {
   }
   return [...mt5Positions, ...tlPositions, ...dxPositions];
+}
+async function manageBtcTrail(userId, openPositions, marketAnalysis) {
+  const btc = await Promise.resolve().then(() => (init_btc_profile(), btc_profile_exports));
+  if (!btc.BTC_PROFILE_ON()) return;
+  const live = /* @__PURE__ */ new Set();
+  let tlConns = null;
+  for (const pos of openPositions) {
+    if (pos.source !== "tl" || !btc.isBtc(pos.symbol)) continue;
+    const key = `${userId}:${pos.ticket}`;
+    live.add(key);
+    const entry = Number(pos.openPrice) || 0;
+    const brokerSl = Number(pos.brokerSl) || 0;
+    if (!(entry > 0)) continue;
+    if (!btcInitialStop.has(key) && brokerSl > 0) btcInitialStop.set(key, brokerSl);
+    const initial = btcInitialStop.get(key);
+    if (!initial) continue;
+    const price = Number(marketAnalysis?.[pos.symbol]?.currentPrice) || 0;
+    const h1 = await btc.btcH1(pos.symbol);
+    if (!h1) continue;
+    const want = btc.btcTrailStop({ direction: pos.direction, entry, initialStop: initial, price, currentStop: btcLastStop.get(key) ?? brokerSl, bars: h1.bars });
+    if (!want) continue;
+    const m = String(pos.ticket).match(/^tl_(\d+)_(.+)$/);
+    if (!m) continue;
+    if (!tlConns) tlConns = (await storage.getUserTradelockerConnections(userId)).filter((c) => c.isActive);
+    const tlConn = tlConns.find((c) => c.id === Number(m[1]));
+    if (!tlConn) continue;
+    try {
+      const r = await executeMT5SignalOnTradeLocker(tlConn, { action: "MODIFY", symbol: pos.symbol, direction: pos.direction, volume: 0, stopLoss: want.stop, positionId: m[2] });
+      if (r.success) {
+        btcLastStop.set(key, want.stop);
+        addActivity(userId, { type: "position_update", symbol: pos.symbol, message: `\u20BF BTC trail on ${tlConn.accountId}: ${pos.direction} ${want.why} \u2192 stop ${want.stop}` });
+      } else {
+        addActivity(userId, { type: "error", symbol: pos.symbol, message: `\u26A0\uFE0F BTC trail failed on ${tlConn.accountId}: ${r.error}` });
+      }
+    } catch (e) {
+      addActivity(userId, { type: "error", symbol: pos.symbol, message: `\u26A0\uFE0F BTC trail error on ${tlConn.accountId}: ${e?.message ?? e}` });
+    }
+  }
+  for (const k of Array.from(btcInitialStop.keys())) if (k.startsWith(`${userId}:`) && !live.has(k)) {
+    btcInitialStop.delete(k);
+    btcLastStop.delete(k);
+  }
 }
 async function manageXauProfitLock(userId, openPositions) {
   const rules = await Promise.resolve().then(() => (init_xau_rules(), xau_rules_exports));
@@ -26384,6 +26566,18 @@ MULTI-TIMEFRAME RULES: H4 = trend, H1 = structure, M15 = entry timing only.${pro
 INSTRUCTION: Signals that ALIGN with ${promptHTFLabel} bias are high-quality institutional setups \u2014 give them +5% confidence bonus. Signals that CONFLICT with ${promptHTFLabel} bias are counter-trend fades \u2014 require 80%+ base confidence before firing. If ${promptHTFLabel} shows strong BOS/CHOCH in one direction and M15 signals the opposite, SKIP unless you have 5+ LTF confluences.
 `;
     }
+    if (marketAnalysis["BTCUSD"] || Object.keys(marketAnalysis).some((k) => /^BTC/i.test(k))) {
+      try {
+        const _btc = await Promise.resolve().then(() => (init_btc_profile(), btc_profile_exports));
+        if (_btc.BTC_PROFILE_ON()) {
+          const _bk = Object.keys(marketAnalysis).find((k) => /^BTC/i.test(k));
+          htfBiasSection += `
+${_btc.btcContextLine(crossAssets, state.lastFridayClose?.[_bk], marketAnalysis[_bk]?.currentPrice)}
+`;
+        }
+      } catch {
+      }
+    }
     const openPosStr = openPositions.length > 0 ? openPositions.map((p) => {
       const pipSize2 = getPipSize(p.symbol || "");
       const pips = p.direction === "BUY" ? (p.currentPrice - p.openPrice) / pipSize2 : (p.openPrice - p.currentPrice) / pipSize2;
@@ -27284,6 +27478,29 @@ async function processDecision(userId, decision, newsCtx) {
           return;
         }
         addActivity(userId, { type: "info", symbol: decision.symbol, message: `\u{1F9ED} MTF aligned for ${_dir} ${decision.symbol} (${_desc}).` });
+      }
+    }
+    if (decision.symbol && decision.direction) {
+      const _btc = await Promise.resolve().then(() => (init_btc_profile(), btc_profile_exports));
+      if (_btc.BTC_PROFILE_ON() && _btc.isBtc(decision.symbol)) {
+        const { h4: _bh4 } = mtfStack(state, decision.symbol);
+        const _chk = await _btc.btcEntryCheck({
+          symbol: decision.symbol,
+          direction: decision.direction,
+          entryPrice: parseNum(decision.entryPrice) ?? state.marketSnapshot?.[decision.symbol]?.price,
+          stopLoss: parseNum(decision.stopLoss),
+          takeProfit: parseNum(decision.takeProfit)
+        }, _bh4?.trend);
+        if (_chk.block) {
+          addActivity(userId, { type: "info", symbol: decision.symbol, message: `\u20BF BTC PROFILE BLOCK: ${_chk.block}` });
+          state.signalsGenerated++;
+          return;
+        }
+        if (_chk.stopLoss != null) decision.stopLoss = _chk.stopLoss;
+        if (_chk.takeProfit != null) decision.takeProfit = _chk.takeProfit;
+        decision._lotScale = Math.min(1, Math.max(0.05, _chk.lotScale));
+        if (_chk.notes.length) addActivity(userId, { type: "info", symbol: decision.symbol, message: `\u20BF BTC profile: ${_chk.notes.join("; ")}` });
+        _btc.markBtcEntry(decision.symbol);
       }
     }
     const m15Snap = state.marketSnapshot?.[decision.symbol];
@@ -28472,6 +28689,10 @@ async function processDecision(userId, decision, newsCtx) {
           {
             const _ceil = [Number(config.maxLot) || 0, Number(config.maxLotSize) || 0].filter((x) => x > 0);
             if (_ceil.length) acctLot = Math.min(acctLot, Math.min(..._ceil));
+          }
+          {
+            const _ls = Number(decision._lotScale);
+            if (_ls > 0 && _ls < 1) acctLot = Math.max(0.01, Math.floor(acctLot * _ls * 100) / 100);
           }
           if (_consistencyMult < 1) {
             acctLot = Math.max(0.01, Math.round(acctLot * _consistencyMult * 100) / 100);
@@ -29804,7 +30025,7 @@ function getModelLockStatus(userId) {
   if (!state) return { locked: false, openPositions: 0 };
   return { locked: state.modelLocked, openPositions: state.openPositionCount };
 }
-var FX_MAX_OPEN_PER_SYMBOL, FX_SYMBOL_COOLDOWN_MS, mt5AccountQueues, mt5AccountRegistry, engineStates, engineIntervals, engineTimers, brainLearningIntervals, positionMonitorIntervals, _monitorBusy, persistedConfigOverrides, goalTrackerCache, ALL_STRATEGY_KEYS, _dxSkipTableReady, countedTradeKeys, h4BiasCache, H4_REFRESH_MS, TRAIL_METHOD_LABELS, xauPeakPts, xauLockedPts, NY_TIME_FMT, INDEX_BROKER_ALIASES, FX_LEADER_LOCK_KEY, FX_LEADER_STALE_MS, _fxLeaderClient, _fxIsLeader, _fxLeaderLoop;
+var FX_MAX_OPEN_PER_SYMBOL, FX_SYMBOL_COOLDOWN_MS, mt5AccountQueues, mt5AccountRegistry, engineStates, engineIntervals, engineTimers, brainLearningIntervals, positionMonitorIntervals, _monitorBusy, persistedConfigOverrides, goalTrackerCache, ALL_STRATEGY_KEYS, _dxSkipTableReady, countedTradeKeys, h4BiasCache, H4_REFRESH_MS, TRAIL_METHOD_LABELS, xauPeakPts, xauLockedPts, btcInitialStop, btcLastStop, NY_TIME_FMT, INDEX_BROKER_ALIASES, FX_LEADER_LOCK_KEY, FX_LEADER_STALE_MS, _fxLeaderClient, _fxIsLeader, _fxLeaderLoop;
 var init_live_trading_engine = __esm({
   "server/services/live-trading-engine.ts"() {
     "use strict";
@@ -29873,6 +30094,8 @@ var init_live_trading_engine = __esm({
     };
     xauPeakPts = /* @__PURE__ */ new Map();
     xauLockedPts = /* @__PURE__ */ new Map();
+    btcInitialStop = /* @__PURE__ */ new Map();
+    btcLastStop = /* @__PURE__ */ new Map();
     NY_TIME_FMT = new Intl.DateTimeFormat("en-US", {
       timeZone: "America/New_York",
       hour12: false,
@@ -59310,9 +59533,9 @@ async function getStopOrdersForUser(userId, filters = {}) {
 init_schema();
 
 // server/build-info.ts
-var BUILD_COMMIT = "5d2adf43-dirty";
+var BUILD_COMMIT = "bf66e195-dirty";
 var BUILD_BRANCH = "main";
-var BUILT_AT = "2026-10-16T21:11:12.289Z";
+var BUILT_AT = "2026-10-16T21:26:56.098Z";
 
 // server/stripe.ts
 init_db();
