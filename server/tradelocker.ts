@@ -2158,6 +2158,33 @@ async function guardRead<T>(key: string, fn: () => Promise<T>): Promise<T> {
 }
 function clearGuardPositions(connKey: string) { guardCache.delete(`pos:${connKey}`); }
 
+/**
+ * Persist every server-initiated TradeLocker close with its reason. Closes used
+ * to exist only in the in-memory activity feed, so after a restart nobody could
+ * tell whether a trade was closed by AI management, a reversal exit, a flatten
+ * or the broker stop. Stored as action='CLOSE'; the reason (and the floating
+ * P&L at close, when the caller knows it) goes in error_message. Never throws.
+ */
+export async function logTlClose(
+  connection: { id?: number; userId?: number; user_id?: number } | any,
+  info: { symbol?: string; direction?: string; positionId?: string | null; reason: string; pnl?: number | null; volume?: number; ok: boolean; error?: string },
+): Promise<void> {
+  try {
+    const userId = Number(connection?.userId ?? connection?.user_id);
+    if (!(userId > 0)) return;
+    const { pool } = await import('./db');
+    const pnl = Number.isFinite(Number(info.pnl)) && info.pnl != null ? ` | floating P&L at close ${Number(info.pnl).toFixed(2)}` : '';
+    const msg = `CLOSE reason: ${info.reason}${pnl}${info.positionId ? ` | position ${info.positionId}` : ''}${info.ok ? '' : ` | FAILED: ${String(info.error || '').slice(0, 200)}`}`;
+    await pool.query(
+      `INSERT INTO tradelocker_trade_logs (user_id, connection_id, action, symbol, direction, volume, status, error_message, created_at)
+       VALUES ($1, $2, 'CLOSE', $3, $4, $5, $6, $7, now())`,
+      [userId, connection?.id ?? null, String(info.symbol || ''), String(info.direction || '').toUpperCase(), Number(info.volume) || 0, info.ok ? 'executed' : 'failed', msg.slice(0, 1000)],
+    );
+  } catch (e: any) {
+    console.error('[TradeLocker] close log write failed (non-fatal):', e?.message || e);
+  }
+}
+
 export async function executeMT5SignalOnTradeLocker(
   connection: TLConnection,
   signal: {
@@ -2169,6 +2196,10 @@ export async function executeMT5SignalOnTradeLocker(
     stopLoss?: number | null;
     takeProfit?: number | null;
     positionId?: string | null;
+    /** CLOSE only: why the server is closing (persisted to the trade log). */
+    closeReason?: string;
+    /** CLOSE only: floating P&L of the position when the close was decided. */
+    closePnl?: number | null;
     /** 'market' = immediate fill | 'stop_entry' = BUY/SELL STOP at entryPrice | 'limit_entry' = BUY/SELL LIMIT at entryPrice */
     orderType?: 'market' | 'stop_entry' | 'limit_entry';
   }
@@ -2345,7 +2376,15 @@ export async function executeMT5SignalOnTradeLocker(
       if (!signal.positionId) {
         return { success: false, error: 'Position ID required for close action' };
       }
-      const closeResult = await service.closePosition(signal.positionId);
+      let closeResult: any;
+      try {
+        closeResult = await service.closePosition(signal.positionId);
+      } catch (e: any) {
+        await logTlClose(connection, { symbol: signal.symbol, direction: signal.direction, positionId: signal.positionId, reason: signal.closeReason || 'unspecified caller', pnl: signal.closePnl, volume: signal.volume, ok: false, error: e?.message || String(e) });
+        throw e;
+      }
+      await logTlClose(connection, { symbol: signal.symbol, direction: signal.direction, positionId: signal.positionId, reason: signal.closeReason || 'unspecified caller', pnl: signal.closePnl, volume: signal.volume, ok: true });
+      clearGuardPositions(String((connection as any).id ?? connection.accountId));
       return {
         success: true,
         orderId: closeResult.orderId,

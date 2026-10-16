@@ -24926,7 +24926,9 @@ async function applyServerSideTrails(userId, openPositions, marketAnalysis) {
               symbol: pos.symbol,
               direction: pos.direction || "BUY",
               volume: 0,
-              positionId: tlMatch.id
+              positionId: tlMatch.id,
+              closeReason: _reason,
+              closePnl: tlMatch.unrealizedPl
             });
             if (r.success) {
               addActivity(userId, { type: "trade_close", symbol: pos.symbol, message: `\u2705 Reversal exit closed on TradeLocker ${tlConn.accountId}: ${pos.symbol}` });
@@ -27990,7 +27992,9 @@ async function processDecision(userId, decision, newsCtx) {
                 symbol: decision.symbol,
                 direction: decision.direction || "BUY",
                 volume: partialVolume || 0,
-                positionId: tlMatch.id
+                positionId: tlMatch.id,
+                closeReason: `AI position management${partialVolume ? ` (partial ${partialVolume})` : ""}: ${String(decision.reason || "no reason given").slice(0, 300)}`,
+                closePnl: tlMatch.unrealizedPl
               });
               if (tradeResult.success) {
                 addActivity(userId, { type: "trade_close", symbol: decision.symbol, message: `Position CLOSED via TradeLocker ${acctLabel}: ${decision.symbol} - ${decision.reason}` });
@@ -28614,6 +28618,8 @@ async function flattenAllBrokerPositions(userId, reason) {
           try {
             await svc.closePosition(String(p.id));
             closed++;
+            const { logTlClose: logTlClose2 } = await Promise.resolve().then(() => (init_tradelocker(), tradelocker_exports));
+            await logTlClose2(conn, { symbol: p.symbol, direction: p.side, positionId: String(p.id), reason: `flatten all: ${reason}`, pnl: p.unrealizedPl, volume: p.qty, ok: true });
           } catch (e) {
             failed++;
             addActivity(userId, { type: "error", symbol: p.symbol, message: `\u{1F6A8} EMERGENCY CLOSE FAILED (TradeLocker ${conn.accountId} pos ${p.id}): ${e?.message ?? e} \u2014 CLOSE MANUALLY` });
@@ -29157,6 +29163,7 @@ __export(tradelocker_exports, {
   getOrCreateService: () => getOrCreateService,
   getTLAccountValue: () => getTLAccountValue,
   isOnAuth429Cooldown: () => isOnAuth429Cooldown,
+  logTlClose: () => logTlClose,
   noteAuthResult: () => noteAuthResult,
   priceDecimals: () => priceDecimals,
   roundToTick: () => roundToTick,
@@ -29540,6 +29547,22 @@ async function guardRead(key, fn) {
 function clearGuardPositions(connKey) {
   guardCache.delete(`pos:${connKey}`);
 }
+async function logTlClose(connection2, info2) {
+  try {
+    const userId = Number(connection2?.userId ?? connection2?.user_id);
+    if (!(userId > 0)) return;
+    const { pool: pool2 } = await Promise.resolve().then(() => (init_db(), db_exports));
+    const pnl = Number.isFinite(Number(info2.pnl)) && info2.pnl != null ? ` | floating P&L at close ${Number(info2.pnl).toFixed(2)}` : "";
+    const msg = `CLOSE reason: ${info2.reason}${pnl}${info2.positionId ? ` | position ${info2.positionId}` : ""}${info2.ok ? "" : ` | FAILED: ${String(info2.error || "").slice(0, 200)}`}`;
+    await pool2.query(
+      `INSERT INTO tradelocker_trade_logs (user_id, connection_id, action, symbol, direction, volume, status, error_message, created_at)
+       VALUES ($1, $2, 'CLOSE', $3, $4, $5, $6, $7, now())`,
+      [userId, connection2?.id ?? null, String(info2.symbol || ""), String(info2.direction || "").toUpperCase(), Number(info2.volume) || 0, info2.ok ? "executed" : "failed", msg.slice(0, 1e3)]
+    );
+  } catch (e) {
+    console.error("[TradeLocker] close log write failed (non-fatal):", e?.message || e);
+  }
+}
 async function executeMT5SignalOnTradeLocker(connection2, signal) {
   console.log("[TradeLocker Execute] Starting trade execution:", {
     accountType: connection2.accountType,
@@ -29668,7 +29691,15 @@ async function executeMT5SignalOnTradeLocker(connection2, signal) {
       if (!signal.positionId) {
         return { success: false, error: "Position ID required for close action" };
       }
-      const closeResult = await service.closePosition(signal.positionId);
+      let closeResult;
+      try {
+        closeResult = await service.closePosition(signal.positionId);
+      } catch (e) {
+        await logTlClose(connection2, { symbol: signal.symbol, direction: signal.direction, positionId: signal.positionId, reason: signal.closeReason || "unspecified caller", pnl: signal.closePnl, volume: signal.volume, ok: false, error: e?.message || String(e) });
+        throw e;
+      }
+      await logTlClose(connection2, { symbol: signal.symbol, direction: signal.direction, positionId: signal.positionId, reason: signal.closeReason || "unspecified caller", pnl: signal.closePnl, volume: signal.volume, ok: true });
+      clearGuardPositions(String(connection2.id ?? connection2.accountId));
       return {
         success: true,
         orderId: closeResult.orderId
@@ -31244,6 +31275,10 @@ async function syncTradeLockerTrades(userId, conn, svc) {
             try {
               await svc.closePosition(p.id);
               console.warn(`[TL-sync] ${ticket}: closed on inverted post-fill R:R (POSTFILL_RR_AUTOCLOSE=true).`);
+              {
+                const { logTlClose: logTlClose2 } = await Promise.resolve().then(() => (init_tradelocker(), tradelocker_exports));
+                await logTlClose2(conn, { symbol: p.symbol, direction: p.side, positionId: String(p.id), reason: `inverted post-fill R:R 1:${_pfRR.toFixed(2)} (POSTFILL_RR_AUTOCLOSE)`, pnl: p.unrealizedPl, ok: true });
+              }
               _pfNote += " \u2014 AUTO-CLOSED";
             } catch (ce) {
               console.error(`[TL-sync] ${ticket}: auto-close failed (${ce?.message}) \u2014 position left open, flagged.`);
@@ -58501,9 +58536,9 @@ async function getStopOrdersForUser(userId, filters = {}) {
 init_schema();
 
 // server/build-info.ts
-var BUILD_COMMIT = "2196bb16-dirty";
+var BUILD_COMMIT = "964936fd-dirty";
 var BUILD_BRANCH = "main";
-var BUILT_AT = "2026-10-16T08:37:43.058Z";
+var BUILT_AT = "2026-10-16T09:07:02.945Z";
 
 // server/stripe.ts
 init_db();
@@ -81030,6 +81065,10 @@ Return ONLY JSON: {"topPicks":[{"market":"","winProbability":<0-100>,"whyItWins"
       try {
         await tlService.closePosition(closedPositionId);
         console.log(`[Flip Trade] Position ${closedPositionId} closed successfully`);
+        {
+          const { logTlClose: logTlClose2 } = await Promise.resolve().then(() => (init_tradelocker(), tradelocker_exports));
+          await logTlClose2({ ...connection2, userId: req.user?.id ?? connection2?.userId }, { symbol, direction: currentDirection, positionId: closedPositionId, reason: "manual flip trade (user)", pnl: matchingPosition?.unrealizedPl, ok: true });
+        }
       } catch (closeError) {
         console.error(`[Flip Trade] Failed to close position: ${closeError.message}`);
         return res.status(400).json({

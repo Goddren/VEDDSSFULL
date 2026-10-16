@@ -22930,6 +22930,7 @@ Return ONLY JSON: {"topPicks":[{"market":"","winProbability":<0-100>,"whyItWins"
       try {
         await tlService.closePosition(closedPositionId);
         console.log(`[Flip Trade] Position ${closedPositionId} closed successfully`);
+        { const { logTlClose } = await import('./tradelocker'); await logTlClose({ ...(connection as any), userId: (req as any).user?.id ?? (connection as any)?.userId }, { symbol, direction: currentDirection, positionId: closedPositionId, reason: 'manual flip trade (user)', pnl: (matchingPosition as any)?.unrealizedPl, ok: true }); }
       } catch (closeError: any) {
         console.error(`[Flip Trade] Failed to close position: ${closeError.message}`);
         return res.status(400).json({ 

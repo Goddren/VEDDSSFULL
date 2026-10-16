@@ -2511,6 +2511,7 @@ async function applyServerSideTrails(
             }
             const r = await executeMT5SignalOnTradeLocker(tlConn, {
               action: 'CLOSE', symbol: pos.symbol, direction: pos.direction || 'BUY', volume: 0, positionId: tlMatch.id,
+              closeReason: _reason, closePnl: (tlMatch as any).unrealizedPl,
             });
             if (r.success) { addActivity(userId, { type: 'trade_close', symbol: pos.symbol, message: `✅ Reversal exit closed on TradeLocker ${tlConn.accountId}: ${pos.symbol}` }); refreshTlAfterTrade(userId); }
             else addActivity(userId, { type: 'error', symbol: pos.symbol, message: `⚠️ Reversal exit close failed on ${tlConn.accountId}: ${r.error}` });
@@ -6291,6 +6292,8 @@ async function processDecision(userId: number, decision: any, newsCtx?: any): Pr
                 direction: decision.direction || 'BUY',
                 volume: partialVolume || 0,
                 positionId: tlMatch.id,
+                closeReason: `AI position management${partialVolume ? ` (partial ${partialVolume})` : ''}: ${String(decision.reason || 'no reason given').slice(0, 300)}`,
+                closePnl: (tlMatch as any).unrealizedPl,
               });
               if (tradeResult.success) {
                 addActivity(userId, { type: 'trade_close', symbol: decision.symbol, message: `Position CLOSED via TradeLocker ${acctLabel}: ${decision.symbol} - ${decision.reason}` });
@@ -7131,7 +7134,11 @@ async function flattenAllBrokerPositions(userId: number, reason: string): Promis
         const svc = await getTradeLockerService(conn);
         const positions = await svc.getPositionsNormalized();
         for (const p of positions) {
-          try { await svc.closePosition(String(p.id)); closed++; }
+          try {
+            await svc.closePosition(String(p.id)); closed++;
+            const { logTlClose } = await import('../tradelocker');
+            await logTlClose(conn, { symbol: p.symbol, direction: p.side, positionId: String(p.id), reason: `flatten all: ${reason}`, pnl: p.unrealizedPl, volume: p.qty, ok: true });
+          }
           catch (e: any) {
             failed++;
             addActivity(userId, { type: 'error', symbol: p.symbol, message: `🚨 EMERGENCY CLOSE FAILED (TradeLocker ${conn.accountId} pos ${p.id}): ${e?.message ?? e} — CLOSE MANUALLY` });

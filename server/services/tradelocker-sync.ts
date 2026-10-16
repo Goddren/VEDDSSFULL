@@ -446,6 +446,7 @@ async function syncTradeLockerTrades(userId: number, conn: any, svc: any): Promi
             try {
               await svc.closePosition(p.id);
               console.warn(`[TL-sync] ${ticket}: closed on inverted post-fill R:R (POSTFILL_RR_AUTOCLOSE=true).`);
+              { const { logTlClose } = await import('../tradelocker'); await logTlClose(conn, { symbol: p.symbol, direction: p.side, positionId: String(p.id), reason: `inverted post-fill R:R 1:${_pfRR.toFixed(2)} (POSTFILL_RR_AUTOCLOSE)`, pnl: (p as any).unrealizedPl, ok: true }); }
               _pfNote += ' — AUTO-CLOSED';
             } catch (ce: any) {
               console.error(`[TL-sync] ${ticket}: auto-close failed (${ce?.message}) — position left open, flagged.`);
