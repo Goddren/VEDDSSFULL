@@ -32975,7 +32975,7 @@ Generate an agenda with timing, topics, and hosting tips. Return JSON: {
     try {
       const { title, description, priceVedd, sourceCategory, symbols, includeManualTrades } = req.body as { title?: string; description?: string; priceVedd?: number; sourceCategory?: string; symbols?: string[]; includeManualTrades?: boolean };
       if (!title) return res.status(400).json({ error: "title is required" });
-      const category = sourceCategory === 'tradelocker' ? 'tradelocker' : sourceCategory === 'kalshi' ? 'kalshi' : sourceCategory === 'options' ? 'options' : 'forex';
+      const category = sourceCategory === 'tradelocker' ? 'tradelocker' : sourceCategory === 'kalshi' ? 'kalshi' : sourceCategory === 'options' ? 'options' : sourceCategory === 'fx_models' ? 'fx_models' : 'forex';
       const symbolFilter = Array.isArray(symbols) && symbols.length
         ? symbols.map(s => String(s).trim().toUpperCase()).filter(Boolean)
         : null;
@@ -32985,7 +32985,22 @@ Generate an agenda with timing, topics, and hosting tips. Return JSON: {
 
       let rows: any[];
       let stats: any;
-      if (category === 'kalshi') {
+      if (category === 'fx_models') {
+        // FX Model 1 / Model 2 bundle: resolved model ideas, scoped by pair and
+        // optionally model/day type. Only a POSITIVE-expectancy record with
+        // enough data can be sold, and mastery raises the suggested price.
+        const fm = await import('./services/fx-models');
+        const r = await fm.getFxModelListingRows(userId, symbolFilter);
+        if (r.rows.length < fm.FX_MODEL_MIN_TO_LIST) {
+          return res.status(400).json({ error: `Need at least ${fm.FX_MODEL_MIN_TO_LIST} resolved model ideas in this scope to list (you have ${r.rows.length}).` });
+        }
+        if (!(r.avgR > 0)) {
+          return res.status(400).json({ error: `This scope has no positive edge yet (avg ${r.avgR.toFixed(2)}R over ${r.rows.length} ideas) — only profitable model records can be sold.` });
+        }
+        rows = r.rows;
+        stats = computeListingStats(fm.fxModelRowsForStats(rows) as any);
+        stats.suggestedPriceVedd = clampPrice(stats.suggestedPriceVedd * (1 + r.masteryScore / 100));
+      } else if (category === 'kalshi') {
         // Kalshi brain snapshots come from kalshi_brain_outcomes (not
         // ai_confirmation_outcomes). Exclude already-purchased rows so a buyer
         // can't resell someone else's data. Map to the stats shape (symbol=coin,
@@ -33085,12 +33100,23 @@ Generate an agenda with timing, topics, and hosting tips. Return JSON: {
     if (!req.isAuthenticated()) return res.status(401).json({ error: "Not authenticated" });
     const userId = (req.user as User).id;
     try {
-      const category = req.query.sourceCategory === 'tradelocker' ? 'tradelocker' : req.query.sourceCategory === 'kalshi' ? 'kalshi' : req.query.sourceCategory === 'options' ? 'options' : 'forex';
+      const category = req.query.sourceCategory === 'tradelocker' ? 'tradelocker' : req.query.sourceCategory === 'kalshi' ? 'kalshi' : req.query.sourceCategory === 'options' ? 'options' : req.query.sourceCategory === 'fx_models' ? 'fx_models' : 'forex';
       const symbolsParam = typeof req.query.symbols === 'string' ? req.query.symbols : '';
       const symbols = symbolsParam.split(',').map(s => s.trim().toUpperCase()).filter(Boolean);
       const manualOptIn = req.query.includeManualTrades === 'true' && category === 'forex';
       const { computeListingStats, MIN_TRADES_TO_LIST } = await import('./services/brain-marketplace');
       let rows: any[];
+      if (category === 'fx_models') {
+        const fm = await import('./services/fx-models');
+        const { clampPrice } = await import('./services/brain-marketplace');
+        const r = await fm.getFxModelListingRows(userId, symbols.length ? symbols : null);
+        if (r.rows.length < fm.FX_MODEL_MIN_TO_LIST || !(r.avgR > 0)) {
+          return res.json({ eligible: false, tradeCount: r.rows.length, minTradesRequired: fm.FX_MODEL_MIN_TO_LIST, avgR: r.avgR, masteryLevel: r.level, masteryScore: r.masteryScore,
+            reason: r.rows.length < fm.FX_MODEL_MIN_TO_LIST ? 'not enough resolved ideas' : 'no positive edge yet' });
+        }
+        const stats = computeListingStats(fm.fxModelRowsForStats(r.rows) as any);
+        return res.json({ eligible: true, ...stats, suggestedPriceVedd: clampPrice(stats.suggestedPriceVedd * (1 + r.masteryScore / 100)), avgR: r.avgR, masteryLevel: r.level, masteryScore: r.masteryScore });
+      }
       if (category === 'kalshi') {
         const { db } = await import('./db');
         const { kalshiBrainOutcomes } = await import('../shared/schema');
@@ -33239,6 +33265,9 @@ Generate an agenda with timing, topics, and hosting tips. Return JSON: {
         tradesImported = toInsert.length;
         const { learnFromKalshiTrades } = await import('./services/kalshi-brain');
         await learnFromKalshiTrades(buyerId).catch(() => {});
+      } else if (listing.sourceCategory === 'fx_models') {
+        const { importFxModelSnapshot } = await import('./services/fx-models');
+        tradesImported = await importFxModelSnapshot(buyerId, (listing.snapshotData as any[]) ?? []);
       } else if (listing.sourceCategory === 'options') {
         // Merge into the buyer's options feature store (tagged purchased_brain so
         // it can't be resold and won't pollute their real optionsEngineTrades),

@@ -11,9 +11,22 @@ import { useToast } from '@/hooks/use-toast';
 import { Brain, TrendingUp, Calendar, Target, Check, ShoppingCart } from 'lucide-react';
 import BrainVisualization3D from '@/components/brain-visualization-3d';
 
-type SourceCategory = 'forex' | 'tradelocker' | 'kalshi' | 'options';
+type SourceCategory = 'forex' | 'tradelocker' | 'kalshi' | 'options' | 'fx_models';
 
-const CATEGORY_LABEL: Record<SourceCategory, string> = { forex: 'Forex / MT5 Brain', tradelocker: 'TradeLocker Brain', kalshi: 'Kalshi Brain', options: 'Options Engine Brain' };
+const CATEGORY_LABEL: Record<SourceCategory, string> = { forex: 'Forex / MT5 Brain', tradelocker: 'TradeLocker Brain', kalshi: 'Kalshi Brain', options: 'Options Engine Brain', fx_models: 'FX Models (M1/M2)' };
+
+// FX Models bundles carry their scope as tokens inside symbolFilter
+// ("MODEL:M1", "DAY:RANGE") next to plain pair symbols.
+function formatScope(filter: string[] | null): string {
+  if (!filter?.length) return 'All pairs';
+  return filter.map((t) => {
+    const u = t.toUpperCase();
+    if (u === 'MODEL:M1') return 'Model 1 · Range';
+    if (u === 'MODEL:M2') return 'Model 2 · Trend';
+    if (u.startsWith('DAY:')) return `${u.slice(4).charAt(0)}${u.slice(5).toLowerCase()} days`;
+    return u;
+  }).join(' / ');
+}
 
 interface BrainListing {
   id: number;
@@ -44,6 +57,10 @@ interface PreviewStats {
   ageDays?: number;
   winRate?: number | null;
   suggestedPriceVedd?: number;
+  avgR?: number;
+  masteryLevel?: string;
+  masteryScore?: number;
+  reason?: string;
 }
 
 export default function BrainDataMarketplacePage() {
@@ -63,8 +80,14 @@ export default function BrainDataMarketplacePage() {
   // brain and a USDJPY-only brain), and re-listing the same pair scope
   // updates that specific brain with a fresh snapshot instead of a new one.
   const [sellCategory, setSellCategory] = useState<SourceCategory>('forex');
+  // FX Models bundle scope (optional): one model and/or one day type.
+  const [fxModel, setFxModel] = useState<'' | 'M1' | 'M2'>('');
+  const [fxDay, setFxDay] = useState<'' | 'range' | 'trend' | 'mixed'>('');
 
-  const symbols = symbolsInput.split(',').map(s => s.trim().toUpperCase()).filter(Boolean);
+  const pairSymbols = symbolsInput.split(',').map(s => s.trim().toUpperCase()).filter(Boolean);
+  const symbols = sellCategory === 'fx_models'
+    ? [...pairSymbols, ...(fxModel ? [`MODEL:${fxModel}`] : []), ...(fxDay ? [`DAY:${fxDay.toUpperCase()}`] : [])]
+    : pairSymbols;
 
   const { data: wallet } = useQuery<{ veddBalance: number }>({ queryKey: ['/api/wallet/balance'] });
   const { data: listings = [], isLoading } = useQuery<BrainListing[]>({ queryKey: ['/api/brain-marketplace'] });
@@ -102,6 +125,8 @@ export default function BrainDataMarketplacePage() {
       setDescription('');
       setCustomPrice('');
       setSymbolsInput('');
+      setFxModel('');
+      setFxDay('');
       queryClient.invalidateQueries({ queryKey: ['/api/brain-marketplace'] });
       queryClient.invalidateQueries({ queryKey: ['/api/brain-marketplace/my-listings'] });
       queryClient.invalidateQueries({ queryKey: ['/api/brain-marketplace/my-listings/preview'] });
@@ -175,12 +200,12 @@ export default function BrainDataMarketplacePage() {
             <CardDescription>List a snapshot of your trade history. Buyers get a copy — you keep yours.</CardDescription>
           </CardHeader>
           <CardContent className="space-y-4">
-            <div className="flex gap-2">
-              {(['forex', 'tradelocker', 'kalshi', 'options'] as const).map(cat => (
+            <div className="flex flex-wrap gap-2">
+              {(['forex', 'tradelocker', 'kalshi', 'options', 'fx_models'] as const).map(cat => (
                 <button
                   key={cat}
                   onClick={() => setSellCategory(cat)}
-                  className={`flex-1 text-sm font-semibold rounded-lg px-3 py-2 border transition-colors ${
+                  className={`flex-1 basis-[calc(50%-0.25rem)] sm:basis-0 text-sm font-semibold rounded-lg px-3 py-2 border transition-colors ${
                     sellCategory === cat ? 'bg-purple-500/15 border-purple-500 text-purple-400' : 'border-border text-muted-foreground hover:text-foreground'
                   }`}
                 >
@@ -196,6 +221,34 @@ export default function BrainDataMarketplacePage() {
             <p className="text-xs text-muted-foreground -mt-2">
               Scoping to specific pairs lets you sell multiple, separate brains at once (e.g. an EURUSD-only brain and a USDJPY-only brain). Re-listing the same pair scope updates that brain with your latest trades instead of creating a duplicate.
             </p>
+
+            {sellCategory === 'fx_models' && (
+              <div className="rounded-lg border p-3 space-y-3">
+                <p className="text-xs text-muted-foreground">
+                  Sell what your Model 1 (range) and Model 2 (trend) have proven: resolved ideas with their outcome, day type, session and reasoning. Only scopes with at least 20 resolved ideas and a positive average R can be listed, and a higher mastery score raises the suggested price. Buyers' copies feed their own models but can't be resold.
+                </p>
+                <div>
+                  <p className="text-xs font-semibold mb-1.5">Model</p>
+                  <div className="flex flex-wrap gap-2">
+                    {([['', 'Both'], ['M1', 'Model 1 · Range'], ['M2', 'Model 2 · Trend']] as const).map(([v, label]) => (
+                      <button key={v || 'both'} onClick={() => setFxModel(v)} className={`text-xs font-semibold rounded-lg px-3 py-1.5 border transition-colors ${fxModel === v ? 'bg-purple-500/15 border-purple-500 text-purple-400' : 'border-border text-muted-foreground hover:text-foreground'}`}>
+                        {label}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+                <div>
+                  <p className="text-xs font-semibold mb-1.5">Day type</p>
+                  <div className="flex flex-wrap gap-2">
+                    {([['', 'Any'], ['range', 'Range days'], ['trend', 'Trend days'], ['mixed', 'Mixed days']] as const).map(([v, label]) => (
+                      <button key={v || 'any'} onClick={() => setFxDay(v)} className={`text-xs font-semibold rounded-lg px-3 py-1.5 border transition-colors ${fxDay === v ? 'bg-purple-500/15 border-purple-500 text-purple-400' : 'border-border text-muted-foreground hover:text-foreground'}`}>
+                        {label}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              </div>
+            )}
 
             {sellCategory === 'forex' && (
               <div className="flex items-start gap-2 rounded-lg border p-3">
@@ -215,11 +268,25 @@ export default function BrainDataMarketplacePage() {
             )}
 
             {!preview?.eligible ? (
+              sellCategory === 'fx_models' ? (
+                <p className="text-sm text-muted-foreground">
+                  {preview?.reason === 'no positive edge yet'
+                    ? `This scope isn't profitable yet (avg ${(preview?.avgR ?? 0).toFixed(2)}R over ${preview?.tradeCount ?? 0} ideas, ${preview?.masteryLevel ?? 'Learning'}). Only models with a proven edge can be sold.`
+                    : `You need at least ${preview?.minTradesRequired ?? 20} resolved model ideas in ${formatScope(symbols.length ? symbols : null)} to list (you have ${preview?.tradeCount ?? 0}).`}
+                </p>
+              ) : (
               <p className="text-sm text-muted-foreground">
                 You need at least {preview?.minTradesRequired ?? 10} completed trades{symbols.length ? ` on ${symbols.join('/')}` : ''} to list this brain (you have {preview?.tradeCount ?? 0}).
               </p>
+              )
             ) : (
               <>
+                {sellCategory === 'fx_models' && preview.masteryLevel && (
+                  <div className="flex flex-wrap items-center gap-2 text-sm">
+                    <Badge variant="outline" className="border-purple-500/40 text-purple-400">{preview.masteryLevel}</Badge>
+                    <span className="text-muted-foreground">Mastery {preview.masteryScore}/100 · avg {(preview.avgR ?? 0) >= 0 ? '+' : ''}{(preview.avgR ?? 0).toFixed(2)}R per idea</span>
+                  </div>
+                )}
                 <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-sm">
                   <div className="bg-secondary/50 rounded p-2 text-center"><p className="text-muted-foreground">Trades</p><p className="font-bold">{preview.tradeCount}</p></div>
                   <div className="bg-secondary/50 rounded p-2 text-center"><p className="text-muted-foreground">Pairs</p><p className="font-bold">{preview.distinctPairs}</p></div>
@@ -248,7 +315,7 @@ export default function BrainDataMarketplacePage() {
                     <div className="min-w-0">
                       <p className="font-semibold text-sm truncate">{l.title}</p>
                       <p className="text-xs text-muted-foreground">
-                        {l.symbolFilter?.length ? l.symbolFilter.join('/') : 'All pairs'} · {l.tradeCount} trades{l.includesManualTrades ? ' (incl. manual)' : ''} · {l.priceVedd} VEDD · {l.purchaseCount} sold ({l.purchaseCount * l.priceVedd} VEDD earned)
+                        {formatScope(l.symbolFilter)} · {l.tradeCount} {l.sourceCategory === 'fx_models' ? 'ideas' : 'trades'}{l.includesManualTrades ? ' (incl. manual)' : ''} · {l.priceVedd} VEDD · {l.purchaseCount} sold ({l.purchaseCount * l.priceVedd} VEDD earned)
                       </p>
                     </div>
                     <Button size="sm" variant="outline" onClick={() => deactivateMutation.mutate(l.id)} disabled={deactivateMutation.isPending}>
@@ -276,7 +343,7 @@ export default function BrainDataMarketplacePage() {
                     <div className="flex flex-wrap gap-1 mb-1">
                       <Badge variant="outline" className="w-fit text-xs">{CATEGORY_LABEL[listing.sourceCategory] ?? 'Forex / MT5 Brain'}</Badge>
                       {listing.symbolFilter?.length ? (
-                        <Badge variant="outline" className="w-fit text-xs border-purple-500/40 text-purple-400">{listing.symbolFilter.join('/')}</Badge>
+                        <Badge variant="outline" className="w-fit text-xs border-purple-500/40 text-purple-400">{formatScope(listing.symbolFilter)}</Badge>
                       ) : null}
                       {listing.includesManualTrades && (
                         <Badge variant="outline" className="w-fit text-xs border-amber-500/40 text-amber-400">Includes manual trades</Badge>

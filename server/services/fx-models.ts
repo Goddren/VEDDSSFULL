@@ -70,6 +70,7 @@ CREATE TABLE IF NOT EXISTS fx_model_decisions (
 );
 CREATE INDEX IF NOT EXISTS fx_model_decisions_open_idx ON fx_model_decisions (result, created_at);
 CREATE INDEX IF NOT EXISTS fx_model_decisions_user_idx ON fx_model_decisions (user_id, model, created_at);
+ALTER TABLE fx_model_decisions ADD COLUMN IF NOT EXISTS source text NOT NULL DEFAULT 'own';
 `;
 
 let ensured: Promise<void> | null = null;
@@ -382,6 +383,70 @@ export async function resolveShadowDecisions(): Promise<void> {
       ).catch(() => {});
     }
   }
+}
+
+// ── Brain marketplace bundles (phase 3) ──────────────────────────────────
+// A bundle is a frozen snapshot of a seller's RESOLVED model ideas, scoped by
+// pair and optionally by model (M1/M2) and day type. Scope tokens ride in the
+// listing's existing symbol_filter array as "MODEL:M1" / "DAY:range" so the
+// marketplace's relist-in-place logic keeps working unchanged. Purchased rows
+// are tagged source='purchased_brain': they feed the buyer's models and
+// mastery, but can never be resold.
+export const FX_MODEL_MIN_TO_LIST = 20;
+
+export function parseFxModelScope(filter: string[] | null | undefined) {
+  const f = (filter || []).map((x) => String(x).trim().toUpperCase()).filter(Boolean);
+  const model = f.find((x) => x.startsWith('MODEL:'))?.slice(6) || null;
+  const dayType = f.find((x) => x.startsWith('DAY:'))?.slice(4)?.toLowerCase() || null;
+  const symbols = f.filter((x) => !x.includes(':'));
+  return { model: model === 'M1' || model === 'M2' ? model : null, dayType: ['range', 'trend', 'mixed'].includes(dayType || '') ? dayType : null, symbols };
+}
+
+/** Seller's own resolved ideas for a bundle scope + the stats the marketplace needs. */
+export async function getFxModelListingRows(userId: number, filter: string[] | null | undefined): Promise<{ rows: any[]; avgR: number; masteryScore: number; level: string }> {
+  await ensureFxModelTables();
+  const { model, dayType, symbols } = parseFxModelScope(filter);
+  const { rows } = await pool.query(
+    `SELECT symbol, model, day_type, session, direction, entry_price, stop_loss, take_profit, confidence, setup, reasoning, context,
+            result, r_multiple, pips, exit_price, created_at, resolved_at
+       FROM fx_model_decisions
+      WHERE user_id=$1 AND source='own' AND result IN ('WIN','LOSS','EXPIRED')
+        AND ($2::text IS NULL OR model=$2) AND ($3::text IS NULL OR day_type=$3)
+        AND (cardinality($4::text[]) = 0 OR symbol = ANY($4::text[]))
+      ORDER BY created_at DESC LIMIT 3000`,
+    [userId, model, dayType, symbols],
+  );
+  const n = rows.length;
+  const wins = rows.filter((r: any) => r.result === 'WIN').length;
+  const avgR = n ? rows.reduce((a: number, r: any) => a + (Number(r.r_multiple) || 0), 0) / n : 0;
+  const winRate = n ? wins / n : 0;
+  const masteryScore = Math.round(Math.min(1, n / 150) * 50 + Math.max(0, Math.min(1, (avgR + 0.5) / 1.5)) * 50);
+  return { rows, avgR, masteryScore, level: masteryLevel(n, winRate, avgR) };
+}
+
+/** Marketplace stat shape: EXPIRED counts as a win only if it closed in profit. */
+export function fxModelRowsForStats(rows: any[]) {
+  return rows.map((r) => ({
+    symbol: r.symbol, confirmedAt: r.resolved_at || r.created_at,
+    tradeOutcome: r.result === 'WIN' || (r.result === 'EXPIRED' && Number(r.r_multiple) > 0) ? 'WIN' : 'LOSS',
+  }));
+}
+
+/** Merge a purchased bundle into the buyer's model history (never resellable). */
+export async function importFxModelSnapshot(buyerId: number, snapshot: any[]): Promise<number> {
+  await ensureFxModelTables();
+  let n = 0;
+  for (const r of snapshot || []) {
+    await pool.query(
+      `INSERT INTO fx_model_decisions (user_id, symbol, model, mode, day_type, session, direction, entry_price, stop_loss, take_profit,
+         confidence, setup, reasoning, context, result, r_multiple, pips, exit_price, resolved_at, created_at, source)
+       VALUES ($1,$2,$3,'purchased',$4,$5,$6,$7,$8,$9,$10,$11,$12,$13::jsonb,$14,$15,$16,$17,$18,$19,'purchased_brain')`,
+      [buyerId, r.symbol, r.model, r.day_type, r.session, r.direction, r.entry_price, r.stop_loss, r.take_profit, r.confidence,
+        r.setup, r.reasoning, JSON.stringify(r.context ?? null), r.result, r.r_multiple, r.pips, r.exit_price,
+        r.resolved_at ? new Date(r.resolved_at) : null, r.created_at ? new Date(r.created_at) : new Date()],
+    ).then(() => { n++; }).catch(() => {});
+  }
+  return n;
 }
 
 export function masteryLevel(trades: number, winRate: number, avgR: number): string {

@@ -21155,11 +21155,16 @@ var init_markov_chain = __esm({
 // server/services/fx-models.ts
 var fx_models_exports = {};
 __export(fx_models_exports, {
+  FX_MODEL_MIN_TO_LIST: () => FX_MODEL_MIN_TO_LIST,
   classifyDayType: () => classifyDayType,
   ensureFxModelTables: () => ensureFxModelTables,
+  fxModelRowsForStats: () => fxModelRowsForStats,
+  getFxModelListingRows: () => getFxModelListingRows,
   getModelMastery: () => getModelMastery,
+  importFxModelSnapshot: () => importFxModelSnapshot,
   m1Reject: () => m1Reject,
   masteryLevel: () => masteryLevel,
+  parseFxModelScope: () => parseFxModelScope,
   rangeFeatures: () => rangeFeatures,
   resolveShadowDecisions: () => resolveShadowDecisions,
   runFxModelsCycle: () => runFxModelsCycle,
@@ -21499,6 +21504,76 @@ async function resolveShadowDecisions() {
     }
   }
 }
+function parseFxModelScope(filter) {
+  const f = (filter || []).map((x) => String(x).trim().toUpperCase()).filter(Boolean);
+  const model = f.find((x) => x.startsWith("MODEL:"))?.slice(6) || null;
+  const dayType = f.find((x) => x.startsWith("DAY:"))?.slice(4)?.toLowerCase() || null;
+  const symbols = f.filter((x) => !x.includes(":"));
+  return { model: model === "M1" || model === "M2" ? model : null, dayType: ["range", "trend", "mixed"].includes(dayType || "") ? dayType : null, symbols };
+}
+async function getFxModelListingRows(userId, filter) {
+  await ensureFxModelTables();
+  const { model, dayType, symbols } = parseFxModelScope(filter);
+  const { rows } = await pool.query(
+    `SELECT symbol, model, day_type, session, direction, entry_price, stop_loss, take_profit, confidence, setup, reasoning, context,
+            result, r_multiple, pips, exit_price, created_at, resolved_at
+       FROM fx_model_decisions
+      WHERE user_id=$1 AND source='own' AND result IN ('WIN','LOSS','EXPIRED')
+        AND ($2::text IS NULL OR model=$2) AND ($3::text IS NULL OR day_type=$3)
+        AND (cardinality($4::text[]) = 0 OR symbol = ANY($4::text[]))
+      ORDER BY created_at DESC LIMIT 3000`,
+    [userId, model, dayType, symbols]
+  );
+  const n = rows.length;
+  const wins = rows.filter((r) => r.result === "WIN").length;
+  const avgR = n ? rows.reduce((a, r) => a + (Number(r.r_multiple) || 0), 0) / n : 0;
+  const winRate2 = n ? wins / n : 0;
+  const masteryScore = Math.round(Math.min(1, n / 150) * 50 + Math.max(0, Math.min(1, (avgR + 0.5) / 1.5)) * 50);
+  return { rows, avgR, masteryScore, level: masteryLevel(n, winRate2, avgR) };
+}
+function fxModelRowsForStats(rows) {
+  return rows.map((r) => ({
+    symbol: r.symbol,
+    confirmedAt: r.resolved_at || r.created_at,
+    tradeOutcome: r.result === "WIN" || r.result === "EXPIRED" && Number(r.r_multiple) > 0 ? "WIN" : "LOSS"
+  }));
+}
+async function importFxModelSnapshot(buyerId, snapshot) {
+  await ensureFxModelTables();
+  let n = 0;
+  for (const r of snapshot || []) {
+    await pool.query(
+      `INSERT INTO fx_model_decisions (user_id, symbol, model, mode, day_type, session, direction, entry_price, stop_loss, take_profit,
+         confidence, setup, reasoning, context, result, r_multiple, pips, exit_price, resolved_at, created_at, source)
+       VALUES ($1,$2,$3,'purchased',$4,$5,$6,$7,$8,$9,$10,$11,$12,$13::jsonb,$14,$15,$16,$17,$18,$19,'purchased_brain')`,
+      [
+        buyerId,
+        r.symbol,
+        r.model,
+        r.day_type,
+        r.session,
+        r.direction,
+        r.entry_price,
+        r.stop_loss,
+        r.take_profit,
+        r.confidence,
+        r.setup,
+        r.reasoning,
+        JSON.stringify(r.context ?? null),
+        r.result,
+        r.r_multiple,
+        r.pips,
+        r.exit_price,
+        r.resolved_at ? new Date(r.resolved_at) : null,
+        r.created_at ? new Date(r.created_at) : /* @__PURE__ */ new Date()
+      ]
+    ).then(() => {
+      n++;
+    }).catch(() => {
+    });
+  }
+  return n;
+}
 function masteryLevel(trades, winRate2, avgR) {
   if (trades < 20) return "Learning";
   if (trades < 50) return avgR > 0 ? "Developing" : "Developing (negative)";
@@ -21540,7 +21615,7 @@ async function getModelMastery(userId) {
     slices: (await agg("model, day_type, symbol, session")).map(shape)
   };
 }
-var DDL2, ensured2, pipSize, lastShadowCandle, lastResolveAt, M1_PAIRS_EXCLUDED, rangeCache;
+var DDL2, ensured2, pipSize, lastShadowCandle, lastResolveAt, M1_PAIRS_EXCLUDED, rangeCache, FX_MODEL_MIN_TO_LIST;
 var init_fx_models = __esm({
   "server/services/fx-models.ts"() {
     "use strict";
@@ -21591,6 +21666,7 @@ CREATE TABLE IF NOT EXISTS fx_model_decisions (
 );
 CREATE INDEX IF NOT EXISTS fx_model_decisions_open_idx ON fx_model_decisions (result, created_at);
 CREATE INDEX IF NOT EXISTS fx_model_decisions_user_idx ON fx_model_decisions (user_id, model, created_at);
+ALTER TABLE fx_model_decisions ADD COLUMN IF NOT EXISTS source text NOT NULL DEFAULT 'own';
 `;
     ensured2 = null;
     pipSize = (sym) => /JPY/.test(sym) ? 0.01 : /^XAU/.test(sym) ? 0.1 : /^(BTC|ETH)/.test(sym) ? 1 : /^(US30|NAS|SPX|GER|UK1|JP2)/.test(sym) ? 1 : 1e-4;
@@ -21598,6 +21674,7 @@ CREATE INDEX IF NOT EXISTS fx_model_decisions_user_idx ON fx_model_decisions (us
     lastResolveAt = 0;
     M1_PAIRS_EXCLUDED = (process.env.FX_M1_EXCLUDED_PAIRS || "GBPJPY,XAUUSD,BTCUSD,US30,NAS100").split(",").map((x) => x.trim().toUpperCase()).filter(Boolean);
     rangeCache = /* @__PURE__ */ new Map();
+    FX_MODEL_MIN_TO_LIST = 20;
   }
 });
 
@@ -59130,9 +59207,9 @@ async function getStopOrdersForUser(userId, filters = {}) {
 init_schema();
 
 // server/build-info.ts
-var BUILD_COMMIT = "cdbe91cb-dirty";
+var BUILD_COMMIT = "935e8768-dirty";
 var BUILD_BRANCH = "main";
-var BUILT_AT = "2026-10-16T20:43:29.894Z";
+var BUILT_AT = "2026-10-16T20:59:45.086Z";
 
 // server/stripe.ts
 init_db();
@@ -89989,13 +90066,25 @@ Sitemap: ${SEO_BASE_URL}/sitemap.xml
     try {
       const { title, description, priceVedd, sourceCategory, symbols, includeManualTrades } = req.body;
       if (!title) return res.status(400).json({ error: "title is required" });
-      const category = sourceCategory === "tradelocker" ? "tradelocker" : sourceCategory === "kalshi" ? "kalshi" : sourceCategory === "options" ? "options" : "forex";
+      const category = sourceCategory === "tradelocker" ? "tradelocker" : sourceCategory === "kalshi" ? "kalshi" : sourceCategory === "options" ? "options" : sourceCategory === "fx_models" ? "fx_models" : "forex";
       const symbolFilter = Array.isArray(symbols) && symbols.length ? symbols.map((s) => String(s).trim().toUpperCase()).filter(Boolean) : null;
       const manualOptIn = !!includeManualTrades && category === "forex";
       const { computeListingStats: computeListingStats2, clampPrice: clampPrice2, MIN_TRADES_TO_LIST: MIN_TRADES_TO_LIST2 } = await Promise.resolve().then(() => (init_brain_marketplace(), brain_marketplace_exports));
       let rows;
       let stats;
-      if (category === "kalshi") {
+      if (category === "fx_models") {
+        const fm = await Promise.resolve().then(() => (init_fx_models(), fx_models_exports));
+        const r = await fm.getFxModelListingRows(userId, symbolFilter);
+        if (r.rows.length < fm.FX_MODEL_MIN_TO_LIST) {
+          return res.status(400).json({ error: `Need at least ${fm.FX_MODEL_MIN_TO_LIST} resolved model ideas in this scope to list (you have ${r.rows.length}).` });
+        }
+        if (!(r.avgR > 0)) {
+          return res.status(400).json({ error: `This scope has no positive edge yet (avg ${r.avgR.toFixed(2)}R over ${r.rows.length} ideas) \u2014 only profitable model records can be sold.` });
+        }
+        rows = r.rows;
+        stats = computeListingStats2(fm.fxModelRowsForStats(rows));
+        stats.suggestedPriceVedd = clampPrice2(stats.suggestedPriceVedd * (1 + r.masteryScore / 100));
+      } else if (category === "kalshi") {
         const { db: db2 } = await Promise.resolve().then(() => (init_db(), db_exports));
         const { kalshiBrainOutcomes: kalshiBrainOutcomes2 } = await Promise.resolve().then(() => (init_schema(), schema_exports));
         const { and: and12, eq: eq21, ne, desc: desc12 } = await import("drizzle-orm");
@@ -90081,12 +90170,30 @@ Sitemap: ${SEO_BASE_URL}/sitemap.xml
     if (!req.isAuthenticated()) return res.status(401).json({ error: "Not authenticated" });
     const userId = req.user.id;
     try {
-      const category = req.query.sourceCategory === "tradelocker" ? "tradelocker" : req.query.sourceCategory === "kalshi" ? "kalshi" : req.query.sourceCategory === "options" ? "options" : "forex";
+      const category = req.query.sourceCategory === "tradelocker" ? "tradelocker" : req.query.sourceCategory === "kalshi" ? "kalshi" : req.query.sourceCategory === "options" ? "options" : req.query.sourceCategory === "fx_models" ? "fx_models" : "forex";
       const symbolsParam = typeof req.query.symbols === "string" ? req.query.symbols : "";
       const symbols = symbolsParam.split(",").map((s) => s.trim().toUpperCase()).filter(Boolean);
       const manualOptIn = req.query.includeManualTrades === "true" && category === "forex";
       const { computeListingStats: computeListingStats2, MIN_TRADES_TO_LIST: MIN_TRADES_TO_LIST2 } = await Promise.resolve().then(() => (init_brain_marketplace(), brain_marketplace_exports));
       let rows;
+      if (category === "fx_models") {
+        const fm = await Promise.resolve().then(() => (init_fx_models(), fx_models_exports));
+        const { clampPrice: clampPrice2 } = await Promise.resolve().then(() => (init_brain_marketplace(), brain_marketplace_exports));
+        const r = await fm.getFxModelListingRows(userId, symbols.length ? symbols : null);
+        if (r.rows.length < fm.FX_MODEL_MIN_TO_LIST || !(r.avgR > 0)) {
+          return res.json({
+            eligible: false,
+            tradeCount: r.rows.length,
+            minTradesRequired: fm.FX_MODEL_MIN_TO_LIST,
+            avgR: r.avgR,
+            masteryLevel: r.level,
+            masteryScore: r.masteryScore,
+            reason: r.rows.length < fm.FX_MODEL_MIN_TO_LIST ? "not enough resolved ideas" : "no positive edge yet"
+          });
+        }
+        const stats2 = computeListingStats2(fm.fxModelRowsForStats(r.rows));
+        return res.json({ eligible: true, ...stats2, suggestedPriceVedd: clampPrice2(stats2.suggestedPriceVedd * (1 + r.masteryScore / 100)), avgR: r.avgR, masteryLevel: r.level, masteryScore: r.masteryScore });
+      }
       if (category === "kalshi") {
         const { db: db2 } = await Promise.resolve().then(() => (init_db(), db_exports));
         const { kalshiBrainOutcomes: kalshiBrainOutcomes2 } = await Promise.resolve().then(() => (init_schema(), schema_exports));
@@ -90227,6 +90334,9 @@ Sitemap: ${SEO_BASE_URL}/sitemap.xml
         const { learnFromKalshiTrades: learnFromKalshiTrades2 } = await Promise.resolve().then(() => (init_kalshi_brain(), kalshi_brain_exports));
         await learnFromKalshiTrades2(buyerId).catch(() => {
         });
+      } else if (listing.sourceCategory === "fx_models") {
+        const { importFxModelSnapshot: importFxModelSnapshot2 } = await Promise.resolve().then(() => (init_fx_models(), fx_models_exports));
+        tradesImported = await importFxModelSnapshot2(buyerId, listing.snapshotData ?? []);
       } else if (listing.sourceCategory === "options") {
         const { db: db2 } = await Promise.resolve().then(() => (init_db(), db_exports));
         const { optionsBrainOutcomes: optionsBrainOutcomes2 } = await Promise.resolve().then(() => (init_schema(), schema_exports));
