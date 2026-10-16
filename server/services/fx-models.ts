@@ -389,7 +389,10 @@ export async function resolveShadowDecisions(): Promise<void> {
         if (hitTp) { result = 'WIN'; exit = tp; break; }
       }
       if (!result && Date.now() - t0 > 48 * 3_600_000) {
-        exit = Number(bars[bars.length - 1]?.close) || entry;
+        // Score at the 48h mark, not whenever the resolver gets to it.
+        const cutoff = t0 + 48 * 3_600_000;
+        const atCut = bars.filter((b) => (Number(b.timestamp) < 1e12 ? Number(b.timestamp) * 1000 : Number(b.timestamp)) <= cutoff);
+        exit = Number(atCut[atCut.length - 1]?.close) || Number(bars[bars.length - 1]?.close) || entry;
         result = 'EXPIRED';
       }
       if (!result) continue;

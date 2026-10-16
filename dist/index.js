@@ -21522,7 +21522,9 @@ async function resolveShadowDecisions() {
         }
       }
       if (!result && Date.now() - t0 > 48 * 36e5) {
-        exit = Number(bars[bars.length - 1]?.close) || entry;
+        const cutoff = t0 + 48 * 36e5;
+        const atCut = bars.filter((b) => (Number(b.timestamp) < 1e12 ? Number(b.timestamp) * 1e3 : Number(b.timestamp)) <= cutoff);
+        exit = Number(atCut[atCut.length - 1]?.close) || Number(bars[bars.length - 1]?.close) || entry;
         result = "EXPIRED";
       }
       if (!result) continue;
@@ -28664,6 +28666,7 @@ async function processDecision(userId, decision, newsCtx) {
       if (_volCap?.preferPending) return "limit_entry";
       return "market";
     })();
+    let _ordersSent = false;
     try {
       const signalLog = await storage.createMt5SignalLog({
         userId,
@@ -28677,6 +28680,7 @@ async function processDecision(userId, decision, newsCtx) {
         confidence: adjustedConfidence,
         source: "vedd_live_engine"
       });
+      _ordersSent = true;
       const openResults = await Promise.allSettled(
         activeTLConnections.map(async (tlConn, _tlIdx) => {
           if (_tlIdx > 0) await new Promise((r) => setTimeout(r, _tlIdx * 400));
@@ -28890,6 +28894,10 @@ async function processDecision(userId, decision, newsCtx) {
     } catch (err) {
       state.tradesFailed++;
       addActivity(userId, { type: "error", symbol: decision.symbol, message: `Execution error: ${err.message}. Signal still available for MT5 EA.` });
+      if (!_ordersSent && _leReleaseCooldown) {
+        _leReleaseCooldown();
+        addActivity(userId, { type: "info", symbol: decision.symbol, message: `\u21A9\uFE0F ${decision.symbol}: failed before any order was sent \u2014 4h cooldown released.` });
+      }
     }
   }
   if (decision.action === "MODIFY_POSITION" || decision.action === "CLOSE_POSITION") {
@@ -59617,9 +59625,9 @@ async function getStopOrdersForUser(userId, filters = {}) {
 init_schema();
 
 // server/build-info.ts
-var BUILD_COMMIT = "22a706bf-dirty";
+var BUILD_COMMIT = "34c899ff-dirty";
 var BUILD_BRANCH = "main";
-var BUILT_AT = "2026-10-16T21:56:26.874Z";
+var BUILT_AT = "2026-10-16T22:01:43.512Z";
 
 // server/stripe.ts
 init_db();

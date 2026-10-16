@@ -6085,6 +6085,9 @@ async function processDecision(userId: number, decision: any, newsCtx?: any): Pr
       return 'market';
     })();
 
+    // Set just before orders go out: an exception BEFORE that point means no
+    // order can exist, so the 4h cooldown reserved above is given back.
+    let _ordersSent = false;
     try {
       const signalLog = await storage.createMt5SignalLog({
         userId,
@@ -6100,6 +6103,7 @@ async function processDecision(userId: number, decision: any, newsCtx?: any): Pr
       });
 
       // Execute on ALL active accounts in parallel
+      _ordersSent = true;
       const openResults = await Promise.allSettled(
         activeTLConnections.map(async (tlConn: any, _tlIdx: number) => {
           // Stagger the per-account order POSTs instead of firing them all in the
@@ -6388,6 +6392,10 @@ async function processDecision(userId: number, decision: any, newsCtx?: any): Pr
     } catch (err: any) {
       state.tradesFailed++;
       addActivity(userId, { type: 'error', symbol: decision.symbol, message: `Execution error: ${err.message}. Signal still available for MT5 EA.` });
+      if (!_ordersSent && _leReleaseCooldown) {
+        _leReleaseCooldown();
+        addActivity(userId, { type: 'info', symbol: decision.symbol, message: `↩️ ${decision.symbol}: failed before any order was sent — 4h cooldown released.` });
+      }
     }
   }
 
