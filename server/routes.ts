@@ -8620,6 +8620,8 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
             const existingTrade = await storage.getAiTradeResultByTicket(token.userId, ticketStr);
             
             if (!existingTrade) {
+              const { lookupSignalConfidence } = await import('./services/signal-confidence');
+              const _sigConf = await lookupSignalConfidence(token.userId, pos.symbol, pos.direction);
               // Create new pending trade record for reversal detection
               await storage.createAiTradeResult({
                 userId: token.userId,
@@ -8628,7 +8630,7 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
                 entryPrice: pos.openPrice || 0,
                 stopLoss: pos.sl > 0 ? pos.sl : null,
                 takeProfit: pos.tp > 0 ? pos.tp : null,
-                aiConfidence: 0,
+                aiConfidence: _sigConf ?? 0,
                 result: 'PENDING',
                 source: 'mt5_copier',
                 mt5Ticket: ticketStr,
@@ -11660,6 +11662,9 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
                   if (
                     tr.result === 'PENDING' &&
                     tr.aiConfidence === 0 &&
+                    // Only rows this check could have opened: a later, unrelated
+                    // check used to stamp its score on older engine trades.
+                    tr.createdAt && Date.now() - new Date(tr.createdAt as any).getTime() < 5 * 60_000 &&
                     (tr.symbol || '').toUpperCase().replace('/', '') === sanitizedSymbol &&
                     (tr.direction || '').toUpperCase() === (analysis.signal || '').toUpperCase()
                   ) {

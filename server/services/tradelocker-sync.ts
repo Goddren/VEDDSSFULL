@@ -457,6 +457,8 @@ async function syncTradeLockerTrades(userId: number, conn: any, svc: any): Promi
       }
     }
 
+    const { lookupSignalConfidence } = await import('./signal-confidence');
+    const _sigConf = await lookupSignalConfidence(userId, p.symbol, (p.side || '').toUpperCase() === 'SELL' ? 'SELL' : 'BUY');
     await storage.createAiTradeResult({
       userId,
       symbol: p.symbol,
@@ -467,7 +469,7 @@ async function syncTradeLockerTrades(userId: number, conn: any, svc: any): Promi
       // whether a live position was actually protected).
       stopLoss: _sl,
       takeProfit: _tp,
-      aiConfidence: 0,
+      aiConfidence: _sigConf ?? 0, // engine signal's confidence when one opened it
       result: 'PENDING',
       source: 'tradelocker_auto',
       connectionId: conn.id,

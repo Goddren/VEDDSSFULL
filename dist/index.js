@@ -30932,6 +30932,37 @@ var init_tradelocker = __esm({
   }
 });
 
+// server/services/signal-confidence.ts
+var signal_confidence_exports = {};
+__export(signal_confidence_exports, {
+  lookupSignalConfidence: () => lookupSignalConfidence
+});
+async function lookupSignalConfidence(userId, symbol, direction) {
+  try {
+    const sym = String(symbol || "").toUpperCase().replace(/[^A-Z0-9]/g, "");
+    if (!sym) return null;
+    const { rows } = await pool.query(
+      `SELECT confidence FROM mt5_signal_logs
+        WHERE user_id = $1 AND action = 'OPEN' AND upper(direction) = $2
+          AND upper(regexp_replace(symbol, '[^A-Za-z0-9]', '', 'g')) = left($3, length(upper(regexp_replace(symbol, '[^A-Za-z0-9]', '', 'g'))))
+          AND source = 'vedd_live_engine' AND confidence IS NOT NULL
+          AND created_at > now() - interval '30 minutes'
+        ORDER BY created_at DESC LIMIT 1`,
+      [userId, String(direction || "").toUpperCase(), sym]
+    );
+    const c = Number(rows[0]?.confidence);
+    return Number.isFinite(c) && c > 0 ? c : null;
+  } catch {
+    return null;
+  }
+}
+var init_signal_confidence = __esm({
+  "server/services/signal-confidence.ts"() {
+    "use strict";
+    init_db();
+  }
+});
+
 // server/services/tradelocker-sync.ts
 var tradelocker_sync_exports = {};
 __export(tradelocker_sync_exports, {
@@ -31174,6 +31205,8 @@ async function syncTradeLockerTrades(userId, conn, svc) {
         }
       }
     }
+    const { lookupSignalConfidence: lookupSignalConfidence2 } = await Promise.resolve().then(() => (init_signal_confidence(), signal_confidence_exports));
+    const _sigConf = await lookupSignalConfidence2(userId, p.symbol, (p.side || "").toUpperCase() === "SELL" ? "SELL" : "BUY");
     await storage.createAiTradeResult({
       userId,
       symbol: p.symbol,
@@ -31184,7 +31217,8 @@ async function syncTradeLockerTrades(userId, conn, svc) {
       // whether a live position was actually protected).
       stopLoss: _sl,
       takeProfit: _tp,
-      aiConfidence: 0,
+      aiConfidence: _sigConf ?? 0,
+      // engine signal's confidence when one opened it
       result: "PENDING",
       source: "tradelocker_auto",
       connectionId: conn.id,
@@ -58418,9 +58452,9 @@ async function getStopOrdersForUser(userId, filters = {}) {
 init_schema();
 
 // server/build-info.ts
-var BUILD_COMMIT = "2b9dd40a-dirty";
+var BUILD_COMMIT = "4c5a2ef4-dirty";
 var BUILD_BRANCH = "main";
-var BUILT_AT = "2026-10-15T02:42:58.255Z";
+var BUILT_AT = "2026-10-16T03:52:54.531Z";
 
 // server/stripe.ts
 init_db();
@@ -68873,6 +68907,8 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
             const ticketStr = pos.ticket.toString();
             const existingTrade = await storage.getAiTradeResultByTicket(token.userId, ticketStr);
             if (!existingTrade) {
+              const { lookupSignalConfidence: lookupSignalConfidence2 } = await Promise.resolve().then(() => (init_signal_confidence(), signal_confidence_exports));
+              const _sigConf = await lookupSignalConfidence2(token.userId, pos.symbol, pos.direction);
               await storage.createAiTradeResult({
                 userId: token.userId,
                 symbol: pos.symbol.toUpperCase(),
@@ -68880,7 +68916,7 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
                 entryPrice: pos.openPrice || 0,
                 stopLoss: pos.sl > 0 ? pos.sl : null,
                 takeProfit: pos.tp > 0 ? pos.tp : null,
-                aiConfidence: 0,
+                aiConfidence: _sigConf ?? 0,
                 result: "PENDING",
                 source: "mt5_copier",
                 mt5Ticket: ticketStr,
@@ -71362,7 +71398,9 @@ BEAR CASE: ${_bearCase || "n/a"}` : aiConfirmation.reasoning;
               try {
                 const recentPending = await storage.getAiTradeResults(token.userId, 10);
                 for (const tr of recentPending) {
-                  if (tr.result === "PENDING" && tr.aiConfidence === 0 && (tr.symbol || "").toUpperCase().replace("/", "") === sanitizedSymbol && (tr.direction || "").toUpperCase() === (analysis.signal || "").toUpperCase()) {
+                  if (tr.result === "PENDING" && tr.aiConfidence === 0 && // Only rows this check could have opened: a later, unrelated
+                  // check used to stamp its score on older engine trades.
+                  tr.createdAt && Date.now() - new Date(tr.createdAt).getTime() < 5 * 6e4 && (tr.symbol || "").toUpperCase().replace("/", "") === sanitizedSymbol && (tr.direction || "").toUpperCase() === (analysis.signal || "").toUpperCase()) {
                     await storage.updateAiTradeResult(tr.id, token.userId, {
                       aiConfidence: aiConfirmation.aiConfidence
                     });
