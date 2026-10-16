@@ -4611,6 +4611,44 @@ async function processDecision(userId: number, decision: any, newsCtx?: any): Pr
       }
     }
 
+    // ── Size by timeframe agreement + day type (90-day replay, 2026-10-17) ──
+    // 214 signals: H1+H4 both agreeing won 64% at +$463 avg vs +$36 for the
+    // rest; range days lost −$12.5k (39% WR). So, as a size multiplier (lot
+    // caps and the risk guard still apply on top):
+    //   (a) H1+H4 both agree → ×MTF_ALIGNED_SIZE (1.25); otherwise ×MTF_UNALIGNED_SIZE (0.6)
+    //   (b) range day (not a Model 1 range trade) → ×RANGE_DAY_SIZE (0.5),
+    //       or RANGE_DAY_MODE=block to skip it; RANGE_DAY_MODE=off disables.
+    if (decision.direction && process.env.MTF_SIZE_RULE !== 'off') {
+      const _dir = decision.direction.toUpperCase();
+      const _want = _dir === 'BUY' ? 'BULLISH' : 'BEARISH';
+      const { h1: _sh1, h4: _sh4 } = mtfStack(state, decision.symbol);
+      const _aligned = _sh1?.trend === _want && _sh4?.trend === _want;
+      let _mult = _aligned ? Number(process.env.MTF_ALIGNED_SIZE ?? 1.25) : Number(process.env.MTF_UNALIGNED_SIZE ?? 0.6);
+      const _notes = [`H1 ${_sh1?.trend ?? 'n/a'} / H4 ${_sh4?.trend ?? 'n/a'} ${_aligned ? 'aligned' : 'not aligned'} ×${_mult}`];
+      const _rdMode = (process.env.RANGE_DAY_MODE || 'reduce').toLowerCase();
+      if (_rdMode !== 'off' && decision.fxModel !== 'M1') {
+        try {
+          const { classifyDayType, sessionFor } = await import('./fx-models');
+          const _snap = state.marketSnapshot?.[decision.symbol] || {} as any;
+          const _cls = classifyDayType({ adx: (_snap as any).adx, relVolume: (_snap as any).relativeVolume, h1: _sh1?.trend, h4: _sh4?.trend, session: sessionFor() });
+          if (_cls.dayType === 'range') {
+            if (_rdMode === 'block') {
+              addActivity(userId, { type: 'info', symbol: decision.symbol, message: `📦 RANGE DAY BLOCK: ${_dir} ${decision.symbol} — range day (score ${_cls.score}); range days lost −$12.5k over 90 days.` });
+              state.signalsGenerated++;
+              return;
+            }
+            const _rd = Number(process.env.RANGE_DAY_SIZE ?? 0.5);
+            _mult *= _rd;
+            _notes.push(`range day ×${_rd}`);
+          }
+        } catch { /* classification unavailable: size by alignment only */ }
+      }
+      if (Number.isFinite(_mult) && _mult > 0 && _mult !== 1) {
+        (decision as any)._sizeMult = Math.max(0.1, Math.min(1.5, _mult));
+        addActivity(userId, { type: 'info', symbol: decision.symbol, message: `📏 Size ×${(decision as any)._sizeMult.toFixed(2)} for ${_dir} ${decision.symbol}: ${_notes.join('; ')}` });
+      }
+    }
+
     // ── BTCUSD profile (btc-profile.ts): hours, direction bias, ATR stop,
     //    size scaling, one entry per H1 candle ──────────────────────────────
     if (decision.symbol && decision.direction) {
@@ -5680,6 +5718,12 @@ async function processDecision(userId: number, decision: any, newsCtx?: any): Pr
     {
       const _ls = Number((decision as any)._lotScale);
       if (_ls > 0 && _ls < 1) lotSize = Math.max(0.01, Math.floor(lotSize * _ls * 100) / 100);
+      const _sm = Number((decision as any)._sizeMult);
+      if (_sm > 0 && _sm !== 1) {
+        // Upsizing never breaks the engine's own lot ceilings.
+        const _cap = Math.min(Number(config.maxLot) > 0 ? Number(config.maxLot) : Infinity, Number((config as any).maxLotSize) > 0 ? Number((config as any).maxLotSize) : Infinity);
+        lotSize = Math.max(0.01, Math.min(_sm > 1 ? _cap : Infinity, Math.floor(lotSize * _sm * 100) / 100));
+      }
     }
 
     // ── Per-trade 5% backstop + aggregate exposure cap (ports Gate 0d/0e) ──
@@ -6219,6 +6263,11 @@ async function processDecision(userId: number, decision: any, newsCtx?: any): Pr
           if (_stopSized) {
             const _lw = Number((decision as any)._lotScaleWeekend);
             if (_lw > 0 && _lw < 1) acctLot = Math.max(0.01, Math.floor(acctLot * _lw * 100) / 100);
+            const _sm = Number((decision as any)._sizeMult);
+            if (_sm > 0 && _sm !== 1) {
+              const _cap = Math.min(Number(config.maxLot) > 0 ? Number(config.maxLot) : Infinity, Number((config as any).maxLotSize) > 0 ? Number((config as any).maxLotSize) : Infinity);
+              acctLot = Math.max(0.01, Math.min(_sm > 1 ? _cap : Infinity, Math.floor(acctLot * _sm * 100) / 100));
+            }
           }
 
           // Apply this account's consistency taper (0.25–1×) as it nears its cap.

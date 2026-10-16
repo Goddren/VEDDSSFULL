@@ -25752,6 +25752,37 @@ async function processDecision(userId, decision, newsCtx) {
         addActivity(userId, { type: "info", symbol: decision.symbol, message: `\u{1F9ED} MTF aligned for ${_dir} ${decision.symbol} (${_desc}).` });
       }
     }
+    if (decision.direction && process.env.MTF_SIZE_RULE !== "off") {
+      const _dir = decision.direction.toUpperCase();
+      const _want = _dir === "BUY" ? "BULLISH" : "BEARISH";
+      const { h1: _sh1, h4: _sh4 } = mtfStack(state, decision.symbol);
+      const _aligned = _sh1?.trend === _want && _sh4?.trend === _want;
+      let _mult = _aligned ? Number(process.env.MTF_ALIGNED_SIZE ?? 1.25) : Number(process.env.MTF_UNALIGNED_SIZE ?? 0.6);
+      const _notes = [`H1 ${_sh1?.trend ?? "n/a"} / H4 ${_sh4?.trend ?? "n/a"} ${_aligned ? "aligned" : "not aligned"} \xD7${_mult}`];
+      const _rdMode = (process.env.RANGE_DAY_MODE || "reduce").toLowerCase();
+      if (_rdMode !== "off" && decision.fxModel !== "M1") {
+        try {
+          const { classifyDayType: classifyDayType2, sessionFor: sessionFor2 } = await Promise.resolve().then(() => (init_fx_models(), fx_models_exports));
+          const _snap = state.marketSnapshot?.[decision.symbol] || {};
+          const _cls = classifyDayType2({ adx: _snap.adx, relVolume: _snap.relativeVolume, h1: _sh1?.trend, h4: _sh4?.trend, session: sessionFor2() });
+          if (_cls.dayType === "range") {
+            if (_rdMode === "block") {
+              addActivity(userId, { type: "info", symbol: decision.symbol, message: `\u{1F4E6} RANGE DAY BLOCK: ${_dir} ${decision.symbol} \u2014 range day (score ${_cls.score}); range days lost \u2212$12.5k over 90 days.` });
+              state.signalsGenerated++;
+              return;
+            }
+            const _rd = Number(process.env.RANGE_DAY_SIZE ?? 0.5);
+            _mult *= _rd;
+            _notes.push(`range day \xD7${_rd}`);
+          }
+        } catch {
+        }
+      }
+      if (Number.isFinite(_mult) && _mult > 0 && _mult !== 1) {
+        decision._sizeMult = Math.max(0.1, Math.min(1.5, _mult));
+        addActivity(userId, { type: "info", symbol: decision.symbol, message: `\u{1F4CF} Size \xD7${decision._sizeMult.toFixed(2)} for ${_dir} ${decision.symbol}: ${_notes.join("; ")}` });
+      }
+    }
     if (decision.symbol && decision.direction) {
       const _btc = await Promise.resolve().then(() => (init_btc_profile(), btc_profile_exports));
       if (_btc.BTC_PROFILE_ON() && _btc.isBtc(decision.symbol)) {
@@ -26537,6 +26568,11 @@ async function processDecision(userId, decision, newsCtx) {
     {
       const _ls = Number(decision._lotScale);
       if (_ls > 0 && _ls < 1) lotSize = Math.max(0.01, Math.floor(lotSize * _ls * 100) / 100);
+      const _sm = Number(decision._sizeMult);
+      if (_sm > 0 && _sm !== 1) {
+        const _cap = Math.min(Number(config.maxLot) > 0 ? Number(config.maxLot) : Infinity, Number(config.maxLotSize) > 0 ? Number(config.maxLotSize) : Infinity);
+        lotSize = Math.max(0.01, Math.min(_sm > 1 ? _cap : Infinity, Math.floor(lotSize * _sm * 100) / 100));
+      }
     }
     {
       const _riskBal = config.accountBalance > 0 ? config.accountBalance : 0;
@@ -26975,6 +27011,11 @@ async function processDecision(userId, decision, newsCtx) {
           if (_stopSized) {
             const _lw = Number(decision._lotScaleWeekend);
             if (_lw > 0 && _lw < 1) acctLot = Math.max(0.01, Math.floor(acctLot * _lw * 100) / 100);
+            const _sm = Number(decision._sizeMult);
+            if (_sm > 0 && _sm !== 1) {
+              const _cap = Math.min(Number(config.maxLot) > 0 ? Number(config.maxLot) : Infinity, Number(config.maxLotSize) > 0 ? Number(config.maxLotSize) : Infinity);
+              acctLot = Math.max(0.01, Math.min(_sm > 1 ? _cap : Infinity, Math.floor(acctLot * _sm * 100) / 100));
+            }
           }
           if (_consistencyMult < 1) {
             acctLot = Math.max(0.01, Math.round(acctLot * _consistencyMult * 100) / 100);
