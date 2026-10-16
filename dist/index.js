@@ -29394,6 +29394,7 @@ async function getOrCreateService(connection2) {
   const cached = serviceCache.get(connId);
   if (cached && Date.now() - cached.createdAt < SERVICE_CACHE_TTL) {
     console.log("[TradeLocker] Reusing cached service for connection", connId);
+    if (!cached.service.logConn) cached.service.logConn = { id: connection2.id, userId: connection2.userId };
     return cached.service;
   }
   const service = new TradeLockerService(
@@ -29402,6 +29403,7 @@ async function getOrCreateService(connection2) {
     connection2.serverId,
     connection2.accNum || void 0
   );
+  service.logConn = { id: connection2.id, userId: connection2.userId };
   if (typeof connId === "number") {
     service.onAccountIdCorrected = (accountId) => {
       persistAccountIdCorrection(connId, accountId).catch(() => {
@@ -31057,7 +31059,36 @@ var init_tradelocker = __esm({
           };
         });
       }
+      /** Connection this service belongs to (set by getOrCreateService) — used to log modifies. */
+      logConn;
+      /**
+       * Every stop/target change the server makes is persisted (action='MODIFY'),
+       * so a broker close at a moved stop can be explained afterwards. The caller
+       * is taken from the stack, so trail, profit lock, re-anchor, AI management
+       * and copy-trade changes are all captured without touching each call site.
+       */
       async modifyPosition(positionId, stopLoss, takeProfit) {
+        const caller = (new Error().stack || "").split("\n").slice(2, 4).map((l) => l.trim().replace(/^at\s+/, "").replace(/\s*\(.*\)$/, "").replace(/^async\s+/, "")).filter(Boolean).join(" <- ") || "unknown";
+        const res = await this.modifyPositionRaw(positionId, stopLoss, takeProfit);
+        void (async () => {
+          try {
+            const c = this.logConn;
+            const userId = Number(c?.userId);
+            if (!(userId > 0)) return;
+            const { pool: pool2 } = await Promise.resolve().then(() => (init_db(), db_exports));
+            const msg = `MODIFY by ${caller} | position ${positionId} | SL ${stopLoss ?? "-"} TP ${takeProfit ?? "-"}${res.success ? "" : ` | FAILED: ${String(res.error || "").slice(0, 200)}`}`;
+            await pool2.query(
+              `INSERT INTO tradelocker_trade_logs (user_id, connection_id, action, symbol, direction, volume, stop_loss, take_profit, status, error_message, created_at)
+           VALUES ($1, $2, 'MODIFY', '', '', 0, $3, $4, $5, $6, now())`,
+              [userId, c?.id ?? null, Number(stopLoss) > 0 ? stopLoss : null, Number(takeProfit) > 0 ? takeProfit : null, res.success ? "executed" : "failed", msg.slice(0, 1e3)]
+            );
+          } catch (e) {
+            console.error("[TradeLocker] modify log write failed (non-fatal):", e?.message || e);
+          }
+        })();
+        return res;
+      }
+      async modifyPositionRaw(positionId, stopLoss, takeProfit) {
         await this.ensureAuthenticated();
         const body = {};
         if (typeof stopLoss === "number" && stopLoss > 0) body.stopLoss = stopLoss;
@@ -58642,9 +58673,9 @@ async function getStopOrdersForUser(userId, filters = {}) {
 init_schema();
 
 // server/build-info.ts
-var BUILD_COMMIT = "c8086d6b-dirty";
+var BUILD_COMMIT = "32104dca-dirty";
 var BUILD_BRANCH = "main";
-var BUILT_AT = "2026-10-16T15:08:44.586Z";
+var BUILT_AT = "2026-10-16T20:17:05.417Z";
 
 // server/stripe.ts
 init_db();

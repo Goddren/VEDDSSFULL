@@ -1745,7 +1745,43 @@ export class TradeLockerService {
     });
   }
 
+  /** Connection this service belongs to (set by getOrCreateService) — used to log modifies. */
+  logConn?: { id?: number; userId?: number } | null;
+
+  /**
+   * Every stop/target change the server makes is persisted (action='MODIFY'),
+   * so a broker close at a moved stop can be explained afterwards. The caller
+   * is taken from the stack, so trail, profit lock, re-anchor, AI management
+   * and copy-trade changes are all captured without touching each call site.
+   */
   async modifyPosition(
+    positionId: string,
+    stopLoss?: number,
+    takeProfit?: number
+  ): Promise<{ success: boolean; error?: string }> {
+    const caller = (new Error().stack || '').split('\n').slice(2, 4)
+      .map((l) => l.trim().replace(/^at\s+/, '').replace(/\s*\(.*\)$/, '').replace(/^async\s+/, '')).filter(Boolean).join(' <- ') || 'unknown';
+    const res = await this.modifyPositionRaw(positionId, stopLoss, takeProfit);
+    void (async () => {
+      try {
+        const c = this.logConn;
+        const userId = Number(c?.userId);
+        if (!(userId > 0)) return;
+        const { pool } = await import('./db');
+        const msg = `MODIFY by ${caller} | position ${positionId} | SL ${stopLoss ?? '-'} TP ${takeProfit ?? '-'}${res.success ? '' : ` | FAILED: ${String(res.error || '').slice(0, 200)}`}`;
+        await pool.query(
+          `INSERT INTO tradelocker_trade_logs (user_id, connection_id, action, symbol, direction, volume, stop_loss, take_profit, status, error_message, created_at)
+           VALUES ($1, $2, 'MODIFY', '', '', 0, $3, $4, $5, $6, now())`,
+          [userId, c?.id ?? null, Number(stopLoss) > 0 ? stopLoss : null, Number(takeProfit) > 0 ? takeProfit : null, res.success ? 'executed' : 'failed', msg.slice(0, 1000)],
+        );
+      } catch (e: any) {
+        console.error('[TradeLocker] modify log write failed (non-fatal):', e?.message || e);
+      }
+    })();
+    return res;
+  }
+
+  private async modifyPositionRaw(
     positionId: string,
     stopLoss?: number,
     takeProfit?: number
@@ -1832,6 +1868,7 @@ export async function getOrCreateService(connection: TLConnection): Promise<Trad
   const cached = serviceCache.get(connId);
   if (cached && Date.now() - cached.createdAt < SERVICE_CACHE_TTL) {
     console.log('[TradeLocker] Reusing cached service for connection', connId);
+    if (!cached.service.logConn) cached.service.logConn = { id: connection.id, userId: (connection as any).userId };
     return cached.service;
   }
 
@@ -1841,6 +1878,7 @@ export async function getOrCreateService(connection: TLConnection): Promise<Trad
     connection.serverId,
     connection.accNum || undefined
   );
+  service.logConn = { id: connection.id, userId: (connection as any).userId };
 
   if (typeof connId === 'number') {
     service.onAccountIdCorrected = (accountId) => {
