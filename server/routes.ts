@@ -17160,7 +17160,7 @@ Rules:
     if (!req.isAuthenticated()) return res.status(401).json({ error: "Authentication required" });
     try {
       const { getModelMastery } = await import('./services/fx-models');
-      res.json(await getModelMastery((req.user as User).id));
+      res.json(await getModelMastery((req.user as User).id, { engine: req.query.engine === 'crypto' ? 'crypto' : 'fx' }));
     } catch (e: any) { res.status(500).json({ error: e?.message || 'failed' }); }
   });
   app.get("/api/fx-models/settings", async (req: Request, res: Response) => {
@@ -17189,7 +17189,7 @@ Rules:
       const limit = Math.min(parseInt(String(req.query.limit || '100'), 10) || 100, 500);
       const { rows } = await pool.query(
         `SELECT id, symbol, model, mode, day_type, session, direction, entry_price, stop_loss, take_profit, confidence, setup, reasoning, result, r_multiple, pips, created_at, resolved_at
-           FROM fx_model_decisions WHERE user_id=$1 ORDER BY created_at DESC LIMIT $2`, [(req.user as User).id, limit]);
+           FROM fx_model_decisions WHERE user_id=$1 AND engine=$3 ORDER BY created_at DESC LIMIT $2`, [(req.user as User).id, limit, req.query.engine === 'crypto' ? 'crypto' : 'fx']);
       res.json({ decisions: rows });
     } catch (e: any) { res.status(500).json({ error: e?.message || 'failed' }); }
   });
@@ -17200,7 +17200,7 @@ Rules:
       await ensureFxModelTables();
       const { rows } = await pool.query(
         `SELECT DISTINCT ON (symbol) symbol, day, hour_utc, session, day_type, auto_model, trend_score, adx_m15, rel_volume, h1_trend, h4_trend, created_at
-           FROM fx_day_regimes WHERE user_id=$1 ORDER BY symbol, created_at DESC`, [(req.user as User).id]);
+           FROM fx_day_regimes WHERE user_id=$1 AND engine=$2 AND created_at > now() - interval '6 hours' ORDER BY symbol, created_at DESC`, [(req.user as User).id, req.query.engine === 'crypto' ? 'crypto' : 'fx']);
       res.json({ dayTypes: rows });
     } catch (e: any) { res.status(500).json({ error: e?.message || 'failed' }); }
   });

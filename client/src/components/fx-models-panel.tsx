@@ -48,14 +48,15 @@ function resultChip(d: DecisionRow) {
   return { label: `expired ${fmtR(d.r_multiple)}`, color: "#9ca3af" };
 }
 
-export function FxModelsPanel({ className = "" }: { className?: string }) {
+export function FxModelsPanel({ className = "", engine = "fx" }: { className?: string; engine?: "fx" | "crypto" }) {
   const [tab, setTab] = useState<"today" | "mastery" | "ideas">("today");
-  const dayTypes = useQuery<{ dayTypes: DayTypeRow[] }>({ queryKey: ["/api/fx-models/day-types"], refetchInterval: 60000 });
-  const mastery = useQuery<{ models: MasteryRow[]; slices: MasteryRow[] }>({ queryKey: ["/api/fx-models/mastery"], refetchInterval: 120000 });
-  const decisions = useQuery<{ decisions: DecisionRow[] }>({ queryKey: ["/api/fx-models/decisions?limit=60"], refetchInterval: 60000, enabled: tab === "ideas" });
+  const isCrypto = engine === "crypto";
+  const dayTypes = useQuery<{ dayTypes: DayTypeRow[] }>({ queryKey: [`/api/fx-models/day-types?engine=${engine}`], refetchInterval: 60000 });
+  const mastery = useQuery<{ models: MasteryRow[]; slices: MasteryRow[] }>({ queryKey: [`/api/fx-models/mastery?engine=${engine}`], refetchInterval: 120000 });
+  const decisions = useQuery<{ decisions: DecisionRow[] }>({ queryKey: [`/api/fx-models/decisions?limit=60&engine=${engine}`], refetchInterval: 60000, enabled: tab === "ideas" });
 
-  const settingsQ = useQuery<{ settings: { live: boolean; m1DailyCap: number; m2DailyCap: number }; eligible: MasteryRow[] }>({ queryKey: ["/api/fx-models/settings"], refetchInterval: 120000 });
-  const live = !!settingsQ.data?.settings.live;
+  const settingsQ = useQuery<{ settings: { live: boolean; m1DailyCap: number; m2DailyCap: number }; eligible: MasteryRow[] }>({ queryKey: ["/api/fx-models/settings"], refetchInterval: 120000, enabled: !isCrypto });
+  const live = !isCrypto && !!settingsQ.data?.settings.live;
   const eligible = settingsQ.data?.eligible || [];
   const toggleLive = useMutation({
     mutationFn: async (next: boolean) => (await apiRequest("POST", "/api/fx-models/settings", { live: next })).json(),
@@ -80,7 +81,7 @@ export function FxModelsPanel({ className = "" }: { className?: string }) {
         <div className="min-w-0">
           <div className="flex items-center gap-2">
             <Layers className="w-4 h-4 text-sky-300 shrink-0" />
-            <h3 className="text-sm font-bold text-gray-100">Model 1 / Model 2</h3>
+            <h3 className="text-sm font-bold text-gray-100">{isCrypto ? "Crypto " : ""}Model 1 / Model 2</h3>
             {live ? (
               <span className="text-[9px] font-semibold px-1.5 py-0.5 rounded bg-emerald-500/15 text-emerald-300 border border-emerald-500/30">LIVE · proven scopes</span>
             ) : (
@@ -93,14 +94,14 @@ export function FxModelsPanel({ className = "" }: { className?: string }) {
               : "Recording what each model would trade. No orders are placed."}
           </p>
         </div>
-        <button
+        {!isCrypto && <button
           onClick={onToggle}
           disabled={toggleLive.isPending || !settingsQ.data}
           className={`shrink-0 text-[10px] font-bold px-2.5 py-1 rounded-lg border transition-colors ${live ? "border-red-500/40 text-red-300 hover:bg-red-500/10" : "border-emerald-500/40 text-emerald-300 hover:bg-emerald-500/10"}`}
           data-testid="fx-models-live-toggle"
         >
           {toggleLive.isPending ? "Saving…" : live ? "Stop live" : "Go live"}
-        </button>
+        </button>}
       </div>
 
       {/* Model summary cards */}

@@ -12,6 +12,7 @@ import { Badge } from "@/components/ui/badge";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { FxModelsPanel } from "@/components/fx-models-panel";
 import {
   ArrowLeft, RefreshCw, Eye, EyeOff, AlertCircle, CheckCircle2, XCircle, Trash2, TrendingUp,
   TrendingDown, Radar, Ban, Brain, Swords, Settings2, Coins, ExternalLink, Wallet,
@@ -1691,6 +1692,7 @@ export default function CryptoEnginePage() {
 
           {/* ══════════════════════ LIVE FEED ══════════════════════ */}
           <TabsContent value="feed" className="mt-0">
+            <FxModelsPanel engine="crypto" className="mb-4" />
             <Card className="bg-gray-900 border-gray-800">
               <CardHeader>
                 <CardTitle className="text-base flex items-center gap-2">

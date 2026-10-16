@@ -21,6 +21,7 @@ function formatScope(filter: string[] | null): string {
   if (!filter?.length) return 'All pairs';
   return filter.map((t) => {
     const u = t.toUpperCase();
+    if (u === 'ENGINE:CRYPTO') return 'Crypto';
     if (u === 'MODEL:M1') return 'Model 1 · Range';
     if (u === 'MODEL:M2') return 'Model 2 · Trend';
     if (u.startsWith('DAY:')) return `${u.slice(4).charAt(0)}${u.slice(5).toLowerCase()} days`;
@@ -83,10 +84,11 @@ export default function BrainDataMarketplacePage() {
   // FX Models bundle scope (optional): one model and/or one day type.
   const [fxModel, setFxModel] = useState<'' | 'M1' | 'M2'>('');
   const [fxDay, setFxDay] = useState<'' | 'range' | 'trend' | 'mixed'>('');
+  const [fxEngine, setFxEngine] = useState<'fx' | 'crypto'>('fx');
 
   const pairSymbols = symbolsInput.split(',').map(s => s.trim().toUpperCase()).filter(Boolean);
   const symbols = sellCategory === 'fx_models'
-    ? [...pairSymbols, ...(fxModel ? [`MODEL:${fxModel}`] : []), ...(fxDay ? [`DAY:${fxDay.toUpperCase()}`] : [])]
+    ? [...pairSymbols, ...(fxEngine === 'crypto' ? ['ENGINE:CRYPTO'] : []), ...(fxModel ? [`MODEL:${fxModel}`] : []), ...(fxDay ? [`DAY:${fxDay.toUpperCase()}`] : [])]
     : pairSymbols;
 
   const { data: wallet } = useQuery<{ veddBalance: number }>({ queryKey: ['/api/wallet/balance'] });
@@ -227,6 +229,16 @@ export default function BrainDataMarketplacePage() {
                 <p className="text-xs text-muted-foreground">
                   Sell what your Model 1 (range) and Model 2 (trend) have proven: resolved ideas with their outcome, day type, session and reasoning. Only scopes with at least 20 resolved ideas and a positive average R can be listed, and a higher mastery score raises the suggested price. Buyers' copies feed their own models but can't be resold.
                 </p>
+                <div>
+                  <p className="text-xs font-semibold mb-1.5">Engine</p>
+                  <div className="flex flex-wrap gap-2">
+                    {([['fx', 'FX models'], ['crypto', 'Crypto models']] as const).map(([v, label]) => (
+                      <button key={v} onClick={() => setFxEngine(v)} className={`text-xs font-semibold rounded-lg px-3 py-1.5 border transition-colors ${fxEngine === v ? 'bg-purple-500/15 border-purple-500 text-purple-400' : 'border-border text-muted-foreground hover:text-foreground'}`}>
+                        {label}
+                      </button>
+                    ))}
+                  </div>
+                </div>
                 <div>
                   <p className="text-xs font-semibold mb-1.5">Model</p>
                   <div className="flex flex-wrap gap-2">

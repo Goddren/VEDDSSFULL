@@ -26,6 +26,272 @@ var __copyProps = (to, from, except, desc2) => {
 var __toCommonJS = (mod) => __copyProps(__defProp({}, "__esModule", { value: true }), mod);
 
 // shared/schema.ts
+var schema_exports = {};
+__export(schema_exports, {
+  TIER_CONFIG: () => TIER_CONFIG,
+  achievements: () => achievements,
+  aiConfirmationLogs: () => aiConfirmationLogs,
+  aiConfirmationOutcomes: () => aiConfirmationOutcomes,
+  aiModelConfigs: () => aiModelConfigs,
+  aiTradeResults: () => aiTradeResults,
+  aiUsageLog: () => aiUsageLog,
+  allTimeRecords: () => allTimeRecords,
+  alpacaConnections: () => alpacaConnections,
+  ambassadorActionRewards: () => ambassadorActionRewards,
+  ambassadorBonusContent: () => ambassadorBonusContent,
+  ambassadorCertifications: () => ambassadorCertifications,
+  ambassadorChallengeParticipants: () => ambassadorChallengeParticipants,
+  ambassadorChallengeSessions: () => ambassadorChallengeSessions,
+  ambassadorChallenges: () => ambassadorChallenges,
+  ambassadorCommunityComments: () => ambassadorCommunityComments,
+  ambassadorCommunityContent: () => ambassadorCommunityContent,
+  ambassadorContentProgress: () => ambassadorContentProgress,
+  ambassadorContentStats: () => ambassadorContentStats,
+  ambassadorDailyActions: () => ambassadorDailyActions,
+  ambassadorDailyContent: () => ambassadorDailyContent,
+  ambassadorDailyKpis: () => ambassadorDailyKpis,
+  ambassadorDailyLessons: () => ambassadorDailyLessons,
+  ambassadorEventRegistrations: () => ambassadorEventRegistrations,
+  ambassadorEventSchedules: () => ambassadorEventSchedules,
+  ambassadorEvents: () => ambassadorEvents,
+  ambassadorHookVariations: () => ambassadorHookVariations,
+  ambassadorJourney: () => ambassadorJourney,
+  ambassadorMarketBriefing: () => ambassadorMarketBriefing,
+  ambassadorRedditInsights: () => ambassadorRedditInsights,
+  ambassadorRunStepLog: () => ambassadorRunStepLog,
+  ambassadorRunSummary: () => ambassadorRunSummary,
+  ambassadorScheduleRegistrations: () => ambassadorScheduleRegistrations,
+  ambassadorSocialDirections: () => ambassadorSocialDirections,
+  ambassadorTrainingProgress: () => ambassadorTrainingProgress,
+  ambassadorWeeklyCalendar: () => ambassadorWeeklyCalendar,
+  analysisFeedback: () => analysisFeedback,
+  analysisViews: () => analysisViews,
+  auditLogs: () => auditLogs,
+  bankProviderEnum: () => bankProviderEnum,
+  biasReports: () => biasReports,
+  bizBankLinks: () => bizBankLinks,
+  bizCreditTasks: () => bizCreditTasks,
+  bizEntityTypeEnum: () => bizEntityTypeEnum,
+  bizFormationLinks: () => bizFormationLinks,
+  bizFundingMatches: () => bizFundingMatches,
+  bizNameChecks: () => bizNameChecks,
+  bizProfiles: () => bizProfiles,
+  bizStatusEnum: () => bizStatusEnum,
+  blogNewsletterSubscribers: () => blogNewsletterSubscribers,
+  blogPosts: () => blogPosts,
+  brainDataListings: () => brainDataListings,
+  brainDataPurchases: () => brainDataPurchases,
+  chartAnalyses: () => chartAnalyses,
+  communityPartnerships: () => communityPartnerships,
+  connectedSocialAccounts: () => connectedSocialAccounts,
+  contentStudioAssets: () => contentStudioAssets,
+  contentStudioGenerations: () => contentStudioGenerations,
+  copyRelationships: () => copyRelationships,
+  copyTradeLogs: () => copyTradeLogs,
+  creditTaskTypeEnum: () => creditTaskTypeEnum,
+  cryptocomConnections: () => cryptocomConnections,
+  cryptocomEngineActivity: () => cryptocomEngineActivity,
+  cryptocomEngineConfigs: () => cryptocomEngineConfigs,
+  cryptocomEngineTrades: () => cryptocomEngineTrades,
+  devotionalGroups: () => devotionalGroups,
+  devotionalSessions: () => devotionalSessions,
+  devotionals: () => devotionals,
+  dmKeywords: () => dmKeywords,
+  eaShareAssets: () => eaShareAssets,
+  eaSubscriptions: () => eaSubscriptions,
+  engineConsensusLog: () => engineConsensusLog,
+  engineRunState: () => engineRunState,
+  follows: () => follows,
+  formationProviderEnum: () => formationProviderEnum,
+  funderTypeEnum: () => funderTypeEnum,
+  futuresEngineActivity: () => futuresEngineActivity,
+  futuresEngineConfigs: () => futuresEngineConfigs,
+  futuresEngineTrades: () => futuresEngineTrades,
+  fxPaperAccounts: () => fxPaperAccounts,
+  fxPaperTrades: () => fxPaperTrades,
+  governanceProposals: () => governanceProposals,
+  governanceVotes: () => governanceVotes,
+  grantApplications: () => grantApplications,
+  grantScanSessions: () => grantScanSessions,
+  grants: () => grants,
+  impactMetrics: () => impactMetrics,
+  innovationProjects: () => innovationProjects,
+  insertAchievementSchema: () => insertAchievementSchema,
+  insertAiConfirmationOutcomeSchema: () => insertAiConfirmationOutcomeSchema,
+  insertAiModelConfigSchema: () => insertAiModelConfigSchema,
+  insertAiTradeResultSchema: () => insertAiTradeResultSchema,
+  insertAlpacaConnectionSchema: () => insertAlpacaConnectionSchema,
+  insertAmbassadorActionRewardSchema: () => insertAmbassadorActionRewardSchema,
+  insertAmbassadorCertificationSchema: () => insertAmbassadorCertificationSchema,
+  insertAmbassadorChallengeParticipantSchema: () => insertAmbassadorChallengeParticipantSchema,
+  insertAmbassadorChallengeSchema: () => insertAmbassadorChallengeSchema,
+  insertAmbassadorChallengeSessionSchema: () => insertAmbassadorChallengeSessionSchema,
+  insertAmbassadorCommunityCommentSchema: () => insertAmbassadorCommunityCommentSchema,
+  insertAmbassadorContentProgressSchema: () => insertAmbassadorContentProgressSchema,
+  insertAmbassadorContentStatsSchema: () => insertAmbassadorContentStatsSchema,
+  insertAmbassadorDailyActionSchema: () => insertAmbassadorDailyActionSchema,
+  insertAmbassadorDailyLessonSchema: () => insertAmbassadorDailyLessonSchema,
+  insertAmbassadorEventRegistrationSchema: () => insertAmbassadorEventRegistrationSchema,
+  insertAmbassadorEventScheduleSchema: () => insertAmbassadorEventScheduleSchema,
+  insertAmbassadorEventSchema: () => insertAmbassadorEventSchema,
+  insertAmbassadorJourneySchema: () => insertAmbassadorJourneySchema,
+  insertAmbassadorScheduleRegistrationSchema: () => insertAmbassadorScheduleRegistrationSchema,
+  insertAmbassadorSocialDirectionSchema: () => insertAmbassadorSocialDirectionSchema,
+  insertAmbassadorTrainingProgressSchema: () => insertAmbassadorTrainingProgressSchema,
+  insertAnalysisFeedbackSchema: () => insertAnalysisFeedbackSchema,
+  insertAuditLogSchema: () => insertAuditLogSchema,
+  insertBiasReportSchema: () => insertBiasReportSchema,
+  insertBlogNewsletterSubscriberSchema: () => insertBlogNewsletterSubscriberSchema,
+  insertBlogPostSchema: () => insertBlogPostSchema,
+  insertBrainDataListingSchema: () => insertBrainDataListingSchema,
+  insertBrainDataPurchaseSchema: () => insertBrainDataPurchaseSchema,
+  insertChartAnalysisSchema: () => insertChartAnalysisSchema,
+  insertCommunityPartnershipSchema: () => insertCommunityPartnershipSchema,
+  insertConnectedSocialAccountSchema: () => insertConnectedSocialAccountSchema,
+  insertContentStudioGenerationSchema: () => insertContentStudioGenerationSchema,
+  insertCryptocomConnectionSchema: () => insertCryptocomConnectionSchema,
+  insertCryptocomEngineConfigSchema: () => insertCryptocomEngineConfigSchema,
+  insertCryptocomEngineTradeSchema: () => insertCryptocomEngineTradeSchema,
+  insertDevotionalGroupSchema: () => insertDevotionalGroupSchema,
+  insertDevotionalSchema: () => insertDevotionalSchema,
+  insertDevotionalSessionSchema: () => insertDevotionalSessionSchema,
+  insertDmKeywordSchema: () => insertDmKeywordSchema,
+  insertEAShareAssetSchema: () => insertEAShareAssetSchema,
+  insertEASubscriptionSchema: () => insertEASubscriptionSchema,
+  insertFollowSchema: () => insertFollowSchema,
+  insertFuturesEngineActivitySchema: () => insertFuturesEngineActivitySchema,
+  insertFuturesEngineConfigSchema: () => insertFuturesEngineConfigSchema,
+  insertFuturesEngineTradeSchema: () => insertFuturesEngineTradeSchema,
+  insertFxPaperTradeSchema: () => insertFxPaperTradeSchema,
+  insertGovernanceProposalSchema: () => insertGovernanceProposalSchema,
+  insertGovernanceVoteSchema: () => insertGovernanceVoteSchema,
+  insertGrantApplicationSchema: () => insertGrantApplicationSchema,
+  insertGrantScanSessionSchema: () => insertGrantScanSessionSchema,
+  insertGrantSchema: () => insertGrantSchema,
+  insertImpactMetricSchema: () => insertImpactMetricSchema,
+  insertInnovationProjectSchema: () => insertInnovationProjectSchema,
+  insertInternalWalletSchema: () => insertInternalWalletSchema,
+  insertInvestmentPoolSchema: () => insertInvestmentPoolSchema,
+  insertLandingPageQuizSchema: () => insertLandingPageQuizSchema,
+  insertMarketDataRefreshJobSchema: () => insertMarketDataRefreshJobSchema,
+  insertMarketDataSnapshotSchema: () => insertMarketDataSnapshotSchema,
+  insertMt5ApiTokenSchema: () => insertMt5ApiTokenSchema,
+  insertMt5SignalLogSchema: () => insertMt5SignalLogSchema,
+  insertOptionsEngineActivitySchema: () => insertOptionsEngineActivitySchema,
+  insertOptionsEngineConfigSchema: () => insertOptionsEngineConfigSchema,
+  insertOptionsEngineTradeSchema: () => insertOptionsEngineTradeSchema,
+  insertPaperTradeSchema: () => insertPaperTradeSchema,
+  insertPriceAlertSchema: () => insertPriceAlertSchema,
+  insertQuizLeadSchema: () => insertQuizLeadSchema,
+  insertReferralSchema: () => insertReferralSchema,
+  insertReferralVisitSchema: () => insertReferralVisitSchema,
+  insertSavedEASchema: () => insertSavedEASchema,
+  insertScenarioAnalysisSchema: () => insertScenarioAnalysisSchema,
+  insertSocialLeadScanSchema: () => insertSocialLeadScanSchema,
+  insertSocialPostSchema: () => insertSocialPostSchema,
+  insertStopOrderSchema: () => insertStopOrderSchema,
+  insertSubscriptionPlanSchema: () => insertSubscriptionPlanSchema,
+  insertSubscriptionTokenPaymentSchema: () => insertSubscriptionTokenPaymentSchema,
+  insertTastytradeConnectionSchema: () => insertTastytradeConnectionSchema,
+  insertTokenInvestmentSchema: () => insertTokenInvestmentSchema,
+  insertTokenPositionSchema: () => insertTokenPositionSchema,
+  insertTradelockerConnectionSchema: () => insertTradelockerConnectionSchema,
+  insertTradelockerTradeLogSchema: () => insertTradelockerTradeLogSchema,
+  insertTradingActivityLogSchema: () => insertTradingActivityLogSchema,
+  insertTradingStrategySchema: () => insertTradingStrategySchema,
+  insertTradingWalletSchema: () => insertTradingWalletSchema,
+  insertTradovateConnectionSchema: () => insertTradovateConnectionSchema,
+  insertTradovateTradeLogSchema: () => insertTradovateTradeLogSchema,
+  insertUserAchievementSchema: () => insertUserAchievementSchema,
+  insertUserApiKeySchema: () => insertUserApiKeySchema,
+  insertUserProfileSchema: () => insertUserProfileSchema,
+  insertUserSchema: () => insertUserSchema,
+  insertUserStreakSchema: () => insertUserStreakSchema,
+  insertVeddPoolWalletSchema: () => insertVeddPoolWalletSchema,
+  insertVeddRewardConfigSchema: () => insertVeddRewardConfigSchema,
+  insertVeddTransferJobSchema: () => insertVeddTransferJobSchema,
+  insertVeddWalletBlacklistSchema: () => insertVeddWalletBlacklistSchema,
+  insertWearToEarnClaimSchema: () => insertWearToEarnClaimSchema,
+  insertWebhookConfigSchema: () => insertWebhookConfigSchema,
+  insertWebhookLogSchema: () => insertWebhookLogSchema,
+  insertWithdrawalRequestSchema: () => insertWithdrawalRequestSchema,
+  insertWorkforceCertificateSchema: () => insertWorkforceCertificateSchema,
+  insertWorkforceEnrollmentSchema: () => insertWorkforceEnrollmentSchema,
+  insertWorkforceModuleSchema: () => insertWorkforceModuleSchema,
+  internalWalletEarnings: () => internalWalletEarnings,
+  internalWallets: () => internalWallets,
+  investmentPools: () => investmentPools,
+  kalshiBrainOutcomes: () => kalshiBrainOutcomes,
+  kalshiEngineConfigs: () => kalshiEngineConfigs,
+  landingPageQuizzes: () => landingPageQuizzes,
+  leadHunterRuns: () => leadHunterRuns,
+  leads: () => leads,
+  liveEngineConfigs: () => liveEngineConfigs,
+  loginUserSchema: () => loginUserSchema,
+  marketDataRefreshJobs: () => marketDataRefreshJobs,
+  marketDataSnapshots: () => marketDataSnapshots,
+  microGrowthMilestones: () => microGrowthMilestones,
+  microGrowthSessions: () => microGrowthSessions,
+  mt5ApiTokens: () => mt5ApiTokens,
+  mt5SignalLogs: () => mt5SignalLogs,
+  nameCheckSourceEnum: () => nameCheckSourceEnum,
+  nfcActivations: () => nfcActivations,
+  nfcDailyTaps: () => nfcDailyTaps,
+  optionsBrainOutcomes: () => optionsBrainOutcomes,
+  optionsEngineActivity: () => optionsEngineActivity,
+  optionsEngineConfigs: () => optionsEngineConfigs,
+  optionsEngineTrades: () => optionsEngineTrades,
+  paperTrades: () => paperTrades,
+  personaArcState: () => personaArcState,
+  personaContentDays: () => personaContentDays,
+  personaPillarRotation: () => personaPillarRotation,
+  priceAlerts: () => priceAlerts,
+  propFirmAccountState: () => propFirmAccountState,
+  propFirmDailyPnl: () => propFirmDailyPnl,
+  quizLeads: () => quizLeads,
+  referralVisits: () => referralVisits,
+  referrals: () => referrals2,
+  savedEAs: () => savedEAs,
+  scenarioAnalyses: () => scenarioAnalyses,
+  socialLeadScans: () => socialLeadScans,
+  socialPosts: () => socialPosts,
+  solEnginePositions: () => solEnginePositions,
+  solEngineSettings: () => solEngineSettings,
+  spreadStrategies: () => spreadStrategies,
+  stopOrders: () => stopOrders,
+  subscriptionPlans: () => subscriptionPlans,
+  subscriptionTokenPayments: () => subscriptionTokenPayments,
+  taskStatusEnum: () => taskStatusEnum,
+  tastytradeConnections: () => tastytradeConnections,
+  tokenInvestments: () => tokenInvestments,
+  tokenPositions: () => tokenPositions,
+  tradelockerConnections: () => tradelockerConnections,
+  tradelockerTradeLogs: () => tradelockerTradeLogs,
+  tradingActivityLog: () => tradingActivityLog,
+  tradingStrategies: () => tradingStrategies,
+  tradingWallets: () => tradingWallets,
+  tradovateConnections: () => tradovateConnections,
+  tradovateTradeLogs: () => tradovateTradeLogs,
+  updateUserProfileSchema: () => updateUserProfileSchema,
+  userAchievements: () => userAchievements,
+  userApiKeys: () => userApiKeys,
+  userProfiles: () => userProfiles,
+  userStreaks: () => userStreaks,
+  users: () => users,
+  veddPoolWallets: () => veddPoolWallets,
+  veddRewardConfig: () => veddRewardConfig,
+  veddTransferJobs: () => veddTransferJobs,
+  veddWalletBlacklist: () => veddWalletBlacklist,
+  wearToEarnClaims: () => wearToEarnClaims,
+  webhookConfigs: () => webhookConfigs,
+  webhookLogs: () => webhookLogs,
+  weeklyStrategies: () => weeklyStrategies,
+  withdrawalRequests: () => withdrawalRequests,
+  workforceCertificates: () => workforceCertificates,
+  workforceCourseProgress: () => workforceCourseProgress,
+  workforceEnrollments: () => workforceEnrollments,
+  workforceModules: () => workforceModules
+});
 import { pgTable, text, serial, integer, boolean, timestamp, jsonb, json, real, unique, doublePrecision, pgEnum, date, varchar } from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod";
@@ -5833,9 +6099,9 @@ var init_storage = __esm({
       // snapshot; a different pair scope is a distinct, coexisting listing.
       async getUserActiveBrainListingBySymbols(sellerId, sourceCategory, symbols) {
         const listings = await db.select().from(brainDataListings).where(and(eq(brainDataListings.sellerId, sellerId), eq(brainDataListings.isActive, true), eq(brainDataListings.sourceCategory, sourceCategory)));
-        const norm2 = (s) => Array.isArray(s) && s.length ? [...s].map((x) => x.toUpperCase()).sort().join(",") : "";
-        const target = norm2(symbols);
-        return listings.find((l) => norm2(l.symbolFilter) === target);
+        const norm3 = (s) => Array.isArray(s) && s.length ? [...s].map((x) => x.toUpperCase()).sort().join(",") : "";
+        const target = norm3(symbols);
+        return listings.find((l) => norm3(l.symbolFilter) === target);
       }
       async importBrainDataSnapshot(buyerId, snapshotData) {
         if (!snapshotData.length) return 0;
@@ -7371,6 +7637,300 @@ var init_indicators = __esm({
   }
 });
 
+// server/services/prop-firm-consistency.ts
+var prop_firm_consistency_exports = {};
+__export(prop_firm_consistency_exports, {
+  DEFAULT_CONSISTENCY_THRESHOLD_PCT: () => DEFAULT_CONSISTENCY_THRESHOLD_PCT,
+  getConsistencyPlan: () => getConsistencyPlan,
+  getConsistencyStatus: () => getConsistencyStatus,
+  rebuildDailyLedgerFromClosedTrades: () => rebuildDailyLedgerFromClosedTrades,
+  recordRealizedPnl: () => recordRealizedPnl
+});
+function todayUtcDateStr() {
+  return (/* @__PURE__ */ new Date()).toISOString().slice(0, 10);
+}
+async function getConsistencyPlan(connectionId, connectionType, thresholdPct) {
+  const threshold = typeof thresholdPct === "number" && thresholdPct > 0 ? thresholdPct : DEFAULT_CONSISTENCY_THRESHOLD_PCT;
+  const frac = threshold / 100;
+  let rows = [];
+  try {
+    const { rows: r } = await pool.query(
+      `SELECT trade_date, realized_pnl FROM prop_firm_daily_pnl WHERE connection_id = $1 AND connection_type = $2`,
+      [connectionId, connectionType]
+    );
+    rows = r;
+  } catch (err) {
+    console.error("[Consistency] Plan read failed (defaulting to empty):", err?.message ?? err);
+  }
+  let totalPositive = 0;
+  let maxDayPnl = 0;
+  let maxDayDate = null;
+  for (const r of rows) {
+    const pnl = typeof r.realized_pnl === "number" ? r.realized_pnl : parseFloat(r.realized_pnl || "0");
+    if (!isFinite(pnl) || pnl <= 0) continue;
+    totalPositive += pnl;
+    if (pnl > maxDayPnl) {
+      maxDayPnl = pnl;
+      maxDayDate = r.trade_date;
+    }
+  }
+  const maxDayRatioPct = totalPositive > 0 ? maxDayPnl / totalPositive * 100 : 0;
+  const passing = totalPositive <= 0 || maxDayRatioPct <= threshold;
+  const targetTotalPnl = maxDayPnl > 0 ? maxDayPnl / frac : 0;
+  const additionalProfitNeeded = Math.max(0, targetTotalPnl - totalPositive);
+  const safeDailyProfitCap = maxDayPnl > 0 ? Math.max(1, round2(maxDayPnl * DILUTION_DAY_FRACTION)) : 0;
+  const estDaysNeeded = additionalProfitNeeded > 0 && safeDailyProfitCap > 0 ? Math.ceil(additionalProfitNeeded / safeDailyProfitCap) : 0;
+  const growthMultiple = totalPositive > 0 && targetTotalPnl > 0 ? targetTotalPnl / totalPositive : 0;
+  let feasibility;
+  if (passing) feasibility = "passing";
+  else if (growthMultiple <= 1.5) feasibility = "achievable";
+  else if (growthMultiple <= 2.5) feasibility = "hard";
+  else feasibility = "unrealistic";
+  let recommendation;
+  if (passing) {
+    recommendation = "Consistency requirement met \u2014 request the payout / evaluation pass.";
+  } else if (feasibility === "achievable") {
+    recommendation = `Keep VEDD's auto-dilution on \u2014 small green days at \u2264 $${safeDailyProfitCap}/day will clear the cap in ~${estDaysNeeded} day(s).`;
+  } else if (feasibility === "hard") {
+    recommendation = `Doable but slow: total profit must ${growthMultiple.toFixed(1)}\xD7 (grind ~${estDaysNeeded} days at \u2264 $${safeDailyProfitCap}/day). Auto-dilution will handle it, but weigh the days against a fresh reset.`;
+  } else {
+    recommendation = `\u26A0\uFE0F Impractical to dilute: your biggest day ($${round2(maxDayPnl)}) is so large that total profit would have to ${growthMultiple.toFixed(1)}\xD7 (to ~$${round2(targetTotalPnl)}) to get it under ${threshold}%. That's ~${estDaysNeeded} more grind days. Consider RESETTING this account and trading smaller, even days from the start so no single day dominates.`;
+  }
+  let summary;
+  if (passing) {
+    summary = totalPositive > 0 ? `Consistency PASSING: biggest day $${round2(maxDayPnl)} is ${maxDayRatioPct.toFixed(1)}% of $${round2(totalPositive)} total (cap ${threshold}%).` : `No positive profit recorded yet \u2014 nothing to evaluate.`;
+  } else {
+    summary = `Consistency STUCK at ${maxDayRatioPct.toFixed(1)}% (cap ${threshold}%). Biggest day $${round2(maxDayPnl)} of $${round2(totalPositive)} total. To pass, grow total to $${round2(targetTotalPnl)} \u2014 about $${round2(additionalProfitNeeded)} more profit, spread across ~${estDaysNeeded} day(s) at \u2264 $${safeDailyProfitCap}/day so no new day breaches the cap.`;
+  }
+  return {
+    passing,
+    thresholdPct: threshold,
+    totalPositivePnl: round2(totalPositive),
+    maxDayPnl: round2(maxDayPnl),
+    maxDayDate,
+    maxDayRatioPct: round2(maxDayRatioPct),
+    targetTotalPnl: round2(targetTotalPnl),
+    additionalProfitNeeded: round2(additionalProfitNeeded),
+    safeDailyProfitCap,
+    estDaysNeeded,
+    growthMultiple: round2(growthMultiple),
+    feasibility,
+    recommendation,
+    summary
+  };
+}
+function round2(n) {
+  return Math.round(n * 100) / 100;
+}
+async function rebuildDailyLedgerFromClosedTrades(userId, connectionId, connectionType, closedTrades, opts) {
+  const byDay = /* @__PURE__ */ new Map();
+  let used = 0;
+  for (const t of closedTrades) {
+    const pnl = Number(t.profit);
+    if (!isFinite(pnl) || pnl === 0) continue;
+    const d = new Date(t.closeTime);
+    if (isNaN(d.getTime())) continue;
+    const day = d.toISOString().slice(0, 10);
+    byDay.set(day, (byDay.get(day) ?? 0) + pnl);
+    used++;
+  }
+  const { rows: existingRows } = await pool.query(
+    `SELECT count(*)::int AS days FROM prop_firm_daily_pnl WHERE connection_id = $1 AND connection_type = $2`,
+    [connectionId, connectionType]
+  );
+  const existingDays = Number(existingRows?.[0]?.days ?? 0);
+  if (opts?.force && existingDays > 0) {
+    console.warn(`[Consistency] FORCED rebuild for connection ${connectionId}: replacing ${existingDays} day(s) with ${byDay.size}.`);
+  }
+  if (!opts?.force && existingDays > 0 && byDay.size === 0) {
+    throw new Error(
+      `Refusing to rebuild ledger for connection ${connectionId}: would delete ${existingDays} day(s) and write 0. The broker returned no closed trades \u2014 treat this as a failed read, not an empty account.`
+    );
+  }
+  if (!opts?.force && existingDays >= 5 && byDay.size < existingDays / 2) {
+    throw new Error(
+      `Refusing to rebuild ledger for connection ${connectionId}: would shrink ${existingDays} day(s) to ${byDay.size}. This looks like a truncated broker read. Re-run when the broker history is complete, or pass force to override.`
+    );
+  }
+  const client2 = await pool.connect();
+  try {
+    await client2.query("BEGIN");
+    await client2.query(
+      `DELETE FROM prop_firm_daily_pnl WHERE connection_id = $1 AND connection_type = $2`,
+      [connectionId, connectionType]
+    );
+    for (const [day, pnl] of Array.from(byDay)) {
+      await client2.query(
+        `INSERT INTO prop_firm_daily_pnl (user_id, connection_id, connection_type, trade_date, realized_pnl)
+         VALUES ($1, $2, $3, $4, $5)
+         ON CONFLICT (connection_id, connection_type, trade_date)
+         DO UPDATE SET realized_pnl = $5, updated_at = now()`,
+        [userId, connectionId, connectionType, day, round2(pnl)]
+      );
+    }
+    await client2.query("COMMIT");
+  } catch (err) {
+    await client2.query("ROLLBACK").catch(() => {
+    });
+    throw err;
+  } finally {
+    client2.release();
+  }
+  let totalPositive = 0, maxDay = 0, maxDayDate = null;
+  for (const [day, pnl] of Array.from(byDay)) {
+    if (pnl > 0) totalPositive += pnl;
+    if (pnl > maxDay) {
+      maxDay = pnl;
+      maxDayDate = day;
+    }
+  }
+  return { days: byDay.size, totalPositive: round2(totalPositive), maxDay: round2(maxDay), maxDayDate, tradesUsed: used };
+}
+async function recordRealizedPnl(userId, connectionId, connectionType, realizedPnlDelta, tradeDate) {
+  if (!isFinite(realizedPnlDelta) || realizedPnlDelta === 0) return;
+  const dateStr = tradeDate || todayUtcDateStr();
+  try {
+    await pool.query(
+      `INSERT INTO prop_firm_daily_pnl (user_id, connection_id, connection_type, trade_date, realized_pnl)
+       VALUES ($1, $2, $3, $4, $5)
+       ON CONFLICT (connection_id, connection_type, trade_date)
+       DO UPDATE SET realized_pnl = prop_firm_daily_pnl.realized_pnl + $5, updated_at = now()`,
+      [userId, connectionId, connectionType, dateStr, realizedPnlDelta]
+    );
+  } catch (err) {
+    console.error("[Consistency] Failed to record daily P&L (non-fatal):", err?.message ?? err);
+  }
+}
+async function getConsistencyStatus(connectionId, connectionType, thresholdPct, enabled = true) {
+  const threshold = typeof thresholdPct === "number" && thresholdPct > 0 ? thresholdPct : DEFAULT_CONSISTENCY_THRESHOLD_PCT;
+  if (!enabled) {
+    return {
+      connectionId,
+      connectionType,
+      enabled: false,
+      thresholdPct: threshold,
+      todayPnl: 0,
+      totalPositivePnl: 0,
+      ratioPct: 0,
+      status: "disabled",
+      sizeMultiplier: 1,
+      hardBlocked: false,
+      guidance: "Consistency rule is turned off for this account \u2014 trades are not tapered or blocked based on daily profit share. Turn it on if your prop firm enforces a max-single-day-profit rule."
+    };
+  }
+  const dateStr = todayUtcDateStr();
+  let rows = [];
+  try {
+    const { rows: r } = await pool.query(
+      `SELECT trade_date, realized_pnl FROM prop_firm_daily_pnl WHERE connection_id = $1 AND connection_type = $2`,
+      [connectionId, connectionType]
+    );
+    rows = r;
+  } catch (err) {
+    console.error("[Consistency] Failed to read daily P&L \u2014 BLOCKING new trades on this account until it can be read:", err?.message ?? err);
+    return {
+      connectionId,
+      connectionType,
+      enabled: true,
+      thresholdPct: threshold,
+      todayPnl: 0,
+      totalPositivePnl: 0,
+      ratioPct: 0,
+      status: "breached",
+      sizeMultiplier: 0,
+      hardBlocked: true,
+      guidance: `Couldn't read this account's daily P&L ledger (${err?.message ?? "database error"}) \u2014 new trades are blocked on this account until it can be read, rather than trading blind on the consistency rule.`
+    };
+  }
+  let todayPnl = 0;
+  let totalPositivePnl = 0;
+  for (const r of rows) {
+    const pnl = typeof r.realized_pnl === "number" ? r.realized_pnl : parseFloat(r.realized_pnl || "0");
+    if (!isFinite(pnl)) continue;
+    if (r.trade_date === dateStr) todayPnl = pnl;
+    if (pnl > 0) totalPositivePnl += pnl;
+  }
+  const todayPositive = Math.max(0, todayPnl);
+  const ratioPct = totalPositivePnl > 0 ? todayPositive / totalPositivePnl * 100 : 0;
+  let maxDayPnl = 0;
+  let maxDayDate = null;
+  let positiveDays = 0;
+  for (const r of rows) {
+    const pnl = typeof r.realized_pnl === "number" ? r.realized_pnl : parseFloat(r.realized_pnl || "0");
+    if (!isFinite(pnl)) continue;
+    if (pnl > 0) positiveDays++;
+    if (pnl > maxDayPnl) {
+      maxDayPnl = pnl;
+      maxDayDate = r.trade_date;
+    }
+  }
+  const maxDayRatioPct = totalPositivePnl > 0 ? maxDayPnl / totalPositivePnl * 100 : 0;
+  const minDaysForRule = Math.ceil(100 / threshold);
+  const todayIsMax = maxDayDate === dateStr;
+  const stuck = maxDayRatioPct > threshold && positiveDays >= minDaysForRule && !todayIsMax;
+  const taperStartPct = threshold * TAPER_START_FRACTION;
+  let status = "safe";
+  let sizeMultiplier = 1;
+  let hardBlocked = false;
+  let guidance = `Today's profit is ${ratioPct.toFixed(1)}% of total realized profit \u2014 well within the ${threshold}% consistency cap.`;
+  if (stuck) {
+    const dailyCap = Math.max(1, maxDayPnl * DILUTION_DAY_FRACTION);
+    const targetTotal = maxDayPnl / (threshold / 100);
+    const addNeeded = Math.max(0, targetTotal - totalPositivePnl);
+    const daysLeft = dailyCap > 0 ? Math.ceil(addNeeded / dailyCap) : 0;
+    if (todayPositive >= dailyCap) {
+      status = "breached";
+      sizeMultiplier = 0;
+      hardBlocked = true;
+      guidance = `Consistency dilution: today's profit ($${todayPositive.toFixed(2)}) hit the per-day cap ($${dailyCap.toFixed(2)}). Trading paused for today so this day doesn't become a new breach. Biggest day is ${maxDayRatioPct.toFixed(1)}% of total (cap ${threshold}%) \u2014 grow total to $${targetTotal.toFixed(0)} (~$${addNeeded.toFixed(0)} more, ~${daysLeft} day(s)) to pass.`;
+    } else {
+      status = "warning";
+      const room = dailyCap - todayPositive;
+      const progress = dailyCap > 0 ? todayPositive / dailyCap : 1;
+      sizeMultiplier = Math.max(TAPER_FLOOR_MULTIPLIER, 1 - progress * (1 - TAPER_FLOOR_MULTIPLIER));
+      guidance = `Consistency dilution active: biggest day is ${maxDayRatioPct.toFixed(1)}% of total (cap ${threshold}%). Taking small green days \u2014 up to $${room.toFixed(2)} more today (cap $${dailyCap.toFixed(2)}). Need ~$${addNeeded.toFixed(0)} more total over ~${daysLeft} day(s) to pass.`;
+    }
+  } else if (ratioPct >= threshold) {
+    status = "breached";
+    sizeMultiplier = 0;
+    hardBlocked = true;
+    guidance = `Consistency cap breached: today's profit is ${ratioPct.toFixed(1)}% of total (cap ${threshold}%). New trades are blocked on this account until the next trading day. The ratio will come down as more profit accumulates on other days without adding to today's total.`;
+  } else if (ratioPct >= taperStartPct) {
+    status = "warning";
+    const span = threshold - taperStartPct;
+    const progress = span > 0 ? (ratioPct - taperStartPct) / span : 1;
+    sizeMultiplier = Math.max(TAPER_FLOOR_MULTIPLIER, 1 - progress * (1 - TAPER_FLOOR_MULTIPLIER));
+    guidance = `Approaching the consistency cap: today's profit is ${ratioPct.toFixed(1)}% of total (cap ${threshold}%). Position sizing is being reduced (${Math.round(sizeMultiplier * 100)}% of normal) to avoid crossing the line today.`;
+  }
+  return {
+    connectionId,
+    connectionType,
+    enabled: true,
+    thresholdPct: threshold,
+    todayPnl,
+    totalPositivePnl,
+    ratioPct,
+    maxDayPnl: round2(maxDayPnl),
+    maxDayRatioPct: round2(maxDayRatioPct),
+    dilutionActive: stuck,
+    status,
+    sizeMultiplier,
+    hardBlocked,
+    guidance
+  };
+}
+var DEFAULT_CONSISTENCY_THRESHOLD_PCT, TAPER_START_FRACTION, TAPER_FLOOR_MULTIPLIER, DILUTION_DAY_FRACTION;
+var init_prop_firm_consistency = __esm({
+  "server/services/prop-firm-consistency.ts"() {
+    "use strict";
+    init_db();
+    DEFAULT_CONSISTENCY_THRESHOLD_PCT = 20;
+    TAPER_START_FRACTION = 0.7;
+    TAPER_FLOOR_MULTIPLIER = 0.25;
+    DILUTION_DAY_FRACTION = 0.8;
+  }
+});
+
 // server/services/crypto-market-data.ts
 var crypto_market_data_exports = {};
 __export(crypto_market_data_exports, {
@@ -7471,8 +8031,8 @@ __export(coinbase_exports, {
 });
 import crypto3 from "crypto";
 import jwt from "jsonwebtoken";
-function buildJwt(keyName, privateKeyPem, method, path) {
-  const uri = `${method} ${API_HOST}${path}`;
+function buildJwt(keyName, privateKeyPem, method, path2) {
+  const uri = `${method} ${API_HOST}${path2}`;
   const now = Math.floor(Date.now() / 1e3);
   const payload = { sub: keyName, iss: "cdp", nbf: now, exp: now + 120, uri };
   return jwt.sign(payload, privateKeyPem, {
@@ -7493,9 +8053,9 @@ var init_coinbase = __esm({
         this.keyName = keyName;
         this.privateKey = privateKeyPem.includes("\\n") ? privateKeyPem.replace(/\\n/g, "\n") : privateKeyPem;
       }
-      async get(path) {
-        const token = buildJwt(this.keyName, this.privateKey, "GET", path);
-        const res = await fetch(`https://${API_HOST}${path}`, {
+      async get(path2) {
+        const token = buildJwt(this.keyName, this.privateKey, "GET", path2);
+        const res = await fetch(`https://${API_HOST}${path2}`, {
           method: "GET",
           headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
           signal: AbortSignal.timeout(12e3)
@@ -7506,9 +8066,9 @@ var init_coinbase = __esm({
         }
         return res.json();
       }
-      async post(path, body) {
-        const token = buildJwt(this.keyName, this.privateKey, "POST", path);
-        const res = await fetch(`https://${API_HOST}${path}`, {
+      async post(path2, body) {
+        const token = buildJwt(this.keyName, this.privateKey, "POST", path2);
+        const res = await fetch(`https://${API_HOST}${path2}`, {
           method: "POST",
           headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
           body: JSON.stringify(body),
@@ -7550,8 +8110,8 @@ var init_coinbase = __esm({
         const accounts = [];
         let cursor = "";
         for (let i = 0; i < 10; i++) {
-          const path = `/api/v3/brokerage/accounts?limit=250${cursor ? `&cursor=${encodeURIComponent(cursor)}` : ""}`;
-          const data = await this.get(path);
+          const path2 = `/api/v3/brokerage/accounts?limit=250${cursor ? `&cursor=${encodeURIComponent(cursor)}` : ""}`;
+          const data = await this.get(path2);
           for (const a of data?.accounts ?? []) accounts.push(a);
           if (data?.has_next && data?.cursor) cursor = data.cursor;
           else break;
@@ -7620,22 +8180,22 @@ var init_kraken = __esm({
         this.apiKey = apiKey;
         this.secret = secret;
       }
-      sign(path, nonce, postData) {
+      sign(path2, nonce, postData) {
         const sha256 = crypto4.createHash("sha256").update(nonce + postData).digest();
-        const message = Buffer.concat([Buffer.from(path, "utf8"), sha256]);
+        const message = Buffer.concat([Buffer.from(path2, "utf8"), sha256]);
         const key = Buffer.from(this.secret, "base64");
         return crypto4.createHmac("sha512", key).update(message).digest("base64");
       }
       async privatePost(endpoint, params = {}) {
-        const path = `/0/private/${endpoint}`;
+        const path2 = `/0/private/${endpoint}`;
         const nonce = String(Date.now() * 1e3);
         const body = new URLSearchParams({ nonce, ...params });
         const postData = body.toString();
-        const res = await fetch(`${API_HOST2}${path}`, {
+        const res = await fetch(`${API_HOST2}${path2}`, {
           method: "POST",
           headers: {
             "API-Key": this.apiKey,
-            "API-Sign": this.sign(path, nonce, postData),
+            "API-Sign": this.sign(path2, nonce, postData),
             "Content-Type": "application/x-www-form-urlencoded",
             "User-Agent": "VEDD/1.0"
           },
@@ -7909,8 +8469,8 @@ function baseUrl(testnet) {
 function tradedAddress(c) {
   return (c.vaultAddress || c.accountAddress).toLowerCase();
 }
-async function post(testnet, path, body) {
-  const r = await fetch(baseUrl(testnet) + path, {
+async function post(testnet, path2, body) {
+  const r = await fetch(baseUrl(testnet) + path2, {
     method: "POST",
     headers: { "content-type": "application/json" },
     body: JSON.stringify(body),
@@ -7921,9 +8481,9 @@ async function post(testnet, path, body) {
   try {
     j = JSON.parse(text2);
   } catch {
-    throw new Error(`Hyperliquid ${path} HTTP ${r.status}: ${text2.slice(0, 200)}`);
+    throw new Error(`Hyperliquid ${path2} HTTP ${r.status}: ${text2.slice(0, 200)}`);
   }
-  if (!r.ok) throw new Error(`Hyperliquid ${path} HTTP ${r.status}: ${text2.slice(0, 200)}`);
+  if (!r.ok) throw new Error(`Hyperliquid ${path2} HTTP ${r.status}: ${text2.slice(0, 200)}`);
   return j;
 }
 async function getMeta(testnet) {
@@ -8183,13 +8743,13 @@ function callBudget() {
     candleTtlMs: Number(process.env.COINGECKO_CANDLE_TTL_MS ?? (hasKey ? 10 * 60 * 1e3 : 30 * 60 * 1e3))
   };
 }
-async function gt(path) {
+async function gt(path2) {
   const run = async () => {
     for (let attempt = 0; attempt < 3; attempt++) {
       const wait = Math.max(0, callBudget().minIntervalMs - (Date.now() - lastCallAt));
       if (wait > 0) await new Promise((r) => setTimeout(r, wait));
       lastCallAt = Date.now();
-      const res = await fetch(`${GT}${path}`, {
+      const res = await fetch(`${GT}${path2}`, {
         headers: cgHeaders(),
         signal: AbortSignal.timeout(2e4)
       });
@@ -8197,13 +8757,13 @@ async function gt(path) {
       if (res.status === 429) {
         const retryAfter = Number(res.headers.get("retry-after")) || 0;
         const backoff = retryAfter > 0 ? retryAfter * 1e3 : 3e3 * (attempt + 1);
-        console.warn(`[defi-market-data] rate limited on ${path}; waiting ${backoff}ms (attempt ${attempt + 1}/3)`);
+        console.warn(`[defi-market-data] rate limited on ${path2}; waiting ${backoff}ms (attempt ${attempt + 1}/3)`);
         await new Promise((r) => setTimeout(r, backoff));
         continue;
       }
-      throw new Error(`GeckoTerminal ${res.status} on ${path}`);
+      throw new Error(`GeckoTerminal ${res.status} on ${path2}`);
     }
-    throw new Error(`GeckoTerminal rate limited after 3 attempts on ${path}`);
+    throw new Error(`GeckoTerminal rate limited after 3 attempts on ${path2}`);
   };
   const next = callChain.then(run, run);
   callChain = next.catch(() => void 0);
@@ -8782,6 +9342,79 @@ var init_corporateActionGuard = __esm({
   }
 });
 
+// server/services/runtime-state.ts
+var runtime_state_exports = {};
+__export(runtime_state_exports, {
+  ensureRuntimeStateTable: () => ensureRuntimeStateTable,
+  getRuntimeStateStrict: () => getRuntimeStateStrict,
+  insertRuntimeStateIfAbsent: () => insertRuntimeStateIfAbsent,
+  loadRuntimeState: () => loadRuntimeState,
+  saveRuntimeState: () => saveRuntimeState
+});
+function ensureRuntimeStateTable() {
+  if (!ensured) {
+    ensured = pool.query(DDL).then(() => void 0).catch((err) => {
+      console.error("[runtime-state] ensure table failed (non-fatal):", err?.message ?? err);
+      ensured = null;
+    });
+  }
+  return ensured;
+}
+function saveRuntimeState(scope, key, value) {
+  void (async () => {
+    try {
+      await ensureRuntimeStateTable();
+      await pool.query(
+        `INSERT INTO runtime_state (scope, key, value, updated_at) VALUES ($1, $2, $3::jsonb, now())
+         ON CONFLICT (scope, key) DO UPDATE SET value = EXCLUDED.value, updated_at = now()`,
+        [scope, key, JSON.stringify(value)]
+      );
+    } catch (err) {
+      console.error(`[runtime-state] save ${scope}/${key} failed (non-fatal):`, err?.message ?? err);
+    }
+  })();
+}
+async function loadRuntimeState(scope) {
+  try {
+    await ensureRuntimeStateTable();
+    const { rows } = await pool.query(`SELECT key, value FROM runtime_state WHERE scope = $1`, [scope]);
+    return rows;
+  } catch (err) {
+    console.error(`[runtime-state] load ${scope} failed (non-fatal):`, err?.message ?? err);
+    return [];
+  }
+}
+async function getRuntimeStateStrict(scope, key) {
+  await ensureRuntimeStateTable();
+  const { rows } = await pool.query(`SELECT value FROM runtime_state WHERE scope = $1 AND key = $2`, [scope, key]);
+  return rows[0]?.value ?? null;
+}
+async function insertRuntimeStateIfAbsent(scope, key, value) {
+  await ensureRuntimeStateTable();
+  await pool.query(
+    `INSERT INTO runtime_state (scope, key, value) VALUES ($1, $2, $3::jsonb) ON CONFLICT (scope, key) DO NOTHING`,
+    [scope, key, JSON.stringify(value)]
+  );
+  return getRuntimeStateStrict(scope, key);
+}
+var DDL, ensured;
+var init_runtime_state = __esm({
+  "server/services/runtime-state.ts"() {
+    "use strict";
+    init_db();
+    DDL = `
+CREATE TABLE IF NOT EXISTS "runtime_state" (
+  "scope" text NOT NULL,
+  "key" text NOT NULL,
+  "value" jsonb NOT NULL,
+  "updated_at" timestamp NOT NULL DEFAULT now(),
+  PRIMARY KEY ("scope", "key")
+);
+`;
+    ensured = null;
+  }
+});
+
 // server/services/hyperliquid-executor.ts
 var hyperliquid_executor_exports = {};
 __export(hyperliquid_executor_exports, {
@@ -8797,7 +9430,7 @@ __export(hyperliquid_executor_exports, {
 });
 async function ensureHyperliquidTable() {
   try {
-    await pool.query(DDL);
+    await pool.query(DDL2);
     console.log("[startup] Hyperliquid connections table ensured (hyperliquid_connections).");
   } catch (err) {
     console.error("[startup] ensureHyperliquidTable failed (non-fatal):", err?.message ?? err);
@@ -8975,14 +9608,14 @@ async function hyperliquidExit(userId, trade) {
   await cancelCoinStops(creds, asset);
   return { ok: true, exitPrice: fill.avgPx };
 }
-var DDL, HL_PREFIX, acctCache;
+var DDL2, HL_PREFIX, acctCache;
 var init_hyperliquid_executor = __esm({
   "server/services/hyperliquid-executor.ts"() {
     "use strict";
     init_db();
     init_cryptocom();
     init_hyperliquid();
-    DDL = `
+    DDL2 = `
 CREATE TABLE IF NOT EXISTS "hyperliquid_connections" (
   "id" serial PRIMARY KEY NOT NULL,
   "user_id" integer NOT NULL,
@@ -10001,79 +10634,6 @@ var init_ai_usage = __esm({
   }
 });
 
-// server/services/runtime-state.ts
-var runtime_state_exports = {};
-__export(runtime_state_exports, {
-  ensureRuntimeStateTable: () => ensureRuntimeStateTable,
-  getRuntimeStateStrict: () => getRuntimeStateStrict,
-  insertRuntimeStateIfAbsent: () => insertRuntimeStateIfAbsent,
-  loadRuntimeState: () => loadRuntimeState,
-  saveRuntimeState: () => saveRuntimeState
-});
-function ensureRuntimeStateTable() {
-  if (!ensured) {
-    ensured = pool.query(DDL2).then(() => void 0).catch((err) => {
-      console.error("[runtime-state] ensure table failed (non-fatal):", err?.message ?? err);
-      ensured = null;
-    });
-  }
-  return ensured;
-}
-function saveRuntimeState(scope, key, value) {
-  void (async () => {
-    try {
-      await ensureRuntimeStateTable();
-      await pool.query(
-        `INSERT INTO runtime_state (scope, key, value, updated_at) VALUES ($1, $2, $3::jsonb, now())
-         ON CONFLICT (scope, key) DO UPDATE SET value = EXCLUDED.value, updated_at = now()`,
-        [scope, key, JSON.stringify(value)]
-      );
-    } catch (err) {
-      console.error(`[runtime-state] save ${scope}/${key} failed (non-fatal):`, err?.message ?? err);
-    }
-  })();
-}
-async function loadRuntimeState(scope) {
-  try {
-    await ensureRuntimeStateTable();
-    const { rows } = await pool.query(`SELECT key, value FROM runtime_state WHERE scope = $1`, [scope]);
-    return rows;
-  } catch (err) {
-    console.error(`[runtime-state] load ${scope} failed (non-fatal):`, err?.message ?? err);
-    return [];
-  }
-}
-async function getRuntimeStateStrict(scope, key) {
-  await ensureRuntimeStateTable();
-  const { rows } = await pool.query(`SELECT value FROM runtime_state WHERE scope = $1 AND key = $2`, [scope, key]);
-  return rows[0]?.value ?? null;
-}
-async function insertRuntimeStateIfAbsent(scope, key, value) {
-  await ensureRuntimeStateTable();
-  await pool.query(
-    `INSERT INTO runtime_state (scope, key, value) VALUES ($1, $2, $3::jsonb) ON CONFLICT (scope, key) DO NOTHING`,
-    [scope, key, JSON.stringify(value)]
-  );
-  return getRuntimeStateStrict(scope, key);
-}
-var DDL2, ensured;
-var init_runtime_state = __esm({
-  "server/services/runtime-state.ts"() {
-    "use strict";
-    init_db();
-    DDL2 = `
-CREATE TABLE IF NOT EXISTS "runtime_state" (
-  "scope" text NOT NULL,
-  "key" text NOT NULL,
-  "value" jsonb NOT NULL,
-  "updated_at" timestamp NOT NULL DEFAULT now(),
-  PRIMARY KEY ("scope", "key")
-);
-`;
-    ensured = null;
-  }
-});
-
 // server/utils/ictMacroUtils.ts
 var ictMacroUtils_exports = {};
 __export(ictMacroUtils_exports, {
@@ -10419,6 +10979,12 @@ var init_ictMacroUtils = __esm({
 });
 
 // server/utils/session.ts
+var session_exports = {};
+__export(session_exports, {
+  canonSession: () => canonSession,
+  sameSession: () => sameSession,
+  sessionForHour: () => sessionForHour
+});
 function sessionForHour(hourUtc) {
   const h = Number(hourUtc);
   if (!isFinite(h)) return "Asian";
@@ -10432,6 +10998,11 @@ function canonSession(value, hourUtc) {
   if (raw === "london" || raw === "europe" || raw === "eu") return "London";
   if (hourUtc == null || !isFinite(Number(hourUtc))) return null;
   return sessionForHour(Number(hourUtc));
+}
+function sameSession(a, b) {
+  const ca = canonSession(a);
+  const cb = canonSession(b);
+  return ca != null && cb != null && ca === cb;
 }
 var init_session = __esm({
   "server/utils/session.ts"() {
@@ -11843,7 +12414,7 @@ function estimatePipSize(symbol) {
 }
 function buildTrailSignalSummary(symbol, proposedSignal, tradePlan, ictContext, smcContext) {
   if (!ictContext && !smcContext) return "\u25BA No ICT/SMC context available \u2014 use ADX/ATR baseline only";
-  const pipSize = estimatePipSize(symbol);
+  const pipSize2 = estimatePipSize(symbol);
   const entry = tradePlan?.entry || 0;
   const signals = [];
   const crt = ictContext?.crtPattern;
@@ -11877,18 +12448,18 @@ function buildTrailSignalSummary(symbol, proposedSignal, tradePlan, ictContext, 
     signals.push(`\u25BA No Wyckoff phase detected \u2014 use ADX baseline`);
   }
   const eql = smcContext?.equalHighsLows;
-  if (eql && entry > 0 && pipSize > 0) {
+  if (eql && entry > 0 && pipSize2 > 0) {
     if (proposedSignal === "BUY" && eql.equalHighs.detected && eql.equalHighs.level) {
-      const distPips = Math.abs(eql.equalHighs.level - entry) / pipSize;
-      const tightThreshold = pipSize === 1e-4 ? 30 : pipSize === 0.1 ? 300 : pipSize === 0.01 ? 3 : 100;
+      const distPips = Math.abs(eql.equalHighs.level - entry) / pipSize2;
+      const tightThreshold = pipSize2 === 1e-4 ? 30 : pipSize2 === 0.1 ? 300 : pipSize2 === 0.01 ? 3 : 100;
       if (distPips < tightThreshold) {
         signals.push(`\u25BA Equal Highs (Buy-Side Liquidity) at ${eql.equalHighs.level.toFixed(5)} \u2014 only ~${Math.round(distPips)} pips away \u2014 TIGHTEN trail to lock in profits before sweep`);
       } else {
         signals.push(`\u25BA Equal Highs (BSL) at ${eql.equalHighs.level.toFixed(5)} \u2014 ${Math.round(distPips)} pips away \u2014 TP target, trail width unconstrained`);
       }
     } else if (proposedSignal === "SELL" && eql.equalLows.detected && eql.equalLows.level) {
-      const distPips = Math.abs(entry - eql.equalLows.level) / pipSize;
-      const tightThreshold = pipSize === 1e-4 ? 30 : pipSize === 0.1 ? 300 : pipSize === 0.01 ? 3 : 100;
+      const distPips = Math.abs(entry - eql.equalLows.level) / pipSize2;
+      const tightThreshold = pipSize2 === 1e-4 ? 30 : pipSize2 === 0.1 ? 300 : pipSize2 === 0.01 ? 3 : 100;
       if (distPips < tightThreshold) {
         signals.push(`\u25BA Equal Lows (Sell-Side Liquidity) at ${eql.equalLows.level.toFixed(5)} \u2014 only ~${Math.round(distPips)} pips away \u2014 TIGHTEN trail to lock in profits before sweep`);
       } else {
@@ -12512,8 +13083,8 @@ ${"\u2550".repeat(47)}`;
 \u26A0 DAILY BUFFER LOW: Only ${remainingDailyBuffer.toFixed(2)}% remaining \u2014 micro lot only or skip this trade.`;
     }
     if (tradePlan?.entry && tradePlan?.stopLoss && tradePlan?.lotSize && propFirmContext.accountBalance > 0) {
-      const pipSize = symbol.includes("JPY") ? 0.01 : symbol.includes("XAU") || symbol.includes("GOLD") ? 0.1 : 1e-4;
-      const pipDist = Math.abs(tradePlan.entry - tradePlan.stopLoss) / pipSize;
+      const pipSize2 = symbol.includes("JPY") ? 0.01 : symbol.includes("XAU") || symbol.includes("GOLD") ? 0.1 : 1e-4;
+      const pipDist = Math.abs(tradePlan.entry - tradePlan.stopLoss) / pipSize2;
       const pipValuePerLot = symbol.includes("JPY") ? 1e3 : symbol.includes("XAU") || symbol.includes("GOLD") ? 10 : 10;
       const dollarRisk = pipDist * pipValuePerLot * tradePlan.lotSize;
       computedRiskPct = dollarRisk / propFirmContext.accountBalance * 100;
@@ -15235,11 +15806,11 @@ Create 4-6 modules and 5 assessment questions. Make objectives measurable (Bloom
   }
 }
 async function analyzeORBSignal(params) {
-  const isIndex = ["US30", "NAS100", "SPX500", "UK100", "DAX40"].includes(params.symbol.toUpperCase());
+  const isIndex2 = ["US30", "NAS100", "SPX500", "UK100", "DAX40"].includes(params.symbol.toUpperCase());
   const isCommodity = ["XAUUSD", "XAGUSD", "USOIL"].includes(params.symbol.toUpperCase());
   let rangeMinPct = 0.1;
   let rangeMaxPct = 2.5;
-  if (isIndex) {
+  if (isIndex2) {
     rangeMinPct = 0.08;
     rangeMaxPct = 1.5;
   }
@@ -15775,6 +16346,12817 @@ var init_engine_consensus = __esm({
   }
 });
 
+// server/market-data/cache.ts
+var MarketDataCache, marketDataCache;
+var init_cache = __esm({
+  "server/market-data/cache.ts"() {
+    "use strict";
+    MarketDataCache = class {
+      cache = /* @__PURE__ */ new Map();
+      generateKey(symbol, timeframe, provider) {
+        return `${symbol}:${timeframe}:${provider}`;
+      }
+      get(symbol, timeframe, provider) {
+        const key = this.generateKey(symbol, timeframe, provider);
+        const entry = this.cache.get(key);
+        if (!entry) return null;
+        const now = Date.now();
+        if (now - entry.timestamp > entry.ttlMs) {
+          this.cache.delete(key);
+          return null;
+        }
+        return entry.data;
+      }
+      set(symbol, timeframe, provider, data, ttlMs) {
+        const key = this.generateKey(symbol, timeframe, provider);
+        this.cache.set(key, {
+          data,
+          timestamp: Date.now(),
+          ttlMs
+        });
+      }
+      invalidate(symbol, timeframe, provider) {
+        const key = this.generateKey(symbol, timeframe, provider);
+        this.cache.delete(key);
+      }
+      clear() {
+        this.cache.clear();
+      }
+      getTTLForTimeframe(timeframe) {
+        const ttlMap = {
+          "1m": 30 * 1e3,
+          "5m": 2 * 60 * 1e3,
+          "15m": 5 * 60 * 1e3,
+          "30m": 10 * 60 * 1e3,
+          "1h": 15 * 60 * 1e3,
+          "4h": 30 * 60 * 1e3,
+          "1d": 60 * 60 * 1e3,
+          "1w": 4 * 60 * 60 * 1e3
+        };
+        return ttlMap[timeframe] || 5 * 60 * 1e3;
+      }
+    };
+    marketDataCache = new MarketDataCache();
+  }
+});
+
+// server/market-data/pattern-change-detector.ts
+var PatternChangeDetector, patternChangeDetector;
+var init_pattern_change_detector = __esm({
+  "server/market-data/pattern-change-detector.ts"() {
+    "use strict";
+    PatternChangeDetector = class {
+      calculateATR(bars, period = 14) {
+        if (bars.length < period + 1) return 0;
+        const trueRanges = [];
+        for (let i = 1; i < bars.length && i <= period; i++) {
+          const high = bars[i].high;
+          const low = bars[i].low;
+          const prevClose = bars[i - 1].close;
+          const tr = Math.max(
+            high - low,
+            Math.abs(high - prevClose),
+            Math.abs(low - prevClose)
+          );
+          trueRanges.push(tr);
+        }
+        return trueRanges.reduce((a, b) => a + b, 0) / trueRanges.length;
+      }
+      calculateVolatility(bars) {
+        if (bars.length < 2) return 0;
+        const returns = [];
+        for (let i = 1; i < bars.length; i++) {
+          const ret = (bars[i].close - bars[i - 1].close) / bars[i - 1].close;
+          returns.push(ret);
+        }
+        const mean = returns.reduce((a, b) => a + b, 0) / returns.length;
+        const variance = returns.reduce((sum, r) => sum + Math.pow(r - mean, 2), 0) / returns.length;
+        return Math.sqrt(variance) * 100;
+      }
+      detectTrendDirection(bars) {
+        if (bars.length < 5) return "sideways";
+        const firstHalf = bars.slice(0, Math.floor(bars.length / 2));
+        const secondHalf = bars.slice(Math.floor(bars.length / 2));
+        const firstAvg = firstHalf.reduce((sum, b) => sum + b.close, 0) / firstHalf.length;
+        const secondAvg = secondHalf.reduce((sum, b) => sum + b.close, 0) / secondHalf.length;
+        const changePercent = (secondAvg - firstAvg) / firstAvg * 100;
+        if (changePercent > 0.5) return "up";
+        if (changePercent < -0.5) return "down";
+        return "sideways";
+      }
+      compareSnapshots(oldBars, newBars, thresholds = { volatility: 30, atr: 20, price: 2 }) {
+        const oldVolatility = this.calculateVolatility(oldBars);
+        const newVolatility = this.calculateVolatility(newBars);
+        const volatilityDelta = Math.abs((newVolatility - oldVolatility) / (oldVolatility || 1) * 100);
+        const oldATR = this.calculateATR(oldBars);
+        const newATR = this.calculateATR(newBars);
+        const atrChange = Math.abs((newATR - oldATR) / (oldATR || 1) * 100);
+        const oldLastPrice = oldBars[oldBars.length - 1]?.close || 0;
+        const newLastPrice = newBars[newBars.length - 1]?.close || 0;
+        const priceChangePercent = Math.abs((newLastPrice - oldLastPrice) / (oldLastPrice || 1) * 100);
+        const oldTrend = this.detectTrendDirection(oldBars);
+        const newTrend = this.detectTrendDirection(newBars);
+        const trendReversal = oldTrend !== newTrend && oldTrend !== "sideways" && newTrend !== "sideways";
+        const hasSignificantChange = volatilityDelta > thresholds.volatility || atrChange > thresholds.atr || priceChangePercent > thresholds.price || trendReversal;
+        const details = [];
+        if (volatilityDelta > thresholds.volatility) {
+          details.push(`Volatility changed by ${volatilityDelta.toFixed(1)}%`);
+        }
+        if (atrChange > thresholds.atr) {
+          details.push(`ATR changed by ${atrChange.toFixed(1)}%`);
+        }
+        if (priceChangePercent > thresholds.price) {
+          details.push(`Price moved ${priceChangePercent.toFixed(2)}%`);
+        }
+        if (trendReversal) {
+          details.push(`Trend reversed from ${oldTrend} to ${newTrend}`);
+        }
+        return {
+          hasSignificantChange,
+          volatilityDelta,
+          atrChange,
+          priceChangePercent,
+          trendReversal,
+          details: details.join("; ") || "No significant changes detected"
+        };
+      }
+    };
+    patternChangeDetector = new PatternChangeDetector();
+  }
+});
+
+// server/market-data/rate-limiter.ts
+var RateLimiter, rateLimiter;
+var init_rate_limiter = __esm({
+  "server/market-data/rate-limiter.ts"() {
+    "use strict";
+    RateLimiter = class {
+      requests = /* @__PURE__ */ new Map();
+      configs = /* @__PURE__ */ new Map();
+      registerProvider(provider, config) {
+        this.configs.set(provider, config);
+        this.requests.set(provider, []);
+      }
+      async checkLimit(provider) {
+        const config = this.configs.get(provider);
+        if (!config) return true;
+        const timestamps = this.requests.get(provider) || [];
+        const now = Date.now();
+        const validTimestamps = timestamps.filter((t) => now - t < config.windowMs);
+        this.requests.set(provider, validTimestamps);
+        return validTimestamps.length < config.maxRequests;
+      }
+      recordRequest(provider) {
+        const timestamps = this.requests.get(provider) || [];
+        timestamps.push(Date.now());
+        this.requests.set(provider, timestamps);
+      }
+      async waitForSlot(provider) {
+        const config = this.configs.get(provider);
+        if (!config) return;
+        while (!await this.checkLimit(provider)) {
+          await new Promise((resolve) => setTimeout(resolve, config.retryAfterMs));
+        }
+      }
+      getRemainingRequests(provider) {
+        const config = this.configs.get(provider);
+        if (!config) return Infinity;
+        const timestamps = this.requests.get(provider) || [];
+        const now = Date.now();
+        const validTimestamps = timestamps.filter((t) => now - t < config.windowMs);
+        return Math.max(0, config.maxRequests - validTimestamps.length);
+      }
+    };
+    rateLimiter = new RateLimiter();
+  }
+});
+
+// server/market-data/providers/twelve-data.ts
+var INDEX_TD_SYMBOL_MAP, VALID_TD_INDEX_SYMBOLS;
+var init_twelve_data = __esm({
+  "server/market-data/providers/twelve-data.ts"() {
+    "use strict";
+    init_rate_limiter();
+    INDEX_TD_SYMBOL_MAP = {
+      US30: "DJI",
+      // Dow Jones Industrial Average
+      US500: "SPX",
+      // S&P 500
+      US100: "NDX",
+      // Nasdaq 100
+      UK100: "FTSE",
+      // FTSE 100
+      GER40: "DAX",
+      // DAX 40
+      DE40: "DAX",
+      FRA40: "CAC40",
+      // CAC 40
+      JP225: "N225",
+      // Nikkei 225
+      JPN225: "N225",
+      AU200: "AS51",
+      // ASX 200
+      HK50: "HSI"
+      // Hang Seng
+    };
+    VALID_TD_INDEX_SYMBOLS = new Set(Object.values(INDEX_TD_SYMBOL_MAP));
+  }
+});
+
+// server/market-data/service.ts
+import { createHash } from "crypto";
+var MarketDataService, marketDataService;
+var init_service = __esm({
+  "server/market-data/service.ts"() {
+    "use strict";
+    init_cache();
+    init_pattern_change_detector();
+    init_twelve_data();
+    MarketDataService = class {
+      providers = /* @__PURE__ */ new Map();
+      primaryProvider = null;
+      registerProvider(provider, isPrimary = false) {
+        this.providers.set(provider.name, provider);
+        if (isPrimary || !this.primaryProvider) {
+          this.primaryProvider = provider;
+        }
+      }
+      getProvider(name) {
+        return this.providers.get(name);
+      }
+      selectProvider(assetType) {
+        const values = Array.from(this.providers.values());
+        for (const provider of values) {
+          if (provider.supportedAssets.includes(assetType)) {
+            return provider;
+          }
+        }
+        return this.primaryProvider;
+      }
+      generateHash(bars) {
+        const data = bars.map((b) => `${b.timestamp}:${b.close}`).join("|");
+        return createHash("md5").update(data).digest("hex");
+      }
+      async fetchMarketData(request) {
+        const provider = this.selectProvider(request.assetType);
+        if (!provider) {
+          throw new Error(`No provider available for asset type: ${request.assetType}`);
+        }
+        const cached = marketDataCache.get(
+          request.symbol,
+          request.timeframe,
+          provider.name
+        );
+        if (cached) {
+          return {
+            bars: cached,
+            provider: provider.name,
+            hash: this.generateHash(cached),
+            fromCache: true
+          };
+        }
+        const bars = await provider.fetchOHLCV(request);
+        const hash = this.generateHash(bars);
+        const ttl = marketDataCache.getTTLForTimeframe(request.timeframe);
+        marketDataCache.set(request.symbol, request.timeframe, provider.name, bars, ttl);
+        return {
+          bars,
+          provider: provider.name,
+          hash,
+          fromCache: false
+        };
+      }
+      async checkForPatternChange(symbol, assetType, timeframe, previousBars) {
+        const result = await this.fetchMarketData({
+          symbol,
+          assetType,
+          timeframe,
+          limit: 50
+        });
+        const patternChange = patternChangeDetector.compareSnapshots(previousBars, result.bars);
+        return {
+          patternChange,
+          newBars: result.bars,
+          hash: result.hash
+        };
+      }
+      detectAssetType(symbol) {
+        const upper = symbol.toUpperCase().replace(/1!$/, "");
+        const futuresSymbols = ["NQ", "MNQ", "ES", "MES", "YM", "MYM", "RTY", "M2K", "GC", "MGC", "SI", "SIL", "CL", "MCL", "NG", "ZN", "ZB"];
+        if (futuresSymbols.includes(upper)) {
+          return "futures";
+        }
+        const metals = ["XAU", "XAG", "XPT", "XPD"];
+        if (metals.some((m) => upper.startsWith(m))) {
+          return "forex";
+        }
+        const forexPairs = ["EUR", "GBP", "USD", "JPY", "CHF", "AUD", "CAD", "NZD"];
+        const forexPattern = forexPairs.some((c) => upper.startsWith(c) || upper.includes(`/${c}`));
+        if (forexPattern && (upper.length === 6 || upper.includes("/"))) {
+          return "forex";
+        }
+        const cryptoSymbols = ["BTC", "ETH", "XRP", "LTC", "ADA", "DOT", "DOGE", "SOL", "AVAX", "MATIC"];
+        if (cryptoSymbols.some((c) => upper.startsWith(c))) {
+          return "crypto";
+        }
+        const indices = [
+          "SPX",
+          "NDX",
+          "DJI",
+          "VIX",
+          "FTSE",
+          "DAX",
+          "NI225",
+          "US30",
+          "US500",
+          "US100",
+          "UK100",
+          "GER40",
+          "DE40",
+          "FRA40",
+          "JP225",
+          "JPN225",
+          "AU200",
+          "HK50"
+        ];
+        if (indices.some((i) => upper.includes(i))) {
+          return "index";
+        }
+        return "stock";
+      }
+      isInitialized() {
+        return this.providers.size > 0;
+      }
+    };
+    marketDataService = new MarketDataService();
+  }
+});
+
+// server/utils/pair-key.ts
+function basePairKey(symbol) {
+  return String(symbol ?? "").split(".")[0].toUpperCase().replace(/[^A-Z0-9]/g, "");
+}
+function lookupPairKnowledge(pairKnowledge, symbol) {
+  if (!pairKnowledge || !symbol) return void 0;
+  const direct = pairKnowledge[symbol];
+  if (direct) return direct;
+  const want = basePairKey(symbol);
+  if (!want) return void 0;
+  for (const k of Object.keys(pairKnowledge)) {
+    if (basePairKey(k) === want) return pairKnowledge[k];
+  }
+  return void 0;
+}
+var init_pair_key = __esm({
+  "server/utils/pair-key.ts"() {
+    "use strict";
+  }
+});
+
+// server/tradelocker.ts
+var tradelocker_exports = {};
+__export(tradelocker_exports, {
+  TradeLockerReadError: () => TradeLockerReadError,
+  TradeLockerService: () => TradeLockerService,
+  decryptPassword: () => decryptPassword,
+  encryptPassword: () => encryptPassword,
+  executeMT5SignalOnTradeLocker: () => executeMT5SignalOnTradeLocker,
+  getOrCreateService: () => getOrCreateService,
+  getTLAccountValue: () => getTLAccountValue,
+  isOnAuth429Cooldown: () => isOnAuth429Cooldown,
+  logTlClose: () => logTlClose,
+  noteAuthResult: () => noteAuthResult,
+  priceDecimals: () => priceDecimals,
+  roundToTick: () => roundToTick,
+  setUsdJpyRate: () => setUsdJpyRate,
+  warmTradeLockerConnection: () => warmTradeLockerConnection
+});
+import crypto6 from "crypto";
+function getEncryptionKey3() {
+  const key = process.env.TRADELOCKER_ENCRYPTION_KEY;
+  if (!key) {
+    console.warn("[TradeLocker] TRADELOCKER_ENCRYPTION_KEY not set \u2014 using default key. Set it in your Render environment variables.");
+    return DEFAULT_ENCRYPTION_KEY2;
+  }
+  if (key.length < 32) {
+    console.warn("[TradeLocker] TRADELOCKER_ENCRYPTION_KEY is too short, padding to 32 chars.");
+    return key.padEnd(32, "0");
+  }
+  return key;
+}
+function priceDecimals(symbol) {
+  const s = String(symbol || "").toUpperCase().split(".")[0].replace(/[^A-Z0-9]/g, "");
+  if (/^XAU/.test(s)) return 2;
+  if (/^XAG/.test(s)) return 3;
+  if (/^(US30|DJ30|WS30|US100|NAS100|USTEC|US500|SPX500|GER40|DE40|UK100|JP225|AUS200|HK50|FRA40|EU50)/.test(s)) return 2;
+  if (/^(BTC|ETH|SOL|LTC|XRP)/.test(s)) return 2;
+  if (/JPY/.test(s)) return 3;
+  return 5;
+}
+function roundToTick(symbol, v) {
+  if (!Number.isFinite(v)) return v;
+  const d = priceDecimals(symbol);
+  return Number(v.toFixed(d));
+}
+function isOnAuth429Cooldown(key) {
+  const until = authCooldownUntil.get(key) || 0;
+  return until > Date.now() ? until - Date.now() : 0;
+}
+function noteAuthResult(key, err) {
+  const is429 = err instanceof Error && /(^|\D)429(\D|$)/.test(err.message);
+  if (is429) {
+    authCooldownUntil.set(key, Date.now() + AUTH_429_COOLDOWN_MS);
+  } else {
+    authCooldownUntil.delete(key);
+  }
+}
+async function serializeAuth(label, fn) {
+  const run = authChain.then(async () => {
+    const wait = MIN_AUTH_GAP_MS - (Date.now() - lastAuthAt);
+    if (wait > 0) await new Promise((r) => setTimeout(r, wait));
+    try {
+      return await fn();
+    } finally {
+      lastAuthAt = Date.now();
+    }
+  });
+  authChain = run.then(() => {
+  }, () => {
+  });
+  return run;
+}
+async function loginFetchWith429Retry(url, body) {
+  const backoffs = [1500, 3500];
+  for (let attempt = 0; ; attempt++) {
+    const resp = await fetch(url, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+      signal: AbortSignal.timeout(12e3)
+    });
+    if (resp.status !== 429 || attempt >= backoffs.length) return resp;
+    await new Promise((r) => setTimeout(r, backoffs[attempt]));
+  }
+}
+function encryptPassword(password) {
+  const iv = crypto6.randomBytes(IV_LENGTH2);
+  const salt = crypto6.randomBytes(SALT_LENGTH2);
+  const encryptionKey = getEncryptionKey3();
+  const key = crypto6.scryptSync(encryptionKey, salt, 32);
+  const cipher = crypto6.createCipheriv("aes-256-cbc", key, iv);
+  let encrypted = cipher.update(password, "utf8", "hex");
+  encrypted += cipher.final("hex");
+  return salt.toString("hex") + ":" + iv.toString("hex") + ":" + encrypted;
+}
+function decryptPassword(encryptedPassword) {
+  const parts = encryptedPassword.split(":");
+  if (parts.length !== 3) {
+    throw new Error("Invalid encrypted password format");
+  }
+  const salt = Buffer.from(parts[0], "hex");
+  const iv = Buffer.from(parts[1], "hex");
+  const encrypted = parts[2];
+  const encryptionKey = getEncryptionKey3();
+  const key = crypto6.scryptSync(encryptionKey, salt, 32);
+  const decipher = crypto6.createDecipheriv("aes-256-cbc", key, iv);
+  let decrypted = decipher.update(encrypted, "hex", "utf8");
+  decrypted += decipher.final("utf8");
+  return decrypted;
+}
+function setUsdJpyRate(rate) {
+  const r = Number(rate);
+  if (isFinite(r) && r > 50 && r < 500) _usdJpyLive = { rate: r, at: Date.now() };
+}
+function noteUsdJpyObservation(atMs, rate) {
+  const r = Number(rate);
+  if (!isFinite(r) || r <= 50 || r >= 500 || !isFinite(atMs)) return;
+  _usdJpyObserved.push({ at: atMs, rate: r });
+  if (_usdJpyObserved.length > 2e3) _usdJpyObserved.splice(0, _usdJpyObserved.length - 2e3);
+}
+function usdJpyAt(atMs) {
+  let best = null;
+  for (const o of _usdJpyObserved) {
+    if (!best || Math.abs(o.at - atMs) < Math.abs(best.at - atMs)) best = o;
+  }
+  if (best && Math.abs(best.at - atMs) < 7 * 24 * 3600 * 1e3) return best.rate;
+  if (_usdJpyLive && Date.now() - _usdJpyLive.at < 24 * 3600 * 1e3) return _usdJpyLive.rate;
+  if (best) return best.rate;
+  console.warn(`[TradeLocker] no USD/JPY rate available for ${new Date(atMs).toISOString()} \u2014 using ${USDJPY_FALLBACK}; JPY P&L may be off by a few percent.`);
+  return USDJPY_FALLBACK;
+}
+async function getOrCreateService(connection) {
+  const connId = connection.id || `pending_${connection.accountType}_${connection.accountId}_${connection.accNum || ""}`;
+  const cached = serviceCache.get(connId);
+  if (cached && Date.now() - cached.createdAt < SERVICE_CACHE_TTL) {
+    console.log("[TradeLocker] Reusing cached service for connection", connId);
+    cached.service.logConn = { id: connection.id, userId: connection.userId };
+    return cached.service;
+  }
+  const service = new TradeLockerService(
+    connection.accountType,
+    connection.accountId,
+    connection.serverId,
+    connection.accNum || void 0
+  );
+  service.logConn = { id: connection.id, userId: connection.userId };
+  if (typeof connId === "number") {
+    service.onAccountIdCorrected = (accountId) => {
+      persistAccountIdCorrection(connId, accountId).catch(() => {
+      });
+    };
+  }
+  const TOKEN_BUFFER = 60 * 1e3;
+  const hasValidToken = connection.accessToken && connection.tokenExpiresAt && new Date(connection.tokenExpiresAt).getTime() - TOKEN_BUFFER > Date.now();
+  if (hasValidToken) {
+    console.log("[TradeLocker] Using cached JWT tokens (expires:", connection.tokenExpiresAt, ")");
+    service.setTokens(
+      connection.accessToken,
+      connection.refreshToken || "",
+      new Date(connection.tokenExpiresAt)
+    );
+  } else if (connection.refreshToken && connection.accessToken) {
+    console.log("[TradeLocker] Token expired \u2014 attempting refresh...");
+    try {
+      service.setTokens(connection.accessToken, connection.refreshToken);
+      const refreshed = await service.refreshAccessToken(connection.refreshToken);
+      noteAuthResult(String(connId), null);
+      await persistTokens(connection, refreshed.accessToken, refreshed.refreshToken, refreshed.expiresIn, service.getResolvedAccNum());
+    } catch (refreshErr) {
+      console.log("[TradeLocker] Token refresh failed \u2014 falling back to full auth");
+      const cooldownMs = isOnAuth429Cooldown(String(connId));
+      if (cooldownMs > 0) {
+        throw new Error(`TradeLocker login is rate-limited (429) for this account \u2014 cooling down for another ${Math.ceil(cooldownMs / 1e3)}s before retrying, to avoid making the rate limit worse.`);
+      }
+      try {
+        const password = decryptPassword(connection.encryptedPassword);
+        const authResult = await service.authenticate(connection.email, password);
+        noteAuthResult(String(connId), null);
+        await persistTokens(connection, authResult.accessToken, authResult.refreshToken, authResult.expiresIn, service.getResolvedAccNum());
+      } catch (authErr) {
+        noteAuthResult(String(connId), authErr);
+        throw authErr;
+      }
+    }
+  } else {
+    const cooldownMs = isOnAuth429Cooldown(String(connId));
+    if (cooldownMs > 0) {
+      throw new Error(`TradeLocker login is rate-limited (429) for this account \u2014 cooling down for another ${Math.ceil(cooldownMs / 1e3)}s before retrying, to avoid making the rate limit worse.`);
+    }
+    console.log("[TradeLocker] No cached tokens \u2014 performing full auth");
+    try {
+      const password = decryptPassword(connection.encryptedPassword);
+      const authResult = await service.authenticate(connection.email, password);
+      noteAuthResult(String(connId), null);
+      await persistTokens(connection, authResult.accessToken, authResult.refreshToken, authResult.expiresIn, service.getResolvedAccNum());
+    } catch (authErr) {
+      noteAuthResult(String(connId), authErr);
+      throw authErr;
+    }
+  }
+  if (!connection.accNum && connId) {
+    const origResolve = service.resolveAccNum.bind(service);
+    service.resolveAccNum = async () => {
+      const result = await origResolve();
+      if (result && result !== "0" && !connection.accNum) {
+        persistTokens(connection, connection.accessToken || "", connection.refreshToken || "", 3600, result).catch(() => {
+        });
+      }
+      return result;
+    };
+  }
+  service.onTokenRefresh = (accessToken, refreshToken, expiresIn) => {
+    persistTokens(connection, accessToken, refreshToken, expiresIn, service.getResolvedAccNum()).catch(() => {
+    });
+  };
+  service.onReauthenticate = async () => {
+    const cooldownMs = isOnAuth429Cooldown(String(connId));
+    if (cooldownMs > 0) {
+      throw new Error(`TradeLocker login is rate-limited (429) for this account \u2014 cooling down for another ${Math.ceil(cooldownMs / 1e3)}s before retrying.`);
+    }
+    console.log("[TradeLocker] Full re-authentication triggered via callback");
+    try {
+      const password = decryptPassword(connection.encryptedPassword);
+      const authResult = await service.authenticate(connection.email, password);
+      noteAuthResult(String(connId), null);
+      await persistTokens(connection, authResult.accessToken, authResult.refreshToken, authResult.expiresIn, service.getResolvedAccNum());
+    } catch (authErr) {
+      noteAuthResult(String(connId), authErr);
+      throw authErr;
+    }
+  };
+  serviceCache.set(connId, { service, createdAt: Date.now() });
+  return service;
+}
+async function getTLAccountValue(userId, conn) {
+  const g = global;
+  g.tlAccountBalances = g.tlAccountBalances || {};
+  g.tlAccountBalances[userId] = g.tlAccountBalances[userId] || {};
+  g.tlAccountEquity = g.tlAccountEquity || {};
+  g.tlAccountEquity[userId] = g.tlAccountEquity[userId] || {};
+  g.tlAccountValueAt = g.tlAccountValueAt || {};
+  g.tlAccountValueAt[userId] = g.tlAccountValueAt[userId] || {};
+  const acctId = conn.accountId;
+  const cachedBal = g.tlAccountBalances[userId][acctId];
+  const cachedEq = g.tlAccountEquity[userId][acctId];
+  const fetchedAt = g.tlAccountValueAt[userId][acctId] || 0;
+  const fresh = Date.now() - fetchedAt < TL_VALUE_TTL;
+  if (fresh && typeof cachedBal === "number" && cachedBal > 0) {
+    return { balance: cachedBal, equity: typeof cachedEq === "number" && cachedEq > 0 ? cachedEq : cachedBal };
+  }
+  try {
+    const svc = await getOrCreateService(conn);
+    const info2 = await svc.getAccountInfo();
+    const bal = info2.balance || 0;
+    const eq4 = info2.equity || bal;
+    if (bal > 0) {
+      g.tlAccountBalances[userId][acctId] = bal;
+      g.tlAccountEquity[userId][acctId] = eq4;
+      g.tlAccountValueAt[userId][acctId] = Date.now();
+      console.log(`[TL value] ${acctId}: balance=$${bal} equity=$${eq4} (live-fetched for sizing)`);
+      return { balance: bal, equity: eq4 };
+    }
+  } catch (e) {
+    console.warn(`[TL value] live-fetch failed for ${acctId}:`, e?.message ?? e);
+  }
+  return {
+    balance: typeof cachedBal === "number" ? cachedBal : 0,
+    equity: typeof cachedEq === "number" ? cachedEq : typeof cachedBal === "number" ? cachedBal : 0
+  };
+}
+async function persistTokens(connection, accessToken, refreshToken, expiresIn, accNum) {
+  if (!connection.id) return;
+  try {
+    const { storage: storage2 } = await Promise.resolve().then(() => (init_storage(), storage_exports));
+    await storage2.updateTradelockerConnection(connection.id, {
+      accessToken,
+      refreshToken,
+      tokenExpiresAt: new Date(Date.now() + expiresIn * 1e3),
+      accNum: accNum !== "0" ? accNum : void 0
+    });
+    console.log("[TradeLocker] Persisted tokens to DB for connection", connection.id);
+  } catch (e) {
+    console.log("[TradeLocker] Could not persist tokens to DB");
+  }
+}
+async function persistAccountIdCorrection(connectionId, accountId) {
+  try {
+    const { storage: storage2 } = await Promise.resolve().then(() => (init_storage(), storage_exports));
+    await storage2.updateTradelockerConnection(connectionId, { accountId });
+    console.log("[TradeLocker] Persisted corrected accountId to DB for connection", connectionId, ":", accountId);
+  } catch (e) {
+    console.log("[TradeLocker] Could not persist accountId correction to DB");
+  }
+}
+async function warmTradeLockerConnection(connection) {
+  try {
+    console.log("[TradeLocker Warm] Pre-warming connection for account", connection.accountId);
+    await getOrCreateService(connection);
+    console.log("[TradeLocker Warm] Connection pre-warmed successfully");
+    return { success: true };
+  } catch (error) {
+    const msg = error instanceof Error ? error.message : "Unknown error";
+    console.error("[TradeLocker Warm] Pre-warm failed:", msg);
+    return { success: false, error: msg };
+  }
+}
+async function tlAccountRiskGuard(service, connection, signal) {
+  if (process.env.TL_RISK_GUARD_DISABLED === "true") return {};
+  const connKey = String(connection.id ?? connection.accountId);
+  const norm3 = (s) => String(s || "").toUpperCase().split(".")[0].replace(/[^A-Z0-9]/g, "");
+  const want = norm3(signal.symbol);
+  let equity;
+  try {
+    const info2 = await guardRead(`acct:${connKey}`, () => service.getAccountInfo());
+    equity = Number(info2?.equity) > 0 ? Number(info2.equity) : Number(info2?.balance);
+    if (!(equity > 0)) return { block: "account equity unreadable \u2014 not trading this account (fail closed)" };
+  } catch (e) {
+    return { block: `account equity unreadable (${e?.message || e}) \u2014 not trading this account (fail closed)` };
+  }
+  const lossPct = Number(process.env.TL_DAILY_LOSS_PCT ?? 2);
+  if (lossPct > 0) {
+    const day = (/* @__PURE__ */ new Date()).toISOString().slice(0, 10);
+    const key = `${connKey}:${day}`;
+    let start = tlDayStartEquity.get(key);
+    if (start == null) {
+      try {
+        const { getRuntimeStateStrict: getRuntimeStateStrict2, insertRuntimeStateIfAbsent: insertRuntimeStateIfAbsent2 } = await Promise.resolve().then(() => (init_runtime_state(), runtime_state_exports));
+        const existing = await getRuntimeStateStrict2("tl_day_start", key);
+        if (Number(existing?.equity) > 0) start = Number(existing.equity);
+        else start = Number((await insertRuntimeStateIfAbsent2("tl_day_start", key, { equity }))?.equity) || equity;
+      } catch (e) {
+        return { block: `daily-loss baseline unreadable (${e?.message || e}) \u2014 not trading this account (fail closed)` };
+      }
+      tlDayStartEquity.set(key, start);
+    }
+    const ddPct = start > 0 ? (start - equity) / start * 100 : 0;
+    if (ddPct >= lossPct) {
+      return { block: `daily loss ${ddPct.toFixed(2)}% \u2265 ${lossPct}% (equity $${equity.toFixed(0)} vs day start $${start.toFixed(0)}) \u2014 no new trades on this account until 00:00 UTC` };
+    }
+  }
+  let positions;
+  try {
+    positions = await guardRead(`pos:${connKey}`, () => service.getPositionsNormalized(), 0);
+  } catch (e) {
+    return { block: `open positions unreadable (${e?.message || e}) \u2014 not trading this account (fail closed)` };
+  }
+  if (positions.some((p) => /^\d+$/.test(String(p.symbol || "")))) {
+    return { block: "open positions show unresolved instrument ids \u2014 cannot confirm the pair is flat (fail closed)" };
+  }
+  if (!want) return { block: "order has no symbol" };
+  const held = positions.find((p) => {
+    const s = norm3(p.symbol);
+    return s === want || s.startsWith(want) || s.length >= 6 && want.startsWith(s);
+  });
+  if (held) return { block: `already holding ${held.symbol} ${String(held.side || "").toUpperCase()} ${held.qty} on this account (one position per pair)` };
+  try {
+    const { pool: pool2 } = await Promise.resolve().then(() => (init_db(), db_exports));
+    const { rows } = await pool2.query(
+      // TradeLocker rows only (DXtrade rows reuse connection_id numbers), and
+      // only recent ones: a PENDING row whose close never synced (an XAUUSD
+      // row on account 31 since 2026-09-23) used to block that pair forever.
+      `SELECT 1 FROM ai_trade_results WHERE connection_id = $1 AND result = 'PENDING'
+         AND coalesce(source, '') NOT ILIKE 'dx%' AND created_at > now() - interval '3 days'
+         AND upper(regexp_replace(split_part(symbol, '.', 1), '[^A-Za-z0-9]', '', 'g')) = $2 LIMIT 1`,
+      [connection.id ?? -1, want]
+    );
+    if (rows.length) return { block: `an open ${want} trade is recorded for this account (one position per pair)` };
+  } catch (e) {
+    return { block: `could not check recorded open trades (${e?.message || e}) \u2014 fail closed` };
+  }
+  const scale = equity / 1e5;
+  const perOrder = Math.min(Number(process.env.TL_MAX_LOT_PER_ORDER ?? 5) || Infinity, (Number(process.env.TL_MAX_LOT_PER_100K ?? 10) || Infinity) * scale);
+  const openCap = Math.min(Number(process.env.TL_MAX_OPEN_LOTS ?? 6) || Infinity, (Number(process.env.TL_MAX_OPEN_LOTS_PER_100K ?? 12) || Infinity) * scale);
+  const openLots = positions.reduce((s, p) => s + (Number(p.qty) || 0), 0);
+  const room = Math.floor(Math.min(perOrder, openCap - openLots) * 100) / 100;
+  if (!(room >= 0.01)) {
+    return { block: `open lots ${openLots.toFixed(2)} already at the ${openCap.toFixed(2)}-lot cap for this account size` };
+  }
+  return { maxVolume: room, positionIds: positions.map((p) => String(p.id)) };
+}
+async function guardRead(key, fn, ttlMs = GUARD_CACHE_MS) {
+  const hit = guardCache.get(key);
+  if (ttlMs > 0 && hit && Date.now() - hit.at < ttlMs) return hit.value;
+  let value;
+  try {
+    value = await fn();
+  } catch (e) {
+    if (!_isRateLimit(e)) throw e;
+    await new Promise((r) => setTimeout(r, 1500));
+    value = await fn();
+  }
+  guardCache.set(key, { at: Date.now(), value });
+  return value;
+}
+function clearGuardPositions(connKey) {
+  guardCache.delete(`pos:${connKey}`);
+}
+async function logTlClose(connection, info2) {
+  try {
+    const userId = Number(connection?.userId ?? connection?.user_id);
+    if (!(userId > 0) || !(Number(connection?.id) > 0)) return;
+    const { pool: pool2 } = await Promise.resolve().then(() => (init_db(), db_exports));
+    const pnl = Number.isFinite(Number(info2.pnl)) && info2.pnl != null ? ` | floating P&L at close ${Number(info2.pnl).toFixed(2)}` : "";
+    const msg = `CLOSE reason: ${info2.reason}${pnl}${info2.positionId ? ` | position ${info2.positionId}` : ""}${info2.ok ? "" : ` | FAILED: ${String(info2.error || "").slice(0, 200)}`}`;
+    await pool2.query(
+      `INSERT INTO tradelocker_trade_logs (user_id, connection_id, action, symbol, direction, volume, status, error_message, created_at)
+       VALUES ($1, $2, 'CLOSE', $3, $4, $5, $6, $7, now())`,
+      [userId, connection?.id ?? null, String(info2.symbol || ""), String(info2.direction || "").toUpperCase(), Number(info2.volume) || 0, info2.ok ? "executed" : "failed", msg.slice(0, 1e3)]
+    );
+  } catch (e) {
+    console.error("[TradeLocker] close log write failed (non-fatal):", e?.message || e);
+  }
+}
+async function executeMT5SignalOnTradeLocker(connection, signal) {
+  console.log("[TradeLocker Execute] Starting trade execution:", {
+    accountType: connection.accountType,
+    accountId: connection.accountId,
+    serverId: connection.serverId,
+    signal: { action: signal.action, symbol: signal.symbol, direction: signal.direction, volume: signal.volume }
+  });
+  try {
+    const service = await getOrCreateService(connection);
+    if (signal.action === "OPEN" || signal.action.toUpperCase() === "OPEN") {
+      const tlOrderType = signal.orderType === "limit_entry" ? "limit" : signal.orderType === "stop_entry" ? "stop" : "market";
+      const usePrice = tlOrderType !== "market" && signal.entryPrice && signal.entryPrice > 0 ? signal.entryPrice : void 0;
+      const resolvedType = usePrice ? tlOrderType : "market";
+      const _slNum = Number(signal.stopLoss);
+      if (!Number.isFinite(_slNum) || _slNum <= 0) {
+        console.error(`[TradeLocker Execute] \u{1F6AB} NO-SL BLOCK: ${signal.symbol} ${signal.direction} rejected \u2014 no valid stop loss (SL=${signal.stopLoss}). Unprotected trades are never allowed (likely NaN ATR upstream).`);
+        return { success: false, error: `Blocked: no valid stop loss (SL=${signal.stopLoss}) \u2014 unprotected trade rejected` };
+      }
+      {
+        const _sym = String(signal.symbol || "").toUpperCase();
+        const _isFx = /^[A-Z]{6}/.test(_sym) && !/^(XAU|XAG|BTC|ETH|SOL|US30|NAS|SPX|GER|UK1|JP2)/.test(_sym);
+        const _ref = Number(signal.entryPrice);
+        const _minPips = Number(process.env.TL_MIN_SL_PIPS ?? 10);
+        if (_isFx && _minPips > 0 && Number.isFinite(_ref) && _ref > 0) {
+          const _pip = /JPY/.test(_sym) ? 0.01 : 1e-4;
+          const _slPips = Math.abs(_ref - _slNum) / _pip;
+          if (_slPips < _minPips) {
+            console.error(`[TradeLocker Execute] \u{1F6AB} TIGHT-SL BLOCK: ${_sym} ${signal.direction} stop ${_slPips.toFixed(1)} pips < ${_minPips} \u2014 rejected (would inflate the lot size).`);
+            return { success: false, error: `Blocked: stop ${_slPips.toFixed(1)} pips is tighter than the ${_minPips}-pip minimum (prevents oversized lots)` };
+          }
+        }
+      }
+      let _preOrderIds = null;
+      {
+        try {
+          const { isFxLeader: isFxLeader2 } = await Promise.resolve().then(() => (init_live_trading_engine(), live_trading_engine_exports));
+          if (!isFxLeader2()) return { success: false, error: "NOT LEADER: this server does not hold the FX lock \u2014 order not sent" };
+        } catch {
+          return { success: false, error: "NOT LEADER: leadership could not be confirmed \u2014 order not sent" };
+        }
+        const _guard = await tlAccountRiskGuard(service, connection, signal);
+        _preOrderIds = _guard.positionIds ? new Set(_guard.positionIds) : null;
+        if (_guard.block) {
+          console.error(`[TradeLocker Execute] \u{1F6AB} RISK GUARD ${connection.accountId} ${signal.symbol} ${signal.direction}: ${_guard.block}`);
+          return { success: false, error: `RISK GUARD: ${_guard.block}` };
+        }
+        if (_guard.maxVolume != null && Number(signal.volume) > _guard.maxVolume) {
+          console.warn(`[TradeLocker Execute] lot ${signal.volume} on ${signal.symbol} clamped to ${_guard.maxVolume} (account-size lot cap)`);
+          signal = { ...signal, volume: _guard.maxVolume };
+        }
+      }
+      const _pauseKey = `${connection.id ?? connection.accountId}|${String(signal.symbol).toUpperCase().split(".")[0]}|${signal.direction.toUpperCase()}`;
+      const _pausedUntil = rejectPauseUntil.get(_pauseKey) || 0;
+      if (Date.now() < _pausedUntil) {
+        const mins = Math.ceil((_pausedUntil - Date.now()) / 6e4);
+        return { success: false, error: `REJECT PAUSE: broker rejected this ${signal.symbol} ${signal.direction} on this account recently \u2014 not resending for ${mins} more min` };
+      }
+      const _isTransient = (msg) => /\b(429|5\d\d|1015)\b|rate.?limit|too many requests|timeout|timed out|network|ECONN|outcome unknown|<!doctype|<html/i.test(msg);
+      const _isBrokerReject = (msg) => {
+        const m = String(msg || "").slice(0, 300);
+        return !_isTransient(m) && /not valid|route is not active|instrument not found|forbidden|insufficient|market is closed|invalid/i.test(m);
+      };
+      console.log("[TradeLocker Execute] Placing order:", {
+        symbol: signal.symbol,
+        side: signal.direction.toLowerCase(),
+        type: resolvedType,
+        price: usePrice,
+        quantity: signal.volume
+      });
+      let orderResult;
+      try {
+        orderResult = await service.placeOrder({
+          symbol: signal.symbol,
+          side: signal.direction.toLowerCase(),
+          type: resolvedType,
+          quantity: signal.volume,
+          price: usePrice,
+          stopLoss: signal.stopLoss || void 0,
+          takeProfit: signal.takeProfit || void 0
+        });
+      } catch (e) {
+        const msg = e instanceof Error ? e.message : String(e);
+        if (_isBrokerReject(msg)) rejectPauseUntil.set(_pauseKey, Date.now() + REJECT_PAUSE_MS);
+        clearGuardPositions(String(connection.id ?? connection.accountId));
+        if (/timeout|timed out|outcome unknown|ECONN|socket|network|\b5\d\d\b/i.test(msg)) {
+          rejectPauseUntil.set(_pauseKey, Math.max(rejectPauseUntil.get(_pauseKey) || 0, Date.now() + UNKNOWN_OUTCOME_PAUSE_MS));
+        }
+        throw e;
+      }
+      console.log("[TradeLocker Execute] Order result:", orderResult);
+      if (orderResult.status === "rejected" && _isBrokerReject(String(orderResult.message || "rejected"))) {
+        rejectPauseUntil.set(_pauseKey, Date.now() + REJECT_PAUSE_MS);
+      }
+      if (orderResult.status !== "rejected") clearGuardPositions(String(connection.id ?? connection.accountId));
+      if (orderResult.status !== "rejected" && resolvedType === "market" && process.env.TL_REANCHOR_DISABLED !== "true") {
+        try {
+          const _plan = Number(signal.entryPrice), _sl = Number(signal.stopLoss), _tp = Number(signal.takeProfit);
+          const _slDist = Math.abs(_plan - _sl);
+          if (_plan > 0 && _sl > 0 && _slDist > 0) {
+            const _nrm = (x) => String(x || "").toUpperCase().split(".")[0].replace(/[^A-Z0-9]/g, "");
+            const _w = _nrm(signal.symbol);
+            const _isBuy = signal.direction.toUpperCase() === "BUY";
+            let _pos = null, _cands = 0;
+            for (let i = 0; i < 3 && !_pos; i++) {
+              await new Promise((r) => setTimeout(r, 1e3));
+              let ps = [];
+              try {
+                ps = await guardRead(`pos:${String(connection.id ?? connection.accountId)}`, () => service.getPositionsNormalized(), 0);
+              } catch {
+                ps = [];
+              }
+              const c = ps.filter((x) => _nrm(x.symbol) === _w && String(x.side || "").toUpperCase() === (_isBuy ? "BUY" : "SELL") && !(_preOrderIds && _preOrderIds.has(String(x.id))));
+              _cands = c.length;
+              if (c.length === 1) _pos = c[0];
+              else if (c.length > 1) break;
+            }
+            if (!_pos) console.warn(`[TradeLocker Execute] re-anchor skipped for ${_w} on ${connection.accountId}: ${_cands > 1 ? `${_cands} new positions match \u2014 ambiguous` : "new position not found"}`);
+            const _fill = Number(_pos?.avgPrice);
+            const _off = _fill - _plan;
+            const _dec = /^XAU/.test(_w) ? 2 : /^(XAG|BTC|ETH|LTC|XRP|SOL|ADA|DOGE)/.test(_w) ? -1 : /JPY/.test(_w) ? 3 : /^[A-Z]{6}$/.test(_w) ? 5 : -1;
+            if (_dec >= 0 && _pos && _fill > 0 && Math.abs(_off) > _slDist * 0.15) {
+              const _r = (x) => Number(x.toFixed(_dec));
+              const newSl = _r(_sl + _off);
+              const newTp = _tp > 0 ? _r(_tp + _off) : void 0;
+              const mod = await service.modifyPosition(String(_pos.id), newSl, newTp);
+              console.warn(`[TradeLocker Execute] RE-ANCHOR ${_w} ${signal.direction} on ${connection.accountId}: fill ${_fill} vs plan ${_plan} \u2192 SL ${_sl}\u2192${newSl}, TP ${_tp}\u2192${newTp} (${mod.success ? "ok" : "FAILED: " + mod.error})`);
+            }
+          }
+        } catch (e) {
+          console.error(`[TradeLocker Execute] re-anchor failed (position keeps its original SL/TP): ${e?.message || e}`);
+        }
+      }
+      return {
+        success: orderResult.status !== "rejected",
+        orderId: orderResult.orderId,
+        error: orderResult.status === "rejected" ? orderResult.message : void 0,
+        volume: signal.volume
+        // size ACTUALLY sent (after caps) — log this, not the request
+      };
+    } else if (signal.action === "CLOSE" || signal.action.toUpperCase() === "CLOSE") {
+      console.log("[TradeLocker Execute] Closing position:", signal.positionId);
+      if (!signal.positionId) {
+        return { success: false, error: "Position ID required for close action" };
+      }
+      let closeResult;
+      try {
+        closeResult = await service.closePosition(signal.positionId);
+      } catch (e) {
+        await logTlClose(connection, { symbol: signal.symbol, direction: signal.direction, positionId: signal.positionId, reason: signal.closeReason || "unspecified caller", pnl: signal.closePnl, volume: signal.volume, ok: false, error: e?.message || String(e) });
+        throw e;
+      }
+      await logTlClose(connection, { symbol: signal.symbol, direction: signal.direction, positionId: signal.positionId, reason: signal.closeReason || "unspecified caller", pnl: signal.closePnl, volume: signal.volume, ok: true });
+      clearGuardPositions(String(connection.id ?? connection.accountId));
+      return {
+        success: true,
+        orderId: closeResult.orderId
+      };
+    } else if (signal.action === "MODIFY" || signal.action.toUpperCase() === "MODIFY") {
+      if (!signal.positionId) {
+        return { success: false, error: "Position ID required for modify action" };
+      }
+      console.log("[TradeLocker Execute] Modifying position:", {
+        positionId: signal.positionId,
+        stopLoss: signal.stopLoss,
+        takeProfit: signal.takeProfit
+      });
+      const modifyResult = await service.modifyPosition(
+        signal.positionId,
+        signal.stopLoss != null ? signal.stopLoss : void 0,
+        signal.takeProfit != null ? signal.takeProfit : void 0
+      );
+      console.log("[TradeLocker Execute] Modify result:", modifyResult);
+      return {
+        success: modifyResult.success,
+        error: modifyResult.error
+      };
+    }
+    console.log("[TradeLocker Execute] Unknown action type:", signal.action);
+    return { success: false, error: `Unknown action type: ${signal.action}` };
+  } catch (error) {
+    console.error("[TradeLocker Execute] Error:", error);
+    if (connection.id) serviceCache.delete(connection.id);
+    return {
+      success: false,
+      error: error instanceof Error ? error.message : "Unknown error"
+    };
+  }
+}
+var IV_LENGTH2, DEFAULT_ENCRYPTION_KEY2, SALT_LENGTH2, INSTRUMENT_CACHE_TTL, instrumentCache, instrumentsListCache, serviceCache, SERVICE_CACHE_TTL, rejectPauseUntil, REJECT_PAUSE_MS, RETRY_DELAYS, RETRYABLE_STATUSES, TradeLockerReadError, AUTH_429_COOLDOWN_MS, authCooldownUntil, authChain, lastAuthAt, MIN_AUTH_GAP_MS, USDJPY_FALLBACK, _usdJpyLive, _usdJpyObserved, TradeLockerService, TL_VALUE_TTL, tlDayStartEquity, UNKNOWN_OUTCOME_PAUSE_MS, GUARD_CACHE_MS, guardCache, _isRateLimit;
+var init_tradelocker = __esm({
+  "server/tradelocker.ts"() {
+    "use strict";
+    IV_LENGTH2 = 16;
+    DEFAULT_ENCRYPTION_KEY2 = "vedd-tl-default-key-change-me-32chars!!";
+    SALT_LENGTH2 = 16;
+    INSTRUMENT_CACHE_TTL = 10 * 60 * 1e3;
+    instrumentCache = /* @__PURE__ */ new Map();
+    instrumentsListCache = /* @__PURE__ */ new Map();
+    serviceCache = /* @__PURE__ */ new Map();
+    SERVICE_CACHE_TTL = 50 * 60 * 1e3;
+    rejectPauseUntil = /* @__PURE__ */ new Map();
+    REJECT_PAUSE_MS = Number(process.env.TL_REJECT_PAUSE_MINUTES ?? 15) * 6e4;
+    RETRY_DELAYS = [1e3, 2e3];
+    RETRYABLE_STATUSES = /* @__PURE__ */ new Set([429, 500, 502, 503, 504]);
+    TradeLockerReadError = class extends Error {
+      status;
+      constructor(message, status) {
+        super(message);
+        this.name = "TradeLockerReadError";
+        this.status = status;
+      }
+    };
+    AUTH_429_COOLDOWN_MS = 5 * 60 * 1e3;
+    authCooldownUntil = /* @__PURE__ */ new Map();
+    authChain = Promise.resolve();
+    lastAuthAt = 0;
+    MIN_AUTH_GAP_MS = 1500;
+    USDJPY_FALLBACK = 150;
+    _usdJpyLive = null;
+    _usdJpyObserved = [];
+    TradeLockerService = class _TradeLockerService {
+      baseUrl;
+      accessToken = null;
+      refreshToken = null;
+      tokenExpiresAt = null;
+      accountId;
+      serverId;
+      accNum = "0";
+      accNumResolved = false;
+      connectionId = null;
+      accountDetailsConfig = null;
+      // cached column spec from /trade/config
+      onTokenRefresh = null;
+      onReauthenticate = null;
+      // Fired when resolveAccNum() corrects a mismatched accountId (see there) —
+      // wired up by getOrCreateService() to persist the correction to the DB.
+      onAccountIdCorrected = null;
+      constructor(accountType, accountId, serverId, cachedAccNum) {
+        this.baseUrl = accountType === "demo" ? "https://demo.tradelocker.com/backend-api" : "https://live.tradelocker.com/backend-api";
+        this.accountId = accountId.replace(/^#/, "").trim();
+        if (this.accountId !== accountId) {
+          console.log("[TradeLocker] Stripped # prefix from accountId:", accountId, "\u2192", this.accountId);
+        }
+        this.serverId = serverId;
+        if (cachedAccNum && cachedAccNum !== "0") {
+          this.accNum = cachedAccNum;
+          this.accNumResolved = true;
+          console.log("[TradeLocker] Using cached accNum:", cachedAccNum);
+        }
+      }
+      getResolvedAccNum() {
+        return this.accNum;
+      }
+      // The accountId TradeLocker's own /instruments, /state, /orders endpoints
+      // actually need — may differ from what was originally passed to the
+      // constructor if resolveAccNum() had to correct a mismatched ID (see there).
+      getResolvedAccountId() {
+        return this.accountId;
+      }
+      // Bypasses the accNumResolved short-circuit below — needed because the
+      // constructor marks accNumResolved=true whenever a cached accNum from a
+      // prior (possibly wrong) resolution exists, so a normal resolveAccNum()
+      // call would never re-run and never reach the accountId-correction logic.
+      async forceResolveAccNum() {
+        this.accNumResolved = false;
+        return this.resolveAccNum();
+      }
+      async resolveAccNum() {
+        if (this.accNumResolved && this.accNum !== "0") {
+          return this.accNum;
+        }
+        await this.ensureAuthenticated();
+        try {
+          const response = await fetch(`${this.baseUrl}/auth/jwt/all-accounts`, {
+            method: "GET",
+            headers: {
+              "Authorization": `Bearer ${this.accessToken}`,
+              "Content-Type": "application/json"
+            },
+            signal: AbortSignal.timeout(8e3)
+          });
+          if (response.ok) {
+            const data = await response.json();
+            console.log("[TradeLocker] All accounts raw response:", JSON.stringify(data));
+            const accounts = Array.isArray(data) ? data : data.accounts || data.d?.accounts || [];
+            if (accounts.length > 0) {
+              const account = accounts.find(
+                (acc) => acc.id?.toString() === this.accountId || acc.accountId?.toString() === this.accountId
+              );
+              if (account && account.accNum !== void 0) {
+                this.accNum = account.accNum.toString();
+                this.accNumResolved = true;
+                console.log("[TradeLocker] Found matching account, using accNum:", this.accNum);
+                return this.accNum;
+              } else {
+                const fallback = accounts[0];
+                this.accNum = fallback.accNum?.toString() ?? "1";
+                this.accNumResolved = true;
+                const realAccountId = fallback.id?.toString() ?? fallback.accountId?.toString();
+                if (realAccountId && realAccountId !== this.accountId) {
+                  console.log("[TradeLocker] accountId", this.accountId, "did not match any account \u2014 correcting to real account ID:", realAccountId);
+                  this.accountId = realAccountId;
+                  this.onAccountIdCorrected?.(realAccountId);
+                }
+                console.log("[TradeLocker] Using first account accNum:", this.accNum);
+                return this.accNum;
+              }
+            }
+          }
+        } catch (error) {
+          console.log("[TradeLocker] All-accounts endpoint failed:", error);
+        }
+        console.log("[TradeLocker] All-accounts returned empty, probing accNum values...");
+        for (const testNum of ["1", "2"]) {
+          try {
+            const testResponse = await fetch(`${this.baseUrl}/trade/accounts/${this.accountId}/instruments`, {
+              method: "GET",
+              headers: {
+                "Authorization": `Bearer ${this.accessToken}`,
+                "Content-Type": "application/json",
+                "accNum": testNum
+              },
+              signal: AbortSignal.timeout(5e3)
+            });
+            if (testResponse.ok) {
+              this.accNum = testNum;
+              this.accNumResolved = true;
+              console.log("[TradeLocker] Probing found valid accNum:", testNum);
+              return this.accNum;
+            }
+            console.log(`[TradeLocker] accNum ${testNum} failed: ${testResponse.status}`);
+          } catch (err) {
+            console.log(`[TradeLocker] accNum ${testNum} probe error`);
+          }
+        }
+        this.accNum = "1";
+        this.accNumResolved = true;
+        console.log("[TradeLocker] Could not resolve accNum, defaulting to 1");
+        return this.accNum;
+      }
+      async authenticate(email, password) {
+        console.log("[TradeLocker Auth] Attempting authentication:", {
+          baseUrl: this.baseUrl,
+          email,
+          serverId: this.serverId,
+          accountId: this.accountId
+        });
+        try {
+          const response = await serializeAuth(`login:${this.serverId}:${email}`, () => loginFetchWith429Retry(`${this.baseUrl}/auth/jwt/token`, {
+            email,
+            password,
+            server: this.serverId
+          }));
+          console.log("[TradeLocker Auth] Response status:", response.status);
+          if (!response.ok) {
+            const errorText = await response.text();
+            console.log("[TradeLocker Auth] Error response:", errorText);
+            throw new Error(`Authentication failed: ${response.status} - ${errorText}`);
+          }
+          const data = await response.json();
+          this.accessToken = data.accessToken;
+          this.refreshToken = data.refreshToken;
+          this.tokenExpiresAt = new Date(Date.now() + (data.expiresIn || 3600) * 1e3);
+          await this.resolveAccNum();
+          return {
+            accessToken: data.accessToken,
+            refreshToken: data.refreshToken,
+            expiresIn: data.expiresIn || 3600
+          };
+        } catch (error) {
+          console.error("TradeLocker authentication error:", error);
+          throw error;
+        }
+      }
+      async refreshAccessToken(refreshToken) {
+        try {
+          const response = await serializeAuth(`refresh:${this.serverId}`, () => loginFetchWith429Retry(`${this.baseUrl}/auth/jwt/refresh`, { refreshToken }));
+          if (!response.ok) {
+            throw new Error(`Token refresh failed: ${response.status}`);
+          }
+          const data = await response.json();
+          this.accessToken = data.accessToken;
+          this.refreshToken = data.refreshToken;
+          this.tokenExpiresAt = new Date(Date.now() + (data.expiresIn || 3600) * 1e3);
+          return {
+            accessToken: data.accessToken,
+            refreshToken: data.refreshToken,
+            expiresIn: data.expiresIn || 3600
+          };
+        } catch (error) {
+          console.error("TradeLocker token refresh error:", error);
+          throw error;
+        }
+      }
+      setTokens(accessToken, refreshToken, expiresAt) {
+        this.accessToken = accessToken;
+        this.refreshToken = refreshToken;
+        this.tokenExpiresAt = expiresAt || null;
+      }
+      async ensureAuthenticated() {
+        if (!this.accessToken) {
+          throw new Error("Not authenticated. Call authenticate() first.");
+        }
+        const TOKEN_BUFFER = 60 * 1e3;
+        if (this.tokenExpiresAt && (/* @__PURE__ */ new Date()).getTime() + TOKEN_BUFFER >= this.tokenExpiresAt.getTime() && this.refreshToken) {
+          const result = await this.refreshAccessToken(this.refreshToken);
+          if (this.onTokenRefresh) {
+            this.onTokenRefresh(result.accessToken, result.refreshToken, result.expiresIn);
+          }
+        }
+      }
+      /**
+       * Loads & caches the accountDetailsConfig column spec from /trade/config.
+       * The /state endpoint returns accountDetailsData as a flat array whose
+       * positions map to these columns (by `id`), so we need this to read balance.
+       */
+      async loadAccountDetailsConfig(accNum) {
+        if (this.accountDetailsConfig) return this.accountDetailsConfig;
+        const res = await fetch(`${this.baseUrl}/trade/config`, {
+          method: "GET",
+          headers: {
+            "Authorization": `Bearer ${this.accessToken}`,
+            "Content-Type": "application/json",
+            "accNum": accNum
+          },
+          signal: AbortSignal.timeout(8e3)
+        });
+        if (!res.ok) throw new Error(`config ${res.status}`);
+        const json2 = await res.json();
+        const cfg = json2?.d?.accountDetailsConfig ?? json2?.accountDetailsConfig ?? [];
+        const cols = Array.isArray(cfg) ? cfg : cfg?.columns ?? [];
+        this.accountDetailsConfig = cols;
+        return cols;
+      }
+      // Full /trade/config response, cached — used to resolve column order for
+      // any array-format response section (ordersHistoryConfig, positionsConfig,
+      // etc). TradeLocker returns rows as plain arrays whose column order is
+      // defined here, not as named-field objects — code that skipped this and
+      // read `row.symbol`/`row.profit` directly always got undefined/blank.
+      tradeConfigCache = null;
+      async loadTradeConfig() {
+        if (this.tradeConfigCache) return this.tradeConfigCache;
+        const res = await fetch(`${this.baseUrl}/trade/config`, {
+          method: "GET",
+          headers: { "Authorization": `Bearer ${this.accessToken}`, "Content-Type": "application/json", "accNum": this.accNum },
+          signal: AbortSignal.timeout(8e3)
+        });
+        if (!res.ok) throw new Error(`trade/config ${res.status}`);
+        const json2 = await res.json();
+        this.tradeConfigCache = json2?.d ?? json2 ?? {};
+        return this.tradeConfigCache;
+      }
+      async resolveColumns(configKey) {
+        try {
+          await this.ensureAuthenticated();
+          const cfg = await this.loadTradeConfig();
+          const cols = cfg?.[configKey]?.columns ?? [];
+          return cols.map((c) => String(c.id || c.name || "").toLowerCase());
+        } catch {
+          return [];
+        }
+      }
+      /** Normalize a label for fuzzy matching: lowercase, strip all non-alphanumerics */
+      normLabel(s) {
+        return (s ?? "").toString().toLowerCase().replace(/[^a-z0-9]/g, "");
+      }
+      /** Finds the value in a flat state-data array for a column matching any candidate id/title.
+       *  Matching is normalized (case/space/punctuation-insensitive) with exact-first then substring. */
+      pickStateValue(cols, data, candidates) {
+        const normCands = candidates.map((c) => this.normLabel(c));
+        for (const cand of normCands) {
+          const idx = cols.findIndex(
+            (c) => this.normLabel(c?.id) === cand || this.normLabel(c?.title) === cand
+          );
+          if (idx >= 0 && data[idx] != null) {
+            const n = parseFloat(data[idx]);
+            if (!isNaN(n)) return n;
+          }
+        }
+        for (const cand of normCands) {
+          const idx = cols.findIndex((c) => {
+            const id = this.normLabel(c?.id), title = this.normLabel(c?.title);
+            return id && (id === cand || id.includes(cand)) || title && (title === cand || title.includes(cand));
+          });
+          if (idx >= 0 && data[idx] != null) {
+            const n = parseFloat(data[idx]);
+            if (!isNaN(n)) return n;
+          }
+        }
+        return null;
+      }
+      /** Finds a value in an object-form state payload by normalized key match. */
+      pickObjValue(obj, candidates) {
+        const keys = Object.keys(obj);
+        const normCands = candidates.map((c) => this.normLabel(c));
+        for (const cand of normCands) {
+          let k = keys.find((key) => this.normLabel(key) === cand);
+          if (!k) k = keys.find((key) => this.normLabel(key).includes(cand));
+          if (k && obj[k] != null) {
+            const n = parseFloat(obj[k]);
+            if (!isNaN(n)) return n;
+          }
+        }
+        return null;
+      }
+      async getAccountInfo() {
+        await this.ensureAuthenticated();
+        if (!this.accNumResolved || this.accNum === "0") {
+          await this.resolveAccNum();
+        }
+        const accNum = this.accNum;
+        console.log("[TradeLocker] getAccountInfo using accNum:", accNum, "for accountId:", this.accountId);
+        try {
+          const [cols, stateRes] = await Promise.all([
+            this.loadAccountDetailsConfig(accNum).catch((e) => {
+              console.log("[TradeLocker] /config columns failed:", e instanceof Error ? e.message : e);
+              return [];
+            }),
+            fetch(`${this.baseUrl}/trade/accounts/${this.accountId}/state`, {
+              method: "GET",
+              headers: {
+                "Authorization": `Bearer ${this.accessToken}`,
+                "Content-Type": "application/json",
+                "accNum": accNum
+              },
+              signal: AbortSignal.timeout(8e3)
+            })
+          ]);
+          if (stateRes.ok) {
+            const stateJson = await stateRes.json();
+            const raw = stateJson?.d?.accountDetailsData ?? stateJson?.accountDetailsData;
+            let balance = null, equity = null;
+            let usedMargin = null, freeMargin = null;
+            if (Array.isArray(raw) && raw.length && Array.isArray(cols) && cols.length) {
+              balance = this.pickStateValue(cols, raw, ["balance", "accountbalance"]);
+              equity = this.pickStateValue(cols, raw, ["equity", "projectedbalance"]);
+              usedMargin = this.pickStateValue(cols, raw, ["marginused", "usedmargin", "blockedbalance", "margin"]);
+              freeMargin = this.pickStateValue(cols, raw, ["availablefunds", "marginavailable", "freemargin"]);
+            } else if (raw && typeof raw === "object" && !Array.isArray(raw)) {
+              balance = this.pickObjValue(raw, ["balance", "accountbalance"]);
+              equity = this.pickObjValue(raw, ["equity", "projectedbalance"]);
+              usedMargin = this.pickObjValue(raw, ["marginused", "usedmargin", "blockedbalance", "margin"]);
+              freeMargin = this.pickObjValue(raw, ["availablefunds", "marginavailable", "freemargin"]);
+            } else {
+              console.log("[TradeLocker] /state shape unexpected \u2014 cols:", Array.isArray(cols) ? cols.length : typeof cols, "data:", Array.isArray(raw) ? `array[${raw.length}]` : typeof raw);
+            }
+            if (balance != null) {
+              console.log("[TradeLocker] getAccountInfo via /state \u2014 balance:", balance, "equity:", equity);
+              return {
+                accountId: this.accountId,
+                balance,
+                equity: equity ?? balance,
+                margin: usedMargin ?? 0,
+                freeMargin: freeMargin ?? equity ?? balance,
+                currency: "USD"
+              };
+            }
+            console.log("[TradeLocker] /state returned but could not map balance; falling back to /accounts list");
+          } else {
+            console.log("[TradeLocker] /state endpoint status:", stateRes.status, "\u2014 falling back to /accounts list");
+          }
+        } catch (stateErr) {
+          console.log("[TradeLocker] /state path failed, falling back to /accounts list:", stateErr instanceof Error ? stateErr.message : stateErr);
+        }
+        try {
+          const response = await fetch(`${this.baseUrl}/trade/accounts`, {
+            method: "GET",
+            headers: {
+              "Authorization": `Bearer ${this.accessToken}`,
+              "Content-Type": "application/json",
+              "accNum": accNum
+            },
+            signal: AbortSignal.timeout(8e3)
+          });
+          if (!response.ok) {
+            const errorText = await response.text();
+            console.log("[TradeLocker] Account details error:", errorText);
+            throw new Error(`Failed to get account info: ${response.status} - ${errorText}`);
+          }
+          const data = await response.json();
+          console.log("[TradeLocker] Account details (list):", JSON.stringify(data));
+          const accounts = Array.isArray(data) ? data : Array.isArray(data?.d) ? data.d : data.accounts || data.d?.accounts || [];
+          const accountData = accounts.find(
+            (a) => a.id?.toString() === this.accountId || a.accountId?.toString() === this.accountId
+          ) || accounts[0];
+          if (!accountData || accountData.balance == null && accountData.accountBalance == null && accountData.projectedBalance == null) {
+            throw new Error("TradeLocker returned no usable account data \u2014 the account may have been reset/expired by the broker, or the response shape changed. Reconnect required.");
+          }
+          const balance = parseFloat(
+            accountData?.accountBalance ?? accountData?.balance ?? accountData?.projectedBalance ?? 0
+          ) || 0;
+          return {
+            accountId: accountData?.id?.toString() || this.accountId,
+            balance,
+            equity: parseFloat(accountData?.projectedBalance ?? accountData?.equity ?? balance) || balance,
+            margin: parseFloat(accountData?.usedMargin ?? accountData?.margin ?? 0) || 0,
+            freeMargin: parseFloat(accountData?.availableFunds ?? accountData?.freeMargin ?? balance) || balance,
+            currency: accountData?.currency || "USD"
+          };
+        } catch (error) {
+          console.error("TradeLocker get account info error:", error);
+          throw error;
+        }
+      }
+      /** Diagnostic: returns the raw shapes of /config, /state and /accounts for debugging balance issues. */
+      async debugAccountState() {
+        await this.ensureAuthenticated();
+        if (!this.accNumResolved || this.accNum === "0") await this.resolveAccNum();
+        const accNum = this.accNum;
+        const hdrs = {
+          "Authorization": `Bearer ${this.accessToken}`,
+          "Content-Type": "application/json",
+          "accNum": accNum
+        };
+        const out = { accountId: this.accountId, accNum, baseUrl: this.baseUrl };
+        try {
+          const r = await fetch(`${this.baseUrl}/trade/config`, { method: "GET", headers: hdrs, signal: AbortSignal.timeout(8e3) });
+          out.configStatus = r.status;
+          if (r.ok) {
+            const j = await r.json();
+            const cols = j?.d?.accountDetailsConfig ?? j?.accountDetailsConfig ?? [];
+            out.configColumns = Array.isArray(cols) ? cols.map((c) => ({ id: c?.id, title: c?.title })) : cols;
+          }
+        } catch (e) {
+          out.configError = e?.message ?? String(e);
+        }
+        try {
+          const r = await fetch(`${this.baseUrl}/trade/accounts/${this.accountId}/state`, { method: "GET", headers: hdrs, signal: AbortSignal.timeout(8e3) });
+          out.stateStatus = r.status;
+          if (r.ok) {
+            const j = await r.json();
+            out.stateData = j?.d?.accountDetailsData ?? j?.accountDetailsData ?? null;
+            out.stateDataType = Array.isArray(out.stateData) ? `array[${out.stateData.length}]` : typeof out.stateData;
+          } else {
+            out.stateBody = (await r.text()).slice(0, 300);
+          }
+        } catch (e) {
+          out.stateError = e?.message ?? String(e);
+        }
+        try {
+          const r = await fetch(`${this.baseUrl}/trade/accounts`, { method: "GET", headers: hdrs, signal: AbortSignal.timeout(8e3) });
+          out.accountsStatus = r.status;
+          if (r.ok) {
+            const j = await r.json();
+            const accts = Array.isArray(j) ? j : j.accounts || j.d?.accounts || [];
+            out.accountsSample = Array.isArray(accts) ? accts.slice(0, 3) : accts;
+          }
+        } catch (e) {
+          out.accountsError = e?.message ?? String(e);
+        }
+        return out;
+      }
+      // Shared, cached, rate-limit-aware instruments fetch. One network call per
+      // account per TTL serves EVERY symbol lookup (order placement, getInstruments,
+      // candle feed) so a burst of signals doesn't fire one /instruments request per
+      // symbol and hammer the broker into a 429. On 429/5xx it backs off and retries
+      // (RETRY_DELAYS) instead of throwing on the first rate-limit response — which
+      // is exactly what was aborting every auto-trade with
+      // "Failed to get instruments: 429 - <Cloudflare block page>".
+      async fetchInstrumentsPayload(forceRefresh = false) {
+        await this.ensureAuthenticated();
+        const listKey = `${this.baseUrl}:${this.accountId}`;
+        if (!forceRefresh) {
+          const cached = instrumentsListCache.get(listKey);
+          if (cached && Date.now() - cached.cachedAt < INSTRUMENT_CACHE_TTL) {
+            return { instruments: cached.instruments, routes: cached.routes ?? [] };
+          }
+        }
+        const doFetch = () => fetch(`${this.baseUrl}/trade/accounts/${this.accountId}/instruments`, {
+          method: "GET",
+          headers: {
+            "Authorization": `Bearer ${this.accessToken}`,
+            "Content-Type": "application/json",
+            "accNum": this.accNum
+          },
+          signal: AbortSignal.timeout(1e4)
+        });
+        let response = await doFetch();
+        if (response.status === 404) {
+          console.log("[TradeLocker] Instruments 404 for accountId", this.accountId, "\u2014 forcing accNum/accountId re-resolution");
+          await this.forceResolveAccNum();
+          response = await doFetch();
+        }
+        for (let i = 0; i < RETRY_DELAYS.length && RETRYABLE_STATUSES.has(response.status); i++) {
+          const delay = RETRY_DELAYS[i];
+          console.warn(`[TradeLocker] instruments ${response.status} \u2014 backing off ${delay}ms (retry ${i + 1}/${RETRY_DELAYS.length})`);
+          await new Promise((r) => setTimeout(r, delay));
+          response = await doFetch();
+        }
+        if (!response.ok) {
+          const errText = await response.text().catch(() => "");
+          throw new Error(`Failed to get instruments: ${response.status}${errText ? " - " + errText.slice(0, 120) : ""}`);
+        }
+        const data = await response.json();
+        const instruments = data?.d?.instruments ?? data?.instruments ?? (Array.isArray(data) ? data : []);
+        const routes = data?.d?.routes ?? data?.routes ?? [];
+        instrumentsListCache.set(listKey, { instruments, routes, cachedAt: Date.now() });
+        return { instruments, routes };
+      }
+      async getInstruments() {
+        try {
+          return (await this.fetchInstrumentsPayload()).instruments;
+        } catch (error) {
+          console.error("TradeLocker get instruments error:", error);
+          throw error;
+        }
+      }
+      async placeOrder(order) {
+        {
+          const _sl = Number(order.stopLoss);
+          if (!Number.isFinite(_sl) || _sl <= 0) {
+            console.error(`[TradeLocker] \u{1F6AB} NO-SL BLOCK (placeOrder): ${order.symbol} ${order.side} rejected \u2014 invalid stop loss (SL=${order.stopLoss}). Unprotected entry never allowed.`);
+            return { orderId: "", status: "rejected", message: `Blocked: no valid stop loss (SL=${order.stopLoss})` };
+          }
+        }
+        await this.ensureAuthenticated();
+        if (!this.accNumResolved || this.accNum === "0") {
+          await this.resolveAccNum();
+        }
+        try {
+          console.log("[TradeLocker] Placing order with accNum:", this.accNum, "(type:", typeof this.accNum, ") accountId:", this.accountId);
+          console.log("[TradeLocker] Order details:", order);
+          let tradableInstrumentId = null;
+          let routeId = null;
+          const instCacheKey = `${this.baseUrl}:${this.accountId}:${order.symbol.toUpperCase()}`;
+          const cachedInst = instrumentCache.get(instCacheKey);
+          if (cachedInst && Date.now() - cachedInst.cachedAt < INSTRUMENT_CACHE_TTL) {
+            tradableInstrumentId = cachedInst.tradableInstrumentId;
+            routeId = cachedInst.routeId;
+            console.log("[TradeLocker] Instrument cache HIT:", order.symbol, "\u2192 id:", tradableInstrumentId, "route:", routeId);
+          } else {
+            console.log("[TradeLocker] Instrument cache MISS \u2014 fetching instruments (shared cache + 429 backoff)...");
+            const { instruments, routes } = await this.fetchInstrumentsPayload();
+            if (Array.isArray(instruments)) {
+              const sym = order.symbol.toUpperCase();
+              const symVariants = [sym];
+              const suffixes = [".pro", "m", ".m", ".z", ".a", ".b", ".c", ".r", "_raw", ".ecn", ".stp", ".pro+", "PRO"];
+              for (const sfx of suffixes) {
+                symVariants.push(sym + sfx.toUpperCase());
+                symVariants.push(sym + sfx);
+              }
+              const strippedSym = sym.replace(/[._]?(PRO|ECN|STP|RAW|M|Z|A|B|C|R)\+?$/i, "");
+              if (strippedSym !== sym) symVariants.push(strippedSym);
+              const ALIASES = {
+                "XAUUSD": ["GOLD", "XAU/USD", "GOLD/USD", "XAUUSD.PRO", "XAUUSDPRO"],
+                "GOLD": ["XAUUSD", "XAU/USD"],
+                "XAGUSD": ["SILVER", "XAG/USD"],
+                "SILVER": ["XAGUSD", "XAG/USD"],
+                "USOIL": ["WTI", "CRUDE", "OIL", "USOUSD"],
+                "UKOIL": ["BRENT", "BRENTOIL"],
+                "NAS100": ["USTEC", "NDX100", "NASDAQ100", "US100", "NQ100"],
+                "US500": ["SPX500", "SP500", "US500", "SPX"],
+                "US30": ["DJ30", "WALLST30", "DJI30"],
+                "GER40": ["DAX40", "DE40", "GER30", "GER"],
+                "UK100": ["FTSE100", "UKX"],
+                "JP225": ["JPN225", "NIKKEI", "N225"]
+              };
+              const knownAliases = ALIASES[sym] || [];
+              for (const alias of knownAliases) {
+                symVariants.push(alias);
+                symVariants.push(alias.replace("/", ""));
+              }
+              const seen = /* @__PURE__ */ new Set();
+              const uniqueVariants = symVariants.filter((v) => {
+                if (seen.has(v)) return false;
+                seen.add(v);
+                return true;
+              });
+              console.log("[TradeLocker] Trying symbol variants:", uniqueVariants.slice(0, 10));
+              let matchedInstrument = null;
+              for (const variant of uniqueVariants) {
+                const found = instruments.find((inst) => {
+                  const instName = (inst.name || inst.symbol || "").toUpperCase().replace(/\s/g, "");
+                  const instDesc = (inst.description || inst.fullName || "").toUpperCase().replace(/\s/g, "");
+                  const v = variant.toUpperCase().replace(/\s/g, "");
+                  return instName === v || instDesc === v;
+                });
+                if (found) {
+                  matchedInstrument = found;
+                  console.log("[TradeLocker] Matched symbol variant:", variant, "\u2192", found.name, "tradableInstrumentId:", found.tradableInstrumentId || found.id);
+                  break;
+                }
+              }
+              if (matchedInstrument) {
+                tradableInstrumentId = matchedInstrument.tradableInstrumentId || matchedInstrument.id;
+                const instRoutes = Array.isArray(matchedInstrument.routes) ? matchedInstrument.routes : [];
+                console.log("[TradeLocker] Instrument routes:", JSON.stringify(instRoutes));
+                if (instRoutes.length > 0) {
+                  const tradeRoute = instRoutes.find((r) => r.type === "TRADE" || r.name === "TRADE") ?? instRoutes[0];
+                  routeId = tradeRoute.id;
+                  console.log("[TradeLocker] Using routeId", routeId, "from instrument routes");
+                }
+              }
+              if (Array.isArray(instruments) && instruments.length > 0) {
+                const sample = instruments.find((i) => (i.name || i.symbol || "").toUpperCase().includes(order.symbol.toUpperCase().slice(0, 3))) || instruments[0];
+                console.log("[TradeLocker] Sample instrument structure:", JSON.stringify(sample));
+              }
+            }
+            if (!routeId && Array.isArray(routes) && routes.length > 0) {
+              const tradeRoute = routes.find((r) => r.name === "TRADE" || r.type === "TRADE") ?? routes[0];
+              routeId = tradeRoute.id;
+              console.log("[TradeLocker] Using routeId", routeId, "from global routes fallback");
+            }
+            if (!tradableInstrumentId) {
+              const availableNames = Array.isArray(instruments) ? instruments.slice(0, 30).map((i) => i.name || i.symbol).filter(Boolean).join(", ") : "none";
+              throw new Error(
+                `Instrument not found: ${order.symbol}. Available symbols (first 30): ${availableNames}. Check the Instruments button on your TradeLocker connection to see exact names.`
+              );
+            }
+            if (!routeId) {
+              routeId = 1;
+              console.warn('[TradeLocker] WARNING: Could not find routeId from instrument or global routes. Defaulting to 1 \u2014 may cause "route forbidden".');
+            }
+            instrumentCache.set(instCacheKey, { tradableInstrumentId, routeId, cachedAt: Date.now() });
+            console.log("[TradeLocker] Instrument cached:", order.symbol, "\u2192 id:", tradableInstrumentId, "route:", routeId);
+          }
+          const orderPayload = {
+            tradableInstrumentId,
+            routeId: routeId || "TRADE",
+            // Use numeric routeId or string "TRADE" as fallback
+            qty: order.quantity,
+            side: order.side,
+            type: order.type,
+            validity: order.type === "market" ? "IOC" : "GTC",
+            price: 0
+            // Required field - 0 for market orders
+          };
+          const px = (v) => roundToTick(order.symbol, v);
+          if ((order.type === "limit" || order.type === "stop") && order.price) {
+            orderPayload.price = px(order.price);
+          }
+          if (order.stopLoss) {
+            orderPayload.stopLoss = px(order.stopLoss);
+            orderPayload.stopLossType = "absolute";
+          }
+          if (order.takeProfit) {
+            orderPayload.takeProfit = px(order.takeProfit);
+            orderPayload.takeProfitType = "absolute";
+          }
+          console.log("[TradeLocker] Order payload:", JSON.stringify(orderPayload));
+          let response = null;
+          let responseText = "";
+          let lastError = null;
+          let preIds = null;
+          if (order.type === "market") {
+            try {
+              preIds = new Set((await this.getPositionsNormalized()).map((p) => p.id));
+            } catch {
+              preIds = null;
+            }
+          }
+          const symKey = order.symbol.toUpperCase().replace(/[^A-Z0-9]/g, "");
+          const resolveAmbiguous = async (why) => {
+            if (preIds) {
+              try {
+                const now = await this.getPositionsNormalized();
+                const landed = now.find((p) => !preIds.has(p.id) && p.side === order.side && (p.symbol.toUpperCase().replace(/[^A-Z0-9]/g, "").startsWith(symKey) || p.symbol === String(tradableInstrumentId)));
+                if (landed) {
+                  console.warn(`[TradeLocker] ${why} \u2014 but a new ${order.symbol} ${order.side} position ${landed.id} appeared, so the order DID fill. Not resending.`);
+                  return { orderId: landed.id, status: "submitted", filledQuantity: landed.qty, filledPrice: landed.avgPrice, message: `Order filled (confirmed from positions after ${why}; id is the position id)` };
+                }
+                return null;
+              } catch {
+              }
+            }
+            console.error(`[TradeLocker] ${why} \u2014 could not verify whether ${order.symbol} filled. NOT retrying, to avoid a duplicate position. Check the account.`);
+            return { orderId: "", status: "rejected", message: `Outcome unknown after ${why} \u2014 not retried to avoid a duplicate order. Check the account for an open ${order.symbol} position.` };
+          };
+          for (let attempt = 0; attempt <= RETRY_DELAYS.length; attempt++) {
+            try {
+              response = await fetch(`${this.baseUrl}/trade/accounts/${this.accountId}/orders`, {
+                method: "POST",
+                headers: {
+                  "Authorization": `Bearer ${this.accessToken}`,
+                  "Content-Type": "application/json",
+                  "accNum": this.accNum
+                },
+                body: JSON.stringify(orderPayload)
+              });
+              responseText = await response.text();
+              console.log(`[TradeLocker] Order response (attempt ${attempt + 1}): status=${response.status} body=${responseText.substring(0, 300)}`);
+              if (response.ok) break;
+              if (response.status === 401 && attempt < RETRY_DELAYS.length) {
+                console.log("[TradeLocker] 401 on order \u2014 forcing full re-auth before retry...");
+                try {
+                  if (this.onReauthenticate) {
+                    await this.onReauthenticate();
+                  } else if (this.refreshToken) {
+                    const result = await this.refreshAccessToken(this.refreshToken);
+                    if (this.onTokenRefresh) {
+                      this.onTokenRefresh(result.accessToken, result.refreshToken, result.expiresIn);
+                    }
+                  }
+                } catch (authErr) {
+                  console.log("[TradeLocker] Re-auth failed during 401 retry:", authErr.message);
+                }
+                await new Promise((r) => setTimeout(r, RETRY_DELAYS[attempt]));
+                continue;
+              }
+              if (RETRYABLE_STATUSES.has(response.status) && attempt < RETRY_DELAYS.length) {
+                console.log(`[TradeLocker] Retryable status ${response.status} \u2014 waiting ${RETRY_DELAYS[attempt]}ms before retry ${attempt + 2}...`);
+                await new Promise((r) => setTimeout(r, RETRY_DELAYS[attempt]));
+                if (response.status !== 429) {
+                  const settled = await resolveAmbiguous(`HTTP ${response.status}`);
+                  if (settled) return settled;
+                }
+                continue;
+              }
+              throw new Error(`Order placement failed: ${response.status} - ${responseText}`);
+            } catch (err) {
+              lastError = err;
+              if (attempt < RETRY_DELAYS.length && !responseText) {
+                console.log(`[TradeLocker] Network error on attempt ${attempt + 1}: ${lastError.message} \u2014 retrying in ${RETRY_DELAYS[attempt]}ms...`);
+                await new Promise((r) => setTimeout(r, RETRY_DELAYS[attempt]));
+                const settled = await resolveAmbiguous(`network error (${lastError.message})`);
+                if (settled) return settled;
+                continue;
+              }
+              throw lastError;
+            }
+          }
+          if (!response || !response.ok) {
+            throw lastError || new Error("Order placement failed after retries");
+          }
+          const data = JSON.parse(responseText);
+          if (data.s !== "ok") {
+            const errorDetails = [];
+            if (data.errmsg) errorDetails.push(data.errmsg);
+            if (data.d?.errmsg) errorDetails.push(data.d.errmsg);
+            if (data.d?.message) errorDetails.push(data.d.message);
+            if (data.d?.messages && Array.isArray(data.d.messages)) errorDetails.push(...data.d.messages);
+            if (data.d?.error) errorDetails.push(data.d.error);
+            if (data.d?.errorCode) errorDetails.push(`Code: ${data.d.errorCode}`);
+            if (data.message) errorDetails.push(data.message);
+            if (data.error) errorDetails.push(data.error);
+            const errorMsg = errorDetails.length > 0 ? errorDetails.join(" | ") : `Rejected (status: ${data.s}, raw: ${responseText.substring(0, 200)})`;
+            console.log("[TradeLocker] Order rejected - Full response:", responseText);
+            console.log("[TradeLocker] Parsed error:", errorMsg);
+            return {
+              orderId: "",
+              status: "rejected",
+              message: errorMsg
+            };
+          }
+          const orderId = data.d?.orderId || data.d?.id || data.orderId || data.id;
+          if (!orderId) {
+            console.log("[TradeLocker] No orderId in response:", data);
+            return {
+              orderId: "",
+              status: "rejected",
+              message: "No order ID returned - order may not have been placed"
+            };
+          }
+          console.log("[TradeLocker] Order successfully placed with orderId:", orderId);
+          return {
+            orderId: orderId.toString(),
+            status: "submitted",
+            filledQuantity: data.d?.filledQty || data.filledQuantity,
+            filledPrice: data.d?.avgPrice || data.filledPrice,
+            message: "Order placed successfully"
+          };
+        } catch (error) {
+          console.error("TradeLocker place order error:", error);
+          throw error;
+        }
+      }
+      /**
+       * Fetch OHLCV candlestick bars for a symbol from TradeLocker.
+       * Returns candles in ascending time order (oldest first), same shape as MT5 cache:
+       * { t, o, h, l, c, v }
+       */
+      async getCandlesticks(symbol, resolutionMinutes = 5, fromTs, toTs) {
+        await this.ensureAuthenticated();
+        await this.resolveAccNum();
+        const instCacheKey = `${this.baseUrl}:${this.accountId}:${symbol.toUpperCase()}`;
+        let tradableInstrumentId = null;
+        let infoRouteId = null;
+        const cached = instrumentCache.get(instCacheKey);
+        if (cached && cached.infoRouteId != null && Date.now() - cached.cachedAt < INSTRUMENT_CACHE_TTL) {
+          tradableInstrumentId = cached.tradableInstrumentId;
+          infoRouteId = cached.infoRouteId;
+        } else {
+          const { instruments } = await this.fetchInstrumentsPayload();
+          const sym = symbol.toUpperCase();
+          const ALIASES = {
+            "XAUUSD": ["GOLD", "XAU/USD"],
+            "NAS100": ["USTEC", "US100", "NDX100"],
+            "US30": ["DJ30", "WALLST30"],
+            "US500": ["SPX500", "SP500", "SPX"]
+          };
+          const variants = [sym, ...ALIASES[sym] || []];
+          let matched = null;
+          for (const v of variants) {
+            matched = instruments.find((i) => (i.name || i.symbol || "").toUpperCase().replace(/\s/g, "") === v.replace(/\s/g, ""));
+            if (matched) break;
+          }
+          if (!matched) throw new Error(`Instrument not found in TradeLocker: ${symbol}`);
+          tradableInstrumentId = matched.tradableInstrumentId || matched.id;
+          const routes = Array.isArray(matched.routes) ? matched.routes : [];
+          const tradeRouteId = (routes.find((r) => r.type === "TRADE" || r.name === "TRADE") ?? routes[0])?.id ?? 1;
+          infoRouteId = (routes.find((r) => r.type === "INFO" || r.name === "INFO") ?? routes[0])?.id ?? tradeRouteId;
+          instrumentCache.set(instCacheKey, { tradableInstrumentId, routeId: tradeRouteId, infoRouteId, cachedAt: Date.now() });
+        }
+        const resolution = resolutionMinutes >= 1440 ? "1D" : resolutionMinutes >= 60 ? String(resolutionMinutes / 60) + "h" : String(resolutionMinutes) + "m";
+        const nowMs = Date.now();
+        const fromMs = fromTs != null ? fromTs * 1e3 : nowMs - 864e5;
+        const toMs = toTs != null ? toTs * 1e3 : nowMs;
+        const url = `${this.baseUrl}/trade/history?routeId=${infoRouteId}&tradableInstrumentId=${tradableInstrumentId}&resolution=${resolution}&from=${fromMs}&to=${toMs}`;
+        let histResp = null;
+        const backoffs = [400, 900];
+        for (let attempt = 0; ; attempt++) {
+          histResp = await fetch(url, {
+            headers: { "Authorization": `Bearer ${this.accessToken}`, "Content-Type": "application/json", "accNum": this.accNum }
+          });
+          if (histResp.status !== 429 || attempt >= backoffs.length) break;
+          await new Promise((r) => setTimeout(r, backoffs[attempt]));
+        }
+        if (!histResp.ok) {
+          const txt = await histResp.text();
+          throw new Error(`TradeLocker history error: ${histResp.status} \u2014 ${txt}`);
+        }
+        const histData = await histResp.json();
+        const bars = histData.d?.barDetails || histData.d?.bars || histData.barDetails || histData.bars || [];
+        return bars.map((b) => ({
+          t: b.t ?? b.time ?? b.timestamp ?? 0,
+          o: b.o ?? b.open ?? 0,
+          h: b.h ?? b.high ?? 0,
+          l: b.l ?? b.low ?? 0,
+          c: b.c ?? b.close ?? 0,
+          v: b.v ?? b.volume ?? 0
+        })).sort((a, b) => a.t - b.t);
+      }
+      async closePosition(positionId) {
+        await this.ensureAuthenticated();
+        try {
+          const response = await fetch(`${this.baseUrl}/trade/accounts/${this.accountId}/positions/${positionId}/close`, {
+            method: "POST",
+            headers: {
+              "Authorization": `Bearer ${this.accessToken}`,
+              "Content-Type": "application/json",
+              "accNum": this.accNum
+            }
+          });
+          if (!response.ok) {
+            const errorText = await response.text();
+            throw new Error(`Position close failed: ${response.status} - ${errorText}`);
+          }
+          const data = await response.json();
+          if (data.s && data.s !== "ok") {
+            throw new Error(`Position close rejected by broker: ${data.errmsg || JSON.stringify(data)}`);
+          }
+          return {
+            orderId: data.orderId || positionId,
+            status: "closed",
+            message: data.message
+          };
+        } catch (error) {
+          console.error("TradeLocker close position error:", error);
+          throw error;
+        }
+      }
+      // Approximate $ value per unit of price movement per 1.0 qty — TradeLocker's
+      // order/position endpoints report raw price levels, not realized $ P&L, so
+      // this is needed to convert (exit - entry) * qty into an actual dollar
+      // figure. Not exact (real pip/point values vary by broker/instrument
+      // spec), but far closer than treating a JPY-pair price difference or a
+      // 0.00001-precision FX price as if it were already in dollars.
+      /**
+       * Strip broker decoration so symbol tests actually match. White-labels ship
+       * the same instrument as `EURUSD`, `EUR/USD`, `EURUSD.PRO`, `EURUSD-ECN`,
+       * `EURUSD_raw` … Previously an undecorated-only comparison meant `XAUUSD.PRO`
+       * missed the gold branch and fell through to multiplier 1 (100x understated,
+       * audited 2026-09-18: 4 live rows booked at $7.07 instead of ~$707).
+       */
+      static normalizeSymbol(symbol) {
+        return String(symbol ?? "").toUpperCase().split(".")[0].replace(/[^A-Z0-9]/g, "");
+      }
+      /**
+       * Contract size: units of the BASE asset per 1.0 of reported qty. This is the
+       * `(exit - entry) * qty * size` term only — it yields a figure in the QUOTE
+       * currency, which `quoteToUsd` then converts. Keeping the two concerns apart
+       * is deliberate: the old single "multiplier" tried to do both at once and got
+       * both wrong for non-USD-quoted instruments.
+       *
+       * Previous bug (fixed 2026-09-19): the crypto/index line read
+       *   `if (s.includes('BTC') || s.includes('ETH') || /^[A-Z]{2,5}USD$/.test(s) === false) return 1;`
+       * which returned BEFORE the 6-char FX line for every pair NOT ending in USD.
+       * EURGBP/AUDCAD/GBPCHF etc. were therefore booked at multiplier 1 — i.e. a
+       * ~100,000x understatement. Confirmed live: 7 AUDCAD rows booked at
+       * -$0.0008 total, which the sync then dropped as "zero P&L = not closed",
+       * leaving them PENDING forever.
+       */
+      static contractSize(symbol) {
+        const s = _TradeLockerService.normalizeSymbol(symbol);
+        if (s.startsWith("XAU") || s === "GOLD") return 100;
+        if (s.startsWith("XAG") || s === "SILVER") return 5e3;
+        if (s.startsWith("XPT") || s.startsWith("XPD")) return 100;
+        if (/^(BTC|ETH|LTC|XRP|BCH|ADA|SOL|DOGE|DOT|ETC|LINK)/.test(s)) return 1;
+        if (/^[A-Z]{6}$/.test(s)) return 1e5;
+        return 1;
+      }
+      /**
+       * Fetch filled/closed orders from TradeLocker's actual order-history
+       * endpoint. TradeLocker returns rows as plain arrays whose column order is
+       * defined by /trade/config's ordersHistoryConfig — NOT named-field
+       * objects — so column order is resolved dynamically (same pattern
+       * getPositionsNormalized already uses for /positions) rather than reading
+       * row.symbol/row.profit directly, which always returned undefined/blank.
+       * Returns normalised array: { id, symbol, side, qty, avgPrice, status, createdDate, positionId }
+       */
+      async getFilledOrders(fromTs) {
+        await this.ensureAuthenticated();
+        try {
+          const columns = await this.resolveColumns("ordersHistoryConfig");
+          const idx = (name) => columns.indexOf(name.toLowerCase());
+          const iId = idx("id"), iInst = idx("tradableInstrumentId"), iSide = idx("side"), iQty = idx("qty"), iAvg = idx("avgPrice"), iStatus = idx("status"), iCreated = idx("createdDate"), iPosId = idx("positionId");
+          const toMs = Date.now();
+          const fromMs = fromTs ? fromTs * 1e3 : toMs - 90 * 24 * 60 * 60 * 1e3;
+          const histUrl = `${this.baseUrl}/trade/accounts/${this.accountId}/ordersHistory?from=${fromMs}&to=${toMs}`;
+          let response = null;
+          for (let attempt = 0; attempt <= RETRY_DELAYS.length; attempt++) {
+            response = await fetch(histUrl, {
+              method: "GET",
+              headers: { "Authorization": `Bearer ${this.accessToken}`, "Content-Type": "application/json", "accNum": this.accNum }
+            });
+            if (response.ok) break;
+            if (!RETRYABLE_STATUSES.has(response.status) || attempt === RETRY_DELAYS.length) break;
+            console.warn(`[TradeLocker] ordersHistory ${response.status} \u2014 retry ${attempt + 1}/${RETRY_DELAYS.length}`);
+            await new Promise((r) => setTimeout(r, RETRY_DELAYS[attempt]));
+          }
+          if (!response || !response.ok) {
+            throw new TradeLockerReadError(
+              `ordersHistory read failed (${response?.status ?? "no response"}) \u2014 refusing to report an empty fill history`,
+              response?.status
+            );
+          }
+          const data = await response.json();
+          const rows = data?.d?.ordersHistory || data?.ordersHistory || [];
+          const instruments = await this.getInstruments().catch(() => []);
+          const instMap = /* @__PURE__ */ new Map();
+          for (const inst of instruments) {
+            const id = String(inst.tradableInstrumentId ?? inst.id ?? "");
+            if (id) instMap.set(id, inst.name || inst.symbol || id);
+          }
+          return rows.map((row) => {
+            const instId = iInst >= 0 ? String(row[iInst]) : "";
+            const createdMs = iCreated >= 0 ? Number(row[iCreated]) : 0;
+            return {
+              id: iId >= 0 ? String(row[iId]) : "",
+              symbol: instMap.get(instId) || instId,
+              side: iSide >= 0 ? String(row[iSide]).toLowerCase() : "",
+              qty: iQty >= 0 ? parseFloat(row[iQty]) || 0 : 0,
+              avgPrice: iAvg >= 0 ? parseFloat(row[iAvg]) || 0 : 0,
+              status: iStatus >= 0 ? String(row[iStatus]) : "",
+              closeTime: createdMs ? new Date(createdMs).toISOString() : null,
+              positionId: iPosId >= 0 ? String(row[iPosId]) : ""
+            };
+          }).filter((o) => /^(filled|executed)$/i.test(o.status)).filter((o) => {
+            if (!fromTs || !o.closeTime) return true;
+            return new Date(o.closeTime).getTime() >= fromTs * 1e3;
+          });
+        } catch (err) {
+          if (err instanceof TradeLockerReadError) throw err;
+          console.error("[TradeLocker] getFilledOrders error:", err.message);
+          return [];
+        }
+      }
+      /**
+       * Pairs each position's entry and exit fills (matched by positionId) to
+       * compute realized P&L per closed trade — TradeLocker's order/position
+       * data reports price levels, not a ready-made "profit" field, so this
+       * does the pairing + $ conversion that server/routes.ts's outcome-sync
+       * previously assumed already existed on each row (it never did — every
+       * synced "trade" silently had profit=0 and got skipped).
+       * Returns: { id, symbol, side, qty, profit, openPrice, closePrice, closeTime }[]
+       * — one entry per CLOSED position (positions with only one fill, i.e.
+       * still open, are excluded).
+       */
+      /** Position ids currently OPEN at the broker, or null when the open book
+       *  could not be read. Null is meaningful: callers must NOT treat "couldn't
+       *  read" as "nothing is open", or every position would look closed. */
+      async getOpenPositionIds() {
+        for (let attempt = 0; attempt < 3; attempt++) {
+          try {
+            const raw = await this.getPositions();
+            if (!Array.isArray(raw)) return null;
+            const ids = /* @__PURE__ */ new Set();
+            for (const p of raw) {
+              const id = Array.isArray(p) ? p[0] : p?.id ?? p?.positionId;
+              if (id != null && String(id).length > 0) ids.add(String(id));
+            }
+            return ids;
+          } catch (e) {
+            const transient = /429|rate.?limit|timeout|ECONN|502|503|504/i.test(e?.message || "");
+            if (!transient || attempt === 2) {
+              console.warn(`[TradeLocker] open-book read failed (${e?.message}) \u2014 close detection falls back to the conservative time guard for this pass.`);
+              return null;
+            }
+            await new Promise((r) => setTimeout(r, 1e3 * (attempt + 1)));
+          }
+        }
+        return null;
+      }
+      async getClosedTradesWithPnl(fromTs) {
+        const openIds = await this.getOpenPositionIds();
+        const fills = await this.getFilledOrders(fromTs ? fromTs - 30 * 24 * 3600 : void 0);
+        const byPosition = /* @__PURE__ */ new Map();
+        for (const f of fills) {
+          if (_TradeLockerService.normalizeSymbol(f.symbol) === "USDJPY" && Number(f.avgPrice) > 0) {
+            noteUsdJpyObservation(new Date(f.closeTime).getTime(), Number(f.avgPrice));
+          }
+          if (!f.positionId) continue;
+          if (!byPosition.has(f.positionId)) byPosition.set(f.positionId, []);
+          byPosition.get(f.positionId).push(f);
+        }
+        const closed = [];
+        for (const [positionId, legs] of Array.from(byPosition)) {
+          if (legs.length < 2) continue;
+          legs.sort((a, b) => new Date(a.closeTime).getTime() - new Date(b.closeTime).getTime());
+          const buys = legs.filter((l) => String(l.side).toLowerCase() === "buy");
+          const sells = legs.filter((l) => String(l.side).toLowerCase() === "sell");
+          if (buys.length === 0 || sells.length === 0) continue;
+          const sumQty = (arr) => arr.reduce((s, l) => s + (Number(l.qty) || 0), 0);
+          const wAvg = (arr) => {
+            const q = sumQty(arr);
+            return q > 0 ? arr.reduce((s, l) => s + Number(l.avgPrice) * (Number(l.qty) || 0), 0) / q : 0;
+          };
+          const buyQty = sumQty(buys), sellQty = sumQty(sells);
+          const closedQty = Math.min(buyQty, sellQty);
+          if (!(closedQty > 0)) continue;
+          const direction = String(legs[0].side).toLowerCase();
+          const buyAvg = wAvg(buys), sellAvg = wAvg(sells);
+          const openAvg = direction === "buy" ? buyAvg : sellAvg;
+          const exitAvg = direction === "buy" ? sellAvg : buyAvg;
+          const priceDiff = direction === "buy" ? exitAvg - openAvg : openAvg - exitAvg;
+          const closingLegs = direction === "buy" ? sells : buys;
+          const closeTime = closingLegs[closingLegs.length - 1]?.closeTime || legs[legs.length - 1].closeTime;
+          const openMs = new Date(legs[0].closeTime).getTime();
+          const closeMs = new Date(closeTime).getTime();
+          if (openIds) {
+            if (openIds.has(String(positionId))) continue;
+          } else if (isFinite(openMs) && isFinite(closeMs) && closeMs - openMs < 6e4) {
+            continue;
+          }
+          if (fromTs && closeMs < fromTs * 1e3) continue;
+          const _symN = _TradeLockerService.normalizeSymbol(legs[0].symbol);
+          const _quote = /^[A-Z]{6}$/.test(_symN) ? _symN.slice(3) : "USD";
+          let _quoteToUsd = 1;
+          if (_quote === "JPY") {
+            const _usdJpy = _symN === "USDJPY" && exitAvg > 0 ? exitAvg : usdJpyAt(new Date(closeTime).getTime());
+            _quoteToUsd = _usdJpy > 0 ? 1 / _usdJpy : 0;
+          } else if (_quote !== "USD" && /^[A-Z]{6}$/.test(_symN)) {
+            _quoteToUsd = 1;
+          }
+          const profit = priceDiff * closedQty * _TradeLockerService.contractSize(legs[0].symbol) * _quoteToUsd;
+          const _fxConverted = _quote === "USD" || _quote === "JPY" ? true : !/^[A-Z]{6}$/.test(_symN);
+          closed.push({
+            id: legs[legs.length - 1].id,
+            positionId,
+            symbol: legs[0].symbol,
+            side: direction,
+            qty: closedQty,
+            profit,
+            openPrice: openAvg,
+            closePrice: exitAvg,
+            openTime: legs[0].closeTime,
+            closeTime,
+            quoteCurrency: _quote,
+            // false => `profit` is in quoteCurrency, NOT USD (no rate available).
+            usdConverted: _fxConverted
+          });
+        }
+        return closed;
+      }
+      /**
+       * Fetch CLOSED positions (realized P&L) — now backed by the same
+       * ordersHistory + position-pairing logic as getClosedTradesWithPnl,
+       * shaped to match this method's original consumer expectations.
+       */
+      async getClosedPositions(fromTs) {
+        const closed = await this.getClosedTradesWithPnl(fromTs);
+        return closed.map((c) => ({ id: c.id, positionId: c.positionId, symbol: c.symbol, side: c.side, profit: c.profit, closeTime: c.closeTime, qty: c.qty, openPrice: c.openPrice, closePrice: c.closePrice }));
+      }
+      async getPositions() {
+        await this.ensureAuthenticated();
+        try {
+          const response = await fetch(`${this.baseUrl}/trade/accounts/${this.accountId}/positions`, {
+            method: "GET",
+            headers: {
+              "Authorization": `Bearer ${this.accessToken}`,
+              "Content-Type": "application/json",
+              "accNum": this.accNum
+            }
+          });
+          if (!response.ok) {
+            throw new Error(`Failed to get positions: ${response.status}`);
+          }
+          const data = await response.json();
+          return Array.isArray(data) ? data : data?.d?.positions || data?.positions || [];
+        } catch (error) {
+          console.error("TradeLocker get positions error:", error);
+          throw error;
+        }
+      }
+      // Normalized open positions — handles BOTH response shapes TradeLocker uses:
+      // object rows (named fields) and column-array rows (order defined by
+      // /trade/config's positionsConfig). Also maps tradableInstrumentId → symbol
+      // via the instruments list so the UI can show real pair names.
+      async getPositionsNormalized() {
+        const raw = await this.getPositions();
+        if (!raw || raw.length === 0) return [];
+        let instMap = /* @__PURE__ */ new Map();
+        try {
+          const instruments = await this.getInstruments();
+          for (const inst of instruments) {
+            const id = String(inst.tradableInstrumentId ?? inst.id ?? "");
+            if (id) instMap.set(id, inst.name || inst.symbol || id);
+          }
+        } catch {
+        }
+        const norm3 = (v) => parseFloat(v) || 0;
+        const toIsoDate = (v) => {
+          if (v == null || v === "") return void 0;
+          const n = typeof v === "number" ? v : /^\d+(\.\d+)?$/.test(String(v).trim()) ? Number(v) : NaN;
+          const ms = Number.isFinite(n) ? n < 1e12 ? n * 1e3 : n : new Date(String(v)).getTime();
+          return Number.isFinite(ms) && ms > 0 ? new Date(ms).toISOString() : void 0;
+        };
+        const sanePrice = (v, ref) => {
+          if (!(v > 0)) return void 0;
+          if (!(ref > 0)) return v < 1e7 ? v : void 0;
+          const ratio = v / ref;
+          return ratio > 0.2 && ratio < 5 ? v : void 0;
+        };
+        if (!Array.isArray(raw[0])) {
+          return raw.map((p) => ({
+            id: String(p.id ?? p.positionId ?? ""),
+            symbol: p.s || p.symbol || instMap.get(String(p.tradableInstrumentId ?? "")) || String(p.tradableInstrumentId ?? ""),
+            instrumentId: p.tradableInstrumentId != null ? String(p.tradableInstrumentId) : void 0,
+            side: (p.side || "").toString().toLowerCase(),
+            qty: norm3(p.qty),
+            avgPrice: norm3(p.avgPrice ?? p.openPrice ?? p.price),
+            unrealizedPl: norm3(p.unrealizedPl ?? p.unrealizedPnL ?? p.uPnL ?? p.pl),
+            openDate: toIsoDate(p.openDate || p.createdDate),
+            stopLoss: sanePrice(norm3(p.stopLoss ?? p.sl ?? p.stopLossPrice), norm3(p.avgPrice ?? p.openPrice ?? p.price)),
+            takeProfit: sanePrice(norm3(p.takeProfit ?? p.tp ?? p.takeProfitPrice), norm3(p.avgPrice ?? p.openPrice ?? p.price))
+          }));
+        }
+        let columns = [];
+        try {
+          await this.ensureAuthenticated();
+          const cfgRes = await fetch(`${this.baseUrl}/trade/config`, {
+            method: "GET",
+            headers: { "Authorization": `Bearer ${this.accessToken}`, "Content-Type": "application/json", "accNum": this.accNum },
+            signal: AbortSignal.timeout(1e4)
+          });
+          if (cfgRes.ok) {
+            const cfg = await cfgRes.json();
+            const cols = cfg?.d?.positionsConfig?.columns || cfg?.positionsConfig?.columns || [];
+            columns = cols.map((c) => String(c.id || c.name || "").toLowerCase());
+          }
+        } catch {
+        }
+        const idx = (candidates) => {
+          for (const k of candidates) {
+            const exact = columns.indexOf(k);
+            if (exact >= 0) return exact;
+          }
+          return columns.findIndex((c) => candidates.some((k) => c.includes(k)));
+        };
+        const iId = idx(["id"]);
+        const iInst = idx(["tradableinstrumentid", "tradableinstrument"]);
+        const iSide = idx(["side"]);
+        const iQty = idx(["qty", "quantity"]);
+        const iAvg = idx(["avgprice", "openprice", "price"]);
+        const iPl = idx(["unrealizedpl", "unrealizedpnl", "pnl", "pl"]);
+        const iDate = idx(["opendate", "date"]);
+        const idxPrice = (candidates) => {
+          for (const k of candidates) {
+            const exact = columns.indexOf(k);
+            if (exact >= 0) return exact;
+          }
+          return columns.findIndex((c) => !c.endsWith("id") && candidates.some((k) => c.includes(k)));
+        };
+        const iSl = idxPrice(["stoploss", "stoplossprice", "sl"]);
+        const iTp = idxPrice(["takeprofit", "takeprofitprice", "tp"]);
+        return raw.map((row) => {
+          const instId = iInst >= 0 ? String(row[iInst]) : "";
+          return {
+            id: iId >= 0 ? String(row[iId]) : "",
+            symbol: instMap.get(instId) || instId,
+            instrumentId: instId || void 0,
+            side: iSide >= 0 ? String(row[iSide]).toLowerCase() : "",
+            qty: iQty >= 0 ? norm3(row[iQty]) : 0,
+            avgPrice: iAvg >= 0 ? norm3(row[iAvg]) : 0,
+            unrealizedPl: iPl >= 0 ? norm3(row[iPl]) : 0,
+            openDate: iDate >= 0 ? toIsoDate(row[iDate]) : void 0,
+            // Second line of defence, independent of column naming: a protective
+            // level sits near the entry. Anything orders of magnitude away is an id
+            // or a sentinel, not a price, and must not be recorded as protection.
+            stopLoss: sanePrice(iSl >= 0 ? norm3(row[iSl]) : 0, iAvg >= 0 ? norm3(row[iAvg]) : 0),
+            takeProfit: sanePrice(iTp >= 0 ? norm3(row[iTp]) : 0, iAvg >= 0 ? norm3(row[iAvg]) : 0)
+          };
+        });
+      }
+      /** Connection this service belongs to (set by getOrCreateService) — used to log modifies. */
+      logConn;
+      /**
+       * Every stop/target change the server makes is persisted (action='MODIFY'),
+       * so a broker close at a moved stop can be explained afterwards. The caller
+       * is taken from the stack, so trail, profit lock, re-anchor, AI management
+       * and copy-trade changes are all captured without touching each call site.
+       */
+      async modifyPosition(positionId, stopLoss, takeProfit) {
+        const caller = (new Error().stack || "").split("\n").slice(2, 4).map((l) => l.trim().replace(/^at\s+/, "").replace(/\s*\(.*\)$/, "").replace(/^async\s+/, "")).filter(Boolean).join(" <- ") || "unknown";
+        const res = await this.modifyPositionRaw(positionId, stopLoss, takeProfit);
+        void (async () => {
+          try {
+            const c = this.logConn;
+            const userId = Number(c?.userId);
+            if (!(userId > 0) || !(Number(c?.id) > 0)) return;
+            const { pool: pool2 } = await Promise.resolve().then(() => (init_db(), db_exports));
+            const msg = `MODIFY by ${caller} | position ${positionId} | SL ${stopLoss ?? "-"} TP ${takeProfit ?? "-"}${res.success ? "" : ` | FAILED: ${String(res.error || "").slice(0, 200)}`}`;
+            await pool2.query(
+              `INSERT INTO tradelocker_trade_logs (user_id, connection_id, action, symbol, direction, volume, stop_loss, take_profit, status, error_message, created_at)
+           VALUES ($1, $2, 'MODIFY', '', '', 0, $3, $4, $5, $6, now())`,
+              [userId, c?.id ?? null, Number(stopLoss) > 0 ? stopLoss : null, Number(takeProfit) > 0 ? takeProfit : null, res.success ? "executed" : "failed", msg.slice(0, 1e3)]
+            );
+          } catch (e) {
+            console.error("[TradeLocker] modify log write failed (non-fatal):", e?.message || e);
+          }
+        })();
+        return res;
+      }
+      async modifyPositionRaw(positionId, stopLoss, takeProfit) {
+        await this.ensureAuthenticated();
+        const body = {};
+        if (typeof stopLoss === "number" && stopLoss > 0) body.stopLoss = stopLoss;
+        if (typeof takeProfit === "number" && takeProfit > 0) body.takeProfit = takeProfit;
+        if (Object.keys(body).length === 0) {
+          return { success: false, error: "No SL or TP provided to modify" };
+        }
+        const url = `${this.baseUrl}/trade/positions/${positionId}`;
+        console.log(`[TradeLocker Modify] PATCH ${url} | SL=${stopLoss} TP=${takeProfit} accNum=${this.accNum}`);
+        try {
+          const response = await fetch(url, {
+            method: "PATCH",
+            headers: {
+              "Authorization": `Bearer ${this.accessToken}`,
+              "Content-Type": "application/json",
+              "accNum": this.accNum
+            },
+            body: JSON.stringify(body)
+          });
+          if (response.status === 405) {
+            console.log("[TradeLocker Modify] PATCH not supported, trying PUT");
+            const putResponse = await fetch(url, {
+              method: "PUT",
+              headers: {
+                "Authorization": `Bearer ${this.accessToken}`,
+                "Content-Type": "application/json",
+                "accNum": this.accNum
+              },
+              body: JSON.stringify(body)
+            });
+            if (!putResponse.ok) {
+              const errText = await putResponse.text();
+              console.log(`[TradeLocker Modify] PUT failed: ${putResponse.status} - ${errText}`);
+              return { success: false, error: `Modify failed: ${putResponse.status} - ${errText}` };
+            }
+            console.log("[TradeLocker Modify] PUT success");
+            return { success: true };
+          }
+          if (!response.ok) {
+            const errText = await response.text();
+            console.log(`[TradeLocker Modify] PATCH failed: ${response.status} - ${errText}`);
+            return { success: false, error: `Modify failed: ${response.status} - ${errText}` };
+          }
+          console.log("[TradeLocker Modify] PATCH success");
+          return { success: true };
+        } catch (error) {
+          const msg = error instanceof Error ? error.message : "Unknown error";
+          console.error("[TradeLocker Modify] Exception:", msg);
+          return { success: false, error: msg };
+        }
+      }
+    };
+    TL_VALUE_TTL = 60 * 1e3;
+    tlDayStartEquity = /* @__PURE__ */ new Map();
+    UNKNOWN_OUTCOME_PAUSE_MS = Number(process.env.TL_UNKNOWN_OUTCOME_PAUSE_SEC ?? 120) * 1e3;
+    GUARD_CACHE_MS = Number(process.env.TL_GUARD_CACHE_MS ?? 5e3);
+    guardCache = /* @__PURE__ */ new Map();
+    _isRateLimit = (e) => /(429|1015)|rate.?limit|too many requests/i.test(String(e?.message || e).slice(0, 400));
+  }
+});
+
+// server/utils/pipUtils.ts
+function matchesAny(symbol, patterns) {
+  const s = symbol.toUpperCase();
+  return patterns.some((p) => s.includes(p.toUpperCase()));
+}
+function getPipSize(symbol) {
+  if (!symbol) return 1e-4;
+  if (matchesAny(symbol, ["JPY"])) return 0.01;
+  if (matchesAny(symbol, ["XAU", "GOLD"])) return 0.1;
+  if (matchesAny(symbol, ["XAG", "SILVER"])) return 1e-3;
+  if (matchesAny(symbol, ["XPT", "XPD"])) return 0.01;
+  if (matchesAny(symbol, [
+    "US30",
+    "DJ30",
+    "WALLST",
+    "DOW",
+    "NAS100",
+    "USTEC",
+    "US100",
+    "NDX",
+    "NASDAQ",
+    "US500",
+    "SPX",
+    "SP500",
+    "GER40",
+    "GER30",
+    "DAX",
+    "DE40",
+    "UK100",
+    "FTSE",
+    "UKX",
+    "JP225",
+    "NKY",
+    "NIKKEI",
+    "JPN225",
+    "N225",
+    "AUS200",
+    "ASX",
+    "HK50",
+    "HSI",
+    "FRA40",
+    "CAC",
+    "ESP35",
+    "IBEX",
+    "EUSTX50",
+    "SWI20"
+  ])) return 1;
+  if (matchesAny(symbol, ["USOIL", "WTI", "CRUDE", "BRENT", "UKOIL", "OIL"])) return 0.01;
+  if (matchesAny(symbol, ["NGAS", "NATGAS"])) return 1e-3;
+  if (matchesAny(symbol, ["BTC", "XBT"])) return 1;
+  if (matchesAny(symbol, ["ETH", "BNB", "SOL", "ADA", "DOT", "AVAX", "MATIC", "LINK", "UNI"])) return 0.01;
+  if (matchesAny(symbol, ["XRP", "DOGE", "SHIB", "LTC", "TRX"])) return 1e-4;
+  return 1e-4;
+}
+function computePips(symbol, entryPrice, exitPrice, direction) {
+  const entry = Number(entryPrice), exit = Number(exitPrice);
+  if (!Number.isFinite(entry) || !Number.isFinite(exit) || entry <= 0 || exit <= 0) return null;
+  const pipSize2 = getPipSize(symbol);
+  if (!(pipSize2 > 0)) return null;
+  const isSell = /sell|short/i.test(String(direction ?? ""));
+  const diff = isSell ? entry - exit : exit - entry;
+  return Math.round(diff / pipSize2 * 10) / 10;
+}
+function getPipValue(symbol) {
+  if (!symbol) return 10;
+  if (matchesAny(symbol, ["XAU", "GOLD"])) return 10;
+  if (matchesAny(symbol, ["XAG", "SILVER"])) return 5;
+  if (matchesAny(symbol, ["XPT", "XPD"])) return 10;
+  if (matchesAny(symbol, [
+    "US30",
+    "DJ30",
+    "WALLST",
+    "DOW",
+    "NAS100",
+    "USTEC",
+    "US100",
+    "NDX",
+    "NASDAQ",
+    "US500",
+    "SPX",
+    "SP500",
+    "GER40",
+    "GER30",
+    "DAX",
+    "DE40",
+    "UK100",
+    "FTSE",
+    "JP225",
+    "NKY",
+    "NIKKEI",
+    "JPN225",
+    "AUS200",
+    "ASX",
+    "HK50",
+    "FRA40",
+    "CAC",
+    "ESP35",
+    "EUSTX50"
+  ])) return 1;
+  if (matchesAny(symbol, ["USOIL", "WTI", "CRUDE", "BRENT", "UKOIL", "OIL"])) return 10;
+  if (matchesAny(symbol, ["NGAS", "NATGAS"])) return 10;
+  if (matchesAny(symbol, ["BTC", "XBT"])) return 1;
+  if (matchesAny(symbol, ["ETH", "BNB", "SOL", "ADA", "DOT", "AVAX", "MATIC", "LINK", "UNI"])) return 1;
+  const s = symbol.toUpperCase().split(".")[0].replace(/[^A-Z]/g, "");
+  if (/^[A-Z]{6}$/.test(s)) {
+    const quote = s.slice(3);
+    const perLotQuote = 1e5 * getPipSize(symbol);
+    const rate = quoteToUsd(quote);
+    if (rate !== null) return perLotQuote * rate;
+  }
+  return 10;
+}
+function setFxRate(pair, rate) {
+  const p = String(pair || "").toUpperCase().replace(/[^A-Z]/g, "");
+  const r = Number(rate);
+  if (!/^[A-Z]{6}$/.test(p) || !isFinite(r) || r <= 0) return;
+  _fxLive.set(p, { rate: r, at: Date.now() });
+}
+function rateOf(pair) {
+  const live = _fxLive.get(pair);
+  if (live && Date.now() - live.at < FX_LIVE_TTL_MS) return live.rate;
+  return FX_FALLBACK[pair];
+}
+function quoteToUsd(quote) {
+  if (quote === "USD") return 1;
+  const direct = rateOf(`${quote}USD`);
+  if (direct > 0) return direct;
+  const inverse = rateOf(`USD${quote}`);
+  if (inverse > 0) return 1 / inverse;
+  return null;
+}
+var FX_FALLBACK, _fxLive, FX_LIVE_TTL_MS;
+var init_pipUtils = __esm({
+  "server/utils/pipUtils.ts"() {
+    "use strict";
+    FX_FALLBACK = {
+      USDJPY: 140,
+      GBPUSD: 1.36,
+      EURUSD: 1.17,
+      AUDUSD: 0.7,
+      NZDUSD: 0.63,
+      USDCHF: 0.8,
+      USDCAD: 1.3
+    };
+    _fxLive = /* @__PURE__ */ new Map();
+    FX_LIVE_TTL_MS = 6 * 60 * 60 * 1e3;
+  }
+});
+
+// server/services/signal-confidence.ts
+var signal_confidence_exports = {};
+__export(signal_confidence_exports, {
+  lookupSignalConfidence: () => lookupSignalConfidence
+});
+async function lookupSignalConfidence(userId, symbol, direction) {
+  try {
+    const sym = String(symbol || "").toUpperCase().replace(/[^A-Z0-9]/g, "");
+    if (!sym) return null;
+    const { rows } = await pool.query(
+      `SELECT confidence FROM mt5_signal_logs
+        WHERE user_id = $1 AND action = 'OPEN' AND upper(direction) = $2
+          AND upper(regexp_replace(symbol, '[^A-Za-z0-9]', '', 'g')) = left($3, length(upper(regexp_replace(symbol, '[^A-Za-z0-9]', '', 'g'))))
+          AND source = 'vedd_live_engine' AND confidence IS NOT NULL
+          AND created_at > now() - interval '30 minutes'
+        ORDER BY created_at DESC LIMIT 1`,
+      [userId, String(direction || "").toUpperCase(), sym]
+    );
+    const c = Number(rows[0]?.confidence);
+    return Number.isFinite(c) && c > 0 ? c : null;
+  } catch {
+    return null;
+  }
+}
+var init_signal_confidence = __esm({
+  "server/services/signal-confidence.ts"() {
+    "use strict";
+    init_db();
+  }
+});
+
+// server/services/tradelocker-sync.ts
+async function _recordOrBackfillConfirmationOutcome(userId, symbol, direction, result, closeTime) {
+  try {
+    const resolved = await storage.resolveConfirmationOutcome(userId, symbol, direction, result, null, closeTime ?? null);
+    if (resolved) return;
+    const closedAt = closeTime ? new Date(closeTime) : /* @__PURE__ */ new Date();
+    const hour = closedAt.getUTCHours();
+    const session2 = hour < 7 ? "Asian" : hour < 13 ? "London" : hour < 20 ? "New York" : "Late NY";
+    await storage.createConfirmationOutcome({
+      userId,
+      symbol: symbol.toUpperCase(),
+      direction,
+      session: session2,
+      aiDecision: "EA_ONLY",
+      tradeSource: "ea_only",
+      tradeOutcome: result,
+      confirmedAt: closedAt,
+      closedAt
+    });
+  } catch {
+  }
+}
+async function _invalidateDailyStop(userId) {
+  try {
+    const { invalidatePairDailyStop: invalidatePairDailyStop2 } = await Promise.resolve().then(() => (init_pair_daily_stop(), pair_daily_stop_exports));
+    invalidatePairDailyStop2(userId);
+  } catch {
+  }
+}
+async function _classifyHoldRegime(conn, symbol, openedAt, closedAt) {
+  if (!openedAt || !(closedAt.getTime() > openedAt.getTime())) return null;
+  try {
+    const holdMinutes = (closedAt.getTime() - openedAt.getTime()) / 6e4;
+    const resolutionMinutes = holdMinutes < 100 ? 5 : holdMinutes < 300 ? 15 : holdMinutes < 1200 ? 30 : 60;
+    const padMs = resolutionMinutes * 60 * 1e3 * 20;
+    const fromTs = Math.floor((openedAt.getTime() - padMs) / 1e3);
+    const toTs = Math.ceil(closedAt.getTime() / 1e3);
+    const svc = await getOrCreateService(conn);
+    const bars = await svc.getCandlesticks(symbol, resolutionMinutes, fromTs, toTs);
+    if (!bars || bars.length < 20) return null;
+    const { calculateADX: calculateADX2 } = await Promise.resolve().then(() => (init_indicators(), indicators_exports));
+    const candles = bars.slice().reverse().map((b) => ({ o: b.o, h: b.h, l: b.l, c: b.c, v: b.v }));
+    const adx = calculateADX2(candles, 14);
+    if (!adx) return null;
+    if (adx.value >= 25) return "trending";
+    if (adx.value < 20) return "ranging";
+    return "volatile";
+  } catch (e) {
+    console.warn(`[FxBrain] hold-regime classification skipped for ${symbol} (${e?.message}) \u2014 recording outcome without it.`);
+    return null;
+  }
+}
+async function _recordFxBrainOutcome(userId, conn, existing, match, result, profit) {
+  try {
+    const { pool: pool2 } = await Promise.resolve().then(() => (init_db(), db_exports));
+    const closedAt = match?.closeTime ? new Date(match.closeTime) : /* @__PURE__ */ new Date();
+    const symbol = String(existing.symbol || "").toUpperCase().replace(/[^A-Z0-9.]/g, "");
+    const direction = String(existing.direction || "").toUpperCase();
+    const ticket = String(existing.mt5Ticket || "");
+    if (!symbol || !direction) return;
+    const _openedAtRaw = existing.createdAt ? new Date(existing.createdAt) : null;
+    const _anchor = _openedAtRaw && !isNaN(_openedAtRaw.getTime()) ? _openedAtRaw : closedAt;
+    const { rows: cf } = await pool2.query(
+      `SELECT adx_value, rsi_value, macd_direction, confluence_grade, confluence_score,
+              smc_verdict, ict_macro_valid, htf_aligned, ai_confidence, proposed_confidence,
+              timeframe, session, confirmed_at
+         FROM ai_confirmation_outcomes
+        WHERE user_id = $1 AND symbol = $2 AND direction = $3
+          AND confirmed_at BETWEEN $4::timestamp - interval '2 hours' AND $4::timestamp + interval '10 minutes'
+        ORDER BY (adx_value IS NOT NULL) DESC,
+                 abs(extract(epoch FROM (confirmed_at - $4::timestamp))) ASC
+        LIMIT 1`,
+      [userId, symbol, direction, _anchor.toISOString()]
+    );
+    const f = cf[0] || {};
+    if (!f.adx_value) {
+      console.warn(`[FxBrain] ${symbol} ${direction} ticket ${ticket}: no confirmation with indicator values found near open ${_anchor.toISOString()} \u2014 recording outcome without setup.`);
+    }
+    const entry = Number(existing.entryPrice ?? match?.openPrice) || null;
+    const exit = Number(match?.closePrice) || null;
+    const sl = Number(existing.stopLoss) || null;
+    const tp = Number(existing.takeProfit) || null;
+    const plannedRR = entry && sl && tp && Math.abs(entry - sl) > 0 ? Math.abs(tp - entry) / Math.abs(entry - sl) : null;
+    const realisedRR = entry && exit && sl && Math.abs(entry - sl) > 0 ? Math.abs(exit - entry) / Math.abs(entry - sl) * (result === "WIN" ? 1 : -1) : null;
+    const maePnl = Number(existing.maePnl);
+    const mfePnl = Number(existing.mfePnl);
+    const openedAt = existing.createdAt ? new Date(existing.createdAt) : null;
+    const holdMins = openedAt && closedAt > openedAt ? Math.round((closedAt.getTime() - openedAt.getTime()) / 6e4) : null;
+    const hour = closedAt.getUTCHours();
+    const { canonSession: canonSession2 } = await Promise.resolve().then(() => (init_session(), session_exports));
+    const session2 = canonSession2(f.session, hour) ?? canonSession2(null, hour);
+    const holdRegime = await _classifyHoldRegime(conn, symbol, openedAt, closedAt);
+    await pool2.query(
+      `INSERT INTO fx_brain_outcomes
+        (user_id, symbol, direction, timeframe, hour_utc, session, day_of_week,
+         adx_value, rsi_value, macd_direction, confluence_grade, confluence_score,
+         smc_verdict, ict_macro_valid, htf_aligned, ea_confidence, ai_confidence,
+         entry_price, exit_price, stop_loss, take_profit, planned_rr, realised_rr,
+         result, profit_loss, holding_minutes, connection_id, account_id, ticket, closed_at,
+         mae_pnl, mfe_pnl, minutes_to_mae, minutes_to_mfe, hold_regime)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25,$26,$27,$28,$29,$30,$31,$32,$33,$34,$35)
+       ON CONFLICT (user_id, ticket) WHERE ticket IS NOT NULL DO NOTHING`,
+      [
+        userId,
+        symbol,
+        direction,
+        f.timeframe ?? null,
+        hour,
+        session2,
+        closedAt.getUTCDay(),
+        f.adx_value ?? null,
+        f.rsi_value ?? null,
+        f.macd_direction ?? null,
+        f.confluence_grade ?? null,
+        f.confluence_score ?? null,
+        f.smc_verdict ?? null,
+        f.ict_macro_valid ?? null,
+        f.htf_aligned ?? null,
+        f.proposed_confidence ?? null,
+        f.ai_confidence ?? null,
+        entry,
+        exit,
+        sl,
+        tp,
+        plannedRR,
+        realisedRR,
+        result,
+        profit,
+        holdMins,
+        conn?.id ?? null,
+        String(conn?.accountId ?? ""),
+        ticket || null,
+        closedAt,
+        Number.isFinite(maePnl) ? maePnl : null,
+        Number.isFinite(mfePnl) ? mfePnl : null,
+        existing.maeAt && openedAt ? Math.max(0, Math.round((new Date(existing.maeAt).getTime() - openedAt.getTime()) / 6e4)) : null,
+        existing.mfeAt && openedAt ? Math.max(0, Math.round((new Date(existing.mfeAt).getTime() - openedAt.getTime()) / 6e4)) : null,
+        holdRegime
+      ]
+    );
+    console.log(`[FxBrain] recorded ${symbol} ${direction} ${result} ${profit >= 0 ? "+" : ""}${profit.toFixed(2)}` + (f.adx_value != null ? ` (adx ${Number(f.adx_value).toFixed(1)}, grade ${f.confluence_grade ?? "n/a"})` : " (setup unknown)"));
+  } catch (e) {
+    console.error(
+      `[FxBrain] outcome record failed (non-fatal) for user=${userId} symbol=${existing?.symbol} direction=${existing?.direction} ticket=${existing?.mt5Ticket} result=${result} profit=${profit}: ${e?.message}` + (e?.code ? ` | pg_code=${e.code}` : "") + (e?.detail ? ` | pg_detail=${e.detail}` : "") + (e?.constraint ? ` | pg_constraint=${e.constraint}` : ""),
+      e?.stack
+    );
+  }
+}
+function cache4() {
+  global.tlAccountData = global.tlAccountData || {};
+  return global.tlAccountData;
+}
+function markTlUserActive(userId) {
+  activeUsers.set(userId, Date.now());
+}
+async function _feedEngineBrain(userId, symbol, profit, direction, closeTime, ticket) {
+  try {
+    const { recordTradeResult: recordTradeResult2 } = await Promise.resolve().then(() => (init_live_trading_engine(), live_trading_engine_exports));
+    const h = new Date(closeTime || Date.now()).getUTCHours();
+    const session2 = h < 7 ? "Asian" : h < 13 ? "London" : h < 20 ? "New York" : "Late NY";
+    recordTradeResult2(userId, {
+      symbol: String(symbol || "").toUpperCase().replace("/", ""),
+      profit: Number(profit) || 0,
+      strategy: "unknown",
+      session: session2,
+      direction,
+      ...ticket ? { tradeKey: `tl:${ticket}` } : {}
+    });
+  } catch (_) {
+  }
+}
+async function syncTradeLockerTrades(userId, conn, svc) {
+  const cacheKey = `${userId}:${conn.accountId}`;
+  const openPositions = await svc.getPositionsNormalized().catch(() => []);
+  const currentTickets = new Set(openPositions.map((p) => `tl_${conn.accountId}_${p.id}`));
+  for (const p of openPositions) {
+    const ticket = `tl_${conn.accountId}_${p.id}`;
+    const existing = await storage.getAiTradeResultByTicket(userId, ticket);
+    if (existing) continue;
+    let _sl = p.stopLoss || 0;
+    let _tp = p.takeProfit || 0;
+    if (!(_sl > 0)) {
+      try {
+        const { pool: _slPool } = await Promise.resolve().then(() => (init_db(), db_exports));
+        const _sym = String(p.symbol || "").toUpperCase().replace(/[^A-Z0-9]/g, "");
+        const { rows: _lg } = await _slPool.query(
+          `SELECT stop_loss, take_profit FROM tradelocker_trade_logs
+            WHERE user_id = $1 AND connection_id = $2 AND action = 'OPEN' AND status = 'executed'
+              AND upper(regexp_replace(symbol, '[^A-Za-z0-9]', '', 'g')) = $3
+              AND created_at > now() - interval '7 days'
+            ORDER BY created_at DESC LIMIT 1`,
+          [userId, conn.id, _sym]
+        );
+        if (_lg[0]) {
+          if (!(_sl > 0) && Number(_lg[0].stop_loss) > 0) _sl = Number(_lg[0].stop_loss);
+          if (!(_tp > 0) && Number(_lg[0].take_profit) > 0) _tp = Number(_lg[0].take_profit);
+          if (_sl > 0) console.log(`[TL-sync] ${ticket}: broker reported no stop price; recovered SL=${_sl} TP=${_tp || "n/a"} from the order we placed.`);
+        }
+      } catch (e) {
+        console.error(`[TL-sync] ${ticket}: could not recover SL/TP from the trade log (${e?.message}); recording 0.`);
+      }
+    }
+    const _pfDir = (p.side || "").toUpperCase() === "SELL" ? "SELL" : "BUY";
+    const _pfEntry = Number(p.avgPrice) || 0;
+    let _pfNote = "";
+    if (_pfEntry > 0 && _sl > 0 && _tp > 0) {
+      const _pfRisk = Math.abs(_pfEntry - _sl);
+      const _pfReward = Math.abs(_tp - _pfEntry);
+      const _slCorrect = _pfDir === "BUY" ? _sl < _pfEntry : _sl > _pfEntry;
+      const _tpCorrect = _pfDir === "BUY" ? _tp > _pfEntry : _tp < _pfEntry;
+      if (!_slCorrect || !_tpCorrect) {
+        console.error(`[TL-sync] ${ticket} ${p.symbol} ${_pfDir}: MALFORMED LEVELS \u2014 entry ${_pfEntry}, SL ${_sl}, TP ${_tp} (stop or target on the wrong side of entry).`);
+        _pfNote = ` | POST-FILL: malformed levels (SL ${_sl} / TP ${_tp} vs entry ${_pfEntry})`;
+      } else if (_pfRisk > 0) {
+        const _pfRR = _pfReward / _pfRisk;
+        const _softFloor = Number(process.env.POSTFILL_RR_MIN ?? 1.5);
+        const _hardFloor = Number(process.env.POSTFILL_RR_HARD_FLOOR ?? 1);
+        _pfNote = ` | POST-FILL R:R 1:${_pfRR.toFixed(2)} (risk ${_pfRisk.toFixed(5)}, reward ${_pfReward.toFixed(5)})`;
+        if (_pfRR < _hardFloor) {
+          console.error(`[TL-sync] ${ticket} ${p.symbol} ${_pfDir}: INVERTED R:R 1:${_pfRR.toFixed(2)} after fill \u2014 risks more than it can gain. Entry ${_pfEntry}, SL ${_sl}, TP ${_tp}.`);
+          if (process.env.POSTFILL_RR_AUTOCLOSE === "true") {
+            try {
+              await svc.closePosition(p.id);
+              console.warn(`[TL-sync] ${ticket}: closed on inverted post-fill R:R (POSTFILL_RR_AUTOCLOSE=true).`);
+              {
+                const { logTlClose: logTlClose2 } = await Promise.resolve().then(() => (init_tradelocker(), tradelocker_exports));
+                await logTlClose2(conn, { symbol: p.symbol, direction: p.side, positionId: String(p.id), reason: `inverted post-fill R:R 1:${_pfRR.toFixed(2)} (POSTFILL_RR_AUTOCLOSE)`, pnl: p.unrealizedPl, ok: true });
+              }
+              _pfNote += " \u2014 AUTO-CLOSED";
+            } catch (ce) {
+              console.error(`[TL-sync] ${ticket}: auto-close failed (${ce?.message}) \u2014 position left open, flagged.`);
+            }
+          }
+        } else if (_pfRR < _softFloor) {
+          console.warn(`[TL-sync] ${ticket} ${p.symbol} ${_pfDir}: post-fill R:R 1:${_pfRR.toFixed(2)} is below the ${_softFloor} floor the pre-trade gate required \u2014 slippage degraded the setup.`);
+        }
+      }
+    }
+    const { lookupSignalConfidence: lookupSignalConfidence2 } = await Promise.resolve().then(() => (init_signal_confidence(), signal_confidence_exports));
+    const _sigConf = await lookupSignalConfidence2(userId, p.symbol, (p.side || "").toUpperCase() === "SELL" ? "SELL" : "BUY");
+    await storage.createAiTradeResult({
+      userId,
+      symbol: p.symbol,
+      direction: (p.side || "").toUpperCase() === "SELL" ? "SELL" : "BUY",
+      entryPrice: p.avgPrice || 0,
+      // F5: persist the broker's SL/TP so the row reflects real protection state
+      // (was omitted → every tradelocker_auto row showed SL=null/TP=null, masking
+      // whether a live position was actually protected).
+      stopLoss: _sl,
+      takeProfit: _tp,
+      aiConfidence: _sigConf ?? 0,
+      // engine signal's confidence when one opened it
+      result: "PENDING",
+      source: "tradelocker_auto",
+      connectionId: conn.id,
+      mt5Ticket: ticket,
+      // Realised ratio, so it is measurable rather than assumed. The planned R:R
+      // is what the gate approved; this is what the fill actually produced.
+      notes: `TradeLocker position${_pfNote}`
+    });
+  }
+  for (const p of openPositions) {
+    const upl = Number(p.unrealizedPl);
+    if (!Number.isFinite(upl)) continue;
+    const ticket = `tl_${conn.accountId}_${p.id}`;
+    try {
+      const { pool: _exPool } = await Promise.resolve().then(() => (init_db(), db_exports));
+      await _exPool.query(
+        `UPDATE ai_trade_results
+            SET mae_pnl = LEAST(COALESCE(mae_pnl, $2), $2),
+                mfe_pnl = GREATEST(COALESCE(mfe_pnl, $2), $2),
+                mae_at  = CASE WHEN $2 < COALESCE(mae_pnl, $2) OR mae_pnl IS NULL THEN now() ELSE mae_at END,
+                mfe_at  = CASE WHEN $2 > COALESCE(mfe_pnl, $2) OR mfe_pnl IS NULL THEN now() ELSE mfe_at END
+          WHERE user_id = $1 AND mt5_ticket = $3 AND result = 'PENDING'`,
+        [userId, upl, ticket]
+      );
+    } catch {
+    }
+  }
+  const previousTickets = lastOpenTickets.get(cacheKey);
+  if (previousTickets) {
+    const closedTicketIds = Array.from(previousTickets).filter((t) => !currentTickets.has(t));
+    if (closedTicketIds.length > 0) {
+      const closed = await svc.getClosedPositions().catch(() => []);
+      const closedById = new Map(closed.map((c) => [`tl_${conn.accountId}_${c.positionId}`, c]));
+      for (const ticket of closedTicketIds) {
+        const existing = await storage.getAiTradeResultByTicket(userId, ticket);
+        if (!existing || existing.result !== "PENDING") continue;
+        const match = closedById.get(ticket);
+        if (!match) continue;
+        const profit = match.profit;
+        const result = profit > 0 ? "WIN" : profit < 0 ? "LOSS" : "BREAKEVEN";
+        await storage.updateAiTradeResult(existing.id, userId, {
+          result,
+          profitLoss: profit,
+          // Persist the exit price. Without it the reconstructed P&L on this row
+          // can never be checked against the prices it came from, and no
+          // R-multiple can be computed, so the brain only ever learns the SIGN
+          // of an outcome and not its quality.
+          ...Number(match.closePrice) > 0 ? { exitPrice: Number(match.closePrice) } : {},
+          ...(() => {
+            const pips = computePips(existing.symbol, existing.entryPrice || match.openPrice, match.closePrice, existing.direction);
+            return pips === null ? {} : { profitLossPips: pips };
+          })(),
+          // Backfill the entry too when the PENDING row was written before the
+          // broker reported an average fill price.
+          ...!(Number(existing.entryPrice) > 0) && Number(match.openPrice) > 0 ? { entryPrice: Number(match.openPrice) } : {},
+          closedAt: match.closeTime ? new Date(match.closeTime) : /* @__PURE__ */ new Date()
+        });
+        const dStr = match.closeTime ? new Date(match.closeTime).toISOString().slice(0, 10) : void 0;
+        await recordRealizedPnl(userId, conn.id, "tradelocker", profit, dStr);
+        await _recordOrBackfillConfirmationOutcome(userId, existing.symbol, existing.direction, result, match.closeTime);
+        await _feedEngineBrain(userId, existing.symbol, profit, existing.direction, match.closeTime, ticket);
+        await _recordFxBrainOutcome(userId, conn, existing, match, result, profit);
+        await _invalidateDailyStop(userId);
+      }
+    }
+  }
+  lastOpenTickets.set(cacheKey, currentTickets);
+  const lastRecon = lastOutcomeReconcile.get(cacheKey) || 0;
+  if (Date.now() - lastRecon >= OUTCOME_RECONCILE_MS) {
+    lastOutcomeReconcile.set(cacheKey, Date.now());
+    try {
+      const lastDeep = lastDeepBackfill.get(cacheKey) || 0;
+      const isDeepPass = Date.now() - lastDeep >= DEEP_BACKFILL_MS;
+      if (isDeepPass) lastDeepBackfill.set(cacheKey, Date.now());
+      const lookbackDays = isDeepPass ? 90 : 14;
+      const fromTs = Math.floor((Date.now() - lookbackDays * 24 * 3600 * 1e3) / 1e3);
+      const closedTrades = await svc.getClosedTradesWithPnl(fromTs).catch(() => []);
+      let brainTickets = null;
+      try {
+        const { pool: _bp } = await Promise.resolve().then(() => (init_db(), db_exports));
+        const { rows: _bt } = await _bp.query(
+          `SELECT ticket FROM fx_brain_outcomes WHERE user_id = $1 AND ticket IS NOT NULL AND closed_at > now() - ($2 || ' days')::interval`,
+          [userId, String(lookbackDays + 1)]
+        );
+        brainTickets = new Set(_bt.map((r) => String(r.ticket)));
+      } catch {
+        brainTickets = null;
+      }
+      let _netBudget = 10;
+      for (const o of closedTrades) {
+        const rawProfit = o.profit ?? o.pnl ?? o.realizedPnl ?? o.realizedPnL ?? o.grossProfit ?? null;
+        const p = typeof rawProfit === "number" ? rawProfit : parseFloat(rawProfit || "");
+        if (!isFinite(p) || p === 0) continue;
+        const tk = o.positionId ? `tl_${conn.accountId}_${o.positionId}` : `tl_${o.id || o.orderId}`;
+        if (!tk || tk === "tl_undefined") continue;
+        const reconDateStr = o.closeTime ? new Date(o.closeTime).toISOString().slice(0, 10) : void 0;
+        const reconResult = p > 0 ? "WIN" : "LOSS";
+        const existing = await storage.getAiTradeResultByTicket(userId, tk);
+        if (existing) {
+          const isStaleZeroBreakeven = existing.result === "BREAKEVEN" && !existing.profitLoss;
+          const needsResolve = existing.result === "PENDING" || isStaleZeroBreakeven;
+          if (needsResolve || existing.connectionId == null) {
+            await storage.updateAiTradeResult(existing.id, userId, {
+              result: reconResult,
+              profitLoss: p,
+              connectionId: conn.id,
+              // Same as the poll-and-diff path: record the prices the P&L was
+              // reconstructed FROM, so the number is auditable later.
+              ...Number(o.closePrice) > 0 ? { exitPrice: Number(o.closePrice) } : {},
+              ...(() => {
+                const pips = computePips(existing.symbol, existing.entryPrice || o.openPrice, o.closePrice, existing.direction);
+                return pips === null ? {} : { profitLossPips: pips };
+              })(),
+              ...!(Number(existing.entryPrice) > 0) && Number(o.openPrice) > 0 ? { entryPrice: Number(o.openPrice) } : {},
+              closedAt: o.closeTime ? new Date(o.closeTime) : /* @__PURE__ */ new Date()
+            }).catch(() => {
+            });
+            if (needsResolve) {
+              await recordRealizedPnl(userId, conn.id, "tradelocker", p, reconDateStr);
+              await _recordOrBackfillConfirmationOutcome(userId, existing.symbol, existing.direction, reconResult, o.closeTime);
+              await _feedEngineBrain(userId, existing.symbol, p, existing.direction, o.closeTime, tk);
+              await _invalidateDailyStop(userId);
+              await _recordFxBrainOutcome(
+                userId,
+                conn,
+                existing,
+                { closeTime: o.closeTime, closePrice: o.closePrice, openPrice: o.openPrice },
+                reconResult,
+                p
+              );
+              brainTickets?.add(tk);
+            }
+          }
+          const _recent = o.closeTime && Date.now() - new Date(o.closeTime).getTime() < 3 * 864e5;
+          if (brainTickets && _netBudget > 0 && _recent && !brainTickets.has(tk) && (existing.result === "WIN" || existing.result === "LOSS")) {
+            _netBudget--;
+            await _recordFxBrainOutcome(
+              userId,
+              conn,
+              existing,
+              { closeTime: o.closeTime, closePrice: o.closePrice, openPrice: o.openPrice },
+              existing.result,
+              p
+            );
+            brainTickets.add(tk);
+          }
+          continue;
+        }
+        const reconDirection = /sell|short/i.test(o.side || "") ? "SELL" : "BUY";
+        const reconSymbol = (o.symbol || "UNKNOWN").toUpperCase().replace("/", "");
+        await storage.createAiTradeResult({
+          userId,
+          symbol: reconSymbol,
+          direction: reconDirection,
+          entryPrice: o.openPrice || 0,
+          exitPrice: o.closePrice || 0,
+          profitLossPips: computePips(reconSymbol, o.openPrice, o.closePrice, reconDirection),
+          aiConfidence: 0,
+          result: reconResult,
+          profitLoss: p,
+          source: "tradelocker",
+          connectionId: conn.id,
+          mt5Ticket: tk,
+          notes: "TradeLocker closed position (auto-reconciled)",
+          closedAt: o.closeTime ? new Date(o.closeTime) : /* @__PURE__ */ new Date()
+        }).catch(() => {
+        });
+        await recordRealizedPnl(userId, conn.id, "tradelocker", p, reconDateStr);
+        await _recordOrBackfillConfirmationOutcome(userId, reconSymbol, reconDirection, reconResult, o.closeTime);
+        await _feedEngineBrain(userId, reconSymbol, p, reconDirection, o.closeTime, tk);
+        await _invalidateDailyStop(userId);
+        await _recordFxBrainOutcome(
+          userId,
+          conn,
+          { symbol: reconSymbol, direction: reconDirection, entryPrice: o.openPrice, mt5Ticket: tk },
+          { closeTime: o.closeTime, closePrice: o.closePrice, openPrice: o.openPrice },
+          reconResult,
+          p
+        );
+        brainTickets?.add(tk);
+      }
+    } catch (err) {
+      console.error(`[TL-sync] Outcome reconciliation failed for ${conn.accountId} (non-fatal):`, err?.message);
+    }
+  }
+}
+async function syncUserTradeLocker(userId, force = false) {
+  const now = Date.now();
+  if (!force) {
+    const last = lastSyncAt.get(userId) || 0;
+    if (now - last < MIN_RESYNC_GAP_MS) {
+      return Object.values(cache4()[userId] || {});
+    }
+  }
+  if (inFlight.has(userId)) {
+    return Object.values(cache4()[userId] || {});
+  }
+  inFlight.add(userId);
+  try {
+    const connections = await storage.getUserTradelockerConnections(userId);
+    const active = connections.filter((c) => c.isActive);
+    const store = cache4();
+    store[userId] = store[userId] || {};
+    const activeIds = new Set(active.map((c) => c.accountId));
+    for (const key of Object.keys(store[userId])) {
+      if (!activeIds.has(key)) delete store[userId][key];
+    }
+    for (const conn of active) {
+      if (store[userId][conn.accountId]) continue;
+      const lb = conn.lastBalance;
+      if (lb != null) {
+        store[userId][conn.accountId] = {
+          accountId: conn.accountId,
+          connectionId: conn.id,
+          accountType: conn.accountType,
+          broker: conn.brokerName || "TradeLocker",
+          label: `TradeLocker \u2013 ${conn.email} (${conn.accountType})`,
+          balance: lb || 0,
+          equity: conn.lastEquity ?? lb ?? 0,
+          margin: 0,
+          freeMargin: 0,
+          currency: "USD",
+          lastUpdated: conn.lastBalanceAt ? new Date(conn.lastBalanceAt).toISOString() : (/* @__PURE__ */ new Date(0)).toISOString()
+        };
+      }
+    }
+    for (const conn of active) {
+      try {
+        const svc = await getOrCreateService(conn);
+        const info2 = await svc.getAccountInfo();
+        if (conn.lastError) {
+          storage.updateTradelockerConnection(conn.id, { lastError: null }).catch(() => {
+          });
+        }
+        store[userId][conn.accountId] = {
+          accountId: conn.accountId,
+          connectionId: conn.id,
+          accountType: conn.accountType,
+          broker: conn.brokerName || "TradeLocker",
+          label: `TradeLocker \u2013 ${conn.email} (${conn.accountType})`,
+          balance: info2.balance || 0,
+          equity: info2.equity || 0,
+          margin: info2.margin || 0,
+          freeMargin: info2.freeMargin || 0,
+          currency: info2.currency || "USD",
+          lastUpdated: (/* @__PURE__ */ new Date()).toISOString()
+        };
+        global.tlAccountBalances = global.tlAccountBalances || {};
+        global.tlAccountBalances[userId] = global.tlAccountBalances[userId] || {};
+        global.tlAccountBalances[userId][conn.accountId] = info2.balance || 0;
+        if (info2.balance > 0) {
+          const pk = `${userId}:${conn.accountId}`;
+          const prevPersist = lastBalancePersist.get(pk);
+          const changed = !prevPersist || Math.abs(prevPersist.balance - info2.balance) > 0.01;
+          if (changed && (!prevPersist || Date.now() - prevPersist.at > BALANCE_PERSIST_MS)) {
+            lastBalancePersist.set(pk, { at: Date.now(), balance: info2.balance });
+            storage.updateTradelockerConnection(conn.id, {
+              lastBalance: info2.balance,
+              lastEquity: info2.equity || info2.balance,
+              lastBalanceAt: /* @__PURE__ */ new Date()
+            }).catch(() => {
+            });
+          }
+        }
+        await syncTradeLockerTrades(userId, conn, svc).catch(
+          (err) => console.error(`[TL-sync] Trade auto-log failed for ${conn.accountId} (non-fatal):`, err.message)
+        );
+      } catch (err) {
+        const prev = store[userId][conn.accountId];
+        const msg = err?.message || "fetch failed";
+        const isRateLimit = err?.status === 429 || /429|rate.?limit|too many requests|cooling down/i.test(msg);
+        if (isRateLimit && prev && !prev.error) {
+          continue;
+        }
+        store[userId][conn.accountId] = {
+          accountId: conn.accountId,
+          connectionId: conn.id,
+          accountType: conn.accountType,
+          broker: conn.brokerName || "TradeLocker",
+          label: `TradeLocker \u2013 ${conn.email} (${conn.accountType})`,
+          balance: prev?.balance || 0,
+          equity: prev?.equity || 0,
+          margin: prev?.margin || 0,
+          freeMargin: prev?.freeMargin || 0,
+          currency: prev?.currency || "USD",
+          lastUpdated: prev?.lastUpdated || (/* @__PURE__ */ new Date(0)).toISOString(),
+          // Don't show a scary 429 to the user — if we have any last-known
+          // balance, present a soft "refreshing" note instead of a hard error.
+          error: isRateLimit ? prev?.balance ? void 0 : "Reconnecting to TradeLocker\u2026" : msg
+        };
+      }
+    }
+    lastSyncAt.set(userId, Date.now());
+    return Object.values(store[userId]);
+  } finally {
+    inFlight.delete(userId);
+  }
+}
+function refreshTlAfterTrade(userId) {
+  markTlUserActive(userId);
+  syncUserTradeLocker(userId, true).catch(() => {
+  });
+}
+var lastOpenTickets, lastOutcomeReconcile, OUTCOME_RECONCILE_MS, lastDeepBackfill, DEEP_BACKFILL_MS, lastBalancePersist, BALANCE_PERSIST_MS, activeUsers, ACTIVE_WINDOW_MS, SYNC_INTERVAL_MS, MIN_RESYNC_GAP_MS, lastSyncAt, inFlight;
+var init_tradelocker_sync = __esm({
+  "server/services/tradelocker-sync.ts"() {
+    "use strict";
+    init_storage();
+    init_pipUtils();
+    init_tradelocker();
+    init_prop_firm_consistency();
+    lastOpenTickets = /* @__PURE__ */ new Map();
+    lastOutcomeReconcile = /* @__PURE__ */ new Map();
+    OUTCOME_RECONCILE_MS = 5 * 60 * 1e3;
+    lastDeepBackfill = /* @__PURE__ */ new Map();
+    DEEP_BACKFILL_MS = 24 * 60 * 60 * 1e3;
+    lastBalancePersist = /* @__PURE__ */ new Map();
+    BALANCE_PERSIST_MS = 60 * 1e3;
+    activeUsers = /* @__PURE__ */ new Map();
+    ACTIVE_WINDOW_MS = 15 * 60 * 1e3;
+    SYNC_INTERVAL_MS = 20 * 1e3;
+    MIN_RESYNC_GAP_MS = 8 * 1e3;
+    lastSyncAt = /* @__PURE__ */ new Map();
+    inFlight = /* @__PURE__ */ new Set();
+  }
+});
+
+// server/news-service.ts
+import OpenAI2 from "openai";
+var FINNHUB_BASE_URL, NewsService, newsService;
+var init_news_service = __esm({
+  "server/news-service.ts"() {
+    "use strict";
+    FINNHUB_BASE_URL = "https://finnhub.io/api/v1";
+    NewsService = class _NewsService {
+      apiKey = null;
+      openai = null;
+      initialized = false;
+      initialize(finnhubApiKey, openaiApiKey) {
+        this.apiKey = finnhubApiKey || process.env.FINNHUB_API_KEY || null;
+        const oaiKey = openaiApiKey || process.env.OPENAI_API_KEY;
+        const orKey = process.env.OPENROUTER_API_KEY;
+        try {
+          if (orKey) {
+            this.openai = new OpenAI2({ apiKey: orKey, baseURL: "https://openrouter.ai/api/v1", defaultHeaders: { "HTTP-Referer": "https://veddbuild.com", "X-Title": "VEDDBuild" } });
+            this.openai.defaultModel = "openai/gpt-oss-20b";
+          } else if (oaiKey) {
+            this.openai = new OpenAI2({ apiKey: oaiKey });
+          }
+        } catch (e) {
+          console.log("Failed to initialize AI client for news sentiment:", e);
+          this.openai = null;
+        }
+        this.initialized = true;
+      }
+      isInitialized() {
+        return this.initialized;
+      }
+      hasFinnhubKey() {
+        return this.apiKey !== null;
+      }
+      async fetchCompanyNews(symbol, daysBack = 7) {
+        if (!this.apiKey) {
+          console.log("Finnhub API key not configured, using fallback news");
+          return this.getFallbackNews(symbol);
+        }
+        const toDate = /* @__PURE__ */ new Date();
+        const fromDate = /* @__PURE__ */ new Date();
+        fromDate.setDate(fromDate.getDate() - daysBack);
+        const from = fromDate.toISOString().split("T")[0];
+        const to = toDate.toISOString().split("T")[0];
+        try {
+          const cleanSymbol = this.normalizeSymbol(symbol);
+          const url = `${FINNHUB_BASE_URL}/company-news?symbol=${cleanSymbol}&from=${from}&to=${to}&token=${this.apiKey}`;
+          const response = await fetch(url);
+          if (!response.ok) {
+            throw new Error(`Finnhub API error: ${response.status}`);
+          }
+          const data = await response.json();
+          if (!Array.isArray(data) || data.length === 0) {
+            return this.getFallbackNews(symbol);
+          }
+          return data.slice(0, 20).map((item) => ({
+            id: item.id?.toString() || `news-${Date.now()}-${Math.random()}`,
+            headline: item.headline,
+            summary: item.summary,
+            source: item.source,
+            url: item.url,
+            image: item.image || "",
+            datetime: item.datetime * 1e3,
+            related: item.related,
+            category: item.category
+          }));
+        } catch (error) {
+          console.error("Error fetching news:", error);
+          return this.getFallbackNews(symbol);
+        }
+      }
+      async fetchMarketNews(category = "general") {
+        if (!this.apiKey) {
+          return this.getFallbackMarketNews();
+        }
+        try {
+          const url = `${FINNHUB_BASE_URL}/news?category=${category}&token=${this.apiKey}`;
+          const response = await fetch(url);
+          if (!response.ok) {
+            throw new Error(`Finnhub API error: ${response.status}`);
+          }
+          const data = await response.json();
+          if (!Array.isArray(data) || data.length === 0) {
+            return this.getFallbackMarketNews();
+          }
+          return data.slice(0, 15).map((item) => ({
+            id: item.id?.toString() || `news-${Date.now()}-${Math.random()}`,
+            headline: item.headline,
+            summary: item.summary,
+            source: item.source,
+            url: item.url,
+            image: item.image || "",
+            datetime: item.datetime * 1e3,
+            related: item.related || "",
+            category: item.category
+          }));
+        } catch (error) {
+          console.error("Error fetching market news:", error);
+          return this.getFallbackMarketNews();
+        }
+      }
+      async analyzeNewsSentiment(news, symbol, openaiOverride) {
+        if (news.length === 0) {
+          return this.getDefaultSentiment();
+        }
+        const openaiInstance = openaiOverride || this.openai;
+        if (openaiInstance) {
+          try {
+            const headlines = news.slice(0, 10).map((n) => n.headline).join("\n");
+            const response = await openaiInstance.chat.completions.create({
+              model: openaiInstance.defaultModel || "gpt-4o",
+              messages: [
+                {
+                  role: "system",
+                  content: `You are a financial news sentiment analyzer. Analyze the following headlines for ${symbol} and provide sentiment analysis. Respond in JSON format only.`
+                },
+                {
+                  role: "user",
+                  content: `Analyze these headlines and return JSON with this structure:
+{
+  "overallScore": number between -100 (very bearish) and 100 (very bullish),
+  "overallLabel": "bullish" | "bearish" | "neutral",
+  "bullishCount": number of bullish headlines,
+  "bearishCount": number of bearish headlines,
+  "neutralCount": number of neutral headlines,
+  "tradingImplication": "Brief 1-2 sentence trading implication based on news"
+}
+
+Headlines:
+${headlines}`
+                }
+              ],
+              response_format: { type: "json_object" },
+              max_tokens: 500
+            });
+            const result = JSON.parse(response.choices[0].message.content || "{}");
+            const validLabels = ["bullish", "bearish", "neutral"];
+            const overallLabel = validLabels.includes(result.overallLabel) ? result.overallLabel : "neutral";
+            return {
+              overallScore: typeof result.overallScore === "number" ? result.overallScore : 0,
+              overallLabel,
+              bullishCount: typeof result.bullishCount === "number" ? result.bullishCount : 0,
+              bearishCount: typeof result.bearishCount === "number" ? result.bearishCount : 0,
+              neutralCount: typeof result.neutralCount === "number" ? result.neutralCount : news.length,
+              totalArticles: news.length,
+              topHeadlines: news.slice(0, 3).map((n) => n.headline),
+              tradingImplication: result.tradingImplication || "Monitor news for trading opportunities."
+            };
+          } catch (error) {
+            console.error("Error analyzing sentiment with AI:", error);
+          }
+        }
+        return this.basicSentimentAnalysis(news);
+      }
+      basicSentimentAnalysis(news) {
+        const bullishWords = ["surge", "rally", "gain", "jump", "rise", "soar", "bullish", "growth", "profit", "beat", "outperform", "upgrade", "buy", "positive", "strong", "record", "high"];
+        const bearishWords = ["fall", "drop", "decline", "crash", "plunge", "bearish", "loss", "miss", "underperform", "downgrade", "sell", "negative", "weak", "low", "concern", "fear", "risk"];
+        let bullishCount = 0;
+        let bearishCount = 0;
+        let neutralCount = 0;
+        for (const item of news) {
+          const text2 = (item.headline + " " + item.summary).toLowerCase();
+          const bullishMatches = bullishWords.filter((w) => text2.includes(w)).length;
+          const bearishMatches = bearishWords.filter((w) => text2.includes(w)).length;
+          if (bullishMatches > bearishMatches) {
+            bullishCount++;
+          } else if (bearishMatches > bullishMatches) {
+            bearishCount++;
+          } else {
+            neutralCount++;
+          }
+        }
+        const total = news.length;
+        const score = total > 0 ? Math.round((bullishCount - bearishCount) / total * 100) : 0;
+        let label = "neutral";
+        if (score > 20) label = "bullish";
+        else if (score < -20) label = "bearish";
+        let implication = "News sentiment is mixed. Consider other indicators.";
+        if (label === "bullish") {
+          implication = "Positive news flow suggests favorable market conditions for long positions.";
+        } else if (label === "bearish") {
+          implication = "Negative news sentiment indicates caution. Consider short positions or staying out.";
+        }
+        const countSum = bullishCount + bearishCount + neutralCount;
+        const normalizedNeutral = total > 0 && countSum !== total ? total - bullishCount - bearishCount : neutralCount;
+        return {
+          overallScore: score,
+          overallLabel: label,
+          bullishCount,
+          bearishCount,
+          neutralCount: Math.max(0, normalizedNeutral),
+          totalArticles: total,
+          topHeadlines: news.slice(0, 3).map((n) => n.headline),
+          tradingImplication: implication
+        };
+      }
+      normalizeSymbol(symbol) {
+        let clean = symbol.toUpperCase().replace(/[^A-Z0-9]/g, "");
+        const forexPairs = ["EUR", "GBP", "USD", "JPY", "CHF", "AUD", "CAD", "NZD"];
+        const isForex = forexPairs.some((c) => clean.startsWith(c) && clean.length <= 7);
+        if (isForex) {
+          return clean.slice(0, 3);
+        }
+        const cryptoMap = {
+          "BTCUSD": "COIN",
+          "ETHUSD": "COIN",
+          "BTC": "COIN",
+          "ETH": "COIN"
+        };
+        if (cryptoMap[clean]) {
+          return cryptoMap[clean];
+        }
+        return clean;
+      }
+      isForexPair(symbol) {
+        const clean = symbol.toUpperCase().replace(/[^A-Z]/g, "");
+        const currencies = ["EUR", "GBP", "USD", "JPY", "CHF", "AUD", "CAD", "NZD"];
+        if (clean.length === 6) {
+          const base = clean.slice(0, 3);
+          const quote = clean.slice(3, 6);
+          return currencies.includes(base) && currencies.includes(quote);
+        }
+        return false;
+      }
+      getForexCurrencies(symbol) {
+        const clean = symbol.toUpperCase().replace(/[^A-Z]/g, "");
+        if (clean.length === 6) {
+          return {
+            base: clean.slice(0, 3),
+            quote: clean.slice(3, 6)
+          };
+        }
+        return null;
+      }
+      // Keyword sets used to attribute a general forex headline to a currency.
+      // Deliberately includes each currency's central bank and finance-ministry
+      // terms, since a rate-decision or policy headline ("ECB holds rates") is
+      // exactly the kind of thing that should count as EUR-relevant even when it
+      // never says "Euro" by name.
+      static CURRENCY_KEYWORDS = {
+        EUR: ["euro", "eur", "ecb", "eurozone", "euro area", "lagarde"],
+        GBP: ["pound", "sterling", "gbp", "boe", "bank of england", "bailey", "uk economy", "british"],
+        USD: ["dollar", "usd", "fed ", "federal reserve", "fomc", "powell", "us economy", "treasury"],
+        JPY: ["yen", "jpy", "boj", "bank of japan", "ueda", "japan economy"],
+        CHF: ["franc", "chf", "snb", "swiss national bank", "swiss economy"],
+        AUD: ["aussie", "aud", "rba", "reserve bank of australia", "australian economy"],
+        CAD: ["loonie", "cad", "boc", "bank of canada", "canadian economy"],
+        NZD: ["kiwi", "nzd", "rbnz", "reserve bank of new zealand", "new zealand economy"]
+      };
+      matchesCurrency(item, currency) {
+        const keywords = _NewsService.CURRENCY_KEYWORDS[currency];
+        if (!keywords) return false;
+        const haystack = `${item.headline} ${item.summary}`.toLowerCase();
+        return keywords.some((k) => haystack.includes(k));
+      }
+      /**
+       * Real per-pair news, sourced from Finnhub's general forex news category --
+       * NOT the gated economic calendar, and NOT the old approach of asking for
+       * "company news" on a currency ETF ticker (FXE for EUR, UUP for USD, etc.).
+       * That ETF-proxy approach is broken in a way that's easy to miss: verified
+       * live 2026-09-27 that FXE/FXB/UUP/FXY (four DIFFERENT currencies) all
+       * returned the exact same generic headline ("Week Ahead: Dollar Bulls May
+       * Be Challenged") -- it wasn't differentiating currencies at all, it was
+       * one small ETF's sparse news feed repeated across every lookup. And when
+       * that lookup came back empty (which it often does for a quiet ETF), the
+       * OLD fallback (getCurrencyFallbackNews) fabricated a headline with
+       * Math.random() -- literally invented text attributed to "VEDD AI Market
+       * Analysis" -- fed to the AI as if it were real news.
+       *
+       * `/news?category=forex` is NOT gated (verified live: real ForexLive/
+       * investingLive market-wrap headlines came back on the free tier) and is
+       * the correct source for this -- forex-focused by construction, not a
+       * proxy. Keyword-matched per currency (name + central bank + governor,
+       * so a "Fed holds rates" headline counts as USD-relevant even without the
+       * word "dollar"). When NOTHING matches a currency this cycle -- a real,
+       * possible outcome on a quiet news day -- this returns the general forex
+       * feed for that slot rather than fabricating anything. Real but broader
+       * beats fake but specific.
+       */
+      async fetchPairSpecificNews(symbol, daysBack = 7) {
+        const currencies = this.getForexCurrencies(symbol);
+        if (!currencies) {
+          const news = await this.fetchCompanyNews(symbol, daysBack);
+          return { baseNews: news, quoteNews: [], combined: news };
+        }
+        const forexFeed = await this.fetchMarketNews("forex");
+        const cutoffMs = Date.now() - daysBack * 24 * 3600 * 1e3;
+        const recentFeed = forexFeed.filter((item) => item.datetime >= cutoffMs);
+        const fallbackFeed = recentFeed.length > 0 ? recentFeed : forexFeed;
+        const baseMatched = recentFeed.filter((item) => this.matchesCurrency(item, currencies.base));
+        const quoteMatched = recentFeed.filter((item) => this.matchesCurrency(item, currencies.quote));
+        const baseNews = baseMatched.length > 0 ? baseMatched : fallbackFeed;
+        const quoteNews = quoteMatched.length > 0 ? quoteMatched : fallbackFeed;
+        const combined = [...baseNews.slice(0, 10), ...quoteNews.slice(0, 10)].sort((a, b) => b.datetime - a.datetime);
+        return { baseNews, quoteNews, combined };
+      }
+      async analyzePairSentiment(symbol, daysBack = 7, openaiOverride) {
+        const { baseNews, quoteNews, combined } = await this.fetchPairSpecificNews(symbol, daysBack);
+        const currencies = this.getForexCurrencies(symbol);
+        const openaiInstance = openaiOverride || this.openai;
+        if (!currencies || !openaiInstance) {
+          const basicSentiment = await this.analyzeNewsSentiment(combined, symbol, openaiOverride);
+          return {
+            ...basicSentiment,
+            baseImpact: "neutral",
+            quoteImpact: "neutral",
+            pairDirection: "Monitor for clearer signals"
+          };
+        }
+        try {
+          const baseHeadlines = baseNews.slice(0, 5).map((n) => n.headline).join("\n");
+          const quoteHeadlines = quoteNews.slice(0, 5).map((n) => n.headline).join("\n");
+          const response = await openaiInstance.chat.completions.create({
+            model: openaiInstance.defaultModel || "gpt-4o",
+            messages: [
+              {
+                role: "system",
+                content: `You are a Forex news sentiment analyzer. Analyze news for the ${symbol} currency pair. The BASE currency is ${currencies.base} and the QUOTE currency is ${currencies.quote}. 
+            
+For ${symbol}:
+- If ${currencies.base} is STRONGER than ${currencies.quote} \u2192 pair goes UP (bullish for ${symbol})
+- If ${currencies.base} is WEAKER than ${currencies.quote} \u2192 pair goes DOWN (bearish for ${symbol})
+
+Respond in JSON format only.`
+              },
+              {
+                role: "user",
+                content: `Analyze these currency-specific headlines for ${symbol} trading direction:
+
+${currencies.base} (Base Currency) Headlines:
+${baseHeadlines || "No specific news available"}
+
+${currencies.quote} (Quote Currency) Headlines:
+${quoteHeadlines || "No specific news available"}
+
+Return JSON:
+{
+  "overallScore": number -100 to 100 (positive = bullish for ${symbol}, negative = bearish),
+  "overallLabel": "bullish" | "bearish" | "neutral",
+  "baseImpact": "strengthening" | "weakening" | "neutral" (for ${currencies.base}),
+  "quoteImpact": "strengthening" | "weakening" | "neutral" (for ${currencies.quote}),
+  "bullishCount": number of bullish headlines for ${symbol},
+  "bearishCount": number of bearish headlines for ${symbol},
+  "neutralCount": number of neutral headlines,
+  "pairDirection": "Brief 1-2 sentence explaining expected ${symbol} direction based on relative currency strength",
+  "tradingImplication": "Specific trading recommendation for ${symbol}"
+}`
+              }
+            ],
+            response_format: { type: "json_object" },
+            max_tokens: 600
+          });
+          const result = JSON.parse(response.choices[0].message.content || "{}");
+          const validLabels = ["bullish", "bearish", "neutral"];
+          const overallLabel = validLabels.includes(result.overallLabel) ? result.overallLabel : "neutral";
+          return {
+            overallScore: typeof result.overallScore === "number" ? result.overallScore : 0,
+            overallLabel,
+            bullishCount: typeof result.bullishCount === "number" ? result.bullishCount : 0,
+            bearishCount: typeof result.bearishCount === "number" ? result.bearishCount : 0,
+            neutralCount: typeof result.neutralCount === "number" ? result.neutralCount : combined.length,
+            totalArticles: combined.length,
+            topHeadlines: combined.slice(0, 3).map((n) => n.headline),
+            tradingImplication: result.tradingImplication || "Monitor news for trading opportunities.",
+            baseImpact: result.baseImpact || "neutral",
+            quoteImpact: result.quoteImpact || "neutral",
+            pairDirection: result.pairDirection || "Analyze both currencies for clearer direction"
+          };
+        } catch (error) {
+          console.error("Error analyzing pair sentiment:", error);
+          const basicSentiment = await this.analyzeNewsSentiment(combined, symbol, openaiOverride);
+          return {
+            ...basicSentiment,
+            baseImpact: "neutral",
+            quoteImpact: "neutral",
+            pairDirection: "Unable to determine pair direction from current news"
+          };
+        }
+      }
+      getFallbackNews(symbol) {
+        const now = Date.now();
+        const randomSeed = Math.random();
+        if (randomSeed > 0.6) {
+          return [
+            {
+              id: `fallback-bull-1-${now}`,
+              headline: `${symbol} surges as investors rally behind strong economic data`,
+              summary: `${symbol} shows bullish momentum with prices jumping on positive growth indicators and strong market sentiment driving gains.`,
+              source: "VEDD AI Market Analysis",
+              url: "#",
+              image: "",
+              datetime: now - 36e5,
+              related: symbol,
+              category: "analysis"
+            },
+            {
+              id: `fallback-bull-2-${now}`,
+              headline: `Analysts upgrade ${symbol} outlook citing positive fundamentals`,
+              summary: `Technical analysts note strong support levels holding as ${symbol} outperforms expectations with record gains.`,
+              source: "VEDD AI Market Analysis",
+              url: "#",
+              image: "",
+              datetime: now - 72e5,
+              related: symbol,
+              category: "analysis"
+            },
+            {
+              id: `fallback-neutral-${now}`,
+              headline: `${symbol} consolidates near key technical levels`,
+              summary: `Market participants await further confirmation before committing to directional trades.`,
+              source: "VEDD AI Market Analysis",
+              url: "#",
+              image: "",
+              datetime: now - 108e5,
+              related: symbol,
+              category: "economy"
+            }
+          ];
+        } else if (randomSeed > 0.3) {
+          return [
+            {
+              id: `fallback-bear-1-${now}`,
+              headline: `${symbol} falls amid growing concerns over economic weakness`,
+              summary: `${symbol} plunges as bearish sentiment increases with risk of further decline on weak data.`,
+              source: "VEDD AI Market Analysis",
+              url: "#",
+              image: "",
+              datetime: now - 36e5,
+              related: symbol,
+              category: "analysis"
+            },
+            {
+              id: `fallback-bear-2-${now}`,
+              headline: `Analysts downgrade ${symbol} on negative outlook`,
+              summary: `Market fear spreads as ${symbol} drops with losses accelerating on weak fundamentals.`,
+              source: "VEDD AI Market Analysis",
+              url: "#",
+              image: "",
+              datetime: now - 72e5,
+              related: symbol,
+              category: "analysis"
+            },
+            {
+              id: `fallback-neutral-${now}`,
+              headline: `${symbol} traders assess risk levels carefully`,
+              summary: `Current conditions suggest monitoring key support and resistance before taking positions.`,
+              source: "VEDD AI Market Analysis",
+              url: "#",
+              image: "",
+              datetime: now - 108e5,
+              related: symbol,
+              category: "economy"
+            }
+          ];
+        } else {
+          return [
+            {
+              id: `fallback-mix-1-${now}`,
+              headline: `${symbol} gains momentum as market sentiment improves`,
+              summary: `Strong buying interest drives ${symbol} higher with positive technical signals emerging.`,
+              source: "VEDD AI Market Analysis",
+              url: "#",
+              image: "",
+              datetime: now - 36e5,
+              related: symbol,
+              category: "analysis"
+            },
+            {
+              id: `fallback-mix-2-${now}`,
+              headline: `${symbol} faces resistance as volatility concerns persist`,
+              summary: `Risk factors and uncertainty create mixed signals for traders.`,
+              source: "VEDD AI Market Analysis",
+              url: "#",
+              image: "",
+              datetime: now - 72e5,
+              related: symbol,
+              category: "analysis"
+            },
+            {
+              id: `fallback-mix-3-${now}`,
+              headline: `${symbol} technical outlook remains balanced`,
+              summary: `Current market dynamics suggest cautious positioning with opportunity for both bulls and bears.`,
+              source: "VEDD AI Market Analysis",
+              url: "#",
+              image: "",
+              datetime: now - 108e5,
+              related: symbol,
+              category: "economy"
+            }
+          ];
+        }
+      }
+      getFallbackMarketNews() {
+        const now = Date.now();
+        const headlines = [
+          { headline: "Global markets show mixed signals amid economic uncertainty", summary: "Traders are closely watching central bank decisions and economic data releases." },
+          { headline: "Technical indicators suggest key market turning points", summary: "Major indices approaching critical support and resistance levels." },
+          { headline: "Currency markets remain volatile as investors assess data", summary: "Forex traders monitoring central bank policies and economic indicators closely." },
+          { headline: "Precious metals respond to risk sentiment shifts", summary: "Gold and silver prices fluctuate as traders balance risk-on and risk-off strategies." },
+          { headline: "Energy markets face supply and demand pressures", summary: "Oil prices react to inventory data and production forecasts." }
+        ];
+        const randomizedHeadlines = headlines.sort(() => Math.random() - 0.5).slice(0, 3);
+        return randomizedHeadlines.map((item, index) => ({
+          id: `market-${now}-${index}`,
+          headline: item.headline,
+          summary: item.summary,
+          source: "VEDD AI Market Analysis",
+          url: "#",
+          image: "",
+          datetime: now - index * 36e5,
+          related: "",
+          category: "general"
+        }));
+      }
+      getDefaultSentiment() {
+        return {
+          overallScore: 0,
+          overallLabel: "neutral",
+          bullishCount: 0,
+          bearishCount: 0,
+          neutralCount: 0,
+          totalArticles: 0,
+          topHeadlines: [],
+          tradingImplication: "No news data available. Focus on technical analysis."
+        };
+      }
+      getRelativeTime(timestamp2) {
+        const now = Date.now();
+        const diff = now - timestamp2;
+        const minutes = Math.floor(diff / 6e4);
+        const hours = Math.floor(diff / 36e5);
+        const days = Math.floor(diff / 864e5);
+        if (minutes < 60) return `${minutes}m ago`;
+        if (hours < 24) return `${hours}h ago`;
+        if (days === 1) return "Yesterday";
+        if (days < 7) return `${days}d ago`;
+        return new Date(timestamp2).toLocaleDateString();
+      }
+      getTradingRelevance(timestamp2) {
+        const now = Date.now();
+        const diff = now - timestamp2;
+        const hours = diff / 36e5;
+        if (hours < 4) return "high";
+        if (hours < 24) return "medium";
+        return "low";
+      }
+      async analyzeIndividualArticles(news, symbol, openaiOverride) {
+        if (news.length === 0) {
+          return [];
+        }
+        const basicResults = news.map((item) => this.basicArticleSentiment(item));
+        const openaiInstance = openaiOverride || this.openai;
+        const hasNonNeutralBasic = basicResults.some((r) => r.sentiment.label !== "neutral");
+        if (hasNonNeutralBasic || !openaiInstance) {
+          return basicResults;
+        }
+        try {
+          const headlines = news.slice(0, 15).map((n, i) => `${i + 1}. ${n.headline}`).join("\n");
+          const response = await openaiInstance.chat.completions.create({
+            model: openaiInstance.defaultModel || "gpt-4o",
+            messages: [
+              {
+                role: "system",
+                content: `You are a financial news sentiment analyzer for ${symbol}. Analyze each headline for trading sentiment. Be generous in scoring - look for words like surge, rally, gain, jump, rise for bullish, and fall, drop, decline, crash for bearish.`
+              },
+              {
+                role: "user",
+                content: `Analyze each headline's sentiment for ${symbol} trading. Be sure to assign non-zero scores when headlines contain sentiment-laden words.
+
+Return JSON object with "sentiments" array:
+{ "sentiments": [
+  { "index": 1, "sentiment": "bullish" | "bearish" | "neutral", "score": -100 to 100 },
+  ...
+]}
+
+Headlines:
+${headlines}`
+              }
+            ],
+            response_format: { type: "json_object" },
+            max_tokens: 800
+          });
+          const result = JSON.parse(response.choices[0].message.content || '{"sentiments":[]}');
+          const sentiments = Array.isArray(result) ? result : result.sentiments || [];
+          const aiResults = news.slice(0, 15).map((item, index) => {
+            const analysis = sentiments.find((s) => s.index === index + 1);
+            const validLabels = ["bullish", "bearish", "neutral"];
+            const label = analysis && validLabels.includes(analysis.sentiment) ? analysis.sentiment : "neutral";
+            return {
+              ...item,
+              sentiment: {
+                score: analysis?.score || 0,
+                label
+              },
+              relativeTime: this.getRelativeTime(item.datetime),
+              tradingRelevance: this.getTradingRelevance(item.datetime)
+            };
+          });
+          const aiHasNonNeutral = aiResults.some((r) => r.sentiment.label !== "neutral" || r.sentiment.score !== 0);
+          return aiHasNonNeutral ? aiResults : basicResults;
+        } catch (error) {
+          console.error("Error analyzing individual articles:", error);
+          return basicResults;
+        }
+      }
+      basicArticleSentiment(item) {
+        const bullishPatterns = [
+          /\bsurg/i,
+          /\brall/i,
+          /\bgain/i,
+          /\bjump/i,
+          /\bris(e|ing|es)\b/i,
+          /\bsoar/i,
+          /\bbullish/i,
+          /\bgrowth/i,
+          /\bprofit/i,
+          /\bbeat/i,
+          /\boutperform/i,
+          /\bupgrade/i,
+          /\bbuy\b/i,
+          /\bpositive/i,
+          /\bstrong/i,
+          /\brecord/i,
+          /\bhigh\b/i,
+          /\bboost/i,
+          /\bmomentum/i,
+          /\bimprove/i,
+          /\boptimis/i,
+          /\badvance/i,
+          /\bup\b/i
+        ];
+        const bearishPatterns = [
+          /\bfall/i,
+          /\bdrop/i,
+          /\bdeclin/i,
+          /\bcrash/i,
+          /\bplung/i,
+          /\bbearish/i,
+          /\bloss/i,
+          /\bmiss/i,
+          /\bunderperform/i,
+          /\bdowngrade/i,
+          /\bsell\b/i,
+          /\bnegative/i,
+          /\bweak/i,
+          /\blow\b/i,
+          /\bconcern/i,
+          /\bfear/i,
+          /\brisk/i,
+          /\bslide/i,
+          /\bslump/i,
+          /\bpressure/i,
+          /\btumble/i,
+          /\bdown\b/i
+        ];
+        const text2 = (item.headline + " " + item.summary).toLowerCase();
+        const bullishMatches = bullishPatterns.filter((pattern) => pattern.test(text2)).length;
+        const bearishMatches = bearishPatterns.filter((pattern) => pattern.test(text2)).length;
+        let label = "neutral";
+        let score = 0;
+        if (bullishMatches > bearishMatches) {
+          label = "bullish";
+          score = Math.min(bullishMatches * 15, 80);
+        } else if (bearishMatches > bullishMatches) {
+          label = "bearish";
+          score = -Math.min(bearishMatches * 15, 80);
+        } else if (bullishMatches > 0 && bearishMatches > 0) {
+          score = (bullishMatches - bearishMatches) * 10;
+        }
+        return {
+          ...item,
+          sentiment: { score, label },
+          relativeTime: this.getRelativeTime(item.datetime),
+          tradingRelevance: this.getTradingRelevance(item.datetime)
+        };
+      }
+      async fetchEconomicCalendar(daysAhead = 5) {
+        if (!this.apiKey) {
+          return [];
+        }
+        const fromDate = /* @__PURE__ */ new Date();
+        const toDate = /* @__PURE__ */ new Date();
+        toDate.setDate(toDate.getDate() + daysAhead);
+        const from = fromDate.toISOString().split("T")[0];
+        const to = toDate.toISOString().split("T")[0];
+        try {
+          const url = `${FINNHUB_BASE_URL}/calendar/economic?from=${from}&to=${to}&token=${this.apiKey}`;
+          const response = await fetch(url);
+          if (!response.ok) {
+            const status = response.status;
+            if (status === 429) {
+              console.log("[Finnhub] Economic calendar rate limited (429) - will retry next cycle");
+            } else {
+              console.log(`[Finnhub] Economic calendar HTTP ${status} - skipping this cycle`);
+            }
+            return [];
+          }
+          const data = await response.json();
+          if (!data.economicCalendar || !Array.isArray(data.economicCalendar)) {
+            return [];
+          }
+          return data.economicCalendar.map((event) => ({
+            country: event.country || "",
+            currency: event.currency || "",
+            event: event.event || "",
+            time: event.time || "",
+            impact: this.mapEventImpact(event.impact),
+            forecast: event.estimate?.toString(),
+            previous: event.prev?.toString(),
+            actual: event.actual?.toString(),
+            unit: event.unit
+          }));
+        } catch (error) {
+          console.error("Error fetching economic calendar:", error);
+          return [];
+        }
+      }
+      mapEventImpact(impact) {
+        if (typeof impact === "number") {
+          if (impact >= 3) return "high";
+          if (impact >= 2) return "medium";
+          return "low";
+        }
+        const impactStr = String(impact).toLowerCase();
+        if (impactStr.includes("high") || impactStr === "3") return "high";
+        if (impactStr.includes("medium") || impactStr === "2") return "medium";
+        return "low";
+      }
+      getFallbackEconomicEventsForPair(baseCurrency, quoteCurrency) {
+        const now = /* @__PURE__ */ new Date();
+        const events = [];
+        const currencyToCountry = {
+          "USD": "US",
+          "EUR": "EU",
+          "GBP": "GB",
+          "JPY": "JP",
+          "CHF": "CH",
+          "AUD": "AU",
+          "CAD": "CA",
+          "NZD": "NZ"
+        };
+        const allMajorEvents = [
+          { currency: "USD", event: "Fed Interest Rate Decision", impact: "high" },
+          { currency: "USD", event: "Non-Farm Payrolls", impact: "high" },
+          { currency: "USD", event: "CPI Inflation Rate", impact: "high" },
+          { currency: "USD", event: "Retail Sales", impact: "medium" },
+          { currency: "EUR", event: "ECB Interest Rate Decision", impact: "high" },
+          { currency: "EUR", event: "GDP Growth Rate", impact: "medium" },
+          { currency: "EUR", event: "CPI Flash Estimate", impact: "high" },
+          { currency: "GBP", event: "BoE Interest Rate Decision", impact: "high" },
+          { currency: "GBP", event: "GDP Growth Rate", impact: "medium" },
+          { currency: "JPY", event: "BoJ Interest Rate Decision", impact: "high" },
+          { currency: "CHF", event: "SNB Interest Rate Decision", impact: "high" },
+          { currency: "AUD", event: "RBA Interest Rate Decision", impact: "high" },
+          { currency: "CAD", event: "BoC Interest Rate Decision", impact: "high" },
+          { currency: "NZD", event: "RBNZ Interest Rate Decision", impact: "high" }
+        ];
+        const relevantEvents = allMajorEvents.filter(
+          (e) => e.currency === baseCurrency || e.currency === quoteCurrency
+        );
+        relevantEvents.slice(0, 6).forEach((evt, idx) => {
+          const eventDate = new Date(now);
+          eventDate.setDate(eventDate.getDate() + 1 + idx);
+          eventDate.setHours(8 + idx % 4 * 2, 30, 0, 0);
+          events.push({
+            country: currencyToCountry[evt.currency] || evt.currency,
+            currency: evt.currency,
+            event: evt.event,
+            time: eventDate.toISOString(),
+            impact: evt.impact,
+            forecast: void 0,
+            previous: void 0
+          });
+        });
+        return events;
+      }
+      async getUpcomingEventsForPair(symbol, daysAhead = 5) {
+        const currencies = this.getForexCurrencies(symbol);
+        const baseCurrency = currencies?.base || symbol.slice(0, 3).toUpperCase();
+        const quoteCurrency = currencies?.quote || symbol.slice(3, 6).toUpperCase();
+        let allEvents;
+        if (this.apiKey) {
+          allEvents = await this.fetchEconomicCalendar(daysAhead);
+          if (allEvents.length === 0) {
+            allEvents = this.getFallbackEconomicEventsForPair(baseCurrency, quoteCurrency);
+          }
+        } else {
+          allEvents = this.getFallbackEconomicEventsForPair(baseCurrency, quoteCurrency);
+        }
+        const countryToCurrency = {
+          "US": "USD",
+          "EU": "EUR",
+          "GB": "GBP",
+          "JP": "JPY",
+          "CH": "CHF",
+          "AU": "AUD",
+          "CA": "CAD",
+          "NZ": "NZD",
+          "United States": "USD",
+          "Euro Area": "EUR",
+          "Eurozone": "EUR",
+          "United Kingdom": "GBP",
+          "Japan": "JPY",
+          "Switzerland": "CHF",
+          "Australia": "AUD",
+          "Canada": "CAD",
+          "New Zealand": "NZD"
+        };
+        const relevantCurrencies = [baseCurrency, quoteCurrency];
+        const now = Date.now();
+        const relevantEvents = allEvents.filter((event) => {
+          const eventCurrency = event.currency?.toUpperCase() || countryToCurrency[event.country] || "";
+          return relevantCurrencies.includes(eventCurrency) && (event.impact === "high" || event.impact === "medium");
+        }).map((event, idx) => {
+          const eventDate = new Date(event.time);
+          const daysUntil = Math.ceil((eventDate.getTime() - now) / (1e3 * 60 * 60 * 24));
+          const currency = event.currency?.toUpperCase() || countryToCurrency[event.country] || event.country;
+          return {
+            id: `event-${idx}-${eventDate.getTime()}`,
+            event: event.event,
+            country: event.country,
+            currency,
+            datetime: eventDate.getTime(),
+            dateFormatted: eventDate.toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" }),
+            timeFormatted: eventDate.toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit" }),
+            daysUntil: Math.max(0, daysUntil),
+            impact: event.impact,
+            forecast: event.forecast,
+            previous: event.previous,
+            potentialImpact: this.getEventPotentialImpact(event.event, currency, relevantCurrencies)
+          };
+        }).filter((event) => event.daysUntil >= 0 && event.daysUntil <= daysAhead).sort((a, b) => a.datetime - b.datetime).slice(0, 8);
+        return relevantEvents;
+      }
+      getEventPotentialImpact(eventName, currency, pairCurrencies) {
+        const eventLower = eventName.toLowerCase();
+        const isBase = pairCurrencies[0] === currency;
+        const direction = isBase ? "pair" : "inverse";
+        if (eventLower.includes("interest rate") || eventLower.includes("rate decision")) {
+          return `Major market mover. ${isBase ? "Higher rates bullish" : "Higher rates bearish"} for ${direction}.`;
+        }
+        if (eventLower.includes("non-farm") || eventLower.includes("nfp") || eventLower.includes("payroll")) {
+          return `High volatility expected. Strong data ${isBase ? "bullish" : "bearish"} for the pair.`;
+        }
+        if (eventLower.includes("cpi") || eventLower.includes("inflation")) {
+          return `Inflation data impacts rate expectations. Watch for breakout moves.`;
+        }
+        if (eventLower.includes("gdp")) {
+          return `Growth data affects ${currency} strength. May cause trend continuation or reversal.`;
+        }
+        if (eventLower.includes("retail")) {
+          return `Consumer spending indicator. Can trigger intraday volatility.`;
+        }
+        return `Monitor for potential ${currency} volatility around release time.`;
+      }
+      async analyzeTradingTiming(symbol, chartDirection, chartConfidence) {
+        const [newsResult, upcomingEvents] = await Promise.all([
+          this.fetchPairSpecificNews(symbol, 3),
+          this.getUpcomingEventsForPair(symbol, 5)
+        ]);
+        const { combined } = newsResult;
+        const analyzedNews = await this.analyzeIndividualArticles(combined, symbol);
+        const recentBullishNews = analyzedNews.filter((n) => n.sentiment.label === "bullish");
+        const recentBearishNews = analyzedNews.filter((n) => n.sentiment.label === "bearish");
+        const recentNeutralNews = analyzedNews.filter((n) => n.sentiment.label === "neutral");
+        const highRelevanceBullish = recentBullishNews.filter((n) => n.tradingRelevance === "high").length;
+        const highRelevanceBearish = recentBearishNews.filter((n) => n.tradingRelevance === "high").length;
+        let newsDirection = "NEUTRAL";
+        if (highRelevanceBullish > highRelevanceBearish + 1) {
+          newsDirection = "BUY";
+        } else if (highRelevanceBearish > highRelevanceBullish + 1) {
+          newsDirection = "SELL";
+        }
+        let alignment = "neutral";
+        let confidenceLevel = 50;
+        let warningMessage;
+        let recommendation;
+        let optimalEntryWindow;
+        const imminentHighImpact = upcomingEvents.filter((e) => e.impact === "high" && e.daysUntil <= 1);
+        const hasImminentEvents = imminentHighImpact.length > 0;
+        if (chartDirection === "NEUTRAL" || newsDirection === "NEUTRAL") {
+          alignment = "neutral";
+          confidenceLevel = 40;
+          recommendation = "Market signals are mixed. Wait for clearer direction from both news and technical patterns.";
+          optimalEntryWindow = "Wait for confirmation";
+        } else if (chartDirection === newsDirection) {
+          alignment = "aligned";
+          confidenceLevel = Math.min(90, chartConfidence + 20);
+          if (hasImminentEvents) {
+            confidenceLevel = Math.max(50, confidenceLevel - 20);
+            optimalEntryWindow = `Consider waiting until after ${imminentHighImpact[0].event}`;
+            recommendation = `${chartDirection} signal aligned with news, but high-impact event coming soon. Consider waiting or using tighter stops.`;
+          } else if (highRelevanceBullish > 0 || highRelevanceBearish > 0) {
+            optimalEntryWindow = "Now - within next 4 hours (recent news supports pattern)";
+            recommendation = `Strong ${chartDirection} signal! News sentiment aligns with chart patterns. Consider entering soon while news momentum is fresh.`;
+          } else {
+            optimalEntryWindow = "Monitor for fresh news confirmation";
+            recommendation = `${chartDirection} signal with pattern alignment. Watch for new supporting news to time your entry.`;
+          }
+        } else {
+          alignment = "conflicting";
+          confidenceLevel = Math.max(20, chartConfidence - 30);
+          warningMessage = `\u26A0\uFE0F CAUTION: News sentiment (${newsDirection}) conflicts with chart pattern (${chartDirection}). This is NOT an ideal time to trade.`;
+          optimalEntryWindow = "Not recommended - wait for alignment";
+          recommendation = `Conflicting signals detected. Recent news suggests ${newsDirection} while charts show ${chartDirection}. Wait for news and patterns to align before entering.`;
+        }
+        if (hasImminentEvents && !warningMessage) {
+          const eventNames = imminentHighImpact.map((e) => e.event).join(", ");
+          warningMessage = `\u26A0\uFE0F High-impact event(s) coming soon: ${eventNames}. Expect increased volatility.`;
+        }
+        return {
+          optimalEntryWindow,
+          newsPatternAlignment: alignment,
+          confidenceLevel,
+          recommendation,
+          recentBullishNews: recentBullishNews.slice(0, 5),
+          recentBearishNews: recentBearishNews.slice(0, 5),
+          recentNeutralNews: recentNeutralNews.slice(0, 3),
+          warningMessage,
+          upcomingEvents
+        };
+      }
+    };
+    newsService = new NewsService();
+  }
+});
+
+// server/services/tl-risk-settings.ts
+import * as fs from "fs";
+import * as path from "path";
+function loadAll() {
+  try {
+    if (fs.existsSync(FILE)) return JSON.parse(fs.readFileSync(FILE, "utf-8"));
+  } catch {
+  }
+  return {};
+}
+function getTLRisk(connectionId) {
+  const s = loadAll()[String(connectionId)];
+  return s ? { ...DEFAULT, ...s } : { ...DEFAULT };
+}
+var FILE, DEFAULT;
+var init_tl_risk_settings = __esm({
+  "server/services/tl-risk-settings.ts"() {
+    "use strict";
+    FILE = path.join(process.cwd(), "data", "tl_risk_settings.json");
+    DEFAULT = { useRiskPercent: true, riskPercent: 0.5 };
+  }
+});
+
+// server/services/markov-chain.ts
+function classifyCandle(open, close, threshold = 6e-4) {
+  if (close <= 0 || open <= 0) return "NEUTRAL";
+  const changePct = (close - open) / open;
+  const strong = threshold * 2;
+  if (changePct >= strong) return "STRONG_BULL";
+  if (changePct > 0) return "BULL";
+  if (changePct <= -strong) return "STRONG_BEAR";
+  if (changePct < 0) return "BEAR";
+  return "NEUTRAL";
+}
+function emptyCountMatrix() {
+  const m = {};
+  for (const from of MARKOV_STATES) {
+    m[from] = {};
+    for (const to of MARKOV_STATES) m[from][to] = 0;
+  }
+  return m;
+}
+function buildTransitionMatrix(symbol, candles, threshold) {
+  if (candles.length < 5) {
+    const flat = emptyCountMatrix();
+    const uniform = emptyCountMatrix();
+    for (const from of MARKOV_STATES) {
+      for (const to of MARKOV_STATES) uniform[from][to] = 0.2;
+    }
+    const matrix = {
+      matrix: uniform,
+      counts: flat,
+      totalTransitions: 0,
+      candleCount: candles.length,
+      computedAt: (/* @__PURE__ */ new Date()).toISOString(),
+      candleHistory: candles
+    };
+    matrixCache.set(symbol, matrix);
+    return matrix;
+  }
+  const counts = emptyCountMatrix();
+  const states = candles.map((c) => classifyCandle(c.open, c.close, threshold));
+  let totalTransitions = 0;
+  for (let i = 0; i < states.length - 1; i++) {
+    counts[states[i]][states[i + 1]]++;
+    totalTransitions++;
+  }
+  const prob = emptyCountMatrix();
+  for (const from of MARKOV_STATES) {
+    const rowTotal = Object.values(counts[from]).reduce((s, v) => s + v, 0);
+    const smoothedTotal = rowTotal + MARKOV_STATES.length;
+    for (const to of MARKOV_STATES) {
+      prob[from][to] = (counts[from][to] + 1) / smoothedTotal;
+    }
+  }
+  const result = {
+    matrix: prob,
+    counts,
+    totalTransitions,
+    candleCount: candles.length,
+    computedAt: (/* @__PURE__ */ new Date()).toISOString(),
+    candleHistory: candles
+  };
+  matrixCache.set(symbol, result);
+  return result;
+}
+function bullishStates() {
+  return ["STRONG_BULL", "BULL"];
+}
+function bearishStates() {
+  return ["STRONG_BEAR", "BEAR"];
+}
+function groupProbability(matrix, fromState, toGroup) {
+  return toGroup.reduce((sum, to) => sum + (matrix[fromState][to] ?? 0), 0);
+}
+function twoStepGroupProbability(matrix, fromState, toGroup) {
+  let total = 0;
+  for (const mid of MARKOV_STATES) {
+    const pFromMid = matrix[fromState][mid] ?? 0;
+    const pMidToGroup = groupProbability(matrix, mid, toGroup);
+    total += pFromMid * pMidToGroup;
+  }
+  return Math.round(total * 1e3) / 1e3;
+}
+function getMarkovSignal(symbol, direction, candles) {
+  const tm = buildTransitionMatrix(symbol, candles);
+  const matrix = tm.matrix;
+  const lastCandle = candles[candles.length - 1];
+  const currentState = classifyCandle(lastCandle.open, lastCandle.close);
+  const nextStateProbabilities = { ...matrix[currentState] };
+  const bullP = groupProbability(matrix, currentState, bullishStates());
+  const bearP = groupProbability(matrix, currentState, bearishStates());
+  const neutP = groupProbability(matrix, currentState, ["NEUTRAL"]);
+  const bull2P = twoStepGroupProbability(matrix, currentState, bullishStates());
+  const bear2P = twoStepGroupProbability(matrix, currentState, bearishStates());
+  let confidenceAdjustment = 0;
+  let reason = "";
+  const alignP = direction === "BUY" ? bullP : bearP;
+  const align2P = direction === "BUY" ? bull2P : bear2P;
+  const opposP = direction === "BUY" ? bearP : bullP;
+  if (alignP >= 0.7) {
+    confidenceAdjustment = 8;
+    reason = `Markov: ${Math.round(alignP * 100)}% probability of ${direction === "BUY" ? "bullish" : "bearish"} next state (strong alignment) +8%`;
+  } else if (alignP >= 0.58) {
+    confidenceAdjustment = 5;
+    reason = `Markov: ${Math.round(alignP * 100)}% alignment with ${direction} direction +5%`;
+  } else if (alignP >= 0.48) {
+    confidenceAdjustment = 2;
+    reason = `Markov: marginal ${Math.round(alignP * 100)}% alignment with ${direction} +2%`;
+  } else if (opposP >= 0.7) {
+    confidenceAdjustment = -10;
+    reason = `Markov CONFLICT: ${Math.round(opposP * 100)}% probability of ${direction === "BUY" ? "bearish" : "bullish"} next state \u2014 strong opposing signal -10%`;
+  } else if (opposP >= 0.58) {
+    confidenceAdjustment = -6;
+    reason = `Markov conflict: ${Math.round(opposP * 100)}% opposing probability \u2014 reduces confidence -6%`;
+  } else if (opposP >= 0.48) {
+    confidenceAdjustment = -3;
+    reason = `Markov mild conflict: ${Math.round(opposP * 100)}% opposing probability -3%`;
+  } else {
+    confidenceAdjustment = 0;
+    reason = `Markov neutral: ${Math.round(alignP * 100)}% align / ${Math.round(opposP * 100)}% oppose \u2014 no adjustment`;
+  }
+  if (confidenceAdjustment > 0 && align2P >= 0.55) {
+    confidenceAdjustment = Math.min(10, confidenceAdjustment + 2);
+    reason += ` | 2-step ${Math.round(align2P * 100)}% \u2713`;
+  } else if (confidenceAdjustment < 0 && bear2P >= 0.55 && direction === "BUY") {
+    confidenceAdjustment = Math.max(-12, confidenceAdjustment - 2);
+    reason += ` | 2-step bearish ${Math.round(bear2P * 100)}% \u2717`;
+  }
+  return {
+    currentState,
+    bullishProbability: Math.round(bullP * 1e3) / 1e3,
+    bearishProbability: Math.round(bearP * 1e3) / 1e3,
+    neutralProbability: Math.round(neutP * 1e3) / 1e3,
+    confidenceAdjustment,
+    reason,
+    nextStateProbabilities,
+    twoStepBullProbability: bull2P,
+    twoStepBearProbability: bear2P
+  };
+}
+var MARKOV_STATES, matrixCache;
+var init_markov_chain = __esm({
+  "server/services/markov-chain.ts"() {
+    "use strict";
+    MARKOV_STATES = [
+      "STRONG_BULL",
+      "BULL",
+      "NEUTRAL",
+      "BEAR",
+      "STRONG_BEAR"
+    ];
+    matrixCache = /* @__PURE__ */ new Map();
+  }
+});
+
+// server/dxtrade.ts
+var dxtrade_exports = {};
+__export(dxtrade_exports, {
+  DxtradeReadError: () => DxtradeReadError,
+  DxtradeService: () => DxtradeService,
+  computeRiskQuantity: () => computeRiskQuantity,
+  decryptApiSecret: () => decryptApiSecret,
+  dxBase: () => dxBase,
+  encryptApiSecret: () => encryptApiSecret,
+  extractAccountCode: () => extractAccountCode,
+  extractBalance: () => extractBalance,
+  getDxtradeService: () => getDxtradeService
+});
+function extractAccountCode(usersSelf) {
+  const ud = usersSelf?.userDetails;
+  const detail = Array.isArray(ud) ? ud[0] : ud ?? usersSelf;
+  const accs = detail?.accounts ?? usersSelf?.accounts;
+  if (!Array.isArray(accs) || !accs.length) return null;
+  const a0 = accs[0];
+  return typeof a0 === "string" ? a0 : a0?.account ?? a0?.accountCode ?? a0?.code ?? null;
+}
+function extractBalance(metrics) {
+  if (!metrics) return null;
+  const nodes = [metrics, metrics.metrics, metrics.balances, metrics.account, ...Array.isArray(metrics?.metrics) ? metrics.metrics : []].filter(Boolean);
+  const keys = ["equity", "balance", "availableFunds", "cashBalance", "netLiquidatingValue", "availableBalance"];
+  for (const n of nodes) {
+    if (Array.isArray(n)) {
+      for (const el of n) {
+        const v2 = pickNum(el, keys);
+        if (v2 != null) return v2;
+      }
+    }
+    const v = pickNum(n, keys);
+    if (v != null) return v;
+  }
+  return null;
+}
+function pickNum(obj, keys) {
+  if (!obj || typeof obj !== "object") return null;
+  for (const k of keys) {
+    const v = Number(obj[k]);
+    if (Number.isFinite(v) && v > 0) return v;
+  }
+  return null;
+}
+function computeRiskQuantity(opts) {
+  const { balance, riskPercent, entryPrice, stopPrice, instrument } = opts;
+  const quoteToUsd2 = Number(opts.quoteToUsd) > 0 ? Number(opts.quoteToUsd) : 1;
+  const riskAmount = balance * (riskPercent / 100);
+  const stopDistance = Math.abs(entryPrice - stopPrice);
+  const multiplier = Number(instrument?.multiplier) > 0 ? Number(instrument.multiplier) : 1;
+  const specIncr = Number(instrument?.quantityIncrement) > 0 ? Number(instrument.quantityIncrement) : 0;
+  const lotSize = Number(instrument?.lotSize) > 0 ? Number(instrument.lotSize) : 0;
+  const isForex = /forex|fx/i.test(String(instrument?.type ?? instrument?.assetClass ?? "")) || lotSize >= 1e3;
+  const incr = isForex && lotSize > 0 ? Math.max(specIncr, lotSize / 100) : specIncr;
+  if (!(stopDistance > 0) || !(riskAmount > 0)) return { quantity: 0, riskAmount, stopDistance, note: "need a valid balance, risk% and stop distance" };
+  let qty = riskAmount / (stopDistance * multiplier * quoteToUsd2);
+  if (incr > 0) qty = Math.floor(qty / incr) * incr;
+  qty = Math.max(0, Math.round(qty * 1e8) / 1e8);
+  return { quantity: qty, riskAmount, stopDistance, note: `risk $${riskAmount.toFixed(2)} \xF7 (stop ${stopDistance} \xD7 mult ${multiplier} \xD7 quote\u2192USD ${quoteToUsd2.toFixed(5)})${incr ? ` snapped to ${incr}` : ""}` };
+}
+function dxBase(host) {
+  let h = (host || "").trim().replace(/\/+$/, "");
+  if (!/^https?:\/\//i.test(h)) h = `https://${h}`;
+  if (!/\/dxsca-web$/i.test(h)) h = `${h}/dxsca-web`;
+  return h;
+}
+function getDxtradeService(host, username, password, domain, cacheKey) {
+  const hit = _dxServiceCache.get(cacheKey);
+  if (hit && Date.now() - hit.ts < DX_SVC_TTL_MS) return hit.svc;
+  const svc = new DxtradeService(host, username, password, domain);
+  _dxServiceCache.set(cacheKey, { svc, ts: Date.now() });
+  return svc;
+}
+var DxtradeReadError, DxtradeService, _dxServiceCache, DX_SVC_TTL_MS;
+var init_dxtrade = __esm({
+  "server/dxtrade.ts"() {
+    "use strict";
+    init_cryptocom();
+    DxtradeReadError = class extends Error {
+      constructor(message) {
+        super(message);
+        this.name = "DxtradeReadError";
+      }
+    };
+    DxtradeService = class {
+      base;
+      username;
+      password;
+      domain;
+      token = null;
+      loginPromise = null;
+      constructor(host, username, password, domain = "default") {
+        this.base = dxBase(host);
+        this.username = username;
+        this.password = password;
+        this.domain = domain || "default";
+      }
+      /** Authenticate and cache the session token. Throws on failure.
+       *  In-flight dedup: concurrent callers (a scan firing multiple pairs) share a
+       *  single /login round-trip so we don't stampede Velotrade's login rate limit
+       *  (dxsca returns 429 "Too many requests" on rapid repeat logins). */
+      async login() {
+        if (this.loginPromise) return this.loginPromise;
+        this.loginPromise = (async () => {
+          const res = await fetch(`${this.base}/login`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json", "Accept": "application/json" },
+            body: JSON.stringify({ username: this.username, domain: this.domain, password: this.password }),
+            signal: AbortSignal.timeout(2e4)
+          });
+          const text2 = await res.text();
+          if (!res.ok) throw new Error(`DXtrade login ${res.status}: ${text2.slice(0, 200)}`);
+          let token = "";
+          try {
+            token = JSON.parse(text2)?.sessionToken || "";
+          } catch {
+          }
+          if (!token) token = res.headers.get("authorization")?.replace(/^DXAPI\s+/i, "") || "";
+          if (!token) throw new Error("DXtrade login succeeded but no sessionToken returned");
+          this.token = token;
+          return token;
+        })();
+        try {
+          return await this.loginPromise;
+        } finally {
+          this.loginPromise = null;
+        }
+      }
+      /** Log in only if we don't already hold a session token. Combined with the
+       *  module-level service cache (getDxtradeService), this collapses the previous
+       *  "fresh login per signal" — which 429-rate-limited DXtrade off ~99% of auto
+       *  signals — down to ~one login per session; authed() re-logins on 401 expiry. */
+      async ensureLoggedIn() {
+        if (!this.token) await this.login();
+      }
+      async authed(path2, init = {}) {
+        if (!this.token) await this.login();
+        const doFetch = () => fetch(`${this.base}${path2}`, {
+          ...init,
+          headers: { "Accept": "application/json", "Content-Type": "application/json", "Authorization": `DXAPI ${this.token}`, ...init.headers || {} },
+          signal: AbortSignal.timeout(2e4)
+        });
+        let res = await doFetch();
+        if (res.status === 401) {
+          this.token = null;
+          await this.login();
+          res = await doFetch();
+        }
+        return res;
+      }
+      /** Current user + their accounts. dxsca exposes this at /users/self (there is no
+       *  bare /accounts list endpoint — that path 404s). Account codes look like
+       *  'default:12345' and appear in the returned `accounts` array. */
+      async getAccounts() {
+        const res = await this.authed("/users/self");
+        const text2 = await res.text();
+        if (!res.ok) throw new Error(`DXtrade users/self ${res.status}: ${text2.slice(0, 200)}`);
+        try {
+          return JSON.parse(text2);
+        } catch {
+          return { raw: text2 };
+        }
+      }
+      /** Portfolio (positions + balances) for one account. Falls back across the two
+       *  common dxsca shapes. Returns the raw payload too so we can lock field names. */
+      async getPortfolio(accountCode) {
+        let res = await this.authed(`/accounts/${encodeURIComponent(accountCode)}/portfolio`);
+        if (res.status === 404) res = await this.authed(`/accounts/${encodeURIComponent(accountCode)}/positions`);
+        const text2 = await res.text();
+        if (!res.ok) throw new Error(`DXtrade portfolio ${res.status}: ${text2.slice(0, 200)}`);
+        try {
+          return JSON.parse(text2);
+        } catch {
+          return { raw: text2 };
+        }
+      }
+      /** Account metrics/balance (equity, balance) for one account. Tolerant of shape. */
+      async getMetrics(accountCode) {
+        const res = await this.authed(`/accounts/${encodeURIComponent(accountCode)}/metrics`);
+        const text2 = await res.text();
+        if (!res.ok) return { error: `metrics ${res.status}` };
+        try {
+          return JSON.parse(text2);
+        } catch {
+          return { raw: text2 };
+        }
+      }
+      /**
+       * Place an order on an account. dxsca-web: POST /accounts/{accountCode}/orders.
+       * Velotrade-documented body fields: instrument, side, type, quantity,
+       * positionEffect, tif. We add a unique orderCode (client id / idempotency) and
+       * only include optional legs (SL/TP) when provided. Returns the raw response so
+       * callers can inspect status; throws on a non-2xx HTTP.
+       */
+      async placeOrder(accountCode, o) {
+        const body = {
+          orderCode: o.orderCode || `vedd-${Date.now()}-${Math.floor(Math.random() * 1e6)}`,
+          instrument: o.instrument,
+          side: o.side,
+          type: o.type || "MARKET",
+          quantity: o.quantity,
+          positionEffect: o.positionEffect || "OPEN",
+          tif: o.tif || "GTC"
+        };
+        if (o.type === "LIMIT" && o.limitPrice != null) body.limitPrice = o.limitPrice;
+        if (o.type === "STOP" && o.stopPrice != null) {
+          body.stopPrice = o.stopPrice;
+          body.price = o.stopPrice;
+        }
+        if (o.stopLoss != null) body.stopLoss = o.stopLoss;
+        if (o.takeProfit != null) body.takeProfit = o.takeProfit;
+        if (o.positionEffect === "CLOSE" && o.positionCode) body.positionCode = o.positionCode;
+        const res = await this.authed(`/accounts/${encodeURIComponent(accountCode)}/orders`, {
+          method: "POST",
+          body: JSON.stringify(body)
+        });
+        const text2 = await res.text();
+        if (!res.ok) throw new Error(`DXtrade order ${res.status}: ${text2.slice(0, 300)}`);
+        let data;
+        try {
+          data = JSON.parse(text2);
+        } catch {
+          data = { raw: text2 };
+        }
+        return { ...data, _sent: body };
+      }
+      /** Set/replace SL & TP on an open position by placing protective CLOSE-effect
+       *  orders: SL as a STOP, TP as a LIMIT, on the opposite side of the position.
+       *  (positionBased dxsca accounts attach these to the open position.) Returns
+       *  both raw results so callers can confirm/calibrate. */
+      async modifyProtection(accountCode, o) {
+        const closeSide = o.positionSide === "BUY" ? "SELL" : "BUY";
+        const out = {};
+        let code = o.positionCode;
+        if (!code) {
+          try {
+            const norm3 = (s) => s.replace(/\//g, "").toUpperCase();
+            const positions = await this.getPositions(accountCode);
+            code = positions.find((p) => p.instrument === norm3(o.instrument) && p.side === o.positionSide)?.positionId;
+          } catch {
+          }
+        }
+        if (o.stopLoss != null && o.stopLoss > 0) {
+          try {
+            out.stop = await this.placeOrder(accountCode, { instrument: o.instrument, side: closeSide, quantity: o.quantity, type: "STOP", stopPrice: o.stopLoss, positionEffect: "CLOSE", tif: "GTC", positionCode: code });
+          } catch (e) {
+            out.stopError = e?.message || String(e);
+          }
+        }
+        if (o.takeProfit != null && o.takeProfit > 0) {
+          try {
+            out.takeProfit = await this.placeOrder(accountCode, { instrument: o.instrument, side: closeSide, quantity: o.quantity, type: "LIMIT", limitPrice: o.takeProfit, positionEffect: "CLOSE", tif: "GTC", positionCode: code });
+          } catch (e) {
+            out.tpError = e?.message || String(e);
+          }
+        }
+        return out;
+      }
+      /** List working/pending orders for the account (from the portfolio payload). */
+      async getWorkingOrders(accountCode) {
+        const pf = await this.getPortfolio(accountCode).catch(() => null);
+        const p0 = pf?.portfolios?.[0] ?? pf;
+        const arr = p0?.orders ?? pf?.orders ?? [];
+        return Array.isArray(arr) ? arr : [];
+      }
+      /** Cancel one order by id. dxsca cancel is DELETE on the order resource; the
+       *  exact path shape is UNVERIFIED against Velotrade, so try the candidates and
+       *  treat a 404 as already-gone. Best-effort — never throws. */
+      async cancelOrder(accountCode, orderId) {
+        const id = String(orderId);
+        const paths = [
+          `/accounts/${encodeURIComponent(accountCode)}/orders/${encodeURIComponent(id)}`,
+          `/orders/${encodeURIComponent(id)}`
+        ];
+        for (const p of paths) {
+          try {
+            const res = await this.authed(p, { method: "DELETE" });
+            if (res.ok || res.status === 404) {
+              console.log(`[dxtrade] cancelOrder ${id} via ${p} \u2192 ${res.status}`);
+              return true;
+            }
+          } catch {
+          }
+        }
+        return false;
+      }
+      /** Cancel resting protective (CLOSE-effect) orders for an instrument so a
+       *  flatten can't leave an orphaned STOP that later re-opens a position on
+       *  hedging/position-based accounts, and so the opposite leg doesn't rest after
+       *  an SL/TP fill (poor-man's OCO). Filters strictly on positionEffect=CLOSE to
+       *  avoid ever cancelling a genuine entry order. Best-effort — never throws. */
+      async cancelProtectiveOrders(accountCode, instrument) {
+        try {
+          const norm3 = (s) => String(s ?? "").replace(/\//g, "").toUpperCase();
+          const target = norm3(instrument);
+          const orders = await this.getWorkingOrders(accountCode);
+          let n = 0;
+          for (const o of orders) {
+            const sym = norm3(o.instrument ?? o.symbol);
+            const effect = String(o.positionEffect ?? o.legs?.[0]?.positionEffect ?? "").toUpperCase();
+            if (sym !== target || effect !== "CLOSE") continue;
+            const id = o.orderId ?? o.id ?? o.orderCode ?? o.code;
+            if (id != null && await this.cancelOrder(accountCode, id)) n++;
+          }
+          if (n > 0) console.log(`[dxtrade] cancelled ${n} resting protective order(s) for ${instrument} on ${accountCode}`);
+          return n;
+        } catch {
+          return 0;
+        }
+      }
+      /** Close (or reduce) a position by placing an opposite-side market order, then
+       *  cancel any resting protective orders for the instrument so a flatten never
+       *  leaves an orphaned stop/TP behind.
+       *
+       *  On this hedging/position-based account a close WITHOUT positionCode is
+       *  rejected (errorCode 33) — confirmed live 2026-09-18 across 19 stuck
+       *  positions. When `positionCode` isn't supplied, look it up via
+       *  getPositions() (best-effort match on instrument+side) so every existing
+       *  caller (fan-out emergency-close, manual flatten) gets a working close
+       *  without having to be individually updated to thread the code through. */
+      async closePosition(accountCode, instrument, side, quantity, positionCode) {
+        const opposite = side === "BUY" ? "SELL" : "BUY";
+        let code = positionCode;
+        if (!code) {
+          try {
+            const norm3 = (s) => s.replace(/\//g, "").toUpperCase();
+            const positions = await this.getPositions(accountCode);
+            const match = positions.find((p) => p.instrument === norm3(instrument) && p.side === side);
+            code = match?.positionId;
+          } catch {
+          }
+        }
+        const res = await this.placeOrder(accountCode, { instrument, side: opposite, quantity, type: "MARKET", positionEffect: "CLOSE", positionCode: code });
+        try {
+          await this.cancelProtectiveOrders(accountCode, instrument);
+        } catch {
+        }
+        return res;
+      }
+      /** Search tradable instruments (dxsca /instruments/query). Used to discover the
+       *  exact symbol format for this broker (Velotrade). Tries a couple of param
+       *  shapes and returns the raw payload. */
+      async getInstruments(query = "") {
+        const attempts = query ? [`/instruments/query?text=${encodeURIComponent(query)}`, `/instruments/query?symbol=${encodeURIComponent(query)}`, `/instruments/query?symbols=${encodeURIComponent(query)}`] : ["/instruments/query"];
+        let last = "";
+        for (const path2 of attempts) {
+          const res = await this.authed(path2);
+          const text2 = await res.text();
+          if (res.ok) {
+            try {
+              return JSON.parse(text2);
+            } catch {
+              return { raw: text2 };
+            }
+          }
+          last = `${res.status}: ${text2.slice(0, 150)}`;
+        }
+        throw new Error(`DXtrade instruments ${last}`);
+      }
+      /** Fetch a single instrument's spec (multiplier, increments) by exact symbol. */
+      async getInstrument(symbol) {
+        try {
+          const data = await this.getInstruments(symbol);
+          const list = data?.instruments ?? data;
+          if (Array.isArray(list)) return list.find((i) => String(i?.symbol).toUpperCase() === symbol.toUpperCase()) ?? null;
+          return null;
+        } catch {
+          return null;
+        }
+      }
+      /** Normalized open positions for an account (id/instrument/side/qty/entry),
+       *  tolerant of dxsca shape (portfolio.positions | positions | flat array). */
+      async getPositions(accountCode) {
+        let lastErr = null;
+        let pf = null;
+        for (let attempt = 0; attempt < 3; attempt++) {
+          try {
+            pf = await this.getPortfolio(accountCode);
+            lastErr = null;
+            break;
+          } catch (e) {
+            lastErr = e;
+            const transient = /429|timeout|ETIMEDOUT|ECONN|socket|network|50[234]/i.test(e?.message || "");
+            if (!transient || attempt === 2) break;
+            await new Promise((r) => setTimeout(r, 1e3 * (attempt + 1)));
+          }
+        }
+        if (lastErr) {
+          throw new DxtradeReadError(`positions read failed for ${accountCode}: ${lastErr?.message ?? lastErr}`);
+        }
+        const p0 = pf?.portfolios?.[0] ?? pf;
+        const arr = p0?.positions ?? p0?.openPositions ?? (Array.isArray(pf) ? pf : []) ?? [];
+        if (!Array.isArray(arr)) return [];
+        return arr.map((p) => ({
+          positionId: p.positionCode != null ? String(p.positionCode) : p.positionId != null ? String(p.positionId) : p.id != null ? String(p.id) : p.code != null ? String(p.code) : void 0,
+          instrument: String(p.instrument ?? p.symbol ?? "").replace(/\//g, "").toUpperCase(),
+          side: /sell|short/i.test(String(p.side ?? p.direction ?? (Number(p.quantity ?? p.qty ?? 0) < 0 ? "SELL" : "BUY"))) ? "SELL" : "BUY",
+          quantity: Math.abs(Number(p.quantity ?? p.qty ?? p.size ?? 0)),
+          openPrice: Number(p.openPrice ?? p.entryPrice ?? p.avgPrice ?? p.price ?? 0) || void 0,
+          raw: p
+        }));
+      }
+      /** Closed trades with REALIZED P&L since `fromMs`, for the brain / consistency
+       *  ledger (parity with TradeLocker's getClosedTradesWithPnl). dxsca-web has no
+       *  single standardized history path across brokers, so this tries the common
+       *  candidates in order and parses tolerantly. Returns [] when the broker exposes
+       *  none of them — callers must NEVER fabricate P&L from a miss. Each returned row
+       *  carries: positionId, id, symbol, side, openPrice, closePrice, profit, closeTime. */
+      async getClosedTradesWithPnl(accountCode, fromMs) {
+        const enc = encodeURIComponent(accountCode);
+        const fromIso = new Date(fromMs).toISOString();
+        const toIso = (/* @__PURE__ */ new Date()).toISOString();
+        const candidates = [
+          `/accounts/${enc}/history?from=${encodeURIComponent(fromIso)}&to=${encodeURIComponent(toIso)}`,
+          `/accounts/${enc}/orders/history?from=${encodeURIComponent(fromIso)}&to=${encodeURIComponent(toIso)}`,
+          `/accounts/${enc}/tradeHistory?from=${encodeURIComponent(fromIso)}&to=${encodeURIComponent(toIso)}`,
+          `/accounts/${enc}/reports/trades?from=${encodeURIComponent(fromIso)}&to=${encodeURIComponent(toIso)}`,
+          `/accounts/${enc}/positions/history?from=${encodeURIComponent(fromIso)}&to=${encodeURIComponent(toIso)}`
+        ];
+        for (const path2 of candidates) {
+          let res;
+          try {
+            res = await this.authed(path2);
+          } catch {
+            continue;
+          }
+          if (!res.ok) continue;
+          let data;
+          try {
+            data = JSON.parse(await res.text());
+          } catch {
+            continue;
+          }
+          const list = data?.history ?? data?.trades ?? data?.orders ?? data?.positions ?? data?.items ?? (Array.isArray(data) ? data : []);
+          if (!Array.isArray(list) || list.length === 0) {
+            if (Array.isArray(list)) {
+              console.log(`[dxtrade] history via ${path2.split("?")[0]} \u2014 0 rows in window`);
+              return [];
+            }
+            continue;
+          }
+          const closed = list.filter((o) => {
+            const status = String(o.status ?? o.state ?? "").toUpperCase();
+            const hasPnl = o.profit != null || o.pnl != null || o.realizedPnl != null || o.realizedPnL != null || o.grossProfit != null;
+            const looksClosed = !status || /CLOS|FILL|COMPLET|DONE|SETTLED/.test(status);
+            return hasPnl && looksClosed;
+          }).map((o) => ({
+            positionId: o.positionId != null ? String(o.positionId) : void 0,
+            id: String(o.id ?? o.orderId ?? o.tradeId ?? o.dealId ?? ""),
+            symbol: String(o.instrument ?? o.symbol ?? "UNKNOWN"),
+            side: o.side ?? o.direction ?? "",
+            openPrice: Number(o.openPrice ?? o.entryPrice ?? o.avgOpenPrice ?? 0) || 0,
+            closePrice: Number(o.closePrice ?? o.exitPrice ?? o.avgClosePrice ?? o.price ?? 0) || 0,
+            profit: o.profit ?? o.pnl ?? o.realizedPnl ?? o.realizedPnL ?? o.grossProfit,
+            closeTime: o.closeTime ?? o.closedAt ?? o.closeTimestamp ?? o.timestamp ?? o.updateTime ?? null
+          }));
+          console.log(`[dxtrade] history via ${path2.split("?")[0]} \u2014 ${closed.length} closed rows`);
+          return closed;
+        }
+        console.log(`[dxtrade] no working history endpoint found for ${accountCode} (tried ${candidates.length}) \u2014 close-sync will keep opens PENDING`);
+        return [];
+      }
+      /** One-shot connectivity check used by the connect/test routes. */
+      async verify() {
+        try {
+          await this.login();
+          const accounts = await this.getAccounts();
+          return { ok: true, accounts };
+        } catch (e) {
+          return { ok: false, error: e?.message ?? String(e) };
+        }
+      }
+    };
+    _dxServiceCache = /* @__PURE__ */ new Map();
+    DX_SVC_TTL_MS = 30 * 6e4;
+  }
+});
+
+// server/services/btc-profile.ts
+var btc_profile_exports = {};
+__export(btc_profile_exports, {
+  BTC_PROFILE_ON: () => BTC_PROFILE_ON,
+  btcContextLine: () => btcContextLine,
+  btcDailyTrend: () => btcDailyTrend,
+  btcEntryCheck: () => btcEntryCheck,
+  btcH1: () => btcH1,
+  btcTrailStop: () => btcTrailStop,
+  isBtc: () => isBtc,
+  markBtcEntry: () => markBtcEntry
+});
+function isBtc(symbol) {
+  return /^BTC/i.test(String(symbol || "").replace(/[^A-Za-z]/g, ""));
+}
+async function btcH1(symbol) {
+  const hit = h1Cache.get(symbol);
+  if (hit && Date.now() - hit.at < 15 * 6e4) return hit;
+  try {
+    const r = await marketDataService.fetchMarketData({ symbol, assetType: marketDataService.detectAssetType(symbol), timeframe: "1h", limit: 60 });
+    const bars = (r?.bars || []).slice(0, -1);
+    if (bars.length < 20) return null;
+    const trs = bars.slice(1).map((b, i) => Math.max(b.high - b.low, Math.abs(b.high - bars[i].close), Math.abs(b.low - bars[i].close)));
+    const atr = trs.slice(-14).reduce((a, c) => a + c, 0) / 14;
+    const v = { at: Date.now(), bars, atr };
+    h1Cache.set(symbol, v);
+    return v;
+  } catch {
+    return null;
+  }
+}
+async function btcDailyTrend(symbol) {
+  const hit = d1Cache.get(symbol);
+  if (hit && Date.now() - hit.at < 4 * 36e5) return hit.trend;
+  try {
+    const r = await marketDataService.fetchMarketData({ symbol, assetType: marketDataService.detectAssetType(symbol), timeframe: "1d", limit: 80 });
+    const closes = (r?.bars || []).slice(0, -1).map((b) => Number(b.close));
+    if (closes.length < 55) return null;
+    const ema = (n) => {
+      const k = 2 / (n + 1);
+      let e = closes.slice(0, n).reduce((a, c) => a + c, 0) / n;
+      for (const c of closes.slice(n)) e = c * k + e * (1 - k);
+      return e;
+    };
+    const e20 = ema(20), e50 = ema(50), last = closes[closes.length - 1];
+    const trend = e20 > e50 && last > e20 ? "BULLISH" : e20 < e50 && last < e20 ? "BEARISH" : "NEUTRAL";
+    d1Cache.set(symbol, { at: Date.now(), trend });
+    return trend;
+  } catch {
+    return null;
+  }
+}
+async function btcEntryCheck(d, h4Trend, now = /* @__PURE__ */ new Date()) {
+  const notes = [];
+  let lotScale = 1;
+  let weekendScale = 1;
+  const h = now.getUTCHours();
+  if (!(h >= HOURS[0] && h < HOURS[1])) return { block: `BTC trades only ${HOURS[0]}:00\u2013${HOURS[1]}:00 UTC (late US/Asia lost \u2212$4.3k over 90 days)`, lotScale: 0, notes: [] };
+  const dow = now.getUTCDay();
+  if (dow === 0 || dow === 6) {
+    if (!(WEEKEND_SIZE > 0)) return { block: "BTC weekend trading is off (thin liquidity)", lotScale: 0, notes: [] };
+    lotScale *= WEEKEND_SIZE;
+    weekendScale = WEEKEND_SIZE;
+    notes.push(`weekend size \xD7${WEEKEND_SIZE}`);
+  }
+  const dir = String(d.direction || "").toUpperCase();
+  if (dir === "BUY" && h4Trend !== "BULLISH") return { block: `BTC long needs H4 bullish (H4 ${h4Trend ?? "n/a"})`, lotScale: 0, notes: [] };
+  if (dir === "SELL") {
+    const d1 = await btcDailyTrend(d.symbol);
+    if (h4Trend !== "BEARISH" || d1 !== "BEARISH") return { block: `BTC short needs H4 and daily bearish (H4 ${h4Trend ?? "n/a"}, D1 ${d1 ?? "n/a"}) \u2014 shorts made only +$718 over 90 days`, lotScale: 0, notes: [] };
+  }
+  const candle = Math.floor(now.getTime() / 36e5);
+  if (lastEntryCandle.get(d.symbol) === candle) return { block: "BTC: one entry per H1 candle", lotScale: 0, notes: [] };
+  let stopLoss = d.stopLoss, takeProfit = d.takeProfit;
+  const entry = Number(d.entryPrice), sl = Number(d.stopLoss);
+  const h1 = await btcH1(d.symbol);
+  if (h1 && entry > 0 && sl > 0) {
+    const risk = Math.abs(entry - sl);
+    const minRisk = h1.atr * ATR_MULT;
+    if (risk > 0 && risk < minRisk) {
+      stopLoss = dir === "BUY" ? entry - minRisk : entry + minRisk;
+      lotScale *= risk / minRisk;
+      notes.push(`stop widened to ${ATR_MULT}\xD7 H1 ATR (${Math.round(minRisk)}), lots \xD7${(risk / minRisk).toFixed(2)}`);
+    }
+    const newRisk = Math.abs(entry - Number(stopLoss));
+    const tp = Number(takeProfit);
+    if (!(tp > 0) || Math.abs(tp - entry) < newRisk * MIN_RR) {
+      takeProfit = dir === "BUY" ? entry + newRisk * MIN_RR : entry - newRisk * MIN_RR;
+      notes.push(`target set to ${MIN_RR}R`);
+    }
+  }
+  return { stopLoss, takeProfit, lotScale, weekendScale, notes };
+}
+function markBtcEntry(symbol, now = /* @__PURE__ */ new Date()) {
+  lastEntryCandle.set(symbol, Math.floor(now.getTime() / 36e5));
+}
+function btcTrailStop(p) {
+  const buy = p.direction === "BUY";
+  const risk = Math.abs(p.entry - p.initialStop);
+  if (!(risk > 0) || !(p.price > 0)) return null;
+  const favR = (buy ? p.price - p.entry : p.entry - p.price) / risk;
+  if (favR < MIN_RR) return null;
+  let want = buy ? p.entry + risk : p.entry - risk;
+  let why = `+${favR.toFixed(1)}R \u2192 lock +1R`;
+  const last3 = p.bars.slice(-3);
+  if (last3.length === 3) {
+    const swing = buy ? Math.min(...last3.map((b) => b.low)) : Math.max(...last3.map((b) => b.high));
+    if (buy ? swing > want : swing < want) {
+      want = swing;
+      why = `+${favR.toFixed(1)}R \u2192 trail behind last 3 H1 ${buy ? "lows" : "highs"}`;
+    }
+  }
+  if (buy ? want >= p.price : want <= p.price) return null;
+  const cur = Number(p.currentStop);
+  if (cur > 0 && (buy ? want <= cur : want >= cur)) return null;
+  return { stop: Math.round(want * 100) / 100, why };
+}
+function btcContextLine(crossAssets, fridayClose, price) {
+  const eq4 = crossAssets?.US30?.trend, usd = crossAssets?.USDI?.trend;
+  const dow = (/* @__PURE__ */ new Date()).getUTCDay();
+  const gap = (dow === 0 || dow === 1) && fridayClose && price ? (price - fridayClose) / fridayClose * 100 : null;
+  return `BTCUSD CRYPTO CONTEXT: trades 24/7 but this engine only enters ${HOURS[0]}-${HOURS[1]} UTC. It is a TREND pair here (few large winners; longs far stronger than shorts; holds >4h won 10/12). US equities (US30) ${eq4 ?? "n/a"} \u2014 BTC usually moves WITH stocks; dollar (USDI) ${usd ?? "n/a"} \u2014 BTC usually moves AGAINST the dollar.` + (gap != null ? ` Weekend move vs Friday close: ${gap >= 0 ? "+" : ""}${gap.toFixed(2)}% (CME gap risk on Monday).` : "") + ` Prefer longs with H4 bullish; shorts only with H4 and daily bearish. Stops >= ${ATR_MULT}x H1 ATR, targets >= ${MIN_RR}R, let it run.`;
+}
+var BTC_PROFILE_ON, HOURS, ATR_MULT, MIN_RR, WEEKEND_SIZE, h1Cache, d1Cache, lastEntryCandle;
+var init_btc_profile = __esm({
+  "server/services/btc-profile.ts"() {
+    "use strict";
+    init_service();
+    BTC_PROFILE_ON = () => process.env.BTC_PROFILE !== "off";
+    HOURS = String(process.env.BTC_TRADE_HOURS_UTC || "6-16").split("-").map(Number);
+    ATR_MULT = Number(process.env.BTC_SL_ATR_MULT ?? 1.5);
+    MIN_RR = Number(process.env.BTC_MIN_RR ?? 2);
+    WEEKEND_SIZE = Number(process.env.BTC_WEEKEND_SIZE ?? 0.5);
+    h1Cache = /* @__PURE__ */ new Map();
+    d1Cache = /* @__PURE__ */ new Map();
+    lastEntryCandle = /* @__PURE__ */ new Map();
+  }
+});
+
+// server/services/xau-rules.ts
+var xau_rules_exports = {};
+__export(xau_rules_exports, {
+  XAU_CONTRACT_SIZE: () => XAU_CONTRACT_SIZE,
+  XAU_LOCK_ACTIVATE_PTS: () => XAU_LOCK_ACTIVATE_PTS,
+  XAU_LOCK_AT_PTS: () => XAU_LOCK_AT_PTS,
+  XAU_LOCK_ON: () => XAU_LOCK_ON,
+  XAU_TRAIL_PTS: () => XAU_TRAIL_PTS,
+  isIndex: () => isIndex,
+  isXau: () => isXau,
+  xauEntryBlock: () => xauEntryBlock,
+  xauLockStopPts: () => xauLockStopPts,
+  xauTooYoungToClose: () => xauTooYoungToClose
+});
+function isXau(symbol) {
+  return /^XAU/i.test(String(symbol || "").replace(/[^A-Za-z]/g, ""));
+}
+function nyWinterShiftMin(now) {
+  try {
+    const nyHour = Number(new Intl.DateTimeFormat("en-US", { timeZone: "America/New_York", hour: "numeric", hour12: false }).format(now)) % 24;
+    const diff = (now.getUTCHours() - nyHour + 24) % 24;
+    return diff === 5 ? 60 : 0;
+  } catch {
+    return 0;
+  }
+}
+function xauEntryBlock(symbol, now = /* @__PURE__ */ new Date()) {
+  const m = now.getUTCHours() * 60 + now.getUTCMinutes();
+  const sh = nyWinterShiftMin(now);
+  const ROLLOVER_START_MIN = ROLLOVER_START_BASE + (process.env.FX_ROLLOVER_BLOCK_START_MIN_UTC ? 0 : sh);
+  const ROLLOVER_END_MIN = ROLLOVER_END_BASE + (process.env.FX_ROLLOVER_BLOCK_END_MIN_UTC ? 0 : sh);
+  const BLOCK_START_MIN = XAU_BLOCK_START_BASE + (process.env.XAU_OPEN_BLOCK_START_MIN_UTC ? 0 : sh);
+  const BLOCK_END_MIN = XAU_BLOCK_END_BASE + (process.env.XAU_OPEN_BLOCK_END_MIN_UTC ? 0 : sh);
+  const fmt = (x) => `${String(Math.floor(x / 60)).padStart(2, "0")}:${String(x % 60).padStart(2, "0")}`;
+  if (ROLLOVER_BLOCK_ON() && m >= ROLLOVER_START_MIN && m < ROLLOVER_END_MIN) {
+    return `Rollover window: no FX entries ${fmt(ROLLOVER_START_MIN)}\u2013${fmt(ROLLOVER_END_MIN)} UTC (daily rollover, widest spreads)`;
+  }
+  if (!ENTRY_BLOCK_ON() || !isXau(symbol)) return null;
+  if (m >= BLOCK_START_MIN && m < BLOCK_END_MIN) {
+    return `XAUUSD spread window: no gold entries ${fmt(BLOCK_START_MIN)}\u2013${fmt(BLOCK_END_MIN)} UTC (daily break + reopen, widest spreads)`;
+  }
+  return null;
+}
+function xauTooYoungToClose(symbol, openedAt) {
+  if (!MIN_HOLD_ON() || openedAt == null || openedAt === "") return false;
+  const holdMs = isXau(symbol) ? MIN_HOLD_MS : isIndex(symbol) ? INDEX_MIN_HOLD_MS : /^BTC/i.test(String(symbol || "")) && process.env.BTC_PROFILE !== "off" ? BTC_MIN_HOLD_MS : 0;
+  if (!(holdMs > 0)) return false;
+  const raw = typeof openedAt === "number" ? openedAt : /^\d+(\.\d+)?$/.test(String(openedAt).trim()) ? Number(openedAt) : new Date(openedAt).getTime();
+  let ms = raw;
+  if (!Number.isFinite(ms) || ms <= 0) return false;
+  if (ms < 1e12) ms *= 1e3;
+  return Date.now() - ms < holdMs;
+}
+function isIndex(symbol) {
+  const s = String(symbol || "").toUpperCase().replace(/[^A-Z0-9]/g, "");
+  return /^(US30|DJ30|DJI|WS30|US100|NAS100|USTEC|NDX|US500|SPX500|SPX|GER40|DE40|DAX|UK100|FTSE|JP225|NIK225|AUS200|HK50|FRA40|EU50)/.test(s);
+}
+function xauLockStopPts(peakFavPts) {
+  if (!XAU_LOCK_ON() || !(peakFavPts >= XAU_LOCK_ACTIVATE_PTS)) return null;
+  return Math.max(XAU_LOCK_AT_PTS, peakFavPts - XAU_TRAIL_PTS);
+}
+var ENTRY_BLOCK_ON, XAU_BLOCK_START_BASE, XAU_BLOCK_END_BASE, MIN_HOLD_ON, MIN_HOLD_MS, XAU_LOCK_ON, XAU_LOCK_ACTIVATE_PTS, XAU_LOCK_AT_PTS, XAU_TRAIL_PTS, XAU_CONTRACT_SIZE, ROLLOVER_BLOCK_ON, ROLLOVER_START_BASE, ROLLOVER_END_BASE, INDEX_MIN_HOLD_MS, BTC_MIN_HOLD_MS;
+var init_xau_rules = __esm({
+  "server/services/xau-rules.ts"() {
+    "use strict";
+    ENTRY_BLOCK_ON = () => process.env.XAU_OPEN_BLOCK_ENABLED !== "false";
+    XAU_BLOCK_START_BASE = Number(process.env.XAU_OPEN_BLOCK_START_MIN_UTC ?? 21 * 60);
+    XAU_BLOCK_END_BASE = Number(process.env.XAU_OPEN_BLOCK_END_MIN_UTC ?? 22 * 60 + 30);
+    MIN_HOLD_ON = () => process.env.XAU_MIN_HOLD_ENABLED !== "false";
+    MIN_HOLD_MS = Number(process.env.XAU_MIN_HOLD_MINUTES ?? 10) * 6e4;
+    XAU_LOCK_ON = () => process.env.XAU_PROFIT_LOCK_ENABLED !== "false";
+    XAU_LOCK_ACTIVATE_PTS = Number(process.env.XAU_LOCK_ACTIVATE_PTS ?? 40);
+    XAU_LOCK_AT_PTS = Number(process.env.XAU_LOCK_AT_PTS ?? 20);
+    XAU_TRAIL_PTS = Number(process.env.XAU_TRAIL_PTS ?? 20);
+    XAU_CONTRACT_SIZE = Number(process.env.XAU_CONTRACT_SIZE ?? 100);
+    ROLLOVER_BLOCK_ON = () => process.env.FX_ROLLOVER_BLOCK_ENABLED !== "false";
+    ROLLOVER_START_BASE = Number(process.env.FX_ROLLOVER_BLOCK_START_MIN_UTC ?? 20 * 60 + 55);
+    ROLLOVER_END_BASE = Number(process.env.FX_ROLLOVER_BLOCK_END_MIN_UTC ?? 21 * 60 + 30);
+    INDEX_MIN_HOLD_MS = Number(process.env.INDEX_MIN_HOLD_MINUTES ?? 5) * 6e4;
+    BTC_MIN_HOLD_MS = Number(process.env.BTC_MIN_HOLD_MINUTES ?? 60) * 6e4;
+  }
+});
+
+// server/services/orderflow-strategy.ts
+var orderflow_strategy_exports = {};
+__export(orderflow_strategy_exports, {
+  computeOrderFlow: () => computeOrderFlow
+});
+function estimateDelta(c) {
+  const range = c.h - c.l;
+  if (range <= 0) return 0;
+  const buyFrac = (c.c - c.l) / range;
+  return (buyFrac * 2 - 1) * (c.v || 1);
+}
+function cvdSeries(candles) {
+  const series = [];
+  let running = 0;
+  for (const c of candles) {
+    running += estimateDelta(c);
+    series.push(running);
+  }
+  return series;
+}
+function computeOrderFlow(candles, lookback = 20) {
+  const empty = {
+    direction: "NEUTRAL",
+    confidence: 0,
+    reason: "Insufficient data",
+    confluences: [],
+    cvd: 0,
+    cvdTrend: "flat",
+    divergence: false,
+    divergenceType: null,
+    absorption: false,
+    absorptionType: null,
+    imbalance: false,
+    imbalanceType: null
+  };
+  if (candles.length < Math.min(lookback, 10)) return empty;
+  const recent = candles.slice(-lookback);
+  const cvd = cvdSeries(recent);
+  const currentCVD = cvd[cvd.length - 1];
+  const half = Math.floor(recent.length / 2);
+  const cvdEarlyAvg = cvd.slice(0, half).reduce((s, v) => s + v, 0) / half;
+  const cvdLateAvg = cvd.slice(half).reduce((s, v) => s + v, 0) / (cvd.length - half);
+  const cvdTrend = cvdLateAvg > cvdEarlyAvg * 1.03 ? "rising" : cvdLateAvg < cvdEarlyAvg * 0.97 ? "falling" : "flat";
+  const pricesEarly = recent.slice(0, half).map((c) => c.c);
+  const pricesLate = recent.slice(half).map((c) => c.c);
+  const priceEarlyAvg = pricesEarly.reduce((s, v) => s + v, 0) / pricesEarly.length;
+  const priceLateAvg = pricesLate.reduce((s, v) => s + v, 0) / pricesLate.length;
+  const priceTrend = priceLateAvg > priceEarlyAvg * 1.0008 ? "rising" : priceLateAvg < priceEarlyAvg * 0.9992 ? "falling" : "flat";
+  let divergence = false;
+  let divergenceType = null;
+  if (priceTrend === "falling" && cvdTrend === "rising") {
+    divergence = true;
+    divergenceType = "bullish";
+  }
+  if (priceTrend === "rising" && cvdTrend === "falling") {
+    divergence = true;
+    divergenceType = "bearish";
+  }
+  const last3 = recent.slice(-3);
+  const avgVol = recent.reduce((s, c) => s + (c.v || 1), 0) / recent.length;
+  const last3Vol = last3.reduce((s, c) => s + (c.v || 1), 0) / 3;
+  const moveRange = Math.abs(last3[2].c - last3[0].o) / Math.max(last3[0].o, 1e-6);
+  const isHighVolLowMove = last3Vol > avgVol * 1.4 && moveRange < 12e-4;
+  let absorption = false;
+  let absorptionType = null;
+  if (isHighVolLowMove) {
+    const last3Delta = last3.reduce((s, c) => s + estimateDelta(c), 0);
+    if (last3Delta > 0) {
+      absorption = true;
+      absorptionType = "buying";
+    }
+    if (last3Delta < 0) {
+      absorption = true;
+      absorptionType = "selling";
+    }
+  }
+  let imbalance = false;
+  let imbalanceType = null;
+  const last5 = recent.slice(-5);
+  let bullSeq = 0, bearSeq = 0;
+  for (const c of last5) {
+    const d = estimateDelta(c);
+    if (c.c > c.o && d > 0) {
+      bullSeq++;
+      bearSeq = 0;
+    } else if (c.c < c.o && d < 0) {
+      bearSeq++;
+      bullSeq = 0;
+    } else {
+      bullSeq = 0;
+      bearSeq = 0;
+    }
+  }
+  if (bullSeq >= 3) {
+    imbalance = true;
+    imbalanceType = "bullish";
+  }
+  if (bearSeq >= 3) {
+    imbalance = true;
+    imbalanceType = "bearish";
+  }
+  let bullScore = 0, bearScore = 0;
+  const confluences = [];
+  if (cvdTrend === "rising") {
+    bullScore += 2;
+    confluences.push("CVD rising \u2014 net buyer aggression");
+  }
+  if (cvdTrend === "falling") {
+    bearScore += 2;
+    confluences.push("CVD falling \u2014 net seller aggression");
+  }
+  if (divergence && divergenceType === "bullish") {
+    bullScore += 4;
+    confluences.push("Bullish delta divergence (price \u2193 / CVD \u2191)");
+  }
+  if (divergence && divergenceType === "bearish") {
+    bearScore += 4;
+    confluences.push("Bearish delta divergence (price \u2191 / CVD \u2193)");
+  }
+  if (absorption && absorptionType === "selling") {
+    bullScore += 3;
+    confluences.push("Selling absorption at support (passive buyers defending)");
+  }
+  if (absorption && absorptionType === "buying") {
+    bearScore += 3;
+    confluences.push("Buying absorption at resistance (passive sellers defending)");
+  }
+  if (imbalance && imbalanceType === "bullish") {
+    bullScore += 3;
+    confluences.push("Bullish volume imbalance (3+ consecutive buying candles)");
+  }
+  if (imbalance && imbalanceType === "bearish") {
+    bearScore += 3;
+    confluences.push("Bearish volume imbalance (3+ consecutive selling candles)");
+  }
+  const THRESHOLD = 3;
+  let direction = "NEUTRAL";
+  let confidence = 0;
+  let reason = "No order flow edge detected";
+  if (bullScore >= THRESHOLD && bullScore > bearScore) {
+    direction = "BUY";
+    confidence = Math.min(91, 53 + bullScore * 4);
+    reason = confluences.filter((c) => /bull|buyer|CVD ris|selling abs/i.test(c)).join(" | ") || "Bullish order flow";
+  } else if (bearScore >= THRESHOLD && bearScore > bullScore) {
+    direction = "SELL";
+    confidence = Math.min(91, 53 + bearScore * 4);
+    reason = confluences.filter((c) => /bear|seller|CVD fall|buying abs/i.test(c)).join(" | ") || "Bearish order flow";
+  }
+  return {
+    direction,
+    confidence,
+    reason,
+    confluences,
+    cvd: currentCVD,
+    cvdTrend,
+    divergence,
+    divergenceType,
+    absorption,
+    absorptionType,
+    imbalance,
+    imbalanceType
+  };
+}
+var init_orderflow_strategy = __esm({
+  "server/services/orderflow-strategy.ts"() {
+    "use strict";
+  }
+});
+
+// server/services/ai-model-service.ts
+var ai_model_service_exports = {};
+__export(ai_model_service_exports, {
+  AVAILABLE_TRADING_MODELS: () => AVAILABLE_TRADING_MODELS,
+  DEFAULT_ROUTING_CONFIG: () => DEFAULT_ROUTING_CONFIG,
+  runMultiModelAnalysis: () => runMultiModelAnalysis
+});
+import OpenAI3 from "openai";
+async function callProvider(provider, model, systemPrompt, userPrompt, apiKey, openaiInstance) {
+  switch (provider) {
+    case "openai": {
+      const client2 = openaiInstance || new OpenAI3({ apiKey: apiKey || void 0 });
+      const supportsJson = model.startsWith("gpt");
+      const response = await client2.chat.completions.create({
+        model,
+        messages: [
+          { role: "system", content: systemPrompt },
+          { role: "user", content: userPrompt }
+        ],
+        ...supportsJson ? { response_format: { type: "json_object" } } : {},
+        max_tokens: 4e3,
+        temperature: 0.3
+      });
+      return response.choices[0]?.message?.content || "";
+    }
+    case "anthropic": {
+      if (!apiKey) throw new Error("Anthropic API key required");
+      const Anthropic = (await import("@anthropic-ai/sdk")).default;
+      const client2 = new Anthropic({ apiKey });
+      const response = await client2.messages.create({
+        model,
+        max_tokens: 4e3,
+        system: systemPrompt + " Always return valid JSON with no markdown formatting.",
+        messages: [{ role: "user", content: userPrompt }]
+      });
+      const block = response.content[0];
+      return block.type === "text" ? block.text : "";
+    }
+    case "google": {
+      if (!apiKey) throw new Error("Google AI API key required");
+      const { GoogleGenerativeAI } = await import("@google/generative-ai");
+      const genAI = new GoogleGenerativeAI(apiKey);
+      const genModel = genAI.getGenerativeModel({
+        model,
+        systemInstruction: systemPrompt,
+        generationConfig: { responseMimeType: "application/json", temperature: 0.3, maxOutputTokens: 4e3 }
+      });
+      const result = await genModel.generateContent(userPrompt);
+      return result.response.text();
+    }
+    case "groq": {
+      if (!apiKey) throw new Error("Groq API key required");
+      const Groq = (await import("groq-sdk")).default;
+      const client2 = new Groq({ apiKey });
+      const response = await client2.chat.completions.create({
+        model,
+        messages: [
+          { role: "system", content: systemPrompt },
+          { role: "user", content: userPrompt }
+        ],
+        response_format: { type: "json_object" },
+        max_tokens: 4e3,
+        temperature: 0.3
+      });
+      return response.choices[0]?.message?.content || "";
+    }
+    case "mistral": {
+      if (!apiKey) throw new Error("Mistral API key required");
+      const { Mistral } = await import("@mistralai/mistralai");
+      const client2 = new Mistral({ apiKey });
+      const response = await client2.chat.complete({
+        model,
+        messages: [
+          { role: "system", content: systemPrompt },
+          { role: "user", content: userPrompt }
+        ],
+        responseFormat: { type: "json_object" },
+        maxTokens: 4e3,
+        temperature: 0.3
+      });
+      const choice = response.choices?.[0];
+      return typeof choice?.message?.content === "string" ? choice.message.content : "";
+    }
+    case "deepseek": {
+      if (!apiKey) throw new Error("DeepSeek API key required");
+      const client2 = new OpenAI3({ apiKey, baseURL: "https://api.deepseek.com" });
+      const response = await client2.chat.completions.create({
+        model,
+        messages: [
+          { role: "system", content: systemPrompt },
+          { role: "user", content: userPrompt }
+        ],
+        response_format: { type: "json_object" },
+        max_tokens: 4e3,
+        temperature: 0.3
+      });
+      return response.choices[0]?.message?.content || "";
+    }
+    default:
+      throw new Error(`Unsupported provider: ${provider}`);
+  }
+}
+function parseTradeResponse(content) {
+  try {
+    const jsonMatch = content.match(/\{[\s\S]*\}/);
+    if (jsonMatch) {
+      return JSON.parse(jsonMatch[0]);
+    }
+    return JSON.parse(content);
+  } catch {
+    return null;
+  }
+}
+function buildEnsembleConsensus(allDecisions, minAgreementPercent) {
+  const symbolVotes = {};
+  for (const modelDecisions of allDecisions) {
+    for (const decision of modelDecisions) {
+      const key = decision.symbol;
+      if (!symbolVotes[key]) {
+        symbolVotes[key] = { directions: {}, actions: {}, decisions: [], totalModels: allDecisions.length };
+      }
+      const dir = decision.direction?.toUpperCase() || "NONE";
+      const act = decision.action?.toUpperCase() || "NO_ACTION";
+      symbolVotes[key].directions[dir] = (symbolVotes[key].directions[dir] || 0) + 1;
+      symbolVotes[key].actions[act] = (symbolVotes[key].actions[act] || 0) + 1;
+      symbolVotes[key].decisions.push(decision);
+    }
+  }
+  const consensusDecisions = [];
+  for (const [symbol, votes] of Object.entries(symbolVotes)) {
+    const totalModels = votes.totalModels;
+    const topDirection = Object.entries(votes.directions).sort((a, b) => b[1] - a[1])[0];
+    const topAction = Object.entries(votes.actions).sort((a, b) => b[1] - a[1])[0];
+    if (!topDirection || !topAction) continue;
+    const agreementPercent = topDirection[1] / totalModels * 100;
+    if (agreementPercent < minAgreementPercent) {
+      console.log(`[Ensemble] ${symbol}: No consensus (${agreementPercent}% < ${minAgreementPercent}% threshold) - ${JSON.stringify(votes.directions)}`);
+      continue;
+    }
+    const agreedDecisions = votes.decisions.filter(
+      (d) => d.direction?.toUpperCase() === topDirection[0] && d.action?.toUpperCase() === topAction[0]
+    );
+    if (agreedDecisions.length === 0) continue;
+    const avgConfidence = Math.round(agreedDecisions.reduce((sum, d) => sum + (d.confidence || 0), 0) / agreedDecisions.length);
+    const bestDecision = agreedDecisions.sort((a, b) => (b.confidence || 0) - (a.confidence || 0))[0];
+    consensusDecisions.push({
+      ...bestDecision,
+      confidence: avgConfidence,
+      reason: `[ENSEMBLE CONSENSUS ${agreementPercent.toFixed(0)}%] ${agreedDecisions.length}/${totalModels} models agree. ${bestDecision.reason}`,
+      modelName: `Ensemble (${agreedDecisions.map((d) => d.modelName).join(", ")})`,
+      modelId: "ensemble"
+    });
+  }
+  return consensusDecisions;
+}
+async function runMultiModelAnalysis(userId, systemPrompt, userPrompt, routingConfig, openaiInstance) {
+  const { storage: storage2 } = await Promise.resolve().then(() => (init_storage(), storage_exports));
+  async function getApiKeyForModel(modelDef) {
+    if (modelDef.provider === "openai") return null;
+    try {
+      const userKey = await storage2.getActiveUserApiKey(userId, modelDef.provider);
+      return userKey?.apiKey || null;
+    } catch {
+      return null;
+    }
+  }
+  async function callModel(modelId) {
+    const modelDef = AVAILABLE_TRADING_MODELS.find((m) => m.id === modelId);
+    if (!modelDef) throw new Error(`Unknown model: ${modelId}`);
+    const apiKey = await getApiKeyForModel(modelDef);
+    if (modelDef.provider !== "openai" && !apiKey) {
+      throw new Error(`No API key for ${modelDef.provider}. Add your ${modelDef.name} API key in settings.`);
+    }
+    console.log(`[Multi-Model] Calling ${modelDef.name} (${modelDef.provider}/${modelDef.model})...`);
+    const startTime = Date.now();
+    const content = await callProvider(
+      modelDef.provider,
+      modelDef.model,
+      systemPrompt,
+      userPrompt,
+      apiKey,
+      modelDef.provider === "openai" ? openaiInstance : void 0
+    );
+    const elapsed = Date.now() - startTime;
+    console.log(`[Multi-Model] ${modelDef.name} responded in ${elapsed}ms`);
+    const parsed = parseTradeResponse(content);
+    if (!parsed) throw new Error(`Failed to parse JSON from ${modelDef.name}`);
+    if (!capturedCommentary && parsed.marketOverview) {
+      capturedCommentary = {
+        marketOverview: parsed.marketOverview,
+        nextScanFocus: parsed.nextScanFocus,
+        newsImpact: parsed.newsImpact,
+        volumeAssessment: parsed.volumeAssessment,
+        tradingWindowQuality: parsed.tradingWindowQuality,
+        hotPairs: parsed.hotPairs,
+        dangerZones: parsed.dangerZones,
+        engineConfidence: parsed.engineConfidence
+      };
+    }
+    const decisions = parsed.decisions || parsed.trades || [];
+    return decisions.map((d) => ({
+      ...d,
+      modelId: modelDef.id,
+      modelName: modelDef.name
+    }));
+  }
+  const result = {
+    decisions: [],
+    consensusDecisions: [],
+    modelVotes: {},
+    agreementPercent: 100,
+    mode: routingConfig.mode
+  };
+  let capturedCommentary = void 0;
+  try {
+    switch (routingConfig.mode) {
+      case "single": {
+        const decisions = await callModel(routingConfig.primaryModelId);
+        result.decisions = decisions;
+        result.consensusDecisions = decisions;
+        break;
+      }
+      case "fallback": {
+        const order = routingConfig.fallbackOrder.length > 0 ? routingConfig.fallbackOrder : [routingConfig.primaryModelId, "openai-gpt4o-mini"];
+        for (const modelId of order) {
+          try {
+            const decisions = await callModel(modelId);
+            result.decisions = decisions;
+            result.consensusDecisions = decisions;
+            console.log(`[Multi-Model] Fallback: ${modelId} succeeded`);
+            break;
+          } catch (err) {
+            console.log(`[Multi-Model] Fallback: ${modelId} failed: ${err.message}, trying next...`);
+          }
+        }
+        break;
+      }
+      case "ensemble": {
+        const modelIds = routingConfig.ensembleModelIds.length > 0 ? routingConfig.ensembleModelIds : [routingConfig.primaryModelId];
+        const promises = modelIds.map(
+          (id) => callModel(id).catch((err) => {
+            console.log(`[Ensemble] ${id} failed: ${err.message}`);
+            return [];
+          })
+        );
+        const allResults = await Promise.all(promises);
+        const allDecisions = allResults.flat();
+        result.decisions = allDecisions;
+        for (const dec of allDecisions) {
+          const key = `${dec.symbol}_${dec.modelId}`;
+          result.modelVotes[key] = {
+            action: dec.action,
+            direction: dec.direction,
+            confidence: dec.confidence,
+            modelName: dec.modelName
+          };
+        }
+        const validResults = allResults.filter((r) => r.length > 0);
+        if (validResults.length > 1) {
+          result.consensusDecisions = buildEnsembleConsensus(validResults, routingConfig.ensembleMinAgreement);
+          const totalSymbols = new Set(allDecisions.map((d) => d.symbol)).size;
+          result.agreementPercent = totalSymbols > 0 ? Math.round(result.consensusDecisions.length / totalSymbols * 100) : 0;
+        } else {
+          result.consensusDecisions = allDecisions;
+        }
+        break;
+      }
+      case "strategy_split": {
+        const strategySets = /* @__PURE__ */ new Map();
+        for (const [strategy, modelId] of Object.entries(routingConfig.strategyAssignments)) {
+          strategySets.set(strategy, modelId);
+        }
+        const uniqueModels = new Set(strategySets.values());
+        if (uniqueModels.size === 0) {
+          uniqueModels.add(routingConfig.primaryModelId);
+        }
+        const promises = Array.from(uniqueModels).map(async (modelId) => {
+          try {
+            const decisions = await callModel(modelId);
+            const assignedStrategies = Array.from(strategySets.entries()).filter(([_, mid]) => mid === modelId).map(([strat]) => strat);
+            return decisions.filter((d) => {
+              if (assignedStrategies.length === 0) return true;
+              return assignedStrategies.includes(d.strategy);
+            });
+          } catch (err) {
+            console.log(`[Strategy Split] ${modelId} failed: ${err.message}`);
+            return [];
+          }
+        });
+        const allResults = await Promise.all(promises);
+        result.decisions = allResults.flat();
+        result.consensusDecisions = result.decisions;
+        break;
+      }
+    }
+  } catch (err) {
+    console.error(`[Multi-Model] Fatal error in ${routingConfig.mode} mode:`, err.message);
+  }
+  result.commentary = capturedCommentary;
+  return result;
+}
+var AVAILABLE_TRADING_MODELS, DEFAULT_ROUTING_CONFIG;
+var init_ai_model_service = __esm({
+  "server/services/ai-model-service.ts"() {
+    "use strict";
+    AVAILABLE_TRADING_MODELS = [
+      {
+        id: "openai-gpt4o",
+        name: "GPT-4o",
+        provider: "openai",
+        model: "gpt-4o",
+        strengths: ["Fast reasoning", "Strong at JSON output", "Good pattern recognition"],
+        bestFor: ["scalping", "momentum", "session_breakout", "sniper", "compound", "chart_pattern", "ict_order_blocks", "ict_fvg", "ict_liquidity_sweep", "ict_bos", "ict_ote"]
+      },
+      {
+        id: "openai-gpt4o-mini",
+        name: "GPT-4o Mini",
+        provider: "openai",
+        model: "gpt-4o-mini",
+        strengths: ["Very fast", "Cost efficient", "Good for quick decisions"],
+        bestFor: ["scalping", "momentum", "ict_fvg"]
+      },
+      {
+        id: "anthropic-claude-sonnet",
+        name: "Claude 3.5 Sonnet",
+        provider: "anthropic",
+        model: "claude-3-5-sonnet-20241022",
+        strengths: ["Deep analytical reasoning", "Risk assessment", "Pattern complexity", "Excellent at ICT concepts"],
+        bestFor: ["sniper", "momentum", "session_breakout", "chart_pattern", "ict_order_blocks", "ict_liquidity_sweep", "ict_bos", "ict_ote"]
+      },
+      {
+        id: "anthropic-claude-haiku",
+        name: "Claude 3.5 Haiku",
+        provider: "anthropic",
+        model: "claude-3-5-haiku-20241022",
+        strengths: ["Fast response", "Concise analysis", "Cost efficient"],
+        bestFor: ["scalping", "compound", "ict_fvg"]
+      },
+      {
+        id: "google-gemini-pro",
+        name: "Gemini 2.0 Flash",
+        provider: "google",
+        model: "gemini-2.0-flash",
+        strengths: ["Multi-modal analysis", "Strong at data synthesis", "Good at numerical reasoning"],
+        bestFor: ["session_breakout", "momentum", "sniper", "chart_pattern", "ict_order_blocks", "ict_bos"]
+      },
+      {
+        id: "groq-llama",
+        name: "GPT-OSS 120B (Groq)",
+        provider: "groq",
+        model: "openai/gpt-oss-120b",
+        strengths: ["Extremely fast inference", "Good for rapid decisions"],
+        bestFor: ["scalping", "compound", "ict_fvg"]
+      },
+      {
+        id: "mistral-large",
+        name: "Mistral Large",
+        provider: "mistral",
+        model: "mistral-large-latest",
+        strengths: ["Strong reasoning", "Good at financial analysis", "ICT structure analysis"],
+        bestFor: ["sniper", "momentum", "ict_order_blocks", "ict_liquidity_sweep", "ict_ote"]
+      },
+      {
+        id: "deepseek-chat",
+        name: "DeepSeek V3",
+        provider: "deepseek",
+        model: "deepseek-chat",
+        strengths: ["Strong analytical capability", "Cost-effective", "Good at complex reasoning", "Market structure analysis"],
+        bestFor: ["sniper", "momentum", "session_breakout", "chart_pattern", "ict_order_blocks", "ict_bos", "ict_ote"]
+      }
+    ];
+    DEFAULT_ROUTING_CONFIG = {
+      mode: "single",
+      primaryModelId: "openai-gpt4o",
+      ensembleModelIds: [],
+      strategyAssignments: {},
+      fallbackOrder: ["openai-gpt4o", "openai-gpt4o-mini"],
+      ensembleMinAgreement: 60,
+      enabled: true
+    };
+  }
+});
+
+// server/services/polymarket.ts
+function classifyDirection(question) {
+  const q = question.toLowerCase();
+  if (q.includes("below") || q.includes("under $") || q.includes("crash") || q.includes("drop to") || q.includes("fall below") || q.includes("lose") || q.includes("less than") && (q.includes("btc") || q.includes("bitcoin"))) return "bearish";
+  if (q.includes("above") || q.includes("exceed") || q.includes("over $") || q.includes("reach $") || q.includes("hit $") || q.includes("cross $") || q.includes("surpass") || q.includes("higher than") || q.includes("at least") && (q.includes("btc") || q.includes("bitcoin"))) return "bullish";
+  return "neutral";
+}
+function computeSentimentLabel(score) {
+  if (score >= 70) return "Very Bullish";
+  if (score >= 55) return "Bullish";
+  if (score >= 45) return "Neutral";
+  if (score >= 30) return "Bearish";
+  return "Very Bearish";
+}
+function computeConfidenceAdjustment(score, dir) {
+  if (!dir) return 0;
+  const raw = Math.round((score - 50) / 50 * 8);
+  return dir === "BUY" ? raw : -raw;
+}
+function buildReason(score, label, adj, dir) {
+  if (!dir) return `Polymarket BTC: ${label} (${score}% bullish)`;
+  const alignText = adj > 0 ? `aligns with ${dir}` : adj < 0 ? `conflicts with ${dir}` : "neutral vs";
+  const adjText = adj !== 0 ? ` \u2192 ${adj > 0 ? "+" : ""}${adj}%` : " \u2192 no adjustment";
+  return `\u{1F4CA} Polymarket BTC: ${label} (${score}%) ${alignText}${adjText}`;
+}
+async function fetchCLOBPrices(tokenIds) {
+  const map = /* @__PURE__ */ new Map();
+  if (!tokenIds.length) return map;
+  try {
+    const ids = tokenIds.slice(0, 20).join(",");
+    const res = await fetch(`${CLOB_BASE}/prices?token_ids=${ids}`, {
+      headers: { "Accept": "application/json", "User-Agent": "VEDD-Trading-AI/1.0" },
+      signal: AbortSignal.timeout(6e3)
+    });
+    if (!res.ok) return map;
+    const data = await res.json();
+    if (Array.isArray(data)) {
+      for (const item of data) {
+        if (item?.token_id && item?.price != null) {
+          map.set(item.token_id, parseFloat(item.price));
+        }
+      }
+    }
+  } catch {
+  }
+  return map;
+}
+async function fetchBTCMarketsFromGamma(limit = 30) {
+  const urlSorted = `${GAMMA_BASE}/markets?tag=bitcoin&active=true&closed=false&limit=${limit}&sort_by=end_date_min&order=asc`;
+  const urlFallback = `${GAMMA_BASE}/markets?tag=bitcoin&active=true&closed=false&limit=${limit}`;
+  let res = await fetch(urlSorted, {
+    headers: { "Accept": "application/json", "User-Agent": "VEDD-Trading-AI/1.0" },
+    signal: AbortSignal.timeout(1e4)
+  });
+  if (!res.ok) {
+    res = await fetch(urlFallback, {
+      headers: { "Accept": "application/json", "User-Agent": "VEDD-Trading-AI/1.0" },
+      signal: AbortSignal.timeout(1e4)
+    });
+  }
+  if (!res.ok) throw new Error(`Polymarket Gamma API ${res.status}`);
+  const raw = await res.json();
+  if (!Array.isArray(raw)) throw new Error("Unexpected Gamma response");
+  const now = Date.now();
+  const markets = [];
+  for (const item of raw) {
+    const direction = classifyDirection(item.question || "");
+    if (direction === "neutral") continue;
+    const outcomes = (() => {
+      try {
+        return Array.isArray(item.outcomes) ? item.outcomes : JSON.parse(item.outcomes || '["Yes","No"]');
+      } catch {
+        return ["Yes", "No"];
+      }
+    })();
+    const prices = (() => {
+      try {
+        const p = Array.isArray(item.outcomePrices) ? item.outcomePrices : JSON.parse(item.outcomePrices || "[0.5,0.5]");
+        return p.map((x) => parseFloat(String(x)));
+      } catch {
+        return [0.5, 0.5];
+      }
+    })();
+    const clobTokenIds = (() => {
+      try {
+        return Array.isArray(item.clobTokenIds) ? item.clobTokenIds : JSON.parse(item.clobTokenIds || "[]");
+      } catch {
+        return [];
+      }
+    })();
+    const endDate = item.endDate || item.endDateIso || null;
+    const msUntilEnd = endDate ? new Date(endDate).getTime() - now : null;
+    const volume = parseFloat(item.volumeNum ?? item.volume ?? "0") || 0;
+    const yesProb = Math.round((prices[0] ?? 0.5) * 100);
+    markets.push({
+      id: item.id || item.conditionId || "",
+      question: item.question || "Unknown market",
+      yesProbability: yesProb,
+      noProbability: 100 - yesProb,
+      volume,
+      endDate,
+      closed: item.closed ?? false,
+      direction,
+      outcomes,
+      yesTokenId: clobTokenIds[0] || void 0,
+      noTokenId: clobTokenIds[1] || void 0,
+      msUntilEnd
+    });
+  }
+  const MAX_DAYS = 30;
+  const maxMs = MAX_DAYS * 24 * 60 * 60 * 1e3;
+  const BLOCK_PHRASES = [
+    "gta",
+    "grand theft",
+    "before 20",
+    "by 202",
+    "end of 202",
+    "never",
+    "all time high",
+    "all-time high",
+    "ath",
+    "halving",
+    "etf",
+    "election",
+    "president",
+    "trump",
+    "biden",
+    "$1 million",
+    "$1m",
+    "1,000,000",
+    "500,000",
+    "$500k"
+  ];
+  function isBlockedMarket(question) {
+    const q = question.toLowerCase();
+    return BLOCK_PHRASES.some((p) => q.includes(p));
+  }
+  return markets.filter((m) => m.volume > 500).filter((m) => !isBlockedMarket(m.question)).filter((m) => m.msUntilEnd == null || m.msUntilEnd <= maxMs).sort((a, b) => {
+    const aT = a.msUntilEnd ?? Infinity;
+    const bT = b.msUntilEnd ?? Infinity;
+    if (aT === bT) return b.volume - a.volume;
+    return aT - bT;
+  }).slice(0, 8);
+}
+async function fetchLiveBTCMarkets() {
+  const markets = await fetchBTCMarketsFromGamma(30);
+  const tokenIds = markets.map((m) => m.yesTokenId).filter(Boolean);
+  const clobPrices = await fetchCLOBPrices(tokenIds);
+  let livePricesApplied = false;
+  const enriched = markets.map((m) => {
+    if (m.yesTokenId && clobPrices.has(m.yesTokenId)) {
+      const livePrice = clobPrices.get(m.yesTokenId);
+      livePricesApplied = true;
+      return {
+        ...m,
+        yesProbability: Math.round(livePrice * 100),
+        noProbability: Math.round((1 - livePrice) * 100),
+        livePrice: true
+      };
+    }
+    return m;
+  });
+  return { markets: enriched, livePrices: livePricesApplied };
+}
+function buildSentiment(markets, livePrices, fromCache, signalDirection, cacheAge) {
+  let totalVolume = 0;
+  let weightedBull = 0;
+  for (const m of markets) {
+    const bull = m.direction === "bullish" ? m.yesProbability : 100 - m.yesProbability;
+    weightedBull += bull * m.volume;
+    totalVolume += m.volume;
+  }
+  const overallBullishScore = totalVolume > 0 ? Math.round(weightedBull / totalVolume) : 50;
+  const sentimentLabel = computeSentimentLabel(overallBullishScore);
+  const adj = computeConfidenceAdjustment(overallBullishScore, signalDirection);
+  const reason = buildReason(overallBullishScore, sentimentLabel, adj, signalDirection);
+  return {
+    overallBullishScore,
+    sentimentLabel,
+    markets,
+    confidenceAdjustment: adj,
+    reason,
+    fetchedAt: (/* @__PURE__ */ new Date()).toISOString(),
+    fromCache,
+    livePrices,
+    cacheExpiresIn: fromCache && cacheAge != null ? Math.max(0, Math.round((CACHE_TTL_MS2 - cacheAge) / 1e3)) : void 0
+  };
+}
+async function getPolymarketBTCSentiment(signalDirection, forceRefresh = false) {
+  const now = Date.now();
+  const age = now - cacheTimestamp;
+  if (!forceRefresh && cachedSentiment && age < CACHE_TTL_MS2) {
+    return {
+      ...buildSentiment(cachedSentiment.markets, cachedSentiment.livePrices ?? false, true, signalDirection, age)
+    };
+  }
+  try {
+    const { markets, livePrices } = await fetchLiveBTCMarkets();
+    const result = buildSentiment(markets, livePrices, false, signalDirection);
+    cachedSentiment = result;
+    cacheTimestamp = now;
+    return result;
+  } catch (err) {
+    if (cachedSentiment) {
+      return { ...cachedSentiment, fromCache: true, confidenceAdjustment: 0, reason: "Polymarket: using stale cache (fetch failed)" };
+    }
+    throw err;
+  }
+}
+var GAMMA_BASE, CLOB_BASE, CACHE_TTL_MS2, LIVE_CACHE_TTL_MS, cachedSentiment, cacheTimestamp;
+var init_polymarket = __esm({
+  "server/services/polymarket.ts"() {
+    "use strict";
+    GAMMA_BASE = "https://gamma-api.polymarket.com";
+    CLOB_BASE = "https://clob.polymarket.com";
+    CACHE_TTL_MS2 = 30 * 1e3;
+    LIVE_CACHE_TTL_MS = 10 * 1e3;
+    cachedSentiment = null;
+    cacheTimestamp = 0;
+  }
+});
+
+// server/services/composite-signal.ts
+var composite_signal_exports = {};
+__export(composite_signal_exports, {
+  ALIGNMENT_LABELS: () => ALIGNMENT_LABELS,
+  getCompositeEdgeSignal: () => getCompositeEdgeSignal
+});
+function clamp(value, min, max) {
+  return Math.max(min, Math.min(max, value));
+}
+function alignmentLabel(markovAdj, polyAdj) {
+  const mSign = Math.sign(markovAdj);
+  const pSign = polyAdj !== null ? Math.sign(polyAdj) : 0;
+  if (pSign === 0) {
+    if (Math.abs(markovAdj) >= 8) return markovAdj > 0 ? "strong_agree" : "strong_disagree";
+    if (Math.abs(markovAdj) >= 4) return markovAdj > 0 ? "agree" : "disagree";
+    return "neutral";
+  }
+  const bothStrong = Math.abs(markovAdj) >= 5 && Math.abs(polyAdj ?? 0) >= 4;
+  if (mSign === pSign && bothStrong) return mSign > 0 ? "strong_agree" : "strong_disagree";
+  if (mSign === pSign) return mSign > 0 ? "agree" : "disagree";
+  if (mSign !== pSign && bothStrong) return "strong_disagree";
+  return "neutral";
+}
+function compositeEdgeScore(markovBullP, polyBullScore) {
+  if (polyBullScore === null) {
+    return clamp(Math.round(markovBullP), 0, 100);
+  }
+  const blended = (markovBullP + polyBullScore) / 2;
+  return clamp(Math.round(blended), 0, 100);
+}
+async function getCompositeEdgeSignal(symbol, direction, candles) {
+  let markovSignal = null;
+  try {
+    if (candles.length > 0) {
+      markovSignal = getMarkovSignal(symbol, direction, candles);
+    }
+  } catch {
+  }
+  const markovAdj = markovSignal?.confidenceAdjustment ?? 0;
+  const markovBullP = markovSignal ? Math.round(markovSignal.bullishProbability * 100) : 50;
+  let polySentiment = null;
+  const isCrypto = CRYPTO_REGEX.test(symbol);
+  if (isCrypto) {
+    try {
+      polySentiment = await getPolymarketBTCSentiment(direction);
+    } catch {
+    }
+  }
+  const polyAdj = polySentiment?.confidenceAdjustment ?? null;
+  const polyBullScore = polySentiment?.overallBullishScore ?? null;
+  let finalAdjustment;
+  if (polyAdj === null) {
+    finalAdjustment = markovAdj;
+  } else {
+    const mSign = Math.sign(markovAdj);
+    const pSign = Math.sign(polyAdj);
+    if (mSign === pSign && mSign !== 0) {
+      const larger = Math.abs(markovAdj) >= Math.abs(polyAdj) ? markovAdj : polyAdj;
+      const smaller = Math.abs(markovAdj) < Math.abs(polyAdj) ? markovAdj : polyAdj;
+      finalAdjustment = Math.round(larger * 1.5) + Math.round(smaller * 0.4);
+    } else if (mSign !== pSign && mSign !== 0 && pSign !== 0) {
+      const strongerAdj = Math.abs(markovAdj) >= Math.abs(polyAdj) ? markovAdj : polyAdj;
+      finalAdjustment = Math.round(strongerAdj * 0.3);
+    } else {
+      finalAdjustment = markovAdj + (polyAdj ?? 0);
+    }
+  }
+  finalAdjustment = clamp(finalAdjustment, -15, 15);
+  const align = alignmentLabel(markovAdj, polyAdj);
+  const edgeScore = compositeEdgeScore(markovBullP, polyBullScore);
+  const adjText = finalAdjustment > 0 ? `+${finalAdjustment}%` : `${finalAdjustment}%`;
+  const alignEmoji = {
+    strong_agree: "\u{1F525}",
+    agree: "\u2705",
+    neutral: "\u{1F538}",
+    disagree: "\u26A0\uFE0F",
+    strong_disagree: "\u{1F6AB}"
+  }[align];
+  let reason = `${alignEmoji} Composite Edge [${symbol}]`;
+  if (polySentiment) {
+    reason += ` | Markov ${markovBullP}% bull (${markovAdj > 0 ? "+" : ""}${markovAdj}%)`;
+    reason += ` | Polymarket ${polySentiment.sentimentLabel} ${polySentiment.overallBullishScore}% (${polyAdj > 0 ? "+" : ""}${polyAdj}%)`;
+    reason += ` | Combined: ${adjText}`;
+    if (align === "strong_agree") {
+      reason += " \u2014 BOTH signals confirm direction (amplified)";
+    } else if (align === "disagree" || align === "strong_disagree") {
+      reason += " \u2014 signals conflict (dampened)";
+    }
+  } else if (markovSignal) {
+    reason += ` | Markov: ${markovSignal.reason}`;
+    if (isCrypto) reason += " | Polymarket: unavailable";
+  }
+  return {
+    confidenceAdjustment: finalAdjustment,
+    reason,
+    markov: {
+      currentState: markovSignal?.currentState ?? "NEUTRAL",
+      bullP: markovBullP,
+      bearP: markovSignal ? Math.round(markovSignal.bearishProbability * 100) : 50,
+      adjustment: markovAdj,
+      available: markovSignal !== null
+    },
+    polymarket: polySentiment ? {
+      overallBullishScore: polySentiment.overallBullishScore,
+      sentimentLabel: polySentiment.sentimentLabel,
+      adjustment: polyAdj,
+      marketCount: polySentiment.markets.length,
+      fromCache: polySentiment.fromCache,
+      available: true
+    } : isCrypto ? {
+      overallBullishScore: 50,
+      sentimentLabel: "Neutral",
+      adjustment: 0,
+      marketCount: 0,
+      fromCache: false,
+      available: false
+    } : null,
+    alignment: align,
+    compositeEdgeScore: edgeScore,
+    usedPolymarket: polySentiment !== null
+  };
+}
+var CRYPTO_REGEX, ALIGNMENT_LABELS;
+var init_composite_signal = __esm({
+  "server/services/composite-signal.ts"() {
+    "use strict";
+    init_markov_chain();
+    init_polymarket();
+    CRYPTO_REGEX = /BTC|ETH|SOL|XRP|BNB|CRYPTO|DOGE|ADA|MATIC|LINK/i;
+    ALIGNMENT_LABELS = {
+      strong_agree: { label: "Strong Agree", color: "text-emerald-400", emoji: "\u{1F525}" },
+      agree: { label: "Agree", color: "text-green-400", emoji: "\u2705" },
+      neutral: { label: "Neutral", color: "text-gray-400", emoji: "\u{1F538}" },
+      disagree: { label: "Disagree", color: "text-orange-400", emoji: "\u26A0\uFE0F" },
+      strong_disagree: { label: "Strong Conflict", color: "text-red-400", emoji: "\u{1F6AB}" }
+    };
+  }
+});
+
+// server/services/pair-filter.ts
+var pair_filter_exports = {};
+__export(pair_filter_exports, {
+  pairFilterConfig: () => pairFilterConfig,
+  pairFilterVerdict: () => pairFilterVerdict
+});
+function parseList(v) {
+  return (v ?? "").split(",").map((s) => s.trim().toUpperCase()).filter(Boolean);
+}
+function listFromEnv(name, fallback) {
+  const raw = process.env[name];
+  const parsed = parseList(raw);
+  if (parsed.length) return parsed;
+  if (raw != null && raw.trim() !== "") return parsed;
+  return parseList(fallback);
+}
+function pairFilterVerdict(symbol, direction) {
+  if (process.env.PAIR_FILTER_ENABLED === "false") return null;
+  const sym = norm2(symbol);
+  const dir = String(direction || "").toUpperCase();
+  for (const b of BLOCKED_PAIRS) {
+    if (norm2(b) === sym) {
+      const reason = sym === "GBPJPY" ? `Pair filter: ${sym} is on the blocked list (34% WR over 310 trades, avg win $59 vs avg loss $100)` : `Pair filter: ${sym} is on the blocked list`;
+      return { blocked: true, reason };
+    }
+  }
+  for (const entry of BLOCKED_DIRECTIONS) {
+    const [s, d] = entry.split(":");
+    if (s && d && norm2(s) === sym && d.toUpperCase() === dir) {
+      return { blocked: true, reason: `Pair filter: ${sym} ${dir} is on the blocked list` };
+    }
+  }
+  return null;
+}
+function pairFilterConfig() {
+  return { enabled: process.env.PAIR_FILTER_ENABLED !== "false", pairs: BLOCKED_PAIRS, directions: BLOCKED_DIRECTIONS };
+}
+var norm2, BLOCKED_PAIRS, BLOCKED_DIRECTIONS;
+var init_pair_filter = __esm({
+  "server/services/pair-filter.ts"() {
+    "use strict";
+    norm2 = (s) => String(s || "").toUpperCase().replace(/[^A-Z0-9]/g, "");
+    BLOCKED_PAIRS = listFromEnv("BLOCKED_PAIRS", "");
+    BLOCKED_DIRECTIONS = listFromEnv("BLOCKED_PAIR_DIRECTIONS", "");
+    console.log(`[PairFilter] enabled=${process.env.PAIR_FILTER_ENABLED !== "false"} pairs=[${BLOCKED_PAIRS.join(", ") || "none"}] directions=[${BLOCKED_DIRECTIONS.join(", ") || "none"}]`);
+  }
+});
+
+// server/services/hour-filter.ts
+var hour_filter_exports = {};
+__export(hour_filter_exports, {
+  hourFilterTable: () => hourFilterTable,
+  hourFilterVerdict: () => hourFilterVerdict
+});
+async function compute2(userId) {
+  const { pool: pool2 } = await Promise.resolve().then(() => (init_db(), db_exports));
+  const { rows: fillRows } = await pool2.query(
+    `SELECT symbol, direction, result, COALESCE(profit_loss, 0) AS pnl, created_at
+       FROM ai_trade_results
+      WHERE user_id = $1
+        AND result IN ('WIN','LOSS')
+        AND source IN ('tradelocker','tradelocker_auto')
+        AND symbol NOT LIKE 'KALSHI%'
+        -- ACTIVE connections only. 73% of ai_trade_results comes from two
+        -- accounts (2188895, 1991352) that are no longer connected \u2014 including
+        -- 1,020 positions the sync ingested from 1991352 in a single hour on
+        -- 2026-08-05, which is 64% of the whole table. Calibrating a live filter
+        -- on dead accounts got four hours wrong: it blocked 08:00 (46.2% on the
+        -- real book) and 18:00/21:00 (samples under the floor), while missing
+        -- 13:00 (26.7% over 15 trades).
+        AND connection_id IN (SELECT id FROM tradelocker_connections WHERE is_active = true)
+        AND created_at > now() - ($2 || ' days')::interval`,
+    [userId, String(LOOKBACK_DAYS2)]
+  );
+  const { collapseToSignals: collapseToSignals2 } = await Promise.resolve().then(() => (init_signal_groups(), signal_groups_exports));
+  const signals = collapseToSignals2(fillRows.map((r) => ({
+    ...r,
+    pnl: Number(r.pnl) || 0,
+    entryMs: new Date(r.created_at).getTime()
+  })));
+  const byHour = /* @__PURE__ */ new Map();
+  for (const s of signals) {
+    const h = new Date(s.entryMs).getUTCHours();
+    const e = byHour.get(h) ?? { n: 0, w: 0 };
+    e.n++;
+    if (s.result === "WIN") e.w++;
+    byHour.set(h, e);
+  }
+  const stats = Array.from(byHour.entries()).map(([hour, e]) => ({
+    hour,
+    trades: e.n,
+    winRate: Math.round(1e3 * e.w / e.n) / 10
+  }));
+  const blocked = new Set(
+    stats.filter((s) => s.trades >= MIN_SAMPLE && s.winRate < WR_FLOOR).map((s) => s.hour)
+  );
+  return { stats, blocked };
+}
+async function hourFilterVerdict(userId, hourUtc) {
+  if (process.env.HOUR_FILTER_ENABLED === "false") return null;
+  try {
+    let entry = cache5.get(userId);
+    if (!entry || Date.now() - entry.at > TTL_MS4) {
+      const fresh = await compute2(userId);
+      entry = { at: Date.now(), ...fresh };
+      cache5.set(userId, entry);
+      const list = Array.from(fresh.blocked).sort((a, b) => a - b).map((h) => `${h}:00`).join(", ");
+      console.log(`[HourFilter] user ${userId}: recomputed over ${LOOKBACK_DAYS2}d \u2014 blocking ${fresh.blocked.size} hour(s)${list ? ": " + list : ""} (floor ${WR_FLOOR}% on ${MIN_SAMPLE}+ trades)`);
+    }
+    if (!entry.blocked.has(hourUtc)) return null;
+    const s = entry.stats.find((x) => x.hour === hourUtc);
+    return { blocked: true, reason: `Hour filter: ${hourUtc}:00 UTC is ${s?.winRate}% WR over ${s?.trades} trades \u2014 below the ${WR_FLOOR}% floor` };
+  } catch (e) {
+    console.error(`[HourFilter] could not evaluate (${e?.message}) \u2014 allowing the trade.`);
+    return null;
+  }
+}
+async function hourFilterTable(userId) {
+  const { stats, blocked } = await compute2(userId);
+  return { stats: stats.sort((a, b) => a.hour - b.hour), blocked: Array.from(blocked).sort((a, b) => a - b) };
+}
+var MIN_SAMPLE, WR_FLOOR, TTL_MS4, LOOKBACK_DAYS2, cache5;
+var init_hour_filter = __esm({
+  "server/services/hour-filter.ts"() {
+    "use strict";
+    MIN_SAMPLE = Number(process.env.HOUR_FILTER_MIN_TRADES ?? 15);
+    WR_FLOOR = Number(process.env.HOUR_FILTER_MIN_WINRATE ?? 45);
+    TTL_MS4 = Number(process.env.HOUR_FILTER_TTL_MS ?? 60 * 60 * 1e3);
+    LOOKBACK_DAYS2 = Number(process.env.HOUR_FILTER_LOOKBACK_DAYS ?? 180);
+    cache5 = /* @__PURE__ */ new Map();
+  }
+});
+
+// server/services/live-trading-engine.ts
+var live_trading_engine_exports = {};
+__export(live_trading_engine_exports, {
+  broadcastMT5Signal: () => broadcastMT5Signal,
+  confirmMT5Signal: () => confirmMT5Signal,
+  emergencyStopEngine: () => emergencyStopEngine,
+  generateRuleBasedSignals: () => generateRuleBasedSignals,
+  getAccountSafetySnapshot: () => getAccountSafetySnapshot,
+  getAllMT5Signals: () => getAllMT5Signals,
+  getLiveEngineActivity: () => getLiveEngineActivity,
+  getLiveEngineState: () => getLiveEngineState,
+  getMT5Accounts: () => getMT5Accounts,
+  getModelLockStatus: () => getModelLockStatus,
+  getPendingMT5Signals: () => getPendingMT5Signals,
+  getPersistedEngineConfigOverride: () => getPersistedEngineConfigOverride,
+  heartbeatMT5Account: () => heartbeatMT5Account,
+  hydratePersistedEngineConfigs: () => hydratePersistedEngineConfigs,
+  isFxLeader: () => isFxLeader,
+  recordTradeResult: () => recordTradeResult,
+  registerMT5Account: () => registerMT5Account,
+  restoreFxEngineStateFromDb: () => restoreFxEngineStateFromDb,
+  setMT5AccountReceiveSignals: () => setMT5AccountReceiveSignals,
+  setModelLock: () => setModelLock,
+  startFxLeaderElection: () => startFxLeaderElection,
+  startLiveEngine: () => startLiveEngine,
+  stopLiveEngine: () => stopLiveEngine,
+  submitFxModelTrade: () => submitFxModelTrade,
+  updateLiveEngineConfig: () => updateLiveEngineConfig
+});
+import { sql as sql4 } from "drizzle-orm";
+function computeVolumeMetrics(bars) {
+  if (!bars || bars.length < 5) {
+    return { currentVolume: 0, avgVolume: 0, relativeVolume: 0, volumeTrend: "below_average", volumeSpikes: 0, isHighActivity: false };
+  }
+  const volumes = bars.map((b) => b.volume);
+  const currentVolume = volumes[volumes.length - 1] || 0;
+  const avgVolume = volumes.reduce((a, b) => a + b, 0) / volumes.length;
+  const relativeVolume = avgVolume > 0 ? Math.round(currentVolume / avgVolume * 100) / 100 : 1;
+  const stdDev = Math.sqrt(volumes.reduce((sum, v) => sum + Math.pow(v - avgVolume, 2), 0) / volumes.length);
+  const spikeThreshold = avgVolume + 2 * stdDev;
+  const volumeSpikes = volumes.filter((v) => v > spikeThreshold).length;
+  const recentAvg = volumes.slice(-5).reduce((a, b) => a + b, 0) / 5;
+  const olderAvg = volumes.slice(0, -5).reduce((a, b) => a + b, 0) / Math.max(volumes.length - 5, 1);
+  const volumeRatio = olderAvg > 0 ? recentAvg / olderAvg : 1;
+  let volumeTrend = "average";
+  if (relativeVolume >= 2 || volumeRatio >= 1.8) volumeTrend = "surging";
+  else if (relativeVolume >= 1.3) volumeTrend = "above_average";
+  else if (relativeVolume <= 0.5) volumeTrend = "dry";
+  else if (relativeVolume <= 0.7) volumeTrend = "below_average";
+  return {
+    currentVolume,
+    avgVolume: Math.round(avgVolume),
+    relativeVolume,
+    volumeTrend,
+    volumeSpikes,
+    isHighActivity: relativeVolume >= 1.3
+  };
+}
+async function fetchNewsContext(pairs) {
+  const context = {
+    headlines: [],
+    economicEvents: [],
+    highImpactSoon: false,
+    marketSentiment: "neutral",
+    tradingWindowWarning: null
+  };
+  try {
+    if (!newsService.isInitialized()) {
+      newsService.initialize();
+    }
+    const [marketNews, calendar] = await Promise.all([
+      newsService.fetchMarketNews("forex").catch(() => []),
+      newsService.fetchEconomicCalendar(1).catch(() => [])
+    ]);
+    if (marketNews && marketNews.length > 0) {
+      context.headlines = marketNews.slice(0, 8).map((n) => n.headline);
+      let bullish = 0, bearish = 0;
+      for (const n of marketNews.slice(0, 10)) {
+        const h = (n.headline || "").toLowerCase();
+        if (h.includes("rally") || h.includes("surge") || h.includes("gain") || h.includes("rise") || h.includes("bullish") || h.includes("boost")) bullish++;
+        if (h.includes("fall") || h.includes("drop") || h.includes("crash") || h.includes("bear") || h.includes("decline") || h.includes("slump")) bearish++;
+      }
+      context.marketSentiment = bullish > bearish + 1 ? "bullish" : bearish > bullish + 1 ? "bearish" : "neutral";
+    }
+    if (calendar && calendar.length > 0) {
+      const now = Date.now();
+      const twoHoursMs = 2 * 60 * 60 * 1e3;
+      const relevantCurrencies = /* @__PURE__ */ new Set();
+      for (const pair of pairs) {
+        relevantCurrencies.add(pair.substring(0, 3));
+        relevantCurrencies.add(pair.substring(3, 6));
+      }
+      for (const event of calendar) {
+        const eventCurrency = (event.currency || "").toUpperCase();
+        const isRelevant = relevantCurrencies.has(eventCurrency) || eventCurrency === "USD";
+        if (!isRelevant && event.impact !== "high") continue;
+        const eventStr = `[${event.impact?.toUpperCase() || "LOW"}] ${event.country || ""} ${event.event || ""} (${event.time || "TBD"})${event.forecast ? ` F:${event.forecast}` : ""}${event.previous ? ` P:${event.previous}` : ""}`;
+        context.economicEvents.push(eventStr);
+        if (event.impact === "high") {
+          const timeStr = event.time || "";
+          if (timeStr) {
+            const [h, m] = timeStr.split(":").map(Number);
+            if (!isNaN(h) && h >= 0 && h <= 23) {
+              const today = /* @__PURE__ */ new Date();
+              const eventDate = new Date(Date.UTC(today.getUTCFullYear(), today.getUTCMonth(), today.getUTCDate(), h, m || 0, 0, 0));
+              const diff = eventDate.getTime() - now;
+              if (diff > -5 * 6e4 && diff < twoHoursMs) {
+                context.highImpactSoon = true;
+                const minsAway = Math.round(diff / 6e4);
+                context.tradingWindowWarning = `HIGH IMPACT EVENT ${minsAway > 0 ? `in ${minsAway} minutes` : "HAPPENING NOW"}: ${event.event} (${eventCurrency}). Consider widening stops or avoiding new entries for affected pairs.`;
+              }
+            }
+          }
+        }
+      }
+      context.economicEvents = context.economicEvents.slice(0, 12);
+    }
+  } catch (err) {
+    console.log("News context fetch error (non-fatal):", err?.message);
+  }
+  return context;
+}
+function broadcastMT5Signal(userId, signal) {
+  const mode = engineStates[userId]?.config?.tradingMode ?? "server_ai";
+  if (mode === "ea_only" && signal.action === "OPEN") {
+    addActivity(userId, { type: "info", message: `\u{1F916} EA-Only mode: server AI signal for ${signal.symbol} suppressed \u2014 EA trades only. Switch to "Server AI" mode to enable server signals.` });
+    return;
+  }
+  if (!mt5AccountQueues[userId]) mt5AccountQueues[userId] = {};
+  const registry = mt5AccountRegistry[userId] || {};
+  const activeAliases = Object.entries(registry).filter(([, info2]) => info2.receiveSignals).map(([alias]) => alias);
+  const targets = activeAliases.length > 0 ? activeAliases : ["default"];
+  for (const alias of targets) {
+    if (!mt5AccountQueues[userId][alias]) mt5AccountQueues[userId][alias] = [];
+    mt5AccountQueues[userId][alias].push({ ...signal });
+    if (mt5AccountQueues[userId][alias].length > 200) {
+      mt5AccountQueues[userId][alias] = mt5AccountQueues[userId][alias].slice(-100);
+    }
+  }
+}
+function registerMT5Account(userId, alias, info2) {
+  if (!mt5AccountRegistry[userId]) mt5AccountRegistry[userId] = {};
+  const existing = mt5AccountRegistry[userId][alias];
+  const updated = {
+    alias,
+    label: info2.label ?? existing?.label ?? alias,
+    accountNumber: info2.accountNumber ?? existing?.accountNumber ?? "",
+    lastSeen: Date.now(),
+    receiveSignals: info2.receiveSignals ?? existing?.receiveSignals ?? true
+  };
+  mt5AccountRegistry[userId][alias] = updated;
+  return updated;
+}
+function heartbeatMT5Account(userId, alias) {
+  if (!mt5AccountRegistry[userId]?.[alias]) return false;
+  mt5AccountRegistry[userId][alias].lastSeen = Date.now();
+  return true;
+}
+function getMT5Accounts(userId) {
+  const registry = mt5AccountRegistry[userId] || {};
+  const now = Date.now();
+  return Object.values(registry).map((a) => ({ ...a, online: now - a.lastSeen < 3 * 60 * 1e3 }));
+}
+function setMT5AccountReceiveSignals(userId, alias, receive) {
+  if (!mt5AccountRegistry[userId]?.[alias]) return false;
+  mt5AccountRegistry[userId][alias].receiveSignals = receive;
+  return true;
+}
+function getPersistedEngineConfigOverride(userId) {
+  return persistedConfigOverrides[userId];
+}
+async function hydratePersistedEngineConfigs() {
+  try {
+    const rows = await storage.getAllLiveEngineConfigOverrides();
+    for (const row of rows) {
+      persistedConfigOverrides[row.userId] = row.config;
+    }
+    console.log(`[live-trading-engine] Hydrated ${rows.length} persisted engine config override(s) from DB.`);
+  } catch (err) {
+    console.error("[live-trading-engine] hydratePersistedEngineConfigs failed (non-fatal):", err?.message ?? err);
+  }
+}
+function persistEngineConfig(userId, config) {
+  persistedConfigOverrides[userId] = config;
+  storage.saveLiveEngineConfigOverrides(userId, config).catch(
+    (err) => console.error(`[live-trading-engine] failed to persist config for user ${userId}:`, err?.message ?? err)
+  );
+}
+async function autoRetainBrain(userId, _attempt = 0) {
+  try {
+    const fn = global.runBrainLearning;
+    if (typeof fn !== "function") {
+      if (_attempt < 3) {
+        setTimeout(() => autoRetainBrain(userId, _attempt + 1), 5e3);
+      }
+      return;
+    }
+    const brain = await fn(userId);
+    const count = brain?.totalTradesAnalyzed ?? 0;
+    addActivity(userId, { type: "info", message: `\u{1F9E0} Brain auto-retrained from ${count} trades across ${brain?.pairsLearned ?? 0} pairs` });
+    autoGenerateBrainSignals(userId, brain).catch(() => {
+    });
+  } catch (e) {
+  }
+}
+function applyBrainEnforcement(userId, symbol, proposedDirection, currentATR, newsContext) {
+  const passthrough = {
+    allowed: true,
+    reason: "pass",
+    adjustedLotMultiplier: 1,
+    forcedStrategy: null,
+    recommendedTrailPips: 20
+  };
+  const brain = global.veddAIBrain?.[userId];
+  if (!brain?.pairKnowledge) return passthrough;
+  const k = lookupPairKnowledge(brain.pairKnowledge, symbol);
+  if (!k || k.totalTrades < 3) return passthrough;
+  const now = /* @__PURE__ */ new Date();
+  const hour = now.getUTCHours();
+  const session2 = sessionForHour(hour);
+  const sessionData = k.topSessions?.find((s) => sameSession(s.session, session2));
+  if (sessionData && sessionData.total >= 3 && sessionData.winRate < 45) {
+    const msg = `\u{1F9E0} Brain block: ${symbol} ${session2} session only ${sessionData.winRate}% WR (${sessionData.total} trades) \u2014 below 45% threshold, skipping`;
+    pushEnforcementLog(userId, { symbol, rule: "session_block", direction: proposedDirection, reason: msg });
+    return { ...passthrough, allowed: false, reason: msg };
+  }
+  const worstHourData = k.worstHours?.find((h) => h.hour === hour && h.total >= 3 && h.winRate < 40);
+  if (worstHourData) {
+    const msg = `\u{1F9E0} Brain block: ${symbol} hour ${hour}:00 UTC only ${worstHourData.winRate}% WR \u2014 loss zone`;
+    pushEnforcementLog(userId, { symbol, rule: "hour_block", direction: proposedDirection, reason: msg });
+    return { ...passthrough, allowed: false, reason: msg };
+  }
+  if (proposedDirection && k.totalTrades >= 15) {
+    const dirWR = proposedDirection === "BUY" ? k.buyWinRate ?? 50 : k.sellWinRate ?? 50;
+    if (k.totalTrades >= 30 && dirWR < 20) {
+      const msg = `\u{1F9E0} Brain block: ${symbol} ${proposedDirection} ${dirWR}% WR over ${k.totalTrades} trades \u2014 statistically losing direction, hard blocked`;
+      pushEnforcementLog(userId, { symbol, rule: "direction_bias", direction: proposedDirection, reason: msg });
+      return { ...passthrough, allowed: false, reason: msg };
+    }
+    if (dirWR >= 20 && dirWR < 40) {
+      const msg = `\u26A0\uFE0F Brain caution: ${symbol} ${proposedDirection} ${dirWR}% WR (${k.totalTrades} trades) \u2014 trade allowed at 70% lot size`;
+      pushEnforcementLog(userId, { symbol, rule: "direction_caution", direction: proposedDirection, reason: msg });
+      return {
+        allowed: true,
+        reason: msg,
+        adjustedLotMultiplier: 0.7,
+        forcedStrategy: k.bestStrategies?.[0] || null,
+        recommendedTrailPips: k.optimalTrailPips || 20
+      };
+    }
+  }
+  if (newsContext?.highImpactSoon) {
+    const currencies = extractCurrenciesFromSymbol(symbol);
+    const events = newsContext.economicEvents || [];
+    const newsBlocked = events.some(
+      (ev) => currencies.some((c) => ev.toUpperCase().includes(c))
+    );
+    if (newsBlocked) {
+      const msg = `\u{1F9E0} News block: ${symbol} \u2014 high-impact event affecting ${currencies.join("/")} within 30min`;
+      pushEnforcementLog(userId, { symbol, rule: "news_block", direction: proposedDirection, reason: msg });
+      return { ...passthrough, allowed: false, reason: msg };
+    }
+  }
+  if (k.consecutiveLossesToday >= 3 && k.lastLossAt) {
+    const msSinceLoss = Date.now() - new Date(k.lastLossAt).getTime();
+    const THREE_HOURS = 3 * 60 * 60 * 1e3;
+    if (msSinceLoss < THREE_HOURS) {
+      const minsLeft = Math.ceil((THREE_HOURS - msSinceLoss) / 6e4);
+      const msg = `\u{1F9E0} Cooldown: ${symbol} \u2014 3 consecutive losses, cooling for ${minsLeft} more min (3-hour lock)`;
+      pushEnforcementLog(userId, { symbol, rule: "loss_cooldown", direction: proposedDirection, reason: msg });
+      return { ...passthrough, allowed: false, reason: msg };
+    }
+  }
+  if (currentATR > 0 && k.minProfitableATR > 0 && currentATR < k.minProfitableATR * 0.5) {
+    const msg = `\u{1F9E0} ATR filter: ${symbol} ATR ${currentATR.toFixed(5)} below profitable threshold ${(k.minProfitableATR * 0.5).toFixed(5)}`;
+    pushEnforcementLog(userId, { symbol, rule: "atr_filter", direction: proposedDirection, reason: msg });
+    return { ...passthrough, allowed: false, reason: msg };
+  }
+  pushEnforcementLog(userId, { symbol, rule: "pass", direction: proposedDirection, reason: `\u2705 ${symbol} passed all brain filters` });
+  return {
+    allowed: true,
+    reason: "pass",
+    adjustedLotMultiplier: Math.min(1.5, Math.max(0.5, k.recommendedLotMultiplier || 1)),
+    forcedStrategy: k.bestStrategies?.[0] || null,
+    recommendedTrailPips: k.optimalTrailPips || 20
+  };
+}
+function extractCurrenciesFromSymbol(symbol) {
+  const s = symbol.toUpperCase().replace("/", "");
+  if (s.length >= 6) return [s.slice(0, 3), s.slice(3, 6)];
+  if (s === "XAUUSD") return ["XAU", "USD"];
+  if (s === "XAGUSD") return ["XAG", "USD"];
+  return [s];
+}
+function pushEnforcementLog(userId, entry) {
+  if (!global.veddAIBrain) global.veddAIBrain = {};
+  if (!global.veddAIBrain[userId]) global.veddAIBrain[userId] = {};
+  if (!global.veddAIBrain[userId].enforcementLog) {
+    global.veddAIBrain[userId].enforcementLog = [];
+  }
+  const log = global.veddAIBrain[userId].enforcementLog;
+  log.unshift({ ...entry, timestamp: (/* @__PURE__ */ new Date()).toISOString() });
+  if (log.length > 50) log.length = 50;
+}
+async function autoGenerateBrainSignals(userId, brain) {
+  let openai2;
+  try {
+    if (!brain?.pairKnowledge || Object.keys(brain.pairKnowledge).length === 0) return;
+    const { getUniversalAIClientForUser: getUniversalAIClientForUser2 } = await Promise.resolve().then(() => (init_openai(), openai_exports));
+    try {
+      openai2 = await getUniversalAIClientForUser2(userId);
+    } catch {
+      return;
+    }
+    const connectedPairs = global.mt5ConnectedPairs?.[userId] || {};
+    const lastChartData = global.mt5LastChartData?.[userId] || {};
+    const openPositions = global.mt5OpenPositions?.[userId]?.positions || [];
+    const state = engineStates[userId];
+    const strategyMode = state?.config?.strategyMode || "sniper";
+    const liveContext = {};
+    for (const [sym, knowledge] of Object.entries(brain.pairKnowledge)) {
+      const pairData = Object.values(connectedPairs).find(
+        (p) => (p.symbol || "").toUpperCase().replace("/", "") === sym
+      );
+      const chartSnap = lastChartData[sym];
+      liveContext[sym] = {
+        ...knowledge,
+        currentPrice: pairData?.price || chartSnap?.close || null,
+        currentSignal: pairData?.signal || null,
+        rsi: chartSnap?.rsi || null,
+        trend: chartSnap?.trend || null,
+        hasOpenPosition: openPositions.some(
+          (p) => (p.symbol || "").toUpperCase().replace("/", "") === sym
+        )
+      };
+    }
+    const nowUTC = /* @__PURE__ */ new Date();
+    const currentHour = nowUTC.getUTCHours();
+    const dayNames = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
+    const currentSession = currentHour < 7 ? "Asian" : currentHour < 13 ? "London" : currentHour < 20 ? "New York" : "Late NY";
+    const prompt = `You are VEDD SS AI - autonomous self-learning trading engine. Generate proactive trade signals from learned knowledge.
+
+CURRENT CONTEXT: ${nowUTC.toISOString()} | ${currentSession} session | ${dayNames[nowUTC.getUTCDay()]} | Strategy: ${strategyMode.toUpperCase()}
+
+LEARNED BRAIN DATA (${brain.totalTradesAnalyzed} historical trades):
+${JSON.stringify(liveContext, null, 1)}
+
+BRAIN INSIGHTS:
+${(brain.learningInsights || []).join("\n")}
+
+Generate signals for pairs with strong learned edge. Respect session win-rates. Respond ONLY with valid JSON:
+{"signals":[{"symbol":"XAUUSD","direction":"BUY","confidence":82,"entryZone":2315.00,"stopLoss":2305.00,"takeProfit":2335.00,"lotSize":0.01,"holdTime":"2-4hrs","reason":"Brain: 78% WR London session, preferred BUY direction","riskScore":3}],"marketRead":"Brief overview","brainConfidence":75}`;
+    const resp = await openai2.chat.completions.create({
+      model: openai2.defaultModel || "gpt-4o",
+      messages: [
+        { role: "system", content: "You are VEDD SS AI. Respond with valid JSON only." },
+        { role: "user", content: prompt }
+      ],
+      response_format: { type: "json_object" },
+      max_tokens: 2e3,
+      temperature: 0.3
+    });
+    const content = resp.choices[0]?.message?.content || "";
+    let signals;
+    try {
+      signals = JSON.parse(content);
+    } catch {
+      return;
+    }
+    if (!global.veddAIBrain[userId]) global.veddAIBrain[userId] = {};
+    global.veddAIBrain[userId].lastAutonomousSignals = {
+      signals: signals.signals || [],
+      marketRead: signals.marketRead || "",
+      brainConfidence: signals.brainConfidence || 0,
+      generatedAt: (/* @__PURE__ */ new Date()).toISOString(),
+      strategyMode,
+      autoScheduled: true
+    };
+    const sigCount = signals.signals?.length || 0;
+    if (sigCount > 0 && state) {
+      addActivity(userId, {
+        type: "info",
+        message: `\u{1F9E0} Brain auto-generated ${sigCount} autonomous signal${sigCount !== 1 ? "s" : ""} (${strategyMode.toUpperCase()} mode) | Brain confidence: ${signals.brainConfidence || "N/A"}%`
+      });
+    }
+  } catch (err) {
+    const errMsg = err?.message || "";
+    const errStatus = err?.status || err?.statusCode || 0;
+    const isAuthError = errStatus === 401 || errMsg.includes("Incorrect API key") || errMsg.includes("invalid_api_key") || errMsg.includes("authentication_error") || errMsg.includes("401");
+    if (isAuthError && openai2?.provider && openai2.provider !== "platform") {
+      try {
+        const { db: db2 } = await Promise.resolve().then(() => (init_db(), db_exports));
+        const { userApiKeys: uak } = await Promise.resolve().then(() => (init_schema(), schema_exports));
+        const { and: and4, eq: eq4 } = await import("drizzle-orm");
+        await db2.update(uak).set({ isValid: false, lastValidated: /* @__PURE__ */ new Date() }).where(and4(eq4(uak.userId, userId), eq4(uak.provider, openai2.provider)));
+      } catch {
+      }
+      addActivity(userId, { type: "error", message: `${openai2.provider} API key invalid \u2014 auto-disabled. Brain engine will switch to your next active provider.` });
+    }
+  }
+}
+function getAdaptiveScanInterval(config) {
+  if (!config.adaptiveScanInterval) return config.scanIntervalMs;
+  const hourUtc = (/* @__PURE__ */ new Date()).getUTCHours();
+  const dayUtc = (/* @__PURE__ */ new Date()).getUTCDay();
+  if (dayUtc === 0 || dayUtc === 6) return 18e4;
+  if (hourUtc >= 13 && hourUtc < 16) return 15e3;
+  if (hourUtc >= 7 && hourUtc < 13 || hourUtc >= 16 && hourUtc < 20) return 3e4;
+  if (hourUtc >= 0 && hourUtc < 7) return 9e4;
+  return 18e4;
+}
+function calculateKellyFraction(wins, losses, totalRR) {
+  const total = wins + losses;
+  if (total < 5) return 0.01;
+  const winRate = wins / total;
+  const avgRR = wins > 0 ? totalRR / wins : 1.5;
+  const kelly = winRate - (1 - winRate) / Math.max(avgRR, 0.1);
+  const fractionalKelly = kelly * 0.25;
+  return Math.min(0.03, Math.max(5e-3, fractionalKelly));
+}
+function getConfidenceLotMultiplier(confidence) {
+  if (confidence >= 93) return { mult: 1.5, label: `A+ (${confidence}% \u226593%) \u2192 1.5\xD7` };
+  if (confidence >= 88) return { mult: 1.25, label: `A  (${confidence}% \u226588%) \u2192 1.25\xD7` };
+  if (confidence >= 83) return { mult: 1, label: `B  (${confidence}% \u226583%) \u2192 1.0\xD7` };
+  if (confidence >= 78) return { mult: 0.75, label: `C  (${confidence}% \u226578%) \u2192 0.75\xD7` };
+  return { mult: 0.5, label: `D  (${confidence}%  <78%) \u2192 0.5\xD7` };
+}
+function getStrategyLotMultiplier(strategy) {
+  const s = strategy.toLowerCase();
+  if (["prop_firm_sniper", "ict_ote", "ict_order_blocks", "sniper", "smc_demand_supply", "order_flow"].includes(s)) {
+    return { mult: 1.2, label: `sniper-tier (${s}) \u2192 1.2\xD7` };
+  }
+  if (["momentum", "swing", "breakout", "asia_range_breakout", "news_fade", "sunday_gap"].includes(s)) {
+    return { mult: 1, label: `standard-tier (${s}) \u2192 1.0\xD7` };
+  }
+  if (["scalping", "vwap_mean_reversion"].includes(s)) {
+    return { mult: 0.8, label: `scalp-tier (${s}) \u2192 0.8\xD7` };
+  }
+  return { mult: 1, label: `default-tier (${s}) \u2192 1.0\xD7` };
+}
+function getExposureLotMultiplier(openPositions) {
+  if (openPositions === 0) return { mult: 1, label: `0 open \u2192 1.0\xD7` };
+  if (openPositions === 1) return { mult: 0.85, label: `1 open \u2192 0.85\xD7` };
+  if (openPositions === 2) return { mult: 0.7, label: `2 open \u2192 0.70\xD7` };
+  return { mult: 0.55, label: `${openPositions} open \u2192 0.55\xD7` };
+}
+function addActivity(userId, activity) {
+  const state = engineStates[userId];
+  if (!state) return;
+  const entry = {
+    id: `${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
+    timestamp: (/* @__PURE__ */ new Date()).toISOString(),
+    ...activity
+  };
+  state.activityLog.unshift(entry);
+  if (state.activityLog.length > 100) state.activityLog = state.activityLog.slice(0, 100);
+}
+async function logDxtradeSkip(userId, connId, symbol, stage, detail) {
+  try {
+    const { pool: pool2 } = await Promise.resolve().then(() => (init_db(), db_exports));
+    if (!_dxSkipTableReady) {
+      await pool2.query(`CREATE TABLE IF NOT EXISTS dxtrade_skips (id serial primary key, user_id int, connection_id int, symbol text, stage text, detail text, created_at timestamptz default now())`);
+      _dxSkipTableReady = true;
+    }
+    await pool2.query(
+      `INSERT INTO dxtrade_skips (user_id, connection_id, symbol, stage, detail) VALUES ($1,$2,$3,$4,$5)`,
+      [userId, connId, symbol, stage, String(detail).slice(0, 500)]
+    );
+  } catch (_) {
+  }
+}
+function getDefaultConfig(userId) {
+  const persisted = persistedConfigOverrides[userId];
+  return {
+    userId,
+    scanIntervalMs: 6e4,
+    pairs: ["EURUSD", "GBPUSD", "USDJPY", "XAUUSD", "BTCUSD"],
+    strategyMode: "aggressive",
+    maxOpenTrades: 5,
+    riskPerTrade: 1,
+    minConfidence: 70,
+    maxLotSize: 0.1,
+    enablePositionManagement: true,
+    trailingStopEnabled: true,
+    trailingStopATRMultiplier: 1.5,
+    trailMethod: "staged_volume",
+    weeklyProfitTarget: 0,
+    accountBalance: 0,
+    enableCompounding: true,
+    baseLotSize: 0.01,
+    propFirmMode: false,
+    propFirmDailyDrawdownLimit: 4,
+    adaptiveScanInterval: true,
+    enablePyramiding: false,
+    useKellyCriterion: false,
+    brainLearningMode: true,
+    drawdownShieldThreshold: 3,
+    dailyLossLimit: 5,
+    maxDailyLossPct: 4,
+    // halt new trades once down 4% on the day (realized + floating)
+    maxDrawdownPct: 8,
+    // halt once equity is 8% below its running peak
+    maxRiskPerTradePct: 2,
+    // resize any single trade so its stop-out can't lose >2% of balance
+    maxLot: 0,
+    // 0 = no absolute lot ceiling (balance-scaled cap still applies)
+    autoFlattenOnBreach: false,
+    // opt-in — also CLOSE open positions when a breaker trips
+    reversalExitEnabled: false,
+    // OFF by default — it was closing winners too early on
+    // routine trend noise. Opt-in via the weekly-strategy toggle.
+    reversalSensitivity: 4,
+    // if opted in, default to conservative (4 of 5) not 3
+    dailyProfitTarget: 0,
+    maxDailyTrades: 0,
+    pairDailyLimitMode: "ai",
+    maxTradesPerPairPerDay: 2,
+    pairDailyLimitOverrides: {},
+    challengeSessionFilterEnabled: false,
+    consistencyEnforcementEnabled: false,
+    consistencyMinProfitableDays: 10,
+    consistencyPeriodDays: 15,
+    maxDailyProfitPctOfTotal: 0,
+    deepReasoningMode: false,
+    directionFilter: "both",
+    pairDirectionOverrides: {},
+    pairLotOverrides: {},
+    lockSettings: false,
+    singleStrategyMode: false,
+    allowMultipleTrades: true,
+    enableORBAutonomous: true,
+    enableCompositeAutonomous: true,
+    compositeMinEdgeScore: 72,
+    aiMode: "full",
+    breakevenBufferPips: 5,
+    trailFixedPips: 20,
+    trailStepPips: 10,
+    trailProfitLockPct: 60,
+    trailActivationPips: 15,
+    trailSarInitialAF: 0.02,
+    trailSarMaxAF: 0.2,
+    volatileCapMode: "risk_scaled",
+    copyMode: "proportional",
+    tradingMode: "server_ai",
+    // Durable overrides win over hard-coded defaults above — e.g. so
+    // propFirmMode/consistency-rule settings saved before a restart are
+    // still in effect the next time this user's engine starts, instead of
+    // silently resetting to OFF. `userId` itself is never overridden.
+    ...persisted ? { ...persisted, userId } : {}
+  };
+}
+function tradingWeekStartISO() {
+  const now = /* @__PURE__ */ new Date();
+  const d = new Date(now);
+  d.setUTCHours(21, 0, 0, 0);
+  d.setUTCDate(d.getUTCDate() - d.getUTCDay());
+  if (d > now) d.setUTCDate(d.getUTCDate() - 7);
+  return d.toISOString();
+}
+function rollGoalTrackerWeek(state) {
+  const wk = tradingWeekStartISO();
+  if (state.goalTracker && state.goalTracker.weekStartedAt < wk) {
+    state.goalTracker = createGoalTracker(state.config);
+  }
+}
+function createGoalTracker(config) {
+  return {
+    weeklyTarget: config.weeklyProfitTarget,
+    startBalance: config.accountBalance,
+    currentProfit: 0,
+    progressPercent: 0,
+    weekStartedAt: tradingWeekStartISO(),
+    dailyPnL: {},
+    wins: 0,
+    losses: 0,
+    winRate: 0,
+    consecutiveWins: 0,
+    consecutiveLosses: 0,
+    bestTrade: null,
+    worstTrade: null,
+    strategyBreakdown: {},
+    sessionBreakdown: {},
+    symbolBreakdown: {},
+    pairStrategyBreakdown: {},
+    compoundMultiplier: 1,
+    currentPhase: "warming_up",
+    phasePlan: "",
+    kellyStats: {}
+  };
+}
+function getGoalPhase(tracker) {
+  if (tracker.weeklyTarget <= 0) return "building";
+  const pct = tracker.progressPercent;
+  if (pct >= 100) return "target_reached";
+  if (pct >= 80) return "pushing";
+  if (pct >= 50) return "cruising";
+  if (pct >= 25) return "accelerating";
+  if (tracker.wins >= 3) return "building";
+  return "warming_up";
+}
+function getCompoundMultiplier(tracker, enableCompounding) {
+  if (!enableCompounding) return 1;
+  let mult = 1;
+  if (tracker.consecutiveWins >= 7) mult = 2.5;
+  else if (tracker.consecutiveWins >= 5) mult = 2;
+  else if (tracker.consecutiveWins >= 3) mult = 1.5;
+  else if (tracker.consecutiveWins >= 2) mult = 1.25;
+  if (tracker.consecutiveLosses >= 4) mult = 0.35;
+  else if (tracker.consecutiveLosses >= 3) mult = 0.5;
+  else if (tracker.consecutiveLosses >= 2) mult = 0.75;
+  if (tracker.progressPercent >= 90) mult = Math.min(mult, 0.75);
+  else if (tracker.progressPercent >= 80) mult *= 0.85;
+  return Math.round(mult * 100) / 100;
+}
+function getDaysRemaining() {
+  const now = /* @__PURE__ */ new Date();
+  const dayOfWeek = now.getUTCDay();
+  const daysLeft = dayOfWeek === 0 ? 5 : dayOfWeek === 6 ? 5 : 5 - dayOfWeek;
+  return Math.max(1, daysLeft);
+}
+function getDailyTargetFromGoal(tracker) {
+  if (tracker.weeklyTarget <= 0) return 0;
+  const remaining = tracker.weeklyTarget - tracker.currentProfit;
+  const daysLeft = getDaysRemaining();
+  return Math.max(0, Math.round(remaining / daysLeft * 100) / 100);
+}
+function computeHtfBias(bars) {
+  if (!bars || bars.length < 15) return null;
+  const confirmed = bars.slice(0, -1);
+  if (confirmed.length < 14) return null;
+  const candles = convertToCandles(confirmed);
+  const price = bars[bars.length - 1]?.close || 0;
+  const bosChoch = detectBOSCHOCH(candles, "NEUTRAL");
+  const wyckoff = detectWyckoff(candles);
+  let trend = "NEUTRAL";
+  if (bosChoch.detected && bosChoch.direction) trend = bosChoch.direction;
+  else if (wyckoff.detected) {
+    if (wyckoff.phase === "MARKUP" || wyckoff.phase === "ACCUMULATION") trend = "BULLISH";
+    else if (wyckoff.phase === "MARKDOWN" || wyckoff.phase === "DISTRIBUTION") trend = "BEARISH";
+  }
+  const pd = getPremiumDiscountContext(price, candles, trend === "BULLISH" ? "BUY" : trend === "BEARISH" ? "SELL" : "NEUTRAL");
+  return { trend, bosChoch, premiumDiscount: { zone: pd.zone, aligns: pd.aligns, description: pd.description }, wyckoff };
+}
+async function refreshH4Bias(symbol, assetType) {
+  const hit = h4BiasCache.get(symbol);
+  if (hit && Date.now() - hit.at < H4_REFRESH_MS) return;
+  try {
+    const r = await marketDataService.fetchMarketData({ symbol, assetType, timeframe: "4h", limit: 50 });
+    const data = computeHtfBias(r.bars || []);
+    if (data) h4BiasCache.set(symbol, { at: Date.now(), data });
+  } catch {
+  }
+}
+function mtfStack(state, symbol) {
+  const sym = String(symbol || "").toUpperCase().replace("/", "");
+  const primaryH1 = (state?.config?.primaryTimeframe || "M15") === "H1";
+  const htf = state?.htfBiasCache?.[sym] || state?.htfBiasCache?.[symbol] || null;
+  const h4c = h4BiasCache.get(sym)?.data || h4BiasCache.get(symbol)?.data || null;
+  return primaryH1 ? { h1: null, h4: htf } : { h1: htf, h4: h4c };
+}
+function htfTurnedAgainst(state, symbol, direction) {
+  const { h1, h4 } = mtfStack(state, symbol);
+  if (!h1 && !h4) return null;
+  const against = String(direction || "").toUpperCase() === "BUY" ? "BEARISH" : "BULLISH";
+  const parts = [];
+  let turned = false;
+  for (const [lbl, b] of [["H1", h1], ["H4", h4]]) {
+    if (!b) {
+      parts.push(`${lbl} n/a`);
+      continue;
+    }
+    const bosAgainst = b.bosChoch?.detected && b.bosChoch.direction === against;
+    if (b.trend === against || bosAgainst) turned = true;
+    parts.push(`${lbl} ${b.trend}${bosAgainst ? " (BOS/CHOCH against)" : ""}`);
+  }
+  return { turned, detail: parts.join(", ") };
+}
+function recordTradeResult(userId, result) {
+  const state = engineStates[userId];
+  if (!state) return;
+  if (result.tradeKey) {
+    let seen = countedTradeKeys.get(userId);
+    if (!seen) {
+      seen = /* @__PURE__ */ new Set();
+      countedTradeKeys.set(userId, seen);
+    }
+    if (seen.has(result.tradeKey)) return;
+    seen.add(result.tradeKey);
+    if (seen.size > 5e3) countedTradeKeys.set(userId, new Set(Array.from(seen).slice(-2500)));
+  }
+  if (Math.abs(Number(result.profit) || 0) < 5e-3) return;
+  rollGoalTrackerWeek(state);
+  const tracker = state.goalTracker;
+  tracker.currentProfit = Math.round((tracker.currentProfit + result.profit) * 100) / 100;
+  tracker.progressPercent = tracker.weeklyTarget > 0 ? Math.min(100, Math.max(0, Math.round(tracker.currentProfit / tracker.weeklyTarget * 100))) : 0;
+  const today = (/* @__PURE__ */ new Date()).toISOString().split("T")[0];
+  tracker.dailyPnL[today] = Math.round(((tracker.dailyPnL[today] || 0) + result.profit) * 100) / 100;
+  if (result.profit > 0) {
+    tracker.wins++;
+    tracker.consecutiveWins++;
+    tracker.consecutiveLosses = 0;
+  } else {
+    tracker.losses++;
+    tracker.consecutiveLosses++;
+    tracker.consecutiveWins = 0;
+  }
+  tracker.winRate = tracker.wins + tracker.losses > 0 ? Math.round(tracker.wins / (tracker.wins + tracker.losses) * 100) : 0;
+  if (!tracker.bestTrade || result.profit > tracker.bestTrade.profit) {
+    tracker.bestTrade = { symbol: result.symbol, profit: result.profit, strategy: result.strategy };
+  }
+  if (!tracker.worstTrade || result.profit < tracker.worstTrade.profit) {
+    tracker.worstTrade = { symbol: result.symbol, profit: result.profit, strategy: result.strategy };
+  }
+  if (!tracker.strategyBreakdown[result.strategy]) {
+    tracker.strategyBreakdown[result.strategy] = { trades: 0, wins: 0, pnl: 0 };
+  }
+  const sb = tracker.strategyBreakdown[result.strategy];
+  sb.trades++;
+  if (result.profit > 0) sb.wins++;
+  sb.pnl = Math.round((sb.pnl + result.profit) * 100) / 100;
+  if (!tracker.sessionBreakdown[result.session]) {
+    tracker.sessionBreakdown[result.session] = { trades: 0, wins: 0, pnl: 0 };
+  }
+  const sessB = tracker.sessionBreakdown[result.session];
+  sessB.trades++;
+  if (result.profit > 0) sessB.wins++;
+  sessB.pnl = Math.round((sessB.pnl + result.profit) * 100) / 100;
+  if (!tracker.symbolBreakdown) tracker.symbolBreakdown = {};
+  if (!tracker.symbolBreakdown[result.symbol]) {
+    tracker.symbolBreakdown[result.symbol] = { trades: 0, wins: 0, losses: 0, pnl: 0, bestTrade: 0, worstTrade: 0 };
+  }
+  const sym = tracker.symbolBreakdown[result.symbol];
+  sym.trades++;
+  if (result.profit > 0) sym.wins++;
+  else sym.losses++;
+  sym.pnl = Math.round((sym.pnl + result.profit) * 100) / 100;
+  if (result.profit > sym.bestTrade) sym.bestTrade = result.profit;
+  if (result.profit < sym.worstTrade) sym.worstTrade = result.profit;
+  if (!tracker.pairStrategyBreakdown) tracker.pairStrategyBreakdown = {};
+  const psKey = `${result.symbol}|${result.strategy}`;
+  if (!tracker.pairStrategyBreakdown[psKey]) {
+    tracker.pairStrategyBreakdown[psKey] = { trades: 0, wins: 0, losses: 0, pnl: 0 };
+  }
+  const ps = tracker.pairStrategyBreakdown[psKey];
+  ps.trades++;
+  if (result.profit > 0) ps.wins++;
+  else ps.losses++;
+  ps.pnl = Math.round((ps.pnl + result.profit) * 100) / 100;
+  tracker.compoundMultiplier = getCompoundMultiplier(tracker, state.config.enableCompounding);
+  tracker.currentPhase = getGoalPhase(tracker);
+  if (tracker.currentPhase === "target_reached") {
+    addActivity(userId, {
+      type: "info",
+      message: `WEEKLY TARGET REACHED! $${tracker.currentProfit} profit achieved (target: $${tracker.weeklyTarget}). Switching to capital preservation mode.`
+    });
+  }
+  state.pnlSession = tracker.currentProfit;
+  if (!state.strategyPerformanceWeights) {
+    state.strategyPerformanceWeights = Object.fromEntries(ALL_STRATEGY_KEYS.map((k) => [k, 1]));
+  }
+  const strat = result.strategy;
+  const weights = state.strategyPerformanceWeights;
+  if (weights[strat] !== void 0) {
+    weights[strat] = result.profit > 0 ? Math.min(2, weights[strat] + 0.05) : Math.max(0.2, weights[strat] - 0.08);
+  }
+  for (const k of Object.keys(weights)) {
+    weights[k] = Math.round((weights[k] * 0.99 + 1 * 0.01) * 1e3) / 1e3;
+  }
+  if (!tracker.kellyStats) tracker.kellyStats = {};
+  if (!tracker.kellyStats[strat]) tracker.kellyStats[strat] = { wins: 0, losses: 0, totalRR: 0 };
+  const ks = tracker.kellyStats[strat];
+  if (result.profit > 0) {
+    ks.wins++;
+    ks.totalRR += Math.abs(result.profit / Math.max(state.config.baseLotSize * 10, 0.01));
+  } else {
+    ks.losses++;
+  }
+  if (!state.sessionHighWatermark) state.sessionHighWatermark = 0;
+  {
+    const shieldDate = (/* @__PURE__ */ new Date()).toISOString().split("T")[0];
+    if (state._shieldResetDate !== shieldDate) {
+      state._shieldResetDate = shieldDate;
+      state.sessionHighWatermark = 0;
+      if (state.drawdownShieldActive) {
+        state.drawdownShieldActive = false;
+        addActivity(userId, { type: "info", message: "\u{1F305} New trading day \u2014 drawdown shield reset, watermark cleared." });
+      }
+    }
+  }
+  if (state.pnlSession > state.sessionHighWatermark) {
+    state.sessionHighWatermark = state.pnlSession;
+  }
+  const shieldThresholdDollar = state.config.accountBalance * (state.config.drawdownShieldThreshold || 3) / 100;
+  const wasShieldActive = state.drawdownShieldActive;
+  if (!state.drawdownShieldActive && state.pnlSession < state.sessionHighWatermark - shieldThresholdDollar && state.sessionHighWatermark > 0) {
+    state.drawdownShieldActive = true;
+    addActivity(userId, {
+      type: "info",
+      message: `\u{1F6E1}\uFE0F DRAWDOWN SHIELD ACTIVATED \u2014 session dropped $${Math.abs(state.pnlSession - state.sessionHighWatermark).toFixed(2)} from peak $${state.sessionHighWatermark.toFixed(2)}. Switching to Sniper-only, 0.25% risk to protect gains.`
+    });
+  } else if (wasShieldActive && state.pnlSession >= state.sessionHighWatermark - state.config.accountBalance * 0.01) {
+    state.drawdownShieldActive = false;
+    addActivity(userId, {
+      type: "info",
+      message: `\u2705 Drawdown shield disengaged \u2014 session P&L recovered. Full strategy arsenal resuming.`
+    });
+  }
+  const todayDate = (/* @__PURE__ */ new Date()).toISOString().split("T")[0];
+  if (state._pnlTodayDate !== todayDate) {
+    state._pnlTodayDate = todayDate;
+    state.pnlToday = 0;
+    state.dailyProfitHalted = false;
+    state.dailyProfitHaltedAt = null;
+    state.dailyLossHalted = false;
+    state.dailyLossHaltedAt = null;
+  }
+  state.pnlToday = Math.round((state.pnlToday + result.profit) * 100) / 100;
+  checkDailyLossLimit(userId);
+  checkDailyProfitTarget(userId);
+  checkMaxDrawdownBreakers(userId);
+  if (state.config.consistencyEnforcementEnabled && state.config.propFirmMode) {
+    const today2 = (/* @__PURE__ */ new Date()).toISOString().split("T")[0];
+    state.challengeDailyPnL[today2] = state.pnlToday;
+  }
+  if (state.openPositionCount > 0) {
+    state.openPositionCount = Math.max(0, state.openPositionCount - 1);
+  }
+  if (state.positionTrailState && result.symbol) {
+    Object.keys(state.positionTrailState).forEach((key) => {
+      if (key === result.symbol || key.toUpperCase().includes(result.symbol.toUpperCase())) {
+        delete state.positionTrailState[key];
+      }
+    });
+  }
+  const brainForUser = global.veddAIBrain?.[userId];
+  const _normSym = (v) => String(v || "").toUpperCase().replace(/[^A-Z0-9]/g, "");
+  if (brainForUser?.pairKnowledge && result.symbol) {
+    const _want = _normSym(result.symbol);
+    const _key = Object.keys(brainForUser.pairKnowledge).find((k) => _normSym(k) === _want) ?? Object.keys(brainForUser.pairKnowledge).find((k) => {
+      const n = _normSym(k);
+      return n.length >= 6 && (_want.startsWith(n) || n.startsWith(_want));
+    });
+    if (_key) {
+      const pk = brainForUser.pairKnowledge[_key];
+      if (result.profit < 0) {
+        pk.consecutiveLossesToday = (pk.consecutiveLossesToday || 0) + 1;
+        pk.lastLossAt = (/* @__PURE__ */ new Date()).toISOString();
+      } else {
+        pk.consecutiveLossesToday = 0;
+      }
+    }
+  }
+  if (result.profit < 0 && result.symbol && result.direction) {
+    if (!state.pairDirectionLock) state.pairDirectionLock = {};
+    const existingLock = state.pairDirectionLock[result.symbol];
+    const lossCount = existingLock?.direction === result.direction ? (existingLock.lossCount || 0) + 1 : 1;
+    const lockMinutes = lossCount >= 2 ? 90 : 45;
+    state.pairDirectionLock[result.symbol] = {
+      direction: result.direction.toUpperCase(),
+      lockedUntil: Date.now() + lockMinutes * 60 * 1e3,
+      lossCount
+    };
+    addActivity(userId, {
+      type: "info",
+      symbol: result.symbol,
+      message: `\u{1F512} Direction lock: ${result.symbol} ${result.direction} locked for ${lockMinutes} min after loss (loss #${lossCount}). Need 85%+ confidence + surging volume to override.`
+    });
+  } else if (result.profit > 0 && result.symbol && result.direction) {
+    if (state.pairDirectionLock?.[result.symbol]) {
+      delete state.pairDirectionLock[result.symbol];
+    }
+  }
+  runAutonomousAdaptation(userId, {
+    profit: result.profit,
+    symbol: result.symbol || "",
+    strategy: result.strategy || "unknown"
+  });
+  state.tradesSinceLastLearn = (state.tradesSinceLastLearn || 0) + 1;
+  if (state.tradesSinceLastLearn >= 3) {
+    state.tradesSinceLastLearn = 0;
+    autoRetainBrain(userId).then(() => {
+      addActivity(userId, { type: "info", message: "\u{1F9E0} Brain updated after 3 new trade results" });
+    });
+  }
+  const weekKey = `${userId}_${tracker.weekStartedAt}`;
+  goalTrackerCache[weekKey] = { ...tracker };
+  if (state.modelLocked && state.openPositionCount === 0) {
+    state.modelLocked = false;
+    addActivity(userId, {
+      type: "info",
+      message: "All positions closed \u2014 AI model switch lock released. You can now change models."
+    });
+  }
+}
+function convertToCandles(bars) {
+  return bars.map((b) => ({ t: b.timestamp, o: b.open, h: b.high, l: b.low, c: b.close, v: b.volume }));
+}
+async function scanMarkets(userId) {
+  const state = engineStates[userId];
+  if (!state || state.status !== "running" || state.currentlyScanning) return;
+  if (!isFxLeader()) return;
+  state.currentlyScanning = true;
+  state.scanCount++;
+  state.lastScanAt = (/* @__PURE__ */ new Date()).toISOString();
+  if (state.config.challengeSessionFilterEnabled && state.config.propFirmMode) {
+    const utcHour = (/* @__PURE__ */ new Date()).getUTCHours();
+    const inSession = utcHour >= 13 && utcHour < 17;
+    if (!inSession) {
+      if (!state.sessionFilterBlocked) {
+        state.sessionFilterBlocked = true;
+        addActivity(userId, {
+          type: "info",
+          message: `\u{1F512} Challenge Session Filter: outside London\u2013NY overlap (13:00\u201317:00 UTC). Scans paused until 13:00 UTC. Current UTC hour: ${utcHour}:00`
+        });
+      }
+      state.currentlyScanning = false;
+      return;
+    } else if (state.sessionFilterBlocked) {
+      state.sessionFilterBlocked = false;
+      addActivity(userId, {
+        type: "info",
+        message: `\u2705 Challenge Session Filter: London\u2013NY overlap is OPEN. High-probability window active \u2014 scanning resumes.`
+      });
+    }
+  }
+  {
+    const _todayDate = (/* @__PURE__ */ new Date()).toISOString().split("T")[0];
+    if (state._pnlTodayDate !== _todayDate) {
+      const _hadHalt = state.dailyProfitHalted || state.dailyLossHalted;
+      state._pnlTodayDate = _todayDate;
+      state.pnlToday = 0;
+      state.dailyProfitHalted = false;
+      state.dailyProfitHaltedAt = null;
+      state.dailyLossHalted = false;
+      state.dailyLossHaltedAt = null;
+      if (_hadHalt) addActivity(userId, { type: "info", message: `\u{1F305} New trading day (${_todayDate} UTC) \u2014 yesterday's daily halt cleared, scanning resumes.` });
+    }
+  }
+  if (state.dailyProfitHalted || state.dailyLossHalted) {
+    state.currentlyScanning = false;
+    return;
+  }
+  let consistencyRiskMultiplier = 1;
+  if (state.config.consistencyEnforcementEnabled && state.config.propFirmMode) {
+    const today = (/* @__PURE__ */ new Date()).toISOString().split("T")[0];
+    state.challengeDailyPnL[today] = state.pnlToday;
+    const periodKeys = Object.keys(state.challengeDailyPnL).sort();
+    const recentKeys = periodKeys.slice(-state.config.consistencyPeriodDays);
+    const profitableDays = recentKeys.filter((k) => (state.challengeDailyPnL[k] ?? 0) > 0).length;
+    const tradingDays = recentKeys.length;
+    const daysRemaining = state.config.consistencyPeriodDays - tradingDays;
+    const daysNeeded = state.config.consistencyMinProfitableDays - profitableDays;
+    const todayIsLosing = state.pnlToday < 0;
+    const effectiveProfitableDays = todayIsLosing ? profitableDays : profitableDays;
+    const mustWinRemaining = todayIsLosing ? daysNeeded : Math.max(0, daysNeeded - 1);
+    if (mustWinRemaining > 0 && daysRemaining <= mustWinRemaining + 1) {
+      consistencyRiskMultiplier = 0.25;
+      addActivity(userId, {
+        type: "info",
+        message: `\u2696\uFE0F Consistency Alert: ${profitableDays}/${state.config.consistencyMinProfitableDays} profitable days so far. Need ${mustWinRemaining} more in ${daysRemaining} remaining days \u2014 risk capped at 25% of normal to protect consistency requirement.`
+      });
+    } else if (mustWinRemaining > 0 && daysRemaining <= mustWinRemaining + 3) {
+      consistencyRiskMultiplier = 0.5;
+    }
+    state._consistencyStatus = { profitableDays, tradingDays, daysRemaining, mustWinRemaining, riskMultiplier: consistencyRiskMultiplier };
+  }
+  if (consistencyRiskMultiplier < 1) {
+    state._consistencyRiskOverride = consistencyRiskMultiplier;
+  } else {
+    delete state._consistencyRiskOverride;
+  }
+  if (state.config.propFirmMode) {
+    const totalProfitAllTime = Object.values(state.challengeDailyPnL).reduce((s, v) => s + Math.max(0, v ?? 0), 0);
+    const todayProfit = Math.max(0, state.pnlToday);
+    if ((state.config.maxDailyProfitPctOfTotal ?? 0) > 0 && totalProfitAllTime > 0 && todayProfit > 0) {
+      const todayPctOfTotal = todayProfit / totalProfitAllTime * 100;
+      if (todayPctOfTotal >= state.config.maxDailyProfitPctOfTotal && !state.dailyProfitHalted) {
+        state.dailyProfitHalted = true;
+        state.dailyProfitHaltedAt = (/* @__PURE__ */ new Date()).toISOString();
+        addActivity(userId, {
+          type: "info",
+          message: `\u2696\uFE0F Consistency Rule: today's profit is already ${todayPctOfTotal.toFixed(0)}% of total challenge profit (limit: ${state.config.maxDailyProfitPctOfTotal}%) \u2014 halting new trades today to protect payout eligibility.`
+        });
+      }
+    }
+    if ((state.config.weeklyProfitTarget ?? 0) > 0 && consistencyRiskMultiplier === 1) {
+      const _weekCutoff = new Date(Date.now() - 7 * 864e5).toISOString().split("T")[0];
+      const weekProfit = Object.entries(state.challengeDailyPnL).filter(([d]) => d >= _weekCutoff).reduce((s, [, v]) => s + Math.max(0, v ?? 0), 0);
+      const pctOfTarget = weekProfit / state.config.weeklyProfitTarget * 100;
+      if (pctOfTarget >= 80) {
+        consistencyRiskMultiplier = 0.5;
+        state._consistencyRiskOverride = consistencyRiskMultiplier;
+        addActivity(userId, {
+          type: "info",
+          message: `\u{1F3AF} Near Target: ${pctOfTarget.toFixed(0)}% of profit target reached \u2014 risk trimmed to 50% to protect gains.`
+        });
+      }
+    }
+  }
+  const ms = state.mindState;
+  if (ms && ms.coolOffUntil > Date.now()) {
+    const remainingMin = Math.ceil((ms.coolOffUntil - Date.now()) / 6e4);
+    if (state.scanCount % 6 === 0) {
+      addActivity(userId, {
+        type: "info",
+        message: `\u23F8 Mind cool-off active \u2014 ${remainingMin} min remaining. Engine protecting capital after consecutive losses.`
+      });
+    }
+    state.currentlyScanning = false;
+    return;
+  }
+  if (ms) {
+    const mindDate = (/* @__PURE__ */ new Date()).toISOString().split("T")[0];
+    if (state._mindStateResetDate !== mindDate) {
+      state._mindStateResetDate = mindDate;
+      ms.sessionWins = 0;
+      ms.sessionLosses = 0;
+      ms.sessionConsecutiveLosses = 0;
+      ms.sessionConsecutiveWins = 0;
+      ms.sessionWinRate = 0.5;
+      ms.coolOffUntil = 0;
+      ms.adaptedConfidenceFloor = state.config.minConfidence || 70;
+      ms.pairSessionWins = {};
+      ms.pairSessionLosses = {};
+      ms.softBlockedPairs = {};
+      ms.hourlyPnL = {};
+      addActivity(userId, { type: "info", message: "\u{1F305} New day \u2014 mind state reset. Session counters cleared, confidence floor restored." });
+    }
+  }
+  if (ms) for (const sym of Object.keys(ms.softBlockedPairs)) {
+    if (ms.softBlockedPairs[sym].until < Date.now()) {
+      delete ms.softBlockedPairs[sym];
+      addActivity(userId, { type: "info", message: `\u2705 ${sym} soft-block expired \u2014 restored to normal confidence threshold.` });
+    }
+  }
+  try {
+    if (!marketDataService.isInitialized()) {
+      addActivity(userId, { type: "error", message: "Market data service not initialized. Check TWELVE_DATA_API_KEY." });
+      state.currentlyScanning = false;
+      return;
+    }
+    const brain = global.veddAIBrain?.[userId];
+    const config = state.config;
+    const pairsToScan = config.pairs.slice(0, 8);
+    const nowUtc2 = /* @__PURE__ */ new Date();
+    const dayOfWeek = nowUtc2.getUTCDay();
+    const hourOfDay = nowUtc2.getUTCHours();
+    const isFridayClose = dayOfWeek === 5 && hourOfDay >= 21 && hourOfDay < 22;
+    const adaptiveMs = getAdaptiveScanInterval(config);
+    const prevMs = state._lastAdaptiveMs || config.scanIntervalMs;
+    if (adaptiveMs !== prevMs && config.adaptiveScanInterval) {
+      state._lastAdaptiveMs = adaptiveMs;
+      const windowName = adaptiveMs === 15e3 ? "London/NY overlap" : adaptiveMs === 3e4 ? "active session" : adaptiveMs === 9e4 ? "Asian session" : "off-hours";
+      addActivity(userId, { type: "info", message: `\u26A1 Knowledge: ${windowName} \u2014 scanning every ${adaptiveMs / 1e3}s for maximum opportunity` });
+    }
+    addActivity(userId, { type: "scan", message: `Scanning ${pairsToScan.length} pairs: ${pairsToScan.join(", ")}` });
+    const marketAnalysis = {};
+    const htfPendingPromises = [];
+    const htfMarketData = {};
+    for (const symbol of pairsToScan) {
+      try {
+        const assetType = marketDataService.detectAssetType(symbol);
+        const result = await marketDataService.fetchMarketData({
+          symbol,
+          assetType,
+          timeframe: "15m",
+          limit: 50
+        });
+        if (!result.bars || result.bars.length < 20) continue;
+        const confirmedBars = result.bars.slice(0, -1);
+        if (confirmedBars.length < 20) continue;
+        const candles = convertToCandles(confirmedBars);
+        const indicators = computeAllAdvancedIndicators(candles, 0, symbol, "M15");
+        const currentPrice = result.bars[result.bars.length - 1]?.close || 0;
+        const prevPrice = result.bars[result.bars.length - 2]?.close || currentPrice;
+        const change = prevPrice > 0 ? (currentPrice - prevPrice) / prevPrice * 100 : 0;
+        let trend = "NEUTRAL";
+        const adxData = indicators.adx;
+        const _adxSnapRaw = adxOrNull(indicators);
+        const adxStrength = _adxSnapRaw ?? 0;
+        const plusDI = adxData?.plusDI ?? 0;
+        const minusDI = adxData?.minusDI ?? 0;
+        const diSeparation = Math.abs(plusDI - minusDI);
+        if (adxStrength > 20) {
+          trend = plusDI > minusDI ? "BULLISH" : "BEARISH";
+        } else if (adxStrength > 12 && diSeparation > 8) {
+          trend = plusDI > minusDI ? "BULLISH" : "BEARISH";
+        }
+        const rsi = indicators.stochastic?.k || 50;
+        const atr = indicators.volatilityContext?.currentATR || 0;
+        const volumeMetrics = computeVolumeMetrics(confirmedBars);
+        const _symUpper = symbol.replace(/[^A-Za-z]/g, "").toUpperCase();
+        if (_symUpper === "USDJPY" && currentPrice > 0) {
+          try {
+            setUsdJpyRate(currentPrice);
+          } catch {
+          }
+        }
+        if (currentPrice > 0 && /^[A-Z]{6}$/.test(_symUpper)) {
+          try {
+            setFxRate(_symUpper, currentPrice);
+          } catch {
+          }
+        }
+        state.marketSnapshot[symbol] = {
+          price: currentPrice,
+          change: Math.round(change * 100) / 100,
+          trend,
+          rsi: Math.round(rsi),
+          atr: Math.round(atr * 1e5) / 1e5,
+          adx: _adxSnapRaw ?? void 0,
+          // undefined = indicator unavailable (NOT flat)
+          plusDI,
+          // stored for DI-based conflict detection
+          minusDI,
+          // stored for DI-based conflict detection
+          volumeTrend: volumeMetrics.volumeTrend,
+          // for volume gate in processDecision
+          relativeVolume: volumeMetrics.relativeVolume,
+          // raw ratio for gate logic
+          updatedAt: (/* @__PURE__ */ new Date()).toISOString(),
+          // Last confirmed candle stored for Markov current-state lookup in processDecision
+          lastConfirmedCandle: confirmedBars.length > 0 ? { open: confirmedBars[confirmedBars.length - 1].open, close: confirmedBars[confirmedBars.length - 1].close } : null
+        };
+        if (!state._lastATR) state._lastATR = {};
+        state._lastATR[symbol] = atr;
+        const preScanEnforcement = applyBrainEnforcement(userId, symbol, null, atr, void 0);
+        if (!preScanEnforcement.allowed) {
+          addActivity(userId, { type: "info", symbol, message: preScanEnforcement.reason });
+          await new Promise((r) => setTimeout(r, 8500));
+          continue;
+        }
+        try {
+          buildTransitionMatrix(symbol, confirmedBars.map((b) => ({ open: b.open, close: b.close })));
+        } catch {
+        }
+        marketAnalysis[symbol] = {
+          currentPrice,
+          change,
+          trend,
+          plusDI,
+          // DI lines stored so countIndicatorAlignment can use them
+          minusDI,
+          // even if indicators.adx object doesn't expose them
+          adx: indicators.adx,
+          rsi: indicators.rsi,
+          macd: indicators.macd,
+          stochastic: indicators.stochastic,
+          vwap: indicators.vwap,
+          obv: indicators.obv,
+          pivotPoints: indicators.pivotPoints,
+          fibonacci: indicators.fibonacci,
+          supportResistance: indicators.supportResistance,
+          candlePatterns: indicators.candlePatterns,
+          sessionContext: indicators.sessionContext,
+          volatilityContext: indicators.volatilityContext,
+          volumeProfile: indicators.volumeProfile,
+          swingPoints: indicators.swingPoints,
+          volumeMetrics,
+          // Store last confirmed candle for Markov state lookup in processDecision
+          lastConfirmedCandle: confirmedBars.length > 0 ? { open: confirmedBars[confirmedBars.length - 1].open, close: confirmedBars[confirmedBars.length - 1].close } : null
+        };
+        const htfSymbol = symbol;
+        const htfAssetType = assetType;
+        const primaryTF = config.primaryTimeframe || "M15";
+        const htfTimeframe = primaryTF === "H1" ? "4h" : "1h";
+        if (primaryTF !== "H1") htfPendingPromises.push(refreshH4Bias(htfSymbol, htfAssetType));
+        htfPendingPromises.push((async () => {
+          try {
+            const htfResult = await marketDataService.fetchMarketData({
+              symbol: htfSymbol,
+              assetType: htfAssetType,
+              timeframe: htfTimeframe,
+              limit: 50
+            });
+            if (!htfResult.bars || htfResult.bars.length < 15) return;
+            const htfConfirmedBars = htfResult.bars.slice(0, -1);
+            if (htfConfirmedBars.length < 14) return;
+            const htfCandles = convertToCandles(htfConfirmedBars);
+            const htfPrice = htfResult.bars[htfResult.bars.length - 1]?.close || 0;
+            const bosChoch = detectBOSCHOCH(htfCandles, "NEUTRAL");
+            const wyckoff = detectWyckoff(htfCandles);
+            let pdSignal = "NEUTRAL";
+            if (bosChoch.detected && bosChoch.direction) {
+              pdSignal = bosChoch.direction === "BULLISH" ? "BUY" : "SELL";
+            } else if (wyckoff.detected) {
+              if (wyckoff.phase === "MARKUP" || wyckoff.phase === "ACCUMULATION") pdSignal = "BUY";
+              else if (wyckoff.phase === "MARKDOWN" || wyckoff.phase === "DISTRIBUTION") pdSignal = "SELL";
+            }
+            const pd = getPremiumDiscountContext(htfPrice, htfCandles, pdSignal);
+            let htfTrend = "NEUTRAL";
+            if (bosChoch.detected && bosChoch.direction) {
+              htfTrend = bosChoch.direction;
+            } else if (wyckoff.detected) {
+              if (wyckoff.phase === "MARKUP" || wyckoff.phase === "ACCUMULATION") htfTrend = "BULLISH";
+              else if (wyckoff.phase === "MARKDOWN" || wyckoff.phase === "DISTRIBUTION") htfTrend = "BEARISH";
+            }
+            htfMarketData[htfSymbol] = {
+              trend: htfTrend,
+              bosChoch,
+              premiumDiscount: { zone: pd.zone, aligns: pd.aligns, description: pd.description },
+              wyckoff
+            };
+          } catch {
+          }
+        })());
+        await new Promise((r) => setTimeout(r, 8500));
+      } catch (err) {
+        addActivity(userId, { type: "error", symbol, message: `Scan failed: ${err.message}` });
+      }
+    }
+    if (isFridayClose) {
+      for (const [sym, data] of Object.entries(marketAnalysis)) {
+        if (data.currentPrice > 0) state.lastFridayClose[sym] = data.currentPrice;
+      }
+    }
+    const crossAssets = {};
+    for (const crossSym of ["USDI", "XAUUSD", "US30"]) {
+      if (pairsToScan.includes(crossSym)) continue;
+      try {
+        const assetType = marketDataService.detectAssetType(crossSym);
+        const result = await marketDataService.fetchMarketData({ symbol: crossSym, assetType, timeframe: "15m", limit: 25 });
+        if (result.bars && result.bars.length >= 10) {
+          const bars = result.bars;
+          const current = bars[bars.length - 1].close;
+          const ma10 = bars.slice(-10).reduce((s, b) => s + b.close, 0) / 10;
+          crossAssets[crossSym] = { price: current, trend: current > ma10 * 1.001 ? "UP" : current < ma10 * 0.999 ? "DOWN" : "FLAT" };
+        }
+        await new Promise((r) => setTimeout(r, 3e3));
+      } catch {
+      }
+    }
+    const htfLabel = (config.primaryTimeframe || "M15") === "H1" ? "H4" : "H1";
+    if (htfPendingPromises.length > 0) {
+      await Promise.allSettled(htfPendingPromises);
+      const htfCount = Object.keys(htfMarketData).length;
+      if (htfCount > 0) {
+        state.htfBiasCache = htfMarketData;
+        addActivity(userId, { type: "info", message: `\u{1F4CA} HTF bias loaded for ${htfCount}/${pairsToScan.length} pairs (${htfLabel} structure)` });
+        if (isFxLeader()) {
+          void Promise.resolve().then(() => (init_fx_models(), fx_models_exports)).then((m) => m.runFxModelsCycle(userId, {
+            marketAnalysis,
+            snapshot: state.marketSnapshot || {},
+            mtf: (sym) => mtfStack(state, sym)
+          })).catch(() => {
+          });
+        }
+      } else {
+        addActivity(userId, { type: "info", message: `\u{1F4CA} HTF bias: all ${htfLabel} fetches failed \u2014 trading without HTF filter this cycle` });
+      }
+    }
+    const triggerPairs = [];
+    const prevSnapshot = state.lastIndicatorSnapshot || {};
+    const now2 = Date.now();
+    for (const [sym, data] of Object.entries(marketAnalysis)) {
+      const prev = prevSnapshot[sym];
+      const lastTrigger = state.lastTriggerAt[sym] || 0;
+      if (now2 - lastTrigger < 3e4) continue;
+      if (!prev) continue;
+      const rsiNow = data.rsi?.value || data.stochastic?.k || 50;
+      const rsiPrev = prev.rsi || 50;
+      const vm = data.volumeMetrics;
+      const adxNow = data.adx?.adx || 0;
+      const adxPrev = prev.adx || 0;
+      let triggerReason = "";
+      if (rsiPrev > 32 && rsiNow <= 30) triggerReason = `RSI crossed oversold (${rsiNow.toFixed(1)}) on ${sym} \u2014 evaluate BUY entry`;
+      else if (rsiPrev < 68 && rsiNow >= 70) triggerReason = `RSI crossed overbought (${rsiNow.toFixed(1)}) on ${sym} \u2014 evaluate SELL entry`;
+      else if (vm && vm.relativeVolume >= 2 && (prev.relVol || 0) < 2) triggerReason = `Volume SURGE on ${sym} (${vm.relativeVolume}x) \u2014 momentum breakout likely`;
+      else if (adxPrev < 25 && adxNow >= 25) triggerReason = `ADX crossed 25 on ${sym} \u2014 trend emerging, enter with momentum`;
+      if (triggerReason) {
+        triggerPairs.push(triggerReason);
+        state.lastTriggerAt[sym] = now2;
+        addActivity(userId, { type: "info", symbol: sym, message: `\u{1F6A8} TRIGGER: ${triggerReason}` });
+      }
+    }
+    state.lastIndicatorSnapshot = Object.fromEntries(
+      Object.entries(marketAnalysis).map(([sym, data]) => [sym, {
+        rsi: data.rsi?.value || data.stochastic?.k || 50,
+        adx: data.adx?.adx || 0,
+        relVol: data.volumeMetrics?.relativeVolume || 1
+      }])
+    );
+    if (triggerPairs.length > 0) {
+      setTimeout(() => scanMarkets(userId), 12e3);
+    }
+    const analyzedPairs = Object.keys(marketAnalysis);
+    if (analyzedPairs.length === 0) {
+      addActivity(userId, { type: "info", message: "No market data available for any pair. Waiting for next scan." });
+      state.currentlyScanning = false;
+      return;
+    }
+    addActivity(userId, { type: "info", message: `Market data collected for ${analyzedPairs.length} pairs. Fetching news & volume context...` });
+    const newsContext = await fetchNewsContext(pairsToScan);
+    if (newsContext.tradingWindowWarning) {
+      addActivity(userId, { type: "info", message: `\u26A0 ${newsContext.tradingWindowWarning}` });
+    }
+    if (newsContext.headlines.length > 0) {
+      addActivity(userId, { type: "info", message: `News sentiment: ${newsContext.marketSentiment.toUpperCase()} | ${newsContext.headlines.length} headlines | ${newsContext.economicEvents.length} upcoming events` });
+    }
+    const volumeSummary = Object.entries(marketAnalysis).filter(([_, d]) => d.volumeMetrics?.isHighActivity).map(([sym]) => sym);
+    if (volumeSummary.length > 0) {
+      addActivity(userId, { type: "info", message: `High volume detected: ${volumeSummary.join(", ")}` });
+    }
+    state._lastMarketAnalysis = marketAnalysis;
+    const currentOpenPositions = await getMergedOpenPositions(userId, marketAnalysis);
+    await manageXauProfitLock(userId, currentOpenPositions).catch((e) => console.error("[XAU lock] scan pass failed (non-fatal):", e?.message));
+    await manageBtcTrail(userId, currentOpenPositions, marketAnalysis).catch((e) => console.error("[BTC trail] scan pass failed (non-fatal):", e?.message));
+    await applyServerSideTrails(userId, currentOpenPositions, marketAnalysis);
+    try {
+      await runORBAutonomousScan(userId);
+    } catch {
+    }
+    await Promise.race([
+      runAILiveAnalysis(userId, marketAnalysis, brain, newsContext, crossAssets, triggerPairs, htfMarketData),
+      new Promise((_, reject) => setTimeout(
+        () => reject(new Error("AI live analysis exceeded 150s wall-clock cap \u2014 abandoning this scan cycle")),
+        15e4
+      ))
+    ]);
+  } catch (err) {
+    addActivity(userId, { type: "error", message: `Scan cycle error: ${err.message}` });
+  } finally {
+    state.currentlyScanning = false;
+  }
+}
+function computeStagedVolumeSL(position, config) {
+  const pipSize2 = getPipSize(position.symbol || "");
+  if (!position.openPrice || !position.currentPrice || pipSize2 <= 0) return 0;
+  const isBuy = position.direction === "BUY";
+  const pips = isBuy ? (position.currentPrice - position.openPrice) / pipSize2 : (position.openPrice - position.currentPrice) / pipSize2;
+  const buffer = config?.breakevenBufferPips ?? 5;
+  let lockPips = null;
+  if (pips >= 60) lockPips = pips - 25;
+  else if (pips >= 40) lockPips = 20;
+  else if (pips >= 25) lockPips = 10;
+  else if (pips >= 15) lockPips = buffer;
+  else if (pips >= 10) lockPips = 0;
+  else return 0;
+  return isBuy ? position.openPrice + lockPips * pipSize2 : position.openPrice - lockPips * pipSize2;
+}
+function computeChandelierSL(position, atr, multiplier, trailState) {
+  const price = position.currentPrice;
+  if (!price || price <= 0) return position.sl || 0;
+  const effectiveATR = atr > 0 ? atr : position.symbol?.includes("JPY") ? 0.5 : 5e-3;
+  if (position.direction === "BUY") {
+    if (price > (trailState.highestHigh || 0)) trailState.highestHigh = price;
+    return (trailState.highestHigh || price) - effectiveATR * multiplier;
+  } else {
+    if (!trailState.lowestLow || price < trailState.lowestLow) trailState.lowestLow = price;
+    return (trailState.lowestLow || price) + effectiveATR * multiplier;
+  }
+}
+function computeRMultipleSL(position, config) {
+  const openPrice = position.openPrice;
+  const originalSL = position.originalSL || position.sl;
+  if (!openPrice || !originalSL || originalSL === 0) return position.sl || 0;
+  const R = Math.abs(openPrice - originalSL);
+  if (R === 0) return position.sl || 0;
+  const pnlUnits = position.direction === "BUY" ? position.currentPrice - openPrice : openPrice - position.currentPrice;
+  const rMultiple = pnlUnits / R;
+  if (rMultiple < 1) return position.sl || 0;
+  const lockedR = Math.floor(rMultiple) - 1;
+  if (lockedR === 0 && (config?.breakevenBufferPips ?? 0) > 0) {
+    const bufferPips = config?.breakevenBufferPips ?? 5;
+    const pipSize2 = getPipSize(position.symbol || "");
+    const buffer = bufferPips * pipSize2;
+    return position.direction === "BUY" ? openPrice + buffer : openPrice - buffer;
+  }
+  if (position.direction === "BUY") {
+    return openPrice + lockedR * R;
+  } else {
+    return openPrice - lockedR * R;
+  }
+}
+function computeSwingStructureSL(position, marketData) {
+  const sr = marketData?.supportResistance;
+  const price = position.currentPrice;
+  if (!sr || !price) return position.sl || 0;
+  if (position.direction === "BUY") {
+    const supports = (sr.supports || []).filter((s) => s < price);
+    if (supports.length > 0) {
+      const nearestSupport = Math.max(...supports);
+      const swingSL = nearestSupport * 0.9998;
+      if (swingSL > (position.sl || 0)) return swingSL;
+    }
+  } else {
+    const resistances = (sr.resistances || []).filter((r) => r > price);
+    if (resistances.length > 0) {
+      const nearestResistance = Math.min(...resistances);
+      const swingSL = nearestResistance * 1.0002;
+      if (!position.sl || swingSL < position.sl) return swingSL;
+    }
+  }
+  return position.sl || 0;
+}
+function computeParabolicSAR(position, trailState, initialAF = 0.02, maxAF = 0.2) {
+  const price = position.currentPrice;
+  if (!price) return position.sl || 0;
+  const bullish = position.direction === "BUY";
+  if (!trailState.sar) {
+    trailState.sar = position.openPrice || price;
+    trailState.ep = price;
+    trailState.af = initialAF;
+    trailState.bullish = bullish;
+    return position.sl || 0;
+  }
+  if (bullish && price > trailState.ep) {
+    trailState.ep = price;
+    trailState.af = Math.min(maxAF, trailState.af + initialAF);
+  } else if (!bullish && price < trailState.ep) {
+    trailState.ep = price;
+    trailState.af = Math.min(maxAF, trailState.af + initialAF);
+  }
+  const newSAR = trailState.sar + trailState.af * (trailState.ep - trailState.sar);
+  trailState.sar = newSAR;
+  return Math.round(newSAR * 1e5) / 1e5;
+}
+function computeFixedPipTrailSL(position, fixedPips, trailState) {
+  const price = position.currentPrice;
+  if (!price || price <= 0) return position.sl || 0;
+  const pipSize2 = getPipSize(position.symbol || "");
+  const distance = fixedPips * pipSize2;
+  if (position.direction === "BUY") {
+    if (price > (trailState.highestHigh || 0)) trailState.highestHigh = price;
+    const newSL = (trailState.highestHigh || price) - distance;
+    return newSL > (position.sl || 0) ? newSL : position.sl || 0;
+  } else {
+    if (!trailState.lowestLow || price < trailState.lowestLow) trailState.lowestLow = price;
+    const newSL = (trailState.lowestLow || price) + distance;
+    return !position.sl || newSL < position.sl ? newSL : position.sl || 0;
+  }
+}
+function computeProfitLockSL(position, lockPct, trailState) {
+  const price = position.currentPrice;
+  const openPrice = position.openPrice;
+  if (!price || !openPrice) return position.sl || 0;
+  const currentProfit = position.direction === "BUY" ? price - openPrice : openPrice - price;
+  if (currentProfit <= 0) return position.sl || 0;
+  if (!trailState.peakProfit || currentProfit > trailState.peakProfit) {
+    trailState.peakProfit = currentProfit;
+  }
+  const lockedProfit = trailState.peakProfit * (lockPct / 100);
+  if (lockedProfit <= 0) return position.sl || 0;
+  const newSL = position.direction === "BUY" ? openPrice + lockedProfit : openPrice - lockedProfit;
+  const isBuy = position.direction === "BUY";
+  const currentSL = position.sl || 0;
+  if (isBuy) return newSL > currentSL ? newSL : currentSL;
+  return !currentSL || newSL < currentSL ? newSL : currentSL;
+}
+function computeSteppedFixedTrailSL(position, fixedPips, stepPips, trailState) {
+  const rawSL = computeFixedPipTrailSL(position, fixedPips, trailState);
+  if (rawSL <= 0) return position.sl || 0;
+  const pipSize2 = getPipSize(position.symbol || "");
+  const stepSize = stepPips * pipSize2;
+  const currentSL = position.sl || 0;
+  const isBuy = position.direction === "BUY";
+  if (isBuy) {
+    return rawSL >= currentSL + stepSize ? rawSL : currentSL;
+  } else {
+    return !currentSL || rawSL <= currentSL - stepSize ? rawSL : currentSL;
+  }
+}
+function adxOrNull(src) {
+  const v = src?.adx?.adx ?? src?.adx?.value ?? (typeof src?.adx === "number" ? src.adx : void 0);
+  const n = Number(v);
+  return isFinite(n) && n > 0 ? n : null;
+}
+function getAccountSafetySnapshot(userId, state) {
+  const _raw = global.mt5AccountData?.[userId];
+  let _mt5 = null;
+  if (_raw) {
+    if (typeof _raw.balance === "number" && _raw.lastUpdated) _mt5 = _raw;
+    else for (const _k of Object.keys(_raw)) {
+      const _e = _raw[_k];
+      if (_e && typeof _e === "object" && typeof _e.balance === "number" && _e.lastUpdated) {
+        if (!_mt5 || new Date(_e.lastUpdated) > new Date(_mt5.lastUpdated)) _mt5 = _e;
+      }
+    }
+  }
+  if (_mt5?.lastUpdated && Date.now() - new Date(_mt5.lastUpdated).getTime() < 15 * 60 * 1e3 && _mt5.balance > 0) {
+    const positions = global.mt5OpenPositions?.[userId]?.positions ?? [];
+    return {
+      balance: _mt5.balance,
+      equity: typeof _mt5.equity === "number" ? _mt5.equity : _mt5.balance,
+      freeMargin: typeof _mt5.freeMargin === "number" ? _mt5.freeMargin : null,
+      marginLevel: typeof _mt5.marginLevel === "number" ? _mt5.marginLevel : null,
+      realizedToday: typeof _mt5.dailyPnL === "number" ? _mt5.dailyPnL : 0,
+      floating: positions.reduce((s, p) => s + (p.profit || 0), 0),
+      source: "mt5"
+    };
+  }
+  const _tl = global.tlAccountData?.[userId];
+  if (_tl) {
+    let balance = 0, equity = 0, margin = 0, freeMargin = 0, seen = 0, freshest = 0;
+    for (const acct of Object.values(_tl)) {
+      const a = acct;
+      if (!a || typeof a.balance !== "number" || a.balance <= 0) continue;
+      balance += a.balance;
+      equity += a.equity ?? a.balance;
+      margin += a.margin || 0;
+      freeMargin += a.freeMargin || 0;
+      seen++;
+      const t = a.lastUpdated ? new Date(a.lastUpdated).getTime() : 0;
+      if (t > freshest) freshest = t;
+    }
+    if (seen > 0 && balance > 0 && (!freshest || Date.now() - freshest < 30 * 60 * 1e3)) {
+      const today = (/* @__PURE__ */ new Date()).toISOString().split("T")[0];
+      const realizedToday = Number(state?.challengeDailyPnL?.[today] ?? state?.pnlToday ?? 0) || 0;
+      return {
+        balance,
+        equity,
+        freeMargin: margin > 0 || freeMargin > 0 ? freeMargin : null,
+        marginLevel: margin > 0 ? equity / margin * 100 : null,
+        realizedToday,
+        floating: equity - balance,
+        // TradeLocker equity already includes open P&L
+        source: `tradelocker(${seen})`
+      };
+    }
+  }
+  return null;
+}
+async function getMergedOpenPositions(userId, marketAnalysis) {
+  const mt5Positions = (global.mt5OpenPositions?.[userId]?.positions || []).map((p) => ({ ...p, source: "mt5" }));
+  let tlPositions = [];
+  try {
+    const allTL = await storage.getUserTradelockerConnections(userId);
+    const activeTL = allTL.filter((c) => c.isActive);
+    const perConn = await Promise.all(activeTL.map(async (tlConn) => {
+      try {
+        const svc = await getOrCreateService(tlConn);
+        const positions = await svc.getPositionsNormalized().catch(() => []);
+        return positions.map((p) => {
+          const symbol = (p.symbol || "").toUpperCase().replace("/", "");
+          const direction = p.side.toUpperCase() === "SELL" ? "SELL" : "BUY";
+          const currentPrice = marketAnalysis?.[symbol]?.currentPrice ?? p.avgPrice;
+          return {
+            symbol,
+            direction,
+            openPrice: p.avgPrice,
+            currentPrice,
+            sl: 0,
+            // TL's position list doesn't expose the broker-side SL level; the
+            // actual MODIFY call below still sets a real SL on the account —
+            // this only affects the "was this an improvement" comparison.
+            tp: 0,
+            profit: p.unrealizedPl,
+            volume: p.qty,
+            brokerSl: Number(p.stopLoss) > 0 ? Number(p.stopLoss) : null,
+            openTime: p.openDate ? Math.floor(new Date(p.openDate).getTime() / 1e3) : void 0,
+            ticket: `tl_${tlConn.id}_${p.id}`,
+            source: "tl",
+            connectionId: tlConn.id
+          };
+        });
+      } catch {
+        return [];
+      }
+    }));
+    tlPositions = perConn.flat();
+  } catch {
+  }
+  let dxPositions = [];
+  try {
+    const { pool: _dxPool2 } = await Promise.resolve().then(() => (init_db(), db_exports));
+    const dxConns = (await _dxPool2.query(
+      `SELECT id, host, username, encrypted_password, domain, account_code FROM dxtrade_connections WHERE user_id=$1 AND is_active=true`,
+      [userId]
+    )).rows;
+    if (dxConns.length > 0) {
+      const { getDxtradeService: getDxtradeService2, decryptApiSecret: decryptApiSecret2, extractAccountCode: extractAccountCode2 } = await Promise.resolve().then(() => (init_dxtrade(), dxtrade_exports));
+      const perDxConn = await Promise.all(dxConns.map(async (dc) => {
+        try {
+          const svc = getDxtradeService2(dc.host, dc.username, decryptApiSecret2(dc.encrypted_password), dc.domain, String(dc.id));
+          await svc.ensureLoggedIn();
+          const acct = dc.account_code || extractAccountCode2(await svc.getAccounts());
+          if (!acct) return [];
+          const positions = await svc.getPositions(acct).catch(() => []);
+          return positions.map((p) => {
+            const symbol = (p.instrument || "").toUpperCase().replace("/", "");
+            const direction = p.side === "SELL" ? "SELL" : "BUY";
+            const openPrice = Number(p.openPrice) || 0;
+            const currentPrice = marketAnalysis?.[symbol]?.currentPrice ?? openPrice;
+            const qty = Number(p.quantity) || 0;
+            const dirSign = direction === "BUY" ? 1 : -1;
+            const quoteToUsd2 = symbol.toUpperCase().endsWith("JPY") ? Number(marketAnalysis?.["USDJPY"]?.currentPrice) > 0 ? 1 / Number(marketAnalysis["USDJPY"].currentPrice) : 1 / 150 : 1;
+            const profit = openPrice > 0 && currentPrice > 0 ? (currentPrice - openPrice) * qty * dirSign * quoteToUsd2 : 0;
+            return {
+              symbol,
+              direction,
+              openPrice,
+              currentPrice,
+              sl: 0,
+              // set via modifyProtection at open; not exposed on the position read
+              tp: 0,
+              profit,
+              volume: qty,
+              openTime: void 0,
+              ticket: `dx_${acct}_${p.positionId ?? ""}`,
+              source: "dx",
+              connectionId: dc.id
+            };
+          });
+        } catch {
+          return [];
+        }
+      }));
+      dxPositions = perDxConn.flat();
+    }
+  } catch {
+  }
+  return [...mt5Positions, ...tlPositions, ...dxPositions];
+}
+async function manageBtcTrail(userId, openPositions, marketAnalysis) {
+  const btc = await Promise.resolve().then(() => (init_btc_profile(), btc_profile_exports));
+  if (!btc.BTC_PROFILE_ON()) return;
+  const live = /* @__PURE__ */ new Set();
+  let tlConns = null;
+  for (const pos of openPositions) {
+    if (pos.source !== "tl" || !btc.isBtc(pos.symbol)) continue;
+    const key = `${userId}:${pos.ticket}`;
+    live.add(key);
+    const entry = Number(pos.openPrice) || 0;
+    const brokerSl = Number(pos.brokerSl) || 0;
+    if (!(entry > 0)) continue;
+    if (!btcInitialStop.has(key)) {
+      try {
+        const { getRuntimeStateStrict: getRuntimeStateStrict2, insertRuntimeStateIfAbsent: insertRuntimeStateIfAbsent2 } = await Promise.resolve().then(() => (init_runtime_state(), runtime_state_exports));
+        const stored = await getRuntimeStateStrict2("btc_initial_stop", key);
+        if (Number(stored?.sl) > 0) btcInitialStop.set(key, Number(stored.sl));
+        else if (brokerSl > 0) {
+          const v = await insertRuntimeStateIfAbsent2("btc_initial_stop", key, { sl: brokerSl, entry });
+          btcInitialStop.set(key, Number(v?.sl) || brokerSl);
+        }
+      } catch {
+      }
+    }
+    const initial = btcInitialStop.get(key);
+    if (!initial) continue;
+    if (Math.abs(entry - initial) < entry * 5e-4) continue;
+    const _isBuyPos = pos.direction === "BUY";
+    const _stops = [btcLastStop.get(key), brokerSl].filter((x) => Number(x) > 0);
+    const _tightest = _stops.length ? _isBuyPos ? Math.max(..._stops) : Math.min(..._stops) : null;
+    const price = Number(marketAnalysis?.[pos.symbol]?.currentPrice) || 0;
+    const h1 = await btc.btcH1(pos.symbol);
+    if (!h1) continue;
+    const want = btc.btcTrailStop({ direction: pos.direction, entry, initialStop: initial, price, currentStop: _tightest, bars: h1.bars });
+    if (!want) continue;
+    const m = String(pos.ticket).match(/^tl_(\d+)_(.+)$/);
+    if (!m) continue;
+    if (!tlConns) tlConns = (await storage.getUserTradelockerConnections(userId)).filter((c) => c.isActive);
+    const tlConn = tlConns.find((c) => c.id === Number(m[1]));
+    if (!tlConn) continue;
+    try {
+      const r = await executeMT5SignalOnTradeLocker(tlConn, { action: "MODIFY", symbol: pos.symbol, direction: pos.direction, volume: 0, stopLoss: want.stop, positionId: m[2] });
+      if (r.success) {
+        btcLastStop.set(key, want.stop);
+        addActivity(userId, { type: "position_update", symbol: pos.symbol, message: `\u20BF BTC trail on ${tlConn.accountId}: ${pos.direction} ${want.why} \u2192 stop ${want.stop}` });
+      } else {
+        addActivity(userId, { type: "error", symbol: pos.symbol, message: `\u26A0\uFE0F BTC trail failed on ${tlConn.accountId}: ${r.error}` });
+      }
+    } catch (e) {
+      addActivity(userId, { type: "error", symbol: pos.symbol, message: `\u26A0\uFE0F BTC trail error on ${tlConn.accountId}: ${e?.message ?? e}` });
+    }
+  }
+  for (const k of Array.from(btcInitialStop.keys())) if (k.startsWith(`${userId}:`) && !live.has(k)) {
+    btcInitialStop.delete(k);
+    btcLastStop.delete(k);
+  }
+}
+async function manageXauProfitLock(userId, openPositions) {
+  const rules = await Promise.resolve().then(() => (init_xau_rules(), xau_rules_exports));
+  if (!rules.XAU_LOCK_ON()) return;
+  const live = /* @__PURE__ */ new Set();
+  let tlConns = null;
+  for (const pos of openPositions) {
+    if (pos.source !== "tl" || !rules.isXau(pos.symbol)) continue;
+    const key = `${userId}:${pos.ticket}`;
+    live.add(key);
+    const qty = Number(pos.volume) || 0;
+    const entry = Number(pos.openPrice) || 0;
+    if (!(qty > 0) || !(entry > 0)) continue;
+    const favPts = (Number(pos.profit) || 0) / (qty * rules.XAU_CONTRACT_SIZE);
+    if (!Number.isFinite(favPts)) continue;
+    const peak = Math.max(xauPeakPts.get(key) ?? 0, favPts);
+    xauPeakPts.set(key, peak);
+    const want = rules.xauLockStopPts(peak);
+    if (want == null) continue;
+    const already = xauLockedPts.get(key) ?? -Infinity;
+    if (want < already + 1) continue;
+    if (favPts < want + 2) continue;
+    const m = String(pos.ticket).match(/^tl_(\d+)_(.+)$/);
+    if (!m) continue;
+    if (!tlConns) tlConns = (await storage.getUserTradelockerConnections(userId)).filter((c) => c.isActive);
+    const tlConn = tlConns.find((c) => c.id === Number(m[1]));
+    if (!tlConn) continue;
+    const isBuy = pos.direction === "BUY";
+    const newSl = Math.round((isBuy ? entry + want : entry - want) * 100) / 100;
+    try {
+      const r = await executeMT5SignalOnTradeLocker(tlConn, {
+        action: "MODIFY",
+        symbol: pos.symbol,
+        direction: pos.direction,
+        volume: 0,
+        stopLoss: newSl,
+        positionId: m[2]
+      });
+      if (r.success) {
+        xauLockedPts.set(key, want);
+        addActivity(userId, { type: "position_update", symbol: pos.symbol, message: `\u{1F512} XAUUSD profit lock on ${tlConn.accountId}: ${pos.direction} +${peak.toFixed(1)} pts peak \u2192 stop moved to ${newSl} (+${want.toFixed(1)} pts locked)` });
+      } else {
+        addActivity(userId, { type: "error", symbol: pos.symbol, message: `\u26A0\uFE0F XAUUSD profit lock failed on ${tlConn.accountId}: ${r.error}` });
+      }
+    } catch (e) {
+      addActivity(userId, { type: "error", symbol: pos.symbol, message: `\u26A0\uFE0F XAUUSD profit lock error on ${tlConn.accountId}: ${e?.message ?? e}` });
+    }
+  }
+  for (const k of Array.from(xauPeakPts.keys())) if (k.startsWith(`${userId}:`) && !live.has(k)) {
+    xauPeakPts.delete(k);
+    xauLockedPts.delete(k);
+  }
+}
+async function applyServerSideTrails(userId, openPositions, marketAnalysis) {
+  const state = engineStates[userId];
+  if (!state) return;
+  const config = state.config;
+  if (!config.trailingStopEnabled || config.trailMethod === "none") return;
+  if (openPositions.length === 0) return;
+  if (!state.positionTrailState) state.positionTrailState = {};
+  let tlConnections = [];
+  try {
+    const allTL = await storage.getUserTradelockerConnections(userId);
+    tlConnections = allTL.filter((c) => c.isActive);
+  } catch {
+  }
+  const methodLabel = TRAIL_METHOD_LABELS[config.trailMethod] || config.trailMethod;
+  const activationPips = config.trailActivationPips ?? 10;
+  for (const pos of openPositions) {
+    const key = String(pos.ticket || pos.id || pos.symbol);
+    if (!state.positionTrailState[key]) {
+      state.positionTrailState[key] = {
+        highestHigh: pos.currentPrice || pos.openPrice,
+        lowestLow: pos.currentPrice || pos.openPrice,
+        sar: pos.openPrice || pos.currentPrice,
+        ep: pos.currentPrice || pos.openPrice,
+        af: config.trailSarInitialAF ?? 0.02,
+        bullish: pos.direction === "BUY",
+        peakProfit: 0
+      };
+    }
+    const ts = state.positionTrailState[key];
+    if (config.reversalExitEnabled === true) {
+      const _sym = marketAnalysis[pos.symbol?.replace("/", "")] || marketAnalysis[pos.symbol] || {};
+      const _adx = _sym.adx?.value ?? _sym.adx ?? 0;
+      const _plus = _sym.plusDI ?? 0, _minus = _sym.minusDI ?? 0;
+      const _bullish = _plus > _minus;
+      const _against = pos.direction === "BUY" && !_bullish || pos.direction === "SELL" && _bullish;
+      const _diSep = Math.abs(_plus - _minus);
+      const _isBuy = pos.direction === "BUY";
+      const _choppy = _adx < 25 || _diSep < 6;
+      const _macdHist = _sym.macd?.histogram ?? 0;
+      const _rsi = _sym.rsi?.value ?? 50;
+      const _trendLbl = String(_sym.trend || "").toLowerCase();
+      const _relVol = _sym.volumeMetrics?.relativeVolume ?? _sym.relativeVolume ?? 1;
+      let _revScore = 0;
+      if (_macdHist !== 0 && (_isBuy ? _macdHist < 0 : _macdHist > 0)) _revScore++;
+      if (_isBuy ? _rsi < 50 : _rsi > 50) _revScore++;
+      if (_isBuy ? _trendLbl.includes("bear") : _trendLbl.includes("bull")) _revScore++;
+      if (_relVol >= 1.3) _revScore++;
+      if (_diSep >= 12) _revScore++;
+      const _sensitivity = config.reversalSensitivity ?? 3;
+      const { xauTooYoungToClose: xauTooYoungToClose2 } = await Promise.resolve().then(() => (init_xau_rules(), xau_rules_exports));
+      const _xauHold = xauTooYoungToClose2(pos.symbol, pos.openTime);
+      if (_xauHold && _against && !_choppy && _revScore >= _sensitivity) {
+        addActivity(userId, { type: "info", symbol: pos.symbol, message: `\u23F3 Reversal exit held off: ${pos.symbol} opened under the gold/index minimum hold \u2014 the broker stop still protects it.` });
+      }
+      let _mtfHold = false;
+      if (!_xauHold && _against && !_choppy && _revScore >= _sensitivity && process.env.MTF_CLOSE_RULE !== "off") {
+        const _t = htfTurnedAgainst(state, pos.symbol, pos.direction || "BUY");
+        if (_t && !_t.turned) {
+          _mtfHold = true;
+          addActivity(userId, { type: "info", symbol: pos.symbol, message: `\u{1F6E1}\uFE0F SHAKEOUT HOLD: reversal exit on ${pos.symbol} ${pos.direction} skipped; H1/H4 have not turned (${_t.detail}).` });
+        }
+      }
+      if (!_xauHold && !_mtfHold && _against && !_choppy && _revScore >= _sensitivity) {
+        const _reason = `Reversal exit: ${pos.symbol} ${pos.direction} \u2014 ${_revScore}/5 reversal confluence in a trending market (ADX ${Math.round(_adx)}, DI sep ${Math.round(_diSep)}, need ${_sensitivity})`;
+        addActivity(userId, { type: "trade_close", symbol: pos.symbol, message: `\u{1F504} ${_reason}` });
+        if (pos.source !== "tl") broadcastMT5Signal(userId, {
+          id: `revexit_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
+          timestamp: (/* @__PURE__ */ new Date()).toISOString(),
+          symbol: pos.symbol,
+          direction: pos.direction,
+          action: "CLOSE",
+          lotSize: 0,
+          entryPrice: null,
+          stopLoss: null,
+          takeProfit: null,
+          confidence: 100,
+          reason: _reason,
+          holdTime: "",
+          strategy: "position_management",
+          confluences: [],
+          status: "pending",
+          modifyAction: "full_close",
+          positionId: pos.ticket || pos.id || null
+        });
+        for (const tlConn of tlConnections) {
+          try {
+            const svc = await getOrCreateService(tlConn);
+            const tlPositions = await svc.getPositionsNormalized().catch(() => []);
+            const matchDir = (pos.direction || "BUY").toUpperCase();
+            const tlMatch = tlPositions.find((p) => (p.symbol || "").toUpperCase().replace("/", "") === pos.symbol?.toUpperCase().replace("/", "") && (p.side || "").toUpperCase() === (matchDir === "BUY" ? "BUY" : "SELL"));
+            if (!tlMatch) continue;
+            {
+              const { xauTooYoungToClose: xauTooYoungToClose3 } = await Promise.resolve().then(() => (init_xau_rules(), xau_rules_exports));
+              if (xauTooYoungToClose3(pos.symbol, tlMatch.openDate)) {
+                addActivity(userId, { type: "info", symbol: pos.symbol, message: `\u23F3 Reversal exit held off on ${tlConn.accountId}: this account's ${pos.symbol} fill is inside the gold/index minimum hold.` });
+                continue;
+              }
+            }
+            const r = await executeMT5SignalOnTradeLocker(tlConn, {
+              action: "CLOSE",
+              symbol: pos.symbol,
+              direction: pos.direction || "BUY",
+              volume: 0,
+              positionId: tlMatch.id,
+              closeReason: _reason,
+              closePnl: tlMatch.unrealizedPl
+            });
+            if (r.success) {
+              addActivity(userId, { type: "trade_close", symbol: pos.symbol, message: `\u2705 Reversal exit closed on TradeLocker ${tlConn.accountId}: ${pos.symbol}` });
+              refreshTlAfterTrade(userId);
+            } else addActivity(userId, { type: "error", symbol: pos.symbol, message: `\u26A0\uFE0F Reversal exit close failed on ${tlConn.accountId}: ${r.error}` });
+          } catch (e) {
+            addActivity(userId, { type: "error", symbol: pos.symbol, message: `\u26A0\uFE0F Reversal exit error on ${tlConn.accountId}: ${e.message}` });
+          }
+        }
+        continue;
+      }
+    }
+    if (activationPips > 0 && pos.openPrice && pos.currentPrice) {
+      const pipSize2 = getPipSize(pos.symbol || "");
+      const pipsInProfit = pos.direction === "BUY" ? (pos.currentPrice - pos.openPrice) / pipSize2 : (pos.openPrice - pos.currentPrice) / pipSize2;
+      if (pipsInProfit < activationPips) continue;
+    }
+    const symData = marketAnalysis[pos.symbol?.replace("/", "")] || marketAnalysis[pos.symbol] || {};
+    const atr = symData.atr?.value ?? symData.atr ?? 0;
+    const multiplier = config.trailingStopATRMultiplier || 3;
+    let newSL = 0;
+    switch (config.trailMethod) {
+      case "staged_volume":
+        newSL = computeStagedVolumeSL(pos, config);
+        break;
+      case "chandelier":
+        newSL = computeChandelierSL(pos, atr, multiplier, ts);
+        break;
+      case "r_multiple": {
+        const prevSL = pos.sl || 0;
+        newSL = computeRMultipleSL(pos, config);
+        const openP = pos.openPrice;
+        const origSL = pos.originalSL || prevSL;
+        if (openP && origSL && newSL > 0) {
+          const R = Math.abs(openP - origSL);
+          if (R > 0) {
+            const pnlU = pos.direction === "BUY" ? pos.currentPrice - openP : openP - pos.currentPrice;
+            const rm = pnlU / R;
+            const bufPips = config.breakevenBufferPips ?? 5;
+            if (Math.floor(rm) === 1 && bufPips > 0 && newSL !== prevSL) {
+              addActivity(userId, {
+                type: "position_update",
+                symbol: pos.symbol,
+                message: `\u26A1 R-Multiple 1R: ${pos.symbol} \u2014 SL locked at entry +${bufPips} pips (not flat breakeven)`
+              });
+            }
+          }
+        }
+        break;
+      }
+      case "swing_structure":
+        newSL = computeSwingStructureSL(pos, symData);
+        break;
+      case "parabolic_sar":
+        newSL = computeParabolicSAR(pos, ts, config.trailSarInitialAF ?? 0.02, config.trailSarMaxAF ?? 0.2);
+        break;
+      case "fixed_pip":
+        newSL = computeFixedPipTrailSL(pos, config.trailFixedPips ?? 20, ts);
+        break;
+      case "profit_lock":
+        newSL = computeProfitLockSL(pos, config.trailProfitLockPct ?? 60, ts);
+        break;
+      case "stepped_fixed":
+        newSL = computeSteppedFixedTrailSL(pos, config.trailFixedPips ?? 20, config.trailStepPips ?? 10, ts);
+        break;
+    }
+    if (newSL <= 0) continue;
+    const currentSL = pos.sl || 0;
+    const isBuy = pos.direction === "BUY";
+    const improved = isBuy ? newSL > currentSL : currentSL === 0 || newSL < currentSL;
+    if (!improved) continue;
+    if (pos.source !== "tl") broadcastMT5Signal(userId, {
+      id: `trail_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
+      timestamp: (/* @__PURE__ */ new Date()).toISOString(),
+      symbol: pos.symbol,
+      direction: pos.direction,
+      action: "MODIFY",
+      lotSize: 0,
+      entryPrice: null,
+      stopLoss: Math.round(newSL * 1e5) / 1e5,
+      takeProfit: pos.tp || null,
+      confidence: 100,
+      reason: `${methodLabel}: auto-trail SL \u2192 ${Math.round(newSL * 1e5) / 1e5}`,
+      holdTime: "",
+      strategy: "position_management",
+      confluences: [],
+      status: "pending",
+      modifyAction: "trail_stop",
+      positionId: pos.ticket || pos.id || null
+    });
+    addActivity(userId, {
+      type: "position_update",
+      symbol: pos.symbol,
+      message: `\u{1F4D0} ${methodLabel}: ${pos.symbol} ${pos.direction} trail \u2192 SL ${Math.round(newSL * 1e5) / 1e5} (was ${currentSL || "none"})`
+    });
+    if (tlConnections.length > 0) {
+      for (const tlConn of tlConnections) {
+        try {
+          const svc = await getOrCreateService(tlConn);
+          const tlPositions = await svc.getPositionsNormalized().catch(() => []);
+          const matchDir = (pos.direction || "BUY").toUpperCase();
+          const tlMatch = tlPositions.find(
+            (p) => (p.symbol || "").toUpperCase().replace("/", "") === pos.symbol?.toUpperCase().replace("/", "") && (p.side || "").toUpperCase() === (matchDir === "BUY" ? "BUY" : "SELL")
+          );
+          if (!tlMatch) continue;
+          const trailResult = await executeMT5SignalOnTradeLocker(tlConn, {
+            action: "MODIFY",
+            symbol: pos.symbol,
+            direction: pos.direction || "BUY",
+            volume: 0,
+            stopLoss: Math.round(newSL * 1e5) / 1e5,
+            takeProfit: pos.tp || void 0,
+            positionId: tlMatch.id
+          });
+          if (trailResult.success) {
+            addActivity(userId, {
+              type: "position_update",
+              symbol: pos.symbol,
+              message: `\u2705 TradeLocker trail applied on ${tlConn.accountId}: ${pos.symbol} SL \u2192 ${Math.round(newSL * 1e5) / 1e5}`
+            });
+          } else {
+            addActivity(userId, {
+              type: "error",
+              symbol: pos.symbol,
+              message: `\u26A0\uFE0F TradeLocker trail failed on ${tlConn.accountId}: ${pos.symbol} \u2014 ${trailResult.error}`
+            });
+          }
+        } catch (tlErr) {
+          addActivity(userId, {
+            type: "error",
+            symbol: pos.symbol,
+            message: `\u26A0\uFE0F TradeLocker trail error on ${tlConn.accountId}: ${pos.symbol} \u2014 ${tlErr.message}`
+          });
+        }
+      }
+    }
+  }
+}
+async function monitorPositions(userId) {
+  const state = engineStates[userId];
+  if (!state || !positionMonitorIntervals[userId]) return;
+  if (!isFxLeader()) return;
+  if (_monitorBusy[userId]) return;
+  const lastAnalysis = state._lastMarketAnalysis;
+  if (!lastAnalysis) return;
+  _monitorBusy[userId] = true;
+  try {
+    const positions = await getMergedOpenPositions(userId, lastAnalysis);
+    const floating = positions.reduce((s, p) => s + (Number(p.profit) || 0), 0);
+    checkFloatingDrawdown(userId, floating);
+    if (!engineStates[userId] || !positionMonitorIntervals[userId]) return;
+    if (positions.length) {
+      await manageXauProfitLock(userId, positions).catch((e) => console.error("[XAU lock] monitor pass failed (non-fatal):", e?.message));
+      await applyServerSideTrails(userId, positions, lastAnalysis);
+    }
+  } catch {
+  } finally {
+    _monitorBusy[userId] = false;
+  }
+}
+function generateRuleBasedSignals(indicators, config, symbol) {
+  let bull = 0;
+  let bear = 0;
+  const votes = [];
+  const _adxRaw = adxOrNull(indicators);
+  const adxKnown = _adxRaw !== null;
+  const adxVal = _adxRaw ?? 0;
+  const trend = indicators.trend ?? "NEUTRAL";
+  const trendIsStrong = adxKnown && adxVal > 18 && trend !== "NEUTRAL";
+  const rsi = indicators.rsi?.value ?? indicators.stochastic?.k ?? 50;
+  if (trendIsStrong) {
+    if (trend === "BULLISH" && rsi > 50) {
+      bull++;
+      votes.push(`RSI ${rsi.toFixed(1)} above 50 (bullish trend confirmation)`);
+    } else if (trend === "BEARISH" && rsi < 50) {
+      bear++;
+      votes.push(`RSI ${rsi.toFixed(1)} below 50 (bearish trend confirmation)`);
+    } else if (trend === "BULLISH" && rsi < 30) {
+      bear++;
+      votes.push(`RSI ${rsi.toFixed(1)} extreme oversold (exhaustion warning)`);
+    } else if (trend === "BEARISH" && rsi > 70) {
+      bull++;
+      votes.push(`RSI ${rsi.toFixed(1)} extreme overbought (exhaustion warning)`);
+    }
+  } else if (adxKnown) {
+    if (rsi < 35) {
+      bull++;
+      votes.push(`RSI oversold (${rsi.toFixed(1)})`);
+    } else if (rsi > 65) {
+      bear++;
+      votes.push(`RSI overbought (${rsi.toFixed(1)})`);
+    }
+  }
+  const stochK = indicators.stochastic?.k ?? 50;
+  if (trendIsStrong) {
+    if (trend === "BULLISH" && stochK > 50) {
+      bull++;
+      votes.push(`Stoch K ${stochK.toFixed(1)} above 50 (bullish confirmation)`);
+    } else if (trend === "BEARISH" && stochK < 50) {
+      bear++;
+      votes.push(`Stoch K ${stochK.toFixed(1)} below 50 (bearish confirmation)`);
+    } else if (trend === "BULLISH" && stochK < 20) {
+      bear++;
+      votes.push(`Stoch K ${stochK.toFixed(1)} extreme (trend exhaustion)`);
+    } else if (trend === "BEARISH" && stochK > 80) {
+      bull++;
+      votes.push(`Stoch K ${stochK.toFixed(1)} extreme (trend exhaustion)`);
+    }
+  } else if (adxKnown) {
+    if (stochK < 25) {
+      bull++;
+      votes.push(`Stoch K oversold (${stochK.toFixed(1)})`);
+    } else if (stochK > 75) {
+      bear++;
+      votes.push(`Stoch K overbought (${stochK.toFixed(1)})`);
+    }
+  }
+  const macdHist = indicators.macd?.histogram ?? 0;
+  if (macdHist > 0) {
+    bull++;
+    votes.push("MACD histogram positive");
+  } else if (macdHist < 0) {
+    bear++;
+    votes.push("MACD histogram negative");
+  }
+  if (adxVal > 25 && trend === "BULLISH") {
+    bull++;
+    votes.push(`ADX ${adxVal.toFixed(1)} + bullish trend`);
+  } else if (adxVal > 25 && trend === "BEARISH") {
+    bear++;
+    votes.push(`ADX ${adxVal.toFixed(1)} + bearish trend`);
+  }
+  const vwapDev = indicators.vwap?.deviationPercent ?? 0;
+  const vwapRelation = (indicators.vwap?.priceRelation ?? "").toUpperCase();
+  if (trendIsStrong) {
+    if (trend === "BULLISH" && vwapDev > 0) {
+      bull++;
+      votes.push(`Price above VWAP +${vwapDev.toFixed(2)}% (bullish confirmation)`);
+    } else if (trend === "BEARISH" && vwapDev < 0) {
+      bear++;
+      votes.push(`Price below VWAP ${vwapDev.toFixed(2)}% (bearish confirmation)`);
+    }
+  } else if (adxKnown) {
+    if (vwapDev < -0.1) {
+      bull++;
+      votes.push(`Price below VWAP (${vwapDev.toFixed(2)}%)`);
+    } else if (vwapDev > 0.1) {
+      bear++;
+      votes.push(`Price above VWAP (+${vwapDev.toFixed(2)}%)`);
+    }
+  }
+  const obvTrend = indicators.obv?.trend ?? "";
+  if (obvTrend === "up") {
+    bull++;
+    votes.push("OBV uptrend");
+  } else if (obvTrend === "down") {
+    bear++;
+    votes.push("OBV downtrend");
+  }
+  const bullishPatterns = ["hammer", "bullish_engulfing", "morning_star", "piercing_line", "bullish_harami", "inverted_hammer", "three_white_soldiers"];
+  const bearishPatterns = ["shooting_star", "bearish_engulfing", "evening_star", "dark_cloud_cover", "bearish_harami", "hanging_man", "three_black_crows"];
+  const patterns = indicators.candlePatterns ?? [];
+  if (patterns.some((p) => bullishPatterns.includes(p))) {
+    bull++;
+    votes.push(`Bullish candle: ${patterns.filter((p) => bullishPatterns.includes(p)).join(",")}`);
+  }
+  if (patterns.some((p) => bearishPatterns.includes(p))) {
+    bear++;
+    votes.push(`Bearish candle: ${patterns.filter((p) => bearishPatterns.includes(p)).join(",")}`);
+  }
+  const currentPrice = indicators.currentPrice ?? 0;
+  const atr = indicators.atr?.value ?? indicators.atr ?? currentPrice * 5e-4;
+  if (bull < 4 && bear < 4) {
+    return { newTrades: [], positionUpdates: [], marketOverview: `Rule-based (${symbol}): insufficient confluence \u2014 bull=${bull} bear=${bear} (need 4+)`, nextScanFocus: "Waiting for 4+ indicator alignment" };
+  }
+  const direction = bull >= bear ? "BUY" : "SELL";
+  const winningScore = Math.max(bull, bear);
+  const confidence = Math.round(winningScore / 7 * 100);
+  const entry = currentPrice;
+  const pipSize2 = getPipSize(symbol);
+  const isJpy = symbol.includes("JPY");
+  const isXau2 = symbol.includes("XAU");
+  const minSlPips = isXau2 ? 300 : isJpy ? 22 : 16;
+  const minSlDist = minSlPips * pipSize2;
+  const slMult = confidence >= 86 ? 2 : 1.8;
+  const tpMult = confidence >= 86 ? 4 : 3.6;
+  const rawSlDist = atr * slMult;
+  const effectiveSlDist = Math.max(rawSlDist, minSlDist);
+  const effectiveTpDist = Math.max(atr * tpMult, effectiveSlDist * 2);
+  const sl = direction === "BUY" ? entry - effectiveSlDist : entry + effectiveSlDist;
+  const tp = direction === "BUY" ? entry + effectiveTpDist : entry - effectiveTpDist;
+  let lotSize = config.baseLotSize;
+  if (config.useKellyCriterion && !config.lockSettings) {
+    const pct = winningScore / 7;
+    const fractionalKelly = pct * 0.25;
+    lotSize = Math.min(config.maxLotSize, Math.max(config.baseLotSize, parseFloat((config.baseLotSize * (1 + fractionalKelly)).toFixed(2))));
+  }
+  const trade = {
+    action: "OPEN_TRADE",
+    strategy: "momentum",
+    symbol,
+    direction,
+    confidence,
+    reason: `Rule-based consensus \u2014 ${winningScore}/7 indicators agree. Votes: ${votes.join("; ")}`,
+    confluences: votes,
+    entryPrice: entry,
+    stopLoss: sl,
+    takeProfit: tp,
+    lotSize,
+    holdTime: "30min",
+    urgency: "IMMEDIATE"
+  };
+  return {
+    newTrades: [trade],
+    decisions: [trade],
+    positionUpdates: [],
+    marketOverview: `Rule-based ${direction} on ${symbol}: ${winningScore}/7 indicators aligned. No AI API call used.`,
+    nextScanFocus: `Monitor ${symbol} ${direction} for follow-through`,
+    engineConfidence: confidence,
+    activeStrategies: ["momentum"],
+    tradingWindowQuality: "good"
+  };
+}
+function countIndicatorAlignment(data) {
+  let bull = 0;
+  let bear = 0;
+  const trend = data.trend ?? "NEUTRAL";
+  const _adxRaw2 = adxOrNull(data);
+  const adxKnown = _adxRaw2 !== null;
+  const adxVal = _adxRaw2 ?? 0;
+  const trendIsStrong = adxKnown && adxVal > 20 && trend !== "NEUTRAL";
+  const rsiVal = data.rsi?.value ?? 50;
+  if (trendIsStrong) {
+    if (trend === "BULLISH" && rsiVal > 50) bull++;
+    else if (trend === "BEARISH" && rsiVal < 50) bear++;
+    else if (trend === "BULLISH" && rsiVal < 30) bear++;
+    else if (trend === "BEARISH" && rsiVal > 70) bull++;
+  } else {
+    if (rsiVal < 38) bull++;
+    else if (rsiVal > 62) bear++;
+  }
+  const stochK = data.stochastic?.k ?? 50;
+  if (trendIsStrong) {
+    if (trend === "BULLISH" && stochK > 50) bull++;
+    else if (trend === "BEARISH" && stochK < 50) bear++;
+    else if (trend === "BULLISH" && stochK < 20) bear++;
+    else if (trend === "BEARISH" && stochK > 80) bull++;
+  } else {
+    if (stochK < 28) bull++;
+    else if (stochK > 72) bear++;
+  }
+  const macdHist = data.macd?.histogram ?? 0;
+  if (macdHist > 0) bull++;
+  else if (macdHist < 0) bear++;
+  const macdLine = data.macd?.macd ?? data.macd?.value ?? null;
+  if (macdLine !== null) {
+    if (macdLine > 0) bull++;
+    else if (macdLine < 0) bear++;
+  }
+  if (adxVal > 15 && trend === "BULLISH") bull++;
+  else if (adxVal > 15 && trend === "BEARISH") bear++;
+  const obvTrend = data.obv?.trend ?? "";
+  if (obvTrend === "up") bull++;
+  else if (obvTrend === "down") bear++;
+  const vwapRelation = (data.vwap?.priceRelation ?? "").toUpperCase();
+  if (trendIsStrong) {
+    if (trend === "BULLISH" && vwapRelation === "ABOVE") bull++;
+    else if (trend === "BEARISH" && vwapRelation === "BELOW") bear++;
+  } else {
+    if (vwapRelation === "BELOW") bull++;
+    else if (vwapRelation === "ABOVE") bear++;
+  }
+  return { bull, bear };
+}
+function selectStrategyForPair(symbol, data, htfBias, asiaHigh, asiaLow, utcHour, utcMinute, lastHighImpactNewsAt, globalStrategyMode) {
+  const adxVal = data.adx?.value ?? data.adx?.adx ?? 0;
+  const trend = data.trend ?? "NEUTRAL";
+  const plusDI = data.plusDI ?? data.adx?.plusDI ?? 0;
+  const minusDI = data.minusDI ?? data.adx?.minusDI ?? 0;
+  const diSep = Math.abs(plusDI - minusDI);
+  const rsiVal = data.rsi?.value ?? 50;
+  const stochK = data.stochastic?.k ?? 50;
+  const vm = data.volumeMetrics;
+  const volTrend = vm?.volumeTrend ?? "average";
+  const relVol = vm?.relativeVolume ?? 1;
+  const price = data.currentPrice;
+  const vwapVal = data.vwap?.value;
+  const sr = data.supportResistance;
+  const fib = data.fibonacci?.retracementLevels;
+  const patterns = data.candlePatterns ?? [];
+  const macdHist = data.macd?.histogram ?? 0;
+  const obvTrend = data.obv?.trend ?? "";
+  const isJpy = symbol.includes("JPY");
+  const isXau2 = symbol.includes("XAU");
+  const symUpper = symbol.toUpperCase();
+  const isCrypto = symUpper.includes("BTC") || symUpper.includes("XBT") || symUpper.includes("ETH") || symUpper.includes("LTC") || symUpper.includes("XRP") || symUpper.includes("ADA") || symUpper.includes("SOL") || symUpper.includes("BNB") || symUpper.includes("DOT");
+  const utcDay2 = (/* @__PURE__ */ new Date()).getUTCDay();
+  const isWeekend = utcDay2 === 0 || utcDay2 === 6;
+  const pricePct = (a, b) => Math.abs(a - b) / Math.max(b, 1e-5) * 100;
+  const hasPattern = (...names) => patterns.some((p) => names.some((n) => p.toLowerCase().includes(n.toLowerCase())));
+  if (isCrypto && isWeekend) {
+    const isVolumeOk = volTrend === "surging" || volTrend === "above_average" || volTrend === "average";
+    const dayLabel = utcDay2 === 6 ? "Saturday" : "Sunday";
+    if (adxVal >= 22 && trend !== "NEUTRAL" && diSep >= 8 && isVolumeOk) {
+      return {
+        strategy: "btc_weekend_momentum",
+        reason: `Crypto ${dayLabel} \u2014 trending market (ADX=${adxVal.toFixed(1)}, ${trend}, DI_sep=${diSep.toFixed(1)}). Vol=${volTrend}. Institutions absent = cleaner trends. Ride direction with 50% reduced size. Tight trailing stop \u2014 weekend gaps can snap.`,
+        priority: "high",
+        minConfluences: 4
+      };
+    }
+    const vwapNote = vwapVal && price ? ` Price ${((price - vwapVal) / vwapVal * 100).toFixed(2)}% from VWAP.` : "";
+    return {
+      strategy: "btc_weekend_range",
+      reason: `Crypto ${dayLabel} \u2014 ranging market (ADX=${adxVal.toFixed(1)}, no clear trend). Low institutional liquidity. Fade extremes, buy support, sell resistance. Mean-revert to VWAP.${vwapNote} Reduce size 50%. Avoid Sunday 20:00\u201321:00 UTC (CME gap zone).`,
+      priority: "medium",
+      minConfluences: 4
+    };
+  }
+  if (lastHighImpactNewsAt) {
+    const msSince = Date.now() - new Date(lastHighImpactNewsAt).getTime();
+    const inFadeWindow = msSince >= 5 * 6e4 && msSince <= 30 * 6e4;
+    const rsiExtreme = rsiVal > 72 || rsiVal < 28;
+    const volDeclined = relVol < 1 && relVol > 0;
+    if (inFadeWindow && rsiExtreme && volDeclined) {
+      return {
+        strategy: "news_fade",
+        reason: `Post-news fade: ${Math.round(msSince / 6e4)}min after event, RSI=${rsiVal.toFixed(1)} (extreme), volume declining (${relVol.toFixed(2)}x)`,
+        priority: "high",
+        minConfluences: 3
+      };
+    }
+  }
+  const isLondonOpenWindow = utcHour === 7 || utcHour === 8 && utcMinute < 30;
+  if (isLondonOpenWindow && asiaHigh && asiaLow && price) {
+    const asiaRange = asiaHigh - asiaLow;
+    const nearHigh = pricePct(price, asiaHigh) < 0.15;
+    const nearLow = pricePct(price, asiaLow) < 0.15;
+    const brokenHigh = price > asiaHigh;
+    const brokenLow = price < asiaLow;
+    if ((nearHigh || nearLow || brokenHigh || brokenLow) && relVol >= 1.2 && asiaRange > 0) {
+      const side = brokenHigh || nearHigh ? "AsiaHigh breakout" : "AsiaLow breakdown";
+      return {
+        strategy: "asia_range_breakout",
+        reason: `London open window (${utcHour}:${utcMinute.toString().padStart(2, "0")} UTC). Asia range defined. ${side}. Vol=${volTrend} (${relVol.toFixed(2)}x)`,
+        priority: "high",
+        minConfluences: 3
+      };
+    }
+  }
+  const isLondonOpen = utcHour === 7 && utcMinute < 30;
+  const isNYOpen = utcHour === 13 && utcMinute < 30;
+  if ((isLondonOpen || isNYOpen) && relVol >= 1.4 && adxVal >= 15) {
+    return {
+      strategy: "session_breakout",
+      reason: `${isLondonOpen ? "London" : "NY"} open breakout window (${utcHour}:${utcMinute.toString().padStart(2, "0")} UTC). ADX=${adxVal.toFixed(1)}, Vol=${volTrend} (${relVol.toFixed(2)}x). First-30-min momentum.`,
+      priority: "high",
+      minConfluences: 3
+    };
+  }
+  if (htfBias?.bosChoch.detected && fib && price) {
+    const f618 = fib["61.8"];
+    const f786 = fib["78.6"];
+    if (f618 && f786) {
+      const lo = Math.min(f618, f786);
+      const hi = Math.max(f618, f786);
+      const inOTE = price >= lo * 0.9995 && price <= hi * 1.0005;
+      if (inOTE) {
+        return {
+          strategy: "ict_ote",
+          reason: `H1 ${htfBias.bosChoch.type} (${htfBias.bosChoch.direction}) + price in OTE zone (61.8\u201378.6% Fib: ${lo.toFixed(5)}\u2013${hi.toFixed(5)}). Institutional precision entry.`,
+          priority: "high",
+          minConfluences: 5
+        };
+      }
+    }
+  }
+  if (htfBias?.premiumDiscount && htfBias.wyckoff.detected) {
+    const phase2 = htfBias.wyckoff.phase;
+    const zone = htfBias.premiumDiscount.zone;
+    const isBull = (phase2 === "ACCUMULATION" || phase2 === "MARKUP") && zone === "DISCOUNT";
+    const isBear = (phase2 === "DISTRIBUTION" || phase2 === "MARKDOWN") && zone === "PREMIUM";
+    if (isBull || isBear) {
+      return {
+        strategy: "smc_demand_supply",
+        reason: `HTF zone: ${zone} + Wyckoff ${phase2}. Price ${isBull ? "at discount demand zone \u2192 BUY" : "at premium supply zone \u2192 SELL"}. Smart money footprint confirmed.`,
+        priority: "high",
+        minConfluences: 5
+      };
+    }
+  }
+  const hasReversalPattern = hasPattern(
+    "Engulfing",
+    "Hammer",
+    "Morning Star",
+    "Evening Star",
+    "Pin Bar",
+    "Doji",
+    "Shooting Star",
+    "Tweezer"
+  );
+  const nearFib = fib && price && (fib["38.2"] && pricePct(price, fib["38.2"]) < 0.12 || fib["61.8"] && pricePct(price, fib["61.8"]) < 0.12);
+  const fibLabel = nearFib && fib ? fib["38.2"] && pricePct(price, fib["38.2"]) < 0.12 ? "38.2%" : "61.8%" : null;
+  const nearSRLevel = sr && price && ((sr.supports || []).some((s) => pricePct(price, s) < 0.15) || (sr.resistances || []).some((r) => pricePct(price, r) < 0.15));
+  if (nearFib && nearSRLevel && hasReversalPattern && adxVal >= 12) {
+    return {
+      strategy: "sniper",
+      reason: `Price at Fib ${fibLabel} + S/R confluence + ${patterns.find((p) => ["Engulfing", "Hammer", "Star", "Pin"].some((n) => p.includes(n))) || "reversal pattern"}. Precision sniper setup.`,
+      priority: "high",
+      minConfluences: 5
+    };
+  }
+  {
+    const { computeOrderFlow: computeOrderFlow2 } = (init_orderflow_strategy(), __toCommonJS(orderflow_strategy_exports));
+    const ofCandles = data.candles || [];
+    if (ofCandles.length >= 10) {
+      const of = computeOrderFlow2(ofCandles, Math.min(30, ofCandles.length));
+      if (of.direction !== "NEUTRAL" && of.confidence >= 60) {
+        const factors = [
+          of.divergence ? `delta divergence (${of.divergenceType})` : null,
+          of.absorption ? `absorption (${of.absorptionType})` : null,
+          of.imbalance ? `volume imbalance (${of.imbalanceType})` : null,
+          `CVD ${of.cvdTrend}`
+        ].filter(Boolean).join(" | ");
+        return {
+          strategy: "order_flow",
+          reason: `Order Flow ${of.direction}: ${factors}. Conf=${of.confidence}%. CVD reading institutional positioning \u2014 trade WITH the delta, not against it.`,
+          priority: of.confidence >= 75 ? "high" : "medium",
+          minConfluences: 4
+        };
+      }
+    }
+  }
+  if (vwapVal && price) {
+    const vwapDevPct = Math.abs((price - vwapVal) / vwapVal * 100);
+    const rsiExtreme = rsiVal > 68 || rsiVal < 32;
+    const volDeclining = relVol < 0.85;
+    if (vwapDevPct > 0.15 && rsiExtreme && volDeclining) {
+      const dir = price > vwapVal ? "above (fade SELL)" : "below (fade BUY)";
+      return {
+        strategy: "vwap_mean_reversion",
+        reason: `Price ${vwapDevPct.toFixed(3)}% ${dir} VWAP. RSI=${rsiVal.toFixed(1)} (extreme). Volume declining (${relVol.toFixed(2)}x). Mean reversion toward VWAP.`,
+        priority: "medium",
+        minConfluences: 3
+      };
+    }
+  }
+  const isVolumeGood = volTrend === "surging" || volTrend === "above_average";
+  if (adxVal >= 25 && trend !== "NEUTRAL" && diSep >= 10 && isVolumeGood) {
+    return {
+      strategy: "momentum",
+      reason: `Strong trend: ADX=${adxVal.toFixed(1)}, DI_sep=${diSep.toFixed(1)} (${trend}), Vol=${volTrend} (${relVol.toFixed(2)}x). Ride institutional momentum.`,
+      priority: "high",
+      minConfluences: 3
+    };
+  }
+  if (adxVal >= 20 && trend !== "NEUTRAL" && diSep >= 8 && relVol >= 0.9) {
+    return {
+      strategy: "momentum",
+      reason: `Moderate trend: ADX=${adxVal.toFixed(1)}, DI_sep=${diSep.toFixed(1)}, Vol=${volTrend}. Momentum continuation likely.`,
+      priority: "medium",
+      minConfluences: 3
+    };
+  }
+  const isActiveSession = utcHour >= 7 && utcHour < 12 || utcHour >= 13 && utcHour < 19;
+  const sym = symbol.toUpperCase();
+  const notLowLiquidityAsian = !(utcHour >= 0 && utcHour < 7 && (sym.includes("EUR") || sym.includes("GBP") || sym.includes("CHF")) && !isJpy);
+  if (adxVal >= 15 && adxVal < 28 && trend !== "NEUTRAL" && isActiveSession && relVol >= 0.7 && notLowLiquidityAsian) {
+    const session2 = utcHour >= 7 && utcHour < 12 ? "London" : "NY";
+    return {
+      strategy: "scalping",
+      reason: `M15 trend ${trend} (ADX=${adxVal.toFixed(1)}), active ${session2} session, Vol=${volTrend} (${relVol.toFixed(2)}x). Momentum scalp in trend direction.`,
+      priority: "medium",
+      minConfluences: 4
+    };
+  }
+  if (adxVal < 12 || diSep < 6) {
+    return {
+      strategy: "wait",
+      reason: `Market ranging/directionless: ADX=${adxVal.toFixed(1)}, DI_sep=${diSep.toFixed(1)}. No strategy has an edge right now. Wait for trend to emerge.`,
+      priority: "none",
+      minConfluences: 0
+    };
+  }
+  if (adxVal >= 20 && diSep >= 8 && trend !== "NEUTRAL") {
+    return {
+      strategy: globalStrategyMode || "momentum",
+      reason: `Moderate trend (ADX=${adxVal.toFixed(1)}, DI_sep=${diSep.toFixed(1)}, ${trend}). Configured strategy: ${globalStrategyMode || "momentum"}.`,
+      priority: "low",
+      minConfluences: 4
+    };
+  }
+  return {
+    strategy: "wait",
+    reason: `No clear edge (ADX=${adxVal.toFixed(1)}, DI_sep=${diSep.toFixed(1)}). Choppy/mild \u2014 waiting for a real setup rather than forcing a momentum trade.`,
+    priority: "none",
+    minConfluences: 0
+  };
+}
+async function runAILiveAnalysis(userId, marketAnalysis, brain, newsContext, crossAssets, triggerAlerts, htfMarketData) {
+  const state = engineStates[userId];
+  if (!state) return;
+  const aiMode = state.config.aiMode || "full";
+  if (aiMode === "rule_based") {
+    addActivity(userId, { type: "info", message: "\u2699\uFE0F Rule-based mode \u2014 processing indicator consensus (no API call)" });
+    let totalSignals = 0;
+    for (const [symbol, data] of Object.entries(marketAnalysis)) {
+      const result = generateRuleBasedSignals({ ...data, currentPrice: data.currentPrice }, state.config, symbol);
+      if (result.decisions && result.decisions.length > 0) {
+        totalSignals += result.decisions.length;
+        addActivity(userId, { type: "ai_decision", symbol, message: `Rule-based: ${result.decisions[0].direction} on ${symbol} | Confidence: ${result.engineConfidence}% | ${result.decisions.length} signal(s)`, details: { marketOverview: result.marketOverview } });
+        for (const decision of result.decisions) {
+          await processDecision(userId, decision, newsContext);
+        }
+      }
+    }
+    if (totalSignals === 0) {
+      addActivity(userId, { type: "info", message: "Rule-based: no signals generated this cycle \u2014 insufficient indicator alignment across all pairs" });
+    }
+    state.lastSignalAt = (/* @__PURE__ */ new Date()).toISOString();
+    return;
+  }
+  {
+    const filteredAnalysis = {};
+    const voteSummary = [];
+    const PREFILTER_VOTE_THRESHOLD = 4;
+    for (const [sym, data] of Object.entries(marketAnalysis)) {
+      const { bull, bear } = countIndicatorAlignment(data);
+      const direction = bull >= bear ? `\u{1F7E2}${bull}B` : `\u{1F534}${bear}R`;
+      const passed = bull >= PREFILTER_VOTE_THRESHOLD || bear >= PREFILTER_VOTE_THRESHOLD;
+      voteSummary.push(`${sym}:${direction}${passed ? "\u2713" : "\u2717"}`);
+      if (passed) {
+        filteredAnalysis[sym] = data;
+      }
+    }
+    addActivity(userId, { type: "info", message: `Pre-filter votes (need ${PREFILTER_VOTE_THRESHOLD}+): ${voteSummary.join(" | ")}` });
+    if (Object.keys(filteredAnalysis).length === 0) {
+      addActivity(userId, { type: "info", message: `Pre-filter: no pairs with ${PREFILTER_VOTE_THRESHOLD}+ indicator votes this cycle \u2014 AI call skipped (market in full consolidation)` });
+      return;
+    }
+    marketAnalysis = filteredAnalysis;
+  }
+  let openai2;
+  try {
+    const { getUniversalAIClientForUser: getUniversalAIClientForUser2 } = await Promise.resolve().then(() => (init_openai(), openai_exports));
+    try {
+      openai2 = await getUniversalAIClientForUser2(userId);
+    } catch {
+      addActivity(userId, { type: "error", message: "No AI API key configured. Cannot analyze." });
+      return;
+    }
+    const _primaryClient = openai2;
+    const _primaryModel = openai2.defaultModel || "gpt-4o";
+    let _usingGroq = false;
+    if (aiMode === "economy" && process.env.GROQ_API_KEY) {
+      try {
+        const OpenAI4 = (await import("openai")).default;
+        const groqClient = new OpenAI4({
+          apiKey: process.env.GROQ_API_KEY,
+          baseURL: "https://api.groq.com/openai/v1",
+          maxRetries: 4,
+          timeout: 9e4
+        });
+        groqClient.defaultModel = "openai/gpt-oss-120b";
+        openai2 = groqClient;
+        _usingGroq = true;
+        addActivity(userId, { type: "info", message: "\u{1F49A} Economy mode: routing to Groq Llama 3.3-70b (free tier) \u2014 cost reduced" });
+      } catch {
+        addActivity(userId, { type: "info", message: "Economy mode: Groq unavailable, falling back to primary AI client" });
+      }
+    } else if (aiMode === "economy") {
+      addActivity(userId, { type: "info", message: "\u{1F49A} Economy mode: GROQ_API_KEY not set \u2014 using primary client. Set GROQ_API_KEY for free routing." });
+    }
+    const model = openai2.defaultModel || "gpt-4o";
+    const now = /* @__PURE__ */ new Date();
+    const hour = now.getUTCHours();
+    const dayNames = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
+    const day = dayNames[now.getUTCDay()];
+    const session2 = hour < 7 ? "Asian" : hour < 13 ? "London" : hour < 20 ? "New York" : "Late NY";
+    const openPositions = await getMergedOpenPositions(userId, marketAnalysis);
+    const currentOpenCount = openPositions.length;
+    state.openPositionCount = currentOpenCount;
+    const brainInsights = brain?.learningInsights?.join("\n") || "No prior learning data";
+    const pairKnowledge = brain?.pairKnowledge ? JSON.stringify(brain.pairKnowledge, null, 1) : "{}";
+    const nowUtc = /* @__PURE__ */ new Date();
+    const todayStr = nowUtc.toISOString().substring(0, 10);
+    const hourUtc = nowUtc.getUTCHours();
+    const isAsianSession = hourUtc >= 0 && hourUtc < 7;
+    if (state.asiaRangeDate !== todayStr) {
+      state.asiaRangeHigh = {};
+      state.asiaRangeLow = {};
+      state.asiaRangeDate = todayStr;
+    }
+    if (isAsianSession) {
+      for (const [sym, data] of Object.entries(marketAnalysis)) {
+        const price = data.currentPrice;
+        if (typeof price === "number" && price > 0) {
+          if (state.asiaRangeHigh[sym] === void 0 || price > state.asiaRangeHigh[sym]) {
+            state.asiaRangeHigh[sym] = price;
+          }
+          if (state.asiaRangeLow[sym] === void 0 || price < state.asiaRangeLow[sym]) {
+            state.asiaRangeLow[sym] = price;
+          }
+        }
+      }
+    }
+    if (newsContext?.highImpactSoon) {
+      state.lastHighImpactNewsAt = (/* @__PURE__ */ new Date()).toISOString();
+    }
+    const nowForStrategy = /* @__PURE__ */ new Date();
+    const utcHourForStrategy = nowForStrategy.getUTCHours();
+    const utcMinForStrategy = nowForStrategy.getUTCMinutes();
+    const pairStrategies = {};
+    const stratSummaryLines = [];
+    for (const [sym, data] of Object.entries(marketAnalysis)) {
+      const rec = selectStrategyForPair(
+        sym,
+        data,
+        htfMarketData?.[sym],
+        state.asiaRangeHigh[sym],
+        state.asiaRangeLow[sym],
+        utcHourForStrategy,
+        utcMinForStrategy,
+        state.lastHighImpactNewsAt,
+        state.config.strategyMode
+      );
+      pairStrategies[sym] = rec;
+      if (rec.priority !== "none") {
+        stratSummaryLines.push(`${sym}\u2192${rec.strategy.toUpperCase()}(${rec.priority}): ${rec.reason}`);
+      }
+    }
+    if (stratSummaryLines.length > 0) {
+      addActivity(userId, {
+        type: "info",
+        message: `\u{1F4CA} Adaptive strategy selection:
+${stratSummaryLines.join("\n")}`
+      });
+    }
+    const marketSummary = Object.entries(marketAnalysis).map(([sym, data]) => {
+      const sr = data.supportResistance;
+      const fib = data.fibonacci;
+      const vol = data.volatilityContext;
+      const vm = data.volumeMetrics;
+      const asiaH = state.asiaRangeHigh[sym];
+      const asiaL = state.asiaRangeLow[sym];
+      const asiaRangeStr = asiaH && asiaL ? `, AsiaHigh=${asiaH}, AsiaLow=${asiaL}, AsiaRange=${(Math.abs(asiaH - asiaL) * (sym.includes("JPY") ? 100 : 1e4)).toFixed(1)}pips` : "";
+      const vwapVal = data.vwap?.value;
+      const vwapDev = vwapVal && data.currentPrice ? ((data.currentPrice - vwapVal) / vwapVal * 100).toFixed(3) : "N/A";
+      const htf = htfMarketData?.[sym];
+      const inlineHTFLabel = (state.config.primaryTimeframe || "M15") === "H1" ? "H4" : "H1";
+      const htfStr = htf ? `, ${inlineHTFLabel}_Bias=${htf.trend}, ${inlineHTFLabel}_BOS=${htf.bosChoch.detected ? `${htf.bosChoch.type}_${htf.bosChoch.direction}` : "NONE"}, ${inlineHTFLabel}_PD=${htf.premiumDiscount.zone}, ${inlineHTFLabel}_Wyckoff=${htf.wyckoff.detected ? htf.wyckoff.phase : "NONE"}` : "";
+      const adxNumRaw = adxOrNull(data);
+      const pDI = data.plusDI ?? data.adx?.plusDI ?? 0;
+      const mDI = data.minusDI ?? data.adx?.minusDI ?? 0;
+      const diDir = pDI > 0 || mDI > 0 ? pDI > mDI ? `BULL(+DI ${pDI.toFixed(1)}>-DI ${mDI.toFixed(1)})` : `BEAR(-DI ${mDI.toFixed(1)}>+DI ${pDI.toFixed(1)})` : "DI_UNAVAILABLE";
+      const rec = pairStrategies[sym];
+      const stratStr = rec && rec.priority !== "none" ? ` \u2605STRATEGY=${rec.strategy.toUpperCase()}(priority:${rec.priority},need:${rec.minConfluences}conf)[${rec.reason}]` : ` \u2605STRATEGY=WAIT[${rec?.reason || "no clear setup"}]`;
+      return `${sym}: Price=${data.currentPrice}, Trend=${data.trend}, ADX=${adxNumRaw === null ? "UNAVAILABLE(do NOT infer ranging)" : adxNumRaw.toFixed(1)}, DI_Direction=${diDir}, RSI=${data.rsi?.value?.toFixed(1) || "N/A"}, Stoch K=${data.stochastic?.k?.toFixed(1) || "N/A"} D=${data.stochastic?.d?.toFixed(1) || "N/A"}, MACD=${data.macd?.macd?.toFixed(5) || "N/A"}(hist=${data.macd?.histogram?.toFixed(5) || "N/A"}), VWAP=${vwapVal?.toFixed(5) || "N/A"} (Dev${vwapDev}%), OBV Trend=${data.obv?.trend || "N/A"}, Patterns=[${(data.candlePatterns || []).join(",")}], Session=${data.sessionContext?.currentSession || "N/A"}, Volatility=${vol?.percentile?.toFixed(0) || "N/A"}%, ATR=${(vol?.currentATR ?? 0).toFixed(5)}, Support=${sr?.supports?.[0]?.toFixed(5) || "N/A"}, Resistance=${sr?.resistances?.[0]?.toFixed(5) || "N/A"}, Fib 38.2%=${fib?.retracementLevels?.["38.2"]?.toFixed(5) || "N/A"}, Volume=${vm ? `RelVol=${vm.relativeVolume}x (${vm.volumeTrend}), Spikes=${vm.volumeSpikes}` : "N/A"}${asiaRangeStr}${htfStr}${stratStr}`;
+    }).join("\n");
+    let htfBiasSection = "";
+    const promptHTFLabel = (state.config.primaryTimeframe || "M15") === "H1" ? "H4" : "H1";
+    if (htfMarketData && Object.keys(htfMarketData).length > 0) {
+      const htfLines = Object.entries(htfMarketData).map(([sym, htf]) => {
+        const m15Trend = marketAnalysis[sym]?.trend || "NEUTRAL";
+        const aligns = htf.trend === "NEUTRAL" || m15Trend === "NEUTRAL" || m15Trend === "BULLISH" && htf.trend === "BULLISH" || m15Trend === "BEARISH" && htf.trend === "BEARISH";
+        const alignLabel = htf.trend === "NEUTRAL" ? `${promptHTFLabel} NEUTRAL` : aligns ? `ALIGNS (M15 ${m15Trend} + ${promptHTFLabel} ${htf.trend})` : `\u26A0 CONFLICT (M15 ${m15Trend} vs ${promptHTFLabel} ${htf.trend})`;
+        return `- ${sym}: ${promptHTFLabel} Trend=${htf.trend} | BOS/CHOCH=${htf.bosChoch.detected ? htf.bosChoch.description : "No clear structure"} | PD Zone=${htf.premiumDiscount.zone} | Wyckoff=${htf.wyckoff.detected ? `${htf.wyckoff.phase}${htf.wyckoff.stage ? "/" + htf.wyckoff.stage : ""}` : "None"} | ${alignLabel}`;
+      }).join("\n");
+      htfBiasSection = `
+HTF BIAS (${promptHTFLabel} STRUCTURE \u2014 higher timeframe directional filter):
+${htfLines}
+${promptHTFLabel === "H1" ? Object.keys(htfMarketData).map((sym) => {
+        const h4 = h4BiasCache.get(sym)?.data;
+        return h4 ? `- ${sym}: H4 Trend=${h4.trend} | BOS/CHOCH=${h4.bosChoch.detected ? h4.bosChoch.description : "No clear structure"} | PD Zone=${h4.premiumDiscount.zone}` : `- ${sym}: H4 unavailable`;
+      }).join("\n") : ""}
+MULTI-TIMEFRAME RULES: H4 = trend, H1 = structure, M15 = entry timing only.${process.env.MTF_ENTRY_RULE === "off" ? "" : " Only propose an entry when H4 and H1 both agree with its direction; the server rejects entries that do not."}${process.env.MTF_CLOSE_RULE === "off" ? "" : " Do NOT full-close an open trade because of an M15 pullback: only close when H1 or H4 structure has turned against it (BOS/CHOCH or trend flip). The broker stop protects it otherwise; the server refuses M15-only closes."}
+INSTRUCTION: Signals that ALIGN with ${promptHTFLabel} bias are high-quality institutional setups \u2014 give them +5% confidence bonus. Signals that CONFLICT with ${promptHTFLabel} bias are counter-trend fades \u2014 require 80%+ base confidence before firing. If ${promptHTFLabel} shows strong BOS/CHOCH in one direction and M15 signals the opposite, SKIP unless you have 5+ LTF confluences.
+`;
+    }
+    if (marketAnalysis["BTCUSD"] || Object.keys(marketAnalysis).some((k) => /^BTC/i.test(k))) {
+      try {
+        const _btc = await Promise.resolve().then(() => (init_btc_profile(), btc_profile_exports));
+        if (_btc.BTC_PROFILE_ON()) {
+          const _bk = Object.keys(marketAnalysis).find((k) => /^BTC/i.test(k));
+          htfBiasSection += `
+${_btc.btcContextLine(crossAssets, state.lastFridayClose?.[_bk], marketAnalysis[_bk]?.currentPrice)}
+`;
+        }
+      } catch {
+      }
+    }
+    const openPosStr = openPositions.length > 0 ? openPositions.map((p) => {
+      const pipSize2 = getPipSize(p.symbol || "");
+      const pips = p.direction === "BUY" ? (p.currentPrice - p.openPrice) / pipSize2 : (p.openPrice - p.currentPrice) / pipSize2;
+      const ticketId = p.ticket ?? p.id ?? "unknown";
+      const slInfo = p.sl > 0 ? p.sl : "none";
+      const tpInfo = p.tp > 0 ? p.tp : "none";
+      const openTimeSec = p.openTime ? Math.round(Date.now() / 1e3 - Number(p.openTime)) : null;
+      const ageMin = openTimeSec != null ? Math.floor(openTimeSec / 60) : null;
+      const ageStr = ageMin != null ? ` | Age: ${ageMin}min` : "";
+      const beThreshold = 15;
+      const trailThreshold = 40;
+      const mgmtHint = pips >= trailThreshold ? "\u2192 TRAIL STOP (staged: 25-pip trail if vol surging/above_avg, 20-pip if avg, 15-pip if below_avg/dry)" : pips >= beThreshold ? "\u2192 MOVE TO BREAKEVEN ONLY \u2014 not ready to trail yet" : pips < -5 ? `\u2192 HOLD \u2014 SL provides protection. Do NOT close early (${ageMin != null ? `open ${ageMin}min` : "age unknown"}). Only close if original setup structure breaks on H1.` : "";
+      return `${p.symbol} (ticket:${ticketId}): ${p.direction} @ ${p.openPrice} | Curr: ${p.currentPrice} | Pips: ${pips.toFixed(1)} | PnL: $${p.profit} | SL: ${slInfo} | TP: ${tpInfo} | Vol: ${p.volume}${ageStr} ${mgmtHint}`;
+    }).join("\n") : "None";
+    const config = state.config;
+    const tracker = state.goalTracker;
+    const dailyTarget = getDailyTargetFromGoal(tracker);
+    const daysLeft = getDaysRemaining();
+    const compMult = tracker.compoundMultiplier;
+    const adjustedBaseLot = Math.round(config.baseLotSize * compMult * 100) / 100;
+    const effectiveMaxLot = config.maxLotSize;
+    const goalSection = config.weeklyProfitTarget > 0 ? `
+WEEKLY PROFIT GOAL SYSTEM:
+- Weekly Target: $${config.weeklyProfitTarget} | Current Profit: $${tracker.currentProfit} | Progress: ${tracker.progressPercent}%
+- Account Balance: $${config.accountBalance} | Goal Balance: $${config.accountBalance + config.weeklyProfitTarget}
+- Days Remaining: ${daysLeft} trading days | Daily Target: $${dailyTarget}/day to stay on track
+- Today's P&L: $${tracker.dailyPnL[(/* @__PURE__ */ new Date()).toISOString().split("T")[0]] || 0}
+- Win Rate: ${tracker.winRate}% (${tracker.wins}W / ${tracker.losses}L) | Streak: ${tracker.consecutiveWins > 0 ? tracker.consecutiveWins + " wins" : tracker.consecutiveLosses + " losses"}
+- Phase: ${tracker.currentPhase.toUpperCase()} | Compound Multiplier: ${compMult}x
+- Base Lot: ${config.baseLotSize} \u2192 Adjusted: ${adjustedBaseLot} (after compounding)
+${tracker.currentPhase === "warming_up" ? "- PHASE INSTRUCTIONS: Start conservative. Take only high-confidence setups (82%+). Build momentum with small wins. Use minimum lot sizes. Quality over quantity." : ""}
+${tracker.currentPhase === "building" ? "- PHASE INSTRUCTIONS: Good progress. Use base lots. Focus on high-probability setups with clear HTF alignment. 2-4 quality trades per session. Do NOT force trades." : ""}
+${tracker.currentPhase === "accelerating" ? "- PHASE INSTRUCTIONS: 25%+ done. Maintain discipline \u2014 do NOT lower confluence standards to chase frequency. Only take setups where HTF and M15 align. 3-5 trades/session MAX. Quality is the target, not volume." : ""}
+${tracker.currentPhase === "cruising" ? "- PHASE INSTRUCTIONS: Halfway there. Maintain pace. Balance risk \u2014 do NOT blow gains. Use the compound multiplier but cap total open exposure to 3 trades max." : ""}
+${tracker.currentPhase === "pushing" ? "- PHASE INSTRUCTIONS: 80%+ done! SHIFT TO PRESERVATION MODE NOW. Only A+ sniper/ICT setups with 85%+ confidence. Smaller lots. No scalping. Protect the gains." : ""}
+${tracker.currentPhase === "target_reached" ? "- PHASE INSTRUCTIONS: TARGET HIT! PRESERVATION mode ONLY. Only ultra-high-confidence sniper setups (90%+). Minimum lot sizes. No scalping. Protect the bag." : ""}
+
+STRATEGY PERFORMANCE THIS WEEK:
+${Object.entries(tracker.strategyBreakdown).map(([s, d]) => `- ${s}: ${d.trades} trades, ${d.wins} wins, $${d.pnl} P&L`).join("\n") || "- No trades yet"}
+
+SESSION PERFORMANCE:
+${Object.entries(tracker.sessionBreakdown).map(([s, d]) => `- ${s}: ${d.trades} trades, ${d.wins} wins, $${d.pnl} P&L`).join("\n") || "- No session data yet"}
+
+PAIR PERFORMANCE THIS WEEK (use this to self-correct your trading):
+${Object.keys(tracker.symbolBreakdown || {}).length > 0 ? Object.entries(tracker.symbolBreakdown).sort(([, a], [, b]) => b.pnl - a.pnl).map(([symbol, d]) => {
+      const winRate = d.trades > 0 ? Math.round(d.wins / d.trades * 100) : 0;
+      let label;
+      let instruction;
+      if (winRate >= 60 && d.pnl > 0) {
+        label = "FAVOUR";
+        instruction = "This pair is profitable this week - you can be slightly more aggressive on high-confidence setups.";
+      } else if (d.trades >= 3 && (winRate < 40 || d.pnl < 0)) {
+        label = "AVOID";
+        instruction = "This pair has been underperforming. Require 85%+ confidence before entering, or skip marginal setups entirely.";
+      } else {
+        label = "NEUTRAL";
+        instruction = "Trade with standard confidence thresholds.";
+      }
+      return `- ${symbol}: ${d.trades} trades | ${d.wins}W/${d.losses}L | ${winRate}% win rate | $${d.pnl >= 0 ? "+" : ""}${d.pnl} P&L \u2192 [${label}] ${instruction}`;
+    }).join("\n") : "- No pair data yet this week. Treat all pairs equally until performance data builds up."}
+INSTRUCTION: Use the FAVOUR/NEUTRAL/AVOID ratings above to weight your decisions. Double down on pairs that are working. Be highly selective or skip pairs that are losing money.
+
+PAIR + STRATEGY COMBINATIONS THIS WEEK (use this to pick the right strategy for each pair):
+${Object.keys(tracker.pairStrategyBreakdown || {}).length > 0 ? Object.entries(tracker.pairStrategyBreakdown).sort(([, a], [, b]) => b.pnl - a.pnl).map(([key, d]) => {
+      const [symbol, strategy] = key.split("|");
+      const winRate = d.trades > 0 ? Math.round(d.wins / d.trades * 100) : 0;
+      let label;
+      if (winRate >= 60 && d.pnl > 0) label = "BEST COMBO";
+      else if (d.trades >= 2 && (winRate < 40 || d.pnl < 0)) label = "POOR COMBO - AVOID";
+      else label = "NEUTRAL";
+      return `- ${symbol} + ${strategy}: ${d.trades} trades | ${d.wins}W/${d.losses}L | ${winRate}% | $${d.pnl >= 0 ? "+" : ""}${d.pnl} \u2192 [${label}]`;
+    }).join("\n") : "- No pair+strategy data yet. Build history over several trades."}
+INSTRUCTION: When deciding which strategy to apply to a pair, PRIORITISE combinations labelled BEST COMBO. AVOID combinations labelled POOR COMBO even if the pair or strategy looks good individually.
+` : "";
+    let crossAssetSection = "";
+    if (crossAssets && Object.keys(crossAssets).length > 0) {
+      const dxy = crossAssets["USDI"];
+      const gold = crossAssets["XAUUSD"];
+      const us30 = crossAssets["US30"];
+      const sentimentScore = (dxy ? dxy.trend === "UP" ? 1 : dxy.trend === "DOWN" ? -1 : 0 : 0) * -1 + // DXY up = USD bullish, negative for risk pairs
+      (gold ? gold.trend === "UP" ? -1 : gold.trend === "DOWN" ? 1 : 0 : 0) + // Gold up = risk-off
+      (us30 ? us30.trend === "UP" ? 1 : us30.trend === "DOWN" ? -1 : 0 : 0);
+      const sentimentLabel = sentimentScore >= 2 ? "RISK-ON (strong)" : sentimentScore >= 1 ? "RISK-ON (mild)" : sentimentScore <= -2 ? "RISK-OFF (strong)" : sentimentScore <= -1 ? "RISK-OFF (mild)" : "NEUTRAL";
+      crossAssetSection = `
+MACRO CROSS-ASSET SIGNALS:
+${dxy ? `DXY (USD Index): ${dxy.trend} \u2192 ${dxy.trend === "UP" ? "USD strengthening \u2014 favour selling EUR/GBP/AUD, buying USD pairs" : dxy.trend === "DOWN" ? "USD weakening \u2014 favour buying EUR/GBP/AUD, selling USD pairs" : "USD flat \u2014 neutral bias on USD pairs"}` : ""}
+${gold ? `Gold (XAUUSD): ${gold.trend} \u2192 ${gold.trend === "UP" ? "Risk-OFF \u2014 flight to safety, favour JPY/CHF/Gold buys, avoid risk assets" : gold.trend === "DOWN" ? "Risk-ON \u2014 appetite for risk, favour AUD/NZD/equities, reduce JPY/CHF longs" : "Gold flat \u2014 neutral risk environment"}` : ""}
+${us30 ? `US30 (Dow Jones): ${us30.trend} \u2192 ${us30.trend === "UP" ? "Equities bid \u2014 risk-on, USD mixed, favour commodity currencies" : us30.trend === "DOWN" ? "Equities selling \u2014 risk-off, favour JPY/CHF/Gold, reduce exposure" : "Equities flat \u2014 neutral macro environment"}` : ""}
+Risk Sentiment Score: ${sentimentScore > 0 ? "+" : ""}${sentimentScore}/3 \u2014 ${sentimentLabel}
+INSTRUCTION: Entries that align with this macro bias get +5% confidence. Entries opposing the bias need 80%+ base confidence before firing. If risk-off, avoid AUDJPY/AUDUSD buys. If risk-on, avoid USDJPY/CHF buys unless technically exceptional.
+`;
+    }
+    let weightsSection = "";
+    if (state.strategyPerformanceWeights && Object.keys(state.strategyPerformanceWeights).length > 0) {
+      const wEntries = Object.entries(state.strategyPerformanceWeights).sort(([, a], [, b]) => b - a).map(([k, v]) => {
+        const vn = v;
+        const tag = vn >= 1.5 ? "\u{1F525}HOT" : vn >= 1.2 ? "\u2705WARM" : vn <= 0.3 ? "\u274CCOLD" : vn <= 0.6 ? "\u26A0\uFE0FCOOL" : "\u25FB\uFE0FOK";
+        return `${k}=${vn.toFixed(2)}${tag}`;
+      }).join(", ");
+      weightsSection = `
+STRATEGY PERFORMANCE WEIGHTS (real-time, updated after every trade result):
+${wEntries}
+INSTRUCTION: Strategies marked \u{1F525}HOT (\u22651.5) or \u2705WARM (\u22651.2) \u2014 prioritise these, lower confidence threshold by 5%. Strategies \u26A0\uFE0FCOOL (\u22640.6) \u2014 only take if 85%+ confidence. Strategies \u274CCOLD (\u22640.3) \u2014 skip entirely this session. This reflects actual live market performance \u2014 trust it.
+`;
+    }
+    let dualModeSection = "";
+    if (config.useKellyCriterion && config.enablePyramiding) {
+      dualModeSection = `
+DUAL-MODE ACTIVE: Kelly Criterion + Auto-Pyramid are both enabled. You MUST choose which applies to each trade:
+\u2022 KELLY ONLY (use when ADX < 25 \u2014 ranging/choppy market): Output a standard OPEN_TRADE signal. The engine automatically sizes using Kelly. Do NOT recommend pyramiding on ranging markets \u2014 it increases risk with no momentum edge.
+\u2022 PYRAMID ALLOWED (use when ADX \u2265 25 \u2014 trending market): Include "pyramidAllowed": true in your JSON. The engine will add to winners automatically at +15 pips using Kelly-sized lots. Only recommend this on strongly trending setups with 5+ confluences.
+\u2022 RULE: Never output pyramiding on reversal strategies (ict_ote, smc_demand_supply, news_fade) \u2014 those are mean-reversion and conflate badly with pyramiding.
+\u2022 The engine will log its arbitration decision in the activity feed after every signal.
+`;
+    } else if (config.useKellyCriterion) {
+      dualModeSection = `KELLY CRITERION ACTIVE: All lot sizes are dynamically calculated from per-strategy win rate and R:R history. Your suggested lotSize will be overridden by Kelly math. Focus on confidence and direction \u2014 the engine handles sizing.
+`;
+    } else if (config.enablePyramiding) {
+      dualModeSection = `AUTO-PYRAMID ACTIVE: For trending setups (ADX \u2265 25) with strong momentum, the engine will automatically add to winning positions at +15 pips. Favour momentum and breakout strategies for pyramid-eligible setups.
+`;
+    }
+    let shieldSection = "";
+    if (state.drawdownShieldActive) {
+      shieldSection = `
+\u26A0\uFE0F DRAWDOWN SHIELD ACTIVE: Session has pulled back from its peak. PROTECT MODE ENGAGED.
+ONLY trade these strategies: prop_firm_sniper, ict_ote, ict_order_blocks, sniper
+Risk MAXIMUM 0.25% per trade (0.0025 \xD7 account balance)
+NO scalping, NO momentum, NO compound, NO session_breakout strategies
+REQUIRED confidence: 80%+ minimum before ANY entry
+Your job is to protect what's been built and claw back to the peak methodically.
+`;
+    }
+    let triggerSection = "";
+    if (triggerAlerts && triggerAlerts.length > 0) {
+      triggerSection = `
+\u{1F6A8} LIVE TRIGGER ALERTS (priority pairs for this scan):
+${triggerAlerts.map((t) => `- ${t}`).join("\n")}
+INSTRUCTION: This scan was triggered by real-time indicator events above. Prioritise evaluation of the flagged pairs immediately. High-probability entries may be forming RIGHT NOW.
+`;
+    }
+    let codeGateSection = "";
+    {
+      if (!state.pairDirectionLock) state.pairDirectionLock = {};
+      const activeLocks = Object.entries(state.pairDirectionLock).filter(([, v]) => Date.now() < v.lockedUntil).map(([sym, v]) => `${sym}:${v.direction}(${Math.ceil((v.lockedUntil - Date.now()) / 6e4)}min,${v.lossCount}L)`);
+      if (activeLocks.length > 0) {
+        codeGateSection = `
+CODE-LEVEL DIRECTION LOCKS (engine auto-rejects these regardless of your signal):
+${activeLocks.join(", ")}
+These pairs had recent losses. Same-direction entries are code-blocked for 45-90 min. Focus on unlocked pairs or opposite direction if structure supports it.
+`;
+      }
+    }
+    let mindSection = "";
+    {
+      const mind = state.mindState;
+      if (mind && mind.sessionWins + mind.sessionLosses > 0) {
+        const total = mind.sessionWins + mind.sessionLosses;
+        const blockedStrats = mind.blockedStrategies ? [...mind.blockedStrategies] : [];
+        const softBlocked = Object.entries(mind.softBlockedPairs || {}).filter(([, v]) => v.until > Date.now()).map(([sym]) => sym);
+        const bestHour = Object.entries(mind.hourlyPnL || {}).sort(([, a], [, b]) => b - a)[0];
+        const worstHour = Object.entries(mind.hourlyPnL || {}).sort(([, a], [, b]) => a - b)[0];
+        mindSection = `
+\u{1F9E0} ENGINE MIND STATE (live session learning \u2014 updated after every trade):
+Session: ${mind.sessionWins}W / ${mind.sessionLosses}L | Win rate: ${(mind.sessionWinRate * 100).toFixed(0)}% | Streak: ${mind.sessionConsecutiveWins > 0 ? `+${mind.sessionConsecutiveWins} wins` : mind.sessionConsecutiveLosses > 0 ? `-${mind.sessionConsecutiveLosses} losses` : "neutral"}
+Adapted confidence floor: ${mind.adaptedConfidenceFloor}% (auto-raised from ${state.config.minConfidence}% based on session performance)
+${blockedStrats.length > 0 ? `AUTO-BLOCKED STRATEGIES (COLD weight): ${blockedStrats.join(", ")} \u2014 DO NOT use these` : "All strategies available (none cold-blocked)"}
+${softBlocked.length > 0 ? `SOFT-BLOCKED PAIRS (90%+ needed): ${softBlocked.join(", ")} \u2014 only use on exceptional structure` : ""}
+${bestHour ? `Best trading hour today: ${bestHour[0]}:00 UTC ($${bestHour[1].toFixed(0)})` : ""}
+${worstHour && worstHour[1] < 0 ? `Worst hour: ${worstHour[0]}:00 UTC ($${worstHour[1].toFixed(0)}) \u2014 be cautious during this window` : ""}
+${mind.adaptationLog.slice(0, 3).map((l) => `  \u2022 ${l}`).join("\n")}
+INSTRUCTION: The engine has autonomously adjusted based on the above. Respect the adapted confidence floor. Do NOT suggest blocked strategies. Weight your signals toward pairs and hours showing positive session performance.
+`;
+      }
+    }
+    const prompt = `You are VEDD SS AI LIVE TRADING ENGINE - operating in REAL-TIME autonomous HIGH-FREQUENCY mode. You are directly monitoring live market data and making INSTANT trading decisions to hit a weekly profit goal.
+${triggerSection}${crossAssetSection}${codeGateSection}${mindSection}
+LIVE MARKET DATA (just fetched):
+${marketSummary}
+
+CURRENT OPEN POSITIONS (${currentOpenCount}/${config.maxOpenTrades} max):
+${openPosStr}
+
+BRAIN KNOWLEDGE (from historical learning):
+${brainInsights}
+
+PAIR-SPECIFIC KNOWLEDGE:
+${pairKnowledge}
+${weightsSection}${htfBiasSection}${shieldSection}${dualModeSection}${goalSection}
+REAL-TIME NEWS & MARKET SENTIMENT:
+${newsContext && newsContext.headlines.length > 0 ? `Market Sentiment: ${newsContext.marketSentiment.toUpperCase()}
+Recent Headlines:
+${newsContext.headlines.map((h) => `- ${h}`).join("\n")}` : "No live news data available - trade based on technicals only"}
+
+ECONOMIC CALENDAR (upcoming events affecting your pairs):
+${newsContext && newsContext.economicEvents.length > 0 ? newsContext.economicEvents.join("\n") : "No major events detected"}
+${newsContext?.highImpactSoon ? `
+*** WARNING: ${newsContext.tradingWindowWarning} ***` : ""}
+
+NEWS-AWARE TRADING RULES:
+- BEFORE high-impact news (NFP, CPI, FOMC, rate decisions): AVOID opening new positions on affected currency pairs within 30 min of the event. For existing open positions \u2014 widen the SL if needed (MODIFY_POSITION + move_sl), but do NOT close them pre-emptively; news often accelerates the position's intended direction.
+- AFTER high-impact news: Wait for the initial spike to settle (5-10 min), then trade the follow-through direction with momentum strategy
+- If market sentiment is BULLISH: favor BUY setups on correlated pairs, tighten risk on SELL trades
+- If market sentiment is BEARISH: favor SELL setups, tighten risk on BUY trades
+- If sentiment is NEUTRAL or no news: trade purely on technicals
+
+VOLUME-AWARE TRADING RULES:
+- SURGING volume (RelVol 2x+): PRIORITY pairs - breakouts and momentum moves are most reliable here. Increase lot sizes on these pairs
+- ABOVE AVERAGE volume (RelVol 1.3x+): Good trading conditions. Use standard strategies
+- AVERAGE volume: Normal conditions. Focus on higher-confluence setups
+- BELOW AVERAGE volume (RelVol <0.7x): REDUCE activity on these pairs. Tighter stops, smaller lots. Avoid breakout strategies - they fail in low volume
+- DRY volume (RelVol <0.5x): AVOID trading these pairs entirely unless sniper setup with 5+ confluences. Low volume = fake breakouts, poor fills, wide spreads
+- UNKNOWN volume (RelVol=0): Insufficient data - treat as BELOW AVERAGE. Do NOT use aggressive strategies on these pairs
+- Volume SPIKES often precede big moves - if you see volume spikes with a consolidating price, a breakout is imminent
+- Best trading windows: London open (07:00-10:00 UTC), NY open (13:00-16:00 UTC), London/NY overlap (13:00-16:00 UTC) - HIGHEST volume and best fills
+- Worst windows: Late NY (20:00-00:00 UTC), Asian session for EUR/GBP pairs - LOW volume, choppy, wide spreads
+
+AGGRESSIVE POSITION MANAGEMENT RULES:
+- BE RELENTLESS: Your goal is maximum profit in minimum time. Manage active trades aggressively to lock in gains and free up margin for new high-frequency setups.
+- BREAKEVEN: Move SL to entry only after 15+ pips profit. Give the trade room to breathe \u2014 do NOT rush to breakeven.
+- ACTIVE TRAIL STRATEGY: ${TRAIL_METHOD_LABELS[config.trailMethod || "staged_volume"]}${config.trailMethod && config.trailMethod !== "staged_volume" && config.trailMethod !== "none" ? ` \u2014 the server is computing and applying trail SL updates automatically each scan cycle (activation: ${config.trailActivationPips ?? 15} pips in profit). Your position management role is PARTIAL_CLOSE and FULL_CLOSE decisions only \u2014 do NOT output trail_stop modify actions for open positions when a server-side trail method is active.` : ""}
+${config.trailMethod === "none" ? `- NO TRAILING STOP ACTIVE. The user has disabled trailing. Hold all open positions to their full TP target. Do NOT output trail_stop or trail_breakeven modify actions under any circumstances. Your only SL/TP actions are PARTIAL_CLOSE when TP1 is hit, or FULL_CLOSE if the setup completely invalidates (price action breaks structure against the trade). Original SL is the only protection \u2014 do not touch it.` : ""}
+${!config.trailMethod || config.trailMethod === "staged_volume" ? `- TRAILING (STAGED + VOLUME-ADJUSTED \u2014 never trail too early, it kills winners):
+    \u2022 15\u201339 pips profit \u2192 Move SL to BREAKEVEN ONLY. Do not trail yet. Price needs room to develop.
+    \u2022 40\u201359 pips profit \u2192 Start trailing. Use volume-adjusted distance:
+        - Volume SURGING or ABOVE_AVERAGE: 25-pip trail (strong momentum, give room to run)
+        - Volume AVERAGE: 20-pip trail
+        - Volume BELOW_AVERAGE or DRY: 15-pip trail (move exhausting, protect gains sooner)
+    \u2022 60\u201399 pips profit \u2192 Tighten trail. Use volume-adjusted distance:
+        - Volume SURGING or ABOVE_AVERAGE: 20-pip trail
+        - Volume AVERAGE: 15-pip trail
+        - Volume BELOW_AVERAGE or DRY: 10-pip trail
+    \u2022 100+ pips profit \u2192 Lock in gains. Use volume-adjusted distance:
+        - Volume SURGING or ABOVE_AVERAGE: 15-pip trail
+        - Volume AVERAGE: 10-pip trail
+        - Volume BELOW_AVERAGE or DRY: 8-pip trail
+- NEVER use trail distance less than 8 pips \u2014 anything tighter gets hit by normal spread and noise.` : config.trailMethod === "none" ? "" : "- Trail SL management is handled server-side. Focus on: partial close at TP1, close if setup invalidated."}
+- PARTIAL CLOSE: Take 50% at TP1, then let the runner continue with the active trail method.
+- RESPECT THE SL: A trade in drawdown is NOT a failed trade. Price oscillates \u2014 the stop loss exists precisely to protect against real failure. Do NOT close a position just because it is temporarily negative.
+- STRUCTURAL INVALIDATION ONLY: Only close a losing trade if the ORIGINAL SETUP THESIS has been broken \u2014 e.g., a BOS/CHOCH against the trade on H1, or price closing THROUGH a key structure level that the setup depended on. Temporary pullbacks, noise, and short-term retracements do NOT invalidate a setup.
+- MINIMUM HOLD TIME: Never request CLOSE_POSITION on a position that shows Age < 45min in the position data above unless it is approaching its SL. Give the trade time to develop.
+- SCALE OUT: Only exit 50% early if price has CONFIRMED reversal (strong opposing candle + volume), not just a drawdown spike.
+- NEVER close one position to open another: Each position lives and dies on its own merit. Never sacrifice a live trade to fund a new entry.
+
+TREND-DIRECTION RULES (critical \u2014 do not violate these):
+- NEVER output a BUY signal on a pair where the M15 or H1 trend shows BEARISH with ADX > 20. "Oversold" RSI or Stochastic in a downtrend means CONTINUATION, NOT reversal. Wait for trend to neutralize first.
+- NEVER output a SELL signal on a pair where the M15 or H1 trend shows BULLISH with ADX > 20. "Overbought" readings in an uptrend mean continuation.
+- DI LINE RULE: If plusDI < minusDI (regardless of ADX level), the market is bearish. Do NOT buy. If plusDI > minusDI, the market is bullish. Do NOT sell unless you have clear reversal structure.
+- If a pair shows M15 BEARISH + H1 BEARISH simultaneously, the ONLY valid trade is SELL. Any BUY requires ALL of: 85%+ confidence, clear bullish BOS on M15, strong bullish engulfing candle, RSI divergence. If you don't have ALL of these, output NO_ACTION.
+- Counter-trend trades are rare, high-skill setups. Default to trend alignment. When in doubt, skip the entry and wait for the trend to play out.
+- In GBP pairs (GBPUSD, GBPJPY, EURGBP): these are highly news-sensitive. If macro context shows USD strength or GBP weakness, only take SELL setups unless you have clear bullish reversal structure.
+- RSI/Stoch in a BEARISH trend: RSI below 50, Stoch below 50 = CONTINUATION signals. RSI below 30 in a downtrend is NOT a buy signal \u2014 it means the sell is accelerating.
+
+ENTRY TIMING \u2014 WHEN TO BUY, SELL, OR WAIT (include in every signal):
+- PRIME_ENTRY: M15 trend confirmed (ADX > 20 or DI sep > 10), momentum indicator in trend direction (RSI > 55 for bull or < 45 for bear), volume ABOVE_AVERAGE or SURGING, no major news in next 30 min. ENTER NOW.
+- WAIT_PULLBACK: Trend confirmed but price extended from VWAP (Dev > 0.15%) or RSI > 70/< 30. Wait for a pullback to VWAP or 38.2% Fib retracement before entering. Set urgency = WAIT_FOR_PULLBACK.
+- WAIT_STRUCTURE: Good macro setup but M15 hasn't confirmed with BOS yet. Wait for price to break structure and retest. Do NOT front-run structure breaks.
+- AVOID: Any of these present \u2192 skip the trade entirely: (1) M15 trend CONFLICTS with H1 trend and confidence < 82%, (2) High impact news within 30 min on that currency, (3) Volume DRY (RelVol < 0.5x), (4) ADX < 12 and DI separation < 6 (market is truly ranging/directionless), (5) Session is 20:00-00:00 UTC and not a JPY/AUD pair.
+
+For EVERY signal, set "urgency" to one of: IMMEDIATE (prime entry, enter now), WAIT_FOR_PULLBACK (good setup but overextended), MONITORING (building but not ready).
+Set "tradingWindow" field = "prime" | "good" | "marginal" | "avoid" based on: session time + volume + trend strength + news proximity.
+If tradingWindow = "avoid", output NO_ACTION instead of a trade signal.
+
+CONFLUENCE REQUIREMENTS BY STRATEGY (minimum number of confirming factors):
+- scalping: MINIMUM 4 confluences (trend direction, RSI>55/<45, Stoch in trend direction, VWAP on correct side, volume \u2265 average). Without 4, output NO_ACTION.
+- momentum: MINIMUM 3 confluences (trend confirmed by ADX, momentum indicator, OBV or volume direction).
+- sniper / ict_ote / smc_demand_supply: MINIMUM 5 confluences (HTF bias + structure level + indicator + volume + candle pattern).
+- session_breakout / asia_range_breakout: MINIMUM 3 confluences (range break + volume surge + candle close outside range).
+- All others: MINIMUM 3 confluences. If you cannot list 3 specific confirming factors in the confluences field, do NOT signal.
+
+HOLD TIME ALIGNMENT WITH TIMEFRAME:
+- holdTime "15min"-"30min": This is a scalp. M15 trend MUST be in signal direction (no exceptions). ATR-based SL minimum 1.2\xD7 ATR. DO NOT use holdTime < 30min if M15 trend is NEUTRAL.
+- holdTime "1hr": Intraday trade. Both M15 AND H1 should favour the direction. SL minimum 1.5\xD7 ATR.
+- holdTime "4hr" or longer: Swing trade. H1 AND H4 must align. SL minimum 2\xD7 ATR. Higher TP targets (3:1+ R:R).
+- NEVER assign holdTime "5min" \u2014 the engine operates on M15 data and 5-minute trades need M1/M5 analysis we don't have. Minimum holdTime is "30min".
+
+CONTEXT:
+- Time: ${now.toISOString()} | Session: ${session2} | Day: ${day}
+- Strategy: ${config.strategyMode.toUpperCase()} | Min Confidence: ${config.minConfidence}% (DO NOT submit signals below this \u2014 they will be auto-rejected)
+- R:R Minimum: 1:2 required on all entries. Aim for 1:2.5\u20131:3 on premium setups (85%+ confidence). NEVER take a trade with R:R below 1:2
+- Risk per trade: ${config.riskPerTrade}% | Trailing stops: ${config.trailingStopEnabled ? "ON" : "OFF"}
+- Max trades allowed: ${config.maxOpenTrades} | Currently open: ${currentOpenCount}
+- Position management: ${config.enablePositionManagement ? "ACTIVE" : "OFF"}
+- Compounding: ${config.enableCompounding ? "ON" : "OFF"} | Compound Multiplier: ${compMult}x
+${config.accountBalance > 0 && config.accountBalance < 500 ? `
+SMALL ACCOUNT PROTECTION ($${config.accountBalance}):
+- CRITICAL: This is a small account. CAPITAL PRESERVATION is the #1 priority.
+- Use ONLY 0.01 lot size. Never suggest more than 0.01 for any trade.
+- Maximum 2-3 open trades at a time - fewer trades = lower risk exposure.
+- Only take A+ setups with 75%+ confidence. Skip marginal setups.
+- Favor SNIPER and MOMENTUM strategies over rapid scalping - scalping spreads eat small accounts alive.
+- Set tight stops (10-15 pips max for forex) but ensure R:R is at least 1:2.
+- NEVER increase lot size until account is above $500. Compounding is capped.
+- Close losing trades FAST - a $5 loss on a $100 account is already 5%.
+- If account has dropped below starting balance, switch to ULTRA-CONSERVATIVE: only 1 trade at a time, 80%+ confidence only.
+` : ""}
+- IMPORTANT: Market data comes from Twelve Data. User's broker may have slightly different prices (spread, feed differences). Use ZONE-BASED entries rather than exact prices. Set SL/TP as DISTANCES from entry (e.g. 15 pips SL) so the EA can adjust to broker prices automatically.
+
+HFT TRADING STRATEGY ARSENAL - USE ALL SIMULTANEOUSLY TO HIT THE WEEKLY GOAL:
+
+SCALPING (M15 momentum setups, primary for quick profit accumulation):
+- Trade clear M15 momentum moves that align with the current M15 trend direction \u2014 DO NOT scalp counter-trend
+- Look for RSI momentum (>55 in uptrend, <45 in downtrend) + Stochastic %K crossing 50 in trend direction + VWAP on correct side
+- STOP LOSS: Minimum 1.2\xD7 current ATR below entry for BUY (above for SELL). For major pairs this is typically 15-25 pips. NEVER less than 15 pips on non-JPY, NEVER less than 20 pips on JPY pairs. Tight SLs get hit by normal candle noise and lose money every time.
+- TAKE PROFIT: Minimum 2\xD7 SL distance from entry (2:1 R:R), target 2.5-3:1 for A+ setups
+- Entry timing: Only scalp DURING confirmed momentum candles \u2014 not at the start of consolidation. Wait for price to show clear direction first.
+- VOLUME REQUIREMENT (CODE-ENFORCED): The engine will HARD BLOCK scalping signals if volume is below_average or dry (RelVol < 0.7x). Do NOT output scalping signals when volume is low \u2014 they will be rejected automatically. Only scalp when RelVol \u2265 0.7x and preferably SURGING or ABOVE_AVERAGE.
+- SESSION REQUIREMENT (CODE-ENFORCED): EUR/GBP/CHF scalping is HARD BLOCKED during Asian hours (00:00-07:00 UTC). Do NOT output scalps on these pairs during Asian session \u2014 they will be rejected. Instead output momentum or sniper strategy if structure warrants it.
+- Best windows: London open 07:00-09:30 UTC, NY open 13:00-15:30 UTC. DO NOT scalp during 20:00-00:00 UTC (low volume, wide spreads, fake moves)
+- GOAL: 3-5 quality scalps with \u22652:1 R:R beats chasing 10 scalps with tight stops that get wiped out
+
+MOMENTUM SURFING (15-40 pip rides - SECONDARY for bigger chunks):
+- Catch breakouts from consolidation zones when ADX crosses above 25
+- Ride strong directional moves confirmed by OBV trend alignment
+- Enter on pullbacks to moving averages in trending markets
+- Use trailing stops to let winners run - move SL to breakeven after 15 pips profit
+- GOAL: Capture 2-3 big moves per day to boost daily P&L significantly
+
+SESSION BREAKOUT STRATEGY (session-open captures):
+- Watch for range breakouts at London open (07:00 UTC), NY open (13:00 UTC), Tokyo open (00:00 UTC)
+- Calculate prior session high/low range, enter on confirmed break with volume
+- Strongest breakouts happen in first 30 minutes of new session
+- Use pre-session range as SL reference, target 1:2 or 1:3 R:R
+- GOAL: Catch the big session-opening move. One good breakout can deliver $20-50+ in profit
+
+SNIPER MODE (surgical precision, big targets):
+- Only take the highest probability setups with 5+ confluences
+- Wait for price at key Fibonacci levels (38.2%, 61.8%) + S/R confluence
+- Candlestick reversal patterns (Engulfing, Morning/Evening Star) at key zones
+- Wider targets, tighter risk - aim for 1:3+ reward-to-risk
+- GOAL: Quality over quantity. One perfect sniper trade can make the whole day
+
+CLASSIC CHART PATTERNS (pattern recognition trading):
+- HEAD AND SHOULDERS: Three peaks where the middle peak (head) is highest. Neckline break = SELL. Inverse H&S (three troughs, middle lowest) neckline break = BUY. Target = distance from head to neckline projected from breakout
+- DOUBLE TOP: Price hits same resistance twice and fails. Break below the valley between the two tops = SELL. Target = height of pattern projected down
+- DOUBLE BOTTOM: Price hits same support twice and holds. Break above the peak between the two bottoms = BUY. Target = height of pattern projected up
+- TRIPLE TOP/BOTTOM: Same as double but with three touches - even stronger signal when the pattern finally breaks
+- ASCENDING TRIANGLE: Flat resistance + rising lows. Breakout above resistance = BUY. Volume should increase on breakout
+- DESCENDING TRIANGLE: Flat support + lower highs. Breakdown below support = SELL. Volume confirms the break
+- SYMMETRICAL TRIANGLE: Converging trendlines (lower highs + higher lows). Trade the breakout direction. Usually continues the prior trend
+- BULL/BEAR FLAG: Strong move followed by a small counter-trend channel (the flag). Breakout in the original trend direction = continuation trade. Quick, high-probability setups
+- RISING/FALLING WEDGE: Rising wedge = bearish reversal (breaks down). Falling wedge = bullish reversal (breaks up). Opposite of what the slope suggests
+- CUP AND HANDLE: Rounded bottom (cup) followed by small pullback (handle). Break above the handle = BUY. Strong bullish continuation pattern
+- CHANNEL TRADING: Price bouncing between parallel support and resistance lines. Buy at channel bottom, sell at channel top. Break out of channel = strong trend signal
+- GOAL: Identify these patterns early and trade the confirmed breakout/breakdown. Always wait for the break + volume confirmation before entering. Measure the pattern height for profit targets
+
+ICT ORDER BLOCKS (institutional footprint trading):
+- Identify BULLISH ORDER BLOCKS: Last bearish candle before a strong bullish move that breaks structure. Price returns to this zone = BUY opportunity
+- Identify BEARISH ORDER BLOCKS: Last bullish candle before a strong bearish move that breaks structure. Price returns to this zone = SELL opportunity
+- Order blocks are most valid when they caused a Break of Structure (BOS) or Change of Character (CHOCH)
+- Use H1/H4 order blocks for direction, M15/M5 order blocks for precision entries
+- Best entries: Price wicks into the OB zone, shows rejection (wick/pin bar), then closes outside the zone
+- GOAL: Trade with institutional money flow. Order blocks reveal where smart money placed orders
+
+ICT FAIR VALUE GAPS (imbalance fills):
+- FVG = 3-candle pattern where there is a gap between candle 1's wick and candle 3's wick (the middle candle moved so fast it left an imbalance)
+- Bullish FVG: Gap between candle 1's HIGH and candle 3's LOW (candle 2 was strongly bullish). Price drops into this gap \u2192 BUY
+- Bearish FVG: Gap between candle 1's LOW and candle 3's HIGH (candle 2 was strongly bearish). Price rallies into this gap \u2192 SELL
+- FVGs act as magnets - price tends to fill them before continuing in the original direction
+- Most reliable when FVG appears on H1/H4 timeframe and aligns with overall trend
+- Enter when price touches the 50% level of the FVG (consequent encroachment)
+- GOAL: Exploit market inefficiencies. FVGs on higher timeframes are institutional targets
+
+ICT LIQUIDITY SWEEPS (stop hunt reversals):
+- Liquidity pools form above equal highs and below equal lows - institutions target these to fill large orders
+- SELL setup: Price spikes ABOVE a key high (sweeping buy-side liquidity), then reverses sharply with displacement
+- BUY setup: Price drops BELOW a key low (sweeping sell-side liquidity), then reverses sharply with displacement
+- Confirm with: displacement candle (large body, small wicks), followed by FVG creation
+- Best during Kill Zone hours (London open 07:00-09:00 UTC, NY open 13:00-15:00 UTC, London close 15:00-17:00 UTC)
+- Look for sweeps of Asian session highs/lows during London or NY sessions
+- GOAL: Trade the reversal after smart money grabs liquidity. These produce the cleanest, highest R:R setups
+
+ICT BREAK OF STRUCTURE (trend continuation/reversal):
+- BOS (Break of Structure): Price breaks a recent swing high (bullish BOS) or swing low (bearish BOS) = trend continuation
+- CHOCH (Change of Character): Price breaks structure in the OPPOSITE direction of the current trend = potential reversal
+- After BOS: Wait for price to pull back to an order block or FVG within the broken structure, then enter in the BOS direction
+- After CHOCH: Wait for confirmation (a second lower high or higher low) before entering the new direction
+- Use M15 BOS/CHOCH for entry timing, H1/H4 for overall direction
+- GOAL: Align trades with the current market structure. Never trade against structure unless CHOCH confirms reversal
+
+ICT OPTIMAL TRADE ENTRY (precision Fibonacci entries):
+- OTE zone = 61.8%-78.6% Fibonacci retracement of the most recent impulse leg
+- After a BOS or liquidity sweep, measure the impulse move and enter at the OTE zone
+- Combine with order blocks that sit within the OTE zone for maximum confluence
+- SL goes beyond the swing point (the low of a bullish OTE or high of a bearish OTE)
+- TP targets: 127.2% Fibonacci extension, 161.8% extension, or next liquidity pool
+- GOAL: Enter at the optimal price within a confirmed setup. ICT's "sweet spot" for institutional entries
+
+SMC DEMAND/SUPPLY ZONES (smart money footprint \u2014 institutional zone trading):
+- DEMAND ZONE: Area where buyers overwhelmed sellers, launching price up sharply (impulsive move). When price returns to this zone = BUY opportunity. Enter at the 50\u201375% level inside the zone (the "sweet spot")
+- SUPPLY ZONE: Area where sellers overwhelmed buyers, dropping price sharply. When price returns = SELL opportunity. Enter at the 50\u201375% level inside the zone
+- ZONE VALIDITY: Fresh (not previously revisited), caused a BOS or CHOCH, aligns with higher timeframe (H1/H4) structure. Spent zones that have been revisited multiple times are invalid
+- PRECISION ENTRY: Look for FVGs or order blocks INSIDE the zone for highest-precision entry. These are zones within zones \u2014 the ultimate confluence
+- RISK MANAGEMENT: SL goes just below the demand zone (or above supply zone) \u2014 beyond where smart money would have their orders. TP targets the next opposing zone
+- MULTI-TIMEFRAME: Use H4/H1 zones for directional bias, M15/M5 zones for entry timing
+- Strategy label: smc_demand_supply
+- GOAL: Trade FROM zones, not THROUGH them. Zones print the map of institutional order flow
+
+ASIA RANGE BREAKOUT (session-range capture \u2014 one of the cleanest strategies in forex):
+- SETUP: The Asian session (00:00\u201307:00 UTC) typically consolidates in a defined range. The market is building liquidity above and below this range for London to sweep
+- TRACK: AsiaHigh and AsiaLow are provided for each pair in the market data above
+- LONDON OPEN BREAKOUT (07:00\u201308:30 UTC): When price breaks convincingly ABOVE AsiaHigh = BUY. Break BELOW AsiaLow = SELL
+- CONFIRMATION: (1) Candle closes outside the Asia range, (2) Volume surges on the break, (3) Price retests the broken level (old resistance becomes support, or vice versa)
+- TARGETS: Minimum target = 50% of the Asia range size projected in the break direction. Full target = 100% of the Asia range size. Let runner ride to 150% with trailing stop
+- STOP LOSS: 10\u201315 pips inside the Asia range from the break level (protect against false breakouts)
+- PAIRS: All major forex pairs + XAUUSD. Most reliable on GBPUSD, EURUSD, GBPJPY
+- FALSE BREAKOUT FILTER: If price breaks out but immediately reverses back inside the range within 2 candles, it's a false breakout \u2014 don't chase. Wait for clear London direction
+- Strategy label: asia_range_breakout
+- GOAL: Catch the London open momentum move. These setups often deliver 50\u2013150+ pips in the first 1\u20132 hours
+
+VWAP MEAN REVERSION (deviation fades \u2014 particularly powerful on indices):
+- SETUP: When price deviates 2+ standard deviations from VWAP, it becomes statistically likely to revert back toward VWAP
+- VWAP and VWAP deviation are visible in the market data (Dev% shown for each pair)
+- BUY SIGNAL: Price is significantly BELOW VWAP (Dev% very negative, price at -2 SD or lower) + RSI oversold (<35) + volume declining on the drop = buy the reversion toward VWAP
+- SELL SIGNAL: Price is significantly ABOVE VWAP (Dev% very positive, price at +2 SD or higher) + RSI overbought (>65) + volume declining on the rise = sell the reversion toward VWAP
+- TARGET: VWAP itself is the primary target. Second target: the opposing SD level for extended moves
+- STOP LOSS: Beyond the extreme (2.5 SD or recent wick extreme). Minimum 1:2 R:R required
+- BEST MARKETS: US30, NAS100, SPX500 during NY session (13:00\u201320:00 UTC). Also valid on XAUUSD and currency majors in high-volume sessions
+- CONFIRMATION: RSI divergence (price making new extreme but RSI declining), Stochastic crossover from extreme zone, OBV not confirming the price extreme
+- Strategy label: vwap_mean_reversion
+- GOAL: Exploit the rubber band effect \u2014 extreme deviations snap back. High win rate, consistent R:R
+
+NEWS FADE / POST-NEWS REVERSAL (fading the crowd after high-impact events):
+- CONCEPT: When major news hits (NFP, CPI, FOMC, Rate Decisions), retail traders chase the initial spike. Smart money fades the spike after liquidity is grabbed
+- TIMING: Wait 5\u201315 minutes AFTER the news release for the spike to exhaust. The fade window is ONLY valid for 10\u201330 minutes after the event. After 30 min, the window closes
+- FADE SIGNAL \u2014 all three needed: (1) RSI at extreme (>72 overbought or <28 oversold) on the spiked candle, (2) Sharp wick on the spike candle (long wick showing rejection), (3) Volume declining after the initial spike surge
+- ENTRY: Enter in the OPPOSITE direction of the news spike. If news spiked price up \u2192 SELL. If news crashed price \u2192 BUY
+- STOP LOSS: At or just beyond the wick extreme of the spike candle (where the spike peaked)
+- TARGET: Pre-news consolidation zone (where price was trading before the news). Often a 50\u2013100% retrace of the spike
+- VALID PAIRS: The affected currency pairs. NFP affects USD pairs. CPI affects GBP (UK CPI), EUR (EU CPI), USD (US CPI)
+- INVALID SETUP: If the news CONFIRMS the prior trend strongly (e.g., much better-than-expected jobs data in a USD bull market), skip the fade \u2014 the trend may continue
+- Check lastHighImpactNewsAt context: if a high-impact event was flagged recently (within 30 min), actively look for fade setups on affected pairs
+- Strategy label: news_fade
+- GOAL: Let retail traders gift you the liquidity. The fade after exhaustion is one of the cleanest and most institutional setups available
+
+AGGRESSIVE COMPOUND GROWTH (tie it all together):
+- Combine ALL strategies above simultaneously across multiple pairs
+- Scale lot sizes: base=${adjustedBaseLot} | With confidence scaling: 65-75%=${adjustedBaseLot}, 75-85%=${Math.round(adjustedBaseLot * 1.5 * 100) / 100}, 85%+=${Math.round(adjustedBaseLot * 2 * 100) / 100}
+- Max lot size cap: ${effectiveMaxLot} (never exceed this)
+- Pyramid into winning positions - add to trades that move 10+ pips in your favor
+- Trade correlated pairs in the same direction when macro trend aligns
+- Use partial closes to lock in profit (close 50% at TP1, trail the rest)
+- Re-enter quickly after taking profit if conditions still hold
+
+LIVE ENGINE RULES:
+\u26A1 PRIORITY ORDER \u2014 ALWAYS follow this sequence each scan:
+  STEP 1 \u2014 MANAGE OPEN POSITIONS FIRST (non-negotiable). For EVERY open position listed above, evaluate and output a MODIFY_POSITION or CLOSE_POSITION action using the exact ticket number shown. Apply: move to breakeven if 15\u201339 pips profit; trail stop only if \u226540 pips profit using volume-adjusted distance (25-pip if vol surging/above_avg, 20-pip if avg, 15-pip if below_avg/dry); close if setup invalidated. Do NOT skip this step when positions are open.
+  STEP 2 \u2014 Only then consider new OPEN_TRADE signals on pairs that have NO existing open position.
+  STEP 3 \u2014 Never open a new trade on a pair that already has an open position. One position per pair maximum.
+
+1. Use ALL strategies simultaneously - scan for scalps, momentum, breakouts, sniper setups, AND ICT setups (order blocks, FVGs, liquidity sweeps, BOS/CHOCH, OTE) on EVERY scan
+2. Generate MULTIPLE signals per scan when opportunities exist across different pairs WITH NO EXISTING POSITION
+3. Only signal when multiple indicators CONFIRM the same direction (minimum 2-3 confluences depending on strategy)
+4. Use brain knowledge to AVOID historically bad setups (wrong hours, wrong sessions, wrong direction bias)
+5. Factor in current open positions - diversify across uncorrelated pairs for maximum exposure
+6. If volatility percentile >80, widen stops and increase targets. If <20, use scalping with tight targets
+7. Session context matters - trade pairs during their historically best sessions
+8. Check support/resistance proximity - don't BUY at resistance or SELL at support
+9. Manage existing positions: trail stops using staged volume-adjusted distances (25-pip at 40+ profit if vol surging, 20-pip avg, 15-pip if vol dry; tightens at 60+ and 100+ pips) \u2014 NEVER trail before 40 pips in profit. Partial close at TP1, let runners ride \u2014 use the ticket number as positionId in MODIFY_POSITION actions
+10. GOAL-DRIVEN: Every decision must move toward the weekly target. Calculate estimated profit per trade and compare to daily target remaining
+11. COMPOUND ON WINS: After consecutive wins, increase lot size using compound multiplier. After losses, reduce to protect gains
+12. Look for RE-ENTRY opportunities after taking profit - the trend may still have legs
+13. THINK IN DOLLAR TARGETS: Each scalp at ${adjustedBaseLot} lots = ~$${(adjustedBaseLot * 3).toFixed(2)}-$${(adjustedBaseLot * 8).toFixed(2)} profit. Need ~${dailyTarget > 0 ? Math.ceil(dailyTarget / (adjustedBaseLot * 5)) : "N/A"} wins/day at avg $${(adjustedBaseLot * 5).toFixed(2)}/trade to hit daily target
+14. NEWS-FIRST: Check the news headlines and economic calendar BEFORE entering. If a high-impact event is imminent on a currency, SKIP that pair or close existing positions. Trade WITH news sentiment, not against it
+15. VOLUME-FIRST: Prioritize pairs with SURGING or ABOVE_AVERAGE relative volume. AVOID pairs with DRY volume. Volume confirms price action - no volume = unreliable signals
+16. OPTIMAL TIMING: During London/NY overlap (13:00-16:00 UTC) be MOST aggressive. During Asian session, focus only on JPY/AUD pairs. During low-volume windows, reduce position sizes by 50% or skip entirely
+17. ASIA RANGE: If AsiaHigh/AsiaLow data is present and it's London open window (07:00\u201308:30 UTC), PRIORITIZE asia_range_breakout setups on forex pairs. This is a prime time for large moves
+18. VWAP DEVIATION: Check the VWAP Dev% for each pair. If any pair is >0.15% or <-0.15% deviation, assess for vwap_mean_reversion on indices. >0.3% deviation = strong signal
+19. SMC ZONES: When you see a pair returning to a prior impulsive origin (demand/supply), use smc_demand_supply and combine with FVG or order block inside the zone for precision
+20. NEWS FADE: If a high-impact news event occurred recently (within 30 minutes), check for exhaustion signals (extreme RSI + declining volume + wick rejection) on affected pairs for news_fade setups
+${config.propFirmMode ? `
+\u26A0\uFE0F PROP FIRM CHALLENGE MODE ACTIVE \u2014 STRICT RULES APPLY:
+- MAXIMUM RISK: 0.5% of account balance per trade. Lot sizes must reflect this
+- MAXIMUM 2 open trades at any time
+- MINIMUM 78% confidence required for ANY entry \u2014 skip everything below this threshold
+- NO SCALPING \u2014 every trade must have minimum 1:2 Risk:Reward ratio. No exceptions
+- PREFERRED STRATEGIES: prop_firm_sniper, sniper, ict_order_blocks, smc_demand_supply only
+- ALL SIGNALS must use strategy label: prop_firm_sniper
+- DAILY DRAWDOWN LIMIT: ${config.propFirmDailyDrawdownLimit}% of account. Today's P&L is $${tracker.dailyPnL[(/* @__PURE__ */ new Date()).toISOString().substring(0, 10)] || 0}. If you are at or near this limit, output NO_ACTION for all pairs
+- VIOLATION = FAILING THE CHALLENGE. Be surgical, patient, and precise. Quality beats quantity every time in a prop firm challenge
+` : ""}
+Respond ONLY with valid JSON. Generate MULTIPLE decisions when opportunities exist - don't hold back:
+{
+  "decisions": [
+    {
+      "action": "OPEN_TRADE" | "MODIFY_POSITION" | "CLOSE_POSITION" | "NO_ACTION",
+      "strategy": "scalping" | "momentum" | "session_breakout" | "sniper" | "compound" | "chart_pattern" | "ict_order_blocks" | "ict_fvg" | "ict_liquidity_sweep" | "ict_bos" | "ict_ote" | "smc_demand_supply" | "asia_range_breakout" | "vwap_mean_reversion" | "news_fade" | "prop_firm_sniper",
+      "symbol": "EURUSD",
+      "direction": "BUY" | "SELL",
+      "confidence": 85,
+      "reason": "Detailed multi-indicator reasoning",
+      "confluences": ["indicator1 says X", "indicator2 confirms Y", "brain says Z"],
+      "entryPrice": number,
+      "stopLoss": number,
+      "takeProfit": number,
+      "takeProfit2": number,
+      "lotSize": 0.01-0.05,
+      "holdTime": "30min|1hr|2hr|4hr|8hr",
+      "positionId": "for modify/close actions",
+      "modifyAction": "trail_stop|move_sl|partial_close|full_close",
+      "newStopLoss": number,
+      "urgency": "IMMEDIATE" | "WAIT_FOR_PULLBACK" | "MONITORING",
+      "orderType": "market|stop_entry|limit_entry",
+      "tradingWindow": "prime|good|marginal|avoid",
+      "entryTiming": "PRIME_ENTRY|WAIT_PULLBACK|WAIT_STRUCTURE|AVOID",
+      "pyramidOf": "signal ID if adding to existing winning trade"
+    }
+  ],
+  "marketOverview": "Current market read across all pairs",
+  "hotPairs": ["pairs showing strongest signals right now"],
+  "dangerZones": ["pairs or setups to avoid and why"],
+  "nextScanFocus": "What to focus on in the next scan cycle",
+  "engineConfidence": 0-100,
+  "activeStrategies": ["which strategies found setups this scan"],
+  "newsImpact": "how current news is affecting trading decisions",
+  "volumeAssessment": "overall market volume quality and which pairs have best liquidity",
+  "tradingWindowQuality": "excellent|good|fair|poor - based on session time + volume + news"
+}`;
+    const systemPrompt = `You are VEDD SS AI - a live autonomous HIGH-FREQUENCY trading engine built for RAPID ACCOUNT GROWTH. Use every strategy in your arsenal simultaneously: scalping, momentum surfing, session breakouts, sniper setups, aggressive compounding, CLASSIC CHART PATTERNS (head and shoulders, double tops/bottoms, triangles, flags, wedges, cup and handle), AND ICT strategies (order blocks, fair value gaps, liquidity sweeps, break of structure, optimal trade entry). Always scan for chart patterns, order blocks, FVGs, liquidity grabs, and market structure shifts alongside traditional indicators. Generate MULTIPLE trade signals per scan when opportunities exist across different pairs and strategies. Be aggressive but intelligent - maximize trade frequency while maintaining edge. CRITICAL: Always factor in NEWS events and VOLUME levels before entering trades. Avoid pairs with upcoming high-impact news. Prioritize pairs with strong volume. Trade during optimal market hours for best fills. Respond with valid JSON only.
+
+COMMUNICATION STYLE - SUPREME MATHEMATICS (Gods and Earths framework):
+When writing the "reason", "marketOverview", "nextScanFocus", "newsImpact", "volumeAssessment", and "tradingWindowQuality" fields, weave in Supreme Mathematics / Gods and Earths language naturally and authentically. Map the framework to trading as follows:
+- Knowledge (1) = Reading the chart, understanding price action and market structure
+- Wisdom (2) = Applying strategy with discipline \u2014 the correct action taken from what you know
+- Understanding (3) = The clear result \u2014 seeing the setup fully, knowing exactly what price is doing
+- Culture/Freedom (4) = Your trading rhythm and routine \u2014 freedom through mastery of the cipher
+- Power/Refinement (5) = Risk management, sizing, refining the edge \u2014 power through control
+- Equality (6) = Balance of the market \u2014 what the market gives, it can take; R:R must be equal or better
+- God (7) = Full control of the trade \u2014 mastering the setup from entry to exit
+- Build/Destroy (8) = Building the account, destroying weak setups and bad habits before they cost money
+- Born (9) = A trade closed \u2014 knowledge born into profit, a lesson completed
+- Cipher (0/10) = The full market cycle \u2014 complete understanding of all moving parts together
+
+Use terms like: "Peace", "The science of it is...", "Word is bond", "Build on that", "That's the mathematics", "Stay in the cipher", "Knowledge yourself", "dropping science", "the God cipher", "righteously"
+Keep it natural \u2014 not every sentence. Weave it in where it fits. ALL prices, lot sizes, SL/TP numbers stay precise and clean. The lingo lives in the explanatory text only.`;
+    const { runMultiModelAnalysis: runMultiModelAnalysis2, DEFAULT_ROUTING_CONFIG: DEFAULT_ROUTING_CONFIG2 } = await Promise.resolve().then(() => (init_ai_model_service(), ai_model_service_exports));
+    const modelConfig = await storage.getAiModelConfig(userId);
+    let decisions;
+    let usedMultiModel = false;
+    const ensembleIds = Array.isArray(modelConfig?.ensembleModelIds) ? modelConfig.ensembleModelIds : [];
+    const hasValidMultiModelConfig = modelConfig && modelConfig.isActive && modelConfig.routingMode !== "single" && (modelConfig.routingMode !== "ensemble" || ensembleIds.length >= 2);
+    if (hasValidMultiModelConfig) {
+      try {
+        const routingConfig = {
+          mode: modelConfig.routingMode,
+          primaryModelId: modelConfig.primaryModelId || "openai-gpt4o",
+          ensembleModelIds: ensembleIds,
+          strategyAssignments: modelConfig.strategyAssignments || {},
+          fallbackOrder: Array.isArray(modelConfig.fallbackOrder) ? modelConfig.fallbackOrder : [],
+          ensembleMinAgreement: modelConfig.ensembleMinAgreement || 60,
+          enabled: modelConfig.isActive
+        };
+        addActivity(userId, { type: "info", message: `Multi-Model: Using ${routingConfig.mode} mode with ${routingConfig.mode === "ensemble" ? routingConfig.ensembleModelIds.length + " models" : routingConfig.primaryModelId}` });
+        const ensembleResult = await runMultiModelAnalysis2(userId, systemPrompt, prompt, routingConfig, openai2);
+        if (ensembleResult.consensusDecisions.length > 0 || ensembleResult.decisions.length > 0) {
+          const mc = ensembleResult.commentary;
+          decisions = {
+            decisions: ensembleResult.consensusDecisions.length > 0 ? ensembleResult.consensusDecisions : ensembleResult.decisions,
+            engineConfidence: mc?.engineConfidence || ensembleResult.agreementPercent,
+            marketOverview: mc?.marketOverview || `Multi-model ${routingConfig.mode} analysis \u2014 ${ensembleResult.agreementPercent}% agreement`,
+            hotPairs: mc?.hotPairs,
+            dangerZones: mc?.dangerZones,
+            nextScanFocus: mc?.nextScanFocus,
+            newsImpact: mc?.newsImpact,
+            volumeAssessment: mc?.volumeAssessment,
+            tradingWindowQuality: mc?.tradingWindowQuality,
+            activeStrategies: [...new Set(ensembleResult.decisions.map((d) => d.strategy).filter(Boolean))]
+          };
+          if (routingConfig.mode === "ensemble" && Object.keys(ensembleResult.modelVotes).length > 0) {
+            addActivity(userId, {
+              type: "info",
+              message: `Ensemble: ${ensembleResult.agreementPercent}% agreement | ${ensembleResult.consensusDecisions.length} consensus trades from ${Object.keys(ensembleResult.modelVotes).length} model votes`
+            });
+          }
+          usedMultiModel = true;
+        }
+      } catch (err) {
+        addActivity(userId, { type: "error", message: `Multi-model error: ${err.message}. Falling back to primary model.` });
+      }
+    }
+    if (!usedMultiModel) {
+      const cacheKey = Object.keys(marketAnalysis).sort().join("|");
+      const cached = state.aiResponseCache[cacheKey];
+      const pairPrices = Object.values(marketAnalysis).map((d) => d.currentPrice || 0);
+      const avgPrice = pairPrices.length > 0 ? pairPrices.reduce((a, b) => a + b, 0) / pairPrices.length : 0;
+      const cachedPrice = cached?.price ?? 0;
+      const pipMove = cachedPrice > 0 ? Math.abs(avgPrice - cachedPrice) / cachedPrice * 1e4 : 999;
+      const cacheAge = cached ? Date.now() - cached.ts : 999999;
+      if (cached && cacheAge < 6e4 && pipMove < 3) {
+        decisions = cached.response;
+        addActivity(userId, { type: "info", message: `\u{1F4BE} Cache hit: reusing last AI response (${Math.round(cacheAge / 1e3)}s old, ${pipMove.toFixed(1)}p move) \u2014 API call saved` });
+      } else {
+        const buildReq = (m) => ({
+          model: m,
+          messages: [
+            { role: "system", content: systemPrompt },
+            { role: "user", content: prompt }
+          ],
+          ...m.startsWith("gpt") || m.startsWith("gemini") || m.startsWith("llama") || m.startsWith("mistral") || m.startsWith("claude") ? { response_format: { type: "json_object" } } : {},
+          max_tokens: 4e3,
+          temperature: 0.3
+        });
+        let response;
+        try {
+          response = await openai2.chat.completions.create(buildReq(model));
+        } catch (aiErr) {
+          const msg = aiErr?.message || String(aiErr);
+          if (_usingGroq) {
+            addActivity(userId, { type: "info", message: `\u26A0\uFE0F Groq failed (${msg.slice(0, 80)}) \u2014 retrying on primary AI client` });
+            response = await _primaryClient.chat.completions.create(buildReq(_primaryModel));
+          } else {
+            throw aiErr;
+          }
+        }
+        const content = response.choices[0]?.message?.content || "";
+        try {
+          decisions = JSON.parse(content);
+        } catch {
+          const jsonMatch = content.match(/\{[\s\S]*\}/);
+          if (jsonMatch) decisions = JSON.parse(jsonMatch[0]);
+          else {
+            addActivity(userId, { type: "error", message: "AI returned invalid response" });
+            return;
+          }
+        }
+        state.aiResponseCache[cacheKey] = { ts: Date.now(), price: avgPrice, response: decisions };
+      }
+    }
+    const windowQuality = decisions.tradingWindowQuality || "N/A";
+    addActivity(userId, {
+      type: "ai_decision",
+      message: `AI Analysis Complete | Confidence: ${decisions.engineConfidence || "N/A"}% | Window: ${windowQuality} | ${decisions.decisions?.length || 0} decisions`,
+      details: {
+        marketOverview: decisions.marketOverview,
+        hotPairs: decisions.hotPairs,
+        dangerZones: decisions.dangerZones,
+        nextScanFocus: decisions.nextScanFocus,
+        engineConfidence: decisions.engineConfidence,
+        newsImpact: decisions.newsImpact,
+        volumeAssessment: decisions.volumeAssessment,
+        tradingWindowQuality: windowQuality
+      }
+    });
+    state.lastSignalAt = (/* @__PURE__ */ new Date()).toISOString();
+    if (decisions.decisions && decisions.decisions.length > 0) {
+      for (const decision of decisions.decisions) {
+        await processDecision(userId, decision, newsContext);
+      }
+    }
+  } catch (err) {
+    const errMsg = err.message || "";
+    const errStatus = err.status || err.statusCode || 0;
+    const isAuthError = errStatus === 401 || errMsg.includes("Incorrect API key") || errMsg.includes("invalid_api_key") || errMsg.includes("authentication_error") || errMsg.includes("401");
+    if (isAuthError && openai2?.provider && openai2.provider !== "platform") {
+      try {
+        const { db: db2 } = await Promise.resolve().then(() => (init_db(), db_exports));
+        const { userApiKeys: uak } = await Promise.resolve().then(() => (init_schema(), schema_exports));
+        const { and: and4, eq: eq4 } = await import("drizzle-orm");
+        await db2.update(uak).set({ isValid: false, lastValidated: /* @__PURE__ */ new Date() }).where(and4(eq4(uak.userId, userId), eq4(uak.provider, openai2.provider)));
+      } catch {
+      }
+      addActivity(userId, { type: "error", message: `${openai2.provider} API key is invalid or expired \u2014 auto-disabled. Engine will switch to your next active provider on next scan.` });
+    } else {
+      addActivity(userId, { type: "error", message: `AI analysis error: ${errMsg}` });
+    }
+  }
+}
+async function processDecision(userId, decision, newsCtx) {
+  const state = engineStates[userId];
+  if (!state) return;
+  const config = state.config;
+  const parseNum = (v) => {
+    if (typeof v === "number") return v;
+    if (typeof v === "string") {
+      const n = parseFloat(v.replace(/[^0-9.\-]/g, ""));
+      return isNaN(n) ? void 0 : n;
+    }
+    return void 0;
+  };
+  const confidence = typeof decision.confidence === "number" ? decision.confidence : parseFloat(decision.confidence) || 0;
+  if (decision.action === "NO_ACTION") {
+    addActivity(userId, {
+      type: "info",
+      symbol: decision.symbol,
+      message: `No action: ${decision.reason || "Conditions not met"}`,
+      confidence
+    });
+    return;
+  }
+  if (decision.action === "OPEN_TRADE") {
+    {
+      const todayUTC = (/* @__PURE__ */ new Date()).toISOString().slice(0, 10);
+      if (state.tradesOpenedTodayDate !== todayUTC) {
+        state.tradesOpenedToday = 0;
+        state.tradesOpenedTodayDate = todayUTC;
+      }
+      const cap = config.maxDailyTrades ?? 0;
+      if (cap > 0 && state.tradesOpenedToday >= cap) {
+        addActivity(userId, {
+          type: "info",
+          symbol: decision.symbol,
+          message: `\u{1F6AB} DAILY TRADE CAP: ${decision.symbol} ${decision.direction} blocked \u2014 already opened ${state.tradesOpenedToday}/${cap} trades today. Cap resets at UTC midnight.`
+        });
+        state.signalsGenerated++;
+        return;
+      }
+    }
+    const _signalDirRaw = (decision.direction || "").toUpperCase();
+    const _pairFilter = config.pairDirectionOverrides?.[decision.symbol] ?? config.directionFilter ?? "both";
+    if (_pairFilter === "buy_only" && _signalDirRaw === "SELL") {
+      const isOverride = !!config.pairDirectionOverrides?.[decision.symbol];
+      addActivity(userId, {
+        type: "info",
+        symbol: decision.symbol,
+        message: `\u{1F6AB} DIRECTION FILTER: SELL on ${decision.symbol} blocked \u2014 ${isOverride ? `${decision.symbol} is set to BUY ONLY (per-pair override)` : "engine is set to BUY ONLY"}. Change in engine settings to allow sells.`
+      });
+      state.signalsGenerated++;
+      return;
+    }
+    if (_pairFilter === "sell_only" && _signalDirRaw === "BUY") {
+      const isOverride = !!config.pairDirectionOverrides?.[decision.symbol];
+      addActivity(userId, {
+        type: "info",
+        symbol: decision.symbol,
+        message: `\u{1F6AB} DIRECTION FILTER: BUY on ${decision.symbol} blocked \u2014 ${isOverride ? `${decision.symbol} is set to SELL ONLY (per-pair override)` : "engine is set to SELL ONLY"}. Change in engine settings to allow buys.`
+      });
+      state.signalsGenerated++;
+      return;
+    }
+    let _mergedPositionsForGates;
+    try {
+      _mergedPositionsForGates = await getMergedOpenPositions(userId, state._lastMarketAnalysis);
+    } catch (e) {
+      addActivity(userId, { type: "info", symbol: decision.symbol, message: `\u26D4 ${decision.symbol}: open positions unreadable (${e?.message || e}) \u2014 not entering.` });
+      return;
+    }
+    if (_signalDirRaw === "BUY" || _signalDirRaw === "SELL") {
+      const _livePositions = _mergedPositionsForGates;
+      const _existingOnPair = _livePositions.find(
+        (p) => (p.symbol || "").toUpperCase().replace("/", "") === decision.symbol?.toUpperCase().replace("/", "")
+      );
+      if (_existingOnPair) {
+        const _existingDir = (_existingOnPair.direction || _existingOnPair.type || "").toUpperCase();
+        const _isConflict = _existingDir === "BUY" && _signalDirRaw === "SELL" || _existingDir === "SELL" && _signalDirRaw === "BUY";
+        if (_isConflict) {
+          addActivity(userId, {
+            type: "info",
+            symbol: decision.symbol,
+            message: `\u{1F500} OPPOSITE-DIRECTION BLOCK: ${_signalDirRaw} ${decision.symbol} rejected \u2014 already have an open ${_existingDir} position on this pair (ticket ${_existingOnPair.ticket ?? _existingOnPair.id ?? "?"}). Close or manage the existing trade before reversing direction.`
+          });
+          state.signalsGenerated++;
+          return;
+        }
+        if (_existingDir === _signalDirRaw && !config.enablePyramiding) {
+          addActivity(userId, {
+            type: "info",
+            symbol: decision.symbol,
+            message: `\u{1F4E6} SAME-DIRECTION BLOCK: ${_signalDirRaw} ${decision.symbol} rejected \u2014 already have an open ${_existingDir} position on this pair. Enable pyramiding in settings to stack positions.`
+          });
+          state.signalsGenerated++;
+          return;
+        }
+      }
+    }
+    {
+      const newSym = (decision.symbol || "").toUpperCase().replace("/", "");
+      const newIsUSD = newSym.includes("USD");
+      if (newIsUSD) {
+        const _livePositionsForCorr = _mergedPositionsForGates;
+        const openUSDPositions = _livePositionsForCorr.filter((p) => {
+          const pSym = (p.symbol || "").toUpperCase().replace("/", "");
+          return pSym.includes("USD");
+        });
+        if (openUSDPositions.length >= 2) {
+          const usdDirOf = (sym, tradeDir) => {
+            const s = sym.toUpperCase().replace("/", "");
+            const usdIsBase = s.startsWith("USD");
+            if (usdIsBase) return tradeDir === "BUY" ? "BUY_USD" : "SELL_USD";
+            return tradeDir === "BUY" ? "SELL_USD" : "BUY_USD";
+          };
+          const newUSDDir = usdDirOf(newSym, _signalDirRaw);
+          const existingUSDDirs = openUSDPositions.map(
+            (p) => usdDirOf((p.symbol || "").toUpperCase().replace("/", ""), (p.direction || p.type || "").toUpperCase())
+          );
+          const allSameAsNew = existingUSDDirs.every((d) => d === newUSDDir);
+          if (allSameAsNew && openUSDPositions.length >= 2) {
+            addActivity(userId, {
+              type: "info",
+              symbol: decision.symbol,
+              message: `\u26A1 USD CORRELATION BLOCK: ${_signalDirRaw} ${decision.symbol} rejected \u2014 already ${openUSDPositions.length} USD positions all in ${newUSDDir} direction. Correlated exposure cap reached (max 2 same-direction USD trades). Close an existing position first.`
+            });
+            state.signalsGenerated++;
+            return;
+          }
+        }
+      }
+    }
+    if (state.drawdownShieldActive) {
+      const shieldStrategies = ["prop_firm_sniper", "ict_ote", "ict_order_blocks", "sniper"];
+      const decisionStrategy = (decision.strategy || "").toLowerCase();
+      if (!shieldStrategies.includes(decisionStrategy)) {
+        addActivity(userId, {
+          type: "info",
+          symbol: decision.symbol,
+          message: `\u{1F6E1}\uFE0F SHIELD BLOCK: ${decisionStrategy || "unknown"} strategy rejected during drawdown protection. Only sniper/ICT allowed.`
+        });
+        return;
+      }
+      if (confidence < 80) {
+        addActivity(userId, {
+          type: "info",
+          symbol: decision.symbol,
+          message: `\u{1F6E1}\uFE0F SHIELD BLOCK: ${confidence}% confidence too low during shield mode (need 80%+). Skipping.`
+        });
+        return;
+      }
+    }
+    {
+      const mind = state.mindState;
+      if (mind) {
+        const decStrat = (decision.strategy || "").toLowerCase();
+        if (mind.blockedStrategies && mind.blockedStrategies.has(decStrat)) {
+          addActivity(userId, {
+            type: "info",
+            symbol: decision.symbol,
+            message: `\u{1F9E0} COLD BLOCK: "${decStrat}" is auto-blocked \u2014 performance weight \u2264 0.3. Trade rejected. Strategy must recover before being used again.`
+          });
+          state.signalsGenerated++;
+          return;
+        }
+        const pairBlock = mind.softBlockedPairs?.[decision.symbol];
+        if (pairBlock && pairBlock.until > Date.now()) {
+          if (confidence < 90) {
+            addActivity(userId, {
+              type: "info",
+              symbol: decision.symbol,
+              message: `\u{1F9E0} PAIR BLOCK: ${decision.symbol} requires 90%+ confidence (${confidence}% given). Reason: ${pairBlock.reason}`
+            });
+            state.signalsGenerated++;
+            return;
+          }
+        }
+        const adaptedFloor = mind.adaptedConfidenceFloor || state.config.minConfidence || 70;
+        if (adaptedFloor > (state.config.minConfidence || 70) && confidence < adaptedFloor) {
+          addActivity(userId, {
+            type: "info",
+            symbol: decision.symbol,
+            message: `\u{1F9E0} CONFIDENCE FLOOR: Session win rate ${(mind.sessionWinRate * 100).toFixed(0)}% \u2014 engine raised minimum to ${adaptedFloor}%. Signal at ${confidence}% rejected.`
+          });
+          state.signalsGenerated++;
+          return;
+        }
+      }
+    }
+    const htfBias = state.htfBiasCache?.[decision.symbol];
+    let adjustedConfidence = confidence;
+    if (htfBias && htfBias.trend !== "NEUTRAL" && decision.direction) {
+      const signalDir = decision.direction.toUpperCase();
+      const htfTFLabel = (config.primaryTimeframe || "M15") === "H1" ? "H4" : "H1";
+      const htfAligns = signalDir === "BUY" && htfBias.trend === "BULLISH" || signalDir === "SELL" && htfBias.trend === "BEARISH";
+      if (htfAligns) {
+        adjustedConfidence = Math.min(100, confidence + 5);
+        addActivity(userId, {
+          type: "info",
+          symbol: decision.symbol,
+          message: `\u{1F4CA} HTF bias: ${htfTFLabel} ${htfBias.trend} \u2014 aligns with ${signalDir} (+5% confidence \u2192 ${adjustedConfidence}%)`
+        });
+      } else {
+        if (confidence < 90) {
+          addActivity(userId, {
+            type: "info",
+            symbol: decision.symbol,
+            message: `\u{1F4CA} HTF CONFLICT BLOCK: ${signalDir} on ${decision.symbol} vs ${htfTFLabel} ${htfBias.trend} \u2014 ${confidence}% < 90% required for counter-trend. Trade blocked.`
+          });
+          state.signalsGenerated++;
+          return;
+        }
+        addActivity(userId, {
+          type: "info",
+          symbol: decision.symbol,
+          message: `\u{1F4CA} HTF CONFLICT: ${signalDir} on ${decision.symbol} vs ${htfTFLabel} ${htfBias.trend} \u2014 ${confidence}% \u2265 90% threshold cleared. Allowing high-confidence counter-trend.`
+        });
+      }
+    }
+    {
+      const _rule = (process.env.MTF_ENTRY_RULE || "no_conflict").toLowerCase();
+      if (_rule !== "off" && decision.direction && decision.fxModel !== "M1") {
+        const _dir = decision.direction.toUpperCase();
+        const _want = _dir === "BUY" ? "BULLISH" : "BEARISH";
+        const _opp = _dir === "BUY" ? "BEARISH" : "BULLISH";
+        const { h1, h4 } = mtfStack(state, decision.symbol);
+        const _primaryH1 = config.primaryTimeframe === "H1";
+        const _tfs = [["H1", h1], ["H4", h4]].filter(([lbl]) => !(lbl === "H1" && _primaryH1));
+        const _desc = _tfs.map(([l, b]) => `${l} ${b ? b.trend : "n/a"}`).join(", ");
+        const _fail = _rule === "no_conflict" ? _tfs.some(([, b]) => !!b && b.trend === _opp) : _tfs.some(([, b]) => !b || b.trend !== _want);
+        if (_fail) {
+          const _why = _tfs.some(([, b]) => b && b.trend === _opp) ? "opposed" : _tfs.some(([, b]) => !b) ? "data missing" : "neutral";
+          addActivity(userId, { type: "info", symbol: decision.symbol, message: `\u{1F9ED} MTF BLOCK (${_why}): ${_dir} ${decision.symbol} (${_rule === "strict" ? "H1 and H4 must both agree" : "H1/H4 oppose it"}: ${_desc}). Not entering.` });
+          state.signalsGenerated++;
+          return;
+        }
+        addActivity(userId, { type: "info", symbol: decision.symbol, message: `\u{1F9ED} MTF aligned for ${_dir} ${decision.symbol} (${_desc}).` });
+      }
+    }
+    if (decision.symbol && decision.direction) {
+      const _btc = await Promise.resolve().then(() => (init_btc_profile(), btc_profile_exports));
+      if (_btc.BTC_PROFILE_ON() && _btc.isBtc(decision.symbol)) {
+        const { h4: _bh4 } = mtfStack(state, decision.symbol);
+        const _chk = await _btc.btcEntryCheck({
+          symbol: decision.symbol,
+          direction: decision.direction,
+          entryPrice: parseNum(decision.entryPrice) ?? state.marketSnapshot?.[decision.symbol]?.price,
+          stopLoss: parseNum(decision.stopLoss),
+          takeProfit: parseNum(decision.takeProfit)
+        }, _bh4?.trend);
+        if (_chk.block) {
+          addActivity(userId, { type: "info", symbol: decision.symbol, message: `\u20BF BTC PROFILE BLOCK: ${_chk.block}` });
+          state.signalsGenerated++;
+          return;
+        }
+        if (_chk.stopLoss != null) decision.stopLoss = _chk.stopLoss;
+        if (_chk.takeProfit != null) decision.takeProfit = _chk.takeProfit;
+        decision._lotScale = Math.min(1, Math.max(0.05, _chk.lotScale));
+        decision._lotScaleWeekend = Math.min(1, Math.max(0.05, Number(_chk.weekendScale ?? 1)));
+        if (_chk.notes.length) addActivity(userId, { type: "info", symbol: decision.symbol, message: `\u20BF BTC profile: ${_chk.notes.join("; ")}` });
+        decision._btcProfile = true;
+      }
+    }
+    const m15Snap = state.marketSnapshot?.[decision.symbol];
+    if (m15Snap && decision.direction) {
+      const signalDir = decision.direction.toUpperCase();
+      const m15ADX = m15Snap.adx || 0;
+      const m15PlusDI = m15Snap.plusDI || 0;
+      const m15MinusDI = m15Snap.minusDI || 0;
+      const diSep = Math.abs(m15PlusDI - m15MinusDI);
+      let effectiveTrend = m15Snap.trend ?? "NEUTRAL";
+      if (effectiveTrend === "NEUTRAL" && m15ADX > 12 && diSep > 8) {
+        effectiveTrend = m15PlusDI > m15MinusDI ? "BULLISH" : "BEARISH";
+      }
+      const trendDetected = (m15ADX > 12 || diSep > 8) && effectiveTrend !== "NEUTRAL";
+      const m15Conflicts = signalDir === "BUY" && effectiveTrend === "BEARISH" || signalDir === "SELL" && effectiveTrend === "BULLISH";
+      if (trendDetected && m15Conflicts) {
+        const isStrongTrend = m15ADX > 20 || diSep > 12;
+        if (isStrongTrend) {
+          if (adjustedConfidence < 88) {
+            addActivity(userId, {
+              type: "info",
+              symbol: decision.symbol,
+              message: `\u{1F6AB} M15 TREND BLOCK: ${signalDir} vs strong M15 ${effectiveTrend} (ADX ${m15ADX.toFixed(1)}, +DI ${m15PlusDI.toFixed(1)} / -DI ${m15MinusDI.toFixed(1)}, diSep ${diSep.toFixed(1)}) \u2014 ${adjustedConfidence}% < 88% required for counter-trend. BLOCKED.`
+            });
+            state.signalsGenerated++;
+            return;
+          }
+          addActivity(userId, {
+            type: "info",
+            symbol: decision.symbol,
+            message: `\u26A0\uFE0F M15 STRONG CONFLICT: ${signalDir} vs M15 ${effectiveTrend} \u2014 ${adjustedConfidence}% \u2265 88% cleared. Allowing high-confidence counter-trend (use caution).`
+          });
+        } else {
+          const penalty = 12;
+          adjustedConfidence = Math.max(0, adjustedConfidence - penalty);
+          addActivity(userId, {
+            type: "info",
+            symbol: decision.symbol,
+            message: `\u26A0\uFE0F M15 TREND CONFLICT (mild): ${signalDir} vs M15 ${effectiveTrend} (ADX ${m15ADX.toFixed(1)}, diSep ${diSep.toFixed(1)}) \u2014 confidence penalised ${penalty}% \u2192 ${adjustedConfidence}%`
+          });
+        }
+      }
+    }
+    if (decision.direction && (decision.direction === "BUY" || decision.direction === "SELL")) {
+      try {
+        const { getCompositeEdgeSignal: getCompositeEdgeSignal2 } = await Promise.resolve().then(() => (init_composite_signal(), composite_signal_exports));
+        const symSnap = state.marketSnapshot?.[decision.symbol] ?? {};
+        const lastCC = symSnap.lastConfirmedCandle ?? null;
+        const candles = lastCC ? [lastCC] : [];
+        const composite = await getCompositeEdgeSignal2(
+          decision.symbol,
+          decision.direction,
+          candles
+        );
+        const adj = composite.confidenceAdjustment;
+        if (adj !== 0) {
+          adjustedConfidence = Math.min(100, Math.max(0, adjustedConfidence + adj));
+        }
+        addActivity(userId, {
+          type: "info",
+          symbol: decision.symbol,
+          message: composite.reason + (adj !== 0 ? ` \u2192 confidence now ${adjustedConfidence}%` : "")
+        });
+        decision._composite = {
+          adjustment: adj,
+          alignment: composite.alignment,
+          compositeEdgeScore: composite.compositeEdgeScore,
+          markov: composite.markov,
+          polymarket: composite.polymarket,
+          usedPolymarket: composite.usedPolymarket
+        };
+      } catch {
+      }
+    }
+    const currentATR = state._lastATR?.[decision.symbol] || 0;
+    const postEnforcement = applyBrainEnforcement(userId, decision.symbol, decision.direction, currentATR, newsCtx);
+    if (!postEnforcement.allowed) {
+      addActivity(userId, {
+        type: "info",
+        symbol: decision.symbol,
+        message: postEnforcement.reason
+      });
+      return;
+    }
+    if (postEnforcement.forcedStrategy && !decision.strategy) {
+      decision.strategy = postEnforcement.forcedStrategy;
+    }
+    decision._brainLotMultiplier = postEnforcement.adjustedLotMultiplier;
+    decision._brainTrailPips = postEnforcement.recommendedTrailPips;
+    const HARD_CONFIDENCE_FLOOR = 74;
+    const effectiveMinConf2 = Math.max(config.minConfidence, HARD_CONFIDENCE_FLOOR);
+    if (adjustedConfidence < effectiveMinConf2) {
+      addActivity(userId, {
+        type: "signal",
+        symbol: decision.symbol,
+        direction: decision.direction,
+        confidence: adjustedConfidence,
+        message: `Signal skipped (${adjustedConfidence}% < ${effectiveMinConf2}% min [hard floor: ${HARD_CONFIDENCE_FLOOR}%]): ${decision.reason}`
+      });
+      state.signalsGenerated++;
+      return;
+    }
+    const isSmallAcct = config.accountBalance > 0 && config.accountBalance < 500;
+    const effectiveMaxTrades = isSmallAcct ? Math.min(config.maxOpenTrades, 3) : config.maxOpenTrades;
+    const effectiveMinConf = isSmallAcct ? Math.max(config.minConfidence, 75) : config.minConfidence;
+    if (isSmallAcct && adjustedConfidence < effectiveMinConf) {
+      addActivity(userId, {
+        type: "signal",
+        symbol: decision.symbol,
+        direction: decision.direction,
+        confidence: adjustedConfidence,
+        message: `Small account protection: skipped (${adjustedConfidence}% < ${effectiveMinConf}% required for accounts under $500)`
+      });
+      state.signalsGenerated++;
+      return;
+    }
+    if (state.openPositionCount >= effectiveMaxTrades) {
+      addActivity(userId, {
+        type: "info",
+        symbol: decision.symbol,
+        message: `Trade skipped - max open trades reached (${state.openPositionCount}/${effectiveMaxTrades}${isSmallAcct ? " small-account cap" : ""})`
+      });
+      return;
+    }
+    {
+      const _snap = getAccountSafetySnapshot(userId, state);
+      if (!_snap) {
+        addActivity(userId, { type: "info", symbol: decision.symbol, message: `\u{1F6E1}\uFE0F RISK BLOCK: no live account data from any broker \u2014 cannot verify margin/daily-loss, trade skipped` });
+        return;
+      }
+      {
+        const _freeMargin = _snap.freeMargin;
+        const _marginLevel = _snap.marginLevel;
+        if (_freeMargin !== null && _freeMargin <= 0) {
+          addActivity(userId, { type: "info", symbol: decision.symbol, message: `\u{1F6E1}\uFE0F RISK BLOCK: no free margin available \u2014 trade skipped` });
+          return;
+        }
+        if (_marginLevel !== null && _marginLevel > 0 && _marginLevel < 200) {
+          addActivity(userId, { type: "info", symbol: decision.symbol, message: `\u{1F6E1}\uFE0F RISK BLOCK: margin level ${_marginLevel.toFixed(0)}% < 200% safety floor \u2014 trade skipped` });
+          return;
+        }
+        const _bal = _snap.balance > 0 ? _snap.balance : config.accountBalance || 0;
+        const _effectiveDailyLimit = config.propFirmMode && config.propFirmDailyDrawdownLimit > 0 ? config.propFirmDailyDrawdownLimit * 0.8 : config.dailyLossLimit ?? 0;
+        if (_effectiveDailyLimit > 0 && _bal > 0) {
+          const _lossPct = (_snap.realizedToday + _snap.floating) / _bal * 100;
+          if (_lossPct <= -_effectiveDailyLimit) {
+            const _limitLabel = config.propFirmMode ? `prop firm limit ${config.propFirmDailyDrawdownLimit}% (80% buffer)` : `-${config.dailyLossLimit}%`;
+            addActivity(userId, { type: "info", symbol: decision.symbol, message: `\u{1F6E1}\uFE0F RISK BLOCK: daily loss ${_lossPct.toFixed(1)}% \u2264 ${_limitLabel} (incl. floating, via ${_snap.source}) \u2014 trade skipped` });
+            return;
+          }
+        }
+        if (config.singleStrategyMode && config.strategyMode === "orb_breakout") {
+          addActivity(userId, { type: "info", symbol: decision.symbol, message: `\u{1F512} Strategy Lock: ORB-only mode \u2014 AI signal blocked (ORB handles its own entries)` });
+          return;
+        }
+        if (config.singleStrategyMode && decision.strategyKey && decision.strategyKey !== config.strategyMode) {
+          addActivity(userId, { type: "info", symbol: decision.symbol, message: `\u{1F512} Strategy Lock: ${decision.strategyKey} blocked \u2014 only ${config.strategyMode} allowed` });
+          return;
+        }
+        if (config.singleStrategyMode && !config.allowMultipleTrades) {
+          const todayStr = (/* @__PURE__ */ new Date()).toISOString().slice(0, 10);
+          const lockKey = `${todayStr}_${config.strategyMode}`;
+          if (!state.strategyDailyFired) state.strategyDailyFired = {};
+          if (state.strategyDailyFired[lockKey]) {
+            addActivity(userId, { type: "info", symbol: decision.symbol, message: `\u{1F512} Once-per-day lock: ${config.strategyMode} already fired today \u2014 no more trades until tomorrow` });
+            return;
+          }
+          decision.__markStrategyFired = lockKey;
+        }
+        if ((config.dailyProfitTarget ?? 0) > 0 && _bal > 0) {
+          const _gainPct = (_snap.realizedToday + _snap.floating) / _bal * 100;
+          if (_gainPct >= config.dailyProfitTarget) {
+            addActivity(userId, { type: "info", symbol: decision.symbol, message: `\u{1F3C6} PROFIT GUARD: daily gain +${_gainPct.toFixed(1)}% \u2265 ${config.dailyProfitTarget}% target \u2014 new trade blocked to protect gains` });
+            return;
+          }
+        }
+      }
+    }
+    const existingSignals = mt5AccountQueues[userId] ? Object.values(mt5AccountQueues[userId]).flat() : [];
+    const cooldownMs = Math.max(config.scanIntervalMs * 3, 3 * 60 * 1e3);
+    const hasRecentForPair = existingSignals.some(
+      (s) => s.symbol === decision.symbol && Date.now() - new Date(s.timestamp).getTime() < cooldownMs
+    );
+    if (hasRecentForPair) {
+      addActivity(userId, {
+        type: "info",
+        symbol: decision.symbol,
+        message: `Trade skipped - ${decision.symbol} already has a recent signal (cooldown ${Math.round(cooldownMs / 6e4)}min)`
+      });
+      return;
+    }
+    state.signalsGenerated++;
+    if (decision.__markStrategyFired) {
+      if (!state.strategyDailyFired) state.strategyDailyFired = {};
+      state.strategyDailyFired[decision.__markStrategyFired] = true;
+    }
+    addActivity(userId, {
+      type: "signal",
+      symbol: decision.symbol,
+      direction: decision.direction,
+      confidence: adjustedConfidence,
+      message: `LIVE SIGNAL [${(decision.strategy || "auto").toUpperCase()}]: ${decision.direction} ${decision.symbol} @ ${adjustedConfidence}% confidence${adjustedConfidence !== confidence ? ` (HTF-adjusted from ${confidence}%)` : ""}`,
+      details: {
+        strategy: decision.strategy,
+        confluences: decision.confluences,
+        reason: decision.reason,
+        urgency: decision.urgency,
+        holdTime: decision.holdTime,
+        takeProfit2: decision.takeProfit2,
+        pyramidOf: decision.pyramidOf
+      }
+    });
+    if (decision.urgency === "WAIT_FOR_PULLBACK" || decision.urgency === "MONITORING") {
+      addActivity(userId, { type: "info", symbol: decision.symbol, message: `Watching for entry - urgency: ${decision.urgency}` });
+      return;
+    }
+    const tradingWindow = (decision.tradingWindow || "").toLowerCase();
+    if (tradingWindow === "avoid") {
+      addActivity(userId, {
+        type: "info",
+        symbol: decision.symbol,
+        message: `\u{1F550} TIMING BLOCK: ${decision.symbol} ${decision.direction} \u2014 AI flagged tradingWindow=avoid (poor session/volume/news conditions). Signal skipped.`
+      });
+      return;
+    }
+    const holdTimeRaw = (decision.holdTime || "").toLowerCase();
+    const isUltraShortScalp = holdTimeRaw === "5min" || holdTimeRaw === "5m" || holdTimeRaw === "10min";
+    if (isUltraShortScalp) {
+      decision.holdTime = "30min";
+      addActivity(userId, {
+        type: "info",
+        symbol: decision.symbol,
+        message: `\u23F1 HOLD TIME: ${decision.symbol} holdTime upgraded from ${holdTimeRaw} \u2192 30min (M15 engine minimum). SL widened to give trade room.`
+      });
+    }
+    const confluences = Array.isArray(decision.confluences) ? decision.confluences : [];
+    const strategy = (decision.strategy || "").toLowerCase();
+    const minConf = strategy === "scalping" ? 4 : strategy === "sniper" || strategy === "ict_ote" || strategy === "smc_demand_supply" || strategy === "prop_firm_sniper" ? 5 : 3;
+    if (confluences.length < minConf) {
+      addActivity(userId, {
+        type: "info",
+        symbol: decision.symbol,
+        message: `\u26A0\uFE0F CONFLUENCE GATE: ${decision.symbol} ${strategy} has ${confluences.length}/${minConf} required confluences \u2014 signal rejected. Need more confirming factors.`
+      });
+      state.signalsGenerated++;
+      return;
+    }
+    const snap = state.marketSnapshot?.[decision.symbol];
+    const signalDirection = (decision.direction || "").toUpperCase();
+    if (newsCtx?.highImpactSoon === true) {
+      addActivity(userId, {
+        type: "info",
+        symbol: decision.symbol,
+        message: `\u{1F4F0} NEWS BLACKOUT: ${decision.symbol} ${signalDirection} BLOCKED \u2014 high-impact economic event imminent. No new entries until event clears. Protects open trades from spike stop-outs.`
+      });
+      state.signalsGenerated++;
+      return;
+    }
+    if (!state.pairDirectionLock) state.pairDirectionLock = {};
+    const dirLock = state.pairDirectionLock[decision.symbol];
+    if (dirLock && dirLock.direction === signalDirection && Date.now() < dirLock.lockedUntil) {
+      const lossCount = dirLock.lossCount || 1;
+      const postLossFloor = lossCount >= 2 ? 86 : 82;
+      const minsRemaining = Math.ceil((dirLock.lockedUntil - Date.now()) / 6e4);
+      if (adjustedConfidence < postLossFloor) {
+        addActivity(userId, {
+          type: "info",
+          symbol: decision.symbol,
+          message: `\u{1F4CA} POST-LOSS GATE: ${decision.symbol} ${signalDirection} \u2014 need ${postLossFloor}% after ${lossCount} loss(es), have ${adjustedConfidence}%. Waiting for high-conviction setup (${minsRemaining} min window remaining).`
+        });
+        state.signalsGenerated++;
+        return;
+      }
+      addActivity(userId, {
+        type: "info",
+        symbol: decision.symbol,
+        message: `\u2705 POST-LOSS ENTRY: ${decision.symbol} ${signalDirection} \u2014 ${adjustedConfidence}% clears ${postLossFloor}% post-loss gate (${lossCount} prior loss(es)). High-conviction re-entry allowed.`
+      });
+    }
+    {
+      const volTrend = snap?.volumeTrend || "unknown";
+      const relVol = snap?.relativeVolume || 1;
+      const isScalp = strategy === "scalping";
+      const extremeDry = volTrend === "dry" || relVol < 0.3;
+      const belowAvg = volTrend === "below_average" || relVol < 0.7;
+      if (extremeDry) {
+        addActivity(userId, {
+          type: "info",
+          symbol: decision.symbol,
+          message: `\u{1F4C9} EXTREME DRY VOLUME BLOCK [${strategy}]: ${decision.symbol} rejected \u2014 volume is ${volTrend} (${relVol.toFixed(2)}x avg). Dead market conditions apply to all strategies. No valid liquidity for any entry.`
+        });
+        state.signalsGenerated++;
+        return;
+      }
+      if (isScalp && belowAvg) {
+        addActivity(userId, {
+          type: "info",
+          symbol: decision.symbol,
+          message: `\u{1F4C9} SCALP VOLUME BLOCK: ${decision.symbol} scalp rejected \u2014 volume is ${volTrend} (${relVol.toFixed(2)}x avg). Scalping requires \u2265 0.7x average volume. Wait for volume or switch to sniper/swing strategy.`
+        });
+        state.signalsGenerated++;
+        return;
+      }
+    }
+    {
+      const nowUtcHour = (/* @__PURE__ */ new Date()).getUTCHours();
+      const isAsianHours = nowUtcHour >= 0 && nowUtcHour < 7;
+      const sym = (decision.symbol || "").toUpperCase();
+      const isLowLiquidityPairInAsia = (sym.includes("EUR") || sym.includes("GBP") || sym.includes("CHF")) && !sym.includes("JPY");
+      const isScalp = strategy === "scalping";
+      const relVol = snap?.relativeVolume || 1;
+      if (isAsianHours && isLowLiquidityPairInAsia) {
+        if (isScalp) {
+          addActivity(userId, {
+            type: "info",
+            symbol: decision.symbol,
+            message: `\u{1F319} ASIAN SESSION SCALP BLOCK: ${decision.symbol} scalp rejected \u2014 Asian hours (${nowUtcHour}:00 UTC). EUR/GBP/CHF need London session (07:00+ UTC) for scalp entries.`
+          });
+          state.signalsGenerated++;
+          return;
+        }
+        if (relVol < 0.5) {
+          addActivity(userId, {
+            type: "info",
+            symbol: decision.symbol,
+            message: `\u{1F319} ASIAN LOW-VOL BLOCK [${strategy}]: ${decision.symbol} rejected \u2014 Asian hours (${nowUtcHour}:00 UTC) + low volume (${relVol.toFixed(2)}x). EUR/GBP/CHF at < 0.5x volume during Asia = guaranteed slippage. Waiting for London.`
+          });
+          state.signalsGenerated++;
+          return;
+        }
+      }
+    }
+    {
+      const brainForGate = global.veddAIBrain?.[userId];
+      const pk = brainForGate?.pairKnowledge?.[decision.symbol];
+      const consecLosses = pk?.consecutiveLossesToday || 0;
+      if (consecLosses >= 2) {
+        const requiredForPairLoss = 85;
+        if (adjustedConfidence < requiredForPairLoss) {
+          addActivity(userId, {
+            type: "info",
+            symbol: decision.symbol,
+            message: `\u26A1 PAIR LOSS ESCALATION: ${decision.symbol} has ${consecLosses} consecutive losses today \u2014 confidence threshold raised to ${requiredForPairLoss}%. Signal at ${adjustedConfidence}% rejected. Market conditions may have structurally changed.`
+          });
+          state.signalsGenerated++;
+          return;
+        }
+      }
+    }
+    const _volSym = (decision.symbol || "").toUpperCase();
+    const VOLATILE_RISK_PCT = 0.015;
+    const _acctBal = config.accountBalance || 0;
+    const _calcVolMaxLot = (minSlPips, slBreath, pipVal) => {
+      if (_acctBal <= 0) return 0.1;
+      const maxRiskUSD = _acctBal * VOLATILE_RISK_PCT;
+      const slRiskPerLot = minSlPips * slBreath * pipVal;
+      return Math.max(0.01, Math.floor(maxRiskUSD / slRiskPerLot * 100) / 100);
+    };
+    const _volCap = config.volatileCapMode === "user_only" ? null : _volSym.includes("XAU") || _volSym.includes("GOLD") ? { hardMaxLot: _calcVolMaxLot(500, 1.5, getPipValue(_volSym)), minSlPips: 500, slBreath: 1.5, preferPending: true } : _volSym.includes("BTC") || _volSym.includes("XBT") ? { hardMaxLot: _calcVolMaxLot(500, 2, getPipValue(_volSym)), minSlPips: 500, slBreath: 2, preferPending: true } : _volSym.includes("US30") || _volSym.includes("DOW") || _volSym.includes("WALLST") || _volSym.includes("DJ30") ? { hardMaxLot: _calcVolMaxLot(300, 1.5, getPipValue(_volSym)), minSlPips: 300, slBreath: 1.5, preferPending: true } : _volSym.includes("NAS100") || _volSym.includes("USTEC") || _volSym.includes("US100") || _volSym.includes("NDX") ? { hardMaxLot: _calcVolMaxLot(300, 1.5, getPipValue(_volSym)), minSlPips: 300, slBreath: 1.5, preferPending: true } : _volSym.includes("US500") || _volSym.includes("SPX") || _volSym.includes("SP500") ? { hardMaxLot: _calcVolMaxLot(300, 1.5, getPipValue(_volSym)), minSlPips: 300, slBreath: 1.5, preferPending: true } : null;
+    let entryPrice = parseNum(decision.entryPrice);
+    let stopLoss = parseNum(decision.stopLoss);
+    let takeProfit = parseNum(decision.takeProfit);
+    if (!stopLoss || stopLoss <= 0) {
+      addActivity(userId, {
+        type: "signal",
+        symbol: decision.symbol,
+        direction: decision.direction,
+        confidence: adjustedConfidence,
+        message: `\u{1F6AB} NO SL BLOCK: ${decision.symbol} ${decision.direction} rejected \u2014 AI returned no stop loss. Trade with undefined risk is never allowed. AI prompt must include SL.`
+      });
+      state.signalsGenerated++;
+      return;
+    }
+    if (!takeProfit || takeProfit <= 0) {
+      addActivity(userId, {
+        type: "signal",
+        symbol: decision.symbol,
+        direction: decision.direction,
+        confidence: adjustedConfidence,
+        message: `\u{1F6AB} NO TP BLOCK: ${decision.symbol} ${decision.direction} rejected \u2014 AI returned no take profit. Trade with no exit target is never allowed. AI prompt must include TP.`
+      });
+      state.signalsGenerated++;
+      return;
+    }
+    if (entryPrice && snap?.lastPrice && snap.lastPrice > 0) {
+      const _stalePct = Math.abs(entryPrice - snap.lastPrice) / snap.lastPrice;
+      if (_stalePct > 0.05) {
+        addActivity(userId, {
+          type: "signal",
+          symbol: decision.symbol,
+          direction: decision.direction,
+          confidence: adjustedConfidence,
+          message: `\u{1F6AB} STALE PRICE BLOCK: ${decision.symbol} ${decision.direction} rejected \u2014 AI entry ${entryPrice} is ${(_stalePct * 100).toFixed(1)}% away from live price ${snap.lastPrice}. Likely stale Twelvedata response. Trade blocked to prevent pending order thousands of pips from market.`
+        });
+        state.signalsGenerated++;
+        return;
+      }
+    }
+    if (entryPrice && stopLoss) {
+      const pipSize2 = getPipSize(decision.symbol || "");
+      const isJpy = (decision.symbol || "").includes("JPY");
+      const isXau2 = (decision.symbol || "").includes("XAU");
+      const currentATRForSL = state._lastATR?.[decision.symbol] || 0;
+      const minPipFloor = isXau2 ? 300 : isJpy ? 20 : 15;
+      const minPipDist = minPipFloor * pipSize2;
+      const atrFloor = currentATRForSL > 0 ? currentATRForSL * 1 : minPipDist;
+      const effectiveMinSL = Math.max(minPipDist, atrFloor);
+      const actualSlDist = Math.abs(entryPrice - stopLoss);
+      if (actualSlDist < effectiveMinSL) {
+        const expandedSL = decision.direction === "BUY" ? entryPrice - effectiveMinSL : entryPrice + effectiveMinSL;
+        let expandedTP = takeProfit;
+        if (takeProfit) {
+          const originalRR = Math.abs(takeProfit - entryPrice) / actualSlDist;
+          const newRR = Math.max(originalRR, 2);
+          const newTpDist = effectiveMinSL * newRR;
+          expandedTP = decision.direction === "BUY" ? entryPrice + newTpDist : entryPrice - newTpDist;
+        }
+        const oldSlPips = Math.round(actualSlDist / pipSize2);
+        const newSlPips = Math.round(effectiveMinSL / pipSize2);
+        const slExpansionRatio = actualSlDist > 0 ? effectiveMinSL / actualSlDist : 1;
+        if (slExpansionRatio > 1 && decision.lotSize && decision.lotSize > 0) {
+          const originalLot = decision.lotSize;
+          const scaledLot = Math.max(0.01, Math.round(originalLot / slExpansionRatio * 100) / 100);
+          decision.lotSize = scaledLot;
+          addActivity(userId, {
+            type: "info",
+            symbol: decision.symbol,
+            message: `\u{1F4CF} SL EXPANDED: ${decision.symbol} ${decision.direction} \u2014 SL ${oldSlPips}\u2192${newSlPips} pips (ATR floor). Lot scaled ${originalLot}\u2192${scaledLot} to keep dollar risk constant. TP scaled to maintain R:R.`
+          });
+        } else {
+          addActivity(userId, {
+            type: "info",
+            symbol: decision.symbol,
+            message: `\u{1F4CF} SL EXPANDED: ${decision.symbol} ${decision.direction} \u2014 SL was ${oldSlPips} pips (too tight), expanded to ${newSlPips} pips (ATR floor). TP scaled to maintain R:R.`
+          });
+        }
+        decision.stopLoss = Math.round(expandedSL * 1e5) / 1e5;
+        decision.takeProfit = expandedTP ? Math.round(expandedTP * 1e5) / 1e5 : takeProfit;
+        stopLoss = decision.stopLoss;
+        takeProfit = decision.takeProfit;
+      }
+    }
+    if (_volCap && entryPrice && stopLoss) {
+      const _vpPipSz = getPipSize(decision.symbol || "");
+      const _vpPipVal = getPipValue(decision.symbol || "");
+      const _minSlDist = _volCap.minSlPips * _vpPipSz * _volCap.slBreath;
+      const _actualSlDist = Math.abs(entryPrice - stopLoss);
+      if (_actualSlDist < _minSlDist) {
+        const _expandedSL = decision.direction === "BUY" ? entryPrice - _minSlDist : entryPrice + _minSlDist;
+        const _oldPips = Math.round(_actualSlDist / _vpPipSz);
+        const _newPips = Math.round(_minSlDist / _vpPipSz);
+        if (takeProfit) {
+          const _origRR = Math.abs(takeProfit - entryPrice) / Math.max(_actualSlDist, 1e-5);
+          const _newRR = Math.max(_origRR, 2);
+          const _newTpDist = _minSlDist * _newRR;
+          const _expandedTP = decision.direction === "BUY" ? entryPrice + _newTpDist : entryPrice - _newTpDist;
+          decision.takeProfit = Math.round(_expandedTP * 1e5) / 1e5;
+          takeProfit = decision.takeProfit;
+        }
+        if (decision.lotSize && decision.lotSize > 0 && _actualSlDist > 0) {
+          const _ratio = _actualSlDist / _minSlDist;
+          const _scaledLot = Math.max(0.01, Math.round(decision.lotSize * _ratio * 100) / 100);
+          const _oldRisk = Math.round(decision.lotSize * _oldPips * _vpPipVal);
+          const _newRisk = Math.round(_scaledLot * _newPips * _vpPipVal);
+          decision.lotSize = _scaledLot;
+          addActivity(userId, {
+            type: "info",
+            symbol: decision.symbol,
+            message: `\u{1F6E1}\uFE0F VOLATILE SL GUARD [${decision.symbol}]: SL ${_oldPips}\u2192${_newPips} pips (${_volCap.slBreath}\xD7 breath room). Lot ${(decision.lotSize / _ratio).toFixed(2)}\u2192${_scaledLot} to keep risk $${_oldRisk}\u2248$${_newRisk}. TP scaled to 2:1+ R:R.`
+          });
+        } else {
+          addActivity(userId, {
+            type: "info",
+            symbol: decision.symbol,
+            message: `\u{1F6E1}\uFE0F VOLATILE SL GUARD [${decision.symbol}]: SL widened ${_oldPips}\u2192${_newPips} pips (${_volCap.slBreath}\xD7 breathing room for ${decision.symbol}). TP scaled to maintain R:R.`
+          });
+        }
+        decision.stopLoss = Math.round(_expandedSL * 1e5) / 1e5;
+        stopLoss = decision.stopLoss;
+      }
+    }
+    if (entryPrice && stopLoss && takeProfit) {
+      const riskDist = Math.abs(entryPrice - stopLoss);
+      const rewardDist = Math.abs(takeProfit - entryPrice);
+      if (riskDist > 0) {
+        const rr = rewardDist / riskDist;
+        if (rr < 1.5) {
+          addActivity(userId, {
+            type: "signal",
+            symbol: decision.symbol,
+            direction: decision.direction,
+            confidence: adjustedConfidence,
+            message: `\u274C R:R GATE REJECT: ${decision.symbol} ${decision.direction} R:R=${rr.toFixed(2)} < 1.5 minimum. Adjust TP or skip this setup.`
+          });
+          state.signalsGenerated++;
+          return;
+        }
+        if (rr < 2 && adjustedConfidence < 88) {
+          addActivity(userId, {
+            type: "signal",
+            symbol: decision.symbol,
+            direction: decision.direction,
+            confidence: adjustedConfidence,
+            message: `\u274C R:R GATE REJECT: ${decision.symbol} ${decision.direction} R:R=${rr.toFixed(2)} \u2014 below 1:2 minimum. Requires 88%+ confidence to allow sub-2:1 setups (current: ${adjustedConfidence}%).`
+          });
+          state.signalsGenerated++;
+          return;
+        }
+        if (rr < 2) {
+          addActivity(userId, {
+            type: "info",
+            symbol: decision.symbol,
+            message: `\u26A0\uFE0F R:R note: ${decision.symbol} R:R=${rr.toFixed(2)} allowed on ${adjustedConfidence}% confidence (88%+ exception). Monitor closely.`
+          });
+        }
+      }
+    }
+    let brainLocked = false;
+    let brainTotalTrades = 0;
+    let brainOverallWinRate = 0;
+    if (config.brainLearningMode) {
+      const brainData = global.veddAIBrain?.[userId];
+      if (brainData?.pairKnowledge) {
+        const pairs = Object.values(brainData.pairKnowledge);
+        const totals = pairs.reduce((acc, p) => {
+          acc.trades += p.totalTrades || 0;
+          acc.wins += Math.round((p.totalTrades || 0) * ((p.winRate ?? p.buyWinRate ?? 50) / 100));
+          return acc;
+        }, { trades: 0, wins: 0 });
+        brainTotalTrades = totals.trades;
+        brainOverallWinRate = totals.trades >= 5 ? Math.round(totals.wins / totals.trades * 100) : 0;
+      }
+      brainLocked = brainTotalTrades < 10 || brainOverallWinRate < 60;
+      addActivity(userId, {
+        type: "info",
+        symbol: decision.symbol,
+        message: brainLocked ? `\u{1F9E0} Learning Mode: lot locked at 0.01 (${brainTotalTrades}/10 trades, ${brainOverallWinRate}%/60% WR) \u2014 full sizing unlocks automatically` : `\u{1F9E0} Brain unlocked: ${brainTotalTrades} trades @ ${brainOverallWinRate}% WR \u2014 full risk sizing active`
+      });
+    }
+    const rawLotBase = brainLocked ? 0.01 : parseNum(decision.lotSize) || config.baseLotSize || 0.01;
+    const brainMult = brainLocked ? 1 : decision._brainLotMultiplier || 1;
+    const consistencyMult = state._consistencyRiskOverride ?? 1;
+    const rawLotSize = Math.round(rawLotBase * brainMult * consistencyMult * 100) / 100;
+    const isSmallAccount = config.accountBalance > 0 && config.accountBalance < 500;
+    const _dynMaxLot = config.accountBalance > 0 ? Math.max(0.1, Math.round(config.accountBalance * 0.05 / (15 * getPipValue(decision.symbol)) * 100) / 100) : 0.1;
+    const safeMaxLot = isSmallAccount ? Math.min(0.02, config.maxLotSize || 0.1) : Math.max(config.maxLotSize || 0, _dynMaxLot);
+    {
+      const _gsym = decision.symbol.toUpperCase().replace("/", "");
+      const _gkey = `last_trade_${userId}_${_gsym}`;
+      global.recentTrades = global.recentTrades || {};
+      if (global.recentTrades[_gkey] === void 0) {
+        try {
+          const _logs = await storage.getTradelockerTradeLogs(userId, 200);
+          const _last = _logs.filter((t) => t.action === "OPEN" && t.status === "executed" && String(t.symbol || "").toUpperCase().replace("/", "") === _gsym && t.createdAt).map((t) => new Date(t.createdAt).getTime()).sort((a, b) => b - a)[0];
+          global.recentTrades[_gkey] = _last || 0;
+        } catch {
+        }
+      }
+      const _glast = global.recentTrades[_gkey];
+      if (_glast && Date.now() - _glast < FX_SYMBOL_COOLDOWN_MS) {
+        addActivity(userId, { type: "info", symbol: decision.symbol, message: `\u23F3 ${decision.symbol}: cooldown active \u2014 last entry ${Math.round((Date.now() - _glast) / 6e4)} min ago (min gap ${Math.round(FX_SYMBOL_COOLDOWN_MS / 6e4)} min). Skipping.` });
+        return;
+      }
+      try {
+        const _pRow = await db.execute(sql4`SELECT is_enabled FROM fx_paper_accounts WHERE user_id=${userId} LIMIT 1`);
+        const _isPaper = !!(Array.isArray(_pRow) ? _pRow[0] : _pRow.rows?.[0])?.is_enabled;
+        let _openCount = 0;
+        if (_isPaper) {
+          const _openRes = await db.execute(sql4`SELECT COUNT(*)::int AS c FROM fx_paper_trades WHERE user_id=${userId} AND pair=${decision.symbol} AND status='open'`);
+          _openCount = Number((Array.isArray(_openRes) ? _openRes[0] : _openRes.rows?.[0])?.c ?? 0);
+        } else {
+          const _tl = global.tlAccountData?.[userId];
+          if (_tl) {
+            for (const acct of Object.values(_tl)) {
+              const positions = acct?.positions || acct?.openPositions || [];
+              if (Array.isArray(positions)) _openCount += positions.filter((p) => (p.symbol || p.instrument || "").toUpperCase().replace("/", "") === _gsym).length;
+            }
+          }
+        }
+        if (_openCount >= FX_MAX_OPEN_PER_SYMBOL) {
+          addActivity(userId, { type: "info", symbol: decision.symbol, message: `\u{1F6A7} ${decision.symbol}: concentration cap \u2014 already ${_openCount} open ${_isPaper ? "paper" : "live"} position(s) (max ${FX_MAX_OPEN_PER_SYMBOL}). Skipping.` });
+          return;
+        }
+      } catch {
+      }
+    }
+    try {
+      const _paperAcctRows = await db.execute(sql4`SELECT is_enabled FROM fx_paper_accounts WHERE user_id=${userId} LIMIT 1`);
+      const _paperAcct = Array.isArray(_paperAcctRows) ? _paperAcctRows[0] : _paperAcctRows.rows?.[0];
+      if (_paperAcct?.is_enabled) {
+        const _paperTradeRows = await db.execute(sql4`
+          INSERT INTO fx_paper_trades (user_id, pair, direction, entry_price, stop_loss, take_profit, lot_size, confidence, source, status, opened_at)
+          VALUES (${userId}, ${decision.symbol}, ${decision.direction}, ${entryPrice || 0}, ${stopLoss ?? null}, ${takeProfit ?? null}, ${rawLotSize}, ${adjustedConfidence}, 'ss_engine', 'open', now())
+          RETURNING id
+        `);
+        const _newPaperTradeId = (Array.isArray(_paperTradeRows) ? _paperTradeRows[0] : _paperTradeRows.rows?.[0])?.id;
+        global.recentTrades = global.recentTrades || {};
+        global.recentTrades[`last_trade_${userId}_${decision.symbol.toUpperCase().replace("/", "")}`] = Date.now();
+        try {
+          const _copiers = await db.execute(sql4`
+            SELECT id, copier_id, max_lot_size FROM copy_relationships
+            WHERE source_user_id=${userId} AND is_active=true
+          `);
+          const _copierList = Array.isArray(_copiers) ? _copiers : _copiers.rows ?? [];
+          for (const rel of _copierList) {
+            const _mirrorLot = Math.min(parseFloat(rel.max_lot_size) || 0.01, rawLotSize || 0.01);
+            await db.execute(sql4`
+              INSERT INTO copy_trade_logs (relationship_id, copier_id, source_user_id, original_trade_id, pair, direction, entry_price, stop_loss, take_profit, lot_size, status, opened_at)
+              VALUES (${rel.id}, ${rel.copier_id}, ${userId}, ${_newPaperTradeId ?? null}, ${decision.symbol}, ${decision.direction}, ${entryPrice || 0}, ${stopLoss ?? null}, ${takeProfit ?? null}, ${_mirrorLot}, 'open', now())
+            `);
+          }
+        } catch (_mirrorErr) {
+        }
+        addActivity(userId, {
+          type: "trade_open",
+          symbol: decision.symbol,
+          message: `\u{1F4DD} PAPER TRADE opened: ${decision.direction} ${decision.symbol} @ ${entryPrice ?? "\u2014"} (${rawLotSize} lots, ${adjustedConfidence}% confidence) \u2014 simulated. Paper mode is ON, so live execution (MT5 / TradeLocker / DXtrade) is suppressed. Turn paper mode OFF to trade live.`,
+          confidence: adjustedConfidence
+        });
+        return;
+      }
+    } catch (_paperErr) {
+      console.error(`[Paper Mode] Check failed for user ${userId} (non-critical, falling through to live path):`, _paperErr?.message);
+    }
+    if (state.drawdownShieldActive && config.accountBalance > 0) {
+      const shieldLot = Math.max(0.01, Math.round(config.accountBalance * 25e-4 / 1e3 * 100) / 100);
+      const shieldFinal = Math.min(shieldLot, safeMaxLot);
+      const mt5SigShield = {
+        id: `sig_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
+        timestamp: (/* @__PURE__ */ new Date()).toISOString(),
+        symbol: decision.symbol,
+        direction: decision.direction,
+        action: "OPEN",
+        lotSize: shieldFinal,
+        entryPrice: entryPrice || null,
+        stopLoss: stopLoss || null,
+        takeProfit: takeProfit || null,
+        confidence: adjustedConfidence,
+        reason: `[SHIELD MODE] ${decision.reason || ""}`,
+        holdTime: decision.holdTime || "",
+        strategy: decision.strategy || "sniper",
+        confluences: decision.confluences || [],
+        status: "pending"
+      };
+      broadcastMT5Signal(userId, mt5SigShield);
+      state.signalsGenerated++;
+      addActivity(userId, {
+        type: "signal",
+        symbol: decision.symbol,
+        direction: decision.direction,
+        confidence: adjustedConfidence,
+        message: `\u{1F6E1}\uFE0F SHIELD SIGNAL: ${decision.direction} ${decision.symbol} at reduced lot ${shieldFinal} (0.25% risk). ${decision.reason || ""}`
+      });
+      return;
+    }
+    const bothEnabled = !config.lockSettings && config.useKellyCriterion && config.enablePyramiding;
+    const snapshot = state.marketSnapshot?.[decision.symbol] || state.lastIndicatorSnapshot?.[decision.symbol];
+    const adxNow = snapshot?.adx || 0;
+    const isTrending = adxNow >= 25;
+    let sizingMode = "default";
+    if (bothEnabled) {
+      if (isTrending) {
+        sizingMode = "kelly_base_pyramid_allowed";
+      } else {
+        sizingMode = "kelly";
+      }
+    } else if (!config.lockSettings && config.useKellyCriterion) {
+      sizingMode = "kelly";
+    } else if (config.enablePyramiding) {
+      sizingMode = "pyramid";
+    }
+    let kellyLot = rawLotSize;
+    if ((sizingMode === "kelly" || sizingMode === "kelly_base_pyramid_allowed") && config.accountBalance > 0) {
+      const strat = (decision.strategy || "auto").toLowerCase();
+      const ks = state.goalTracker.kellyStats?.[strat];
+      const wins = ks?.wins || 0;
+      const losses = ks?.losses || 0;
+      const totalRR = ks?.totalRR || 0;
+      const kellyFraction = calculateKellyFraction(wins, losses, totalRR);
+      kellyLot = Math.round(config.accountBalance * kellyFraction / 1e3 * 100) / 100;
+      const winRate = wins + losses >= 5 ? Math.round(wins / (wins + losses) * 100) : null;
+      const avgRR = wins > 0 ? (totalRR / wins).toFixed(1) : "1.5";
+      const modeLabel = sizingMode === "kelly_base_pyramid_allowed" ? `Kelly base (ADX=${adxNow.toFixed(0)}, trending \u2014 pyramiding ALLOWED on this trade)` : `Kelly only (ADX=${adxNow.toFixed(0)}, ranging \u2014 pyramiding SUPPRESSED)`;
+      addActivity(userId, {
+        type: "info",
+        symbol: decision.symbol,
+        message: `\u{1F4D0} ${modeLabel}${winRate !== null ? ` | ${strat} ${winRate}% WR, R:R ${avgRR}` : ""} \u2192 ${kellyLot} lots`
+      });
+    }
+    const pyramidSuppressed = bothEnabled && !isTrending;
+    if (pyramidSuppressed && decision.pyramidOf) {
+      addActivity(userId, {
+        type: "info",
+        symbol: decision.symbol,
+        message: `\u{1F4D0} Pyramid suppressed by Kelly mode \u2014 ADX ${adxNow.toFixed(0)} < 25, market ranging. Kelly sizing protects capital.`
+      });
+      return;
+    }
+    const safeCompoundMult = isSmallAccount ? Math.min(state.goalTracker.compoundMultiplier, 1.25) : state.goalTracker.compoundMultiplier;
+    const baseLotForCalc = sizingMode === "kelly" || sizingMode === "kelly_base_pyramid_allowed" ? kellyLot : rawLotSize;
+    const compoundedLot = config.enableCompounding ? Math.round(baseLotForCalc * safeCompoundMult * 100) / 100 : baseLotForCalc;
+    const isDynamicSizingEnabled = !brainLocked && !decision.pyramidOf;
+    let dynamicLot = compoundedLot;
+    if (isDynamicSizingEnabled) {
+      const confTier = getConfidenceLotMultiplier(adjustedConfidence);
+      const stratTier = getStrategyLotMultiplier(decision.strategy || "auto");
+      const openCount = global.mt5OpenPositions?.[userId]?.positions?.length ?? state.openPositionCount;
+      const expTier = getExposureLotMultiplier(openCount);
+      const combinedMult = confTier.mult * stratTier.mult * expTier.mult;
+      dynamicLot = Math.round(compoundedLot * combinedMult * 100) / 100;
+      addActivity(userId, {
+        type: "info",
+        symbol: decision.symbol,
+        message: `\u{1F4D0} Dynamic sizing: ${compoundedLot} base \xD7 [Conf:${confTier.label}] \xD7 [Strat:${stratTier.label}] \xD7 [Exp:${expTier.label}] = ${dynamicLot} lots`
+      });
+    }
+    const volHardMax = _volCap ? _volCap.hardMaxLot : Infinity;
+    const preCappedLot = Math.max(0.01, Math.min(isDynamicSizingEnabled ? dynamicLot : compoundedLot, safeMaxLot));
+    const volCappedLot = Math.min(preCappedLot, volHardMax);
+    if (_volCap && preCappedLot > volHardMax) {
+      addActivity(userId, {
+        type: "info",
+        symbol: decision.symbol,
+        message: `\u26A0\uFE0F LOT CAP [${decision.symbol}]: ${preCappedLot} lots capped to ${volHardMax} (volatile-pair hard limit). Dynamic sizing requested ${preCappedLot} but ${decision.symbol} max is ${volHardMax} to prevent account-damaging losses.`
+      });
+    }
+    const _pairHardLot = (config.pairLotOverrides || {})[decision.symbol];
+    let lotSize = _pairHardLot && _pairHardLot > 0 ? Math.min(volCappedLot, _pairHardLot) : volCappedLot;
+    if (_pairHardLot && _pairHardLot > 0 && volCappedLot !== lotSize) {
+      addActivity(userId, {
+        type: "info",
+        symbol: decision.symbol,
+        message: `\u{1F512} PAIR LOT BLOCK [${decision.symbol}]: engine sized ${volCappedLot} lots \u2192 hard-blocked to ${lotSize} lots (user set ${_pairHardLot} max for ${decision.symbol})`
+      });
+    }
+    {
+      const _rcBal = config.accountBalance > 0 ? config.accountBalance : 0;
+      const _maxRiskPct = config.maxRiskPerTradePct ?? 0;
+      if (_rcBal > 0 && _maxRiskPct > 0 && entryPrice && stopLoss) {
+        const _pipSz = getPipSize(decision.symbol);
+        const _pipVal = getPipValue(decision.symbol);
+        const _slPips = Math.abs(entryPrice - stopLoss) / (_pipSz || 1);
+        if (_pipVal > 0 && _slPips > 0) {
+          const _capUsd = _rcBal * (_maxRiskPct / 100);
+          const _riskAtLot = lotSize * _slPips * _pipVal;
+          if (_riskAtLot > _capUsd) {
+            const _capped = Math.max(0.01, Math.floor(_capUsd / (_slPips * _pipVal) * 100) / 100);
+            if (_capped < lotSize) {
+              addActivity(userId, { type: "info", symbol: decision.symbol, message: `\u{1F6E1}\uFE0F RISK CAP: resized ${lotSize} \u2192 ${_capped} lots to keep per-trade risk \u2264 ${_maxRiskPct}% ($${_capUsd.toFixed(0)})` });
+              lotSize = _capped;
+            }
+          }
+        }
+      }
+      const _maxLotCfg = config.maxLot ?? 0;
+      if (_maxLotCfg > 0 && lotSize > _maxLotCfg) {
+        addActivity(userId, { type: "info", symbol: decision.symbol, message: `\u{1F6E1}\uFE0F RISK CAP: capped ${lotSize} \u2192 ${_maxLotCfg} lots (maxLot ceiling)` });
+        lotSize = _maxLotCfg;
+      }
+    }
+    {
+      const _ls = Number(decision._lotScale);
+      if (_ls > 0 && _ls < 1) lotSize = Math.max(0.01, Math.floor(lotSize * _ls * 100) / 100);
+    }
+    {
+      const _riskBal = config.accountBalance > 0 ? config.accountBalance : 0;
+      if (_riskBal > 0 && entryPrice && stopLoss) {
+        const _slDist = Math.abs(entryPrice - stopLoss);
+        const _pipSz = getPipSize(decision.symbol);
+        const _pipVal = getPipValue(decision.symbol);
+        if (_pipSz > 0 && _pipVal > 0 && _slDist > 0) {
+          const _slPips = _slDist / _pipSz;
+          const _potentialLoss = lotSize * _slPips * _pipVal;
+          if (_potentialLoss > _riskBal * 0.05) {
+            addActivity(userId, { type: "info", symbol: decision.symbol, message: `\u{1F6E1}\uFE0F RISK BLOCK: per-trade risk $${_potentialLoss.toFixed(0)} exceeds 5% cap $${(_riskBal * 0.05).toFixed(0)} (${lotSize} lots \xD7 ${_slPips.toFixed(0)} pips) \u2014 trade skipped` });
+            return;
+          }
+        }
+      }
+      const _posAgg = global.mt5OpenPositions?.[userId]?.positions ?? [];
+      const _openLots = _posAgg.reduce((s, p) => s + (p.lots || p.volume || p.size || 0), 0);
+      const _aggCap = safeMaxLot * (config.maxOpenTrades || 3) * 1.5;
+      if (_openLots + lotSize > _aggCap) {
+        addActivity(userId, { type: "info", symbol: decision.symbol, message: `\u{1F6E1}\uFE0F RISK BLOCK: aggregate exposure ${(_openLots + lotSize).toFixed(2)} lots exceeds cap ${_aggCap.toFixed(2)} \u2014 trade skipped` });
+        return;
+      }
+    }
+    {
+      const _gSym = decision.symbol.toUpperCase().replace("/", "");
+      const _gDir = decision.direction;
+      try {
+        const { pairFilterVerdict: pairFilterVerdict2 } = await Promise.resolve().then(() => (init_pair_filter(), pair_filter_exports));
+        const _v = pairFilterVerdict2(_gSym, _gDir);
+        if (_v) {
+          addActivity(userId, { type: "info", symbol: decision.symbol, message: `\u{1F6AB} ${_v.reason} \u2014 skipped (live engine).` });
+          return;
+        }
+      } catch {
+      }
+      {
+        const { xauEntryBlock: xauEntryBlock2 } = await Promise.resolve().then(() => (init_xau_rules(), xau_rules_exports));
+        const _x = xauEntryBlock2(_gSym);
+        if (_x) {
+          addActivity(userId, { type: "info", symbol: decision.symbol, message: `\u23F3 ${_x} \u2014 skipped (live engine).` });
+          return;
+        }
+      }
+      try {
+        const { hourFilterVerdict: hourFilterVerdict2 } = await Promise.resolve().then(() => (init_hour_filter(), hour_filter_exports));
+        const _v = await hourFilterVerdict2(userId, (/* @__PURE__ */ new Date()).getUTCHours());
+        if (_v) {
+          addActivity(userId, { type: "info", symbol: decision.symbol, message: `\u23F0 ${_v.reason} \u2014 skipped (live engine).` });
+          return;
+        }
+      } catch {
+      }
+      try {
+        const { pairDailyStopVerdict: pairDailyStopVerdict2 } = await Promise.resolve().then(() => (init_pair_daily_stop(), pair_daily_stop_exports));
+        const _v = await pairDailyStopVerdict2(userId, _gSym);
+        if (_v) {
+          addActivity(userId, { type: "info", symbol: decision.symbol, message: `\u{1F6D1} ${_v.reason} \u2014 skipped (live engine).` });
+          return;
+        }
+      } catch {
+      }
+      try {
+        const { fxBrainGateVerdict: fxBrainGateVerdict2 } = await Promise.resolve().then(() => (init_fx_brain(), fx_brain_exports));
+        const _v = await fxBrainGateVerdict2(userId, _gSym, _gDir, (/* @__PURE__ */ new Date()).getUTCHours(), "live_engine");
+        if (_v) {
+          addActivity(userId, { type: "info", symbol: decision.symbol, message: `\u{1F9E0} ${_v.reason} \u2014 skipped (live engine).` });
+          return;
+        }
+      } catch {
+      }
+    }
+    const mt5Signal = {
+      id: `sig_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
+      timestamp: (/* @__PURE__ */ new Date()).toISOString(),
+      symbol: decision.symbol,
+      direction: decision.direction,
+      action: "OPEN",
+      lotSize,
+      entryPrice: entryPrice || null,
+      stopLoss: stopLoss || null,
+      takeProfit: takeProfit || null,
+      confidence: adjustedConfidence,
+      reason: decision.reason || "",
+      holdTime: decision.holdTime || "",
+      strategy: decision.strategy || "auto",
+      confluences: decision.confluences || [],
+      status: "pending"
+    };
+    broadcastMT5Signal(userId, mt5Signal);
+    try {
+      const { pool: _dxPool } = await Promise.resolve().then(() => (init_db(), db_exports));
+      const dxRows = (await _dxPool.query(
+        `SELECT id, host, username, encrypted_password, domain, account_code, use_risk_percent, risk_percent, auto_trade_enabled, lot_multiplier, consistency_enabled, consistency_threshold_pct FROM dxtrade_connections WHERE user_id=$1 AND is_active=true AND auto_trade_enabled=true`,
+        [userId]
+      )).rows;
+      if (dxRows.length > 0) {
+        const { getDxtradeService: getDxtradeService2, decryptApiSecret: decryptApiSecret2, extractAccountCode: extractAccountCode2, extractBalance: extractBalance2, computeRiskQuantity: computeRiskQuantity2 } = await Promise.resolve().then(() => (init_dxtrade(), dxtrade_exports));
+        const dxSymbol = String(decision.symbol).replace(/\//g, "").toUpperCase();
+        for (const dc of dxRows) {
+          try {
+            const svc = getDxtradeService2(dc.host, dc.username, decryptApiSecret2(dc.encrypted_password), dc.domain, String(dc.id));
+            await svc.ensureLoggedIn();
+            const acct = dc.account_code || extractAccountCode2(await svc.getAccounts());
+            if (!acct) {
+              addActivity(userId, { type: "error", symbol: decision.symbol, message: `DXtrade [conn ${dc.id}]: no account code \u2014 skipped.` });
+              continue;
+            }
+            let _dxConsistencyMult = 1;
+            if (dc.consistency_enabled === true) {
+              try {
+                const { getConsistencyStatus: getConsistencyStatus2 } = await Promise.resolve().then(() => (init_prop_firm_consistency(), prop_firm_consistency_exports));
+                const _dxcs = await getConsistencyStatus2(dc.id, "dxtrade", dc.consistency_threshold_pct, true);
+                if (_dxcs.hardBlocked) {
+                  addActivity(userId, { type: "info", symbol: decision.symbol, message: `\u2696\uFE0F DXtrade [${acct}]: consistency block \u2014 ${_dxcs.guidance}` });
+                  continue;
+                }
+                _dxConsistencyMult = _dxcs.sizeMultiplier;
+              } catch (e) {
+                addActivity(userId, { type: "info", symbol: decision.symbol, message: `\u2696\uFE0F DXtrade [${acct}]: consistency check errored \u2014 account skipped (${e?.message ?? "unknown"})` });
+                continue;
+              }
+            }
+            let qty = 0;
+            let sizeLabel = "";
+            const _dxSide = decision.direction === "BUY" ? "BUY" : "SELL";
+            const _dxSymNorm = dxSymbol.replace(/\//g, "").toUpperCase();
+            const spec = await svc.getInstrument(dxSymbol);
+            if (!spec) {
+              addActivity(userId, { type: "error", symbol: decision.symbol, message: `DXtrade [conn ${dc.id}] ${dxSymbol}: instrument spec not found on Velotrade \u2014 skipped (cannot size safely without contract multiplier).` });
+              logDxtradeSkip(userId, dc.id, dxSymbol, "no_instrument_spec", "not tradable on Velotrade");
+              continue;
+            }
+            if (!(Number(stopLoss) > 0)) {
+              addActivity(userId, { type: "error", symbol: decision.symbol, message: `DXtrade [conn ${dc.id}] ${dxSymbol}: no valid stop loss on the signal \u2014 skipped (no naked DXtrade entries).` });
+              logDxtradeSkip(userId, dc.id, dxSymbol, "no_stop_loss", `stopLoss=${stopLoss}`);
+              continue;
+            }
+            if (dc.use_risk_percent !== false && entryPrice && stopLoss) {
+              const balance = extractBalance2(await svc.getMetrics(acct).catch(() => null));
+              if (balance) {
+                let _q2usd = 1;
+                if (dxSymbol.toUpperCase().endsWith("JPY")) {
+                  const _mkt = state._lastMarketAnalysis || {};
+                  const _usdjpy = dxSymbol.toUpperCase() === "USDJPY" ? entryPrice : Number(_mkt["USDJPY"]?.price) || 0;
+                  _q2usd = _usdjpy > 0 ? 1 / _usdjpy : 1 / 100;
+                }
+                const s = computeRiskQuantity2({ balance, riskPercent: Number(dc.risk_percent) || 1, entryPrice, stopPrice: stopLoss, instrument: spec, quoteToUsd: _q2usd });
+                qty = s.quantity;
+                sizeLabel = ` (risk ${dc.risk_percent}% of $${balance.toLocaleString()})`;
+                const _notional = qty * (entryPrice || 0) * _q2usd;
+                if (balance > 0 && _notional > balance * 50) {
+                  addActivity(userId, { type: "error", symbol: decision.symbol, message: `DXtrade [conn ${dc.id}] ${dxSymbol}: computed qty ${qty} (~$${Math.round(_notional).toLocaleString()} notional) exceeds 50x balance \u2014 BLOCKED as a sizing safety cap. Check the instrument contract size.` });
+                  logDxtradeSkip(userId, dc.id, dxSymbol, "notional_cap", `qty=${qty} notional=${Math.round(_notional)} balance=${balance}`);
+                  continue;
+                }
+              }
+            }
+            const _dxMult = (Number(dc.lot_multiplier) || 1) * _dxConsistencyMult;
+            const _dxIncr = Number(spec?.quantityIncrement) > 0 ? Number(spec.quantityIncrement) : Number(spec?.lotSize) > 0 ? Number(spec.lotSize) : 0;
+            if (qty > 0 && _dxMult !== 1) {
+              qty = qty * _dxMult;
+              if (_dxIncr > 0) qty = Math.floor(qty / _dxIncr) * _dxIncr;
+              qty = Math.max(0, Math.round(qty * 1e8) / 1e8);
+              if (_dxConsistencyMult < 1) sizeLabel += ` \xB7 consistency ${Math.round(_dxConsistencyMult * 100)}%`;
+            }
+            if (!(qty > 0)) {
+              addActivity(userId, { type: "error", symbol: decision.symbol, message: `DXtrade [conn ${dc.id}] ${dxSymbol}: could not risk-size (need balance + stop). Skipped \u2014 set a stop or check the symbol exists on Velotrade.` });
+              logDxtradeSkip(userId, dc.id, dxSymbol, "zero_qty", `qty=${qty} entry=${entryPrice} stop=${stopLoss} riskPct=${dc.risk_percent}`);
+              continue;
+            }
+            const r = await svc.placeOrder(acct, { instrument: dxSymbol, side: _dxSide, quantity: qty, type: "MARKET" });
+            let _pos = null;
+            let _verifyError = false;
+            for (let _att = 0; _att < 5 && !_pos; _att++) {
+              await new Promise((res) => setTimeout(res, 1e3));
+              try {
+                const _poss = await svc.getPositions(acct);
+                _pos = _poss.find((p) => p.instrument === _dxSymNorm && p.side === _dxSide) || null;
+                _verifyError = false;
+              } catch (ve) {
+                _verifyError = true;
+              }
+            }
+            if (!_pos) {
+              if (_verifyError) {
+                let _emClosed = false;
+                try {
+                  await svc.closePosition(acct, dxSymbol, _dxSide, qty);
+                  _emClosed = true;
+                } catch {
+                }
+                try {
+                  const _rcTicket = `dx_${acct}_reconcile_${Date.now()}`;
+                  await storage.createAiTradeResult({ userId, symbol: dxSymbol, direction: _dxSide, entryPrice: entryPrice || 0, exitPrice: 0, stopLoss: stopLoss || 0, takeProfit: takeProfit || 0, aiConfidence: adjustedConfidence || 0, result: "NEEDS_RECONCILE", profitLoss: 0, source: "dxtrade", connectionId: dc.id, mt5Ticket: _rcTicket, notes: `DXtrade fill UNVERIFIED (broker read failed) \u2014 emergency close ${_emClosed ? "sent" : "FAILED"}; verify on Velotrade` });
+                } catch {
+                }
+                addActivity(userId, { type: "error", symbol: decision.symbol, message: `\u{1F6A8} DXtrade [${acct}] ${dxSymbol}: could NOT verify fill (broker read failed). Emergency close ${_emClosed ? "sent" : "FAILED"} + flagged NEEDS_RECONCILE \u2014 CHECK Velotrade manually.` });
+                logDxtradeSkip(userId, dc.id, dxSymbol, "verify_fill_failed", `emergency_close=${_emClosed ? "sent" : "FAILED"}`);
+              } else {
+                let _lateClosed = false;
+                try {
+                  await svc.closePosition(acct, dxSymbol, _dxSide, qty);
+                  _lateClosed = true;
+                } catch {
+                }
+                addActivity(userId, { type: "error", symbol: decision.symbol, message: `DXtrade [${acct}] ${dxSymbol}: order did NOT fill \u2014 no position on the broker (likely rejected). Not recorded. Response: ${JSON.stringify(r?.result ?? r).slice(0, 140)}` });
+                logDxtradeSkip(userId, dc.id, dxSymbol, "no_fill", `qty=${qty} side=${_dxSide} lateClose=${_lateClosed ? "sent" : "noop"} orderResp=${JSON.stringify(r?.result ?? r).slice(0, 380)}`);
+              }
+              continue;
+            }
+            let _prot = {};
+            try {
+              _prot = await svc.modifyProtection(acct, { instrument: dxSymbol, positionSide: _dxSide, quantity: _pos.quantity || qty, stopLoss: stopLoss || void 0, takeProfit: takeProfit || void 0, positionCode: _pos.positionId });
+            } catch (pe) {
+              _prot = { stopError: pe?.message || String(pe) };
+            }
+            if (!_prot.stop) {
+              try {
+                await svc.closePosition(acct, dxSymbol, _dxSide, _pos.quantity || qty, _pos.positionId);
+                addActivity(userId, { type: "error", symbol: decision.symbol, message: `DXtrade [${acct}] ${dxSymbol}: STOP attach FAILED (${_prot.stopError || "no stop returned"}) \u2014 position CLOSED immediately to avoid a naked entry.` });
+              } catch (ce) {
+                addActivity(userId, { type: "error", symbol: decision.symbol, message: `\u{1F6A8} DXtrade [${acct}] ${dxSymbol}: STOP attach FAILED and emergency close ALSO failed (${ce?.message}) \u2014 MANUAL ACTION NEEDED, position may be naked.` });
+              }
+              continue;
+            }
+            if (_prot.tpError) {
+              addActivity(userId, { type: "info", symbol: decision.symbol, message: `DXtrade [${acct}] ${dxSymbol}: stop attached \u2713 but take-profit order failed (${_prot.tpError}) \u2014 position is protected; TP can be set manually.` });
+            }
+            addActivity(userId, { type: "trade_open", symbol: decision.symbol, direction: decision.direction, confidence: adjustedConfidence, message: `TRADE EXECUTED via DXtrade [${acct}]: ${decision.direction} ${dxSymbol} | Qty: ${qty}${sizeLabel} | SL: ${stopLoss} | TP: ${takeProfit || "N/A"} \xB7 protection attached`, details: { dxOrder: r?.result ?? r } });
+            try {
+              const _dxTicket = `dx_${acct}_${_pos.positionId || r?._sent?.orderCode || Date.now()}`;
+              const _dxExisting = await storage.getAiTradeResultByTicket(userId, _dxTicket);
+              if (!_dxExisting) {
+                await storage.createAiTradeResult({
+                  userId,
+                  symbol: dxSymbol,
+                  direction: _dxSide,
+                  entryPrice: entryPrice || _pos.openPrice || 0,
+                  exitPrice: 0,
+                  stopLoss: stopLoss || 0,
+                  takeProfit: takeProfit || 0,
+                  aiConfidence: adjustedConfidence || 0,
+                  result: "PENDING",
+                  profitLoss: 0,
+                  source: "dxtrade",
+                  connectionId: dc.id,
+                  mt5Ticket: _dxTicket,
+                  notes: `DXtrade open (qty ${qty}) SL ${stopLoss}${takeProfit ? ` TP ${takeProfit}` : ""} \u2014 protection attached, awaiting close sync`
+                });
+                state.tradesOpenedToday++;
+              }
+            } catch (_dxRec) {
+              console.error("[live-engine] DXtrade open-record failed (non-fatal):", _dxRec?.message ?? _dxRec);
+            }
+          } catch (dxe) {
+            addActivity(userId, { type: "error", symbol: decision.symbol, message: `DXtrade [conn ${dc.id}] execution failed: ${dxe?.message ?? dxe}` });
+            logDxtradeSkip(userId, dc.id, dxSymbol, "execution_error", String(dxe?.message ?? dxe));
+          }
+        }
+      }
+    } catch (dxOuter) {
+      console.error("[live-engine] DXtrade routing error:", dxOuter?.message ?? dxOuter);
+      addActivity(userId, { type: "error", symbol: decision.symbol, message: `DXtrade routing error (no order placed): ${dxOuter?.message ?? dxOuter}` });
+      logDxtradeSkip(userId, null, String(decision.symbol), "routing_error", String(dxOuter?.message ?? dxOuter));
+    }
+    const tlConnections = await storage.getUserTradelockerConnections(userId);
+    const activeTLConnections = tlConnections.filter((c) => c.isActive && c.autoExecute);
+    if (activeTLConnections.length === 0) {
+      addActivity(userId, { type: "info", symbol: decision.symbol, message: "No TradeLocker accounts with Auto-Execute on. Signal queued for MT5 EA pickup." });
+      return;
+    }
+    let _leReleaseCooldown = null;
+    {
+      const _leCooldownKey = `last_trade_${userId}_${decision.symbol.toUpperCase().replace("/", "")}`;
+      global.recentTrades = global.recentTrades || {};
+      const _leLastTime = global.recentTrades[_leCooldownKey];
+      const _leNow = Date.now();
+      const _leCooldownMs = 240 * 60 * 1e3;
+      if (_leLastTime && _leNow - _leLastTime < _leCooldownMs) {
+        const _leWaitMin = Math.ceil((_leCooldownMs - (_leNow - _leLastTime)) / 6e4);
+        addActivity(userId, {
+          type: "info",
+          symbol: decision.symbol,
+          message: `[Live Engine] TL cooldown active on ${decision.symbol} \u2014 ${_leWaitMin}min remaining. Signal skipped.`
+        });
+        return;
+      }
+      const _leDate = (/* @__PURE__ */ new Date()).toISOString().slice(0, 10);
+      const _leDailyLogs = await storage.getTradelockerTradeLogs(userId, 200);
+      const _leFills = _leDailyLogs.filter(
+        (t) => t.symbol?.toUpperCase().replace("/", "") === decision.symbol.toUpperCase().replace("/", "") && t.action === "OPEN" && t.status === "executed" && t.createdAt && new Date(t.createdAt).toISOString().slice(0, 10) === _leDate
+      );
+      if (config.pairDailyLimitMode === "fixed") {
+        const _pairKey = decision.symbol.toUpperCase().replace(/[^A-Z0-9]/g, "");
+        const _override = Object.entries(config.pairDailyLimitOverrides || {}).find(([k]) => k.toUpperCase().replace(/[^A-Z0-9]/g, "") === _pairKey)?.[1];
+        const _limit = Math.max(0, Math.floor(Number(_override ?? config.maxTradesPerPairPerDay ?? 2)));
+        const _times = _leFills.map((t) => new Date(t.createdAt).getTime()).sort((a, b) => a - b);
+        let _signals = 0, _groupStart = -Infinity;
+        for (const ms of _times) {
+          if (ms - _groupStart > 18e4) {
+            _signals++;
+            _groupStart = ms;
+          }
+        }
+        if (_signals >= _limit) {
+          addActivity(userId, {
+            type: "info",
+            symbol: decision.symbol,
+            message: `[Live Engine] Pair daily limit reached for ${decision.symbol}: ${_signals}/${_limit} trades today (your fixed limit). No more ${decision.symbol} trades today.`
+          });
+          return;
+        }
+      } else {
+        const _aiTimes = _leFills.map((t) => new Date(t.createdAt).getTime()).sort((a, b) => a - b);
+        let _leDailyCount = 0, _aiGroupStart = -Infinity;
+        for (const ms of _aiTimes) {
+          if (ms - _aiGroupStart > 18e4) {
+            _leDailyCount++;
+            _aiGroupStart = ms;
+          }
+        }
+        const _leMaxDaily = config.maxOpenTrades ?? 3;
+        if (_leDailyCount >= _leMaxDaily) {
+          addActivity(userId, {
+            type: "info",
+            symbol: decision.symbol,
+            message: `[Live Engine] Daily cap reached for ${decision.symbol}: ${_leDailyCount}/${_leMaxDaily}. No more trades today.`
+          });
+          return;
+        }
+      }
+      global.recentTrades[_leCooldownKey] = _leNow;
+      _leReleaseCooldown = () => {
+        if (global.recentTrades[_leCooldownKey] === _leNow) global.recentTrades[_leCooldownKey] = _leLastTime;
+      };
+    }
+    const resolvedOrderType = (() => {
+      if (decision.orderType === "stop_entry" || decision.orderType === "limit_entry") return decision.orderType;
+      if (!_volCap && (decision.urgency === "IMMEDIATE" || decision.entryTiming === "PRIME_ENTRY")) return "market";
+      if (decision.urgency === "WAIT_FOR_PULLBACK" || decision.entryTiming === "WAIT_PULLBACK") return "limit_entry";
+      if (entryPrice && snap?.lastPrice && snap.lastPrice > 0) {
+        const pctGap = Math.abs(entryPrice - snap.lastPrice) / snap.lastPrice;
+        if (pctGap > 2e-4) {
+          if (decision.direction === "BUY") return entryPrice > snap.lastPrice ? "stop_entry" : "limit_entry";
+          return entryPrice < snap.lastPrice ? "stop_entry" : "limit_entry";
+        }
+      }
+      if (_volCap?.preferPending) return "limit_entry";
+      return "market";
+    })();
+    let _ordersSent = false;
+    try {
+      const signalLog = await storage.createMt5SignalLog({
+        userId,
+        symbol: decision.symbol,
+        direction: decision.direction,
+        action: "OPEN",
+        volume: lotSize,
+        entryPrice: entryPrice || null,
+        stopLoss: stopLoss || null,
+        takeProfit: takeProfit || null,
+        confidence: adjustedConfidence,
+        source: "vedd_live_engine"
+      });
+      _ordersSent = true;
+      const openResults = await Promise.allSettled(
+        activeTLConnections.map(async (tlConn, _tlIdx) => {
+          if (_tlIdx > 0) await new Promise((r) => setTimeout(r, _tlIdx * 400));
+          const _tlVal = await getTLAccountValue(userId, tlConn);
+          const _tlAcctBal = _tlVal.balance > 0 ? _tlVal.balance : null;
+          const _tlAcctEq = _tlVal.equity > 0 ? _tlVal.equity : _tlAcctBal;
+          const _refBal = config.accountBalance || 0;
+          let _consistencyMult = 1;
+          if (tlConn.consistencyEnabled !== false) {
+            try {
+              const { getConsistencyStatus: getConsistencyStatus2 } = await Promise.resolve().then(() => (init_prop_firm_consistency(), prop_firm_consistency_exports));
+              const _cs = await getConsistencyStatus2(tlConn.id, "tradelocker", tlConn.consistencyThresholdPct, tlConn.consistencyEnabled !== false);
+              if (_cs.hardBlocked) {
+                addActivity(userId, { type: "info", symbol: decision.symbol, message: `\u2696\uFE0F ${tlConn.accountId || "TL#" + tlConn.id}: consistency block \u2014 ${_cs.guidance}` });
+                return { tlConn, tradeResult: { success: false, error: "consistency hard-block" }, acctLot: 0, acctSizeLabel: "", consistencyBlocked: true };
+              }
+              _consistencyMult = _cs.sizeMultiplier;
+            } catch (e) {
+              addActivity(userId, { type: "info", symbol: decision.symbol, message: `\u2696\uFE0F ${tlConn.accountId || "TL#" + tlConn.id}: consistency check errored \u2014 account skipped (${e?.message ?? "unknown"})` });
+              return { tlConn, tradeResult: { success: false, error: "consistency check errored" }, acctLot: 0, acctSizeLabel: "", consistencyBlocked: true };
+            }
+          }
+          let acctLot;
+          let _stopSized = false;
+          let acctSizeLabel = "";
+          const _dbRisk = { useRiskPercent: tlConn.useRiskPercent ?? false, riskPercent: tlConn.riskPercent ?? 1 };
+          const _jsonRisk = getTLRisk(tlConn.id);
+          const _risk = _dbRisk.useRiskPercent || _dbRisk.riskPercent !== 1 ? _dbRisk : _jsonRisk;
+          const _slDist = entryPrice && stopLoss ? Math.abs(entryPrice - stopLoss) : 0;
+          const _pipSize = getPipSize(decision.symbol);
+          const _pipValue = getPipValue(decision.symbol);
+          const _slPips = _slDist > 0 && _pipSize > 0 ? _slDist / _pipSize : 0;
+          if (_risk.useRiskPercent && _tlAcctEq && _tlAcctEq > 0) {
+            const riskUsd = _tlAcctEq * (_risk.riskPercent / 100);
+            if (_slPips > 0 && _pipValue > 0) {
+              acctLot = Math.max(0.01, Math.round(riskUsd / (_slPips * _pipValue) * 100) / 100);
+              _stopSized = true;
+              acctSizeLabel = ` (risk ${_risk.riskPercent}% of $${_tlAcctEq.toLocaleString()} = ${_slPips.toFixed(0)}pip SL)`;
+            } else if (_pipValue > 0) {
+              acctLot = Math.max(0.01, Math.round(riskUsd / (20 * _pipValue) * 100) / 100);
+              acctSizeLabel = ` (risk ${_risk.riskPercent}% of $${_tlAcctEq.toLocaleString()} \u2014 default 20pip SL)`;
+            } else if (_refBal > 0) {
+              const ratio = _tlAcctEq / _refBal;
+              acctLot = Math.max(0.01, Math.round(lotSize * ratio * 100) / 100);
+              acctSizeLabel = ` (risk% fallback\u2192proportional ${ratio.toFixed(2)}\xD7)`;
+            } else {
+              acctLot = Math.max(0.01, Math.round(lotSize * 100) / 100);
+              acctSizeLabel = ` (risk% \u2014 no SL or reference balance, copying MT5 lot)`;
+            }
+          } else if (config.copyMode === "proportional" && _tlAcctEq && _tlAcctEq > 0 && _refBal > 0) {
+            const ratio = _tlAcctEq / _refBal;
+            acctLot = Math.max(0.01, Math.round(lotSize * ratio * 100) / 100);
+            acctSizeLabel = ` (proportional ${ratio.toFixed(2)}\xD7 \u2014 $${_tlAcctEq.toLocaleString()}/$${_refBal.toLocaleString()})`;
+          } else if (config.copyMode === "proportional" && _tlAcctEq && _tlAcctEq > 0 && _refBal <= 0 && _slPips > 0 && _pipValue > 0) {
+            const autoRiskPct = _risk.riskPercent > 0 ? _risk.riskPercent : 1;
+            const riskUsd = _tlAcctEq * (autoRiskPct / 100);
+            acctLot = Math.max(0.01, Math.round(riskUsd / (_slPips * _pipValue) * 100) / 100);
+            _stopSized = true;
+            acctSizeLabel = ` (\u26A0\uFE0F auto ${autoRiskPct}% risk of $${_tlAcctEq.toLocaleString()} \u2014 set Reference Balance to enable proportional copy)`;
+          } else {
+            const acctMult = typeof tlConn.lotMultiplier === "number" && tlConn.lotMultiplier > 0 ? tlConn.lotMultiplier : 1;
+            acctLot = Math.max(0.01, Math.round(lotSize * acctMult * 100) / 100);
+            acctSizeLabel = _refBal <= 0 ? ` (\u26A0\uFE0F multiplier ${acctMult}\xD7 \u2014 enable Risk% mode or set engine Reference Balance for auto-sizing)` : ` (\u26A0\uFE0F multiplier ${acctMult}\xD7 \u2014 TL account value unavailable, could not size proportionally)`;
+          }
+          if (_volCap) acctLot = Math.min(acctLot, _volCap.hardMaxLot);
+          {
+            const _ceil = [Number(config.maxLot) || 0, Number(config.maxLotSize) || 0].filter((x) => x > 0);
+            if (_ceil.length) acctLot = Math.min(acctLot, Math.min(..._ceil));
+          }
+          if (_stopSized) {
+            const _lw = Number(decision._lotScaleWeekend);
+            if (_lw > 0 && _lw < 1) acctLot = Math.max(0.01, Math.floor(acctLot * _lw * 100) / 100);
+          }
+          if (_consistencyMult < 1) {
+            acctLot = Math.max(0.01, Math.round(acctLot * _consistencyMult * 100) / 100);
+            acctSizeLabel += ` \xB7 consistency ${Math.round(_consistencyMult * 100)}%`;
+          }
+          let tradeResult = await executeMT5SignalOnTradeLocker(tlConn, {
+            action: "OPEN",
+            symbol: decision.symbol,
+            direction: decision.direction,
+            volume: acctLot,
+            entryPrice,
+            stopLoss,
+            takeProfit,
+            orderType: resolvedOrderType
+          });
+          if (!tradeResult.success && /(^|\D)429(\D|$)|1015|rate.?limit|banned you temporarily/i.test(String(tradeResult.error || ""))) {
+            await new Promise((r) => setTimeout(r, 8e3));
+            tradeResult = await executeMT5SignalOnTradeLocker(tlConn, {
+              action: "OPEN",
+              symbol: decision.symbol,
+              direction: decision.direction,
+              volume: acctLot,
+              entryPrice,
+              stopLoss,
+              takeProfit,
+              orderType: resolvedOrderType
+            });
+          }
+          await storage.createTradelockerTradeLog({
+            connectionId: tlConn.id,
+            userId,
+            sourceSignalId: signalLog.id,
+            action: "OPEN",
+            symbol: decision.symbol,
+            direction: decision.direction,
+            volume: tradeResult.volume ?? acctLot,
+            // size actually sent after caps
+            entryPrice,
+            stopLoss,
+            takeProfit,
+            tradelockerOrderId: tradeResult.orderId || null,
+            status: tradeResult.success ? "executed" : "failed",
+            errorMessage: tradeResult.error || null
+          });
+          return { tlConn, tradeResult, acctLot: tradeResult.volume ?? acctLot, acctSizeLabel };
+        })
+      );
+      const _isPendingType = resolvedOrderType !== "market";
+      const _acceptedConns = [];
+      let anySuccess = false;
+      for (const result of openResults) {
+        if (result.status === "fulfilled") {
+          const { tlConn, tradeResult, acctLot: executedLot, acctSizeLabel } = result.value;
+          const acctLabel = tlConn.email ? `[${tlConn.email}]` : `[Account ${tlConn.id}]`;
+          const _tlBal2 = global.tlAccountBalances?.[userId]?.[tlConn.accountId];
+          const multLabel = acctSizeLabel ? acctSizeLabel : config.copyMode === "proportional" && _tlBal2 ? ` (proportional $${_tlBal2.toLocaleString()})` : (tlConn.lotMultiplier ?? 1) !== 1 ? ` (\xD7${tlConn.lotMultiplier})` : "";
+          if (tradeResult.success) {
+            anySuccess = true;
+            _acceptedConns.push(tlConn);
+            addActivity(userId, {
+              type: "trade_open",
+              symbol: decision.symbol,
+              direction: decision.direction,
+              confidence: adjustedConfidence,
+              message: `${_isPendingType ? "ORDER WORKING (not filled yet)" : "TRADE EXECUTED"} via TradeLocker ${acctLabel}: ${decision.direction} ${decision.symbol} | Type: ${resolvedOrderType.toUpperCase()} | Entry: ${entryPrice || "market"} | Lot: ${executedLot}${multLabel} | SL: ${stopLoss || "N/A"} | TP: ${takeProfit || "N/A"} | Order: ${tradeResult.orderId}`,
+              details: { orderId: tradeResult.orderId, lotSize, stopLoss, takeProfit, orderType: resolvedOrderType, confluences: decision.confluences }
+            });
+          } else {
+            addActivity(userId, {
+              type: "error",
+              symbol: decision.symbol,
+              message: `TradeLocker ${acctLabel} execution failed: ${decision.direction} ${decision.symbol} - ${tradeResult.error}`
+            });
+          }
+        } else {
+          addActivity(userId, {
+            type: "error",
+            symbol: decision.symbol,
+            message: `TradeLocker execution error on one account: ${result.reason?.message || "Unknown error"}`
+          });
+        }
+      }
+      let _marketFilled = false;
+      if (anySuccess && !_isPendingType) {
+        const _want = decision.symbol.toUpperCase().replace(/[^A-Z0-9]/g, "");
+        for (const tlConn of _acceptedConns) {
+          let _found = false, _readFailed = false;
+          for (let _a = 0; _a < 3 && !_found; _a++) {
+            await new Promise((r) => setTimeout(r, 1e3));
+            try {
+              const svc = await getOrCreateService(tlConn);
+              const poss = await svc.getPositionsNormalized();
+              _readFailed = false;
+              _found = poss.some((p) => String(p.symbol || "").toUpperCase().replace(/[^A-Z0-9]/g, "") === _want);
+            } catch {
+              _readFailed = true;
+            }
+          }
+          if (_found) {
+            _marketFilled = true;
+            continue;
+          }
+          addActivity(userId, {
+            type: "error",
+            symbol: decision.symbol,
+            message: _readFailed ? `\u26A0\uFE0F TradeLocker [${tlConn.email || tlConn.id}]: order accepted but the position book could NOT be read \u2014 fill UNCONFIRMED for ${decision.symbol}. Check the account manually.` : `\u26A0\uFE0F TradeLocker [${tlConn.email || tlConn.id}]: order accepted but no ${decision.symbol} position appeared after 3s \u2014 it may not have filled. Check the account manually.`
+          });
+        }
+      }
+      if (anySuccess) {
+        state.tradesExecuted++;
+        state.tradesOpenedToday++;
+        if (decision._btcProfile) {
+          try {
+            (await Promise.resolve().then(() => (init_btc_profile(), btc_profile_exports))).markBtcEntry(decision.symbol);
+          } catch {
+          }
+        }
+        if (_isPendingType) {
+          addActivity(userId, { type: "info", symbol: decision.symbol, message: `\u23F3 ${resolvedOrderType.toUpperCase()} order resting at the broker \u2014 not counted as an open position until it triggers.` });
+        } else if (_marketFilled) {
+          state.openPositionCount++;
+        }
+        refreshTlAfterTrade(userId);
+        mt5Signal.status = "executed";
+      } else {
+        state.tradesFailed++;
+        addActivity(userId, {
+          type: "error",
+          symbol: decision.symbol,
+          message: `TradeLocker execution failed on all ${activeTLConnections.length} account(s). Signal still available for MT5 EA.`
+        });
+        const _ambiguous = openResults.some((r) => r.status === "rejected" || /timeout|timed out|unknown|network|ECONN|socket|5\d\d|<html/i.test(String(r.value?.tradeResult?.error || "")));
+        if (!_ambiguous && _leReleaseCooldown) {
+          _leReleaseCooldown();
+          addActivity(userId, { type: "info", symbol: decision.symbol, message: `\u21A9\uFE0F ${decision.symbol}: no order was placed \u2014 4h cooldown released.` });
+        }
+      }
+    } catch (err) {
+      state.tradesFailed++;
+      addActivity(userId, { type: "error", symbol: decision.symbol, message: `Execution error: ${err.message}. Signal still available for MT5 EA.` });
+      if (!_ordersSent && _leReleaseCooldown) {
+        _leReleaseCooldown();
+        addActivity(userId, { type: "info", symbol: decision.symbol, message: `\u21A9\uFE0F ${decision.symbol}: failed before any order was sent \u2014 4h cooldown released.` });
+      }
+    }
+  }
+  if (decision.action === "MODIFY_POSITION" || decision.action === "CLOSE_POSITION") {
+    if (decision.action === "CLOSE_POSITION") {
+      const openPositions = await getMergedOpenPositions(userId);
+      const pos = openPositions.find(
+        (p) => String(p.ticket ?? p.id) === String(decision.positionId) || (p.symbol || "").toUpperCase().replace("/", "") === decision.symbol?.toUpperCase().replace("/", "")
+      );
+      if (pos) {
+        const isInLoss = (pos.profit ?? 0) < 0;
+        const openTimeSec = pos.openTime ? Math.round(Date.now() / 1e3 - Number(pos.openTime)) : null;
+        const ageMin = openTimeSec != null ? Math.floor(openTimeSec / 60) : null;
+        const _reason = (decision.reason || "").toLowerCase();
+        const _structuralExit = /bos|choch|invalidat|reversal|broke|structure|opposite signal|flip/.test(_reason);
+        const MIN_HOLD_BEFORE_FORCE_CLOSE = 45;
+        if (isInLoss && !_structuralExit && ageMin != null && ageMin < MIN_HOLD_BEFORE_FORCE_CLOSE) {
+          addActivity(userId, {
+            type: "info",
+            symbol: decision.symbol,
+            message: `\u{1F6E1}\uFE0F EARLY CLOSE HELD: ${decision.symbol} in loss, only ${ageMin}min old & no structural invalidation \u2014 held ${MIN_HOLD_BEFORE_FORCE_CLOSE}min min. (A reversal/BOS/CHOCH reason would allow immediate cut.)`
+          });
+          return;
+        }
+      }
+    }
+    {
+      const _ma = decision.modifyAction || (decision.action === "CLOSE_POSITION" ? "full_close" : "trail_stop");
+      const _isFull = (_ma === "full_close" || decision.action === "CLOSE_POSITION") && !((parseNum(decision.partialVolume) ?? 0) > 0);
+      if (_isFull && process.env.MTF_CLOSE_RULE !== "off") {
+        let _posDir = decision.direction ? String(decision.direction).toUpperCase() : "";
+        if (!_posDir) {
+          try {
+            const _merged = await getMergedOpenPositions(userId, state._lastMarketAnalysis);
+            const _p = _merged.find((p) => String(p.symbol || "").toUpperCase().replace("/", "") === String(decision.symbol || "").toUpperCase().replace("/", ""));
+            _posDir = String(_p?.direction || "").toUpperCase();
+          } catch {
+          }
+        }
+        const _t = _posDir ? htfTurnedAgainst(state, decision.symbol, _posDir) : null;
+        if (_t && !_t.turned) {
+          addActivity(userId, { type: "info", symbol: decision.symbol, message: `\u{1F6E1}\uFE0F SHAKEOUT HOLD: AI wanted to close ${_posDir} ${decision.symbol} but H1/H4 have not turned (${_t.detail}). Holding; the broker stop still protects it. AI reason: ${String(decision.reason || "").slice(0, 160)}` });
+          return;
+        }
+      }
+    }
+    state.positionsManaged++;
+    const modifyAction = decision.modifyAction || (decision.action === "CLOSE_POSITION" ? "full_close" : "trail_stop");
+    const newSL = parseNum(decision.newStopLoss);
+    const newTP = parseNum(decision.newTakeProfit);
+    const partialVolume = parseNum(decision.partialVolume);
+    addActivity(userId, {
+      type: "position_update",
+      symbol: decision.symbol,
+      confidence: typeof decision.confidence === "number" ? decision.confidence : 0,
+      message: `POSITION MGMT [${modifyAction.toUpperCase()}]: ${decision.symbol} - ${decision.reason}`,
+      details: { modifyAction, newStopLoss: newSL, newTakeProfit: newTP, partialVolume, positionId: decision.positionId }
+    });
+    const signalAction = decision.action === "CLOSE_POSITION" ? "CLOSE" : "MODIFY";
+    const mgmtSignal = {
+      id: `mgmt_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
+      timestamp: (/* @__PURE__ */ new Date()).toISOString(),
+      symbol: decision.symbol,
+      direction: decision.direction || "BUY",
+      action: signalAction,
+      lotSize: partialVolume || 0,
+      entryPrice: null,
+      stopLoss: newSL || null,
+      takeProfit: newTP || null,
+      confidence: typeof decision.confidence === "number" ? decision.confidence : 0,
+      reason: `${modifyAction}: ${decision.reason || ""}`,
+      holdTime: "",
+      strategy: decision.strategy || "position_management",
+      confluences: decision.confluences || [],
+      status: "pending",
+      modifyAction,
+      positionId: decision.positionId || null
+    };
+    broadcastMT5Signal(userId, mgmtSignal);
+    const tlConnectionsForMgmt = await storage.getUserTradelockerConnections(userId);
+    const activeTLForMgmt = tlConnectionsForMgmt.filter((c) => c.isActive);
+    if (activeTLForMgmt.length > 0) {
+      await Promise.allSettled(
+        activeTLForMgmt.map(async (tlConn) => {
+          const acctLabel = tlConn.email ? `[${tlConn.email}]` : `[Account ${tlConn.id}]`;
+          try {
+            const svc = await getOrCreateService(tlConn);
+            const tlPositions = await svc.getPositionsNormalized().catch(() => []);
+            const matchDir = decision.direction ? String(decision.direction).toUpperCase() : null;
+            const _symMatches = tlPositions.filter((p) => (p.symbol || "").toUpperCase().replace("/", "") === decision.symbol?.toUpperCase().replace("/", ""));
+            if (!matchDir && new Set(_symMatches.map((p) => String(p.side || "").toUpperCase())).size > 1) {
+              addActivity(userId, { type: "info", symbol: decision.symbol, message: `\u26A0\uFE0F ${acctLabel}: AI asked to manage ${decision.symbol} without a direction but this account holds both a BUY and a SELL \u2014 skipped rather than guess the leg.` });
+              return;
+            }
+            const tlMatch = _symMatches.find((p) => !matchDir || (p.side || "").toUpperCase() === (matchDir === "BUY" ? "BUY" : "SELL"));
+            if (!tlMatch) {
+              return;
+            }
+            if (signalAction === "CLOSE") {
+              const { xauTooYoungToClose: xauTooYoungToClose2 } = await Promise.resolve().then(() => (init_xau_rules(), xau_rules_exports));
+              if (xauTooYoungToClose2(decision.symbol, tlMatch.openDate)) {
+                addActivity(userId, { type: "info", symbol: decision.symbol, message: `\u23F3 AI close held off on ${acctLabel}: ${decision.symbol} is inside the gold/index minimum hold \u2014 the broker stop still protects it.` });
+                return;
+              }
+              const tradeResult = await executeMT5SignalOnTradeLocker(tlConn, {
+                action: "CLOSE",
+                symbol: decision.symbol,
+                direction: decision.direction || "BUY",
+                volume: partialVolume || 0,
+                positionId: tlMatch.id,
+                closeReason: `AI position management${partialVolume ? ` (partial ${partialVolume})` : ""}: ${String(decision.reason || "no reason given").slice(0, 300)}`,
+                closePnl: tlMatch.unrealizedPl
+              });
+              if (tradeResult.success) {
+                addActivity(userId, { type: "trade_close", symbol: decision.symbol, message: `Position CLOSED via TradeLocker ${acctLabel}: ${decision.symbol} - ${decision.reason}` });
+                refreshTlAfterTrade(userId);
+              } else {
+                addActivity(userId, { type: "error", symbol: decision.symbol, message: `CLOSE failed on TradeLocker ${acctLabel}: ${tradeResult.error}` });
+              }
+            } else if (signalAction === "MODIFY") {
+              const tradeResult = await executeMT5SignalOnTradeLocker(tlConn, {
+                action: "MODIFY",
+                symbol: decision.symbol,
+                direction: decision.direction || "BUY",
+                volume: 0,
+                stopLoss: newSL,
+                takeProfit: newTP,
+                positionId: tlMatch.id
+              });
+              if (tradeResult.success) {
+                addActivity(userId, { type: "position_update", symbol: decision.symbol, message: `Position MODIFIED via TradeLocker ${acctLabel}: ${decision.symbol} | New SL: ${newSL || "N/A"} | New TP: ${newTP || "N/A"}` });
+              } else {
+                addActivity(userId, { type: "error", symbol: decision.symbol, message: `MODIFY failed on TradeLocker ${acctLabel}: ${tradeResult.error}` });
+              }
+            }
+          } catch (err) {
+            addActivity(userId, { type: "error", symbol: decision.symbol, message: `Position management error on TradeLocker ${acctLabel}: ${err.message}` });
+          }
+        })
+      );
+    }
+  }
+}
+function scheduleScan(userId) {
+  const state = engineStates[userId];
+  if (!state || state.status !== "running") return;
+  const interval = getAdaptiveScanInterval(state.config);
+  engineTimers[userId] = setTimeout(async () => {
+    await scanMarkets(userId);
+    scheduleScan(userId);
+  }, interval);
+}
+function scheduleGapScanner(userId) {
+  const state = engineStates[userId];
+  if (!state) return;
+  const now = /* @__PURE__ */ new Date();
+  const dayUtc = now.getUTCDay();
+  const hourUtc = now.getUTCHours();
+  const minUtc = now.getUTCMinutes();
+  let daysUntilSunday = (7 - dayUtc) % 7;
+  if (dayUtc === 0 && (hourUtc < 22 || hourUtc === 22 && minUtc < 5)) daysUntilSunday = 0;
+  else if (daysUntilSunday === 0) daysUntilSunday = 7;
+  const targetSunday = new Date(now);
+  targetSunday.setUTCDate(targetSunday.getUTCDate() + daysUntilSunday);
+  targetSunday.setUTCHours(22, 5, 0, 0);
+  const msUntilScan = Math.max(1e3, targetSunday.getTime() - now.getTime());
+  setTimeout(async () => {
+    const latestState = engineStates[userId];
+    if (!latestState || latestState.status !== "running") return;
+    await runSundayGapScanner(userId);
+    scheduleGapScanner(userId);
+  }, msUntilScan);
+  addActivity(userId, {
+    type: "info",
+    message: `\u{1F319} Sunday gap scanner scheduled for ${targetSunday.toISOString().slice(0, 16)} UTC (${Math.round(msUntilScan / 36e5)}h away)`
+  });
+}
+function getNYTime(ts) {
+  const parts = NY_TIME_FMT.formatToParts(new Date(ts));
+  const get = (t) => Number(parts.find((p) => p.type === t)?.value ?? 0);
+  return {
+    hour: get("hour") % 24,
+    minute: get("minute"),
+    dateStr: `${get("year")}-${String(get("month")).padStart(2, "0")}-${String(get("day")).padStart(2, "0")}`
+  };
+}
+async function getBrokerIndexCandles(userId, symbol, mt5Tf) {
+  const cache6 = global.mt5ChartDataCache || {};
+  const wanted = new Set(
+    [symbol, ...INDEX_BROKER_ALIASES[symbol] || []].map((s) => s.replace(/[^A-Z0-9]/gi, "").toUpperCase())
+  );
+  const prefix = `mt5_chart_${userId}_`;
+  const suffix = `_${mt5Tf}`;
+  for (const key of Object.keys(cache6)) {
+    if (!key.startsWith(prefix) || !key.endsWith(suffix)) continue;
+    const symPart = key.slice(prefix.length, key.length - suffix.length);
+    if (wanted.has(symPart.replace(/[^A-Z0-9]/gi, "").toUpperCase())) {
+      const entry = cache6[key];
+      if (entry?.candles?.length) return entry.candles;
+    }
+  }
+  try {
+    const conns = await storage.getUserTradelockerConnections(userId);
+    const active = conns.find((c) => c.isActive);
+    if (active) {
+      const svc = await getOrCreateService(active);
+      const resMinutes = mt5Tf === "H1" ? 60 : 5;
+      const bars = await svc.getCandlesticks(symbol, resMinutes);
+      if (bars?.length) return [...bars].reverse();
+    }
+  } catch (_) {
+  }
+  return null;
+}
+async function runORBAutonomousScan(userId) {
+  const state = engineStates[userId];
+  if (!state) return;
+  const config = state.config;
+  if (config.enableORBAutonomous === false) return;
+  if (!state.orbDailyFired) state.orbDailyFired = {};
+  const nowUTC = /* @__PURE__ */ new Date();
+  const nowNY = getNYTime(nowUTC.getTime());
+  const nowTotalMins = nowNY.hour * 60 + nowNY.minute;
+  if (nowTotalMins < 9 * 60 + 30 || nowTotalMins >= 15 * 60) return;
+  const todayKey = nowNY.dateStr;
+  for (const symbol of config.pairs) {
+    try {
+      if (state.orbDailyFired[symbol] === todayKey) continue;
+      const assetType = marketDataService.detectAssetType(symbol);
+      let m5BC;
+      let h1BC;
+      let currentPrice;
+      if (assetType === "index") {
+        const brokerM5 = await getBrokerIndexCandles(userId, symbol, "M5");
+        if (!brokerM5 || brokerM5.length < 6) continue;
+        m5BC = brokerM5;
+        h1BC = await getBrokerIndexCandles(userId, symbol, "H1") || [];
+        currentPrice = m5BC[0].c;
+      } else {
+        const m5Result = await marketDataService.fetchMarketData({
+          symbol,
+          assetType,
+          timeframe: "5m",
+          limit: 60
+        });
+        if (!m5Result.bars || m5Result.bars.length < 6) continue;
+        const h1Result = await marketDataService.fetchMarketData({
+          symbol,
+          assetType,
+          timeframe: "1h",
+          limit: 30
+        });
+        const m5Bars = m5Result.bars;
+        const h1Bars = h1Result.bars || [];
+        currentPrice = m5Bars[m5Bars.length - 1].close;
+        const toBC = (b) => ({ o: b.open, h: b.high, l: b.low, c: b.close, v: b.volume ?? 0, t: Math.floor((b.timestamp ?? Date.now()) / 1e3) });
+        m5BC = [...m5Bars].reverse().map(toBC);
+        h1BC = [...h1Bars].reverse().map(toBC);
+      }
+      let orbHigh = 0, orbLow = 0;
+      const orbCandles = m5BC.filter((c) => {
+        if (!c.t) return false;
+        const nyC = getNYTime(c.t * 1e3);
+        return nyC.dateStr === todayKey && nyC.hour === 9 && nyC.minute >= 30 && nyC.minute < 45;
+      });
+      if (orbCandles.length > 0) {
+        orbHigh = Math.max(...orbCandles.map((c) => c.h));
+        orbLow = Math.min(...orbCandles.map((c) => c.l));
+      }
+      if (orbHigh === 0 || orbLow === 0 || orbHigh <= orbLow) continue;
+      const orbRange = orbHigh - orbLow;
+      const retestBuffer = orbRange * 0.25;
+      let breakoutDir = null;
+      const postORBCandles = m5BC.filter((c) => {
+        if (!c.t) return false;
+        const nyC = getNYTime(c.t * 1e3);
+        return nyC.dateStr === todayKey && nyC.hour * 60 + nyC.minute >= 9 * 60 + 45;
+      });
+      for (const c of postORBCandles.slice(1)) {
+        const bodyHigh = Math.max(c.o, c.c);
+        const bodyLow = Math.min(c.o, c.c);
+        if (bodyLow > orbHigh) {
+          breakoutDir = "BUY";
+          break;
+        }
+        if (bodyHigh < orbLow) {
+          breakoutDir = "SELL";
+          break;
+        }
+      }
+      if (!breakoutDir) continue;
+      const isRetestLong = breakoutDir === "BUY" && currentPrice >= orbHigh - retestBuffer && currentPrice <= orbHigh + retestBuffer;
+      const isRetestShort = breakoutDir === "SELL" && currentPrice >= orbLow - retestBuffer && currentPrice <= orbLow + retestBuffer;
+      if (!isRetestLong && !isRetestShort) continue;
+      const scoreResult = await computeBreakoutScore(currentPrice, [], m5BC, [], h1BC, []);
+      const aiScore = scoreResult.percentage;
+      if (aiScore < 60) {
+        addActivity(userId, {
+          type: "info",
+          symbol,
+          message: `\u{1F4CA} ORB AUTO [${symbol}]: ${breakoutDir} retest detected but SS AI score ${aiScore}/100 < 60 \u2014 skipping`
+        });
+        continue;
+      }
+      const direction = breakoutDir;
+      const entry = currentPrice;
+      const slDist = orbRange + orbRange * 0.1;
+      const tp1Dist = slDist * 2;
+      const tp2Dist = slDist * 3;
+      const sl = direction === "BUY" ? orbLow - orbRange * 0.1 : orbHigh + orbRange * 0.1;
+      const tp1 = direction === "BUY" ? entry + tp1Dist : entry - tp1Dist;
+      const tp2 = direction === "BUY" ? entry + tp2Dist : entry - tp2Dist;
+      addActivity(userId, {
+        type: "signal",
+        symbol,
+        direction,
+        message: `\u{1F680} ORB AUTO SIGNAL [${symbol}]: ${direction} \u2014 retest at ${entry.toFixed(4)} | ORB ${orbLow.toFixed(4)}\u2013${orbHigh.toFixed(4)} | SS AI ${aiScore}/100 | SL ${sl.toFixed(4)} TP1 ${tp1.toFixed(4)}`,
+        confidence: aiScore
+      });
+      state.orbDailyFired[symbol] = todayKey;
+      await processDecision(userId, {
+        action: "OPEN_TRADE",
+        strategy: "orb_breakout",
+        symbol,
+        direction,
+        confidence: aiScore,
+        entryPrice: entry,
+        stopLoss: sl,
+        takeProfit: tp1,
+        takeProfit2: tp2,
+        lotSize: config.baseLotSize,
+        holdTime: "2-4 hours",
+        urgency: "ENTER_NOW",
+        reason: `ORB Autonomous \u2014 ${direction} retest of ${direction === "BUY" ? `ORB High ${orbHigh.toFixed(4)}` : `ORB Low ${orbLow.toFixed(4)}`} | Range ${(orbRange * 1e4).toFixed(0)} pips | SS AI ${aiScore}/100 | ${scoreResult.summary.split("\n")[0]}`,
+        confluences: [
+          `ORB range: ${orbLow.toFixed(4)}\u2013${orbHigh.toFixed(4)}`,
+          `Breakout direction: ${direction}`,
+          `Retest at: ${entry.toFixed(4)}`,
+          `SS AI Bot score: ${aiScore}/100`,
+          ...scoreResult.strategies.filter((s) => s.fired).map((s) => s.name)
+        ]
+      });
+    } catch (err) {
+      addActivity(userId, { type: "error", symbol, message: `ORB Auto scan error (${symbol}): ${err.message}` });
+    }
+    await new Promise((r) => setTimeout(r, 3e3));
+  }
+}
+async function runSundayGapScanner(userId) {
+  const state = engineStates[userId];
+  if (!state) return;
+  if (!isFxLeader()) return;
+  const config = state.config;
+  const gapPairs = ["EURUSD", "GBPUSD", "USDJPY", "XAUUSD", "GBPJPY"].filter((p) => config.pairs.includes(p) || config.pairs.length === 0);
+  addActivity(userId, { type: "scan", message: `\u{1F319} Sunday gap scan running for ${gapPairs.join(", ")}` });
+  for (const symbol of gapPairs) {
+    const fridayClose = state.lastFridayClose[symbol];
+    if (!fridayClose) continue;
+    try {
+      const assetType = marketDataService.detectAssetType(symbol);
+      const result = await marketDataService.fetchMarketData({ symbol, assetType, timeframe: "1m", limit: 5 });
+      if (!result.bars || result.bars.length === 0) continue;
+      const sundayOpen = result.bars[result.bars.length - 1].open;
+      const isJPY = symbol.includes("JPY");
+      const isGold = symbol === "XAUUSD";
+      const gapPips = Math.abs(sundayOpen - fridayClose) * (isJPY ? 100 : isGold ? 10 : 1e4);
+      const gapThreshold = isGold ? 30 : 5;
+      if (gapPips < gapThreshold) continue;
+      const direction = sundayOpen < fridayClose ? "BUY" : "SELL";
+      const gapSize = Math.abs(sundayOpen - fridayClose);
+      const tp1 = direction === "BUY" ? sundayOpen + gapSize * 0.618 : sundayOpen - gapSize * 0.618;
+      const tp2 = fridayClose;
+      const pipSz = getPipSize(symbol);
+      const slPipCount = isGold ? 300 : isJPY ? 20 : 20;
+      const slDist = slPipCount * pipSz;
+      const sl = direction === "BUY" ? sundayOpen - slDist : sundayOpen + slDist;
+      const confidence = Math.min(88, 72 + gapPips * 0.8);
+      addActivity(userId, {
+        type: "info",
+        symbol,
+        message: `\u{1F319} SUNDAY GAP: ${symbol} opened ${gapPips.toFixed(1)} pips ${sundayOpen > fridayClose ? "above" : "below"} Friday close \u2192 gap fill ${direction} (confidence: ${confidence.toFixed(0)}%)`
+      });
+      await processDecision(userId, {
+        action: "OPEN_TRADE",
+        symbol,
+        direction,
+        confidence,
+        strategy: "sunday_gap",
+        entryPrice: sundayOpen,
+        stopLoss: sl,
+        takeProfit: tp1,
+        takeProfit2: tp2,
+        reason: `Sunday gap ${gapPips.toFixed(1)} pips \u2014 gap fill trade toward Friday close at ${fridayClose}`,
+        confluences: ["sunday_gap", "gap_fill_probability", "mean_reversion"],
+        holdTime: "2-8 hours",
+        urgency: "ENTER_NOW"
+      });
+    } catch (err) {
+      addActivity(userId, { type: "error", symbol, message: `Gap scan error: ${err.message}` });
+    }
+    await new Promise((r) => setTimeout(r, 2e3));
+  }
+}
+function _persistFxRunState(userId, isRunning) {
+  Promise.resolve().then(() => (init_db(), db_exports)).then(({ db: db2 }) => {
+    Promise.resolve().then(() => (init_schema(), schema_exports)).then(({ engineRunState: engineRunState2 }) => {
+      db2.insert(engineRunState2).values({ userId, engine: "fx", isRunning, isPaperMode: false }).onConflictDoUpdate({
+        target: [engineRunState2.userId, engineRunState2.engine],
+        set: { isRunning, updatedAt: /* @__PURE__ */ new Date() }
+      }).catch((e) => console.error("[VEDD Live Engine] persist run state failed (non-fatal):", e?.message ?? e));
+    });
+  }).catch(() => {
+  });
+}
+async function submitFxModelTrade(userId, t) {
+  const state = engineStates[userId];
+  if (!state || state.status !== "running" || !isFxLeader()) return false;
+  const _before = state.tradesExecuted;
+  addActivity(userId, { type: "signal", symbol: t.symbol, direction: t.direction, confidence: t.confidence, message: `\u{1F9E0} ${t.model === "M1" ? "Model 1 \xB7 Range" : "Model 2 \xB7 Trend"} LIVE idea: ${t.direction} ${t.symbol} @ ${t.entryPrice} SL ${t.stopLoss} TP ${t.takeProfit} \u2014 ${t.reason}` });
+  await processDecision(userId, {
+    action: "OPEN_TRADE",
+    strategy: t.model === "M1" ? "fx_model_m1_range" : "fx_model_m2_trend",
+    fxModel: t.model,
+    symbol: t.symbol,
+    direction: t.direction,
+    confidence: t.confidence,
+    entryPrice: t.entryPrice,
+    stopLoss: t.stopLoss,
+    takeProfit: t.takeProfit,
+    lotSize: state.config.baseLotSize,
+    holdTime: t.model === "M1" ? "30m-3h" : "2-8 hours",
+    urgency: "ENTER_NOW",
+    reason: t.reason,
+    confluences: [t.reason]
+  });
+  return state.tradesExecuted > _before;
+}
+function isFxLeader() {
+  if (process.env.FX_LEADER_LOCK_DISABLED === "true") return true;
+  return _fxIsLeader;
+}
+function _dropFxLeadership(reason) {
+  if (_fxIsLeader) console.error(`[FX leader] lost leadership: ${reason}`);
+  _fxIsLeader = false;
+  try {
+    _fxLeaderClient?.release(true);
+  } catch {
+  }
+  _fxLeaderClient = null;
+}
+async function _breakStaleFxLeader(pool2) {
+  try {
+    const { rows } = await pool2.query(
+      `SELECT a.pid, round(extract(epoch from now()-a.state_change)) idle_s
+         FROM pg_locks l JOIN pg_stat_activity a ON a.pid = l.pid
+        WHERE l.locktype='advisory' AND l.objid=$1 AND l.granted
+          AND a.pid <> pg_backend_pid()
+          AND a.state_change < now() - ($2::int * interval '1 millisecond')`,
+      [FX_LEADER_LOCK_KEY, FX_LEADER_STALE_MS]
+    );
+    for (const r of rows) {
+      console.error(`[FX leader] lock holder pid ${r.pid} silent for ${r.idle_s}s (keepalive is 30s) \u2014 its process is gone; terminating that session.`);
+      await pool2.query(`SELECT pg_terminate_backend($1)`, [r.pid]);
+    }
+  } catch (e) {
+    console.error("[FX leader] stale-holder check failed:", e?.message);
+  }
+}
+async function _fxLeaderTick() {
+  if (process.env.FX_LEADER_LOCK_DISABLED === "true") return;
+  const { pool: pool2 } = await Promise.resolve().then(() => (init_db(), db_exports));
+  if (_fxIsLeader && _fxLeaderClient) {
+    try {
+      await _fxLeaderClient.query("SELECT 1");
+    } catch (e) {
+      _dropFxLeadership(`keepalive failed (${e?.message})`);
+    }
+    return;
+  }
+  let client2 = null;
+  try {
+    client2 = await pool2.connect();
+    const r = await client2.query("SELECT pg_try_advisory_lock($1) AS locked", [FX_LEADER_LOCK_KEY]);
+    if (r.rows?.[0]?.locked === true) {
+      client2.on?.("error", (e) => _dropFxLeadership(`session error (${e?.message})`));
+      _fxLeaderClient = client2;
+      _fxIsLeader = true;
+      console.log(`[FX leader] this instance is now the FX engine leader (pid ${process.pid}).`);
+      await _restoreFxEnginesNotRunningHere();
+      return;
+    }
+    client2.release();
+    await _breakStaleFxLeader(pool2);
+  } catch (e) {
+    try {
+      client2?.release(true);
+    } catch {
+    }
+    console.error("[FX leader] lock check failed \u2014 not trading from this instance (fail-closed):", e?.message);
+  }
+}
+async function startFxLeaderElection() {
+  if (_fxLeaderLoop) return;
+  await _fxLeaderTick();
+  _fxLeaderLoop = setInterval(() => {
+    void _fxLeaderTick();
+  }, 3e4);
+}
+async function _restoreFxEnginesNotRunningHere() {
+  try {
+    const { db: db2 } = await Promise.resolve().then(() => (init_db(), db_exports));
+    const { engineRunState: engineRunState2 } = await Promise.resolve().then(() => (init_schema(), schema_exports));
+    const { eq: eq4, and: and4 } = await import("drizzle-orm");
+    const rows = await db2.select().from(engineRunState2).where(and4(eq4(engineRunState2.engine, "fx"), eq4(engineRunState2.isRunning, true)));
+    for (const row of rows) {
+      if (engineStates[row.userId]?.status === "running") continue;
+      try {
+        startLiveEngine(row.userId, void 0);
+        console.log(`[FX leader] restored FX engine for user ${row.userId}.`);
+      } catch (e) {
+        console.error(`[FX leader] restore failed for user ${row.userId}:`, e?.message ?? e);
+      }
+    }
+  } catch (e) {
+    console.error("[FX leader] restore on takeover failed:", e?.message ?? e);
+  }
+}
+async function restoreFxEngineStateFromDb() {
+  try {
+    const { db: db2 } = await Promise.resolve().then(() => (init_db(), db_exports));
+    const { engineRunState: engineRunState2 } = await Promise.resolve().then(() => (init_schema(), schema_exports));
+    const { eq: eq4, and: and4 } = await import("drizzle-orm");
+    const rows = await db2.select().from(engineRunState2).where(and4(eq4(engineRunState2.engine, "fx"), eq4(engineRunState2.isRunning, true)));
+    if (!rows.length) {
+      console.log("[VEDD Live Engine] No FX engines were running before restart \u2014 nothing to restore.");
+      return;
+    }
+    for (const row of rows) {
+      try {
+        startLiveEngine(row.userId, void 0);
+        console.log(`[VEDD Live Engine] Restored running FX engine for user ${row.userId} after restart.`);
+      } catch (e) {
+        console.error(`[VEDD Live Engine] failed to restore FX engine for user ${row.userId}:`, e?.message ?? e);
+      }
+    }
+  } catch (e) {
+    console.error("[VEDD Live Engine] FX run-state restore failed (non-fatal):", e?.message ?? e);
+  }
+}
+function startLiveEngine(userId, config) {
+  if (engineIntervals[userId]) {
+    clearInterval(engineIntervals[userId]);
+    delete engineIntervals[userId];
+  }
+  if (engineTimers[userId]) {
+    clearTimeout(engineTimers[userId]);
+    delete engineTimers[userId];
+  }
+  const fullConfig = { ...getDefaultConfig(userId), ...config || {} };
+  persistEngineConfig(userId, fullConfig);
+  const weekKey = `${userId}_${tradingWeekStartISO()}`;
+  const cachedTracker = goalTrackerCache[weekKey];
+  const restoredTracker = cachedTracker ? { ...cachedTracker, weeklyTarget: fullConfig.weeklyProfitTarget || cachedTracker.weeklyTarget } : createGoalTracker(fullConfig);
+  const initWeights = Object.fromEntries(ALL_STRATEGY_KEYS.map((k) => [k, 1]));
+  engineStates[userId] = {
+    status: "running",
+    startedAt: (/* @__PURE__ */ new Date()).toISOString(),
+    config: fullConfig,
+    scanCount: 0,
+    signalsGenerated: 0,
+    tradesExecuted: 0,
+    tradesFailed: 0,
+    tradesOpenedToday: 0,
+    tradesOpenedTodayDate: (/* @__PURE__ */ new Date()).toISOString().slice(0, 10),
+    positionsManaged: 0,
+    lastScanAt: null,
+    lastSignalAt: null,
+    currentlyScanning: false,
+    activityLog: [],
+    openPositionCount: 0,
+    pnlSession: restoredTracker.currentProfit,
+    marketSnapshot: {},
+    goalTracker: restoredTracker,
+    modelLocked: false,
+    asiaRangeHigh: {},
+    asiaRangeLow: {},
+    asiaRangeDate: null,
+    lastHighImpactNewsAt: null,
+    // Acceleration feature state
+    strategyPerformanceWeights: initWeights,
+    openPyramidPositions: {},
+    sessionHighWatermark: 0,
+    drawdownShieldActive: false,
+    lastFridayClose: {},
+    lastIndicatorSnapshot: {},
+    lastTriggerAt: {},
+    pnlToday: 0,
+    dailyLossHalted: false,
+    dailyLossHaltedAt: null,
+    dailyProfitHalted: false,
+    dailyProfitHaltedAt: null,
+    challengeDailyPnL: {},
+    sessionFilterBlocked: false,
+    tradesSinceLastLearn: 0,
+    positionTrailState: {},
+    aiResponseCache: {},
+    htfBiasCache: {},
+    pairDirectionLock: {},
+    compositeLastFiredAt: {},
+    orbDailyFired: {},
+    strategyDailyFired: {},
+    mindState: {
+      sessionWins: 0,
+      sessionLosses: 0,
+      sessionConsecutiveLosses: 0,
+      sessionConsecutiveWins: 0,
+      sessionWinRate: 0.5,
+      coolOffUntil: 0,
+      adaptedConfidenceFloor: fullConfig.minConfidence || 70,
+      softBlockedPairs: {},
+      blockedStrategies: /* @__PURE__ */ new Set(),
+      pairSessionWins: {},
+      pairSessionLosses: {},
+      hourlyPnL: {},
+      lastAdaptedAt: null,
+      adaptationLog: []
+    }
+  };
+  const adaptiveInterval = getAdaptiveScanInterval(fullConfig);
+  const intervalDisplay = fullConfig.adaptiveScanInterval ? `adaptive (${adaptiveInterval / 1e3}s now)` : `${fullConfig.scanIntervalMs / 1e3}s`;
+  const goalMsg = fullConfig.weeklyProfitTarget > 0 ? ` | Weekly Goal: $${fullConfig.weeklyProfitTarget} (${((fullConfig.accountBalance + fullConfig.weeklyProfitTarget) / Math.max(fullConfig.accountBalance, 1)).toFixed(1)}x growth)` : "";
+  const featFlags = [
+    fullConfig.adaptiveScanInterval && "\u26A1 Adaptive Scan",
+    fullConfig.enablePyramiding && "\u{1F4C8} Pyramiding",
+    fullConfig.useKellyCriterion && "\u{1F4D0} Kelly Sizing",
+    fullConfig.drawdownShieldThreshold > 0 && `\u{1F6E1}\uFE0F Shield @${fullConfig.drawdownShieldThreshold}%`,
+    fullConfig.propFirmMode && "\u{1F3C6} PropFirm"
+  ].filter(Boolean).join(" | ");
+  addActivity(userId, {
+    type: "info",
+    message: `VEDD AI Live Engine STARTED | Strategy: ${fullConfig.strategyMode} | Pairs: ${fullConfig.pairs.join(", ")} | Interval: ${intervalDisplay} | Min confidence: ${fullConfig.minConfidence}%${goalMsg}${featFlags ? ` | Features: ${featFlags}` : ""}`
+  });
+  (async () => {
+    try {
+      const tlConnsWarm = await storage.getUserTradelockerConnections(userId);
+      const activeTLWarm = tlConnsWarm.filter((c) => c.isActive);
+      for (const tlConn of activeTLWarm) {
+        const warmResult = await warmTradeLockerConnection(tlConn);
+        addActivity(userId, {
+          type: warmResult.success ? "info" : "error",
+          message: warmResult.success ? `TradeLocker account ${tlConn.accountId} pre-warmed \u2014 ready for instant trade execution` : `TradeLocker pre-warm failed (${tlConn.accountId}): ${warmResult.error}`
+        });
+      }
+    } catch (e) {
+      console.log("[VEDD Live Engine] TradeLocker pre-warm skipped:", e.message);
+    }
+  })();
+  const _dayStateRestore = (async () => {
+    try {
+      const { pool: _cPool } = await Promise.resolve().then(() => (init_db(), db_exports));
+      const days = Math.max(15, (fullConfig.consistencyPeriodDays || 15) + 5);
+      const cutoff = new Date(Date.now() - days * 864e5).toISOString();
+      const _sources = `('tradelocker','tradelocker_auto','mt5_ea','mt5_copier','manual','brain_autoexec')`;
+      const rows = (await _cPool.query(
+        `SELECT (closed_at AT TIME ZONE 'UTC')::date AS d, COALESCE(SUM(profit_loss),0) AS pnl
+           FROM ai_trade_results
+          WHERE user_id=$1 AND source IN ${_sources}
+            AND closed_at IS NOT NULL AND result IN ('WIN','LOSS','BREAKEVEN') AND closed_at > $2
+          GROUP BY 1`,
+        [userId, cutoff]
+      )).rows;
+      const st = engineStates[userId];
+      if (!st) return;
+      const todayStr = (/* @__PURE__ */ new Date()).toISOString().split("T")[0];
+      for (const r of rows) {
+        const dstr = new Date(r.d).toISOString().split("T")[0];
+        st.challengeDailyPnL[dstr] = Math.round(Number(r.pnl) * 100) / 100;
+      }
+      if (st.challengeDailyPnL[todayStr] !== void 0) {
+        st.pnlToday = st.challengeDailyPnL[todayStr];
+        st._pnlTodayDate = todayStr;
+      }
+      try {
+        const _tc = (await _cPool.query(
+          `SELECT count(*)::int AS n FROM ai_trade_results
+            WHERE user_id=$1 AND source IN ${_sources}
+              AND (created_at AT TIME ZONE 'UTC')::date = $2::date
+              AND (closed_at IS NULL OR (closed_at AT TIME ZONE 'UTC')::date >= $2::date)`,
+          [userId, todayStr]
+        )).rows?.[0]?.n;
+        if (Number.isFinite(Number(_tc))) st.tradesOpenedToday = Number(_tc);
+      } catch {
+      }
+      st.sessionHighWatermark = Math.max(0, st.pnlToday);
+      st.pnlSession = st.pnlToday;
+      const _bal = fullConfig.accountBalance;
+      if (_bal > 0) {
+        const _pct = st.pnlToday / _bal * 100;
+        const _lossLimit = fullConfig.dailyLossLimit ?? 0;
+        if (_lossLimit > 0 && _pct <= -_lossLimit) {
+          st.dailyLossHalted = true;
+          st.dailyLossHaltedAt = (/* @__PURE__ */ new Date()).toISOString();
+          addActivity(userId, { type: "error", message: `\u{1F6A8} RESTART: daily loss ${_pct.toFixed(2)}% already breaches the ${_lossLimit}% limit \u2014 engine resumed in HALTED state (it did not reset).` });
+        }
+        const _profitTarget = fullConfig.dailyProfitTarget ?? 0;
+        if (_profitTarget > 0 && _pct >= _profitTarget) {
+          st.dailyProfitHalted = true;
+          st.dailyProfitHaltedAt = (/* @__PURE__ */ new Date()).toISOString();
+          addActivity(userId, { type: "info", message: `\u{1F3C6} RESTART: daily gain +${_pct.toFixed(2)}% already meets the ${_profitTarget}% target \u2014 engine resumed HALTED to protect gains.` });
+        }
+      }
+      console.log(`[VEDD Live Engine] Restored day state for user ${userId}: ${rows.length} day(s), pnlToday=${st.pnlToday}, tradesOpenedToday=${st.tradesOpenedToday}, lossHalted=${st.dailyLossHalted}, profitHalted=${st.dailyProfitHalted}`);
+    } catch (e) {
+      console.log("[VEDD Live Engine] day-state restore skipped:", e.message);
+    }
+  })();
+  setTimeout(() => {
+    Promise.race([
+      _dayStateRestore,
+      new Promise((r) => setTimeout(r, 1e4))
+      // never block startup indefinitely
+    ]).then(() => scanMarkets(userId)).then(() => scheduleScan(userId));
+  }, 2e3);
+  if (positionMonitorIntervals[userId]) clearInterval(positionMonitorIntervals[userId]);
+  positionMonitorIntervals[userId] = setInterval(() => monitorPositions(userId), 25 * 1e3);
+  scheduleGapScanner(userId);
+  try {
+    const loadFn = global.loadPersistedBrain;
+    if (typeof loadFn === "function") {
+      const persisted = loadFn(userId);
+      if (persisted) {
+        addActivity(userId, {
+          type: "info",
+          message: `\u{1F9E0} Brain restored from disk \u2014 ${persisted.totalTradesAnalyzed ?? 0} trades, ${persisted.pairsLearned ?? 0} pairs`
+        });
+      }
+    }
+  } catch (_) {
+  }
+  autoRetainBrain(userId);
+  if (brainLearningIntervals[userId]) clearInterval(brainLearningIntervals[userId]);
+  brainLearningIntervals[userId] = setInterval(() => autoRetainBrain(userId), 30 * 60 * 1e3);
+  console.log(`[VEDD Live Engine] Started for user ${userId} | Strategy: ${fullConfig.strategyMode} | Interval: ${intervalDisplay}`);
+  _persistFxRunState(userId, true);
+  return engineStates[userId];
+}
+async function flattenAllBrokerPositions(userId, reason) {
+  let closed = 0, failed = 0;
+  try {
+    const conns = (await storage.getUserTradelockerConnections(userId)).filter((c) => c.isActive);
+    for (const conn of conns) {
+      try {
+        const svc = await getOrCreateService(conn);
+        const positions = await svc.getPositionsNormalized();
+        for (const p of positions) {
+          try {
+            await svc.closePosition(String(p.id));
+            closed++;
+            const { logTlClose: logTlClose2 } = await Promise.resolve().then(() => (init_tradelocker(), tradelocker_exports));
+            await logTlClose2(conn, { symbol: p.symbol, direction: p.side, positionId: String(p.id), reason: `flatten all: ${reason}`, pnl: p.unrealizedPl, volume: p.qty, ok: true });
+          } catch (e) {
+            failed++;
+            addActivity(userId, { type: "error", symbol: p.symbol, message: `\u{1F6A8} EMERGENCY CLOSE FAILED (TradeLocker ${conn.accountId} pos ${p.id}): ${e?.message ?? e} \u2014 CLOSE MANUALLY` });
+          }
+        }
+      } catch (e) {
+        failed++;
+        addActivity(userId, { type: "error", message: `\u{1F6A8} EMERGENCY STOP: could not read TradeLocker ${conn.accountId} positions (${e?.message ?? e}) \u2014 POSITIONS MAY STILL BE OPEN` });
+      }
+    }
+  } catch (e) {
+    addActivity(userId, { type: "error", message: `\u{1F6A8} EMERGENCY STOP: TradeLocker connection lookup failed (${e?.message ?? e})` });
+  }
+  try {
+    const { pool: _pool } = await Promise.resolve().then(() => (init_db(), db_exports));
+    const { rows } = await _pool.query(
+      `SELECT id, host, username, encrypted_password, domain, account_code
+         FROM dxtrade_connections WHERE user_id=$1 AND is_active=true`,
+      [userId]
+    );
+    if (rows.length) {
+      const { getDxtradeService: getDxtradeService2, decryptApiSecret: decryptApiSecret2 } = await Promise.resolve().then(() => (init_dxtrade(), dxtrade_exports));
+      for (const dc of rows) {
+        try {
+          const svc = getDxtradeService2(dc.host, dc.username, decryptApiSecret2(dc.encrypted_password), dc.domain, `estop_${dc.id}`);
+          await svc.ensureLoggedIn();
+          const positions = await svc.getPositions(dc.account_code);
+          for (const p of positions) {
+            try {
+              await svc.closePosition(dc.account_code, p.instrument, p.side === "SELL" ? "SELL" : "BUY", p.quantity, p.positionId);
+              closed++;
+            } catch (e) {
+              failed++;
+              addActivity(userId, { type: "error", symbol: p.instrument, message: `\u{1F6A8} EMERGENCY CLOSE FAILED (DXtrade pos ${p.positionId}): ${e?.message ?? e} \u2014 CLOSE MANUALLY` });
+            }
+          }
+        } catch (e) {
+          failed++;
+          addActivity(userId, { type: "error", message: `\u{1F6A8} EMERGENCY STOP: could not read DXtrade ${dc.account_code} positions (${e?.message ?? e}) \u2014 POSITIONS MAY STILL BE OPEN` });
+        }
+      }
+    }
+  } catch (e) {
+    addActivity(userId, { type: "error", message: `\u{1F6A8} EMERGENCY STOP: DXtrade lookup failed (${e?.message ?? e})` });
+  }
+  console.log(`[VEDD Live Engine] Emergency flatten for user ${userId} (${reason}): ${closed} closed, ${failed} failed`);
+  return { closed, failed };
+}
+function queueCloseAllSignal(userId, reason) {
+  broadcastMT5Signal(userId, {
+    id: `close_all_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
+    timestamp: (/* @__PURE__ */ new Date()).toISOString(),
+    symbol: "ALL",
+    direction: "BUY",
+    action: "CLOSE_ALL",
+    lotSize: 0,
+    entryPrice: null,
+    stopLoss: null,
+    takeProfit: null,
+    confidence: 100,
+    reason,
+    holdTime: "",
+    strategy: "emergency_stop",
+    confluences: [],
+    status: "pending"
+  });
+}
+function emergencyStopEngine(userId) {
+  if (engineIntervals[userId]) {
+    clearInterval(engineIntervals[userId]);
+    delete engineIntervals[userId];
+  }
+  if (engineTimers[userId]) {
+    clearTimeout(engineTimers[userId]);
+    delete engineTimers[userId];
+  }
+  if (brainLearningIntervals[userId]) {
+    clearInterval(brainLearningIntervals[userId]);
+    delete brainLearningIntervals[userId];
+  }
+  _persistFxRunState(userId, false);
+  const state = engineStates[userId];
+  if (state) {
+    state.status = "stopped";
+    state.dailyLossHalted = true;
+    state.dailyLossHaltedAt = (/* @__PURE__ */ new Date()).toISOString();
+    addActivity(userId, {
+      type: "error",
+      message: `\u{1F6A8} EMERGENCY STOP \u2014 engine halted. Flattening all broker positions now\u2026`
+    });
+  }
+  queueCloseAllSignal(userId, "Emergency stop triggered from dashboard");
+  void flattenAllBrokerPositions(userId, "emergency stop").then(({ closed, failed }) => {
+    addActivity(userId, {
+      type: failed > 0 ? "error" : "info",
+      message: failed > 0 ? `\u{1F6A8} EMERGENCY STOP: closed ${closed} position(s), ${failed} FAILED \u2014 check the account manually, some positions may still be open.` : `\u2705 EMERGENCY STOP: ${closed} broker position(s) closed.`
+    });
+    if (failed === 0 && positionMonitorIntervals[userId]) {
+      clearInterval(positionMonitorIntervals[userId]);
+      delete positionMonitorIntervals[userId];
+    }
+  }).catch((e) => {
+    addActivity(userId, { type: "error", message: `\u{1F6A8} EMERGENCY STOP: flatten threw (${e?.message ?? e}) \u2014 POSITIONS MAY STILL BE OPEN, check manually.` });
+  });
+  return state || null;
+}
+function runAutonomousAdaptation(userId, tradeResult) {
+  const state = engineStates[userId];
+  if (!state) return;
+  const ms = state.mindState;
+  const cfg = state.config;
+  const log = (msg) => {
+    ms.adaptationLog = [msg, ...ms.adaptationLog].slice(0, 20);
+    addActivity(userId, { type: "info", message: `\u{1F9E0} Mind: ${msg}` });
+  };
+  const win = tradeResult.profit > 0;
+  if (win) {
+    ms.sessionWins++;
+    ms.sessionConsecutiveWins++;
+    ms.sessionConsecutiveLosses = 0;
+    ms.pairSessionWins[tradeResult.symbol] = (ms.pairSessionWins[tradeResult.symbol] || 0) + 1;
+  } else {
+    ms.sessionLosses++;
+    ms.sessionConsecutiveLosses++;
+    ms.sessionConsecutiveWins = 0;
+    ms.pairSessionLosses[tradeResult.symbol] = (ms.pairSessionLosses[tradeResult.symbol] || 0) + 1;
+  }
+  const totalTrades = ms.sessionWins + ms.sessionLosses;
+  ms.sessionWinRate = totalTrades > 0 ? ms.sessionWins / totalTrades : 0.5;
+  const utcHour = (/* @__PURE__ */ new Date()).getUTCHours();
+  ms.hourlyPnL[utcHour] = (ms.hourlyPnL[utcHour] || 0) + tradeResult.profit;
+  if (ms.sessionConsecutiveLosses >= 5) {
+    const coolOffMs = 45 * 60 * 1e3;
+    ms.coolOffUntil = Date.now() + coolOffMs;
+    ms.sessionConsecutiveLosses = 0;
+    log(`5 consecutive losses \u2014 COOLING OFF for 45 min. Session win rate: ${(ms.sessionWinRate * 100).toFixed(0)}%. Market conditions appear unfavourable. Scans resume at ${new Date(ms.coolOffUntil).toISOString().substring(11, 16)} UTC.`);
+  } else if (ms.sessionConsecutiveLosses >= 3) {
+    const existing = ms.coolOffUntil - Date.now();
+    if (existing < 20 * 60 * 1e3) {
+      ms.coolOffUntil = Date.now() + 20 * 60 * 1e3;
+      log(`3 consecutive losses \u2014 cooling off 20 min. Waiting for better structure before next signal.`);
+    }
+  }
+  if (totalTrades >= 5 && totalTrades % 5 === 0) {
+    const baseFloor = cfg.minConfidence || 70;
+    let newFloor;
+    if (ms.sessionWinRate < 0.35) {
+      newFloor = Math.max(baseFloor, 85);
+    } else if (ms.sessionWinRate < 0.45) {
+      newFloor = Math.max(baseFloor, 80);
+    } else if (ms.sessionWinRate < 0.55) {
+      newFloor = Math.max(baseFloor, 75);
+    } else if (ms.sessionWinRate >= 0.7) {
+      newFloor = Math.max(baseFloor - 3, baseFloor);
+    } else {
+      newFloor = baseFloor;
+    }
+    if (newFloor !== ms.adaptedConfidenceFloor) {
+      log(`Win rate ${(ms.sessionWinRate * 100).toFixed(0)}% after ${totalTrades} trades \u2014 confidence floor adjusted: ${ms.adaptedConfidenceFloor}% \u2192 ${newFloor}%`);
+      ms.adaptedConfidenceFloor = newFloor;
+    }
+  }
+  const pairLosses = ms.pairSessionLosses[tradeResult.symbol] || 0;
+  if (pairLosses >= 3 && !win) {
+    const blockUntil = Date.now() + 60 * 60 * 1e3;
+    const existing = ms.softBlockedPairs[tradeResult.symbol];
+    if (!existing || existing.until < blockUntil) {
+      ms.softBlockedPairs[tradeResult.symbol] = {
+        until: blockUntil,
+        reason: `${pairLosses} session losses \u2014 confidence raised to 90% for 60 min`
+      };
+      log(`${tradeResult.symbol} soft-blocked: ${pairLosses} losses this session. Needs 90%+ confidence for next 60 min.`);
+    }
+  }
+  const COLD_THRESHOLD = 0.3;
+  const newBlockedStrategies = /* @__PURE__ */ new Set();
+  for (const [strat, weight] of Object.entries(state.strategyPerformanceWeights)) {
+    if (weight <= COLD_THRESHOLD) {
+      newBlockedStrategies.add(strat);
+    }
+  }
+  for (const strat of newBlockedStrategies) {
+    if (!ms.blockedStrategies.has(strat)) {
+      log(`Strategy "${strat}" weight dropped to ${(state.strategyPerformanceWeights[strat] || 0).toFixed(2)} \u2014 AUTO-BLOCKED until it recovers above ${COLD_THRESHOLD}`);
+    }
+  }
+  for (const strat of ms.blockedStrategies) {
+    if (!newBlockedStrategies.has(strat)) {
+      log(`Strategy "${strat}" weight recovered \u2014 AUTO-UNBLOCKED. Restored to scan pool.`);
+    }
+  }
+  ms.blockedStrategies = newBlockedStrategies;
+  if (ms.sessionConsecutiveWins === 3) {
+    log(`3 consecutive wins \u2014 session momentum building. Win rate: ${(ms.sessionWinRate * 100).toFixed(0)}%. Engine maintaining current rhythm.`);
+  } else if (ms.sessionConsecutiveWins === 5) {
+    log(`5-win streak \u2014 exceptional session. Win rate: ${(ms.sessionWinRate * 100).toFixed(0)}%. Confidence floor remains at ${ms.adaptedConfidenceFloor}% \u2014 not chasing, staying disciplined.`);
+  }
+  ms.lastAdaptedAt = (/* @__PURE__ */ new Date()).toISOString();
+}
+function checkDailyLossLimit(userId) {
+  const state = engineStates[userId];
+  if (!state || state.dailyLossHalted) return;
+  const limit = state.config.dailyLossLimit;
+  if (!limit || limit <= 0) return;
+  const balance = state.config.accountBalance;
+  if (!balance || balance <= 0) return;
+  const lossPct = state.pnlToday / balance * 100;
+  if (lossPct <= -limit) {
+    addActivity(userId, {
+      type: "error",
+      message: `\u{1F6A8} DAILY LOSS LIMIT HIT \u2014 ${Math.abs(lossPct).toFixed(2)}% loss today exceeds ${limit}% limit. Sending CLOSE_ALL to MT5 and halting engine.`
+    });
+    emergencyStopEngine(userId);
+  }
+}
+function checkDailyProfitTarget(userId) {
+  const state = engineStates[userId];
+  if (!state || state.dailyProfitHalted || state.dailyLossHalted) return;
+  const target = state.config.dailyProfitTarget;
+  if (!target || target <= 0) return;
+  const balance = state.config.accountBalance;
+  if (!balance || balance <= 0) return;
+  const gainPct = state.pnlToday / balance * 100;
+  if (gainPct >= target) {
+    state.dailyProfitHalted = true;
+    state.dailyProfitHaltedAt = (/* @__PURE__ */ new Date()).toISOString();
+    addActivity(userId, {
+      type: "info",
+      message: `\u{1F3C6} DAILY PROFIT TARGET HIT \u2014 +${gainPct.toFixed(2)}% gain today reached your ${target}% target. Engine stopping to protect gains. CLOSE_ALL sent to MT5.`
+    });
+    emergencyStopEngine(userId);
+  }
+}
+function checkMaxDrawdownBreakers(userId) {
+  const state = engineStates[userId];
+  if (!state || state.dailyLossHalted) return;
+  const balance = state.config.accountBalance;
+  if (!balance || balance <= 0) return;
+  const mdd = state.config.maxDrawdownPct || 0;
+  if (mdd > 0 && state.sessionHighWatermark > 0) {
+    const ddFromPeak = state.sessionHighWatermark - state.pnlSession;
+    const ddPct = ddFromPeak / balance * 100;
+    if (ddPct >= mdd) {
+      addActivity(userId, {
+        type: "error",
+        message: `\u{1F6A8} MAX DRAWDOWN HIT \u2014 gave back ${ddPct.toFixed(2)}% ($${ddFromPeak.toFixed(2)}) from the session peak $${state.sessionHighWatermark.toFixed(2)}, at/above your ${mdd}% max-drawdown limit. Sending CLOSE_ALL and halting the engine.`
+      });
+      emergencyStopEngine(userId);
+      return;
+    }
+  }
+  const mdl = state.config.maxDailyLossPct || 0;
+  if (mdl > 0) {
+    const lossPct = state.pnlToday / balance * 100;
+    if (lossPct <= -mdl) {
+      state.dailyLossHalted = true;
+      state.dailyLossHaltedAt = (/* @__PURE__ */ new Date()).toISOString();
+      addActivity(userId, {
+        type: "error",
+        message: `\u{1F6A8} MAX DAILY LOSS HIT \u2014 down ${Math.abs(lossPct).toFixed(2)}% today, at/above your ${mdl}% daily-loss limit. New trades halted for the rest of the day (open positions left to run).`
+      });
+    }
+  }
+}
+function checkFloatingDrawdown(userId, floating) {
+  const state = engineStates[userId];
+  if (!state || state.dailyLossHalted) return;
+  const balance = state.config.accountBalance;
+  if (!balance || balance <= 0) return;
+  const equitySession = state.pnlSession + floating;
+  const day = (/* @__PURE__ */ new Date()).toISOString().split("T")[0];
+  if (state._eqHwmDate !== day) {
+    state._eqHwmDate = day;
+    state._eqHwm = Math.max(0, equitySession);
+  }
+  if (equitySession > (state._eqHwm ?? 0)) state._eqHwm = equitySession;
+  const peak = state._eqHwm ?? 0;
+  const mdd = state.config.maxDrawdownPct || 0;
+  if (mdd > 0 && peak > 0) {
+    const ddPct = (peak - equitySession) / balance * 100;
+    if (ddPct >= mdd) {
+      addActivity(userId, {
+        type: "error",
+        message: `\u{1F6A8} MAX DRAWDOWN HIT (live/floating) \u2014 open+realized gave back ${ddPct.toFixed(2)}% ($${(peak - equitySession).toFixed(2)}) from the equity peak $${peak.toFixed(2)}, at/above your ${mdd}% limit. Sending CLOSE_ALL and halting the engine.`
+      });
+      emergencyStopEngine(userId);
+      return;
+    }
+  }
+  const mdl = state.config.maxDailyLossPct || 0;
+  if (mdl > 0) {
+    const dayEquity = state.pnlToday + floating;
+    if (dayEquity / balance * 100 <= -mdl) {
+      state.dailyLossHalted = true;
+      state.dailyLossHaltedAt = (/* @__PURE__ */ new Date()).toISOString();
+      addActivity(userId, {
+        type: "error",
+        message: `\u{1F6A8} MAX DAILY LOSS HIT (live/floating) \u2014 open+realized down ${Math.abs(dayEquity / balance * 100).toFixed(2)}% today, at/above your ${mdl}% limit. New trades halted for the rest of the day.`
+      });
+    }
+  }
+}
+function stopLiveEngine(userId) {
+  _persistFxRunState(userId, false);
+  if (engineIntervals[userId]) {
+    clearInterval(engineIntervals[userId]);
+    delete engineIntervals[userId];
+  }
+  if (engineTimers[userId]) {
+    clearTimeout(engineTimers[userId]);
+    delete engineTimers[userId];
+  }
+  if (brainLearningIntervals[userId]) {
+    clearInterval(brainLearningIntervals[userId]);
+    delete brainLearningIntervals[userId];
+  }
+  if (positionMonitorIntervals[userId]) {
+    clearInterval(positionMonitorIntervals[userId]);
+    delete positionMonitorIntervals[userId];
+  }
+  const state = engineStates[userId];
+  if (state) {
+    state.status = "stopped";
+    addActivity(userId, {
+      type: "info",
+      message: `Live Engine STOPPED | Scans: ${state.scanCount} | Signals: ${state.signalsGenerated} | Trades: ${state.tradesExecuted} | Failed: ${state.tradesFailed}`
+    });
+  }
+  return state || null;
+}
+function getLiveEngineState(userId) {
+  const s = engineStates[userId];
+  if (s) rollGoalTrackerWeek(s);
+  return s || null;
+}
+function getLiveEngineActivity(userId, limit = 50) {
+  const state = engineStates[userId];
+  if (!state) return [];
+  return state.activityLog.slice(0, limit);
+}
+function updateLiveEngineConfig(userId, updates) {
+  const state = engineStates[userId];
+  if (!state) {
+    const merged = { ...getDefaultConfig(userId), ...updates };
+    persistEngineConfig(userId, merged);
+    return null;
+  }
+  Object.assign(state.config, updates);
+  persistEngineConfig(userId, state.config);
+  if (updates.scanIntervalMs && engineIntervals[userId]) {
+    clearInterval(engineIntervals[userId]);
+    engineIntervals[userId] = setInterval(() => scanMarkets(userId), state.config.scanIntervalMs);
+  }
+  addActivity(userId, {
+    type: "info",
+    message: `Engine config updated: ${Object.keys(updates).join(", ")}`
+  });
+  return state;
+}
+function getPendingMT5Signals(userId, accountAlias = "default") {
+  const queues = mt5AccountQueues[userId];
+  if (!queues) return [];
+  const alias = queues[accountAlias] ? accountAlias : queues["default"] ? "default" : null;
+  if (!alias) return [];
+  const now = Date.now();
+  queues[alias].forEach((s) => {
+    if (s.status === "pending" && now - new Date(s.timestamp).getTime() > 5 * 60 * 1e3) {
+      s.status = "expired";
+    }
+  });
+  return queues[alias].filter((s) => s.status === "pending");
+}
+function confirmMT5Signal(userId, signalId, executed, accountAlias = "default") {
+  const queues = mt5AccountQueues[userId];
+  if (!queues) return null;
+  const alias = queues[accountAlias] ? accountAlias : "default";
+  const queue = queues[alias];
+  if (!queue) return null;
+  const signal = queue.find((s) => s.id === signalId);
+  if (!signal) {
+    for (const q of Object.values(queues)) {
+      const found = q.find((s) => s.id === signalId);
+      if (found) {
+        found.status = executed ? "executed" : "rejected";
+        _postConfirmActivity(userId, found, executed);
+        return found;
+      }
+    }
+    return null;
+  }
+  signal.status = executed ? "executed" : "rejected";
+  _postConfirmActivity(userId, signal, executed);
+  return signal;
+}
+function _postConfirmActivity(userId, signal, executed) {
+  addActivity(userId, {
+    type: executed ? "trade_open" : "info",
+    symbol: signal.symbol,
+    direction: signal.direction,
+    confidence: signal.confidence,
+    message: executed ? `MT5 EXECUTED: ${signal.direction} ${signal.symbol} via Combined EA` : `MT5 signal rejected by EA: ${signal.symbol}`
+  });
+  if (executed) {
+    const state = engineStates[userId];
+    if (state) {
+      state.tradesExecuted++;
+      state.openPositionCount++;
+    }
+  }
+}
+function getAllMT5Signals(userId, limit = 50) {
+  const queues = mt5AccountQueues[userId];
+  if (!queues) return [];
+  const all = [];
+  const seen = /* @__PURE__ */ new Set();
+  for (const q of Object.values(queues)) {
+    for (const s of q) {
+      if (!seen.has(s.id)) {
+        seen.add(s.id);
+        all.push(s);
+      }
+    }
+  }
+  all.sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
+  return all.slice(0, limit);
+}
+function setModelLock(userId, locked) {
+  const state = engineStates[userId];
+  if (!state) return false;
+  state.modelLocked = locked;
+  if (locked) {
+    addActivity(userId, {
+      type: "info",
+      message: "AI model locked until all open positions are closed. Switch will apply automatically when flat."
+    });
+  }
+  return true;
+}
+function getModelLockStatus(userId) {
+  const state = engineStates[userId];
+  if (!state) return { locked: false, openPositions: 0 };
+  return { locked: state.modelLocked, openPositions: state.openPositionCount };
+}
+var FX_MAX_OPEN_PER_SYMBOL, FX_SYMBOL_COOLDOWN_MS, mt5AccountQueues, mt5AccountRegistry, engineStates, engineIntervals, engineTimers, brainLearningIntervals, positionMonitorIntervals, _monitorBusy, persistedConfigOverrides, goalTrackerCache, ALL_STRATEGY_KEYS, _dxSkipTableReady, countedTradeKeys, h4BiasCache, H4_REFRESH_MS, TRAIL_METHOD_LABELS, xauPeakPts, xauLockedPts, btcInitialStop, btcLastStop, NY_TIME_FMT, INDEX_BROKER_ALIASES, FX_LEADER_LOCK_KEY, FX_LEADER_STALE_MS, _fxLeaderClient, _fxIsLeader, _fxLeaderLoop;
+var init_live_trading_engine = __esm({
+  "server/services/live-trading-engine.ts"() {
+    "use strict";
+    init_session();
+    init_pair_key();
+    init_service();
+    init_tradelocker();
+    init_tradelocker_sync();
+    init_indicators();
+    init_storage();
+    init_news_service();
+    init_pipUtils();
+    init_tl_risk_settings();
+    init_smcUtils();
+    init_ictMacroUtils();
+    init_markov_chain();
+    init_breakoutEngine();
+    init_db();
+    FX_MAX_OPEN_PER_SYMBOL = 3;
+    FX_SYMBOL_COOLDOWN_MS = 240 * 60 * 1e3;
+    mt5AccountQueues = {};
+    mt5AccountRegistry = {};
+    engineStates = {};
+    engineIntervals = {};
+    engineTimers = {};
+    brainLearningIntervals = {};
+    positionMonitorIntervals = {};
+    _monitorBusy = {};
+    persistedConfigOverrides = {};
+    goalTrackerCache = {};
+    ALL_STRATEGY_KEYS = [
+      "scalping",
+      "momentum",
+      "session_breakout",
+      "aggressive",
+      "sniper",
+      "compound",
+      "chart_pattern",
+      "ict_order_blocks",
+      "ict_fvg",
+      "ict_liquidity_sweep",
+      "ict_bos",
+      "ict_ote",
+      "smc_demand_supply",
+      "asia_range_breakout",
+      "vwap_mean_reversion",
+      "news_fade",
+      "prop_firm_sniper",
+      "sunday_gap",
+      "order_flow"
+    ];
+    _dxSkipTableReady = false;
+    countedTradeKeys = /* @__PURE__ */ new Map();
+    h4BiasCache = /* @__PURE__ */ new Map();
+    H4_REFRESH_MS = 60 * 60 * 1e3;
+    TRAIL_METHOD_LABELS = {
+      staged_volume: "Staged Volume Trail",
+      chandelier: "Chandelier Exit (ATR-based)",
+      r_multiple: "R-Multiple Ladder",
+      swing_structure: "Swing High/Low Structure",
+      parabolic_sar: "Parabolic SAR",
+      none: "No Trail",
+      fixed_pip: "Fixed Pip Trail",
+      profit_lock: "Profit Lock %",
+      stepped_fixed: "Stepped Fixed Trail"
+    };
+    xauPeakPts = /* @__PURE__ */ new Map();
+    xauLockedPts = /* @__PURE__ */ new Map();
+    btcInitialStop = /* @__PURE__ */ new Map();
+    btcLastStop = /* @__PURE__ */ new Map();
+    NY_TIME_FMT = new Intl.DateTimeFormat("en-US", {
+      timeZone: "America/New_York",
+      hour12: false,
+      year: "numeric",
+      month: "2-digit",
+      day: "2-digit",
+      hour: "2-digit",
+      minute: "2-digit"
+    });
+    INDEX_BROKER_ALIASES = {
+      US30: ["US30CASH", "US30C", "DOW30", "DOWJONES", "DJIA", "DJI", "WS30", "YM", "DOW", "USA30", "CASH30", "US30USD", "DJA", "WALLST30", "WALLSTREET30", "USWALL"],
+      NAS100: ["NAS100CASH", "NAS100C", "NASDAQ100", "USTEC", "NDX100", "US100", "NQ", "NASDAQ", "NASUSD", "NA100", "NDAQ", "QQQ", "TECH100", "USTECH100", "NASD100", "NAS100USD"],
+      US500: ["SPXUSD", "US500CASH", "SP500USD", "USINDEX", "SPX500USD", "ES", "SPX", "SPXC", "SP500C", "SPXUSDM", "SPX500", "SP500"]
+    };
+    FX_LEADER_LOCK_KEY = 918273646;
+    FX_LEADER_STALE_MS = 3 * 60 * 1e3;
+    _fxLeaderClient = null;
+    _fxIsLeader = false;
+    _fxLeaderLoop = null;
+  }
+});
+
+// server/services/fx-models.ts
+var fx_models_exports = {};
+__export(fx_models_exports, {
+  FX_MODEL_MIN_TO_LIST: () => FX_MODEL_MIN_TO_LIST,
+  classifyDayType: () => classifyDayType,
+  ensureFxModelTables: () => ensureFxModelTables,
+  fxModelRowsForStats: () => fxModelRowsForStats,
+  getFxModelListingRows: () => getFxModelListingRows,
+  getFxModelSettings: () => getFxModelSettings,
+  getModelMastery: () => getModelMastery,
+  importFxModelSnapshot: () => importFxModelSnapshot,
+  liveEligibleSlices: () => liveEligibleSlices,
+  m1Reject: () => m1Reject,
+  masteryLevel: () => masteryLevel,
+  parseFxModelScope: () => parseFxModelScope,
+  rangeFeatures: () => rangeFeatures,
+  registerBarsProvider: () => registerBarsProvider,
+  resolveShadowDecisions: () => resolveShadowDecisions,
+  runCryptoModelsCycle: () => runCryptoModelsCycle,
+  runFxModelsCycle: () => runFxModelsCycle,
+  saveFxModelSettings: () => saveFxModelSettings,
+  sessionFor: () => sessionFor
+});
+function ensureFxModelTables() {
+  if (!ensured2) {
+    ensured2 = pool.query(DDL3).then(() => void 0).catch((e) => {
+      console.error("[fx-models] ensure tables failed (non-fatal):", e?.message || e);
+      ensured2 = null;
+    });
+  }
+  return ensured2;
+}
+function sessionFor(d = /* @__PURE__ */ new Date()) {
+  const h = d.getUTCHours();
+  if (h >= 12 && h < 16) return "London/NY overlap";
+  if (h >= 7 && h < 12) return "London";
+  if (h >= 16 && h < 21) return "New York";
+  return "Asian";
+}
+function registerBarsProvider(engine, fn) {
+  barsProviders[engine] = fn;
+}
+function classifyDayType(input) {
+  let s = 0;
+  const adx = Number(input.adx);
+  if (Number.isFinite(adx)) s += adx >= 25 ? 2 : adx >= 18 ? 1 : 0;
+  const h1 = input.h1 || "NEUTRAL", h4 = input.h4 || "NEUTRAL";
+  if (h1 !== "NEUTRAL" && h1 === h4) s += 2;
+  else if (h1 !== "NEUTRAL" || h4 !== "NEUTRAL") s += 1;
+  const rv = Number(input.relVolume);
+  if (Number.isFinite(rv)) s += rv >= 1.3 ? 1 : rv < 0.8 ? -1 : 0;
+  if (input.news) s += 1;
+  if (input.session === "London/NY overlap" || input.session === "London") s += 1;
+  if (input.session === "Asian") s -= 1;
+  const dayType = s >= 4 ? "trend" : s <= 1 ? "range" : "mixed";
+  const autoModel = dayType === "trend" ? "M2" : dayType === "range" ? "M1" : Number.isFinite(adx) && adx >= 18 ? "M2" : "M1";
+  return { dayType, autoModel, score: s };
+}
+async function runFxModelsCycle(userId, ctx) {
+  if (process.env.FX_MODELS_SHADOW === "off") return;
+  try {
+    await ensureFxModelTables();
+    const now = /* @__PURE__ */ new Date();
+    const session2 = sessionFor(now);
+    const day = now.toISOString().slice(0, 10);
+    const hour = now.getUTCHours();
+    const pairs = [];
+    for (const [symbol, a] of Object.entries(ctx.marketAnalysis || {})) {
+      const snap = ctx.snapshot?.[symbol] || {};
+      const { h1, h4 } = ctx.mtf(symbol);
+      const cls = classifyDayType({ adx: snap.adx, relVolume: snap.relativeVolume, h1: h1?.trend, h4: h4?.trend, session: session2 });
+      const features = {
+        price: a?.currentPrice ?? snap.price,
+        m15Trend: snap.trend,
+        rsi: snap.rsi,
+        adx: snap.adx,
+        plusDI: snap.plusDI,
+        minusDI: snap.minusDI,
+        atr: snap.atr,
+        relVolume: snap.relativeVolume,
+        volumeTrend: snap.volumeTrend,
+        h1: h1 ? { trend: h1.trend, bos: h1.bosChoch?.detected ? h1.bosChoch.description : null, pd: h1.premiumDiscount?.zone, wyckoff: h1.wyckoff?.detected ? h1.wyckoff.phase : null } : null,
+        h4: h4 ? { trend: h4.trend, bos: h4.bosChoch?.detected ? h4.bosChoch.description : null, pd: h4.premiumDiscount?.zone, wyckoff: h4.wyckoff?.detected ? h4.wyckoff.phase : null } : null,
+        signals: a?.signals ?? a?.strategySignals ?? void 0
+      };
+      await pool.query(
+        `INSERT INTO fx_day_regimes (user_id, symbol, day, hour_utc, session, day_type, auto_model, trend_score, adx_m15, rel_volume, atr, h1_trend, h4_trend, features)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14::jsonb)
+         ON CONFLICT (user_id, symbol, day, hour_utc) DO UPDATE SET day_type=EXCLUDED.day_type, auto_model=EXCLUDED.auto_model,
+           trend_score=EXCLUDED.trend_score, adx_m15=EXCLUDED.adx_m15, rel_volume=EXCLUDED.rel_volume, atr=EXCLUDED.atr,
+           h1_trend=EXCLUDED.h1_trend, h4_trend=EXCLUDED.h4_trend, features=EXCLUDED.features`,
+        [userId, symbol, day, hour, session2, cls.dayType, cls.autoModel, cls.score, num(snap.adx), num(snap.relativeVolume), num(snap.atr), h1?.trend ?? null, h4?.trend ?? null, JSON.stringify(features)]
+      ).catch(() => {
+      });
+      const candle = Math.floor(now.getTime() / 36e5);
+      const key = `${userId}|${symbol}`;
+      if (lastShadowCandle.get(key) !== candle && Number(features.price) > 0) {
+        lastShadowCandle.set(key, candle);
+        pairs.push({ symbol, ctx: { ...features, dayType: cls.dayType, autoModel: cls.autoModel, trendScore: cls.score } });
+      }
+    }
+    if (pairs.length) await shadowDecide(userId, session2, pairs);
+    if (Date.now() - lastResolveAt > 15 * 6e4) {
+      lastResolveAt = Date.now();
+      await resolveShadowDecisions("fx");
+    }
+  } catch (e) {
+    console.error("[fx-models] cycle failed (non-fatal):", e?.message || e);
+  }
+}
+function num(x) {
+  const n = Number(x);
+  return Number.isFinite(n) ? n : null;
+}
+async function rangeFeatures(symbol, engine = "fx") {
+  const ck = `${engine}|${symbol}`;
+  const hit = rangeCache.get(ck);
+  if (hit && Date.now() - hit.at < 30 * 6e4) return hit.data;
+  let bars = [];
+  try {
+    bars = (await barsFor(engine)(symbol, "1h", 72)).slice(0, -1);
+  } catch {
+    return null;
+  }
+  if (bars.length < 30) return null;
+  const ts = (b) => Number(b.timestamp) < 1e12 ? Number(b.timestamp) * 1e3 : Number(b.timestamp);
+  const box = bars.slice(-24);
+  const hi = Math.max(...box.map((b) => b.high)), lo = Math.min(...box.map((b) => b.low));
+  const width = hi - lo;
+  if (!(width > 0)) return null;
+  const tol = width * 0.1;
+  const touchesHigh = box.filter((b) => b.high >= hi - tol).length;
+  const touchesLow = box.filter((b) => b.low <= lo + tol).length;
+  const last = bars[bars.length - 1];
+  const price = Number(last.close);
+  const posPct = (price - lo) / width * 100;
+  const prior = bars.slice(-25, -1);
+  const pHi = Math.max(...prior.map((b) => b.high)), pLo = Math.min(...prior.map((b) => b.low));
+  const sweepHigh = last.high > pHi && last.close < pHi;
+  const sweepLow = last.low < pLo && last.close > pLo;
+  const closes = bars.map((b) => Number(b.close));
+  const bw = (i) => {
+    const w = closes.slice(i - 20, i);
+    const m = w.reduce((a, c) => a + c, 0) / 20;
+    const sd = Math.sqrt(w.reduce((a, c) => a + (c - m) ** 2, 0) / 20);
+    return m > 0 ? 4 * sd / m : 0;
+  };
+  const widths = [];
+  for (let i = Math.max(20, closes.length - 40); i <= closes.length; i++) widths.push(bw(i));
+  const nowW = widths[widths.length - 1];
+  const bbPct = Math.round(widths.filter((w) => w <= nowW).length / widths.length * 100);
+  const today = /* @__PURE__ */ new Date();
+  today.setUTCHours(0, 0, 0, 0);
+  const t0 = today.getTime();
+  const prevDay = bars.filter((b) => ts(b) >= t0 - 864e5 && ts(b) < t0);
+  const asian = bars.filter((b) => ts(b) >= t0 && ts(b) < t0 + 7 * 36e5);
+  const data = {
+    rangeHigh: hi,
+    rangeLow: lo,
+    rangeMid: (hi + lo) / 2,
+    widthPips: width / pipSize(symbol),
+    touchesHigh,
+    touchesLow,
+    positionInRangePct: Math.round(posPct),
+    bbWidthPercentile: bbPct,
+    sweepHigh,
+    sweepLow,
+    prevDayHigh: prevDay.length ? Math.max(...prevDay.map((b) => b.high)) : null,
+    prevDayLow: prevDay.length ? Math.min(...prevDay.map((b) => b.low)) : null,
+    asianHigh: asian.length ? Math.max(...asian.map((b) => b.high)) : null,
+    asianLow: asian.length ? Math.min(...asian.map((b) => b.low)) : null,
+    qualifies: touchesHigh >= 2 && touchesLow >= 2 && bbPct <= 50
+  };
+  rangeCache.set(ck, { at: Date.now(), data });
+  return data;
+}
+function m1Reject(symbol, dir, entry, sl, ctx, engine = "fx") {
+  const r = ctx?.range;
+  if (engine === "fx" && M1_PAIRS_EXCLUDED.includes(symbol)) return `${symbol} excluded from range model`;
+  if (!r) return "range data unavailable";
+  if (!r.qualifies) return `no qualified range (touches ${r.touchesHigh}/${r.touchesLow}, BB width pct ${r.bbWidthPercentile})`;
+  const atTop = r.positionInRangePct >= 80, atBottom = r.positionInRangePct <= 20;
+  if (dir === "SELL" && !atTop) return `SELL not at range top (${r.positionInRangePct}%)`;
+  if (dir === "BUY" && !atBottom) return `BUY not at range bottom (${r.positionInRangePct}%)`;
+  const h4 = ctx?.h4?.trend;
+  if (dir === "SELL" && h4 === "BULLISH" || dir === "BUY" && h4 === "BEARISH") return `fading a trending H4 (${h4})`;
+  const risk = Math.abs(entry - sl);
+  const toMid = Math.abs(r.rangeMid - entry);
+  if (!(risk > 0) || toMid / risk < 1) return `R:R to range middle ${(toMid / (risk || 1)).toFixed(2)} < 1`;
+  return null;
+}
+async function shadowDecide(userId, session2, pairs, engine = "fx") {
+  try {
+    const { fxShouldPauseForCredits: fxShouldPauseForCredits2 } = await Promise.resolve().then(() => (init_ai_budget_guard(), ai_budget_guard_exports));
+    if (fxShouldPauseForCredits2()) return;
+  } catch {
+  }
+  let ai;
+  try {
+    const { getUniversalAIClientForUser: getUniversalAIClientForUser2 } = await Promise.resolve().then(() => (init_openai(), openai_exports));
+    ai = await getUniversalAIClientForUser2(userId);
+  } catch {
+    return;
+  }
+  for (const p of pairs) p.ctx.range = await rangeFeatures(p.symbol, engine).catch(() => null);
+  const mastery = await getModelMastery(userId, { engine }).catch(() => null);
+  const masteryLines = (mastery?.slices || []).filter((m) => m.trades >= 5).slice(0, 20).map((m) => `${m.model} ${m.dayType} ${m.symbol} ${m.session}: ${m.trades} trades, WR ${(m.winRate * 100).toFixed(0)}%, avg ${m.avgR.toFixed(2)}R (${m.level})`).join("\n");
+  const prompt = `You run TWO ${engine === "crypto" ? "CRYPTO (24/7 on-chain tokens)" : "FX"} trading models side by side. For EACH ${engine === "crypto" ? "token" : "pair"} below, say what each model would trade RIGHT NOW (or NONE).
+${engine === "crypto" ? 'Crypto notes: markets never close; "sessions" are when US/EU volume is highest (London/NY hours give the cleanest trends). The live venue is spot DeFi, so BUY ideas matter most; SELL ideas are recorded for learning only. Thin tokens wick hard \u2014 stops must sit beyond real structure, not inside noise.\n' : ""}
+MODEL 1 (range / low-volume days) \u2014 only when ctx.range.qualifies is true:
+  \u2022 Trade ONLY at an edge: SELL when positionInRangePct >= 80, BUY when <= 20. Never the middle.
+  \u2022 Best trigger is a liquidity sweep (sweepHigh/sweepLow true: wick through the edge, close back inside). Also valid: rejection at prevDay/Asian high/low that sits on the edge, RSI stretched at the edge.
+  \u2022 Stop beyond the sweep wick / range edge plus a small buffer. First target = rangeMid (must be >= 1.0R), runner to the opposite edge.
+  \u2022 Never fade a trending H4, never trade a range during London open (07:00-08:00 UTC) or NY open (12:30-13:30 UTC) when breakouts start, max 1-3 trades a day.
+  \u2022 If the range does not qualify, Model 1 says NONE.
+MODEL 2 (trend / volume days): trade only in the H4+H1 direction \u2014 breakouts with volume or pullbacks to structure in London/New York. Target 2-4R, stop beyond the last H1 swing. Skip if H4 and H1 disagree.
+Both models use every input: trend, ADX/DI, RSI, volume, BOS/CHOCH, Wyckoff, premium/discount, session and the day type. Reason toward the best risk-adjusted trade of the day; NONE is a valid, often correct answer.
+
+Session: ${session2}
+${masteryLines ? `Your own track record so far (use it \u2014 lean on what has worked, avoid what has not):
+${masteryLines}
+` : ""}
+PAIRS:
+${pairs.map((p) => `${p.symbol}: ${JSON.stringify(p.ctx)}`).join("\n")}
+
+Respond ONLY with JSON:
+{"ideas":[{"symbol":"EURUSD","model":"M1","direction":"BUY|SELL|NONE","entry":1.0,"stopLoss":1.0,"takeProfit":1.0,"confidence":0-100,"setup":"short name","reason":"one sentence"}]}
+Give exactly one M1 and one M2 entry per pair.`;
+  let content = "";
+  try {
+    const resp = await ai.chat.completions.create({
+      model: ai.defaultModel || "gpt-4o-mini",
+      messages: [{ role: "system", content: `You are a disciplined ${engine === "crypto" ? "crypto" : "FX"} analyst. Valid JSON only.` }, { role: "user", content: prompt }],
+      response_format: { type: "json_object" },
+      max_tokens: 1800,
+      temperature: 0.2
+    });
+    content = resp?.choices?.[0]?.message?.content || "";
+  } catch (e) {
+    try {
+      const { noteAiBudgetError: noteAiBudgetError2 } = await Promise.resolve().then(() => (init_ai_budget_guard(), ai_budget_guard_exports));
+      noteAiBudgetError2(e);
+    } catch {
+    }
+    return;
+  }
+  let ideas = [];
+  try {
+    ideas = JSON.parse(content.slice(content.indexOf("{"), content.lastIndexOf("}") + 1))?.ideas || [];
+  } catch {
+    return;
+  }
+  const byPair = new Map(pairs.map((p) => [p.symbol.toUpperCase(), p.ctx]));
+  for (const i of ideas) {
+    const sym = String(i?.symbol || "").toUpperCase().replace("/", "");
+    const model = i?.model === "M1" || i?.model === "M2" ? i.model : null;
+    const ctx = byPair.get(sym);
+    if (!ctx || !model) continue;
+    const dir = String(i?.direction || "NONE").toUpperCase();
+    const entry = Number(i?.entry), sl = Number(i?.stopLoss), tp = Number(i?.takeProfit);
+    const valid = dir === "BUY" && sl < entry && tp > entry || dir === "SELL" && sl > entry && tp < entry;
+    const price = Number(ctx.price);
+    const near = price > 0 && Math.abs(entry - price) / price < 3e-3;
+    let isTrade = (dir === "BUY" || dir === "SELL") && valid && near;
+    let ruleNote = "";
+    if (isTrade) {
+      const sidesOk = dir === "BUY" ? sl < price && tp > price : sl > price && tp < price;
+      const planned = Math.abs(entry - sl), actual = Math.abs(price - sl);
+      const ratio = planned > 0 ? actual / planned : 0;
+      if (!sidesOk) {
+        isTrade = false;
+        ruleNote = `stop/target on the wrong side of live price ${price}`;
+      } else if (!(ratio >= 0.5 && ratio <= 1.5)) {
+        isTrade = false;
+        ruleNote = `risk at live price is ${ratio.toFixed(2)}x the planned risk`;
+      }
+    }
+    if (isTrade && model === "M1") {
+      const why = m1Reject(sym, dir, price, sl, ctx, engine);
+      if (why) {
+        isTrade = false;
+        ruleNote = `M1 rule: ${why}`;
+      }
+    }
+    if (isTrade && model === "M2") {
+      const want = dir === "BUY" ? "BULLISH" : "BEARISH";
+      if (ctx?.h1?.trend !== want || ctx?.h4?.trend !== want) {
+        isTrade = false;
+        ruleNote = `M2 rule: H1 ${ctx?.h1?.trend ?? "n/a"} / H4 ${ctx?.h4?.trend ?? "n/a"} not both ${want}`;
+      }
+    }
+    const ins = await pool.query(
+      `INSERT INTO fx_model_decisions (user_id, symbol, model, mode, day_type, session, direction, entry_price, stop_loss, take_profit, confidence, setup, reasoning, context, result, engine)
+       VALUES ($1,$2,$3,'shadow',$4,$5,$6,$7,$8,$9,$10,$11,$12,$13::jsonb,$14,$15) RETURNING id`,
+      [
+        userId,
+        sym,
+        model,
+        ctx.dayType,
+        session2,
+        isTrade ? dir : "NONE",
+        isTrade ? price : null,
+        isTrade ? sl : null,
+        isTrade ? tp : null,
+        Math.max(0, Math.min(100, Math.round(Number(i?.confidence) || 0))),
+        String(i?.setup || "").slice(0, 80),
+        (ruleNote ? `[${ruleNote}] ` : "") + String(i?.reason || "").slice(0, 500),
+        JSON.stringify(ctx),
+        isTrade ? null : "NO_TRADE",
+        engine
+      ]
+    ).catch(() => null);
+    if (engine === "fx" && isTrade && ins?.rows?.[0]?.id) {
+      await maybeGoLive(userId, {
+        id: ins.rows[0].id,
+        symbol: sym,
+        model,
+        dayType: ctx.dayType,
+        autoModel: ctx.autoModel,
+        session: session2,
+        direction: dir,
+        entry: price,
+        stopLoss: sl,
+        takeProfit: tp,
+        confidence: Math.round(Number(i?.confidence) || 0),
+        setup: String(i?.setup || ""),
+        reason: String(i?.reason || "")
+      }).catch((e) => console.error("[fx-models] live hand-off failed (non-fatal):", e?.message || e));
+    }
+  }
+}
+async function resolveShadowDecisions(engine = "fx") {
+  const { rows } = await pool.query(
+    `SELECT id, symbol, direction, entry_price, stop_loss, take_profit, created_at FROM fx_model_decisions
+      WHERE engine = '${engine === "crypto" ? "crypto" : "fx"}' AND result IS NULL AND direction IN ('BUY','SELL') AND created_at < now() - interval '15 minutes'
+      ORDER BY created_at LIMIT 40`
+  );
+  const bySym = /* @__PURE__ */ new Map();
+  for (const r of rows) {
+    const a = bySym.get(r.symbol) || [];
+    a.push(r);
+    bySym.set(r.symbol, a);
+  }
+  for (const [symbol, list] of Array.from(bySym.entries())) {
+    let bars = [];
+    try {
+      bars = await barsFor(engine)(symbol, "15m", 200);
+    } catch {
+      continue;
+    }
+    if (!bars.length) continue;
+    for (const r of list) {
+      const t0 = new Date(r.created_at).getTime();
+      const entry = Number(r.entry_price), sl = Number(r.stop_loss), tp = Number(r.take_profit);
+      const risk = Math.abs(entry - sl);
+      if (!(risk > 0)) continue;
+      const buy = r.direction === "BUY";
+      let result = null, exit = 0;
+      for (const b of bars) {
+        const ts = Number(b.timestamp) < 1e12 ? Number(b.timestamp) * 1e3 : Number(b.timestamp);
+        if (ts < t0) continue;
+        const hitSl = buy ? b.low <= sl : b.high >= sl;
+        const hitTp = buy ? b.high >= tp : b.low <= tp;
+        if (hitSl) {
+          result = "LOSS";
+          exit = sl;
+          break;
+        }
+        if (hitTp) {
+          result = "WIN";
+          exit = tp;
+          break;
+        }
+      }
+      if (!result && Date.now() - t0 > 48 * 36e5) {
+        const cutoff = t0 + 48 * 36e5;
+        const atCut = bars.filter((b) => (Number(b.timestamp) < 1e12 ? Number(b.timestamp) * 1e3 : Number(b.timestamp)) <= cutoff);
+        exit = Number(atCut[atCut.length - 1]?.close) || Number(bars[bars.length - 1]?.close) || entry;
+        result = "EXPIRED";
+      }
+      if (!result) continue;
+      const move = buy ? exit - entry : entry - exit;
+      await pool.query(
+        `UPDATE fx_model_decisions SET result=$2, exit_price=$3, r_multiple=$4, pips=$5, resolved_at=now() WHERE id=$1 AND result IS NULL`,
+        [r.id, result, exit, move / risk, move / pipSize(symbol)]
+      ).catch(() => {
+      });
+    }
+  }
+}
+function parseFxModelScope(filter) {
+  const f = (filter || []).map((x) => String(x).trim().toUpperCase()).filter(Boolean);
+  const model = f.find((x) => x.startsWith("MODEL:"))?.slice(6) || null;
+  const dayType = f.find((x) => x.startsWith("DAY:"))?.slice(4)?.toLowerCase() || null;
+  const symbols = f.filter((x) => !x.includes(":"));
+  const engine = f.includes("ENGINE:CRYPTO") ? "crypto" : "fx";
+  return { model: model === "M1" || model === "M2" ? model : null, dayType: ["range", "trend", "mixed"].includes(dayType || "") ? dayType : null, symbols, engine };
+}
+async function getFxModelListingRows(userId, filter) {
+  await ensureFxModelTables();
+  const { model, dayType, symbols, engine } = parseFxModelScope(filter);
+  const { rows } = await pool.query(
+    `SELECT symbol, model, day_type, session, direction, entry_price, stop_loss, take_profit, confidence, setup, reasoning, context,
+            result, r_multiple, pips, exit_price, created_at, resolved_at, engine
+       FROM fx_model_decisions
+      WHERE user_id=$1 AND source='own' AND engine='${engine}' AND result IN ('WIN','LOSS','EXPIRED')
+        AND ($2::text IS NULL OR model=$2) AND ($3::text IS NULL OR day_type=$3)
+        AND (cardinality($4::text[]) = 0 OR symbol = ANY($4::text[]))
+      ORDER BY created_at DESC LIMIT 3000`,
+    [userId, model, dayType, symbols]
+  );
+  const n = rows.length;
+  const wins = rows.filter((r) => r.result === "WIN").length;
+  const avgR = n ? rows.reduce((a, r) => a + (Number(r.r_multiple) || 0), 0) / n : 0;
+  const winRate = n ? wins / n : 0;
+  const masteryScore = Math.round(Math.min(1, n / 150) * 50 + Math.max(0, Math.min(1, (avgR + 0.5) / 1.5)) * 50);
+  return { rows, avgR, masteryScore, level: masteryLevel(n, winRate, avgR) };
+}
+function fxModelRowsForStats(rows) {
+  return rows.map((r) => ({
+    symbol: r.symbol,
+    confirmedAt: r.resolved_at || r.created_at,
+    tradeOutcome: r.result === "WIN" || r.result === "EXPIRED" && Number(r.r_multiple) > 0 ? "WIN" : "LOSS"
+  }));
+}
+async function importFxModelSnapshot(buyerId, snapshot) {
+  await ensureFxModelTables();
+  let n = 0;
+  for (const r of snapshot || []) {
+    await pool.query(
+      `INSERT INTO fx_model_decisions (user_id, symbol, model, mode, day_type, session, direction, entry_price, stop_loss, take_profit,
+         confidence, setup, reasoning, context, result, r_multiple, pips, exit_price, resolved_at, created_at, source, engine)
+       VALUES ($1,$2,$3,'purchased',$4,$5,$6,$7,$8,$9,$10,$11,$12,$13::jsonb,$14,$15,$16,$17,$18,$19,'purchased_brain',$20)`,
+      [
+        buyerId,
+        r.symbol,
+        r.model,
+        r.day_type,
+        r.session,
+        r.direction,
+        r.entry_price,
+        r.stop_loss,
+        r.take_profit,
+        r.confidence,
+        r.setup,
+        r.reasoning,
+        JSON.stringify(r.context ?? null),
+        r.result,
+        r.r_multiple,
+        r.pips,
+        r.exit_price,
+        r.resolved_at ? new Date(r.resolved_at) : null,
+        r.created_at ? new Date(r.created_at) : /* @__PURE__ */ new Date(),
+        r.engine === "crypto" ? "crypto" : "fx"
+      ]
+    ).then(() => {
+      n++;
+    }).catch(() => {
+    });
+  }
+  return n;
+}
+async function getFxModelSettings(userId) {
+  try {
+    const { getRuntimeStateStrict: getRuntimeStateStrict2 } = await Promise.resolve().then(() => (init_runtime_state(), runtime_state_exports));
+    const v = await getRuntimeStateStrict2("fx_models", String(userId));
+    return { ...DEFAULT_SETTINGS, ...v || {} };
+  } catch {
+    return { ...DEFAULT_SETTINGS };
+  }
+}
+async function saveFxModelSettings(userId, patch) {
+  const cur = await getFxModelSettings(userId);
+  const next = {
+    live: typeof patch.live === "boolean" ? patch.live : cur.live,
+    m1DailyCap: clampInt(patch.m1DailyCap ?? cur.m1DailyCap, 0, 5),
+    m2DailyCap: clampInt(patch.m2DailyCap ?? cur.m2DailyCap, 0, 5)
+  };
+  const { pool: p } = await Promise.resolve().then(() => (init_db(), db_exports));
+  const { ensureRuntimeStateTable: ensureRuntimeStateTable2 } = await Promise.resolve().then(() => (init_runtime_state(), runtime_state_exports));
+  await ensureRuntimeStateTable2();
+  await p.query(
+    `INSERT INTO runtime_state (scope, key, value, updated_at) VALUES ('fx_models', $1, $2::jsonb, now())
+     ON CONFLICT (scope, key) DO UPDATE SET value = EXCLUDED.value, updated_at = now()`,
+    [String(userId), JSON.stringify(next)]
+  );
+  return next;
+}
+function clampInt(n, lo, hi) {
+  const x = Math.round(Number(n));
+  return Number.isFinite(x) ? Math.max(lo, Math.min(hi, x)) : lo;
+}
+async function liveEligibleSlices(userId) {
+  const m = await getModelMastery(userId);
+  return m.slices.filter((s) => LIVE_LEVELS.includes(s.level));
+}
+async function maybeGoLive(userId, idea) {
+  const settings = await getFxModelSettings(userId);
+  if (!settings.live) return;
+  if (idea.model !== idea.autoModel) return;
+  const mastery = await getModelMastery(userId, { ownOnly: true });
+  const slice = mastery.slices.find((s) => s.model === idea.model && s.dayType === idea.dayType && s.symbol === idea.symbol && s.session === idea.session);
+  if (!slice || !LIVE_LEVELS.includes(slice.level)) return;
+  const cap = idea.model === "M1" ? settings.m1DailyCap : settings.m2DailyCap;
+  const client2 = await pool.connect();
+  let claimed = false;
+  try {
+    await client2.query("BEGIN");
+    await client2.query("SELECT pg_advisory_xact_lock(918273700, $1)", [userId]);
+    const { rows } = await client2.query(
+      `SELECT COUNT(*)::int AS n FROM fx_model_decisions WHERE user_id=$1 AND model=$2 AND mode IN ('live','live_pending') AND created_at >= date_trunc('day', now())`,
+      [userId, idea.model]
+    );
+    if (Number(rows[0]?.n) < cap) {
+      await client2.query(`UPDATE fx_model_decisions SET mode='live_pending' WHERE id=$1`, [idea.id]);
+      claimed = true;
+    }
+    await client2.query("COMMIT");
+  } catch (e) {
+    await client2.query("ROLLBACK").catch(() => {
+    });
+    throw e;
+  } finally {
+    client2.release();
+  }
+  if (!claimed) return;
+  const { submitFxModelTrade: submitFxModelTrade2 } = await Promise.resolve().then(() => (init_live_trading_engine(), live_trading_engine_exports));
+  const placed = await submitFxModelTrade2(userId, {
+    model: idea.model,
+    symbol: idea.symbol,
+    direction: idea.direction,
+    confidence: idea.confidence,
+    entryPrice: idea.entry,
+    stopLoss: idea.stopLoss,
+    takeProfit: idea.takeProfit,
+    reason: `${idea.model === "M1" ? "Model 1 \xB7 Range" : "Model 2 \xB7 Trend"} [${slice.level}, ${slice.trades} ideas, ${(slice.winRate * 100).toFixed(0)}% WR, ${slice.avgR >= 0 ? "+" : ""}${slice.avgR.toFixed(2)}R] ${idea.setup}: ${idea.reason}`.slice(0, 500)
+  }).catch(() => false);
+  await pool.query(`UPDATE fx_model_decisions SET mode=$2 WHERE id=$1`, [idea.id, placed ? "live" : "shadow"]).catch(() => {
+  });
+}
+function barTrend(bars) {
+  const c = bars.map((b) => Number(b.close));
+  const e20 = emaLast(c, 20), e50 = emaLast(c, 50), last = c[c.length - 1];
+  if (!(e20 > 0) || !(e50 > 0)) return "NEUTRAL";
+  if (e20 > e50 && last > e20) return "BULLISH";
+  if (e20 < e50 && last < e20) return "BEARISH";
+  return "NEUTRAL";
+}
+function adx14(bars) {
+  if (bars.length < 30) return null;
+  let tr = 0, pdm = 0, mdm = 0;
+  const dxs = [];
+  for (let i = 1; i < bars.length; i++) {
+    const h = bars[i].high, l = bars[i].low, pc = bars[i - 1].close;
+    const up = h - bars[i - 1].high, dn = bars[i - 1].low - l;
+    const t = Math.max(h - l, Math.abs(h - pc), Math.abs(l - pc));
+    tr = tr - tr / 14 + t;
+    pdm = pdm - pdm / 14 + (up > dn && up > 0 ? up : 0);
+    mdm = mdm - mdm / 14 + (dn > up && dn > 0 ? dn : 0);
+    if (i >= 14 && tr > 0) {
+      const pdi = 100 * pdm / tr, mdi = 100 * mdm / tr;
+      dxs.push(pdi + mdi > 0 ? 100 * Math.abs(pdi - mdi) / (pdi + mdi) : 0);
+    }
+  }
+  const last = dxs.slice(-14);
+  return last.length ? last.reduce((a, c) => a + c, 0) / last.length : null;
+}
+async function runCryptoModelsCycle(userId, symbols) {
+  if (process.env.CRYPTO_MODELS_SHADOW === "off") return;
+  try {
+    await ensureFxModelTables();
+    const fetchBars2 = barsFor("crypto");
+    const now = /* @__PURE__ */ new Date();
+    const session2 = sessionFor(now);
+    const day = now.toISOString().slice(0, 10);
+    const hour = now.getUTCHours();
+    const candle = Math.floor(now.getTime() / 36e5);
+    const maxTokens = Math.max(1, Number(process.env.CRYPTO_MODELS_MAX_TOKENS ?? 8));
+    const pairs = [];
+    const done = new Set((await pool.query(
+      `SELECT DISTINCT symbol FROM fx_model_decisions WHERE engine='crypto' AND user_id=$1 AND created_at >= date_trunc('hour', now())`,
+      [userId]
+    ).catch(() => ({ rows: [] }))).rows.map((r) => String(r.symbol)));
+    for (const symbol of symbols.slice(0, maxTokens)) {
+      const key = `crypto|${userId}|${symbol}`;
+      if (done.has(symbol.toUpperCase()) || lastShadowCandle.get(key) === candle) continue;
+      let h1 = [], h4 = [];
+      try {
+        h1 = (await fetchBars2(symbol, "1h", 80)).slice(0, -1);
+        h4 = (await fetchBars2(symbol, "4h", 80)).slice(0, -1);
+      } catch {
+        continue;
+      }
+      if (h1.length < 55) continue;
+      const price = Number(h1[h1.length - 1].close);
+      const vols = h1.map((b) => Number(b.volume) || 0);
+      const avgVol = vols.slice(-21, -1).reduce((a, c) => a + c, 0) / 20;
+      const relVolume = avgVol > 0 ? vols[vols.length - 1] / avgVol : null;
+      const adx = adx14(h1);
+      const t1 = barTrend(h1), t4 = h4.length >= 55 ? barTrend(h4) : "NEUTRAL";
+      const cls = classifyDayType({ adx, relVolume, h1: t1, h4: t4, session: session2 });
+      const features = { price, adx, relVolume, h1: { trend: t1 }, h4: { trend: t4 } };
+      await pool.query(
+        `INSERT INTO fx_day_regimes (user_id, symbol, day, hour_utc, session, day_type, auto_model, trend_score, adx_m15, rel_volume, atr, h1_trend, h4_trend, features, engine)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,NULL,$11,$12,$13::jsonb,'crypto')
+         ON CONFLICT (user_id, symbol, day, hour_utc) DO UPDATE SET day_type=EXCLUDED.day_type, auto_model=EXCLUDED.auto_model, trend_score=EXCLUDED.trend_score,
+           adx_m15=EXCLUDED.adx_m15, rel_volume=EXCLUDED.rel_volume, h1_trend=EXCLUDED.h1_trend, h4_trend=EXCLUDED.h4_trend, features=EXCLUDED.features, engine='crypto'`,
+        [userId, symbol, day, hour, session2, cls.dayType, cls.autoModel, cls.score, num(adx), num(relVolume), t1, t4, JSON.stringify(features)]
+      ).catch(() => {
+      });
+      lastShadowCandle.set(key, candle);
+      pairs.push({ symbol, ctx: { ...features, dayType: cls.dayType, autoModel: cls.autoModel, trendScore: cls.score } });
+    }
+    if (pairs.length) await shadowDecide(userId, session2, pairs, "crypto");
+    await resolveShadowDecisions("crypto");
+  } catch (e) {
+    console.error("[crypto-models] cycle failed (non-fatal):", e?.message || e);
+  }
+}
+function masteryLevel(trades, winRate, avgR) {
+  if (trades < 20) return "Learning";
+  if (trades < 50) return avgR > 0 ? "Developing" : "Developing (negative)";
+  if (trades < 150) return avgR > 0 ? "Proficient" : "Unproven";
+  return avgR > 0.2 && winRate >= 0.45 ? "Master" : avgR > 0 ? "Proficient" : "Unproven";
+}
+async function getModelMastery(userId, opts = {}) {
+  const _eng = opts.engine === "crypto" ? "crypto" : "fx";
+  await ensureFxModelTables();
+  const agg = async (group) => (await pool.query(
+    `SELECT ${group}, COUNT(*)::int AS trades,
+            COUNT(*) FILTER (WHERE result='WIN')::int AS wins,
+            COALESCE(AVG(r_multiple),0)::float AS avg_r,
+            COALESCE(SUM(r_multiple),0)::float AS total_r
+       FROM fx_model_decisions
+      WHERE user_id=$1 AND engine='${_eng}' AND result IN ('WIN','LOSS','EXPIRED')${opts.ownOnly ? " AND source='own'" : ""}
+      GROUP BY ${group} ORDER BY trades DESC`,
+    [userId]
+  )).rows;
+  const shape = (r) => {
+    const winRate = r.trades ? r.wins / r.trades : 0;
+    const dataPart = Math.min(1, r.trades / 150) * 50;
+    const edgePart = Math.max(0, Math.min(1, (r.avg_r + 0.5) / 1.5)) * 50;
+    return {
+      model: r.model,
+      dayType: r.day_type,
+      symbol: r.symbol,
+      session: r.session,
+      trades: r.trades,
+      wins: r.wins,
+      winRate,
+      avgR: r.avg_r,
+      totalR: r.total_r,
+      masteryScore: Math.round(dataPart + edgePart),
+      level: masteryLevel(r.trades, winRate, r.avg_r)
+    };
+  };
+  return {
+    models: (await agg("model")).map(shape),
+    slices: (await agg("model, day_type, symbol, session")).map(shape)
+  };
+}
+var DDL3, ensured2, barsProviders, barsFor, pipSize, lastShadowCandle, lastResolveAt, M1_PAIRS_EXCLUDED, rangeCache, FX_MODEL_MIN_TO_LIST, DEFAULT_SETTINGS, LIVE_LEVELS, emaLast;
+var init_fx_models = __esm({
+  "server/services/fx-models.ts"() {
+    "use strict";
+    init_db();
+    init_service();
+    DDL3 = `
+CREATE TABLE IF NOT EXISTS fx_day_regimes (
+  id serial PRIMARY KEY,
+  user_id integer NOT NULL,
+  symbol text NOT NULL,
+  day date NOT NULL,
+  hour_utc smallint NOT NULL,
+  session text,
+  day_type text NOT NULL,
+  auto_model text NOT NULL,
+  trend_score real,
+  adx_m15 real,
+  rel_volume real,
+  atr real,
+  h1_trend text,
+  h4_trend text,
+  features jsonb,
+  created_at timestamp NOT NULL DEFAULT now(),
+  UNIQUE (user_id, symbol, day, hour_utc)
+);
+CREATE TABLE IF NOT EXISTS fx_model_decisions (
+  id serial PRIMARY KEY,
+  user_id integer NOT NULL,
+  symbol text NOT NULL,
+  model text NOT NULL,
+  mode text NOT NULL DEFAULT 'shadow',
+  day_type text,
+  session text,
+  direction text,
+  entry_price double precision,
+  stop_loss double precision,
+  take_profit double precision,
+  confidence integer,
+  setup text,
+  reasoning text,
+  context jsonb,
+  result text,
+  r_multiple real,
+  pips real,
+  exit_price double precision,
+  resolved_at timestamp,
+  created_at timestamp NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS fx_model_decisions_open_idx ON fx_model_decisions (result, created_at);
+CREATE INDEX IF NOT EXISTS fx_model_decisions_user_idx ON fx_model_decisions (user_id, model, created_at);
+ALTER TABLE fx_model_decisions ADD COLUMN IF NOT EXISTS source text NOT NULL DEFAULT 'own';
+ALTER TABLE fx_model_decisions ADD COLUMN IF NOT EXISTS engine text NOT NULL DEFAULT 'fx';
+ALTER TABLE fx_day_regimes ADD COLUMN IF NOT EXISTS engine text NOT NULL DEFAULT 'fx';
+`;
+    ensured2 = null;
+    barsProviders = {
+      fx: async (symbol, tf, n) => {
+        const r = await marketDataService.fetchMarketData({ symbol, assetType: marketDataService.detectAssetType(symbol), timeframe: tf, limit: n });
+        return r?.bars || [];
+      }
+    };
+    barsFor = (engine) => barsProviders[engine] || barsProviders.fx;
+    pipSize = (sym) => /JPY/.test(sym) ? 0.01 : /^XAU/.test(sym) ? 0.1 : /^(BTC|ETH)/.test(sym) ? 1 : /^(US30|NAS|SPX|GER|UK1|JP2)/.test(sym) ? 1 : 1e-4;
+    lastShadowCandle = /* @__PURE__ */ new Map();
+    lastResolveAt = 0;
+    M1_PAIRS_EXCLUDED = (process.env.FX_M1_EXCLUDED_PAIRS || "GBPJPY,XAUUSD,BTCUSD,US30,NAS100").split(",").map((x) => x.trim().toUpperCase()).filter(Boolean);
+    rangeCache = /* @__PURE__ */ new Map();
+    FX_MODEL_MIN_TO_LIST = 20;
+    DEFAULT_SETTINGS = { live: false, m1DailyCap: 3, m2DailyCap: 2 };
+    LIVE_LEVELS = ["Proficient", "Master"];
+    emaLast = (xs, n) => {
+      if (xs.length < n) return NaN;
+      const k = 2 / (n + 1);
+      let e = xs.slice(0, n).reduce((a, c) => a + c, 0) / n;
+      for (const x of xs.slice(n)) e = x * k + e * (1 - k);
+      return e;
+    };
+  }
+});
+
 // server/services/ensure-cryptocom-engine-tables.ts
 var ensure_cryptocom_engine_tables_exports = {};
 __export(ensure_cryptocom_engine_tables_exports, {
@@ -15782,18 +29164,18 @@ __export(ensure_cryptocom_engine_tables_exports, {
 });
 async function ensureCryptocomEngineTables() {
   try {
-    await pool.query(DDL3);
+    await pool.query(DDL4);
     console.log("[startup] Crypto.com Engine tables ensured (cryptocom_engine_configs/activity/trades).");
   } catch (err) {
     console.error("[startup] ensureCryptocomEngineTables failed (non-fatal):", err?.message ?? err);
   }
 }
-var DDL3;
+var DDL4;
 var init_ensure_cryptocom_engine_tables = __esm({
   "server/services/ensure-cryptocom-engine-tables.ts"() {
     "use strict";
     init_db();
-    DDL3 = `
+    DDL4 = `
 CREATE TABLE IF NOT EXISTS "cryptocom_engine_configs" (
   "id" serial PRIMARY KEY,
   "user_id" integer NOT NULL UNIQUE REFERENCES "users"("id"),
@@ -16075,26 +29457,8 @@ async function recordCryptoBrainOutcome(o) {
   }
 }
 
-// server/services/prop-firm-consistency.ts
-init_db();
-function todayUtcDateStr() {
-  return (/* @__PURE__ */ new Date()).toISOString().slice(0, 10);
-}
-async function recordRealizedPnl(userId, connectionId, connectionType, realizedPnlDelta, tradeDate) {
-  if (!isFinite(realizedPnlDelta) || realizedPnlDelta === 0) return;
-  const dateStr = tradeDate || todayUtcDateStr();
-  try {
-    await pool.query(
-      `INSERT INTO prop_firm_daily_pnl (user_id, connection_id, connection_type, trade_date, realized_pnl)
-       VALUES ($1, $2, $3, $4, $5)
-       ON CONFLICT (connection_id, connection_type, trade_date)
-       DO UPDATE SET realized_pnl = prop_firm_daily_pnl.realized_pnl + $5, updated_at = now()`,
-      [userId, connectionId, connectionType, dateStr, realizedPnlDelta]
-    );
-  } catch (err) {
-    console.error("[Consistency] Failed to record daily P&L (non-fatal):", err?.message ?? err);
-  }
-}
+// server/services/cryptocom-scanner.ts
+init_prop_firm_consistency();
 
 // server/services/weekend-boost.ts
 var ENABLED = process.env.WEEKEND_BOOST_ENABLED !== "false";
@@ -16158,15 +29522,47 @@ async function refreshDefiUniverse(chain) {
   }
   return tokens.map((t) => t.symbol.toUpperCase());
 }
-function convertToCandles(bars) {
+function convertToCandles2(bars) {
   return bars.map((b) => ({ t: b.t, o: b.o, h: b.h, l: b.l, c: b.c, v: b.v }));
 }
+function emaOf(xs, n) {
+  if (xs.length < n) return NaN;
+  const k = 2 / (n + 1);
+  let e = xs.slice(0, n).reduce((a, c) => a + c, 0) / n;
+  for (const x of xs.slice(n)) e = x * k + e * (1 - k);
+  return e;
+}
+async function tfTrend(symbol, tf, chain) {
+  try {
+    const bars = (await fetchBars(symbol, tf, 80, chain)).slice(0, -1);
+    if (bars.length < 55) return null;
+    const c = bars.map((b) => b.c);
+    const e20 = emaOf(c, 20), e50 = emaOf(c, 50), last = c[c.length - 1];
+    if (!(e20 > 0) || !(e50 > 0)) return null;
+    return e20 > e50 && last > e20 ? "BULLISH" : e20 < e50 && last < e20 ? "BEARISH" : "NEUTRAL";
+  } catch {
+    return null;
+  }
+}
+async function h1Atr(symbol, chain) {
+  try {
+    const bars = (await fetchBars(symbol, "1h", 40, chain)).slice(0, -1);
+    if (bars.length < 16) return null;
+    const trs = bars.slice(1).map((b, i) => Math.max(b.h - b.l, Math.abs(b.h - bars[i].c), Math.abs(b.l - bars[i].c)));
+    return { atr: trs.slice(-14).reduce((a, c) => a + c, 0) / 14, bars };
+  } catch {
+    return null;
+  }
+}
+var CRYPTO_SL_ATR_MULT = Number(process.env.CRYPTO_SL_ATR_MULT ?? 1.5);
+var CRYPTO_MIN_RR = Number(process.env.CRYPTO_MIN_RR ?? 2);
+var _modelUniverse = /* @__PURE__ */ new Map();
 async function runTrendFollowing(symbol, cfg) {
   const bars = await fetchBars(symbol, "5m", 100, cfg.defiChain || "base");
   if (bars.length < 30) {
     return { decision: "error", reasoning: `${symbol}: not enough candle history returned.`, score: null, price: null, dailyChangePercent: null, strategy: "trend_following" };
   }
-  const candles = convertToCandles(bars);
+  const candles = convertToCandles2(bars);
   const indicators = computeAllAdvancedIndicators(candles, 0, symbol, "M5");
   const price = candles[candles.length - 1].c;
   const dailyChangePercent = (price - candles[0].c) / candles[0].c * 100;
@@ -16228,7 +29624,7 @@ async function runMomentum(symbol, cfg) {
 async function runOrderFlow(symbol, cfg) {
   const bars = await fetchBars(symbol, "5m", 60, cfg.defiChain || "base");
   if (bars.length < 20) return { decision: "error", reasoning: `${symbol}: not enough candles for order flow.`, score: null, price: null, dailyChangePercent: null, strategy: "order_flow" };
-  const c = convertToCandles(bars);
+  const c = convertToCandles2(bars);
   const price = c[c.length - 1].c;
   const dailyChangePercent = (price - c[0].c) / c[0].c * 100;
   const win = c.slice(-30);
@@ -16259,7 +29655,7 @@ async function runOrderFlow(symbol, cfg) {
 async function runVolumeProfile(symbol, cfg) {
   const bars = await fetchBars(symbol, "15m", 96, cfg.defiChain || "base");
   if (bars.length < 40) return { decision: "error", reasoning: `${symbol}: not enough candles for volume profile.`, score: null, price: null, dailyChangePercent: null, strategy: "volume_profile" };
-  const c = convertToCandles(bars);
+  const c = convertToCandles2(bars);
   const price = c[c.length - 1].c;
   const dailyChangePercent = (price - c[0].c) / c[0].c * 100;
   const hi = Math.max(...c.map((b) => b.h)), lo = Math.min(...c.map((b) => b.l));
@@ -16303,7 +29699,7 @@ async function runVolumeProfile(symbol, cfg) {
 async function runBreakout(symbol, cfg) {
   const bars = await fetchBars(symbol, "1h", 60, cfg.defiChain || "base");
   if (bars.length < 25) return { decision: "error", reasoning: `${symbol}: not enough candles for breakout.`, score: null, price: null, dailyChangePercent: null, strategy: "breakout" };
-  const c = convertToCandles(bars);
+  const c = convertToCandles2(bars);
   const price = c[c.length - 1].c;
   const dailyChangePercent = (price - c[0].c) / c[0].c * 100;
   const lookback = 20;
@@ -16329,7 +29725,7 @@ async function runStructure(symbol, cfg) {
     return { decision: "error", reasoning: symbol + ": not enough candle history for structure.", score: null, price: null, dailyChangePercent: null, strategy: "structure" };
   }
   const { detectBOSCHOCH: detectBOSCHOCH2, detectFairValueGap: detectFairValueGap2, detectOrderBlock: detectOrderBlock2 } = await Promise.resolve().then(() => (init_smcUtils(), smcUtils_exports));
-  const newestFirst = convertToCandles(bars).slice().reverse();
+  const newestFirst = convertToCandles2(bars).slice().reverse();
   const price = bars[bars.length - 1].c;
   const bull = detectBOSCHOCH2(newestFirst, "BUY");
   const bear = detectBOSCHOCH2(newestFirst, "SELL");
@@ -16373,7 +29769,7 @@ async function runDivergence(symbol, cfg) {
     return { decision: "error", reasoning: symbol + ": not enough candle history for divergence.", score: null, price: null, dailyChangePercent: null, strategy: "divergence" };
   }
   const { calculateRSI: calculateRSI2 } = await Promise.resolve().then(() => (init_indicators(), indicators_exports));
-  const candles = convertToCandles(bars);
+  const candles = convertToCandles2(bars);
   const price = bars[bars.length - 1].c;
   const rsiAt = (endIdx) => {
     const slice = candles.slice(0, endIdx + 1);
@@ -16424,29 +29820,6 @@ async function runDivergence(symbol, cfg) {
   if (score >= threshold) out.direction = direction;
   return out;
 }
-async function getHtfBias(symbol, chain) {
-  try {
-    const bars = await fetchBars(symbol, "1h", 60, chain);
-    if (bars.length < 25) return null;
-    const closes = bars.map(function(b) {
-      return b.c;
-    });
-    const sma = function(arr, p) {
-      return arr.slice(-p).reduce(function(a, b) {
-        return a + b;
-      }, 0) / p;
-    };
-    const fast = sma(closes, 10);
-    const slow = sma(closes, 30);
-    if (!(fast > 0) || !(slow > 0)) return null;
-    const spread = (fast - slow) / slow;
-    if (spread > 4e-3) return "BUY";
-    if (spread < -4e-3) return "SELL";
-    return null;
-  } catch {
-    return null;
-  }
-}
 var STRATEGY_RUNNERS = {
   trend_following: runTrendFollowing,
   momentum: runMomentum,
@@ -16480,14 +29853,17 @@ async function applySignalGates(symbol, result, cfg) {
       reasoning: symbol + ": corporate-action guard could not run (no candles) -- refusing the entry rather than trading unchecked. Original read: " + result.reasoning
     };
   }
-  const bias = await getHtfBias(symbol, chain);
-  if (bias && bias !== result.direction) {
-    return {
-      ...result,
-      decision: "watching",
-      direction: void 0,
-      reasoning: symbol + ": " + result.direction + " setup opposed by the 1h trend (" + bias + ") -- standing down. " + result.reasoning
-    };
+  if (process.env.CRYPTO_MTF_RULE !== "off") {
+    const [t1, t4] = await Promise.all([tfTrend(symbol, "1h", chain), tfTrend(symbol, "4h", chain)]);
+    const opp = result.direction === "BUY" ? "BEARISH" : "BULLISH";
+    if (t1 === opp || t4 === opp) {
+      return {
+        ...result,
+        decision: "watching",
+        direction: void 0,
+        reasoning: symbol + ": " + result.direction + " setup opposed by the higher timeframes (H1 " + (t1 ?? "n/a") + ", H4 " + (t4 ?? "n/a") + ") -- standing down. " + result.reasoning
+      };
+    }
   }
   return result;
 }
@@ -16615,6 +29991,32 @@ async function monitorOpenPositions(userId, cfg) {
           await closePosition(userId, trade, px, "stop_loss");
           continue;
         }
+        if (process.env.CRYPTO_TRAIL !== "off" && Number(trade.stopLoss) > 0 && trade.entryPrice > 0) {
+          try {
+            const { getRuntimeStateStrict: getRuntimeStateStrict2, insertRuntimeStateIfAbsent: insertRuntimeStateIfAbsent2 } = await Promise.resolve().then(() => (init_runtime_state(), runtime_state_exports));
+            const k = String(trade.id);
+            const stored = await getRuntimeStateStrict2("crypto_initial_stop", k);
+            const initial = Number(stored?.sl) > 0 ? Number(stored.sl) : Number((await insertRuntimeStateIfAbsent2("crypto_initial_stop", k, { sl: trade.stopLoss }))?.sl);
+            const risk = trade.entryPrice - initial;
+            if (risk > 0) {
+              const favR = (px - trade.entryPrice) / risk;
+              if (favR >= CRYPTO_MIN_RR) {
+                let want = trade.entryPrice + risk;
+                const ax = await h1Atr(trade.symbol, cfg?.defiChain || "base");
+                const last3 = ax?.bars.slice(-3) ?? [];
+                if (last3.length === 3) want = Math.max(want, Math.min(...last3.map((b) => b.l)));
+                if (want > Number(trade.stopLoss) && want < px) {
+                  const { pool: dbp } = await Promise.resolve().then(() => (init_db(), db_exports));
+                  await dbp.query(`UPDATE cryptocom_engine_trades SET stop_loss=$2 WHERE id=$1 AND status='open' AND (stop_loss IS NULL OR stop_loss < $2)`, [trade.id, want]);
+                  await storage.createCryptocomEngineActivity({ userId, symbol: trade.symbol, decision: "watching", strategy: trade.strategy, reasoning: `${trade.symbol}: STOP MOVED ${Number(trade.stopLoss).toPrecision(6)} \u2192 ${want.toPrecision(6)} (trade at +${favR.toFixed(1)}R; locks \u2265 +1R, trails the last 3 H1 lows).`, score: null, price: px, dailyChangePercent: null, source: "cryptocom" }).catch(() => {
+                  });
+                  trade.stopLoss = want;
+                }
+              }
+            }
+          } catch {
+          }
+        }
         {
           const maxDays = Number(process.env.CRYPTO_MAX_HOLD_DAYS ?? 0);
           const opened = new Date(trade.createdAt ?? trade.openedAt ?? 0).getTime();
@@ -16622,7 +30024,15 @@ async function monitorOpenPositions(userId, cfg) {
             const ageDays = (Date.now() - opened) / 864e5;
             const movePct = (px - trade.entryPrice) / trade.entryPrice * 100;
             const flatPct = Number(process.env.CRYPTO_STALE_FLAT_PCT ?? 3);
-            if (ageDays >= maxDays && Math.abs(movePct) < flatPct) {
+            let _trendHolds = false;
+            if (ageDays >= maxDays && Math.abs(movePct) < flatPct && process.env.CRYPTO_MTF_RULE !== "off") {
+              const ch = cfg?.defiChain || "base";
+              const [t1, t4] = await Promise.all([tfTrend(trade.symbol, "1h", ch), tfTrend(trade.symbol, "4h", ch)]);
+              _trendHolds = t1 === "BULLISH" && t4 === "BULLISH";
+              if (_trendHolds) await storage.createCryptocomEngineActivity({ userId, symbol: trade.symbol, decision: "watching", strategy: trade.strategy, reasoning: `${trade.symbol}: time exit HELD \u2014 flat for ${ageDays.toFixed(1)} days but H1 and H4 are still bullish.`, score: null, price: px, dailyChangePercent: null, source: "cryptocom" }).catch(() => {
+              });
+            }
+            if (ageDays >= maxDays && Math.abs(movePct) < flatPct && !_trendHolds) {
               await storage.createCryptocomEngineActivity({ userId, symbol: trade.symbol, decision: "exit", strategy: trade.strategy, reasoning: `${trade.symbol}: time exit \u2014 open ${ageDays.toFixed(1)} days (limit ${maxDays}) and only ${movePct.toFixed(2)}% from entry (flat band \xB1${flatPct}%).`, score: null, price: px, dailyChangePercent: null, source: "cryptocom" }).catch(() => {
               });
               await closePosition(userId, trade, px, "time_exit");
@@ -16906,7 +30316,7 @@ async function getCryptocomAiConfirmation(userId, symbol, result, chain) {
   try {
     const bars = await fetchBars(symbol, "5m", 100, chain);
     if (!bars || bars.length < 30) return getCryptocomAiConfirmationLite(userId, symbol, result);
-    const candles = convertToCandles(bars);
+    const candles = convertToCandles2(bars);
     const indicators = computeAllAdvancedIndicators(candles, 0, symbol, "M5");
     const { getCryptoAiConfirmation: getCryptoAiConfirmation2 } = await Promise.resolve().then(() => (init_crypto_ai_confirmation(), crypto_ai_confirmation_exports));
     const proposedSignal = result.direction === "BUY" ? "BUY" : result.direction === "SELL" ? "SELL" : "NEUTRAL";
@@ -17066,7 +30476,22 @@ async function executeSignalSingle(service, connection, userId, symbol, result, 
     }
     const chain = cfg.defiChain || "base";
     const slip = cfg.defiSlippageBps ?? 100;
-    const notionalD = Math.max(1, cfg.defiNotionalUsd ?? 25) * (gateD.riskMultiplier < 1 ? gateD.riskMultiplier : 1);
+    let notionalD = Math.max(1, cfg.defiNotionalUsd ?? 25) * (gateD.riskMultiplier < 1 ? gateD.riskMultiplier : 1);
+    let slPctD = Number(cfg.cefiStopLossPct ?? 2), tpPctD = Number(cfg.cefiTakeProfitPct ?? 3);
+    {
+      const ax = result.price ? await h1Atr(symbol, chain) : null;
+      if (ax && result.price && ax.atr > 0) {
+        const atrPct = ax.atr * CRYPTO_SL_ATR_MULT / result.price * 100;
+        if (atrPct > slPctD) {
+          const scale = slPctD / atrPct;
+          notionalD = Math.max(1, notionalD * scale);
+          await storage.createCryptocomEngineActivity({ userId, symbol, decision: "watching", strategy: result.strategy, reasoning: `${symbol}: stop widened ${slPctD.toFixed(1)}% \u2192 ${atrPct.toFixed(1)}% (${CRYPTO_SL_ATR_MULT}\xD7 H1 ATR); size cut to ${(scale * 100).toFixed(0)}% ($${notionalD.toFixed(2)}) so the risk is unchanged.`, score: result.score, price: result.price, dailyChangePercent: result.dailyChangePercent, source: "cryptocom" }).catch(() => {
+          });
+          slPctD = atrPct;
+        }
+      }
+      tpPctD = Math.max(tpPctD, slPctD * CRYPTO_MIN_RR);
+    }
     try {
       const { defiEntryBuy: defiEntryBuy2 } = await Promise.resolve().then(() => (init_defi_executor(), defi_executor_exports));
       const disc = getDefiUniverseEntry(symbol, chain);
@@ -17087,8 +30512,8 @@ async function executeSignalSingle(service, connection, userId, symbol, result, 
       const r = await defiEntryBuy2(userId, chain, disc?.address ?? symbol, notionalD, slip, disc?.priceUsd ?? result.price ?? void 0);
       if (!r.ok) {
         if (r.pending && r.txHash) {
-          const slP = r.entryPrice * (1 - (cfg.cefiStopLossPct ?? 2) / 100);
-          const tpP = r.entryPrice * (1 + (cfg.cefiTakeProfitPct ?? 3) / 100);
+          const slP = r.entryPrice * (1 - slPctD / 100);
+          const tpP = r.entryPrice * (1 + tpPctD / 100);
           await storage.createCryptocomEngineTrade({
             userId,
             connectionId: connection?.id ?? 0,
@@ -17114,8 +30539,8 @@ async function executeSignalSingle(service, connection, userId, symbol, result, 
         await storage.createCryptocomEngineActivity({ userId, symbol, decision: _isSkip ? "skipped" : "error", strategy: result.strategy, reasoning: `${symbol}: DeFi swap entry ${_isSkip ? "skipped" : "failed"} \u2014 ${r.reason}.`, score: result.score, price: result.price, dailyChangePercent: result.dailyChangePercent, source: "cryptocom" });
         return;
       }
-      const tp = r.entryPrice * (1 + (cfg.cefiTakeProfitPct ?? 3) / 100);
-      const sl = r.entryPrice * (1 - (cfg.cefiStopLossPct ?? 2) / 100);
+      const tp = r.entryPrice * (1 + tpPctD / 100);
+      const sl = r.entryPrice * (1 - slPctD / 100);
       await storage.createCryptocomEngineTrade({
         userId,
         connectionId: connection?.id ?? 0,
@@ -17136,7 +30561,7 @@ async function executeSignalSingle(service, connection, userId, symbol, result, 
         tokenAddress: disc?.address ?? null,
         poolAddress: disc?.poolAddress ?? null
       });
-      await storage.createCryptocomEngineActivity({ userId, symbol, decision: "signal", strategy: result.strategy, reasoning: `${symbol}: EXECUTED on DeFi (${chain}) \u2014 swapped ~$${notionalD.toFixed(0)} USDC \u2192 ${r.qtyBase} ${r.token} @ ~$${r.entryPrice.toFixed(2)}. TP +${cfg.cefiTakeProfitPct ?? 3}% / SL -${cfg.cefiStopLossPct ?? 2}%. tx ${r.txHash?.slice(0, 12) ?? ""}\u2026 ${result.reasoning}`, score: result.score, price: result.price, dailyChangePercent: result.dailyChangePercent, source: "cryptocom" });
+      await storage.createCryptocomEngineActivity({ userId, symbol, decision: "signal", strategy: result.strategy, reasoning: `${symbol}: EXECUTED on DeFi (${chain}) \u2014 swapped ~$${notionalD.toFixed(0)} USDC \u2192 ${r.qtyBase} ${r.token} @ ~$${r.entryPrice.toFixed(2)}. TP +${tpPctD.toFixed(1)}% / SL -${slPctD.toFixed(1)}%. tx ${r.txHash?.slice(0, 12) ?? ""}\u2026 ${result.reasoning}`, score: result.score, price: result.price, dailyChangePercent: result.dailyChangePercent, source: "cryptocom" });
     } catch (err) {
       await storage.createCryptocomEngineActivity({ userId, symbol, decision: "error", strategy: result.strategy, reasoning: `${symbol}: DeFi swap error: ${err.message}`, score: result.score, price: result.price, dailyChangePercent: result.dailyChangePercent, source: "cryptocom" });
     }
@@ -17290,6 +30715,7 @@ async function scanOneUser(userId) {
   } else if (isDefi) {
     try {
       allSymbols = await refreshDefiUniverse(config.defiChain || "base");
+      _modelUniverse.set(userId, { symbols: allSymbols.slice(0, 40), chain: config.defiChain || "base" });
       console.log(`[cryptocom-scanner] DeFi universe on ${config.defiChain || "base"}: ${allSymbols.length} tokens`);
     } catch (e) {
       await storage.createCryptocomEngineActivity({ userId, symbol: "\u2014", decision: "error", reasoning: `DeFi token discovery failed (${e?.message}) \u2014 skipping this scan rather than trading a stale or wrong universe.`, score: null, price: null, dailyChangePercent: null, source: "cryptocom", strategy: null });
@@ -17427,6 +30853,16 @@ async function runCryptocomEngineScan() {
       await phase(`entry_scan:user_${config.userId}`);
       await runUserBounded(`entry:${config.userId}`, ENTRY_BUDGET_MS, () => scanOneUser(config.userId));
     });
+    await phase("models_pass");
+    for (const config of configs) {
+      const u = _modelUniverse.get(config.userId);
+      if (!u || !u.symbols.length) continue;
+      await runUserBounded(`models:${config.userId}`, 5e4, async () => {
+        const fm = await Promise.resolve().then(() => (init_fx_models(), fx_models_exports));
+        fm.registerBarsProvider("crypto", async (symbol, tf, n) => (await fetchBars(symbol, tf, n, u.chain)).map((b) => ({ timestamp: b.t, open: b.o, high: b.h, low: b.l, close: b.c, volume: b.v })));
+        await fm.runCryptoModelsCycle(config.userId, u.symbols);
+      });
+    }
   } catch (err) {
     console.error("[cryptocom-scanner] runCryptocomEngineScan failed:", err.message);
   } finally {

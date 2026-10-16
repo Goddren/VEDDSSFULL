@@ -103,6 +103,33 @@ function convertToCandles(bars: { t: number; o: number; h: number; l: number; c:
   return bars.map(b => ({ t: b.t, o: b.o, h: b.h, l: b.l, c: b.c, v: b.v }));
 }
 
+// ── Multi-timeframe + trend-profile helpers (ported from the FX engine) ─────
+type RawBar = { t: number; o: number; h: number; l: number; c: number; v: number };
+function emaOf(xs: number[], n: number): number { if (xs.length < n) return NaN; const k = 2 / (n + 1); let e = xs.slice(0, n).reduce((a, c) => a + c, 0) / n; for (const x of xs.slice(n)) e = x * k + e * (1 - k); return e; }
+/** EMA20/EMA50 + last close: BULLISH / BEARISH / NEUTRAL (null = no data). */
+async function tfTrend(symbol: string, tf: '1h' | '4h', chain: string): Promise<'BULLISH' | 'BEARISH' | 'NEUTRAL' | null> {
+  try {
+    const bars = (await fetchBars(symbol, tf, 80, chain)).slice(0, -1);
+    if (bars.length < 55) return null;
+    const c = bars.map((b) => b.c);
+    const e20 = emaOf(c, 20), e50 = emaOf(c, 50), last = c[c.length - 1];
+    if (!(e20 > 0) || !(e50 > 0)) return null;
+    return e20 > e50 && last > e20 ? 'BULLISH' : e20 < e50 && last < e20 ? 'BEARISH' : 'NEUTRAL';
+  } catch { return null; }
+}
+async function h1Atr(symbol: string, chain: string): Promise<{ atr: number; bars: RawBar[] } | null> {
+  try {
+    const bars = (await fetchBars(symbol, '1h', 40, chain)).slice(0, -1);
+    if (bars.length < 16) return null;
+    const trs = bars.slice(1).map((b, i) => Math.max(b.h - b.l, Math.abs(b.h - bars[i].c), Math.abs(b.l - bars[i].c)));
+    return { atr: trs.slice(-14).reduce((a, c) => a + c, 0) / 14, bars };
+  } catch { return null; }
+}
+const CRYPTO_SL_ATR_MULT = Number(process.env.CRYPTO_SL_ATR_MULT ?? 1.5);
+const CRYPTO_MIN_RR = Number(process.env.CRYPTO_MIN_RR ?? 2);
+// Last DeFi universe + chain per user, for the Model 1 / Model 2 pass.
+const _modelUniverse = new Map<number, { symbols: string[]; chain: string }>();
+
 // ── Strategy: trend/momentum confluence — same read as the FX/futures rule-
 // based engines (ADX trend strength, RSI zone, MACD histogram direction). ───
 async function runTrendFollowing(symbol: string, cfg: CryptocomEngineConfig): Promise<StrategyResult> {
@@ -451,12 +478,17 @@ async function applySignalGates(symbol: string, result: StrategyResult, cfg: Cry
     };
   }
 
-  const bias = await getHtfBias(symbol, chain);
-  if (bias && bias !== result.direction) {
-    return {
-      ...result, decision: 'watching', direction: undefined,
-      reasoning: symbol + ': ' + result.direction + ' setup opposed by the 1h trend (' + bias + ') -- standing down. ' + result.reasoning,
-    };
+  // H1 + H4 (FX engine rule, "no conflict"): stand down only when either
+  // higher timeframe actively OPPOSES the setup. CRYPTO_MTF_RULE=off disables.
+  if (process.env.CRYPTO_MTF_RULE !== 'off') {
+    const [t1, t4] = await Promise.all([tfTrend(symbol, '1h', chain), tfTrend(symbol, '4h', chain)]);
+    const opp = result.direction === 'BUY' ? 'BEARISH' : 'BULLISH';
+    if (t1 === opp || t4 === opp) {
+      return {
+        ...result, decision: 'watching', direction: undefined,
+        reasoning: symbol + ': ' + result.direction + ' setup opposed by the higher timeframes (H1 ' + (t1 ?? 'n/a') + ', H4 ' + (t4 ?? 'n/a') + ') -- standing down. ' + result.reasoning,
+      };
+    }
   }
   return result;
 }
@@ -589,6 +621,33 @@ async function monitorOpenPositions(userId: number, cfg: CryptocomEngineConfig):
         } catch { /* no candles to check with: fall through to the normal rules */ }
         if (trade.takeProfit && px >= trade.takeProfit) { await closePosition(userId, trade, px, 'take_profit'); continue; }
         if (trade.stopLoss && px <= trade.stopLoss) { await closePosition(userId, trade, px, 'stop_loss'); continue; }
+        // Trend profile (spot is long-only): at +CRYPTO_MIN_RR R lock +1R, then
+        // trail behind the lowest low of the last 3 H1 candles. Only tightens;
+        // every move is logged. The initial stop is persisted so R survives restarts.
+        if (process.env.CRYPTO_TRAIL !== 'off' && Number(trade.stopLoss) > 0 && trade.entryPrice > 0) {
+          try {
+            const { getRuntimeStateStrict, insertRuntimeStateIfAbsent } = await import('./runtime-state');
+            const k = String(trade.id);
+            const stored = await getRuntimeStateStrict('crypto_initial_stop', k);
+            const initial = Number(stored?.sl) > 0 ? Number(stored.sl) : Number((await insertRuntimeStateIfAbsent('crypto_initial_stop', k, { sl: trade.stopLoss }))?.sl);
+            const risk = trade.entryPrice - initial;
+            if (risk > 0) {
+              const favR = (px - trade.entryPrice) / risk;
+              if (favR >= CRYPTO_MIN_RR) {
+                let want = trade.entryPrice + risk;
+                const ax = await h1Atr(trade.symbol, (cfg as any)?.defiChain || 'base');
+                const last3 = ax?.bars.slice(-3) ?? [];
+                if (last3.length === 3) want = Math.max(want, Math.min(...last3.map((b) => b.l)));
+                if (want > Number(trade.stopLoss) && want < px) {
+                  const { pool: dbp } = await import('../db');
+                  await dbp.query(`UPDATE cryptocom_engine_trades SET stop_loss=$2 WHERE id=$1 AND status='open' AND (stop_loss IS NULL OR stop_loss < $2)`, [trade.id, want]);
+                  await storage.createCryptocomEngineActivity({ userId, symbol: trade.symbol, decision: 'watching', strategy: trade.strategy, reasoning: `${trade.symbol}: STOP MOVED ${Number(trade.stopLoss).toPrecision(6)} → ${want.toPrecision(6)} (trade at +${favR.toFixed(1)}R; locks ≥ +1R, trails the last 3 H1 lows).`, score: null, price: px, dailyChangePercent: null, source: 'cryptocom' }).catch(() => {});
+                  trade.stopLoss = want;
+                }
+              }
+            }
+          } catch { /* trail is an optimisation; protection above already ran */ }
+        }
         // Time exit (opt-in): a position that has gone nowhere for
         // CRYPTO_MAX_HOLD_DAYS ties up the small wallet — AERO/MORPHO/XDP sat
         // 8–9 days between stop and target (2026-10-13). Close only when it is
@@ -601,7 +660,16 @@ async function monitorOpenPositions(userId: number, cfg: CryptocomEngineConfig):
             const ageDays = (Date.now() - opened) / 86_400_000;
             const movePct = ((px - trade.entryPrice) / trade.entryPrice) * 100;
             const flatPct = Number(process.env.CRYPTO_STALE_FLAT_PCT ?? 3);
-            if (ageDays >= maxDays && Math.abs(movePct) < flatPct) {
+            // Anti-shakeout: a flat trade whose H1 AND H4 trend still point its
+            // way is waiting, not dead — keep it (stop/target still protect it).
+            let _trendHolds = false;
+            if (ageDays >= maxDays && Math.abs(movePct) < flatPct && process.env.CRYPTO_MTF_RULE !== 'off') {
+              const ch = (cfg as any)?.defiChain || 'base';
+              const [t1, t4] = await Promise.all([tfTrend(trade.symbol, '1h', ch), tfTrend(trade.symbol, '4h', ch)]);
+              _trendHolds = t1 === 'BULLISH' && t4 === 'BULLISH';
+              if (_trendHolds) await storage.createCryptocomEngineActivity({ userId, symbol: trade.symbol, decision: 'watching', strategy: trade.strategy, reasoning: `${trade.symbol}: time exit HELD — flat for ${ageDays.toFixed(1)} days but H1 and H4 are still bullish.`, score: null, price: px, dailyChangePercent: null, source: 'cryptocom' }).catch(() => {});
+            }
+            if (ageDays >= maxDays && Math.abs(movePct) < flatPct && !_trendHolds) {
               await storage.createCryptocomEngineActivity({ userId, symbol: trade.symbol, decision: 'exit', strategy: trade.strategy, reasoning: `${trade.symbol}: time exit — open ${ageDays.toFixed(1)} days (limit ${maxDays}) and only ${movePct.toFixed(2)}% from entry (flat band ±${flatPct}%).`, score: null, price: px, dailyChangePercent: null, source: 'cryptocom' }).catch(() => {});
               await closePosition(userId, trade, px, 'time_exit');
               continue;
@@ -1189,7 +1257,25 @@ async function executeSignalSingle(service: CryptoComService, connection: Crypto
     }
     const chain = (cfg as any).defiChain || 'base';
     const slip = (cfg as any).defiSlippageBps ?? 100;
-    const notionalD = Math.max(1, (cfg as any).defiNotionalUsd ?? 25) * (gateD.riskMultiplier < 1 ? gateD.riskMultiplier : 1);
+    let notionalD = Math.max(1, (cfg as any).defiNotionalUsd ?? 25) * (gateD.riskMultiplier < 1 ? gateD.riskMultiplier : 1);
+    // Trend profile: stop at least CRYPTO_SL_ATR_MULT x H1 ATR (thin tokens
+    // wick through tight % stops); when that widens the stop, the dollar size
+    // shrinks by the same ratio so the money at risk does not grow. Target is
+    // kept at >= CRYPTO_MIN_RR x the stop.
+    let slPctD = Number((cfg as any).cefiStopLossPct ?? 2), tpPctD = Number((cfg as any).cefiTakeProfitPct ?? 3);
+    {
+      const ax = result.price ? await h1Atr(symbol, chain) : null;
+      if (ax && result.price && ax.atr > 0) {
+        const atrPct = (ax.atr * CRYPTO_SL_ATR_MULT / result.price) * 100;
+        if (atrPct > slPctD) {
+          const scale = slPctD / atrPct;
+          notionalD = Math.max(1, notionalD * scale);
+          await storage.createCryptocomEngineActivity({ userId, symbol, decision: 'watching', strategy: result.strategy, reasoning: `${symbol}: stop widened ${slPctD.toFixed(1)}% → ${atrPct.toFixed(1)}% (${CRYPTO_SL_ATR_MULT}× H1 ATR); size cut to ${(scale * 100).toFixed(0)}% ($${notionalD.toFixed(2)}) so the risk is unchanged.`, score: result.score, price: result.price, dailyChangePercent: result.dailyChangePercent, source: 'cryptocom' }).catch(() => {});
+          slPctD = atrPct;
+        }
+      }
+      tpPctD = Math.max(tpPctD, slPctD * CRYPTO_MIN_RR);
+    }
     try {
       const { defiEntryBuy } = await import('./defi-executor'); // lazy — loads ethers only on a real DeFi entry
       // Pass the discovered CONTRACT ADDRESS, not the ticker. resolveToken takes
@@ -1228,8 +1314,8 @@ async function executeSignalSingle(service: CryptoComService, connection: Crypto
         // them. Record it OPEN with the expected size — reconcileOpenQuantities
         // corrects it from the wallet next cycle, or parks it if it never landed.
         if ((r as any).pending && r.txHash) {
-          const slP = r.entryPrice * (1 - ((cfg as any).cefiStopLossPct ?? 2) / 100);
-          const tpP = r.entryPrice * (1 + ((cfg as any).cefiTakeProfitPct ?? 3) / 100);
+          const slP = r.entryPrice * (1 - slPctD / 100);
+          const tpP = r.entryPrice * (1 + tpPctD / 100);
           await storage.createCryptocomEngineTrade({
             userId, connectionId: connection?.id ?? 0, venue: 'defi', symbol, strategy: result.strategy,
             direction: 'long', quantity: r.qtyBase, entryPrice: r.entryPrice, stopLoss: slP, takeProfit: tpP,
@@ -1243,8 +1329,8 @@ async function executeSignalSingle(service: CryptoComService, connection: Crypto
         await storage.createCryptocomEngineActivity({ userId, symbol, decision: _isSkip ? 'skipped' : 'error', strategy: result.strategy, reasoning: `${symbol}: DeFi swap entry ${_isSkip ? 'skipped' : 'failed'} — ${r.reason}.`, score: result.score, price: result.price, dailyChangePercent: result.dailyChangePercent, source: 'cryptocom' });
         return;
       }
-      const tp = r.entryPrice * (1 + ((cfg as any).cefiTakeProfitPct ?? 3) / 100);
-      const sl = r.entryPrice * (1 - ((cfg as any).cefiStopLossPct ?? 2) / 100);
+      const tp = r.entryPrice * (1 + tpPctD / 100);
+      const sl = r.entryPrice * (1 - slPctD / 100);
       await storage.createCryptocomEngineTrade({
         userId, connectionId: connection?.id ?? 0, venue: 'defi', symbol, strategy: result.strategy,
         direction: 'long', quantity: r.qtyBase, entryPrice: r.entryPrice, stopLoss: sl, takeProfit: tp,
@@ -1254,7 +1340,7 @@ async function executeSignalSingle(service: CryptoComService, connection: Crypto
         // and sellable.
         tokenAddress: disc?.address ?? null, poolAddress: disc?.poolAddress ?? null,
       } as any);
-      await storage.createCryptocomEngineActivity({ userId, symbol, decision: 'signal', strategy: result.strategy, reasoning: `${symbol}: EXECUTED on DeFi (${chain}) — swapped ~$${notionalD.toFixed(0)} USDC → ${r.qtyBase} ${r.token} @ ~$${r.entryPrice.toFixed(2)}. TP +${(cfg as any).cefiTakeProfitPct ?? 3}% / SL -${(cfg as any).cefiStopLossPct ?? 2}%. tx ${r.txHash?.slice(0, 12) ?? ''}… ${result.reasoning}`, score: result.score, price: result.price, dailyChangePercent: result.dailyChangePercent, source: 'cryptocom' });
+      await storage.createCryptocomEngineActivity({ userId, symbol, decision: 'signal', strategy: result.strategy, reasoning: `${symbol}: EXECUTED on DeFi (${chain}) — swapped ~$${notionalD.toFixed(0)} USDC → ${r.qtyBase} ${r.token} @ ~$${r.entryPrice.toFixed(2)}. TP +${tpPctD.toFixed(1)}% / SL -${slPctD.toFixed(1)}%. tx ${r.txHash?.slice(0, 12) ?? ''}… ${result.reasoning}`, score: result.score, price: result.price, dailyChangePercent: result.dailyChangePercent, source: 'cryptocom' });
     } catch (err: any) {
       await storage.createCryptocomEngineActivity({ userId, symbol, decision: 'error', strategy: result.strategy, reasoning: `${symbol}: DeFi swap error: ${err.message}`, score: result.score, price: result.price, dailyChangePercent: result.dailyChangePercent, source: 'cryptocom' });
     }
@@ -1441,6 +1527,7 @@ async function scanOneUser(userId: number): Promise<void> {
   } else if (isDefi) {
     try {
       allSymbols = await refreshDefiUniverse((config as any).defiChain || 'base');
+      _modelUniverse.set(userId, { symbols: allSymbols.slice(0, 40), chain: (config as any).defiChain || 'base' });
       console.log(`[cryptocom-scanner] DeFi universe on ${(config as any).defiChain || 'base'}: ${allSymbols.length} tokens`);
     } catch (e: any) {
       // Discovery failed: skip the cycle. Falling back to the exchange watchlist
@@ -1656,6 +1743,20 @@ export async function runCryptocomEngineScan(): Promise<void> {
       await phase(`entry_scan:user_${config.userId}`);
       await runUserBounded(`entry:${config.userId}`, ENTRY_BUDGET_MS, () => scanOneUser(config.userId));
     });
+
+    // Model 1 / Model 2 (shadow only — never places orders): day type per
+    // token + one AI idea pass per H1 candle, scored on the same candles.
+    await phase('models_pass');
+    for (const config of configs) {
+      const u = _modelUniverse.get(config.userId);
+      if (!u || !u.symbols.length) continue;
+      await runUserBounded(`models:${config.userId}`, 50_000, async () => {
+        const fm = await import('./fx-models');
+        fm.registerBarsProvider('crypto', async (symbol, tf, n) =>
+          (await fetchBars(symbol, tf, n, u.chain)).map((b) => ({ timestamp: b.t, open: b.o, high: b.h, low: b.l, close: b.c, volume: b.v })));
+        await fm.runCryptoModelsCycle(config.userId, u.symbols);
+      });
+    }
   } catch (err: any) {
     console.error('[cryptocom-scanner] runCryptocomEngineScan failed:', err.message);
   } finally {
