@@ -2059,7 +2059,7 @@ async function tlAccountRiskGuard(service: any, connection: TLConnection, signal
   // 1. Daily loss
   let equity: number;
   try {
-    const info = await service.getAccountInfo();
+    const info: any = await guardRead(`acct:${connKey}`, () => service.getAccountInfo());
     equity = Number(info?.equity) > 0 ? Number(info.equity) : Number(info?.balance);
     if (!(equity > 0)) return { block: 'account equity unreadable — not trading this account (fail closed)' };
   } catch (e: any) {
@@ -2094,7 +2094,7 @@ async function tlAccountRiskGuard(service: any, connection: TLConnection, signal
   // 2 + 3. Open positions
   let positions: any[];
   try {
-    positions = await service.getPositionsNormalized();
+    positions = await guardRead(`pos:${connKey}`, () => service.getPositionsNormalized());
   } catch (e: any) {
     return { block: `open positions unreadable (${e?.message || e}) — not trading this account (fail closed)` };
   }
@@ -2134,6 +2134,29 @@ async function tlAccountRiskGuard(service: any, connection: TLConnection, signal
   return { maxVolume: room };
 }
 const tlDayStartEquity = new Map<string, number>();
+
+// Guard reads are cached briefly and retried once on a rate limit. Every guard
+// call used to hit /state and /positions fresh, and on 2026-10-15 TradeLocker
+// answered with 429 / Cloudflare 1015 bans, so three valid orders were refused.
+// A successful order clears that account's position cache.
+const GUARD_CACHE_MS = Number(process.env.TL_GUARD_CACHE_MS ?? 5000);
+const guardCache = new Map<string, { at: number; value: any }>();
+const _isRateLimit = (e: any) => /(429|1015)|rate.?limit|too many requests/i.test(String(e?.message || e).slice(0, 400));
+async function guardRead<T>(key: string, fn: () => Promise<T>): Promise<T> {
+  const hit = guardCache.get(key);
+  if (hit && Date.now() - hit.at < GUARD_CACHE_MS) return hit.value as T;
+  let value: T;
+  try {
+    value = await fn();
+  } catch (e) {
+    if (!_isRateLimit(e)) throw e;
+    await new Promise((r) => setTimeout(r, 1500));
+    value = await fn();
+  }
+  guardCache.set(key, { at: Date.now(), value });
+  return value;
+}
+function clearGuardPositions(connKey: string) { guardCache.delete(`pos:${connKey}`); }
 
 export async function executeMT5SignalOnTradeLocker(
   connection: TLConnection,
@@ -2272,6 +2295,43 @@ export async function executeMT5SignalOnTradeLocker(
       console.log('[TradeLocker Execute] Order result:', orderResult);
       if (orderResult.status === 'rejected' && _isBrokerReject(String(orderResult.message || 'rejected'))) {
         rejectPauseUntil.set(_pauseKey, Date.now() + REJECT_PAUSE_MS);
+      }
+      if (orderResult.status !== 'rejected') clearGuardPositions(String((connection as any).id ?? connection.accountId));
+
+      // ── Re-anchor SL/TP to the real fill ────────────────────────────────
+      // 2026-10-15 GBPJPY: planned entry 209.75, filled 209.28, stop left at
+      // 210.25 — a 97-pip stop instead of 50, about double the planned risk.
+      // For market fills that land away from the planned entry, move SL and TP
+      // by the same offset so the planned distances (and risk) are kept.
+      if (orderResult.status !== 'rejected' && resolvedType === 'market' && process.env.TL_REANCHOR_DISABLED !== 'true') {
+        try {
+          const _plan = Number(signal.entryPrice), _sl = Number(signal.stopLoss), _tp = Number(signal.takeProfit);
+          const _slDist = Math.abs(_plan - _sl);
+          if (_plan > 0 && _sl > 0 && _slDist > 0) {
+            const _w = String(signal.symbol).toUpperCase().split('.')[0].replace(/[^A-Z0-9]/g, '');
+            const _isBuy = signal.direction.toUpperCase() === 'BUY';
+            let _pos: any = null;
+            for (let i = 0; i < 3 && !_pos; i++) {
+              await new Promise((r) => setTimeout(r, 1000));
+              const ps = await service.getPositionsNormalized().catch(() => []);
+              _pos = ps.find((x: any) => String(x.symbol || '').toUpperCase().replace(/[^A-Z0-9]/g, '').startsWith(_w)
+                && String(x.side || '').toUpperCase() === (_isBuy ? 'BUY' : 'SELL'));
+            }
+            const _fill = Number(_pos?.avgPrice);
+            const _off = _fill - _plan;
+            // Only when the gap is a meaningful share of the stop (>15%).
+            const _dec = /^XAU/.test(_w) ? 2 : /JPY/.test(_w) ? 3 : /^[A-Z]{6}$/.test(_w) ? 5 : -1; // FX + gold only
+            if (_dec >= 0 && _pos && _fill > 0 && Math.abs(_off) > _slDist * 0.15) {
+              const _r = (x: number) => Number(x.toFixed(_dec));
+              const newSl = _r(_sl + _off);
+              const newTp = _tp > 0 ? _r(_tp + _off) : undefined;
+              const mod = await service.modifyPosition(String(_pos.id), newSl, newTp);
+              console.warn(`[TradeLocker Execute] RE-ANCHOR ${_w} ${signal.direction} on ${connection.accountId}: fill ${_fill} vs plan ${_plan} → SL ${_sl}→${newSl}, TP ${_tp}→${newTp} (${mod.success ? 'ok' : 'FAILED: ' + mod.error})`);
+            }
+          }
+        } catch (e: any) {
+          console.error(`[TradeLocker Execute] re-anchor failed (position keeps its original SL/TP): ${e?.message || e}`);
+        }
       }
 
       return {

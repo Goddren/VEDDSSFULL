@@ -29456,7 +29456,7 @@ async function tlAccountRiskGuard(service, connection2, signal) {
   const want = norm3(signal.symbol);
   let equity;
   try {
-    const info2 = await service.getAccountInfo();
+    const info2 = await guardRead(`acct:${connKey}`, () => service.getAccountInfo());
     equity = Number(info2?.equity) > 0 ? Number(info2.equity) : Number(info2?.balance);
     if (!(equity > 0)) return { block: "account equity unreadable \u2014 not trading this account (fail closed)" };
   } catch (e) {
@@ -29485,7 +29485,7 @@ async function tlAccountRiskGuard(service, connection2, signal) {
   }
   let positions;
   try {
-    positions = await service.getPositionsNormalized();
+    positions = await guardRead(`pos:${connKey}`, () => service.getPositionsNormalized());
   } catch (e) {
     return { block: `open positions unreadable (${e?.message || e}) \u2014 not trading this account (fail closed)` };
   }
@@ -29522,6 +29522,23 @@ async function tlAccountRiskGuard(service, connection2, signal) {
     return { block: `open lots ${openLots.toFixed(2)} already at the ${openCap.toFixed(2)}-lot cap for this account size` };
   }
   return { maxVolume: room };
+}
+async function guardRead(key, fn) {
+  const hit = guardCache.get(key);
+  if (hit && Date.now() - hit.at < GUARD_CACHE_MS) return hit.value;
+  let value;
+  try {
+    value = await fn();
+  } catch (e) {
+    if (!_isRateLimit(e)) throw e;
+    await new Promise((r) => setTimeout(r, 1500));
+    value = await fn();
+  }
+  guardCache.set(key, { at: Date.now(), value });
+  return value;
+}
+function clearGuardPositions(connKey) {
+  guardCache.delete(`pos:${connKey}`);
 }
 async function executeMT5SignalOnTradeLocker(connection2, signal) {
   console.log("[TradeLocker Execute] Starting trade execution:", {
@@ -29610,6 +29627,35 @@ async function executeMT5SignalOnTradeLocker(connection2, signal) {
       if (orderResult.status === "rejected" && _isBrokerReject(String(orderResult.message || "rejected"))) {
         rejectPauseUntil.set(_pauseKey, Date.now() + REJECT_PAUSE_MS);
       }
+      if (orderResult.status !== "rejected") clearGuardPositions(String(connection2.id ?? connection2.accountId));
+      if (orderResult.status !== "rejected" && resolvedType === "market" && process.env.TL_REANCHOR_DISABLED !== "true") {
+        try {
+          const _plan = Number(signal.entryPrice), _sl = Number(signal.stopLoss), _tp = Number(signal.takeProfit);
+          const _slDist = Math.abs(_plan - _sl);
+          if (_plan > 0 && _sl > 0 && _slDist > 0) {
+            const _w = String(signal.symbol).toUpperCase().split(".")[0].replace(/[^A-Z0-9]/g, "");
+            const _isBuy = signal.direction.toUpperCase() === "BUY";
+            let _pos = null;
+            for (let i = 0; i < 3 && !_pos; i++) {
+              await new Promise((r) => setTimeout(r, 1e3));
+              const ps = await service.getPositionsNormalized().catch(() => []);
+              _pos = ps.find((x) => String(x.symbol || "").toUpperCase().replace(/[^A-Z0-9]/g, "").startsWith(_w) && String(x.side || "").toUpperCase() === (_isBuy ? "BUY" : "SELL"));
+            }
+            const _fill = Number(_pos?.avgPrice);
+            const _off = _fill - _plan;
+            const _dec = /^XAU/.test(_w) ? 2 : /JPY/.test(_w) ? 3 : /^[A-Z]{6}$/.test(_w) ? 5 : -1;
+            if (_dec >= 0 && _pos && _fill > 0 && Math.abs(_off) > _slDist * 0.15) {
+              const _r = (x) => Number(x.toFixed(_dec));
+              const newSl = _r(_sl + _off);
+              const newTp = _tp > 0 ? _r(_tp + _off) : void 0;
+              const mod = await service.modifyPosition(String(_pos.id), newSl, newTp);
+              console.warn(`[TradeLocker Execute] RE-ANCHOR ${_w} ${signal.direction} on ${connection2.accountId}: fill ${_fill} vs plan ${_plan} \u2192 SL ${_sl}\u2192${newSl}, TP ${_tp}\u2192${newTp} (${mod.success ? "ok" : "FAILED: " + mod.error})`);
+            }
+          }
+        } catch (e) {
+          console.error(`[TradeLocker Execute] re-anchor failed (position keeps its original SL/TP): ${e?.message || e}`);
+        }
+      }
       return {
         success: orderResult.status !== "rejected",
         orderId: orderResult.orderId,
@@ -29658,7 +29704,7 @@ async function executeMT5SignalOnTradeLocker(connection2, signal) {
     };
   }
 }
-var IV_LENGTH2, DEFAULT_ENCRYPTION_KEY2, SALT_LENGTH2, INSTRUMENT_CACHE_TTL, instrumentCache, instrumentsListCache, serviceCache, SERVICE_CACHE_TTL, rejectPauseUntil, REJECT_PAUSE_MS, RETRY_DELAYS, RETRYABLE_STATUSES, TradeLockerReadError, AUTH_429_COOLDOWN_MS, authCooldownUntil, authChain, lastAuthAt, MIN_AUTH_GAP_MS, USDJPY_FALLBACK, _usdJpyLive, _usdJpyObserved, TradeLockerService, TL_VALUE_TTL, tlDayStartEquity;
+var IV_LENGTH2, DEFAULT_ENCRYPTION_KEY2, SALT_LENGTH2, INSTRUMENT_CACHE_TTL, instrumentCache, instrumentsListCache, serviceCache, SERVICE_CACHE_TTL, rejectPauseUntil, REJECT_PAUSE_MS, RETRY_DELAYS, RETRYABLE_STATUSES, TradeLockerReadError, AUTH_429_COOLDOWN_MS, authCooldownUntil, authChain, lastAuthAt, MIN_AUTH_GAP_MS, USDJPY_FALLBACK, _usdJpyLive, _usdJpyObserved, TradeLockerService, TL_VALUE_TTL, tlDayStartEquity, GUARD_CACHE_MS, guardCache, _isRateLimit;
 var init_tradelocker = __esm({
   "server/tradelocker.ts"() {
     "use strict";
@@ -30929,6 +30975,9 @@ var init_tradelocker = __esm({
     };
     TL_VALUE_TTL = 60 * 1e3;
     tlDayStartEquity = /* @__PURE__ */ new Map();
+    GUARD_CACHE_MS = Number(process.env.TL_GUARD_CACHE_MS ?? 5e3);
+    guardCache = /* @__PURE__ */ new Map();
+    _isRateLimit = (e) => /(429|1015)|rate.?limit|too many requests/i.test(String(e?.message || e).slice(0, 400));
   }
 });
 
@@ -58452,9 +58501,9 @@ async function getStopOrdersForUser(userId, filters = {}) {
 init_schema();
 
 // server/build-info.ts
-var BUILD_COMMIT = "4c5a2ef4-dirty";
+var BUILD_COMMIT = "2196bb16-dirty";
 var BUILD_BRANCH = "main";
-var BUILT_AT = "2026-10-16T03:52:54.531Z";
+var BUILT_AT = "2026-10-16T08:37:43.058Z";
 
 // server/stripe.ts
 init_db();
