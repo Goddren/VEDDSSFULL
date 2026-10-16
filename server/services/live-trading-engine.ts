@@ -1883,6 +1883,13 @@ async function scanMarkets(userId: number): Promise<void> {
       if (htfCount > 0) {
         state.htfBiasCache = htfMarketData;
         addActivity(userId, { type: 'info', message: `📊 HTF bias loaded for ${htfCount}/${pairsToScan.length} pairs (${htfLabel} structure)` });
+        // Model 1 / Model 2 shadow cycle — records day type + what each model
+        // would trade. Never places orders; leader only; fire-and-forget.
+        if (isFxLeader()) {
+          void import('./fx-models').then((m) => m.runFxModelsCycle(userId, {
+            marketAnalysis, snapshot: state.marketSnapshot || {}, mtf: (sym: string) => mtfStack(state, sym),
+          })).catch(() => {});
+        }
       } else {
         addActivity(userId, { type: 'info', message: `📊 HTF bias: all ${htfLabel} fetches failed — trading without HTF filter this cycle` });
       }

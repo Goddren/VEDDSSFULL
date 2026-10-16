@@ -9744,7 +9744,7 @@ function estimatePipSize(symbol) {
 }
 function buildTrailSignalSummary(symbol, proposedSignal, tradePlan, ictContext, smcContext) {
   if (!ictContext && !smcContext) return "\u25BA No ICT/SMC context available \u2014 use ADX/ATR baseline only";
-  const pipSize = estimatePipSize(symbol);
+  const pipSize2 = estimatePipSize(symbol);
   const entry = tradePlan?.entry || 0;
   const signals = [];
   const crt = ictContext?.crtPattern;
@@ -9778,18 +9778,18 @@ function buildTrailSignalSummary(symbol, proposedSignal, tradePlan, ictContext, 
     signals.push(`\u25BA No Wyckoff phase detected \u2014 use ADX baseline`);
   }
   const eql = smcContext?.equalHighsLows;
-  if (eql && entry > 0 && pipSize > 0) {
+  if (eql && entry > 0 && pipSize2 > 0) {
     if (proposedSignal === "BUY" && eql.equalHighs.detected && eql.equalHighs.level) {
-      const distPips = Math.abs(eql.equalHighs.level - entry) / pipSize;
-      const tightThreshold = pipSize === 1e-4 ? 30 : pipSize === 0.1 ? 300 : pipSize === 0.01 ? 3 : 100;
+      const distPips = Math.abs(eql.equalHighs.level - entry) / pipSize2;
+      const tightThreshold = pipSize2 === 1e-4 ? 30 : pipSize2 === 0.1 ? 300 : pipSize2 === 0.01 ? 3 : 100;
       if (distPips < tightThreshold) {
         signals.push(`\u25BA Equal Highs (Buy-Side Liquidity) at ${eql.equalHighs.level.toFixed(5)} \u2014 only ~${Math.round(distPips)} pips away \u2014 TIGHTEN trail to lock in profits before sweep`);
       } else {
         signals.push(`\u25BA Equal Highs (BSL) at ${eql.equalHighs.level.toFixed(5)} \u2014 ${Math.round(distPips)} pips away \u2014 TP target, trail width unconstrained`);
       }
     } else if (proposedSignal === "SELL" && eql.equalLows.detected && eql.equalLows.level) {
-      const distPips = Math.abs(entry - eql.equalLows.level) / pipSize;
-      const tightThreshold = pipSize === 1e-4 ? 30 : pipSize === 0.1 ? 300 : pipSize === 0.01 ? 3 : 100;
+      const distPips = Math.abs(entry - eql.equalLows.level) / pipSize2;
+      const tightThreshold = pipSize2 === 1e-4 ? 30 : pipSize2 === 0.1 ? 300 : pipSize2 === 0.01 ? 3 : 100;
       if (distPips < tightThreshold) {
         signals.push(`\u25BA Equal Lows (Sell-Side Liquidity) at ${eql.equalLows.level.toFixed(5)} \u2014 only ~${Math.round(distPips)} pips away \u2014 TIGHTEN trail to lock in profits before sweep`);
       } else {
@@ -10413,8 +10413,8 @@ ${"\u2550".repeat(47)}`;
 \u26A0 DAILY BUFFER LOW: Only ${remainingDailyBuffer.toFixed(2)}% remaining \u2014 micro lot only or skip this trade.`;
     }
     if (tradePlan?.entry && tradePlan?.stopLoss && tradePlan?.lotSize && propFirmContext.accountBalance > 0) {
-      const pipSize = symbol.includes("JPY") ? 0.01 : symbol.includes("XAU") || symbol.includes("GOLD") ? 0.1 : 1e-4;
-      const pipDist = Math.abs(tradePlan.entry - tradePlan.stopLoss) / pipSize;
+      const pipSize2 = symbol.includes("JPY") ? 0.01 : symbol.includes("XAU") || symbol.includes("GOLD") ? 0.1 : 1e-4;
+      const pipDist = Math.abs(tradePlan.entry - tradePlan.stopLoss) / pipSize2;
       const pipValuePerLot = symbol.includes("JPY") ? 1e3 : symbol.includes("XAU") || symbol.includes("GOLD") ? 10 : 10;
       const dollarRisk = pipDist * pipValuePerLot * tradePlan.lotSize;
       computedRiskPct = dollarRisk / propFirmContext.accountBalance * 100;
@@ -18353,11 +18353,11 @@ function getPipSize(symbol) {
 function computePips(symbol, entryPrice, exitPrice, direction) {
   const entry = Number(entryPrice), exit = Number(exitPrice);
   if (!Number.isFinite(entry) || !Number.isFinite(exit) || entry <= 0 || exit <= 0) return null;
-  const pipSize = getPipSize(symbol);
-  if (!(pipSize > 0)) return null;
+  const pipSize2 = getPipSize(symbol);
+  if (!(pipSize2 > 0)) return null;
   const isSell = /sell|short/i.test(String(direction ?? ""));
   const diff = isSell ? entry - exit : exit - entry;
-  return Math.round(diff / pipSize * 10) / 10;
+  return Math.round(diff / pipSize2 * 10) / 10;
 }
 function getPipValue(symbol) {
   if (!symbol) return 10;
@@ -21149,6 +21149,455 @@ var init_markov_chain = __esm({
       "STRONG_BEAR"
     ];
     matrixCache = /* @__PURE__ */ new Map();
+  }
+});
+
+// server/services/fx-models.ts
+var fx_models_exports = {};
+__export(fx_models_exports, {
+  classifyDayType: () => classifyDayType,
+  ensureFxModelTables: () => ensureFxModelTables,
+  getModelMastery: () => getModelMastery,
+  m1Reject: () => m1Reject,
+  masteryLevel: () => masteryLevel,
+  rangeFeatures: () => rangeFeatures,
+  resolveShadowDecisions: () => resolveShadowDecisions,
+  runFxModelsCycle: () => runFxModelsCycle,
+  sessionFor: () => sessionFor
+});
+function ensureFxModelTables() {
+  if (!ensured2) {
+    ensured2 = pool.query(DDL2).then(() => void 0).catch((e) => {
+      console.error("[fx-models] ensure tables failed (non-fatal):", e?.message || e);
+      ensured2 = null;
+    });
+  }
+  return ensured2;
+}
+function sessionFor(d = /* @__PURE__ */ new Date()) {
+  const h = d.getUTCHours();
+  if (h >= 12 && h < 16) return "London/NY overlap";
+  if (h >= 7 && h < 12) return "London";
+  if (h >= 16 && h < 21) return "New York";
+  return "Asian";
+}
+function classifyDayType(input) {
+  let s = 0;
+  const adx = Number(input.adx);
+  if (Number.isFinite(adx)) s += adx >= 25 ? 2 : adx >= 18 ? 1 : 0;
+  const h1 = input.h1 || "NEUTRAL", h4 = input.h4 || "NEUTRAL";
+  if (h1 !== "NEUTRAL" && h1 === h4) s += 2;
+  else if (h1 !== "NEUTRAL" || h4 !== "NEUTRAL") s += 1;
+  const rv = Number(input.relVolume);
+  if (Number.isFinite(rv)) s += rv >= 1.3 ? 1 : rv < 0.8 ? -1 : 0;
+  if (input.news) s += 1;
+  if (input.session === "London/NY overlap" || input.session === "London") s += 1;
+  if (input.session === "Asian") s -= 1;
+  const dayType = s >= 4 ? "trend" : s <= 1 ? "range" : "mixed";
+  const autoModel = dayType === "trend" ? "M2" : dayType === "range" ? "M1" : Number.isFinite(adx) && adx >= 18 ? "M2" : "M1";
+  return { dayType, autoModel, score: s };
+}
+async function runFxModelsCycle(userId, ctx) {
+  if (process.env.FX_MODELS_SHADOW === "off") return;
+  try {
+    await ensureFxModelTables();
+    const now = /* @__PURE__ */ new Date();
+    const session3 = sessionFor(now);
+    const day = now.toISOString().slice(0, 10);
+    const hour = now.getUTCHours();
+    const pairs = [];
+    for (const [symbol, a] of Object.entries(ctx.marketAnalysis || {})) {
+      const snap = ctx.snapshot?.[symbol] || {};
+      const { h1, h4 } = ctx.mtf(symbol);
+      const cls = classifyDayType({ adx: snap.adx, relVolume: snap.relativeVolume, h1: h1?.trend, h4: h4?.trend, session: session3 });
+      const features = {
+        price: a?.currentPrice ?? snap.price,
+        m15Trend: snap.trend,
+        rsi: snap.rsi,
+        adx: snap.adx,
+        plusDI: snap.plusDI,
+        minusDI: snap.minusDI,
+        atr: snap.atr,
+        relVolume: snap.relativeVolume,
+        volumeTrend: snap.volumeTrend,
+        h1: h1 ? { trend: h1.trend, bos: h1.bosChoch?.detected ? h1.bosChoch.description : null, pd: h1.premiumDiscount?.zone, wyckoff: h1.wyckoff?.detected ? h1.wyckoff.phase : null } : null,
+        h4: h4 ? { trend: h4.trend, bos: h4.bosChoch?.detected ? h4.bosChoch.description : null, pd: h4.premiumDiscount?.zone, wyckoff: h4.wyckoff?.detected ? h4.wyckoff.phase : null } : null,
+        signals: a?.signals ?? a?.strategySignals ?? void 0
+      };
+      await pool.query(
+        `INSERT INTO fx_day_regimes (user_id, symbol, day, hour_utc, session, day_type, auto_model, trend_score, adx_m15, rel_volume, atr, h1_trend, h4_trend, features)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14::jsonb)
+         ON CONFLICT (user_id, symbol, day, hour_utc) DO UPDATE SET day_type=EXCLUDED.day_type, auto_model=EXCLUDED.auto_model,
+           trend_score=EXCLUDED.trend_score, adx_m15=EXCLUDED.adx_m15, rel_volume=EXCLUDED.rel_volume, atr=EXCLUDED.atr,
+           h1_trend=EXCLUDED.h1_trend, h4_trend=EXCLUDED.h4_trend, features=EXCLUDED.features`,
+        [userId, symbol, day, hour, session3, cls.dayType, cls.autoModel, cls.score, num(snap.adx), num(snap.relativeVolume), num(snap.atr), h1?.trend ?? null, h4?.trend ?? null, JSON.stringify(features)]
+      ).catch(() => {
+      });
+      const candle = Math.floor(now.getTime() / 36e5);
+      const key = `${userId}|${symbol}`;
+      if (lastShadowCandle.get(key) !== candle && Number(features.price) > 0) {
+        lastShadowCandle.set(key, candle);
+        pairs.push({ symbol, ctx: { ...features, dayType: cls.dayType, autoModel: cls.autoModel, trendScore: cls.score } });
+      }
+    }
+    if (pairs.length) await shadowDecide(userId, session3, pairs);
+    if (Date.now() - lastResolveAt > 15 * 6e4) {
+      lastResolveAt = Date.now();
+      await resolveShadowDecisions();
+    }
+  } catch (e) {
+    console.error("[fx-models] cycle failed (non-fatal):", e?.message || e);
+  }
+}
+function num(x) {
+  const n = Number(x);
+  return Number.isFinite(n) ? n : null;
+}
+async function rangeFeatures(symbol) {
+  const hit = rangeCache.get(symbol);
+  if (hit && Date.now() - hit.at < 30 * 6e4) return hit.data;
+  let bars = [];
+  try {
+    const r = await marketDataService.fetchMarketData({ symbol, assetType: marketDataService.detectAssetType(symbol), timeframe: "1h", limit: 72 });
+    bars = (r?.bars || []).slice(0, -1);
+  } catch {
+    return null;
+  }
+  if (bars.length < 30) return null;
+  const ts = (b) => Number(b.timestamp) < 1e12 ? Number(b.timestamp) * 1e3 : Number(b.timestamp);
+  const box = bars.slice(-24);
+  const hi = Math.max(...box.map((b) => b.high)), lo = Math.min(...box.map((b) => b.low));
+  const width = hi - lo;
+  if (!(width > 0)) return null;
+  const tol = width * 0.1;
+  const touchesHigh = box.filter((b) => b.high >= hi - tol).length;
+  const touchesLow = box.filter((b) => b.low <= lo + tol).length;
+  const last = bars[bars.length - 1];
+  const price = Number(last.close);
+  const posPct = (price - lo) / width * 100;
+  const prior = bars.slice(-25, -1);
+  const pHi = Math.max(...prior.map((b) => b.high)), pLo = Math.min(...prior.map((b) => b.low));
+  const sweepHigh = last.high > pHi && last.close < pHi;
+  const sweepLow = last.low < pLo && last.close > pLo;
+  const closes = bars.map((b) => Number(b.close));
+  const bw = (i) => {
+    const w = closes.slice(i - 20, i);
+    const m = w.reduce((a, c) => a + c, 0) / 20;
+    const sd = Math.sqrt(w.reduce((a, c) => a + (c - m) ** 2, 0) / 20);
+    return m > 0 ? 4 * sd / m : 0;
+  };
+  const widths = [];
+  for (let i = Math.max(20, closes.length - 40); i <= closes.length; i++) widths.push(bw(i));
+  const nowW = widths[widths.length - 1];
+  const bbPct = Math.round(widths.filter((w) => w <= nowW).length / widths.length * 100);
+  const today = /* @__PURE__ */ new Date();
+  today.setUTCHours(0, 0, 0, 0);
+  const t0 = today.getTime();
+  const prevDay = bars.filter((b) => ts(b) >= t0 - 864e5 && ts(b) < t0);
+  const asian = bars.filter((b) => ts(b) >= t0 && ts(b) < t0 + 7 * 36e5);
+  const data = {
+    rangeHigh: hi,
+    rangeLow: lo,
+    rangeMid: (hi + lo) / 2,
+    widthPips: width / pipSize(symbol),
+    touchesHigh,
+    touchesLow,
+    positionInRangePct: Math.round(posPct),
+    bbWidthPercentile: bbPct,
+    sweepHigh,
+    sweepLow,
+    prevDayHigh: prevDay.length ? Math.max(...prevDay.map((b) => b.high)) : null,
+    prevDayLow: prevDay.length ? Math.min(...prevDay.map((b) => b.low)) : null,
+    asianHigh: asian.length ? Math.max(...asian.map((b) => b.high)) : null,
+    asianLow: asian.length ? Math.min(...asian.map((b) => b.low)) : null,
+    qualifies: touchesHigh >= 2 && touchesLow >= 2 && bbPct <= 50
+  };
+  rangeCache.set(symbol, { at: Date.now(), data });
+  return data;
+}
+function m1Reject(symbol, dir, entry, sl, ctx) {
+  const r = ctx?.range;
+  if (M1_PAIRS_EXCLUDED.includes(symbol)) return `${symbol} excluded from range model`;
+  if (!r) return "range data unavailable";
+  if (!r.qualifies) return `no qualified range (touches ${r.touchesHigh}/${r.touchesLow}, BB width pct ${r.bbWidthPercentile})`;
+  const atTop = r.positionInRangePct >= 80, atBottom = r.positionInRangePct <= 20;
+  if (dir === "SELL" && !atTop) return `SELL not at range top (${r.positionInRangePct}%)`;
+  if (dir === "BUY" && !atBottom) return `BUY not at range bottom (${r.positionInRangePct}%)`;
+  const h4 = ctx?.h4?.trend;
+  if (dir === "SELL" && h4 === "BULLISH" || dir === "BUY" && h4 === "BEARISH") return `fading a trending H4 (${h4})`;
+  const risk = Math.abs(entry - sl);
+  const toMid = Math.abs(r.rangeMid - entry);
+  if (!(risk > 0) || toMid / risk < 1) return `R:R to range middle ${(toMid / (risk || 1)).toFixed(2)} < 1`;
+  return null;
+}
+async function shadowDecide(userId, session3, pairs) {
+  try {
+    const { fxShouldPauseForCredits: fxShouldPauseForCredits2 } = await Promise.resolve().then(() => (init_ai_budget_guard(), ai_budget_guard_exports));
+    if (fxShouldPauseForCredits2()) return;
+  } catch {
+  }
+  let ai;
+  try {
+    const { getUniversalAIClientForUser: getUniversalAIClientForUser2 } = await Promise.resolve().then(() => (init_openai(), openai_exports));
+    ai = await getUniversalAIClientForUser2(userId);
+  } catch {
+    return;
+  }
+  for (const p of pairs) p.ctx.range = await rangeFeatures(p.symbol).catch(() => null);
+  const mastery = await getModelMastery(userId).catch(() => null);
+  const masteryLines = (mastery?.slices || []).filter((m) => m.trades >= 5).slice(0, 20).map((m) => `${m.model} ${m.dayType} ${m.symbol} ${m.session}: ${m.trades} trades, WR ${(m.winRate * 100).toFixed(0)}%, avg ${m.avgR.toFixed(2)}R (${m.level})`).join("\n");
+  const prompt = `You run TWO FX trading models side by side. For EACH pair below, say what each model would trade RIGHT NOW (or NONE).
+
+MODEL 1 (range / low-volume days) \u2014 only when ctx.range.qualifies is true:
+  \u2022 Trade ONLY at an edge: SELL when positionInRangePct >= 80, BUY when <= 20. Never the middle.
+  \u2022 Best trigger is a liquidity sweep (sweepHigh/sweepLow true: wick through the edge, close back inside). Also valid: rejection at prevDay/Asian high/low that sits on the edge, RSI stretched at the edge.
+  \u2022 Stop beyond the sweep wick / range edge plus a small buffer. First target = rangeMid (must be >= 1.0R), runner to the opposite edge.
+  \u2022 Never fade a trending H4, never trade a range during London open (07:00-08:00 UTC) or NY open (12:30-13:30 UTC) when breakouts start, max 1-3 trades a day.
+  \u2022 If the range does not qualify, Model 1 says NONE.
+MODEL 2 (trend / volume days): trade only in the H4+H1 direction \u2014 breakouts with volume or pullbacks to structure in London/New York. Target 2-4R, stop beyond the last H1 swing. Skip if H4 and H1 disagree.
+Both models use every input: trend, ADX/DI, RSI, volume, BOS/CHOCH, Wyckoff, premium/discount, session and the day type. Reason toward the best risk-adjusted trade of the day; NONE is a valid, often correct answer.
+
+Session: ${session3}
+${masteryLines ? `Your own track record so far (use it \u2014 lean on what has worked, avoid what has not):
+${masteryLines}
+` : ""}
+PAIRS:
+${pairs.map((p) => `${p.symbol}: ${JSON.stringify(p.ctx)}`).join("\n")}
+
+Respond ONLY with JSON:
+{"ideas":[{"symbol":"EURUSD","model":"M1","direction":"BUY|SELL|NONE","entry":1.0,"stopLoss":1.0,"takeProfit":1.0,"confidence":0-100,"setup":"short name","reason":"one sentence"}]}
+Give exactly one M1 and one M2 entry per pair.`;
+  let content = "";
+  try {
+    const resp = await ai.chat.completions.create({
+      model: ai.defaultModel || "gpt-4o-mini",
+      messages: [{ role: "system", content: "You are a disciplined FX analyst. Valid JSON only." }, { role: "user", content: prompt }],
+      response_format: { type: "json_object" },
+      max_tokens: 1800,
+      temperature: 0.2
+    });
+    content = resp?.choices?.[0]?.message?.content || "";
+  } catch (e) {
+    try {
+      const { noteAiBudgetError: noteAiBudgetError2 } = await Promise.resolve().then(() => (init_ai_budget_guard(), ai_budget_guard_exports));
+      noteAiBudgetError2(e);
+    } catch {
+    }
+    return;
+  }
+  let ideas = [];
+  try {
+    ideas = JSON.parse(content.slice(content.indexOf("{"), content.lastIndexOf("}") + 1))?.ideas || [];
+  } catch {
+    return;
+  }
+  const byPair = new Map(pairs.map((p) => [p.symbol.toUpperCase(), p.ctx]));
+  for (const i of ideas) {
+    const sym = String(i?.symbol || "").toUpperCase().replace("/", "");
+    const model = i?.model === "M1" || i?.model === "M2" ? i.model : null;
+    const ctx = byPair.get(sym);
+    if (!ctx || !model) continue;
+    const dir = String(i?.direction || "NONE").toUpperCase();
+    const entry = Number(i?.entry), sl = Number(i?.stopLoss), tp = Number(i?.takeProfit);
+    const valid = dir === "BUY" && sl < entry && tp > entry || dir === "SELL" && sl > entry && tp < entry;
+    const price = Number(ctx.price);
+    const near = price > 0 && Math.abs(entry - price) / price < 3e-3;
+    let isTrade = (dir === "BUY" || dir === "SELL") && valid && near;
+    let ruleNote = "";
+    if (isTrade && model === "M1") {
+      const why = m1Reject(sym, dir, price, sl, ctx);
+      if (why) {
+        isTrade = false;
+        ruleNote = `M1 rule: ${why}`;
+      }
+    }
+    if (isTrade && model === "M2") {
+      const want = dir === "BUY" ? "BULLISH" : "BEARISH";
+      if (ctx?.h1?.trend !== want || ctx?.h4?.trend !== want) {
+        isTrade = false;
+        ruleNote = `M2 rule: H1 ${ctx?.h1?.trend ?? "n/a"} / H4 ${ctx?.h4?.trend ?? "n/a"} not both ${want}`;
+      }
+    }
+    await pool.query(
+      `INSERT INTO fx_model_decisions (user_id, symbol, model, mode, day_type, session, direction, entry_price, stop_loss, take_profit, confidence, setup, reasoning, context, result)
+       VALUES ($1,$2,$3,'shadow',$4,$5,$6,$7,$8,$9,$10,$11,$12,$13::jsonb,$14)`,
+      [
+        userId,
+        sym,
+        model,
+        ctx.dayType,
+        session3,
+        isTrade ? dir : "NONE",
+        isTrade ? price : null,
+        isTrade ? sl : null,
+        isTrade ? tp : null,
+        Math.max(0, Math.min(100, Math.round(Number(i?.confidence) || 0))),
+        String(i?.setup || "").slice(0, 80),
+        (ruleNote ? `[${ruleNote}] ` : "") + String(i?.reason || "").slice(0, 500),
+        JSON.stringify(ctx),
+        isTrade ? null : "NO_TRADE"
+      ]
+    ).catch(() => {
+    });
+  }
+}
+async function resolveShadowDecisions() {
+  const { rows } = await pool.query(
+    `SELECT id, symbol, direction, entry_price, stop_loss, take_profit, created_at FROM fx_model_decisions
+      WHERE result IS NULL AND direction IN ('BUY','SELL') AND created_at < now() - interval '15 minutes'
+      ORDER BY created_at LIMIT 40`
+  );
+  const bySym = /* @__PURE__ */ new Map();
+  for (const r of rows) {
+    const a = bySym.get(r.symbol) || [];
+    a.push(r);
+    bySym.set(r.symbol, a);
+  }
+  for (const [symbol, list] of Array.from(bySym.entries())) {
+    let bars = [];
+    try {
+      const res = await marketDataService.fetchMarketData({ symbol, assetType: marketDataService.detectAssetType(symbol), timeframe: "15m", limit: 200 });
+      bars = res?.bars || [];
+    } catch {
+      continue;
+    }
+    if (!bars.length) continue;
+    for (const r of list) {
+      const t0 = new Date(r.created_at).getTime();
+      const entry = Number(r.entry_price), sl = Number(r.stop_loss), tp = Number(r.take_profit);
+      const risk = Math.abs(entry - sl);
+      if (!(risk > 0)) continue;
+      const buy = r.direction === "BUY";
+      let result = null, exit = 0;
+      for (const b of bars) {
+        const ts = Number(b.timestamp) < 1e12 ? Number(b.timestamp) * 1e3 : Number(b.timestamp);
+        if (ts < t0) continue;
+        const hitSl = buy ? b.low <= sl : b.high >= sl;
+        const hitTp = buy ? b.high >= tp : b.low <= tp;
+        if (hitSl) {
+          result = "LOSS";
+          exit = sl;
+          break;
+        }
+        if (hitTp) {
+          result = "WIN";
+          exit = tp;
+          break;
+        }
+      }
+      if (!result && Date.now() - t0 > 48 * 36e5) {
+        exit = Number(bars[bars.length - 1]?.close) || entry;
+        result = "EXPIRED";
+      }
+      if (!result) continue;
+      const move = buy ? exit - entry : entry - exit;
+      await pool.query(
+        `UPDATE fx_model_decisions SET result=$2, exit_price=$3, r_multiple=$4, pips=$5, resolved_at=now() WHERE id=$1 AND result IS NULL`,
+        [r.id, result, exit, move / risk, move / pipSize(symbol)]
+      ).catch(() => {
+      });
+    }
+  }
+}
+function masteryLevel(trades, winRate2, avgR) {
+  if (trades < 20) return "Learning";
+  if (trades < 50) return avgR > 0 ? "Developing" : "Developing (negative)";
+  if (trades < 150) return avgR > 0 ? "Proficient" : "Unproven";
+  return avgR > 0.2 && winRate2 >= 0.45 ? "Master" : avgR > 0 ? "Proficient" : "Unproven";
+}
+async function getModelMastery(userId) {
+  await ensureFxModelTables();
+  const agg = async (group) => (await pool.query(
+    `SELECT ${group}, COUNT(*)::int AS trades,
+            COUNT(*) FILTER (WHERE result='WIN')::int AS wins,
+            COALESCE(AVG(r_multiple),0)::float AS avg_r,
+            COALESCE(SUM(r_multiple),0)::float AS total_r
+       FROM fx_model_decisions
+      WHERE user_id=$1 AND result IN ('WIN','LOSS','EXPIRED')
+      GROUP BY ${group} ORDER BY trades DESC`,
+    [userId]
+  )).rows;
+  const shape = (r) => {
+    const winRate2 = r.trades ? r.wins / r.trades : 0;
+    const dataPart = Math.min(1, r.trades / 150) * 50;
+    const edgePart = Math.max(0, Math.min(1, (r.avg_r + 0.5) / 1.5)) * 50;
+    return {
+      model: r.model,
+      dayType: r.day_type,
+      symbol: r.symbol,
+      session: r.session,
+      trades: r.trades,
+      wins: r.wins,
+      winRate: winRate2,
+      avgR: r.avg_r,
+      totalR: r.total_r,
+      masteryScore: Math.round(dataPart + edgePart),
+      level: masteryLevel(r.trades, winRate2, r.avg_r)
+    };
+  };
+  return {
+    models: (await agg("model")).map(shape),
+    slices: (await agg("model, day_type, symbol, session")).map(shape)
+  };
+}
+var DDL2, ensured2, pipSize, lastShadowCandle, lastResolveAt, M1_PAIRS_EXCLUDED, rangeCache;
+var init_fx_models = __esm({
+  "server/services/fx-models.ts"() {
+    "use strict";
+    init_db();
+    init_service();
+    DDL2 = `
+CREATE TABLE IF NOT EXISTS fx_day_regimes (
+  id serial PRIMARY KEY,
+  user_id integer NOT NULL,
+  symbol text NOT NULL,
+  day date NOT NULL,
+  hour_utc smallint NOT NULL,
+  session text,
+  day_type text NOT NULL,
+  auto_model text NOT NULL,
+  trend_score real,
+  adx_m15 real,
+  rel_volume real,
+  atr real,
+  h1_trend text,
+  h4_trend text,
+  features jsonb,
+  created_at timestamp NOT NULL DEFAULT now(),
+  UNIQUE (user_id, symbol, day, hour_utc)
+);
+CREATE TABLE IF NOT EXISTS fx_model_decisions (
+  id serial PRIMARY KEY,
+  user_id integer NOT NULL,
+  symbol text NOT NULL,
+  model text NOT NULL,
+  mode text NOT NULL DEFAULT 'shadow',
+  day_type text,
+  session text,
+  direction text,
+  entry_price double precision,
+  stop_loss double precision,
+  take_profit double precision,
+  confidence integer,
+  setup text,
+  reasoning text,
+  context jsonb,
+  result text,
+  r_multiple real,
+  pips real,
+  exit_price double precision,
+  resolved_at timestamp,
+  created_at timestamp NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS fx_model_decisions_open_idx ON fx_model_decisions (result, created_at);
+CREATE INDEX IF NOT EXISTS fx_model_decisions_user_idx ON fx_model_decisions (user_id, model, created_at);
+`;
+    ensured2 = null;
+    pipSize = (sym) => /JPY/.test(sym) ? 0.01 : /^XAU/.test(sym) ? 0.1 : /^(BTC|ETH)/.test(sym) ? 1 : /^(US30|NAS|SPX|GER|UK1|JP2)/.test(sym) ? 1 : 1e-4;
+    lastShadowCandle = /* @__PURE__ */ new Map();
+    lastResolveAt = 0;
+    M1_PAIRS_EXCLUDED = (process.env.FX_M1_EXCLUDED_PAIRS || "GBPJPY,XAUUSD,BTCUSD,US30,NAS100").split(",").map((x) => x.trim().toUpperCase()).filter(Boolean);
+    rangeCache = /* @__PURE__ */ new Map();
   }
 });
 
@@ -24467,6 +24916,14 @@ async function scanMarkets(userId) {
       if (htfCount > 0) {
         state.htfBiasCache = htfMarketData;
         addActivity(userId, { type: "info", message: `\u{1F4CA} HTF bias loaded for ${htfCount}/${pairsToScan.length} pairs (${htfLabel} structure)` });
+        if (isFxLeader()) {
+          void Promise.resolve().then(() => (init_fx_models(), fx_models_exports)).then((m) => m.runFxModelsCycle(userId, {
+            marketAnalysis,
+            snapshot: state.marketSnapshot || {},
+            mtf: (sym) => mtfStack(state, sym)
+          })).catch(() => {
+          });
+        }
       } else {
         addActivity(userId, { type: "info", message: `\u{1F4CA} HTF bias: all ${htfLabel} fetches failed \u2014 trading without HTF filter this cycle` });
       }
@@ -24545,10 +25002,10 @@ async function scanMarkets(userId) {
   }
 }
 function computeStagedVolumeSL(position, config) {
-  const pipSize = getPipSize(position.symbol || "");
-  if (!position.openPrice || !position.currentPrice || pipSize <= 0) return 0;
+  const pipSize2 = getPipSize(position.symbol || "");
+  if (!position.openPrice || !position.currentPrice || pipSize2 <= 0) return 0;
   const isBuy = position.direction === "BUY";
-  const pips = isBuy ? (position.currentPrice - position.openPrice) / pipSize : (position.openPrice - position.currentPrice) / pipSize;
+  const pips = isBuy ? (position.currentPrice - position.openPrice) / pipSize2 : (position.openPrice - position.currentPrice) / pipSize2;
   const buffer = config?.breakevenBufferPips ?? 5;
   let lockPips = null;
   if (pips >= 60) lockPips = pips - 25;
@@ -24557,7 +25014,7 @@ function computeStagedVolumeSL(position, config) {
   else if (pips >= 15) lockPips = buffer;
   else if (pips >= 10) lockPips = 0;
   else return 0;
-  return isBuy ? position.openPrice + lockPips * pipSize : position.openPrice - lockPips * pipSize;
+  return isBuy ? position.openPrice + lockPips * pipSize2 : position.openPrice - lockPips * pipSize2;
 }
 function computeChandelierSL(position, atr2, multiplier, trailState) {
   const price = position.currentPrice;
@@ -24583,8 +25040,8 @@ function computeRMultipleSL(position, config) {
   const lockedR = Math.floor(rMultiple2) - 1;
   if (lockedR === 0 && (config?.breakevenBufferPips ?? 0) > 0) {
     const bufferPips = config?.breakevenBufferPips ?? 5;
-    const pipSize = getPipSize(position.symbol || "");
-    const buffer = bufferPips * pipSize;
+    const pipSize2 = getPipSize(position.symbol || "");
+    const buffer = bufferPips * pipSize2;
     return position.direction === "BUY" ? openPrice + buffer : openPrice - buffer;
   }
   if (position.direction === "BUY") {
@@ -24639,8 +25096,8 @@ function computeParabolicSAR(position, trailState, initialAF = 0.02, maxAF = 0.2
 function computeFixedPipTrailSL(position, fixedPips, trailState) {
   const price = position.currentPrice;
   if (!price || price <= 0) return position.sl || 0;
-  const pipSize = getPipSize(position.symbol || "");
-  const distance = fixedPips * pipSize;
+  const pipSize2 = getPipSize(position.symbol || "");
+  const distance = fixedPips * pipSize2;
   if (position.direction === "BUY") {
     if (price > (trailState.highestHigh || 0)) trailState.highestHigh = price;
     const newSL = (trailState.highestHigh || price) - distance;
@@ -24671,8 +25128,8 @@ function computeProfitLockSL(position, lockPct, trailState) {
 function computeSteppedFixedTrailSL(position, fixedPips, stepPips, trailState) {
   const rawSL = computeFixedPipTrailSL(position, fixedPips, trailState);
   if (rawSL <= 0) return position.sl || 0;
-  const pipSize = getPipSize(position.symbol || "");
-  const stepSize = stepPips * pipSize;
+  const pipSize2 = getPipSize(position.symbol || "");
+  const stepSize = stepPips * pipSize2;
   const currentSL = position.sl || 0;
   const isBuy = position.direction === "BUY";
   if (isBuy) {
@@ -25002,8 +25459,8 @@ async function applyServerSideTrails(userId, openPositions, marketAnalysis) {
       }
     }
     if (activationPips > 0 && pos.openPrice && pos.currentPrice) {
-      const pipSize = getPipSize(pos.symbol || "");
-      const pipsInProfit = pos.direction === "BUY" ? (pos.currentPrice - pos.openPrice) / pipSize : (pos.openPrice - pos.currentPrice) / pipSize;
+      const pipSize2 = getPipSize(pos.symbol || "");
+      const pipsInProfit = pos.direction === "BUY" ? (pos.currentPrice - pos.openPrice) / pipSize2 : (pos.openPrice - pos.currentPrice) / pipSize2;
       if (pipsInProfit < activationPips) continue;
     }
     const symData = marketAnalysis[pos.symbol?.replace("/", "")] || marketAnalysis[pos.symbol] || {};
@@ -25268,11 +25725,11 @@ function generateRuleBasedSignals(indicators, config, symbol) {
   const winningScore = Math.max(bull, bear);
   const confidence2 = Math.round(winningScore / 7 * 100);
   const entry = currentPrice;
-  const pipSize = getPipSize(symbol);
+  const pipSize2 = getPipSize(symbol);
   const isJpy = symbol.includes("JPY");
   const isXau2 = symbol.includes("XAU");
   const minSlPips = isXau2 ? 300 : isJpy ? 22 : 16;
-  const minSlDist = minSlPips * pipSize;
+  const minSlDist = minSlPips * pipSize2;
   const slMult = confidence2 >= 86 ? 2 : 1.8;
   const tpMult = confidence2 >= 86 ? 4 : 3.6;
   const rawSlDist = atr2 * slMult;
@@ -25769,8 +26226,8 @@ INSTRUCTION: Signals that ALIGN with ${promptHTFLabel} bias are high-quality ins
 `;
     }
     const openPosStr = openPositions.length > 0 ? openPositions.map((p) => {
-      const pipSize = getPipSize(p.symbol || "");
-      const pips = p.direction === "BUY" ? (p.currentPrice - p.openPrice) / pipSize : (p.openPrice - p.currentPrice) / pipSize;
+      const pipSize2 = getPipSize(p.symbol || "");
+      const pips = p.direction === "BUY" ? (p.currentPrice - p.openPrice) / pipSize2 : (p.openPrice - p.currentPrice) / pipSize2;
       const ticketId = p.ticket ?? p.id ?? "unknown";
       const slInfo = p.sl > 0 ? p.sl : "none";
       const tpInfo = p.tp > 0 ? p.tp : "none";
@@ -27067,12 +27524,12 @@ async function processDecision(userId, decision, newsCtx) {
       }
     }
     if (entryPrice && stopLoss) {
-      const pipSize = getPipSize(decision.symbol || "");
+      const pipSize2 = getPipSize(decision.symbol || "");
       const isJpy = (decision.symbol || "").includes("JPY");
       const isXau2 = (decision.symbol || "").includes("XAU");
       const currentATRForSL = state._lastATR?.[decision.symbol] || 0;
       const minPipFloor = isXau2 ? 300 : isJpy ? 20 : 15;
-      const minPipDist = minPipFloor * pipSize;
+      const minPipDist = minPipFloor * pipSize2;
       const atrFloor = currentATRForSL > 0 ? currentATRForSL * 1 : minPipDist;
       const effectiveMinSL = Math.max(minPipDist, atrFloor);
       const actualSlDist = Math.abs(entryPrice - stopLoss);
@@ -27085,8 +27542,8 @@ async function processDecision(userId, decision, newsCtx) {
           const newTpDist = effectiveMinSL * newRR;
           expandedTP = decision.direction === "BUY" ? entryPrice + newTpDist : entryPrice - newTpDist;
         }
-        const oldSlPips = Math.round(actualSlDist / pipSize);
-        const newSlPips = Math.round(effectiveMinSL / pipSize);
+        const oldSlPips = Math.round(actualSlDist / pipSize2);
+        const newSlPips = Math.round(effectiveMinSL / pipSize2);
         const slExpansionRatio = actualSlDist > 0 ? effectiveMinSL / actualSlDist : 1;
         if (slExpansionRatio > 1 && decision.lotSize && decision.lotSize > 0) {
           const originalLot = decision.lotSize;
@@ -32255,8 +32712,8 @@ async function addTradeSetupAnnotations(originalImagePath, analysis, outputFilen
         analysis.takeProfit,
         ...supportResistanceLevels
       ].map((p) => {
-        const num = parseFloat(p.replace(/[^0-9.-]/g, ""));
-        return isNaN(num) ? 0 : num;
+        const num2 = parseFloat(p.replace(/[^0-9.-]/g, ""));
+        return isNaN(num2) ? 0 : num2;
       }).filter((p) => p > 0);
       if (prices.length === 0) return chartArea.top + chartArea.height * 0.5;
       const minPrice = Math.min(...prices);
@@ -39260,7 +39717,7 @@ __export(hyperliquid_executor_exports, {
 });
 async function ensureHyperliquidTable() {
   try {
-    await pool.query(DDL2);
+    await pool.query(DDL3);
     console.log("[startup] Hyperliquid connections table ensured (hyperliquid_connections).");
   } catch (err) {
     console.error("[startup] ensureHyperliquidTable failed (non-fatal):", err?.message ?? err);
@@ -39438,14 +39895,14 @@ async function hyperliquidExit(userId, trade) {
   await cancelCoinStops(creds, asset);
   return { ok: true, exitPrice: fill.avgPx };
 }
-var DDL2, HL_PREFIX, acctCache;
+var DDL3, HL_PREFIX, acctCache;
 var init_hyperliquid_executor = __esm({
   "server/services/hyperliquid-executor.ts"() {
     "use strict";
     init_db();
     init_cryptocom();
     init_hyperliquid();
-    DDL2 = `
+    DDL3 = `
 CREATE TABLE IF NOT EXISTS "hyperliquid_connections" (
   "id" serial PRIMARY KEY NOT NULL,
   "user_id" integer NOT NULL,
@@ -42715,12 +43172,12 @@ function linregSlope(values) {
   const xs = values.map((_, i) => i);
   const mx = xs.reduce((a, b) => a + b, 0) / n;
   const my = values.reduce((a, b) => a + b, 0) / n;
-  let num = 0, den = 0;
+  let num2 = 0, den = 0;
   for (let i = 0; i < n; i++) {
-    num += (xs[i] - mx) * (values[i] - my);
+    num2 += (xs[i] - mx) * (values[i] - my);
     den += (xs[i] - mx) ** 2;
   }
-  return den === 0 ? 0 : num / den;
+  return den === 0 ? 0 : num2 / den;
 }
 function ensembleSignal(candles) {
   const price = candles[candles.length - 1].close;
@@ -54313,7 +54770,7 @@ __export(ensure_kalshi_engine_config_table_exports, {
 });
 async function ensureKalshiEngineConfigTable() {
   try {
-    await pool.query(DDL3);
+    await pool.query(DDL4);
     console.log("[startup] Kalshi engine config table ensured (kalshi_engine_configs) \u2014 coin selection/strategy/risk settings now survive restarts.");
     try {
       const res = await pool.query(
@@ -54358,12 +54815,12 @@ async function ensureKalshiEngineConfigTable() {
     console.error("[startup] ensureKalshiEngineConfigTable failed (non-fatal):", err?.message ?? err);
   }
 }
-var DDL3;
+var DDL4;
 var init_ensure_kalshi_engine_config_table = __esm({
   "server/services/ensure-kalshi-engine-config-table.ts"() {
     "use strict";
     init_db();
-    DDL3 = `
+    DDL4 = `
 CREATE TABLE IF NOT EXISTS "kalshi_engine_configs" (
   "id" serial PRIMARY KEY NOT NULL,
   "user_id" integer NOT NULL UNIQUE REFERENCES "users"("id"),
@@ -54382,18 +54839,18 @@ __export(ensure_kalshi_brain_tables_exports, {
 });
 async function ensureKalshiBrainTables() {
   try {
-    await pool.query(DDL4);
+    await pool.query(DDL5);
     console.log("[startup] Kalshi brain table ensured (kalshi_brain_outcomes) \u2014 per-trade learning features now persist.");
   } catch (err) {
     console.error("[startup] ensureKalshiBrainTables failed (non-fatal):", err?.message ?? err);
   }
 }
-var DDL4;
+var DDL5;
 var init_ensure_kalshi_brain_tables = __esm({
   "server/services/ensure-kalshi-brain-tables.ts"() {
     "use strict";
     init_db();
-    DDL4 = `
+    DDL5 = `
 CREATE TABLE IF NOT EXISTS "kalshi_brain_outcomes" (
   "id" serial PRIMARY KEY NOT NULL,
   "user_id" integer NOT NULL REFERENCES "users"("id"),
@@ -54429,18 +54886,18 @@ __export(ensure_options_tables_exports, {
 });
 async function ensureOptionsTables() {
   try {
-    await pool.query(DDL5);
+    await pool.query(DDL6);
     console.log("[startup] Options-engine broker tables ensured (alpaca/tastytrade/cryptocom/options_engine_configs/options_engine_activity/options_engine_trades).");
   } catch (err) {
     console.error("[startup] ensureOptionsTables failed (non-fatal):", err?.message ?? err);
   }
 }
-var DDL5;
+var DDL6;
 var init_ensure_options_tables = __esm({
   "server/services/ensure-options-tables.ts"() {
     "use strict";
     init_db();
-    DDL5 = `
+    DDL6 = `
 CREATE TABLE IF NOT EXISTS "alpaca_connections" (
   "id" serial PRIMARY KEY NOT NULL,
   "user_id" integer NOT NULL REFERENCES "users"("id"),
@@ -54586,18 +55043,18 @@ __export(ensure_blog_tables_exports, {
 });
 async function ensureBlogTables() {
   try {
-    await pool.query(DDL6);
+    await pool.query(DDL7);
     console.log("[startup] Blog lead-gen tables ensured (blog_newsletter_subscribers).");
   } catch (err) {
     console.error("[startup] ensureBlogTables failed (non-fatal):", err?.message ?? err);
   }
 }
-var DDL6;
+var DDL7;
 var init_ensure_blog_tables = __esm({
   "server/services/ensure-blog-tables.ts"() {
     "use strict";
     init_db();
-    DDL6 = `
+    DDL7 = `
 CREATE TABLE IF NOT EXISTS "blog_newsletter_subscribers" (
   "id" serial PRIMARY KEY NOT NULL,
   "email" text NOT NULL UNIQUE,
@@ -54618,18 +55075,18 @@ __export(ensure_ambassador_prime_tables_exports, {
 });
 async function ensureAmbassadorPrimeTables() {
   try {
-    await pool.query(DDL7);
+    await pool.query(DDL8);
     console.log("[startup] Ambassador Prime tables ensured (run_summary, daily_content, daily_kpis, hook_variations, bonus_content, community_content, reddit_insights, run_step_log, weekly_calendar, market_briefing).");
   } catch (err) {
     console.error("[startup] ensureAmbassadorPrimeTables failed (non-fatal):", err?.message ?? err);
   }
 }
-var DDL7;
+var DDL8;
 var init_ensure_ambassador_prime_tables = __esm({
   "server/services/ensure-ambassador-prime-tables.ts"() {
     "use strict";
     init_db();
-    DDL7 = `
+    DDL8 = `
 CREATE TABLE IF NOT EXISTS "ambassador_run_summary" (
   "id" serial PRIMARY KEY NOT NULL,
   "run_date" varchar(20) NOT NULL UNIQUE,
@@ -54738,18 +55195,18 @@ __export(ensure_brain_marketplace_tables_exports, {
 });
 async function ensureBrainMarketplaceTables() {
   try {
-    await pool.query(DDL8);
+    await pool.query(DDL9);
     console.log("[startup] Brain Data Marketplace tables ensured (brain_data_listings, brain_data_purchases).");
   } catch (err) {
     console.error("[startup] ensureBrainMarketplaceTables failed (non-fatal):", err?.message ?? err);
   }
 }
-var DDL8;
+var DDL9;
 var init_ensure_brain_marketplace_tables = __esm({
   "server/services/ensure-brain-marketplace-tables.ts"() {
     "use strict";
     init_db();
-    DDL8 = `
+    DDL9 = `
 CREATE TABLE IF NOT EXISTS "brain_data_listings" (
   "id" serial PRIMARY KEY NOT NULL,
   "seller_id" integer NOT NULL REFERENCES "users"("id"),
@@ -54793,18 +55250,18 @@ __export(ensure_options_brain_outcomes_table_exports, {
 });
 async function ensureOptionsBrainOutcomesTable() {
   try {
-    await pool.query(DDL9);
+    await pool.query(DDL10);
     console.log("[startup] Options brain feature store ensured (options_brain_outcomes) \u2014 options brain is now durable + sellable on the marketplace.");
   } catch (err) {
     console.error("[startup] ensureOptionsBrainOutcomesTable failed (non-fatal):", err?.message ?? err);
   }
 }
-var DDL9;
+var DDL10;
 var init_ensure_options_brain_outcomes_table = __esm({
   "server/services/ensure-options-brain-outcomes-table.ts"() {
     "use strict";
     init_db();
-    DDL9 = `
+    DDL10 = `
 CREATE TABLE IF NOT EXISTS "options_brain_outcomes" (
   "id" serial PRIMARY KEY NOT NULL,
   "user_id" integer NOT NULL REFERENCES "users"("id"),
@@ -54836,18 +55293,18 @@ __export(ensure_options_iv_history_table_exports, {
 });
 async function ensureOptionsIvHistoryTable() {
   try {
-    await pool.query(DDL10);
+    await pool.query(DDL11);
     console.log("[startup] Options IV-history table ensured (options_iv_history) \u2014 IV Rank now self-builds from daily ATM IV snapshots.");
   } catch (err) {
     console.error("[startup] ensureOptionsIvHistoryTable failed (non-fatal):", err?.message ?? err);
   }
 }
-var DDL10;
+var DDL11;
 var init_ensure_options_iv_history_table = __esm({
   "server/services/ensure-options-iv-history-table.ts"() {
     "use strict";
     init_db();
-    DDL10 = `
+    DDL11 = `
 CREATE TABLE IF NOT EXISTS "options_iv_history" (
   "id" serial PRIMARY KEY NOT NULL,
   "underlying_symbol" text NOT NULL,
@@ -54867,7 +55324,7 @@ __export(ensure_persona_content_tables_exports, {
   ensurePersonaContentTables: () => ensurePersonaContentTables
 });
 async function ensurePersonaContentTables() {
-  await pool.query(DDL11);
+  await pool.query(DDL12);
   for (const pillar of PILLARS) {
     await pool.query(
       `INSERT INTO "persona_pillar_rotation" ("pillar") VALUES ($1) ON CONFLICT ("pillar") DO NOTHING`,
@@ -54878,7 +55335,7 @@ async function ensurePersonaContentTables() {
     `INSERT INTO "persona_arc_state" ("id", "current_index", "loops_completed") VALUES (1, 0, 0) ON CONFLICT ("id") DO NOTHING`
   );
 }
-var PILLARS, DDL11;
+var PILLARS, DDL12;
 var init_ensure_persona_content_tables = __esm({
   "server/services/ensure-persona-content-tables.ts"() {
     "use strict";
@@ -54895,7 +55352,7 @@ var init_ensure_persona_content_tables = __esm({
       "Behind-the-scenes",
       "Family/life balance/purpose"
     ];
-    DDL11 = `
+    DDL12 = `
 CREATE TABLE IF NOT EXISTS "persona_pillar_rotation" (
   "id" serial PRIMARY KEY NOT NULL,
   "pillar" text NOT NULL UNIQUE,
@@ -54932,18 +55389,18 @@ __export(ensure_content_image_columns_exports, {
 });
 async function ensureContentImageColumns() {
   try {
-    await pool.query(DDL12);
+    await pool.query(DDL13);
     console.log("[startup] Content image columns ensured (devotionals.hero_image, ambassador_daily_content/bonus_content/community_content.image_url).");
   } catch (err) {
     console.error("[startup] ensureContentImageColumns failed (non-fatal):", err?.message ?? err);
   }
 }
-var DDL12;
+var DDL13;
 var init_ensure_content_image_columns = __esm({
   "server/services/ensure-content-image-columns.ts"() {
     "use strict";
     init_db();
-    DDL12 = `
+    DDL13 = `
 ALTER TABLE "devotionals" ADD COLUMN IF NOT EXISTS "hero_image" text;
 ALTER TABLE "ambassador_daily_content" ADD COLUMN IF NOT EXISTS "image_url" text;
 ALTER TABLE "ambassador_bonus_content" ADD COLUMN IF NOT EXISTS "image_url" text;
@@ -54959,18 +55416,18 @@ __export(ensure_order_flow_column_exports, {
 });
 async function ensureOrderFlowColumn() {
   try {
-    await pool.query(DDL13);
+    await pool.query(DDL14);
     console.log("[startup] Options Engine order-flow column ensured (options_engine_configs.order_flow_lookback_bars).");
   } catch (err) {
     console.error("[startup] ensureOrderFlowColumn failed (non-fatal):", err?.message ?? err);
   }
 }
-var DDL13;
+var DDL14;
 var init_ensure_order_flow_column = __esm({
   "server/services/ensure-order-flow-column.ts"() {
     "use strict";
     init_db();
-    DDL13 = `
+    DDL14 = `
 ALTER TABLE "options_engine_configs" ADD COLUMN IF NOT EXISTS "order_flow_lookback_bars" integer NOT NULL DEFAULT 30;
 `;
   }
@@ -54983,18 +55440,18 @@ __export(ensure_options_engine_parity_columns_exports, {
 });
 async function ensureOptionsEngineParityColumns() {
   try {
-    await pool.query(DDL14);
+    await pool.query(DDL15);
     console.log("[startup] Options Engine FX-parity columns ensured (trailing stops, Drawdown Shield, Kelly, Brain Learning Mode, prop-firm presets + consistency rule, Copy Mode, Volatile Cap, Goal Tracker, scheduling, AI intelligence extras, liquidity filter, per-trade confidence/DTE/IV/spread).");
   } catch (err) {
     console.error("[startup] ensureOptionsEngineParityColumns failed (non-fatal):", err?.message ?? err);
   }
 }
-var DDL14;
+var DDL15;
 var init_ensure_options_engine_parity_columns = __esm({
   "server/services/ensure-options-engine-parity-columns.ts"() {
     "use strict";
     init_db();
-    DDL14 = `
+    DDL15 = `
 ALTER TABLE "options_engine_configs" ADD COLUMN IF NOT EXISTS "ai_mode" text NOT NULL DEFAULT 'full';
 ALTER TABLE "options_engine_configs" ADD COLUMN IF NOT EXISTS "use_kelly_criterion" boolean NOT NULL DEFAULT false;
 ALTER TABLE "options_engine_configs" ADD COLUMN IF NOT EXISTS "brain_learning_mode" boolean NOT NULL DEFAULT true;
@@ -55071,18 +55528,18 @@ __export(ensure_futures_engine_tables_exports, {
 });
 async function ensureFuturesEngineTables() {
   try {
-    await pool.query(DDL15);
+    await pool.query(DDL16);
     console.log("[startup] Futures Engine tables ensured (futures_engine_configs/activity/trades \u2014 FX-parity persisted config, trailing stops, Kelly, Brain Learning Mode, Drawdown Shield, consistency rule, scheduling).");
   } catch (err) {
     console.error("[startup] ensureFuturesEngineTables failed (non-fatal):", err?.message ?? err);
   }
 }
-var DDL15;
+var DDL16;
 var init_ensure_futures_engine_tables = __esm({
   "server/services/ensure-futures-engine-tables.ts"() {
     "use strict";
     init_db();
-    DDL15 = `
+    DDL16 = `
 CREATE TABLE IF NOT EXISTS "futures_engine_configs" (
   "id" serial PRIMARY KEY,
   "user_id" integer NOT NULL UNIQUE REFERENCES "users"("id"),
@@ -55190,18 +55647,18 @@ __export(ensure_content_studio_tables_exports, {
 });
 async function ensureContentStudioTables() {
   try {
-    await pool.query(DDL16);
+    await pool.query(DDL17);
     console.log("[startup] Content Studio durable media tables ensured (content_studio_assets/generations).");
   } catch (err) {
     console.error("[startup] ensureContentStudioTables failed (non-fatal):", err?.message ?? err);
   }
 }
-var DDL16;
+var DDL17;
 var init_ensure_content_studio_tables = __esm({
   "server/services/ensure-content-studio-tables.ts"() {
     "use strict";
     init_db();
-    DDL16 = `
+    DDL17 = `
 CREATE TABLE IF NOT EXISTS "content_studio_assets" (
   "id" serial PRIMARY KEY,
   "mime_type" text NOT NULL,
@@ -55232,18 +55689,18 @@ __export(ensure_cryptocom_engine_tables_exports, {
 });
 async function ensureCryptocomEngineTables() {
   try {
-    await pool.query(DDL17);
+    await pool.query(DDL18);
     console.log("[startup] Crypto.com Engine tables ensured (cryptocom_engine_configs/activity/trades).");
   } catch (err) {
     console.error("[startup] ensureCryptocomEngineTables failed (non-fatal):", err?.message ?? err);
   }
 }
-var DDL17;
+var DDL18;
 var init_ensure_cryptocom_engine_tables = __esm({
   "server/services/ensure-cryptocom-engine-tables.ts"() {
     "use strict";
     init_db();
-    DDL17 = `
+    DDL18 = `
 CREATE TABLE IF NOT EXISTS "cryptocom_engine_configs" (
   "id" serial PRIMARY KEY,
   "user_id" integer NOT NULL UNIQUE REFERENCES "users"("id"),
@@ -55381,18 +55838,18 @@ __export(ensure_crypto_brain_table_exports, {
 });
 async function ensureCryptoBrainTable() {
   try {
-    await pool.query(DDL18);
+    await pool.query(DDL19);
     console.log("[startup] Crypto brain feature store ensured (crypto_brain_outcomes) \u2014 per-trade learning now durable.");
   } catch (err) {
     console.error("[startup] ensureCryptoBrainTable failed (non-fatal):", err?.message ?? err);
   }
 }
-var DDL18;
+var DDL19;
 var init_ensure_crypto_brain_table = __esm({
   "server/services/ensure-crypto-brain-table.ts"() {
     "use strict";
     init_db();
-    DDL18 = `
+    DDL19 = `
 CREATE TABLE IF NOT EXISTS "crypto_brain_outcomes" (
   "id" serial PRIMARY KEY NOT NULL,
   "user_id" integer NOT NULL,
@@ -55422,18 +55879,18 @@ __export(ensure_fx_brain_table_exports, {
 });
 async function ensureFxBrainTable() {
   try {
-    await pool.query(DDL19);
+    await pool.query(DDL20);
     console.log("[startup] FX brain feature store ensured (fx_brain_outcomes) \u2014 per-trade condition learning now durable.");
   } catch (err) {
     console.error("[startup] ensureFxBrainTable failed (non-fatal):", err?.message ?? err);
   }
 }
-var DDL19;
+var DDL20;
 var init_ensure_fx_brain_table = __esm({
   "server/services/ensure-fx-brain-table.ts"() {
     "use strict";
     init_db();
-    DDL19 = `
+    DDL20 = `
 CREATE TABLE IF NOT EXISTS "fx_brain_outcomes" (
   "id" serial PRIMARY KEY NOT NULL,
   "user_id" integer NOT NULL,
@@ -55546,18 +56003,18 @@ __export(ensure_sol_brain_table_exports, {
 });
 async function ensureSolBrainTable() {
   try {
-    await pool.query(DDL20);
+    await pool.query(DDL21);
     console.log("[startup] Sol brain feature store ensured (sol_brain_outcomes) \u2014 per-trade learning now durable.");
   } catch (err) {
     console.error("[startup] ensureSolBrainTable failed (non-fatal):", err?.message ?? err);
   }
 }
-var DDL20;
+var DDL21;
 var init_ensure_sol_brain_table = __esm({
   "server/services/ensure-sol-brain-table.ts"() {
     "use strict";
     init_db();
-    DDL20 = `
+    DDL21 = `
 CREATE TABLE IF NOT EXISTS "sol_brain_outcomes" (
   "id" serial PRIMARY KEY NOT NULL,
   "user_id" integer NOT NULL,
@@ -55587,18 +56044,18 @@ __export(ensure_coinbase_tables_exports, {
 });
 async function ensureCoinbaseTables() {
   try {
-    await pool.query(DDL21);
+    await pool.query(DDL22);
     console.log("[startup] Coinbase connections table ensured (coinbase_connections) \u2014 read-only wallet balances.");
   } catch (err) {
     console.error("[startup] ensureCoinbaseTables failed (non-fatal):", err?.message ?? err);
   }
 }
-var DDL21;
+var DDL22;
 var init_ensure_coinbase_tables = __esm({
   "server/services/ensure-coinbase-tables.ts"() {
     "use strict";
     init_db();
-    DDL21 = `
+    DDL22 = `
 CREATE TABLE IF NOT EXISTS "coinbase_connections" (
   "id" serial PRIMARY KEY NOT NULL,
   "user_id" integer NOT NULL,
@@ -55623,18 +56080,18 @@ __export(ensure_kraken_tables_exports, {
 });
 async function ensureKrakenTables() {
   try {
-    await pool.query(DDL22);
+    await pool.query(DDL23);
     console.log("[startup] Kraken connections table ensured (kraken_connections) \u2014 read-only wallet balances.");
   } catch (err) {
     console.error("[startup] ensureKrakenTables failed (non-fatal):", err?.message ?? err);
   }
 }
-var DDL22;
+var DDL23;
 var init_ensure_kraken_tables = __esm({
   "server/services/ensure-kraken-tables.ts"() {
     "use strict";
     init_db();
-    DDL22 = `
+    DDL23 = `
 CREATE TABLE IF NOT EXISTS "kraken_connections" (
   "id" serial PRIMARY KEY NOT NULL,
   "user_id" integer NOT NULL,
@@ -55659,18 +56116,18 @@ __export(ensure_gemini_tables_exports, {
 });
 async function ensureGeminiTables() {
   try {
-    await pool.query(DDL23);
+    await pool.query(DDL24);
     console.log("[startup] Gemini connections table ensured (gemini_connections) \u2014 read-only wallet balances.");
   } catch (err) {
     console.error("[startup] ensureGeminiTables failed (non-fatal):", err?.message ?? err);
   }
 }
-var DDL23;
+var DDL24;
 var init_ensure_gemini_tables = __esm({
   "server/services/ensure-gemini-tables.ts"() {
     "use strict";
     init_db();
-    DDL23 = `
+    DDL24 = `
 CREATE TABLE IF NOT EXISTS "gemini_connections" (
   "id" serial PRIMARY KEY NOT NULL,
   "user_id" integer NOT NULL,
@@ -55695,18 +56152,18 @@ __export(ensure_defi_wallets_table_exports, {
 });
 async function ensureDefiWalletsTable() {
   try {
-    await pool.query(DDL24);
+    await pool.query(DDL25);
     console.log("[startup] DeFi wallets table ensured (defi_wallets) \u2014 public addresses only, on-chain read-only.");
   } catch (err) {
     console.error("[startup] ensureDefiWalletsTable failed (non-fatal):", err?.message ?? err);
   }
 }
-var DDL24;
+var DDL25;
 var init_ensure_defi_wallets_table = __esm({
   "server/services/ensure-defi-wallets-table.ts"() {
     "use strict";
     init_db();
-    DDL24 = `
+    DDL25 = `
 CREATE TABLE IF NOT EXISTS "defi_wallets" (
   "id" serial PRIMARY KEY NOT NULL,
   "user_id" integer NOT NULL,
@@ -55730,18 +56187,18 @@ __export(ensure_defi_hotwallet_table_exports, {
 });
 async function ensureDefiHotWalletTable() {
   try {
-    await pool.query(DDL25);
+    await pool.query(DDL26);
     console.log("[startup] DeFi hot-wallet table ensured (defi_hot_wallets) \u2014 encrypted key for unattended swaps.");
   } catch (err) {
     console.error("[startup] ensureDefiHotWalletTable failed (non-fatal):", err?.message ?? err);
   }
 }
-var DDL25;
+var DDL26;
 var init_ensure_defi_hotwallet_table = __esm({
   "server/services/ensure-defi-hotwallet-table.ts"() {
     "use strict";
     init_db();
-    DDL25 = `
+    DDL26 = `
 CREATE TABLE IF NOT EXISTS "defi_hot_wallets" (
   "id" serial PRIMARY KEY NOT NULL,
   "user_id" integer NOT NULL,
@@ -55764,19 +56221,19 @@ __export(ensure_dxtrade_tables_exports, {
 });
 async function ensureDxtradeTables() {
   try {
-    await pool.query(DDL26);
+    await pool.query(DDL27);
     await pool.query(ALTERS);
     console.log("[startup] DXtrade connections table ensured (dxtrade_connections).");
   } catch (err) {
     console.error("[startup] ensureDxtradeTables failed (non-fatal):", err?.message ?? err);
   }
 }
-var DDL26, ALTERS;
+var DDL27, ALTERS;
 var init_ensure_dxtrade_tables = __esm({
   "server/services/ensure-dxtrade-tables.ts"() {
     "use strict";
     init_db();
-    DDL26 = `
+    DDL27 = `
 CREATE TABLE IF NOT EXISTS "dxtrade_connections" (
   "id" serial PRIMARY KEY NOT NULL,
   "user_id" integer NOT NULL,
@@ -55815,18 +56272,18 @@ __export(ensure_engine_consensus_table_exports, {
 });
 async function ensureEngineConsensusTable() {
   try {
-    await pool.query(DDL27);
+    await pool.query(DDL28);
     console.log("[startup] Engine consensus table ensured (engine_consensus_log) \u2014 Dual-Vote Consensus panels now survive restarts.");
   } catch (err) {
     console.error("[startup] ensureEngineConsensusTable failed (non-fatal):", err?.message ?? err);
   }
 }
-var DDL27;
+var DDL28;
 var init_ensure_engine_consensus_table = __esm({
   "server/services/ensure-engine-consensus-table.ts"() {
     "use strict";
     init_db();
-    DDL27 = `
+    DDL28 = `
 CREATE TABLE IF NOT EXISTS "engine_consensus_log" (
   "id" serial PRIMARY KEY NOT NULL,
   "user_id" integer NOT NULL REFERENCES "users"("id"),
@@ -55854,18 +56311,18 @@ __export(ensure_micro_growth_milestones_table_exports, {
 });
 async function ensureMicroGrowthMilestonesTable() {
   try {
-    await pool.query(DDL28);
+    await pool.query(DDL29);
     console.log("[startup] Micro Growth milestones table ensured (micro_growth_milestones) \u2014 doubling challenge now survives restarts.");
   } catch (err) {
     console.error("[startup] ensureMicroGrowthMilestonesTable failed (non-fatal):", err?.message ?? err);
   }
 }
-var DDL28;
+var DDL29;
 var init_ensure_micro_growth_milestones_table = __esm({
   "server/services/ensure-micro-growth-milestones-table.ts"() {
     "use strict";
     init_db();
-    DDL28 = `
+    DDL29 = `
 CREATE TABLE IF NOT EXISTS "micro_growth_milestones" (
   "id" serial PRIMARY KEY NOT NULL,
   "user_id" integer NOT NULL UNIQUE REFERENCES "users"("id"),
@@ -55887,18 +56344,18 @@ __export(ensure_micro_growth_sessions_table_exports, {
 });
 async function ensureMicroGrowthSessionsTable() {
   try {
-    await pool.query(DDL29);
+    await pool.query(DDL30);
     console.log("[startup] Micro Growth sessions table ensured (micro_growth_sessions) \u2014 session history now survives restarts.");
   } catch (err) {
     console.error("[startup] ensureMicroGrowthSessionsTable failed (non-fatal):", err?.message ?? err);
   }
 }
-var DDL29;
+var DDL30;
 var init_ensure_micro_growth_sessions_table = __esm({
   "server/services/ensure-micro-growth-sessions-table.ts"() {
     "use strict";
     init_db();
-    DDL29 = `
+    DDL30 = `
 CREATE TABLE IF NOT EXISTS "micro_growth_sessions" (
   "id" text PRIMARY KEY NOT NULL,
   "user_id" integer NOT NULL REFERENCES "users"("id"),
@@ -55929,18 +56386,18 @@ __export(ensure_workforce_course_progress_table_exports, {
 });
 async function ensureWorkforceCourseProgressTable() {
   try {
-    await pool.query(DDL30);
+    await pool.query(DDL31);
     console.log('[startup] Workforce course progress table ensured (workforce_course_progress) \u2014 "where you left off" now survives restarts.');
   } catch (err) {
     console.error("[startup] ensureWorkforceCourseProgressTable failed (non-fatal):", err?.message ?? err);
   }
 }
-var DDL30;
+var DDL31;
 var init_ensure_workforce_course_progress_table = __esm({
   "server/services/ensure-workforce-course-progress-table.ts"() {
     "use strict";
     init_db();
-    DDL30 = `
+    DDL31 = `
 CREATE TABLE IF NOT EXISTS "workforce_course_progress" (
   "id" serial PRIMARY KEY NOT NULL,
   "user_id" integer NOT NULL REFERENCES "users"("id"),
@@ -55964,18 +56421,18 @@ __export(ensure_live_engine_config_table_exports, {
 });
 async function ensureLiveEngineConfigTable() {
   try {
-    await pool.query(DDL31);
+    await pool.query(DDL32);
     console.log("[startup] Live Engine config table ensured (live_engine_configs) \u2014 propFirmMode/consistency-rule settings now survive restarts.");
   } catch (err) {
     console.error("[startup] ensureLiveEngineConfigTable failed (non-fatal):", err?.message ?? err);
   }
 }
-var DDL31;
+var DDL32;
 var init_ensure_live_engine_config_table = __esm({
   "server/services/ensure-live-engine-config-table.ts"() {
     "use strict";
     init_db();
-    DDL31 = `
+    DDL32 = `
 CREATE TABLE IF NOT EXISTS "live_engine_configs" (
   "id" serial PRIMARY KEY,
   "user_id" integer NOT NULL UNIQUE REFERENCES "users"("id"),
@@ -55994,18 +56451,18 @@ __export(ensure_copy_trading_execution_columns_exports, {
 });
 async function ensureCopyTradingExecutionColumns() {
   try {
-    await pool.query(DDL32);
+    await pool.query(DDL33);
     console.log("[startup] Copy trading execution columns ensured (copier_connection_id, copier_fx_trade_id, broker_order_id, execution_status, execution_error).");
   } catch (err) {
     console.error("[startup] ensureCopyTradingExecutionColumns failed (non-fatal):", err?.message ?? err);
   }
 }
-var DDL32;
+var DDL33;
 var init_ensure_copy_trading_execution_columns = __esm({
   "server/services/ensure-copy-trading-execution-columns.ts"() {
     "use strict";
     init_db();
-    DDL32 = `
+    DDL33 = `
 ALTER TABLE "copy_relationships" ADD COLUMN IF NOT EXISTS "copier_connection_id" integer;
 ALTER TABLE "copy_trade_logs" ADD COLUMN IF NOT EXISTS "copier_fx_trade_id" integer;
 ALTER TABLE "copy_trade_logs" ADD COLUMN IF NOT EXISTS "broker_order_id" text;
@@ -56022,18 +56479,18 @@ __export(ensure_reasoning_propfirm_tables_exports, {
 });
 async function ensureReasoningPropFirmTables() {
   try {
-    await pool.query(DDL33);
+    await pool.query(DDL34);
     console.log("[startup] Reasoning + prop firm phase tables ensured (ai_confirmation_outcomes reasoning columns, prop_firm_account_state).");
   } catch (err) {
     console.error("[startup] ensureReasoningPropFirmTables failed (non-fatal):", err?.message ?? err);
   }
 }
-var DDL33;
+var DDL34;
 var init_ensure_reasoning_propfirm_tables = __esm({
   "server/services/ensure-reasoning-propfirm-tables.ts"() {
     "use strict";
     init_db();
-    DDL33 = `
+    DDL34 = `
 ALTER TABLE "ai_confirmation_outcomes" ADD COLUMN IF NOT EXISTS "reasoning_text" text;
 ALTER TABLE "ai_confirmation_outcomes" ADD COLUMN IF NOT EXISTS "bull_case" text;
 ALTER TABLE "ai_confirmation_outcomes" ADD COLUMN IF NOT EXISTS "bear_case" text;
@@ -56131,18 +56588,18 @@ __export(ensure_profit_split_tables_exports, {
 });
 async function ensureProfitSplitTables() {
   try {
-    await pool.query(DDL34);
+    await pool.query(DDL35);
     console.log("[startup] Profit Split tables ensured (profit_split_enrollments, profit_split_payments) \u2014 ambassador 30% prop-firm profit-split program.");
   } catch (err) {
     console.error("[startup] ensureProfitSplitTables failed (non-fatal):", err?.message ?? err);
   }
 }
-var DDL34;
+var DDL35;
 var init_ensure_profit_split_tables = __esm({
   "server/services/ensure-profit-split-tables.ts"() {
     "use strict";
     init_db();
-    DDL34 = `
+    DDL35 = `
 CREATE TABLE IF NOT EXISTS "profit_split_enrollments" (
   "id" serial PRIMARY KEY NOT NULL,
   "user_id" integer NOT NULL UNIQUE REFERENCES "users"("id"),
@@ -58673,9 +59130,9 @@ async function getStopOrdersForUser(userId, filters = {}) {
 init_schema();
 
 // server/build-info.ts
-var BUILD_COMMIT = "32104dca-dirty";
+var BUILD_COMMIT = "294f1f5c-dirty";
 var BUILD_BRANCH = "main";
-var BUILT_AT = "2026-10-16T20:17:05.417Z";
+var BUILT_AT = "2026-10-16T20:34:03.025Z";
 
 // server/stripe.ts
 init_db();
@@ -76089,6 +76546,48 @@ Rules:
       res.status(400).json({ success: false, error: errorMsg });
     }
   });
+  app2.get("/api/fx-models/mastery", async (req, res) => {
+    if (!req.isAuthenticated()) return res.status(401).json({ error: "Authentication required" });
+    try {
+      const { getModelMastery: getModelMastery2 } = await Promise.resolve().then(() => (init_fx_models(), fx_models_exports));
+      res.json(await getModelMastery2(req.user.id));
+    } catch (e) {
+      res.status(500).json({ error: e?.message || "failed" });
+    }
+  });
+  app2.get("/api/fx-models/decisions", async (req, res) => {
+    if (!req.isAuthenticated()) return res.status(401).json({ error: "Authentication required" });
+    try {
+      const { ensureFxModelTables: ensureFxModelTables2 } = await Promise.resolve().then(() => (init_fx_models(), fx_models_exports));
+      const { pool: pool2 } = await Promise.resolve().then(() => (init_db(), db_exports));
+      await ensureFxModelTables2();
+      const limit = Math.min(parseInt(String(req.query.limit || "100"), 10) || 100, 500);
+      const { rows } = await pool2.query(
+        `SELECT id, symbol, model, mode, day_type, session, direction, entry_price, stop_loss, take_profit, confidence, setup, reasoning, result, r_multiple, pips, created_at, resolved_at
+           FROM fx_model_decisions WHERE user_id=$1 ORDER BY created_at DESC LIMIT $2`,
+        [req.user.id, limit]
+      );
+      res.json({ decisions: rows });
+    } catch (e) {
+      res.status(500).json({ error: e?.message || "failed" });
+    }
+  });
+  app2.get("/api/fx-models/day-types", async (req, res) => {
+    if (!req.isAuthenticated()) return res.status(401).json({ error: "Authentication required" });
+    try {
+      const { ensureFxModelTables: ensureFxModelTables2 } = await Promise.resolve().then(() => (init_fx_models(), fx_models_exports));
+      const { pool: pool2 } = await Promise.resolve().then(() => (init_db(), db_exports));
+      await ensureFxModelTables2();
+      const { rows } = await pool2.query(
+        `SELECT DISTINCT ON (symbol) symbol, day, hour_utc, session, day_type, auto_model, trend_score, adx_m15, rel_volume, h1_trend, h4_trend, created_at
+           FROM fx_day_regimes WHERE user_id=$1 ORDER BY symbol, created_at DESC`,
+        [req.user.id]
+      );
+      res.json({ dayTypes: rows });
+    } catch (e) {
+      res.status(500).json({ error: e?.message || "failed" });
+    }
+  });
   app2.get("/api/options-engine/config", async (req, res) => {
     if (!req.isAuthenticated()) return res.status(401).json({ error: "Authentication required" });
     const userId = req.user.id;
@@ -80661,16 +81160,16 @@ Respond with ONLY valid JSON:
     try {
       const { runRuinConeSimulation: runRuinConeSimulation2 } = await Promise.resolve().then(() => (init_ruin_cone(), ruin_cone_exports));
       const q = req.query;
-      const num = (v) => v != null && v !== "" ? Number(v) : void 0;
+      const num2 = (v) => v != null && v !== "" ? Number(v) : void 0;
       const result = await runRuinConeSimulation2(userId, {
-        numSimulations: num(q.numSimulations),
-        numTrades: num(q.numTrades),
-        startingEquity: num(q.startingEquity),
-        dailyLossLimit: num(q.dailyLossLimit),
-        maxDrawdownLimit: num(q.maxDrawdownLimit),
-        consistencyRuleThreshold: num(q.consistencyRuleThreshold),
-        profitTarget: num(q.profitTarget),
-        sourceLimit: num(q.sourceLimit),
+        numSimulations: num2(q.numSimulations),
+        numTrades: num2(q.numTrades),
+        startingEquity: num2(q.startingEquity),
+        dailyLossLimit: num2(q.dailyLossLimit),
+        maxDrawdownLimit: num2(q.maxDrawdownLimit),
+        consistencyRuleThreshold: num2(q.consistencyRuleThreshold),
+        profitTarget: num2(q.profitTarget),
+        sourceLimit: num2(q.sourceLimit),
         source: q.source ? String(q.source) : void 0,
         noCache: q.nocache === "1" || q.noCache === "true"
       });
@@ -88941,9 +89440,9 @@ Sitemap: ${SEO_BASE_URL}/sitemap.xml
     let takeProfit = null;
     if (typeof entryPrice === "number" && entryPrice > 0) {
       const { getPipSize: getPipSize2 } = await Promise.resolve().then(() => (init_pipUtils(), pipUtils_exports));
-      const pipSize = getPipSize2(symbol);
-      if (typeof slPips === "number") stopLoss = Math.round((dir === "BUY" ? entryPrice - slPips * pipSize : entryPrice + slPips * pipSize) * 1e5) / 1e5;
-      if (typeof tpPips === "number") takeProfit = Math.round((dir === "BUY" ? entryPrice + tpPips * pipSize : entryPrice - tpPips * pipSize) * 1e5) / 1e5;
+      const pipSize2 = getPipSize2(symbol);
+      if (typeof slPips === "number") stopLoss = Math.round((dir === "BUY" ? entryPrice - slPips * pipSize2 : entryPrice + slPips * pipSize2) * 1e5) / 1e5;
+      if (typeof tpPips === "number") takeProfit = Math.round((dir === "BUY" ? entryPrice + tpPips * pipSize2 : entryPrice - tpPips * pipSize2) * 1e5) / 1e5;
     }
     const { broadcastMT5Signal: broadcastMT5Signal2 } = await Promise.resolve().then(() => (init_live_trading_engine(), live_trading_engine_exports));
     broadcastMT5Signal2(userId, {
