@@ -54,7 +54,8 @@ function listFromEnv(name: string, fallback: string): string[] {
 // mid-week. Remove BTCUSD here once the root cause is found and fixed.
 // 2026-10-14: user removed GBPJPY and added GBPUSD (GBPUSD lost ≈ −$4.4k
 // 2026-10-12/13; 60-day GBPUSD BUY 1/11 wins).
-const BLOCKED_PAIRS = listFromEnv('BLOCKED_PAIRS', 'BTCUSD,GBPUSD');
+// 2026-10-16: user unblocked BTCUSD and GBPUSD (default list now empty).
+const BLOCKED_PAIRS = listFromEnv('BLOCKED_PAIRS', '');
 // One side only, as SYMBOL:DIRECTION (e.g. "USDJPY:SELL").
 const BLOCKED_DIRECTIONS = listFromEnv('BLOCKED_PAIR_DIRECTIONS', '');
 

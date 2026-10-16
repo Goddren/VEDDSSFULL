@@ -22844,7 +22844,7 @@ var init_pair_filter = __esm({
   "server/services/pair-filter.ts"() {
     "use strict";
     norm2 = (s) => String(s || "").toUpperCase().replace(/[^A-Z0-9]/g, "");
-    BLOCKED_PAIRS = listFromEnv("BLOCKED_PAIRS", "BTCUSD,GBPUSD");
+    BLOCKED_PAIRS = listFromEnv("BLOCKED_PAIRS", "");
     BLOCKED_DIRECTIONS = listFromEnv("BLOCKED_PAIR_DIRECTIONS", "");
     console.log(`[PairFilter] enabled=${process.env.PAIR_FILTER_ENABLED !== "false"} pairs=[${BLOCKED_PAIRS.join(", ") || "none"}] directions=[${BLOCKED_DIRECTIONS.join(", ") || "none"}]`);
   }
@@ -23854,6 +23854,57 @@ function getDailyTargetFromGoal(tracker) {
   const daysLeft = getDaysRemaining();
   return Math.max(0, Math.round(remaining / daysLeft * 100) / 100);
 }
+function computeHtfBias(bars) {
+  if (!bars || bars.length < 15) return null;
+  const confirmed = bars.slice(0, -1);
+  if (confirmed.length < 14) return null;
+  const candles = convertToCandles(confirmed);
+  const price = bars[bars.length - 1]?.close || 0;
+  const bosChoch = detectBOSCHOCH(candles, "NEUTRAL");
+  const wyckoff = detectWyckoff(candles);
+  let trend = "NEUTRAL";
+  if (bosChoch.detected && bosChoch.direction) trend = bosChoch.direction;
+  else if (wyckoff.detected) {
+    if (wyckoff.phase === "MARKUP" || wyckoff.phase === "ACCUMULATION") trend = "BULLISH";
+    else if (wyckoff.phase === "MARKDOWN" || wyckoff.phase === "DISTRIBUTION") trend = "BEARISH";
+  }
+  const pd = getPremiumDiscountContext(price, candles, trend === "BULLISH" ? "BUY" : trend === "BEARISH" ? "SELL" : "NEUTRAL");
+  return { trend, bosChoch, premiumDiscount: { zone: pd.zone, aligns: pd.aligns, description: pd.description }, wyckoff };
+}
+async function refreshH4Bias(symbol, assetType) {
+  const hit = h4BiasCache.get(symbol);
+  if (hit && Date.now() - hit.at < H4_REFRESH_MS) return;
+  try {
+    const r = await marketDataService.fetchMarketData({ symbol, assetType, timeframe: "4h", limit: 50 });
+    const data = computeHtfBias(r.bars || []);
+    if (data) h4BiasCache.set(symbol, { at: Date.now(), data });
+  } catch {
+  }
+}
+function mtfStack(state, symbol) {
+  const sym = String(symbol || "").toUpperCase().replace("/", "");
+  const primaryH1 = (state?.config?.primaryTimeframe || "M15") === "H1";
+  const htf = state?.htfBiasCache?.[sym] || state?.htfBiasCache?.[symbol] || null;
+  const h4c = h4BiasCache.get(sym)?.data || h4BiasCache.get(symbol)?.data || null;
+  return primaryH1 ? { h1: null, h4: htf } : { h1: htf, h4: h4c };
+}
+function htfTurnedAgainst(state, symbol, direction) {
+  const { h1, h4 } = mtfStack(state, symbol);
+  if (!h1 && !h4) return null;
+  const against = String(direction || "").toUpperCase() === "BUY" ? "BEARISH" : "BULLISH";
+  const parts = [];
+  let turned = false;
+  for (const [lbl, b] of [["H1", h1], ["H4", h4]]) {
+    if (!b) {
+      parts.push(`${lbl} n/a`);
+      continue;
+    }
+    const bosAgainst = b.bosChoch?.detected && b.bosChoch.direction === against;
+    if (b.trend === against || bosAgainst) turned = true;
+    parts.push(`${lbl} ${b.trend}${bosAgainst ? " (BOS/CHOCH against)" : ""}`);
+  }
+  return { turned, detail: parts.join(", ") };
+}
 function recordTradeResult(userId, result) {
   const state = engineStates[userId];
   if (!state) return;
@@ -24343,6 +24394,7 @@ async function scanMarkets(userId) {
         const htfAssetType = assetType;
         const primaryTF = config.primaryTimeframe || "M15";
         const htfTimeframe = primaryTF === "H1" ? "4h" : "1h";
+        if (primaryTF !== "H1") htfPendingPromises.push(refreshH4Bias(htfSymbol, htfAssetType));
         htfPendingPromises.push((async () => {
           try {
             const htfResult = await marketDataService.fetchMarketData({
@@ -24885,7 +24937,15 @@ async function applyServerSideTrails(userId, openPositions, marketAnalysis) {
       if (_xauHold && _against && !_choppy && _revScore >= _sensitivity) {
         addActivity(userId, { type: "info", symbol: pos.symbol, message: `\u23F3 Reversal exit held off: ${pos.symbol} opened under the gold/index minimum hold \u2014 the broker stop still protects it.` });
       }
-      if (!_xauHold && _against && !_choppy && _revScore >= _sensitivity) {
+      let _mtfHold = false;
+      if (!_xauHold && _against && !_choppy && _revScore >= _sensitivity && process.env.MTF_CLOSE_RULE !== "off") {
+        const _t = htfTurnedAgainst(state, pos.symbol, pos.direction || "BUY");
+        if (_t && !_t.turned) {
+          _mtfHold = true;
+          addActivity(userId, { type: "info", symbol: pos.symbol, message: `\u{1F6E1}\uFE0F SHAKEOUT HOLD: reversal exit on ${pos.symbol} ${pos.direction} skipped; H1/H4 have not turned (${_t.detail}).` });
+        }
+      }
+      if (!_xauHold && !_mtfHold && _against && !_choppy && _revScore >= _sensitivity) {
         const _reason = `Reversal exit: ${pos.symbol} ${pos.direction} \u2014 ${_revScore}/5 reversal confluence in a trending market (ADX ${Math.round(_adx)}, DI sep ${Math.round(_diSep)}, need ${_sensitivity})`;
         addActivity(userId, { type: "trade_close", symbol: pos.symbol, message: `\u{1F504} ${_reason}` });
         if (pos.source !== "tl") broadcastMT5Signal(userId, {
@@ -25700,6 +25760,11 @@ ${stratSummaryLines.join("\n")}`
       htfBiasSection = `
 HTF BIAS (${promptHTFLabel} STRUCTURE \u2014 higher timeframe directional filter):
 ${htfLines}
+${promptHTFLabel === "H1" ? Object.keys(htfMarketData).map((sym) => {
+        const h4 = h4BiasCache.get(sym)?.data;
+        return h4 ? `- ${sym}: H4 Trend=${h4.trend} | BOS/CHOCH=${h4.bosChoch.detected ? h4.bosChoch.description : "No clear structure"} | PD Zone=${h4.premiumDiscount.zone}` : `- ${sym}: H4 unavailable`;
+      }).join("\n") : ""}
+MULTI-TIMEFRAME RULES: H4 = trend, H1 = structure, M15 = entry timing only.${process.env.MTF_ENTRY_RULE === "off" ? "" : " Only propose an entry when H4 and H1 both agree with its direction; the server rejects entries that do not."}${process.env.MTF_CLOSE_RULE === "off" ? "" : " Do NOT full-close an open trade because of an M15 pullback: only close when H1 or H4 structure has turned against it (BOS/CHOCH or trend flip). The broker stop protects it otherwise; the server refuses M15-only closes."}
 INSTRUCTION: Signals that ALIGN with ${promptHTFLabel} bias are high-quality institutional setups \u2014 give them +5% confidence bonus. Signals that CONFLICT with ${promptHTFLabel} bias are counter-trend fades \u2014 require 80%+ base confidence before firing. If ${promptHTFLabel} shows strong BOS/CHOCH in one direction and M15 signals the opposite, SKIP unless you have 5+ LTF confluences.
 `;
     }
@@ -26584,6 +26649,25 @@ async function processDecision(userId, decision, newsCtx) {
           symbol: decision.symbol,
           message: `\u{1F4CA} HTF CONFLICT: ${signalDir} on ${decision.symbol} vs ${htfTFLabel} ${htfBias.trend} \u2014 ${confidence2}% \u2265 90% threshold cleared. Allowing high-confidence counter-trend.`
         });
+      }
+    }
+    {
+      const _rule = (process.env.MTF_ENTRY_RULE || "strict").toLowerCase();
+      if (_rule !== "off" && decision.direction) {
+        const _dir = decision.direction.toUpperCase();
+        const _want = _dir === "BUY" ? "BULLISH" : "BEARISH";
+        const _opp = _dir === "BUY" ? "BEARISH" : "BULLISH";
+        const { h1, h4 } = mtfStack(state, decision.symbol);
+        const _primaryH1 = config.primaryTimeframe === "H1";
+        const _tfs = [["H1", h1], ["H4", h4]].filter(([lbl]) => !(lbl === "H1" && _primaryH1));
+        const _desc = _tfs.map(([l, b]) => `${l} ${b ? b.trend : "n/a"}`).join(", ");
+        const _fail = _rule === "no_conflict" ? _tfs.some(([, b]) => !!b && b.trend === _opp) : _tfs.some(([, b]) => !b || b.trend !== _want);
+        if (_fail) {
+          addActivity(userId, { type: "info", symbol: decision.symbol, message: `\u{1F9ED} MTF BLOCK: ${_dir} ${decision.symbol} (${_rule === "strict" ? "H1 and H4 must both agree" : "H1/H4 oppose it"}: ${_desc}). Not entering.` });
+          state.signalsGenerated++;
+          return;
+        }
+        addActivity(userId, { type: "info", symbol: decision.symbol, message: `\u{1F9ED} MTF aligned for ${_dir} ${decision.symbol} (${_desc}).` });
       }
     }
     const m15Snap = state.marketSnapshot?.[decision.symbol];
@@ -27932,6 +28016,26 @@ async function processDecision(userId, decision, newsCtx) {
         }
       }
     }
+    {
+      const _ma = decision.modifyAction || (decision.action === "CLOSE_POSITION" ? "full_close" : "trail_stop");
+      const _isFull = (_ma === "full_close" || decision.action === "CLOSE_POSITION") && !((parseNum(decision.partialVolume) ?? 0) > 0);
+      if (_isFull && process.env.MTF_CLOSE_RULE !== "off") {
+        let _posDir = decision.direction ? String(decision.direction).toUpperCase() : "";
+        if (!_posDir) {
+          try {
+            const _merged = await getMergedOpenPositions(userId, state._lastMarketAnalysis);
+            const _p = _merged.find((p) => String(p.symbol || "").toUpperCase().replace("/", "") === String(decision.symbol || "").toUpperCase().replace("/", ""));
+            _posDir = String(_p?.direction || "").toUpperCase();
+          } catch {
+          }
+        }
+        const _t = _posDir ? htfTurnedAgainst(state, decision.symbol, _posDir) : null;
+        if (_t && !_t.turned) {
+          addActivity(userId, { type: "info", symbol: decision.symbol, message: `\u{1F6E1}\uFE0F SHAKEOUT HOLD: AI wanted to close ${_posDir} ${decision.symbol} but H1/H4 have not turned (${_t.detail}). Holding; the broker stop still protects it. AI reason: ${String(decision.reason || "").slice(0, 160)}` });
+          return;
+        }
+      }
+    }
     state.positionsManaged++;
     const modifyAction = decision.modifyAction || (decision.action === "CLOSE_POSITION" ? "full_close" : "trail_stop");
     const newSL = parseNum(decision.newStopLoss);
@@ -29063,7 +29167,7 @@ function getModelLockStatus(userId) {
   if (!state) return { locked: false, openPositions: 0 };
   return { locked: state.modelLocked, openPositions: state.openPositionCount };
 }
-var FX_MAX_OPEN_PER_SYMBOL, FX_SYMBOL_COOLDOWN_MS, mt5AccountQueues, mt5AccountRegistry, engineStates, engineIntervals, engineTimers, brainLearningIntervals, positionMonitorIntervals, _monitorBusy, persistedConfigOverrides, goalTrackerCache, ALL_STRATEGY_KEYS, _dxSkipTableReady, countedTradeKeys, TRAIL_METHOD_LABELS, xauPeakPts, xauLockedPts, NY_TIME_FMT, INDEX_BROKER_ALIASES, FX_LEADER_LOCK_KEY, FX_LEADER_STALE_MS, _fxLeaderClient, _fxIsLeader, _fxLeaderLoop;
+var FX_MAX_OPEN_PER_SYMBOL, FX_SYMBOL_COOLDOWN_MS, mt5AccountQueues, mt5AccountRegistry, engineStates, engineIntervals, engineTimers, brainLearningIntervals, positionMonitorIntervals, _monitorBusy, persistedConfigOverrides, goalTrackerCache, ALL_STRATEGY_KEYS, _dxSkipTableReady, countedTradeKeys, h4BiasCache, H4_REFRESH_MS, TRAIL_METHOD_LABELS, xauPeakPts, xauLockedPts, NY_TIME_FMT, INDEX_BROKER_ALIASES, FX_LEADER_LOCK_KEY, FX_LEADER_STALE_MS, _fxLeaderClient, _fxIsLeader, _fxLeaderLoop;
 var init_live_trading_engine = __esm({
   "server/services/live-trading-engine.ts"() {
     "use strict";
@@ -29117,6 +29221,8 @@ var init_live_trading_engine = __esm({
     ];
     _dxSkipTableReady = false;
     countedTradeKeys = /* @__PURE__ */ new Map();
+    h4BiasCache = /* @__PURE__ */ new Map();
+    H4_REFRESH_MS = 60 * 60 * 1e3;
     TRAIL_METHOD_LABELS = {
       staged_volume: "Staged Volume Trail",
       chandelier: "Chandelier Exit (ATR-based)",
@@ -58536,9 +58642,9 @@ async function getStopOrdersForUser(userId, filters = {}) {
 init_schema();
 
 // server/build-info.ts
-var BUILD_COMMIT = "964936fd-dirty";
+var BUILD_COMMIT = "ae74908e-dirty";
 var BUILD_BRANCH = "main";
-var BUILT_AT = "2026-10-16T09:07:02.945Z";
+var BUILT_AT = "2026-10-16T14:46:29.637Z";
 
 // server/stripe.ts
 init_db();
