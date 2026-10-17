@@ -29695,7 +29695,14 @@ async function fetchBars(symbol, timeframe, count, chain) {
 }
 async function refreshDefiUniverse(chain) {
   const { discoverDefiTokens: discoverDefiTokens2 } = await Promise.resolve().then(() => (init_defi_market_data(), defi_market_data_exports));
-  const tokens = await discoverDefiTokens2(chain);
+  const STABLE = /^(USDT|USDC|USDBC|USDC\.E|DAI|USDE|SUSDE|FDUSD|TUSD|USDS|PYUSD|EURC|EURS|LUSD|CRVUSD|GHO|USD\+|USDZ|FRAX|MIM|USDP|BUSD|USD0|USDX|DOLA|AXLUSDC|USDM|USDB)$/i;
+  const tokens = (await discoverDefiTokens2(chain)).filter((t) => {
+    const sym = String(t.symbol || "").toUpperCase();
+    if (STABLE.test(sym)) return false;
+    const px = Number(t.priceUsd);
+    if (/USD|EUR/.test(sym) && px > 0 && Math.abs(px - 1) < 0.015) return false;
+    return true;
+  });
   for (const t of tokens) {
     defiUniverse.set(universeKey(chain, t.symbol), {
       chain,

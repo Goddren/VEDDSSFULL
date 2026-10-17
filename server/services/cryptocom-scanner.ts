@@ -89,7 +89,17 @@ async function fetchBars(symbol: string, timeframe: string, count: number, chain
  */
 async function refreshDefiUniverse(chain: string): Promise<string[]> {
   const { discoverDefiTokens } = await import('./defi-market-data');
-  const tokens = await discoverDefiTokens(chain);
+  // Stablecoins never trend — scanning them wastes candle/AI budget and can
+  // only produce noise trades. Drop known stables and anything USD-named
+  // that trades within 1.5% of $1.
+  const STABLE = /^(USDT|USDC|USDBC|USDC\.E|DAI|USDE|SUSDE|FDUSD|TUSD|USDS|PYUSD|EURC|EURS|LUSD|CRVUSD|GHO|USD\+|USDZ|FRAX|MIM|USDP|BUSD|USD0|USDX|DOLA|AXLUSDC|USDM|USDB)$/i;
+  const tokens = (await discoverDefiTokens(chain)).filter((t: any) => {
+    const sym = String(t.symbol || '').toUpperCase();
+    if (STABLE.test(sym)) return false;
+    const px = Number(t.priceUsd);
+    if (/USD|EUR/.test(sym) && px > 0 && Math.abs(px - 1) < 0.015) return false;
+    return true;
+  });
   for (const t of tokens) {
     defiUniverse.set(universeKey(chain, t.symbol), {
       chain, address: t.address, poolAddress: t.poolAddress,
