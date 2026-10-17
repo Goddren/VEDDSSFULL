@@ -9678,306 +9678,6 @@ var init_corporateActionGuard = __esm({
   }
 });
 
-// server/services/runtime-state.ts
-var runtime_state_exports = {};
-__export(runtime_state_exports, {
-  ensureRuntimeStateTable: () => ensureRuntimeStateTable,
-  getRuntimeStateStrict: () => getRuntimeStateStrict,
-  insertRuntimeStateIfAbsent: () => insertRuntimeStateIfAbsent,
-  loadRuntimeState: () => loadRuntimeState,
-  saveRuntimeState: () => saveRuntimeState
-});
-function ensureRuntimeStateTable() {
-  if (!ensured) {
-    ensured = pool.query(DDL2).then(() => void 0).catch((err) => {
-      console.error("[runtime-state] ensure table failed (non-fatal):", err?.message ?? err);
-      ensured = null;
-    });
-  }
-  return ensured;
-}
-function saveRuntimeState(scope, key, value) {
-  void (async () => {
-    try {
-      await ensureRuntimeStateTable();
-      await pool.query(
-        `INSERT INTO runtime_state (scope, key, value, updated_at) VALUES ($1, $2, $3::jsonb, now())
-         ON CONFLICT (scope, key) DO UPDATE SET value = EXCLUDED.value, updated_at = now()`,
-        [scope, key, JSON.stringify(value)]
-      );
-    } catch (err) {
-      console.error(`[runtime-state] save ${scope}/${key} failed (non-fatal):`, err?.message ?? err);
-    }
-  })();
-}
-async function loadRuntimeState(scope) {
-  try {
-    await ensureRuntimeStateTable();
-    const { rows } = await pool.query(`SELECT key, value FROM runtime_state WHERE scope = $1`, [scope]);
-    return rows;
-  } catch (err) {
-    console.error(`[runtime-state] load ${scope} failed (non-fatal):`, err?.message ?? err);
-    return [];
-  }
-}
-async function getRuntimeStateStrict(scope, key) {
-  await ensureRuntimeStateTable();
-  const { rows } = await pool.query(`SELECT value FROM runtime_state WHERE scope = $1 AND key = $2`, [scope, key]);
-  return rows[0]?.value ?? null;
-}
-async function insertRuntimeStateIfAbsent(scope, key, value) {
-  await ensureRuntimeStateTable();
-  await pool.query(
-    `INSERT INTO runtime_state (scope, key, value) VALUES ($1, $2, $3::jsonb) ON CONFLICT (scope, key) DO NOTHING`,
-    [scope, key, JSON.stringify(value)]
-  );
-  return getRuntimeStateStrict(scope, key);
-}
-var DDL2, ensured;
-var init_runtime_state = __esm({
-  "server/services/runtime-state.ts"() {
-    "use strict";
-    init_db();
-    DDL2 = `
-CREATE TABLE IF NOT EXISTS "runtime_state" (
-  "scope" text NOT NULL,
-  "key" text NOT NULL,
-  "value" jsonb NOT NULL,
-  "updated_at" timestamp NOT NULL DEFAULT now(),
-  PRIMARY KEY ("scope", "key")
-);
-`;
-    ensured = null;
-  }
-});
-
-// server/services/hyperliquid-executor.ts
-var hyperliquid_executor_exports = {};
-__export(hyperliquid_executor_exports, {
-  HL_PREFIX: () => HL_PREFIX,
-  ensureHyperliquidTable: () => ensureHyperliquidTable,
-  getHyperliquidConnection: () => getHyperliquidConnection,
-  hlAccountValue: () => hlAccountValue,
-  hlCoin: () => hlCoin,
-  hlMid: () => hlMid,
-  hlPositionOpen: () => hlPositionOpen,
-  hyperliquidEntry: () => hyperliquidEntry,
-  hyperliquidExit: () => hyperliquidExit
-});
-async function ensureHyperliquidTable() {
-  try {
-    await pool.query(DDL3);
-    console.log("[startup] Hyperliquid connections table ensured (hyperliquid_connections).");
-  } catch (err) {
-    console.error("[startup] ensureHyperliquidTable failed (non-fatal):", err?.message ?? err);
-  }
-}
-function rowToConn(r) {
-  return {
-    id: r.id,
-    userId: r.user_id,
-    label: r.label,
-    accountAddress: r.account_address,
-    vaultAddress: r.vault_address,
-    agentAddress: r.agent_address,
-    isTestnet: !!r.is_testnet,
-    isPropAccount: !!r.is_prop_account,
-    isActive: !!r.is_active,
-    autoTradeEnabled: !!r.auto_trade_enabled,
-    notionalUsd: Number(r.notional_usd) || 25,
-    leverage: Number(r.leverage) || 1,
-    stopLossPct: Number(r.stop_loss_pct) || 1.5,
-    takeProfitPct: Number(r.take_profit_pct) || 3,
-    symbols: String(r.symbols || "").split(",").map((s) => s.trim().toUpperCase()).filter(Boolean)
-  };
-}
-async function getHyperliquidConnection(userId) {
-  const { rows } = await pool.query(`SELECT * FROM hyperliquid_connections WHERE user_id=$1 AND is_active=true LIMIT 1`, [userId]).catch(() => ({ rows: [] }));
-  return rows[0] ? rowToConn(rows[0]) : null;
-}
-async function loadCreds(userId) {
-  const { rows } = await pool.query(`SELECT * FROM hyperliquid_connections WHERE user_id=$1 AND is_active=true LIMIT 1`, [userId]);
-  if (!rows[0]) return null;
-  const conn = rowToConn(rows[0]);
-  return { conn, creds: { agentKey: decryptApiSecret(rows[0].encrypted_agent_key), accountAddress: conn.accountAddress, vaultAddress: conn.vaultAddress, testnet: conn.isTestnet } };
-}
-function hlCoin(symbol) {
-  let s = String(symbol || "").toUpperCase();
-  if (s.startsWith(HL_PREFIX)) return s.slice(HL_PREFIX.length);
-  s = s.replace(/-PERP$/, "").replace(/[-_/]?(USDT|USDC|USD)$/, "");
-  const alias = { WETH: "ETH", WBTC: "BTC", CBBTC: "BTC" };
-  return alias[s] ?? s;
-}
-async function readAccount(userId, testnet, user, maxAgeMs = 15e3) {
-  const hit = acctCache.get(userId);
-  if (hit && Date.now() - hit.at < maxAgeMs) return hit.acct;
-  const acct = await getAccount(testnet, user);
-  acctCache.set(userId, { at: Date.now(), acct });
-  return acct;
-}
-async function hlAccountValue(userId) {
-  const c = await getHyperliquidConnection(userId);
-  if (!c) return null;
-  const a = await readAccount(userId, c.isTestnet, tradedAddress(c)).catch(() => null);
-  return a ? a.accountValue : null;
-}
-async function hlMid(userId, symbol) {
-  const c = await getHyperliquidConnection(userId);
-  return getMid(c?.isTestnet ?? false, hlCoin(symbol));
-}
-async function hlPositionOpen(userId, symbol, direction) {
-  const c = await getHyperliquidConnection(userId);
-  if (!c) return null;
-  const a = await readAccount(userId, c.isTestnet, tradedAddress(c)).catch(() => null);
-  if (!a) return null;
-  const coin = hlCoin(symbol);
-  const p = a.positions.find((x) => x.coin.toUpperCase() === coin);
-  return !!p && (direction === "long" ? p.szi > 0 : p.szi < 0);
-}
-async function hyperliquidEntry(userId, symbol, direction, riskMultiplier) {
-  const loaded = await loadCreds(userId);
-  if (!loaded) return { ok: false, skipped: true, reason: "no active Hyperliquid connection" };
-  const { conn, creds } = loaded;
-  if (!conn.autoTradeEnabled) return { ok: false, skipped: true, reason: "Hyperliquid auto-trade is OFF for this account" };
-  const coin = hlCoin(symbol);
-  if (!conn.symbols.includes(coin)) return { ok: false, skipped: true, reason: `${coin} isn't in this account's Hyperliquid symbol list (${conn.symbols.join(", ")})` };
-  const asset = (await getMeta(conn.isTestnet)).get(coin);
-  if (!asset || asset.isDelisted) return { ok: false, skipped: true, reason: `${coin} isn't a tradeable Hyperliquid perp` };
-  const user = tradedAddress(conn);
-  const acct = await readAccount(userId, conn.isTestnet, user, 0);
-  if (acct.positions.some((p) => p.coin.toUpperCase() === coin)) {
-    return { ok: false, skipped: true, reason: `already holding a ${coin} position on Hyperliquid \u2014 not adding another` };
-  }
-  const held = await pool.query(
-    `SELECT 1 FROM cryptocom_engine_trades WHERE user_id=$1 AND venue='hyperliquid' AND status IN ('open','closing') AND symbol=$2 LIMIT 1`,
-    [userId, HL_PREFIX + coin]
-  ).catch(() => null);
-  if (!held || held.rows.length) return { ok: false, skipped: true, reason: held ? `already tracking an open ${coin} trade` : `couldn't verify existing positions \u2014 skipping to be safe` };
-  const leverage = Math.max(1, Math.min(conn.leverage, asset.maxLeverage));
-  const notional = conn.notionalUsd * (riskMultiplier < 1 ? riskMultiplier : 1);
-  if (notional < 11) return { ok: false, skipped: true, reason: `order value $${notional.toFixed(2)} is below Hyperliquid's $10 minimum` };
-  const marginNeeded = notional / leverage;
-  if (acct.withdrawable < marginNeeded * 1.1) {
-    return { ok: false, skipped: true, reason: `insufficient margin: $${acct.withdrawable.toFixed(2)} available, trade needs ~$${marginNeeded.toFixed(2)} at ${leverage}x` };
-  }
-  const mid = await getMid(conn.isTestnet, coin);
-  if (!mid) return { ok: false, reason: `no Hyperliquid mid price for ${coin}` };
-  const size = roundSize(notional / mid, asset.szDecimals);
-  if (!(size > 0)) return { ok: false, skipped: true, reason: `size rounds to 0 for ${coin}` };
-  try {
-    await updateLeverage(creds, asset.index, leverage, false);
-  } catch (e) {
-    return { ok: false, reason: `couldn't set ${leverage}x isolated leverage \u2014 ${e?.message ?? e}` };
-  }
-  const isBuy = direction === "BUY";
-  const fill = await marketOrder(creds, asset, isBuy, size, mid, false);
-  acctCache.delete(userId);
-  if (!fill.filled || !(fill.totalSz > 0) || !(fill.avgPx > 0)) {
-    return { ok: false, reason: fill.error ? `order not filled \u2014 ${fill.error}` : "order not filled (IOC expired unfilled)" };
-  }
-  const isLong = isBuy;
-  const stopLoss = fill.avgPx * (isLong ? 1 - conn.stopLossPct / 100 : 1 + conn.stopLossPct / 100);
-  const takeProfit = fill.avgPx * (isLong ? 1 + conn.takeProfitPct / 100 : 1 - conn.takeProfitPct / 100);
-  let stopPlaced = false;
-  let stopNote = "";
-  try {
-    const sl = await placeStopLoss(creds, asset, isLong, fill.totalSz, stopLoss);
-    stopPlaced = sl.resting || sl.filled;
-    if (!stopPlaced) stopNote = sl.error ?? "unknown";
-  } catch (e) {
-    stopNote = e?.message ?? String(e);
-  }
-  if (!stopPlaced) console.error(`[hyperliquid] ${coin} filled but the exchange stop was NOT placed (${stopNote}) \u2014 the engine monitor is the only stop for this position`);
-  return {
-    ok: true,
-    connectionId: conn.id,
-    coin,
-    qty: fill.totalSz,
-    entryPrice: fill.avgPx,
-    orderId: String(fill.oid ?? ""),
-    stopLoss,
-    takeProfit,
-    stopPlaced,
-    reason: stopPlaced ? void 0 : `exchange stop not placed: ${stopNote}`,
-    notionalUsd: fill.totalSz * fill.avgPx,
-    testnet: conn.isTestnet
-  };
-}
-async function cancelCoinStops(creds, asset) {
-  const orders = await getOpenOrders(creds.testnet, tradedAddress(creds)).catch(() => []);
-  const mine = orders.filter((o) => String(o.coin).toUpperCase() === asset.name.toUpperCase() && o.reduceOnly && o.isTrigger);
-  if (mine.length) await cancelOrders(creds, mine.map((o) => ({ a: asset.index, o: Number(o.oid) }))).catch((e) => console.error(`[hyperliquid] couldn't cancel leftover ${asset.name} stop orders: ${e?.message ?? e}`));
-}
-async function hyperliquidExit(userId, trade) {
-  const loaded = await loadCreds(userId);
-  if (!loaded) return { ok: false, exitPrice: 0, reason: "no active Hyperliquid connection" };
-  const { conn, creds } = loaded;
-  const coin = hlCoin(trade.symbol);
-  const asset = (await getMeta(conn.isTestnet)).get(coin);
-  if (!asset) return { ok: false, exitPrice: 0, reason: `${coin} not found in Hyperliquid meta` };
-  const user = tradedAddress(conn);
-  const isLong = trade.direction === "long";
-  const acct = await readAccount(userId, conn.isTestnet, user, 0);
-  const pos = acct.positions.find((p) => p.coin.toUpperCase() === coin);
-  const held = pos && (isLong ? pos.szi > 0 : pos.szi < 0) ? Math.abs(pos.szi) : 0;
-  if (held <= 0) {
-    const since = trade.createdAt ? new Date(trade.createdAt).getTime() : Date.now() - 7 * 864e5;
-    const fills = await getFillsSince(conn.isTestnet, user, since).catch(() => null);
-    const closes = (fills ?? []).filter((f) => String(f.coin).toUpperCase() === coin && String(f.dir || "").startsWith("Close") && String(f.dir).includes(isLong ? "Long" : "Short"));
-    const sz = closes.reduce((s, f) => s + Number(f.sz || 0), 0);
-    if (sz > 0) {
-      const px = closes.reduce((s, f) => s + Number(f.px) * Number(f.sz), 0) / sz;
-      await cancelCoinStops(creds, asset);
-      return { ok: true, exitPrice: px, closedOnExchange: true };
-    }
-    return { ok: false, exitPrice: 0, phantom: fills !== null, reason: fills === null ? "couldn't read Hyperliquid fills" : `no ${coin} ${isLong ? "long" : "short"} on Hyperliquid and no closing fill found since entry` };
-  }
-  const qty = Math.min(held, trade.quantity);
-  const mid = await getMid(conn.isTestnet, coin);
-  if (!mid) return { ok: false, exitPrice: 0, reason: `no Hyperliquid mid price for ${coin}` };
-  const fill = await marketOrder(creds, asset, !isLong, qty, mid, true);
-  acctCache.delete(userId);
-  if (!fill.filled || !(fill.totalSz > 0)) return { ok: false, exitPrice: 0, reason: fill.error ? `close not filled \u2014 ${fill.error}` : "close not filled (IOC expired)" };
-  if (fill.totalSz < qty * 0.999) {
-    return { ok: false, exitPrice: fill.avgPx, reason: `close only partly filled (${fill.totalSz} of ${qty}) \u2014 retrying the rest next cycle` };
-  }
-  await cancelCoinStops(creds, asset);
-  return { ok: true, exitPrice: fill.avgPx };
-}
-var DDL3, HL_PREFIX, acctCache;
-var init_hyperliquid_executor = __esm({
-  "server/services/hyperliquid-executor.ts"() {
-    "use strict";
-    init_db();
-    init_cryptocom();
-    init_hyperliquid();
-    DDL3 = `
-CREATE TABLE IF NOT EXISTS "hyperliquid_connections" (
-  "id" serial PRIMARY KEY NOT NULL,
-  "user_id" integer NOT NULL,
-  "label" text,
-  "account_address" text NOT NULL,
-  "vault_address" text,
-  "agent_address" text NOT NULL,
-  "encrypted_agent_key" text NOT NULL,
-  "is_testnet" boolean NOT NULL DEFAULT false,
-  "is_prop_account" boolean NOT NULL DEFAULT true,
-  "is_active" boolean NOT NULL DEFAULT true,
-  "auto_trade_enabled" boolean NOT NULL DEFAULT false,
-  "notional_usd" real NOT NULL DEFAULT 25,
-  "leverage" integer NOT NULL DEFAULT 3,
-  "stop_loss_pct" real NOT NULL DEFAULT 1.5,
-  "take_profit_pct" real NOT NULL DEFAULT 3,
-  "symbols" text NOT NULL DEFAULT 'BTC,ETH,SOL',
-  "created_at" timestamp DEFAULT now() NOT NULL,
-  CONSTRAINT "hyperliquid_connections_user_unique" UNIQUE ("user_id")
-);
-`;
-    HL_PREFIX = "HL:";
-    acctCache = /* @__PURE__ */ new Map();
-  }
-});
-
 // server/services/defi-swap.ts
 var defi_swap_exports = {};
 __export(defi_swap_exports, {
@@ -10281,6 +9981,439 @@ var init_defi_swap = __esm({
       MATIC: ["WMATIC", "POL"],
       POL: ["POL", "WMATIC"]
     };
+  }
+});
+
+// server/services/runtime-state.ts
+var runtime_state_exports = {};
+__export(runtime_state_exports, {
+  ensureRuntimeStateTable: () => ensureRuntimeStateTable,
+  getRuntimeStateStrict: () => getRuntimeStateStrict,
+  insertRuntimeStateIfAbsent: () => insertRuntimeStateIfAbsent,
+  loadRuntimeState: () => loadRuntimeState,
+  saveRuntimeState: () => saveRuntimeState
+});
+function ensureRuntimeStateTable() {
+  if (!ensured) {
+    ensured = pool.query(DDL2).then(() => void 0).catch((err) => {
+      console.error("[runtime-state] ensure table failed (non-fatal):", err?.message ?? err);
+      ensured = null;
+    });
+  }
+  return ensured;
+}
+function saveRuntimeState(scope, key, value) {
+  void (async () => {
+    try {
+      await ensureRuntimeStateTable();
+      await pool.query(
+        `INSERT INTO runtime_state (scope, key, value, updated_at) VALUES ($1, $2, $3::jsonb, now())
+         ON CONFLICT (scope, key) DO UPDATE SET value = EXCLUDED.value, updated_at = now()`,
+        [scope, key, JSON.stringify(value)]
+      );
+    } catch (err) {
+      console.error(`[runtime-state] save ${scope}/${key} failed (non-fatal):`, err?.message ?? err);
+    }
+  })();
+}
+async function loadRuntimeState(scope) {
+  try {
+    await ensureRuntimeStateTable();
+    const { rows } = await pool.query(`SELECT key, value FROM runtime_state WHERE scope = $1`, [scope]);
+    return rows;
+  } catch (err) {
+    console.error(`[runtime-state] load ${scope} failed (non-fatal):`, err?.message ?? err);
+    return [];
+  }
+}
+async function getRuntimeStateStrict(scope, key) {
+  await ensureRuntimeStateTable();
+  const { rows } = await pool.query(`SELECT value FROM runtime_state WHERE scope = $1 AND key = $2`, [scope, key]);
+  return rows[0]?.value ?? null;
+}
+async function insertRuntimeStateIfAbsent(scope, key, value) {
+  await ensureRuntimeStateTable();
+  await pool.query(
+    `INSERT INTO runtime_state (scope, key, value) VALUES ($1, $2, $3::jsonb) ON CONFLICT (scope, key) DO NOTHING`,
+    [scope, key, JSON.stringify(value)]
+  );
+  return getRuntimeStateStrict(scope, key);
+}
+var DDL2, ensured;
+var init_runtime_state = __esm({
+  "server/services/runtime-state.ts"() {
+    "use strict";
+    init_db();
+    DDL2 = `
+CREATE TABLE IF NOT EXISTS "runtime_state" (
+  "scope" text NOT NULL,
+  "key" text NOT NULL,
+  "value" jsonb NOT NULL,
+  "updated_at" timestamp NOT NULL DEFAULT now(),
+  PRIMARY KEY ("scope", "key")
+);
+`;
+    ensured = null;
+  }
+});
+
+// server/services/defi-gas.ts
+var defi_gas_exports = {};
+__export(defi_gas_exports, {
+  hotWalletUsdc: () => hotWalletUsdc,
+  manageGas: () => manageGas
+});
+async function gasPriceWei(chainKey) {
+  try {
+    const r = await fetch(rpcUrlFor(chainKey), {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "eth_gasPrice", params: [] }),
+      signal: AbortSignal.timeout(1e4)
+    });
+    const j = await r.json();
+    return typeof j?.result === "string" ? BigInt(j.result) : null;
+  } catch {
+    return null;
+  }
+}
+async function nativeUsdPrice(chainKey) {
+  const coin = chainKey === "polygon" ? "MATIC" : "ETH";
+  try {
+    const { getAggregatedQuote: getAggregatedQuote2 } = await Promise.resolve().then(() => (init_crypto_market_data(), crypto_market_data_exports));
+    const q = await getAggregatedQuote2(coin);
+    return q?.best?.price ?? null;
+  } catch {
+    return null;
+  }
+}
+async function readState(key) {
+  try {
+    const { getRuntimeStateStrict: getRuntimeStateStrict2 } = await Promise.resolve().then(() => (init_runtime_state(), runtime_state_exports));
+    return await getRuntimeStateStrict2("crypto_gas", key);
+  } catch {
+    return null;
+  }
+}
+function writeState(key, v) {
+  void Promise.resolve().then(() => (init_runtime_state(), runtime_state_exports)).then((m) => m.saveRuntimeState("crypto_gas", key, v)).catch(() => {
+  });
+}
+async function manageGas(userId, chainKey, openPositions) {
+  const fail = (reason) => ({ ok: false, native: 0, perSwap: 0, swapsLeft: 0, exitBudget: 0, entriesAllowed: true, reason });
+  if (process.env.CRYPTO_GAS_MANAGER === "off") return fail("gas manager off");
+  try {
+    const { rows } = await pool.query(`SELECT encrypted_private_key AS k, address FROM defi_hot_wallets WHERE user_id=$1 AND is_active=true ORDER BY id LIMIT 1`, [userId]);
+    if (!rows.length) return fail("no hot wallet");
+    const address = String(rows[0].address);
+    const [native, gp] = await Promise.all([getWalletTokenBalance(chainKey, address, "NATIVE"), gasPriceWei(chainKey)]);
+    if (gp == null) return fail("gas price unreadable");
+    const perSwap = Number(gp) * SWAP_GAS / 1e18;
+    const swapsLeft = perSwap > 0 ? native / perSwap : Infinity;
+    const exitBudget = openPositions + 1;
+    const st = { ok: true, native, perSwap, swapsLeft, exitBudget, entriesAllowed: swapsLeft >= exitBudget + 1, reason: "" };
+    st.reason = `gas ${native.toPrecision(3)} = ${swapsLeft.toFixed(1)} swaps (exit budget ${exitBudget})`;
+    const refillLine = Math.max(REFILL_BELOW(), exitBudget * 2);
+    if (swapsLeft >= refillLine) return st;
+    if (swapsLeft < 1.5) {
+      const last = await readState(`warn:${userId}`);
+      if (!last || Date.now() - Number(last.at) > 36e5) {
+        writeState(`warn:${userId}`, { at: Date.now() });
+        st.action = "manual_topup_needed";
+      }
+      st.reason += ` \u2014 below the cost of a refill swap; send a little ${chainKey === "polygon" ? "POL" : "ETH"} on ${chainKey} to ${address}`;
+      return st;
+    }
+    const day = (/* @__PURE__ */ new Date()).toISOString().slice(0, 10);
+    const dayKey = `spent:${userId}:${day}`;
+    const spent = Number((await readState(dayKey))?.usd) || 0;
+    const lastRefill = Number((await readState(`last:${userId}`))?.at) || 0;
+    if (Date.now() - lastRefill < 36e5) {
+      st.reason += " \u2014 refill already done this hour";
+      return st;
+    }
+    const px = await nativeUsdPrice(chainKey);
+    if (!(px && px > 0)) {
+      st.reason += " \u2014 native price unknown, no refill";
+      return st;
+    }
+    const wantUsd = (TARGET_SWAPS() - swapsLeft) * perSwap * px;
+    const usd = Math.min(REFILL_USD(), DAILY_USD() - spent, Math.max(0.5, wantUsd));
+    if (!(usd >= 0.5)) {
+      st.reason += ` \u2014 daily refill cap ($${DAILY_USD()}) reached`;
+      return st;
+    }
+    const usdc = await getWalletTokenBalance(chainKey, address, DEFI_CHAINS[chainKey]?.usdc || "USDC").catch(() => 0);
+    if (usdc < usd + 1) {
+      st.reason += ` \u2014 only $${usdc.toFixed(2)} USDC, not refilling`;
+      return st;
+    }
+    writeState(`last:${userId}`, { at: Date.now() });
+    const r = await executeDefiSwap({ encryptedPrivateKey: rows[0].k, chainKey, sellToken: "USDC", buyToken: "NATIVE", sellAmountHuman: Number(usd.toFixed(2)), slippageBps: 150, confirm: true });
+    if (r.ok) {
+      writeState(dayKey, { usd: spent + usd });
+      st.action = "refilled";
+      st.reason += ` \u2014 REFILLED: swapped $${usd.toFixed(2)} USDC \u2192 ${chainKey === "polygon" ? "POL" : "ETH"} (\u2248${(usd / px / perSwap).toFixed(0)} more swaps; $${(spent + usd).toFixed(2)}/$${DAILY_USD()} today)`;
+      const n2 = await getWalletTokenBalance(chainKey, address, "NATIVE").catch(() => native);
+      st.native = n2;
+      st.swapsLeft = perSwap > 0 ? n2 / perSwap : st.swapsLeft;
+      st.entriesAllowed = st.swapsLeft >= exitBudget + 1;
+    } else {
+      st.action = "refill_failed";
+      st.reason += ` \u2014 refill swap FAILED: ${r.reason || "unknown"}`;
+    }
+    return st;
+  } catch (e) {
+    return fail(`gas check failed: ${e?.message || e}`);
+  }
+}
+async function hotWalletUsdc(userId, chainKey) {
+  try {
+    const { rows } = await pool.query(`SELECT address FROM defi_hot_wallets WHERE user_id=$1 AND is_active=true ORDER BY id LIMIT 1`, [userId]);
+    if (!rows.length) return null;
+    return await getWalletTokenBalance(chainKey, String(rows[0].address), DEFI_CHAINS[chainKey]?.usdc || "USDC");
+  } catch {
+    return null;
+  }
+}
+var SWAP_GAS, REFILL_USD, DAILY_USD, REFILL_BELOW, TARGET_SWAPS;
+var init_defi_gas = __esm({
+  "server/services/defi-gas.ts"() {
+    "use strict";
+    init_db();
+    init_defi_swap();
+    SWAP_GAS = 35e4;
+    REFILL_USD = () => Number(process.env.CRYPTO_GAS_REFILL_USD ?? 2);
+    DAILY_USD = () => Number(process.env.CRYPTO_GAS_DAILY_USD ?? 6);
+    REFILL_BELOW = () => Number(process.env.CRYPTO_GAS_REFILL_BELOW_SWAPS ?? 10);
+    TARGET_SWAPS = () => Number(process.env.CRYPTO_GAS_TARGET_SWAPS ?? 60);
+  }
+});
+
+// server/services/hyperliquid-executor.ts
+var hyperliquid_executor_exports = {};
+__export(hyperliquid_executor_exports, {
+  HL_PREFIX: () => HL_PREFIX,
+  ensureHyperliquidTable: () => ensureHyperliquidTable,
+  getHyperliquidConnection: () => getHyperliquidConnection,
+  hlAccountValue: () => hlAccountValue,
+  hlCoin: () => hlCoin,
+  hlMid: () => hlMid,
+  hlPositionOpen: () => hlPositionOpen,
+  hyperliquidEntry: () => hyperliquidEntry,
+  hyperliquidExit: () => hyperliquidExit
+});
+async function ensureHyperliquidTable() {
+  try {
+    await pool.query(DDL3);
+    console.log("[startup] Hyperliquid connections table ensured (hyperliquid_connections).");
+  } catch (err) {
+    console.error("[startup] ensureHyperliquidTable failed (non-fatal):", err?.message ?? err);
+  }
+}
+function rowToConn(r) {
+  return {
+    id: r.id,
+    userId: r.user_id,
+    label: r.label,
+    accountAddress: r.account_address,
+    vaultAddress: r.vault_address,
+    agentAddress: r.agent_address,
+    isTestnet: !!r.is_testnet,
+    isPropAccount: !!r.is_prop_account,
+    isActive: !!r.is_active,
+    autoTradeEnabled: !!r.auto_trade_enabled,
+    notionalUsd: Number(r.notional_usd) || 25,
+    leverage: Number(r.leverage) || 1,
+    stopLossPct: Number(r.stop_loss_pct) || 1.5,
+    takeProfitPct: Number(r.take_profit_pct) || 3,
+    symbols: String(r.symbols || "").split(",").map((s) => s.trim().toUpperCase()).filter(Boolean)
+  };
+}
+async function getHyperliquidConnection(userId) {
+  const { rows } = await pool.query(`SELECT * FROM hyperliquid_connections WHERE user_id=$1 AND is_active=true LIMIT 1`, [userId]).catch(() => ({ rows: [] }));
+  return rows[0] ? rowToConn(rows[0]) : null;
+}
+async function loadCreds(userId) {
+  const { rows } = await pool.query(`SELECT * FROM hyperliquid_connections WHERE user_id=$1 AND is_active=true LIMIT 1`, [userId]);
+  if (!rows[0]) return null;
+  const conn = rowToConn(rows[0]);
+  return { conn, creds: { agentKey: decryptApiSecret(rows[0].encrypted_agent_key), accountAddress: conn.accountAddress, vaultAddress: conn.vaultAddress, testnet: conn.isTestnet } };
+}
+function hlCoin(symbol) {
+  let s = String(symbol || "").toUpperCase();
+  if (s.startsWith(HL_PREFIX)) return s.slice(HL_PREFIX.length);
+  s = s.replace(/-PERP$/, "").replace(/[-_/]?(USDT|USDC|USD)$/, "");
+  const alias = { WETH: "ETH", WBTC: "BTC", CBBTC: "BTC" };
+  return alias[s] ?? s;
+}
+async function readAccount(userId, testnet, user, maxAgeMs = 15e3) {
+  const hit = acctCache.get(userId);
+  if (hit && Date.now() - hit.at < maxAgeMs) return hit.acct;
+  const acct = await getAccount(testnet, user);
+  acctCache.set(userId, { at: Date.now(), acct });
+  return acct;
+}
+async function hlAccountValue(userId) {
+  const c = await getHyperliquidConnection(userId);
+  if (!c) return null;
+  const a = await readAccount(userId, c.isTestnet, tradedAddress(c)).catch(() => null);
+  return a ? a.accountValue : null;
+}
+async function hlMid(userId, symbol) {
+  const c = await getHyperliquidConnection(userId);
+  return getMid(c?.isTestnet ?? false, hlCoin(symbol));
+}
+async function hlPositionOpen(userId, symbol, direction) {
+  const c = await getHyperliquidConnection(userId);
+  if (!c) return null;
+  const a = await readAccount(userId, c.isTestnet, tradedAddress(c)).catch(() => null);
+  if (!a) return null;
+  const coin = hlCoin(symbol);
+  const p = a.positions.find((x) => x.coin.toUpperCase() === coin);
+  return !!p && (direction === "long" ? p.szi > 0 : p.szi < 0);
+}
+async function hyperliquidEntry(userId, symbol, direction, riskMultiplier) {
+  const loaded = await loadCreds(userId);
+  if (!loaded) return { ok: false, skipped: true, reason: "no active Hyperliquid connection" };
+  const { conn, creds } = loaded;
+  if (!conn.autoTradeEnabled) return { ok: false, skipped: true, reason: "Hyperliquid auto-trade is OFF for this account" };
+  const coin = hlCoin(symbol);
+  if (!conn.symbols.includes(coin)) return { ok: false, skipped: true, reason: `${coin} isn't in this account's Hyperliquid symbol list (${conn.symbols.join(", ")})` };
+  const asset = (await getMeta(conn.isTestnet)).get(coin);
+  if (!asset || asset.isDelisted) return { ok: false, skipped: true, reason: `${coin} isn't a tradeable Hyperliquid perp` };
+  const user = tradedAddress(conn);
+  const acct = await readAccount(userId, conn.isTestnet, user, 0);
+  if (acct.positions.some((p) => p.coin.toUpperCase() === coin)) {
+    return { ok: false, skipped: true, reason: `already holding a ${coin} position on Hyperliquid \u2014 not adding another` };
+  }
+  const held = await pool.query(
+    `SELECT 1 FROM cryptocom_engine_trades WHERE user_id=$1 AND venue='hyperliquid' AND status IN ('open','closing') AND symbol=$2 LIMIT 1`,
+    [userId, HL_PREFIX + coin]
+  ).catch(() => null);
+  if (!held || held.rows.length) return { ok: false, skipped: true, reason: held ? `already tracking an open ${coin} trade` : `couldn't verify existing positions \u2014 skipping to be safe` };
+  const leverage = Math.max(1, Math.min(conn.leverage, asset.maxLeverage));
+  const notional = conn.notionalUsd * (riskMultiplier < 1 ? riskMultiplier : 1);
+  if (notional < 11) return { ok: false, skipped: true, reason: `order value $${notional.toFixed(2)} is below Hyperliquid's $10 minimum` };
+  const marginNeeded = notional / leverage;
+  if (acct.withdrawable < marginNeeded * 1.1) {
+    return { ok: false, skipped: true, reason: `insufficient margin: $${acct.withdrawable.toFixed(2)} available, trade needs ~$${marginNeeded.toFixed(2)} at ${leverage}x` };
+  }
+  const mid = await getMid(conn.isTestnet, coin);
+  if (!mid) return { ok: false, reason: `no Hyperliquid mid price for ${coin}` };
+  const size = roundSize(notional / mid, asset.szDecimals);
+  if (!(size > 0)) return { ok: false, skipped: true, reason: `size rounds to 0 for ${coin}` };
+  try {
+    await updateLeverage(creds, asset.index, leverage, false);
+  } catch (e) {
+    return { ok: false, reason: `couldn't set ${leverage}x isolated leverage \u2014 ${e?.message ?? e}` };
+  }
+  const isBuy = direction === "BUY";
+  const fill = await marketOrder(creds, asset, isBuy, size, mid, false);
+  acctCache.delete(userId);
+  if (!fill.filled || !(fill.totalSz > 0) || !(fill.avgPx > 0)) {
+    return { ok: false, reason: fill.error ? `order not filled \u2014 ${fill.error}` : "order not filled (IOC expired unfilled)" };
+  }
+  const isLong = isBuy;
+  const stopLoss = fill.avgPx * (isLong ? 1 - conn.stopLossPct / 100 : 1 + conn.stopLossPct / 100);
+  const takeProfit = fill.avgPx * (isLong ? 1 + conn.takeProfitPct / 100 : 1 - conn.takeProfitPct / 100);
+  let stopPlaced = false;
+  let stopNote = "";
+  try {
+    const sl = await placeStopLoss(creds, asset, isLong, fill.totalSz, stopLoss);
+    stopPlaced = sl.resting || sl.filled;
+    if (!stopPlaced) stopNote = sl.error ?? "unknown";
+  } catch (e) {
+    stopNote = e?.message ?? String(e);
+  }
+  if (!stopPlaced) console.error(`[hyperliquid] ${coin} filled but the exchange stop was NOT placed (${stopNote}) \u2014 the engine monitor is the only stop for this position`);
+  return {
+    ok: true,
+    connectionId: conn.id,
+    coin,
+    qty: fill.totalSz,
+    entryPrice: fill.avgPx,
+    orderId: String(fill.oid ?? ""),
+    stopLoss,
+    takeProfit,
+    stopPlaced,
+    reason: stopPlaced ? void 0 : `exchange stop not placed: ${stopNote}`,
+    notionalUsd: fill.totalSz * fill.avgPx,
+    testnet: conn.isTestnet
+  };
+}
+async function cancelCoinStops(creds, asset) {
+  const orders = await getOpenOrders(creds.testnet, tradedAddress(creds)).catch(() => []);
+  const mine = orders.filter((o) => String(o.coin).toUpperCase() === asset.name.toUpperCase() && o.reduceOnly && o.isTrigger);
+  if (mine.length) await cancelOrders(creds, mine.map((o) => ({ a: asset.index, o: Number(o.oid) }))).catch((e) => console.error(`[hyperliquid] couldn't cancel leftover ${asset.name} stop orders: ${e?.message ?? e}`));
+}
+async function hyperliquidExit(userId, trade) {
+  const loaded = await loadCreds(userId);
+  if (!loaded) return { ok: false, exitPrice: 0, reason: "no active Hyperliquid connection" };
+  const { conn, creds } = loaded;
+  const coin = hlCoin(trade.symbol);
+  const asset = (await getMeta(conn.isTestnet)).get(coin);
+  if (!asset) return { ok: false, exitPrice: 0, reason: `${coin} not found in Hyperliquid meta` };
+  const user = tradedAddress(conn);
+  const isLong = trade.direction === "long";
+  const acct = await readAccount(userId, conn.isTestnet, user, 0);
+  const pos = acct.positions.find((p) => p.coin.toUpperCase() === coin);
+  const held = pos && (isLong ? pos.szi > 0 : pos.szi < 0) ? Math.abs(pos.szi) : 0;
+  if (held <= 0) {
+    const since = trade.createdAt ? new Date(trade.createdAt).getTime() : Date.now() - 7 * 864e5;
+    const fills = await getFillsSince(conn.isTestnet, user, since).catch(() => null);
+    const closes = (fills ?? []).filter((f) => String(f.coin).toUpperCase() === coin && String(f.dir || "").startsWith("Close") && String(f.dir).includes(isLong ? "Long" : "Short"));
+    const sz = closes.reduce((s, f) => s + Number(f.sz || 0), 0);
+    if (sz > 0) {
+      const px = closes.reduce((s, f) => s + Number(f.px) * Number(f.sz), 0) / sz;
+      await cancelCoinStops(creds, asset);
+      return { ok: true, exitPrice: px, closedOnExchange: true };
+    }
+    return { ok: false, exitPrice: 0, phantom: fills !== null, reason: fills === null ? "couldn't read Hyperliquid fills" : `no ${coin} ${isLong ? "long" : "short"} on Hyperliquid and no closing fill found since entry` };
+  }
+  const qty = Math.min(held, trade.quantity);
+  const mid = await getMid(conn.isTestnet, coin);
+  if (!mid) return { ok: false, exitPrice: 0, reason: `no Hyperliquid mid price for ${coin}` };
+  const fill = await marketOrder(creds, asset, !isLong, qty, mid, true);
+  acctCache.delete(userId);
+  if (!fill.filled || !(fill.totalSz > 0)) return { ok: false, exitPrice: 0, reason: fill.error ? `close not filled \u2014 ${fill.error}` : "close not filled (IOC expired)" };
+  if (fill.totalSz < qty * 0.999) {
+    return { ok: false, exitPrice: fill.avgPx, reason: `close only partly filled (${fill.totalSz} of ${qty}) \u2014 retrying the rest next cycle` };
+  }
+  await cancelCoinStops(creds, asset);
+  return { ok: true, exitPrice: fill.avgPx };
+}
+var DDL3, HL_PREFIX, acctCache;
+var init_hyperliquid_executor = __esm({
+  "server/services/hyperliquid-executor.ts"() {
+    "use strict";
+    init_db();
+    init_cryptocom();
+    init_hyperliquid();
+    DDL3 = `
+CREATE TABLE IF NOT EXISTS "hyperliquid_connections" (
+  "id" serial PRIMARY KEY NOT NULL,
+  "user_id" integer NOT NULL,
+  "label" text,
+  "account_address" text NOT NULL,
+  "vault_address" text,
+  "agent_address" text NOT NULL,
+  "encrypted_agent_key" text NOT NULL,
+  "is_testnet" boolean NOT NULL DEFAULT false,
+  "is_prop_account" boolean NOT NULL DEFAULT true,
+  "is_active" boolean NOT NULL DEFAULT true,
+  "auto_trade_enabled" boolean NOT NULL DEFAULT false,
+  "notional_usd" real NOT NULL DEFAULT 25,
+  "leverage" integer NOT NULL DEFAULT 3,
+  "stop_loss_pct" real NOT NULL DEFAULT 1.5,
+  "take_profit_pct" real NOT NULL DEFAULT 3,
+  "symbols" text NOT NULL DEFAULT 'BTC,ETH,SOL',
+  "created_at" timestamp DEFAULT now() NOT NULL,
+  CONSTRAINT "hyperliquid_connections_user_unique" UNIQUE ("user_id")
+);
+`;
+    HL_PREFIX = "HL:";
+    acctCache = /* @__PURE__ */ new Map();
   }
 });
 
@@ -29994,6 +30127,19 @@ function computeTrailFloorR(cfg, peakR) {
 async function monitorOpenPositions(userId, cfg) {
   const openTrades = await storage.getOpenCryptocomEngineTrades(userId);
   if (openTrades.length === 0) return;
+  const _defiOpen = openTrades.filter((t) => t.venue === "defi").length;
+  if (_defiOpen > 0) {
+    try {
+      const { manageGas: manageGas2 } = await Promise.resolve().then(() => (init_defi_gas(), defi_gas_exports));
+      const g = await manageGas2(userId, cfg?.defiChain || "base", _defiOpen);
+      if (g.ok) _gasStatus.set(userId, { entriesAllowed: g.entriesAllowed, reason: g.reason, at: Date.now() });
+      if (g.action) {
+        await storage.createCryptocomEngineActivity({ userId, symbol: "GAS", decision: g.action === "refilled" ? "signal" : g.action === "refill_failed" ? "error" : "skipped", strategy: "gas_manager", reasoning: `\u26FD ${g.reason}`, score: null, price: null, dailyChangePercent: null, source: "cryptocom" }).catch(() => {
+        });
+      }
+    } catch {
+    }
+  }
   for (const trade of openTrades) {
     try {
       const isHl = trade.venue === "hyperliquid";
@@ -30553,6 +30699,60 @@ async function executeSignalSingle(service, connection, userId, symbol, result, 
     try {
       const { defiEntryBuy: defiEntryBuy2 } = await Promise.resolve().then(() => (init_defi_executor(), defi_executor_exports));
       const disc = getDefiUniverseEntry(symbol, chain);
+      {
+        let g = _gasStatus.get(userId);
+        if (!g || Date.now() - g.at > 10 * 6e4) {
+          const { manageGas: manageGas2 } = await Promise.resolve().then(() => (init_defi_gas(), defi_gas_exports));
+          const openN = (await storage.getOpenCryptocomEngineTrades(userId).catch(() => [])).filter((t) => t.venue === "defi").length;
+          const st = await manageGas2(userId, chain, openN);
+          if (st.ok) {
+            g = { entriesAllowed: st.entriesAllowed, reason: st.reason, at: Date.now() };
+            _gasStatus.set(userId, g);
+          }
+        }
+        if (g && !g.entriesAllowed) {
+          await storage.createCryptocomEngineActivity({ userId, symbol, decision: "skipped", strategy: result.strategy, reasoning: `${symbol}: entry held \u2014 \u26FD ${g.reason}. Remaining gas is reserved for exits.`, score: result.score, price: result.price, dailyChangePercent: result.dailyChangePercent, source: "cryptocom" }).catch(() => {
+          });
+          return;
+        }
+      }
+      if (process.env.CRYPTO_ROTATE !== "off" && (result.score ?? 0) >= ROTATE_MIN_SCORE()) {
+        try {
+          const { hotWalletUsdc: hotWalletUsdc2 } = await Promise.resolve().then(() => (init_defi_gas(), defi_gas_exports));
+          const usdc = await hotWalletUsdc2(userId, chain);
+          if (usdc != null && usdc < notionalD) {
+            const { getDefiPrice: getDefiPrice2 } = await Promise.resolve().then(() => (init_defi_market_data(), defi_market_data_exports));
+            const open = (await storage.getOpenCryptocomEngineTrades(userId)).filter((t) => t.venue === "defi" && t.symbol !== symbol);
+            const cands = [];
+            for (const t of open) {
+              const ageH = (Date.now() - new Date(t.createdAt ?? 0).getTime()) / 36e5;
+              if (!(ageH >= ROTATE_AFTER_H())) continue;
+              const px = t.poolAddress ? await getDefiPrice2(chain, t.poolAddress).catch(() => null) ?? 0 : 0;
+              if (!(px > 0) || !(t.entryPrice > 0)) continue;
+              const move = (px - t.entryPrice) / t.entryPrice * 100;
+              if (Math.abs(move) >= ROTATE_FLAT_PCT()) continue;
+              const [t1, t4] = await Promise.all([tfTrend(t.symbol, "1h", chain), tfTrend(t.symbol, "4h", chain)]);
+              if (t1 === "BULLISH" && t4 === "BULLISH") continue;
+              cands.push({ t, px, move, ageH });
+            }
+            cands.sort((a, b) => Math.abs(a.move) - Math.abs(b.move) || b.ageH - a.ageH);
+            const pick = cands[0];
+            if (pick) {
+              await storage.createCryptocomEngineActivity({ userId, symbol: pick.t.symbol, decision: "exit", strategy: pick.t.strategy, reasoning: `${pick.t.symbol}: ROTATION \u2014 open ${pick.ageH.toFixed(0)}h, only ${pick.move >= 0 ? "+" : ""}${pick.move.toFixed(2)}% and no H1+H4 uptrend; selling to fund ${symbol} (score ${result.score}, $${usdc.toFixed(2)} USDC < $${notionalD.toFixed(2)} needed).`, score: null, price: pick.px, dailyChangePercent: null, source: "cryptocom" }).catch(() => {
+              });
+              await closePosition(userId, pick.t, pick.px, "rotation");
+              const after = await hotWalletUsdc2(userId, chain);
+              if (after == null || after < notionalD) {
+                await storage.createCryptocomEngineActivity({ userId, symbol, decision: "skipped", strategy: result.strategy, reasoning: `${symbol}: rotation sale did not free enough USDC yet ($${(after ?? 0).toFixed(2)}) \u2014 entry deferred.`, score: result.score, price: result.price, dailyChangePercent: result.dailyChangePercent, source: "cryptocom" }).catch(() => {
+                });
+                return;
+              }
+            }
+          }
+        } catch (e) {
+          console.error("[cryptocom-scanner] rotation check failed (non-fatal):", e?.message || e);
+        }
+      }
       {
         const { pool: pool2 } = await Promise.resolve().then(() => (init_db(), db_exports));
         const held = await pool2.query(
@@ -31133,7 +31333,7 @@ function startCryptocomEngineScanner() {
   };
   tryStart();
 }
-var MIN_SCAN_INTERVAL_MS, lastScanAt, MAX_SYMBOLS_PER_CYCLE, scanCursor, defiUniverse, CRYPTO_SL_ATR_MULT, CRYPTO_MIN_RR, _modelUniverse, STRATEGY_RUNNERS, AUTO_STRATEGIES, sessionPeakEquity, EXIT_BUDGET_MS, ENTRY_BUDGET_MS, userInFlight, _cycleNo, USER_CONCURRENCY, started, scanInFlight, _skippedTicks, _scansCompleted, WORKER_ID, _hbBooted, CRYPTO_RUN_LOCK_KEY, _holdsRunLock, STALE_AFTER_MS;
+var MIN_SCAN_INTERVAL_MS, lastScanAt, MAX_SYMBOLS_PER_CYCLE, scanCursor, defiUniverse, CRYPTO_SL_ATR_MULT, CRYPTO_MIN_RR, _modelUniverse, _gasStatus, ROTATE_AFTER_H, ROTATE_FLAT_PCT, ROTATE_MIN_SCORE, STRATEGY_RUNNERS, AUTO_STRATEGIES, sessionPeakEquity, EXIT_BUDGET_MS, ENTRY_BUDGET_MS, userInFlight, _cycleNo, USER_CONCURRENCY, started, scanInFlight, _skippedTicks, _scansCompleted, WORKER_ID, _hbBooted, CRYPTO_RUN_LOCK_KEY, _holdsRunLock, STALE_AFTER_MS;
 var init_cryptocom_scanner = __esm({
   "server/services/cryptocom-scanner.ts"() {
     "use strict";
@@ -31153,6 +31353,10 @@ var init_cryptocom_scanner = __esm({
     CRYPTO_SL_ATR_MULT = Number(process.env.CRYPTO_SL_ATR_MULT ?? 1.5);
     CRYPTO_MIN_RR = Number(process.env.CRYPTO_MIN_RR ?? 2);
     _modelUniverse = /* @__PURE__ */ new Map();
+    _gasStatus = /* @__PURE__ */ new Map();
+    ROTATE_AFTER_H = () => Number(process.env.CRYPTO_ROTATE_AFTER_HOURS ?? 24);
+    ROTATE_FLAT_PCT = () => Number(process.env.CRYPTO_ROTATE_FLAT_PCT ?? 2);
+    ROTATE_MIN_SCORE = () => Number(process.env.CRYPTO_ROTATE_MIN_SCORE ?? 75);
     STRATEGY_RUNNERS = {
       trend_following: runTrendFollowing,
       momentum: runMomentum,

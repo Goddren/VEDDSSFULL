@@ -129,6 +129,11 @@ const CRYPTO_SL_ATR_MULT = Number(process.env.CRYPTO_SL_ATR_MULT ?? 1.5);
 const CRYPTO_MIN_RR = Number(process.env.CRYPTO_MIN_RR ?? 2);
 // Last DeFi universe + chain per user, for the Model 1 / Model 2 pass.
 const _modelUniverse = new Map<number, { symbols: string[]; chain: string }>();
+// Gas budget per user from this cycle's exit pass (defi-gas.ts).
+const _gasStatus = new Map<number, { entriesAllowed: boolean; reason: string; at: number }>();
+const ROTATE_AFTER_H = () => Number(process.env.CRYPTO_ROTATE_AFTER_HOURS ?? 24);
+const ROTATE_FLAT_PCT = () => Number(process.env.CRYPTO_ROTATE_FLAT_PCT ?? 2);
+const ROTATE_MIN_SCORE = () => Number(process.env.CRYPTO_ROTATE_MIN_SCORE ?? 75);
 
 // ── Strategy: trend/momentum confluence — same read as the FX/futures rule-
 // based engines (ADX trend strength, RSI zone, MACD histogram direction). ───
@@ -584,6 +589,19 @@ function computeTrailFloorR(cfg: CryptocomEngineConfig, peakR: number): number {
 async function monitorOpenPositions(userId: number, cfg: CryptocomEngineConfig): Promise<void> {
   const openTrades = await storage.getOpenCryptocomEngineTrades(userId);
   if (openTrades.length === 0) return;
+
+  // Gas first: exits must always be able to pay for their swap.
+  const _defiOpen = openTrades.filter((t: any) => t.venue === 'defi').length;
+  if (_defiOpen > 0) {
+    try {
+      const { manageGas } = await import('./defi-gas');
+      const g = await manageGas(userId, (cfg as any)?.defiChain || 'base', _defiOpen);
+      if (g.ok) _gasStatus.set(userId, { entriesAllowed: g.entriesAllowed, reason: g.reason, at: Date.now() });
+      if (g.action) {
+        await storage.createCryptocomEngineActivity({ userId, symbol: 'GAS', decision: g.action === 'refilled' ? 'signal' : g.action === 'refill_failed' ? 'error' : 'skipped', strategy: 'gas_manager', reasoning: `⛽ ${g.reason}`, score: null, price: null, dailyChangePercent: null, source: 'cryptocom' }).catch(() => {});
+      }
+    } catch { /* gas manager is advisory; exits proceed as before */ }
+  }
 
   for (const trade of openTrades) {
     try {
@@ -1283,6 +1301,62 @@ async function executeSignalSingle(service: CryptoComService, connection: Crypto
       // unrelated Base tokens share tickers with major assets, and buying the
       // wrong contract is unrecoverable.
       const disc = getDefiUniverseEntry(symbol, chain);
+
+      // ── Gas budget: entries only when exits are covered ──────────────────
+      {
+        let g = _gasStatus.get(userId);
+        if (!g || Date.now() - g.at > 10 * 60_000) {
+          const { manageGas } = await import('./defi-gas');
+          const openN = (await storage.getOpenCryptocomEngineTrades(userId).catch(() => [] as any[])).filter((t: any) => t.venue === 'defi').length;
+          const st = await manageGas(userId, chain, openN);
+          if (st.ok) { g = { entriesAllowed: st.entriesAllowed, reason: st.reason, at: Date.now() }; _gasStatus.set(userId, g); }
+        }
+        if (g && !g.entriesAllowed) {
+          await storage.createCryptocomEngineActivity({ userId, symbol, decision: 'skipped', strategy: result.strategy, reasoning: `${symbol}: entry held — ⛽ ${g.reason}. Remaining gas is reserved for exits.`, score: result.score, price: result.price, dailyChangePercent: result.dailyChangePercent, source: 'cryptocom' }).catch(() => {});
+          return;
+        }
+      }
+
+      // ── Rotation: free capital from the most stagnant position ───────────
+      // When a strong signal can't be funded, sell the position that has
+      // gone nowhere longest (>= CRYPTO_ROTATE_AFTER_HOURS, |move| <
+      // CRYPTO_ROTATE_FLAT_PCT, and NOT still in an H1+H4 uptrend), then
+      // buy the new one. CRYPTO_ROTATE=off disables.
+      if (process.env.CRYPTO_ROTATE !== 'off' && (result.score ?? 0) >= ROTATE_MIN_SCORE()) {
+        try {
+          const { hotWalletUsdc } = await import('./defi-gas');
+          const usdc = await hotWalletUsdc(userId, chain);
+          if (usdc != null && usdc < notionalD) {
+            const { getDefiPrice } = await import('./defi-market-data');
+            const open = (await storage.getOpenCryptocomEngineTrades(userId)).filter((t: any) => t.venue === 'defi' && t.symbol !== symbol);
+            const cands: Array<{ t: any; px: number; move: number; ageH: number }> = [];
+            for (const t of open) {
+              const ageH = (Date.now() - new Date((t as any).createdAt ?? 0).getTime()) / 3_600_000;
+              if (!(ageH >= ROTATE_AFTER_H())) continue;
+              const px = (t as any).poolAddress ? ((await getDefiPrice(chain, (t as any).poolAddress).catch(() => null)) ?? 0) : 0;
+              if (!(px > 0) || !(t.entryPrice > 0)) continue;
+              const move = ((px - t.entryPrice) / t.entryPrice) * 100;
+              if (Math.abs(move) >= ROTATE_FLAT_PCT()) continue;
+              const [t1, t4] = await Promise.all([tfTrend(t.symbol, '1h', chain), tfTrend(t.symbol, '4h', chain)]);
+              if (t1 === 'BULLISH' && t4 === 'BULLISH') continue; // still trending its way — keep it
+              cands.push({ t, px, move, ageH });
+            }
+            cands.sort((a, b) => Math.abs(a.move) - Math.abs(b.move) || b.ageH - a.ageH);
+            const pick = cands[0];
+            if (pick) {
+              await storage.createCryptocomEngineActivity({ userId, symbol: pick.t.symbol, decision: 'exit', strategy: pick.t.strategy, reasoning: `${pick.t.symbol}: ROTATION — open ${pick.ageH.toFixed(0)}h, only ${pick.move >= 0 ? '+' : ''}${pick.move.toFixed(2)}% and no H1+H4 uptrend; selling to fund ${symbol} (score ${result.score}, $${usdc.toFixed(2)} USDC < $${notionalD.toFixed(2)} needed).`, score: null, price: pick.px, dailyChangePercent: null, source: 'cryptocom' }).catch(() => {});
+              await closePosition(userId, pick.t, pick.px, 'rotation');
+              const after = await hotWalletUsdc(userId, chain);
+              if (after == null || after < notionalD) {
+                await storage.createCryptocomEngineActivity({ userId, symbol, decision: 'skipped', strategy: result.strategy, reasoning: `${symbol}: rotation sale did not free enough USDC yet ($${(after ?? 0).toFixed(2)}) — entry deferred.`, score: result.score, price: result.price, dailyChangePercent: result.dailyChangePercent, source: 'cryptocom' }).catch(() => {});
+                return;
+              }
+            }
+          }
+        } catch (e: any) {
+          console.error('[cryptocom-scanner] rotation check failed (non-fatal):', e?.message || e);
+        }
+      }
 
       // One position per token. Nothing stopped a re-entry into a token already
       // held: on 2026-10-04 the engine re-bought POD, AERO, WETH and MORPHO while
