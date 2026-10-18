@@ -9471,7 +9471,13 @@ async function executeDefiSwap(opts) {
       const erc = new ethers.Contract(sellToken, ERC20_ABI, provider);
       decimals = Number(await erc.decimals());
     }
-    const sellAmount = ethers.parseUnits(String(opts.sellAmountHuman), decimals).toString();
+    let _amt = String(opts.sellAmountHuman);
+    if (/e/i.test(_amt)) _amt = Number(opts.sellAmountHuman).toFixed(Math.min(decimals, 20));
+    {
+      const [ip, fp = ""] = _amt.split(".");
+      if (fp.length > decimals) _amt = decimals > 0 ? `${ip}.${fp.slice(0, decimals)}` : ip;
+    }
+    const sellAmount = ethers.parseUnits(_amt, decimals).toString();
     let quote = await zeroXQuote(chain.chainId, {
       sellToken,
       buyToken,

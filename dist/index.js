@@ -40480,7 +40480,13 @@ async function executeDefiSwap(opts) {
       const erc = new ethers.Contract(sellToken, ERC20_ABI, provider);
       decimals = Number(await erc.decimals());
     }
-    const sellAmount = ethers.parseUnits(String(opts.sellAmountHuman), decimals).toString();
+    let _amt = String(opts.sellAmountHuman);
+    if (/e/i.test(_amt)) _amt = Number(opts.sellAmountHuman).toFixed(Math.min(decimals, 20));
+    {
+      const [ip, fp = ""] = _amt.split(".");
+      if (fp.length > decimals) _amt = decimals > 0 ? `${ip}.${fp.slice(0, decimals)}` : ip;
+    }
+    const sellAmount = ethers.parseUnits(_amt, decimals).toString();
     let quote = await zeroXQuote(chain.chainId, {
       sellToken,
       buyToken,
@@ -60098,9 +60104,9 @@ async function getStopOrdersForUser(userId, filters = {}) {
 init_schema();
 
 // server/build-info.ts
-var BUILD_COMMIT = "9d3bc381-dirty";
+var BUILD_COMMIT = "d366570a-dirty";
 var BUILD_BRANCH = "main";
-var BUILT_AT = "2026-10-18T01:22:12.707Z";
+var BUILT_AT = "2026-10-18T02:20:00.558Z";
 
 // server/stripe.ts
 init_db();
