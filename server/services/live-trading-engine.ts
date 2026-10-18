@@ -1755,12 +1755,14 @@ async function scanMarkets(userId: number): Promise<void> {
         (state as any)._lastATR[symbol] = atr;
 
         // ── T003: Pre-scan brain enforcement (session/hour/ATR rules) ──
+        // The brain's session/hour block used to SKIP the pair here — before
+        // analysis — so a blocked pair lost its day type, its Model 1/2 ideas
+        // and fresh data for managing an open position (BTCUSD/GBPJPY vanished
+        // from every late-NY scan). Now the pair is still analysed; the same
+        // rules block NEW ENTRIES via the post-GPT enforcement in processDecision.
         const preScanEnforcement = applyBrainEnforcement(userId, symbol, null, atr, undefined);
-        if (!preScanEnforcement.allowed) {
-          addActivity(userId, { type: 'info', symbol, message: preScanEnforcement.reason });
-          await new Promise(r => setTimeout(r, 8500));
-          continue;
-        }
+        const _entryBlockedReason = preScanEnforcement.allowed ? null : preScanEnforcement.reason;
+        if (_entryBlockedReason) addActivity(userId, { type: 'info', symbol, message: `${_entryBlockedReason} (entries only — still analysed for open positions and models)` });
 
         // ── Build Markov transition matrix for this symbol ───────────────
         // Runs synchronously on confirmedBars — pure math, no I/O, ~1ms per pair.
@@ -1770,6 +1772,7 @@ async function scanMarkets(userId: number): Promise<void> {
         } catch { /* non-fatal — engine continues without Markov if it fails */ }
 
         marketAnalysis[symbol] = {
+          ...(_entryBlockedReason ? { entriesBlocked: `Brain block this session/hour — manage open positions only, NO new entries: ${_entryBlockedReason}` } : {}),
           currentPrice,
           change,
           trend,

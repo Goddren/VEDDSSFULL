@@ -25258,16 +25258,14 @@ async function scanMarkets(userId) {
         if (!state._lastATR) state._lastATR = {};
         state._lastATR[symbol] = atr2;
         const preScanEnforcement = applyBrainEnforcement(userId, symbol, null, atr2, void 0);
-        if (!preScanEnforcement.allowed) {
-          addActivity(userId, { type: "info", symbol, message: preScanEnforcement.reason });
-          await new Promise((r) => setTimeout(r, 8500));
-          continue;
-        }
+        const _entryBlockedReason = preScanEnforcement.allowed ? null : preScanEnforcement.reason;
+        if (_entryBlockedReason) addActivity(userId, { type: "info", symbol, message: `${_entryBlockedReason} (entries only \u2014 still analysed for open positions and models)` });
         try {
           buildTransitionMatrix(symbol, confirmedBars.map((b) => ({ open: b.open, close: b.close })));
         } catch {
         }
         marketAnalysis[symbol] = {
+          ..._entryBlockedReason ? { entriesBlocked: `Brain block this session/hour \u2014 manage open positions only, NO new entries: ${_entryBlockedReason}` } : {},
           currentPrice,
           change,
           trend,
@@ -60744,9 +60742,9 @@ async function getStopOrdersForUser(userId, filters = {}) {
 init_schema();
 
 // server/build-info.ts
-var BUILD_COMMIT = "1a1eb416-dirty";
+var BUILD_COMMIT = "cd39266e-dirty";
 var BUILD_BRANCH = "main";
-var BUILT_AT = "2026-10-18T20:23:04.205Z";
+var BUILT_AT = "2026-10-18T21:29:53.015Z";
 
 // server/stripe.ts
 init_db();
