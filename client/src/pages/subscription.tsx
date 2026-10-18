@@ -307,6 +307,24 @@ export default function SubscriptionPage() {
     }
   };
 
+  // Whop checkout (shown only for tiers configured on the server)
+  const { data: whopCfg } = useQuery<{ enabled: boolean; planIds: number[] }>({ queryKey: ['/api/whop/config'] });
+  const [whopLoading, setWhopLoading] = useState<number | null>(null);
+  const handleWhopCheckout = async (planId: number) => {
+    if (!user) { toast({ title: 'Please log in first', variant: 'destructive' }); return; }
+    try {
+      setWhopLoading(planId);
+      const res = await apiRequest('POST', '/api/whop/checkout', { planId });
+      const out = await res.json();
+      if (out.checkoutUrl) window.location.href = out.checkoutUrl;
+      else throw new Error(out.error || 'No checkout link returned');
+    } catch (error) {
+      toast({ title: 'Whop checkout failed', description: error instanceof Error ? error.message : 'An error occurred.', variant: 'destructive' });
+    } finally {
+      setWhopLoading(null);
+    }
+  };
+
   const handleCancelSubscription = async () => {
     try {
       setIsLoading(true);
@@ -531,6 +549,18 @@ export default function SubscriptionPage() {
                           Pay USD — {formatPrice(plan.price)}{plan.id === 4 ? '/yr' : '/mo'}
                         </Button>
                       </a>
+                      {whopCfg?.enabled && whopCfg.planIds.includes(plan.id) && (
+                        <Button
+                          variant="outline"
+                          className="w-full font-semibold gap-2 border-orange-500/40 text-orange-400 hover:bg-orange-500/10"
+                          onClick={() => handleWhopCheckout(plan.id)}
+                          disabled={whopLoading === plan.id}
+                          data-testid={`button-whop-${plan.id}`}
+                        >
+                          {whopLoading === plan.id ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
+                          Pay with Whop — {formatPrice(plan.price)}{plan.id === 4 ? '/yr' : '/mo'}
+                        </Button>
+                      )}
                       {/* VEDD Payment explanation */}
                       <div className="mt-2 p-2.5 rounded-xl bg-amber-500/05 border border-amber-500/15 text-xs">
                         <p className="text-amber-400 font-semibold mb-1">Two ways to pay with VEDD:</p>

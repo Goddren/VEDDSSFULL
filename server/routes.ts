@@ -3695,6 +3695,42 @@ Respond ONLY in valid JSON format with these exact keys:
   // ===== Lemon Squeezy USD Subscription Endpoints =====
 
   // Create a Lemon Squeezy checkout session for a plan
+  // ── Whop payments (alongside Stripe / LemonSqueezy) — see server/whop.ts ──
+  app.get('/api/whop/config', async (_req: Request, res: Response) => {
+    const { whopEnabled, whopPlanMap } = await import('./whop');
+    res.json({ enabled: whopEnabled(), planIds: Object.keys(whopPlanMap()).map(Number) });
+  });
+  app.post('/api/whop/checkout', async (req: Request, res: Response) => {
+    if (!req.isAuthenticated()) return res.status(401).json({ error: 'Authentication required' });
+    try {
+      const planId = Number(req.body?.planId);
+      if (![2, 3, 4].includes(planId)) return res.status(400).json({ error: 'Invalid plan' });
+      const { createWhopCheckout } = await import('./whop');
+      const out = await createWhopCheckout((req.user as User).id, planId);
+      res.json({ checkoutUrl: out.url });
+    } catch (e: any) {
+      console.error('[Whop] checkout error:', e?.message || e);
+      res.status(500).json({ error: e?.message || 'Whop checkout failed' });
+    }
+  });
+  app.post('/api/whop/webhook', async (req: Request, res: Response) => {
+    const rawBody = (req as any).rawBody as Buffer | undefined;
+    const { verifyWhopWebhook, handleWhopEvent } = await import('./whop');
+    // Signature is mandatory — an unsigned event could grant a paid plan.
+    if (!rawBody || !verifyWhopWebhook(rawBody, req.headers as any)) {
+      console.error('[Whop webhook] REJECTED: missing/invalid signature or stale timestamp');
+      return res.status(400).send('invalid signature');
+    }
+    try {
+      const out = await handleWhopEvent(String(req.headers['webhook-id']), req.body);
+      console.log(`[Whop webhook] ${req.body?.type}: ${out.note}`);
+      res.json({ received: true });
+    } catch (e: any) {
+      console.error('[Whop webhook] handler error:', e?.message || e);
+      res.status(500).send('handler error'); // Whop retries
+    }
+  });
+
   app.post('/api/lemonsqueezy/checkout', async (req: Request, res: Response) => {
     try {
       if (!req.isAuthenticated()) {

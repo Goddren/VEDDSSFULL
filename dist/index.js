@@ -37139,6 +37139,173 @@ var init_solana_scanner = __esm({
   }
 });
 
+// server/whop.ts
+var whop_exports = {};
+__export(whop_exports, {
+  createWhopCheckout: () => createWhopCheckout,
+  ensureWhopSchema: () => ensureWhopSchema,
+  handleWhopEvent: () => handleWhopEvent,
+  verifyWhopWebhook: () => verifyWhopWebhook,
+  whopEnabled: () => whopEnabled,
+  whopPlanMap: () => whopPlanMap
+});
+import crypto8 from "crypto";
+function whopPlanMap() {
+  const out = {};
+  for (const id of [2, 3, 4]) {
+    const v = process.env[`WHOP_PLAN_${NAMED[id]}`] || process.env[`WHOP_PLAN_${id}`];
+    if (v && /^plan_/.test(v.trim())) out[id] = v.trim();
+  }
+  return out;
+}
+function whopEnabled() {
+  return !!process.env.WHOP_API_KEY && Object.keys(whopPlanMap()).length > 0;
+}
+function ensureWhopSchema() {
+  if (!ensured3) {
+    ensured3 = pool.query(`
+      ALTER TABLE users ADD COLUMN IF NOT EXISTS whop_membership_id text;
+      ALTER TABLE users ADD COLUMN IF NOT EXISTS whop_user_id text;
+      CREATE TABLE IF NOT EXISTS whop_webhook_events (
+        id text PRIMARY KEY,
+        type text NOT NULL,
+        vedd_user_id integer,
+        received_at timestamp NOT NULL DEFAULT now()
+      );
+    `).then(() => void 0).catch((e) => {
+      console.error("[whop] schema ensure failed:", e?.message || e);
+      ensured3 = null;
+    });
+  }
+  return ensured3;
+}
+async function createWhopCheckout(userId, veddPlanId) {
+  const key = process.env.WHOP_API_KEY;
+  const planId = whopPlanMap()[veddPlanId];
+  if (!key) throw new Error("Whop is not configured (WHOP_API_KEY missing)");
+  if (!planId) throw new Error(`No Whop plan configured for this tier (set WHOP_PLAN_${NAMED[veddPlanId] || veddPlanId})`);
+  const res = await fetch(`${API_BASE()}/checkout_configurations`, {
+    method: "POST",
+    headers: { Authorization: `Bearer ${key}`, "Content-Type": "application/json" },
+    body: JSON.stringify({
+      mode: "payment",
+      plan_id: planId,
+      metadata: { vedd_user_id: String(userId), vedd_plan_id: String(veddPlanId) },
+      redirect_url: `${SITE()}/subscription?whop=success`
+    }),
+    signal: AbortSignal.timeout(15e3)
+  });
+  const text2 = await res.text();
+  if (!res.ok) throw new Error(`Whop checkout failed (${res.status}): ${text2.slice(0, 300)}`);
+  const j = JSON.parse(text2);
+  const pu = String(j?.purchase_url || "");
+  if (!pu) throw new Error("Whop returned no purchase_url");
+  return { id: String(j.id || ""), url: /^https?:\/\//.test(pu) ? pu : `https://whop.com${pu.startsWith("/") ? "" : "/"}${pu}` };
+}
+function verifyWhopWebhook(rawBody, headers) {
+  const secret = process.env.WHOP_WEBHOOK_SECRET;
+  const id = String(headers["webhook-id"] || "");
+  const ts = String(headers["webhook-timestamp"] || "");
+  const sigHeader = String(headers["webhook-signature"] || "");
+  if (!secret || !id || !ts || !sigHeader || !rawBody) return false;
+  const tsNum = Number(ts);
+  if (!Number.isFinite(tsNum) || Math.abs(Date.now() / 1e3 - tsNum) > 300) return false;
+  const signed = Buffer.concat([Buffer.from(`${id}.${ts}.`, "utf8"), rawBody]);
+  const keys = [Buffer.from(secret, "utf8")];
+  const m = secret.match(/^(?:ws|whsec)_(.+)$/);
+  if (m) {
+    keys.push(Buffer.from(m[1], "utf8"));
+    try {
+      const b = Buffer.from(m[1], "base64");
+      if (b.length) keys.push(b);
+    } catch {
+    }
+  }
+  const provided = sigHeader.split(" ").map((p) => p.trim()).filter(Boolean).map((p) => p.includes(",") ? p.split(",")[1] : p);
+  for (const k of keys) {
+    const expected = crypto8.createHmac("sha256", k).update(signed).digest("base64");
+    const eb = Buffer.from(expected);
+    for (const p of provided) {
+      const pb = Buffer.from(p);
+      if (pb.length === eb.length && crypto8.timingSafeEqual(pb, eb)) return true;
+    }
+  }
+  return false;
+}
+async function handleWhopEvent(webhookId, evt) {
+  await ensureWhopSchema();
+  const type = String(evt?.type || "");
+  const data = evt?.data || {};
+  const meta = data?.metadata || data?.membership?.metadata || {};
+  let userId = Number(meta?.vedd_user_id) || null;
+  const veddPlanId = Number(meta?.vedd_plan_id) || null;
+  const membershipId = (type.startsWith("membership") ? data?.id : data?.membership?.id || data?.membership_id) || null;
+  const whopUserId = data?.user?.id || data?.user_id || null;
+  if (!userId && membershipId) {
+    const r = await pool.query(`SELECT id FROM users WHERE whop_membership_id=$1 LIMIT 1`, [membershipId]).catch(() => ({ rows: [] }));
+    userId = r.rows[0]?.id ?? null;
+  }
+  const ins = await pool.query(`INSERT INTO whop_webhook_events (id, type, vedd_user_id) VALUES ($1,$2,$3) ON CONFLICT (id) DO NOTHING RETURNING id`, [webhookId, type, userId]);
+  if (!ins.rows.length) return { handled: false, note: "duplicate delivery" };
+  if (!userId) return { handled: false, note: `no VEDD user for ${type}` };
+  const periodEnd = data?.renewal_period_end || data?.expires_at || data?.current_period_end || null;
+  const toDate = (v) => v == null ? null : new Date(typeof v === "number" && v < 1e12 ? v * 1e3 : v);
+  const status = String(data?.status || "").toLowerCase();
+  const activate = async () => {
+    await pool.query(
+      `UPDATE users SET subscription_status='active',
+              subscription_plan_id = COALESCE($2, subscription_plan_id),
+              whop_membership_id = COALESCE($3, whop_membership_id),
+              whop_user_id = COALESCE($4, whop_user_id),
+              subscription_current_period_end = COALESCE($5, subscription_current_period_end)
+        WHERE id=$1`,
+      [userId, veddPlanId, membershipId, whopUserId, toDate(periodEnd)]
+    );
+  };
+  const setStatus = async (s) => pool.query(`UPDATE users SET subscription_status=$2 WHERE id=$1`, [userId, s]);
+  switch (type) {
+    case "membership.activated":
+    case "membership.went_valid":
+    case "payment.succeeded":
+      await activate();
+      return { handled: true, note: `activated plan ${veddPlanId ?? "(unchanged)"} for user ${userId}` };
+    case "membership.deactivated":
+    case "membership.went_invalid":
+      await setStatus("canceled");
+      return { handled: true, note: `canceled for user ${userId}` };
+    case "payment.failed":
+      await setStatus("past_due");
+      return { handled: true, note: `past_due for user ${userId}` };
+    case "membership.updated":
+      if (["active", "trialing", "completed"].includes(status)) {
+        await activate();
+        return { handled: true, note: `active (${status})` };
+      }
+      if (["canceled", "cancelled", "expired", "drafted"].includes(status)) {
+        await setStatus("canceled");
+        return { handled: true, note: `canceled (${status})` };
+      }
+      if (status === "past_due" || status === "unresolved") {
+        await setStatus("past_due");
+        return { handled: true, note: `past_due (${status})` };
+      }
+      return { handled: false, note: `membership.updated status '${status}' ignored` };
+    default:
+      return { handled: false, note: `unhandled ${type}` };
+  }
+}
+var API_BASE, SITE, NAMED, ensured3;
+var init_whop = __esm({
+  "server/whop.ts"() {
+    "use strict";
+    init_db();
+    API_BASE = () => (process.env.WHOP_API_BASE || "https://api.whop.com/api/v1").replace(/\/$/, "");
+    SITE = () => (process.env.PUBLIC_SITE_URL || "https://veddbuild.com").replace(/\/$/, "");
+    NAMED = { 2: "STARTER", 3: "PREMIUM", 4: "YEARLY" };
+    ensured3 = null;
+  }
+});
+
 // server/veddPayment.ts
 var veddPayment_exports = {};
 __export(veddPayment_exports, {
@@ -39435,7 +39602,7 @@ __export(coinbase_exports, {
   decryptApiSecret: () => decryptApiSecret,
   encryptApiSecret: () => encryptApiSecret
 });
-import crypto8 from "crypto";
+import crypto9 from "crypto";
 import jwt from "jsonwebtoken";
 function buildJwt(keyName, privateKeyPem, method, path17) {
   const uri = `${method} ${API_HOST}${path17}`;
@@ -39443,7 +39610,7 @@ function buildJwt(keyName, privateKeyPem, method, path17) {
   const payload2 = { sub: keyName, iss: "cdp", nbf: now, exp: now + 120, uri };
   return jwt.sign(payload2, privateKeyPem, {
     algorithm: "ES256",
-    header: { kid: keyName, nonce: crypto8.randomBytes(16).toString("hex"), typ: "JWT", alg: "ES256" }
+    header: { kid: keyName, nonce: crypto9.randomBytes(16).toString("hex"), typ: "JWT", alg: "ES256" }
   });
 }
 var API_HOST, CoinbaseService;
@@ -39493,7 +39660,7 @@ var init_coinbase = __esm({
        *  - limitPrice: required for limit orders
        */
       async placeOrder(o) {
-        const clientOrderId = crypto8.randomUUID();
+        const clientOrderId = crypto9.randomUUID();
         let order_configuration;
         if (o.type === "market") {
           order_configuration = o.side === "BUY" && o.quoteSize ? { market_market_ioc: { quote_size: String(o.quoteSize) } } : { market_market_ioc: { base_size: String(o.baseSize) } };
@@ -39565,7 +39732,7 @@ __export(kraken_exports, {
   decryptApiSecret: () => decryptApiSecret,
   encryptApiSecret: () => encryptApiSecret
 });
-import crypto9 from "crypto";
+import crypto10 from "crypto";
 function normalizeAsset(code) {
   const c = code.toUpperCase().replace(/\.(S|F|M)$/, "");
   const map = { XXBT: "BTC", XBT: "BTC", XETH: "ETH", XXRP: "XRP", XLTC: "LTC", XXDG: "DOGE", XDG: "DOGE", ZUSD: "USD", ZEUR: "EUR", ZGBP: "GBP", XXLM: "XLM", XETC: "ETC", XZEC: "ZEC" };
@@ -39587,10 +39754,10 @@ var init_kraken = __esm({
         this.secret = secret;
       }
       sign(path17, nonce, postData) {
-        const sha256 = crypto9.createHash("sha256").update(nonce + postData).digest();
+        const sha256 = crypto10.createHash("sha256").update(nonce + postData).digest();
         const message = Buffer.concat([Buffer.from(path17, "utf8"), sha256]);
         const key = Buffer.from(this.secret, "base64");
-        return crypto9.createHmac("sha512", key).update(message).digest("base64");
+        return crypto10.createHmac("sha512", key).update(message).digest("base64");
       }
       async privatePost(endpoint, params = {}) {
         const path17 = `/0/private/${endpoint}`;
@@ -39674,7 +39841,7 @@ __export(gemini_exports, {
   decryptApiSecret: () => decryptApiSecret,
   encryptApiSecret: () => encryptApiSecret
 });
-import crypto10 from "crypto";
+import crypto11 from "crypto";
 var API_HOST3, GeminiService;
 var init_gemini = __esm({
   "server/gemini.ts"() {
@@ -39692,7 +39859,7 @@ var init_gemini = __esm({
         const nonce = Date.now();
         const payload2 = { request: endpoint, nonce, ...params };
         const b64 = Buffer.from(JSON.stringify(payload2)).toString("base64");
-        const signature = crypto10.createHmac("sha384", this.secret).update(b64).digest("hex");
+        const signature = crypto11.createHmac("sha384", this.secret).update(b64).digest("hex");
         const res = await fetch(`${API_HOST3}${endpoint}`, {
           method: "POST",
           headers: {
@@ -43064,7 +43231,7 @@ async function getAllTimePerformance(userId) {
      GROUP BY day`,
     [userId]
   );
-  const [atr2, opt, crypto16, futures] = await Promise.all([
+  const [atr2, opt, crypto17, futures] = await Promise.all([
     atrQuery.catch(() => ({ rows: [] })),
     optQuery.catch(() => ({ rows: [] })),
     cryptoQuery.catch(() => ({ rows: [] })),
@@ -43083,7 +43250,7 @@ async function getAllTimePerformance(userId) {
   };
   addRows(atr2.rows);
   addRows(opt.rows, "options");
-  addRows(crypto16.rows, "cryptocom");
+  addRows(crypto17.rows, "cryptocom");
   addRows(futures.rows, "futures");
   const dailyHistory = Object.entries(byDay).map(([date2, engines]) => {
     const byEngine = Object.entries(engines).map(([engine, v]) => ({
@@ -44335,7 +44502,7 @@ __export(kalshi_trading_exports, {
 });
 import * as fs9 from "fs";
 import * as path9 from "path";
-import * as crypto11 from "crypto";
+import * as crypto12 from "crypto";
 function loadAllCreds() {
   try {
     if (fs9.existsSync(CREDS_FILE)) return JSON.parse(fs9.readFileSync(CREDS_FILE, "utf-8"));
@@ -44378,7 +44545,7 @@ ${wrapped}
   }
   pem = pem.trim();
   try {
-    crypto11.createPrivateKey(pem);
+    crypto12.createPrivateKey(pem);
   } catch {
     throw new Error('Private key is not a valid RSA PEM. Paste the full contents of the key file Kalshi gave you, including the "-----BEGIN ... PRIVATE KEY-----" and "-----END ... PRIVATE KEY-----" lines.');
   }
@@ -44427,14 +44594,14 @@ async function getOrRefreshToken(userId, creds) {
 function signKalshiRequest(privateKeyPem, timestampMs, method, endpoint) {
   const pathOnly = endpoint.split("?")[0];
   const message = String(timestampMs) + method.toUpperCase() + KALSHI_PATH_PREFIX + pathOnly;
-  const sign3 = crypto11.createSign("sha256");
+  const sign3 = crypto12.createSign("sha256");
   sign3.update(message);
   sign3.end();
   return sign3.sign(
     {
       key: privateKeyPem,
-      padding: crypto11.constants.RSA_PKCS1_PSS_PADDING,
-      saltLength: crypto11.constants.RSA_PSS_SALTLEN_DIGEST
+      padding: crypto12.constants.RSA_PKCS1_PSS_PADDING,
+      saltLength: crypto12.constants.RSA_PSS_SALTLEN_DIGEST
     },
     "base64"
   );
@@ -46094,7 +46261,7 @@ __export(polymarket_us_exports, {
 });
 import * as fs11 from "fs";
 import * as path11 from "path";
-import * as crypto12 from "crypto";
+import * as crypto13 from "crypto";
 function loadAll3() {
   try {
     if (fs11.existsSync(FILE3)) return JSON.parse(fs11.readFileSync(FILE3, "utf-8"));
@@ -46139,13 +46306,13 @@ function ed25519KeyFromSecret(secretKeyB64) {
   const raw = Buffer.from(secretKeyB64, "base64");
   const seed = raw.subarray(0, 32);
   const der = Buffer.concat([PKCS8_ED25519_PREFIX, seed]);
-  return crypto12.createPrivateKey({ key: der, format: "der", type: "pkcs8" });
+  return crypto13.createPrivateKey({ key: der, format: "der", type: "pkcs8" });
 }
 function signHeaders(keyId, secret, method, reqPath) {
   const timestamp2 = Date.now().toString();
   const message = `${timestamp2}${method.toUpperCase()}${reqPath}`;
   const key = ed25519KeyFromSecret(secret);
-  const signature = crypto12.sign(null, Buffer.from(message, "utf-8"), key).toString("base64");
+  const signature = crypto13.sign(null, Buffer.from(message, "utf-8"), key).toString("base64");
   return {
     "X-PM-Access-Key": keyId,
     "X-PM-Timestamp": timestamp2,
@@ -47217,25 +47384,25 @@ __export(sol_engine_exports, {
   updateSolPortfolioValue: () => updateSolPortfolioValue
 });
 import { eq as eq15, sql as sql11 } from "drizzle-orm";
-import crypto13 from "crypto";
+import crypto14 from "crypto";
 function isBadPriceSample(next, lastGood) {
   if (!(next > 0) || !(lastGood > 0)) return false;
   return next / lastGood > MAX_PRICE_SPIKE || lastGood / next > MAX_PRICE_SPIKE;
 }
 function getEncryptionKey6() {
   const seed = (process.env.DATABASE_URL || "vedd-sol-engine-fallback") + "sol-v1";
-  return crypto13.createHash("sha256").update(seed).digest();
+  return crypto14.createHash("sha256").update(seed).digest();
 }
 function encryptWalletKey(plain) {
-  const iv = crypto13.randomBytes(16);
-  const cipher = crypto13.createCipheriv("aes-256-cbc", getEncryptionKey6(), iv);
+  const iv = crypto14.randomBytes(16);
+  const cipher = crypto14.createCipheriv("aes-256-cbc", getEncryptionKey6(), iv);
   const enc = Buffer.concat([cipher.update(plain, "utf8"), cipher.final()]);
   return iv.toString("hex") + ":" + enc.toString("hex");
 }
 function decryptWalletKey(ciphertext) {
   const [ivHex, encHex] = ciphertext.split(":");
   const iv = Buffer.from(ivHex, "hex");
-  const decipher = crypto13.createDecipheriv("aes-256-cbc", getEncryptionKey6(), iv);
+  const decipher = crypto14.createDecipheriv("aes-256-cbc", getEncryptionKey6(), iv);
   const dec = Buffer.concat([decipher.update(Buffer.from(encHex, "hex")), decipher.final()]);
   return dec.toString("utf8");
 }
@@ -49644,7 +49811,7 @@ __export(certificate_service_exports, {
   getTierFromScore: () => getTierFromScore,
   verifyCertificate: () => verifyCertificate
 });
-import crypto14 from "crypto";
+import crypto15 from "crypto";
 function generateCertificateNumber() {
   const year = (/* @__PURE__ */ new Date()).getFullYear();
   const randomPart = Math.floor(Math.random() * 1e5).toString().padStart(5, "0");
@@ -49658,7 +49825,7 @@ function generateVerificationHash(data) {
     finalScore: data.finalScore,
     modulesCompleted: data.modulesCompleted
   });
-  return crypto14.createHash("sha256").update(payload2).digest("hex");
+  return crypto15.createHash("sha256").update(payload2).digest("hex");
 }
 async function generateCertificateImage(data) {
   let createCanvas;
@@ -54127,7 +54294,7 @@ __export(ambassador_prime_exports, {
   runAmbassadorPrime: () => runAmbassadorPrime,
   startAmbassadorPrimeScheduler: () => startAmbassadorPrimeScheduler
 });
-import crypto15 from "crypto";
+import crypto16 from "crypto";
 import { eq as eq17, sql as drizzleSql } from "drizzle-orm";
 import { OpenAI as OpenAI7 } from "openai";
 async function logStep(runDate, stepName, status, error) {
@@ -54144,7 +54311,7 @@ function buildOAuthHeader(method, url, params) {
   if (!apiKey || !apiSecret || !accessToken || !accessSecret) return "";
   const oauthParams = {
     oauth_consumer_key: apiKey,
-    oauth_nonce: crypto15.randomBytes(16).toString("hex"),
+    oauth_nonce: crypto16.randomBytes(16).toString("hex"),
     oauth_signature_method: "HMAC-SHA1",
     oauth_timestamp: Math.floor(Date.now() / 1e3).toString(),
     oauth_token: accessToken,
@@ -54155,7 +54322,7 @@ function buildOAuthHeader(method, url, params) {
   const paramStr = sortedKeys.map((k) => `${encodeURIComponent(k)}=${encodeURIComponent(allParams[k])}`).join("&");
   const sigBase = [method.toUpperCase(), encodeURIComponent(url), encodeURIComponent(paramStr)].join("&");
   const sigKey = `${encodeURIComponent(apiSecret)}&${encodeURIComponent(accessSecret)}`;
-  const signature = crypto15.createHmac("sha1", sigKey).update(sigBase).digest("base64");
+  const signature = crypto16.createHmac("sha1", sigKey).update(sigBase).digest("base64");
   oauthParams["oauth_signature"] = signature;
   const headerValue = Object.keys(oauthParams).sort().map((k) => `${encodeURIComponent(k)}="${encodeURIComponent(oauthParams[k])}"`).join(", ");
   return `OAuth ${headerValue}`;
@@ -60104,9 +60271,9 @@ async function getStopOrdersForUser(userId, filters = {}) {
 init_schema();
 
 // server/build-info.ts
-var BUILD_COMMIT = "d366570a-dirty";
+var BUILD_COMMIT = "c2120da9-dirty";
 var BUILD_BRANCH = "main";
-var BUILT_AT = "2026-10-18T02:20:00.558Z";
+var BUILT_AT = "2026-10-18T13:17:19.061Z";
 
 // server/stripe.ts
 init_db();
@@ -66344,6 +66511,39 @@ Respond ONLY in valid JSON format with these exact keys:
     } catch (error) {
       console.error("[Stripe webhook] Handler error:", error);
       res.status(500).json({ message: "Error handling webhook" });
+    }
+  });
+  app2.get("/api/whop/config", async (_req, res) => {
+    const { whopEnabled: whopEnabled2, whopPlanMap: whopPlanMap2 } = await Promise.resolve().then(() => (init_whop(), whop_exports));
+    res.json({ enabled: whopEnabled2(), planIds: Object.keys(whopPlanMap2()).map(Number) });
+  });
+  app2.post("/api/whop/checkout", async (req, res) => {
+    if (!req.isAuthenticated()) return res.status(401).json({ error: "Authentication required" });
+    try {
+      const planId = Number(req.body?.planId);
+      if (![2, 3, 4].includes(planId)) return res.status(400).json({ error: "Invalid plan" });
+      const { createWhopCheckout: createWhopCheckout2 } = await Promise.resolve().then(() => (init_whop(), whop_exports));
+      const out = await createWhopCheckout2(req.user.id, planId);
+      res.json({ checkoutUrl: out.url });
+    } catch (e) {
+      console.error("[Whop] checkout error:", e?.message || e);
+      res.status(500).json({ error: e?.message || "Whop checkout failed" });
+    }
+  });
+  app2.post("/api/whop/webhook", async (req, res) => {
+    const rawBody = req.rawBody;
+    const { verifyWhopWebhook: verifyWhopWebhook2, handleWhopEvent: handleWhopEvent2 } = await Promise.resolve().then(() => (init_whop(), whop_exports));
+    if (!rawBody || !verifyWhopWebhook2(rawBody, req.headers)) {
+      console.error("[Whop webhook] REJECTED: missing/invalid signature or stale timestamp");
+      return res.status(400).send("invalid signature");
+    }
+    try {
+      const out = await handleWhopEvent2(String(req.headers["webhook-id"]), req.body);
+      console.log(`[Whop webhook] ${req.body?.type}: ${out.note}`);
+      res.json({ received: true });
+    } catch (e) {
+      console.error("[Whop webhook] handler error:", e?.message || e);
+      res.status(500).send("handler error");
     }
   });
   app2.post("/api/lemonsqueezy/checkout", async (req, res) => {
