@@ -28851,7 +28851,7 @@ Give exactly one M1 and one M2 entry per pair.`;
     const entry = Number(i?.entry), sl = Number(i?.stopLoss), tp = Number(i?.takeProfit);
     const valid = dir === "BUY" && sl < entry && tp > entry || dir === "SELL" && sl > entry && tp < entry;
     const price = Number(ctx.price);
-    const near = price > 0 && Math.abs(entry - price) / price < 3e-3;
+    const near = price > 0 && Math.abs(entry - price) / price < (engine === "crypto" ? 0.01 : 3e-3);
     let isTrade = (dir === "BUY" || dir === "SELL") && valid && near;
     let ruleNote = "";
     if (isTrade) {
@@ -28920,10 +28920,16 @@ Give exactly one M1 and one M2 entry per pair.`;
     }
   }
 }
-async function resolveShadowDecisions(engine = "fx") {
+async function resolveShadowDecisions(engine = "fx", userId) {
+  await pool.query(
+    `UPDATE fx_model_decisions SET result='EXPIRED', exit_price=entry_price, r_multiple=0, pips=0, resolved_at=now()
+      WHERE engine = $1 AND result IS NULL AND direction IN ('BUY','SELL') AND created_at < now() - interval '50 hours'`,
+    [engine === "crypto" ? "crypto" : "fx"]
+  ).catch(() => {
+  });
   const { rows } = await pool.query(
     `SELECT id, symbol, direction, entry_price, stop_loss, take_profit, created_at FROM fx_model_decisions
-      WHERE engine = '${engine === "crypto" ? "crypto" : "fx"}' AND result IS NULL AND direction IN ('BUY','SELL') AND created_at < now() - interval '15 minutes'
+      WHERE engine = '${engine === "crypto" ? "crypto" : "fx"}' ${userId ? `AND user_id = ${Math.floor(Number(userId))}` : ""} AND result IS NULL AND direction IN ('BUY','SELL') AND created_at < now() - interval '15 minutes'
       ORDER BY created_at LIMIT 40`
   );
   const bySym = /* @__PURE__ */ new Map();
@@ -28973,7 +28979,7 @@ async function resolveShadowDecisions(engine = "fx") {
       const move = buy ? exit - entry : entry - exit;
       await pool.query(
         `UPDATE fx_model_decisions SET result=$2, exit_price=$3, r_multiple=$4, pips=$5, resolved_at=now() WHERE id=$1 AND result IS NULL`,
-        [r.id, result, exit, move / risk, move / pipSize(symbol)]
+        [r.id, result, exit, move / risk, engine === "crypto" ? entry > 0 ? move / entry * 100 : 0 : move / pipSize(symbol)]
       ).catch(() => {
       });
     }
@@ -29169,12 +29175,16 @@ async function runCryptoModelsCycle(userId, symbols) {
     const maxTokens = Math.max(1, Number(process.env.CRYPTO_MODELS_MAX_TOKENS ?? 8));
     const pairs = [];
     const done = new Set((await pool.query(
-      `SELECT DISTINCT symbol FROM fx_model_decisions WHERE engine='crypto' AND user_id=$1 AND created_at >= date_trunc('hour', now())`,
+      `SELECT DISTINCT symbol FROM fx_day_regimes WHERE engine='crypto' AND user_id=$1 AND day = (now() at time zone 'utc')::date AND hour_utc = extract(hour from now() at time zone 'utc')`,
       [userId]
     ).catch(() => ({ rows: [] }))).rows.map((r) => String(r.symbol)));
+    const perRun = Math.max(1, Number(process.env.CRYPTO_MODELS_PER_RUN ?? 3));
+    let fetched = 0;
     for (const symbol of symbols.slice(0, maxTokens)) {
       const key = `crypto|${userId}|${symbol}`;
       if (done.has(symbol.toUpperCase()) || lastShadowCandle.get(key) === candle) continue;
+      if (fetched >= perRun) break;
+      fetched++;
       let h1 = [], h4 = [];
       try {
         h1 = (await fetchBars2(symbol, "1h", 80)).slice(0, -1);
@@ -29203,7 +29213,7 @@ async function runCryptoModelsCycle(userId, symbols) {
       pairs.push({ symbol, ctx: { ...features, dayType: cls.dayType, autoModel: cls.autoModel, trendScore: cls.score } });
     }
     if (pairs.length) await shadowDecide(userId, session2, pairs, "crypto");
-    await resolveShadowDecisions("crypto");
+    await resolveShadowDecisions("crypto", userId);
   } catch (e) {
     console.error("[crypto-models] cycle failed (non-fatal):", e?.message || e);
   }
@@ -29713,9 +29723,20 @@ function emaOf(xs, n) {
   for (const x of xs.slice(n)) e = x * k + e * (1 - k);
   return e;
 }
-async function tfTrend(symbol, tf, chain) {
+async function barsFor2(symbol, tf, n, chain, pool2) {
+  if (pool2) {
+    try {
+      const { getDefiCandles: getDefiCandles2 } = await Promise.resolve().then(() => (init_defi_market_data(), defi_market_data_exports));
+      const b = await getDefiCandles2(chain, pool2, tf, n);
+      if (b?.length) return b;
+    } catch {
+    }
+  }
+  return fetchBars(symbol, tf, n, chain);
+}
+async function tfTrend(symbol, tf, chain, pool2) {
   try {
-    const bars = (await fetchBars(symbol, tf, 80, chain)).slice(0, -1);
+    const bars = (await barsFor2(symbol, tf, 80, chain, pool2)).slice(0, -1);
     if (bars.length < 55) return null;
     const c = bars.map((b) => b.c);
     const e20 = emaOf(c, 20), e50 = emaOf(c, 50), last = c[c.length - 1];
@@ -29725,9 +29746,9 @@ async function tfTrend(symbol, tf, chain) {
     return null;
   }
 }
-async function h1Atr(symbol, chain) {
+async function h1Atr(symbol, chain, pool2) {
   try {
-    const bars = (await fetchBars(symbol, "1h", 40, chain)).slice(0, -1);
+    const bars = (await barsFor2(symbol, "1h", 40, chain, pool2)).slice(0, -1);
     if (bars.length < 16) return null;
     const trs = bars.slice(1).map((b, i) => Math.max(b.h - b.l, Math.abs(b.h - bars[i].c), Math.abs(b.l - bars[i].c)));
     return { atr: trs.slice(-14).reduce((a, c) => a + c, 0) / 14, bars };
@@ -30200,7 +30221,7 @@ async function monitorOpenPositions(userId, cfg) {
               const favR = (px - trade.entryPrice) / risk;
               if (favR >= CRYPTO_MIN_RR) {
                 let want = trade.entryPrice + risk;
-                const ax = await h1Atr(trade.symbol, cfg?.defiChain || "base");
+                const ax = await h1Atr(trade.symbol, cfg?.defiChain || "base", trade.poolAddress);
                 const last3 = ax?.bars.slice(-3) ?? [];
                 if (last3.length === 3) want = Math.max(want, Math.min(...last3.map((b) => b.l)));
                 if (want > Number(trade.stopLoss) && want < px) {
@@ -30225,7 +30246,7 @@ async function monitorOpenPositions(userId, cfg) {
             let _trendHolds = false;
             if (ageDays >= maxDays && Math.abs(movePct) < flatPct && process.env.CRYPTO_MTF_RULE !== "off") {
               const ch = cfg?.defiChain || "base";
-              const [t1, t4] = await Promise.all([tfTrend(trade.symbol, "1h", ch), tfTrend(trade.symbol, "4h", ch)]);
+              const [t1, t4] = await Promise.all([tfTrend(trade.symbol, "1h", ch, trade.poolAddress), tfTrend(trade.symbol, "4h", ch, trade.poolAddress)]);
               _trendHolds = t1 === "BULLISH" && t4 === "BULLISH";
               if (_trendHolds) await storage.createCryptocomEngineActivity({ userId, symbol: trade.symbol, decision: "watching", strategy: trade.strategy, reasoning: `${trade.symbol}: time exit HELD \u2014 flat for ${ageDays.toFixed(1)} days but H1 and H4 are still bullish.`, score: null, price: px, dailyChangePercent: null, source: "cryptocom" }).catch(() => {
               });
@@ -30676,6 +30697,7 @@ async function executeSignalSingle(service, connection, userId, symbol, result, 
     const slip = cfg.defiSlippageBps ?? 100;
     let notionalD = Math.max(1, cfg.defiNotionalUsd ?? 25) * (gateD.riskMultiplier < 1 ? gateD.riskMultiplier : 1);
     let slPctD = Number(cfg.cefiStopLossPct ?? 2), tpPctD = Number(cfg.cefiTakeProfitPct ?? 3);
+    let _sizeNote = "";
     {
       const ax = result.price ? await h1Atr(symbol, chain) : null;
       if (ax && result.price && ax.atr > 0) {
@@ -30683,12 +30705,19 @@ async function executeSignalSingle(service, connection, userId, symbol, result, 
         if (atrPct > slPctD) {
           const scale = slPctD / atrPct;
           notionalD = Math.max(1, notionalD * scale);
-          await storage.createCryptocomEngineActivity({ userId, symbol, decision: "watching", strategy: result.strategy, reasoning: `${symbol}: stop widened ${slPctD.toFixed(1)}% \u2192 ${atrPct.toFixed(1)}% (${CRYPTO_SL_ATR_MULT}\xD7 H1 ATR); size cut to ${(scale * 100).toFixed(0)}% ($${notionalD.toFixed(2)}) so the risk is unchanged.`, score: result.score, price: result.price, dailyChangePercent: result.dailyChangePercent, source: "cryptocom" }).catch(() => {
-          });
+          _sizeNote = ` Stop widened ${slPctD.toFixed(1)}% \u2192 ${atrPct.toFixed(1)}% (${CRYPTO_SL_ATR_MULT}\xD7 H1 ATR), size cut to ${(scale * 100).toFixed(0)}% so the risk is unchanged.`;
           slPctD = atrPct;
         }
       }
       tpPctD = Math.max(tpPctD, slPctD * CRYPTO_MIN_RR);
+    }
+    {
+      const minN = Number(process.env.CRYPTO_MIN_NOTIONAL_USD ?? 3);
+      if (notionalD < minN) {
+        await storage.createCryptocomEngineActivity({ userId, symbol, decision: "skipped", strategy: result.strategy, reasoning: `${symbol}: entry skipped \u2014 ATR stop ${slPctD.toFixed(1)}% would cut the size to $${notionalD.toFixed(2)}, below the $${minN} minimum (too volatile for this account size).`, score: result.score, price: result.price, dailyChangePercent: result.dailyChangePercent, source: "cryptocom" }).catch(() => {
+        });
+        return;
+      }
     }
     try {
       const { defiEntryBuy: defiEntryBuy2 } = await Promise.resolve().then(() => (init_defi_executor(), defi_executor_exports));
@@ -30710,11 +30739,35 @@ async function executeSignalSingle(service, connection, userId, symbol, result, 
           return;
         }
       }
+      {
+        const { pool: pool2 } = await Promise.resolve().then(() => (init_db(), db_exports));
+        const held = await pool2.query(
+          `SELECT 1 FROM cryptocom_engine_trades
+            WHERE user_id=$1 AND venue='defi' AND status IN ('open','closing')
+              AND (symbol=$2 OR ($3::text IS NOT NULL AND lower(token_address)=lower($3::text)))
+            LIMIT 1`,
+          [userId, symbol, disc?.address ?? null]
+        ).catch(() => null);
+        if (!held || held.rows.length) {
+          await storage.createCryptocomEngineActivity({ userId, symbol, decision: "skipped", strategy: result.strategy, reasoning: held ? `${symbol}: already holding an open DeFi position in this token \u2014 not adding another.` : `${symbol}: couldn't verify existing positions \u2014 skipping entry to be safe.`, score: result.score, price: result.price, dailyChangePercent: result.dailyChangePercent, source: "cryptocom" });
+          return;
+        }
+      }
       if (process.env.CRYPTO_ROTATE !== "off" && (result.score ?? 0) >= ROTATE_MIN_SCORE()) {
         try {
           const { hotWalletUsdc: hotWalletUsdc2 } = await Promise.resolve().then(() => (init_defi_gas(), defi_gas_exports));
           const usdc = await hotWalletUsdc2(userId, chain);
-          if (usdc != null && usdc < notionalD) {
+          let _rotOk = usdc != null && usdc < notionalD;
+          if (_rotOk) {
+            const { isTokenTradeable: isTokenTradeable2 } = await Promise.resolve().then(() => (init_defi_swap(), defi_swap_exports));
+            _rotOk = await isTokenTradeable2(chain, disc?.address ?? symbol).catch(() => false);
+          }
+          if (_rotOk) {
+            const { getRuntimeStateStrict: getRuntimeStateStrict2 } = await Promise.resolve().then(() => (init_runtime_state(), runtime_state_exports));
+            const last = await getRuntimeStateStrict2("crypto_rotation", String(userId)).catch(() => ({ at: Date.now() }));
+            if (last && Date.now() - Number(last.at) < 36e5) _rotOk = false;
+          }
+          if (_rotOk && usdc != null) {
             const { getDefiPrice: getDefiPrice2 } = await Promise.resolve().then(() => (init_defi_market_data(), defi_market_data_exports));
             const open = (await storage.getOpenCryptocomEngineTrades(userId)).filter((t) => t.venue === "defi" && t.symbol !== symbol);
             const cands = [];
@@ -30725,13 +30778,15 @@ async function executeSignalSingle(service, connection, userId, symbol, result, 
               if (!(px > 0) || !(t.entryPrice > 0)) continue;
               const move = (px - t.entryPrice) / t.entryPrice * 100;
               if (Math.abs(move) >= ROTATE_FLAT_PCT()) continue;
-              const [t1, t4] = await Promise.all([tfTrend(t.symbol, "1h", chain), tfTrend(t.symbol, "4h", chain)]);
+              const [t1, t4] = await Promise.all([tfTrend(t.symbol, "1h", chain, t.poolAddress), tfTrend(t.symbol, "4h", chain, t.poolAddress)]);
               if (t1 === "BULLISH" && t4 === "BULLISH") continue;
               cands.push({ t, px, move, ageH });
             }
             cands.sort((a, b) => Math.abs(a.move) - Math.abs(b.move) || b.ageH - a.ageH);
-            const pick = cands[0];
+            const pick = cands.find((c) => usdc + Number(c.t.quantity || 0) * c.px * 0.98 >= notionalD);
             if (pick) {
+              const { saveRuntimeState: saveRuntimeState2 } = await Promise.resolve().then(() => (init_runtime_state(), runtime_state_exports));
+              saveRuntimeState2("crypto_rotation", String(userId), { at: Date.now(), sold: pick.t.symbol, for: symbol });
               await storage.createCryptocomEngineActivity({ userId, symbol: pick.t.symbol, decision: "exit", strategy: pick.t.strategy, reasoning: `${pick.t.symbol}: ROTATION \u2014 open ${pick.ageH.toFixed(0)}h, only ${pick.move >= 0 ? "+" : ""}${pick.move.toFixed(2)}% and no H1+H4 uptrend; selling to fund ${symbol} (score ${result.score}, $${usdc.toFixed(2)} USDC < $${notionalD.toFixed(2)} needed).`, score: null, price: pick.px, dailyChangePercent: null, source: "cryptocom" }).catch(() => {
               });
               await closePosition(userId, pick.t, pick.px, "rotation");
@@ -30745,20 +30800,6 @@ async function executeSignalSingle(service, connection, userId, symbol, result, 
           }
         } catch (e) {
           console.error("[cryptocom-scanner] rotation check failed (non-fatal):", e?.message || e);
-        }
-      }
-      {
-        const { pool: pool2 } = await Promise.resolve().then(() => (init_db(), db_exports));
-        const held = await pool2.query(
-          `SELECT 1 FROM cryptocom_engine_trades
-            WHERE user_id=$1 AND venue='defi' AND status IN ('open','closing')
-              AND (symbol=$2 OR ($3::text IS NOT NULL AND lower(token_address)=lower($3::text)))
-            LIMIT 1`,
-          [userId, symbol, disc?.address ?? null]
-        ).catch(() => null);
-        if (!held || held.rows.length) {
-          await storage.createCryptocomEngineActivity({ userId, symbol, decision: "skipped", strategy: result.strategy, reasoning: held ? `${symbol}: already holding an open DeFi position in this token \u2014 not adding another.` : `${symbol}: couldn't verify existing positions \u2014 skipping entry to be safe.`, score: result.score, price: result.price, dailyChangePercent: result.dailyChangePercent, source: "cryptocom" });
-          return;
         }
       }
       const r = await defiEntryBuy2(userId, chain, disc?.address ?? symbol, notionalD, slip, disc?.priceUsd ?? result.price ?? void 0);
@@ -30813,7 +30854,7 @@ async function executeSignalSingle(service, connection, userId, symbol, result, 
         tokenAddress: disc?.address ?? null,
         poolAddress: disc?.poolAddress ?? null
       });
-      await storage.createCryptocomEngineActivity({ userId, symbol, decision: "signal", strategy: result.strategy, reasoning: `${symbol}: EXECUTED on DeFi (${chain}) \u2014 swapped ~$${notionalD.toFixed(0)} USDC \u2192 ${r.qtyBase} ${r.token} @ ~$${r.entryPrice.toFixed(2)}. TP +${tpPctD.toFixed(1)}% / SL -${slPctD.toFixed(1)}%. tx ${r.txHash?.slice(0, 12) ?? ""}\u2026 ${result.reasoning}`, score: result.score, price: result.price, dailyChangePercent: result.dailyChangePercent, source: "cryptocom" });
+      await storage.createCryptocomEngineActivity({ userId, symbol, decision: "signal", strategy: result.strategy, reasoning: `${symbol}: EXECUTED on DeFi (${chain}) \u2014 swapped ~$${notionalD.toFixed(0)} USDC \u2192 ${r.qtyBase} ${r.token} @ ~$${r.entryPrice.toFixed(2)}. TP +${tpPctD.toFixed(1)}% / SL -${slPctD.toFixed(1)}%.${_sizeNote} tx ${r.txHash?.slice(0, 12) ?? ""}\u2026 ${result.reasoning}`, score: result.score, price: result.price, dailyChangePercent: result.dailyChangePercent, source: "cryptocom" });
     } catch (err) {
       await storage.createCryptocomEngineActivity({ userId, symbol, decision: "error", strategy: result.strategy, reasoning: `${symbol}: DeFi swap error: ${err.message}`, score: result.score, price: result.price, dailyChangePercent: result.dailyChangePercent, source: "cryptocom" });
     }
@@ -31106,7 +31147,12 @@ async function runCryptocomEngineScan() {
       await runUserBounded(`entry:${config.userId}`, ENTRY_BUDGET_MS, () => scanOneUser(config.userId));
     });
     await phase("models_pass");
-    for (const config of configs) {
+    let _cgKey = false;
+    try {
+      _cgKey = (await Promise.resolve().then(() => (init_defi_market_data(), defi_market_data_exports))).callBudget().hasKey;
+    } catch {
+    }
+    for (const config of _cgKey ? configs : []) {
       const u = _modelUniverse.get(config.userId);
       if (!u || !u.symbols.length) continue;
       await runUserBounded(`models:${config.userId}`, 5e4, async () => {

@@ -337,7 +337,7 @@ Give exactly one M1 and one M2 entry per pair.`;
     const valid = (dir === 'BUY' && sl < entry && tp > entry) || (dir === 'SELL' && sl > entry && tp < entry);
     const price = Number(ctx.price);
     // Ideas far from the live price are not tradeable now — record as NONE.
-    const near = price > 0 && Math.abs(entry - price) / price < 0.003;
+    const near = price > 0 && Math.abs(entry - price) / price < (engine === 'crypto' ? 0.01 : 0.003);
     let isTrade = (dir === 'BUY' || dir === 'SELL') && valid && near;
     let ruleNote = '';
     // The idea is recorded/traded at the LIVE price with the AI's stop and
@@ -377,10 +377,17 @@ Give exactly one M1 and one M2 entry per pair.`;
 }
 
 /** Walk open shadow trades forward on 15m bars: TP or SL first wins; 48h expiry. */
-export async function resolveShadowDecisions(engine: ModelEngine = 'fx'): Promise<void> {
+export async function resolveShadowDecisions(engine: ModelEngine = 'fx', userId?: number): Promise<void> {
+  // Rows nothing can price (token left the universe, no candles) would block
+  // the oldest-first queue forever: expire them at 48h at entry price.
+  await pool.query(
+    `UPDATE fx_model_decisions SET result='EXPIRED', exit_price=entry_price, r_multiple=0, pips=0, resolved_at=now()
+      WHERE engine = $1 AND result IS NULL AND direction IN ('BUY','SELL') AND created_at < now() - interval '50 hours'`,
+    [engine === 'crypto' ? 'crypto' : 'fx'],
+  ).catch(() => {});
   const { rows } = await pool.query(
     `SELECT id, symbol, direction, entry_price, stop_loss, take_profit, created_at FROM fx_model_decisions
-      WHERE engine = '${engine === 'crypto' ? 'crypto' : 'fx'}' AND result IS NULL AND direction IN ('BUY','SELL') AND created_at < now() - interval '15 minutes'
+      WHERE engine = '${engine === 'crypto' ? 'crypto' : 'fx'}' ${userId ? `AND user_id = ${Math.floor(Number(userId))}` : ''} AND result IS NULL AND direction IN ('BUY','SELL') AND created_at < now() - interval '15 minutes'
       ORDER BY created_at LIMIT 40`,
   );
   const bySym = new Map<string, any[]>();
@@ -417,7 +424,7 @@ export async function resolveShadowDecisions(engine: ModelEngine = 'fx'): Promis
       const move = buy ? exit - entry : entry - exit;
       await pool.query(
         `UPDATE fx_model_decisions SET result=$2, exit_price=$3, r_multiple=$4, pips=$5, resolved_at=now() WHERE id=$1 AND result IS NULL`,
-        [r.id, result, exit, move / risk, move / pipSize(symbol)],
+        [r.id, result, exit, move / risk, engine === 'crypto' ? (entry > 0 ? (move / entry) * 100 : 0) : move / pipSize(symbol)],
       ).catch(() => {});
     }
   }
@@ -621,12 +628,18 @@ export async function runCryptoModelsCycle(userId: number, symbols: string[]): P
     const pairs: Array<{ symbol: string; ctx: any }> = [];
     // The crypto scan runs as a short-lived cron process, so "already asked
     // this hour" must come from the DB, not memory (else an AI call every run).
+    // An hour's attempt is marked by its regime row (written before the AI
+    // call), so a failed/unparseable AI pass is not retried every cron run.
     const done = new Set<string>((await pool.query(
-      `SELECT DISTINCT symbol FROM fx_model_decisions WHERE engine='crypto' AND user_id=$1 AND created_at >= date_trunc('hour', now())`, [userId],
+      `SELECT DISTINCT symbol FROM fx_day_regimes WHERE engine='crypto' AND user_id=$1 AND day = (now() at time zone 'utc')::date AND hour_utc = extract(hour from now() at time zone 'utc')`, [userId],
     ).catch(() => ({ rows: [] as any[] }))).rows.map((r: any) => String(r.symbol)));
+    const perRun = Math.max(1, Number(process.env.CRYPTO_MODELS_PER_RUN ?? 3)); // spread candle load over the hour
+    let fetched = 0;
     for (const symbol of symbols.slice(0, maxTokens)) {
       const key = `crypto|${userId}|${symbol}`;
       if (done.has(symbol.toUpperCase()) || lastShadowCandle.get(key) === candle) continue; // once per H1 candle per token
+      if (fetched >= perRun) break;
+      fetched++;
       let h1: ModelBar[] = [], h4: ModelBar[] = [];
       try { h1 = (await fetchBars(symbol, '1h', 80)).slice(0, -1); h4 = (await fetchBars(symbol, '4h', 80)).slice(0, -1); } catch { continue; }
       if (h1.length < 55) continue;
@@ -649,7 +662,7 @@ export async function runCryptoModelsCycle(userId: number, symbols: string[]): P
       pairs.push({ symbol, ctx: { ...features, dayType: cls.dayType, autoModel: cls.autoModel, trendScore: cls.score } });
     }
     if (pairs.length) await shadowDecide(userId, session, pairs, 'crypto');
-    await resolveShadowDecisions('crypto');
+    await resolveShadowDecisions('crypto', userId); // this user's candles/chain only
   } catch (e: any) {
     console.error('[crypto-models] cycle failed (non-fatal):', e?.message || e);
   }
