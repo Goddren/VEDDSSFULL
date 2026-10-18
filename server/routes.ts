@@ -3695,6 +3695,66 @@ Respond ONLY in valid JSON format with these exact keys:
   // ===== Lemon Squeezy USD Subscription Endpoints =====
 
   // Create a Lemon Squeezy checkout session for a plan
+  // ── Social autopilot (phase 1: review queue) — see services/social-autopilot.ts ──
+  const socialAdmin = (req: Request) => req.isAuthenticated() && (!!(req.user as any)?.isAdmin || (req.user as User).id === Number(process.env.SOCIAL_OWNER_USER_ID ?? 1));
+  app.get('/api/social/posts', async (req: Request, res: Response) => {
+    if (!socialAdmin(req)) return res.status(403).json({ error: 'Admin only' });
+    try {
+      const { ensureSocialTables } = await import('./services/social-autopilot');
+      await ensureSocialTables();
+      const status = typeof req.query.status === 'string' ? req.query.status : null;
+      const { rows } = await (await import('./db')).pool.query(
+        `SELECT id, kind, platform, status, caption, thread, period_key, created_at, reviewed_at, posted_at, error, (image IS NOT NULL) AS has_image
+           FROM social_posts WHERE ($1::text IS NULL OR status=$1) ORDER BY created_at DESC, id DESC LIMIT 100`, [status]);
+      res.json({ posts: rows });
+    } catch (e: any) { res.status(500).json({ error: e?.message || 'failed' }); }
+  });
+  // Public on purpose: Instagram's publishing API fetches images by URL (phase 2).
+  app.get('/api/social/image/:id.png', async (req: Request, res: Response) => {
+    try {
+      const { rows } = await (await import('./db')).pool.query(`SELECT image FROM social_posts WHERE id=$1 AND status <> 'skipped' AND image IS NOT NULL`, [parseInt(req.params.id, 10)]);
+      if (!rows.length) return res.status(404).end();
+      res.setHeader('Content-Type', 'image/png');
+      res.setHeader('Cache-Control', 'public, max-age=86400');
+      res.end(rows[0].image);
+    } catch { res.status(500).end(); }
+  });
+  app.post('/api/social/:id/review', async (req: Request, res: Response) => {
+    if (!socialAdmin(req)) return res.status(403).json({ error: 'Admin only' });
+    try {
+      const id = parseInt(req.params.id, 10);
+      const { action, caption, thread } = req.body || {};
+      if (!['approve', 'skip', 'edit'].includes(action)) return res.status(400).json({ error: 'action must be approve | skip | edit' });
+      const th = Array.isArray(thread) ? thread.map((t: any) => String(t).slice(0, 280)).filter(Boolean) : null;
+      const status = action === 'approve' ? 'approved' : action === 'skip' ? 'skipped' : null;
+      const { rows } = await (await import('./db')).pool.query(
+        `UPDATE social_posts SET caption = COALESCE($2, caption), thread = COALESCE($3::jsonb, thread),
+                status = COALESCE($4, status), reviewed_at = CASE WHEN $4 IS NULL THEN reviewed_at ELSE now() END
+          WHERE id=$1 AND status IN ('draft','approved') RETURNING id, status`,
+        [id, typeof caption === 'string' ? caption.slice(0, 2200) : null, th ? JSON.stringify(th) : null, status]);
+      if (!rows.length) return res.status(404).json({ error: 'Post not found or already posted/skipped' });
+      res.json(rows[0]);
+    } catch (e: any) { res.status(500).json({ error: e?.message || 'failed' }); }
+  });
+  app.post('/api/social/generate', async (req: Request, res: Response) => {
+    if (!socialAdmin(req)) return res.status(403).json({ error: 'Admin only' });
+    try {
+      const kind = String(req.body?.kind || '');
+      if (!['weekly_recap', 'shadow_progress', 'engine_insight', 'milestone'].includes(kind)) return res.status(400).json({ error: 'bad kind' });
+      const { generateKind } = await import('./services/social-autopilot');
+      res.json(await generateKind(kind as any, !!req.body?.force));
+    } catch (e: any) { res.status(500).json({ error: e?.message || 'failed' }); }
+  });
+  app.post('/api/social/milestone', async (req: Request, res: Response) => {
+    if (!socialAdmin(req)) return res.status(403).json({ error: 'Admin only' });
+    try {
+      const title = String(req.body?.title || '').trim(), detail = String(req.body?.detail || '').trim();
+      if (!title) return res.status(400).json({ error: 'title required' });
+      const { createManualMilestone } = await import('./services/social-autopilot');
+      res.json({ id: await createManualMilestone(title, detail, String(req.body?.big || 'PASSED')) });
+    } catch (e: any) { res.status(500).json({ error: e?.message || 'failed' }); }
+  });
+
   // ── Whop payments (alongside Stripe / LemonSqueezy) — see server/whop.ts ──
   app.get('/api/whop/config', async (_req: Request, res: Response) => {
     const { whopEnabled, whopPlanMap } = await import('./whop');

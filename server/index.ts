@@ -1562,6 +1562,10 @@ async function withRetry<T>(
     const { startBlogPostScheduler } = await import('./services/blog-scheduler');
     startBlogPostScheduler();
 
+    // Social autopilot — drafts Instagram/X posts from engine results into a review queue
+    const { startSocialAutopilot } = await import('./services/social-autopilot');
+    startSocialAutopilot();
+
     const { startTierCreditScheduler } = await import('./services/tier-credit-scheduler');
     startTierCreditScheduler();
 

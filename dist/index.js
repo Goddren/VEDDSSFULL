@@ -7263,10 +7263,10 @@ async function getProfitSplitStatus(userId) {
     [userId]
   );
   const row = enr.rows[0];
-  const pct2 = row ? Number(row.pct) : DEFAULT_SPLIT_PCT;
+  const pct3 = row ? Number(row.pct) : DEFAULT_SPLIT_PCT;
   const active = !!row && row.status === "active";
   const { net, connections } = await _propFirmRealized(userId);
-  const owed = net > 0 ? Math.round(net * (pct2 / 100) * 100) / 100 : 0;
+  const owed = net > 0 ? Math.round(net * (pct3 / 100) * 100) / 100 : 0;
   let paid = 0;
   try {
     const p = await pool.query(`SELECT COALESCE(SUM(amount), 0) AS paid FROM profit_split_payments WHERE user_id = $1`, [userId]);
@@ -7275,7 +7275,7 @@ async function getProfitSplitStatus(userId) {
   }
   return {
     enrolled: active,
-    pct: pct2,
+    pct: pct3,
     status: row?.status ?? null,
     enrolledBy: row?.enrolled_by ?? null,
     propFirmConnections: connections,
@@ -7286,13 +7286,13 @@ async function getProfitSplitStatus(userId) {
     startedAt: row?.created_at ? new Date(row.created_at).toISOString() : null
   };
 }
-async function enrollProfitSplit(userId, enrolledBy, pct2 = DEFAULT_SPLIT_PCT) {
+async function enrollProfitSplit(userId, enrolledBy, pct3 = DEFAULT_SPLIT_PCT) {
   await pool.query(
     `INSERT INTO profit_split_enrollments (user_id, pct, status, enrolled_by, updated_at)
        VALUES ($1, $2, 'active', $3, now())
      ON CONFLICT (user_id) DO UPDATE
        SET status = 'active', pct = EXCLUDED.pct, enrolled_by = EXCLUDED.enrolled_by, updated_at = now()`,
-    [userId, pct2, enrolledBy]
+    [userId, pct3, enrolledBy]
   );
   _invalidate(userId);
 }
@@ -9102,13 +9102,13 @@ function vwapVolumeSurge(m5Candles, currentPrice) {
   const crossedAbove = currentPrice > vwap && prevClose <= vwap;
   const crossedBelow = currentPrice < vwap && prevClose >= vwap;
   if (crossedAbove || crossedBelow) {
-    const pct2 = Math.round(currentVol / avgVol * 100);
+    const pct3 = Math.round(currentVol / avgVol * 100);
     return {
       name,
       fired: true,
       direction: crossedAbove ? "BUY" : "SELL",
-      reason: `Price crossed ${crossedAbove ? "above" : "below"} VWAP (${vwap.toFixed(5)}) with ${pct2}% volume surge (prev close: ${prevClose.toFixed(5)})`,
-      strength: Math.min(pct2 / 300, 1)
+      reason: `Price crossed ${crossedAbove ? "above" : "below"} VWAP (${vwap.toFixed(5)}) with ${pct3}% volume surge (prev close: ${prevClose.toFixed(5)})`,
+      strength: Math.min(pct3 / 300, 1)
     };
   }
   const side = currentPrice > vwap ? "above" : currentPrice < vwap ? "below" : "at";
@@ -21357,8 +21357,8 @@ async function shadowDecide(userId, session3, pairs, engine = "fx") {
     return;
   }
   for (const p of pairs) p.ctx.range = await rangeFeatures(p.symbol, engine).catch(() => null);
-  const mastery = await getModelMastery(userId, { engine }).catch(() => null);
-  const masteryLines = (mastery?.slices || []).filter((m) => m.trades >= 5).slice(0, 20).map((m) => `${m.model} ${m.dayType} ${m.symbol} ${m.session}: ${m.trades} trades, WR ${(m.winRate * 100).toFixed(0)}%, avg ${m.avgR.toFixed(2)}R (${m.level})`).join("\n");
+  const mastery2 = await getModelMastery(userId, { engine }).catch(() => null);
+  const masteryLines = (mastery2?.slices || []).filter((m) => m.trades >= 5).slice(0, 20).map((m) => `${m.model} ${m.dayType} ${m.symbol} ${m.session}: ${m.trades} trades, WR ${(m.winRate * 100).toFixed(0)}%, avg ${m.avgR.toFixed(2)}R (${m.level})`).join("\n");
   const prompt = `You run TWO ${engine === "crypto" ? "CRYPTO (24/7 on-chain tokens)" : "FX"} trading models side by side. For EACH ${engine === "crypto" ? "token" : "pair"} below, say what each model would trade RIGHT NOW (or NONE).
 ${engine === "crypto" ? 'Crypto notes: markets never close; "sessions" are when US/EU volume is highest (London/NY hours give the cleanest trends). The live venue is spot DeFi (long-only): give BUY or NONE only \u2014 never SELL. Thin tokens wick hard \u2014 stops must sit beyond real structure, not inside noise.\n' : ""}
 MODEL 1 (range / low-volume days) \u2014 only when ctx.range.qualifies is true:
@@ -21662,8 +21662,8 @@ async function maybeGoLive(userId, idea) {
   const settings = await getFxModelSettings(userId);
   if (!settings.live) return;
   if (idea.model !== idea.autoModel) return;
-  const mastery = await getModelMastery(userId, { ownOnly: true });
-  const slice = mastery.slices.find((s) => s.model === idea.model && s.dayType === idea.dayType && s.symbol === idea.symbol && s.session === idea.session);
+  const mastery2 = await getModelMastery(userId, { ownOnly: true });
+  const slice = mastery2.slices.find((s) => s.model === idea.model && s.dayType === idea.dayType && s.symbol === idea.symbol && s.session === idea.session);
   if (!slice || !LIVE_LEVELS.includes(slice.level)) return;
   const cap = idea.model === "M1" ? settings.m1DailyCap : settings.m2DailyCap;
   const client2 = await pool.connect();
@@ -24723,11 +24723,11 @@ function createGoalTracker(config) {
 }
 function getGoalPhase(tracker) {
   if (tracker.weeklyTarget <= 0) return "building";
-  const pct2 = tracker.progressPercent;
-  if (pct2 >= 100) return "target_reached";
-  if (pct2 >= 80) return "pushing";
-  if (pct2 >= 50) return "cruising";
-  if (pct2 >= 25) return "accelerating";
+  const pct3 = tracker.progressPercent;
+  if (pct3 >= 100) return "target_reached";
+  if (pct3 >= 80) return "pushing";
+  if (pct3 >= 50) return "cruising";
+  if (pct3 >= 25) return "accelerating";
   if (tracker.wins >= 3) return "building";
   return "warming_up";
 }
@@ -26252,8 +26252,8 @@ function generateRuleBasedSignals(indicators, config, symbol) {
   const tp = direction === "BUY" ? entry + effectiveTpDist : entry - effectiveTpDist;
   let lotSize = config.baseLotSize;
   if (config.useKellyCriterion && !config.lockSettings) {
-    const pct2 = winningScore / 7;
-    const fractionalKelly = pct2 * 0.25;
+    const pct3 = winningScore / 7;
+    const fractionalKelly = pct3 * 0.25;
     lotSize = Math.min(config.maxLotSize, Math.max(config.baseLotSize, parseFloat((config.baseLotSize * (1 + fractionalKelly)).toFixed(2))));
   }
   const trade = {
@@ -37149,6 +37149,430 @@ var init_solana_scanner = __esm({
   }
 });
 
+// server/services/social-autopilot.ts
+var social_autopilot_exports = {};
+__export(social_autopilot_exports, {
+  createManualMilestone: () => createManualMilestone,
+  ensureSocialTables: () => ensureSocialTables,
+  generateKind: () => generateKind,
+  previewKind: () => previewKind,
+  startSocialAutopilot: () => startSocialAutopilot
+});
+function ensureSocialTables() {
+  if (!ensured3) {
+    ensured3 = pool.query(`
+      CREATE TABLE IF NOT EXISTS social_posts (
+        id serial PRIMARY KEY,
+        kind text NOT NULL,
+        platform text NOT NULL,
+        status text NOT NULL DEFAULT 'draft',
+        caption text,
+        thread jsonb,
+        image bytea,
+        data jsonb,
+        period_key text,
+        created_at timestamp NOT NULL DEFAULT now(),
+        reviewed_at timestamp,
+        posted_at timestamp,
+        external_id text,
+        error text
+      );
+      CREATE INDEX IF NOT EXISTS social_posts_status_idx ON social_posts (status, created_at);
+    `).then(() => void 0).catch((e) => {
+      console.error("[social] ensure failed:", e?.message || e);
+      ensured3 = null;
+    });
+  }
+  return ensured3;
+}
+async function renderCard(c) {
+  const W = 1080, H2 = 1080, F = "DejaVu Sans, Arial, Helvetica, sans-serif";
+  const rows = (c.rows || []).slice(0, 5).map(([k, v], i) => `<text x="90" y="${700 + i * 58}" font-family="${F}" font-size="34" fill="#94a3b8">${esc(k)}</text>
+     <text x="990" y="${700 + i * 58}" font-family="${F}" font-size="34" font-weight="700" fill="#e2e8f0" text-anchor="end">${esc(v)}</text>`).join("");
+  let spark = "";
+  if (c.series && c.series.length >= 2) {
+    const xs = c.series, min = Math.min(0, ...xs), max = Math.max(0, ...xs), span = max - min || 1;
+    const pts = xs.map((v, i) => `${90 + i * 900 / (xs.length - 1)},${640 - (v - min) / span * 130}`).join(" ");
+    const zeroY = 640 - (0 - min) / span * 130;
+    const last = xs[xs.length - 1];
+    spark = `<line x1="90" y1="${zeroY}" x2="990" y2="${zeroY}" stroke="#334155" stroke-dasharray="6 8"/>
+      <polyline points="${pts}" fill="none" stroke="${last >= 0 ? "#34d399" : "#f87171"}" stroke-width="6" stroke-linejoin="round" stroke-linecap="round"/>`;
+  }
+  const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${W}" height="${H2}">
+    <defs><linearGradient id="g" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#0b1020"/><stop offset="1" stop-color="#151b33"/></linearGradient></defs>
+    <rect width="${W}" height="${H2}" fill="url(#g)"/>
+    <rect x="60" y="60" width="${W - 120}" height="${H2 - 120}" rx="36" fill="none" stroke="#1e293b" stroke-width="3"/>
+    <text x="90" y="150" font-family="${F}" font-size="30" font-weight="700" fill="#38bdf8" letter-spacing="4">${esc(c.eyebrow.toUpperCase())}</text>
+    ${c.badge ? `<rect x="${990 - 24 * c.badge.length - 40}" y="112" width="${24 * c.badge.length + 40}" height="52" rx="26" fill="#f59e0b22" stroke="#f59e0b"/><text x="${990 - 12 * c.badge.length - 20}" y="148" font-family="${F}" font-size="26" font-weight="700" fill="#fbbf24" text-anchor="middle">${esc(c.badge)}</text>` : ""}
+    <text x="90" y="240" font-family="${F}" font-size="54" font-weight="800" fill="#f8fafc">${esc(c.title)}</text>
+    <text x="90" y="400" font-family="${F}" font-size="150" font-weight="800" fill="${c.bigColor || "#f8fafc"}">${esc(c.big)}</text>
+    ${c.sub ? `<text x="90" y="460" font-family="${F}" font-size="34" fill="#94a3b8">${esc(c.sub)}</text>` : ""}
+    ${spark}
+    ${rows}
+    <text x="90" y="1000" font-family="${F}" font-size="26" fill="#64748b">VEDD AI \xB7 ${esc(SITE().replace(/^https?:\/\//, ""))}</text>
+    <text x="990" y="1000" font-family="${F}" font-size="22" fill="#475569" text-anchor="end">Not financial advice</text>
+  </svg>`;
+  const sharp2 = (await import("sharp")).default;
+  return sharp2(Buffer.from(svg)).png().toBuffer();
+}
+async function fxWeek() {
+  const owner = OWNER();
+  const base = (await pool.query(
+    `SELECT DISTINCT ON (split_part(r.key, ':', 1)) split_part(r.key, ':', 1) AS conn, (r.value->>'equity')::float AS eq
+       FROM runtime_state r JOIN tradelocker_connections c ON c.id::text = split_part(r.key, ':', 1)
+      WHERE r.scope = 'tl_day_start' AND c.user_id = $1 AND c.is_active = true
+      ORDER BY split_part(r.key, ':', 1), r.key DESC`,
+    [owner]
+  )).rows.reduce((a, r) => a + (Number(r.eq) || 0), 0);
+  if (!(base > 0)) return null;
+  const { rows } = await pool.query(
+    `SELECT upper(regexp_replace(split_part(symbol, '.', 1), '[^A-Za-z0-9]', '', 'g')) AS s, direction AS d,
+            created_at, closed_at, profit_loss::float AS pl
+       FROM ai_trade_results
+      WHERE user_id = $1 AND source LIKE 'tradelocker%' AND result IN ('WIN','LOSS','BREAKEVEN')
+        AND closed_at > now() - interval '7 days' AND closed_at <= now()
+      ORDER BY closed_at`,
+    [owner]
+  );
+  if (!rows.length) return null;
+  const sigs = [];
+  for (const r of rows) {
+    const t = new Date(r.created_at).getTime();
+    const g = sigs.find((x) => x.s === r.s && x.d === r.d && Math.abs(x.t - t) < 15 * 6e4);
+    if (g) g.pl += Number(r.pl) || 0;
+    else sigs.push({ s: r.s, d: r.d, t, pl: Number(r.pl) || 0, close: new Date(r.closed_at).getTime() });
+  }
+  const total = sigs.reduce((a, x) => a + x.pl, 0);
+  const wins = sigs.filter((x) => x.pl > 0).length;
+  const decided = sigs.filter((x) => x.pl !== 0).length;
+  const byPair = /* @__PURE__ */ new Map();
+  for (const x of sigs) byPair.set(x.s, (byPair.get(x.s) || 0) + x.pl);
+  const bestE = Array.from(byPair.entries()).sort((a, b) => b[1] - a[1])[0];
+  const days = /* @__PURE__ */ new Map();
+  for (const x of sigs.sort((a, b) => a.close - b.close)) {
+    const k = new Date(x.close).toISOString().slice(0, 10);
+    days.set(k, (days.get(k) || 0) + x.pl);
+  }
+  let run = 0;
+  const series = [0, ...Array.from(days.values()).map((v) => (run += v) / base * 100)];
+  return { pct: total / base * 100, signals: sigs.length, winRate: decided ? wins / decided * 100 : 0, best: bestE && bestE[1] > 0 ? { pair: bestE[0], pct: bestE[1] / base * 100 } : void 0, series };
+}
+async function mastery() {
+  const fm = await Promise.resolve().then(() => (init_fx_models(), fx_models_exports));
+  const [fx, cr] = await Promise.all([fm.getModelMastery(OWNER(), { engine: "fx", ownOnly: true }), fm.getModelMastery(OWNER(), { engine: "crypto", ownOnly: true })]);
+  return { fx, cr };
+}
+async function buildWeeklyRecap() {
+  const w = await fxWeek();
+  if (!w) return null;
+  const up = w.pct >= 0;
+  const hook = up ? pick2(["The AI engine closed the week green.", "Another week of the engine doing its thing.", "Week in the books \u2014 engine finished up."]) : pick2(["Red week for the engine \u2014 here\u2019s the honest breakdown.", "Not every week is green. Full transparency below."]);
+  const lines = [
+    `Week result: ${pct2(w.pct, 2)} of account`,
+    `Signals: ${w.signals} \xB7 Win rate ${w.winRate.toFixed(0)}%`,
+    ...w.best ? [`Best pair: ${w.best.pair} (${pct2(w.best.pct, 2)})`] : []
+  ];
+  return {
+    kind: "weekly_recap",
+    period: isoWeek(),
+    card: {
+      eyebrow: "Live \xB7 weekly recap",
+      title: "AI FX engine \u2014 this week",
+      big: pct2(w.pct, 2),
+      bigColor: up ? "#34d399" : "#f87171",
+      sub: "of account, all live trades",
+      series: w.series,
+      rows: [["Signals traded", String(w.signals)], ["Win rate", `${w.winRate.toFixed(0)}%`], ...w.best ? [["Best pair", `${w.best.pair} ${pct2(w.best.pct, 2)}`]] : []]
+    },
+    ig: `${hook}
+
+${lines.join("\n")}
+
+Everything here is the live engine \u2014 no cherry-picking, % of account only.
+
+${RISK}
+
+${TAGS_IG}`,
+    x: [
+      `${hook}
+
+${lines.join("\n")}`,
+      `How it trades: H4 sets the trend, H1 the structure, M15 the entry. Trades where H1+H4 agree get full size; everything else is cut down.`,
+      `Building this in public \u2014 shadow models \u2192 live \u2192 prop firm. Follow along.
+
+${RISK}`
+    ],
+    data: w
+  };
+}
+async function buildShadowProgress() {
+  const { fx, cr } = await mastery();
+  const m = (list, id) => list.find((x) => x.model === id);
+  const f2 = m(fx.models, "M2"), f1 = m(fx.models, "M1"), c2 = m(cr.models, "M2");
+  const anyData = [f1, f2, c2].some((x) => x && x.trades > 0);
+  if (!anyData) return null;
+  const row = (label, x) => x ? [label, `${x.trades} ideas \xB7 ${(x.winRate * 100).toFixed(0)}% \xB7 ${lvl(x.level)}`] : [label, "collecting"];
+  const lead = [f2, f1, c2].filter(Boolean).sort((a, b) => b.trades - a.trades)[0];
+  const leadName = lead === c2 ? "Crypto trend" : lead === f1 ? "FX range" : "FX trend";
+  return {
+    kind: "shadow_progress",
+    period: isoWeek(),
+    card: {
+      eyebrow: "Shadow mode \xB7 simulated",
+      title: "Model 1 & Model 2 progress",
+      big: `${(lead.winRate * 100).toFixed(0)}%`,
+      sub: `${leadName} model win rate (simulated)`,
+      badge: "SHADOW",
+      rows: [row("FX Model 2 \xB7 trend", f2), row("FX Model 1 \xB7 range", f1), row("Crypto Model 2", c2)]
+    },
+    ig: `Two AI models are trading in SHADOW mode \u2014 every idea is recorded and scored against real prices, but no money is on the line until they prove themselves.
+
+${f2 ? `FX Trend model: ${f2.trades} ideas, ${(f2.winRate * 100).toFixed(0)}% win rate (${lvl(f2.level)})
+` : ""}${f1 ? `FX Range model: ${f1.trades} ideas, ${(f1.winRate * 100).toFixed(0)}% win rate (${lvl(f1.level)})
+` : ""}${c2 ? `Crypto Trend model: ${c2.trades} ideas, ${(c2.winRate * 100).toFixed(0)}% win rate (${lvl(c2.level)})
+` : ""}
+A model only goes live after 50+ scored ideas with a positive edge. Simulated results.
+
+${RISK}
+
+${TAGS_IG}`,
+    x: [
+      `Shadow mode update \u{1F9EA} Two AI models paper-trade every hour; each idea is scored against real prices.`,
+      [f2 && `FX Trend: ${f2.trades} ideas \xB7 ${(f2.winRate * 100).toFixed(0)}% WR \xB7 ${lvl(f2.level)}`, f1 && `FX Range: ${f1.trades} ideas \xB7 ${(f1.winRate * 100).toFixed(0)}% WR \xB7 ${lvl(f1.level)}`, c2 && `Crypto Trend: ${c2.trades} ideas \xB7 ${(c2.winRate * 100).toFixed(0)}% WR \xB7 ${lvl(c2.level)}`].filter(Boolean).join("\n"),
+      `Rule: no real money until a model has 50+ scored ideas with a positive edge. Simulated results.
+
+${RISK}`
+    ],
+    data: { fx: fx.models, crypto: cr.models }
+  };
+}
+async function buildEngineInsight() {
+  const { fx } = await mastery();
+  const slices = fx.slices.filter((s) => s.trades >= 10);
+  if (slices.length < 2) return null;
+  const best = [...slices].sort((a, b) => b.avgR - a.avgR)[0];
+  const worst = [...slices].sort((a, b) => a.avgR - b.avgR)[0];
+  const lbl = (s) => `${s.model === "M1" ? "Range" : "Trend"} \xB7 ${s.symbol} \xB7 ${s.session}`;
+  return {
+    kind: "engine_insight",
+    period: isoWeek(),
+    card: {
+      eyebrow: "What the AI is learning",
+      title: "Best vs worst setup",
+      big: `${best.avgR >= 0 ? "+" : ""}${best.avgR.toFixed(2)}R`,
+      bigColor: "#34d399",
+      sub: `avg per idea \u2014 ${lbl(best)}`,
+      badge: "SHADOW",
+      rows: [["Best", `${lbl(best)} \xB7 ${(best.winRate * 100).toFixed(0)}%`], ["Worst", `${lbl(worst)} \xB7 ${(worst.winRate * 100).toFixed(0)}%`], ["Ideas scored", String(slices.reduce((a, s) => a + s.trades, 0))]]
+    },
+    ig: `What the AI engine learned this week:
+
+\u2705 Best setup: ${lbl(best)} \u2014 ${(best.winRate * 100).toFixed(0)}% win rate over ${best.trades} ideas
+\u274C Worst setup: ${lbl(worst)} \u2014 ${(worst.winRate * 100).toFixed(0)}% over ${worst.trades}
+
+The engine leans into what works and avoids what doesn\u2019t \u2014 automatically. Simulated (shadow) results.
+
+${RISK}
+
+${TAGS_IG}`,
+    x: [
+      `What my AI trading engine learned this week \u{1F9E0}`,
+      `Best: ${lbl(best)} \u2014 ${(best.winRate * 100).toFixed(0)}% WR, ${best.trades} ideas
+Worst: ${lbl(worst)} \u2014 ${(worst.winRate * 100).toFixed(0)}% WR, ${worst.trades} ideas`,
+      `It sizes up the winners and steps away from the losers on its own. Shadow results (simulated).
+
+${RISK}`
+    ],
+    data: { best, worst }
+  };
+}
+async function buildMilestones() {
+  const out = [];
+  const { fx, cr } = await mastery();
+  const seen = new Set(await getState("social_milestones", "seen") || []);
+  for (const [eng, m] of [["FX", fx], ["Crypto", cr]]) {
+    for (const s of m.slices) {
+      if (!["Proficient", "Master"].includes(s.level)) continue;
+      const key = `${eng}|${s.model}|${s.dayType}|${s.symbol}|${s.session}|${s.level}`;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      const name = `${eng} ${s.model === "M1" ? "Range" : "Trend"} model \xB7 ${s.symbol}`;
+      out.push({
+        kind: "milestone",
+        period: key,
+        card: {
+          eyebrow: "Milestone unlocked",
+          title: name,
+          big: s.level.toUpperCase(),
+          bigColor: "#fbbf24",
+          sub: `${s.trades} scored ideas \xB7 ${(s.winRate * 100).toFixed(0)}% win rate`,
+          badge: "SHADOW",
+          rows: [["Session", s.session], ["Day type", s.dayType], ["Avg per idea", `${s.avgR >= 0 ? "+" : ""}${s.avgR.toFixed(2)}R`]]
+        },
+        ig: `\u{1F3C6} Milestone: the ${name} just reached ${s.level}.
+
+${s.trades} scored ideas in shadow mode, ${(s.winRate * 100).toFixed(0)}% win rate, ${s.avgR >= 0 ? "+" : ""}${s.avgR.toFixed(2)}R per idea (${s.session}, ${s.dayType} days).
+
+That\u2019s the bar a model has to clear before it\u2019s even considered for real money. Simulated results.
+
+${RISK}
+
+${TAGS_IG}`,
+        x: [`\u{1F3C6} Milestone: my ${name} just hit ${s.level} in shadow mode.`, `${s.trades} scored ideas \xB7 ${(s.winRate * 100).toFixed(0)}% WR \xB7 ${s.avgR >= 0 ? "+" : ""}${s.avgR.toFixed(2)}R/idea (${s.session}, ${s.dayType} days). Simulated.
+
+${RISK}`],
+        data: s
+      });
+    }
+  }
+  if (out.length) await setState("social_milestones", "seen", Array.from(seen));
+  const live = await pool.query(`SELECT symbol, model, direction, created_at FROM fx_model_decisions WHERE user_id=$1 AND engine='fx' AND mode='live' ORDER BY created_at LIMIT 1`, [OWNER()]).catch(() => ({ rows: [] }));
+  if (live.rows[0] && !seen.has("first_live")) {
+    const r = live.rows[0];
+    seen.add("first_live");
+    await setState("social_milestones", "seen", Array.from(seen));
+    out.push({
+      kind: "milestone",
+      period: "first_live",
+      card: { eyebrow: "Milestone unlocked", title: "First live model trade", big: "LIVE", bigColor: "#34d399", sub: `${r.model === "M1" ? "Range" : "Trend"} model \xB7 ${r.symbol} ${r.direction}` },
+      ig: `\u{1F680} The first AI model just graduated from shadow mode and placed a live trade (${r.symbol}).
+
+It earned it with a proven shadow record. Now the real test begins.
+
+${RISK}
+
+${TAGS_IG}`,
+      x: [`\u{1F680} Shadow \u2192 live. My first AI model just placed its first real trade (${r.symbol}).`, `It only went live after proving a positive edge in simulation. Now the real test.
+
+${RISK}`],
+      data: r
+    });
+  }
+  return out;
+}
+async function createManualMilestone(title, detail, big = "PASSED") {
+  return saveDraft({
+    kind: "milestone",
+    period: `manual:${Date.now()}`,
+    card: { eyebrow: "Milestone", title: title.slice(0, 40), big: big.slice(0, 10), bigColor: "#34d399", sub: detail.slice(0, 60) },
+    ig: `\u{1F3C6} ${title}
+
+${detail}
+
+Built by an AI engine that started in shadow mode and earned its way to live trading.
+
+${RISK}
+
+${TAGS_IG}`,
+    x: [`\u{1F3C6} ${title}`, `${detail}
+
+From shadow mode \u2192 live \u2192 this. Building in public.
+
+${RISK}`],
+    data: { title, detail }
+  });
+}
+async function getState(scope, key) {
+  try {
+    const { getRuntimeStateStrict: getRuntimeStateStrict2 } = await Promise.resolve().then(() => (init_runtime_state(), runtime_state_exports));
+    return await getRuntimeStateStrict2(scope, key);
+  } catch {
+    return null;
+  }
+}
+async function setState(scope, key, v) {
+  try {
+    const { pool: p } = await Promise.resolve().then(() => (init_db(), db_exports));
+    const { ensureRuntimeStateTable: ensureRuntimeStateTable2 } = await Promise.resolve().then(() => (init_runtime_state(), runtime_state_exports));
+    await ensureRuntimeStateTable2();
+    await p.query(`INSERT INTO runtime_state (scope, key, value, updated_at) VALUES ($1,$2,$3::jsonb,now()) ON CONFLICT (scope, key) DO UPDATE SET value=EXCLUDED.value, updated_at=now()`, [scope, key, JSON.stringify(v)]);
+  } catch {
+  }
+}
+function isoWeek(d = /* @__PURE__ */ new Date()) {
+  const t = new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate()));
+  const day = t.getUTCDay() || 7;
+  t.setUTCDate(t.getUTCDate() + 4 - day);
+  const y = new Date(Date.UTC(t.getUTCFullYear(), 0, 1));
+  return `${t.getUTCFullYear()}-W${String(Math.ceil(((t.getTime() - y.getTime()) / 864e5 + 1) / 7)).padStart(2, "0")}`;
+}
+async function saveDraft(d) {
+  await ensureSocialTables();
+  const img = await renderCard(d.card).catch((e) => {
+    console.error("[social] card render failed:", e?.message || e);
+    return null;
+  });
+  const x = d.x.map((t) => t.slice(0, 280));
+  const a = await pool.query(`INSERT INTO social_posts (kind, platform, caption, image, data, period_key) VALUES ($1,'instagram',$2,$3,$4::jsonb,$5) RETURNING id`, [d.kind, d.ig.slice(0, 2200), img, JSON.stringify(d.data ?? null), d.period]);
+  await pool.query(`INSERT INTO social_posts (kind, platform, caption, thread, image, data, period_key) VALUES ($1,'x',$2,$3::jsonb,$4,$5::jsonb,$6)`, [d.kind, x[0], JSON.stringify(x), img, JSON.stringify(d.data ?? null), d.period]);
+  return a.rows[0].id;
+}
+async function generateKind(kind, force = false) {
+  await ensureSocialTables();
+  const drafts = [];
+  if (kind === "weekly_recap") {
+    const d = await buildWeeklyRecap();
+    if (d) drafts.push(d);
+  }
+  if (kind === "shadow_progress") {
+    const d = await buildShadowProgress();
+    if (d) drafts.push(d);
+  }
+  if (kind === "engine_insight") {
+    const d = await buildEngineInsight();
+    if (d) drafts.push(d);
+  }
+  if (kind === "milestone") drafts.push(...await buildMilestones());
+  let created = 0;
+  for (const d of drafts) {
+    if (!force) {
+      const dup = await pool.query(`SELECT 1 FROM social_posts WHERE kind=$1 AND period_key=$2 LIMIT 1`, [d.kind, d.period]);
+      if (dup.rows.length) continue;
+    }
+    await saveDraft(d);
+    created++;
+  }
+  return { created, note: drafts.length ? `${created} new draft set(s)` : "not enough data yet for this post type" };
+}
+function startSocialAutopilot() {
+  if (process.env.SOCIAL_AUTOPILOT === "off") return;
+  const tick2 = async () => {
+    try {
+      const { isFxLeader: isFxLeader2 } = await Promise.resolve().then(() => (init_live_trading_engine(), live_trading_engine_exports));
+      if (!isFxLeader2()) return;
+      const now = /* @__PURE__ */ new Date(), dow = now.getUTCDay(), h = now.getUTCHours();
+      if (dow === 6 && h === 10) await generateKind("weekly_recap");
+      if (dow === 3 && h === 14) await generateKind("shadow_progress");
+      if (dow === 1 && h === 14) await generateKind("engine_insight");
+      if (h % 6 === 0) await generateKind("milestone");
+    } catch (e) {
+      console.error("[social] tick failed (non-fatal):", e?.message || e);
+    }
+  };
+  setInterval(tick2, 60 * 60 * 1e3);
+  setTimeout(tick2, 5 * 60 * 1e3);
+}
+async function previewKind(kind) {
+  const d = kind === "weekly_recap" ? await buildWeeklyRecap() : kind === "shadow_progress" ? await buildShadowProgress() : await buildEngineInsight();
+  return { draft: d, png: d ? await renderCard(d.card) : void 0 };
+}
+var OWNER, SITE, RISK, TAGS_IG, ensured3, esc, pct2, lvl, pick2;
+var init_social_autopilot = __esm({
+  "server/services/social-autopilot.ts"() {
+    "use strict";
+    init_db();
+    OWNER = () => Number(process.env.SOCIAL_OWNER_USER_ID ?? 1);
+    SITE = () => (process.env.PUBLIC_SITE_URL || "https://veddbuild.com").replace(/\/$/, "");
+    RISK = "Not financial advice. Trading involves risk; past results don\u2019t guarantee future returns.";
+    TAGS_IG = "#algotrading #forex #aitrading #tradingbot #buildinpublic #propfirm #tradingjourney";
+    ensured3 = null;
+    esc = (s) => String(s).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+    pct2 = (x, d = 1) => `${x >= 0 ? "+" : ""}${x.toFixed(d)}%`;
+    lvl = (l) => String(l || "").replace(/\s*\(negative\)/i, "");
+    pick2 = (xs) => xs[Math.floor(Math.random() * xs.length)];
+  }
+});
+
 // server/whop.ts
 var whop_exports = {};
 __export(whop_exports, {
@@ -37172,8 +37596,8 @@ function whopEnabled() {
   return !!process.env.WHOP_API_KEY && Object.keys(whopPlanMap()).length > 0;
 }
 function ensureWhopSchema() {
-  if (!ensured3) {
-    ensured3 = pool.query(`
+  if (!ensured4) {
+    ensured4 = pool.query(`
       ALTER TABLE users ADD COLUMN IF NOT EXISTS whop_membership_id text;
       ALTER TABLE users ADD COLUMN IF NOT EXISTS whop_user_id text;
       CREATE TABLE IF NOT EXISTS whop_webhook_events (
@@ -37184,10 +37608,10 @@ function ensureWhopSchema() {
       );
     `).then(() => void 0).catch((e) => {
       console.error("[whop] schema ensure failed:", e?.message || e);
-      ensured3 = null;
+      ensured4 = null;
     });
   }
-  return ensured3;
+  return ensured4;
 }
 async function createWhopCheckout(userId, veddPlanId) {
   const key = process.env.WHOP_API_KEY;
@@ -37201,7 +37625,7 @@ async function createWhopCheckout(userId, veddPlanId) {
       mode: "payment",
       plan_id: planId,
       metadata: { vedd_user_id: String(userId), vedd_plan_id: String(veddPlanId) },
-      redirect_url: `${SITE()}/subscription?whop=success`
+      redirect_url: `${SITE2()}/subscription?whop=success`
     }),
     signal: AbortSignal.timeout(15e3)
   });
@@ -37304,15 +37728,15 @@ async function handleWhopEvent(webhookId, evt) {
       return { handled: false, note: `unhandled ${type}` };
   }
 }
-var API_BASE, SITE, NAMED, ensured3;
+var API_BASE, SITE2, NAMED, ensured4;
 var init_whop = __esm({
   "server/whop.ts"() {
     "use strict";
     init_db();
     API_BASE = () => (process.env.WHOP_API_BASE || "https://api.whop.com/api/v1").replace(/\/$/, "");
-    SITE = () => (process.env.PUBLIC_SITE_URL || "https://veddbuild.com").replace(/\/$/, "");
+    SITE2 = () => (process.env.PUBLIC_SITE_URL || "https://veddbuild.com").replace(/\/$/, "");
     NAMED = { 2: "STARTER", 3: "PREMIUM", 4: "YEARLY" };
-    ensured3 = null;
+    ensured4 = null;
   }
 });
 
@@ -38927,7 +39351,7 @@ async function computeOptionsBrain(userId) {
     const { and: and12, eq: eq21 } = await import("drizzle-orm");
     const purchased = await db2.select().from(optionsBrainOutcomes2).where(and12(eq21(optionsBrainOutcomes2.userId, userId), eq21(optionsBrainOutcomes2.source, "purchased_brain")));
     for (const r of purchased) {
-      const pct2 = Number(r.returnPct ?? 0);
+      const pct3 = Number(r.returnPct ?? 0);
       closed.push({
         status: "closed",
         underlyingSymbol: r.underlyingSymbol,
@@ -38936,7 +39360,7 @@ async function computeOptionsBrain(userId) {
         entryConfidence: r.entryConfidence ?? null,
         realizedPnl: Number(r.profitLoss ?? 0),
         entryPrice: 1,
-        exitPrice: 1 + pct2 / 100,
+        exitPrice: 1 + pct3 / 100,
         quantity: r.contracts ?? 1,
         createdAt: r.closedAt,
         closedAt: r.closedAt
@@ -42565,13 +42989,13 @@ async function executeSignalSingle(service, connection2, userId, symbol, result,
               cands.push({ t, px, move, ageH });
             }
             cands.sort((a, b) => Math.abs(a.move) - Math.abs(b.move) || b.ageH - a.ageH);
-            const pick2 = cands.find((c) => usdc + Number(c.t.quantity || 0) * c.px * 0.98 >= notionalD);
-            if (pick2) {
+            const pick3 = cands.find((c) => usdc + Number(c.t.quantity || 0) * c.px * 0.98 >= notionalD);
+            if (pick3) {
               const { saveRuntimeState: saveRuntimeState2 } = await Promise.resolve().then(() => (init_runtime_state(), runtime_state_exports));
-              saveRuntimeState2("crypto_rotation", String(userId), { at: Date.now(), sold: pick2.t.symbol, for: symbol });
-              await storage.createCryptocomEngineActivity({ userId, symbol: pick2.t.symbol, decision: "exit", strategy: pick2.t.strategy, reasoning: `${pick2.t.symbol}: ROTATION \u2014 open ${pick2.ageH.toFixed(0)}h, only ${pick2.move >= 0 ? "+" : ""}${pick2.move.toFixed(2)}% and no H1+H4 uptrend; selling to fund ${symbol} (score ${result.score}, $${usdc.toFixed(2)} USDC < $${notionalD.toFixed(2)} needed).`, score: null, price: pick2.px, dailyChangePercent: null, source: "cryptocom" }).catch(() => {
+              saveRuntimeState2("crypto_rotation", String(userId), { at: Date.now(), sold: pick3.t.symbol, for: symbol });
+              await storage.createCryptocomEngineActivity({ userId, symbol: pick3.t.symbol, decision: "exit", strategy: pick3.t.strategy, reasoning: `${pick3.t.symbol}: ROTATION \u2014 open ${pick3.ageH.toFixed(0)}h, only ${pick3.move >= 0 ? "+" : ""}${pick3.move.toFixed(2)}% and no H1+H4 uptrend; selling to fund ${symbol} (score ${result.score}, $${usdc.toFixed(2)} USDC < $${notionalD.toFixed(2)} needed).`, score: null, price: pick3.px, dailyChangePercent: null, source: "cryptocom" }).catch(() => {
               });
-              await closePosition(userId, pick2.t, pick2.px, "rotation");
+              await closePosition(userId, pick3.t, pick3.px, "rotation");
               const after = await hotWalletUsdc2(userId, chain);
               if (after == null || after < notionalD) {
                 await storage.createCryptocomEngineActivity({ userId, symbol, decision: "skipped", strategy: result.strategy, reasoning: `${symbol}: rotation sale did not free enough USDC yet ($${(after ?? 0).toFixed(2)}) \u2014 entry deferred.`, score: result.score, price: result.price, dailyChangePercent: result.dailyChangePercent, source: "cryptocom" }).catch(() => {
@@ -45191,7 +45615,7 @@ async function scanKalshiWeatherPicks(cityCodes, opts = {}) {
         const probW = 0.6 + modelProbPct / 100 * 0.4;
         const confW = 0.5 + conf / 100 * 0.5;
         const valueScore = Math.round(edgePct * probW * confW * 10) / 10;
-        const pick2 = {
+        const pick3 = {
           city: city.name,
           cityCode: city.code,
           ticker: b.ticker,
@@ -45205,8 +45629,8 @@ async function scanKalshiWeatherPicks(cityCodes, opts = {}) {
           targetDate,
           rationale: `${city.name} ${targetDate}: GEFS ensemble ${modelProbPct}% vs market ${ask}\xA2 \u2192 +${edgePct}\xA2 edge on "${b.subtitle}" (${members.length} members, spread-conf ${conf}%).`
         };
-        picks.push(pick2);
-        if (!cityBest || pick2.valueScore > cityBest.valueScore) cityBest = pick2;
+        picks.push(pick3);
+        if (!cityBest || pick3.valueScore > cityBest.valueScore) cityBest = pick3;
       }
       perCityReasons.push(cityBest ? `${city.name}: best +${cityBest.edgePct}\xA2 edge on "${cityBest.subtitle}" (score ${cityBest.valueScore})` : `${city.name}: no positive-edge bucket (ensemble agrees with the market)`);
     } catch (err) {
@@ -48139,12 +48563,12 @@ function getPhaseMultiplier(phase2, winStreak) {
 }
 function computeGoalPhase(goal) {
   if (goal.targetSol <= 0 || goal.phase === "idle") return "idle";
-  const pct2 = goal.currentProfitSol / goal.targetSol;
-  if (pct2 >= 1) return "target_reached";
-  if (pct2 >= 0.85) return "pushing";
-  if (pct2 >= 0.7) return "cruising";
-  if (pct2 >= 0.5) return "accelerating";
-  if (pct2 >= 0.2) return "building";
+  const pct3 = goal.currentProfitSol / goal.targetSol;
+  if (pct3 >= 1) return "target_reached";
+  if (pct3 >= 0.85) return "pushing";
+  if (pct3 >= 0.7) return "cruising";
+  if (pct3 >= 0.5) return "accelerating";
+  if (pct3 >= 0.2) return "building";
   return "warming_up";
 }
 function computeAutoSolSize(state, dex, overrideStrategy, mode = "live") {
@@ -55760,17 +56184,17 @@ async function sendPersonaContentEmail(subject, html) {
   console.error("[persona-content] All email channels failed:", reason);
   return { success: false, reason };
 }
-async function recordProgress(pick2, contentDate, spine, emailSent) {
+async function recordProgress(pick3, contentDate, spine, emailSent) {
   await pool.query(
     `INSERT INTO persona_content_days (content_date, pillar, theme, arc_stage, arc_index, goal, platforms_count, email_sent)
      VALUES ($1,$2,$3,$4,$5,$6,8,$7)`,
-    [contentDate, pick2.pillar, spine.daily_theme, pick2.arcStage, pick2.arcIndex, spine.goal, emailSent]
+    [contentDate, pick3.pillar, spine.daily_theme, pick3.arcStage, pick3.arcIndex, spine.goal, emailSent]
   );
   await pool.query(
     `UPDATE persona_pillar_rotation SET times_used = times_used + 1, last_used_date = $1 WHERE pillar = $2`,
-    [contentDate, pick2.pillar]
+    [contentDate, pick3.pillar]
   );
-  const nextIndex = (pick2.arcIndex + 1) % ARC_STAGES.length;
+  const nextIndex = (pick3.arcIndex + 1) % ARC_STAGES.length;
   const wrapped = nextIndex === 0;
   await pool.query(
     `UPDATE persona_arc_state SET current_index = $1, loops_completed = loops_completed + $2 WHERE id = 1`,
@@ -55781,25 +56205,25 @@ async function runPersonaContentEngine(trigger = "manual") {
   const contentDate = (/* @__PURE__ */ new Date()).toISOString().slice(0, 10);
   console.log(`[persona-content] Run started (${trigger}) for ${contentDate}`);
   try {
-    const pick2 = await pickPillarAndArc();
-    console.log(`[persona-content] Pillar="${pick2.pillar}" arc="${pick2.arcStage}" (${pick2.arcIndex + 1}/7, loop ${pick2.loopsCompleted + 1})`);
-    const spine = await generateSpine(pick2.pillar, pick2.arcStage, contentDate);
-    const draftPackages = await generatePlatformPackages(spine, pick2.pillar, pick2.arcStage);
+    const pick3 = await pickPillarAndArc();
+    console.log(`[persona-content] Pillar="${pick3.pillar}" arc="${pick3.arcStage}" (${pick3.arcIndex + 1}/7, loop ${pick3.loopsCompleted + 1})`);
+    const spine = await generateSpine(pick3.pillar, pick3.arcStage, contentDate);
+    const draftPackages = await generatePlatformPackages(spine, pick3.pillar, pick3.arcStage);
     const packages = await humanizePackages(draftPackages);
-    const replies = await generateReplyTemplates(pick2.pillar);
+    const replies = await generateReplyTemplates(pick3.pillar);
     const html = buildEmailHtml({
       contentDate,
-      pillar: pick2.pillar,
-      arcStage: pick2.arcStage,
-      arcIndex: pick2.arcIndex,
-      loopsCompleted: pick2.loopsCompleted,
+      pillar: pick3.pillar,
+      arcStage: pick3.arcStage,
+      arcIndex: pick3.arcIndex,
+      loopsCompleted: pick3.loopsCompleted,
       spine,
       packages,
       replies
     });
-    const subject = `VEDD Content Package - ${contentDate} - ${spine.daily_theme} (${pick2.pillar})`;
+    const subject = `VEDD Content Package - ${contentDate} - ${spine.daily_theme} (${pick3.pillar})`;
     const emailResult = await sendPersonaContentEmail(subject, html);
-    await recordProgress(pick2, contentDate, spine, emailResult.success);
+    await recordProgress(pick3, contentDate, spine, emailResult.success);
     if (!emailResult.success) {
       console.error("[persona-content] Run completed but email failed:", emailResult.reason);
       return { success: false, reason: emailResult.reason };
@@ -60320,9 +60744,9 @@ async function getStopOrdersForUser(userId, filters = {}) {
 init_schema();
 
 // server/build-info.ts
-var BUILD_COMMIT = "3c54abce-dirty";
+var BUILD_COMMIT = "1a1eb416-dirty";
 var BUILD_BRANCH = "main";
-var BUILT_AT = "2026-10-18T14:55:15.492Z";
+var BUILT_AT = "2026-10-18T20:23:04.205Z";
 
 // server/stripe.ts
 init_db();
@@ -66560,6 +66984,76 @@ Respond ONLY in valid JSON format with these exact keys:
     } catch (error) {
       console.error("[Stripe webhook] Handler error:", error);
       res.status(500).json({ message: "Error handling webhook" });
+    }
+  });
+  const socialAdmin = (req) => req.isAuthenticated() && (!!req.user?.isAdmin || req.user.id === Number(process.env.SOCIAL_OWNER_USER_ID ?? 1));
+  app2.get("/api/social/posts", async (req, res) => {
+    if (!socialAdmin(req)) return res.status(403).json({ error: "Admin only" });
+    try {
+      const { ensureSocialTables: ensureSocialTables2 } = await Promise.resolve().then(() => (init_social_autopilot(), social_autopilot_exports));
+      await ensureSocialTables2();
+      const status = typeof req.query.status === "string" ? req.query.status : null;
+      const { rows } = await (await Promise.resolve().then(() => (init_db(), db_exports))).pool.query(
+        `SELECT id, kind, platform, status, caption, thread, period_key, created_at, reviewed_at, posted_at, error, (image IS NOT NULL) AS has_image
+           FROM social_posts WHERE ($1::text IS NULL OR status=$1) ORDER BY created_at DESC, id DESC LIMIT 100`,
+        [status]
+      );
+      res.json({ posts: rows });
+    } catch (e) {
+      res.status(500).json({ error: e?.message || "failed" });
+    }
+  });
+  app2.get("/api/social/image/:id.png", async (req, res) => {
+    try {
+      const { rows } = await (await Promise.resolve().then(() => (init_db(), db_exports))).pool.query(`SELECT image FROM social_posts WHERE id=$1 AND status <> 'skipped' AND image IS NOT NULL`, [parseInt(req.params.id, 10)]);
+      if (!rows.length) return res.status(404).end();
+      res.setHeader("Content-Type", "image/png");
+      res.setHeader("Cache-Control", "public, max-age=86400");
+      res.end(rows[0].image);
+    } catch {
+      res.status(500).end();
+    }
+  });
+  app2.post("/api/social/:id/review", async (req, res) => {
+    if (!socialAdmin(req)) return res.status(403).json({ error: "Admin only" });
+    try {
+      const id = parseInt(req.params.id, 10);
+      const { action, caption, thread } = req.body || {};
+      if (!["approve", "skip", "edit"].includes(action)) return res.status(400).json({ error: "action must be approve | skip | edit" });
+      const th = Array.isArray(thread) ? thread.map((t) => String(t).slice(0, 280)).filter(Boolean) : null;
+      const status = action === "approve" ? "approved" : action === "skip" ? "skipped" : null;
+      const { rows } = await (await Promise.resolve().then(() => (init_db(), db_exports))).pool.query(
+        `UPDATE social_posts SET caption = COALESCE($2, caption), thread = COALESCE($3::jsonb, thread),
+                status = COALESCE($4, status), reviewed_at = CASE WHEN $4 IS NULL THEN reviewed_at ELSE now() END
+          WHERE id=$1 AND status IN ('draft','approved') RETURNING id, status`,
+        [id, typeof caption === "string" ? caption.slice(0, 2200) : null, th ? JSON.stringify(th) : null, status]
+      );
+      if (!rows.length) return res.status(404).json({ error: "Post not found or already posted/skipped" });
+      res.json(rows[0]);
+    } catch (e) {
+      res.status(500).json({ error: e?.message || "failed" });
+    }
+  });
+  app2.post("/api/social/generate", async (req, res) => {
+    if (!socialAdmin(req)) return res.status(403).json({ error: "Admin only" });
+    try {
+      const kind = String(req.body?.kind || "");
+      if (!["weekly_recap", "shadow_progress", "engine_insight", "milestone"].includes(kind)) return res.status(400).json({ error: "bad kind" });
+      const { generateKind: generateKind2 } = await Promise.resolve().then(() => (init_social_autopilot(), social_autopilot_exports));
+      res.json(await generateKind2(kind, !!req.body?.force));
+    } catch (e) {
+      res.status(500).json({ error: e?.message || "failed" });
+    }
+  });
+  app2.post("/api/social/milestone", async (req, res) => {
+    if (!socialAdmin(req)) return res.status(403).json({ error: "Admin only" });
+    try {
+      const title = String(req.body?.title || "").trim(), detail = String(req.body?.detail || "").trim();
+      if (!title) return res.status(400).json({ error: "title required" });
+      const { createManualMilestone: createManualMilestone2 } = await Promise.resolve().then(() => (init_social_autopilot(), social_autopilot_exports));
+      res.json({ id: await createManualMilestone2(title, detail, String(req.body?.big || "PASSED")) });
+    } catch (e) {
+      res.status(500).json({ error: e?.message || "failed" });
     }
   });
   app2.get("/api/whop/config", async (_req, res) => {
@@ -77355,8 +77849,8 @@ Rules:
       updateDataById.propFirmAccountSize = isNaN(size) ? null : size;
     }
     if (consistencyThresholdPct !== void 0) {
-      const pct2 = parseFloat(consistencyThresholdPct);
-      updateDataById.consistencyThresholdPct = !isNaN(pct2) && pct2 > 0 && pct2 <= 100 ? pct2 : null;
+      const pct3 = parseFloat(consistencyThresholdPct);
+      updateDataById.consistencyThresholdPct = !isNaN(pct3) && pct3 > 0 && pct3 <= 100 ? pct3 : null;
     }
     if (consistencyEnabled !== void 0) updateDataById.consistencyEnabled = !!consistencyEnabled;
     if (useRiskPercent !== void 0) updateDataById.useRiskPercent = !!useRiskPercent;
@@ -91272,7 +91766,7 @@ Sitemap: ${SEO_BASE_URL}/sitemap.xml
           return res.status(400).json({ error: `Need at least ${MIN_TRADES_TO_LIST2} closed options trades to list (you have ${closedT.length}).` });
         }
         rows = closedT.map((t) => {
-          const pct2 = t.entryPrice ? (t.exitPrice - t.entryPrice) / t.entryPrice * 100 : 0;
+          const pct3 = t.entryPrice ? (t.exitPrice - t.entryPrice) / t.entryPrice * 100 : 0;
           const rpl = Number(t.realizedPnl ?? 0);
           const closedAt = t.closedAt ?? t.createdAt;
           return {
@@ -91281,7 +91775,7 @@ Sitemap: ${SEO_BASE_URL}/sitemap.xml
             strategy: t.strategy,
             direction: t.optionType === "call" ? "bullish" : "bearish",
             entryConfidence: t.entryConfidence ?? null,
-            returnPct: pct2,
+            returnPct: pct3,
             hourUtc: new Date(closedAt).getUTCHours(),
             holdingMinutes: t.createdAt ? Math.max(0, Math.round((new Date(closedAt).getTime() - new Date(t.createdAt).getTime()) / 6e4)) : null,
             exitReason: t.exitReason ?? null,
@@ -91646,7 +92140,7 @@ Sitemap: ${SEO_BASE_URL}/sitemap.xml
     const u = req.user;
     if (!req.isAuthenticated() || !(u?.isAdmin || u?.isAmbassador)) return res.status(403).json({ error: "Admin or ambassador only" });
     try {
-      const { userId, email, pct: pct2 } = req.body;
+      const { userId, email, pct: pct3 } = req.body;
       let targetId = userId;
       if (!targetId && email) {
         const found = await storage.getUserByEmail(email);
@@ -91657,7 +92151,7 @@ Sitemap: ${SEO_BASE_URL}/sitemap.xml
         const target = await storage.getUser(targetId);
         if (!target || target.referredBy !== u.id) return res.status(403).json({ error: "You can only enroll traders you recruited" });
       }
-      const _pct = typeof pct2 === "number" && pct2 > 0 && pct2 <= 100 ? pct2 : 30;
+      const _pct = typeof pct3 === "number" && pct3 > 0 && pct3 <= 100 ? pct3 : 30;
       const { enrollProfitSplit: enrollProfitSplit2 } = await Promise.resolve().then(() => (init_profit_split(), profit_split_exports));
       await enrollProfitSplit2(targetId, u.isAdmin ? req.body.enrolledBy ?? null : u.id, _pct);
       res.json({ success: true, userId: targetId, pct: _pct });
@@ -94462,6 +94956,8 @@ async function withRetry(fn, label, maxAttempts = 6, baseDelayMs = 2e3) {
     startPersonaContentScheduler2();
     const { startBlogPostScheduler: startBlogPostScheduler2 } = await Promise.resolve().then(() => (init_blog_scheduler(), blog_scheduler_exports));
     startBlogPostScheduler2();
+    const { startSocialAutopilot: startSocialAutopilot2 } = await Promise.resolve().then(() => (init_social_autopilot(), social_autopilot_exports));
+    startSocialAutopilot2();
     const { startTierCreditScheduler: startTierCreditScheduler2 } = await Promise.resolve().then(() => (init_tier_credit_scheduler(), tier_credit_scheduler_exports));
     startTierCreditScheduler2();
     const { startTradeLockerSync: startTradeLockerSync2 } = await Promise.resolve().then(() => (init_tradelocker_sync(), tradelocker_sync_exports));
