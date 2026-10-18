@@ -290,7 +290,7 @@ async function shadowDecide(userId: number, session: string, pairs: Array<{ symb
     .map((m: any) => `${m.model} ${m.dayType} ${m.symbol} ${m.session}: ${m.trades} trades, WR ${(m.winRate * 100).toFixed(0)}%, avg ${m.avgR.toFixed(2)}R (${m.level})`).join('\n');
 
   const prompt = `You run TWO ${engine === 'crypto' ? 'CRYPTO (24/7 on-chain tokens)' : 'FX'} trading models side by side. For EACH ${engine === 'crypto' ? 'token' : 'pair'} below, say what each model would trade RIGHT NOW (or NONE).
-${engine === 'crypto' ? 'Crypto notes: markets never close; "sessions" are when US/EU volume is highest (London/NY hours give the cleanest trends). The live venue is spot DeFi, so BUY ideas matter most; SELL ideas are recorded for learning only. Thin tokens wick hard — stops must sit beyond real structure, not inside noise.\n' : ''}
+${engine === 'crypto' ? 'Crypto notes: markets never close; "sessions" are when US/EU volume is highest (London/NY hours give the cleanest trends). The live venue is spot DeFi (long-only): give BUY or NONE only — never SELL. Thin tokens wick hard — stops must sit beyond real structure, not inside noise.\n' : ''}
 MODEL 1 (range / low-volume days) — only when ctx.range.qualifies is true:
   • Trade ONLY at an edge: SELL when positionInRangePct >= 80, BUY when <= 20. Never the middle.
   • Best trigger is a liquidity sweep (sweepHigh/sweepLow true: wick through the edge, close back inside). Also valid: rejection at prevDay/Asian high/low that sits on the edge, RSI stretched at the edge.
@@ -340,6 +340,8 @@ Give exactly one M1 and one M2 entry per pair.`;
     const near = price > 0 && Math.abs(entry - price) / price < (engine === 'crypto' ? 0.01 : 0.003);
     let isTrade = (dir === 'BUY' || dir === 'SELL') && valid && near;
     let ruleNote = '';
+    // Crypto is long-only (spot DeFi); its shadow SELLs went 3W/12L.
+    if (engine === 'crypto' && dir === 'SELL') { isTrade = false; ruleNote = 'crypto is long-only'; }
     // The idea is recorded/traded at the LIVE price with the AI's stop and
     // target, so they must still sit on the right sides of that price and the
     // risk must stay close to what the AI planned (0.5x-1.5x).
@@ -616,6 +618,9 @@ function adx14(bars: ModelBar[]): number | null {
 
 export async function runCryptoModelsCycle(userId: number, symbols: string[]): Promise<void> {
   if (process.env.CRYPTO_MODELS_SHADOW === 'off') return;
+  // Crypto day types change slowly: run every N hours (default 2) to halve AI cost.
+  const everyH = Math.max(1, Number(process.env.CRYPTO_MODELS_EVERY_HOURS ?? 2));
+  if (new Date().getUTCHours() % everyH !== 0) { await resolveShadowDecisions('crypto', userId).catch(() => {}); return; }
   try {
     await ensureFxModelTables();
     const fetchBars = barsFor('crypto');

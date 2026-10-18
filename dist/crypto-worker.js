@@ -28803,7 +28803,7 @@ async function shadowDecide(userId, session2, pairs, engine = "fx") {
   const mastery = await getModelMastery(userId, { engine }).catch(() => null);
   const masteryLines = (mastery?.slices || []).filter((m) => m.trades >= 5).slice(0, 20).map((m) => `${m.model} ${m.dayType} ${m.symbol} ${m.session}: ${m.trades} trades, WR ${(m.winRate * 100).toFixed(0)}%, avg ${m.avgR.toFixed(2)}R (${m.level})`).join("\n");
   const prompt = `You run TWO ${engine === "crypto" ? "CRYPTO (24/7 on-chain tokens)" : "FX"} trading models side by side. For EACH ${engine === "crypto" ? "token" : "pair"} below, say what each model would trade RIGHT NOW (or NONE).
-${engine === "crypto" ? 'Crypto notes: markets never close; "sessions" are when US/EU volume is highest (London/NY hours give the cleanest trends). The live venue is spot DeFi, so BUY ideas matter most; SELL ideas are recorded for learning only. Thin tokens wick hard \u2014 stops must sit beyond real structure, not inside noise.\n' : ""}
+${engine === "crypto" ? 'Crypto notes: markets never close; "sessions" are when US/EU volume is highest (London/NY hours give the cleanest trends). The live venue is spot DeFi (long-only): give BUY or NONE only \u2014 never SELL. Thin tokens wick hard \u2014 stops must sit beyond real structure, not inside noise.\n' : ""}
 MODEL 1 (range / low-volume days) \u2014 only when ctx.range.qualifies is true:
   \u2022 Trade ONLY at an edge: SELL when positionInRangePct >= 80, BUY when <= 20. Never the middle.
   \u2022 Best trigger is a liquidity sweep (sweepHigh/sweepLow true: wick through the edge, close back inside). Also valid: rejection at prevDay/Asian high/low that sits on the edge, RSI stretched at the edge.
@@ -28860,6 +28860,10 @@ Give exactly one M1 and one M2 entry per pair.`;
     const near = price > 0 && Math.abs(entry - price) / price < (engine === "crypto" ? 0.01 : 3e-3);
     let isTrade = (dir === "BUY" || dir === "SELL") && valid && near;
     let ruleNote = "";
+    if (engine === "crypto" && dir === "SELL") {
+      isTrade = false;
+      ruleNote = "crypto is long-only";
+    }
     if (isTrade) {
       const sidesOk = dir === "BUY" ? sl < price && tp > price : sl > price && tp < price;
       const planned = Math.abs(entry - sl), actual = Math.abs(price - sl);
@@ -29170,6 +29174,12 @@ function adx14(bars) {
 }
 async function runCryptoModelsCycle(userId, symbols) {
   if (process.env.CRYPTO_MODELS_SHADOW === "off") return;
+  const everyH = Math.max(1, Number(process.env.CRYPTO_MODELS_EVERY_HOURS ?? 2));
+  if ((/* @__PURE__ */ new Date()).getUTCHours() % everyH !== 0) {
+    await resolveShadowDecisions("crypto", userId).catch(() => {
+    });
+    return;
+  }
   try {
     await ensureFxModelTables();
     const fetchBars2 = barsFor("crypto");
@@ -31044,7 +31054,46 @@ async function scanOneUser(userId) {
             continue;
           }
         }
+        {
+          const _venue = String(config.executionVenue || "cryptocom");
+          const _buyOnly = _venue === "defi" && !config.multiVenueEnabled;
+          const _skip = async (why) => storage.createCryptocomEngineActivity({ userId, symbol, decision: "skipped", strategy: result.strategy, reasoning: `${symbol}: ${why} \u2014 no AI review needed.`, score: result.score, price: result.price, dailyChangePercent: result.dailyChangePercent, source: "cryptocom" }).catch(() => {
+          });
+          if (_buyOnly && result.direction === "SELL") {
+            await _skip("SELL signal on a buy-only (DeFi spot) venue");
+            continue;
+          }
+          if (_venue === "defi") {
+            const g = _gasStatus.get(userId);
+            if (g && !g.entriesAllowed && Date.now() - g.at < 10 * 6e4) {
+              await _skip(`entries held for gas (${g.reason})`);
+              continue;
+            }
+            const { pool: _p } = await Promise.resolve().then(() => (init_db(), db_exports));
+            const held = await _p.query(`SELECT 1 FROM cryptocom_engine_trades WHERE user_id=$1 AND venue='defi' AND status IN ('open','closing') AND symbol=$2 LIMIT 1`, [userId, symbol]).catch(() => null);
+            if (held && held.rows.length) {
+              await _skip("already holding this token");
+              continue;
+            }
+          }
+          if (process.env.CRYPTO_AI_SKIP_MEMORY !== "off") {
+            try {
+              const { getRuntimeStateStrict: getRuntimeStateStrict2 } = await Promise.resolve().then(() => (init_runtime_state(), runtime_state_exports));
+              const prev = await getRuntimeStateStrict2("crypto_ai_skip", `${userId}|${symbol}|${result.direction}|${result.strategy}`);
+              const mins = prev ? (Date.now() - Number(prev.at)) / 6e4 : Infinity;
+              if (prev && mins < Number(process.env.CRYPTO_AI_SKIP_MINUTES ?? 60) && (result.score ?? 0) < Number(prev.score ?? 0) + 10) {
+                await _skip(`AI said SKIP ${Math.round(mins)} min ago at score ${prev.score} (now ${result.score})`);
+                continue;
+              }
+            } catch {
+            }
+          }
+        }
         const tradeAllowed = await assembleConsensus(userId, symbol, result, config).catch(() => true);
+        if (!tradeAllowed) {
+          void Promise.resolve().then(() => (init_runtime_state(), runtime_state_exports)).then((m) => m.saveRuntimeState("crypto_ai_skip", `${userId}|${symbol}|${result.direction}|${result.strategy}`, { at: Date.now(), score: result.score ?? 0 })).catch(() => {
+          });
+        }
         if (tradeAllowed) {
           await executeSignal(service, conn, userId, symbol, result, config).catch((e) => console.error(`[cryptocom-scanner] executeSignal failed for ${symbol}:`, e.message));
         } else {

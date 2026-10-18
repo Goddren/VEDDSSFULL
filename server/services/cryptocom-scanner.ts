@@ -1690,7 +1690,38 @@ async function scanOneUser(userId: number): Promise<void> {
             continue;
           }
         }
+        // ── AI credit savers: drop signals that cannot become a trade BEFORE
+        // paying for the AI review (2026-10-18: ~160 reviews/day, 0 approved).
+        {
+          const _venue = String((config as any).executionVenue || 'cryptocom');
+          const _buyOnly = _venue === 'defi' && !(config as any).multiVenueEnabled;
+          const _skip = async (why: string) => storage.createCryptocomEngineActivity({ userId, symbol, decision: 'skipped', strategy: result.strategy, reasoning: `${symbol}: ${why} — no AI review needed.`, score: result.score, price: result.price, dailyChangePercent: result.dailyChangePercent, source: 'cryptocom' }).catch(() => {});
+          if (_buyOnly && result.direction === 'SELL') { await _skip('SELL signal on a buy-only (DeFi spot) venue'); continue; }
+          if (_venue === 'defi') {
+            const g = _gasStatus.get(userId);
+            if (g && !g.entriesAllowed && Date.now() - g.at < 10 * 60_000) { await _skip(`entries held for gas (${g.reason})`); continue; }
+            const { pool: _p } = await import('../db');
+            const held = await _p.query(`SELECT 1 FROM cryptocom_engine_trades WHERE user_id=$1 AND venue='defi' AND status IN ('open','closing') AND symbol=$2 LIMIT 1`, [userId, symbol]).catch(() => null);
+            if (held && held.rows.length) { await _skip('already holding this token'); continue; }
+          }
+          // Remember an AI SKIP for 60 min per token+direction+strategy; ask
+          // again only if the setup's score improved by >= 10.
+          if (process.env.CRYPTO_AI_SKIP_MEMORY !== 'off') {
+            try {
+              const { getRuntimeStateStrict } = await import('./runtime-state');
+              const prev = await getRuntimeStateStrict('crypto_ai_skip', `${userId}|${symbol}|${result.direction}|${result.strategy}`);
+              const mins = prev ? (Date.now() - Number(prev.at)) / 60_000 : Infinity;
+              if (prev && mins < Number(process.env.CRYPTO_AI_SKIP_MINUTES ?? 60) && (result.score ?? 0) < Number(prev.score ?? 0) + 10) {
+                await _skip(`AI said SKIP ${Math.round(mins)} min ago at score ${prev.score} (now ${result.score})`);
+                continue;
+              }
+            } catch { /* unreadable memory → ask the AI as before */ }
+          }
+        }
         const tradeAllowed = await assembleConsensus(userId, symbol, result, config).catch(() => true);
+        if (!tradeAllowed) {
+          void import('./runtime-state').then((m) => m.saveRuntimeState('crypto_ai_skip', `${userId}|${symbol}|${result.direction}|${result.strategy}`, { at: Date.now(), score: result.score ?? 0 })).catch(() => {});
+        }
         if (tradeAllowed) {
           await executeSignal(service, conn, userId, symbol, result, config).catch((e: any) => console.error(`[cryptocom-scanner] executeSignal failed for ${symbol}:`, e.message));
         } else {
