@@ -19054,6 +19054,47 @@ __export(service_exports, {
   marketDataService: () => marketDataService
 });
 import { createHash } from "crypto";
+async function fetchIndexFromYahoo(req) {
+  const sym = String(req.symbol || "").replace(/[^A-Za-z0-9]/g, "");
+  const hit = YAHOO_INDEX.find(([re]) => re.test(sym));
+  if (!hit) return null;
+  const tf = req.timeframe;
+  const interval = tf === "1m" ? "1m" : tf === "5m" ? "5m" : tf === "15m" ? "15m" : tf === "30m" ? "30m" : tf === "1h" || tf === "4h" ? "60m" : tf === "1w" ? "1wk" : "1d";
+  const range = interval === "1m" ? "5d" : interval === "5m" || interval === "15m" || interval === "30m" ? "30d" : interval === "60m" ? "180d" : "5y";
+  const url = `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(hit[1])}?interval=${interval}&range=${range}`;
+  const r = await fetch(url, { headers: { "User-Agent": "Mozilla/5.0" }, signal: AbortSignal.timeout(12e3) });
+  if (!r.ok) return null;
+  const j = await r.json();
+  const res = j?.chart?.result?.[0];
+  const q = res?.indicators?.quote?.[0];
+  if (!res?.timestamp || !q) return null;
+  let bars = [];
+  res.timestamp.forEach((t, i) => {
+    if (q.close[i] == null || q.open[i] == null || q.high[i] == null || q.low[i] == null) return;
+    bars.push({ timestamp: t * 1e3, open: q.open[i], high: q.high[i], low: q.low[i], close: q.close[i], volume: q.volume?.[i] ?? 0 });
+  });
+  if (tf === "4h") {
+    const m = /* @__PURE__ */ new Map();
+    for (const b of bars) {
+      const k = Math.floor(b.timestamp / 144e5) * 144e5;
+      const x = m.get(k);
+      if (!x) m.set(k, { ...b, timestamp: k });
+      else {
+        x.high = Math.max(x.high, b.high);
+        x.low = Math.min(x.low, b.low);
+        x.close = b.close;
+        x.volume += b.volume;
+      }
+    }
+    bars = Array.from(m.values()).sort((a, b) => a.timestamp - b.timestamp);
+  }
+  if (!bars.length) return null;
+  const ageMs = Date.now() - bars[bars.length - 1].timestamp;
+  const maxAge = interval === "1d" || interval === "1wk" ? 5 * 864e5 : tf === "4h" ? 6 * 36e5 : 2 * 36e5;
+  if (ageMs > maxAge) return null;
+  const lim = req.limit && req.limit > 0 ? req.limit : bars.length;
+  return bars.slice(-lim);
+}
 function initializeMarketDataService() {
   const twelveDataKey = process.env.TWELVE_DATA_API_KEY;
   if (twelveDataKey) {
@@ -19064,7 +19105,7 @@ function initializeMarketDataService() {
     console.log("Market data service: No TWELVE_DATA_API_KEY found, service not initialized");
   }
 }
-var MarketDataService, marketDataService;
+var MarketDataService, YAHOO_INDEX, marketDataService;
 var init_service = __esm({
   "server/market-data/service.ts"() {
     "use strict";
@@ -19099,6 +19140,8 @@ var init_service = __esm({
       async fetchMarketData(request) {
         const provider = this.selectProvider(request.assetType);
         if (!provider) {
+          const yb = await fetchIndexFromYahoo(request).catch(() => null);
+          if (yb && yb.length) return { bars: yb, provider: "yahoo-index", hash: this.generateHash(yb), fromCache: false };
           throw new Error(`No provider available for asset type: ${request.assetType}`);
         }
         const cached = marketDataCache.get(
@@ -19114,7 +19157,14 @@ var init_service = __esm({
             fromCache: true
           };
         }
-        const bars = await provider.fetchOHLCV(request);
+        let bars;
+        try {
+          bars = await provider.fetchOHLCV(request);
+        } catch (err) {
+          const yb = await fetchIndexFromYahoo(request).catch(() => null);
+          if (!yb || !yb.length) throw err;
+          bars = yb;
+        }
         const hash = this.generateHash(bars);
         const ttl = marketDataCache.getTTLForTimeframe(request.timeframe);
         marketDataCache.set(request.symbol, request.timeframe, provider.name, bars, ttl);
@@ -19187,6 +19237,14 @@ var init_service = __esm({
         return this.providers.size > 0;
       }
     };
+    YAHOO_INDEX = [
+      [/^(US30|WS30|DJ30|DJI|DOW|USA30|WALLST)/i, "^DJI"],
+      [/^(US500|SPX500|SPX|SP500|USA500)/i, "^GSPC"],
+      [/^(US100|NAS100|NAS|USTEC|NDX)/i, "^NDX"],
+      [/^(GER40|DE40|GER30|DAX)/i, "^GDAXI"],
+      [/^(UK100|FTSE)/i, "^FTSE"],
+      [/^(JP225|JPN225|NIK225)/i, "^N225"]
+    ];
     marketDataService = new MarketDataService();
   }
 });
@@ -61281,9 +61339,9 @@ async function getStopOrdersForUser(userId, filters = {}) {
 init_schema();
 
 // server/build-info.ts
-var BUILD_COMMIT = "6f954286-dirty";
+var BUILD_COMMIT = "6dbd882b-dirty";
 var BUILD_BRANCH = "main";
-var BUILT_AT = "2026-10-19T03:46:08.385Z";
+var BUILT_AT = "2026-10-19T04:38:54.405Z";
 
 // server/stripe.ts
 init_db();
