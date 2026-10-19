@@ -1396,7 +1396,7 @@ export default function WeeklyStrategyPage() {
   const [engineCompounding, setEngineCompounding] = useState(true);
   const [enginePropFirmMode, setEnginePropFirmMode] = useState(false);
   const [enginePropFirmDrawdown, setEnginePropFirmDrawdown] = useState(4);
-  const [propFirmPreset, setPropFirmPreset] = useState<'FTMO'|'MFF'|'THE5ERS'|'FUNDED_NEXT'|'CUSTOM'>('FTMO');
+  const [propFirmPreset, setPropFirmPreset] = useState<'FTMO'|'UPCOMERS'|'FTUK'|'ATLAS'|'CUSTOM'>('FTMO');
   const [propFirmTotalDrawdown, setPropFirmTotalDrawdown] = useState(10);
   const [propFirmProfitTarget, setPropFirmProfitTarget] = useState(10);
   const [propFirmMinTradingDays, setPropFirmMinTradingDays] = useState(4);
@@ -1680,10 +1680,20 @@ export default function WeeklyStrategyPage() {
   // Prop firm presets — known firm rules built-in
   const PROP_FIRM_PRESETS: Record<string, { daily: number; total: number; target: number; minDays: number; riskPct: number; overnight: boolean; consistency: boolean }> = {
     FTMO:         { daily: 5,   total: 10, target: 10, minDays: 4, riskPct: 1,   overnight: false, consistency: true  },
-    MFF:          { daily: 5,   total: 10, target: 8,  minDays: 3, riskPct: 0.5, overnight: false, consistency: true  },
-    THE5ERS:      { daily: 4,   total: 8,  target: 6,  minDays: 0, riskPct: 0.5, overnight: true,  consistency: false },
-    FUNDED_NEXT:  { daily: 5,   total: 10, target: 10, minDays: 5, riskPct: 1,   overnight: false, consistency: true  },
+    // Standard 2-step evaluations (Oct 2026). Rules differ by plan (1-step /
+    // instant / flex) and third-party listings disagree, so where they did the
+    // STRICTER figure is used. Always confirm on the firm's own rules page.
+    UPCOMERS:     { daily: 4,   total: 6,  target: 8,  minDays: 3, riskPct: 0.5, overnight: true,  consistency: false },
+    FTUK:         { daily: 4,   total: 8,  target: 8,  minDays: 3, riskPct: 0.5, overnight: true,  consistency: false },
+    ATLAS:        { daily: 4,   total: 10, target: 8,  minDays: 5, riskPct: 0.5, overnight: true,  consistency: true  },
     CUSTOM:       { daily: enginePropFirmDrawdown, total: propFirmTotalDrawdown, target: propFirmProfitTarget, minDays: propFirmMinTradingDays, riskPct: engineRiskPerTrade, overnight: propFirmAllowOvernight, consistency: propFirmConsistencyRule },
+  };
+
+  // Sign-up links (affiliate) for users who don't have a prop firm account yet.
+  const PROP_FIRM_LINKS: Record<string, { name: string; url: string; note: string }> = {
+    UPCOMERS: { name: 'Upcomers', url: 'https://www.upcomers.com/?code=5gtuzza8#challenges', note: '2-step: 3% → 5% targets, 4% daily, static drawdown, up to 99% split' },
+    FTUK: { name: 'FTUK', url: 'https://checkout.ftuk.com/ref/1433/', note: '2-step: 8% → 6% targets, 5% daily (preset uses 4%), 8% max static drawdown' },
+    ATLAS: { name: 'Atlas Funded', url: 'https://app.atlasfunded.com/?afmc=vedd', note: '2-step: 4% daily, 10% static max, some plans use a 20–25% consistency rule' },
   };
 
   const applyPropFirmPreset = (preset: keyof typeof PROP_FIRM_PRESETS) => {
@@ -2937,7 +2947,7 @@ export default function WeeklyStrategyPage() {
                           <div className="mb-3">
                             <p className="text-[10px] text-gray-400 mb-1.5 uppercase tracking-wide">Select your firm</p>
                             <div className="grid grid-cols-3 sm:grid-cols-5 gap-1">
-                              {(['FTMO','MFF','THE5ERS','FUNDED_NEXT','CUSTOM'] as const).map(f => (
+                              {(['FTMO','UPCOMERS','FTUK','ATLAS','CUSTOM'] as const).map(f => (
                                 <button
                                   key={f}
                                   onClick={() => applyPropFirmPreset(f)}
@@ -2947,10 +2957,28 @@ export default function WeeklyStrategyPage() {
                                       : 'bg-gray-800/60 border-gray-700 text-gray-400 hover:border-gray-500'
                                   }`}
                                 >
-                                  {f === 'FUNDED_NEXT' ? 'FN' : f === 'THE5ERS' ? '5ERS' : f}
+                                  {f === 'UPCOMERS' ? 'UPCOMERS' : f === 'ATLAS' ? 'ATLAS' : f}
                                 </button>
                               ))}
                             </div>
+                            {PROP_FIRM_LINKS[propFirmPreset] && (
+                              <div className="mt-2 rounded-lg border border-amber-500/25 bg-amber-500/5 p-2.5">
+                                <p className="text-[10px] text-amber-200/90">{PROP_FIRM_LINKS[propFirmPreset].note}. Preset rules are a starting point — confirm on {PROP_FIRM_LINKS[propFirmPreset].name}'s rules page for your plan.</p>
+                                <a href={PROP_FIRM_LINKS[propFirmPreset].url} target="_blank" rel="noopener noreferrer"
+                                  className="inline-flex items-center gap-1 mt-1.5 text-[11px] font-bold text-amber-300 hover:text-amber-200 underline underline-offset-2"
+                                  data-testid={`link-propfirm-${propFirmPreset.toLowerCase()}`}>
+                                  No {PROP_FIRM_LINKS[propFirmPreset].name} account yet? Start a challenge →
+                                </a>
+                              </div>
+                            )}
+                            {!PROP_FIRM_LINKS[propFirmPreset] && (
+                              <p className="mt-2 text-[10px] text-gray-500">
+                                No prop firm account yet?{' '}
+                                {Object.entries(PROP_FIRM_LINKS).map(([k, l], i) => (
+                                  <span key={k}>{i > 0 ? ' · ' : ''}<a href={l.url} target="_blank" rel="noopener noreferrer" className="text-amber-300 hover:underline">{l.name}</a></span>
+                                ))}
+                              </p>
+                            )}
                           </div>
 
                           {/* Rules grid */}

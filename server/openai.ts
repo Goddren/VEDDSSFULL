@@ -772,7 +772,7 @@ export function getPropFirmContext(userId: number): PropFirmContext | null {
 
 export interface PropFirmContext {
   enabled: boolean;
-  firmPreset: 'FTMO' | 'TFT' | 'FUNDED_NEXT' | 'APEX' | 'CUSTOM';
+  firmPreset: 'FTMO' | 'TFT' | 'FUNDED_NEXT' | 'APEX' | 'UPCOMERS' | 'FTUK' | 'ATLAS' | 'CUSTOM' | string;
   accountBalance: number;
   maxDailyDrawdownPct: number;
   currentDailyPnlPct: number;
