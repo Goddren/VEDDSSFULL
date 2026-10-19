@@ -13,6 +13,7 @@ const LABEL: Record<string, string> = {
   partial_close_refused: "Partial close refused",
   brain_block_thin_data: "Thin-data brain block skipped",
   flatten_retry: "Flatten retried",
+  ai_call_failed: "AI call failed",
 };
 
 export function EngineSafeguardsPanel({ className = "" }: { className?: string }) {

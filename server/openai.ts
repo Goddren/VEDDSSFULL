@@ -3050,6 +3050,24 @@ export function getAiHealth(userId: number): any {
 
 // Wrap an ordered list of provider clients so chat.completions.create automatically
 // fails over to the next provider on any error. Records health telemetry per user.
+// Every failed link in the AI failover chain is recorded (provider, whose key,
+// model, status, message) so errors like a 402 in the action feed can be
+// traced to the exact key/model. Same provider+key+status logged at most once
+// per 10 minutes. Shown in the Engine safeguards panel ("AI call failed").
+const _aiFailSeen = new Map<string, number>();
+function logAiFailure(userId: number | undefined, c: any, model: string, e: any, fellBackTo: string | null): void {
+  if (!userId) return;
+  const status = e?.status ?? e?.statusCode ?? e?.response?.status ?? 'err';
+  const key = `${userId}|${c?.provider}|${c?.usedPlatformKey ? 'platform' : 'user'}|${status}`;
+  const last = _aiFailSeen.get(key) || 0;
+  if (Date.now() - last < 10 * 60_000) return;
+  _aiFailSeen.set(key, Date.now());
+  const msg = String(e?.error?.message || e?.message || e || '').replace(/sk-[A-Za-z0-9_-]+/g, '[key]').slice(0, 220);
+  void import('./services/guard-events').then((g) => g.logGuard(userId, 'ai_call_failed', null,
+    `${c?.provider} (${c?.usedPlatformKey ? 'platform key' : 'your saved key'}) · model ${model} · ${status}: ${msg}${fellBackTo ? ` → fell back to ${fellBackTo}` : ' → no provider left'}`,
+    { provider: c?.provider, platformKey: !!c?.usedPlatformKey, model, status }, 'ai')).catch(() => {});
+}
+
 function makeFailoverClient(clients: UniversalAIClient[], userId?: number): UniversalAIClient {
   const primary: any = clients[0];
   return {
@@ -3081,6 +3099,7 @@ function makeFailoverClient(clients: UniversalAIClient[], userId?: number): Univ
               return result;
             } catch (e: any) {
               lastErr = e;
+              logAiFailure(userId, c, p.model, e, i < clients.length - 1 ? (clients[i + 1] as any).provider : null);
               // Roll over to the next provider on ANY error while more remain.
               if (i < clients.length - 1) {
                 console.warn(`[AI failover] ${c.provider} failed (${e?.status ?? e?.message}); switching to ${(clients[i + 1] as any).provider}`);

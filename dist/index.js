@@ -9239,6 +9239,62 @@ var init_breakoutEngine = __esm({
   }
 });
 
+// server/services/guard-events.ts
+var guard_events_exports = {};
+__export(guard_events_exports, {
+  logGuard: () => logGuard,
+  recentGuardEvents: () => recentGuardEvents
+});
+function ensure() {
+  if (!ensured2) {
+    ensured2 = pool.query(`
+      CREATE TABLE IF NOT EXISTS engine_guard_events (
+        id serial PRIMARY KEY,
+        user_id integer NOT NULL,
+        engine text NOT NULL DEFAULT 'fx',
+        kind text NOT NULL,
+        symbol text,
+        detail text,
+        data jsonb,
+        created_at timestamp NOT NULL DEFAULT now()
+      );
+      CREATE INDEX IF NOT EXISTS engine_guard_events_user_idx ON engine_guard_events (user_id, created_at DESC);
+    `).then(() => void 0).catch((e) => {
+      console.error("[guard-events] ensure failed:", e?.message || e);
+      ensured2 = null;
+    });
+  }
+  return ensured2;
+}
+function logGuard(userId, kind, symbol, detail, data, engine = "fx") {
+  void (async () => {
+    try {
+      await ensure();
+      await pool.query(
+        `INSERT INTO engine_guard_events (user_id, engine, kind, symbol, detail, data) VALUES ($1,$2,$3,$4,$5,$6::jsonb)`,
+        [userId, engine, kind, symbol, String(detail).slice(0, 500), JSON.stringify(data ?? null)]
+      );
+    } catch {
+    }
+  })();
+}
+async function recentGuardEvents(userId, limit = 100) {
+  await ensure();
+  const [ev, sum] = await Promise.all([
+    pool.query(`SELECT id, engine, kind, symbol, detail, created_at FROM engine_guard_events WHERE user_id=$1 ORDER BY created_at DESC LIMIT $2`, [userId, Math.min(500, Math.max(1, limit))]),
+    pool.query(`SELECT kind, count(*)::int AS n, max(created_at) AS last FROM engine_guard_events WHERE user_id=$1 AND created_at > now() - interval '7 days' GROUP BY kind ORDER BY n DESC`, [userId])
+  ]);
+  return { events: ev.rows, summary: sum.rows };
+}
+var ensured2;
+var init_guard_events = __esm({
+  "server/services/guard-events.ts"() {
+    "use strict";
+    init_db();
+    ensured2 = null;
+  }
+});
+
 // server/openai.ts
 var openai_exports = {};
 __export(openai_exports, {
@@ -11509,6 +11565,24 @@ function recordAiHealth(userId, data) {
 function getAiHealth(userId) {
   return global.aiHealth?.[userId] || null;
 }
+function logAiFailure(userId, c, model, e, fellBackTo) {
+  if (!userId) return;
+  const status = e?.status ?? e?.statusCode ?? e?.response?.status ?? "err";
+  const key = `${userId}|${c?.provider}|${c?.usedPlatformKey ? "platform" : "user"}|${status}`;
+  const last = _aiFailSeen.get(key) || 0;
+  if (Date.now() - last < 10 * 6e4) return;
+  _aiFailSeen.set(key, Date.now());
+  const msg = String(e?.error?.message || e?.message || e || "").replace(/sk-[A-Za-z0-9_-]+/g, "[key]").slice(0, 220);
+  void Promise.resolve().then(() => (init_guard_events(), guard_events_exports)).then((g) => g.logGuard(
+    userId,
+    "ai_call_failed",
+    null,
+    `${c?.provider} (${c?.usedPlatformKey ? "platform key" : "your saved key"}) \xB7 model ${model} \xB7 ${status}: ${msg}${fellBackTo ? ` \u2192 fell back to ${fellBackTo}` : " \u2192 no provider left"}`,
+    { provider: c?.provider, platformKey: !!c?.usedPlatformKey, model, status },
+    "ai"
+  )).catch(() => {
+  });
+}
 function makeFailoverClient(clients, userId) {
   const primary = clients[0];
   return {
@@ -11541,6 +11615,7 @@ function makeFailoverClient(clients, userId) {
               return result;
             } catch (e) {
               lastErr = e;
+              logAiFailure(userId, c, p.model, e, i < clients.length - 1 ? clients[i + 1].provider : null);
               if (i < clients.length - 1) {
                 console.warn(`[AI failover] ${c.provider} failed (${e?.status ?? e?.message}); switching to ${clients[i + 1].provider}`);
                 continue;
@@ -13335,7 +13410,7 @@ Respond with this exact JSON structure:
     };
   }
 }
-var TOP_PROFITABLE_STRATEGIES, _openaiInstance, openai, AVAILABLE_VISION_MODELS, userModelPreferences, DEPRECATED_MODEL_MAP, DEFAULT_AI_MODEL, VISION_FALLBACK, KNOWN_VISION_MODEL_IDS, aiVisionConfirmationEnabled, aiMinConfidenceThreshold, ictStrategyEnabledMap, breakoutModeEnabledMap, trailingStopEnabledMap, breakoutModePriorState, _recentConfidence, _lastSavedToggles, smcStrategyEnabledMap, propFirmModeMap, propFirmContextMap, aiConfirmationLogs2, logIdCounter, adaptiveRegimeEnabledMap, VETERAN_JUDGE_MODEL, VETERAN_PERSONA, PROVIDER_MODELS, AnthropicAsOpenAI, PROVIDER_PRIORITY, VEDD_IDENTITY_CONTEXT, MASTER_GRANT_WRITER_SYSTEM;
+var TOP_PROFITABLE_STRATEGIES, _openaiInstance, openai, AVAILABLE_VISION_MODELS, userModelPreferences, DEPRECATED_MODEL_MAP, DEFAULT_AI_MODEL, VISION_FALLBACK, KNOWN_VISION_MODEL_IDS, aiVisionConfirmationEnabled, aiMinConfidenceThreshold, ictStrategyEnabledMap, breakoutModeEnabledMap, trailingStopEnabledMap, breakoutModePriorState, _recentConfidence, _lastSavedToggles, smcStrategyEnabledMap, propFirmModeMap, propFirmContextMap, aiConfirmationLogs2, logIdCounter, adaptiveRegimeEnabledMap, VETERAN_JUDGE_MODEL, VETERAN_PERSONA, PROVIDER_MODELS, AnthropicAsOpenAI, PROVIDER_PRIORITY, _aiFailSeen, VEDD_IDENTITY_CONTEXT, MASTER_GRANT_WRITER_SYSTEM;
 var init_openai = __esm({
   "server/openai.ts"() {
     "use strict";
@@ -13510,6 +13585,7 @@ Respond with valid JSON only. No markdown, no explanation.` : "Respond with vali
       }
     };
     PROVIDER_PRIORITY = ["openrouter", "openai", "groq", "anthropic", "google", "mistral"];
+    _aiFailSeen = /* @__PURE__ */ new Map();
     VEDD_IDENTITY_CONTEXT = `
 VEDD AI Trading (VEDDBuild) is a fintech AI trading education platform with the following characteristics:
 - Mission: Democratizing access to institutional-grade AI trading tools and financial education for underserved communities
@@ -19246,62 +19322,6 @@ var init_service = __esm({
       [/^(JP225|JPN225|NIK225)/i, "^N225"]
     ];
     marketDataService = new MarketDataService();
-  }
-});
-
-// server/services/guard-events.ts
-var guard_events_exports = {};
-__export(guard_events_exports, {
-  logGuard: () => logGuard,
-  recentGuardEvents: () => recentGuardEvents
-});
-function ensure() {
-  if (!ensured2) {
-    ensured2 = pool.query(`
-      CREATE TABLE IF NOT EXISTS engine_guard_events (
-        id serial PRIMARY KEY,
-        user_id integer NOT NULL,
-        engine text NOT NULL DEFAULT 'fx',
-        kind text NOT NULL,
-        symbol text,
-        detail text,
-        data jsonb,
-        created_at timestamp NOT NULL DEFAULT now()
-      );
-      CREATE INDEX IF NOT EXISTS engine_guard_events_user_idx ON engine_guard_events (user_id, created_at DESC);
-    `).then(() => void 0).catch((e) => {
-      console.error("[guard-events] ensure failed:", e?.message || e);
-      ensured2 = null;
-    });
-  }
-  return ensured2;
-}
-function logGuard(userId, kind, symbol, detail, data, engine = "fx") {
-  void (async () => {
-    try {
-      await ensure();
-      await pool.query(
-        `INSERT INTO engine_guard_events (user_id, engine, kind, symbol, detail, data) VALUES ($1,$2,$3,$4,$5,$6::jsonb)`,
-        [userId, engine, kind, symbol, String(detail).slice(0, 500), JSON.stringify(data ?? null)]
-      );
-    } catch {
-    }
-  })();
-}
-async function recentGuardEvents(userId, limit = 100) {
-  await ensure();
-  const [ev, sum] = await Promise.all([
-    pool.query(`SELECT id, engine, kind, symbol, detail, created_at FROM engine_guard_events WHERE user_id=$1 ORDER BY created_at DESC LIMIT $2`, [userId, Math.min(500, Math.max(1, limit))]),
-    pool.query(`SELECT kind, count(*)::int AS n, max(created_at) AS last FROM engine_guard_events WHERE user_id=$1 AND created_at > now() - interval '7 days' GROUP BY kind ORDER BY n DESC`, [userId])
-  ]);
-  return { events: ev.rows, summary: sum.rows };
-}
-var ensured2;
-var init_guard_events = __esm({
-  "server/services/guard-events.ts"() {
-    "use strict";
-    init_db();
-    ensured2 = null;
   }
 });
 
@@ -61339,9 +61359,9 @@ async function getStopOrdersForUser(userId, filters = {}) {
 init_schema();
 
 // server/build-info.ts
-var BUILD_COMMIT = "6dbd882b-dirty";
+var BUILD_COMMIT = "e768bf5a-dirty";
 var BUILD_BRANCH = "main";
-var BUILT_AT = "2026-10-19T04:38:54.405Z";
+var BUILT_AT = "2026-10-19T06:05:21.211Z";
 
 // server/stripe.ts
 init_db();
