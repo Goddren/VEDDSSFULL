@@ -13,6 +13,7 @@ import { useQuery, useMutation } from '@tanstack/react-query';
 import { apiRequest } from '@/lib/queryClient';
 import { useAuth } from '@/hooks/use-auth';
 import { TradePerformanceCompact } from '@/components/trade-performance-card';
+import { AiGasMeterCompact } from '@/components/ai-gas-meter';
 
 /* ─── Nav item definitions ────────────────────────── */
 const tradingItems = [
@@ -495,6 +496,7 @@ export function MobileBottomNav() {
           <SectionLabel label="Live Accounts" />
 
           {/* Unified trade performance story (MT5 + TradeLocker) */}
+          {open && <AiGasMeterCompact />}
           {open && <TradePerformanceCompact />}
 
           {/* SS AI Forex Engine card */}

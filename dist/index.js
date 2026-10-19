@@ -7333,7 +7333,138 @@ var init_profit_split = __esm({
   }
 });
 
+// server/services/ai-budget-guard.ts
+var ai_budget_guard_exports = {};
+__export(ai_budget_guard_exports, {
+  aiBudgetDeferReason: () => aiBudgetDeferReason,
+  aiBudgetDeferSecondsLeft: () => aiBudgetDeferSecondsLeft,
+  fxShouldPauseForCredits: () => fxShouldPauseForCredits,
+  noteAiBudgetError: () => noteAiBudgetError,
+  shouldDeferLowPriorityAi: () => shouldDeferLowPriorityAi
+});
+function noteAiBudgetError(err) {
+  const status = err?.status ?? err?.statusCode ?? err?.response?.status;
+  const msg = String(err?.message || err || "").toLowerCase();
+  const is402 = status === 402 || /insufficient credits|insufficient_quota|payment required|\b402\b/.test(msg);
+  const is429 = status === 429 || /rate.?limit|\b429\b|quota|too many requests/.test(msg);
+  const now = Date.now();
+  if (is402) {
+    deferUntil = Math.max(deferUntil, now + COOLDOWN_402_MS);
+    creditsOutUntil = Math.max(creditsOutUntil, now + FX_402_PAUSE_MS);
+    lastReason = "insufficient credits (402)";
+  } else if (is429) {
+    deferUntil = Math.max(deferUntil, now + COOLDOWN_429_MS);
+    lastReason = "rate limit (429)";
+  }
+}
+function shouldDeferLowPriorityAi() {
+  return Date.now() < deferUntil;
+}
+function aiBudgetDeferReason() {
+  return lastReason;
+}
+function fxShouldPauseForCredits() {
+  return Date.now() < creditsOutUntil;
+}
+function aiBudgetDeferSecondsLeft() {
+  const left = deferUntil - Date.now();
+  return left > 0 ? Math.ceil(left / 1e3) : 0;
+}
+var deferUntil, lastReason, COOLDOWN_402_MS, COOLDOWN_429_MS, creditsOutUntil, FX_402_PAUSE_MS;
+var init_ai_budget_guard = __esm({
+  "server/services/ai-budget-guard.ts"() {
+    "use strict";
+    deferUntil = 0;
+    lastReason = "";
+    COOLDOWN_402_MS = 5 * 6e4;
+    COOLDOWN_429_MS = 6e4;
+    creditsOutUntil = 0;
+    FX_402_PAUSE_MS = Number(process.env.FX_AI_402_PAUSE_SECONDS ?? 120) * 1e3;
+  }
+});
+
+// server/services/runtime-state.ts
+var runtime_state_exports = {};
+__export(runtime_state_exports, {
+  ensureRuntimeStateTable: () => ensureRuntimeStateTable,
+  getRuntimeStateStrict: () => getRuntimeStateStrict,
+  insertRuntimeStateIfAbsent: () => insertRuntimeStateIfAbsent,
+  loadRuntimeState: () => loadRuntimeState,
+  saveRuntimeState: () => saveRuntimeState
+});
+function ensureRuntimeStateTable() {
+  if (!ensured) {
+    ensured = pool.query(DDL).then(() => void 0).catch((err) => {
+      console.error("[runtime-state] ensure table failed (non-fatal):", err?.message ?? err);
+      ensured = null;
+    });
+  }
+  return ensured;
+}
+function saveRuntimeState(scope, key, value) {
+  void (async () => {
+    try {
+      await ensureRuntimeStateTable();
+      await pool.query(
+        `INSERT INTO runtime_state (scope, key, value, updated_at) VALUES ($1, $2, $3::jsonb, now())
+         ON CONFLICT (scope, key) DO UPDATE SET value = EXCLUDED.value, updated_at = now()`,
+        [scope, key, JSON.stringify(value)]
+      );
+    } catch (err) {
+      console.error(`[runtime-state] save ${scope}/${key} failed (non-fatal):`, err?.message ?? err);
+    }
+  })();
+}
+async function loadRuntimeState(scope) {
+  try {
+    await ensureRuntimeStateTable();
+    const { rows } = await pool.query(`SELECT key, value FROM runtime_state WHERE scope = $1`, [scope]);
+    return rows;
+  } catch (err) {
+    console.error(`[runtime-state] load ${scope} failed (non-fatal):`, err?.message ?? err);
+    return [];
+  }
+}
+async function getRuntimeStateStrict(scope, key) {
+  await ensureRuntimeStateTable();
+  const { rows } = await pool.query(`SELECT value FROM runtime_state WHERE scope = $1 AND key = $2`, [scope, key]);
+  return rows[0]?.value ?? null;
+}
+async function insertRuntimeStateIfAbsent(scope, key, value) {
+  await ensureRuntimeStateTable();
+  await pool.query(
+    `INSERT INTO runtime_state (scope, key, value) VALUES ($1, $2, $3::jsonb) ON CONFLICT (scope, key) DO NOTHING`,
+    [scope, key, JSON.stringify(value)]
+  );
+  return getRuntimeStateStrict(scope, key);
+}
+var DDL, ensured;
+var init_runtime_state = __esm({
+  "server/services/runtime-state.ts"() {
+    "use strict";
+    init_db();
+    DDL = `
+CREATE TABLE IF NOT EXISTS "runtime_state" (
+  "scope" text NOT NULL,
+  "key" text NOT NULL,
+  "value" jsonb NOT NULL,
+  "updated_at" timestamp NOT NULL DEFAULT now(),
+  PRIMARY KEY ("scope", "key")
+);
+`;
+    ensured = null;
+  }
+});
+
 // server/ai-usage.ts
+var ai_usage_exports = {};
+__export(ai_usage_exports, {
+  getAiGasMeter: () => getAiGasMeter,
+  getEffectiveAiCostCapCents: () => getEffectiveAiCostCapCents,
+  getMonthlyPlatformKeyCostCents: () => getMonthlyPlatformKeyCostCents,
+  isUnderPlatformKeyCostCap: () => isUnderPlatformKeyCostCap,
+  recordAiUsage: () => recordAiUsage
+});
 import { eq as eq4, and as and4, gte as gte4, sql as sql4 } from "drizzle-orm";
 function estimateCostCents(model, promptTokens, completionTokens) {
   if (model.endsWith(":free")) return 0;
@@ -7463,7 +7594,81 @@ async function isUnderPlatformKeyCostCap(userId) {
   }
   return true;
 }
-var MODEL_PRICING_CENTS_PER_1M, DAILY_PLATFORM_CALL_CAP, dailyCountCache, PLATFORM_TOTAL_CAP, platformTotalCache;
+async function openRouterCredits() {
+  if (_orCache && Date.now() - _orCache.at < 5 * 6e4) return _orCache.v;
+  let v = null;
+  try {
+    const key = process.env.OPENROUTER_API_KEY;
+    if (key) {
+      const r = await fetch("https://openrouter.ai/api/v1/credits", { headers: { Authorization: `Bearer ${key}` }, signal: AbortSignal.timeout(8e3) });
+      if (r.ok) {
+        const j = await r.json();
+        v = { total: Number(j?.data?.total_credits) || 0, usage: Number(j?.data?.total_usage) || 0 };
+      }
+    }
+  } catch {
+  }
+  _orCache = { at: Date.now(), v };
+  return v;
+}
+async function getAiGasMeter(userId) {
+  const [usedCents, capCents, callsToday, admin] = await Promise.all([
+    getMonthlyPlatformKeyCostCents(userId),
+    getEffectiveAiCostCapCents(userId),
+    getTodayPlatformKeyCalls(userId),
+    isAdminUser(userId)
+  ]);
+  const { pool: pool2 } = await Promise.resolve().then(() => (init_db(), db_exports));
+  const own = await pool2.query(
+    `SELECT count(*)::int AS n FROM ai_usage_log WHERE user_id=$1 AND used_platform_key=false AND created_at >= date_trunc('day', now() at time zone 'utc')`,
+    [userId]
+  ).catch(() => ({ rows: [{ n: 0 }] }));
+  const hasKey = await pool2.query(`SELECT 1 FROM user_api_keys WHERE user_id=$1 AND is_active=true LIMIT 1`, [userId]).then((r) => r.rows.length > 0).catch(() => false);
+  let paused = false;
+  try {
+    const g = await Promise.resolve().then(() => (init_ai_budget_guard(), ai_budget_guard_exports));
+    paused = g.fxShouldPauseForCredits();
+  } catch {
+  }
+  const monthPctLeft = capCents > 0 ? Math.max(0, Math.min(100, 100 - usedCents / capCents * 100)) : 100;
+  const out = {
+    month: { usedCents: Math.round(usedCents * 100) / 100, capCents, pctLeft: Math.round(monthPctLeft) },
+    today: { platformCalls: callsToday, dailyCap: DAILY_PLATFORM_CALL_CAP, personalKeyCalls: Number(own.rows[0]?.n) || 0 },
+    hasPersonalKey: hasKey,
+    pausedForCredits: paused
+  };
+  if (admin) {
+    const [or, burn] = await Promise.all([
+      openRouterCredits(),
+      pool2.query(`SELECT coalesce(sum(cost_cents),0)::float AS c, count(*)::int AS n FROM ai_usage_log WHERE used_platform_key=true AND created_at > now() - interval '24 hours'`).then((r) => r.rows[0]).catch(() => null)
+    ]);
+    const remaining = or ? Math.max(0, or.total - or.usage) : null;
+    let burnUsd = null;
+    if (or) {
+      try {
+        const { getRuntimeStateStrict: getRuntimeStateStrict2, saveRuntimeState: saveRuntimeState2 } = await Promise.resolve().then(() => (init_runtime_state(), runtime_state_exports));
+        const snaps = ((await getRuntimeStateStrict2("ai_gas", "or_usage"))?.snaps || []).filter((x) => Date.now() - x.t < 48 * 36e5);
+        const lastT = snaps.length ? snaps[snaps.length - 1].t : 0;
+        if (Date.now() - lastT > 36e5) {
+          snaps.push({ t: Date.now(), u: or.usage });
+          saveRuntimeState2("ai_gas", "or_usage", { snaps });
+        }
+        const first = snaps.find((x) => Date.now() - x.t <= 26 * 36e5) || snaps[0];
+        const hrs = first ? (Date.now() - first.t) / 36e5 : 0;
+        if (first && hrs >= 3 && or.usage >= first.u) burnUsd = (or.usage - first.u) / hrs * 24;
+      } catch {
+      }
+    }
+    out.platform = {
+      openRouter: or ? { totalUsd: or.total, usedUsd: Math.round(or.usage * 100) / 100, remainingUsd: Math.round((remaining ?? 0) * 100) / 100, pctLeft: or.total > 0 ? Math.round((remaining ?? 0) / or.total * 100) : 0 } : null,
+      last24h: { calls: burn ? Number(burn.n) : null, estUsd: burnUsd != null ? Math.round(burnUsd * 100) / 100 : null, measuring: burnUsd == null },
+      daysLeft: remaining != null && burnUsd && burnUsd > 0 ? Math.round(remaining / burnUsd * 10) / 10 : null,
+      platformDailyCap: PLATFORM_TOTAL_CAP || null
+    };
+  }
+  return out;
+}
+var MODEL_PRICING_CENTS_PER_1M, DAILY_PLATFORM_CALL_CAP, dailyCountCache, PLATFORM_TOTAL_CAP, platformTotalCache, _orCache;
 var init_ai_usage = __esm({
   "server/ai-usage.ts"() {
     "use strict";
@@ -7491,79 +7696,7 @@ var init_ai_usage = __esm({
     dailyCountCache = /* @__PURE__ */ new Map();
     PLATFORM_TOTAL_CAP = Number(process.env.AI_PLATFORM_DAILY_CALLS_TOTAL) || 0;
     platformTotalCache = null;
-  }
-});
-
-// server/services/runtime-state.ts
-var runtime_state_exports = {};
-__export(runtime_state_exports, {
-  ensureRuntimeStateTable: () => ensureRuntimeStateTable,
-  getRuntimeStateStrict: () => getRuntimeStateStrict,
-  insertRuntimeStateIfAbsent: () => insertRuntimeStateIfAbsent,
-  loadRuntimeState: () => loadRuntimeState,
-  saveRuntimeState: () => saveRuntimeState
-});
-function ensureRuntimeStateTable() {
-  if (!ensured) {
-    ensured = pool.query(DDL).then(() => void 0).catch((err) => {
-      console.error("[runtime-state] ensure table failed (non-fatal):", err?.message ?? err);
-      ensured = null;
-    });
-  }
-  return ensured;
-}
-function saveRuntimeState(scope, key, value) {
-  void (async () => {
-    try {
-      await ensureRuntimeStateTable();
-      await pool.query(
-        `INSERT INTO runtime_state (scope, key, value, updated_at) VALUES ($1, $2, $3::jsonb, now())
-         ON CONFLICT (scope, key) DO UPDATE SET value = EXCLUDED.value, updated_at = now()`,
-        [scope, key, JSON.stringify(value)]
-      );
-    } catch (err) {
-      console.error(`[runtime-state] save ${scope}/${key} failed (non-fatal):`, err?.message ?? err);
-    }
-  })();
-}
-async function loadRuntimeState(scope) {
-  try {
-    await ensureRuntimeStateTable();
-    const { rows } = await pool.query(`SELECT key, value FROM runtime_state WHERE scope = $1`, [scope]);
-    return rows;
-  } catch (err) {
-    console.error(`[runtime-state] load ${scope} failed (non-fatal):`, err?.message ?? err);
-    return [];
-  }
-}
-async function getRuntimeStateStrict(scope, key) {
-  await ensureRuntimeStateTable();
-  const { rows } = await pool.query(`SELECT value FROM runtime_state WHERE scope = $1 AND key = $2`, [scope, key]);
-  return rows[0]?.value ?? null;
-}
-async function insertRuntimeStateIfAbsent(scope, key, value) {
-  await ensureRuntimeStateTable();
-  await pool.query(
-    `INSERT INTO runtime_state (scope, key, value) VALUES ($1, $2, $3::jsonb) ON CONFLICT (scope, key) DO NOTHING`,
-    [scope, key, JSON.stringify(value)]
-  );
-  return getRuntimeStateStrict(scope, key);
-}
-var DDL, ensured;
-var init_runtime_state = __esm({
-  "server/services/runtime-state.ts"() {
-    "use strict";
-    init_db();
-    DDL = `
-CREATE TABLE IF NOT EXISTS "runtime_state" (
-  "scope" text NOT NULL,
-  "key" text NOT NULL,
-  "value" jsonb NOT NULL,
-  "updated_at" timestamp NOT NULL DEFAULT now(),
-  PRIMARY KEY ("scope", "key")
-);
-`;
-    ensured = null;
+    _orCache = null;
   }
 });
 
@@ -8798,56 +8931,6 @@ var init_fx_brain = __esm({
     GATE_ENABLED = () => process.env.FX_BRAIN_GATE_ENABLED !== "false";
     GATE_MIN_DIR_TRADES = Number(process.env.FX_BRAIN_GATE_MIN_DIR_TRADES ?? 20);
     _gateBlockTableReady = false;
-  }
-});
-
-// server/services/ai-budget-guard.ts
-var ai_budget_guard_exports = {};
-__export(ai_budget_guard_exports, {
-  aiBudgetDeferReason: () => aiBudgetDeferReason,
-  aiBudgetDeferSecondsLeft: () => aiBudgetDeferSecondsLeft,
-  fxShouldPauseForCredits: () => fxShouldPauseForCredits,
-  noteAiBudgetError: () => noteAiBudgetError,
-  shouldDeferLowPriorityAi: () => shouldDeferLowPriorityAi
-});
-function noteAiBudgetError(err) {
-  const status = err?.status ?? err?.statusCode ?? err?.response?.status;
-  const msg = String(err?.message || err || "").toLowerCase();
-  const is402 = status === 402 || /insufficient credits|insufficient_quota|payment required|\b402\b/.test(msg);
-  const is429 = status === 429 || /rate.?limit|\b429\b|quota|too many requests/.test(msg);
-  const now = Date.now();
-  if (is402) {
-    deferUntil = Math.max(deferUntil, now + COOLDOWN_402_MS);
-    creditsOutUntil = Math.max(creditsOutUntil, now + FX_402_PAUSE_MS);
-    lastReason = "insufficient credits (402)";
-  } else if (is429) {
-    deferUntil = Math.max(deferUntil, now + COOLDOWN_429_MS);
-    lastReason = "rate limit (429)";
-  }
-}
-function shouldDeferLowPriorityAi() {
-  return Date.now() < deferUntil;
-}
-function aiBudgetDeferReason() {
-  return lastReason;
-}
-function fxShouldPauseForCredits() {
-  return Date.now() < creditsOutUntil;
-}
-function aiBudgetDeferSecondsLeft() {
-  const left = deferUntil - Date.now();
-  return left > 0 ? Math.ceil(left / 1e3) : 0;
-}
-var deferUntil, lastReason, COOLDOWN_402_MS, COOLDOWN_429_MS, creditsOutUntil, FX_402_PAUSE_MS;
-var init_ai_budget_guard = __esm({
-  "server/services/ai-budget-guard.ts"() {
-    "use strict";
-    deferUntil = 0;
-    lastReason = "";
-    COOLDOWN_402_MS = 5 * 6e4;
-    COOLDOWN_429_MS = 6e4;
-    creditsOutUntil = 0;
-    FX_402_PAUSE_MS = Number(process.env.FX_AI_402_PAUSE_SECONDS ?? 120) * 1e3;
   }
 });
 
@@ -60996,9 +61079,9 @@ async function getStopOrdersForUser(userId, filters = {}) {
 init_schema();
 
 // server/build-info.ts
-var BUILD_COMMIT = "cb6fefdc-dirty";
+var BUILD_COMMIT = "da5f8344-dirty";
 var BUILD_BRANCH = "main";
-var BUILT_AT = "2026-10-19T00:49:05.461Z";
+var BUILT_AT = "2026-10-19T01:15:10.441Z";
 
 // server/stripe.ts
 init_db();
@@ -83394,6 +83477,15 @@ Return ONLY JSON: {"topPicks":[{"market":"","winProbability":<0-100>,"whyItWins"
     try {
       const { recentGuardEvents: recentGuardEvents2 } = await Promise.resolve().then(() => (init_guard_events(), guard_events_exports));
       res.json(await recentGuardEvents2(req.user.id, Number(req.query.limit) || 60));
+    } catch (err) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+  app2.get("/api/ai-credits/meter", async (req, res) => {
+    if (!req.isAuthenticated()) return res.status(401).json({ error: "Authentication required" });
+    try {
+      const { getAiGasMeter: getAiGasMeter2 } = await Promise.resolve().then(() => (init_ai_usage(), ai_usage_exports));
+      res.json(await getAiGasMeter2(req.user.id));
     } catch (err) {
       res.status(500).json({ error: err.message });
     }

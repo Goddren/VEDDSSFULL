@@ -22743,6 +22743,17 @@ Return ONLY JSON: {"topPicks":[{"market":"","winProbability":<0-100>,"whyItWins"
     }
   });
 
+  // GET /api/ai-credits/meter — AI "gas meter" for the dashboard + side panel
+  app.get("/api/ai-credits/meter", async (req: Request, res: Response) => {
+    if (!req.isAuthenticated()) return res.status(401).json({ error: "Authentication required" });
+    try {
+      const { getAiGasMeter } = await import('./ai-usage');
+      res.json(await getAiGasMeter((req.user as User).id));
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
   // GET /api/ai-health — last AI call: which provider served it + failover/error status
   app.get("/api/ai-health", async (req: Request, res: Response) => {
     if (!req.isAuthenticated()) return res.status(401).json({ error: "Authentication required" });

@@ -198,3 +198,71 @@ export async function isUnderPlatformKeyCostCap(userId: number): Promise<boolean
   }
   return true;
 }
+
+
+// ── AI "gas meter" (dashboard + side panel) ───────────────────────────────
+// Per user: this month's shared-key spend vs the plan's cap, today's calls vs
+// the daily cap, personal-key usage. Admins also get the live OpenRouter
+// balance and the platform's 24h burn → days of credit left.
+let _orCache: { at: number; v: { total: number; usage: number } | null } | null = null;
+async function openRouterCredits(): Promise<{ total: number; usage: number } | null> {
+  if (_orCache && Date.now() - _orCache.at < 5 * 60_000) return _orCache.v;
+  let v: { total: number; usage: number } | null = null;
+  try {
+    const key = process.env.OPENROUTER_API_KEY;
+    if (key) {
+      const r = await fetch('https://openrouter.ai/api/v1/credits', { headers: { Authorization: `Bearer ${key}` }, signal: AbortSignal.timeout(8000) });
+      if (r.ok) { const j: any = await r.json(); v = { total: Number(j?.data?.total_credits) || 0, usage: Number(j?.data?.total_usage) || 0 }; }
+    }
+  } catch { /* unknown */ }
+  _orCache = { at: Date.now(), v };
+  return v;
+}
+
+export async function getAiGasMeter(userId: number) {
+  const [usedCents, capCents, callsToday, admin] = await Promise.all([
+    getMonthlyPlatformKeyCostCents(userId), getEffectiveAiCostCapCents(userId), getTodayPlatformKeyCalls(userId), isAdminUser(userId),
+  ]);
+  const { pool } = await import('./db');
+  const own = await pool.query(
+    `SELECT count(*)::int AS n FROM ai_usage_log WHERE user_id=$1 AND used_platform_key=false AND created_at >= date_trunc('day', now() at time zone 'utc')`, [userId],
+  ).catch(() => ({ rows: [{ n: 0 }] }));
+  const hasKey = await pool.query(`SELECT 1 FROM user_api_keys WHERE user_id=$1 AND is_active=true LIMIT 1`, [userId]).then((r) => r.rows.length > 0).catch(() => false);
+  let paused = false;
+  try { const g = await import('./services/ai-budget-guard'); paused = g.fxShouldPauseForCredits(); } catch { /* ignore */ }
+  const monthPctLeft = capCents > 0 ? Math.max(0, Math.min(100, 100 - (usedCents / capCents) * 100)) : 100;
+  const out: any = {
+    month: { usedCents: Math.round(usedCents * 100) / 100, capCents, pctLeft: Math.round(monthPctLeft) },
+    today: { platformCalls: callsToday, dailyCap: DAILY_PLATFORM_CALL_CAP, personalKeyCalls: Number(own.rows[0]?.n) || 0 },
+    hasPersonalKey: hasKey,
+    pausedForCredits: paused,
+  };
+  if (admin) {
+    const [or, burn] = await Promise.all([
+      openRouterCredits(),
+      pool.query(`SELECT coalesce(sum(cost_cents),0)::float AS c, count(*)::int AS n FROM ai_usage_log WHERE used_platform_key=true AND created_at > now() - interval '24 hours'`).then((r) => r.rows[0]).catch(() => null),
+    ]);
+    const remaining = or ? Math.max(0, or.total - or.usage) : null;
+    // Real burn from OpenRouter's own usage counter, sampled hourly (the
+    // per-call cost estimates in ai_usage_log run far below actual billing).
+    let burnUsd: number | null = null;
+    if (or) {
+      try {
+        const { getRuntimeStateStrict, saveRuntimeState } = await import('./services/runtime-state');
+        const snaps: Array<{ t: number; u: number }> = ((await getRuntimeStateStrict('ai_gas', 'or_usage'))?.snaps || []).filter((x: any) => Date.now() - x.t < 48 * 3_600_000);
+        const lastT = snaps.length ? snaps[snaps.length - 1].t : 0;
+        if (Date.now() - lastT > 3_600_000) { snaps.push({ t: Date.now(), u: or.usage }); saveRuntimeState('ai_gas', 'or_usage', { snaps }); }
+        const first = snaps.find((x) => Date.now() - x.t <= 26 * 3_600_000) || snaps[0];
+        const hrs = first ? (Date.now() - first.t) / 3_600_000 : 0;
+        if (first && hrs >= 3 && or.usage >= first.u) burnUsd = ((or.usage - first.u) / hrs) * 24;
+      } catch { /* burn unknown */ }
+    }
+    out.platform = {
+      openRouter: or ? { totalUsd: or.total, usedUsd: Math.round(or.usage * 100) / 100, remainingUsd: Math.round((remaining ?? 0) * 100) / 100, pctLeft: or.total > 0 ? Math.round(((remaining ?? 0) / or.total) * 100) : 0 } : null,
+      last24h: { calls: burn ? Number(burn.n) : null, estUsd: burnUsd != null ? Math.round(burnUsd * 100) / 100 : null, measuring: burnUsd == null },
+      daysLeft: remaining != null && burnUsd && burnUsd > 0 ? Math.round((remaining / burnUsd) * 10) / 10 : null,
+      platformDailyCap: PLATFORM_TOTAL_CAP || null,
+    };
+  }
+  return out;
+}
