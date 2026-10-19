@@ -1711,7 +1711,8 @@ async function scanOneUser(userId: number): Promise<void> {
               const { getRuntimeStateStrict } = await import('./runtime-state');
               const prev = await getRuntimeStateStrict('crypto_ai_skip', `${userId}|${symbol}|${result.direction}|${result.strategy}`);
               const mins = prev ? (Date.now() - Number(prev.at)) / 60_000 : Infinity;
-              if (prev && mins < Number(process.env.CRYPTO_AI_SKIP_MINUTES ?? 60) && (result.score ?? 0) < Number(prev.score ?? 0) + 10) {
+              const _memMin = Number(process.env.CRYPTO_AI_SKIP_MINUTES ?? (await (await import('./ai-level')).getAiLevel(userId)).cryptoSkipMemoryMin);
+              if (prev && mins < _memMin && (result.score ?? 0) < Number(prev.score ?? 0) + 10) {
                 await _skip(`AI said SKIP ${Math.round(mins)} min ago at score ${prev.score} (now ${result.score})`);
                 continue;
               }

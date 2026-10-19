@@ -2,6 +2,7 @@ import { sessionForHour, sameSession } from '../utils/session';
 import { lookupPairKnowledge } from '../utils/pair-key';
 import { marketDataService } from '../market-data/service';
 import { logGuard } from './guard-events';
+import { getAiLevelSync } from './ai-level';
 import { executeMT5SignalOnTradeLocker, warmTradeLockerConnection, getTLAccountValue, getOrCreateService as getTradeLockerService, setUsdJpyRate } from '../tradelocker';
 import { refreshTlAfterTrade } from './tradelocker-sync';
 import { computeAllAdvancedIndicators, type CandleData } from '../indicators';
@@ -808,6 +809,12 @@ const ALL_STRATEGY_KEYS = [
 ];
 
 function getAdaptiveScanInterval(config: LiveEngineConfig): number {
+  // AI usage level (eco ×2 / balanced ×1 / turbo ×0.67) scales every scan
+  // interval — each scan is one AI analysis call.
+  const _mult = getAiLevelSync(Number((config as any).userId) || 0).scanMult;
+  return Math.max(10_000, Math.round(getAdaptiveScanIntervalBase(config) * _mult));
+}
+function getAdaptiveScanIntervalBase(config: LiveEngineConfig): number {
   if (!config.adaptiveScanInterval) return config.scanIntervalMs;
   const hourUtc = new Date().getUTCHours();
   const dayUtc = new Date().getUTCDay(); // 0=Sun, 6=Sat
@@ -4267,7 +4274,8 @@ Respond ONLY with valid JSON. Generate MULTIPLE decisions when opportunities exi
       const pipMove = cachedPrice > 0 ? Math.abs(avgPrice - cachedPrice) / cachedPrice * 10000 : 999;
       const cacheAge = cached ? (Date.now() - cached.ts) : 999999;
 
-      if (cached && cacheAge < 60000 && pipMove < 3) {
+      const _lvl = getAiLevelSync(userId); // AI usage level: how long an answer is reused
+      if (cached && cacheAge < _lvl.cacheMs && pipMove < _lvl.cachePips) {
         decisions = cached.response;
         addActivity(userId, { type: 'info', message: `💾 Cache hit: reusing last AI response (${Math.round(cacheAge / 1000)}s old, ${pipMove.toFixed(1)}p move) — API call saved` });
       } else {

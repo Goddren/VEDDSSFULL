@@ -22743,6 +22743,24 @@ Return ONLY JSON: {"topPicks":[{"market":"","winProbability":<0-100>,"whyItWins"
     }
   });
 
+  // AI usage level (eco / balanced / turbo) — how often the engines call the AI
+  app.get("/api/ai-credits/level", async (req: Request, res: Response) => {
+    if (!req.isAuthenticated()) return res.status(401).json({ error: "Authentication required" });
+    try {
+      const { getAiLevel, AI_LEVELS } = await import('./services/ai-level');
+      res.json({ current: await getAiLevel((req.user as User).id), levels: AI_LEVELS });
+    } catch (err: any) { res.status(500).json({ error: err.message }); }
+  });
+  app.post("/api/ai-credits/level", async (req: Request, res: Response) => {
+    if (!req.isAuthenticated()) return res.status(401).json({ error: "Authentication required" });
+    const level = String(req.body?.level || '');
+    if (!['eco', 'balanced', 'turbo'].includes(level)) return res.status(400).json({ error: "level must be eco | balanced | turbo" });
+    try {
+      const { setAiLevel } = await import('./services/ai-level');
+      res.json({ current: await setAiLevel((req.user as User).id, level as any) });
+    } catch (err: any) { res.status(500).json({ error: err.message }); }
+  });
+
   // GET /api/ai-credits/meter — AI "gas meter" for the dashboard + side panel
   app.get("/api/ai-credits/meter", async (req: Request, res: Response) => {
     if (!req.isAuthenticated()) return res.status(401).json({ error: "Authentication required" });

@@ -61,7 +61,7 @@ import { apiRequest } from '@/lib/queryClient';
 import VeddLogo from '@/components/ui/vedd-logo';
 import { MarketCalendar } from '@/components/market/market-calendar';
 import { TradePerformanceCard, TodayReviewPanel, AiHealthStrip } from '@/components/trade-performance-card';
-import { AiGasMeter } from '@/components/ai-gas-meter';
+import { AiGasMeter } from '@/components/ai/ai-gas-meter';
 import { TlOpenPositions, TlClosedTrades } from '@/components/tl-open-positions';
 import { getUserLevel } from '@/lib/achievement-system';
 import TradingCoach from '@/components/trading-coach/trading-coach';

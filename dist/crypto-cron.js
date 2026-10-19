@@ -16821,6 +16821,62 @@ var init_engine_consensus = __esm({
   }
 });
 
+// server/services/ai-level.ts
+var ai_level_exports = {};
+__export(ai_level_exports, {
+  AI_LEVELS: () => AI_LEVELS,
+  getAiLevel: () => getAiLevel,
+  getAiLevelSync: () => getAiLevelSync,
+  setAiLevel: () => setAiLevel
+});
+function getAiLevelSync(userId) {
+  const hit = cache4.get(userId);
+  if (!hit || Date.now() - hit.at > 6e4) void refresh(userId);
+  return AI_LEVELS[hit?.level ?? "balanced"];
+}
+async function getAiLevel(userId) {
+  const hit = cache4.get(userId);
+  if (hit && Date.now() - hit.at < 6e4) return AI_LEVELS[hit.level];
+  return AI_LEVELS[await refresh(userId)];
+}
+async function refresh(userId) {
+  try {
+    const { getRuntimeStateStrict: getRuntimeStateStrict2 } = await Promise.resolve().then(() => (init_runtime_state(), runtime_state_exports));
+    const v = await getRuntimeStateStrict2("ai_level", String(userId));
+    const level = v?.level === "eco" || v?.level === "turbo" ? v.level : "balanced";
+    cache4.set(userId, { at: Date.now(), level });
+    return level;
+  } catch {
+    const prev = cache4.get(userId)?.level ?? "balanced";
+    cache4.set(userId, { at: Date.now(), level: prev });
+    return prev;
+  }
+}
+async function setAiLevel(userId, level) {
+  const { pool: pool2 } = await Promise.resolve().then(() => (init_db(), db_exports));
+  const { ensureRuntimeStateTable: ensureRuntimeStateTable2 } = await Promise.resolve().then(() => (init_runtime_state(), runtime_state_exports));
+  await ensureRuntimeStateTable2();
+  await pool2.query(
+    `INSERT INTO runtime_state (scope, key, value, updated_at) VALUES ('ai_level', $1, $2::jsonb, now())
+     ON CONFLICT (scope, key) DO UPDATE SET value = EXCLUDED.value, updated_at = now()`,
+    [String(userId), JSON.stringify({ level })]
+  );
+  cache4.set(userId, { at: Date.now(), level });
+  return AI_LEVELS[level];
+}
+var AI_LEVELS, cache4;
+var init_ai_level = __esm({
+  "server/services/ai-level.ts"() {
+    "use strict";
+    AI_LEVELS = {
+      eco: { level: "eco", scanMult: 2, cacheMs: 5 * 6e4, cachePips: 8, fxModelsEveryH: 2, cryptoSkipMemoryMin: 120, cryptoModelsEveryH: 4 },
+      balanced: { level: "balanced", scanMult: 1, cacheMs: 6e4, cachePips: 3, fxModelsEveryH: 1, cryptoSkipMemoryMin: 60, cryptoModelsEveryH: 2 },
+      turbo: { level: "turbo", scanMult: 0.67, cacheMs: 3e4, cachePips: 1.5, fxModelsEveryH: 1, cryptoSkipMemoryMin: 30, cryptoModelsEveryH: 1 }
+    };
+    cache4 = /* @__PURE__ */ new Map();
+  }
+});
+
 // server/market-data/cache.ts
 var MarketDataCache, marketDataCache;
 var init_cache = __esm({
@@ -19467,7 +19523,7 @@ async function _recordFxBrainOutcome(userId, conn, existing, match, result, prof
     );
   }
 }
-function cache4() {
+function cache5() {
   global.tlAccountData = global.tlAccountData || {};
   return global.tlAccountData;
 }
@@ -19762,17 +19818,17 @@ async function syncUserTradeLocker(userId, force = false) {
   if (!force) {
     const last = lastSyncAt.get(userId) || 0;
     if (now - last < MIN_RESYNC_GAP_MS) {
-      return Object.values(cache4()[userId] || {});
+      return Object.values(cache5()[userId] || {});
     }
   }
   if (inFlight.has(userId)) {
-    return Object.values(cache4()[userId] || {});
+    return Object.values(cache5()[userId] || {});
   }
   inFlight.add(userId);
   try {
     const connections = await storage.getUserTradelockerConnections(userId);
     const active = connections.filter((c) => c.isActive);
-    const store = cache4();
+    const store = cache5();
     store[userId] = store[userId] || {};
     const activeIds = new Set(active.map((c) => c.accountId));
     for (const key of Object.keys(store[userId])) {
@@ -22716,11 +22772,11 @@ async function compute2(userId) {
 async function hourFilterVerdict(userId, hourUtc) {
   if (process.env.HOUR_FILTER_ENABLED === "false") return null;
   try {
-    let entry = cache5.get(userId);
+    let entry = cache6.get(userId);
     if (!entry || Date.now() - entry.at > TTL_MS4) {
       const fresh = await compute2(userId);
       entry = { at: Date.now(), ...fresh };
-      cache5.set(userId, entry);
+      cache6.set(userId, entry);
       const list = Array.from(fresh.blocked).sort((a, b) => a - b).map((h) => `${h}:00`).join(", ");
       console.log(`[HourFilter] user ${userId}: recomputed over ${LOOKBACK_DAYS2}d \u2014 blocking ${fresh.blocked.size} hour(s)${list ? ": " + list : ""} (floor ${WR_FLOOR}% on ${MIN_SAMPLE}+ trades)`);
     }
@@ -22736,7 +22792,7 @@ async function hourFilterTable(userId) {
   const { stats, blocked } = await compute2(userId);
   return { stats: stats.sort((a, b) => a.hour - b.hour), blocked: Array.from(blocked).sort((a, b) => a - b) };
 }
-var MIN_SAMPLE, WR_FLOOR, TTL_MS4, LOOKBACK_DAYS2, cache5;
+var MIN_SAMPLE, WR_FLOOR, TTL_MS4, LOOKBACK_DAYS2, cache6;
 var init_hour_filter = __esm({
   "server/services/hour-filter.ts"() {
     "use strict";
@@ -22744,7 +22800,7 @@ var init_hour_filter = __esm({
     WR_FLOOR = Number(process.env.HOUR_FILTER_MIN_WINRATE ?? 45);
     TTL_MS4 = Number(process.env.HOUR_FILTER_TTL_MS ?? 60 * 60 * 1e3);
     LOOKBACK_DAYS2 = Number(process.env.HOUR_FILTER_LOOKBACK_DAYS ?? 180);
-    cache5 = /* @__PURE__ */ new Map();
+    cache6 = /* @__PURE__ */ new Map();
   }
 });
 
@@ -23156,6 +23212,10 @@ Generate signals for pairs with strong learned edge. Respect session win-rates. 
   }
 }
 function getAdaptiveScanInterval(config) {
+  const _mult = getAiLevelSync(Number(config.userId) || 0).scanMult;
+  return Math.max(1e4, Math.round(getAdaptiveScanIntervalBase(config) * _mult));
+}
+function getAdaptiveScanIntervalBase(config) {
   if (!config.adaptiveScanInterval) return config.scanIntervalMs;
   const hourUtc = (/* @__PURE__ */ new Date()).getUTCHours();
   const dayUtc = (/* @__PURE__ */ new Date()).getUTCDay();
@@ -25980,7 +26040,8 @@ Keep it natural \u2014 not every sentence. Weave it in where it fits. ALL prices
       const cachedPrice = cached?.price ?? 0;
       const pipMove = cachedPrice > 0 ? Math.abs(avgPrice - cachedPrice) / cachedPrice * 1e4 : 999;
       const cacheAge = cached ? Date.now() - cached.ts : 999999;
-      if (cached && cacheAge < 6e4 && pipMove < 3) {
+      const _lvl = getAiLevelSync(userId);
+      if (cached && cacheAge < _lvl.cacheMs && pipMove < _lvl.cachePips) {
         decisions = cached.response;
         addActivity(userId, { type: "info", message: `\u{1F4BE} Cache hit: reusing last AI response (${Math.round(cacheAge / 1e3)}s old, ${pipMove.toFixed(1)}p move) \u2014 API call saved` });
       } else {
@@ -27950,17 +28011,17 @@ function getNYTime(ts) {
   };
 }
 async function getBrokerIndexCandles(userId, symbol, mt5Tf) {
-  const cache6 = global.mt5ChartDataCache || {};
+  const cache7 = global.mt5ChartDataCache || {};
   const wanted = new Set(
     [symbol, ...INDEX_BROKER_ALIASES[symbol] || []].map((s) => s.replace(/[^A-Z0-9]/gi, "").toUpperCase())
   );
   const prefix = `mt5_chart_${userId}_`;
   const suffix = `_${mt5Tf}`;
-  for (const key of Object.keys(cache6)) {
+  for (const key of Object.keys(cache7)) {
     if (!key.startsWith(prefix) || !key.endsWith(suffix)) continue;
     const symPart = key.slice(prefix.length, key.length - suffix.length);
     if (wanted.has(symPart.replace(/[^A-Z0-9]/gi, "").toUpperCase())) {
-      const entry = cache6[key];
+      const entry = cache7[key];
       if (entry?.candles?.length) return entry.candles;
     }
   }
@@ -28991,6 +29052,7 @@ var init_live_trading_engine = __esm({
     init_pair_key();
     init_service();
     init_guard_events();
+    init_ai_level();
     init_tradelocker();
     init_tradelocker_sync();
     init_indicators();
@@ -29179,7 +29241,12 @@ async function runFxModelsCycle(userId, ctx) {
         pairs.push({ symbol, ctx: { ...features, dayType: cls.dayType, autoModel: cls.autoModel, trendScore: cls.score } });
       }
     }
-    if (pairs.length) await shadowDecide(userId, session2, pairs);
+    let _fxEvery = 1;
+    try {
+      _fxEvery = (await (await Promise.resolve().then(() => (init_ai_level(), ai_level_exports))).getAiLevel(userId)).fxModelsEveryH;
+    } catch {
+    }
+    if (pairs.length && hour % _fxEvery === 0) await shadowDecide(userId, session2, pairs);
     if (Date.now() - lastResolveAt > 15 * 6e4) {
       lastResolveAt = Date.now();
       await resolveShadowDecisions("fx");
@@ -29657,7 +29724,12 @@ function adx14(bars) {
 }
 async function runCryptoModelsCycle(userId, symbols) {
   if (process.env.CRYPTO_MODELS_SHADOW === "off") return;
-  const everyH = Math.max(1, Number(process.env.CRYPTO_MODELS_EVERY_HOURS ?? 2));
+  let _lvlEvery = 2;
+  try {
+    _lvlEvery = (await (await Promise.resolve().then(() => (init_ai_level(), ai_level_exports))).getAiLevel(userId)).cryptoModelsEveryH;
+  } catch {
+  }
+  const everyH = Math.max(1, Number(process.env.CRYPTO_MODELS_EVERY_HOURS ?? _lvlEvery));
   if ((/* @__PURE__ */ new Date()).getUTCHours() % everyH !== 0) {
     await resolveShadowDecisions("crypto", userId).catch(() => {
     });
@@ -31241,7 +31313,8 @@ async function scanOneUser(userId) {
               const { getRuntimeStateStrict: getRuntimeStateStrict2 } = await Promise.resolve().then(() => (init_runtime_state(), runtime_state_exports));
               const prev = await getRuntimeStateStrict2("crypto_ai_skip", `${userId}|${symbol}|${result.direction}|${result.strategy}`);
               const mins = prev ? (Date.now() - Number(prev.at)) / 6e4 : Infinity;
-              if (prev && mins < Number(process.env.CRYPTO_AI_SKIP_MINUTES ?? 60) && (result.score ?? 0) < Number(prev.score ?? 0) + 10) {
+              const _memMin = Number(process.env.CRYPTO_AI_SKIP_MINUTES ?? (await (await Promise.resolve().then(() => (init_ai_level(), ai_level_exports))).getAiLevel(userId)).cryptoSkipMemoryMin);
+              if (prev && mins < _memMin && (result.score ?? 0) < Number(prev.score ?? 0) + 10) {
                 await _skip(`AI said SKIP ${Math.round(mins)} min ago at score ${prev.score} (now ${result.score})`);
                 continue;
               }

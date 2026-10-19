@@ -182,7 +182,9 @@ export async function runFxModelsCycle(userId: number, ctx: {
       }
     }
 
-    if (pairs.length) await shadowDecide(userId, session, pairs);
+    let _fxEvery = 1;
+    try { _fxEvery = (await (await import('./ai-level')).getAiLevel(userId)).fxModelsEveryH; } catch { /* default hourly */ }
+    if (pairs.length && hour % _fxEvery === 0) await shadowDecide(userId, session, pairs);
     if (Date.now() - lastResolveAt > 15 * 60_000) { lastResolveAt = Date.now(); await resolveShadowDecisions('fx'); }
   } catch (e: any) {
     console.error('[fx-models] cycle failed (non-fatal):', e?.message || e);
@@ -619,7 +621,9 @@ function adx14(bars: ModelBar[]): number | null {
 export async function runCryptoModelsCycle(userId: number, symbols: string[]): Promise<void> {
   if (process.env.CRYPTO_MODELS_SHADOW === 'off') return;
   // Crypto day types change slowly: run every N hours (default 2) to halve AI cost.
-  const everyH = Math.max(1, Number(process.env.CRYPTO_MODELS_EVERY_HOURS ?? 2));
+  let _lvlEvery = 2;
+  try { _lvlEvery = (await (await import('./ai-level')).getAiLevel(userId)).cryptoModelsEveryH; } catch { /* default */ }
+  const everyH = Math.max(1, Number(process.env.CRYPTO_MODELS_EVERY_HOURS ?? _lvlEvery));
   if (new Date().getUTCHours() % everyH !== 0) { await resolveShadowDecisions('crypto', userId).catch(() => {}); return; }
   try {
     await ensureFxModelTables();

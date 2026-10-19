@@ -22,6 +22,7 @@ import {
   Network, Lock
 } from "lucide-react";
 import { Link } from "wouter";
+import { AiGasMeter } from "@/components/ai/ai-gas-meter";
 import {
   Select,
   SelectContent,
@@ -290,6 +291,8 @@ export default function AiTradingModels() {
             </div>
           )}
         </div>
+        {/* AI fuel + usage level — same AI section as model and key settings */}
+        <AiGasMeter className="mb-4" />
         {engineStatus?.modelLocked && (
           <div className="mb-4 rounded-lg bg-blue-500/10 border border-blue-500/30 p-3 flex items-center gap-3">
             <Lock className="h-4 w-4 text-blue-400 flex-shrink-0" />

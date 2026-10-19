@@ -1,5 +1,7 @@
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useMutation } from "@tanstack/react-query";
+import { apiRequest, queryClient } from "@/lib/queryClient";
 import { Fuel } from "lucide-react";
+import { Link } from "wouter";
 
 // AI "gas meter": how much AI fuel is left — this month's AI allowance (plan
 // cap), today's calls, and for admins the live OpenRouter balance + days left.
@@ -48,8 +50,52 @@ function Dial({ pct, size = 120, label }: { pct: number; size?: number; label: s
   );
 }
 
+type Level = "eco" | "balanced" | "turbo";
+const LEVEL_INFO: Record<Level, { label: string; hint: string; color: string }> = {
+  eco: { label: "Eco", hint: "~half the AI calls — slower scans, answers reused longer. Cheapest.", color: "#34d399" },
+  balanced: { label: "Balanced", hint: "Standard frequency (default).", color: "#38bdf8" },
+  turbo: { label: "Turbo", hint: "~1.5× the AI calls — faster scans, fresher answers. Uses fuel fastest.", color: "#f59e0b" },
+};
+
+export function useAiLevel() {
+  return useQuery<{ current: { level: Level } }>({ queryKey: ["/api/ai-credits/level"], refetchInterval: 120000 });
+}
+
+/** Eco / Balanced / Turbo switch — how often the engines call the AI. */
+export function AiLevelSwitch({ compact = false }: { compact?: boolean }) {
+  const { data } = useAiLevel();
+  const current = (data?.current?.level || "balanced") as Level;
+  const save = useMutation({
+    mutationFn: async (level: Level) => (await apiRequest("POST", "/api/ai-credits/level", { level })).json(),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["/api/ai-credits/level"] }),
+  });
+  return (
+    <div className={compact ? "mt-2" : "mt-3"}>
+      {!compact && <p className="text-[10px] text-gray-500 mb-1">AI usage level — how often the engines ask the AI (safety gates and stops are unaffected)</p>}
+      <div className="flex gap-1" role="radiogroup" aria-label="AI usage level">
+        {(Object.keys(LEVEL_INFO) as Level[]).map((l) => (
+          <button
+            key={l}
+            role="radio"
+            aria-checked={current === l}
+            onClick={() => current !== l && save.mutate(l)}
+            disabled={save.isPending}
+            title={LEVEL_INFO[l].hint}
+            className={`flex-1 text-[10px] font-semibold rounded-md px-2 py-1 border transition-colors ${current === l ? "text-gray-900" : "text-gray-400 border-gray-700 hover:text-gray-200"}`}
+            style={current === l ? { background: LEVEL_INFO[l].color, borderColor: LEVEL_INFO[l].color } : undefined}
+            data-testid={`ai-level-${l}`}
+          >
+            {LEVEL_INFO[l].label}
+          </button>
+        ))}
+      </div>
+      {!compact && <p className="text-[10px] text-gray-500 mt-1">{LEVEL_INFO[current].hint}</p>}
+    </div>
+  );
+}
+
 /** Full card — dashboard. */
-export function AiGasMeter({ className = "" }: { className?: string }) {
+export function AiGasMeter({ className = "", hideSettingsLink = false }: { className?: string; hideSettingsLink?: boolean }) {
   const { data, isLoading } = useAiGasMeter();
   if (isLoading || !data) return null;
   const m = data.month, t = data.today, plat = data.platform;
@@ -86,6 +132,10 @@ export function AiGasMeter({ className = "" }: { className?: string }) {
           </div>
         )}
       </div>
+      <AiLevelSwitch />
+      {!hideSettingsLink && (
+        <Link href="/ai-api-keys"><span className="inline-block mt-2 text-[10px] text-sky-400 hover:underline cursor-pointer">AI settings — keys, models &amp; usage level →</span></Link>
+      )}
       {m.pctLeft <= 10 && !data.hasPersonalKey && (
         <p className="text-[10px] text-amber-300 mt-2">Running low — connect your own AI key in Settings, or upgrade your plan, to keep the AI engines running.</p>
       )}
@@ -111,6 +161,8 @@ export function AiGasMeterCompact() {
       <div className="h-1.5 rounded-full bg-gray-800 overflow-hidden" role="meter" aria-valuemin={0} aria-valuemax={100} aria-valuenow={m.pctLeft} aria-label="AI fuel left this month">
         <div className="h-full rounded-full" style={{ width: `${Math.max(2, m.pctLeft)}%`, background: c }} />
       </div>
+      <AiLevelSwitch compact />
+      <Link href="/ai-api-keys"><span className="inline-block mt-1 text-[10px] text-sky-400 hover:underline cursor-pointer">AI settings →</span></Link>
       <p className="text-[10px] text-gray-500 mt-1">
         {data.today.platformCalls.toLocaleString()} calls today
         {data.platform?.openRouter ? ` · $${data.platform.openRouter.remainingUsd.toFixed(2)} platform${data.platform.daysLeft != null ? ` (~${data.platform.daysLeft}d)` : ""}` : ""}

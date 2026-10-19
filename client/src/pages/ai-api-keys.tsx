@@ -12,6 +12,7 @@ import {
   ArrowLeft, Plus, RefreshCw, Zap, Cpu, Sparkles, DollarSign
 } from "lucide-react";
 import { Link } from "wouter";
+import { AiGasMeter } from "@/components/ai/ai-gas-meter";
 import {
   Select,
   SelectContent,
@@ -257,6 +258,9 @@ export default function AiApiKeysPage() {
             <span>Keys are stored securely and never shared. You can add up to 5 providers.</span>
           </div>
         </div>
+
+        {/* AI fuel + usage level — lives with the rest of the AI settings */}
+        <AiGasMeter className="mb-6" hideSettingsLink />
 
         {activeSource && (
           <Card className={`mb-6 border-2 ${isOwn ? 'border-green-500/30 bg-gradient-to-br from-green-500/5 to-emerald-500/5' : 'border-blue-500/30 bg-gradient-to-br from-blue-500/5 to-cyan-500/5'}`}>
