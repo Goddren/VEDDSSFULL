@@ -17394,6 +17394,7 @@ __export(tradelocker_exports, {
   priceDecimals: () => priceDecimals,
   roundToTick: () => roundToTick,
   setUsdJpyRate: () => setUsdJpyRate,
+  tlRateLimitStatus: () => tlRateLimitStatus,
   warmTradeLockerConnection: () => warmTradeLockerConnection
 });
 import crypto6 from "crypto";
@@ -17508,6 +17509,41 @@ function usdJpyAt(atMs) {
   if (best) return best.rate;
   console.warn(`[TradeLocker] no USD/JPY rate available for ${new Date(atMs).toISOString()} \u2014 using ${USDJPY_FALLBACK}; JPY P&L may be off by a few percent.`);
   return USDJPY_FALLBACK;
+}
+function tlRateLimitStatus() {
+  return { bannedUntil: tlBannedUntil, bannedForMs: Math.max(0, tlBannedUntil - Date.now()) };
+}
+async function tlSharedRead(key, fn, fresh) {
+  const hit = tlReadCache.get(key);
+  if (!fresh && hit && Date.now() - hit.at < TL_READ_CACHE_MS) return hit.value;
+  if (Date.now() < tlBannedUntil) {
+    if (!fresh) {
+      if (hit && Date.now() - hit.at < TL_STALE_OK_MS) return hit.value;
+      throw new Error(`TradeLocker rate-limited cooldown (${Math.ceil((tlBannedUntil - Date.now()) / 1e3)}s left)`);
+    }
+    const wait = tlBannedUntil - Date.now();
+    if (wait > TL_FRESH_WAIT_MAX_MS) throw new Error(`TradeLocker rate-limited cooldown (${Math.ceil(wait / 1e3)}s left)`);
+    console.warn(`[TL] fresh read ${key} waiting ${Math.ceil(wait / 1e3)}s for rate-limit ban to clear`);
+    await new Promise((r) => setTimeout(r, wait + 250));
+  }
+  if (!fresh && tlInflight.has(key)) return tlInflight.get(key);
+  const p = (async () => {
+    try {
+      const value = await fn();
+      tlReadCache.set(key, { at: Date.now(), value });
+      return value;
+    } catch (e) {
+      if (_tlIsRateLimit(e)) {
+        tlBannedUntil = Math.max(tlBannedUntil, Date.now() + TL_BAN_MS);
+        console.warn(`[TL] rate limited on ${key} \u2014 backing off all TradeLocker reads for ${TL_BAN_MS / 1e3}s`);
+      }
+      throw e;
+    } finally {
+      tlInflight.delete(key);
+    }
+  })();
+  if (!fresh) tlInflight.set(key, p);
+  return p;
 }
 async function getOrCreateService(connection) {
   const connId = connection.id || `pending_${connection.accountType}_${connection.accountId}_${connection.accNum || ""}`;
@@ -17720,7 +17756,7 @@ async function tlAccountRiskGuard(service, connection, signal) {
   }
   let positions;
   try {
-    positions = await guardRead(`pos:${connKey}`, () => service.getPositionsNormalized(), 0);
+    positions = await guardRead(`pos:${connKey}`, () => service.getPositionsNormalized({ fresh: true }), 0);
   } catch (e) {
     return { block: `open positions unreadable (${e?.message || e}) \u2014 not trading this account (fail closed)` };
   }
@@ -17874,7 +17910,10 @@ async function executeMT5SignalOnTradeLocker(connection, signal) {
       } catch (e) {
         const msg = e instanceof Error ? e.message : String(e);
         if (_isBrokerReject(msg)) rejectPauseUntil.set(_pauseKey, Date.now() + REJECT_PAUSE_MS);
-        clearGuardPositions(String(connection.id ?? connection.accountId));
+        {
+          clearGuardPositions(String(connection.id ?? connection.accountId));
+          service.invalidateReadCache();
+        }
         if (/timeout|timed out|outcome unknown|ECONN|socket|network|\b5\d\d\b/i.test(msg)) {
           rejectPauseUntil.set(_pauseKey, Math.max(rejectPauseUntil.get(_pauseKey) || 0, Date.now() + UNKNOWN_OUTCOME_PAUSE_MS));
         }
@@ -17884,7 +17923,10 @@ async function executeMT5SignalOnTradeLocker(connection, signal) {
       if (orderResult.status === "rejected" && _isBrokerReject(String(orderResult.message || "rejected"))) {
         rejectPauseUntil.set(_pauseKey, Date.now() + REJECT_PAUSE_MS);
       }
-      if (orderResult.status !== "rejected") clearGuardPositions(String(connection.id ?? connection.accountId));
+      if (orderResult.status !== "rejected") {
+        clearGuardPositions(String(connection.id ?? connection.accountId));
+        service.invalidateReadCache();
+      }
       if (orderResult.status !== "rejected" && resolvedType === "market" && process.env.TL_REANCHOR_DISABLED !== "true") {
         try {
           const _plan = Number(signal.entryPrice), _sl = Number(signal.stopLoss), _tp = Number(signal.takeProfit);
@@ -17898,7 +17940,7 @@ async function executeMT5SignalOnTradeLocker(connection, signal) {
               await new Promise((r) => setTimeout(r, 1e3));
               let ps = [];
               try {
-                ps = await guardRead(`pos:${String(connection.id ?? connection.accountId)}`, () => service.getPositionsNormalized(), 0);
+                ps = await guardRead(`pos:${String(connection.id ?? connection.accountId)}`, () => service.getPositionsNormalized({ fresh: true }), 0);
               } catch {
                 ps = [];
               }
@@ -17943,7 +17985,10 @@ async function executeMT5SignalOnTradeLocker(connection, signal) {
         throw e;
       }
       await logTlClose(connection, { symbol: signal.symbol, direction: signal.direction, positionId: signal.positionId, reason: signal.closeReason || "unspecified caller", pnl: signal.closePnl, volume: signal.volume, ok: true });
-      clearGuardPositions(String(connection.id ?? connection.accountId));
+      {
+        clearGuardPositions(String(connection.id ?? connection.accountId));
+        service.invalidateReadCache();
+      }
       return {
         success: true,
         orderId: closeResult.orderId
@@ -17979,7 +18024,7 @@ async function executeMT5SignalOnTradeLocker(connection, signal) {
     };
   }
 }
-var IV_LENGTH2, DEFAULT_ENCRYPTION_KEY2, SALT_LENGTH2, INSTRUMENT_CACHE_TTL, instrumentCache, instrumentsListCache, serviceCache, SERVICE_CACHE_TTL, rejectPauseUntil, REJECT_PAUSE_MS, RETRY_DELAYS, RETRYABLE_STATUSES, TradeLockerReadError, AUTH_429_COOLDOWN_MS, authCooldownUntil, authChain, lastAuthAt, MIN_AUTH_GAP_MS, USDJPY_FALLBACK, _usdJpyLive, _usdJpyObserved, TradeLockerService, TL_VALUE_TTL, tlDayStartEquity, UNKNOWN_OUTCOME_PAUSE_MS, GUARD_CACHE_MS, guardCache, _isRateLimit;
+var IV_LENGTH2, DEFAULT_ENCRYPTION_KEY2, SALT_LENGTH2, INSTRUMENT_CACHE_TTL, instrumentCache, instrumentsListCache, serviceCache, SERVICE_CACHE_TTL, rejectPauseUntil, REJECT_PAUSE_MS, RETRY_DELAYS, RETRYABLE_STATUSES, TradeLockerReadError, AUTH_429_COOLDOWN_MS, authCooldownUntil, authChain, lastAuthAt, MIN_AUTH_GAP_MS, USDJPY_FALLBACK, _usdJpyLive, _usdJpyObserved, TL_READ_CACHE_MS, TL_BAN_MS, TL_STALE_OK_MS, TL_FRESH_WAIT_MAX_MS, tlBannedUntil, _tlIsRateLimit, tlReadCache, tlInflight, TradeLockerService, TL_VALUE_TTL, tlDayStartEquity, UNKNOWN_OUTCOME_PAUSE_MS, GUARD_CACHE_MS, guardCache, _isRateLimit;
 var init_tradelocker = __esm({
   "server/tradelocker.ts"() {
     "use strict";
@@ -18011,6 +18056,14 @@ var init_tradelocker = __esm({
     USDJPY_FALLBACK = 150;
     _usdJpyLive = null;
     _usdJpyObserved = [];
+    TL_READ_CACHE_MS = Number(process.env.TL_READ_CACHE_MS ?? 12e3);
+    TL_BAN_MS = Number(process.env.TL_BAN_MS ?? 12e4);
+    TL_STALE_OK_MS = 5 * 6e4;
+    TL_FRESH_WAIT_MAX_MS = 6e4;
+    tlBannedUntil = 0;
+    _tlIsRateLimit = (e) => /(429|1015)|rate.?limit|too many requests/i.test(String(e?.message || e).slice(0, 400));
+    tlReadCache = /* @__PURE__ */ new Map();
+    tlInflight = /* @__PURE__ */ new Map();
     TradeLockerService = class _TradeLockerService {
       baseUrl;
       accessToken = null;
@@ -18296,7 +18349,10 @@ var init_tradelocker = __esm({
         }
         return null;
       }
-      async getAccountInfo() {
+      async getAccountInfo(opts) {
+        return tlSharedRead(`acct:${this.baseUrl}:${this.accountId}`, () => this._getAccountInfoRaw(), !!opts?.fresh);
+      }
+      async _getAccountInfoRaw() {
         await this.ensureAuthenticated();
         if (!this.accNumResolved || this.accNum === "0") {
           await this.resolveAccNum();
@@ -19074,7 +19130,15 @@ var init_tradelocker = __esm({
         const closed = await this.getClosedTradesWithPnl(fromTs);
         return closed.map((c) => ({ id: c.id, positionId: c.positionId, symbol: c.symbol, side: c.side, profit: c.profit, closeTime: c.closeTime, qty: c.qty, openPrice: c.openPrice, closePrice: c.closePrice }));
       }
-      async getPositions() {
+      async getPositions(opts) {
+        return tlSharedRead(`pos:${this.baseUrl}:${this.accountId}`, () => this._getPositionsRaw(), !!opts?.fresh);
+      }
+      /** Drop this account's cached positions/balance (after an order or close). */
+      invalidateReadCache() {
+        tlReadCache.delete(`pos:${this.baseUrl}:${this.accountId}`);
+        tlReadCache.delete(`acct:${this.baseUrl}:${this.accountId}`);
+      }
+      async _getPositionsRaw() {
         await this.ensureAuthenticated();
         try {
           const response = await fetch(`${this.baseUrl}/trade/accounts/${this.accountId}/positions`, {
@@ -19099,8 +19163,8 @@ var init_tradelocker = __esm({
       // object rows (named fields) and column-array rows (order defined by
       // /trade/config's positionsConfig). Also maps tradableInstrumentId → symbol
       // via the instruments list so the UI can show real pair names.
-      async getPositionsNormalized() {
-        const raw = await this.getPositions();
+      async getPositionsNormalized(opts) {
+        const raw = await this.getPositions(opts);
         if (!raw || raw.length === 0) return [];
         let instMap = /* @__PURE__ */ new Map();
         try {
