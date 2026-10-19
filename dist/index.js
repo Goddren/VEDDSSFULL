@@ -19108,6 +19108,62 @@ var init_service = __esm({
   }
 });
 
+// server/services/guard-events.ts
+var guard_events_exports = {};
+__export(guard_events_exports, {
+  logGuard: () => logGuard,
+  recentGuardEvents: () => recentGuardEvents
+});
+function ensure() {
+  if (!ensured2) {
+    ensured2 = pool.query(`
+      CREATE TABLE IF NOT EXISTS engine_guard_events (
+        id serial PRIMARY KEY,
+        user_id integer NOT NULL,
+        engine text NOT NULL DEFAULT 'fx',
+        kind text NOT NULL,
+        symbol text,
+        detail text,
+        data jsonb,
+        created_at timestamp NOT NULL DEFAULT now()
+      );
+      CREATE INDEX IF NOT EXISTS engine_guard_events_user_idx ON engine_guard_events (user_id, created_at DESC);
+    `).then(() => void 0).catch((e) => {
+      console.error("[guard-events] ensure failed:", e?.message || e);
+      ensured2 = null;
+    });
+  }
+  return ensured2;
+}
+function logGuard(userId, kind, symbol, detail, data, engine = "fx") {
+  void (async () => {
+    try {
+      await ensure();
+      await pool.query(
+        `INSERT INTO engine_guard_events (user_id, engine, kind, symbol, detail, data) VALUES ($1,$2,$3,$4,$5,$6::jsonb)`,
+        [userId, engine, kind, symbol, String(detail).slice(0, 500), JSON.stringify(data ?? null)]
+      );
+    } catch {
+    }
+  })();
+}
+async function recentGuardEvents(userId, limit = 100) {
+  await ensure();
+  const [ev, sum] = await Promise.all([
+    pool.query(`SELECT id, engine, kind, symbol, detail, created_at FROM engine_guard_events WHERE user_id=$1 ORDER BY created_at DESC LIMIT $2`, [userId, Math.min(500, Math.max(1, limit))]),
+    pool.query(`SELECT kind, count(*)::int AS n, max(created_at) AS last FROM engine_guard_events WHERE user_id=$1 AND created_at > now() - interval '7 days' GROUP BY kind ORDER BY n DESC`, [userId])
+  ]);
+  return { events: ev.rows, summary: sum.rows };
+}
+var ensured2;
+var init_guard_events = __esm({
+  "server/services/guard-events.ts"() {
+    "use strict";
+    init_db();
+    ensured2 = null;
+  }
+});
+
 // server/indicators.ts
 var indicators_exports = {};
 __export(indicators_exports, {
@@ -21176,13 +21232,13 @@ __export(fx_models_exports, {
   sessionFor: () => sessionFor
 });
 function ensureFxModelTables() {
-  if (!ensured2) {
-    ensured2 = pool.query(DDL2).then(() => void 0).catch((e) => {
+  if (!ensured3) {
+    ensured3 = pool.query(DDL2).then(() => void 0).catch((e) => {
       console.error("[fx-models] ensure tables failed (non-fatal):", e?.message || e);
-      ensured2 = null;
+      ensured3 = null;
     });
   }
-  return ensured2;
+  return ensured3;
 }
 function sessionFor(d = /* @__PURE__ */ new Date()) {
   const h = d.getUTCHours();
@@ -21833,7 +21889,7 @@ async function getModelMastery(userId, opts = {}) {
     slices: (await agg("model, day_type, symbol, session")).map(shape)
   };
 }
-var DDL2, ensured2, barsProviders, barsFor, pipSize, lastShadowCandle, lastResolveAt, M1_PAIRS_EXCLUDED, rangeCache, FX_MODEL_MIN_TO_LIST, DEFAULT_SETTINGS, LIVE_LEVELS, emaLast;
+var DDL2, ensured3, barsProviders, barsFor, pipSize, lastShadowCandle, lastResolveAt, M1_PAIRS_EXCLUDED, rangeCache, FX_MODEL_MIN_TO_LIST, DEFAULT_SETTINGS, LIVE_LEVELS, emaLast;
 var init_fx_models = __esm({
   "server/services/fx-models.ts"() {
     "use strict";
@@ -21888,7 +21944,7 @@ ALTER TABLE fx_model_decisions ADD COLUMN IF NOT EXISTS source text NOT NULL DEF
 ALTER TABLE fx_model_decisions ADD COLUMN IF NOT EXISTS engine text NOT NULL DEFAULT 'fx';
 ALTER TABLE fx_day_regimes ADD COLUMN IF NOT EXISTS engine text NOT NULL DEFAULT 'fx';
 `;
-    ensured2 = null;
+    ensured3 = null;
     barsProviders = {
       fx: async (symbol, tf, n) => {
         const r = await marketDataService.fetchMarketData({ symbol, assetType: marketDataService.detectAssetType(symbol), timeframe: tf, limit: n });
@@ -24352,20 +24408,26 @@ function applyBrainEnforcement(userId, symbol, proposedDirection, currentATR, ne
   const hour = now.getUTCHours();
   const session3 = sessionForHour(hour);
   const sessionData = k.topSessions?.find((s) => sameSession(s.session, session3));
-  if (sessionData && sessionData.total >= 3 && sessionData.winRate < 45) {
+  const _minN = Number(process.env.BRAIN_BLOCK_MIN_TRADES ?? 8);
+  if (sessionData && sessionData.total >= 3 && sessionData.total < _minN && sessionData.winRate < 45) {
+    logGuard(userId, "brain_block_thin_data", symbol, `${session3} session ${sessionData.winRate}% over only ${sessionData.total} trades \u2014 not blocking (needs ${_minN})`);
+  }
+  if (sessionData && sessionData.total >= _minN && sessionData.winRate < 45) {
     const msg = `\u{1F9E0} Brain block: ${symbol} ${session3} session only ${sessionData.winRate}% WR (${sessionData.total} trades) \u2014 below 45% threshold, skipping`;
     pushEnforcementLog(userId, { symbol, rule: "session_block", direction: proposedDirection, reason: msg });
     return { ...passthrough, allowed: false, reason: msg };
   }
-  const worstHourData = k.worstHours?.find((h) => h.hour === hour && h.total >= 3 && h.winRate < 40);
+  const worstHourData = k.worstHours?.find((h) => h.hour === hour && h.total >= _minN && h.winRate < 40);
   if (worstHourData) {
     const msg = `\u{1F9E0} Brain block: ${symbol} hour ${hour}:00 UTC only ${worstHourData.winRate}% WR \u2014 loss zone`;
     pushEnforcementLog(userId, { symbol, rule: "hour_block", direction: proposedDirection, reason: msg });
     return { ...passthrough, allowed: false, reason: msg };
   }
-  if (proposedDirection && k.totalTrades >= 15) {
+  const _dirN = proposedDirection === "BUY" ? Number(k.buyTrades) : Number(k.sellTrades);
+  const _dirCount = Number.isFinite(_dirN) ? _dirN : k.totalTrades;
+  if (proposedDirection && _dirCount >= 8) {
     const dirWR = proposedDirection === "BUY" ? k.buyWinRate ?? 50 : k.sellWinRate ?? 50;
-    if (k.totalTrades >= 30 && dirWR < 20) {
+    if (_dirCount >= 15 && dirWR < 20) {
       const msg = `\u{1F9E0} Brain block: ${symbol} ${proposedDirection} ${dirWR}% WR over ${k.totalTrades} trades \u2014 statistically losing direction, hard blocked`;
       pushEnforcementLog(userId, { symbol, rule: "direction_bias", direction: proposedDirection, reason: msg });
       return { ...passthrough, allowed: false, reason: msg };
@@ -24945,6 +25007,7 @@ function recordTradeResult(userId, result) {
     state.dailyProfitHalted = false;
     state.dailyProfitHaltedAt = null;
     state.dailyLossHalted = false;
+    state._softLossHalt = false;
     state.dailyLossHaltedAt = null;
   }
   state.pnlToday = Math.round((state.pnlToday + result.profit) * 100) / 100;
@@ -24976,7 +25039,8 @@ function recordTradeResult(userId, result) {
     if (_key) {
       const pk = brainForUser.pairKnowledge[_key];
       if (result.profit < 0) {
-        pk.consecutiveLossesToday = (pk.consecutiveLossesToday || 0) + 1;
+        const _lastMs = pk.lastLossAt ? new Date(pk.lastLossAt).getTime() : 0;
+        if (Date.now() - _lastMs > 18e4) pk.consecutiveLossesToday = (pk.consecutiveLossesToday || 0) + 1;
         pk.lastLossAt = (/* @__PURE__ */ new Date()).toISOString();
       } else {
         pk.consecutiveLossesToday = 0;
@@ -25065,6 +25129,8 @@ async function scanMarkets(userId) {
       state.dailyProfitHalted = false;
       state.dailyProfitHaltedAt = null;
       state.dailyLossHalted = false;
+      state._softLossHalt = false;
+      state._softLossHalt = false;
       state.dailyLossHaltedAt = null;
       if (_hadHalt) addActivity(userId, { type: "info", message: `\u{1F305} New trading day (${_todayDate} UTC) \u2014 yesterday's daily halt cleared, scanning resumes.` });
     }
@@ -25742,6 +25808,12 @@ async function getMergedOpenPositions(userId, marketAnalysis) {
   }
   return [...mt5Positions, ...tlPositions, ...dxPositions];
 }
+function tlTargetOf(pos, conns) {
+  const m = String(pos?.ticket || "").match(/^tl_(\d+)_(.+)$/);
+  if (!m) return null;
+  const conn = conns.find((c) => c.id === Number(m[1]));
+  return conn ? { conn, positionId: m[2] } : null;
+}
 async function manageBtcTrail(userId, openPositions, marketAnalysis) {
   const btc = await Promise.resolve().then(() => (init_btc_profile(), btc_profile_exports));
   if (!btc.BTC_PROFILE_ON()) return;
@@ -25827,6 +25899,14 @@ async function manageXauProfitLock(userId, openPositions) {
     if (!tlConn) continue;
     const isBuy = pos.direction === "BUY";
     const newSl = Math.round((isBuy ? entry + want : entry - want) * 100) / 100;
+    {
+      const _bs = Number(pos.brokerSl) || 0;
+      if (_bs > 0 && (isBuy ? newSl <= _bs : newSl >= _bs)) {
+        xauLockedPts.set(key, Math.max(xauLockedPts.get(key) ?? -Infinity, isBuy ? _bs - entry : entry - _bs));
+        logGuard(userId, "stop_loosen_refused", pos.symbol, `XAU lock wanted ${newSl}, broker stop already ${_bs}`);
+        continue;
+      }
+    }
     try {
       const r = await executeMT5SignalOnTradeLocker(tlConn, {
         action: "MODIFY",
@@ -25935,13 +26015,10 @@ async function applyServerSideTrails(userId, openPositions, marketAnalysis) {
           modifyAction: "full_close",
           positionId: pos.ticket || pos.id || null
         });
-        for (const tlConn of tlConnections) {
+        const _rxT = pos.source === "tl" ? tlTargetOf(pos, tlConnections) : null;
+        for (const tlConn of _rxT ? [_rxT.conn] : []) {
           try {
-            const svc = await getOrCreateService(tlConn);
-            const tlPositions = await svc.getPositionsNormalized().catch(() => []);
-            const matchDir = (pos.direction || "BUY").toUpperCase();
-            const tlMatch = tlPositions.find((p) => (p.symbol || "").toUpperCase().replace("/", "") === pos.symbol?.toUpperCase().replace("/", "") && (p.side || "").toUpperCase() === (matchDir === "BUY" ? "BUY" : "SELL"));
-            if (!tlMatch) continue;
+            const tlMatch = { id: _rxT.positionId, openDate: pos.openTime, unrealizedPl: pos.profit };
             {
               const { xauTooYoungToClose: xauTooYoungToClose3 } = await Promise.resolve().then(() => (init_xau_rules(), xau_rules_exports));
               if (xauTooYoungToClose3(pos.symbol, tlMatch.openDate)) {
@@ -26024,10 +26101,18 @@ async function applyServerSideTrails(userId, openPositions, marketAnalysis) {
         break;
     }
     if (newSL <= 0) continue;
-    const currentSL = pos.sl || 0;
+    const currentSL = pos.sl || Number(pos.brokerSl) || 0;
     const isBuy = pos.direction === "BUY";
     const improved = isBuy ? newSL > currentSL : currentSL === 0 || newSL < currentSL;
-    if (!improved) continue;
+    if (!improved) {
+      if (currentSL > 0) logGuard(userId, "stop_loosen_refused", pos.symbol, `trail wanted ${newSL}, stop already ${currentSL}`);
+      continue;
+    }
+    const _px = Number(pos.currentPrice) || 0;
+    if (_px > 0 && (isBuy ? newSL >= _px : newSL <= _px)) {
+      logGuard(userId, "stop_through_price_refused", pos.symbol, `trail ${newSL} vs price ${_px}`);
+      continue;
+    }
     if (pos.source !== "tl") broadcastMT5Signal(userId, {
       id: `trail_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
       timestamp: (/* @__PURE__ */ new Date()).toISOString(),
@@ -26052,16 +26137,11 @@ async function applyServerSideTrails(userId, openPositions, marketAnalysis) {
       symbol: pos.symbol,
       message: `\u{1F4D0} ${methodLabel}: ${pos.symbol} ${pos.direction} trail \u2192 SL ${Math.round(newSL * 1e5) / 1e5} (was ${currentSL || "none"})`
     });
-    if (tlConnections.length > 0) {
-      for (const tlConn of tlConnections) {
+    const _tlT = pos.source === "tl" ? tlTargetOf(pos, tlConnections) : null;
+    if (_tlT) {
+      for (const tlConn of [_tlT.conn]) {
         try {
-          const svc = await getOrCreateService(tlConn);
-          const tlPositions = await svc.getPositionsNormalized().catch(() => []);
-          const matchDir = (pos.direction || "BUY").toUpperCase();
-          const tlMatch = tlPositions.find(
-            (p) => (p.symbol || "").toUpperCase().replace("/", "") === pos.symbol?.toUpperCase().replace("/", "") && (p.side || "").toUpperCase() === (matchDir === "BUY" ? "BUY" : "SELL")
-          );
-          if (!tlMatch) continue;
+          const tlMatch = { id: _tlT.positionId };
           const trailResult = await executeMT5SignalOnTradeLocker(tlConn, {
             action: "MODIFY",
             symbol: pos.symbol,
@@ -26110,7 +26190,11 @@ async function monitorPositions(userId) {
     if (!engineStates[userId] || !positionMonitorIntervals[userId]) return;
     if (positions.length) {
       await manageXauProfitLock(userId, positions).catch((e) => console.error("[XAU lock] monitor pass failed (non-fatal):", e?.message));
+      await manageBtcTrail(userId, positions, lastAnalysis).catch((e) => console.error("[BTC trail] monitor pass failed (non-fatal):", e?.message));
       await applyServerSideTrails(userId, positions, lastAnalysis);
+    } else if (state.status === "stopped" && positionMonitorIntervals[userId]) {
+      clearInterval(positionMonitorIntervals[userId]);
+      delete positionMonitorIntervals[userId];
     }
   } catch {
   } finally {
@@ -28124,6 +28208,10 @@ async function processDecision(userId, decision, newsCtx) {
         const oldSlPips = Math.round(actualSlDist / pipSize2);
         const newSlPips = Math.round(effectiveMinSL / pipSize2);
         const slExpansionRatio = actualSlDist > 0 ? effectiveMinSL / actualSlDist : 1;
+        if (slExpansionRatio > 1) {
+          decision._slExpTotal = (Number(decision._slExpTotal) || 1) * slExpansionRatio;
+          if (!(decision.lotSize && decision.lotSize > 0)) decision._slExpUnapplied = (Number(decision._slExpUnapplied) || 1) * slExpansionRatio;
+        }
         if (slExpansionRatio > 1 && decision.lotSize && decision.lotSize > 0) {
           const originalLot = decision.lotSize;
           const scaledLot = Math.max(0.01, Math.round(originalLot / slExpansionRatio * 100) / 100);
@@ -28162,6 +28250,11 @@ async function processDecision(userId, decision, newsCtx) {
           const _expandedTP = decision.direction === "BUY" ? entryPrice + _newTpDist : entryPrice - _newTpDist;
           decision.takeProfit = Math.round(_expandedTP * 1e5) / 1e5;
           takeProfit = decision.takeProfit;
+        }
+        if (_actualSlDist > 0 && _minSlDist > _actualSlDist) {
+          const _f = _minSlDist / _actualSlDist;
+          decision._slExpTotal = (Number(decision._slExpTotal) || 1) * _f;
+          if (!(decision.lotSize && decision.lotSize > 0)) decision._slExpUnapplied = (Number(decision._slExpUnapplied) || 1) * _f;
         }
         if (decision.lotSize && decision.lotSize > 0 && _actualSlDist > 0) {
           const _ratio = _actualSlDist / _minSlDist;
@@ -28243,7 +28336,15 @@ async function processDecision(userId, decision, newsCtx) {
         message: brainLocked ? `\u{1F9E0} Learning Mode: lot locked at 0.01 (${brainTotalTrades}/10 trades, ${brainOverallWinRate}%/60% WR) \u2014 full sizing unlocks automatically` : `\u{1F9E0} Brain unlocked: ${brainTotalTrades} trades @ ${brainOverallWinRate}% WR \u2014 full risk sizing active`
       });
     }
-    const rawLotBase = brainLocked ? 0.01 : parseNum(decision.lotSize) || config.baseLotSize || 0.01;
+    let rawLotBase = brainLocked ? 0.01 : parseNum(decision.lotSize) || config.baseLotSize || 0.01;
+    {
+      const _un = Number(decision._slExpUnapplied) || 1;
+      if (!brainLocked && _un > 1) {
+        const _was = rawLotBase;
+        rawLotBase = Math.max(0.01, Math.floor(rawLotBase / _un * 100) / 100);
+        logGuard(userId, "sl_widen_lot_cut", decision.symbol, `stop widened \xD7${_un.toFixed(2)} with no AI lot \u2014 base lot ${_was} \u2192 ${rawLotBase}`);
+      }
+    }
     const brainMult = brainLocked ? 1 : decision._brainLotMultiplier || 1;
     const consistencyMult = state._consistencyRiskOverride ?? 1;
     const rawLotSize = Math.round(rawLotBase * brainMult * consistencyMult * 100) / 100;
@@ -28384,6 +28485,10 @@ async function processDecision(userId, decision, newsCtx) {
       const totalRR = ks?.totalRR || 0;
       const kellyFraction = calculateKellyFraction(wins, losses, totalRR);
       kellyLot = Math.round(config.accountBalance * kellyFraction / 1e3 * 100) / 100;
+      {
+        const _tot = Number(decision._slExpTotal) || 1;
+        kellyLot = Math.max(0.01, Math.floor(kellyLot * brainMult * consistencyMult / _tot * 100) / 100);
+      }
       const winRate2 = wins + losses >= 5 ? Math.round(wins / (wins + losses) * 100) : null;
       const avgRR = wins > 0 ? (totalRR / wins).toFixed(1) : "1.5";
       const modeLabel = sizingMode === "kelly_base_pyramid_allowed" ? `Kelly base (ADX=${adxNow.toFixed(0)}, trending \u2014 pyramiding ALLOWED on this trade)` : `Kelly only (ADX=${adxNow.toFixed(0)}, ranging \u2014 pyramiding SUPPRESSED)`;
@@ -28421,7 +28526,16 @@ async function processDecision(userId, decision, newsCtx) {
       });
     }
     const volHardMax = _volCap ? _volCap.hardMaxLot : Infinity;
-    const preCappedLot = Math.max(0.01, Math.min(isDynamicSizingEnabled ? dynamicLot : compoundedLot, safeMaxLot));
+    let _multSized = isDynamicSizingEnabled ? dynamicLot : compoundedLot;
+    {
+      const _ls = Number(decision._lotScale);
+      if (_ls > 0 && _ls < 1) _multSized = _multSized * _ls;
+      const _sm = Number(decision._sizeMult);
+      if (_sm > 0 && _sm !== 1) _multSized = _multSized * _sm;
+      _multSized = Math.max(0.01, Math.floor(_multSized * 100) / 100);
+    }
+    const preCappedLot = Math.max(0.01, Math.min(_multSized, safeMaxLot));
+    if (_multSized > safeMaxLot) logGuard(userId, "size_cap", decision.symbol, `sized ${_multSized} lots \u2192 safe max ${safeMaxLot}`);
     const volCappedLot = Math.min(preCappedLot, volHardMax);
     if (_volCap && preCappedLot > volHardMax) {
       addActivity(userId, {
@@ -28465,12 +28579,10 @@ async function processDecision(userId, decision, newsCtx) {
       }
     }
     {
-      const _ls = Number(decision._lotScale);
-      if (_ls > 0 && _ls < 1) lotSize = Math.max(0.01, Math.floor(lotSize * _ls * 100) / 100);
-      const _sm = Number(decision._sizeMult);
-      if (_sm > 0 && _sm !== 1) {
-        const _cap = Math.min(Number(config.maxLot) > 0 ? Number(config.maxLot) : Infinity, Number(config.maxLotSize) > 0 ? Number(config.maxLotSize) : Infinity);
-        lotSize = Math.max(0.01, Math.min(_sm > 1 ? _cap : Infinity, Math.floor(lotSize * _sm * 100) / 100));
+      const _mlS = Number(config.maxLotSize) || 0;
+      if (_mlS > 0 && lotSize > _mlS) {
+        logGuard(userId, "size_cap", decision.symbol, `${lotSize} lots \u2192 maxLotSize ${_mlS}`);
+        lotSize = _mlS;
       }
     }
     {
@@ -28902,19 +29014,26 @@ async function processDecision(userId, decision, newsCtx) {
             acctLot = Math.max(0.01, Math.round(lotSize * acctMult * 100) / 100);
             acctSizeLabel = _refBal <= 0 ? ` (\u26A0\uFE0F multiplier ${acctMult}\xD7 \u2014 enable Risk% mode or set engine Reference Balance for auto-sizing)` : ` (\u26A0\uFE0F multiplier ${acctMult}\xD7 \u2014 TL account value unavailable, could not size proportionally)`;
           }
-          if (_volCap) acctLot = Math.min(acctLot, _volCap.hardMaxLot);
-          {
-            const _ceil = [Number(config.maxLot) || 0, Number(config.maxLotSize) || 0].filter((x) => x > 0);
-            if (_ceil.length) acctLot = Math.min(acctLot, Math.min(..._ceil));
-          }
           if (_stopSized) {
             const _lw = Number(decision._lotScaleWeekend);
             if (_lw > 0 && _lw < 1) acctLot = Math.max(0.01, Math.floor(acctLot * _lw * 100) / 100);
             const _sm = Number(decision._sizeMult);
-            if (_sm > 0 && _sm !== 1) {
-              const _cap = Math.min(Number(config.maxLot) > 0 ? Number(config.maxLot) : Infinity, Number(config.maxLotSize) > 0 ? Number(config.maxLotSize) : Infinity);
-              acctLot = Math.max(0.01, Math.min(_sm > 1 ? _cap : Infinity, Math.floor(acctLot * _sm * 100) / 100));
+            if (_sm > 0 && _sm < 1) acctLot = Math.max(0.01, Math.floor(acctLot * _sm * 100) / 100);
+          }
+          if (_volCap && acctLot > _volCap.hardMaxLot) {
+            logGuard(userId, "size_cap", decision.symbol, `TL ${tlConn.accountId}: ${acctLot} \u2192 volatile cap ${_volCap.hardMaxLot}`);
+            acctLot = _volCap.hardMaxLot;
+          }
+          {
+            const _ph = Number((config.pairLotOverrides || {})[decision.symbol]) || 0;
+            if (_ph > 0 && acctLot > _ph) {
+              logGuard(userId, "size_cap", decision.symbol, `TL ${tlConn.accountId}: ${acctLot} \u2192 pair limit ${_ph}`);
+              acctLot = _ph;
             }
+          }
+          {
+            const _ceil = [Number(config.maxLot) || 0, Number(config.maxLotSize) || 0].filter((x) => x > 0);
+            if (_ceil.length) acctLot = Math.min(acctLot, Math.min(..._ceil));
           }
           if (_consistencyMult < 1) {
             acctLot = Math.max(0.01, Math.round(acctLot * _consistencyMult * 100) / 100);
@@ -29093,8 +29212,9 @@ async function processDecision(userId, decision, newsCtx) {
         if (!_posDir) {
           try {
             const _merged = await getMergedOpenPositions(userId, state._lastMarketAnalysis);
-            const _p = _merged.find((p) => String(p.symbol || "").toUpperCase().replace("/", "") === String(decision.symbol || "").toUpperCase().replace("/", ""));
-            _posDir = String(_p?.direction || "").toUpperCase();
+            const _sm = _merged.filter((p) => String(p.symbol || "").toUpperCase().replace("/", "") === String(decision.symbol || "").toUpperCase().replace("/", ""));
+            const _dirs = new Set(_sm.map((p) => String(p.direction || "").toUpperCase()));
+            _posDir = _dirs.size === 1 ? Array.from(_dirs)[0] : "";
           } catch {
           }
         }
@@ -29157,6 +29277,11 @@ async function processDecision(userId, decision, newsCtx) {
             if (!tlMatch) {
               return;
             }
+            if (signalAction === "CLOSE" && partialVolume && partialVolume > 0) {
+              addActivity(userId, { type: "info", symbol: decision.symbol, message: `\u2702\uFE0F Partial close (${partialVolume}) refused on ${acctLabel}: TradeLocker would close the whole position. Position kept; trail/stop still protect it.` });
+              logGuard(userId, "partial_close_refused", decision.symbol, `${acctLabel} partial ${partialVolume}`);
+              return;
+            }
             if (signalAction === "CLOSE") {
               const { xauTooYoungToClose: xauTooYoungToClose2 } = await Promise.resolve().then(() => (init_xau_rules(), xau_rules_exports));
               if (xauTooYoungToClose2(decision.symbol, tlMatch.openDate)) {
@@ -29179,12 +29304,30 @@ async function processDecision(userId, decision, newsCtx) {
                 addActivity(userId, { type: "error", symbol: decision.symbol, message: `CLOSE failed on TradeLocker ${acctLabel}: ${tradeResult.error}` });
               }
             } else if (signalAction === "MODIFY") {
+              let _sl = newSL;
+              {
+                const _buy = String(tlMatch.side || decision.direction || "BUY").toUpperCase() === "BUY";
+                const _cur = Number(tlMatch.stopLoss) || 0;
+                const _px = Number(state.marketSnapshot?.[decision.symbol]?.price) || 0;
+                if (_sl && _px > 0 && (_buy ? _sl >= _px : _sl <= _px)) {
+                  logGuard(userId, "stop_through_price_refused", decision.symbol, `AI SL ${_sl} vs price ${_px} on ${acctLabel}`);
+                  _sl = void 0;
+                }
+                if (_sl && _cur > 0 && (_buy ? _sl <= _cur : _sl >= _cur)) {
+                  logGuard(userId, "stop_loosen_refused", decision.symbol, `AI SL ${_sl} looser than ${_cur} on ${acctLabel}`);
+                  _sl = void 0;
+                }
+              }
+              if (!_sl && !newTP) {
+                addActivity(userId, { type: "info", symbol: decision.symbol, message: `\u{1F6E1}\uFE0F ${acctLabel}: AI stop change for ${decision.symbol} refused (would loosen or cross price).` });
+                return;
+              }
               const tradeResult = await executeMT5SignalOnTradeLocker(tlConn, {
                 action: "MODIFY",
                 symbol: decision.symbol,
                 direction: decision.direction || "BUY",
                 volume: 0,
-                stopLoss: newSL,
+                stopLoss: _sl,
                 takeProfit: newTP,
                 positionId: tlMatch.id
               });
@@ -29830,6 +29973,7 @@ async function flattenAllBrokerPositions(userId, reason) {
       }
     }
   } catch (e) {
+    failed++;
     addActivity(userId, { type: "error", message: `\u{1F6A8} EMERGENCY STOP: TradeLocker connection lookup failed (${e?.message ?? e})` });
   }
   try {
@@ -29845,10 +29989,12 @@ async function flattenAllBrokerPositions(userId, reason) {
         try {
           const svc = getDxtradeService2(dc.host, dc.username, decryptApiSecret3(dc.encrypted_password), dc.domain, `estop_${dc.id}`);
           await svc.ensureLoggedIn();
-          const positions = await svc.getPositions(dc.account_code);
+          const { extractAccountCode: extractAccountCode2 } = await Promise.resolve().then(() => (init_dxtrade(), dxtrade_exports));
+          const _acct = dc.account_code || extractAccountCode2(await svc.getAccounts());
+          const positions = await svc.getPositions(_acct);
           for (const p of positions) {
             try {
-              await svc.closePosition(dc.account_code, p.instrument, p.side === "SELL" ? "SELL" : "BUY", p.quantity, p.positionId);
+              await svc.closePosition(_acct, p.instrument, p.side === "SELL" ? "SELL" : "BUY", p.quantity, p.positionId);
               closed++;
             } catch (e) {
               failed++;
@@ -29862,6 +30008,7 @@ async function flattenAllBrokerPositions(userId, reason) {
       }
     }
   } catch (e) {
+    failed++;
     addActivity(userId, { type: "error", message: `\u{1F6A8} EMERGENCY STOP: DXtrade lookup failed (${e?.message ?? e})` });
   }
   console.log(`[VEDD Live Engine] Emergency flatten for user ${userId} (${reason}): ${closed} closed, ${failed} failed`);
@@ -29886,6 +30033,19 @@ function queueCloseAllSignal(userId, reason) {
     status: "pending"
   });
 }
+function retryFlatten(userId, attempt) {
+  if (attempt > 10) {
+    addActivity(userId, { type: "error", message: "\u{1F6A8} FLATTEN RETRIES EXHAUSTED \u2014 positions may still be open; close them manually." });
+    return;
+  }
+  setTimeout(() => {
+    void flattenAllBrokerPositions(userId, `emergency stop retry ${attempt}`).then(({ closed, failed }) => {
+      logGuard(userId, "flatten_retry", null, `attempt ${attempt}: closed ${closed}, failed ${failed}`);
+      if (failed > 0) retryFlatten(userId, attempt + 1);
+      else addActivity(userId, { type: "info", message: `\u2705 Flatten retry ${attempt}: book is flat.` });
+    }).catch(() => retryFlatten(userId, attempt + 1));
+  }, 6e4);
+}
 function emergencyStopEngine(userId) {
   if (engineIntervals[userId]) {
     clearInterval(engineIntervals[userId]);
@@ -29904,6 +30064,7 @@ function emergencyStopEngine(userId) {
   if (state) {
     state.status = "stopped";
     state.dailyLossHalted = true;
+    state._softLossHalt = false;
     state.dailyLossHaltedAt = (/* @__PURE__ */ new Date()).toISOString();
     addActivity(userId, {
       type: "error",
@@ -29920,6 +30081,7 @@ function emergencyStopEngine(userId) {
       clearInterval(positionMonitorIntervals[userId]);
       delete positionMonitorIntervals[userId];
     }
+    if (failed > 0) retryFlatten(userId, 1);
   }).catch((e) => {
     addActivity(userId, { type: "error", message: `\u{1F6A8} EMERGENCY STOP: flatten threw (${e?.message ?? e}) \u2014 POSITIONS MAY STILL BE OPEN, check manually.` });
   });
@@ -29962,7 +30124,7 @@ function runAutonomousAdaptation(userId, tradeResult) {
       log2(`3 consecutive losses \u2014 cooling off 20 min. Waiting for better structure before next signal.`);
     }
   }
-  if (totalTrades >= 5 && totalTrades % 5 === 0) {
+  if (totalTrades >= 5) {
     const baseFloor = cfg.minConfidence || 70;
     let newFloor;
     if (ms.sessionWinRate < 0.35) {
@@ -29972,7 +30134,7 @@ function runAutonomousAdaptation(userId, tradeResult) {
     } else if (ms.sessionWinRate < 0.55) {
       newFloor = Math.max(baseFloor, 75);
     } else if (ms.sessionWinRate >= 0.7) {
-      newFloor = Math.max(baseFloor - 3, baseFloor);
+      newFloor = baseFloor;
     } else {
       newFloor = baseFloor;
     }
@@ -30020,7 +30182,7 @@ function runAutonomousAdaptation(userId, tradeResult) {
 }
 function checkDailyLossLimit(userId) {
   const state = engineStates[userId];
-  if (!state || state.dailyLossHalted) return;
+  if (!state || hardHalted(state)) return;
   const limit = state.config.dailyLossLimit;
   if (!limit || limit <= 0) return;
   const balance = state.config.accountBalance;
@@ -30054,7 +30216,7 @@ function checkDailyProfitTarget(userId) {
 }
 function checkMaxDrawdownBreakers(userId) {
   const state = engineStates[userId];
-  if (!state || state.dailyLossHalted) return;
+  if (!state || hardHalted(state)) return;
   const balance = state.config.accountBalance;
   if (!balance || balance <= 0) return;
   const mdd = state.config.maxDrawdownPct || 0;
@@ -30073,8 +30235,9 @@ function checkMaxDrawdownBreakers(userId) {
   const mdl = state.config.maxDailyLossPct || 0;
   if (mdl > 0) {
     const lossPct = state.pnlToday / balance * 100;
-    if (lossPct <= -mdl) {
+    if (lossPct <= -mdl && !state._softLossHalt) {
       state.dailyLossHalted = true;
+      state._softLossHalt = true;
       state.dailyLossHaltedAt = (/* @__PURE__ */ new Date()).toISOString();
       addActivity(userId, {
         type: "error",
@@ -30085,7 +30248,7 @@ function checkMaxDrawdownBreakers(userId) {
 }
 function checkFloatingDrawdown(userId, floating) {
   const state = engineStates[userId];
-  if (!state || state.dailyLossHalted) return;
+  if (!state || hardHalted(state)) return;
   const balance = state.config.accountBalance;
   if (!balance || balance <= 0) return;
   const equitySession = state.pnlSession + floating;
@@ -30111,8 +30274,9 @@ function checkFloatingDrawdown(userId, floating) {
   const mdl = state.config.maxDailyLossPct || 0;
   if (mdl > 0) {
     const dayEquity = state.pnlToday + floating;
-    if (dayEquity / balance * 100 <= -mdl) {
+    if (dayEquity / balance * 100 <= -mdl && !state._softLossHalt) {
       state.dailyLossHalted = true;
+      state._softLossHalt = true;
       state.dailyLossHaltedAt = (/* @__PURE__ */ new Date()).toISOString();
       addActivity(userId, {
         type: "error",
@@ -30134,10 +30298,6 @@ function stopLiveEngine(userId) {
   if (brainLearningIntervals[userId]) {
     clearInterval(brainLearningIntervals[userId]);
     delete brainLearningIntervals[userId];
-  }
-  if (positionMonitorIntervals[userId]) {
-    clearInterval(positionMonitorIntervals[userId]);
-    delete positionMonitorIntervals[userId];
   }
   const state = engineStates[userId];
   if (state) {
@@ -30262,13 +30422,14 @@ function getModelLockStatus(userId) {
   if (!state) return { locked: false, openPositions: 0 };
   return { locked: state.modelLocked, openPositions: state.openPositionCount };
 }
-var FX_MAX_OPEN_PER_SYMBOL, FX_SYMBOL_COOLDOWN_MS, mt5AccountQueues, mt5AccountRegistry, engineStates, engineIntervals, engineTimers, brainLearningIntervals, positionMonitorIntervals, _monitorBusy, persistedConfigOverrides, goalTrackerCache, ALL_STRATEGY_KEYS, _dxSkipTableReady, countedTradeKeys, h4BiasCache, H4_REFRESH_MS, TRAIL_METHOD_LABELS, xauPeakPts, xauLockedPts, btcInitialStop, btcLastStop, NY_TIME_FMT, INDEX_BROKER_ALIASES, FX_LEADER_LOCK_KEY, FX_LEADER_STALE_MS, _fxLeaderClient, _fxIsLeader, _fxLeaderLoop;
+var FX_MAX_OPEN_PER_SYMBOL, FX_SYMBOL_COOLDOWN_MS, mt5AccountQueues, mt5AccountRegistry, engineStates, engineIntervals, engineTimers, brainLearningIntervals, positionMonitorIntervals, _monitorBusy, persistedConfigOverrides, goalTrackerCache, ALL_STRATEGY_KEYS, _dxSkipTableReady, countedTradeKeys, h4BiasCache, H4_REFRESH_MS, TRAIL_METHOD_LABELS, xauPeakPts, xauLockedPts, btcInitialStop, btcLastStop, NY_TIME_FMT, INDEX_BROKER_ALIASES, FX_LEADER_LOCK_KEY, FX_LEADER_STALE_MS, _fxLeaderClient, _fxIsLeader, _fxLeaderLoop, hardHalted;
 var init_live_trading_engine = __esm({
   "server/services/live-trading-engine.ts"() {
     "use strict";
     init_session();
     init_pair_key();
     init_service();
+    init_guard_events();
     init_tradelocker();
     init_tradelocker_sync();
     init_indicators();
@@ -30352,6 +30513,7 @@ var init_live_trading_engine = __esm({
     _fxLeaderClient = null;
     _fxIsLeader = false;
     _fxLeaderLoop = null;
+    hardHalted = (s) => !!s?.dailyLossHalted && !s?._softLossHalt;
   }
 });
 
@@ -37147,6 +37309,569 @@ var init_solana_scanner = __esm({
   }
 });
 
+// server/messaging.ts
+var messaging_exports = {};
+__export(messaging_exports, {
+  getChannelStatus: () => getChannelStatus,
+  sendGmail: () => sendGmail,
+  sendMessage: () => sendMessage,
+  sendResend: () => sendResend,
+  sendSendGrid: () => sendSendGrid,
+  sendTelegram: () => sendTelegram,
+  sendTwilioSms: () => sendTwilioSms
+});
+import nodemailer from "nodemailer";
+async function sendGmail(to, subject, text2, html) {
+  const user = process.env.GMAIL_USER;
+  const pass = process.env.GMAIL_APP_PASSWORD;
+  if (!user || !pass) return { success: false, channel: "gmail", error: "GMAIL_USER and GMAIL_APP_PASSWORD not set. Create a Gmail App Password at myaccount.google.com/security \u2192 App Passwords." };
+  try {
+    const transporter = nodemailer.createTransport({
+      service: "gmail",
+      auth: { user, pass }
+    });
+    const info2 = await transporter.sendMail({
+      from: `"VEDD | Abba" <${user}>`,
+      to,
+      subject,
+      text: text2,
+      html: html || `<div style="font-family:sans-serif;max-width:600px;margin:0 auto"><h2 style="color:#7c3aed">VEDD \u2014 Abba AI</h2><div>${text2.replace(/\n/g, "<br/>")}</div></div>`
+    });
+    return { success: true, channel: "gmail", id: info2.messageId };
+  } catch (e) {
+    return { success: false, channel: "gmail", error: e.message };
+  }
+}
+async function sendResend(to, subject, text2, html) {
+  const apiKey = process.env.RESEND_API_KEY;
+  if (!apiKey) return { success: false, channel: "resend", error: "RESEND_API_KEY not set. Sign up free at resend.com and add your API key." };
+  try {
+    const { Resend } = await import("resend");
+    const resend = new Resend(apiKey);
+    const from = process.env.RESEND_FROM_EMAIL || "Abba <onboarding@resend.dev>";
+    const result = await resend.emails.send({ from, to, subject, text: text2, html });
+    if (result.error) return { success: false, channel: "resend", error: result.error.message };
+    return { success: true, channel: "resend", id: result.data?.id };
+  } catch (e) {
+    return { success: false, channel: "resend", error: e.message };
+  }
+}
+async function sendTelegram(chatId, message) {
+  const token = process.env.TELEGRAM_BOT_TOKEN;
+  if (!token) return { success: false, channel: "telegram", error: "TELEGRAM_BOT_TOKEN not set. Create a free bot at @BotFather on Telegram." };
+  if (!chatId?.trim()) return { success: false, channel: "telegram", error: "chatId required \u2014 user must have started your bot first." };
+  try {
+    const url = `https://api.telegram.org/bot${token}/sendMessage`;
+    const body = JSON.stringify({ chat_id: chatId, text: message, parse_mode: "HTML" });
+    const res = await fetch(url, { method: "POST", headers: { "Content-Type": "application/json" }, body });
+    const data = await res.json();
+    if (!data.ok) return { success: false, channel: "telegram", error: data.description || "Telegram API error" };
+    return { success: true, channel: "telegram", id: String(data.result?.message_id) };
+  } catch (e) {
+    return { success: false, channel: "telegram", error: e.message };
+  }
+}
+async function sendTwilioSms(to, body) {
+  const { sendSmsRaw: sendSmsRaw3 } = await Promise.resolve().then(() => (init_twilio(), twilio_exports));
+  const result = await sendSmsRaw3(to, body);
+  return { ...result, channel: "twilio" };
+}
+async function sendSendGrid(to, subject, text2, html) {
+  const apiKey = process.env.SENDGRID_API_KEY;
+  if (!apiKey) return { success: false, channel: "sendgrid", error: "SENDGRID_API_KEY not set. Sign up at sendgrid.com (100/day free)." };
+  try {
+    const sgMail3 = await import("@sendgrid/mail");
+    const sg = sgMail3.default || sgMail3;
+    sg.setApiKey(apiKey);
+    await sg.send({
+      to,
+      from: process.env.SENDGRID_FROM_EMAIL || "abba@vedd.app",
+      subject,
+      text: text2,
+      html: html || text2
+    });
+    return { success: true, channel: "sendgrid" };
+  } catch (e) {
+    return { success: false, channel: "sendgrid", error: e.message };
+  }
+}
+async function sendMessage(opts) {
+  const { channel, message, phone, chatId, email, subject, html } = opts;
+  switch (channel) {
+    case "gmail":
+      if (!email) return { success: false, channel, error: "email address required for Gmail" };
+      return sendGmail(email, subject || "Message from VEDD Abba", message, html);
+    case "resend":
+      if (!email) return { success: false, channel, error: "email address required for Resend" };
+      return sendResend(email, subject || "Message from VEDD Abba", message, html);
+    case "telegram":
+      if (!chatId) return { success: false, channel, error: "Telegram chat ID required" };
+      return sendTelegram(chatId, message);
+    case "twilio":
+      if (!phone) return { success: false, channel, error: "phone number required for Twilio SMS" };
+      return sendTwilioSms(phone, message);
+    case "sendgrid":
+      if (!email) return { success: false, channel, error: "email address required for SendGrid" };
+      return sendSendGrid(email, subject || "Message from VEDD Abba", message, html);
+    default:
+      return { success: false, channel, error: `Unknown channel: ${channel}` };
+  }
+}
+function getChannelStatus() {
+  return {
+    gmail: { configured: !!(process.env.GMAIL_USER && process.env.GMAIL_APP_PASSWORD), free: true, limit: "500/day", setupUrl: "https://myaccount.google.com/apppasswords" },
+    resend: { configured: !!process.env.RESEND_API_KEY, free: true, limit: "3,000/month", setupUrl: "https://resend.com" },
+    telegram: { configured: !!process.env.TELEGRAM_BOT_TOKEN, free: true, limit: "Unlimited", setupUrl: "https://t.me/BotFather" },
+    twilio: { configured: !!(process.env.TWILIO_ACCOUNT_SID && process.env.TWILIO_AUTH_TOKEN), free: false, limit: "Paid / trial", setupUrl: "https://twilio.com" },
+    sendgrid: { configured: !!process.env.SENDGRID_API_KEY, free: true, limit: "100/day", setupUrl: "https://sendgrid.com" }
+  };
+}
+var init_messaging = __esm({
+  "server/messaging.ts"() {
+    "use strict";
+  }
+});
+
+// server/services/persona-content-engine.ts
+var persona_content_engine_exports = {};
+__export(persona_content_engine_exports, {
+  runPersonaContentEngine: () => runPersonaContentEngine,
+  sendPersonaContentEmail: () => sendPersonaContentEmail,
+  startPersonaContentScheduler: () => startPersonaContentScheduler
+});
+import { OpenAI as OpenAI5 } from "openai";
+async function callAI(systemPrompt, userPrompt, maxTokens = 3e3) {
+  const messages = [
+    { role: "system", content: systemPrompt },
+    { role: "user", content: userPrompt }
+  ];
+  const orKey = process.env.OPENROUTER_API_KEY;
+  if (orKey) {
+    try {
+      const orClient = new OpenAI5({
+        apiKey: orKey,
+        baseURL: "https://openrouter.ai/api/v1",
+        maxRetries: 2,
+        timeout: 12e4,
+        defaultHeaders: { "HTTP-Referer": "https://veddbuild.com", "X-Title": "VEDDBuild" }
+      });
+      const res2 = await orClient.chat.completions.create({
+        model: "openai/gpt-oss-20b",
+        messages,
+        temperature: 0.8,
+        max_tokens: maxTokens
+      });
+      return res2.choices[0]?.message?.content?.trim() ?? "";
+    } catch (e) {
+      console.warn("[persona-content] OpenRouter failed \u2014 falling back to OpenAI:", e.message);
+    }
+  }
+  const apiKey = process.env.OPENAI_API_KEY;
+  const client2 = new OpenAI5({ apiKey: apiKey || "", maxRetries: 2, timeout: 12e4 });
+  const res = await client2.chat.completions.create({
+    model: "gpt-4o",
+    messages,
+    temperature: 0.8,
+    max_tokens: maxTokens
+  });
+  return res.choices[0]?.message?.content?.trim() ?? "";
+}
+function parseJson2(raw, fallback) {
+  try {
+    const cleaned = raw.replace(/```json|```/g, "").trim();
+    return JSON.parse(cleaned);
+  } catch (e) {
+    console.error("[persona-content] JSON parse failed:", e.message, "\u2014 raw:", raw.slice(0, 300));
+    return fallback;
+  }
+}
+function escHtml(s) {
+  return (s ?? "").toString().replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+}
+async function pickPillarAndArc() {
+  const arcRes = await pool.query("SELECT current_index, loops_completed FROM persona_arc_state WHERE id = 1");
+  const arcIndex = arcRes.rows[0]?.current_index ?? 0;
+  const loopsCompleted = arcRes.rows[0]?.loops_completed ?? 0;
+  const pillarRes = await pool.query(
+    `SELECT pillar, times_used, last_used_date FROM persona_pillar_rotation
+     ORDER BY times_used ASC, (last_used_date IS NOT NULL), last_used_date ASC, id ASC`
+  );
+  const pillar = pillarRes.rows[0]?.pillar || "Building VEDD in public";
+  return { pillar, arcStage: ARC_STAGES[arcIndex], arcIndex, loopsCompleted };
+}
+async function generateSpine(pillar, arcStage, contentDate) {
+  const sys = `${BRAND_DNA}
+
+Today's content pillar: "${pillar}". Today's documentary story-arc stage: "${arcStage}".`;
+  const user = `Generate today's shared cross-platform creative foundation for ${contentDate} as valid JSON (no markdown fences) with exactly these keys:
+daily_theme, goal, core_narrative (Don's message today, first-person, 2-4 sentences), emotional_tone,
+visual_concept, photo_concept, reel_concept, shot_list, b_roll, voiceover_script, on_screen_text,
+ai_image_prompt (detailed, ready for an image generator), thumbnail_concept, editing_style,
+music_style (mood only, never a real song title). Every field is a single string.`;
+  const raw = await callAI(sys, user);
+  return parseJson2(raw, {
+    daily_theme: pillar,
+    goal: "Build trust through consistency",
+    core_narrative: "",
+    emotional_tone: "hopeful",
+    visual_concept: "",
+    photo_concept: "",
+    reel_concept: "",
+    shot_list: "",
+    b_roll: "",
+    voiceover_script: "",
+    on_screen_text: "",
+    ai_image_prompt: "",
+    thumbnail_concept: "",
+    editing_style: "",
+    music_style: "warm, hopeful"
+  });
+}
+function emptyPackage() {
+  return { hook: "", caption_short: "", caption_long: "", cta: "", hashtags: [], story_sequence: [], poll_idea: "", comment_prompt: "", pinned_comment: "", engagement_strategy: "", best_posting_time: "" };
+}
+async function generatePlatformPackages(spine, pillar, arcStage) {
+  const sys = `${BRAND_DNA}
+
+Today's pillar: "${pillar}". Story-arc stage: "${arcStage}".
+Shared narrative for today: ${spine.core_narrative}
+Goal: ${spine.goal}
+Tone: ${spine.emotional_tone}`;
+  const rulesBlock = PLATFORMS.map((p) => `- ${p}: ${PLATFORM_RULES[p]}`).join("\n");
+  const user = `Adapt the shared narrative above into 8 separate platform-native versions \u2014 never reuse the same wording across platforms. Platforms and their format rules:
+${rulesBlock}
+
+Return valid JSON (no markdown fences) as an object keyed by exactly these platform names: ${PLATFORMS.map((p) => `"${p}"`).join(", ")}.
+Each platform's value must have exactly these keys: hook, caption_short, caption_long, cta, hashtags (array of strings, no leading #), story_sequence (array of strings \u2014 only meaningfully populated for "Instagram Stories", empty array [] for all other platforms), poll_idea, comment_prompt, pinned_comment, engagement_strategy, best_posting_time.`;
+  const raw = await callAI(sys, user, 4e3);
+  const parsed = parseJson2(raw, {});
+  const result = {};
+  for (const p of PLATFORMS) {
+    result[p] = { ...emptyPackage(), ...parsed[p] || {} };
+  }
+  return result;
+}
+async function humanizePackages(packages) {
+  const sys = `${BRAND_DNA}
+
+You are the editor. Rewrite the drafts below so they read like a real founder wrote them by hand \u2014 not more polished, more HUMAN. Vary sentence length naturally. Strip every banned phrase. Keep the same meaning, platform, and structure.`;
+  const user = `Here are today's 8 draft platform packages as JSON:
+${JSON.stringify(packages)}
+
+Return the corrected JSON in the exact same shape (same keys), no markdown fences, no commentary.`;
+  const raw = await callAI(sys, user, 4e3);
+  const parsed = parseJson2(raw, {});
+  const result = { ...packages };
+  for (const p of PLATFORMS) {
+    if (parsed[p]) result[p] = { ...result[p], ...parsed[p] };
+  }
+  return validatePackages(result);
+}
+function validatePackages(packages) {
+  const x = packages["X (Twitter)"];
+  if (x) {
+    if (x.caption_short && x.caption_short.length > 280) x.caption_short = x.caption_short.slice(0, 277) + "...";
+    if (x.caption_long) {
+      const lines = x.caption_long.split("\n").filter(Boolean);
+      x.caption_long = lines.map((l) => l.length > 280 ? l.slice(0, 277) + "..." : l).join("\n");
+    }
+  }
+  for (const bad of BANNED_PHRASES) {
+    for (const p of PLATFORMS) {
+      const pkg = packages[p];
+      for (const field of ["hook", "caption_short", "caption_long", "cta"]) {
+        if (pkg[field] && pkg[field].toLowerCase().includes(bad)) {
+          console.warn(`[persona-content] Banned phrase "${bad}" survived humanize pass on ${p}.${field} \u2014 leaving as-is (logged for review).`);
+        }
+      }
+    }
+  }
+  return packages;
+}
+async function generateReplyTemplates(pillar) {
+  const sys = `${BRAND_DNA}
+
+Write short community reply templates Don can paste as comment replies. Educational and risk-aware for anything about AI/investing/trading \u2014 never promise guaranteed profits. Only mention the referral link for people who genuinely ask how to join, and never with pressure.`;
+  const user = `Write 2 short reply-template variations each for these 5 categories, as valid JSON (no markdown fences) with keys about_vedd, skepticism, welcome_back, ai_investing_questions, how_to_start \u2014 each value an array of exactly 2 strings.`;
+  const raw = await callAI(sys, user, 1200);
+  return parseJson2(raw, {
+    about_vedd: [],
+    skepticism: [],
+    welcome_back: [],
+    ai_investing_questions: [],
+    how_to_start: []
+  });
+}
+function buildEmailHtml(opts) {
+  const { contentDate, pillar, arcStage, arcIndex, loopsCompleted, spine, packages, replies } = opts;
+  const spineRows = [
+    ["Visual concept", spine.visual_concept],
+    ["Photo concept", spine.photo_concept],
+    ["Reel concept", spine.reel_concept],
+    ["Shot list", spine.shot_list],
+    ["B-roll", spine.b_roll],
+    ["Voiceover script", spine.voiceover_script],
+    ["On-screen text", spine.on_screen_text],
+    ["AI image prompt", spine.ai_image_prompt],
+    ["Thumbnail concept", spine.thumbnail_concept],
+    ["Editing style", spine.editing_style],
+    ["Music style (mood only)", spine.music_style]
+  ].map(([label, val]) => `
+    <tr><td style="padding:8px;border-bottom:1px solid #222;color:#888;font-size:12px;vertical-align:top;white-space:nowrap;">${escHtml(label)}</td>
+        <td style="padding:8px;border-bottom:1px solid #222;font-size:13px;white-space:pre-line;">${escHtml(val)}</td></tr>`).join("");
+  const platformBlock = (platform) => {
+    const pkg = packages[platform];
+    const rows = [
+      ["Hook", pkg.hook],
+      ["Caption (short)", pkg.caption_short],
+      ["Caption (long)", pkg.caption_long],
+      ["CTA", pkg.cta],
+      ["Hashtags", pkg.hashtags.map((h) => `#${h}`).join(" ")],
+      ["Poll idea", pkg.poll_idea],
+      ["Comment prompt", pkg.comment_prompt],
+      ["Pinned comment", pkg.pinned_comment],
+      ["Best posting time", pkg.best_posting_time],
+      ["First 30-min engagement strategy", pkg.engagement_strategy]
+    ];
+    const storyBlock = pkg.story_sequence.length ? `
+      <div style="margin-top:8px;">
+        <div style="font-size:12px;color:#888;margin-bottom:4px;">Story sequence</div>
+        ${pkg.story_sequence.map((frame, i) => `<div style="font-size:12px;padding:6px 8px;background:#0a0a0a;border-left:2px solid #00d4ff;border-radius:4px;margin-bottom:4px;white-space:pre-line;"><strong style="color:#00d4ff;">Frame ${i + 1}:</strong> ${escHtml(frame)}</div>`).join("")}
+      </div>` : "";
+    return `
+    <div style="background:#111;border:1px solid #222;border-radius:8px;padding:16px;margin-bottom:16px;">
+      <div style="font-size:14px;font-weight:700;color:#fff;margin-bottom:10px;">${escHtml(platform)}</div>
+      <table style="width:100%;border-collapse:collapse;">
+        ${rows.map(([label, val]) => `<tr><td style="padding:6px 8px;border-bottom:1px solid #1a1a1a;color:#888;font-size:11px;vertical-align:top;white-space:nowrap;">${escHtml(label)}</td><td style="padding:6px 8px;border-bottom:1px solid #1a1a1a;font-size:13px;white-space:pre-line;">${escHtml(val)}</td></tr>`).join("")}
+      </table>
+      ${storyBlock}
+    </div>`;
+  };
+  const replyBlock = (label, arr2) => `
+    <div style="margin-bottom:10px;">
+      <div style="font-size:12px;font-weight:600;color:#00d4ff;margin-bottom:4px;">${escHtml(label)}</div>
+      ${arr2.map((v) => `<div style="font-size:12px;color:#ccc;padding:6px 8px;background:#0a0a0a;border-radius:4px;margin-bottom:4px;white-space:pre-line;">${escHtml(v)}</div>`).join("")}
+    </div>`;
+  return `<!DOCTYPE html>
+<html><head><meta charset="utf-8"><title>VEDD Persona Content Package \u2014 ${contentDate}</title></head>
+<body style="margin:0;padding:0;background:#0a0a0a;font-family:'Segoe UI',Arial,sans-serif;color:#e0e0e0;">
+<div style="max-width:760px;margin:0 auto;padding:24px;">
+  <div style="background:linear-gradient(135deg,#1a1a2e,#16213e);border:1px solid #00d4ff33;border-radius:12px;padding:28px;margin-bottom:20px;">
+    <div style="font-size:11px;text-transform:uppercase;letter-spacing:2px;color:#00d4ff;margin-bottom:8px;">VEDD Persona Content Engine</div>
+    <h1 style="margin:0 0 4px;font-size:24px;font-weight:700;color:#fff;">${escHtml(spine.daily_theme)}</h1>
+    <div style="font-size:13px;color:#888;">${contentDate} \u2014 Pillar: ${escHtml(pillar)} \xB7 Arc stage ${arcIndex + 1}/7: ${escHtml(arcStage)} (loop ${loopsCompleted + 1})</div>
+  </div>
+
+  <div style="background:#111;border:1px solid #222;border-radius:8px;padding:16px;margin-bottom:16px;">
+    <div style="font-size:12px;color:#888;text-transform:uppercase;letter-spacing:1px;margin-bottom:6px;">Goal</div>
+    <div style="font-size:14px;white-space:pre-line;">${escHtml(spine.goal)}</div>
+    <div style="font-size:12px;color:#888;text-transform:uppercase;letter-spacing:1px;margin:12px 0 6px;">Core narrative (Don's message today)</div>
+    <div style="font-size:14px;white-space:pre-line;">${escHtml(spine.core_narrative)}</div>
+  </div>
+
+  <div style="background:#111;border:1px solid #222;border-radius:8px;padding:16px;margin-bottom:20px;">
+    <div style="font-size:13px;font-weight:600;color:#fff;margin-bottom:10px;">Shared production assets</div>
+    <table style="width:100%;border-collapse:collapse;">${spineRows}</table>
+  </div>
+
+  ${PLATFORMS.map(platformBlock).join("")}
+
+  <div style="background:#111;border:1px solid #222;border-radius:8px;padding:16px;margin-bottom:16px;">
+    <div style="font-size:13px;font-weight:600;color:#fff;margin-bottom:10px;">Community reply templates</div>
+    ${replyBlock("About VEDD", replies.about_vedd)}
+    ${replyBlock("Skepticism / scam pushback", replies.skepticism)}
+    ${replyBlock("Encouragement / welcome-back", replies.welcome_back)}
+    ${replyBlock("AI / investing / trading questions", replies.ai_investing_questions)}
+    ${replyBlock("How to start / join", replies.how_to_start)}
+  </div>
+
+  <div style="text-align:center;padding:20px;color:#444;font-size:11px;">
+    <div>VEDD Persona Content Engine \u2022 ${contentDate}</div>
+    <div style="margin-top:4px;">Referral link: <a href="${REFERRAL_LINK}" style="color:#00d4ff;">${REFERRAL_LINK}</a></div>
+    <div style="margin-top:8px;color:#666;">Investing and trading involve risk, including the possible loss of principal. Nothing in this content is financial advice.</div>
+  </div>
+</div>
+</body></html>`;
+}
+async function sendPersonaContentEmail(subject, html) {
+  const sgKey = process.env.SENDGRID_API_KEY;
+  const gmailUser = process.env.GMAIL_USER;
+  const gmailPass = process.env.GMAIL_APP_PASSWORD;
+  if (!sgKey && !(gmailUser && gmailPass)) {
+    const reason2 = "No email channel configured \u2014 set SENDGRID_API_KEY or GMAIL_USER + GMAIL_APP_PASSWORD.";
+    console.error("[persona-content]", reason2);
+    return { success: false, reason: reason2 };
+  }
+  const sgErrors = [];
+  if (sgKey) {
+    try {
+      const { default: sgMail3 } = await import("@sendgrid/mail");
+      sgMail3.setApiKey(sgKey);
+      await sgMail3.send({ to: REPORT_EMAIL, from: "noreply@veddbuild.com", subject, html });
+      return { success: true };
+    } catch (e) {
+      const errDetail = e?.response?.body?.errors;
+      const detail = Array.isArray(errDetail) && errDetail.length ? errDetail.map((er) => er.message).join("; ") : e.message;
+      console.error("[persona-content] SendGrid send failed, trying Gmail fallback if configured:", detail);
+      sgErrors.push(`SendGrid: ${detail}`);
+    }
+  }
+  if (gmailUser && gmailPass) {
+    const { sendGmail: sendGmail2 } = await Promise.resolve().then(() => (init_messaging(), messaging_exports));
+    const result = await sendGmail2(REPORT_EMAIL, subject, "Full content package is in the HTML body of this email.", html);
+    if (result.success) return { success: true };
+    sgErrors.push(`Gmail: ${result.error}`);
+  }
+  const reason = sgErrors.join(" | ") || "No email channel configured";
+  console.error("[persona-content] All email channels failed:", reason);
+  return { success: false, reason };
+}
+async function recordProgress(pick3, contentDate, spine, emailSent) {
+  await pool.query(
+    `INSERT INTO persona_content_days (content_date, pillar, theme, arc_stage, arc_index, goal, platforms_count, email_sent)
+     VALUES ($1,$2,$3,$4,$5,$6,8,$7)`,
+    [contentDate, pick3.pillar, spine.daily_theme, pick3.arcStage, pick3.arcIndex, spine.goal, emailSent]
+  );
+  await pool.query(
+    `UPDATE persona_pillar_rotation SET times_used = times_used + 1, last_used_date = $1 WHERE pillar = $2`,
+    [contentDate, pick3.pillar]
+  );
+  const nextIndex = (pick3.arcIndex + 1) % ARC_STAGES.length;
+  const wrapped = nextIndex === 0;
+  await pool.query(
+    `UPDATE persona_arc_state SET current_index = $1, loops_completed = loops_completed + $2 WHERE id = 1`,
+    [nextIndex, wrapped ? 1 : 0]
+  );
+}
+async function runPersonaContentEngine(trigger = "manual") {
+  const contentDate = (/* @__PURE__ */ new Date()).toISOString().slice(0, 10);
+  console.log(`[persona-content] Run started (${trigger}) for ${contentDate}`);
+  try {
+    const pick3 = await pickPillarAndArc();
+    console.log(`[persona-content] Pillar="${pick3.pillar}" arc="${pick3.arcStage}" (${pick3.arcIndex + 1}/7, loop ${pick3.loopsCompleted + 1})`);
+    const spine = await generateSpine(pick3.pillar, pick3.arcStage, contentDate);
+    const draftPackages = await generatePlatformPackages(spine, pick3.pillar, pick3.arcStage);
+    const packages = await humanizePackages(draftPackages);
+    const replies = await generateReplyTemplates(pick3.pillar);
+    const html = buildEmailHtml({
+      contentDate,
+      pillar: pick3.pillar,
+      arcStage: pick3.arcStage,
+      arcIndex: pick3.arcIndex,
+      loopsCompleted: pick3.loopsCompleted,
+      spine,
+      packages,
+      replies
+    });
+    const subject = `VEDD Content Package - ${contentDate} - ${spine.daily_theme} (${pick3.pillar})`;
+    const emailResult = await sendPersonaContentEmail(subject, html);
+    await recordProgress(pick3, contentDate, spine, emailResult.success);
+    if (!emailResult.success) {
+      console.error("[persona-content] Run completed but email failed:", emailResult.reason);
+      return { success: false, reason: emailResult.reason };
+    }
+    console.log("[persona-content] Run completed and email sent.");
+    return { success: true };
+  } catch (e) {
+    console.error("[persona-content] Run failed:", e.message);
+    return { success: false, reason: e.message };
+  }
+}
+function startPersonaContentScheduler() {
+  function scheduleNext2() {
+    const now = /* @__PURE__ */ new Date();
+    const next = /* @__PURE__ */ new Date();
+    next.setUTCHours(10, 0, 0, 0);
+    if (next <= now) next.setUTCDate(next.getUTCDate() + 1);
+    while (!TARGET_UTC_DAYS.includes(next.getUTCDay())) {
+      next.setUTCDate(next.getUTCDate() + 1);
+    }
+    const delay = next.getTime() - now.getTime();
+    console.log(`[persona-content] Next run at ${next.toISOString()} (in ${Math.round(delay / 6e4)} min)`);
+    setTimeout(async () => {
+      try {
+        await runPersonaContentEngine("scheduler");
+      } catch (e) {
+        console.error("[persona-content] Scheduler run error:", e.message);
+      }
+      scheduleNext2();
+    }, delay);
+  }
+  scheduleNext2();
+}
+var REFERRAL_LINK, REPORT_EMAIL, ARC_STAGES, PLATFORMS, BANNED_PHRASES, BRAND_DNA, PLATFORM_RULES, TARGET_UTC_DAYS;
+var init_persona_content_engine = __esm({
+  "server/services/persona-content-engine.ts"() {
+    "use strict";
+    init_db();
+    REFERRAL_LINK = "https://veddbuild.com/auth?ref=DONCHISMKOS@GMAIL.COM511";
+    REPORT_EMAIL = "donchismkos@gmail.com";
+    ARC_STAGES = [
+      "Reintroduce Don",
+      "Explain why he disappeared",
+      "Show the mission",
+      "Document the build",
+      "Teach valuable lessons",
+      "Introduce VEDD naturally",
+      "Invite people to explore the platform if it fits their goals"
+    ];
+    PLATFORMS = ["Facebook", "Instagram Feed", "Instagram Stories", "Instagram Reels", "TikTok", "Threads", "X (Twitter)", "LinkedIn"];
+    BANNED_PHRASES = [
+      "it's important to note",
+      "it's worth noting",
+      "in conclusion",
+      "furthermore",
+      "moreover",
+      "additionally",
+      "delve into",
+      "navigate the landscape",
+      "leverage",
+      "robust",
+      "tapestry",
+      "not just x, but y",
+      "in today's fast-paced world"
+    ];
+    BRAND_DNA = `You are writing in the first-person voice of Don Chism, Founder and CEO of VEDD
+(AI, financial education, and innovation company at veddbuild.com).
+
+Who Don is: a builder, visionary, entrepreneur, and teacher \u2014 never a flashy salesperson or guru.
+His story is about building freedom. He built VEDD because people deserve greater access to
+financial education and modern technology, especially in underserved communities.
+
+Brand values: integrity, consistency, leadership, innovation, faith in hard work, education,
+freedom, community, discipline, long-term thinking.
+
+Content philosophy: every piece must answer one question \u2014 "Why should someone trust Don?"
+Trust comes from honesty, consistency, education, and transparency, never from titles, luxury,
+or hype. Every post moves the audience through Awareness \u2192 Curiosity \u2192 Trust \u2192 Community \u2192
+Exploration of VEDD. The audience should feel like they are watching a documentary, not a sales
+campaign.
+
+Writing style: confident, honest, conversational, hopeful. Never arrogant, overly polished, or
+robotic. Avoid buzzwords and clich\xE9s. When discussing AI, investing, or trading: focus on
+education and transparency, acknowledge that investing and trading involve risk, and never
+promise guaranteed profits or "easy money."
+
+VEDD referral link (use only where a CTA naturally warrants it, never with pressure): ${REFERRAL_LINK}
+
+Never use these banned phrases/patterns: ${BANNED_PHRASES.join(", ")}. Also avoid tricolons for
+emphasis, symmetric opener-closer constructions, and hedge stacking. Vary sentence length
+naturally. Use at most 2 em-dashes per field. Music style must describe mood only, never name
+copyrighted songs. Never fabricate engagement numbers or results.`;
+    PLATFORM_RULES = {
+      "Facebook": "Warm, community storytelling, 2-4 hashtags, invites comments/shares.",
+      "Instagram Feed": "Strong first line before the fold, line-broken caption, 8-12 hashtags.",
+      "Instagram Stories": "Use story_sequence: 4-6 sequential frames as an array of strings, each frame describing on-frame text + an interactive sticker (poll/question/slider).",
+      "Instagram Reels": "Hook in first 1-2 seconds, caption supports the video, 5-8 hashtags, reference voiceover + on-screen text.",
+      "TikTok": "Raw and native, hook in first 2 seconds, short punchy caption, 4-5 hashtags.",
+      "Threads": "Conversational, text-first, optional 2-4 post mini-thread in caption_long, 0-2 hashtags.",
+      "X (Twitter)": "caption_short MUST be <=280 characters. caption_long is a numbered thread (each line a tweet, each <=280 characters). 1-2 hashtags max.",
+      "LinkedIn": "Professional and reflective, up to ~1300 chars, leadership/lesson angle, NO hashtags inside caption_long/caption_short \u2014 list 3-5 hashtags separately in the hashtags array."
+    };
+    TARGET_UTC_DAYS = [1, 3, 5];
+  }
+});
+
 // server/services/social-autopilot.ts
 var social_autopilot_exports = {};
 __export(social_autopilot_exports, {
@@ -37154,11 +37879,12 @@ __export(social_autopilot_exports, {
   ensureSocialTables: () => ensureSocialTables,
   generateKind: () => generateKind,
   previewKind: () => previewKind,
+  sendMorningSocialEmail: () => sendMorningSocialEmail,
   startSocialAutopilot: () => startSocialAutopilot
 });
 function ensureSocialTables() {
-  if (!ensured3) {
-    ensured3 = pool.query(`
+  if (!ensured4) {
+    ensured4 = pool.query(`
       CREATE TABLE IF NOT EXISTS social_posts (
         id serial PRIMARY KEY,
         kind text NOT NULL,
@@ -37178,10 +37904,10 @@ function ensureSocialTables() {
       CREATE INDEX IF NOT EXISTS social_posts_status_idx ON social_posts (status, created_at);
     `).then(() => void 0).catch((e) => {
       console.error("[social] ensure failed:", e?.message || e);
-      ensured3 = null;
+      ensured4 = null;
     });
   }
-  return ensured3;
+  return ensured4;
 }
 async function renderCard(c) {
   const W = 1080, H2 = 1080, F = "DejaVu Sans, Arial, Helvetica, sans-serif";
@@ -37213,7 +37939,7 @@ async function renderCard(c) {
   const sharp2 = (await import("sharp")).default;
   return sharp2(Buffer.from(svg)).png().toBuffer();
 }
-async function fxWeek() {
+async function fxWeek(windowDays = 7) {
   const owner = OWNER();
   const base = (await pool.query(
     `SELECT DISTINCT ON (split_part(r.key, ':', 1)) split_part(r.key, ':', 1) AS conn, (r.value->>'equity')::float AS eq
@@ -37228,9 +37954,9 @@ async function fxWeek() {
             created_at, closed_at, profit_loss::float AS pl
        FROM ai_trade_results
       WHERE user_id = $1 AND source LIKE 'tradelocker%' AND result IN ('WIN','LOSS','BREAKEVEN')
-        AND closed_at > now() - interval '7 days' AND closed_at <= now()
+        AND closed_at > now() - make_interval(days => $2) AND closed_at <= now()
       ORDER BY closed_at`,
-    [owner]
+    [owner, windowDays]
   );
   if (!rows.length) return null;
   const sigs = [];
@@ -37505,6 +38231,45 @@ async function saveDraft(d) {
   await pool.query(`INSERT INTO social_posts (kind, platform, caption, thread, image, data, period_key) VALUES ($1,'x',$2,$3::jsonb,$4,$5::jsonb,$6)`, [d.kind, x[0], JSON.stringify(x), img, JSON.stringify(d.data ?? null), d.period]);
   return a.rows[0].id;
 }
+async function buildDailyUpdate() {
+  const d = await fxWeek(1);
+  const { fx } = await mastery();
+  const f2 = fx.models.find((x) => x.model === "M2"), f1 = fx.models.find((x) => x.model === "M1");
+  if (!d && !f2 && !f1) return null;
+  const day = (/* @__PURE__ */ new Date()).toISOString().slice(0, 10);
+  const up = (d?.pct ?? 0) >= 0;
+  const live = d ? `Last 24h (live): ${pct2(d.pct, 2)} of account \xB7 ${d.signals} signal${d.signals === 1 ? "" : "s"} \xB7 ${d.winRate.toFixed(0)}% win rate` : "Last 24h (live): no closed trades";
+  const shadow = [f2 && `Trend model (shadow): ${f2.trades} ideas, ${(f2.winRate * 100).toFixed(0)}% (${lvl(f2.level)})`, f1 && `Range model (shadow): ${f1.trades} ideas, ${(f1.winRate * 100).toFixed(0)}% (${lvl(f1.level)})`].filter(Boolean);
+  return {
+    kind: "daily_update",
+    period: day,
+    card: {
+      eyebrow: "Daily engine update",
+      title: "AI FX engine \u2014 last 24h",
+      big: d ? pct2(d.pct, 2) : "\u2014",
+      bigColor: d ? up ? "#34d399" : "#f87171" : "#94a3b8",
+      sub: d ? "of account, live trades" : "no closed trades in the last 24h",
+      series: d?.series,
+      rows: [...d ? [["Signals", String(d.signals)], ["Win rate", `${d.winRate.toFixed(0)}%`]] : [], ...f2 ? [["Trend model", `${f2.trades} ideas \xB7 ${lvl(f2.level)}`]] : []]
+    },
+    ig: `Daily build log \u{1F4C8}
+
+${live}
+${shadow.join("\n")}
+
+Building an AI trading engine in public \u2014 every number is real, shadow results are simulated.
+
+${RISK}
+
+${TAGS_IG}`,
+    x: [`Daily build log \u{1F4C8}
+
+${live}`, ...shadow.length ? [shadow.join("\n")] : [], `Shadow \u2192 live \u2192 prop firm, in public.
+
+${RISK}`],
+    data: { live: d, models: fx.models }
+  };
+}
 async function generateKind(kind, force = false) {
   await ensureSocialTables();
   const drafts = [];
@@ -37521,6 +38286,10 @@ async function generateKind(kind, force = false) {
     if (d) drafts.push(d);
   }
   if (kind === "milestone") drafts.push(...await buildMilestones());
+  if (kind === "daily_update") {
+    const d = await buildDailyUpdate();
+    if (d) drafts.push(d);
+  }
   let created = 0;
   for (const d of drafts) {
     if (!force) {
@@ -37531,6 +38300,44 @@ async function generateKind(kind, force = false) {
     created++;
   }
   return { created, note: drafts.length ? `${created} new draft set(s)` : "not enough data yet for this post type" };
+}
+async function sendMorningSocialEmail(force = false) {
+  await ensureSocialTables();
+  await generateKind("daily_update").catch(() => null);
+  const last = Number((await getState("social_email", "last_id"))?.id) || 0;
+  const { rows } = await pool.query(
+    `SELECT id, kind, platform, caption, thread, created_at FROM social_posts
+      WHERE id > $1 AND status IN ('draft','approved') ORDER BY id`,
+    [force ? 0 : last]
+  );
+  if (!rows.length) return { sent: false, count: 0, note: "nothing new to send" };
+  const esc2 = (t) => String(t || "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+  const byKind = /* @__PURE__ */ new Map();
+  for (const r2 of rows) {
+    const k = `${r2.kind}|${new Date(r2.created_at).toISOString().slice(0, 13)}`;
+    (byKind.get(k) || byKind.set(k, []).get(k)).push(r2);
+  }
+  const LABEL = { daily_update: "Daily update", weekly_recap: "Weekly recap", shadow_progress: "Shadow progress", engine_insight: "Engine insight", milestone: "Milestone" };
+  const blocks = Array.from(byKind.values()).map((g) => {
+    const ig = g.find((r2) => r2.platform === "instagram"), x = g.find((r2) => r2.platform === "x");
+    const img = ig || x ? `${SITE()}/api/social/image/${(ig || x).id}.png` : "";
+    const thread = Array.isArray(x?.thread) ? x.thread : x?.caption ? [x.caption] : [];
+    return `<div style="border:1px solid #e5e7eb;border-radius:12px;padding:16px;margin:0 0 20px">
+      <h3 style="margin:0 0 8px;font:600 16px system-ui">${esc2(LABEL[g[0].kind] || g[0].kind)}</h3>
+      ${img ? `<p style="margin:0 0 10px"><a href="${img}"><img src="${img}" width="320" style="border-radius:8px;display:block" alt="post card"></a><span style="font:12px system-ui;color:#6b7280">Image: <a href="${img}">${img}</a> (save &amp; upload)</span></p>` : ""}
+      ${ig ? `<p style="font:600 13px system-ui;margin:12px 0 4px">Instagram caption</p><pre style="white-space:pre-wrap;font:13px system-ui;background:#f9fafb;padding:10px;border-radius:8px;margin:0">${esc2(ig.caption)}</pre>` : ""}
+      ${thread.length ? `<p style="font:600 13px system-ui;margin:12px 0 4px">X thread (${thread.length} tweets)</p>${thread.map((t, i) => `<pre style="white-space:pre-wrap;font:13px system-ui;background:#f9fafb;padding:10px;border-radius:8px;margin:0 0 6px">${i + 1}/ ${esc2(t)}</pre>`).join("")}` : ""}
+    </div>`;
+  }).join("");
+  const html = `<div style="max-width:640px;margin:0 auto;font:14px system-ui;color:#111827">
+    <h2 style="margin:0 0 4px">VEDD AI \u2014 today's post ideas</h2>
+    <p style="margin:0 0 18px;color:#6b7280">Faceless Instagram + X, built from the engine's real numbers (percentages only). Copy, post, done. Manage drafts at <a href="${SITE()}/social-queue">${SITE()}/social-queue</a>.</p>
+    ${blocks}
+    <p style="color:#9ca3af;font-size:12px">${esc2(RISK)}</p></div>`;
+  const { sendPersonaContentEmail: sendPersonaContentEmail2 } = await Promise.resolve().then(() => (init_persona_content_engine(), persona_content_engine_exports));
+  const r = await sendPersonaContentEmail2(`VEDD AI post ideas \u2014 ${(/* @__PURE__ */ new Date()).toISOString().slice(0, 10)} (${byKind.size})`, html);
+  if (r.success) await setState("social_email", "last_id", { id: Math.max(...rows.map((x) => Number(x.id))), at: Date.now() });
+  return { sent: !!r.success, count: byKind.size, note: r.success ? "sent" : r.reason || "send failed" };
 }
 function startSocialAutopilot() {
   if (process.env.SOCIAL_AUTOPILOT === "off") return;
@@ -37543,6 +38350,15 @@ function startSocialAutopilot() {
       if (dow === 3 && h === 14) await generateKind("shadow_progress");
       if (dow === 1 && h === 14) await generateKind("engine_insight");
       if (h % 6 === 0) await generateKind("milestone");
+      if (h === Number(process.env.SOCIAL_EMAIL_HOUR_UTC ?? 11) && process.env.SOCIAL_MORNING_EMAIL !== "off") {
+        const today = (/* @__PURE__ */ new Date()).toISOString().slice(0, 10);
+        const sentDay = (await getState("social_email", "day"))?.day;
+        if (sentDay !== today) {
+          const r = await sendMorningSocialEmail();
+          await setState("social_email", "day", { day: today, note: r.note });
+          console.log(`[social] morning email: ${r.note} (${r.count} post sets)`);
+        }
+      }
     } catch (e) {
       console.error("[social] tick failed (non-fatal):", e?.message || e);
     }
@@ -37554,7 +38370,7 @@ async function previewKind(kind) {
   const d = kind === "weekly_recap" ? await buildWeeklyRecap() : kind === "shadow_progress" ? await buildShadowProgress() : await buildEngineInsight();
   return { draft: d, png: d ? await renderCard(d.card) : void 0 };
 }
-var OWNER, SITE, RISK, TAGS_IG, ensured3, esc, pct2, lvl, pick2;
+var OWNER, SITE, RISK, TAGS_IG, ensured4, esc, pct2, lvl, pick2;
 var init_social_autopilot = __esm({
   "server/services/social-autopilot.ts"() {
     "use strict";
@@ -37563,7 +38379,7 @@ var init_social_autopilot = __esm({
     SITE = () => (process.env.PUBLIC_SITE_URL || "https://veddbuild.com").replace(/\/$/, "");
     RISK = "Not financial advice. Trading involves risk; past results don\u2019t guarantee future returns.";
     TAGS_IG = "#algotrading #forex #aitrading #tradingbot #buildinpublic #propfirm #tradingjourney";
-    ensured3 = null;
+    ensured4 = null;
     esc = (s) => String(s).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
     pct2 = (x, d = 1) => `${x >= 0 ? "+" : ""}${x.toFixed(d)}%`;
     lvl = (l) => String(l || "").replace(/\s*\(negative\)/i, "");
@@ -37594,8 +38410,8 @@ function whopEnabled() {
   return !!process.env.WHOP_API_KEY && Object.keys(whopPlanMap()).length > 0;
 }
 function ensureWhopSchema() {
-  if (!ensured4) {
-    ensured4 = pool.query(`
+  if (!ensured5) {
+    ensured5 = pool.query(`
       ALTER TABLE users ADD COLUMN IF NOT EXISTS whop_membership_id text;
       ALTER TABLE users ADD COLUMN IF NOT EXISTS whop_user_id text;
       CREATE TABLE IF NOT EXISTS whop_webhook_events (
@@ -37606,10 +38422,10 @@ function ensureWhopSchema() {
       );
     `).then(() => void 0).catch((e) => {
       console.error("[whop] schema ensure failed:", e?.message || e);
-      ensured4 = null;
+      ensured5 = null;
     });
   }
-  return ensured4;
+  return ensured5;
 }
 async function createWhopCheckout(userId, veddPlanId) {
   const key = process.env.WHOP_API_KEY;
@@ -37726,7 +38542,7 @@ async function handleWhopEvent(webhookId, evt) {
       return { handled: false, note: `unhandled ${type}` };
   }
 }
-var API_BASE, SITE2, NAMED, ensured4;
+var API_BASE, SITE2, NAMED, ensured5;
 var init_whop = __esm({
   "server/whop.ts"() {
     "use strict";
@@ -37734,7 +38550,7 @@ var init_whop = __esm({
     API_BASE = () => (process.env.WHOP_API_BASE || "https://api.whop.com/api/v1").replace(/\/$/, "");
     SITE2 = () => (process.env.PUBLIC_SITE_URL || "https://veddbuild.com").replace(/\/$/, "");
     NAMED = { 2: "STARTER", 3: "PREMIUM", 4: "YEARLY" };
-    ensured4 = null;
+    ensured5 = null;
   }
 });
 
@@ -37850,129 +38666,6 @@ var init_veddPayment = __esm({
     DEXSCREENER_URL = `https://api.dexscreener.com/latest/dex/tokens/${VEDD_TOKEN_MINT2}`;
     priceCache2 = null;
     paymentSessions = /* @__PURE__ */ new Map();
-  }
-});
-
-// server/messaging.ts
-var messaging_exports = {};
-__export(messaging_exports, {
-  getChannelStatus: () => getChannelStatus,
-  sendGmail: () => sendGmail,
-  sendMessage: () => sendMessage,
-  sendResend: () => sendResend,
-  sendSendGrid: () => sendSendGrid,
-  sendTelegram: () => sendTelegram,
-  sendTwilioSms: () => sendTwilioSms
-});
-import nodemailer from "nodemailer";
-async function sendGmail(to, subject, text2, html) {
-  const user = process.env.GMAIL_USER;
-  const pass = process.env.GMAIL_APP_PASSWORD;
-  if (!user || !pass) return { success: false, channel: "gmail", error: "GMAIL_USER and GMAIL_APP_PASSWORD not set. Create a Gmail App Password at myaccount.google.com/security \u2192 App Passwords." };
-  try {
-    const transporter = nodemailer.createTransport({
-      service: "gmail",
-      auth: { user, pass }
-    });
-    const info2 = await transporter.sendMail({
-      from: `"VEDD | Abba" <${user}>`,
-      to,
-      subject,
-      text: text2,
-      html: html || `<div style="font-family:sans-serif;max-width:600px;margin:0 auto"><h2 style="color:#7c3aed">VEDD \u2014 Abba AI</h2><div>${text2.replace(/\n/g, "<br/>")}</div></div>`
-    });
-    return { success: true, channel: "gmail", id: info2.messageId };
-  } catch (e) {
-    return { success: false, channel: "gmail", error: e.message };
-  }
-}
-async function sendResend(to, subject, text2, html) {
-  const apiKey = process.env.RESEND_API_KEY;
-  if (!apiKey) return { success: false, channel: "resend", error: "RESEND_API_KEY not set. Sign up free at resend.com and add your API key." };
-  try {
-    const { Resend } = await import("resend");
-    const resend = new Resend(apiKey);
-    const from = process.env.RESEND_FROM_EMAIL || "Abba <onboarding@resend.dev>";
-    const result = await resend.emails.send({ from, to, subject, text: text2, html });
-    if (result.error) return { success: false, channel: "resend", error: result.error.message };
-    return { success: true, channel: "resend", id: result.data?.id };
-  } catch (e) {
-    return { success: false, channel: "resend", error: e.message };
-  }
-}
-async function sendTelegram(chatId, message) {
-  const token = process.env.TELEGRAM_BOT_TOKEN;
-  if (!token) return { success: false, channel: "telegram", error: "TELEGRAM_BOT_TOKEN not set. Create a free bot at @BotFather on Telegram." };
-  if (!chatId?.trim()) return { success: false, channel: "telegram", error: "chatId required \u2014 user must have started your bot first." };
-  try {
-    const url = `https://api.telegram.org/bot${token}/sendMessage`;
-    const body = JSON.stringify({ chat_id: chatId, text: message, parse_mode: "HTML" });
-    const res = await fetch(url, { method: "POST", headers: { "Content-Type": "application/json" }, body });
-    const data = await res.json();
-    if (!data.ok) return { success: false, channel: "telegram", error: data.description || "Telegram API error" };
-    return { success: true, channel: "telegram", id: String(data.result?.message_id) };
-  } catch (e) {
-    return { success: false, channel: "telegram", error: e.message };
-  }
-}
-async function sendTwilioSms(to, body) {
-  const { sendSmsRaw: sendSmsRaw3 } = await Promise.resolve().then(() => (init_twilio(), twilio_exports));
-  const result = await sendSmsRaw3(to, body);
-  return { ...result, channel: "twilio" };
-}
-async function sendSendGrid(to, subject, text2, html) {
-  const apiKey = process.env.SENDGRID_API_KEY;
-  if (!apiKey) return { success: false, channel: "sendgrid", error: "SENDGRID_API_KEY not set. Sign up at sendgrid.com (100/day free)." };
-  try {
-    const sgMail3 = await import("@sendgrid/mail");
-    const sg = sgMail3.default || sgMail3;
-    sg.setApiKey(apiKey);
-    await sg.send({
-      to,
-      from: process.env.SENDGRID_FROM_EMAIL || "abba@vedd.app",
-      subject,
-      text: text2,
-      html: html || text2
-    });
-    return { success: true, channel: "sendgrid" };
-  } catch (e) {
-    return { success: false, channel: "sendgrid", error: e.message };
-  }
-}
-async function sendMessage(opts) {
-  const { channel, message, phone, chatId, email, subject, html } = opts;
-  switch (channel) {
-    case "gmail":
-      if (!email) return { success: false, channel, error: "email address required for Gmail" };
-      return sendGmail(email, subject || "Message from VEDD Abba", message, html);
-    case "resend":
-      if (!email) return { success: false, channel, error: "email address required for Resend" };
-      return sendResend(email, subject || "Message from VEDD Abba", message, html);
-    case "telegram":
-      if (!chatId) return { success: false, channel, error: "Telegram chat ID required" };
-      return sendTelegram(chatId, message);
-    case "twilio":
-      if (!phone) return { success: false, channel, error: "phone number required for Twilio SMS" };
-      return sendTwilioSms(phone, message);
-    case "sendgrid":
-      if (!email) return { success: false, channel, error: "email address required for SendGrid" };
-      return sendSendGrid(email, subject || "Message from VEDD Abba", message, html);
-    default:
-      return { success: false, channel, error: `Unknown channel: ${channel}` };
-  }
-}
-function getChannelStatus() {
-  return {
-    gmail: { configured: !!(process.env.GMAIL_USER && process.env.GMAIL_APP_PASSWORD), free: true, limit: "500/day", setupUrl: "https://myaccount.google.com/apppasswords" },
-    resend: { configured: !!process.env.RESEND_API_KEY, free: true, limit: "3,000/month", setupUrl: "https://resend.com" },
-    telegram: { configured: !!process.env.TELEGRAM_BOT_TOKEN, free: true, limit: "Unlimited", setupUrl: "https://t.me/BotFather" },
-    twilio: { configured: !!(process.env.TWILIO_ACCOUNT_SID && process.env.TWILIO_AUTH_TOKEN), free: false, limit: "Paid / trial", setupUrl: "https://twilio.com" },
-    sendgrid: { configured: !!process.env.SENDGRID_API_KEY, free: true, limit: "100/day", setupUrl: "https://sendgrid.com" }
-  };
-}
-var init_messaging = __esm({
-  "server/messaging.ts"() {
-    "use strict";
   }
 });
 
@@ -52629,12 +53322,12 @@ __export(image_generation_exports, {
   HUMAN_STYLE_SUFFIX: () => HUMAN_STYLE_SUFFIX,
   generateContentImage: () => generateContentImage
 });
-import { OpenAI as OpenAI5 } from "openai";
+import { OpenAI as OpenAI6 } from "openai";
 async function generateDalleImage(prompt) {
   const apiKey = process.env.OPENAI_API_KEY;
   if (!apiKey) return null;
   try {
-    const openai2 = new OpenAI5({ apiKey, maxRetries: 2, timeout: 6e4 });
+    const openai2 = new OpenAI6({ apiKey, maxRetries: 2, timeout: 6e4 });
     const res = await openai2.images.generate({
       model: "dall-e-3",
       prompt,
@@ -54009,16 +54702,16 @@ __export(lead_hunter_exports, {
   runLeadHunter: () => runLeadHunter,
   startLeadHunterScheduler: () => startLeadHunterScheduler
 });
-import OpenAI6 from "openai";
+import OpenAI7 from "openai";
 import { sql as sql12 } from "drizzle-orm";
 import sgMail2 from "@sendgrid/mail";
 function getAI() {
   const groq = process.env.GROQ_API_KEY;
   const oai = process.env.OPENAI_API_KEY;
   const or_ = process.env.OPENROUTER_API_KEY;
-  if (or_) return { client: new OpenAI6({ apiKey: or_, baseURL: "https://openrouter.ai/api/v1", defaultHeaders: { "HTTP-Referer": "https://veddbuild.com", "X-Title": "VEDDBuild" } }), model: "openai/gpt-oss-20b" };
-  if (groq) return { client: new OpenAI6({ apiKey: groq, baseURL: "https://api.groq.com/openai/v1" }), model: "openai/gpt-oss-20b" };
-  if (oai) return { client: new OpenAI6({ apiKey: oai }), model: "gpt-4o-mini" };
+  if (or_) return { client: new OpenAI7({ apiKey: or_, baseURL: "https://openrouter.ai/api/v1", defaultHeaders: { "HTTP-Referer": "https://veddbuild.com", "X-Title": "VEDDBuild" } }), model: "openai/gpt-oss-20b" };
+  if (groq) return { client: new OpenAI7({ apiKey: groq, baseURL: "https://api.groq.com/openai/v1" }), model: "openai/gpt-oss-20b" };
+  if (oai) return { client: new OpenAI7({ apiKey: oai }), model: "gpt-4o-mini" };
   return null;
 }
 async function aiChat(messages) {
@@ -54036,7 +54729,7 @@ async function aiChat(messages) {
     const or_ = process.env.OPENROUTER_API_KEY;
     if (or_ && ai.model !== "openai/gpt-oss-20b") {
       try {
-        const orClient = new OpenAI6({ apiKey: or_, baseURL: "https://openrouter.ai/api/v1", defaultHeaders: { "HTTP-Referer": "https://veddbuild.com", "X-Title": "VEDDBuild" } });
+        const orClient = new OpenAI7({ apiKey: or_, baseURL: "https://openrouter.ai/api/v1", defaultHeaders: { "HTTP-Referer": "https://veddbuild.com", "X-Title": "VEDDBuild" } });
         const res = await orClient.chat.completions.create({ model: "openai/gpt-oss-20b", messages, max_tokens: 1e3, temperature: 0.3 });
         return res.choices[0]?.message?.content?.trim() || "";
       } catch {
@@ -54767,7 +55460,7 @@ __export(ambassador_prime_exports, {
 });
 import crypto16 from "crypto";
 import { eq as eq17, sql as drizzleSql } from "drizzle-orm";
-import { OpenAI as OpenAI7 } from "openai";
+import { OpenAI as OpenAI8 } from "openai";
 async function logStep(runDate, stepName, status, error) {
   try {
     await db.insert(ambassadorRunStepLog).values({ runDate, stepName, status, errorMessage: error ?? null });
@@ -54915,7 +55608,7 @@ async function scrapeNewsRSS(theme, pairSymbols = []) {
   }
   return headlines.slice(0, 10);
 }
-async function callAI(systemPrompt, userPrompt) {
+async function callAI2(systemPrompt, userPrompt) {
   const messages = [
     { role: "system", content: systemPrompt },
     { role: "user", content: userPrompt }
@@ -54935,7 +55628,7 @@ async function callAI(systemPrompt, userPrompt) {
   for (const a of attempts) {
     if (!a.apiKey) continue;
     try {
-      const client2 = new OpenAI7({ apiKey: a.apiKey, ...a.baseURL ? { baseURL: a.baseURL } : {}, maxRetries: 2, timeout: 9e4, ...a.headers ? { defaultHeaders: a.headers } : {} });
+      const client2 = new OpenAI8({ apiKey: a.apiKey, ...a.baseURL ? { baseURL: a.baseURL } : {}, maxRetries: 2, timeout: 9e4, ...a.headers ? { defaultHeaders: a.headers } : {} });
       const res = await client2.chat.completions.create({ model: a.model, messages, temperature: 0.7, max_tokens: 2e3 });
       const out = res.choices[0]?.message?.content?.trim() ?? "";
       if (out) return out;
@@ -54951,9 +55644,9 @@ async function callAI(systemPrompt, userPrompt) {
 }
 async function generateBatch1(theme, redditContext, dayOfWeek) {
   const sys = `You are VEDD's daily growth ambassador. VEDD (veddbuild.com) is an AI-powered trading analysis platform. Your job is to generate high-converting social media content that drives traders to sign up.
-Always include the referral link: ${REFERRAL_LINK}
+Always include the referral link: ${REFERRAL_LINK2}
 Theme today: ${theme.name} \u2014 ${theme.angle}`;
-  const raw = await callAI(sys, `Generate today's Batch 1 content as valid JSON:
+  const raw = await callAI2(sys, `Generate today's Batch 1 content as valid JSON:
 Reddit context: ${redditContext}
 
 Return this exact JSON structure (no markdown, raw JSON only):
@@ -54987,24 +55680,24 @@ Return this exact JSON structure (no markdown, raw JSON only):
     };
   } catch {
     return {
-      tweets: [`\u{1F680} ${theme.angle} \u2014 VEDD makes it easy. ${REFERRAL_LINK}`],
+      tweets: [`\u{1F680} ${theme.angle} \u2014 VEDD makes it easy. ${REFERRAL_LINK2}`],
       hookA: `Are you trading blind?`,
       hookB: `Most traders fail because of this one thing.`,
       hookC: `10,000+ traders trust VEDD AI.`,
       reelScript: `Hook: Are you leaving money on the table?
 Value: VEDD AI analyzes your trades in real-time.
-CTA: Start free at ${REFERRAL_LINK}`,
+CTA: Start free at ${REFERRAL_LINK2}`,
       storyIdea: `Show a live VEDD chart \u2192 swipe up for free trial`,
-      communityPrompt: `What's your biggest challenge with trade timing? VEDD AI helped me solve this \u2014 ${REFERRAL_LINK}`,
+      communityPrompt: `What's your biggest challenge with trade timing? VEDD AI helped me solve this \u2014 ${REFERRAL_LINK2}`,
       imagePrompt: `Professional AI trading dashboard, dark theme, financial charts, futuristic`
     };
   }
 }
 async function generateBatch2(theme, redditContext) {
   const sys = `You are VEDD's LinkedIn & Instagram content strategist. VEDD (veddbuild.com) is an AI-powered trading platform. Generate professional, high-engagement content.
-Always include the referral link: ${REFERRAL_LINK}
+Always include the referral link: ${REFERRAL_LINK2}
 Theme: ${theme.name} \u2014 ${theme.angle}`;
-  const raw = await callAI(sys, `Generate Batch 2 content as valid JSON (no markdown):
+  const raw = await callAI2(sys, `Generate Batch 2 content as valid JSON (no markdown):
 Reddit insights: ${redditContext}
 
 {
@@ -55029,17 +55722,17 @@ Reddit insights: ${redditContext}
   } catch {
     const base = `${theme.angle}
 
-Discover how VEDD AI gives you the edge: ${REFERRAL_LINK}`;
+Discover how VEDD AI gives you the edge: ${REFERRAL_LINK2}`;
     return {
       linkedinPost1: `${theme.name}: ${base}`,
-      linkedinPost2: `5 things top traders do differently \u2014 VEDD AI tracks them all. ${REFERRAL_LINK}`,
+      linkedinPost2: `5 things top traders do differently \u2014 VEDD AI tracks them all. ${REFERRAL_LINK2}`,
       igCaption1: `\u{1F4C8} ${theme.angle}
 
-${REFERRAL_LINK}
+${REFERRAL_LINK2}
 
 #trading #forex #daytrading #AI #VEDD`,
-      igCaption2: `\u{1F4AA} ${theme.name} energy. Let VEDD AI handle the analysis. ${REFERRAL_LINK}`,
-      igCaption3: `\u{1F3AF} Pro tip: ${theme.modules[0]}. VEDD makes this automatic. ${REFERRAL_LINK}`,
+      igCaption2: `\u{1F4AA} ${theme.name} energy. Let VEDD AI handle the analysis. ${REFERRAL_LINK2}`,
+      igCaption3: `\u{1F3AF} Pro tip: ${theme.modules[0]}. VEDD makes this automatic. ${REFERRAL_LINK2}`,
       bonusContent: `Bonus: ${theme.name} challenge \u2014 post your trading goal for the week!`
     };
   }
@@ -55048,7 +55741,7 @@ async function analyzeRedditInsights(posts, theme) {
   if (!posts.length) return { insights: [], context: "No Reddit data available." };
   const sample = posts.slice(0, 10).map((p) => `[${p.subreddit}] "${p.title}" (${p.score} upvotes)`).join("\n");
   const sys = "You are a trading community analyst extracting marketing insights.";
-  const raw = await callAI(sys, `Analyze these Reddit posts for a trading platform ambassador. Theme: ${theme}
+  const raw = await callAI2(sys, `Analyze these Reddit posts for a trading platform ambassador. Theme: ${theme}
 Posts:
 ${sample}
 
@@ -55091,7 +55784,7 @@ async function generateWeeklyBriefing(redditContext, weeklyPairs) {
   }
   const pairsList = weeklyPairs.map((p) => `${p.symbol} (${p.direction}, featured ${p.mentionCount}x this week)`).join(", ");
   const sys = `You are VEDD's market analyst, writing for traders using VEDD AI Trading Vault (veddbuild.com). Be specific and grounded \u2014 no generic hype.`;
-  const raw = await callAI(sys, `This week's most-featured trading pairs across VEDD users: ${pairsList}
+  const raw = await callAI2(sys, `This week's most-featured trading pairs across VEDD users: ${pairsList}
 Community + news context: ${redditContext}
 
 Return valid JSON (no markdown):
@@ -55205,8 +55898,8 @@ async function computeWeeklyResultsStats() {
 async function generateExtraPosts(theme, redditContext, results, devotional) {
   const resultsLine = results.totalTrades > 0 ? `This week across VEDD: ${results.totalTrades} closed trades, ${results.winRate}% win rate, ${results.totalPips >= 0 ? "+" : ""}${results.totalPips.toFixed(0)} pips${results.topSymbol ? `, ${results.topSymbol} led the board` : ""}.` : "No closed trades recorded yet this week \u2014 be honest, don't fabricate a number.";
   const devotionalLine = devotional ? `Today's devotional theme: "${devotional.theme}". Affirmation: "${devotional.affirmation}". Trading tie-in: ${devotional.tradingTieIn || "discipline and patience compound over time"}.` : "No devotional available today.";
-  const sys = `You are VEDD's content strategist writing three distinct short-form posts for veddbuild.com. Always include the referral link: ${REFERRAL_LINK}. Theme: ${theme.name} \u2014 ${theme.angle}. Never invent statistics \u2014 use only the real numbers given.`;
-  const raw = await callAI(sys, `Context:
+  const sys = `You are VEDD's content strategist writing three distinct short-form posts for veddbuild.com. Always include the referral link: ${REFERRAL_LINK2}. Theme: ${theme.name} \u2014 ${theme.angle}. Never invent statistics \u2014 use only the real numbers given.`;
+  const raw = await callAI2(sys, `Context:
 ${redditContext}
 
 Real weekly results (use exactly as given, do not embellish): ${resultsLine}
@@ -55229,9 +55922,9 @@ Return valid JSON (no markdown):
     };
   } catch {
     return {
-      knowledgePost: `Today's lesson: ${theme.modules[0]}. Master this, and VEDD's AI handles the rest. ${REFERRAL_LINK}`,
-      resultsPost: `${resultsLine} ${REFERRAL_LINK}`,
-      updatePost: `This week's focus: ${theme.name}. ${REFERRAL_LINK}`
+      knowledgePost: `Today's lesson: ${theme.modules[0]}. Master this, and VEDD's AI handles the rest. ${REFERRAL_LINK2}`,
+      resultsPost: `${resultsLine} ${REFERRAL_LINK2}`,
+      updatePost: `This week's focus: ${theme.name}. ${REFERRAL_LINK2}`
     };
   }
 }
@@ -55350,7 +56043,7 @@ This week's featured VEDD pairs: ${briefing.narrativeText}`;
 
 ${devotional.tradingTieIn || devotional.reflection}
 
-${REFERRAL_LINK}`;
+${REFERRAL_LINK2}`;
     }
     const rows = [
       ...devotionalPost ? [{ postType: "devotional_post", text: devotionalPost }] : [],
@@ -55365,7 +56058,7 @@ ${REFERRAL_LINK}`;
         postType: r.postType,
         contentText: r.text,
         status: "generated",
-        referralLink: REFERRAL_LINK
+        referralLink: REFERRAL_LINK2
       });
     }
     completedSteps.push("Devotional/Knowledge/Results/Update Posts");
@@ -55412,7 +56105,7 @@ ${REFERRAL_LINK}`;
           contentText: tweet,
           postId: postId ?? void 0,
           status,
-          referralLink: REFERRAL_LINK
+          referralLink: REFERRAL_LINK2
         });
       } catch (e) {
         errors.push(`Tweet: ${e.message}`);
@@ -55422,7 +56115,7 @@ ${REFERRAL_LINK}`;
           postType: "tweet",
           contentText: tweet,
           status: "ready_to_post",
-          referralLink: REFERRAL_LINK
+          referralLink: REFERRAL_LINK2
         }).catch(() => {
         });
       }
@@ -55450,7 +56143,7 @@ ${REFERRAL_LINK}`;
         postType: "reel_script",
         contentText: batch1.reelScript,
         status: "generated",
-        referralLink: REFERRAL_LINK
+        referralLink: REFERRAL_LINK2
       });
       await db.insert(ambassadorDailyContent).values({
         runDate,
@@ -55458,7 +56151,7 @@ ${REFERRAL_LINK}`;
         postType: "story",
         contentText: batch1.storyIdea,
         status: "generated",
-        referralLink: REFERRAL_LINK
+        referralLink: REFERRAL_LINK2
       });
       completedSteps.push("Hook Variations & Reel");
       await logStep(runDate, "Hook Variations & Reel", "completed");
@@ -55481,7 +56174,7 @@ ${REFERRAL_LINK}`;
           contentText: post2,
           postId: postId ?? void 0,
           status,
-          referralLink: REFERRAL_LINK
+          referralLink: REFERRAL_LINK2
         });
       } catch (e) {
         errors.push(`LinkedIn post ${idx}: ${e.message}`);
@@ -55491,7 +56184,7 @@ ${REFERRAL_LINK}`;
           postType: `post_${idx}`,
           contentText: post2,
           status: "ready_to_post",
-          referralLink: REFERRAL_LINK
+          referralLink: REFERRAL_LINK2
         }).catch(() => {
         });
       }
@@ -55514,7 +56207,7 @@ ${REFERRAL_LINK}`;
           postType: `caption_${idx}`,
           contentText: cap,
           status: "generated",
-          referralLink: REFERRAL_LINK
+          referralLink: REFERRAL_LINK2
         });
         igCaptionsGenerated++;
       }
@@ -55664,12 +56357,12 @@ async function sendAmbassadorPrimeReport(data) {
   const tweetRows = data.tweets.map((t, i) => `
     <tr>
       <td style="padding:8px;border-bottom:1px solid #222;color:#aaa;font-size:12px;">${tweetLabel} ${i + 1}</td>
-      <td style="padding:8px;border-bottom:1px solid #222;font-size:13px;">${escHtml(t)}</td>
+      <td style="padding:8px;border-bottom:1px solid #222;font-size:13px;">${escHtml2(t)}</td>
     </tr>`).join("");
   const igRows = data.igCaptions.map((c, i) => `
     <tr>
       <td style="padding:8px;border-bottom:1px solid #222;color:#aaa;font-size:12px;">Caption ${i + 1}</td>
-      <td style="padding:8px;border-bottom:1px solid #222;font-size:13px;">${escHtml(c.slice(0, 200))}\u2026</td>
+      <td style="padding:8px;border-bottom:1px solid #222;font-size:13px;">${escHtml2(c.slice(0, 200))}\u2026</td>
     </tr>`).join("");
   const stepsBadge = (steps, color) => steps.map((s) => `<span style="display:inline-block;margin:2px;padding:3px 8px;background:${color}22;border:1px solid ${color};border-radius:4px;font-size:11px;color:${color};">${s}</span>`).join(" ");
   const html = `<!DOCTYPE html>
@@ -55693,7 +56386,7 @@ async function sendAmbassadorPrimeReport(data) {
   ${data.newsHeadlines.length ? `
   <div style="background:#111;border:1px solid #1a2a1a;border-radius:8px;padding:14px 16px;margin-bottom:16px;">
     <div style="font-size:11px;text-transform:uppercase;letter-spacing:1px;color:#3fb950;margin-bottom:8px;">\u{1F4F0} Today's Market Headlines (Free RSS)</div>
-    ${data.newsHeadlines.map((h) => `<div style="font-size:12px;color:#ccc;padding:4px 0;border-bottom:1px solid #1a1a1a;">${escHtml(h)}</div>`).join("")}
+    ${data.newsHeadlines.map((h) => `<div style="font-size:12px;color:#ccc;padding:4px 0;border-bottom:1px solid #1a1a1a;">${escHtml2(h)}</div>`).join("")}
   </div>` : ""}
 
   <!-- KPI Row -->
@@ -55718,7 +56411,7 @@ async function sendAmbassadorPrimeReport(data) {
     <div style="font-size:12px;color:#888;margin-bottom:8px;text-transform:uppercase;letter-spacing:1px;">Completed Steps</div>
     <div>${stepsBadge(data.completedSteps, "#00d4ff")}</div>
     ${data.skippedSteps.length ? `<div style="margin-top:8px;">${stepsBadge(data.skippedSteps, "#888")}</div>` : ""}
-    ${data.errors.length ? `<div style="margin-top:8px;font-size:11px;color:#ff4444;">Errors: ${data.errors.map(escHtml).join(" | ")}</div>` : ""}
+    ${data.errors.length ? `<div style="margin-top:8px;font-size:11px;color:#ff4444;">Errors: ${data.errors.map(escHtml2).join(" | ")}</div>` : ""}
   </div>
 
   ${data.imageUrl ? `<div style="margin-bottom:16px;"><img src="${data.imageUrl}" alt="Generated" style="width:100%;border-radius:8px;border:1px solid #333;"></div>` : ""}
@@ -55732,8 +56425,8 @@ async function sendAmbassadorPrimeReport(data) {
   <!-- LinkedIn -->
   <div style="background:#111;border:1px solid #222;border-radius:8px;padding:16px;margin-bottom:16px;">
     <div style="font-size:13px;font-weight:600;color:#fff;margin-bottom:12px;">\u{1F4BC} LinkedIn Posts</div>
-    <div style="font-size:13px;color:#ccc;margin-bottom:12px;padding:10px;background:#0a0a0a;border-radius:6px;white-space:pre-wrap;">${escHtml(data.linkedinPost1.slice(0, 300))}\u2026</div>
-    <div style="font-size:13px;color:#ccc;padding:10px;background:#0a0a0a;border-radius:6px;white-space:pre-wrap;">${escHtml(data.linkedinPost2.slice(0, 300))}\u2026</div>
+    <div style="font-size:13px;color:#ccc;margin-bottom:12px;padding:10px;background:#0a0a0a;border-radius:6px;white-space:pre-wrap;">${escHtml2(data.linkedinPost1.slice(0, 300))}\u2026</div>
+    <div style="font-size:13px;color:#ccc;padding:10px;background:#0a0a0a;border-radius:6px;white-space:pre-wrap;">${escHtml2(data.linkedinPost2.slice(0, 300))}\u2026</div>
   </div>
 
   <!-- IG Captions -->
@@ -55745,23 +56438,23 @@ async function sendAmbassadorPrimeReport(data) {
   <!-- Hook Variations -->
   <div style="background:#111;border:1px solid #222;border-radius:8px;padding:16px;margin-bottom:16px;">
     <div style="font-size:13px;font-weight:600;color:#fff;margin-bottom:12px;">\u{1F3A3} Hook Variations (A/B/C Test)</div>
-    ${["A", "B", "C"].map((v) => `<div style="margin-bottom:8px;padding:8px;background:#0a0a0a;border-left:3px solid #00d4ff;border-radius:4px;font-size:13px;"><strong style="color:#00d4ff;">${v}:</strong> ${escHtml(data.hooks[v])}</div>`).join("")}
+    ${["A", "B", "C"].map((v) => `<div style="margin-bottom:8px;padding:8px;background:#0a0a0a;border-left:3px solid #00d4ff;border-radius:4px;font-size:13px;"><strong style="color:#00d4ff;">${v}:</strong> ${escHtml2(data.hooks[v])}</div>`).join("")}
   </div>
 
   <!-- Reel + Story -->
   <div style="background:#111;border:1px solid #222;border-radius:8px;padding:16px;margin-bottom:16px;">
     <div style="font-size:13px;font-weight:600;color:#fff;margin-bottom:8px;">\u{1F3AC} Reel Script</div>
-    <div style="font-size:12px;color:#ccc;white-space:pre-wrap;padding:8px;background:#0a0a0a;border-radius:4px;">${escHtml(data.reelScript)}</div>
+    <div style="font-size:12px;color:#ccc;white-space:pre-wrap;padding:8px;background:#0a0a0a;border-radius:4px;">${escHtml2(data.reelScript)}</div>
     <div style="font-size:13px;font-weight:600;color:#fff;margin:12px 0 8px;">\u{1F4F1} Story Idea</div>
-    <div style="font-size:12px;color:#ccc;padding:8px;background:#0a0a0a;border-radius:4px;">${escHtml(data.storyIdea)}</div>
+    <div style="font-size:12px;color:#ccc;padding:8px;background:#0a0a0a;border-radius:4px;">${escHtml2(data.storyIdea)}</div>
   </div>
 
   <!-- Community + Bonus -->
   <div style="background:#111;border:1px solid #222;border-radius:8px;padding:16px;margin-bottom:16px;">
     <div style="font-size:13px;font-weight:600;color:#fff;margin-bottom:8px;">\u{1F4AC} Community Prompt</div>
-    <div style="font-size:12px;color:#ccc;padding:8px;background:#0a0a0a;border-radius:4px;">${escHtml(data.communityPrompt)}</div>
+    <div style="font-size:12px;color:#ccc;padding:8px;background:#0a0a0a;border-radius:4px;">${escHtml2(data.communityPrompt)}</div>
     <div style="font-size:13px;font-weight:600;color:#fff;margin:12px 0 8px;">\u{1F381} Bonus Content (${data.dayName})</div>
-    <div style="font-size:12px;color:#ccc;padding:8px;background:#0a0a0a;border-radius:4px;">${escHtml(data.bonusContent)}</div>
+    <div style="font-size:12px;color:#ccc;padding:8px;background:#0a0a0a;border-radius:4px;">${escHtml2(data.bonusContent)}</div>
   </div>
 
   <!-- Devotional / Knowledge / Results / Update -->
@@ -55773,13 +56466,13 @@ async function sendAmbassadorPrimeReport(data) {
   ].filter(([, , text2]) => !!text2).map(([icon, label, text2]) => `
   <div style="background:#111;border:1px solid #222;border-radius:8px;padding:16px;margin-bottom:16px;">
     <div style="font-size:13px;font-weight:600;color:#fff;margin-bottom:8px;">${icon} ${label}</div>
-    <div style="font-size:12px;color:#ccc;white-space:pre-wrap;padding:8px;background:#0a0a0a;border-radius:4px;">${escHtml(text2)}</div>
+    <div style="font-size:12px;color:#ccc;white-space:pre-wrap;padding:8px;background:#0a0a0a;border-radius:4px;">${escHtml2(text2)}</div>
   </div>`).join("")}
 
   <!-- Footer -->
   <div style="text-align:center;padding:20px;color:#444;font-size:11px;">
     <div>VEDD Ambassador Prime \u2022 ${data.runDate}</div>
-    <div style="margin-top:4px;">Referral link: <a href="${REFERRAL_LINK}" style="color:#00d4ff;">${REFERRAL_LINK}</a></div>
+    <div style="margin-top:4px;">Referral link: <a href="${REFERRAL_LINK2}" style="color:#00d4ff;">${REFERRAL_LINK2}</a></div>
   </div>
 </div>
 </body></html>`;
@@ -55789,7 +56482,7 @@ async function sendAmbassadorPrimeReport(data) {
     try {
       const { default: sgMail3 } = await import("@sendgrid/mail");
       sgMail3.setApiKey(sgKey);
-      await sgMail3.send({ to: REPORT_EMAIL, from: "noreply@veddbuild.com", subject, html });
+      await sgMail3.send({ to: REPORT_EMAIL2, from: "noreply@veddbuild.com", subject, html });
       return { success: true };
     } catch (e) {
       const errDetail = e?.response?.body?.errors;
@@ -55808,7 +56501,7 @@ Skipped steps: ${data.skippedSteps.join(", ") || "none"}
 ` + (data.errors.length ? `Errors: ${data.errors.join(" | ")}
 ` : "") + `
 Full report is in the HTML body of this email.`;
-    const result = await sendGmail2(REPORT_EMAIL, subject, plainSummary, html);
+    const result = await sendGmail2(REPORT_EMAIL2, subject, plainSummary, html);
     if (result.success) return { success: true };
     sgErrors.push(`Gmail: ${result.error}`);
   }
@@ -55816,7 +56509,7 @@ Full report is in the HTML body of this email.`;
   console.error("[ambassador-prime] All email channels failed:", reason);
   return { success: false, reason };
 }
-function escHtml(s) {
+function escHtml2(s) {
   return (s ?? "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
 }
 function startAmbassadorPrimeScheduler() {
@@ -55838,7 +56531,7 @@ function startAmbassadorPrimeScheduler() {
   }
   scheduleNext2();
 }
-var REFERRAL_LINK, REPORT_EMAIL, LINKEDIN_AUTHOR_URN, WEEKLY_THEMES;
+var REFERRAL_LINK2, REPORT_EMAIL2, LINKEDIN_AUTHOR_URN, WEEKLY_THEMES;
 var init_ambassador_prime = __esm({
   "server/services/ambassador-prime.ts"() {
     "use strict";
@@ -55846,8 +56539,8 @@ var init_ambassador_prime = __esm({
     init_schema();
     init_ambassador_market_briefing();
     init_image_generation();
-    REFERRAL_LINK = "https://veddbuild.com/auth?ref=DONCHISMKOS@GMAIL.COM511";
-    REPORT_EMAIL = "donchismkos@gmail.com";
+    REFERRAL_LINK2 = "https://veddbuild.com/auth?ref=DONCHISMKOS@GMAIL.COM511";
+    REPORT_EMAIL2 = "donchismkos@gmail.com";
     LINKEDIN_AUTHOR_URN = "urn:li:person:tmH3fnyYMl";
     WEEKLY_THEMES = {
       0: {
@@ -55886,445 +56579,6 @@ var init_ambassador_prime = __esm({
         modules: ["Success story", "Community spotlight", "Week-ahead prep"]
       }
     };
-  }
-});
-
-// server/services/persona-content-engine.ts
-var persona_content_engine_exports = {};
-__export(persona_content_engine_exports, {
-  runPersonaContentEngine: () => runPersonaContentEngine,
-  startPersonaContentScheduler: () => startPersonaContentScheduler
-});
-import { OpenAI as OpenAI8 } from "openai";
-async function callAI2(systemPrompt, userPrompt, maxTokens = 3e3) {
-  const messages = [
-    { role: "system", content: systemPrompt },
-    { role: "user", content: userPrompt }
-  ];
-  const orKey = process.env.OPENROUTER_API_KEY;
-  if (orKey) {
-    try {
-      const orClient = new OpenAI8({
-        apiKey: orKey,
-        baseURL: "https://openrouter.ai/api/v1",
-        maxRetries: 2,
-        timeout: 12e4,
-        defaultHeaders: { "HTTP-Referer": "https://veddbuild.com", "X-Title": "VEDDBuild" }
-      });
-      const res2 = await orClient.chat.completions.create({
-        model: "openai/gpt-oss-20b",
-        messages,
-        temperature: 0.8,
-        max_tokens: maxTokens
-      });
-      return res2.choices[0]?.message?.content?.trim() ?? "";
-    } catch (e) {
-      console.warn("[persona-content] OpenRouter failed \u2014 falling back to OpenAI:", e.message);
-    }
-  }
-  const apiKey = process.env.OPENAI_API_KEY;
-  const client2 = new OpenAI8({ apiKey: apiKey || "", maxRetries: 2, timeout: 12e4 });
-  const res = await client2.chat.completions.create({
-    model: "gpt-4o",
-    messages,
-    temperature: 0.8,
-    max_tokens: maxTokens
-  });
-  return res.choices[0]?.message?.content?.trim() ?? "";
-}
-function parseJson2(raw, fallback) {
-  try {
-    const cleaned = raw.replace(/```json|```/g, "").trim();
-    return JSON.parse(cleaned);
-  } catch (e) {
-    console.error("[persona-content] JSON parse failed:", e.message, "\u2014 raw:", raw.slice(0, 300));
-    return fallback;
-  }
-}
-function escHtml2(s) {
-  return (s ?? "").toString().replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
-}
-async function pickPillarAndArc() {
-  const arcRes = await pool.query("SELECT current_index, loops_completed FROM persona_arc_state WHERE id = 1");
-  const arcIndex = arcRes.rows[0]?.current_index ?? 0;
-  const loopsCompleted = arcRes.rows[0]?.loops_completed ?? 0;
-  const pillarRes = await pool.query(
-    `SELECT pillar, times_used, last_used_date FROM persona_pillar_rotation
-     ORDER BY times_used ASC, (last_used_date IS NOT NULL), last_used_date ASC, id ASC`
-  );
-  const pillar = pillarRes.rows[0]?.pillar || "Building VEDD in public";
-  return { pillar, arcStage: ARC_STAGES[arcIndex], arcIndex, loopsCompleted };
-}
-async function generateSpine(pillar, arcStage, contentDate) {
-  const sys = `${BRAND_DNA}
-
-Today's content pillar: "${pillar}". Today's documentary story-arc stage: "${arcStage}".`;
-  const user = `Generate today's shared cross-platform creative foundation for ${contentDate} as valid JSON (no markdown fences) with exactly these keys:
-daily_theme, goal, core_narrative (Don's message today, first-person, 2-4 sentences), emotional_tone,
-visual_concept, photo_concept, reel_concept, shot_list, b_roll, voiceover_script, on_screen_text,
-ai_image_prompt (detailed, ready for an image generator), thumbnail_concept, editing_style,
-music_style (mood only, never a real song title). Every field is a single string.`;
-  const raw = await callAI2(sys, user);
-  return parseJson2(raw, {
-    daily_theme: pillar,
-    goal: "Build trust through consistency",
-    core_narrative: "",
-    emotional_tone: "hopeful",
-    visual_concept: "",
-    photo_concept: "",
-    reel_concept: "",
-    shot_list: "",
-    b_roll: "",
-    voiceover_script: "",
-    on_screen_text: "",
-    ai_image_prompt: "",
-    thumbnail_concept: "",
-    editing_style: "",
-    music_style: "warm, hopeful"
-  });
-}
-function emptyPackage() {
-  return { hook: "", caption_short: "", caption_long: "", cta: "", hashtags: [], story_sequence: [], poll_idea: "", comment_prompt: "", pinned_comment: "", engagement_strategy: "", best_posting_time: "" };
-}
-async function generatePlatformPackages(spine, pillar, arcStage) {
-  const sys = `${BRAND_DNA}
-
-Today's pillar: "${pillar}". Story-arc stage: "${arcStage}".
-Shared narrative for today: ${spine.core_narrative}
-Goal: ${spine.goal}
-Tone: ${spine.emotional_tone}`;
-  const rulesBlock = PLATFORMS.map((p) => `- ${p}: ${PLATFORM_RULES[p]}`).join("\n");
-  const user = `Adapt the shared narrative above into 8 separate platform-native versions \u2014 never reuse the same wording across platforms. Platforms and their format rules:
-${rulesBlock}
-
-Return valid JSON (no markdown fences) as an object keyed by exactly these platform names: ${PLATFORMS.map((p) => `"${p}"`).join(", ")}.
-Each platform's value must have exactly these keys: hook, caption_short, caption_long, cta, hashtags (array of strings, no leading #), story_sequence (array of strings \u2014 only meaningfully populated for "Instagram Stories", empty array [] for all other platforms), poll_idea, comment_prompt, pinned_comment, engagement_strategy, best_posting_time.`;
-  const raw = await callAI2(sys, user, 4e3);
-  const parsed = parseJson2(raw, {});
-  const result = {};
-  for (const p of PLATFORMS) {
-    result[p] = { ...emptyPackage(), ...parsed[p] || {} };
-  }
-  return result;
-}
-async function humanizePackages(packages) {
-  const sys = `${BRAND_DNA}
-
-You are the editor. Rewrite the drafts below so they read like a real founder wrote them by hand \u2014 not more polished, more HUMAN. Vary sentence length naturally. Strip every banned phrase. Keep the same meaning, platform, and structure.`;
-  const user = `Here are today's 8 draft platform packages as JSON:
-${JSON.stringify(packages)}
-
-Return the corrected JSON in the exact same shape (same keys), no markdown fences, no commentary.`;
-  const raw = await callAI2(sys, user, 4e3);
-  const parsed = parseJson2(raw, {});
-  const result = { ...packages };
-  for (const p of PLATFORMS) {
-    if (parsed[p]) result[p] = { ...result[p], ...parsed[p] };
-  }
-  return validatePackages(result);
-}
-function validatePackages(packages) {
-  const x = packages["X (Twitter)"];
-  if (x) {
-    if (x.caption_short && x.caption_short.length > 280) x.caption_short = x.caption_short.slice(0, 277) + "...";
-    if (x.caption_long) {
-      const lines = x.caption_long.split("\n").filter(Boolean);
-      x.caption_long = lines.map((l) => l.length > 280 ? l.slice(0, 277) + "..." : l).join("\n");
-    }
-  }
-  for (const bad of BANNED_PHRASES) {
-    for (const p of PLATFORMS) {
-      const pkg = packages[p];
-      for (const field of ["hook", "caption_short", "caption_long", "cta"]) {
-        if (pkg[field] && pkg[field].toLowerCase().includes(bad)) {
-          console.warn(`[persona-content] Banned phrase "${bad}" survived humanize pass on ${p}.${field} \u2014 leaving as-is (logged for review).`);
-        }
-      }
-    }
-  }
-  return packages;
-}
-async function generateReplyTemplates(pillar) {
-  const sys = `${BRAND_DNA}
-
-Write short community reply templates Don can paste as comment replies. Educational and risk-aware for anything about AI/investing/trading \u2014 never promise guaranteed profits. Only mention the referral link for people who genuinely ask how to join, and never with pressure.`;
-  const user = `Write 2 short reply-template variations each for these 5 categories, as valid JSON (no markdown fences) with keys about_vedd, skepticism, welcome_back, ai_investing_questions, how_to_start \u2014 each value an array of exactly 2 strings.`;
-  const raw = await callAI2(sys, user, 1200);
-  return parseJson2(raw, {
-    about_vedd: [],
-    skepticism: [],
-    welcome_back: [],
-    ai_investing_questions: [],
-    how_to_start: []
-  });
-}
-function buildEmailHtml(opts) {
-  const { contentDate, pillar, arcStage, arcIndex, loopsCompleted, spine, packages, replies } = opts;
-  const spineRows = [
-    ["Visual concept", spine.visual_concept],
-    ["Photo concept", spine.photo_concept],
-    ["Reel concept", spine.reel_concept],
-    ["Shot list", spine.shot_list],
-    ["B-roll", spine.b_roll],
-    ["Voiceover script", spine.voiceover_script],
-    ["On-screen text", spine.on_screen_text],
-    ["AI image prompt", spine.ai_image_prompt],
-    ["Thumbnail concept", spine.thumbnail_concept],
-    ["Editing style", spine.editing_style],
-    ["Music style (mood only)", spine.music_style]
-  ].map(([label, val]) => `
-    <tr><td style="padding:8px;border-bottom:1px solid #222;color:#888;font-size:12px;vertical-align:top;white-space:nowrap;">${escHtml2(label)}</td>
-        <td style="padding:8px;border-bottom:1px solid #222;font-size:13px;white-space:pre-line;">${escHtml2(val)}</td></tr>`).join("");
-  const platformBlock = (platform) => {
-    const pkg = packages[platform];
-    const rows = [
-      ["Hook", pkg.hook],
-      ["Caption (short)", pkg.caption_short],
-      ["Caption (long)", pkg.caption_long],
-      ["CTA", pkg.cta],
-      ["Hashtags", pkg.hashtags.map((h) => `#${h}`).join(" ")],
-      ["Poll idea", pkg.poll_idea],
-      ["Comment prompt", pkg.comment_prompt],
-      ["Pinned comment", pkg.pinned_comment],
-      ["Best posting time", pkg.best_posting_time],
-      ["First 30-min engagement strategy", pkg.engagement_strategy]
-    ];
-    const storyBlock = pkg.story_sequence.length ? `
-      <div style="margin-top:8px;">
-        <div style="font-size:12px;color:#888;margin-bottom:4px;">Story sequence</div>
-        ${pkg.story_sequence.map((frame, i) => `<div style="font-size:12px;padding:6px 8px;background:#0a0a0a;border-left:2px solid #00d4ff;border-radius:4px;margin-bottom:4px;white-space:pre-line;"><strong style="color:#00d4ff;">Frame ${i + 1}:</strong> ${escHtml2(frame)}</div>`).join("")}
-      </div>` : "";
-    return `
-    <div style="background:#111;border:1px solid #222;border-radius:8px;padding:16px;margin-bottom:16px;">
-      <div style="font-size:14px;font-weight:700;color:#fff;margin-bottom:10px;">${escHtml2(platform)}</div>
-      <table style="width:100%;border-collapse:collapse;">
-        ${rows.map(([label, val]) => `<tr><td style="padding:6px 8px;border-bottom:1px solid #1a1a1a;color:#888;font-size:11px;vertical-align:top;white-space:nowrap;">${escHtml2(label)}</td><td style="padding:6px 8px;border-bottom:1px solid #1a1a1a;font-size:13px;white-space:pre-line;">${escHtml2(val)}</td></tr>`).join("")}
-      </table>
-      ${storyBlock}
-    </div>`;
-  };
-  const replyBlock = (label, arr2) => `
-    <div style="margin-bottom:10px;">
-      <div style="font-size:12px;font-weight:600;color:#00d4ff;margin-bottom:4px;">${escHtml2(label)}</div>
-      ${arr2.map((v) => `<div style="font-size:12px;color:#ccc;padding:6px 8px;background:#0a0a0a;border-radius:4px;margin-bottom:4px;white-space:pre-line;">${escHtml2(v)}</div>`).join("")}
-    </div>`;
-  return `<!DOCTYPE html>
-<html><head><meta charset="utf-8"><title>VEDD Persona Content Package \u2014 ${contentDate}</title></head>
-<body style="margin:0;padding:0;background:#0a0a0a;font-family:'Segoe UI',Arial,sans-serif;color:#e0e0e0;">
-<div style="max-width:760px;margin:0 auto;padding:24px;">
-  <div style="background:linear-gradient(135deg,#1a1a2e,#16213e);border:1px solid #00d4ff33;border-radius:12px;padding:28px;margin-bottom:20px;">
-    <div style="font-size:11px;text-transform:uppercase;letter-spacing:2px;color:#00d4ff;margin-bottom:8px;">VEDD Persona Content Engine</div>
-    <h1 style="margin:0 0 4px;font-size:24px;font-weight:700;color:#fff;">${escHtml2(spine.daily_theme)}</h1>
-    <div style="font-size:13px;color:#888;">${contentDate} \u2014 Pillar: ${escHtml2(pillar)} \xB7 Arc stage ${arcIndex + 1}/7: ${escHtml2(arcStage)} (loop ${loopsCompleted + 1})</div>
-  </div>
-
-  <div style="background:#111;border:1px solid #222;border-radius:8px;padding:16px;margin-bottom:16px;">
-    <div style="font-size:12px;color:#888;text-transform:uppercase;letter-spacing:1px;margin-bottom:6px;">Goal</div>
-    <div style="font-size:14px;white-space:pre-line;">${escHtml2(spine.goal)}</div>
-    <div style="font-size:12px;color:#888;text-transform:uppercase;letter-spacing:1px;margin:12px 0 6px;">Core narrative (Don's message today)</div>
-    <div style="font-size:14px;white-space:pre-line;">${escHtml2(spine.core_narrative)}</div>
-  </div>
-
-  <div style="background:#111;border:1px solid #222;border-radius:8px;padding:16px;margin-bottom:20px;">
-    <div style="font-size:13px;font-weight:600;color:#fff;margin-bottom:10px;">Shared production assets</div>
-    <table style="width:100%;border-collapse:collapse;">${spineRows}</table>
-  </div>
-
-  ${PLATFORMS.map(platformBlock).join("")}
-
-  <div style="background:#111;border:1px solid #222;border-radius:8px;padding:16px;margin-bottom:16px;">
-    <div style="font-size:13px;font-weight:600;color:#fff;margin-bottom:10px;">Community reply templates</div>
-    ${replyBlock("About VEDD", replies.about_vedd)}
-    ${replyBlock("Skepticism / scam pushback", replies.skepticism)}
-    ${replyBlock("Encouragement / welcome-back", replies.welcome_back)}
-    ${replyBlock("AI / investing / trading questions", replies.ai_investing_questions)}
-    ${replyBlock("How to start / join", replies.how_to_start)}
-  </div>
-
-  <div style="text-align:center;padding:20px;color:#444;font-size:11px;">
-    <div>VEDD Persona Content Engine \u2022 ${contentDate}</div>
-    <div style="margin-top:4px;">Referral link: <a href="${REFERRAL_LINK2}" style="color:#00d4ff;">${REFERRAL_LINK2}</a></div>
-    <div style="margin-top:8px;color:#666;">Investing and trading involve risk, including the possible loss of principal. Nothing in this content is financial advice.</div>
-  </div>
-</div>
-</body></html>`;
-}
-async function sendPersonaContentEmail(subject, html) {
-  const sgKey = process.env.SENDGRID_API_KEY;
-  const gmailUser = process.env.GMAIL_USER;
-  const gmailPass = process.env.GMAIL_APP_PASSWORD;
-  if (!sgKey && !(gmailUser && gmailPass)) {
-    const reason2 = "No email channel configured \u2014 set SENDGRID_API_KEY or GMAIL_USER + GMAIL_APP_PASSWORD.";
-    console.error("[persona-content]", reason2);
-    return { success: false, reason: reason2 };
-  }
-  const sgErrors = [];
-  if (sgKey) {
-    try {
-      const { default: sgMail3 } = await import("@sendgrid/mail");
-      sgMail3.setApiKey(sgKey);
-      await sgMail3.send({ to: REPORT_EMAIL2, from: "noreply@veddbuild.com", subject, html });
-      return { success: true };
-    } catch (e) {
-      const errDetail = e?.response?.body?.errors;
-      const detail = Array.isArray(errDetail) && errDetail.length ? errDetail.map((er) => er.message).join("; ") : e.message;
-      console.error("[persona-content] SendGrid send failed, trying Gmail fallback if configured:", detail);
-      sgErrors.push(`SendGrid: ${detail}`);
-    }
-  }
-  if (gmailUser && gmailPass) {
-    const { sendGmail: sendGmail2 } = await Promise.resolve().then(() => (init_messaging(), messaging_exports));
-    const result = await sendGmail2(REPORT_EMAIL2, subject, "Full content package is in the HTML body of this email.", html);
-    if (result.success) return { success: true };
-    sgErrors.push(`Gmail: ${result.error}`);
-  }
-  const reason = sgErrors.join(" | ") || "No email channel configured";
-  console.error("[persona-content] All email channels failed:", reason);
-  return { success: false, reason };
-}
-async function recordProgress(pick3, contentDate, spine, emailSent) {
-  await pool.query(
-    `INSERT INTO persona_content_days (content_date, pillar, theme, arc_stage, arc_index, goal, platforms_count, email_sent)
-     VALUES ($1,$2,$3,$4,$5,$6,8,$7)`,
-    [contentDate, pick3.pillar, spine.daily_theme, pick3.arcStage, pick3.arcIndex, spine.goal, emailSent]
-  );
-  await pool.query(
-    `UPDATE persona_pillar_rotation SET times_used = times_used + 1, last_used_date = $1 WHERE pillar = $2`,
-    [contentDate, pick3.pillar]
-  );
-  const nextIndex = (pick3.arcIndex + 1) % ARC_STAGES.length;
-  const wrapped = nextIndex === 0;
-  await pool.query(
-    `UPDATE persona_arc_state SET current_index = $1, loops_completed = loops_completed + $2 WHERE id = 1`,
-    [nextIndex, wrapped ? 1 : 0]
-  );
-}
-async function runPersonaContentEngine(trigger = "manual") {
-  const contentDate = (/* @__PURE__ */ new Date()).toISOString().slice(0, 10);
-  console.log(`[persona-content] Run started (${trigger}) for ${contentDate}`);
-  try {
-    const pick3 = await pickPillarAndArc();
-    console.log(`[persona-content] Pillar="${pick3.pillar}" arc="${pick3.arcStage}" (${pick3.arcIndex + 1}/7, loop ${pick3.loopsCompleted + 1})`);
-    const spine = await generateSpine(pick3.pillar, pick3.arcStage, contentDate);
-    const draftPackages = await generatePlatformPackages(spine, pick3.pillar, pick3.arcStage);
-    const packages = await humanizePackages(draftPackages);
-    const replies = await generateReplyTemplates(pick3.pillar);
-    const html = buildEmailHtml({
-      contentDate,
-      pillar: pick3.pillar,
-      arcStage: pick3.arcStage,
-      arcIndex: pick3.arcIndex,
-      loopsCompleted: pick3.loopsCompleted,
-      spine,
-      packages,
-      replies
-    });
-    const subject = `VEDD Content Package - ${contentDate} - ${spine.daily_theme} (${pick3.pillar})`;
-    const emailResult = await sendPersonaContentEmail(subject, html);
-    await recordProgress(pick3, contentDate, spine, emailResult.success);
-    if (!emailResult.success) {
-      console.error("[persona-content] Run completed but email failed:", emailResult.reason);
-      return { success: false, reason: emailResult.reason };
-    }
-    console.log("[persona-content] Run completed and email sent.");
-    return { success: true };
-  } catch (e) {
-    console.error("[persona-content] Run failed:", e.message);
-    return { success: false, reason: e.message };
-  }
-}
-function startPersonaContentScheduler() {
-  function scheduleNext2() {
-    const now = /* @__PURE__ */ new Date();
-    const next = /* @__PURE__ */ new Date();
-    next.setUTCHours(10, 0, 0, 0);
-    if (next <= now) next.setUTCDate(next.getUTCDate() + 1);
-    while (!TARGET_UTC_DAYS.includes(next.getUTCDay())) {
-      next.setUTCDate(next.getUTCDate() + 1);
-    }
-    const delay = next.getTime() - now.getTime();
-    console.log(`[persona-content] Next run at ${next.toISOString()} (in ${Math.round(delay / 6e4)} min)`);
-    setTimeout(async () => {
-      try {
-        await runPersonaContentEngine("scheduler");
-      } catch (e) {
-        console.error("[persona-content] Scheduler run error:", e.message);
-      }
-      scheduleNext2();
-    }, delay);
-  }
-  scheduleNext2();
-}
-var REFERRAL_LINK2, REPORT_EMAIL2, ARC_STAGES, PLATFORMS, BANNED_PHRASES, BRAND_DNA, PLATFORM_RULES, TARGET_UTC_DAYS;
-var init_persona_content_engine = __esm({
-  "server/services/persona-content-engine.ts"() {
-    "use strict";
-    init_db();
-    REFERRAL_LINK2 = "https://veddbuild.com/auth?ref=DONCHISMKOS@GMAIL.COM511";
-    REPORT_EMAIL2 = "donchismkos@gmail.com";
-    ARC_STAGES = [
-      "Reintroduce Don",
-      "Explain why he disappeared",
-      "Show the mission",
-      "Document the build",
-      "Teach valuable lessons",
-      "Introduce VEDD naturally",
-      "Invite people to explore the platform if it fits their goals"
-    ];
-    PLATFORMS = ["Facebook", "Instagram Feed", "Instagram Stories", "Instagram Reels", "TikTok", "Threads", "X (Twitter)", "LinkedIn"];
-    BANNED_PHRASES = [
-      "it's important to note",
-      "it's worth noting",
-      "in conclusion",
-      "furthermore",
-      "moreover",
-      "additionally",
-      "delve into",
-      "navigate the landscape",
-      "leverage",
-      "robust",
-      "tapestry",
-      "not just x, but y",
-      "in today's fast-paced world"
-    ];
-    BRAND_DNA = `You are writing in the first-person voice of Don Chism, Founder and CEO of VEDD
-(AI, financial education, and innovation company at veddbuild.com).
-
-Who Don is: a builder, visionary, entrepreneur, and teacher \u2014 never a flashy salesperson or guru.
-His story is about building freedom. He built VEDD because people deserve greater access to
-financial education and modern technology, especially in underserved communities.
-
-Brand values: integrity, consistency, leadership, innovation, faith in hard work, education,
-freedom, community, discipline, long-term thinking.
-
-Content philosophy: every piece must answer one question \u2014 "Why should someone trust Don?"
-Trust comes from honesty, consistency, education, and transparency, never from titles, luxury,
-or hype. Every post moves the audience through Awareness \u2192 Curiosity \u2192 Trust \u2192 Community \u2192
-Exploration of VEDD. The audience should feel like they are watching a documentary, not a sales
-campaign.
-
-Writing style: confident, honest, conversational, hopeful. Never arrogant, overly polished, or
-robotic. Avoid buzzwords and clich\xE9s. When discussing AI, investing, or trading: focus on
-education and transparency, acknowledge that investing and trading involve risk, and never
-promise guaranteed profits or "easy money."
-
-VEDD referral link (use only where a CTA naturally warrants it, never with pressure): ${REFERRAL_LINK2}
-
-Never use these banned phrases/patterns: ${BANNED_PHRASES.join(", ")}. Also avoid tricolons for
-emphasis, symmetric opener-closer constructions, and hedge stacking. Vary sentence length
-naturally. Use at most 2 em-dashes per field. Music style must describe mood only, never name
-copyrighted songs. Never fabricate engagement numbers or results.`;
-    PLATFORM_RULES = {
-      "Facebook": "Warm, community storytelling, 2-4 hashtags, invites comments/shares.",
-      "Instagram Feed": "Strong first line before the fold, line-broken caption, 8-12 hashtags.",
-      "Instagram Stories": "Use story_sequence: 4-6 sequential frames as an array of strings, each frame describing on-frame text + an interactive sticker (poll/question/slider).",
-      "Instagram Reels": "Hook in first 1-2 seconds, caption supports the video, 5-8 hashtags, reference voiceover + on-screen text.",
-      "TikTok": "Raw and native, hook in first 2 seconds, short punchy caption, 4-5 hashtags.",
-      "Threads": "Conversational, text-first, optional 2-4 post mini-thread in caption_long, 0-2 hashtags.",
-      "X (Twitter)": "caption_short MUST be <=280 characters. caption_long is a numbered thread (each line a tweet, each <=280 characters). 1-2 hashtags max.",
-      "LinkedIn": "Professional and reflective, up to ~1300 chars, leadership/lesson angle, NO hashtags inside caption_long/caption_short \u2014 list 3-5 hashtags separately in the hashtags array."
-    };
-    TARGET_UTC_DAYS = [1, 3, 5];
   }
 });
 
@@ -60742,9 +60996,9 @@ async function getStopOrdersForUser(userId, filters = {}) {
 init_schema();
 
 // server/build-info.ts
-var BUILD_COMMIT = "cd39266e-dirty";
+var BUILD_COMMIT = "cb6fefdc-dirty";
 var BUILD_BRANCH = "main";
-var BUILT_AT = "2026-10-18T21:29:53.015Z";
+var BUILT_AT = "2026-10-19T00:49:05.461Z";
 
 // server/stripe.ts
 init_db();
@@ -67036,9 +67290,18 @@ Respond ONLY in valid JSON format with these exact keys:
     if (!socialAdmin(req)) return res.status(403).json({ error: "Admin only" });
     try {
       const kind = String(req.body?.kind || "");
-      if (!["weekly_recap", "shadow_progress", "engine_insight", "milestone"].includes(kind)) return res.status(400).json({ error: "bad kind" });
+      if (!["weekly_recap", "shadow_progress", "engine_insight", "milestone", "daily_update"].includes(kind)) return res.status(400).json({ error: "bad kind" });
       const { generateKind: generateKind2 } = await Promise.resolve().then(() => (init_social_autopilot(), social_autopilot_exports));
       res.json(await generateKind2(kind, !!req.body?.force));
+    } catch (e) {
+      res.status(500).json({ error: e?.message || "failed" });
+    }
+  });
+  app2.post("/api/social/email-now", async (req, res) => {
+    if (!socialAdmin(req)) return res.status(403).json({ error: "Admin only" });
+    try {
+      const { sendMorningSocialEmail: sendMorningSocialEmail2 } = await Promise.resolve().then(() => (init_social_autopilot(), social_autopilot_exports));
+      res.json(await sendMorningSocialEmail2(!!req.body?.all));
     } catch (e) {
       res.status(500).json({ error: e?.message || "failed" });
     }
@@ -72640,7 +72903,7 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
           const todayPlan = veddStrategy.plan.weeklyPlan[todayName];
           let smartUnlockedPairs = null;
           if (veddStrategy.smartEscalation && !veddStrategy.lockSettings) {
-            const brainData = global.mt5BrainData?.[token.userId];
+            const brainData = global.veddAIBrain?.[token.userId];
             const pairKnowledge = brainData?.pairKnowledge || veddStrategy.pairStats || {};
             const allPlanPairs = veddStrategy.pairs || [];
             const currentProfit = veddStrategy.currentProfit || 0;
@@ -74243,13 +74506,13 @@ BEAR CASE: ${_bearCase || "n/a"}` : aiConfirmation.reasoning;
             const { sessionForHour: sessionForHour2, sameSession: sameSession2 } = await Promise.resolve().then(() => (init_session(), session_exports));
             const _eaSession = sessionForHour2(_eaHour);
             const _eaSessionData = _eaBrainK.topSessions?.find((s) => sameSession2(s.session, _eaSession));
-            if (_eaSessionData && _eaSessionData.total >= 3 && _eaSessionData.winRate < 45) {
+            if (_eaSessionData && _eaSessionData.total >= Number(process.env.BRAIN_BLOCK_MIN_TRADES ?? 8) && _eaSessionData.winRate < 45) {
               tlFullGatesBlocked = true;
               tlFullGateReason = `Brain: ${sanitizedSymbol} ${_eaSession} session ${_eaSessionData.winRate}% WR \u2014 below 45% threshold`;
               console.log(`[TL Gate 2e/session] ${tlFullGateReason}`);
             }
             if (!tlFullGatesBlocked) {
-              const _eaWorstHour = _eaBrainK.worstHours?.find((h) => h.hour === _eaHour && h.total >= 3 && h.winRate < 40);
+              const _eaWorstHour = _eaBrainK.worstHours?.find((h) => h.hour === _eaHour && h.total >= Number(process.env.BRAIN_BLOCK_MIN_TRADES ?? 8) && h.winRate < 40);
               if (_eaWorstHour) {
                 tlFullGatesBlocked = true;
                 tlFullGateReason = `Brain: ${sanitizedSymbol} hour ${_eaHour}:00 UTC ${_eaWorstHour.winRate}% WR \u2014 loss zone`;
@@ -74259,7 +74522,8 @@ BEAR CASE: ${_bearCase || "n/a"}` : aiConfirmation.reasoning;
             if (!tlFullGatesBlocked && _eaBrainK.totalTrades >= 15) {
               const _eaSignalDir = analysis.signal.includes("BUY") ? "BUY" : "SELL";
               const _eaDirWR = _eaSignalDir === "BUY" ? _eaBrainK.buyWinRate ?? 50 : _eaBrainK.sellWinRate ?? 50;
-              if (_eaBrainK.totalTrades >= 30 && _eaDirWR < 20) {
+              const _eaDirN = _eaSignalDir === "BUY" ? _eaBrainK.buyTrades : _eaBrainK.sellTrades;
+              if ((_eaDirN ?? _eaBrainK.totalTrades) >= 15 && _eaDirWR < 20) {
                 tlFullGatesBlocked = true;
                 tlFullGateReason = `Brain: ${sanitizedSymbol} ${_eaSignalDir} ${_eaDirWR}% WR over ${_eaBrainK.totalTrades} trades \u2014 statistically losing`;
                 console.log(`[TL Gate 2e/direction] ${tlFullGateReason}`);
@@ -79481,7 +79745,10 @@ Format each recommendation as a clear, concise action item.`;
     if (_droppedDead > 0) {
       console.log(`[Brain] excluded ${_droppedDead} row(s) from inactive/removed TradeLocker connections.`);
     }
-    const closedTradesCache = global.mt5ClosedTrades?.[userId]?.trades || [];
+    const _lookbackMs = Number(process.env.BRAIN_LOOKBACK_DAYS ?? 120) * 864e5;
+    const { basePairKey: _bpk } = await Promise.resolve().then(() => (init_pair_key(), pair_key_exports));
+    const _knownTickets = new Set(allTrades.map((t) => String(t.mt5Ticket || "")).filter(Boolean));
+    const closedTradesCache = (global.mt5ClosedTrades?.[userId]?.trades || []).filter((t) => !_knownTickets.has(String(t.ticket ?? t.positionId ?? "")));
     const connectedPairs = global.mt5ConnectedPairs?.[userId] || {};
     const lastChartData = global.mt5LastChartData?.[userId] || {};
     let paperClosed = [];
@@ -79492,10 +79759,10 @@ Format each recommendation as a clear, concise action item.`;
       paperClosed = Array.isArray(_pRows) ? _pRows : _pRows.rows ?? [];
     } catch {
     }
-    const combinedTrades = [
+    const combinedTradesAll = [
       ...allTrades.map((t) => ({
-        symbol: t.symbol,
-        direction: t.direction,
+        symbol: _bpk(t.symbol),
+        direction: String(t.direction || "").toUpperCase(),
         result: t.result,
         profit: t.profitLoss || 0,
         pips: t.profitLossPips || 0,
@@ -79517,8 +79784,8 @@ Format each recommendation as a clear, concise action item.`;
         const pnl = Number(t.pnl) || 0;
         const closed = t.closed_at ? new Date(t.closed_at) : null;
         return {
-          symbol: (t.pair || "").toUpperCase().replace("/", ""),
-          direction: t.direction,
+          symbol: _bpk(t.pair || ""),
+          direction: String(t.direction || "").toUpperCase(),
           result: pnl > 0 ? "WIN" : pnl < 0 ? "LOSS" : "BREAKEVEN",
           profit: pnl,
           pips: Number(t.pnl_pips) || 0,
@@ -79536,8 +79803,8 @@ Format each recommendation as a clear, concise action item.`;
         };
       }),
       ...closedTradesCache.map((t) => ({
-        symbol: (t.symbol || "").toUpperCase().replace("/", ""),
-        direction: t.direction,
+        symbol: _bpk(t.symbol || ""),
+        direction: String(t.direction || "").toUpperCase(),
         result: t.profit > 0 ? "WIN" : t.profit < 0 ? "LOSS" : "BREAKEVEN",
         profit: t.profit || 0,
         pips: t.pips || 0,
@@ -79554,6 +79821,8 @@ Format each recommendation as a clear, concise action item.`;
         notes: ""
       }))
     ];
+    const _cutoff = Date.now() - _lookbackMs;
+    const combinedTrades = combinedTradesAll.filter((t) => (Number(t.closedTs || t.timestamp) || 0) >= _cutoff);
     const uniqueSymbols = [...new Set(combinedTrades.map((t) => t.symbol).filter(Boolean))];
     const dayNames = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
     const sessions = [
@@ -79660,12 +79929,13 @@ Format each recommendation as a clear, concise action item.`;
       const bestStrategies = Object.entries(strategyStats).filter(([, s]) => s.wins + s.losses >= 2).map(([id, s]) => ({ id, winRate: Math.round(s.wins / (s.wins + s.losses) * 100), total: s.wins + s.losses })).sort((a, b) => b.winRate - a.winRate).slice(0, 2).map((s) => s.id);
       const rrRatio = avgLossPips > 0 ? Math.round(avgWinPips / avgLossPips * 100) / 100 : 1;
       const winFraction = winRate2 / 100;
-      const kellyClamped = Math.min(1.5, Math.max(
+      const kellyClamped = !(avgWinPips > 0 && avgLossPips > 0) ? 1 : Math.min(1.5, Math.max(
         0.25,
         winFraction - (1 - winFraction) / Math.max(rrRatio, 0.5)
       ));
       const optimalTrailPips = Math.max(5, Math.round(avgWinPips * 0.4));
-      const minProfitableATR = avgWinPips > 0 ? Math.round(avgWinPips * 1e-4 * 100) / 100 : 0;
+      const _pip = /JPY/.test(sym) ? 0.01 : /^XAU/.test(sym) ? 0.1 : /^(BTC|ETH)/.test(sym) ? 1 : /^(US30|NAS|SPX|GER|UK1|JP2)/.test(sym) ? 1 : 1e-4;
+      const minProfitableATR = avgWinPips > 0 ? avgWinPips * _pip / 10 : 0;
       pairKnowledge[sym] = {
         totalTrades: totalCompleted,
         winRate: winRate2,
@@ -79676,6 +79946,8 @@ Format each recommendation as a clear, concise action item.`;
         preferredDirection,
         buyWinRate: buyWR,
         sellWinRate: sellWR,
+        buyTrades: dirStats.BUY.wins + dirStats.BUY.losses,
+        sellTrades: dirStats.SELL.wins + dirStats.SELL.losses,
         topHours: topHours.slice(0, 3),
         worstHours: topHours.slice(-2).reverse(),
         topDays: topDays.slice(0, 3),
@@ -79802,6 +80074,15 @@ Format each recommendation as a clear, concise action item.`;
       ...Object.keys(g.mt5AccountData || {}),
       ...Object.keys(g.mt5ClosedTrades || {})
     ]);
+    try {
+      const { pool: _bp } = await Promise.resolve().then(() => (init_db(), db_exports));
+      const { rows: _bu } = await _bp.query(
+        `SELECT user_id FROM engine_run_state WHERE engine='fx' AND is_running=true
+         UNION SELECT user_id FROM tradelocker_connections WHERE is_active=true`
+      );
+      for (const r of _bu) activeUserIds.add(String(r.user_id));
+    } catch {
+    }
     for (const uid2 of activeUserIds) {
       const userId = parseInt(uid2);
       if (isNaN(userId)) continue;
@@ -83106,6 +83387,15 @@ Return ONLY JSON: {"topPicks":[{"market":"","winProbability":<0-100>,"whyItWins"
       });
     } catch (err) {
       res.status(500).json({ error: err.message, results });
+    }
+  });
+  app2.get("/api/engine/guard-events", async (req, res) => {
+    if (!req.isAuthenticated()) return res.status(401).json({ error: "Authentication required" });
+    try {
+      const { recentGuardEvents: recentGuardEvents2 } = await Promise.resolve().then(() => (init_guard_events(), guard_events_exports));
+      res.json(await recentGuardEvents2(req.user.id, Number(req.query.limit) || 60));
+    } catch (err) {
+      res.status(500).json({ error: err.message });
     }
   });
   app2.get("/api/ai-health", async (req, res) => {

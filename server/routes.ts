@@ -3740,9 +3740,16 @@ Respond ONLY in valid JSON format with these exact keys:
     if (!socialAdmin(req)) return res.status(403).json({ error: 'Admin only' });
     try {
       const kind = String(req.body?.kind || '');
-      if (!['weekly_recap', 'shadow_progress', 'engine_insight', 'milestone'].includes(kind)) return res.status(400).json({ error: 'bad kind' });
+      if (!['weekly_recap', 'shadow_progress', 'engine_insight', 'milestone', 'daily_update'].includes(kind)) return res.status(400).json({ error: 'bad kind' });
       const { generateKind } = await import('./services/social-autopilot');
       res.json(await generateKind(kind as any, !!req.body?.force));
+    } catch (e: any) { res.status(500).json({ error: e?.message || 'failed' }); }
+  });
+  app.post('/api/social/email-now', async (req: Request, res: Response) => {
+    if (!socialAdmin(req)) return res.status(403).json({ error: 'Admin only' });
+    try {
+      const { sendMorningSocialEmail } = await import('./services/social-autopilot');
+      res.json(await sendMorningSocialEmail(!!req.body?.all));
     } catch (e: any) { res.status(500).json({ error: e?.message || 'failed' }); }
   });
   app.post('/api/social/milestone', async (req: Request, res: Response) => {
@@ -10372,7 +10379,9 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
           // Skipped when lockSettings=true — user's chosen pairs are final
           let smartUnlockedPairs: string[] | null = null;
           if (veddStrategy.smartEscalation && !veddStrategy.lockSettings) {
-            const brainData = (global as any).mt5BrainData?.[token.userId];
+            // Was (global).mt5BrainData — never written, so ranking ignored the
+            // brain. Read the live brain instead (2026-10-19 scan).
+            const brainData = (global as any).veddAIBrain?.[token.userId];
             const pairKnowledge = brainData?.pairKnowledge || veddStrategy.pairStats || {};
             const allPlanPairs = (veddStrategy.pairs || []) as string[];
             // Sort pairs by win rate descending; start with top 2, unlock more if account is up
@@ -12356,7 +12365,7 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
             // === comparison never matched and this rule was dead for every hour
             // from 13:00 UTC on. Gate 2e had never fired once, all-time.
             const _eaSessionData = _eaBrainK.topSessions?.find((s: any) => sameSession(s.session, _eaSession));
-            if (_eaSessionData && _eaSessionData.total >= 3 && _eaSessionData.winRate < 45) {
+            if (_eaSessionData && _eaSessionData.total >= Number(process.env.BRAIN_BLOCK_MIN_TRADES ?? 8) && _eaSessionData.winRate < 45) {
               tlFullGatesBlocked = true;
               tlFullGateReason = `Brain: ${sanitizedSymbol} ${_eaSession} session ${_eaSessionData.winRate}% WR — below 45% threshold`;
               console.log(`[TL Gate 2e/session] ${tlFullGateReason}`);
@@ -12364,7 +12373,7 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
 
             // Rule 2: Hour win rate
             if (!tlFullGatesBlocked) {
-              const _eaWorstHour = _eaBrainK.worstHours?.find((h: any) => h.hour === _eaHour && h.total >= 3 && h.winRate < 40);
+              const _eaWorstHour = _eaBrainK.worstHours?.find((h: any) => h.hour === _eaHour && h.total >= Number(process.env.BRAIN_BLOCK_MIN_TRADES ?? 8) && h.winRate < 40);
               if (_eaWorstHour) {
                 tlFullGatesBlocked = true;
                 tlFullGateReason = `Brain: ${sanitizedSymbol} hour ${_eaHour}:00 UTC ${_eaWorstHour.winRate}% WR — loss zone`;
@@ -12376,7 +12385,8 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
             if (!tlFullGatesBlocked && _eaBrainK.totalTrades >= 15) {
               const _eaSignalDir = analysis.signal.includes('BUY') ? 'BUY' : 'SELL';
               const _eaDirWR = _eaSignalDir === 'BUY' ? (_eaBrainK.buyWinRate ?? 50) : (_eaBrainK.sellWinRate ?? 50);
-              if (_eaBrainK.totalTrades >= 30 && _eaDirWR < 20) {
+              const _eaDirN = _eaSignalDir === 'BUY' ? _eaBrainK.buyTrades : _eaBrainK.sellTrades;
+              if ((_eaDirN ?? _eaBrainK.totalTrades) >= 15 && _eaDirWR < 20) {
                 tlFullGatesBlocked = true;
                 tlFullGateReason = `Brain: ${sanitizedSymbol} ${_eaSignalDir} ${_eaDirWR}% WR over ${_eaBrainK.totalTrades} trades — statistically losing`;
                 console.log(`[TL Gate 2e/direction] ${tlFullGateReason}`);
@@ -18601,7 +18611,15 @@ Format each recommendation as a clear, concise action item.`;
     if (_droppedDead > 0) {
       console.log(`[Brain] excluded ${_droppedDead} row(s) from inactive/removed TradeLocker connections.`);
     }
-    const closedTradesCache = (global as any).mt5ClosedTrades?.[userId]?.trades || [];
+    // 2026-10-19 scan: a lookback window (stats used to come from the last 1000
+    // rows forever, so a stale block never expired), broker-suffix
+    // normalisation (EURUSD / EURUSD.pro were separate pairs), and MT5-cache
+    // rows already present in ai_trade_results are no longer double-counted.
+    const _lookbackMs = Number(process.env.BRAIN_LOOKBACK_DAYS ?? 120) * 86_400_000;
+    const { basePairKey: _bpk } = await import('./utils/pair-key');
+    const _knownTickets = new Set(allTrades.map((t: any) => String(t.mt5Ticket || '')).filter(Boolean));
+    const closedTradesCache = ((global as any).mt5ClosedTrades?.[userId]?.trades || [])
+      .filter((t: any) => !_knownTickets.has(String(t.ticket ?? t.positionId ?? '')));
     const connectedPairs = (global as any).mt5ConnectedPairs?.[userId] || {};
     const lastChartData = (global as any).mt5LastChartData?.[userId] || {};
 
@@ -18616,9 +18634,9 @@ Format each recommendation as a clear, concise action item.`;
       paperClosed = Array.isArray(_pRows) ? _pRows : ((_pRows as any).rows ?? []);
     } catch { /* non-fatal — brain still learns from live trades */ }
 
-    const combinedTrades = [
+    const combinedTradesAll = [
       ...allTrades.map(t => ({
-        symbol: t.symbol, direction: t.direction, result: t.result,
+        symbol: _bpk(t.symbol), direction: String(t.direction || '').toUpperCase(), result: t.result,
         profit: t.profitLoss || 0, pips: t.profitLossPips || 0,
         confidence: t.aiConfidence || 0, entry: t.entryPrice, exit: t.exitPrice,
         sl: t.stopLoss, tp: t.takeProfit, timeframe: t.timeframe,
@@ -18634,8 +18652,8 @@ Format each recommendation as a clear, concise action item.`;
         const pnl = Number(t.pnl) || 0;
         const closed = t.closed_at ? new Date(t.closed_at) : null;
         return {
-          symbol: (t.pair || '').toUpperCase().replace('/', ''),
-          direction: t.direction,
+          symbol: _bpk(t.pair || ''),
+          direction: String(t.direction || '').toUpperCase(),
           result: pnl > 0 ? 'WIN' : pnl < 0 ? 'LOSS' : 'BREAKEVEN',
           profit: pnl, pips: Number(t.pnl_pips) || 0,
           confidence: Number(t.confidence) || 0, entry: t.entry_price, exit: t.exit_price,
@@ -18648,8 +18666,8 @@ Format each recommendation as a clear, concise action item.`;
         };
       }),
       ...closedTradesCache.map((t: any) => ({
-        symbol: (t.symbol || '').toUpperCase().replace('/', ''),
-        direction: t.direction, result: t.profit > 0 ? 'WIN' : t.profit < 0 ? 'LOSS' : 'BREAKEVEN',
+        symbol: _bpk(t.symbol || ''),
+        direction: String(t.direction || '').toUpperCase(), result: t.profit > 0 ? 'WIN' : t.profit < 0 ? 'LOSS' : 'BREAKEVEN',
         profit: t.profit || 0, pips: t.pips || 0, confidence: 0,
         entry: t.openPrice, exit: t.closePrice, sl: t.sl, tp: t.tp,
         timeframe: t.timeframe || 'M15', timestamp: t.closeTime ? new Date(t.closeTime).getTime() : 0,
@@ -18660,6 +18678,8 @@ Format each recommendation as a clear, concise action item.`;
       }))
     ];
 
+    const _cutoff = Date.now() - _lookbackMs;
+    const combinedTrades = combinedTradesAll.filter((t: any) => (Number(t.closedTs || t.timestamp) || 0) >= _cutoff);
     const uniqueSymbols = [...new Set(combinedTrades.map(t => t.symbol).filter(Boolean))];
     const dayNames = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
     const sessions = [
@@ -18777,17 +18797,25 @@ Format each recommendation as a clear, concise action item.`;
       // ── Derived enforcement fields ───────────────────────────────────
       const rrRatio = avgLossPips > 0 ? Math.round(avgWinPips / avgLossPips * 100) / 100 : 1;
       const winFraction = winRate / 100;
-      const kellyClamped = Math.min(1.5, Math.max(0.25,
+      // No pip data (common on TradeLocker rows) made rrRatio 0 → Kelly
+      // silently halved every lot. Neutral 1.0 when pips are missing.
+      const kellyClamped = !(avgWinPips > 0 && avgLossPips > 0) ? 1.0 : Math.min(1.5, Math.max(0.25,
         winFraction - (1 - winFraction) / Math.max(rrRatio, 0.5)
       ));
       const optimalTrailPips = Math.max(5, Math.round(avgWinPips * 0.4));
       // Minimum ATR proxy: avg pip value that was profitable (pip * price factor)
-      const minProfitableATR = avgWinPips > 0 ? Math.round(avgWinPips * 0.0001 * 100) / 100 : 0;
+      // Was avgWinPips*0.0001 rounded to 2 dp: 0 (off) for small wins, and
+      // >= 0.01 (blocks EURUSD forever) once wins averaged 50+ pips; JPY's
+      // 0.01 pip was ignored. Now in price units with the pair's pip size,
+      // set so a market moving < 1/20 of the average win per bar is "dead".
+      const _pip = /JPY/.test(sym) ? 0.01 : /^XAU/.test(sym) ? 0.1 : /^(BTC|ETH)/.test(sym) ? 1 : /^(US30|NAS|SPX|GER|UK1|JP2)/.test(sym) ? 1 : 0.0001;
+      const minProfitableATR = avgWinPips > 0 ? (avgWinPips * _pip) / 10 : 0;
 
       pairKnowledge[sym] = {
         totalTrades: totalCompleted, winRate, avgWinPips, avgLossPips, avgWinProfit,
         riskRewardRatio: rrRatio,
         preferredDirection, buyWinRate: buyWR, sellWinRate: sellWR,
+        buyTrades: dirStats.BUY.wins + dirStats.BUY.losses, sellTrades: dirStats.SELL.wins + dirStats.SELL.losses,
         topHours: topHours.slice(0, 3), worstHours: topHours.slice(-2).reverse(),
         topDays: topDays.slice(0, 3), topSessions,
         highConfidenceWinRate: highConfWR, maxWinStreak, maxLossStreak,
@@ -18933,6 +18961,17 @@ Format each recommendation as a clear, concise action item.`;
       ...Object.keys(g.mt5AccountData || {}),
       ...Object.keys(g.mt5ClosedTrades || {}),
     ]);
+    // After a deploy the in-memory brain is empty, so TradeLocker/DXtrade-only
+    // users were never rebuilt and every brain gate passed everything
+    // (2026-10-19 scan). Also include users whose engine is running or who
+    // have an active TradeLocker connection.
+    try {
+      const { pool: _bp } = await import('./db');
+      const { rows: _bu } = await _bp.query(
+        `SELECT user_id FROM engine_run_state WHERE engine='fx' AND is_running=true
+         UNION SELECT user_id FROM tradelocker_connections WHERE is_active=true`);
+      for (const r of _bu) activeUserIds.add(String(r.user_id));
+    } catch { /* non-fatal */ }
     for (const uid of activeUserIds) {
       const userId = parseInt(uid);
       if (isNaN(userId)) continue;
@@ -22689,6 +22728,18 @@ Return ONLY JSON: {"topPicks":[{"market":"","winProbability":<0-100>,"whyItWins"
       });
     } catch (err: any) {
       res.status(500).json({ error: err.message, results });
+    }
+  });
+
+  // GET /api/engine/guard-events — what the engine safeguards did (stop loosen
+  // refused, size capped, partial refused, thin-data brain block skipped, …)
+  app.get("/api/engine/guard-events", async (req: Request, res: Response) => {
+    if (!req.isAuthenticated()) return res.status(401).json({ error: "Authentication required" });
+    try {
+      const { recentGuardEvents } = await import('./services/guard-events');
+      res.json(await recentGuardEvents((req.user as User).id, Number(req.query.limit) || 60));
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
     }
   });
 

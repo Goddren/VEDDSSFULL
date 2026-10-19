@@ -1,6 +1,7 @@
 import { sessionForHour, sameSession } from '../utils/session';
 import { lookupPairKnowledge } from '../utils/pair-key';
 import { marketDataService } from '../market-data/service';
+import { logGuard } from './guard-events';
 import { executeMT5SignalOnTradeLocker, warmTradeLockerConnection, getTLAccountValue, getOrCreateService as getTradeLockerService, setUsdJpyRate } from '../tradelocker';
 import { refreshTlAfterTrade } from './tradelocker-sync';
 import { computeAllAdvancedIndicators, type CandleData } from '../indicators';
@@ -584,14 +585,20 @@ function applyBrainEnforcement(
   // sameSession(), not ===: the brain stores 'NY'/'Late' and this computes
   // 'New York'/'Late NY', so the lookup silently missed for 13:00-24:00 UTC.
   const sessionData = k.topSessions?.find((s: any) => sameSession(s.session, session));
-  if (sessionData && sessionData.total >= 3 && sessionData.winRate < 45) {
+  // 3 trades used to be enough to block a session — and a blocked session
+  // never trades, so it never recovers. Needs BRAIN_BLOCK_MIN_TRADES (8).
+  const _minN = Number(process.env.BRAIN_BLOCK_MIN_TRADES ?? 8);
+  if (sessionData && sessionData.total >= 3 && sessionData.total < _minN && sessionData.winRate < 45) {
+    logGuard(userId, 'brain_block_thin_data', symbol, `${session} session ${sessionData.winRate}% over only ${sessionData.total} trades — not blocking (needs ${_minN})`);
+  }
+  if (sessionData && sessionData.total >= _minN && sessionData.winRate < 45) {
     const msg = `🧠 Brain block: ${symbol} ${session} session only ${sessionData.winRate}% WR (${sessionData.total} trades) — below 45% threshold, skipping`;
     pushEnforcementLog(userId, { symbol, rule: 'session_block', direction: proposedDirection, reason: msg });
     return { ...passthrough, allowed: false, reason: msg };
   }
 
   // ── RULE 2: Hour block ────────────────────────────────────────────────
-  const worstHourData = k.worstHours?.find((h: any) => h.hour === hour && h.total >= 3 && h.winRate < 40);
+  const worstHourData = k.worstHours?.find((h: any) => h.hour === hour && h.total >= _minN && h.winRate < 40);
   if (worstHourData) {
     const msg = `🧠 Brain block: ${symbol} hour ${hour}:00 UTC only ${worstHourData.winRate}% WR — loss zone`;
     pushEnforcementLog(userId, { symbol, rule: 'hour_block', direction: proposedDirection, reason: msg });
@@ -602,9 +609,13 @@ function applyBrainEnforcement(
   // Tier 1 (<15 trades): not enough data — no enforcement at all
   // Tier 2 (15–29 trades, WR 20–39%): allowed but lot reduced to 0.7x (soft caution)
   // Tier 3 (30+ trades, WR <20%): statistically confirmed losing direction — hard block
-  if (proposedDirection && k.totalTrades >= 15) {
+  // Counts are per DIRECTION now: 2 losing BUYs among 30 SELLs used to
+  // hard-block every BUY on the pair (2026-10-19 scan).
+  const _dirN = proposedDirection === 'BUY' ? Number(k.buyTrades) : Number(k.sellTrades);
+  const _dirCount = Number.isFinite(_dirN) ? _dirN : k.totalTrades;
+  if (proposedDirection && _dirCount >= 8) {
     const dirWR = proposedDirection === 'BUY' ? (k.buyWinRate ?? 50) : (k.sellWinRate ?? 50);
-    if (k.totalTrades >= 30 && dirWR < 20) {
+    if (_dirCount >= 15 && dirWR < 20) {
       const msg = `🧠 Brain block: ${symbol} ${proposedDirection} ${dirWR}% WR over ${k.totalTrades} trades — statistically losing direction, hard blocked`;
       pushEnforcementLog(userId, { symbol, rule: 'direction_bias', direction: proposedDirection, reason: msg });
       return { ...passthrough, allowed: false, reason: msg };
@@ -1305,6 +1316,7 @@ export function recordTradeResult(userId: number, result: {
     state.dailyProfitHalted = false;
     state.dailyProfitHaltedAt = null;
     state.dailyLossHalted = false;
+    (state as any)._softLossHalt = false;
     state.dailyLossHaltedAt = null;
   }
   state.pnlToday = Math.round((state.pnlToday + result.profit) * 100) / 100;
@@ -1360,7 +1372,11 @@ export function recordTradeResult(userId: number, result: {
     if (_key) {
       const pk = brainForUser.pairKnowledge[_key];
       if (result.profit < 0) {
-        pk.consecutiveLossesToday = (pk.consecutiveLossesToday || 0) + 1;
+        // One signal closes on several accounts within seconds; count it once.
+        // Each fill used to add 1, so one losing signal on 3 accounts tripped
+        // the 3-loss cooldown immediately (2026-10-19 scan).
+        const _lastMs = pk.lastLossAt ? new Date(pk.lastLossAt).getTime() : 0;
+        if (Date.now() - _lastMs > 180_000) pk.consecutiveLossesToday = (pk.consecutiveLossesToday || 0) + 1;
         pk.lastLossAt = new Date().toISOString();
       } else {
         pk.consecutiveLossesToday = 0; // reset on win
@@ -1480,6 +1496,8 @@ async function scanMarkets(userId: number): Promise<void> {
       state.dailyProfitHalted = false;
       state.dailyProfitHaltedAt = null;
       state.dailyLossHalted = false;
+      (state as any)._softLossHalt = false;
+    (state as any)._softLossHalt = false;
       state.dailyLossHaltedAt = null;
       if (_hadHalt) addActivity(userId, { type: 'info', message: `🌅 New trading day (${_todayDate} UTC) — yesterday's daily halt cleared, scanning resumes.` });
     }
@@ -2436,6 +2454,14 @@ const xauLockedPts = new Map<string, number>(); // ticket → stop already set (
 // points. The first stop seen on a position is remembered as its initial risk.
 const btcInitialStop = new Map<string, number>();
 const btcLastStop = new Map<string, number>();
+/** For a merged TradeLocker position (ticket tl_<conn>_<id>): its own account + position id. */
+function tlTargetOf(pos: any, conns: any[]): { conn: any; positionId: string } | null {
+  const m = String(pos?.ticket || '').match(/^tl_(\d+)_(.+)$/);
+  if (!m) return null;
+  const conn = conns.find((c: any) => c.id === Number(m[1]));
+  return conn ? { conn, positionId: m[2] } : null;
+}
+
 async function manageBtcTrail(userId: number, openPositions: any[], marketAnalysis: Record<string, any>): Promise<void> {
   const btc = await import('./btc-profile');
   if (!btc.BTC_PROFILE_ON()) return;
@@ -2523,6 +2549,16 @@ async function manageXauProfitLock(userId: number, openPositions: any[]): Promis
     if (!tlConn) continue;
     const isBuy = pos.direction === 'BUY';
     const newSl = Math.round((isBuy ? entry + want : entry - want) * 100) / 100;
+    // The peak lives in memory; after a restart it restarts low. Never move a
+    // stop the broker already holds tighter (2026-10-19 scan).
+    {
+      const _bs = Number(pos.brokerSl) || 0;
+      if (_bs > 0 && (isBuy ? newSl <= _bs : newSl >= _bs)) {
+        xauLockedPts.set(key, Math.max(xauLockedPts.get(key) ?? -Infinity, isBuy ? _bs - entry : entry - _bs));
+        logGuard(userId, 'stop_loosen_refused', pos.symbol, `XAU lock wanted ${newSl}, broker stop already ${_bs}`);
+        continue;
+      }
+    }
     try {
       const r = await executeMT5SignalOnTradeLocker(tlConn, {
         action: 'MODIFY', symbol: pos.symbol, direction: pos.direction, volume: 0, stopLoss: newSl, positionId: m[2],
@@ -2635,15 +2671,11 @@ async function applyServerSideTrails(
           reason: _reason, holdTime: '', strategy: 'position_management', confluences: [],
           status: 'pending', modifyAction: 'full_close', positionId: pos.ticket || pos.id || null,
         } as PendingMT5Signal);
-        for (const tlConn of tlConnections) {
+        const _rxT = pos.source === 'tl' ? tlTargetOf(pos, tlConnections) : null;
+        for (const tlConn of (_rxT ? [_rxT.conn] : [])) {
           try {
-            const svc = await getTradeLockerService(tlConn);
-            const tlPositions = await svc.getPositionsNormalized().catch(() => []);
-            const matchDir = (pos.direction || 'BUY').toUpperCase();
-            const tlMatch = tlPositions.find((p: any) =>
-              (p.symbol || '').toUpperCase().replace('/', '') === pos.symbol?.toUpperCase().replace('/', '') &&
-              (p.side || '').toUpperCase() === (matchDir === 'BUY' ? 'BUY' : 'SELL'));
-            if (!tlMatch) continue;
+            // Exactly this position on its own account (not the first match on every account).
+            const tlMatch: any = { id: _rxT!.positionId, openDate: pos.openTime, unrealizedPl: pos.profit };
             {
               const { xauTooYoungToClose } = await import('./xau-rules');
               if (xauTooYoungToClose(pos.symbol, tlMatch.openDate)) {
@@ -2726,10 +2758,18 @@ async function applyServerSideTrails(
 
     if (newSL <= 0) continue;
 
-    const currentSL = pos.sl || 0;
+    // TradeLocker positions are merged with sl:0; their real stop is brokerSl.
+    // Comparing against 0 made every value an "improvement", so a chandelier /
+    // SAR / reset trail could LOOSEN a live stop (2026-10-19 scan).
+    const currentSL = pos.sl || Number(pos.brokerSl) || 0;
     const isBuy = pos.direction === 'BUY';
     const improved = isBuy ? newSL > currentSL : (currentSL === 0 || newSL < currentSL);
-    if (!improved) continue;
+    if (!improved) {
+      if (currentSL > 0) logGuard(userId, 'stop_loosen_refused', pos.symbol, `trail wanted ${newSL}, stop already ${currentSL}`);
+      continue;
+    }
+    const _px = Number(pos.currentPrice) || 0;
+    if (_px > 0 && (isBuy ? newSL >= _px : newSL <= _px)) { logGuard(userId, 'stop_through_price_refused', pos.symbol, `trail ${newSL} vs price ${_px}`); continue; }
 
     // pos.source === 'tl' means this position only exists on a TradeLocker
     // account (merged in by getMergedOpenPositions) — there's no matching
@@ -2761,21 +2801,15 @@ async function applyServerSideTrails(
       message: `📐 ${methodLabel}: ${pos.symbol} ${pos.direction} trail → SL ${Math.round(newSL * 100000) / 100000} (was ${currentSL || 'none'})`,
     });
 
-    if (tlConnections.length > 0) {
-      for (const tlConn of tlConnections) {
+    // Each TradeLocker position is its own entry in the merged list (ticket
+    // tl_<conn>_<id>), trailed from its OWN entry and stop. MT5 positions are
+    // no longer fanned out to TradeLocker — that wrote one account's stop onto
+    // another account's trade (2026-10-19 scan).
+    const _tlT = pos.source === 'tl' ? tlTargetOf(pos, tlConnections) : null;
+    if (_tlT) {
+      for (const tlConn of [_tlT.conn]) {
         try {
-          // pos.ticket is an MT5 ticket number — meaningless on TradeLocker,
-          // which assigns its own position IDs per account. Resolve THIS
-          // account's own matching open position instead of forwarding the
-          // MT5 ticket (same fix as the CLOSE/MODIFY decision path below).
-          const svc = await getTradeLockerService(tlConn);
-          const tlPositions = await svc.getPositionsNormalized().catch(() => []);
-          const matchDir = (pos.direction || 'BUY').toUpperCase();
-          const tlMatch = tlPositions.find((p: any) =>
-            (p.symbol || '').toUpperCase().replace('/', '') === pos.symbol?.toUpperCase().replace('/', '') &&
-            (p.side || '').toUpperCase() === (matchDir === 'BUY' ? 'BUY' : 'SELL')
-          );
-          if (!tlMatch) continue; // no matching position on this account — nothing to trail here
+          const tlMatch = { id: _tlT.positionId };
 
           const trailResult = await executeMT5SignalOnTradeLocker(tlConn, {
             action: 'MODIFY',
@@ -2835,7 +2869,12 @@ async function monitorPositions(userId: number): Promise<void> {
     if (!engineStates[userId] || !positionMonitorIntervals[userId]) return; // may have been halted by the breaker
     if (positions.length) {
       await manageXauProfitLock(userId, positions).catch((e: any) => console.error('[XAU lock] monitor pass failed (non-fatal):', e?.message));
+      await manageBtcTrail(userId, positions, lastAnalysis).catch((e: any) => console.error('[BTC trail] monitor pass failed (non-fatal):', e?.message));
       await applyServerSideTrails(userId, positions, lastAnalysis);
+    } else if (state.status === 'stopped' && positionMonitorIntervals[userId]) {
+      // Engine stopped and the book is flat → stand the monitor down.
+      clearInterval(positionMonitorIntervals[userId]);
+      delete positionMonitorIntervals[userId];
     }
   } catch { /* non-fatal — retry next tick */ } finally { _monitorBusy[userId] = false; }
 }
@@ -5263,6 +5302,12 @@ async function processDecision(userId: number, decision: any, newsCtx?: any): Pr
         // E.g. SL doubled from 10 pips → 20 pips = 2× the money at stake per lot.
         // Fix: scale lot inversely so dollar risk stays constant.
         const slExpansionRatio = actualSlDist > 0 ? effectiveMinSL / actualSlDist : 1;
+        // Track every widening so a lot that did NOT come from the AI (base lot,
+        // Kelly) still shrinks by the same ratio further down.
+        if (slExpansionRatio > 1) {
+          (decision as any)._slExpTotal = (Number((decision as any)._slExpTotal) || 1) * slExpansionRatio;
+          if (!(decision.lotSize && decision.lotSize > 0)) (decision as any)._slExpUnapplied = (Number((decision as any)._slExpUnapplied) || 1) * slExpansionRatio;
+        }
         if (slExpansionRatio > 1 && decision.lotSize && decision.lotSize > 0) {
           const originalLot = decision.lotSize;
           const scaledLot = Math.max(0.01, Math.round((originalLot / slExpansionRatio) * 100) / 100);
@@ -5314,6 +5359,11 @@ async function processDecision(userId: number, decision: any, newsCtx?: any): Pr
           takeProfit = decision.takeProfit;
         }
         // Scale lot down proportionally so dollar risk stays the same after SL widening
+        if (_actualSlDist > 0 && _minSlDist > _actualSlDist) {
+          const _f = _minSlDist / _actualSlDist;
+          (decision as any)._slExpTotal = (Number((decision as any)._slExpTotal) || 1) * _f;
+          if (!(decision.lotSize && decision.lotSize > 0)) (decision as any)._slExpUnapplied = (Number((decision as any)._slExpUnapplied) || 1) * _f;
+        }
         if (decision.lotSize && decision.lotSize > 0 && _actualSlDist > 0) {
           const _ratio      = _actualSlDist / _minSlDist; // < 1 means SL got wider
           const _scaledLot  = Math.max(0.01, Math.round((decision.lotSize * _ratio) * 100) / 100);
@@ -5405,7 +5455,15 @@ async function processDecision(userId: number, decision: any, newsCtx?: any): Pr
       });
     }
 
-    const rawLotBase = brainLocked ? 0.01 : (parseNum(decision.lotSize) || config.baseLotSize || 0.01);
+    let rawLotBase = brainLocked ? 0.01 : (parseNum(decision.lotSize) || config.baseLotSize || 0.01);
+    {
+      const _un = Number((decision as any)._slExpUnapplied) || 1;
+      if (!brainLocked && _un > 1) {
+        const _was = rawLotBase;
+        rawLotBase = Math.max(0.01, Math.floor((rawLotBase / _un) * 100) / 100);
+        logGuard(userId, 'sl_widen_lot_cut', decision.symbol, `stop widened ×${_un.toFixed(2)} with no AI lot — base lot ${_was} → ${rawLotBase}`);
+      }
+    }
     // Apply brain-tuned lot multiplier (Kelly-based, clamped 0.5–1.5)
     const brainMult = brainLocked ? 1.0 : ((decision as any)._brainLotMultiplier || 1.0);
     // Apply consistency risk override (0.25 or 0.5 when consistency is at risk)
@@ -5602,6 +5660,12 @@ async function processDecision(userId: number, decision: any, newsCtx?: any): Pr
       const totalRR = ks?.totalRR || 0;
       const kellyFraction = calculateKellyFraction(wins, losses, totalRR);
       kellyLot = Math.round((config.accountBalance * kellyFraction / 1000) * 100) / 100;
+      // Kelly used to replace the lot outright, dropping the stop-widening cut,
+      // the brain multiplier and the consistency override.
+      {
+        const _tot = Number((decision as any)._slExpTotal) || 1;
+        kellyLot = Math.max(0.01, Math.floor((kellyLot * brainMult * consistencyMult / _tot) * 100) / 100);
+      }
       const winRate = wins + losses >= 5 ? Math.round(wins / (wins + losses) * 100) : null;
       const avgRR = wins > 0 ? (totalRR / wins).toFixed(1) : '1.5';
       const modeLabel = sizingMode === 'kelly_base_pyramid_allowed'
@@ -5658,7 +5722,19 @@ async function processDecision(userId: number, decision: any, newsCtx?: any): Pr
     // Apply volatile-pair hard lot cap — this overrides user config and dynamic sizing.
     // No XAUUSD trade can exceed 0.10 lots, no BTCUSD above 0.02, no index above 0.20.
     const volHardMax = _volCap ? _volCap.hardMaxLot : Infinity;
-    const preCappedLot = Math.max(0.01, Math.min(isDynamicSizingEnabled ? dynamicLot : compoundedLot, safeMaxLot));
+    // Size multipliers (BTC profile, H1/H4 alignment, range day) are applied
+    // BEFORE every ceiling below, so no multiplier can push a lot past the
+    // safe max, the volatile-pair cap, the per-pair limit or the risk-% cap.
+    let _multSized = isDynamicSizingEnabled ? dynamicLot : compoundedLot;
+    {
+      const _ls = Number((decision as any)._lotScale);
+      if (_ls > 0 && _ls < 1) _multSized = _multSized * _ls;
+      const _sm = Number((decision as any)._sizeMult);
+      if (_sm > 0 && _sm !== 1) _multSized = _multSized * _sm;
+      _multSized = Math.max(0.01, Math.floor(_multSized * 100) / 100);
+    }
+    const preCappedLot = Math.max(0.01, Math.min(_multSized, safeMaxLot));
+    if (_multSized > safeMaxLot) logGuard(userId, 'size_cap', decision.symbol, `sized ${_multSized} lots → safe max ${safeMaxLot}`);
     const volCappedLot = Math.min(preCappedLot, volHardMax);
     if (_volCap && preCappedLot > volHardMax) {
       addActivity(userId, {
@@ -5719,14 +5795,9 @@ async function processDecision(userId: number, decision: any, newsCtx?: any): Pr
     // TradeLocker sizing already reflects the wider stop and only gets the
     // weekend factor, in the per-account loop.
     {
-      const _ls = Number((decision as any)._lotScale);
-      if (_ls > 0 && _ls < 1) lotSize = Math.max(0.01, Math.floor(lotSize * _ls * 100) / 100);
-      const _sm = Number((decision as any)._sizeMult);
-      if (_sm > 0 && _sm !== 1) {
-        // Upsizing never breaks the engine's own lot ceilings.
-        const _cap = Math.min(Number(config.maxLot) > 0 ? Number(config.maxLot) : Infinity, Number((config as any).maxLotSize) > 0 ? Number((config as any).maxLotSize) : Infinity);
-        lotSize = Math.max(0.01, Math.min(_sm > 1 ? _cap : Infinity, Math.floor(lotSize * _sm * 100) / 100));
-      }
+      // (multipliers now applied before the caps — see _multSized above)
+      const _mlS = Number((config as any).maxLotSize) || 0;
+      if (_mlS > 0 && lotSize > _mlS) { logGuard(userId, 'size_cap', decision.symbol, `${lotSize} lots → maxLotSize ${_mlS}`); lotSize = _mlS; }
     }
 
     // ── Per-trade 5% backstop + aggregate exposure cap (ports Gate 0d/0e) ──
@@ -6252,25 +6323,27 @@ async function processDecision(userId: number, decision: any, newsCtx?: any): Pr
               : ` (⚠️ multiplier ${acctMult}× — TL account value unavailable, could not size proportionally)`;
           }
 
+          // Stop-sized (risk-%) lots don't derive from lotSize, so apply the
+          // multipliers here — BEFORE the caps — and never upsize them: the
+          // account's risk-% is the user's explicit risk statement.
+          if (_stopSized) {
+            const _lw = Number((decision as any)._lotScaleWeekend);
+            if (_lw > 0 && _lw < 1) acctLot = Math.max(0.01, Math.floor(acctLot * _lw * 100) / 100);
+            const _sm = Number((decision as any)._sizeMult);
+            if (_sm > 0 && _sm < 1) acctLot = Math.max(0.01, Math.floor(acctLot * _sm * 100) / 100);
+          }
           // Still respect volatile pair hard cap per account
-          if (_volCap) acctLot = Math.min(acctLot, _volCap.hardMaxLot);
+          if (_volCap && acctLot > _volCap.hardMaxLot) { logGuard(userId, 'size_cap', decision.symbol, `TL ${tlConn.accountId}: ${acctLot} → volatile cap ${_volCap.hardMaxLot}`); acctLot = _volCap.hardMaxLot; }
+          // User's per-pair absolute lot limit applies to every account too.
+          {
+            const _ph = Number((config.pairLotOverrides || {})[decision.symbol]) || 0;
+            if (_ph > 0 && acctLot > _ph) { logGuard(userId, 'size_cap', decision.symbol, `TL ${tlConn.accountId}: ${acctLot} → pair limit ${_ph}`); acctLot = _ph; }
+          }
           // The engine's own lot ceilings used to apply only to the MT5 lot;
           // risk-% / proportional TradeLocker sizing bypassed them.
           {
             const _ceil = [Number(config.maxLot) || 0, Number((config as any).maxLotSize) || 0].filter((x) => x > 0);
             if (_ceil.length) acctLot = Math.min(acctLot, Math.min(..._ceil));
-          }
-          // BTC profile: stop-sized lots already shrink with the wider stop —
-          // apply only the weekend factor there (lotSize-derived lots were
-          // scaled once above).
-          if (_stopSized) {
-            const _lw = Number((decision as any)._lotScaleWeekend);
-            if (_lw > 0 && _lw < 1) acctLot = Math.max(0.01, Math.floor(acctLot * _lw * 100) / 100);
-            const _sm = Number((decision as any)._sizeMult);
-            if (_sm > 0 && _sm !== 1) {
-              const _cap = Math.min(Number(config.maxLot) > 0 ? Number(config.maxLot) : Infinity, Number((config as any).maxLotSize) > 0 ? Number((config as any).maxLotSize) : Infinity);
-              acctLot = Math.max(0.01, Math.min(_sm > 1 ? _cap : Infinity, Math.floor(acctLot * _sm * 100) / 100));
-            }
           }
 
           // Apply this account's consistency taper (0.25–1×) as it nears its cap.
@@ -6501,8 +6574,9 @@ async function processDecision(userId: number, decision: any, newsCtx?: any): Pr
         if (!_posDir) {
           try {
             const _merged = await getMergedOpenPositions(userId, (state as any)._lastMarketAnalysis);
-            const _p = _merged.find((p: any) => String(p.symbol || '').toUpperCase().replace('/', '') === String(decision.symbol || '').toUpperCase().replace('/', ''));
-            _posDir = String(_p?.direction || '').toUpperCase();
+            const _sm = _merged.filter((p: any) => String(p.symbol || '').toUpperCase().replace('/', '') === String(decision.symbol || '').toUpperCase().replace('/', ''));
+            const _dirs = new Set(_sm.map((p: any) => String(p.direction || '').toUpperCase()));
+            _posDir = _dirs.size === 1 ? Array.from(_dirs)[0] : ''; // hedged + no direction → can't judge the leg
           } catch { /* unknown direction: rule cannot apply */ }
         }
         const _t = _posDir ? htfTurnedAgainst(state, decision.symbol, _posDir) : null;
@@ -6591,6 +6665,13 @@ async function processDecision(userId: number, decision: any, newsCtx?: any): Pr
               return;
             }
 
+            if (signalAction === 'CLOSE' && partialVolume && partialVolume > 0) {
+              // TradeLocker's close call takes no quantity: a "partial" closed
+              // the WHOLE position and lost the runner (2026-10-19 scan).
+              addActivity(userId, { type: 'info', symbol: decision.symbol, message: `✂️ Partial close (${partialVolume}) refused on ${acctLabel}: TradeLocker would close the whole position. Position kept; trail/stop still protect it.` });
+              logGuard(userId, 'partial_close_refused', decision.symbol, `${acctLabel} partial ${partialVolume}`);
+              return;
+            }
             if (signalAction === 'CLOSE') {
               // XAUUSD minimum hold (services/xau-rules.ts): don't let an AI
               // management close book the opening spread on a fresh gold fill.
@@ -6616,12 +6697,23 @@ async function processDecision(userId: number, decision: any, newsCtx?: any): Pr
                 addActivity(userId, { type: 'error', symbol: decision.symbol, message: `CLOSE failed on TradeLocker ${acctLabel}: ${tradeResult.error}` });
               }
             } else if (signalAction === 'MODIFY') {
+              // AI stop changes are only accepted when TIGHTER than the current
+              // stop and on the correct side of price (2026-10-19 scan).
+              let _sl = newSL;
+              {
+                const _buy = String(tlMatch.side || decision.direction || 'BUY').toUpperCase() === 'BUY';
+                const _cur = Number((tlMatch as any).stopLoss) || 0;
+                const _px = Number(state.marketSnapshot?.[decision.symbol]?.price) || 0;
+                if (_sl && _px > 0 && (_buy ? _sl >= _px : _sl <= _px)) { logGuard(userId, 'stop_through_price_refused', decision.symbol, `AI SL ${_sl} vs price ${_px} on ${acctLabel}`); _sl = undefined; }
+                if (_sl && _cur > 0 && (_buy ? _sl <= _cur : _sl >= _cur)) { logGuard(userId, 'stop_loosen_refused', decision.symbol, `AI SL ${_sl} looser than ${_cur} on ${acctLabel}`); _sl = undefined; }
+              }
+              if (!_sl && !newTP) { addActivity(userId, { type: 'info', symbol: decision.symbol, message: `🛡️ ${acctLabel}: AI stop change for ${decision.symbol} refused (would loosen or cross price).` }); return; }
               const tradeResult = await executeMT5SignalOnTradeLocker(tlConn, {
                 action: 'MODIFY',
                 symbol: decision.symbol,
                 direction: decision.direction || 'BUY',
                 volume: 0,
-                stopLoss: newSL,
+                stopLoss: _sl,
                 takeProfit: newTP,
                 positionId: tlMatch.id,
               });
@@ -7495,6 +7587,7 @@ async function flattenAllBrokerPositions(userId: number, reason: string): Promis
       }
     }
   } catch (e: any) {
+    failed++; // unknown state must not read as "0 failed"
     addActivity(userId, { type: 'error', message: `🚨 EMERGENCY STOP: TradeLocker connection lookup failed (${e?.message ?? e})` });
   }
 
@@ -7511,10 +7604,12 @@ async function flattenAllBrokerPositions(userId: number, reason: string): Promis
         try {
           const svc = getDxtradeService(dc.host, dc.username, decryptApiSecret(dc.encrypted_password), dc.domain, `estop_${dc.id}`);
           await svc.ensureLoggedIn();
-          const positions = await svc.getPositions(dc.account_code);
+          const { extractAccountCode } = await import('../dxtrade');
+          const _acct = dc.account_code || extractAccountCode(await svc.getAccounts());
+          const positions = await svc.getPositions(_acct);
           for (const p of positions) {
             try {
-              await svc.closePosition(dc.account_code, p.instrument, p.side === 'SELL' ? 'SELL' : 'BUY', p.quantity, p.positionId);
+              await svc.closePosition(_acct, p.instrument, p.side === 'SELL' ? 'SELL' : 'BUY', p.quantity, p.positionId);
               closed++;
             } catch (e: any) {
               failed++;
@@ -7528,6 +7623,7 @@ async function flattenAllBrokerPositions(userId: number, reason: string): Promis
       }
     }
   } catch (e: any) {
+    failed++;
     addActivity(userId, { type: 'error', message: `🚨 EMERGENCY STOP: DXtrade lookup failed (${e?.message ?? e})` });
   }
 
@@ -7555,6 +7651,17 @@ function queueCloseAllSignal(userId: number, reason: string): void {
   });
 }
 
+function retryFlatten(userId: number, attempt: number): void {
+  if (attempt > 10) { addActivity(userId, { type: 'error', message: '🚨 FLATTEN RETRIES EXHAUSTED — positions may still be open; close them manually.' }); return; }
+  setTimeout(() => {
+    void flattenAllBrokerPositions(userId, `emergency stop retry ${attempt}`).then(({ closed, failed }) => {
+      logGuard(userId, 'flatten_retry', null, `attempt ${attempt}: closed ${closed}, failed ${failed}`);
+      if (failed > 0) retryFlatten(userId, attempt + 1);
+      else addActivity(userId, { type: 'info', message: `✅ Flatten retry ${attempt}: book is flat.` });
+    }).catch(() => retryFlatten(userId, attempt + 1));
+  }, 60_000);
+}
+
 export function emergencyStopEngine(userId: number): EngineState | null {
   if (engineIntervals[userId]) {
     clearInterval(engineIntervals[userId]);
@@ -7580,6 +7687,7 @@ export function emergencyStopEngine(userId: number): EngineState | null {
   if (state) {
     state.status = 'stopped';
     state.dailyLossHalted = true;
+    (state as any)._softLossHalt = false; // this one is a hard halt
     state.dailyLossHaltedAt = new Date().toISOString();
     addActivity(userId, {
       type: 'error',
@@ -7602,6 +7710,8 @@ export function emergencyStopEngine(userId: number): EngineState | null {
         clearInterval(positionMonitorIntervals[userId]);
         delete positionMonitorIntervals[userId];
       }
+      // A failed flatten is retried every 60s (up to 10x) instead of never.
+      if (failed > 0) retryFlatten(userId, 1);
     })
     .catch((e: any) => {
       addActivity(userId, { type: 'error', message: `🚨 EMERGENCY STOP: flatten threw (${e?.message ?? e}) — POSITIONS MAY STILL BE OPEN, check manually.` });
@@ -7663,7 +7773,10 @@ function runAutonomousAdaptation(userId: number, tradeResult: { profit: number; 
 
   // ── 4. Autonomous confidence floor adjustment ──────────────────────────────
   // Win rate drives the adaptive confidence floor, adjusted after every 5 trades.
-  if (totalTrades >= 5 && totalTrades % 5 === 0) {
+  // Recomputed on every update once 5+ trades exist — the old "% 5 === 0"
+  // checkpoint was skipped whenever fills arrived in jumps, leaving a raised
+  // floor stuck until the next day (2026-10-19 scan).
+  if (totalTrades >= 5) {
     const baseFloor = cfg.minConfidence || 70;
     let newFloor: number;
     if (ms.sessionWinRate < 0.35) {
@@ -7676,7 +7789,7 @@ function runAutonomousAdaptation(userId: number, tradeResult: { profit: number; 
     } else if (ms.sessionWinRate >= 0.70) {
       // Strong win rate: engine earned the right to be slightly more selective
       // Lower floor by 3% (never below user's configured floor)
-      newFloor = Math.max(baseFloor - 3, baseFloor);
+      newFloor = baseFloor; // never below the user's configured floor
     } else {
       newFloor = baseFloor;
     }
@@ -7735,9 +7848,14 @@ function runAutonomousAdaptation(userId: number, tradeResult: { profit: number; 
   ms.lastAdaptedAt = new Date().toISOString();
 }
 
+// A SOFT halt (maxDailyLossPct: stop new entries, keep positions) sets
+// dailyLossHalted too, which used to short-circuit the HARD checks below for
+// the rest of the day (2026-10-19 scan). Hard checks now run unless the halt
+// came from an actual emergency stop.
+const hardHalted = (s: any) => !!s?.dailyLossHalted && !s?._softLossHalt;
 function checkDailyLossLimit(userId: number): void {
   const state = engineStates[userId];
-  if (!state || state.dailyLossHalted) return;
+  if (!state || hardHalted(state)) return;
   const limit = state.config.dailyLossLimit;
   if (!limit || limit <= 0) return;
   const balance = state.config.accountBalance;
@@ -7779,7 +7897,7 @@ function checkDailyProfitTarget(userId: number): void {
 // the drawdown SHIELD (which only tapers size) and dailyLossLimit (prop-firm).
 function checkMaxDrawdownBreakers(userId: number): void {
   const state = engineStates[userId];
-  if (!state || state.dailyLossHalted) return;
+  if (!state || hardHalted(state)) return;
   const balance = state.config.accountBalance;
   if (!balance || balance <= 0) return;
 
@@ -7800,8 +7918,9 @@ function checkMaxDrawdownBreakers(userId: number): void {
   const mdl = state.config.maxDailyLossPct || 0;
   if (mdl > 0) {
     const lossPct = (state.pnlToday / balance) * 100;
-    if (lossPct <= -mdl) {
+    if (lossPct <= -mdl && !(state as any)._softLossHalt) {
       state.dailyLossHalted = true;
+      (state as any)._softLossHalt = true;
       state.dailyLossHaltedAt = new Date().toISOString();
       addActivity(userId, {
         type: 'error',
@@ -7818,7 +7937,7 @@ function checkMaxDrawdownBreakers(userId: number): void {
 // doesn't disturb the realized-only drawdown shield's watermark.
 function checkFloatingDrawdown(userId: number, floating: number): void {
   const state = engineStates[userId];
-  if (!state || state.dailyLossHalted) return;
+  if (!state || hardHalted(state)) return;
   const balance = state.config.accountBalance;
   if (!balance || balance <= 0) return;
 
@@ -7846,8 +7965,9 @@ function checkFloatingDrawdown(userId: number, floating: number): void {
   const mdl = state.config.maxDailyLossPct || 0;
   if (mdl > 0) {
     const dayEquity = state.pnlToday + floating;
-    if ((dayEquity / balance) * 100 <= -mdl) {
+    if ((dayEquity / balance) * 100 <= -mdl && !(state as any)._softLossHalt) {
       state.dailyLossHalted = true;
+      (state as any)._softLossHalt = true;
       state.dailyLossHaltedAt = new Date().toISOString();
       addActivity(userId, {
         type: 'error',
@@ -7873,10 +7993,9 @@ export function stopLiveEngine(userId: number): EngineState | null {
     clearInterval(brainLearningIntervals[userId]);
     delete brainLearningIntervals[userId];
   }
-  if (positionMonitorIntervals[userId]) {
-    clearInterval(positionMonitorIntervals[userId]);
-    delete positionMonitorIntervals[userId];
-  }
+  // The position monitor is kept running: stopping new entries must not leave
+  // open trades without their trail / profit lock / reversal exit. It stands
+  // itself down once no positions remain (monitorPositions).
 
   const state = engineStates[userId];
   if (state) {

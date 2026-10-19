@@ -17188,6 +17188,49 @@ var init_pair_key = __esm({
   }
 });
 
+// server/services/guard-events.ts
+function ensure() {
+  if (!ensured2) {
+    ensured2 = pool.query(`
+      CREATE TABLE IF NOT EXISTS engine_guard_events (
+        id serial PRIMARY KEY,
+        user_id integer NOT NULL,
+        engine text NOT NULL DEFAULT 'fx',
+        kind text NOT NULL,
+        symbol text,
+        detail text,
+        data jsonb,
+        created_at timestamp NOT NULL DEFAULT now()
+      );
+      CREATE INDEX IF NOT EXISTS engine_guard_events_user_idx ON engine_guard_events (user_id, created_at DESC);
+    `).then(() => void 0).catch((e) => {
+      console.error("[guard-events] ensure failed:", e?.message || e);
+      ensured2 = null;
+    });
+  }
+  return ensured2;
+}
+function logGuard(userId, kind, symbol, detail, data, engine = "fx") {
+  void (async () => {
+    try {
+      await ensure();
+      await pool.query(
+        `INSERT INTO engine_guard_events (user_id, engine, kind, symbol, detail, data) VALUES ($1,$2,$3,$4,$5,$6::jsonb)`,
+        [userId, engine, kind, symbol, String(detail).slice(0, 500), JSON.stringify(data ?? null)]
+      );
+    } catch {
+    }
+  })();
+}
+var ensured2;
+var init_guard_events = __esm({
+  "server/services/guard-events.ts"() {
+    "use strict";
+    init_db();
+    ensured2 = null;
+  }
+});
+
 // server/tradelocker.ts
 var tradelocker_exports = {};
 __export(tradelocker_exports, {
@@ -22926,20 +22969,26 @@ function applyBrainEnforcement(userId, symbol, proposedDirection, currentATR, ne
   const hour = now.getUTCHours();
   const session2 = sessionForHour(hour);
   const sessionData = k.topSessions?.find((s) => sameSession(s.session, session2));
-  if (sessionData && sessionData.total >= 3 && sessionData.winRate < 45) {
+  const _minN = Number(process.env.BRAIN_BLOCK_MIN_TRADES ?? 8);
+  if (sessionData && sessionData.total >= 3 && sessionData.total < _minN && sessionData.winRate < 45) {
+    logGuard(userId, "brain_block_thin_data", symbol, `${session2} session ${sessionData.winRate}% over only ${sessionData.total} trades \u2014 not blocking (needs ${_minN})`);
+  }
+  if (sessionData && sessionData.total >= _minN && sessionData.winRate < 45) {
     const msg = `\u{1F9E0} Brain block: ${symbol} ${session2} session only ${sessionData.winRate}% WR (${sessionData.total} trades) \u2014 below 45% threshold, skipping`;
     pushEnforcementLog(userId, { symbol, rule: "session_block", direction: proposedDirection, reason: msg });
     return { ...passthrough, allowed: false, reason: msg };
   }
-  const worstHourData = k.worstHours?.find((h) => h.hour === hour && h.total >= 3 && h.winRate < 40);
+  const worstHourData = k.worstHours?.find((h) => h.hour === hour && h.total >= _minN && h.winRate < 40);
   if (worstHourData) {
     const msg = `\u{1F9E0} Brain block: ${symbol} hour ${hour}:00 UTC only ${worstHourData.winRate}% WR \u2014 loss zone`;
     pushEnforcementLog(userId, { symbol, rule: "hour_block", direction: proposedDirection, reason: msg });
     return { ...passthrough, allowed: false, reason: msg };
   }
-  if (proposedDirection && k.totalTrades >= 15) {
+  const _dirN = proposedDirection === "BUY" ? Number(k.buyTrades) : Number(k.sellTrades);
+  const _dirCount = Number.isFinite(_dirN) ? _dirN : k.totalTrades;
+  if (proposedDirection && _dirCount >= 8) {
     const dirWR = proposedDirection === "BUY" ? k.buyWinRate ?? 50 : k.sellWinRate ?? 50;
-    if (k.totalTrades >= 30 && dirWR < 20) {
+    if (_dirCount >= 15 && dirWR < 20) {
       const msg = `\u{1F9E0} Brain block: ${symbol} ${proposedDirection} ${dirWR}% WR over ${k.totalTrades} trades \u2014 statistically losing direction, hard blocked`;
       pushEnforcementLog(userId, { symbol, rule: "direction_bias", direction: proposedDirection, reason: msg });
       return { ...passthrough, allowed: false, reason: msg };
@@ -23519,6 +23568,7 @@ function recordTradeResult(userId, result) {
     state.dailyProfitHalted = false;
     state.dailyProfitHaltedAt = null;
     state.dailyLossHalted = false;
+    state._softLossHalt = false;
     state.dailyLossHaltedAt = null;
   }
   state.pnlToday = Math.round((state.pnlToday + result.profit) * 100) / 100;
@@ -23550,7 +23600,8 @@ function recordTradeResult(userId, result) {
     if (_key) {
       const pk = brainForUser.pairKnowledge[_key];
       if (result.profit < 0) {
-        pk.consecutiveLossesToday = (pk.consecutiveLossesToday || 0) + 1;
+        const _lastMs = pk.lastLossAt ? new Date(pk.lastLossAt).getTime() : 0;
+        if (Date.now() - _lastMs > 18e4) pk.consecutiveLossesToday = (pk.consecutiveLossesToday || 0) + 1;
         pk.lastLossAt = (/* @__PURE__ */ new Date()).toISOString();
       } else {
         pk.consecutiveLossesToday = 0;
@@ -23639,6 +23690,8 @@ async function scanMarkets(userId) {
       state.dailyProfitHalted = false;
       state.dailyProfitHaltedAt = null;
       state.dailyLossHalted = false;
+      state._softLossHalt = false;
+      state._softLossHalt = false;
       state.dailyLossHaltedAt = null;
       if (_hadHalt) addActivity(userId, { type: "info", message: `\u{1F305} New trading day (${_todayDate} UTC) \u2014 yesterday's daily halt cleared, scanning resumes.` });
     }
@@ -24316,6 +24369,12 @@ async function getMergedOpenPositions(userId, marketAnalysis) {
   }
   return [...mt5Positions, ...tlPositions, ...dxPositions];
 }
+function tlTargetOf(pos, conns) {
+  const m = String(pos?.ticket || "").match(/^tl_(\d+)_(.+)$/);
+  if (!m) return null;
+  const conn = conns.find((c) => c.id === Number(m[1]));
+  return conn ? { conn, positionId: m[2] } : null;
+}
 async function manageBtcTrail(userId, openPositions, marketAnalysis) {
   const btc = await Promise.resolve().then(() => (init_btc_profile(), btc_profile_exports));
   if (!btc.BTC_PROFILE_ON()) return;
@@ -24401,6 +24460,14 @@ async function manageXauProfitLock(userId, openPositions) {
     if (!tlConn) continue;
     const isBuy = pos.direction === "BUY";
     const newSl = Math.round((isBuy ? entry + want : entry - want) * 100) / 100;
+    {
+      const _bs = Number(pos.brokerSl) || 0;
+      if (_bs > 0 && (isBuy ? newSl <= _bs : newSl >= _bs)) {
+        xauLockedPts.set(key, Math.max(xauLockedPts.get(key) ?? -Infinity, isBuy ? _bs - entry : entry - _bs));
+        logGuard(userId, "stop_loosen_refused", pos.symbol, `XAU lock wanted ${newSl}, broker stop already ${_bs}`);
+        continue;
+      }
+    }
     try {
       const r = await executeMT5SignalOnTradeLocker(tlConn, {
         action: "MODIFY",
@@ -24509,13 +24576,10 @@ async function applyServerSideTrails(userId, openPositions, marketAnalysis) {
           modifyAction: "full_close",
           positionId: pos.ticket || pos.id || null
         });
-        for (const tlConn of tlConnections) {
+        const _rxT = pos.source === "tl" ? tlTargetOf(pos, tlConnections) : null;
+        for (const tlConn of _rxT ? [_rxT.conn] : []) {
           try {
-            const svc = await getOrCreateService(tlConn);
-            const tlPositions = await svc.getPositionsNormalized().catch(() => []);
-            const matchDir = (pos.direction || "BUY").toUpperCase();
-            const tlMatch = tlPositions.find((p) => (p.symbol || "").toUpperCase().replace("/", "") === pos.symbol?.toUpperCase().replace("/", "") && (p.side || "").toUpperCase() === (matchDir === "BUY" ? "BUY" : "SELL"));
-            if (!tlMatch) continue;
+            const tlMatch = { id: _rxT.positionId, openDate: pos.openTime, unrealizedPl: pos.profit };
             {
               const { xauTooYoungToClose: xauTooYoungToClose3 } = await Promise.resolve().then(() => (init_xau_rules(), xau_rules_exports));
               if (xauTooYoungToClose3(pos.symbol, tlMatch.openDate)) {
@@ -24598,10 +24662,18 @@ async function applyServerSideTrails(userId, openPositions, marketAnalysis) {
         break;
     }
     if (newSL <= 0) continue;
-    const currentSL = pos.sl || 0;
+    const currentSL = pos.sl || Number(pos.brokerSl) || 0;
     const isBuy = pos.direction === "BUY";
     const improved = isBuy ? newSL > currentSL : currentSL === 0 || newSL < currentSL;
-    if (!improved) continue;
+    if (!improved) {
+      if (currentSL > 0) logGuard(userId, "stop_loosen_refused", pos.symbol, `trail wanted ${newSL}, stop already ${currentSL}`);
+      continue;
+    }
+    const _px = Number(pos.currentPrice) || 0;
+    if (_px > 0 && (isBuy ? newSL >= _px : newSL <= _px)) {
+      logGuard(userId, "stop_through_price_refused", pos.symbol, `trail ${newSL} vs price ${_px}`);
+      continue;
+    }
     if (pos.source !== "tl") broadcastMT5Signal(userId, {
       id: `trail_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
       timestamp: (/* @__PURE__ */ new Date()).toISOString(),
@@ -24626,16 +24698,11 @@ async function applyServerSideTrails(userId, openPositions, marketAnalysis) {
       symbol: pos.symbol,
       message: `\u{1F4D0} ${methodLabel}: ${pos.symbol} ${pos.direction} trail \u2192 SL ${Math.round(newSL * 1e5) / 1e5} (was ${currentSL || "none"})`
     });
-    if (tlConnections.length > 0) {
-      for (const tlConn of tlConnections) {
+    const _tlT = pos.source === "tl" ? tlTargetOf(pos, tlConnections) : null;
+    if (_tlT) {
+      for (const tlConn of [_tlT.conn]) {
         try {
-          const svc = await getOrCreateService(tlConn);
-          const tlPositions = await svc.getPositionsNormalized().catch(() => []);
-          const matchDir = (pos.direction || "BUY").toUpperCase();
-          const tlMatch = tlPositions.find(
-            (p) => (p.symbol || "").toUpperCase().replace("/", "") === pos.symbol?.toUpperCase().replace("/", "") && (p.side || "").toUpperCase() === (matchDir === "BUY" ? "BUY" : "SELL")
-          );
-          if (!tlMatch) continue;
+          const tlMatch = { id: _tlT.positionId };
           const trailResult = await executeMT5SignalOnTradeLocker(tlConn, {
             action: "MODIFY",
             symbol: pos.symbol,
@@ -24684,7 +24751,11 @@ async function monitorPositions(userId) {
     if (!engineStates[userId] || !positionMonitorIntervals[userId]) return;
     if (positions.length) {
       await manageXauProfitLock(userId, positions).catch((e) => console.error("[XAU lock] monitor pass failed (non-fatal):", e?.message));
+      await manageBtcTrail(userId, positions, lastAnalysis).catch((e) => console.error("[BTC trail] monitor pass failed (non-fatal):", e?.message));
       await applyServerSideTrails(userId, positions, lastAnalysis);
+    } else if (state.status === "stopped" && positionMonitorIntervals[userId]) {
+      clearInterval(positionMonitorIntervals[userId]);
+      delete positionMonitorIntervals[userId];
     }
   } catch {
   } finally {
@@ -26698,6 +26769,10 @@ async function processDecision(userId, decision, newsCtx) {
         const oldSlPips = Math.round(actualSlDist / pipSize2);
         const newSlPips = Math.round(effectiveMinSL / pipSize2);
         const slExpansionRatio = actualSlDist > 0 ? effectiveMinSL / actualSlDist : 1;
+        if (slExpansionRatio > 1) {
+          decision._slExpTotal = (Number(decision._slExpTotal) || 1) * slExpansionRatio;
+          if (!(decision.lotSize && decision.lotSize > 0)) decision._slExpUnapplied = (Number(decision._slExpUnapplied) || 1) * slExpansionRatio;
+        }
         if (slExpansionRatio > 1 && decision.lotSize && decision.lotSize > 0) {
           const originalLot = decision.lotSize;
           const scaledLot = Math.max(0.01, Math.round(originalLot / slExpansionRatio * 100) / 100);
@@ -26736,6 +26811,11 @@ async function processDecision(userId, decision, newsCtx) {
           const _expandedTP = decision.direction === "BUY" ? entryPrice + _newTpDist : entryPrice - _newTpDist;
           decision.takeProfit = Math.round(_expandedTP * 1e5) / 1e5;
           takeProfit = decision.takeProfit;
+        }
+        if (_actualSlDist > 0 && _minSlDist > _actualSlDist) {
+          const _f = _minSlDist / _actualSlDist;
+          decision._slExpTotal = (Number(decision._slExpTotal) || 1) * _f;
+          if (!(decision.lotSize && decision.lotSize > 0)) decision._slExpUnapplied = (Number(decision._slExpUnapplied) || 1) * _f;
         }
         if (decision.lotSize && decision.lotSize > 0 && _actualSlDist > 0) {
           const _ratio = _actualSlDist / _minSlDist;
@@ -26817,7 +26897,15 @@ async function processDecision(userId, decision, newsCtx) {
         message: brainLocked ? `\u{1F9E0} Learning Mode: lot locked at 0.01 (${brainTotalTrades}/10 trades, ${brainOverallWinRate}%/60% WR) \u2014 full sizing unlocks automatically` : `\u{1F9E0} Brain unlocked: ${brainTotalTrades} trades @ ${brainOverallWinRate}% WR \u2014 full risk sizing active`
       });
     }
-    const rawLotBase = brainLocked ? 0.01 : parseNum(decision.lotSize) || config.baseLotSize || 0.01;
+    let rawLotBase = brainLocked ? 0.01 : parseNum(decision.lotSize) || config.baseLotSize || 0.01;
+    {
+      const _un = Number(decision._slExpUnapplied) || 1;
+      if (!brainLocked && _un > 1) {
+        const _was = rawLotBase;
+        rawLotBase = Math.max(0.01, Math.floor(rawLotBase / _un * 100) / 100);
+        logGuard(userId, "sl_widen_lot_cut", decision.symbol, `stop widened \xD7${_un.toFixed(2)} with no AI lot \u2014 base lot ${_was} \u2192 ${rawLotBase}`);
+      }
+    }
     const brainMult = brainLocked ? 1 : decision._brainLotMultiplier || 1;
     const consistencyMult = state._consistencyRiskOverride ?? 1;
     const rawLotSize = Math.round(rawLotBase * brainMult * consistencyMult * 100) / 100;
@@ -26958,6 +27046,10 @@ async function processDecision(userId, decision, newsCtx) {
       const totalRR = ks?.totalRR || 0;
       const kellyFraction = calculateKellyFraction(wins, losses, totalRR);
       kellyLot = Math.round(config.accountBalance * kellyFraction / 1e3 * 100) / 100;
+      {
+        const _tot = Number(decision._slExpTotal) || 1;
+        kellyLot = Math.max(0.01, Math.floor(kellyLot * brainMult * consistencyMult / _tot * 100) / 100);
+      }
       const winRate = wins + losses >= 5 ? Math.round(wins / (wins + losses) * 100) : null;
       const avgRR = wins > 0 ? (totalRR / wins).toFixed(1) : "1.5";
       const modeLabel = sizingMode === "kelly_base_pyramid_allowed" ? `Kelly base (ADX=${adxNow.toFixed(0)}, trending \u2014 pyramiding ALLOWED on this trade)` : `Kelly only (ADX=${adxNow.toFixed(0)}, ranging \u2014 pyramiding SUPPRESSED)`;
@@ -26995,7 +27087,16 @@ async function processDecision(userId, decision, newsCtx) {
       });
     }
     const volHardMax = _volCap ? _volCap.hardMaxLot : Infinity;
-    const preCappedLot = Math.max(0.01, Math.min(isDynamicSizingEnabled ? dynamicLot : compoundedLot, safeMaxLot));
+    let _multSized = isDynamicSizingEnabled ? dynamicLot : compoundedLot;
+    {
+      const _ls = Number(decision._lotScale);
+      if (_ls > 0 && _ls < 1) _multSized = _multSized * _ls;
+      const _sm = Number(decision._sizeMult);
+      if (_sm > 0 && _sm !== 1) _multSized = _multSized * _sm;
+      _multSized = Math.max(0.01, Math.floor(_multSized * 100) / 100);
+    }
+    const preCappedLot = Math.max(0.01, Math.min(_multSized, safeMaxLot));
+    if (_multSized > safeMaxLot) logGuard(userId, "size_cap", decision.symbol, `sized ${_multSized} lots \u2192 safe max ${safeMaxLot}`);
     const volCappedLot = Math.min(preCappedLot, volHardMax);
     if (_volCap && preCappedLot > volHardMax) {
       addActivity(userId, {
@@ -27039,12 +27140,10 @@ async function processDecision(userId, decision, newsCtx) {
       }
     }
     {
-      const _ls = Number(decision._lotScale);
-      if (_ls > 0 && _ls < 1) lotSize = Math.max(0.01, Math.floor(lotSize * _ls * 100) / 100);
-      const _sm = Number(decision._sizeMult);
-      if (_sm > 0 && _sm !== 1) {
-        const _cap = Math.min(Number(config.maxLot) > 0 ? Number(config.maxLot) : Infinity, Number(config.maxLotSize) > 0 ? Number(config.maxLotSize) : Infinity);
-        lotSize = Math.max(0.01, Math.min(_sm > 1 ? _cap : Infinity, Math.floor(lotSize * _sm * 100) / 100));
+      const _mlS = Number(config.maxLotSize) || 0;
+      if (_mlS > 0 && lotSize > _mlS) {
+        logGuard(userId, "size_cap", decision.symbol, `${lotSize} lots \u2192 maxLotSize ${_mlS}`);
+        lotSize = _mlS;
       }
     }
     {
@@ -27476,19 +27575,26 @@ async function processDecision(userId, decision, newsCtx) {
             acctLot = Math.max(0.01, Math.round(lotSize * acctMult * 100) / 100);
             acctSizeLabel = _refBal <= 0 ? ` (\u26A0\uFE0F multiplier ${acctMult}\xD7 \u2014 enable Risk% mode or set engine Reference Balance for auto-sizing)` : ` (\u26A0\uFE0F multiplier ${acctMult}\xD7 \u2014 TL account value unavailable, could not size proportionally)`;
           }
-          if (_volCap) acctLot = Math.min(acctLot, _volCap.hardMaxLot);
-          {
-            const _ceil = [Number(config.maxLot) || 0, Number(config.maxLotSize) || 0].filter((x) => x > 0);
-            if (_ceil.length) acctLot = Math.min(acctLot, Math.min(..._ceil));
-          }
           if (_stopSized) {
             const _lw = Number(decision._lotScaleWeekend);
             if (_lw > 0 && _lw < 1) acctLot = Math.max(0.01, Math.floor(acctLot * _lw * 100) / 100);
             const _sm = Number(decision._sizeMult);
-            if (_sm > 0 && _sm !== 1) {
-              const _cap = Math.min(Number(config.maxLot) > 0 ? Number(config.maxLot) : Infinity, Number(config.maxLotSize) > 0 ? Number(config.maxLotSize) : Infinity);
-              acctLot = Math.max(0.01, Math.min(_sm > 1 ? _cap : Infinity, Math.floor(acctLot * _sm * 100) / 100));
+            if (_sm > 0 && _sm < 1) acctLot = Math.max(0.01, Math.floor(acctLot * _sm * 100) / 100);
+          }
+          if (_volCap && acctLot > _volCap.hardMaxLot) {
+            logGuard(userId, "size_cap", decision.symbol, `TL ${tlConn.accountId}: ${acctLot} \u2192 volatile cap ${_volCap.hardMaxLot}`);
+            acctLot = _volCap.hardMaxLot;
+          }
+          {
+            const _ph = Number((config.pairLotOverrides || {})[decision.symbol]) || 0;
+            if (_ph > 0 && acctLot > _ph) {
+              logGuard(userId, "size_cap", decision.symbol, `TL ${tlConn.accountId}: ${acctLot} \u2192 pair limit ${_ph}`);
+              acctLot = _ph;
             }
+          }
+          {
+            const _ceil = [Number(config.maxLot) || 0, Number(config.maxLotSize) || 0].filter((x) => x > 0);
+            if (_ceil.length) acctLot = Math.min(acctLot, Math.min(..._ceil));
           }
           if (_consistencyMult < 1) {
             acctLot = Math.max(0.01, Math.round(acctLot * _consistencyMult * 100) / 100);
@@ -27667,8 +27773,9 @@ async function processDecision(userId, decision, newsCtx) {
         if (!_posDir) {
           try {
             const _merged = await getMergedOpenPositions(userId, state._lastMarketAnalysis);
-            const _p = _merged.find((p) => String(p.symbol || "").toUpperCase().replace("/", "") === String(decision.symbol || "").toUpperCase().replace("/", ""));
-            _posDir = String(_p?.direction || "").toUpperCase();
+            const _sm = _merged.filter((p) => String(p.symbol || "").toUpperCase().replace("/", "") === String(decision.symbol || "").toUpperCase().replace("/", ""));
+            const _dirs = new Set(_sm.map((p) => String(p.direction || "").toUpperCase()));
+            _posDir = _dirs.size === 1 ? Array.from(_dirs)[0] : "";
           } catch {
           }
         }
@@ -27731,6 +27838,11 @@ async function processDecision(userId, decision, newsCtx) {
             if (!tlMatch) {
               return;
             }
+            if (signalAction === "CLOSE" && partialVolume && partialVolume > 0) {
+              addActivity(userId, { type: "info", symbol: decision.symbol, message: `\u2702\uFE0F Partial close (${partialVolume}) refused on ${acctLabel}: TradeLocker would close the whole position. Position kept; trail/stop still protect it.` });
+              logGuard(userId, "partial_close_refused", decision.symbol, `${acctLabel} partial ${partialVolume}`);
+              return;
+            }
             if (signalAction === "CLOSE") {
               const { xauTooYoungToClose: xauTooYoungToClose2 } = await Promise.resolve().then(() => (init_xau_rules(), xau_rules_exports));
               if (xauTooYoungToClose2(decision.symbol, tlMatch.openDate)) {
@@ -27753,12 +27865,30 @@ async function processDecision(userId, decision, newsCtx) {
                 addActivity(userId, { type: "error", symbol: decision.symbol, message: `CLOSE failed on TradeLocker ${acctLabel}: ${tradeResult.error}` });
               }
             } else if (signalAction === "MODIFY") {
+              let _sl = newSL;
+              {
+                const _buy = String(tlMatch.side || decision.direction || "BUY").toUpperCase() === "BUY";
+                const _cur = Number(tlMatch.stopLoss) || 0;
+                const _px = Number(state.marketSnapshot?.[decision.symbol]?.price) || 0;
+                if (_sl && _px > 0 && (_buy ? _sl >= _px : _sl <= _px)) {
+                  logGuard(userId, "stop_through_price_refused", decision.symbol, `AI SL ${_sl} vs price ${_px} on ${acctLabel}`);
+                  _sl = void 0;
+                }
+                if (_sl && _cur > 0 && (_buy ? _sl <= _cur : _sl >= _cur)) {
+                  logGuard(userId, "stop_loosen_refused", decision.symbol, `AI SL ${_sl} looser than ${_cur} on ${acctLabel}`);
+                  _sl = void 0;
+                }
+              }
+              if (!_sl && !newTP) {
+                addActivity(userId, { type: "info", symbol: decision.symbol, message: `\u{1F6E1}\uFE0F ${acctLabel}: AI stop change for ${decision.symbol} refused (would loosen or cross price).` });
+                return;
+              }
               const tradeResult = await executeMT5SignalOnTradeLocker(tlConn, {
                 action: "MODIFY",
                 symbol: decision.symbol,
                 direction: decision.direction || "BUY",
                 volume: 0,
-                stopLoss: newSL,
+                stopLoss: _sl,
                 takeProfit: newTP,
                 positionId: tlMatch.id
               });
@@ -28404,6 +28534,7 @@ async function flattenAllBrokerPositions(userId, reason) {
       }
     }
   } catch (e) {
+    failed++;
     addActivity(userId, { type: "error", message: `\u{1F6A8} EMERGENCY STOP: TradeLocker connection lookup failed (${e?.message ?? e})` });
   }
   try {
@@ -28419,10 +28550,12 @@ async function flattenAllBrokerPositions(userId, reason) {
         try {
           const svc = getDxtradeService2(dc.host, dc.username, decryptApiSecret2(dc.encrypted_password), dc.domain, `estop_${dc.id}`);
           await svc.ensureLoggedIn();
-          const positions = await svc.getPositions(dc.account_code);
+          const { extractAccountCode: extractAccountCode2 } = await Promise.resolve().then(() => (init_dxtrade(), dxtrade_exports));
+          const _acct = dc.account_code || extractAccountCode2(await svc.getAccounts());
+          const positions = await svc.getPositions(_acct);
           for (const p of positions) {
             try {
-              await svc.closePosition(dc.account_code, p.instrument, p.side === "SELL" ? "SELL" : "BUY", p.quantity, p.positionId);
+              await svc.closePosition(_acct, p.instrument, p.side === "SELL" ? "SELL" : "BUY", p.quantity, p.positionId);
               closed++;
             } catch (e) {
               failed++;
@@ -28436,6 +28569,7 @@ async function flattenAllBrokerPositions(userId, reason) {
       }
     }
   } catch (e) {
+    failed++;
     addActivity(userId, { type: "error", message: `\u{1F6A8} EMERGENCY STOP: DXtrade lookup failed (${e?.message ?? e})` });
   }
   console.log(`[VEDD Live Engine] Emergency flatten for user ${userId} (${reason}): ${closed} closed, ${failed} failed`);
@@ -28460,6 +28594,19 @@ function queueCloseAllSignal(userId, reason) {
     status: "pending"
   });
 }
+function retryFlatten(userId, attempt) {
+  if (attempt > 10) {
+    addActivity(userId, { type: "error", message: "\u{1F6A8} FLATTEN RETRIES EXHAUSTED \u2014 positions may still be open; close them manually." });
+    return;
+  }
+  setTimeout(() => {
+    void flattenAllBrokerPositions(userId, `emergency stop retry ${attempt}`).then(({ closed, failed }) => {
+      logGuard(userId, "flatten_retry", null, `attempt ${attempt}: closed ${closed}, failed ${failed}`);
+      if (failed > 0) retryFlatten(userId, attempt + 1);
+      else addActivity(userId, { type: "info", message: `\u2705 Flatten retry ${attempt}: book is flat.` });
+    }).catch(() => retryFlatten(userId, attempt + 1));
+  }, 6e4);
+}
 function emergencyStopEngine(userId) {
   if (engineIntervals[userId]) {
     clearInterval(engineIntervals[userId]);
@@ -28478,6 +28625,7 @@ function emergencyStopEngine(userId) {
   if (state) {
     state.status = "stopped";
     state.dailyLossHalted = true;
+    state._softLossHalt = false;
     state.dailyLossHaltedAt = (/* @__PURE__ */ new Date()).toISOString();
     addActivity(userId, {
       type: "error",
@@ -28494,6 +28642,7 @@ function emergencyStopEngine(userId) {
       clearInterval(positionMonitorIntervals[userId]);
       delete positionMonitorIntervals[userId];
     }
+    if (failed > 0) retryFlatten(userId, 1);
   }).catch((e) => {
     addActivity(userId, { type: "error", message: `\u{1F6A8} EMERGENCY STOP: flatten threw (${e?.message ?? e}) \u2014 POSITIONS MAY STILL BE OPEN, check manually.` });
   });
@@ -28536,7 +28685,7 @@ function runAutonomousAdaptation(userId, tradeResult) {
       log(`3 consecutive losses \u2014 cooling off 20 min. Waiting for better structure before next signal.`);
     }
   }
-  if (totalTrades >= 5 && totalTrades % 5 === 0) {
+  if (totalTrades >= 5) {
     const baseFloor = cfg.minConfidence || 70;
     let newFloor;
     if (ms.sessionWinRate < 0.35) {
@@ -28546,7 +28695,7 @@ function runAutonomousAdaptation(userId, tradeResult) {
     } else if (ms.sessionWinRate < 0.55) {
       newFloor = Math.max(baseFloor, 75);
     } else if (ms.sessionWinRate >= 0.7) {
-      newFloor = Math.max(baseFloor - 3, baseFloor);
+      newFloor = baseFloor;
     } else {
       newFloor = baseFloor;
     }
@@ -28594,7 +28743,7 @@ function runAutonomousAdaptation(userId, tradeResult) {
 }
 function checkDailyLossLimit(userId) {
   const state = engineStates[userId];
-  if (!state || state.dailyLossHalted) return;
+  if (!state || hardHalted(state)) return;
   const limit = state.config.dailyLossLimit;
   if (!limit || limit <= 0) return;
   const balance = state.config.accountBalance;
@@ -28628,7 +28777,7 @@ function checkDailyProfitTarget(userId) {
 }
 function checkMaxDrawdownBreakers(userId) {
   const state = engineStates[userId];
-  if (!state || state.dailyLossHalted) return;
+  if (!state || hardHalted(state)) return;
   const balance = state.config.accountBalance;
   if (!balance || balance <= 0) return;
   const mdd = state.config.maxDrawdownPct || 0;
@@ -28647,8 +28796,9 @@ function checkMaxDrawdownBreakers(userId) {
   const mdl = state.config.maxDailyLossPct || 0;
   if (mdl > 0) {
     const lossPct = state.pnlToday / balance * 100;
-    if (lossPct <= -mdl) {
+    if (lossPct <= -mdl && !state._softLossHalt) {
       state.dailyLossHalted = true;
+      state._softLossHalt = true;
       state.dailyLossHaltedAt = (/* @__PURE__ */ new Date()).toISOString();
       addActivity(userId, {
         type: "error",
@@ -28659,7 +28809,7 @@ function checkMaxDrawdownBreakers(userId) {
 }
 function checkFloatingDrawdown(userId, floating) {
   const state = engineStates[userId];
-  if (!state || state.dailyLossHalted) return;
+  if (!state || hardHalted(state)) return;
   const balance = state.config.accountBalance;
   if (!balance || balance <= 0) return;
   const equitySession = state.pnlSession + floating;
@@ -28685,8 +28835,9 @@ function checkFloatingDrawdown(userId, floating) {
   const mdl = state.config.maxDailyLossPct || 0;
   if (mdl > 0) {
     const dayEquity = state.pnlToday + floating;
-    if (dayEquity / balance * 100 <= -mdl) {
+    if (dayEquity / balance * 100 <= -mdl && !state._softLossHalt) {
       state.dailyLossHalted = true;
+      state._softLossHalt = true;
       state.dailyLossHaltedAt = (/* @__PURE__ */ new Date()).toISOString();
       addActivity(userId, {
         type: "error",
@@ -28708,10 +28859,6 @@ function stopLiveEngine(userId) {
   if (brainLearningIntervals[userId]) {
     clearInterval(brainLearningIntervals[userId]);
     delete brainLearningIntervals[userId];
-  }
-  if (positionMonitorIntervals[userId]) {
-    clearInterval(positionMonitorIntervals[userId]);
-    delete positionMonitorIntervals[userId];
   }
   const state = engineStates[userId];
   if (state) {
@@ -28836,13 +28983,14 @@ function getModelLockStatus(userId) {
   if (!state) return { locked: false, openPositions: 0 };
   return { locked: state.modelLocked, openPositions: state.openPositionCount };
 }
-var FX_MAX_OPEN_PER_SYMBOL, FX_SYMBOL_COOLDOWN_MS, mt5AccountQueues, mt5AccountRegistry, engineStates, engineIntervals, engineTimers, brainLearningIntervals, positionMonitorIntervals, _monitorBusy, persistedConfigOverrides, goalTrackerCache, ALL_STRATEGY_KEYS, _dxSkipTableReady, countedTradeKeys, h4BiasCache, H4_REFRESH_MS, TRAIL_METHOD_LABELS, xauPeakPts, xauLockedPts, btcInitialStop, btcLastStop, NY_TIME_FMT, INDEX_BROKER_ALIASES, FX_LEADER_LOCK_KEY, FX_LEADER_STALE_MS, _fxLeaderClient, _fxIsLeader, _fxLeaderLoop;
+var FX_MAX_OPEN_PER_SYMBOL, FX_SYMBOL_COOLDOWN_MS, mt5AccountQueues, mt5AccountRegistry, engineStates, engineIntervals, engineTimers, brainLearningIntervals, positionMonitorIntervals, _monitorBusy, persistedConfigOverrides, goalTrackerCache, ALL_STRATEGY_KEYS, _dxSkipTableReady, countedTradeKeys, h4BiasCache, H4_REFRESH_MS, TRAIL_METHOD_LABELS, xauPeakPts, xauLockedPts, btcInitialStop, btcLastStop, NY_TIME_FMT, INDEX_BROKER_ALIASES, FX_LEADER_LOCK_KEY, FX_LEADER_STALE_MS, _fxLeaderClient, _fxIsLeader, _fxLeaderLoop, hardHalted;
 var init_live_trading_engine = __esm({
   "server/services/live-trading-engine.ts"() {
     "use strict";
     init_session();
     init_pair_key();
     init_service();
+    init_guard_events();
     init_tradelocker();
     init_tradelocker_sync();
     init_indicators();
@@ -28926,6 +29074,7 @@ var init_live_trading_engine = __esm({
     _fxLeaderClient = null;
     _fxIsLeader = false;
     _fxLeaderLoop = null;
+    hardHalted = (s) => !!s?.dailyLossHalted && !s?._softLossHalt;
   }
 });
 
@@ -28953,13 +29102,13 @@ __export(fx_models_exports, {
   sessionFor: () => sessionFor
 });
 function ensureFxModelTables() {
-  if (!ensured2) {
-    ensured2 = pool.query(DDL4).then(() => void 0).catch((e) => {
+  if (!ensured3) {
+    ensured3 = pool.query(DDL4).then(() => void 0).catch((e) => {
       console.error("[fx-models] ensure tables failed (non-fatal):", e?.message || e);
-      ensured2 = null;
+      ensured3 = null;
     });
   }
-  return ensured2;
+  return ensured3;
 }
 function sessionFor(d = /* @__PURE__ */ new Date()) {
   const h = d.getUTCHours();
@@ -29610,7 +29759,7 @@ async function getModelMastery(userId, opts = {}) {
     slices: (await agg("model, day_type, symbol, session")).map(shape)
   };
 }
-var DDL4, ensured2, barsProviders, barsFor, pipSize, lastShadowCandle, lastResolveAt, M1_PAIRS_EXCLUDED, rangeCache, FX_MODEL_MIN_TO_LIST, DEFAULT_SETTINGS, LIVE_LEVELS, emaLast;
+var DDL4, ensured3, barsProviders, barsFor, pipSize, lastShadowCandle, lastResolveAt, M1_PAIRS_EXCLUDED, rangeCache, FX_MODEL_MIN_TO_LIST, DEFAULT_SETTINGS, LIVE_LEVELS, emaLast;
 var init_fx_models = __esm({
   "server/services/fx-models.ts"() {
     "use strict";
@@ -29665,7 +29814,7 @@ ALTER TABLE fx_model_decisions ADD COLUMN IF NOT EXISTS source text NOT NULL DEF
 ALTER TABLE fx_model_decisions ADD COLUMN IF NOT EXISTS engine text NOT NULL DEFAULT 'fx';
 ALTER TABLE fx_day_regimes ADD COLUMN IF NOT EXISTS engine text NOT NULL DEFAULT 'fx';
 `;
-    ensured2 = null;
+    ensured3 = null;
     barsProviders = {
       fx: async (symbol, tf, n) => {
         const r = await marketDataService.fetchMarketData({ symbol, assetType: marketDataService.detectAssetType(symbol), timeframe: tf, limit: n });

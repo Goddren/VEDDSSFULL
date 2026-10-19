@@ -16,7 +16,7 @@ interface SocialPost {
 }
 
 const KIND_LABEL: Record<string, string> = {
-  weekly_recap: "Weekly recap", shadow_progress: "Shadow progress", engine_insight: "Engine insight", milestone: "Milestone",
+  daily_update: "Daily update", weekly_recap: "Weekly recap", shadow_progress: "Shadow progress", engine_insight: "Engine insight", milestone: "Milestone",
 };
 const STATUS_TABS = ["draft", "approved", "posted", "skipped"] as const;
 
@@ -41,6 +41,11 @@ export default function SocialQueuePage() {
     mutationFn: async (kind: string) => (await apiRequest("POST", "/api/social/generate", { kind, force: true })).json(),
     onSuccess: (d: any) => { toast({ title: "Generate", description: d.note }); refresh(); },
     onError: (e: Error) => toast({ title: "Generate failed", description: e.message, variant: "destructive" }),
+  });
+  const emailNow = useMutation({
+    mutationFn: async () => (await apiRequest("POST", "/api/social/email-now", {})).json(),
+    onSuccess: (d: any) => toast({ title: d.sent ? "Email sent" : "Not sent", description: d.note }),
+    onError: (e: Error) => toast({ title: "Email failed", description: e.message, variant: "destructive" }),
   });
   const milestone = useMutation({
     mutationFn: async () => (await apiRequest("POST", "/api/social/milestone", { title: msTitle, detail: msDetail })).json(),
@@ -72,10 +77,11 @@ export default function SocialQueuePage() {
         <Card>
           <CardHeader className="pb-3">
             <CardTitle className="text-base">Create drafts now</CardTitle>
-            <CardDescription>Normally automatic: insight Mon, shadow progress Wed, weekly recap Sat, milestones every 6 hours.</CardDescription>
+            <CardDescription>Normally automatic: daily update + morning email every day, insight Mon, shadow progress Wed, weekly recap Sat, milestones every 6 hours.</CardDescription>
           </CardHeader>
           <CardContent className="space-y-4">
             <div className="flex flex-wrap gap-2">
+              <Button size="sm" onClick={() => emailNow.mutate()} disabled={emailNow.isPending} data-testid="button-email-now">Email me today's posts</Button>
               {Object.entries(KIND_LABEL).map(([k, label]) => (
                 <Button key={k} size="sm" variant="outline" onClick={() => generate.mutate(k)} disabled={generate.isPending} data-testid={`button-generate-${k}`}>
                   <Sparkles className="w-3.5 h-3.5 mr-1.5" />{label}

@@ -87,7 +87,7 @@ async function renderCard(c: Card): Promise<Buffer> {
 }
 
 // ── Data ──────────────────────────────────────────────────────────────────
-async function fxWeek(): Promise<null | { pct: number; signals: number; winRate: number; best?: { pair: string; pct: number }; series: number[] }> {
+async function fxWeek(windowDays = 7): Promise<null | { pct: number; signals: number; winRate: number; best?: { pair: string; pct: number }; series: number[] }> {
   const owner = OWNER();
   const base = (await pool.query(
     `SELECT DISTINCT ON (split_part(r.key, ':', 1)) split_part(r.key, ':', 1) AS conn, (r.value->>'equity')::float AS eq
@@ -100,8 +100,8 @@ async function fxWeek(): Promise<null | { pct: number; signals: number; winRate:
             created_at, closed_at, profit_loss::float AS pl
        FROM ai_trade_results
       WHERE user_id = $1 AND source LIKE 'tradelocker%' AND result IN ('WIN','LOSS','BREAKEVEN')
-        AND closed_at > now() - interval '7 days' AND closed_at <= now()
-      ORDER BY closed_at`, [owner]);
+        AND closed_at > now() - make_interval(days => $2) AND closed_at <= now()
+      ORDER BY closed_at`, [owner, windowDays]);
   if (!rows.length) return null;
   const sigs: Array<{ s: string; d: string; t: number; pl: number; close: number }> = [];
   for (const r of rows) {
@@ -286,13 +286,34 @@ async function saveDraft(d: Draft): Promise<number> {
 }
 
 /** Generate one kind now (manual button or scheduler). Skips if this period already has it. */
-export async function generateKind(kind: 'weekly_recap' | 'shadow_progress' | 'engine_insight' | 'milestone', force = false): Promise<{ created: number; note: string }> {
+/** Yesterday's live result + shadow progress, for the morning email. */
+async function buildDailyUpdate(): Promise<Draft | null> {
+  const d = await fxWeek(1);
+  const { fx } = await mastery();
+  const f2 = fx.models.find((x: any) => x.model === 'M2'), f1 = fx.models.find((x: any) => x.model === 'M1');
+  if (!d && !f2 && !f1) return null;
+  const day = new Date().toISOString().slice(0, 10);
+  const up = (d?.pct ?? 0) >= 0;
+  const live = d ? `Last 24h (live): ${pct(d.pct, 2)} of account · ${d.signals} signal${d.signals === 1 ? '' : 's'} · ${d.winRate.toFixed(0)}% win rate` : 'Last 24h (live): no closed trades';
+  const shadow = [f2 && `Trend model (shadow): ${f2.trades} ideas, ${(f2.winRate * 100).toFixed(0)}% (${lvl(f2.level)})`, f1 && `Range model (shadow): ${f1.trades} ideas, ${(f1.winRate * 100).toFixed(0)}% (${lvl(f1.level)})`].filter(Boolean) as string[];
+  return {
+    kind: 'daily_update', period: day,
+    card: { eyebrow: 'Daily engine update', title: 'AI FX engine — last 24h', big: d ? pct(d.pct, 2) : '—', bigColor: d ? (up ? '#34d399' : '#f87171') : '#94a3b8', sub: d ? 'of account, live trades' : 'no closed trades in the last 24h', series: d?.series,
+      rows: [...(d ? [['Signals', String(d.signals)] as [string, string], ['Win rate', `${d.winRate.toFixed(0)}%`] as [string, string]] : []), ...(f2 ? [['Trend model', `${f2.trades} ideas · ${lvl(f2.level)}`] as [string, string]] : [])] },
+    ig: `Daily build log 📈\n\n${live}\n${shadow.join('\n')}\n\nBuilding an AI trading engine in public — every number is real, shadow results are simulated.\n\n${RISK}\n\n${TAGS_IG}`,
+    x: [`Daily build log 📈\n\n${live}`, ...(shadow.length ? [shadow.join('\n')] : []), `Shadow → live → prop firm, in public.\n\n${RISK}`],
+    data: { live: d, models: fx.models },
+  };
+}
+
+export async function generateKind(kind: 'weekly_recap' | 'shadow_progress' | 'engine_insight' | 'milestone' | 'daily_update', force = false): Promise<{ created: number; note: string }> {
   await ensureSocialTables();
   const drafts: Draft[] = [];
   if (kind === 'weekly_recap') { const d = await buildWeeklyRecap(); if (d) drafts.push(d); }
   if (kind === 'shadow_progress') { const d = await buildShadowProgress(); if (d) drafts.push(d); }
   if (kind === 'engine_insight') { const d = await buildEngineInsight(); if (d) drafts.push(d); }
   if (kind === 'milestone') drafts.push(...await buildMilestones());
+  if (kind === 'daily_update') { const d = await buildDailyUpdate(); if (d) drafts.push(d); }
   let created = 0;
   for (const d of drafts) {
     if (!force) {
@@ -305,6 +326,46 @@ export async function generateKind(kind: 'weekly_recap' | 'shadow_progress' | 'e
 }
 
 /** Hourly scheduler tick (web service, FX leader only). Drafts only. */
+/**
+ * Morning email (manual posting for now): every draft created since the last
+ * email — today's daily update plus any recap / progress / insight /
+ * milestone — with the card image link, the Instagram caption and the X
+ * thread, ready to copy. Uses the persona engine's mail channel.
+ */
+export async function sendMorningSocialEmail(force = false): Promise<{ sent: boolean; count: number; note: string }> {
+  await ensureSocialTables();
+  await generateKind('daily_update').catch(() => null);
+  const last = Number((await getState('social_email', 'last_id'))?.id) || 0;
+  const { rows } = await pool.query(
+    `SELECT id, kind, platform, caption, thread, created_at FROM social_posts
+      WHERE id > $1 AND status IN ('draft','approved') ORDER BY id`, [force ? 0 : last]);
+  if (!rows.length) return { sent: false, count: 0, note: 'nothing new to send' };
+  const esc2 = (t: string) => String(t || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+  const byKind = new Map<string, any[]>();
+  for (const r of rows) { const k = `${r.kind}|${new Date(r.created_at).toISOString().slice(0, 13)}`; (byKind.get(k) || byKind.set(k, []).get(k)!).push(r); }
+  const LABEL: Record<string, string> = { daily_update: 'Daily update', weekly_recap: 'Weekly recap', shadow_progress: 'Shadow progress', engine_insight: 'Engine insight', milestone: 'Milestone' };
+  const blocks = Array.from(byKind.values()).map((g) => {
+    const ig = g.find((r: any) => r.platform === 'instagram'), x = g.find((r: any) => r.platform === 'x');
+    const img = (ig || x) ? `${SITE()}/api/social/image/${(ig || x).id}.png` : '';
+    const thread: string[] = Array.isArray(x?.thread) ? x.thread : x?.caption ? [x.caption] : [];
+    return `<div style="border:1px solid #e5e7eb;border-radius:12px;padding:16px;margin:0 0 20px">
+      <h3 style="margin:0 0 8px;font:600 16px system-ui">${esc2(LABEL[g[0].kind] || g[0].kind)}</h3>
+      ${img ? `<p style="margin:0 0 10px"><a href="${img}"><img src="${img}" width="320" style="border-radius:8px;display:block" alt="post card"></a><span style="font:12px system-ui;color:#6b7280">Image: <a href="${img}">${img}</a> (save &amp; upload)</span></p>` : ''}
+      ${ig ? `<p style="font:600 13px system-ui;margin:12px 0 4px">Instagram caption</p><pre style="white-space:pre-wrap;font:13px system-ui;background:#f9fafb;padding:10px;border-radius:8px;margin:0">${esc2(ig.caption)}</pre>` : ''}
+      ${thread.length ? `<p style="font:600 13px system-ui;margin:12px 0 4px">X thread (${thread.length} tweets)</p>${thread.map((t, i) => `<pre style="white-space:pre-wrap;font:13px system-ui;background:#f9fafb;padding:10px;border-radius:8px;margin:0 0 6px">${i + 1}/ ${esc2(t)}</pre>`).join('')}` : ''}
+    </div>`;
+  }).join('');
+  const html = `<div style="max-width:640px;margin:0 auto;font:14px system-ui;color:#111827">
+    <h2 style="margin:0 0 4px">VEDD AI — today's post ideas</h2>
+    <p style="margin:0 0 18px;color:#6b7280">Faceless Instagram + X, built from the engine's real numbers (percentages only). Copy, post, done. Manage drafts at <a href="${SITE()}/social-queue">${SITE()}/social-queue</a>.</p>
+    ${blocks}
+    <p style="color:#9ca3af;font-size:12px">${esc2(RISK)}</p></div>`;
+  const { sendPersonaContentEmail } = await import('./persona-content-engine');
+  const r = await sendPersonaContentEmail(`VEDD AI post ideas — ${new Date().toISOString().slice(0, 10)} (${byKind.size})`, html);
+  if (r.success) await setState('social_email', 'last_id', { id: Math.max(...rows.map((x: any) => Number(x.id))), at: Date.now() });
+  return { sent: !!r.success, count: byKind.size, note: r.success ? 'sent' : (r.reason || 'send failed') };
+}
+
 export function startSocialAutopilot(): void {
   if (process.env.SOCIAL_AUTOPILOT === 'off') return;
   const tick = async () => {
@@ -316,6 +377,16 @@ export function startSocialAutopilot(): void {
       if (dow === 3 && h === 14) await generateKind('shadow_progress');
       if (dow === 1 && h === 14) await generateKind('engine_insight');
       if (h % 6 === 0) await generateKind('milestone');
+      // Morning email with today's post ideas (SOCIAL_EMAIL_HOUR_UTC, default 11 = ~7am US Eastern).
+      if (h === Number(process.env.SOCIAL_EMAIL_HOUR_UTC ?? 11) && process.env.SOCIAL_MORNING_EMAIL !== 'off') {
+        const today = new Date().toISOString().slice(0, 10);
+        const sentDay = (await getState('social_email', 'day'))?.day;
+        if (sentDay !== today) {
+          const r = await sendMorningSocialEmail();
+          await setState('social_email', 'day', { day: today, note: r.note });
+          console.log(`[social] morning email: ${r.note} (${r.count} post sets)`);
+        }
+      }
     } catch (e: any) { console.error('[social] tick failed (non-fatal):', e?.message || e); }
   };
   setInterval(tick, 60 * 60 * 1000);

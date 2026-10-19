@@ -339,7 +339,7 @@ function buildEmailHtml(opts: {
 }
 
 // ── 6. Send email (SendGrid → Gmail fallback, same pattern as Ambassador Prime) ─
-async function sendPersonaContentEmail(subject: string, html: string): Promise<{ success: boolean; reason?: string }> {
+export async function sendPersonaContentEmail(subject: string, html: string): Promise<{ success: boolean; reason?: string }> {
   const sgKey = process.env.SENDGRID_API_KEY;
   const gmailUser = process.env.GMAIL_USER;
   const gmailPass = process.env.GMAIL_APP_PASSWORD;
