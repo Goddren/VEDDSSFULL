@@ -38035,6 +38035,7 @@ __export(social_autopilot_exports, {
   generateKind: () => generateKind,
   previewKind: () => previewKind,
   sendMorningSocialEmail: () => sendMorningSocialEmail,
+  snapshotChallengeEquity: () => snapshotChallengeEquity,
   startSocialAutopilot: () => startSocialAutopilot
 });
 function ensureSocialTables() {
@@ -38425,6 +38426,126 @@ ${RISK}`],
     data: { live: d, models: fx.models }
   };
 }
+async function challengeConn() {
+  const { storage: storage2 } = await Promise.resolve().then(() => (init_storage(), storage_exports));
+  const conns = await storage2.getUserTradelockerConnections(OWNER());
+  return conns.find((c) => c.id === CH_CONN() && c.isActive) || null;
+}
+async function readChallengeEquity() {
+  try {
+    const conn = await challengeConn();
+    if (!conn) return null;
+    const { getOrCreateService: getOrCreateService2 } = await Promise.resolve().then(() => (init_tradelocker(), tradelocker_exports));
+    const svc = await getOrCreateService2(conn);
+    const info2 = await svc.getAccountInfo();
+    const eq21 = Number(info2?.equity) > 0 ? Number(info2.equity) : Number(info2?.balance);
+    return eq21 > 0 ? eq21 : null;
+  } catch {
+    return null;
+  }
+}
+async function snapshotChallengeEquity() {
+  if (process.env.SOCIAL_CHALLENGE === "off") return;
+  const day = (/* @__PURE__ */ new Date()).toISOString().slice(0, 10);
+  if (await getState("challenge_equity", `${CH_CONN()}:${day}`)) return;
+  const eq21 = await readChallengeEquity();
+  if (!eq21) return;
+  const { rows } = await pool.query(
+    `SELECT (value->>'equity')::float AS eq FROM runtime_state WHERE scope IN ('challenge_equity','tl_day_start') AND key LIKE $1 ORDER BY key DESC LIMIT 1`,
+    [`${CH_CONN()}:%`]
+  );
+  const conn = await challengeConn();
+  const ref = rows[0] ? Number(rows[0].eq) : Number(conn?.propFirmAccountSize) || 1e5;
+  if (Math.abs(eq21 - ref) / ref > 0.25) {
+    console.error(`[social] challenge snapshot ${eq21} vs ${ref} rejected as implausible`);
+    return;
+  }
+  await setState("challenge_equity", `${CH_CONN()}:${day}`, { equity: eq21, at: Date.now() });
+}
+async function challengeSnap(day) {
+  const v = await getState("challenge_equity", `${CH_CONN()}:${day}`);
+  if (Number(v?.equity) > 0) return Number(v.equity);
+  const t = await getState("tl_day_start", `${CH_CONN()}:${day}`);
+  return Number(t?.equity) > 0 ? Number(t.equity) : null;
+}
+async function buildChallengeDaily() {
+  if (process.env.SOCIAL_CHALLENGE === "off") return null;
+  const conn = await challengeConn();
+  if (!conn) return null;
+  const size = Number(process.env.SOCIAL_CHALLENGE_SIZE ?? conn.propFirmAccountSize ?? 1e5) || 1e5;
+  const firm = String(conn.propFirmName || "Prop firm").replace(/^herofx$/i, "HeroFX");
+  const today = (/* @__PURE__ */ new Date()).toISOString().slice(0, 10);
+  const yday = new Date(Date.now() - 864e5).toISOString().slice(0, 10);
+  const nowEq = await challengeSnap(today) ?? await readChallengeEquity();
+  if (!nowEq) return null;
+  let prevEq = await challengeSnap(yday);
+  if (prevEq == null) {
+    const { rows } = await pool.query(
+      `SELECT (value->>'equity')::float AS eq FROM runtime_state WHERE scope IN ('challenge_equity','tl_day_start') AND key LIKE $1 AND key < $2 ORDER BY key DESC LIMIT 1`,
+      [`${CH_CONN()}:%`, `${CH_CONN()}:${today}`]
+    );
+    prevEq = rows[0] ? Number(rows[0].eq) : null;
+  }
+  const ref = prevEq ?? size;
+  if (Math.abs(nowEq - ref) / ref > 0.25) {
+    console.error(`[social] challenge equity ${nowEq} vs reference ${ref} looks wrong \u2014 challenge post skipped`);
+    return null;
+  }
+  const dayUsd = prevEq != null ? nowEq - prevEq : null;
+  const dayPct = prevEq ? dayUsd / prevEq * 100 : null;
+  const totUsd = nowEq - size, totPct = totUsd / size * 100;
+  const target = Number(process.env.SOCIAL_CHALLENGE_TARGET_PCT ?? 10);
+  const progress2 = Math.max(0, Math.min(100, totPct / target * 100));
+  const start = process.env.SOCIAL_CHALLENGE_START;
+  const dayN = start ? Math.max(1, Math.floor((Date.now() - Date.parse(start + "T00:00:00Z")) / 864e5) + 1) : null;
+  const tr = await pool.query(
+    `SELECT count(*)::int AS n FROM tradelocker_trade_logs WHERE connection_id=$1 AND action='OPEN' AND status='executed' AND created_at >= $2::date AND created_at < $3::date`,
+    [CH_CONN(), yday, today]
+  ).catch(() => ({ rows: [{ n: 0 }] }));
+  const trades = Number(tr.rows[0]?.n) || 0;
+  const usd$ = (x) => `${x >= 0 ? "+" : "-"}$${Math.abs(x).toLocaleString("en-US", { maximumFractionDigits: 0 })}`;
+  const bal$ = (x) => `$${x.toLocaleString("en-US", { maximumFractionDigits: 0 })}`;
+  const up = (dayUsd ?? 0) >= 0;
+  const title = `${firm} $${Math.round(size / 1e3)}K challenge${dayN ? ` \u2014 day ${dayN}` : ""}`;
+  const dayLine = dayUsd != null ? `Yesterday: ${usd$(dayUsd)} (${pct2(dayPct, 2)}) \xB7 ${trades} trade${trades === 1 ? "" : "s"}` : `Yesterday: first tracked day`;
+  const totLine = `Balance: ${bal$(nowEq)} \xB7 Total: ${usd$(totUsd)} (${pct2(totPct, 2)})`;
+  const progLine = `Progress to ${target}% target: ${progress2.toFixed(0)}%`;
+  return {
+    kind: "challenge_daily",
+    period: today,
+    card: {
+      eyebrow: "Live \xB7 prop firm challenge",
+      title,
+      big: dayUsd != null ? usd$(dayUsd) : bal$(nowEq),
+      bigColor: dayUsd == null ? "#f8fafc" : up ? "#34d399" : "#f87171",
+      sub: dayUsd != null ? `yesterday (${pct2(dayPct, 2)}) \xB7 real account, real money` : "starting balance tracked from today",
+      rows: [["Balance", bal$(nowEq)], ["Total since start", `${usd$(totUsd)} (${pct2(totPct, 2)})`], [`Target ${target}%`, `${progress2.toFixed(0)}% there`], ["Trades yesterday", String(trades)]]
+    },
+    ig: `${up ? "\u{1F4C8}" : "\u{1F4C9}"} ${title}
+
+${dayLine}
+${totLine}
+${progLine}
+
+The AI engine trades this ${firm} account live \u2014 real money, real numbers, every day. Win or lose, it gets posted.
+
+${RISK}
+
+#propfirm #fundedtrader #forex #aitrading #challenge #buildinpublic`,
+    x: [
+      `${up ? "\u{1F4C8}" : "\u{1F4C9}"} ${title}
+
+${dayLine}
+${totLine}`,
+      `${progLine}
+
+AI engine, live account, every result posted \u2014 red days too.
+
+${RISK}`
+    ],
+    data: { firm, size, nowEq, prevEq, dayUsd, dayPct, totUsd, totPct, target, trades }
+  };
+}
 async function generateKind(kind, force = false) {
   await ensureSocialTables();
   const drafts = [];
@@ -38445,6 +38566,10 @@ async function generateKind(kind, force = false) {
     const d = await buildDailyUpdate();
     if (d) drafts.push(d);
   }
+  if (kind === "challenge_daily") {
+    const d = await buildChallengeDaily();
+    if (d) drafts.push(d);
+  }
   let created = 0;
   for (const d of drafts) {
     if (!force) {
@@ -38458,6 +38583,7 @@ async function generateKind(kind, force = false) {
 }
 async function sendMorningSocialEmail(force = false) {
   await ensureSocialTables();
+  await generateKind("challenge_daily").catch(() => null);
   await generateKind("daily_update").catch(() => null);
   const last = Number((await getState("social_email", "last_id"))?.id) || 0;
   const { rows } = await pool.query(
@@ -38472,7 +38598,7 @@ async function sendMorningSocialEmail(force = false) {
     const k = `${r2.kind}|${new Date(r2.created_at).toISOString().slice(0, 13)}`;
     (byKind.get(k) || byKind.set(k, []).get(k)).push(r2);
   }
-  const LABEL = { daily_update: "Daily update", weekly_recap: "Weekly recap", shadow_progress: "Shadow progress", engine_insight: "Engine insight", milestone: "Milestone" };
+  const LABEL = { challenge_daily: "$100K challenge \u2014 daily result", daily_update: "Daily update", weekly_recap: "Weekly recap", shadow_progress: "Shadow progress", engine_insight: "Engine insight", milestone: "Milestone" };
   const blocks = Array.from(byKind.values()).map((g) => {
     const ig = g.find((r2) => r2.platform === "instagram"), x = g.find((r2) => r2.platform === "x");
     const img = ig || x ? `${SITE()}/api/social/image/${(ig || x).id}.png` : "";
@@ -38505,6 +38631,7 @@ function startSocialAutopilot() {
       if (dow === 3 && h === 14) await generateKind("shadow_progress");
       if (dow === 1 && h === 14) await generateKind("engine_insight");
       if (h % 6 === 0) await generateKind("milestone");
+      if (h === 0) await snapshotChallengeEquity();
       if (h === Number(process.env.SOCIAL_EMAIL_HOUR_UTC ?? 11) && process.env.SOCIAL_MORNING_EMAIL !== "off") {
         const today = (/* @__PURE__ */ new Date()).toISOString().slice(0, 10);
         const sentDay = (await getState("social_email", "day"))?.day;
@@ -38522,10 +38649,10 @@ function startSocialAutopilot() {
   setTimeout(tick2, 5 * 60 * 1e3);
 }
 async function previewKind(kind) {
-  const d = kind === "weekly_recap" ? await buildWeeklyRecap() : kind === "shadow_progress" ? await buildShadowProgress() : await buildEngineInsight();
+  const d = kind === "challenge_daily" ? await buildChallengeDaily() : kind === "weekly_recap" ? await buildWeeklyRecap() : kind === "shadow_progress" ? await buildShadowProgress() : await buildEngineInsight();
   return { draft: d, png: d ? await renderCard(d.card) : void 0 };
 }
-var OWNER, SITE, RISK, TAGS_IG, ensured4, esc, pct2, lvl, pick2;
+var OWNER, SITE, RISK, TAGS_IG, ensured4, esc, pct2, lvl, pick2, CH_CONN;
 var init_social_autopilot = __esm({
   "server/services/social-autopilot.ts"() {
     "use strict";
@@ -38539,6 +38666,7 @@ var init_social_autopilot = __esm({
     pct2 = (x, d = 1) => `${x >= 0 ? "+" : ""}${x.toFixed(d)}%`;
     lvl = (l) => String(l || "").replace(/\s*\(negative\)/i, "");
     pick2 = (xs) => xs[Math.floor(Math.random() * xs.length)];
+    CH_CONN = () => Number(process.env.SOCIAL_CHALLENGE_CONN_ID ?? 31);
   }
 });
 
@@ -61153,9 +61281,9 @@ async function getStopOrdersForUser(userId, filters = {}) {
 init_schema();
 
 // server/build-info.ts
-var BUILD_COMMIT = "44811811-dirty";
+var BUILD_COMMIT = "6f954286-dirty";
 var BUILD_BRANCH = "main";
-var BUILT_AT = "2026-10-19T02:45:27.989Z";
+var BUILT_AT = "2026-10-19T03:46:08.385Z";
 
 // server/stripe.ts
 init_db();
@@ -67447,7 +67575,7 @@ Respond ONLY in valid JSON format with these exact keys:
     if (!socialAdmin(req)) return res.status(403).json({ error: "Admin only" });
     try {
       const kind = String(req.body?.kind || "");
-      if (!["weekly_recap", "shadow_progress", "engine_insight", "milestone", "daily_update"].includes(kind)) return res.status(400).json({ error: "bad kind" });
+      if (!["weekly_recap", "shadow_progress", "engine_insight", "milestone", "daily_update", "challenge_daily"].includes(kind)) return res.status(400).json({ error: "bad kind" });
       const { generateKind: generateKind2 } = await Promise.resolve().then(() => (init_social_autopilot(), social_autopilot_exports));
       res.json(await generateKind2(kind, !!req.body?.force));
     } catch (e) {

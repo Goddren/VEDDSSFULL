@@ -16,7 +16,7 @@ interface SocialPost {
 }
 
 const KIND_LABEL: Record<string, string> = {
-  daily_update: "Daily update", weekly_recap: "Weekly recap", shadow_progress: "Shadow progress", engine_insight: "Engine insight", milestone: "Milestone",
+  challenge_daily: "$100K challenge", daily_update: "Daily update", weekly_recap: "Weekly recap", shadow_progress: "Shadow progress", engine_insight: "Engine insight", milestone: "Milestone",
 };
 const STATUS_TABS = ["draft", "approved", "posted", "skipped"] as const;
 

@@ -3740,7 +3740,7 @@ Respond ONLY in valid JSON format with these exact keys:
     if (!socialAdmin(req)) return res.status(403).json({ error: 'Admin only' });
     try {
       const kind = String(req.body?.kind || '');
-      if (!['weekly_recap', 'shadow_progress', 'engine_insight', 'milestone', 'daily_update'].includes(kind)) return res.status(400).json({ error: 'bad kind' });
+      if (!['weekly_recap', 'shadow_progress', 'engine_insight', 'milestone', 'daily_update', 'challenge_daily'].includes(kind)) return res.status(400).json({ error: 'bad kind' });
       const { generateKind } = await import('./services/social-autopilot');
       res.json(await generateKind(kind as any, !!req.body?.force));
     } catch (e: any) { res.status(500).json({ error: e?.message || 'failed' }); }

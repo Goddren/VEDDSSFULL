@@ -306,7 +306,130 @@ async function buildDailyUpdate(): Promise<Draft | null> {
   };
 }
 
-export async function generateKind(kind: 'weekly_recap' | 'shadow_progress' | 'engine_insight' | 'milestone' | 'daily_update', force = false): Promise<{ created: number; note: string }> {
+// ── $100K prop-firm challenge account — daily results, REAL numbers ──────
+// The one post type that shows dollars (user choice). Built from broker
+// equity snapshots taken at 00:05 UTC each day (exact, unlike reconstructed
+// per-trade P&L). Env: SOCIAL_CHALLENGE_CONN_ID (31 = HeroFX 100k),
+// SOCIAL_CHALLENGE_SIZE (prop_firm_account_size, else 100000),
+// SOCIAL_CHALLENGE_TARGET_PCT (10), SOCIAL_CHALLENGE_START (YYYY-MM-DD),
+// SOCIAL_CHALLENGE=off to disable.
+const CH_CONN = () => Number(process.env.SOCIAL_CHALLENGE_CONN_ID ?? 31);
+
+async function challengeConn(): Promise<any | null> {
+  const { storage } = await import('../storage');
+  const conns = await storage.getUserTradelockerConnections(OWNER());
+  return (conns as any[]).find((c) => c.id === CH_CONN() && c.isActive) || null;
+}
+async function readChallengeEquity(): Promise<number | null> {
+  try {
+    const conn = await challengeConn();
+    if (!conn) return null;
+    const { getOrCreateService } = await import('../tradelocker');
+    const svc: any = await getOrCreateService(conn);
+    const info = await svc.getAccountInfo();
+    const eq = Number(info?.equity) > 0 ? Number(info.equity) : Number(info?.balance);
+    return eq > 0 ? eq : null;
+  } catch { return null; }
+}
+/** Store today's 00:05 UTC equity for the challenge account (once a day). */
+export async function snapshotChallengeEquity(): Promise<void> {
+  if (process.env.SOCIAL_CHALLENGE === 'off') return;
+  const day = new Date().toISOString().slice(0, 10);
+  if (await getState('challenge_equity', `${CH_CONN()}:${day}`)) return;
+  const eq = await readChallengeEquity();
+  if (!eq) return;
+  // Sanity: within 25% of the last stored figure (or the account size).
+  const { rows } = await pool.query(
+    `SELECT (value->>'equity')::float AS eq FROM runtime_state WHERE scope IN ('challenge_equity','tl_day_start') AND key LIKE $1 ORDER BY key DESC LIMIT 1`, [`${CH_CONN()}:%`]);
+  const conn = await challengeConn();
+  const ref = rows[0] ? Number(rows[0].eq) : Number(conn?.propFirmAccountSize) || 100000;
+  if (Math.abs(eq - ref) / ref > 0.25) { console.error(`[social] challenge snapshot ${eq} vs ${ref} rejected as implausible`); return; }
+  await setState('challenge_equity', `${CH_CONN()}:${day}`, { equity: eq, at: Date.now() });
+}
+async function challengeSnap(day: string): Promise<number | null> {
+  const v = await getState('challenge_equity', `${CH_CONN()}:${day}`);
+  if (Number(v?.equity) > 0) return Number(v.equity);
+  const t = await getState('tl_day_start', `${CH_CONN()}:${day}`); // risk-guard snapshot fallback
+  return Number(t?.equity) > 0 ? Number(t.equity) : null;
+}
+
+async function buildChallengeDaily(): Promise<Draft | null> {
+  if (process.env.SOCIAL_CHALLENGE === 'off') return null;
+  const conn = await challengeConn();
+  if (!conn) return null;
+  const size = Number(process.env.SOCIAL_CHALLENGE_SIZE ?? conn.propFirmAccountSize ?? 100000) || 100000;
+  const firm = String(conn.propFirmName || 'Prop firm').replace(/^herofx$/i, 'HeroFX');
+  const today = new Date().toISOString().slice(0, 10);
+  const yday = new Date(Date.now() - 86_400_000).toISOString().slice(0, 10);
+  const nowEq = (await challengeSnap(today)) ?? (await readChallengeEquity());
+  if (!nowEq) return null;
+  // Most recent earlier snapshot = yesterday's open (or the last day we have).
+  let prevEq = await challengeSnap(yday);
+  if (prevEq == null) {
+    const { rows } = await pool.query(
+      `SELECT (value->>'equity')::float AS eq FROM runtime_state WHERE scope IN ('challenge_equity','tl_day_start') AND key LIKE $1 AND key < $2 ORDER BY key DESC LIMIT 1`,
+      [`${CH_CONN()}:%`, `${CH_CONN()}:${today}`]);
+    prevEq = rows[0] ? Number(rows[0].eq) : null;
+  }
+  // Real-money post: never publish an implausible figure. A read that lands on
+  // the wrong/combined account (seen in testing: $199k on a $100k account) is
+  // held back rather than posted.
+  const ref = prevEq ?? size;
+  if (Math.abs(nowEq - ref) / ref > 0.25) {
+    console.error(`[social] challenge equity ${nowEq} vs reference ${ref} looks wrong — challenge post skipped`);
+    return null;
+  }
+  const dayUsd = prevEq != null ? nowEq - prevEq : null;
+  const dayPct = prevEq ? (dayUsd! / prevEq) * 100 : null;
+  const totUsd = nowEq - size, totPct = (totUsd / size) * 100;
+  const target = Number(process.env.SOCIAL_CHALLENGE_TARGET_PCT ?? 10);
+  const progress = Math.max(0, Math.min(100, (totPct / target) * 100));
+  const start = process.env.SOCIAL_CHALLENGE_START;
+  const dayN = start ? Math.max(1, Math.floor((Date.now() - Date.parse(start + 'T00:00:00Z')) / 86_400_000) + 1) : null;
+  // Yesterday's orders on this account (count only; P&L comes from equity).
+  const tr = await pool.query(
+    `SELECT count(*)::int AS n FROM tradelocker_trade_logs WHERE connection_id=$1 AND action='OPEN' AND status='executed' AND created_at >= $2::date AND created_at < $3::date`,
+    [CH_CONN(), yday, today]).catch(() => ({ rows: [{ n: 0 }] }));
+  const trades = Number(tr.rows[0]?.n) || 0;
+  const usd$ = (x: number) => `${x >= 0 ? '+' : '-'}$${Math.abs(x).toLocaleString('en-US', { maximumFractionDigits: 0 })}`;
+  const bal$ = (x: number) => `$${x.toLocaleString('en-US', { maximumFractionDigits: 0 })}`;
+  const up = (dayUsd ?? 0) >= 0;
+  const title = `${firm} $${Math.round(size / 1000)}K challenge${dayN ? ` — day ${dayN}` : ''}`;
+  const dayLine = dayUsd != null ? `Yesterday: ${usd$(dayUsd)} (${pct(dayPct!, 2)}) · ${trades} trade${trades === 1 ? '' : 's'}` : `Yesterday: first tracked day`;
+  const totLine = `Balance: ${bal$(nowEq)} · Total: ${usd$(totUsd)} (${pct(totPct, 2)})`;
+  const progLine = `Progress to ${target}% target: ${progress.toFixed(0)}%`;
+  return {
+    kind: 'challenge_daily', period: today,
+    card: { eyebrow: 'Live · prop firm challenge', title, big: dayUsd != null ? usd$(dayUsd) : bal$(nowEq), bigColor: dayUsd == null ? '#f8fafc' : up ? '#34d399' : '#f87171',
+      sub: dayUsd != null ? `yesterday (${pct(dayPct!, 2)}) · real account, real money` : 'starting balance tracked from today',
+      rows: [['Balance', bal$(nowEq)], ['Total since start', `${usd$(totUsd)} (${pct(totPct, 2)})`], [`Target ${target}%`, `${progress.toFixed(0)}% there`], ['Trades yesterday', String(trades)]] },
+    ig: `${up ? '📈' : '📉'} ${title}
+
+${dayLine}
+${totLine}
+${progLine}
+
+The AI engine trades this ${firm} account live — real money, real numbers, every day. Win or lose, it gets posted.
+
+${RISK}
+
+#propfirm #fundedtrader #forex #aitrading #challenge #buildinpublic`,
+    x: [
+      `${up ? '📈' : '📉'} ${title}
+
+${dayLine}
+${totLine}`,
+      `${progLine}
+
+AI engine, live account, every result posted — red days too.
+
+${RISK}`,
+    ],
+    data: { firm, size, nowEq, prevEq, dayUsd, dayPct, totUsd, totPct, target, trades },
+  };
+}
+
+export async function generateKind(kind: 'weekly_recap' | 'shadow_progress' | 'engine_insight' | 'milestone' | 'daily_update' | 'challenge_daily', force = false): Promise<{ created: number; note: string }> {
   await ensureSocialTables();
   const drafts: Draft[] = [];
   if (kind === 'weekly_recap') { const d = await buildWeeklyRecap(); if (d) drafts.push(d); }
@@ -314,6 +437,7 @@ export async function generateKind(kind: 'weekly_recap' | 'shadow_progress' | 'e
   if (kind === 'engine_insight') { const d = await buildEngineInsight(); if (d) drafts.push(d); }
   if (kind === 'milestone') drafts.push(...await buildMilestones());
   if (kind === 'daily_update') { const d = await buildDailyUpdate(); if (d) drafts.push(d); }
+  if (kind === 'challenge_daily') { const d = await buildChallengeDaily(); if (d) drafts.push(d); }
   let created = 0;
   for (const d of drafts) {
     if (!force) {
@@ -334,6 +458,7 @@ export async function generateKind(kind: 'weekly_recap' | 'shadow_progress' | 'e
  */
 export async function sendMorningSocialEmail(force = false): Promise<{ sent: boolean; count: number; note: string }> {
   await ensureSocialTables();
+  await generateKind('challenge_daily').catch(() => null);
   await generateKind('daily_update').catch(() => null);
   const last = Number((await getState('social_email', 'last_id'))?.id) || 0;
   const { rows } = await pool.query(
@@ -343,7 +468,7 @@ export async function sendMorningSocialEmail(force = false): Promise<{ sent: boo
   const esc2 = (t: string) => String(t || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
   const byKind = new Map<string, any[]>();
   for (const r of rows) { const k = `${r.kind}|${new Date(r.created_at).toISOString().slice(0, 13)}`; (byKind.get(k) || byKind.set(k, []).get(k)!).push(r); }
-  const LABEL: Record<string, string> = { daily_update: 'Daily update', weekly_recap: 'Weekly recap', shadow_progress: 'Shadow progress', engine_insight: 'Engine insight', milestone: 'Milestone' };
+  const LABEL: Record<string, string> = { challenge_daily: '$100K challenge — daily result', daily_update: 'Daily update', weekly_recap: 'Weekly recap', shadow_progress: 'Shadow progress', engine_insight: 'Engine insight', milestone: 'Milestone' };
   const blocks = Array.from(byKind.values()).map((g) => {
     const ig = g.find((r: any) => r.platform === 'instagram'), x = g.find((r: any) => r.platform === 'x');
     const img = (ig || x) ? `${SITE()}/api/social/image/${(ig || x).id}.png` : '';
@@ -377,6 +502,7 @@ export function startSocialAutopilot(): void {
       if (dow === 3 && h === 14) await generateKind('shadow_progress');
       if (dow === 1 && h === 14) await generateKind('engine_insight');
       if (h % 6 === 0) await generateKind('milestone');
+      if (h === 0) await snapshotChallengeEquity(); // 00:xx UTC equity for the challenge post
       // Morning email with today's post ideas (SOCIAL_EMAIL_HOUR_UTC, default 11 = ~7am US Eastern).
       if (h === Number(process.env.SOCIAL_EMAIL_HOUR_UTC ?? 11) && process.env.SOCIAL_MORNING_EMAIL !== 'off') {
         const today = new Date().toISOString().slice(0, 10);
@@ -394,7 +520,7 @@ export function startSocialAutopilot(): void {
 }
 
 /** Build drafts without saving (diagnostics). */
-export async function previewKind(kind: 'weekly_recap' | 'shadow_progress' | 'engine_insight'): Promise<{ draft: Draft | null; png?: Buffer }> {
-  const d = kind === 'weekly_recap' ? await buildWeeklyRecap() : kind === 'shadow_progress' ? await buildShadowProgress() : await buildEngineInsight();
+export async function previewKind(kind: 'weekly_recap' | 'shadow_progress' | 'engine_insight' | 'challenge_daily'): Promise<{ draft: Draft | null; png?: Buffer }> {
+  const d = kind === 'challenge_daily' ? await buildChallengeDaily() : kind === 'weekly_recap' ? await buildWeeklyRecap() : kind === 'shadow_progress' ? await buildShadowProgress() : await buildEngineInsight();
   return { draft: d, png: d ? await renderCard(d.card) : undefined };
 }
