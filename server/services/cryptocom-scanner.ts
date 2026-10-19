@@ -96,6 +96,10 @@ async function refreshDefiUniverse(chain: string): Promise<string[]> {
   const tokens = (await discoverDefiTokens(chain)).filter((t: any) => {
     const sym = String(t.symbol || '').toUpperCase();
     if (STABLE.test(sym)) return false;
+    // Staked / wrapped / yield-bearing dollars (sUSDX, sUSDe, wUSDM, stUSD…)
+    // drift a few % above $1 and never trend — SUSDX produced 45 candle errors
+    // in a day (2026-10-19).
+    if (/^(S|W|ST|A|C|Y)?USD[A-Z0-9.+]*$/i.test(sym)) return false;
     const px = Number(t.priceUsd);
     if (/USD|EUR/.test(sym) && px > 0 && Math.abs(px - 1) < 0.015) return false;
     return true;

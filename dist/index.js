@@ -42748,6 +42748,7 @@ async function refreshDefiUniverse(chain) {
   const tokens = (await discoverDefiTokens2(chain)).filter((t) => {
     const sym = String(t.symbol || "").toUpperCase();
     if (STABLE.test(sym)) return false;
+    if (/^(S|W|ST|A|C|Y)?USD[A-Z0-9.+]*$/i.test(sym)) return false;
     const px = Number(t.priceUsd);
     if (/USD|EUR/.test(sym) && px > 0 && Math.abs(px - 1) < 0.015) return false;
     return true;
@@ -61152,9 +61153,9 @@ async function getStopOrdersForUser(userId, filters = {}) {
 init_schema();
 
 // server/build-info.ts
-var BUILD_COMMIT = "c672200f-dirty";
+var BUILD_COMMIT = "44811811-dirty";
 var BUILD_BRANCH = "main";
-var BUILT_AT = "2026-10-19T01:58:59.108Z";
+var BUILT_AT = "2026-10-19T02:45:27.989Z";
 
 // server/stripe.ts
 init_db();
