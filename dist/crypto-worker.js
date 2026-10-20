@@ -18258,8 +18258,26 @@ var init_tradelocker = __esm({
             console.error("[TradeLocker] order log write failed (non-fatal):", e?.message || e);
           }
         })();
+        const waitOutBan = async () => {
+          const wait = tlBannedUntil - Date.now();
+          if (wait <= 0) return true;
+          if (wait > TL_FRESH_WAIT_MAX_MS) return false;
+          console.warn(`[TL] order ${order.symbol} waiting ${Math.ceil(wait / 1e3)}s for rate-limit ban to clear`);
+          await new Promise((r) => setTimeout(r, wait + 250));
+          return true;
+        };
         try {
-          const res = await this.placeOrderRaw(order);
+          await waitOutBan();
+          let res;
+          try {
+            res = await this.placeOrderRaw(order);
+          } catch (e) {
+            if (!_tlIsRateLimit(e)) throw e;
+            tlBannedUntil = Math.max(tlBannedUntil, Date.now() + TL_BAN_MS);
+            write("failed", `RATE LIMITED, retrying after ban: ${String(e?.message || e).slice(0, 120)}`);
+            if (!await waitOutBan()) throw e;
+            res = await this.placeOrderRaw(order);
+          }
           write(res.status === "rejected" ? "failed" : "executed", `order ${res.orderId || "-"}${res.status === "rejected" ? ` | REJECTED: ${String(res.message || "").slice(0, 200)}` : ""}`);
           return res;
         } catch (e) {

@@ -928,8 +928,31 @@ export class TradeLockerService {
         console.error('[TradeLocker] order log write failed (non-fatal):', e?.message || e);
       }
     })();
+    // Rate-limit ban: wait it out (up to TL_FRESH_WAIT_MAX_MS) before sending,
+    // and if the order itself draws a 429/1015, wait out the ban and send it
+    // once more. A 429 is answered by Cloudflare before the broker sees the
+    // request, so the retry cannot double a fill (2026-10-20 USDJPY: account
+    // 30's order got a 429 and the trade was missed).
+    const waitOutBan = async (): Promise<boolean> => {
+      const wait = tlBannedUntil - Date.now();
+      if (wait <= 0) return true;
+      if (wait > TL_FRESH_WAIT_MAX_MS) return false;
+      console.warn(`[TL] order ${order.symbol} waiting ${Math.ceil(wait / 1000)}s for rate-limit ban to clear`);
+      await new Promise((r) => setTimeout(r, wait + 250));
+      return true;
+    };
     try {
-      const res = await this.placeOrderRaw(order);
+      await waitOutBan();
+      let res: TradeLockerOrderResponse;
+      try {
+        res = await this.placeOrderRaw(order);
+      } catch (e: any) {
+        if (!_tlIsRateLimit(e)) throw e;
+        tlBannedUntil = Math.max(tlBannedUntil, Date.now() + TL_BAN_MS);
+        write('failed', `RATE LIMITED, retrying after ban: ${String(e?.message || e).slice(0, 120)}`);
+        if (!(await waitOutBan())) throw e;
+        res = await this.placeOrderRaw(order);
+      }
       write(res.status === 'rejected' ? 'failed' : 'executed', `order ${res.orderId || '-'}${res.status === 'rejected' ? ` | REJECTED: ${String(res.message || '').slice(0, 200)}` : ''}`);
       return res;
     } catch (e: any) {
