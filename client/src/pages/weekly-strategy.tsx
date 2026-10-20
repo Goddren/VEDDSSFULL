@@ -3870,6 +3870,19 @@ export default function WeeklyStrategyPage() {
                   {/* Latest AI log entry expanded */}
                   {aiLogs && aiLogs.length > 0 ? (
                     <div className="space-y-3">
+                      {/* Stale feed: since 2026-10-16 the chart-data path skips the AI
+                          while EA auto-trade is off (credit saver), so the newest
+                          entry can be days old — e.g. an old 402 shown as current. */}
+                      {(() => {
+                        const ts = Date.parse(aiLogs[0]?.timestamp || aiLogs[0]?.createdAt || '');
+                        if (!Number.isFinite(ts) || Date.now() - ts < 60 * 60 * 1000) return null;
+                        const when = new Date(ts).toLocaleString(undefined, { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
+                        return (
+                          <div className="rounded-xl p-3 border border-amber-500/30 bg-amber-900/15 text-xs text-amber-200" data-testid="ai-feed-stale">
+                            No AI checks since {when} — EA auto-trade is off, so the AI is skipped to save credits. The entry below is from then, not now.
+                          </div>
+                        );
+                      })()}
                       {/* Most recent decision */}
                       {(() => {
                         const latest = aiLogs[0];
