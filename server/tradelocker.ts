@@ -261,7 +261,7 @@ const TL_BAN_MS = Number(process.env.TL_BAN_MS ?? 120_000);
 const TL_STALE_OK_MS = 5 * 60_000;
 const TL_FRESH_WAIT_MAX_MS = Number(process.env.TL_FRESH_WAIT_MAX_MS ?? 130_000); // > TL_BAN_MS so an order can outlast a fresh ban
 let tlBannedUntil = 0;
-const _tlIsRateLimit = (e: any) => /(429|1015)|rate.?limit|too many requests/i.test(String(e?.message || e).slice(0, 400));
+const _tlIsRateLimit = (e: any) => /\b(429|1015)\b|rate.?limit|too many requests/i.test(String(e?.message || e).slice(0, 400));
 export function tlRateLimitStatus() { return { bannedUntil: tlBannedUntil, bannedForMs: Math.max(0, tlBannedUntil - Date.now()) }; }
 const tlReadCache = new Map<string, { at: number; value: any }>();
 const tlInflight = new Map<string, Promise<any>>();
@@ -2321,7 +2321,7 @@ const UNKNOWN_OUTCOME_PAUSE_MS = Number(process.env.TL_UNKNOWN_OUTCOME_PAUSE_SEC
 // A successful order clears that account's position cache.
 const GUARD_CACHE_MS = Number(process.env.TL_GUARD_CACHE_MS ?? 5000);
 const guardCache = new Map<string, { at: number; value: any }>();
-const _isRateLimit = (e: any) => /(429|1015)|rate.?limit|too many requests/i.test(String(e?.message || e).slice(0, 400));
+const _isRateLimit = (e: any) => /\b(429|1015)\b|rate.?limit|too many requests/i.test(String(e?.message || e).slice(0, 400));
 async function guardRead<T>(key: string, fn: () => Promise<T>, ttlMs = GUARD_CACHE_MS): Promise<T> {
   const hit = guardCache.get(key);
   if (ttlMs > 0 && hit && Date.now() - hit.at < ttlMs) return hit.value as T;

@@ -18065,7 +18065,7 @@ var init_tradelocker = __esm({
     TL_STALE_OK_MS = 5 * 6e4;
     TL_FRESH_WAIT_MAX_MS = Number(process.env.TL_FRESH_WAIT_MAX_MS ?? 13e4);
     tlBannedUntil = 0;
-    _tlIsRateLimit = (e) => /(429|1015)|rate.?limit|too many requests/i.test(String(e?.message || e).slice(0, 400));
+    _tlIsRateLimit = (e) => /\b(429|1015)\b|rate.?limit|too many requests/i.test(String(e?.message || e).slice(0, 400));
     tlReadCache = /* @__PURE__ */ new Map();
     tlInflight = /* @__PURE__ */ new Map();
     modifyChain = /* @__PURE__ */ new Map();
@@ -19419,7 +19419,7 @@ var init_tradelocker = __esm({
     UNKNOWN_OUTCOME_PAUSE_MS = Number(process.env.TL_UNKNOWN_OUTCOME_PAUSE_SEC ?? 120) * 1e3;
     GUARD_CACHE_MS = Number(process.env.TL_GUARD_CACHE_MS ?? 5e3);
     guardCache = /* @__PURE__ */ new Map();
-    _isRateLimit = (e) => /(429|1015)|rate.?limit|too many requests/i.test(String(e?.message || e).slice(0, 400));
+    _isRateLimit = (e) => /\b(429|1015)\b|rate.?limit|too many requests/i.test(String(e?.message || e).slice(0, 400));
   }
 });
 
