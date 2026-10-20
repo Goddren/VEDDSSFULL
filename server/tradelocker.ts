@@ -296,6 +296,15 @@ async function tlSharedRead<T>(key: string, fn: () => Promise<T>, fresh: boolean
   return p;
 }
 
+// Per-position stop-write queue + the last stop this process set (see modifyPosition).
+const modifyChain = new Map<string, Promise<void>>();
+const lastStopSet = new Map<string, { sl: number; tp?: number; at: number; by: string }>();
+/** ~1.5 pips/points, inferred from the price's magnitude. */
+function stopTolerance(price: number): number {
+  const pip = price >= 10_000 ? 1 : price >= 500 ? 0.1 : price >= 20 ? 0.01 : 0.0001;
+  return pip * 1.5;
+}
+
 export class TradeLockerService {
   private baseUrl: string;
   private accessToken: string | null = null;
@@ -1861,6 +1870,36 @@ export class TradeLockerService {
   ): Promise<{ success: boolean; error?: string }> {
     const caller = (new Error().stack || '').split('\n').slice(2, 4)
       .map((l) => l.trim().replace(/^at\s+/, '').replace(/\s*\(.*\)$/, '').replace(/^async\s+/, '')).filter(Boolean).join(' <- ') || 'unknown';
+    // One stop change per position at a time. On 2026-10-20 two stop managers
+    // wrote the same GBPUSD stop ~200ms apart (1.33139 then 1.33137); the
+    // second write drew a 429 every time. Writes for a position now queue, and
+    // a stop within ~1.5 pips of the one we set in the last 60s (same TP) is
+    // skipped as a no-op instead of sent.
+    const prev = modifyChain.get(positionId) || Promise.resolve();
+    let release!: () => void;
+    const mine = new Promise<void>((r) => { release = r; });
+    const chained = prev.then(() => mine);
+    modifyChain.set(positionId, chained);
+    await prev;
+    try {
+      const last = lastStopSet.get(positionId);
+      const sl = Number(stopLoss);
+      if (last && sl > 0 && last.sl > 0 && Date.now() - last.at < 60_000
+          && (takeProfit == null || takeProfit === last.tp)
+          && Math.abs(sl - last.sl) <= stopTolerance(sl)) {
+        console.log(`[TradeLocker] modify ${positionId} SL ${sl} skipped — within tolerance of ${last.sl} set ${Math.round((Date.now() - last.at) / 1000)}s ago by ${last.by}`);
+        return { success: true };
+      }
+      const r = await this.modifyPositionInner(positionId, stopLoss, takeProfit, caller);
+      if (r.success && sl > 0) lastStopSet.set(positionId, { sl, tp: takeProfit, at: Date.now(), by: caller });
+      return r;
+    } finally {
+      release();
+      if (modifyChain.get(positionId) === chained) modifyChain.delete(positionId);
+    }
+  }
+
+  private async modifyPositionInner(positionId: string, stopLoss: number | undefined, takeProfit: number | undefined, caller: string): Promise<{ success: boolean; error?: string }> {
     const res = await this.modifyPositionRaw(positionId, stopLoss, takeProfit);
     void (async () => {
       try {

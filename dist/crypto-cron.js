@@ -17545,6 +17545,10 @@ async function tlSharedRead(key, fn, fresh) {
   if (!fresh) tlInflight.set(key, p);
   return p;
 }
+function stopTolerance(price) {
+  const pip = price >= 1e4 ? 1 : price >= 500 ? 0.1 : price >= 20 ? 0.01 : 1e-4;
+  return pip * 1.5;
+}
 async function getOrCreateService(connection) {
   const connId = connection.id || `pending_${connection.accountType}_${connection.accountId}_${connection.accNum || ""}`;
   const cached = serviceCache.get(connId);
@@ -18024,7 +18028,7 @@ async function executeMT5SignalOnTradeLocker(connection, signal) {
     };
   }
 }
-var IV_LENGTH2, DEFAULT_ENCRYPTION_KEY2, SALT_LENGTH2, INSTRUMENT_CACHE_TTL, instrumentCache, instrumentsListCache, serviceCache, SERVICE_CACHE_TTL, rejectPauseUntil, REJECT_PAUSE_MS, RETRY_DELAYS, RETRYABLE_STATUSES, TradeLockerReadError, AUTH_429_COOLDOWN_MS, authCooldownUntil, authChain, lastAuthAt, MIN_AUTH_GAP_MS, USDJPY_FALLBACK, _usdJpyLive, _usdJpyObserved, TL_READ_CACHE_MS, TL_BAN_MS, TL_STALE_OK_MS, TL_FRESH_WAIT_MAX_MS, tlBannedUntil, _tlIsRateLimit, tlReadCache, tlInflight, TradeLockerService, TL_VALUE_TTL, tlDayStartEquity, UNKNOWN_OUTCOME_PAUSE_MS, GUARD_CACHE_MS, guardCache, _isRateLimit;
+var IV_LENGTH2, DEFAULT_ENCRYPTION_KEY2, SALT_LENGTH2, INSTRUMENT_CACHE_TTL, instrumentCache, instrumentsListCache, serviceCache, SERVICE_CACHE_TTL, rejectPauseUntil, REJECT_PAUSE_MS, RETRY_DELAYS, RETRYABLE_STATUSES, TradeLockerReadError, AUTH_429_COOLDOWN_MS, authCooldownUntil, authChain, lastAuthAt, MIN_AUTH_GAP_MS, USDJPY_FALLBACK, _usdJpyLive, _usdJpyObserved, TL_READ_CACHE_MS, TL_BAN_MS, TL_STALE_OK_MS, TL_FRESH_WAIT_MAX_MS, tlBannedUntil, _tlIsRateLimit, tlReadCache, tlInflight, modifyChain, lastStopSet, TradeLockerService, TL_VALUE_TTL, tlDayStartEquity, UNKNOWN_OUTCOME_PAUSE_MS, GUARD_CACHE_MS, guardCache, _isRateLimit;
 var init_tradelocker = __esm({
   "server/tradelocker.ts"() {
     "use strict";
@@ -18064,6 +18068,8 @@ var init_tradelocker = __esm({
     _tlIsRateLimit = (e) => /(429|1015)|rate.?limit|too many requests/i.test(String(e?.message || e).slice(0, 400));
     tlReadCache = /* @__PURE__ */ new Map();
     tlInflight = /* @__PURE__ */ new Map();
+    modifyChain = /* @__PURE__ */ new Map();
+    lastStopSet = /* @__PURE__ */ new Map();
     TradeLockerService = class _TradeLockerService {
       baseUrl;
       accessToken = null;
@@ -19312,6 +19318,30 @@ var init_tradelocker = __esm({
        */
       async modifyPosition(positionId, stopLoss, takeProfit) {
         const caller = (new Error().stack || "").split("\n").slice(2, 4).map((l) => l.trim().replace(/^at\s+/, "").replace(/\s*\(.*\)$/, "").replace(/^async\s+/, "")).filter(Boolean).join(" <- ") || "unknown";
+        const prev = modifyChain.get(positionId) || Promise.resolve();
+        let release;
+        const mine = new Promise((r) => {
+          release = r;
+        });
+        const chained = prev.then(() => mine);
+        modifyChain.set(positionId, chained);
+        await prev;
+        try {
+          const last = lastStopSet.get(positionId);
+          const sl = Number(stopLoss);
+          if (last && sl > 0 && last.sl > 0 && Date.now() - last.at < 6e4 && (takeProfit == null || takeProfit === last.tp) && Math.abs(sl - last.sl) <= stopTolerance(sl)) {
+            console.log(`[TradeLocker] modify ${positionId} SL ${sl} skipped \u2014 within tolerance of ${last.sl} set ${Math.round((Date.now() - last.at) / 1e3)}s ago by ${last.by}`);
+            return { success: true };
+          }
+          const r = await this.modifyPositionInner(positionId, stopLoss, takeProfit, caller);
+          if (r.success && sl > 0) lastStopSet.set(positionId, { sl, tp: takeProfit, at: Date.now(), by: caller });
+          return r;
+        } finally {
+          release();
+          if (modifyChain.get(positionId) === chained) modifyChain.delete(positionId);
+        }
+      }
+      async modifyPositionInner(positionId, stopLoss, takeProfit, caller) {
         const res = await this.modifyPositionRaw(positionId, stopLoss, takeProfit);
         void (async () => {
           try {
