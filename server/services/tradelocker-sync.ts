@@ -458,6 +458,29 @@ async function syncTradeLockerTrades(userId: number, conn: any, svc: any): Promi
       }
     }
 
+    // Untraced position: no order from this app (ORDER/OPEN row) on this
+    // account+pair in the 20 min before it opened → it came from outside the
+    // app (TradeLocker UI, another EA/app). Recorded so it shows in the log.
+    try {
+      const { pool: _xp } = await import('../db');
+      const _openAt = (p as any).openDate ? new Date((p as any).openDate) : new Date();
+      const _sym = String(p.symbol || '').toUpperCase().split('.')[0];
+      const { rows: _ord } = await _xp.query(
+        `SELECT 1 FROM tradelocker_trade_logs WHERE connection_id=$1 AND action IN ('ORDER','OPEN') AND status='executed'
+           AND upper(split_part(symbol,'.',1))=$2 AND created_at BETWEEN $3::timestamptz - interval '20 minutes' AND $3::timestamptz + interval '2 minutes' LIMIT 1`,
+        [conn.id, _sym, _openAt.toISOString()]);
+      if (!_ord.length) {
+        console.warn(`[TL-sync] ${ticket} ${p.symbol} ${p.side} opened ${_openAt.toISOString()} — NO matching app order: external open`);
+        await _xp.query(
+          `INSERT INTO tradelocker_trade_logs (user_id, connection_id, action, symbol, direction, volume, stop_loss, take_profit, status, error_message, created_at)
+           VALUES ($1, $2, 'EXTERNAL_OPEN', $3, $4, $5, $6, $7, 'detected', $8, now())`,
+          [userId, conn.id, p.symbol, String(p.side || '').toUpperCase(), Number((p as any).qty) || 0, _sl > 0 ? _sl : null, _tp > 0 ? _tp : null,
+           `Position ${p.id} opened ${_openAt.toISOString()} at ${p.avgPrice} with no matching order from this app (manual in TradeLocker or another EA/app)`]);
+      }
+    } catch (e: any) {
+      console.error('[TL-sync] external-open check failed (non-fatal):', e?.message || e);
+    }
+
     const { lookupSignalConfidence } = await import('./signal-confidence');
     const _sigConf = await lookupSignalConfidence(userId, p.symbol, (p.side || '').toUpperCase() === 'SELL' ? 'SELL' : 'BUY');
     await storage.createAiTradeResult({

@@ -259,7 +259,7 @@ function usdJpyAt(atMs: number): number {
 const TL_READ_CACHE_MS = Number(process.env.TL_READ_CACHE_MS ?? 12_000);
 const TL_BAN_MS = Number(process.env.TL_BAN_MS ?? 120_000);
 const TL_STALE_OK_MS = 5 * 60_000;
-const TL_FRESH_WAIT_MAX_MS = 60_000;
+const TL_FRESH_WAIT_MAX_MS = Number(process.env.TL_FRESH_WAIT_MAX_MS ?? 130_000); // > TL_BAN_MS so an order can outlast a fresh ban
 let tlBannedUntil = 0;
 const _tlIsRateLimit = (e: any) => /(429|1015)|rate.?limit|too many requests/i.test(String(e?.message || e).slice(0, 400));
 export function tlRateLimitStatus() { return { bannedUntil: tlBannedUntil, bannedForMs: Math.max(0, tlBannedUntil - Date.now()) }; }
@@ -892,7 +892,44 @@ export class TradeLockerService {
     }
   }
 
+  /**
+   * Every order the app sends is written to tradelocker_trade_logs as
+   * action='ORDER' with the calling code path. Some callers (flip trade,
+   * copy-trade mirror) never logged their opens, so on 2026-10-19 a GBPUSD
+   * position on account 30 could not be traced. 'ORDER' (not 'OPEN') keeps
+   * the callers' own OPEN rows from being double-counted. Never throws.
+   */
   async placeOrder(order: TradeLockerOrderRequest): Promise<TradeLockerOrderResponse> {
+    const caller = (new Error().stack || '').split('\n').slice(2, 4)
+      .map((l) => l.trim().replace(/^at\s+/, '').replace(/\s*\(.*\)$/, '').replace(/^async\s+/, '')).filter(Boolean).join(' <- ') || 'unknown';
+    const write = (status: string, detail: string) => void (async () => {
+      try {
+        const c = this.logConn;
+        const userId = Number(c?.userId);
+        if (!(userId > 0) || !(Number(c?.id) > 0)) return;
+        const { pool } = await import('./db');
+        await pool.query(
+          `INSERT INTO tradelocker_trade_logs (user_id, connection_id, action, symbol, direction, volume, stop_loss, take_profit, status, error_message, created_at)
+           VALUES ($1, $2, 'ORDER', $3, $4, $5, $6, $7, $8, $9, now())`,
+          [userId, c!.id, order.symbol, String(order.side || '').toUpperCase(), Number(order.quantity) || 0,
+           Number(order.stopLoss) > 0 ? order.stopLoss : null, Number(order.takeProfit) > 0 ? order.takeProfit : null,
+           status, `ORDER ${order.type} by ${caller} | ${detail}`.slice(0, 1000)],
+        );
+      } catch (e: any) {
+        console.error('[TradeLocker] order log write failed (non-fatal):', e?.message || e);
+      }
+    })();
+    try {
+      const res = await this.placeOrderRaw(order);
+      write(res.status === 'rejected' ? 'failed' : 'executed', `order ${res.orderId || '-'}${res.status === 'rejected' ? ` | REJECTED: ${String(res.message || '').slice(0, 200)}` : ''}`);
+      return res;
+    } catch (e: any) {
+      write('failed', `ERROR: ${String(e?.message || e).slice(0, 200)}`);
+      throw e;
+    }
+  }
+
+  private async placeOrderRaw(order: TradeLockerOrderRequest): Promise<TradeLockerOrderResponse> {
     // ── LAST-LINE DEFENSE: never place an entry order without a stop loss ─────
     // executeMT5SignalOnTradeLocker already blocks this, but guard here too so no
     // future direct caller can send a stopless order to the broker (see the
@@ -2160,7 +2197,7 @@ async function tlAccountRiskGuard(service: any, connection: TLConnection, signal
   // 1. Daily loss
   let equity: number;
   try {
-    const info: any = await guardRead(`acct:${connKey}`, () => service.getAccountInfo());
+    const info: any = await guardRead(`acct:${connKey}`, () => service.getAccountInfo({ fresh: true }));
     equity = Number(info?.equity) > 0 ? Number(info.equity) : Number(info?.balance);
     if (!(equity > 0)) return { block: 'account equity unreadable — not trading this account (fail closed)' };
   } catch (e: any) {

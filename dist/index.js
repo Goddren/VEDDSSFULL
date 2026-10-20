@@ -31099,7 +31099,7 @@ async function tlAccountRiskGuard(service, connection2, signal) {
   const want = norm3(signal.symbol);
   let equity;
   try {
-    const info2 = await guardRead(`acct:${connKey}`, () => service.getAccountInfo());
+    const info2 = await guardRead(`acct:${connKey}`, () => service.getAccountInfo({ fresh: true }));
     equity = Number(info2?.equity) > 0 ? Number(info2.equity) : Number(info2?.balance);
     if (!(equity > 0)) return { block: "account equity unreadable \u2014 not trading this account (fail closed)" };
   } catch (e) {
@@ -31431,7 +31431,7 @@ var init_tradelocker = __esm({
     TL_READ_CACHE_MS = Number(process.env.TL_READ_CACHE_MS ?? 12e3);
     TL_BAN_MS = Number(process.env.TL_BAN_MS ?? 12e4);
     TL_STALE_OK_MS = 5 * 6e4;
-    TL_FRESH_WAIT_MAX_MS = 6e4;
+    TL_FRESH_WAIT_MAX_MS = Number(process.env.TL_FRESH_WAIT_MAX_MS ?? 13e4);
     tlBannedUntil = 0;
     _tlIsRateLimit = (e) => /(429|1015)|rate.?limit|too many requests/i.test(String(e?.message || e).slice(0, 400));
     tlReadCache = /* @__PURE__ */ new Map();
@@ -31926,7 +31926,50 @@ var init_tradelocker = __esm({
           throw error;
         }
       }
+      /**
+       * Every order the app sends is written to tradelocker_trade_logs as
+       * action='ORDER' with the calling code path. Some callers (flip trade,
+       * copy-trade mirror) never logged their opens, so on 2026-10-19 a GBPUSD
+       * position on account 30 could not be traced. 'ORDER' (not 'OPEN') keeps
+       * the callers' own OPEN rows from being double-counted. Never throws.
+       */
       async placeOrder(order) {
+        const caller = (new Error().stack || "").split("\n").slice(2, 4).map((l) => l.trim().replace(/^at\s+/, "").replace(/\s*\(.*\)$/, "").replace(/^async\s+/, "")).filter(Boolean).join(" <- ") || "unknown";
+        const write = (status, detail) => void (async () => {
+          try {
+            const c = this.logConn;
+            const userId = Number(c?.userId);
+            if (!(userId > 0) || !(Number(c?.id) > 0)) return;
+            const { pool: pool2 } = await Promise.resolve().then(() => (init_db(), db_exports));
+            await pool2.query(
+              `INSERT INTO tradelocker_trade_logs (user_id, connection_id, action, symbol, direction, volume, stop_loss, take_profit, status, error_message, created_at)
+           VALUES ($1, $2, 'ORDER', $3, $4, $5, $6, $7, $8, $9, now())`,
+              [
+                userId,
+                c.id,
+                order.symbol,
+                String(order.side || "").toUpperCase(),
+                Number(order.quantity) || 0,
+                Number(order.stopLoss) > 0 ? order.stopLoss : null,
+                Number(order.takeProfit) > 0 ? order.takeProfit : null,
+                status,
+                `ORDER ${order.type} by ${caller} | ${detail}`.slice(0, 1e3)
+              ]
+            );
+          } catch (e) {
+            console.error("[TradeLocker] order log write failed (non-fatal):", e?.message || e);
+          }
+        })();
+        try {
+          const res = await this.placeOrderRaw(order);
+          write(res.status === "rejected" ? "failed" : "executed", `order ${res.orderId || "-"}${res.status === "rejected" ? ` | REJECTED: ${String(res.message || "").slice(0, 200)}` : ""}`);
+          return res;
+        } catch (e) {
+          write("failed", `ERROR: ${String(e?.message || e).slice(0, 200)}`);
+          throw e;
+        }
+      }
+      async placeOrderRaw(order) {
         {
           const _sl = Number(order.stopLoss);
           if (!Number.isFinite(_sl) || _sl <= 0) {
@@ -32998,6 +33041,35 @@ async function syncTradeLockerTrades(userId, conn, svc) {
           console.warn(`[TL-sync] ${ticket} ${p.symbol} ${_pfDir}: post-fill R:R 1:${_pfRR.toFixed(2)} is below the ${_softFloor} floor the pre-trade gate required \u2014 slippage degraded the setup.`);
         }
       }
+    }
+    try {
+      const { pool: _xp } = await Promise.resolve().then(() => (init_db(), db_exports));
+      const _openAt = p.openDate ? new Date(p.openDate) : /* @__PURE__ */ new Date();
+      const _sym = String(p.symbol || "").toUpperCase().split(".")[0];
+      const { rows: _ord } = await _xp.query(
+        `SELECT 1 FROM tradelocker_trade_logs WHERE connection_id=$1 AND action IN ('ORDER','OPEN') AND status='executed'
+           AND upper(split_part(symbol,'.',1))=$2 AND created_at BETWEEN $3::timestamptz - interval '20 minutes' AND $3::timestamptz + interval '2 minutes' LIMIT 1`,
+        [conn.id, _sym, _openAt.toISOString()]
+      );
+      if (!_ord.length) {
+        console.warn(`[TL-sync] ${ticket} ${p.symbol} ${p.side} opened ${_openAt.toISOString()} \u2014 NO matching app order: external open`);
+        await _xp.query(
+          `INSERT INTO tradelocker_trade_logs (user_id, connection_id, action, symbol, direction, volume, stop_loss, take_profit, status, error_message, created_at)
+           VALUES ($1, $2, 'EXTERNAL_OPEN', $3, $4, $5, $6, $7, 'detected', $8, now())`,
+          [
+            userId,
+            conn.id,
+            p.symbol,
+            String(p.side || "").toUpperCase(),
+            Number(p.qty) || 0,
+            _sl > 0 ? _sl : null,
+            _tp > 0 ? _tp : null,
+            `Position ${p.id} opened ${_openAt.toISOString()} at ${p.avgPrice} with no matching order from this app (manual in TradeLocker or another EA/app)`
+          ]
+        );
+      }
+    } catch (e) {
+      console.error("[TL-sync] external-open check failed (non-fatal):", e?.message || e);
     }
     const { lookupSignalConfidence: lookupSignalConfidence2 } = await Promise.resolve().then(() => (init_signal_confidence(), signal_confidence_exports));
     const _sigConf = await lookupSignalConfidence2(userId, p.symbol, (p.side || "").toUpperCase() === "SELL" ? "SELL" : "BUY");
@@ -61423,9 +61495,9 @@ async function getStopOrdersForUser(userId, filters = {}) {
 init_schema();
 
 // server/build-info.ts
-var BUILD_COMMIT = "dfbf7aa8-dirty";
+var BUILD_COMMIT = "e85c280c-dirty";
 var BUILD_BRANCH = "main";
-var BUILT_AT = "2026-10-19T18:17:59.533Z";
+var BUILT_AT = "2026-10-20T00:39:52.602Z";
 
 // server/stripe.ts
 init_db();
