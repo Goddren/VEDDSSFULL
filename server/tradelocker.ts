@@ -298,6 +298,7 @@ async function tlSharedRead<T>(key: string, fn: () => Promise<T>, fresh: boolean
 
 // Per-position stop-write queue + the last stop this process set (see modifyPosition).
 const modifyChain = new Map<string, Promise<void>>();
+const TL_STOP_DEDUPE_MS = Number(process.env.TL_STOP_DEDUPE_MS ?? 30 * 60_000);
 const lastStopSet = new Map<string, { sl: number; tp?: number; at: number; by: string }>();
 /** ~1.5 pips/points, inferred from the price's magnitude. */
 function stopTolerance(price: number): number {
@@ -1907,7 +1908,11 @@ export class TradeLockerService {
     try {
       const last = lastStopSet.get(positionId);
       const sl = Number(stopLoss);
-      if (last && sl > 0 && last.sl > 0 && Date.now() - last.at < 60_000
+      // 30 min, not 60s: on 2026-10-20 the breakeven stop on an AUDUSD sell
+      // was re-sent unchanged to 3 accounts every 4–5 min (39 writes in 50
+      // min, 10 drew 429s). Only successful writes are remembered, so a stop
+      // that failed to set is always retried.
+      if (last && sl > 0 && last.sl > 0 && Date.now() - last.at < TL_STOP_DEDUPE_MS
           && (takeProfit == null || takeProfit === last.tp)
           && Math.abs(sl - last.sl) <= stopTolerance(sl)) {
         console.log(`[TradeLocker] modify ${positionId} SL ${sl} skipped — within tolerance of ${last.sl} set ${Math.round((Date.now() - last.at) / 1000)}s ago by ${last.by}`);

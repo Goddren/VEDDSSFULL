@@ -17692,7 +17692,7 @@ async function executeMT5SignalOnTradeLocker(connection, signal) {
     };
   }
 }
-var IV_LENGTH2, DEFAULT_ENCRYPTION_KEY2, SALT_LENGTH2, INSTRUMENT_CACHE_TTL, instrumentCache, instrumentsListCache, serviceCache, SERVICE_CACHE_TTL, rejectPauseUntil, REJECT_PAUSE_MS, RETRY_DELAYS, RETRYABLE_STATUSES, TradeLockerReadError, AUTH_429_COOLDOWN_MS, authCooldownUntil, authChain, lastAuthAt, MIN_AUTH_GAP_MS, USDJPY_FALLBACK, _usdJpyLive, _usdJpyObserved, TL_READ_CACHE_MS, TL_BAN_MS, TL_STALE_OK_MS, TL_FRESH_WAIT_MAX_MS, tlBannedUntil, _tlIsRateLimit, tlReadCache, tlInflight, modifyChain, lastStopSet, TradeLockerService, TL_VALUE_TTL, tlDayStartEquity, UNKNOWN_OUTCOME_PAUSE_MS, GUARD_CACHE_MS, guardCache, _isRateLimit;
+var IV_LENGTH2, DEFAULT_ENCRYPTION_KEY2, SALT_LENGTH2, INSTRUMENT_CACHE_TTL, instrumentCache, instrumentsListCache, serviceCache, SERVICE_CACHE_TTL, rejectPauseUntil, REJECT_PAUSE_MS, RETRY_DELAYS, RETRYABLE_STATUSES, TradeLockerReadError, AUTH_429_COOLDOWN_MS, authCooldownUntil, authChain, lastAuthAt, MIN_AUTH_GAP_MS, USDJPY_FALLBACK, _usdJpyLive, _usdJpyObserved, TL_READ_CACHE_MS, TL_BAN_MS, TL_STALE_OK_MS, TL_FRESH_WAIT_MAX_MS, tlBannedUntil, _tlIsRateLimit, tlReadCache, tlInflight, modifyChain, TL_STOP_DEDUPE_MS, lastStopSet, TradeLockerService, TL_VALUE_TTL, tlDayStartEquity, UNKNOWN_OUTCOME_PAUSE_MS, GUARD_CACHE_MS, guardCache, _isRateLimit;
 var init_tradelocker = __esm({
   "server/tradelocker.ts"() {
     "use strict";
@@ -17733,6 +17733,7 @@ var init_tradelocker = __esm({
     tlReadCache = /* @__PURE__ */ new Map();
     tlInflight = /* @__PURE__ */ new Map();
     modifyChain = /* @__PURE__ */ new Map();
+    TL_STOP_DEDUPE_MS = Number(process.env.TL_STOP_DEDUPE_MS ?? 30 * 6e4);
     lastStopSet = /* @__PURE__ */ new Map();
     TradeLockerService = class _TradeLockerService {
       baseUrl;
@@ -19011,7 +19012,7 @@ var init_tradelocker = __esm({
         try {
           const last = lastStopSet.get(positionId);
           const sl = Number(stopLoss);
-          if (last && sl > 0 && last.sl > 0 && Date.now() - last.at < 6e4 && (takeProfit == null || takeProfit === last.tp) && Math.abs(sl - last.sl) <= stopTolerance(sl)) {
+          if (last && sl > 0 && last.sl > 0 && Date.now() - last.at < TL_STOP_DEDUPE_MS && (takeProfit == null || takeProfit === last.tp) && Math.abs(sl - last.sl) <= stopTolerance(sl)) {
             console.log(`[TradeLocker] modify ${positionId} SL ${sl} skipped \u2014 within tolerance of ${last.sl} set ${Math.round((Date.now() - last.at) / 1e3)}s ago by ${last.by}`);
             return { success: true };
           }
