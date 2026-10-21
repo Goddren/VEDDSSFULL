@@ -29215,7 +29215,7 @@ async function rangeFeatures(symbol, engine = "fx") {
   const hi = Math.max(...box.map((b) => b.high)), lo = Math.min(...box.map((b) => b.low));
   const width = hi - lo;
   if (!(width > 0)) return null;
-  const tol = width * 0.1;
+  const tol = width * 0.15;
   const touchesHigh = box.filter((b) => b.high >= hi - tol).length;
   const touchesLow = box.filter((b) => b.low <= lo + tol).length;
   const last = bars[bars.length - 1];
@@ -29256,7 +29256,7 @@ async function rangeFeatures(symbol, engine = "fx") {
     prevDayLow: prevDay.length ? Math.min(...prevDay.map((b) => b.low)) : null,
     asianHigh: asian.length ? Math.max(...asian.map((b) => b.high)) : null,
     asianLow: asian.length ? Math.min(...asian.map((b) => b.low)) : null,
-    qualifies: touchesHigh >= 2 && touchesLow >= 2 && bbPct <= 50
+    qualifies: touchesHigh >= 2 && touchesLow >= 2 && bbPct <= 65
   };
   rangeCache.set(ck, { at: Date.now(), data });
   return data;
@@ -29266,7 +29266,7 @@ function m1Reject(symbol, dir, entry, sl, ctx, engine = "fx") {
   if (engine === "fx" && M1_PAIRS_EXCLUDED.includes(symbol)) return `${symbol} excluded from range model`;
   if (!r) return "range data unavailable";
   if (!r.qualifies) return `no qualified range (touches ${r.touchesHigh}/${r.touchesLow}, BB width pct ${r.bbWidthPercentile})`;
-  const atTop = r.positionInRangePct >= 80, atBottom = r.positionInRangePct <= 20;
+  const atTop = r.positionInRangePct >= 75, atBottom = r.positionInRangePct <= 25;
   if (dir === "SELL" && !atTop) return `SELL not at range top (${r.positionInRangePct}%)`;
   if (dir === "BUY" && !atBottom) return `BUY not at range bottom (${r.positionInRangePct}%)`;
   const h4 = ctx?.h4?.trend;
@@ -29295,7 +29295,7 @@ async function shadowDecide(userId, session2, pairs, engine = "fx") {
   const prompt = `You run TWO ${engine === "crypto" ? "CRYPTO (24/7 on-chain tokens)" : "FX"} trading models side by side. For EACH ${engine === "crypto" ? "token" : "pair"} below, say what each model would trade RIGHT NOW (or NONE).
 ${engine === "crypto" ? 'Crypto notes: markets never close; "sessions" are when US/EU volume is highest (London/NY hours give the cleanest trends). The live venue is spot DeFi (long-only): give BUY or NONE only \u2014 never SELL. Thin tokens wick hard \u2014 stops must sit beyond real structure, not inside noise.\n' : ""}
 MODEL 1 (range / low-volume days) \u2014 only when ctx.range.qualifies is true:
-  \u2022 Trade ONLY at an edge: SELL when positionInRangePct >= 80, BUY when <= 20. Never the middle.
+  \u2022 Trade ONLY at an edge: SELL when positionInRangePct >= 75, BUY when <= 25. Never the middle.
   \u2022 Best trigger is a liquidity sweep (sweepHigh/sweepLow true: wick through the edge, close back inside). Also valid: rejection at prevDay/Asian high/low that sits on the edge, RSI stretched at the edge.
   \u2022 Stop beyond the sweep wick / range edge plus a small buffer. First target = rangeMid (must be >= 1.0R), runner to the opposite edge.
   \u2022 Never fade a trending H4, never trade a range during London open (07:00-08:00 UTC) or NY open (12:30-13:30 UTC) when breakouts start, max 1-3 trades a day.
@@ -29587,9 +29587,25 @@ function clampInt(n, lo, hi) {
   const x = Math.round(Number(n));
   return Number.isFinite(x) ? Math.max(lo, Math.min(hi, x)) : lo;
 }
+async function sliceLiveReady(userId, s) {
+  if (!LIVE_LEVELS.includes(s.level)) return false;
+  if (s.trades < GO_LIVE.minTrades || s.avgR < GO_LIVE.minAvgR || s.winRate < GO_LIVE.minWinRate) return false;
+  const { rows } = await pool.query(
+    `SELECT date_trunc('week', created_at) AS wk, SUM(r_multiple)::float AS r
+       FROM fx_model_decisions
+      WHERE user_id=$1 AND engine='fx' AND source='own' AND result IN ('WIN','LOSS','EXPIRED')
+        AND model=$2 AND day_type=$3 AND symbol=$4 AND session=$5
+        AND created_at >= date_trunc('week', now()) - interval '7 days'
+      GROUP BY 1`,
+    [userId, s.model, s.dayType, s.symbol, s.session]
+  );
+  return rows.every((r) => Number(r.r) >= 0);
+}
 async function liveEligibleSlices(userId) {
-  const m = await getModelMastery(userId);
-  return m.slices.filter((s) => LIVE_LEVELS.includes(s.level));
+  const m = await getModelMastery(userId, { ownOnly: true });
+  const out = [];
+  for (const s of m.slices) if (await sliceLiveReady(userId, s)) out.push(s);
+  return out;
 }
 async function maybeGoLive(userId, idea) {
   const settings = await getFxModelSettings(userId);
@@ -29597,7 +29613,7 @@ async function maybeGoLive(userId, idea) {
   if (idea.model !== idea.autoModel) return;
   const mastery = await getModelMastery(userId, { ownOnly: true });
   const slice = mastery.slices.find((s) => s.model === idea.model && s.dayType === idea.dayType && s.symbol === idea.symbol && s.session === idea.session);
-  if (!slice || !LIVE_LEVELS.includes(slice.level)) return;
+  if (!slice || !await sliceLiveReady(userId, slice)) return;
   const cap = idea.model === "M1" ? settings.m1DailyCap : settings.m2DailyCap;
   const client2 = await pool.connect();
   let claimed = false;
@@ -29771,7 +29787,7 @@ async function getModelMastery(userId, opts = {}) {
     slices: (await agg("model, day_type, symbol, session")).map(shape)
   };
 }
-var DDL3, ensured3, barsProviders, barsFor, pipSize, lastShadowCandle, lastResolveAt, M1_PAIRS_EXCLUDED, rangeCache, FX_MODEL_MIN_TO_LIST, DEFAULT_SETTINGS, LIVE_LEVELS, emaLast;
+var DDL3, ensured3, barsProviders, barsFor, pipSize, lastShadowCandle, lastResolveAt, M1_PAIRS_EXCLUDED, rangeCache, FX_MODEL_MIN_TO_LIST, DEFAULT_SETTINGS, LIVE_LEVELS, GO_LIVE, emaLast;
 var init_fx_models = __esm({
   "server/services/fx-models.ts"() {
     "use strict";
@@ -29842,6 +29858,7 @@ ALTER TABLE fx_day_regimes ADD COLUMN IF NOT EXISTS engine text NOT NULL DEFAULT
     FX_MODEL_MIN_TO_LIST = 20;
     DEFAULT_SETTINGS = { live: false, m1DailyCap: 3, m2DailyCap: 2 };
     LIVE_LEVELS = ["Proficient", "Master"];
+    GO_LIVE = { minTrades: 50, minAvgR: 0.2, minWinRate: 0.4 };
     emaLast = (xs, n) => {
       if (xs.length < n) return NaN;
       const k = 2 / (n + 1);

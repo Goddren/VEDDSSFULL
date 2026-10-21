@@ -198,8 +198,8 @@ function num(x: any): number | null { const n = Number(x); return Number.isFinit
 // about to break out (the earlier quick-trade losses). Model 1 therefore only
 // trades a range that is MEASURED, not guessed:
 //   • a defined box: 24 H1 bars, both edges touched at least twice
-//   • compression: Bollinger width in the bottom half of its recent history
-//   • price at an edge (outer 20% of the box), fading back toward the middle
+//   • compression: Bollinger width in the bottom 65% of its recent history
+//   • price at an edge (outer 25% of the box), fading back toward the middle
 //   • best trigger: a liquidity sweep / false break (wick through the edge,
 //     close back inside) — the stop goes beyond the sweep wick
 //   • first target the range middle; R:R to the middle at least 1.0
@@ -221,7 +221,10 @@ export async function rangeFeatures(symbol: string, engine: ModelEngine = 'fx'):
   const hi = Math.max(...box.map((b) => b.high)), lo = Math.min(...box.map((b) => b.low));
   const width = hi - lo;
   if (!(width > 0)) return null;
-  const tol = width * 0.1;
+  // Loosened 2026-10-21 (was 10% touch band, BB pct ≤ 50, 80/20 edges):
+  // Model 1 took 0 of 463 shadow ideas in 5 days, so it had no record to
+  // learn from. Shadow-only effect — live still needs the go-live bar below.
+  const tol = width * 0.15;
   const touchesHigh = box.filter((b) => b.high >= hi - tol).length;
   const touchesLow = box.filter((b) => b.low <= lo + tol).length;
   const last = bars[bars.length - 1];
@@ -252,7 +255,7 @@ export async function rangeFeatures(symbol: string, engine: ModelEngine = 'fx'):
     prevDayLow: prevDay.length ? Math.min(...prevDay.map((b) => b.low)) : null,
     asianHigh: asian.length ? Math.max(...asian.map((b) => b.high)) : null,
     asianLow: asian.length ? Math.min(...asian.map((b) => b.low)) : null,
-    qualifies: touchesHigh >= 2 && touchesLow >= 2 && bbPct <= 50,
+    qualifies: touchesHigh >= 2 && touchesLow >= 2 && bbPct <= 65,
   };
   rangeCache.set(ck, { at: Date.now(), data });
   return data;
@@ -264,7 +267,7 @@ export function m1Reject(symbol: string, dir: string, entry: number, sl: number,
   if (engine === 'fx' && M1_PAIRS_EXCLUDED.includes(symbol)) return `${symbol} excluded from range model`;
   if (!r) return 'range data unavailable';
   if (!r.qualifies) return `no qualified range (touches ${r.touchesHigh}/${r.touchesLow}, BB width pct ${r.bbWidthPercentile})`;
-  const atTop = r.positionInRangePct >= 80, atBottom = r.positionInRangePct <= 20;
+  const atTop = r.positionInRangePct >= 75, atBottom = r.positionInRangePct <= 25;
   if (dir === 'SELL' && !atTop) return `SELL not at range top (${r.positionInRangePct}%)`;
   if (dir === 'BUY' && !atBottom) return `BUY not at range bottom (${r.positionInRangePct}%)`;
   const h4 = ctx?.h4?.trend;
@@ -294,7 +297,7 @@ async function shadowDecide(userId: number, session: string, pairs: Array<{ symb
   const prompt = `You run TWO ${engine === 'crypto' ? 'CRYPTO (24/7 on-chain tokens)' : 'FX'} trading models side by side. For EACH ${engine === 'crypto' ? 'token' : 'pair'} below, say what each model would trade RIGHT NOW (or NONE).
 ${engine === 'crypto' ? 'Crypto notes: markets never close; "sessions" are when US/EU volume is highest (London/NY hours give the cleanest trends). The live venue is spot DeFi (long-only): give BUY or NONE only — never SELL. Thin tokens wick hard — stops must sit beyond real structure, not inside noise.\n' : ''}
 MODEL 1 (range / low-volume days) — only when ctx.range.qualifies is true:
-  • Trade ONLY at an edge: SELL when positionInRangePct >= 80, BUY when <= 20. Never the middle.
+  • Trade ONLY at an edge: SELL when positionInRangePct >= 75, BUY when <= 25. Never the middle.
   • Best trigger is a liquidity sweep (sweepHigh/sweepLow true: wick through the edge, close back inside). Also valid: rejection at prevDay/Asian high/low that sits on the edge, RSI stretched at the edge.
   • Stop beyond the sweep wick / range edge plus a small buffer. First target = rangeMid (must be >= 1.0R), runner to the opposite edge.
   • Never fade a trending H4, never trade a range during London open (07:00-08:00 UTC) or NY open (12:30-13:30 UTC) when breakouts start, max 1-3 trades a day.
@@ -504,7 +507,8 @@ export async function importFxModelSnapshot(buyerId: number, snapshot: any[]): P
 // sent to the engine only if ALL hold:
 //   • it is the model the day type calls for (range → M1, trend → M2)
 //   • that exact slice (model × day type × pair × session) is Proficient or
-//     Master — 50+ resolved ideas with a positive average R
+//     Master AND clears the go-live bar (sliceLiveReady): 50+ resolved
+//     ideas, avg R ≥ +0.2, win rate ≥ 40%, no losing week in the last two
 //   • the model's live daily cap isn't used up (M1: 3, M2: 2 by default)
 // It then goes through the engine's normal processDecision path, so the
 // confidence floor, cooldowns, daily caps, MTF rule (M2), news/session
@@ -542,10 +546,32 @@ export async function saveFxModelSettings(userId: number, patch: Partial<FxModel
 }
 function clampInt(n: any, lo: number, hi: number) { const x = Math.round(Number(n)); return Number.isFinite(x) ? Math.max(lo, Math.min(hi, x)) : lo; }
 
+// ── Go-live bar (tightened 2026-10-21, user decision) ─────────────────────
+// "Proficient" alone (50+ ideas, avg R > 0) can be luck. A slice must ALSO
+// have avg R ≥ +0.2, win rate ≥ 40%, and no losing week in its last two
+// calendar weeks (each week with resolved ideas must sum to ≥ 0R).
+const GO_LIVE = { minTrades: 50, minAvgR: 0.2, minWinRate: 0.4 };
+async function sliceLiveReady(userId: number, s: any): Promise<boolean> {
+  if (!LIVE_LEVELS.includes(s.level)) return false;
+  if (s.trades < GO_LIVE.minTrades || s.avgR < GO_LIVE.minAvgR || s.winRate < GO_LIVE.minWinRate) return false;
+  const { rows } = await pool.query(
+    `SELECT date_trunc('week', created_at) AS wk, SUM(r_multiple)::float AS r
+       FROM fx_model_decisions
+      WHERE user_id=$1 AND engine='fx' AND source='own' AND result IN ('WIN','LOSS','EXPIRED')
+        AND model=$2 AND day_type=$3 AND symbol=$4 AND session=$5
+        AND created_at >= date_trunc('week', now()) - interval '7 days'
+      GROUP BY 1`,
+    [userId, s.model, s.dayType, s.symbol, s.session],
+  );
+  return rows.every((r: any) => Number(r.r) >= 0);
+}
+
 /** Which live-eligible slices exist right now (for the panel). */
 export async function liveEligibleSlices(userId: number): Promise<any[]> {
-  const m = await getModelMastery(userId);
-  return m.slices.filter((s: any) => LIVE_LEVELS.includes(s.level));
+  const m = await getModelMastery(userId, { ownOnly: true });
+  const out: any[] = [];
+  for (const s of m.slices) if (await sliceLiveReady(userId, s)) out.push(s);
+  return out;
 }
 
 async function maybeGoLive(userId: number, idea: {
@@ -559,7 +585,7 @@ async function maybeGoLive(userId: number, idea: {
   // inform the models but can never unlock real-money trading.
   const mastery = await getModelMastery(userId, { ownOnly: true });
   const slice = mastery.slices.find((s: any) => s.model === idea.model && s.dayType === idea.dayType && s.symbol === idea.symbol && s.session === idea.session);
-  if (!slice || !LIVE_LEVELS.includes(slice.level)) return;
+  if (!slice || !(await sliceLiveReady(userId, slice))) return;
   const cap = idea.model === 'M1' ? settings.m1DailyCap : settings.m2DailyCap;
   // Claim a cap slot atomically (per-user advisory lock serialises claims).
   const client = await pool.connect();
