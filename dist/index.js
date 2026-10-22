@@ -25776,14 +25776,16 @@ function computeStagedVolumeSL(position, config) {
   if (!position.openPrice || !position.currentPrice || pipSize2 <= 0) return 0;
   const isBuy = position.direction === "BUY";
   const pips = isBuy ? (position.currentPrice - position.openPrice) / pipSize2 : (position.openPrice - position.currentPrice) / pipSize2;
-  const buffer = config?.breakevenBufferPips ?? 5;
-  let lockPips = null;
+  const _origSL = Number(position.originalSL || position.sl) || 0;
+  const _slOnLossSide = _origSL > 0 && (isBuy ? _origSL < position.openPrice : _origSL > position.openPrice);
+  const rPips = _slOnLossSide ? Math.abs(position.openPrice - _origSL) / pipSize2 : 0;
+  const beAtPips = Math.max(15, rPips);
+  void config;
+  if (pips < beAtPips) return 0;
+  let lockPips = 2;
   if (pips >= 60) lockPips = pips - 25;
   else if (pips >= 40) lockPips = 20;
   else if (pips >= 25) lockPips = 10;
-  else if (pips >= 15) lockPips = buffer;
-  else if (pips >= 10) lockPips = 0;
-  else return 0;
   return isBuy ? position.openPrice + lockPips * pipSize2 : position.openPrice - lockPips * pipSize2;
 }
 function computeChandelierSL(position, atr2, multiplier, trailState) {
@@ -29579,6 +29581,24 @@ async function processDecision(userId, decision, newsCtx) {
                 const _buy = String(tlMatch.side || decision.direction || "BUY").toUpperCase() === "BUY";
                 const _cur = Number(tlMatch.stopLoss) || 0;
                 const _px = Number(state.marketSnapshot?.[decision.symbol]?.price) || 0;
+                {
+                  const _own = Number(tlMatch.avgPrice) || 0;
+                  const _pip = getPipSize(decision.symbol);
+                  if (_sl && _own > 0 && _pip > 0 && Math.abs(_sl - _own) / _pip <= 5) {
+                    const _profitPips = _px > 0 ? (_buy ? _px - _own : _own - _px) / _pip : 0;
+                    const _rPips = _cur > 0 && (_buy ? _cur < _own : _cur > _own) ? Math.abs(_own - _cur) / _pip : 0;
+                    const _need = Math.max(15, _rPips);
+                    if (_profitPips < _need) {
+                      logGuard(userId, "early_breakeven_refused", decision.symbol, `AI breakeven ${_sl} on ${acctLabel} refused: +${_profitPips.toFixed(1)} pips, needs +${_need.toFixed(1)} (1R)`);
+                      _sl = void 0;
+                    } else {
+                      const _dp = _pip >= 0.01 ? 3 : 5;
+                      const _be = Number((_buy ? _own + 2 * _pip : _own - 2 * _pip).toFixed(_dp));
+                      if (_be !== _sl) logGuard(userId, "breakeven_reanchored", decision.symbol, `AI breakeven ${_sl} \u2192 ${_be} (this account's entry ${_own} + 2 pips) on ${acctLabel}`);
+                      _sl = _be;
+                    }
+                  }
+                }
                 if (_sl && _px > 0 && (_buy ? _sl >= _px : _sl <= _px)) {
                   logGuard(userId, "stop_through_price_refused", decision.symbol, `AI SL ${_sl} vs price ${_px} on ${acctLabel}`);
                   _sl = void 0;
@@ -61598,9 +61618,9 @@ async function getStopOrdersForUser(userId, filters = {}) {
 init_schema();
 
 // server/build-info.ts
-var BUILD_COMMIT = "dbe8ac61-dirty";
+var BUILD_COMMIT = "1753f4c3-dirty";
 var BUILD_BRANCH = "main";
-var BUILT_AT = "2026-10-22T08:23:42.870Z";
+var BUILT_AT = "2026-10-22T08:35:38.486Z";
 
 // server/stripe.ts
 init_db();

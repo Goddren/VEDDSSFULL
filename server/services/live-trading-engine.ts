@@ -2045,15 +2045,22 @@ function computeStagedVolumeSL(position: any, config?: { breakevenBufferPips?: n
   const pips = isBuy
     ? (position.currentPrice - position.openPrice) / pipSize
     : (position.openPrice - position.currentPrice) / pipSize;
-  const buffer = config?.breakevenBufferPips ?? 5;
+  // Breakeven only at 1R (and never under 15 pips), locked at entry + 2 pips.
+  // 2026-10-22: the old "+10 pips → stop at exact entry" scratched GBPUSD and
+  // USDJPY within ~6 min of entry; spread/slippage made each "breakeven" a
+  // −2 to −3 pip loss (−$60–95 at 3–5 lots), and USDJPY then ran +22 pips.
+  // R = distance to the ORIGINAL stop while that stop is still on the loss side.
+  const _origSL = Number(position.originalSL || position.sl) || 0;
+  const _slOnLossSide = _origSL > 0 && (isBuy ? _origSL < position.openPrice : _origSL > position.openPrice);
+  const rPips = _slOnLossSide ? Math.abs(position.openPrice - _origSL) / pipSize : 0;
+  const beAtPips = Math.max(15, rPips);
+  void config;
 
-  let lockPips: number | null = null; // pips of profit to lock into the SL (from entry)
-  if (pips >= 60)      lockPips = pips - 25; // trail 25 behind as it runs
+  if (pips < beAtPips) return 0;              // not at 1R yet — leave the original SL
+  let lockPips = 2;                           // breakeven + 2 pips (covers spread)
+  if (pips >= 60)      lockPips = pips - 25;  // trail 25 behind as it runs
   else if (pips >= 40) lockPips = 20;
   else if (pips >= 25) lockPips = 10;
-  else if (pips >= 15) lockPips = buffer;    // breakeven + small buffer
-  else if (pips >= 10) lockPips = 0;         // pure breakeven — a small winner can't round-trip into a loss
-  else return 0;                              // not enough profit — leave original SL
 
   return isBuy
     ? position.openPrice + lockPips * pipSize
@@ -6744,6 +6751,31 @@ async function processDecision(userId: number, decision: any, newsCtx?: any): Pr
                 const _buy = String(tlMatch.side || decision.direction || 'BUY').toUpperCase() === 'BUY';
                 const _cur = Number((tlMatch as any).stopLoss) || 0;
                 const _px = Number(state.marketSnapshot?.[decision.symbol]?.price) || 0;
+                // AI breakeven moves (2026-10-22): the AI sends ONE stop level
+                // for every account, taken from one account's fill. Account 31's
+                // USDJPY filled at 157.083 but got a "breakeven" of 157.055 — a
+                // locked-in 3-pip loss — and the move came at ~+10 pips, ~5 min
+                // after entry. A stop within 5 pips of THIS account's entry is a
+                // breakeven move: refuse it below 1R (min 15 pips) of this
+                // account's own profit, else re-anchor to its own entry + 2 pips.
+                {
+                  const _own = Number((tlMatch as any).avgPrice) || 0;
+                  const _pip = getPipSize(decision.symbol);
+                  if (_sl && _own > 0 && _pip > 0 && Math.abs(_sl - _own) / _pip <= 5) {
+                    const _profitPips = _px > 0 ? (_buy ? _px - _own : _own - _px) / _pip : 0;
+                    const _rPips = _cur > 0 && (_buy ? _cur < _own : _cur > _own) ? Math.abs(_own - _cur) / _pip : 0;
+                    const _need = Math.max(15, _rPips);
+                    if (_profitPips < _need) {
+                      logGuard(userId, 'early_breakeven_refused', decision.symbol, `AI breakeven ${_sl} on ${acctLabel} refused: +${_profitPips.toFixed(1)} pips, needs +${_need.toFixed(1)} (1R)`);
+                      _sl = undefined;
+                    } else {
+                      const _dp = _pip >= 0.01 ? 3 : 5;
+                      const _be = Number((_buy ? _own + 2 * _pip : _own - 2 * _pip).toFixed(_dp));
+                      if (_be !== _sl) logGuard(userId, 'breakeven_reanchored', decision.symbol, `AI breakeven ${_sl} → ${_be} (this account's entry ${_own} + 2 pips) on ${acctLabel}`);
+                      _sl = _be;
+                    }
+                  }
+                }
                 if (_sl && _px > 0 && (_buy ? _sl >= _px : _sl <= _px)) { logGuard(userId, 'stop_through_price_refused', decision.symbol, `AI SL ${_sl} vs price ${_px} on ${acctLabel}`); _sl = undefined; }
                 if (_sl && _cur > 0 && (_buy ? _sl <= _cur : _sl >= _cur)) { logGuard(userId, 'stop_loosen_refused', decision.symbol, `AI SL ${_sl} looser than ${_cur} on ${acctLabel}`); _sl = undefined; }
               }

@@ -15,6 +15,8 @@ const LABEL: Record<string, string> = {
   flatten_retry: "Flatten retried",
   ai_call_failed: "AI call failed",
   stale_entry_skip: "Stale plan skipped",
+  early_breakeven_refused: "Early breakeven refused (under 1R)",
+  breakeven_reanchored: "Breakeven set from this account's fill",
   consistency_block: "Consistency block",
 };
 
