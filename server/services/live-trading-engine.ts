@@ -6765,7 +6765,13 @@ async function processDecision(userId: number, decision: any, newsCtx?: any): Pr
                     const _profitPips = _px > 0 ? (_buy ? _px - _own : _own - _px) / _pip : 0;
                     const _rPips = _cur > 0 && (_buy ? _cur < _own : _cur > _own) ? Math.abs(_own - _cur) / _pip : 0;
                     const _need = Math.max(15, _rPips);
-                    if (_profitPips < _need) {
+                    // In loss (or flat): the AI pulling the stop toward entry is
+                    // a loss CUT, not a breakeven — let it through unchanged.
+                    // 2026-10-22 PM: refusing these (67×) let USDJPY and EURUSD
+                    // run to full stops instead (~−$1,000+ vs a few pips).
+                    if (_profitPips <= 0) {
+                      /* tighter stop on the loss side — the loosen/through-price checks below still apply */
+                    } else if (_profitPips < _need) {
                       logGuard(userId, 'early_breakeven_refused', decision.symbol, `AI breakeven ${_sl} on ${acctLabel} refused: +${_profitPips.toFixed(1)} pips, needs +${_need.toFixed(1)} (1R)`);
                       _sl = undefined;
                     } else {

@@ -23008,7 +23008,7 @@ var init_pair_filter = __esm({
   "server/services/pair-filter.ts"() {
     "use strict";
     norm2 = (s) => String(s || "").toUpperCase().replace(/[^A-Z0-9]/g, "");
-    BLOCKED_PAIRS = listFromEnv("BLOCKED_PAIRS", "");
+    BLOCKED_PAIRS = listFromEnv("BLOCKED_PAIRS", "USDJPY,GBPJPY");
     BLOCKED_DIRECTIONS = listFromEnv("BLOCKED_PAIR_DIRECTIONS", "");
     console.log(`[PairFilter] enabled=${process.env.PAIR_FILTER_ENABLED !== "false"} pairs=[${BLOCKED_PAIRS.join(", ") || "none"}] directions=[${BLOCKED_DIRECTIONS.join(", ") || "none"}]`);
   }
@@ -28253,7 +28253,8 @@ async function processDecision(userId, decision, newsCtx) {
                     const _profitPips = _px > 0 ? (_buy ? _px - _own : _own - _px) / _pip : 0;
                     const _rPips = _cur > 0 && (_buy ? _cur < _own : _cur > _own) ? Math.abs(_own - _cur) / _pip : 0;
                     const _need = Math.max(15, _rPips);
-                    if (_profitPips < _need) {
+                    if (_profitPips <= 0) {
+                    } else if (_profitPips < _need) {
                       logGuard(userId, "early_breakeven_refused", decision.symbol, `AI breakeven ${_sl} on ${acctLabel} refused: +${_profitPips.toFixed(1)} pips, needs +${_need.toFixed(1)} (1R)`);
                       _sl = void 0;
                     } else {
