@@ -6211,6 +6211,35 @@ async function processDecision(userId: number, decision: any, newsCtx?: any): Pr
       return 'market';
     })();
 
+    // ── Stale-plan guard (2026-10-22) ─────────────────────────────────────
+    // A market order fills at the LIVE price, not the plan's entry. On
+    // 2026-10-21 GBPJPY sells were planned at 210.50 (stop 211.20) while price
+    // was ~211.88 — the stop sat below price, so TradeLocker refused all 8
+    // orders ("SL price is not valid"). Had the stop landed a few pips above
+    // price instead, the engine would have opened a near-zero-stop trade.
+    // Skip when the stop is on the wrong side of live price, or the plan's
+    // entry is more than half the stop distance from it. The snapshot stores
+    // `price` (the order-type code above reads `lastPrice`, which is never set).
+    {
+      const _livePx = Number((snap as any)?.price ?? (snap as any)?.lastPrice) || 0;
+      const _slD = entryPrice && stopLoss ? Math.abs(entryPrice - stopLoss) : 0;
+      if (resolvedOrderType === 'market' && _livePx > 0 && entryPrice && stopLoss && _slD > 0) {
+        const _isBuy = String(decision.direction).toUpperCase() === 'BUY';
+        const _wrongSide = _isBuy ? stopLoss >= _livePx : stopLoss <= _livePx;
+        const _gap = Math.abs(entryPrice - _livePx);
+        if (_wrongSide || _gap > _slD * 0.5) {
+          const _dp = _livePx >= 100 ? 3 : 5;
+          const _why = _wrongSide
+            ? `the stop (${stopLoss}) is ${_isBuy ? 'above' : 'below'} the live price (${_livePx.toFixed(_dp)}) — the broker would refuse it`
+            : `the plan's entry (${entryPrice}) is ${(_gap / _slD).toFixed(1)}× the stop distance away from the live price (${_livePx.toFixed(_dp)})`;
+          addActivity(userId, { type: 'info', symbol: decision.symbol, message: `⏭️ ${decision.symbol} ${decision.direction} skipped — plan is stale: ${_why}. Waiting for a fresh plan at the current price.` });
+          logGuard(userId, 'stale_entry_skip', decision.symbol, `${decision.direction}: ${_why}`, { entryPrice, stopLoss, takeProfit, livePrice: _livePx });
+          if (_leReleaseCooldown) _leReleaseCooldown();
+          return;
+        }
+      }
+    }
+
     // Set just before orders go out: an exception BEFORE that point means no
     // order can exist, so the 4h cooldown reserved above is given back.
     let _ordersSent = false;
@@ -6262,6 +6291,9 @@ async function processDecision(userId: number, decision: any, newsCtx?: any): Pr
               const _cs = await getConsistencyStatus(tlConn.id, 'tradelocker', (tlConn as any).consistencyThresholdPct, (tlConn as any).consistencyEnabled !== false);
               if (_cs.hardBlocked) {
                 addActivity(userId, { type: 'info', symbol: decision.symbol, message: `⚖️ ${tlConn.accountId || 'TL#' + tlConn.id}: consistency block — ${_cs.guidance}` });
+                // Durable copy: the activity feed is in-memory only, so on
+                // 2026-10-21 account 35's skips left no trace to explain them.
+                logGuard(userId, 'consistency_block', decision.symbol, `TL ${tlConn.accountId || tlConn.id}: ${_cs.guidance}`);
                 return { tlConn, tradeResult: { success: false, error: 'consistency hard-block' }, acctLot: 0, acctSizeLabel: '', consistencyBlocked: true };
               }
               _consistencyMult = _cs.sizeMultiplier;

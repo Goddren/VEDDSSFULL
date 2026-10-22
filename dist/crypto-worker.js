@@ -7890,6 +7890,8 @@ async function getConsistencyStatus(connectionId, connectionType, thresholdPct, 
       sizeMultiplier = Math.max(TAPER_FLOOR_MULTIPLIER, 1 - progress * (1 - TAPER_FLOOR_MULTIPLIER));
       guidance = `Consistency dilution active: biggest day is ${maxDayRatioPct.toFixed(1)}% of total (cap ${threshold}%). Taking small green days \u2014 up to $${room.toFixed(2)} more today (cap $${dailyCap.toFixed(2)}). Need ~$${addNeeded.toFixed(0)} more total over ~${daysLeft} day(s) to pass.`;
     }
+  } else if (ratioPct >= threshold && positiveDays < minDaysForRule) {
+    guidance = `Consistency rule not enforced yet: this account has ${positiveDays} green day${positiveDays === 1 ? "" : "s"} \u2014 the ${threshold}% cap starts after ${minDaysForRule}, when one day's share can actually be measured.`;
   } else if (ratioPct >= threshold) {
     status = "breached";
     sizeMultiplier = 0;
@@ -12004,10 +12006,11 @@ function logGuard(userId, kind, symbol, detail, data, engine = "fx") {
     }
   })();
 }
-async function recentGuardEvents(userId, limit = 100) {
+async function recentGuardEvents(userId, limit = 100, kinds) {
   await ensure();
+  const _k = (kinds || []).filter((k) => /^[a-z_]{1,40}$/.test(k));
   const [ev, sum] = await Promise.all([
-    pool.query(`SELECT id, engine, kind, symbol, detail, created_at FROM engine_guard_events WHERE user_id=$1 ORDER BY created_at DESC LIMIT $2`, [userId, Math.min(500, Math.max(1, limit))]),
+    _k.length ? pool.query(`SELECT id, engine, kind, symbol, detail, created_at FROM engine_guard_events WHERE user_id=$1 AND kind = ANY($3) ORDER BY created_at DESC LIMIT $2`, [userId, Math.min(500, Math.max(1, limit)), _k]) : pool.query(`SELECT id, engine, kind, symbol, detail, created_at FROM engine_guard_events WHERE user_id=$1 ORDER BY created_at DESC LIMIT $2`, [userId, Math.min(500, Math.max(1, limit))]),
     pool.query(`SELECT kind, count(*)::int AS n, max(created_at) AS last FROM engine_guard_events WHERE user_id=$1 AND created_at > now() - interval '7 days' GROUP BY kind ORDER BY n DESC`, [userId])
   ]);
   return { events: ev.rows, summary: sum.rows };
@@ -27497,6 +27500,23 @@ async function processDecision(userId, decision, newsCtx) {
       if (_volCap?.preferPending) return "limit_entry";
       return "market";
     })();
+    {
+      const _livePx = Number(snap?.price ?? snap?.lastPrice) || 0;
+      const _slD = entryPrice && stopLoss ? Math.abs(entryPrice - stopLoss) : 0;
+      if (resolvedOrderType === "market" && _livePx > 0 && entryPrice && stopLoss && _slD > 0) {
+        const _isBuy = String(decision.direction).toUpperCase() === "BUY";
+        const _wrongSide = _isBuy ? stopLoss >= _livePx : stopLoss <= _livePx;
+        const _gap = Math.abs(entryPrice - _livePx);
+        if (_wrongSide || _gap > _slD * 0.5) {
+          const _dp = _livePx >= 100 ? 3 : 5;
+          const _why = _wrongSide ? `the stop (${stopLoss}) is ${_isBuy ? "above" : "below"} the live price (${_livePx.toFixed(_dp)}) \u2014 the broker would refuse it` : `the plan's entry (${entryPrice}) is ${(_gap / _slD).toFixed(1)}\xD7 the stop distance away from the live price (${_livePx.toFixed(_dp)})`;
+          addActivity(userId, { type: "info", symbol: decision.symbol, message: `\u23ED\uFE0F ${decision.symbol} ${decision.direction} skipped \u2014 plan is stale: ${_why}. Waiting for a fresh plan at the current price.` });
+          logGuard(userId, "stale_entry_skip", decision.symbol, `${decision.direction}: ${_why}`, { entryPrice, stopLoss, takeProfit, livePrice: _livePx });
+          if (_leReleaseCooldown) _leReleaseCooldown();
+          return;
+        }
+      }
+    }
     let _ordersSent = false;
     try {
       const signalLog = await storage.createMt5SignalLog({
@@ -27526,6 +27546,7 @@ async function processDecision(userId, decision, newsCtx) {
               const _cs = await getConsistencyStatus2(tlConn.id, "tradelocker", tlConn.consistencyThresholdPct, tlConn.consistencyEnabled !== false);
               if (_cs.hardBlocked) {
                 addActivity(userId, { type: "info", symbol: decision.symbol, message: `\u2696\uFE0F ${tlConn.accountId || "TL#" + tlConn.id}: consistency block \u2014 ${_cs.guidance}` });
+                logGuard(userId, "consistency_block", decision.symbol, `TL ${tlConn.accountId || tlConn.id}: ${_cs.guidance}`);
                 return { tlConn, tradeResult: { success: false, error: "consistency hard-block" }, acctLot: 0, acctSizeLabel: "", consistencyBlocked: true };
               }
               _consistencyMult = _cs.sizeMultiplier;

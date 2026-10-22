@@ -22737,7 +22737,7 @@ Return ONLY JSON: {"topPicks":[{"market":"","winProbability":<0-100>,"whyItWins"
     if (!req.isAuthenticated()) return res.status(401).json({ error: "Authentication required" });
     try {
       const { recentGuardEvents } = await import('./services/guard-events');
-      res.json(await recentGuardEvents((req.user as User).id, Number(req.query.limit) || 60));
+      res.json(await recentGuardEvents((req.user as User).id, Number(req.query.limit) || 60, req.query.kinds ? String(req.query.kinds).split(',') : undefined));
     } catch (err: any) {
       res.status(500).json({ error: err.message });
     }

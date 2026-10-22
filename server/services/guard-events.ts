@@ -38,10 +38,13 @@ export function logGuard(userId: number, kind: string, symbol: string | null, de
   })();
 }
 
-export async function recentGuardEvents(userId: number, limit = 100): Promise<{ events: any[]; summary: any[] }> {
+export async function recentGuardEvents(userId: number, limit = 100, kinds?: string[]): Promise<{ events: any[]; summary: any[] }> {
   await ensure();
+  const _k = (kinds || []).filter((k) => /^[a-z_]{1,40}$/.test(k));
   const [ev, sum] = await Promise.all([
-    pool.query(`SELECT id, engine, kind, symbol, detail, created_at FROM engine_guard_events WHERE user_id=$1 ORDER BY created_at DESC LIMIT $2`, [userId, Math.min(500, Math.max(1, limit))]),
+    _k.length
+      ? pool.query(`SELECT id, engine, kind, symbol, detail, created_at FROM engine_guard_events WHERE user_id=$1 AND kind = ANY($3) ORDER BY created_at DESC LIMIT $2`, [userId, Math.min(500, Math.max(1, limit)), _k])
+      : pool.query(`SELECT id, engine, kind, symbol, detail, created_at FROM engine_guard_events WHERE user_id=$1 ORDER BY created_at DESC LIMIT $2`, [userId, Math.min(500, Math.max(1, limit))]),
     pool.query(`SELECT kind, count(*)::int AS n, max(created_at) AS last FROM engine_guard_events WHERE user_id=$1 AND created_at > now() - interval '7 days' GROUP BY kind ORDER BY n DESC`, [userId]),
   ]);
   return { events: ev.rows, summary: sum.rows };

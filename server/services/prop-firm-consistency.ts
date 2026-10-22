@@ -405,6 +405,14 @@ export async function getConsistencyStatus(
       sizeMultiplier = Math.max(TAPER_FLOOR_MULTIPLIER, 1 - progress * (1 - TAPER_FLOOR_MULTIPLIER));
       guidance = `Consistency dilution active: biggest day is ${maxDayRatioPct.toFixed(1)}% of total (cap ${threshold}%). Taking small green days — up to $${room.toFixed(2)} more today (cap $${dailyCap.toFixed(2)}). Need ~$${addNeeded.toFixed(0)} more total over ~${daysLeft} day(s) to pass.`;
     }
+  } else if (ratioPct >= threshold && positiveDays < minDaysForRule) {
+    // Young account: with fewer than ceil(100/threshold) green days, today's
+    // share is forced above the cap (1 green day = 100%), so the first win
+    // of every day blocked the rest of it. On 2026-10-21 account 35's first
+    // EURUSD win (+$49.95) blocked it from AUDUSD, USDJPY and GBPUSD. Full
+    // size until the account has enough green days for the ratio to mean
+    // anything; the firm checks the rule at payout, not per day.
+    guidance = `Consistency rule not enforced yet: this account has ${positiveDays} green day${positiveDays === 1 ? '' : 's'} — the ${threshold}% cap starts after ${minDaysForRule}, when one day's share can actually be measured.`;
   } else if (ratioPct >= threshold) {
     status = 'breached';
     sizeMultiplier = 0;
