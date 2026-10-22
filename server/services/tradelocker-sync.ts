@@ -73,6 +73,23 @@ async function _recordOrBackfillConfirmationOutcome(
  * be dropped immediately rather than waiting out its TTL — a stale count lets
  * the next entry through on a pair that has just hit its limit.
  */
+/**
+ * Close time to store on a resolved row. TradeLocker stamps order-history legs
+ * with ORDER PLACEMENT time, and a stop/target is placed at entry — so a
+ * position stopped out hours later reports a "close" at its open time. On
+ * 2026-10-22 every resolved row had closed_at BEFORE its own created_at. When
+ * the broker's time is not after the row was opened, use now (the sync sees a
+ * close within one poll), which is the best honest bound we have.
+ */
+function _plausibleCloseTime(closeTime: string | Date | null | undefined, existing: any): Date {
+  const now = new Date();
+  if (!closeTime) return now;
+  const t = new Date(closeTime);
+  if (isNaN(t.getTime())) return now;
+  const opened = new Date(existing?.createdAt ?? existing?.created_at ?? 0).getTime();
+  return opened > 0 && t.getTime() <= opened ? now : t;
+}
+
 async function _invalidateDailyStop(userId: number): Promise<void> {
   try {
     const { invalidatePairDailyStop } = await import('./pair-daily-stop');
@@ -466,8 +483,16 @@ async function syncTradeLockerTrades(userId: number, conn: any, svc: any): Promi
       const _openAt = (p as any).openDate ? new Date((p as any).openDate) : new Date();
       const _sym = String(p.symbol || '').toUpperCase().split('.')[0];
       const { rows: _ord } = await _xp.query(
+        // A pending (limit/stop) order can fill long after it was sent — on
+        // 2026-10-22 BTCUSD limits placed 07:33 the day before filled at 02:20
+        // and were wrongly flagged external. Market orders: 20-min window;
+        // pending orders this app placed: 3 days.
         `SELECT 1 FROM tradelocker_trade_logs WHERE connection_id=$1 AND action IN ('ORDER','OPEN') AND status='executed'
-           AND upper(split_part(symbol,'.',1))=$2 AND created_at BETWEEN $3::timestamptz - interval '20 minutes' AND $3::timestamptz + interval '2 minutes' LIMIT 1`,
+           AND upper(split_part(symbol,'.',1))=$2
+           AND (created_at BETWEEN $3::timestamptz - interval '20 minutes' AND $3::timestamptz + interval '2 minutes'
+                OR (action='ORDER' AND (error_message LIKE 'ORDER limit%' OR error_message LIKE 'ORDER stop%')
+                    AND created_at BETWEEN $3::timestamptz - interval '3 days' AND $3::timestamptz + interval '2 minutes'))
+           LIMIT 1`,
         [conn.id, _sym, _openAt.toISOString()]);
       if (!_ord.length) {
         console.warn(`[TL-sync] ${ticket} ${p.symbol} ${p.side} opened ${_openAt.toISOString()} — NO matching app order: external open`);
@@ -574,7 +599,7 @@ async function syncTradeLockerTrades(userId: number, conn: any, svc: any): Promi
           // Backfill the entry too when the PENDING row was written before the
           // broker reported an average fill price.
           ...(!(Number((existing as any).entryPrice) > 0) && Number(match.openPrice) > 0 ? { entryPrice: Number(match.openPrice) } : {}),
-          closedAt: match.closeTime ? new Date(match.closeTime) : new Date(),
+          closedAt: _plausibleCloseTime(match.closeTime, existing),
         } as any);
         const dStr = match.closeTime ? new Date(match.closeTime).toISOString().slice(0, 10) : undefined;
         await recordRealizedPnl(userId, conn.id, 'tradelocker', profit, dStr);
@@ -663,7 +688,7 @@ async function syncTradeLockerTrades(userId: number, conn: any, svc: any): Promi
                 return pips === null ? {} : { profitLossPips: pips };
               })(),
               ...(!(Number((existing as any).entryPrice) > 0) && Number(o.openPrice) > 0 ? { entryPrice: Number(o.openPrice) } : {}),
-              closedAt: o.closeTime ? new Date(o.closeTime) : new Date(),
+              closedAt: _plausibleCloseTime(o.closeTime, existing),
             } as any).catch(() => {});
             if (needsResolve) {
               await recordRealizedPnl(userId, conn.id, 'tradelocker', p, reconDateStr);
