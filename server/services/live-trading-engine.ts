@@ -6820,22 +6820,24 @@ async function processDecision(userId: number, decision: any, newsCtx?: any): Pr
                   const _pip = getPipSize(decision.symbol);
                   if (_sl && _own > 0 && _pip > 0 && Math.abs(_sl - _own) / _pip <= 5) {
                     const _profitPips = _px > 0 ? (_buy ? _px - _own : _own - _px) / _pip : 0;
-                    const _rPips = _cur > 0 && (_buy ? _cur < _own : _cur > _own) ? Math.abs(_own - _cur) / _pip : 0;
-                    const _need = Math.max(15, _rPips);
-                    // In loss (or flat): the AI pulling the stop toward entry is
-                    // a loss CUT, not a breakeven — let it through unchanged.
-                    // 2026-10-22 PM: refusing these (67×) let USDJPY and EURUSD
-                    // run to full stops instead (~−$1,000+ vs a few pips).
-                    if (_profitPips <= 0) {
-                      /* tighter stop on the loss side — the loosen/through-price checks below still apply */
-                    } else if (_profitPips < _need) {
-                      logGuard(userId, 'early_breakeven_refused', decision.symbol, `AI breakeven ${_sl} on ${acctLabel} refused: +${_profitPips.toFixed(1)} pips, needs +${_need.toFixed(1)} (1R)`);
-                      _sl = undefined;
-                    } else {
+                    // No "under 1R" refusal any more (removed 2026-10-23): refusing
+                    // the AI's early breakeven let trades run to full stops —
+                    // ~−$1,000 on 10-22 PM and ~−$700 on 10-23 (GBPUSD: account
+                    // 35, whose move went through, lost $70; 30 + 31 lost $776).
+                    // In profit, only re-anchor to THIS account's own fill:
+                    // entry + 2 pips if that still sits safely behind price,
+                    // else exact entry, else the AI's own level as sent.
+                    // In loss, the AI's tighter stop passes unchanged.
+                    if (_profitPips > 0) {
                       const _dp = _pip >= 0.01 ? 3 : 5;
-                      const _be = Number((_buy ? _own + 2 * _pip : _own - 2 * _pip).toFixed(_dp));
-                      if (_be !== _sl) logGuard(userId, 'breakeven_reanchored', decision.symbol, `AI breakeven ${_sl} → ${_be} (this account's entry ${_own} + 2 pips) on ${acctLabel}`);
-                      _sl = _be;
+                      const _safe = (x: number) => !(_px > 0) || (_buy ? x < _px - 0.5 * _pip : x > _px + 0.5 * _pip);
+                      const _pick = [_buy ? _own + 2 * _pip : _own - 2 * _pip, _own]
+                        .map((x) => Number(x.toFixed(_dp)))
+                        .find(_safe);
+                      if (_pick !== undefined && _pick !== _sl) {
+                        logGuard(userId, 'breakeven_reanchored', decision.symbol, `AI breakeven ${_sl} → ${_pick} (this account's entry ${_own}${_pick !== _own ? ' + 2 pips' : ''}) on ${acctLabel}`);
+                        _sl = _pick;
+                      }
                     }
                   }
                 }

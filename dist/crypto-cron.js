@@ -28304,17 +28304,14 @@ async function processDecision(userId, decision, newsCtx) {
                   const _pip = getPipSize(decision.symbol);
                   if (_sl && _own > 0 && _pip > 0 && Math.abs(_sl - _own) / _pip <= 5) {
                     const _profitPips = _px > 0 ? (_buy ? _px - _own : _own - _px) / _pip : 0;
-                    const _rPips = _cur > 0 && (_buy ? _cur < _own : _cur > _own) ? Math.abs(_own - _cur) / _pip : 0;
-                    const _need = Math.max(15, _rPips);
-                    if (_profitPips <= 0) {
-                    } else if (_profitPips < _need) {
-                      logGuard(userId, "early_breakeven_refused", decision.symbol, `AI breakeven ${_sl} on ${acctLabel} refused: +${_profitPips.toFixed(1)} pips, needs +${_need.toFixed(1)} (1R)`);
-                      _sl = void 0;
-                    } else {
+                    if (_profitPips > 0) {
                       const _dp = _pip >= 0.01 ? 3 : 5;
-                      const _be = Number((_buy ? _own + 2 * _pip : _own - 2 * _pip).toFixed(_dp));
-                      if (_be !== _sl) logGuard(userId, "breakeven_reanchored", decision.symbol, `AI breakeven ${_sl} \u2192 ${_be} (this account's entry ${_own} + 2 pips) on ${acctLabel}`);
-                      _sl = _be;
+                      const _safe = (x) => !(_px > 0) || (_buy ? x < _px - 0.5 * _pip : x > _px + 0.5 * _pip);
+                      const _pick = [_buy ? _own + 2 * _pip : _own - 2 * _pip, _own].map((x) => Number(x.toFixed(_dp))).find(_safe);
+                      if (_pick !== void 0 && _pick !== _sl) {
+                        logGuard(userId, "breakeven_reanchored", decision.symbol, `AI breakeven ${_sl} \u2192 ${_pick} (this account's entry ${_own}${_pick !== _own ? " + 2 pips" : ""}) on ${acctLabel}`);
+                        _sl = _pick;
+                      }
                     }
                   }
                 }

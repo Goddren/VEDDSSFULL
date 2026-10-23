@@ -19038,7 +19038,7 @@ Format each recommendation as a clear, concise action item.`;
               result: p > 0 ? 'WIN' : p < 0 ? 'LOSS' : 'BREAKEVEN',
               profitLoss: p,
               connectionId: connId,
-              closedAt: o.closeTime || o.closedAt ? new Date(o.closeTime || o.closedAt) : new Date(),
+              closedAt: (() => { const _t = (o.closeTime || o.closedAt ? new Date(o.closeTime || o.closedAt) : new Date()); const _op = new Date((existing as any).createdAt ?? 0).getTime(); return _op > 0 && _t.getTime() <= _op ? new Date() : _t; })(), // broker stamps order-placement time (2026-10-23)
             } as any);
             added++;
             await recordRealizedPnl(userId, connId, 'tradelocker', p, closedDateStr);
@@ -19140,7 +19140,7 @@ Format each recommendation as a clear, concise action item.`;
                   profitLoss: p,
                   connectionId: dc.id,
                   exitPrice: o.closePrice || 0,
-                  closedAt: o.closeTime ? new Date(o.closeTime) : new Date(),
+                  closedAt: (() => { const _t = (o.closeTime ? new Date(o.closeTime) : new Date()); const _op = new Date((existing as any).createdAt ?? 0).getTime(); return _op > 0 && _t.getTime() <= _op ? new Date() : _t; })(), // broker stamps order-placement time (2026-10-23)
                 } as any);
                 added++;
                 await recordRealizedPnl(userId, dc.id, 'dxtrade', p, closedDateStr);
