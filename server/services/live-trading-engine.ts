@@ -1095,7 +1095,13 @@ function computeHtfBias(bars: any[]): HTFBiasData | null {
   if (!bars || bars.length < 15) return null;
   const confirmed = bars.slice(0, -1); // drop the partial live candle
   if (confirmed.length < 14) return null;
-  const candles = convertToCandles(confirmed);
+  // smcUtils + getPremiumDiscountContext read candles[0] as the CURRENT bar
+  // (newest-first); bars arrive oldest-first. Without this reverse, BOS/CHOCH,
+  // Wyckoff and premium/discount all read the window's OLDEST bars (~a week
+  // stale on H4). Found 2026-10-23: a 474-trade replay with the correct order
+  // showed H4-aligned trades +$168/trade vs +$33 against, and Wyckoff-against
+  // trades 41% WR −$3.5k; the engine's reversed readings were pure noise.
+  const candles = convertToCandles(confirmed).reverse();
   const price = bars[bars.length - 1]?.close || 0;
   const bosChoch = detectBOSCHOCH(candles, 'NEUTRAL');
   const wyckoff = detectWyckoff(candles);
@@ -1842,7 +1848,7 @@ async function scanMarkets(userId: number): Promise<void> {
             // Drop partial live candle on HTF too — same reasoning as M15
             const htfConfirmedBars = htfResult.bars.slice(0, -1);
             if (htfConfirmedBars.length < 14) return;
-            const htfCandles = convertToCandles(htfConfirmedBars);
+            const htfCandles = convertToCandles(htfConfirmedBars).reverse(); // newest-first for smcUtils (see computeHtfBias)
             const htfPrice = htfResult.bars[htfResult.bars.length - 1]?.close || 0;
             const bosChoch = detectBOSCHOCH(htfCandles, 'NEUTRAL');
             const wyckoff = detectWyckoff(htfCandles);
@@ -4668,6 +4674,35 @@ async function processDecision(userId: number, decision: any, newsCtx?: any): Pr
       }
     }
 
+    // ── H4 structure + Wyckoff filter (2026-10-23, user: live now) ────────
+    // Replay of 474 live trades with candles in the right order: Wyckoff
+    // AGAINST the trade 34 trades 41% WR −$3,496 (WITH: 55% +$4,097); H4
+    // structure WITH +$168/trade vs +$33 against. Skip an entry when the H4
+    // BOS/CHOCH or a detected H4 Wyckoff phase points the other way.
+    // H4_FILTER=off disables. Model 1 range trades keep their own rules.
+    if (decision.direction && decision.fxModel !== 'M1' && process.env.H4_FILTER !== 'off') {
+      const _dir = decision.direction.toUpperCase();
+      const _opp = _dir === 'BUY' ? 'BEARISH' : 'BULLISH';
+      const { h4 } = mtfStack(state, decision.symbol);
+      if (h4) {
+        const _bosAgainst = !!(h4.bosChoch?.detected && h4.bosChoch.direction === _opp);
+        const _ph = h4.wyckoff?.detected ? h4.wyckoff.phase : null;
+        const _wyBear = _ph === 'MARKDOWN' || _ph === 'DISTRIBUTION';
+        const _wyBull = _ph === 'MARKUP' || _ph === 'ACCUMULATION';
+        const _wyAgainst = (_dir === 'BUY' && _wyBear) || (_dir === 'SELL' && _wyBull);
+        if (_bosAgainst || _wyAgainst) {
+          const _why = [
+            _bosAgainst ? `H4 ${h4.bosChoch.type} ${h4.bosChoch.direction}` : '',
+            _wyAgainst ? `H4 Wyckoff ${_ph}${h4.wyckoff.stage ? '/' + h4.wyckoff.stage : ''}` : '',
+          ].filter(Boolean).join(' + ');
+          addActivity(userId, { type: 'info', symbol: decision.symbol, message: `🧱 H4 FILTER: ${_dir} ${decision.symbol} skipped — ${_why} points the other way.` });
+          logGuard(userId, 'h4_filter_skip', decision.symbol, `${_dir} skipped — ${_why} points the other way`);
+          state.signalsGenerated++;
+          return;
+        }
+      }
+    }
+
     // ── Size by timeframe agreement + day type (90-day replay, 2026-10-17) ──
     // 214 signals: H1+H4 both agreeing won 64% at +$463 avg vs +$36 for the
     // rest; range days lost −$12.5k (39% WR). So, as a size multiplier (lot
@@ -6263,6 +6298,28 @@ async function processDecision(userId: number, decision: any, newsCtx?: any): Pr
         confidence: adjustedConfidence,
         source: 'vedd_live_engine',
       });
+
+      // Record the H1/H4 structure + Wyckoff read at entry (2026-10-23) so
+      // their value can be measured on live results, not only in replays.
+      // Join to trades via signal_log_id / symbol / time. Never blocks.
+      void (async () => {
+        try {
+          const { pool: _ep } = await import('../db');
+          await _ep.query(`CREATE TABLE IF NOT EXISTS fx_entry_context (
+            id serial PRIMARY KEY, user_id int NOT NULL, signal_log_id int, symbol text, direction text,
+            h1_trend text, h1_bos text, h1_wyckoff text, h4_trend text, h4_bos text, h4_wyckoff text, h4_pd text,
+            created_at timestamptz NOT NULL DEFAULT now())`);
+          const { h1: _h1, h4: _h4 } = mtfStack(state, decision.symbol);
+          const _b = (x: any) => (x?.bosChoch?.detected ? `${x.bosChoch.type} ${x.bosChoch.direction}` : null);
+          const _w = (x: any) => (x?.wyckoff?.detected ? `${x.wyckoff.phase}${x.wyckoff.stage ? '/' + x.wyckoff.stage : ''}` : null);
+          await _ep.query(
+            `INSERT INTO fx_entry_context (user_id, signal_log_id, symbol, direction, h1_trend, h1_bos, h1_wyckoff, h4_trend, h4_bos, h4_wyckoff, h4_pd)
+             VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)`,
+            [userId, (signalLog as any)?.id ?? null, decision.symbol, decision.direction,
+             _h1?.trend ?? null, _b(_h1), _w(_h1), _h4?.trend ?? null, _b(_h4), _w(_h4), _h4?.premiumDiscount?.zone ?? null],
+          );
+        } catch (e: any) { console.warn('[entry-context] record failed (non-fatal):', e?.message || e); }
+      })();
 
       // Execute on ALL active accounts in parallel
       _ordersSent = true;

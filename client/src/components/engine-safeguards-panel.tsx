@@ -18,6 +18,7 @@ const LABEL: Record<string, string> = {
   early_breakeven_refused: "Early breakeven refused (under 1R)",
   breakeven_reanchored: "Breakeven set from this account's fill",
   consistency_block: "Consistency block",
+  h4_filter_skip: "Against H4 structure / Wyckoff",
 };
 
 // Plain-English explainer for each skip reason, shown under the event.
@@ -25,6 +26,7 @@ const SKIP_HELP: Record<string, string> = {
   stale_entry_skip: "The AI's planned entry was too far from the live price (or its stop was on the wrong side of price), so the order would have been refused or filled with almost no stop. The engine waits for a fresh plan at the current price.",
   consistency_block: "This prop account hit its consistency rule — one day can't be more than a set share of total profit — so it sat out the rest of the day. Other accounts were unaffected.",
 };
+SKIP_HELP.h4_filter_skip = "The 4-hour chart's market structure (a break of structure) or its Wyckoff phase pointed the opposite way. In past trades, entries against these lost money (41% win rate against Wyckoff), so the engine waits for a setup that agrees with the bigger picture.";
 const SKIP_KINDS = Object.keys(SKIP_HELP);
 
 /** Why the engine skipped a trade it otherwise wanted — durable reasons, not the in-memory feed. */

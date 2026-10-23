@@ -23739,7 +23739,7 @@ function computeHtfBias(bars) {
   if (!bars || bars.length < 15) return null;
   const confirmed = bars.slice(0, -1);
   if (confirmed.length < 14) return null;
-  const candles = convertToCandles(confirmed);
+  const candles = convertToCandles(confirmed).reverse();
   const price = bars[bars.length - 1]?.close || 0;
   const bosChoch = detectBOSCHOCH(candles, "NEUTRAL");
   const wyckoff = detectWyckoff(candles);
@@ -24289,7 +24289,7 @@ async function scanMarkets(userId) {
             if (!htfResult.bars || htfResult.bars.length < 15) return;
             const htfConfirmedBars = htfResult.bars.slice(0, -1);
             if (htfConfirmedBars.length < 14) return;
-            const htfCandles = convertToCandles(htfConfirmedBars);
+            const htfCandles = convertToCandles(htfConfirmedBars).reverse();
             const htfPrice = htfResult.bars[htfResult.bars.length - 1]?.close || 0;
             const bosChoch = detectBOSCHOCH(htfCandles, "NEUTRAL");
             const wyckoff = detectWyckoff(htfCandles);
@@ -26654,6 +26654,28 @@ async function processDecision(userId, decision, newsCtx) {
         addActivity(userId, { type: "info", symbol: decision.symbol, message: `\u{1F9ED} MTF aligned for ${_dir} ${decision.symbol} (${_desc}).` });
       }
     }
+    if (decision.direction && decision.fxModel !== "M1" && process.env.H4_FILTER !== "off") {
+      const _dir = decision.direction.toUpperCase();
+      const _opp = _dir === "BUY" ? "BEARISH" : "BULLISH";
+      const { h4 } = mtfStack(state, decision.symbol);
+      if (h4) {
+        const _bosAgainst = !!(h4.bosChoch?.detected && h4.bosChoch.direction === _opp);
+        const _ph = h4.wyckoff?.detected ? h4.wyckoff.phase : null;
+        const _wyBear = _ph === "MARKDOWN" || _ph === "DISTRIBUTION";
+        const _wyBull = _ph === "MARKUP" || _ph === "ACCUMULATION";
+        const _wyAgainst = _dir === "BUY" && _wyBear || _dir === "SELL" && _wyBull;
+        if (_bosAgainst || _wyAgainst) {
+          const _why = [
+            _bosAgainst ? `H4 ${h4.bosChoch.type} ${h4.bosChoch.direction}` : "",
+            _wyAgainst ? `H4 Wyckoff ${_ph}${h4.wyckoff.stage ? "/" + h4.wyckoff.stage : ""}` : ""
+          ].filter(Boolean).join(" + ");
+          addActivity(userId, { type: "info", symbol: decision.symbol, message: `\u{1F9F1} H4 FILTER: ${_dir} ${decision.symbol} skipped \u2014 ${_why} points the other way.` });
+          logGuard(userId, "h4_filter_skip", decision.symbol, `${_dir} skipped \u2014 ${_why} points the other way`);
+          state.signalsGenerated++;
+          return;
+        }
+      }
+    }
     if (decision.direction && process.env.MTF_SIZE_RULE !== "off") {
       const _dir = decision.direction.toUpperCase();
       const _want = _dir === "BUY" ? "BULLISH" : "BEARISH";
@@ -27885,6 +27907,37 @@ async function processDecision(userId, decision, newsCtx) {
         confidence: adjustedConfidence,
         source: "vedd_live_engine"
       });
+      void (async () => {
+        try {
+          const { pool: _ep } = await Promise.resolve().then(() => (init_db(), db_exports));
+          await _ep.query(`CREATE TABLE IF NOT EXISTS fx_entry_context (
+            id serial PRIMARY KEY, user_id int NOT NULL, signal_log_id int, symbol text, direction text,
+            h1_trend text, h1_bos text, h1_wyckoff text, h4_trend text, h4_bos text, h4_wyckoff text, h4_pd text,
+            created_at timestamptz NOT NULL DEFAULT now())`);
+          const { h1: _h1, h4: _h4 } = mtfStack(state, decision.symbol);
+          const _b = (x) => x?.bosChoch?.detected ? `${x.bosChoch.type} ${x.bosChoch.direction}` : null;
+          const _w = (x) => x?.wyckoff?.detected ? `${x.wyckoff.phase}${x.wyckoff.stage ? "/" + x.wyckoff.stage : ""}` : null;
+          await _ep.query(
+            `INSERT INTO fx_entry_context (user_id, signal_log_id, symbol, direction, h1_trend, h1_bos, h1_wyckoff, h4_trend, h4_bos, h4_wyckoff, h4_pd)
+             VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)`,
+            [
+              userId,
+              signalLog?.id ?? null,
+              decision.symbol,
+              decision.direction,
+              _h1?.trend ?? null,
+              _b(_h1),
+              _w(_h1),
+              _h4?.trend ?? null,
+              _b(_h4),
+              _w(_h4),
+              _h4?.premiumDiscount?.zone ?? null
+            ]
+          );
+        } catch (e) {
+          console.warn("[entry-context] record failed (non-fatal):", e?.message || e);
+        }
+      })();
       _ordersSent = true;
       const openResults = await Promise.allSettled(
         activeTLConnections.map(async (tlConn, _tlIdx) => {
