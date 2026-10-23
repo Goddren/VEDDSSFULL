@@ -58,7 +58,10 @@ function listFromEnv(name: string, fallback: string): string[] {
 // 2026-10-22: user paused USDJPY and GBPJPY — last 30 days USDJPY 64 trades,
 // 26 wins, −$3,648; GBPJPY 15 trades, 7 wins, −$1,533. Remove here (or set
 // BLOCKED_PAIRS on Render) to resume.
-const BLOCKED_PAIRS = listFromEnv('BLOCKED_PAIRS', 'USDJPY,GBPJPY');
+// 2026-10-23: user resumed USDJPY (both directions). Its 30-day loss was 93%
+// one day (2026-10-13, oversized after a safety block was removed); since
+// then it is roughly flat. GBPJPY stays paused.
+const BLOCKED_PAIRS = listFromEnv('BLOCKED_PAIRS', 'GBPJPY');
 // One side only, as SYMBOL:DIRECTION (e.g. "USDJPY:SELL").
 const BLOCKED_DIRECTIONS = listFromEnv('BLOCKED_PAIR_DIRECTIONS', '');
 
