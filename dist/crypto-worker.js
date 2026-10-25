@@ -17350,6 +17350,14 @@ async function getTLAccountValue(userId, conn) {
   } catch (e) {
     console.warn(`[TL value] live-fetch failed for ${acctId}:`, e?.message ?? e);
   }
+  if (!(typeof cachedBal === "number" && cachedBal > 0)) {
+    const _lb = Number(conn.lastBalance) || 0;
+    const _lbAt = new Date(conn.lastBalanceAt ?? 0).getTime();
+    if (_lb > 0 && Date.now() - _lbAt < 3 * 864e5) {
+      console.warn(`[TL value] ${acctId}: live read failed \u2014 sizing from last saved balance $${_lb} (${Math.round((Date.now() - _lbAt) / 6e4)} min old)`);
+      return { balance: _lb, equity: _lb };
+    }
+  }
   return {
     balance: typeof cachedBal === "number" ? cachedBal : 0,
     equity: typeof cachedEq === "number" ? cachedEq : typeof cachedBal === "number" ? cachedBal : 0
@@ -27223,6 +27231,14 @@ async function processDecision(userId, decision, newsCtx) {
     {
       const _gSym = decision.symbol.toUpperCase().replace("/", "");
       const _gDir = decision.direction;
+      {
+        const _n = /* @__PURE__ */ new Date();
+        if (_n.getUTCDay() === 0 && _n.getUTCHours() >= 21 && _n.getUTCHours() < 23 && !/^(BTC|ETH|SOL|LTC|XRP|DOGE|ADA|BNB)/i.test(_gSym)) {
+          addActivity(userId, { type: "info", symbol: decision.symbol, message: `\u{1F305} ${decision.symbol} ${_gDir}: Sunday reopen (21:00\u201323:00 UTC, wide spreads) \u2014 skipped.` });
+          logGuard(userId, "market_closed_skip", decision.symbol, `${_gDir} skipped \u2014 Sunday reopen window (21:00\u201323:00 UTC): 1 win in 14 past trades`);
+          return;
+        }
+      }
       if (fxMarketClosedFor(_gSym)) {
         addActivity(userId, { type: "info", symbol: decision.symbol, message: `\u{1F319} ${decision.symbol} ${_gDir}: market closed (FX weekend, Fri 21:00 \u2013 Sun 21:00 UTC) \u2014 skipped.` });
         logGuard(userId, "market_closed_skip", decision.symbol, `${_gDir} skipped \u2014 FX weekend (Fri 21:00 \u2013 Sun 21:00 UTC)`);

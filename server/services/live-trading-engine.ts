@@ -5910,6 +5910,17 @@ async function processDecision(userId: number, decision: any, newsCtx?: any): Pr
       const _gDir = decision.direction;
       // Weekend gate (2026-10-25): no new FX/gold/index entries while the
       // market is shut. Final safety net behind the scan-level filter.
+      // Sunday reopen (21:00–23:00 UTC): spreads are wide and prices gap.
+      // 120-day record of entries in that window: 14 trades, 1 win, −$1,228
+      // (incl. 2026-10-25 21:40 AUDUSD). Crypto unaffected.
+      {
+        const _n = new Date();
+        if (_n.getUTCDay() === 0 && _n.getUTCHours() >= 21 && _n.getUTCHours() < 23 && !/^(BTC|ETH|SOL|LTC|XRP|DOGE|ADA|BNB)/i.test(_gSym)) {
+          addActivity(userId, { type: 'info', symbol: decision.symbol, message: `🌅 ${decision.symbol} ${_gDir}: Sunday reopen (21:00–23:00 UTC, wide spreads) — skipped.` });
+          logGuard(userId, 'market_closed_skip', decision.symbol, `${_gDir} skipped — Sunday reopen window (21:00–23:00 UTC): 1 win in 14 past trades`);
+          return;
+        }
+      }
       if (fxMarketClosedFor(_gSym)) {
         addActivity(userId, { type: 'info', symbol: decision.symbol, message: `🌙 ${decision.symbol} ${_gDir}: market closed (FX weekend, Fri 21:00 – Sun 21:00 UTC) — skipped.` });
         logGuard(userId, 'market_closed_skip', decision.symbol, `${_gDir} skipped — FX weekend (Fri 21:00 – Sun 21:00 UTC)`);

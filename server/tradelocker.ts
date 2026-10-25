@@ -2188,7 +2188,19 @@ export async function getTLAccountValue(
   } catch (e: any) {
     console.warn(`[TL value] live-fetch failed for ${acctId}:`, e?.message ?? e);
   }
-  // Fall back to any stale cache we have, else zeros
+  // Fall back to any stale cache we have. The cache is in-memory and empty
+  // after every deploy, so next use the balance the sync last saved to the DB
+  // (≤ 3 days old). 2026-10-25 21:40 (Sunday reopen, just after a deploy):
+  // both HeroFX reads failed with no cache → 0.01-lot fallback, while
+  // account 30 got its full 3.36 lots on the same signal.
+  if (!(typeof cachedBal === 'number' && cachedBal > 0)) {
+    const _lb = Number((conn as any).lastBalance) || 0;
+    const _lbAt = new Date((conn as any).lastBalanceAt ?? 0).getTime();
+    if (_lb > 0 && Date.now() - _lbAt < 3 * 86_400_000) {
+      console.warn(`[TL value] ${acctId}: live read failed — sizing from last saved balance $${_lb} (${Math.round((Date.now() - _lbAt) / 60000)} min old)`);
+      return { balance: _lb, equity: _lb };
+    }
+  }
   return {
     balance: typeof cachedBal === 'number' ? cachedBal : 0,
     equity:  typeof cachedEq === 'number' ? cachedEq : (typeof cachedBal === 'number' ? cachedBal : 0),
