@@ -814,6 +814,18 @@ function getAdaptiveScanInterval(config: LiveEngineConfig): number {
   const _mult = getAiLevelSync(Number((config as any).userId) || 0).scanMult;
   return Math.max(10_000, Math.round(getAdaptiveScanIntervalBase(config) * _mult));
 }
+/**
+ * FX weekend: Fri 21:00 → Sun 21:00 UTC no FX, gold or index entries. Crypto
+ * trades 24/7. On 2026-10-23/24 the engine sent 213 orders into the closed
+ * market (all refused by TradeLocker: "SL orders are forbidden by trade
+ * session status", "Off quotes") and burned AI calls all weekend.
+ */
+export function fxMarketClosedFor(symbol: string, now = new Date()): boolean {
+  if (/^(BTC|ETH|SOL|LTC|XRP|DOGE|ADA|BNB)/i.test(String(symbol || ''))) return false;
+  const d = now.getUTCDay(), h = now.getUTCHours();
+  return d === 6 || (d === 5 && h >= 21) || (d === 0 && h < 21);
+}
+
 function getAdaptiveScanIntervalBase(config: LiveEngineConfig): number {
   if (!config.adaptiveScanInterval) return config.scanIntervalMs;
   const hourUtc = new Date().getUTCHours();
@@ -1665,13 +1677,18 @@ async function scanMarkets(userId: number): Promise<void> {
 
     const brain = (global as any).veddAIBrain?.[userId];
     const config = state.config;
-    const pairsToScan = config.pairs.slice(0, 8);
 
     // ── Friday close capture (for Sunday gap scanner) ──────────────────
     const nowUtc2 = new Date();
     const dayOfWeek = nowUtc2.getUTCDay(); // 5=Friday
     const hourOfDay = nowUtc2.getUTCHours();
     const isFridayClose = dayOfWeek === 5 && hourOfDay >= 21 && hourOfDay < 22;
+
+    // Weekend: don't scan (= don't buy AI calls for) FX/gold/index pairs while
+    // their market is shut. Kept during the Friday-close hour so the gap
+    // scanner still captures closing prices. Crypto (BTCUSD) keeps scanning.
+    const pairsToScan = config.pairs.slice(0, 8).filter((s: string) => isFridayClose || !fxMarketClosedFor(s));
+    if (!pairsToScan.length) return;
 
     // ── Adaptive scan interval log ─────────────────────────────────────
     const adaptiveMs = getAdaptiveScanInterval(config);
@@ -5891,6 +5908,13 @@ async function processDecision(userId: number, decision: any, newsCtx?: any): Pr
     {
       const _gSym = decision.symbol.toUpperCase().replace('/', '');
       const _gDir = decision.direction;
+      // Weekend gate (2026-10-25): no new FX/gold/index entries while the
+      // market is shut. Final safety net behind the scan-level filter.
+      if (fxMarketClosedFor(_gSym)) {
+        addActivity(userId, { type: 'info', symbol: decision.symbol, message: `🌙 ${decision.symbol} ${_gDir}: market closed (FX weekend, Fri 21:00 – Sun 21:00 UTC) — skipped.` });
+        logGuard(userId, 'market_closed_skip', decision.symbol, `${_gDir} skipped — FX weekend (Fri 21:00 – Sun 21:00 UTC)`);
+        return;
+      }
       try {
         const { pairFilterVerdict } = await import('../services/pair-filter');
         const _v = pairFilterVerdict(_gSym, _gDir);

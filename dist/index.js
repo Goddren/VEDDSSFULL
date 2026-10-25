@@ -24440,6 +24440,7 @@ __export(live_trading_engine_exports, {
   broadcastMT5Signal: () => broadcastMT5Signal,
   confirmMT5Signal: () => confirmMT5Signal,
   emergencyStopEngine: () => emergencyStopEngine,
+  fxMarketClosedFor: () => fxMarketClosedFor,
   generateRuleBasedSignals: () => generateRuleBasedSignals,
   getAccountSafetySnapshot: () => getAccountSafetySnapshot,
   getAllMT5Signals: () => getAllMT5Signals,
@@ -24844,6 +24845,11 @@ Generate signals for pairs with strong learned edge. Respect session win-rates. 
 function getAdaptiveScanInterval(config) {
   const _mult = getAiLevelSync(Number(config.userId) || 0).scanMult;
   return Math.max(1e4, Math.round(getAdaptiveScanIntervalBase(config) * _mult));
+}
+function fxMarketClosedFor(symbol, now = /* @__PURE__ */ new Date()) {
+  if (/^(BTC|ETH|SOL|LTC|XRP|DOGE|ADA|BNB)/i.test(String(symbol || ""))) return false;
+  const d = now.getUTCDay(), h = now.getUTCHours();
+  return d === 6 || d === 5 && h >= 21 || d === 0 && h < 21;
 }
 function getAdaptiveScanIntervalBase(config) {
   if (!config.adaptiveScanInterval) return config.scanIntervalMs;
@@ -25491,11 +25497,12 @@ async function scanMarkets(userId) {
     }
     const brain = global.veddAIBrain?.[userId];
     const config = state.config;
-    const pairsToScan = config.pairs.slice(0, 8);
     const nowUtc2 = /* @__PURE__ */ new Date();
     const dayOfWeek = nowUtc2.getUTCDay();
     const hourOfDay = nowUtc2.getUTCHours();
     const isFridayClose = dayOfWeek === 5 && hourOfDay >= 21 && hourOfDay < 22;
+    const pairsToScan = config.pairs.slice(0, 8).filter((s) => isFridayClose || !fxMarketClosedFor(s));
+    if (!pairsToScan.length) return;
     const adaptiveMs = getAdaptiveScanInterval(config);
     const prevMs = state._lastAdaptiveMs || config.scanIntervalMs;
     if (adaptiveMs !== prevMs && config.adaptiveScanInterval) {
@@ -28887,6 +28894,11 @@ async function processDecision(userId, decision, newsCtx) {
     {
       const _gSym = decision.symbol.toUpperCase().replace("/", "");
       const _gDir = decision.direction;
+      if (fxMarketClosedFor(_gSym)) {
+        addActivity(userId, { type: "info", symbol: decision.symbol, message: `\u{1F319} ${decision.symbol} ${_gDir}: market closed (FX weekend, Fri 21:00 \u2013 Sun 21:00 UTC) \u2014 skipped.` });
+        logGuard(userId, "market_closed_skip", decision.symbol, `${_gDir} skipped \u2014 FX weekend (Fri 21:00 \u2013 Sun 21:00 UTC)`);
+        return;
+      }
       try {
         const { pairFilterVerdict: pairFilterVerdict2 } = await Promise.resolve().then(() => (init_pair_filter(), pair_filter_exports));
         const _v = pairFilterVerdict2(_gSym, _gDir);
@@ -61669,9 +61681,9 @@ async function getStopOrdersForUser(userId, filters = {}) {
 init_schema();
 
 // server/build-info.ts
-var BUILD_COMMIT = "d1d1f932-dirty";
+var BUILD_COMMIT = "8c7bfa16-dirty";
 var BUILD_BRANCH = "main";
-var BUILT_AT = "2026-10-23T12:05:27.624Z";
+var BUILT_AT = "2026-10-25T02:31:35.547Z";
 
 // server/stripe.ts
 init_db();

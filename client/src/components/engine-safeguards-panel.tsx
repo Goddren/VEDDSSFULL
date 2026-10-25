@@ -19,6 +19,7 @@ const LABEL: Record<string, string> = {
   breakeven_reanchored: "Breakeven set from this account's fill",
   consistency_block: "Consistency block",
   h4_filter_skip: "Against H4 structure / Wyckoff",
+  market_closed_skip: "Market closed (weekend)",
 };
 
 // Plain-English explainer for each skip reason, shown under the event.
@@ -27,6 +28,7 @@ const SKIP_HELP: Record<string, string> = {
   consistency_block: "This prop account hit its consistency rule — one day can't be more than a set share of total profit — so it sat out the rest of the day. Other accounts were unaffected.",
 };
 SKIP_HELP.h4_filter_skip = "The 4-hour chart's market structure (a break of structure) or its Wyckoff phase pointed the opposite way. In past trades, entries against these lost money (41% win rate against Wyckoff), so the engine waits for a setup that agrees with the bigger picture.";
+SKIP_HELP.market_closed_skip = "The FX market is closed from Friday 21:00 to Sunday 21:00 UTC. The engine doesn't open forex, gold or index trades then — the broker would refuse them, and a Friday plan could fill at Sunday's reopen gap. Crypto (BTCUSD) still trades.";
 const SKIP_KINDS = Object.keys(SKIP_HELP);
 
 /** Why the engine skipped a trade it otherwise wanted — durable reasons, not the in-memory feed. */
