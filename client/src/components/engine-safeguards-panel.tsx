@@ -20,6 +20,7 @@ const LABEL: Record<string, string> = {
   consistency_block: "Consistency block",
   h4_filter_skip: "Against H4 structure / Wyckoff",
   market_closed_skip: "Market closed (weekend)",
+  late_session_skip: "Late session (21:00–24:00 UTC)",
 };
 
 // Plain-English explainer for each skip reason, shown under the event.
@@ -29,6 +30,8 @@ const SKIP_HELP: Record<string, string> = {
 };
 SKIP_HELP.h4_filter_skip = "The 4-hour chart's market structure (a break of structure) or its Wyckoff phase pointed the opposite way. In past trades, entries against these lost money (41% win rate against Wyckoff), so the engine waits for a setup that agrees with the bigger picture.";
 SKIP_HELP.market_closed_skip = "The FX market is closed from Friday 21:00 to Sunday 21:00 UTC. The engine doesn't open forex, gold or index trades then — the broker would refuse them, and a Friday plan could fill at Sunday's reopen gap. Crypto (BTCUSD) still trades.";
+SKIP_HELP.late_session_skip = "From 21:00 to 24:00 UTC liquidity is thin and spreads are wide (including Sunday's reopen). Past entries in this window won 38% of the time and lost money, so the engine waits for the Asian session. Crypto still trades.";
+SKIP_HELP.h4_filter_skip = "The 4-hour chart either pointed the other way (structure break or Wyckoff phase) or showed no clear structure at all. In past trades, both lost money, so the engine waits for a setup that agrees with the bigger picture.";
 const SKIP_KINDS = Object.keys(SKIP_HELP);
 
 /** Why the engine skipped a trade it otherwise wanted — durable reasons, not the in-memory feed. */

@@ -26343,6 +26343,12 @@ async function processDecision(userId, decision, newsCtx) {
         const _wyBear = _ph === "MARKDOWN" || _ph === "DISTRIBUTION";
         const _wyBull = _ph === "MARKUP" || _ph === "ACCUMULATION";
         const _wyAgainst = _dir === "BUY" && _wyBear || _dir === "SELL" && _wyBull;
+        if (!h4.bosChoch?.detected && !h4.wyckoff?.detected && process.env.H4_NO_STRUCTURE_SKIP !== "off") {
+          addActivity(userId, { type: "info", symbol: decision.symbol, message: `\u{1F9F1} H4 FILTER: ${_dir} ${decision.symbol} skipped \u2014 no clear 4-hour structure.` });
+          logGuard(userId, "h4_filter_skip", decision.symbol, `${_dir} skipped \u2014 no clear H4 structure (no BOS/CHOCH, no Wyckoff phase)`);
+          state.signalsGenerated++;
+          return;
+        }
         if (_bosAgainst || _wyAgainst) {
           const _why = [
             _bosAgainst ? `H4 ${h4.bosChoch.type} ${h4.bosChoch.direction}` : "",
@@ -27233,9 +27239,10 @@ async function processDecision(userId, decision, newsCtx) {
       const _gDir = decision.direction;
       {
         const _n = /* @__PURE__ */ new Date();
-        if (_n.getUTCDay() === 0 && _n.getUTCHours() >= 21 && _n.getUTCHours() < 23 && !/^(BTC|ETH|SOL|LTC|XRP|DOGE|ADA|BNB)/i.test(_gSym)) {
-          addActivity(userId, { type: "info", symbol: decision.symbol, message: `\u{1F305} ${decision.symbol} ${_gDir}: Sunday reopen (21:00\u201323:00 UTC, wide spreads) \u2014 skipped.` });
-          logGuard(userId, "market_closed_skip", decision.symbol, `${_gDir} skipped \u2014 Sunday reopen window (21:00\u201323:00 UTC): 1 win in 14 past trades`);
+        if (process.env.LATE_SESSION_BLOCK !== "off" && _n.getUTCHours() >= 21 && !/^(BTC|ETH|SOL|LTC|XRP|DOGE|ADA|BNB)/i.test(_gSym)) {
+          const _sun = _n.getUTCDay() === 0;
+          addActivity(userId, { type: "info", symbol: decision.symbol, message: `\u{1F319} ${decision.symbol} ${_gDir}: ${_sun ? "Sunday reopen" : "late session"} (21:00\u201324:00 UTC, thin liquidity) \u2014 skipped.` });
+          logGuard(userId, "late_session_skip", decision.symbol, `${_gDir} skipped \u2014 ${_sun ? "Sunday reopen" : "late session"} 21:00\u201324:00 UTC (past entries here: 38% win rate, \u2212$3.5k over 120 days)`);
           return;
         }
       }

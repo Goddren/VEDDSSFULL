@@ -4707,6 +4707,14 @@ async function processDecision(userId: number, decision: any, newsCtx?: any): Pr
         const _wyBear = _ph === 'MARKDOWN' || _ph === 'DISTRIBUTION';
         const _wyBull = _ph === 'MARKUP' || _ph === 'ACCUMULATION';
         const _wyAgainst = (_dir === 'BUY' && _wyBear) || (_dir === 'SELL' && _wyBull);
+        // No clear H4 structure (no BOS/CHOCH and no Wyckoff phase): replay
+        // 36 trades −$6,405 overall; USDJPY alone −$8,346 (2026-10-26, user).
+        if (!h4.bosChoch?.detected && !h4.wyckoff?.detected && process.env.H4_NO_STRUCTURE_SKIP !== 'off') {
+          addActivity(userId, { type: 'info', symbol: decision.symbol, message: `🧱 H4 FILTER: ${_dir} ${decision.symbol} skipped — no clear 4-hour structure.` });
+          logGuard(userId, 'h4_filter_skip', decision.symbol, `${_dir} skipped — no clear H4 structure (no BOS/CHOCH, no Wyckoff phase)`);
+          state.signalsGenerated++;
+          return;
+        }
         if (_bosAgainst || _wyAgainst) {
           const _why = [
             _bosAgainst ? `H4 ${h4.bosChoch.type} ${h4.bosChoch.direction}` : '',
@@ -5913,11 +5921,15 @@ async function processDecision(userId: number, decision: any, newsCtx?: any): Pr
       // Sunday reopen (21:00–23:00 UTC): spreads are wide and prices gap.
       // 120-day record of entries in that window: 14 trades, 1 win, −$1,228
       // (incl. 2026-10-25 21:40 AUDUSD). Crypto unaffected.
+      // Late evening 21:00–24:00 UTC every day (2026-10-26, user): 120-day
+      // record 60 trades, 38% WR, −$3,532 (USDJPY 0/5 against-trend, −$2.9k).
+      // Covers the Sunday reopen too. LATE_SESSION_BLOCK=off disables.
       {
         const _n = new Date();
-        if (_n.getUTCDay() === 0 && _n.getUTCHours() >= 21 && _n.getUTCHours() < 23 && !/^(BTC|ETH|SOL|LTC|XRP|DOGE|ADA|BNB)/i.test(_gSym)) {
-          addActivity(userId, { type: 'info', symbol: decision.symbol, message: `🌅 ${decision.symbol} ${_gDir}: Sunday reopen (21:00–23:00 UTC, wide spreads) — skipped.` });
-          logGuard(userId, 'market_closed_skip', decision.symbol, `${_gDir} skipped — Sunday reopen window (21:00–23:00 UTC): 1 win in 14 past trades`);
+        if (process.env.LATE_SESSION_BLOCK !== 'off' && _n.getUTCHours() >= 21 && !/^(BTC|ETH|SOL|LTC|XRP|DOGE|ADA|BNB)/i.test(_gSym)) {
+          const _sun = _n.getUTCDay() === 0;
+          addActivity(userId, { type: 'info', symbol: decision.symbol, message: `🌙 ${decision.symbol} ${_gDir}: ${_sun ? 'Sunday reopen' : 'late session'} (21:00–24:00 UTC, thin liquidity) — skipped.` });
+          logGuard(userId, 'late_session_skip', decision.symbol, `${_gDir} skipped — ${_sun ? 'Sunday reopen' : 'late session'} 21:00–24:00 UTC (past entries here: 38% win rate, −$3.5k over 120 days)`);
           return;
         }
       }
