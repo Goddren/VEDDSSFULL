@@ -14459,7 +14459,7 @@ async function getUniversalAIClientForUser(userId) {
     try {
       if (process.env.OPENAI_API_KEY && canUsePlatformKey) {
         const plat = new OpenAI({ apiKey: process.env.OPENAI_API_KEY, maxRetries: 4, timeout: 9e4 });
-        plat.defaultModel = "gpt-4o";
+        plat.defaultModel = "gpt-4o-mini";
         plat.provider = "openai-platform";
         plat.usedPlatformKey = true;
         clients.push(plat);
@@ -14483,7 +14483,7 @@ async function getUniversalAIClientForUser(userId) {
     console.error("Error fetching user API keys, falling back to platform key:", e);
   }
   const platformClient = openai;
-  platformClient.defaultModel = "gpt-4o";
+  platformClient.defaultModel = "gpt-4o-mini";
   platformClient.provider = "openai";
   platformClient.usedPlatformKey = true;
   return platformClient;
@@ -14501,7 +14501,7 @@ async function getUniversalVisionClientForUser(userId) {
         }
         if (provider === "openai") {
           const c = new OpenAI({ apiKey, maxRetries: 1, timeout: 9e4 });
-          c.defaultModel = preferredModel && selIsVision ? preferredModel : "gpt-4o";
+          c.defaultModel = preferredModel && selIsVision ? preferredModel : "gpt-4o-mini";
           c.provider = "openai";
           return c;
         }
@@ -16248,7 +16248,8 @@ var init_openai = __esm({
 - You have zero ego. If the Bear Case is stronger than the Bull Case, you say no, full stop, regardless of how the setup "feels."
 - You never revenge trade, never widen risk to chase a loss back, and never let a strong bull case override a real structural risk.`;
     PROVIDER_MODELS = {
-      openai: "gpt-4o",
+      openai: "gpt-4o-mini",
+      // was gpt-4o: as a failover link it silently upgraded every call ~16× in price
       groq: "openai/gpt-oss-120b",
       anthropic: "claude-sonnet-4-6",
       // was claude-3-5-sonnet-20241022 (retired → 404'd every Anthropic-routed confirmation)
