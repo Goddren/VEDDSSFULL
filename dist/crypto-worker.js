@@ -29236,6 +29236,7 @@ __export(fx_models_exports, {
   importFxModelSnapshot: () => importFxModelSnapshot,
   liveEligibleSlices: () => liveEligibleSlices,
   m1Reject: () => m1Reject,
+  m2Reject: () => m2Reject,
   masteryLevel: () => masteryLevel,
   parseFxModelScope: () => parseFxModelScope,
   rangeFeatures: () => rangeFeatures,
@@ -29301,7 +29302,8 @@ async function runFxModelsCycle(userId, ctx) {
         adx: snap.adx,
         plusDI: snap.plusDI,
         minusDI: snap.minusDI,
-        atr: snap.atr,
+        atr: Number(snap.atr) > 0 ? snap.atr : null,
+        // 0 means "not computed", never tell the AI ATR is zero
         relVolume: snap.relativeVolume,
         volumeTrend: snap.volumeTrend,
         h1: h1 ? { trend: h1.trend, bos: h1.bosChoch?.detected ? h1.bosChoch.description : null, pd: h1.premiumDiscount?.zone, wyckoff: h1.wyckoff?.detected ? h1.wyckoff.phase : null } : null,
@@ -29379,6 +29381,8 @@ async function rangeFeatures(symbol, engine = "fx") {
   for (let i = Math.max(20, closes.length - 40); i <= closes.length; i++) widths.push(bw(i));
   const nowW = widths[widths.length - 1];
   const bbPct = Math.round(widths.filter((w) => w <= nowW).length / widths.length * 100);
+  const trs = bars.slice(-15).map((b, i, a) => i === 0 ? b.high - b.low : Math.max(b.high - b.low, Math.abs(b.high - a[i - 1].close), Math.abs(b.low - a[i - 1].close))).slice(1);
+  const atrH1 = trs.reduce((s, x) => s + x, 0) / trs.length;
   const today = /* @__PURE__ */ new Date();
   today.setUTCHours(0, 0, 0, 0);
   const t0 = today.getTime();
@@ -29395,6 +29399,7 @@ async function rangeFeatures(symbol, engine = "fx") {
     bbWidthPercentile: bbPct,
     sweepHigh,
     sweepLow,
+    atrH1: Number(atrH1.toPrecision(5)),
     prevDayHigh: prevDay.length ? Math.max(...prevDay.map((b) => b.high)) : null,
     prevDayLow: prevDay.length ? Math.min(...prevDay.map((b) => b.low)) : null,
     asianHigh: asian.length ? Math.max(...asian.map((b) => b.high)) : null,
@@ -29403,6 +29408,22 @@ async function rangeFeatures(symbol, engine = "fx") {
   };
   rangeCache.set(ck, { at: Date.now(), data });
   return data;
+}
+function m2Reject(symbol, dir, entry, sl, tp, ctx, session2, engine = "fx") {
+  const want = dir === "BUY" ? "BULLISH" : "BEARISH";
+  if (ctx?.h1?.trend !== want || ctx?.h4?.trend !== want) return `H1 ${ctx?.h1?.trend ?? "n/a"} / H4 ${ctx?.h4?.trend ?? "n/a"} not both ${want}`;
+  if (engine !== "fx") return null;
+  if (M2_PAIRS_EXCLUDED.includes(symbol)) return `${symbol} excluded from trend model`;
+  if (!M2_SESSIONS.includes(session2)) return `${session2} session (Model 2 trades ${M2_SESSIONS.join(" / ")} only)`;
+  const pd = ctx?.h1?.pd;
+  if (dir === "BUY" && pd === "PREMIUM") return "BUY at H1 premium";
+  if (dir === "SELL" && pd === "DISCOUNT") return "SELL at H1 discount";
+  const adx = Number(ctx?.adx);
+  if (Number.isFinite(adx) && adx >= M2_MAX_ADX) return `ADX ${adx.toFixed(0)} \u2265 ${M2_MAX_ADX} (trend already stretched)`;
+  const risk = Math.abs(entry - sl);
+  const rr = risk > 0 ? Math.abs(tp - entry) / risk : 0;
+  if (rr < M2_MIN_RR - 1e-6) return `target ${rr.toFixed(2)}R < ${M2_MIN_RR}R`;
+  return null;
 }
 function m1Reject(symbol, dir, entry, sl, ctx, engine = "fx") {
   const r = ctx?.range;
@@ -29443,8 +29464,13 @@ MODEL 1 (range / low-volume days) \u2014 only when ctx.range.qualifies is true:
   \u2022 Stop beyond the sweep wick / range edge plus a small buffer. First target = rangeMid (must be >= 1.0R), runner to the opposite edge.
   \u2022 Never fade a trending H4, never trade a range during London open (07:00-08:00 UTC) or NY open (12:30-13:30 UTC) when breakouts start, max 1-3 trades a day.
   \u2022 If the range does not qualify, Model 1 says NONE.
-MODEL 2 (trend / volume days): trade only in the H4+H1 direction \u2014 breakouts with volume or pullbacks to structure in London/New York. Target 2-4R, stop beyond the last H1 swing. Skip if H4 and H1 disagree.
-Both models use every input: trend, ADX/DI, RSI, volume, BOS/CHOCH, Wyckoff, premium/discount, session and the day type. Reason toward the best risk-adjusted trade of the day; NONE is a valid, often correct answer.
+MODEL 2 (trend / volume days): trade only in the H4+H1 direction \u2014 breakouts with volume or pullbacks to structure. Target ${engine === "fx" ? `${M2_MIN_RR}R or more` : "2-4R"}, stop beyond the last H1 swing. Skip if H4 and H1 disagree.
+${engine === "fx" ? `  \u2022 Only in ${M2_SESSIONS.join(" / ")} sessions${M2_PAIRS_EXCLUDED.length ? `, never on ${M2_PAIRS_EXCLUDED.join(", ")}` : ""} \u2014 otherwise Model 2 says NONE.
+  \u2022 Buy pullbacks into H1 discount/equilibrium, sell rallies into H1 premium/equilibrium; never BUY at H1 premium or SELL at H1 discount (that is chasing).
+  \u2022 Skip when ADX is ${M2_MAX_ADX} or higher \u2014 the move is already stretched; the best entries come while ADX is building (about 20-30).
+  \u2022 The target must be at least ${M2_MIN_RR}R from the current price; if the next structure is closer, say NONE.
+  \u2022 ctx.range.atrH1 is the H1 ATR(14) \u2014 use it to judge how far price normally moves in an hour when placing the stop and target.
+` : ""}Both models use every input: trend, ADX/DI, RSI, volume, BOS/CHOCH, Wyckoff, premium/discount, session and the day type. Reason toward the best risk-adjusted trade of the day; NONE is a valid, often correct answer.
 
 Session: ${session2}
 ${masteryLines ? `Your own track record so far (use it \u2014 lean on what has worked, avoid what has not):
@@ -29517,10 +29543,10 @@ Give exactly one M1 and one M2 entry per pair.`;
       }
     }
     if (isTrade && model === "M2") {
-      const want = dir === "BUY" ? "BULLISH" : "BEARISH";
-      if (ctx?.h1?.trend !== want || ctx?.h4?.trend !== want) {
+      const why = m2Reject(sym, dir, price, sl, tp, ctx, session2, engine);
+      if (why) {
         isTrade = false;
-        ruleNote = `M2 rule: H1 ${ctx?.h1?.trend ?? "n/a"} / H4 ${ctx?.h4?.trend ?? "n/a"} not both ${want}`;
+        ruleNote = `M2 rule: ${why}`;
       }
     }
     const ins = await pool.query(
@@ -29930,7 +29956,7 @@ async function getModelMastery(userId, opts = {}) {
     slices: (await agg("model, day_type, symbol, session")).map(shape)
   };
 }
-var DDL3, ensured3, barsProviders, barsFor, pipSize, lastShadowCandle, lastResolveAt, M1_PAIRS_EXCLUDED, rangeCache, FX_MODEL_MIN_TO_LIST, DEFAULT_SETTINGS, LIVE_LEVELS, GO_LIVE, emaLast;
+var DDL3, ensured3, barsProviders, barsFor, pipSize, lastShadowCandle, lastResolveAt, M1_PAIRS_EXCLUDED, rangeCache, M2_PAIRS_EXCLUDED, M2_SESSIONS, M2_MAX_ADX, M2_MIN_RR, FX_MODEL_MIN_TO_LIST, DEFAULT_SETTINGS, LIVE_LEVELS, GO_LIVE, emaLast;
 var init_fx_models = __esm({
   "server/services/fx-models.ts"() {
     "use strict";
@@ -29998,6 +30024,10 @@ ALTER TABLE fx_day_regimes ADD COLUMN IF NOT EXISTS engine text NOT NULL DEFAULT
     lastResolveAt = 0;
     M1_PAIRS_EXCLUDED = (process.env.FX_M1_EXCLUDED_PAIRS || "GBPJPY,XAUUSD,BTCUSD,US30,NAS100").split(",").map((x) => x.trim().toUpperCase()).filter(Boolean);
     rangeCache = /* @__PURE__ */ new Map();
+    M2_PAIRS_EXCLUDED = (process.env.FX_M2_EXCLUDED_PAIRS || "USDJPY").split(",").map((x) => x.trim().toUpperCase()).filter(Boolean);
+    M2_SESSIONS = (process.env.FX_M2_SESSIONS || "London,London/NY overlap").split(",").map((x) => x.trim()).filter(Boolean);
+    M2_MAX_ADX = Number(process.env.FX_M2_MAX_ADX) || 30;
+    M2_MIN_RR = Number(process.env.FX_M2_MIN_RR) || 3;
     FX_MODEL_MIN_TO_LIST = 20;
     DEFAULT_SETTINGS = { live: false, m1DailyCap: 3, m2DailyCap: 2 };
     LIVE_LEVELS = ["Proficient", "Master"];
