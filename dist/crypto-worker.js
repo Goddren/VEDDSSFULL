@@ -29236,6 +29236,7 @@ __export(fx_models_exports, {
   getModelMastery: () => getModelMastery,
   importFxModelSnapshot: () => importFxModelSnapshot,
   liveEligibleSlices: () => liveEligibleSlices,
+  m1Candidate: () => m1Candidate,
   m1Reject: () => m1Reject,
   m2Reject: () => m2Reject,
   masteryLevel: () => masteryLevel,
@@ -29441,6 +29442,31 @@ function m1Reject(symbol, dir, entry, sl, ctx, engine = "fx") {
   if (!(risk > 0) || toMid / risk < 1) return `R:R to range middle ${(toMid / (risk || 1)).toFixed(2)} < 1`;
   return null;
 }
+function m1Candidate(symbol, ctx, engine = "fx") {
+  const r = ctx?.range;
+  if (!r?.qualifies) return null;
+  if (engine === "fx" && M1_PAIRS_EXCLUDED.includes(symbol)) return null;
+  const atTop = r.positionInRangePct >= 75, atBottom = r.positionInRangePct <= 25;
+  if (!atTop && !atBottom) return null;
+  const direction = atTop ? "SELL" : "BUY";
+  if (engine === "crypto" && direction === "SELL") return null;
+  const h4 = ctx?.h4?.trend || "NEUTRAL";
+  if (direction === "SELL" && h4 === "BULLISH" || direction === "BUY" && h4 === "BEARISH") return null;
+  const width = r.rangeHigh - r.rangeLow;
+  const price = Number(ctx?.price);
+  const stopRef = atTop ? r.rangeHigh + 0.1 * width : r.rangeLow - 0.1 * width;
+  const risk = Math.abs(price - stopRef);
+  const rrToMidEst = price > 0 && risk > 0 ? Math.abs(r.rangeMid - price) / risk : 0;
+  return {
+    direction,
+    edge: atTop ? "top" : "bottom",
+    h4,
+    sweep: !!(atTop ? r.sweepHigh : r.sweepLow),
+    stopRef: Number(stopRef.toPrecision(6)),
+    target: Number(Number(r.rangeMid).toPrecision(6)),
+    rrToMidEst: Math.round(rrToMidEst * 100) / 100
+  };
+}
 async function shadowDecide(userId, session2, pairs, engine = "fx") {
   try {
     const { fxShouldPauseForCredits: fxShouldPauseForCredits2 } = await Promise.resolve().then(() => (init_ai_budget_guard(), ai_budget_guard_exports));
@@ -29454,7 +29480,11 @@ async function shadowDecide(userId, session2, pairs, engine = "fx") {
   } catch {
     return;
   }
-  for (const p of pairs) p.ctx.range = await rangeFeatures(p.symbol, engine).catch(() => null);
+  for (const p of pairs) {
+    const range = await rangeFeatures(p.symbol, engine).catch(() => null);
+    p.ctx.range = range ? { ...range } : null;
+    if (p.ctx.range) p.ctx.range.m1Candidate = m1Candidate(p.symbol, p.ctx, engine);
+  }
   const mastery = await getModelMastery(userId, { engine }).catch(() => null);
   const masteryLines = (mastery?.slices || []).filter((m) => m.trades >= 5).slice(0, 20).map((m) => `${m.model} ${m.dayType} ${m.symbol} ${m.session}: ${m.trades} trades, WR ${(m.winRate * 100).toFixed(0)}%, avg ${m.avgR.toFixed(2)}R (${m.level})`).join("\n");
   const prompt = `You run TWO ${engine === "crypto" ? "CRYPTO (24/7 on-chain tokens)" : "FX"} trading models side by side. For EACH ${engine === "crypto" ? "token" : "pair"} below, say what each model would trade RIGHT NOW (or NONE).
@@ -29464,7 +29494,8 @@ MODEL 1 (range / low-volume days) \u2014 only when ctx.range.qualifies is true:
   \u2022 Best trigger is a liquidity sweep (sweepHigh/sweepLow true: wick through the edge, close back inside). Also valid: rejection at prevDay/Asian high/low that sits on the edge, RSI stretched at the edge.
   \u2022 Stop beyond the sweep wick / range edge plus a small buffer. First target = rangeMid (must be >= 1.0R), runner to the opposite edge.
   \u2022 Never fade a trending H4, never trade a range during London open (07:00-08:00 UTC) or NY open (12:30-13:30 UTC) when breakouts start, max 1-3 trades a day.
-  \u2022 If the range does not qualify, Model 1 says NONE.
+  \u2022 ctx.range.m1Candidate is the setup the server has ALREADY checked: the range qualifies, price is at an edge, and that edge does not fight the H4. When it is set, Model 1 TAKES that trade \u2014 its direction, entry at the current price, stop beyond the edge / sweep wick (stopRef is a guide), first target rangeMid \u2014 unless you name a specific, concrete reason in "reason" (e.g. "London open window", "H1 just closed outside the box", "R:R to rangeMid under 1 with a sensible stop"). "Range does not qualify" or "position does not qualify" are never valid reasons when m1Candidate is set.
+  \u2022 When ctx.range.m1Candidate is null, Model 1 says NONE.
 MODEL 2 (trend / volume days): trade only in the H4+H1 direction \u2014 breakouts with volume or pullbacks to structure. Target ${engine === "fx" ? `${M2_MIN_RR}R or more` : "2-4R"}, stop beyond the last H1 swing. Skip if H4 and H1 disagree.
 ${engine === "fx" ? `  \u2022 Only in ${M2_SESSIONS.join(" / ")} sessions${M2_PAIRS_EXCLUDED.length ? `, never on ${M2_PAIRS_EXCLUDED.join(", ")}` : ""} \u2014 otherwise Model 2 says NONE.
   \u2022 Buy pullbacks into H1 discount/equilibrium, sell rallies into H1 premium/equilibrium; never BUY at H1 premium or SELL at H1 discount (that is chasing).

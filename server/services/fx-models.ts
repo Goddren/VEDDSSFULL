@@ -313,6 +313,38 @@ export function m1Reject(symbol: string, dir: string, entry: number, sl: number,
   return null;
 }
 
+/**
+ * The Model 1 setup the server has already checked, so the AI does not have
+ * to re-derive it. Replay of qualified edges 10-21 → 10-28: edges WITH the H4
+ * trend hit target 12 / stop 4, but the AI took only 5 of 22 — about 9 times it
+ * answered "Range does not qualify" on a range that did. Edges AGAINST the H4
+ * hit target 10 / stop 22, so the never-fade-H4 rule stays: those get no
+ * candidate here and m1Reject still refuses them.
+ */
+export function m1Candidate(symbol: string, ctx: any, engine: ModelEngine = 'fx'): {
+  direction: 'BUY' | 'SELL'; edge: 'top' | 'bottom'; h4: string; sweep: boolean; stopRef: number; target: number; rrToMidEst: number;
+} | null {
+  const r = ctx?.range;
+  if (!r?.qualifies) return null;
+  if (engine === 'fx' && M1_PAIRS_EXCLUDED.includes(symbol)) return null;
+  const atTop = r.positionInRangePct >= 75, atBottom = r.positionInRangePct <= 25;
+  if (!atTop && !atBottom) return null;
+  const direction = atTop ? 'SELL' : 'BUY';
+  if (engine === 'crypto' && direction === 'SELL') return null; // crypto is long-only
+  const h4 = ctx?.h4?.trend || 'NEUTRAL';
+  if ((direction === 'SELL' && h4 === 'BULLISH') || (direction === 'BUY' && h4 === 'BEARISH')) return null;
+  // Estimate only: stop 10% of the box beyond the edge (the AI sets the real stop).
+  const width = r.rangeHigh - r.rangeLow;
+  const price = Number(ctx?.price);
+  const stopRef = atTop ? r.rangeHigh + 0.1 * width : r.rangeLow - 0.1 * width;
+  const risk = Math.abs(price - stopRef);
+  const rrToMidEst = price > 0 && risk > 0 ? Math.abs(r.rangeMid - price) / risk : 0;
+  return {
+    direction, edge: atTop ? 'top' : 'bottom', h4, sweep: !!(atTop ? r.sweepHigh : r.sweepLow),
+    stopRef: Number(stopRef.toPrecision(6)), target: Number(Number(r.rangeMid).toPrecision(6)), rrToMidEst: Math.round(rrToMidEst * 100) / 100,
+  };
+}
+
 async function shadowDecide(userId: number, session: string, pairs: Array<{ symbol: string; ctx: any }>, engine: ModelEngine = 'fx'): Promise<void> {
   try {
     const { fxShouldPauseForCredits } = await import('./ai-budget-guard');
@@ -324,7 +356,12 @@ async function shadowDecide(userId: number, session: string, pairs: Array<{ symb
     ai = await getUniversalAIClientForUser(userId);
   } catch { return; }
 
-  for (const p of pairs) p.ctx.range = await rangeFeatures(p.symbol, engine).catch(() => null);
+  for (const p of pairs) {
+    const range = await rangeFeatures(p.symbol, engine).catch(() => null);
+    // Copy, never mutate: rangeFeatures returns a cached object shared across cycles.
+    p.ctx.range = range ? { ...range } : null;
+    if (p.ctx.range) p.ctx.range.m1Candidate = m1Candidate(p.symbol, p.ctx, engine);
+  }
   const mastery = await getModelMastery(userId, { engine }).catch(() => null);
   const masteryLines = (mastery?.slices || []).filter((m: any) => m.trades >= 5).slice(0, 20)
     .map((m: any) => `${m.model} ${m.dayType} ${m.symbol} ${m.session}: ${m.trades} trades, WR ${(m.winRate * 100).toFixed(0)}%, avg ${m.avgR.toFixed(2)}R (${m.level})`).join('\n');
@@ -336,7 +373,8 @@ MODEL 1 (range / low-volume days) — only when ctx.range.qualifies is true:
   • Best trigger is a liquidity sweep (sweepHigh/sweepLow true: wick through the edge, close back inside). Also valid: rejection at prevDay/Asian high/low that sits on the edge, RSI stretched at the edge.
   • Stop beyond the sweep wick / range edge plus a small buffer. First target = rangeMid (must be >= 1.0R), runner to the opposite edge.
   • Never fade a trending H4, never trade a range during London open (07:00-08:00 UTC) or NY open (12:30-13:30 UTC) when breakouts start, max 1-3 trades a day.
-  • If the range does not qualify, Model 1 says NONE.
+  • ctx.range.m1Candidate is the setup the server has ALREADY checked: the range qualifies, price is at an edge, and that edge does not fight the H4. When it is set, Model 1 TAKES that trade — its direction, entry at the current price, stop beyond the edge / sweep wick (stopRef is a guide), first target rangeMid — unless you name a specific, concrete reason in "reason" (e.g. "London open window", "H1 just closed outside the box", "R:R to rangeMid under 1 with a sensible stop"). "Range does not qualify" or "position does not qualify" are never valid reasons when m1Candidate is set.
+  • When ctx.range.m1Candidate is null, Model 1 says NONE.
 MODEL 2 (trend / volume days): trade only in the H4+H1 direction — breakouts with volume or pullbacks to structure. Target ${engine === 'fx' ? `${M2_MIN_RR}R or more` : '2-4R'}, stop beyond the last H1 swing. Skip if H4 and H1 disagree.
 ${engine === 'fx' ? `  • Only in ${M2_SESSIONS.join(' / ')} sessions${M2_PAIRS_EXCLUDED.length ? `, never on ${M2_PAIRS_EXCLUDED.join(', ')}` : ''} — otherwise Model 2 says NONE.
   • Buy pullbacks into H1 discount/equilibrium, sell rallies into H1 premium/equilibrium; never BUY at H1 premium or SELL at H1 discount (that is chasing).
