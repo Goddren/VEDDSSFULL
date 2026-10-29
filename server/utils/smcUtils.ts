@@ -129,10 +129,16 @@ export function detectBOSCHOCH(candles: any[], signal: string): BOSCHOCHResult {
 }
 
 /**
- * Detects the most recent unmitigated Fair Value Gap (imbalance) that aligns with the signal.
- * Bullish FVG: candle[i+2].h < candle[i].l → price gap, expecting fill upward
- * Bearish FVG: candle[i+2].l > candle[i].h → price gap, expecting fill downward
- * (candles index 0 = newest; candle triplet: candles[i], [i+1], [i+2] = new→old)
+ * Detects the most recent unfilled Fair Value Gap (imbalance) that aligns with the signal.
+ * Bullish FVG: candle[i+1].h < candle[i-1].l → price gap below, acts as support
+ * Bearish FVG: candle[i+1].l > candle[i-1].h → price gap above, acts as resistance
+ * (candles index 0 = newest; triplet candles[i-1], [i], [i+1] = new→old, i = the impulse candle)
+ *
+ * A gap counts as filled once any candle after it has traded through its far
+ * edge (a low at/below a bullish gap's bottom, a high at/above a bearish gap's
+ * top). Trading partly into the gap does not fill it — that is the entry.
+ * Was: scanned oldest→newest and returned the first match, i.e. the OLDEST gap
+ * in the window, and never checked whether it had already been filled.
  */
 export function detectFairValueGap(candles: any[], signal: string): FVGResult {
   const none: FVGResult = { detected: false, direction: null, top: null, bottom: null, inZone: false, candlesAgo: null, description: 'No active Fair Value Gap detected' };
@@ -140,21 +146,22 @@ export function detectFairValueGap(candles: any[], signal: string): FVGResult {
 
   const currentClose = candles[0].c;
   const lookback = Math.min(15, candles.length - 2);
+  // Candles newer than the gap's third candle: indices 0 .. i-2.
+  const filledBelow = (i: number, level: number) => candles.slice(0, i - 1).some((c) => c.l <= level);
+  const filledAbove = (i: number, level: number) => candles.slice(0, i - 1).some((c) => c.h >= level);
 
-  // Search from oldest to newest so we get the most recent relevant FVG
-  for (let i = lookback - 1; i >= 1; i--) {
+  // Search newest → oldest and return the first unfilled gap: the most recent one.
+  for (let i = 1; i < lookback; i++) {
     const newer = candles[i - 1]; // closer to present
-    const mid = candles[i];
     const older = candles[i + 1]; // further in past
 
     // Bullish FVG: older.h < newer.l (gap between older high and newer low)
     if (older.h < newer.l) {
       const top = newer.l;
       const bottom = older.h;
-      const midpoint = (top + bottom) / 2;
       const inZone = currentClose >= bottom && currentClose <= top;
       const aligns = signal === 'BUY';
-      if (!aligns) continue;
+      if (!aligns || filledBelow(i, bottom)) continue;
       return {
         detected: true, direction: 'BULLISH',
         top, bottom, inZone, candlesAgo: i,
@@ -168,7 +175,7 @@ export function detectFairValueGap(candles: any[], signal: string): FVGResult {
       const bottom = newer.h;
       const inZone = currentClose >= bottom && currentClose <= top;
       const aligns = signal === 'SELL';
-      if (!aligns) continue;
+      if (!aligns || filledAbove(i, top)) continue;
       return {
         detected: true, direction: 'BEARISH',
         top, bottom, inZone, candlesAgo: i,

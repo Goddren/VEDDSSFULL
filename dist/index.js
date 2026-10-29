@@ -7773,17 +7773,17 @@ function detectFairValueGap(candles, signal) {
   if (!candles || candles.length < 6) return none;
   const currentClose = candles[0].c;
   const lookback = Math.min(15, candles.length - 2);
-  for (let i = lookback - 1; i >= 1; i--) {
+  const filledBelow = (i, level) => candles.slice(0, i - 1).some((c) => c.l <= level);
+  const filledAbove = (i, level) => candles.slice(0, i - 1).some((c) => c.h >= level);
+  for (let i = 1; i < lookback; i++) {
     const newer = candles[i - 1];
-    const mid = candles[i];
     const older = candles[i + 1];
     if (older.h < newer.l) {
       const top = newer.l;
       const bottom = older.h;
-      const midpoint = (top + bottom) / 2;
       const inZone = currentClose >= bottom && currentClose <= top;
       const aligns = signal === "BUY";
-      if (!aligns) continue;
+      if (!aligns || filledBelow(i, bottom)) continue;
       return {
         detected: true,
         direction: "BULLISH",
@@ -7799,7 +7799,7 @@ function detectFairValueGap(candles, signal) {
       const bottom = newer.h;
       const inZone = currentClose >= bottom && currentClose <= top;
       const aligns = signal === "SELL";
-      if (!aligns) continue;
+      if (!aligns || filledAbove(i, top)) continue;
       return {
         detected: true,
         direction: "BEARISH",
@@ -61766,9 +61766,9 @@ async function getStopOrdersForUser(userId, filters = {}) {
 init_schema();
 
 // server/build-info.ts
-var BUILD_COMMIT = "29455ce5-dirty";
-var BUILD_BRANCH = "feat/model1-h4-candidate";
-var BUILT_AT = "2026-10-29T01:16:01.682Z";
+var BUILD_COMMIT = "b020d88e-dirty";
+var BUILD_BRANCH = "fix/fvg-newest-unfilled";
+var BUILT_AT = "2026-10-29T03:55:56.982Z";
 
 // server/stripe.ts
 init_db();
