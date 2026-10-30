@@ -24844,6 +24844,18 @@ function tlTargetOf(pos, conns) {
   const conn = conns.find((c) => c.id === Number(m[1]));
   return conn ? { conn, positionId: m[2] } : null;
 }
+function stopHoldUntilR() {
+  const v = Number(process.env.STOP_HOLD_UNTIL_R ?? 1);
+  return Number.isFinite(v) && v > 0 ? v : 0;
+}
+function stopHoldActive(isBuy, entry, stop, price) {
+  const need = stopHoldUntilR();
+  if (!need || !(entry > 0) || !(stop > 0) || !(price > 0)) return { hold: false, rNow: 0 };
+  const risk = isBuy ? entry - stop : stop - entry;
+  if (!(risk > 0)) return { hold: false, rNow: 0 };
+  const rNow = (isBuy ? price - entry : entry - price) / risk;
+  return { hold: rNow < need, rNow };
+}
 async function manageBtcTrail(userId, openPositions, marketAnalysis) {
   const btc = await Promise.resolve().then(() => (init_btc_profile(), btc_profile_exports));
   if (!btc.BTC_PROFILE_ON()) return;
@@ -24875,6 +24887,7 @@ async function manageBtcTrail(userId, openPositions, marketAnalysis) {
     const _stops = [btcLastStop.get(key), brokerSl].filter((x) => Number(x) > 0);
     const _tightest = _stops.length ? _isBuyPos ? Math.max(..._stops) : Math.min(..._stops) : null;
     const price = Number(marketAnalysis?.[pos.symbol]?.currentPrice) || 0;
+    if (stopHoldActive(_isBuyPos, entry, initial, price).hold) continue;
     const h1 = await btc.btcH1(pos.symbol);
     if (!h1) continue;
     const want = btc.btcTrailStop({ direction: pos.direction, entry, initialStop: initial, price, currentStop: _tightest, bars: h1.bars });
@@ -24915,6 +24928,12 @@ async function manageXauProfitLock(userId, openPositions) {
     if (!(qty > 0) || !(entry > 0)) continue;
     const favPts = (Number(pos.profit) || 0) / (qty * rules.XAU_CONTRACT_SIZE);
     if (!Number.isFinite(favPts)) continue;
+    {
+      const _bs0 = Number(pos.brokerSl) || 0;
+      const _riskPts = pos.direction === "BUY" ? entry - _bs0 : _bs0 - entry;
+      const _need = stopHoldUntilR();
+      if (_need && _bs0 > 0 && _riskPts > 0 && favPts < _need * _riskPts) continue;
+    }
     const peak = Math.max(xauPeakPts.get(key) ?? 0, favPts);
     xauPeakPts.set(key, peak);
     const want = rules.xauLockStopPts(peak);
@@ -28431,6 +28450,15 @@ async function processDecision(userId, decision, newsCtx) {
                 const _buy = String(tlMatch.side || decision.direction || "BUY").toUpperCase() === "BUY";
                 const _cur = Number(tlMatch.stopLoss) || 0;
                 const _px = Number(state.marketSnapshot?.[decision.symbol]?.price) || 0;
+                {
+                  const _ownE = Number(tlMatch.avgPrice) || 0;
+                  const _tighter = _sl && _cur > 0 && (_buy ? _sl > _cur : _sl < _cur);
+                  const _h = _tighter ? stopHoldActive(_buy, _ownE, _cur, _px) : { hold: false, rNow: 0 };
+                  if (_tighter && _h.hold) {
+                    logGuard(userId, "stop_hold_breathe", decision.symbol, `AI stop ${_sl} held on ${acctLabel} \u2014 trade at ${_h.rNow.toFixed(2)}R, stop stays at ${_cur} until +${stopHoldUntilR()}R`);
+                    _sl = void 0;
+                  }
+                }
                 {
                   const _own = Number(tlMatch.avgPrice) || 0;
                   const _pip = getPipSize(decision.symbol);
