@@ -44645,7 +44645,8 @@ async function executeSignalSingle(service, connection2, userId, symbol, result,
     }
     const chain = cfg.defiChain || "base";
     const slip = cfg.defiSlippageBps ?? 100;
-    let notionalD = Math.max(1, cfg.defiNotionalUsd ?? 25) * (gateD.riskMultiplier < 1 ? gateD.riskMultiplier : 1);
+    const _baseN = cfg._paper ? Math.max(5, Number(cfg._paperBalance || 1e3) * Number(process.env.CRYPTO_PAPER_SIZE_PCT ?? 2) / 100) : Math.max(1, cfg.defiNotionalUsd ?? 25);
+    let notionalD = _baseN * (gateD.riskMultiplier < 1 ? gateD.riskMultiplier : 1);
     let slPctD = Number(cfg.cefiStopLossPct ?? 2), tpPctD = Number(cfg.cefiTakeProfitPct ?? 3);
     let _sizeNote = "";
     {
@@ -44944,6 +44945,7 @@ async function scanOneUser(userId) {
     const _ps = await getPaperSettings2(userId);
     if (_ps.enabled) {
       config._paperOn = true;
+      config._paperBalance = Number(_ps.startBalance) || 1e3;
       config.executionVenue = "defi";
       config.multiVenueEnabled = false;
       await resolvePaperTrades2(userId).catch((e) => console.error("[crypto-paper] resolve failed (non-fatal):", e?.message ?? e));
@@ -62093,9 +62095,9 @@ async function getStopOrdersForUser(userId, filters = {}) {
 init_schema();
 
 // server/build-info.ts
-var BUILD_COMMIT = "10eed6a8-dirty";
+var BUILD_COMMIT = "41b10aca-dirty";
 var BUILD_BRANCH = "HEAD";
-var BUILT_AT = "2026-10-30T15:49:22.529Z";
+var BUILT_AT = "2026-10-30T15:57:00.796Z";
 
 // server/stripe.ts
 init_db();

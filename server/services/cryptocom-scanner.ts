@@ -1306,7 +1306,13 @@ async function executeSignalSingle(service: CryptoComService, connection: Crypto
     }
     const chain = (cfg as any).defiChain || 'base';
     const slip = (cfg as any).defiSlippageBps ?? 100;
-    let notionalD = Math.max(1, (cfg as any).defiNotionalUsd ?? 25) * (gateD.riskMultiplier < 1 ? gateD.riskMultiplier : 1);
+    // Paper mode sizes from the paper balance (CRYPTO_PAPER_SIZE_PCT, 2%) so a
+    // tiny real defiNotionalUsd (e.g. $3) doesn't push every ATR-widened paper
+    // entry under the minimum. The real DeFi setting is untouched.
+    const _baseN = (cfg as any)._paper
+      ? Math.max(5, Number((cfg as any)._paperBalance || 1000) * Number(process.env.CRYPTO_PAPER_SIZE_PCT ?? 2) / 100)
+      : Math.max(1, (cfg as any).defiNotionalUsd ?? 25);
+    let notionalD = _baseN * (gateD.riskMultiplier < 1 ? gateD.riskMultiplier : 1);
     // Trend profile: stop at least CRYPTO_SL_ATR_MULT x H1 ATR (thin tokens
     // wick through tight % stops); when that widens the stop, the dollar size
     // shrinks by the same ratio so the money at risk does not grow. Target is
@@ -1600,6 +1606,7 @@ async function scanOneUser(userId: number): Promise<void> {
     const _ps = await getPaperSettings(userId);
     if (_ps.enabled) {
       (config as any)._paperOn = true;
+      (config as any)._paperBalance = Number(_ps.startBalance) || 1000;
       (config as any).executionVenue = 'defi';
       (config as any).multiVenueEnabled = false;
       await resolvePaperTrades(userId).catch((e: any) => console.error('[crypto-paper] resolve failed (non-fatal):', e?.message ?? e));
