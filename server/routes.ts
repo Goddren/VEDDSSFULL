@@ -17700,6 +17700,16 @@ Rules:
   // boot and how the ENABLE_CRYPTO_ENGINE env var was read, without exposing any
   // secret. Lets us confirm the flag took effect after a Render deploy.
   // (Crypto paper-trading routes sit just below this one.)
+  // Shared shadow ledger (services/shadow-ledger.ts): every shadow/paper
+  // stream in one view — FX + crypto Model 1/2, crypto paper (incl. shorts
+  // and ORB), Sol paper. ?days=30 (1–365).
+  app.get("/api/shadow-ledger", async (req: Request, res: Response) => {
+    if (!req.isAuthenticated()) return res.status(401).json({ error: "Authentication required" });
+    try {
+      const { shadowLedgerSummary } = await import('./services/shadow-ledger');
+      res.json(await shadowLedgerSummary((req.user as User).id, Number(req.query.days) || 30));
+    } catch (err: any) { res.status(500).json({ error: err.message }); }
+  });
   app.get("/api/crypto-paper", async (req: Request, res: Response) => {
     if (!req.isAuthenticated()) return res.status(401).json({ error: "Authentication required" });
     try {

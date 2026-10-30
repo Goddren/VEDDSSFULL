@@ -41672,6 +41672,105 @@ var init_crypto_paper = __esm({
   }
 });
 
+// server/services/shadow-ledger.ts
+var shadow_ledger_exports = {};
+__export(shadow_ledger_exports, {
+  ensureShadowLedger: () => ensureShadowLedger,
+  shadowLedgerSummary: () => shadowLedgerSummary
+});
+function ensureShadowLedger() {
+  if (!_ensured2) {
+    _ensured2 = (async () => {
+      try {
+        const { ensurePaperTable: ensurePaperTable2 } = await Promise.resolve().then(() => (init_crypto_paper(), crypto_paper_exports));
+        await ensurePaperTable2();
+      } catch {
+      }
+      await pool.query(VIEW_SQL);
+    })().catch((e) => {
+      _ensured2 = null;
+      throw e;
+    });
+  }
+  return _ensured2;
+}
+async function shadowLedgerSummary(userId, days = 30) {
+  await ensureShadowLedger();
+  const since = `now() - ($2 || ' days')::interval`;
+  const q = (sql18) => pool.query(sql18, [userId, String(Math.max(1, Math.min(365, days)))]).then((r) => r.rows);
+  const agg = `count(*)::int AS trades, count(*) FILTER (WHERE result='WIN')::int AS wins,
+               round(avg(r_multiple)::numeric, 2)::float AS avg_r, round(sum(r_multiple)::numeric, 1)::float AS total_r`;
+  const [bySource, bySession, byDirection, slices, alignment] = await Promise.all([
+    q(`SELECT source, ${agg} FROM shadow_ledger WHERE user_id=$1 AND closed_at >= ${since} GROUP BY 1 ORDER BY 1`),
+    q(`SELECT source, session, ${agg} FROM shadow_ledger WHERE user_id=$1 AND closed_at >= ${since} GROUP BY 1,2 ORDER BY 1,2`),
+    q(`SELECT source, direction, ${agg} FROM shadow_ledger WHERE user_id=$1 AND closed_at >= ${since} GROUP BY 1,2 ORDER BY 1,2`),
+    q(`SELECT source, strategy, symbol, ${agg} FROM shadow_ledger WHERE user_id=$1 AND closed_at >= ${since}
+        GROUP BY 1,2,3 HAVING count(*) >= 3 ORDER BY avg(r_multiple) DESC NULLS LAST`),
+    q(`SELECT source, h4_aligned, ${agg} FROM shadow_ledger WHERE user_id=$1 AND closed_at >= ${since} AND context_reliable AND h4_aligned IS NOT NULL
+        GROUP BY 1,2 ORDER BY 1,2`)
+  ]);
+  return { days, bySource, bySession, byDirection, best: slices.slice(0, 10), worst: slices.slice(-10).reverse(), h4Alignment: alignment };
+}
+var SESSION_SQL, VIEW_SQL, _ensured2;
+var init_shadow_ledger = __esm({
+  "server/services/shadow-ledger.ts"() {
+    "use strict";
+    init_db();
+    SESSION_SQL = (ts) => `CASE
+  WHEN extract(hour from ${ts}) < 7  THEN 'Asian'
+  WHEN extract(hour from ${ts}) < 12 THEN 'London'
+  WHEN extract(hour from ${ts}) < 16 THEN 'Overlap'
+  WHEN extract(hour from ${ts}) < 21 THEN 'NewYork'
+  ELSE 'Late' END`;
+    VIEW_SQL = `
+CREATE OR REPLACE VIEW shadow_ledger AS
+  SELECT ('fx_model:' || d.id)::text AS ledger_id,
+         CASE WHEN d.engine = 'crypto' THEN 'crypto_shadow' ELSE 'fx_shadow' END AS source,
+         COALESCE(d.engine, 'fx') AS engine, d.user_id,
+         d.model AS strategy, d.symbol,
+         CASE WHEN upper(d.direction) = 'SELL' THEN 'SHORT' ELSE 'LONG' END AS direction,
+         (d.created_at AT TIME ZONE 'UTC') AS opened_at, (d.resolved_at AT TIME ZONE 'UTC') AS closed_at,
+         extract(hour from d.created_at)::int AS hour_utc,
+         ${SESSION_SQL("d.created_at")} AS session,
+         d.day_type,
+         d.context->'h1'->>'trend' AS h1_trend, d.context->'h4'->>'trend' AS h4_trend,
+         CASE WHEN d.context->'h4'->>'trend' IS NULL THEN NULL
+              WHEN upper(d.direction) = 'BUY'  THEN (d.context->'h4'->>'trend') = 'BULLISH'
+              WHEN upper(d.direction) = 'SELL' THEN (d.context->'h4'->>'trend') = 'BEARISH' END AS h4_aligned,
+         (d.created_at >= TIMESTAMP '2026-10-23 04:00:00') AS context_reliable,
+         CASE WHEN d.result = 'EXPIRED' THEN 'EXPIRED' WHEN d.r_multiple > 0 THEN 'WIN' WHEN d.r_multiple < 0 THEN 'LOSS' ELSE d.result END AS result,
+         d.r_multiple::float AS r_multiple, NULL::float AS return_pct
+    FROM fx_model_decisions d
+   WHERE d.result IN ('WIN','LOSS','EXPIRED') AND d.direction IN ('BUY','SELL') AND d.source = 'own'
+  UNION ALL
+  SELECT ('crypto_paper:' || c.id)::text, 'crypto_paper', 'crypto', c.user_id,
+         c.strategy, c.symbol,
+         CASE WHEN c.direction = 'short' THEN 'SHORT' ELSE 'LONG' END,
+         c.opened_at, c.closed_at,
+         extract(hour from c.opened_at AT TIME ZONE 'UTC')::int,
+         ${SESSION_SQL("(c.opened_at AT TIME ZONE 'UTC')")},
+         NULL, NULL, NULL, NULL, true,
+         CASE WHEN c.exit_reason = 'time limit' THEN 'EXPIRED' WHEN c.r_multiple > 0 THEN 'WIN' WHEN c.r_multiple < 0 THEN 'LOSS' ELSE 'FLAT' END,
+         c.r_multiple::float, c.return_pct::float
+    FROM crypto_paper_trades c
+   WHERE c.status = 'closed'
+  UNION ALL
+  SELECT ('sol_paper:' || s.id)::text, 'sol_paper', 'sol', s.user_id,
+         s.strategy_id, s.symbol, 'LONG',
+         s.opened_at::timestamptz, NULLIF(s.closed_at, '')::timestamptz,
+         extract(hour from s.opened_at::timestamptz AT TIME ZONE 'UTC')::int,
+         ${SESSION_SQL("(s.opened_at::timestamptz AT TIME ZONE 'UTC')")},
+         NULL, NULL, NULL, NULL, true,
+         CASE WHEN s.close_pnl_pct > 0 THEN 'WIN' WHEN s.close_pnl_pct < 0 THEN 'LOSS' ELSE 'FLAT' END,
+         CASE WHEN s.sl_pct > 0 THEN (s.close_pnl_pct / s.sl_pct)::float END,
+         s.close_pnl_pct::float
+    FROM sol_engine_positions s
+   WHERE s.mode = 'paper' AND s.status = 'closed' AND s.close_pnl_pct IS NOT NULL
+`;
+    _ensured2 = null;
+  }
+});
+
 // server/services/crypto-market-data.ts
 var crypto_market_data_exports = {};
 __export(crypto_market_data_exports, {
@@ -49567,7 +49666,7 @@ var init_abba_ea_generator = __esm({
 
 // server/services/sol-brain.ts
 async function ensureTable2() {
-  if (_ensured2) return;
+  if (_ensured3) return;
   try {
     await pool.query(`
       CREATE TABLE IF NOT EXISTS "sol_brain_outcomes" (
@@ -49589,7 +49688,7 @@ async function ensureTable2() {
       );
       CREATE INDEX IF NOT EXISTS "idx_sol_brain_outcomes_user_symbol" ON "sol_brain_outcomes" ("user_id", "symbol");
     `);
-    _ensured2 = true;
+    _ensured3 = true;
   } catch (err) {
     console.error("[sol-brain] ensureTable failed (non-fatal):", err?.message ?? err);
   }
@@ -49738,14 +49837,14 @@ async function recordSolBrainOutcome(o) {
     console.error("[sol-brain] recordSolBrainOutcome failed (non-fatal):", err?.message ?? err);
   }
 }
-var MIN_TRADES3, REFRESH_TTL_MS3, _ensured2, _cache5;
+var MIN_TRADES3, REFRESH_TTL_MS3, _ensured3, _cache5;
 var init_sol_brain = __esm({
   "server/services/sol-brain.ts"() {
     "use strict";
     init_db();
     MIN_TRADES3 = 10;
     REFRESH_TTL_MS3 = 60 * 1e3;
-    _ensured2 = false;
+    _ensured3 = false;
     _cache5 = /* @__PURE__ */ new Map();
   }
 });
@@ -62258,9 +62357,9 @@ async function getStopOrdersForUser(userId, filters = {}) {
 init_schema();
 
 // server/build-info.ts
-var BUILD_COMMIT = "f7c01afc-dirty";
+var BUILD_COMMIT = "0558ae4d-dirty";
 var BUILD_BRANCH = "HEAD";
-var BUILT_AT = "2026-10-30T21:26:14.600Z";
+var BUILT_AT = "2026-10-30T21:56:27.455Z";
 
 // server/stripe.ts
 init_db();
@@ -80305,6 +80404,15 @@ Rules:
     }
     const config = await storage.upsertCryptocomEngineConfig(userId, updateData);
     res.json(config);
+  });
+  app2.get("/api/shadow-ledger", async (req, res) => {
+    if (!req.isAuthenticated()) return res.status(401).json({ error: "Authentication required" });
+    try {
+      const { shadowLedgerSummary: shadowLedgerSummary2 } = await Promise.resolve().then(() => (init_shadow_ledger(), shadow_ledger_exports));
+      res.json(await shadowLedgerSummary2(req.user.id, Number(req.query.days) || 30));
+    } catch (err) {
+      res.status(500).json({ error: err.message });
+    }
   });
   app2.get("/api/crypto-paper", async (req, res) => {
     if (!req.isAuthenticated()) return res.status(401).json({ error: "Authentication required" });
