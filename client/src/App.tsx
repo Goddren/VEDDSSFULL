@@ -57,6 +57,7 @@ import SocialHub from "@/pages/social-hub";
 import UserGuidePage from "@/pages/user-guide";
 import AmbassadorTrainingPage from "@/pages/ambassador-training";
 import AmbassadorLocalOutreachPage from "@/pages/ambassador-local-outreach";
+import AmbassadorAgentPage from "@/pages/ambassador-agent";
 import AmbassadorPropFirmEventPage from "@/pages/ambassador-propfirm-event";
 import CertificationsPage from "@/pages/certifications";
 import WorkforceAcademyPage from "@/pages/workforce-academy";
@@ -245,6 +246,7 @@ function AppLayout() {
             <Route path="/security" component={SecurityPage} />
             <Route path="/user-guide" component={UserGuidePage} />
             <Route path="/ambassador-training" component={AmbassadorTrainingPage} />
+            <ProtectedRoute path="/ambassador/agent" component={AmbassadorAgentPage} />
             <ProtectedRoute path="/ambassador/local-outreach" component={AmbassadorLocalOutreachPage} />
             <ProtectedRoute path="/ambassador/propfirm-event" component={AmbassadorPropFirmEventPage} />
             <ProtectedRoute path="/certifications" component={CertificationsPage} />

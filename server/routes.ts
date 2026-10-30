@@ -30143,7 +30143,46 @@ Generate an agenda with timing, topics, and hosting tips. Return JSON: {
     const { code } = req.params;
     // track the visit silently
     storage.trackReferralVisit({ referralCode: code, visitorIp: req.ip, userAgent: req.headers['user-agent'] }).catch(() => {});
-    res.redirect(`/auth?ref=${code}`);
+    // ?p=<postId> = a click from an ambassador queue post (ambassador-post-queue.ts)
+    const postId = Number(req.query.p);
+    if (Number.isInteger(postId) && postId > 0) {
+      storage.getUserByReferralCode(code)
+        .then(async (u) => (await import('./services/ambassador-post-queue')).recordPostClick(postId, u?.id ?? null))
+        .catch(() => {});
+    }
+    res.redirect(`/auth?ref=${encodeURIComponent(code)}`);
+  });
+
+  // ─── AMBASSADOR AGENT: DAILY POST QUEUE (44-day plan → TikTok/IG/FB) ───────
+  app.get("/api/ambassador/agent/queue", async (req, res) => {
+    if (!req.user) return res.status(401).json({ message: "Unauthorized" });
+    try {
+      const q = await import('./services/ambassador-post-queue');
+      const date = typeof req.query.date === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(req.query.date) ? req.query.date : new Date().toISOString().slice(0, 10);
+      const [posts, stats] = await Promise.all([q.getQueue(req.user.id, date), q.getPostStats(req.user.id)]);
+      res.json({ date, posts, stats, disclosure: q.DISCLOSURE, riskLine: q.RISK_LINE });
+    } catch (err: any) { res.status(500).json({ message: err.message }); }
+  });
+  app.post("/api/ambassador/agent/queue/generate", async (req, res) => {
+    if (!req.user) return res.status(401).json({ message: "Unauthorized" });
+    try {
+      const q = await import('./services/ambassador-post-queue');
+      const code = await ensureReferralCode(req.user.id);
+      const posts = await q.buildDailyQueue(req.user.id, {
+        baseUrl: `${req.protocol}://${req.get('host')}`, referralCode: code,
+        dayNumber: Number(req.body?.dayNumber) || undefined, regenerate: !!req.body?.regenerate,
+      });
+      res.json({ posts });
+    } catch (err: any) {
+      const msg = String(err?.message || '');
+      res.status(/401|api key/i.test(msg) ? 503 : 500).json({ message: /401|api key/i.test(msg) ? 'Add a working AI key in Settings → AI API Keys to generate posts.' : msg });
+    }
+  });
+  app.post("/api/ambassador/agent/queue/:id/posted", async (req, res) => {
+    if (!req.user) return res.status(401).json({ message: "Unauthorized" });
+    const q = await import('./services/ambassador-post-queue');
+    const ok = await q.markPosted(req.user.id, Number(req.params.id), req.body?.posted !== false);
+    res.status(ok ? 200 : 404).json({ success: ok });
   });
 
   // ─── DM AUTOMATION (KEYWORD TRIGGERS) ──────────────────────────────────────

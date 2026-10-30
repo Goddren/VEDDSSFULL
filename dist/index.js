@@ -54691,6 +54691,189 @@ var init_strategic_community_data = __esm({
   }
 });
 
+// server/services/ambassador-post-queue.ts
+var ambassador_post_queue_exports = {};
+__export(ambassador_post_queue_exports, {
+  DISCLOSURE: () => DISCLOSURE,
+  PLATFORMS: () => PLATFORMS2,
+  RISK_LINE: () => RISK_LINE,
+  buildDailyQueue: () => buildDailyQueue,
+  ensurePostQueueTables: () => ensurePostQueueTables,
+  getPostStats: () => getPostStats,
+  getQueue: () => getQueue,
+  markPosted: () => markPosted,
+  recordPostClick: () => recordPostClick,
+  sanitizePost: () => sanitizePost
+});
+function ensurePostQueueTables() {
+  if (!_ready) {
+    _ready = (async () => {
+      await pool.query(`CREATE TABLE IF NOT EXISTS ambassador_post_queue (
+        id SERIAL PRIMARY KEY,
+        user_id INTEGER NOT NULL,
+        queue_date DATE NOT NULL,
+        day_number INTEGER NOT NULL,
+        platform TEXT NOT NULL,
+        format TEXT,
+        hook TEXT,
+        body TEXT NOT NULL,
+        hashtags TEXT[],
+        visual_idea TEXT,
+        link TEXT,
+        status TEXT NOT NULL DEFAULT 'ready',
+        posted_at TIMESTAMPTZ,
+        clicks INTEGER NOT NULL DEFAULT 0,
+        created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+        UNIQUE (user_id, queue_date, platform)
+      )`);
+    })().catch((e) => {
+      _ready = null;
+      throw e;
+    });
+  }
+  return _ready;
+}
+async function nextDayNumber(userId, date2) {
+  const { rows } = await pool.query(
+    `SELECT day_number FROM ambassador_post_queue WHERE user_id=$1 AND queue_date=$2 LIMIT 1`,
+    [userId, date2]
+  );
+  if (rows[0]) return rows[0].day_number;
+  const { rows: r2 } = await pool.query(
+    `SELECT count(DISTINCT queue_date)::int n FROM ambassador_post_queue WHERE user_id=$1 AND queue_date < $2`,
+    [userId, date2]
+  );
+  return (r2[0]?.n ?? 0) % 44 + 1;
+}
+function sanitizePost(text2) {
+  let s = String(text2 || "");
+  for (const [re, rep] of BANNED) s = s.replace(re, rep);
+  return s.replace(/[ \t]{2,}/g, " ").trim();
+}
+function finalBody(body, link, platform) {
+  const linkLine = platform === "tiktok" || platform === "instagram" ? `Link in bio: ${link}` : link;
+  return `${sanitizePost(body)}
+
+${linkLine}
+
+${DISCLOSURE}
+${RISK_LINE}`;
+}
+async function getQueue(userId, date2) {
+  await ensurePostQueueTables();
+  const { rows } = await pool.query(
+    `SELECT * FROM ambassador_post_queue WHERE user_id=$1 AND queue_date=$2 ORDER BY array_position($3::text[], platform)`,
+    [userId, date2, PLATFORMS2]
+  );
+  return rows;
+}
+async function buildDailyQueue(userId, opts) {
+  await ensurePostQueueTables();
+  const date2 = opts.date || (/* @__PURE__ */ new Date()).toISOString().slice(0, 10);
+  const existing = await getQueue(userId, date2);
+  if (existing.length && !opts.regenerate) return existing;
+  const dayNumber = opts.dayNumber && opts.dayNumber >= 1 && opts.dayNumber <= 44 ? opts.dayNumber : await nextDayNumber(userId, date2);
+  const { ambassadorContentCurriculum: ambassadorContentCurriculum2 } = await Promise.resolve().then(() => (init_ambassador_content_data(), ambassador_content_data_exports));
+  const lesson = ambassadorContentCurriculum2.find((l) => l.dayNumber === dayNumber);
+  if (!lesson) throw new Error(`No lesson for day ${dayNumber}`);
+  const prompt = `Day ${lesson.dayNumber} of the VEDD AI 44-day ambassador plan: "${lesson.title}".
+Trading topic: ${lesson.tradingTopic}
+Lesson: ${lesson.tradingLesson}
+Scripture: ${lesson.scriptureReference} \u2014 "${lesson.scriptureText}"
+Devotional: ${lesson.devotionalMessage}
+Guidance: ${lesson.contentPrompt}
+Suggested hashtags: ${lesson.suggestedHashtags.join(" ")}
+
+Write one post per platform, teaching the lesson in the ambassador's own voice and ending with a soft call to try VEDD AI.
+RULES (strict): no income, profit or earnings claims or numbers; no "guaranteed", "risk-free", "passive income"; never invite DMs or describe sending DMs; no fake results. Do NOT add a link, disclosure or risk line (added automatically).
+
+Return JSON only:
+{"tiktok":{"hook":"first 2 seconds on-screen text","body":"30-45s spoken script then caption","hashtags":["..."],"visualIdea":"shot list"},
+ "instagram":{"format":"carousel|reel|post","hook":"...","body":"caption","hashtags":["..."],"visualIdea":"..."},
+ "facebook_page":{"hook":"...","body":"post","hashtags":["..."],"visualIdea":"..."},
+ "facebook_group":{"hook":"...","body":"conversation-starter post for a trading group, value first, no hard sell","hashtags":[],"visualIdea":"..."}}`;
+  const { getUniversalAIClientForUser: getUniversalAIClientForUser2 } = await Promise.resolve().then(() => (init_openai(), openai_exports));
+  const ai = await getUniversalAIClientForUser2(userId);
+  const completion = await ai.chat.completions.create({
+    model: ai.defaultModel || "gpt-4o",
+    messages: [
+      { role: "system", content: "You write compliant social media content for VEDD AI ambassadors. Valid JSON only, no markdown fences." },
+      { role: "user", content: prompt }
+    ],
+    response_format: { type: "json_object" },
+    max_tokens: 2500
+  });
+  const raw = (completion.choices[0]?.message?.content || "{}").replace(/^```[a-z]*\n?/i, "").replace(/\n?```$/i, "").trim();
+  const out = JSON.parse(raw || "{}");
+  await pool.query(`DELETE FROM ambassador_post_queue WHERE user_id=$1 AND queue_date=$2 AND status='ready'`, [userId, date2]);
+  for (const platform of PLATFORMS2) {
+    const p = out[platform];
+    if (!p?.body) continue;
+    const { rows } = await pool.query(
+      `INSERT INTO ambassador_post_queue (user_id, queue_date, day_number, platform, format, hook, body, hashtags, visual_idea)
+       VALUES ($1,$2,$3,$4,$5,$6,'',$7,$8)
+       ON CONFLICT (user_id, queue_date, platform) DO NOTHING RETURNING id`,
+      [
+        userId,
+        date2,
+        dayNumber,
+        platform,
+        p.format || null,
+        sanitizePost(p.hook || ""),
+        (Array.isArray(p.hashtags) && p.hashtags.length ? p.hashtags : lesson.suggestedHashtags).slice(0, 8),
+        p.visualIdea || null
+      ]
+    );
+    if (!rows[0]) continue;
+    const link = `${opts.baseUrl}/r/${encodeURIComponent(opts.referralCode)}?p=${rows[0].id}`;
+    await pool.query(`UPDATE ambassador_post_queue SET body=$2, link=$3 WHERE id=$1`, [rows[0].id, finalBody(p.body, link, platform), link]);
+  }
+  return getQueue(userId, date2);
+}
+async function markPosted(userId, id, posted = true) {
+  await ensurePostQueueTables();
+  const { rowCount } = await pool.query(
+    `UPDATE ambassador_post_queue SET status=$3, posted_at=CASE WHEN $3='posted' THEN now() ELSE NULL END WHERE id=$1 AND user_id=$2`,
+    [id, userId, posted ? "posted" : "ready"]
+  );
+  return (rowCount ?? 0) > 0;
+}
+async function recordPostClick(postId, referralUserId) {
+  if (!postId || !referralUserId) return;
+  await ensurePostQueueTables();
+  await pool.query(`UPDATE ambassador_post_queue SET clicks = clicks + 1 WHERE id=$1 AND user_id=$2`, [postId, referralUserId]);
+}
+async function getPostStats(userId) {
+  await ensurePostQueueTables();
+  const [{ rows: byPlatform }, { rows: byDay }, { rows: tot }] = await Promise.all([
+    pool.query(`SELECT platform, count(*) FILTER (WHERE status='posted')::int posted, COALESCE(sum(clicks),0)::int clicks
+                  FROM ambassador_post_queue WHERE user_id=$1 GROUP BY 1 ORDER BY 3 DESC`, [userId]),
+    pool.query(`SELECT day_number, COALESCE(sum(clicks),0)::int clicks FROM ambassador_post_queue
+                 WHERE user_id=$1 GROUP BY 1 HAVING sum(clicks) > 0 ORDER BY 2 DESC LIMIT 5`, [userId]),
+    pool.query(`SELECT count(DISTINCT queue_date) FILTER (WHERE status='posted')::int days_posted,
+                       count(*) FILTER (WHERE status='posted')::int posts, COALESCE(sum(clicks),0)::int clicks
+                  FROM ambassador_post_queue WHERE user_id=$1`, [userId])
+  ]);
+  return { totals: tot[0], byPlatform, topDays: byDay };
+}
+var PLATFORMS2, DISCLOSURE, RISK_LINE, _ready, BANNED;
+var init_ambassador_post_queue = __esm({
+  "server/services/ambassador-post-queue.ts"() {
+    "use strict";
+    init_db();
+    PLATFORMS2 = ["tiktok", "instagram", "facebook_page", "facebook_group"];
+    DISCLOSURE = "#ad \u2014 I earn a commission if you join through my link.";
+    RISK_LINE = "Trading involves risk; past results don't guarantee future returns. Not financial advice.";
+    _ready = null;
+    BANNED = [
+      [/\b(guaranteed?|risk[- ]free|can'?t lose|easy money|passive income|get rich|financial freedom)\b/gi, ""],
+      [/\$\s?\d[\d,]*(\.\d+)?\s*(\/|per|a)\s*(day|week|month)/gi, ""],
+      [/\b(make|earn|made|earned)\s+\$\s?\d[\d,]*/gi, "learn"],
+      [/\bDM me\b/gi, "comment below"]
+    ];
+  }
+});
+
 // server/services/blog-og-image.ts
 var blog_og_image_exports = {};
 __export(blog_og_image_exports, {
@@ -62482,9 +62665,9 @@ async function getStopOrdersForUser(userId, filters = {}) {
 init_schema();
 
 // server/build-info.ts
-var BUILD_COMMIT = "a9f9ef95-dirty";
+var BUILD_COMMIT = "fbdf2fc1-dirty";
 var BUILD_BRANCH = "HEAD";
-var BUILT_AT = "2026-10-30T22:55:15.528Z";
+var BUILT_AT = "2026-10-30T23:46:35.443Z";
 
 // server/stripe.ts
 init_db();
@@ -65977,10 +66160,10 @@ function tlSignalGuard(params) {
   }
   return { allow: true, reason: "Passed all signal quality gates" };
 }
-var PLATFORMS2 = ["Instagram", "TikTok", "Facebook", "Twitter", "LinkedIn", "Instagram Reel", "Instagram"];
+var PLATFORMS3 = ["Instagram", "TikTok", "Facebook", "Twitter", "LinkedIn", "Instagram Reel", "Instagram"];
 var CONTENT_TYPES = ["post", "reel", "post", "post", "post", "reel", "story"];
 function getPlatform(day) {
-  return PLATFORMS2[(day - 1) % 7];
+  return PLATFORMS3[(day - 1) % 7];
 }
 function getContentType(day) {
   return CONTENT_TYPES[(day - 1) % 7];
@@ -90986,7 +91169,46 @@ This request will not trigger a transaction or cost any fees.`;
     const { code } = req.params;
     storage.trackReferralVisit({ referralCode: code, visitorIp: req.ip, userAgent: req.headers["user-agent"] }).catch(() => {
     });
-    res.redirect(`/auth?ref=${code}`);
+    const postId = Number(req.query.p);
+    if (Number.isInteger(postId) && postId > 0) {
+      storage.getUserByReferralCode(code).then(async (u) => (await Promise.resolve().then(() => (init_ambassador_post_queue(), ambassador_post_queue_exports))).recordPostClick(postId, u?.id ?? null)).catch(() => {
+      });
+    }
+    res.redirect(`/auth?ref=${encodeURIComponent(code)}`);
+  });
+  app2.get("/api/ambassador/agent/queue", async (req, res) => {
+    if (!req.user) return res.status(401).json({ message: "Unauthorized" });
+    try {
+      const q = await Promise.resolve().then(() => (init_ambassador_post_queue(), ambassador_post_queue_exports));
+      const date2 = typeof req.query.date === "string" && /^\d{4}-\d{2}-\d{2}$/.test(req.query.date) ? req.query.date : (/* @__PURE__ */ new Date()).toISOString().slice(0, 10);
+      const [posts, stats] = await Promise.all([q.getQueue(req.user.id, date2), q.getPostStats(req.user.id)]);
+      res.json({ date: date2, posts, stats, disclosure: q.DISCLOSURE, riskLine: q.RISK_LINE });
+    } catch (err) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+  app2.post("/api/ambassador/agent/queue/generate", async (req, res) => {
+    if (!req.user) return res.status(401).json({ message: "Unauthorized" });
+    try {
+      const q = await Promise.resolve().then(() => (init_ambassador_post_queue(), ambassador_post_queue_exports));
+      const code = await ensureReferralCode(req.user.id);
+      const posts = await q.buildDailyQueue(req.user.id, {
+        baseUrl: `${req.protocol}://${req.get("host")}`,
+        referralCode: code,
+        dayNumber: Number(req.body?.dayNumber) || void 0,
+        regenerate: !!req.body?.regenerate
+      });
+      res.json({ posts });
+    } catch (err) {
+      const msg = String(err?.message || "");
+      res.status(/401|api key/i.test(msg) ? 503 : 500).json({ message: /401|api key/i.test(msg) ? "Add a working AI key in Settings \u2192 AI API Keys to generate posts." : msg });
+    }
+  });
+  app2.post("/api/ambassador/agent/queue/:id/posted", async (req, res) => {
+    if (!req.user) return res.status(401).json({ message: "Unauthorized" });
+    const q = await Promise.resolve().then(() => (init_ambassador_post_queue(), ambassador_post_queue_exports));
+    const ok = await q.markPosted(req.user.id, Number(req.params.id), req.body?.posted !== false);
+    res.status(ok ? 200 : 404).json({ success: ok });
   });
   app2.get("/api/dm-keywords", async (req, res) => {
     if (!req.user) return res.status(401).json({ message: "Unauthorized" });
