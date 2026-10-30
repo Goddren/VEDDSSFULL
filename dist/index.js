@@ -28066,7 +28066,7 @@ async function processDecision(userId, decision, newsCtx) {
       }
     }
     {
-      const _rule = (process.env.MTF_ENTRY_RULE || "no_conflict").toLowerCase();
+      const _rule = (process.env.MTF_ENTRY_RULE || "strict").toLowerCase();
       if (_rule !== "off" && decision.direction && decision.fxModel !== "M1") {
         const _dir = decision.direction.toUpperCase();
         const _want = _dir === "BUY" ? "BULLISH" : "BEARISH";
@@ -28079,10 +28079,23 @@ async function processDecision(userId, decision, newsCtx) {
         if (_fail) {
           const _why = _tfs.some(([, b]) => b && b.trend === _opp) ? "opposed" : _tfs.some(([, b]) => !b) ? "data missing" : "neutral";
           addActivity(userId, { type: "info", symbol: decision.symbol, message: `\u{1F9ED} MTF BLOCK (${_why}): ${_dir} ${decision.symbol} (${_rule === "strict" ? "H1 and H4 must both agree" : "H1/H4 oppose it"}: ${_desc}). Not entering.` });
+          logGuard(userId, "mtf_skip", decision.symbol, `${_dir} skipped \u2014 ${_rule === "strict" ? "H1 and H4 must both agree" : "H1/H4 oppose it"} (${_desc})`);
           state.signalsGenerated++;
           return;
         }
         addActivity(userId, { type: "info", symbol: decision.symbol, message: `\u{1F9ED} MTF aligned for ${_dir} ${decision.symbol} (${_desc}).` });
+      }
+    }
+    if (decision.direction && decision.fxModel !== "M1" && process.env.NO_CHASE !== "off") {
+      const _rsi = Number(state.marketSnapshot?.[decision.symbol]?.rsi);
+      const _dir = decision.direction.toUpperCase();
+      const _buyMax = Number(process.env.CHASE_RSI_BUY_MAX ?? 70), _sellMin = Number(process.env.CHASE_RSI_SELL_MIN ?? 30);
+      if (Number.isFinite(_rsi) && _rsi > 0 && (_dir === "BUY" && _rsi > _buyMax || _dir === "SELL" && _rsi < _sellMin)) {
+        const _why = `${_dir} ${decision.symbol} at RSI ${Math.round(_rsi)} \u2014 ${_dir === "BUY" ? `overbought (>${_buyMax})` : `oversold (<${_sellMin})`}; waiting for a pullback`;
+        addActivity(userId, { type: "info", symbol: decision.symbol, message: `\u{1F3C3} NO CHASE: ${_why}.` });
+        logGuard(userId, "chase_skip", decision.symbol, _why);
+        state.signalsGenerated++;
+        return;
       }
     }
     if (decision.direction && decision.fxModel !== "M1" && process.env.H4_FILTER !== "off") {
@@ -28120,7 +28133,7 @@ async function processDecision(userId, decision, newsCtx) {
       const _aligned = _sh1?.trend === _want && _sh4?.trend === _want;
       let _mult = _aligned ? Number(process.env.MTF_ALIGNED_SIZE ?? 1.25) : Number(process.env.MTF_UNALIGNED_SIZE ?? 0.6);
       const _notes = [`H1 ${_sh1?.trend ?? "n/a"} / H4 ${_sh4?.trend ?? "n/a"} ${_aligned ? "aligned" : "not aligned"} \xD7${_mult}`];
-      const _rdMode = (process.env.RANGE_DAY_MODE || "reduce").toLowerCase();
+      const _rdMode = (process.env.RANGE_DAY_MODE || "block").toLowerCase();
       if (_rdMode !== "off" && decision.fxModel !== "M1") {
         try {
           const { classifyDayType: classifyDayType2, sessionFor: sessionFor2 } = await Promise.resolve().then(() => (init_fx_models(), fx_models_exports));
@@ -28129,6 +28142,7 @@ async function processDecision(userId, decision, newsCtx) {
           if (_cls.dayType === "range") {
             if (_rdMode === "block") {
               addActivity(userId, { type: "info", symbol: decision.symbol, message: `\u{1F4E6} RANGE DAY BLOCK: ${_dir} ${decision.symbol} \u2014 range day (score ${_cls.score}); range days lost \u2212$12.5k over 90 days.` });
+              logGuard(userId, "range_day_skip", decision.symbol, `${_dir} skipped \u2014 range day (score ${_cls.score}); trend entries on range days lost \u2212$12.5k over 90 days`);
               state.signalsGenerated++;
               return;
             }
@@ -62124,9 +62138,9 @@ async function getStopOrdersForUser(userId, filters = {}) {
 init_schema();
 
 // server/build-info.ts
-var BUILD_COMMIT = "b12b9538-dirty";
+var BUILD_COMMIT = "fb96eb2c-dirty";
 var BUILD_BRANCH = "HEAD";
-var BUILT_AT = "2026-10-30T17:38:31.923Z";
+var BUILT_AT = "2026-10-30T18:03:00.344Z";
 
 // server/stripe.ts
 init_db();

@@ -4691,7 +4691,11 @@ async function processDecision(userId: number, decision: any, newsCtx?: any): Pr
       // Default no_conflict: block only when H1/H4 actively OPPOSE the entry.
       // Strict (both must agree) blocked on every NEUTRAL or missing read,
       // which is most of the time — it would have silenced the engine.
-      const _rule = (process.env.MTF_ENTRY_RULE || 'no_conflict').toLowerCase();
+      // Default 'strict' since 2026-10-30 (user): H1 AND H4 must both agree.
+      // 90-day replay: both agreeing won 64% at +$463 avg vs +$36 for the rest.
+      // (The 10-17 worry that strict silences the engine came from the stale,
+      // oldest-first H1/H4 reads fixed in d1d1f932.) MTF_ENTRY_RULE overrides.
+      const _rule = (process.env.MTF_ENTRY_RULE || 'strict').toLowerCase();
       // Model 1 range trades are validated by their own range rules (measured
       // box, edge, sweep, no fading a trending H4) in fx-models.ts.
       if (_rule !== 'off' && decision.direction && decision.fxModel !== 'M1') {
@@ -4709,10 +4713,28 @@ async function processDecision(userId: number, decision: any, newsCtx?: any): Pr
           const _why = _tfs.some(([, b]) => b && b.trend === _opp) ? 'opposed'
             : _tfs.some(([, b]) => !b) ? 'data missing' : 'neutral';
           addActivity(userId, { type: 'info', symbol: decision.symbol, message: `🧭 MTF BLOCK (${_why}): ${_dir} ${decision.symbol} (${_rule === 'strict' ? 'H1 and H4 must both agree' : 'H1/H4 oppose it'}: ${_desc}). Not entering.` });
+          logGuard(userId, 'mtf_skip', decision.symbol, `${_dir} skipped — ${_rule === 'strict' ? 'H1 and H4 must both agree' : 'H1/H4 oppose it'} (${_desc})`);
           state.signalsGenerated++;
           return;
         }
         addActivity(userId, { type: 'info', symbol: decision.symbol, message: `🧭 MTF aligned for ${_dir} ${decision.symbol} (${_desc}).` });
+      }
+    }
+
+    // ── No chasing (2026-10-30, user): don't buy a stretched market or sell
+    // an oversold one — wait for the pullback. GBPUSD 10-30 was bought at
+    // RSI 76 into the top of its range. RSI from the engine's own snapshot.
+    // CHASE_RSI_BUY_MAX / CHASE_RSI_SELL_MIN tune it; NO_CHASE=off disables.
+    if (decision.direction && decision.fxModel !== 'M1' && process.env.NO_CHASE !== 'off') {
+      const _rsi = Number((state.marketSnapshot?.[decision.symbol] as any)?.rsi);
+      const _dir = decision.direction.toUpperCase();
+      const _buyMax = Number(process.env.CHASE_RSI_BUY_MAX ?? 70), _sellMin = Number(process.env.CHASE_RSI_SELL_MIN ?? 30);
+      if (Number.isFinite(_rsi) && _rsi > 0 && ((_dir === 'BUY' && _rsi > _buyMax) || (_dir === 'SELL' && _rsi < _sellMin))) {
+        const _why = `${_dir} ${decision.symbol} at RSI ${Math.round(_rsi)} — ${_dir === 'BUY' ? `overbought (>${_buyMax})` : `oversold (<${_sellMin})`}; waiting for a pullback`;
+        addActivity(userId, { type: 'info', symbol: decision.symbol, message: `🏃 NO CHASE: ${_why}.` });
+        logGuard(userId, 'chase_skip', decision.symbol, _why);
+        state.signalsGenerated++;
+        return;
       }
     }
 
@@ -4767,7 +4789,7 @@ async function processDecision(userId: number, decision: any, newsCtx?: any): Pr
       const _aligned = _sh1?.trend === _want && _sh4?.trend === _want;
       let _mult = _aligned ? Number(process.env.MTF_ALIGNED_SIZE ?? 1.25) : Number(process.env.MTF_UNALIGNED_SIZE ?? 0.6);
       const _notes = [`H1 ${_sh1?.trend ?? 'n/a'} / H4 ${_sh4?.trend ?? 'n/a'} ${_aligned ? 'aligned' : 'not aligned'} ×${_mult}`];
-      const _rdMode = (process.env.RANGE_DAY_MODE || 'reduce').toLowerCase();
+      const _rdMode = (process.env.RANGE_DAY_MODE || 'block').toLowerCase(); // 'block' default since 2026-10-30 (user)
       if (_rdMode !== 'off' && decision.fxModel !== 'M1') {
         try {
           const { classifyDayType, sessionFor } = await import('./fx-models');
@@ -4776,6 +4798,7 @@ async function processDecision(userId: number, decision: any, newsCtx?: any): Pr
           if (_cls.dayType === 'range') {
             if (_rdMode === 'block') {
               addActivity(userId, { type: 'info', symbol: decision.symbol, message: `📦 RANGE DAY BLOCK: ${_dir} ${decision.symbol} — range day (score ${_cls.score}); range days lost −$12.5k over 90 days.` });
+              logGuard(userId, 'range_day_skip', decision.symbol, `${_dir} skipped — range day (score ${_cls.score}); trend entries on range days lost −$12.5k over 90 days`);
               state.signalsGenerated++;
               return;
             }

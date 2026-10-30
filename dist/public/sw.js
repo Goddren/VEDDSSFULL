@@ -1,4 +1,4 @@
-const CACHE_VERSION = 'vedd-v190';
+const CACHE_VERSION = 'vedd-v191';
 const STATIC_CACHE = `${CACHE_VERSION}-static`;
 const DYNAMIC_CACHE = `${CACHE_VERSION}-dynamic`;
 const RUNTIME_CACHE = `${CACHE_VERSION}-runtime`;

@@ -24,6 +24,9 @@ const LABEL: Record<string, string> = {
   h4_filter_skip: "Against H4 structure / Wyckoff",
   market_closed_skip: "Market closed (weekend)",
   late_session_skip: "Late session (21:00–24:00 UTC)",
+  mtf_skip: "H1 and H4 don't both agree",
+  range_day_skip: "Range day (no trend)",
+  chase_skip: "No chasing (stretched market)",
 };
 
 // Plain-English explainer for each skip reason, shown under the event.
@@ -35,6 +38,9 @@ SKIP_HELP.h4_filter_skip = "The 4-hour chart's market structure (a break of stru
 SKIP_HELP.market_closed_skip = "The FX market is closed from Friday 21:00 to Sunday 21:00 UTC. The engine doesn't open forex, gold or index trades then — the broker would refuse them, and a Friday plan could fill at Sunday's reopen gap. Crypto (BTCUSD) still trades.";
 SKIP_HELP.late_session_skip = "From 21:00 to 24:00 UTC liquidity is thin and spreads are wide (including Sunday's reopen). Past entries in this window won 38% of the time and lost money, so the engine waits for the Asian session. Crypto still trades.";
 SKIP_HELP.h4_filter_skip = "The 4-hour chart either pointed the other way (structure break or Wyckoff phase) or showed no clear structure at all. In past trades, both lost money, so the engine waits for a setup that agrees with the bigger picture.";
+SKIP_HELP.mtf_skip = "The engine only enters when both the 1-hour and 4-hour trends point the same way as the trade. Trades with both agreeing won 64% of the time in the replay; the rest barely broke even.";
+SKIP_HELP.range_day_skip = "The market is ranging, not trending. Trend entries on range days lost $12.5k over 90 days, so the engine sits them out (range-model trades are separate).";
+SKIP_HELP.chase_skip = "The market had already run too far (RSI over 70 for a buy, under 30 for a sell). Entering then usually means buying the top, so the engine waits for a pullback.";
 const SKIP_KINDS = Object.keys(SKIP_HELP);
 
 /** Why the engine skipped a trade it otherwise wanted — durable reasons, not the in-memory feed. */
