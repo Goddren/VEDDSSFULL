@@ -51313,7 +51313,10 @@ async function runScan(userId, state, triggerToken) {
         return { symbol: p.symbol, entryPrice: p.entryPrice, currentPrice, gainPct, volumeStatus: "average" };
       })
     ].slice(0, 5);
-    if (hasBuySignals || allOpenPositions.length > 0) {
+    const _reviewEveryMs = Math.max(30, Number(process.env.SOL_AI_REVIEW_MIN_SECONDS ?? 180)) * 1e3;
+    const _sinceReview = Date.now() - (state._lastAIReviewAt || 0);
+    if ((hasBuySignals || allOpenPositions.length > 0) && _sinceReview >= _reviewEveryMs) {
+      state._lastAIReviewAt = Date.now();
       await runSolAIReview(userId, state, scanResult, allOpenPositions).catch(() => {
       });
     }
@@ -62479,9 +62482,9 @@ async function getStopOrdersForUser(userId, filters = {}) {
 init_schema();
 
 // server/build-info.ts
-var BUILD_COMMIT = "e0863240-dirty";
+var BUILD_COMMIT = "a9f9ef95-dirty";
 var BUILD_BRANCH = "HEAD";
-var BUILT_AT = "2026-10-30T22:13:18.249Z";
+var BUILT_AT = "2026-10-30T22:55:15.528Z";
 
 // server/stripe.ts
 init_db();

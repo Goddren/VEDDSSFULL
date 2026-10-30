@@ -2029,7 +2029,14 @@ async function runScan(userId: number, state: SolEngineState, triggerToken?: str
       }),
     ].slice(0, 5); // cap at 5 to keep prompt compact
 
-    if (hasBuySignals || allOpenPositions.length > 0) {
+    // Throttle (2026-10-30): the review ran after EVERY scan — ~10 small AI
+    // calls a minute once Sol paper started (40/h → 400–580/h). At most one
+    // review per SOL_AI_REVIEW_MIN_SECONDS (180); consensus verdicts stay
+    // valid for 10 min (CONSENSUS_TTL_MS), so entries still see fresh ones.
+    const _reviewEveryMs = Math.max(30, Number(process.env.SOL_AI_REVIEW_MIN_SECONDS ?? 180)) * 1000;
+    const _sinceReview = Date.now() - ((state as any)._lastAIReviewAt || 0);
+    if ((hasBuySignals || allOpenPositions.length > 0) && _sinceReview >= _reviewEveryMs) {
+      (state as any)._lastAIReviewAt = Date.now();
       await runSolAIReview(userId, state, scanResult, allOpenPositions).catch(() => {});
     }
 
