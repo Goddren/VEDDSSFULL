@@ -26786,7 +26786,7 @@ async function processDecision(userId, decision, newsCtx) {
         addActivity(userId, { type: "info", symbol: decision.symbol, message: `\u{1F9ED} MTF aligned for ${_dir} ${decision.symbol} (${_desc}).` });
       }
     }
-    if (decision.direction && decision.fxModel !== "M1" && process.env.NO_CHASE !== "off") {
+    if (decision.direction && decision.fxModel !== "M1" && decision.strategy !== "orb_breakout" && process.env.NO_CHASE !== "off") {
       const _rsi = Number(state.marketSnapshot?.[decision.symbol]?.rsi);
       const _dir = decision.direction.toUpperCase();
       const _buyMax = Number(process.env.CHASE_RSI_BUY_MAX ?? 70), _sellMin = Number(process.env.CHASE_RSI_SELL_MIN ?? 30);

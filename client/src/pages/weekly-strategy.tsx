@@ -4090,6 +4090,10 @@ export default function WeeklyStrategyPage() {
         ═══════════════════════════════════════════════════════ */}
         {strategy?.hasStrategy && plan ? (
           <div className="space-y-3">
+            {/* How the live engine trades (2026-10-30) — keeps expectations in line with the plan */}
+            <div className="rounded-xl border border-sky-500/25 bg-sky-500/[0.06] px-3 py-2 text-[11px] text-sky-100/90" data-testid="engine-selective-note">
+              <span className="font-semibold text-sky-300">The engine is selective:</span> about 1–3 trades a day, some days none. It only enters when the 1-hour and 4-hour trends agree on a trending day, never chases a stretched move, and lets each trade breathe until it's 1R in profit. Fewer trades, each with the conditions that have historically paid. Skipped setups and the reason are shown under “Why trades were skipped”. Plans made before 30 Oct may assume more trades — regenerate for a realistic target.
+            </div>
             {/* Weekly goal progress */}
             <Card className="bg-gray-900/50 border-gray-700/50">
               <CardContent className="p-4">

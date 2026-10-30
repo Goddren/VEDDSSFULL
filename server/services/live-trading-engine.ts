@@ -4725,7 +4725,9 @@ async function processDecision(userId: number, decision: any, newsCtx?: any): Pr
     // an oversold one — wait for the pullback. GBPUSD 10-30 was bought at
     // RSI 76 into the top of its range. RSI from the engine's own snapshot.
     // CHASE_RSI_BUY_MAX / CHASE_RSI_SELL_MIN tune it; NO_CHASE=off disables.
-    if (decision.direction && decision.fxModel !== 'M1' && process.env.NO_CHASE !== 'off') {
+    // ORB is exempt (user, 2026-10-30): a breakout runs RSI hot by nature and
+    // ORB already waits for the RETEST of the broken level — its own no-chase.
+    if (decision.direction && decision.fxModel !== 'M1' && decision.strategy !== 'orb_breakout' && process.env.NO_CHASE !== 'off') {
       const _rsi = Number((state.marketSnapshot?.[decision.symbol] as any)?.rsi);
       const _dir = decision.direction.toUpperCase();
       const _buyMax = Number(process.env.CHASE_RSI_BUY_MAX ?? 70), _sellMin = Number(process.env.CHASE_RSI_SELL_MIN ?? 30);

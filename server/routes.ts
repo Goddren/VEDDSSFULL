@@ -1,4 +1,5 @@
-﻿import type { Express, Request, Response } from "express";
+﻿import { livePlanRulesText } from './services/engine-plan-rules';
+import type { Express, Request, Response } from "express";
 import { createServer, type Server } from "http";
 import { getRequestCookie } from "./utils/cookies";
 import { storage } from "./storage";
@@ -5107,6 +5108,8 @@ For summary, write a 1-sentence human-readable description of the plan.`;
       const dailyTarget = Math.round((profitTarget / 5) * 100) / 100;
 
       const planPrompt = `You are VEDD AI's elite weekly trading strategy generator. Create a precise, executable weekly trading plan.
+
+${livePlanRulesText()}
 
 USER SPECIFICATIONS (follow these EXACTLY):
 - Pairs: ${cleanPairs.join(', ')}
@@ -14851,15 +14854,17 @@ ${brainKnowledge}
 TRADER'S REAL-TIME PERFORMANCE DATA:
 ${JSON.stringify(Object.fromEntries(Object.entries(pairStats).map(([k,v]: [string,any]) => [k, { wr: v.winRate, trades: v.totalTrades, buyWR: v.buyWinRate, sellWR: v.sellWinRate, sig: v.lastSignal }])))}
 
+${livePlanRulesText()}
+
 STRATEGY REQUIREMENTS:
-1. Create an AGGRESSIVE but CALCULATED growth plan to hit $${profitTarget} profit
+1. Create a CALCULATED growth plan toward $${profitTarget} profit that fits the LIVE ENGINE RULES above — if the target is out of reach under those rules, say so in feasibility and give a realistic suggestedTarget
 2. For small accounts ($50-$500), recommend appropriate micro/mini lot sizes
-3. Use COMPOUND GROWTH: reinvest profits each day to accelerate returns
+3. Growth comes from a few high-quality trades, not trade count — no daily compounding beyond what the live rules allow
 4. Identify the BEST high-probability setups per pair per day
 5. Factor in session volatility (London open, NY open, overlap sessions)
 6. Include specific entry conditions, lot sizes, and pip targets
 7. Recommend how many trades per day and when to STOP trading (daily loss limit)
-8. If the target requires over 100% account growth in a week, acknowledge the high risk but still provide the plan
+8. If the target requires more than the live rules can deliver (a few % a week), mark it EXTREME and recommend the realistic target instead
 9. Use historical win rates and direction biases to maximize edge
 10. Include a compound growth projection showing daily balance growth
 

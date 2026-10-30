@@ -25,6 +25,54 @@ var __copyProps = (to, from, except, desc12) => {
 };
 var __toCommonJS = (mod) => __copyProps(__defProp({}, "__esModule", { value: true }), mod);
 
+// server/services/pair-filter.ts
+var pair_filter_exports = {};
+__export(pair_filter_exports, {
+  pairFilterConfig: () => pairFilterConfig,
+  pairFilterVerdict: () => pairFilterVerdict
+});
+function parseList(v) {
+  return (v ?? "").split(",").map((s) => s.trim().toUpperCase()).filter(Boolean);
+}
+function listFromEnv(name, fallback) {
+  const raw = process.env[name];
+  const parsed = parseList(raw);
+  if (parsed.length) return parsed;
+  if (raw != null && raw.trim() !== "") return parsed;
+  return parseList(fallback);
+}
+function pairFilterVerdict(symbol, direction) {
+  if (process.env.PAIR_FILTER_ENABLED === "false") return null;
+  const sym = norm(symbol);
+  const dir = String(direction || "").toUpperCase();
+  for (const b of BLOCKED_PAIRS) {
+    if (norm(b) === sym) {
+      const reason = sym === "GBPJPY" ? `Pair filter: ${sym} is on the blocked list (34% WR over 310 trades, avg win $59 vs avg loss $100)` : `Pair filter: ${sym} is on the blocked list`;
+      return { blocked: true, reason };
+    }
+  }
+  for (const entry of BLOCKED_DIRECTIONS) {
+    const [s, d] = entry.split(":");
+    if (s && d && norm(s) === sym && d.toUpperCase() === dir) {
+      return { blocked: true, reason: `Pair filter: ${sym} ${dir} is on the blocked list` };
+    }
+  }
+  return null;
+}
+function pairFilterConfig() {
+  return { enabled: process.env.PAIR_FILTER_ENABLED !== "false", pairs: BLOCKED_PAIRS, directions: BLOCKED_DIRECTIONS };
+}
+var norm, BLOCKED_PAIRS, BLOCKED_DIRECTIONS;
+var init_pair_filter = __esm({
+  "server/services/pair-filter.ts"() {
+    "use strict";
+    norm = (s) => String(s || "").toUpperCase().replace(/[^A-Z0-9]/g, "");
+    BLOCKED_PAIRS = listFromEnv("BLOCKED_PAIRS", "GBPJPY");
+    BLOCKED_DIRECTIONS = listFromEnv("BLOCKED_PAIR_DIRECTIONS", "");
+    console.log(`[PairFilter] enabled=${process.env.PAIR_FILTER_ENABLED !== "false"} pairs=[${BLOCKED_PAIRS.join(", ") || "none"}] directions=[${BLOCKED_DIRECTIONS.join(", ") || "none"}]`);
+  }
+});
+
 // shared/schema.ts
 var schema_exports = {};
 __export(schema_exports, {
@@ -8536,7 +8584,7 @@ async function compute(userId) {
   );
   const bySymbol = /* @__PURE__ */ new Map();
   for (const r of rows) {
-    const k = norm(r.symbol);
+    const k = norm2(r.symbol);
     if (!k) continue;
     if (!bySymbol.has(k)) bySymbol.set(k, []);
     bySymbol.get(k).push(r);
@@ -8575,7 +8623,7 @@ async function compute(userId) {
 }
 async function pairDailyStopVerdict(userId, symbol) {
   if (process.env.PAIR_DAILY_STOP_ENABLED === "false") return null;
-  const sym = norm(symbol);
+  const sym = norm2(symbol);
   if (!sym) return null;
   const today = utcDay();
   let entry = cache2.get(userId);
@@ -8605,7 +8653,7 @@ function invalidatePairDailyStop(userId) {
 }
 async function pairDayStopHistory(userId, symbol, lookbackDays = 180) {
   const { pool: pool2 } = await Promise.resolve().then(() => (init_db(), db_exports));
-  const sym = norm(symbol);
+  const sym = norm2(symbol);
   if (!sym) return [];
   const { rows } = await pool2.query(
     `SELECT symbol, direction, result, COALESCE(profit_loss, 0) AS pnl, closed_at,
@@ -8619,7 +8667,7 @@ async function pairDayStopHistory(userId, symbol, lookbackDays = 180) {
       ORDER BY closed_at ASC`,
     [userId, String(lookbackDays)]
   );
-  const bySym = rows.filter((r) => norm(r.symbol) === sym);
+  const bySym = rows.filter((r) => norm2(r.symbol) === sym);
   if (!bySym.length) return [];
   const byDay = /* @__PURE__ */ new Map();
   for (const r of bySym) {
@@ -8661,7 +8709,7 @@ async function pairDailyStopTable(userId) {
     pairs: Array.from(stats.values()).sort((a, b) => a.netPnl - b.netPnl)
   };
 }
-var MAX_LOSING_SIGNALS, MAX_DAILY_LOSS, GROUP_MS, TTL_MS, cache2, norm, utcDay;
+var MAX_LOSING_SIGNALS, MAX_DAILY_LOSS, GROUP_MS, TTL_MS, cache2, norm2, utcDay;
 var init_pair_daily_stop = __esm({
   "server/services/pair-daily-stop.ts"() {
     "use strict";
@@ -8670,7 +8718,7 @@ var init_pair_daily_stop = __esm({
     GROUP_MS = Number(process.env.PAIR_DAILY_GROUP_MS ?? 12e4);
     TTL_MS = Number(process.env.PAIR_DAILY_TTL_MS ?? 6e4);
     cache2 = /* @__PURE__ */ new Map();
-    norm = (s) => String(s || "").toUpperCase().replace(/[^A-Z0-9]/g, "");
+    norm2 = (s) => String(s || "").toUpperCase().replace(/[^A-Z0-9]/g, "");
     utcDay = () => (/* @__PURE__ */ new Date()).toISOString().slice(0, 10);
   }
 });
@@ -24075,54 +24123,6 @@ var init_composite_signal = __esm({
   }
 });
 
-// server/services/pair-filter.ts
-var pair_filter_exports = {};
-__export(pair_filter_exports, {
-  pairFilterConfig: () => pairFilterConfig,
-  pairFilterVerdict: () => pairFilterVerdict
-});
-function parseList(v) {
-  return (v ?? "").split(",").map((s) => s.trim().toUpperCase()).filter(Boolean);
-}
-function listFromEnv(name, fallback) {
-  const raw = process.env[name];
-  const parsed = parseList(raw);
-  if (parsed.length) return parsed;
-  if (raw != null && raw.trim() !== "") return parsed;
-  return parseList(fallback);
-}
-function pairFilterVerdict(symbol, direction) {
-  if (process.env.PAIR_FILTER_ENABLED === "false") return null;
-  const sym = norm2(symbol);
-  const dir = String(direction || "").toUpperCase();
-  for (const b of BLOCKED_PAIRS) {
-    if (norm2(b) === sym) {
-      const reason = sym === "GBPJPY" ? `Pair filter: ${sym} is on the blocked list (34% WR over 310 trades, avg win $59 vs avg loss $100)` : `Pair filter: ${sym} is on the blocked list`;
-      return { blocked: true, reason };
-    }
-  }
-  for (const entry of BLOCKED_DIRECTIONS) {
-    const [s, d] = entry.split(":");
-    if (s && d && norm2(s) === sym && d.toUpperCase() === dir) {
-      return { blocked: true, reason: `Pair filter: ${sym} ${dir} is on the blocked list` };
-    }
-  }
-  return null;
-}
-function pairFilterConfig() {
-  return { enabled: process.env.PAIR_FILTER_ENABLED !== "false", pairs: BLOCKED_PAIRS, directions: BLOCKED_DIRECTIONS };
-}
-var norm2, BLOCKED_PAIRS, BLOCKED_DIRECTIONS;
-var init_pair_filter = __esm({
-  "server/services/pair-filter.ts"() {
-    "use strict";
-    norm2 = (s) => String(s || "").toUpperCase().replace(/[^A-Z0-9]/g, "");
-    BLOCKED_PAIRS = listFromEnv("BLOCKED_PAIRS", "GBPJPY");
-    BLOCKED_DIRECTIONS = listFromEnv("BLOCKED_PAIR_DIRECTIONS", "");
-    console.log(`[PairFilter] enabled=${process.env.PAIR_FILTER_ENABLED !== "false"} pairs=[${BLOCKED_PAIRS.join(", ") || "none"}] directions=[${BLOCKED_DIRECTIONS.join(", ") || "none"}]`);
-  }
-});
-
 // server/services/hour-filter.ts
 var hour_filter_exports = {};
 __export(hour_filter_exports, {
@@ -28086,7 +28086,7 @@ async function processDecision(userId, decision, newsCtx) {
         addActivity(userId, { type: "info", symbol: decision.symbol, message: `\u{1F9ED} MTF aligned for ${_dir} ${decision.symbol} (${_desc}).` });
       }
     }
-    if (decision.direction && decision.fxModel !== "M1" && process.env.NO_CHASE !== "off") {
+    if (decision.direction && decision.fxModel !== "M1" && decision.strategy !== "orb_breakout" && process.env.NO_CHASE !== "off") {
       const _rsi = Number(state.marketSnapshot?.[decision.symbol]?.rsi);
       const _dir = decision.direction.toUpperCase();
       const _buyMax = Number(process.env.CHASE_RSI_BUY_MAX ?? 70), _sellMin = Number(process.env.CHASE_RSI_SELL_MIN ?? 30);
@@ -61558,6 +61558,25 @@ var init_fx_paper_monitor = __esm({
 import express2 from "express";
 import { createServer as createServer2 } from "http";
 
+// server/services/engine-plan-rules.ts
+init_pair_filter();
+function livePlanRulesText() {
+  let blocked = [];
+  try {
+    blocked = pairFilterConfig().pairs || [];
+  } catch {
+  }
+  const breathe = Number(process.env.STOP_HOLD_UNTIL_R ?? 1);
+  return `LIVE ENGINE RULES \u2014 the autonomous engine follows these; the plan MUST match them:
+- SELECTIVE: expect about 1\u20133 trades per day across all pairs, some days none. Never plan more than 3 trades/day in total or more than 1 per pair per day.
+- An entry needs BOTH the H1 and H4 trend pointing the trade's way, a trending (not range) day, and price not stretched (no buys above RSI 70, no sells below 30 \u2014 wait for the pullback; ORB retests are exempt).
+- Never against the 4-hour structure or Wyckoff phase; never when the 4-hour chart shows no clear structure.
+- No new entries 21:00\u201324:00 UTC, none Friday 21:00 \u2192 Sunday 21:00 UTC. Best historical window: the Asian session 00:00\u201307:00 UTC; then London and the London/New York overlap.
+- Pairs: EURUSD and XAUUSD have the best record; USDJPY is not traded in the New York session; ${blocked.length ? `${blocked.join(", ")} ${blocked.length > 1 ? "are" : "is"} paused \u2014 do not include` : "no pairs are paused"}.
+- Risk 0.5% of the account per trade. Stops are not tightened until a trade is ${breathe > 0 ? `${breathe}R` : "1R"} in profit, so a losing trade costs its full planned stop and a winner runs toward its 2R+ target.
+- So a realistic week is a few percent of the account, not a doubling. Set "suggestedTarget" from this \u2014 about (trades per week \xD7 40\u201350% win rate \xD7 2R \u2212 losses) \xD7 0.5% risk \u2014 and mark the feasibility honestly. Do not plan compounding beyond that.`;
+}
+
 // server/routes.ts
 import { createServer } from "http";
 
@@ -62138,9 +62157,9 @@ async function getStopOrdersForUser(userId, filters = {}) {
 init_schema();
 
 // server/build-info.ts
-var BUILD_COMMIT = "fb96eb2c-dirty";
+var BUILD_COMMIT = "6e74a7e0-dirty";
 var BUILD_BRANCH = "HEAD";
-var BUILT_AT = "2026-10-30T18:03:00.344Z";
+var BUILT_AT = "2026-10-30T18:18:08.588Z";
 
 // server/stripe.ts
 init_db();
@@ -69687,6 +69706,8 @@ For summary, write a 1-sentence human-readable description of the plan.`;
       const planDays = tradingDays?.length ? tradingDays : ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday"];
       const dailyTarget = Math.round(profitTarget / 5 * 100) / 100;
       const planPrompt = `You are VEDD AI's elite weekly trading strategy generator. Create a precise, executable weekly trading plan.
+
+${livePlanRulesText()}
 
 USER SPECIFICATIONS (follow these EXACTLY):
 - Pairs: ${cleanPairs.join(", ")}
@@ -77553,15 +77574,17 @@ ${brainKnowledge}
 TRADER'S REAL-TIME PERFORMANCE DATA:
 ${JSON.stringify(Object.fromEntries(Object.entries(pairStats).map(([k, v]) => [k, { wr: v.winRate, trades: v.totalTrades, buyWR: v.buyWinRate, sellWR: v.sellWinRate, sig: v.lastSignal }])))}
 
+${livePlanRulesText()}
+
 STRATEGY REQUIREMENTS:
-1. Create an AGGRESSIVE but CALCULATED growth plan to hit $${profitTarget} profit
+1. Create a CALCULATED growth plan toward $${profitTarget} profit that fits the LIVE ENGINE RULES above \u2014 if the target is out of reach under those rules, say so in feasibility and give a realistic suggestedTarget
 2. For small accounts ($50-$500), recommend appropriate micro/mini lot sizes
-3. Use COMPOUND GROWTH: reinvest profits each day to accelerate returns
+3. Growth comes from a few high-quality trades, not trade count \u2014 no daily compounding beyond what the live rules allow
 4. Identify the BEST high-probability setups per pair per day
 5. Factor in session volatility (London open, NY open, overlap sessions)
 6. Include specific entry conditions, lot sizes, and pip targets
 7. Recommend how many trades per day and when to STOP trading (daily loss limit)
-8. If the target requires over 100% account growth in a week, acknowledge the high risk but still provide the plan
+8. If the target requires more than the live rules can deliver (a few % a week), mark it EXTREME and recommend the realistic target instead
 9. Use historical win rates and direction biases to maximize edge
 10. Include a compound growth projection showing daily balance growth
 
