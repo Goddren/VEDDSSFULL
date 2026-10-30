@@ -49753,6 +49753,7 @@ var init_sol_brain = __esm({
 // server/services/sol-engine.ts
 var sol_engine_exports = {};
 __export(sol_engine_exports, {
+  SOL_PAPER_MAX_SOL: () => SOL_PAPER_MAX_SOL,
   SOL_STRATEGIES: () => SOL_STRATEGIES,
   cancelSignal: () => cancelSignal,
   clearServerWallet: () => clearServerWallet,
@@ -51436,7 +51437,11 @@ async function startSolEngine(userId, config = {}) {
         sql11`SELECT paper_base_capital, server_wallet_key FROM sol_engine_settings WHERE user_id = ${userId}`
       );
       const rows = Array.isArray(_res) ? _res : _res?.rows ?? [];
-      const paperBase = Number(rows?.[0]?.paper_base_capital ?? 0);
+      let paperBase = Number(rows?.[0]?.paper_base_capital ?? 0);
+      if (paperBase > SOL_PAPER_MAX_SOL) {
+        console.warn(`[SolEngine] paper_base_capital ${paperBase} > ${SOL_PAPER_MAX_SOL} SOL looks like a USD figure \u2014 using 5 SOL`);
+        paperBase = 5;
+      }
       const hasServerWallet = !!rows?.[0]?.server_wallet_key;
       if (paperBase > 0) {
         state.paperBaseCapital = paperBase;
@@ -51923,6 +51928,7 @@ function getAutoTradePositions(userId) {
 function updateSolPortfolioValue(userId, solValue) {
   const state = engineStates2.get(userId);
   if (!state) return { shieldActive: false };
+  if (!(solValue > 0) || solValue > SOL_PAPER_MAX_SOL) return { shieldActive: !!state.shieldActive };
   state.currentPortfolioValue = solValue;
   if (solValue > state.sessionHighWatermark) state.sessionHighWatermark = solValue;
   db.execute(sql11`UPDATE sol_engine_settings SET paper_base_capital = ${solValue} WHERE user_id = ${userId}`).catch((err) => console.warn("[SolEngine] persist paper_base_capital (updateSolPortfolioValue) failed:", err));
@@ -52029,7 +52035,7 @@ async function getServerWalletStatus(userId) {
     return { hasServerWallet: false };
   }
 }
-var SOL_BRAIN_ENABLED, SOL_BRAIN_GATING, SOL_CONFLUENCE_REQUIRED, SOL_COMPOSITE_FLOOR, SOL_CONFLUENCE_BONUS, SOL_MAX_HOLD_HOURS, SOL_MAX_HOLD_MS, MAX_PRICE_SPIKE, DEX_NAMES, SOL_STRATEGIES, DEFAULT_CONFIG4, DEFAULT_WEEKLY_GOAL, engineStates2, startingSolUsers, PAPER_DEFAULT_PORTFOLIO_SOL;
+var SOL_BRAIN_ENABLED, SOL_BRAIN_GATING, SOL_CONFLUENCE_REQUIRED, SOL_COMPOSITE_FLOOR, SOL_CONFLUENCE_BONUS, SOL_MAX_HOLD_HOURS, SOL_MAX_HOLD_MS, MAX_PRICE_SPIKE, DEX_NAMES, SOL_STRATEGIES, DEFAULT_CONFIG4, DEFAULT_WEEKLY_GOAL, engineStates2, startingSolUsers, PAPER_DEFAULT_PORTFOLIO_SOL, SOL_PAPER_MAX_SOL;
 var init_sol_engine = __esm({
   "server/services/sol-engine.ts"() {
     "use strict";
@@ -52198,6 +52204,7 @@ var init_sol_engine = __esm({
     engineStates2 = /* @__PURE__ */ new Map();
     startingSolUsers = /* @__PURE__ */ new Set();
     PAPER_DEFAULT_PORTFOLIO_SOL = 10;
+    SOL_PAPER_MAX_SOL = Number(process.env.SOL_PAPER_MAX_SOL ?? 1e3);
   }
 });
 
@@ -62251,9 +62258,9 @@ async function getStopOrdersForUser(userId, filters = {}) {
 init_schema();
 
 // server/build-info.ts
-var BUILD_COMMIT = "80656ca7-dirty";
+var BUILD_COMMIT = "f7c01afc-dirty";
 var BUILD_BRANCH = "HEAD";
-var BUILT_AT = "2026-10-30T21:05:05.506Z";
+var BUILT_AT = "2026-10-30T21:26:14.600Z";
 
 // server/stripe.ts
 init_db();
@@ -88257,6 +88264,10 @@ This request will not trigger a transaction or cost any fees.`;
       const { solValue } = req.body;
       if (typeof solValue !== "number" || solValue < 0) {
         return res.status(400).json({ error: "solValue (number) required" });
+      }
+      {
+        const { SOL_PAPER_MAX_SOL: SOL_PAPER_MAX_SOL2 } = await Promise.resolve().then(() => (init_sol_engine(), sol_engine_exports));
+        if (solValue > SOL_PAPER_MAX_SOL2) return res.status(400).json({ error: `${solValue} SOL looks like a dollar amount \u2014 enter your bankroll in SOL (max ${SOL_PAPER_MAX_SOL2}).` });
       }
       const result = updateSolPortfolioValue2(req.user.id, solValue);
       res.json(result);

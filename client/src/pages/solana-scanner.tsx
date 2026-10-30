@@ -3896,7 +3896,9 @@ export default function SolanaScanner() {
                           compact
                           label="Sync from account"
                           onSelect={(acct) => {
-                            if (acct && acct.balance > 0) setSolPortfolioValue(String(Math.round(acct.balance * 100) / 100));
+                            // Connected accounts report USD; only fill values that are plausibly SOL.
+                            if (acct && acct.balance > 0 && acct.balance <= 1000) setSolPortfolioValue(String(Math.round(acct.balance * 100) / 100));
+                            else if (acct && acct.balance > 1000) toast({ title: 'That account balance is in dollars', description: 'Enter your Sol bankroll in SOL instead.', variant: 'destructive' });
                           }}
                         />
                         <div className="flex gap-2">

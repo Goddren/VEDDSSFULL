@@ -2474,7 +2474,13 @@ export async function startSolEngine(userId: number, config: Partial<SolEngineCo
       sql`SELECT paper_base_capital, server_wallet_key FROM sol_engine_settings WHERE user_id = ${userId}`,
     );
     const rows: any[] = Array.isArray(_res) ? _res : (_res?.rows ?? []);
-    const paperBase = Number(rows?.[0]?.paper_base_capital ?? 0);
+    let paperBase = Number(rows?.[0]?.paper_base_capital ?? 0);
+    // A USD figure stored as SOL (2026-10-30: 99,465 from a $99,465 prop
+    // account via "Sync from account") sized each paper trade at ~1,293 SOL.
+    if (paperBase > SOL_PAPER_MAX_SOL) {
+      console.warn(`[SolEngine] paper_base_capital ${paperBase} > ${SOL_PAPER_MAX_SOL} SOL looks like a USD figure — using 5 SOL`);
+      paperBase = 5;
+    }
     const hasServerWallet = !!rows?.[0]?.server_wallet_key;
     if (paperBase > 0) {
       state.paperBaseCapital = paperBase;
@@ -3045,9 +3051,13 @@ export function getAutoTradePositions(userId: number) {
   };
 }
 
+/** Max plausible SOL bankroll; anything above is treated as a mistaken USD figure. */
+export const SOL_PAPER_MAX_SOL = Number(process.env.SOL_PAPER_MAX_SOL ?? 1000);
+
 export function updateSolPortfolioValue(userId: number, solValue: number): { shieldActive: boolean } {
   const state = engineStates.get(userId);
   if (!state) return { shieldActive: false };
+  if (!(solValue > 0) || solValue > SOL_PAPER_MAX_SOL) return { shieldActive: !!state.shieldActive };
 
   state.currentPortfolioValue = solValue;
   if (solValue > state.sessionHighWatermark) state.sessionHighWatermark = solValue;

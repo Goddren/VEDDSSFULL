@@ -27183,6 +27183,10 @@ Generate an agenda with timing, topics, and hosting tips. Return JSON: {
       if (typeof solValue !== 'number' || solValue < 0) {
         return res.status(400).json({ error: "solValue (number) required" });
       }
+      {
+        const { SOL_PAPER_MAX_SOL } = await import('./services/sol-engine');
+        if (solValue > SOL_PAPER_MAX_SOL) return res.status(400).json({ error: `${solValue} SOL looks like a dollar amount — enter your bankroll in SOL (max ${SOL_PAPER_MAX_SOL}).` });
+      }
       const result = updateSolPortfolioValue((req.user as User).id, solValue);
       res.json(result);
     });
