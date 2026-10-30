@@ -40302,6 +40302,75 @@ var init_ambassador_market_briefing = __esm({
   }
 });
 
+// server/services/paper-trade-math.ts
+function candleStart(timeframe, now) {
+  const periodMs = (TF_MINUTES[String(timeframe || "").toUpperCase()] || 60) * 6e4;
+  return Math.floor(now / periodMs) * periodMs;
+}
+function validEntry(entry) {
+  return typeof entry === "number" && Number.isFinite(entry) && entry > 0;
+}
+function validLevels(direction, entry, stopLoss, takeProfit) {
+  const sl = Number(stopLoss), tp = Number(takeProfit);
+  if (!validEntry(entry) || !(sl > 0) || !(tp > 0)) return null;
+  const isSell = /sell/i.test(direction);
+  if (isSell ? !(tp < entry && entry < sl) : !(sl < entry && entry < tp)) return null;
+  return { sl, tp };
+}
+function firstHit(bars, direction, sl, tp, openedAt) {
+  const isSell = /sell/i.test(direction);
+  const sorted = bars.filter((b) => b.timestamp >= openedAt).sort((a, b) => a.timestamp - b.timestamp);
+  for (const b of sorted) {
+    const hitSl = isSell ? b.high >= sl : b.low <= sl;
+    const hitTp = isSell ? b.low <= tp : b.high >= tp;
+    if (hitSl) return "sl";
+    if (hitTp) return "tp";
+  }
+  return null;
+}
+function resolveOutcome(t, bars, currentPrice, now) {
+  const pnl = (exit) => {
+    const diff = /sell/i.test(t.direction) ? t.entryPrice - exit : exit - t.entryPrice;
+    return { exitPrice: exit, pnlPips: computePips(t.symbol, t.entryPrice, exit, t.direction), pnlPercent: diff / t.entryPrice * 100 };
+  };
+  const ageHours = (now - t.openedAt) / 36e5;
+  const lv = validLevels(t.direction, t.entryPrice, t.stopLoss, t.takeProfit);
+  if (lv) {
+    const hit = firstHit(bars, t.direction, lv.sl, lv.tp, t.openedAt);
+    if (hit === "tp") return { outcome: "win", ...pnl(lv.tp) };
+    if (hit === "sl") return { outcome: "loss", ...pnl(lv.sl) };
+    if (ageHours < 24) return null;
+    return { outcome: "breakeven", ...pnl(currentPrice), note: "expired: neither stop nor target hit within 24h" };
+  }
+  if (ageHours < 24) return null;
+  const r = pnl(currentPrice);
+  const pips = r.pnlPips ?? 0;
+  return { outcome: pips > 5 ? "win" : pips < -5 ? "loss" : "breakeven", ...r, note: "no valid stop/target: judged on the 24h price" };
+}
+var TF_MINUTES;
+var init_paper_trade_math = __esm({
+  "server/services/paper-trade-math.ts"() {
+    "use strict";
+    init_pipUtils();
+    TF_MINUTES = {
+      M1: 1,
+      M5: 5,
+      M15: 15,
+      M30: 30,
+      H1: 60,
+      H4: 240,
+      D1: 1440,
+      "1M": 1,
+      "5M": 5,
+      "15M": 15,
+      "30M": 30,
+      "1H": 60,
+      "4H": 240,
+      "1D": 1440
+    };
+  }
+});
+
 // server/services/paper-trade-tracker.ts
 var paper_trade_tracker_exports = {};
 __export(paper_trade_tracker_exports, {
@@ -40310,9 +40379,25 @@ __export(paper_trade_tracker_exports, {
   getPaperTradeStats: () => getPaperTradeStats,
   resolvePaperTrade: () => resolvePaperTrade
 });
-import { eq as eq12, desc as desc6, and as and8, sql as sql9 } from "drizzle-orm";
+import { eq as eq12, desc as desc6, and as and8, sql as sql9, gte as gte6 } from "drizzle-orm";
 async function createPaperTrade(data) {
+  if (!validEntry(data.entryPrice)) {
+    console.warn(`[PaperTrade] Skipped ${data.symbol} ${data.direction}: entry price ${data.entryPrice} is not a real price`);
+    return null;
+  }
+  const start = candleStart(data.timeframe, Date.now());
+  const key = `${data.userId}|${data.symbol}|${data.timeframe}|${data.direction}`;
+  if (_lastCandle.get(key) === start) return null;
+  _lastCandle.set(key, start);
   try {
+    const [dupe] = await db.select({ id: paperTrades.id }).from(paperTrades).where(and8(
+      eq12(paperTrades.userId, data.userId),
+      eq12(paperTrades.symbol, data.symbol),
+      eq12(paperTrades.timeframe, data.timeframe),
+      eq12(paperTrades.direction, data.direction),
+      gte6(paperTrades.createdAt, new Date(start))
+    )).limit(1);
+    if (dupe) return null;
     const [trade] = await db.insert(paperTrades).values({
       ...data,
       outcome: "pending"
@@ -40324,7 +40409,7 @@ async function createPaperTrade(data) {
     return null;
   }
 }
-async function resolvePaperTrade(tradeId, currentPrice) {
+async function resolvePaperTrade(tradeId, currentPrice, bars = []) {
   try {
     const [trade] = await db.select().from(paperTrades).where(eq12(paperTrades.id, tradeId));
     if (!trade || trade.outcome !== "pending") return;
@@ -40333,27 +40418,23 @@ async function resolvePaperTrade(tradeId, currentPrice) {
     const updates = {};
     if (ageHours >= 1 && !trade.priceAt1h) updates.priceAt1h = currentPrice;
     if (ageHours >= 4 && !trade.priceAt4h) updates.priceAt4h = currentPrice;
-    if (ageHours >= 24 && !trade.priceAt24h) {
-      updates.priceAt24h = currentPrice;
-      const entry = trade.entryPrice;
-      const priceDiff = trade.direction === "BUY" ? currentPrice - entry : entry - currentPrice;
-      const pnlPips = Math.round(priceDiff * 1e4) / 10;
-      const pnlPercent = priceDiff / entry * 100;
-      let outcome = "breakeven";
-      if (trade.takeProfit && trade.stopLoss) {
-        const tpDist = Math.abs(trade.takeProfit - entry);
-        const slDist = Math.abs(trade.stopLoss - entry);
-        if (priceDiff >= tpDist * 0.5) outcome = "win";
-        else if (priceDiff <= -slDist * 0.5) outcome = "loss";
-      } else {
-        if (pnlPips > 5) outcome = "win";
-        else if (pnlPips < -5) outcome = "loss";
-      }
-      updates.outcome = outcome;
-      updates.pnlPips = pnlPips;
-      updates.pnlPercent = pnlPercent;
+    if (ageHours >= 24 && !trade.priceAt24h) updates.priceAt24h = currentPrice;
+    const r = resolveOutcome({
+      symbol: trade.symbol,
+      direction: trade.direction,
+      entryPrice: trade.entryPrice,
+      stopLoss: trade.stopLoss,
+      takeProfit: trade.takeProfit,
+      openedAt: trade.createdAt.getTime()
+    }, bars, currentPrice, now.getTime());
+    if (r) {
+      updates.outcome = r.outcome;
+      updates.pnlPips = r.pnlPips;
+      updates.pnlPercent = r.pnlPercent;
       updates.resolvedAt = now;
-      console.log(`[PaperTrade] Resolved #${tradeId} \u2014 ${trade.symbol} ${trade.direction}: ${outcome.toUpperCase()} (${pnlPips > 0 ? "+" : ""}${pnlPips} pips)`);
+      if (r.note) updates.notes = r.note;
+      const p = r.pnlPips;
+      console.log(`[PaperTrade] Resolved #${tradeId} \u2014 ${trade.symbol} ${trade.direction}: ${r.outcome.toUpperCase()} (${p == null ? "n/a" : `${p > 0 ? "+" : ""}${p}`} pips)`);
     }
     if (Object.keys(updates).length > 0) {
       await db.update(paperTrades).set(updates).where(eq12(paperTrades.id, tradeId));
@@ -40456,11 +40537,14 @@ async function getPaperTradeStats(userId) {
     return null;
   }
 }
+var _lastCandle;
 var init_paper_trade_tracker = __esm({
   "server/services/paper-trade-tracker.ts"() {
     "use strict";
     init_db();
     init_schema();
+    init_paper_trade_math();
+    _lastCandle = /* @__PURE__ */ new Map();
   }
 });
 
@@ -47491,11 +47575,11 @@ async function ruinGuardStatus(userId, s) {
   try {
     const { db: db2 } = await Promise.resolve().then(() => (init_db(), db_exports));
     const { aiTradeResults: aiTradeResults2 } = await Promise.resolve().then(() => (init_schema(), schema_exports));
-    const { and: and12, eq: eq21, gte: gte7, sql: sql18 } = await import("drizzle-orm");
+    const { and: and12, eq: eq21, gte: gte8, sql: sql18 } = await import("drizzle-orm");
     const [row] = await db2.select({ total: sql18`coalesce(sum(${aiTradeResults2.profitLoss}), 0)` }).from(aiTradeResults2).where(and12(
       eq21(aiTradeResults2.userId, userId),
       eq21(aiTradeResults2.source, "kalshi"),
-      gte7(aiTradeResults2.closedAt, startOfDayUtc)
+      gte8(aiTradeResults2.closedAt, startOfDayUtc)
     ));
     dailyRealized = parseFloat(row?.total ?? "0") || 0;
   } catch {
@@ -59402,21 +59486,20 @@ async function pollOnce() {
   const pending = await db.select().from(paperTrades).where(eq20(paperTrades.outcome, "pending"));
   if (pending.length === 0) return;
   const uniqueSymbols = Array.from(new Set(pending.map((t) => t.symbol)));
-  const priceBySymbol = /* @__PURE__ */ new Map();
+  const barsBySymbol = /* @__PURE__ */ new Map();
   for (const symbol of uniqueSymbols) {
     try {
       const assetType = marketDataService.detectAssetType(symbol);
-      const result = await marketDataService.fetchMarketData({ symbol, assetType, timeframe: "5m", limit: 2 });
-      const lastBar = result.bars?.[result.bars.length - 1];
-      if (lastBar) priceBySymbol.set(symbol, lastBar.close);
+      const result = await marketDataService.fetchMarketData({ symbol, assetType, timeframe: "5m", limit: 60 });
+      if (result.bars?.length) barsBySymbol.set(symbol, result.bars);
     } catch (e) {
       console.error(`[paper-trade-resolver] Price fetch failed for ${symbol} (non-fatal):`, e.message);
     }
   }
   for (const trade of pending) {
-    const price = priceBySymbol.get(trade.symbol);
-    if (price === void 0) continue;
-    await resolvePaperTrade(trade.id, price);
+    const bars = barsBySymbol.get(trade.symbol);
+    if (!bars) continue;
+    await resolvePaperTrade(trade.id, bars[bars.length - 1].close, bars);
   }
 }
 function startPaperTradeResolverLoop() {
@@ -61766,9 +61849,9 @@ async function getStopOrdersForUser(userId, filters = {}) {
 init_schema();
 
 // server/build-info.ts
-var BUILD_COMMIT = "b020d88e-dirty";
-var BUILD_BRANCH = "fix/fvg-newest-unfilled";
-var BUILT_AT = "2026-10-29T03:55:56.982Z";
+var BUILD_COMMIT = "d330f3a4-dirty";
+var BUILD_BRANCH = "fix/paper-trade-journal";
+var BUILT_AT = "2026-10-30T03:43:40.514Z";
 
 // server/stripe.ts
 init_db();
@@ -93492,8 +93575,8 @@ Sitemap: ${SEO_BASE_URL}/sitemap.xml
     try {
       const { db: db2 } = await Promise.resolve().then(() => (init_db(), db_exports));
       const { leads: leads2 } = await Promise.resolve().then(() => (init_schema(), schema_exports));
-      const { eq: eq21, and: and12, gte: gte7, sql: dsql } = await import("drizzle-orm");
-      const rows = await db2.select().from(leads2).where(and12(eq21(leads2.status, "New"), gte7(leads2.intentScore, 7))).orderBy(dsql`intent_score DESC`).limit(25);
+      const { eq: eq21, and: and12, gte: gte8, sql: dsql } = await import("drizzle-orm");
+      const rows = await db2.select().from(leads2).where(and12(eq21(leads2.status, "New"), gte8(leads2.intentScore, 7))).orderBy(dsql`intent_score DESC`).limit(25);
       const { outreachLead: outreachLead2 } = await Promise.resolve().then(() => (init_lead_hunter(), lead_hunter_exports));
       let engaged = 0, manualNeeded = 0;
       for (const lead of rows) {

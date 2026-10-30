@@ -5,7 +5,13 @@
  */
 import { db } from '../db';
 import { paperTrades } from '../../shared/schema';
-import { eq, desc, and, sql } from 'drizzle-orm';
+import { eq, desc, and, sql, gte } from 'drizzle-orm';
+import { candleStart, validEntry, resolveOutcome, type Bar } from './paper-trade-math';
+
+// The chart-data path posts every few minutes, so one AI idea used to be
+// written ~33 times an hour. Keep one row per symbol/timeframe/direction per
+// candle: this map catches concurrent posts, the DB check catches restarts.
+const _lastCandle = new Map<string, number>();
 
 // ─── Create a paper trade from a confirmation result ─────────────────────────
 export async function createPaperTrade(data: {
@@ -25,7 +31,23 @@ export async function createPaperTrade(data: {
   githubStrategyUsed?: boolean;
   analysisId?: number;
 }) {
+  // 5,159 rows (2026-09-07 → 09-09) were written with entry 0, which made every
+  // pip and win-rate figure on that data meaningless.
+  if (!validEntry(data.entryPrice)) {
+    console.warn(`[PaperTrade] Skipped ${data.symbol} ${data.direction}: entry price ${data.entryPrice} is not a real price`);
+    return null;
+  }
+  const start = candleStart(data.timeframe, Date.now());
+  const key = `${data.userId}|${data.symbol}|${data.timeframe}|${data.direction}`;
+  if (_lastCandle.get(key) === start) return null;
+  _lastCandle.set(key, start);
   try {
+    const [dupe] = await db.select({ id: paperTrades.id }).from(paperTrades).where(and(
+      eq(paperTrades.userId, data.userId), eq(paperTrades.symbol, data.symbol),
+      eq(paperTrades.timeframe, data.timeframe), eq(paperTrades.direction, data.direction),
+      gte(paperTrades.createdAt, new Date(start)),
+    )).limit(1);
+    if (dupe) return null;
     const [trade] = await db.insert(paperTrades).values({
       ...data,
       outcome: 'pending',
@@ -39,7 +61,9 @@ export async function createPaperTrade(data: {
 }
 
 // ─── Resolve outcome based on price movement ─────────────────────────────────
-export async function resolvePaperTrade(tradeId: number, currentPrice: number) {
+// `bars` are recent 5m bars for the symbol: the trade resolves on whichever of
+// its stop and target price reached first (paper-trade-math.ts resolveOutcome).
+export async function resolvePaperTrade(tradeId: number, currentPrice: number, bars: Bar[] = []) {
   try {
     const [trade] = await db.select().from(paperTrades).where(eq(paperTrades.id, tradeId));
     if (!trade || trade.outcome !== 'pending') return;
@@ -51,35 +75,20 @@ export async function resolvePaperTrade(tradeId: number, currentPrice: number) {
     const updates: any = {};
     if (ageHours >= 1 && !trade.priceAt1h) updates.priceAt1h = currentPrice;
     if (ageHours >= 4 && !trade.priceAt4h) updates.priceAt4h = currentPrice;
-    if (ageHours >= 24 && !trade.priceAt24h) {
-      updates.priceAt24h = currentPrice;
+    if (ageHours >= 24 && !trade.priceAt24h) updates.priceAt24h = currentPrice;
 
-      // Determine outcome at 24h
-      const entry = trade.entryPrice;
-      const priceDiff = trade.direction === 'BUY'
-        ? currentPrice - entry
-        : entry - currentPrice;
-
-      const pnlPips = Math.round(priceDiff * 10000) / 10; // forex pips approx
-      const pnlPercent = (priceDiff / entry) * 100;
-
-      let outcome: 'win' | 'loss' | 'breakeven' = 'breakeven';
-      if (trade.takeProfit && trade.stopLoss) {
-        const tpDist = Math.abs(trade.takeProfit - entry);
-        const slDist = Math.abs(trade.stopLoss - entry);
-        if (priceDiff >= tpDist * 0.5) outcome = 'win';
-        else if (priceDiff <= -slDist * 0.5) outcome = 'loss';
-      } else {
-        if (pnlPips > 5) outcome = 'win';
-        else if (pnlPips < -5) outcome = 'loss';
-      }
-
-      updates.outcome = outcome;
-      updates.pnlPips = pnlPips;
-      updates.pnlPercent = pnlPercent;
+    const r = resolveOutcome({
+      symbol: trade.symbol, direction: trade.direction, entryPrice: trade.entryPrice,
+      stopLoss: trade.stopLoss, takeProfit: trade.takeProfit, openedAt: trade.createdAt.getTime(),
+    }, bars, currentPrice, now.getTime());
+    if (r) {
+      updates.outcome = r.outcome;
+      updates.pnlPips = r.pnlPips;
+      updates.pnlPercent = r.pnlPercent;
       updates.resolvedAt = now;
-
-      console.log(`[PaperTrade] Resolved #${tradeId} — ${trade.symbol} ${trade.direction}: ${outcome.toUpperCase()} (${pnlPips > 0 ? '+' : ''}${pnlPips} pips)`);
+      if (r.note) updates.notes = r.note;
+      const p = r.pnlPips;
+      console.log(`[PaperTrade] Resolved #${tradeId} — ${trade.symbol} ${trade.direction}: ${r.outcome.toUpperCase()} (${p == null ? 'n/a' : `${p > 0 ? '+' : ''}${p}`} pips)`);
     }
 
     if (Object.keys(updates).length > 0) {
