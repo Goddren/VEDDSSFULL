@@ -27253,6 +27253,66 @@ Generate an agenda with timing, topics, and hosting tips. Return JSON: {
       res.json({ success: true, positions: getAutoTradePositions(userId) });
     });
 
+    // ── Sol paper mode (2026-10-30): scorecard + one-click start/pause ──────
+    // Paper positions now persist in sol_engine_positions (mode='paper'), so
+    // the record survives redeploys and the sol-brain learns (source='paper').
+    app.get("/api/sol-paper", async (req: Request, res: Response) => {
+      if (!req.isAuthenticated()) return res.status(401).json({ error: "Authentication required" });
+      const userId = (req.user as User).id;
+      try {
+        const { pool: _p } = await import('./db');
+        const [{ rows: agg }, { rows: open }, { rows: recent }, { rows: byStrat }, { rows: weeks }, { rows: st }] = await Promise.all([
+          _p.query(`SELECT count(*)::int n, count(*) FILTER (WHERE close_pnl_pct > 0)::int w, COALESCE(avg(close_pnl_pct),0)::float avg_pct,
+                           COALESCE(sum(size * close_pnl_pct / 100),0)::float pnl_sol
+                      FROM sol_engine_positions WHERE user_id=$1 AND mode='paper' AND status='closed'`, [userId]),
+          _p.query(`SELECT position_id, symbol, strategy_id, entry_price, current_price, size, target_pct, sl_pct, opened_at
+                      FROM sol_engine_positions WHERE user_id=$1 AND mode='paper' AND status='open' ORDER BY opened_at DESC`, [userId]),
+          _p.query(`SELECT position_id, symbol, strategy_id, entry_price, size, close_pnl_pct, opened_at, closed_at
+                      FROM sol_engine_positions WHERE user_id=$1 AND mode='paper' AND status='closed' ORDER BY closed_at DESC NULLS LAST LIMIT 25`, [userId]),
+          _p.query(`SELECT strategy_id, count(*)::int n, count(*) FILTER (WHERE close_pnl_pct > 0)::int w, COALESCE(avg(close_pnl_pct),0)::float avg_pct
+                      FROM sol_engine_positions WHERE user_id=$1 AND mode='paper' AND status='closed' GROUP BY 1 ORDER BY 4 DESC`, [userId]),
+          _p.query(`SELECT date_trunc('week', closed_at::timestamptz) wk, COALESCE(sum(close_pnl_pct),0)::float s
+                      FROM sol_engine_positions WHERE user_id=$1 AND mode='paper' AND status='closed' AND closed_at IS NOT NULL
+                       AND closed_at::timestamptz >= date_trunc('week', now()) - interval '7 days' GROUP BY 1`, [userId]),
+          _p.query(`SELECT auto_trade_enabled, live_trade_enabled, paper_base_capital FROM sol_engine_settings WHERE user_id=$1`, [userId]),
+        ]);
+        const a = agg[0] || { n: 0, w: 0, avg_pct: 0, pnl_sol: 0 };
+        const winRate = a.n ? a.w / a.n : 0;
+        const noLosingWeek = weeks.every((x: any) => Number(x.s) >= 0);
+        const bar = { trades: 50, winRate: 0.4 };
+        const status = (() => { try { return getSolEngineStatus(userId) as any; } catch { return null; } })();
+        res.json({
+          enabled: !!st[0]?.auto_trade_enabled, live: !!st[0]?.live_trade_enabled,
+          running: !!(status?.isRunning ?? status?.running),
+          baseCapitalSol: Number(st[0]?.paper_base_capital) || 0,
+          stats: { trades: a.n, wins: a.w, winRate, avgPct: a.avg_pct, pnlSol: a.pnl_sol },
+          readiness: { ready: a.n >= bar.trades && winRate >= bar.winRate && a.avg_pct > 0 && noLosingWeek, bar, progressTrades: Math.min(1, a.n / bar.trades), noLosingWeek },
+          open, recent, byStrategy: byStrat,
+        });
+      } catch (err: any) { res.status(500).json({ error: err.message }); }
+    });
+    // Start = paper ON, live OFF (never touches the wallet), seed a 5 SOL paper
+    // bankroll if none is set, then start the engine. Pause = paper OFF.
+    app.post("/api/sol-paper/start", async (req: Request, res: Response) => {
+      if (!req.isAuthenticated()) return res.status(401).json({ error: "Authentication required" });
+      const userId = (req.user as User).id;
+      try {
+        setAutoTrade(userId, { paperEnabled: true, liveEnabled: false });
+        const { pool: _p } = await import('./db');
+        const want = Number(req.body?.baseCapitalSol);
+        await _p.query(
+          `UPDATE sol_engine_settings SET paper_base_capital = CASE WHEN $2::float > 0 THEN $2::float WHEN COALESCE(paper_base_capital,0) > 0 THEN paper_base_capital ELSE 5 END WHERE user_id=$1`,
+          [userId, Number.isFinite(want) && want > 0 ? Math.min(10000, want) : 0]).catch(() => {});
+        await startSolEngine(userId, {});
+        res.json({ success: true });
+      } catch (err: any) { res.status(500).json({ error: err?.message || 'Failed to start Sol paper mode' }); }
+    });
+    app.post("/api/sol-paper/pause", async (req: Request, res: Response) => {
+      if (!req.isAuthenticated()) return res.status(401).json({ error: "Authentication required" });
+      setAutoTrade((req.user as User).id, { paperEnabled: false });
+      res.json({ success: true });
+    });
+
     app.get("/api/sol-engine/pending-signals", async (req: Request, res: Response) => {
       if (!req.isAuthenticated()) return res.status(401).json({ error: "Authentication required" });
       const signals = getPendingSignals((req.user as User).id);

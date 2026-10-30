@@ -49717,7 +49717,7 @@ async function recordSolBrainOutcome(o) {
     }
     await pool.query(
       `INSERT INTO sol_brain_outcomes (user_id, symbol, strategy, direction, entry_confidence, return_pct, hour_utc, holding_minutes, exit_reason, result, profit_loss, source)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,'live')`,
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)`,
       [
         o.userId,
         o.symbol,
@@ -49729,7 +49729,8 @@ async function recordSolBrainOutcome(o) {
         o.holdingMinutes ?? null,
         o.exitReason ?? null,
         o.profitLoss > 0 ? "WIN" : o.profitLoss < 0 ? "LOSS" : "BREAKEVEN",
-        o.profitLoss
+        o.profitLoss,
+        o.source === "paper" ? "paper" : "live"
       ]
     );
     await learnFromSolTrades(o.userId);
@@ -50820,6 +50821,8 @@ async function monitorPaperPositions(userId, state) {
       pos.closeReason = reason;
       state.closedPaperPositions.unshift(pos);
       if (state.closedPaperPositions.length > 50) state.closedPaperPositions = state.closedPaperPositions.slice(0, 50);
+      upsertPosition(userId, pos).catch(() => {
+      });
       recordSolBrainOutcome({
         userId,
         symbol: pos.symbol,
@@ -50828,7 +50831,8 @@ async function monitorPaperPositions(userId, state) {
         returnPct: gainPct,
         holdingMinutes: Math.max(0, Math.round((Date.now() - new Date(pos.openedAt).getTime()) / 6e4)),
         exitReason: reason,
-        profitLoss: pos.size * (gainPct / 100)
+        profitLoss: pos.size * (gainPct / 100),
+        source: "paper"
       }).catch(() => {
       });
       state.autoTradeStats.totalTrades++;
@@ -51246,6 +51250,8 @@ async function runScan(userId, state, triggerToken) {
               takeProfitPrice
             };
             state.paperPositions.push(pos);
+            upsertPosition(userId, pos).catch(() => {
+            });
             state.dailyTradeCount++;
             const compoundNote = state.compoundMode ? ` [\u{1F4B9} Compounding ON \u2014 ${state.paperPortfolioValue.toFixed(3)} SOL pool]` : "";
             const stopNote = state.config.stopOrdersEnabled && stopLossPrice ? ` | \u{1F6D1} Stop @$${stopLossPrice.toFixed(6)} \xB7 \u{1F3AF} TP @$${takeProfitPrice?.toFixed(6)}` : ` | TP: +${state.autoTradeTP}% | SL: -${state.autoTradeSL}%`;
@@ -62245,9 +62251,9 @@ async function getStopOrdersForUser(userId, filters = {}) {
 init_schema();
 
 // server/build-info.ts
-var BUILD_COMMIT = "a19ed309-dirty";
+var BUILD_COMMIT = "80656ca7-dirty";
 var BUILD_BRANCH = "HEAD";
-var BUILT_AT = "2026-10-30T20:47:20.917Z";
+var BUILT_AT = "2026-10-30T21:05:05.506Z";
 
 // server/stripe.ts
 init_db();
@@ -88313,6 +88319,75 @@ This request will not trigger a transaction or cost any fees.`;
         paperTradeSize: paperTradeSize !== void 0 ? Number(paperTradeSize) : void 0
       });
       res.json({ success: true, positions: getAutoTradePositions2(userId) });
+    });
+    app2.get("/api/sol-paper", async (req, res) => {
+      if (!req.isAuthenticated()) return res.status(401).json({ error: "Authentication required" });
+      const userId = req.user.id;
+      try {
+        const { pool: _p } = await Promise.resolve().then(() => (init_db(), db_exports));
+        const [{ rows: agg }, { rows: open }, { rows: recent }, { rows: byStrat }, { rows: weeks }, { rows: st }] = await Promise.all([
+          _p.query(`SELECT count(*)::int n, count(*) FILTER (WHERE close_pnl_pct > 0)::int w, COALESCE(avg(close_pnl_pct),0)::float avg_pct,
+                           COALESCE(sum(size * close_pnl_pct / 100),0)::float pnl_sol
+                      FROM sol_engine_positions WHERE user_id=$1 AND mode='paper' AND status='closed'`, [userId]),
+          _p.query(`SELECT position_id, symbol, strategy_id, entry_price, current_price, size, target_pct, sl_pct, opened_at
+                      FROM sol_engine_positions WHERE user_id=$1 AND mode='paper' AND status='open' ORDER BY opened_at DESC`, [userId]),
+          _p.query(`SELECT position_id, symbol, strategy_id, entry_price, size, close_pnl_pct, opened_at, closed_at
+                      FROM sol_engine_positions WHERE user_id=$1 AND mode='paper' AND status='closed' ORDER BY closed_at DESC NULLS LAST LIMIT 25`, [userId]),
+          _p.query(`SELECT strategy_id, count(*)::int n, count(*) FILTER (WHERE close_pnl_pct > 0)::int w, COALESCE(avg(close_pnl_pct),0)::float avg_pct
+                      FROM sol_engine_positions WHERE user_id=$1 AND mode='paper' AND status='closed' GROUP BY 1 ORDER BY 4 DESC`, [userId]),
+          _p.query(`SELECT date_trunc('week', closed_at::timestamptz) wk, COALESCE(sum(close_pnl_pct),0)::float s
+                      FROM sol_engine_positions WHERE user_id=$1 AND mode='paper' AND status='closed' AND closed_at IS NOT NULL
+                       AND closed_at::timestamptz >= date_trunc('week', now()) - interval '7 days' GROUP BY 1`, [userId]),
+          _p.query(`SELECT auto_trade_enabled, live_trade_enabled, paper_base_capital FROM sol_engine_settings WHERE user_id=$1`, [userId])
+        ]);
+        const a = agg[0] || { n: 0, w: 0, avg_pct: 0, pnl_sol: 0 };
+        const winRate2 = a.n ? a.w / a.n : 0;
+        const noLosingWeek = weeks.every((x) => Number(x.s) >= 0);
+        const bar = { trades: 50, winRate: 0.4 };
+        const status = (() => {
+          try {
+            return getSolEngineStatus2(userId);
+          } catch {
+            return null;
+          }
+        })();
+        res.json({
+          enabled: !!st[0]?.auto_trade_enabled,
+          live: !!st[0]?.live_trade_enabled,
+          running: !!(status?.isRunning ?? status?.running),
+          baseCapitalSol: Number(st[0]?.paper_base_capital) || 0,
+          stats: { trades: a.n, wins: a.w, winRate: winRate2, avgPct: a.avg_pct, pnlSol: a.pnl_sol },
+          readiness: { ready: a.n >= bar.trades && winRate2 >= bar.winRate && a.avg_pct > 0 && noLosingWeek, bar, progressTrades: Math.min(1, a.n / bar.trades), noLosingWeek },
+          open,
+          recent,
+          byStrategy: byStrat
+        });
+      } catch (err) {
+        res.status(500).json({ error: err.message });
+      }
+    });
+    app2.post("/api/sol-paper/start", async (req, res) => {
+      if (!req.isAuthenticated()) return res.status(401).json({ error: "Authentication required" });
+      const userId = req.user.id;
+      try {
+        setAutoTrade2(userId, { paperEnabled: true, liveEnabled: false });
+        const { pool: _p } = await Promise.resolve().then(() => (init_db(), db_exports));
+        const want = Number(req.body?.baseCapitalSol);
+        await _p.query(
+          `UPDATE sol_engine_settings SET paper_base_capital = CASE WHEN $2::float > 0 THEN $2::float WHEN COALESCE(paper_base_capital,0) > 0 THEN paper_base_capital ELSE 5 END WHERE user_id=$1`,
+          [userId, Number.isFinite(want) && want > 0 ? Math.min(1e4, want) : 0]
+        ).catch(() => {
+        });
+        await startSolEngine2(userId, {});
+        res.json({ success: true });
+      } catch (err) {
+        res.status(500).json({ error: err?.message || "Failed to start Sol paper mode" });
+      }
+    });
+    app2.post("/api/sol-paper/pause", async (req, res) => {
+      if (!req.isAuthenticated()) return res.status(401).json({ error: "Authentication required" });
+      setAutoTrade2(req.user.id, { paperEnabled: false });
+      res.json({ success: true });
     });
     app2.get("/api/sol-engine/pending-signals", async (req, res) => {
       if (!req.isAuthenticated()) return res.status(401).json({ error: "Authentication required" });

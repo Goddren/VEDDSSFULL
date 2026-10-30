@@ -65,6 +65,7 @@ import { DailyGainMeter } from '@/components/sol/daily-gain-meter';
 import { StrategyPicker } from '@/components/sol/strategy-picker';
 import { SocialTokenScanner } from '@/components/sol/social-token-scanner';
 import ConnectedAccountPicker from '@/components/connected-account-picker';
+import { SolPaperCard } from '@/components/sol/sol-paper-card';
 
 type DexSource = 'all' | 'raydium' | 'orca' | 'meteora' | 'pumpfun' | 'jupiter';
 
@@ -3533,6 +3534,7 @@ export default function SolanaScanner() {
       <DailyGainMeter />
 
       {/* ═══ UNIFIED MODULE TABS ═══ */}
+      <SolPaperCard />
       <Tabs defaultValue="autotrade" className="w-full">
         <TabsList className="flex w-full overflow-x-auto gap-1 h-auto flex-wrap sm:flex-nowrap bg-gray-900/60 border border-gray-700/50 rounded-2xl p-1">
           <TabsTrigger value="autotrade" className="flex-shrink-0 text-xs sm:text-sm px-3 py-2 rounded-xl data-[state=active]:bg-purple-500/20 data-[state=active]:text-purple-300">

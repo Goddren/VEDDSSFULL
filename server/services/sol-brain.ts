@@ -162,6 +162,8 @@ export function solBrainGate(userId: number, symbol: string, strategy?: string |
 export async function recordSolBrainOutcome(o: {
   userId: number; symbol: string; strategy: string; direction: string; entryConfidence?: number | null;
   returnPct?: number | null; holdingMinutes?: number | null; exitReason?: string | null; profitLoss: number;
+  /** 'paper' for paper-mode closes (2026-10-30); default 'live'. */
+  source?: 'live' | 'paper';
 }): Promise<void> {
   try {
     await ensureTable();
@@ -175,10 +177,10 @@ export async function recordSolBrainOutcome(o: {
     }
     await pool.query(
       `INSERT INTO sol_brain_outcomes (user_id, symbol, strategy, direction, entry_confidence, return_pct, hour_utc, holding_minutes, exit_reason, result, profit_loss, source)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,'live')`,
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)`,
       [o.userId, o.symbol, o.strategy || 'unknown', o.direction || 'long', o.entryConfidence ?? null, o.returnPct ?? null,
        new Date().getUTCHours(), o.holdingMinutes ?? null, o.exitReason ?? null,
-       o.profitLoss > 0 ? 'WIN' : o.profitLoss < 0 ? 'LOSS' : 'BREAKEVEN', o.profitLoss]
+       o.profitLoss > 0 ? 'WIN' : o.profitLoss < 0 ? 'LOSS' : 'BREAKEVEN', o.profitLoss, o.source === 'paper' ? 'paper' : 'live']
     );
     await learnFromSolTrades(o.userId);
   } catch (err: any) {

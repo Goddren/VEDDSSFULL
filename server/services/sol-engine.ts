@@ -1674,12 +1674,13 @@ async function monitorPaperPositions(userId: number, state: SolEngineState) {
 
       state.closedPaperPositions.unshift(pos);
       if (state.closedPaperPositions.length > 50) state.closedPaperPositions = state.closedPaperPositions.slice(0, 50);
+      upsertPosition(userId, pos).catch(() => {}); // persist the close (paper scorecard reads sol_engine_positions)
 
       // Feed the self-learning brain (paper keeps learning even when live is gated).
       recordSolBrainOutcome({
         userId, symbol: pos.symbol, strategy: pos.strategyId || 'unknown', direction: 'long',
         returnPct: gainPct, holdingMinutes: Math.max(0, Math.round((Date.now() - new Date(pos.openedAt).getTime()) / 60000)),
-        exitReason: reason, profitLoss: pos.size * (gainPct / 100),
+        exitReason: reason, profitLoss: pos.size * (gainPct / 100), source: 'paper',
       }).catch(() => {});
 
       state.autoTradeStats.totalTrades++;
@@ -2233,6 +2234,10 @@ async function runScan(userId: number, state: SolEngineState, triggerToken?: str
               takeProfitPrice,
             };
             state.paperPositions.push(pos);
+            // Persist paper positions (2026-10-30): they were in-memory only,
+            // so every redeploy wiped open paper trades. Restored on start by
+            // loadEngineStateFromDb (mode='paper').
+            upsertPosition(userId, pos).catch(() => {});
             state.dailyTradeCount++;
             const compoundNote = state.compoundMode ? ` [💹 Compounding ON — ${state.paperPortfolioValue.toFixed(3)} SOL pool]` : '';
             const stopNote = state.config.stopOrdersEnabled && stopLossPrice
