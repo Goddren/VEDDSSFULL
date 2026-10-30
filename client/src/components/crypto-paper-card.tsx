@@ -86,6 +86,27 @@ export function CryptoPaperCard() {
             </div>
             <div className="h-1.5 rounded bg-gray-800 overflow-hidden"><div className="h-full bg-sky-500" style={{ width: `${Math.round((rd.progressTrades || 0) * 100)}%` }} /></div>
           </div>
+          {(data?.open || []).length > 0 && (
+            <div className="space-y-1">
+              <p className="text-[10px] font-semibold text-gray-400 uppercase tracking-wide">Open paper trades</p>
+              {data.open.map((t: any) => {
+                const sh = t.direction === 'short';
+                const px = (n: any) => { const v = Number(n); return v >= 100 ? v.toFixed(2) : v >= 1 ? v.toFixed(4) : v.toPrecision(4); };
+                return (
+                  <div key={t.id} className="text-[11px] rounded bg-sky-500/[0.08] border border-sky-500/20 px-2 py-1.5" data-testid={`paper-open-${t.id}`}>
+                    <div className="flex items-center justify-between">
+                      <span className="text-gray-100 font-semibold">
+                        {t.symbol} <span className={sh ? 'text-rose-300' : 'text-emerald-300'}>{sh ? 'SHORT' : 'LONG'}</span>
+                        {t.strategy === 'orb_breakout' ? <span className="text-sky-300 font-normal"> ORB</span> : null}
+                      </span>
+                      <span className="text-gray-400">{fmt$(Number(t.notional_usd))} · {new Date(t.opened_at).toLocaleString(undefined, { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })}</span>
+                    </div>
+                    <div className="text-gray-400 mt-0.5">Entry {px(t.entry_price)} · Stop {px(t.stop_loss)} · Target {px(t.take_profit)}</div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
           {(data?.recent || []).length > 0 && (
             <div className="space-y-1 max-h-48 overflow-y-auto pr-1">
               {data.recent.slice(0, 10).map((t: any) => (
