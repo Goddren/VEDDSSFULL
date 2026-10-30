@@ -74,17 +74,21 @@ export async function openPaperTrade(t: {
   userId: number; symbol: string; chain: string; tokenAddress?: string | null; poolAddress?: string | null;
   strategy?: string | null; score?: number | null; entry: number; slPct: number; tpPct: number;
   notionalUsd: number; slippageBps: number; reasoning?: string | null;
+  /** 'long' (default) or 'short'. Shorts are PAPER-ONLY (DeFi spot on Base can't short) so the brain learns from falling markets too. */
+  direction?: 'long' | 'short';
 }): Promise<{ ok: boolean; reason?: string; id?: number }> {
   await ensurePaperTable();
   const held = await pool.query(`SELECT 1 FROM crypto_paper_trades WHERE user_id=$1 AND status='open' AND symbol=$2 LIMIT 1`, [t.userId, t.symbol]);
   if (held.rows.length) return { ok: false, reason: 'already holding a paper position in this token' };
-  const stop = t.entry * (1 - t.slPct / 100), target = t.entry * (1 + t.tpPct / 100);
+  const dir = t.direction === 'short' ? 'short' : 'long';
+  const stop = dir === 'short' ? t.entry * (1 + t.slPct / 100) : t.entry * (1 - t.slPct / 100);
+  const target = dir === 'short' ? t.entry * (1 - t.tpPct / 100) : t.entry * (1 + t.tpPct / 100);
   const costBps = 2 * (DEX_FEE_BPS + Math.max(0, Number(t.slippageBps) || 0) / 2); // round trip: fee each way + ~half the slippage cap each way
   const { rows } = await pool.query(
-    `INSERT INTO crypto_paper_trades (user_id, symbol, chain, token_address, pool_address, strategy, score, entry_price, stop_loss, take_profit, notional_usd, cost_bps, reasoning)
-     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13) RETURNING id`,
+    `INSERT INTO crypto_paper_trades (user_id, symbol, chain, token_address, pool_address, strategy, score, entry_price, stop_loss, take_profit, notional_usd, cost_bps, reasoning, direction)
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14) RETURNING id`,
     [t.userId, t.symbol, t.chain, t.tokenAddress ?? null, t.poolAddress ?? null, t.strategy ?? null, t.score ?? null,
-     t.entry, stop, target, t.notionalUsd, Math.round(costBps), (t.reasoning || '').slice(0, 2000)],
+     t.entry, stop, target, t.notionalUsd, Math.round(costBps), (t.reasoning || '').slice(0, 2000), dir],
   );
   return { ok: true, id: rows[0]?.id };
 }
@@ -100,18 +104,19 @@ export async function resolvePaperTrades(userId: number): Promise<number> {
     const px = t.pool_address ? await getDefiPrice(t.chain || 'base', t.pool_address).catch(() => null) : null;
     const ageH = (Date.now() - new Date(t.opened_at).getTime()) / 3_600_000;
     let exit: number | null = null, why = '';
+    const short = t.direction === 'short';
     if (px != null && px > 0) {
-      if (px <= t.stop_loss) { exit = t.stop_loss; why = 'stop'; }
-      else if (px >= t.take_profit) { exit = t.take_profit; why = 'target'; }
+      if (short ? px >= t.stop_loss : px <= t.stop_loss) { exit = t.stop_loss; why = 'stop'; }
+      else if (short ? px <= t.take_profit : px >= t.take_profit) { exit = t.take_profit; why = 'target'; }
       else if (ageH >= PAPER_MAX_HOURS()) { exit = px; why = 'time limit'; }
     } else if (ageH >= PAPER_MAX_HOURS() + 24) {
       // No price for a day past the limit — close flat rather than leave it open forever.
       exit = t.entry_price; why = 'no price (closed flat)';
     }
     if (exit == null) continue;
-    const gross = ((exit - t.entry_price) / t.entry_price) * 100;
+    const gross = ((short ? t.entry_price - exit : exit - t.entry_price) / t.entry_price) * 100;
     const net = gross - Number(t.cost_bps || 0) / 100;
-    const riskPct = ((t.entry_price - t.stop_loss) / t.entry_price) * 100;
+    const riskPct = (Math.abs(t.entry_price - t.stop_loss) / t.entry_price) * 100;
     const r = riskPct > 0 ? net / riskPct : 0;
     const pnl = Number(t.notional_usd) * net / 100;
     const upd = await pool.query(
@@ -124,7 +129,7 @@ export async function resolvePaperTrades(userId: number): Promise<number> {
     try {
       const { recordCryptoBrainOutcome } = await import('./crypto-brain');
       await recordCryptoBrainOutcome({
-        userId, symbol: t.symbol, strategy: t.strategy || 'unknown', direction: 'long', entryConfidence: t.score ?? null,
+        userId, symbol: t.symbol, strategy: t.strategy || 'unknown', direction: short ? 'short' : 'long', entryConfidence: t.score ?? null,
         returnPct: net, holdingMinutes: Math.round(ageH * 60), exitReason: `paper ${why}`, profitLoss: pnl, source: 'paper',
       });
     } catch { /* learning must never break the paper loop */ }
@@ -139,8 +144,8 @@ export async function paperSummary(userId: number): Promise<any> {
   const [{ rows: agg }, { rows: open }, { rows: recent }, { rows: byToken }, { rows: weeks }] = await Promise.all([
     pool.query(`SELECT count(*)::int n, count(*) FILTER (WHERE pnl_usd > 0)::int w, COALESCE(sum(pnl_usd),0)::float pnl,
                        COALESCE(avg(r_multiple),0)::float avg_r FROM crypto_paper_trades WHERE user_id=$1 AND status='closed'`, [userId]),
-    pool.query(`SELECT id, symbol, strategy, entry_price, stop_loss, take_profit, notional_usd, opened_at FROM crypto_paper_trades WHERE user_id=$1 AND status='open' ORDER BY opened_at DESC`, [userId]),
-    pool.query(`SELECT id, symbol, strategy, entry_price, exit_price, exit_reason, return_pct, r_multiple, pnl_usd, opened_at, closed_at FROM crypto_paper_trades WHERE user_id=$1 AND status='closed' ORDER BY closed_at DESC LIMIT 25`, [userId]),
+    pool.query(`SELECT id, symbol, direction, strategy, entry_price, stop_loss, take_profit, notional_usd, opened_at FROM crypto_paper_trades WHERE user_id=$1 AND status='open' ORDER BY opened_at DESC`, [userId]),
+    pool.query(`SELECT id, symbol, direction, strategy, entry_price, exit_price, exit_reason, return_pct, r_multiple, pnl_usd, opened_at, closed_at FROM crypto_paper_trades WHERE user_id=$1 AND status='closed' ORDER BY closed_at DESC LIMIT 25`, [userId]),
     pool.query(`SELECT symbol, count(*)::int n, count(*) FILTER (WHERE pnl_usd > 0)::int w, COALESCE(sum(r_multiple),0)::float r
                   FROM crypto_paper_trades WHERE user_id=$1 AND status='closed' GROUP BY 1 ORDER BY 4 DESC`, [userId]),
     pool.query(`SELECT date_trunc('week', closed_at) wk, COALESCE(sum(r_multiple),0)::float r FROM crypto_paper_trades
@@ -159,4 +164,68 @@ export async function paperSummary(userId: number): Promise<any> {
     open, recent,
     best: byToken.slice(0, 5), worst: byToken.slice(-5).reverse(),
   };
+}
+
+
+// ── Crypto ORB shadow (paper) — 2026-10-30 ──────────────────────────────────
+// The FX engine's opening-range breakout applied to the busiest crypto hour,
+// the New York open. Range = 13:30–13:45 UTC on 5m candles. After it, the
+// first full-body 5m close beyond the range sets the direction; the entry is
+// the RETEST of the broken level (price back within 25% of the range of it).
+// Stop = other side of the range + 10% of the range; target = 2R. Long AND
+// short (paper only). One ORB per token per day. Deterministic — no AI calls.
+// Candles come from the scanner's shared 5m cache, so this adds little load.
+const _orbLastRun = new Map<number, number>();
+export async function runCryptoOrbShadow(
+  userId: number,
+  candidates: Array<{ symbol: string; poolAddress: string; address?: string }>,
+  chain: string, notionalUsd: number, slippageBps: number,
+): Promise<number> {
+  if (process.env.CRYPTO_ORB_SHADOW === 'off') return 0;
+  const now = new Date();
+  const mins = now.getUTCHours() * 60 + now.getUTCMinutes();
+  if (mins < 13 * 60 + 50 || mins > 20 * 60) return 0; // after the range completes, through the NY session
+  if (Date.now() - (_orbLastRun.get(userId) || 0) < 5 * 60_000) return 0;
+  _orbLastRun.set(userId, Date.now());
+  await ensurePaperTable();
+  const day0 = Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate());
+  const rStart = day0 + (13 * 60 + 30) * 60_000, rEnd = day0 + (13 * 60 + 45) * 60_000;
+  const { getDefiCandles } = await import('./defi-market-data');
+  let opened = 0;
+  for (const c of candidates.slice(0, Number(process.env.CRYPTO_ORB_MAX_TOKENS ?? 6))) {
+    if (!c.poolAddress) continue;
+    try {
+      const done = await pool.query(
+        `SELECT 1 FROM crypto_paper_trades WHERE user_id=$1 AND symbol=$2 AND strategy='orb_breakout' AND opened_at >= to_timestamp($3/1000.0) LIMIT 1`,
+        [userId, c.symbol, day0]);
+      if (done.rows.length) continue;
+      const bars = await getDefiCandles(chain, c.poolAddress, '5m', 100);
+      const range = bars.filter((b) => b.t >= rStart && b.t < rEnd);
+      if (range.length < 2) continue;
+      const hi = Math.max(...range.map((b) => b.h)), lo = Math.min(...range.map((b) => b.l)), size = hi - lo;
+      if (!(size > 0)) continue;
+      const after = bars.filter((b) => b.t >= rEnd).slice(0, -1); // confirmed candles only
+      let dir: 'long' | 'short' | null = null;
+      for (const b of after) {
+        if (Math.min(b.o, b.c) > hi) { dir = 'long'; break; }   // full body above the range
+        if (Math.max(b.o, b.c) < lo) { dir = 'short'; break; }  // full body below the range
+      }
+      if (!dir) continue;
+      const px = bars[bars.length - 1].c;
+      const level = dir === 'long' ? hi : lo;
+      if (Math.abs(px - level) > size * 0.25) continue;          // not at the retest
+      if (dir === 'long' ? px < lo : px > hi) continue;          // breakout failed back through the range
+      const stop = dir === 'long' ? lo - size * 0.1 : hi + size * 0.1;
+      const slPct = (Math.abs(px - stop) / px) * 100;
+      if (!(slPct > 0.05) || slPct > 15) continue;               // degenerate or absurd range
+      const r = await openPaperTrade({
+        userId, symbol: c.symbol, chain, tokenAddress: c.address ?? null, poolAddress: c.poolAddress,
+        strategy: 'orb_breakout', score: null, entry: px, slPct, tpPct: slPct * 2, notionalUsd, slippageBps,
+        reasoning: `ORB shadow: NY-open range ${lo}–${hi} (13:30–13:45 UTC), ${dir === 'long' ? 'breakout above' : 'breakdown below'} then retest of ${level}; stop beyond the range, 2R target.`,
+        direction: dir,
+      });
+      if (r.ok) opened++;
+    } catch { /* one token failing never stops the rest */ }
+  }
+  return opened;
 }

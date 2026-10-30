@@ -65,6 +65,15 @@ function universeKey(chain: string, symbol: string): string {
 }
 
 export function getDefiUniverseEntry(symbol: string, chain: string) { return defiUniverse.get(universeKey(chain, symbol)); }
+/** The chain's most liquid discovered tokens (for the crypto ORB paper shadow). */
+function topDefiUniverse(chain: string, n: number): Array<{ symbol: string; poolAddress: string; address: string }> {
+  const pre = `${chain.toLowerCase()}::`;
+  return Array.from(defiUniverse.entries())
+    .filter(([k]) => k.startsWith(pre))
+    .sort((a, b) => (b[1].liquidityUsd || 0) - (a[1].liquidityUsd || 0))
+    .slice(0, n)
+    .map(([k, v]) => ({ symbol: k.slice(pre.length), poolAddress: v.poolAddress, address: v.address }));
+}
 
 /** Candles for a symbol from whichever venue owns it, on THIS chain. */
 async function fetchBars(symbol: string, timeframe: string, count: number, chain: string): Promise<{ t: number; o: number; h: number; l: number; c: number; v: number }[]> {
@@ -1295,7 +1304,7 @@ async function executeSignalSingle(service: CryptoComService, connection: Crypto
   // When the engine is set to the DeFi venue AND defiAutoTradeEnabled is on, route
   // BUY signals as USDC->token swaps signed by the burner hot wallet. Long-only.
   if (venue === 'defi' && (cfg as any).defiAutoTradeEnabled) {
-    if (result.direction !== 'BUY') {
+    if (result.direction !== 'BUY' && !(cfg as any)._paper) {
       await storage.createCryptocomEngineActivity({ userId, symbol, decision: 'skipped', strategy: result.strategy, reasoning: `${symbol}: DeFi swaps are long-only — SELL/short signals aren't traded on-chain.`, score: result.score, price: result.price, dailyChangePercent: result.dailyChangePercent, source: 'cryptocom' });
       return;
     }
@@ -1348,11 +1357,12 @@ async function executeSignalSingle(service: CryptoComService, connection: Crypto
         userId, symbol, chain, tokenAddress: discP?.address ?? null, poolAddress: discP?.poolAddress ?? null,
         strategy: result.strategy, score: result.score ?? null, entry: result.price, slPct: slPctD, tpPct: tpPctD,
         notionalUsd: notionalD, slippageBps: slip, reasoning: result.reasoning,
+        direction: result.direction === 'SELL' ? 'short' : 'long',
       }).catch((e: any) => ({ ok: false, reason: e?.message ?? String(e) }));
       await storage.createCryptocomEngineActivity({
         userId, symbol, decision: pr.ok ? 'signal' : 'skipped', strategy: result.strategy,
         reasoning: pr.ok
-          ? `${symbol}: 📝 PAPER entry — BUY ~$${notionalD.toFixed(2)} @ $${result.price} (SL -${slPctD.toFixed(1)}% / TP +${tpPctD.toFixed(1)}%).${_sizeNote} No wallet used. ${result.reasoning ?? ''}`
+          ? `${symbol}: 📝 PAPER entry — ${result.direction === 'SELL' ? 'SHORT (paper only — Base spot is buy-only)' : 'BUY'} ~$${notionalD.toFixed(2)} @ $${result.price} (SL ${result.direction === 'SELL' ? '+' : '-'}${slPctD.toFixed(1)}% / TP ${result.direction === 'SELL' ? '-' : '+'}${tpPctD.toFixed(1)}%).${_sizeNote} No wallet used. ${result.reasoning ?? ''}`
           : `${symbol}: paper entry skipped — ${pr.reason}.`,
         score: result.score, price: result.price, dailyChangePercent: result.dailyChangePercent, source: 'cryptocom',
       }).catch(() => {});
@@ -1610,6 +1620,13 @@ async function scanOneUser(userId: number): Promise<void> {
       (config as any).executionVenue = 'defi';
       (config as any).multiVenueEnabled = false;
       await resolvePaperTrades(userId).catch((e: any) => console.error('[crypto-paper] resolve failed (non-fatal):', e?.message ?? e));
+      try {
+        const { runCryptoOrbShadow } = await import('./crypto-paper');
+        const _chain = (config as any).defiChain || 'base';
+        const _n = Math.max(5, (Number(_ps.startBalance) || 1000) * Number(process.env.CRYPTO_PAPER_SIZE_PCT ?? 2) / 100);
+        const _o = await runCryptoOrbShadow(userId, topDefiUniverse(_chain, 10), _chain, _n, (config as any).defiSlippageBps ?? 100);
+        if (_o > 0) await storage.createCryptocomEngineActivity({ userId, symbol: '—', decision: 'signal', strategy: 'orb_breakout', reasoning: `📝 PAPER ORB: ${_o} NY-open breakout retest${_o > 1 ? 's' : ''} recorded (shadow, no wallet).`, score: null, price: null, dailyChangePercent: null, source: 'cryptocom' }).catch(() => {});
+      } catch (e: any) { console.error('[crypto-paper] ORB shadow failed (non-fatal):', e?.message ?? e); }
     }
   } catch { /* paper settings unreadable → engine runs as configured */ }
 
@@ -1745,7 +1762,7 @@ async function scanOneUser(userId: number): Promise<void> {
           const _venue = String((config as any).executionVenue || 'cryptocom');
           const _buyOnly = _venue === 'defi' && !(config as any).multiVenueEnabled;
           const _skip = async (why: string) => storage.createCryptocomEngineActivity({ userId, symbol, decision: 'skipped', strategy: result.strategy, reasoning: `${symbol}: ${why} — no AI review needed.`, score: result.score, price: result.price, dailyChangePercent: result.dailyChangePercent, source: 'cryptocom' }).catch(() => {});
-          if (_buyOnly && result.direction === 'SELL') { await _skip('SELL signal on a buy-only (DeFi spot) venue'); continue; }
+          if (_buyOnly && result.direction === 'SELL' && !(config as any)._paperOn) { await _skip('SELL signal on a buy-only (DeFi spot) venue'); continue; }
           if (_venue === 'defi') {
             const g = _gasStatus.get(userId);
             if (g && !g.entriesAllowed && Date.now() - g.at < 10 * 60_000) { await _skip(`entries held for gas (${g.reason})`); continue; }

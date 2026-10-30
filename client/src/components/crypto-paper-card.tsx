@@ -90,7 +90,7 @@ export function CryptoPaperCard() {
             <div className="space-y-1 max-h-48 overflow-y-auto pr-1">
               {data.recent.slice(0, 10).map((t: any) => (
                 <div key={t.id} className="flex items-center justify-between text-[11px] rounded bg-black/20 px-2 py-1">
-                  <span className="text-gray-300 font-semibold">{t.symbol} <span className="text-gray-500 font-normal">{t.exit_reason}</span></span>
+                  <span className="text-gray-300 font-semibold">{t.symbol}{t.direction === 'short' ? <span className="text-rose-300 font-normal"> short</span> : null}{t.strategy === 'orb_breakout' ? <span className="text-sky-300 font-normal"> ORB</span> : null} <span className="text-gray-500 font-normal">{t.exit_reason}</span></span>
                   <span className={Number(t.pnl_usd) >= 0 ? "text-emerald-400" : "text-red-400"}>{Number(t.r_multiple) >= 0 ? "+" : ""}{Number(t.r_multiple).toFixed(2)}R · {fmt$(Number(t.pnl_usd))}</span>
                 </div>
               ))}
