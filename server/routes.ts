@@ -17694,6 +17694,32 @@ Rules:
   // Unauth diagnostic — tells us whether the crypto scanner actually started at
   // boot and how the ENABLE_CRYPTO_ENGINE env var was read, without exposing any
   // secret. Lets us confirm the flag took effect after a Render deploy.
+  // (Crypto paper-trading routes sit just below this one.)
+  app.get("/api/crypto-paper", async (req: Request, res: Response) => {
+    if (!req.isAuthenticated()) return res.status(401).json({ error: "Authentication required" });
+    try {
+      const { paperSummary } = await import('./services/crypto-paper');
+      res.json(await paperSummary((req.user as User).id));
+    } catch (err: any) { res.status(500).json({ error: err.message }); }
+  });
+  // Turning paper ON also switches the crypto engine on (DeFi venue, Base) so a
+  // new user goes from "connect MetaMask" to a learning engine in one click.
+  // Paper mode never places real orders, whatever the other toggles say.
+  app.post("/api/crypto-paper/settings", async (req: Request, res: Response) => {
+    if (!req.isAuthenticated()) return res.status(401).json({ error: "Authentication required" });
+    const userId = (req.user as User).id;
+    try {
+      const { savePaperSettings } = await import('./services/crypto-paper');
+      const enabled = typeof req.body?.enabled === 'boolean' ? req.body.enabled : undefined;
+      const wa = typeof req.body?.walletAddress === 'string' && /^0x[a-fA-F0-9]{40}$/.test(req.body.walletAddress) ? req.body.walletAddress.toLowerCase() : undefined;
+      const settings = await savePaperSettings(userId, { enabled, startBalance: Number(req.body?.startBalance) || undefined, walletAddress: wa });
+      if (enabled === true) {
+        await storage.upsertCryptocomEngineConfig(userId, { isActive: true, executionVenue: 'defi', defiChain: 'base' } as any);
+      }
+      res.json({ settings });
+    } catch (err: any) { res.status(500).json({ error: err.message }); }
+  });
+
   app.get("/api/cryptocom-engine/health", async (_req: Request, res: Response) => {
     const g = global as any;
     // The scanner runs in the crypto WORKER, a different process, so these

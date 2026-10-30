@@ -7787,6 +7787,15 @@ var init_indicators = __esm({
 });
 
 // server/services/crypto-brain.ts
+var crypto_brain_exports = {};
+__export(crypto_brain_exports, {
+  cryptoBrainGate: () => cryptoBrainGate,
+  cryptoBrainReady: () => cryptoBrainReady,
+  cryptoBrainSizeMultiplier: () => cryptoBrainSizeMultiplier,
+  getOrRefreshCryptoBrain: () => getOrRefreshCryptoBrain,
+  learnFromCryptoTrades: () => learnFromCryptoTrades,
+  recordCryptoBrainOutcome: () => recordCryptoBrainOutcome
+});
 function cryptoBrainReady(userId) {
   return _cache.has(userId);
 }
@@ -7907,7 +7916,7 @@ async function recordCryptoBrainOutcome(o) {
   try {
     await pool.query(
       `INSERT INTO crypto_brain_outcomes (user_id, symbol, strategy, direction, entry_confidence, return_pct, hour_utc, holding_minutes, exit_reason, result, profit_loss, source)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,'live')`,
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)`,
       [
         o.userId,
         o.symbol,
@@ -7919,7 +7928,8 @@ async function recordCryptoBrainOutcome(o) {
         o.holdingMinutes ?? null,
         o.exitReason ?? null,
         o.profitLoss > 0 ? "WIN" : o.profitLoss < 0 ? "LOSS" : "BREAKEVEN",
-        o.profitLoss
+        o.profitLoss,
+        o.source === "paper" ? "paper" : "live"
       ]
     );
     await learnFromCryptoTrades(o.userId);
@@ -16906,6 +16916,183 @@ var init_engine_consensus = __esm({
   "server/services/engine-consensus.ts"() {
     "use strict";
     init_db();
+  }
+});
+
+// server/services/crypto-paper.ts
+var crypto_paper_exports = {};
+__export(crypto_paper_exports, {
+  ensurePaperTable: () => ensurePaperTable,
+  getPaperSettings: () => getPaperSettings,
+  openPaperTrade: () => openPaperTrade,
+  paperSummary: () => paperSummary,
+  resolvePaperTrades: () => resolvePaperTrades,
+  savePaperSettings: () => savePaperSettings
+});
+function ensurePaperTable() {
+  if (!_ensured) {
+    _ensured = pool.query(`CREATE TABLE IF NOT EXISTS crypto_paper_trades (
+      id serial PRIMARY KEY, user_id int NOT NULL, symbol text NOT NULL, chain text, token_address text, pool_address text,
+      strategy text, score real, direction text NOT NULL DEFAULT 'long',
+      entry_price double precision NOT NULL, stop_loss double precision NOT NULL, take_profit double precision NOT NULL,
+      notional_usd double precision NOT NULL, cost_bps int NOT NULL DEFAULT 0, reasoning text,
+      status text NOT NULL DEFAULT 'open', exit_price double precision, exit_reason text,
+      return_pct double precision, r_multiple double precision, pnl_usd double precision,
+      opened_at timestamptz NOT NULL DEFAULT now(), closed_at timestamptz)`).then(() => pool.query(`CREATE INDEX IF NOT EXISTS crypto_paper_trades_user_status ON crypto_paper_trades (user_id, status)`)).then(() => void 0).catch((e) => {
+      _ensured = null;
+      throw e;
+    });
+  }
+  return _ensured;
+}
+async function getPaperSettings(userId) {
+  try {
+    const { getRuntimeStateStrict: getRuntimeStateStrict2 } = await Promise.resolve().then(() => (init_runtime_state(), runtime_state_exports));
+    const v = await getRuntimeStateStrict2("crypto_paper", String(userId));
+    return { ...DEFAULTS, ...v || {} };
+  } catch {
+    return { ...DEFAULTS };
+  }
+}
+async function savePaperSettings(userId, patch) {
+  const cur = await getPaperSettings(userId);
+  const next = {
+    enabled: typeof patch.enabled === "boolean" ? patch.enabled : cur.enabled,
+    startBalance: Number(patch.startBalance) > 0 ? Math.min(1e6, Number(patch.startBalance)) : cur.startBalance,
+    walletAddress: patch.walletAddress !== void 0 ? patch.walletAddress : cur.walletAddress ?? null,
+    startedAt: cur.startedAt ?? (patch.enabled ? Date.now() : void 0)
+  };
+  const { ensureRuntimeStateTable: ensureRuntimeStateTable2 } = await Promise.resolve().then(() => (init_runtime_state(), runtime_state_exports));
+  await ensureRuntimeStateTable2();
+  await pool.query(
+    `INSERT INTO runtime_state (scope, key, value, updated_at) VALUES ('crypto_paper', $1, $2::jsonb, now())
+     ON CONFLICT (scope, key) DO UPDATE SET value = EXCLUDED.value, updated_at = now()`,
+    [String(userId), JSON.stringify(next)]
+  );
+  return next;
+}
+async function openPaperTrade(t) {
+  await ensurePaperTable();
+  const held = await pool.query(`SELECT 1 FROM crypto_paper_trades WHERE user_id=$1 AND status='open' AND symbol=$2 LIMIT 1`, [t.userId, t.symbol]);
+  if (held.rows.length) return { ok: false, reason: "already holding a paper position in this token" };
+  const stop = t.entry * (1 - t.slPct / 100), target = t.entry * (1 + t.tpPct / 100);
+  const costBps = 2 * (DEX_FEE_BPS + Math.max(0, Number(t.slippageBps) || 0) / 2);
+  const { rows } = await pool.query(
+    `INSERT INTO crypto_paper_trades (user_id, symbol, chain, token_address, pool_address, strategy, score, entry_price, stop_loss, take_profit, notional_usd, cost_bps, reasoning)
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13) RETURNING id`,
+    [
+      t.userId,
+      t.symbol,
+      t.chain,
+      t.tokenAddress ?? null,
+      t.poolAddress ?? null,
+      t.strategy ?? null,
+      t.score ?? null,
+      t.entry,
+      stop,
+      target,
+      t.notionalUsd,
+      Math.round(costBps),
+      (t.reasoning || "").slice(0, 2e3)
+    ]
+  );
+  return { ok: true, id: rows[0]?.id };
+}
+async function resolvePaperTrades(userId) {
+  await ensurePaperTable();
+  const { rows } = await pool.query(`SELECT * FROM crypto_paper_trades WHERE user_id=$1 AND status='open'`, [userId]);
+  if (!rows.length) return 0;
+  const { getDefiPrice: getDefiPrice2 } = await Promise.resolve().then(() => (init_defi_market_data(), defi_market_data_exports));
+  let closed = 0;
+  for (const t of rows) {
+    const px = t.pool_address ? await getDefiPrice2(t.chain || "base", t.pool_address).catch(() => null) : null;
+    const ageH = (Date.now() - new Date(t.opened_at).getTime()) / 36e5;
+    let exit = null, why = "";
+    if (px != null && px > 0) {
+      if (px <= t.stop_loss) {
+        exit = t.stop_loss;
+        why = "stop";
+      } else if (px >= t.take_profit) {
+        exit = t.take_profit;
+        why = "target";
+      } else if (ageH >= PAPER_MAX_HOURS()) {
+        exit = px;
+        why = "time limit";
+      }
+    } else if (ageH >= PAPER_MAX_HOURS() + 24) {
+      exit = t.entry_price;
+      why = "no price (closed flat)";
+    }
+    if (exit == null) continue;
+    const gross = (exit - t.entry_price) / t.entry_price * 100;
+    const net = gross - Number(t.cost_bps || 0) / 100;
+    const riskPct = (t.entry_price - t.stop_loss) / t.entry_price * 100;
+    const r = riskPct > 0 ? net / riskPct : 0;
+    const pnl = Number(t.notional_usd) * net / 100;
+    const upd = await pool.query(
+      `UPDATE crypto_paper_trades SET status='closed', exit_price=$2, exit_reason=$3, return_pct=$4, r_multiple=$5, pnl_usd=$6, closed_at=now()
+        WHERE id=$1 AND status='open'`,
+      [t.id, exit, why, net, r, pnl]
+    );
+    if (!upd.rowCount) continue;
+    closed++;
+    try {
+      const { recordCryptoBrainOutcome: recordCryptoBrainOutcome2 } = await Promise.resolve().then(() => (init_crypto_brain(), crypto_brain_exports));
+      await recordCryptoBrainOutcome2({
+        userId,
+        symbol: t.symbol,
+        strategy: t.strategy || "unknown",
+        direction: "long",
+        entryConfidence: t.score ?? null,
+        returnPct: net,
+        holdingMinutes: Math.round(ageH * 60),
+        exitReason: `paper ${why}`,
+        profitLoss: pnl,
+        source: "paper"
+      });
+    } catch {
+    }
+  }
+  return closed;
+}
+async function paperSummary(userId) {
+  await ensurePaperTable();
+  const settings = await getPaperSettings(userId);
+  const [{ rows: agg }, { rows: open }, { rows: recent }, { rows: byToken }, { rows: weeks }] = await Promise.all([
+    pool.query(`SELECT count(*)::int n, count(*) FILTER (WHERE pnl_usd > 0)::int w, COALESCE(sum(pnl_usd),0)::float pnl,
+                       COALESCE(avg(r_multiple),0)::float avg_r FROM crypto_paper_trades WHERE user_id=$1 AND status='closed'`, [userId]),
+    pool.query(`SELECT id, symbol, strategy, entry_price, stop_loss, take_profit, notional_usd, opened_at FROM crypto_paper_trades WHERE user_id=$1 AND status='open' ORDER BY opened_at DESC`, [userId]),
+    pool.query(`SELECT id, symbol, strategy, entry_price, exit_price, exit_reason, return_pct, r_multiple, pnl_usd, opened_at, closed_at FROM crypto_paper_trades WHERE user_id=$1 AND status='closed' ORDER BY closed_at DESC LIMIT 25`, [userId]),
+    pool.query(`SELECT symbol, count(*)::int n, count(*) FILTER (WHERE pnl_usd > 0)::int w, COALESCE(sum(r_multiple),0)::float r
+                  FROM crypto_paper_trades WHERE user_id=$1 AND status='closed' GROUP BY 1 ORDER BY 4 DESC`, [userId]),
+    pool.query(`SELECT date_trunc('week', closed_at) wk, COALESCE(sum(r_multiple),0)::float r FROM crypto_paper_trades
+                 WHERE user_id=$1 AND status='closed' AND closed_at >= date_trunc('week', now()) - interval '7 days' GROUP BY 1`, [userId])
+  ]);
+  const a = agg[0] || { n: 0, w: 0, pnl: 0, avg_r: 0 };
+  const winRate = a.n ? a.w / a.n : 0;
+  const noLosingWeek = weeks.every((x) => Number(x.r) >= 0);
+  const bar = { trades: 50, avgR: 0.2, winRate: 0.4 };
+  const ready = a.n >= bar.trades && a.avg_r >= bar.avgR && winRate >= bar.winRate && noLosingWeek;
+  return {
+    settings,
+    balance: settings.startBalance + Number(a.pnl || 0),
+    stats: { trades: a.n, wins: a.w, winRate, avgR: a.avg_r, pnlUsd: a.pnl },
+    readiness: { ready, bar, progressTrades: Math.min(1, a.n / bar.trades), noLosingWeek },
+    open,
+    recent,
+    best: byToken.slice(0, 5),
+    worst: byToken.slice(-5).reverse()
+  };
+}
+var DEFAULTS, PAPER_MAX_HOURS, DEX_FEE_BPS, _ensured;
+var init_crypto_paper = __esm({
+  "server/services/crypto-paper.ts"() {
+    "use strict";
+    init_db();
+    DEFAULTS = { enabled: false, startBalance: 1e3 };
+    PAPER_MAX_HOURS = () => Math.max(1, Number(process.env.CRYPTO_PAPER_MAX_HOURS ?? 72));
+    DEX_FEE_BPS = 30;
+    _ensured = null;
   }
 });
 
@@ -31446,6 +31633,10 @@ async function assembleConsensus(userId, symbol, result, cfg) {
 }
 async function executeSignal(service, connection, userId, symbol, result, cfg) {
   if (!result.direction || !result.price) return;
+  if (cfg._paperOn) {
+    const paperCfg = { ...cfg, executionVenue: "defi", defiAutoTradeEnabled: true, cefiAutoTradeEnabled: false, multiVenueEnabled: false, _paper: true };
+    return executeSignalSingle(service, connection, userId, symbol, result, paperCfg);
+  }
   if (!cfg.multiVenueEnabled) {
     return executeSignalSingle(service, connection, userId, symbol, result, cfg);
   }
@@ -31558,6 +31749,38 @@ async function executeSignalSingle(service, connection, userId, symbol, result, 
         });
         return;
       }
+    }
+    if (cfg._paper) {
+      const discP = getDefiUniverseEntry(symbol, chain);
+      const { openPaperTrade: openPaperTrade2 } = await Promise.resolve().then(() => (init_crypto_paper(), crypto_paper_exports));
+      const pr = await openPaperTrade2({
+        userId,
+        symbol,
+        chain,
+        tokenAddress: discP?.address ?? null,
+        poolAddress: discP?.poolAddress ?? null,
+        strategy: result.strategy,
+        score: result.score ?? null,
+        entry: result.price,
+        slPct: slPctD,
+        tpPct: tpPctD,
+        notionalUsd: notionalD,
+        slippageBps: slip,
+        reasoning: result.reasoning
+      }).catch((e) => ({ ok: false, reason: e?.message ?? String(e) }));
+      await storage.createCryptocomEngineActivity({
+        userId,
+        symbol,
+        decision: pr.ok ? "signal" : "skipped",
+        strategy: result.strategy,
+        reasoning: pr.ok ? `${symbol}: \u{1F4DD} PAPER entry \u2014 BUY ~$${notionalD.toFixed(2)} @ $${result.price} (SL -${slPctD.toFixed(1)}% / TP +${tpPctD.toFixed(1)}%).${_sizeNote} No wallet used. ${result.reasoning ?? ""}` : `${symbol}: paper entry skipped \u2014 ${pr.reason}.`,
+        score: result.score,
+        price: result.price,
+        dailyChangePercent: result.dailyChangePercent,
+        source: "cryptocom"
+      }).catch(() => {
+      });
+      return;
     }
     try {
       const { defiEntryBuy: defiEntryBuy2 } = await Promise.resolve().then(() => (init_defi_executor(), defi_executor_exports));
@@ -31798,6 +32021,17 @@ async function scanOneUser(userId) {
   const config = await storage.getUserCryptocomEngineConfig(userId);
   if (!config || !config.isActive) return;
   try {
+    const { getPaperSettings: getPaperSettings2, resolvePaperTrades: resolvePaperTrades2 } = await Promise.resolve().then(() => (init_crypto_paper(), crypto_paper_exports));
+    const _ps = await getPaperSettings2(userId);
+    if (_ps.enabled) {
+      config._paperOn = true;
+      config.executionVenue = "defi";
+      config.multiVenueEnabled = false;
+      await resolvePaperTrades2(userId).catch((e) => console.error("[crypto-paper] resolve failed (non-fatal):", e?.message ?? e));
+    }
+  } catch {
+  }
+  try {
     if (weekendBoostActive()) {
       const sizeMult2 = weekendBoostSizeMultiplier();
       config.minConfidence = boostedMinConfidence(config.minConfidence);
@@ -31835,7 +32069,7 @@ async function scanOneUser(userId) {
       console.error(`[cryptocom-scanner] crypto brain warm-up failed for user ${userId} (gate/size reads will use their fail-safe this cycle):`, e?.message ?? e);
     });
   }
-  const canAutoExecute = conn.autoExecute && config.enableAutoExecution;
+  const canAutoExecute = conn.autoExecute && config.enableAutoExecution || config._paperOn === true;
   let allSymbols = Array.isArray(config.symbols) ? config.symbols : [];
   if (isHyperliquid) {
     const { getHyperliquidConnection: getHyperliquidConnection2, HL_PREFIX: HL_PREFIX2 } = await Promise.resolve().then(() => (init_hyperliquid_executor(), hyperliquid_executor_exports));

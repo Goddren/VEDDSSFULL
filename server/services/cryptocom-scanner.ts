@@ -1213,6 +1213,12 @@ async function assembleConsensus(userId: number, symbol: string, result: Strateg
 // only (shorts are skipped there). Off = legacy single-venue routing, unchanged.
 async function executeSignal(service: CryptoComService, connection: CryptocomConnection, userId: number, symbol: string, result: StrategyResult, cfg: CryptocomEngineConfig): Promise<void> {
   if (!result.direction || !result.price) return;
+  // Paper mode: one route only — the DeFi branch, which records a paper trade
+  // before any wallet/gas/swap code. No other rail ever runs in paper mode.
+  if ((cfg as any)._paperOn) {
+    const paperCfg = { ...cfg, executionVenue: 'defi', defiAutoTradeEnabled: true, cefiAutoTradeEnabled: false, multiVenueEnabled: false, _paper: true } as any;
+    return executeSignalSingle(service, connection, userId, symbol, result, paperCfg);
+  }
   if (!(cfg as any).multiVenueEnabled) {
     return executeSignalSingle(service, connection, userId, symbol, result, cfg);
   }
@@ -1327,6 +1333,24 @@ async function executeSignalSingle(service: CryptoComService, connection: Crypto
         await storage.createCryptocomEngineActivity({ userId, symbol, decision: 'skipped', strategy: result.strategy, reasoning: `${symbol}: entry skipped — ATR stop ${slPctD.toFixed(1)}% would cut the size to $${notionalD.toFixed(2)}, below the $${minN} minimum (too volatile for this account size).`, score: result.score, price: result.price, dailyChangePercent: result.dailyChangePercent, source: 'cryptocom' }).catch(() => {});
         return;
       }
+    }
+    // ── Paper entry: record at the live pool price, no wallet / gas / swap ──
+    if ((cfg as any)._paper) {
+      const discP = getDefiUniverseEntry(symbol, chain);
+      const { openPaperTrade } = await import('./crypto-paper');
+      const pr = await openPaperTrade({
+        userId, symbol, chain, tokenAddress: discP?.address ?? null, poolAddress: discP?.poolAddress ?? null,
+        strategy: result.strategy, score: result.score ?? null, entry: result.price, slPct: slPctD, tpPct: tpPctD,
+        notionalUsd: notionalD, slippageBps: slip, reasoning: result.reasoning,
+      }).catch((e: any) => ({ ok: false, reason: e?.message ?? String(e) }));
+      await storage.createCryptocomEngineActivity({
+        userId, symbol, decision: pr.ok ? 'signal' : 'skipped', strategy: result.strategy,
+        reasoning: pr.ok
+          ? `${symbol}: 📝 PAPER entry — BUY ~$${notionalD.toFixed(2)} @ $${result.price} (SL -${slPctD.toFixed(1)}% / TP +${tpPctD.toFixed(1)}%).${_sizeNote} No wallet used. ${result.reasoning ?? ''}`
+          : `${symbol}: paper entry skipped — ${pr.reason}.`,
+        score: result.score, price: result.price, dailyChangePercent: result.dailyChangePercent, source: 'cryptocom',
+      }).catch(() => {});
+      return;
     }
     try {
       const { defiEntryBuy } = await import('./defi-executor'); // lazy — loads ethers only on a real DeFi entry
@@ -1568,6 +1592,20 @@ async function scanOneUser(userId: number): Promise<void> {
   const config = await storage.getUserCryptocomEngineConfig(userId);
   if (!config || !config.isActive) return;
 
+  // ── Paper mode (crypto-paper.ts): run the full engine on the DeFi/Base
+  // universe, record entries as paper trades, never touch a wallet. Open
+  // paper trades are marked to market and settled at the top of each cycle.
+  try {
+    const { getPaperSettings, resolvePaperTrades } = await import('./crypto-paper');
+    const _ps = await getPaperSettings(userId);
+    if (_ps.enabled) {
+      (config as any)._paperOn = true;
+      (config as any).executionVenue = 'defi';
+      (config as any).multiVenueEnabled = false;
+      await resolvePaperTrades(userId).catch((e: any) => console.error('[crypto-paper] resolve failed (non-fatal):', e?.message ?? e));
+    }
+  } catch { /* paper settings unreadable → engine runs as configured */ }
+
   // ── Weekend boost: Friday through Sunday, shift more weight onto crypto ──
   // while FX is closed/thin. Mutates this in-memory config for THIS cycle
   // only -- nothing here writes it back to the DB, so the user's real stored
@@ -1632,7 +1670,7 @@ async function scanOneUser(userId: number): Promise<void> {
     });
   }
 
-  const canAutoExecute = conn.autoExecute && config.enableAutoExecution;
+  const canAutoExecute = (conn.autoExecute && config.enableAutoExecution) || (config as any)._paperOn === true;
 
   // On DeFi the universe IS the chain: every token with a liquid pool, ranked by
   // volume, rediscovered each cycle. The stored `symbols` watchlist only applies

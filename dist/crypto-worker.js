@@ -7637,6 +7637,168 @@ var init_indicators = __esm({
   }
 });
 
+// server/services/crypto-brain.ts
+var crypto_brain_exports = {};
+__export(crypto_brain_exports, {
+  cryptoBrainGate: () => cryptoBrainGate,
+  cryptoBrainReady: () => cryptoBrainReady,
+  cryptoBrainSizeMultiplier: () => cryptoBrainSizeMultiplier,
+  getOrRefreshCryptoBrain: () => getOrRefreshCryptoBrain,
+  learnFromCryptoTrades: () => learnFromCryptoTrades,
+  recordCryptoBrainOutcome: () => recordCryptoBrainOutcome
+});
+function cryptoBrainReady(userId) {
+  return _cache.has(userId);
+}
+function bump(map, key, win) {
+  const s = map[key] ??= { trades: 0, wins: 0, winRate: 0 };
+  s.trades++;
+  if (win) s.wins++;
+  s.winRate = Math.round(s.wins / s.trades * 100);
+}
+function sizeMult(winRate, rr, trades) {
+  if (trades < MIN_TRADES) return 1;
+  const w = winRate / 100, r = rr > 0 ? rr : 1;
+  const kelly = w - (1 - w) / r;
+  return Math.max(0.25, Math.min(1.5, 1 + kelly));
+}
+async function backfillIfEmpty(userId) {
+  const { rows } = await pool.query(`SELECT count(*)::int n FROM crypto_brain_outcomes WHERE user_id=$1`, [userId]);
+  if (rows[0].n > 0) return;
+  const { rows: trades } = await pool.query(
+    `SELECT symbol, strategy, direction, realized_pnl, closed_at FROM cryptocom_engine_trades
+     WHERE user_id=$1 AND status='closed' AND realized_pnl IS NOT NULL ORDER BY closed_at DESC LIMIT 1000`,
+    [userId]
+  );
+  if (!trades.length) return;
+  for (const t of trades) {
+    const pnl = Number(t.realized_pnl) || 0;
+    const d = t.closed_at ? new Date(t.closed_at) : /* @__PURE__ */ new Date();
+    await pool.query(
+      `INSERT INTO crypto_brain_outcomes (user_id, symbol, strategy, direction, result, profit_loss, hour_utc, source, closed_at)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,'backfill',$8)`,
+      [userId, t.symbol, t.strategy || "unknown", t.direction || "long", pnl > 0 ? "WIN" : pnl < 0 ? "LOSS" : "BREAKEVEN", pnl, d.getUTCHours(), d]
+    ).catch(() => {
+    });
+  }
+}
+async function learnFromCryptoTrades(userId) {
+  await backfillIfEmpty(userId).catch(() => {
+  });
+  const { rows } = await pool.query(
+    `SELECT symbol, strategy, direction, result, profit_loss, hour_utc FROM crypto_brain_outcomes
+     WHERE user_id=$1 ORDER BY closed_at DESC LIMIT 2000`,
+    [userId]
+  );
+  const symbols = {};
+  const winSum = {}, winN = {}, lossSum = {}, lossN = {};
+  let totalWins = 0, totalDecided = 0, totalPnl = 0;
+  for (const r of rows) {
+    const sym = r.symbol || "UNKNOWN";
+    const k = symbols[sym] ??= { totalTrades: 0, wins: 0, losses: 0, winRate: 0, totalPnl: 0, avgWin: 0, avgLoss: 0, riskReward: 0, byStrategy: {}, byHour: {}, bestStrategy: null, recommendedSizeMultiplier: 1 };
+    const pnl = Number(r.profit_loss) || 0;
+    const win = r.result === "WIN", loss = r.result === "LOSS";
+    k.totalTrades++;
+    k.totalPnl += pnl;
+    totalPnl += pnl;
+    if (win) {
+      k.wins++;
+      totalWins++;
+      winSum[sym] = (winSum[sym] ?? 0) + pnl;
+      winN[sym] = (winN[sym] ?? 0) + 1;
+    }
+    if (loss) {
+      k.losses++;
+      lossSum[sym] = (lossSum[sym] ?? 0) + Math.abs(pnl);
+      lossN[sym] = (lossN[sym] ?? 0) + 1;
+    }
+    if (win || loss) totalDecided++;
+    if (r.strategy) bump(k.byStrategy, r.strategy, win);
+    if (r.hour_utc != null) bump(k.byHour, String(r.hour_utc), win);
+  }
+  for (const [sym, k] of Object.entries(symbols)) {
+    const decided = k.wins + k.losses;
+    k.winRate = decided ? Math.round(k.wins / decided * 100) : 0;
+    k.avgWin = winN[sym] ? winSum[sym] / winN[sym] : 0;
+    k.avgLoss = lossN[sym] ? lossSum[sym] / lossN[sym] : 0;
+    k.riskReward = k.avgLoss > 0 ? k.avgWin / k.avgLoss : k.avgWin > 0 ? 2 : 1;
+    k.recommendedSizeMultiplier = sizeMult(k.winRate, k.riskReward, decided);
+    let best = null, bestWr = -1;
+    for (const [s, b] of Object.entries(k.byStrategy)) if (b.trades >= 3 && b.winRate > bestWr) {
+      best = s;
+      bestWr = b.winRate;
+    }
+    k.bestStrategy = best;
+  }
+  const insights = [];
+  for (const [sym, k] of Object.entries(symbols)) {
+    if (k.wins + k.losses >= MIN_TRADES) insights.push(`${sym}: ${k.winRate}% WR over ${k.wins + k.losses} \u2192 sizing \xD7${k.recommendedSizeMultiplier}${k.bestStrategy ? `, best on ${k.bestStrategy}` : ""}.`);
+    else insights.push(`${sym}: still learning (${k.wins + k.losses}/${MIN_TRADES}).`);
+  }
+  const brain = { userId, lastLearned: (/* @__PURE__ */ new Date()).toISOString(), totalTrades: rows.length, overallWinRate: totalDecided ? Math.round(totalWins / totalDecided * 100) : 0, totalPnl: Math.round(totalPnl * 100) / 100, symbolKnowledge: symbols, insights };
+  _cache.set(userId, { brain, at: Date.now() });
+  return brain;
+}
+async function getOrRefreshCryptoBrain(userId, force = false) {
+  const hit = _cache.get(userId);
+  if (!force && hit && Date.now() - hit.at < REFRESH_TTL_MS) return hit.brain;
+  return learnFromCryptoTrades(userId);
+}
+function cryptoBrainSizeMultiplier(userId, symbol) {
+  const k = _cache.get(userId)?.brain?.symbolKnowledge[symbol];
+  return k ? k.recommendedSizeMultiplier : 1;
+}
+function cryptoBrainGate(userId, symbol, strategy, hourUtc) {
+  const k = _cache.get(userId)?.brain?.symbolKnowledge[symbol];
+  if (!k) return { blocked: false, reason: "" };
+  const decided = k.wins + k.losses;
+  if (decided >= 15 && k.winRate < 35) return { blocked: true, reason: `\u{1F9E0} Crypto brain: ${symbol} ${k.winRate}% WR over ${decided} \u2014 skipping symbol` };
+  if (strategy) {
+    const st = k.byStrategy[strategy];
+    if (st && st.trades >= 8 && st.winRate < 30) return { blocked: true, reason: `\u{1F9E0} Crypto brain: ${symbol}/${strategy} ${st.winRate}% WR over ${st.trades} \u2014 skipping` };
+  }
+  if (hourUtc != null) {
+    const h = k.byHour[String(hourUtc)];
+    if (h && h.trades >= 8 && h.winRate < 30) return { blocked: true, reason: `\u{1F9E0} Crypto brain: ${symbol} @ ${hourUtc}:00 UTC ${h.winRate}% WR over ${h.trades} \u2014 skipping this hour` };
+  }
+  return { blocked: false, reason: "" };
+}
+async function recordCryptoBrainOutcome(o) {
+  try {
+    await pool.query(
+      `INSERT INTO crypto_brain_outcomes (user_id, symbol, strategy, direction, entry_confidence, return_pct, hour_utc, holding_minutes, exit_reason, result, profit_loss, source)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)`,
+      [
+        o.userId,
+        o.symbol,
+        o.strategy || "unknown",
+        o.direction,
+        o.entryConfidence ?? null,
+        o.returnPct ?? null,
+        (/* @__PURE__ */ new Date()).getUTCHours(),
+        o.holdingMinutes ?? null,
+        o.exitReason ?? null,
+        o.profitLoss > 0 ? "WIN" : o.profitLoss < 0 ? "LOSS" : "BREAKEVEN",
+        o.profitLoss,
+        o.source === "paper" ? "paper" : "live"
+      ]
+    );
+    await learnFromCryptoTrades(o.userId);
+  } catch (err) {
+    console.error("[crypto-brain] recordCryptoBrainOutcome failed (non-fatal):", err?.message ?? err);
+  }
+}
+var MIN_TRADES, REFRESH_TTL_MS, _cache;
+var init_crypto_brain = __esm({
+  "server/services/crypto-brain.ts"() {
+    "use strict";
+    init_db();
+    MIN_TRADES = 10;
+    REFRESH_TTL_MS = 60 * 1e3;
+    _cache = /* @__PURE__ */ new Map();
+  }
+});
+
 // server/services/prop-firm-consistency.ts
 var prop_firm_consistency_exports = {};
 __export(prop_firm_consistency_exports, {
@@ -16570,6 +16732,183 @@ var init_engine_consensus = __esm({
   "server/services/engine-consensus.ts"() {
     "use strict";
     init_db();
+  }
+});
+
+// server/services/crypto-paper.ts
+var crypto_paper_exports = {};
+__export(crypto_paper_exports, {
+  ensurePaperTable: () => ensurePaperTable,
+  getPaperSettings: () => getPaperSettings,
+  openPaperTrade: () => openPaperTrade,
+  paperSummary: () => paperSummary,
+  resolvePaperTrades: () => resolvePaperTrades,
+  savePaperSettings: () => savePaperSettings
+});
+function ensurePaperTable() {
+  if (!_ensured) {
+    _ensured = pool.query(`CREATE TABLE IF NOT EXISTS crypto_paper_trades (
+      id serial PRIMARY KEY, user_id int NOT NULL, symbol text NOT NULL, chain text, token_address text, pool_address text,
+      strategy text, score real, direction text NOT NULL DEFAULT 'long',
+      entry_price double precision NOT NULL, stop_loss double precision NOT NULL, take_profit double precision NOT NULL,
+      notional_usd double precision NOT NULL, cost_bps int NOT NULL DEFAULT 0, reasoning text,
+      status text NOT NULL DEFAULT 'open', exit_price double precision, exit_reason text,
+      return_pct double precision, r_multiple double precision, pnl_usd double precision,
+      opened_at timestamptz NOT NULL DEFAULT now(), closed_at timestamptz)`).then(() => pool.query(`CREATE INDEX IF NOT EXISTS crypto_paper_trades_user_status ON crypto_paper_trades (user_id, status)`)).then(() => void 0).catch((e) => {
+      _ensured = null;
+      throw e;
+    });
+  }
+  return _ensured;
+}
+async function getPaperSettings(userId) {
+  try {
+    const { getRuntimeStateStrict: getRuntimeStateStrict2 } = await Promise.resolve().then(() => (init_runtime_state(), runtime_state_exports));
+    const v = await getRuntimeStateStrict2("crypto_paper", String(userId));
+    return { ...DEFAULTS, ...v || {} };
+  } catch {
+    return { ...DEFAULTS };
+  }
+}
+async function savePaperSettings(userId, patch) {
+  const cur = await getPaperSettings(userId);
+  const next = {
+    enabled: typeof patch.enabled === "boolean" ? patch.enabled : cur.enabled,
+    startBalance: Number(patch.startBalance) > 0 ? Math.min(1e6, Number(patch.startBalance)) : cur.startBalance,
+    walletAddress: patch.walletAddress !== void 0 ? patch.walletAddress : cur.walletAddress ?? null,
+    startedAt: cur.startedAt ?? (patch.enabled ? Date.now() : void 0)
+  };
+  const { ensureRuntimeStateTable: ensureRuntimeStateTable2 } = await Promise.resolve().then(() => (init_runtime_state(), runtime_state_exports));
+  await ensureRuntimeStateTable2();
+  await pool.query(
+    `INSERT INTO runtime_state (scope, key, value, updated_at) VALUES ('crypto_paper', $1, $2::jsonb, now())
+     ON CONFLICT (scope, key) DO UPDATE SET value = EXCLUDED.value, updated_at = now()`,
+    [String(userId), JSON.stringify(next)]
+  );
+  return next;
+}
+async function openPaperTrade(t) {
+  await ensurePaperTable();
+  const held = await pool.query(`SELECT 1 FROM crypto_paper_trades WHERE user_id=$1 AND status='open' AND symbol=$2 LIMIT 1`, [t.userId, t.symbol]);
+  if (held.rows.length) return { ok: false, reason: "already holding a paper position in this token" };
+  const stop = t.entry * (1 - t.slPct / 100), target = t.entry * (1 + t.tpPct / 100);
+  const costBps = 2 * (DEX_FEE_BPS + Math.max(0, Number(t.slippageBps) || 0) / 2);
+  const { rows } = await pool.query(
+    `INSERT INTO crypto_paper_trades (user_id, symbol, chain, token_address, pool_address, strategy, score, entry_price, stop_loss, take_profit, notional_usd, cost_bps, reasoning)
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13) RETURNING id`,
+    [
+      t.userId,
+      t.symbol,
+      t.chain,
+      t.tokenAddress ?? null,
+      t.poolAddress ?? null,
+      t.strategy ?? null,
+      t.score ?? null,
+      t.entry,
+      stop,
+      target,
+      t.notionalUsd,
+      Math.round(costBps),
+      (t.reasoning || "").slice(0, 2e3)
+    ]
+  );
+  return { ok: true, id: rows[0]?.id };
+}
+async function resolvePaperTrades(userId) {
+  await ensurePaperTable();
+  const { rows } = await pool.query(`SELECT * FROM crypto_paper_trades WHERE user_id=$1 AND status='open'`, [userId]);
+  if (!rows.length) return 0;
+  const { getDefiPrice: getDefiPrice2 } = await Promise.resolve().then(() => (init_defi_market_data(), defi_market_data_exports));
+  let closed = 0;
+  for (const t of rows) {
+    const px = t.pool_address ? await getDefiPrice2(t.chain || "base", t.pool_address).catch(() => null) : null;
+    const ageH = (Date.now() - new Date(t.opened_at).getTime()) / 36e5;
+    let exit = null, why = "";
+    if (px != null && px > 0) {
+      if (px <= t.stop_loss) {
+        exit = t.stop_loss;
+        why = "stop";
+      } else if (px >= t.take_profit) {
+        exit = t.take_profit;
+        why = "target";
+      } else if (ageH >= PAPER_MAX_HOURS()) {
+        exit = px;
+        why = "time limit";
+      }
+    } else if (ageH >= PAPER_MAX_HOURS() + 24) {
+      exit = t.entry_price;
+      why = "no price (closed flat)";
+    }
+    if (exit == null) continue;
+    const gross = (exit - t.entry_price) / t.entry_price * 100;
+    const net = gross - Number(t.cost_bps || 0) / 100;
+    const riskPct = (t.entry_price - t.stop_loss) / t.entry_price * 100;
+    const r = riskPct > 0 ? net / riskPct : 0;
+    const pnl = Number(t.notional_usd) * net / 100;
+    const upd = await pool.query(
+      `UPDATE crypto_paper_trades SET status='closed', exit_price=$2, exit_reason=$3, return_pct=$4, r_multiple=$5, pnl_usd=$6, closed_at=now()
+        WHERE id=$1 AND status='open'`,
+      [t.id, exit, why, net, r, pnl]
+    );
+    if (!upd.rowCount) continue;
+    closed++;
+    try {
+      const { recordCryptoBrainOutcome: recordCryptoBrainOutcome2 } = await Promise.resolve().then(() => (init_crypto_brain(), crypto_brain_exports));
+      await recordCryptoBrainOutcome2({
+        userId,
+        symbol: t.symbol,
+        strategy: t.strategy || "unknown",
+        direction: "long",
+        entryConfidence: t.score ?? null,
+        returnPct: net,
+        holdingMinutes: Math.round(ageH * 60),
+        exitReason: `paper ${why}`,
+        profitLoss: pnl,
+        source: "paper"
+      });
+    } catch {
+    }
+  }
+  return closed;
+}
+async function paperSummary(userId) {
+  await ensurePaperTable();
+  const settings = await getPaperSettings(userId);
+  const [{ rows: agg }, { rows: open }, { rows: recent }, { rows: byToken }, { rows: weeks }] = await Promise.all([
+    pool.query(`SELECT count(*)::int n, count(*) FILTER (WHERE pnl_usd > 0)::int w, COALESCE(sum(pnl_usd),0)::float pnl,
+                       COALESCE(avg(r_multiple),0)::float avg_r FROM crypto_paper_trades WHERE user_id=$1 AND status='closed'`, [userId]),
+    pool.query(`SELECT id, symbol, strategy, entry_price, stop_loss, take_profit, notional_usd, opened_at FROM crypto_paper_trades WHERE user_id=$1 AND status='open' ORDER BY opened_at DESC`, [userId]),
+    pool.query(`SELECT id, symbol, strategy, entry_price, exit_price, exit_reason, return_pct, r_multiple, pnl_usd, opened_at, closed_at FROM crypto_paper_trades WHERE user_id=$1 AND status='closed' ORDER BY closed_at DESC LIMIT 25`, [userId]),
+    pool.query(`SELECT symbol, count(*)::int n, count(*) FILTER (WHERE pnl_usd > 0)::int w, COALESCE(sum(r_multiple),0)::float r
+                  FROM crypto_paper_trades WHERE user_id=$1 AND status='closed' GROUP BY 1 ORDER BY 4 DESC`, [userId]),
+    pool.query(`SELECT date_trunc('week', closed_at) wk, COALESCE(sum(r_multiple),0)::float r FROM crypto_paper_trades
+                 WHERE user_id=$1 AND status='closed' AND closed_at >= date_trunc('week', now()) - interval '7 days' GROUP BY 1`, [userId])
+  ]);
+  const a = agg[0] || { n: 0, w: 0, pnl: 0, avg_r: 0 };
+  const winRate = a.n ? a.w / a.n : 0;
+  const noLosingWeek = weeks.every((x) => Number(x.r) >= 0);
+  const bar = { trades: 50, avgR: 0.2, winRate: 0.4 };
+  const ready = a.n >= bar.trades && a.avg_r >= bar.avgR && winRate >= bar.winRate && noLosingWeek;
+  return {
+    settings,
+    balance: settings.startBalance + Number(a.pnl || 0),
+    stats: { trades: a.n, wins: a.w, winRate, avgR: a.avg_r, pnlUsd: a.pnl },
+    readiness: { ready, bar, progressTrades: Math.min(1, a.n / bar.trades), noLosingWeek },
+    open,
+    recent,
+    best: byToken.slice(0, 5),
+    worst: byToken.slice(-5).reverse()
+  };
+}
+var DEFAULTS, PAPER_MAX_HOURS, DEX_FEE_BPS, _ensured;
+var init_crypto_paper = __esm({
+  "server/services/crypto-paper.ts"() {
+    "use strict";
+    init_db();
+    DEFAULTS = { enabled: false, startBalance: 1e3 };
+    PAPER_MAX_HOURS = () => Math.max(1, Number(process.env.CRYPTO_PAPER_MAX_HOURS ?? 72));
+    DEX_FEE_BPS = 30;
+    _ensured = null;
   }
 });
 
@@ -30320,154 +30659,7 @@ CREATE TABLE IF NOT EXISTS "crypto_engine_heartbeat" (
 init_storage();
 init_cryptocom();
 init_indicators();
-
-// server/services/crypto-brain.ts
-init_db();
-var MIN_TRADES = 10;
-var REFRESH_TTL_MS = 60 * 1e3;
-var _cache = /* @__PURE__ */ new Map();
-function cryptoBrainReady(userId) {
-  return _cache.has(userId);
-}
-function bump(map, key, win) {
-  const s = map[key] ??= { trades: 0, wins: 0, winRate: 0 };
-  s.trades++;
-  if (win) s.wins++;
-  s.winRate = Math.round(s.wins / s.trades * 100);
-}
-function sizeMult(winRate, rr, trades) {
-  if (trades < MIN_TRADES) return 1;
-  const w = winRate / 100, r = rr > 0 ? rr : 1;
-  const kelly = w - (1 - w) / r;
-  return Math.max(0.25, Math.min(1.5, 1 + kelly));
-}
-async function backfillIfEmpty(userId) {
-  const { rows } = await pool.query(`SELECT count(*)::int n FROM crypto_brain_outcomes WHERE user_id=$1`, [userId]);
-  if (rows[0].n > 0) return;
-  const { rows: trades } = await pool.query(
-    `SELECT symbol, strategy, direction, realized_pnl, closed_at FROM cryptocom_engine_trades
-     WHERE user_id=$1 AND status='closed' AND realized_pnl IS NOT NULL ORDER BY closed_at DESC LIMIT 1000`,
-    [userId]
-  );
-  if (!trades.length) return;
-  for (const t of trades) {
-    const pnl = Number(t.realized_pnl) || 0;
-    const d = t.closed_at ? new Date(t.closed_at) : /* @__PURE__ */ new Date();
-    await pool.query(
-      `INSERT INTO crypto_brain_outcomes (user_id, symbol, strategy, direction, result, profit_loss, hour_utc, source, closed_at)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,'backfill',$8)`,
-      [userId, t.symbol, t.strategy || "unknown", t.direction || "long", pnl > 0 ? "WIN" : pnl < 0 ? "LOSS" : "BREAKEVEN", pnl, d.getUTCHours(), d]
-    ).catch(() => {
-    });
-  }
-}
-async function learnFromCryptoTrades(userId) {
-  await backfillIfEmpty(userId).catch(() => {
-  });
-  const { rows } = await pool.query(
-    `SELECT symbol, strategy, direction, result, profit_loss, hour_utc FROM crypto_brain_outcomes
-     WHERE user_id=$1 ORDER BY closed_at DESC LIMIT 2000`,
-    [userId]
-  );
-  const symbols = {};
-  const winSum = {}, winN = {}, lossSum = {}, lossN = {};
-  let totalWins = 0, totalDecided = 0, totalPnl = 0;
-  for (const r of rows) {
-    const sym = r.symbol || "UNKNOWN";
-    const k = symbols[sym] ??= { totalTrades: 0, wins: 0, losses: 0, winRate: 0, totalPnl: 0, avgWin: 0, avgLoss: 0, riskReward: 0, byStrategy: {}, byHour: {}, bestStrategy: null, recommendedSizeMultiplier: 1 };
-    const pnl = Number(r.profit_loss) || 0;
-    const win = r.result === "WIN", loss = r.result === "LOSS";
-    k.totalTrades++;
-    k.totalPnl += pnl;
-    totalPnl += pnl;
-    if (win) {
-      k.wins++;
-      totalWins++;
-      winSum[sym] = (winSum[sym] ?? 0) + pnl;
-      winN[sym] = (winN[sym] ?? 0) + 1;
-    }
-    if (loss) {
-      k.losses++;
-      lossSum[sym] = (lossSum[sym] ?? 0) + Math.abs(pnl);
-      lossN[sym] = (lossN[sym] ?? 0) + 1;
-    }
-    if (win || loss) totalDecided++;
-    if (r.strategy) bump(k.byStrategy, r.strategy, win);
-    if (r.hour_utc != null) bump(k.byHour, String(r.hour_utc), win);
-  }
-  for (const [sym, k] of Object.entries(symbols)) {
-    const decided = k.wins + k.losses;
-    k.winRate = decided ? Math.round(k.wins / decided * 100) : 0;
-    k.avgWin = winN[sym] ? winSum[sym] / winN[sym] : 0;
-    k.avgLoss = lossN[sym] ? lossSum[sym] / lossN[sym] : 0;
-    k.riskReward = k.avgLoss > 0 ? k.avgWin / k.avgLoss : k.avgWin > 0 ? 2 : 1;
-    k.recommendedSizeMultiplier = sizeMult(k.winRate, k.riskReward, decided);
-    let best = null, bestWr = -1;
-    for (const [s, b] of Object.entries(k.byStrategy)) if (b.trades >= 3 && b.winRate > bestWr) {
-      best = s;
-      bestWr = b.winRate;
-    }
-    k.bestStrategy = best;
-  }
-  const insights = [];
-  for (const [sym, k] of Object.entries(symbols)) {
-    if (k.wins + k.losses >= MIN_TRADES) insights.push(`${sym}: ${k.winRate}% WR over ${k.wins + k.losses} \u2192 sizing \xD7${k.recommendedSizeMultiplier}${k.bestStrategy ? `, best on ${k.bestStrategy}` : ""}.`);
-    else insights.push(`${sym}: still learning (${k.wins + k.losses}/${MIN_TRADES}).`);
-  }
-  const brain = { userId, lastLearned: (/* @__PURE__ */ new Date()).toISOString(), totalTrades: rows.length, overallWinRate: totalDecided ? Math.round(totalWins / totalDecided * 100) : 0, totalPnl: Math.round(totalPnl * 100) / 100, symbolKnowledge: symbols, insights };
-  _cache.set(userId, { brain, at: Date.now() });
-  return brain;
-}
-async function getOrRefreshCryptoBrain(userId, force = false) {
-  const hit = _cache.get(userId);
-  if (!force && hit && Date.now() - hit.at < REFRESH_TTL_MS) return hit.brain;
-  return learnFromCryptoTrades(userId);
-}
-function cryptoBrainSizeMultiplier(userId, symbol) {
-  const k = _cache.get(userId)?.brain?.symbolKnowledge[symbol];
-  return k ? k.recommendedSizeMultiplier : 1;
-}
-function cryptoBrainGate(userId, symbol, strategy, hourUtc) {
-  const k = _cache.get(userId)?.brain?.symbolKnowledge[symbol];
-  if (!k) return { blocked: false, reason: "" };
-  const decided = k.wins + k.losses;
-  if (decided >= 15 && k.winRate < 35) return { blocked: true, reason: `\u{1F9E0} Crypto brain: ${symbol} ${k.winRate}% WR over ${decided} \u2014 skipping symbol` };
-  if (strategy) {
-    const st = k.byStrategy[strategy];
-    if (st && st.trades >= 8 && st.winRate < 30) return { blocked: true, reason: `\u{1F9E0} Crypto brain: ${symbol}/${strategy} ${st.winRate}% WR over ${st.trades} \u2014 skipping` };
-  }
-  if (hourUtc != null) {
-    const h = k.byHour[String(hourUtc)];
-    if (h && h.trades >= 8 && h.winRate < 30) return { blocked: true, reason: `\u{1F9E0} Crypto brain: ${symbol} @ ${hourUtc}:00 UTC ${h.winRate}% WR over ${h.trades} \u2014 skipping this hour` };
-  }
-  return { blocked: false, reason: "" };
-}
-async function recordCryptoBrainOutcome(o) {
-  try {
-    await pool.query(
-      `INSERT INTO crypto_brain_outcomes (user_id, symbol, strategy, direction, entry_confidence, return_pct, hour_utc, holding_minutes, exit_reason, result, profit_loss, source)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,'live')`,
-      [
-        o.userId,
-        o.symbol,
-        o.strategy || "unknown",
-        o.direction,
-        o.entryConfidence ?? null,
-        o.returnPct ?? null,
-        (/* @__PURE__ */ new Date()).getUTCHours(),
-        o.holdingMinutes ?? null,
-        o.exitReason ?? null,
-        o.profitLoss > 0 ? "WIN" : o.profitLoss < 0 ? "LOSS" : "BREAKEVEN",
-        o.profitLoss
-      ]
-    );
-    await learnFromCryptoTrades(o.userId);
-  } catch (err) {
-    console.error("[crypto-brain] recordCryptoBrainOutcome failed (non-fatal):", err?.message ?? err);
-  }
-}
-
-// server/services/cryptocom-scanner.ts
+init_crypto_brain();
 init_prop_firm_consistency();
 
 // server/services/weekend-boost.ts
@@ -31433,6 +31625,10 @@ async function assembleConsensus(userId, symbol, result, cfg) {
 }
 async function executeSignal(service, connection, userId, symbol, result, cfg) {
   if (!result.direction || !result.price) return;
+  if (cfg._paperOn) {
+    const paperCfg = { ...cfg, executionVenue: "defi", defiAutoTradeEnabled: true, cefiAutoTradeEnabled: false, multiVenueEnabled: false, _paper: true };
+    return executeSignalSingle(service, connection, userId, symbol, result, paperCfg);
+  }
   if (!cfg.multiVenueEnabled) {
     return executeSignalSingle(service, connection, userId, symbol, result, cfg);
   }
@@ -31545,6 +31741,38 @@ async function executeSignalSingle(service, connection, userId, symbol, result, 
         });
         return;
       }
+    }
+    if (cfg._paper) {
+      const discP = getDefiUniverseEntry(symbol, chain);
+      const { openPaperTrade: openPaperTrade2 } = await Promise.resolve().then(() => (init_crypto_paper(), crypto_paper_exports));
+      const pr = await openPaperTrade2({
+        userId,
+        symbol,
+        chain,
+        tokenAddress: discP?.address ?? null,
+        poolAddress: discP?.poolAddress ?? null,
+        strategy: result.strategy,
+        score: result.score ?? null,
+        entry: result.price,
+        slPct: slPctD,
+        tpPct: tpPctD,
+        notionalUsd: notionalD,
+        slippageBps: slip,
+        reasoning: result.reasoning
+      }).catch((e) => ({ ok: false, reason: e?.message ?? String(e) }));
+      await storage.createCryptocomEngineActivity({
+        userId,
+        symbol,
+        decision: pr.ok ? "signal" : "skipped",
+        strategy: result.strategy,
+        reasoning: pr.ok ? `${symbol}: \u{1F4DD} PAPER entry \u2014 BUY ~$${notionalD.toFixed(2)} @ $${result.price} (SL -${slPctD.toFixed(1)}% / TP +${tpPctD.toFixed(1)}%).${_sizeNote} No wallet used. ${result.reasoning ?? ""}` : `${symbol}: paper entry skipped \u2014 ${pr.reason}.`,
+        score: result.score,
+        price: result.price,
+        dailyChangePercent: result.dailyChangePercent,
+        source: "cryptocom"
+      }).catch(() => {
+      });
+      return;
     }
     try {
       const { defiEntryBuy: defiEntryBuy2 } = await Promise.resolve().then(() => (init_defi_executor(), defi_executor_exports));
@@ -31785,6 +32013,17 @@ async function scanOneUser(userId) {
   const config = await storage.getUserCryptocomEngineConfig(userId);
   if (!config || !config.isActive) return;
   try {
+    const { getPaperSettings: getPaperSettings2, resolvePaperTrades: resolvePaperTrades2 } = await Promise.resolve().then(() => (init_crypto_paper(), crypto_paper_exports));
+    const _ps = await getPaperSettings2(userId);
+    if (_ps.enabled) {
+      config._paperOn = true;
+      config.executionVenue = "defi";
+      config.multiVenueEnabled = false;
+      await resolvePaperTrades2(userId).catch((e) => console.error("[crypto-paper] resolve failed (non-fatal):", e?.message ?? e));
+    }
+  } catch {
+  }
+  try {
     if (weekendBoostActive()) {
       const sizeMult2 = weekendBoostSizeMultiplier();
       config.minConfidence = boostedMinConfidence(config.minConfidence);
@@ -31822,7 +32061,7 @@ async function scanOneUser(userId) {
       console.error(`[cryptocom-scanner] crypto brain warm-up failed for user ${userId} (gate/size reads will use their fail-safe this cycle):`, e?.message ?? e);
     });
   }
-  const canAutoExecute = conn.autoExecute && config.enableAutoExecution;
+  const canAutoExecute = conn.autoExecute && config.enableAutoExecution || config._paperOn === true;
   let allSymbols = Array.isArray(config.symbols) ? config.symbols : [];
   if (isHyperliquid) {
     const { getHyperliquidConnection: getHyperliquidConnection2, HL_PREFIX: HL_PREFIX2 } = await Promise.resolve().then(() => (init_hyperliquid_executor(), hyperliquid_executor_exports));

@@ -13,6 +13,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Checkbox } from "@/components/ui/checkbox";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { FxModelsPanel } from "@/components/fx-models-panel";
+import { CryptoPaperCard } from "@/components/crypto-paper-card";
 import {
   ArrowLeft, RefreshCw, Eye, EyeOff, AlertCircle, CheckCircle2, XCircle, Trash2, TrendingUp,
   TrendingDown, Radar, Ban, Brain, Swords, Settings2, Coins, ExternalLink, Wallet,
@@ -641,6 +642,7 @@ export default function CryptoEnginePage() {
 
           {/* ══════════════════════ SETUP & CONFIG ══════════════════════ */}
           <TabsContent value="setup" className="mt-0 space-y-6">
+            <CryptoPaperCard />
             {/* Collapsible wallets & connections — keeps the mobile setup tab short */}
             <button
               type="button"
