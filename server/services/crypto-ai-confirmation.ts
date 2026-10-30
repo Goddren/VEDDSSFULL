@@ -85,7 +85,9 @@ export async function getCryptoAiConfirmation(opts: {
       'is not a real assessment. Respond ONLY with JSON: ' +
       '{"confirmed": boolean, "direction": "BUY"|"SELL"|"NEUTRAL", "confidence": number (0-100), "reasoning": string}.';
 
-    const user = `SYMBOL: ${opts.symbol}
+    // Shadow lessons (shadow-lessons.ts): crypto paper + crypto shadow evidence, advice only.
+    const _lessons = await import('./shadow-lessons').then((m) => m.getShadowLessonsText(opts.userId, 'crypto', 8)).catch(() => '');
+    const user = `${_lessons ? `${_lessons}\n\n` : ''}SYMBOL: ${opts.symbol}
 PROPOSED: ${opts.direction} @ ${opts.price}
 SCANNER STRATEGY: ${opts.strategy} (score ${opts.quantScore}/100)
 SCANNER REASONING: ${opts.quantReasoning}

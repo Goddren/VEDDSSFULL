@@ -17703,6 +17703,15 @@ Rules:
   // Shared shadow ledger (services/shadow-ledger.ts): every shadow/paper
   // stream in one view — FX + crypto Model 1/2, crypto paper (incl. shorts
   // and ORB), Sol paper. ?days=30 (1–365).
+  // Shadow lessons (services/shadow-lessons.ts) — evidence-backed lessons the
+  // engines' AI receives as advice. ?refresh=1 recomputes now.
+  app.get("/api/shadow-lessons", async (req: Request, res: Response) => {
+    if (!req.isAuthenticated()) return res.status(401).json({ error: "Authentication required" });
+    try {
+      const { getShadowLessons } = await import('./services/shadow-lessons');
+      res.json(await getShadowLessons((req.user as User).id, req.query.refresh === '1'));
+    } catch (err: any) { res.status(500).json({ error: err.message }); }
+  });
   app.get("/api/shadow-ledger", async (req: Request, res: Response) => {
     if (!req.isAuthenticated()) return res.status(401).json({ error: "Authentication required" });
     try {

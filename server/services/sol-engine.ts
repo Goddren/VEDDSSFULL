@@ -1466,7 +1466,9 @@ Output a JSON array only (no markdown):
         ).join('\n')
       : 'None';
 
-    const userPrompt = `SIGNALS:\n${signalsText}\n\nOPEN POSITIONS:\n${positionsText}`;
+    // Shadow lessons (shadow-lessons.ts): Sol paper evidence, advice only.
+    const _solLessons = await import('./shadow-lessons').then((m) => m.getShadowLessonsText(userId, 'sol', 8)).catch(() => '');
+    const userPrompt = `${_solLessons ? `${_solLessons}\n\n` : ''}SIGNALS:\n${signalsText}\n\nOPEN POSITIONS:\n${positionsText}`;
 
     const response = await openai.chat.completions.create({
       model: (openai as any).defaultModel || 'gpt-4o',

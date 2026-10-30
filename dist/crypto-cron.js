@@ -16746,179 +16746,6 @@ You ALWAYS produce proposals that are ready to submit \u2014 no placeholders lik
   }
 });
 
-// server/services/crypto-ai-confirmation.ts
-var crypto_ai_confirmation_exports = {};
-__export(crypto_ai_confirmation_exports, {
-  getCryptoAiConfirmation: () => getCryptoAiConfirmation
-});
-async function getCryptoAiConfirmation(opts) {
-  try {
-    const client2 = await getUniversalAIClientForUser(opts.userId);
-    const recent = opts.candles.slice(-20);
-    const candleSummary = recent.map((c) => {
-      const tNum = Number(c.t);
-      const t = Number.isFinite(tNum) && tNum > 0 ? new Date(tNum * 1e3).toISOString().slice(11, 16) : "?";
-      return `${t} O:${c.o} H:${c.h} L:${c.l} C:${c.c} V:${Math.round(c.v ?? 0)}`;
-    }).join("\n");
-    const ind = opts.indicators || {};
-    const indicatorSummary = [
-      `RSI: ${ind.rsi ?? "n/a"}`,
-      `ADX: ${ind.adx ?? "n/a"}  +DI: ${ind.plusDI ?? "n/a"}  -DI: ${ind.minusDI ?? "n/a"}`,
-      `MACD histogram: ${ind.macdHistogram ?? ind.macd?.histogram ?? "n/a"}`,
-      `Trend: ${ind.trend ?? "n/a"}`,
-      `Relative volume: ${ind.relativeVolume ?? "n/a"}`,
-      `Volume trend: ${ind.volumeTrend ?? "n/a"}`
-    ].join("\n  ");
-    const system = 'You are a disciplined crypto perpetual futures trader giving a second, independent opinion on a signal a technical scanner already produced. Judge this on trend strength, momentum, volume/order-flow confirmation, and recent price structure. This is a 24/7 market with no session close or reopen -- do NOT reach for forex/ICT concepts like order blocks, liquidity sweeps, discount/premium zones, or session/macro-window timing; none of that describes how crypto perpetuals actually trade, and grading a setup down for lacking FX-specific structure it was never going to have is not a real assessment. Respond ONLY with JSON: {"confirmed": boolean, "direction": "BUY"|"SELL"|"NEUTRAL", "confidence": number (0-100), "reasoning": string}.';
-    const user = `SYMBOL: ${opts.symbol}
-PROPOSED: ${opts.direction} @ ${opts.price}
-SCANNER STRATEGY: ${opts.strategy} (score ${opts.quantScore}/100)
-SCANNER REASONING: ${opts.quantReasoning}
-
-INDICATORS:
-  ${indicatorSummary}
-
-RECENT CANDLES (oldest to most recent):
-${candleSummary}
-
-Would you independently confirm this ${opts.direction} setup on its own merits as a crypto perpetual trade?`;
-    const modelId = client2.defaultModel || "gpt-4o-mini";
-    const baseRequest = {
-      model: modelId,
-      messages: [
-        { role: "system", content: system },
-        { role: "user", content: user }
-      ],
-      response_format: { type: "json_object" },
-      temperature: 0.3
-    };
-    let r = await client2.chat.completions.create({ ...baseRequest, max_tokens: 700 });
-    let content = r.choices?.[0]?.message?.content || "";
-    if (!content && r.choices?.[0]?.finish_reason === "length") {
-      console.warn(`[crypto-ai-confirmation] ${opts.symbol}: 700-token budget produced zero content (finish_reason=length) on ${modelId} -- retrying once at 2500.`);
-      r = await client2.chat.completions.create({ ...baseRequest, max_tokens: 2500 });
-      content = r.choices?.[0]?.message?.content || "";
-    }
-    let parsed;
-    try {
-      parsed = JSON.parse(content);
-    } catch {
-      const m = content.match(/\{[\s\S]*\}/);
-      try {
-        if (!m) throw new Error("no braces found");
-        parsed = JSON.parse(m[0]);
-      } catch {
-        console.warn(
-          `[crypto-ai-confirmation] ${opts.symbol}: primary JSON parse failed. finish_reason=${r.choices?.[0]?.finish_reason ?? "unknown"} model=${client2.defaultModel ?? "unknown"} contentLength=${content.length} content=${JSON.stringify(content)}`
-        );
-        const confirmedM = content.match(/"confirmed"\s*:\s*(true|false)/i);
-        const directionM = content.match(/"direction"\s*:\s*"(BUY|SELL|NEUTRAL)"/i);
-        const confidenceM = content.match(/"confidence"\s*:\s*(-?\d+(?:\.\d+)?)/i);
-        const reasoningM = content.match(/"reasoning"\s*:\s*"([\s\S]*)$/i);
-        if (!confirmedM && !directionM && !confidenceM) {
-          throw new Error(`AI returned no parseable JSON (truncated, ${content.length} chars)`);
-        }
-        parsed = {
-          confirmed: confirmedM ? confirmedM[1].toLowerCase() === "true" : false,
-          direction: directionM ? directionM[1].toUpperCase() : "NEUTRAL",
-          confidence: confidenceM ? Number(confidenceM[1]) : 0,
-          reasoning: reasoningM ? reasoningM[1].replace(/\\"/g, '"').trim() + " [reasoning cut off \u2014 response truncated]" : "[response truncated before reasoning was written]"
-        };
-      }
-    }
-    const confidence = coerceConfidence(parsed.confidence);
-    noteConfidenceSample(confidence);
-    const direction = ["BUY", "SELL", "NEUTRAL"].includes(parsed.direction) ? parsed.direction : "NEUTRAL";
-    return {
-      confirmed: !!parsed.confirmed,
-      aiDirection: direction,
-      aiConfidence: confidence,
-      reasoning: String(parsed.reasoning || "no reasoning returned"),
-      modelUsed: client2.defaultModel
-    };
-  } catch (err) {
-    const statusCode = err?.status || err?.statusCode || err?.response?.status;
-    return {
-      confirmed: false,
-      aiDirection: "NEUTRAL",
-      aiConfidence: 0,
-      reasoning: `Crypto AI confirmation error: ${err?.message ?? err}`,
-      aiError: true,
-      aiErrorStatus: typeof statusCode === "number" ? statusCode : null
-    };
-  }
-}
-var init_crypto_ai_confirmation = __esm({
-  "server/services/crypto-ai-confirmation.ts"() {
-    "use strict";
-    init_openai();
-  }
-});
-
-// server/services/engine-consensus.ts
-var engine_consensus_exports = {};
-__export(engine_consensus_exports, {
-  getEngineConsensusForUser: () => getEngineConsensusForUser,
-  recordEngineConsensus: () => recordEngineConsensus
-});
-async function recordEngineConsensus(userId, engine, entry) {
-  try {
-    await pool.query(
-      `INSERT INTO engine_consensus_log
-         (user_id, engine, symbol, strategy, quant_verdict, quant_score, ai_verdict, ai_confidence, ai_reasoning, consensus, trade_allowed, updated_at)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, now())
-       ON CONFLICT (user_id, engine, symbol) DO UPDATE SET
-         strategy = $4, quant_verdict = $5, quant_score = $6, ai_verdict = $7,
-         ai_confidence = $8, ai_reasoning = $9, consensus = $10, trade_allowed = $11, updated_at = now()`,
-      [
-        userId,
-        engine,
-        entry.symbol,
-        entry.strategy,
-        entry.quantVerdict,
-        entry.quantScore,
-        entry.aiVerdict,
-        entry.aiConfidence,
-        entry.aiReasoning,
-        entry.consensus,
-        entry.tradeAllowed
-      ]
-    );
-  } catch (err) {
-    console.error(`[engine-consensus] Failed to record consensus for ${engine}/${entry.symbol} (non-fatal):`, err?.message ?? err);
-  }
-}
-async function getEngineConsensusForUser(userId, engine) {
-  try {
-    const { rows } = await pool.query(
-      `SELECT symbol, strategy, quant_verdict, quant_score, ai_verdict, ai_confidence, ai_reasoning, consensus, trade_allowed, updated_at
-       FROM engine_consensus_log WHERE user_id = $1 AND engine = $2 ORDER BY updated_at DESC LIMIT 20`,
-      [userId, engine]
-    );
-    return rows.map((r) => ({
-      symbol: r.symbol,
-      strategy: r.strategy,
-      quantVerdict: r.quant_verdict,
-      quantScore: r.quant_score,
-      aiVerdict: r.ai_verdict,
-      aiConfidence: r.ai_confidence,
-      aiReasoning: r.ai_reasoning,
-      consensus: r.consensus,
-      tradeAllowed: r.trade_allowed,
-      timestamp: new Date(r.updated_at).toISOString()
-    }));
-  } catch (err) {
-    console.error(`[engine-consensus] Failed to read consensus for ${engine} (non-fatal):`, err?.message ?? err);
-    return [];
-  }
-}
-var init_engine_consensus = __esm({
-  "server/services/engine-consensus.ts"() {
-    "use strict";
-    init_db();
-  }
-});
-
 // server/services/crypto-paper.ts
 var crypto_paper_exports = {};
 __export(crypto_paper_exports, {
@@ -17166,6 +16993,372 @@ var init_crypto_paper = __esm({
     DEX_FEE_BPS = 30;
     _ensured = null;
     _orbLastRun = /* @__PURE__ */ new Map();
+  }
+});
+
+// server/services/shadow-ledger.ts
+function ensureShadowLedger() {
+  if (!_ensured2) {
+    _ensured2 = (async () => {
+      try {
+        const { ensurePaperTable: ensurePaperTable2 } = await Promise.resolve().then(() => (init_crypto_paper(), crypto_paper_exports));
+        await ensurePaperTable2();
+      } catch {
+      }
+      await pool.query(VIEW_SQL);
+    })().catch((e) => {
+      _ensured2 = null;
+      throw e;
+    });
+  }
+  return _ensured2;
+}
+var SESSION_SQL, VIEW_SQL, _ensured2;
+var init_shadow_ledger = __esm({
+  "server/services/shadow-ledger.ts"() {
+    "use strict";
+    init_db();
+    SESSION_SQL = (ts) => `CASE
+  WHEN extract(hour from ${ts}) < 7  THEN 'Asian'
+  WHEN extract(hour from ${ts}) < 12 THEN 'London'
+  WHEN extract(hour from ${ts}) < 16 THEN 'Overlap'
+  WHEN extract(hour from ${ts}) < 21 THEN 'NewYork'
+  ELSE 'Late' END`;
+    VIEW_SQL = `
+CREATE OR REPLACE VIEW shadow_ledger AS
+  SELECT ('fx_model:' || d.id)::text AS ledger_id,
+         CASE WHEN d.engine = 'crypto' THEN 'crypto_shadow' ELSE 'fx_shadow' END AS source,
+         COALESCE(d.engine, 'fx') AS engine, d.user_id,
+         d.model AS strategy, d.symbol,
+         CASE WHEN upper(d.direction) = 'SELL' THEN 'SHORT' ELSE 'LONG' END AS direction,
+         (d.created_at AT TIME ZONE 'UTC') AS opened_at, (d.resolved_at AT TIME ZONE 'UTC') AS closed_at,
+         extract(hour from d.created_at)::int AS hour_utc,
+         ${SESSION_SQL("d.created_at")} AS session,
+         d.day_type,
+         d.context->'h1'->>'trend' AS h1_trend, d.context->'h4'->>'trend' AS h4_trend,
+         CASE WHEN d.context->'h4'->>'trend' IS NULL THEN NULL
+              WHEN upper(d.direction) = 'BUY'  THEN (d.context->'h4'->>'trend') = 'BULLISH'
+              WHEN upper(d.direction) = 'SELL' THEN (d.context->'h4'->>'trend') = 'BEARISH' END AS h4_aligned,
+         (d.created_at >= TIMESTAMP '2026-10-23 04:00:00') AS context_reliable,
+         CASE WHEN d.result = 'EXPIRED' THEN 'EXPIRED' WHEN d.r_multiple > 0 THEN 'WIN' WHEN d.r_multiple < 0 THEN 'LOSS' ELSE d.result END AS result,
+         d.r_multiple::float AS r_multiple, NULL::float AS return_pct
+    FROM fx_model_decisions d
+   WHERE d.result IN ('WIN','LOSS','EXPIRED') AND d.direction IN ('BUY','SELL') AND d.source = 'own'
+  UNION ALL
+  SELECT ('crypto_paper:' || c.id)::text, 'crypto_paper', 'crypto', c.user_id,
+         c.strategy, c.symbol,
+         CASE WHEN c.direction = 'short' THEN 'SHORT' ELSE 'LONG' END,
+         c.opened_at, c.closed_at,
+         extract(hour from c.opened_at AT TIME ZONE 'UTC')::int,
+         ${SESSION_SQL("(c.opened_at AT TIME ZONE 'UTC')")},
+         NULL, NULL, NULL, NULL, true,
+         CASE WHEN c.exit_reason = 'time limit' THEN 'EXPIRED' WHEN c.r_multiple > 0 THEN 'WIN' WHEN c.r_multiple < 0 THEN 'LOSS' ELSE 'FLAT' END,
+         c.r_multiple::float, c.return_pct::float
+    FROM crypto_paper_trades c
+   WHERE c.status = 'closed'
+  UNION ALL
+  SELECT ('sol_paper:' || s.id)::text, 'sol_paper', 'sol', s.user_id,
+         s.strategy_id, s.symbol, 'LONG',
+         s.opened_at::timestamptz, NULLIF(s.closed_at, '')::timestamptz,
+         extract(hour from s.opened_at::timestamptz AT TIME ZONE 'UTC')::int,
+         ${SESSION_SQL("(s.opened_at::timestamptz AT TIME ZONE 'UTC')")},
+         NULL, NULL, NULL, NULL, true,
+         CASE WHEN s.close_pnl_pct > 0 THEN 'WIN' WHEN s.close_pnl_pct < 0 THEN 'LOSS' ELSE 'FLAT' END,
+         CASE WHEN s.sl_pct > 0 THEN (s.close_pnl_pct / s.sl_pct)::float END,
+         s.close_pnl_pct::float
+    FROM sol_engine_positions s
+   WHERE s.mode = 'paper' AND s.status = 'closed' AND s.close_pnl_pct IS NOT NULL
+`;
+    _ensured2 = null;
+  }
+});
+
+// server/services/shadow-lessons.ts
+var shadow_lessons_exports = {};
+__export(shadow_lessons_exports, {
+  computeShadowLessons: () => computeShadowLessons,
+  getShadowLessons: () => getShadowLessons,
+  getShadowLessonsText: () => getShadowLessonsText
+});
+async function computeShadowLessons(userId, days = 30) {
+  await ensureShadowLedger();
+  const dims = [
+    { dimension: "session", expr: `session` },
+    { dimension: "strategy", expr: `strategy` },
+    { dimension: "strategy+symbol", expr: `strategy || ' \xB7 ' || symbol` },
+    { dimension: "direction", expr: `direction` },
+    { dimension: "day_type", expr: `day_type`, where: `day_type IS NOT NULL` },
+    { dimension: "h4_aligned", expr: `CASE WHEN h4_aligned THEN 'with the H4 trend' ELSE 'against the H4 trend' END`, where: `context_reliable AND h4_aligned IS NOT NULL` },
+    { dimension: "strategy+direction", expr: `strategy || ' \xB7 ' || direction` }
+  ];
+  const out = [];
+  for (const d of dims) {
+    const { rows } = await pool.query(
+      `SELECT source, ${d.expr} AS key, count(*)::int AS trades, count(*) FILTER (WHERE result='WIN')::int AS wins,
+              avg(r_multiple)::float AS avg_r, sum(r_multiple)::float AS total_r
+         FROM shadow_ledger
+        WHERE user_id=$1 AND closed_at >= now() - ($2 || ' days')::interval AND r_multiple IS NOT NULL ${d.where ? `AND ${d.where}` : ""}
+        GROUP BY 1,2 HAVING count(*) >= $3`,
+      [userId, String(days), MIN_TRADES3()]
+    );
+    for (const r of rows) {
+      const avgR = Number(r.avg_r) || 0;
+      if (Math.abs(avgR) < EDGE_R() || r.key == null) continue;
+      const winRate = r.trades ? r.wins / r.trades : 0;
+      const verdict = avgR > 0 ? "favor" : "avoid";
+      const strength = r.trades >= 30 ? "strong" : r.trades >= 15 ? "moderate" : "early";
+      const keyLabel = String(r.key).replace(/\bM1\b/g, "Model 1 (range)").replace(/\bM2\b/g, "Model 2 (trend)");
+      const label = `${SOURCE_LABEL[r.source] || r.source} \xB7 ${d.dimension.replace("+", " + ").replace("_", " ")} ${keyLabel}`;
+      out.push({
+        source: r.source,
+        dimension: d.dimension,
+        key: String(r.key),
+        trades: r.trades,
+        wins: r.wins,
+        winRate,
+        avgR,
+        totalR: Number(r.total_r) || 0,
+        verdict,
+        strength,
+        text: `${label}: ${r.trades} trades, ${Math.round(winRate * 100)}% wins, ${avgR >= 0 ? "+" : ""}${avgR.toFixed(2)}R avg \u2192 ${verdict === "favor" ? "FAVOR" : "AVOID"} (${strength} evidence)`
+      });
+    }
+  }
+  out.sort((a, b) => b.trades - a.trades || Math.abs(b.avgR) - Math.abs(a.avgR));
+  return out;
+}
+async function getShadowLessons(userId, force = false) {
+  const hit = _mem.get(userId);
+  if (!force && hit && Date.now() - hit.at < TTL_MS4()) return hit;
+  try {
+    if (!force) {
+      const { getRuntimeStateStrict: getRuntimeStateStrict2 } = await Promise.resolve().then(() => (init_runtime_state(), runtime_state_exports));
+      const stored = await getRuntimeStateStrict2("shadow_lessons", String(userId)).catch(() => null);
+      if (stored && Date.now() - Number(stored.at) < TTL_MS4() && Array.isArray(stored.lessons)) {
+        _mem.set(userId, stored);
+        return stored;
+      }
+    }
+    const fresh = { at: Date.now(), lessons: await computeShadowLessons(userId) };
+    _mem.set(userId, fresh);
+    const { saveRuntimeState: saveRuntimeState2 } = await Promise.resolve().then(() => (init_runtime_state(), runtime_state_exports));
+    saveRuntimeState2("shadow_lessons", String(userId), fresh);
+    return fresh;
+  } catch (e) {
+    console.error("[shadow-lessons] compute failed (non-fatal):", e?.message || e);
+    return hit || { at: 0, lessons: [] };
+  }
+}
+async function getShadowLessonsText(userId, engine, max = 10) {
+  if (process.env.SHADOW_LESSONS === "off") return "";
+  try {
+    const { lessons } = await getShadowLessons(userId);
+    const mine = lessons.filter((l) => (ENGINE_SOURCES[engine] || []).includes(l.source)).slice(0, max);
+    if (!mine.length) return "";
+    return `WHAT OUR SHADOW / PAPER TRADING HAS LEARNED (last 30 days, real outcomes \u2014 weigh these; don't ignore strong ones):
+${mine.map((l) => `- ${l.text}`).join("\n")}
+Lean toward setups matching FAVOR lessons and be much more selective with setups matching AVOID lessons. "Early" evidence is a hint, "strong" evidence is reliable.`;
+  } catch {
+    return "";
+  }
+}
+var MIN_TRADES3, EDGE_R, TTL_MS4, SOURCE_LABEL, ENGINE_SOURCES, _mem;
+var init_shadow_lessons = __esm({
+  "server/services/shadow-lessons.ts"() {
+    "use strict";
+    init_db();
+    init_shadow_ledger();
+    MIN_TRADES3 = () => Number(process.env.SHADOW_LESSON_MIN_TRADES ?? 8);
+    EDGE_R = () => Number(process.env.SHADOW_LESSON_EDGE_R ?? 0.3);
+    TTL_MS4 = () => Math.max(1, Number(process.env.SHADOW_LESSONS_TTL_H ?? 6)) * 36e5;
+    SOURCE_LABEL = {
+      fx_shadow: "FX shadow models",
+      crypto_shadow: "Crypto shadow models",
+      crypto_paper: "Crypto paper engine",
+      sol_paper: "Sol paper engine"
+    };
+    ENGINE_SOURCES = {
+      fx: ["fx_shadow"],
+      crypto: ["crypto_paper", "crypto_shadow"],
+      sol: ["sol_paper"]
+    };
+    _mem = /* @__PURE__ */ new Map();
+  }
+});
+
+// server/services/crypto-ai-confirmation.ts
+var crypto_ai_confirmation_exports = {};
+__export(crypto_ai_confirmation_exports, {
+  getCryptoAiConfirmation: () => getCryptoAiConfirmation
+});
+async function getCryptoAiConfirmation(opts) {
+  try {
+    const client2 = await getUniversalAIClientForUser(opts.userId);
+    const recent = opts.candles.slice(-20);
+    const candleSummary = recent.map((c) => {
+      const tNum = Number(c.t);
+      const t = Number.isFinite(tNum) && tNum > 0 ? new Date(tNum * 1e3).toISOString().slice(11, 16) : "?";
+      return `${t} O:${c.o} H:${c.h} L:${c.l} C:${c.c} V:${Math.round(c.v ?? 0)}`;
+    }).join("\n");
+    const ind = opts.indicators || {};
+    const indicatorSummary = [
+      `RSI: ${ind.rsi ?? "n/a"}`,
+      `ADX: ${ind.adx ?? "n/a"}  +DI: ${ind.plusDI ?? "n/a"}  -DI: ${ind.minusDI ?? "n/a"}`,
+      `MACD histogram: ${ind.macdHistogram ?? ind.macd?.histogram ?? "n/a"}`,
+      `Trend: ${ind.trend ?? "n/a"}`,
+      `Relative volume: ${ind.relativeVolume ?? "n/a"}`,
+      `Volume trend: ${ind.volumeTrend ?? "n/a"}`
+    ].join("\n  ");
+    const system = 'You are a disciplined crypto perpetual futures trader giving a second, independent opinion on a signal a technical scanner already produced. Judge this on trend strength, momentum, volume/order-flow confirmation, and recent price structure. This is a 24/7 market with no session close or reopen -- do NOT reach for forex/ICT concepts like order blocks, liquidity sweeps, discount/premium zones, or session/macro-window timing; none of that describes how crypto perpetuals actually trade, and grading a setup down for lacking FX-specific structure it was never going to have is not a real assessment. Respond ONLY with JSON: {"confirmed": boolean, "direction": "BUY"|"SELL"|"NEUTRAL", "confidence": number (0-100), "reasoning": string}.';
+    const _lessons = await Promise.resolve().then(() => (init_shadow_lessons(), shadow_lessons_exports)).then((m) => m.getShadowLessonsText(opts.userId, "crypto", 8)).catch(() => "");
+    const user = `${_lessons ? `${_lessons}
+
+` : ""}SYMBOL: ${opts.symbol}
+PROPOSED: ${opts.direction} @ ${opts.price}
+SCANNER STRATEGY: ${opts.strategy} (score ${opts.quantScore}/100)
+SCANNER REASONING: ${opts.quantReasoning}
+
+INDICATORS:
+  ${indicatorSummary}
+
+RECENT CANDLES (oldest to most recent):
+${candleSummary}
+
+Would you independently confirm this ${opts.direction} setup on its own merits as a crypto perpetual trade?`;
+    const modelId = client2.defaultModel || "gpt-4o-mini";
+    const baseRequest = {
+      model: modelId,
+      messages: [
+        { role: "system", content: system },
+        { role: "user", content: user }
+      ],
+      response_format: { type: "json_object" },
+      temperature: 0.3
+    };
+    let r = await client2.chat.completions.create({ ...baseRequest, max_tokens: 700 });
+    let content = r.choices?.[0]?.message?.content || "";
+    if (!content && r.choices?.[0]?.finish_reason === "length") {
+      console.warn(`[crypto-ai-confirmation] ${opts.symbol}: 700-token budget produced zero content (finish_reason=length) on ${modelId} -- retrying once at 2500.`);
+      r = await client2.chat.completions.create({ ...baseRequest, max_tokens: 2500 });
+      content = r.choices?.[0]?.message?.content || "";
+    }
+    let parsed;
+    try {
+      parsed = JSON.parse(content);
+    } catch {
+      const m = content.match(/\{[\s\S]*\}/);
+      try {
+        if (!m) throw new Error("no braces found");
+        parsed = JSON.parse(m[0]);
+      } catch {
+        console.warn(
+          `[crypto-ai-confirmation] ${opts.symbol}: primary JSON parse failed. finish_reason=${r.choices?.[0]?.finish_reason ?? "unknown"} model=${client2.defaultModel ?? "unknown"} contentLength=${content.length} content=${JSON.stringify(content)}`
+        );
+        const confirmedM = content.match(/"confirmed"\s*:\s*(true|false)/i);
+        const directionM = content.match(/"direction"\s*:\s*"(BUY|SELL|NEUTRAL)"/i);
+        const confidenceM = content.match(/"confidence"\s*:\s*(-?\d+(?:\.\d+)?)/i);
+        const reasoningM = content.match(/"reasoning"\s*:\s*"([\s\S]*)$/i);
+        if (!confirmedM && !directionM && !confidenceM) {
+          throw new Error(`AI returned no parseable JSON (truncated, ${content.length} chars)`);
+        }
+        parsed = {
+          confirmed: confirmedM ? confirmedM[1].toLowerCase() === "true" : false,
+          direction: directionM ? directionM[1].toUpperCase() : "NEUTRAL",
+          confidence: confidenceM ? Number(confidenceM[1]) : 0,
+          reasoning: reasoningM ? reasoningM[1].replace(/\\"/g, '"').trim() + " [reasoning cut off \u2014 response truncated]" : "[response truncated before reasoning was written]"
+        };
+      }
+    }
+    const confidence = coerceConfidence(parsed.confidence);
+    noteConfidenceSample(confidence);
+    const direction = ["BUY", "SELL", "NEUTRAL"].includes(parsed.direction) ? parsed.direction : "NEUTRAL";
+    return {
+      confirmed: !!parsed.confirmed,
+      aiDirection: direction,
+      aiConfidence: confidence,
+      reasoning: String(parsed.reasoning || "no reasoning returned"),
+      modelUsed: client2.defaultModel
+    };
+  } catch (err) {
+    const statusCode = err?.status || err?.statusCode || err?.response?.status;
+    return {
+      confirmed: false,
+      aiDirection: "NEUTRAL",
+      aiConfidence: 0,
+      reasoning: `Crypto AI confirmation error: ${err?.message ?? err}`,
+      aiError: true,
+      aiErrorStatus: typeof statusCode === "number" ? statusCode : null
+    };
+  }
+}
+var init_crypto_ai_confirmation = __esm({
+  "server/services/crypto-ai-confirmation.ts"() {
+    "use strict";
+    init_openai();
+  }
+});
+
+// server/services/engine-consensus.ts
+var engine_consensus_exports = {};
+__export(engine_consensus_exports, {
+  getEngineConsensusForUser: () => getEngineConsensusForUser,
+  recordEngineConsensus: () => recordEngineConsensus
+});
+async function recordEngineConsensus(userId, engine, entry) {
+  try {
+    await pool.query(
+      `INSERT INTO engine_consensus_log
+         (user_id, engine, symbol, strategy, quant_verdict, quant_score, ai_verdict, ai_confidence, ai_reasoning, consensus, trade_allowed, updated_at)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, now())
+       ON CONFLICT (user_id, engine, symbol) DO UPDATE SET
+         strategy = $4, quant_verdict = $5, quant_score = $6, ai_verdict = $7,
+         ai_confidence = $8, ai_reasoning = $9, consensus = $10, trade_allowed = $11, updated_at = now()`,
+      [
+        userId,
+        engine,
+        entry.symbol,
+        entry.strategy,
+        entry.quantVerdict,
+        entry.quantScore,
+        entry.aiVerdict,
+        entry.aiConfidence,
+        entry.aiReasoning,
+        entry.consensus,
+        entry.tradeAllowed
+      ]
+    );
+  } catch (err) {
+    console.error(`[engine-consensus] Failed to record consensus for ${engine}/${entry.symbol} (non-fatal):`, err?.message ?? err);
+  }
+}
+async function getEngineConsensusForUser(userId, engine) {
+  try {
+    const { rows } = await pool.query(
+      `SELECT symbol, strategy, quant_verdict, quant_score, ai_verdict, ai_confidence, ai_reasoning, consensus, trade_allowed, updated_at
+       FROM engine_consensus_log WHERE user_id = $1 AND engine = $2 ORDER BY updated_at DESC LIMIT 20`,
+      [userId, engine]
+    );
+    return rows.map((r) => ({
+      symbol: r.symbol,
+      strategy: r.strategy,
+      quantVerdict: r.quant_verdict,
+      quantScore: r.quant_score,
+      aiVerdict: r.ai_verdict,
+      aiConfidence: r.ai_confidence,
+      aiReasoning: r.ai_reasoning,
+      consensus: r.consensus,
+      tradeAllowed: r.trade_allowed,
+      timestamp: new Date(r.updated_at).toISOString()
+    }));
+  } catch (err) {
+    console.error(`[engine-consensus] Failed to read consensus for ${engine} (non-fatal):`, err?.message ?? err);
+    return [];
+  }
+}
+var init_engine_consensus = __esm({
+  "server/services/engine-consensus.ts"() {
+    "use strict";
+    init_db();
   }
 });
 
@@ -23430,7 +23623,7 @@ async function hourFilterVerdict(userId, hourUtc) {
   if (process.env.HOUR_FILTER_ENABLED === "false") return null;
   try {
     let entry = cache6.get(userId);
-    if (!entry || Date.now() - entry.at > TTL_MS4) {
+    if (!entry || Date.now() - entry.at > TTL_MS5) {
       const fresh = await compute2(userId);
       entry = { at: Date.now(), ...fresh };
       cache6.set(userId, entry);
@@ -23449,13 +23642,13 @@ async function hourFilterTable(userId) {
   const { stats, blocked } = await compute2(userId);
   return { stats: stats.sort((a, b) => a.hour - b.hour), blocked: Array.from(blocked).sort((a, b) => a - b) };
 }
-var MIN_SAMPLE, WR_FLOOR, TTL_MS4, LOOKBACK_DAYS2, cache6;
+var MIN_SAMPLE, WR_FLOOR, TTL_MS5, LOOKBACK_DAYS2, cache6;
 var init_hour_filter = __esm({
   "server/services/hour-filter.ts"() {
     "use strict";
     MIN_SAMPLE = Number(process.env.HOUR_FILTER_MIN_TRADES ?? 15);
     WR_FLOOR = Number(process.env.HOUR_FILTER_MIN_WINRATE ?? 45);
-    TTL_MS4 = Number(process.env.HOUR_FILTER_TTL_MS ?? 60 * 60 * 1e3);
+    TTL_MS5 = Number(process.env.HOUR_FILTER_TTL_MS ?? 60 * 60 * 1e3);
     LOOKBACK_DAYS2 = Number(process.env.HOUR_FILTER_LOOKBACK_DAYS ?? 180);
     cache6 = /* @__PURE__ */ new Map();
   }
@@ -26312,8 +26505,11 @@ INSTRUCTION: The engine has autonomously adjusted based on the above. Respect th
 `;
       }
     }
+    const _shadowLessons = await Promise.resolve().then(() => (init_shadow_lessons(), shadow_lessons_exports)).then((m) => m.getShadowLessonsText(userId, "fx")).catch(() => "");
     const prompt = `You are VEDD SS AI LIVE TRADING ENGINE - operating in REAL-TIME autonomous HIGH-FREQUENCY mode. You are directly monitoring live market data and making INSTANT trading decisions to hit a weekly profit goal.
-${triggerSection}${crossAssetSection}${codeGateSection}${mindSection}
+${triggerSection}${crossAssetSection}${codeGateSection}${mindSection}${_shadowLessons ? `
+${_shadowLessons}
+` : ""}
 LIVE MARKET DATA (just fetched):
 ${marketSummary}
 

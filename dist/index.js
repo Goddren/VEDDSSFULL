@@ -23342,6 +23342,785 @@ var init_orderflow_strategy = __esm({
   }
 });
 
+// server/services/defi-market-data.ts
+var defi_market_data_exports = {};
+__export(defi_market_data_exports, {
+  callBudget: () => callBudget,
+  discoverDefiTokens: () => discoverDefiTokens,
+  getDefiCandles: () => getDefiCandles,
+  getDefiPrice: () => getDefiPrice
+});
+function cgHeaders() {
+  const h = { accept: "application/json" };
+  const key = (process.env.COINGECKO_API_KEY ?? "").trim();
+  if (key) h["x-cg-demo-api-key"] = key;
+  return h;
+}
+function callBudget() {
+  const hasKey = !!(process.env.COINGECKO_API_KEY ?? "").trim();
+  return {
+    hasKey,
+    // With a key we can space calls at the documented rate; without one, crawl.
+    minIntervalMs: Number(process.env.COINGECKO_MIN_INTERVAL_MS ?? (hasKey ? 2100 : 15e3)),
+    // Discovery is the same answer for everyone, so cache it hard: at 3 pages a
+    // refresh, a 5-minute TTL alone would spend 864 calls/day of a ~330 budget.
+    discoveryTtlMs: Number(process.env.COINGECKO_DISCOVERY_TTL_MS ?? (hasKey ? 60 * 60 * 1e3 : 6 * 60 * 60 * 1e3)),
+    candleTtlMs: Number(process.env.COINGECKO_CANDLE_TTL_MS ?? (hasKey ? 10 * 60 * 1e3 : 30 * 60 * 1e3))
+  };
+}
+async function gt(path17) {
+  const run = async () => {
+    for (let attempt = 0; attempt < 3; attempt++) {
+      const wait = Math.max(0, callBudget().minIntervalMs - (Date.now() - lastCallAt));
+      if (wait > 0) await new Promise((r) => setTimeout(r, wait));
+      lastCallAt = Date.now();
+      const res = await fetch(`${GT}${path17}`, {
+        headers: cgHeaders(),
+        signal: AbortSignal.timeout(2e4)
+      });
+      if (res.ok) return res.json();
+      if (res.status === 429) {
+        const retryAfter = Number(res.headers.get("retry-after")) || 0;
+        const backoff = retryAfter > 0 ? retryAfter * 1e3 : 3e3 * (attempt + 1);
+        console.warn(`[defi-market-data] rate limited on ${path17}; waiting ${backoff}ms (attempt ${attempt + 1}/3)`);
+        await new Promise((r) => setTimeout(r, backoff));
+        continue;
+      }
+      throw new Error(`GeckoTerminal ${res.status} on ${path17}`);
+    }
+    throw new Error(`GeckoTerminal rate limited after 3 attempts on ${path17}`);
+  };
+  const next = callChain.then(run, run);
+  callChain = next.catch(() => void 0);
+  return next;
+}
+async function discoverDefiTokens(chainKey, opts = {}) {
+  const net = GT_NETWORK[chainKey];
+  if (!net) throw new Error(`no GeckoTerminal network mapping for chain "${chainKey}"`);
+  const minLiq = opts.minLiquidityUsd ?? 25e4;
+  const minVol = opts.minVolume24Usd ?? 1e5;
+  const maxTokens = opts.maxTokens ?? 40;
+  const pages = opts.pages ?? 3;
+  const key = `${chainKey}:${minLiq}:${minVol}:${maxTokens}:${pages}`;
+  if (discoveryCache && discoveryCache.key === key && Date.now() - discoveryCache.at < callBudget().discoveryTtlMs) {
+    return discoveryCache.tokens;
+  }
+  const best = /* @__PURE__ */ new Map();
+  let pagesRead = 0;
+  const errors = [];
+  for (let page = 1; page <= pages; page++) {
+    try {
+      const d = await gt(`/networks/${net}/pools?page=${page}&sort=h24_volume_usd_desc`);
+      pagesRead++;
+      for (const p of d?.data ?? []) {
+        const a = p?.attributes ?? {};
+        const liq = Number(a.reserve_in_usd ?? 0);
+        const vol = Number(a.volume_usd?.h24 ?? 0);
+        const price = Number(a.base_token_price_usd ?? 0);
+        const poolAddress = a.address;
+        if (!poolAddress || !price || liq < minLiq || vol < minVol) continue;
+        const symbol = String(a.name ?? "").split("/")[0].trim().toUpperCase();
+        if (!symbol || SETTLEMENT.has(symbol)) continue;
+        const rel = p?.relationships?.base_token?.data?.id ?? "";
+        const address = String(rel).split("_").pop() ?? "";
+        if (!/^0x[a-fA-F0-9]{40}$/.test(address)) continue;
+        const prev = best.get(address);
+        if (!prev || liq > prev.liquidityUsd) {
+          best.set(address, { symbol, address, poolAddress, priceUsd: price, liquidityUsd: liq, volume24Usd: vol });
+        }
+      }
+    } catch (e) {
+      errors.push(e?.message);
+    }
+  }
+  if (pagesRead === 0) {
+    throw new Error(`could not read any pool page for ${chainKey}: ${errors.join(" | ")}`);
+  }
+  if (errors.length) console.warn(`[defi-market-data] ${errors.length}/${pages} pool pages failed for ${chainKey}: ${errors.join(" | ")}`);
+  const tokens = Array.from(best.values()).sort((x, y) => y.volume24Usd - x.volume24Usd).slice(0, maxTokens);
+  discoveryCache = { key, at: Date.now(), tokens };
+  return tokens;
+}
+async function getDefiCandles(chainKey, poolAddress, timeframe, count) {
+  const net = GT_NETWORK[chainKey];
+  if (!net) throw new Error(`no GeckoTerminal network mapping for chain "${chainKey}"`);
+  const [endpoint, aggregate] = TF[timeframe] ?? TF["5m"];
+  const FETCH_DEPTH = 300;
+  const key = `${net}:${poolAddress}:${endpoint}:${aggregate}`;
+  const hit = candleCache.get(key);
+  if (hit && Date.now() - hit.at < callBudget().candleTtlMs) return hit.bars.slice(-count);
+  let pending = candleInFlight.get(key);
+  if (!pending) {
+    pending = (async () => {
+      const d = await gt(`/networks/${net}/pools/${poolAddress}/ohlcv/${endpoint}?aggregate=${aggregate}&limit=${FETCH_DEPTH}`);
+      const list = d?.data?.attributes?.ohlcv_list ?? [];
+      const bars2 = list.map((r) => ({ t: Number(r[0]) * 1e3, o: Number(r[1]), h: Number(r[2]), l: Number(r[3]), c: Number(r[4]), v: Number(r[5]) })).filter((b) => Number.isFinite(b.c) && b.c > 0).reverse();
+      candleCache.set(key, { at: Date.now(), bars: bars2 });
+      return bars2;
+    })().finally(() => candleInFlight.delete(key));
+    candleInFlight.set(key, pending);
+  }
+  const bars = await pending;
+  return bars.slice(-count);
+}
+async function getDefiPrice(chainKey, poolAddress) {
+  const bars = await getDefiCandles(chainKey, poolAddress, "5m", 2).catch(() => []);
+  const last = bars[bars.length - 1];
+  return last?.c && last.c > 0 ? last.c : null;
+}
+var GT, GT_NETWORK, SETTLEMENT, callChain, lastCallAt, discoveryCache, TF, candleCache, candleInFlight;
+var init_defi_market_data = __esm({
+  "server/services/defi-market-data.ts"() {
+    "use strict";
+    GT = "https://api.geckoterminal.com/api/v2";
+    GT_NETWORK = {
+      ethereum: "eth",
+      base: "base",
+      arbitrum: "arbitrum",
+      optimism: "optimism",
+      polygon: "polygon_pos"
+    };
+    SETTLEMENT = /* @__PURE__ */ new Set(["USDC", "USDBC", "USDC.E"]);
+    callChain = Promise.resolve();
+    lastCallAt = 0;
+    discoveryCache = null;
+    TF = {
+      "1m": ["minute", 1],
+      "5m": ["minute", 5],
+      "15m": ["minute", 15],
+      "1h": ["hour", 1],
+      "4h": ["hour", 4],
+      "1d": ["day", 1]
+    };
+    candleCache = /* @__PURE__ */ new Map();
+    candleInFlight = /* @__PURE__ */ new Map();
+  }
+});
+
+// server/services/crypto-brain.ts
+var crypto_brain_exports = {};
+__export(crypto_brain_exports, {
+  cryptoBrainGate: () => cryptoBrainGate,
+  cryptoBrainReady: () => cryptoBrainReady,
+  cryptoBrainSizeMultiplier: () => cryptoBrainSizeMultiplier,
+  getOrRefreshCryptoBrain: () => getOrRefreshCryptoBrain,
+  learnFromCryptoTrades: () => learnFromCryptoTrades,
+  recordCryptoBrainOutcome: () => recordCryptoBrainOutcome
+});
+function cryptoBrainReady(userId) {
+  return _cache.has(userId);
+}
+function bump(map, key, win) {
+  const s = map[key] ??= { trades: 0, wins: 0, winRate: 0 };
+  s.trades++;
+  if (win) s.wins++;
+  s.winRate = Math.round(s.wins / s.trades * 100);
+}
+function sizeMult(winRate2, rr, trades) {
+  if (trades < MIN_TRADES2) return 1;
+  const w = winRate2 / 100, r = rr > 0 ? rr : 1;
+  const kelly = w - (1 - w) / r;
+  return Math.max(0.25, Math.min(1.5, 1 + kelly));
+}
+async function backfillIfEmpty(userId) {
+  const { rows } = await pool.query(`SELECT count(*)::int n FROM crypto_brain_outcomes WHERE user_id=$1`, [userId]);
+  if (rows[0].n > 0) return;
+  const { rows: trades } = await pool.query(
+    `SELECT symbol, strategy, direction, realized_pnl, closed_at FROM cryptocom_engine_trades
+     WHERE user_id=$1 AND status='closed' AND realized_pnl IS NOT NULL ORDER BY closed_at DESC LIMIT 1000`,
+    [userId]
+  );
+  if (!trades.length) return;
+  for (const t of trades) {
+    const pnl = Number(t.realized_pnl) || 0;
+    const d = t.closed_at ? new Date(t.closed_at) : /* @__PURE__ */ new Date();
+    await pool.query(
+      `INSERT INTO crypto_brain_outcomes (user_id, symbol, strategy, direction, result, profit_loss, hour_utc, source, closed_at)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,'backfill',$8)`,
+      [userId, t.symbol, t.strategy || "unknown", t.direction || "long", pnl > 0 ? "WIN" : pnl < 0 ? "LOSS" : "BREAKEVEN", pnl, d.getUTCHours(), d]
+    ).catch(() => {
+    });
+  }
+}
+async function learnFromCryptoTrades(userId) {
+  await backfillIfEmpty(userId).catch(() => {
+  });
+  const { rows } = await pool.query(
+    `SELECT symbol, strategy, direction, result, profit_loss, hour_utc FROM crypto_brain_outcomes
+     WHERE user_id=$1 ORDER BY closed_at DESC LIMIT 2000`,
+    [userId]
+  );
+  const symbols = {};
+  const winSum = {}, winN = {}, lossSum = {}, lossN = {};
+  let totalWins = 0, totalDecided = 0, totalPnl = 0;
+  for (const r of rows) {
+    const sym = r.symbol || "UNKNOWN";
+    const k = symbols[sym] ??= { totalTrades: 0, wins: 0, losses: 0, winRate: 0, totalPnl: 0, avgWin: 0, avgLoss: 0, riskReward: 0, byStrategy: {}, byHour: {}, bestStrategy: null, recommendedSizeMultiplier: 1 };
+    const pnl = Number(r.profit_loss) || 0;
+    const win = r.result === "WIN", loss = r.result === "LOSS";
+    k.totalTrades++;
+    k.totalPnl += pnl;
+    totalPnl += pnl;
+    if (win) {
+      k.wins++;
+      totalWins++;
+      winSum[sym] = (winSum[sym] ?? 0) + pnl;
+      winN[sym] = (winN[sym] ?? 0) + 1;
+    }
+    if (loss) {
+      k.losses++;
+      lossSum[sym] = (lossSum[sym] ?? 0) + Math.abs(pnl);
+      lossN[sym] = (lossN[sym] ?? 0) + 1;
+    }
+    if (win || loss) totalDecided++;
+    if (r.strategy) bump(k.byStrategy, r.strategy, win);
+    if (r.hour_utc != null) bump(k.byHour, String(r.hour_utc), win);
+  }
+  for (const [sym, k] of Object.entries(symbols)) {
+    const decided = k.wins + k.losses;
+    k.winRate = decided ? Math.round(k.wins / decided * 100) : 0;
+    k.avgWin = winN[sym] ? winSum[sym] / winN[sym] : 0;
+    k.avgLoss = lossN[sym] ? lossSum[sym] / lossN[sym] : 0;
+    k.riskReward = k.avgLoss > 0 ? k.avgWin / k.avgLoss : k.avgWin > 0 ? 2 : 1;
+    k.recommendedSizeMultiplier = sizeMult(k.winRate, k.riskReward, decided);
+    let best = null, bestWr = -1;
+    for (const [s, b] of Object.entries(k.byStrategy)) if (b.trades >= 3 && b.winRate > bestWr) {
+      best = s;
+      bestWr = b.winRate;
+    }
+    k.bestStrategy = best;
+  }
+  const insights = [];
+  for (const [sym, k] of Object.entries(symbols)) {
+    if (k.wins + k.losses >= MIN_TRADES2) insights.push(`${sym}: ${k.winRate}% WR over ${k.wins + k.losses} \u2192 sizing \xD7${k.recommendedSizeMultiplier}${k.bestStrategy ? `, best on ${k.bestStrategy}` : ""}.`);
+    else insights.push(`${sym}: still learning (${k.wins + k.losses}/${MIN_TRADES2}).`);
+  }
+  const brain = { userId, lastLearned: (/* @__PURE__ */ new Date()).toISOString(), totalTrades: rows.length, overallWinRate: totalDecided ? Math.round(totalWins / totalDecided * 100) : 0, totalPnl: Math.round(totalPnl * 100) / 100, symbolKnowledge: symbols, insights };
+  _cache.set(userId, { brain, at: Date.now() });
+  return brain;
+}
+async function getOrRefreshCryptoBrain(userId, force = false) {
+  const hit = _cache.get(userId);
+  if (!force && hit && Date.now() - hit.at < REFRESH_TTL_MS) return hit.brain;
+  return learnFromCryptoTrades(userId);
+}
+function cryptoBrainSizeMultiplier(userId, symbol) {
+  const k = _cache.get(userId)?.brain?.symbolKnowledge[symbol];
+  return k ? k.recommendedSizeMultiplier : 1;
+}
+function cryptoBrainGate(userId, symbol, strategy, hourUtc) {
+  const k = _cache.get(userId)?.brain?.symbolKnowledge[symbol];
+  if (!k) return { blocked: false, reason: "" };
+  const decided = k.wins + k.losses;
+  if (decided >= 15 && k.winRate < 35) return { blocked: true, reason: `\u{1F9E0} Crypto brain: ${symbol} ${k.winRate}% WR over ${decided} \u2014 skipping symbol` };
+  if (strategy) {
+    const st = k.byStrategy[strategy];
+    if (st && st.trades >= 8 && st.winRate < 30) return { blocked: true, reason: `\u{1F9E0} Crypto brain: ${symbol}/${strategy} ${st.winRate}% WR over ${st.trades} \u2014 skipping` };
+  }
+  if (hourUtc != null) {
+    const h = k.byHour[String(hourUtc)];
+    if (h && h.trades >= 8 && h.winRate < 30) return { blocked: true, reason: `\u{1F9E0} Crypto brain: ${symbol} @ ${hourUtc}:00 UTC ${h.winRate}% WR over ${h.trades} \u2014 skipping this hour` };
+  }
+  return { blocked: false, reason: "" };
+}
+async function recordCryptoBrainOutcome(o) {
+  try {
+    await pool.query(
+      `INSERT INTO crypto_brain_outcomes (user_id, symbol, strategy, direction, entry_confidence, return_pct, hour_utc, holding_minutes, exit_reason, result, profit_loss, source)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)`,
+      [
+        o.userId,
+        o.symbol,
+        o.strategy || "unknown",
+        o.direction,
+        o.entryConfidence ?? null,
+        o.returnPct ?? null,
+        (/* @__PURE__ */ new Date()).getUTCHours(),
+        o.holdingMinutes ?? null,
+        o.exitReason ?? null,
+        o.profitLoss > 0 ? "WIN" : o.profitLoss < 0 ? "LOSS" : "BREAKEVEN",
+        o.profitLoss,
+        o.source === "paper" ? "paper" : "live"
+      ]
+    );
+    await learnFromCryptoTrades(o.userId);
+  } catch (err) {
+    console.error("[crypto-brain] recordCryptoBrainOutcome failed (non-fatal):", err?.message ?? err);
+  }
+}
+var MIN_TRADES2, REFRESH_TTL_MS, _cache;
+var init_crypto_brain = __esm({
+  "server/services/crypto-brain.ts"() {
+    "use strict";
+    init_db();
+    MIN_TRADES2 = 10;
+    REFRESH_TTL_MS = 60 * 1e3;
+    _cache = /* @__PURE__ */ new Map();
+  }
+});
+
+// server/services/crypto-paper.ts
+var crypto_paper_exports = {};
+__export(crypto_paper_exports, {
+  ensurePaperTable: () => ensurePaperTable,
+  getPaperSettings: () => getPaperSettings,
+  openPaperTrade: () => openPaperTrade,
+  paperSummary: () => paperSummary,
+  resolvePaperTrades: () => resolvePaperTrades,
+  runCryptoOrbShadow: () => runCryptoOrbShadow,
+  savePaperSettings: () => savePaperSettings
+});
+function ensurePaperTable() {
+  if (!_ensured) {
+    _ensured = pool.query(`CREATE TABLE IF NOT EXISTS crypto_paper_trades (
+      id serial PRIMARY KEY, user_id int NOT NULL, symbol text NOT NULL, chain text, token_address text, pool_address text,
+      strategy text, score real, direction text NOT NULL DEFAULT 'long',
+      entry_price double precision NOT NULL, stop_loss double precision NOT NULL, take_profit double precision NOT NULL,
+      notional_usd double precision NOT NULL, cost_bps int NOT NULL DEFAULT 0, reasoning text,
+      status text NOT NULL DEFAULT 'open', exit_price double precision, exit_reason text,
+      return_pct double precision, r_multiple double precision, pnl_usd double precision,
+      opened_at timestamptz NOT NULL DEFAULT now(), closed_at timestamptz)`).then(() => pool.query(`CREATE INDEX IF NOT EXISTS crypto_paper_trades_user_status ON crypto_paper_trades (user_id, status)`)).then(() => void 0).catch((e) => {
+      _ensured = null;
+      throw e;
+    });
+  }
+  return _ensured;
+}
+async function getPaperSettings(userId) {
+  try {
+    const { getRuntimeStateStrict: getRuntimeStateStrict2 } = await Promise.resolve().then(() => (init_runtime_state(), runtime_state_exports));
+    const v = await getRuntimeStateStrict2("crypto_paper", String(userId));
+    return { ...DEFAULTS, ...v || {} };
+  } catch {
+    return { ...DEFAULTS };
+  }
+}
+async function savePaperSettings(userId, patch) {
+  const cur = await getPaperSettings(userId);
+  const next = {
+    enabled: typeof patch.enabled === "boolean" ? patch.enabled : cur.enabled,
+    startBalance: Number(patch.startBalance) > 0 ? Math.min(1e6, Number(patch.startBalance)) : cur.startBalance,
+    walletAddress: patch.walletAddress !== void 0 ? patch.walletAddress : cur.walletAddress ?? null,
+    startedAt: cur.startedAt ?? (patch.enabled ? Date.now() : void 0)
+  };
+  const { ensureRuntimeStateTable: ensureRuntimeStateTable2 } = await Promise.resolve().then(() => (init_runtime_state(), runtime_state_exports));
+  await ensureRuntimeStateTable2();
+  await pool.query(
+    `INSERT INTO runtime_state (scope, key, value, updated_at) VALUES ('crypto_paper', $1, $2::jsonb, now())
+     ON CONFLICT (scope, key) DO UPDATE SET value = EXCLUDED.value, updated_at = now()`,
+    [String(userId), JSON.stringify(next)]
+  );
+  return next;
+}
+async function openPaperTrade(t) {
+  await ensurePaperTable();
+  const held = await pool.query(`SELECT 1 FROM crypto_paper_trades WHERE user_id=$1 AND status='open' AND symbol=$2 LIMIT 1`, [t.userId, t.symbol]);
+  if (held.rows.length) return { ok: false, reason: "already holding a paper position in this token" };
+  const dir = t.direction === "short" ? "short" : "long";
+  const stop = dir === "short" ? t.entry * (1 + t.slPct / 100) : t.entry * (1 - t.slPct / 100);
+  const target = dir === "short" ? t.entry * (1 - t.tpPct / 100) : t.entry * (1 + t.tpPct / 100);
+  const costBps = 2 * (DEX_FEE_BPS + Math.max(0, Number(t.slippageBps) || 0) / 2);
+  const { rows } = await pool.query(
+    `INSERT INTO crypto_paper_trades (user_id, symbol, chain, token_address, pool_address, strategy, score, entry_price, stop_loss, take_profit, notional_usd, cost_bps, reasoning, direction)
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14) RETURNING id`,
+    [
+      t.userId,
+      t.symbol,
+      t.chain,
+      t.tokenAddress ?? null,
+      t.poolAddress ?? null,
+      t.strategy ?? null,
+      t.score ?? null,
+      t.entry,
+      stop,
+      target,
+      t.notionalUsd,
+      Math.round(costBps),
+      (t.reasoning || "").slice(0, 2e3),
+      dir
+    ]
+  );
+  return { ok: true, id: rows[0]?.id };
+}
+async function resolvePaperTrades(userId) {
+  await ensurePaperTable();
+  const { rows } = await pool.query(`SELECT * FROM crypto_paper_trades WHERE user_id=$1 AND status='open'`, [userId]);
+  if (!rows.length) return 0;
+  const { getDefiPrice: getDefiPrice2 } = await Promise.resolve().then(() => (init_defi_market_data(), defi_market_data_exports));
+  let closed = 0;
+  for (const t of rows) {
+    const px = t.pool_address ? await getDefiPrice2(t.chain || "base", t.pool_address).catch(() => null) : null;
+    const ageH = (Date.now() - new Date(t.opened_at).getTime()) / 36e5;
+    let exit = null, why = "";
+    const short = t.direction === "short";
+    if (px != null && px > 0) {
+      if (short ? px >= t.stop_loss : px <= t.stop_loss) {
+        exit = t.stop_loss;
+        why = "stop";
+      } else if (short ? px <= t.take_profit : px >= t.take_profit) {
+        exit = t.take_profit;
+        why = "target";
+      } else if (ageH >= PAPER_MAX_HOURS()) {
+        exit = px;
+        why = "time limit";
+      }
+    } else if (ageH >= PAPER_MAX_HOURS() + 24) {
+      exit = t.entry_price;
+      why = "no price (closed flat)";
+    }
+    if (exit == null) continue;
+    const gross = (short ? t.entry_price - exit : exit - t.entry_price) / t.entry_price * 100;
+    const net = gross - Number(t.cost_bps || 0) / 100;
+    const riskPct = Math.abs(t.entry_price - t.stop_loss) / t.entry_price * 100;
+    const r = riskPct > 0 ? net / riskPct : 0;
+    const pnl = Number(t.notional_usd) * net / 100;
+    const upd = await pool.query(
+      `UPDATE crypto_paper_trades SET status='closed', exit_price=$2, exit_reason=$3, return_pct=$4, r_multiple=$5, pnl_usd=$6, closed_at=now()
+        WHERE id=$1 AND status='open'`,
+      [t.id, exit, why, net, r, pnl]
+    );
+    if (!upd.rowCount) continue;
+    closed++;
+    try {
+      const { recordCryptoBrainOutcome: recordCryptoBrainOutcome2 } = await Promise.resolve().then(() => (init_crypto_brain(), crypto_brain_exports));
+      await recordCryptoBrainOutcome2({
+        userId,
+        symbol: t.symbol,
+        strategy: t.strategy || "unknown",
+        direction: short ? "short" : "long",
+        entryConfidence: t.score ?? null,
+        returnPct: net,
+        holdingMinutes: Math.round(ageH * 60),
+        exitReason: `paper ${why}`,
+        profitLoss: pnl,
+        source: "paper"
+      });
+    } catch {
+    }
+  }
+  return closed;
+}
+async function paperSummary(userId) {
+  await ensurePaperTable();
+  const settings = await getPaperSettings(userId);
+  const [{ rows: agg }, { rows: open }, { rows: recent }, { rows: byToken }, { rows: weeks }] = await Promise.all([
+    pool.query(`SELECT count(*)::int n, count(*) FILTER (WHERE pnl_usd > 0)::int w, COALESCE(sum(pnl_usd),0)::float pnl,
+                       COALESCE(avg(r_multiple),0)::float avg_r FROM crypto_paper_trades WHERE user_id=$1 AND status='closed'`, [userId]),
+    pool.query(`SELECT id, symbol, direction, strategy, entry_price, stop_loss, take_profit, notional_usd, opened_at FROM crypto_paper_trades WHERE user_id=$1 AND status='open' ORDER BY opened_at DESC`, [userId]),
+    pool.query(`SELECT id, symbol, direction, strategy, entry_price, exit_price, exit_reason, return_pct, r_multiple, pnl_usd, opened_at, closed_at FROM crypto_paper_trades WHERE user_id=$1 AND status='closed' ORDER BY closed_at DESC LIMIT 25`, [userId]),
+    pool.query(`SELECT symbol, count(*)::int n, count(*) FILTER (WHERE pnl_usd > 0)::int w, COALESCE(sum(r_multiple),0)::float r
+                  FROM crypto_paper_trades WHERE user_id=$1 AND status='closed' GROUP BY 1 ORDER BY 4 DESC`, [userId]),
+    pool.query(`SELECT date_trunc('week', closed_at) wk, COALESCE(sum(r_multiple),0)::float r FROM crypto_paper_trades
+                 WHERE user_id=$1 AND status='closed' AND closed_at >= date_trunc('week', now()) - interval '7 days' GROUP BY 1`, [userId])
+  ]);
+  const a = agg[0] || { n: 0, w: 0, pnl: 0, avg_r: 0 };
+  const winRate2 = a.n ? a.w / a.n : 0;
+  const noLosingWeek = weeks.every((x) => Number(x.r) >= 0);
+  const bar = { trades: 50, avgR: 0.2, winRate: 0.4 };
+  const ready = a.n >= bar.trades && a.avg_r >= bar.avgR && winRate2 >= bar.winRate && noLosingWeek;
+  return {
+    settings,
+    balance: settings.startBalance + Number(a.pnl || 0),
+    stats: { trades: a.n, wins: a.w, winRate: winRate2, avgR: a.avg_r, pnlUsd: a.pnl },
+    readiness: { ready, bar, progressTrades: Math.min(1, a.n / bar.trades), noLosingWeek },
+    open,
+    recent,
+    best: byToken.slice(0, 5),
+    worst: byToken.slice(-5).reverse()
+  };
+}
+async function runCryptoOrbShadow(userId, candidates, chain, notionalUsd, slippageBps) {
+  if (process.env.CRYPTO_ORB_SHADOW === "off") return 0;
+  const now = /* @__PURE__ */ new Date();
+  const mins = now.getUTCHours() * 60 + now.getUTCMinutes();
+  if (mins < 13 * 60 + 50 || mins > 20 * 60) return 0;
+  if (Date.now() - (_orbLastRun.get(userId) || 0) < 5 * 6e4) return 0;
+  _orbLastRun.set(userId, Date.now());
+  await ensurePaperTable();
+  const day0 = Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate());
+  const rStart = day0 + (13 * 60 + 30) * 6e4, rEnd = day0 + (13 * 60 + 45) * 6e4;
+  const { getDefiCandles: getDefiCandles2 } = await Promise.resolve().then(() => (init_defi_market_data(), defi_market_data_exports));
+  let opened = 0;
+  for (const c of candidates.slice(0, Number(process.env.CRYPTO_ORB_MAX_TOKENS ?? 6))) {
+    if (!c.poolAddress) continue;
+    try {
+      const done = await pool.query(
+        `SELECT 1 FROM crypto_paper_trades WHERE user_id=$1 AND symbol=$2 AND strategy='orb_breakout' AND opened_at >= to_timestamp($3/1000.0) LIMIT 1`,
+        [userId, c.symbol, day0]
+      );
+      if (done.rows.length) continue;
+      const bars = await getDefiCandles2(chain, c.poolAddress, "5m", 100);
+      const range = bars.filter((b) => b.t >= rStart && b.t < rEnd);
+      if (range.length < 2) continue;
+      const hi = Math.max(...range.map((b) => b.h)), lo = Math.min(...range.map((b) => b.l)), size = hi - lo;
+      if (!(size > 0)) continue;
+      const after = bars.filter((b) => b.t >= rEnd).slice(0, -1);
+      let dir = null;
+      for (const b of after) {
+        if (Math.min(b.o, b.c) > hi) {
+          dir = "long";
+          break;
+        }
+        if (Math.max(b.o, b.c) < lo) {
+          dir = "short";
+          break;
+        }
+      }
+      if (!dir) continue;
+      const px = bars[bars.length - 1].c;
+      const level = dir === "long" ? hi : lo;
+      if (Math.abs(px - level) > size * 0.25) continue;
+      if (dir === "long" ? px < lo : px > hi) continue;
+      const stop = dir === "long" ? lo - size * 0.1 : hi + size * 0.1;
+      const slPct = Math.abs(px - stop) / px * 100;
+      if (!(slPct > 0.05) || slPct > 15) continue;
+      const r = await openPaperTrade({
+        userId,
+        symbol: c.symbol,
+        chain,
+        tokenAddress: c.address ?? null,
+        poolAddress: c.poolAddress,
+        strategy: "orb_breakout",
+        score: null,
+        entry: px,
+        slPct,
+        tpPct: slPct * 2,
+        notionalUsd,
+        slippageBps,
+        reasoning: `ORB shadow: NY-open range ${lo}\u2013${hi} (13:30\u201313:45 UTC), ${dir === "long" ? "breakout above" : "breakdown below"} then retest of ${level}; stop beyond the range, 2R target.`,
+        direction: dir
+      });
+      if (r.ok) opened++;
+    } catch {
+    }
+  }
+  return opened;
+}
+var DEFAULTS, PAPER_MAX_HOURS, DEX_FEE_BPS, _ensured, _orbLastRun;
+var init_crypto_paper = __esm({
+  "server/services/crypto-paper.ts"() {
+    "use strict";
+    init_db();
+    DEFAULTS = { enabled: false, startBalance: 1e3 };
+    PAPER_MAX_HOURS = () => Math.max(1, Number(process.env.CRYPTO_PAPER_MAX_HOURS ?? 72));
+    DEX_FEE_BPS = 30;
+    _ensured = null;
+    _orbLastRun = /* @__PURE__ */ new Map();
+  }
+});
+
+// server/services/shadow-ledger.ts
+var shadow_ledger_exports = {};
+__export(shadow_ledger_exports, {
+  ensureShadowLedger: () => ensureShadowLedger,
+  shadowLedgerSummary: () => shadowLedgerSummary
+});
+function ensureShadowLedger() {
+  if (!_ensured2) {
+    _ensured2 = (async () => {
+      try {
+        const { ensurePaperTable: ensurePaperTable2 } = await Promise.resolve().then(() => (init_crypto_paper(), crypto_paper_exports));
+        await ensurePaperTable2();
+      } catch {
+      }
+      await pool.query(VIEW_SQL);
+    })().catch((e) => {
+      _ensured2 = null;
+      throw e;
+    });
+  }
+  return _ensured2;
+}
+async function shadowLedgerSummary(userId, days = 30) {
+  await ensureShadowLedger();
+  const since = `now() - ($2 || ' days')::interval`;
+  const q = (sql18) => pool.query(sql18, [userId, String(Math.max(1, Math.min(365, days)))]).then((r) => r.rows);
+  const agg = `count(*)::int AS trades, count(*) FILTER (WHERE result='WIN')::int AS wins,
+               round(avg(r_multiple)::numeric, 2)::float AS avg_r, round(sum(r_multiple)::numeric, 1)::float AS total_r`;
+  const [bySource, bySession, byDirection, slices, alignment] = await Promise.all([
+    q(`SELECT source, ${agg} FROM shadow_ledger WHERE user_id=$1 AND closed_at >= ${since} GROUP BY 1 ORDER BY 1`),
+    q(`SELECT source, session, ${agg} FROM shadow_ledger WHERE user_id=$1 AND closed_at >= ${since} GROUP BY 1,2 ORDER BY 1,2`),
+    q(`SELECT source, direction, ${agg} FROM shadow_ledger WHERE user_id=$1 AND closed_at >= ${since} GROUP BY 1,2 ORDER BY 1,2`),
+    q(`SELECT source, strategy, symbol, ${agg} FROM shadow_ledger WHERE user_id=$1 AND closed_at >= ${since}
+        GROUP BY 1,2,3 HAVING count(*) >= 3 ORDER BY avg(r_multiple) DESC NULLS LAST`),
+    q(`SELECT source, h4_aligned, ${agg} FROM shadow_ledger WHERE user_id=$1 AND closed_at >= ${since} AND context_reliable AND h4_aligned IS NOT NULL
+        GROUP BY 1,2 ORDER BY 1,2`)
+  ]);
+  return { days, bySource, bySession, byDirection, best: slices.slice(0, 10), worst: slices.slice(-10).reverse(), h4Alignment: alignment };
+}
+var SESSION_SQL, VIEW_SQL, _ensured2;
+var init_shadow_ledger = __esm({
+  "server/services/shadow-ledger.ts"() {
+    "use strict";
+    init_db();
+    SESSION_SQL = (ts) => `CASE
+  WHEN extract(hour from ${ts}) < 7  THEN 'Asian'
+  WHEN extract(hour from ${ts}) < 12 THEN 'London'
+  WHEN extract(hour from ${ts}) < 16 THEN 'Overlap'
+  WHEN extract(hour from ${ts}) < 21 THEN 'NewYork'
+  ELSE 'Late' END`;
+    VIEW_SQL = `
+CREATE OR REPLACE VIEW shadow_ledger AS
+  SELECT ('fx_model:' || d.id)::text AS ledger_id,
+         CASE WHEN d.engine = 'crypto' THEN 'crypto_shadow' ELSE 'fx_shadow' END AS source,
+         COALESCE(d.engine, 'fx') AS engine, d.user_id,
+         d.model AS strategy, d.symbol,
+         CASE WHEN upper(d.direction) = 'SELL' THEN 'SHORT' ELSE 'LONG' END AS direction,
+         (d.created_at AT TIME ZONE 'UTC') AS opened_at, (d.resolved_at AT TIME ZONE 'UTC') AS closed_at,
+         extract(hour from d.created_at)::int AS hour_utc,
+         ${SESSION_SQL("d.created_at")} AS session,
+         d.day_type,
+         d.context->'h1'->>'trend' AS h1_trend, d.context->'h4'->>'trend' AS h4_trend,
+         CASE WHEN d.context->'h4'->>'trend' IS NULL THEN NULL
+              WHEN upper(d.direction) = 'BUY'  THEN (d.context->'h4'->>'trend') = 'BULLISH'
+              WHEN upper(d.direction) = 'SELL' THEN (d.context->'h4'->>'trend') = 'BEARISH' END AS h4_aligned,
+         (d.created_at >= TIMESTAMP '2026-10-23 04:00:00') AS context_reliable,
+         CASE WHEN d.result = 'EXPIRED' THEN 'EXPIRED' WHEN d.r_multiple > 0 THEN 'WIN' WHEN d.r_multiple < 0 THEN 'LOSS' ELSE d.result END AS result,
+         d.r_multiple::float AS r_multiple, NULL::float AS return_pct
+    FROM fx_model_decisions d
+   WHERE d.result IN ('WIN','LOSS','EXPIRED') AND d.direction IN ('BUY','SELL') AND d.source = 'own'
+  UNION ALL
+  SELECT ('crypto_paper:' || c.id)::text, 'crypto_paper', 'crypto', c.user_id,
+         c.strategy, c.symbol,
+         CASE WHEN c.direction = 'short' THEN 'SHORT' ELSE 'LONG' END,
+         c.opened_at, c.closed_at,
+         extract(hour from c.opened_at AT TIME ZONE 'UTC')::int,
+         ${SESSION_SQL("(c.opened_at AT TIME ZONE 'UTC')")},
+         NULL, NULL, NULL, NULL, true,
+         CASE WHEN c.exit_reason = 'time limit' THEN 'EXPIRED' WHEN c.r_multiple > 0 THEN 'WIN' WHEN c.r_multiple < 0 THEN 'LOSS' ELSE 'FLAT' END,
+         c.r_multiple::float, c.return_pct::float
+    FROM crypto_paper_trades c
+   WHERE c.status = 'closed'
+  UNION ALL
+  SELECT ('sol_paper:' || s.id)::text, 'sol_paper', 'sol', s.user_id,
+         s.strategy_id, s.symbol, 'LONG',
+         s.opened_at::timestamptz, NULLIF(s.closed_at, '')::timestamptz,
+         extract(hour from s.opened_at::timestamptz AT TIME ZONE 'UTC')::int,
+         ${SESSION_SQL("(s.opened_at::timestamptz AT TIME ZONE 'UTC')")},
+         NULL, NULL, NULL, NULL, true,
+         CASE WHEN s.close_pnl_pct > 0 THEN 'WIN' WHEN s.close_pnl_pct < 0 THEN 'LOSS' ELSE 'FLAT' END,
+         CASE WHEN s.sl_pct > 0 THEN (s.close_pnl_pct / s.sl_pct)::float END,
+         s.close_pnl_pct::float
+    FROM sol_engine_positions s
+   WHERE s.mode = 'paper' AND s.status = 'closed' AND s.close_pnl_pct IS NOT NULL
+`;
+    _ensured2 = null;
+  }
+});
+
+// server/services/shadow-lessons.ts
+var shadow_lessons_exports = {};
+__export(shadow_lessons_exports, {
+  computeShadowLessons: () => computeShadowLessons,
+  getShadowLessons: () => getShadowLessons,
+  getShadowLessonsText: () => getShadowLessonsText
+});
+async function computeShadowLessons(userId, days = 30) {
+  await ensureShadowLedger();
+  const dims = [
+    { dimension: "session", expr: `session` },
+    { dimension: "strategy", expr: `strategy` },
+    { dimension: "strategy+symbol", expr: `strategy || ' \xB7 ' || symbol` },
+    { dimension: "direction", expr: `direction` },
+    { dimension: "day_type", expr: `day_type`, where: `day_type IS NOT NULL` },
+    { dimension: "h4_aligned", expr: `CASE WHEN h4_aligned THEN 'with the H4 trend' ELSE 'against the H4 trend' END`, where: `context_reliable AND h4_aligned IS NOT NULL` },
+    { dimension: "strategy+direction", expr: `strategy || ' \xB7 ' || direction` }
+  ];
+  const out = [];
+  for (const d of dims) {
+    const { rows } = await pool.query(
+      `SELECT source, ${d.expr} AS key, count(*)::int AS trades, count(*) FILTER (WHERE result='WIN')::int AS wins,
+              avg(r_multiple)::float AS avg_r, sum(r_multiple)::float AS total_r
+         FROM shadow_ledger
+        WHERE user_id=$1 AND closed_at >= now() - ($2 || ' days')::interval AND r_multiple IS NOT NULL ${d.where ? `AND ${d.where}` : ""}
+        GROUP BY 1,2 HAVING count(*) >= $3`,
+      [userId, String(days), MIN_TRADES3()]
+    );
+    for (const r of rows) {
+      const avgR = Number(r.avg_r) || 0;
+      if (Math.abs(avgR) < EDGE_R() || r.key == null) continue;
+      const winRate2 = r.trades ? r.wins / r.trades : 0;
+      const verdict = avgR > 0 ? "favor" : "avoid";
+      const strength = r.trades >= 30 ? "strong" : r.trades >= 15 ? "moderate" : "early";
+      const keyLabel = String(r.key).replace(/\bM1\b/g, "Model 1 (range)").replace(/\bM2\b/g, "Model 2 (trend)");
+      const label = `${SOURCE_LABEL[r.source] || r.source} \xB7 ${d.dimension.replace("+", " + ").replace("_", " ")} ${keyLabel}`;
+      out.push({
+        source: r.source,
+        dimension: d.dimension,
+        key: String(r.key),
+        trades: r.trades,
+        wins: r.wins,
+        winRate: winRate2,
+        avgR,
+        totalR: Number(r.total_r) || 0,
+        verdict,
+        strength,
+        text: `${label}: ${r.trades} trades, ${Math.round(winRate2 * 100)}% wins, ${avgR >= 0 ? "+" : ""}${avgR.toFixed(2)}R avg \u2192 ${verdict === "favor" ? "FAVOR" : "AVOID"} (${strength} evidence)`
+      });
+    }
+  }
+  out.sort((a, b) => b.trades - a.trades || Math.abs(b.avgR) - Math.abs(a.avgR));
+  return out;
+}
+async function getShadowLessons(userId, force = false) {
+  const hit = _mem.get(userId);
+  if (!force && hit && Date.now() - hit.at < TTL_MS3()) return hit;
+  try {
+    if (!force) {
+      const { getRuntimeStateStrict: getRuntimeStateStrict2 } = await Promise.resolve().then(() => (init_runtime_state(), runtime_state_exports));
+      const stored = await getRuntimeStateStrict2("shadow_lessons", String(userId)).catch(() => null);
+      if (stored && Date.now() - Number(stored.at) < TTL_MS3() && Array.isArray(stored.lessons)) {
+        _mem.set(userId, stored);
+        return stored;
+      }
+    }
+    const fresh = { at: Date.now(), lessons: await computeShadowLessons(userId) };
+    _mem.set(userId, fresh);
+    const { saveRuntimeState: saveRuntimeState2 } = await Promise.resolve().then(() => (init_runtime_state(), runtime_state_exports));
+    saveRuntimeState2("shadow_lessons", String(userId), fresh);
+    return fresh;
+  } catch (e) {
+    console.error("[shadow-lessons] compute failed (non-fatal):", e?.message || e);
+    return hit || { at: 0, lessons: [] };
+  }
+}
+async function getShadowLessonsText(userId, engine, max = 10) {
+  if (process.env.SHADOW_LESSONS === "off") return "";
+  try {
+    const { lessons } = await getShadowLessons(userId);
+    const mine = lessons.filter((l) => (ENGINE_SOURCES[engine] || []).includes(l.source)).slice(0, max);
+    if (!mine.length) return "";
+    return `WHAT OUR SHADOW / PAPER TRADING HAS LEARNED (last 30 days, real outcomes \u2014 weigh these; don't ignore strong ones):
+${mine.map((l) => `- ${l.text}`).join("\n")}
+Lean toward setups matching FAVOR lessons and be much more selective with setups matching AVOID lessons. "Early" evidence is a hint, "strong" evidence is reliable.`;
+  } catch {
+    return "";
+  }
+}
+var MIN_TRADES3, EDGE_R, TTL_MS3, SOURCE_LABEL, ENGINE_SOURCES, _mem;
+var init_shadow_lessons = __esm({
+  "server/services/shadow-lessons.ts"() {
+    "use strict";
+    init_db();
+    init_shadow_ledger();
+    MIN_TRADES3 = () => Number(process.env.SHADOW_LESSON_MIN_TRADES ?? 8);
+    EDGE_R = () => Number(process.env.SHADOW_LESSON_EDGE_R ?? 0.3);
+    TTL_MS3 = () => Math.max(1, Number(process.env.SHADOW_LESSONS_TTL_H ?? 6)) * 36e5;
+    SOURCE_LABEL = {
+      fx_shadow: "FX shadow models",
+      crypto_shadow: "Crypto shadow models",
+      crypto_paper: "Crypto paper engine",
+      sol_paper: "Sol paper engine"
+    };
+    ENGINE_SOURCES = {
+      fx: ["fx_shadow"],
+      crypto: ["crypto_paper", "crypto_shadow"],
+      sol: ["sol_paper"]
+    };
+    _mem = /* @__PURE__ */ new Map();
+  }
+});
+
 // server/services/ai-model-service.ts
 var ai_model_service_exports = {};
 __export(ai_model_service_exports, {
@@ -24177,7 +24956,7 @@ async function hourFilterVerdict(userId, hourUtc) {
   if (process.env.HOUR_FILTER_ENABLED === "false") return null;
   try {
     let entry = cache5.get(userId);
-    if (!entry || Date.now() - entry.at > TTL_MS3) {
+    if (!entry || Date.now() - entry.at > TTL_MS4) {
       const fresh = await compute2(userId);
       entry = { at: Date.now(), ...fresh };
       cache5.set(userId, entry);
@@ -24196,13 +24975,13 @@ async function hourFilterTable(userId) {
   const { stats, blocked } = await compute2(userId);
   return { stats: stats.sort((a, b) => a.hour - b.hour), blocked: Array.from(blocked).sort((a, b) => a - b) };
 }
-var MIN_SAMPLE, WR_FLOOR, TTL_MS3, LOOKBACK_DAYS2, cache5;
+var MIN_SAMPLE, WR_FLOOR, TTL_MS4, LOOKBACK_DAYS2, cache5;
 var init_hour_filter = __esm({
   "server/services/hour-filter.ts"() {
     "use strict";
     MIN_SAMPLE = Number(process.env.HOUR_FILTER_MIN_TRADES ?? 15);
     WR_FLOOR = Number(process.env.HOUR_FILTER_MIN_WINRATE ?? 45);
-    TTL_MS3 = Number(process.env.HOUR_FILTER_TTL_MS ?? 60 * 60 * 1e3);
+    TTL_MS4 = Number(process.env.HOUR_FILTER_TTL_MS ?? 60 * 60 * 1e3);
     LOOKBACK_DAYS2 = Number(process.env.HOUR_FILTER_LOOKBACK_DAYS ?? 180);
     cache5 = /* @__PURE__ */ new Map();
   }
@@ -27355,8 +28134,11 @@ INSTRUCTION: The engine has autonomously adjusted based on the above. Respect th
 `;
       }
     }
+    const _shadowLessons = await Promise.resolve().then(() => (init_shadow_lessons(), shadow_lessons_exports)).then((m) => m.getShadowLessonsText(userId, "fx")).catch(() => "");
     const prompt = `You are VEDD SS AI LIVE TRADING ENGINE - operating in REAL-TIME autonomous HIGH-FREQUENCY mode. You are directly monitoring live market data and making INSTANT trading decisions to hit a weekly profit goal.
-${triggerSection}${crossAssetSection}${codeGateSection}${mindSection}
+${triggerSection}${crossAssetSection}${codeGateSection}${mindSection}${_shadowLessons ? `
+${_shadowLessons}
+` : ""}
 LIVE MARKET DATA (just fetched):
 ${marketSummary}
 
@@ -34477,12 +35259,12 @@ function getCachedConfirmation(userId, symbol, timeframe, direction, eaConfidenc
   const now = Date.now();
   const k = bandKey(userId, symbol, timeframe, direction, eaConfidence, price);
   const hit = cache7.get(k);
-  if (hit && now - hit.at < TTL_MS4) {
+  if (hit && now - hit.at < TTL_MS5) {
     hits++;
     return { verdict: hit.verdict, reason: `cached ${Math.round((now - hit.at) / 1e3)}s ago (same setup)` };
   }
   const sk = symbolKey(userId, symbol, timeframe);
-  const last = lastCallAt.get(sk) ?? 0;
+  const last = lastCallAt2.get(sk) ?? 0;
   if (now - last < FLOOR_MS) {
     let best = null;
     for (const [ck, v] of Array.from(cache7.entries())) {
@@ -34501,7 +35283,7 @@ function getCachedConfirmation(userId, symbol, timeframe, direction, eaConfidenc
 function putCachedConfirmation(userId, symbol, timeframe, direction, eaConfidence, price, verdict) {
   const now = Date.now();
   cache7.set(bandKey(userId, symbol, timeframe, direction, eaConfidence, price), { verdict, at: now, eaConfidence, price });
-  lastCallAt.set(symbolKey(userId, symbol, timeframe), now);
+  lastCallAt2.set(symbolKey(userId, symbol, timeframe), now);
   if (cache7.size > 500) {
     for (const [k, v] of Array.from(cache7.entries())) if (now - v.at > STALE_USABLE_MS) cache7.delete(k);
   }
@@ -34510,16 +35292,16 @@ function confirmationCacheStats() {
   const total = hits + misses + throttled;
   return { hits, misses, throttled, total, savedPct: total ? Math.round((hits + throttled) / total * 100) : 0, entries: cache7.size };
 }
-var TTL_MS4, FLOOR_MS, STALE_USABLE_MS, CONF_BAND, cache7, lastCallAt, hits, misses, throttled;
+var TTL_MS5, FLOOR_MS, STALE_USABLE_MS, CONF_BAND, cache7, lastCallAt2, hits, misses, throttled;
 var init_ai_confirmation_cache = __esm({
   "server/services/ai-confirmation-cache.ts"() {
     "use strict";
-    TTL_MS4 = Number(process.env.AI_CONFIRM_CACHE_TTL_MS ?? 3 * 60 * 1e3);
+    TTL_MS5 = Number(process.env.AI_CONFIRM_CACHE_TTL_MS ?? 3 * 60 * 1e3);
     FLOOR_MS = Number(process.env.AI_CONFIRM_MIN_INTERVAL_MS ?? 60 * 1e3);
     STALE_USABLE_MS = Number(process.env.AI_CONFIRM_STALE_MS ?? 10 * 60 * 1e3);
     CONF_BAND = Number(process.env.AI_CONFIRM_CONF_BAND ?? 5);
     cache7 = /* @__PURE__ */ new Map();
-    lastCallAt = /* @__PURE__ */ new Map();
+    lastCallAt2 = /* @__PURE__ */ new Map();
     hits = 0;
     misses = 0;
     throttled = 0;
@@ -41105,672 +41887,6 @@ var init_engine_consensus = __esm({
   }
 });
 
-// server/services/defi-market-data.ts
-var defi_market_data_exports = {};
-__export(defi_market_data_exports, {
-  callBudget: () => callBudget,
-  discoverDefiTokens: () => discoverDefiTokens,
-  getDefiCandles: () => getDefiCandles,
-  getDefiPrice: () => getDefiPrice
-});
-function cgHeaders() {
-  const h = { accept: "application/json" };
-  const key = (process.env.COINGECKO_API_KEY ?? "").trim();
-  if (key) h["x-cg-demo-api-key"] = key;
-  return h;
-}
-function callBudget() {
-  const hasKey = !!(process.env.COINGECKO_API_KEY ?? "").trim();
-  return {
-    hasKey,
-    // With a key we can space calls at the documented rate; without one, crawl.
-    minIntervalMs: Number(process.env.COINGECKO_MIN_INTERVAL_MS ?? (hasKey ? 2100 : 15e3)),
-    // Discovery is the same answer for everyone, so cache it hard: at 3 pages a
-    // refresh, a 5-minute TTL alone would spend 864 calls/day of a ~330 budget.
-    discoveryTtlMs: Number(process.env.COINGECKO_DISCOVERY_TTL_MS ?? (hasKey ? 60 * 60 * 1e3 : 6 * 60 * 60 * 1e3)),
-    candleTtlMs: Number(process.env.COINGECKO_CANDLE_TTL_MS ?? (hasKey ? 10 * 60 * 1e3 : 30 * 60 * 1e3))
-  };
-}
-async function gt(path17) {
-  const run = async () => {
-    for (let attempt = 0; attempt < 3; attempt++) {
-      const wait = Math.max(0, callBudget().minIntervalMs - (Date.now() - lastCallAt2));
-      if (wait > 0) await new Promise((r) => setTimeout(r, wait));
-      lastCallAt2 = Date.now();
-      const res = await fetch(`${GT}${path17}`, {
-        headers: cgHeaders(),
-        signal: AbortSignal.timeout(2e4)
-      });
-      if (res.ok) return res.json();
-      if (res.status === 429) {
-        const retryAfter = Number(res.headers.get("retry-after")) || 0;
-        const backoff = retryAfter > 0 ? retryAfter * 1e3 : 3e3 * (attempt + 1);
-        console.warn(`[defi-market-data] rate limited on ${path17}; waiting ${backoff}ms (attempt ${attempt + 1}/3)`);
-        await new Promise((r) => setTimeout(r, backoff));
-        continue;
-      }
-      throw new Error(`GeckoTerminal ${res.status} on ${path17}`);
-    }
-    throw new Error(`GeckoTerminal rate limited after 3 attempts on ${path17}`);
-  };
-  const next = callChain.then(run, run);
-  callChain = next.catch(() => void 0);
-  return next;
-}
-async function discoverDefiTokens(chainKey, opts = {}) {
-  const net = GT_NETWORK[chainKey];
-  if (!net) throw new Error(`no GeckoTerminal network mapping for chain "${chainKey}"`);
-  const minLiq = opts.minLiquidityUsd ?? 25e4;
-  const minVol = opts.minVolume24Usd ?? 1e5;
-  const maxTokens = opts.maxTokens ?? 40;
-  const pages = opts.pages ?? 3;
-  const key = `${chainKey}:${minLiq}:${minVol}:${maxTokens}:${pages}`;
-  if (discoveryCache && discoveryCache.key === key && Date.now() - discoveryCache.at < callBudget().discoveryTtlMs) {
-    return discoveryCache.tokens;
-  }
-  const best = /* @__PURE__ */ new Map();
-  let pagesRead = 0;
-  const errors = [];
-  for (let page = 1; page <= pages; page++) {
-    try {
-      const d = await gt(`/networks/${net}/pools?page=${page}&sort=h24_volume_usd_desc`);
-      pagesRead++;
-      for (const p of d?.data ?? []) {
-        const a = p?.attributes ?? {};
-        const liq = Number(a.reserve_in_usd ?? 0);
-        const vol = Number(a.volume_usd?.h24 ?? 0);
-        const price = Number(a.base_token_price_usd ?? 0);
-        const poolAddress = a.address;
-        if (!poolAddress || !price || liq < minLiq || vol < minVol) continue;
-        const symbol = String(a.name ?? "").split("/")[0].trim().toUpperCase();
-        if (!symbol || SETTLEMENT.has(symbol)) continue;
-        const rel = p?.relationships?.base_token?.data?.id ?? "";
-        const address = String(rel).split("_").pop() ?? "";
-        if (!/^0x[a-fA-F0-9]{40}$/.test(address)) continue;
-        const prev = best.get(address);
-        if (!prev || liq > prev.liquidityUsd) {
-          best.set(address, { symbol, address, poolAddress, priceUsd: price, liquidityUsd: liq, volume24Usd: vol });
-        }
-      }
-    } catch (e) {
-      errors.push(e?.message);
-    }
-  }
-  if (pagesRead === 0) {
-    throw new Error(`could not read any pool page for ${chainKey}: ${errors.join(" | ")}`);
-  }
-  if (errors.length) console.warn(`[defi-market-data] ${errors.length}/${pages} pool pages failed for ${chainKey}: ${errors.join(" | ")}`);
-  const tokens = Array.from(best.values()).sort((x, y) => y.volume24Usd - x.volume24Usd).slice(0, maxTokens);
-  discoveryCache = { key, at: Date.now(), tokens };
-  return tokens;
-}
-async function getDefiCandles(chainKey, poolAddress, timeframe, count) {
-  const net = GT_NETWORK[chainKey];
-  if (!net) throw new Error(`no GeckoTerminal network mapping for chain "${chainKey}"`);
-  const [endpoint, aggregate] = TF[timeframe] ?? TF["5m"];
-  const FETCH_DEPTH = 300;
-  const key = `${net}:${poolAddress}:${endpoint}:${aggregate}`;
-  const hit = candleCache.get(key);
-  if (hit && Date.now() - hit.at < callBudget().candleTtlMs) return hit.bars.slice(-count);
-  let pending = candleInFlight.get(key);
-  if (!pending) {
-    pending = (async () => {
-      const d = await gt(`/networks/${net}/pools/${poolAddress}/ohlcv/${endpoint}?aggregate=${aggregate}&limit=${FETCH_DEPTH}`);
-      const list = d?.data?.attributes?.ohlcv_list ?? [];
-      const bars2 = list.map((r) => ({ t: Number(r[0]) * 1e3, o: Number(r[1]), h: Number(r[2]), l: Number(r[3]), c: Number(r[4]), v: Number(r[5]) })).filter((b) => Number.isFinite(b.c) && b.c > 0).reverse();
-      candleCache.set(key, { at: Date.now(), bars: bars2 });
-      return bars2;
-    })().finally(() => candleInFlight.delete(key));
-    candleInFlight.set(key, pending);
-  }
-  const bars = await pending;
-  return bars.slice(-count);
-}
-async function getDefiPrice(chainKey, poolAddress) {
-  const bars = await getDefiCandles(chainKey, poolAddress, "5m", 2).catch(() => []);
-  const last = bars[bars.length - 1];
-  return last?.c && last.c > 0 ? last.c : null;
-}
-var GT, GT_NETWORK, SETTLEMENT, callChain, lastCallAt2, discoveryCache, TF, candleCache, candleInFlight;
-var init_defi_market_data = __esm({
-  "server/services/defi-market-data.ts"() {
-    "use strict";
-    GT = "https://api.geckoterminal.com/api/v2";
-    GT_NETWORK = {
-      ethereum: "eth",
-      base: "base",
-      arbitrum: "arbitrum",
-      optimism: "optimism",
-      polygon: "polygon_pos"
-    };
-    SETTLEMENT = /* @__PURE__ */ new Set(["USDC", "USDBC", "USDC.E"]);
-    callChain = Promise.resolve();
-    lastCallAt2 = 0;
-    discoveryCache = null;
-    TF = {
-      "1m": ["minute", 1],
-      "5m": ["minute", 5],
-      "15m": ["minute", 15],
-      "1h": ["hour", 1],
-      "4h": ["hour", 4],
-      "1d": ["day", 1]
-    };
-    candleCache = /* @__PURE__ */ new Map();
-    candleInFlight = /* @__PURE__ */ new Map();
-  }
-});
-
-// server/services/crypto-brain.ts
-var crypto_brain_exports = {};
-__export(crypto_brain_exports, {
-  cryptoBrainGate: () => cryptoBrainGate,
-  cryptoBrainReady: () => cryptoBrainReady,
-  cryptoBrainSizeMultiplier: () => cryptoBrainSizeMultiplier,
-  getOrRefreshCryptoBrain: () => getOrRefreshCryptoBrain,
-  learnFromCryptoTrades: () => learnFromCryptoTrades,
-  recordCryptoBrainOutcome: () => recordCryptoBrainOutcome
-});
-function cryptoBrainReady(userId) {
-  return _cache.has(userId);
-}
-function bump(map, key, win) {
-  const s = map[key] ??= { trades: 0, wins: 0, winRate: 0 };
-  s.trades++;
-  if (win) s.wins++;
-  s.winRate = Math.round(s.wins / s.trades * 100);
-}
-function sizeMult(winRate2, rr, trades) {
-  if (trades < MIN_TRADES2) return 1;
-  const w = winRate2 / 100, r = rr > 0 ? rr : 1;
-  const kelly = w - (1 - w) / r;
-  return Math.max(0.25, Math.min(1.5, 1 + kelly));
-}
-async function backfillIfEmpty(userId) {
-  const { rows } = await pool.query(`SELECT count(*)::int n FROM crypto_brain_outcomes WHERE user_id=$1`, [userId]);
-  if (rows[0].n > 0) return;
-  const { rows: trades } = await pool.query(
-    `SELECT symbol, strategy, direction, realized_pnl, closed_at FROM cryptocom_engine_trades
-     WHERE user_id=$1 AND status='closed' AND realized_pnl IS NOT NULL ORDER BY closed_at DESC LIMIT 1000`,
-    [userId]
-  );
-  if (!trades.length) return;
-  for (const t of trades) {
-    const pnl = Number(t.realized_pnl) || 0;
-    const d = t.closed_at ? new Date(t.closed_at) : /* @__PURE__ */ new Date();
-    await pool.query(
-      `INSERT INTO crypto_brain_outcomes (user_id, symbol, strategy, direction, result, profit_loss, hour_utc, source, closed_at)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,'backfill',$8)`,
-      [userId, t.symbol, t.strategy || "unknown", t.direction || "long", pnl > 0 ? "WIN" : pnl < 0 ? "LOSS" : "BREAKEVEN", pnl, d.getUTCHours(), d]
-    ).catch(() => {
-    });
-  }
-}
-async function learnFromCryptoTrades(userId) {
-  await backfillIfEmpty(userId).catch(() => {
-  });
-  const { rows } = await pool.query(
-    `SELECT symbol, strategy, direction, result, profit_loss, hour_utc FROM crypto_brain_outcomes
-     WHERE user_id=$1 ORDER BY closed_at DESC LIMIT 2000`,
-    [userId]
-  );
-  const symbols = {};
-  const winSum = {}, winN = {}, lossSum = {}, lossN = {};
-  let totalWins = 0, totalDecided = 0, totalPnl = 0;
-  for (const r of rows) {
-    const sym = r.symbol || "UNKNOWN";
-    const k = symbols[sym] ??= { totalTrades: 0, wins: 0, losses: 0, winRate: 0, totalPnl: 0, avgWin: 0, avgLoss: 0, riskReward: 0, byStrategy: {}, byHour: {}, bestStrategy: null, recommendedSizeMultiplier: 1 };
-    const pnl = Number(r.profit_loss) || 0;
-    const win = r.result === "WIN", loss = r.result === "LOSS";
-    k.totalTrades++;
-    k.totalPnl += pnl;
-    totalPnl += pnl;
-    if (win) {
-      k.wins++;
-      totalWins++;
-      winSum[sym] = (winSum[sym] ?? 0) + pnl;
-      winN[sym] = (winN[sym] ?? 0) + 1;
-    }
-    if (loss) {
-      k.losses++;
-      lossSum[sym] = (lossSum[sym] ?? 0) + Math.abs(pnl);
-      lossN[sym] = (lossN[sym] ?? 0) + 1;
-    }
-    if (win || loss) totalDecided++;
-    if (r.strategy) bump(k.byStrategy, r.strategy, win);
-    if (r.hour_utc != null) bump(k.byHour, String(r.hour_utc), win);
-  }
-  for (const [sym, k] of Object.entries(symbols)) {
-    const decided = k.wins + k.losses;
-    k.winRate = decided ? Math.round(k.wins / decided * 100) : 0;
-    k.avgWin = winN[sym] ? winSum[sym] / winN[sym] : 0;
-    k.avgLoss = lossN[sym] ? lossSum[sym] / lossN[sym] : 0;
-    k.riskReward = k.avgLoss > 0 ? k.avgWin / k.avgLoss : k.avgWin > 0 ? 2 : 1;
-    k.recommendedSizeMultiplier = sizeMult(k.winRate, k.riskReward, decided);
-    let best = null, bestWr = -1;
-    for (const [s, b] of Object.entries(k.byStrategy)) if (b.trades >= 3 && b.winRate > bestWr) {
-      best = s;
-      bestWr = b.winRate;
-    }
-    k.bestStrategy = best;
-  }
-  const insights = [];
-  for (const [sym, k] of Object.entries(symbols)) {
-    if (k.wins + k.losses >= MIN_TRADES2) insights.push(`${sym}: ${k.winRate}% WR over ${k.wins + k.losses} \u2192 sizing \xD7${k.recommendedSizeMultiplier}${k.bestStrategy ? `, best on ${k.bestStrategy}` : ""}.`);
-    else insights.push(`${sym}: still learning (${k.wins + k.losses}/${MIN_TRADES2}).`);
-  }
-  const brain = { userId, lastLearned: (/* @__PURE__ */ new Date()).toISOString(), totalTrades: rows.length, overallWinRate: totalDecided ? Math.round(totalWins / totalDecided * 100) : 0, totalPnl: Math.round(totalPnl * 100) / 100, symbolKnowledge: symbols, insights };
-  _cache.set(userId, { brain, at: Date.now() });
-  return brain;
-}
-async function getOrRefreshCryptoBrain(userId, force = false) {
-  const hit = _cache.get(userId);
-  if (!force && hit && Date.now() - hit.at < REFRESH_TTL_MS) return hit.brain;
-  return learnFromCryptoTrades(userId);
-}
-function cryptoBrainSizeMultiplier(userId, symbol) {
-  const k = _cache.get(userId)?.brain?.symbolKnowledge[symbol];
-  return k ? k.recommendedSizeMultiplier : 1;
-}
-function cryptoBrainGate(userId, symbol, strategy, hourUtc) {
-  const k = _cache.get(userId)?.brain?.symbolKnowledge[symbol];
-  if (!k) return { blocked: false, reason: "" };
-  const decided = k.wins + k.losses;
-  if (decided >= 15 && k.winRate < 35) return { blocked: true, reason: `\u{1F9E0} Crypto brain: ${symbol} ${k.winRate}% WR over ${decided} \u2014 skipping symbol` };
-  if (strategy) {
-    const st = k.byStrategy[strategy];
-    if (st && st.trades >= 8 && st.winRate < 30) return { blocked: true, reason: `\u{1F9E0} Crypto brain: ${symbol}/${strategy} ${st.winRate}% WR over ${st.trades} \u2014 skipping` };
-  }
-  if (hourUtc != null) {
-    const h = k.byHour[String(hourUtc)];
-    if (h && h.trades >= 8 && h.winRate < 30) return { blocked: true, reason: `\u{1F9E0} Crypto brain: ${symbol} @ ${hourUtc}:00 UTC ${h.winRate}% WR over ${h.trades} \u2014 skipping this hour` };
-  }
-  return { blocked: false, reason: "" };
-}
-async function recordCryptoBrainOutcome(o) {
-  try {
-    await pool.query(
-      `INSERT INTO crypto_brain_outcomes (user_id, symbol, strategy, direction, entry_confidence, return_pct, hour_utc, holding_minutes, exit_reason, result, profit_loss, source)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)`,
-      [
-        o.userId,
-        o.symbol,
-        o.strategy || "unknown",
-        o.direction,
-        o.entryConfidence ?? null,
-        o.returnPct ?? null,
-        (/* @__PURE__ */ new Date()).getUTCHours(),
-        o.holdingMinutes ?? null,
-        o.exitReason ?? null,
-        o.profitLoss > 0 ? "WIN" : o.profitLoss < 0 ? "LOSS" : "BREAKEVEN",
-        o.profitLoss,
-        o.source === "paper" ? "paper" : "live"
-      ]
-    );
-    await learnFromCryptoTrades(o.userId);
-  } catch (err) {
-    console.error("[crypto-brain] recordCryptoBrainOutcome failed (non-fatal):", err?.message ?? err);
-  }
-}
-var MIN_TRADES2, REFRESH_TTL_MS, _cache;
-var init_crypto_brain = __esm({
-  "server/services/crypto-brain.ts"() {
-    "use strict";
-    init_db();
-    MIN_TRADES2 = 10;
-    REFRESH_TTL_MS = 60 * 1e3;
-    _cache = /* @__PURE__ */ new Map();
-  }
-});
-
-// server/services/crypto-paper.ts
-var crypto_paper_exports = {};
-__export(crypto_paper_exports, {
-  ensurePaperTable: () => ensurePaperTable,
-  getPaperSettings: () => getPaperSettings,
-  openPaperTrade: () => openPaperTrade,
-  paperSummary: () => paperSummary,
-  resolvePaperTrades: () => resolvePaperTrades,
-  runCryptoOrbShadow: () => runCryptoOrbShadow,
-  savePaperSettings: () => savePaperSettings
-});
-function ensurePaperTable() {
-  if (!_ensured) {
-    _ensured = pool.query(`CREATE TABLE IF NOT EXISTS crypto_paper_trades (
-      id serial PRIMARY KEY, user_id int NOT NULL, symbol text NOT NULL, chain text, token_address text, pool_address text,
-      strategy text, score real, direction text NOT NULL DEFAULT 'long',
-      entry_price double precision NOT NULL, stop_loss double precision NOT NULL, take_profit double precision NOT NULL,
-      notional_usd double precision NOT NULL, cost_bps int NOT NULL DEFAULT 0, reasoning text,
-      status text NOT NULL DEFAULT 'open', exit_price double precision, exit_reason text,
-      return_pct double precision, r_multiple double precision, pnl_usd double precision,
-      opened_at timestamptz NOT NULL DEFAULT now(), closed_at timestamptz)`).then(() => pool.query(`CREATE INDEX IF NOT EXISTS crypto_paper_trades_user_status ON crypto_paper_trades (user_id, status)`)).then(() => void 0).catch((e) => {
-      _ensured = null;
-      throw e;
-    });
-  }
-  return _ensured;
-}
-async function getPaperSettings(userId) {
-  try {
-    const { getRuntimeStateStrict: getRuntimeStateStrict2 } = await Promise.resolve().then(() => (init_runtime_state(), runtime_state_exports));
-    const v = await getRuntimeStateStrict2("crypto_paper", String(userId));
-    return { ...DEFAULTS, ...v || {} };
-  } catch {
-    return { ...DEFAULTS };
-  }
-}
-async function savePaperSettings(userId, patch) {
-  const cur = await getPaperSettings(userId);
-  const next = {
-    enabled: typeof patch.enabled === "boolean" ? patch.enabled : cur.enabled,
-    startBalance: Number(patch.startBalance) > 0 ? Math.min(1e6, Number(patch.startBalance)) : cur.startBalance,
-    walletAddress: patch.walletAddress !== void 0 ? patch.walletAddress : cur.walletAddress ?? null,
-    startedAt: cur.startedAt ?? (patch.enabled ? Date.now() : void 0)
-  };
-  const { ensureRuntimeStateTable: ensureRuntimeStateTable2 } = await Promise.resolve().then(() => (init_runtime_state(), runtime_state_exports));
-  await ensureRuntimeStateTable2();
-  await pool.query(
-    `INSERT INTO runtime_state (scope, key, value, updated_at) VALUES ('crypto_paper', $1, $2::jsonb, now())
-     ON CONFLICT (scope, key) DO UPDATE SET value = EXCLUDED.value, updated_at = now()`,
-    [String(userId), JSON.stringify(next)]
-  );
-  return next;
-}
-async function openPaperTrade(t) {
-  await ensurePaperTable();
-  const held = await pool.query(`SELECT 1 FROM crypto_paper_trades WHERE user_id=$1 AND status='open' AND symbol=$2 LIMIT 1`, [t.userId, t.symbol]);
-  if (held.rows.length) return { ok: false, reason: "already holding a paper position in this token" };
-  const dir = t.direction === "short" ? "short" : "long";
-  const stop = dir === "short" ? t.entry * (1 + t.slPct / 100) : t.entry * (1 - t.slPct / 100);
-  const target = dir === "short" ? t.entry * (1 - t.tpPct / 100) : t.entry * (1 + t.tpPct / 100);
-  const costBps = 2 * (DEX_FEE_BPS + Math.max(0, Number(t.slippageBps) || 0) / 2);
-  const { rows } = await pool.query(
-    `INSERT INTO crypto_paper_trades (user_id, symbol, chain, token_address, pool_address, strategy, score, entry_price, stop_loss, take_profit, notional_usd, cost_bps, reasoning, direction)
-     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14) RETURNING id`,
-    [
-      t.userId,
-      t.symbol,
-      t.chain,
-      t.tokenAddress ?? null,
-      t.poolAddress ?? null,
-      t.strategy ?? null,
-      t.score ?? null,
-      t.entry,
-      stop,
-      target,
-      t.notionalUsd,
-      Math.round(costBps),
-      (t.reasoning || "").slice(0, 2e3),
-      dir
-    ]
-  );
-  return { ok: true, id: rows[0]?.id };
-}
-async function resolvePaperTrades(userId) {
-  await ensurePaperTable();
-  const { rows } = await pool.query(`SELECT * FROM crypto_paper_trades WHERE user_id=$1 AND status='open'`, [userId]);
-  if (!rows.length) return 0;
-  const { getDefiPrice: getDefiPrice2 } = await Promise.resolve().then(() => (init_defi_market_data(), defi_market_data_exports));
-  let closed = 0;
-  for (const t of rows) {
-    const px = t.pool_address ? await getDefiPrice2(t.chain || "base", t.pool_address).catch(() => null) : null;
-    const ageH = (Date.now() - new Date(t.opened_at).getTime()) / 36e5;
-    let exit = null, why = "";
-    const short = t.direction === "short";
-    if (px != null && px > 0) {
-      if (short ? px >= t.stop_loss : px <= t.stop_loss) {
-        exit = t.stop_loss;
-        why = "stop";
-      } else if (short ? px <= t.take_profit : px >= t.take_profit) {
-        exit = t.take_profit;
-        why = "target";
-      } else if (ageH >= PAPER_MAX_HOURS()) {
-        exit = px;
-        why = "time limit";
-      }
-    } else if (ageH >= PAPER_MAX_HOURS() + 24) {
-      exit = t.entry_price;
-      why = "no price (closed flat)";
-    }
-    if (exit == null) continue;
-    const gross = (short ? t.entry_price - exit : exit - t.entry_price) / t.entry_price * 100;
-    const net = gross - Number(t.cost_bps || 0) / 100;
-    const riskPct = Math.abs(t.entry_price - t.stop_loss) / t.entry_price * 100;
-    const r = riskPct > 0 ? net / riskPct : 0;
-    const pnl = Number(t.notional_usd) * net / 100;
-    const upd = await pool.query(
-      `UPDATE crypto_paper_trades SET status='closed', exit_price=$2, exit_reason=$3, return_pct=$4, r_multiple=$5, pnl_usd=$6, closed_at=now()
-        WHERE id=$1 AND status='open'`,
-      [t.id, exit, why, net, r, pnl]
-    );
-    if (!upd.rowCount) continue;
-    closed++;
-    try {
-      const { recordCryptoBrainOutcome: recordCryptoBrainOutcome2 } = await Promise.resolve().then(() => (init_crypto_brain(), crypto_brain_exports));
-      await recordCryptoBrainOutcome2({
-        userId,
-        symbol: t.symbol,
-        strategy: t.strategy || "unknown",
-        direction: short ? "short" : "long",
-        entryConfidence: t.score ?? null,
-        returnPct: net,
-        holdingMinutes: Math.round(ageH * 60),
-        exitReason: `paper ${why}`,
-        profitLoss: pnl,
-        source: "paper"
-      });
-    } catch {
-    }
-  }
-  return closed;
-}
-async function paperSummary(userId) {
-  await ensurePaperTable();
-  const settings = await getPaperSettings(userId);
-  const [{ rows: agg }, { rows: open }, { rows: recent }, { rows: byToken }, { rows: weeks }] = await Promise.all([
-    pool.query(`SELECT count(*)::int n, count(*) FILTER (WHERE pnl_usd > 0)::int w, COALESCE(sum(pnl_usd),0)::float pnl,
-                       COALESCE(avg(r_multiple),0)::float avg_r FROM crypto_paper_trades WHERE user_id=$1 AND status='closed'`, [userId]),
-    pool.query(`SELECT id, symbol, direction, strategy, entry_price, stop_loss, take_profit, notional_usd, opened_at FROM crypto_paper_trades WHERE user_id=$1 AND status='open' ORDER BY opened_at DESC`, [userId]),
-    pool.query(`SELECT id, symbol, direction, strategy, entry_price, exit_price, exit_reason, return_pct, r_multiple, pnl_usd, opened_at, closed_at FROM crypto_paper_trades WHERE user_id=$1 AND status='closed' ORDER BY closed_at DESC LIMIT 25`, [userId]),
-    pool.query(`SELECT symbol, count(*)::int n, count(*) FILTER (WHERE pnl_usd > 0)::int w, COALESCE(sum(r_multiple),0)::float r
-                  FROM crypto_paper_trades WHERE user_id=$1 AND status='closed' GROUP BY 1 ORDER BY 4 DESC`, [userId]),
-    pool.query(`SELECT date_trunc('week', closed_at) wk, COALESCE(sum(r_multiple),0)::float r FROM crypto_paper_trades
-                 WHERE user_id=$1 AND status='closed' AND closed_at >= date_trunc('week', now()) - interval '7 days' GROUP BY 1`, [userId])
-  ]);
-  const a = agg[0] || { n: 0, w: 0, pnl: 0, avg_r: 0 };
-  const winRate2 = a.n ? a.w / a.n : 0;
-  const noLosingWeek = weeks.every((x) => Number(x.r) >= 0);
-  const bar = { trades: 50, avgR: 0.2, winRate: 0.4 };
-  const ready = a.n >= bar.trades && a.avg_r >= bar.avgR && winRate2 >= bar.winRate && noLosingWeek;
-  return {
-    settings,
-    balance: settings.startBalance + Number(a.pnl || 0),
-    stats: { trades: a.n, wins: a.w, winRate: winRate2, avgR: a.avg_r, pnlUsd: a.pnl },
-    readiness: { ready, bar, progressTrades: Math.min(1, a.n / bar.trades), noLosingWeek },
-    open,
-    recent,
-    best: byToken.slice(0, 5),
-    worst: byToken.slice(-5).reverse()
-  };
-}
-async function runCryptoOrbShadow(userId, candidates, chain, notionalUsd, slippageBps) {
-  if (process.env.CRYPTO_ORB_SHADOW === "off") return 0;
-  const now = /* @__PURE__ */ new Date();
-  const mins = now.getUTCHours() * 60 + now.getUTCMinutes();
-  if (mins < 13 * 60 + 50 || mins > 20 * 60) return 0;
-  if (Date.now() - (_orbLastRun.get(userId) || 0) < 5 * 6e4) return 0;
-  _orbLastRun.set(userId, Date.now());
-  await ensurePaperTable();
-  const day0 = Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate());
-  const rStart = day0 + (13 * 60 + 30) * 6e4, rEnd = day0 + (13 * 60 + 45) * 6e4;
-  const { getDefiCandles: getDefiCandles2 } = await Promise.resolve().then(() => (init_defi_market_data(), defi_market_data_exports));
-  let opened = 0;
-  for (const c of candidates.slice(0, Number(process.env.CRYPTO_ORB_MAX_TOKENS ?? 6))) {
-    if (!c.poolAddress) continue;
-    try {
-      const done = await pool.query(
-        `SELECT 1 FROM crypto_paper_trades WHERE user_id=$1 AND symbol=$2 AND strategy='orb_breakout' AND opened_at >= to_timestamp($3/1000.0) LIMIT 1`,
-        [userId, c.symbol, day0]
-      );
-      if (done.rows.length) continue;
-      const bars = await getDefiCandles2(chain, c.poolAddress, "5m", 100);
-      const range = bars.filter((b) => b.t >= rStart && b.t < rEnd);
-      if (range.length < 2) continue;
-      const hi = Math.max(...range.map((b) => b.h)), lo = Math.min(...range.map((b) => b.l)), size = hi - lo;
-      if (!(size > 0)) continue;
-      const after = bars.filter((b) => b.t >= rEnd).slice(0, -1);
-      let dir = null;
-      for (const b of after) {
-        if (Math.min(b.o, b.c) > hi) {
-          dir = "long";
-          break;
-        }
-        if (Math.max(b.o, b.c) < lo) {
-          dir = "short";
-          break;
-        }
-      }
-      if (!dir) continue;
-      const px = bars[bars.length - 1].c;
-      const level = dir === "long" ? hi : lo;
-      if (Math.abs(px - level) > size * 0.25) continue;
-      if (dir === "long" ? px < lo : px > hi) continue;
-      const stop = dir === "long" ? lo - size * 0.1 : hi + size * 0.1;
-      const slPct = Math.abs(px - stop) / px * 100;
-      if (!(slPct > 0.05) || slPct > 15) continue;
-      const r = await openPaperTrade({
-        userId,
-        symbol: c.symbol,
-        chain,
-        tokenAddress: c.address ?? null,
-        poolAddress: c.poolAddress,
-        strategy: "orb_breakout",
-        score: null,
-        entry: px,
-        slPct,
-        tpPct: slPct * 2,
-        notionalUsd,
-        slippageBps,
-        reasoning: `ORB shadow: NY-open range ${lo}\u2013${hi} (13:30\u201313:45 UTC), ${dir === "long" ? "breakout above" : "breakdown below"} then retest of ${level}; stop beyond the range, 2R target.`,
-        direction: dir
-      });
-      if (r.ok) opened++;
-    } catch {
-    }
-  }
-  return opened;
-}
-var DEFAULTS, PAPER_MAX_HOURS, DEX_FEE_BPS, _ensured, _orbLastRun;
-var init_crypto_paper = __esm({
-  "server/services/crypto-paper.ts"() {
-    "use strict";
-    init_db();
-    DEFAULTS = { enabled: false, startBalance: 1e3 };
-    PAPER_MAX_HOURS = () => Math.max(1, Number(process.env.CRYPTO_PAPER_MAX_HOURS ?? 72));
-    DEX_FEE_BPS = 30;
-    _ensured = null;
-    _orbLastRun = /* @__PURE__ */ new Map();
-  }
-});
-
-// server/services/shadow-ledger.ts
-var shadow_ledger_exports = {};
-__export(shadow_ledger_exports, {
-  ensureShadowLedger: () => ensureShadowLedger,
-  shadowLedgerSummary: () => shadowLedgerSummary
-});
-function ensureShadowLedger() {
-  if (!_ensured2) {
-    _ensured2 = (async () => {
-      try {
-        const { ensurePaperTable: ensurePaperTable2 } = await Promise.resolve().then(() => (init_crypto_paper(), crypto_paper_exports));
-        await ensurePaperTable2();
-      } catch {
-      }
-      await pool.query(VIEW_SQL);
-    })().catch((e) => {
-      _ensured2 = null;
-      throw e;
-    });
-  }
-  return _ensured2;
-}
-async function shadowLedgerSummary(userId, days = 30) {
-  await ensureShadowLedger();
-  const since = `now() - ($2 || ' days')::interval`;
-  const q = (sql18) => pool.query(sql18, [userId, String(Math.max(1, Math.min(365, days)))]).then((r) => r.rows);
-  const agg = `count(*)::int AS trades, count(*) FILTER (WHERE result='WIN')::int AS wins,
-               round(avg(r_multiple)::numeric, 2)::float AS avg_r, round(sum(r_multiple)::numeric, 1)::float AS total_r`;
-  const [bySource, bySession, byDirection, slices, alignment] = await Promise.all([
-    q(`SELECT source, ${agg} FROM shadow_ledger WHERE user_id=$1 AND closed_at >= ${since} GROUP BY 1 ORDER BY 1`),
-    q(`SELECT source, session, ${agg} FROM shadow_ledger WHERE user_id=$1 AND closed_at >= ${since} GROUP BY 1,2 ORDER BY 1,2`),
-    q(`SELECT source, direction, ${agg} FROM shadow_ledger WHERE user_id=$1 AND closed_at >= ${since} GROUP BY 1,2 ORDER BY 1,2`),
-    q(`SELECT source, strategy, symbol, ${agg} FROM shadow_ledger WHERE user_id=$1 AND closed_at >= ${since}
-        GROUP BY 1,2,3 HAVING count(*) >= 3 ORDER BY avg(r_multiple) DESC NULLS LAST`),
-    q(`SELECT source, h4_aligned, ${agg} FROM shadow_ledger WHERE user_id=$1 AND closed_at >= ${since} AND context_reliable AND h4_aligned IS NOT NULL
-        GROUP BY 1,2 ORDER BY 1,2`)
-  ]);
-  return { days, bySource, bySession, byDirection, best: slices.slice(0, 10), worst: slices.slice(-10).reverse(), h4Alignment: alignment };
-}
-var SESSION_SQL, VIEW_SQL, _ensured2;
-var init_shadow_ledger = __esm({
-  "server/services/shadow-ledger.ts"() {
-    "use strict";
-    init_db();
-    SESSION_SQL = (ts) => `CASE
-  WHEN extract(hour from ${ts}) < 7  THEN 'Asian'
-  WHEN extract(hour from ${ts}) < 12 THEN 'London'
-  WHEN extract(hour from ${ts}) < 16 THEN 'Overlap'
-  WHEN extract(hour from ${ts}) < 21 THEN 'NewYork'
-  ELSE 'Late' END`;
-    VIEW_SQL = `
-CREATE OR REPLACE VIEW shadow_ledger AS
-  SELECT ('fx_model:' || d.id)::text AS ledger_id,
-         CASE WHEN d.engine = 'crypto' THEN 'crypto_shadow' ELSE 'fx_shadow' END AS source,
-         COALESCE(d.engine, 'fx') AS engine, d.user_id,
-         d.model AS strategy, d.symbol,
-         CASE WHEN upper(d.direction) = 'SELL' THEN 'SHORT' ELSE 'LONG' END AS direction,
-         (d.created_at AT TIME ZONE 'UTC') AS opened_at, (d.resolved_at AT TIME ZONE 'UTC') AS closed_at,
-         extract(hour from d.created_at)::int AS hour_utc,
-         ${SESSION_SQL("d.created_at")} AS session,
-         d.day_type,
-         d.context->'h1'->>'trend' AS h1_trend, d.context->'h4'->>'trend' AS h4_trend,
-         CASE WHEN d.context->'h4'->>'trend' IS NULL THEN NULL
-              WHEN upper(d.direction) = 'BUY'  THEN (d.context->'h4'->>'trend') = 'BULLISH'
-              WHEN upper(d.direction) = 'SELL' THEN (d.context->'h4'->>'trend') = 'BEARISH' END AS h4_aligned,
-         (d.created_at >= TIMESTAMP '2026-10-23 04:00:00') AS context_reliable,
-         CASE WHEN d.result = 'EXPIRED' THEN 'EXPIRED' WHEN d.r_multiple > 0 THEN 'WIN' WHEN d.r_multiple < 0 THEN 'LOSS' ELSE d.result END AS result,
-         d.r_multiple::float AS r_multiple, NULL::float AS return_pct
-    FROM fx_model_decisions d
-   WHERE d.result IN ('WIN','LOSS','EXPIRED') AND d.direction IN ('BUY','SELL') AND d.source = 'own'
-  UNION ALL
-  SELECT ('crypto_paper:' || c.id)::text, 'crypto_paper', 'crypto', c.user_id,
-         c.strategy, c.symbol,
-         CASE WHEN c.direction = 'short' THEN 'SHORT' ELSE 'LONG' END,
-         c.opened_at, c.closed_at,
-         extract(hour from c.opened_at AT TIME ZONE 'UTC')::int,
-         ${SESSION_SQL("(c.opened_at AT TIME ZONE 'UTC')")},
-         NULL, NULL, NULL, NULL, true,
-         CASE WHEN c.exit_reason = 'time limit' THEN 'EXPIRED' WHEN c.r_multiple > 0 THEN 'WIN' WHEN c.r_multiple < 0 THEN 'LOSS' ELSE 'FLAT' END,
-         c.r_multiple::float, c.return_pct::float
-    FROM crypto_paper_trades c
-   WHERE c.status = 'closed'
-  UNION ALL
-  SELECT ('sol_paper:' || s.id)::text, 'sol_paper', 'sol', s.user_id,
-         s.strategy_id, s.symbol, 'LONG',
-         s.opened_at::timestamptz, NULLIF(s.closed_at, '')::timestamptz,
-         extract(hour from s.opened_at::timestamptz AT TIME ZONE 'UTC')::int,
-         ${SESSION_SQL("(s.opened_at::timestamptz AT TIME ZONE 'UTC')")},
-         NULL, NULL, NULL, NULL, true,
-         CASE WHEN s.close_pnl_pct > 0 THEN 'WIN' WHEN s.close_pnl_pct < 0 THEN 'LOSS' ELSE 'FLAT' END,
-         CASE WHEN s.sl_pct > 0 THEN (s.close_pnl_pct / s.sl_pct)::float END,
-         s.close_pnl_pct::float
-    FROM sol_engine_positions s
-   WHERE s.mode = 'paper' AND s.status = 'closed' AND s.close_pnl_pct IS NOT NULL
-`;
-    _ensured2 = null;
-  }
-});
-
 // server/services/crypto-market-data.ts
 var crypto_market_data_exports = {};
 __export(crypto_market_data_exports, {
@@ -41834,7 +41950,7 @@ async function cryptocomTicker(sym) {
 async function getAggregatedQuote(symbol) {
   const sym = symbol.toUpperCase().replace(/[^A-Z0-9]/g, "");
   const hit = _cache2.get(sym);
-  if (hit && Date.now() - hit.ts < TTL_MS5) return hit.q;
+  if (hit && Date.now() - hit.ts < TTL_MS6) return hit.q;
   const venues = await Promise.all([coinbaseSpot(sym), krakenTicker(sym), geminiTicker(sym), cryptocomTicker(sym)]);
   const priced = venues.filter((v) => typeof v.price === "number" && v.price > 0);
   let best = null;
@@ -41853,11 +41969,11 @@ async function getAggregatedQuotes(symbols) {
   const uniq = Array.from(new Set(symbols.map((s) => s.toUpperCase().replace(/[^A-Z0-9]/g, "")))).slice(0, 25);
   return Promise.all(uniq.map(getAggregatedQuote));
 }
-var TTL_MS5, _cache2;
+var TTL_MS6, _cache2;
 var init_crypto_market_data = __esm({
   "server/services/crypto-market-data.ts"() {
     "use strict";
-    TTL_MS5 = 15e3;
+    TTL_MS6 = 15e3;
     _cache2 = /* @__PURE__ */ new Map();
   }
 });
@@ -43739,7 +43855,10 @@ async function getCryptoAiConfirmation(opts) {
       `Volume trend: ${ind.volumeTrend ?? "n/a"}`
     ].join("\n  ");
     const system = 'You are a disciplined crypto perpetual futures trader giving a second, independent opinion on a signal a technical scanner already produced. Judge this on trend strength, momentum, volume/order-flow confirmation, and recent price structure. This is a 24/7 market with no session close or reopen -- do NOT reach for forex/ICT concepts like order blocks, liquidity sweeps, discount/premium zones, or session/macro-window timing; none of that describes how crypto perpetuals actually trade, and grading a setup down for lacking FX-specific structure it was never going to have is not a real assessment. Respond ONLY with JSON: {"confirmed": boolean, "direction": "BUY"|"SELL"|"NEUTRAL", "confidence": number (0-100), "reasoning": string}.';
-    const user = `SYMBOL: ${opts.symbol}
+    const _lessons = await Promise.resolve().then(() => (init_shadow_lessons(), shadow_lessons_exports)).then((m) => m.getShadowLessonsText(opts.userId, "crypto", 8)).catch(() => "");
+    const user = `${_lessons ? `${_lessons}
+
+` : ""}SYMBOL: ${opts.symbol}
 PROPOSED: ${opts.direction} @ ${opts.price}
 SCANNER STRATEGY: ${opts.strategy} (score ${opts.quantScore}/100)
 SCANNER REASONING: ${opts.quantReasoning}
@@ -49700,7 +49819,7 @@ function bump2(map, key, win) {
   s.winRate = Math.round(s.wins / s.trades * 100);
 }
 function sizeMult2(winRate2, rr, trades) {
-  if (trades < MIN_TRADES3) return 1;
+  if (trades < MIN_TRADES4) return 1;
   const w = winRate2 / 100, r = rr > 0 ? rr : 1;
   const kelly = w - (1 - w) / r;
   return Math.max(0.25, Math.min(1.5, 1 + kelly));
@@ -49776,8 +49895,8 @@ async function learnFromSolTrades(userId) {
   }
   const insights = [];
   for (const [sym, k] of Object.entries(symbols)) {
-    if (k.wins + k.losses >= MIN_TRADES3) insights.push(`${sym}: ${k.winRate}% WR over ${k.wins + k.losses} \u2192 sizing \xD7${k.recommendedSizeMultiplier}${k.bestStrategy ? `, best on ${k.bestStrategy}` : ""}.`);
-    else insights.push(`${sym}: still learning (${k.wins + k.losses}/${MIN_TRADES3}).`);
+    if (k.wins + k.losses >= MIN_TRADES4) insights.push(`${sym}: ${k.winRate}% WR over ${k.wins + k.losses} \u2192 sizing \xD7${k.recommendedSizeMultiplier}${k.bestStrategy ? `, best on ${k.bestStrategy}` : ""}.`);
+    else insights.push(`${sym}: still learning (${k.wins + k.losses}/${MIN_TRADES4}).`);
   }
   const brain = { userId, lastLearned: (/* @__PURE__ */ new Date()).toISOString(), totalTrades: rows.length, overallWinRate: totalDecided ? Math.round(totalWins / totalDecided * 100) : 0, totalPnl: Math.round(totalPnl * 100) / 100, symbolKnowledge: symbols, insights };
   _cache5.set(userId, { brain, at: Date.now() });
@@ -49837,12 +49956,12 @@ async function recordSolBrainOutcome(o) {
     console.error("[sol-brain] recordSolBrainOutcome failed (non-fatal):", err?.message ?? err);
   }
 }
-var MIN_TRADES3, REFRESH_TTL_MS3, _ensured3, _cache5;
+var MIN_TRADES4, REFRESH_TTL_MS3, _ensured3, _cache5;
 var init_sol_brain = __esm({
   "server/services/sol-brain.ts"() {
     "use strict";
     init_db();
-    MIN_TRADES3 = 10;
+    MIN_TRADES4 = 10;
     REFRESH_TTL_MS3 = 60 * 1e3;
     _ensured3 = false;
     _cache5 = /* @__PURE__ */ new Map();
@@ -50759,7 +50878,10 @@ Output a JSON array only (no markdown):
     const positionsText = openPositions.length > 0 ? openPositions.map(
       (p) => `${p.symbol}: entry $${p.entryPrice.toFixed(8)} \u2192 now $${p.currentPrice.toFixed(8)} | ${p.gainPct >= 0 ? "+" : ""}${p.gainPct.toFixed(1)}% | vol:${p.volumeStatus}`
     ).join("\n") : "None";
-    const userPrompt = `SIGNALS:
+    const _solLessons = await Promise.resolve().then(() => (init_shadow_lessons(), shadow_lessons_exports)).then((m) => m.getShadowLessonsText(userId, "sol", 8)).catch(() => "");
+    const userPrompt = `${_solLessons ? `${_solLessons}
+
+` : ""}SIGNALS:
 ${signalsText}
 
 OPEN POSITIONS:
@@ -62357,9 +62479,9 @@ async function getStopOrdersForUser(userId, filters = {}) {
 init_schema();
 
 // server/build-info.ts
-var BUILD_COMMIT = "0558ae4d-dirty";
+var BUILD_COMMIT = "e0863240-dirty";
 var BUILD_BRANCH = "HEAD";
-var BUILT_AT = "2026-10-30T21:56:27.455Z";
+var BUILT_AT = "2026-10-30T22:13:18.249Z";
 
 // server/stripe.ts
 init_db();
@@ -80404,6 +80526,15 @@ Rules:
     }
     const config = await storage.upsertCryptocomEngineConfig(userId, updateData);
     res.json(config);
+  });
+  app2.get("/api/shadow-lessons", async (req, res) => {
+    if (!req.isAuthenticated()) return res.status(401).json({ error: "Authentication required" });
+    try {
+      const { getShadowLessons: getShadowLessons2 } = await Promise.resolve().then(() => (init_shadow_lessons(), shadow_lessons_exports));
+      res.json(await getShadowLessons2(req.user.id, req.query.refresh === "1"));
+    } catch (err) {
+      res.status(500).json({ error: err.message });
+    }
   });
   app2.get("/api/shadow-ledger", async (req, res) => {
     if (!req.isAuthenticated()) return res.status(401).json({ error: "Authentication required" });

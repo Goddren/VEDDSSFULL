@@ -3918,8 +3918,10 @@ INSTRUCTION: The engine has autonomously adjusted based on the above. Respect th
       }
     }
 
+    // Shadow lessons (shadow-lessons.ts): evidence from the FX shadow models, advice only.
+    const _shadowLessons = await import('./shadow-lessons').then((m) => m.getShadowLessonsText(userId, 'fx')).catch(() => '');
     const prompt = `You are VEDD SS AI LIVE TRADING ENGINE - operating in REAL-TIME autonomous HIGH-FREQUENCY mode. You are directly monitoring live market data and making INSTANT trading decisions to hit a weekly profit goal.
-${triggerSection}${crossAssetSection}${codeGateSection}${mindSection}
+${triggerSection}${crossAssetSection}${codeGateSection}${mindSection}${_shadowLessons ? `\n${_shadowLessons}\n` : ''}
 LIVE MARKET DATA (just fetched):
 ${marketSummary}
 
