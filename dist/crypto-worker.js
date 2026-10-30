@@ -28436,7 +28436,8 @@ async function processDecision(userId, decision, newsCtx) {
                   const _pip = getPipSize(decision.symbol);
                   if (_sl && _own > 0 && _pip > 0 && Math.abs(_sl - _own) / _pip <= 5) {
                     const _profitPips = _px > 0 ? (_buy ? _px - _own : _own - _px) / _pip : 0;
-                    if (_profitPips > 0) {
+                    const _aiIsBreakeven = _buy ? _sl >= _own : _sl <= _own;
+                    if (_profitPips > 0 && _aiIsBreakeven) {
                       const _dp = _pip >= 0.01 ? 3 : 5;
                       const _safe = (x) => !(_px > 0) || (_buy ? x < _px - 0.5 * _pip : x > _px + 0.5 * _pip);
                       const _pick = [_buy ? _own + 2 * _pip : _own - 2 * _pip, _own].map((x) => Number(x.toFixed(_dp))).find(_safe);

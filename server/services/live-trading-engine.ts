@@ -6875,7 +6875,15 @@ async function processDecision(userId: number, decision: any, newsCtx?: any): Pr
                     // entry + 2 pips if that still sits safely behind price,
                     // else exact entry, else the AI's own level as sent.
                     // In loss, the AI's tighter stop passes unchanged.
-                    if (_profitPips > 0) {
+                    // Only a stop AT or BEYOND this account's entry (on the
+                    // profit side) is a breakeven / lock request. A stop still
+                    // on the loss side of entry is the AI tightening while
+                    // leaving room — keep its level. 2026-10-30 GBPUSD: AI asked
+                    // 1.3390 (below the 1.3393 entry); re-anchoring it to
+                    // entry+2 put the stop ~1 pip under price, a 3-pip dip
+                    // closed all 3 accounts at ~0, then price ran +12 pips.
+                    const _aiIsBreakeven = _buy ? _sl >= _own : _sl <= _own;
+                    if (_profitPips > 0 && _aiIsBreakeven) {
                       const _dp = _pip >= 0.01 ? 3 : 5;
                       const _safe = (x: number) => !(_px > 0) || (_buy ? x < _px - 0.5 * _pip : x > _px + 0.5 * _pip);
                       const _pick = [_buy ? _own + 2 * _pip : _own - 2 * _pip, _own]
