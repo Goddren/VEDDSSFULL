@@ -380,7 +380,51 @@ async function _feedEngineBrain(userId: number, symbol: string, profit: number, 
   } catch (_) { /* non-fatal — learning must never break the sync */ }
 }
 
+// ── Pending-order time limit (2026-10-30) ─────────────────────────────────
+// The engine places gold/index entries as LIMIT orders with GTC validity and
+// nothing ever cancelled an unfilled one: three XAUUSD sell limits from 13:48
+// sat at the broker, able to fill tonight or at Sunday's reopen gap — after
+// the late-session/weekend gates, on a stale plan. Cancel this app's own
+// unfilled limit/stop orders after TL_PENDING_MAX_HOURS (4h), and all of them
+// from Friday 20:30 UTC. Orders not placed by this app are never touched.
+const PENDING_SWEEP_MS = 5 * 60_000;
+const _lastPendingSweep = new Map<number, number>();
+async function sweepStalePendingOrders(userId: number, conn: any, svc: any): Promise<void> {
+  if (process.env.TL_PENDING_EXPIRY === 'off' || typeof svc?.getPendingOrders !== 'function') return;
+  const now = Date.now();
+  if (now - (_lastPendingSweep.get(conn.id) || 0) < PENDING_SWEEP_MS) return;
+  _lastPendingSweep.set(conn.id, now);
+  const maxMs = Math.max(0.5, Number(process.env.TL_PENDING_MAX_HOURS ?? 4)) * 3_600_000;
+  const d = new Date(now);
+  const fridayClose = d.getUTCDay() === 5 && (d.getUTCHours() > 20 || (d.getUTCHours() === 20 && d.getUTCMinutes() >= 30));
+  const orders = await svc.getPendingOrders().catch(() => [] as any[]);
+  for (const o of orders) {
+    if (!/limit|stop/.test(o.type) || /filled|cancel|reject/i.test(o.status)) continue;
+    const age = o.createdMs > 0 ? now - o.createdMs : 0;
+    if (!fridayClose && age < maxMs) continue;
+    try {
+      const { pool } = await import('../db');
+      const { rows } = await pool.query(
+        `SELECT symbol, direction FROM tradelocker_trade_logs WHERE connection_id=$1 AND action='ORDER' AND error_message LIKE $2 LIMIT 1`,
+        [conn.id, `%order ${o.id}%`]);
+      if (!rows.length) continue; // not ours — leave it
+      const why = fridayClose ? 'Friday close — no pending orders over the weekend' : `unfilled for ${(age / 3_600_000).toFixed(1)}h (limit ${maxMs / 3_600_000}h)`;
+      const r = await svc.cancelOrder(o.id);
+      await pool.query(
+        `INSERT INTO tradelocker_trade_logs (user_id, connection_id, action, symbol, direction, volume, status, error_message, created_at)
+         VALUES ($1,$2,'CANCEL',$3,$4,$5,$6,$7,now())`,
+        [userId, conn.id, rows[0].symbol, rows[0].direction, o.qty, r.success ? 'executed' : 'failed',
+         `Pending ${o.type} order ${o.id} cancelled: ${why}${r.success ? '' : ` | FAILED: ${r.error}`}`.slice(0, 1000)]);
+      const { logGuard } = await import('./guard-events');
+      logGuard(userId, 'pending_order_expired', rows[0].symbol, `${rows[0].direction} ${o.type} order on TL ${conn.accountId} cancelled — ${why}${r.success ? '' : ' (cancel FAILED)'}`);
+    } catch (e: any) {
+      console.error(`[TL-sync] pending-order sweep failed for ${o.id} (non-fatal):`, e?.message || e);
+    }
+  }
+}
+
 async function syncTradeLockerTrades(userId: number, conn: any, svc: any): Promise<void> {
+  await sweepStalePendingOrders(userId, conn, svc).catch(() => {});
   const cacheKey = `${userId}:${conn.accountId}`;
   const openPositions = await svc.getPositionsNormalized().catch(() => [] as any[]);
   const currentTickets = new Set<string>(openPositions.map((p: any) => `tl_${conn.accountId}_${p.id}`));

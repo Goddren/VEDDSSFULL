@@ -19218,6 +19218,45 @@ var init_tradelocker = __esm({
         const closed = await this.getClosedTradesWithPnl(fromTs);
         return closed.map((c) => ({ id: c.id, positionId: c.positionId, symbol: c.symbol, side: c.side, profit: c.profit, closeTime: c.closeTime, qty: c.qty, openPrice: c.openPrice, closePrice: c.closePrice }));
       }
+      /**
+       * Working (unfilled) orders on this account. Rows are arrays ordered by
+       * /trade/config ordersConfig; falls back to the layout seen live on
+       * 2026-10-30: [id, instId, routeId, qty, side, type, status, …, createdDate@13].
+       */
+      async getPendingOrders() {
+        await this.ensureAuthenticated();
+        const cols = await this.resolveColumns("ordersConfig");
+        const at = (name, fb) => {
+          const i = cols.indexOf(name);
+          return i >= 0 ? i : fb;
+        };
+        const iId = at("id", 0), iQty = at("qty", 3), iSide = at("side", 4), iType = at("type", 5), iStatus = at("status", 6), iCreated = at("createddate", 13);
+        const r = await fetch(`${this.baseUrl}/trade/accounts/${this.accountId}/orders`, {
+          headers: { "Authorization": `Bearer ${this.accessToken}`, "accNum": this.accNum }
+        });
+        if (!r.ok) throw new Error(`Failed to get orders: ${r.status}`);
+        const j = await r.json();
+        const rows = j?.d?.orders || j?.orders || [];
+        return rows.map((row) => ({
+          id: String(row[iId]),
+          side: String(row[iSide] || "").toLowerCase(),
+          type: String(row[iType] || "").toLowerCase(),
+          status: String(row[iStatus] || ""),
+          qty: parseFloat(row[iQty]) || 0,
+          createdMs: Number(row[iCreated]) || 0
+        }));
+      }
+      /** Cancel a working order (DELETE /trade/orders/{id}). Verified live 2026-10-30. */
+      async cancelOrder(orderId) {
+        await this.ensureAuthenticated();
+        const r = await fetch(`${this.baseUrl}/trade/orders/${encodeURIComponent(orderId)}`, {
+          method: "DELETE",
+          headers: { "Authorization": `Bearer ${this.accessToken}`, "accNum": this.accNum }
+        });
+        const body = await r.text().catch(() => "");
+        this.invalidateReadCache();
+        return r.ok ? { success: true } : { success: false, error: `${r.status} ${body.slice(0, 200)}` };
+      }
       async getPositions(opts) {
         return tlSharedRead(`pos:${this.baseUrl}:${this.accountId}`, () => this._getPositionsRaw(), !!opts?.fresh);
       }
@@ -19821,7 +19860,51 @@ async function _feedEngineBrain(userId, symbol, profit, direction, closeTime, ti
   } catch (_) {
   }
 }
+async function sweepStalePendingOrders(userId, conn, svc) {
+  if (process.env.TL_PENDING_EXPIRY === "off" || typeof svc?.getPendingOrders !== "function") return;
+  const now = Date.now();
+  if (now - (_lastPendingSweep.get(conn.id) || 0) < PENDING_SWEEP_MS) return;
+  _lastPendingSweep.set(conn.id, now);
+  const maxMs = Math.max(0.5, Number(process.env.TL_PENDING_MAX_HOURS ?? 4)) * 36e5;
+  const d = new Date(now);
+  const fridayClose = d.getUTCDay() === 5 && (d.getUTCHours() > 20 || d.getUTCHours() === 20 && d.getUTCMinutes() >= 30);
+  const orders = await svc.getPendingOrders().catch(() => []);
+  for (const o of orders) {
+    if (!/limit|stop/.test(o.type) || /filled|cancel|reject/i.test(o.status)) continue;
+    const age = o.createdMs > 0 ? now - o.createdMs : 0;
+    if (!fridayClose && age < maxMs) continue;
+    try {
+      const { pool: pool2 } = await Promise.resolve().then(() => (init_db(), db_exports));
+      const { rows } = await pool2.query(
+        `SELECT symbol, direction FROM tradelocker_trade_logs WHERE connection_id=$1 AND action='ORDER' AND error_message LIKE $2 LIMIT 1`,
+        [conn.id, `%order ${o.id}%`]
+      );
+      if (!rows.length) continue;
+      const why = fridayClose ? "Friday close \u2014 no pending orders over the weekend" : `unfilled for ${(age / 36e5).toFixed(1)}h (limit ${maxMs / 36e5}h)`;
+      const r = await svc.cancelOrder(o.id);
+      await pool2.query(
+        `INSERT INTO tradelocker_trade_logs (user_id, connection_id, action, symbol, direction, volume, status, error_message, created_at)
+         VALUES ($1,$2,'CANCEL',$3,$4,$5,$6,$7,now())`,
+        [
+          userId,
+          conn.id,
+          rows[0].symbol,
+          rows[0].direction,
+          o.qty,
+          r.success ? "executed" : "failed",
+          `Pending ${o.type} order ${o.id} cancelled: ${why}${r.success ? "" : ` | FAILED: ${r.error}`}`.slice(0, 1e3)
+        ]
+      );
+      const { logGuard: logGuard2 } = await Promise.resolve().then(() => (init_guard_events(), guard_events_exports));
+      logGuard2(userId, "pending_order_expired", rows[0].symbol, `${rows[0].direction} ${o.type} order on TL ${conn.accountId} cancelled \u2014 ${why}${r.success ? "" : " (cancel FAILED)"}`);
+    } catch (e) {
+      console.error(`[TL-sync] pending-order sweep failed for ${o.id} (non-fatal):`, e?.message || e);
+    }
+  }
+}
 async function syncTradeLockerTrades(userId, conn, svc) {
+  await sweepStalePendingOrders(userId, conn, svc).catch(() => {
+  });
   const cacheKey = `${userId}:${conn.accountId}`;
   const openPositions = await svc.getPositionsNormalized().catch(() => []);
   const currentTickets = new Set(openPositions.map((p) => `tl_${conn.accountId}_${p.id}`));
@@ -20242,7 +20325,7 @@ function refreshTlAfterTrade(userId) {
   syncUserTradeLocker(userId, true).catch(() => {
   });
 }
-var lastOpenTickets, lastOutcomeReconcile, OUTCOME_RECONCILE_MS, lastDeepBackfill, DEEP_BACKFILL_MS, lastBalancePersist, BALANCE_PERSIST_MS, activeUsers, ACTIVE_WINDOW_MS, SYNC_INTERVAL_MS, MIN_RESYNC_GAP_MS, lastSyncAt, inFlight;
+var lastOpenTickets, lastOutcomeReconcile, OUTCOME_RECONCILE_MS, lastDeepBackfill, DEEP_BACKFILL_MS, lastBalancePersist, BALANCE_PERSIST_MS, activeUsers, ACTIVE_WINDOW_MS, SYNC_INTERVAL_MS, MIN_RESYNC_GAP_MS, lastSyncAt, inFlight, PENDING_SWEEP_MS, _lastPendingSweep;
 var init_tradelocker_sync = __esm({
   "server/services/tradelocker-sync.ts"() {
     "use strict";
@@ -20263,6 +20346,8 @@ var init_tradelocker_sync = __esm({
     MIN_RESYNC_GAP_MS = 8 * 1e3;
     lastSyncAt = /* @__PURE__ */ new Map();
     inFlight = /* @__PURE__ */ new Set();
+    PENDING_SWEEP_MS = 5 * 6e4;
+    _lastPendingSweep = /* @__PURE__ */ new Map();
   }
 });
 

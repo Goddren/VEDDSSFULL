@@ -1710,6 +1710,39 @@ export class TradeLockerService {
     return closed.map(c => ({ id: c.id, positionId: c.positionId, symbol: c.symbol, side: c.side, profit: c.profit, closeTime: c.closeTime, qty: c.qty, openPrice: c.openPrice, closePrice: c.closePrice }));
   }
 
+  /**
+   * Working (unfilled) orders on this account. Rows are arrays ordered by
+   * /trade/config ordersConfig; falls back to the layout seen live on
+   * 2026-10-30: [id, instId, routeId, qty, side, type, status, …, createdDate@13].
+   */
+  async getPendingOrders(): Promise<Array<{ id: string; side: string; type: string; status: string; qty: number; createdMs: number }>> {
+    await this.ensureAuthenticated();
+    const cols = await this.resolveColumns('ordersConfig');
+    const at = (name: string, fb: number) => { const i = cols.indexOf(name); return i >= 0 ? i : fb; };
+    const iId = at('id', 0), iQty = at('qty', 3), iSide = at('side', 4), iType = at('type', 5), iStatus = at('status', 6), iCreated = at('createddate', 13);
+    const r = await fetch(`${this.baseUrl}/trade/accounts/${this.accountId}/orders`, {
+      headers: { 'Authorization': `Bearer ${this.accessToken}`, 'accNum': this.accNum },
+    });
+    if (!r.ok) throw new Error(`Failed to get orders: ${r.status}`);
+    const j: any = await r.json();
+    const rows: any[] = j?.d?.orders || j?.orders || [];
+    return rows.map((row: any[]) => ({
+      id: String(row[iId]), side: String(row[iSide] || '').toLowerCase(), type: String(row[iType] || '').toLowerCase(),
+      status: String(row[iStatus] || ''), qty: parseFloat(row[iQty]) || 0, createdMs: Number(row[iCreated]) || 0,
+    }));
+  }
+
+  /** Cancel a working order (DELETE /trade/orders/{id}). Verified live 2026-10-30. */
+  async cancelOrder(orderId: string): Promise<{ success: boolean; error?: string }> {
+    await this.ensureAuthenticated();
+    const r = await fetch(`${this.baseUrl}/trade/orders/${encodeURIComponent(orderId)}`, {
+      method: 'DELETE', headers: { 'Authorization': `Bearer ${this.accessToken}`, 'accNum': this.accNum },
+    });
+    const body = await r.text().catch(() => '');
+    this.invalidateReadCache();
+    return r.ok ? { success: true } : { success: false, error: `${r.status} ${body.slice(0, 200)}` };
+  }
+
   async getPositions(opts?: { fresh?: boolean }): Promise<any[]> {
     return tlSharedRead(`pos:${this.baseUrl}:${this.accountId}`, () => this._getPositionsRaw(), !!opts?.fresh);
   }
