@@ -3082,9 +3082,24 @@ function makeFailoverClient(clients: UniversalAIClient[], userId?: number): Univ
             const c: any = clients[i];
             const p = { ...params };
             if (i > 0 && c.defaultModel) p.model = c.defaultModel; // fallback provider needs its own model
+            // Reasoning models (gpt-oss, o-series, R1…) spend hidden thinking
+            // tokens out of max_tokens. On 2026-10-30 gpt-oss-20b hit the cap on
+            // 73% of FX engine calls (4,000) and every hourly shadow call
+            // (1,800): truncated JSON, silently dropped, no trades / no shadow.
+            // Ask for low effort and give the cap room for the thinking.
+            if (/gpt-oss|(^|\/)o[134](-|$)|deepseek-r1|reasoner|qwq/i.test(String(p.model || ''))) {
+              if (c.provider === 'openrouter' && !p.reasoning) p.reasoning = { effort: 'low' };
+              if (Number(p.max_tokens) > 0) p.max_tokens = Math.max(Number(p.max_tokens), Math.min(Number(p.max_tokens) * 3, 12000));
+            }
             attempts.push(c.provider);
             try {
               const result = await c.chat.completions.create(p);
+              // A reply cut off at max_tokens is usually unparseable JSON that
+              // callers drop silently — record it so it shows up.
+              if ((result as any)?.choices?.[0]?.finish_reason === 'length') {
+                void import('./services/guard-events').then(({ logGuard }) =>
+                  logGuard(userId || 0, 'ai_reply_truncated', null, `${c.provider} · ${p.model} reply hit max_tokens ${p.max_tokens} (completion ${(result as any)?.usage?.completion_tokens ?? '?'} tokens)`)).catch(() => {});
+              }
               recordAiHealth(userId, { ok: true, provider: c.provider, model: p.model, failedOver: i > 0, attempts, lastError: i > 0 ? (lastErr?.message || null) : null });
               if (userId && result?.usage) {
                 recordAiUsage({

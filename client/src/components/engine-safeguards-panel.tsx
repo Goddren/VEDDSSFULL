@@ -14,6 +14,7 @@ const LABEL: Record<string, string> = {
   brain_block_thin_data: "Thin-data brain block skipped",
   flatten_retry: "Flatten retried",
   ai_call_failed: "AI call failed",
+  ai_reply_truncated: "AI reply cut off (too long)",
   stale_entry_skip: "Stale plan skipped",
   early_breakeven_refused: "Early breakeven refused (under 1R)",
   breakeven_reanchored: "Breakeven set from this account's fill",

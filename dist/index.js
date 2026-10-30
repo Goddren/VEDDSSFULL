@@ -11598,9 +11598,17 @@ function makeFailoverClient(clients, userId) {
             const c = clients[i];
             const p = { ...params };
             if (i > 0 && c.defaultModel) p.model = c.defaultModel;
+            if (/gpt-oss|(^|\/)o[134](-|$)|deepseek-r1|reasoner|qwq/i.test(String(p.model || ""))) {
+              if (c.provider === "openrouter" && !p.reasoning) p.reasoning = { effort: "low" };
+              if (Number(p.max_tokens) > 0) p.max_tokens = Math.max(Number(p.max_tokens), Math.min(Number(p.max_tokens) * 3, 12e3));
+            }
             attempts.push(c.provider);
             try {
               const result = await c.chat.completions.create(p);
+              if (result?.choices?.[0]?.finish_reason === "length") {
+                void Promise.resolve().then(() => (init_guard_events(), guard_events_exports)).then(({ logGuard: logGuard2 }) => logGuard2(userId || 0, "ai_reply_truncated", null, `${c.provider} \xB7 ${p.model} reply hit max_tokens ${p.max_tokens} (completion ${result?.usage?.completion_tokens ?? "?"} tokens)`)).catch(() => {
+                });
+              }
               recordAiHealth(userId, { ok: true, provider: c.provider, model: p.model, failedOver: i > 0, attempts, lastError: i > 0 ? lastErr?.message || null : null });
               if (userId && result?.usage) {
                 recordAiUsage({
@@ -61766,9 +61774,9 @@ async function getStopOrdersForUser(userId, filters = {}) {
 init_schema();
 
 // server/build-info.ts
-var BUILD_COMMIT = "b020d88e-dirty";
-var BUILD_BRANCH = "fix/fvg-newest-unfilled";
-var BUILT_AT = "2026-10-29T03:55:56.982Z";
+var BUILD_COMMIT = "d330f3a4-dirty";
+var BUILD_BRANCH = "HEAD";
+var BUILT_AT = "2026-10-30T14:18:04.794Z";
 
 // server/stripe.ts
 init_db();
