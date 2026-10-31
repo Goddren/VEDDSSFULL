@@ -100,10 +100,12 @@ export function setupAuth(app: Express) {
 
       // Handle referral code if provided during signup
       const refCode = req.body.referralCode || req.query.ref;
+      let referrerIdForEvent: number | null = null;
       if (refCode) {
         try {
           const referrer = await storage.getUserByReferralCode(refCode as string);
           if (referrer && referrer.id !== user.id) {
+            referrerIdForEvent = referrer.id;
             // Tag the new user as referred
             await storage.updateUser(user.id, { referredBy: referrer.id } as any);
             // Record the referral
@@ -119,6 +121,12 @@ export function setupAuth(app: Express) {
         } catch (refErr) {
           console.error('[auth] Referral tracking error (non-fatal):', refErr);
         }
+      }
+      // Credit the exact event when they came from an event share link.
+      if (req.body.referralEventSlug) {
+        import('./services/event-attribution')
+          .then((m) => m.recordEventSignup(user.id, req.body.referralEventSlug, referrerIdForEvent))
+          .catch((e) => console.error('[auth] event attribution failed (non-fatal):', e?.message));
       }
 
       // Fire conversion webhook in background — records free-trial signup

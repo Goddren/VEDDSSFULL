@@ -30126,8 +30126,11 @@ Generate an agenda with timing, topics, and hosting tips. Return JSON: {
 
   // POST /api/referral/track — track a link visit (called from frontend on /auth?ref=CODE load)
   app.post("/api/referral/track", async (req, res) => {
-    const { referralCode } = req.body;
+    const { referralCode, eventSlug } = req.body;
     if (!referralCode) return res.status(400).json({ message: "referralCode required" });
+    if (eventSlug) {
+      import('./services/event-attribution').then((m) => m.recordEventVisit(eventSlug, referralCode)).catch(() => {});
+    }
     try {
       const visit = await storage.trackReferralVisit({
         referralCode,

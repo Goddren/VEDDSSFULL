@@ -4,9 +4,10 @@
  * nothing is estimated.
  *
  * Attribution: sign-ups are users whose users.referred_by is this host (set at
- * registration from ?ref=CODE). Per event, "sign-ups after" counts those who
- * registered within 72 hours of the event's start, since links carry no
- * event id.
+ * registration from ?ref=CODE). Per event: shared events (schedules with a
+ * share link) use exact visits/sign-ups from the event link
+ * (event-attribution.ts); catalog events without a link fall back to
+ * sign-ups within 72 hours of the event's start.
  * Profit split: VEDD's 30% of recruits' prop-firm net profit
  * (profit-split.ts), shown as the amount owed/collected from the host's recruits.
  */
@@ -51,7 +52,7 @@ export async function getHostResults(userId: number) {
   }
 
   // Events: hosted catalog events + the host's own schedules, de-duplicated.
-  type Ev = { key: string; title: string; start: string | null; status: string; registered: number; attended: number; rating: number | null; tokens: number; shareSlug?: string | null };
+  type Ev = { key: string; title: string; start: string | null; status: string; registered: number; attended: number; rating: number | null; tokens: number; shareSlug?: string | null; scheduleId?: number };
   const events: Ev[] = [];
   for (const r of regs as any[]) {
     const [stats] = await safe(pool.query(
@@ -65,15 +66,19 @@ export async function getHostResults(userId: number) {
   for (const s of schedules as any[]) {
     if (s.event_id && events.some((e) => e.key === `e${s.event_id}` && e.start === s.start_at)) continue;
     events.push({ key: `s${s.id}`, title: s.title, start: s.start_at, status: s.status, registered: s.current_attendees ?? 0,
-      attended: 0, rating: null, tokens: 0, shareSlug: s.share_slug });
+      attended: 0, rating: null, tokens: 0, shareSlug: s.share_slug, scheduleId: s.id });
   }
+  const { eventAttribution } = await import('./event-attribution');
+  const exact = await eventAttribution(events.filter((e) => e.scheduleId && e.shareSlug).map((e) => e.scheduleId!));
   // Sign-ups from the host's link in the 72h after each event started.
   const withSignups = await Promise.all(events.map(async (e) => {
-    if (!e.start || new Date(e.start) > new Date()) return { ...e, signupsAfter: null as number | null };
+    const ex = e.scheduleId ? exact.get(e.scheduleId) : undefined;
+    if (ex) return { ...e, linkVisits: ex.visits as number | null, signupsAfter: ex.signups as number | null, attribution: 'link' as const };
+    if (!e.start || new Date(e.start) > new Date()) return { ...e, linkVisits: null as number | null, signupsAfter: null as number | null, attribution: 'window' as const };
     const { rows } = await pool.query(
       `SELECT count(*)::int n FROM users WHERE referred_by=$1 AND created_at >= $2 AND created_at < $2::timestamptz + interval '${EVENT_WINDOW_HOURS} hours'`,
       [userId, e.start]);
-    return { ...e, signupsAfter: rows[0]?.n ?? 0 };
+    return { ...e, linkVisits: null as number | null, signupsAfter: rows[0]?.n ?? 0 as number | null, attribution: 'window' as const };
   }));
   withSignups.sort((a, b) => String(b.start ?? '').localeCompare(String(a.start ?? '')));
 

@@ -23817,12 +23817,12 @@ async function paperSummary(userId) {
   const winRate2 = a.n ? a.w / a.n : 0;
   const noLosingWeek = weeks.every((x) => Number(x.r) >= 0);
   const bar = { trades: 50, avgR: 0.2, winRate: 0.4 };
-  const ready = a.n >= bar.trades && a.avg_r >= bar.avgR && winRate2 >= bar.winRate && noLosingWeek;
+  const ready2 = a.n >= bar.trades && a.avg_r >= bar.avgR && winRate2 >= bar.winRate && noLosingWeek;
   return {
     settings,
     balance: settings.startBalance + Number(a.pnl || 0),
     stats: { trades: a.n, wins: a.w, winRate: winRate2, avgR: a.avg_r, pnlUsd: a.pnl },
-    readiness: { ready, bar, progressTrades: Math.min(1, a.n / bar.trades), noLosingWeek },
+    readiness: { ready: ready2, bar, progressTrades: Math.min(1, a.n / bar.trades), noLosingWeek },
     open,
     recent,
     best: byToken.slice(0, 5),
@@ -54691,6 +54691,80 @@ var init_strategic_community_data = __esm({
   }
 });
 
+// server/services/event-attribution.ts
+var event_attribution_exports = {};
+__export(event_attribution_exports, {
+  ensureEventAttributionTables: () => ensureEventAttributionTables,
+  eventAttribution: () => eventAttribution,
+  recordEventSignup: () => recordEventSignup,
+  recordEventVisit: () => recordEventVisit
+});
+function ensureEventAttributionTables() {
+  return ready ??= pool.query(`
+    CREATE TABLE IF NOT EXISTS referral_event_visits (
+      id SERIAL PRIMARY KEY,
+      schedule_id INTEGER NOT NULL,
+      referral_code TEXT,
+      visited_at TIMESTAMPTZ NOT NULL DEFAULT now()
+    );
+    CREATE INDEX IF NOT EXISTS referral_event_visits_schedule ON referral_event_visits(schedule_id);
+    CREATE TABLE IF NOT EXISTS referral_event_signups (
+      user_id INTEGER PRIMARY KEY,
+      schedule_id INTEGER NOT NULL,
+      referrer_id INTEGER,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+    );
+    CREATE INDEX IF NOT EXISTS referral_event_signups_schedule ON referral_event_signups(schedule_id);
+  `).then(() => void 0).catch((e) => {
+    ready = null;
+    throw e;
+  });
+}
+async function scheduleIdForSlug(slug) {
+  if (typeof slug !== "string" || !slug.trim() || slug.length > 200) return null;
+  const { rows } = await pool.query(`SELECT id FROM ambassador_event_schedules WHERE share_slug=$1 LIMIT 1`, [slug.trim()]);
+  return rows[0]?.id ?? null;
+}
+async function recordEventVisit(slug, referralCode) {
+  const id = await scheduleIdForSlug(slug);
+  if (!id) return;
+  await ensureEventAttributionTables();
+  await pool.query(
+    `INSERT INTO referral_event_visits (schedule_id, referral_code) VALUES ($1,$2)`,
+    [id, typeof referralCode === "string" ? referralCode.slice(0, 100) : null]
+  );
+}
+async function recordEventSignup(userId, slug, referrerId) {
+  const id = await scheduleIdForSlug(slug);
+  if (!id) return;
+  await ensureEventAttributionTables();
+  await pool.query(
+    `INSERT INTO referral_event_signups (user_id, schedule_id, referrer_id) VALUES ($1,$2,$3) ON CONFLICT (user_id) DO NOTHING`,
+    [userId, id, referrerId]
+  );
+}
+async function eventAttribution(scheduleIds) {
+  const out = /* @__PURE__ */ new Map();
+  if (!scheduleIds.length) return out;
+  await ensureEventAttributionTables();
+  const [{ rows: v }, { rows: s }] = await Promise.all([
+    pool.query(`SELECT schedule_id, count(*)::int n FROM referral_event_visits WHERE schedule_id = ANY($1) GROUP BY 1`, [scheduleIds]),
+    pool.query(`SELECT schedule_id, count(*)::int n FROM referral_event_signups WHERE schedule_id = ANY($1) GROUP BY 1`, [scheduleIds])
+  ]);
+  for (const id of scheduleIds) out.set(id, { visits: 0, signups: 0 });
+  for (const r of v) out.get(r.schedule_id).visits = r.n;
+  for (const r of s) out.get(r.schedule_id).signups = r.n;
+  return out;
+}
+var ready;
+var init_event_attribution = __esm({
+  "server/services/event-attribution.ts"() {
+    "use strict";
+    init_db();
+    ready = null;
+  }
+});
+
 // server/services/host-results.ts
 var host_results_exports = {};
 __export(host_results_exports, {
@@ -54769,16 +54843,21 @@ async function getHostResults(userId) {
       attended: 0,
       rating: null,
       tokens: 0,
-      shareSlug: s.share_slug
+      shareSlug: s.share_slug,
+      scheduleId: s.id
     });
   }
+  const { eventAttribution: eventAttribution2 } = await Promise.resolve().then(() => (init_event_attribution(), event_attribution_exports));
+  const exact = await eventAttribution2(events.filter((e) => e.scheduleId && e.shareSlug).map((e) => e.scheduleId));
   const withSignups = await Promise.all(events.map(async (e) => {
-    if (!e.start || new Date(e.start) > /* @__PURE__ */ new Date()) return { ...e, signupsAfter: null };
+    const ex = e.scheduleId ? exact.get(e.scheduleId) : void 0;
+    if (ex) return { ...e, linkVisits: ex.visits, signupsAfter: ex.signups, attribution: "link" };
+    if (!e.start || new Date(e.start) > /* @__PURE__ */ new Date()) return { ...e, linkVisits: null, signupsAfter: null, attribution: "window" };
     const { rows } = await pool.query(
       `SELECT count(*)::int n FROM users WHERE referred_by=$1 AND created_at >= $2 AND created_at < $2::timestamptz + interval '${EVENT_WINDOW_HOURS} hours'`,
       [userId, e.start]
     );
-    return { ...e, signupsAfter: rows[0]?.n ?? 0 };
+    return { ...e, linkVisits: null, signupsAfter: rows[0]?.n ?? 0, attribution: "window" };
   }));
   withSignups.sort((a2, b) => String(b.start ?? "").localeCompare(String(a2.start ?? "")));
   const a = allTime.rows[0], m = last30.rows[0];
@@ -63412,9 +63491,9 @@ async function getStopOrdersForUser(userId, filters = {}) {
 init_schema();
 
 // server/build-info.ts
-var BUILD_COMMIT = "f14e75b3-dirty";
+var BUILD_COMMIT = "bc484979-dirty";
 var BUILD_BRANCH = "HEAD";
-var BUILT_AT = "2026-10-31T03:21:25.896Z";
+var BUILT_AT = "2026-10-31T04:17:55.128Z";
 
 // server/stripe.ts
 init_db();
@@ -91903,8 +91982,12 @@ This request will not trigger a transaction or cost any fees.`;
     res.json(stats);
   });
   app2.post("/api/referral/track", async (req, res) => {
-    const { referralCode } = req.body;
+    const { referralCode, eventSlug } = req.body;
     if (!referralCode) return res.status(400).json({ message: "referralCode required" });
+    if (eventSlug) {
+      Promise.resolve().then(() => (init_event_attribution(), event_attribution_exports)).then((m) => m.recordEventVisit(eventSlug, referralCode)).catch(() => {
+      });
+    }
     try {
       const visit = await storage.trackReferralVisit({
         referralCode,
@@ -95840,10 +95923,12 @@ function setupAuth(app2) {
         password: hashedPassword
       });
       const refCode = req.body.referralCode || req.query.ref;
+      let referrerIdForEvent = null;
       if (refCode) {
         try {
           const referrer = await storage.getUserByReferralCode(refCode);
           if (referrer && referrer.id !== user.id) {
+            referrerIdForEvent = referrer.id;
             await storage.updateUser(user.id, { referredBy: referrer.id });
             await storage.recordReferral(referrer.id, user.id);
             await storage.markReferralSignup(refCode, user.id);
@@ -95855,6 +95940,9 @@ function setupAuth(app2) {
         } catch (refErr) {
           console.error("[auth] Referral tracking error (non-fatal):", refErr);
         }
+      }
+      if (req.body.referralEventSlug) {
+        Promise.resolve().then(() => (init_event_attribution(), event_attribution_exports)).then((m) => m.recordEventSignup(user.id, req.body.referralEventSlug, referrerIdForEvent)).catch((e) => console.error("[auth] event attribution failed (non-fatal):", e?.message));
       }
       fireConversionHook({
         signupEmail: user.email || `${user.username}@veddbuild.internal`,

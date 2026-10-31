@@ -66,10 +66,13 @@ export default function PublicEventPage() {
     const ref = urlParams.get('ref');
     if (ref) {
       setReferralCode(ref);
+      // Remember the event too, so a sign-up here or later on /auth is
+      // credited to this exact event (server/services/event-attribution.ts).
+      try { sessionStorage.setItem('referralCode', ref); if (slug) sessionStorage.setItem('referralEventSlug', slug); } catch {}
       fetch('/api/referral/track', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ referralCode: ref }),
+        body: JSON.stringify({ referralCode: ref, eventSlug: slug }),
       }).catch(() => {});
     }
     if (urlParams.get('action') === 'register') {
@@ -147,6 +150,7 @@ export default function PublicEventPage() {
         username: authForm.username,
         password: authForm.password,
         ...(referralCode ? { referralCode } : {}),
+        ...(slug ? { referralEventSlug: slug } : {}),
       } as any);
     } else {
       loginMutation.mutate({ 

@@ -9,7 +9,10 @@ const C = { card: "#151619", line: "rgba(255,255,255,.08)", tx: "#F4F5F6", tx2: 
 const MONO = 'ui-monospace,"SF Mono",Menlo,Consolas,monospace';
 
 interface Funnel { visits: number; signups: number; paid: number; signupRate: number | null; paidRate: number | null }
-interface HostEvent { key: string; title: string; start: string | null; status: string; registered: number; attended: number; rating: number | null; tokens: number; signupsAfter: number | null }
+interface HostEvent {
+  key: string; title: string; start: string | null; status: string; registered: number; attended: number; rating: number | null; tokens: number;
+  signupsAfter: number | null; linkVisits: number | null; attribution: 'link' | 'window'; shareSlug?: string | null;
+}
 export interface HostResultsData {
   referralCode: string | null;
   funnel: { allTime: Funnel; last30: Funnel };
@@ -38,6 +41,7 @@ function Stat({ label, value, sub, color = C.tx }: { label: string; value: strin
 
 export function HostResults() {
   const [range, setRange] = useState<"last30" | "allTime">("last30");
+  const [copied, setCopied] = useState<string | null>(null);
   const { data, isLoading, error } = useQuery<HostResultsData>({ queryKey: ["/api/ambassador/host/results"] });
   if (isLoading) return <div className="rounded-2xl p-6 text-sm" style={{ background: C.card, color: C.tx2 }}>Loading your results…</div>;
   if (error || !data) return <div className="rounded-2xl p-6 text-sm" style={{ background: C.card, color: C.tx2 }}>Results aren't available right now.</div>;
@@ -84,7 +88,7 @@ export function HostResults() {
         <div>
           <Kicker>Per event</Kicker>
           <h2 className="text-xl font-extrabold tracking-tight" style={{ color: C.tx }}>What each event produced</h2>
-          <p className="text-xs mt-1" style={{ color: C.tx3 }}>Sign-ups after = people who joined through your link within {data.eventWindowHours} hours of the event starting.</p>
+          <p className="text-xs mt-1" style={{ color: C.tx3 }}>Shared events count visits and sign-ups that came through that event's link. Events without a share link count sign-ups through your link within {data.eventWindowHours} hours of the start.</p>
         </div>
         {data.events.length === 0 ? (
           <div className="rounded-2xl p-6 text-sm" style={{ background: C.card, color: C.tx2, border: `1px solid ${C.line}` }}>No events yet. Schedule one from the Upcoming tab.</div>
@@ -105,18 +109,34 @@ export function HostResults() {
                     <span className="text-[10px] font-bold uppercase tracking-widest px-2 py-1 rounded-full" style={{ color: statusColor, border: `1px solid ${statusColor}55` }}>{statusLabel}</span>
                   </div>
                   <div className="grid grid-cols-4 gap-2 mt-3 text-center">
-                    {[
+                    {(e.attribution === "link" ? [
+                      ["Link visits", e.linkVisits ?? 0],
+                      ["Registered", e.registered],
+                      ["Sign-ups", e.signupsAfter ?? 0],
+                      ["Rating", e.rating ? `${e.rating.toFixed(1)}★` : "–"],
+                    ] : [
                       ["Registered", e.registered],
                       ["Attended", e.attended],
                       ["Sign-ups after", e.signupsAfter ?? "–"],
                       ["Rating", e.rating ? `${e.rating.toFixed(1)}★` : "–"],
-                    ].map(([l, v]) => (
+                    ]).map(([l, v]) => (
                       <div key={l as string}>
-                        <div className="text-lg font-extrabold" style={{ color: l === "Sign-ups after" && Number(v) > 0 ? C.gold : C.tx }}>{v}</div>
+                        <div className="text-lg font-extrabold" style={{ color: String(l).startsWith("Sign-ups") && Number(v) > 0 ? C.gold : C.tx }}>{v}</div>
                         <div style={{ font: `600 9px ${MONO}`, textTransform: "uppercase", letterSpacing: ".1em", color: C.tx3 }}>{l}</div>
                       </div>
                     ))}
                   </div>
+                  {e.shareSlug && (
+                    <button
+                      onClick={() => {
+                        const link = `${window.location.origin}/event/${e.shareSlug}?action=register${data.referralCode ? `&ref=${encodeURIComponent(data.referralCode)}` : ""}`;
+                        navigator.clipboard.writeText(link).then(() => setCopied(e.key), () => {});
+                      }}
+                      className="mt-3 w-full rounded-xl py-2 text-xs font-bold"
+                      style={{ background: "rgba(255,59,52,.1)", color: C.red, border: "1px solid rgba(255,59,52,.3)" }}>
+                      {copied === e.key ? "Tracked link copied" : "Copy tracked event link"}
+                    </button>
+                  )}
                 </div>
               );
             })}

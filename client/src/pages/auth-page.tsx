@@ -101,9 +101,15 @@ export default function AuthPage() {
     // Remove confirmPassword which is not in the schema
     const { confirmPassword, ...registerData } = values as RegisterFormValues & { confirmPassword: string };
     // Attach referral code if present
-    const dataWithRef = referralCode ? { ...registerData, referralCode } : registerData;
+    let eventSlug: string | null = null;
+    try { eventSlug = sessionStorage.getItem('referralEventSlug'); } catch {}
+    const dataWithRef = {
+      ...registerData,
+      ...(referralCode ? { referralCode } : {}),
+      ...(eventSlug ? { referralEventSlug: eventSlug } : {}),
+    };
     registerMutation.mutate(dataWithRef as any, {
-      onSuccess: () => { sessionStorage.removeItem('referralCode'); setReferralCode(null); }
+      onSuccess: () => { sessionStorage.removeItem('referralCode'); sessionStorage.removeItem('referralEventSlug'); setReferralCode(null); }
     });
   };
 
