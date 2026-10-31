@@ -55384,7 +55384,7 @@ var init_explainer_video = __esm({
     init_video_branding();
     init_content_asset_store();
     FRAME = { "9:16": [720, 1280], "4:5": [864, 1080], "1:1": [720, 720], "16:9": [1280, 720] };
-    MODEL = () => process.env.EXPLAINER_VIDEO_MODEL || "google/veo-3-fast";
+    MODEL = () => process.env.EXPLAINER_VIDEO_MODEL || "google/veo-3.1-fast";
     CLIP_SECONDS = 8;
     END_CARD_SECONDS2 = 2;
     POLL_MS = 5e3;
@@ -63491,9 +63491,9 @@ async function getStopOrdersForUser(userId, filters = {}) {
 init_schema();
 
 // server/build-info.ts
-var BUILD_COMMIT = "bc484979-dirty";
+var BUILD_COMMIT = "e2e97d2c-dirty";
 var BUILD_BRANCH = "HEAD";
-var BUILT_AT = "2026-10-31T04:17:55.128Z";
+var BUILT_AT = "2026-10-31T04:30:04.819Z";
 
 // server/stripe.ts
 init_db();

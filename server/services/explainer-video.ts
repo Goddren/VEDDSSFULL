@@ -9,7 +9,9 @@
  *
  * Runs as a background job (content_video_jobs): several minutes per video,
  * longer than an HTTP request may stay open. The client polls the job.
- * Model is swappable with EXPLAINER_VIDEO_MODEL (default google/veo-3-fast).
+ * Model is swappable with EXPLAINER_VIDEO_MODEL (default google/veo-3.1-fast;
+ * Replicate's google/veo-3-fast began 404ing on 2026-10-31 — Google retired
+ * veo-3.0-fast-generate-001 behind it).
  */
 import fs from 'fs';
 import os from 'os';
@@ -21,7 +23,7 @@ import { persistBuffer } from './content-asset-store';
 
 export type ExplainerAspect = '9:16' | '4:5' | '1:1' | '16:9';
 const FRAME: Record<ExplainerAspect, [number, number]> = { '9:16': [720, 1280], '4:5': [864, 1080], '1:1': [720, 720], '16:9': [1280, 720] };
-const MODEL = () => process.env.EXPLAINER_VIDEO_MODEL || 'google/veo-3-fast';
+const MODEL = () => process.env.EXPLAINER_VIDEO_MODEL || 'google/veo-3.1-fast';
 const CLIP_SECONDS = 8;
 const END_CARD_SECONDS = 2;
 const POLL_MS = 5000;
