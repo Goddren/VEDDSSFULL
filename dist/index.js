@@ -54975,7 +54975,7 @@ async function startExplainerJob(userId, input, aspect, opts = {}) {
   const id = rows[0].id;
   runJob(id, userId, input, aspect, opts).catch(async (e) => {
     console.error(`[explainer] job ${id} failed:`, e?.message || e);
-    await update(id, { status: "failed", error: friendlyError(e) }).catch(() => {
+    await update(id, { status: "failed", error: friendlyError(e), meta: { error_detail: String(e?.message || e).slice(0, 1e3) } }).catch(() => {
     });
   });
   return id;
@@ -54983,7 +54983,8 @@ async function startExplainerJob(userId, input, aspect, opts = {}) {
 function friendlyError(e) {
   const m = String(e?.message || e);
   if (/REPLICATE_API_TOKEN/.test(m)) return "Video service is not configured.";
-  if (/402|insufficient|credit/i.test(m)) return "The video service is out of credit. Ask VEDD to top it up.";
+  if (/Replicate 402/.test(m)) return "The video service is out of credit. Ask VEDD to top it up.";
+  if (/Replicate 429/.test(m)) return "The video service is busy right now. Please try again in a few minutes.";
   if (/timed out/i.test(m)) return "The video took too long to make. Please try again.";
   return "The video could not be made right now. Please try again in a few minutes.";
 }
@@ -55000,7 +55001,7 @@ async function runJob(id, userId, input, aspect, opts) {
     done++;
     await update(id, { progress: 10 + Math.round(done / script.scenes.length * 70), step: `Filmed ${done} of ${script.scenes.length} scenes` });
   });
-  const workers = Array.from({ length: Math.min(2, queue.length) }, async () => {
+  const workers = Array.from({ length: Math.min(Math.max(1, Number(process.env.EXPLAINER_CONCURRENCY ?? 1)), queue.length) }, async () => {
     while (queue.length) await queue.shift()();
   });
   await Promise.all(workers);
@@ -55058,7 +55059,7 @@ async function renderScene(scene, aspect) {
   const token = process.env.REPLICATE_API_TOKEN;
   if (!token) throw new Error("REPLICATE_API_TOKEN not set");
   const prompt = `${scene.visual} Cinematic 35mm look, shallow depth of field, moody contrast with warm gold accent light, smooth slow dolly camera. A calm, confident narrator voiceover says: "${scene.narration.replace(/"/g, "'")}" Soft modern background music under the voice. No subtitles, no on-screen text, no logos.`;
-  const res = await fetch(`https://api.replicate.com/v1/models/${MODEL()}/predictions`, {
+  const create = () => fetch(`https://api.replicate.com/v1/models/${MODEL()}/predictions`, {
     method: "POST",
     headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json", Prefer: "wait=55" },
     body: JSON.stringify({ input: {
@@ -55071,6 +55072,12 @@ async function renderScene(scene, aspect) {
     } }),
     signal: AbortSignal.timeout(7e4)
   });
+  let res = await create();
+  for (let attempt = 0; res.status === 429 && attempt < 8; attempt++) {
+    const body = await res.json().catch(() => ({}));
+    await new Promise((r) => setTimeout(r, (Number(body?.retry_after) || 10) * 1e3 + 1e3));
+    res = await create();
+  }
   if (!res.ok) throw new Error(`Replicate ${res.status}: ${(await res.text().catch(() => "")).slice(0, 200)}`);
   let data = await res.json();
   const started5 = Date.now();
@@ -63290,9 +63297,9 @@ async function getStopOrdersForUser(userId, filters = {}) {
 init_schema();
 
 // server/build-info.ts
-var BUILD_COMMIT = "02d774b3-dirty";
+var BUILD_COMMIT = "b8ff5d55-dirty";
 var BUILD_BRANCH = "HEAD";
-var BUILT_AT = "2026-10-31T02:17:06.284Z";
+var BUILT_AT = "2026-10-31T02:53:09.744Z";
 
 // server/stripe.ts
 init_db();

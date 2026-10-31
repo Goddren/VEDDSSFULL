@@ -86,7 +86,7 @@ export async function startExplainerJob(
   const id = rows[0].id as number;
   runJob(id, userId, input, aspect, opts).catch(async (e) => {
     console.error(`[explainer] job ${id} failed:`, e?.message || e);
-    await update(id, { status: 'failed', error: friendlyError(e) }).catch(() => {});
+    await update(id, { status: 'failed', error: friendlyError(e), meta: { error_detail: String(e?.message || e).slice(0, 1000) } }).catch(() => {});
   });
   return id;
 }
@@ -94,7 +94,9 @@ export async function startExplainerJob(
 function friendlyError(e: any): string {
   const m = String(e?.message || e);
   if (/REPLICATE_API_TOKEN/.test(m)) return 'Video service is not configured.';
-  if (/402|insufficient|credit/i.test(m)) return 'The video service is out of credit. Ask VEDD to top it up.';
+  // Check the status code first: Replicate's 429 text also mentions "credit".
+  if (/Replicate 402/.test(m)) return 'The video service is out of credit. Ask VEDD to top it up.';
+  if (/Replicate 429/.test(m)) return 'The video service is busy right now. Please try again in a few minutes.';
   if (/timed out/i.test(m)) return 'The video took too long to make. Please try again.';
   return 'The video could not be made right now. Please try again in a few minutes.';
 }
@@ -104,7 +106,8 @@ async function runJob(id: number, userId: number, input: string, aspect: Explain
   const script = await writeScript(input, userId, opts.sceneCount ?? 4);
   await update(id, { script, step: `Filming ${script.scenes.length} scenes with voiceover`, progress: 10 });
 
-  // Two clips at a time keeps within Replicate's rate limits.
+  // One scene at a time by default: under $5 of credit Replicate allows a
+  // burst of only 1 prediction. EXPLAINER_CONCURRENCY raises it.
   const urls: string[] = new Array(script.scenes.length);
   let done = 0;
   const predictions: string[] = [];
@@ -114,7 +117,7 @@ async function runJob(id: number, userId: number, input: string, aspect: Explain
     done++;
     await update(id, { progress: 10 + Math.round((done / script.scenes.length) * 70), step: `Filmed ${done} of ${script.scenes.length} scenes` });
   });
-  const workers = Array.from({ length: Math.min(2, queue.length) }, async () => { while (queue.length) await queue.shift()!(); });
+  const workers = Array.from({ length: Math.min(Math.max(1, Number(process.env.EXPLAINER_CONCURRENCY ?? 1)), queue.length) }, async () => { while (queue.length) await queue.shift()!(); });
   await Promise.all(workers);
 
   await update(id, { step: 'Adding VEDD branding and joining scenes', progress: 85, meta: { predictions, model: MODEL() } });
@@ -175,7 +178,7 @@ async function renderScene(scene: ExplainerScene, aspect: ExplainerAspect): Prom
   const prompt = `${scene.visual} Cinematic 35mm look, shallow depth of field, moody contrast with warm gold accent light, smooth slow dolly camera. `
     + `A calm, confident narrator voiceover says: "${scene.narration.replace(/"/g, "'")}" `
     + `Soft modern background music under the voice. No subtitles, no on-screen text, no logos.`;
-  const res = await fetch(`https://api.replicate.com/v1/models/${MODEL()}/predictions`, {
+  const create = () => fetch(`https://api.replicate.com/v1/models/${MODEL()}/predictions`, {
     method: 'POST',
     headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json', Prefer: 'wait=55' },
     body: JSON.stringify({ input: {
@@ -188,6 +191,13 @@ async function renderScene(scene: ExplainerScene, aspect: ExplainerAspect): Prom
     } }),
     signal: AbortSignal.timeout(70000),
   });
+  // 429 = rate limited (Replicate tells us how long to wait): retry, don't fail.
+  let res = await create();
+  for (let attempt = 0; res.status === 429 && attempt < 8; attempt++) {
+    const body: any = await res.json().catch(() => ({}));
+    await new Promise((r) => setTimeout(r, (Number(body?.retry_after) || 10) * 1000 + 1000));
+    res = await create();
+  }
   if (!res.ok) throw new Error(`Replicate ${res.status}: ${(await res.text().catch(() => '')).slice(0, 200)}`);
   let data: any = await res.json();
   const started = Date.now();
