@@ -110,7 +110,7 @@ Write one post per platform, teaching the lesson in the ambassador's own voice a
 RULES (strict): no income, profit or earnings claims or numbers; no "guaranteed", "risk-free", "passive income"; never invite DMs or describe sending DMs; no fake results. Do NOT add a link, disclosure or risk line (added automatically).
 
 Return JSON only:
-{"tiktok":{"hook":"on-screen text for the first 2 seconds, max 8 words","body":"a 30-45 second SPOKEN script, said to camera, in this exact layout:
+{"tiktok":{"hook":"on-screen text for the first 2 seconds, max 8 words","spokenHook":"0-3s: one punchy line said to camera","beat1":"3-15s: the problem or idea, 1-2 spoken sentences","beat2":"15-30s: the lesson with one concrete example, 2-3 spoken sentences","cta":"30-40s: one soft line to try VEDD AI","overlays":["2-3 short on-screen text overlays"],"caption":"one line plus a question","hashtags":["..."],"visualIdea":"shot list: what to film for each beat"},
 HOOK (0-3s): one punchy line
 BEAT 1 (3-15s): the problem or the idea
 BEAT 2 (15-30s): the lesson, one concrete example
@@ -138,6 +138,19 @@ CAPTION: one line plus a question","hashtags":["..."],"visualIdea":"shot list: w
   await pool.query(`DELETE FROM ambassador_post_queue WHERE user_id=$1 AND queue_date=$2 AND status='ready'`, [userId, date]);
   for (const platform of PLATFORMS) {
     const p = out[platform];
+    // TikTok: the model returns each beat separately; we assemble the script so
+    // the layout never depends on the model following formatting instructions.
+    if (platform === 'tiktok' && p && (p.beat1 || p.spokenHook)) {
+      const overlays = Array.isArray(p.overlays) ? p.overlays.filter(Boolean).join(' / ') : '';
+      p.body = [
+        p.spokenHook && `HOOK (0-3s): ${p.spokenHook}`,
+        p.beat1 && `BEAT 1 (3-15s): ${p.beat1}`,
+        p.beat2 && `BEAT 2 (15-30s): ${p.beat2}`,
+        p.cta && `CTA (30-40s): ${p.cta}`,
+        overlays && `ON-SCREEN TEXT: ${overlays}`,
+        p.caption && `CAPTION: ${p.caption}`,
+      ].filter(Boolean).join('\n\n');
+    }
     if (!p?.body) continue;
     const { rows } = await pool.query(
       `INSERT INTO ambassador_post_queue (user_id, queue_date, day_number, platform, format, hook, body, hashtags, visual_idea)
