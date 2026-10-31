@@ -10,6 +10,7 @@ import { createRequire } from 'module';
 let cached: string | null = null;
 export function ffmpegBin(): string {
   if (cached) return cached;
+  if (process.env.FFMPEG_PATH) return (cached = process.env.FFMPEG_PATH);
   try {
     const req = createRequire(import.meta.url);
     const p = req('ffmpeg-static') as string | null;

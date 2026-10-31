@@ -20,6 +20,7 @@ import { pool } from '../db';
 import { runFfmpeg, probe } from './ffmpeg';
 import { findLogo } from './video-branding';
 import { persistBuffer } from './content-asset-store';
+import { PATTERNS, PATTERN_KEYS, chartFilter } from './chart-overlay';
 
 export type ExplainerAspect = '9:16' | '4:5' | '1:1' | '16:9';
 const FRAME: Record<ExplainerAspect, [number, number]> = { '9:16': [720, 1280], '4:5': [864, 1080], '1:1': [720, 720], '16:9': [1280, 720] };
@@ -29,8 +30,14 @@ const END_CARD_SECONDS = 2;
 const POLL_MS = 5000;
 const MAX_WAIT_MS = 8 * 60 * 1000;
 
-export interface ExplainerScene { narration: string; visual: string }
-export interface ExplainerScript { title: string; caption: string; scenes: ExplainerScene[] }
+/** chart: a PATTERNS key from chart-overlay.ts; when set, the real pattern is drawn over the scene. */
+export interface ExplainerScene { narration: string; visual: string; chart?: string | null }
+/** presenter + setting are reused word for word in every scene so it is one person, one place. */
+export interface ExplainerScript { title: string; caption: string; presenter: string; setting: string; scenes: ExplainerScene[] }
+
+// VEDD's audience and look: Black presenters, urban street settings.
+const DEFAULT_PRESENTER = 'a young Black man in his mid-20s with short twists, wearing a black hoodie, a thin gold chain and a fitted cap';
+const DEFAULT_SETTING = 'a city rooftop at golden hour with brick buildings, fire escapes and the skyline behind him';
 
 // ─── Jobs ────────────────────────────────────────────────────────────────────
 let tableReady: Promise<void> | null = null;
@@ -114,7 +121,7 @@ async function runJob(id: number, userId: number, input: string, aspect: Explain
   let done = 0;
   const predictions: string[] = [];
   const queue = script.scenes.map((s, i) => async () => {
-    const r = await renderScene(s, aspect);
+    const r = await renderScene(s, script, aspect);
     urls[i] = r.url; predictions.push(r.predictionId);
     done++;
     await update(id, { progress: 10 + Math.round((done / script.scenes.length) * 70), step: `Filmed ${done} of ${script.scenes.length} scenes` });
@@ -123,7 +130,7 @@ async function runJob(id: number, userId: number, input: string, aspect: Explain
   await Promise.all(workers);
 
   await update(id, { step: 'Adding VEDD branding and joining scenes', progress: 85, meta: { predictions, model: MODEL() } });
-  const video = await assemble(urls, aspect);
+  const video = await assemble(urls, aspect, script.scenes.map((s) => s.chart ?? null));
   const saved = await persistBuffer(video, 'video/mp4');
   if (!saved) throw new Error('could not save the finished video');
 
@@ -153,12 +160,17 @@ export async function writeScript(input: string, userId: number, sceneCount: num
 
 Scene 1 = a hook that names the problem. Middle scenes = the lesson in plain steps with one concrete example (real chart terms: candles, support, stop loss, etc.). Last scene = soft call to action: "Try VEDD AI free at veddbuild dot com".
 
-Each scene is one continuous 8-second shot:
-- "narration": what the narrator SAYS, 12-18 words (must fit in 7 seconds), plain spoken English, no hashtags or emojis.
-- "visual": what the camera SEES while it is said, 30-50 words: subject, setting, action, camera move, lighting. Show the idea literally (e.g. a trader pointing at a candlestick breaking above a level on a monitor). Cinematic, realistic. No readable text, logos or brand names in the frame.
-Keep one consistent setting and presenter style across scenes. No income or profit promises.
+Cast ONE presenter and ONE setting for the whole video:
+- "presenter": a young Black person (man or woman), described precisely so every scene shows the same person: age, hair, outfit (streetwear: hoodie, puffer, fitted cap, sneakers, chains). 15-30 words.
+- "setting": an urban street location in a US city (rooftop, corner store front, brownstone stoop, basketball court, subway platform, graffiti wall at night, barbershop). 15-30 words.
 
-JSON: {"title":"...","caption":"one-line social caption with a question","scenes":[{"narration":"...","visual":"..."}]}` },
+Each scene is one continuous 8-second shot:
+- "narration": what the presenter SAYS to camera, 12-18 words (must fit in 7 seconds), plain spoken English with natural street energy, no slang that hides the meaning, no hashtags or emojis.
+- "visual": what the camera sees, 20-40 words: the presenter's action and the camera move. Do NOT re-describe the presenter or setting (they are added automatically).
+- "chart": when the narration explains a candlestick pattern or level, set it to exactly one of: ${PATTERN_KEYS.join(', ')}. The real pattern is drawn on screen in the lower part of the frame, so in that scene the presenter stands in the upper half and points or gestures down toward it. Otherwise null.
+Use a chart in at least one middle scene when the subject involves a pattern, level or breakout. No income or profit promises.
+
+JSON: {"title":"...","caption":"one-line social caption with a question","presenter":"...","setting":"...","scenes":[{"narration":"...","visual":"...","chart":null}]}` },
     ],
     response_format: { type: 'json_object' },
     max_tokens: 1500,
@@ -166,20 +178,30 @@ JSON: {"title":"...","caption":"one-line social caption with a question","scenes
   const raw = (completion.choices?.[0]?.message?.content || '{}').replace(/^```[a-z]*\n?/i, '').replace(/\n?```$/i, '').trim();
   const out = JSON.parse(raw || '{}');
   const scenes: ExplainerScene[] = (Array.isArray(out.scenes) ? out.scenes : [])
-    .map((s: any) => ({ narration: String(s?.narration || '').trim(), visual: String(s?.visual || '').trim() }))
+    .map((s: any) => ({
+      narration: String(s?.narration || '').trim(), visual: String(s?.visual || '').trim(),
+      chart: PATTERN_KEYS.includes(String(s?.chart)) ? String(s.chart) : null,
+    }))
     .filter((s: ExplainerScene) => s.narration && s.visual)
     .slice(0, n);
   if (scenes.length < 2) throw new Error('script generation returned too few scenes');
-  return { title: String(out.title || 'VEDD lesson').slice(0, 120), caption: String(out.caption || '').slice(0, 300), scenes };
+  const presenter = String(out.presenter || '').trim().slice(0, 300) || DEFAULT_PRESENTER;
+  const setting = String(out.setting || '').trim().slice(0, 300) || DEFAULT_SETTING;
+  return { title: String(out.title || 'VEDD lesson').slice(0, 120), caption: String(out.caption || '').slice(0, 300), presenter, setting, scenes };
 }
 
 // ─── Scenes (Replicate) ──────────────────────────────────────────────────────
-async function renderScene(scene: ExplainerScene, aspect: ExplainerAspect): Promise<{ url: string; predictionId: string }> {
+async function renderScene(scene: ExplainerScene, script: ExplainerScript, aspect: ExplainerAspect): Promise<{ url: string; predictionId: string }> {
   const token = process.env.REPLICATE_API_TOKEN;
   if (!token) throw new Error('REPLICATE_API_TOKEN not set');
-  const prompt = `${scene.visual} Cinematic 35mm look, shallow depth of field, moody contrast with warm gold accent light, smooth slow dolly camera. `
-    + `A calm, confident narrator voiceover says: "${scene.narration.replace(/"/g, "'")}" `
-    + `Soft modern background music under the voice. No subtitles, no on-screen text, no logos.`;
+  // Same presenter + setting text in every scene keeps one person, one place.
+  const framing = scene.chart
+    ? 'Medium shot with the presenter in the upper half of the frame, pointing down toward the lower half, which is a plain darker area of the scene.'
+    : 'Medium close-up, presenter talking straight to camera.';
+  const prompt = `Presenter: ${script.presenter}. Setting: ${script.setting}. ${scene.visual} ${framing} `
+    + `Authentic urban street style, cinematic 35mm look, natural skin tones, warm gold light, shallow depth of field, handheld-smooth camera. `
+    + `The presenter speaks directly to the camera and says: "${scene.narration.replace(/"/g, "'")}" `
+    + `Light hip-hop beat under the voice. No subtitles, no on-screen text, no logos.`;
   const create = () => fetch(`https://api.replicate.com/v1/models/${MODEL()}/predictions`, {
     method: 'POST',
     headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json', Prefer: 'wait=55' },
@@ -189,7 +211,7 @@ async function renderScene(scene: ExplainerScene, aspect: ExplainerAspect): Prom
       duration: CLIP_SECONDS,
       resolution: '720p',
       generate_audio: true,
-      negative_prompt: 'subtitles, captions, on-screen text, watermark, logo, distorted hands, extra fingers',
+      negative_prompt: 'subtitles, captions, on-screen text, watermark, logo, distorted hands, extra fingers, office, corporate suit, business attire, different person',
     } }),
     signal: AbortSignal.timeout(70000),
   });
@@ -215,7 +237,7 @@ async function renderScene(scene: ExplainerScene, aspect: ExplainerAspect): Prom
 }
 
 // ─── Assembly (ffmpeg) ───────────────────────────────────────────────────────
-export async function assemble(clipUrls: string[], aspect: ExplainerAspect): Promise<Buffer> {
+export async function assemble(clipUrls: string[], aspect: ExplainerAspect, charts: (string | null)[] = []): Promise<Buffer> {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'vedd-explainer-'));
   try {
     const files: string[] = [];
@@ -226,14 +248,14 @@ export async function assemble(clipUrls: string[], aspect: ExplainerAspect): Pro
       fs.writeFileSync(f, Buffer.from(await r.arrayBuffer()));
       files.push(f);
     }
-    return await assembleFiles(files, aspect, dir);
+    return await assembleFiles(files, aspect, dir, charts);
   } finally {
     fs.rmSync(dir, { recursive: true, force: true });
   }
 }
 
 /** Joins local scene files into one branded MP4 (exported for tests). */
-export async function assembleFiles(files: string[], aspect: ExplainerAspect, dir: string): Promise<Buffer> {
+export async function assembleFiles(files: string[], aspect: ExplainerAspect, dir: string, charts: (string | null)[] = []): Promise<Buffer> {
   const [W, H] = FRAME[aspect];
   const logo = findLogo();
   {
@@ -253,7 +275,10 @@ export async function assembleFiles(files: string[], aspect: ExplainerAspect, di
     const f: string[] = [];
     const parts: string[] = [];
     files.forEach((_, i) => {
-      f.push(`[${i}:v]scale=${W}:${H}:force_original_aspect_ratio=increase,crop=${W}:${H},fps=24,setsar=1,format=yuv420p[v${i}]`);
+      // Pattern scenes get the real candles drawn over the lower part (chart-overlay.ts).
+      const spec = charts[i] ? PATTERNS[charts[i]!] : undefined;
+      const overlay = spec ? `,${chartFilter(spec, W, H, info[i].duration || CLIP_SECONDS)}` : '';
+      f.push(`[${i}:v]scale=${W}:${H}:force_original_aspect_ratio=increase,crop=${W}:${H},fps=24,setsar=1${overlay},format=yuv420p[v${i}]`);
       f.push(`[${audio[i] ? i : silent[i]}:a]aresample=44100,aformat=sample_fmts=fltp:channel_layouts=stereo[a${i}]`);
       parts.push(`[v${i}][a${i}]`);
     });

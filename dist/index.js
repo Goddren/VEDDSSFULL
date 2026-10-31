@@ -7863,8 +7863,8 @@ function detectFairValueGap(candles, signal) {
 }
 function countOBMitigations(candles, obBottom, obTop, obIndex, isBullish) {
   let count = 0;
-  for (let k = obIndex - 1; k >= 1; k--) {
-    const c = candles[k];
+  for (let k2 = obIndex - 1; k2 >= 1; k2--) {
+    const c = candles[k2];
     if (!c) continue;
     if (isBullish) {
       const low = c.l || c.low || Infinity;
@@ -8584,10 +8584,10 @@ async function compute(userId) {
   );
   const bySymbol = /* @__PURE__ */ new Map();
   for (const r of rows) {
-    const k = norm2(r.symbol);
-    if (!k) continue;
-    if (!bySymbol.has(k)) bySymbol.set(k, []);
-    bySymbol.get(k).push(r);
+    const k2 = norm2(r.symbol);
+    if (!k2) continue;
+    if (!bySymbol.has(k2)) bySymbol.set(k2, []);
+    bySymbol.get(k2).push(r);
   }
   const out = /* @__PURE__ */ new Map();
   for (const [sym, list] of Array.from(bySymbol.entries())) {
@@ -8671,9 +8671,9 @@ async function pairDayStopHistory(userId, symbol, lookbackDays = 180) {
   if (!bySym.length) return [];
   const byDay = /* @__PURE__ */ new Map();
   for (const r of bySym) {
-    const k = String(r.d);
-    if (!byDay.has(k)) byDay.set(k, []);
-    byDay.get(k).push(r);
+    const k2 = String(r.d);
+    if (!byDay.has(k2)) byDay.set(k2, []);
+    byDay.get(k2).push(r);
   }
   const perDow = /* @__PURE__ */ new Map();
   for (const [dateStr, list] of Array.from(byDay.entries())) {
@@ -8777,10 +8777,10 @@ async function learnFxBrain(userId) {
   };
   const bySymbol = /* @__PURE__ */ new Map();
   for (const r of rows) {
-    const k = normSymbol2(r.symbol);
-    if (!k) continue;
-    if (!bySymbol.has(k)) bySymbol.set(k, []);
-    bySymbol.get(k).push(r);
+    const k2 = normSymbol2(r.symbol);
+    if (!k2) continue;
+    if (!bySymbol.has(k2)) bySymbol.set(k2, []);
+    bySymbol.get(k2).push(r);
   }
   const out = {};
   for (const [symbol, trades] of Array.from(bySymbol.entries())) {
@@ -8792,9 +8792,9 @@ async function learnFxBrain(userId) {
     const dims = /* @__PURE__ */ new Map();
     const add = (dimension, value, t) => {
       if (!value) return;
-      const k = dimension + SEP + value;
-      if (!dims.has(k)) dims.set(k, []);
-      dims.get(k).push(t);
+      const k2 = dimension + SEP + value;
+      if (!dims.has(k2)) dims.set(k2, []);
+      dims.get(k2).push(t);
     };
     for (const t of trades) {
       add("session", canonSession(t.session, t.hour_utc == null ? null : Number(t.hour_utc)), t);
@@ -8807,8 +8807,8 @@ async function learnFxBrain(userId) {
     }
     const works = [];
     const fails = [];
-    for (const [k, group] of Array.from(dims.entries())) {
-      const [dimension, value] = k.split(SEP);
+    for (const [k2, group] of Array.from(dims.entries())) {
+      const [dimension, value] = k2.split(SEP);
       const w = group.filter((t) => t.result === "WIN").length;
       const winRate2 = w / group.length * 100;
       const distinctDays = new Set(group.map((t) => String(t.d))).size;
@@ -8862,11 +8862,11 @@ async function getFxBrain(userId, force = false) {
 }
 async function fxBrainInsights(userId, symbol) {
   const brains = await getFxBrain(userId);
-  const keys = symbol ? [symbol].filter((k) => brains[k]) : Object.keys(brains);
+  const keys = symbol ? [symbol].filter((k2) => brains[k2]) : Object.keys(brains);
   if (!keys.length) return "";
   const lines = [];
-  for (const k of keys) {
-    const b = brains[k];
+  for (const k2 of keys) {
+    const b = brains[k2];
     lines.push(b.symbol + ": " + b.winRate + "% WR over " + b.trades + " trades, expectancy $" + b.expectancy + "/trade");
     for (const p of b.works.slice(0, 3)) {
       lines.push("   WORKS - " + p.value + ": " + p.winRate + "% (" + p.wins + "/" + p.trades + " over " + p.distinctDays + " days, +" + p.edgeVsPair + "pp vs this pair)");
@@ -8874,7 +8874,7 @@ async function fxBrainInsights(userId, symbol) {
     for (const p of b.fails.slice(0, 3)) {
       lines.push("   FAILS - " + p.value + ": " + p.winRate + "% (" + p.wins + "/" + p.trades + " over " + p.distinctDays + " days, " + p.edgeVsPair + "pp vs this pair)");
     }
-    const dayStopLine = await dayStopInsightLine(userId, k);
+    const dayStopLine = await dayStopInsightLine(userId, k2);
     if (dayStopLine) lines.push("   " + dayStopLine);
   }
   return lines.join("\n");
@@ -9328,7 +9328,7 @@ function logGuard(userId, kind, symbol, detail, data, engine = "fx") {
 }
 async function recentGuardEvents(userId, limit = 100, kinds) {
   await ensure();
-  const _k = (kinds || []).filter((k) => /^[a-z_]{1,40}$/.test(k));
+  const _k = (kinds || []).filter((k2) => /^[a-z_]{1,40}$/.test(k2));
   const [ev, sum] = await Promise.all([
     _k.length ? pool.query(`SELECT id, engine, kind, symbol, detail, created_at FROM engine_guard_events WHERE user_id=$1 AND kind = ANY($3) ORDER BY created_at DESC LIMIT $2`, [userId, Math.min(500, Math.max(1, limit)), _k]) : pool.query(`SELECT id, engine, kind, symbol, detail, created_at FROM engine_guard_events WHERE user_id=$1 ORDER BY created_at DESC LIMIT $2`, [userId, Math.min(500, Math.max(1, limit))]),
     pool.query(`SELECT kind, count(*)::int AS n, max(created_at) AS last FROM engine_guard_events WHERE user_id=$1 AND created_at > now() - interval '7 days' GROUP BY kind ORDER BY n DESC`, [userId])
@@ -11711,8 +11711,8 @@ async function getUniversalAIClientForUser(userId) {
     const user = await storage2.getUser(userId);
     const aiCostMode = user?.aiCostMode || "full";
     const allKeys = await storage2.getUserApiKeys(userId);
-    const activeKeys = allKeys.filter((k) => k.isActive && k.isValid !== false);
-    const keyFor = (p) => activeKeys.find((k) => k.provider === p)?.apiKey;
+    const activeKeys = allKeys.filter((k2) => k2.isActive && k2.isValid !== false);
+    const keyFor = (p) => activeKeys.find((k2) => k2.provider === p)?.apiKey;
     const selModel = getUserModelPreference(userId);
     const selProvider = inferModelProvider(selModel);
     const canUsePlatformKey = await isUnderPlatformKeyCostCap(userId);
@@ -11852,8 +11852,8 @@ async function getUniversalVisionClientForUser(userId) {
     const user = await storage2.getUser(userId);
     const aiCostMode = user?.aiCostMode || "full";
     const allKeys = await storage2.getUserApiKeys(userId);
-    const activeKeys = allKeys.filter((k) => k.isActive && k.isValid !== false);
-    const keyFor = (p) => activeKeys.find((k) => k.provider === p)?.apiKey;
+    const activeKeys = allKeys.filter((k2) => k2.isActive && k2.isValid !== false);
+    const keyFor = (p) => activeKeys.find((k2) => k2.provider === p)?.apiKey;
     const canUsePlatformKey = await isUnderPlatformKeyCostCap(userId);
     if (!canUsePlatformKey) {
       console.warn(`[AI Vision] user ${userId} has exceeded their platform-key AI cost cap this month \u2014 platform-key fallback disabled`);
@@ -12839,7 +12839,7 @@ async function generateSocialOutreachKit(platform, keywords, ambassadorName, use
     try {
       const { storage: storage2 } = await Promise.resolve().then(() => (init_storage(), storage_exports));
       const keys = await storage2.getUserApiKeys(userId);
-      const userKey = keys.find((k) => k.provider === "openai" && k.isActive && k.isValid !== false);
+      const userKey = keys.find((k2) => k2.provider === "openai" && k2.isActive && k2.isValid !== false);
       if (userKey?.apiKey) resolvedApiKey = userKey.apiKey;
     } catch {
     }
@@ -18677,8 +18677,8 @@ function lookupPairKnowledge(pairKnowledge, symbol) {
   if (direct) return direct;
   const want = basePairKey(symbol);
   if (!want) return void 0;
-  for (const k of Object.keys(pairKnowledge)) {
-    if (basePairKey(k) === want) return pairKnowledge[k];
+  for (const k2 of Object.keys(pairKnowledge)) {
+    if (basePairKey(k2) === want) return pairKnowledge[k2];
   }
   return void 0;
 }
@@ -19210,9 +19210,9 @@ async function fetchIndexFromYahoo(req) {
   if (tf === "4h") {
     const m = /* @__PURE__ */ new Map();
     for (const b of bars) {
-      const k = Math.floor(b.timestamp / 144e5) * 144e5;
-      const x = m.get(k);
-      if (!x) m.set(k, { ...b, timestamp: k });
+      const k2 = Math.floor(b.timestamp / 144e5) * 144e5;
+      const x = m.get(k2);
+      if (!x) m.set(k2, { ...b, timestamp: k2 });
       else {
         x.high = Math.max(x.high, b.high);
         x.low = Math.min(x.low, b.low);
@@ -19534,14 +19534,14 @@ function calculateStochastic(candles, kPeriod = 14, dPeriod = 3) {
     const close = chronological[i].c;
     kValues.push(highest !== lowest ? (close - lowest) / (highest - lowest) * 100 : 50);
   }
-  const k = kValues[kValues.length - 1];
-  const d = kValues.length >= dPeriod ? kValues.slice(-dPeriod).reduce((a, b) => a + b, 0) / dPeriod : k;
-  const status = k > 80 ? "OVERBOUGHT" : k < 20 ? "OVERSOLD" : "NEUTRAL";
+  const k2 = kValues[kValues.length - 1];
+  const d = kValues.length >= dPeriod ? kValues.slice(-dPeriod).reduce((a, b) => a + b, 0) / dPeriod : k2;
+  const status = k2 > 80 ? "OVERBOUGHT" : k2 < 20 ? "OVERSOLD" : "NEUTRAL";
   let signal = "NEUTRAL";
-  if (k < 20 && k > d) signal = "BUY";
-  else if (k > 80 && k < d) signal = "SELL";
+  if (k2 < 20 && k2 > d) signal = "BUY";
+  else if (k2 > 80 && k2 < d) signal = "SELL";
   return {
-    k: Math.round(k * 100) / 100,
+    k: Math.round(k2 * 100) / 100,
     d: Math.round(d * 100) / 100,
     status,
     signal
@@ -19896,10 +19896,10 @@ function calculateRSI(candles, period = 14) {
   return { value, trend };
 }
 function calcEMA(values, period) {
-  const k = 2 / (period + 1);
+  const k2 = 2 / (period + 1);
   const ema3 = [values[0]];
   for (let i = 1; i < values.length; i++) {
-    ema3.push(values[i] * k + ema3[i - 1] * (1 - k));
+    ema3.push(values[i] * k2 + ema3[i - 1] * (1 - k2));
   }
   return ema3;
 }
@@ -20088,10 +20088,10 @@ function detectMarketOpenBreakout(candles, symbol, timeframe) {
 function computeKeltnerChannels(candles, emaPeriod = 20, atrPeriod = 10, multiplier = 2) {
   if (candles.length < emaPeriod + 2) return void 0;
   const chronological = [...candles].reverse();
-  const k = 2 / (emaPeriod + 1);
+  const k2 = 2 / (emaPeriod + 1);
   let ema3 = chronological.slice(0, emaPeriod).reduce((s, c) => s + c.c, 0) / emaPeriod;
   for (let i = emaPeriod; i < chronological.length; i++) {
-    ema3 = chronological[i].c * k + ema3 * (1 - k);
+    ema3 = chronological[i].c * k2 + ema3 * (1 - k2);
   }
   const trValues = [];
   for (let i = 1; i < chronological.length; i++) {
@@ -20108,7 +20108,7 @@ function computeKeltnerChannels(candles, emaPeriod = 20, atrPeriod = 10, multipl
   const prevBandwidths = [];
   let prevEma = chronological.slice(0, emaPeriod).reduce((s, c) => s + c.c, 0) / emaPeriod;
   for (let i = emaPeriod; i < chronological.length - 5; i++) {
-    prevEma = chronological[i].c * k + prevEma * (1 - k);
+    prevEma = chronological[i].c * k2 + prevEma * (1 - k2);
     const tr = trValues[i - 1] ?? atr2;
     const bw = (prevEma + multiplier * tr - (prevEma - multiplier * tr)) / prevEma * 100;
     prevBandwidths.push(bw);
@@ -20566,7 +20566,7 @@ ${headlines}`
         const keywords = _NewsService.CURRENCY_KEYWORDS[currency];
         if (!keywords) return false;
         const haystack = `${item.headline} ${item.summary}`.toLowerCase();
-        return keywords.some((k) => haystack.includes(k));
+        return keywords.some((k2) => haystack.includes(k2));
       }
       /**
        * Real per-pair news, sourced from Finnhub's general forex news category --
@@ -22325,9 +22325,9 @@ ALTER TABLE fx_day_regimes ADD COLUMN IF NOT EXISTS engine text NOT NULL DEFAULT
     GO_LIVE = { minTrades: 50, minAvgR: 0.2, minWinRate: 0.4 };
     emaLast = (xs, n) => {
       if (xs.length < n) return NaN;
-      const k = 2 / (n + 1);
+      const k2 = 2 / (n + 1);
       let e = xs.slice(0, n).reduce((a, c) => a + c, 0) / n;
-      for (const x of xs.slice(n)) e = x * k + e * (1 - k);
+      for (const x of xs.slice(n)) e = x * k2 + e * (1 - k2);
       return e;
     };
   }
@@ -22388,7 +22388,7 @@ var init_cryptocom = __esm({
         this.apiSecret = apiSecret;
       }
       sign(method, id, params, nonce) {
-        const paramString = Object.keys(params).sort().map((k) => `${k}${typeof params[k] === "object" ? JSON.stringify(params[k]) : params[k]}`).join("");
+        const paramString = Object.keys(params).sort().map((k2) => `${k2}${typeof params[k2] === "object" ? JSON.stringify(params[k2]) : params[k2]}`).join("");
         const sigPayload = `${method}${id}${this.apiKey}${paramString}${nonce}`;
         return crypto2.createHmac("sha256", this.apiSecret).update(sigPayload).digest("hex");
       }
@@ -22511,8 +22511,8 @@ function extractBalance(metrics) {
 }
 function pickNum(obj, keys) {
   if (!obj || typeof obj !== "object") return null;
-  for (const k of keys) {
-    const v = Number(obj[k]);
+  for (const k2 of keys) {
+    const v = Number(obj[k2]);
     if (Number.isFinite(v) && v > 0) return v;
   }
   return null;
@@ -22990,9 +22990,9 @@ async function btcDailyTrend(symbol) {
     const closes = (r?.bars || []).slice(0, -1).map((b) => Number(b.close));
     if (closes.length < 55) return null;
     const ema3 = (n) => {
-      const k = 2 / (n + 1);
+      const k2 = 2 / (n + 1);
       let e = closes.slice(0, n).reduce((a, c) => a + c, 0) / n;
-      for (const c of closes.slice(n)) e = c * k + e * (1 - k);
+      for (const c of closes.slice(n)) e = c * k2 + e * (1 - k2);
       return e;
     };
     const e20 = ema3(20), e50 = ema3(50), last = closes[closes.length - 1];
@@ -23555,45 +23555,45 @@ async function learnFromCryptoTrades(userId) {
   let totalWins = 0, totalDecided = 0, totalPnl = 0;
   for (const r of rows) {
     const sym = r.symbol || "UNKNOWN";
-    const k = symbols[sym] ??= { totalTrades: 0, wins: 0, losses: 0, winRate: 0, totalPnl: 0, avgWin: 0, avgLoss: 0, riskReward: 0, byStrategy: {}, byHour: {}, bestStrategy: null, recommendedSizeMultiplier: 1 };
+    const k2 = symbols[sym] ??= { totalTrades: 0, wins: 0, losses: 0, winRate: 0, totalPnl: 0, avgWin: 0, avgLoss: 0, riskReward: 0, byStrategy: {}, byHour: {}, bestStrategy: null, recommendedSizeMultiplier: 1 };
     const pnl = Number(r.profit_loss) || 0;
     const win = r.result === "WIN", loss = r.result === "LOSS";
-    k.totalTrades++;
-    k.totalPnl += pnl;
+    k2.totalTrades++;
+    k2.totalPnl += pnl;
     totalPnl += pnl;
     if (win) {
-      k.wins++;
+      k2.wins++;
       totalWins++;
       winSum[sym] = (winSum[sym] ?? 0) + pnl;
       winN[sym] = (winN[sym] ?? 0) + 1;
     }
     if (loss) {
-      k.losses++;
+      k2.losses++;
       lossSum[sym] = (lossSum[sym] ?? 0) + Math.abs(pnl);
       lossN[sym] = (lossN[sym] ?? 0) + 1;
     }
     if (win || loss) totalDecided++;
-    if (r.strategy) bump(k.byStrategy, r.strategy, win);
-    if (r.hour_utc != null) bump(k.byHour, String(r.hour_utc), win);
+    if (r.strategy) bump(k2.byStrategy, r.strategy, win);
+    if (r.hour_utc != null) bump(k2.byHour, String(r.hour_utc), win);
   }
-  for (const [sym, k] of Object.entries(symbols)) {
-    const decided = k.wins + k.losses;
-    k.winRate = decided ? Math.round(k.wins / decided * 100) : 0;
-    k.avgWin = winN[sym] ? winSum[sym] / winN[sym] : 0;
-    k.avgLoss = lossN[sym] ? lossSum[sym] / lossN[sym] : 0;
-    k.riskReward = k.avgLoss > 0 ? k.avgWin / k.avgLoss : k.avgWin > 0 ? 2 : 1;
-    k.recommendedSizeMultiplier = sizeMult(k.winRate, k.riskReward, decided);
+  for (const [sym, k2] of Object.entries(symbols)) {
+    const decided = k2.wins + k2.losses;
+    k2.winRate = decided ? Math.round(k2.wins / decided * 100) : 0;
+    k2.avgWin = winN[sym] ? winSum[sym] / winN[sym] : 0;
+    k2.avgLoss = lossN[sym] ? lossSum[sym] / lossN[sym] : 0;
+    k2.riskReward = k2.avgLoss > 0 ? k2.avgWin / k2.avgLoss : k2.avgWin > 0 ? 2 : 1;
+    k2.recommendedSizeMultiplier = sizeMult(k2.winRate, k2.riskReward, decided);
     let best = null, bestWr = -1;
-    for (const [s, b] of Object.entries(k.byStrategy)) if (b.trades >= 3 && b.winRate > bestWr) {
+    for (const [s, b] of Object.entries(k2.byStrategy)) if (b.trades >= 3 && b.winRate > bestWr) {
       best = s;
       bestWr = b.winRate;
     }
-    k.bestStrategy = best;
+    k2.bestStrategy = best;
   }
   const insights = [];
-  for (const [sym, k] of Object.entries(symbols)) {
-    if (k.wins + k.losses >= MIN_TRADES2) insights.push(`${sym}: ${k.winRate}% WR over ${k.wins + k.losses} \u2192 sizing \xD7${k.recommendedSizeMultiplier}${k.bestStrategy ? `, best on ${k.bestStrategy}` : ""}.`);
-    else insights.push(`${sym}: still learning (${k.wins + k.losses}/${MIN_TRADES2}).`);
+  for (const [sym, k2] of Object.entries(symbols)) {
+    if (k2.wins + k2.losses >= MIN_TRADES2) insights.push(`${sym}: ${k2.winRate}% WR over ${k2.wins + k2.losses} \u2192 sizing \xD7${k2.recommendedSizeMultiplier}${k2.bestStrategy ? `, best on ${k2.bestStrategy}` : ""}.`);
+    else insights.push(`${sym}: still learning (${k2.wins + k2.losses}/${MIN_TRADES2}).`);
   }
   const brain = { userId, lastLearned: (/* @__PURE__ */ new Date()).toISOString(), totalTrades: rows.length, overallWinRate: totalDecided ? Math.round(totalWins / totalDecided * 100) : 0, totalPnl: Math.round(totalPnl * 100) / 100, symbolKnowledge: symbols, insights };
   _cache.set(userId, { brain, at: Date.now() });
@@ -23605,20 +23605,20 @@ async function getOrRefreshCryptoBrain(userId, force = false) {
   return learnFromCryptoTrades(userId);
 }
 function cryptoBrainSizeMultiplier(userId, symbol) {
-  const k = _cache.get(userId)?.brain?.symbolKnowledge[symbol];
-  return k ? k.recommendedSizeMultiplier : 1;
+  const k2 = _cache.get(userId)?.brain?.symbolKnowledge[symbol];
+  return k2 ? k2.recommendedSizeMultiplier : 1;
 }
 function cryptoBrainGate(userId, symbol, strategy, hourUtc) {
-  const k = _cache.get(userId)?.brain?.symbolKnowledge[symbol];
-  if (!k) return { blocked: false, reason: "" };
-  const decided = k.wins + k.losses;
-  if (decided >= 15 && k.winRate < 35) return { blocked: true, reason: `\u{1F9E0} Crypto brain: ${symbol} ${k.winRate}% WR over ${decided} \u2014 skipping symbol` };
+  const k2 = _cache.get(userId)?.brain?.symbolKnowledge[symbol];
+  if (!k2) return { blocked: false, reason: "" };
+  const decided = k2.wins + k2.losses;
+  if (decided >= 15 && k2.winRate < 35) return { blocked: true, reason: `\u{1F9E0} Crypto brain: ${symbol} ${k2.winRate}% WR over ${decided} \u2014 skipping symbol` };
   if (strategy) {
-    const st = k.byStrategy[strategy];
+    const st = k2.byStrategy[strategy];
     if (st && st.trades >= 8 && st.winRate < 30) return { blocked: true, reason: `\u{1F9E0} Crypto brain: ${symbol}/${strategy} ${st.winRate}% WR over ${st.trades} \u2014 skipping` };
   }
   if (hourUtc != null) {
-    const h = k.byHour[String(hourUtc)];
+    const h = k2.byHour[String(hourUtc)];
     if (h && h.trades >= 8 && h.winRate < 30) return { blocked: true, reason: `\u{1F9E0} Crypto brain: ${symbol} @ ${hourUtc}:00 UTC ${h.winRate}% WR over ${h.trades} \u2014 skipping this hour` };
   }
   return { blocked: false, reason: "" };
@@ -25499,12 +25499,12 @@ function applyBrainEnforcement(userId, symbol, proposedDirection, currentATR, ne
   };
   const brain = global.veddAIBrain?.[userId];
   if (!brain?.pairKnowledge) return passthrough;
-  const k = lookupPairKnowledge(brain.pairKnowledge, symbol);
-  if (!k || k.totalTrades < 3) return passthrough;
+  const k2 = lookupPairKnowledge(brain.pairKnowledge, symbol);
+  if (!k2 || k2.totalTrades < 3) return passthrough;
   const now = /* @__PURE__ */ new Date();
   const hour = now.getUTCHours();
   const session3 = sessionForHour(hour);
-  const sessionData = k.topSessions?.find((s) => sameSession(s.session, session3));
+  const sessionData = k2.topSessions?.find((s) => sameSession(s.session, session3));
   const _minN = Number(process.env.BRAIN_BLOCK_MIN_TRADES ?? 8);
   if (sessionData && sessionData.total >= 3 && sessionData.total < _minN && sessionData.winRate < 45) {
     logGuard(userId, "brain_block_thin_data", symbol, `${session3} session ${sessionData.winRate}% over only ${sessionData.total} trades \u2014 not blocking (needs ${_minN})`);
@@ -25514,30 +25514,30 @@ function applyBrainEnforcement(userId, symbol, proposedDirection, currentATR, ne
     pushEnforcementLog(userId, { symbol, rule: "session_block", direction: proposedDirection, reason: msg });
     return { ...passthrough, allowed: false, reason: msg };
   }
-  const worstHourData = k.worstHours?.find((h) => h.hour === hour && h.total >= _minN && h.winRate < 40);
+  const worstHourData = k2.worstHours?.find((h) => h.hour === hour && h.total >= _minN && h.winRate < 40);
   if (worstHourData) {
     const msg = `\u{1F9E0} Brain block: ${symbol} hour ${hour}:00 UTC only ${worstHourData.winRate}% WR \u2014 loss zone`;
     pushEnforcementLog(userId, { symbol, rule: "hour_block", direction: proposedDirection, reason: msg });
     return { ...passthrough, allowed: false, reason: msg };
   }
-  const _dirN = proposedDirection === "BUY" ? Number(k.buyTrades) : Number(k.sellTrades);
-  const _dirCount = Number.isFinite(_dirN) ? _dirN : k.totalTrades;
+  const _dirN = proposedDirection === "BUY" ? Number(k2.buyTrades) : Number(k2.sellTrades);
+  const _dirCount = Number.isFinite(_dirN) ? _dirN : k2.totalTrades;
   if (proposedDirection && _dirCount >= 8) {
-    const dirWR = proposedDirection === "BUY" ? k.buyWinRate ?? 50 : k.sellWinRate ?? 50;
+    const dirWR = proposedDirection === "BUY" ? k2.buyWinRate ?? 50 : k2.sellWinRate ?? 50;
     if (_dirCount >= 15 && dirWR < 20) {
-      const msg = `\u{1F9E0} Brain block: ${symbol} ${proposedDirection} ${dirWR}% WR over ${k.totalTrades} trades \u2014 statistically losing direction, hard blocked`;
+      const msg = `\u{1F9E0} Brain block: ${symbol} ${proposedDirection} ${dirWR}% WR over ${k2.totalTrades} trades \u2014 statistically losing direction, hard blocked`;
       pushEnforcementLog(userId, { symbol, rule: "direction_bias", direction: proposedDirection, reason: msg });
       return { ...passthrough, allowed: false, reason: msg };
     }
     if (dirWR >= 20 && dirWR < 40) {
-      const msg = `\u26A0\uFE0F Brain caution: ${symbol} ${proposedDirection} ${dirWR}% WR (${k.totalTrades} trades) \u2014 trade allowed at 70% lot size`;
+      const msg = `\u26A0\uFE0F Brain caution: ${symbol} ${proposedDirection} ${dirWR}% WR (${k2.totalTrades} trades) \u2014 trade allowed at 70% lot size`;
       pushEnforcementLog(userId, { symbol, rule: "direction_caution", direction: proposedDirection, reason: msg });
       return {
         allowed: true,
         reason: msg,
         adjustedLotMultiplier: 0.7,
-        forcedStrategy: k.bestStrategies?.[0] || null,
-        recommendedTrailPips: k.optimalTrailPips || 20
+        forcedStrategy: k2.bestStrategies?.[0] || null,
+        recommendedTrailPips: k2.optimalTrailPips || 20
       };
     }
   }
@@ -25553,8 +25553,8 @@ function applyBrainEnforcement(userId, symbol, proposedDirection, currentATR, ne
       return { ...passthrough, allowed: false, reason: msg };
     }
   }
-  if (k.consecutiveLossesToday >= 3 && k.lastLossAt) {
-    const msSinceLoss = Date.now() - new Date(k.lastLossAt).getTime();
+  if (k2.consecutiveLossesToday >= 3 && k2.lastLossAt) {
+    const msSinceLoss = Date.now() - new Date(k2.lastLossAt).getTime();
     const THREE_HOURS = 3 * 60 * 60 * 1e3;
     if (msSinceLoss < THREE_HOURS) {
       const minsLeft = Math.ceil((THREE_HOURS - msSinceLoss) / 6e4);
@@ -25563,8 +25563,8 @@ function applyBrainEnforcement(userId, symbol, proposedDirection, currentATR, ne
       return { ...passthrough, allowed: false, reason: msg };
     }
   }
-  if (currentATR > 0 && k.minProfitableATR > 0 && currentATR < k.minProfitableATR * 0.5) {
-    const msg = `\u{1F9E0} ATR filter: ${symbol} ATR ${currentATR.toFixed(5)} below profitable threshold ${(k.minProfitableATR * 0.5).toFixed(5)}`;
+  if (currentATR > 0 && k2.minProfitableATR > 0 && currentATR < k2.minProfitableATR * 0.5) {
+    const msg = `\u{1F9E0} ATR filter: ${symbol} ATR ${currentATR.toFixed(5)} below profitable threshold ${(k2.minProfitableATR * 0.5).toFixed(5)}`;
     pushEnforcementLog(userId, { symbol, rule: "atr_filter", direction: proposedDirection, reason: msg });
     return { ...passthrough, allowed: false, reason: msg };
   }
@@ -25572,9 +25572,9 @@ function applyBrainEnforcement(userId, symbol, proposedDirection, currentATR, ne
   return {
     allowed: true,
     reason: "pass",
-    adjustedLotMultiplier: Math.min(1.5, Math.max(0.5, k.recommendedLotMultiplier || 1)),
-    forcedStrategy: k.bestStrategies?.[0] || null,
-    recommendedTrailPips: k.optimalTrailPips || 20
+    adjustedLotMultiplier: Math.min(1.5, Math.max(0.5, k2.recommendedLotMultiplier || 1)),
+    forcedStrategy: k2.bestStrategies?.[0] || null,
+    recommendedTrailPips: k2.optimalTrailPips || 20
   };
 }
 function extractCurrenciesFromSymbol(symbol) {
@@ -26057,15 +26057,15 @@ function recordTradeResult(userId, result) {
   }
   state.pnlSession = tracker.currentProfit;
   if (!state.strategyPerformanceWeights) {
-    state.strategyPerformanceWeights = Object.fromEntries(ALL_STRATEGY_KEYS.map((k) => [k, 1]));
+    state.strategyPerformanceWeights = Object.fromEntries(ALL_STRATEGY_KEYS.map((k2) => [k2, 1]));
   }
   const strat = result.strategy;
   const weights = state.strategyPerformanceWeights;
   if (weights[strat] !== void 0) {
     weights[strat] = result.profit > 0 ? Math.min(2, weights[strat] + 0.05) : Math.max(0.2, weights[strat] - 0.08);
   }
-  for (const k of Object.keys(weights)) {
-    weights[k] = Math.round((weights[k] * 0.99 + 1 * 0.01) * 1e3) / 1e3;
+  for (const k2 of Object.keys(weights)) {
+    weights[k2] = Math.round((weights[k2] * 0.99 + 1 * 0.01) * 1e3) / 1e3;
   }
   if (!tracker.kellyStats) tracker.kellyStats = {};
   if (!tracker.kellyStats[strat]) tracker.kellyStats[strat] = { wins: 0, losses: 0, totalRR: 0 };
@@ -26138,8 +26138,8 @@ function recordTradeResult(userId, result) {
   const _normSym = (v) => String(v || "").toUpperCase().replace(/[^A-Z0-9]/g, "");
   if (brainForUser?.pairKnowledge && result.symbol) {
     const _want = _normSym(result.symbol);
-    const _key = Object.keys(brainForUser.pairKnowledge).find((k) => _normSym(k) === _want) ?? Object.keys(brainForUser.pairKnowledge).find((k) => {
-      const n = _normSym(k);
+    const _key = Object.keys(brainForUser.pairKnowledge).find((k2) => _normSym(k2) === _want) ?? Object.keys(brainForUser.pairKnowledge).find((k2) => {
+      const n = _normSym(k2);
       return n.length >= 6 && (_want.startsWith(n) || n.startsWith(_want));
     });
     if (_key) {
@@ -26251,7 +26251,7 @@ async function scanMarkets(userId) {
     state.challengeDailyPnL[today] = state.pnlToday;
     const periodKeys = Object.keys(state.challengeDailyPnL).sort();
     const recentKeys = periodKeys.slice(-state.config.consistencyPeriodDays);
-    const profitableDays = recentKeys.filter((k) => (state.challengeDailyPnL[k] ?? 0) > 0).length;
+    const profitableDays = recentKeys.filter((k2) => (state.challengeDailyPnL[k2] ?? 0) > 0).length;
     const tradingDays = recentKeys.length;
     const daysRemaining = state.config.consistencyPeriodDays - tradingDays;
     const daysNeeded = state.config.consistencyMinProfitableDays - profitableDays;
@@ -26988,9 +26988,9 @@ async function manageBtcTrail(userId, openPositions, marketAnalysis) {
       addActivity(userId, { type: "error", symbol: pos.symbol, message: `\u26A0\uFE0F BTC trail error on ${tlConn.accountId}: ${e?.message ?? e}` });
     }
   }
-  for (const k of Array.from(btcInitialStop.keys())) if (k.startsWith(`${userId}:`) && !live.has(k)) {
-    btcInitialStop.delete(k);
-    btcLastStop.delete(k);
+  for (const k2 of Array.from(btcInitialStop.keys())) if (k2.startsWith(`${userId}:`) && !live.has(k2)) {
+    btcInitialStop.delete(k2);
+    btcLastStop.delete(k2);
   }
 }
 async function manageXauProfitLock(userId, openPositions) {
@@ -27054,9 +27054,9 @@ async function manageXauProfitLock(userId, openPositions) {
       addActivity(userId, { type: "error", symbol: pos.symbol, message: `\u26A0\uFE0F XAUUSD profit lock error on ${tlConn.accountId}: ${e?.message ?? e}` });
     }
   }
-  for (const k of Array.from(xauPeakPts.keys())) if (k.startsWith(`${userId}:`) && !live.has(k)) {
-    xauPeakPts.delete(k);
-    xauLockedPts.delete(k);
+  for (const k2 of Array.from(xauPeakPts.keys())) if (k2.startsWith(`${userId}:`) && !live.has(k2)) {
+    xauPeakPts.delete(k2);
+    xauLockedPts.delete(k2);
   }
 }
 async function applyServerSideTrails(userId, openPositions, marketAnalysis) {
@@ -27948,11 +27948,11 @@ MULTI-TIMEFRAME RULES: H4 = trend, H1 = structure, M15 = entry timing only.${pro
 INSTRUCTION: Signals that ALIGN with ${promptHTFLabel} bias are high-quality institutional setups \u2014 give them +5% confidence bonus. Signals that CONFLICT with ${promptHTFLabel} bias are counter-trend fades \u2014 require 80%+ base confidence before firing. If ${promptHTFLabel} shows strong BOS/CHOCH in one direction and M15 signals the opposite, SKIP unless you have 5+ LTF confluences.
 `;
     }
-    if (marketAnalysis["BTCUSD"] || Object.keys(marketAnalysis).some((k) => /^BTC/i.test(k))) {
+    if (marketAnalysis["BTCUSD"] || Object.keys(marketAnalysis).some((k2) => /^BTC/i.test(k2))) {
       try {
         const _btc = await Promise.resolve().then(() => (init_btc_profile(), btc_profile_exports));
         if (_btc.BTC_PROFILE_ON()) {
-          const _bk = Object.keys(marketAnalysis).find((k) => /^BTC/i.test(k));
+          const _bk = Object.keys(marketAnalysis).find((k2) => /^BTC/i.test(k2));
           htfBiasSection += `
 ${_btc.btcContextLine(crossAssets, state.lastFridayClose?.[_bk], marketAnalysis[_bk]?.currentPrice)}
 `;
@@ -28054,10 +28054,10 @@ INSTRUCTION: Entries that align with this macro bias get +5% confidence. Entries
     }
     let weightsSection = "";
     if (state.strategyPerformanceWeights && Object.keys(state.strategyPerformanceWeights).length > 0) {
-      const wEntries = Object.entries(state.strategyPerformanceWeights).sort(([, a], [, b]) => b - a).map(([k, v]) => {
+      const wEntries = Object.entries(state.strategyPerformanceWeights).sort(([, a], [, b]) => b - a).map(([k2, v]) => {
         const vn = v;
         const tag = vn >= 1.5 ? "\u{1F525}HOT" : vn >= 1.2 ? "\u2705WARM" : vn <= 0.3 ? "\u274CCOLD" : vn <= 0.6 ? "\u26A0\uFE0FCOOL" : "\u25FB\uFE0FOK";
-        return `${k}=${vn.toFixed(2)}${tag}`;
+        return `${k2}=${vn.toFixed(2)}${tag}`;
       }).join(", ");
       weightsSection = `
 STRATEGY PERFORMANCE WEIGHTS (real-time, updated after every trade result):
@@ -30067,7 +30067,7 @@ async function processDecision(userId, decision, newsCtx) {
       );
       if (config.pairDailyLimitMode === "fixed") {
         const _pairKey = decision.symbol.toUpperCase().replace(/[^A-Z0-9]/g, "");
-        const _override = Object.entries(config.pairDailyLimitOverrides || {}).find(([k]) => k.toUpperCase().replace(/[^A-Z0-9]/g, "") === _pairKey)?.[1];
+        const _override = Object.entries(config.pairDailyLimitOverrides || {}).find(([k2]) => k2.toUpperCase().replace(/[^A-Z0-9]/g, "") === _pairKey)?.[1];
         const _limit = Math.max(0, Math.floor(Number(_override ?? config.maxTradesPerPairPerDay ?? 2)));
         const _times = _leFills.map((t) => new Date(t.createdAt).getTime()).sort((a, b) => a - b);
         let _signals = 0, _groupStart = -Infinity;
@@ -31028,7 +31028,7 @@ function startLiveEngine(userId, config) {
   const weekKey = `${userId}_${tradingWeekStartISO()}`;
   const cachedTracker = goalTrackerCache[weekKey];
   const restoredTracker = cachedTracker ? { ...cachedTracker, weeklyTarget: fullConfig.weeklyProfitTarget || cachedTracker.weeklyTarget } : createGoalTracker(fullConfig);
-  const initWeights = Object.fromEntries(ALL_STRATEGY_KEYS.map((k) => [k, 1]));
+  const initWeights = Object.fromEntries(ALL_STRATEGY_KEYS.map((k2) => [k2, 1]));
   engineStates[userId] = {
     status: "running",
     startedAt: (/* @__PURE__ */ new Date()).toISOString(),
@@ -32758,10 +32758,10 @@ var init_tradelocker = __esm({
         const keys = Object.keys(obj);
         const normCands = candidates.map((c) => this.normLabel(c));
         for (const cand of normCands) {
-          let k = keys.find((key) => this.normLabel(key) === cand);
-          if (!k) k = keys.find((key) => this.normLabel(key).includes(cand));
-          if (k && obj[k] != null) {
-            const n = parseFloat(obj[k]);
+          let k2 = keys.find((key) => this.normLabel(key) === cand);
+          if (!k2) k2 = keys.find((key) => this.normLabel(key).includes(cand));
+          if (k2 && obj[k2] != null) {
+            const n = parseFloat(obj[k2]);
             if (!isNaN(n)) return n;
           }
         }
@@ -33736,11 +33736,11 @@ var init_tradelocker = __esm({
         } catch {
         }
         const idx = (candidates) => {
-          for (const k of candidates) {
-            const exact = columns.indexOf(k);
+          for (const k2 of candidates) {
+            const exact = columns.indexOf(k2);
             if (exact >= 0) return exact;
           }
-          return columns.findIndex((c) => candidates.some((k) => c.includes(k)));
+          return columns.findIndex((c) => candidates.some((k2) => c.includes(k2)));
         };
         const iId = idx(["id"]);
         const iInst = idx(["tradableinstrumentid", "tradableinstrument"]);
@@ -33750,11 +33750,11 @@ var init_tradelocker = __esm({
         const iPl = idx(["unrealizedpl", "unrealizedpnl", "pnl", "pl"]);
         const iDate = idx(["opendate", "date"]);
         const idxPrice = (candidates) => {
-          for (const k of candidates) {
-            const exact = columns.indexOf(k);
+          for (const k2 of candidates) {
+            const exact = columns.indexOf(k2);
             if (exact >= 0) return exact;
           }
-          return columns.findIndex((c) => !c.endsWith("id") && candidates.some((k) => c.includes(k)));
+          return columns.findIndex((c) => !c.endsWith("id") && candidates.some((k2) => c.includes(k2)));
         };
         const iSl = idxPrice(["stoploss", "stoplossprice", "sl"]);
         const iTp = idxPrice(["takeprofit", "takeprofitprice", "tp"]);
@@ -34662,12 +34662,12 @@ async function buildAbbaContext(userId) {
   const group = (rows, key) => {
     const m = {};
     for (const t of rows) {
-      const k = key(t) || "\u2014";
-      (m[k] = m[k] || []).push(t);
+      const k2 = key(t) || "\u2014";
+      (m[k2] = m[k2] || []).push(t);
     }
-    return Object.entries(m).map(([k, v]) => {
+    return Object.entries(m).map(([k2, v]) => {
       const tt = tally(v);
-      return { key: k, trades: tt.trades, winRate: tt.winRate, pnl: tt.totalPnl };
+      return { key: k2, trades: tt.trades, winRate: tt.winRate, pnl: tt.totalPnl };
     });
   };
   const avgConf = (rows) => rows.length ? Math.round(rows.reduce((s, t) => s + (t.aiConfidence || 0), 0) / rows.length) : 0;
@@ -35257,8 +35257,8 @@ function symbolKey(userId, symbol, timeframe) {
 }
 function getCachedConfirmation(userId, symbol, timeframe, direction, eaConfidence, price) {
   const now = Date.now();
-  const k = bandKey(userId, symbol, timeframe, direction, eaConfidence, price);
-  const hit = cache7.get(k);
+  const k2 = bandKey(userId, symbol, timeframe, direction, eaConfidence, price);
+  const hit = cache7.get(k2);
   if (hit && now - hit.at < TTL_MS5) {
     hits++;
     return { verdict: hit.verdict, reason: `cached ${Math.round((now - hit.at) / 1e3)}s ago (same setup)` };
@@ -35285,7 +35285,7 @@ function putCachedConfirmation(userId, symbol, timeframe, direction, eaConfidenc
   cache7.set(bandKey(userId, symbol, timeframe, direction, eaConfidence, price), { verdict, at: now, eaConfidence, price });
   lastCallAt2.set(symbolKey(userId, symbol, timeframe), now);
   if (cache7.size > 500) {
-    for (const [k, v] of Array.from(cache7.entries())) if (now - v.at > STALE_USABLE_MS) cache7.delete(k);
+    for (const [k2, v] of Array.from(cache7.entries())) if (now - v.at > STALE_USABLE_MS) cache7.delete(k2);
   }
 }
 function confirmationCacheStats() {
@@ -37267,7 +37267,7 @@ async function checkFuturesSafetyGates(userId, cfg, equity, symbol, unrealizedPn
       const today = (/* @__PURE__ */ new Date()).toISOString().split("T")[0];
       history[today] = todayPnl;
       const recentKeys = Object.keys(history).sort().slice(-cfg.consistencyPeriodDays);
-      const profitableDays = recentKeys.filter((k) => (history[k] ?? 0) > 0).length;
+      const profitableDays = recentKeys.filter((k2) => (history[k2] ?? 0) > 0).length;
       const tradingDays = recentKeys.length;
       const daysRemaining = cfg.consistencyPeriodDays - tradingDays;
       const todayIsLosing = todayPnl < 0;
@@ -38368,16 +38368,16 @@ function buildLearningInsights(overallWinRate, totalTrades, symbolKnowledge) {
   } else if (overallWinRate < 50 && totalTrades >= 10) {
     insights.push(`Win rate below 50% \u2014 the engine will prioritize higher-confidence setups only until this improves`);
   }
-  for (const [symbol, k] of Object.entries(symbolKnowledge)) {
-    if (k.totalTrades < 3) continue;
-    if (k.preferredDirection !== "both") {
-      insights.push(`${symbol}: strong ${k.preferredDirection.toUpperCase()} bias detected (${k.preferredDirection === "long" ? k.longWinRate : k.shortWinRate}% WR)`);
+  for (const [symbol, k2] of Object.entries(symbolKnowledge)) {
+    if (k2.totalTrades < 3) continue;
+    if (k2.preferredDirection !== "both") {
+      insights.push(`${symbol}: strong ${k2.preferredDirection.toUpperCase()} bias detected (${k2.preferredDirection === "long" ? k2.longWinRate : k2.shortWinRate}% WR)`);
     }
-    if (k.worstHours[0] && k.worstHours[0].winRate < 30 && k.worstHours[0].total >= 3) {
-      insights.push(`${symbol}: avoid entries around ${k.worstHours[0].hour}:00 UTC (${k.worstHours[0].winRate}% WR \u2014 loss zone)`);
+    if (k2.worstHours[0] && k2.worstHours[0].winRate < 30 && k2.worstHours[0].total >= 3) {
+      insights.push(`${symbol}: avoid entries around ${k2.worstHours[0].hour}:00 UTC (${k2.worstHours[0].winRate}% WR \u2014 loss zone)`);
     }
-    if (k.bestStrategies.length > 0 && k.totalTrades >= 5) {
-      insights.push(`${symbol}: best-performing strategy is "${k.bestStrategies[0]}"`);
+    if (k2.bestStrategies.length > 0 && k2.totalTrades >= 5) {
+      insights.push(`${symbol}: best-performing strategy is "${k2.bestStrategies[0]}"`);
     }
   }
   return insights.slice(0, 10);
@@ -39470,7 +39470,7 @@ function ensureSocialTables() {
 }
 async function renderCard(c) {
   const W = 1080, H2 = 1080, F = "DejaVu Sans, Arial, Helvetica, sans-serif";
-  const rows = (c.rows || []).slice(0, 5).map(([k, v], i) => `<text x="90" y="${700 + i * 58}" font-family="${F}" font-size="34" fill="#94a3b8">${esc(k)}</text>
+  const rows = (c.rows || []).slice(0, 5).map(([k2, v], i) => `<text x="90" y="${700 + i * 58}" font-family="${F}" font-size="34" fill="#94a3b8">${esc(k2)}</text>
      <text x="990" y="${700 + i * 58}" font-family="${F}" font-size="34" font-weight="700" fill="#e2e8f0" text-anchor="end">${esc(v)}</text>`).join("");
   let spark = "";
   if (c.series && c.series.length >= 2) {
@@ -39533,8 +39533,8 @@ async function fxWeek(windowDays = 7) {
   const bestE = Array.from(byPair.entries()).sort((a, b) => b[1] - a[1])[0];
   const days = /* @__PURE__ */ new Map();
   for (const x of sigs.sort((a, b) => a.close - b.close)) {
-    const k = new Date(x.close).toISOString().slice(0, 10);
-    days.set(k, (days.get(k) || 0) + x.pl);
+    const k2 = new Date(x.close).toISOString().slice(0, 10);
+    days.set(k2, (days.get(k2) || 0) + x.pl);
   }
   let run = 0;
   const series = [0, ...Array.from(days.values()).map((v) => (run += v) / base * 100)];
@@ -39998,8 +39998,8 @@ async function sendMorningSocialEmail(force = false) {
   const esc2 = (t) => String(t || "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
   const byKind = /* @__PURE__ */ new Map();
   for (const r2 of rows) {
-    const k = `${r2.kind}|${new Date(r2.created_at).toISOString().slice(0, 13)}`;
-    (byKind.get(k) || byKind.set(k, []).get(k)).push(r2);
+    const k2 = `${r2.kind}|${new Date(r2.created_at).toISOString().slice(0, 13)}`;
+    (byKind.get(k2) || byKind.set(k2, []).get(k2)).push(r2);
   }
   const LABEL = { challenge_daily: "$100K challenge \u2014 daily result", daily_update: "Daily update", weekly_recap: "Weekly recap", shadow_progress: "Shadow progress", engine_insight: "Engine insight", milestone: "Milestone" };
   const blocks = Array.from(byKind.values()).map((g) => {
@@ -40156,8 +40156,8 @@ function verifyWhopWebhook(rawBody, headers) {
     }
   }
   const provided = sigHeader.split(" ").map((p) => p.trim()).filter(Boolean).map((p) => p.includes(",") ? p.split(",")[1] : p);
-  for (const k of keys) {
-    const expected = crypto8.createHmac("sha256", k).update(signed).digest("base64");
+  for (const k2 of keys) {
+    const expected = crypto8.createHmac("sha256", k2).update(signed).digest("base64");
     const eb = Buffer.from(expected);
     for (const p of provided) {
       const pb = Buffer.from(p);
@@ -41472,7 +41472,7 @@ async function fetchDailyBars(service, symbol, years) {
 function annualizedVol(closes, i, window = 20) {
   if (i < window) return 0;
   const rets = [];
-  for (let k = i - window + 1; k <= i; k++) rets.push(Math.log(closes[k] / closes[k - 1]));
+  for (let k2 = i - window + 1; k2 <= i; k2++) rets.push(Math.log(closes[k2] / closes[k2 - 1]));
   const mean = rets.reduce((a, b) => a + b, 0) / rets.length;
   const varr = rets.reduce((s, x) => s + (x - mean) ** 2, 0) / rets.length;
   return Math.sqrt(varr) * Math.sqrt(252);
@@ -41581,13 +41581,13 @@ async function backtestCreditSpread(service, symbol, years, p) {
     byIvRank[b].pnl += t.pnl;
     if (t.pnl > 0) byIvRank[b].winRate++;
   }
-  for (const k of Object.keys(byYear)) {
-    byYear[k].winRate = Math.round(100 * byYear[k].winRate / byYear[k].trades);
-    byYear[k].pnl = Math.round(byYear[k].pnl);
+  for (const k2 of Object.keys(byYear)) {
+    byYear[k2].winRate = Math.round(100 * byYear[k2].winRate / byYear[k2].trades);
+    byYear[k2].pnl = Math.round(byYear[k2].pnl);
   }
-  for (const k of Object.keys(byIvRank)) {
-    byIvRank[k].winRate = Math.round(100 * byIvRank[k].winRate / byIvRank[k].trades);
-    byIvRank[k].pnl = Math.round(byIvRank[k].pnl);
+  for (const k2 of Object.keys(byIvRank)) {
+    byIvRank[k2].winRate = Math.round(100 * byIvRank[k2].winRate / byIvRank[k2].trades);
+    byIvRank[k2].pnl = Math.round(byIvRank[k2].pnl);
   }
   return {
     symbol,
@@ -41705,16 +41705,16 @@ function buildLearningInsights2(overallWinRate, totalTrades, contractKnowledge) 
   } else if (overallWinRate < 50 && totalTrades >= 10) {
     insights.push(`Win rate below 50% \u2014 the engine will prioritize higher-confidence setups only until this improves`);
   }
-  for (const [symbol, k] of Object.entries(contractKnowledge)) {
-    if (k.totalTrades < 3) continue;
-    if (k.preferredDirection !== "both") {
-      insights.push(`${symbol}: strong ${k.preferredDirection.toUpperCase()} bias detected (${k.preferredDirection === "call" ? k.callWinRate : k.putWinRate}% WR)`);
+  for (const [symbol, k2] of Object.entries(contractKnowledge)) {
+    if (k2.totalTrades < 3) continue;
+    if (k2.preferredDirection !== "both") {
+      insights.push(`${symbol}: strong ${k2.preferredDirection.toUpperCase()} bias detected (${k2.preferredDirection === "call" ? k2.callWinRate : k2.putWinRate}% WR)`);
     }
-    if (k.worstHours[0] && k.worstHours[0].winRate < 30 && k.worstHours[0].total >= 3) {
-      insights.push(`${symbol}: avoid entries around ${k.worstHours[0].hour}:00 UTC (${k.worstHours[0].winRate}% WR \u2014 loss zone)`);
+    if (k2.worstHours[0] && k2.worstHours[0].winRate < 30 && k2.worstHours[0].total >= 3) {
+      insights.push(`${symbol}: avoid entries around ${k2.worstHours[0].hour}:00 UTC (${k2.worstHours[0].winRate}% WR \u2014 loss zone)`);
     }
-    if (k.bestStrategies.length > 0 && k.totalTrades >= 5) {
-      insights.push(`${symbol}: best-performing strategy is "${k.bestStrategies[0]}"`);
+    if (k2.bestStrategies.length > 0 && k2.totalTrades >= 5) {
+      insights.push(`${symbol}: best-performing strategy is "${k2.bestStrategies[0]}"`);
     }
   }
   return insights.slice(0, 10);
@@ -42847,12 +42847,12 @@ function packInto(out, v) {
     return;
   }
   if (typeof v === "object") {
-    const keys = Object.keys(v).filter((k) => v[k] !== void 0);
+    const keys = Object.keys(v).filter((k2) => v[k2] !== void 0);
     if (keys.length < 16) out.push(128 | keys.length);
     else out.push(222, keys.length >> 8, keys.length & 255);
-    for (const k of keys) {
-      packInto(out, k);
-      packInto(out, v[k]);
+    for (const k2 of keys) {
+      packInto(out, k2);
+      packInto(out, v[k2]);
     }
     return;
   }
@@ -43959,7 +43959,7 @@ function getDefiUniverseEntry(symbol, chain) {
 }
 function topDefiUniverse(chain, n) {
   const pre = `${chain.toLowerCase()}::`;
-  return Array.from(defiUniverse.entries()).filter(([k]) => k.startsWith(pre)).sort((a, b) => (b[1].liquidityUsd || 0) - (a[1].liquidityUsd || 0)).slice(0, n).map(([k, v]) => ({ symbol: k.slice(pre.length), poolAddress: v.poolAddress, address: v.address }));
+  return Array.from(defiUniverse.entries()).filter(([k2]) => k2.startsWith(pre)).sort((a, b) => (b[1].liquidityUsd || 0) - (a[1].liquidityUsd || 0)).slice(0, n).map(([k2, v]) => ({ symbol: k2.slice(pre.length), poolAddress: v.poolAddress, address: v.address }));
 }
 async function fetchBars(symbol, timeframe, count, chain) {
   if (symbol.toUpperCase().startsWith("HL:")) {
@@ -44000,9 +44000,9 @@ function convertToCandles3(bars) {
 }
 function emaOf(xs, n) {
   if (xs.length < n) return NaN;
-  const k = 2 / (n + 1);
+  const k2 = 2 / (n + 1);
   let e = xs.slice(0, n).reduce((a, c) => a + c, 0) / n;
-  for (const x of xs.slice(n)) e = x * k + e * (1 - k);
+  for (const x of xs.slice(n)) e = x * k2 + e * (1 - k2);
   return e;
 }
 async function barsFor2(symbol, tf, n, chain, pool2) {
@@ -44343,7 +44343,7 @@ async function scanSymbol(symbol, cfg) {
 }
 async function scanSymbolRaw(symbol, cfg) {
   if (cfg.strategyMode === "auto") {
-    const results = await Promise.all(AUTO_STRATEGIES.map((k) => STRATEGY_RUNNERS[k](symbol, cfg).catch(() => null)));
+    const results = await Promise.all(AUTO_STRATEGIES.map((k2) => STRATEGY_RUNNERS[k2](symbol, cfg).catch(() => null)));
     const valid = results.filter((r) => !!r);
     const signals = valid.filter((r) => r.decision === "signal").sort((a, b) => (b.score ?? 0) - (a.score ?? 0));
     if (signals.length > 0) return signals[0];
@@ -44478,9 +44478,9 @@ async function monitorOpenPositions(userId, cfg) {
         if (process.env.CRYPTO_TRAIL !== "off" && Number(trade.stopLoss) > 0 && trade.entryPrice > 0) {
           try {
             const { getRuntimeStateStrict: getRuntimeStateStrict2, insertRuntimeStateIfAbsent: insertRuntimeStateIfAbsent2 } = await Promise.resolve().then(() => (init_runtime_state(), runtime_state_exports));
-            const k = String(trade.id);
-            const stored = await getRuntimeStateStrict2("crypto_initial_stop", k);
-            const initial = Number(stored?.sl) > 0 ? Number(stored.sl) : Number((await insertRuntimeStateIfAbsent2("crypto_initial_stop", k, { sl: trade.stopLoss }))?.sl);
+            const k2 = String(trade.id);
+            const stored = await getRuntimeStateStrict2("crypto_initial_stop", k2);
+            const initial = Number(stored?.sl) > 0 ? Number(stored.sl) : Number((await insertRuntimeStateIfAbsent2("crypto_initial_stop", k2, { sl: trade.stopLoss }))?.sl);
             const risk = trade.entryPrice - initial;
             if (risk > 0) {
               const favR = (px - trade.entryPrice) / risk;
@@ -45450,8 +45450,8 @@ async function runInPool(items, limit, fn) {
 }
 function rotate(arr2, n) {
   if (arr2.length < 2) return arr2;
-  const k = n % arr2.length;
-  return arr2.slice(k).concat(arr2.slice(0, k));
+  const k2 = n % arr2.length;
+  return arr2.slice(k2).concat(arr2.slice(0, k2));
 }
 async function runUserBounded(key, budgetMs, fn) {
   if (userInFlight.has(key)) {
@@ -45641,8 +45641,8 @@ async function reconcileOpenQuantities() {
     }
     const byToken = /* @__PURE__ */ new Map();
     for (const t of defi) {
-      const k = String(t.tokenAddress).toLowerCase();
-      byToken.set(k, [...byToken.get(k) ?? [], t]);
+      const k2 = String(t.tokenAddress).toLowerCase();
+      byToken.set(k2, [...byToken.get(k2) ?? [], t]);
     }
     for (const t of defi) {
       const sameToken = (byToken.get(String(t.tokenAddress).toLowerCase()) ?? []).slice().sort((a, b) => a.id - b.id);
@@ -45909,12 +45909,12 @@ __export(btc_5min_predictor_exports, {
   getCryptoPrediction: () => getCryptoPrediction
 });
 function ema(values, period) {
-  const k = 2 / (period + 1);
+  const k2 = 2 / (period + 1);
   const result = [];
   let e = values[0];
   result.push(e);
   for (let i = 1; i < values.length; i++) {
-    e = values[i] * k + e * (1 - k);
+    e = values[i] * k2 + e * (1 - k2);
     result.push(e);
   }
   return result;
@@ -46886,9 +46886,9 @@ function orderFlowSignal(candles) {
 }
 function ema2(values, period) {
   if (!values.length) return 0;
-  const k = 2 / (period + 1);
+  const k2 = 2 / (period + 1);
   let e = values[0];
-  for (let i = 1; i < values.length; i++) e = values[i] * k + e * (1 - k);
+  for (let i = 1; i < values.length; i++) e = values[i] * k2 + e * (1 - k2);
   return e;
 }
 function rsi2(closes, period = 14) {
@@ -46905,11 +46905,11 @@ function rsi2(closes, period = 14) {
 function macdHist(closes) {
   if (closes.length < 26) return 0;
   const emaArr = (vals, p) => {
-    const k = 2 / (p + 1);
+    const k2 = 2 / (p + 1);
     let e = vals[0];
     const out = [e];
     for (let i = 1; i < vals.length; i++) {
-      e = vals[i] * k + e * (1 - k);
+      e = vals[i] * k2 + e * (1 - k2);
       out.push(e);
     }
     return out;
@@ -47509,7 +47509,7 @@ async function learnFromKalshiTrades(userId) {
   let totalWins = 0, totalDecided = 0, totalPnl = 0;
   for (const r of rows) {
     const coin = r.coin || "BTC";
-    const k = coins[coin] ??= {
+    const k2 = coins[coin] ??= {
       totalTrades: 0,
       wins: 0,
       losses: 0,
@@ -47529,48 +47529,48 @@ async function learnFromKalshiTrades(userId) {
     const pnl = Number(r.profitLoss ?? 0);
     const win = r.result === "WIN";
     const loss = r.result === "LOSS";
-    k.totalTrades++;
-    k.totalPnl += pnl;
+    k2.totalTrades++;
+    k2.totalPnl += pnl;
     totalPnl += pnl;
     if (win) {
-      k.wins++;
+      k2.wins++;
       totalWins++;
       winSum[coin] = (winSum[coin] ?? 0) + pnl;
       winN[coin] = (winN[coin] ?? 0) + 1;
     }
     if (loss) {
-      k.losses++;
+      k2.losses++;
       lossSum[coin] = (lossSum[coin] ?? 0) + Math.abs(pnl);
       lossN[coin] = (lossN[coin] ?? 0) + 1;
     }
     if (win || loss) totalDecided++;
-    if (r.strikeType) _bump(k.byStrikeType, r.strikeType, win);
-    if (r.confidence != null) _bump(k.byConfidenceBand, _band(r.confidence, 10), win);
-    if (r.edgePct != null) _bump(k.byEdgeBand, _band(r.edgePct, 5), win);
-    if (r.hourUtc != null) _bump(k.byHour, String(r.hourUtc), win);
+    if (r.strikeType) _bump(k2.byStrikeType, r.strikeType, win);
+    if (r.confidence != null) _bump(k2.byConfidenceBand, _band(r.confidence, 10), win);
+    if (r.edgePct != null) _bump(k2.byEdgeBand, _band(r.edgePct, 5), win);
+    if (r.hourUtc != null) _bump(k2.byHour, String(r.hourUtc), win);
   }
-  for (const [coin, k] of Object.entries(coins)) {
-    const decided = k.wins + k.losses;
-    k.winRate = decided ? Math.round(k.wins / decided * 100) : 0;
-    k.avgWin = winN[coin] ? winSum[coin] / winN[coin] : 0;
-    k.avgLoss = lossN[coin] ? lossSum[coin] / lossN[coin] : 0;
-    k.riskReward = k.avgLoss > 0 ? k.avgWin / k.avgLoss : k.avgWin > 0 ? 2 : 1;
-    k.recommendedSizeMultiplier = _sizeMultiplier(k.winRate, k.riskReward, decided);
-    k.valueScoreWeight = _valueWeight(k.winRate, decided);
+  for (const [coin, k2] of Object.entries(coins)) {
+    const decided = k2.wins + k2.losses;
+    k2.winRate = decided ? Math.round(k2.wins / decided * 100) : 0;
+    k2.avgWin = winN[coin] ? winSum[coin] / winN[coin] : 0;
+    k2.avgLoss = lossN[coin] ? lossSum[coin] / lossN[coin] : 0;
+    k2.riskReward = k2.avgLoss > 0 ? k2.avgWin / k2.avgLoss : k2.avgWin > 0 ? 2 : 1;
+    k2.recommendedSizeMultiplier = _sizeMultiplier(k2.winRate, k2.riskReward, decided);
+    k2.valueScoreWeight = _valueWeight(k2.winRate, decided);
     let best = null, bestWr = -1;
-    for (const [t, s] of Object.entries(k.byStrikeType)) if (s.trades >= 3 && s.winRate > bestWr) {
+    for (const [t, s] of Object.entries(k2.byStrikeType)) if (s.trades >= 3 && s.winRate > bestWr) {
       best = t;
       bestWr = s.winRate;
     }
-    k.bestStrikeType = best;
+    k2.bestStrikeType = best;
   }
   const insights = [];
-  for (const [coin, k] of Object.entries(coins)) {
-    if (k.wins + k.losses >= MIN_TRADES_FOR_COIN) {
-      insights.push(`${coin}: ${k.winRate}% win rate over ${k.wins + k.losses} trades \u2192 sizing \xD7${k.recommendedSizeMultiplier}, value \xD7${k.valueScoreWeight}.`);
-      if (k.bestStrikeType) insights.push(`${coin}: best on "${k.bestStrikeType}" brackets.`);
+  for (const [coin, k2] of Object.entries(coins)) {
+    if (k2.wins + k2.losses >= MIN_TRADES_FOR_COIN) {
+      insights.push(`${coin}: ${k2.winRate}% win rate over ${k2.wins + k2.losses} trades \u2192 sizing \xD7${k2.recommendedSizeMultiplier}, value \xD7${k2.valueScoreWeight}.`);
+      if (k2.bestStrikeType) insights.push(`${coin}: best on "${k2.bestStrikeType}" brackets.`);
     } else {
-      insights.push(`${coin}: still learning (${k.wins + k.losses}/${MIN_TRADES_FOR_COIN} decided) \u2014 neutral sizing.`);
+      insights.push(`${coin}: still learning (${k2.wins + k2.losses}/${MIN_TRADES_FOR_COIN} decided) \u2014 neutral sizing.`);
     }
   }
   const brain = {
@@ -47595,30 +47595,30 @@ function cachedKalshiBrain(userId) {
 }
 function kalshiBrainSizeMultiplier(userId, coin) {
   const b = _cache3.get(userId)?.brain;
-  const k = b?.coinKnowledge[coin];
-  return k ? k.recommendedSizeMultiplier : 1;
+  const k2 = b?.coinKnowledge[coin];
+  return k2 ? k2.recommendedSizeMultiplier : 1;
 }
 function kalshiBrainGate(userId, coin, strikeType, hourUtc, confidence2) {
-  const k = _cache3.get(userId)?.brain?.coinKnowledge[coin];
-  if (!k) return { blocked: false, reason: "" };
-  const decided = k.wins + k.losses;
-  if (decided >= 15 && k.winRate < 35) {
-    return { blocked: true, reason: `\u{1F9E0} Brain gate: ${coin} win rate ${k.winRate}% over ${decided} trades \u2014 skipping coin` };
+  const k2 = _cache3.get(userId)?.brain?.coinKnowledge[coin];
+  if (!k2) return { blocked: false, reason: "" };
+  const decided = k2.wins + k2.losses;
+  if (decided >= 15 && k2.winRate < 35) {
+    return { blocked: true, reason: `\u{1F9E0} Brain gate: ${coin} win rate ${k2.winRate}% over ${decided} trades \u2014 skipping coin` };
   }
   if (strikeType) {
-    const st = k.byStrikeType[strikeType];
+    const st = k2.byStrikeType[strikeType];
     if (st && st.trades >= 8 && st.winRate < 30) {
       return { blocked: true, reason: `\u{1F9E0} Brain gate: ${coin}/${strikeType} win rate ${st.winRate}% over ${st.trades} \u2014 skipping bracket type` };
     }
   }
   if (hourUtc != null) {
-    const h = k.byHour[String(hourUtc)];
+    const h = k2.byHour[String(hourUtc)];
     if (h && h.trades >= 8 && h.winRate < 30) {
       return { blocked: true, reason: `\u{1F9E0} Brain gate: ${coin} @ ${hourUtc}:00 UTC win rate ${h.winRate}% over ${h.trades} \u2014 skipping this hour` };
     }
   }
   if (confidence2 != null) {
-    const cb = k.byConfidenceBand[_band(confidence2, 10)];
+    const cb = k2.byConfidenceBand[_band(confidence2, 10)];
     if (cb && cb.trades >= 8 && cb.winRate < 30) {
       return { blocked: true, reason: `\u{1F9E0} Brain gate: ${coin} at ${_band(confidence2, 10)} confidence win rate ${cb.winRate}% over ${cb.trades} \u2014 skipping` };
     }
@@ -47626,11 +47626,11 @@ function kalshiBrainGate(userId, coin, strikeType, hourUtc, confidence2) {
   return { blocked: false, reason: "" };
 }
 function kalshiBrainValueWeight(userId, coin, strikeType) {
-  const k = _cache3.get(userId)?.brain?.coinKnowledge[coin];
-  if (!k) return 1;
-  let w = k.valueScoreWeight;
+  const k2 = _cache3.get(userId)?.brain?.coinKnowledge[coin];
+  if (!k2) return 1;
+  let w = k2.valueScoreWeight;
   if (strikeType) {
-    const st = k.byStrikeType[strikeType];
+    const st = k2.byStrikeType[strikeType];
     if (st && st.trades >= 5) w *= 0.85 + st.winRate / 100 * 0.3;
   }
   return Math.max(0.6, Math.min(1.4, Math.round(w * 100) / 100));
@@ -47665,7 +47665,7 @@ async function fetchEnsembleDailyMax(city, targetLocalDate) {
   const dayIdx = [];
   for (let i = 0; i < times.length; i++) if (times[i].slice(0, 10) === targetLocalDate) dayIdx.push(i);
   if (!dayIdx.length) throw new Error(`Open-Meteo ensemble: target day ${targetLocalDate} not in forecast window`);
-  const memberKeys = Object.keys(hourly).filter((k) => k === "temperature_2m" || k.startsWith("temperature_2m_member"));
+  const memberKeys = Object.keys(hourly).filter((k2) => k2 === "temperature_2m" || k2.startsWith("temperature_2m_member"));
   const members = [];
   for (const key of memberKeys) {
     const arr2 = hourly[key];
@@ -49635,12 +49635,12 @@ async function fetchBinanceLiveContext(pair) {
     if (!res.ok) return null;
     const klines = await res.json();
     if (!klines.length) return null;
-    const closes = klines.map((k) => parseFloat(k[4]));
+    const closes = klines.map((k2) => parseFloat(k2[4]));
     const last = closes[closes.length - 1];
     const prev5 = closes[closes.length - 6];
     const change5m = ((last - prev5) / prev5 * 100).toFixed(3);
-    const high20 = Math.max(...klines.slice(-20).map((k) => parseFloat(k[2])));
-    const low20 = Math.min(...klines.slice(-20).map((k) => parseFloat(k[3])));
+    const high20 = Math.max(...klines.slice(-20).map((k2) => parseFloat(k2[2])));
+    const low20 = Math.min(...klines.slice(-20).map((k2) => parseFloat(k2[3])));
     const vol = parseFloat(klines[klines.length - 1][5]).toFixed(2);
     return `${symbol} live (Binance): price $${last.toLocaleString()} | 5m change ${change5m}% | 20-bar range $${low20.toLocaleString()}\u2013$${high20.toLocaleString()} | volume ${vol}`;
   } catch {
@@ -49858,45 +49858,45 @@ async function learnFromSolTrades(userId) {
   let totalWins = 0, totalDecided = 0, totalPnl = 0;
   for (const r of rows) {
     const sym = r.symbol || "UNKNOWN";
-    const k = symbols[sym] ??= { totalTrades: 0, wins: 0, losses: 0, winRate: 0, totalPnl: 0, avgWin: 0, avgLoss: 0, riskReward: 0, byStrategy: {}, byHour: {}, bestStrategy: null, recommendedSizeMultiplier: 1 };
+    const k2 = symbols[sym] ??= { totalTrades: 0, wins: 0, losses: 0, winRate: 0, totalPnl: 0, avgWin: 0, avgLoss: 0, riskReward: 0, byStrategy: {}, byHour: {}, bestStrategy: null, recommendedSizeMultiplier: 1 };
     const pnl = Number(r.profit_loss) || 0;
     const win = r.result === "WIN", loss = r.result === "LOSS";
-    k.totalTrades++;
-    k.totalPnl += pnl;
+    k2.totalTrades++;
+    k2.totalPnl += pnl;
     totalPnl += pnl;
     if (win) {
-      k.wins++;
+      k2.wins++;
       totalWins++;
       winSum[sym] = (winSum[sym] ?? 0) + pnl;
       winN[sym] = (winN[sym] ?? 0) + 1;
     }
     if (loss) {
-      k.losses++;
+      k2.losses++;
       lossSum[sym] = (lossSum[sym] ?? 0) + Math.abs(pnl);
       lossN[sym] = (lossN[sym] ?? 0) + 1;
     }
     if (win || loss) totalDecided++;
-    if (r.strategy) bump2(k.byStrategy, r.strategy, win);
-    if (r.hour_utc != null) bump2(k.byHour, String(r.hour_utc), win);
+    if (r.strategy) bump2(k2.byStrategy, r.strategy, win);
+    if (r.hour_utc != null) bump2(k2.byHour, String(r.hour_utc), win);
   }
-  for (const [sym, k] of Object.entries(symbols)) {
-    const decided = k.wins + k.losses;
-    k.winRate = decided ? Math.round(k.wins / decided * 100) : 0;
-    k.avgWin = winN[sym] ? winSum[sym] / winN[sym] : 0;
-    k.avgLoss = lossN[sym] ? lossSum[sym] / lossN[sym] : 0;
-    k.riskReward = k.avgLoss > 0 ? k.avgWin / k.avgLoss : k.avgWin > 0 ? 2 : 1;
-    k.recommendedSizeMultiplier = sizeMult2(k.winRate, k.riskReward, decided);
+  for (const [sym, k2] of Object.entries(symbols)) {
+    const decided = k2.wins + k2.losses;
+    k2.winRate = decided ? Math.round(k2.wins / decided * 100) : 0;
+    k2.avgWin = winN[sym] ? winSum[sym] / winN[sym] : 0;
+    k2.avgLoss = lossN[sym] ? lossSum[sym] / lossN[sym] : 0;
+    k2.riskReward = k2.avgLoss > 0 ? k2.avgWin / k2.avgLoss : k2.avgWin > 0 ? 2 : 1;
+    k2.recommendedSizeMultiplier = sizeMult2(k2.winRate, k2.riskReward, decided);
     let best = null, bestWr = -1;
-    for (const [s, b] of Object.entries(k.byStrategy)) if (b.trades >= 3 && b.winRate > bestWr) {
+    for (const [s, b] of Object.entries(k2.byStrategy)) if (b.trades >= 3 && b.winRate > bestWr) {
       best = s;
       bestWr = b.winRate;
     }
-    k.bestStrategy = best;
+    k2.bestStrategy = best;
   }
   const insights = [];
-  for (const [sym, k] of Object.entries(symbols)) {
-    if (k.wins + k.losses >= MIN_TRADES4) insights.push(`${sym}: ${k.winRate}% WR over ${k.wins + k.losses} \u2192 sizing \xD7${k.recommendedSizeMultiplier}${k.bestStrategy ? `, best on ${k.bestStrategy}` : ""}.`);
-    else insights.push(`${sym}: still learning (${k.wins + k.losses}/${MIN_TRADES4}).`);
+  for (const [sym, k2] of Object.entries(symbols)) {
+    if (k2.wins + k2.losses >= MIN_TRADES4) insights.push(`${sym}: ${k2.winRate}% WR over ${k2.wins + k2.losses} \u2192 sizing \xD7${k2.recommendedSizeMultiplier}${k2.bestStrategy ? `, best on ${k2.bestStrategy}` : ""}.`);
+    else insights.push(`${sym}: still learning (${k2.wins + k2.losses}/${MIN_TRADES4}).`);
   }
   const brain = { userId, lastLearned: (/* @__PURE__ */ new Date()).toISOString(), totalTrades: rows.length, overallWinRate: totalDecided ? Math.round(totalWins / totalDecided * 100) : 0, totalPnl: Math.round(totalPnl * 100) / 100, symbolKnowledge: symbols, insights };
   _cache5.set(userId, { brain, at: Date.now() });
@@ -49908,20 +49908,20 @@ async function getOrRefreshSolBrain(userId, force = false) {
   return learnFromSolTrades(userId);
 }
 function solBrainSizeMultiplier(userId, symbol) {
-  const k = _cache5.get(userId)?.brain?.symbolKnowledge[symbol];
-  return k ? k.recommendedSizeMultiplier : 1;
+  const k2 = _cache5.get(userId)?.brain?.symbolKnowledge[symbol];
+  return k2 ? k2.recommendedSizeMultiplier : 1;
 }
 function solBrainGate(userId, symbol, strategy, hourUtc) {
-  const k = _cache5.get(userId)?.brain?.symbolKnowledge[symbol];
-  if (!k) return { blocked: false, reason: "" };
-  const decided = k.wins + k.losses;
-  if (decided >= 15 && k.winRate < 35) return { blocked: true, reason: `\u{1F9E0} Sol brain: ${symbol} ${k.winRate}% WR over ${decided} \u2014 skipping symbol` };
+  const k2 = _cache5.get(userId)?.brain?.symbolKnowledge[symbol];
+  if (!k2) return { blocked: false, reason: "" };
+  const decided = k2.wins + k2.losses;
+  if (decided >= 15 && k2.winRate < 35) return { blocked: true, reason: `\u{1F9E0} Sol brain: ${symbol} ${k2.winRate}% WR over ${decided} \u2014 skipping symbol` };
   if (strategy) {
-    const st = k.byStrategy[strategy];
+    const st = k2.byStrategy[strategy];
     if (st && st.trades >= 8 && st.winRate < 30) return { blocked: true, reason: `\u{1F9E0} Sol brain: ${symbol}/${strategy} ${st.winRate}% WR over ${st.trades} \u2014 skipping` };
   }
   if (hourUtc != null) {
-    const h = k.byHour[String(hourUtc)];
+    const h = k2.byHour[String(hourUtc)];
     if (h && h.trades >= 8 && h.winRate < 30) return { blocked: true, reason: `\u{1F9E0} Sol brain: ${symbol} @ ${hourUtc}:00 UTC ${h.winRate}% WR over ${h.trades} \u2014 skipping this hour` };
   }
   return { blocked: false, reason: "" };
@@ -51242,18 +51242,18 @@ function pruneEngineMaps(state) {
   const ONE_HOUR = 60 * 6e4;
   const REVIEW_TTL = 5 * 6e4;
   const MAX_SNAPSHOTS = 500;
-  for (const k of Object.keys(state.lastTriggerAt)) {
-    if (now - (state.lastTriggerAt[k] || 0) > ONE_HOUR) delete state.lastTriggerAt[k];
+  for (const k2 of Object.keys(state.lastTriggerAt)) {
+    if (now - (state.lastTriggerAt[k2] || 0) > ONE_HOUR) delete state.lastTriggerAt[k2];
   }
-  for (const k of Object.keys(state.aiReviewCache)) {
-    if (now - (state.aiReviewCache[k]?.ts || 0) > REVIEW_TTL) delete state.aiReviewCache[k];
+  for (const k2 of Object.keys(state.aiReviewCache)) {
+    if (now - (state.aiReviewCache[k2]?.ts || 0) > REVIEW_TTL) delete state.aiReviewCache[k2];
   }
-  state.signalCooldowns.forEach((ts, k) => {
-    if (now - (ts || 0) > ONE_HOUR) state.signalCooldowns.delete(k);
+  state.signalCooldowns.forEach((ts, k2) => {
+    if (now - (ts || 0) > ONE_HOUR) state.signalCooldowns.delete(k2);
   });
   const snapKeys = Object.keys(state.lastTokenSnapshot);
   if (snapKeys.length > MAX_SNAPSHOTS) {
-    for (const k of snapKeys.slice(0, snapKeys.length - MAX_SNAPSHOTS)) delete state.lastTokenSnapshot[k];
+    for (const k2 of snapKeys.slice(0, snapKeys.length - MAX_SNAPSHOTS)) delete state.lastTokenSnapshot[k2];
   }
 }
 async function runScan(userId, state, triggerToken) {
@@ -54890,6 +54890,7 @@ import { spawn as spawn2 } from "child_process";
 import { createRequire } from "module";
 function ffmpegBin() {
   if (cached) return cached;
+  if (process.env.FFMPEG_PATH) return cached = process.env.FFMPEG_PATH;
   try {
     const req = createRequire(import.meta.url);
     const p = req("ffmpeg-static");
@@ -55102,6 +55103,92 @@ var init_content_asset_store = __esm({
   }
 });
 
+// server/services/chart-overlay.ts
+function chartFilter(spec, W, H2, seconds = 8) {
+  const px = Math.round(W * 0.06), pw = W - px * 2;
+  const ph = Math.round(H2 * (W > H2 ? 0.58 : 0.47));
+  const py = H2 - ph - Math.round(H2 * 0.07);
+  const pad = Math.round(ph * 0.1);
+  const n = spec.candles.length;
+  const lo = Math.min(...spec.candles.map((c) => c.l), spec.level ?? Infinity);
+  const hi = Math.max(...spec.candles.map((c) => c.h), spec.level ?? -Infinity);
+  const y = (v) => Math.round(py + pad + (hi - v) / (hi - lo) * (ph - pad * 2));
+  const slot = (pw - pad * 2) / n;
+  const bodyW = Math.max(8, Math.round(slot * 0.64));
+  const wickW = Math.max(2, Math.round(bodyW * 0.14));
+  const start = 0.6, step = Math.min(0.45, (seconds - 3.2) / n);
+  const showAt = (i) => (start + i * step).toFixed(2);
+  const f = [];
+  const box = (x, yy, w, h, color, t, enable) => f.push(`drawbox=x=${Math.round(x)}:y=${Math.round(yy)}:w=${Math.max(1, Math.round(w))}:h=${Math.max(1, Math.round(h))}:color=${color}:t=${t}${enable ? `:enable='${enable}'` : ""}`);
+  box(px, py, pw, ph, `${PANEL}@0.86`, "fill");
+  box(px, py, pw, ph, `${GRID}@0.10`, "2");
+  for (let g = 1; g < 4; g++) box(px + pad, py + ph * g / 4, pw - pad * 2, 1, `${GRID}@0.06`, "fill");
+  if (spec.level != null) box(px + pad, y(spec.level) - 2, pw - pad * 2, 4, `${GOLD}@0.75`, "fill", `gte(t,${start})`);
+  if (spec.range) {
+    const [a, b] = spec.range;
+    const rh = Math.max(...spec.candles.slice(a, b + 1).map((c) => c.h)), rl = Math.min(...spec.candles.slice(a, b + 1).map((c) => c.l));
+    box(px + pad, y(rh), pw - pad * 2, y(rl) - y(rh), `${GOLD}@0.12`, "fill", `gte(t,${showAt(b)})`);
+    box(px + pad, y(rh) - 2, pw - pad * 2, 4, `${GOLD}@0.8`, "fill", `gte(t,${showAt(b)})`);
+    box(px + pad, y(rl) - 2, pw - pad * 2, 4, `${GOLD}@0.8`, "fill", `gte(t,${showAt(b)})`);
+  }
+  spec.candles.forEach((c, i) => {
+    const cx = px + pad + slot * i + slot / 2;
+    const color = c.c >= c.o ? GREEN : RED;
+    const en = `gte(t,${showAt(i)})`;
+    box(cx - wickW / 2, y(c.h), wickW, y(c.l) - y(c.h), color, "fill", en);
+    const top = y(Math.max(c.o, c.c)), bot = y(Math.min(c.o, c.c));
+    box(cx - bodyW / 2, top, bodyW, Math.max(3, bot - top), color, "fill", en);
+  });
+  if (spec.highlight.length) {
+    const first = Math.min(...spec.highlight), last = Math.max(...spec.highlight);
+    const hs = spec.highlight.map((i) => spec.candles[i]);
+    const x0 = px + pad + slot * first + slot * 0.08, x1 = px + pad + slot * (last + 1) - slot * 0.08;
+    const y0 = y(Math.max(...hs.map((c) => c.h))) - pad * 0.4, y1 = y(Math.min(...hs.map((c) => c.l))) + pad * 0.4;
+    const at = (Number(showAt(last)) + 0.5).toFixed(2);
+    box(x0, y0, x1 - x0, y1 - y0, GOLD, "5", `gte(t,${at})`);
+  }
+  return f.join(",");
+}
+var k, downtrend, uptrend, PATTERNS, PATTERN_KEYS, GREEN, RED, GOLD, PANEL, GRID;
+var init_chart_overlay = __esm({
+  "server/services/chart-overlay.ts"() {
+    "use strict";
+    k = (o, h, l, c) => ({ o, h, l, c });
+    downtrend = [k(60, 61, 56, 57), k(57, 58, 53, 54), k(54, 56, 51, 55), k(55, 55.5, 50, 51), k(51, 52, 47, 48)];
+    uptrend = [k(40, 44, 39, 43), k(43, 47, 42, 46), k(46, 47, 43, 45), k(45, 49, 44, 48), k(48, 52, 47, 51)];
+    PATTERNS = {
+      bullish_engulfing: { candles: [...downtrend, k(48, 48.5, 45.5, 46), k(45.5, 52, 45, 51.5)], highlight: [5, 6] },
+      bearish_engulfing: { candles: [...uptrend, k(51, 53.5, 50.5, 53), k(53.5, 54, 47, 47.5)], highlight: [5, 6] },
+      hammer: { candles: [...downtrend, k(48, 48.6, 42, 48.4)], highlight: [5] },
+      shooting_star: { candles: [...uptrend, k(51, 57, 50.6, 51.2)], highlight: [5] },
+      doji: { candles: [...uptrend, k(51, 53.5, 48.5, 51.05)], highlight: [5] },
+      morning_star: { candles: [...downtrend, k(48, 48.5, 43, 43.5), k(43.2, 44, 42, 43.4), k(43.6, 49, 43.4, 48.6)], highlight: [5, 6, 7] },
+      evening_star: { candles: [...uptrend, k(51, 56, 50.8, 55.5), k(55.8, 57, 55, 55.6), k(55.4, 55.6, 50, 50.6)], highlight: [5, 6, 7] },
+      breakout: {
+        candles: [k(50, 54, 49, 53), k(53, 55, 51, 52), k(52, 54.8, 50.5, 54), k(54, 55, 52, 52.5), k(52.5, 54.9, 51.5, 54.5), k(54.5, 60, 54, 59.5)],
+        highlight: [5],
+        level: 55
+      },
+      support_bounce: {
+        candles: [k(58, 59, 54, 55), k(55, 56, 50.5, 51), k(51, 53, 50.2, 52.5), k(52.5, 53, 50.1, 50.8), k(50.8, 51, 50, 50.6), k(50.6, 56, 50.3, 55.6)],
+        highlight: [4, 5],
+        level: 50
+      },
+      opening_range_breakout: {
+        candles: [k(50, 53, 48, 52), k(52, 53.5, 49, 49.5), k(49.5, 52.5, 48.5, 51), k(51, 53.2, 50, 52.8), k(52.8, 58, 52.5, 57.5), k(57.5, 60, 56.8, 59.5)],
+        highlight: [4],
+        range: [0, 2]
+      }
+    };
+    PATTERN_KEYS = Object.keys(PATTERNS);
+    GREEN = "0x27D07C";
+    RED = "0xFF3B34";
+    GOLD = "0xF5C451";
+    PANEL = "0x0B0B0E";
+    GRID = "0xFFFFFF";
+  }
+});
+
 // server/services/explainer-video.ts
 var explainer_video_exports = {};
 __export(explainer_video_exports, {
@@ -55139,10 +55226,10 @@ function ensureJobTable() {
 }
 async function update(id, patch) {
   const keys = Object.keys(patch);
-  const sets = keys.map((k, i) => `${k}=$${i + 2}`).join(", ");
+  const sets = keys.map((k2, i) => `${k2}=$${i + 2}`).join(", ");
   await pool.query(
     `UPDATE content_video_jobs SET ${sets}, updated_at=now() WHERE id=$1`,
-    [id, ...keys.map((k) => k === "script" || k === "meta" ? JSON.stringify(patch[k]) : patch[k])]
+    [id, ...keys.map((k2) => k2 === "script" || k2 === "meta" ? JSON.stringify(patch[k2]) : patch[k2])]
   );
 }
 async function getJob(id, userId) {
@@ -55189,7 +55276,7 @@ async function runJob(id, userId, input, aspect, opts) {
   let done = 0;
   const predictions = [];
   const queue = script.scenes.map((s, i) => async () => {
-    const r = await renderScene(s, aspect);
+    const r = await renderScene(s, script, aspect);
     urls[i] = r.url;
     predictions.push(r.predictionId);
     done++;
@@ -55200,7 +55287,7 @@ async function runJob(id, userId, input, aspect, opts) {
   });
   await Promise.all(workers);
   await update(id, { step: "Adding VEDD branding and joining scenes", progress: 85, meta: { predictions, model: MODEL() } });
-  const video = await assemble(urls, aspect);
+  const video = await assemble(urls, aspect, script.scenes.map((s) => s.chart ?? null));
   const saved = await persistBuffer(video, "video/mp4");
   if (!saved) throw new Error("could not save the finished video");
   await update(id, { status: "done", step: "Ready", progress: 100, result_url: saved.url });
@@ -55233,26 +55320,38 @@ async function writeScript(input, userId, sceneCount) {
 
 Scene 1 = a hook that names the problem. Middle scenes = the lesson in plain steps with one concrete example (real chart terms: candles, support, stop loss, etc.). Last scene = soft call to action: "Try VEDD AI free at veddbuild dot com".
 
-Each scene is one continuous 8-second shot:
-- "narration": what the narrator SAYS, 12-18 words (must fit in 7 seconds), plain spoken English, no hashtags or emojis.
-- "visual": what the camera SEES while it is said, 30-50 words: subject, setting, action, camera move, lighting. Show the idea literally (e.g. a trader pointing at a candlestick breaking above a level on a monitor). Cinematic, realistic. No readable text, logos or brand names in the frame.
-Keep one consistent setting and presenter style across scenes. No income or profit promises.
+Cast ONE presenter and ONE setting for the whole video:
+- "presenter": a young Black person (man or woman), described precisely so every scene shows the same person: age, hair, outfit (streetwear: hoodie, puffer, fitted cap, sneakers, chains). 15-30 words.
+- "setting": an urban street location in a US city (rooftop, corner store front, brownstone stoop, basketball court, subway platform, graffiti wall at night, barbershop). 15-30 words.
 
-JSON: {"title":"...","caption":"one-line social caption with a question","scenes":[{"narration":"...","visual":"..."}]}` }
+Each scene is one continuous 8-second shot:
+- "narration": what the presenter SAYS to camera, 12-18 words (must fit in 7 seconds), plain spoken English with natural street energy, no slang that hides the meaning, no hashtags or emojis.
+- "visual": what the camera sees, 20-40 words: the presenter's action and the camera move. Do NOT re-describe the presenter or setting (they are added automatically).
+- "chart": when the narration explains a candlestick pattern or level, set it to exactly one of: ${PATTERN_KEYS.join(", ")}. The real pattern is drawn on screen in the lower part of the frame, so in that scene the presenter stands in the upper half and points or gestures down toward it. Otherwise null.
+Use a chart in at least one middle scene when the subject involves a pattern, level or breakout. No income or profit promises.
+
+JSON: {"title":"...","caption":"one-line social caption with a question","presenter":"...","setting":"...","scenes":[{"narration":"...","visual":"...","chart":null}]}` }
     ],
     response_format: { type: "json_object" },
     max_tokens: 1500
   });
   const raw = (completion.choices?.[0]?.message?.content || "{}").replace(/^```[a-z]*\n?/i, "").replace(/\n?```$/i, "").trim();
   const out = JSON.parse(raw || "{}");
-  const scenes = (Array.isArray(out.scenes) ? out.scenes : []).map((s) => ({ narration: String(s?.narration || "").trim(), visual: String(s?.visual || "").trim() })).filter((s) => s.narration && s.visual).slice(0, n);
+  const scenes = (Array.isArray(out.scenes) ? out.scenes : []).map((s) => ({
+    narration: String(s?.narration || "").trim(),
+    visual: String(s?.visual || "").trim(),
+    chart: PATTERN_KEYS.includes(String(s?.chart)) ? String(s.chart) : null
+  })).filter((s) => s.narration && s.visual).slice(0, n);
   if (scenes.length < 2) throw new Error("script generation returned too few scenes");
-  return { title: String(out.title || "VEDD lesson").slice(0, 120), caption: String(out.caption || "").slice(0, 300), scenes };
+  const presenter = String(out.presenter || "").trim().slice(0, 300) || DEFAULT_PRESENTER;
+  const setting = String(out.setting || "").trim().slice(0, 300) || DEFAULT_SETTING;
+  return { title: String(out.title || "VEDD lesson").slice(0, 120), caption: String(out.caption || "").slice(0, 300), presenter, setting, scenes };
 }
-async function renderScene(scene, aspect) {
+async function renderScene(scene, script, aspect) {
   const token = process.env.REPLICATE_API_TOKEN;
   if (!token) throw new Error("REPLICATE_API_TOKEN not set");
-  const prompt = `${scene.visual} Cinematic 35mm look, shallow depth of field, moody contrast with warm gold accent light, smooth slow dolly camera. A calm, confident narrator voiceover says: "${scene.narration.replace(/"/g, "'")}" Soft modern background music under the voice. No subtitles, no on-screen text, no logos.`;
+  const framing = scene.chart ? "Medium shot with the presenter in the upper half of the frame, pointing down toward the lower half, which is a plain darker area of the scene." : "Medium close-up, presenter talking straight to camera.";
+  const prompt = `Presenter: ${script.presenter}. Setting: ${script.setting}. ${scene.visual} ${framing} Authentic urban street style, cinematic 35mm look, natural skin tones, warm gold light, shallow depth of field, handheld-smooth camera. The presenter speaks directly to the camera and says: "${scene.narration.replace(/"/g, "'")}" Light hip-hop beat under the voice. No subtitles, no on-screen text, no logos.`;
   const create = () => fetch(`https://api.replicate.com/v1/models/${MODEL()}/predictions`, {
     method: "POST",
     headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json", Prefer: "wait=55" },
@@ -55262,7 +55361,7 @@ async function renderScene(scene, aspect) {
       duration: CLIP_SECONDS,
       resolution: "720p",
       generate_audio: true,
-      negative_prompt: "subtitles, captions, on-screen text, watermark, logo, distorted hands, extra fingers"
+      negative_prompt: "subtitles, captions, on-screen text, watermark, logo, distorted hands, extra fingers, office, corporate suit, business attire, different person"
     } }),
     signal: AbortSignal.timeout(7e4)
   });
@@ -55285,7 +55384,7 @@ async function renderScene(scene, aspect) {
   if (!url) throw new Error("scene returned no video");
   return { url, predictionId: data.id };
 }
-async function assemble(clipUrls, aspect) {
+async function assemble(clipUrls, aspect, charts = []) {
   const dir = fs13.mkdtempSync(path13.join(os2.tmpdir(), "vedd-explainer-"));
   try {
     const files = [];
@@ -55296,12 +55395,12 @@ async function assemble(clipUrls, aspect) {
       fs13.writeFileSync(f, Buffer.from(await r.arrayBuffer()));
       files.push(f);
     }
-    return await assembleFiles(files, aspect, dir);
+    return await assembleFiles(files, aspect, dir, charts);
   } finally {
     fs13.rmSync(dir, { recursive: true, force: true });
   }
 }
-async function assembleFiles(files, aspect, dir) {
+async function assembleFiles(files, aspect, dir, charts = []) {
   const [W, H2] = FRAME[aspect];
   const logo = findLogo();
   {
@@ -55330,7 +55429,9 @@ async function assembleFiles(files, aspect, dir) {
     const f = [];
     const parts = [];
     files.forEach((_, i) => {
-      f.push(`[${i}:v]scale=${W}:${H2}:force_original_aspect_ratio=increase,crop=${W}:${H2},fps=24,setsar=1,format=yuv420p[v${i}]`);
+      const spec = charts[i] ? PATTERNS[charts[i]] : void 0;
+      const overlay = spec ? `,${chartFilter(spec, W, H2, info2[i].duration || CLIP_SECONDS)}` : "";
+      f.push(`[${i}:v]scale=${W}:${H2}:force_original_aspect_ratio=increase,crop=${W}:${H2},fps=24,setsar=1${overlay},format=yuv420p[v${i}]`);
       f.push(`[${audio[i] ? i : silent[i]}:a]aresample=44100,aformat=sample_fmts=fltp:channel_layouts=stereo[a${i}]`);
       parts.push(`[v${i}][a${i}]`);
     });
@@ -55375,7 +55476,7 @@ async function assembleFiles(files, aspect, dir) {
     return fs13.readFileSync(out);
   }
 }
-var FRAME, MODEL, CLIP_SECONDS, END_CARD_SECONDS2, POLL_MS, MAX_WAIT_MS, tableReady2;
+var FRAME, MODEL, CLIP_SECONDS, END_CARD_SECONDS2, POLL_MS, MAX_WAIT_MS, DEFAULT_PRESENTER, DEFAULT_SETTING, tableReady2;
 var init_explainer_video = __esm({
   "server/services/explainer-video.ts"() {
     "use strict";
@@ -55383,12 +55484,15 @@ var init_explainer_video = __esm({
     init_ffmpeg();
     init_video_branding();
     init_content_asset_store();
+    init_chart_overlay();
     FRAME = { "9:16": [720, 1280], "4:5": [864, 1080], "1:1": [720, 720], "16:9": [1280, 720] };
     MODEL = () => process.env.EXPLAINER_VIDEO_MODEL || "google/veo-3.1-fast";
     CLIP_SECONDS = 8;
     END_CARD_SECONDS2 = 2;
     POLL_MS = 5e3;
     MAX_WAIT_MS = 8 * 60 * 1e3;
+    DEFAULT_PRESENTER = "a young Black man in his mid-20s with short twists, wearing a black hoodie, a thin gold chain and a fitted cap";
+    DEFAULT_SETTING = "a city rooftop at golden hour with brick buildings, fire escapes and the skyline behind him";
     tableReady2 = null;
   }
 });
@@ -56115,12 +56219,12 @@ async function flattenSlideImage(opts) {
   const bodyLines = opts.body ? wrapText3(opts.body, 27, 4) : [];
   const hasText = headingLines.length > 0 || bodyLines.length > 0;
   const gradientHeight = hasText ? Math.min(CANVAS_SIZE * 0.6, 180 + (headingLines.length + bodyLines.length) * 76) : 0;
-  const GOLD = "#F0D269";
+  const GOLD2 = "#F0D269";
   const NEAR_BLACK = "#0A0A0B";
   const textSvgParts = [];
   let y = CANVAS_SIZE - gradientHeight + 100;
   if (headingLines.length > 0) {
-    textSvgParts.push(`<rect x="48" y="${y - 96}" width="60" height="5" fill="${GOLD}" />`);
+    textSvgParts.push(`<rect x="48" y="${y - 96}" width="60" height="5" fill="${GOLD2}" />`);
   }
   for (const line of headingLines) {
     textSvgParts.push(`<text x="48" y="${y}" font-family="Arial, Helvetica, sans-serif" font-size="${HEADING_SIZE}" font-weight="800" fill="#ffffff">${escapeXml(line)}</text>`);
@@ -57959,12 +58063,12 @@ function buildOAuthHeader(method, url, params) {
   };
   const allParams = { ...params, ...oauthParams };
   const sortedKeys = Object.keys(allParams).sort();
-  const paramStr = sortedKeys.map((k) => `${encodeURIComponent(k)}=${encodeURIComponent(allParams[k])}`).join("&");
+  const paramStr = sortedKeys.map((k2) => `${encodeURIComponent(k2)}=${encodeURIComponent(allParams[k2])}`).join("&");
   const sigBase = [method.toUpperCase(), encodeURIComponent(url), encodeURIComponent(paramStr)].join("&");
   const sigKey = `${encodeURIComponent(apiSecret)}&${encodeURIComponent(accessSecret)}`;
   const signature = crypto16.createHmac("sha1", sigKey).update(sigBase).digest("base64");
   oauthParams["oauth_signature"] = signature;
-  const headerValue = Object.keys(oauthParams).sort().map((k) => `${encodeURIComponent(k)}="${encodeURIComponent(oauthParams[k])}"`).join(", ");
+  const headerValue = Object.keys(oauthParams).sort().map((k2) => `${encodeURIComponent(k2)}="${encodeURIComponent(oauthParams[k2])}"`).join(", ");
   return `OAuth ${headerValue}`;
 }
 async function postTweet(text2) {
@@ -61700,7 +61804,7 @@ async function scanSymbol2(service, symbol, cfg) {
     }
   }
   if (cfg.strategyMode === "auto" || cfg.strategyMode === "credit_spread") {
-    const results = await Promise.all(["orb", "volume_profile", "breakout", "momentum", "order_flow"].map((k) => STRATEGY_RUNNERS2[k](service, symbol, cfg).catch(() => null)));
+    const results = await Promise.all(["orb", "volume_profile", "breakout", "momentum", "order_flow"].map((k2) => STRATEGY_RUNNERS2[k2](service, symbol, cfg).catch(() => null)));
     const valid = results.filter((r) => !!r);
     const signals = valid.filter((r) => r.decision === "signal").sort((a, b) => (b.score ?? 0) - (a.score ?? 0));
     if (signals.length > 0) return signals[0];
@@ -61905,7 +62009,7 @@ async function checkSafetyGates2(userId, cfg, equity, connectionId, connectionTy
       const today = (/* @__PURE__ */ new Date()).toISOString().split("T")[0];
       history[today] = todayPnl;
       const recentKeys = Object.keys(history).sort().slice(-cfg.consistencyPeriodDays);
-      const profitableDays = recentKeys.filter((k) => (history[k] ?? 0) > 0).length;
+      const profitableDays = recentKeys.filter((k2) => (history[k2] ?? 0) > 0).length;
       const tradingDays = recentKeys.length;
       const daysRemaining = cfg.consistencyPeriodDays - tradingDays;
       const todayIsLosing = todayPnl < 0;
@@ -62658,8 +62762,8 @@ async function runOptionsEngineScan() {
   optionsScanRunning = true;
   try {
     const configs = await storage.getAllActiveOptionsEngineConfigs();
-    const k = configs.length ? optionsCycle++ % configs.length : 0;
-    for (const config of configs.slice(k).concat(configs.slice(0, k))) {
+    const k2 = configs.length ? optionsCycle++ % configs.length : 0;
+    for (const config of configs.slice(k2).concat(configs.slice(0, k2))) {
       const uid2 = config.userId;
       if (optionsUserInFlight.has(uid2)) {
         console.warn(`[options-scanner] user ${uid2} still running from a previous pass \u2014 skipping this pass`);
@@ -63491,9 +63595,9 @@ async function getStopOrdersForUser(userId, filters = {}) {
 init_schema();
 
 // server/build-info.ts
-var BUILD_COMMIT = "e2e97d2c-dirty";
+var BUILD_COMMIT = "0224407e-dirty";
 var BUILD_BRANCH = "HEAD";
-var BUILT_AT = "2026-10-31T04:30:04.819Z";
+var BUILT_AT = "2026-10-31T05:19:46.538Z";
 
 // server/stripe.ts
 init_db();
@@ -64487,8 +64591,8 @@ init_ai_confirmation_cache();
 
 // server/utils/candleNormalize.ts
 function pick(src, keys) {
-  for (const k of keys) {
-    const v = src?.[k];
+  for (const k2 of keys) {
+    const v = src?.[k2];
     if (typeof v === "number" && isFinite(v)) return v;
     if (typeof v === "string" && v.trim() !== "") {
       const n = Number(v);
@@ -66900,7 +67004,7 @@ function isInTradingSession(symbol, hourUTC) {
   const sym = ALIAS_MAP[raw] ?? raw;
   const windows = PAIR_SESSION_WINDOWS[sym];
   if (!windows) {
-    const fallback = Object.keys(PAIR_SESSION_WINDOWS).find((k) => k.startsWith(sym) || sym.startsWith(k));
+    const fallback = Object.keys(PAIR_SESSION_WINDOWS).find((k2) => k2.startsWith(sym) || sym.startsWith(k2));
     if (fallback) return PAIR_SESSION_WINDOWS[fallback].some(([s, e]) => hourUTC >= s && hourUTC < e);
     return true;
   }
@@ -70210,7 +70314,7 @@ Respond ONLY in valid JSON format with these exact keys:
       const weekWinRate = strategy?.progressWinRate || 0;
       const mt5ChartCache = global.mt5ChartDataCache || {};
       const orbLiveContext = [];
-      const trackedSymbols = Object.keys(mt5ChartCache).filter((k) => k.startsWith(`mt5_chart_${userId}_`)).map((k) => k.replace(`mt5_chart_${userId}_`, "").replace(/_[A-Z0-9]+$/, "")).filter((v, i, a) => a.indexOf(v) === i);
+      const trackedSymbols = Object.keys(mt5ChartCache).filter((k2) => k2.startsWith(`mt5_chart_${userId}_`)).map((k2) => k2.replace(`mt5_chart_${userId}_`, "").replace(/_[A-Z0-9]+$/, "")).filter((v, i, a) => a.indexOf(v) === i);
       for (const sym of trackedSymbols.slice(0, 6)) {
         for (const tf of ["M6", "M5", "M1", "M15", "M30"]) {
           const cacheKey = `mt5_chart_${userId}_${sym}_${tf}`;
@@ -70781,7 +70885,7 @@ data: ${JSON.stringify(data)}
       const openSummary = openPositions.map((p) => `${(p.symbol || "").toUpperCase()} ${p.direction} ${p.lots || 0}L P&L:$${Math.round((p.profit || 0) * 100) / 100}`).join(" | ");
       const mt5ChartCacheStream = global.mt5ChartDataCache || {};
       const orbStreamContext = [];
-      const streamSymbols = Object.keys(mt5ChartCacheStream).filter((k) => k.startsWith(`mt5_chart_${userId}_`)).map((k) => k.replace(`mt5_chart_${userId}_`, "").replace(/_[A-Z0-9]+$/, "")).filter((v, i, a) => a.indexOf(v) === i).slice(0, 4);
+      const streamSymbols = Object.keys(mt5ChartCacheStream).filter((k2) => k2.startsWith(`mt5_chart_${userId}_`)).map((k2) => k2.replace(`mt5_chart_${userId}_`, "").replace(/_[A-Z0-9]+$/, "")).filter((v, i, a) => a.indexOf(v) === i).slice(0, 4);
       for (const sym of streamSymbols) {
         for (const tf of ["M6", "M5", "M1", "M15"]) {
           const ce = mt5ChartCacheStream[`mt5_chart_${userId}_${sym}_${tf}`];
@@ -71265,7 +71369,7 @@ IMPORTANT:
     if (!clean) return res.status(400).json({ error: "No speakable text" });
     try {
       const allKeys = await storage.getUserApiKeys(userId);
-      const elKey = allKeys.find((k) => k.provider === "elevenlabs" && k.isActive && k.isValid !== false)?.apiKey || process.env.ELEVENLABS_API_KEY;
+      const elKey = allKeys.find((k2) => k2.provider === "elevenlabs" && k2.isActive && k2.isValid !== false)?.apiKey || process.env.ELEVENLABS_API_KEY;
       if (elKey) {
         try {
           const requestedVoiceId = req.body.voiceId;
@@ -71303,7 +71407,7 @@ IMPORTANT:
         }
       }
       const OpenAILib = (await import("openai")).default;
-      const openaiKey = allKeys.find((k) => k.provider === "openai" && k.isActive && k.isValid !== false)?.apiKey || process.env.OPENAI_API_KEY;
+      const openaiKey = allKeys.find((k2) => k2.provider === "openai" && k2.isActive && k2.isValid !== false)?.apiKey || process.env.OPENAI_API_KEY;
       if (openaiKey) {
         try {
           const ttsClient = new OpenAILib({ apiKey: openaiKey });
@@ -74656,7 +74760,7 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
           };
           let bullishCandleVotes = 0, bearishCandleVotes = 0;
           for (const p of advanced.candlePatterns || []) {
-            const weight = Object.entries(CANDLE_WEIGHTS).find(([k]) => p.includes(k))?.[1] ?? 0.5;
+            const weight = Object.entries(CANDLE_WEIGHTS).find(([k2]) => p.includes(k2))?.[1] ?? 0.5;
             if (p.includes("Bullish") || p.includes("Hammer") || p.includes("Morning Star")) {
               bullishCandleVotes += weight;
             } else if (p.includes("Bearish") || p.includes("Shooting Star") || p.includes("Evening Star")) {
@@ -78828,10 +78932,10 @@ BEAR CASE: ${_bearCase || "n/a"}` : aiConfirmation.reasoning;
       const allInsights = brain?.learningInsights || [];
       const brainInsights = allInsights.length > 0 ? allInsights.slice(-5).join("\n") : "No prior learning data";
       const brainKnowledge = brain?.pairKnowledge ? pairs.map((p) => {
-        const k = p.toUpperCase().replace("/", "");
-        const d = brain.pairKnowledge[k];
-        if (!d) return `${k}: no data`;
-        return `${k}: wr=${d.winRate ?? "?"}% dir=${d.preferredDirection ?? "?"} trades=${d.totalTrades ?? 0}`;
+        const k2 = p.toUpperCase().replace("/", "");
+        const d = brain.pairKnowledge[k2];
+        if (!d) return `${k2}: no data`;
+        return `${k2}: wr=${d.winRate ?? "?"}% dir=${d.preferredDirection ?? "?"} trades=${d.totalTrades ?? 0}`;
       }).join(", ") : "Brain not yet trained";
       const hftDescriptions = {
         scalping: `SCALPING (HFT) MODE: Design for 10-20+ trades/day with 3-8 pip targets. Quick in/out within 5-30 minutes. Tight stops. Compound after every 3-5 winning trades. Focus on spread-efficient pairs.`,
@@ -78892,7 +78996,7 @@ AI CONTROL STATUS: FULL AUTONOMOUS CONTROL
 - AI Override: ALWAYS ON - your decision is final
 - You can generate signals WITHOUT waiting for MT5 data
 - Trailing Stop: You decide (TIGHT/STANDARD/WIDE/AGGRESSIVE/OFF)
-- Breakout Detection: ${Object.keys(breakoutSettings).length > 0 ? "Active for " + Object.keys(breakoutSettings).filter((k) => breakoutSettings[k]).join(", ") : "Available"}
+- Breakout Detection: ${Object.keys(breakoutSettings).length > 0 ? "Active for " + Object.keys(breakoutSettings).filter((k2) => breakoutSettings[k2]).join(", ") : "Available"}
 
 PROVEN INDUSTRY STRATEGIES (SAME AS 2ND CONFIRMATION AI):
 These are the exact strategies the 2nd confirmation AI uses to validate trades. Build your weekly plan around these high-probability setups for maximum alignment between plan and live confirmation:
@@ -78906,7 +79010,7 @@ DEEP PAIR KNOWLEDGE (from brain learning):
 ${brainKnowledge}
 
 TRADER'S REAL-TIME PERFORMANCE DATA:
-${JSON.stringify(Object.fromEntries(Object.entries(pairStats).map(([k, v]) => [k, { wr: v.winRate, trades: v.totalTrades, buyWR: v.buyWinRate, sellWR: v.sellWinRate, sig: v.lastSignal }])))}
+${JSON.stringify(Object.fromEntries(Object.entries(pairStats).map(([k2, v]) => [k2, { wr: v.winRate, trades: v.totalTrades, buyWR: v.buyWinRate, sellWR: v.sellWinRate, sig: v.lastSignal }])))}
 
 ${livePlanRulesText()}
 
@@ -78956,20 +79060,20 @@ Respond with ONLY valid JSON:
 }`;
       const { storage: _stratStorage } = await Promise.resolve().then(() => (init_storage(), storage_exports));
       const _allKeys = await _stratStorage.getUserApiKeys(userId);
-      const _activeKeys = _allKeys.filter((k) => k.isActive && k.isValid !== false);
+      const _activeKeys = _allKeys.filter((k2) => k2.isActive && k2.isValid !== false);
       const candidates = [];
       const OpenAISDK = (await import("openai")).default;
-      const _groqKey = _activeKeys.find((k) => k.provider === "groq");
+      const _groqKey = _activeKeys.find((k2) => k2.provider === "groq");
       if (_groqKey?.apiKey) {
         const gc = new OpenAISDK({ apiKey: _groqKey.apiKey, baseURL: "https://api.groq.com/openai/v1", maxRetries: 4, timeout: 9e4 });
         candidates.push({ client: gc, model: "openai/gpt-oss-20b", provider: "groq" });
       }
-      const _orUserKey = _activeKeys.find((k) => k.provider === "openrouter")?.apiKey;
+      const _orUserKey = _activeKeys.find((k2) => k2.provider === "openrouter")?.apiKey;
       if (_orUserKey) {
         const orc = new OpenAISDK({ apiKey: _orUserKey, baseURL: "https://openrouter.ai/api/v1", maxRetries: 3, timeout: 9e4 });
         candidates.push({ client: orc, model: "openai/gpt-oss-20b", provider: "openrouter" });
       }
-      const _openaiUserKey = _activeKeys.find((k) => k.provider === "openai")?.apiKey;
+      const _openaiUserKey = _activeKeys.find((k2) => k2.provider === "openai")?.apiKey;
       if (_openaiUserKey) {
         const oc = new OpenAISDK({ apiKey: _openaiUserKey });
         candidates.push({ client: oc, model: "gpt-4o-mini", provider: "openai" });
@@ -80242,7 +80346,7 @@ Rules:
       if (mt5Cache.lastUpdated && typeof mt5Cache.lastUpdated === "string") {
         processAccount(mt5Cache, "default");
       } else {
-        for (const [k, v] of Object.entries(mt5Cache)) processAccount(v, k);
+        for (const [k2, v] of Object.entries(mt5Cache)) processAccount(v, k2);
       }
     }
     try {
@@ -82535,20 +82639,20 @@ Format each recommendation as a clear, concise action item.`;
     };
     if (overallWR >= 60) brain.learningInsights.push(`Strong edge detected: ${overallWR}% overall win rate across ${overallTotal} trades`);
     if (overallWR < 50 && overallTotal >= 10) brain.learningInsights.push(`Win rate below 50% - AI will prioritize higher-confidence setups only`);
-    for (const [sym, k] of Object.entries(pairKnowledge)) {
-      if (k.topSessions.length > 0 && k.topSessions[0].winRate >= 70) {
-        brain.learningInsights.push(`${sym}: ${k.topSessions[0].session} session is a goldmine (${k.topSessions[0].winRate}% WR)`);
+    for (const [sym, k2] of Object.entries(pairKnowledge)) {
+      if (k2.topSessions.length > 0 && k2.topSessions[0].winRate >= 70) {
+        brain.learningInsights.push(`${sym}: ${k2.topSessions[0].session} session is a goldmine (${k2.topSessions[0].winRate}% WR)`);
       }
-      if (k.preferredDirection !== "BOTH") {
-        brain.learningInsights.push(`${sym}: Strong ${k.preferredDirection} bias detected (${k.preferredDirection === "BUY" ? k.buyWinRate : k.sellWinRate}% WR)`);
+      if (k2.preferredDirection !== "BOTH") {
+        brain.learningInsights.push(`${sym}: Strong ${k2.preferredDirection} bias detected (${k2.preferredDirection === "BUY" ? k2.buyWinRate : k2.sellWinRate}% WR)`);
       }
-      if (k.worstHours.length > 0 && k.worstHours[0].winRate < 30 && k.worstHours[0].total >= 3) {
-        brain.learningInsights.push(`${sym}: Avoid ${k.worstHours[0].hour}:00 UTC (${k.worstHours[0].winRate}% WR - loss zone)`);
+      if (k2.worstHours.length > 0 && k2.worstHours[0].winRate < 30 && k2.worstHours[0].total >= 3) {
+        brain.learningInsights.push(`${sym}: Avoid ${k2.worstHours[0].hour}:00 UTC (${k2.worstHours[0].winRate}% WR - loss zone)`);
       }
     }
     const optimalMinConfidence = {};
-    for (const [sym, k] of Object.entries(pairKnowledge)) {
-      if (k.totalTrades < 10) continue;
+    for (const [sym, k2] of Object.entries(pairKnowledge)) {
+      if (k2.totalTrades < 10) continue;
       const symTrades = combinedTrades.filter((t) => t.symbol === sym);
       for (const threshold of [85, 80, 75, 70, 65]) {
         const above = symTrades.filter((t) => (t.confidence || 0) >= threshold);
@@ -82571,12 +82675,12 @@ Format each recommendation as a clear, concise action item.`;
       if (newTrades > 0) updateChanges.push(`+${newTrades} new trade${newTrades !== 1 ? "s" : ""} ingested (${brain.totalTradesAnalyzed} total)`);
       const newPairs = Object.keys(brain.pairKnowledge).filter((p) => !prevBrain.pairKnowledge?.[p]);
       if (newPairs.length > 0) updateChanges.push(`New pairs learned: ${newPairs.join(", ")}`);
-      for (const [sym, k] of Object.entries(brain.pairKnowledge)) {
+      for (const [sym, k2] of Object.entries(brain.pairKnowledge)) {
         const prev = prevBrain.pairKnowledge?.[sym];
         if (!prev) continue;
-        const wrChange = k.winRate - (prev.winRate ?? 0);
-        if (Math.abs(wrChange) >= 3) updateChanges.push(`${sym} win rate ${wrChange > 0 ? "\u25B2" : "\u25BC"} ${Math.abs(wrChange)}% \u2192 ${k.winRate}%`);
-        if (prev.preferredDirection !== k.preferredDirection) updateChanges.push(`${sym} direction bias changed: ${prev.preferredDirection} \u2192 ${k.preferredDirection}`);
+        const wrChange = k2.winRate - (prev.winRate ?? 0);
+        if (Math.abs(wrChange) >= 3) updateChanges.push(`${sym} win rate ${wrChange > 0 ? "\u25B2" : "\u25BC"} ${Math.abs(wrChange)}% \u2192 ${k2.winRate}%`);
+        if (prev.preferredDirection !== k2.preferredDirection) updateChanges.push(`${sym} direction bias changed: ${prev.preferredDirection} \u2192 ${k2.preferredDirection}`);
       }
     } else {
       updateChanges.push(`Brain initialized from ${brain.totalTradesAnalyzed} trades across ${brain.pairsLearned} pairs`);
@@ -82967,8 +83071,8 @@ Format each recommendation as a clear, concise action item.`;
       } catch (_) {
       }
       const realizedTodayOf = (type, id, rows) => {
-        const k = `${type}_${id}`;
-        return _ledgerToday.has(k) ? _ledgerToday.get(k) : todayOf(rows);
+        const k2 = `${type}_${id}`;
+        return _ledgerToday.has(k2) ? _ledgerToday.get(k2) : todayOf(rows);
       };
       const liveToday = (realized, unrealized) => Math.round((realized + (unrealized || 0)) * 100) / 100;
       const accountCurves = [];
@@ -83118,14 +83222,14 @@ Format each recommendation as a clear, concise action item.`;
       const groupPnl = (key) => {
         const m = {};
         for (const t of today) {
-          const k = key(t) || "\u2014";
-          m[k] = m[k] || { pnl: 0, w: 0, l: 0, n: 0 };
-          m[k].pnl += t.profitLoss || 0;
-          m[k].n++;
-          if (t.result === "WIN") m[k].w++;
-          else if (t.result === "LOSS") m[k].l++;
+          const k2 = key(t) || "\u2014";
+          m[k2] = m[k2] || { pnl: 0, w: 0, l: 0, n: 0 };
+          m[k2].pnl += t.profitLoss || 0;
+          m[k2].n++;
+          if (t.result === "WIN") m[k2].w++;
+          else if (t.result === "LOSS") m[k2].l++;
         }
-        return Object.entries(m).map(([k, v]) => ({ key: k, ...v, pnl: Math.round(v.pnl * 100) / 100 }));
+        return Object.entries(m).map(([k2, v]) => ({ key: k2, ...v, pnl: Math.round(v.pnl * 100) / 100 }));
       };
       const sessionOf2 = (t) => {
         const h = new Date(t.closedAt).getUTCHours();
@@ -83292,7 +83396,7 @@ RULES: 1) Only trade instruments where ORB High/Low is in the ORB DATA section. 
       };
       const mt5ChartCacheBrain = global.mt5ChartDataCache || {};
       const orbContextLines = [];
-      const trackedSymsBrain = Object.keys(mt5ChartCacheBrain).filter((k) => k.startsWith(`mt5_chart_${userId}_`)).map((k) => k.replace(`mt5_chart_${userId}_`, "").replace(/_[A-Z0-9]+$/, "")).filter((v, i, a) => a.indexOf(v) === i);
+      const trackedSymsBrain = Object.keys(mt5ChartCacheBrain).filter((k2) => k2.startsWith(`mt5_chart_${userId}_`)).map((k2) => k2.replace(`mt5_chart_${userId}_`, "").replace(/_[A-Z0-9]+$/, "")).filter((v, i, a) => a.indexOf(v) === i);
       for (const sym of trackedSymsBrain.slice(0, 8)) {
         for (const tf of ["M6", "M5", "M1", "M15"]) {
           const entry = mt5ChartCacheBrain[`mt5_chart_${userId}_${sym}_${tf}`];
@@ -84114,8 +84218,8 @@ Respond with ONLY valid JSON:
       let computeRSI2 = function(closes2, i, period = 14) {
         if (i < period) return 50;
         let gains = 0, losses2 = 0;
-        for (let k = i - period + 1; k <= i; k++) {
-          const delta = closes2[k] - closes2[k - 1];
+        for (let k2 = i - period + 1; k2 <= i; k2++) {
+          const delta = closes2[k2] - closes2[k2 - 1];
           if (delta >= 0) gains += delta;
           else losses2 += Math.abs(delta);
         }
@@ -84126,10 +84230,10 @@ Respond with ONLY valid JSON:
         return 100 - 100 / (1 + rs);
       }, computeEMA2 = function(closes2, i, period) {
         if (i < period - 1) return closes2[i];
-        const k = 2 / (period + 1);
+        const k2 = 2 / (period + 1);
         let ema3 = closes2[i - period + 1];
         for (let j = i - period + 2; j <= i; j++) {
-          ema3 = closes2[j] * k + ema3 * (1 - k);
+          ema3 = closes2[j] * k2 + ema3 * (1 - k2);
         }
         return ema3;
       };
@@ -84359,7 +84463,7 @@ Respond with ONLY valid JSON:
         compositeMinEdgeScore: compositeMinEdgeScore !== void 0 ? Math.min(100, Math.max(50, Number(compositeMinEdgeScore))) : void 0,
         copyMode: ["proportional", "multiplier"].includes(copyMode) ? copyMode : void 0,
         volatileCapMode: ["risk_scaled", "user_only"].includes(volatileCapMode) ? volatileCapMode : void 0,
-        pairLotOverrides: pairLotOverrides && typeof pairLotOverrides === "object" ? Object.fromEntries(Object.entries(pairLotOverrides).map(([k, v]) => [k, Number(v)]).filter(([, v]) => !isNaN(v))) : void 0
+        pairLotOverrides: pairLotOverrides && typeof pairLotOverrides === "object" ? Object.fromEntries(Object.entries(pairLotOverrides).map(([k2, v]) => [k2, Number(v)]).filter(([, v]) => !isNaN(v))) : void 0
       });
       res.json({ success: true, state });
     } catch (err) {
@@ -84477,7 +84581,7 @@ Respond with ONLY valid JSON:
         bearishProbability: Math.round(bearP * 100),
         neutralProbability: Math.round((row["NEUTRAL"] ?? 0) * 100),
         nextStateProbabilities: Object.fromEntries(
-          Object.entries(row).map(([k, v]) => [k, Math.round(v * 100)])
+          Object.entries(row).map(([k2, v]) => [k2, Math.round(v * 100)])
         ),
         matrix: displayMatrix,
         counts: tm.counts,
@@ -85886,8 +85990,8 @@ Return ONLY JSON: {"topPicks":[{"market":"","winProbability":<0-100>,"whyItWins"
     const OR_HEADERS = { "HTTP-Referer": "https://veddbuild.com", "X-Title": "VEDDBuild" };
     try {
       const keys = await storage.getUserApiKeys(userId);
-      const active = keys.filter((k) => k.isActive && k.isValid !== false);
-      const userKey = (p) => active.find((k) => k.provider === p)?.apiKey;
+      const active = keys.filter((k2) => k2.isActive && k2.isValid !== false);
+      const userKey = (p) => active.find((k2) => k2.provider === p)?.apiKey;
       await ping("user OpenAI", userKey("openai"), void 0, "gpt-4o-mini");
       await ping("user Groq (gpt-oss-20b)", userKey("groq"), "https://api.groq.com/openai/v1", "openai/gpt-oss-20b");
       await ping("user Groq (gpt-oss-120b)", userKey("groq"), "https://api.groq.com/openai/v1", "openai/gpt-oss-120b");
@@ -85918,7 +86022,7 @@ Return ONLY JSON: {"topPicks":[{"market":"","winProbability":<0-100>,"whyItWins"
         }
       };
       await rawProbe("GET github.com/zen", "https://api.github.com/zen");
-      const gKey = (await storage.getUserApiKeys(userId)).find((k) => k.provider === "groq" && k.isActive)?.apiKey || process.env.GROQ_API_KEY;
+      const gKey = (await storage.getUserApiKeys(userId)).find((k2) => k2.provider === "groq" && k2.isActive)?.apiKey || process.env.GROQ_API_KEY;
       if (gKey) await rawProbe("GET groq /models", "https://api.groq.com/openai/v1/models", { headers: { Authorization: `Bearer ${gKey}` } });
       if (process.env.OPENAI_API_KEY) await rawProbe("GET openai /models", "https://api.openai.com/v1/models", { headers: { Authorization: `Bearer ${process.env.OPENAI_API_KEY}` } });
       const mem = process.memoryUsage();
@@ -87175,8 +87279,8 @@ Return ONLY JSON: {"topPicks":[{"market":"","winProbability":<0-100>,"whyItWins"
       const aiClient = await _getOAI_ambassador(userId);
       const hasUserKeys = await (async () => {
         try {
-          const k = await storage.getUserApiKeys(userId);
-          return k.some((key) => key.isActive && key.isValid !== false && key.apiKey);
+          const k2 = await storage.getUserApiKeys(userId);
+          return k2.some((key) => key.isActive && key.isValid !== false && key.apiKey);
         } catch {
           return false;
         }
@@ -90101,7 +90205,7 @@ This request will not trigger a transaction or cost any fees.`;
     if (!req.isAuthenticated()) return res.status(401).json({ message: "Not authenticated" });
     try {
       const keys = await storage.getUserApiKeys(req.user.id);
-      const activeKey = keys.find((k) => k.isActive && k.apiKey && k.isValid === true);
+      const activeKey = keys.find((k2) => k2.isActive && k2.apiKey && k2.isValid === true);
       if (activeKey) {
         res.json({ source: "own", provider: activeKey.provider });
       } else {
@@ -90132,7 +90236,7 @@ This request will not trigger a transaction or cost any fees.`;
         return res.status(400).json({ message: "Invalid API key" });
       }
       const existingKeys = await storage.getUserApiKeys(req.user.id);
-      const isUpdating = existingKeys.some((k) => k.provider === provider);
+      const isUpdating = existingKeys.some((k2) => k2.provider === provider);
       if (!isUpdating && existingKeys.length >= 10) {
         return res.status(400).json({ message: "Maximum of 10 AI providers allowed" });
       }
@@ -90507,7 +90611,7 @@ This request will not trigger a transaction or cost any fees.`;
         } catch {
         }
         const periodKeys2 = Object.keys(dailyPnLHistory).sort().slice(-15);
-        const profitableDays2 = periodKeys2.filter((k) => (dailyPnLHistory[k] ?? 0) > 0).length;
+        const profitableDays2 = periodKeys2.filter((k2) => (dailyPnLHistory[k2] ?? 0) > 0).length;
         const utcHour2 = (/* @__PURE__ */ new Date()).getUTCHours();
         return res.json({
           active: true,
@@ -90553,7 +90657,7 @@ This request will not trigger a transaction or cost any fees.`;
     const challengePnLHistory = state.challengeDailyPnL ?? {};
     challengePnLHistory[today] = todayPnL;
     const periodKeys = Object.keys(challengePnLHistory).sort().slice(-(cfg.consistencyPeriodDays || 15));
-    const profitableDays = periodKeys.filter((k) => (challengePnLHistory[k] ?? 0) > 0).length;
+    const profitableDays = periodKeys.filter((k2) => (challengePnLHistory[k2] ?? 0) > 0).length;
     const totalTradingDays = periodKeys.length;
     const daysRemaining = (cfg.consistencyPeriodDays || 15) - totalTradingDays;
     const daysNeeded = (cfg.consistencyMinProfitableDays || 10) - profitableDays;
@@ -90813,11 +90917,11 @@ This request will not trigger a transaction or cost any fees.`;
       const userId = req.user.id;
       const config = await storage.getAiModelConfig(userId).catch(() => void 0);
       const userKeys = await storage.getUserApiKeys(userId).catch(() => []);
-      const availableProviders = ["openai", ...userKeys.filter((k) => k.isActive).map((k) => k.provider)];
+      const availableProviders = ["openai", ...userKeys.filter((k2) => k2.isActive).map((k2) => k2.provider)];
       const models = AVAILABLE_TRADING_MODELS2.map((m) => ({
         ...m,
         available: availableProviders.includes(m.provider),
-        hasApiKey: m.provider === "openai" || userKeys.some((k) => k.provider === m.provider && k.isActive)
+        hasApiKey: m.provider === "openai" || userKeys.some((k2) => k2.provider === m.provider && k2.isActive)
       }));
       res.json({
         models,
@@ -92109,7 +92213,7 @@ This request will not trigger a transaction or cost any fees.`;
     const id = parseInt(req.params.id);
     const { senderName, context } = req.body;
     const keywords = await storage.getDmKeywords(req.user.id);
-    const kw = keywords.find((k) => k.id === id);
+    const kw = keywords.find((k2) => k2.id === id);
     if (!kw) return res.status(404).json({ message: "Keyword not found" });
     let response = kw.responseTemplate;
     if (senderName) {
@@ -93148,7 +93252,7 @@ Scene idea: ${script.videoPrompt}`, {
       }
     }
     if (!found) {
-      const partialKey = allKeys.find((k) => k.includes(`_${userId}_`) && k.includes(rawSymbol));
+      const partialKey = allKeys.find((k2) => k2.includes(`_${userId}_`) && k2.includes(rawSymbol));
       if (partialKey) {
         found = cache11[partialKey];
         foundTf = partialKey.split("_").pop() || "";
@@ -93158,7 +93262,7 @@ Scene idea: ${script.videoPrompt}`, {
       return res.status(404).json({
         error: "No MT5 data found for this symbol",
         hint: `Make sure your MT5 Chart Data EA is running and pushing ${rawSymbol} data. Tried timeframes: ${PREFER_TF.join(", ")}`,
-        connectedSymbols: allKeys.filter((k) => k.includes(`_${userId}_`)).map((k) => k.replace(`mt5_chart_${userId}_`, ""))
+        connectedSymbols: allKeys.filter((k2) => k2.includes(`_${userId}_`)).map((k2) => k2.replace(`mt5_chart_${userId}_`, ""))
       });
     }
     const candles = found.candles;
