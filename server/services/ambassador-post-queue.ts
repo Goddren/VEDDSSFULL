@@ -135,7 +135,8 @@ CAPTION: one line plus a question","hashtags":["..."],"visualIdea":"shot list: w
   const raw = (completion.choices[0]?.message?.content || '{}').replace(/^```[a-z]*\n?/i, '').replace(/\n?```$/i, '').trim();
   const out = JSON.parse(raw || '{}');
 
-  await pool.query(`DELETE FROM ambassador_post_queue WHERE user_id=$1 AND queue_date=$2 AND status='ready'`, [userId, date]);
+  // Keep posts that are posted or already have clicks; their links are live.
+  await pool.query(`DELETE FROM ambassador_post_queue WHERE user_id=$1 AND queue_date=$2 AND status='ready' AND clicks = 0`, [userId, date]);
   for (const platform of PLATFORMS) {
     const p = out[platform];
     // TikTok: the model returns each beat separately; we assemble the script so

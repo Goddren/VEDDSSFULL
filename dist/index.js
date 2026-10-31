@@ -54811,7 +54811,7 @@ CAPTION: one line plus a question","hashtags":["..."],"visualIdea":"shot list: w
   });
   const raw = (completion.choices[0]?.message?.content || "{}").replace(/^```[a-z]*\n?/i, "").replace(/\n?```$/i, "").trim();
   const out = JSON.parse(raw || "{}");
-  await pool.query(`DELETE FROM ambassador_post_queue WHERE user_id=$1 AND queue_date=$2 AND status='ready'`, [userId, date2]);
+  await pool.query(`DELETE FROM ambassador_post_queue WHERE user_id=$1 AND queue_date=$2 AND status='ready' AND clicks = 0`, [userId, date2]);
   for (const platform of PLATFORMS2) {
     const p = out[platform];
     if (platform === "tiktok" && p && (p.beat1 || p.spokenHook)) {
@@ -62682,9 +62682,9 @@ async function getStopOrdersForUser(userId, filters = {}) {
 init_schema();
 
 // server/build-info.ts
-var BUILD_COMMIT = "230d21ec-dirty";
+var BUILD_COMMIT = "d3b39b13-dirty";
 var BUILD_BRANCH = "HEAD";
-var BUILT_AT = "2026-10-31T00:33:07.776Z";
+var BUILT_AT = "2026-10-31T01:02:09.481Z";
 
 // server/stripe.ts
 init_db();

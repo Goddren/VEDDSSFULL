@@ -80,7 +80,7 @@ export default function AmbassadorAgentPage() {
           <div className="flex items-center justify-between">
             <Badge variant="secondary">Day {posts[0].day_number} of 44</Badge>
             <Button size="sm" variant="ghost" onClick={() => generate.mutate(true)} disabled={generate.isPending}>
-              <RefreshCw className="h-4 w-4 mr-1" />Rewrite unposted
+              <RefreshCw className="h-4 w-4 mr-1" />Rewrite unposted (no clicks yet)
             </Button>
           </div>
           {posts.map((p) => (
