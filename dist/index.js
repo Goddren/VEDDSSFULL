@@ -54788,7 +54788,13 @@ Write one post per platform, teaching the lesson in the ambassador's own voice a
 RULES (strict): no income, profit or earnings claims or numbers; no "guaranteed", "risk-free", "passive income"; never invite DMs or describe sending DMs; no fake results. Do NOT add a link, disclosure or risk line (added automatically).
 
 Return JSON only:
-{"tiktok":{"hook":"first 2 seconds on-screen text","body":"30-45s spoken script then caption","hashtags":["..."],"visualIdea":"shot list"},
+{"tiktok":{"hook":"on-screen text for the first 2 seconds, max 8 words","body":"a 30-45 second SPOKEN script, said to camera, in this exact layout:
+HOOK (0-3s): one punchy line
+BEAT 1 (3-15s): the problem or the idea
+BEAT 2 (15-30s): the lesson, one concrete example
+CTA (30-40s): one soft line to try VEDD AI
+ON-SCREEN TEXT: 2-3 short overlays
+CAPTION: one line plus a question","hashtags":["..."],"visualIdea":"shot list: what to film for each beat"},
  "instagram":{"format":"carousel|reel|post","hook":"...","body":"caption","hashtags":["..."],"visualIdea":"..."},
  "facebook_page":{"hook":"...","body":"post","hashtags":["..."],"visualIdea":"..."},
  "facebook_group":{"hook":"...","body":"conversation-starter post for a trading group, value first, no hard sell","hashtags":[],"visualIdea":"..."}}`;
@@ -62665,9 +62671,9 @@ async function getStopOrdersForUser(userId, filters = {}) {
 init_schema();
 
 // server/build-info.ts
-var BUILD_COMMIT = "c99f543d-dirty";
+var BUILD_COMMIT = "1e42c340-dirty";
 var BUILD_BRANCH = "HEAD";
-var BUILT_AT = "2026-10-31T00:09:05.857Z";
+var BUILT_AT = "2026-10-31T00:21:38.151Z";
 
 // server/stripe.ts
 init_db();

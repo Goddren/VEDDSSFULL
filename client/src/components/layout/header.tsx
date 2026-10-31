@@ -324,6 +324,7 @@ const Header: React.FC = () => {
     { name: 'Crypto AI Engine', path: '/crypto-engine', active: location === '/crypto-engine', icon: <Coins className="h-4 w-4 mr-2" /> },
     { name: 'DXtrade (Velotrade)', path: '/dxtrade', active: location === '/dxtrade', icon: <TrendingUp className="h-4 w-4 mr-2" /> },
     { name: 'My Certifications', path: '/certifications', active: location === '/certifications', icon: <Award className="h-4 w-4 mr-2" /> },
+    { name: "Today's Posts", path: '/ambassador/agent', active: location === '/ambassador/agent', icon: <Rocket className="h-4 w-4 mr-2" /> },
     { name: 'Local Outreach', path: '/ambassador/local-outreach', active: location === '/ambassador/local-outreach', icon: <MapPin className="h-4 w-4 mr-2" /> },
     { name: 'Prop Firm Setup Event', path: '/ambassador/propfirm-event', active: location === '/ambassador/propfirm-event', icon: <Rocket className="h-4 w-4 mr-2" /> },
     { name: 'Presentation Hub', path: '/ambassador/present', active: location === '/ambassador/present', icon: <TrendingUp className="h-4 w-4 mr-2" /> },

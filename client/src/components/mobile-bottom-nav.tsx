@@ -48,6 +48,7 @@ const communityItems = [
   { name: 'Activity Hub', path: '/activity',                              icon: Flame,       color: '#ef4444' },
   { name: 'Community',    path: '/community',                             icon: Users,       color: '#8b5cf6' },
   { name: 'Free to Pro',  path: '/ambassador/free-path',                  icon: Rocket,      color: '#22c55e' },
+  { name: "Today's Posts", path: '/ambassador/agent',                     icon: Rocket,      color: '#22c55e' },
   { name: 'Training',     path: '/ambassador-training',                   icon: GraduationCap, color: '#f59e0b' },
   { name: 'Recruit',      path: '/ambassador/recruitment',                icon: Users,       color: '#ef4444' },
   { name: 'Lead Page',    path: '/ambassador/recruitment?tab=leadpages',  icon: Globe,       color: '#3b82f6' },
