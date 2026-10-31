@@ -22608,9 +22608,9 @@ var init_dxtrade = __esm({
       async ensureLoggedIn() {
         if (!this.token) await this.login();
       }
-      async authed(path17, init = {}) {
+      async authed(path18, init = {}) {
         if (!this.token) await this.login();
-        const doFetch = () => fetch(`${this.base}${path17}`, {
+        const doFetch = () => fetch(`${this.base}${path18}`, {
           ...init,
           headers: { "Accept": "application/json", "Content-Type": "application/json", "Authorization": `DXAPI ${this.token}`, ...init.headers || {} },
           signal: AbortSignal.timeout(2e4)
@@ -22818,8 +22818,8 @@ var init_dxtrade = __esm({
       async getInstruments(query = "") {
         const attempts = query ? [`/instruments/query?text=${encodeURIComponent(query)}`, `/instruments/query?symbol=${encodeURIComponent(query)}`, `/instruments/query?symbols=${encodeURIComponent(query)}`] : ["/instruments/query"];
         let last = "";
-        for (const path17 of attempts) {
-          const res = await this.authed(path17);
+        for (const path18 of attempts) {
+          const res = await this.authed(path18);
           const text2 = await res.text();
           if (res.ok) {
             try {
@@ -22892,10 +22892,10 @@ var init_dxtrade = __esm({
           `/accounts/${enc}/reports/trades?from=${encodeURIComponent(fromIso)}&to=${encodeURIComponent(toIso)}`,
           `/accounts/${enc}/positions/history?from=${encodeURIComponent(fromIso)}&to=${encodeURIComponent(toIso)}`
         ];
-        for (const path17 of candidates) {
+        for (const path18 of candidates) {
           let res;
           try {
-            res = await this.authed(path17);
+            res = await this.authed(path18);
           } catch {
             continue;
           }
@@ -22909,7 +22909,7 @@ var init_dxtrade = __esm({
           const list = data?.history ?? data?.trades ?? data?.orders ?? data?.positions ?? data?.items ?? (Array.isArray(data) ? data : []);
           if (!Array.isArray(list) || list.length === 0) {
             if (Array.isArray(list)) {
-              console.log(`[dxtrade] history via ${path17.split("?")[0]} \u2014 0 rows in window`);
+              console.log(`[dxtrade] history via ${path18.split("?")[0]} \u2014 0 rows in window`);
               return [];
             }
             continue;
@@ -22929,7 +22929,7 @@ var init_dxtrade = __esm({
             profit: o.profit ?? o.pnl ?? o.realizedPnl ?? o.realizedPnL ?? o.grossProfit,
             closeTime: o.closeTime ?? o.closedAt ?? o.closeTimestamp ?? o.timestamp ?? o.updateTime ?? null
           }));
-          console.log(`[dxtrade] history via ${path17.split("?")[0]} \u2014 ${closed.length} closed rows`);
+          console.log(`[dxtrade] history via ${path18.split("?")[0]} \u2014 ${closed.length} closed rows`);
           return closed;
         }
         console.log(`[dxtrade] no working history endpoint found for ${accountCode} (tried ${candidates.length}) \u2014 close-sync will keep opens PENDING`);
@@ -23368,13 +23368,13 @@ function callBudget() {
     candleTtlMs: Number(process.env.COINGECKO_CANDLE_TTL_MS ?? (hasKey ? 10 * 60 * 1e3 : 30 * 60 * 1e3))
   };
 }
-async function gt(path17) {
-  const run = async () => {
+async function gt(path18) {
+  const run2 = async () => {
     for (let attempt = 0; attempt < 3; attempt++) {
       const wait = Math.max(0, callBudget().minIntervalMs - (Date.now() - lastCallAt));
       if (wait > 0) await new Promise((r) => setTimeout(r, wait));
       lastCallAt = Date.now();
-      const res = await fetch(`${GT}${path17}`, {
+      const res = await fetch(`${GT}${path18}`, {
         headers: cgHeaders(),
         signal: AbortSignal.timeout(2e4)
       });
@@ -23382,15 +23382,15 @@ async function gt(path17) {
       if (res.status === 429) {
         const retryAfter = Number(res.headers.get("retry-after")) || 0;
         const backoff = retryAfter > 0 ? retryAfter * 1e3 : 3e3 * (attempt + 1);
-        console.warn(`[defi-market-data] rate limited on ${path17}; waiting ${backoff}ms (attempt ${attempt + 1}/3)`);
+        console.warn(`[defi-market-data] rate limited on ${path18}; waiting ${backoff}ms (attempt ${attempt + 1}/3)`);
         await new Promise((r) => setTimeout(r, backoff));
         continue;
       }
-      throw new Error(`GeckoTerminal ${res.status} on ${path17}`);
+      throw new Error(`GeckoTerminal ${res.status} on ${path18}`);
     }
-    throw new Error(`GeckoTerminal rate limited after 3 attempts on ${path17}`);
+    throw new Error(`GeckoTerminal rate limited after 3 attempts on ${path18}`);
   };
-  const next = callChain.then(run, run);
+  const next = callChain.then(run2, run2);
   callChain = next.catch(() => void 0);
   return next;
 }
@@ -31840,7 +31840,7 @@ function noteAuthResult(key, err) {
   }
 }
 async function serializeAuth(label, fn) {
-  const run = authChain.then(async () => {
+  const run2 = authChain.then(async () => {
     const wait = MIN_AUTH_GAP_MS - (Date.now() - lastAuthAt);
     if (wait > 0) await new Promise((r) => setTimeout(r, wait));
     try {
@@ -31849,10 +31849,10 @@ async function serializeAuth(label, fn) {
       lastAuthAt = Date.now();
     }
   });
-  authChain = run.then(() => {
+  authChain = run2.then(() => {
   }, () => {
   });
-  return run;
+  return run2;
 }
 async function loginFetchWith429Retry(url, body) {
   const backoffs = [1500, 3500];
@@ -35669,9 +35669,9 @@ var init_tastytrade = __esm({
         }
         await this.login();
       }
-      async request(path17, init = {}, attempt = 0) {
+      async request(path18, init = {}, attempt = 0) {
         await this.ensureAuthenticated();
-        const response = await fetch(`${this.baseUrl}${path17}`, {
+        const response = await fetch(`${this.baseUrl}${path18}`, {
           ...init,
           headers: {
             "Authorization": this.sessionToken || "",
@@ -35682,7 +35682,7 @@ var init_tastytrade = __esm({
         });
         if (!response.ok && RETRYABLE_STATUSES3.has(response.status) && attempt < RETRY_DELAYS3.length) {
           await new Promise((r) => setTimeout(r, RETRY_DELAYS3[attempt]));
-          return this.request(path17, init, attempt + 1);
+          return this.request(path18, init, attempt + 1);
         }
         return response;
       }
@@ -36571,20 +36571,20 @@ var init_tradovate = __esm({
         }
         return data;
       }
-      async get(path17) {
+      async get(path18) {
         await this.ensureAuthenticated();
-        const response = await fetch(`${this.baseUrl}${path17}`, {
+        const response = await fetch(`${this.baseUrl}${path18}`, {
           headers: { "Authorization": `Bearer ${this.accessToken}`, "Accept": "application/json" }
         });
         if (!response.ok) {
           const text2 = await response.text();
-          throw new Error(`Tradovate GET ${path17} failed (${response.status}): ${text2}`);
+          throw new Error(`Tradovate GET ${path18} failed (${response.status}): ${text2}`);
         }
         return response.json();
       }
-      async post(path17, body) {
+      async post(path18, body) {
         await this.ensureAuthenticated();
-        const response = await fetch(`${this.baseUrl}${path17}`, {
+        const response = await fetch(`${this.baseUrl}${path18}`, {
           method: "POST",
           headers: {
             "Authorization": `Bearer ${this.accessToken}`,
@@ -36595,7 +36595,7 @@ var init_tradovate = __esm({
         });
         if (!response.ok) {
           const text2 = await response.text();
-          throw new Error(`Tradovate POST ${path17} failed (${response.status}): ${text2}`);
+          throw new Error(`Tradovate POST ${path18} failed (${response.status}): ${text2}`);
         }
         return response.json();
       }
@@ -39536,8 +39536,8 @@ async function fxWeek(windowDays = 7) {
     const k = new Date(x.close).toISOString().slice(0, 10);
     days.set(k, (days.get(k) || 0) + x.pl);
   }
-  let run = 0;
-  const series = [0, ...Array.from(days.values()).map((v) => (run += v) / base * 100)];
+  let run2 = 0;
+  const series = [0, ...Array.from(days.values()).map((v) => (run2 += v) / base * 100)];
   return { pct: total / base * 100, signals: sigs.length, winRate: decided ? wins / decided * 100 : 0, best: bestE && bestE[1] > 0 ? { pair: bestE[0], pct: bestE[1] / base * 100 } : void 0, series };
 }
 async function mastery() {
@@ -42263,8 +42263,8 @@ __export(coinbase_exports, {
 });
 import crypto9 from "crypto";
 import jwt from "jsonwebtoken";
-function buildJwt(keyName, privateKeyPem, method, path17) {
-  const uri = `${method} ${API_HOST}${path17}`;
+function buildJwt(keyName, privateKeyPem, method, path18) {
+  const uri = `${method} ${API_HOST}${path18}`;
   const now = Math.floor(Date.now() / 1e3);
   const payload2 = { sub: keyName, iss: "cdp", nbf: now, exp: now + 120, uri };
   return jwt.sign(payload2, privateKeyPem, {
@@ -42285,9 +42285,9 @@ var init_coinbase = __esm({
         this.keyName = keyName;
         this.privateKey = privateKeyPem.includes("\\n") ? privateKeyPem.replace(/\\n/g, "\n") : privateKeyPem;
       }
-      async get(path17) {
-        const token = buildJwt(this.keyName, this.privateKey, "GET", path17);
-        const res = await fetch(`https://${API_HOST}${path17}`, {
+      async get(path18) {
+        const token = buildJwt(this.keyName, this.privateKey, "GET", path18);
+        const res = await fetch(`https://${API_HOST}${path18}`, {
           method: "GET",
           headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
           signal: AbortSignal.timeout(12e3)
@@ -42298,9 +42298,9 @@ var init_coinbase = __esm({
         }
         return res.json();
       }
-      async post(path17, body) {
-        const token = buildJwt(this.keyName, this.privateKey, "POST", path17);
-        const res = await fetch(`https://${API_HOST}${path17}`, {
+      async post(path18, body) {
+        const token = buildJwt(this.keyName, this.privateKey, "POST", path18);
+        const res = await fetch(`https://${API_HOST}${path18}`, {
           method: "POST",
           headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
           body: JSON.stringify(body),
@@ -42342,8 +42342,8 @@ var init_coinbase = __esm({
         const accounts = [];
         let cursor = "";
         for (let i = 0; i < 10; i++) {
-          const path17 = `/api/v3/brokerage/accounts?limit=250${cursor ? `&cursor=${encodeURIComponent(cursor)}` : ""}`;
-          const data = await this.get(path17);
+          const path18 = `/api/v3/brokerage/accounts?limit=250${cursor ? `&cursor=${encodeURIComponent(cursor)}` : ""}`;
+          const data = await this.get(path18);
           for (const a of data?.accounts ?? []) accounts.push(a);
           if (data?.has_next && data?.cursor) cursor = data.cursor;
           else break;
@@ -42412,22 +42412,22 @@ var init_kraken = __esm({
         this.apiKey = apiKey;
         this.secret = secret;
       }
-      sign(path17, nonce, postData) {
+      sign(path18, nonce, postData) {
         const sha256 = crypto10.createHash("sha256").update(nonce + postData).digest();
-        const message = Buffer.concat([Buffer.from(path17, "utf8"), sha256]);
+        const message = Buffer.concat([Buffer.from(path18, "utf8"), sha256]);
         const key = Buffer.from(this.secret, "base64");
         return crypto10.createHmac("sha512", key).update(message).digest("base64");
       }
       async privatePost(endpoint, params = {}) {
-        const path17 = `/0/private/${endpoint}`;
+        const path18 = `/0/private/${endpoint}`;
         const nonce = String(Date.now() * 1e3);
         const body = new URLSearchParams({ nonce, ...params });
         const postData = body.toString();
-        const res = await fetch(`${API_HOST2}${path17}`, {
+        const res = await fetch(`${API_HOST2}${path18}`, {
           method: "POST",
           headers: {
             "API-Key": this.apiKey,
-            "API-Sign": this.sign(path17, nonce, postData),
+            "API-Sign": this.sign(path18, nonce, postData),
             "Content-Type": "application/x-www-form-urlencoded",
             "User-Agent": "VEDD/1.0"
           },
@@ -42701,8 +42701,8 @@ function baseUrl(testnet) {
 function tradedAddress(c) {
   return (c.vaultAddress || c.accountAddress).toLowerCase();
 }
-async function post(testnet, path17, body) {
-  const r = await fetch(baseUrl(testnet) + path17, {
+async function post(testnet, path18, body) {
+  const r = await fetch(baseUrl(testnet) + path18, {
     method: "POST",
     headers: { "content-type": "application/json" },
     body: JSON.stringify(body),
@@ -42713,9 +42713,9 @@ async function post(testnet, path17, body) {
   try {
     j = JSON.parse(text2);
   } catch {
-    throw new Error(`Hyperliquid ${path17} HTTP ${r.status}: ${text2.slice(0, 200)}`);
+    throw new Error(`Hyperliquid ${path18} HTTP ${r.status}: ${text2.slice(0, 200)}`);
   }
-  if (!r.ok) throw new Error(`Hyperliquid ${path17} HTTP ${r.status}: ${text2.slice(0, 200)}`);
+  if (!r.ok) throw new Error(`Hyperliquid ${path18} HTTP ${r.status}: ${text2.slice(0, 200)}`);
   return j;
 }
 async function getMeta(testnet) {
@@ -49499,8 +49499,8 @@ async function runRuinConeSimulation(userId, params = {}) {
   let hitTargetCount = 0;
   const targetEquity = startingEquity + profitTarget;
   for (let s = 0; s < numSimulations; s++) {
-    const path17 = new Float64Array(numTrades + 1);
-    path17[0] = startingEquity;
+    const path18 = new Float64Array(numTrades + 1);
+    path18[0] = startingEquity;
     let equity = startingEquity;
     let peak = startingEquity;
     let firstFailIndex = -1;
@@ -49513,7 +49513,7 @@ async function runRuinConeSimulation(userId, params = {}) {
     for (let t = 1; t <= numTrades; t++) {
       const pnl = pnls[Math.random() * sourceTradeCount | 0];
       equity += pnl;
-      path17[t] = equity;
+      path18[t] = equity;
       if (equity > peak) peak = equity;
       if (!everRuin && peak - equity >= maxDrawdownLimit) {
         everRuin = true;
@@ -49532,7 +49532,7 @@ async function runRuinConeSimulation(userId, params = {}) {
         tradeInDay = 0;
       }
     }
-    paths[s] = path17;
+    paths[s] = path18;
     finalEquities[s] = equity;
     if (everRuin) ruinCount++;
     if (everDailyBreach) dailyBreachCount++;
@@ -54691,6 +54691,414 @@ var init_strategic_community_data = __esm({
   }
 });
 
+// server/services/video-shot.ts
+var video_shot_exports = {};
+__export(video_shot_exports, {
+  fallbackShot: () => fallbackShot,
+  planVideoShot: () => planVideoShot
+});
+function fallbackShot(input) {
+  const lines = input.split(/\n+/).map((l) => l.replace(/^\s*(HOOK|BEAT\s*\d*|CTA|CAPTION|ON-SCREEN TEXT|SCENE\s*\d*|SHOW|VO|VOICEOVER)\s*(\([^)]*\))?\s*[:\-—]\s*/i, "").trim()).filter((l) => l && !/^#|https?:\/\//i.test(l));
+  return (lines.join(" ") || input).slice(0, MAX_SHOT_CHARS);
+}
+async function planVideoShot(input, userId) {
+  const text2 = String(input || "").trim();
+  if (!text2) throw new Error("prompt is required");
+  try {
+    const { getUniversalAIClientForUser: getUniversalAIClientForUser2 } = await Promise.resolve().then(() => (init_openai(), openai_exports));
+    const ai = await getUniversalAIClientForUser2(userId || 0);
+    const completion = await ai.chat.completions.create({
+      model: ai.defaultModel || "gpt-4o",
+      messages: [
+        { role: "system", content: "You turn content ideas into a single shot description for a text-to-video model. Respond with JSON only." },
+        { role: "user", content: `Turn the input below into ONE continuous 5-second vertical (9:16) video shot that a text-to-video model can film.
+
+Rules:
+- Keep the user's subject, people, place, objects and action. Do not swap in a different idea.
+- If the input is a script, ad or list of scenes, pick the single most visual moment that carries its message.
+- If the input is only a topic (e.g. "ORB strategy"), invent one concrete scene that shows it (a person, a place, what they are doing, what is on the screen in front of them).
+- Describe only what the camera sees: subject, setting, action, camera angle/movement, lighting. 40-70 words, present tense.
+- No on-screen text, captions, logos, brand names or readable words; describe screens as "a candlestick chart" not "a chart that says...".
+- Do not add a style (film grain, colour grade): that is added later.
+
+Also write "hook": the 3-8 word caption to overlay on the video, in the input's language.
+
+Input:
+"""${text2.slice(0, 4e3)}"""
+
+JSON: {"shot":"...","hook":"..."}` }
+      ],
+      response_format: { type: "json_object" },
+      max_tokens: 600
+    });
+    const raw = (completion.choices?.[0]?.message?.content || "{}").replace(/^```[a-z]*\n?/i, "").replace(/\n?```$/i, "").trim();
+    const out = JSON.parse(raw || "{}");
+    const shot = String(out.shot || "").trim();
+    if (shot.length >= 20) return { shot: shot.slice(0, MAX_SHOT_CHARS), hook: String(out.hook || "").trim().slice(0, 80), planned: true };
+  } catch (e) {
+    console.warn("[video-shot] planning failed, using fallback:", e?.message || e);
+  }
+  return { shot: fallbackShot(text2), hook: "", planned: false };
+}
+var MAX_SHOT_CHARS;
+var init_video_shot = __esm({
+  "server/services/video-shot.ts"() {
+    "use strict";
+    MAX_SHOT_CHARS = 600;
+  }
+});
+
+// server/services/video-generation.ts
+function buildModelInput(model, quality, styledPrompt, numFrames, durationSeconds, image, aspect = "9:16") {
+  if (model.includes("kling")) {
+    return {
+      prompt: styledPrompt,
+      negative_prompt: "blurry, low quality, distorted, deformed, extra limbs, watermark, text, on-screen text, subtitles",
+      ...image ? { start_image: image } : { aspect_ratio: aspect },
+      duration: durationSeconds <= 5 ? 5 : 10,
+      // Kling only offers 5s or 10s
+      cfg_scale: 0.5
+    };
+  }
+  if (model.includes("wan")) {
+    return {
+      prompt: styledPrompt,
+      resolution: quality === "high" ? "720p" : "480p",
+      // 720p is the real quality bump the model already supports
+      num_frames: numFrames,
+      frames_per_second: DEFAULT_FPS,
+      // Wan i2v derives aspect ratio from the start image; only set it for t2v.
+      ...image ? { image } : { aspect_ratio: aspect }
+    };
+  }
+  return { prompt: styledPrompt, ...image ? { image } : { aspect_ratio: aspect } };
+}
+async function generateContentVideo(prompt, opts) {
+  const apiKey = process.env.REPLICATE_API_TOKEN;
+  if (!apiKey) {
+    console.error("[video-generation] REPLICATE_API_TOKEN not set \u2014 cannot generate video");
+    return null;
+  }
+  const quality = opts?.quality === "high" ? "high" : "fast";
+  const image = opts?.image && opts.image.trim() ? opts.image.trim() : void 0;
+  const model = image ? quality === "high" ? HIGH_I2V_MODEL : FAST_I2V_MODEL : quality === "high" ? HIGH_MODEL : FAST_MODEL;
+  const durationSeconds = Math.min(Math.max(opts?.duration ?? 5, 1), MAX_DURATION_SECONDS);
+  const numFrames = Math.max(MIN_NUM_FRAMES, Math.round(durationSeconds * DEFAULT_FPS));
+  const styledPrompt = `${prompt.trim()}${VEDD_STYLE_LOCK}${NO_TEXT_SUFFIX}${HUMAN_STYLE_SUFFIX}`;
+  const input = buildModelInput(model, quality, styledPrompt, numFrames, durationSeconds, image, opts?.aspect === "16:9" ? "16:9" : "9:16");
+  try {
+    console.log(`[video-generation] quality=${quality} model=${model} mode=${image ? "image-to-video" : "text-to-video"}`);
+    const res = await fetch(`https://api.replicate.com/v1/models/${model}/predictions`, {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${apiKey}`,
+        "Content-Type": "application/json",
+        Prefer: "wait"
+      },
+      body: JSON.stringify({ input }),
+      // Replicate's own `Prefer: wait` window can run right up to ~60s
+      // before it gives up and returns 202 "starting" instead of a
+      // finished result — a 60000ms client-side abort loses that race and
+      // throws "aborted due to timeout" instead of falling through to the
+      // poll loop below. Give it headroom.
+      signal: AbortSignal.timeout(75e3)
+    });
+    if (!res.ok) {
+      const body = await res.text().catch(() => "");
+      console.error("[video-generation] Replicate error:", res.status, body.slice(0, 300));
+      return null;
+    }
+    let data = await res.json();
+    const getUrl = data?.urls?.get;
+    for (let i = 0; i < MAX_POLLS && getUrl && (data.status === "starting" || data.status === "processing"); i++) {
+      await new Promise((resolve) => setTimeout(resolve, POLL_INTERVAL_MS));
+      const poll = await fetch(getUrl, {
+        headers: { Authorization: `Bearer ${apiKey}` },
+        signal: AbortSignal.timeout(15e3)
+      });
+      if (!poll.ok) break;
+      data = await poll.json();
+    }
+    if (data.status !== "succeeded") {
+      console.error("[video-generation] Replicate video did not complete in time:", data.status, data.error ?? "");
+      return null;
+    }
+    const output = data?.output;
+    const url = Array.isArray(output) ? output[0] : output;
+    if (!url) return null;
+    return { url, provider: `replicate:${model}`, quality };
+  } catch (e) {
+    console.error("[video-generation] Replicate error:", e.message);
+    return null;
+  }
+}
+var VEDD_STYLE_LOCK, NO_TEXT_SUFFIX, HUMAN_STYLE_SUFFIX, FAST_MODEL, HIGH_MODEL, FAST_I2V_MODEL, HIGH_I2V_MODEL, DEFAULT_FPS, MIN_NUM_FRAMES, MAX_DURATION_SECONDS, POLL_INTERVAL_MS, MAX_POLLS;
+var init_video_generation = __esm({
+  "server/services/video-generation.ts"() {
+    "use strict";
+    VEDD_STYLE_LOCK = ". Shot as a grainy 35mm cinematic film still: heavy analog film grain, desaturated moody color grade with one warm gold light source, shallow depth of field, photorealistic. Slow, subtle ambient motion only \u2014 no fast or shaky camera movement.";
+    NO_TEXT_SUFFIX = " No on-screen text, captions, subtitles, signage, logos or readable words anywhere in the frame \u2014 pure visual scene only.";
+    HUMAN_STYLE_SUFFIX = " If people appear: young Black people, natural skin tones, contemporary streetwear, authentic inner-city/urban setting.";
+    FAST_MODEL = "wan-video/wan-2.2-t2v-fast";
+    HIGH_MODEL = process.env.VIDEO_HIGH_MODEL || "wan-video/wan-2.2-t2v-fast";
+    FAST_I2V_MODEL = process.env.VIDEO_FAST_I2V_MODEL || "wan-video/wan-2.2-i2v-fast";
+    HIGH_I2V_MODEL = process.env.VIDEO_HIGH_I2V_MODEL || "wan-video/wan-2.2-i2v-fast";
+    DEFAULT_FPS = 16;
+    MIN_NUM_FRAMES = 81;
+    MAX_DURATION_SECONDS = 6;
+    POLL_INTERVAL_MS = 5e3;
+    MAX_POLLS = 60;
+  }
+});
+
+// server/services/video-branding.ts
+import { spawn as spawn2 } from "child_process";
+import fs12 from "fs";
+import os from "os";
+import path12 from "path";
+function run(cmd, args, timeoutMs = 12e4) {
+  return new Promise((resolve, reject) => {
+    const p = spawn2(cmd, args);
+    let out = "", err = "";
+    const t = setTimeout(() => {
+      p.kill("SIGKILL");
+      reject(new Error(`${cmd} timed out`));
+    }, timeoutMs);
+    p.stdout.on("data", (d) => {
+      out += d.toString();
+    });
+    p.stderr.on("data", (d) => {
+      err += d.toString();
+    });
+    p.on("error", (e) => {
+      clearTimeout(t);
+      reject(e);
+    });
+    p.on("close", (code) => {
+      clearTimeout(t);
+      code === 0 ? resolve(out) : reject(new Error(`${cmd} exited ${code}: ${err.slice(-400)}`));
+    });
+  });
+}
+function findLogo() {
+  return LOGO_CANDIDATES.find((p) => fs12.existsSync(p)) ?? null;
+}
+async function brandVideo(video, aspect = "9:16") {
+  const logo = findLogo();
+  if (!logo) {
+    console.warn("[video-branding] logo not found; skipping branding");
+    return null;
+  }
+  const dir = fs12.mkdtempSync(path12.join(os.tmpdir(), "vedd-brand-"));
+  const src = path12.join(dir, "in.mp4");
+  const dst = path12.join(dir, "out.mp4");
+  try {
+    fs12.writeFileSync(src, video);
+    const probe = await run("ffprobe", ["-v", "error", "-select_streams", "v:0", "-show_entries", "stream=width,height", "-of", "csv=p=0:s=x", src], 3e4);
+    const [sw, sh] = probe.trim().split("x").map(Number);
+    if (!(sw > 0 && sh > 0)) throw new Error(`could not read video size (${probe.trim()})`);
+    const even = (n) => Math.max(2, Math.floor(n / 2) * 2);
+    const r = RATIO[aspect] ?? RATIO["9:16"];
+    const w = even(sw / sh > r ? sh * r : sw);
+    const h = even(sw / sh > r ? sh : sw / r);
+    const wm = even(w * 0.16);
+    const margin = Math.round(w * 0.04);
+    const card = even(w * 0.42);
+    const filter = [
+      `[1:v]scale=${wm}:-1,format=rgba,colorchannelmixer=aa=0.85[wm]`,
+      `[0:v]crop=${w}:${h}[src]`,
+      `[src][wm]overlay=W-w-${margin}:H-h-${margin},fps=${FPS},format=yuv420p,setsar=1[main]`,
+      `[2:v]scale=${card}:-1,pad=${w}:${h}:(ow-iw)/2:(oh-ih)/2:color=${NAVY},fps=${FPS},format=yuv420p,setsar=1[card]`,
+      `[main][card]concat=n=2:v=1:a=0[out]`
+    ].join(";");
+    await run("ffmpeg", [
+      "-y",
+      "-i",
+      src,
+      "-i",
+      logo,
+      "-loop",
+      "1",
+      "-t",
+      String(END_CARD_SECONDS),
+      "-i",
+      logo,
+      "-filter_complex",
+      filter,
+      "-map",
+      "[out]",
+      "-c:v",
+      "libx264",
+      "-preset",
+      "veryfast",
+      "-crf",
+      "23",
+      "-pix_fmt",
+      "yuv420p",
+      "-movflags",
+      "+faststart",
+      dst
+    ]);
+    return fs12.readFileSync(dst);
+  } catch (e) {
+    console.warn("[video-branding] branding failed, shipping unbranded clip:", e?.message || e);
+    return null;
+  } finally {
+    fs12.rmSync(dir, { recursive: true, force: true });
+  }
+}
+var LOGO_CANDIDATES, END_CARD_SECONDS, FPS, NAVY, RATIO;
+var init_video_branding = __esm({
+  "server/services/video-branding.ts"() {
+    "use strict";
+    LOGO_CANDIDATES = [
+      path12.resolve(process.cwd(), "dist/public/icons/icon-512x512.png"),
+      path12.resolve(process.cwd(), "client/public/icons/icon-512x512.png")
+    ];
+    END_CARD_SECONDS = 1.5;
+    FPS = 16;
+    NAVY = "0x080B14";
+    RATIO = { "9:16": 9 / 16, "1:1": 1, "4:5": 4 / 5, "16:9": 16 / 9 };
+  }
+});
+
+// server/services/content-asset-store.ts
+var content_asset_store_exports = {};
+__export(content_asset_store_exports, {
+  getPersistedAsset: () => getPersistedAsset,
+  persistBuffer: () => persistBuffer,
+  persistRemoteAsset: () => persistRemoteAsset
+});
+async function persistRemoteAsset(remoteUrl) {
+  const MAX_ATTEMPTS = 3;
+  for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
+    try {
+      const res = await fetch(remoteUrl, { signal: AbortSignal.timeout(6e4) });
+      if (!res.ok) {
+        console.error(`[content-asset-store] fetch failed for ${remoteUrl}: ${res.status} (attempt ${attempt}/${MAX_ATTEMPTS})`);
+        if (attempt < MAX_ATTEMPTS) {
+          await sleep(1e3 * attempt);
+          continue;
+        }
+        return null;
+      }
+      const contentType = res.headers.get("content-type") || "application/octet-stream";
+      const buf = Buffer.from(await res.arrayBuffer());
+      if (buf.byteLength > MAX_ASSET_BYTES) {
+        console.error(`[content-asset-store] asset too large to persist (${buf.byteLength} bytes) \u2014 falling back to remote URL`);
+        return null;
+      }
+      const base64 = buf.toString("base64");
+      const { rows } = await pool.query(
+        `INSERT INTO content_studio_assets (mime_type, data) VALUES ($1, $2) RETURNING id`,
+        [contentType, base64]
+      );
+      const id = rows[0].id;
+      return { id, url: `/api/content-studio/asset/${id}`, mimeType: contentType };
+    } catch (err) {
+      console.error(`[content-asset-store] persistRemoteAsset failed (attempt ${attempt}/${MAX_ATTEMPTS}):`, err?.message ?? err);
+      if (attempt < MAX_ATTEMPTS) {
+        await sleep(1e3 * attempt);
+        continue;
+      }
+      return null;
+    }
+  }
+  return null;
+}
+function sleep(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+async function getPersistedAsset(id) {
+  try {
+    const { rows } = await pool.query(`SELECT mime_type, data FROM content_studio_assets WHERE id = $1`, [id]);
+    if (rows.length === 0) return null;
+    return { mimeType: rows[0].mime_type, data: Buffer.from(rows[0].data, "base64") };
+  } catch (err) {
+    console.error("[content-asset-store] getPersistedAsset failed:", err?.message ?? err);
+    return null;
+  }
+}
+async function persistBuffer(buf, mimeType) {
+  if (buf.byteLength > MAX_ASSET_BYTES) {
+    console.error(`[content-asset-store] buffer too large to persist (${buf.byteLength} bytes)`);
+    return null;
+  }
+  try {
+    const { rows } = await pool.query(
+      `INSERT INTO content_studio_assets (mime_type, data) VALUES ($1, $2) RETURNING id`,
+      [mimeType, buf.toString("base64")]
+    );
+    return { id: rows[0].id, url: `/api/content-studio/asset/${rows[0].id}`, mimeType };
+  } catch (err) {
+    console.error("[content-asset-store] persistBuffer failed:", err?.message ?? err);
+    return null;
+  }
+}
+var MAX_ASSET_BYTES;
+var init_content_asset_store = __esm({
+  "server/services/content-asset-store.ts"() {
+    "use strict";
+    init_db();
+    MAX_ASSET_BYTES = 25 * 1024 * 1024;
+  }
+});
+
+// server/services/content-video.ts
+var content_video_exports = {};
+__export(content_video_exports, {
+  SOCIAL_SIZES: () => SOCIAL_SIZES,
+  renderContentVideo: () => renderContentVideo
+});
+async function renderContentVideo(prompt, o = {}) {
+  const aspect = o.aspect && o.aspect in SOCIAL_SIZES ? o.aspect : "9:16";
+  let shot = (o.shot || "").trim();
+  let hook = "";
+  if (!shot) {
+    if (o.exact) shot = prompt.trim();
+    else ({ shot, hook } = await planVideoShot(prompt, o.userId));
+  }
+  const video = await generateContentVideo(shot, {
+    duration: o.duration,
+    quality: o.quality,
+    image: o.image,
+    aspect: aspect === "16:9" ? "16:9" : "9:16"
+  });
+  if (!video) return null;
+  if (o.brand !== false) {
+    try {
+      const res = await fetch(video.url, { signal: AbortSignal.timeout(6e4) });
+      if (res.ok) {
+        const branded = await brandVideo(Buffer.from(await res.arrayBuffer()), aspect);
+        if (branded) {
+          const saved2 = await persistBuffer(branded, "video/mp4");
+          if (saved2) return { url: saved2.url, persisted: true, branded: true, shot, hook, aspect, provider: video.provider };
+        }
+      }
+    } catch (e) {
+      console.warn("[content-video] branding step failed:", e?.message || e);
+    }
+  }
+  const saved = await persistRemoteAsset(video.url);
+  return { url: saved?.url ?? video.url, persisted: !!saved, branded: false, shot, hook, aspect, provider: video.provider };
+}
+var SOCIAL_SIZES;
+var init_content_video = __esm({
+  "server/services/content-video.ts"() {
+    "use strict";
+    init_video_shot();
+    init_video_generation();
+    init_video_branding();
+    init_content_asset_store();
+    SOCIAL_SIZES = {
+      "9:16": "Reels / TikTok / Shorts / Stories",
+      "1:1": "Square feed post",
+      "4:5": "Instagram / Facebook feed (portrait)",
+      "16:9": "YouTube / landscape"
+    };
+  }
+});
+
 // server/services/ambassador-post-queue.ts
 var ambassador_post_queue_exports = {};
 __export(ambassador_post_queue_exports, {
@@ -54698,9 +55106,12 @@ __export(ambassador_post_queue_exports, {
   PLATFORMS: () => PLATFORMS2,
   RISK_LINE: () => RISK_LINE,
   buildDailyQueue: () => buildDailyQueue,
+  ensureDayBlogDraft: () => ensureDayBlogDraft,
   ensurePostQueueTables: () => ensurePostQueueTables,
+  getDayBlog: () => getDayBlog,
   getPostStats: () => getPostStats,
   getQueue: () => getQueue,
+  makePostVideo: () => makePostVideo,
   markPosted: () => markPosted,
   recordPostClick: () => recordPostClick,
   sanitizePost: () => sanitizePost
@@ -54726,6 +55137,7 @@ function ensurePostQueueTables() {
         created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
         UNIQUE (user_id, queue_date, platform)
       )`);
+      await pool.query(`ALTER TABLE ambassador_post_queue ADD COLUMN IF NOT EXISTS video_url TEXT, ADD COLUMN IF NOT EXISTS video_shot TEXT, ADD COLUMN IF NOT EXISTS video_aspect TEXT`);
     })().catch((e) => {
       _ready = null;
       throw e;
@@ -54845,6 +55257,8 @@ CAPTION: one line plus a question","hashtags":["..."],"visualIdea":"shot list: w
     const link = `${opts.baseUrl}/r/${encodeURIComponent(opts.referralCode)}?p=${rows[0].id}`;
     await pool.query(`UPDATE ambassador_post_queue SET body=$2, link=$3 WHERE id=$1`, [rows[0].id, finalBody(p.body, link, platform), link]);
   }
+  ensureDayBlogDraft(dayNumber, userId).catch(() => {
+  });
   return getQueue(userId, date2);
 }
 async function markPosted(userId, id, posted = true) {
@@ -54873,7 +55287,72 @@ async function getPostStats(userId) {
   ]);
   return { totals: tot[0], byPlatform, topDays: byDay };
 }
-var PLATFORMS2, DISCLOSURE, RISK_LINE, _ready, BANNED;
+async function makePostVideo(userId, postId, aspect) {
+  await ensurePostQueueTables();
+  const { rows } = await pool.query(`SELECT * FROM ambassador_post_queue WHERE id=$1 AND user_id=$2`, [postId, userId]);
+  const post2 = rows[0];
+  if (!post2) throw new Error("Post not found");
+  const { ambassadorContentCurriculum: ambassadorContentCurriculum2 } = await Promise.resolve().then(() => (init_ambassador_content_data(), ambassador_content_data_exports));
+  const lesson = ambassadorContentCurriculum2.find((l) => l.dayNumber === post2.day_number);
+  const idea = [
+    lesson && `Trading lesson: ${lesson.tradingTopic}. ${lesson.tradingLesson}`,
+    post2.hook && `Hook: ${post2.hook}`,
+    post2.visual_idea && `Visual idea: ${post2.visual_idea}`
+  ].filter(Boolean).join("\n");
+  const { renderContentVideo: renderContentVideo2 } = await Promise.resolve().then(() => (init_content_video(), content_video_exports));
+  const video = await renderContentVideo2(idea, { userId, aspect: aspect || VIDEO_ASPECT[post2.platform] || "9:16" });
+  if (!video) throw new Error("The video couldn't be made right now. Please try again in a minute.");
+  await pool.query(`UPDATE ambassador_post_queue SET video_url=$2, video_shot=$3, video_aspect=$4 WHERE id=$1`, [postId, video.url, video.shot, video.aspect]);
+  if (video.persisted) {
+    const { storage: storage2 } = await Promise.resolve().then(() => (init_storage(), storage_exports));
+    await storage2.createContentStudioGeneration({
+      userId,
+      contentType: "video",
+      prompt: idea,
+      title: post2.hook || null,
+      caption: post2.body,
+      assetUrl: video.url,
+      metadata: { provider: video.provider, shot: video.shot, aspect: video.aspect, branded: video.branded, day: post2.day_number, platform: post2.platform }
+    }).catch(() => {
+    });
+  }
+  return video;
+}
+async function getDayBlog(dayNumber) {
+  const { rows } = await pool.query(
+    `SELECT id, title, slug, excerpt, is_published FROM blog_posts WHERE tags @> $1::jsonb ORDER BY id DESC LIMIT 1`,
+    [JSON.stringify([dayTag(dayNumber)])]
+  );
+  return rows[0] ?? null;
+}
+async function ensureDayBlogDraft(dayNumber, userId) {
+  if (blogInFlight.has(dayNumber)) return;
+  blogInFlight.add(dayNumber);
+  try {
+    if (await getDayBlog(dayNumber)) return;
+    const { ambassadorContentCurriculum: ambassadorContentCurriculum2 } = await Promise.resolve().then(() => (init_ambassador_content_data(), ambassador_content_data_exports));
+    const lesson = ambassadorContentCurriculum2.find((l) => l.dayNumber === dayNumber);
+    if (!lesson) return;
+    const { generateVeddBlogPost: generateVeddBlogPost2 } = await Promise.resolve().then(() => (init_openai(), openai_exports));
+    const topic = `${lesson.tradingTopic}: ${lesson.title}. Teach this lesson clearly for newer traders: ${lesson.tradingLesson} Include one practical example and how VEDD AI helps with it. No income or profit promises; include a short risk note.`;
+    const g = await generateVeddBlogPost2(topic, userId);
+    const { storage: storage2 } = await Promise.resolve().then(() => (init_storage(), storage_exports));
+    await storage2.createBlogPost({
+      ...g,
+      slug: `${g.slug}-day-${dayNumber}`.slice(0, 120),
+      tags: [...g.tags || [], dayTag(dayNumber), "44-day-plan"],
+      isPublished: false,
+      isFeatured: false,
+      aiGenerated: true
+    });
+    console.log(`[post-queue] Day ${dayNumber} blog draft saved for review: "${g.title}"`);
+  } catch (e) {
+    console.error(`[post-queue] Day ${dayNumber} blog draft failed:`, e?.message || e);
+  } finally {
+    blogInFlight.delete(dayNumber);
+  }
+}
+var PLATFORMS2, DISCLOSURE, RISK_LINE, _ready, BANNED, VIDEO_ASPECT, dayTag, blogInFlight;
 var init_ambassador_post_queue = __esm({
   "server/services/ambassador-post-queue.ts"() {
     "use strict";
@@ -54888,6 +55367,9 @@ var init_ambassador_post_queue = __esm({
       [/\b(make|earn|made|earned)\s+\$\s?\d[\d,]*/gi, "learn"],
       [/\bDM me\b/gi, "comment below"]
     ];
+    VIDEO_ASPECT = { tiktok: "9:16", instagram: "9:16", facebook_page: "4:5", facebook_group: "4:5" };
+    dayTag = (n) => `lesson-day-${n}`;
+    blogInFlight = /* @__PURE__ */ new Set();
   }
 });
 
@@ -54986,7 +55468,7 @@ var init_blog_og_image = __esm({
 var image_generation_exports = {};
 __export(image_generation_exports, {
   BRAND_STYLE_SUFFIX: () => BRAND_STYLE_SUFFIX,
-  HUMAN_STYLE_SUFFIX: () => HUMAN_STYLE_SUFFIX,
+  HUMAN_STYLE_SUFFIX: () => HUMAN_STYLE_SUFFIX2,
   generateContentImage: () => generateContentImage
 });
 import { OpenAI as OpenAI6 } from "openai";
@@ -55073,14 +55555,14 @@ async function generateFluxImage(prompt, retriesLeft = 2) {
 }
 async function generateContentImage(prompt, template) {
   const styleSuffix = template ? TEMPLATE_BACKGROUND_SUFFIX[template] : BRAND_STYLE_SUFFIX;
-  const brandedPrompt = `${prompt}${styleSuffix}${HUMAN_STYLE_SUFFIX}`;
+  const brandedPrompt = `${prompt}${styleSuffix}${HUMAN_STYLE_SUFFIX2}`;
   const dalleUrl = await generateDalleImage(brandedPrompt);
   if (dalleUrl) return { url: dalleUrl, provider: "dall-e-3" };
   const fluxUrl = await generateFluxImage(brandedPrompt);
   if (fluxUrl) return { url: fluxUrl, provider: "replicate-flux-schnell" };
   return null;
 }
-var BRAND_STYLE_SUFFIX, TEMPLATE_BACKGROUND_SUFFIX, HUMAN_STYLE_SUFFIX;
+var BRAND_STYLE_SUFFIX, TEMPLATE_BACKGROUND_SUFFIX, HUMAN_STYLE_SUFFIX2;
 var init_image_generation = __esm({
   "server/services/image-generation.ts"() {
     "use strict";
@@ -55091,179 +55573,7 @@ var init_image_generation = __esm({
       "scripture": ", background only: dark carbon-fiber woven texture with a subtle repeating dot pattern, near-black, calm and reflective mood, no text, no logos, no words, no letters anywhere in the frame",
       "blog-cover": ", a photographic scene with a soft dark gradient overlay suitable for a news/article cover, cinematic depth of field, no text, no logos, no words, no letters anywhere in the frame"
     };
-    HUMAN_STYLE_SUFFIX = ". If depicting people: they are Black, Brown, or Indigenous people of color with natural skin tones, styled in contemporary urban/hip-hop-inspired fashion (streetwear, fresh sneakers, gold chains, fitted caps), shown with smartphones and modern tech, in authentic inner-city settings \u2014 no generic stock-photo corporate look.";
-  }
-});
-
-// server/services/content-asset-store.ts
-var content_asset_store_exports = {};
-__export(content_asset_store_exports, {
-  getPersistedAsset: () => getPersistedAsset,
-  persistRemoteAsset: () => persistRemoteAsset
-});
-async function persistRemoteAsset(remoteUrl) {
-  const MAX_ATTEMPTS = 3;
-  for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
-    try {
-      const res = await fetch(remoteUrl, { signal: AbortSignal.timeout(6e4) });
-      if (!res.ok) {
-        console.error(`[content-asset-store] fetch failed for ${remoteUrl}: ${res.status} (attempt ${attempt}/${MAX_ATTEMPTS})`);
-        if (attempt < MAX_ATTEMPTS) {
-          await sleep(1e3 * attempt);
-          continue;
-        }
-        return null;
-      }
-      const contentType = res.headers.get("content-type") || "application/octet-stream";
-      const buf = Buffer.from(await res.arrayBuffer());
-      if (buf.byteLength > MAX_ASSET_BYTES) {
-        console.error(`[content-asset-store] asset too large to persist (${buf.byteLength} bytes) \u2014 falling back to remote URL`);
-        return null;
-      }
-      const base64 = buf.toString("base64");
-      const { rows } = await pool.query(
-        `INSERT INTO content_studio_assets (mime_type, data) VALUES ($1, $2) RETURNING id`,
-        [contentType, base64]
-      );
-      const id = rows[0].id;
-      return { id, url: `/api/content-studio/asset/${id}`, mimeType: contentType };
-    } catch (err) {
-      console.error(`[content-asset-store] persistRemoteAsset failed (attempt ${attempt}/${MAX_ATTEMPTS}):`, err?.message ?? err);
-      if (attempt < MAX_ATTEMPTS) {
-        await sleep(1e3 * attempt);
-        continue;
-      }
-      return null;
-    }
-  }
-  return null;
-}
-function sleep(ms) {
-  return new Promise((resolve) => setTimeout(resolve, ms));
-}
-async function getPersistedAsset(id) {
-  try {
-    const { rows } = await pool.query(`SELECT mime_type, data FROM content_studio_assets WHERE id = $1`, [id]);
-    if (rows.length === 0) return null;
-    return { mimeType: rows[0].mime_type, data: Buffer.from(rows[0].data, "base64") };
-  } catch (err) {
-    console.error("[content-asset-store] getPersistedAsset failed:", err?.message ?? err);
-    return null;
-  }
-}
-var MAX_ASSET_BYTES;
-var init_content_asset_store = __esm({
-  "server/services/content-asset-store.ts"() {
-    "use strict";
-    init_db();
-    MAX_ASSET_BYTES = 25 * 1024 * 1024;
-  }
-});
-
-// server/services/video-generation.ts
-var video_generation_exports = {};
-__export(video_generation_exports, {
-  generateContentVideo: () => generateContentVideo
-});
-function buildModelInput(model, quality, styledPrompt, numFrames, durationSeconds, image) {
-  if (model.includes("kling")) {
-    return {
-      prompt: styledPrompt,
-      negative_prompt: "blurry, low quality, distorted, deformed, extra limbs, watermark, text, on-screen text, subtitles",
-      ...image ? { start_image: image } : { aspect_ratio: "9:16" },
-      duration: durationSeconds <= 5 ? 5 : 10,
-      // Kling only offers 5s or 10s
-      cfg_scale: 0.5
-    };
-  }
-  if (model.includes("wan")) {
-    return {
-      prompt: styledPrompt,
-      resolution: quality === "high" ? "720p" : "480p",
-      // 720p is the real quality bump the model already supports
-      num_frames: numFrames,
-      frames_per_second: DEFAULT_FPS,
-      // Wan i2v derives aspect ratio from the start image; only set it for t2v.
-      ...image ? { image } : { aspect_ratio: "9:16" }
-    };
-  }
-  return { prompt: styledPrompt, ...image ? { image } : { aspect_ratio: "9:16" } };
-}
-async function generateContentVideo(prompt, opts) {
-  const apiKey = process.env.REPLICATE_API_TOKEN;
-  if (!apiKey) {
-    console.error("[video-generation] REPLICATE_API_TOKEN not set \u2014 cannot generate video");
-    return null;
-  }
-  const quality = opts?.quality === "high" ? "high" : "fast";
-  const image = opts?.image && opts.image.trim() ? opts.image.trim() : void 0;
-  const model = image ? quality === "high" ? HIGH_I2V_MODEL : FAST_I2V_MODEL : quality === "high" ? HIGH_MODEL : FAST_MODEL;
-  const durationSeconds = Math.min(Math.max(opts?.duration ?? 5, 1), MAX_DURATION_SECONDS);
-  const numFrames = Math.max(MIN_NUM_FRAMES, Math.round(durationSeconds * DEFAULT_FPS));
-  const styledPrompt = `${prompt.trim()}${VEDD_STYLE_LOCK}${NO_TEXT_SUFFIX}${HUMAN_STYLE_SUFFIX2}`;
-  const input = buildModelInput(model, quality, styledPrompt, numFrames, durationSeconds, image);
-  try {
-    console.log(`[video-generation] quality=${quality} model=${model} mode=${image ? "image-to-video" : "text-to-video"}`);
-    const res = await fetch(`https://api.replicate.com/v1/models/${model}/predictions`, {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${apiKey}`,
-        "Content-Type": "application/json",
-        Prefer: "wait"
-      },
-      body: JSON.stringify({ input }),
-      // Replicate's own `Prefer: wait` window can run right up to ~60s
-      // before it gives up and returns 202 "starting" instead of a
-      // finished result — a 60000ms client-side abort loses that race and
-      // throws "aborted due to timeout" instead of falling through to the
-      // poll loop below. Give it headroom.
-      signal: AbortSignal.timeout(75e3)
-    });
-    if (!res.ok) {
-      const body = await res.text().catch(() => "");
-      console.error("[video-generation] Replicate error:", res.status, body.slice(0, 300));
-      return null;
-    }
-    let data = await res.json();
-    const getUrl = data?.urls?.get;
-    for (let i = 0; i < MAX_POLLS && getUrl && (data.status === "starting" || data.status === "processing"); i++) {
-      await new Promise((resolve) => setTimeout(resolve, POLL_INTERVAL_MS));
-      const poll = await fetch(getUrl, {
-        headers: { Authorization: `Bearer ${apiKey}` },
-        signal: AbortSignal.timeout(15e3)
-      });
-      if (!poll.ok) break;
-      data = await poll.json();
-    }
-    if (data.status !== "succeeded") {
-      console.error("[video-generation] Replicate video did not complete in time:", data.status, data.error ?? "");
-      return null;
-    }
-    const output = data?.output;
-    const url = Array.isArray(output) ? output[0] : output;
-    if (!url) return null;
-    return { url, provider: `replicate:${model}`, quality };
-  } catch (e) {
-    console.error("[video-generation] Replicate error:", e.message);
-    return null;
-  }
-}
-var VEDD_STYLE_LOCK, NO_TEXT_SUFFIX, HUMAN_STYLE_SUFFIX2, FAST_MODEL, HIGH_MODEL, FAST_I2V_MODEL, HIGH_I2V_MODEL, DEFAULT_FPS, MIN_NUM_FRAMES, MAX_DURATION_SECONDS, POLL_INTERVAL_MS, MAX_POLLS;
-var init_video_generation = __esm({
-  "server/services/video-generation.ts"() {
-    "use strict";
-    VEDD_STYLE_LOCK = ". Shot as a grainy 35mm cinematic film still: heavy analog film grain, desaturated moody color grade with one warm gold light source, shallow depth of field, photorealistic. Slow, subtle ambient motion only \u2014 no fast or shaky camera movement.";
-    NO_TEXT_SUFFIX = " No on-screen text, captions, subtitles, signage, logos or readable words anywhere in the frame \u2014 pure visual scene only.";
-    HUMAN_STYLE_SUFFIX2 = " If people appear: young Black people, natural skin tones, contemporary streetwear, authentic inner-city/urban setting.";
-    FAST_MODEL = "wan-video/wan-2.2-t2v-fast";
-    HIGH_MODEL = process.env.VIDEO_HIGH_MODEL || "wan-video/wan-2.2-t2v-fast";
-    FAST_I2V_MODEL = process.env.VIDEO_FAST_I2V_MODEL || "wan-video/wan-2.2-i2v-fast";
-    HIGH_I2V_MODEL = process.env.VIDEO_HIGH_I2V_MODEL || "wan-video/wan-2.2-i2v-fast";
-    DEFAULT_FPS = 16;
-    MIN_NUM_FRAMES = 81;
-    MAX_DURATION_SECONDS = 6;
-    POLL_INTERVAL_MS = 5e3;
-    MAX_POLLS = 60;
+    HUMAN_STYLE_SUFFIX2 = ". If depicting people: they are Black, Brown, or Indigenous people of color with natural skin tones, styled in contemporary urban/hip-hop-inspired fashion (streetwear, fresh sneakers, gold chains, fitted caps), shown with smartphones and modern tech, in authentic inner-city settings \u2014 no generic stock-photo corporate look.";
   }
 });
 
@@ -55273,8 +55583,8 @@ __export(slide_flattener_exports, {
   flattenSlideImage: () => flattenSlideImage
 });
 import sharp from "sharp";
-import * as path12 from "path";
-import * as fs12 from "fs";
+import * as path13 from "path";
+import * as fs13 from "fs";
 function escapeXml(s) {
   return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
 }
@@ -55339,7 +55649,7 @@ async function flattenSlideImage(opts) {
   const composites = [
     { input: Buffer.from(overlaySvg), top: 0, left: 0 }
   ];
-  if (opts.includeLogo && fs12.existsSync(LOGO_PATH)) {
+  if (opts.includeLogo && fs13.existsSync(LOGO_PATH)) {
     const logoWidth = Math.round(CANVAS_SIZE * 0.22);
     const logoBuffer = await sharp(LOGO_PATH).resize(logoWidth, null, { fit: "inside" }).ensureAlpha().png().toBuffer();
     const logoMeta = await sharp(logoBuffer).metadata();
@@ -55357,7 +55667,7 @@ var init_slide_flattener = __esm({
   "server/services/slide-flattener.ts"() {
     "use strict";
     CANVAS_SIZE = 1080;
-    LOGO_PATH = path12.join(process.cwd(), "attached_assets", "IMG_3645.png");
+    LOGO_PATH = path13.join(process.cwd(), "attached_assets", "IMG_3645.png");
   }
 });
 
@@ -55818,8 +56128,8 @@ function teamsMatchMarket(homeTeam, awayTeam, question) {
   return (q.includes(h) || q.includes(hFull)) && (q.includes(a) || q.includes(aFull));
 }
 async function fetchScoreboard(sport) {
-  const path17 = SPORT_PATHS[sport];
-  const data = await safeGet(`${ESPN_BASE}/${path17}/scoreboard`);
+  const path18 = SPORT_PATHS[sport];
+  const data = await safeGet(`${ESPN_BASE}/${path18}/scoreboard`);
   return data?.events ?? [];
 }
 function injuryAdjustment(injuries, sport) {
@@ -56918,8 +57228,8 @@ async function runLeadHunter() {
   const errors = [];
   let runId = 0;
   try {
-    const [run] = await db.insert(leadHunterRuns).values({ date: today, status: "running" }).returning();
-    runId = run.id;
+    const [run2] = await db.insert(leadHunterRuns).values({ date: today, status: "running" }).returning();
+    runId = run2.id;
   } catch (e) {
     console.log("[LeadHunter] Could not create run record: " + e.message);
     errors.push("DB run record failed: " + e.message);
@@ -62155,8 +62465,8 @@ import { eq as eq18, and as and11, sql as sql13, desc as desc11 } from "drizzle-
 import { scrypt, randomBytes } from "crypto";
 import { promisify } from "util";
 import { z as z2 } from "zod";
-import * as fs13 from "fs";
-import * as path13 from "path";
+import * as fs14 from "fs";
+import * as path14 from "path";
 
 // server/trading-coach.ts
 init_openai();
@@ -62682,9 +62992,9 @@ async function getStopOrdersForUser(userId, filters = {}) {
 init_schema();
 
 // server/build-info.ts
-var BUILD_COMMIT = "d3b39b13-dirty";
+var BUILD_COMMIT = "190be9ce-dirty";
 var BUILD_BRANCH = "HEAD";
-var BUILT_AT = "2026-10-31T01:02:09.481Z";
+var BUILT_AT = "2026-10-31T01:39:43.511Z";
 
 // server/stripe.ts
 init_db();
@@ -66704,9 +67014,9 @@ var mediaUpload = multer({
     cb(null, true);
   }
 });
-var uploadsDir2 = path13.join(process.cwd(), "uploads");
-if (!fs13.existsSync(uploadsDir2)) {
-  fs13.mkdirSync(uploadsDir2, { recursive: true });
+var uploadsDir2 = path14.join(process.cwd(), "uploads");
+if (!fs14.existsSync(uploadsDir2)) {
+  fs14.mkdirSync(uploadsDir2, { recursive: true });
 }
 function getCurrentTradingSession() {
   const hour = (/* @__PURE__ */ new Date()).getUTCHours();
@@ -67099,11 +67409,11 @@ async function registerRoutes(app2, existingServer) {
         return res.status(400).json({ message: "No file uploaded" });
       }
       const fileName = `${uuidv42()}.${req.file.mimetype.split("/")[1]}`;
-      const filePath = path13.join(uploadsDir2, fileName);
+      const filePath = path14.join(uploadsDir2, fileName);
       console.log("Generated filename:", fileName);
       console.log("Full file path:", filePath);
       try {
-        await fs13.promises.writeFile(filePath, req.file.buffer);
+        await fs14.promises.writeFile(filePath, req.file.buffer);
         console.log("File saved successfully to disk");
       } catch (writeError) {
         console.error("Error writing file to disk:", writeError);
@@ -67129,14 +67439,14 @@ async function registerRoutes(app2, existingServer) {
       if (!allowedTypes.includes(req.file.mimetype)) {
         return res.status(400).json({ message: "Invalid file type. Only JPEG, PNG, GIF, and WebP are allowed." });
       }
-      const avatarsDir = path13.join(process.cwd(), "uploads", "avatars");
-      if (!fs13.existsSync(avatarsDir)) {
-        fs13.mkdirSync(avatarsDir, { recursive: true });
+      const avatarsDir = path14.join(process.cwd(), "uploads", "avatars");
+      if (!fs14.existsSync(avatarsDir)) {
+        fs14.mkdirSync(avatarsDir, { recursive: true });
       }
       const ext = req.file.mimetype.split("/")[1];
       const fileName = `avatar-${req.user.id}-${Date.now()}.${ext}`;
-      const filePath = path13.join(avatarsDir, fileName);
-      await fs13.promises.writeFile(filePath, req.file.buffer);
+      const filePath = path14.join(avatarsDir, fileName);
+      await fs14.promises.writeFile(filePath, req.file.buffer);
       const avatarUrl = `/uploads/avatars/${fileName}`;
       res.json({ avatarUrl });
     } catch (error) {
@@ -67231,11 +67541,11 @@ async function registerRoutes(app2, existingServer) {
       }
       const extension = filename?.split(".").pop() || "png";
       const generatedFilename = `${uuidv42()}.${extension}`;
-      const filePath = path13.join(uploadsDir2, generatedFilename);
+      const filePath = path14.join(uploadsDir2, generatedFilename);
       const imageUrl = `/uploads/${generatedFilename}`;
       try {
         const imageBuffer = Buffer.from(cleanBase64, "base64");
-        await fs13.promises.writeFile(filePath, imageBuffer);
+        await fs14.promises.writeFile(filePath, imageBuffer);
         console.log("Saved image to", filePath);
       } catch (writeError) {
         console.error("Error saving image to disk:", writeError);
@@ -67368,9 +67678,9 @@ async function registerRoutes(app2, existingServer) {
           const detectedSymbol = analyses.length > 0 ? analyses[analyses.length - 1].symbol : void 0;
           const analysis = await analyzeChartImage(frame.base64, detectedSymbol, req.user?.id);
           const frameFileName = `video_frame_${groupId}_${i + 1}.jpg`;
-          const framePath = path13.join(uploadsDir2, frameFileName);
+          const framePath = path14.join(uploadsDir2, frameFileName);
           const frameBuffer = Buffer.from(frame.base64, "base64");
-          await fs13.promises.writeFile(framePath, frameBuffer);
+          await fs14.promises.writeFile(framePath, frameBuffer);
           const imageUrl = `/uploads/${frameFileName}`;
           await storage.createChartAnalysis({
             userId,
@@ -67770,12 +68080,12 @@ Respond ONLY in valid JSON format with these exact keys:
       if (!imageUrl) {
         return res.status(400).json({ message: "No image URL provided" });
       }
-      const filePath = path13.join(process.cwd(), imageUrl.replace(/^\//, ""));
+      const filePath = path14.join(process.cwd(), imageUrl.replace(/^\//, ""));
       console.log("Attempting to analyze image at path:", filePath);
-      if (!fs13.existsSync(filePath)) {
-        const alternativePath = path13.join(uploadsDir2, path13.basename(imageUrl));
+      if (!fs14.existsSync(filePath)) {
+        const alternativePath = path14.join(uploadsDir2, path14.basename(imageUrl));
         console.log("Image not found, trying alternative path:", alternativePath);
-        if (!fs13.existsSync(alternativePath)) {
+        if (!fs14.existsSync(alternativePath)) {
           return res.status(404).json({ message: "Image file not found" });
         }
         console.log("Found image at alternative path");
@@ -67784,7 +68094,7 @@ Respond ONLY in valid JSON format with these exact keys:
           error: "Direct file analysis is deprecated"
         });
       }
-      const imageBuffer = await fs13.promises.readFile(filePath);
+      const imageBuffer = await fs14.promises.readFile(filePath);
       const base64Image = imageBuffer.toString("base64");
       const knownSymbol = req.body.symbol || void 0;
       const analysis = await analyzeChartImage(base64Image, knownSymbol, req.user?.id);
@@ -67959,11 +68269,11 @@ Respond ONLY in valid JSON format with these exact keys:
         const originalImageUrl = analysis.imageUrl;
         console.log("Original image URL:", originalImageUrl);
         const imagePath = originalImageUrl.startsWith("/") ? originalImageUrl.substring(1) : originalImageUrl;
-        const basename2 = path13.basename(imagePath);
+        const basename2 = path14.basename(imagePath);
         console.log("Image basename:", basename2);
-        const originalImagePath = path13.join(process.cwd(), "uploads", basename2);
+        const originalImagePath = path14.join(process.cwd(), "uploads", basename2);
         console.log("Full image path:", originalImagePath);
-        if (!fs13.existsSync(originalImagePath)) {
+        if (!fs14.existsSync(originalImagePath)) {
           console.error("Original image not found at path:", originalImagePath);
           throw new Error(`Original image not found: ${originalImagePath}`);
         }
@@ -68060,13 +68370,13 @@ Respond ONLY in valid JSON format with these exact keys:
   app2.get("/api/shared-image/:filename", (req, res) => {
     try {
       const filename = req.params.filename;
-      const sanitizedFilename = path13.basename(filename);
-      const sharedPath = path13.join(process.cwd(), "uploads", "shared", sanitizedFilename);
-      if (fs13.existsSync(sharedPath)) {
+      const sanitizedFilename = path14.basename(filename);
+      const sharedPath = path14.join(process.cwd(), "uploads", "shared", sanitizedFilename);
+      if (fs14.existsSync(sharedPath)) {
         return res.sendFile(sharedPath);
       }
-      const regularPath = path13.join(process.cwd(), "uploads", sanitizedFilename);
-      if (fs13.existsSync(regularPath)) {
+      const regularPath = path14.join(process.cwd(), "uploads", sanitizedFilename);
+      if (fs14.existsSync(regularPath)) {
         return res.sendFile(regularPath);
       }
       return res.status(404).json({ message: "Image not found" });
@@ -68078,9 +68388,9 @@ Respond ONLY in valid JSON format with these exact keys:
   app2.get("/api/annotated-image/:filename", (req, res) => {
     try {
       const filename = req.params.filename;
-      const sanitizedFilename = path13.basename(filename);
-      const annotatedPath = path13.join(process.cwd(), "uploads", "annotated", sanitizedFilename);
-      if (fs13.existsSync(annotatedPath)) {
+      const sanitizedFilename = path14.basename(filename);
+      const annotatedPath = path14.join(process.cwd(), "uploads", "annotated", sanitizedFilename);
+      if (fs14.existsSync(annotatedPath)) {
         return res.sendFile(annotatedPath);
       }
       return res.status(404).json({ message: "Annotated image not found" });
@@ -71908,12 +72218,12 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
       });
       const shareId = Date.now().toString(36) + Math.random().toString(36).substring(2, 7);
       const shareCardFileName = `share-card-${shareId}.png`;
-      const shareCardPath = path13.join(process.cwd(), "uploads", "share-cards");
-      if (!fs13.existsSync(shareCardPath)) {
-        fs13.mkdirSync(shareCardPath, { recursive: true });
+      const shareCardPath = path14.join(process.cwd(), "uploads", "share-cards");
+      if (!fs14.existsSync(shareCardPath)) {
+        fs14.mkdirSync(shareCardPath, { recursive: true });
       }
-      const fullPath = path13.join(shareCardPath, shareCardFileName);
-      fs13.writeFileSync(fullPath, shareCardBuffer);
+      const fullPath = path14.join(shareCardPath, shareCardFileName);
+      fs14.writeFileSync(fullPath, shareCardBuffer);
       const shareCardUrl = `/uploads/share-cards/${shareCardFileName}`;
       const shareUrl = `share-${shareId}`;
       const devotion = getDailyScripture2();
@@ -78959,8 +79269,8 @@ Return this EXACT JSON (no markdown, no commentary):
     if (!strat?.plan) return res.status(404).json({ error: "No active VEDD SS AI plan" });
     try {
       const { createCanvas, loadImage } = await import("canvas");
-      const path17 = await import("path");
-      const fs15 = await import("fs");
+      const path18 = await import("path");
+      const fs16 = await import("fs");
       const { getLiveEngineState: getLiveEngineState3 } = await Promise.resolve().then(() => (init_live_trading_engine(), live_trading_engine_exports));
       const engineState = getLiveEngineState3(userId);
       const engineRunning = engineState?.status === "running";
@@ -79046,8 +79356,8 @@ Return this EXACT JSON (no markdown, no commentary):
       ctx.closePath();
       ctx.fill();
       try {
-        const logoPath = path17.default.join(process.cwd(), "attached_assets", "IMG_3645.png");
-        if (fs15.default.existsSync(logoPath)) {
+        const logoPath = path18.default.join(process.cwd(), "attached_assets", "IMG_3645.png");
+        if (fs16.default.existsSync(logoPath)) {
           const logo = await loadImage(logoPath);
           const lh = 64, lw = logo.width / logo.height * lh;
           ctx.drawImage(logo, 44, 26, lw, lh);
@@ -79308,10 +79618,10 @@ Return this EXACT JSON (no markdown, no commentary):
       }
       const buffer = canvas.toBuffer("image/png");
       const fileName = `vedd-ss-ai-progress-${userId}-${Date.now()}.png`;
-      const outDir = path17.default.join(process.cwd(), "uploads", "share-cards");
-      if (!fs15.default.existsSync(outDir)) fs15.default.mkdirSync(outDir, { recursive: true });
-      const filePath = path17.default.join(outDir, fileName);
-      fs15.default.writeFileSync(filePath, buffer);
+      const outDir = path18.default.join(process.cwd(), "uploads", "share-cards");
+      if (!fs16.default.existsSync(outDir)) fs16.default.mkdirSync(outDir, { recursive: true });
+      const filePath = path18.default.join(outDir, fileName);
+      fs16.default.writeFileSync(filePath, buffer);
       res.json({
         success: true,
         imageUrl: `/uploads/share-cards/${fileName}`,
@@ -81779,9 +82089,9 @@ Format each recommendation as a clear, concise action item.`;
     }
     global.veddAIBrain[userId] = brain;
     try {
-      const brainDir = path13.join(process.cwd(), "data", "brains");
-      if (!fs13.existsSync(brainDir)) fs13.mkdirSync(brainDir, { recursive: true });
-      fs13.writeFileSync(path13.join(brainDir, `brain_${userId}.json`), JSON.stringify(brain));
+      const brainDir = path14.join(process.cwd(), "data", "brains");
+      if (!fs14.existsSync(brainDir)) fs14.mkdirSync(brainDir, { recursive: true });
+      fs14.writeFileSync(path14.join(brainDir, `brain_${userId}.json`), JSON.stringify(brain));
     } catch (_brainSaveErr) {
     }
     console.log(`[VEDD Brain] Learned from ${combinedTrades.length} trades across ${uniqueSymbols.length} pairs for user ${userId}`);
@@ -81790,9 +82100,9 @@ Format each recommendation as a clear, concise action item.`;
   global.runBrainLearning = runBrainLearning;
   global.loadPersistedBrain = (userId) => {
     try {
-      const p = path13.join(process.cwd(), "data", "brains", `brain_${userId}.json`);
-      if (!fs13.existsSync(p)) return null;
-      const brain = JSON.parse(fs13.readFileSync(p, "utf-8"));
+      const p = path14.join(process.cwd(), "data", "brains", `brain_${userId}.json`);
+      if (!fs14.existsSync(p)) return null;
+      const brain = JSON.parse(fs14.readFileSync(p, "utf-8"));
       global.veddAIBrain = global.veddAIBrain || {};
       global.veddAIBrain[userId] = brain;
       return brain;
@@ -82010,9 +82320,9 @@ Format each recommendation as a clear, concise action item.`;
     let brain = g.veddAIBrain[userId];
     if (!brain) {
       try {
-        const p = path13.join(process.cwd(), "data", "brains", `brain_${userId}.json`);
-        if (fs13.existsSync(p)) {
-          brain = JSON.parse(fs13.readFileSync(p, "utf-8"));
+        const p = path14.join(process.cwd(), "data", "brains", `brain_${userId}.json`);
+        if (fs14.existsSync(p)) {
+          brain = JSON.parse(fs14.readFileSync(p, "utf-8"));
           g.veddAIBrain[userId] = brain;
         }
       } catch (_) {
@@ -83154,9 +83464,9 @@ Respond with ONLY valid JSON:
         global.veddAIBrain[userId].lastWeeklyScan = scan;
         global.veddAIBrain[userId].weeklyScanInsights = scan.scanInsights;
         try {
-          const brainDir = path13.join(process.cwd(), "data", "brains");
-          if (!fs13.existsSync(brainDir)) fs13.mkdirSync(brainDir, { recursive: true });
-          fs13.writeFileSync(path13.join(brainDir, `brain_${userId}.json`), JSON.stringify(global.veddAIBrain[userId]));
+          const brainDir = path14.join(process.cwd(), "data", "brains");
+          if (!fs14.existsSync(brainDir)) fs14.mkdirSync(brainDir, { recursive: true });
+          fs14.writeFileSync(path14.join(brainDir, `brain_${userId}.json`), JSON.stringify(global.veddAIBrain[userId]));
         } catch (_) {
         }
       }
@@ -83793,20 +84103,20 @@ Respond with ONLY valid JSON:
       });
     }
   });
-  const _polyWalletsFile = path13.join(process.cwd(), "data", "polymarket_wallets.json");
+  const _polyWalletsFile = path14.join(process.cwd(), "data", "polymarket_wallets.json");
   const _loadPolyWallets = () => {
     try {
-      if (fs13.existsSync(_polyWalletsFile)) return JSON.parse(fs13.readFileSync(_polyWalletsFile, "utf-8"));
+      if (fs14.existsSync(_polyWalletsFile)) return JSON.parse(fs14.readFileSync(_polyWalletsFile, "utf-8"));
     } catch {
     }
     return {};
   };
   const _savePolyWallets = (map) => {
     try {
-      const dir = path13.join(process.cwd(), "data");
-      if (!fs13.existsSync(dir)) fs13.mkdirSync(dir, { recursive: true });
+      const dir = path14.join(process.cwd(), "data");
+      if (!fs14.existsSync(dir)) fs14.mkdirSync(dir, { recursive: true });
       const content = JSON.stringify(map, null, 2);
-      fs13.writeFileSync(_polyWalletsFile, content);
+      fs14.writeFileSync(_polyWalletsFile, content);
       backupDurableFile("polymarket_wallets.json", content);
     } catch {
     }
@@ -85223,20 +85533,20 @@ Return ONLY JSON: {"topPicks":[{"market":"","winProbability":<0-100>,"whyItWins"
     const closed = await closeAllKalshiTrades2(userId);
     res.json({ success: true, closed, state: getKalshiEngineState2(userId) });
   });
-  const _polyKeysFile = path13.join(process.cwd(), "data", "polymarket_keys.json");
+  const _polyKeysFile = path14.join(process.cwd(), "data", "polymarket_keys.json");
   const _loadPolyKeys = () => {
     try {
-      if (fs13.existsSync(_polyKeysFile)) return JSON.parse(fs13.readFileSync(_polyKeysFile, "utf-8"));
+      if (fs14.existsSync(_polyKeysFile)) return JSON.parse(fs14.readFileSync(_polyKeysFile, "utf-8"));
     } catch {
     }
     return {};
   };
   const _savePolyKeys = (map) => {
     try {
-      const dir = path13.join(process.cwd(), "data");
-      if (!fs13.existsSync(dir)) fs13.mkdirSync(dir, { recursive: true });
+      const dir = path14.join(process.cwd(), "data");
+      if (!fs14.existsSync(dir)) fs14.mkdirSync(dir, { recursive: true });
       const content = JSON.stringify(map, null, 2);
-      fs13.writeFileSync(_polyKeysFile, content);
+      fs14.writeFileSync(_polyKeysFile, content);
       backupDurableFile("polymarket_keys.json", content);
     } catch {
     }
@@ -86491,11 +86801,11 @@ Format your response as JSON with exactly these keys:
       let mediaUrl = null;
       let mediaType = null;
       if (req.file && req.file.buffer) {
-        const fs15 = await import("fs/promises");
-        const path17 = await import("path");
-        const filename = `content-${userId}-day${dayNumber}-${Date.now()}${path17.extname(req.file.originalname)}`;
-        const uploadPath = path17.join(process.cwd(), "uploads", filename);
-        await fs15.writeFile(uploadPath, req.file.buffer);
+        const fs16 = await import("fs/promises");
+        const path18 = await import("path");
+        const filename = `content-${userId}-day${dayNumber}-${Date.now()}${path18.extname(req.file.originalname)}`;
+        const uploadPath = path18.join(process.cwd(), "uploads", filename);
+        await fs16.writeFile(uploadPath, req.file.buffer);
         mediaUrl = `/uploads/${filename}`;
         mediaType = req.file.mimetype.startsWith("video/") ? "video" : "image";
       }
@@ -87299,8 +87609,8 @@ Generate a JSON object with:
       }
       const id = parseInt(streamId);
       const filename = `stream-recording-${streamType}-${id}-${Date.now()}.webm`;
-      const filePath = path13.join(uploadsDir2, filename);
-      fs13.writeFileSync(filePath, file.buffer);
+      const filePath = path14.join(uploadsDir2, filename);
+      fs14.writeFileSync(filePath, file.buffer);
       const recordingUrl = `/uploads/${filename}`;
       if (streamType === "schedule") {
         const schedule = await storage.getSchedule(id);
@@ -91199,7 +91509,15 @@ This request will not trigger a transaction or cost any fees.`;
       const q = await Promise.resolve().then(() => (init_ambassador_post_queue(), ambassador_post_queue_exports));
       const date2 = typeof req.query.date === "string" && /^\d{4}-\d{2}-\d{2}$/.test(req.query.date) ? req.query.date : (/* @__PURE__ */ new Date()).toISOString().slice(0, 10);
       const [posts, stats] = await Promise.all([q.getQueue(req.user.id, date2), q.getPostStats(req.user.id)]);
-      res.json({ date: date2, posts, stats, disclosure: q.DISCLOSURE, riskLine: q.RISK_LINE });
+      const day = posts[0]?.day_number;
+      let blog = day ? await q.getDayBlog(day).catch(() => null) : null;
+      if (day && !blog) q.ensureDayBlogDraft(day, req.user.id).catch(() => {
+      });
+      if (blog?.is_published) {
+        const code = req.user.referralCode;
+        blog = { ...blog, shareUrl: `${req.protocol}://${req.get("host")}/blog/${blog.slug}${code ? `?ref=${encodeURIComponent(code)}` : ""}` };
+      }
+      res.json({ date: date2, posts, stats, blog, disclosure: q.DISCLOSURE, riskLine: q.RISK_LINE });
     } catch (err) {
       res.status(500).json({ message: err.message });
     }
@@ -91220,6 +91538,15 @@ This request will not trigger a transaction or cost any fees.`;
     } catch (err) {
       const msg = String(err?.message || "");
       res.status(/401|api key/i.test(msg) ? 503 : 500).json({ message: /401|api key/i.test(msg) ? "Add a working AI key in Settings \u2192 AI API Keys to generate posts." : msg });
+    }
+  });
+  app2.post("/api/ambassador/agent/queue/:id/video", async (req, res) => {
+    if (!req.user) return res.status(401).json({ message: "Unauthorized" });
+    try {
+      const q = await Promise.resolve().then(() => (init_ambassador_post_queue(), ambassador_post_queue_exports));
+      res.json(await q.makePostVideo(req.user.id, Number(req.params.id), req.body?.aspect));
+    } catch (err) {
+      res.status(500).json({ message: err?.message || "Video failed" });
     }
   });
   app2.post("/api/ambassador/agent/queue/:id/posted", async (req, res) => {
@@ -91684,31 +92011,42 @@ Sitemap: ${SEO_BASE_URL}/sitemap.xml
       res.status(500).json({ error: err.message });
     }
   });
+  app2.post("/api/content-studio/plan-shot", async (req, res) => {
+    const u = req.user;
+    if (!req.isAuthenticated() || !(u?.isAmbassador || u?.isAdmin)) {
+      return res.status(403).json({ error: "Ambassador or admin only" });
+    }
+    try {
+      const prompt = String(req.body?.prompt || "").trim();
+      if (!prompt) return res.status(400).json({ error: "prompt is required" });
+      const { planVideoShot: planVideoShot2 } = await Promise.resolve().then(() => (init_video_shot(), video_shot_exports));
+      res.json(await planVideoShot2(prompt, u.id));
+    } catch (err) {
+      res.status(500).json({ error: err.message });
+    }
+  });
   app2.post("/api/content-studio/generate-video", async (req, res) => {
     const u = req.user;
     if (!req.isAuthenticated() || !(u?.isAmbassador || u?.isAdmin)) {
       return res.status(403).json({ error: "Ambassador or admin only" });
     }
     try {
-      const { prompt, duration, quality, image } = req.body;
-      if (!prompt) return res.status(400).json({ error: "prompt is required" });
-      const { generateContentVideo: generateContentVideo2 } = await Promise.resolve().then(() => (init_video_generation(), video_generation_exports));
-      const video = await generateContentVideo2(prompt, { duration, quality, image });
-      if (!video) return res.status(502).json({ error: "Video generation failed (Replicate unavailable or timed out \u2014 check server logs)" });
-      const { persistRemoteAsset: persistRemoteAsset2 } = await Promise.resolve().then(() => (init_content_asset_store(), content_asset_store_exports));
-      const persisted = await persistRemoteAsset2(video.url);
-      if (!persisted) {
-        console.error("[content-studio] generate-video: persistence failed after retries \u2014 not saving to library (would break later when provider URL expires)");
-        return res.json({ ...video, url: video.url, persisted: false });
+      const { prompt, shot, exact, aspect, brand, duration, quality, image } = req.body;
+      if (!prompt && !shot) return res.status(400).json({ error: "prompt is required" });
+      const { renderContentVideo: renderContentVideo2 } = await Promise.resolve().then(() => (init_content_video(), content_video_exports));
+      const video = await renderContentVideo2(prompt || shot || "", { userId: u.id, shot, exact, aspect, brand, duration, quality, image });
+      if (!video) return res.status(502).json({ error: "The video couldn't be made right now. Please try again in a minute." });
+      if (video.persisted) {
+        await storage.createContentStudioGeneration({
+          userId: u.id,
+          contentType: "video",
+          prompt: prompt || shot,
+          title: video.hook || null,
+          assetUrl: video.url,
+          metadata: { provider: video.provider, shot: video.shot, aspect: video.aspect, branded: video.branded }
+        }).catch((e) => console.error("[content-studio] failed to save generation record:", e.message));
       }
-      await storage.createContentStudioGeneration({
-        userId: u.id,
-        contentType: "video",
-        prompt,
-        assetUrl: persisted.url,
-        metadata: { provider: video.provider }
-      }).catch((e) => console.error("[content-studio] failed to save generation record:", e.message));
-      res.json({ ...video, url: persisted.url, persisted: true });
+      res.json(video);
     } catch (err) {
       res.status(500).json({ error: err.message });
     }
@@ -91723,25 +92061,28 @@ Sitemap: ${SEO_BASE_URL}/sitemap.xml
       if (!topic) return res.status(400).json({ error: "topic is required" });
       const { generateReelScript: generateReelScript2 } = await Promise.resolve().then(() => (init_openai(), openai_exports));
       const script = await generateReelScript2(topic, u?.id);
-      const { generateContentVideo: generateContentVideo2 } = await Promise.resolve().then(() => (init_video_generation(), video_generation_exports));
-      const video = await generateContentVideo2(script.videoPrompt, { duration, quality, image });
-      if (!video) return res.status(502).json({ error: "Video generation failed (Replicate unavailable or timed out \u2014 check server logs)" });
-      const { persistRemoteAsset: persistRemoteAsset2 } = await Promise.resolve().then(() => (init_content_asset_store(), content_asset_store_exports));
-      const persisted = await persistRemoteAsset2(video.url);
-      if (!persisted) {
-        console.error("[content-studio] generate-reel: persistence failed after retries \u2014 not saving to library (would break later when provider URL expires)");
-        return res.json({ ...script, url: video.url, persisted: false });
-      }
-      await storage.createContentStudioGeneration({
+      const { renderContentVideo: renderContentVideo2 } = await Promise.resolve().then(() => (init_content_video(), content_video_exports));
+      const video = await renderContentVideo2(`Topic: ${topic}
+Scene idea: ${script.videoPrompt}`, {
         userId: u.id,
-        contentType: "reel",
-        prompt: topic,
-        title: script.hook ?? null,
-        caption: script.caption ?? null,
-        assetUrl: persisted.url,
-        metadata: { provider: video.provider, script }
-      }).catch((e) => console.error("[content-studio] failed to save generation record:", e.message));
-      res.json({ ...script, url: persisted.url, persisted: true });
+        aspect: req.body.aspect,
+        duration,
+        quality,
+        image
+      });
+      if (!video) return res.status(502).json({ error: "The video couldn't be made right now. Please try again in a minute." });
+      if (video.persisted) {
+        await storage.createContentStudioGeneration({
+          userId: u.id,
+          contentType: "reel",
+          prompt: topic,
+          title: script.hook ?? null,
+          caption: script.caption ?? null,
+          assetUrl: video.url,
+          metadata: { provider: video.provider, script, shot: video.shot, aspect: video.aspect, branded: video.branded }
+        }).catch((e) => console.error("[content-studio] failed to save generation record:", e.message));
+      }
+      res.json({ ...script, url: video.url, persisted: video.persisted, branded: video.branded, shot: video.shot, aspect: video.aspect });
     } catch (err) {
       res.status(500).json({ error: err.message });
     }
@@ -91752,7 +92093,7 @@ Sitemap: ${SEO_BASE_URL}/sitemap.xml
       return res.status(403).json({ error: "Ambassador or admin only" });
     }
     try {
-      const { topic, slideCount } = req.body;
+      const { topic, slideCount, style } = req.body;
       if (!topic) return res.status(400).json({ error: "topic is required" });
       const count = Math.min(Math.max(Math.round(slideCount ?? 6), 3), 8);
       const { generateSlideCarouselScript: generateSlideCarouselScript2 } = await Promise.resolve().then(() => (init_openai(), openai_exports));
@@ -91760,7 +92101,7 @@ Sitemap: ${SEO_BASE_URL}/sitemap.xml
       const { generateContentImage: generateContentImage2 } = await Promise.resolve().then(() => (init_image_generation(), image_generation_exports));
       const { persistRemoteAsset: persistRemoteAsset2 } = await Promise.resolve().then(() => (init_content_asset_store(), content_asset_store_exports));
       const slides = [];
-      for (const slide of script.slides) {
+      for (const slide of style === "photo" ? script.slides : []) {
         const image = await generateContentImage2(slide.imagePrompt, "dark-minimal");
         let imageUrl = image?.url ?? null;
         let persistedOk = false;
@@ -91779,9 +92120,14 @@ Sitemap: ${SEO_BASE_URL}/sitemap.xml
         prompt: topic,
         title: script.title,
         caption: script.caption,
-        metadata: { slides }
+        metadata: { slides: style === "photo" ? slides : script.slides.map((x) => ({ heading: x.heading, body: x.body, imageUrl: null })), style: style === "photo" ? "photo" : "explainer" }
       }).catch((e) => console.error("[content-studio] failed to save generation record:", e.message));
-      res.json({ title: script.title, caption: script.caption, slides });
+      res.json({
+        title: script.title,
+        caption: script.caption,
+        style: style === "photo" ? "photo" : "explainer",
+        slides: style === "photo" ? slides : script.slides.map((x) => ({ heading: x.heading, body: x.body, imageUrl: null, persisted: false }))
+      });
     } catch (err) {
       res.status(500).json({ error: err.message });
     }
@@ -91826,6 +92172,21 @@ Sitemap: ${SEO_BASE_URL}/sitemap.xml
     if (!asset) return res.status(404).json({ error: "asset not found" });
     res.setHeader("Content-Type", asset.mimeType);
     res.setHeader("Cache-Control", "public, max-age=31536000, immutable");
+    res.setHeader("Accept-Ranges", "bytes");
+    const total = asset.data.length;
+    const m = /^bytes=(\d*)-(\d*)$/.exec(String(req.headers.range || ""));
+    if (m && (m[1] || m[2])) {
+      let start = m[1] ? Number(m[1]) : Math.max(0, total - Number(m[2]));
+      let end = m[1] && m[2] ? Math.min(Number(m[2]), total - 1) : total - 1;
+      if (start >= total || start > end) {
+        res.setHeader("Content-Range", `bytes */${total}`);
+        return res.status(416).end();
+      }
+      res.status(206);
+      res.setHeader("Content-Range", `bytes ${start}-${end}/${total}`);
+      res.setHeader("Content-Length", String(end - start + 1));
+      return res.end(asset.data.subarray(start, end + 1));
+    }
     res.send(asset.data);
   });
   app2.get("/api/content-studio/history", async (req, res) => {
@@ -92730,10 +93091,10 @@ Sitemap: ${SEO_BASE_URL}/sitemap.xml
       return res.status(403).json({ error: "Admin access required" });
     }
     try {
-      const dataFile = path13.join(process.cwd(), "data", "curricula.json");
+      const dataFile = path14.join(process.cwd(), "data", "curricula.json");
       let curricula = [];
       try {
-        curricula = JSON.parse(fs13.readFileSync(dataFile, "utf-8"));
+        curricula = JSON.parse(fs14.readFileSync(dataFile, "utf-8"));
       } catch {
       }
       const entry = {
@@ -92743,8 +93104,8 @@ Sitemap: ${SEO_BASE_URL}/sitemap.xml
         ...req.body
       };
       curricula.push(entry);
-      fs13.mkdirSync(path13.join(process.cwd(), "data"), { recursive: true });
-      fs13.writeFileSync(dataFile, JSON.stringify(curricula, null, 2));
+      fs14.mkdirSync(path14.join(process.cwd(), "data"), { recursive: true });
+      fs14.writeFileSync(dataFile, JSON.stringify(curricula, null, 2));
       res.json({ success: true, id: entry.id, message: "Curriculum saved to Academy" });
     } catch (err) {
       res.status(500).json({ error: err.message });
@@ -92753,10 +93114,10 @@ Sitemap: ${SEO_BASE_URL}/sitemap.xml
   app2.get("/api/workforce/modules", async (req, res) => {
     if (!req.isAuthenticated()) return res.status(401).json({ error: "Unauthorized" });
     try {
-      const dataFile = path13.join(process.cwd(), "data", "curricula.json");
+      const dataFile = path14.join(process.cwd(), "data", "curricula.json");
       let saved = [];
       try {
-        saved = JSON.parse(fs13.readFileSync(dataFile, "utf-8"));
+        saved = JSON.parse(fs14.readFileSync(dataFile, "utf-8"));
       } catch {
       }
       res.json({ modules: saved, total: saved.length + 12 });
@@ -92845,10 +93206,10 @@ Sitemap: ${SEO_BASE_URL}/sitemap.xml
   });
   app2.get("/api/verify/:certId", async (req, res) => {
     try {
-      const dataFile = path13.join(process.cwd(), "data", "certificates.json");
+      const dataFile = path14.join(process.cwd(), "data", "certificates.json");
       let certs = [];
       try {
-        certs = JSON.parse(fs13.readFileSync(dataFile, "utf-8"));
+        certs = JSON.parse(fs14.readFileSync(dataFile, "utf-8"));
       } catch {
       }
       const cert = certs.find((c) => c.certId === req.params.certId);
@@ -94680,14 +95041,14 @@ Sitemap: ${SEO_BASE_URL}/sitemap.xml
 
 // server/vite.ts
 import express from "express";
-import fs14 from "fs";
-import path15 from "path";
+import fs15 from "fs";
+import path16 from "path";
 import { createServer as createViteServer, createLogger } from "vite";
 
 // vite.config.ts
 import { defineConfig } from "vite";
 import react from "@vitejs/plugin-react";
-import path14 from "path";
+import path15 from "path";
 var isReplit = process.env.REPL_ID !== void 0;
 var replitPlugins = isReplit ? [
   (await import("@replit/vite-plugin-shadcn-theme-json")).default(),
@@ -94706,14 +95067,14 @@ var vite_config_default = defineConfig({
   ],
   resolve: {
     alias: {
-      "@": path14.resolve(import.meta.dirname, "client", "src"),
-      "@shared": path14.resolve(import.meta.dirname, "shared"),
-      "@assets": path14.resolve(import.meta.dirname, "attached_assets")
+      "@": path15.resolve(import.meta.dirname, "client", "src"),
+      "@shared": path15.resolve(import.meta.dirname, "shared"),
+      "@assets": path15.resolve(import.meta.dirname, "attached_assets")
     }
   },
-  root: path14.resolve(import.meta.dirname, "client"),
+  root: path15.resolve(import.meta.dirname, "client"),
   build: {
-    outDir: path14.resolve(import.meta.dirname, "dist/public"),
+    outDir: path15.resolve(import.meta.dirname, "dist/public"),
     emptyOutDir: true,
     chunkSizeWarningLimit: 4e3,
     rollupOptions: {
@@ -94836,13 +95197,13 @@ async function setupVite(app2, server) {
       return res.status(404).json({ error: "Not found", path: url });
     }
     try {
-      const clientTemplate = path15.resolve(
+      const clientTemplate = path16.resolve(
         import.meta.dirname,
         "..",
         "client",
         "index.html"
       );
-      let template = await fs14.promises.readFile(clientTemplate, "utf-8");
+      let template = await fs15.promises.readFile(clientTemplate, "utf-8");
       template = template.replace(
         `src="/src/main.tsx"`,
         `src="/src/main.tsx?v=${TEMPLATE_VERSION}"`
@@ -94862,9 +95223,9 @@ async function setupVite(app2, server) {
   });
 }
 function serveStatic(app2) {
-  const distPath = path15.resolve(import.meta.dirname, "..", "dist", "public");
-  console.log(`[serveStatic] Looking for dist at: ${distPath} \u2014 exists: ${fs14.existsSync(distPath)}`);
-  if (!fs14.existsSync(distPath)) {
+  const distPath = path16.resolve(import.meta.dirname, "..", "dist", "public");
+  console.log(`[serveStatic] Looking for dist at: ${distPath} \u2014 exists: ${fs15.existsSync(distPath)}`);
+  if (!fs15.existsSync(distPath)) {
     throw new Error(
       `Could not find the build directory: ${distPath}, make sure to build the client first`
     );
@@ -94885,7 +95246,7 @@ function serveStatic(app2) {
       }
     }
   }));
-  const indexPath = path15.resolve(distPath, "index.html");
+  const indexPath = path16.resolve(distPath, "index.html");
   const versionScript = `<script>
 (function(){
   try{
@@ -94921,7 +95282,7 @@ function serveStatic(app2) {
         "Expires": "0",
         "Content-Type": "text/html; charset=utf-8"
       });
-      let html = await fs14.promises.readFile(indexPath, "utf-8");
+      let html = await fs15.promises.readFile(indexPath, "utf-8");
       html = await injectBlogSeoMeta(html, req.originalUrl);
       html = html.replace("<head>", "<head>" + versionScript);
       res.send(html);
@@ -94932,7 +95293,7 @@ function serveStatic(app2) {
 }
 
 // server/index.ts
-import path16 from "path";
+import path17 from "path";
 
 // server/auth.ts
 init_storage();
@@ -95871,19 +96232,19 @@ httpServer.listen(PORT, "0.0.0.0", () => {
   log(`serving on port ${PORT}`);
 });
 setupAuth(app);
-app.use("/uploads", express2.static(path16.join(process.cwd(), "uploads")));
-app.use("/ea-templates", express2.static(path16.join(process.cwd(), "public/ea-templates")));
-app.use("/downloads", express2.static(path16.join(process.cwd(), "public/downloads"), {
+app.use("/uploads", express2.static(path17.join(process.cwd(), "uploads")));
+app.use("/ea-templates", express2.static(path17.join(process.cwd(), "public/ea-templates")));
+app.use("/downloads", express2.static(path17.join(process.cwd(), "public/downloads"), {
   setHeaders: (res, filePath) => {
     if (filePath.endsWith(".mq5")) {
       res.setHeader("Content-Type", "text/plain; charset=utf-8");
-      res.setHeader("Content-Disposition", 'attachment; filename="' + path16.basename(filePath) + '"');
+      res.setHeader("Content-Disposition", 'attachment; filename="' + path17.basename(filePath) + '"');
     }
   }
 }));
 app.use((req, res, next) => {
   const start = Date.now();
-  const path17 = req.path;
+  const path18 = req.path;
   let capturedJsonResponse = void 0;
   const originalResJson = res.json;
   res.json = function(bodyJson, ...args) {
@@ -95892,8 +96253,8 @@ app.use((req, res, next) => {
   };
   res.on("finish", () => {
     const duration = Date.now() - start;
-    if (path17.startsWith("/api")) {
-      let logLine = `${req.method} ${path17} ${res.statusCode} in ${duration}ms`;
+    if (path18.startsWith("/api")) {
+      let logLine = `${req.method} ${path18} ${res.statusCode} in ${duration}ms`;
       if (capturedJsonResponse) {
         logLine += ` :: ${JSON.stringify(capturedJsonResponse)}`;
       }

@@ -30160,7 +30160,15 @@ Generate an agenda with timing, topics, and hosting tips. Return JSON: {
       const q = await import('./services/ambassador-post-queue');
       const date = typeof req.query.date === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(req.query.date) ? req.query.date : new Date().toISOString().slice(0, 10);
       const [posts, stats] = await Promise.all([q.getQueue(req.user.id, date), q.getPostStats(req.user.id)]);
-      res.json({ date, posts, stats, disclosure: q.DISCLOSURE, riskLine: q.RISK_LINE });
+      // The day's blog article (one per lesson day, draft until the owner publishes).
+      const day = posts[0]?.day_number;
+      let blog: any = day ? await q.getDayBlog(day).catch(() => null) : null;
+      if (day && !blog) q.ensureDayBlogDraft(day, req.user.id).catch(() => {});
+      if (blog?.is_published) {
+        const code = (req.user as any).referralCode;
+        blog = { ...blog, shareUrl: `${req.protocol}://${req.get('host')}/blog/${blog.slug}${code ? `?ref=${encodeURIComponent(code)}` : ''}` };
+      }
+      res.json({ date, posts, stats, blog, disclosure: q.DISCLOSURE, riskLine: q.RISK_LINE });
     } catch (err: any) { res.status(500).json({ message: err.message }); }
   });
   app.post("/api/ambassador/agent/queue/generate", async (req, res) => {
@@ -30178,6 +30186,14 @@ Generate an agenda with timing, topics, and hosting tips. Return JSON: {
       const msg = String(err?.message || '');
       res.status(/401|api key/i.test(msg) ? 503 : 500).json({ message: /401|api key/i.test(msg) ? 'Add a working AI key in Settings → AI API Keys to generate posts.' : msg });
     }
+  });
+  // Branded video for one queued post (renders on tap; costs a Replicate render).
+  app.post("/api/ambassador/agent/queue/:id/video", async (req, res) => {
+    if (!req.user) return res.status(401).json({ message: "Unauthorized" });
+    try {
+      const q = await import('./services/ambassador-post-queue');
+      res.json(await q.makePostVideo(req.user.id, Number(req.params.id), (req.body as any)?.aspect));
+    } catch (err: any) { res.status(500).json({ message: err?.message || 'Video failed' }); }
   });
   app.post("/api/ambassador/agent/queue/:id/posted", async (req, res) => {
     if (!req.user) return res.status(401).json({ message: "Unauthorized" });
@@ -30734,30 +30750,44 @@ Generate an agenda with timing, topics, and hosting tips. Return JSON: {
   // POST /api/content-studio/generate-video — AI video clip via Replicate
   // (Wan 2.2 Fast). Slower and pricier than image gen, so gated the same way
   // and left as an explicit opt-in action, never auto-triggered.
+  // POST /api/content-studio/plan-shot — preview the single shot the video
+  // model will film, so the user can check/edit it before paying for a render.
+  app.post("/api/content-studio/plan-shot", async (req, res) => {
+    const u = req.user as any;
+    if (!req.isAuthenticated() || !(u?.isAmbassador || u?.isAdmin)) {
+      return res.status(403).json({ error: "Ambassador or admin only" });
+    }
+    try {
+      const prompt = String((req.body as any)?.prompt || '').trim();
+      if (!prompt) return res.status(400).json({ error: "prompt is required" });
+      const { planVideoShot } = await import('./services/video-shot');
+      res.json(await planVideoShot(prompt, u.id));
+    } catch (err: any) { res.status(500).json({ error: err.message }); }
+  });
+
   app.post("/api/content-studio/generate-video", async (req, res) => {
     const u = req.user as any;
     if (!req.isAuthenticated() || !(u?.isAmbassador || u?.isAdmin)) {
       return res.status(403).json({ error: "Ambassador or admin only" });
     }
     try {
-      const { prompt, duration, quality, image } = req.body as { prompt?: string; duration?: number; quality?: 'fast' | 'high'; image?: string };
-      if (!prompt) return res.status(400).json({ error: "prompt is required" });
-      const { generateContentVideo } = await import('./services/video-generation');
-      const video = await generateContentVideo(prompt, { duration, quality, image });
-      if (!video) return res.status(502).json({ error: "Video generation failed (Replicate unavailable or timed out — check server logs)" });
+      const { prompt, shot, exact, aspect, brand, duration, quality, image } = req.body as {
+        prompt?: string; shot?: string; exact?: boolean; aspect?: any; brand?: boolean;
+        duration?: number; quality?: 'fast' | 'high'; image?: string;
+      };
+      if (!prompt && !shot) return res.status(400).json({ error: "prompt is required" });
+      // prompt -> one filmable shot -> render -> VEDD branding + social size (content-video.ts)
+      const { renderContentVideo } = await import('./services/content-video');
+      const video = await renderContentVideo(prompt || shot || '', { userId: u.id, shot, exact, aspect, brand, duration, quality, image });
+      if (!video) return res.status(502).json({ error: "The video couldn't be made right now. Please try again in a minute." });
 
-      const { persistRemoteAsset } = await import('./services/content-asset-store');
-      const persisted = await persistRemoteAsset(video.url);
-      if (!persisted) {
-        console.error('[content-studio] generate-video: persistence failed after retries — not saving to library (would break later when provider URL expires)');
-        return res.json({ ...video, url: video.url, persisted: false });
+      if (video.persisted) {
+        await storage.createContentStudioGeneration({
+          userId: u.id, contentType: 'video', prompt: prompt || shot, title: video.hook || null, assetUrl: video.url,
+          metadata: { provider: video.provider, shot: video.shot, aspect: video.aspect, branded: video.branded },
+        }).catch((e: any) => console.error('[content-studio] failed to save generation record:', e.message));
       }
-
-      await storage.createContentStudioGeneration({
-        userId: u.id, contentType: 'video', prompt, assetUrl: persisted.url, metadata: { provider: video.provider },
-      }).catch((e: any) => console.error('[content-studio] failed to save generation record:', e.message));
-
-      res.json({ ...video, url: persisted.url, persisted: true });
+      res.json(video);
     } catch (err: any) {
       res.status(500).json({ error: err.message });
     }
@@ -30778,23 +30808,21 @@ Generate an agenda with timing, topics, and hosting tips. Return JSON: {
       const { generateReelScript } = await import('./openai');
       const script = await generateReelScript(topic, u?.id);
 
-      const { generateContentVideo } = await import('./services/video-generation');
-      const video = await generateContentVideo(script.videoPrompt, { duration, quality, image });
-      if (!video) return res.status(502).json({ error: "Video generation failed (Replicate unavailable or timed out — check server logs)" });
+      const { renderContentVideo } = await import('./services/content-video');
+      // The reel's videoPrompt is still planned into one shot, anchored on the topic.
+      const video = await renderContentVideo(`Topic: ${topic}
+Scene idea: ${script.videoPrompt}`, {
+        userId: u.id, aspect: (req.body as any).aspect, duration, quality, image,
+      });
+      if (!video) return res.status(502).json({ error: "The video couldn't be made right now. Please try again in a minute." });
 
-      const { persistRemoteAsset } = await import('./services/content-asset-store');
-      const persisted = await persistRemoteAsset(video.url);
-      if (!persisted) {
-        console.error('[content-studio] generate-reel: persistence failed after retries — not saving to library (would break later when provider URL expires)');
-        return res.json({ ...script, url: video.url, persisted: false });
+      if (video.persisted) {
+        await storage.createContentStudioGeneration({
+          userId: u.id, contentType: 'reel', prompt: topic, title: script.hook ?? null, caption: script.caption ?? null,
+          assetUrl: video.url, metadata: { provider: video.provider, script, shot: video.shot, aspect: video.aspect, branded: video.branded },
+        }).catch((e: any) => console.error('[content-studio] failed to save generation record:', e.message));
       }
-
-      await storage.createContentStudioGeneration({
-        userId: u.id, contentType: 'reel', prompt: topic, title: script.hook ?? null, caption: script.caption ?? null,
-        assetUrl: persisted.url, metadata: { provider: video.provider, script },
-      }).catch((e: any) => console.error('[content-studio] failed to save generation record:', e.message));
-
-      res.json({ ...script, url: persisted.url, persisted: true });
+      res.json({ ...script, url: video.url, persisted: video.persisted, branded: video.branded, shot: video.shot, aspect: video.aspect });
     } catch (err: any) {
       res.status(500).json({ error: err.message });
     }
@@ -30811,7 +30839,7 @@ Generate an agenda with timing, topics, and hosting tips. Return JSON: {
       return res.status(403).json({ error: "Ambassador or admin only" });
     }
     try {
-      const { topic, slideCount } = req.body as { topic?: string; slideCount?: number };
+      const { topic, slideCount, style } = req.body as { topic?: string; slideCount?: number; style?: 'explainer' | 'photo' };
       if (!topic) return res.status(400).json({ error: "topic is required" });
       const count = Math.min(Math.max(Math.round(slideCount ?? 6), 3), 8);
 
@@ -30827,7 +30855,9 @@ Generate an agenda with timing, topics, and hosting tips. Return JSON: {
       const { generateContentImage } = await import('./services/image-generation');
       const { persistRemoteAsset } = await import('./services/content-asset-store');
       const slides: { heading: string; body: string; imageUrl: string | null; persisted: boolean }[] = [];
-      for (const slide of script.slides) {
+      // Explainer style (default): designed slides drawn in the browser
+      // (explainer-carousel.tsx), so no AI photos: fast, free, no timeouts.
+      for (const slide of style === 'photo' ? script.slides : []) {
         // Template A (dark-minimal) — carousels default to the educational/
         // discipline treatment per the VEDD Content Style Guide.
         const image = await generateContentImage(slide.imagePrompt, 'dark-minimal');
@@ -30843,10 +30873,13 @@ Generate an agenda with timing, topics, and hosting tips. Return JSON: {
 
       await storage.createContentStudioGeneration({
         userId: u.id, contentType: 'carousel', prompt: topic, title: script.title, caption: script.caption,
-        metadata: { slides },
+        metadata: { slides: style === 'photo' ? slides : script.slides.map((x: any) => ({ heading: x.heading, body: x.body, imageUrl: null })), style: style === 'photo' ? 'photo' : 'explainer' },
       }).catch((e: any) => console.error('[content-studio] failed to save generation record:', e.message));
 
-      res.json({ title: script.title, caption: script.caption, slides });
+      res.json({
+        title: script.title, caption: script.caption, style: style === 'photo' ? 'photo' : 'explainer',
+        slides: style === 'photo' ? slides : script.slides.map((x: any) => ({ heading: x.heading, body: x.body, imageUrl: null, persisted: false })),
+      });
     } catch (err: any) {
       res.status(500).json({ error: err.message });
     }
@@ -30908,6 +30941,23 @@ Generate an agenda with timing, topics, and hosting tips. Return JSON: {
     if (!asset) return res.status(404).json({ error: "asset not found" });
     res.setHeader('Content-Type', asset.mimeType);
     res.setHeader('Cache-Control', 'public, max-age=31536000, immutable');
+    res.setHeader('Accept-Ranges', 'bytes');
+    // Byte ranges: iPhone/Safari only play <video> from servers that answer
+    // Range requests with 206; a plain 200 left reels/videos unplayable there.
+    const total = asset.data.length;
+    const m = /^bytes=(\d*)-(\d*)$/.exec(String(req.headers.range || ''));
+    if (m && (m[1] || m[2])) {
+      let start = m[1] ? Number(m[1]) : Math.max(0, total - Number(m[2]));
+      let end = m[1] && m[2] ? Math.min(Number(m[2]), total - 1) : total - 1;
+      if (start >= total || start > end) {
+        res.setHeader('Content-Range', `bytes */${total}`);
+        return res.status(416).end();
+      }
+      res.status(206);
+      res.setHeader('Content-Range', `bytes ${start}-${end}/${total}`);
+      res.setHeader('Content-Length', String(end - start + 1));
+      return res.end(asset.data.subarray(start, end + 1));
+    }
     res.send(asset.data);
   });
 

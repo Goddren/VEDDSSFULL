@@ -43,6 +43,8 @@ export function ensurePostQueueTables(): Promise<void> {
         created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
         UNIQUE (user_id, queue_date, platform)
       )`);
+      // Content Studio link (2026-10-31): the post's branded video.
+      await pool.query(`ALTER TABLE ambassador_post_queue ADD COLUMN IF NOT EXISTS video_url TEXT, ADD COLUMN IF NOT EXISTS video_shot TEXT, ADD COLUMN IF NOT EXISTS video_aspect TEXT`);
     })().catch((e) => { _ready = null; throw e; });
   }
   return _ready;
@@ -164,6 +166,7 @@ CAPTION: one line plus a question","hashtags":["..."],"visualIdea":"shot list: w
     const link = `${opts.baseUrl}/r/${encodeURIComponent(opts.referralCode)}?p=${rows[0].id}`;
     await pool.query(`UPDATE ambassador_post_queue SET body=$2, link=$3 WHERE id=$1`, [rows[0].id, finalBody(p.body, link, platform), link]);
   }
+  ensureDayBlogDraft(dayNumber, userId).catch(() => {});
   return getQueue(userId, date);
 }
 
@@ -194,4 +197,75 @@ export async function getPostStats(userId: number) {
                   FROM ambassador_post_queue WHERE user_id=$1`, [userId]),
   ]);
   return { totals: tot[0], byPlatform, topDays: byDay };
+}
+
+// ─── Content Studio link: video on tap + the day's blog article ─────────────
+
+const VIDEO_ASPECT: Record<string, '9:16' | '4:5'> = { tiktok: '9:16', instagram: '9:16', facebook_page: '4:5', facebook_group: '4:5' };
+
+/** Renders a branded video for one queued post, from that day's lesson. Costs a Replicate render, so only on tap. */
+export async function makePostVideo(userId: number, postId: number, aspect?: '9:16' | '1:1' | '4:5' | '16:9') {
+  await ensurePostQueueTables();
+  const { rows } = await pool.query(`SELECT * FROM ambassador_post_queue WHERE id=$1 AND user_id=$2`, [postId, userId]);
+  const post = rows[0];
+  if (!post) throw new Error('Post not found');
+  const { ambassadorContentCurriculum } = await import('../ambassador-content-data');
+  const lesson = ambassadorContentCurriculum.find((l) => l.dayNumber === post.day_number);
+  const idea = [
+    lesson && `Trading lesson: ${lesson.tradingTopic}. ${lesson.tradingLesson}`,
+    post.hook && `Hook: ${post.hook}`,
+    post.visual_idea && `Visual idea: ${post.visual_idea}`,
+  ].filter(Boolean).join('\n');
+  const { renderContentVideo } = await import('./content-video');
+  const video = await renderContentVideo(idea, { userId, aspect: aspect || VIDEO_ASPECT[post.platform] || '9:16' });
+  if (!video) throw new Error("The video couldn't be made right now. Please try again in a minute.");
+  await pool.query(`UPDATE ambassador_post_queue SET video_url=$2, video_shot=$3, video_aspect=$4 WHERE id=$1`, [postId, video.url, video.shot, video.aspect]);
+  if (video.persisted) {
+    const { storage } = await import('../storage');
+    await storage.createContentStudioGeneration({
+      userId, contentType: 'video', prompt: idea, title: post.hook || null, caption: post.body, assetUrl: video.url,
+      metadata: { provider: video.provider, shot: video.shot, aspect: video.aspect, branded: video.branded, day: post.day_number, platform: post.platform },
+    } as any).catch(() => {});
+  }
+  return video;
+}
+
+const dayTag = (n: number) => `lesson-day-${n}`;
+const blogInFlight = new Set<number>();
+
+export async function getDayBlog(dayNumber: number) {
+  const { rows } = await pool.query(
+    `SELECT id, title, slug, excerpt, is_published FROM blog_posts WHERE tags @> $1::jsonb ORDER BY id DESC LIMIT 1`,
+    [JSON.stringify([dayTag(dayNumber)])]);
+  return rows[0] ?? null;
+}
+
+/**
+ * One blog article per lesson day, shared by every ambassador, saved as an
+ * unpublished DRAFT for the owner to review and publish. Fire-and-forget.
+ */
+export async function ensureDayBlogDraft(dayNumber: number, userId: number): Promise<void> {
+  if (blogInFlight.has(dayNumber)) return;
+  blogInFlight.add(dayNumber);
+  try {
+    if (await getDayBlog(dayNumber)) return;
+    const { ambassadorContentCurriculum } = await import('../ambassador-content-data');
+    const lesson = ambassadorContentCurriculum.find((l) => l.dayNumber === dayNumber);
+    if (!lesson) return;
+    const { generateVeddBlogPost } = await import('../openai');
+    const topic = `${lesson.tradingTopic}: ${lesson.title}. Teach this lesson clearly for newer traders: ${lesson.tradingLesson} `
+      + `Include one practical example and how VEDD AI helps with it. No income or profit promises; include a short risk note.`;
+    const g = await generateVeddBlogPost(topic, userId);
+    const { storage } = await import('../storage');
+    await storage.createBlogPost({
+      ...g, slug: `${g.slug}-day-${dayNumber}`.slice(0, 120),
+      tags: [...(g.tags || []), dayTag(dayNumber), '44-day-plan'],
+      isPublished: false, isFeatured: false, aiGenerated: true,
+    } as any);
+    console.log(`[post-queue] Day ${dayNumber} blog draft saved for review: "${g.title}"`);
+  } catch (e: any) {
+    console.error(`[post-queue] Day ${dayNumber} blog draft failed:`, e?.message || e);
+  } finally {
+    blogInFlight.delete(dayNumber);
+  }
 }

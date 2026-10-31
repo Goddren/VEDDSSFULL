@@ -1,4 +1,4 @@
-const CACHE_VERSION = 'vedd-v200';
+const CACHE_VERSION = 'vedd-v201';
 const STATIC_CACHE = `${CACHE_VERSION}-static`;
 const DYNAMIC_CACHE = `${CACHE_VERSION}-dynamic`;
 const RUNTIME_CACHE = `${CACHE_VERSION}-runtime`;
@@ -48,6 +48,13 @@ self.addEventListener('fetch', (event) => {
 
   // Skip chrome-extension and non-http(s) requests
   if (!url.protocol.startsWith('http')) {
+    return;
+  }
+
+  // Media (videos/images from Content Studio) and byte-range requests go
+  // straight to the network: caching multi-MB clips filled storage, and a
+  // cached full response can't answer the Range requests Safari uses to play video.
+  if (url.pathname.startsWith('/api/content-studio/asset/') || request.headers.has('range')) {
     return;
   }
 

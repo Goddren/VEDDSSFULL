@@ -70,12 +70,13 @@ function buildModelInput(
   numFrames: number,
   durationSeconds: number,
   image?: string, // optional start image (data URI or public URL) for image-to-video
+  aspect: '9:16' | '16:9' = '9:16',
 ): Record<string, any> {
   if (model.includes('kling')) {
     return {
       prompt: styledPrompt,
       negative_prompt: 'blurry, low quality, distorted, deformed, extra limbs, watermark, text, on-screen text, subtitles',
-      ...(image ? { start_image: image } : { aspect_ratio: '9:16' }),
+      ...(image ? { start_image: image } : { aspect_ratio: aspect }),
       duration: durationSeconds <= 5 ? 5 : 10, // Kling only offers 5s or 10s
       cfg_scale: 0.5,
     };
@@ -87,16 +88,18 @@ function buildModelInput(
       num_frames: numFrames,
       frames_per_second: DEFAULT_FPS,
       // Wan i2v derives aspect ratio from the start image; only set it for t2v.
-      ...(image ? { image } : { aspect_ratio: '9:16' }),
+      ...(image ? { image } : { aspect_ratio: aspect }),
     };
   }
   // Unknown premium model — pass the essentials and let Replicate apply defaults.
-  return { prompt: styledPrompt, ...(image ? { image } : { aspect_ratio: '9:16' }) };
+  return { prompt: styledPrompt, ...(image ? { image } : { aspect_ratio: aspect }) };
 }
 
 export async function generateContentVideo(
   prompt: string,
-  opts?: { duration?: number; quality?: VideoQuality; image?: string }
+  // aspect: what the model renders. Square/4:5 social sizes are cropped from
+  // 9:16 afterwards (video-branding.ts); models only offer 9:16 and 16:9.
+  opts?: { duration?: number; quality?: VideoQuality; image?: string; aspect?: '9:16' | '16:9' }
 ): Promise<GeneratedVideo | null> {
   const apiKey = process.env.REPLICATE_API_TOKEN;
   if (!apiKey) {
@@ -114,7 +117,7 @@ export async function generateContentVideo(
   const numFrames = Math.max(MIN_NUM_FRAMES, Math.round(durationSeconds * DEFAULT_FPS));
   // User's scene FIRST (primary), then a compact style/representation tail.
   const styledPrompt = `${prompt.trim()}${VEDD_STYLE_LOCK}${NO_TEXT_SUFFIX}${HUMAN_STYLE_SUFFIX}`;
-  const input = buildModelInput(model, quality, styledPrompt, numFrames, durationSeconds, image);
+  const input = buildModelInput(model, quality, styledPrompt, numFrames, durationSeconds, image, opts?.aspect === '16:9' ? '16:9' : '9:16');
 
   try {
     console.log(`[video-generation] quality=${quality} model=${model} mode=${image ? 'image-to-video' : 'text-to-video'}`);

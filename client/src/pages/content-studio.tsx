@@ -1,3 +1,5 @@
+import AmbassadorAgentPage from '@/pages/ambassador-agent';
+import { ExplainerCarousel } from '@/components/content-studio/explainer-carousel';
 import { useState, useRef, useEffect, type ReactNode } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useAuth } from '@/hooks/use-auth';
@@ -846,7 +848,7 @@ function SavedContentCard({ item, onDelete }: { item: SavedGeneration; onDelete:
     <div className="rounded-xl overflow-hidden border border-white/10 bg-white/[0.03] flex flex-col">
       {previewUrl && (
         item.contentType === 'video' || item.contentType === 'reel' ? (
-          <video src={previewUrl} controls loop className="w-full bg-black" style={{ aspectRatio: '9/16', maxHeight: 260 }} />
+          <video src={previewUrl} controls loop playsInline preload="metadata" className="w-full bg-black object-contain" style={{ aspectRatio: '9/16', maxHeight: 260 }} />
         ) : (
           <img src={previewUrl} alt="" loading="lazy" className="w-full object-cover" style={{ aspectRatio: '1/1', maxHeight: 260 }} />
         )
@@ -968,9 +970,9 @@ export default function ContentStudioPage() {
   const referralCode: string | null = referralData?.code ?? null;
 
   const search = useSearch();
-  const [view, setView] = useState<'studio' | 'reels' | 'ai-video' | 'ai-reel' | 'slide-carousel' | 'saved'>(() => {
+  const [view, setView] = useState<'today' | 'studio' | 'reels' | 'ai-video' | 'ai-reel' | 'slide-carousel' | 'saved'>(() => {
     const v = new URLSearchParams(search).get('view');
-    return v === 'ai-video' || v === 'ai-reel' || v === 'slide-carousel' || v === 'saved' ? v : 'studio';
+    return v === 'studio' || v === 'reels' || v === 'ai-video' || v === 'ai-reel' || v === 'slide-carousel' || v === 'saved' ? v : 'today';
   });
   // Deep-link support: re-check the query string on every navigation (not
   // just first mount) so tapping a nav tile while already on this page
@@ -978,7 +980,7 @@ export default function ContentStudioPage() {
   // query-only navigation.
   useEffect(() => {
     const v = new URLSearchParams(search).get('view');
-    if (v === 'ai-video' || v === 'ai-reel' || v === 'slide-carousel' || v === 'saved') setView(v);
+    if (v === 'today' || v === 'studio' || v === 'reels' || v === 'ai-video' || v === 'ai-reel' || v === 'slide-carousel' || v === 'saved') setView(v);
   }, [search]);
   const [videoPrompt, setVideoPrompt] = useState('');
   const [videoDuration, setVideoDuration] = useState(5);
@@ -1000,6 +1002,23 @@ export default function ContentStudioPage() {
   const [videoError, setVideoError] = useState<string | null>(null);
   const [generatedVideoUrl, setGeneratedVideoUrl] = useState<string | null>(null);
 
+  // Social size + the one shot the model will film (previewed and editable
+  // before rendering, so the clip matches what the user asked for).
+  const [videoAspect, setVideoAspect] = useState<string>('9:16');
+  const [videoShot, setVideoShot] = useState('');
+  const [planningShot, setPlanningShot] = useState(false);
+  const planShot = async () => {
+    if (!videoPrompt.trim() || planningShot) return;
+    setPlanningShot(true); setVideoError(null);
+    try {
+      const res = await apiRequest('POST', '/api/content-studio/plan-shot', { prompt: videoPrompt.trim() });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data?.error || 'Could not plan the shot');
+      setVideoShot(data.shot || '');
+    } catch (err: any) { setVideoError(err.message || 'Could not plan the shot'); }
+    finally { setPlanningShot(false); }
+  };
+
   const generateVideo = async () => {
     if (!videoPrompt.trim() || generatingVideo) return;
     setGeneratingVideo(true);
@@ -1008,6 +1027,8 @@ export default function ContentStudioPage() {
     try {
       const res = await apiRequest('POST', '/api/content-studio/generate-video', {
         prompt: videoPrompt.trim(),
+        shot: videoShot.trim() || undefined,
+        aspect: videoAspect,
         duration: videoDuration,
         quality: videoQuality,
         image: videoImage || undefined,
@@ -1039,6 +1060,7 @@ export default function ContentStudioPage() {
         topic: reelTopic.trim(),
         duration: reelDuration,
         quality: videoQuality,
+        aspect: videoAspect,
         image: videoImage || undefined,
       });
       const data = await res.json();
@@ -1203,6 +1225,15 @@ export default function ContentStudioPage() {
 
         {/* ── View Tabs ── */}
         <div className="flex gap-2 overflow-x-auto pb-1 mb-4 scrollbar-hide">
+          <button onClick={() => setView('today')}
+            className="flex-shrink-0 px-4 py-2 rounded-xl text-sm font-bold transition-all whitespace-nowrap"
+            style={{
+              background: view === 'today' ? 'rgba(234,179,8,.14)' : 'rgba(255,255,255,.04)',
+              border: `1px solid ${view === 'today' ? 'rgba(234,179,8,.45)' : 'rgba(255,255,255,.08)'}`,
+              color: view === 'today' ? '#facc15' : '#9ca3af',
+            }}>
+            ⭐ Today
+          </button>
           <button onClick={() => setView('studio')}
             className="flex-shrink-0 flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-bold transition-all"
             style={{
@@ -1268,25 +1299,32 @@ export default function ContentStudioPage() {
         {/* ── Saved Content Library ── */}
         {view === 'saved' && <SavedContentLibrary />}
 
+        {/* Today: the day's 44-day lesson as posts + videos + article (ambassador-agent.tsx) */}
+        {view === 'today' && (
+          <div className="max-w-3xl mx-auto">
+            <AmbassadorAgentPage embedded />
+          </div>
+        )}
+
         {/* ── AI Video Generation View ── */}
         {view === 'ai-video' && (
           <div className="max-w-xl mx-auto">
             <div className="rounded-2xl p-5 space-y-4" style={{ background: 'rgba(168,85,247,.06)', border: '1px solid rgba(168,85,247,.25)' }}>
               <div>
                 <h2 className="text-lg font-bold text-white flex items-center gap-2">
-                  <Sparkles className="w-4 h-4 text-purple-400" /> Generate an AI Video Clip
+                  <Sparkles className="w-4 h-4 text-purple-400" /> Make a video
                 </h2>
                 <p className="text-xs text-gray-400 mt-1">
-                  Describe a short scene and an AI model generates a real video clip — separate from the pre-scripted reels above. Generation takes 30 seconds to a few minutes and produces a short vertical clip.
+                  Type your idea in any form: a scene, a topic, even a full script. We turn it into one shot you can check, then make a short VEDD-branded clip in the size you pick.
                 </p>
               </div>
 
               <div>
-                <label className="text-[10px] text-gray-500 mb-1 block">Prompt</label>
+                <label className="text-[10px] text-gray-500 mb-1 block">1. Your idea</label>
                 <Textarea
-                  placeholder="e.g. A trader confidently reviewing a winning chart on a laptop, warm morning light, cinematic"
+                  placeholder="e.g. A young trader on a rooftop at sunrise checking a breakout on her phone"
                   value={videoPrompt}
-                  onChange={e => setVideoPrompt(e.target.value)}
+                  onChange={e => { setVideoPrompt(e.target.value); setVideoShot(''); }}
                   rows={3}
                   className="bg-black/40 border-white/10 text-white text-sm"
                   disabled={generatingVideo}
@@ -1294,7 +1332,41 @@ export default function ContentStudioPage() {
               </div>
 
               <div>
-                <label className="text-[10px] text-gray-500 mb-1 block">Duration</label>
+                <div className="flex items-center justify-between mb-1">
+                  <label className="text-[10px] text-gray-500 block">2. The shot we'll film <span className="opacity-60">(optional — edit it if it's not what you meant)</span></label>
+                  <button type="button" onClick={planShot} disabled={!videoPrompt.trim() || planningShot || generatingVideo}
+                    className="text-[11px] font-bold px-2 py-1 rounded-lg" style={{ background: 'rgba(168,85,247,.15)', color: '#c084fc', border: '1px solid rgba(168,85,247,.3)' }}>
+                    {planningShot ? 'Planning…' : videoShot ? 'Re-plan' : 'Preview shot'}
+                  </button>
+                </div>
+                {videoShot ? (
+                  <Textarea value={videoShot} onChange={e => setVideoShot(e.target.value)} rows={3}
+                    className="bg-black/40 border-white/10 text-white text-sm" disabled={generatingVideo} />
+                ) : (
+                  <p className="text-[11px] text-gray-500">Tap “Preview shot” to see exactly what will be filmed. If you skip this, we plan it for you.</p>
+                )}
+              </div>
+
+              <div>
+                <label className="text-[10px] text-gray-500 mb-1 block">3. Size</label>
+                <div className="grid grid-cols-2 gap-2">
+                  {([['9:16', 'Vertical 9:16', 'Reels · TikTok · Shorts'], ['4:5', 'Portrait 4:5', 'IG & FB feed'], ['1:1', 'Square 1:1', 'Feed · groups'], ['16:9', 'Landscape 16:9', 'YouTube · FB video']] as const).map(([a, label, hint]) => (
+                    <button key={a} onClick={() => setVideoAspect(a)} disabled={generatingVideo}
+                      className="px-3 py-1.5 rounded-lg text-xs font-bold transition-all text-left"
+                      style={{
+                        background: videoAspect === a ? 'rgba(168,85,247,.25)' : 'rgba(255,255,255,.05)',
+                        border: `1px solid ${videoAspect === a ? 'rgba(168,85,247,.5)' : 'rgba(255,255,255,.1)'}`,
+                        color: videoAspect === a ? '#c084fc' : '#9ca3af',
+                      }}>
+                      {label}
+                      <span className="block text-[9px] font-normal opacity-70">{hint}</span>
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              <div>
+                <label className="text-[10px] text-gray-500 mb-1 block">Length</label>
                 <div className="flex gap-2">
                   {[5, 6].map(d => (
                     <button key={d} onClick={() => setVideoDuration(d)} disabled={generatingVideo}
@@ -1351,13 +1423,13 @@ export default function ContentStudioPage() {
               </div>
 
               <Button onClick={generateVideo} disabled={!videoPrompt.trim() || generatingVideo} className="w-full bg-purple-600 hover:bg-purple-500">
-                {generatingVideo ? 'Generating… this can take a few minutes' : 'Generate Video'}
+                {generatingVideo ? 'Making your video… about 1–3 minutes' : 'Make video'}
               </Button>
               {videoError && <p className="text-xs text-red-400">{videoError}</p>}
 
               {generatedVideoUrl && (
                 <div className="space-y-2">
-                  <video src={generatedVideoUrl} controls loop className="w-full rounded-xl border border-white/10" style={{ aspectRatio: '9/16', maxHeight: 480 }} />
+                  <video src={generatedVideoUrl} controls loop playsInline className="w-full rounded-xl border border-white/10 bg-black object-contain" style={{ aspectRatio: videoAspect.replace(':', '/'), maxHeight: 480 }} />
                   <a href={generatedVideoUrl} download target="_blank" rel="noreferrer"
                     className="block text-center text-xs font-bold px-3 py-2 rounded-lg"
                     style={{ background: 'rgba(168,85,247,.15)', color: '#c084fc', border: '1px solid rgba(168,85,247,.3)' }}>
@@ -1458,7 +1530,7 @@ export default function ContentStudioPage() {
 
               {generatedReel && (
                 <div className="space-y-3">
-                  <video src={generatedReel.url} controls loop className="w-full rounded-xl border border-white/10" style={{ aspectRatio: '9/16', maxHeight: 480 }} />
+                  <video src={generatedReel.url} controls loop playsInline className="w-full rounded-xl border border-white/10 bg-black object-contain" style={{ aspectRatio: '9/16', maxHeight: 480 }} />
                   <a href={generatedReel.url} download target="_blank" rel="noreferrer"
                     className="block text-center text-xs font-bold px-3 py-2 rounded-lg"
                     style={{ background: 'rgba(52,211,153,.15)', color: '#34d399', border: '1px solid rgba(52,211,153,.3)' }}>
@@ -1490,10 +1562,10 @@ export default function ContentStudioPage() {
             <div className="rounded-2xl p-5 space-y-4" style={{ background: 'rgba(56,189,248,.06)', border: '1px solid rgba(56,189,248,.25)' }}>
               <div>
                 <h2 className="text-lg font-bold text-white flex items-center gap-2">
-                  <Sparkles className="w-4 h-4 text-sky-400" /> Generate a Slide Carousel
+                  <Sparkles className="w-4 h-4 text-sky-400" /> Make a carousel
                 </h2>
                 <p className="text-xs text-gray-400 mt-1">
-                  Built for "how to get set up" and "how this works" explainers — give it a topic and AI writes each slide's heading and body text, then generates an on-brand background image for every slide. Swipe-through content ready for Instagram, LinkedIn, or Facebook carousels.
+                  Give it a topic and get swipe-through explainer slides in the veddbuild.com style, sized for Instagram, Facebook and LinkedIn. Save them to your phone or share them straight to an app.
                 </p>
               </div>
 
@@ -1544,7 +1616,7 @@ export default function ContentStudioPage() {
               </div>
 
               <Button onClick={generateCarousel} disabled={!carouselTopic.trim() || generatingCarousel} className="w-full bg-sky-600 hover:bg-sky-500">
-                {generatingCarousel ? `Writing ${carouselSlideCount} slides & generating images… images render one at a time, so this can take several minutes` : 'Generate Carousel'}
+                {generatingCarousel ? `Writing your ${carouselSlideCount} slides… about 20 sec` : 'Make carousel'}
               </Button>
               {carouselError && <p className="text-xs text-red-400">{carouselError}</p>}
             </div>
@@ -1553,6 +1625,9 @@ export default function ContentStudioPage() {
               <div className="mt-5 space-y-4">
                 <h3 className="text-base font-bold text-white">{generatedCarousel.title}</h3>
 
+                {(generatedCarousel as any).style !== 'photo' ? (
+                  <ExplainerCarousel title={generatedCarousel.title} slides={generatedCarousel.slides} referralCode={referralCode} />
+                ) : (<>
                 <div className="flex items-center gap-2 text-[10px] text-gray-400">
                   <input type="checkbox" checked={includeLogo} onChange={e => setIncludeLogo(e.target.checked)} className="accent-orange-500" />
                   Include VEDD logo when baking words onto slides
@@ -1571,6 +1646,7 @@ export default function ContentStudioPage() {
                     />
                   ))}
                 </div>
+                </>)}
 
                 <div className="w-full max-w-[280px]">
                   <ShareButtons caption={generatedCarousel.caption} referralCode={referralCode} referralUrl={referralData?.url} mode="post" />

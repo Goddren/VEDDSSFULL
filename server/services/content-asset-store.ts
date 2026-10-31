@@ -73,3 +73,21 @@ export async function getPersistedAsset(id: number): Promise<{ mimeType: string;
     return null;
   }
 }
+
+/** Stores bytes we produced ourselves (e.g. a branded video) in the same durable store. */
+export async function persistBuffer(buf: Buffer, mimeType: string): Promise<PersistedAsset | null> {
+  if (buf.byteLength > MAX_ASSET_BYTES) {
+    console.error(`[content-asset-store] buffer too large to persist (${buf.byteLength} bytes)`);
+    return null;
+  }
+  try {
+    const { rows } = await pool.query(
+      `INSERT INTO content_studio_assets (mime_type, data) VALUES ($1, $2) RETURNING id`,
+      [mimeType, buf.toString('base64')],
+    );
+    return { id: rows[0].id, url: `/api/content-studio/asset/${rows[0].id}`, mimeType };
+  } catch (err: any) {
+    console.error('[content-asset-store] persistBuffer failed:', err?.message ?? err);
+    return null;
+  }
+}
