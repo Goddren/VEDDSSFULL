@@ -62665,9 +62665,9 @@ async function getStopOrdersForUser(userId, filters = {}) {
 init_schema();
 
 // server/build-info.ts
-var BUILD_COMMIT = "fbdf2fc1-dirty";
+var BUILD_COMMIT = "c99f543d-dirty";
 var BUILD_BRANCH = "HEAD";
-var BUILT_AT = "2026-10-30T23:46:35.443Z";
+var BUILT_AT = "2026-10-31T00:09:05.857Z";
 
 // server/stripe.ts
 init_db();
@@ -91195,6 +91195,7 @@ This request will not trigger a transaction or cost any fees.`;
       const posts = await q.buildDailyQueue(req.user.id, {
         baseUrl: `${req.protocol}://${req.get("host")}`,
         referralCode: code,
+        date: typeof req.body?.date === "string" && /^\d{4}-\d{2}-\d{2}$/.test(req.body.date) ? req.body.date : void 0,
         dayNumber: Number(req.body?.dayNumber) || void 0,
         regenerate: !!req.body?.regenerate
       });

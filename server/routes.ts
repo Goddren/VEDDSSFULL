@@ -30170,6 +30170,7 @@ Generate an agenda with timing, topics, and hosting tips. Return JSON: {
       const code = await ensureReferralCode(req.user.id);
       const posts = await q.buildDailyQueue(req.user.id, {
         baseUrl: `${req.protocol}://${req.get('host')}`, referralCode: code,
+        date: typeof req.body?.date === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(req.body.date) ? req.body.date : undefined,
         dayNumber: Number(req.body?.dayNumber) || undefined, regenerate: !!req.body?.regenerate,
       });
       res.json({ posts });

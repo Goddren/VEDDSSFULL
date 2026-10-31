@@ -25,16 +25,20 @@ interface QueueResponse {
 
 export default function AmbassadorAgentPage() {
   const { toast } = useToast();
-  const { data, isLoading } = useQuery<QueueResponse>({ queryKey: ["/api/ambassador/agent/queue"] });
+  // The ambassador's local date, so "today" doesn't roll over at UTC midnight.
+  const d = new Date();
+  const localDate = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+  const queueKey = `/api/ambassador/agent/queue?date=${localDate}`;
+  const { data, isLoading } = useQuery<QueueResponse>({ queryKey: [queueKey] });
 
   const generate = useMutation({
-    mutationFn: async (regenerate: boolean) => (await apiRequest("POST", "/api/ambassador/agent/queue/generate", { regenerate })).json(),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["/api/ambassador/agent/queue"] }),
+    mutationFn: async (regenerate: boolean) => (await apiRequest("POST", "/api/ambassador/agent/queue/generate", { regenerate, date: localDate })).json(),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: [queueKey] }),
     onError: (e: any) => toast({ title: "Couldn't build today's posts", description: e?.message, variant: "destructive" }),
   });
   const posted = useMutation({
     mutationFn: async ({ id, value }: { id: number; value: boolean }) => apiRequest("POST", `/api/ambassador/agent/queue/${id}/posted`, { posted: value }),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["/api/ambassador/agent/queue"] }),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: [queueKey] }),
   });
 
   const copy = async (p: Post) => {
