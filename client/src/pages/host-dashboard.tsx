@@ -14,6 +14,7 @@ import { useToast } from "@/hooks/use-toast";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { LiveStreamHost } from "@/components/live-stream-host";
 import { PresentationSlides } from "@/components/presentation-slides";
+import { HostResults } from "@/components/host/host-results";
 import { 
   Mic, 
   Video, 
@@ -37,6 +38,7 @@ import {
   Award,
   Sparkles,
   Crown,
+  TrendingUp,
   Radio,
   StopCircle,
   Timer,
@@ -311,58 +313,57 @@ export default function HostDashboardPage() {
   }
 
   return (
-    <div className="container mx-auto p-6 space-y-6">
-      {/* Host Profile Header */}
-      <Card className="bg-gradient-to-r from-amber-900/30 via-yellow-900/20 to-orange-900/30 border-yellow-600/30">
-        <CardContent className="p-6">
-          <div className="flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
-            <div className="flex items-center gap-4">
-              <div className="h-16 w-16 rounded-full bg-gradient-to-br from-yellow-500 to-orange-600 flex items-center justify-center">
-                <Crown className="h-8 w-8 text-white" />
-              </div>
-              <div>
-                <div className="flex items-center gap-2">
-                  <h1 className="text-2xl font-bold">{user?.fullName || user?.username}</h1>
-                  {hostStats && getHostTierBadge(hostStats.hostTier)}
-                </div>
-                <p className="text-muted-foreground">Community Event Host</p>
-              </div>
-            </div>
-            
-            <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-center">
-              <div className="bg-black/20 rounded-lg p-3">
-                <div className="text-2xl font-bold text-yellow-400">{hostStats?.totalEventsHosted || 0}</div>
-                <div className="text-xs text-muted-foreground">Events Hosted</div>
-              </div>
-              <div className="bg-black/20 rounded-lg p-3">
-                <div className="text-2xl font-bold text-green-400">{hostStats?.upcomingEvents || 0}</div>
-                <div className="text-xs text-muted-foreground">Upcoming</div>
-              </div>
-              <div className="bg-black/20 rounded-lg p-3">
-                <div className="text-2xl font-bold text-blue-400">{hostStats?.totalAttendees || 0}</div>
-                <div className="text-xs text-muted-foreground">Total Attendees</div>
-              </div>
-              <div className="bg-black/20 rounded-lg p-3">
-                <div className="text-2xl font-bold text-purple-400">{hostStats?.tokensEarned || 0}</div>
-                <div className="text-xs text-muted-foreground">VEDD Earned</div>
-              </div>
+    <div className="container mx-auto px-4 py-5 md:p-6 space-y-6 max-w-5xl">
+      {/* Host header — veddbuild.com landing style */}
+      <section className="relative overflow-hidden rounded-3xl p-6 md:p-8" style={{ background: "#0B0B0E", border: "1px solid rgba(255,255,255,.08)" }}>
+        <div aria-hidden className="pointer-events-none absolute -top-24 -right-24 h-72 w-72 rounded-full" style={{ background: "radial-gradient(circle, rgba(255,59,52,.28), transparent 70%)" }} />
+        <div aria-hidden className="pointer-events-none absolute -bottom-28 -left-20 h-64 w-64 rounded-full" style={{ background: "radial-gradient(circle, rgba(245,196,81,.12), transparent 70%)" }} />
+        <div className="relative flex flex-col md:flex-row md:items-end justify-between gap-6">
+          <div>
+            <span className="inline-flex items-center gap-2 rounded-full px-3 py-1 text-[11px] font-semibold uppercase tracking-[.22em]"
+              style={{ color: "#FF3B34", border: "1px solid rgba(255,59,52,.3)", background: "rgba(255,59,52,.06)", fontFamily: 'ui-monospace,"SF Mono",Menlo,Consolas,monospace' }}>
+              <Crown className="h-3.5 w-3.5" /> Event host
+            </span>
+            <h1 className="mt-3 text-3xl md:text-4xl font-extrabold tracking-tight" style={{ color: "#F4F5F6" }}>{user?.fullName || user?.username}</h1>
+            <div className="mt-1 flex items-center gap-2 text-sm" style={{ color: "#9BA1A9" }}>
+              Host dashboard {hostStats && getHostTierBadge(hostStats.hostTier)}
             </div>
           </div>
-        </CardContent>
-      </Card>
+          <div className="grid grid-cols-4 gap-2 md:gap-3 text-center">
+            {[
+              ["Hosted", hostStats?.totalEventsHosted || 0, "#F4F5F6"],
+              ["Upcoming", hostStats?.upcomingEvents || 0, "#F4F5F6"],
+              ["Attendees", hostStats?.totalAttendees || 0, "#F4F5F6"],
+              ["VEDD", hostStats?.tokensEarned || 0, "#F5C451"],
+            ].map(([label, value, color]) => (
+              <div key={label as string} className="rounded-2xl px-3 py-2 md:px-4 md:py-3" style={{ background: "#151619", border: "1px solid rgba(255,255,255,.08)" }}>
+                <div className="text-xl md:text-2xl font-extrabold" style={{ color: color as string }}>{value as number}</div>
+                <div className="text-[9px] md:text-[10px] uppercase tracking-[.14em]" style={{ color: "#5B616B", fontFamily: 'ui-monospace,"SF Mono",Menlo,Consolas,monospace' }}>{label as string}</div>
+              </div>
+            ))}
+          </div>
+        </div>
+      </section>
 
-      <Tabs defaultValue="upcoming" className="space-y-4">
-        <TabsList className="grid w-full grid-cols-3">
-          <TabsTrigger value="upcoming" className="flex items-center gap-2">
+      <Tabs defaultValue="results" className="space-y-4">
+        <TabsList className="grid w-full grid-cols-4 h-auto rounded-2xl p-1" style={{ background: "#151619", border: "1px solid rgba(255,255,255,.08)" }}>
+          <TabsTrigger value="results" className="flex items-center gap-1.5 rounded-xl text-xs md:text-sm py-2 data-[state=active]:bg-[rgba(255,59,52,.14)] data-[state=active]:text-[#FF3B34]">
+            <TrendingUp className="h-4 w-4" /> Results
+          </TabsTrigger>
+          <TabsTrigger value="upcoming" className="flex items-center gap-1.5 rounded-xl text-xs md:text-sm py-2 data-[state=active]:bg-[rgba(255,59,52,.14)] data-[state=active]:text-[#FF3B34]">
             <Calendar className="h-4 w-4" /> Upcoming ({allUpcoming.length})
           </TabsTrigger>
-          <TabsTrigger value="completed" className="flex items-center gap-2">
+          <TabsTrigger value="completed" className="flex items-center gap-1.5 rounded-xl text-xs md:text-sm py-2 data-[state=active]:bg-[rgba(255,59,52,.14)] data-[state=active]:text-[#FF3B34]">
             <CheckCircle2 className="h-4 w-4" /> Completed ({completedEvents.length + completedSchedules.length})
           </TabsTrigger>
-          <TabsTrigger value="guide" className="flex items-center gap-2">
+          <TabsTrigger value="guide" className="flex items-center gap-1.5 rounded-xl text-xs md:text-sm py-2 data-[state=active]:bg-[rgba(255,59,52,.14)] data-[state=active]:text-[#FF3B34]">
             <Lightbulb className="h-4 w-4" /> Host Guide
           </TabsTrigger>
         </TabsList>
+
+        <TabsContent value="results">
+          <HostResults />
+        </TabsContent>
 
         {/* Upcoming Events */}
         <TabsContent value="upcoming" className="space-y-4">
@@ -386,7 +387,7 @@ export default function HostDashboardPage() {
                           <Badge variant="outline">{event.format}</Badge>
                           <Badge variant="secondary">{event.role}</Badge>
                           {event.shareSlug && (
-                            <Badge className="bg-purple-600">Shareable</Badge>
+                            <Badge variant="outline" className="border-[#F5C451]/50 text-[#F5C451]">Shareable</Badge>
                           )}
                         </div>
                         <h3 className="text-lg font-semibold">{event.title}</h3>
@@ -417,7 +418,7 @@ export default function HostDashboardPage() {
                         <Button 
                           variant="default" 
                           size="sm" 
-                          className="flex items-center gap-1 bg-green-600 hover:bg-green-500"
+                          className="flex items-center gap-1 bg-[#FF3B34] hover:bg-[#ff554f] text-white"
                           onClick={(e) => { e.stopPropagation(); startPresenterMode(event); }}
                         >
                           <Radio className="h-4 w-4" /> Start Presenting
@@ -617,7 +618,7 @@ export default function HostDashboardPage() {
                     {/* AI-Generated Agenda */}
                     {event.aiAgenda && (
                       <div className="space-y-3">
-                        <div className="p-3 bg-gradient-to-r from-blue-900/30 to-purple-900/30 rounded-lg border border-blue-500/30">
+                        <div className="p-3 bg-[#151619] rounded-lg border border-white/10">
                           <h4 className="font-medium text-blue-400 flex items-center gap-2 mb-2">
                             <Sparkles className="h-4 w-4" /> AI-Generated Session Guide
                           </h4>
@@ -994,7 +995,7 @@ export default function HostDashboardPage() {
               <div className="flex gap-2">
                 {!isLive ? (
                   <Button 
-                    className="bg-green-600 hover:bg-green-500"
+                    className="bg-[#FF3B34] hover:bg-[#ff554f] text-white"
                     onClick={() => updateStatusMutation.mutate({ eventId: presenterEvent.eventId || presenterEvent.id, scheduleId: presenterEvent.scheduleId, status: 'live' })}
                     disabled={updateStatusMutation.isPending}
                   >
@@ -1172,7 +1173,7 @@ export default function HostDashboardPage() {
                             className="flex items-center justify-between bg-gray-800/50 rounded-lg p-2"
                           >
                             <div className="flex items-center gap-2">
-                              <div className="h-8 w-8 rounded-full bg-gradient-to-br from-amber-500 to-orange-600 flex items-center justify-center">
+                              <div className="h-8 w-8 rounded-full bg-[#F5C451] text-black flex items-center justify-center">
                                 <User className="h-4 w-4 text-white" />
                               </div>
                               <div>

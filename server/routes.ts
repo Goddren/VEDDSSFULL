@@ -25126,6 +25126,15 @@ Generate a JSON object with:
   });
 
   // Get host stats
+  // Real results for the host dashboard (services/host-results.ts).
+  app.get("/api/ambassador/host/results", async (req: Request, res: Response) => {
+    if (!req.isAuthenticated()) return res.status(401).json({ error: 'Not authenticated' });
+    try {
+      const { getHostResults } = await import('./services/host-results');
+      res.json(await getHostResults((req.user as any).id));
+    } catch (err: any) { res.status(500).json({ error: err.message }); }
+  });
+
   app.get("/api/ambassador/host/stats", async (req: Request, res: Response) => {
     if (!req.isAuthenticated()) {
       return res.status(401).json({ error: 'Not authenticated' });

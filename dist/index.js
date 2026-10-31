@@ -54691,6 +54691,121 @@ var init_strategic_community_data = __esm({
   }
 });
 
+// server/services/host-results.ts
+var host_results_exports = {};
+__export(host_results_exports, {
+  getHostResults: () => getHostResults
+});
+async function safe(q, fallback = []) {
+  try {
+    return (await q).rows;
+  } catch (e) {
+    if (e?.code === "42P01") return fallback;
+    throw e;
+  }
+}
+async function getHostResults(userId) {
+  const { rows: me } = await pool.query(`SELECT referral_code, COALESCE(referral_credits,0)::int AS credits FROM users WHERE id=$1`, [userId]);
+  const code = me[0]?.referral_code ?? null;
+  const funnelSql = (since) => `
+    SELECT
+      (SELECT count(*)::int FROM referral_visits WHERE (referrer_id=$1 OR referral_code=$2) ${since ? `AND visited_at >= ${since}` : ""}) AS visits,
+      (SELECT count(*)::int FROM users WHERE referred_by=$1 ${since ? `AND created_at >= ${since}` : ""}) AS signups,
+      (SELECT count(*)::int FROM users WHERE referred_by=$1 AND subscription_status IN ('active','trialing') ${since ? `AND created_at >= ${since}` : ""}) AS paid`;
+  const [allTime, last30, recruits, posts, regs, schedules] = await Promise.all([
+    pool.query(funnelSql(""), [userId, code]),
+    pool.query(funnelSql(`now() - interval '30 days'`), [userId, code]),
+    safe(pool.query(`SELECT user_id FROM profit_split_enrollments WHERE enrolled_by=$1 AND status='active'`, [userId])),
+    safe(
+      pool.query(`SELECT count(*) FILTER (WHERE status='posted')::int AS posted, COALESCE(sum(clicks),0)::int AS clicks FROM ambassador_post_queue WHERE user_id=$1`, [userId]),
+      [{ posted: 0, clicks: 0 }]
+    ),
+    safe(pool.query(`SELECT r.event_id, r.role, r.tokens_earned, e.title, e.scheduled_date, e.status, e.event_type
+                       FROM ambassador_event_registrations r JOIN ambassador_events e ON e.id=r.event_id
+                      WHERE r.user_id=$1 AND r.role IN ('host','co_host','speaker')`, [userId])),
+    safe(pool.query(`SELECT id, event_id, title, start_at, status, capacity, current_attendees, share_slug
+                       FROM ambassador_event_schedules WHERE host_id=$1`, [userId]))
+  ]);
+  let netProfit = 0, owed = 0, collected = 0;
+  if (recruits.length) {
+    const { getProfitSplitStatus: getProfitSplitStatus2 } = await Promise.resolve().then(() => (init_profit_split(), profit_split_exports));
+    for (const r of recruits) {
+      const s = await getProfitSplitStatus2(r.user_id).catch(() => null);
+      if (s) {
+        netProfit += s.netProfit;
+        owed += s.owed;
+        collected += s.paid;
+      }
+    }
+  }
+  const events = [];
+  for (const r of regs) {
+    const [stats] = await safe(pool.query(
+      `SELECT count(*) FILTER (WHERE role='attendee' OR role IS NULL)::int AS registered,
+              count(*) FILTER (WHERE status='attended')::int AS attended,
+              avg(rating)::float AS rating
+         FROM ambassador_event_registrations WHERE event_id=$1`,
+      [r.event_id]
+    ), [{ registered: 0, attended: 0, rating: null }]);
+    events.push({
+      key: `e${r.event_id}`,
+      title: r.title,
+      start: r.scheduled_date,
+      status: r.status,
+      registered: stats?.registered ?? 0,
+      attended: stats?.attended ?? 0,
+      rating: stats?.rating ?? null,
+      tokens: r.tokens_earned ?? 0
+    });
+  }
+  for (const s of schedules) {
+    if (s.event_id && events.some((e) => e.key === `e${s.event_id}` && e.start === s.start_at)) continue;
+    events.push({
+      key: `s${s.id}`,
+      title: s.title,
+      start: s.start_at,
+      status: s.status,
+      registered: s.current_attendees ?? 0,
+      attended: 0,
+      rating: null,
+      tokens: 0,
+      shareSlug: s.share_slug
+    });
+  }
+  const withSignups = await Promise.all(events.map(async (e) => {
+    if (!e.start || new Date(e.start) > /* @__PURE__ */ new Date()) return { ...e, signupsAfter: null };
+    const { rows } = await pool.query(
+      `SELECT count(*)::int n FROM users WHERE referred_by=$1 AND created_at >= $2 AND created_at < $2::timestamptz + interval '${EVENT_WINDOW_HOURS} hours'`,
+      [userId, e.start]
+    );
+    return { ...e, signupsAfter: rows[0]?.n ?? 0 };
+  }));
+  withSignups.sort((a2, b) => String(b.start ?? "").localeCompare(String(a2.start ?? "")));
+  const a = allTime.rows[0], m = last30.rows[0];
+  const rate = (n, d) => d > 0 ? n / d : null;
+  return {
+    referralCode: code,
+    funnel: {
+      allTime: { ...a, signupRate: rate(a.signups, a.visits), paidRate: rate(a.paid, a.signups) },
+      last30: { ...m, signupRate: rate(m.signups, m.visits), paidRate: rate(m.paid, m.signups) }
+    },
+    profitSplit: { recruits: recruits.length, netProfit, owedToVedd: owed, collected, pct: 30 },
+    content: posts[0] ?? { posted: 0, clicks: 0 },
+    credits: me[0]?.credits ?? 0,
+    tokensFromEvents: regs.reduce((s, r) => s + (r.tokens_earned || 0), 0),
+    events: withSignups,
+    eventWindowHours: EVENT_WINDOW_HOURS
+  };
+}
+var EVENT_WINDOW_HOURS;
+var init_host_results = __esm({
+  "server/services/host-results.ts"() {
+    "use strict";
+    init_db();
+    EVENT_WINDOW_HOURS = 72;
+  }
+});
+
 // server/services/ffmpeg.ts
 import { spawn as spawn2 } from "child_process";
 import { createRequire } from "module";
@@ -63297,9 +63412,9 @@ async function getStopOrdersForUser(userId, filters = {}) {
 init_schema();
 
 // server/build-info.ts
-var BUILD_COMMIT = "b8ff5d55-dirty";
+var BUILD_COMMIT = "f14e75b3-dirty";
 var BUILD_BRANCH = "HEAD";
-var BUILT_AT = "2026-10-31T02:53:09.744Z";
+var BUILT_AT = "2026-10-31T03:21:25.896Z";
 
 // server/stripe.ts
 init_db();
@@ -65333,8 +65448,8 @@ router2.get("/tradovate/connection", async (req, res) => {
   try {
     const connection2 = await storage.getUserTradovateConnection(getUserId(req));
     if (!connection2) return res.json({ connected: false });
-    const { encryptedPassword: _, accessToken, ...safe } = connection2;
-    res.json({ connected: true, ...safe });
+    const { encryptedPassword: _, accessToken, ...safe2 } = connection2;
+    res.json({ connected: true, ...safe2 });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
@@ -65373,8 +65488,8 @@ router2.post("/tradovate/connection", async (req, res) => {
       startingBalance,
       peakEquity: startingBalance
     });
-    const { encryptedPassword: _pw, accessToken, ...safe } = connection2;
-    res.json({ connected: true, ...safe, startingBalance });
+    const { encryptedPassword: _pw, accessToken, ...safe2 } = connection2;
+    res.json({ connected: true, ...safe2, startingBalance });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
@@ -65391,8 +65506,8 @@ router2.patch("/tradovate/connection", async (req, res) => {
       if (req.body[key] !== void 0) updates[key] = req.body[key];
     }
     const updated = await storage.updateTradovateConnection(connection2.id, updates);
-    const { encryptedPassword: _, accessToken, ...safe } = updated;
-    res.json(safe);
+    const { encryptedPassword: _, accessToken, ...safe2 } = updated;
+    res.json(safe2);
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
@@ -80190,7 +80305,7 @@ Rules:
     const userId = req.user.id;
     const connections = await storage.getUserTradelockerConnections(userId);
     const { getTLRisk: getTLRisk2 } = await Promise.resolve().then(() => (init_tl_risk_settings(), tl_risk_settings_exports));
-    const safe = connections.map(({ encryptedPassword, accessToken, refreshToken, ...c }) => {
+    const safe2 = connections.map(({ encryptedPassword, accessToken, refreshToken, ...c }) => {
       const _json = getTLRisk2(c.id);
       return {
         ...c,
@@ -80198,7 +80313,7 @@ Rules:
         riskPercent: c.riskPercent ?? _json.riskPercent
       };
     });
-    res.json(safe);
+    res.json(safe2);
   });
   app2.get("/api/tradelocker/account-balance", async (req, res) => {
     if (!req.isAuthenticated()) return res.status(401).json({ error: "Authentication required" });
@@ -80605,7 +80720,7 @@ Rules:
     if (!req.isAuthenticated()) return res.status(401).json({ error: "Authentication required" });
     const userId = req.user.id;
     const connections = await storage.getUserAlpacaConnections(userId);
-    res.json(connections.map(({ encryptedApiSecret: _s, ...safe }) => safe));
+    res.json(connections.map(({ encryptedApiSecret: _s, ...safe2 }) => safe2));
   });
   app2.post("/api/alpaca/connection", async (req, res) => {
     if (!req.isAuthenticated()) return res.status(401).json({ error: "Authentication required" });
@@ -80738,7 +80853,7 @@ Rules:
     if (!req.isAuthenticated()) return res.status(401).json({ error: "Authentication required" });
     const userId = req.user.id;
     const connections = await storage.getUserTastytradeConnections(userId);
-    res.json(connections.map(({ encryptedPassword: _p, sessionToken: _t, ...safe }) => safe));
+    res.json(connections.map(({ encryptedPassword: _p, sessionToken: _t, ...safe2 }) => safe2));
   });
   app2.post("/api/tastytrade/connection", async (req, res) => {
     if (!req.isAuthenticated()) return res.status(401).json({ error: "Authentication required" });
@@ -81187,7 +81302,7 @@ Rules:
     if (!req.isAuthenticated()) return res.status(401).json({ error: "Authentication required" });
     const userId = req.user.id;
     const connections = await storage.getUserCryptocomConnections(userId);
-    res.json(connections.map(({ encryptedApiSecret: _s, ...safe }) => safe));
+    res.json(connections.map(({ encryptedApiSecret: _s, ...safe2 }) => safe2));
   });
   app2.post("/api/cryptocom/connection", async (req, res) => {
     if (!req.isAuthenticated()) return res.status(401).json({ error: "Authentication required" });
@@ -87701,6 +87816,15 @@ Generate a JSON object with:
       res.json(hostedEvents.filter(Boolean));
     } catch (err) {
       res.status(500).json({ error: err instanceof Error ? err.message : "Unknown error" });
+    }
+  });
+  app2.get("/api/ambassador/host/results", async (req, res) => {
+    if (!req.isAuthenticated()) return res.status(401).json({ error: "Not authenticated" });
+    try {
+      const { getHostResults: getHostResults2 } = await Promise.resolve().then(() => (init_host_results(), host_results_exports));
+      res.json(await getHostResults2(req.user.id));
+    } catch (err) {
+      res.status(500).json({ error: err.message });
     }
   });
   app2.get("/api/ambassador/host/stats", async (req, res) => {
@@ -94767,9 +94891,9 @@ Scene idea: ${script.videoPrompt}`, {
       const enriched = await Promise.all(listings.map(async (l) => {
         const seller = await storage.getUser(l.sellerId);
         const purchase = await storage.getBrainPurchaseByListingAndBuyer(l.id, userId);
-        const { snapshotData: _omit, ...safe } = l;
+        const { snapshotData: _omit, ...safe2 } = l;
         return {
-          ...safe,
+          ...safe2,
           sellerUsername: seller?.username || "Unknown",
           alreadyPurchased: !!purchase,
           isOwnListing: l.sellerId === userId
@@ -94785,8 +94909,8 @@ Scene idea: ${script.videoPrompt}`, {
     const userId = req.user.id;
     try {
       const listings = await storage.getUserBrainListings(userId);
-      const safe = listings.map(({ snapshotData: _omit, ...rest }) => rest);
-      res.json(safe);
+      const safe2 = listings.map(({ snapshotData: _omit, ...rest }) => rest);
+      res.json(safe2);
     } catch (e) {
       res.status(500).json({ error: e.message });
     }
@@ -94796,11 +94920,11 @@ Scene idea: ${script.videoPrompt}`, {
     const userId = req.user.id;
     try {
       const purchases = await storage.getUserBrainPurchases(userId);
-      const safe = purchases.map((p) => {
+      const safe2 = purchases.map((p) => {
         const { snapshotData: _omit, ...safeListing } = p.listing;
         return { ...p, listing: safeListing };
       });
-      res.json(safe);
+      res.json(safe2);
     } catch (e) {
       res.status(500).json({ error: e.message });
     }
