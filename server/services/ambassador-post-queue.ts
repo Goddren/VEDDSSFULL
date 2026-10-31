@@ -203,7 +203,11 @@ export async function getPostStats(userId: number) {
 
 const VIDEO_ASPECT: Record<string, '9:16' | '4:5'> = { tiktok: '9:16', instagram: '9:16', facebook_page: '4:5', facebook_group: '4:5' };
 
-/** Renders a branded video for one queued post, from that day's lesson. Costs a Replicate render, so only on tap. */
+/**
+ * Starts a narrated explainer video (explainer-video.ts) for one queued post,
+ * from that day's lesson. Costs real renders, so only on tap. Returns the job
+ * id; the post's video_url is filled in when the job finishes.
+ */
 export async function makePostVideo(userId: number, postId: number, aspect?: '9:16' | '1:1' | '4:5' | '16:9') {
   await ensurePostQueueTables();
   const { rows } = await pool.query(`SELECT * FROM ambassador_post_queue WHERE id=$1 AND user_id=$2`, [postId, userId]);
@@ -216,18 +220,14 @@ export async function makePostVideo(userId: number, postId: number, aspect?: '9:
     post.hook && `Hook: ${post.hook}`,
     post.visual_idea && `Visual idea: ${post.visual_idea}`,
   ].filter(Boolean).join('\n');
-  const { renderContentVideo } = await import('./content-video');
-  const video = await renderContentVideo(idea, { userId, aspect: aspect || VIDEO_ASPECT[post.platform] || '9:16' });
-  if (!video) throw new Error("The video couldn't be made right now. Please try again in a minute.");
-  await pool.query(`UPDATE ambassador_post_queue SET video_url=$2, video_shot=$3, video_aspect=$4 WHERE id=$1`, [postId, video.url, video.shot, video.aspect]);
-  if (video.persisted) {
-    const { storage } = await import('../storage');
-    await storage.createContentStudioGeneration({
-      userId, contentType: 'video', prompt: idea, title: post.hook || null, caption: post.body, assetUrl: video.url,
-      metadata: { provider: video.provider, shot: video.shot, aspect: video.aspect, branded: video.branded, day: post.day_number, platform: post.platform },
-    } as any).catch(() => {});
-  }
-  return video;
+  const { startExplainerJob } = await import('./explainer-video');
+  const size = aspect || VIDEO_ASPECT[post.platform] || '9:16';
+  const jobId = await startExplainerJob(userId, idea, size, {
+    onDone: async (url) => {
+      await pool.query(`UPDATE ambassador_post_queue SET video_url=$2, video_shot=NULL, video_aspect=$3 WHERE id=$1`, [postId, url, size]);
+    },
+  });
+  return { jobId };
 }
 
 const dayTag = (n: number) => `lesson-day-${n}`;

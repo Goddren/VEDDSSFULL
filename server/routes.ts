@@ -30191,8 +30191,14 @@ Generate an agenda with timing, topics, and hosting tips. Return JSON: {
   app.post("/api/ambassador/agent/queue/:id/video", async (req, res) => {
     if (!req.user) return res.status(401).json({ message: "Unauthorized" });
     try {
+      const u = req.user as any;
+      const ex = await import('./services/explainer-video');
+      const limit = Number(process.env.EXPLAINER_DAILY_LIMIT ?? 2);
+      if (!u.isAdmin && (await ex.rendersToday(u.id)) >= limit) {
+        return res.status(429).json({ message: `You've made ${limit} videos today. You can make more tomorrow.` });
+      }
       const q = await import('./services/ambassador-post-queue');
-      res.json(await q.makePostVideo(req.user.id, Number(req.params.id), (req.body as any)?.aspect));
+      res.json(await q.makePostVideo(u.id, Number(req.params.id), (req.body as any)?.aspect));
     } catch (err: any) { res.status(500).json({ message: err?.message || 'Video failed' }); }
   });
   app.post("/api/ambassador/agent/queue/:id/posted", async (req, res) => {
@@ -30750,6 +30756,35 @@ Generate an agenda with timing, topics, and hosting tips. Return JSON: {
   // POST /api/content-studio/generate-video — AI video clip via Replicate
   // (Wan 2.2 Fast). Slower and pricier than image gen, so gated the same way
   // and left as an explicit opt-in action, never auto-triggered.
+  // ── Explainer videos (explainer-video.ts): script -> Veo 3 scenes with
+  // narration -> joined + branded. Background job; the client polls it.
+  // Ambassadors: EXPLAINER_DAILY_LIMIT per 24h (default 2); admins unlimited.
+  app.post("/api/content-studio/explainer", async (req, res) => {
+    const u = req.user as any;
+    if (!req.isAuthenticated() || !(u?.isAmbassador || u?.isAdmin)) {
+      return res.status(403).json({ error: "Ambassador or admin only" });
+    }
+    try {
+      const prompt = String((req.body as any)?.prompt || '').trim();
+      if (!prompt) return res.status(400).json({ error: "Tell us what the video should explain." });
+      const aspect = ['9:16', '4:5', '1:1', '16:9'].includes((req.body as any)?.aspect) ? (req.body as any).aspect : '9:16';
+      const ex = await import('./services/explainer-video');
+      const limit = Number(process.env.EXPLAINER_DAILY_LIMIT ?? 2);
+      if (!u.isAdmin && (await ex.rendersToday(u.id)) >= limit) {
+        return res.status(429).json({ error: `You've made ${limit} explainer videos today. You can make more tomorrow.` });
+      }
+      const jobId = await ex.startExplainerJob(u.id, prompt, aspect);
+      res.json({ jobId });
+    } catch (err: any) { res.status(500).json({ error: err.message }); }
+  });
+  app.get("/api/content-studio/explainer/:id", async (req, res) => {
+    if (!req.isAuthenticated()) return res.status(401).json({ error: "Authentication required" });
+    const ex = await import('./services/explainer-video');
+    const job = await ex.getJob(Number(req.params.id), (req.user as any).id);
+    if (!job) return res.status(404).json({ error: "Not found" });
+    res.json({ id: job.id, status: job.status, step: job.step, progress: job.progress, url: job.result_url, error: job.error, script: job.script, aspect: job.aspect });
+  });
+
   // POST /api/content-studio/plan-shot — preview the single shot the video
   // model will film, so the user can check/edit it before paying for a render.
   app.post("/api/content-studio/plan-shot", async (req, res) => {

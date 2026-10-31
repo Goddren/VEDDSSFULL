@@ -1,5 +1,6 @@
 import AmbassadorAgentPage from '@/pages/ambassador-agent';
 import { ExplainerCarousel } from '@/components/content-studio/explainer-carousel';
+import { ExplainerMaker } from '@/components/content-studio/explainer-maker';
 import { useState, useRef, useEffect, type ReactNode } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useAuth } from '@/hooks/use-auth';
@@ -1308,11 +1309,14 @@ export default function ContentStudioPage() {
 
         {/* ── AI Video Generation View ── */}
         {view === 'ai-video' && (
-          <div className="max-w-xl mx-auto">
-            <div className="rounded-2xl p-5 space-y-4" style={{ background: 'rgba(168,85,247,.06)', border: '1px solid rgba(168,85,247,.25)' }}>
+          <div className="max-w-xl mx-auto space-y-5">
+            <ExplainerMaker />
+            <details className="rounded-2xl" style={{ background: 'rgba(168,85,247,.04)', border: '1px solid rgba(168,85,247,.2)' }}>
+            <summary className="cursor-pointer px-5 py-3 text-sm font-bold text-gray-300">Quick clip instead (5 seconds, no sound, cheaper)</summary>
+            <div className="rounded-2xl p-5 space-y-4">
               <div>
                 <h2 className="text-lg font-bold text-white flex items-center gap-2">
-                  <Sparkles className="w-4 h-4 text-purple-400" /> Make a video
+                  <Sparkles className="w-4 h-4 text-purple-400" /> Quick clip
                 </h2>
                 <p className="text-xs text-gray-400 mt-1">
                   Type your idea in any form: a scene, a topic, even a full script. We turn it into one shot you can check, then make a short VEDD-branded clip in the size you pick.
@@ -1438,6 +1442,7 @@ export default function ContentStudioPage() {
                 </div>
               )}
             </div>
+            </details>
           </div>
         )}
 

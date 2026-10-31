@@ -7,6 +7,7 @@ import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Copy, Check, RefreshCw, Sparkles, Video, Download, FileText, ExternalLink, Loader2, Layers } from "lucide-react";
 import { ExplainerCarousel, type ExplainerSlide } from "@/components/content-studio/explainer-carousel";
+import { useExplainerJob, JobProgress } from "@/components/content-studio/explainer-maker";
 
 // Today's content — everything for one day of the 44-day plan in one place
 // (server/services/ambassador-post-queue.ts): the four social posts, a branded
@@ -49,14 +50,18 @@ export function BrandedVideo({ url, aspect }: { url: string; aspect?: string | n
 function PostVideo({ post, queueKey }: { post: Post; queueKey: string }) {
   const { toast } = useToast();
   const [size, setSize] = useState(post.video_aspect || DEFAULT_SIZE[post.platform] || "9:16");
+  const [jobId, setJobId] = useState<number | null>(null);
+  const job = useExplainerJob(jobId, () => queryClient.invalidateQueries({ queryKey: [queueKey] }));
   const make = useMutation({
     mutationFn: async () => (await apiRequest("POST", `/api/ambassador/agent/queue/${post.id}/video`, { aspect: size })).json(),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: [queueKey] }),
-    onError: (e: any) => toast({ title: "Video didn't render", description: e?.message, variant: "destructive" }),
+    onSuccess: (r: any) => setJobId(r.jobId),
+    onError: (e: any) => toast({ title: "Video didn't start", description: String(e?.message || "").replace(/^\d+:\s*/, ""), variant: "destructive" }),
   });
+  const working = make.isPending || (!!job && (job.status === "running" || job.status === "queued"));
   return (
     <div className="rounded-lg border border-dashed p-3 space-y-2">
-      {post.video_url && !make.isPending ? (
+      {working || job?.status === "failed" ? <JobProgress job={job ?? ({ status: "running", step: "Starting", progress: 2 } as any)} /> : null}
+      {post.video_url && !working ? (
         <>
           <BrandedVideo url={post.video_url} aspect={post.video_aspect} />
           <div className="flex flex-wrap gap-2">
@@ -66,14 +71,15 @@ function PostVideo({ post, queueKey }: { post: Post; queueKey: string }) {
             <Button size="sm" variant="ghost" onClick={() => make.mutate()}><RefreshCw className="h-4 w-4 mr-1" />Make another</Button>
           </div>
         </>
-      ) : (
+      ) : !working && (
         <div className="flex flex-wrap items-center gap-2">
           <select className="h-9 rounded-md border bg-background px-2 text-sm" value={size} onChange={(e) => setSize(e.target.value)} aria-label="Video size">
             {SIZES.map((s) => <option key={s.value} value={s.value}>{s.label} · {s.hint}</option>)}
           </select>
-          <Button size="sm" onClick={() => make.mutate()} disabled={make.isPending}>
-            {make.isPending ? <><Loader2 className="h-4 w-4 mr-1 animate-spin" />Making your video… about 1–2 min</> : <><Video className="h-4 w-4 mr-1" />Make video</>}
+          <Button size="sm" onClick={() => make.mutate()}>
+            <Video className="h-4 w-4 mr-1" />Make explainer video
           </Button>
+          <span className="text-xs text-muted-foreground">~30s with voiceover, about 3–6 min to make</span>
         </div>
       )}
     </div>

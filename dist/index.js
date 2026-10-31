@@ -6816,8 +6816,8 @@ function parseFreqtradeParams(code) {
 async function getStrategyContext(symbol) {
   const assetClass = classifySymbol(symbol);
   const cacheKey = `strategy_${assetClass}`;
-  const cached = getCached(cacheKey);
-  if (cached) return cached;
+  const cached2 = getCached(cacheKey);
+  if (cached2) return cached2;
   const baseRules = { ...ASSET_DEFAULTS[assetClass] };
   let externalParams = {};
   let sourceNote = `Embedded validated defaults (${assetClass})`;
@@ -7010,9 +7010,9 @@ function rateLabel(wr) {
 }
 async function getLearnedInsights(userId, symbol) {
   const cacheKey = userId;
-  const cached = learningCache.get(cacheKey);
-  if (cached && Date.now() - cached.ts < LEARNING_CACHE_TTL) {
-    return cached.insights;
+  const cached2 = learningCache.get(cacheKey);
+  if (cached2 && Date.now() - cached2.ts < LEARNING_CACHE_TTL) {
+    return cached2.insights;
   }
   try {
     const since = new Date(Date.now() - 90 * 24 * 60 * 60 * 1e3);
@@ -19278,16 +19278,16 @@ var init_service = __esm({
           if (yb && yb.length) return { bars: yb, provider: "yahoo-index", hash: this.generateHash(yb), fromCache: false };
           throw new Error(`No provider available for asset type: ${request.assetType}`);
         }
-        const cached = marketDataCache.get(
+        const cached2 = marketDataCache.get(
           request.symbol,
           request.timeframe,
           provider.name
         );
-        if (cached) {
+        if (cached2) {
           return {
-            bars: cached,
+            bars: cached2,
             provider: provider.name,
-            hash: this.generateHash(cached),
+            hash: this.generateHash(cached2),
             fromCache: true
           };
         }
@@ -22608,9 +22608,9 @@ var init_dxtrade = __esm({
       async ensureLoggedIn() {
         if (!this.token) await this.login();
       }
-      async authed(path18, init = {}) {
+      async authed(path19, init = {}) {
         if (!this.token) await this.login();
-        const doFetch = () => fetch(`${this.base}${path18}`, {
+        const doFetch = () => fetch(`${this.base}${path19}`, {
           ...init,
           headers: { "Accept": "application/json", "Content-Type": "application/json", "Authorization": `DXAPI ${this.token}`, ...init.headers || {} },
           signal: AbortSignal.timeout(2e4)
@@ -22818,8 +22818,8 @@ var init_dxtrade = __esm({
       async getInstruments(query = "") {
         const attempts = query ? [`/instruments/query?text=${encodeURIComponent(query)}`, `/instruments/query?symbol=${encodeURIComponent(query)}`, `/instruments/query?symbols=${encodeURIComponent(query)}`] : ["/instruments/query"];
         let last = "";
-        for (const path18 of attempts) {
-          const res = await this.authed(path18);
+        for (const path19 of attempts) {
+          const res = await this.authed(path19);
           const text2 = await res.text();
           if (res.ok) {
             try {
@@ -22892,10 +22892,10 @@ var init_dxtrade = __esm({
           `/accounts/${enc}/reports/trades?from=${encodeURIComponent(fromIso)}&to=${encodeURIComponent(toIso)}`,
           `/accounts/${enc}/positions/history?from=${encodeURIComponent(fromIso)}&to=${encodeURIComponent(toIso)}`
         ];
-        for (const path18 of candidates) {
+        for (const path19 of candidates) {
           let res;
           try {
-            res = await this.authed(path18);
+            res = await this.authed(path19);
           } catch {
             continue;
           }
@@ -22909,7 +22909,7 @@ var init_dxtrade = __esm({
           const list = data?.history ?? data?.trades ?? data?.orders ?? data?.positions ?? data?.items ?? (Array.isArray(data) ? data : []);
           if (!Array.isArray(list) || list.length === 0) {
             if (Array.isArray(list)) {
-              console.log(`[dxtrade] history via ${path18.split("?")[0]} \u2014 0 rows in window`);
+              console.log(`[dxtrade] history via ${path19.split("?")[0]} \u2014 0 rows in window`);
               return [];
             }
             continue;
@@ -22929,7 +22929,7 @@ var init_dxtrade = __esm({
             profit: o.profit ?? o.pnl ?? o.realizedPnl ?? o.realizedPnL ?? o.grossProfit,
             closeTime: o.closeTime ?? o.closedAt ?? o.closeTimestamp ?? o.timestamp ?? o.updateTime ?? null
           }));
-          console.log(`[dxtrade] history via ${path18.split("?")[0]} \u2014 ${closed.length} closed rows`);
+          console.log(`[dxtrade] history via ${path19.split("?")[0]} \u2014 ${closed.length} closed rows`);
           return closed;
         }
         console.log(`[dxtrade] no working history endpoint found for ${accountCode} (tried ${candidates.length}) \u2014 close-sync will keep opens PENDING`);
@@ -23368,13 +23368,13 @@ function callBudget() {
     candleTtlMs: Number(process.env.COINGECKO_CANDLE_TTL_MS ?? (hasKey ? 10 * 60 * 1e3 : 30 * 60 * 1e3))
   };
 }
-async function gt(path18) {
-  const run2 = async () => {
+async function gt(path19) {
+  const run = async () => {
     for (let attempt = 0; attempt < 3; attempt++) {
       const wait = Math.max(0, callBudget().minIntervalMs - (Date.now() - lastCallAt));
       if (wait > 0) await new Promise((r) => setTimeout(r, wait));
       lastCallAt = Date.now();
-      const res = await fetch(`${GT}${path18}`, {
+      const res = await fetch(`${GT}${path19}`, {
         headers: cgHeaders(),
         signal: AbortSignal.timeout(2e4)
       });
@@ -23382,15 +23382,15 @@ async function gt(path18) {
       if (res.status === 429) {
         const retryAfter = Number(res.headers.get("retry-after")) || 0;
         const backoff = retryAfter > 0 ? retryAfter * 1e3 : 3e3 * (attempt + 1);
-        console.warn(`[defi-market-data] rate limited on ${path18}; waiting ${backoff}ms (attempt ${attempt + 1}/3)`);
+        console.warn(`[defi-market-data] rate limited on ${path19}; waiting ${backoff}ms (attempt ${attempt + 1}/3)`);
         await new Promise((r) => setTimeout(r, backoff));
         continue;
       }
-      throw new Error(`GeckoTerminal ${res.status} on ${path18}`);
+      throw new Error(`GeckoTerminal ${res.status} on ${path19}`);
     }
-    throw new Error(`GeckoTerminal rate limited after 3 attempts on ${path18}`);
+    throw new Error(`GeckoTerminal rate limited after 3 attempts on ${path19}`);
   };
-  const next = callChain.then(run2, run2);
+  const next = callChain.then(run, run);
   callChain = next.catch(() => void 0);
   return next;
 }
@@ -28544,15 +28544,15 @@ Keep it natural \u2014 not every sentence. Weave it in where it fits. ALL prices
     }
     if (!usedMultiModel) {
       const cacheKey = Object.keys(marketAnalysis).sort().join("|");
-      const cached = state.aiResponseCache[cacheKey];
+      const cached2 = state.aiResponseCache[cacheKey];
       const pairPrices = Object.values(marketAnalysis).map((d) => d.currentPrice || 0);
       const avgPrice = pairPrices.length > 0 ? pairPrices.reduce((a, b) => a + b, 0) / pairPrices.length : 0;
-      const cachedPrice = cached?.price ?? 0;
+      const cachedPrice = cached2?.price ?? 0;
       const pipMove = cachedPrice > 0 ? Math.abs(avgPrice - cachedPrice) / cachedPrice * 1e4 : 999;
-      const cacheAge = cached ? Date.now() - cached.ts : 999999;
+      const cacheAge = cached2 ? Date.now() - cached2.ts : 999999;
       const _lvl = getAiLevelSync(userId);
-      if (cached && cacheAge < _lvl.cacheMs && pipMove < _lvl.cachePips) {
-        decisions = cached.response;
+      if (cached2 && cacheAge < _lvl.cacheMs && pipMove < _lvl.cachePips) {
+        decisions = cached2.response;
         addActivity(userId, { type: "info", message: `\u{1F4BE} Cache hit: reusing last AI response (${Math.round(cacheAge / 1e3)}s old, ${pipMove.toFixed(1)}p move) \u2014 API call saved` });
       } else {
         const buildReq = (m) => ({
@@ -31840,7 +31840,7 @@ function noteAuthResult(key, err) {
   }
 }
 async function serializeAuth(label, fn) {
-  const run2 = authChain.then(async () => {
+  const run = authChain.then(async () => {
     const wait = MIN_AUTH_GAP_MS - (Date.now() - lastAuthAt);
     if (wait > 0) await new Promise((r) => setTimeout(r, wait));
     try {
@@ -31849,10 +31849,10 @@ async function serializeAuth(label, fn) {
       lastAuthAt = Date.now();
     }
   });
-  authChain = run2.then(() => {
+  authChain = run.then(() => {
   }, () => {
   });
-  return run2;
+  return run;
 }
 async function loginFetchWith429Retry(url, body) {
   const backoffs = [1500, 3500];
@@ -31954,11 +31954,11 @@ function stopTolerance(price) {
 }
 async function getOrCreateService(connection2) {
   const connId = connection2.id || `pending_${connection2.accountType}_${connection2.accountId}_${connection2.accNum || ""}`;
-  const cached = serviceCache.get(connId);
-  if (cached && Date.now() - cached.createdAt < SERVICE_CACHE_TTL) {
+  const cached2 = serviceCache.get(connId);
+  if (cached2 && Date.now() - cached2.createdAt < SERVICE_CACHE_TTL) {
     console.log("[TradeLocker] Reusing cached service for connection", connId);
-    cached.service.logConn = { id: connection2.id, userId: connection2.userId };
-    return cached.service;
+    cached2.service.logConn = { id: connection2.id, userId: connection2.userId };
+    return cached2.service;
   }
   const service = new TradeLockerService(
     connection2.accountType,
@@ -32928,9 +32928,9 @@ var init_tradelocker = __esm({
         await this.ensureAuthenticated();
         const listKey = `${this.baseUrl}:${this.accountId}`;
         if (!forceRefresh) {
-          const cached = instrumentsListCache.get(listKey);
-          if (cached && Date.now() - cached.cachedAt < INSTRUMENT_CACHE_TTL) {
-            return { instruments: cached.instruments, routes: cached.routes ?? [] };
+          const cached2 = instrumentsListCache.get(listKey);
+          if (cached2 && Date.now() - cached2.cachedAt < INSTRUMENT_CACHE_TTL) {
+            return { instruments: cached2.instruments, routes: cached2.routes ?? [] };
           }
         }
         const doFetch = () => fetch(`${this.baseUrl}/trade/accounts/${this.accountId}/instruments`, {
@@ -33303,10 +33303,10 @@ var init_tradelocker = __esm({
         const instCacheKey = `${this.baseUrl}:${this.accountId}:${symbol.toUpperCase()}`;
         let tradableInstrumentId = null;
         let infoRouteId = null;
-        const cached = instrumentCache.get(instCacheKey);
-        if (cached && cached.infoRouteId != null && Date.now() - cached.cachedAt < INSTRUMENT_CACHE_TTL) {
-          tradableInstrumentId = cached.tradableInstrumentId;
-          infoRouteId = cached.infoRouteId;
+        const cached2 = instrumentCache.get(instCacheKey);
+        if (cached2 && cached2.infoRouteId != null && Date.now() - cached2.cachedAt < INSTRUMENT_CACHE_TTL) {
+          tradableInstrumentId = cached2.tradableInstrumentId;
+          infoRouteId = cached2.infoRouteId;
         } else {
           const { instruments } = await this.fetchInstrumentsPayload();
           const sym = symbol.toUpperCase();
@@ -35669,9 +35669,9 @@ var init_tastytrade = __esm({
         }
         await this.login();
       }
-      async request(path18, init = {}, attempt = 0) {
+      async request(path19, init = {}, attempt = 0) {
         await this.ensureAuthenticated();
-        const response = await fetch(`${this.baseUrl}${path18}`, {
+        const response = await fetch(`${this.baseUrl}${path19}`, {
           ...init,
           headers: {
             "Authorization": this.sessionToken || "",
@@ -35682,7 +35682,7 @@ var init_tastytrade = __esm({
         });
         if (!response.ok && RETRYABLE_STATUSES3.has(response.status) && attempt < RETRY_DELAYS3.length) {
           await new Promise((r) => setTimeout(r, RETRY_DELAYS3[attempt]));
-          return this.request(path18, init, attempt + 1);
+          return this.request(path19, init, attempt + 1);
         }
         return response;
       }
@@ -36437,9 +36437,9 @@ function getCacheKey(userId, accountType) {
 }
 async function getOrCreateTradovateService(userId, username, encryptedPassword, accountType, accountId, cachedToken, tokenExpiresAt) {
   const cacheKey = getCacheKey(userId, accountType);
-  const cached = serviceCache2.get(cacheKey);
-  if (cached && Date.now() - cached.cachedAt.getTime() < CACHE_TTL_MS3) {
-    return cached.service;
+  const cached2 = serviceCache2.get(cacheKey);
+  if (cached2 && Date.now() - cached2.cachedAt.getTime() < CACHE_TTL_MS3) {
+    return cached2.service;
   }
   const { decryptPassword: decryptPassword4 } = await Promise.resolve().then(() => (init_tradelocker(), tradelocker_exports));
   const password = decryptPassword4(encryptedPassword);
@@ -36571,20 +36571,20 @@ var init_tradovate = __esm({
         }
         return data;
       }
-      async get(path18) {
+      async get(path19) {
         await this.ensureAuthenticated();
-        const response = await fetch(`${this.baseUrl}${path18}`, {
+        const response = await fetch(`${this.baseUrl}${path19}`, {
           headers: { "Authorization": `Bearer ${this.accessToken}`, "Accept": "application/json" }
         });
         if (!response.ok) {
           const text2 = await response.text();
-          throw new Error(`Tradovate GET ${path18} failed (${response.status}): ${text2}`);
+          throw new Error(`Tradovate GET ${path19} failed (${response.status}): ${text2}`);
         }
         return response.json();
       }
-      async post(path18, body) {
+      async post(path19, body) {
         await this.ensureAuthenticated();
-        const response = await fetch(`${this.baseUrl}${path18}`, {
+        const response = await fetch(`${this.baseUrl}${path19}`, {
           method: "POST",
           headers: {
             "Authorization": `Bearer ${this.accessToken}`,
@@ -36595,7 +36595,7 @@ var init_tradovate = __esm({
         });
         if (!response.ok) {
           const text2 = await response.text();
-          throw new Error(`Tradovate POST ${path18} failed (${response.status}): ${text2}`);
+          throw new Error(`Tradovate POST ${path19} failed (${response.status}): ${text2}`);
         }
         return response.json();
       }
@@ -36639,9 +36639,9 @@ var init_tradovate = __esm({
         return fills.slice(0, limit);
       }
       async resolveContractId(rootSymbol) {
-        const cached = this.contractCache.get(rootSymbol.toUpperCase());
-        if (cached && Date.now() - cached.cachedAt.getTime() < 10 * 60 * 1e3) {
-          return { contractId: cached.contractId, name: cached.name };
+        const cached2 = this.contractCache.get(rootSymbol.toUpperCase());
+        if (cached2 && Date.now() - cached2.cachedAt.getTime() < 10 * 60 * 1e3) {
+          return { contractId: cached2.contractId, name: cached2.name };
         }
         await this.ensureAuthenticated();
         const response = await fetch(`${this.baseUrl}/contract/suggest?t=${rootSymbol}&l=5`, {
@@ -39536,8 +39536,8 @@ async function fxWeek(windowDays = 7) {
     const k = new Date(x.close).toISOString().slice(0, 10);
     days.set(k, (days.get(k) || 0) + x.pl);
   }
-  let run2 = 0;
-  const series = [0, ...Array.from(days.values()).map((v) => (run2 += v) / base * 100)];
+  let run = 0;
+  const series = [0, ...Array.from(days.values()).map((v) => (run += v) / base * 100)];
   return { pct: total / base * 100, signals: sigs.length, winRate: decided ? wins / decided * 100 : 0, best: bestE && bestE[1] > 0 ? { pair: bestE[0], pct: bestE[1] / base * 100 } : void 0, series };
 }
 async function mastery() {
@@ -42263,8 +42263,8 @@ __export(coinbase_exports, {
 });
 import crypto9 from "crypto";
 import jwt from "jsonwebtoken";
-function buildJwt(keyName, privateKeyPem, method, path18) {
-  const uri = `${method} ${API_HOST}${path18}`;
+function buildJwt(keyName, privateKeyPem, method, path19) {
+  const uri = `${method} ${API_HOST}${path19}`;
   const now = Math.floor(Date.now() / 1e3);
   const payload2 = { sub: keyName, iss: "cdp", nbf: now, exp: now + 120, uri };
   return jwt.sign(payload2, privateKeyPem, {
@@ -42285,9 +42285,9 @@ var init_coinbase = __esm({
         this.keyName = keyName;
         this.privateKey = privateKeyPem.includes("\\n") ? privateKeyPem.replace(/\\n/g, "\n") : privateKeyPem;
       }
-      async get(path18) {
-        const token = buildJwt(this.keyName, this.privateKey, "GET", path18);
-        const res = await fetch(`https://${API_HOST}${path18}`, {
+      async get(path19) {
+        const token = buildJwt(this.keyName, this.privateKey, "GET", path19);
+        const res = await fetch(`https://${API_HOST}${path19}`, {
           method: "GET",
           headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
           signal: AbortSignal.timeout(12e3)
@@ -42298,9 +42298,9 @@ var init_coinbase = __esm({
         }
         return res.json();
       }
-      async post(path18, body) {
-        const token = buildJwt(this.keyName, this.privateKey, "POST", path18);
-        const res = await fetch(`https://${API_HOST}${path18}`, {
+      async post(path19, body) {
+        const token = buildJwt(this.keyName, this.privateKey, "POST", path19);
+        const res = await fetch(`https://${API_HOST}${path19}`, {
           method: "POST",
           headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
           body: JSON.stringify(body),
@@ -42342,8 +42342,8 @@ var init_coinbase = __esm({
         const accounts = [];
         let cursor = "";
         for (let i = 0; i < 10; i++) {
-          const path18 = `/api/v3/brokerage/accounts?limit=250${cursor ? `&cursor=${encodeURIComponent(cursor)}` : ""}`;
-          const data = await this.get(path18);
+          const path19 = `/api/v3/brokerage/accounts?limit=250${cursor ? `&cursor=${encodeURIComponent(cursor)}` : ""}`;
+          const data = await this.get(path19);
           for (const a of data?.accounts ?? []) accounts.push(a);
           if (data?.has_next && data?.cursor) cursor = data.cursor;
           else break;
@@ -42412,22 +42412,22 @@ var init_kraken = __esm({
         this.apiKey = apiKey;
         this.secret = secret;
       }
-      sign(path18, nonce, postData) {
+      sign(path19, nonce, postData) {
         const sha256 = crypto10.createHash("sha256").update(nonce + postData).digest();
-        const message = Buffer.concat([Buffer.from(path18, "utf8"), sha256]);
+        const message = Buffer.concat([Buffer.from(path19, "utf8"), sha256]);
         const key = Buffer.from(this.secret, "base64");
         return crypto10.createHmac("sha512", key).update(message).digest("base64");
       }
       async privatePost(endpoint, params = {}) {
-        const path18 = `/0/private/${endpoint}`;
+        const path19 = `/0/private/${endpoint}`;
         const nonce = String(Date.now() * 1e3);
         const body = new URLSearchParams({ nonce, ...params });
         const postData = body.toString();
-        const res = await fetch(`${API_HOST2}${path18}`, {
+        const res = await fetch(`${API_HOST2}${path19}`, {
           method: "POST",
           headers: {
             "API-Key": this.apiKey,
-            "API-Sign": this.sign(path18, nonce, postData),
+            "API-Sign": this.sign(path19, nonce, postData),
             "Content-Type": "application/x-www-form-urlencoded",
             "User-Agent": "VEDD/1.0"
           },
@@ -42701,8 +42701,8 @@ function baseUrl(testnet) {
 function tradedAddress(c) {
   return (c.vaultAddress || c.accountAddress).toLowerCase();
 }
-async function post(testnet, path18, body) {
-  const r = await fetch(baseUrl(testnet) + path18, {
+async function post(testnet, path19, body) {
+  const r = await fetch(baseUrl(testnet) + path19, {
     method: "POST",
     headers: { "content-type": "application/json" },
     body: JSON.stringify(body),
@@ -42713,9 +42713,9 @@ async function post(testnet, path18, body) {
   try {
     j = JSON.parse(text2);
   } catch {
-    throw new Error(`Hyperliquid ${path18} HTTP ${r.status}: ${text2.slice(0, 200)}`);
+    throw new Error(`Hyperliquid ${path19} HTTP ${r.status}: ${text2.slice(0, 200)}`);
   }
-  if (!r.ok) throw new Error(`Hyperliquid ${path18} HTTP ${r.status}: ${text2.slice(0, 200)}`);
+  if (!r.ok) throw new Error(`Hyperliquid ${path19} HTTP ${r.status}: ${text2.slice(0, 200)}`);
   return j;
 }
 async function getMeta(testnet) {
@@ -43058,9 +43058,9 @@ function sourcesFor(chainKey) {
   ];
 }
 async function loadTokenIndex(chainKey) {
-  const cached = tokenIndexCache.get(chainKey);
+  const cached2 = tokenIndexCache.get(chainKey);
   const at = tokenIndexLoadedAt.get(chainKey) ?? 0;
-  if (cached && Date.now() - at < 6 * 36e5) return cached;
+  if (cached2 && Date.now() - at < 6 * 36e5) return cached2;
   const chain = DEFI_CHAINS[chainKey];
   const errors = [];
   for (const url of sourcesFor(chainKey)) {
@@ -43089,9 +43089,9 @@ async function loadTokenIndex(chainKey) {
       errors.push(`${url} -> ${e?.message}`);
     }
   }
-  if (cached) {
+  if (cached2) {
     console.warn(`[defi-swap] every token-list source failed for ${chainKey}; using the cached list from ${new Date(at).toISOString()}. ${errors.join(" | ")}`);
-    return cached;
+    return cached2;
   }
   throw new TokenListUnavailableError(`Could not load a token list for ${chainKey}: ${errors.join(" | ")}`);
 }
@@ -46115,9 +46115,9 @@ function buildPrediction(candles, fromCache, source = "binance", binanceSymbol =
 }
 async function getCryptoPrediction(coin, forceRefresh = false) {
   const now = Date.now();
-  const cached = predictionCache.get(coin);
-  if (!forceRefresh && cached && now - cached.ts < CACHE_TTL_MS5) {
-    return { ...cached.prediction, fromCache: true };
+  const cached2 = predictionCache.get(coin);
+  if (!forceRefresh && cached2 && now - cached2.ts < CACHE_TTL_MS5) {
+    return { ...cached2.prediction, fromCache: true };
   }
   if (coin === "GOLD") {
     const candles2 = await fetchYahooCandles(YAHOO_SYMBOL.GOLD, 100);
@@ -47833,8 +47833,8 @@ async function refreshKalshiCredValidity(userId) {
     _credValidity.delete(userId);
     return;
   }
-  const cached = _credValidity.get(userId);
-  if (cached && Date.now() - cached.checkedAt < CRED_VALIDITY_TTL_MS) return;
+  const cached2 = _credValidity.get(userId);
+  if (cached2 && Date.now() - cached2.checkedAt < CRED_VALIDITY_TTL_MS) return;
   try {
     const { testKalshiCredentials: testKalshiCredentials2 } = await Promise.resolve().then(() => (init_kalshi_trading(), kalshi_trading_exports));
     const result = await testKalshiCredentials2(userId);
@@ -49029,8 +49029,8 @@ async function refreshPmUsCredValidity(userId) {
     _credValidity2.delete(userId);
     return;
   }
-  const cached = _credValidity2.get(userId);
-  if (cached && Date.now() - cached.checkedAt < CRED_VALIDITY_TTL_MS2) return;
+  const cached2 = _credValidity2.get(userId);
+  if (cached2 && Date.now() - cached2.checkedAt < CRED_VALIDITY_TTL_MS2) return;
   try {
     const result = await testPmUsConnection(userId);
     _credValidity2.set(userId, { valid: result.connected, error: result.connected ? void 0 : JSON.stringify(result.detail).slice(0, 200), checkedAt: Date.now() });
@@ -49499,8 +49499,8 @@ async function runRuinConeSimulation(userId, params = {}) {
   let hitTargetCount = 0;
   const targetEquity = startingEquity + profitTarget;
   for (let s = 0; s < numSimulations; s++) {
-    const path18 = new Float64Array(numTrades + 1);
-    path18[0] = startingEquity;
+    const path19 = new Float64Array(numTrades + 1);
+    path19[0] = startingEquity;
     let equity = startingEquity;
     let peak = startingEquity;
     let firstFailIndex = -1;
@@ -49513,7 +49513,7 @@ async function runRuinConeSimulation(userId, params = {}) {
     for (let t = 1; t <= numTrades; t++) {
       const pnl = pnls[Math.random() * sourceTradeCount | 0];
       equity += pnl;
-      path18[t] = equity;
+      path19[t] = equity;
       if (equity > peak) peak = equity;
       if (!everRuin && peak - equity >= maxDrawdownLimit) {
         everRuin = true;
@@ -49532,7 +49532,7 @@ async function runRuinConeSimulation(userId, params = {}) {
         tradeInDay = 0;
       }
     }
-    paths[s] = path18;
+    paths[s] = path19;
     finalEquities[s] = equity;
     if (everRuin) ruinCount++;
     if (everDailyBreach) dailyBreachCount++;
@@ -50794,13 +50794,13 @@ async function runSolAIReview(userId, state, scanResult, openPositions) {
     ...openPositions.map((p) => p.symbol).sort()
   ].join("|");
   const REVIEW_CACHE_TTL = 5 * 6e4;
-  const cached = state.aiReviewCache[cacheKey];
-  if (cached && Date.now() - cached.ts < REVIEW_CACHE_TTL) {
-    const ageS = Math.round((Date.now() - cached.ts) / 1e3);
+  const cached2 = state.aiReviewCache[cacheKey];
+  if (cached2 && Date.now() - cached2.ts < REVIEW_CACHE_TTL) {
+    const ageS = Math.round((Date.now() - cached2.ts) / 1e3);
     const macroBiasCache = state.lastMacro?.bias ?? null;
     const cacheConsensus = [];
     let confirms = 0, skips = 0;
-    for (const d of cached.result) {
+    for (const d of cached2.result) {
       if (!d || !d.symbol || d.type !== "signal") continue;
       const tokenData = buySignals.find((t) => t.token.symbol === d.symbol);
       if (!tokenData) continue;
@@ -54691,184 +54691,30 @@ var init_strategic_community_data = __esm({
   }
 });
 
-// server/services/video-shot.ts
-var video_shot_exports = {};
-__export(video_shot_exports, {
-  fallbackShot: () => fallbackShot,
-  planVideoShot: () => planVideoShot
-});
-function fallbackShot(input) {
-  const lines = input.split(/\n+/).map((l) => l.replace(/^\s*(HOOK|BEAT\s*\d*|CTA|CAPTION|ON-SCREEN TEXT|SCENE\s*\d*|SHOW|VO|VOICEOVER)\s*(\([^)]*\))?\s*[:\-—]\s*/i, "").trim()).filter((l) => l && !/^#|https?:\/\//i.test(l));
-  return (lines.join(" ") || input).slice(0, MAX_SHOT_CHARS);
-}
-async function planVideoShot(input, userId) {
-  const text2 = String(input || "").trim();
-  if (!text2) throw new Error("prompt is required");
-  try {
-    const { getUniversalAIClientForUser: getUniversalAIClientForUser2 } = await Promise.resolve().then(() => (init_openai(), openai_exports));
-    const ai = await getUniversalAIClientForUser2(userId || 0);
-    const completion = await ai.chat.completions.create({
-      model: ai.defaultModel || "gpt-4o",
-      messages: [
-        { role: "system", content: "You turn content ideas into a single shot description for a text-to-video model. Respond with JSON only." },
-        { role: "user", content: `Turn the input below into ONE continuous 5-second vertical (9:16) video shot that a text-to-video model can film.
-
-Rules:
-- Keep the user's subject, people, place, objects and action. Do not swap in a different idea.
-- If the input is a script, ad or list of scenes, pick the single most visual moment that carries its message.
-- If the input is only a topic (e.g. "ORB strategy"), invent one concrete scene that shows it (a person, a place, what they are doing, what is on the screen in front of them).
-- Describe only what the camera sees: subject, setting, action, camera angle/movement, lighting. 40-70 words, present tense.
-- No on-screen text, captions, logos, brand names or readable words; describe screens as "a candlestick chart" not "a chart that says...".
-- Do not add a style (film grain, colour grade): that is added later.
-
-Also write "hook": the 3-8 word caption to overlay on the video, in the input's language.
-
-Input:
-"""${text2.slice(0, 4e3)}"""
-
-JSON: {"shot":"...","hook":"..."}` }
-      ],
-      response_format: { type: "json_object" },
-      max_tokens: 600
-    });
-    const raw = (completion.choices?.[0]?.message?.content || "{}").replace(/^```[a-z]*\n?/i, "").replace(/\n?```$/i, "").trim();
-    const out = JSON.parse(raw || "{}");
-    const shot = String(out.shot || "").trim();
-    if (shot.length >= 20) return { shot: shot.slice(0, MAX_SHOT_CHARS), hook: String(out.hook || "").trim().slice(0, 80), planned: true };
-  } catch (e) {
-    console.warn("[video-shot] planning failed, using fallback:", e?.message || e);
-  }
-  return { shot: fallbackShot(text2), hook: "", planned: false };
-}
-var MAX_SHOT_CHARS;
-var init_video_shot = __esm({
-  "server/services/video-shot.ts"() {
-    "use strict";
-    MAX_SHOT_CHARS = 600;
-  }
-});
-
-// server/services/video-generation.ts
-function buildModelInput(model, quality, styledPrompt, numFrames, durationSeconds, image, aspect = "9:16") {
-  if (model.includes("kling")) {
-    return {
-      prompt: styledPrompt,
-      negative_prompt: "blurry, low quality, distorted, deformed, extra limbs, watermark, text, on-screen text, subtitles",
-      ...image ? { start_image: image } : { aspect_ratio: aspect },
-      duration: durationSeconds <= 5 ? 5 : 10,
-      // Kling only offers 5s or 10s
-      cfg_scale: 0.5
-    };
-  }
-  if (model.includes("wan")) {
-    return {
-      prompt: styledPrompt,
-      resolution: quality === "high" ? "720p" : "480p",
-      // 720p is the real quality bump the model already supports
-      num_frames: numFrames,
-      frames_per_second: DEFAULT_FPS,
-      // Wan i2v derives aspect ratio from the start image; only set it for t2v.
-      ...image ? { image } : { aspect_ratio: aspect }
-    };
-  }
-  return { prompt: styledPrompt, ...image ? { image } : { aspect_ratio: aspect } };
-}
-async function generateContentVideo(prompt, opts) {
-  const apiKey = process.env.REPLICATE_API_TOKEN;
-  if (!apiKey) {
-    console.error("[video-generation] REPLICATE_API_TOKEN not set \u2014 cannot generate video");
-    return null;
-  }
-  const quality = opts?.quality === "high" ? "high" : "fast";
-  const image = opts?.image && opts.image.trim() ? opts.image.trim() : void 0;
-  const model = image ? quality === "high" ? HIGH_I2V_MODEL : FAST_I2V_MODEL : quality === "high" ? HIGH_MODEL : FAST_MODEL;
-  const durationSeconds = Math.min(Math.max(opts?.duration ?? 5, 1), MAX_DURATION_SECONDS);
-  const numFrames = Math.max(MIN_NUM_FRAMES, Math.round(durationSeconds * DEFAULT_FPS));
-  const styledPrompt = `${prompt.trim()}${VEDD_STYLE_LOCK}${NO_TEXT_SUFFIX}${HUMAN_STYLE_SUFFIX}`;
-  const input = buildModelInput(model, quality, styledPrompt, numFrames, durationSeconds, image, opts?.aspect === "16:9" ? "16:9" : "9:16");
-  try {
-    console.log(`[video-generation] quality=${quality} model=${model} mode=${image ? "image-to-video" : "text-to-video"}`);
-    const res = await fetch(`https://api.replicate.com/v1/models/${model}/predictions`, {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${apiKey}`,
-        "Content-Type": "application/json",
-        Prefer: "wait"
-      },
-      body: JSON.stringify({ input }),
-      // Replicate's own `Prefer: wait` window can run right up to ~60s
-      // before it gives up and returns 202 "starting" instead of a
-      // finished result — a 60000ms client-side abort loses that race and
-      // throws "aborted due to timeout" instead of falling through to the
-      // poll loop below. Give it headroom.
-      signal: AbortSignal.timeout(75e3)
-    });
-    if (!res.ok) {
-      const body = await res.text().catch(() => "");
-      console.error("[video-generation] Replicate error:", res.status, body.slice(0, 300));
-      return null;
-    }
-    let data = await res.json();
-    const getUrl = data?.urls?.get;
-    for (let i = 0; i < MAX_POLLS && getUrl && (data.status === "starting" || data.status === "processing"); i++) {
-      await new Promise((resolve) => setTimeout(resolve, POLL_INTERVAL_MS));
-      const poll = await fetch(getUrl, {
-        headers: { Authorization: `Bearer ${apiKey}` },
-        signal: AbortSignal.timeout(15e3)
-      });
-      if (!poll.ok) break;
-      data = await poll.json();
-    }
-    if (data.status !== "succeeded") {
-      console.error("[video-generation] Replicate video did not complete in time:", data.status, data.error ?? "");
-      return null;
-    }
-    const output = data?.output;
-    const url = Array.isArray(output) ? output[0] : output;
-    if (!url) return null;
-    return { url, provider: `replicate:${model}`, quality };
-  } catch (e) {
-    console.error("[video-generation] Replicate error:", e.message);
-    return null;
-  }
-}
-var VEDD_STYLE_LOCK, NO_TEXT_SUFFIX, HUMAN_STYLE_SUFFIX, FAST_MODEL, HIGH_MODEL, FAST_I2V_MODEL, HIGH_I2V_MODEL, DEFAULT_FPS, MIN_NUM_FRAMES, MAX_DURATION_SECONDS, POLL_INTERVAL_MS, MAX_POLLS;
-var init_video_generation = __esm({
-  "server/services/video-generation.ts"() {
-    "use strict";
-    VEDD_STYLE_LOCK = ". Shot as a grainy 35mm cinematic film still: heavy analog film grain, desaturated moody color grade with one warm gold light source, shallow depth of field, photorealistic. Slow, subtle ambient motion only \u2014 no fast or shaky camera movement.";
-    NO_TEXT_SUFFIX = " No on-screen text, captions, subtitles, signage, logos or readable words anywhere in the frame \u2014 pure visual scene only.";
-    HUMAN_STYLE_SUFFIX = " If people appear: young Black people, natural skin tones, contemporary streetwear, authentic inner-city/urban setting.";
-    FAST_MODEL = "wan-video/wan-2.2-t2v-fast";
-    HIGH_MODEL = process.env.VIDEO_HIGH_MODEL || "wan-video/wan-2.2-t2v-fast";
-    FAST_I2V_MODEL = process.env.VIDEO_FAST_I2V_MODEL || "wan-video/wan-2.2-i2v-fast";
-    HIGH_I2V_MODEL = process.env.VIDEO_HIGH_I2V_MODEL || "wan-video/wan-2.2-i2v-fast";
-    DEFAULT_FPS = 16;
-    MIN_NUM_FRAMES = 81;
-    MAX_DURATION_SECONDS = 6;
-    POLL_INTERVAL_MS = 5e3;
-    MAX_POLLS = 60;
-  }
-});
-
-// server/services/video-branding.ts
+// server/services/ffmpeg.ts
 import { spawn as spawn2 } from "child_process";
-import fs12 from "fs";
-import os from "os";
-import path12 from "path";
-function run(cmd, args, timeoutMs = 12e4) {
+import { createRequire } from "module";
+function ffmpegBin() {
+  if (cached) return cached;
+  try {
+    const req = createRequire(import.meta.url);
+    const p = req("ffmpeg-static");
+    if (p) return cached = p;
+  } catch {
+  }
+  return cached = "ffmpeg";
+}
+function runFfmpeg(args, timeoutMs = 18e4) {
   return new Promise((resolve, reject) => {
-    const p = spawn2(cmd, args);
-    let out = "", err = "";
+    const p = spawn2(ffmpegBin(), ["-hide_banner", ...args]);
+    let err = "";
     const t = setTimeout(() => {
       p.kill("SIGKILL");
-      reject(new Error(`${cmd} timed out`));
+      reject(new Error("ffmpeg timed out"));
     }, timeoutMs);
-    p.stdout.on("data", (d) => {
-      out += d.toString();
-    });
     p.stderr.on("data", (d) => {
       err += d.toString();
+      if (err.length > 2e5) err = err.slice(-1e5);
     });
     p.on("error", (e) => {
       clearTimeout(t);
@@ -54876,10 +54722,30 @@ function run(cmd, args, timeoutMs = 12e4) {
     });
     p.on("close", (code) => {
       clearTimeout(t);
-      code === 0 ? resolve(out) : reject(new Error(`${cmd} exited ${code}: ${err.slice(-400)}`));
+      code === 0 ? resolve(err) : reject(new Error(`ffmpeg exited ${code}: ${err.slice(-4e3)}`));
     });
   });
 }
+async function probe(file) {
+  const info2 = await runFfmpeg(["-i", file], 3e4).catch((e) => e.message);
+  const v = /Stream #.*Video:.*?(\d{2,5})x(\d{2,5})/.exec(info2);
+  if (!v) throw new Error("could not read video size");
+  const d = /Duration: (\d+):(\d+):([\d.]+)/.exec(info2);
+  const duration = d ? Number(d[1]) * 3600 + Number(d[2]) * 60 + Number(d[3]) : 0;
+  return { width: Number(v[1]), height: Number(v[2]), hasAudio: /Stream #.*Audio:/.test(info2), duration };
+}
+var cached;
+var init_ffmpeg = __esm({
+  "server/services/ffmpeg.ts"() {
+    "use strict";
+    cached = null;
+  }
+});
+
+// server/services/video-branding.ts
+import fs12 from "fs";
+import os from "os";
+import path12 from "path";
 function findLogo() {
   return LOGO_CANDIDATES.find((p) => fs12.existsSync(p)) ?? null;
 }
@@ -54894,9 +54760,7 @@ async function brandVideo(video, aspect = "9:16") {
   const dst = path12.join(dir, "out.mp4");
   try {
     fs12.writeFileSync(src, video);
-    const probe = await run("ffprobe", ["-v", "error", "-select_streams", "v:0", "-show_entries", "stream=width,height", "-of", "csv=p=0:s=x", src], 3e4);
-    const [sw, sh] = probe.trim().split("x").map(Number);
-    if (!(sw > 0 && sh > 0)) throw new Error(`could not read video size (${probe.trim()})`);
+    const { width: sw, height: sh } = await probe(src);
     const even = (n) => Math.max(2, Math.floor(n / 2) * 2);
     const r = RATIO[aspect] ?? RATIO["9:16"];
     const w = even(sw / sh > r ? sh * r : sw);
@@ -54911,7 +54775,7 @@ async function brandVideo(video, aspect = "9:16") {
       `[2:v]scale=${card}:-1,pad=${w}:${h}:(ow-iw)/2:(oh-ih)/2:color=${NAVY},fps=${FPS},format=yuv420p,setsar=1[card]`,
       `[main][card]concat=n=2:v=1:a=0[out]`
     ].join(";");
-    await run("ffmpeg", [
+    await runFfmpeg([
       "-y",
       "-i",
       src,
@@ -54951,9 +54815,9 @@ var LOGO_CANDIDATES, END_CARD_SECONDS, FPS, NAVY, RATIO;
 var init_video_branding = __esm({
   "server/services/video-branding.ts"() {
     "use strict";
+    init_ffmpeg();
     LOGO_CANDIDATES = [
-      path12.resolve(process.cwd(), "dist/public/icons/icon-512x512.png"),
-      path12.resolve(process.cwd(), "client/public/icons/icon-512x512.png")
+      path12.resolve(process.cwd(), "attached_assets/IMG_3645.png")
     ];
     END_CARD_SECONDS = 1.5;
     FPS = 16;
@@ -55044,58 +54908,287 @@ var init_content_asset_store = __esm({
   }
 });
 
-// server/services/content-video.ts
-var content_video_exports = {};
-__export(content_video_exports, {
-  SOCIAL_SIZES: () => SOCIAL_SIZES,
-  renderContentVideo: () => renderContentVideo
+// server/services/explainer-video.ts
+var explainer_video_exports = {};
+__export(explainer_video_exports, {
+  assemble: () => assemble,
+  assembleFiles: () => assembleFiles,
+  ensureJobTable: () => ensureJobTable,
+  getJob: () => getJob,
+  rendersToday: () => rendersToday,
+  startExplainerJob: () => startExplainerJob,
+  writeScript: () => writeScript
 });
-async function renderContentVideo(prompt, o = {}) {
-  const aspect = o.aspect && o.aspect in SOCIAL_SIZES ? o.aspect : "9:16";
-  let shot = (o.shot || "").trim();
-  let hook = "";
-  if (!shot) {
-    if (o.exact) shot = prompt.trim();
-    else ({ shot, hook } = await planVideoShot(prompt, o.userId));
-  }
-  const video = await generateContentVideo(shot, {
-    duration: o.duration,
-    quality: o.quality,
-    image: o.image,
-    aspect: aspect === "16:9" ? "16:9" : "9:16"
+import fs13 from "fs";
+import os2 from "os";
+import path13 from "path";
+function ensureJobTable() {
+  return tableReady2 ??= pool.query(`CREATE TABLE IF NOT EXISTS content_video_jobs (
+      id SERIAL PRIMARY KEY,
+      user_id INTEGER NOT NULL,
+      kind TEXT NOT NULL DEFAULT 'explainer',
+      input TEXT NOT NULL,
+      aspect TEXT NOT NULL DEFAULT '9:16',
+      status TEXT NOT NULL DEFAULT 'queued',
+      step TEXT,
+      progress INTEGER NOT NULL DEFAULT 0,
+      script JSONB,
+      result_url TEXT,
+      error TEXT,
+      meta JSONB NOT NULL DEFAULT '{}',
+      created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+    )`).then(() => void 0).catch((e) => {
+    tableReady2 = null;
+    throw e;
   });
-  if (!video) return null;
-  if (o.brand !== false) {
-    try {
-      const res = await fetch(video.url, { signal: AbortSignal.timeout(6e4) });
-      if (res.ok) {
-        const branded = await brandVideo(Buffer.from(await res.arrayBuffer()), aspect);
-        if (branded) {
-          const saved2 = await persistBuffer(branded, "video/mp4");
-          if (saved2) return { url: saved2.url, persisted: true, branded: true, shot, hook, aspect, provider: video.provider };
-        }
-      }
-    } catch (e) {
-      console.warn("[content-video] branding step failed:", e?.message || e);
-    }
-  }
-  const saved = await persistRemoteAsset(video.url);
-  return { url: saved?.url ?? video.url, persisted: !!saved, branded: false, shot, hook, aspect, provider: video.provider };
 }
-var SOCIAL_SIZES;
-var init_content_video = __esm({
-  "server/services/content-video.ts"() {
+async function update(id, patch) {
+  const keys = Object.keys(patch);
+  const sets = keys.map((k, i) => `${k}=$${i + 2}`).join(", ");
+  await pool.query(
+    `UPDATE content_video_jobs SET ${sets}, updated_at=now() WHERE id=$1`,
+    [id, ...keys.map((k) => k === "script" || k === "meta" ? JSON.stringify(patch[k]) : patch[k])]
+  );
+}
+async function getJob(id, userId) {
+  await ensureJobTable();
+  await pool.query(`UPDATE content_video_jobs SET status='failed', error='Interrupted by a server restart \u2014 please try again.'
+                     WHERE id=$1 AND status IN ('queued','running') AND updated_at < now() - interval '15 minutes'`, [id]);
+  const { rows } = await pool.query(`SELECT * FROM content_video_jobs WHERE id=$1 AND user_id=$2`, [id, userId]);
+  return rows[0] ?? null;
+}
+async function rendersToday(userId) {
+  await ensureJobTable();
+  const { rows } = await pool.query(
+    `SELECT count(*)::int n FROM content_video_jobs WHERE user_id=$1 AND created_at > now() - interval '24 hours' AND status <> 'failed'`,
+    [userId]
+  );
+  return rows[0]?.n ?? 0;
+}
+async function startExplainerJob(userId, input, aspect, opts = {}) {
+  await ensureJobTable();
+  const { rows } = await pool.query(
+    `INSERT INTO content_video_jobs (user_id, input, aspect, status, step) VALUES ($1,$2,$3,'running','Writing the script') RETURNING id`,
+    [userId, input.slice(0, 8e3), aspect]
+  );
+  const id = rows[0].id;
+  runJob(id, userId, input, aspect, opts).catch(async (e) => {
+    console.error(`[explainer] job ${id} failed:`, e?.message || e);
+    await update(id, { status: "failed", error: friendlyError(e) }).catch(() => {
+    });
+  });
+  return id;
+}
+function friendlyError(e) {
+  const m = String(e?.message || e);
+  if (/REPLICATE_API_TOKEN/.test(m)) return "Video service is not configured.";
+  if (/402|insufficient|credit/i.test(m)) return "The video service is out of credit. Ask VEDD to top it up.";
+  if (/timed out/i.test(m)) return "The video took too long to make. Please try again.";
+  return "The video could not be made right now. Please try again in a few minutes.";
+}
+async function runJob(id, userId, input, aspect, opts) {
+  const script = await writeScript(input, userId, opts.sceneCount ?? 4);
+  await update(id, { script, step: `Filming ${script.scenes.length} scenes with voiceover`, progress: 10 });
+  const urls = new Array(script.scenes.length);
+  let done = 0;
+  const predictions = [];
+  const queue = script.scenes.map((s, i) => async () => {
+    const r = await renderScene(s, aspect);
+    urls[i] = r.url;
+    predictions.push(r.predictionId);
+    done++;
+    await update(id, { progress: 10 + Math.round(done / script.scenes.length * 70), step: `Filmed ${done} of ${script.scenes.length} scenes` });
+  });
+  const workers = Array.from({ length: Math.min(2, queue.length) }, async () => {
+    while (queue.length) await queue.shift()();
+  });
+  await Promise.all(workers);
+  await update(id, { step: "Adding VEDD branding and joining scenes", progress: 85, meta: { predictions, model: MODEL() } });
+  const video = await assemble(urls, aspect);
+  const saved = await persistBuffer(video, "video/mp4");
+  if (!saved) throw new Error("could not save the finished video");
+  await update(id, { status: "done", step: "Ready", progress: 100, result_url: saved.url });
+  try {
+    const { storage: storage2 } = await Promise.resolve().then(() => (init_storage(), storage_exports));
+    await storage2.createContentStudioGeneration({
+      userId,
+      contentType: "video",
+      prompt: input.slice(0, 2e3),
+      title: script.title,
+      caption: script.caption,
+      assetUrl: saved.url,
+      metadata: { kind: "explainer", aspect, model: MODEL(), script, predictions }
+    });
+  } catch {
+  }
+  if (opts.onDone) await opts.onDone(saved.url, script).catch((e) => console.error("[explainer] onDone failed:", e?.message));
+}
+async function writeScript(input, userId, sceneCount) {
+  const n = Math.min(Math.max(sceneCount, 3), 5);
+  const { getUniversalAIClientForUser: getUniversalAIClientForUser2 } = await Promise.resolve().then(() => (init_openai(), openai_exports));
+  const ai = await getUniversalAIClientForUser2(userId || 0);
+  const completion = await ai.chat.completions.create({
+    model: ai.defaultModel || "gpt-4o",
+    messages: [
+      { role: "system", content: "You write short, clear trading-education explainer videos for VEDD AI. JSON only." },
+      { role: "user", content: `Write a ${n}-scene vertical explainer video that TEACHES this subject to newer traders:
+
+"""${input.slice(0, 4e3)}"""
+
+Scene 1 = a hook that names the problem. Middle scenes = the lesson in plain steps with one concrete example (real chart terms: candles, support, stop loss, etc.). Last scene = soft call to action: "Try VEDD AI free at veddbuild dot com".
+
+Each scene is one continuous 8-second shot:
+- "narration": what the narrator SAYS, 12-18 words (must fit in 7 seconds), plain spoken English, no hashtags or emojis.
+- "visual": what the camera SEES while it is said, 30-50 words: subject, setting, action, camera move, lighting. Show the idea literally (e.g. a trader pointing at a candlestick breaking above a level on a monitor). Cinematic, realistic. No readable text, logos or brand names in the frame.
+Keep one consistent setting and presenter style across scenes. No income or profit promises.
+
+JSON: {"title":"...","caption":"one-line social caption with a question","scenes":[{"narration":"...","visual":"..."}]}` }
+    ],
+    response_format: { type: "json_object" },
+    max_tokens: 1500
+  });
+  const raw = (completion.choices?.[0]?.message?.content || "{}").replace(/^```[a-z]*\n?/i, "").replace(/\n?```$/i, "").trim();
+  const out = JSON.parse(raw || "{}");
+  const scenes = (Array.isArray(out.scenes) ? out.scenes : []).map((s) => ({ narration: String(s?.narration || "").trim(), visual: String(s?.visual || "").trim() })).filter((s) => s.narration && s.visual).slice(0, n);
+  if (scenes.length < 2) throw new Error("script generation returned too few scenes");
+  return { title: String(out.title || "VEDD lesson").slice(0, 120), caption: String(out.caption || "").slice(0, 300), scenes };
+}
+async function renderScene(scene, aspect) {
+  const token = process.env.REPLICATE_API_TOKEN;
+  if (!token) throw new Error("REPLICATE_API_TOKEN not set");
+  const prompt = `${scene.visual} Cinematic 35mm look, shallow depth of field, moody contrast with warm gold accent light, smooth slow dolly camera. A calm, confident narrator voiceover says: "${scene.narration.replace(/"/g, "'")}" Soft modern background music under the voice. No subtitles, no on-screen text, no logos.`;
+  const res = await fetch(`https://api.replicate.com/v1/models/${MODEL()}/predictions`, {
+    method: "POST",
+    headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json", Prefer: "wait=55" },
+    body: JSON.stringify({ input: {
+      prompt,
+      aspect_ratio: aspect === "16:9" ? "16:9" : "9:16",
+      duration: CLIP_SECONDS,
+      resolution: "720p",
+      generate_audio: true,
+      negative_prompt: "subtitles, captions, on-screen text, watermark, logo, distorted hands, extra fingers"
+    } }),
+    signal: AbortSignal.timeout(7e4)
+  });
+  if (!res.ok) throw new Error(`Replicate ${res.status}: ${(await res.text().catch(() => "")).slice(0, 200)}`);
+  let data = await res.json();
+  const started5 = Date.now();
+  while ((data.status === "starting" || data.status === "processing") && Date.now() - started5 < MAX_WAIT_MS) {
+    await new Promise((r) => setTimeout(r, POLL_MS));
+    const poll = await fetch(data.urls.get, { headers: { Authorization: `Bearer ${token}` }, signal: AbortSignal.timeout(2e4) });
+    if (poll.ok) data = await poll.json();
+  }
+  if (data.status !== "succeeded") throw new Error(data.status === "failed" ? `scene failed: ${String(data.error).slice(0, 200)}` : "scene timed out");
+  const url = Array.isArray(data.output) ? data.output[0] : data.output;
+  if (!url) throw new Error("scene returned no video");
+  return { url, predictionId: data.id };
+}
+async function assemble(clipUrls, aspect) {
+  const dir = fs13.mkdtempSync(path13.join(os2.tmpdir(), "vedd-explainer-"));
+  try {
+    const files = [];
+    for (let i = 0; i < clipUrls.length; i++) {
+      const r = await fetch(clipUrls[i], { signal: AbortSignal.timeout(6e4) });
+      if (!r.ok) throw new Error(`could not download scene ${i + 1}`);
+      const f = path13.join(dir, `s${i}.mp4`);
+      fs13.writeFileSync(f, Buffer.from(await r.arrayBuffer()));
+      files.push(f);
+    }
+    return await assembleFiles(files, aspect, dir);
+  } finally {
+    fs13.rmSync(dir, { recursive: true, force: true });
+  }
+}
+async function assembleFiles(files, aspect, dir) {
+  const [W, H2] = FRAME[aspect];
+  const logo = findLogo();
+  {
+    const info2 = await Promise.all(files.map((f2) => probe(f2)));
+    const audio = info2.map((x) => x.hasAudio);
+    const args = ["-y"];
+    files.forEach((f2) => args.push("-i", f2));
+    const n = files.length;
+    let next = n;
+    const silent = [];
+    files.forEach((_, i) => {
+      if (!audio[i]) {
+        args.push("-f", "lavfi", "-t", String(info2[i].duration || CLIP_SECONDS), "-i", "anullsrc=r=44100:cl=stereo");
+        silent[i] = next++;
+      }
+    });
+    const cardAudio = next++;
+    args.push("-f", "lavfi", "-t", String(END_CARD_SECONDS2), "-i", "anullsrc=r=44100:cl=stereo");
+    let logoIdx = -1, cardIdx = -1;
+    if (logo) {
+      logoIdx = next++;
+      args.push("-i", logo);
+      cardIdx = next++;
+      args.push("-loop", "1", "-t", String(END_CARD_SECONDS2), "-i", logo);
+    }
+    const f = [];
+    const parts = [];
+    files.forEach((_, i) => {
+      f.push(`[${i}:v]scale=${W}:${H2}:force_original_aspect_ratio=increase,crop=${W}:${H2},fps=24,setsar=1,format=yuv420p[v${i}]`);
+      f.push(`[${audio[i] ? i : silent[i]}:a]aresample=44100,aformat=sample_fmts=fltp:channel_layouts=stereo[a${i}]`);
+      parts.push(`[v${i}][a${i}]`);
+    });
+    if (logo) {
+      f.push(`[${cardIdx}:v]scale=${Math.round(W * 0.38 / 2) * 2}:-2,pad=${W}:${H2}:(ow-iw)/2:(oh-ih)/2:color=0x0B0B0E,fps=24,setsar=1,format=yuv420p[vc]`);
+    } else {
+      f.push(`color=c=0x0B0B0E:s=${W}x${H2}:d=${END_CARD_SECONDS2}:r=24,format=yuv420p,setsar=1[vc]`);
+    }
+    f.push(`[${cardAudio}:a]aformat=sample_fmts=fltp:channel_layouts=stereo[ac]`);
+    parts.push("[vc][ac]");
+    f.push(`${parts.join("")}concat=n=${n + 1}:v=1:a=1[cv][ca]`);
+    if (logo) {
+      const wm = Math.round(W * 0.14 / 2) * 2, m = Math.round(W * 0.04);
+      f.push(`[${logoIdx}:v]scale=${wm}:-2,format=rgba,colorchannelmixer=aa=0.85[wm]`);
+      f.push(`[cv][wm]overlay=W-w-${m}:H-h-${m}[outv]`);
+    }
+    const out = path13.join(dir, "out.mp4");
+    args.push(
+      "-filter_complex",
+      f.join(";"),
+      "-map",
+      logo ? "[outv]" : "[cv]",
+      "-map",
+      "[ca]",
+      "-c:v",
+      "libx264",
+      "-preset",
+      "veryfast",
+      "-crf",
+      "23",
+      "-pix_fmt",
+      "yuv420p",
+      "-c:a",
+      "aac",
+      "-b:a",
+      "128k",
+      "-movflags",
+      "+faststart",
+      out
+    );
+    await runFfmpeg(args, 24e4);
+    return fs13.readFileSync(out);
+  }
+}
+var FRAME, MODEL, CLIP_SECONDS, END_CARD_SECONDS2, POLL_MS, MAX_WAIT_MS, tableReady2;
+var init_explainer_video = __esm({
+  "server/services/explainer-video.ts"() {
     "use strict";
-    init_video_shot();
-    init_video_generation();
+    init_db();
+    init_ffmpeg();
     init_video_branding();
     init_content_asset_store();
-    SOCIAL_SIZES = {
-      "9:16": "Reels / TikTok / Shorts / Stories",
-      "1:1": "Square feed post",
-      "4:5": "Instagram / Facebook feed (portrait)",
-      "16:9": "YouTube / landscape"
-    };
+    FRAME = { "9:16": [720, 1280], "4:5": [864, 1080], "1:1": [720, 720], "16:9": [1280, 720] };
+    MODEL = () => process.env.EXPLAINER_VIDEO_MODEL || "google/veo-3-fast";
+    CLIP_SECONDS = 8;
+    END_CARD_SECONDS2 = 2;
+    POLL_MS = 5e3;
+    MAX_WAIT_MS = 8 * 60 * 1e3;
+    tableReady2 = null;
   }
 });
 
@@ -55299,24 +55392,14 @@ async function makePostVideo(userId, postId, aspect) {
     post2.hook && `Hook: ${post2.hook}`,
     post2.visual_idea && `Visual idea: ${post2.visual_idea}`
   ].filter(Boolean).join("\n");
-  const { renderContentVideo: renderContentVideo2 } = await Promise.resolve().then(() => (init_content_video(), content_video_exports));
-  const video = await renderContentVideo2(idea, { userId, aspect: aspect || VIDEO_ASPECT[post2.platform] || "9:16" });
-  if (!video) throw new Error("The video couldn't be made right now. Please try again in a minute.");
-  await pool.query(`UPDATE ambassador_post_queue SET video_url=$2, video_shot=$3, video_aspect=$4 WHERE id=$1`, [postId, video.url, video.shot, video.aspect]);
-  if (video.persisted) {
-    const { storage: storage2 } = await Promise.resolve().then(() => (init_storage(), storage_exports));
-    await storage2.createContentStudioGeneration({
-      userId,
-      contentType: "video",
-      prompt: idea,
-      title: post2.hook || null,
-      caption: post2.body,
-      assetUrl: video.url,
-      metadata: { provider: video.provider, shot: video.shot, aspect: video.aspect, branded: video.branded, day: post2.day_number, platform: post2.platform }
-    }).catch(() => {
-    });
-  }
-  return video;
+  const { startExplainerJob: startExplainerJob2 } = await Promise.resolve().then(() => (init_explainer_video(), explainer_video_exports));
+  const size = aspect || VIDEO_ASPECT[post2.platform] || "9:16";
+  const jobId = await startExplainerJob2(userId, idea, size, {
+    onDone: async (url) => {
+      await pool.query(`UPDATE ambassador_post_queue SET video_url=$2, video_shot=NULL, video_aspect=$3 WHERE id=$1`, [postId, url, size]);
+    }
+  });
+  return { jobId };
 }
 async function getDayBlog(dayNumber) {
   const { rows } = await pool.query(
@@ -55468,7 +55551,7 @@ var init_blog_og_image = __esm({
 var image_generation_exports = {};
 __export(image_generation_exports, {
   BRAND_STYLE_SUFFIX: () => BRAND_STYLE_SUFFIX,
-  HUMAN_STYLE_SUFFIX: () => HUMAN_STYLE_SUFFIX2,
+  HUMAN_STYLE_SUFFIX: () => HUMAN_STYLE_SUFFIX,
   generateContentImage: () => generateContentImage
 });
 import { OpenAI as OpenAI6 } from "openai";
@@ -55555,14 +55638,14 @@ async function generateFluxImage(prompt, retriesLeft = 2) {
 }
 async function generateContentImage(prompt, template) {
   const styleSuffix = template ? TEMPLATE_BACKGROUND_SUFFIX[template] : BRAND_STYLE_SUFFIX;
-  const brandedPrompt = `${prompt}${styleSuffix}${HUMAN_STYLE_SUFFIX2}`;
+  const brandedPrompt = `${prompt}${styleSuffix}${HUMAN_STYLE_SUFFIX}`;
   const dalleUrl = await generateDalleImage(brandedPrompt);
   if (dalleUrl) return { url: dalleUrl, provider: "dall-e-3" };
   const fluxUrl = await generateFluxImage(brandedPrompt);
   if (fluxUrl) return { url: fluxUrl, provider: "replicate-flux-schnell" };
   return null;
 }
-var BRAND_STYLE_SUFFIX, TEMPLATE_BACKGROUND_SUFFIX, HUMAN_STYLE_SUFFIX2;
+var BRAND_STYLE_SUFFIX, TEMPLATE_BACKGROUND_SUFFIX, HUMAN_STYLE_SUFFIX;
 var init_image_generation = __esm({
   "server/services/image-generation.ts"() {
     "use strict";
@@ -55573,7 +55656,222 @@ var init_image_generation = __esm({
       "scripture": ", background only: dark carbon-fiber woven texture with a subtle repeating dot pattern, near-black, calm and reflective mood, no text, no logos, no words, no letters anywhere in the frame",
       "blog-cover": ", a photographic scene with a soft dark gradient overlay suitable for a news/article cover, cinematic depth of field, no text, no logos, no words, no letters anywhere in the frame"
     };
-    HUMAN_STYLE_SUFFIX2 = ". If depicting people: they are Black, Brown, or Indigenous people of color with natural skin tones, styled in contemporary urban/hip-hop-inspired fashion (streetwear, fresh sneakers, gold chains, fitted caps), shown with smartphones and modern tech, in authentic inner-city settings \u2014 no generic stock-photo corporate look.";
+    HUMAN_STYLE_SUFFIX = ". If depicting people: they are Black, Brown, or Indigenous people of color with natural skin tones, styled in contemporary urban/hip-hop-inspired fashion (streetwear, fresh sneakers, gold chains, fitted caps), shown with smartphones and modern tech, in authentic inner-city settings \u2014 no generic stock-photo corporate look.";
+  }
+});
+
+// server/services/video-shot.ts
+var video_shot_exports = {};
+__export(video_shot_exports, {
+  fallbackShot: () => fallbackShot,
+  planVideoShot: () => planVideoShot
+});
+function fallbackShot(input) {
+  const lines = input.split(/\n+/).map((l) => l.replace(/^\s*(HOOK|BEAT\s*\d*|CTA|CAPTION|ON-SCREEN TEXT|SCENE\s*\d*|SHOW|VO|VOICEOVER)\s*(\([^)]*\))?\s*[:\-—]\s*/i, "").trim()).filter((l) => l && !/^#|https?:\/\//i.test(l));
+  return (lines.join(" ") || input).slice(0, MAX_SHOT_CHARS);
+}
+async function planVideoShot(input, userId) {
+  const text2 = String(input || "").trim();
+  if (!text2) throw new Error("prompt is required");
+  try {
+    const { getUniversalAIClientForUser: getUniversalAIClientForUser2 } = await Promise.resolve().then(() => (init_openai(), openai_exports));
+    const ai = await getUniversalAIClientForUser2(userId || 0);
+    const completion = await ai.chat.completions.create({
+      model: ai.defaultModel || "gpt-4o",
+      messages: [
+        { role: "system", content: "You turn content ideas into a single shot description for a text-to-video model. Respond with JSON only." },
+        { role: "user", content: `Turn the input below into ONE continuous 5-second vertical (9:16) video shot that a text-to-video model can film.
+
+Rules:
+- Keep the user's subject, people, place, objects and action. Do not swap in a different idea.
+- If the input is a script, ad or list of scenes, pick the single most visual moment that carries its message.
+- If the input is only a topic (e.g. "ORB strategy"), invent one concrete scene that shows it (a person, a place, what they are doing, what is on the screen in front of them).
+- Describe only what the camera sees: subject, setting, action, camera angle/movement, lighting. 40-70 words, present tense.
+- No on-screen text, captions, logos, brand names or readable words; describe screens as "a candlestick chart" not "a chart that says...".
+- Do not add a style (film grain, colour grade): that is added later.
+
+Also write "hook": the 3-8 word caption to overlay on the video, in the input's language.
+
+Input:
+"""${text2.slice(0, 4e3)}"""
+
+JSON: {"shot":"...","hook":"..."}` }
+      ],
+      response_format: { type: "json_object" },
+      max_tokens: 600
+    });
+    const raw = (completion.choices?.[0]?.message?.content || "{}").replace(/^```[a-z]*\n?/i, "").replace(/\n?```$/i, "").trim();
+    const out = JSON.parse(raw || "{}");
+    const shot = String(out.shot || "").trim();
+    if (shot.length >= 20) return { shot: shot.slice(0, MAX_SHOT_CHARS), hook: String(out.hook || "").trim().slice(0, 80), planned: true };
+  } catch (e) {
+    console.warn("[video-shot] planning failed, using fallback:", e?.message || e);
+  }
+  return { shot: fallbackShot(text2), hook: "", planned: false };
+}
+var MAX_SHOT_CHARS;
+var init_video_shot = __esm({
+  "server/services/video-shot.ts"() {
+    "use strict";
+    MAX_SHOT_CHARS = 600;
+  }
+});
+
+// server/services/video-generation.ts
+function buildModelInput(model, quality, styledPrompt, numFrames, durationSeconds, image, aspect = "9:16") {
+  if (model.includes("kling")) {
+    return {
+      prompt: styledPrompt,
+      negative_prompt: "blurry, low quality, distorted, deformed, extra limbs, watermark, text, on-screen text, subtitles",
+      ...image ? { start_image: image } : { aspect_ratio: aspect },
+      duration: durationSeconds <= 5 ? 5 : 10,
+      // Kling only offers 5s or 10s
+      cfg_scale: 0.5
+    };
+  }
+  if (model.includes("wan")) {
+    return {
+      prompt: styledPrompt,
+      resolution: quality === "high" ? "720p" : "480p",
+      // 720p is the real quality bump the model already supports
+      num_frames: numFrames,
+      frames_per_second: DEFAULT_FPS,
+      // Wan i2v derives aspect ratio from the start image; only set it for t2v.
+      ...image ? { image } : { aspect_ratio: aspect }
+    };
+  }
+  return { prompt: styledPrompt, ...image ? { image } : { aspect_ratio: aspect } };
+}
+async function generateContentVideo(prompt, opts) {
+  const apiKey = process.env.REPLICATE_API_TOKEN;
+  if (!apiKey) {
+    console.error("[video-generation] REPLICATE_API_TOKEN not set \u2014 cannot generate video");
+    return null;
+  }
+  const quality = opts?.quality === "high" ? "high" : "fast";
+  const image = opts?.image && opts.image.trim() ? opts.image.trim() : void 0;
+  const model = image ? quality === "high" ? HIGH_I2V_MODEL : FAST_I2V_MODEL : quality === "high" ? HIGH_MODEL : FAST_MODEL;
+  const durationSeconds = Math.min(Math.max(opts?.duration ?? 5, 1), MAX_DURATION_SECONDS);
+  const numFrames = Math.max(MIN_NUM_FRAMES, Math.round(durationSeconds * DEFAULT_FPS));
+  const styledPrompt = `${prompt.trim()}${VEDD_STYLE_LOCK}${NO_TEXT_SUFFIX}${HUMAN_STYLE_SUFFIX2}`;
+  const input = buildModelInput(model, quality, styledPrompt, numFrames, durationSeconds, image, opts?.aspect === "16:9" ? "16:9" : "9:16");
+  try {
+    console.log(`[video-generation] quality=${quality} model=${model} mode=${image ? "image-to-video" : "text-to-video"}`);
+    const res = await fetch(`https://api.replicate.com/v1/models/${model}/predictions`, {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${apiKey}`,
+        "Content-Type": "application/json",
+        Prefer: "wait"
+      },
+      body: JSON.stringify({ input }),
+      // Replicate's own `Prefer: wait` window can run right up to ~60s
+      // before it gives up and returns 202 "starting" instead of a
+      // finished result — a 60000ms client-side abort loses that race and
+      // throws "aborted due to timeout" instead of falling through to the
+      // poll loop below. Give it headroom.
+      signal: AbortSignal.timeout(75e3)
+    });
+    if (!res.ok) {
+      const body = await res.text().catch(() => "");
+      console.error("[video-generation] Replicate error:", res.status, body.slice(0, 300));
+      return null;
+    }
+    let data = await res.json();
+    const getUrl = data?.urls?.get;
+    for (let i = 0; i < MAX_POLLS && getUrl && (data.status === "starting" || data.status === "processing"); i++) {
+      await new Promise((resolve) => setTimeout(resolve, POLL_INTERVAL_MS));
+      const poll = await fetch(getUrl, {
+        headers: { Authorization: `Bearer ${apiKey}` },
+        signal: AbortSignal.timeout(15e3)
+      });
+      if (!poll.ok) break;
+      data = await poll.json();
+    }
+    if (data.status !== "succeeded") {
+      console.error("[video-generation] Replicate video did not complete in time:", data.status, data.error ?? "");
+      return null;
+    }
+    const output = data?.output;
+    const url = Array.isArray(output) ? output[0] : output;
+    if (!url) return null;
+    return { url, provider: `replicate:${model}`, quality };
+  } catch (e) {
+    console.error("[video-generation] Replicate error:", e.message);
+    return null;
+  }
+}
+var VEDD_STYLE_LOCK, NO_TEXT_SUFFIX, HUMAN_STYLE_SUFFIX2, FAST_MODEL, HIGH_MODEL, FAST_I2V_MODEL, HIGH_I2V_MODEL, DEFAULT_FPS, MIN_NUM_FRAMES, MAX_DURATION_SECONDS, POLL_INTERVAL_MS, MAX_POLLS;
+var init_video_generation = __esm({
+  "server/services/video-generation.ts"() {
+    "use strict";
+    VEDD_STYLE_LOCK = ". Shot as a grainy 35mm cinematic film still: heavy analog film grain, desaturated moody color grade with one warm gold light source, shallow depth of field, photorealistic. Slow, subtle ambient motion only \u2014 no fast or shaky camera movement.";
+    NO_TEXT_SUFFIX = " No on-screen text, captions, subtitles, signage, logos or readable words anywhere in the frame \u2014 pure visual scene only.";
+    HUMAN_STYLE_SUFFIX2 = " If people appear: young Black people, natural skin tones, contemporary streetwear, authentic inner-city/urban setting.";
+    FAST_MODEL = "wan-video/wan-2.2-t2v-fast";
+    HIGH_MODEL = process.env.VIDEO_HIGH_MODEL || "wan-video/wan-2.2-t2v-fast";
+    FAST_I2V_MODEL = process.env.VIDEO_FAST_I2V_MODEL || "wan-video/wan-2.2-i2v-fast";
+    HIGH_I2V_MODEL = process.env.VIDEO_HIGH_I2V_MODEL || "wan-video/wan-2.2-i2v-fast";
+    DEFAULT_FPS = 16;
+    MIN_NUM_FRAMES = 81;
+    MAX_DURATION_SECONDS = 6;
+    POLL_INTERVAL_MS = 5e3;
+    MAX_POLLS = 60;
+  }
+});
+
+// server/services/content-video.ts
+var content_video_exports = {};
+__export(content_video_exports, {
+  SOCIAL_SIZES: () => SOCIAL_SIZES,
+  renderContentVideo: () => renderContentVideo
+});
+async function renderContentVideo(prompt, o = {}) {
+  const aspect = o.aspect && o.aspect in SOCIAL_SIZES ? o.aspect : "9:16";
+  let shot = (o.shot || "").trim();
+  let hook = "";
+  if (!shot) {
+    if (o.exact) shot = prompt.trim();
+    else ({ shot, hook } = await planVideoShot(prompt, o.userId));
+  }
+  const video = await generateContentVideo(shot, {
+    duration: o.duration,
+    quality: o.quality,
+    image: o.image,
+    aspect: aspect === "16:9" ? "16:9" : "9:16"
+  });
+  if (!video) return null;
+  if (o.brand !== false) {
+    try {
+      const res = await fetch(video.url, { signal: AbortSignal.timeout(6e4) });
+      if (res.ok) {
+        const branded = await brandVideo(Buffer.from(await res.arrayBuffer()), aspect);
+        if (branded) {
+          const saved2 = await persistBuffer(branded, "video/mp4");
+          if (saved2) return { url: saved2.url, persisted: true, branded: true, shot, hook, aspect, provider: video.provider };
+        }
+      }
+    } catch (e) {
+      console.warn("[content-video] branding step failed:", e?.message || e);
+    }
+  }
+  const saved = await persistRemoteAsset(video.url);
+  return { url: saved?.url ?? video.url, persisted: !!saved, branded: false, shot, hook, aspect, provider: video.provider };
+}
+var SOCIAL_SIZES;
+var init_content_video = __esm({
+  "server/services/content-video.ts"() {
+    "use strict";
+    init_video_shot();
+    init_video_generation();
+    init_video_branding();
+    init_content_asset_store();
+    SOCIAL_SIZES = {
+      "9:16": "Reels / TikTok / Shorts / Stories",
+      "1:1": "Square feed post",
+      "4:5": "Instagram / Facebook feed (portrait)",
+      "16:9": "YouTube / landscape"
+    };
   }
 });
 
@@ -55583,8 +55881,8 @@ __export(slide_flattener_exports, {
   flattenSlideImage: () => flattenSlideImage
 });
 import sharp from "sharp";
-import * as path13 from "path";
-import * as fs13 from "fs";
+import * as path14 from "path";
+import * as fs14 from "fs";
 function escapeXml(s) {
   return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
 }
@@ -55649,7 +55947,7 @@ async function flattenSlideImage(opts) {
   const composites = [
     { input: Buffer.from(overlaySvg), top: 0, left: 0 }
   ];
-  if (opts.includeLogo && fs13.existsSync(LOGO_PATH)) {
+  if (opts.includeLogo && fs14.existsSync(LOGO_PATH)) {
     const logoWidth = Math.round(CANVAS_SIZE * 0.22);
     const logoBuffer = await sharp(LOGO_PATH).resize(logoWidth, null, { fit: "inside" }).ensureAlpha().png().toBuffer();
     const logoMeta = await sharp(logoBuffer).metadata();
@@ -55667,7 +55965,7 @@ var init_slide_flattener = __esm({
   "server/services/slide-flattener.ts"() {
     "use strict";
     CANVAS_SIZE = 1080;
-    LOGO_PATH = path13.join(process.cwd(), "attached_assets", "IMG_3645.png");
+    LOGO_PATH = path14.join(process.cwd(), "attached_assets", "IMG_3645.png");
   }
 });
 
@@ -56128,8 +56426,8 @@ function teamsMatchMarket(homeTeam, awayTeam, question) {
   return (q.includes(h) || q.includes(hFull)) && (q.includes(a) || q.includes(aFull));
 }
 async function fetchScoreboard(sport) {
-  const path18 = SPORT_PATHS[sport];
-  const data = await safeGet(`${ESPN_BASE}/${path18}/scoreboard`);
+  const path19 = SPORT_PATHS[sport];
+  const data = await safeGet(`${ESPN_BASE}/${path19}/scoreboard`);
   return data?.events ?? [];
 }
 function injuryAdjustment(injuries, sport) {
@@ -57228,8 +57526,8 @@ async function runLeadHunter() {
   const errors = [];
   let runId = 0;
   try {
-    const [run2] = await db.insert(leadHunterRuns).values({ date: today, status: "running" }).returning();
-    runId = run2.id;
+    const [run] = await db.insert(leadHunterRuns).values({ date: today, status: "running" }).returning();
+    runId = run.id;
   } catch (e) {
     console.log("[LeadHunter] Could not create run record: " + e.message);
     errors.push("DB run record failed: " + e.message);
@@ -62465,8 +62763,8 @@ import { eq as eq18, and as and11, sql as sql13, desc as desc11 } from "drizzle-
 import { scrypt, randomBytes } from "crypto";
 import { promisify } from "util";
 import { z as z2 } from "zod";
-import * as fs14 from "fs";
-import * as path14 from "path";
+import * as fs15 from "fs";
+import * as path15 from "path";
 
 // server/trading-coach.ts
 init_openai();
@@ -62992,9 +63290,9 @@ async function getStopOrdersForUser(userId, filters = {}) {
 init_schema();
 
 // server/build-info.ts
-var BUILD_COMMIT = "190be9ce-dirty";
+var BUILD_COMMIT = "02d774b3-dirty";
 var BUILD_BRANCH = "HEAD";
-var BUILT_AT = "2026-10-31T01:39:43.511Z";
+var BUILT_AT = "2026-10-31T02:17:06.284Z";
 
 // server/stripe.ts
 init_db();
@@ -67014,9 +67312,9 @@ var mediaUpload = multer({
     cb(null, true);
   }
 });
-var uploadsDir2 = path14.join(process.cwd(), "uploads");
-if (!fs14.existsSync(uploadsDir2)) {
-  fs14.mkdirSync(uploadsDir2, { recursive: true });
+var uploadsDir2 = path15.join(process.cwd(), "uploads");
+if (!fs15.existsSync(uploadsDir2)) {
+  fs15.mkdirSync(uploadsDir2, { recursive: true });
 }
 function getCurrentTradingSession() {
   const hour = (/* @__PURE__ */ new Date()).getUTCHours();
@@ -67409,11 +67707,11 @@ async function registerRoutes(app2, existingServer) {
         return res.status(400).json({ message: "No file uploaded" });
       }
       const fileName = `${uuidv42()}.${req.file.mimetype.split("/")[1]}`;
-      const filePath = path14.join(uploadsDir2, fileName);
+      const filePath = path15.join(uploadsDir2, fileName);
       console.log("Generated filename:", fileName);
       console.log("Full file path:", filePath);
       try {
-        await fs14.promises.writeFile(filePath, req.file.buffer);
+        await fs15.promises.writeFile(filePath, req.file.buffer);
         console.log("File saved successfully to disk");
       } catch (writeError) {
         console.error("Error writing file to disk:", writeError);
@@ -67439,14 +67737,14 @@ async function registerRoutes(app2, existingServer) {
       if (!allowedTypes.includes(req.file.mimetype)) {
         return res.status(400).json({ message: "Invalid file type. Only JPEG, PNG, GIF, and WebP are allowed." });
       }
-      const avatarsDir = path14.join(process.cwd(), "uploads", "avatars");
-      if (!fs14.existsSync(avatarsDir)) {
-        fs14.mkdirSync(avatarsDir, { recursive: true });
+      const avatarsDir = path15.join(process.cwd(), "uploads", "avatars");
+      if (!fs15.existsSync(avatarsDir)) {
+        fs15.mkdirSync(avatarsDir, { recursive: true });
       }
       const ext = req.file.mimetype.split("/")[1];
       const fileName = `avatar-${req.user.id}-${Date.now()}.${ext}`;
-      const filePath = path14.join(avatarsDir, fileName);
-      await fs14.promises.writeFile(filePath, req.file.buffer);
+      const filePath = path15.join(avatarsDir, fileName);
+      await fs15.promises.writeFile(filePath, req.file.buffer);
       const avatarUrl = `/uploads/avatars/${fileName}`;
       res.json({ avatarUrl });
     } catch (error) {
@@ -67541,11 +67839,11 @@ async function registerRoutes(app2, existingServer) {
       }
       const extension = filename?.split(".").pop() || "png";
       const generatedFilename = `${uuidv42()}.${extension}`;
-      const filePath = path14.join(uploadsDir2, generatedFilename);
+      const filePath = path15.join(uploadsDir2, generatedFilename);
       const imageUrl = `/uploads/${generatedFilename}`;
       try {
         const imageBuffer = Buffer.from(cleanBase64, "base64");
-        await fs14.promises.writeFile(filePath, imageBuffer);
+        await fs15.promises.writeFile(filePath, imageBuffer);
         console.log("Saved image to", filePath);
       } catch (writeError) {
         console.error("Error saving image to disk:", writeError);
@@ -67678,9 +67976,9 @@ async function registerRoutes(app2, existingServer) {
           const detectedSymbol = analyses.length > 0 ? analyses[analyses.length - 1].symbol : void 0;
           const analysis = await analyzeChartImage(frame.base64, detectedSymbol, req.user?.id);
           const frameFileName = `video_frame_${groupId}_${i + 1}.jpg`;
-          const framePath = path14.join(uploadsDir2, frameFileName);
+          const framePath = path15.join(uploadsDir2, frameFileName);
           const frameBuffer = Buffer.from(frame.base64, "base64");
-          await fs14.promises.writeFile(framePath, frameBuffer);
+          await fs15.promises.writeFile(framePath, frameBuffer);
           const imageUrl = `/uploads/${frameFileName}`;
           await storage.createChartAnalysis({
             userId,
@@ -68080,12 +68378,12 @@ Respond ONLY in valid JSON format with these exact keys:
       if (!imageUrl) {
         return res.status(400).json({ message: "No image URL provided" });
       }
-      const filePath = path14.join(process.cwd(), imageUrl.replace(/^\//, ""));
+      const filePath = path15.join(process.cwd(), imageUrl.replace(/^\//, ""));
       console.log("Attempting to analyze image at path:", filePath);
-      if (!fs14.existsSync(filePath)) {
-        const alternativePath = path14.join(uploadsDir2, path14.basename(imageUrl));
+      if (!fs15.existsSync(filePath)) {
+        const alternativePath = path15.join(uploadsDir2, path15.basename(imageUrl));
         console.log("Image not found, trying alternative path:", alternativePath);
-        if (!fs14.existsSync(alternativePath)) {
+        if (!fs15.existsSync(alternativePath)) {
           return res.status(404).json({ message: "Image file not found" });
         }
         console.log("Found image at alternative path");
@@ -68094,7 +68392,7 @@ Respond ONLY in valid JSON format with these exact keys:
           error: "Direct file analysis is deprecated"
         });
       }
-      const imageBuffer = await fs14.promises.readFile(filePath);
+      const imageBuffer = await fs15.promises.readFile(filePath);
       const base64Image = imageBuffer.toString("base64");
       const knownSymbol = req.body.symbol || void 0;
       const analysis = await analyzeChartImage(base64Image, knownSymbol, req.user?.id);
@@ -68269,11 +68567,11 @@ Respond ONLY in valid JSON format with these exact keys:
         const originalImageUrl = analysis.imageUrl;
         console.log("Original image URL:", originalImageUrl);
         const imagePath = originalImageUrl.startsWith("/") ? originalImageUrl.substring(1) : originalImageUrl;
-        const basename2 = path14.basename(imagePath);
+        const basename2 = path15.basename(imagePath);
         console.log("Image basename:", basename2);
-        const originalImagePath = path14.join(process.cwd(), "uploads", basename2);
+        const originalImagePath = path15.join(process.cwd(), "uploads", basename2);
         console.log("Full image path:", originalImagePath);
-        if (!fs14.existsSync(originalImagePath)) {
+        if (!fs15.existsSync(originalImagePath)) {
           console.error("Original image not found at path:", originalImagePath);
           throw new Error(`Original image not found: ${originalImagePath}`);
         }
@@ -68370,13 +68668,13 @@ Respond ONLY in valid JSON format with these exact keys:
   app2.get("/api/shared-image/:filename", (req, res) => {
     try {
       const filename = req.params.filename;
-      const sanitizedFilename = path14.basename(filename);
-      const sharedPath = path14.join(process.cwd(), "uploads", "shared", sanitizedFilename);
-      if (fs14.existsSync(sharedPath)) {
+      const sanitizedFilename = path15.basename(filename);
+      const sharedPath = path15.join(process.cwd(), "uploads", "shared", sanitizedFilename);
+      if (fs15.existsSync(sharedPath)) {
         return res.sendFile(sharedPath);
       }
-      const regularPath = path14.join(process.cwd(), "uploads", sanitizedFilename);
-      if (fs14.existsSync(regularPath)) {
+      const regularPath = path15.join(process.cwd(), "uploads", sanitizedFilename);
+      if (fs15.existsSync(regularPath)) {
         return res.sendFile(regularPath);
       }
       return res.status(404).json({ message: "Image not found" });
@@ -68388,9 +68686,9 @@ Respond ONLY in valid JSON format with these exact keys:
   app2.get("/api/annotated-image/:filename", (req, res) => {
     try {
       const filename = req.params.filename;
-      const sanitizedFilename = path14.basename(filename);
-      const annotatedPath = path14.join(process.cwd(), "uploads", "annotated", sanitizedFilename);
-      if (fs14.existsSync(annotatedPath)) {
+      const sanitizedFilename = path15.basename(filename);
+      const annotatedPath = path15.join(process.cwd(), "uploads", "annotated", sanitizedFilename);
+      if (fs15.existsSync(annotatedPath)) {
         return res.sendFile(annotatedPath);
       }
       return res.status(404).json({ message: "Annotated image not found" });
@@ -72218,12 +72516,12 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
       });
       const shareId = Date.now().toString(36) + Math.random().toString(36).substring(2, 7);
       const shareCardFileName = `share-card-${shareId}.png`;
-      const shareCardPath = path14.join(process.cwd(), "uploads", "share-cards");
-      if (!fs14.existsSync(shareCardPath)) {
-        fs14.mkdirSync(shareCardPath, { recursive: true });
+      const shareCardPath = path15.join(process.cwd(), "uploads", "share-cards");
+      if (!fs15.existsSync(shareCardPath)) {
+        fs15.mkdirSync(shareCardPath, { recursive: true });
       }
-      const fullPath = path14.join(shareCardPath, shareCardFileName);
-      fs14.writeFileSync(fullPath, shareCardBuffer);
+      const fullPath = path15.join(shareCardPath, shareCardFileName);
+      fs15.writeFileSync(fullPath, shareCardBuffer);
       const shareCardUrl = `/uploads/share-cards/${shareCardFileName}`;
       const shareUrl = `share-${shareId}`;
       const devotion = getDailyScripture2();
@@ -79269,8 +79567,8 @@ Return this EXACT JSON (no markdown, no commentary):
     if (!strat?.plan) return res.status(404).json({ error: "No active VEDD SS AI plan" });
     try {
       const { createCanvas, loadImage } = await import("canvas");
-      const path18 = await import("path");
-      const fs16 = await import("fs");
+      const path19 = await import("path");
+      const fs17 = await import("fs");
       const { getLiveEngineState: getLiveEngineState3 } = await Promise.resolve().then(() => (init_live_trading_engine(), live_trading_engine_exports));
       const engineState = getLiveEngineState3(userId);
       const engineRunning = engineState?.status === "running";
@@ -79356,8 +79654,8 @@ Return this EXACT JSON (no markdown, no commentary):
       ctx.closePath();
       ctx.fill();
       try {
-        const logoPath = path18.default.join(process.cwd(), "attached_assets", "IMG_3645.png");
-        if (fs16.default.existsSync(logoPath)) {
+        const logoPath = path19.default.join(process.cwd(), "attached_assets", "IMG_3645.png");
+        if (fs17.default.existsSync(logoPath)) {
           const logo = await loadImage(logoPath);
           const lh = 64, lw = logo.width / logo.height * lh;
           ctx.drawImage(logo, 44, 26, lw, lh);
@@ -79618,10 +79916,10 @@ Return this EXACT JSON (no markdown, no commentary):
       }
       const buffer = canvas.toBuffer("image/png");
       const fileName = `vedd-ss-ai-progress-${userId}-${Date.now()}.png`;
-      const outDir = path18.default.join(process.cwd(), "uploads", "share-cards");
-      if (!fs16.default.existsSync(outDir)) fs16.default.mkdirSync(outDir, { recursive: true });
-      const filePath = path18.default.join(outDir, fileName);
-      fs16.default.writeFileSync(filePath, buffer);
+      const outDir = path19.default.join(process.cwd(), "uploads", "share-cards");
+      if (!fs17.default.existsSync(outDir)) fs17.default.mkdirSync(outDir, { recursive: true });
+      const filePath = path19.default.join(outDir, fileName);
+      fs17.default.writeFileSync(filePath, buffer);
       res.json({
         success: true,
         imageUrl: `/uploads/share-cards/${fileName}`,
@@ -82089,9 +82387,9 @@ Format each recommendation as a clear, concise action item.`;
     }
     global.veddAIBrain[userId] = brain;
     try {
-      const brainDir = path14.join(process.cwd(), "data", "brains");
-      if (!fs14.existsSync(brainDir)) fs14.mkdirSync(brainDir, { recursive: true });
-      fs14.writeFileSync(path14.join(brainDir, `brain_${userId}.json`), JSON.stringify(brain));
+      const brainDir = path15.join(process.cwd(), "data", "brains");
+      if (!fs15.existsSync(brainDir)) fs15.mkdirSync(brainDir, { recursive: true });
+      fs15.writeFileSync(path15.join(brainDir, `brain_${userId}.json`), JSON.stringify(brain));
     } catch (_brainSaveErr) {
     }
     console.log(`[VEDD Brain] Learned from ${combinedTrades.length} trades across ${uniqueSymbols.length} pairs for user ${userId}`);
@@ -82100,9 +82398,9 @@ Format each recommendation as a clear, concise action item.`;
   global.runBrainLearning = runBrainLearning;
   global.loadPersistedBrain = (userId) => {
     try {
-      const p = path14.join(process.cwd(), "data", "brains", `brain_${userId}.json`);
-      if (!fs14.existsSync(p)) return null;
-      const brain = JSON.parse(fs14.readFileSync(p, "utf-8"));
+      const p = path15.join(process.cwd(), "data", "brains", `brain_${userId}.json`);
+      if (!fs15.existsSync(p)) return null;
+      const brain = JSON.parse(fs15.readFileSync(p, "utf-8"));
       global.veddAIBrain = global.veddAIBrain || {};
       global.veddAIBrain[userId] = brain;
       return brain;
@@ -82320,9 +82618,9 @@ Format each recommendation as a clear, concise action item.`;
     let brain = g.veddAIBrain[userId];
     if (!brain) {
       try {
-        const p = path14.join(process.cwd(), "data", "brains", `brain_${userId}.json`);
-        if (fs14.existsSync(p)) {
-          brain = JSON.parse(fs14.readFileSync(p, "utf-8"));
+        const p = path15.join(process.cwd(), "data", "brains", `brain_${userId}.json`);
+        if (fs15.existsSync(p)) {
+          brain = JSON.parse(fs15.readFileSync(p, "utf-8"));
           g.veddAIBrain[userId] = brain;
         }
       } catch (_) {
@@ -82525,9 +82823,9 @@ Format each recommendation as a clear, concise action item.`;
         for (const dc of dxConns) {
           const rows = closed.filter((t) => t.source === "dxtrade" && t.connectionId === dc.id);
           const dxRealizedToday = realizedTodayOf("dxtrade", dc.id, rows);
-          const cached = dxCache[dc.id];
-          const dxFresh = !!cached && Date.now() - cached.updatedAt < 3e5;
-          const dxBalance = dxFresh ? Number(cached.balance) || 0 : 0;
+          const cached2 = dxCache[dc.id];
+          const dxFresh = !!cached2 && Date.now() - cached2.updatedAt < 3e5;
+          const dxBalance = dxFresh ? Number(cached2.balance) || 0 : 0;
           accountCurves.push({
             key: `dx_${dc.id}`,
             label: "DXtrade" + (dc.label ? ` \xB7 ${dc.label}` : dc.account_code ? ` \xB7 ${dc.account_code}` : ""),
@@ -82538,7 +82836,7 @@ Format each recommendation as a clear, concise action item.`;
             ...tally(rows),
             realizedTodayPnl: dxRealizedToday,
             todayPnl: dxRealizedToday,
-            openCount: dxFresh ? Number(cached.openPositions) || 0 : 0,
+            openCount: dxFresh ? Number(cached2.openPositions) || 0 : 0,
             unrealizedPnl: 0,
             weeklyPnl: weekOf(rows),
             curve: curveOf(rows)
@@ -83464,9 +83762,9 @@ Respond with ONLY valid JSON:
         global.veddAIBrain[userId].lastWeeklyScan = scan;
         global.veddAIBrain[userId].weeklyScanInsights = scan.scanInsights;
         try {
-          const brainDir = path14.join(process.cwd(), "data", "brains");
-          if (!fs14.existsSync(brainDir)) fs14.mkdirSync(brainDir, { recursive: true });
-          fs14.writeFileSync(path14.join(brainDir, `brain_${userId}.json`), JSON.stringify(global.veddAIBrain[userId]));
+          const brainDir = path15.join(process.cwd(), "data", "brains");
+          if (!fs15.existsSync(brainDir)) fs15.mkdirSync(brainDir, { recursive: true });
+          fs15.writeFileSync(path15.join(brainDir, `brain_${userId}.json`), JSON.stringify(global.veddAIBrain[userId]));
         } catch (_) {
         }
       }
@@ -83648,9 +83946,9 @@ Respond with ONLY valid JSON:
       } catch (mdErr) {
         const mt5Cache = global.mt5ChartDataCache || {};
         const cacheKey = `mt5_chart_${userId}_${pair}_H1`;
-        const cached = mt5Cache[cacheKey];
-        if (cached?.candles?.length >= 50) {
-          bars = cached.candles.map((c) => ({
+        const cached2 = mt5Cache[cacheKey];
+        if (cached2?.candles?.length >= 50) {
+          bars = cached2.candles.map((c) => ({
             timestamp: typeof c.timestamp === "number" ? c.timestamp : new Date(c.time || c.timestamp).getTime(),
             open: Number(c.open),
             high: Number(c.high),
@@ -84103,20 +84401,20 @@ Respond with ONLY valid JSON:
       });
     }
   });
-  const _polyWalletsFile = path14.join(process.cwd(), "data", "polymarket_wallets.json");
+  const _polyWalletsFile = path15.join(process.cwd(), "data", "polymarket_wallets.json");
   const _loadPolyWallets = () => {
     try {
-      if (fs14.existsSync(_polyWalletsFile)) return JSON.parse(fs14.readFileSync(_polyWalletsFile, "utf-8"));
+      if (fs15.existsSync(_polyWalletsFile)) return JSON.parse(fs15.readFileSync(_polyWalletsFile, "utf-8"));
     } catch {
     }
     return {};
   };
   const _savePolyWallets = (map) => {
     try {
-      const dir = path14.join(process.cwd(), "data");
-      if (!fs14.existsSync(dir)) fs14.mkdirSync(dir, { recursive: true });
+      const dir = path15.join(process.cwd(), "data");
+      if (!fs15.existsSync(dir)) fs15.mkdirSync(dir, { recursive: true });
       const content = JSON.stringify(map, null, 2);
-      fs14.writeFileSync(_polyWalletsFile, content);
+      fs15.writeFileSync(_polyWalletsFile, content);
       backupDurableFile("polymarket_wallets.json", content);
     } catch {
     }
@@ -85533,20 +85831,20 @@ Return ONLY JSON: {"topPicks":[{"market":"","winProbability":<0-100>,"whyItWins"
     const closed = await closeAllKalshiTrades2(userId);
     res.json({ success: true, closed, state: getKalshiEngineState2(userId) });
   });
-  const _polyKeysFile = path14.join(process.cwd(), "data", "polymarket_keys.json");
+  const _polyKeysFile = path15.join(process.cwd(), "data", "polymarket_keys.json");
   const _loadPolyKeys = () => {
     try {
-      if (fs14.existsSync(_polyKeysFile)) return JSON.parse(fs14.readFileSync(_polyKeysFile, "utf-8"));
+      if (fs15.existsSync(_polyKeysFile)) return JSON.parse(fs15.readFileSync(_polyKeysFile, "utf-8"));
     } catch {
     }
     return {};
   };
   const _savePolyKeys = (map) => {
     try {
-      const dir = path14.join(process.cwd(), "data");
-      if (!fs14.existsSync(dir)) fs14.mkdirSync(dir, { recursive: true });
+      const dir = path15.join(process.cwd(), "data");
+      if (!fs15.existsSync(dir)) fs15.mkdirSync(dir, { recursive: true });
       const content = JSON.stringify(map, null, 2);
-      fs14.writeFileSync(_polyKeysFile, content);
+      fs15.writeFileSync(_polyKeysFile, content);
       backupDurableFile("polymarket_keys.json", content);
     } catch {
     }
@@ -85984,11 +86282,11 @@ Return ONLY JSON: {"topPicks":[{"market":"","winProbability":<0-100>,"whyItWins"
           const positions = await svc.getPositions().catch(() => []);
           const unrealized = positions.reduce((s, p) => s + parseFloat(p.unrealizedPnl ?? p.unrealizedPnL ?? p.pnl ?? p.profit ?? 0), 0);
           let balance = 0, equity = 0;
-          const cached = _tlCache[conn.accountId];
-          const cacheFresh = cached && !cached.error && Date.now() - new Date(cached.lastUpdated).getTime() < 12e4;
+          const cached2 = _tlCache[conn.accountId];
+          const cacheFresh = cached2 && !cached2.error && Date.now() - new Date(cached2.lastUpdated).getTime() < 12e4;
           if (cacheFresh) {
-            balance = cached.balance ?? 0;
-            equity = cached.equity ?? balance;
+            balance = cached2.balance ?? 0;
+            equity = cached2.equity ?? balance;
           } else {
             const balData = await svc.getAccountInfo();
             balance = balData?.balance ?? 0;
@@ -86801,11 +87099,11 @@ Format your response as JSON with exactly these keys:
       let mediaUrl = null;
       let mediaType = null;
       if (req.file && req.file.buffer) {
-        const fs16 = await import("fs/promises");
-        const path18 = await import("path");
-        const filename = `content-${userId}-day${dayNumber}-${Date.now()}${path18.extname(req.file.originalname)}`;
-        const uploadPath = path18.join(process.cwd(), "uploads", filename);
-        await fs16.writeFile(uploadPath, req.file.buffer);
+        const fs17 = await import("fs/promises");
+        const path19 = await import("path");
+        const filename = `content-${userId}-day${dayNumber}-${Date.now()}${path19.extname(req.file.originalname)}`;
+        const uploadPath = path19.join(process.cwd(), "uploads", filename);
+        await fs17.writeFile(uploadPath, req.file.buffer);
         mediaUrl = `/uploads/${filename}`;
         mediaType = req.file.mimetype.startsWith("video/") ? "video" : "image";
       }
@@ -87609,8 +87907,8 @@ Generate a JSON object with:
       }
       const id = parseInt(streamId);
       const filename = `stream-recording-${streamType}-${id}-${Date.now()}.webm`;
-      const filePath = path14.join(uploadsDir2, filename);
-      fs14.writeFileSync(filePath, file.buffer);
+      const filePath = path15.join(uploadsDir2, filename);
+      fs15.writeFileSync(filePath, file.buffer);
       const recordingUrl = `/uploads/${filename}`;
       if (streamType === "schedule") {
         const schedule = await storage.getSchedule(id);
@@ -91543,8 +91841,14 @@ This request will not trigger a transaction or cost any fees.`;
   app2.post("/api/ambassador/agent/queue/:id/video", async (req, res) => {
     if (!req.user) return res.status(401).json({ message: "Unauthorized" });
     try {
+      const u = req.user;
+      const ex = await Promise.resolve().then(() => (init_explainer_video(), explainer_video_exports));
+      const limit = Number(process.env.EXPLAINER_DAILY_LIMIT ?? 2);
+      if (!u.isAdmin && await ex.rendersToday(u.id) >= limit) {
+        return res.status(429).json({ message: `You've made ${limit} videos today. You can make more tomorrow.` });
+      }
       const q = await Promise.resolve().then(() => (init_ambassador_post_queue(), ambassador_post_queue_exports));
-      res.json(await q.makePostVideo(req.user.id, Number(req.params.id), req.body?.aspect));
+      res.json(await q.makePostVideo(u.id, Number(req.params.id), req.body?.aspect));
     } catch (err) {
       res.status(500).json({ message: err?.message || "Video failed" });
     }
@@ -92010,6 +92314,33 @@ Sitemap: ${SEO_BASE_URL}/sitemap.xml
     } catch (err) {
       res.status(500).json({ error: err.message });
     }
+  });
+  app2.post("/api/content-studio/explainer", async (req, res) => {
+    const u = req.user;
+    if (!req.isAuthenticated() || !(u?.isAmbassador || u?.isAdmin)) {
+      return res.status(403).json({ error: "Ambassador or admin only" });
+    }
+    try {
+      const prompt = String(req.body?.prompt || "").trim();
+      if (!prompt) return res.status(400).json({ error: "Tell us what the video should explain." });
+      const aspect = ["9:16", "4:5", "1:1", "16:9"].includes(req.body?.aspect) ? req.body.aspect : "9:16";
+      const ex = await Promise.resolve().then(() => (init_explainer_video(), explainer_video_exports));
+      const limit = Number(process.env.EXPLAINER_DAILY_LIMIT ?? 2);
+      if (!u.isAdmin && await ex.rendersToday(u.id) >= limit) {
+        return res.status(429).json({ error: `You've made ${limit} explainer videos today. You can make more tomorrow.` });
+      }
+      const jobId = await ex.startExplainerJob(u.id, prompt, aspect);
+      res.json({ jobId });
+    } catch (err) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+  app2.get("/api/content-studio/explainer/:id", async (req, res) => {
+    if (!req.isAuthenticated()) return res.status(401).json({ error: "Authentication required" });
+    const ex = await Promise.resolve().then(() => (init_explainer_video(), explainer_video_exports));
+    const job = await ex.getJob(Number(req.params.id), req.user.id);
+    if (!job) return res.status(404).json({ error: "Not found" });
+    res.json({ id: job.id, status: job.status, step: job.step, progress: job.progress, url: job.result_url, error: job.error, script: job.script, aspect: job.aspect });
   });
   app2.post("/api/content-studio/plan-shot", async (req, res) => {
     const u = req.user;
@@ -93091,10 +93422,10 @@ Scene idea: ${script.videoPrompt}`, {
       return res.status(403).json({ error: "Admin access required" });
     }
     try {
-      const dataFile = path14.join(process.cwd(), "data", "curricula.json");
+      const dataFile = path15.join(process.cwd(), "data", "curricula.json");
       let curricula = [];
       try {
-        curricula = JSON.parse(fs14.readFileSync(dataFile, "utf-8"));
+        curricula = JSON.parse(fs15.readFileSync(dataFile, "utf-8"));
       } catch {
       }
       const entry = {
@@ -93104,8 +93435,8 @@ Scene idea: ${script.videoPrompt}`, {
         ...req.body
       };
       curricula.push(entry);
-      fs14.mkdirSync(path14.join(process.cwd(), "data"), { recursive: true });
-      fs14.writeFileSync(dataFile, JSON.stringify(curricula, null, 2));
+      fs15.mkdirSync(path15.join(process.cwd(), "data"), { recursive: true });
+      fs15.writeFileSync(dataFile, JSON.stringify(curricula, null, 2));
       res.json({ success: true, id: entry.id, message: "Curriculum saved to Academy" });
     } catch (err) {
       res.status(500).json({ error: err.message });
@@ -93114,10 +93445,10 @@ Scene idea: ${script.videoPrompt}`, {
   app2.get("/api/workforce/modules", async (req, res) => {
     if (!req.isAuthenticated()) return res.status(401).json({ error: "Unauthorized" });
     try {
-      const dataFile = path14.join(process.cwd(), "data", "curricula.json");
+      const dataFile = path15.join(process.cwd(), "data", "curricula.json");
       let saved = [];
       try {
-        saved = JSON.parse(fs14.readFileSync(dataFile, "utf-8"));
+        saved = JSON.parse(fs15.readFileSync(dataFile, "utf-8"));
       } catch {
       }
       res.json({ modules: saved, total: saved.length + 12 });
@@ -93206,10 +93537,10 @@ Scene idea: ${script.videoPrompt}`, {
   });
   app2.get("/api/verify/:certId", async (req, res) => {
     try {
-      const dataFile = path14.join(process.cwd(), "data", "certificates.json");
+      const dataFile = path15.join(process.cwd(), "data", "certificates.json");
       let certs = [];
       try {
-        certs = JSON.parse(fs14.readFileSync(dataFile, "utf-8"));
+        certs = JSON.parse(fs15.readFileSync(dataFile, "utf-8"));
       } catch {
       }
       const cert = certs.find((c) => c.certId === req.params.certId);
@@ -95041,14 +95372,14 @@ Scene idea: ${script.videoPrompt}`, {
 
 // server/vite.ts
 import express from "express";
-import fs15 from "fs";
-import path16 from "path";
+import fs16 from "fs";
+import path17 from "path";
 import { createServer as createViteServer, createLogger } from "vite";
 
 // vite.config.ts
 import { defineConfig } from "vite";
 import react from "@vitejs/plugin-react";
-import path15 from "path";
+import path16 from "path";
 var isReplit = process.env.REPL_ID !== void 0;
 var replitPlugins = isReplit ? [
   (await import("@replit/vite-plugin-shadcn-theme-json")).default(),
@@ -95067,14 +95398,14 @@ var vite_config_default = defineConfig({
   ],
   resolve: {
     alias: {
-      "@": path15.resolve(import.meta.dirname, "client", "src"),
-      "@shared": path15.resolve(import.meta.dirname, "shared"),
-      "@assets": path15.resolve(import.meta.dirname, "attached_assets")
+      "@": path16.resolve(import.meta.dirname, "client", "src"),
+      "@shared": path16.resolve(import.meta.dirname, "shared"),
+      "@assets": path16.resolve(import.meta.dirname, "attached_assets")
     }
   },
-  root: path15.resolve(import.meta.dirname, "client"),
+  root: path16.resolve(import.meta.dirname, "client"),
   build: {
-    outDir: path15.resolve(import.meta.dirname, "dist/public"),
+    outDir: path16.resolve(import.meta.dirname, "dist/public"),
     emptyOutDir: true,
     chunkSizeWarningLimit: 4e3,
     rollupOptions: {
@@ -95197,13 +95528,13 @@ async function setupVite(app2, server) {
       return res.status(404).json({ error: "Not found", path: url });
     }
     try {
-      const clientTemplate = path16.resolve(
+      const clientTemplate = path17.resolve(
         import.meta.dirname,
         "..",
         "client",
         "index.html"
       );
-      let template = await fs15.promises.readFile(clientTemplate, "utf-8");
+      let template = await fs16.promises.readFile(clientTemplate, "utf-8");
       template = template.replace(
         `src="/src/main.tsx"`,
         `src="/src/main.tsx?v=${TEMPLATE_VERSION}"`
@@ -95223,9 +95554,9 @@ async function setupVite(app2, server) {
   });
 }
 function serveStatic(app2) {
-  const distPath = path16.resolve(import.meta.dirname, "..", "dist", "public");
-  console.log(`[serveStatic] Looking for dist at: ${distPath} \u2014 exists: ${fs15.existsSync(distPath)}`);
-  if (!fs15.existsSync(distPath)) {
+  const distPath = path17.resolve(import.meta.dirname, "..", "dist", "public");
+  console.log(`[serveStatic] Looking for dist at: ${distPath} \u2014 exists: ${fs16.existsSync(distPath)}`);
+  if (!fs16.existsSync(distPath)) {
     throw new Error(
       `Could not find the build directory: ${distPath}, make sure to build the client first`
     );
@@ -95246,7 +95577,7 @@ function serveStatic(app2) {
       }
     }
   }));
-  const indexPath = path16.resolve(distPath, "index.html");
+  const indexPath = path17.resolve(distPath, "index.html");
   const versionScript = `<script>
 (function(){
   try{
@@ -95282,7 +95613,7 @@ function serveStatic(app2) {
         "Expires": "0",
         "Content-Type": "text/html; charset=utf-8"
       });
-      let html = await fs15.promises.readFile(indexPath, "utf-8");
+      let html = await fs16.promises.readFile(indexPath, "utf-8");
       html = await injectBlogSeoMeta(html, req.originalUrl);
       html = html.replace("<head>", "<head>" + versionScript);
       res.send(html);
@@ -95293,7 +95624,7 @@ function serveStatic(app2) {
 }
 
 // server/index.ts
-import path17 from "path";
+import path18 from "path";
 
 // server/auth.ts
 init_storage();
@@ -96232,19 +96563,19 @@ httpServer.listen(PORT, "0.0.0.0", () => {
   log(`serving on port ${PORT}`);
 });
 setupAuth(app);
-app.use("/uploads", express2.static(path17.join(process.cwd(), "uploads")));
-app.use("/ea-templates", express2.static(path17.join(process.cwd(), "public/ea-templates")));
-app.use("/downloads", express2.static(path17.join(process.cwd(), "public/downloads"), {
+app.use("/uploads", express2.static(path18.join(process.cwd(), "uploads")));
+app.use("/ea-templates", express2.static(path18.join(process.cwd(), "public/ea-templates")));
+app.use("/downloads", express2.static(path18.join(process.cwd(), "public/downloads"), {
   setHeaders: (res, filePath) => {
     if (filePath.endsWith(".mq5")) {
       res.setHeader("Content-Type", "text/plain; charset=utf-8");
-      res.setHeader("Content-Disposition", 'attachment; filename="' + path17.basename(filePath) + '"');
+      res.setHeader("Content-Disposition", 'attachment; filename="' + path18.basename(filePath) + '"');
     }
   }
 }));
 app.use((req, res, next) => {
   const start = Date.now();
-  const path18 = req.path;
+  const path19 = req.path;
   let capturedJsonResponse = void 0;
   const originalResJson = res.json;
   res.json = function(bodyJson, ...args) {
@@ -96253,8 +96584,8 @@ app.use((req, res, next) => {
   };
   res.on("finish", () => {
     const duration = Date.now() - start;
-    if (path18.startsWith("/api")) {
-      let logLine = `${req.method} ${path18} ${res.statusCode} in ${duration}ms`;
+    if (path19.startsWith("/api")) {
+      let logLine = `${req.method} ${path19} ${res.statusCode} in ${duration}ms`;
       if (capturedJsonResponse) {
         logLine += ` :: ${JSON.stringify(capturedJsonResponse)}`;
       }

@@ -3,33 +3,22 @@
  * garble any text or logo they try to draw): a small logo watermark in the
  * bottom-right corner plus a 1.5s end card with the logo on VEDD navy.
  *
- * Uses the system ffmpeg/ffprobe (same dependency as video-processor.ts).
+ * Uses ffmpeg-static (server/services/ffmpeg.ts), falling back to system ffmpeg.
  * Returns null on any failure so callers can ship the unbranded clip.
  */
-import { spawn } from 'child_process';
+import { runFfmpeg, probe as probeVideo } from './ffmpeg';
 import fs from 'fs';
 import os from 'os';
 import path from 'path';
 
+// The real VEDD logo PNG (same file as components/ui/vedd-logo.tsx).
+// Not icons/icon-512x512.png: that file is an SVG with a .png name.
 const LOGO_CANDIDATES = [
-  path.resolve(process.cwd(), 'dist/public/icons/icon-512x512.png'),
-  path.resolve(process.cwd(), 'client/public/icons/icon-512x512.png'),
+  path.resolve(process.cwd(), 'attached_assets/IMG_3645.png'),
 ];
 const END_CARD_SECONDS = 1.5;
 const FPS = 16;
 const NAVY = '0x080B14';
-
-function run(cmd: string, args: string[], timeoutMs = 120000): Promise<string> {
-  return new Promise((resolve, reject) => {
-    const p = spawn(cmd, args);
-    let out = '', err = '';
-    const t = setTimeout(() => { p.kill('SIGKILL'); reject(new Error(`${cmd} timed out`)); }, timeoutMs);
-    p.stdout.on('data', (d) => { out += d.toString(); });
-    p.stderr.on('data', (d) => { err += d.toString(); });
-    p.on('error', (e) => { clearTimeout(t); reject(e); });
-    p.on('close', (code) => { clearTimeout(t); code === 0 ? resolve(out) : reject(new Error(`${cmd} exited ${code}: ${err.slice(-400)}`)); });
-  });
-}
 
 export function findLogo(): string | null {
   return LOGO_CANDIDATES.find((p) => fs.existsSync(p)) ?? null;
@@ -47,9 +36,7 @@ export async function brandVideo(video: Buffer, aspect: AspectRatio = '9:16'): P
   const dst = path.join(dir, 'out.mp4');
   try {
     fs.writeFileSync(src, video);
-    const probe = await run('ffprobe', ['-v', 'error', '-select_streams', 'v:0', '-show_entries', 'stream=width,height', '-of', 'csv=p=0:s=x', src], 30000);
-    const [sw, sh] = probe.trim().split('x').map(Number);
-    if (!(sw > 0 && sh > 0)) throw new Error(`could not read video size (${probe.trim()})`);
+    const { width: sw, height: sh } = await probeVideo(src);
     const even = (n: number) => Math.max(2, Math.floor(n / 2) * 2);
     // Center-crop to the target ratio (e.g. 9:16 source -> 1:1 or 4:5 feed post).
     const r = RATIO[aspect] ?? RATIO['9:16'];
@@ -65,7 +52,7 @@ export async function brandVideo(video: Buffer, aspect: AspectRatio = '9:16'): P
       `[2:v]scale=${card}:-1,pad=${w}:${h}:(ow-iw)/2:(oh-ih)/2:color=${NAVY},fps=${FPS},format=yuv420p,setsar=1[card]`,
       `[main][card]concat=n=2:v=1:a=0[out]`,
     ].join(';');
-    await run('ffmpeg', [
+    await runFfmpeg([
       '-y', '-i', src, '-i', logo, '-loop', '1', '-t', String(END_CARD_SECONDS), '-i', logo,
       '-filter_complex', filter, '-map', '[out]',
       '-c:v', 'libx264', '-preset', 'veryfast', '-crf', '23', '-pix_fmt', 'yuv420p', '-movflags', '+faststart', dst,
