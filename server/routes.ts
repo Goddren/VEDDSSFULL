@@ -26,7 +26,7 @@ import { setupTwilio, sendTradingSignal, sendSmsRaw } from "./twilio";
 import { checkUserAchievements } from "./achievement-tracker";
 import { generateMT5EACode, generateTradingViewCode, generateTradeLockerCode } from './ea-generators';
 import { tradingCoachHandler, tradingTipsHandler } from "./trading-coach";
-import { abbaStrategistHandler, abbaChatHandler, abbaIdeaLabPrompt, extractIdeaDraft, IDEA_MARKER, extractSetupDraft, SETUP_MARKER } from "./abba-strategist";
+import { abbaStrategistHandler, abbaChatHandler, abbaIdeaLabPrompt, extractIdeaDraft, IDEA_MARKER, extractSetupDraft, SETUP_MARKER, wantsSetupCard, wantsIdeaCard } from "./abba-strategist";
 import { marketInsightsHandler, contextualInsightHandler } from "./market-insights";
 import { createStopOrder, checkBreakoutTriggers, cancelStopOrder, getStopOrdersForUser } from "./services/stopOrderService";
 import { insertStopOrderSchema, stopOrders } from "@shared/schema";
@@ -5025,13 +5025,14 @@ ${await abbaIdeaLabPrompt(userId)}`;
 
       // Idea Lab: the trader agreed to an idea → structured rule + backtest card.
       let ideaDraft: any = null;
-      if (fullText.includes(IDEA_MARKER)) {
+      const lastAbba = String([...historyMessages].reverse().find((h: any) => h.role === 'assistant')?.content || '');
+      if (fullText.includes(IDEA_MARKER) || wantsIdeaCard(message, lastAbba)) {
         ideaDraft = await extractIdeaDraft({ client: aiClient, model: (aiClient as any).defaultModel || 'gpt-4o' }, userId,
           historyMessages, message, fullText.split(IDEA_MARKER).join('')).catch((e: any) => { console.error('[ABBA stream idea]', e?.message); return null; });
       }
 
       let setupDraft: any = null;
-      if (fullText.includes(SETUP_MARKER)) {
+      if (fullText.includes(SETUP_MARKER) || wantsSetupCard(message, lastAbba)) {
         setupDraft = await extractSetupDraft({ client: aiClient, model: (aiClient as any).defaultModel || 'gpt-4o' },
           historyMessages, message, fullText.split(SETUP_MARKER).join('')).catch((e: any) => { console.error('[ABBA stream setup]', e?.message); return null; });
       }

@@ -38450,7 +38450,9 @@ __export(abba_strategist_exports, {
   abbaStrategistHandler: () => abbaStrategistHandler,
   buildAbbaContext: () => buildAbbaContext,
   extractIdeaDraft: () => extractIdeaDraft,
-  extractSetupDraft: () => extractSetupDraft
+  extractSetupDraft: () => extractSetupDraft,
+  wantsIdeaCard: () => wantsIdeaCard,
+  wantsSetupCard: () => wantsSetupCard
 });
 async function buildAbbaContext(userId) {
   const all = await storage.getAiTradeResults(userId, 500);
@@ -38591,6 +38593,12 @@ async function getClient(userId) {
   } catch {
     return null;
   }
+}
+function wantsSetupCard(message, lastAbba) {
+  return /review screen|settings? (card|review)|set (it|this|that|everything|the engines?|my engines?) up|go live|apply (it|this|that|the plan|these settings)/i.test(message) || YES.test(message) && /review screen|set (up|it up)|engines?|settings/i.test(lastAbba);
+}
+function wantsIdeaCard(message, lastAbba) {
+  return /add (it|this|that)( idea)? to (my|the) brain|test (it|this|that) in shadow|shadow[- ]test (it|this|that)/i.test(message) || YES.test(message) && /shadow mode|shadow test|to your brain|to my brain/i.test(lastAbba);
 }
 async function abbaIdeaLabPrompt(userId) {
   return `=== WEEKLY REVIEW (real numbers, UTC weeks Mon-Sun) ===
@@ -38868,7 +38876,8 @@ ${contextSummary(ctx)}`;
       if (!reply) reply = "Run that by me one more time, fam \u2014 I got you.";
     }
     let ideaDraft = null;
-    if (reply.includes("[[IDEA_READY]]")) {
+    const lastAbba = String([...Array.isArray(history) ? history : []].reverse().find((h) => h?.role === "assistant")?.content || "");
+    if (reply.includes("[[IDEA_READY]]") || wantsIdeaCard(message, lastAbba)) {
       reply = reply.replace(/\[\[IDEA_READY\]\]/g, "").trim();
       ideaDraft = await extractIdeaDraft(ai, userId, msgs.slice(1), message, reply).catch((e) => {
         console.error("[Abba idea extract]", e?.message);
@@ -38876,7 +38885,7 @@ ${contextSummary(ctx)}`;
       });
     }
     let setupDraft = null;
-    if (reply.includes(SETUP_MARKER)) {
+    if (reply.includes(SETUP_MARKER) || wantsSetupCard(message, lastAbba)) {
       reply = reply.split(SETUP_MARKER).join("").trim();
       setupDraft = await extractSetupDraft(ai, msgs.slice(1), message, reply).catch((e) => {
         console.error("[Abba setup extract]", e?.message);
@@ -38889,7 +38898,7 @@ ${contextSummary(ctx)}`;
     res.status(500).json({ error: err.message });
   }
 }
-var sessionOf, IDEA_MARKER, SETUP_MARKER;
+var sessionOf, IDEA_MARKER, SETUP_MARKER, YES;
 var init_abba_strategist = __esm({
   "server/abba-strategist.ts"() {
     "use strict";
@@ -38903,6 +38912,7 @@ var init_abba_strategist = __esm({
     };
     IDEA_MARKER = "[[IDEA_READY]]";
     SETUP_MARKER = "[[SETUP_READY]]";
+    YES = /^\s*(yes|yeah|yep|yup|bet|sure|ok(ay)?|do it|go ahead|let'?s (do it|go)|say less|run it|lock it in|please)\b/i;
   }
 });
 
@@ -64398,9 +64408,9 @@ async function getStopOrdersForUser(userId, filters = {}) {
 init_schema();
 
 // server/build-info.ts
-var BUILD_COMMIT = "d194c810-dirty";
+var BUILD_COMMIT = "26bd0e47-dirty";
 var BUILD_BRANCH = "HEAD";
-var BUILT_AT = "2026-11-01T17:03:02.401Z";
+var BUILT_AT = "2026-11-01T17:20:35.073Z";
 
 // server/stripe.ts
 init_db();
@@ -71888,7 +71898,8 @@ ${await abbaIdeaLabPrompt(userId)}`;
       const lc = fullText.toLowerCase();
       const suggestions = lc.includes("plan") || lc.includes("pairs") ? ["Best entry for my pairs?", "What session today?", "Protect my gains"] : lc.includes("pacing") || lc.includes("goal") || lc.includes("%") ? ["Break down daily targets", "Should I increase lots?", "Pairs to close the gap"] : lc.includes("entry") || lc.includes("setup") || lc.includes("trade") ? ["SL and TP for this?", "High or medium confidence?", "Invalidation point?"] : ["Am I on pace?", "Best trade now?", "Today's summary"];
       let ideaDraft = null;
-      if (fullText.includes(IDEA_MARKER)) {
+      const lastAbba = String([...historyMessages].reverse().find((h) => h.role === "assistant")?.content || "");
+      if (fullText.includes(IDEA_MARKER) || wantsIdeaCard(message, lastAbba)) {
         ideaDraft = await extractIdeaDraft(
           { client: aiClient, model: aiClient.defaultModel || "gpt-4o" },
           userId,
@@ -71901,7 +71912,7 @@ ${await abbaIdeaLabPrompt(userId)}`;
         });
       }
       let setupDraft = null;
-      if (fullText.includes(SETUP_MARKER)) {
+      if (fullText.includes(SETUP_MARKER) || wantsSetupCard(message, lastAbba)) {
         setupDraft = await extractSetupDraft(
           { client: aiClient, model: aiClient.defaultModel || "gpt-4o" },
           historyMessages,

@@ -165,6 +165,18 @@ async function getClient(userId: number): Promise<{ client: any; model: string }
 // ── Idea Lab: shared by /api/abba/chat and /api/abba/stream ───────────────────
 export const IDEA_MARKER = '[[IDEA_READY]]';
 export const SETUP_MARKER = '[[SETUP_READY]]';
+
+// The model doesn't reliably emit the markers, so also read the trader's own
+// words: an explicit ask, or a "yes" right after ABBA offered the card.
+const YES = /^\s*(yes|yeah|yep|yup|bet|sure|ok(ay)?|do it|go ahead|let'?s (do it|go)|say less|run it|lock it in|please)\b/i;
+export function wantsSetupCard(message: string, lastAbba: string): boolean {
+  return /review screen|settings? (card|review)|set (it|this|that|everything|the engines?|my engines?) up|go live|apply (it|this|that|the plan|these settings)/i.test(message)
+    || (YES.test(message) && /review screen|set (up|it up)|engines?|settings/i.test(lastAbba));
+}
+export function wantsIdeaCard(message: string, lastAbba: string): boolean {
+  return /add (it|this|that)( idea)? to (my|the) brain|test (it|this|that) in shadow|shadow[- ]test (it|this|that)/i.test(message)
+    || (YES.test(message) && /shadow mode|shadow test|to your brain|to my brain/i.test(lastAbba));
+}
 export async function abbaIdeaLabPrompt(userId: number): Promise<string> {
   return `=== WEEKLY REVIEW (real numbers, UTC weeks Mon-Sun) ===
 ${await reviewContextText(userId)}
@@ -446,14 +458,15 @@ ${contextSummary(ctx)}`;
     }
     // Idea Lab: the user agreed to an idea → turn the conversation into a rule + backtest.
     let ideaDraft: any = null;
-    if (reply.includes('[[IDEA_READY]]')) {
+    const lastAbba = String([...(Array.isArray(history) ? history : [])].reverse().find((h: any) => h?.role === 'assistant')?.content || '');
+    if (reply.includes('[[IDEA_READY]]') || wantsIdeaCard(message, lastAbba)) {
       reply = reply.replace(/\[\[IDEA_READY\]\]/g, '').trim();
       ideaDraft = await extractIdeaDraft(ai, userId, msgs.slice(1), message, reply).catch((e) => {
         console.error('[Abba idea extract]', e?.message); return null;
       });
     }
     let setupDraft: any = null;
-    if (reply.includes(SETUP_MARKER)) {
+    if (reply.includes(SETUP_MARKER) || wantsSetupCard(message, lastAbba)) {
       reply = reply.split(SETUP_MARKER).join('').trim();
       setupDraft = await extractSetupDraft(ai, msgs.slice(1), message, reply).catch((e) => { console.error('[Abba setup extract]', e?.message); return null; });
     }

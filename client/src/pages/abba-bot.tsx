@@ -505,7 +505,7 @@ export default function AbbaBotPage() {
             </div>
 
             <div className="flex flex-wrap gap-2">
-              {["How did my last week go?", "What would have made last week profitable?", "Plan my next week with me", "What's new in the FX engine?", "Help me add a strategy idea to my brain"].map((q) => (
+              {["How did my last week go?", "What would have made last week profitable?", "Plan my next week with me", "Put this plan on the review screen", "What's new in the FX engine?", "Help me add a strategy idea to my brain"].map((q) => (
                 <button key={q} onClick={() => send(q)} disabled={sending}
                   className="rounded-full border border-purple-700/50 bg-purple-900/20 px-3 py-1 text-[11px] text-purple-200 hover:bg-purple-800/30">{q}</button>
               ))}
