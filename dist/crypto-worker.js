@@ -15926,7 +15926,7 @@ Make it timely, relevant to current market conditions, and show how VEDD's tools
     currentEventsContext
   };
 }
-async function generateReelScript(topic, userId, styleNote) {
+async function generateReelScript(topic, userId, format, styleNote) {
   let openai2;
   let model = "gpt-4o";
   try {
@@ -15952,10 +15952,26 @@ Return a JSON object with these exact fields:
   "caption": "a social caption for the post (2-4 sentences, includes a CTA to veddbuild.com, no hashtags \u2014 those get added separately)",
   "videoPrompt": "a vivid, concrete visual SCENE (1-2 sentences) for an AI video generator, staying FAITHFUL to the topic above \u2014 describe the setting, subject and mood only. Do NOT describe film style, grain, color grade or camera settings (those are applied automatically). No text overlays, captions, signage, logos or readable words. If the scene includes people, they are young Black people in contemporary streetwear in an authentic inner-city/urban setting."
 }`;
-  const system = styleNote?.trim() ? `${systemPrompt}
+  const FORMAT_INSTRUCTIONS = {
+    "product-ad": `FORMAT \u2014 PRODUCT AD (direct response):
+- The hook names a painful trading problem as a question or a blunt statement.
+- Beats: (1) the problem up close, (2) the presenter pulls out their phone / turns to their screen where a candlestick chart is being analyzed for them, (3) what the VEDD AI Trading Vault does with that chart, in plain words, (4) the call to action: start free at veddbuild.com.
+- The videoPrompt scene is a product-demo moment: the presenter in frame, phone or chart screen beside them, energy like showing a friend something that works.
+- No income or profit promises, no win-rate claims.`,
+    "got-milk": `FORMAT \u2014 "GOT MILK?"-STYLE PARODY AD:
+- Playful 90s TV-spot energy. The hook is a relatable stuck moment for a trader (missed the entry, ten charts open, analysis paralysis) played for comedy, never mocking the viewer.
+- Beats: the frustration builds, then the turn \u2014 the presenter looks straight at the camera, holds up their phone, deadpan. The final script line is the closer: "got VEDD?"
+- The caption MUST end with the exact closer: got VEDD?
+- The videoPrompt scene matches the stuck moment, then the turn to camera.
+- No income or profit promises \u2014 the joke is the situation, never the money.`
+  };
+  const withFormat = format && FORMAT_INSTRUCTIONS[format] ? `${systemPrompt}
+
+${FORMAT_INSTRUCTIONS[format]}` : systemPrompt;
+  const system = styleNote?.trim() ? `${withFormat}
 
 ADAPT THIS PROVEN AD STRUCTURE \u2014 copy the shape only, written for VEDD in the brand voice above:
-${styleNote.trim().slice(0, 900)}` : systemPrompt;
+${styleNote.trim().slice(0, 900)}` : withFormat;
   const response = await openai2.chat.completions.create({
     model,
     messages: [
@@ -15971,6 +15987,9 @@ ${styleNote.trim().slice(0, 900)}` : systemPrompt;
     data = JSON.parse(raw);
   } catch {
     data = {};
+  }
+  if (format === "got-milk" && data.caption && !/got vedd\?\s*$/i.test(data.caption.trim())) {
+    data.caption = `${data.caption.trim()} got VEDD?`;
   }
   return {
     hook: data.hook || `Stop scrolling \u2014 this is about ${topic}.`,

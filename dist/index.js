@@ -13084,7 +13084,7 @@ Make it timely, relevant to current market conditions, and show how VEDD's tools
     currentEventsContext
   };
 }
-async function generateReelScript(topic, userId, styleNote) {
+async function generateReelScript(topic, userId, format, styleNote) {
   let openai2;
   let model = "gpt-4o";
   try {
@@ -13110,10 +13110,26 @@ Return a JSON object with these exact fields:
   "caption": "a social caption for the post (2-4 sentences, includes a CTA to veddbuild.com, no hashtags \u2014 those get added separately)",
   "videoPrompt": "a vivid, concrete visual SCENE (1-2 sentences) for an AI video generator, staying FAITHFUL to the topic above \u2014 describe the setting, subject and mood only. Do NOT describe film style, grain, color grade or camera settings (those are applied automatically). No text overlays, captions, signage, logos or readable words. If the scene includes people, they are young Black people in contemporary streetwear in an authentic inner-city/urban setting."
 }`;
-  const system = styleNote?.trim() ? `${systemPrompt}
+  const FORMAT_INSTRUCTIONS = {
+    "product-ad": `FORMAT \u2014 PRODUCT AD (direct response):
+- The hook names a painful trading problem as a question or a blunt statement.
+- Beats: (1) the problem up close, (2) the presenter pulls out their phone / turns to their screen where a candlestick chart is being analyzed for them, (3) what the VEDD AI Trading Vault does with that chart, in plain words, (4) the call to action: start free at veddbuild.com.
+- The videoPrompt scene is a product-demo moment: the presenter in frame, phone or chart screen beside them, energy like showing a friend something that works.
+- No income or profit promises, no win-rate claims.`,
+    "got-milk": `FORMAT \u2014 "GOT MILK?"-STYLE PARODY AD:
+- Playful 90s TV-spot energy. The hook is a relatable stuck moment for a trader (missed the entry, ten charts open, analysis paralysis) played for comedy, never mocking the viewer.
+- Beats: the frustration builds, then the turn \u2014 the presenter looks straight at the camera, holds up their phone, deadpan. The final script line is the closer: "got VEDD?"
+- The caption MUST end with the exact closer: got VEDD?
+- The videoPrompt scene matches the stuck moment, then the turn to camera.
+- No income or profit promises \u2014 the joke is the situation, never the money.`
+  };
+  const withFormat = format && FORMAT_INSTRUCTIONS[format] ? `${systemPrompt}
+
+${FORMAT_INSTRUCTIONS[format]}` : systemPrompt;
+  const system = styleNote?.trim() ? `${withFormat}
 
 ADAPT THIS PROVEN AD STRUCTURE \u2014 copy the shape only, written for VEDD in the brand voice above:
-${styleNote.trim().slice(0, 900)}` : systemPrompt;
+${styleNote.trim().slice(0, 900)}` : withFormat;
   const response = await openai2.chat.completions.create({
     model,
     messages: [
@@ -13129,6 +13145,9 @@ ${styleNote.trim().slice(0, 900)}` : systemPrompt;
     data = JSON.parse(raw);
   } catch {
     data = {};
+  }
+  if (format === "got-milk" && data.caption && !/got vedd\?\s*$/i.test(data.caption.trim())) {
+    data.caption = `${data.caption.trim()} got VEDD?`;
   }
   return {
     hook: data.hook || `Stop scrolling \u2014 this is about ${topic}.`,
@@ -25020,9 +25039,9 @@ var init_dxtrade = __esm({
       async ensureLoggedIn() {
         if (!this.token) await this.login();
       }
-      async authed(path19, init = {}) {
+      async authed(path20, init = {}) {
         if (!this.token) await this.login();
-        const doFetch = () => fetch(`${this.base}${path19}`, {
+        const doFetch = () => fetch(`${this.base}${path20}`, {
           ...init,
           headers: { "Accept": "application/json", "Content-Type": "application/json", "Authorization": `DXAPI ${this.token}`, ...init.headers || {} },
           signal: AbortSignal.timeout(2e4)
@@ -25230,8 +25249,8 @@ var init_dxtrade = __esm({
       async getInstruments(query = "") {
         const attempts = query ? [`/instruments/query?text=${encodeURIComponent(query)}`, `/instruments/query?symbol=${encodeURIComponent(query)}`, `/instruments/query?symbols=${encodeURIComponent(query)}`] : ["/instruments/query"];
         let last = "";
-        for (const path19 of attempts) {
-          const res = await this.authed(path19);
+        for (const path20 of attempts) {
+          const res = await this.authed(path20);
           const text2 = await res.text();
           if (res.ok) {
             try {
@@ -25304,10 +25323,10 @@ var init_dxtrade = __esm({
           `/accounts/${enc}/reports/trades?from=${encodeURIComponent(fromIso)}&to=${encodeURIComponent(toIso)}`,
           `/accounts/${enc}/positions/history?from=${encodeURIComponent(fromIso)}&to=${encodeURIComponent(toIso)}`
         ];
-        for (const path19 of candidates) {
+        for (const path20 of candidates) {
           let res;
           try {
-            res = await this.authed(path19);
+            res = await this.authed(path20);
           } catch {
             continue;
           }
@@ -25321,7 +25340,7 @@ var init_dxtrade = __esm({
           const list = data?.history ?? data?.trades ?? data?.orders ?? data?.positions ?? data?.items ?? (Array.isArray(data) ? data : []);
           if (!Array.isArray(list) || list.length === 0) {
             if (Array.isArray(list)) {
-              console.log(`[dxtrade] history via ${path19.split("?")[0]} \u2014 0 rows in window`);
+              console.log(`[dxtrade] history via ${path20.split("?")[0]} \u2014 0 rows in window`);
               return [];
             }
             continue;
@@ -25341,7 +25360,7 @@ var init_dxtrade = __esm({
             profit: o.profit ?? o.pnl ?? o.realizedPnl ?? o.realizedPnL ?? o.grossProfit,
             closeTime: o.closeTime ?? o.closedAt ?? o.closeTimestamp ?? o.timestamp ?? o.updateTime ?? null
           }));
-          console.log(`[dxtrade] history via ${path19.split("?")[0]} \u2014 ${closed.length} closed rows`);
+          console.log(`[dxtrade] history via ${path20.split("?")[0]} \u2014 ${closed.length} closed rows`);
           return closed;
         }
         console.log(`[dxtrade] no working history endpoint found for ${accountCode} (tried ${candidates.length}) \u2014 close-sync will keep opens PENDING`);
@@ -25780,13 +25799,13 @@ function callBudget() {
     candleTtlMs: Number(process.env.COINGECKO_CANDLE_TTL_MS ?? (hasKey ? 10 * 60 * 1e3 : 30 * 60 * 1e3))
   };
 }
-async function gt(path19) {
+async function gt(path20) {
   const run = async () => {
     for (let attempt = 0; attempt < 3; attempt++) {
       const wait = Math.max(0, callBudget().minIntervalMs - (Date.now() - lastCallAt));
       if (wait > 0) await new Promise((r) => setTimeout(r, wait));
       lastCallAt = Date.now();
-      const res = await fetch(`${GT}${path19}`, {
+      const res = await fetch(`${GT}${path20}`, {
         headers: cgHeaders(),
         signal: AbortSignal.timeout(2e4)
       });
@@ -25794,13 +25813,13 @@ async function gt(path19) {
       if (res.status === 429) {
         const retryAfter = Number(res.headers.get("retry-after")) || 0;
         const backoff = retryAfter > 0 ? retryAfter * 1e3 : 3e3 * (attempt + 1);
-        console.warn(`[defi-market-data] rate limited on ${path19}; waiting ${backoff}ms (attempt ${attempt + 1}/3)`);
+        console.warn(`[defi-market-data] rate limited on ${path20}; waiting ${backoff}ms (attempt ${attempt + 1}/3)`);
         await new Promise((r) => setTimeout(r, backoff));
         continue;
       }
-      throw new Error(`GeckoTerminal ${res.status} on ${path19}`);
+      throw new Error(`GeckoTerminal ${res.status} on ${path20}`);
     }
-    throw new Error(`GeckoTerminal rate limited after 3 attempts on ${path19}`);
+    throw new Error(`GeckoTerminal rate limited after 3 attempts on ${path20}`);
   };
   const next = callChain.then(run, run);
   callChain = next.catch(() => void 0);
@@ -39582,9 +39601,9 @@ var init_tastytrade = __esm({
         }
         await this.login();
       }
-      async request(path19, init = {}, attempt = 0) {
+      async request(path20, init = {}, attempt = 0) {
         await this.ensureAuthenticated();
-        const response = await fetch(`${this.baseUrl}${path19}`, {
+        const response = await fetch(`${this.baseUrl}${path20}`, {
           ...init,
           headers: {
             "Authorization": this.sessionToken || "",
@@ -39595,7 +39614,7 @@ var init_tastytrade = __esm({
         });
         if (!response.ok && RETRYABLE_STATUSES3.has(response.status) && attempt < RETRY_DELAYS3.length) {
           await new Promise((r) => setTimeout(r, RETRY_DELAYS3[attempt]));
-          return this.request(path19, init, attempt + 1);
+          return this.request(path20, init, attempt + 1);
         }
         return response;
       }
@@ -40484,20 +40503,20 @@ var init_tradovate = __esm({
         }
         return data;
       }
-      async get(path19) {
+      async get(path20) {
         await this.ensureAuthenticated();
-        const response = await fetch(`${this.baseUrl}${path19}`, {
+        const response = await fetch(`${this.baseUrl}${path20}`, {
           headers: { "Authorization": `Bearer ${this.accessToken}`, "Accept": "application/json" }
         });
         if (!response.ok) {
           const text2 = await response.text();
-          throw new Error(`Tradovate GET ${path19} failed (${response.status}): ${text2}`);
+          throw new Error(`Tradovate GET ${path20} failed (${response.status}): ${text2}`);
         }
         return response.json();
       }
-      async post(path19, body) {
+      async post(path20, body) {
         await this.ensureAuthenticated();
-        const response = await fetch(`${this.baseUrl}${path19}`, {
+        const response = await fetch(`${this.baseUrl}${path20}`, {
           method: "POST",
           headers: {
             "Authorization": `Bearer ${this.accessToken}`,
@@ -40508,7 +40527,7 @@ var init_tradovate = __esm({
         });
         if (!response.ok) {
           const text2 = await response.text();
-          throw new Error(`Tradovate POST ${path19} failed (${response.status}): ${text2}`);
+          throw new Error(`Tradovate POST ${path20} failed (${response.status}): ${text2}`);
         }
         return response.json();
       }
@@ -45729,8 +45748,8 @@ __export(coinbase_exports, {
 });
 import crypto10 from "crypto";
 import jwt from "jsonwebtoken";
-function buildJwt(keyName, privateKeyPem, method, path19) {
-  const uri = `${method} ${API_HOST}${path19}`;
+function buildJwt(keyName, privateKeyPem, method, path20) {
+  const uri = `${method} ${API_HOST}${path20}`;
   const now = Math.floor(Date.now() / 1e3);
   const payload2 = { sub: keyName, iss: "cdp", nbf: now, exp: now + 120, uri };
   return jwt.sign(payload2, privateKeyPem, {
@@ -45751,9 +45770,9 @@ var init_coinbase = __esm({
         this.keyName = keyName;
         this.privateKey = privateKeyPem.includes("\\n") ? privateKeyPem.replace(/\\n/g, "\n") : privateKeyPem;
       }
-      async get(path19) {
-        const token = buildJwt(this.keyName, this.privateKey, "GET", path19);
-        const res = await fetch(`https://${API_HOST}${path19}`, {
+      async get(path20) {
+        const token = buildJwt(this.keyName, this.privateKey, "GET", path20);
+        const res = await fetch(`https://${API_HOST}${path20}`, {
           method: "GET",
           headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
           signal: AbortSignal.timeout(12e3)
@@ -45764,9 +45783,9 @@ var init_coinbase = __esm({
         }
         return res.json();
       }
-      async post(path19, body) {
-        const token = buildJwt(this.keyName, this.privateKey, "POST", path19);
-        const res = await fetch(`https://${API_HOST}${path19}`, {
+      async post(path20, body) {
+        const token = buildJwt(this.keyName, this.privateKey, "POST", path20);
+        const res = await fetch(`https://${API_HOST}${path20}`, {
           method: "POST",
           headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
           body: JSON.stringify(body),
@@ -45808,8 +45827,8 @@ var init_coinbase = __esm({
         const accounts = [];
         let cursor = "";
         for (let i = 0; i < 10; i++) {
-          const path19 = `/api/v3/brokerage/accounts?limit=250${cursor ? `&cursor=${encodeURIComponent(cursor)}` : ""}`;
-          const data = await this.get(path19);
+          const path20 = `/api/v3/brokerage/accounts?limit=250${cursor ? `&cursor=${encodeURIComponent(cursor)}` : ""}`;
+          const data = await this.get(path20);
           for (const a of data?.accounts ?? []) accounts.push(a);
           if (data?.has_next && data?.cursor) cursor = data.cursor;
           else break;
@@ -45878,22 +45897,22 @@ var init_kraken = __esm({
         this.apiKey = apiKey;
         this.secret = secret;
       }
-      sign(path19, nonce, postData) {
+      sign(path20, nonce, postData) {
         const sha256 = crypto11.createHash("sha256").update(nonce + postData).digest();
-        const message = Buffer.concat([Buffer.from(path19, "utf8"), sha256]);
+        const message = Buffer.concat([Buffer.from(path20, "utf8"), sha256]);
         const key = Buffer.from(this.secret, "base64");
         return crypto11.createHmac("sha512", key).update(message).digest("base64");
       }
       async privatePost(endpoint, params = {}) {
-        const path19 = `/0/private/${endpoint}`;
+        const path20 = `/0/private/${endpoint}`;
         const nonce = String(Date.now() * 1e3);
         const body = new URLSearchParams({ nonce, ...params });
         const postData = body.toString();
-        const res = await fetch(`${API_HOST2}${path19}`, {
+        const res = await fetch(`${API_HOST2}${path20}`, {
           method: "POST",
           headers: {
             "API-Key": this.apiKey,
-            "API-Sign": this.sign(path19, nonce, postData),
+            "API-Sign": this.sign(path20, nonce, postData),
             "Content-Type": "application/x-www-form-urlencoded",
             "User-Agent": "VEDD/1.0"
           },
@@ -46167,8 +46186,8 @@ function baseUrl(testnet) {
 function tradedAddress(c) {
   return (c.vaultAddress || c.accountAddress).toLowerCase();
 }
-async function post(testnet, path19, body) {
-  const r = await fetch(baseUrl(testnet) + path19, {
+async function post(testnet, path20, body) {
+  const r = await fetch(baseUrl(testnet) + path20, {
     method: "POST",
     headers: { "content-type": "application/json" },
     body: JSON.stringify(body),
@@ -46179,9 +46198,9 @@ async function post(testnet, path19, body) {
   try {
     j = JSON.parse(text2);
   } catch {
-    throw new Error(`Hyperliquid ${path19} HTTP ${r.status}: ${text2.slice(0, 200)}`);
+    throw new Error(`Hyperliquid ${path20} HTTP ${r.status}: ${text2.slice(0, 200)}`);
   }
-  if (!r.ok) throw new Error(`Hyperliquid ${path19} HTTP ${r.status}: ${text2.slice(0, 200)}`);
+  if (!r.ok) throw new Error(`Hyperliquid ${path20} HTTP ${r.status}: ${text2.slice(0, 200)}`);
   return j;
 }
 async function getMeta(testnet) {
@@ -52965,8 +52984,8 @@ async function runRuinConeSimulation(userId, params = {}) {
   let hitTargetCount = 0;
   const targetEquity = startingEquity + profitTarget;
   for (let s = 0; s < numSimulations; s++) {
-    const path19 = new Float64Array(numTrades + 1);
-    path19[0] = startingEquity;
+    const path20 = new Float64Array(numTrades + 1);
+    path20[0] = startingEquity;
     let equity = startingEquity;
     let peak = startingEquity;
     let firstFailIndex = -1;
@@ -52979,7 +52998,7 @@ async function runRuinConeSimulation(userId, params = {}) {
     for (let t = 1; t <= numTrades; t++) {
       const pnl = pnls[Math.random() * sourceTradeCount | 0];
       equity += pnl;
-      path19[t] = equity;
+      path20[t] = equity;
       if (equity > peak) peak = equity;
       if (!everRuin && peak - equity >= maxDrawdownLimit) {
         everRuin = true;
@@ -52998,7 +53017,7 @@ async function runRuinConeSimulation(userId, params = {}) {
         tradeInDay = 0;
       }
     }
-    paths[s] = path19;
+    paths[s] = path20;
     finalEquities[s] = equity;
     if (everRuin) ruinCount++;
     if (everDailyBreach) dailyBreachCount++;
@@ -56006,6 +56025,56 @@ var init_chart_overlay = __esm({
   }
 });
 
+// server/services/app-screens.ts
+import fs13 from "fs";
+import path13 from "path";
+function screenCatalogForPrompt() {
+  return APP_SCREENS.map((s) => `${s.id} \u2014 ${s.shows}`).join("\n");
+}
+function screenImagePath(id) {
+  const cached2 = fileCache.get(id);
+  if (cached2 !== void 0) return cached2;
+  const screen = APP_SCREENS.find((s) => s.id === id);
+  let found = null;
+  if (screen) {
+    const candidates = [
+      path13.resolve(process.cwd(), "dist/public/app-screens", screen.file),
+      path13.resolve(process.cwd(), "client/public/app-screens", screen.file),
+      path13.resolve(__dirname, "../public/app-screens", screen.file),
+      path13.resolve(__dirname, "../../client/public/app-screens", screen.file)
+    ];
+    found = candidates.find((c) => fs13.existsSync(c)) ?? null;
+    if (!found) console.warn(`[app-screens] ${screen.file} not found in any known location \u2014 scene will render without the screen overlay`);
+  }
+  fileCache.set(id, found);
+  return found;
+}
+function screenCardGeometry(W, H2) {
+  const cardH = Math.round(H2 * (W > H2 ? 0.66 : 0.5));
+  const cardW = Math.round(cardH * 0.475);
+  const x = Math.round((W - cardW) / 2);
+  const y = H2 - cardH - Math.round(H2 * 0.055);
+  return { cardW, cardH, x, y, panelPad: Math.round(W * 0.016) };
+}
+var APP_SCREENS, APP_SCREEN_IDS, fileCache;
+var init_app_screens = __esm({
+  "server/services/app-screens.ts"() {
+    "use strict";
+    APP_SCREENS = [
+      { id: "home-hero", title: "Home \u2014 hero", shows: 'the veddbuild.com home page hero: "The brain that trades while you sleep", the Start free button and the live BTC/USD chart card', file: "home-hero.jpg" },
+      { id: "how-it-works", title: "How it works", shows: 'the "How it works" section: set it up once and it runs itself \u2014 connect your account or drop in a chart, the brain reads structure, momentum and news and decides', file: "how-it-works.jpg" },
+      { id: "trading-engine", title: "Engine + brain", shows: 'the "Engine + brain" section: it trades, it learns, it repeats \u2014 the live engine trades while you sleep 24/7 and the self-learning brain grades every trade', file: "trading-engine.jpg" },
+      { id: "brain-marketplace", title: "Brain Marketplace", shows: 'the Brain Marketplace section: "Outgrown your brain? Sell it" \u2014 list a trained brain, other traders plug it in, the seller earns VEDD', file: "brain-marketplace.jpg" },
+      { id: "community", title: "The movement / Academy", shows: 'the "Movement" section: more than a platform \u2014 free education through the Workforce Academy (trading, AI, credit and entrepreneurship courses), a faith-driven community, meetups and mentors', file: "community.jpg" },
+      { id: "ambassador", title: "Ambassador program", shows: 'the Ambassador Program section: "Get paid to put people on" \u2014 share VEDD, earn credits on referrals, recurring monthly commission and the 30% profit split', file: "ambassador.jpg" },
+      { id: "pricing", title: "Plans and pricing", shows: "the Plans section: start free, upgrade when it is paying off \u2014 Free at $0 forever (AI chart analysis), Starter at $49.95 a month (live engine, self-learning brain), Premium above it", file: "pricing.jpg" },
+      { id: "about", title: "About VEDD", shows: 'the About page: "About VEDD \u2014 AI-powered trading chart analysis platform built for modern traders" and the mission to democratize professional-grade trading tools', file: "about.jpg" }
+    ];
+    APP_SCREEN_IDS = APP_SCREENS.map((s) => s.id);
+    fileCache = /* @__PURE__ */ new Map();
+  }
+});
+
 // server/services/explainer-video.ts
 var explainer_video_exports = {};
 __export(explainer_video_exports, {
@@ -56017,9 +56086,9 @@ __export(explainer_video_exports, {
   startExplainerJob: () => startExplainerJob,
   writeScript: () => writeScript
 });
-import fs13 from "fs";
+import fs14 from "fs";
 import os2 from "os";
-import path13 from "path";
+import path14 from "path";
 function ensureJobTable() {
   return tableReady2 ??= pool.query(`CREATE TABLE IF NOT EXISTS content_video_jobs (
       id SERIAL PRIMARY KEY,
@@ -56087,13 +56156,13 @@ function friendlyError(e) {
   return "The video could not be made right now. Please try again in a few minutes.";
 }
 async function runJob(id, userId, input, aspect, opts) {
-  const script = await writeScript(input, userId, opts.sceneCount ?? 4);
+  const script = await writeScript(input, userId, opts.sceneCount ?? 4, opts.backgroundScene);
   await update(id, { script, step: `Filming ${script.scenes.length} scenes with voiceover`, progress: 10 });
   const urls = new Array(script.scenes.length);
   let done = 0;
   const predictions = [];
   const queue = script.scenes.map((s, i) => async () => {
-    const r = await renderScene(s, script, aspect);
+    const r = await renderScene(s, script, aspect, opts.presenterImage);
     urls[i] = r.url;
     predictions.push(r.predictionId);
     done++;
@@ -56103,8 +56172,13 @@ async function runJob(id, userId, input, aspect, opts) {
     while (queue.length) await queue.shift()();
   });
   await Promise.all(workers);
-  await update(id, { step: "Adding VEDD branding and joining scenes", progress: 85, meta: { predictions, model: MODEL() } });
-  const video = await assemble(urls, aspect, script.scenes.map((s) => s.chart ?? null));
+  await update(id, { step: "Adding VEDD branding and joining scenes", progress: 85, meta: { predictions, model: MODEL(), presenter: opts.presenterImage ? "custom" : "ai", background: opts.backgroundScene ? "preset" : "ai" } });
+  const video = await assemble(
+    urls,
+    aspect,
+    script.scenes.map((s) => s.screen ? null : s.chart ?? null),
+    script.scenes.map((s) => s.screen ? screenImagePath(s.screen) : null)
+  );
   const saved = await persistBuffer(video, "video/mp4");
   if (!saved) throw new Error("could not save the finished video");
   await update(id, { status: "done", step: "Ready", progress: 100, result_url: saved.url });
@@ -56117,13 +56191,13 @@ async function runJob(id, userId, input, aspect, opts) {
       title: script.title,
       caption: script.caption,
       assetUrl: saved.url,
-      metadata: { kind: "explainer", aspect, model: MODEL(), script, predictions }
+      metadata: { kind: "explainer", aspect, model: MODEL(), script, predictions, presenter: opts.presenterImage ? "custom" : "ai" }
     });
   } catch {
   }
   if (opts.onDone) await opts.onDone(saved.url, script).catch((e) => console.error("[explainer] onDone failed:", e?.message));
 }
-async function writeScript(input, userId, sceneCount) {
+async function writeScript(input, userId, sceneCount, settingOverride) {
   const n = Math.min(Math.max(sceneCount, 3), 5);
   const { getUniversalAIClientForUser: getUniversalAIClientForUser2 } = await Promise.resolve().then(() => (init_openai(), openai_exports));
   const ai = await getUniversalAIClientForUser2(userId || 0);
@@ -56146,8 +56220,11 @@ Each scene is one continuous 8-second shot:
 - "visual": what the camera sees, 20-40 words: the presenter's action and the camera move. Do NOT re-describe the presenter or setting (they are added automatically).
 - "chart": when the narration explains a candlestick pattern or level, set it to exactly one of: ${PATTERN_KEYS.join(", ")}. The real pattern is drawn on screen in the lower part of the frame, so in that scene the presenter stands in the upper half and points or gestures down toward it. Otherwise null.
 Use a chart in at least one middle scene when the subject involves a pattern, level or breakout. No income or profit promises.
+- "screen": when the narration talks about the VEDD app itself \u2014 a page, a feature, the plans \u2014 set it to exactly one of these REAL pages (the actual screenshot is composited into the lower half of the frame, the presenter in the upper half gesturing down toward it):
+${screenCatalogForPrompt()}
+Never invent or describe a fake app screen, page or button in "visual": when the app needs to be shown, it is shown with a screen id or not at all. A scene gets a chart OR a screen, never both. Use a screen in at least one scene when the subject is the app itself.
 
-JSON: {"title":"...","caption":"one-line social caption with a question","presenter":"...","setting":"...","scenes":[{"narration":"...","visual":"...","chart":null}]}` }
+JSON: {"title":"...","caption":"one-line social caption with a question","presenter":"...","setting":"...","scenes":[{"narration":"...","visual":"...","chart":null,"screen":null}]}` }
     ],
     response_format: { type: "json_object" },
     max_tokens: 1500
@@ -56157,23 +56234,25 @@ JSON: {"title":"...","caption":"one-line social caption with a question","presen
   const scenes = (Array.isArray(out.scenes) ? out.scenes : []).map((s) => ({
     narration: String(s?.narration || "").trim(),
     visual: String(s?.visual || "").trim(),
-    chart: PATTERN_KEYS.includes(String(s?.chart)) ? String(s.chart) : null
-  })).filter((s) => s.narration && s.visual).slice(0, n);
+    chart: PATTERN_KEYS.includes(String(s?.chart)) ? String(s.chart) : null,
+    screen: APP_SCREEN_IDS.includes(String(s?.screen)) ? String(s.screen) : null
+  })).map((s) => s.screen ? { ...s, chart: null } : s).filter((s) => s.narration && s.visual).slice(0, n);
   if (scenes.length < 2) throw new Error("script generation returned too few scenes");
   const presenter = String(out.presenter || "").trim().slice(0, 300) || DEFAULT_PRESENTER;
-  const setting = String(out.setting || "").trim().slice(0, 300) || DEFAULT_SETTING;
+  const setting = (settingOverride || "").trim().slice(0, 300) || String(out.setting || "").trim().slice(0, 300) || DEFAULT_SETTING;
   return { title: String(out.title || "VEDD lesson").slice(0, 120), caption: String(out.caption || "").slice(0, 300), presenter, setting, scenes };
 }
-async function renderScene(scene, script, aspect) {
+async function renderScene(scene, script, aspect, presenterImage) {
   const token = process.env.REPLICATE_API_TOKEN;
   if (!token) throw new Error("REPLICATE_API_TOKEN not set");
-  const framing = scene.chart ? "Medium shot with the presenter in the upper half of the frame, pointing down toward the lower half, which is a plain darker area of the scene." : "Medium close-up, presenter talking straight to camera.";
-  const prompt = `Presenter: ${script.presenter}. Setting: ${script.setting}. ${scene.visual} ${framing} Authentic urban street style, cinematic 35mm look, natural skin tones, warm gold light, shallow depth of field, handheld-smooth camera. The presenter speaks directly to the camera and says: "${scene.narration.replace(/"/g, "'")}" Light hip-hop beat under the voice. No subtitles, no on-screen text, no logos.`;
-  const create = () => fetch(`https://api.replicate.com/v1/models/${MODEL()}/predictions`, {
+  const framing = scene.chart || scene.screen ? "Medium shot with the presenter in the upper half of the frame, pointing down toward the lower half, which is a plain darker area of the scene." : "Medium close-up, presenter talking straight to camera.";
+  const prompt = presenterImage ? `The person in the starting image is the presenter \u2014 keep their exact face, hair and appearance in every frame. Setting: ${script.setting}. ${scene.visual} ${framing} Authentic urban street style, cinematic 35mm look, natural skin tones, warm gold light, shallow depth of field, handheld-smooth camera. The presenter speaks directly to the camera and says: "${scene.narration.replace(/"/g, "'")}" Light hip-hop beat under the voice. No subtitles, no on-screen text, no logos.` : `Presenter: ${script.presenter}. Setting: ${script.setting}. ${scene.visual} ${framing} Authentic urban street style, cinematic 35mm look, natural skin tones, warm gold light, shallow depth of field, handheld-smooth camera. The presenter speaks directly to the camera and says: "${scene.narration.replace(/"/g, "'")}" Light hip-hop beat under the voice. No subtitles, no on-screen text, no logos.`;
+  const create = (withImage) => fetch(`https://api.replicate.com/v1/models/${MODEL()}/predictions`, {
     method: "POST",
     headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json", Prefer: "wait=55" },
     body: JSON.stringify({ input: {
       prompt,
+      ...withImage && presenterImage ? { image: presenterImage } : {},
       aspect_ratio: aspect === "16:9" ? "16:9" : "9:16",
       duration: CLIP_SECONDS,
       resolution: "720p",
@@ -56182,11 +56261,19 @@ async function renderScene(scene, script, aspect) {
     } }),
     signal: AbortSignal.timeout(7e4)
   });
-  let res = await create();
-  for (let attempt = 0; res.status === 429 && attempt < 8; attempt++) {
-    const body = await res.json().catch(() => ({}));
-    await new Promise((r) => setTimeout(r, (Number(body?.retry_after) || 10) * 1e3 + 1e3));
-    res = await create();
+  const createWithRetry = async (withImage) => {
+    let r = await create(withImage);
+    for (let attempt = 0; r.status === 429 && attempt < 8; attempt++) {
+      const body = await r.json().catch(() => ({}));
+      await new Promise((resolve) => setTimeout(resolve, (Number(body?.retry_after) || 10) * 1e3 + 1e3));
+      r = await create(withImage);
+    }
+    return r;
+  };
+  let res = await createWithRetry(!!presenterImage);
+  if (!res.ok && presenterImage) {
+    console.warn("[explainer] scene create failed with presenter image \u2014 retrying without it");
+    res = await createWithRetry(false);
   }
   if (!res.ok) throw new Error(`Replicate ${res.status}: ${(await res.text().catch(() => "")).slice(0, 200)}`);
   let data = await res.json();
@@ -56201,23 +56288,23 @@ async function renderScene(scene, script, aspect) {
   if (!url) throw new Error("scene returned no video");
   return { url, predictionId: data.id };
 }
-async function assemble(clipUrls, aspect, charts = []) {
-  const dir = fs13.mkdtempSync(path13.join(os2.tmpdir(), "vedd-explainer-"));
+async function assemble(clipUrls, aspect, charts = [], screens = []) {
+  const dir = fs14.mkdtempSync(path14.join(os2.tmpdir(), "vedd-explainer-"));
   try {
     const files = [];
     for (let i = 0; i < clipUrls.length; i++) {
       const r = await fetch(clipUrls[i], { signal: AbortSignal.timeout(6e4) });
       if (!r.ok) throw new Error(`could not download scene ${i + 1}`);
-      const f = path13.join(dir, `s${i}.mp4`);
-      fs13.writeFileSync(f, Buffer.from(await r.arrayBuffer()));
+      const f = path14.join(dir, `s${i}.mp4`);
+      fs14.writeFileSync(f, Buffer.from(await r.arrayBuffer()));
       files.push(f);
     }
-    return await assembleFiles(files, aspect, dir, charts);
+    return await assembleFiles(files, aspect, dir, charts, screens);
   } finally {
-    fs13.rmSync(dir, { recursive: true, force: true });
+    fs14.rmSync(dir, { recursive: true, force: true });
   }
 }
-async function assembleFiles(files, aspect, dir, charts = []) {
+async function assembleFiles(files, aspect, dir, charts = [], screens = []) {
   const [W, H2] = FRAME[aspect];
   const logo = findLogo();
   {
@@ -56243,12 +56330,27 @@ async function assembleFiles(files, aspect, dir, charts = []) {
       cardIdx = next++;
       args.push("-loop", "1", "-t", String(END_CARD_SECONDS2), "-i", logo);
     }
+    const screenIdx = [];
+    files.forEach((_, i) => {
+      if (screens[i]) {
+        screenIdx[i] = next++;
+        args.push("-i", screens[i]);
+      }
+    });
     const f = [];
     const parts = [];
     files.forEach((_, i) => {
       const spec = charts[i] ? PATTERNS[charts[i]] : void 0;
       const overlay = spec ? `,${chartFilter(spec, W, H2, info2[i].duration || CLIP_SECONDS)}` : "";
-      f.push(`[${i}:v]scale=${W}:${H2}:force_original_aspect_ratio=increase,crop=${W}:${H2},fps=24,setsar=1${overlay},format=yuv420p[v${i}]`);
+      const scr = screens[i] ? screenCardGeometry(W, H2) : null;
+      const panel = scr ? `,drawbox=x=${scr.x - scr.panelPad}:y=${scr.y - scr.panelPad}:w=${scr.cardW + scr.panelPad * 2}:h=${scr.cardH + scr.panelPad * 2}:color=0x0B0B0E@0.92:t=fill,drawbox=x=${scr.x - scr.panelPad}:y=${scr.y - scr.panelPad}:w=${scr.cardW + scr.panelPad * 2}:h=${scr.cardH + scr.panelPad * 2}:color=0xF5C451@0.55:t=3` : "";
+      f.push(`[${i}:v]scale=${W}:${H2}:force_original_aspect_ratio=increase,crop=${W}:${H2},fps=24,setsar=1${overlay}${panel},format=yuv420p[base${i}]`);
+      if (scr) {
+        f.push(`[${screenIdx[i]}:v]scale=${scr.cardW}:${scr.cardH}:force_original_aspect_ratio=increase,crop=${scr.cardW}:${scr.cardH}[scr${i}]`);
+        f.push(`[base${i}][scr${i}]overlay=${scr.x}:${scr.y},format=yuv420p[v${i}]`);
+      } else {
+        f.push(`[base${i}]null[v${i}]`);
+      }
       f.push(`[${audio[i] ? i : silent[i]}:a]aresample=44100,aformat=sample_fmts=fltp:channel_layouts=stereo[a${i}]`);
       parts.push(`[v${i}][a${i}]`);
     });
@@ -56265,7 +56367,7 @@ async function assembleFiles(files, aspect, dir, charts = []) {
       f.push(`[${logoIdx}:v]scale=${wm}:-2,format=rgba,colorchannelmixer=aa=0.85[wm]`);
       f.push(`[cv][wm]overlay=W-w-${m}:H-h-${m}[outv]`);
     }
-    const out = path13.join(dir, "out.mp4");
+    const out = path14.join(dir, "out.mp4");
     args.push(
       "-filter_complex",
       f.join(";"),
@@ -56290,7 +56392,7 @@ async function assembleFiles(files, aspect, dir, charts = []) {
       out
     );
     await runFfmpeg(args, 24e4);
-    return fs13.readFileSync(out);
+    return fs14.readFileSync(out);
   }
 }
 var FRAME, MODEL, CLIP_SECONDS, END_CARD_SECONDS2, POLL_MS, MAX_WAIT_MS, DEFAULT_PRESENTER, DEFAULT_SETTING, tableReady2;
@@ -56302,6 +56404,7 @@ var init_explainer_video = __esm({
     init_video_branding();
     init_content_asset_store();
     init_chart_overlay();
+    init_app_screens();
     FRAME = { "9:16": [720, 1280], "4:5": [864, 1080], "1:1": [720, 720], "16:9": [1280, 720] };
     MODEL = () => process.env.EXPLAINER_VIDEO_MODEL || "google/veo-3.1-fast";
     CLIP_SECONDS = 8;
@@ -56782,6 +56885,107 @@ var init_image_generation = __esm({
   }
 });
 
+// server/services/backgrounds.ts
+var backgrounds_exports = {};
+__export(backgrounds_exports, {
+  BACKGROUND_PRESETS: () => BACKGROUND_PRESETS,
+  getBackgroundPreset: () => getBackgroundPreset
+});
+function getBackgroundPreset(id) {
+  if (!id) return null;
+  return BACKGROUND_PRESETS.find((b) => b.id === id) ?? null;
+}
+var BACKGROUND_PRESETS;
+var init_backgrounds = __esm({
+  "server/services/backgrounds.ts"() {
+    "use strict";
+    BACKGROUND_PRESETS = [
+      { id: "podcast-studio", label: "Podcast Studio", scene: "a podcast studio with a broadcast microphone on a boom arm in front of the presenter, warm amber lighting, acoustic panels and a softly lit city window behind" },
+      { id: "barbershop", label: "Barbershop", scene: "a neighborhood barbershop with barber chairs, big mirrors and bright shop lights" },
+      { id: "rooftop-skyline", label: "Rooftop Skyline", scene: "a city rooftop at golden hour with brick buildings, fire escapes and the skyline behind" },
+      { id: "corner-store", label: "Corner Store", scene: "the front of a corner store on a city block, awning and store windows behind" },
+      { id: "car-interior", label: "Luxury Car", scene: "the driver seat of a clean luxury car at night, soft dashboard glow and city lights through the windshield" },
+      { id: "gym", label: "Gym", scene: "a modern gym with dumbbell racks and mirrors behind, bright energetic light" },
+      { id: "coffee-shop", label: "Coffee Shop", scene: "a cozy coffee shop corner table with a laptop and a coffee cup, warm window light" },
+      { id: "night-street", label: "City Street at Night", scene: "a city street at night with graffiti walls, streetlights and wet pavement reflections" },
+      { id: "brownstone-stoop", label: "Brownstone Stoop", scene: "the stoop of a brownstone building on a tree-lined city block, late afternoon light" },
+      { id: "basketball-court", label: "Basketball Court", scene: "an outdoor basketball court with a chain-link fence and city buildings behind" }
+    ];
+  }
+});
+
+// server/services/presenters.ts
+var presenters_exports = {};
+__export(presenters_exports, {
+  createPresenter: () => createPresenter,
+  deletePresenter: () => deletePresenter,
+  getPresenter: () => getPresenter,
+  listPresenters: () => listPresenters,
+  presenterAbsoluteUrl: () => presenterAbsoluteUrl
+});
+function ensureTable3() {
+  return tableReady3 ??= pool.query(`CREATE TABLE IF NOT EXISTS content_presenters (
+      id SERIAL PRIMARY KEY,
+      user_id INTEGER NOT NULL,
+      name TEXT NOT NULL,
+      image_url TEXT NOT NULL,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+    )`).then(() => void 0).catch((e) => {
+    tableReady3 = null;
+    throw e;
+  });
+}
+function rowToPresenter(r) {
+  return { id: r.id, name: r.name, imageUrl: r.image_url, createdAt: r.created_at };
+}
+async function listPresenters(userId) {
+  await ensureTable3();
+  const { rows } = await pool.query(
+    `SELECT id, name, image_url, created_at FROM content_presenters WHERE user_id=$1 ORDER BY created_at DESC`,
+    [userId]
+  );
+  return rows.map(rowToPresenter);
+}
+async function createPresenter(userId, name, imageUrl) {
+  await ensureTable3();
+  const { rows } = await pool.query(
+    `INSERT INTO content_presenters (user_id, name, image_url) VALUES ($1,$2,$3)
+     RETURNING id, name, image_url, created_at`,
+    [userId, name, imageUrl]
+  );
+  return rowToPresenter(rows[0]);
+}
+async function getPresenter(userId, id) {
+  await ensureTable3();
+  const { rows } = await pool.query(
+    `SELECT id, name, image_url, created_at FROM content_presenters WHERE id=$1 AND user_id=$2`,
+    [id, userId]
+  );
+  return rows.length ? rowToPresenter(rows[0]) : null;
+}
+async function deletePresenter(userId, id) {
+  await ensureTable3();
+  const { rowCount } = await pool.query(
+    `DELETE FROM content_presenters WHERE id=$1 AND user_id=$2`,
+    [id, userId]
+  );
+  return (rowCount ?? 0) > 0;
+}
+function presenterAbsoluteUrl(req, imageUrl) {
+  if (/^https?:\/\//i.test(imageUrl)) return imageUrl;
+  const host = req && typeof req.get === "function" ? req.get("host") : null;
+  if (!host) return imageUrl;
+  return `${req.protocol || "https"}://${host}${imageUrl}`;
+}
+var tableReady3;
+var init_presenters = __esm({
+  "server/services/presenters.ts"() {
+    "use strict";
+    init_db();
+    tableReady3 = null;
+  }
+});
+
 // server/services/sync-ads.ts
 var sync_ads_exports = {};
 __export(sync_ads_exports, {
@@ -57032,6 +57236,103 @@ var init_video_shot = __esm({
   }
 });
 
+// server/services/fal-video.ts
+function falConfigured() {
+  return !!(process.env.FAL_AI_API || process.env.FAL_KEY);
+}
+function falKey() {
+  return process.env.FAL_AI_API || process.env.FAL_KEY || null;
+}
+async function generateFalVideo(styledPrompt, opts) {
+  const key = falKey();
+  if (!key) {
+    console.error("[fal-video] FAL_AI_API / FAL_KEY not set \u2014 cannot generate video");
+    return null;
+  }
+  const { quality, image } = opts;
+  const model = image ? quality === "high" ? HIGH_I2V_MODEL : FAST_I2V_MODEL : quality === "high" ? HIGH_MODEL : FAST_MODEL;
+  const input = {
+    prompt: styledPrompt,
+    num_frames: opts.numFrames,
+    frames_per_second: opts.fps,
+    // Wan family only offers 480p/580p/720p on fal; 720p is the quality bump,
+    // matching the Replicate side (fast 480p / high 720p).
+    resolution: quality === "high" ? "720p" : "480p",
+    // i2v derives aspect ratio from the start image; only set it for t2v.
+    ...image ? { image_url: image } : { aspect_ratio: opts.aspect }
+  };
+  try {
+    console.log(`[fal-video] quality=${quality} model=${model} mode=${image ? "image-to-video" : "text-to-video"}`);
+    const submit = await fetch(`https://queue.fal.run/${model}`, {
+      method: "POST",
+      headers: { Authorization: `Key ${key}`, "Content-Type": "application/json" },
+      body: JSON.stringify(input),
+      signal: AbortSignal.timeout(3e4)
+    });
+    if (!submit.ok) {
+      const body = await submit.text().catch(() => "");
+      console.error("[fal-video] fal submit error:", submit.status, body.slice(0, 300));
+      return null;
+    }
+    const queued = await submit.json();
+    const statusUrl = queued?.status_url;
+    const responseUrl = queued?.response_url;
+    if (!statusUrl || !responseUrl) {
+      console.error("[fal-video] fal submit returned no queue URLs");
+      return null;
+    }
+    let status = String(queued?.status || "IN_QUEUE");
+    for (let i = 0; i < MAX_POLLS && status !== "COMPLETED"; i++) {
+      await new Promise((resolve) => setTimeout(resolve, POLL_INTERVAL_MS));
+      const poll = await fetch(statusUrl, {
+        headers: { Authorization: `Key ${key}` },
+        signal: AbortSignal.timeout(15e3)
+      });
+      if (!poll.ok) break;
+      const pj = await poll.json();
+      status = String(pj?.status || "");
+      if (status === "ERROR") {
+        console.error("[fal-video] fal generation errored:", JSON.stringify(pj).slice(0, 300));
+        return null;
+      }
+    }
+    if (status !== "COMPLETED") {
+      console.error("[fal-video] fal video did not complete in time:", status);
+      return null;
+    }
+    const result = await fetch(responseUrl, {
+      headers: { Authorization: `Key ${key}` },
+      signal: AbortSignal.timeout(3e4)
+    });
+    if (!result.ok) {
+      console.error("[fal-video] fal result fetch error:", result.status);
+      return null;
+    }
+    const data = await result.json();
+    const url = data?.video?.url || (Array.isArray(data?.output) ? data.output[0] : void 0);
+    if (!url) {
+      console.error("[fal-video] fal result had no video URL");
+      return null;
+    }
+    return { url, provider: `fal:${model}`, quality };
+  } catch (e) {
+    console.error("[fal-video] fal error:", e.message);
+    return null;
+  }
+}
+var FAST_MODEL, HIGH_MODEL, FAST_I2V_MODEL, HIGH_I2V_MODEL, POLL_INTERVAL_MS, MAX_POLLS;
+var init_fal_video = __esm({
+  "server/services/fal-video.ts"() {
+    "use strict";
+    FAST_MODEL = process.env.FAL_VIDEO_MODEL || "fal-ai/wan/v2.2-a14b/text-to-video";
+    HIGH_MODEL = process.env.FAL_VIDEO_HIGH_MODEL || FAST_MODEL;
+    FAST_I2V_MODEL = process.env.FAL_VIDEO_I2V_MODEL || "fal-ai/wan/v2.2-a14b/image-to-video";
+    HIGH_I2V_MODEL = process.env.FAL_VIDEO_HIGH_I2V_MODEL || FAST_I2V_MODEL;
+    POLL_INTERVAL_MS = 5e3;
+    MAX_POLLS = 60;
+  }
+});
+
 // server/services/video-generation.ts
 function buildModelInput(model, quality, styledPrompt, numFrames, durationSeconds, image, aspect = "9:16") {
   if (model.includes("kling")) {
@@ -57058,21 +57359,39 @@ function buildModelInput(model, quality, styledPrompt, numFrames, durationSecond
   return { prompt: styledPrompt, ...image ? { image } : { aspect_ratio: aspect } };
 }
 async function generateContentVideo(prompt, opts) {
+  const quality = opts?.quality === "high" ? "high" : "fast";
+  const image = opts?.image && opts.image.trim() ? opts.image.trim() : void 0;
+  const durationSeconds = Math.min(Math.max(opts?.duration ?? 5, 1), MAX_DURATION_SECONDS);
+  const numFrames = Math.max(MIN_NUM_FRAMES, Math.round(durationSeconds * DEFAULT_FPS));
+  const styledPrompt = `${prompt.trim()}${VEDD_STYLE_LOCK}${NO_TEXT_SUFFIX}${HUMAN_STYLE_SUFFIX2}`;
+  const aspect = opts?.aspect === "16:9" ? "16:9" : "9:16";
+  const shared = { quality, image, durationSeconds, numFrames, aspect };
+  if ((process.env.VIDEO_PROVIDER || "").toLowerCase() === "fal") {
+    const viaFal = await generateFalVideo(styledPrompt, { ...shared, fps: DEFAULT_FPS });
+    if (viaFal) return viaFal;
+    console.log("[video-generation] fal failed \u2014 falling back to Replicate");
+    return generateViaReplicate(styledPrompt, shared);
+  }
+  const viaReplicate = await generateViaReplicate(styledPrompt, shared);
+  if (viaReplicate) return viaReplicate;
+  if (falConfigured()) {
+    console.log("[video-generation] Replicate failed \u2014 falling back to fal.ai");
+    return generateFalVideo(styledPrompt, { ...shared, fps: DEFAULT_FPS });
+  }
+  return null;
+}
+async function generateViaReplicate(styledPrompt, opts) {
   const apiKey = process.env.REPLICATE_API_TOKEN;
   if (!apiKey) {
     console.error("[video-generation] REPLICATE_API_TOKEN not set \u2014 cannot generate video");
     return null;
   }
-  const quality = opts?.quality === "high" ? "high" : "fast";
-  const image = opts?.image && opts.image.trim() ? opts.image.trim() : void 0;
-  const model = image ? quality === "high" ? HIGH_I2V_MODEL : FAST_I2V_MODEL : quality === "high" ? HIGH_MODEL : FAST_MODEL;
-  const durationSeconds = Math.min(Math.max(opts?.duration ?? 5, 1), MAX_DURATION_SECONDS);
-  const numFrames = Math.max(MIN_NUM_FRAMES, Math.round(durationSeconds * DEFAULT_FPS));
-  const styledPrompt = `${prompt.trim()}${VEDD_STYLE_LOCK}${NO_TEXT_SUFFIX}${HUMAN_STYLE_SUFFIX2}`;
-  const input = buildModelInput(model, quality, styledPrompt, numFrames, durationSeconds, image, opts?.aspect === "16:9" ? "16:9" : "9:16");
+  const { quality, image, durationSeconds, numFrames, aspect } = opts;
+  const model = image ? quality === "high" ? HIGH_I2V_MODEL2 : FAST_I2V_MODEL2 : quality === "high" ? HIGH_MODEL2 : FAST_MODEL2;
+  const input = buildModelInput(model, quality, styledPrompt, numFrames, durationSeconds, image, aspect);
   try {
     console.log(`[video-generation] quality=${quality} model=${model} mode=${image ? "image-to-video" : "text-to-video"}`);
-    const res = await fetch(`https://api.replicate.com/v1/models/${model}/predictions`, {
+    const create = () => fetch(`https://api.replicate.com/v1/models/${model}/predictions`, {
       method: "POST",
       headers: {
         Authorization: `Bearer ${apiKey}`,
@@ -57087,6 +57406,12 @@ async function generateContentVideo(prompt, opts) {
       // poll loop below. Give it headroom.
       signal: AbortSignal.timeout(75e3)
     });
+    let res = await create();
+    for (let attempt = 0; res.status === 429 && attempt < 8; attempt++) {
+      const body = await res.json().catch(() => ({}));
+      await new Promise((r) => setTimeout(r, (Number(body?.retry_after) || 10) * 1e3 + 1e3));
+      res = await create();
+    }
     if (!res.ok) {
       const body = await res.text().catch(() => "");
       console.error("[video-generation] Replicate error:", res.status, body.slice(0, 300));
@@ -57094,8 +57419,8 @@ async function generateContentVideo(prompt, opts) {
     }
     let data = await res.json();
     const getUrl = data?.urls?.get;
-    for (let i = 0; i < MAX_POLLS && getUrl && (data.status === "starting" || data.status === "processing"); i++) {
-      await new Promise((resolve) => setTimeout(resolve, POLL_INTERVAL_MS));
+    for (let i = 0; i < MAX_POLLS2 && getUrl && (data.status === "starting" || data.status === "processing"); i++) {
+      await new Promise((resolve) => setTimeout(resolve, POLL_INTERVAL_MS2));
       const poll = await fetch(getUrl, {
         headers: { Authorization: `Bearer ${apiKey}` },
         signal: AbortSignal.timeout(15e3)
@@ -57116,22 +57441,23 @@ async function generateContentVideo(prompt, opts) {
     return null;
   }
 }
-var VEDD_STYLE_LOCK, NO_TEXT_SUFFIX, HUMAN_STYLE_SUFFIX2, FAST_MODEL, HIGH_MODEL, FAST_I2V_MODEL, HIGH_I2V_MODEL, DEFAULT_FPS, MIN_NUM_FRAMES, MAX_DURATION_SECONDS, POLL_INTERVAL_MS, MAX_POLLS;
+var VEDD_STYLE_LOCK, NO_TEXT_SUFFIX, HUMAN_STYLE_SUFFIX2, FAST_MODEL2, HIGH_MODEL2, FAST_I2V_MODEL2, HIGH_I2V_MODEL2, DEFAULT_FPS, MIN_NUM_FRAMES, MAX_DURATION_SECONDS, POLL_INTERVAL_MS2, MAX_POLLS2;
 var init_video_generation = __esm({
   "server/services/video-generation.ts"() {
     "use strict";
+    init_fal_video();
     VEDD_STYLE_LOCK = ". Shot as a grainy 35mm cinematic film still: heavy analog film grain, desaturated moody color grade with one warm gold light source, shallow depth of field, photorealistic. Slow, subtle ambient motion only \u2014 no fast or shaky camera movement.";
     NO_TEXT_SUFFIX = " No on-screen text, captions, subtitles, signage, logos or readable words anywhere in the frame \u2014 pure visual scene only.";
     HUMAN_STYLE_SUFFIX2 = " If people appear: young Black people, natural skin tones, contemporary streetwear, authentic inner-city/urban setting.";
-    FAST_MODEL = "wan-video/wan-2.2-t2v-fast";
-    HIGH_MODEL = process.env.VIDEO_HIGH_MODEL || "wan-video/wan-2.2-t2v-fast";
-    FAST_I2V_MODEL = process.env.VIDEO_FAST_I2V_MODEL || "wan-video/wan-2.2-i2v-fast";
-    HIGH_I2V_MODEL = process.env.VIDEO_HIGH_I2V_MODEL || "wan-video/wan-2.2-i2v-fast";
+    FAST_MODEL2 = "wan-video/wan-2.2-t2v-fast";
+    HIGH_MODEL2 = process.env.VIDEO_HIGH_MODEL || "wan-video/wan-2.2-t2v-fast";
+    FAST_I2V_MODEL2 = process.env.VIDEO_FAST_I2V_MODEL || "wan-video/wan-2.2-i2v-fast";
+    HIGH_I2V_MODEL2 = process.env.VIDEO_HIGH_I2V_MODEL || "wan-video/wan-2.2-i2v-fast";
     DEFAULT_FPS = 16;
     MIN_NUM_FRAMES = 81;
     MAX_DURATION_SECONDS = 6;
-    POLL_INTERVAL_MS = 5e3;
-    MAX_POLLS = 60;
+    POLL_INTERVAL_MS2 = 5e3;
+    MAX_POLLS2 = 60;
   }
 });
 
@@ -57149,6 +57475,7 @@ async function renderContentVideo(prompt, o = {}) {
     if (o.exact) shot = prompt.trim();
     else ({ shot, hook } = await planVideoShot(prompt, o.userId));
   }
+  if (o.backgroundScene) shot = `${shot} Setting: ${o.backgroundScene}.`;
   const video = await generateContentVideo(shot, {
     duration: o.duration,
     quality: o.quality,
@@ -57196,8 +57523,8 @@ __export(slide_flattener_exports, {
   flattenSlideImage: () => flattenSlideImage
 });
 import sharp from "sharp";
-import * as path14 from "path";
-import * as fs14 from "fs";
+import * as path15 from "path";
+import * as fs15 from "fs";
 function escapeXml(s) {
   return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
 }
@@ -57262,7 +57589,7 @@ async function flattenSlideImage(opts) {
   const composites = [
     { input: Buffer.from(overlaySvg), top: 0, left: 0 }
   ];
-  if (opts.includeLogo && fs14.existsSync(LOGO_PATH)) {
+  if (opts.includeLogo && fs15.existsSync(LOGO_PATH)) {
     const logoWidth = Math.round(CANVAS_SIZE * 0.22);
     const logoBuffer = await sharp(LOGO_PATH).resize(logoWidth, null, { fit: "inside" }).ensureAlpha().png().toBuffer();
     const logoMeta = await sharp(logoBuffer).metadata();
@@ -57280,7 +57607,7 @@ var init_slide_flattener = __esm({
   "server/services/slide-flattener.ts"() {
     "use strict";
     CANVAS_SIZE = 1080;
-    LOGO_PATH = path14.join(process.cwd(), "attached_assets", "IMG_3645.png");
+    LOGO_PATH = path15.join(process.cwd(), "attached_assets", "IMG_3645.png");
   }
 });
 
@@ -57741,8 +58068,8 @@ function teamsMatchMarket(homeTeam, awayTeam, question) {
   return (q.includes(h) || q.includes(hFull)) && (q.includes(a) || q.includes(aFull));
 }
 async function fetchScoreboard(sport) {
-  const path19 = SPORT_PATHS[sport];
-  const data = await safeGet(`${ESPN_BASE}/${path19}/scoreboard`);
+  const path20 = SPORT_PATHS[sport];
+  const data = await safeGet(`${ESPN_BASE}/${path20}/scoreboard`);
   return data?.events ?? [];
 }
 function injuryAdjustment(injuries, sport) {
@@ -62240,15 +62567,15 @@ async function pollOnce() {
   }
 }
 function startPaperTradeResolverLoop() {
-  console.log(`[paper-trade-resolver] Background paper-trade resolver loop started (${POLL_INTERVAL_MS2 / 6e4}min interval).`);
+  console.log(`[paper-trade-resolver] Background paper-trade resolver loop started (${POLL_INTERVAL_MS3 / 6e4}min interval).`);
   setInterval(() => {
     pollOnce().catch((e) => console.error("[paper-trade-resolver] Poll error:", e.message));
-  }, POLL_INTERVAL_MS2);
+  }, POLL_INTERVAL_MS3);
   setTimeout(() => {
     pollOnce().catch((e) => console.error("[paper-trade-resolver] Initial poll error:", e.message));
   }, 3e4);
 }
-var POLL_INTERVAL_MS2;
+var POLL_INTERVAL_MS3;
 var init_paper_trade_resolver_loop = __esm({
   "server/services/paper-trade-resolver-loop.ts"() {
     "use strict";
@@ -62256,7 +62583,7 @@ var init_paper_trade_resolver_loop = __esm({
     init_schema();
     init_service();
     init_paper_trade_tracker();
-    POLL_INTERVAL_MS2 = 10 * 60 * 1e3;
+    POLL_INTERVAL_MS3 = 10 * 60 * 1e3;
   }
 });
 
@@ -62329,22 +62656,22 @@ async function auditOnce() {
   await auditDxtrade();
 }
 function startPropFirmConsistencyAuditLoop() {
-  console.log(`[Consistency Audit] Background prop-firm consistency audit loop started (${POLL_INTERVAL_MS3 / 6e4}min interval).`);
+  console.log(`[Consistency Audit] Background prop-firm consistency audit loop started (${POLL_INTERVAL_MS4 / 6e4}min interval).`);
   setInterval(() => {
     auditOnce().catch((e) => console.error("[Consistency Audit] Poll error:", e.message));
-  }, POLL_INTERVAL_MS3);
+  }, POLL_INTERVAL_MS4);
   setTimeout(() => {
     auditOnce().catch((e) => console.error("[Consistency Audit] Initial poll error:", e.message));
   }, 2e4);
 }
-var POLL_INTERVAL_MS3;
+var POLL_INTERVAL_MS4;
 var init_prop_firm_consistency_audit_loop = __esm({
   "server/services/prop-firm-consistency-audit-loop.ts"() {
     "use strict";
     init_storage();
     init_db();
     init_prop_firm_consistency();
-    POLL_INTERVAL_MS3 = 3 * 60 * 1e3;
+    POLL_INTERVAL_MS4 = 3 * 60 * 1e3;
   }
 });
 
@@ -64078,8 +64405,8 @@ import { eq as eq18, and as and11, sql as sql13, desc as desc11 } from "drizzle-
 import { scrypt, randomBytes } from "crypto";
 import { promisify } from "util";
 import { z as z2 } from "zod";
-import * as fs15 from "fs";
-import * as path15 from "path";
+import * as fs16 from "fs";
+import * as path16 from "path";
 
 // server/trading-coach.ts
 init_openai();
@@ -64605,9 +64932,9 @@ async function getStopOrdersForUser(userId, filters = {}) {
 init_schema();
 
 // server/build-info.ts
-var BUILD_COMMIT = "a1b3ac9";
-var BUILD_BRANCH = "feature/sync-ads";
-var BUILT_AT = "2026-11-01T18:02:57.572Z";
+var BUILD_COMMIT = "e77d075";
+var BUILD_BRANCH = "main";
+var BUILT_AT = "2026-11-01T18:39:49.570Z";
 
 // server/stripe.ts
 init_db();
@@ -68627,9 +68954,9 @@ var mediaUpload = multer({
     cb(null, true);
   }
 });
-var uploadsDir2 = path15.join(process.cwd(), "uploads");
-if (!fs15.existsSync(uploadsDir2)) {
-  fs15.mkdirSync(uploadsDir2, { recursive: true });
+var uploadsDir2 = path16.join(process.cwd(), "uploads");
+if (!fs16.existsSync(uploadsDir2)) {
+  fs16.mkdirSync(uploadsDir2, { recursive: true });
 }
 function getCurrentTradingSession() {
   const hour = (/* @__PURE__ */ new Date()).getUTCHours();
@@ -69022,11 +69349,11 @@ async function registerRoutes(app2, existingServer) {
         return res.status(400).json({ message: "No file uploaded" });
       }
       const fileName = `${uuidv42()}.${req.file.mimetype.split("/")[1]}`;
-      const filePath = path15.join(uploadsDir2, fileName);
+      const filePath = path16.join(uploadsDir2, fileName);
       console.log("Generated filename:", fileName);
       console.log("Full file path:", filePath);
       try {
-        await fs15.promises.writeFile(filePath, req.file.buffer);
+        await fs16.promises.writeFile(filePath, req.file.buffer);
         console.log("File saved successfully to disk");
       } catch (writeError) {
         console.error("Error writing file to disk:", writeError);
@@ -69052,14 +69379,14 @@ async function registerRoutes(app2, existingServer) {
       if (!allowedTypes.includes(req.file.mimetype)) {
         return res.status(400).json({ message: "Invalid file type. Only JPEG, PNG, GIF, and WebP are allowed." });
       }
-      const avatarsDir = path15.join(process.cwd(), "uploads", "avatars");
-      if (!fs15.existsSync(avatarsDir)) {
-        fs15.mkdirSync(avatarsDir, { recursive: true });
+      const avatarsDir = path16.join(process.cwd(), "uploads", "avatars");
+      if (!fs16.existsSync(avatarsDir)) {
+        fs16.mkdirSync(avatarsDir, { recursive: true });
       }
       const ext = req.file.mimetype.split("/")[1];
       const fileName = `avatar-${req.user.id}-${Date.now()}.${ext}`;
-      const filePath = path15.join(avatarsDir, fileName);
-      await fs15.promises.writeFile(filePath, req.file.buffer);
+      const filePath = path16.join(avatarsDir, fileName);
+      await fs16.promises.writeFile(filePath, req.file.buffer);
       const avatarUrl = `/uploads/avatars/${fileName}`;
       res.json({ avatarUrl });
     } catch (error) {
@@ -69154,11 +69481,11 @@ async function registerRoutes(app2, existingServer) {
       }
       const extension = filename?.split(".").pop() || "png";
       const generatedFilename = `${uuidv42()}.${extension}`;
-      const filePath = path15.join(uploadsDir2, generatedFilename);
+      const filePath = path16.join(uploadsDir2, generatedFilename);
       const imageUrl = `/uploads/${generatedFilename}`;
       try {
         const imageBuffer = Buffer.from(cleanBase64, "base64");
-        await fs15.promises.writeFile(filePath, imageBuffer);
+        await fs16.promises.writeFile(filePath, imageBuffer);
         console.log("Saved image to", filePath);
       } catch (writeError) {
         console.error("Error saving image to disk:", writeError);
@@ -69291,9 +69618,9 @@ async function registerRoutes(app2, existingServer) {
           const detectedSymbol = analyses.length > 0 ? analyses[analyses.length - 1].symbol : void 0;
           const analysis = await analyzeChartImage(frame.base64, detectedSymbol, req.user?.id);
           const frameFileName = `video_frame_${groupId}_${i + 1}.jpg`;
-          const framePath = path15.join(uploadsDir2, frameFileName);
+          const framePath = path16.join(uploadsDir2, frameFileName);
           const frameBuffer = Buffer.from(frame.base64, "base64");
-          await fs15.promises.writeFile(framePath, frameBuffer);
+          await fs16.promises.writeFile(framePath, frameBuffer);
           const imageUrl = `/uploads/${frameFileName}`;
           await storage.createChartAnalysis({
             userId,
@@ -69693,12 +70020,12 @@ Respond ONLY in valid JSON format with these exact keys:
       if (!imageUrl) {
         return res.status(400).json({ message: "No image URL provided" });
       }
-      const filePath = path15.join(process.cwd(), imageUrl.replace(/^\//, ""));
+      const filePath = path16.join(process.cwd(), imageUrl.replace(/^\//, ""));
       console.log("Attempting to analyze image at path:", filePath);
-      if (!fs15.existsSync(filePath)) {
-        const alternativePath = path15.join(uploadsDir2, path15.basename(imageUrl));
+      if (!fs16.existsSync(filePath)) {
+        const alternativePath = path16.join(uploadsDir2, path16.basename(imageUrl));
         console.log("Image not found, trying alternative path:", alternativePath);
-        if (!fs15.existsSync(alternativePath)) {
+        if (!fs16.existsSync(alternativePath)) {
           return res.status(404).json({ message: "Image file not found" });
         }
         console.log("Found image at alternative path");
@@ -69707,7 +70034,7 @@ Respond ONLY in valid JSON format with these exact keys:
           error: "Direct file analysis is deprecated"
         });
       }
-      const imageBuffer = await fs15.promises.readFile(filePath);
+      const imageBuffer = await fs16.promises.readFile(filePath);
       const base64Image = imageBuffer.toString("base64");
       const knownSymbol = req.body.symbol || void 0;
       const analysis = await analyzeChartImage(base64Image, knownSymbol, req.user?.id);
@@ -69882,11 +70209,11 @@ Respond ONLY in valid JSON format with these exact keys:
         const originalImageUrl = analysis.imageUrl;
         console.log("Original image URL:", originalImageUrl);
         const imagePath = originalImageUrl.startsWith("/") ? originalImageUrl.substring(1) : originalImageUrl;
-        const basename2 = path15.basename(imagePath);
+        const basename2 = path16.basename(imagePath);
         console.log("Image basename:", basename2);
-        const originalImagePath = path15.join(process.cwd(), "uploads", basename2);
+        const originalImagePath = path16.join(process.cwd(), "uploads", basename2);
         console.log("Full image path:", originalImagePath);
-        if (!fs15.existsSync(originalImagePath)) {
+        if (!fs16.existsSync(originalImagePath)) {
           console.error("Original image not found at path:", originalImagePath);
           throw new Error(`Original image not found: ${originalImagePath}`);
         }
@@ -69983,13 +70310,13 @@ Respond ONLY in valid JSON format with these exact keys:
   app2.get("/api/shared-image/:filename", (req, res) => {
     try {
       const filename = req.params.filename;
-      const sanitizedFilename = path15.basename(filename);
-      const sharedPath = path15.join(process.cwd(), "uploads", "shared", sanitizedFilename);
-      if (fs15.existsSync(sharedPath)) {
+      const sanitizedFilename = path16.basename(filename);
+      const sharedPath = path16.join(process.cwd(), "uploads", "shared", sanitizedFilename);
+      if (fs16.existsSync(sharedPath)) {
         return res.sendFile(sharedPath);
       }
-      const regularPath = path15.join(process.cwd(), "uploads", sanitizedFilename);
-      if (fs15.existsSync(regularPath)) {
+      const regularPath = path16.join(process.cwd(), "uploads", sanitizedFilename);
+      if (fs16.existsSync(regularPath)) {
         return res.sendFile(regularPath);
       }
       return res.status(404).json({ message: "Image not found" });
@@ -70001,9 +70328,9 @@ Respond ONLY in valid JSON format with these exact keys:
   app2.get("/api/annotated-image/:filename", (req, res) => {
     try {
       const filename = req.params.filename;
-      const sanitizedFilename = path15.basename(filename);
-      const annotatedPath = path15.join(process.cwd(), "uploads", "annotated", sanitizedFilename);
-      if (fs15.existsSync(annotatedPath)) {
+      const sanitizedFilename = path16.basename(filename);
+      const annotatedPath = path16.join(process.cwd(), "uploads", "annotated", sanitizedFilename);
+      if (fs16.existsSync(annotatedPath)) {
         return res.sendFile(annotatedPath);
       }
       return res.status(404).json({ message: "Annotated image not found" });
@@ -73936,12 +74263,12 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
       });
       const shareId = Date.now().toString(36) + Math.random().toString(36).substring(2, 7);
       const shareCardFileName = `share-card-${shareId}.png`;
-      const shareCardPath = path15.join(process.cwd(), "uploads", "share-cards");
-      if (!fs15.existsSync(shareCardPath)) {
-        fs15.mkdirSync(shareCardPath, { recursive: true });
+      const shareCardPath = path16.join(process.cwd(), "uploads", "share-cards");
+      if (!fs16.existsSync(shareCardPath)) {
+        fs16.mkdirSync(shareCardPath, { recursive: true });
       }
-      const fullPath = path15.join(shareCardPath, shareCardFileName);
-      fs15.writeFileSync(fullPath, shareCardBuffer);
+      const fullPath = path16.join(shareCardPath, shareCardFileName);
+      fs16.writeFileSync(fullPath, shareCardBuffer);
       const shareCardUrl = `/uploads/share-cards/${shareCardFileName}`;
       const shareUrl = `share-${shareId}`;
       const devotion = getDailyScripture2();
@@ -80987,8 +81314,8 @@ Return this EXACT JSON (no markdown, no commentary):
     if (!strat?.plan) return res.status(404).json({ error: "No active VEDD SS AI plan" });
     try {
       const { createCanvas, loadImage } = await import("canvas");
-      const path19 = await import("path");
-      const fs17 = await import("fs");
+      const path20 = await import("path");
+      const fs18 = await import("fs");
       const { getLiveEngineState: getLiveEngineState3 } = await Promise.resolve().then(() => (init_live_trading_engine(), live_trading_engine_exports));
       const engineState = getLiveEngineState3(userId);
       const engineRunning = engineState?.status === "running";
@@ -81074,8 +81401,8 @@ Return this EXACT JSON (no markdown, no commentary):
       ctx.closePath();
       ctx.fill();
       try {
-        const logoPath = path19.default.join(process.cwd(), "attached_assets", "IMG_3645.png");
-        if (fs17.default.existsSync(logoPath)) {
+        const logoPath = path20.default.join(process.cwd(), "attached_assets", "IMG_3645.png");
+        if (fs18.default.existsSync(logoPath)) {
           const logo = await loadImage(logoPath);
           const lh = 64, lw = logo.width / logo.height * lh;
           ctx.drawImage(logo, 44, 26, lw, lh);
@@ -81336,10 +81663,10 @@ Return this EXACT JSON (no markdown, no commentary):
       }
       const buffer = canvas.toBuffer("image/png");
       const fileName = `vedd-ss-ai-progress-${userId}-${Date.now()}.png`;
-      const outDir = path19.default.join(process.cwd(), "uploads", "share-cards");
-      if (!fs17.default.existsSync(outDir)) fs17.default.mkdirSync(outDir, { recursive: true });
-      const filePath = path19.default.join(outDir, fileName);
-      fs17.default.writeFileSync(filePath, buffer);
+      const outDir = path20.default.join(process.cwd(), "uploads", "share-cards");
+      if (!fs18.default.existsSync(outDir)) fs18.default.mkdirSync(outDir, { recursive: true });
+      const filePath = path20.default.join(outDir, fileName);
+      fs18.default.writeFileSync(filePath, buffer);
       res.json({
         success: true,
         imageUrl: `/uploads/share-cards/${fileName}`,
@@ -83807,9 +84134,9 @@ Format each recommendation as a clear, concise action item.`;
     }
     global.veddAIBrain[userId] = brain;
     try {
-      const brainDir = path15.join(process.cwd(), "data", "brains");
-      if (!fs15.existsSync(brainDir)) fs15.mkdirSync(brainDir, { recursive: true });
-      fs15.writeFileSync(path15.join(brainDir, `brain_${userId}.json`), JSON.stringify(brain));
+      const brainDir = path16.join(process.cwd(), "data", "brains");
+      if (!fs16.existsSync(brainDir)) fs16.mkdirSync(brainDir, { recursive: true });
+      fs16.writeFileSync(path16.join(brainDir, `brain_${userId}.json`), JSON.stringify(brain));
     } catch (_brainSaveErr) {
     }
     console.log(`[VEDD Brain] Learned from ${combinedTrades.length} trades across ${uniqueSymbols.length} pairs for user ${userId}`);
@@ -83818,9 +84145,9 @@ Format each recommendation as a clear, concise action item.`;
   global.runBrainLearning = runBrainLearning;
   global.loadPersistedBrain = (userId) => {
     try {
-      const p = path15.join(process.cwd(), "data", "brains", `brain_${userId}.json`);
-      if (!fs15.existsSync(p)) return null;
-      const brain = JSON.parse(fs15.readFileSync(p, "utf-8"));
+      const p = path16.join(process.cwd(), "data", "brains", `brain_${userId}.json`);
+      if (!fs16.existsSync(p)) return null;
+      const brain = JSON.parse(fs16.readFileSync(p, "utf-8"));
       global.veddAIBrain = global.veddAIBrain || {};
       global.veddAIBrain[userId] = brain;
       return brain;
@@ -84038,9 +84365,9 @@ Format each recommendation as a clear, concise action item.`;
     let brain = g.veddAIBrain[userId];
     if (!brain) {
       try {
-        const p = path15.join(process.cwd(), "data", "brains", `brain_${userId}.json`);
-        if (fs15.existsSync(p)) {
-          brain = JSON.parse(fs15.readFileSync(p, "utf-8"));
+        const p = path16.join(process.cwd(), "data", "brains", `brain_${userId}.json`);
+        if (fs16.existsSync(p)) {
+          brain = JSON.parse(fs16.readFileSync(p, "utf-8"));
           g.veddAIBrain[userId] = brain;
         }
       } catch (_) {
@@ -85182,9 +85509,9 @@ Respond with ONLY valid JSON:
         global.veddAIBrain[userId].lastWeeklyScan = scan;
         global.veddAIBrain[userId].weeklyScanInsights = scan.scanInsights;
         try {
-          const brainDir = path15.join(process.cwd(), "data", "brains");
-          if (!fs15.existsSync(brainDir)) fs15.mkdirSync(brainDir, { recursive: true });
-          fs15.writeFileSync(path15.join(brainDir, `brain_${userId}.json`), JSON.stringify(global.veddAIBrain[userId]));
+          const brainDir = path16.join(process.cwd(), "data", "brains");
+          if (!fs16.existsSync(brainDir)) fs16.mkdirSync(brainDir, { recursive: true });
+          fs16.writeFileSync(path16.join(brainDir, `brain_${userId}.json`), JSON.stringify(global.veddAIBrain[userId]));
         } catch (_) {
         }
       }
@@ -85821,20 +86148,20 @@ Respond with ONLY valid JSON:
       });
     }
   });
-  const _polyWalletsFile = path15.join(process.cwd(), "data", "polymarket_wallets.json");
+  const _polyWalletsFile = path16.join(process.cwd(), "data", "polymarket_wallets.json");
   const _loadPolyWallets = () => {
     try {
-      if (fs15.existsSync(_polyWalletsFile)) return JSON.parse(fs15.readFileSync(_polyWalletsFile, "utf-8"));
+      if (fs16.existsSync(_polyWalletsFile)) return JSON.parse(fs16.readFileSync(_polyWalletsFile, "utf-8"));
     } catch {
     }
     return {};
   };
   const _savePolyWallets = (map) => {
     try {
-      const dir = path15.join(process.cwd(), "data");
-      if (!fs15.existsSync(dir)) fs15.mkdirSync(dir, { recursive: true });
+      const dir = path16.join(process.cwd(), "data");
+      if (!fs16.existsSync(dir)) fs16.mkdirSync(dir, { recursive: true });
       const content = JSON.stringify(map, null, 2);
-      fs15.writeFileSync(_polyWalletsFile, content);
+      fs16.writeFileSync(_polyWalletsFile, content);
       backupDurableFile("polymarket_wallets.json", content);
     } catch {
     }
@@ -87251,20 +87578,20 @@ Return ONLY JSON: {"topPicks":[{"market":"","winProbability":<0-100>,"whyItWins"
     const closed = await closeAllKalshiTrades2(userId);
     res.json({ success: true, closed, state: getKalshiEngineState2(userId) });
   });
-  const _polyKeysFile = path15.join(process.cwd(), "data", "polymarket_keys.json");
+  const _polyKeysFile = path16.join(process.cwd(), "data", "polymarket_keys.json");
   const _loadPolyKeys = () => {
     try {
-      if (fs15.existsSync(_polyKeysFile)) return JSON.parse(fs15.readFileSync(_polyKeysFile, "utf-8"));
+      if (fs16.existsSync(_polyKeysFile)) return JSON.parse(fs16.readFileSync(_polyKeysFile, "utf-8"));
     } catch {
     }
     return {};
   };
   const _savePolyKeys = (map) => {
     try {
-      const dir = path15.join(process.cwd(), "data");
-      if (!fs15.existsSync(dir)) fs15.mkdirSync(dir, { recursive: true });
+      const dir = path16.join(process.cwd(), "data");
+      if (!fs16.existsSync(dir)) fs16.mkdirSync(dir, { recursive: true });
       const content = JSON.stringify(map, null, 2);
-      fs15.writeFileSync(_polyKeysFile, content);
+      fs16.writeFileSync(_polyKeysFile, content);
       backupDurableFile("polymarket_keys.json", content);
     } catch {
     }
@@ -88519,11 +88846,11 @@ Format your response as JSON with exactly these keys:
       let mediaUrl = null;
       let mediaType = null;
       if (req.file && req.file.buffer) {
-        const fs17 = await import("fs/promises");
-        const path19 = await import("path");
-        const filename = `content-${userId}-day${dayNumber}-${Date.now()}${path19.extname(req.file.originalname)}`;
-        const uploadPath = path19.join(process.cwd(), "uploads", filename);
-        await fs17.writeFile(uploadPath, req.file.buffer);
+        const fs18 = await import("fs/promises");
+        const path20 = await import("path");
+        const filename = `content-${userId}-day${dayNumber}-${Date.now()}${path20.extname(req.file.originalname)}`;
+        const uploadPath = path20.join(process.cwd(), "uploads", filename);
+        await fs18.writeFile(uploadPath, req.file.buffer);
         mediaUrl = `/uploads/${filename}`;
         mediaType = req.file.mimetype.startsWith("video/") ? "video" : "image";
       }
@@ -89336,8 +89663,8 @@ Generate a JSON object with:
       }
       const id = parseInt(streamId);
       const filename = `stream-recording-${streamType}-${id}-${Date.now()}.webm`;
-      const filePath = path15.join(uploadsDir2, filename);
-      fs15.writeFileSync(filePath, file.buffer);
+      const filePath = path16.join(uploadsDir2, filename);
+      fs16.writeFileSync(filePath, file.buffer);
       const recordingUrl = `/uploads/${filename}`;
       if (streamType === "schedule") {
         const schedule = await storage.getSchedule(id);
@@ -93758,11 +94085,20 @@ Sitemap: ${SEO_BASE_URL}/sitemap.xml
       if (!prompt) return res.status(400).json({ error: "Tell us what the video should explain." });
       const aspect = ["9:16", "4:5", "1:1", "16:9"].includes(req.body?.aspect) ? req.body.aspect : "9:16";
       const ex = await Promise.resolve().then(() => (init_explainer_video(), explainer_video_exports));
+      const { getBackgroundPreset: getBackgroundPreset2 } = await Promise.resolve().then(() => (init_backgrounds(), backgrounds_exports));
       const limit = Number(process.env.EXPLAINER_DAILY_LIMIT ?? 2);
       if (!u.isAdmin && await ex.rendersToday(u.id) >= limit) {
         return res.status(429).json({ error: `You've made ${limit} explainer videos today. You can make more tomorrow.` });
       }
-      const jobId = await ex.startExplainerJob(u.id, prompt, aspect);
+      let presenterImage;
+      const presenterId = Number(req.body?.presenterId) || 0;
+      if (presenterId) {
+        const { getPresenter: getPresenter2, presenterAbsoluteUrl: presenterAbsoluteUrl2 } = await Promise.resolve().then(() => (init_presenters(), presenters_exports));
+        const p = await getPresenter2(u.id, presenterId);
+        if (p) presenterImage = presenterAbsoluteUrl2(req, p.imageUrl);
+      }
+      const bg = getBackgroundPreset2(req.body?.backgroundId);
+      const jobId = await ex.startExplainerJob(u.id, prompt, aspect, { presenterImage, backgroundScene: bg?.scene });
       res.json({ jobId });
     } catch (err) {
       res.status(500).json({ error: err.message });
@@ -93774,6 +94110,64 @@ Sitemap: ${SEO_BASE_URL}/sitemap.xml
     const job = await ex.getJob(Number(req.params.id), req.user.id);
     if (!job) return res.status(404).json({ error: "Not found" });
     res.json({ id: job.id, status: job.status, step: job.step, progress: job.progress, url: job.result_url, error: job.error, script: job.script, aspect: job.aspect });
+  });
+  app2.get("/api/content-studio/presenters", async (req, res) => {
+    const u = req.user;
+    if (!req.isAuthenticated() || !(u?.isAmbassador || u?.isAdmin)) {
+      return res.status(403).json({ error: "Ambassador or admin only" });
+    }
+    try {
+      const { listPresenters: listPresenters2 } = await Promise.resolve().then(() => (init_presenters(), presenters_exports));
+      res.json({ presenters: await listPresenters2(u.id) });
+    } catch (err) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+  app2.post("/api/content-studio/presenters", async (req, res) => {
+    const u = req.user;
+    if (!req.isAuthenticated() || !(u?.isAmbassador || u?.isAdmin)) {
+      return res.status(403).json({ error: "Ambassador or admin only" });
+    }
+    try {
+      const name = String(req.body?.name || "").trim().slice(0, 60) || "My presenter";
+      const imageData = String(req.body?.imageData || "");
+      const m = imageData.match(/^data:(image\/[a-zA-Z0-9.+-]+);base64,([A-Za-z0-9+/=]+)$/);
+      if (!m) return res.status(400).json({ error: "imageData must be an image data URI" });
+      const buf = Buffer.from(m[2], "base64");
+      if (buf.byteLength < 100 || buf.byteLength > 8 * 1024 * 1024) {
+        return res.status(400).json({ error: "Image must be between 100 bytes and 8MB" });
+      }
+      const { persistBuffer: persistBuffer2 } = await Promise.resolve().then(() => (init_content_asset_store(), content_asset_store_exports));
+      const saved = await persistBuffer2(buf, m[1]);
+      if (!saved) return res.status(500).json({ error: "Could not save that photo. Please try again." });
+      const { createPresenter: createPresenter2 } = await Promise.resolve().then(() => (init_presenters(), presenters_exports));
+      const presenter = await createPresenter2(u.id, name, saved.url);
+      res.json({ presenter });
+    } catch (err) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+  app2.delete("/api/content-studio/presenters/:id", async (req, res) => {
+    const u = req.user;
+    if (!req.isAuthenticated() || !(u?.isAmbassador || u?.isAdmin)) {
+      return res.status(403).json({ error: "Ambassador or admin only" });
+    }
+    try {
+      const { deletePresenter: deletePresenter2 } = await Promise.resolve().then(() => (init_presenters(), presenters_exports));
+      const ok = await deletePresenter2(u.id, Number(req.params.id));
+      if (!ok) return res.status(404).json({ error: "Not found" });
+      res.json({ ok: true });
+    } catch (err) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+  app2.get("/api/content-studio/backgrounds", async (req, res) => {
+    const u = req.user;
+    if (!req.isAuthenticated() || !(u?.isAmbassador || u?.isAdmin)) {
+      return res.status(403).json({ error: "Ambassador or admin only" });
+    }
+    const { BACKGROUND_PRESETS: BACKGROUND_PRESETS2 } = await Promise.resolve().then(() => (init_backgrounds(), backgrounds_exports));
+    res.json({ backgrounds: BACKGROUND_PRESETS2.map(({ id, label }) => ({ id, label })) });
   });
   app2.get("/api/content-studio/sync-ads", async (req, res) => {
     const u = req.user;
@@ -93819,10 +94213,21 @@ Sitemap: ${SEO_BASE_URL}/sitemap.xml
       return res.status(403).json({ error: "Ambassador or admin only" });
     }
     try {
-      const { prompt, shot, exact, aspect, brand, duration, quality, image } = req.body;
+      const { prompt, shot, exact, aspect, brand, duration, quality, image, presenterId, backgroundId } = req.body;
       if (!prompt && !shot) return res.status(400).json({ error: "prompt is required" });
       const { renderContentVideo: renderContentVideo2 } = await Promise.resolve().then(() => (init_content_video(), content_video_exports));
-      const video = await renderContentVideo2(prompt || shot || "", { userId: u.id, shot, exact, aspect, brand, duration, quality, image });
+      let startImage = image;
+      if (presenterId) {
+        const { getPresenter: getPresenter2, presenterAbsoluteUrl: presenterAbsoluteUrl2 } = await Promise.resolve().then(() => (init_presenters(), presenters_exports));
+        const p = await getPresenter2(u.id, Number(presenterId));
+        if (p) startImage = presenterAbsoluteUrl2(req, p.imageUrl);
+      }
+      let backgroundScene;
+      if (backgroundId) {
+        const { getBackgroundPreset: getBackgroundPreset2 } = await Promise.resolve().then(() => (init_backgrounds(), backgrounds_exports));
+        backgroundScene = getBackgroundPreset2(backgroundId)?.scene;
+      }
+      const video = await renderContentVideo2(prompt || shot || "", { userId: u.id, shot, exact, aspect, brand, duration, quality, image: startImage, backgroundScene });
       if (!video) return res.status(502).json({ error: "The video couldn't be made right now. Please try again in a minute." });
       if (video.persisted) {
         await storage.createContentStudioGeneration({
@@ -93845,20 +94250,33 @@ Sitemap: ${SEO_BASE_URL}/sitemap.xml
       return res.status(403).json({ error: "Ambassador or admin only" });
     }
     try {
-      const { topic, duration, quality, image } = req.body;
+      const { topic, duration, quality, image, presenterId, backgroundId, format } = req.body;
       if (!topic) return res.status(400).json({ error: "topic is required" });
       const { generateReelScript: generateReelScript2 } = await Promise.resolve().then(() => (init_openai(), openai_exports));
+      const reelFormat = format === "product-ad" || format === "got-milk" ? format : "standard";
       const { getSyncAdStyle: getSyncAdStyle2 } = await Promise.resolve().then(() => (init_sync_ads(), sync_ads_exports));
       const syncStyle = getSyncAdStyle2(req.body?.syncStyleId);
-      const script = await generateReelScript2(topic, u?.id, syncStyle?.styleNote);
+      const script = await generateReelScript2(topic, u?.id, reelFormat, syncStyle?.styleNote);
       const { renderContentVideo: renderContentVideo2 } = await Promise.resolve().then(() => (init_content_video(), content_video_exports));
+      let startImage = image;
+      if (presenterId) {
+        const { getPresenter: getPresenter2, presenterAbsoluteUrl: presenterAbsoluteUrl2 } = await Promise.resolve().then(() => (init_presenters(), presenters_exports));
+        const p = await getPresenter2(u.id, Number(presenterId));
+        if (p) startImage = presenterAbsoluteUrl2(req, p.imageUrl);
+      }
+      let backgroundScene;
+      if (backgroundId) {
+        const { getBackgroundPreset: getBackgroundPreset2 } = await Promise.resolve().then(() => (init_backgrounds(), backgrounds_exports));
+        backgroundScene = getBackgroundPreset2(backgroundId)?.scene;
+      }
       const video = await renderContentVideo2(`Topic: ${topic}
 Scene idea: ${script.videoPrompt}`, {
         userId: u.id,
         aspect: req.body.aspect,
         duration,
         quality,
-        image
+        image: startImage,
+        backgroundScene
       });
       if (!video) return res.status(502).json({ error: "The video couldn't be made right now. Please try again in a minute." });
       if (video.persisted) {
@@ -94881,10 +95299,10 @@ Scene idea: ${script.videoPrompt}`, {
       return res.status(403).json({ error: "Admin access required" });
     }
     try {
-      const dataFile = path15.join(process.cwd(), "data", "curricula.json");
+      const dataFile = path16.join(process.cwd(), "data", "curricula.json");
       let curricula = [];
       try {
-        curricula = JSON.parse(fs15.readFileSync(dataFile, "utf-8"));
+        curricula = JSON.parse(fs16.readFileSync(dataFile, "utf-8"));
       } catch {
       }
       const entry = {
@@ -94894,8 +95312,8 @@ Scene idea: ${script.videoPrompt}`, {
         ...req.body
       };
       curricula.push(entry);
-      fs15.mkdirSync(path15.join(process.cwd(), "data"), { recursive: true });
-      fs15.writeFileSync(dataFile, JSON.stringify(curricula, null, 2));
+      fs16.mkdirSync(path16.join(process.cwd(), "data"), { recursive: true });
+      fs16.writeFileSync(dataFile, JSON.stringify(curricula, null, 2));
       res.json({ success: true, id: entry.id, message: "Curriculum saved to Academy" });
     } catch (err) {
       res.status(500).json({ error: err.message });
@@ -94904,10 +95322,10 @@ Scene idea: ${script.videoPrompt}`, {
   app2.get("/api/workforce/modules", async (req, res) => {
     if (!req.isAuthenticated()) return res.status(401).json({ error: "Unauthorized" });
     try {
-      const dataFile = path15.join(process.cwd(), "data", "curricula.json");
+      const dataFile = path16.join(process.cwd(), "data", "curricula.json");
       let saved = [];
       try {
-        saved = JSON.parse(fs15.readFileSync(dataFile, "utf-8"));
+        saved = JSON.parse(fs16.readFileSync(dataFile, "utf-8"));
       } catch {
       }
       res.json({ modules: saved, total: saved.length + 12 });
@@ -94996,10 +95414,10 @@ Scene idea: ${script.videoPrompt}`, {
   });
   app2.get("/api/verify/:certId", async (req, res) => {
     try {
-      const dataFile = path15.join(process.cwd(), "data", "certificates.json");
+      const dataFile = path16.join(process.cwd(), "data", "certificates.json");
       let certs = [];
       try {
-        certs = JSON.parse(fs15.readFileSync(dataFile, "utf-8"));
+        certs = JSON.parse(fs16.readFileSync(dataFile, "utf-8"));
       } catch {
       }
       const cert = certs.find((c) => c.certId === req.params.certId);
@@ -96831,14 +97249,14 @@ Scene idea: ${script.videoPrompt}`, {
 
 // server/vite.ts
 import express from "express";
-import fs16 from "fs";
-import path17 from "path";
+import fs17 from "fs";
+import path18 from "path";
 import { createServer as createViteServer, createLogger } from "vite";
 
 // vite.config.ts
 import { defineConfig } from "vite";
 import react from "@vitejs/plugin-react";
-import path16 from "path";
+import path17 from "path";
 var isReplit = process.env.REPL_ID !== void 0;
 var replitPlugins = isReplit ? [
   (await import("@replit/vite-plugin-shadcn-theme-json")).default(),
@@ -96857,14 +97275,14 @@ var vite_config_default = defineConfig({
   ],
   resolve: {
     alias: {
-      "@": path16.resolve(import.meta.dirname, "client", "src"),
-      "@shared": path16.resolve(import.meta.dirname, "shared"),
-      "@assets": path16.resolve(import.meta.dirname, "attached_assets")
+      "@": path17.resolve(import.meta.dirname, "client", "src"),
+      "@shared": path17.resolve(import.meta.dirname, "shared"),
+      "@assets": path17.resolve(import.meta.dirname, "attached_assets")
     }
   },
-  root: path16.resolve(import.meta.dirname, "client"),
+  root: path17.resolve(import.meta.dirname, "client"),
   build: {
-    outDir: path16.resolve(import.meta.dirname, "dist/public"),
+    outDir: path17.resolve(import.meta.dirname, "dist/public"),
     emptyOutDir: true,
     chunkSizeWarningLimit: 4e3,
     rollupOptions: {
@@ -96987,13 +97405,13 @@ async function setupVite(app2, server) {
       return res.status(404).json({ error: "Not found", path: url });
     }
     try {
-      const clientTemplate = path17.resolve(
+      const clientTemplate = path18.resolve(
         import.meta.dirname,
         "..",
         "client",
         "index.html"
       );
-      let template = await fs16.promises.readFile(clientTemplate, "utf-8");
+      let template = await fs17.promises.readFile(clientTemplate, "utf-8");
       template = template.replace(
         `src="/src/main.tsx"`,
         `src="/src/main.tsx?v=${TEMPLATE_VERSION}"`
@@ -97013,9 +97431,9 @@ async function setupVite(app2, server) {
   });
 }
 function serveStatic(app2) {
-  const distPath = path17.resolve(import.meta.dirname, "..", "dist", "public");
-  console.log(`[serveStatic] Looking for dist at: ${distPath} \u2014 exists: ${fs16.existsSync(distPath)}`);
-  if (!fs16.existsSync(distPath)) {
+  const distPath = path18.resolve(import.meta.dirname, "..", "dist", "public");
+  console.log(`[serveStatic] Looking for dist at: ${distPath} \u2014 exists: ${fs17.existsSync(distPath)}`);
+  if (!fs17.existsSync(distPath)) {
     throw new Error(
       `Could not find the build directory: ${distPath}, make sure to build the client first`
     );
@@ -97036,7 +97454,7 @@ function serveStatic(app2) {
       }
     }
   }));
-  const indexPath = path17.resolve(distPath, "index.html");
+  const indexPath = path18.resolve(distPath, "index.html");
   const versionScript = `<script>
 (function(){
   try{
@@ -97072,7 +97490,7 @@ function serveStatic(app2) {
         "Expires": "0",
         "Content-Type": "text/html; charset=utf-8"
       });
-      let html = await fs16.promises.readFile(indexPath, "utf-8");
+      let html = await fs17.promises.readFile(indexPath, "utf-8");
       html = await injectBlogSeoMeta(html, req.originalUrl);
       html = html.replace("<head>", "<head>" + versionScript);
       res.send(html);
@@ -97083,7 +97501,7 @@ function serveStatic(app2) {
 }
 
 // server/index.ts
-import path18 from "path";
+import path19 from "path";
 
 // server/auth.ts
 init_storage();
@@ -98027,19 +98445,19 @@ httpServer.listen(PORT, "0.0.0.0", () => {
   log(`serving on port ${PORT}`);
 });
 setupAuth(app);
-app.use("/uploads", express2.static(path18.join(process.cwd(), "uploads")));
-app.use("/ea-templates", express2.static(path18.join(process.cwd(), "public/ea-templates")));
-app.use("/downloads", express2.static(path18.join(process.cwd(), "public/downloads"), {
+app.use("/uploads", express2.static(path19.join(process.cwd(), "uploads")));
+app.use("/ea-templates", express2.static(path19.join(process.cwd(), "public/ea-templates")));
+app.use("/downloads", express2.static(path19.join(process.cwd(), "public/downloads"), {
   setHeaders: (res, filePath) => {
     if (filePath.endsWith(".mq5")) {
       res.setHeader("Content-Type", "text/plain; charset=utf-8");
-      res.setHeader("Content-Disposition", 'attachment; filename="' + path18.basename(filePath) + '"');
+      res.setHeader("Content-Disposition", 'attachment; filename="' + path19.basename(filePath) + '"');
     }
   }
 }));
 app.use((req, res, next) => {
   const start = Date.now();
-  const path19 = req.path;
+  const path20 = req.path;
   let capturedJsonResponse = void 0;
   const originalResJson = res.json;
   res.json = function(bodyJson, ...args) {
@@ -98048,8 +98466,8 @@ app.use((req, res, next) => {
   };
   res.on("finish", () => {
     const duration = Date.now() - start;
-    if (path19.startsWith("/api")) {
-      let logLine = `${req.method} ${path19} ${res.statusCode} in ${duration}ms`;
+    if (path20.startsWith("/api")) {
+      let logLine = `${req.method} ${path20} ${res.statusCode} in ${duration}ms`;
       if (capturedJsonResponse) {
         logLine += ` :: ${JSON.stringify(capturedJsonResponse)}`;
       }
