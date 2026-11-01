@@ -96,6 +96,7 @@ export function ExplainerMaker({ initialTopic = '' }: { initialTopic?: string })
           placeholder="e.g. How the opening range breakout works and where to put your stop"
           className="bg-black/40 border-white/10 text-white text-sm" />
       </div>
+      <p className="text-[10px] text-gray-500">Explaining the app itself? Scenes about VEDD show the real veddbuild.com pages on screen — never a made-up app.</p>
       <div>
         <label className="text-[10px] text-gray-500 mb-1 block">Size</label>
         <div className="grid grid-cols-2 gap-2">

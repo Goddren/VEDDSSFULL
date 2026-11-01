@@ -21,6 +21,7 @@ import { runFfmpeg, probe } from './ffmpeg';
 import { findLogo } from './video-branding';
 import { persistBuffer } from './content-asset-store';
 import { PATTERNS, PATTERN_KEYS, chartFilter } from './chart-overlay';
+import { APP_SCREEN_IDS, screenCatalogForPrompt, screenImagePath, screenCardGeometry } from './app-screens';
 
 export type ExplainerAspect = '9:16' | '4:5' | '1:1' | '16:9';
 const FRAME: Record<ExplainerAspect, [number, number]> = { '9:16': [720, 1280], '4:5': [864, 1080], '1:1': [720, 720], '16:9': [1280, 720] };
@@ -30,8 +31,10 @@ const END_CARD_SECONDS = 2;
 const POLL_MS = 5000;
 const MAX_WAIT_MS = 8 * 60 * 1000;
 
-/** chart: a PATTERNS key from chart-overlay.ts; when set, the real pattern is drawn over the scene. */
-export interface ExplainerScene { narration: string; visual: string; chart?: string | null }
+/** chart: a PATTERNS key from chart-overlay.ts; when set, the real pattern is drawn over the scene.
+ *  screen: an APP_SCREENS id from app-screens.ts; when set, the REAL veddbuild.com page is composited
+ *  into the scene as a phone card (never an AI-invented app background). A scene gets one or the other. */
+export interface ExplainerScene { narration: string; visual: string; chart?: string | null; screen?: string | null }
 /** presenter + setting are reused word for word in every scene so it is one person, one place. */
 export interface ExplainerScript { title: string; caption: string; presenter: string; setting: string; scenes: ExplainerScene[] }
 
@@ -130,7 +133,9 @@ async function runJob(id: number, userId: number, input: string, aspect: Explain
   await Promise.all(workers);
 
   await update(id, { step: 'Adding VEDD branding and joining scenes', progress: 85, meta: { predictions, model: MODEL() } });
-  const video = await assemble(urls, aspect, script.scenes.map((s) => s.chart ?? null));
+  const video = await assemble(urls, aspect,
+    script.scenes.map((s) => (s.screen ? null : (s.chart ?? null))),
+    script.scenes.map((s) => (s.screen ? screenImagePath(s.screen) : null)));
   const saved = await persistBuffer(video, 'video/mp4');
   if (!saved) throw new Error('could not save the finished video');
 
@@ -169,8 +174,11 @@ Each scene is one continuous 8-second shot:
 - "visual": what the camera sees, 20-40 words: the presenter's action and the camera move. Do NOT re-describe the presenter or setting (they are added automatically).
 - "chart": when the narration explains a candlestick pattern or level, set it to exactly one of: ${PATTERN_KEYS.join(', ')}. The real pattern is drawn on screen in the lower part of the frame, so in that scene the presenter stands in the upper half and points or gestures down toward it. Otherwise null.
 Use a chart in at least one middle scene when the subject involves a pattern, level or breakout. No income or profit promises.
+- "screen": when the narration talks about the VEDD app itself — a page, a feature, the plans — set it to exactly one of these REAL pages (the actual screenshot is composited into the lower half of the frame, the presenter in the upper half gesturing down toward it):
+${screenCatalogForPrompt()}
+Never invent or describe a fake app screen, page or button in "visual": when the app needs to be shown, it is shown with a screen id or not at all. A scene gets a chart OR a screen, never both. Use a screen in at least one scene when the subject is the app itself.
 
-JSON: {"title":"...","caption":"one-line social caption with a question","presenter":"...","setting":"...","scenes":[{"narration":"...","visual":"...","chart":null}]}` },
+JSON: {"title":"...","caption":"one-line social caption with a question","presenter":"...","setting":"...","scenes":[{"narration":"...","visual":"...","chart":null,"screen":null}]}` },
     ],
     response_format: { type: 'json_object' },
     max_tokens: 1500,
@@ -181,7 +189,9 @@ JSON: {"title":"...","caption":"one-line social caption with a question","presen
     .map((s: any) => ({
       narration: String(s?.narration || '').trim(), visual: String(s?.visual || '').trim(),
       chart: PATTERN_KEYS.includes(String(s?.chart)) ? String(s.chart) : null,
+      screen: APP_SCREEN_IDS.includes(String(s?.screen)) ? String(s.screen) : null,
     }))
+    .map((s: ExplainerScene) => (s.screen ? { ...s, chart: null } : s))
     .filter((s: ExplainerScene) => s.narration && s.visual)
     .slice(0, n);
   if (scenes.length < 2) throw new Error('script generation returned too few scenes');
@@ -195,7 +205,7 @@ async function renderScene(scene: ExplainerScene, script: ExplainerScript, aspec
   const token = process.env.REPLICATE_API_TOKEN;
   if (!token) throw new Error('REPLICATE_API_TOKEN not set');
   // Same presenter + setting text in every scene keeps one person, one place.
-  const framing = scene.chart
+  const framing = scene.chart || scene.screen
     ? 'Medium shot with the presenter in the upper half of the frame, pointing down toward the lower half, which is a plain darker area of the scene.'
     : 'Medium close-up, presenter talking straight to camera.';
   const prompt = `Presenter: ${script.presenter}. Setting: ${script.setting}. ${scene.visual} ${framing} `
@@ -237,7 +247,7 @@ async function renderScene(scene: ExplainerScene, script: ExplainerScript, aspec
 }
 
 // ─── Assembly (ffmpeg) ───────────────────────────────────────────────────────
-export async function assemble(clipUrls: string[], aspect: ExplainerAspect, charts: (string | null)[] = []): Promise<Buffer> {
+export async function assemble(clipUrls: string[], aspect: ExplainerAspect, charts: (string | null)[] = [], screens: (string | null)[] = []): Promise<Buffer> {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'vedd-explainer-'));
   try {
     const files: string[] = [];
@@ -248,14 +258,14 @@ export async function assemble(clipUrls: string[], aspect: ExplainerAspect, char
       fs.writeFileSync(f, Buffer.from(await r.arrayBuffer()));
       files.push(f);
     }
-    return await assembleFiles(files, aspect, dir, charts);
+    return await assembleFiles(files, aspect, dir, charts, screens);
   } finally {
     fs.rmSync(dir, { recursive: true, force: true });
   }
 }
 
 /** Joins local scene files into one branded MP4 (exported for tests). */
-export async function assembleFiles(files: string[], aspect: ExplainerAspect, dir: string, charts: (string | null)[] = []): Promise<Buffer> {
+export async function assembleFiles(files: string[], aspect: ExplainerAspect, dir: string, charts: (string | null)[] = [], screens: (string | null)[] = []): Promise<Buffer> {
   const [W, H] = FRAME[aspect];
   const logo = findLogo();
   {
@@ -271,6 +281,9 @@ export async function assembleFiles(files: string[], aspect: ExplainerAspect, di
     const cardAudio = next++; args.push('-f', 'lavfi', '-t', String(END_CARD_SECONDS), '-i', 'anullsrc=r=44100:cl=stereo');
     let logoIdx = -1, cardIdx = -1;
     if (logo) { logoIdx = next++; args.push('-i', logo); cardIdx = next++; args.push('-loop', '1', '-t', String(END_CARD_SECONDS), '-i', logo); }
+    // Real app screens (app-screens.ts) ride along as extra image inputs.
+    const screenIdx: number[] = [];
+    files.forEach((_, i) => { if (screens[i]) { screenIdx[i] = next++; args.push('-i', screens[i]!); } });
 
     const f: string[] = [];
     const parts: string[] = [];
@@ -278,7 +291,17 @@ export async function assembleFiles(files: string[], aspect: ExplainerAspect, di
       // Pattern scenes get the real candles drawn over the lower part (chart-overlay.ts).
       const spec = charts[i] ? PATTERNS[charts[i]!] : undefined;
       const overlay = spec ? `,${chartFilter(spec, W, H, info[i].duration || CLIP_SECONDS)}` : '';
-      f.push(`[${i}:v]scale=${W}:${H}:force_original_aspect_ratio=increase,crop=${W}:${H},fps=24,setsar=1${overlay},format=yuv420p[v${i}]`);
+      // Screen scenes: a dark gold-edged panel in the lower half, then the
+      // REAL app screenshot composited over it as a phone card.
+      const scr = screens[i] ? screenCardGeometry(W, H) : null;
+      const panel = scr ? `,drawbox=x=${scr.x - scr.panelPad}:y=${scr.y - scr.panelPad}:w=${scr.cardW + scr.panelPad * 2}:h=${scr.cardH + scr.panelPad * 2}:color=0x0B0B0E@0.92:t=fill,drawbox=x=${scr.x - scr.panelPad}:y=${scr.y - scr.panelPad}:w=${scr.cardW + scr.panelPad * 2}:h=${scr.cardH + scr.panelPad * 2}:color=0xF5C451@0.55:t=3` : '';
+      f.push(`[${i}:v]scale=${W}:${H}:force_original_aspect_ratio=increase,crop=${W}:${H},fps=24,setsar=1${overlay}${panel},format=yuv420p[base${i}]`);
+      if (scr) {
+        f.push(`[${screenIdx[i]}:v]scale=${scr.cardW}:${scr.cardH}:force_original_aspect_ratio=increase,crop=${scr.cardW}:${scr.cardH}[scr${i}]`);
+        f.push(`[base${i}][scr${i}]overlay=${scr.x}:${scr.y},format=yuv420p[v${i}]`);
+      } else {
+        f.push(`[base${i}]null[v${i}]`);
+      }
       f.push(`[${audio[i] ? i : silent[i]}:a]aresample=44100,aformat=sample_fmts=fltp:channel_layouts=stereo[a${i}]`);
       parts.push(`[v${i}][a${i}]`);
     });
