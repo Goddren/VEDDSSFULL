@@ -10,6 +10,8 @@
  * by a background job the way image generation is.
  */
 
+import { generateFalVideo, falConfigured } from './fal-video';
+
 export type VideoQuality = 'fast' | 'high';
 
 export interface GeneratedVideo {
@@ -101,27 +103,54 @@ export async function generateContentVideo(
   // 9:16 afterwards (video-branding.ts); models only offer 9:16 and 16:9.
   opts?: { duration?: number; quality?: VideoQuality; image?: string; aspect?: '9:16' | '16:9' }
 ): Promise<GeneratedVideo | null> {
+  const quality: VideoQuality = opts?.quality === 'high' ? 'high' : 'fast';
+  const image = opts?.image && opts.image.trim() ? opts.image.trim() : undefined;
+  const durationSeconds = Math.min(Math.max(opts?.duration ?? 5, 1), MAX_DURATION_SECONDS);
+  const numFrames = Math.max(MIN_NUM_FRAMES, Math.round(durationSeconds * DEFAULT_FPS));
+  // User's scene FIRST (primary), then a compact style/representation tail.
+  const styledPrompt = `${prompt.trim()}${VEDD_STYLE_LOCK}${NO_TEXT_SUFFIX}${HUMAN_STYLE_SUFFIX}`;
+  const aspect: '9:16' | '16:9' = opts?.aspect === '16:9' ? '16:9' : '9:16';
+  const shared = { quality, image, durationSeconds, numFrames, aspect };
+
+  // Provider order: Replicate by default; VIDEO_PROVIDER=fal flips it.
+  // Either way, a failure falls back to the other provider when it's
+  // configured — a provider outage or a retired model (Replicate's Veo
+  // 404s, 2026-10-31) no longer takes clip/reel generation down with it.
+  if ((process.env.VIDEO_PROVIDER || '').toLowerCase() === 'fal') {
+    const viaFal = await generateFalVideo(styledPrompt, { ...shared, fps: DEFAULT_FPS });
+    if (viaFal) return viaFal;
+    console.log('[video-generation] fal failed — falling back to Replicate');
+    return generateViaReplicate(styledPrompt, shared);
+  }
+  const viaReplicate = await generateViaReplicate(styledPrompt, shared);
+  if (viaReplicate) return viaReplicate;
+  if (falConfigured()) {
+    console.log('[video-generation] Replicate failed — falling back to fal.ai');
+    return generateFalVideo(styledPrompt, { ...shared, fps: DEFAULT_FPS });
+  }
+  return null;
+}
+
+async function generateViaReplicate(
+  styledPrompt: string,
+  opts: { quality: VideoQuality; image?: string; durationSeconds: number; numFrames: number; aspect: '9:16' | '16:9' },
+): Promise<GeneratedVideo | null> {
   const apiKey = process.env.REPLICATE_API_TOKEN;
   if (!apiKey) {
     console.error('[video-generation] REPLICATE_API_TOKEN not set — cannot generate video');
     return null;
   }
 
-  const quality: VideoQuality = opts?.quality === 'high' ? 'high' : 'fast';
-  const image = opts?.image && opts.image.trim() ? opts.image.trim() : undefined;
+  const { quality, image, durationSeconds, numFrames, aspect } = opts;
   // Image-to-video when a start image is supplied, otherwise text-to-video.
   const model = image
     ? (quality === 'high' ? HIGH_I2V_MODEL : FAST_I2V_MODEL)
     : (quality === 'high' ? HIGH_MODEL : FAST_MODEL);
-  const durationSeconds = Math.min(Math.max(opts?.duration ?? 5, 1), MAX_DURATION_SECONDS);
-  const numFrames = Math.max(MIN_NUM_FRAMES, Math.round(durationSeconds * DEFAULT_FPS));
-  // User's scene FIRST (primary), then a compact style/representation tail.
-  const styledPrompt = `${prompt.trim()}${VEDD_STYLE_LOCK}${NO_TEXT_SUFFIX}${HUMAN_STYLE_SUFFIX}`;
-  const input = buildModelInput(model, quality, styledPrompt, numFrames, durationSeconds, image, opts?.aspect === '16:9' ? '16:9' : '9:16');
+  const input = buildModelInput(model, quality, styledPrompt, numFrames, durationSeconds, image, aspect);
 
   try {
     console.log(`[video-generation] quality=${quality} model=${model} mode=${image ? 'image-to-video' : 'text-to-video'}`);
-    const res = await fetch(`https://api.replicate.com/v1/models/${model}/predictions`, {
+    const create = () => fetch(`https://api.replicate.com/v1/models/${model}/predictions`, {
       method: 'POST',
       headers: {
         Authorization: `Bearer ${apiKey}`,
@@ -136,6 +165,16 @@ export async function generateContentVideo(
       // poll loop below. Give it headroom.
       signal: AbortSignal.timeout(75000),
     });
+    // 429 = rate limited (Replicate says how long to wait): retry instead of
+    // failing — same pattern as explainer-video.ts. This account's burst
+    // limit is 1, so an unretried create made 429 the most common failure
+    // for clip and reel generation.
+    let res = await create();
+    for (let attempt = 0; res.status === 429 && attempt < 8; attempt++) {
+      const body: any = await res.json().catch(() => ({}));
+      await new Promise((r) => setTimeout(r, (Number(body?.retry_after) || 10) * 1000 + 1000));
+      res = await create();
+    }
 
     if (!res.ok) {
       const body = await res.text().catch(() => '');
