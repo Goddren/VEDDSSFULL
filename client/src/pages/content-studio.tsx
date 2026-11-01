@@ -959,6 +959,90 @@ const CAROUSEL_PIPELINE = [
   { name: 'Saving permanently', icon: <Layers className="h-5 w-5" /> },
 ];
 
+
+// ── My Presenter ────────────────────────────────────────────────────────────
+// A saved face for generation: upload a photo once, then clips, reels and
+// explainers can all star the same real person. The server stores the photo
+// in the durable asset store; presenterId is resolved server-side to the
+// public URL the video providers fetch the start image from.
+interface SavedPresenter { id: number; name: string; imageUrl: string; }
+
+function PresenterPicker({ selectedId, onSelect, imageData, onSaved }: {
+  selectedId: number | null;
+  onSelect: (p: SavedPresenter | null) => void;
+  imageData: string | null; // current start image (a data URI when freshly uploaded)
+  onSaved: (p: SavedPresenter) => void;
+}) {
+  const { data, refetch } = useQuery<{ presenters: SavedPresenter[] }>({
+    queryKey: ['/api/content-studio/presenters'],
+    queryFn: async () => {
+      const res = await apiRequest('GET', '/api/content-studio/presenters');
+      return res.json();
+    },
+  });
+  const presenters = data?.presenters ?? [];
+  const [name, setName] = useState('');
+  const [saving, setSaving] = useState(false);
+  const [saveError, setSaveError] = useState<string | null>(null);
+  const canSave = !!imageData && imageData.startsWith('data:');
+
+  const save = async () => {
+    if (!canSave || saving) return;
+    setSaving(true); setSaveError(null);
+    try {
+      const res = await apiRequest('POST', '/api/content-studio/presenters', { name: name.trim() || 'My presenter', imageData });
+      const d = await res.json();
+      await refetch();
+      onSaved(d.presenter as SavedPresenter);
+      setName('');
+    } catch {
+      setSaveError('Could not save that presenter — try again.');
+    } finally { setSaving(false); }
+  };
+
+  const remove = async (p: SavedPresenter) => {
+    try {
+      await apiRequest('DELETE', `/api/content-studio/presenters/${p.id}`);
+      if (selectedId === p.id) onSelect(null);
+      await refetch();
+    } catch { /* non-fatal: the list refreshes on next load */ }
+  };
+
+  return (
+    <div>
+      <label className="text-[10px] text-gray-500 mb-1 block">My Presenter <span className="opacity-60">(optional — videos star this person)</span></label>
+      <div className="flex flex-wrap items-center gap-2">
+        <button type="button" onClick={() => onSelect(null)}
+          className="text-[11px] font-bold px-2 py-1.5 rounded-lg"
+          style={{ background: selectedId === null ? 'rgba(245,196,81,.2)' : 'rgba(255,255,255,.05)', color: selectedId === null ? '#F5C451' : '#9ca3af', border: `1px solid ${selectedId === null ? 'rgba(245,196,81,.5)' : 'rgba(255,255,255,.1)'}` }}>
+          AI presenter
+        </button>
+        {presenters.map(p => (
+          <span key={p.id} className="inline-flex items-center gap-1.5 pl-1 pr-1.5 py-1 rounded-lg"
+            style={{ background: selectedId === p.id ? 'rgba(245,196,81,.2)' : 'rgba(255,255,255,.05)', border: `1px solid ${selectedId === p.id ? 'rgba(245,196,81,.5)' : 'rgba(255,255,255,.1)'}` }}>
+            <button type="button" onClick={() => onSelect(p)} className="inline-flex items-center gap-1.5">
+              <img src={p.imageUrl} alt={p.name} className="w-6 h-6 rounded-md object-cover" />
+              <span className="text-[11px] font-bold" style={{ color: selectedId === p.id ? '#F5C451' : '#d1d5db' }}>{p.name}</span>
+            </button>
+            <button type="button" onClick={() => remove(p)} title="Remove presenter" className="text-[11px] px-1" style={{ color: '#f87171' }}>×</button>
+          </span>
+        ))}
+      </div>
+      {canSave && (
+        <div className="flex items-center gap-2 mt-2">
+          <input value={name} onChange={e => setName(e.target.value)} placeholder="Name this presenter (e.g. Me)"
+            className="flex-1 bg-black/40 border border-white/10 rounded-lg px-3 py-1.5 text-xs text-white placeholder:text-gray-600 outline-none focus:border-amber-500/40" />
+          <button type="button" onClick={save} disabled={saving}
+            className="text-[11px] font-bold px-2.5 py-1.5 rounded-lg" style={{ background: 'rgba(245,196,81,.18)', color: '#F5C451', border: '1px solid rgba(245,196,81,.4)' }}>
+            {saving ? 'Saving…' : 'Save as my presenter'}
+          </button>
+        </div>
+      )}
+      {saveError && <p className="text-[11px] text-red-400 mt-1">{saveError}</p>}
+    </div>
+  );
+}
+
 // ── Main Page ─────────────────────────────────────────────────────────────────
 export default function ContentStudioPage() {
   const { user } = useAuth();
@@ -990,14 +1074,27 @@ export default function ContentStudioPage() {
   // reference still, so the clip animates FROM that image for consistency.
   const [videoImage, setVideoImage] = useState<string | null>(null);
   const [videoImageName, setVideoImageName] = useState<string | null>(null);
+  // My Presenter: the saved face selected for this generation (if any). The
+  // server resolves presenterId to the photo URL providers fetch.
+  const [presenterId, setPresenterId] = useState<number | null>(null);
   const onPickVideoImage = (file: File | null) => {
-    if (!file) { setVideoImage(null); setVideoImageName(null); return; }
+    if (!file) { setVideoImage(null); setVideoImageName(null); setPresenterId(null); return; }
     if (!file.type.startsWith('image/')) { setVideoError('Please choose an image file.'); return; }
     if (file.size > 12 * 1024 * 1024) { setVideoError('Image is too large (max 12MB).'); return; }
     const reader = new FileReader();
-    reader.onload = () => { setVideoImage(reader.result as string); setVideoImageName(file.name); setVideoError(null); };
+    reader.onload = () => { setVideoImage(reader.result as string); setVideoImageName(file.name); setVideoError(null); setPresenterId(null); };
     reader.onerror = () => setVideoError('Could not read that image.');
     reader.readAsDataURL(file);
+  };
+  const selectPresenter = (p: SavedPresenter | null) => {
+    setPresenterId(p?.id ?? null);
+    if (p) { setVideoImage(p.imageUrl); setVideoImageName(p.name); setVideoError(null); }
+    else if (videoImage && !videoImage.startsWith('data:')) { setVideoImage(null); setVideoImageName(null); }
+  };
+  const onPresenterSaved = (p: SavedPresenter) => {
+    setPresenterId(p.id);
+    setVideoImage(p.imageUrl);
+    setVideoImageName(p.name);
   };
   const [generatingVideo, setGeneratingVideo] = useState(false);
   const [videoError, setVideoError] = useState<string | null>(null);
@@ -1032,7 +1129,8 @@ export default function ContentStudioPage() {
         aspect: videoAspect,
         duration: videoDuration,
         quality: videoQuality,
-        image: videoImage || undefined,
+        image: presenterId ? undefined : (videoImage || undefined),
+        presenterId: presenterId || undefined,
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data?.error || 'Video generation failed');
@@ -1062,7 +1160,8 @@ export default function ContentStudioPage() {
         duration: reelDuration,
         quality: videoQuality,
         aspect: videoAspect,
-        image: videoImage || undefined,
+        image: presenterId ? undefined : (videoImage || undefined),
+        presenterId: presenterId || undefined,
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data?.error || 'Reel generation failed');
@@ -1426,6 +1525,8 @@ export default function ContentStudioPage() {
                 )}
               </div>
 
+              <PresenterPicker selectedId={presenterId} onSelect={selectPresenter} imageData={videoImage} onSaved={onPresenterSaved} />
+
               <Button onClick={generateVideo} disabled={!videoPrompt.trim() || generatingVideo} className="w-full bg-purple-600 hover:bg-purple-500">
                 {generatingVideo ? 'Making your video… about 1–3 minutes' : 'Make video'}
               </Button>
@@ -1527,6 +1628,8 @@ export default function ContentStudioPage() {
                   </label>
                 )}
               </div>
+
+              <PresenterPicker selectedId={presenterId} onSelect={selectPresenter} imageData={videoImage} onSaved={onPresenterSaved} />
 
               <Button onClick={generateReel} disabled={!reelTopic.trim() || generatingReel} className="w-full bg-emerald-600 hover:bg-emerald-500">
                 {generatingReel ? 'Writing script & generating clip… this can take a few minutes' : 'Generate Reel'}
