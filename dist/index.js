@@ -56345,6 +56345,103 @@ var init_video_shot = __esm({
   }
 });
 
+// server/services/fal-video.ts
+function falConfigured() {
+  return !!(process.env.FAL_AI_API || process.env.FAL_KEY);
+}
+function falKey() {
+  return process.env.FAL_AI_API || process.env.FAL_KEY || null;
+}
+async function generateFalVideo(styledPrompt, opts) {
+  const key = falKey();
+  if (!key) {
+    console.error("[fal-video] FAL_AI_API / FAL_KEY not set \u2014 cannot generate video");
+    return null;
+  }
+  const { quality, image } = opts;
+  const model = image ? quality === "high" ? HIGH_I2V_MODEL : FAST_I2V_MODEL : quality === "high" ? HIGH_MODEL : FAST_MODEL;
+  const input = {
+    prompt: styledPrompt,
+    num_frames: opts.numFrames,
+    frames_per_second: opts.fps,
+    // Wan family only offers 480p/580p/720p on fal; 720p is the quality bump,
+    // matching the Replicate side (fast 480p / high 720p).
+    resolution: quality === "high" ? "720p" : "480p",
+    // i2v derives aspect ratio from the start image; only set it for t2v.
+    ...image ? { image_url: image } : { aspect_ratio: opts.aspect }
+  };
+  try {
+    console.log(`[fal-video] quality=${quality} model=${model} mode=${image ? "image-to-video" : "text-to-video"}`);
+    const submit = await fetch(`https://queue.fal.run/${model}`, {
+      method: "POST",
+      headers: { Authorization: `Key ${key}`, "Content-Type": "application/json" },
+      body: JSON.stringify(input),
+      signal: AbortSignal.timeout(3e4)
+    });
+    if (!submit.ok) {
+      const body = await submit.text().catch(() => "");
+      console.error("[fal-video] fal submit error:", submit.status, body.slice(0, 300));
+      return null;
+    }
+    const queued = await submit.json();
+    const statusUrl = queued?.status_url;
+    const responseUrl = queued?.response_url;
+    if (!statusUrl || !responseUrl) {
+      console.error("[fal-video] fal submit returned no queue URLs");
+      return null;
+    }
+    let status = String(queued?.status || "IN_QUEUE");
+    for (let i = 0; i < MAX_POLLS && status !== "COMPLETED"; i++) {
+      await new Promise((resolve) => setTimeout(resolve, POLL_INTERVAL_MS));
+      const poll = await fetch(statusUrl, {
+        headers: { Authorization: `Key ${key}` },
+        signal: AbortSignal.timeout(15e3)
+      });
+      if (!poll.ok) break;
+      const pj = await poll.json();
+      status = String(pj?.status || "");
+      if (status === "ERROR") {
+        console.error("[fal-video] fal generation errored:", JSON.stringify(pj).slice(0, 300));
+        return null;
+      }
+    }
+    if (status !== "COMPLETED") {
+      console.error("[fal-video] fal video did not complete in time:", status);
+      return null;
+    }
+    const result = await fetch(responseUrl, {
+      headers: { Authorization: `Key ${key}` },
+      signal: AbortSignal.timeout(3e4)
+    });
+    if (!result.ok) {
+      console.error("[fal-video] fal result fetch error:", result.status);
+      return null;
+    }
+    const data = await result.json();
+    const url = data?.video?.url || (Array.isArray(data?.output) ? data.output[0] : void 0);
+    if (!url) {
+      console.error("[fal-video] fal result had no video URL");
+      return null;
+    }
+    return { url, provider: `fal:${model}`, quality };
+  } catch (e) {
+    console.error("[fal-video] fal error:", e.message);
+    return null;
+  }
+}
+var FAST_MODEL, HIGH_MODEL, FAST_I2V_MODEL, HIGH_I2V_MODEL, POLL_INTERVAL_MS, MAX_POLLS;
+var init_fal_video = __esm({
+  "server/services/fal-video.ts"() {
+    "use strict";
+    FAST_MODEL = process.env.FAL_VIDEO_MODEL || "fal-ai/wan/v2.2-a14b/text-to-video";
+    HIGH_MODEL = process.env.FAL_VIDEO_HIGH_MODEL || FAST_MODEL;
+    FAST_I2V_MODEL = process.env.FAL_VIDEO_I2V_MODEL || "fal-ai/wan/v2.2-a14b/image-to-video";
+    HIGH_I2V_MODEL = process.env.FAL_VIDEO_HIGH_I2V_MODEL || FAST_I2V_MODEL;
+    POLL_INTERVAL_MS = 5e3;
+    MAX_POLLS = 60;
+  }
+});
+
 // server/services/video-generation.ts
 function buildModelInput(model, quality, styledPrompt, numFrames, durationSeconds, image, aspect = "9:16") {
   if (model.includes("kling")) {
@@ -56371,21 +56468,39 @@ function buildModelInput(model, quality, styledPrompt, numFrames, durationSecond
   return { prompt: styledPrompt, ...image ? { image } : { aspect_ratio: aspect } };
 }
 async function generateContentVideo(prompt, opts) {
+  const quality = opts?.quality === "high" ? "high" : "fast";
+  const image = opts?.image && opts.image.trim() ? opts.image.trim() : void 0;
+  const durationSeconds = Math.min(Math.max(opts?.duration ?? 5, 1), MAX_DURATION_SECONDS);
+  const numFrames = Math.max(MIN_NUM_FRAMES, Math.round(durationSeconds * DEFAULT_FPS));
+  const styledPrompt = `${prompt.trim()}${VEDD_STYLE_LOCK}${NO_TEXT_SUFFIX}${HUMAN_STYLE_SUFFIX2}`;
+  const aspect = opts?.aspect === "16:9" ? "16:9" : "9:16";
+  const shared = { quality, image, durationSeconds, numFrames, aspect };
+  if ((process.env.VIDEO_PROVIDER || "").toLowerCase() === "fal") {
+    const viaFal = await generateFalVideo(styledPrompt, { ...shared, fps: DEFAULT_FPS });
+    if (viaFal) return viaFal;
+    console.log("[video-generation] fal failed \u2014 falling back to Replicate");
+    return generateViaReplicate(styledPrompt, shared);
+  }
+  const viaReplicate = await generateViaReplicate(styledPrompt, shared);
+  if (viaReplicate) return viaReplicate;
+  if (falConfigured()) {
+    console.log("[video-generation] Replicate failed \u2014 falling back to fal.ai");
+    return generateFalVideo(styledPrompt, { ...shared, fps: DEFAULT_FPS });
+  }
+  return null;
+}
+async function generateViaReplicate(styledPrompt, opts) {
   const apiKey = process.env.REPLICATE_API_TOKEN;
   if (!apiKey) {
     console.error("[video-generation] REPLICATE_API_TOKEN not set \u2014 cannot generate video");
     return null;
   }
-  const quality = opts?.quality === "high" ? "high" : "fast";
-  const image = opts?.image && opts.image.trim() ? opts.image.trim() : void 0;
-  const model = image ? quality === "high" ? HIGH_I2V_MODEL : FAST_I2V_MODEL : quality === "high" ? HIGH_MODEL : FAST_MODEL;
-  const durationSeconds = Math.min(Math.max(opts?.duration ?? 5, 1), MAX_DURATION_SECONDS);
-  const numFrames = Math.max(MIN_NUM_FRAMES, Math.round(durationSeconds * DEFAULT_FPS));
-  const styledPrompt = `${prompt.trim()}${VEDD_STYLE_LOCK}${NO_TEXT_SUFFIX}${HUMAN_STYLE_SUFFIX2}`;
-  const input = buildModelInput(model, quality, styledPrompt, numFrames, durationSeconds, image, opts?.aspect === "16:9" ? "16:9" : "9:16");
+  const { quality, image, durationSeconds, numFrames, aspect } = opts;
+  const model = image ? quality === "high" ? HIGH_I2V_MODEL2 : FAST_I2V_MODEL2 : quality === "high" ? HIGH_MODEL2 : FAST_MODEL2;
+  const input = buildModelInput(model, quality, styledPrompt, numFrames, durationSeconds, image, aspect);
   try {
     console.log(`[video-generation] quality=${quality} model=${model} mode=${image ? "image-to-video" : "text-to-video"}`);
-    const res = await fetch(`https://api.replicate.com/v1/models/${model}/predictions`, {
+    const create = () => fetch(`https://api.replicate.com/v1/models/${model}/predictions`, {
       method: "POST",
       headers: {
         Authorization: `Bearer ${apiKey}`,
@@ -56400,6 +56515,12 @@ async function generateContentVideo(prompt, opts) {
       // poll loop below. Give it headroom.
       signal: AbortSignal.timeout(75e3)
     });
+    let res = await create();
+    for (let attempt = 0; res.status === 429 && attempt < 8; attempt++) {
+      const body = await res.json().catch(() => ({}));
+      await new Promise((r) => setTimeout(r, (Number(body?.retry_after) || 10) * 1e3 + 1e3));
+      res = await create();
+    }
     if (!res.ok) {
       const body = await res.text().catch(() => "");
       console.error("[video-generation] Replicate error:", res.status, body.slice(0, 300));
@@ -56407,8 +56528,8 @@ async function generateContentVideo(prompt, opts) {
     }
     let data = await res.json();
     const getUrl = data?.urls?.get;
-    for (let i = 0; i < MAX_POLLS && getUrl && (data.status === "starting" || data.status === "processing"); i++) {
-      await new Promise((resolve) => setTimeout(resolve, POLL_INTERVAL_MS));
+    for (let i = 0; i < MAX_POLLS2 && getUrl && (data.status === "starting" || data.status === "processing"); i++) {
+      await new Promise((resolve) => setTimeout(resolve, POLL_INTERVAL_MS2));
       const poll = await fetch(getUrl, {
         headers: { Authorization: `Bearer ${apiKey}` },
         signal: AbortSignal.timeout(15e3)
@@ -56429,22 +56550,23 @@ async function generateContentVideo(prompt, opts) {
     return null;
   }
 }
-var VEDD_STYLE_LOCK, NO_TEXT_SUFFIX, HUMAN_STYLE_SUFFIX2, FAST_MODEL, HIGH_MODEL, FAST_I2V_MODEL, HIGH_I2V_MODEL, DEFAULT_FPS, MIN_NUM_FRAMES, MAX_DURATION_SECONDS, POLL_INTERVAL_MS, MAX_POLLS;
+var VEDD_STYLE_LOCK, NO_TEXT_SUFFIX, HUMAN_STYLE_SUFFIX2, FAST_MODEL2, HIGH_MODEL2, FAST_I2V_MODEL2, HIGH_I2V_MODEL2, DEFAULT_FPS, MIN_NUM_FRAMES, MAX_DURATION_SECONDS, POLL_INTERVAL_MS2, MAX_POLLS2;
 var init_video_generation = __esm({
   "server/services/video-generation.ts"() {
     "use strict";
+    init_fal_video();
     VEDD_STYLE_LOCK = ". Shot as a grainy 35mm cinematic film still: heavy analog film grain, desaturated moody color grade with one warm gold light source, shallow depth of field, photorealistic. Slow, subtle ambient motion only \u2014 no fast or shaky camera movement.";
     NO_TEXT_SUFFIX = " No on-screen text, captions, subtitles, signage, logos or readable words anywhere in the frame \u2014 pure visual scene only.";
     HUMAN_STYLE_SUFFIX2 = " If people appear: young Black people, natural skin tones, contemporary streetwear, authentic inner-city/urban setting.";
-    FAST_MODEL = "wan-video/wan-2.2-t2v-fast";
-    HIGH_MODEL = process.env.VIDEO_HIGH_MODEL || "wan-video/wan-2.2-t2v-fast";
-    FAST_I2V_MODEL = process.env.VIDEO_FAST_I2V_MODEL || "wan-video/wan-2.2-i2v-fast";
-    HIGH_I2V_MODEL = process.env.VIDEO_HIGH_I2V_MODEL || "wan-video/wan-2.2-i2v-fast";
+    FAST_MODEL2 = "wan-video/wan-2.2-t2v-fast";
+    HIGH_MODEL2 = process.env.VIDEO_HIGH_MODEL || "wan-video/wan-2.2-t2v-fast";
+    FAST_I2V_MODEL2 = process.env.VIDEO_FAST_I2V_MODEL || "wan-video/wan-2.2-i2v-fast";
+    HIGH_I2V_MODEL2 = process.env.VIDEO_HIGH_I2V_MODEL || "wan-video/wan-2.2-i2v-fast";
     DEFAULT_FPS = 16;
     MIN_NUM_FRAMES = 81;
     MAX_DURATION_SECONDS = 6;
-    POLL_INTERVAL_MS = 5e3;
-    MAX_POLLS = 60;
+    POLL_INTERVAL_MS2 = 5e3;
+    MAX_POLLS2 = 60;
   }
 });
 
@@ -61553,15 +61675,15 @@ async function pollOnce() {
   }
 }
 function startPaperTradeResolverLoop() {
-  console.log(`[paper-trade-resolver] Background paper-trade resolver loop started (${POLL_INTERVAL_MS2 / 6e4}min interval).`);
+  console.log(`[paper-trade-resolver] Background paper-trade resolver loop started (${POLL_INTERVAL_MS3 / 6e4}min interval).`);
   setInterval(() => {
     pollOnce().catch((e) => console.error("[paper-trade-resolver] Poll error:", e.message));
-  }, POLL_INTERVAL_MS2);
+  }, POLL_INTERVAL_MS3);
   setTimeout(() => {
     pollOnce().catch((e) => console.error("[paper-trade-resolver] Initial poll error:", e.message));
   }, 3e4);
 }
-var POLL_INTERVAL_MS2;
+var POLL_INTERVAL_MS3;
 var init_paper_trade_resolver_loop = __esm({
   "server/services/paper-trade-resolver-loop.ts"() {
     "use strict";
@@ -61569,7 +61691,7 @@ var init_paper_trade_resolver_loop = __esm({
     init_schema();
     init_service();
     init_paper_trade_tracker();
-    POLL_INTERVAL_MS2 = 10 * 60 * 1e3;
+    POLL_INTERVAL_MS3 = 10 * 60 * 1e3;
   }
 });
 
@@ -61642,22 +61764,22 @@ async function auditOnce() {
   await auditDxtrade();
 }
 function startPropFirmConsistencyAuditLoop() {
-  console.log(`[Consistency Audit] Background prop-firm consistency audit loop started (${POLL_INTERVAL_MS3 / 6e4}min interval).`);
+  console.log(`[Consistency Audit] Background prop-firm consistency audit loop started (${POLL_INTERVAL_MS4 / 6e4}min interval).`);
   setInterval(() => {
     auditOnce().catch((e) => console.error("[Consistency Audit] Poll error:", e.message));
-  }, POLL_INTERVAL_MS3);
+  }, POLL_INTERVAL_MS4);
   setTimeout(() => {
     auditOnce().catch((e) => console.error("[Consistency Audit] Initial poll error:", e.message));
   }, 2e4);
 }
-var POLL_INTERVAL_MS3;
+var POLL_INTERVAL_MS4;
 var init_prop_firm_consistency_audit_loop = __esm({
   "server/services/prop-firm-consistency-audit-loop.ts"() {
     "use strict";
     init_storage();
     init_db();
     init_prop_firm_consistency();
-    POLL_INTERVAL_MS3 = 3 * 60 * 1e3;
+    POLL_INTERVAL_MS4 = 3 * 60 * 1e3;
   }
 });
 
@@ -63918,9 +64040,9 @@ async function getStopOrdersForUser(userId, filters = {}) {
 init_schema();
 
 // server/build-info.ts
-var BUILD_COMMIT = "2cd36191-dirty";
-var BUILD_BRANCH = "HEAD";
-var BUILT_AT = "2026-11-01T15:52:12.988Z";
+var BUILD_COMMIT = "24d792b-dirty";
+var BUILD_BRANCH = "main";
+var BUILT_AT = "2026-11-01T16:13:25.036Z";
 
 // server/stripe.ts
 init_db();
