@@ -2,6 +2,7 @@
 <<<<<<< HEAD
 <<<<<<< HEAD
 <<<<<<< HEAD
+<<<<<<< HEAD
 const CACHE_VERSION = 'vedd-v209';
 =======
 const CACHE_VERSION = 'vedd-v205';
@@ -15,6 +16,9 @@ const CACHE_VERSION = 'vedd-v207';
 =======
 const CACHE_VERSION = 'vedd-v208';
 >>>>>>> origin/feature/backgrounds-ad-formats
+=======
+const CACHE_VERSION = 'vedd-v209';
+>>>>>>> origin/feature/explainer-app-screens
 const STATIC_CACHE = `${CACHE_VERSION}-static`;
 const DYNAMIC_CACHE = `${CACHE_VERSION}-dynamic`;
 const RUNTIME_CACHE = `${CACHE_VERSION}-runtime`;

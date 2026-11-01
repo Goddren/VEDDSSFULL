@@ -25035,9 +25035,9 @@ var init_dxtrade = __esm({
       async ensureLoggedIn() {
         if (!this.token) await this.login();
       }
-      async authed(path19, init = {}) {
+      async authed(path20, init = {}) {
         if (!this.token) await this.login();
-        const doFetch = () => fetch(`${this.base}${path19}`, {
+        const doFetch = () => fetch(`${this.base}${path20}`, {
           ...init,
           headers: { "Accept": "application/json", "Content-Type": "application/json", "Authorization": `DXAPI ${this.token}`, ...init.headers || {} },
           signal: AbortSignal.timeout(2e4)
@@ -25245,8 +25245,8 @@ var init_dxtrade = __esm({
       async getInstruments(query = "") {
         const attempts = query ? [`/instruments/query?text=${encodeURIComponent(query)}`, `/instruments/query?symbol=${encodeURIComponent(query)}`, `/instruments/query?symbols=${encodeURIComponent(query)}`] : ["/instruments/query"];
         let last = "";
-        for (const path19 of attempts) {
-          const res = await this.authed(path19);
+        for (const path20 of attempts) {
+          const res = await this.authed(path20);
           const text2 = await res.text();
           if (res.ok) {
             try {
@@ -25319,10 +25319,10 @@ var init_dxtrade = __esm({
           `/accounts/${enc}/reports/trades?from=${encodeURIComponent(fromIso)}&to=${encodeURIComponent(toIso)}`,
           `/accounts/${enc}/positions/history?from=${encodeURIComponent(fromIso)}&to=${encodeURIComponent(toIso)}`
         ];
-        for (const path19 of candidates) {
+        for (const path20 of candidates) {
           let res;
           try {
-            res = await this.authed(path19);
+            res = await this.authed(path20);
           } catch {
             continue;
           }
@@ -25336,7 +25336,7 @@ var init_dxtrade = __esm({
           const list = data?.history ?? data?.trades ?? data?.orders ?? data?.positions ?? data?.items ?? (Array.isArray(data) ? data : []);
           if (!Array.isArray(list) || list.length === 0) {
             if (Array.isArray(list)) {
-              console.log(`[dxtrade] history via ${path19.split("?")[0]} \u2014 0 rows in window`);
+              console.log(`[dxtrade] history via ${path20.split("?")[0]} \u2014 0 rows in window`);
               return [];
             }
             continue;
@@ -25356,7 +25356,7 @@ var init_dxtrade = __esm({
             profit: o.profit ?? o.pnl ?? o.realizedPnl ?? o.realizedPnL ?? o.grossProfit,
             closeTime: o.closeTime ?? o.closedAt ?? o.closeTimestamp ?? o.timestamp ?? o.updateTime ?? null
           }));
-          console.log(`[dxtrade] history via ${path19.split("?")[0]} \u2014 ${closed.length} closed rows`);
+          console.log(`[dxtrade] history via ${path20.split("?")[0]} \u2014 ${closed.length} closed rows`);
           return closed;
         }
         console.log(`[dxtrade] no working history endpoint found for ${accountCode} (tried ${candidates.length}) \u2014 close-sync will keep opens PENDING`);
@@ -25795,13 +25795,13 @@ function callBudget() {
     candleTtlMs: Number(process.env.COINGECKO_CANDLE_TTL_MS ?? (hasKey ? 10 * 60 * 1e3 : 30 * 60 * 1e3))
   };
 }
-async function gt(path19) {
+async function gt(path20) {
   const run = async () => {
     for (let attempt = 0; attempt < 3; attempt++) {
       const wait = Math.max(0, callBudget().minIntervalMs - (Date.now() - lastCallAt));
       if (wait > 0) await new Promise((r) => setTimeout(r, wait));
       lastCallAt = Date.now();
-      const res = await fetch(`${GT}${path19}`, {
+      const res = await fetch(`${GT}${path20}`, {
         headers: cgHeaders(),
         signal: AbortSignal.timeout(2e4)
       });
@@ -25809,13 +25809,13 @@ async function gt(path19) {
       if (res.status === 429) {
         const retryAfter = Number(res.headers.get("retry-after")) || 0;
         const backoff = retryAfter > 0 ? retryAfter * 1e3 : 3e3 * (attempt + 1);
-        console.warn(`[defi-market-data] rate limited on ${path19}; waiting ${backoff}ms (attempt ${attempt + 1}/3)`);
+        console.warn(`[defi-market-data] rate limited on ${path20}; waiting ${backoff}ms (attempt ${attempt + 1}/3)`);
         await new Promise((r) => setTimeout(r, backoff));
         continue;
       }
-      throw new Error(`GeckoTerminal ${res.status} on ${path19}`);
+      throw new Error(`GeckoTerminal ${res.status} on ${path20}`);
     }
-    throw new Error(`GeckoTerminal rate limited after 3 attempts on ${path19}`);
+    throw new Error(`GeckoTerminal rate limited after 3 attempts on ${path20}`);
   };
   const next = callChain.then(run, run);
   callChain = next.catch(() => void 0);
@@ -36011,9 +36011,9 @@ var init_tastytrade = __esm({
         }
         await this.login();
       }
-      async request(path19, init = {}, attempt = 0) {
+      async request(path20, init = {}, attempt = 0) {
         await this.ensureAuthenticated();
-        const response = await fetch(`${this.baseUrl}${path19}`, {
+        const response = await fetch(`${this.baseUrl}${path20}`, {
           ...init,
           headers: {
             "Authorization": this.sessionToken || "",
@@ -36024,7 +36024,7 @@ var init_tastytrade = __esm({
         });
         if (!response.ok && RETRYABLE_STATUSES3.has(response.status) && attempt < RETRY_DELAYS3.length) {
           await new Promise((r) => setTimeout(r, RETRY_DELAYS3[attempt]));
-          return this.request(path19, init, attempt + 1);
+          return this.request(path20, init, attempt + 1);
         }
         return response;
       }
@@ -36913,20 +36913,20 @@ var init_tradovate = __esm({
         }
         return data;
       }
-      async get(path19) {
+      async get(path20) {
         await this.ensureAuthenticated();
-        const response = await fetch(`${this.baseUrl}${path19}`, {
+        const response = await fetch(`${this.baseUrl}${path20}`, {
           headers: { "Authorization": `Bearer ${this.accessToken}`, "Accept": "application/json" }
         });
         if (!response.ok) {
           const text2 = await response.text();
-          throw new Error(`Tradovate GET ${path19} failed (${response.status}): ${text2}`);
+          throw new Error(`Tradovate GET ${path20} failed (${response.status}): ${text2}`);
         }
         return response.json();
       }
-      async post(path19, body) {
+      async post(path20, body) {
         await this.ensureAuthenticated();
-        const response = await fetch(`${this.baseUrl}${path19}`, {
+        const response = await fetch(`${this.baseUrl}${path20}`, {
           method: "POST",
           headers: {
             "Authorization": `Bearer ${this.accessToken}`,
@@ -36937,7 +36937,7 @@ var init_tradovate = __esm({
         });
         if (!response.ok) {
           const text2 = await response.text();
-          throw new Error(`Tradovate POST ${path19} failed (${response.status}): ${text2}`);
+          throw new Error(`Tradovate POST ${path20} failed (${response.status}): ${text2}`);
         }
         return response.json();
       }
@@ -42605,8 +42605,8 @@ __export(coinbase_exports, {
 });
 import crypto9 from "crypto";
 import jwt from "jsonwebtoken";
-function buildJwt(keyName, privateKeyPem, method, path19) {
-  const uri = `${method} ${API_HOST}${path19}`;
+function buildJwt(keyName, privateKeyPem, method, path20) {
+  const uri = `${method} ${API_HOST}${path20}`;
   const now = Math.floor(Date.now() / 1e3);
   const payload2 = { sub: keyName, iss: "cdp", nbf: now, exp: now + 120, uri };
   return jwt.sign(payload2, privateKeyPem, {
@@ -42627,9 +42627,9 @@ var init_coinbase = __esm({
         this.keyName = keyName;
         this.privateKey = privateKeyPem.includes("\\n") ? privateKeyPem.replace(/\\n/g, "\n") : privateKeyPem;
       }
-      async get(path19) {
-        const token = buildJwt(this.keyName, this.privateKey, "GET", path19);
-        const res = await fetch(`https://${API_HOST}${path19}`, {
+      async get(path20) {
+        const token = buildJwt(this.keyName, this.privateKey, "GET", path20);
+        const res = await fetch(`https://${API_HOST}${path20}`, {
           method: "GET",
           headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
           signal: AbortSignal.timeout(12e3)
@@ -42640,9 +42640,9 @@ var init_coinbase = __esm({
         }
         return res.json();
       }
-      async post(path19, body) {
-        const token = buildJwt(this.keyName, this.privateKey, "POST", path19);
-        const res = await fetch(`https://${API_HOST}${path19}`, {
+      async post(path20, body) {
+        const token = buildJwt(this.keyName, this.privateKey, "POST", path20);
+        const res = await fetch(`https://${API_HOST}${path20}`, {
           method: "POST",
           headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
           body: JSON.stringify(body),
@@ -42684,8 +42684,8 @@ var init_coinbase = __esm({
         const accounts = [];
         let cursor = "";
         for (let i = 0; i < 10; i++) {
-          const path19 = `/api/v3/brokerage/accounts?limit=250${cursor ? `&cursor=${encodeURIComponent(cursor)}` : ""}`;
-          const data = await this.get(path19);
+          const path20 = `/api/v3/brokerage/accounts?limit=250${cursor ? `&cursor=${encodeURIComponent(cursor)}` : ""}`;
+          const data = await this.get(path20);
           for (const a of data?.accounts ?? []) accounts.push(a);
           if (data?.has_next && data?.cursor) cursor = data.cursor;
           else break;
@@ -42754,22 +42754,28 @@ var init_kraken = __esm({
         this.apiKey = apiKey;
         this.secret = secret;
       }
+<<<<<<< HEAD
       sign(path19, nonce, postData) {
         const sha256 = crypto10.createHash("sha256").update(nonce + postData).digest();
         const message = Buffer.concat([Buffer.from(path19, "utf8"), sha256]);
+=======
+      sign(path20, nonce, postData) {
+        const sha256 = crypto11.createHash("sha256").update(nonce + postData).digest();
+        const message = Buffer.concat([Buffer.from(path20, "utf8"), sha256]);
+>>>>>>> origin/feature/explainer-app-screens
         const key = Buffer.from(this.secret, "base64");
         return crypto10.createHmac("sha512", key).update(message).digest("base64");
       }
       async privatePost(endpoint, params = {}) {
-        const path19 = `/0/private/${endpoint}`;
+        const path20 = `/0/private/${endpoint}`;
         const nonce = String(Date.now() * 1e3);
         const body = new URLSearchParams({ nonce, ...params });
         const postData = body.toString();
-        const res = await fetch(`${API_HOST2}${path19}`, {
+        const res = await fetch(`${API_HOST2}${path20}`, {
           method: "POST",
           headers: {
             "API-Key": this.apiKey,
-            "API-Sign": this.sign(path19, nonce, postData),
+            "API-Sign": this.sign(path20, nonce, postData),
             "Content-Type": "application/x-www-form-urlencoded",
             "User-Agent": "VEDD/1.0"
           },
@@ -43043,8 +43049,8 @@ function baseUrl(testnet) {
 function tradedAddress(c) {
   return (c.vaultAddress || c.accountAddress).toLowerCase();
 }
-async function post(testnet, path19, body) {
-  const r = await fetch(baseUrl(testnet) + path19, {
+async function post(testnet, path20, body) {
+  const r = await fetch(baseUrl(testnet) + path20, {
     method: "POST",
     headers: { "content-type": "application/json" },
     body: JSON.stringify(body),
@@ -43055,9 +43061,9 @@ async function post(testnet, path19, body) {
   try {
     j = JSON.parse(text2);
   } catch {
-    throw new Error(`Hyperliquid ${path19} HTTP ${r.status}: ${text2.slice(0, 200)}`);
+    throw new Error(`Hyperliquid ${path20} HTTP ${r.status}: ${text2.slice(0, 200)}`);
   }
-  if (!r.ok) throw new Error(`Hyperliquid ${path19} HTTP ${r.status}: ${text2.slice(0, 200)}`);
+  if (!r.ok) throw new Error(`Hyperliquid ${path20} HTTP ${r.status}: ${text2.slice(0, 200)}`);
   return j;
 }
 async function getMeta(testnet) {
@@ -49841,8 +49847,8 @@ async function runRuinConeSimulation(userId, params = {}) {
   let hitTargetCount = 0;
   const targetEquity = startingEquity + profitTarget;
   for (let s = 0; s < numSimulations; s++) {
-    const path19 = new Float64Array(numTrades + 1);
-    path19[0] = startingEquity;
+    const path20 = new Float64Array(numTrades + 1);
+    path20[0] = startingEquity;
     let equity = startingEquity;
     let peak = startingEquity;
     let firstFailIndex = -1;
@@ -49855,7 +49861,7 @@ async function runRuinConeSimulation(userId, params = {}) {
     for (let t = 1; t <= numTrades; t++) {
       const pnl = pnls[Math.random() * sourceTradeCount | 0];
       equity += pnl;
-      path19[t] = equity;
+      path20[t] = equity;
       if (equity > peak) peak = equity;
       if (!everRuin && peak - equity >= maxDrawdownLimit) {
         everRuin = true;
@@ -49874,7 +49880,7 @@ async function runRuinConeSimulation(userId, params = {}) {
         tradeInDay = 0;
       }
     }
-    paths[s] = path19;
+    paths[s] = path20;
     finalEquities[s] = equity;
     if (everRuin) ruinCount++;
     if (everDailyBreach) dailyBreachCount++;
@@ -55531,6 +55537,56 @@ var init_chart_overlay = __esm({
   }
 });
 
+// server/services/app-screens.ts
+import fs13 from "fs";
+import path13 from "path";
+function screenCatalogForPrompt() {
+  return APP_SCREENS.map((s) => `${s.id} \u2014 ${s.shows}`).join("\n");
+}
+function screenImagePath(id) {
+  const cached2 = fileCache.get(id);
+  if (cached2 !== void 0) return cached2;
+  const screen = APP_SCREENS.find((s) => s.id === id);
+  let found = null;
+  if (screen) {
+    const candidates = [
+      path13.resolve(process.cwd(), "dist/public/app-screens", screen.file),
+      path13.resolve(process.cwd(), "client/public/app-screens", screen.file),
+      path13.resolve(__dirname, "../public/app-screens", screen.file),
+      path13.resolve(__dirname, "../../client/public/app-screens", screen.file)
+    ];
+    found = candidates.find((c) => fs13.existsSync(c)) ?? null;
+    if (!found) console.warn(`[app-screens] ${screen.file} not found in any known location \u2014 scene will render without the screen overlay`);
+  }
+  fileCache.set(id, found);
+  return found;
+}
+function screenCardGeometry(W, H2) {
+  const cardH = Math.round(H2 * (W > H2 ? 0.66 : 0.5));
+  const cardW = Math.round(cardH * 0.475);
+  const x = Math.round((W - cardW) / 2);
+  const y = H2 - cardH - Math.round(H2 * 0.055);
+  return { cardW, cardH, x, y, panelPad: Math.round(W * 0.016) };
+}
+var APP_SCREENS, APP_SCREEN_IDS, fileCache;
+var init_app_screens = __esm({
+  "server/services/app-screens.ts"() {
+    "use strict";
+    APP_SCREENS = [
+      { id: "home-hero", title: "Home \u2014 hero", shows: 'the veddbuild.com home page hero: "The brain that trades while you sleep", the Start free button and the live BTC/USD chart card', file: "home-hero.jpg" },
+      { id: "how-it-works", title: "How it works", shows: 'the "How it works" section: set it up once and it runs itself \u2014 connect your account or drop in a chart, the brain reads structure, momentum and news and decides', file: "how-it-works.jpg" },
+      { id: "trading-engine", title: "Engine + brain", shows: 'the "Engine + brain" section: it trades, it learns, it repeats \u2014 the live engine trades while you sleep 24/7 and the self-learning brain grades every trade', file: "trading-engine.jpg" },
+      { id: "brain-marketplace", title: "Brain Marketplace", shows: 'the Brain Marketplace section: "Outgrown your brain? Sell it" \u2014 list a trained brain, other traders plug it in, the seller earns VEDD', file: "brain-marketplace.jpg" },
+      { id: "community", title: "The movement / Academy", shows: 'the "Movement" section: more than a platform \u2014 free education through the Workforce Academy (trading, AI, credit and entrepreneurship courses), a faith-driven community, meetups and mentors', file: "community.jpg" },
+      { id: "ambassador", title: "Ambassador program", shows: 'the Ambassador Program section: "Get paid to put people on" \u2014 share VEDD, earn credits on referrals, recurring monthly commission and the 30% profit split', file: "ambassador.jpg" },
+      { id: "pricing", title: "Plans and pricing", shows: "the Plans section: start free, upgrade when it is paying off \u2014 Free at $0 forever (AI chart analysis), Starter at $49.95 a month (live engine, self-learning brain), Premium above it", file: "pricing.jpg" },
+      { id: "about", title: "About VEDD", shows: 'the About page: "About VEDD \u2014 AI-powered trading chart analysis platform built for modern traders" and the mission to democratize professional-grade trading tools', file: "about.jpg" }
+    ];
+    APP_SCREEN_IDS = APP_SCREENS.map((s) => s.id);
+    fileCache = /* @__PURE__ */ new Map();
+  }
+});
+
 // server/services/explainer-video.ts
 var explainer_video_exports = {};
 __export(explainer_video_exports, {
@@ -55542,9 +55598,9 @@ __export(explainer_video_exports, {
   startExplainerJob: () => startExplainerJob,
   writeScript: () => writeScript
 });
-import fs13 from "fs";
+import fs14 from "fs";
 import os2 from "os";
-import path13 from "path";
+import path14 from "path";
 function ensureJobTable() {
   return tableReady2 ??= pool.query(`CREATE TABLE IF NOT EXISTS content_video_jobs (
       id SERIAL PRIMARY KEY,
@@ -55629,11 +55685,21 @@ async function runJob(id, userId, input, aspect, opts) {
   });
   await Promise.all(workers);
 <<<<<<< HEAD
+<<<<<<< HEAD
   await update(id, { step: "Adding VEDD branding and joining scenes", progress: 85, meta: { predictions, model: MODEL(), presenter: opts.presenterImage ? "custom" : "ai" } });
 =======
   await update(id, { step: "Adding VEDD branding and joining scenes", progress: 85, meta: { predictions, model: MODEL(), background: opts.backgroundScene ? "preset" : "ai" } });
 >>>>>>> origin/feature/backgrounds-ad-formats
   const video = await assemble(urls, aspect, script.scenes.map((s) => s.chart ?? null));
+=======
+  await update(id, { step: "Adding VEDD branding and joining scenes", progress: 85, meta: { predictions, model: MODEL() } });
+  const video = await assemble(
+    urls,
+    aspect,
+    script.scenes.map((s) => s.screen ? null : s.chart ?? null),
+    script.scenes.map((s) => s.screen ? screenImagePath(s.screen) : null)
+  );
+>>>>>>> origin/feature/explainer-app-screens
   const saved = await persistBuffer(video, "video/mp4");
   if (!saved) throw new Error("could not save the finished video");
   await update(id, { status: "done", step: "Ready", progress: 100, result_url: saved.url });
@@ -55675,8 +55741,11 @@ Each scene is one continuous 8-second shot:
 - "visual": what the camera sees, 20-40 words: the presenter's action and the camera move. Do NOT re-describe the presenter or setting (they are added automatically).
 - "chart": when the narration explains a candlestick pattern or level, set it to exactly one of: ${PATTERN_KEYS.join(", ")}. The real pattern is drawn on screen in the lower part of the frame, so in that scene the presenter stands in the upper half and points or gestures down toward it. Otherwise null.
 Use a chart in at least one middle scene when the subject involves a pattern, level or breakout. No income or profit promises.
+- "screen": when the narration talks about the VEDD app itself \u2014 a page, a feature, the plans \u2014 set it to exactly one of these REAL pages (the actual screenshot is composited into the lower half of the frame, the presenter in the upper half gesturing down toward it):
+${screenCatalogForPrompt()}
+Never invent or describe a fake app screen, page or button in "visual": when the app needs to be shown, it is shown with a screen id or not at all. A scene gets a chart OR a screen, never both. Use a screen in at least one scene when the subject is the app itself.
 
-JSON: {"title":"...","caption":"one-line social caption with a question","presenter":"...","setting":"...","scenes":[{"narration":"...","visual":"...","chart":null}]}` }
+JSON: {"title":"...","caption":"one-line social caption with a question","presenter":"...","setting":"...","scenes":[{"narration":"...","visual":"...","chart":null,"screen":null}]}` }
     ],
     response_format: { type: "json_object" },
     max_tokens: 1500
@@ -55686,8 +55755,9 @@ JSON: {"title":"...","caption":"one-line social caption with a question","presen
   const scenes = (Array.isArray(out.scenes) ? out.scenes : []).map((s) => ({
     narration: String(s?.narration || "").trim(),
     visual: String(s?.visual || "").trim(),
-    chart: PATTERN_KEYS.includes(String(s?.chart)) ? String(s.chart) : null
-  })).filter((s) => s.narration && s.visual).slice(0, n);
+    chart: PATTERN_KEYS.includes(String(s?.chart)) ? String(s.chart) : null,
+    screen: APP_SCREEN_IDS.includes(String(s?.screen)) ? String(s.screen) : null
+  })).map((s) => s.screen ? { ...s, chart: null } : s).filter((s) => s.narration && s.visual).slice(0, n);
   if (scenes.length < 2) throw new Error("script generation returned too few scenes");
   const presenter = String(out.presenter || "").trim().slice(0, 300) || DEFAULT_PRESENTER;
   const setting = (settingOverride || "").trim().slice(0, 300) || String(out.setting || "").trim().slice(0, 300) || DEFAULT_SETTING;
@@ -55696,9 +55766,15 @@ JSON: {"title":"...","caption":"one-line social caption with a question","presen
 async function renderScene(scene, script, aspect, presenterImage) {
   const token = process.env.REPLICATE_API_TOKEN;
   if (!token) throw new Error("REPLICATE_API_TOKEN not set");
+<<<<<<< HEAD
   const framing = scene.chart ? "Medium shot with the presenter in the upper half of the frame, pointing down toward the lower half, which is a plain darker area of the scene." : "Medium close-up, presenter talking straight to camera.";
   const prompt = presenterImage ? `The person in the starting image is the presenter \u2014 keep their exact face, hair and appearance in every frame. Setting: ${script.setting}. ${scene.visual} ${framing} Authentic urban street style, cinematic 35mm look, natural skin tones, warm gold light, shallow depth of field, handheld-smooth camera. The presenter speaks directly to the camera and says: "${scene.narration.replace(/"/g, "'")}" Light hip-hop beat under the voice. No subtitles, no on-screen text, no logos.` : `Presenter: ${script.presenter}. Setting: ${script.setting}. ${scene.visual} ${framing} Authentic urban street style, cinematic 35mm look, natural skin tones, warm gold light, shallow depth of field, handheld-smooth camera. The presenter speaks directly to the camera and says: "${scene.narration.replace(/"/g, "'")}" Light hip-hop beat under the voice. No subtitles, no on-screen text, no logos.`;
   const create = (withImage) => fetch(`https://api.replicate.com/v1/models/${MODEL()}/predictions`, {
+=======
+  const framing = scene.chart || scene.screen ? "Medium shot with the presenter in the upper half of the frame, pointing down toward the lower half, which is a plain darker area of the scene." : "Medium close-up, presenter talking straight to camera.";
+  const prompt = `Presenter: ${script.presenter}. Setting: ${script.setting}. ${scene.visual} ${framing} Authentic urban street style, cinematic 35mm look, natural skin tones, warm gold light, shallow depth of field, handheld-smooth camera. The presenter speaks directly to the camera and says: "${scene.narration.replace(/"/g, "'")}" Light hip-hop beat under the voice. No subtitles, no on-screen text, no logos.`;
+  const create = () => fetch(`https://api.replicate.com/v1/models/${MODEL()}/predictions`, {
+>>>>>>> origin/feature/explainer-app-screens
     method: "POST",
     headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json", Prefer: "wait=55" },
     body: JSON.stringify({ input: {
@@ -55739,23 +55815,23 @@ async function renderScene(scene, script, aspect, presenterImage) {
   if (!url) throw new Error("scene returned no video");
   return { url, predictionId: data.id };
 }
-async function assemble(clipUrls, aspect, charts = []) {
-  const dir = fs13.mkdtempSync(path13.join(os2.tmpdir(), "vedd-explainer-"));
+async function assemble(clipUrls, aspect, charts = [], screens = []) {
+  const dir = fs14.mkdtempSync(path14.join(os2.tmpdir(), "vedd-explainer-"));
   try {
     const files = [];
     for (let i = 0; i < clipUrls.length; i++) {
       const r = await fetch(clipUrls[i], { signal: AbortSignal.timeout(6e4) });
       if (!r.ok) throw new Error(`could not download scene ${i + 1}`);
-      const f = path13.join(dir, `s${i}.mp4`);
-      fs13.writeFileSync(f, Buffer.from(await r.arrayBuffer()));
+      const f = path14.join(dir, `s${i}.mp4`);
+      fs14.writeFileSync(f, Buffer.from(await r.arrayBuffer()));
       files.push(f);
     }
-    return await assembleFiles(files, aspect, dir, charts);
+    return await assembleFiles(files, aspect, dir, charts, screens);
   } finally {
-    fs13.rmSync(dir, { recursive: true, force: true });
+    fs14.rmSync(dir, { recursive: true, force: true });
   }
 }
-async function assembleFiles(files, aspect, dir, charts = []) {
+async function assembleFiles(files, aspect, dir, charts = [], screens = []) {
   const [W, H2] = FRAME[aspect];
   const logo = findLogo();
   {
@@ -55781,12 +55857,27 @@ async function assembleFiles(files, aspect, dir, charts = []) {
       cardIdx = next++;
       args.push("-loop", "1", "-t", String(END_CARD_SECONDS2), "-i", logo);
     }
+    const screenIdx = [];
+    files.forEach((_, i) => {
+      if (screens[i]) {
+        screenIdx[i] = next++;
+        args.push("-i", screens[i]);
+      }
+    });
     const f = [];
     const parts = [];
     files.forEach((_, i) => {
       const spec = charts[i] ? PATTERNS[charts[i]] : void 0;
       const overlay = spec ? `,${chartFilter(spec, W, H2, info2[i].duration || CLIP_SECONDS)}` : "";
-      f.push(`[${i}:v]scale=${W}:${H2}:force_original_aspect_ratio=increase,crop=${W}:${H2},fps=24,setsar=1${overlay},format=yuv420p[v${i}]`);
+      const scr = screens[i] ? screenCardGeometry(W, H2) : null;
+      const panel = scr ? `,drawbox=x=${scr.x - scr.panelPad}:y=${scr.y - scr.panelPad}:w=${scr.cardW + scr.panelPad * 2}:h=${scr.cardH + scr.panelPad * 2}:color=0x0B0B0E@0.92:t=fill,drawbox=x=${scr.x - scr.panelPad}:y=${scr.y - scr.panelPad}:w=${scr.cardW + scr.panelPad * 2}:h=${scr.cardH + scr.panelPad * 2}:color=0xF5C451@0.55:t=3` : "";
+      f.push(`[${i}:v]scale=${W}:${H2}:force_original_aspect_ratio=increase,crop=${W}:${H2},fps=24,setsar=1${overlay}${panel},format=yuv420p[base${i}]`);
+      if (scr) {
+        f.push(`[${screenIdx[i]}:v]scale=${scr.cardW}:${scr.cardH}:force_original_aspect_ratio=increase,crop=${scr.cardW}:${scr.cardH}[scr${i}]`);
+        f.push(`[base${i}][scr${i}]overlay=${scr.x}:${scr.y},format=yuv420p[v${i}]`);
+      } else {
+        f.push(`[base${i}]null[v${i}]`);
+      }
       f.push(`[${audio[i] ? i : silent[i]}:a]aresample=44100,aformat=sample_fmts=fltp:channel_layouts=stereo[a${i}]`);
       parts.push(`[v${i}][a${i}]`);
     });
@@ -55803,7 +55894,7 @@ async function assembleFiles(files, aspect, dir, charts = []) {
       f.push(`[${logoIdx}:v]scale=${wm}:-2,format=rgba,colorchannelmixer=aa=0.85[wm]`);
       f.push(`[cv][wm]overlay=W-w-${m}:H-h-${m}[outv]`);
     }
-    const out = path13.join(dir, "out.mp4");
+    const out = path14.join(dir, "out.mp4");
     args.push(
       "-filter_complex",
       f.join(";"),
@@ -55828,7 +55919,7 @@ async function assembleFiles(files, aspect, dir, charts = []) {
       out
     );
     await runFfmpeg(args, 24e4);
-    return fs13.readFileSync(out);
+    return fs14.readFileSync(out);
   }
 }
 var FRAME, MODEL, CLIP_SECONDS, END_CARD_SECONDS2, POLL_MS, MAX_WAIT_MS, DEFAULT_PRESENTER, DEFAULT_SETTING, tableReady2;
@@ -55840,6 +55931,7 @@ var init_explainer_video = __esm({
     init_video_branding();
     init_content_asset_store();
     init_chart_overlay();
+    init_app_screens();
     FRAME = { "9:16": [720, 1280], "4:5": [864, 1080], "1:1": [720, 720], "16:9": [1280, 720] };
     MODEL = () => process.env.EXPLAINER_VIDEO_MODEL || "google/veo-3.1-fast";
     CLIP_SECONDS = 8;
@@ -56765,8 +56857,8 @@ __export(slide_flattener_exports, {
   flattenSlideImage: () => flattenSlideImage
 });
 import sharp from "sharp";
-import * as path14 from "path";
-import * as fs14 from "fs";
+import * as path15 from "path";
+import * as fs15 from "fs";
 function escapeXml(s) {
   return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
 }
@@ -56831,7 +56923,7 @@ async function flattenSlideImage(opts) {
   const composites = [
     { input: Buffer.from(overlaySvg), top: 0, left: 0 }
   ];
-  if (opts.includeLogo && fs14.existsSync(LOGO_PATH)) {
+  if (opts.includeLogo && fs15.existsSync(LOGO_PATH)) {
     const logoWidth = Math.round(CANVAS_SIZE * 0.22);
     const logoBuffer = await sharp(LOGO_PATH).resize(logoWidth, null, { fit: "inside" }).ensureAlpha().png().toBuffer();
     const logoMeta = await sharp(logoBuffer).metadata();
@@ -56849,7 +56941,7 @@ var init_slide_flattener = __esm({
   "server/services/slide-flattener.ts"() {
     "use strict";
     CANVAS_SIZE = 1080;
-    LOGO_PATH = path14.join(process.cwd(), "attached_assets", "IMG_3645.png");
+    LOGO_PATH = path15.join(process.cwd(), "attached_assets", "IMG_3645.png");
   }
 });
 
@@ -57310,8 +57402,8 @@ function teamsMatchMarket(homeTeam, awayTeam, question) {
   return (q.includes(h) || q.includes(hFull)) && (q.includes(a) || q.includes(aFull));
 }
 async function fetchScoreboard(sport) {
-  const path19 = SPORT_PATHS[sport];
-  const data = await safeGet(`${ESPN_BASE}/${path19}/scoreboard`);
+  const path20 = SPORT_PATHS[sport];
+  const data = await safeGet(`${ESPN_BASE}/${path20}/scoreboard`);
   return data?.events ?? [];
 }
 function injuryAdjustment(injuries, sport) {
@@ -63647,8 +63739,8 @@ import { eq as eq18, and as and11, sql as sql13, desc as desc11 } from "drizzle-
 import { scrypt, randomBytes } from "crypto";
 import { promisify } from "util";
 import { z as z2 } from "zod";
-import * as fs15 from "fs";
-import * as path15 from "path";
+import * as fs16 from "fs";
+import * as path16 from "path";
 
 // server/trading-coach.ts
 init_openai();
@@ -64177,6 +64269,7 @@ init_schema();
 <<<<<<< HEAD
 <<<<<<< HEAD
 <<<<<<< HEAD
+<<<<<<< HEAD
 var BUILD_COMMIT = "24d792b-dirty";
 var BUILD_BRANCH = "main";
 var BUILT_AT = "2026-11-01T16:13:25.036Z";
@@ -64195,6 +64288,11 @@ var BUILD_COMMIT = "584f499";
 var BUILD_BRANCH = "feature/backgrounds-ad-formats";
 var BUILT_AT = "2026-11-01T18:00:55.629Z";
 >>>>>>> origin/feature/backgrounds-ad-formats
+=======
+var BUILD_COMMIT = "70e0333-dirty";
+var BUILD_BRANCH = "feature/explainer-app-screens";
+var BUILT_AT = "2026-11-01T18:01:56.898Z";
+>>>>>>> origin/feature/explainer-app-screens
 
 // server/stripe.ts
 init_db();
@@ -68214,9 +68312,9 @@ var mediaUpload = multer({
     cb(null, true);
   }
 });
-var uploadsDir2 = path15.join(process.cwd(), "uploads");
-if (!fs15.existsSync(uploadsDir2)) {
-  fs15.mkdirSync(uploadsDir2, { recursive: true });
+var uploadsDir2 = path16.join(process.cwd(), "uploads");
+if (!fs16.existsSync(uploadsDir2)) {
+  fs16.mkdirSync(uploadsDir2, { recursive: true });
 }
 function getCurrentTradingSession() {
   const hour = (/* @__PURE__ */ new Date()).getUTCHours();
@@ -68609,11 +68707,11 @@ async function registerRoutes(app2, existingServer) {
         return res.status(400).json({ message: "No file uploaded" });
       }
       const fileName = `${uuidv42()}.${req.file.mimetype.split("/")[1]}`;
-      const filePath = path15.join(uploadsDir2, fileName);
+      const filePath = path16.join(uploadsDir2, fileName);
       console.log("Generated filename:", fileName);
       console.log("Full file path:", filePath);
       try {
-        await fs15.promises.writeFile(filePath, req.file.buffer);
+        await fs16.promises.writeFile(filePath, req.file.buffer);
         console.log("File saved successfully to disk");
       } catch (writeError) {
         console.error("Error writing file to disk:", writeError);
@@ -68639,14 +68737,14 @@ async function registerRoutes(app2, existingServer) {
       if (!allowedTypes.includes(req.file.mimetype)) {
         return res.status(400).json({ message: "Invalid file type. Only JPEG, PNG, GIF, and WebP are allowed." });
       }
-      const avatarsDir = path15.join(process.cwd(), "uploads", "avatars");
-      if (!fs15.existsSync(avatarsDir)) {
-        fs15.mkdirSync(avatarsDir, { recursive: true });
+      const avatarsDir = path16.join(process.cwd(), "uploads", "avatars");
+      if (!fs16.existsSync(avatarsDir)) {
+        fs16.mkdirSync(avatarsDir, { recursive: true });
       }
       const ext = req.file.mimetype.split("/")[1];
       const fileName = `avatar-${req.user.id}-${Date.now()}.${ext}`;
-      const filePath = path15.join(avatarsDir, fileName);
-      await fs15.promises.writeFile(filePath, req.file.buffer);
+      const filePath = path16.join(avatarsDir, fileName);
+      await fs16.promises.writeFile(filePath, req.file.buffer);
       const avatarUrl = `/uploads/avatars/${fileName}`;
       res.json({ avatarUrl });
     } catch (error) {
@@ -68741,11 +68839,11 @@ async function registerRoutes(app2, existingServer) {
       }
       const extension = filename?.split(".").pop() || "png";
       const generatedFilename = `${uuidv42()}.${extension}`;
-      const filePath = path15.join(uploadsDir2, generatedFilename);
+      const filePath = path16.join(uploadsDir2, generatedFilename);
       const imageUrl = `/uploads/${generatedFilename}`;
       try {
         const imageBuffer = Buffer.from(cleanBase64, "base64");
-        await fs15.promises.writeFile(filePath, imageBuffer);
+        await fs16.promises.writeFile(filePath, imageBuffer);
         console.log("Saved image to", filePath);
       } catch (writeError) {
         console.error("Error saving image to disk:", writeError);
@@ -68878,9 +68976,9 @@ async function registerRoutes(app2, existingServer) {
           const detectedSymbol = analyses.length > 0 ? analyses[analyses.length - 1].symbol : void 0;
           const analysis = await analyzeChartImage(frame.base64, detectedSymbol, req.user?.id);
           const frameFileName = `video_frame_${groupId}_${i + 1}.jpg`;
-          const framePath = path15.join(uploadsDir2, frameFileName);
+          const framePath = path16.join(uploadsDir2, frameFileName);
           const frameBuffer = Buffer.from(frame.base64, "base64");
-          await fs15.promises.writeFile(framePath, frameBuffer);
+          await fs16.promises.writeFile(framePath, frameBuffer);
           const imageUrl = `/uploads/${frameFileName}`;
           await storage.createChartAnalysis({
             userId,
@@ -69280,12 +69378,12 @@ Respond ONLY in valid JSON format with these exact keys:
       if (!imageUrl) {
         return res.status(400).json({ message: "No image URL provided" });
       }
-      const filePath = path15.join(process.cwd(), imageUrl.replace(/^\//, ""));
+      const filePath = path16.join(process.cwd(), imageUrl.replace(/^\//, ""));
       console.log("Attempting to analyze image at path:", filePath);
-      if (!fs15.existsSync(filePath)) {
-        const alternativePath = path15.join(uploadsDir2, path15.basename(imageUrl));
+      if (!fs16.existsSync(filePath)) {
+        const alternativePath = path16.join(uploadsDir2, path16.basename(imageUrl));
         console.log("Image not found, trying alternative path:", alternativePath);
-        if (!fs15.existsSync(alternativePath)) {
+        if (!fs16.existsSync(alternativePath)) {
           return res.status(404).json({ message: "Image file not found" });
         }
         console.log("Found image at alternative path");
@@ -69294,7 +69392,7 @@ Respond ONLY in valid JSON format with these exact keys:
           error: "Direct file analysis is deprecated"
         });
       }
-      const imageBuffer = await fs15.promises.readFile(filePath);
+      const imageBuffer = await fs16.promises.readFile(filePath);
       const base64Image = imageBuffer.toString("base64");
       const knownSymbol = req.body.symbol || void 0;
       const analysis = await analyzeChartImage(base64Image, knownSymbol, req.user?.id);
@@ -69469,11 +69567,11 @@ Respond ONLY in valid JSON format with these exact keys:
         const originalImageUrl = analysis.imageUrl;
         console.log("Original image URL:", originalImageUrl);
         const imagePath = originalImageUrl.startsWith("/") ? originalImageUrl.substring(1) : originalImageUrl;
-        const basename2 = path15.basename(imagePath);
+        const basename2 = path16.basename(imagePath);
         console.log("Image basename:", basename2);
-        const originalImagePath = path15.join(process.cwd(), "uploads", basename2);
+        const originalImagePath = path16.join(process.cwd(), "uploads", basename2);
         console.log("Full image path:", originalImagePath);
-        if (!fs15.existsSync(originalImagePath)) {
+        if (!fs16.existsSync(originalImagePath)) {
           console.error("Original image not found at path:", originalImagePath);
           throw new Error(`Original image not found: ${originalImagePath}`);
         }
@@ -69570,13 +69668,13 @@ Respond ONLY in valid JSON format with these exact keys:
   app2.get("/api/shared-image/:filename", (req, res) => {
     try {
       const filename = req.params.filename;
-      const sanitizedFilename = path15.basename(filename);
-      const sharedPath = path15.join(process.cwd(), "uploads", "shared", sanitizedFilename);
-      if (fs15.existsSync(sharedPath)) {
+      const sanitizedFilename = path16.basename(filename);
+      const sharedPath = path16.join(process.cwd(), "uploads", "shared", sanitizedFilename);
+      if (fs16.existsSync(sharedPath)) {
         return res.sendFile(sharedPath);
       }
-      const regularPath = path15.join(process.cwd(), "uploads", sanitizedFilename);
-      if (fs15.existsSync(regularPath)) {
+      const regularPath = path16.join(process.cwd(), "uploads", sanitizedFilename);
+      if (fs16.existsSync(regularPath)) {
         return res.sendFile(regularPath);
       }
       return res.status(404).json({ message: "Image not found" });
@@ -69588,9 +69686,9 @@ Respond ONLY in valid JSON format with these exact keys:
   app2.get("/api/annotated-image/:filename", (req, res) => {
     try {
       const filename = req.params.filename;
-      const sanitizedFilename = path15.basename(filename);
-      const annotatedPath = path15.join(process.cwd(), "uploads", "annotated", sanitizedFilename);
-      if (fs15.existsSync(annotatedPath)) {
+      const sanitizedFilename = path16.basename(filename);
+      const annotatedPath = path16.join(process.cwd(), "uploads", "annotated", sanitizedFilename);
+      if (fs16.existsSync(annotatedPath)) {
         return res.sendFile(annotatedPath);
       }
       return res.status(404).json({ message: "Annotated image not found" });
@@ -73455,12 +73553,12 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
       });
       const shareId = Date.now().toString(36) + Math.random().toString(36).substring(2, 7);
       const shareCardFileName = `share-card-${shareId}.png`;
-      const shareCardPath = path15.join(process.cwd(), "uploads", "share-cards");
-      if (!fs15.existsSync(shareCardPath)) {
-        fs15.mkdirSync(shareCardPath, { recursive: true });
+      const shareCardPath = path16.join(process.cwd(), "uploads", "share-cards");
+      if (!fs16.existsSync(shareCardPath)) {
+        fs16.mkdirSync(shareCardPath, { recursive: true });
       }
-      const fullPath = path15.join(shareCardPath, shareCardFileName);
-      fs15.writeFileSync(fullPath, shareCardBuffer);
+      const fullPath = path16.join(shareCardPath, shareCardFileName);
+      fs16.writeFileSync(fullPath, shareCardBuffer);
       const shareCardUrl = `/uploads/share-cards/${shareCardFileName}`;
       const shareUrl = `share-${shareId}`;
       const devotion = getDailyScripture2();
@@ -80506,8 +80604,8 @@ Return this EXACT JSON (no markdown, no commentary):
     if (!strat?.plan) return res.status(404).json({ error: "No active VEDD SS AI plan" });
     try {
       const { createCanvas, loadImage } = await import("canvas");
-      const path19 = await import("path");
-      const fs17 = await import("fs");
+      const path20 = await import("path");
+      const fs18 = await import("fs");
       const { getLiveEngineState: getLiveEngineState3 } = await Promise.resolve().then(() => (init_live_trading_engine(), live_trading_engine_exports));
       const engineState = getLiveEngineState3(userId);
       const engineRunning = engineState?.status === "running";
@@ -80593,8 +80691,8 @@ Return this EXACT JSON (no markdown, no commentary):
       ctx.closePath();
       ctx.fill();
       try {
-        const logoPath = path19.default.join(process.cwd(), "attached_assets", "IMG_3645.png");
-        if (fs17.default.existsSync(logoPath)) {
+        const logoPath = path20.default.join(process.cwd(), "attached_assets", "IMG_3645.png");
+        if (fs18.default.existsSync(logoPath)) {
           const logo = await loadImage(logoPath);
           const lh = 64, lw = logo.width / logo.height * lh;
           ctx.drawImage(logo, 44, 26, lw, lh);
@@ -80855,10 +80953,10 @@ Return this EXACT JSON (no markdown, no commentary):
       }
       const buffer = canvas.toBuffer("image/png");
       const fileName = `vedd-ss-ai-progress-${userId}-${Date.now()}.png`;
-      const outDir = path19.default.join(process.cwd(), "uploads", "share-cards");
-      if (!fs17.default.existsSync(outDir)) fs17.default.mkdirSync(outDir, { recursive: true });
-      const filePath = path19.default.join(outDir, fileName);
-      fs17.default.writeFileSync(filePath, buffer);
+      const outDir = path20.default.join(process.cwd(), "uploads", "share-cards");
+      if (!fs18.default.existsSync(outDir)) fs18.default.mkdirSync(outDir, { recursive: true });
+      const filePath = path20.default.join(outDir, fileName);
+      fs18.default.writeFileSync(filePath, buffer);
       res.json({
         success: true,
         imageUrl: `/uploads/share-cards/${fileName}`,
@@ -83326,9 +83424,9 @@ Format each recommendation as a clear, concise action item.`;
     }
     global.veddAIBrain[userId] = brain;
     try {
-      const brainDir = path15.join(process.cwd(), "data", "brains");
-      if (!fs15.existsSync(brainDir)) fs15.mkdirSync(brainDir, { recursive: true });
-      fs15.writeFileSync(path15.join(brainDir, `brain_${userId}.json`), JSON.stringify(brain));
+      const brainDir = path16.join(process.cwd(), "data", "brains");
+      if (!fs16.existsSync(brainDir)) fs16.mkdirSync(brainDir, { recursive: true });
+      fs16.writeFileSync(path16.join(brainDir, `brain_${userId}.json`), JSON.stringify(brain));
     } catch (_brainSaveErr) {
     }
     console.log(`[VEDD Brain] Learned from ${combinedTrades.length} trades across ${uniqueSymbols.length} pairs for user ${userId}`);
@@ -83337,9 +83435,9 @@ Format each recommendation as a clear, concise action item.`;
   global.runBrainLearning = runBrainLearning;
   global.loadPersistedBrain = (userId) => {
     try {
-      const p = path15.join(process.cwd(), "data", "brains", `brain_${userId}.json`);
-      if (!fs15.existsSync(p)) return null;
-      const brain = JSON.parse(fs15.readFileSync(p, "utf-8"));
+      const p = path16.join(process.cwd(), "data", "brains", `brain_${userId}.json`);
+      if (!fs16.existsSync(p)) return null;
+      const brain = JSON.parse(fs16.readFileSync(p, "utf-8"));
       global.veddAIBrain = global.veddAIBrain || {};
       global.veddAIBrain[userId] = brain;
       return brain;
@@ -83557,9 +83655,9 @@ Format each recommendation as a clear, concise action item.`;
     let brain = g.veddAIBrain[userId];
     if (!brain) {
       try {
-        const p = path15.join(process.cwd(), "data", "brains", `brain_${userId}.json`);
-        if (fs15.existsSync(p)) {
-          brain = JSON.parse(fs15.readFileSync(p, "utf-8"));
+        const p = path16.join(process.cwd(), "data", "brains", `brain_${userId}.json`);
+        if (fs16.existsSync(p)) {
+          brain = JSON.parse(fs16.readFileSync(p, "utf-8"));
           g.veddAIBrain[userId] = brain;
         }
       } catch (_) {
@@ -84701,9 +84799,9 @@ Respond with ONLY valid JSON:
         global.veddAIBrain[userId].lastWeeklyScan = scan;
         global.veddAIBrain[userId].weeklyScanInsights = scan.scanInsights;
         try {
-          const brainDir = path15.join(process.cwd(), "data", "brains");
-          if (!fs15.existsSync(brainDir)) fs15.mkdirSync(brainDir, { recursive: true });
-          fs15.writeFileSync(path15.join(brainDir, `brain_${userId}.json`), JSON.stringify(global.veddAIBrain[userId]));
+          const brainDir = path16.join(process.cwd(), "data", "brains");
+          if (!fs16.existsSync(brainDir)) fs16.mkdirSync(brainDir, { recursive: true });
+          fs16.writeFileSync(path16.join(brainDir, `brain_${userId}.json`), JSON.stringify(global.veddAIBrain[userId]));
         } catch (_) {
         }
       }
@@ -85340,20 +85438,20 @@ Respond with ONLY valid JSON:
       });
     }
   });
-  const _polyWalletsFile = path15.join(process.cwd(), "data", "polymarket_wallets.json");
+  const _polyWalletsFile = path16.join(process.cwd(), "data", "polymarket_wallets.json");
   const _loadPolyWallets = () => {
     try {
-      if (fs15.existsSync(_polyWalletsFile)) return JSON.parse(fs15.readFileSync(_polyWalletsFile, "utf-8"));
+      if (fs16.existsSync(_polyWalletsFile)) return JSON.parse(fs16.readFileSync(_polyWalletsFile, "utf-8"));
     } catch {
     }
     return {};
   };
   const _savePolyWallets = (map) => {
     try {
-      const dir = path15.join(process.cwd(), "data");
-      if (!fs15.existsSync(dir)) fs15.mkdirSync(dir, { recursive: true });
+      const dir = path16.join(process.cwd(), "data");
+      if (!fs16.existsSync(dir)) fs16.mkdirSync(dir, { recursive: true });
       const content = JSON.stringify(map, null, 2);
-      fs15.writeFileSync(_polyWalletsFile, content);
+      fs16.writeFileSync(_polyWalletsFile, content);
       backupDurableFile("polymarket_wallets.json", content);
     } catch {
     }
@@ -86770,20 +86868,20 @@ Return ONLY JSON: {"topPicks":[{"market":"","winProbability":<0-100>,"whyItWins"
     const closed = await closeAllKalshiTrades2(userId);
     res.json({ success: true, closed, state: getKalshiEngineState2(userId) });
   });
-  const _polyKeysFile = path15.join(process.cwd(), "data", "polymarket_keys.json");
+  const _polyKeysFile = path16.join(process.cwd(), "data", "polymarket_keys.json");
   const _loadPolyKeys = () => {
     try {
-      if (fs15.existsSync(_polyKeysFile)) return JSON.parse(fs15.readFileSync(_polyKeysFile, "utf-8"));
+      if (fs16.existsSync(_polyKeysFile)) return JSON.parse(fs16.readFileSync(_polyKeysFile, "utf-8"));
     } catch {
     }
     return {};
   };
   const _savePolyKeys = (map) => {
     try {
-      const dir = path15.join(process.cwd(), "data");
-      if (!fs15.existsSync(dir)) fs15.mkdirSync(dir, { recursive: true });
+      const dir = path16.join(process.cwd(), "data");
+      if (!fs16.existsSync(dir)) fs16.mkdirSync(dir, { recursive: true });
       const content = JSON.stringify(map, null, 2);
-      fs15.writeFileSync(_polyKeysFile, content);
+      fs16.writeFileSync(_polyKeysFile, content);
       backupDurableFile("polymarket_keys.json", content);
     } catch {
     }
@@ -88038,11 +88136,11 @@ Format your response as JSON with exactly these keys:
       let mediaUrl = null;
       let mediaType = null;
       if (req.file && req.file.buffer) {
-        const fs17 = await import("fs/promises");
-        const path19 = await import("path");
-        const filename = `content-${userId}-day${dayNumber}-${Date.now()}${path19.extname(req.file.originalname)}`;
-        const uploadPath = path19.join(process.cwd(), "uploads", filename);
-        await fs17.writeFile(uploadPath, req.file.buffer);
+        const fs18 = await import("fs/promises");
+        const path20 = await import("path");
+        const filename = `content-${userId}-day${dayNumber}-${Date.now()}${path20.extname(req.file.originalname)}`;
+        const uploadPath = path20.join(process.cwd(), "uploads", filename);
+        await fs18.writeFile(uploadPath, req.file.buffer);
         mediaUrl = `/uploads/${filename}`;
         mediaType = req.file.mimetype.startsWith("video/") ? "video" : "image";
       }
@@ -88855,8 +88953,8 @@ Generate a JSON object with:
       }
       const id = parseInt(streamId);
       const filename = `stream-recording-${streamType}-${id}-${Date.now()}.webm`;
-      const filePath = path15.join(uploadsDir2, filename);
-      fs15.writeFileSync(filePath, file.buffer);
+      const filePath = path16.join(uploadsDir2, filename);
+      fs16.writeFileSync(filePath, file.buffer);
       const recordingUrl = `/uploads/${filename}`;
       if (streamType === "schedule") {
         const schedule = await storage.getSchedule(id);
@@ -94487,10 +94585,10 @@ Scene idea: ${script.videoPrompt}`, {
       return res.status(403).json({ error: "Admin access required" });
     }
     try {
-      const dataFile = path15.join(process.cwd(), "data", "curricula.json");
+      const dataFile = path16.join(process.cwd(), "data", "curricula.json");
       let curricula = [];
       try {
-        curricula = JSON.parse(fs15.readFileSync(dataFile, "utf-8"));
+        curricula = JSON.parse(fs16.readFileSync(dataFile, "utf-8"));
       } catch {
       }
       const entry = {
@@ -94500,8 +94598,8 @@ Scene idea: ${script.videoPrompt}`, {
         ...req.body
       };
       curricula.push(entry);
-      fs15.mkdirSync(path15.join(process.cwd(), "data"), { recursive: true });
-      fs15.writeFileSync(dataFile, JSON.stringify(curricula, null, 2));
+      fs16.mkdirSync(path16.join(process.cwd(), "data"), { recursive: true });
+      fs16.writeFileSync(dataFile, JSON.stringify(curricula, null, 2));
       res.json({ success: true, id: entry.id, message: "Curriculum saved to Academy" });
     } catch (err) {
       res.status(500).json({ error: err.message });
@@ -94510,10 +94608,10 @@ Scene idea: ${script.videoPrompt}`, {
   app2.get("/api/workforce/modules", async (req, res) => {
     if (!req.isAuthenticated()) return res.status(401).json({ error: "Unauthorized" });
     try {
-      const dataFile = path15.join(process.cwd(), "data", "curricula.json");
+      const dataFile = path16.join(process.cwd(), "data", "curricula.json");
       let saved = [];
       try {
-        saved = JSON.parse(fs15.readFileSync(dataFile, "utf-8"));
+        saved = JSON.parse(fs16.readFileSync(dataFile, "utf-8"));
       } catch {
       }
       res.json({ modules: saved, total: saved.length + 12 });
@@ -94602,10 +94700,10 @@ Scene idea: ${script.videoPrompt}`, {
   });
   app2.get("/api/verify/:certId", async (req, res) => {
     try {
-      const dataFile = path15.join(process.cwd(), "data", "certificates.json");
+      const dataFile = path16.join(process.cwd(), "data", "certificates.json");
       let certs = [];
       try {
-        certs = JSON.parse(fs15.readFileSync(dataFile, "utf-8"));
+        certs = JSON.parse(fs16.readFileSync(dataFile, "utf-8"));
       } catch {
       }
       const cert = certs.find((c) => c.certId === req.params.certId);
@@ -96437,14 +96535,14 @@ Scene idea: ${script.videoPrompt}`, {
 
 // server/vite.ts
 import express from "express";
-import fs16 from "fs";
-import path17 from "path";
+import fs17 from "fs";
+import path18 from "path";
 import { createServer as createViteServer, createLogger } from "vite";
 
 // vite.config.ts
 import { defineConfig } from "vite";
 import react from "@vitejs/plugin-react";
-import path16 from "path";
+import path17 from "path";
 var isReplit = process.env.REPL_ID !== void 0;
 var replitPlugins = isReplit ? [
   (await import("@replit/vite-plugin-shadcn-theme-json")).default(),
@@ -96463,14 +96561,14 @@ var vite_config_default = defineConfig({
   ],
   resolve: {
     alias: {
-      "@": path16.resolve(import.meta.dirname, "client", "src"),
-      "@shared": path16.resolve(import.meta.dirname, "shared"),
-      "@assets": path16.resolve(import.meta.dirname, "attached_assets")
+      "@": path17.resolve(import.meta.dirname, "client", "src"),
+      "@shared": path17.resolve(import.meta.dirname, "shared"),
+      "@assets": path17.resolve(import.meta.dirname, "attached_assets")
     }
   },
-  root: path16.resolve(import.meta.dirname, "client"),
+  root: path17.resolve(import.meta.dirname, "client"),
   build: {
-    outDir: path16.resolve(import.meta.dirname, "dist/public"),
+    outDir: path17.resolve(import.meta.dirname, "dist/public"),
     emptyOutDir: true,
     chunkSizeWarningLimit: 4e3,
     rollupOptions: {
@@ -96593,13 +96691,13 @@ async function setupVite(app2, server) {
       return res.status(404).json({ error: "Not found", path: url });
     }
     try {
-      const clientTemplate = path17.resolve(
+      const clientTemplate = path18.resolve(
         import.meta.dirname,
         "..",
         "client",
         "index.html"
       );
-      let template = await fs16.promises.readFile(clientTemplate, "utf-8");
+      let template = await fs17.promises.readFile(clientTemplate, "utf-8");
       template = template.replace(
         `src="/src/main.tsx"`,
         `src="/src/main.tsx?v=${TEMPLATE_VERSION}"`
@@ -96619,9 +96717,9 @@ async function setupVite(app2, server) {
   });
 }
 function serveStatic(app2) {
-  const distPath = path17.resolve(import.meta.dirname, "..", "dist", "public");
-  console.log(`[serveStatic] Looking for dist at: ${distPath} \u2014 exists: ${fs16.existsSync(distPath)}`);
-  if (!fs16.existsSync(distPath)) {
+  const distPath = path18.resolve(import.meta.dirname, "..", "dist", "public");
+  console.log(`[serveStatic] Looking for dist at: ${distPath} \u2014 exists: ${fs17.existsSync(distPath)}`);
+  if (!fs17.existsSync(distPath)) {
     throw new Error(
       `Could not find the build directory: ${distPath}, make sure to build the client first`
     );
@@ -96642,7 +96740,7 @@ function serveStatic(app2) {
       }
     }
   }));
-  const indexPath = path17.resolve(distPath, "index.html");
+  const indexPath = path18.resolve(distPath, "index.html");
   const versionScript = `<script>
 (function(){
   try{
@@ -96678,7 +96776,7 @@ function serveStatic(app2) {
         "Expires": "0",
         "Content-Type": "text/html; charset=utf-8"
       });
-      let html = await fs16.promises.readFile(indexPath, "utf-8");
+      let html = await fs17.promises.readFile(indexPath, "utf-8");
       html = await injectBlogSeoMeta(html, req.originalUrl);
       html = html.replace("<head>", "<head>" + versionScript);
       res.send(html);
@@ -96689,7 +96787,7 @@ function serveStatic(app2) {
 }
 
 // server/index.ts
-import path18 from "path";
+import path19 from "path";
 
 // server/auth.ts
 init_storage();
@@ -97633,19 +97731,19 @@ httpServer.listen(PORT, "0.0.0.0", () => {
   log(`serving on port ${PORT}`);
 });
 setupAuth(app);
-app.use("/uploads", express2.static(path18.join(process.cwd(), "uploads")));
-app.use("/ea-templates", express2.static(path18.join(process.cwd(), "public/ea-templates")));
-app.use("/downloads", express2.static(path18.join(process.cwd(), "public/downloads"), {
+app.use("/uploads", express2.static(path19.join(process.cwd(), "uploads")));
+app.use("/ea-templates", express2.static(path19.join(process.cwd(), "public/ea-templates")));
+app.use("/downloads", express2.static(path19.join(process.cwd(), "public/downloads"), {
   setHeaders: (res, filePath) => {
     if (filePath.endsWith(".mq5")) {
       res.setHeader("Content-Type", "text/plain; charset=utf-8");
-      res.setHeader("Content-Disposition", 'attachment; filename="' + path18.basename(filePath) + '"');
+      res.setHeader("Content-Disposition", 'attachment; filename="' + path19.basename(filePath) + '"');
     }
   }
 }));
 app.use((req, res, next) => {
   const start = Date.now();
-  const path19 = req.path;
+  const path20 = req.path;
   let capturedJsonResponse = void 0;
   const originalResJson = res.json;
   res.json = function(bodyJson, ...args) {
@@ -97654,8 +97752,8 @@ app.use((req, res, next) => {
   };
   res.on("finish", () => {
     const duration = Date.now() - start;
-    if (path19.startsWith("/api")) {
-      let logLine = `${req.method} ${path19} ${res.statusCode} in ${duration}ms`;
+    if (path20.startsWith("/api")) {
+      let logLine = `${req.method} ${path20} ${res.statusCode} in ${duration}ms`;
       if (capturedJsonResponse) {
         logLine += ` :: ${JSON.stringify(capturedJsonResponse)}`;
       }

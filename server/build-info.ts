@@ -2,6 +2,7 @@
 <<<<<<< HEAD
 <<<<<<< HEAD
 <<<<<<< HEAD
+<<<<<<< HEAD
 export const BUILD_COMMIT = "24d792b-dirty";
 export const BUILD_BRANCH = "main";
 export const BUILT_AT = "2026-11-01T16:13:25.036Z";
@@ -20,3 +21,8 @@ export const BUILD_COMMIT = "584f499";
 export const BUILD_BRANCH = "feature/backgrounds-ad-formats";
 export const BUILT_AT = "2026-11-01T18:00:55.629Z";
 >>>>>>> origin/feature/backgrounds-ad-formats
+=======
+export const BUILD_COMMIT = "70e0333-dirty";
+export const BUILD_BRANCH = "feature/explainer-app-screens";
+export const BUILT_AT = "2026-11-01T18:01:56.898Z";
+>>>>>>> origin/feature/explainer-app-screens
