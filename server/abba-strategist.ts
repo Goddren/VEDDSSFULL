@@ -178,8 +178,30 @@ export function wantsIdeaCard(message: string, lastAbba: string): boolean {
   return /add (it|this|that)( idea)? to (my|the) brain|test (it|this|that) in shadow|shadow[- ]test (it|this|that)/i.test(message)
     || (YES.test(message) && /shadow mode|shadow test|to your brain|to my brain/i.test(lastAbba));
 }
+/** What the engines are set to RIGHT NOW, so ABBA talks about the real settings, not an old plan. */
+async function engineNowText(userId: number): Promise<string> {
+  try {
+    const { currentSettings } = await import('./services/abba-setup');
+    const c = await currentSettings(userId);
+    const plan: any = await storage.getActiveWeeklyStrategy(userId).catch(() => undefined);
+    const fx = c.fx;
+    const lines = [
+      `FX engine: ${fx.running ? 'RUNNING' : 'stopped'} · pairs ${(fx.pairs || []).join(', ') || 'none'} · risk ${fx.riskPerTrade}%/trade · min confidence ${fx.minConfidence} (the engine never trades below its hard floor of 74) · max ${fx.maxOpenTrades} open · ${fx.maxDailyTrades ? `max ${fx.maxDailyTrades} trades/day` : 'no daily trade cap'} · direction ${fx.directionFilter}${Object.keys(fx.pairDirectionOverrides || {}).length ? ` · per-pair ${JSON.stringify(fx.pairDirectionOverrides)}` : ''} · weekly target $${fx.weeklyProfitTarget || 0}`,
+      c.crypto ? `Crypto engine: ${c.crypto.running ? 'on' : 'off'} · ${(c.crypto.symbols || []).join(', ')} · risk ${c.crypto.riskPerTrade}% · min conf ${c.crypto.minConfidence}` : 'Crypto engine: not set up',
+      `Sol engine: ${c.sol.running ? 'running' : 'off'}`,
+      `Model 1/2: ${c.models.live ? 'LIVE' : 'shadow only'}`,
+      plan ? `Active weekly plan: "${plan.plan?.abbaSetup?.title || 'weekly plan'}" for the week of ${String(plan.weekStart).slice(0, 10)}, pairs ${(plan.pairs || []).join(', ')}, target $${plan.profitTarget}` : 'Active weekly plan: none',
+    ];
+    return `=== ENGINE RIGHT NOW (live settings: the source of truth) ===
+${lines.join('\n')}
+Always describe and plan from these settings. If the active weekly plan disagrees with the engine (other pairs, other target), say so and offer to refresh the plan through the review screen. When you propose a plan, start from these values and change only what the trader asked for.
+
+`;
+  } catch { return ''; }
+}
+
 export async function abbaIdeaLabPrompt(userId: number): Promise<string> {
-  return `=== WEEKLY REVIEW (real numbers, UTC weeks Mon-Sun) ===
+  return `${await engineNowText(userId)}=== WEEKLY REVIEW (real numbers, UTC weeks Mon-Sun) ===
 ${await reviewContextText(userId)}
 
 === PLANNING PARTNER ===

@@ -67,7 +67,11 @@ export async function getPeriodReview(userId: number, period: 'week' | 'month' =
   const wins = trades.filter((r) => r.result === 'WIN').length;
   const losses = trades.filter((r) => r.result === 'LOSS').length;
   const pnl = Math.round(trades.reduce((s, r) => s + (Number(r.profit_loss) || 0), 0) * 100) / 100;
-  const weeklyTarget = goalRows[0]?.profit_target != null ? Number(goalRows[0].profit_target) : null;
+  // The engine's own weekly target is the goal the user actually set; the plan row
+  // can be stale (a plan from an earlier week kept a $12k target while the engine said $6k).
+  let engineTarget = 0;
+  try { engineTarget = Number((await import('./live-trading-engine')).getEffectiveEngineConfig(userId)?.weeklyProfitTarget) || 0; } catch { /* plan fallback */ }
+  const weeklyTarget = engineTarget > 0 ? engineTarget : goalRows[0]?.profit_target != null ? Number(goalRows[0].profit_target) : null;
   const target = weeklyTarget == null ? null : period === 'month' ? weeklyTarget * 4 : weeklyTarget;
 
   return {

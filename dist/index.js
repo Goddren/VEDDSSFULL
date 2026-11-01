@@ -35659,7 +35659,12 @@ async function getPeriodReview(userId, period = "week", offset = 1) {
   const wins = trades.filter((r) => r.result === "WIN").length;
   const losses = trades.filter((r) => r.result === "LOSS").length;
   const pnl = Math.round(trades.reduce((s, r) => s + (Number(r.profit_loss) || 0), 0) * 100) / 100;
-  const weeklyTarget = goalRows[0]?.profit_target != null ? Number(goalRows[0].profit_target) : null;
+  let engineTarget = 0;
+  try {
+    engineTarget = Number((await Promise.resolve().then(() => (init_live_trading_engine(), live_trading_engine_exports))).getEffectiveEngineConfig(userId)?.weeklyProfitTarget) || 0;
+  } catch {
+  }
+  const weeklyTarget = engineTarget > 0 ? engineTarget : goalRows[0]?.profit_target != null ? Number(goalRows[0].profit_target) : null;
   const target = weeklyTarget == null ? null : period === "month" ? weeklyTarget * 4 : weeklyTarget;
   return {
     period,
@@ -39249,8 +39254,30 @@ function wantsSetupCard(message, lastAbba) {
 function wantsIdeaCard(message, lastAbba) {
   return /add (it|this|that)( idea)? to (my|the) brain|test (it|this|that) in shadow|shadow[- ]test (it|this|that)/i.test(message) || YES.test(message) && /shadow mode|shadow test|to your brain|to my brain/i.test(lastAbba);
 }
+async function engineNowText(userId) {
+  try {
+    const { currentSettings: currentSettings2 } = await Promise.resolve().then(() => (init_abba_setup(), abba_setup_exports));
+    const c = await currentSettings2(userId);
+    const plan = await storage.getActiveWeeklyStrategy(userId).catch(() => void 0);
+    const fx = c.fx;
+    const lines = [
+      `FX engine: ${fx.running ? "RUNNING" : "stopped"} \xB7 pairs ${(fx.pairs || []).join(", ") || "none"} \xB7 risk ${fx.riskPerTrade}%/trade \xB7 min confidence ${fx.minConfidence} (the engine never trades below its hard floor of 74) \xB7 max ${fx.maxOpenTrades} open \xB7 ${fx.maxDailyTrades ? `max ${fx.maxDailyTrades} trades/day` : "no daily trade cap"} \xB7 direction ${fx.directionFilter}${Object.keys(fx.pairDirectionOverrides || {}).length ? ` \xB7 per-pair ${JSON.stringify(fx.pairDirectionOverrides)}` : ""} \xB7 weekly target $${fx.weeklyProfitTarget || 0}`,
+      c.crypto ? `Crypto engine: ${c.crypto.running ? "on" : "off"} \xB7 ${(c.crypto.symbols || []).join(", ")} \xB7 risk ${c.crypto.riskPerTrade}% \xB7 min conf ${c.crypto.minConfidence}` : "Crypto engine: not set up",
+      `Sol engine: ${c.sol.running ? "running" : "off"}`,
+      `Model 1/2: ${c.models.live ? "LIVE" : "shadow only"}`,
+      plan ? `Active weekly plan: "${plan.plan?.abbaSetup?.title || "weekly plan"}" for the week of ${String(plan.weekStart).slice(0, 10)}, pairs ${(plan.pairs || []).join(", ")}, target $${plan.profitTarget}` : "Active weekly plan: none"
+    ];
+    return `=== ENGINE RIGHT NOW (live settings: the source of truth) ===
+${lines.join("\n")}
+Always describe and plan from these settings. If the active weekly plan disagrees with the engine (other pairs, other target), say so and offer to refresh the plan through the review screen. When you propose a plan, start from these values and change only what the trader asked for.
+
+`;
+  } catch {
+    return "";
+  }
+}
 async function abbaIdeaLabPrompt(userId) {
-  return `=== WEEKLY REVIEW (real numbers, UTC weeks Mon-Sun) ===
+  return `${await engineNowText(userId)}=== WEEKLY REVIEW (real numbers, UTC weeks Mon-Sun) ===
 ${await reviewContextText(userId)}
 
 === PLANNING PARTNER ===
@@ -65562,9 +65589,9 @@ async function getStopOrdersForUser(userId, filters = {}) {
 init_schema();
 
 // server/build-info.ts
-var BUILD_COMMIT = "44852ff2-dirty";
+var BUILD_COMMIT = "af505481-dirty";
 var BUILD_BRANCH = "HEAD";
-var BUILT_AT = "2026-11-01T20:40:20.509Z";
+var BUILT_AT = "2026-11-01T22:10:07.338Z";
 
 // server/stripe.ts
 init_db();
