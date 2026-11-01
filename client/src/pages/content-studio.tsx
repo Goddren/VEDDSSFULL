@@ -959,6 +959,100 @@ const CAROUSEL_PIPELINE = [
   { name: 'Saving permanently', icon: <Layers className="h-5 w-5" /> },
 ];
 
+
+// ── Sync: top-ad styles ─────────────────────────────────────────────────────
+// The Sync button pulls the researched bank of ad styles that are working
+// in the trading niche (server: GET /api/content-studio/sync-ads). "Make my
+// version" prefills the topic and marks the style active; the server feeds
+// the style's STRUCTURE to the script writer — never the other brand's
+// words or claims.
+interface SyncStyle {
+  id: string; sourceBrand: string; platform: string; title: string;
+  hookPattern: string; format: 'standard' | 'product-ad' | 'got-milk';
+  backgroundId: string | null; ctaPattern: string; whyItWorks: string;
+  signal: string; topicSeed: string; caution?: string | null;
+}
+
+const SYNC_FORMAT_LABELS: Record<string, string> = { standard: 'Standard Reel', 'product-ad': 'Product Ad', 'got-milk': 'Got VEDD? Ad' };
+const SYNC_BG_LABELS: Record<string, string> = {
+  'podcast-studio': 'Podcast Studio', 'night-street': 'City Street at Night', 'coffee-shop': 'Coffee Shop',
+  'gym': 'Gym', 'car-interior': 'Luxury Car', 'barbershop': 'Barbershop', 'rooftop-skyline': 'Rooftop Skyline',
+  'corner-store': 'Corner Store', 'brownstone-stoop': 'Brownstone Stoop', 'basketball-court': 'Basketball Court',
+};
+
+function SyncPanel({ applied, onApply, onClear }: {
+  applied: SyncStyle | null;
+  onApply: (s: SyncStyle) => void;
+  onClear: () => void;
+}) {
+  const [styles, setStyles] = useState<SyncStyle[] | null>(null);
+  const [refreshed, setRefreshed] = useState('');
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const sync = async () => {
+    if (loading) return;
+    setLoading(true); setError(null);
+    try {
+      const res = await apiRequest('GET', '/api/content-studio/sync-ads');
+      const d = await res.json();
+      if (!res.ok) throw new Error(d?.error || 'Sync failed');
+      setStyles(d.styles as SyncStyle[]);
+      setRefreshed(String(d.refreshed || ''));
+    } catch {
+      setError('Could not load the style bank — try again.');
+    } finally { setLoading(false); }
+  };
+
+  return (
+    <div className="rounded-xl p-3 space-y-3" style={{ background: 'rgba(52,211,153,.05)', border: '1px solid rgba(52,211,153,.25)' }}>
+      <div className="flex items-center justify-between gap-2">
+        <div>
+          <p className="text-xs font-bold text-white">Sync — top ads in the niche</p>
+          <p className="text-[10px] text-gray-500">Copy the structure of what's working. The words are always VEDD's.</p>
+        </div>
+        <button type="button" onClick={sync} disabled={loading}
+          className="text-[11px] font-bold px-3 py-1.5 rounded-lg shrink-0"
+          style={{ background: 'rgba(52,211,153,.18)', color: '#34d399', border: '1px solid rgba(52,211,153,.45)' }}>
+          {loading ? 'Syncing…' : styles ? 'Re-sync' : 'Sync top ads'}
+        </button>
+      </div>
+      {error && <p className="text-[11px] text-red-400">{error}</p>}
+      {applied && (
+        <div className="flex items-center justify-between gap-2 rounded-lg px-2.5 py-2" style={{ background: 'rgba(52,211,153,.12)', border: '1px solid rgba(52,211,153,.4)' }}>
+          <p className="text-[11px] text-emerald-200">Adapting the <b>{applied.sourceBrand}</b> style — “{applied.title}”. Your reel follows its structure.</p>
+          <button type="button" onClick={onClear} className="text-[11px] font-bold px-1.5" style={{ color: '#f87171' }}>✕</button>
+        </div>
+      )}
+      {styles && (
+        <>
+          <p className="text-[10px] text-gray-500">Researched style bank · refreshed {refreshed}. Signals are what public sources actually show — no invented numbers.</p>
+          <div className="space-y-2 max-h-96 overflow-y-auto pr-1">
+            {styles.map(s => (
+              <div key={s.id} className="rounded-lg p-3 space-y-1.5" style={{ background: 'rgba(0,0,0,.35)', border: `1px solid ${applied?.id === s.id ? 'rgba(52,211,153,.55)' : 'rgba(255,255,255,.08)'}` }}>
+                <p className="text-xs font-bold text-white">{s.sourceBrand} <span className="font-normal text-gray-500">· {s.platform}</span></p>
+                <p className="text-[11px] font-bold text-emerald-300">{s.title}</p>
+                <p className="text-[11px] text-gray-300"><span className="text-gray-500">Hook:</span> {s.hookPattern}</p>
+                <p className="text-[11px] text-gray-400">{s.whyItWorks}</p>
+                <p className="text-[10px] text-gray-500">{s.signal}</p>
+                {s.caution && <p className="text-[10px] text-amber-400">Note: {s.caution}</p>}
+                <div className="flex items-center justify-between gap-2 pt-1">
+                  <p className="text-[10px] text-gray-500">{SYNC_FORMAT_LABELS[s.format] || s.format} · {s.backgroundId ? (SYNC_BG_LABELS[s.backgroundId] || s.backgroundId) : 'AI-picked setting'}</p>
+                  <button type="button" onClick={() => onApply(s)}
+                    className="text-[11px] font-bold px-2.5 py-1.5 rounded-lg shrink-0"
+                    style={{ background: 'rgba(52,211,153,.18)', color: '#34d399', border: '1px solid rgba(52,211,153,.45)' }}>
+                    Make my version
+                  </button>
+                </div>
+              </div>
+            ))}
+          </div>
+        </>
+      )}
+    </div>
+  );
+}
+
 // ── Main Page ─────────────────────────────────────────────────────────────────
 export default function ContentStudioPage() {
   const { user } = useAuth();
@@ -1046,6 +1140,10 @@ export default function ContentStudioPage() {
   };
 
   const [reelTopic, setReelTopic] = useState('');
+  // Sync: the top-ad style this reel adapts (server resolves the id to the
+  // style's structure note for the script writer).
+  const [appliedSyncStyle, setAppliedSyncStyle] = useState<SyncStyle | null>(null);
+  const applySyncStyle = (s: SyncStyle) => { setAppliedSyncStyle(s); setReelTopic(s.topicSeed); };
   const [reelDuration, setReelDuration] = useState(5);
   const [generatingReel, setGeneratingReel] = useState(false);
   const [reelError, setReelError] = useState<string | null>(null);
@@ -1063,6 +1161,7 @@ export default function ContentStudioPage() {
         quality: videoQuality,
         aspect: videoAspect,
         image: videoImage || undefined,
+        syncStyleId: appliedSyncStyle?.id || undefined,
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data?.error || 'Reel generation failed');
@@ -1458,6 +1557,8 @@ export default function ContentStudioPage() {
                   Give it a topic and AI writes the hook, script, and caption, then generates a matching video clip — a complete ready-to-post reel in one step. (The clip itself is a short 5-6s AI-rendered scene, not a full voiceover video — pair it with the script below when you post.)
                 </p>
               </div>
+
+              <SyncPanel applied={appliedSyncStyle} onApply={applySyncStyle} onClear={() => setAppliedSyncStyle(null)} />
 
               <div>
                 <label className="text-[10px] text-gray-500 mb-1 block">Topic</label>

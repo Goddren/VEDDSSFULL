@@ -4919,7 +4919,7 @@ OUTPUT: Return a JSON object with these exact fields:
 // scene prompt for the Replicate video model, all from one topic string.
 // Mirrors generateVeddBlogPost's client/provider fallback but with a much
 // shorter, punchier output tuned for a 5-6s vertical clip.
-export async function generateReelScript(topic: string, userId?: number): Promise<{
+export async function generateReelScript(topic: string, userId?: number, styleNote?: string): Promise<{
   hook: string;
   script: string[];
   caption: string;
@@ -4951,10 +4951,17 @@ Return a JSON object with these exact fields:
   "videoPrompt": "a vivid, concrete visual SCENE (1-2 sentences) for an AI video generator, staying FAITHFUL to the topic above — describe the setting, subject and mood only. Do NOT describe film style, grain, color grade or camera settings (those are applied automatically). No text overlays, captions, signage, logos or readable words. If the scene includes people, they are young Black people in contemporary streetwear in an authentic inner-city/urban setting."
 }`;
 
+  // Sync styles (services/sync-ads.ts): adapt a proven ad's STRUCTURE —
+  // its hook pattern, beats, setting and CTA shape — never its words,
+  // claims, footage or numbers.
+  const system = styleNote?.trim()
+    ? `${systemPrompt}\n\nADAPT THIS PROVEN AD STRUCTURE — copy the shape only, written for VEDD in the brand voice above:\n${styleNote.trim().slice(0, 900)}`
+    : systemPrompt;
+
   const response = await openai.chat.completions.create({
     model,
     messages: [
-      { role: "system", content: systemPrompt },
+      { role: "system", content: system },
       { role: "user", content: `Write a VEDD reel script about: ${topic}` },
     ],
     response_format: { type: "json_object" },

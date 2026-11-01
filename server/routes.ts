@@ -30878,6 +30878,27 @@ Generate an agenda with timing, topics, and hosting tips. Return JSON: {
     res.json({ id: job.id, status: job.status, step: job.step, progress: job.progress, url: job.result_url, error: job.error, script: job.script, aspect: job.aspect });
   });
 
+  // ── Sync: top-ad styles in the trading niche (researched bank — see
+  // services/sync-ads.ts for why this is a bank and not a live scrape).
+  // The styleNote stays server-side; the client gets the card data plus the
+  // generation knobs (format/background/topic seed) for "Make my version".
+  app.get("/api/content-studio/sync-ads", async (req, res) => {
+    const u = req.user as any;
+    if (!req.isAuthenticated() || !(u?.isAmbassador || u?.isAdmin)) {
+      return res.status(403).json({ error: "Ambassador or admin only" });
+    }
+    const { SYNC_AD_STYLES, SYNC_BANK_REFRESHED } = await import('./services/sync-ads');
+    res.json({
+      refreshed: SYNC_BANK_REFRESHED,
+      styles: SYNC_AD_STYLES.map((s) => ({
+        id: s.id, sourceBrand: s.sourceBrand, platform: s.platform, title: s.title,
+        hookPattern: s.hookPattern, format: s.format, backgroundId: s.backgroundId,
+        ctaPattern: s.ctaPattern, whyItWorks: s.whyItWorks, signal: s.signal,
+        topicSeed: s.topicSeed, caution: s.caution ?? null,
+      })),
+    });
+  });
+
   // POST /api/content-studio/plan-shot — preview the single shot the video
   // model will film, so the user can check/edit it before paying for a render.
   app.post("/api/content-studio/plan-shot", async (req, res) => {
@@ -30934,7 +30955,9 @@ Generate an agenda with timing, topics, and hosting tips. Return JSON: {
       if (!topic) return res.status(400).json({ error: "topic is required" });
 
       const { generateReelScript } = await import('./openai');
-      const script = await generateReelScript(topic, u?.id);
+      const { getSyncAdStyle } = await import('./services/sync-ads');
+      const syncStyle = getSyncAdStyle((req.body as any)?.syncStyleId);
+      const script = await generateReelScript(topic, u?.id, syncStyle?.styleNote);
 
       const { renderContentVideo } = await import('./services/content-video');
       // The reel's videoPrompt is still planned into one shot, anchored on the topic.
