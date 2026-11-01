@@ -108,6 +108,13 @@ export async function reviewContextText(userId: number): Promise<string> {
   try {
     const [last, current, lastMonth] = await Promise.all([
       getPeriodReview(userId, 'week', 1), getPeriodReview(userId, 'week', 0), getPeriodReview(userId, 'month', 1)]);
-    return `LAST WEEK\n${reviewText(last)}\n\nTHIS WEEK SO FAR\n${reviewText(current)}\n\nLAST MONTH\n${reviewText(lastMonth)}`;
+    const { whatIfAnalysis, whatIfText } = await import('./brain-ideas');
+    const d = (x: string) => new Date(x + 'T00:00:00Z');
+    const [wiWeek, wiMonth] = await Promise.all([
+      whatIfAnalysis(userId, d(last.from), d(last.to)).catch(() => null),
+      whatIfAnalysis(userId, d(lastMonth.from), d(lastMonth.to)).catch(() => null),
+    ]);
+    const whatIf = [wiWeek && whatIfText('LAST WEEK', wiWeek), wiMonth && whatIfText('LAST MONTH', wiMonth)].filter(Boolean).join('\n');
+    return `LAST WEEK\n${reviewText(last)}\n\nTHIS WEEK SO FAR\n${reviewText(current)}\n\nLAST MONTH\n${reviewText(lastMonth)}\n\nWHAT WOULD HAVE TURNED IT AROUND\n${whatIf}`;
   } catch (e: any) { return `Review unavailable (${e?.message || 'error'}).`; }
 }

@@ -86,14 +86,17 @@ export function ruleSkips(rule: IdeaRule, s: Parameters<typeof ruleMatches>[1]):
 }
 
 /** Replay the idea over the user's closed trades and resolved Model 1/2 shadows. */
-export async function backtestIdea(userId: number, rule: IdeaRule): Promise<IdeaEvidence> {
+export async function backtestIdea(userId: number, rule: IdeaRule, window?: { from: Date; to: Date }): Promise<IdeaEvidence> {
+  const from = window?.from ?? new Date(Date.now() - 365 * 86400000);
+  const to = window?.to ?? new Date();
+  const shadowFrom = window?.from ?? new Date(Date.now() - 180 * 86400000);
   const [trades, shadows] = await Promise.all([
     pool.query(`SELECT symbol, direction, result, profit_loss, created_at FROM ai_trade_results
-      WHERE user_id = $1 AND result IN ('WIN','LOSS','BREAKEVEN') AND created_at > now() - interval '365 days'
-      ORDER BY created_at DESC LIMIT 3000`, [userId]),
+      WHERE user_id = $1 AND result IN ('WIN','LOSS','BREAKEVEN') AND created_at >= $2 AND created_at < $3
+      ORDER BY created_at DESC LIMIT 3000`, [userId, from, to]),
     pool.query(`SELECT symbol, direction, model, day_type, r_multiple, created_at FROM fx_model_decisions
-      WHERE user_id = $1 AND engine = 'fx' AND r_multiple IS NOT NULL AND created_at > now() - interval '180 days'
-      ORDER BY created_at DESC LIMIT 5000`, [userId]),
+      WHERE user_id = $1 AND engine = 'fx' AND r_multiple IS NOT NULL AND created_at >= $2 AND created_at < $3
+      ORDER BY created_at DESC LIMIT 5000`, [userId, shadowFrom, to]),
   ]);
   const t = { matched: 0, wouldSkip: 0, skipWins: 0, skipLosses: 0, skipPnl: 0, keptPnl: 0 };
   for (const r of trades.rows) {
@@ -173,4 +176,61 @@ export async function ideasContextText(userId: number): Promise<string> {
     if (!ideas.length) return 'None yet.';
     return ideas.slice(0, 10).map((i: any) => `#${i.id} "${i.title}" [${i.status}] ${i.summary}. Backtest: ${i.evidence?.verdict || 'n/a'}`).join('\n');
   } catch { return 'Unavailable.'; }
+}
+
+// ── What-if: which single change would have turned the period's loss into profit? ──
+// Tries block rules built from the period's own trades (each pair, session,
+// pair+session, pair+direction, direction), replays the period without them,
+// then checks the same rule over the prior 90 days so a one-week fluke isn't
+// sold as an edge.
+export interface WhatIf { rule: IdeaRule; summary: string; periodSkipped: number; periodSaved: number; periodPnlAfter: number; ninetyDaySaved: number; ninetyDaySkipped: number; robust: boolean }
+
+export async function whatIfAnalysis(userId: number, from: Date, to: Date, limit = 5): Promise<{ periodPnl: number; trades: number; options: WhatIf[] }> {
+  const { rows } = await pool.query(`SELECT symbol, direction, result, profit_loss, created_at FROM ai_trade_results
+    WHERE user_id = $1 AND result IN ('WIN','LOSS','BREAKEVEN') AND COALESCE(closed_at, created_at) >= $2 AND COALESCE(closed_at, created_at) < $3`, [userId, from, to]);
+  const periodPnl = Math.round(rows.reduce((s, r) => s + (Number(r.profit_loss) || 0), 0) * 100) / 100;
+  if (!rows.length) return { periodPnl, trades: 0, options: [] };
+
+  const keys = new Map<string, any>();
+  const add = (r: any) => { const k = JSON.stringify(r); if (!keys.has(k)) keys.set(k, r); };
+  for (const t of rows) {
+    const s = norm(t.symbol), d = String(t.direction).toUpperCase(), sess = sessionFor(new Date(t.created_at));
+    add({ action: 'block', symbols: [s] });
+    add({ action: 'block', sessions: [sess] });
+    add({ action: 'block', symbols: [s], sessions: [sess] });
+    add({ action: 'block', symbols: [s], directions: [d] });
+    add({ action: 'block', directions: [d] });
+  }
+  const before90 = new Date(from.getTime() - 90 * 86400000);
+  const scored: WhatIf[] = [];
+  for (const raw of Array.from(keys.values())) {
+    const rule = sanitizeRule({ ...raw, models: ['engine'] });
+    if (!rule) continue;
+    let skipped = 0, saved = 0;
+    for (const t of rows) {
+      if (ruleSkips(rule, { symbol: t.symbol, direction: t.direction, at: new Date(t.created_at), model: 'engine' })) { skipped++; saved -= Number(t.profit_loss) || 0; }
+    }
+    // Must remove at least 2 trades and recover real money in the period.
+    if (skipped < 2 || saved <= 0) continue;
+    scored.push({ rule, summary: describeRule(rule), periodSkipped: skipped, periodSaved: Math.round(saved * 100) / 100,
+      periodPnlAfter: Math.round((periodPnl + saved) * 100) / 100, ninetyDaySaved: 0, ninetyDaySkipped: 0, robust: false });
+  }
+  scored.sort((a, b) => b.periodSaved - a.periodSaved);
+  const top = scored.slice(0, limit * 2);
+  for (const w of top) {
+    const ev = await backtestIdea(userId, w.rule, { from: before90, to: from });
+    w.ninetyDaySkipped = ev.trades.wouldSkip;
+    w.ninetyDaySaved = Math.round(-ev.trades.skipPnl * 100) / 100;
+    w.robust = ev.trades.wouldSkip >= 5 && w.ninetyDaySaved > 0;
+  }
+  // Prefer changes that also held up over the prior 90 days.
+  top.sort((a, b) => Number(b.robust) - Number(a.robust) || b.periodSaved - a.periodSaved);
+  return { periodPnl, trades: rows.length, options: top.slice(0, limit) };
+}
+
+export function whatIfText(label: string, w: Awaited<ReturnType<typeof whatIfAnalysis>>): string {
+  if (!w.trades) return `${label}: no closed trades.`;
+  if (!w.options.length) return `${label}: ${w.trades} trades, ${w.periodPnl >= 0 ? '+' : '-'}$${Math.abs(w.periodPnl)}. No single filter would have helped.`;
+  return `${label}: ${w.trades} trades, ${w.periodPnl >= 0 ? '+' : '-'}$${Math.abs(w.periodPnl)}. Single changes that would have helped (replayed on real trades):\n`
+    + w.options.map((o, i) => `${i + 1}. ${o.summary} → skips ${o.periodSkipped} trades, saves $${o.periodSaved}, period ends ${o.periodPnlAfter >= 0 ? '+' : '-'}$${Math.abs(o.periodPnlAfter)}. Prior 90 days: ${o.ninetyDaySkipped} trades, ${o.ninetyDaySaved >= 0 ? 'saved' : 'would have COST'} $${Math.abs(o.ninetyDaySaved)} → ${o.robust ? 'HELD UP' : 'did NOT hold up (likely a fluke)'}.`).join('\n');
 }

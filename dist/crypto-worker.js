@@ -23480,6 +23480,7 @@ __export(live_trading_engine_exports, {
   generateRuleBasedSignals: () => generateRuleBasedSignals,
   getAccountSafetySnapshot: () => getAccountSafetySnapshot,
   getAllMT5Signals: () => getAllMT5Signals,
+  getEffectiveEngineConfig: () => getEffectiveEngineConfig,
   getLiveEngineActivity: () => getLiveEngineActivity,
   getLiveEngineState: () => getLiveEngineState,
   getMT5Accounts: () => getMT5Accounts,
@@ -23488,6 +23489,7 @@ __export(live_trading_engine_exports, {
   getPersistedEngineConfigOverride: () => getPersistedEngineConfigOverride,
   heartbeatMT5Account: () => heartbeatMT5Account,
   hydratePersistedEngineConfigs: () => hydratePersistedEngineConfigs,
+  isEngineHardHalted: () => isEngineHardHalted,
   isFxLeader: () => isFxLeader,
   recordTradeResult: () => recordTradeResult,
   registerMT5Account: () => registerMT5Account,
@@ -29758,6 +29760,12 @@ function stopLiveEngine(userId) {
     });
   }
   return state || null;
+}
+function getEffectiveEngineConfig(userId) {
+  return engineStates[userId]?.config ?? getDefaultConfig(userId);
+}
+function isEngineHardHalted(userId) {
+  return hardHalted(engineStates[userId]);
 }
 function getLiveEngineState(userId) {
   const s = engineStates[userId];

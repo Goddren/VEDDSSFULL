@@ -164,12 +164,15 @@ async function getClient(userId: number): Promise<{ client: any; model: string }
 
 // ── Idea Lab: shared by /api/abba/chat and /api/abba/stream ───────────────────
 export const IDEA_MARKER = '[[IDEA_READY]]';
+export const SETUP_MARKER = '[[SETUP_READY]]';
 export async function abbaIdeaLabPrompt(userId: number): Promise<string> {
   return `=== WEEKLY REVIEW (real numbers, UTC weeks Mon-Sun) ===
 ${await reviewContextText(userId)}
 
 === PLANNING PARTNER ===
 You're their partner for hitting weekly, monthly and yearly profit goals. When they want to review a week or plan the next one: lead with how last week went (vs goal, best/worst pair, session, weekday, what the gates blocked, what the shadows say), then ask what they want next week to look like. Give 2-3 concrete options backed by the numbers above (e.g. cut the worst pair, focus the best session, what win rate the goal needs at their risk). Mid-week, tell them where they stand vs pace.
+WHAT-IF: when they ask what would have made a week/month profitable, answer from WHAT WOULD HAVE TURNED IT AROUND. Lead with the changes that HELD UP over the prior 90 days; call the ones that didn't hold up flukes and say why (they'd have cost money before). Then offer to add the best one to their brain as a shadow-tested idea (Idea Lab flow below).
+WEEK SETUP: once you've agreed the plan for next week with them, offer to set up the engines. Settings you can set: FX (run on/off, pairs, risk per trade % max 2, max open trades, min confidence 55-95, max trades/day, direction both/buy_only/sell_only, per-pair direction), crypto (run, symbols, risk %, min confidence, max trades/day, direction long_only/short_only/both), Sol (run, risk %, min confidence, max trades/day), Model 1/2 daily caps, weekly profit target $. Read the settings back in plain words and ask "Want me to put that on the review screen?". ONLY after a clear yes, end your reply with [[SETUP_READY]] on its own line. You never switch anything on yourself: they review every change and tap Confirm.
 RISK RULE: when they're BEHIND pace, NEVER suggest raising risk per trade, lot size or trades per day to catch up. Suggest better pairs/sessions/setups, tighter selection, or resetting the goal. When AHEAD, suggest protecting gains (lower risk, fewer trades). Chasing a goal is how accounts get blown.
 
 === WHAT'S NEW IN THE ENGINE (newest first) ===
@@ -184,6 +187,28 @@ When they want to add an idea, or you spot one in their data, interview them ONE
 Skip questions they already answered. Suggest ideas backed by their BY PAIR / BY SESSION numbers when they're unsure. Then read the idea back in one sentence and ask "Want me to test that in shadow mode?". ONLY after they clearly say yes, end your reply with the exact marker [[IDEA_READY]] on its own line. Never output the marker otherwise.
 Their current ideas:
 ${await ideasContextText(userId)}`;
+}
+
+// Conversation → engine settings proposal for the review screen
+export async function extractSetupDraft(ai: { client: any; model: string }, convo: any[], message: string, reply: string) {
+  const transcript = [...convo, { role: 'user', content: message }, { role: 'assistant', content: reply }]
+    .map((m) => `${m.role === 'assistant' ? 'ABBA' : 'TRADER'}: ${String(m.content).slice(0, 1500)}`).join('\n');
+  const r = await ai.client.chat.completions.create({
+    model: ai.model, temperature: 0, max_tokens: 700,
+    messages: [
+      { role: 'system', content: `Extract the engine settings the trader just agreed to. Include ONLY engines and fields that were agreed; omit everything else. Reply with JSON only.
+{"title":"short plan name","rationale":"why, 1-3 sentences","weeklyTarget":number?,
+"fx":{"run":bool,"pairs":["EURUSD"],"riskPerTrade":number,"maxOpenTrades":number,"minConfidence":number,"maxDailyTrades":number,"directionFilter":"both|buy_only|sell_only","pairDirectionOverrides":{"USDJPY":"buy_only"}}?,
+"crypto":{"run":bool,"symbols":["BTCUSD-PERP"],"riskPerTrade":number,"minConfidence":number,"maxDailyTrades":number,"directionFilter":"both|long_only|short_only"}?,
+"sol":{"run":bool,"riskPerTradePct":number,"minConfidence":number,"maxDailyTrades":number}?,
+"models":{"m1DailyCap":number,"m2DailyCap":number}?}` },
+      { role: 'user', content: transcript },
+    ],
+  });
+  const m = String(r.choices[0]?.message?.content || '').match(/\{[\s\S]*\}/);
+  if (!m) return null;
+  const { sanitizeProposal } = await import('./services/abba-setup');
+  return sanitizeProposal(JSON.parse(m[0]));
 }
 
 // Conversation → structured filter rule + backtest
@@ -427,7 +452,12 @@ ${contextSummary(ctx)}`;
         console.error('[Abba idea extract]', e?.message); return null;
       });
     }
-    res.json({ reply, ideaDraft });
+    let setupDraft: any = null;
+    if (reply.includes(SETUP_MARKER)) {
+      reply = reply.split(SETUP_MARKER).join('').trim();
+      setupDraft = await extractSetupDraft(ai, msgs.slice(1), message, reply).catch((e) => { console.error('[Abba setup extract]', e?.message); return null; });
+    }
+    res.json({ reply, ideaDraft, setupDraft });
   } catch (err: any) {
     console.error('[Abba chat]', err);
     res.status(500).json({ error: err.message });

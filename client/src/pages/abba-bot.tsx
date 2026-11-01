@@ -10,6 +10,7 @@ import {
   CheckCircle2, XCircle, AlertCircle, Send as SendIcon,
 } from "lucide-react";
 import { IdeaDraftCard, MyIdeasPanel, type IdeaDraft } from "@/components/abba/idea-lab";
+import { SetupDraftCard } from "@/components/abba/setup-review";
 import { TradePerformanceCard, TodayReviewPanel, AiHealthStrip } from "@/components/trade-performance-card";
 
 interface GeneratedEA {
@@ -189,7 +190,7 @@ function StepMediaBlock({ media }: { media: StepMedia }) {
   return null;
 }
 
-type ChatMsg = { role: "user" | "assistant"; content: string; ideaDraft?: IdeaDraft | null };
+type ChatMsg = { role: "user" | "assistant"; content: string; ideaDraft?: IdeaDraft | null; setupDraft?: any };
 type AbbaTab = "manual" | "bot" | "daily" | "outreach" | "setup";
 
 const QUICK_PROMPTS = [
@@ -308,7 +309,7 @@ export default function AbbaBotPage() {
       const res = await apiRequest("POST", "/api/abba/chat", { message: text, history: next.slice(-9, -1).map(({ role, content }) => ({ role, content })) });
       const data = await res.json();
       const reply = data.reply || data.error || "No response.";
-      setMessages(m => [...m, { role: "assistant", content: reply, ideaDraft: data.ideaDraft || null }]);
+      setMessages(m => [...m, { role: "assistant", content: reply, ideaDraft: data.ideaDraft || null, setupDraft: data.setupDraft || null }]);
       speak(reply);
     } catch {
       setMessages(m => [...m, { role: "assistant", content: "Connection issue — try again in a moment." }]);
@@ -504,7 +505,7 @@ export default function AbbaBotPage() {
             </div>
 
             <div className="flex flex-wrap gap-2">
-              {["What's new in the FX engine?", "How are Model 1 and Model 2 doing?", "Help me add a strategy idea to my brain"].map((q) => (
+              {["How did my last week go?", "What would have made last week profitable?", "Plan my next week with me", "What's new in the FX engine?", "Help me add a strategy idea to my brain"].map((q) => (
                 <button key={q} onClick={() => send(q)} disabled={sending}
                   className="rounded-full border border-purple-700/50 bg-purple-900/20 px-3 py-1 text-[11px] text-purple-200 hover:bg-purple-800/30">{q}</button>
               ))}
@@ -529,6 +530,7 @@ export default function AbbaBotPage() {
                     }`}>
                       {m.content}
                       {m.ideaDraft && <IdeaDraftCard draft={m.ideaDraft} />}
+                      {m.setupDraft && <SetupDraftCard draft={m.setupDraft} />}
                     </div>
                   </div>
                 ))}

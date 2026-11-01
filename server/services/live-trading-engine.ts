@@ -8264,6 +8264,16 @@ export function stopLiveEngine(userId: number): EngineState | null {
   return state || null;
 }
 
+/** Settings the FX engine is running with, or will start with (persisted overrides) when stopped. */
+export function getEffectiveEngineConfig(userId: number): LiveEngineConfig {
+  return engineStates[userId]?.config ?? getDefaultConfig(userId);
+}
+
+/** True when today's loss limit / emergency stop hard-halted this user's engine. */
+export function isEngineHardHalted(userId: number): boolean {
+  return hardHalted(engineStates[userId]);
+}
+
 export function getLiveEngineState(userId: number): EngineState | null {
   const s = engineStates[userId];
   if (s) rollGoalTrackerWeek(s); // a quiet new week must not keep showing last week's tally

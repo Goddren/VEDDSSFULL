@@ -26,7 +26,7 @@ import { setupTwilio, sendTradingSignal, sendSmsRaw } from "./twilio";
 import { checkUserAchievements } from "./achievement-tracker";
 import { generateMT5EACode, generateTradingViewCode, generateTradeLockerCode } from './ea-generators';
 import { tradingCoachHandler, tradingTipsHandler } from "./trading-coach";
-import { abbaStrategistHandler, abbaChatHandler, abbaIdeaLabPrompt, extractIdeaDraft, IDEA_MARKER } from "./abba-strategist";
+import { abbaStrategistHandler, abbaChatHandler, abbaIdeaLabPrompt, extractIdeaDraft, IDEA_MARKER, extractSetupDraft, SETUP_MARKER } from "./abba-strategist";
 import { marketInsightsHandler, contextualInsightHandler } from "./market-insights";
 import { createStopOrder, checkBreakoutTriggers, cancelStopOrder, getStopOrdersForUser } from "./services/stopOrderService";
 import { insertStopOrderSchema, stopOrders } from "@shared/schema";
@@ -4186,6 +4186,29 @@ Respond ONLY in valid JSON format with these exact keys:
       res.json(await getPeriodReview((req.user as any).id, period, offset));
     } catch (e: any) { res.status(500).json({ error: e.message }); }
   });
+  // Week setup: review (no changes) and apply (only on the trader's confirm).
+  app.post('/api/abba/setup/review', async (req, res) => {
+    if (!req.isAuthenticated()) return res.status(401).json({ error: 'Authentication required' });
+    try {
+      const { sanitizeProposal, buildSetupReview } = await import('./services/abba-setup');
+      const p = sanitizeProposal(req.body?.proposal);
+      if (!p) return res.status(400).json({ error: 'No settings in this plan.' });
+      res.json(await buildSetupReview((req.user as any).id, p));
+    } catch (e: any) { res.status(500).json({ error: e.message }); }
+  });
+  app.post('/api/abba/setup/apply', async (req, res) => {
+    if (!req.isAuthenticated()) return res.status(401).json({ error: 'Authentication required' });
+    if (req.body?.confirm !== true) return res.status(400).json({ error: 'Confirm required' });
+    try {
+      const { sanitizeProposal, applySetup } = await import('./services/abba-setup');
+      const p = sanitizeProposal(req.body?.proposal);
+      if (!p) return res.status(400).json({ error: 'No settings in this plan.' });
+      const userId = (req.user as any).id;
+      const out = await applySetup(userId, p);
+      console.log(`[ABBA setup] user ${userId} applied=${JSON.stringify(out.applied)} errors=${JSON.stringify(out.errors || [])}`);
+      res.json(out);
+    } catch (e: any) { res.status(500).json({ error: e.message }); }
+  });
   app.get('/api/abba/engine-updates', async (_req, res) => {
     const { ENGINE_UPDATES } = await import('./services/engine-updates');
     res.json({ updates: ENGINE_UPDATES });
@@ -4965,7 +4988,7 @@ ${await abbaIdeaLabPrompt(userId)}`;
       // Send each sentence as a text event immediately — no server-side TTS in stream.
       // The client speaks via browser speechSynthesis (instant, no autoplay block).
       const processSentence = (sentence: string) => {
-        sentence = sentence.split(IDEA_MARKER).join('');
+        sentence = sentence.split(IDEA_MARKER).join('').split(SETUP_MARKER).join('');
         const stripped = sentence.replace(/\[NAV:\/[^\]]*\]/g, '').replace(/\[PLAN_PROPOSAL:\{[\s\S]*?\}\]/g, '').trim();
         if (!stripped || stripped.length < 4) return;
         sendEvent('text', { text: sentence, speak: stripped });
@@ -5007,8 +5030,14 @@ ${await abbaIdeaLabPrompt(userId)}`;
           historyMessages, message, fullText.split(IDEA_MARKER).join('')).catch((e: any) => { console.error('[ABBA stream idea]', e?.message); return null; });
       }
 
+      let setupDraft: any = null;
+      if (fullText.includes(SETUP_MARKER)) {
+        setupDraft = await extractSetupDraft({ client: aiClient, model: (aiClient as any).defaultModel || 'gpt-4o' },
+          historyMessages, message, fullText.split(SETUP_MARKER).join('')).catch((e: any) => { console.error('[ABBA stream setup]', e?.message); return null; });
+      }
+
       sendEvent('done', {
-        navigateTo, planProposal, suggestions, ideaDraft,
+        navigateTo, planProposal, suggestions, ideaDraft, setupDraft,
         context: { weekPct, weekProfit, weekTarget, todayProfit, dailyTarget, unrealizedPnL, openCount: openPositions.length, targetRemaining, pacingNeededPerDay, weekTrades: strategy?.progressTrades||0, weekWinRate: strategy?.progressWinRate||0, balance, planPairs, todayPairs, hasStrategy: !!strategy && weekTarget > 0 },
       });
       res.end();

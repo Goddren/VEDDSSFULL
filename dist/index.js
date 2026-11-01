@@ -43,18 +43,18 @@ function listFromEnv(name, fallback) {
 }
 function pairFilterVerdict(symbol, direction) {
   if (process.env.PAIR_FILTER_ENABLED === "false") return null;
-  const sym = norm(symbol);
+  const sym2 = norm(symbol);
   const dir = String(direction || "").toUpperCase();
   for (const b of BLOCKED_PAIRS) {
-    if (norm(b) === sym) {
-      const reason = sym === "GBPJPY" ? `Pair filter: ${sym} is on the blocked list (34% WR over 310 trades, avg win $59 vs avg loss $100)` : `Pair filter: ${sym} is on the blocked list`;
+    if (norm(b) === sym2) {
+      const reason = sym2 === "GBPJPY" ? `Pair filter: ${sym2} is on the blocked list (34% WR over 310 trades, avg win $59 vs avg loss $100)` : `Pair filter: ${sym2} is on the blocked list`;
       return { blocked: true, reason };
     }
   }
   for (const entry of BLOCKED_DIRECTIONS) {
     const [s, d] = entry.split(":");
-    if (s && d && norm(s) === sym && d.toUpperCase() === dir) {
-      return { blocked: true, reason: `Pair filter: ${sym} ${dir} is on the blocked list` };
+    if (s && d && norm(s) === sym2 && d.toUpperCase() === dir) {
+      return { blocked: true, reason: `Pair filter: ${sym2} ${dir} is on the blocked list` };
     }
   }
   return null;
@@ -8590,7 +8590,7 @@ async function compute(userId) {
     bySymbol.get(k2).push(r);
   }
   const out = /* @__PURE__ */ new Map();
-  for (const [sym, list] of Array.from(bySymbol.entries())) {
+  for (const [sym2, list] of Array.from(bySymbol.entries())) {
     const netPnl = list.reduce((s, r) => s + Number(r.pnl || 0), 0);
     const signals = [];
     for (const r of list) {
@@ -8602,7 +8602,7 @@ async function compute(userId) {
     }
     const losing = signals.filter((s) => s.result === "LOSS");
     const stat = {
-      symbol: sym,
+      symbol: sym2,
       losingSignals: losing.length,
       winningSignals: signals.length - losing.length,
       netPnl: Math.round(netPnl * 100) / 100,
@@ -8612,19 +8612,19 @@ async function compute(userId) {
     };
     if (MAX_LOSING_SIGNALS > 0 && stat.losingSignals >= MAX_LOSING_SIGNALS) {
       stat.stopped = true;
-      stat.reason = `Pair daily stop: ${sym} has ${stat.losingSignals} losing setups today (limit ${MAX_LOSING_SIGNALS}), net ${stat.netPnl} \u2014 stopped until 00:00 UTC`;
+      stat.reason = `Pair daily stop: ${sym2} has ${stat.losingSignals} losing setups today (limit ${MAX_LOSING_SIGNALS}), net ${stat.netPnl} \u2014 stopped until 00:00 UTC`;
     } else if (MAX_DAILY_LOSS > 0 && netPnl <= -Math.abs(MAX_DAILY_LOSS)) {
       stat.stopped = true;
-      stat.reason = `Pair daily stop: ${sym} is down ${stat.netPnl} today (limit -${Math.abs(MAX_DAILY_LOSS)}) \u2014 stopped until 00:00 UTC`;
+      stat.reason = `Pair daily stop: ${sym2} is down ${stat.netPnl} today (limit -${Math.abs(MAX_DAILY_LOSS)}) \u2014 stopped until 00:00 UTC`;
     }
-    out.set(sym, stat);
+    out.set(sym2, stat);
   }
   return out;
 }
 async function pairDailyStopVerdict(userId, symbol) {
   if (process.env.PAIR_DAILY_STOP_ENABLED === "false") return null;
-  const sym = norm2(symbol);
-  if (!sym) return null;
+  const sym2 = norm2(symbol);
+  if (!sym2) return null;
   const today = utcDay();
   let entry = cache2.get(userId);
   try {
@@ -8639,12 +8639,12 @@ async function pairDailyStopVerdict(userId, symbol) {
     }
   } catch (e) {
     if (!entry) {
-      console.error(`[PairDailyStop] could not evaluate and have no prior result (${e?.message}) \u2014 allowing ${sym}.`);
+      console.error(`[PairDailyStop] could not evaluate and have no prior result (${e?.message}) \u2014 allowing ${sym2}.`);
       return null;
     }
     console.error(`[PairDailyStop] refresh failed (${e?.message}) \u2014 reusing the last known result from ${new Date(entry.at).toISOString()}.`);
   }
-  const stat = entry.stats.get(sym);
+  const stat = entry.stats.get(sym2);
   if (!stat?.stopped) return null;
   return { blocked: true, reason: stat.reason };
 }
@@ -8653,8 +8653,8 @@ function invalidatePairDailyStop(userId) {
 }
 async function pairDayStopHistory(userId, symbol, lookbackDays = 180) {
   const { pool: pool2 } = await Promise.resolve().then(() => (init_db(), db_exports));
-  const sym = norm2(symbol);
-  if (!sym) return [];
+  const sym2 = norm2(symbol);
+  if (!sym2) return [];
   const { rows } = await pool2.query(
     `SELECT symbol, direction, result, COALESCE(profit_loss, 0) AS pnl, closed_at,
             closed_at::date AS d
@@ -8667,7 +8667,7 @@ async function pairDayStopHistory(userId, symbol, lookbackDays = 180) {
       ORDER BY closed_at ASC`,
     [userId, String(lookbackDays)]
   );
-  const bySym = rows.filter((r) => norm2(r.symbol) === sym);
+  const bySym = rows.filter((r) => norm2(r.symbol) === sym2);
   if (!bySym.length) return [];
   const byDay = /* @__PURE__ */ new Map();
   for (const r of bySym) {
@@ -19115,8 +19115,8 @@ __export(service_exports, {
 });
 import { createHash } from "crypto";
 async function fetchIndexFromYahoo(req) {
-  const sym = String(req.symbol || "").replace(/[^A-Za-z0-9]/g, "");
-  const hit = YAHOO_INDEX.find(([re]) => re.test(sym));
+  const sym2 = String(req.symbol || "").replace(/[^A-Za-z0-9]/g, "");
+  const hit = YAHOO_INDEX.find(([re]) => re.test(sym2));
   if (!hit) return null;
   const tf = req.timeframe;
   const interval = tf === "1m" ? "1m" : tf === "5m" ? "5m" : tf === "15m" ? "15m" : tf === "30m" ? "30m" : tf === "1h" || tf === "4h" ? "60m" : tf === "1w" ? "1wk" : "1d";
@@ -20670,15 +20670,15 @@ var init_tradelocker = __esm({
             console.log("[TradeLocker] Instrument cache MISS \u2014 fetching instruments (shared cache + 429 backoff)...");
             const { instruments, routes } = await this.fetchInstrumentsPayload();
             if (Array.isArray(instruments)) {
-              const sym = order.symbol.toUpperCase();
-              const symVariants = [sym];
+              const sym2 = order.symbol.toUpperCase();
+              const symVariants = [sym2];
               const suffixes = [".pro", "m", ".m", ".z", ".a", ".b", ".c", ".r", "_raw", ".ecn", ".stp", ".pro+", "PRO"];
               for (const sfx of suffixes) {
-                symVariants.push(sym + sfx.toUpperCase());
-                symVariants.push(sym + sfx);
+                symVariants.push(sym2 + sfx.toUpperCase());
+                symVariants.push(sym2 + sfx);
               }
-              const strippedSym = sym.replace(/[._]?(PRO|ECN|STP|RAW|M|Z|A|B|C|R)\+?$/i, "");
-              if (strippedSym !== sym) symVariants.push(strippedSym);
+              const strippedSym = sym2.replace(/[._]?(PRO|ECN|STP|RAW|M|Z|A|B|C|R)\+?$/i, "");
+              if (strippedSym !== sym2) symVariants.push(strippedSym);
               const ALIASES = {
                 "XAUUSD": ["GOLD", "XAU/USD", "GOLD/USD", "XAUUSD.PRO", "XAUUSDPRO"],
                 "GOLD": ["XAUUSD", "XAU/USD"],
@@ -20693,7 +20693,7 @@ var init_tradelocker = __esm({
                 "UK100": ["FTSE100", "UKX"],
                 "JP225": ["JPN225", "NIKKEI", "N225"]
               };
-              const knownAliases = ALIASES[sym] || [];
+              const knownAliases = ALIASES[sym2] || [];
               for (const alias of knownAliases) {
                 symVariants.push(alias);
                 symVariants.push(alias.replace("/", ""));
@@ -20919,14 +20919,14 @@ var init_tradelocker = __esm({
           infoRouteId = cached2.infoRouteId;
         } else {
           const { instruments } = await this.fetchInstrumentsPayload();
-          const sym = symbol.toUpperCase();
+          const sym2 = symbol.toUpperCase();
           const ALIASES = {
             "XAUUSD": ["GOLD", "XAU/USD"],
             "NAS100": ["USTEC", "US100", "NDX100"],
             "US30": ["DJ30", "WALLST30"],
             "US500": ["SPX500", "SP500", "SPX"]
           };
-          const variants = [sym, ...ALIASES[sym] || []];
+          const variants = [sym2, ...ALIASES[sym2] || []];
           let matched = null;
           for (const v of variants) {
             matched = instruments.find((i) => (i.name || i.symbol || "").toUpperCase().replace(/\s/g, "") === v.replace(/\s/g, ""));
@@ -22831,8 +22831,8 @@ __export(signal_confidence_exports, {
 });
 async function lookupSignalConfidence(userId, symbol, direction) {
   try {
-    const sym = String(symbol || "").toUpperCase().replace(/[^A-Z0-9]/g, "");
-    if (!sym) return null;
+    const sym2 = String(symbol || "").toUpperCase().replace(/[^A-Z0-9]/g, "");
+    if (!sym2) return null;
     const { rows } = await pool.query(
       `SELECT confidence FROM mt5_signal_logs
         WHERE user_id = $1 AND action = 'OPEN' AND upper(direction) = $2
@@ -22840,7 +22840,7 @@ async function lookupSignalConfidence(userId, symbol, direction) {
           AND source = 'vedd_live_engine' AND confidence IS NOT NULL
           AND created_at > now() - interval '30 minutes'
         ORDER BY created_at DESC LIMIT 1`,
-      [userId, String(direction || "").toUpperCase(), sym]
+      [userId, String(direction || "").toUpperCase(), sym2]
     );
     const c = Number(rows[0]?.confidence);
     return Number.isFinite(c) && c > 0 ? c : null;
@@ -25179,9 +25179,9 @@ var init_dxtrade = __esm({
           const orders = await this.getWorkingOrders(accountCode);
           let n = 0;
           for (const o of orders) {
-            const sym = norm4(o.instrument ?? o.symbol);
+            const sym2 = norm4(o.instrument ?? o.symbol);
             const effect = String(o.positionEffect ?? o.legs?.[0]?.positionEffect ?? "").toUpperCase();
-            if (sym !== target || effect !== "CLOSE") continue;
+            if (sym2 !== target || effect !== "CLOSE") continue;
             const id = o.orderId ?? o.id ?? o.orderCode ?? o.code;
             if (id != null && await this.cancelOrder(accountCode, id)) n++;
           }
@@ -25962,8 +25962,8 @@ async function learnFromCryptoTrades(userId) {
   const winSum = {}, winN = {}, lossSum = {}, lossN = {};
   let totalWins = 0, totalDecided = 0, totalPnl = 0;
   for (const r of rows) {
-    const sym = r.symbol || "UNKNOWN";
-    const k2 = symbols[sym] ??= { totalTrades: 0, wins: 0, losses: 0, winRate: 0, totalPnl: 0, avgWin: 0, avgLoss: 0, riskReward: 0, byStrategy: {}, byHour: {}, bestStrategy: null, recommendedSizeMultiplier: 1 };
+    const sym2 = r.symbol || "UNKNOWN";
+    const k2 = symbols[sym2] ??= { totalTrades: 0, wins: 0, losses: 0, winRate: 0, totalPnl: 0, avgWin: 0, avgLoss: 0, riskReward: 0, byStrategy: {}, byHour: {}, bestStrategy: null, recommendedSizeMultiplier: 1 };
     const pnl = Number(r.profit_loss) || 0;
     const win = r.result === "WIN", loss = r.result === "LOSS";
     k2.totalTrades++;
@@ -25972,23 +25972,23 @@ async function learnFromCryptoTrades(userId) {
     if (win) {
       k2.wins++;
       totalWins++;
-      winSum[sym] = (winSum[sym] ?? 0) + pnl;
-      winN[sym] = (winN[sym] ?? 0) + 1;
+      winSum[sym2] = (winSum[sym2] ?? 0) + pnl;
+      winN[sym2] = (winN[sym2] ?? 0) + 1;
     }
     if (loss) {
       k2.losses++;
-      lossSum[sym] = (lossSum[sym] ?? 0) + Math.abs(pnl);
-      lossN[sym] = (lossN[sym] ?? 0) + 1;
+      lossSum[sym2] = (lossSum[sym2] ?? 0) + Math.abs(pnl);
+      lossN[sym2] = (lossN[sym2] ?? 0) + 1;
     }
     if (win || loss) totalDecided++;
     if (r.strategy) bump(k2.byStrategy, r.strategy, win);
     if (r.hour_utc != null) bump(k2.byHour, String(r.hour_utc), win);
   }
-  for (const [sym, k2] of Object.entries(symbols)) {
+  for (const [sym2, k2] of Object.entries(symbols)) {
     const decided = k2.wins + k2.losses;
     k2.winRate = decided ? Math.round(k2.wins / decided * 100) : 0;
-    k2.avgWin = winN[sym] ? winSum[sym] / winN[sym] : 0;
-    k2.avgLoss = lossN[sym] ? lossSum[sym] / lossN[sym] : 0;
+    k2.avgWin = winN[sym2] ? winSum[sym2] / winN[sym2] : 0;
+    k2.avgLoss = lossN[sym2] ? lossSum[sym2] / lossN[sym2] : 0;
     k2.riskReward = k2.avgLoss > 0 ? k2.avgWin / k2.avgLoss : k2.avgWin > 0 ? 2 : 1;
     k2.recommendedSizeMultiplier = sizeMult(k2.winRate, k2.riskReward, decided);
     let best = null, bestWr = -1;
@@ -25999,9 +25999,9 @@ async function learnFromCryptoTrades(userId) {
     k2.bestStrategy = best;
   }
   const insights = [];
-  for (const [sym, k2] of Object.entries(symbols)) {
-    if (k2.wins + k2.losses >= MIN_TRADES2) insights.push(`${sym}: ${k2.winRate}% WR over ${k2.wins + k2.losses} \u2192 sizing \xD7${k2.recommendedSizeMultiplier}${k2.bestStrategy ? `, best on ${k2.bestStrategy}` : ""}.`);
-    else insights.push(`${sym}: still learning (${k2.wins + k2.losses}/${MIN_TRADES2}).`);
+  for (const [sym2, k2] of Object.entries(symbols)) {
+    if (k2.wins + k2.losses >= MIN_TRADES2) insights.push(`${sym2}: ${k2.winRate}% WR over ${k2.wins + k2.losses} \u2192 sizing \xD7${k2.recommendedSizeMultiplier}${k2.bestStrategy ? `, best on ${k2.bestStrategy}` : ""}.`);
+    else insights.push(`${sym2}: still learning (${k2.wins + k2.losses}/${MIN_TRADES2}).`);
   }
   const brain = { userId, lastLearned: (/* @__PURE__ */ new Date()).toISOString(), totalTrades: rows.length, overallWinRate: totalDecided ? Math.round(totalWins / totalDecided * 100) : 0, totalPnl: Math.round(totalPnl * 100) / 100, symbolKnowledge: symbols, insights };
   _cache.set(userId, { brain, at: Date.now() });
@@ -27405,6 +27405,7 @@ __export(live_trading_engine_exports, {
   generateRuleBasedSignals: () => generateRuleBasedSignals,
   getAccountSafetySnapshot: () => getAccountSafetySnapshot,
   getAllMT5Signals: () => getAllMT5Signals,
+  getEffectiveEngineConfig: () => getEffectiveEngineConfig,
   getLiveEngineActivity: () => getLiveEngineActivity,
   getLiveEngineState: () => getLiveEngineState,
   getMT5Accounts: () => getMT5Accounts,
@@ -27413,6 +27414,7 @@ __export(live_trading_engine_exports, {
   getPersistedEngineConfigOverride: () => getPersistedEngineConfigOverride,
   heartbeatMT5Account: () => heartbeatMT5Account,
   hydratePersistedEngineConfigs: () => hydratePersistedEngineConfigs,
+  isEngineHardHalted: () => isEngineHardHalted,
   isFxLeader: () => isFxLeader,
   recordTradeResult: () => recordTradeResult,
   registerMT5Account: () => registerMT5Account,
@@ -27722,19 +27724,19 @@ async function autoGenerateBrainSignals(userId, brain) {
     const state = engineStates[userId];
     const strategyMode = state?.config?.strategyMode || "sniper";
     const liveContext = {};
-    for (const [sym, knowledge] of Object.entries(brain.pairKnowledge)) {
+    for (const [sym2, knowledge] of Object.entries(brain.pairKnowledge)) {
       const pairData = Object.values(connectedPairs).find(
-        (p) => (p.symbol || "").toUpperCase().replace("/", "") === sym
+        (p) => (p.symbol || "").toUpperCase().replace("/", "") === sym2
       );
-      const chartSnap = lastChartData[sym];
-      liveContext[sym] = {
+      const chartSnap = lastChartData[sym2];
+      liveContext[sym2] = {
         ...knowledge,
         currentPrice: pairData?.price || chartSnap?.close || null,
         currentSignal: pairData?.signal || null,
         rsi: chartSnap?.rsi || null,
         trend: chartSnap?.trend || null,
         hasOpenPosition: openPositions.some(
-          (p) => (p.symbol || "").toUpperCase().replace("/", "") === sym
+          (p) => (p.symbol || "").toUpperCase().replace("/", "") === sym2
         )
       };
     }
@@ -28065,10 +28067,10 @@ async function refreshH4Bias(symbol, assetType) {
   }
 }
 function mtfStack(state, symbol) {
-  const sym = String(symbol || "").toUpperCase().replace("/", "");
+  const sym2 = String(symbol || "").toUpperCase().replace("/", "");
   const primaryH1 = (state?.config?.primaryTimeframe || "M15") === "H1";
-  const htf = state?.htfBiasCache?.[sym] || state?.htfBiasCache?.[symbol] || null;
-  const h4c = h4BiasCache.get(sym)?.data || h4BiasCache.get(symbol)?.data || null;
+  const htf = state?.htfBiasCache?.[sym2] || state?.htfBiasCache?.[symbol] || null;
+  const h4c = h4BiasCache.get(sym2)?.data || h4BiasCache.get(symbol)?.data || null;
   return primaryH1 ? { h1: null, h4: htf } : { h1: htf, h4: h4c };
 }
 function htfTurnedAgainst(state, symbol, direction) {
@@ -28142,13 +28144,13 @@ function recordTradeResult(userId, result) {
   if (!tracker.symbolBreakdown[result.symbol]) {
     tracker.symbolBreakdown[result.symbol] = { trades: 0, wins: 0, losses: 0, pnl: 0, bestTrade: 0, worstTrade: 0 };
   }
-  const sym = tracker.symbolBreakdown[result.symbol];
-  sym.trades++;
-  if (result.profit > 0) sym.wins++;
-  else sym.losses++;
-  sym.pnl = Math.round((sym.pnl + result.profit) * 100) / 100;
-  if (result.profit > sym.bestTrade) sym.bestTrade = result.profit;
-  if (result.profit < sym.worstTrade) sym.worstTrade = result.profit;
+  const sym2 = tracker.symbolBreakdown[result.symbol];
+  sym2.trades++;
+  if (result.profit > 0) sym2.wins++;
+  else sym2.losses++;
+  sym2.pnl = Math.round((sym2.pnl + result.profit) * 100) / 100;
+  if (result.profit > sym2.bestTrade) sym2.bestTrade = result.profit;
+  if (result.profit < sym2.worstTrade) sym2.worstTrade = result.profit;
   if (!tracker.pairStrategyBreakdown) tracker.pairStrategyBreakdown = {};
   const psKey = `${result.symbol}|${result.strategy}`;
   if (!tracker.pairStrategyBreakdown[psKey]) {
@@ -28444,10 +28446,10 @@ async function scanMarkets(userId) {
       addActivity(userId, { type: "info", message: "\u{1F305} New day \u2014 mind state reset. Session counters cleared, confidence floor restored." });
     }
   }
-  if (ms) for (const sym of Object.keys(ms.softBlockedPairs)) {
-    if (ms.softBlockedPairs[sym].until < Date.now()) {
-      delete ms.softBlockedPairs[sym];
-      addActivity(userId, { type: "info", message: `\u2705 ${sym} soft-block expired \u2014 restored to normal confidence threshold.` });
+  if (ms) for (const sym2 of Object.keys(ms.softBlockedPairs)) {
+    if (ms.softBlockedPairs[sym2].until < Date.now()) {
+      delete ms.softBlockedPairs[sym2];
+      addActivity(userId, { type: "info", message: `\u2705 ${sym2} soft-block expired \u2014 restored to normal confidence threshold.` });
     }
   }
   try {
@@ -28626,8 +28628,8 @@ async function scanMarkets(userId) {
       }
     }
     if (isFridayClose) {
-      for (const [sym, data] of Object.entries(marketAnalysis)) {
-        if (data.currentPrice > 0) state.lastFridayClose[sym] = data.currentPrice;
+      for (const [sym2, data] of Object.entries(marketAnalysis)) {
+        if (data.currentPrice > 0) state.lastFridayClose[sym2] = data.currentPrice;
       }
     }
     const crossAssets = {};
@@ -28657,7 +28659,7 @@ async function scanMarkets(userId) {
           void Promise.resolve().then(() => (init_fx_models(), fx_models_exports)).then((m) => m.runFxModelsCycle(userId, {
             marketAnalysis,
             snapshot: state.marketSnapshot || {},
-            mtf: (sym) => mtfStack(state, sym)
+            mtf: (sym2) => mtfStack(state, sym2)
           })).catch(() => {
           });
         }
@@ -28668,9 +28670,9 @@ async function scanMarkets(userId) {
     const triggerPairs = [];
     const prevSnapshot = state.lastIndicatorSnapshot || {};
     const now2 = Date.now();
-    for (const [sym, data] of Object.entries(marketAnalysis)) {
-      const prev = prevSnapshot[sym];
-      const lastTrigger = state.lastTriggerAt[sym] || 0;
+    for (const [sym2, data] of Object.entries(marketAnalysis)) {
+      const prev = prevSnapshot[sym2];
+      const lastTrigger = state.lastTriggerAt[sym2] || 0;
       if (now2 - lastTrigger < 3e4) continue;
       if (!prev) continue;
       const rsiNow = data.rsi?.value || data.stochastic?.k || 50;
@@ -28679,18 +28681,18 @@ async function scanMarkets(userId) {
       const adxNow = data.adx?.adx || 0;
       const adxPrev = prev.adx || 0;
       let triggerReason = "";
-      if (rsiPrev > 32 && rsiNow <= 30) triggerReason = `RSI crossed oversold (${rsiNow.toFixed(1)}) on ${sym} \u2014 evaluate BUY entry`;
-      else if (rsiPrev < 68 && rsiNow >= 70) triggerReason = `RSI crossed overbought (${rsiNow.toFixed(1)}) on ${sym} \u2014 evaluate SELL entry`;
-      else if (vm && vm.relativeVolume >= 2 && (prev.relVol || 0) < 2) triggerReason = `Volume SURGE on ${sym} (${vm.relativeVolume}x) \u2014 momentum breakout likely`;
-      else if (adxPrev < 25 && adxNow >= 25) triggerReason = `ADX crossed 25 on ${sym} \u2014 trend emerging, enter with momentum`;
+      if (rsiPrev > 32 && rsiNow <= 30) triggerReason = `RSI crossed oversold (${rsiNow.toFixed(1)}) on ${sym2} \u2014 evaluate BUY entry`;
+      else if (rsiPrev < 68 && rsiNow >= 70) triggerReason = `RSI crossed overbought (${rsiNow.toFixed(1)}) on ${sym2} \u2014 evaluate SELL entry`;
+      else if (vm && vm.relativeVolume >= 2 && (prev.relVol || 0) < 2) triggerReason = `Volume SURGE on ${sym2} (${vm.relativeVolume}x) \u2014 momentum breakout likely`;
+      else if (adxPrev < 25 && adxNow >= 25) triggerReason = `ADX crossed 25 on ${sym2} \u2014 trend emerging, enter with momentum`;
       if (triggerReason) {
         triggerPairs.push(triggerReason);
-        state.lastTriggerAt[sym] = now2;
-        addActivity(userId, { type: "info", symbol: sym, message: `\u{1F6A8} TRIGGER: ${triggerReason}` });
+        state.lastTriggerAt[sym2] = now2;
+        addActivity(userId, { type: "info", symbol: sym2, message: `\u{1F6A8} TRIGGER: ${triggerReason}` });
       }
     }
     state.lastIndicatorSnapshot = Object.fromEntries(
-      Object.entries(marketAnalysis).map(([sym, data]) => [sym, {
+      Object.entries(marketAnalysis).map(([sym2, data]) => [sym2, {
         rsi: data.rsi?.value || data.stochastic?.k || 50,
         adx: data.adx?.adx || 0,
         relVol: data.volumeMetrics?.relativeVolume || 1
@@ -28713,7 +28715,7 @@ async function scanMarkets(userId) {
     if (newsContext.headlines.length > 0) {
       addActivity(userId, { type: "info", message: `News sentiment: ${newsContext.marketSentiment.toUpperCase()} | ${newsContext.headlines.length} headlines | ${newsContext.economicEvents.length} upcoming events` });
     }
-    const volumeSummary = Object.entries(marketAnalysis).filter(([_, d]) => d.volumeMetrics?.isHighActivity).map(([sym]) => sym);
+    const volumeSummary = Object.entries(marketAnalysis).filter(([_, d]) => d.volumeMetrics?.isHighActivity).map(([sym2]) => sym2);
     if (volumeSummary.length > 0) {
       addActivity(userId, { type: "info", message: `High volume detected: ${volumeSummary.join(", ")}` });
     }
@@ -29846,8 +29848,8 @@ function selectStrategyForPair(symbol, data, htfBias, asiaHigh, asiaLow, utcHour
     };
   }
   const isActiveSession = utcHour >= 7 && utcHour < 12 || utcHour >= 13 && utcHour < 19;
-  const sym = symbol.toUpperCase();
-  const notLowLiquidityAsian = !(utcHour >= 0 && utcHour < 7 && (sym.includes("EUR") || sym.includes("GBP") || sym.includes("CHF")) && !isJpy);
+  const sym2 = symbol.toUpperCase();
+  const notLowLiquidityAsian = !(utcHour >= 0 && utcHour < 7 && (sym2.includes("EUR") || sym2.includes("GBP") || sym2.includes("CHF")) && !isJpy);
   if (adxVal >= 15 && adxVal < 28 && trend !== "NEUTRAL" && isActiveSession && relVol >= 0.7 && notLowLiquidityAsian) {
     const session3 = utcHour >= 7 && utcHour < 12 ? "London" : "NY";
     return {
@@ -29907,13 +29909,13 @@ async function runAILiveAnalysis(userId, marketAnalysis, brain, newsContext, cro
     const filteredAnalysis = {};
     const voteSummary = [];
     const PREFILTER_VOTE_THRESHOLD = 4;
-    for (const [sym, data] of Object.entries(marketAnalysis)) {
+    for (const [sym2, data] of Object.entries(marketAnalysis)) {
       const { bull, bear } = countIndicatorAlignment(data);
       const direction = bull >= bear ? `\u{1F7E2}${bull}B` : `\u{1F534}${bear}R`;
       const passed = bull >= PREFILTER_VOTE_THRESHOLD || bear >= PREFILTER_VOTE_THRESHOLD;
-      voteSummary.push(`${sym}:${direction}${passed ? "\u2713" : "\u2717"}`);
+      voteSummary.push(`${sym2}:${direction}${passed ? "\u2713" : "\u2717"}`);
       if (passed) {
-        filteredAnalysis[sym] = data;
+        filteredAnalysis[sym2] = data;
       }
     }
     addActivity(userId, { type: "info", message: `Pre-filter votes (need ${PREFILTER_VOTE_THRESHOLD}+): ${voteSummary.join(" | ")}` });
@@ -29975,14 +29977,14 @@ async function runAILiveAnalysis(userId, marketAnalysis, brain, newsContext, cro
       state.asiaRangeDate = todayStr;
     }
     if (isAsianSession) {
-      for (const [sym, data] of Object.entries(marketAnalysis)) {
+      for (const [sym2, data] of Object.entries(marketAnalysis)) {
         const price = data.currentPrice;
         if (typeof price === "number" && price > 0) {
-          if (state.asiaRangeHigh[sym] === void 0 || price > state.asiaRangeHigh[sym]) {
-            state.asiaRangeHigh[sym] = price;
+          if (state.asiaRangeHigh[sym2] === void 0 || price > state.asiaRangeHigh[sym2]) {
+            state.asiaRangeHigh[sym2] = price;
           }
-          if (state.asiaRangeLow[sym] === void 0 || price < state.asiaRangeLow[sym]) {
-            state.asiaRangeLow[sym] = price;
+          if (state.asiaRangeLow[sym2] === void 0 || price < state.asiaRangeLow[sym2]) {
+            state.asiaRangeLow[sym2] = price;
           }
         }
       }
@@ -29995,21 +29997,21 @@ async function runAILiveAnalysis(userId, marketAnalysis, brain, newsContext, cro
     const utcMinForStrategy = nowForStrategy.getUTCMinutes();
     const pairStrategies = {};
     const stratSummaryLines = [];
-    for (const [sym, data] of Object.entries(marketAnalysis)) {
+    for (const [sym2, data] of Object.entries(marketAnalysis)) {
       const rec = selectStrategyForPair(
-        sym,
+        sym2,
         data,
-        htfMarketData?.[sym],
-        state.asiaRangeHigh[sym],
-        state.asiaRangeLow[sym],
+        htfMarketData?.[sym2],
+        state.asiaRangeHigh[sym2],
+        state.asiaRangeLow[sym2],
         utcHourForStrategy,
         utcMinForStrategy,
         state.lastHighImpactNewsAt,
         state.config.strategyMode
       );
-      pairStrategies[sym] = rec;
+      pairStrategies[sym2] = rec;
       if (rec.priority !== "none") {
-        stratSummaryLines.push(`${sym}\u2192${rec.strategy.toUpperCase()}(${rec.priority}): ${rec.reason}`);
+        stratSummaryLines.push(`${sym2}\u2192${rec.strategy.toUpperCase()}(${rec.priority}): ${rec.reason}`);
       }
     }
     if (stratSummaryLines.length > 0) {
@@ -30019,42 +30021,42 @@ async function runAILiveAnalysis(userId, marketAnalysis, brain, newsContext, cro
 ${stratSummaryLines.join("\n")}`
       });
     }
-    const marketSummary = Object.entries(marketAnalysis).map(([sym, data]) => {
+    const marketSummary = Object.entries(marketAnalysis).map(([sym2, data]) => {
       const sr = data.supportResistance;
       const fib = data.fibonacci;
       const vol = data.volatilityContext;
       const vm = data.volumeMetrics;
-      const asiaH = state.asiaRangeHigh[sym];
-      const asiaL = state.asiaRangeLow[sym];
-      const asiaRangeStr = asiaH && asiaL ? `, AsiaHigh=${asiaH}, AsiaLow=${asiaL}, AsiaRange=${(Math.abs(asiaH - asiaL) * (sym.includes("JPY") ? 100 : 1e4)).toFixed(1)}pips` : "";
+      const asiaH = state.asiaRangeHigh[sym2];
+      const asiaL = state.asiaRangeLow[sym2];
+      const asiaRangeStr = asiaH && asiaL ? `, AsiaHigh=${asiaH}, AsiaLow=${asiaL}, AsiaRange=${(Math.abs(asiaH - asiaL) * (sym2.includes("JPY") ? 100 : 1e4)).toFixed(1)}pips` : "";
       const vwapVal = data.vwap?.value;
       const vwapDev = vwapVal && data.currentPrice ? ((data.currentPrice - vwapVal) / vwapVal * 100).toFixed(3) : "N/A";
-      const htf = htfMarketData?.[sym];
+      const htf = htfMarketData?.[sym2];
       const inlineHTFLabel = (state.config.primaryTimeframe || "M15") === "H1" ? "H4" : "H1";
       const htfStr = htf ? `, ${inlineHTFLabel}_Bias=${htf.trend}, ${inlineHTFLabel}_BOS=${htf.bosChoch.detected ? `${htf.bosChoch.type}_${htf.bosChoch.direction}` : "NONE"}, ${inlineHTFLabel}_PD=${htf.premiumDiscount.zone}, ${inlineHTFLabel}_Wyckoff=${htf.wyckoff.detected ? htf.wyckoff.phase : "NONE"}` : "";
       const adxNumRaw = adxOrNull(data);
       const pDI = data.plusDI ?? data.adx?.plusDI ?? 0;
       const mDI = data.minusDI ?? data.adx?.minusDI ?? 0;
       const diDir = pDI > 0 || mDI > 0 ? pDI > mDI ? `BULL(+DI ${pDI.toFixed(1)}>-DI ${mDI.toFixed(1)})` : `BEAR(-DI ${mDI.toFixed(1)}>+DI ${pDI.toFixed(1)})` : "DI_UNAVAILABLE";
-      const rec = pairStrategies[sym];
+      const rec = pairStrategies[sym2];
       const stratStr = rec && rec.priority !== "none" ? ` \u2605STRATEGY=${rec.strategy.toUpperCase()}(priority:${rec.priority},need:${rec.minConfluences}conf)[${rec.reason}]` : ` \u2605STRATEGY=WAIT[${rec?.reason || "no clear setup"}]`;
-      return `${sym}: Price=${data.currentPrice}, Trend=${data.trend}, ADX=${adxNumRaw === null ? "UNAVAILABLE(do NOT infer ranging)" : adxNumRaw.toFixed(1)}, DI_Direction=${diDir}, RSI=${data.rsi?.value?.toFixed(1) || "N/A"}, Stoch K=${data.stochastic?.k?.toFixed(1) || "N/A"} D=${data.stochastic?.d?.toFixed(1) || "N/A"}, MACD=${data.macd?.macd?.toFixed(5) || "N/A"}(hist=${data.macd?.histogram?.toFixed(5) || "N/A"}), VWAP=${vwapVal?.toFixed(5) || "N/A"} (Dev${vwapDev}%), OBV Trend=${data.obv?.trend || "N/A"}, Patterns=[${(data.candlePatterns || []).join(",")}], Session=${data.sessionContext?.currentSession || "N/A"}, Volatility=${vol?.percentile?.toFixed(0) || "N/A"}%, ATR=${(vol?.currentATR ?? 0).toFixed(5)}, Support=${sr?.supports?.[0]?.toFixed(5) || "N/A"}, Resistance=${sr?.resistances?.[0]?.toFixed(5) || "N/A"}, Fib 38.2%=${fib?.retracementLevels?.["38.2"]?.toFixed(5) || "N/A"}, Volume=${vm ? `RelVol=${vm.relativeVolume}x (${vm.volumeTrend}), Spikes=${vm.volumeSpikes}` : "N/A"}${asiaRangeStr}${htfStr}${stratStr}`;
+      return `${sym2}: Price=${data.currentPrice}, Trend=${data.trend}, ADX=${adxNumRaw === null ? "UNAVAILABLE(do NOT infer ranging)" : adxNumRaw.toFixed(1)}, DI_Direction=${diDir}, RSI=${data.rsi?.value?.toFixed(1) || "N/A"}, Stoch K=${data.stochastic?.k?.toFixed(1) || "N/A"} D=${data.stochastic?.d?.toFixed(1) || "N/A"}, MACD=${data.macd?.macd?.toFixed(5) || "N/A"}(hist=${data.macd?.histogram?.toFixed(5) || "N/A"}), VWAP=${vwapVal?.toFixed(5) || "N/A"} (Dev${vwapDev}%), OBV Trend=${data.obv?.trend || "N/A"}, Patterns=[${(data.candlePatterns || []).join(",")}], Session=${data.sessionContext?.currentSession || "N/A"}, Volatility=${vol?.percentile?.toFixed(0) || "N/A"}%, ATR=${(vol?.currentATR ?? 0).toFixed(5)}, Support=${sr?.supports?.[0]?.toFixed(5) || "N/A"}, Resistance=${sr?.resistances?.[0]?.toFixed(5) || "N/A"}, Fib 38.2%=${fib?.retracementLevels?.["38.2"]?.toFixed(5) || "N/A"}, Volume=${vm ? `RelVol=${vm.relativeVolume}x (${vm.volumeTrend}), Spikes=${vm.volumeSpikes}` : "N/A"}${asiaRangeStr}${htfStr}${stratStr}`;
     }).join("\n");
     let htfBiasSection = "";
     const promptHTFLabel = (state.config.primaryTimeframe || "M15") === "H1" ? "H4" : "H1";
     if (htfMarketData && Object.keys(htfMarketData).length > 0) {
-      const htfLines = Object.entries(htfMarketData).map(([sym, htf]) => {
-        const m15Trend = marketAnalysis[sym]?.trend || "NEUTRAL";
+      const htfLines = Object.entries(htfMarketData).map(([sym2, htf]) => {
+        const m15Trend = marketAnalysis[sym2]?.trend || "NEUTRAL";
         const aligns = htf.trend === "NEUTRAL" || m15Trend === "NEUTRAL" || m15Trend === "BULLISH" && htf.trend === "BULLISH" || m15Trend === "BEARISH" && htf.trend === "BEARISH";
         const alignLabel = htf.trend === "NEUTRAL" ? `${promptHTFLabel} NEUTRAL` : aligns ? `ALIGNS (M15 ${m15Trend} + ${promptHTFLabel} ${htf.trend})` : `\u26A0 CONFLICT (M15 ${m15Trend} vs ${promptHTFLabel} ${htf.trend})`;
-        return `- ${sym}: ${promptHTFLabel} Trend=${htf.trend} | BOS/CHOCH=${htf.bosChoch.detected ? htf.bosChoch.description : "No clear structure"} | PD Zone=${htf.premiumDiscount.zone} | Wyckoff=${htf.wyckoff.detected ? `${htf.wyckoff.phase}${htf.wyckoff.stage ? "/" + htf.wyckoff.stage : ""}` : "None"} | ${alignLabel}`;
+        return `- ${sym2}: ${promptHTFLabel} Trend=${htf.trend} | BOS/CHOCH=${htf.bosChoch.detected ? htf.bosChoch.description : "No clear structure"} | PD Zone=${htf.premiumDiscount.zone} | Wyckoff=${htf.wyckoff.detected ? `${htf.wyckoff.phase}${htf.wyckoff.stage ? "/" + htf.wyckoff.stage : ""}` : "None"} | ${alignLabel}`;
       }).join("\n");
       htfBiasSection = `
 HTF BIAS (${promptHTFLabel} STRUCTURE \u2014 higher timeframe directional filter):
 ${htfLines}
-${promptHTFLabel === "H1" ? Object.keys(htfMarketData).map((sym) => {
-        const h4 = h4BiasCache.get(sym)?.data;
-        return h4 ? `- ${sym}: H4 Trend=${h4.trend} | BOS/CHOCH=${h4.bosChoch.detected ? h4.bosChoch.description : "No clear structure"} | PD Zone=${h4.premiumDiscount.zone}` : `- ${sym}: H4 unavailable`;
+${promptHTFLabel === "H1" ? Object.keys(htfMarketData).map((sym2) => {
+        const h4 = h4BiasCache.get(sym2)?.data;
+        return h4 ? `- ${sym2}: H4 Trend=${h4.trend} | BOS/CHOCH=${h4.bosChoch.detected ? h4.bosChoch.description : "No clear structure"} | PD Zone=${h4.premiumDiscount.zone}` : `- ${sym2}: H4 unavailable`;
       }).join("\n") : ""}
 MULTI-TIMEFRAME RULES: H4 = trend, H1 = structure, M15 = entry timing only.${process.env.MTF_ENTRY_RULE === "off" ? "" : " Only propose an entry when H4 and H1 both agree with its direction; the server rejects entries that do not."}${process.env.MTF_CLOSE_RULE === "off" ? "" : " Do NOT full-close an open trade because of an M15 pullback: only close when H1 or H4 structure has turned against it (BOS/CHOCH or trend flip). The broker stop protects it otherwise; the server refuses M15-only closes."}
 INSTRUCTION: Signals that ALIGN with ${promptHTFLabel} bias are high-quality institutional setups \u2014 give them +5% confidence bonus. Signals that CONFLICT with ${promptHTFLabel} bias are counter-trend fades \u2014 require 80%+ base confidence before firing. If ${promptHTFLabel} shows strong BOS/CHOCH in one direction and M15 signals the opposite, SKIP unless you have 5+ LTF confluences.
@@ -30215,7 +30217,7 @@ INSTRUCTION: This scan was triggered by real-time indicator events above. Priori
     let codeGateSection = "";
     {
       if (!state.pairDirectionLock) state.pairDirectionLock = {};
-      const activeLocks = Object.entries(state.pairDirectionLock).filter(([, v]) => Date.now() < v.lockedUntil).map(([sym, v]) => `${sym}:${v.direction}(${Math.ceil((v.lockedUntil - Date.now()) / 6e4)}min,${v.lossCount}L)`);
+      const activeLocks = Object.entries(state.pairDirectionLock).filter(([, v]) => Date.now() < v.lockedUntil).map(([sym2, v]) => `${sym2}:${v.direction}(${Math.ceil((v.lockedUntil - Date.now()) / 6e4)}min,${v.lossCount}L)`);
       if (activeLocks.length > 0) {
         codeGateSection = `
 CODE-LEVEL DIRECTION LOCKS (engine auto-rejects these regardless of your signal):
@@ -30230,7 +30232,7 @@ These pairs had recent losses. Same-direction entries are code-blocked for 45-90
       if (mind && mind.sessionWins + mind.sessionLosses > 0) {
         const total = mind.sessionWins + mind.sessionLosses;
         const blockedStrats = mind.blockedStrategies ? [...mind.blockedStrategies] : [];
-        const softBlocked = Object.entries(mind.softBlockedPairs || {}).filter(([, v]) => v.until > Date.now()).map(([sym]) => sym);
+        const softBlocked = Object.entries(mind.softBlockedPairs || {}).filter(([, v]) => v.until > Date.now()).map(([sym2]) => sym2);
         const bestHour = Object.entries(mind.hourlyPnL || {}).sort(([, a], [, b]) => b - a)[0];
         const worstHour = Object.entries(mind.hourlyPnL || {}).sort(([, a], [, b]) => a - b)[0];
         mindSection = `
@@ -30849,8 +30851,8 @@ async function processDecision(userId, decision, newsCtx) {
           return pSym.includes("USD");
         });
         if (openUSDPositions.length >= 2) {
-          const usdDirOf = (sym, tradeDir) => {
-            const s = sym.toUpperCase().replace("/", "");
+          const usdDirOf = (sym2, tradeDir) => {
+            const s = sym2.toUpperCase().replace("/", "");
             const usdIsBase = s.startsWith("USD");
             if (usdIsBase) return tradeDir === "BUY" ? "BUY_USD" : "SELL_USD";
             return tradeDir === "BUY" ? "SELL_USD" : "BUY_USD";
@@ -31381,8 +31383,8 @@ async function processDecision(userId, decision, newsCtx) {
     {
       const nowUtcHour = (/* @__PURE__ */ new Date()).getUTCHours();
       const isAsianHours = nowUtcHour >= 0 && nowUtcHour < 7;
-      const sym = (decision.symbol || "").toUpperCase();
-      const isLowLiquidityPairInAsia = (sym.includes("EUR") || sym.includes("GBP") || sym.includes("CHF")) && !sym.includes("JPY");
+      const sym2 = (decision.symbol || "").toUpperCase();
+      const isLowLiquidityPairInAsia = (sym2.includes("EUR") || sym2.includes("GBP") || sym2.includes("CHF")) && !sym2.includes("JPY");
       const isScalp = strategy === "scalping";
       const relVol = snap?.relativeVolume || 1;
       if (isAsianHours && isLowLiquidityPairInAsia) {
@@ -33684,6 +33686,12 @@ function stopLiveEngine(userId) {
   }
   return state || null;
 }
+function getEffectiveEngineConfig(userId) {
+  return engineStates[userId]?.config ?? getDefaultConfig(userId);
+}
+function isEngineHardHalted(userId) {
+  return hardHalted(engineStates[userId]);
+}
 function getLiveEngineState(userId) {
   const s = engineStates[userId];
   if (s) rollGoalTrackerWeek(s);
@@ -34209,9 +34217,9 @@ Give exactly one M1 and one M2 entry per pair.`;
   }
   const byPair = new Map(pairs.map((p) => [p.symbol.toUpperCase(), p.ctx]));
   for (const i of ideas) {
-    const sym = String(i?.symbol || "").toUpperCase().replace("/", "");
+    const sym2 = String(i?.symbol || "").toUpperCase().replace("/", "");
     const model = i?.model === "M1" || i?.model === "M2" ? i.model : null;
-    const ctx = byPair.get(sym);
+    const ctx = byPair.get(sym2);
     if (!ctx || !model) continue;
     const dir = String(i?.direction || "NONE").toUpperCase();
     const entry = Number(i?.entry), sl = Number(i?.stopLoss), tp = Number(i?.takeProfit);
@@ -34237,14 +34245,14 @@ Give exactly one M1 and one M2 entry per pair.`;
       }
     }
     if (isTrade && model === "M1") {
-      const why = m1Reject(sym, dir, price, sl, ctx, engine);
+      const why = m1Reject(sym2, dir, price, sl, ctx, engine);
       if (why) {
         isTrade = false;
         ruleNote = `M1 rule: ${why}`;
       }
     }
     if (isTrade && model === "M2") {
-      const why = m2Reject(sym, dir, price, sl, tp, ctx, session3, engine);
+      const why = m2Reject(sym2, dir, price, sl, tp, ctx, session3, engine);
       if (why) {
         isTrade = false;
         ruleNote = `M2 rule: ${why}`;
@@ -34255,7 +34263,7 @@ Give exactly one M1 and one M2 entry per pair.`;
        VALUES ($1,$2,$3,'shadow',$4,$5,$6,$7,$8,$9,$10,$11,$12,$13::jsonb,$14,$15) RETURNING id`,
       [
         userId,
-        sym,
+        sym2,
         model,
         ctx.dayType,
         session3,
@@ -34274,7 +34282,7 @@ Give exactly one M1 and one M2 entry per pair.`;
     if (engine === "fx" && isTrade && ins?.rows?.[0]?.id) {
       await maybeGoLive(userId, {
         id: ins.rows[0].id,
-        symbol: sym,
+        symbol: sym2,
         model,
         dayType: ctx.dayType,
         autoModel: ctx.autoModel,
@@ -34720,7 +34728,7 @@ ALTER TABLE fx_day_regimes ADD COLUMN IF NOT EXISTS engine text NOT NULL DEFAULT
       }
     };
     barsFor = (engine) => barsProviders[engine] || barsProviders.fx;
-    pipSize = (sym) => /JPY/.test(sym) ? 0.01 : /^XAU/.test(sym) ? 0.1 : /^(BTC|ETH)/.test(sym) ? 1 : /^(US30|NAS|SPX|GER|UK1|JP2)/.test(sym) ? 1 : 1e-4;
+    pipSize = (sym2) => /JPY/.test(sym2) ? 0.01 : /^XAU/.test(sym2) ? 0.1 : /^(BTC|ETH)/.test(sym2) ? 1 : /^(US30|NAS|SPX|GER|UK1|JP2)/.test(sym2) ? 1 : 1e-4;
     lastShadowCandle = /* @__PURE__ */ new Map();
     lastResolveAt = 0;
     M1_PAIRS_EXCLUDED = (process.env.FX_M1_EXCLUDED_PAIRS || "GBPJPY,XAUUSD,BTCUSD,US30,NAS100").split(",").map((x) => x.trim().toUpperCase()).filter(Boolean);
@@ -34740,6 +34748,240 @@ ALTER TABLE fx_day_regimes ADD COLUMN IF NOT EXISTS engine text NOT NULL DEFAULT
       for (const x of xs.slice(n)) e = x * k2 + e * (1 - k2);
       return e;
     };
+  }
+});
+
+// server/services/brain-ideas.ts
+var brain_ideas_exports = {};
+__export(brain_ideas_exports, {
+  IDEA_DAY_TYPES: () => IDEA_DAY_TYPES,
+  IDEA_MODELS: () => IDEA_MODELS,
+  IDEA_SESSIONS: () => IDEA_SESSIONS,
+  backtestIdea: () => backtestIdea,
+  describeRule: () => describeRule,
+  ensureBrainIdeasTable: () => ensureBrainIdeasTable,
+  ideasContextText: () => ideasContextText,
+  listIdeas: () => listIdeas,
+  ruleMatches: () => ruleMatches,
+  ruleSkips: () => ruleSkips,
+  sanitizeRule: () => sanitizeRule,
+  saveIdea: () => saveIdea,
+  setIdeaStatus: () => setIdeaStatus,
+  whatIfAnalysis: () => whatIfAnalysis,
+  whatIfText: () => whatIfText
+});
+function ensureBrainIdeasTable() {
+  if (!ensured4) {
+    ensured4 = pool.query(`
+CREATE TABLE IF NOT EXISTS user_brain_ideas (
+  id serial PRIMARY KEY,
+  user_id integer NOT NULL,
+  title text NOT NULL,
+  rule jsonb NOT NULL,
+  rationale text,
+  evidence jsonb,
+  status text NOT NULL DEFAULT 'shadow',
+  created_at timestamp NOT NULL DEFAULT now(),
+  updated_at timestamp NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS user_brain_ideas_user_idx ON user_brain_ideas (user_id, status);`).then(() => void 0).catch((e) => {
+      ensured4 = null;
+      throw e;
+    });
+  }
+  return ensured4;
+}
+function sanitizeRule(r) {
+  if (!r || typeof r !== "object") return null;
+  const arr2 = (v) => Array.isArray(v) ? v : v ? [v] : [];
+  const rule = {
+    action: r.action === "only" ? "only" : "block",
+    symbols: arr2(r.symbols).map(norm3).filter((s) => s.length >= 3 && s.length <= 12).slice(0, 20),
+    directions: arr2(r.directions).map((d) => String(d).toUpperCase()).filter((d) => d === "BUY" || d === "SELL"),
+    sessions: arr2(r.sessions).map((s) => IDEA_SESSIONS.find((x) => x.toLowerCase() === String(s).toLowerCase())).filter(Boolean),
+    hoursUtc: arr2(r.hoursUtc).map((h) => Number(h)).filter((h) => Number.isInteger(h) && h >= 0 && h <= 23),
+    dayTypes: arr2(r.dayTypes).map((d) => String(d).toLowerCase()).filter((d) => IDEA_DAY_TYPES.includes(d)),
+    models: arr2(r.models).map((m) => /^m?1$/i.test(m) ? "M1" : /^m?2$/i.test(m) ? "M2" : String(m).toLowerCase() === "engine" ? "engine" : null).filter(Boolean)
+  };
+  const hasCondition = rule.symbols.length || rule.directions.length || rule.sessions.length || rule.hoursUtc.length || rule.dayTypes.length;
+  return hasCondition ? rule : null;
+}
+function ruleMatches(rule, s) {
+  if (rule.models.length && !rule.models.includes(s.model)) return false;
+  if (rule.symbols.length && !rule.symbols.includes(norm3(s.symbol))) return false;
+  if (rule.directions.length && !rule.directions.includes(String(s.direction || "").toUpperCase())) return false;
+  if (rule.sessions.length && !rule.sessions.includes(sessionFor(s.at))) return false;
+  if (rule.hoursUtc.length && !rule.hoursUtc.includes(s.at.getUTCHours())) return false;
+  if (rule.dayTypes.length && (!s.dayType || !rule.dayTypes.includes(s.dayType))) return false;
+  return true;
+}
+function ruleSkips(rule, s) {
+  if (rule.action === "block") return ruleMatches(rule, s);
+  if (rule.models.length && !rule.models.includes(s.model)) return false;
+  return !ruleMatches(rule, s);
+}
+async function backtestIdea(userId, rule, window) {
+  const from = window?.from ?? new Date(Date.now() - 365 * 864e5);
+  const to = window?.to ?? /* @__PURE__ */ new Date();
+  const shadowFrom = window?.from ?? new Date(Date.now() - 180 * 864e5);
+  const [trades, shadows] = await Promise.all([
+    pool.query(`SELECT symbol, direction, result, profit_loss, created_at FROM ai_trade_results
+      WHERE user_id = $1 AND result IN ('WIN','LOSS','BREAKEVEN') AND created_at >= $2 AND created_at < $3
+      ORDER BY created_at DESC LIMIT 3000`, [userId, from, to]),
+    pool.query(`SELECT symbol, direction, model, day_type, r_multiple, created_at FROM fx_model_decisions
+      WHERE user_id = $1 AND engine = 'fx' AND r_multiple IS NOT NULL AND created_at >= $2 AND created_at < $3
+      ORDER BY created_at DESC LIMIT 5000`, [userId, shadowFrom, to])
+  ]);
+  const t = { matched: 0, wouldSkip: 0, skipWins: 0, skipLosses: 0, skipPnl: 0, keptPnl: 0 };
+  for (const r of trades.rows) {
+    const sig = { symbol: r.symbol, direction: r.direction, at: new Date(r.created_at), model: "engine" };
+    if (ruleMatches(rule, sig)) t.matched++;
+    const pnl = Number(r.profit_loss) || 0;
+    if (ruleSkips(rule, sig)) {
+      t.wouldSkip++;
+      t.skipPnl += pnl;
+      if (r.result === "WIN") t.skipWins++;
+      else if (r.result === "LOSS") t.skipLosses++;
+    } else t.keptPnl += pnl;
+  }
+  const sh = { matched: 0, wouldSkip: 0, skipR: 0, keptR: 0 };
+  for (const r of shadows.rows) {
+    const sig = { symbol: r.symbol, direction: r.direction, at: new Date(r.created_at), dayType: r.day_type, model: r.model };
+    if (ruleMatches(rule, sig)) sh.matched++;
+    const R = Number(r.r_multiple) || 0;
+    if (ruleSkips(rule, sig)) {
+      sh.wouldSkip++;
+      sh.skipR += R;
+    } else sh.keptR += R;
+  }
+  t.skipPnl = Math.round(t.skipPnl * 100) / 100;
+  t.keptPnl = Math.round(t.keptPnl * 100) / 100;
+  sh.skipR = Math.round(sh.skipR * 10) / 10;
+  sh.keptR = Math.round(sh.keptR * 10) / 10;
+  const parts = [];
+  if (t.wouldSkip) parts.push(`would have skipped ${t.wouldSkip} real trades (${t.skipWins}W/${t.skipLosses}L, ${t.skipPnl >= 0 ? "+" : "-"}$${Math.abs(t.skipPnl).toFixed(2)})`);
+  if (sh.wouldSkip) parts.push(`${sh.wouldSkip} Model 1/2 shadow trades (${sh.skipR >= 0 ? "+" : ""}${sh.skipR}R)`);
+  let verdict;
+  if (!parts.length) verdict = "No past trades fall under this idea yet, so shadow mode will be the first real test.";
+  else {
+    const helps = t.skipPnl < 0 || t.wouldSkip === 0 && sh.skipR < 0;
+    const hurts = t.skipPnl > 0 || t.wouldSkip === 0 && sh.skipR > 0;
+    verdict = `This idea ${parts.join(" and ")}. ` + (helps ? "Those were net losers, so history backs it." : hurts ? "Those were net winners, so history says it would have cost you." : "Those roughly broke even.") + (t.wouldSkip + sh.wouldSkip < 20 ? " Small sample: treat it as a hunch until shadow mode adds more." : "");
+  }
+  return { trades: t, shadows: sh, verdict };
+}
+function describeRule(rule) {
+  const scope = [
+    rule.models.length ? rule.models.map((m) => m === "engine" ? "live engine" : m === "M1" ? "Model 1" : "Model 2").join("/") : null,
+    rule.symbols.length ? rule.symbols.join(", ") : "all pairs",
+    rule.directions.length ? rule.directions.join("/") : null,
+    rule.sessions.length ? rule.sessions.join("/") + " session" : null,
+    rule.hoursUtc.length ? `hours ${rule.hoursUtc.join(",")} UTC` : null,
+    rule.dayTypes.length ? rule.dayTypes.join("/") + " days" : null
+  ].filter(Boolean).join(", ");
+  return rule.action === "block" ? `Skip signals on: ${scope}` : `Only take signals on: ${scope}`;
+}
+async function listIdeas(userId) {
+  await ensureBrainIdeasTable();
+  const { rows } = await pool.query(`SELECT id, title, rule, rationale, evidence, status, created_at FROM user_brain_ideas
+    WHERE user_id = $1 AND status <> 'retired' ORDER BY created_at DESC LIMIT 50`, [userId]);
+  return rows.map((r) => ({ ...r, summary: describeRule(r.rule) }));
+}
+async function saveIdea(userId, title, rule, rationale) {
+  await ensureBrainIdeasTable();
+  const evidence = await backtestIdea(userId, rule);
+  const { rows } = await pool.query(
+    `INSERT INTO user_brain_ideas (user_id, title, rule, rationale, evidence)
+    VALUES ($1, $2, $3, $4, $5) RETURNING id, title, rule, rationale, evidence, status, created_at`,
+    [userId, title.slice(0, 120), JSON.stringify(rule), rationale.slice(0, 1e3), JSON.stringify(evidence)]
+  );
+  return { ...rows[0], summary: describeRule(rows[0].rule) };
+}
+async function setIdeaStatus(userId, id, status) {
+  await ensureBrainIdeasTable();
+  const { rowCount } = await pool.query(`UPDATE user_brain_ideas SET status = $3, updated_at = now()
+    WHERE id = $1 AND user_id = $2 AND status <> 'approved'`, [id, userId, status]);
+  return (rowCount || 0) > 0;
+}
+async function ideasContextText(userId) {
+  try {
+    const ideas = await listIdeas(userId);
+    if (!ideas.length) return "None yet.";
+    return ideas.slice(0, 10).map((i) => `#${i.id} "${i.title}" [${i.status}] ${i.summary}. Backtest: ${i.evidence?.verdict || "n/a"}`).join("\n");
+  } catch {
+    return "Unavailable.";
+  }
+}
+async function whatIfAnalysis(userId, from, to, limit = 5) {
+  const { rows } = await pool.query(`SELECT symbol, direction, result, profit_loss, created_at FROM ai_trade_results
+    WHERE user_id = $1 AND result IN ('WIN','LOSS','BREAKEVEN') AND COALESCE(closed_at, created_at) >= $2 AND COALESCE(closed_at, created_at) < $3`, [userId, from, to]);
+  const periodPnl = Math.round(rows.reduce((s, r) => s + (Number(r.profit_loss) || 0), 0) * 100) / 100;
+  if (!rows.length) return { periodPnl, trades: 0, options: [] };
+  const keys = /* @__PURE__ */ new Map();
+  const add = (r) => {
+    const k2 = JSON.stringify(r);
+    if (!keys.has(k2)) keys.set(k2, r);
+  };
+  for (const t of rows) {
+    const s = norm3(t.symbol), d = String(t.direction).toUpperCase(), sess = sessionFor(new Date(t.created_at));
+    add({ action: "block", symbols: [s] });
+    add({ action: "block", sessions: [sess] });
+    add({ action: "block", symbols: [s], sessions: [sess] });
+    add({ action: "block", symbols: [s], directions: [d] });
+    add({ action: "block", directions: [d] });
+  }
+  const before90 = new Date(from.getTime() - 90 * 864e5);
+  const scored = [];
+  for (const raw of Array.from(keys.values())) {
+    const rule = sanitizeRule({ ...raw, models: ["engine"] });
+    if (!rule) continue;
+    let skipped = 0, saved = 0;
+    for (const t of rows) {
+      if (ruleSkips(rule, { symbol: t.symbol, direction: t.direction, at: new Date(t.created_at), model: "engine" })) {
+        skipped++;
+        saved -= Number(t.profit_loss) || 0;
+      }
+    }
+    if (skipped < 2 || saved <= 0) continue;
+    scored.push({
+      rule,
+      summary: describeRule(rule),
+      periodSkipped: skipped,
+      periodSaved: Math.round(saved * 100) / 100,
+      periodPnlAfter: Math.round((periodPnl + saved) * 100) / 100,
+      ninetyDaySaved: 0,
+      ninetyDaySkipped: 0,
+      robust: false
+    });
+  }
+  scored.sort((a, b) => b.periodSaved - a.periodSaved);
+  const top = scored.slice(0, limit * 2);
+  for (const w of top) {
+    const ev = await backtestIdea(userId, w.rule, { from: before90, to: from });
+    w.ninetyDaySkipped = ev.trades.wouldSkip;
+    w.ninetyDaySaved = Math.round(-ev.trades.skipPnl * 100) / 100;
+    w.robust = ev.trades.wouldSkip >= 5 && w.ninetyDaySaved > 0;
+  }
+  top.sort((a, b) => Number(b.robust) - Number(a.robust) || b.periodSaved - a.periodSaved);
+  return { periodPnl, trades: rows.length, options: top.slice(0, limit) };
+}
+function whatIfText(label, w) {
+  if (!w.trades) return `${label}: no closed trades.`;
+  if (!w.options.length) return `${label}: ${w.trades} trades, ${w.periodPnl >= 0 ? "+" : "-"}$${Math.abs(w.periodPnl)}. No single filter would have helped.`;
+  return `${label}: ${w.trades} trades, ${w.periodPnl >= 0 ? "+" : "-"}$${Math.abs(w.periodPnl)}. Single changes that would have helped (replayed on real trades):
+` + w.options.map((o, i) => `${i + 1}. ${o.summary} \u2192 skips ${o.periodSkipped} trades, saves $${o.periodSaved}, period ends ${o.periodPnlAfter >= 0 ? "+" : "-"}$${Math.abs(o.periodPnlAfter)}. Prior 90 days: ${o.ninetyDaySkipped} trades, ${o.ninetyDaySaved >= 0 ? "saved" : "would have COST"} $${Math.abs(o.ninetyDaySaved)} \u2192 ${o.robust ? "HELD UP" : "did NOT hold up (likely a fluke)"}.`).join("\n");
+}
+var IDEA_SESSIONS, IDEA_DAY_TYPES, IDEA_MODELS, ensured4, norm3;
+var init_brain_ideas = __esm({
+  "server/services/brain-ideas.ts"() {
+    "use strict";
+    init_db();
+    init_fx_models();
+    IDEA_SESSIONS = ["Asian", "London", "London/NY overlap", "New York"];
+    IDEA_DAY_TYPES = ["range", "trend", "mixed"];
+    IDEA_MODELS = ["M1", "M2", "engine"];
+    ensured4 = null;
+    norm3 = (s) => String(s || "").toUpperCase().replace(/[^A-Z0-9]/g, "");
   }
 });
 
@@ -34839,6 +35081,13 @@ async function reviewContextText(userId) {
       getPeriodReview(userId, "week", 0),
       getPeriodReview(userId, "month", 1)
     ]);
+    const { whatIfAnalysis: whatIfAnalysis2, whatIfText: whatIfText2 } = await Promise.resolve().then(() => (init_brain_ideas(), brain_ideas_exports));
+    const d = (x) => /* @__PURE__ */ new Date(x + "T00:00:00Z");
+    const [wiWeek, wiMonth] = await Promise.all([
+      whatIfAnalysis2(userId, d(last.from), d(last.to)).catch(() => null),
+      whatIfAnalysis2(userId, d(lastMonth.from), d(lastMonth.to)).catch(() => null)
+    ]);
+    const whatIf = [wiWeek && whatIfText2("LAST WEEK", wiWeek), wiMonth && whatIfText2("LAST MONTH", wiMonth)].filter(Boolean).join("\n");
     return `LAST WEEK
 ${reviewText(last)}
 
@@ -34846,7 +35095,10 @@ THIS WEEK SO FAR
 ${reviewText(current)}
 
 LAST MONTH
-${reviewText(lastMonth)}`;
+${reviewText(lastMonth)}
+
+WHAT WOULD HAVE TURNED IT AROUND
+${whatIf}`;
   } catch (e) {
     return `Review unavailable (${e?.message || "error"}).`;
   }
@@ -34863,173 +35115,3328 @@ var init_weekly_review = __esm({
   }
 });
 
-// server/services/brain-ideas.ts
-var brain_ideas_exports = {};
-__export(brain_ideas_exports, {
-  IDEA_DAY_TYPES: () => IDEA_DAY_TYPES,
-  IDEA_MODELS: () => IDEA_MODELS,
-  IDEA_SESSIONS: () => IDEA_SESSIONS,
-  backtestIdea: () => backtestIdea,
-  describeRule: () => describeRule,
-  ensureBrainIdeasTable: () => ensureBrainIdeasTable,
-  ideasContextText: () => ideasContextText,
-  listIdeas: () => listIdeas,
-  ruleMatches: () => ruleMatches,
-  ruleSkips: () => ruleSkips,
-  sanitizeRule: () => sanitizeRule,
-  saveIdea: () => saveIdea,
-  setIdeaStatus: () => setIdeaStatus
+// server/solana-scanner.ts
+import OpenAI4 from "openai";
+async function fetchTrendingSolanaTokens() {
+  try {
+    const boostedResponse = await fetch("https://api.dexscreener.com/token-boosts/top/v1");
+    let tokenAddresses = [];
+    if (boostedResponse.ok) {
+      const boostedData = await boostedResponse.json();
+      const solanaTokens = boostedData.filter((t) => t.chainId === "solana");
+      tokenAddresses = solanaTokens.slice(0, 20).map((t) => t.tokenAddress);
+    }
+    if (tokenAddresses.length === 0) {
+      const searchResponse = await fetch("https://api.dexscreener.com/latest/dex/search?q=sol");
+      if (searchResponse.ok) {
+        const searchData = await searchResponse.json();
+        const solanaPairs = (searchData.pairs || []).filter((p) => p.chainId === "solana");
+        return solanaPairs.slice(0, 30).map((pair) => mapPairToToken(pair));
+      }
+      return [];
+    }
+    const batchAddresses = tokenAddresses.slice(0, 30).join(",");
+    const tokensResponse = await fetch(`https://api.dexscreener.com/latest/dex/tokens/${batchAddresses}`);
+    if (!tokensResponse.ok) {
+      console.error("Failed to fetch token data");
+      return [];
+    }
+    const tokensData = await tokensResponse.json();
+    const pairs = tokensData.pairs || [];
+    const seen = /* @__PURE__ */ new Set();
+    const uniquePairs = [];
+    for (const pair of pairs) {
+      if (pair.chainId === "solana" && !seen.has(pair.baseToken?.address)) {
+        seen.add(pair.baseToken?.address);
+        uniquePairs.push(pair);
+      }
+    }
+    return uniquePairs.slice(0, 30).map((pair) => mapPairToToken(pair));
+  } catch (error) {
+    console.error("Error fetching trending tokens:", error);
+    return [];
+  }
+}
+function mapPairToToken(pair) {
+  const dexId = (pair.dexId || "unknown").toLowerCase();
+  let dexSource = "jupiter";
+  if (dexId.includes("raydium")) dexSource = "raydium";
+  else if (dexId.includes("orca") || dexId.includes("whirlpool")) dexSource = "orca";
+  else if (dexId.includes("meteora")) dexSource = "meteora";
+  else if (dexId.includes("pump") || dexId.includes("pumpfun")) dexSource = "pumpfun";
+  return {
+    address: pair.baseToken?.address || "",
+    symbol: pair.baseToken?.symbol || "UNKNOWN",
+    name: pair.baseToken?.name || "Unknown Token",
+    priceUsd: pair.priceUsd || "0",
+    priceChange24h: pair.priceChange?.h24 || 0,
+    volume24h: pair.volume?.h24 || 0,
+    liquidity: pair.liquidity?.usd || 0,
+    fdv: pair.fdv || 0,
+    txns24h: {
+      buys: pair.txns?.h24?.buys || 0,
+      sells: pair.txns?.h24?.sells || 0
+    },
+    makers24h: pair.info?.makers24h || pair.txns?.h24?.m || (pair.txns?.h24?.buys || 0) + (pair.txns?.h24?.sells || 0),
+    pairAddress: pair.pairAddress || "",
+    dexId: pair.dexId || "unknown",
+    createdAt: pair.pairCreatedAt ? new Date(pair.pairCreatedAt).toISOString() : void 0,
+    dexSource,
+    availableDexes: [pair.dexId || "unknown"],
+    poolType: pair.labels?.join(", ") || void 0
+  };
+}
+async function fetchRaydiumTokens() {
+  try {
+    const response = await fetch("https://api.dexscreener.com/latest/dex/search?q=raydium%20sol");
+    if (!response.ok) return [];
+    const data = await response.json();
+    const pairs = (data.pairs || []).filter((p) => p.chainId === "solana" && p.dexId?.toLowerCase().includes("raydium"));
+    return pairs.slice(0, 20).map((pair) => {
+      const token = mapPairToToken(pair);
+      token.dexSource = "raydium";
+      return token;
+    });
+  } catch (error) {
+    console.error("Error fetching Raydium tokens:", error);
+    return [];
+  }
+}
+async function fetchOrcaTokens() {
+  try {
+    const response = await fetch("https://api.dexscreener.com/latest/dex/search?q=orca%20sol");
+    if (!response.ok) return [];
+    const data = await response.json();
+    const pairs = (data.pairs || []).filter((p) => p.chainId === "solana" && p.dexId?.toLowerCase().includes("orca"));
+    return pairs.slice(0, 20).map((pair) => {
+      const token = mapPairToToken(pair);
+      token.dexSource = "orca";
+      token.poolType = "Whirlpool";
+      return token;
+    });
+  } catch (error) {
+    console.error("Error fetching Orca tokens:", error);
+    return [];
+  }
+}
+async function fetchMeteoraTokens() {
+  try {
+    const response = await fetch("https://api.dexscreener.com/latest/dex/search?q=meteora%20sol");
+    if (!response.ok) return [];
+    const data = await response.json();
+    const pairs = (data.pairs || []).filter((p) => p.chainId === "solana" && p.dexId?.toLowerCase().includes("meteora"));
+    return pairs.slice(0, 20).map((pair) => {
+      const token = mapPairToToken(pair);
+      token.dexSource = "meteora";
+      token.poolType = "DLMM";
+      return token;
+    });
+  } catch (error) {
+    console.error("Error fetching Meteora tokens:", error);
+    return [];
+  }
+}
+async function fetchPumpFunTokens() {
+  try {
+    const response = await fetch("https://api.dexscreener.com/latest/dex/search?q=pump.fun");
+    if (!response.ok) return [];
+    const data = await response.json();
+    const pairs = (data.pairs || []).filter((p) => p.chainId === "solana" && (p.dexId?.toLowerCase().includes("pump") || p.url?.includes("pump.fun") || p.baseToken?.name?.toLowerCase().includes("pump")));
+    return pairs.slice(0, 20).map((pair) => {
+      const token = mapPairToToken(pair);
+      token.dexSource = "pumpfun";
+      token.poolType = "Bonding Curve";
+      return token;
+    });
+  } catch (error) {
+    console.error("Error fetching Pump.fun tokens:", error);
+    return [];
+  }
+}
+function mergeAndDedupeTokens(tokenArrays) {
+  const tokenMap = /* @__PURE__ */ new Map();
+  for (const tokens of tokenArrays) {
+    for (const token of tokens) {
+      if (!token.address) continue;
+      const existing = tokenMap.get(token.address);
+      if (existing) {
+        const existingDexes = new Set(existing.availableDexes || []);
+        (token.availableDexes || []).forEach((d) => existingDexes.add(d));
+        existing.availableDexes = Array.from(existingDexes);
+        if (token.liquidity > existing.liquidity) {
+          existing.priceUsd = token.priceUsd;
+          existing.liquidity = token.liquidity;
+          existing.volume24h = Math.max(existing.volume24h, token.volume24h);
+          existing.dexId = token.dexId;
+          existing.dexSource = token.dexSource;
+          existing.pairAddress = token.pairAddress;
+        }
+      } else {
+        tokenMap.set(token.address, { ...token });
+      }
+    }
+  }
+  return Array.from(tokenMap.values());
+}
+async function fetchMultiDexTokens(dexFilter = "all") {
+  try {
+    if (dexFilter === "raydium") return await fetchRaydiumTokens();
+    if (dexFilter === "orca") return await fetchOrcaTokens();
+    if (dexFilter === "meteora") return await fetchMeteoraTokens();
+    if (dexFilter === "pumpfun") return await fetchPumpFunTokens();
+    if (dexFilter === "jupiter") return await fetchTrendingSolanaTokens();
+    const [trending, raydium, orca, meteora, pumpfun] = await Promise.all([
+      fetchTrendingSolanaTokens(),
+      fetchRaydiumTokens(),
+      fetchOrcaTokens(),
+      fetchMeteoraTokens(),
+      fetchPumpFunTokens()
+    ]);
+    return mergeAndDedupeTokens([trending, raydium, orca, meteora, pumpfun]);
+  } catch (error) {
+    console.error("Error fetching multi-DEX tokens:", error);
+    return fetchTrendingSolanaTokens();
+  }
+}
+async function searchSolanaToken(query) {
+  try {
+    const response = await fetch(`https://api.dexscreener.com/latest/dex/search?q=${encodeURIComponent(query)}`);
+    if (!response.ok) return [];
+    const data = await response.json();
+    const pairs = (data.pairs || []).filter((p) => p.chainId === "solana");
+    return pairs.slice(0, 10).map((pair) => mapPairToToken(pair));
+  } catch (error) {
+    console.error("Error searching token:", error);
+    return [];
+  }
+}
+function calculateTokenomicsScore(token) {
+  let score = 50;
+  if (token.liquidity > 1e5) score += 15;
+  else if (token.liquidity > 5e4) score += 10;
+  else if (token.liquidity > 1e4) score += 5;
+  else if (token.liquidity < 5e3) score -= 15;
+  if (token.fdv > 0 && token.liquidity > 0) {
+    const liquidityRatio = token.liquidity / token.fdv;
+    if (liquidityRatio > 0.1) score += 10;
+    else if (liquidityRatio > 0.05) score += 5;
+    else if (liquidityRatio < 0.01) score -= 10;
+  }
+  if (token.volume24h > 5e5) score += 10;
+  else if (token.volume24h > 1e5) score += 5;
+  else if (token.volume24h < 1e4) score -= 5;
+  return Math.max(0, Math.min(100, score));
+}
+function calculateWhaleScore(token) {
+  let score = 50;
+  const totalTxns = token.txns24h.buys + token.txns24h.sells;
+  if (totalTxns === 0) return 30;
+  const buyRatio = token.txns24h.buys / totalTxns;
+  if (buyRatio > 0.7) score += 20;
+  else if (buyRatio > 0.6) score += 10;
+  else if (buyRatio < 0.4) score -= 15;
+  else if (buyRatio < 0.3) score -= 25;
+  if (token.volume24h > 0 && totalTxns > 0) {
+    const avgTxSize = token.volume24h / totalTxns;
+    if (avgTxSize > 5e3) score += 15;
+    else if (avgTxSize > 1e3) score += 5;
+  }
+  if (token.makers24h > 500) score += 10;
+  else if (token.makers24h > 100) score += 5;
+  else if (token.makers24h < 20) score -= 10;
+  return Math.max(0, Math.min(100, score));
+}
+function calculateSentimentScore(token) {
+  let score = 50;
+  if (token.priceChange24h > 50) score += 20;
+  else if (token.priceChange24h > 20) score += 15;
+  else if (token.priceChange24h > 10) score += 10;
+  else if (token.priceChange24h > 0) score += 5;
+  else if (token.priceChange24h < -30) score -= 20;
+  else if (token.priceChange24h < -15) score -= 10;
+  else if (token.priceChange24h < 0) score -= 5;
+  const buyRatio = token.txns24h.buys / Math.max(1, token.txns24h.buys + token.txns24h.sells);
+  if (buyRatio > 0.65) score += 15;
+  else if (buyRatio > 0.55) score += 5;
+  else if (buyRatio < 0.35) score -= 15;
+  return Math.max(0, Math.min(100, score));
+}
+function determineSignal(sentimentScore, tokenomicsScore, whaleScore) {
+  const avgScore = (sentimentScore + tokenomicsScore + whaleScore) / 3;
+  if (avgScore >= 72 && Math.min(sentimentScore, tokenomicsScore, whaleScore) >= 55) {
+    return { signal: "STRONG_BUY", confidence: Math.round(avgScore) };
+  } else if (avgScore >= 58 && Math.min(sentimentScore, tokenomicsScore, whaleScore) >= 40) {
+    return { signal: "BUY", confidence: Math.round(avgScore) };
+  } else if (avgScore >= 45) {
+    return { signal: "HOLD", confidence: Math.round(avgScore) };
+  } else if (avgScore >= 30) {
+    return { signal: "SELL", confidence: Math.round(100 - avgScore) };
+  } else {
+    return { signal: "STRONG_SELL", confidence: Math.round(100 - avgScore) };
+  }
+}
+function determineRiskLevel(token, tokenomicsScore) {
+  if (token.liquidity < 1e4 || tokenomicsScore < 30) return "EXTREME";
+  if (token.liquidity < 5e4 || tokenomicsScore < 45) return "HIGH";
+  if (token.liquidity < 2e5 || tokenomicsScore < 60) return "MEDIUM";
+  return "LOW";
+}
+function estimateHoldDuration(signal, riskLevel) {
+  if (signal === "STRONG_SELL" || signal === "SELL") return "Exit immediately";
+  if (riskLevel === "EXTREME") return "1-4 hours (scalp only)";
+  if (riskLevel === "HIGH") return "4-24 hours";
+  if (riskLevel === "MEDIUM") return "1-3 days";
+  return "3-7 days";
+}
+async function fetchCryptoMacroContext() {
+  const queries = [
+    { key: "btc", q: "WBTC" },
+    { key: "eth", q: "WETH" },
+    { key: "sol", q: "SOL" }
+  ];
+  const changes = { btc: 0, eth: 0, sol: 0 };
+  await Promise.all(queries.map(async ({ key, q }) => {
+    try {
+      const res = await fetch(`https://api.dexscreener.com/latest/dex/search?q=${q}`);
+      if (!res.ok) return;
+      const data = await res.json();
+      const pairs = (data.pairs || []).filter((p) => p.chainId === "solana");
+      if (pairs.length > 0) {
+        changes[key] = parseFloat(pairs[0].priceChange?.h24 || "0") || 0;
+      }
+    } catch {
+    }
+  }));
+  const score = (changes.btc > 1 ? 1 : changes.btc < -1 ? -1 : 0) + (changes.eth > 1 ? 1 : changes.eth < -1 ? -1 : 0) + (changes.sol > 1 ? 1 : changes.sol < -1 ? -1 : 0);
+  const bias = score >= 2 ? "RISK_ON" : score <= -2 ? "RISK_OFF" : "NEUTRAL";
+  const implication = bias === "RISK_ON" ? "Risk-on environment \u2014 favour momentum tokens with high buy pressure." : bias === "RISK_OFF" ? "Risk-off environment \u2014 be selective, prefer LOW risk tokens with 80%+ confidence." : "Mixed signals \u2014 evaluate each token on its own merits.";
+  return { btcChange: changes.btc, ethChange: changes.eth, solChange: changes.sol, riskScore: score, bias, implication };
+}
+function buildDexWeightsBlock(signalWeights) {
+  const labels = Object.entries(signalWeights).map(([dex, w]) => {
+    const label = w >= 1.5 ? "\u{1F525}HOT" : w >= 1.2 ? "\u2705WARM" : w <= 0.3 ? "\u274CCOLD" : w <= 0.6 ? "\u26A0\uFE0FCOOL" : "\u2014";
+    return `${dex}=${w.toFixed(2)}${label}`;
+  });
+  return labels.join(", ");
+}
+function calculateSolKellySize(wins, losses, totalGainPct, portfolioSol) {
+  const total = wins + losses;
+  if (total < 3 || portfolioSol <= 0) return 0;
+  const winRate2 = wins / total;
+  const avgGain = wins > 0 ? totalGainPct / wins / 100 : 0.5;
+  const kelly = winRate2 - (1 - winRate2) / Math.max(avgGain, 0.01);
+  const fractional = Math.max(0.01, Math.min(0.1, kelly * 0.25));
+  return Math.round(portfolioSol * fractional * 1e3) / 1e3;
+}
+async function analyzeToken(token, options = {}) {
+  const { signalWeights, macro, kellyStats, portfolioSol = 0, openai: openaiOverride } = options;
+  const sentimentScore = calculateSentimentScore(token);
+  const tokenomicsScore = calculateTokenomicsScore(token);
+  const whaleScore = calculateWhaleScore(token);
+  let { signal, confidence: confidence2 } = determineSignal(sentimentScore, tokenomicsScore, whaleScore);
+  if (signalWeights) {
+    const dexKey = (token.dexId || "").toLowerCase().split("_")[0];
+    const weight = signalWeights[dexKey] || 1;
+    confidence2 = Math.round(Math.min(98, Math.max(10, confidence2 * weight)));
+  }
+  if (macro) {
+    if (macro.bias === "RISK_ON" && (signal === "STRONG_BUY" || signal === "BUY")) {
+      confidence2 = Math.min(98, confidence2 + 5);
+    } else if (macro.bias === "RISK_OFF" && (signal === "STRONG_BUY" || signal === "BUY")) {
+      confidence2 = Math.max(10, confidence2 - 8);
+    }
+  }
+  const riskLevel = determineRiskLevel(token, tokenomicsScore);
+  const holdDuration = estimateHoldDuration(signal, riskLevel);
+  let reasoning = "";
+  try {
+    const macroBlock = macro ? ` Macro: BTC${macro.btcChange >= 0 ? "+" : ""}${macro.btcChange.toFixed(1)}%/ETH${macro.ethChange >= 0 ? "+" : ""}${macro.ethChange.toFixed(1)}%/SOL${macro.solChange >= 0 ? "+" : ""}${macro.solChange.toFixed(1)}% (${macro.bias}).` : "";
+    const weightsBlock = signalWeights ? ` DEX weights: ${buildDexWeightsBlock(signalWeights)}.` : "";
+    const prompt = `Solana token: ${token.symbol} | DEX: ${token.dexId || "?"} | Price: $${token.priceUsd} | 24h: ${token.priceChange24h.toFixed(1)}% | Vol: $${(token.volume24h / 1e3).toFixed(0)}K | Liq: $${(token.liquidity / 1e3).toFixed(0)}K | Buys/Sells: ${token.txns24h.buys}/${token.txns24h.sells} | Traders: ${token.makers24h} | Scores: sent=${sentimentScore} tok=${tokenomicsScore} whale=${whaleScore} | Signal: ${signal} ${confidence2}% | Risk: ${riskLevel}.${macroBlock}${weightsBlock} Give a sharp 2-sentence trade analysis. Be direct.`;
+    let openaiClient = openaiOverride;
+    let fallbackModel = "gpt-4o-mini";
+    if (!openaiClient) {
+      if (process.env.OPENROUTER_API_KEY) {
+        openaiClient = new OpenAI4({ apiKey: process.env.OPENROUTER_API_KEY, baseURL: "https://openrouter.ai/api/v1", defaultHeaders: { "HTTP-Referer": "https://veddbuild.com", "X-Title": "VEDDBuild" } });
+        fallbackModel = "openai/gpt-oss-20b";
+      } else if (process.env.OPENAI_API_KEY) {
+        openaiClient = new OpenAI4({ apiKey: process.env.OPENAI_API_KEY });
+      } else {
+        openaiClient = new OpenAI4({ apiKey: "" });
+      }
+    }
+    const model = openaiClient.defaultModel || fallbackModel;
+    const response = await openaiClient.chat.completions.create({
+      model,
+      messages: [{ role: "user", content: prompt }],
+      max_tokens: 100,
+      // 2 sentences ≈ 60-80 tokens; was 180
+      temperature: 0.5
+    });
+    reasoning = response.choices[0]?.message?.content || "";
+  } catch (error) {
+    reasoning = `${signal} signal: sentiment ${sentimentScore}/100, tokenomics ${tokenomicsScore}/100, whale activity ${whaleScore}/100. Risk: ${riskLevel}.`;
+  }
+  const price = parseFloat(token.priceUsd) || 0;
+  let targetPrice;
+  let stopLoss;
+  if (signal === "STRONG_BUY" || signal === "BUY") {
+    targetPrice = (price * (signal === "STRONG_BUY" ? 1.5 : 1.25)).toFixed(8);
+    stopLoss = (price * 0.85).toFixed(8);
+  }
+  let recommendedSolAmount;
+  if (kellyStats && portfolioSol > 0 && (signal === "STRONG_BUY" || signal === "BUY")) {
+    const dexKey = (token.dexId || "").toLowerCase().split("_")[0];
+    const stats = kellyStats[dexKey];
+    if (stats) {
+      const solAmt = calculateSolKellySize(stats.wins, stats.losses, stats.totalGainPct, portfolioSol);
+      if (solAmt > 0) recommendedSolAmount = solAmt;
+    }
+  }
+  return {
+    token,
+    signal,
+    confidence: confidence2,
+    holdDuration,
+    reasoning,
+    sentimentScore,
+    tokenomicsScore,
+    whaleScore,
+    riskLevel,
+    entryPrice: token.priceUsd,
+    targetPrice,
+    stopLoss,
+    recommendedSolAmount
+  };
+}
+async function scanAndAnalyzeTokens(limit = 10, dexFilter = "all", options = {}) {
+  const tokens = await fetchMultiDexTokens(dexFilter === "all" ? "all" : dexFilter);
+  let filteredTokens = tokens.filter((t) => t.liquidity > 5e3 && t.volume24h > 1e3);
+  const analyses = await Promise.all(
+    filteredTokens.slice(0, limit * 2).map((token) => analyzeToken(token, options))
+  );
+  let results = analyses;
+  if (options.shieldActive) {
+    results = results.filter((a) => a.riskLevel === "LOW" && a.confidence >= 85);
+  }
+  if (options.minConfidence && options.minConfidence > 0) {
+    results = results.filter((a) => a.confidence >= options.minConfidence);
+  }
+  return results.slice(0, limit).sort((a, b) => {
+    const signalOrder = { "STRONG_BUY": 0, "BUY": 1, "HOLD": 2, "SELL": 3, "STRONG_SELL": 4 };
+    if (signalOrder[a.signal] !== signalOrder[b.signal]) {
+      return signalOrder[a.signal] - signalOrder[b.signal];
+    }
+    return b.confidence - a.confidence;
+  });
+}
+var init_solana_scanner = __esm({
+  "server/solana-scanner.ts"() {
+    "use strict";
+  }
 });
-function ensureBrainIdeasTable() {
-  if (!ensured4) {
-    ensured4 = pool.query(`
-CREATE TABLE IF NOT EXISTS user_brain_ideas (
-  id serial PRIMARY KEY,
-  user_id integer NOT NULL,
-  title text NOT NULL,
-  rule jsonb NOT NULL,
-  rationale text,
-  evidence jsonb,
-  status text NOT NULL DEFAULT 'shadow',
-  created_at timestamp NOT NULL DEFAULT now(),
-  updated_at timestamp NOT NULL DEFAULT now()
-);
-CREATE INDEX IF NOT EXISTS user_brain_ideas_user_idx ON user_brain_ideas (user_id, status);`).then(() => void 0).catch((e) => {
-      ensured4 = null;
-      throw e;
+
+// server/services/sol-brain.ts
+async function ensureTable() {
+  if (_ensured3) return;
+  try {
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS "sol_brain_outcomes" (
+        "id" serial PRIMARY KEY NOT NULL,
+        "user_id" integer NOT NULL,
+        "symbol" text NOT NULL,
+        "strategy" text NOT NULL,
+        "direction" text NOT NULL,
+        "entry_confidence" double precision,
+        "return_pct" double precision,
+        "hour_utc" integer,
+        "holding_minutes" integer,
+        "exit_reason" text,
+        "result" text NOT NULL,
+        "profit_loss" double precision NOT NULL DEFAULT 0,
+        "source" text NOT NULL DEFAULT 'live',
+        "closed_at" timestamp DEFAULT now() NOT NULL,
+        "created_at" timestamp DEFAULT now() NOT NULL
+      );
+      CREATE INDEX IF NOT EXISTS "idx_sol_brain_outcomes_user_symbol" ON "sol_brain_outcomes" ("user_id", "symbol");
+    `);
+    _ensured3 = true;
+  } catch (err) {
+    console.error("[sol-brain] ensureTable failed (non-fatal):", err?.message ?? err);
+  }
+}
+function bump2(map, key, win) {
+  const s = map[key] ??= { trades: 0, wins: 0, winRate: 0 };
+  s.trades++;
+  if (win) s.wins++;
+  s.winRate = Math.round(s.wins / s.trades * 100);
+}
+function sizeMult2(winRate2, rr, trades) {
+  if (trades < MIN_TRADES4) return 1;
+  const w = winRate2 / 100, r = rr > 0 ? rr : 1;
+  const kelly = w - (1 - w) / r;
+  return Math.max(0.25, Math.min(1.5, 1 + kelly));
+}
+async function backfillIfEmpty2(userId) {
+  const { rows } = await pool.query(`SELECT count(*)::int n FROM sol_brain_outcomes WHERE user_id=$1`, [userId]);
+  if (rows[0].n > 0) return;
+  const { rows: trades } = await pool.query(
+    `SELECT token_symbol, strategy_id, close_pnl_pct, closed_at FROM sol_engine_positions
+     WHERE user_id=$1 AND status='closed' AND close_pnl_pct IS NOT NULL ORDER BY closed_at DESC LIMIT 1000`,
+    [userId]
+  );
+  if (!trades.length) return;
+  for (const t of trades) {
+    const pnl = Number(t.close_pnl_pct) || 0;
+    const d = t.closed_at ? new Date(t.closed_at) : /* @__PURE__ */ new Date();
+    await pool.query(
+      `INSERT INTO sol_brain_outcomes (user_id, symbol, strategy, direction, result, profit_loss, return_pct, hour_utc, source, closed_at)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,'backfill',$9)`,
+      [userId, t.token_symbol || "UNKNOWN", t.strategy_id || "unknown", "long", pnl > 0 ? "WIN" : pnl < 0 ? "LOSS" : "BREAKEVEN", pnl, pnl, d.getUTCHours(), d]
+    ).catch(() => {
     });
   }
-  return ensured4;
 }
-function sanitizeRule(r) {
-  if (!r || typeof r !== "object") return null;
-  const arr2 = (v) => Array.isArray(v) ? v : v ? [v] : [];
-  const rule = {
-    action: r.action === "only" ? "only" : "block",
-    symbols: arr2(r.symbols).map(norm3).filter((s) => s.length >= 3 && s.length <= 12).slice(0, 20),
-    directions: arr2(r.directions).map((d) => String(d).toUpperCase()).filter((d) => d === "BUY" || d === "SELL"),
-    sessions: arr2(r.sessions).map((s) => IDEA_SESSIONS.find((x) => x.toLowerCase() === String(s).toLowerCase())).filter(Boolean),
-    hoursUtc: arr2(r.hoursUtc).map((h) => Number(h)).filter((h) => Number.isInteger(h) && h >= 0 && h <= 23),
-    dayTypes: arr2(r.dayTypes).map((d) => String(d).toLowerCase()).filter((d) => IDEA_DAY_TYPES.includes(d)),
-    models: arr2(r.models).map((m) => /^m?1$/i.test(m) ? "M1" : /^m?2$/i.test(m) ? "M2" : String(m).toLowerCase() === "engine" ? "engine" : null).filter(Boolean)
-  };
-  const hasCondition = rule.symbols.length || rule.directions.length || rule.sessions.length || rule.hoursUtc.length || rule.dayTypes.length;
-  return hasCondition ? rule : null;
-}
-function ruleMatches(rule, s) {
-  if (rule.models.length && !rule.models.includes(s.model)) return false;
-  if (rule.symbols.length && !rule.symbols.includes(norm3(s.symbol))) return false;
-  if (rule.directions.length && !rule.directions.includes(String(s.direction || "").toUpperCase())) return false;
-  if (rule.sessions.length && !rule.sessions.includes(sessionFor(s.at))) return false;
-  if (rule.hoursUtc.length && !rule.hoursUtc.includes(s.at.getUTCHours())) return false;
-  if (rule.dayTypes.length && (!s.dayType || !rule.dayTypes.includes(s.dayType))) return false;
-  return true;
-}
-function ruleSkips(rule, s) {
-  if (rule.action === "block") return ruleMatches(rule, s);
-  if (rule.models.length && !rule.models.includes(s.model)) return false;
-  return !ruleMatches(rule, s);
-}
-async function backtestIdea(userId, rule) {
-  const [trades, shadows] = await Promise.all([
-    pool.query(`SELECT symbol, direction, result, profit_loss, created_at FROM ai_trade_results
-      WHERE user_id = $1 AND result IN ('WIN','LOSS','BREAKEVEN') AND created_at > now() - interval '365 days'
-      ORDER BY created_at DESC LIMIT 3000`, [userId]),
-    pool.query(`SELECT symbol, direction, model, day_type, r_multiple, created_at FROM fx_model_decisions
-      WHERE user_id = $1 AND engine = 'fx' AND r_multiple IS NOT NULL AND created_at > now() - interval '180 days'
-      ORDER BY created_at DESC LIMIT 5000`, [userId])
-  ]);
-  const t = { matched: 0, wouldSkip: 0, skipWins: 0, skipLosses: 0, skipPnl: 0, keptPnl: 0 };
-  for (const r of trades.rows) {
-    const sig = { symbol: r.symbol, direction: r.direction, at: new Date(r.created_at), model: "engine" };
-    if (ruleMatches(rule, sig)) t.matched++;
-    const pnl = Number(r.profit_loss) || 0;
-    if (ruleSkips(rule, sig)) {
-      t.wouldSkip++;
-      t.skipPnl += pnl;
-      if (r.result === "WIN") t.skipWins++;
-      else if (r.result === "LOSS") t.skipLosses++;
-    } else t.keptPnl += pnl;
-  }
-  const sh = { matched: 0, wouldSkip: 0, skipR: 0, keptR: 0 };
-  for (const r of shadows.rows) {
-    const sig = { symbol: r.symbol, direction: r.direction, at: new Date(r.created_at), dayType: r.day_type, model: r.model };
-    if (ruleMatches(rule, sig)) sh.matched++;
-    const R = Number(r.r_multiple) || 0;
-    if (ruleSkips(rule, sig)) {
-      sh.wouldSkip++;
-      sh.skipR += R;
-    } else sh.keptR += R;
-  }
-  t.skipPnl = Math.round(t.skipPnl * 100) / 100;
-  t.keptPnl = Math.round(t.keptPnl * 100) / 100;
-  sh.skipR = Math.round(sh.skipR * 10) / 10;
-  sh.keptR = Math.round(sh.keptR * 10) / 10;
-  const parts = [];
-  if (t.wouldSkip) parts.push(`would have skipped ${t.wouldSkip} real trades (${t.skipWins}W/${t.skipLosses}L, ${t.skipPnl >= 0 ? "+" : "-"}$${Math.abs(t.skipPnl).toFixed(2)})`);
-  if (sh.wouldSkip) parts.push(`${sh.wouldSkip} Model 1/2 shadow trades (${sh.skipR >= 0 ? "+" : ""}${sh.skipR}R)`);
-  let verdict;
-  if (!parts.length) verdict = "No past trades fall under this idea yet, so shadow mode will be the first real test.";
-  else {
-    const helps = t.skipPnl < 0 || t.wouldSkip === 0 && sh.skipR < 0;
-    const hurts = t.skipPnl > 0 || t.wouldSkip === 0 && sh.skipR > 0;
-    verdict = `This idea ${parts.join(" and ")}. ` + (helps ? "Those were net losers, so history backs it." : hurts ? "Those were net winners, so history says it would have cost you." : "Those roughly broke even.") + (t.wouldSkip + sh.wouldSkip < 20 ? " Small sample: treat it as a hunch until shadow mode adds more." : "");
-  }
-  return { trades: t, shadows: sh, verdict };
-}
-function describeRule(rule) {
-  const scope = [
-    rule.models.length ? rule.models.map((m) => m === "engine" ? "live engine" : m === "M1" ? "Model 1" : "Model 2").join("/") : null,
-    rule.symbols.length ? rule.symbols.join(", ") : "all pairs",
-    rule.directions.length ? rule.directions.join("/") : null,
-    rule.sessions.length ? rule.sessions.join("/") + " session" : null,
-    rule.hoursUtc.length ? `hours ${rule.hoursUtc.join(",")} UTC` : null,
-    rule.dayTypes.length ? rule.dayTypes.join("/") + " days" : null
-  ].filter(Boolean).join(", ");
-  return rule.action === "block" ? `Skip signals on: ${scope}` : `Only take signals on: ${scope}`;
-}
-async function listIdeas(userId) {
-  await ensureBrainIdeasTable();
-  const { rows } = await pool.query(`SELECT id, title, rule, rationale, evidence, status, created_at FROM user_brain_ideas
-    WHERE user_id = $1 AND status <> 'retired' ORDER BY created_at DESC LIMIT 50`, [userId]);
-  return rows.map((r) => ({ ...r, summary: describeRule(r.rule) }));
-}
-async function saveIdea(userId, title, rule, rationale) {
-  await ensureBrainIdeasTable();
-  const evidence = await backtestIdea(userId, rule);
+async function learnFromSolTrades(userId) {
+  await ensureTable();
+  await backfillIfEmpty2(userId).catch(() => {
+  });
   const { rows } = await pool.query(
-    `INSERT INTO user_brain_ideas (user_id, title, rule, rationale, evidence)
-    VALUES ($1, $2, $3, $4, $5) RETURNING id, title, rule, rationale, evidence, status, created_at`,
-    [userId, title.slice(0, 120), JSON.stringify(rule), rationale.slice(0, 1e3), JSON.stringify(evidence)]
+    `SELECT symbol, strategy, direction, result, profit_loss, hour_utc FROM sol_brain_outcomes
+     WHERE user_id=$1 ORDER BY closed_at DESC LIMIT 2000`,
+    [userId]
   );
-  return { ...rows[0], summary: describeRule(rows[0].rule) };
+  const symbols = {};
+  const winSum = {}, winN = {}, lossSum = {}, lossN = {};
+  let totalWins = 0, totalDecided = 0, totalPnl = 0;
+  for (const r of rows) {
+    const sym2 = r.symbol || "UNKNOWN";
+    const k2 = symbols[sym2] ??= { totalTrades: 0, wins: 0, losses: 0, winRate: 0, totalPnl: 0, avgWin: 0, avgLoss: 0, riskReward: 0, byStrategy: {}, byHour: {}, bestStrategy: null, recommendedSizeMultiplier: 1 };
+    const pnl = Number(r.profit_loss) || 0;
+    const win = r.result === "WIN", loss = r.result === "LOSS";
+    k2.totalTrades++;
+    k2.totalPnl += pnl;
+    totalPnl += pnl;
+    if (win) {
+      k2.wins++;
+      totalWins++;
+      winSum[sym2] = (winSum[sym2] ?? 0) + pnl;
+      winN[sym2] = (winN[sym2] ?? 0) + 1;
+    }
+    if (loss) {
+      k2.losses++;
+      lossSum[sym2] = (lossSum[sym2] ?? 0) + Math.abs(pnl);
+      lossN[sym2] = (lossN[sym2] ?? 0) + 1;
+    }
+    if (win || loss) totalDecided++;
+    if (r.strategy) bump2(k2.byStrategy, r.strategy, win);
+    if (r.hour_utc != null) bump2(k2.byHour, String(r.hour_utc), win);
+  }
+  for (const [sym2, k2] of Object.entries(symbols)) {
+    const decided = k2.wins + k2.losses;
+    k2.winRate = decided ? Math.round(k2.wins / decided * 100) : 0;
+    k2.avgWin = winN[sym2] ? winSum[sym2] / winN[sym2] : 0;
+    k2.avgLoss = lossN[sym2] ? lossSum[sym2] / lossN[sym2] : 0;
+    k2.riskReward = k2.avgLoss > 0 ? k2.avgWin / k2.avgLoss : k2.avgWin > 0 ? 2 : 1;
+    k2.recommendedSizeMultiplier = sizeMult2(k2.winRate, k2.riskReward, decided);
+    let best = null, bestWr = -1;
+    for (const [s, b] of Object.entries(k2.byStrategy)) if (b.trades >= 3 && b.winRate > bestWr) {
+      best = s;
+      bestWr = b.winRate;
+    }
+    k2.bestStrategy = best;
+  }
+  const insights = [];
+  for (const [sym2, k2] of Object.entries(symbols)) {
+    if (k2.wins + k2.losses >= MIN_TRADES4) insights.push(`${sym2}: ${k2.winRate}% WR over ${k2.wins + k2.losses} \u2192 sizing \xD7${k2.recommendedSizeMultiplier}${k2.bestStrategy ? `, best on ${k2.bestStrategy}` : ""}.`);
+    else insights.push(`${sym2}: still learning (${k2.wins + k2.losses}/${MIN_TRADES4}).`);
+  }
+  const brain = { userId, lastLearned: (/* @__PURE__ */ new Date()).toISOString(), totalTrades: rows.length, overallWinRate: totalDecided ? Math.round(totalWins / totalDecided * 100) : 0, totalPnl: Math.round(totalPnl * 100) / 100, symbolKnowledge: symbols, insights };
+  _cache2.set(userId, { brain, at: Date.now() });
+  return brain;
 }
-async function setIdeaStatus(userId, id, status) {
-  await ensureBrainIdeasTable();
-  const { rowCount } = await pool.query(`UPDATE user_brain_ideas SET status = $3, updated_at = now()
-    WHERE id = $1 AND user_id = $2 AND status <> 'approved'`, [id, userId, status]);
-  return (rowCount || 0) > 0;
+async function getOrRefreshSolBrain(userId, force = false) {
+  const hit = _cache2.get(userId);
+  if (!force && hit && Date.now() - hit.at < REFRESH_TTL_MS2) return hit.brain;
+  return learnFromSolTrades(userId);
 }
-async function ideasContextText(userId) {
+function solBrainSizeMultiplier(userId, symbol) {
+  const k2 = _cache2.get(userId)?.brain?.symbolKnowledge[symbol];
+  return k2 ? k2.recommendedSizeMultiplier : 1;
+}
+function solBrainGate(userId, symbol, strategy, hourUtc) {
+  const k2 = _cache2.get(userId)?.brain?.symbolKnowledge[symbol];
+  if (!k2) return { blocked: false, reason: "" };
+  const decided = k2.wins + k2.losses;
+  if (decided >= 15 && k2.winRate < 35) return { blocked: true, reason: `\u{1F9E0} Sol brain: ${symbol} ${k2.winRate}% WR over ${decided} \u2014 skipping symbol` };
+  if (strategy) {
+    const st = k2.byStrategy[strategy];
+    if (st && st.trades >= 8 && st.winRate < 30) return { blocked: true, reason: `\u{1F9E0} Sol brain: ${symbol}/${strategy} ${st.winRate}% WR over ${st.trades} \u2014 skipping` };
+  }
+  if (hourUtc != null) {
+    const h = k2.byHour[String(hourUtc)];
+    if (h && h.trades >= 8 && h.winRate < 30) return { blocked: true, reason: `\u{1F9E0} Sol brain: ${symbol} @ ${hourUtc}:00 UTC ${h.winRate}% WR over ${h.trades} \u2014 skipping this hour` };
+  }
+  return { blocked: false, reason: "" };
+}
+async function recordSolBrainOutcome(o) {
   try {
-    const ideas = await listIdeas(userId);
-    if (!ideas.length) return "None yet.";
-    return ideas.slice(0, 10).map((i) => `#${i.id} "${i.title}" [${i.status}] ${i.summary}. Backtest: ${i.evidence?.verdict || "n/a"}`).join("\n");
-  } catch {
-    return "Unavailable.";
+    await ensureTable();
+    if (o.returnPct != null && (o.returnPct > 1e3 || o.returnPct < -100)) {
+      console.warn(`[sol-brain] rejected impossible return ${o.returnPct}% for ${o.symbol} \u2014 not recorded (bad price data)`);
+      return;
+    }
+    await pool.query(
+      `INSERT INTO sol_brain_outcomes (user_id, symbol, strategy, direction, entry_confidence, return_pct, hour_utc, holding_minutes, exit_reason, result, profit_loss, source)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)`,
+      [
+        o.userId,
+        o.symbol,
+        o.strategy || "unknown",
+        o.direction || "long",
+        o.entryConfidence ?? null,
+        o.returnPct ?? null,
+        (/* @__PURE__ */ new Date()).getUTCHours(),
+        o.holdingMinutes ?? null,
+        o.exitReason ?? null,
+        o.profitLoss > 0 ? "WIN" : o.profitLoss < 0 ? "LOSS" : "BREAKEVEN",
+        o.profitLoss,
+        o.source === "paper" ? "paper" : "live"
+      ]
+    );
+    await learnFromSolTrades(o.userId);
+  } catch (err) {
+    console.error("[sol-brain] recordSolBrainOutcome failed (non-fatal):", err?.message ?? err);
   }
 }
-var IDEA_SESSIONS, IDEA_DAY_TYPES, IDEA_MODELS, ensured4, norm3;
-var init_brain_ideas = __esm({
-  "server/services/brain-ideas.ts"() {
+var MIN_TRADES4, REFRESH_TTL_MS2, _ensured3, _cache2;
+var init_sol_brain = __esm({
+  "server/services/sol-brain.ts"() {
     "use strict";
     init_db();
+    MIN_TRADES4 = 10;
+    REFRESH_TTL_MS2 = 60 * 1e3;
+    _ensured3 = false;
+    _cache2 = /* @__PURE__ */ new Map();
+  }
+});
+
+// server/services/weekend-boost.ts
+function isWeekendBoostWindow(d = /* @__PURE__ */ new Date()) {
+  const day = d.getUTCDay();
+  return day === 5 || day === 6 || day === 0;
+}
+function weekendBoostActive(d = /* @__PURE__ */ new Date()) {
+  return ENABLED && isWeekendBoostWindow(d);
+}
+function boostedMinConfidence(minConfidence, d = /* @__PURE__ */ new Date()) {
+  if (!weekendBoostActive(d)) return minConfidence;
+  return Math.max(CONF_HARD_FLOOR, minConfidence - CONF_DELTA);
+}
+function weekendBoostSizeMultiplier(d = /* @__PURE__ */ new Date()) {
+  return weekendBoostActive(d) ? SIZE_MULT : 1;
+}
+var ENABLED, CONF_DELTA, CONF_HARD_FLOOR, SIZE_MULT;
+var init_weekend_boost = __esm({
+  "server/services/weekend-boost.ts"() {
+    "use strict";
+    ENABLED = process.env.WEEKEND_BOOST_ENABLED !== "false";
+    CONF_DELTA = Number(process.env.WEEKEND_BOOST_CONF_DELTA ?? 5);
+    CONF_HARD_FLOOR = 50;
+    SIZE_MULT = Number(process.env.WEEKEND_BOOST_SIZE_MULT ?? 1.3);
+  }
+});
+
+// server/services/sol-engine.ts
+var sol_engine_exports = {};
+__export(sol_engine_exports, {
+  SOL_PAPER_MAX_SOL: () => SOL_PAPER_MAX_SOL,
+  SOL_STRATEGIES: () => SOL_STRATEGIES,
+  cancelSignal: () => cancelSignal,
+  clearServerWallet: () => clearServerWallet,
+  confirmLiveExit: () => confirmLiveExit,
+  confirmLiveTrade: () => confirmLiveTrade,
+  getAutoTradePositions: () => getAutoTradePositions,
+  getPendingExits: () => getPendingExits,
+  getPendingSignals: () => getPendingSignals,
+  getServerWalletStatus: () => getServerWalletStatus,
+  getSolEngineStatus: () => getSolEngineStatus,
+  getSolStrategies: () => getSolStrategies,
+  recordSolSignalResult: () => recordSolSignalResult,
+  resetSolWeeklyGoal: () => resetSolWeeklyGoal,
+  saveServerWallet: () => saveServerWallet,
+  setAutoTrade: () => setAutoTrade,
+  setCompoundSettings: () => setCompoundSettings,
+  setShieldActive: () => setShieldActive,
+  setSolStrategies: () => setSolStrategies,
+  setSolStrategy: () => setSolStrategy,
+  setSolWeeklyGoal: () => setSolWeeklyGoal,
+  startSolEngine: () => startSolEngine,
+  stopSolEngine: () => stopSolEngine,
+  triggerSolAIReview: () => triggerSolAIReview,
+  updateSolPortfolioValue: () => updateSolPortfolioValue
+});
+import { eq as eq5, sql as sql6 } from "drizzle-orm";
+import crypto4 from "crypto";
+function isBadPriceSample(next, lastGood) {
+  if (!(next > 0) || !(lastGood > 0)) return false;
+  return next / lastGood > MAX_PRICE_SPIKE || lastGood / next > MAX_PRICE_SPIKE;
+}
+function getEncryptionKey4() {
+  const seed = (process.env.DATABASE_URL || "vedd-sol-engine-fallback") + "sol-v1";
+  return crypto4.createHash("sha256").update(seed).digest();
+}
+function encryptWalletKey(plain) {
+  const iv = crypto4.randomBytes(16);
+  const cipher = crypto4.createCipheriv("aes-256-cbc", getEncryptionKey4(), iv);
+  const enc = Buffer.concat([cipher.update(plain, "utf8"), cipher.final()]);
+  return iv.toString("hex") + ":" + enc.toString("hex");
+}
+function decryptWalletKey(ciphertext) {
+  const [ivHex, encHex] = ciphertext.split(":");
+  const iv = Buffer.from(ivHex, "hex");
+  const decipher = crypto4.createDecipheriv("aes-256-cbc", getEncryptionKey4(), iv);
+  const dec = Buffer.concat([decipher.update(Buffer.from(encHex, "hex")), decipher.final()]);
+  return dec.toString("utf8");
+}
+async function saveEngineState(userId, state) {
+  try {
+    await db.insert(solEngineSettings).values({
+      userId,
+      activeStrategy: state.activeStrategy,
+      activeStrategies: state.activeStrategies,
+      autoTradeEnabled: state.autoTradeEnabled,
+      liveTradeEnabled: state.liveTradeEnabled,
+      autoTradeTP: state.autoTradeTP,
+      autoTradeSL: state.autoTradeSL,
+      weeklyGoal: state.weeklyGoal,
+      autoTradeStats: state.autoTradeStats,
+      updatedAt: /* @__PURE__ */ new Date()
+    }).onConflictDoUpdate({
+      target: solEngineSettings.userId,
+      set: {
+        activeStrategy: state.activeStrategy,
+        activeStrategies: state.activeStrategies,
+        autoTradeEnabled: state.autoTradeEnabled,
+        liveTradeEnabled: state.liveTradeEnabled,
+        autoTradeTP: state.autoTradeTP,
+        autoTradeSL: state.autoTradeSL,
+        weeklyGoal: state.weeklyGoal,
+        autoTradeStats: state.autoTradeStats,
+        updatedAt: /* @__PURE__ */ new Date()
+      }
+    });
+  } catch (err) {
+    console.error("[SolEngine] saveEngineState settings error:", err);
+  }
+}
+async function upsertPosition(userId, pos) {
+  try {
+    await db.insert(solEnginePositions).values({
+      userId,
+      positionId: pos.id,
+      mode: pos.mode,
+      symbol: pos.symbol,
+      mint: pos.mint,
+      entryPrice: pos.entryPrice,
+      currentPrice: pos.currentPrice,
+      targetPct: pos.targetPct,
+      slPct: pos.slPct,
+      size: pos.size,
+      tokenAmount: pos.tokenAmount,
+      decimals: pos.decimals,
+      strategyId: pos.strategyId,
+      txHash: pos.txHash,
+      status: pos.status,
+      openedAt: pos.openedAt,
+      closedAt: pos.closedAt,
+      closePnlPct: pos.closePnlPct,
+      updatedAt: /* @__PURE__ */ new Date()
+    }).onConflictDoUpdate({
+      target: solEnginePositions.positionId,
+      set: {
+        currentPrice: pos.currentPrice,
+        status: pos.status,
+        closedAt: pos.closedAt,
+        closePnlPct: pos.closePnlPct,
+        tokenAmount: pos.tokenAmount,
+        updatedAt: /* @__PURE__ */ new Date()
+      }
+    });
+  } catch (err) {
+    console.error("[SolEngine] upsertPosition error:", err);
+  }
+}
+async function loadEngineStateFromDb(userId, state) {
+  try {
+    const [settings] = await db.select().from(solEngineSettings).where(eq5(solEngineSettings.userId, userId));
+    if (settings) {
+      state.activeStrategy = settings.activeStrategy;
+      state.activeStrategies = settings.activeStrategies || [settings.activeStrategy];
+      state.autoTradeEnabled = settings.autoTradeEnabled;
+      state.liveTradeEnabled = settings.liveTradeEnabled;
+      state.autoTradeTP = settings.autoTradeTP;
+      state.autoTradeSL = settings.autoTradeSL;
+      state.autoTrailActivationPct = settings.autoTrailActivationPct ?? 4;
+      state.autoTrailDistancePct = settings.autoTrailDistancePct ?? 3;
+      if (settings.weeklyGoal && typeof settings.weeklyGoal === "object") {
+        state.weeklyGoal = { ...DEFAULT_WEEKLY_GOAL, ...settings.weeklyGoal };
+      }
+      if (settings.autoTradeStats && typeof settings.autoTradeStats === "object") {
+        state.autoTradeStats = { ...state.autoTradeStats, ...settings.autoTradeStats };
+      }
+      if (settings.serverWalletKey && state.currentPortfolioValue <= 0) {
+        try {
+          const privateKeyBase58 = decryptWalletKey(settings.serverWalletKey);
+          const { Keypair: Keypair2, Connection: Connection3 } = await import("@solana/web3.js");
+          const bs58 = (await import("bs58")).default;
+          const keypair = Keypair2.fromSecretKey(bs58.decode(privateKeyBase58));
+          const rpcUrl = process.env.SOLANA_RPC_URL || "https://mainnet.helius-rpc.com/?api-key=15319bf4-5b40-4958-ac8d-6313aa55eb92";
+          const connection2 = new Connection3(rpcUrl, { commitment: "confirmed" });
+          const lamports = await connection2.getBalance(keypair.publicKey);
+          const solBalance = lamports / 1e9;
+          if (solBalance > 0) {
+            state.currentPortfolioValue = solBalance;
+            console.log(`[SolEngine] Auto-set portfolio value from server wallet: ${solBalance.toFixed(4)} SOL`);
+          }
+        } catch (walletErr) {
+          console.warn("[SolEngine] Could not fetch server wallet balance for portfolio init:", walletErr);
+        }
+      }
+    }
+    const positions = await db.select().from(solEnginePositions).where(eq5(solEnginePositions.userId, userId));
+    for (const row of positions) {
+      const pos = {
+        id: row.positionId,
+        symbol: row.symbol,
+        mint: row.mint,
+        entryPrice: row.entryPrice,
+        currentPrice: row.currentPrice,
+        targetPct: row.targetPct,
+        slPct: row.slPct,
+        size: row.size,
+        tokenAmount: row.tokenAmount,
+        decimals: row.decimals,
+        strategyId: row.strategyId,
+        txHash: row.txHash || void 0,
+        mode: row.mode,
+        status: row.status,
+        openedAt: row.openedAt,
+        closedAt: row.closedAt || void 0,
+        closePnlPct: row.closePnlPct || void 0
+      };
+      if (pos.mode === "paper") {
+        if (pos.status === "open") state.paperPositions.push(pos);
+        else state.closedPaperPositions.push(pos);
+      } else {
+        if (pos.status === "open") state.livePositions.push(pos);
+        else state.closedLivePositions.push(pos);
+      }
+    }
+    console.log(`[SolEngine] Loaded state for user ${userId}: ${positions.length} positions restored`);
+  } catch (err) {
+    console.error("[SolEngine] loadEngineStateFromDb error:", err);
+  }
+}
+async function fetchPricesByMint(mints) {
+  const out = {};
+  const unique2 = Array.from(new Set(mints.filter(Boolean)));
+  if (unique2.length === 0) return out;
+  for (let i = 0; i < unique2.length; i += 30) {
+    const batch = unique2.slice(i, i + 30);
+    try {
+      const resp = await fetch(`https://api.dexscreener.com/latest/dex/tokens/${batch.join(",")}`);
+      if (!resp.ok) continue;
+      const data = await resp.json();
+      const pairs = data?.pairs || [];
+      const bestLiq = {};
+      for (const pair of pairs) {
+        if (pair?.chainId && pair.chainId !== "solana") continue;
+        const mint = pair?.baseToken?.address;
+        if (!mint) continue;
+        const price = parseFloat(pair?.priceUsd) || 0;
+        const liq = pair?.liquidity?.usd || 0;
+        if (price <= 0) continue;
+        if (out[mint] === void 0 || liq > (bestLiq[mint] ?? -1)) {
+          out[mint] = price;
+          bestLiq[mint] = liq;
+        }
+      }
+    } catch (err) {
+      console.warn("[SolEngine] fetchPricesByMint DexScreener batch failed:", err instanceof Error ? err.message : err);
+    }
+  }
+  const missing = unique2.filter((m) => !(out[m] > 0));
+  if (missing.length > 0) {
+    try {
+      const resp = await fetch(`https://lite-api.jup.ag/price/v2?ids=${missing.join(",")}`);
+      if (resp.ok) {
+        const data = await resp.json();
+        const priceData = data?.data || {};
+        for (const mint of missing) {
+          const p = parseFloat(priceData?.[mint]?.price) || 0;
+          if (p > 0) out[mint] = p;
+        }
+      }
+    } catch (err) {
+      console.warn("[SolEngine] fetchPricesByMint Jupiter fallback failed:", err instanceof Error ? err.message : err);
+    }
+  }
+  return out;
+}
+function finalizeAbandonedPosition(userId, state, pos, reason) {
+  const gainPct = pos.entryPrice > 0 ? (pos.currentPrice - pos.entryPrice) / pos.entryPrice * 100 : 0;
+  pos.status = "closed";
+  pos.closedAt = (/* @__PURE__ */ new Date()).toISOString();
+  pos.closePnlPct = gainPct;
+  pos.closeReason = "abandoned";
+  pos.exitReason = reason;
+  state.livePositions = state.livePositions.filter((p) => p.id !== pos.id);
+  state.closedLivePositions.unshift(pos);
+  if (state.closedLivePositions.length > 50) state.closedLivePositions = state.closedLivePositions.slice(0, 50);
+  addActivity2(state, {
+    type: "live_sell",
+    message: `\u{1F6A8} ABANDONED: ${pos.symbol} marked closed (${reason}) \u2014 could not exit on-chain. MANUAL HANDLING REQUIRED. mint: ${pos.mint} | tokenAmount: ${pos.tokenAmount}`
+  });
+  console.error(`[SolEngine] ABANDONED position ${pos.id} (${pos.symbol}) reason=${reason} mint=${pos.mint} tokenAmount=${pos.tokenAmount}`);
+  upsertPosition(userId, pos).catch(() => {
+  });
+  saveEngineState(userId, state).catch(() => {
+  });
+}
+async function executeServerSideSell(userId, pos, reason, state) {
+  try {
+    const [settings] = await db.select({ serverWalletKey: solEngineSettings.serverWalletKey }).from(solEngineSettings).where(eq5(solEngineSettings.userId, userId));
+    if (!settings?.serverWalletKey) return false;
+    const privateKeyBase58 = decryptWalletKey(settings.serverWalletKey);
+    const { Keypair: Keypair2, Connection: Connection3, VersionedTransaction } = await import("@solana/web3.js");
+    const bs58 = (await import("bs58")).default;
+    const secretKey = bs58.decode(privateKeyBase58);
+    const keypair = Keypair2.fromSecretKey(secretKey);
+    const SOL_MINT = "So11111111111111111111111111111111111111112";
+    const amount = Math.floor(pos.tokenAmount);
+    if (amount <= 0) {
+      finalizeAbandonedPosition(userId, state, pos, `${reason}_zero_amount`);
+      return true;
+    }
+    const rpcUrl = process.env.SOLANA_RPC_URL || "https://mainnet.helius-rpc.com/?api-key=15319bf4-5b40-4958-ac8d-6313aa55eb92";
+    const connection2 = new Connection3(rpcUrl, { commitment: "confirmed" });
+    const slippageLadder = [300, 800, 1500];
+    let signature = null;
+    for (let attempt = 0; attempt < slippageLadder.length; attempt++) {
+      const slippageBps = slippageLadder[attempt];
+      try {
+        const quoteResp = await fetch(
+          `https://quote-api.jup.ag/v6/quote?inputMint=${pos.mint}&outputMint=${SOL_MINT}&amount=${amount}&slippageBps=${slippageBps}`
+        );
+        if (!quoteResp.ok) continue;
+        const quote = await quoteResp.json();
+        if (quote?.error) continue;
+        const swapResp = await fetch("https://quote-api.jup.ag/v6/swap", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            quoteResponse: quote,
+            userPublicKey: keypair.publicKey.toBase58(),
+            wrapAndUnwrapSol: true,
+            dynamicComputeUnitLimit: true,
+            prioritizationFeeLamports: "auto"
+          })
+        });
+        if (!swapResp.ok) continue;
+        const { swapTransaction } = await swapResp.json();
+        if (!swapTransaction) continue;
+        const txBuffer = Buffer.from(swapTransaction, "base64");
+        const transaction = VersionedTransaction.deserialize(txBuffer);
+        transaction.sign([keypair]);
+        const sig = await connection2.sendRawTransaction(transaction.serialize(), { skipPreflight: true, maxRetries: 3 });
+        let ok = false;
+        try {
+          const latest = await connection2.getLatestBlockhash("confirmed");
+          const conf = await connection2.confirmTransaction(
+            { signature: sig, blockhash: latest.blockhash, lastValidBlockHeight: latest.lastValidBlockHeight },
+            "confirmed"
+          );
+          ok = !conf.value.err;
+        } catch {
+          for (let i = 0; i < 20; i++) {
+            await new Promise((r) => setTimeout(r, 2e3));
+            try {
+              const st = await connection2.getSignatureStatuses([sig]);
+              const s = st.value[0];
+              if (s && (s.confirmationStatus === "confirmed" || s.confirmationStatus === "finalized")) {
+                ok = !s.err;
+                break;
+              }
+              if (s && s.err) {
+                ok = false;
+                break;
+              }
+            } catch {
+            }
+          }
+        }
+        if (ok) {
+          signature = sig;
+          break;
+        }
+        addActivity2(state, {
+          type: "live_sell",
+          message: `\u21BB Sell attempt ${attempt + 1}/${slippageLadder.length} unconfirmed for ${pos.symbol} (slippage ${slippageBps}bps) \u2014 retrying`
+        });
+      } catch (attemptErr) {
+        console.warn(`[SolEngine] sell attempt ${attempt + 1} failed:`, attemptErr instanceof Error ? attemptErr.message : attemptErr);
+      }
+    }
+    if (!signature) {
+      finalizeAbandonedPosition(userId, state, pos, "abandoned_sell_failed");
+      return true;
+    }
+    const gainPct = pos.entryPrice > 0 ? (pos.currentPrice - pos.entryPrice) / pos.entryPrice * 100 : 0;
+    const label = reason === "tp" ? "TP \u2705" : "SL \u{1F6E1}\uFE0F";
+    pos.status = "closed";
+    pos.closedAt = (/* @__PURE__ */ new Date()).toISOString();
+    pos.closePnlPct = gainPct;
+    state.livePositions = state.livePositions.filter((p) => p.id !== pos.id);
+    state.closedLivePositions.unshift(pos);
+    if (state.closedLivePositions.length > 50) state.closedLivePositions = state.closedLivePositions.slice(0, 50);
+    const isWin = gainPct >= 0;
+    state.autoTradeStats.totalTrades++;
+    state.autoTradeStats.totalPnlPct += gainPct;
+    if (isWin) {
+      state.autoTradeStats.wins++;
+      if (gainPct > state.autoTradeStats.bestTradePct) state.autoTradeStats.bestTradePct = gainPct;
+    } else {
+      state.autoTradeStats.losses++;
+      if (gainPct < state.autoTradeStats.worstTradePct) state.autoTradeStats.worstTradePct = gainPct;
+    }
+    const dexKeyLive = (pos.dex || "unknown").toLowerCase().replace(/[^a-z]/g, "") || "unknown";
+    if (!state.signalWeights[dexKeyLive]) state.signalWeights[dexKeyLive] = 1;
+    if (!state.kellyStats[dexKeyLive]) state.kellyStats[dexKeyLive] = { wins: 0, losses: 0, totalGainPct: 0 };
+    if (isWin) {
+      state.signalWeights[dexKeyLive] = Math.min(2, state.signalWeights[dexKeyLive] + 0.05);
+      state.kellyStats[dexKeyLive].wins++;
+      state.kellyStats[dexKeyLive].totalGainPct += Math.abs(gainPct);
+      state.weeklyGoal.winStreak = (state.weeklyGoal.winStreak || 0) + 1;
+    } else {
+      state.signalWeights[dexKeyLive] = Math.max(0.2, state.signalWeights[dexKeyLive] - 0.08);
+      state.kellyStats[dexKeyLive].losses++;
+      state.weeklyGoal.winStreak = 0;
+    }
+    if (state.weeklyGoal.phase !== "idle") {
+      state.weeklyGoal.currentProfitSol += pos.size * (gainPct / 100);
+      state.weeklyGoal.tradeHistory.unshift({
+        timestamp: (/* @__PURE__ */ new Date()).toISOString(),
+        symbol: pos.symbol,
+        sol: pos.size,
+        gainPct,
+        outcome: isWin ? "WIN" : "LOSS",
+        strategy: pos.strategyId || state.activeStrategy
+      });
+      if (state.weeklyGoal.tradeHistory.length > 100) state.weeklyGoal.tradeHistory = state.weeklyGoal.tradeHistory.slice(0, 100);
+    }
+    addActivity2(state, {
+      type: "live_sell",
+      message: `\u{1F916} Server auto-sold ${pos.symbol} [${label}] ${gainPct >= 0 ? "+" : ""}${gainPct.toFixed(2)}% \u2014 TX: ${signature.slice(0, 16)}...`
+    });
+    recordSolBrainOutcome({
+      userId,
+      symbol: pos.symbol,
+      strategy: pos.strategyId || "unknown",
+      direction: "long",
+      returnPct: gainPct,
+      holdingMinutes: Math.max(0, Math.round((Date.now() - new Date(pos.openedAt).getTime()) / 6e4)),
+      exitReason: reason,
+      profitLoss: pos.size * (gainPct / 100)
+    }).catch(() => {
+    });
+    upsertPosition(userId, pos).catch(() => {
+    });
+    saveEngineState(userId, state).catch(() => {
+    });
+    state.lastWalletRefreshAt = 0;
+    refreshServerWalletBalance(userId, state).catch(() => {
+    });
+    return true;
+  } catch (err) {
+    console.error("[SolEngine] executeServerSideSell error:", err);
+    return false;
+  }
+}
+async function executeServerSideBuy(userId, signal, state) {
+  try {
+    const [settings] = await db.select({ serverWalletKey: solEngineSettings.serverWalletKey }).from(solEngineSettings).where(eq5(solEngineSettings.userId, userId));
+    if (!settings?.serverWalletKey) return false;
+    const privateKeyBase58 = decryptWalletKey(settings.serverWalletKey);
+    const { Keypair: Keypair2, Connection: Connection3, VersionedTransaction } = await import("@solana/web3.js");
+    const bs58 = (await import("bs58")).default;
+    const secretKey = bs58.decode(privateKeyBase58);
+    const keypair = Keypair2.fromSecretKey(secretKey);
+    const SOL_MINT = "So11111111111111111111111111111111111111112";
+    const lamports = Math.floor(signal.sizeSOL * 1e9);
+    if (lamports <= 0) return false;
+    const quoteResp = await fetch(
+      `https://quote-api.jup.ag/v6/quote?inputMint=${SOL_MINT}&outputMint=${signal.mint}&amount=${lamports}&slippageBps=200`
+    );
+    if (!quoteResp.ok) return false;
+    const quote = await quoteResp.json();
+    if (quote.error) {
+      console.warn("[SolEngine] Jupiter buy quote error:", quote.error);
+      return false;
+    }
+    const swapResp = await fetch("https://quote-api.jup.ag/v6/swap", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        quoteResponse: quote,
+        userPublicKey: keypair.publicKey.toBase58(),
+        wrapAndUnwrapSol: true,
+        dynamicComputeUnitLimit: true,
+        prioritizationFeeLamports: "auto"
+      })
+    });
+    if (!swapResp.ok) return false;
+    const { swapTransaction } = await swapResp.json();
+    const txBuffer = Buffer.from(swapTransaction, "base64");
+    const transaction = VersionedTransaction.deserialize(txBuffer);
+    transaction.sign([keypair]);
+    const rpcUrl = process.env.SOLANA_RPC_URL || "https://mainnet.helius-rpc.com/?api-key=15319bf4-5b40-4958-ac8d-6313aa55eb92";
+    const connection2 = new Connection3(rpcUrl, { commitment: "confirmed" });
+    const signature = await connection2.sendRawTransaction(transaction.serialize(), {
+      skipPreflight: true,
+      maxRetries: 3
+    });
+    let confirmedOk = false;
+    try {
+      const latest = await connection2.getLatestBlockhash("confirmed");
+      const conf = await connection2.confirmTransaction(
+        { signature, blockhash: latest.blockhash, lastValidBlockHeight: latest.lastValidBlockHeight },
+        "confirmed"
+      );
+      confirmedOk = !conf.value.err;
+    } catch {
+      for (let i = 0; i < 30; i++) {
+        await new Promise((r) => setTimeout(r, 2e3));
+        try {
+          const st = await connection2.getSignatureStatuses([signature]);
+          const s = st.value[0];
+          if (s && (s.confirmationStatus === "confirmed" || s.confirmationStatus === "finalized")) {
+            confirmedOk = !s.err;
+            break;
+          }
+          if (s && s.err) {
+            confirmedOk = false;
+            break;
+          }
+        } catch {
+        }
+      }
+    }
+    if (!confirmedOk) {
+      addActivity2(state, {
+        type: "live_signal",
+        message: `\u274C Buy not confirmed \u2014 no position recorded: ${signal.symbol} (TX ${signature.slice(0, 16)}...). SOL not deployed.`
+      });
+      return false;
+    }
+    let tokenAmount = 0;
+    let decimals = 9;
+    try {
+      const { PublicKey: PublicKey3 } = await import("@solana/web3.js");
+      const balResp = await connection2.getParsedTokenAccountsByOwner(keypair.publicKey, { mint: new PublicKey3(signal.mint) });
+      for (const acc of balResp.value) {
+        const info2 = acc.account?.data?.parsed?.info?.tokenAmount;
+        if (info2) {
+          tokenAmount += Number(info2.amount) || 0;
+          if (info2.decimals != null) decimals = Number(info2.decimals);
+        }
+      }
+    } catch (balErr) {
+      console.warn("[SolEngine] getParsedTokenAccountsByOwner failed after buy:", balErr instanceof Error ? balErr.message : balErr);
+    }
+    if (!(tokenAmount > 0)) {
+      addActivity2(state, {
+        type: "live_signal",
+        message: `\u274C Buy confirmed but zero token balance found \u2014 no position recorded: ${signal.symbol}. MANUAL CHECK (TX ${signature.slice(0, 16)}...).`
+      });
+      return false;
+    }
+    const pos = {
+      id: `live_pos_${Date.now()}_${signal.symbol}`,
+      symbol: signal.symbol,
+      mint: signal.mint,
+      entryPrice: signal.price,
+      currentPrice: signal.price,
+      targetPct: state.autoTradeTP,
+      slPct: state.autoTradeSL,
+      size: signal.sizeSOL,
+      tokenAmount,
+      decimals,
+      strategyId: signal.strategyId,
+      mode: "live",
+      txHash: signature,
+      openedAt: (/* @__PURE__ */ new Date()).toISOString(),
+      status: "open",
+      stopLossPrice: signal.stopLossPrice,
+      takeProfitPrice: signal.takeProfitPrice,
+      dex: signal.dex
+    };
+    state.livePositions.push(pos);
+    state.dailyTradeCount++;
+    addActivity2(state, {
+      type: "live_buy",
+      message: `\u{1F916} Server auto-bought ${signal.symbol} \u2014 ${signal.sizeSOL.toFixed(3)} SOL @ $${signal.price.toFixed(6)} | TX: ${signature.slice(0, 16)}... | TP: +${state.autoTradeTP}% | SL: -${state.autoTradeSL}%`
+    });
+    upsertPosition(userId, pos).catch(() => {
+    });
+    saveEngineState(userId, state).catch(() => {
+    });
+    state.lastWalletRefreshAt = 0;
+    refreshServerWalletBalance(userId, state).catch(() => {
+    });
+    return true;
+  } catch (err) {
+    console.error("[SolEngine] executeServerSideBuy error:", err);
+    return false;
+  }
+}
+function passesStrategyFilter(analysis, strategy) {
+  const token = analysis.token;
+  const totalTxns = token.txns24h.buys + token.txns24h.sells;
+  const buyRatio = totalTxns > 0 ? token.txns24h.buys / totalTxns : 0.5;
+  const avgTxSize = totalTxns > 0 ? token.volume24h / totalTxns : 0;
+  const priceChg = token.priceChange24h;
+  switch (strategy.id) {
+    case "whale_follower":
+      return avgTxSize > 200 && token.makers24h < 500 && buyRatio > 0.55 && analysis.whaleScore >= 60;
+    case "momentum_surfer":
+      return priceChg >= 5 && priceChg <= 80 && buyRatio > 0.55 && token.volume24h >= 3e4;
+    case "breakout_hunter":
+      return priceChg >= 10 && priceChg <= 80 && token.volume24h >= 3e4 && buyRatio > 0.54;
+    case "dip_sniper":
+      return priceChg >= -40 && priceChg <= -4 && buyRatio > 0.62;
+    case "meme_velocity":
+      return priceChg >= 20 && token.volume24h >= 15e3;
+    case "volume_explosion":
+      return token.volume24h >= 25e4 && buyRatio > 0.52;
+    case "smart_money_flow":
+      return analysis.riskLevel === "LOW" && token.makers24h >= 50 && analysis.signal === "STRONG_BUY";
+    case "liquidity_sweep":
+      return priceChg >= -15 && priceChg <= 10 && buyRatio > 0.62 && analysis.sentimentScore >= 55;
+    case "order_flow_scalper":
+      return buyRatio > 0.65 && priceChg >= -5 && priceChg <= 20 && token.volume24h >= 5e4;
+    case "trend_rider":
+      return priceChg >= 8 && priceChg <= 60 && buyRatio > 0.56 && buyRatio < 0.8 && token.volume24h >= 75e3 && token.makers24h >= 40 && analysis.riskLevel !== "HIGH";
+    case "adaptive":
+      return true;
+    default:
+      return true;
+  }
+}
+function selectAdaptiveSolStrategy(macro, scanResult) {
+  if (scanResult.length === 0) {
+    return { strategyId: "momentum_surfer", reason: "No scan data \u2014 defaulting to momentum" };
+  }
+  const counts = { whale: 0, dip: 0, breakout: 0, volExplosion: 0, meme: 0, smartMoney: 0, orderFlow: 0 };
+  for (const t of scanResult) {
+    const tt = t.token.txns24h.buys + t.token.txns24h.sells;
+    const br = tt > 0 ? t.token.txns24h.buys / tt : 0.5;
+    const avgTx = tt > 0 ? t.token.volume24h / tt : 0;
+    const chg = t.token.priceChange24h;
+    if (avgTx > 1e3 && t.token.makers24h < 150 && t.whaleScore >= 65) counts.whale++;
+    if (chg >= -40 && chg <= -4 && br > 0.62) counts.dip++;
+    if (chg >= 12 && chg <= 70 && t.token.volume24h >= 8e4) counts.breakout++;
+    if (t.token.volume24h >= 25e4) counts.volExplosion++;
+    if (chg >= 20 && (t.token.dexSource === "pumpfun" || (t.token.dexId || "").toLowerCase().includes("pump"))) counts.meme++;
+    if (t.riskLevel === "LOW" && t.signal === "STRONG_BUY" && t.token.makers24h >= 150) counts.smartMoney++;
+    if (br > 0.65 && chg >= -5 && chg <= 20 && t.token.volume24h >= 5e4) counts.orderFlow++;
+  }
+  if (macro?.bias === "RISK_OFF") {
+    if (counts.smartMoney >= 1) return { strategyId: "smart_money_flow", reason: `RISK_OFF macro \u2014 ${counts.smartMoney} LOW-risk STRONG_BUY token(s). Institutional-grade entries only` };
+    if (counts.dip >= 1) return { strategyId: "dip_sniper", reason: `RISK_OFF macro \u2014 ${counts.dip} accumulation dip(s) with strong buy pressure. Cautious entries only` };
+    return { strategyId: "smart_money_flow", reason: "RISK_OFF macro \u2014 conservative mode, waiting for institutional quality setups" };
+  }
+  if (counts.volExplosion >= 2) return { strategyId: "volume_explosion", reason: `${counts.volExplosion} tokens with explosive volume (>$250K) \u2014 institutional attention confirmed` };
+  if (counts.whale >= 2) return { strategyId: "whale_follower", reason: `${counts.whale} tokens with real whale accumulation (large avg tx + concentrated wallets)` };
+  if (counts.breakout >= 2) return { strategyId: "breakout_hunter", reason: `${counts.breakout} confirmed breakout setups (12\u201370% move + volume >$80K)` };
+  if (counts.meme >= 2) return { strategyId: "meme_velocity", reason: `${counts.meme} meme tokens pumping on Pump.fun \u2014 velocity play` };
+  if (counts.dip >= 2) return { strategyId: "dip_sniper", reason: `${counts.dip} tokens dipping with smart-money accumulation` };
+  if (counts.whale >= 1) return { strategyId: "whale_follower", reason: `${counts.whale} whale accumulation token detected \u2014 follow the smart money` };
+  if (counts.volExplosion >= 1) return { strategyId: "volume_explosion", reason: `${counts.volExplosion} explosive volume token \u2014 institutional move in progress` };
+  if (counts.orderFlow >= 2) return { strategyId: "order_flow_scalper", reason: `${counts.orderFlow} tokens with strong buy delta but price not yet moved \u2014 order flow leading price, entry before the move` };
+  if (macro?.bias === "RISK_ON") return { strategyId: "momentum_surfer", reason: `RISK_ON macro \u2014 BTC/ETH/SOL all positive. Ride the momentum` };
+  return { strategyId: "momentum_surfer", reason: "Mixed market \u2014 default momentum scan" };
+}
+function getStrategyEntryContext(strategyId) {
+  switch (strategyId) {
+    case "whale_follower":
+      return "ENTRY FILTER: avg transaction size >$1K (whale-sized, not retail), <150 unique wallets (concentrated accumulation), whale score \u226565, buy/sell ratio >58%. SKIP tokens with many small retail txns or scattered wallets.";
+    case "momentum_surfer":
+      return "ENTRY FILTER: price up 5\u201380%, buy ratio >55%, volume >$30K. Riding an existing uptrend. Skip flat or down tokens.";
+    case "breakout_hunter":
+      return "ENTRY FILTER: price up 12\u201370% (not overextended), volume >$80K, buy ratio >58%. STRONG_BUY preferred. Skip micro-cap low-volume setups.";
+    case "dip_sniper":
+      return "ENTRY FILTER: price DOWN 4\u201340% in 24h BUT buy ratio >62% (smart accumulation against the trend). Counter-trend entry \u2014 requires clear accumulation signal in the dip.";
+    case "meme_velocity":
+      return "ENTRY FILTER: price up >20%, Pump.fun preferred, high velocity short-lived pump. Quick in-out (10\u201315 min). Accept HIGH risk. Prioritise momentum and exit speed.";
+    case "volume_explosion":
+      return "ENTRY FILTER: 24h volume >$250K (institutional or viral event), buy ratio >52%. Volume is the primary signal \u2014 price direction secondary.";
+    case "smart_money_flow":
+      return "ENTRY FILTER: LOW risk ONLY, STRONG_BUY only, \u2265150 unique wallets (distributed, not pumped), multi-day hold target. SKIP HIGH/EXTREME risk tokens.";
+    case "liquidity_sweep":
+      return "ENTRY FILTER: recent dip then bounce (price -15% to +10%), buy ratio >62%, sentiment \u226555. Quick scalp on a liquidity sweep bounce. Small size, fast exit.";
+    case "order_flow_scalper":
+      return "ENTRY FILTER: buy/sell ratio >65% (strong delta imbalance), price movement -5% to +20% (delta leading price \u2014 hasn't moved yet), volume >$50K. SKIP tokens where price has already moved >20% \u2014 you want to catch the move BEFORE price reacts to the flow. 15\u201360min hold. This is an institutional order flow play \u2014 buy pressure is accumulating before the price reflects it.";
+    case "adaptive":
+      return "ENTRY FILTER: adaptive mode \u2014 strategy selected each scan based on current conditions. Evaluate against the actual strategy in use this cycle.";
+    default:
+      return "";
+  }
+}
+function createInitialState(config) {
+  return {
+    isRunning: false,
+    config,
+    lastScanAt: 0,
+    lastTokenSnapshot: {},
+    lastTriggerAt: {},
+    activityFeed: [],
+    signalWeights: Object.fromEntries(DEX_NAMES.map((d) => [d, 1])),
+    kellyStats: Object.fromEntries(DEX_NAMES.map((d) => [d, { wins: 0, losses: 0, totalGainPct: 0 }])),
+    sessionHighWatermark: 0,
+    currentPortfolioValue: 0,
+    shieldActive: false,
+    scanTimer: null,
+    isScanning: false,
+    lastResults: [],
+    lastMacro: null,
+    weeklyGoal: { ...DEFAULT_WEEKLY_GOAL },
+    activeStrategy: "momentum_surfer",
+    activeStrategies: ["momentum_surfer"],
+    lastAgentConsensus: [],
+    autoTradeEnabled: false,
+    liveTradeEnabled: false,
+    paperPositions: [],
+    closedPaperPositions: [],
+    livePositions: [],
+    closedLivePositions: [],
+    pendingSignals: [],
+    pendingExits: [],
+    signalCooldowns: /* @__PURE__ */ new Map(),
+    autoTradeTP: 8,
+    autoTradeSL: 4,
+    autoTrailActivationPct: 4,
+    autoTrailDistancePct: 3,
+    paperTradeSize: 0,
+    compoundMode: false,
+    compoundRate: 100,
+    paperBaseCapital: 0,
+    paperPortfolioValue: 0,
+    paperPortfolioHistory: [],
+    autoTradeStats: { totalTrades: 0, wins: 0, losses: 0, totalPnlPct: 0, bestTradePct: 0, worstTradePct: 0 },
+    aiReviewCache: {},
+    serverWalletBalance: 0,
+    lastWalletRefreshAt: 0,
+    dailyTradeCount: 0,
+    dailyTradeDate: ""
+  };
+}
+function addActivity2(state, entry) {
+  state.activityFeed.unshift({ ...entry, timestamp: (/* @__PURE__ */ new Date()).toISOString() });
+  if (state.activityFeed.length > 100) state.activityFeed = state.activityFeed.slice(0, 100);
+}
+function getAdaptiveScanInterval2(config) {
+  if (!config.adaptiveScan) return 6e4;
+  const hourUtc = (/* @__PURE__ */ new Date()).getUTCHours();
+  const dayUtc = (/* @__PURE__ */ new Date()).getUTCDay();
+  if (dayUtc === 0 || dayUtc === 6) return 12e4;
+  if (hourUtc >= 13 && hourUtc < 20) return 3e4;
+  if (hourUtc >= 7 && hourUtc < 13) return 6e4;
+  return 12e4;
+}
+function calculateSolKellySize2(wins, losses, totalGainPct, portfolioSol) {
+  const total = wins + losses;
+  if (total < 3 || portfolioSol <= 0) return 0;
+  const winRate2 = wins / total;
+  const avgGain = wins > 0 ? totalGainPct / wins / 100 : 0.5;
+  const kelly = winRate2 - (1 - winRate2) / Math.max(avgGain, 0.01);
+  const fractional = Math.max(5e-3, Math.min(0.15, kelly * 0.25));
+  return Math.round(portfolioSol * fractional * 1e3) / 1e3;
+}
+function getPhaseMultiplier(phase2, winStreak) {
+  switch (phase2) {
+    case "warming_up":
+      return 0.8;
+    case "building":
+      return 1;
+    case "accelerating":
+      return 1.25;
+    case "cruising":
+      return 1;
+    case "pushing":
+      return Math.min(2, 1.5 + (winStreak >= 3 ? 0.25 : 0));
+    case "target_reached":
+      return 0.5;
+    default:
+      return 1;
+  }
+}
+function computeGoalPhase(goal) {
+  if (goal.targetSol <= 0 || goal.phase === "idle") return "idle";
+  const pct3 = goal.currentProfitSol / goal.targetSol;
+  if (pct3 >= 1) return "target_reached";
+  if (pct3 >= 0.85) return "pushing";
+  if (pct3 >= 0.7) return "cruising";
+  if (pct3 >= 0.5) return "accelerating";
+  if (pct3 >= 0.2) return "building";
+  return "warming_up";
+}
+function computeAutoSolSize(state, dex, overrideStrategy, mode = "live") {
+  if (mode === "paper" && state.paperTradeSize > 0) return state.paperTradeSize;
+  let portfolio;
+  if (mode === "paper") {
+    portfolio = state.compoundMode && state.paperPortfolioValue > 0 ? state.paperPortfolioValue : state.paperBaseCapital > 0 ? state.paperBaseCapital : state.paperPortfolioValue > 0 ? state.paperPortfolioValue : state.currentPortfolioValue > 0 ? state.currentPortfolioValue : PAPER_DEFAULT_PORTFOLIO_SOL;
+  } else {
+    portfolio = state.currentPortfolioValue;
+  }
+  if (portfolio <= 0) return 0;
+  const _sizeBoost = weekendBoostSizeMultiplier();
+  const riskPct = state.config.riskPerTradePct;
+  if (riskPct > 0) {
+    const phaseMultiplier2 = getPhaseMultiplier(state.weeklyGoal.phase, state.weeklyGoal.winStreak);
+    const riskFraction = riskPct / 100 * phaseMultiplier2 * _sizeBoost;
+    const capped = Math.max(5e-3, Math.min(0.15, riskFraction));
+    return Math.round(portfolio * capped * 1e3) / 1e3;
+  }
+  const strategy = overrideStrategy || SOL_STRATEGIES.find((s) => s.id === state.activeStrategy) || SOL_STRATEGIES[0];
+  const phaseMultiplier = getPhaseMultiplier(state.weeklyGoal.phase, state.weeklyGoal.winStreak);
+  let fraction = strategy.baseFraction * phaseMultiplier;
+  if (state.config.useKelly) {
+    const stats = state.kellyStats[dex] || { wins: 0, losses: 0, totalGainPct: 0 };
+    const kellySize2 = calculateSolKellySize2(stats.wins, stats.losses, stats.totalGainPct, portfolio);
+    if (kellySize2 > 0) {
+      const kellyFrac = kellySize2 / portfolio;
+      fraction = (fraction + kellyFrac) / 2;
+    }
+  }
+  fraction = fraction * _sizeBoost;
+  fraction = Math.max(5e-3, Math.min(0.15, fraction));
+  return Math.round(portfolio * fraction * 1e3) / 1e3;
+}
+function runQuantRulesAgent(token, macroBias) {
+  let score = 0;
+  if (token.sentimentScore > 70) score += 20;
+  else if (token.sentimentScore >= 50) score += 5;
+  else if (token.sentimentScore < 40) score -= 15;
+  if (token.tokenomicsScore > 70) score += 20;
+  else if (token.tokenomicsScore >= 50) score += 5;
+  else if (token.tokenomicsScore < 40) score -= 15;
+  if (token.whaleScore > 65) score += 15;
+  else if (token.whaleScore >= 45) score += 5;
+  else if (token.whaleScore < 35) score -= 10;
+  const buys = token.token.txns24h?.buys ?? 0;
+  const sells = token.token.txns24h?.sells ?? 0;
+  const totalTxns = buys + sells;
+  if (totalTxns > 0) {
+    const buyRatio = buys / totalTxns;
+    if (buyRatio > 0.65) score += 15;
+    else if (buyRatio > 0.5) score += 5;
+    else if (buyRatio < 0.35) score -= 15;
+  }
+  const chg = token.token.priceChange24h;
+  if (chg > 50) score -= 15;
+  else if (chg > 20) score -= 5;
+  else if (chg >= 5) score += 10;
+  else if (chg >= 0) score += 5;
+  else score -= 5;
+  if (macroBias === "bullish") score += 10;
+  else if (macroBias === "bearish") score -= 15;
+  if (token.riskLevel === "EXTREME") score -= 10;
+  else if (token.riskLevel === "LOW") score += 5;
+  if (score >= 60) return { verdict: "CONFIRM_BUY", score };
+  if (score >= 30) return { verdict: "WATCH", score };
+  return { verdict: "SKIP", score };
+}
+async function runSolAIReview(userId, state, scanResult, openPositions) {
+  const buySignals = scanResult.filter((t) => t.signal === "STRONG_BUY" || t.signal === "BUY").slice(0, 5);
+  if (buySignals.length === 0 && openPositions.length === 0) return;
+  try {
+    const { shouldDeferLowPriorityAi: shouldDeferLowPriorityAi2, aiBudgetDeferReason: aiBudgetDeferReason2 } = await Promise.resolve().then(() => (init_ai_budget_guard(), ai_budget_guard_exports));
+    if (shouldDeferLowPriorityAi2()) {
+      addActivity2(state, { type: "info", message: `\u23F8 Sol AI review deferred \u2014 shared AI budget ${aiBudgetDeferReason2()} (FX priority). Quant filters still active.` });
+      return;
+    }
+  } catch {
+  }
+  const cacheKey = [
+    ...buySignals.map((t) => t.token.symbol).sort(),
+    ...openPositions.map((p) => p.symbol).sort()
+  ].join("|");
+  const REVIEW_CACHE_TTL = 5 * 6e4;
+  const cached2 = state.aiReviewCache[cacheKey];
+  if (cached2 && Date.now() - cached2.ts < REVIEW_CACHE_TTL) {
+    const ageS = Math.round((Date.now() - cached2.ts) / 1e3);
+    const macroBiasCache = state.lastMacro?.bias ?? null;
+    const cacheConsensus = [];
+    let confirms = 0, skips = 0;
+    for (const d of cached2.result) {
+      if (!d || !d.symbol || d.type !== "signal") continue;
+      const tokenData = buySignals.find((t) => t.token.symbol === d.symbol);
+      if (!tokenData) continue;
+      const quant = runQuantRulesAgent(tokenData, macroBiasCache);
+      let consensusLabel = "WATCH";
+      if (quant.verdict === "CONFIRM_BUY" && d.action === "CONFIRM_BUY") {
+        consensusLabel = "STRONG_CONFIRM";
+        confirms++;
+      } else if (quant.verdict === "SKIP" && d.action === "SKIP") {
+        consensusLabel = "STRONG_SKIP";
+        skips++;
+      } else if (quant.verdict === "CONFIRM_BUY" && d.action === "SKIP" || quant.verdict === "SKIP" && d.action === "CONFIRM_BUY") consensusLabel = "CAUTION";
+      else if (quant.verdict === "WATCH" || d.action === "WATCH") consensusLabel = "WATCH";
+      cacheConsensus.push({
+        symbol: d.symbol,
+        quantVerdict: quant.verdict,
+        quantScore: quant.score,
+        gptVerdict: d.action,
+        consensus: consensusLabel,
+        timestamp: (/* @__PURE__ */ new Date()).toISOString()
+      });
+    }
+    if (cacheConsensus.length > 0) {
+      state.lastAgentConsensus = [...cacheConsensus, ...state.lastAgentConsensus].slice(0, 20);
+    }
+    addActivity2(state, {
+      type: "info",
+      message: `\u{1F4BE} Sol AI cache hit (${ageS}s old) \u2014 consensus rebuilt: ${confirms} confirm, ${skips} skip${cacheConsensus.length > 0 ? ` across ${cacheConsensus.length} signals` : " (no matching signals)"}`
+    });
+    return;
+  }
+  try {
+    const { getUniversalAIClientForUser: getUniversalAIClientForUser2 } = await Promise.resolve().then(() => (init_openai(), openai_exports));
+    let openai2;
+    let modelLabel = "GPT-4o";
+    const userClient = await getUniversalAIClientForUser2(userId);
+    const useEconomy = state.config.aiMode === "economy" || userClient.provider === "groq";
+    if (useEconomy) {
+      const groqKey = process.env.GROQ_API_KEY;
+      if (groqKey) {
+        const OpenAI9 = (await import("openai")).default;
+        openai2 = new OpenAI9({ apiKey: groqKey, baseURL: "https://api.groq.com/openai/v1", maxRetries: 4, timeout: 9e4 });
+        openai2.defaultModel = "openai/gpt-oss-120b";
+        modelLabel = "Groq Llama";
+        addActivity2(state, {
+          type: "info",
+          message: "\u{1F49A} Sol Economy: Groq Llama 3.3-70b (free) \u2014 full analysis, zero cost"
+        });
+      } else {
+        openai2 = userClient;
+        modelLabel = userClient.defaultModel || "User model";
+      }
+    } else {
+      openai2 = userClient;
+    }
+    const effectiveStrategyId = state.activeStrategy === "adaptive" || state.activeStrategies.includes("adaptive") ? state._adaptiveStrategy || "momentum_surfer" : state.activeStrategy;
+    const strategy = SOL_STRATEGIES.find((s) => s.id === effectiveStrategyId) || SOL_STRATEGIES[0];
+    const macro = state.lastMacro;
+    const goal = state.weeklyGoal;
+    const macroLine = macro ? `MACRO: BTC ${macro.btcChange >= 0 ? "+" : ""}${macro.btcChange.toFixed(1)}% | ETH ${macro.ethChange >= 0 ? "+" : ""}${macro.ethChange.toFixed(1)}% | SOL ${macro.solChange >= 0 ? "+" : ""}${macro.solChange.toFixed(1)}% \u2014 Bias: ${macro.bias}` : "";
+    const goalLine = goal.phase !== "idle" ? `WEEKLY GOAL: ${goal.currentProfitSol.toFixed(3)} / ${goal.targetSol.toFixed(3)} SOL (${(goal.currentProfitSol / Math.max(goal.targetSol, 1e-3) * 100).toFixed(1)}%) \u2014 Phase: ${goal.phase.replace(/_/g, " ").toUpperCase()}` : "WEEKLY GOAL: None set";
+    const entryContext = getStrategyEntryContext(effectiveStrategyId);
+    const systemPrompt = `You are VEDD Sol AI \u2014 autonomous Solana trading mind. Supreme Mathematics style: use "Peace", "Word is bond", "That's the mathematics", "Stay in the cipher", "dropping science" naturally in reason fields.
+STRATEGY: ${strategy.icon} ${strategy.name} \u2014 ${strategy.description} | Hold: ${strategy.holdTarget} | Min conf: ${strategy.minConfidence}% | Max risk: ${strategy.maxRisk}
+${entryContext ? entryContext + "\n" : ""}${goalLine} | Win streak: ${goal.winStreak} | Shield: ${state.shieldActive ? "ACTIVE" : "off"}
+${macroLine}
+
+Output a JSON array only (no markdown):
+- Signals: {symbol, type:"signal", action:CONFIRM_BUY|SKIP|WATCH|WAIT, reason:<80chars}
+  CONFIRM_BUY only if token matches THIS strategy's entry criteria. SKIP if it doesn't fit regardless of confidence.
+- Positions: {symbol, type:"position", action:HOLD|TRAIL|PARTIAL_CLOSE|CLOSE, trailPct?:int, reason:<80chars}`;
+    const signalsText = buySignals.length > 0 ? buySignals.map(
+      (t) => `${t.token.symbol}: ${t.signal} | Conf:${t.confidence}% | Sent:${t.sentimentScore} | Tok:${t.tokenomicsScore} | Whale:${t.whaleScore} | Vol:$${(t.token.volume24h / 1e3).toFixed(0)}K | Chg:${t.token.priceChange24h.toFixed(1)}%`
+    ).join("\n") : "None";
+    const positionsText = openPositions.length > 0 ? openPositions.map(
+      (p) => `${p.symbol}: entry $${p.entryPrice.toFixed(8)} \u2192 now $${p.currentPrice.toFixed(8)} | ${p.gainPct >= 0 ? "+" : ""}${p.gainPct.toFixed(1)}% | vol:${p.volumeStatus}`
+    ).join("\n") : "None";
+    const _solLessons = await Promise.resolve().then(() => (init_shadow_lessons(), shadow_lessons_exports)).then((m) => m.getShadowLessonsText(userId, "sol", 8)).catch(() => "");
+    const userPrompt = `${_solLessons ? `${_solLessons}
+
+` : ""}SIGNALS:
+${signalsText}
+
+OPEN POSITIONS:
+${positionsText}`;
+    const response = await openai2.chat.completions.create({
+      model: openai2.defaultModel || "gpt-4o",
+      messages: [
+        { role: "system", content: systemPrompt },
+        { role: "user", content: userPrompt }
+      ],
+      temperature: 0.25,
+      max_tokens: 600
+    });
+    const raw = response.choices[0]?.message?.content?.trim() || "[]";
+    let decisions = [];
+    try {
+      decisions = JSON.parse(raw.replace(/```json|```/g, "").trim());
+      if (!Array.isArray(decisions)) decisions = [];
+    } catch {
+      addActivity2(state, {
+        type: "info",
+        message: `\u26A0\uFE0F 2nd confirmation AI returned invalid JSON \u2014 consensus skipped this cycle. Raw: ${raw.slice(0, 80)}`
+      });
+      return;
+    }
+    state.aiReviewCache[cacheKey] = { ts: Date.now(), result: decisions };
+    const newConsensus = [];
+    const macroBias = state.lastMacro?.bias ?? null;
+    for (const d of decisions) {
+      if (!d || !d.symbol) continue;
+      if (d.type === "signal") {
+        const tokenData = buySignals.find((t) => t.token.symbol === d.symbol);
+        let gptVerdict = d.action;
+        let consensusLabel = "WATCH";
+        if (tokenData) {
+          const quant = runQuantRulesAgent(tokenData, macroBias);
+          const bothConfirm = quant.verdict === "CONFIRM_BUY" && d.action === "CONFIRM_BUY";
+          const bothSkip = quant.verdict === "SKIP" && d.action === "SKIP";
+          const disagree = quant.verdict === "CONFIRM_BUY" && d.action === "SKIP" || quant.verdict === "SKIP" && d.action === "CONFIRM_BUY";
+          const oneWatch = quant.verdict === "WATCH" || d.action === "WATCH";
+          if (bothConfirm) consensusLabel = "STRONG_CONFIRM";
+          else if (bothSkip) consensusLabel = "STRONG_SKIP";
+          else if (disagree) consensusLabel = "CAUTION";
+          else if (oneWatch) consensusLabel = "WATCH";
+          newConsensus.push({
+            symbol: d.symbol,
+            quantVerdict: quant.verdict,
+            quantScore: quant.score,
+            gptVerdict,
+            consensus: consensusLabel,
+            timestamp: (/* @__PURE__ */ new Date()).toISOString()
+          });
+          const consensusMsg = consensusLabel === "STRONG_CONFIRM" ? `\u{1F91D} STRONG CONFIRM: ${d.symbol} \u2014 Both agents aligned. Word is bond.` : consensusLabel === "STRONG_SKIP" ? `\u274C STRONG SKIP: ${d.symbol} \u2014 Both agents say pass. That's the mathematics.` : consensusLabel === "CAUTION" ? `\u26A0\uFE0F SPLIT SIGNAL: ${d.symbol} \u2014 Agents disagree. Knowledge yourself before entry.` : `\u{1F441}\uFE0F WATCH: ${d.symbol} \u2014 Mixed readings. Stay in the cipher.`;
+          addActivity2(state, { type: "signal", message: consensusMsg });
+        }
+        const icon = d.action === "CONFIRM_BUY" ? "\u{1F916}\u2705" : d.action === "SKIP" ? "\u{1F916}\u274C" : d.action === "WAIT" ? "\u{1F916}\u23F8\uFE0F" : "\u{1F916}\u{1F441}\uFE0F";
+        addActivity2(state, {
+          type: "signal",
+          message: `${icon} ${modelLabel} ${d.action}: ${d.symbol} \u2014 ${d.reason || ""}`
+        });
+      } else if (d.type === "position") {
+        const icon = d.action === "CLOSE" ? "\u{1F4CA}\u{1F534}" : d.action === "TRAIL" ? "\u{1F4CA}\u{1F53C}" : d.action === "PARTIAL_CLOSE" ? "\u{1F4CA}\u26A1" : "\u{1F4CA}\u{1F7E2}";
+        addActivity2(state, {
+          type: "strategy",
+          message: `${icon} AI ${d.action}: ${d.symbol}${d.trailPct ? ` (${d.trailPct}% trail dist)` : ""} \u2014 ${d.reason || ""}`
+        });
+      }
+    }
+    if (newConsensus.length > 0) {
+      state.lastAgentConsensus = [...newConsensus, ...state.lastAgentConsensus].slice(0, 20);
+    }
+  } catch (reviewErr) {
+    addActivity2(state, {
+      type: "info",
+      message: `\u26A0\uFE0F 2nd confirmation AI error: ${reviewErr instanceof Error ? reviewErr.message : "unknown"} \u2014 trades will proceed without consensus this cycle`
+    });
+  }
+}
+async function triggerSolAIReview(userId, openPositions = []) {
+  const state = engineStates2.get(userId);
+  if (!state) return;
+  await runSolAIReview(userId, state, state.lastResults, openPositions);
+}
+function computeServerTrailDist(gainPct, volStatus) {
+  const isStrong = volStatus === "surging" || volStatus === "above_average";
+  const isWeak = volStatus === "below_average" || volStatus === "dry";
+  if (gainPct >= 80) return isStrong ? 10 : isWeak ? 6 : 8;
+  if (gainPct >= 40) return isStrong ? 12 : isWeak ? 8 : 10;
+  return isStrong ? 15 : isWeak ? 10 : 12;
+}
+function getVolStatus(entryVol, currentVol) {
+  if (entryVol <= 0) return "average";
+  const ratio = currentVol / entryVol;
+  if (ratio >= 2.5) return "surging";
+  if (ratio >= 1.25) return "above_average";
+  if (ratio <= 0.5) return "dry";
+  if (ratio <= 0.75) return "below_average";
+  return "average";
+}
+async function monitorPaperPositions(userId, state) {
+  const openPositions = state.paperPositions.filter((p) => p.status === "open");
+  if (openPositions.length === 0) return;
+  const volumeMap = {};
+  for (const r of state.lastResults) {
+    if (r.token.address) volumeMap[r.token.address] = r.token.volume24h || 0;
+  }
+  const priceMap = await fetchPricesByMint(openPositions.map((p) => p.mint)).catch(() => ({}));
+  for (const r of state.lastResults) {
+    const m = r.token.address;
+    if (m && !(priceMap[m] > 0)) priceMap[m] = parseFloat(r.token.priceUsd) || 0;
+  }
+  for (const pos of openPositions) {
+    const currentPrice = priceMap[pos.mint];
+    if (!currentPrice || currentPrice <= 0) continue;
+    if (isBadPriceSample(currentPrice, pos.currentPrice > 0 ? pos.currentPrice : pos.entryPrice)) {
+      addActivity2(state, { type: "info", message: `\u26A0\uFE0F ${pos.symbol}: bad price sample ignored ($${currentPrice} vs $${pos.currentPrice > 0 ? pos.currentPrice : pos.entryPrice}) \u2014 skipping this cycle` });
+      continue;
+    }
+    pos.currentPrice = currentPrice;
+    const gainPct = (currentPrice - pos.entryPrice) / pos.entryPrice * 100;
+    if (!pos.peakPrice || currentPrice > pos.peakPrice) {
+      pos.peakPrice = currentPrice;
+    }
+    const currentVol = volumeMap[pos.mint] || 0;
+    const volStatus = getVolStatus(pos.entryVolume24h || 0, currentVol);
+    const trailActivation = pos.trailActivationPct && pos.trailActivationPct > 0 ? pos.trailActivationPct : 20;
+    let isTrailHit = false;
+    if (gainPct >= trailActivation) {
+      if (!pos.trailingActive) {
+        pos.trailingActive = true;
+        const dist2 = computeServerTrailDist(gainPct, volStatus);
+        addActivity2(state, {
+          type: "info",
+          message: `\u{1F512} Trail LOCKED: ${pos.symbol} hit +${gainPct.toFixed(1)}% (activation: ${trailActivation}%) \u2014 staged trail active | vol: ${volStatus} | dist: ${dist2}% from peak`
+        });
+      }
+      const dist = computeServerTrailDist(gainPct, volStatus);
+      const trailFloor = pos.peakPrice * (1 - dist / 100);
+      const effectiveFloor = Math.max(trailFloor, pos.entryPrice);
+      if (currentPrice <= effectiveFloor) {
+        isTrailHit = true;
+      }
+    } else if (gainPct >= 8) {
+      if (!pos.breakevenActive) {
+        pos.breakevenActive = true;
+        addActivity2(state, {
+          type: "info",
+          message: `\u{1F6E1}\uFE0F Breakeven floor set: ${pos.symbol} at +${gainPct.toFixed(1)}% \u2014 floor locked at entry price`
+        });
+      }
+    }
+    const isWin = gainPct >= pos.targetPct;
+    const isLoss = gainPct <= -pos.slPct;
+    if (isWin || isLoss || isTrailHit) {
+      const reason = isTrailHit ? "trail" : isWin ? "tp" : "sl";
+      pos.status = "closed";
+      pos.closedAt = (/* @__PURE__ */ new Date()).toISOString();
+      pos.closePnlPct = gainPct;
+      pos.closeReason = reason;
+      state.closedPaperPositions.unshift(pos);
+      if (state.closedPaperPositions.length > 50) state.closedPaperPositions = state.closedPaperPositions.slice(0, 50);
+      upsertPosition(userId, pos).catch(() => {
+      });
+      recordSolBrainOutcome({
+        userId,
+        symbol: pos.symbol,
+        strategy: pos.strategyId || "unknown",
+        direction: "long",
+        returnPct: gainPct,
+        holdingMinutes: Math.max(0, Math.round((Date.now() - new Date(pos.openedAt).getTime()) / 6e4)),
+        exitReason: reason,
+        profitLoss: pos.size * (gainPct / 100),
+        source: "paper"
+      }).catch(() => {
+      });
+      state.autoTradeStats.totalTrades++;
+      state.autoTradeStats.totalPnlPct += gainPct;
+      const isProfit = gainPct > 0;
+      if (isProfit) {
+        state.autoTradeStats.wins++;
+        if (gainPct > state.autoTradeStats.bestTradePct) state.autoTradeStats.bestTradePct = gainPct;
+      } else {
+        state.autoTradeStats.losses++;
+        if (gainPct < state.autoTradeStats.worstTradePct) state.autoTradeStats.worstTradePct = gainPct;
+      }
+      if (state.compoundMode && state.paperPortfolioValue > 0) {
+        const tradeSol = pos.size;
+        const rawPnlSol = tradeSol * (gainPct / 100);
+        const compoundedPnl = rawPnlSol * (state.compoundRate / 100);
+        const prev = state.paperPortfolioValue;
+        state.paperPortfolioValue = Math.max(1e-3, prev + compoundedPnl);
+        state.paperPortfolioHistory.push({ t: Date.now(), v: state.paperPortfolioValue });
+        if (state.paperPortfolioHistory.length > 50) state.paperPortfolioHistory = state.paperPortfolioHistory.slice(-50);
+        const growthPct = (state.paperPortfolioValue - state.paperBaseCapital) / state.paperBaseCapital * 100;
+        addActivity2(state, {
+          type: "info",
+          message: `\u{1F4B9} Compound update: ${compoundedPnl >= 0 ? "+" : ""}${compoundedPnl.toFixed(4)} SOL ${state.compoundRate < 100 ? `(${state.compoundRate}% reinvested)` : "fully reinvested"} \u2192 pool now ${state.paperPortfolioValue.toFixed(4)} SOL (${growthPct >= 0 ? "+" : ""}${growthPct.toFixed(1)}% from base)`
+        });
+      }
+      const emoji = isTrailHit ? "\u{1F512}" : isWin ? "\u2705" : "\u274C";
+      const label = isTrailHit ? `TRAIL EXIT` : isWin ? "WIN" : "LOSS";
+      addActivity2(state, {
+        type: "paper_sell",
+        message: `${emoji} Paper ${label}: ${pos.symbol} closed @ $${currentPrice.toFixed(6)} \u2014 ${gainPct >= 0 ? "+" : ""}${gainPct.toFixed(2)}% | ${pos.size.toFixed(3)} SOL ${isTrailHit ? "(trailing stop hit)" : isWin ? "profit sealed" : "lesson built"}`
+      });
+      const dexKeyClose = (pos.dex || "unknown").toLowerCase().replace(/[^a-z]/g, "") || "unknown";
+      if (!state.signalWeights[dexKeyClose]) state.signalWeights[dexKeyClose] = 1;
+      if (!state.kellyStats[dexKeyClose]) state.kellyStats[dexKeyClose] = { wins: 0, losses: 0, totalGainPct: 0 };
+      if (isProfit) {
+        state.signalWeights[dexKeyClose] = Math.min(2, state.signalWeights[dexKeyClose] + 0.05);
+        state.kellyStats[dexKeyClose].wins++;
+        state.kellyStats[dexKeyClose].totalGainPct += Math.abs(gainPct);
+        state.weeklyGoal.winStreak = (state.weeklyGoal.winStreak || 0) + 1;
+      } else {
+        state.signalWeights[dexKeyClose] = Math.max(0.2, state.signalWeights[dexKeyClose] - 0.08);
+        state.kellyStats[dexKeyClose].losses++;
+        state.weeklyGoal.winStreak = 0;
+      }
+      if (state.weeklyGoal.phase !== "idle") {
+        state.weeklyGoal.currentProfitSol += pos.size * (gainPct / 100);
+        state.weeklyGoal.tradeHistory.unshift({
+          timestamp: (/* @__PURE__ */ new Date()).toISOString(),
+          symbol: pos.symbol,
+          sol: pos.size,
+          gainPct,
+          outcome: isProfit ? "WIN" : "LOSS",
+          strategy: pos.strategyId || state.activeStrategy
+        });
+        if (state.weeklyGoal.tradeHistory.length > 100) state.weeklyGoal.tradeHistory = state.weeklyGoal.tradeHistory.slice(0, 100);
+      }
+    }
+  }
+  state.paperPositions = state.paperPositions.filter((p) => p.status === "open");
+}
+async function monitorLivePositions(userId, state) {
+  const allOpen = state.livePositions.filter((p) => p.status === "open");
+  if (allOpen.length === 0) return;
+  const now = Date.now();
+  state.pendingExits = state.pendingExits.filter((e) => new Date(e.expiresAt).getTime() > now);
+  for (const pos of allOpen) {
+    if (!(pos.entryPrice > 0) || !(pos.tokenAmount > 0)) {
+      finalizeAbandonedPosition(userId, state, pos, "reconciled_zero_amount");
+    }
+  }
+  const openPositions = state.livePositions.filter((p) => p.status === "open" && p.entryPrice > 0 && p.tokenAmount > 0);
+  if (openPositions.length === 0) return;
+  const volumeMap = {};
+  for (const r of state.lastResults) {
+    if (r.token.address) volumeMap[r.token.address] = r.token.volume24h || 0;
+  }
+  const priceMap = await fetchPricesByMint(openPositions.map((p) => p.mint)).catch(() => ({}));
+  for (const r of state.lastResults) {
+    const m = r.token.address;
+    if (m && !(priceMap[m] > 0)) priceMap[m] = parseFloat(r.token.priceUsd) || 0;
+  }
+  for (const pos of openPositions) {
+    const ageMs = Date.now() - new Date(pos.openedAt).getTime();
+    if (ageMs > SOL_MAX_HOLD_MS) {
+      const alreadyQueuedMH = state.pendingExits.some((e) => e.positionId === pos.id);
+      if (!alreadyQueuedMH) {
+        addActivity2(state, {
+          type: "live_sell",
+          message: `\u23F1\uFE0F Max-hold reached: ${pos.symbol} held ${(ageMs / 36e5).toFixed(1)}h (limit ${SOL_MAX_HOLD_HOURS}h) \u2014 forcing exit`
+        });
+        const forcedSold = await executeServerSideSell(userId, pos, "sl", state);
+        if (!forcedSold) {
+          const createdMH = /* @__PURE__ */ new Date();
+          state.pendingExits.push({
+            positionId: pos.id,
+            symbol: pos.symbol,
+            mint: pos.mint,
+            tokenAmount: pos.tokenAmount,
+            decimals: pos.decimals,
+            reason: "sl",
+            createdAt: createdMH.toISOString(),
+            expiresAt: new Date(createdMH.getTime() + 9e4).toISOString()
+          });
+        }
+      }
+      continue;
+    }
+    const currentPrice = priceMap[pos.mint];
+    if (!currentPrice || currentPrice <= 0) continue;
+    if (isBadPriceSample(currentPrice, pos.currentPrice > 0 ? pos.currentPrice : pos.entryPrice)) {
+      addActivity2(state, { type: "live_signal", message: `\u26A0\uFE0F ${pos.symbol}: bad price sample ignored ($${currentPrice} vs $${pos.currentPrice > 0 ? pos.currentPrice : pos.entryPrice}) \u2014 not acting this cycle` });
+      continue;
+    }
+    pos.currentPrice = currentPrice;
+    const gainPct = (currentPrice - pos.entryPrice) / pos.entryPrice * 100;
+    if (!pos.peakPrice || currentPrice > pos.peakPrice) pos.peakPrice = currentPrice;
+    const alreadyQueued = state.pendingExits.some((e) => e.positionId === pos.id);
+    if (alreadyQueued) continue;
+    const liveTrailActivation = pos.trailActivationPct && pos.trailActivationPct > 0 ? pos.trailActivationPct : 20;
+    const volStatus = getVolStatus(pos.entryVolume24h || 0, volumeMap[pos.mint] || 0);
+    let trailHit = false;
+    if (gainPct >= liveTrailActivation && pos.peakPrice) {
+      if (!pos.trailingActive) {
+        pos.trailingActive = true;
+        addActivity2(state, { type: "info", message: `\u{1F512} Live Trail LOCKED: ${pos.symbol} hit +${gainPct.toFixed(1)}% (activation: ${liveTrailActivation}%) \u2014 staged trail active (${volStatus} vol)` });
+      }
+      const dist = computeServerTrailDist(gainPct, volStatus);
+      const effectiveFloor = Math.max(pos.peakPrice * (1 - dist / 100), pos.entryPrice);
+      if (currentPrice <= effectiveFloor) trailHit = true;
+    }
+    const tpHit = gainPct >= pos.targetPct;
+    const slHit = gainPct <= -pos.slPct;
+    if (tpHit || slHit || trailHit) {
+      const reason = tpHit ? "tp" : trailHit ? "trail" : "sl";
+      const serverSold = await executeServerSideSell(userId, pos, reason, state);
+      if (!serverSold) {
+        const created = /* @__PURE__ */ new Date();
+        const expires = new Date(created.getTime() + 9e4);
+        state.pendingExits.push({
+          positionId: pos.id,
+          symbol: pos.symbol,
+          mint: pos.mint,
+          tokenAmount: pos.tokenAmount,
+          decimals: pos.decimals,
+          reason: reason === "trail" ? "sl" : reason,
+          createdAt: created.toISOString(),
+          expiresAt: expires.toISOString()
+        });
+        addActivity2(state, {
+          type: "live_sell",
+          message: tpHit ? `\u{1F3AF} TP hit: ${pos.symbol} +${gainPct.toFixed(1)}% \u2014 sell queued for wallet execution` : trailHit ? `\u{1F512} Trail exit: ${pos.symbol} +${gainPct.toFixed(1)}% \u2014 sell queued for wallet execution` : `\u{1F6E1}\uFE0F SL hit: ${pos.symbol} ${gainPct.toFixed(1)}% \u2014 sell queued for wallet execution`
+        });
+      }
+    }
+  }
+}
+async function refreshServerWalletBalance(userId, state) {
+  if (!state.liveTradeEnabled) return;
+  const now = Date.now();
+  if (now - state.lastWalletRefreshAt < 6e4) return;
+  state.lastWalletRefreshAt = now;
+  try {
+    const [settings] = await db.select({ serverWalletKey: solEngineSettings.serverWalletKey }).from(solEngineSettings).where(eq5(solEngineSettings.userId, userId));
+    if (!settings?.serverWalletKey) return;
+    const privateKeyBase58 = decryptWalletKey(settings.serverWalletKey);
+    const { Keypair: Keypair2, Connection: Connection3 } = await import("@solana/web3.js");
+    const bs58 = (await import("bs58")).default;
+    const keypair = Keypair2.fromSecretKey(bs58.decode(privateKeyBase58));
+    const rpcUrl = process.env.SOLANA_RPC_URL || "https://mainnet.helius-rpc.com/?api-key=15319bf4-5b40-4958-ac8d-6313aa55eb92";
+    const connection2 = new Connection3(rpcUrl, { commitment: "confirmed" });
+    const lamports = await connection2.getBalance(keypair.publicKey);
+    const solBalance = lamports / 1e9;
+    state.serverWalletBalance = solBalance;
+    if (Math.abs(state.currentPortfolioValue - solBalance) > 1e-3) {
+      console.log(`[SolEngine] Wallet sync: ${state.currentPortfolioValue.toFixed(4)} \u2192 ${solBalance.toFixed(4)} SOL (user ${userId})`);
+      state.currentPortfolioValue = solBalance;
+    }
+  } catch (err) {
+    console.warn("[SolEngine] refreshServerWalletBalance failed:", err instanceof Error ? err.message : err);
+  }
+}
+function pruneEngineMaps(state) {
+  const now = Date.now();
+  const ONE_HOUR = 60 * 6e4;
+  const REVIEW_TTL = 5 * 6e4;
+  const MAX_SNAPSHOTS = 500;
+  for (const k2 of Object.keys(state.lastTriggerAt)) {
+    if (now - (state.lastTriggerAt[k2] || 0) > ONE_HOUR) delete state.lastTriggerAt[k2];
+  }
+  for (const k2 of Object.keys(state.aiReviewCache)) {
+    if (now - (state.aiReviewCache[k2]?.ts || 0) > REVIEW_TTL) delete state.aiReviewCache[k2];
+  }
+  state.signalCooldowns.forEach((ts, k2) => {
+    if (now - (ts || 0) > ONE_HOUR) state.signalCooldowns.delete(k2);
+  });
+  const snapKeys = Object.keys(state.lastTokenSnapshot);
+  if (snapKeys.length > MAX_SNAPSHOTS) {
+    for (const k2 of snapKeys.slice(0, snapKeys.length - MAX_SNAPSHOTS)) delete state.lastTokenSnapshot[k2];
+  }
+}
+async function runScan(userId, state, triggerToken) {
+  if (!state.isRunning) return;
+  if (state.isScanning) return;
+  state.isScanning = true;
+  try {
+    const _boostActive = weekendBoostActive();
+    const _effMinConf = (s) => _boostActive ? boostedMinConfidence(s.minConfidence) : s.minConfidence;
+    const todayUTC = (/* @__PURE__ */ new Date()).toISOString().slice(0, 10);
+    if (state.dailyTradeDate !== todayUTC) {
+      state.dailyTradeDate = todayUTC;
+      state.dailyTradeCount = 0;
+    }
+    await refreshServerWalletBalance(userId, state).catch(() => {
+    });
+    if (SOL_BRAIN_ENABLED) await getOrRefreshSolBrain(userId).catch(() => {
+    });
+    const macro = await fetchCryptoMacroContext().catch(() => null);
+    state.lastMacro = macro;
+    if (macro && macro.bias === "RISK_OFF") {
+      addActivity2(state, {
+        type: "info",
+        message: `\u{1F4C9} Macro RISK_OFF: BTC${macro.btcChange >= 0 ? "+" : ""}${macro.btcChange.toFixed(1)}% / ETH${macro.ethChange >= 0 ? "+" : ""}${macro.ethChange.toFixed(1)}% / SOL${macro.solChange >= 0 ? "+" : ""}${macro.solChange.toFixed(1)}% \u2014 signal confidence reduced by 8%. Engine still trading at reduced size.`
+      });
+    }
+    const shieldFilter = state.config.shieldEnabled && state.shieldActive;
+    const { getUniversalAIClientForUser: getUniversalAIClientForUser2 } = await Promise.resolve().then(() => (init_openai(), openai_exports));
+    const userOpenai = await getUniversalAIClientForUser2(userId).catch(() => null);
+    const scanResult = await scanAndAnalyzeTokens(
+      state.config.maxTokens,
+      state.config.dexFilter,
+      {
+        signalWeights: state.signalWeights,
+        macro: macro || void 0,
+        kellyStats: state.config.useKelly ? state.kellyStats : void 0,
+        portfolioSol: state.currentPortfolioValue,
+        shieldActive: shieldFilter,
+        minConfidence: state.config.minConfidence,
+        openai: userOpenai || void 0
+      }
+    );
+    const now = Date.now();
+    state.lastScanAt = now;
+    const hasBuySignals = scanResult.some((t) => t.signal === "STRONG_BUY" || t.signal === "BUY");
+    const allOpenPositions = [
+      ...state.livePositions.filter((p) => p.status === "open").map((p) => {
+        const latestPrice = scanResult.find((r) => r.token.address === p.mint);
+        const currentPrice = latestPrice ? parseFloat(latestPrice.token.priceUsd) || p.currentPrice : p.currentPrice;
+        const gainPct = p.entryPrice > 0 ? (currentPrice - p.entryPrice) / p.entryPrice * 100 : 0;
+        return { symbol: p.symbol, entryPrice: p.entryPrice, currentPrice, gainPct, volumeStatus: "average" };
+      }),
+      ...state.paperPositions.filter((p) => p.status === "open").map((p) => {
+        const latestPrice = scanResult.find((r) => r.token.address === p.mint);
+        const currentPrice = latestPrice ? parseFloat(latestPrice.token.priceUsd) || p.currentPrice : p.currentPrice;
+        const gainPct = p.entryPrice > 0 ? (currentPrice - p.entryPrice) / p.entryPrice * 100 : 0;
+        return { symbol: p.symbol, entryPrice: p.entryPrice, currentPrice, gainPct, volumeStatus: "average" };
+      })
+    ].slice(0, 5);
+    const _reviewEveryMs = Math.max(30, Number(process.env.SOL_AI_REVIEW_MIN_SECONDS ?? 180)) * 1e3;
+    const _sinceReview = Date.now() - (state._lastAIReviewAt || 0);
+    if ((hasBuySignals || allOpenPositions.length > 0) && _sinceReview >= _reviewEveryMs) {
+      state._lastAIReviewAt = Date.now();
+      await runSolAIReview(userId, state, scanResult, allOpenPositions).catch(() => {
+      });
+    }
+    for (const dex of DEX_NAMES) {
+      state.signalWeights[dex] = Math.round((state.signalWeights[dex] * 0.99 + 1 * 0.01) * 1e3) / 1e3;
+    }
+    for (const analysis of scanResult) {
+      const key = analysis.token.address;
+      const prev = state.lastTokenSnapshot[key];
+      if (prev && analysis.token.volume24h > 0 && prev.volume > 0) {
+        const volumeMultiple = analysis.token.volume24h / prev.volume;
+        const lastTrigger = state.lastTriggerAt[key] || 0;
+        if (volumeMultiple >= 3 && now - lastTrigger > 6e4) {
+          state.lastTriggerAt[key] = now;
+          addActivity2(state, {
+            type: "trigger",
+            message: `\u26A1 Power surge on ${analysis.token.symbol} (${volumeMultiple.toFixed(1)}\xD7) \u2014 knowledge deepens in 8s`
+          });
+          setTimeout(() => runScan(userId, state, analysis.token.symbol), 8e3);
+        }
+      }
+      state.lastTokenSnapshot[key] = {
+        volume: analysis.token.volume24h,
+        price: parseFloat(analysis.token.priceUsd) || 0,
+        signal: analysis.signal,
+        confidence: analysis.confidence
+      };
+      const hasPaperCapital = state.autoTradeEnabled;
+      const hasLiveCapital = state.liveTradeEnabled && state.currentPortfolioValue > 0;
+      const canEnterTrade = hasPaperCapital || hasLiveCapital;
+      if ((analysis.signal === "STRONG_BUY" || analysis.signal === "BUY") && !canEnterTrade) {
+        if (state.liveTradeEnabled && state.currentPortfolioValue <= 0) {
+          addActivity2(state, {
+            type: "info",
+            message: `\u26A0\uFE0F Live signal skipped: ${analysis.token.symbol} \u2014 Live Trade is ON but portfolio SOL value is 0. Set it in engine settings \u2192 Portfolio Value.`
+          });
+        } else {
+          addActivity2(state, {
+            type: "info",
+            message: `\u{1F4E1} Signal: ${analysis.token.symbol} [${analysis.signal} ${analysis.confidence}%] \u2014 Paper & Live trade are OFF. Toggle Paper Trade ON in the \u2699\uFE0F Settings panel to auto-execute.`
+          });
+        }
+        continue;
+      }
+      const dirFilter = state.config.directionFilter || "buy_only";
+      const isBuySignal = analysis.signal === "STRONG_BUY" || analysis.signal === "BUY";
+      const isSellSignal = analysis.signal === "SELL" || analysis.signal === "STRONG_SELL";
+      if (dirFilter === "buy_only" && !isBuySignal) continue;
+      if (dirFilter === "sell_only" && !isSellSignal) continue;
+      if ((analysis.signal === "STRONG_BUY" || analysis.signal === "BUY") && canEnterTrade) {
+        if (analysis.token.priceChange24h > 80) {
+          addActivity2(state, {
+            type: "info",
+            message: `\u26D4 Overextended: ${analysis.token.symbol} skipped \u2014 already +${analysis.token.priceChange24h.toFixed(0)}% in 24h (>80% = likely top)`
+          });
+          continue;
+        }
+        const CONSENSUS_TTL_MS = 10 * 60 * 1e3;
+        const priorConsensus = state.lastAgentConsensus?.find((c) => c.symbol === analysis.token.symbol);
+        const consensusAge = priorConsensus?.timestamp ? Date.now() - new Date(priorConsensus.timestamp).getTime() : Infinity;
+        const consensusStale = consensusAge > CONSENSUS_TTL_MS;
+        if (priorConsensus && !consensusStale && priorConsensus.consensus === "STRONG_SKIP") {
+          addActivity2(state, {
+            type: "info",
+            message: `\u{1F916}\u274C Consensus BLOCK: ${analysis.token.symbol} \u2014 both AI and quant said SKIP (quant score: ${priorConsensus.quantScore}). That's the mathematics.`
+          });
+          continue;
+        }
+        if (priorConsensus && !consensusStale && priorConsensus.quantVerdict === "SKIP" && priorConsensus.quantScore < 10) {
+          addActivity2(state, {
+            type: "info",
+            message: `\u{1F4D0}\u274C Quant BLOCK: ${analysis.token.symbol} \u2014 quant score ${priorConsensus.quantScore} too low. Knowledge yourself.`
+          });
+          continue;
+        }
+        const dexKey = (analysis.token.dexId || "").toLowerCase().split("_")[0];
+        let activeStrats = state.activeStrategies.length > 0 ? state.activeStrategies : [state.activeStrategy];
+        const isAdaptiveMode = activeStrats.includes("adaptive") || state.activeStrategy === "adaptive";
+        if (isAdaptiveMode) {
+          const autoRec = selectAdaptiveSolStrategy(state.lastMacro, scanResult);
+          if (!state._adaptiveStrategy || state._adaptiveStrategy !== autoRec.strategyId) {
+            state._adaptiveStrategy = autoRec.strategyId;
+            addActivity2(state, {
+              type: "strategy",
+              message: `\u{1F916} Adaptive selected: ${SOL_STRATEGIES.find((s) => s.id === autoRec.strategyId)?.icon || ""}${autoRec.strategyId.replace(/_/g, " ").toUpperCase()} \u2014 ${autoRec.reason}`
+            });
+          }
+          activeStrats = [autoRec.strategyId];
+        }
+        const confirmingStrats = activeStrats.map((id) => SOL_STRATEGIES.find((s) => s.id === id)).filter((s) => !!s).filter((s) => {
+          if (analysis.confidence < _effMinConf(s)) return false;
+          if (s.minSignal === "STRONG_BUY" && analysis.signal !== "STRONG_BUY") return false;
+          if (s.maxRisk === "LOW" && (analysis.riskLevel === "HIGH" || analysis.riskLevel === "EXTREME")) return false;
+          if (!passesStrategyFilter(analysis, s)) return false;
+          return true;
+        });
+        if (confirmingStrats.length >= 2) {
+          const names = confirmingStrats.map((s) => `${s.icon}${s.name}`).join(" + ");
+          addActivity2(state, {
+            type: "strategy",
+            message: `\u{1F3AF} Multi-Strategy Confirmed: ${analysis.token.symbol} \u2014 ${names} all in agreement. Knowledge multiplied.`
+          });
+        }
+        const bestStrat = confirmingStrats.sort((a, b) => b.baseFraction - a.baseFraction)[0];
+        const paperAutoSize = computeAutoSolSize(state, dexKey, bestStrat, "paper");
+        const liveAutoSize = computeAutoSolSize(state, dexKey, bestStrat, "live");
+        if (paperAutoSize > 0) {
+          analysis.recommendedSolAmount = paperAutoSize;
+        }
+        const paperSizeSOL = paperAutoSize > 0 ? paperAutoSize : computeAutoSolSize(state, dexKey, void 0, "paper");
+        const sizeSOL = liveAutoSize > 0 ? liveAutoSize : computeAutoSolSize(state, dexKey, void 0, "live");
+        const topStrat = confirmingStrats[0] || SOL_STRATEGIES.find((s) => s.id === state.activeStrategy) || SOL_STRATEGIES[0];
+        const tokenPrice = parseFloat(analysis.token.priceUsd) || 0;
+        const tokenMint = analysis.token.address;
+        const now2 = (/* @__PURE__ */ new Date()).toISOString();
+        const maxDaily = state.config.maxDailyTrades || 0;
+        if (maxDaily > 0 && state.dailyTradeCount >= maxDaily) {
+          addActivity2(state, {
+            type: "info",
+            message: `\u{1F6AB} Daily limit reached: ${analysis.token.symbol} skipped \u2014 ${state.dailyTradeCount}/${maxDaily} trades taken today. Resets at UTC midnight.`
+          });
+          continue;
+        }
+        let stopLossPrice;
+        let takeProfitPrice;
+        if (state.config.stopOrdersEnabled && tokenPrice > 0) {
+          stopLossPrice = tokenPrice * (1 - state.autoTradeSL / 100);
+          takeProfitPrice = tokenPrice * (1 + state.autoTradeTP / 100);
+        }
+        if (state.autoTradeEnabled && paperSizeSOL > 0 && tokenPrice > 0) {
+          const alreadyOpen = state.paperPositions.some((p) => p.symbol === analysis.token.symbol && p.status === "open");
+          if (!alreadyOpen) {
+            const pos = {
+              id: `paper_${Date.now()}_${analysis.token.symbol}`,
+              symbol: analysis.token.symbol,
+              mint: tokenMint,
+              entryPrice: tokenPrice,
+              currentPrice: tokenPrice,
+              targetPct: state.autoTradeTP,
+              slPct: state.autoTradeSL,
+              size: paperSizeSOL,
+              tokenAmount: 0,
+              decimals: 9,
+              strategyId: topStrat.id,
+              dex: dexKey,
+              mode: "paper",
+              openedAt: now2,
+              status: "open",
+              peakPrice: tokenPrice,
+              trailingActive: false,
+              breakevenActive: false,
+              trailActivationPct: state.autoTrailActivationPct,
+              trailDistancePct: state.autoTrailDistancePct,
+              entryVolume24h: analysis.token.volume24h || 0,
+              stopLossPrice,
+              takeProfitPrice
+            };
+            state.paperPositions.push(pos);
+            upsertPosition(userId, pos).catch(() => {
+            });
+            state.dailyTradeCount++;
+            const compoundNote = state.compoundMode ? ` [\u{1F4B9} Compounding ON \u2014 ${state.paperPortfolioValue.toFixed(3)} SOL pool]` : "";
+            const stopNote = state.config.stopOrdersEnabled && stopLossPrice ? ` | \u{1F6D1} Stop @$${stopLossPrice.toFixed(6)} \xB7 \u{1F3AF} TP @$${takeProfitPrice?.toFixed(6)}` : ` | TP: +${state.autoTradeTP}% | SL: -${state.autoTradeSL}%`;
+            addActivity2(state, {
+              type: "paper_buy",
+              message: `\u{1F4C4} Paper BUY: ${analysis.token.symbol} \u2014 ${paperSizeSOL.toFixed(3)} SOL @ $${tokenPrice.toFixed(6)} [${topStrat.icon}${topStrat.name}]${stopNote} | Breakeven @+8% \xB7 Trail @+20% (vol-adjusted)${compoundNote}`
+            });
+          }
+        }
+        if (state.liveTradeEnabled && sizeSOL > 0 && tokenPrice > 0) {
+          const alreadyOpen = state.livePositions.some((p) => p.symbol === analysis.token.symbol && p.status === "open");
+          const alreadyQueued = state.pendingSignals.some((s) => s.symbol === analysis.token.symbol);
+          const SIGNAL_COOLDOWN_MS = 5 * 60 * 1e3;
+          const lastRejected = state.signalCooldowns.get(tokenMint);
+          const onCooldown = lastRejected && Date.now() - lastRejected < SIGNAL_COOLDOWN_MS;
+          const confluenceCount = SOL_STRATEGIES.filter((s) => {
+            if (analysis.confidence < _effMinConf(s)) return false;
+            if (s.minSignal === "STRONG_BUY" && analysis.signal !== "STRONG_BUY") return false;
+            if (s.maxRisk === "LOW" && (analysis.riskLevel === "HIGH" || analysis.riskLevel === "EXTREME")) return false;
+            if (!passesStrategyFilter(analysis, s)) return false;
+            return true;
+          }).length;
+          const compositeEdge = Math.min(100, analysis.confidence + Math.max(0, confluenceCount - 1) * SOL_CONFLUENCE_BONUS);
+          const confluenceOk = confluenceCount >= SOL_CONFLUENCE_REQUIRED && compositeEdge >= SOL_COMPOSITE_FLOOR;
+          const brainGate = SOL_BRAIN_ENABLED && SOL_BRAIN_GATING ? solBrainGate(userId, analysis.token.symbol, topStrat.id, (/* @__PURE__ */ new Date()).getUTCHours()) : { blocked: false, reason: "" };
+          const brainMult = SOL_BRAIN_ENABLED ? solBrainSizeMultiplier(userId, analysis.token.symbol) : 1;
+          const liveSizeSOL = brainMult !== 1 ? Math.round(sizeSOL * brainMult * 1e3) / 1e3 : sizeSOL;
+          if (!alreadyOpen && !alreadyQueued && !onCooldown && !confluenceOk) {
+            addActivity2(state, {
+              type: "info",
+              message: `\u{1F6A6} Live entry BLOCKED (confluence): ${analysis.token.symbol} \u2014 ${confluenceCount}/${SOL_CONFLUENCE_REQUIRED} strategies agree, composite ${compositeEdge.toFixed(0)} < ${SOL_COMPOSITE_FLOOR}. Paper still learning.`
+            });
+          } else if (!alreadyOpen && !alreadyQueued && !onCooldown && brainGate.blocked) {
+            addActivity2(state, {
+              type: "info",
+              message: `${brainGate.reason} (live entry skipped \u2014 paper still learning)`
+            });
+          } else if (!alreadyOpen && !alreadyQueued && !onCooldown) {
+            const created = /* @__PURE__ */ new Date();
+            const expires = new Date(created.getTime() + 9e4);
+            const brainNote = brainMult !== 1 ? ` \u{1F9E0} Brain ${brainMult}\xD7` : "";
+            const sig = {
+              id: `live_${Date.now()}_${analysis.token.symbol}`,
+              symbol: analysis.token.symbol,
+              mint: tokenMint,
+              signal: "BUY",
+              confidence: analysis.confidence,
+              price: tokenPrice,
+              sizeSOL: liveSizeSOL,
+              strategyId: topStrat.id,
+              createdAt: created.toISOString(),
+              expiresAt: expires.toISOString(),
+              // Carried through to the live SolAutoPosition once confirmed
+              // (executeServerSideBuy / the Phantom-approval confirm path).
+              // Previously computed above for the paper position only, so a
+              // live position stopOrdersEnabled believed it had never
+              // actually recorded one.
+              stopLossPrice,
+              takeProfitPrice,
+              dex: dexKey
+            };
+            addActivity2(state, {
+              type: "live_signal",
+              message: `\u26A1 Live signal: ${analysis.token.symbol} \u2014 ${liveSizeSOL.toFixed(3)} SOL @ $${tokenPrice.toFixed(6)} [${topStrat.icon}${topStrat.name}]${brainNote} | ${confluenceCount} strat confluence (edge ${compositeEdge.toFixed(0)}) | Attempting server-side execution...`
+            });
+            executeServerSideBuy(userId, sig, state).then((executed) => {
+              if (!executed) {
+                state.pendingSignals.push(sig);
+                addActivity2(state, {
+                  type: "live_signal",
+                  message: `\u26A1 Live signal queued: ${analysis.token.symbol} \u2014 ${liveSizeSOL.toFixed(3)} SOL @ $${tokenPrice.toFixed(6)} [${topStrat.icon}${topStrat.name}]${brainNote} | \u26A0\uFE0F APPROVE IN PHANTOM (90s window)`
+                });
+              }
+            }).catch(() => {
+              state.pendingSignals.push(sig);
+              addActivity2(state, {
+                type: "live_signal",
+                message: `\u26A1 Live signal queued: ${analysis.token.symbol} \u2014 ${sizeSOL.toFixed(3)} SOL @ $${tokenPrice.toFixed(6)} [${topStrat.icon}${topStrat.name}] | \u26A0\uFE0F APPROVE IN PHANTOM (90s window)`
+              });
+            });
+          }
+        }
+      }
+    }
+    state.lastResults = scanResult;
+    await monitorPaperPositions(userId, state);
+    await monitorLivePositions(userId, state);
+    const label = triggerToken ? ` (trigger: ${triggerToken})` : "";
+    const intervalSec = getAdaptiveScanInterval2(state.config) / 1e3;
+    const buys = scanResult.filter((t) => t.signal === "STRONG_BUY" || t.signal === "BUY").length;
+    const shieldNote = shieldFilter ? " \u{1F6E1}\uFE0F" : "";
+    const activeStrats2 = state.activeStrategies.length > 0 ? state.activeStrategies : [state.activeStrategy];
+    const stratNote = activeStrats2.length > 1 ? ` [${activeStrats2.map((id) => {
+      const s = SOL_STRATEGIES.find((x) => x.id === id);
+      return s ? s.icon + s.name : id;
+    }).join(" + ")}]` : (() => {
+      const strategy = SOL_STRATEGIES.find((s) => s.id === state.activeStrategy);
+      return strategy ? ` [${strategy.icon}${strategy.name}]` : "";
+    })();
+    addActivity2(state, {
+      type: "info",
+      message: `\u{1F50D} Knowledge dropped on ${scanResult.length} tokens${label}${shieldNote}${stratNote} \u2014 ${buys} buy signal${buys !== 1 ? "s" : ""} born. Next cipher in ${intervalSec}s`
+    });
+    if (macro) {
+      const btcStr = `BTC ${macro.btcChange >= 0 ? "+" : ""}${macro.btcChange.toFixed(1)}%`;
+      const ethStr = `ETH ${macro.ethChange >= 0 ? "+" : ""}${macro.ethChange.toFixed(1)}%`;
+      const solStr = `SOL ${macro.solChange >= 0 ? "+" : ""}${macro.solChange.toFixed(1)}%`;
+      addActivity2(state, {
+        type: "info",
+        message: `\u{1F4CA} The science: ${btcStr} \u2022 ${ethStr} \u2022 ${solStr} \u2014 bias: ${macro.bias}`
+      });
+    }
+    if (state.currentPortfolioValue > 0) {
+      for (const analysis of scanResult) {
+        if ((analysis.signal === "STRONG_BUY" || analysis.signal === "BUY") && analysis.recommendedSolAmount && analysis.recommendedSolAmount > 0) {
+          const dexKey = (analysis.token.dexId || "").toLowerCase().split("_")[0];
+          const phase2 = state.weeklyGoal.phase;
+          const mult = getPhaseMultiplier(phase2, state.weeklyGoal.winStreak);
+          addActivity2(state, {
+            type: "kelly",
+            message: `\u{1F4D0} Mathematics: ${analysis.token.symbol} on ${dexKey} \u2192 ${analysis.recommendedSolAmount.toFixed(3)} SOL (${mult}\xD7 ${phase2.replace("_", " ")} phase)`
+          });
+        }
+      }
+    }
+  } catch (err) {
+    addActivity2(state, {
+      type: "info",
+      message: `\u26A0\uFE0F Interruption in the cipher: ${err instanceof Error ? err.message : "unknown"}`
+    });
+  } finally {
+    state.isScanning = false;
+  }
+  try {
+    pruneEngineMaps(state);
+  } catch {
+  }
+  saveEngineState(userId, state).catch(() => {
+  });
+  if (state.isRunning) {
+    if (state.scanTimer) clearTimeout(state.scanTimer);
+    const nextMs = getAdaptiveScanInterval2(state.config);
+    state.scanTimer = setTimeout(() => runScan(userId, state), nextMs);
+  }
+}
+async function startSolEngine(userId, config = {}) {
+  if (startingSolUsers.has(userId)) return;
+  startingSolUsers.add(userId);
+  try {
+    const existing = engineStates2.get(userId);
+    if (existing?.isRunning) stopSolEngine(userId);
+    const fullConfig = { ...DEFAULT_CONFIG, ...config };
+    const state = createInitialState(fullConfig);
+    if (existing) {
+      state.weeklyGoal = existing.weeklyGoal;
+      state.activeStrategy = existing.activeStrategy;
+      state.activeStrategies = existing.activeStrategies;
+      state.signalWeights = existing.signalWeights;
+      state.kellyStats = existing.kellyStats;
+      state.sessionHighWatermark = existing.sessionHighWatermark;
+      state.currentPortfolioValue = existing.currentPortfolioValue;
+      state.shieldActive = existing.shieldActive;
+      state.autoTradeEnabled = existing.autoTradeEnabled;
+      state.liveTradeEnabled = existing.liveTradeEnabled;
+      state.paperPositions = existing.paperPositions;
+      state.closedPaperPositions = existing.closedPaperPositions;
+      state.livePositions = existing.livePositions;
+      state.closedLivePositions = existing.closedLivePositions;
+      state.pendingExits = existing.pendingExits || [];
+      state.autoTradeStats = existing.autoTradeStats;
+      state.autoTradeTP = existing.autoTradeTP;
+      state.autoTradeSL = existing.autoTradeSL;
+      state.serverWalletBalance = existing.serverWalletBalance;
+      state.lastWalletRefreshAt = existing.lastWalletRefreshAt;
+      state.dailyTradeCount = existing.dailyTradeCount;
+      state.dailyTradeDate = existing.dailyTradeDate;
+    } else {
+      await loadEngineStateFromDb(userId, state);
+    }
+    try {
+      const _res = await db.execute(
+        sql6`SELECT paper_base_capital, server_wallet_key FROM sol_engine_settings WHERE user_id = ${userId}`
+      );
+      const rows = Array.isArray(_res) ? _res : _res?.rows ?? [];
+      let paperBase = Number(rows?.[0]?.paper_base_capital ?? 0);
+      if (paperBase > SOL_PAPER_MAX_SOL) {
+        console.warn(`[SolEngine] paper_base_capital ${paperBase} > ${SOL_PAPER_MAX_SOL} SOL looks like a USD figure \u2014 using 5 SOL`);
+        paperBase = 5;
+      }
+      const hasServerWallet = !!rows?.[0]?.server_wallet_key;
+      if (paperBase > 0) {
+        state.paperBaseCapital = paperBase;
+        if (state.paperPortfolioValue <= 0) state.paperPortfolioValue = paperBase;
+        if (!hasServerWallet && state.currentPortfolioValue <= 0) state.currentPortfolioValue = paperBase;
+      }
+    } catch (err) {
+      console.warn("[SolEngine] paper_base_capital restore failed (non-fatal):", err);
+    }
+    if (state.currentPortfolioValue <= 0) {
+      try {
+        const [settings] = await db.select({ serverWalletKey: solEngineSettings.serverWalletKey, liveTradeEnabled: solEngineSettings.liveTradeEnabled }).from(solEngineSettings).where(eq5(solEngineSettings.userId, userId));
+        if (settings?.serverWalletKey) {
+          const privateKeyBase58 = decryptWalletKey(settings.serverWalletKey);
+          const { Keypair: Keypair2, Connection: Connection3 } = await import("@solana/web3.js");
+          const bs58 = (await import("bs58")).default;
+          const keypair = Keypair2.fromSecretKey(bs58.decode(privateKeyBase58));
+          const rpcUrl = process.env.SOLANA_RPC_URL || "https://mainnet.helius-rpc.com/?api-key=15319bf4-5b40-4958-ac8d-6313aa55eb92";
+          const connection2 = new Connection3(rpcUrl, { commitment: "confirmed" });
+          const lamports = await connection2.getBalance(keypair.publicKey);
+          const solBalance = lamports / 1e9;
+          if (solBalance > 0) {
+            state.currentPortfolioValue = solBalance;
+            state.liveTradeEnabled = settings?.liveTradeEnabled === true;
+            console.log(`[SolEngine] Portfolio auto-set from wallet on start: ${solBalance.toFixed(4)} SOL (live=${state.liveTradeEnabled})`);
+          }
+        }
+      } catch {
+      }
+    }
+    state.isRunning = true;
+    engineStates2.set(userId, state);
+    const intervalSec = getAdaptiveScanInterval2(fullConfig) / 1e3;
+    const windowLabel = intervalSec === 30 ? "peak hours (13\u201320 UTC)" : intervalSec === 60 ? "standard hours" : "overnight / weekend";
+    const activeIds = state.activeStrategies.length > 0 ? state.activeStrategies : [state.activeStrategy];
+    const stratLabel = activeIds.map((id) => {
+      const s = SOL_STRATEGIES.find((x) => x.id === id);
+      return s ? `${s.icon}${s.name}` : id;
+    }).join(" + ");
+    addActivity2(state, {
+      type: "info",
+      message: `\u26A1 Peace \u2014 Sol cipher activated. ${stratLabel} in rotation, dropping knowledge every ${intervalSec}s (${windowLabel})`
+    });
+    runScan(userId, state);
+  } finally {
+    startingSolUsers.delete(userId);
+  }
+}
+function stopSolEngine(userId) {
+  const state = engineStates2.get(userId);
+  if (!state) return;
+  state.isRunning = false;
+  if (state.scanTimer) {
+    clearTimeout(state.scanTimer);
+    state.scanTimer = null;
+  }
+  addActivity2(state, { type: "info", message: "\u{1F6D1} Engine at rest \u2014 knowledge preserved, cipher closed" });
+}
+function getSolEngineStatus(userId) {
+  const state = engineStates2.get(userId);
+  if (!state) {
+    return {
+      running: false,
+      activityFeed: [],
+      signalWeights: Object.fromEntries(DEX_NAMES.map((d) => [d, 1])),
+      shieldActive: false,
+      lastResults: [],
+      kellyStats: {},
+      lastMacro: null,
+      weeklyGoal: { ...DEFAULT_WEEKLY_GOAL },
+      activeStrategy: "momentum_surfer",
+      activeStrategies: ["momentum_surfer"]
+    };
+  }
+  return {
+    running: state.isRunning,
+    config: state.config,
+    activityFeed: state.activityFeed.slice(0, 20),
+    signalWeights: state.signalWeights,
+    kellyStats: state.kellyStats,
+    shieldActive: state.shieldActive,
+    sessionHighWatermark: state.sessionHighWatermark,
+    currentPortfolioValue: state.currentPortfolioValue,
+    lastScanAt: state.lastScanAt,
+    lastResults: state.lastResults,
+    lastMacro: state.lastMacro,
+    weeklyGoal: state.weeklyGoal,
+    activeStrategy: state.activeStrategy,
+    activeStrategies: state.activeStrategies,
+    lastAgentConsensus: state.lastAgentConsensus,
+    paperTradeSize: state.paperTradeSize,
+    compoundMode: state.compoundMode,
+    compoundRate: state.compoundRate,
+    paperBaseCapital: state.paperBaseCapital,
+    paperPortfolioValue: state.paperPortfolioValue,
+    paperPortfolioHistory: state.paperPortfolioHistory,
+    autoTradeEnabled: state.autoTradeEnabled,
+    liveTradeEnabled: state.liveTradeEnabled,
+    autoTradeMode: state.liveTradeEnabled ? "live" : state.autoTradeEnabled ? "paper" : "off",
+    pendingSignalsCount: state.pendingSignals.filter((s) => new Date(s.expiresAt).getTime() > Date.now()).length,
+    pendingSignalSymbols: state.pendingSignals.filter((s) => new Date(s.expiresAt).getTime() > Date.now()).map((s) => s.symbol),
+    serverWalletBalance: state.serverWalletBalance,
+    dailyTradeCount: state.dailyTradeCount,
+    dailyTradeDate: state.dailyTradeDate
+  };
+}
+function getSolStrategies() {
+  return SOL_STRATEGIES;
+}
+function setSolStrategies(userId, strategyIds) {
+  const valid = strategyIds.filter((id) => SOL_STRATEGIES.some((s) => s.id === id));
+  if (valid.length === 0) return { success: false };
+  let state = engineStates2.get(userId);
+  if (!state) {
+    state = createInitialState({ ...DEFAULT_CONFIG });
+    engineStates2.set(userId, state);
+  }
+  state.activeStrategies = valid;
+  state.activeStrategy = valid[0];
+  const strats = valid.map((id) => SOL_STRATEGIES.find((s) => s.id === id)).filter(Boolean);
+  const label = strats.map((s) => `${s.icon}${s.name}`).join(" + ");
+  const modeNote = valid.length > 1 ? ` \u2014 Multi-Strategy Mode \u{1F3AF} active` : "";
+  addActivity2(state, {
+    type: "strategy",
+    message: `\u{1F504} Cipher updated \u2014 ${label}${modeNote}. Word is bond.`
+  });
+  return { success: true, strategies: strats };
+}
+function setSolStrategy(userId, strategyId) {
+  const strategy = SOL_STRATEGIES.find((s) => s.id === strategyId);
+  if (!strategy) return { success: false };
+  let state = engineStates2.get(userId);
+  if (!state) {
+    state = createInitialState({ ...DEFAULT_CONFIG });
+    engineStates2.set(userId, state);
+  }
+  state.activeStrategy = strategyId;
+  state.activeStrategies = [strategyId];
+  addActivity2(state, {
+    type: "strategy",
+    message: `${strategy.icon} Word is bond \u2014 ${strategy.name} now in rotation. Min ${strategy.minConfidence}% confidence, ${strategy.baseFraction * 100}% base size, ${strategy.holdTarget} hold`
+  });
+  return { success: true, strategy };
+}
+function setSolWeeklyGoal(userId, params) {
+  let state = engineStates2.get(userId);
+  if (!state) {
+    state = createInitialState({ ...DEFAULT_CONFIG });
+    engineStates2.set(userId, state);
+  }
+  const portfolio = state.currentPortfolioValue;
+  let targetSol = params.targetSol || 0;
+  let targetPct = params.targetPct || 0;
+  if (targetPct > 0 && portfolio > 0 && targetSol <= 0) {
+    targetSol = portfolio * (targetPct / 100);
+  } else if (targetSol > 0 && portfolio > 0 && targetPct <= 0) {
+    targetPct = targetSol / portfolio * 100;
+  }
+  if (targetSol <= 0) return { success: false };
+  state.weeklyGoal = {
+    targetSol,
+    targetPct,
+    startPortfolio: portfolio,
+    currentProfitSol: 0,
+    phase: "warming_up",
+    weekStart: Date.now(),
+    winStreak: 0,
+    tradeHistory: []
+  };
+  addActivity2(state, {
+    type: "goal",
+    message: `\u{1F3AF} Target manifested \u2014 +${targetSol.toFixed(3)} SOL (${targetPct.toFixed(1)}%) this week. Warming up the cipher (0.8\xD7 size)`
+  });
+  return { success: true };
+}
+function resetSolWeeklyGoal(userId) {
+  const state = engineStates2.get(userId);
+  if (!state) return { success: false };
+  state.weeklyGoal = { ...DEFAULT_WEEKLY_GOAL };
+  addActivity2(state, { type: "goal", message: "\u{1F504} Cipher cleared \u2014 knowledge reset, back to zero point" });
+  return { success: true };
+}
+function recordSolSignalResult(userId, params) {
+  const state = engineStates2.get(userId);
+  if (!state) return { success: false };
+  const dex = (params.dex || "unknown").toLowerCase().replace(/[^a-z]/g, "") || "unknown";
+  if (!state.signalWeights[dex]) state.signalWeights[dex] = 1;
+  if (!state.kellyStats[dex]) state.kellyStats[dex] = { wins: 0, losses: 0, totalGainPct: 0 };
+  if (params.outcome === "WIN") {
+    state.signalWeights[dex] = Math.min(2, state.signalWeights[dex] + 0.05);
+    state.kellyStats[dex].wins++;
+    state.kellyStats[dex].totalGainPct += Math.abs(params.gainPct);
+    state.weeklyGoal.winStreak = (state.weeklyGoal.winStreak || 0) + 1;
+    addActivity2(state, {
+      type: "signal",
+      message: `\u2705 Born \u2014 ${params.symbol || dex} +${params.gainPct.toFixed(1)}% sealed in profit. ${dex} weight ${state.signalWeights[dex].toFixed(2)} | Streak: ${state.weeklyGoal.winStreak}`
+    });
+  } else {
+    state.signalWeights[dex] = Math.max(0.2, state.signalWeights[dex] - 0.08);
+    state.kellyStats[dex].losses++;
+    state.weeklyGoal.winStreak = 0;
+    addActivity2(state, {
+      type: "signal",
+      message: `\u274C Lesson built \u2014 ${params.symbol || dex}. The cipher teaches. ${dex} weight ${state.signalWeights[dex].toFixed(2)} | Streak reset`
+    });
+  }
+  if (state.weeklyGoal.phase !== "idle") {
+    const solAmount = params.sol || 0;
+    const actualGainPct = params.gainPct;
+    const gainSol = solAmount * (actualGainPct / 100);
+    state.weeklyGoal.currentProfitSol += gainSol;
+    state.weeklyGoal.tradeHistory.unshift({
+      timestamp: (/* @__PURE__ */ new Date()).toISOString(),
+      symbol: params.symbol || dex,
+      sol: solAmount,
+      gainPct: actualGainPct,
+      outcome: params.outcome,
+      strategy: state.activeStrategy
+    });
+    if (state.weeklyGoal.tradeHistory.length > 100) {
+      state.weeklyGoal.tradeHistory = state.weeklyGoal.tradeHistory.slice(0, 100);
+    }
+    const prevPhase = state.weeklyGoal.phase;
+    const newPhase = computeGoalPhase(state.weeklyGoal);
+    if (newPhase !== prevPhase) {
+      state.weeklyGoal.phase = newPhase;
+      const mult = getPhaseMultiplier(newPhase, state.weeklyGoal.winStreak);
+      const phaseNames = {
+        warming_up: "\u{1F535} WARMING UP",
+        building: "\u{1F535} BUILDING",
+        accelerating: "\u{1F7E1} ACCELERATING",
+        cruising: "\u{1F7E2} CRUISING",
+        pushing: "\u{1F7E0} PUSHING",
+        target_reached: "\u{1F3C6} TARGET REACHED"
+      };
+      addActivity2(state, {
+        type: "goal",
+        message: `${phaseNames[newPhase] || newPhase} \u2014 the God builds on. Sizing ${mult}\xD7 | Progress: ${(state.weeklyGoal.currentProfitSol / state.weeklyGoal.targetSol * 100).toFixed(1)}%`
+      });
+    }
+  }
+  return { success: true };
+}
+function setAutoTrade(userId, opts) {
+  let state = engineStates2.get(userId);
+  if (!state) {
+    state = createInitialState({ ...DEFAULT_CONFIG });
+    engineStates2.set(userId, state);
+  }
+  if (opts.paperEnabled !== void 0) {
+    state.autoTradeEnabled = opts.paperEnabled;
+    addActivity2(state, {
+      type: "info",
+      message: opts.paperEnabled ? "\u{1F4C4} Paper Auto-Trade ENABLED \u2014 the cipher will open virtual positions on every buy signal" : "\u{1F4C4} Paper Auto-Trade DISABLED"
+    });
+  }
+  if (opts.liveEnabled !== void 0) {
+    state.liveTradeEnabled = opts.liveEnabled;
+    if (!opts.liveEnabled) state.pendingSignals = [];
+    addActivity2(state, {
+      type: "info",
+      message: opts.liveEnabled ? "\u26A1 Live Auto-Trade ENABLED \u2014 buy signals will be queued for wallet execution" : "\u26A1 Live Auto-Trade DISABLED \u2014 pending signals cleared"
+    });
+  }
+  if (opts.tpPct !== void 0 && opts.tpPct > 0 && opts.tpPct <= 200) {
+    state.autoTradeTP = opts.tpPct;
+    addActivity2(state, {
+      type: "info",
+      message: `\u{1F3AF} Take-profit updated \u2014 positions will close at +${opts.tpPct}%`
+    });
+  }
+  if (opts.slPct !== void 0 && opts.slPct > 0 && opts.slPct <= 50) {
+    state.autoTradeSL = opts.slPct;
+    addActivity2(state, {
+      type: "info",
+      message: `\u{1F6E1}\uFE0F Stop-loss updated \u2014 positions protected at -${opts.slPct}%`
+    });
+  }
+  if (opts.trailActivationPct !== void 0 && opts.trailActivationPct > 0 && opts.trailActivationPct <= 100) {
+    state.autoTrailActivationPct = opts.trailActivationPct;
+    addActivity2(state, {
+      type: "info",
+      message: `\u{1F512} Trail activation updated \u2014 trailing stop kicks in at +${opts.trailActivationPct}%`
+    });
+  }
+  if (opts.trailDistancePct !== void 0 && opts.trailDistancePct > 0 && opts.trailDistancePct <= 50) {
+    state.autoTrailDistancePct = opts.trailDistancePct;
+    addActivity2(state, {
+      type: "info",
+      message: `\u{1F4CF} Trail distance updated \u2014 will exit if price drops ${opts.trailDistancePct}% from peak`
+    });
+  }
+  if (opts.paperTradeSize !== void 0) {
+    const sz = Math.max(0, opts.paperTradeSize);
+    state.paperTradeSize = sz;
+    addActivity2(state, {
+      type: "info",
+      message: sz > 0 ? `\u{1F4D0} Paper trade size fixed at ${sz} SOL per position \u2014 overrides portfolio-fraction sizing` : `\u{1F4D0} Paper trade size set to auto (portfolio-fraction mode restored)`
+    });
+  }
+  saveEngineState(userId, state).catch(() => {
+  });
+}
+function setCompoundSettings(userId, opts) {
+  let state = engineStates2.get(userId);
+  if (!state) {
+    state = createInitialState({ ...DEFAULT_CONFIG });
+    engineStates2.set(userId, state);
+  }
+  if (opts.compoundMode !== void 0) {
+    state.compoundMode = opts.compoundMode;
+    addActivity2(state, {
+      type: "info",
+      message: opts.compoundMode ? `\u{1F4B9} Compound Mode ACTIVATED \u2014 profits will grow your paper pool (${state.compoundRate}% reinvestment rate)` : "\u{1F4B9} Compound Mode OFF \u2014 fixed position sizing restored"
+    });
+  }
+  if (opts.compoundRate !== void 0) {
+    const rate = Math.max(1, Math.min(100, opts.compoundRate));
+    state.compoundRate = rate;
+    addActivity2(state, {
+      type: "info",
+      message: `\u{1F4B9} Compound rate set to ${rate}% \u2014 ${rate === 100 ? "all profits" : `${rate}% of profits`} reinvested into paper pool`
+    });
+  }
+  if (opts.paperBaseCapital !== void 0 && opts.paperBaseCapital > 0) {
+    state.paperBaseCapital = opts.paperBaseCapital;
+    state.paperPortfolioValue = opts.paperBaseCapital;
+    state.paperPortfolioHistory = [{ t: Date.now(), v: opts.paperBaseCapital }];
+    addActivity2(state, {
+      type: "info",
+      message: `\u{1F4BC} Paper capital reset to ${opts.paperBaseCapital.toFixed(3)} SOL \u2014 compound growth clock starts now`
+    });
+    const persistValue = opts.paperBaseCapital;
+    db.execute(sql6`UPDATE sol_engine_settings SET paper_base_capital = ${persistValue} WHERE user_id = ${userId}`).catch((err) => console.warn("[SolEngine] persist paper_base_capital (setCompoundSettings) failed:", err));
+  }
+}
+function getPendingSignals(userId) {
+  const state = engineStates2.get(userId);
+  if (!state) return [];
+  const now = Date.now();
+  const valid = state.pendingSignals.filter((s) => new Date(s.expiresAt).getTime() > now);
+  const expired = state.pendingSignals.filter((s) => new Date(s.expiresAt).getTime() <= now);
+  for (const s of expired) {
+    addActivity2(state, {
+      type: "signal_expired",
+      message: `\u23F1\uFE0F Missed: ${s.symbol} buy signal expired unconfirmed (90s window passed) \u2014 no server wallet set up for full auto.`
+    });
+  }
+  state.pendingSignals = [];
+  return valid;
+}
+function cancelSignal(userId, mint) {
+  const state = engineStates2.get(userId);
+  if (!state) return;
+  state.pendingSignals = state.pendingSignals.filter((s) => s.mint !== mint);
+  state.signalCooldowns.set(mint, Date.now());
+}
+function confirmLiveTrade(userId, signalId, txHash, tradeData) {
+  const state = engineStates2.get(userId);
+  if (!state) return false;
+  const parts = signalId.split("_");
+  const symbol = parts.slice(2).join("_");
+  if (!symbol) return false;
+  const signal = state.pendingSignals.find((s) => s.id === signalId);
+  const sizeSOL = signal?.sizeSOL || 0;
+  if (signal) {
+    state.pendingSignals = state.pendingSignals.filter((s) => s.id !== signalId);
+  }
+  const pos = {
+    id: `live_pos_${Date.now()}_${symbol}`,
+    symbol,
+    mint: tradeData?.mint || signal?.mint || "",
+    entryPrice: tradeData?.entryPrice || 0,
+    currentPrice: tradeData?.entryPrice || 0,
+    targetPct: state.autoTradeTP,
+    slPct: state.autoTradeSL,
+    size: sizeSOL,
+    tokenAmount: tradeData?.tokenAmount || 0,
+    decimals: tradeData?.decimals || 9,
+    strategyId: signal?.strategyId || state.activeStrategy,
+    mode: "live",
+    txHash,
+    openedAt: (/* @__PURE__ */ new Date()).toISOString(),
+    status: "open",
+    stopLossPrice: signal?.stopLossPrice,
+    takeProfitPrice: signal?.takeProfitPrice,
+    dex: signal?.dex
+  };
+  state.livePositions.push(pos);
+  state.dailyTradeCount++;
+  addActivity2(state, {
+    type: "live_buy",
+    message: `\u26A1 Live EXECUTED: ${symbol} \u2014 ${tradeData?.tokenAmount ? (tradeData.tokenAmount / Math.pow(10, tradeData.decimals || 9)).toFixed(4) + " tokens @ $" + (tradeData.entryPrice || 0).toFixed(6) : ""} tx: ${txHash.slice(0, 16)}...`
+  });
+  upsertPosition(userId, pos).catch(() => {
+  });
+  return true;
+}
+function getPendingExits(userId) {
+  const state = engineStates2.get(userId);
+  if (!state) return [];
+  const now = Date.now();
+  const valid = state.pendingExits.filter((e) => new Date(e.expiresAt).getTime() > now);
+  const expired = state.pendingExits.filter((e) => new Date(e.expiresAt).getTime() <= now);
+  for (const e of expired) {
+    addActivity2(state, {
+      type: "exit_expired",
+      message: `\u23F1\uFE0F Missed exit: ${e.symbol} close signal expired unconfirmed (90s window passed) \u2014 position remains OPEN, still being monitored.`
+    });
+  }
+  state.pendingExits = state.pendingExits.filter((e) => new Date(e.expiresAt).getTime() > now);
+  return valid;
+}
+function confirmLiveExit(userId, positionId, txHash) {
+  const state = engineStates2.get(userId);
+  if (!state) return false;
+  const pos = state.livePositions.find((p) => p.id === positionId && p.status === "open");
+  if (!pos) return false;
+  const gainPct = pos.entryPrice > 0 ? (pos.currentPrice - pos.entryPrice) / pos.entryPrice * 100 : 0;
+  pos.status = "closed";
+  pos.closedAt = (/* @__PURE__ */ new Date()).toISOString();
+  pos.closePnlPct = gainPct;
+  state.closedLivePositions.unshift(pos);
+  if (state.closedLivePositions.length > 50) state.closedLivePositions = state.closedLivePositions.slice(0, 50);
+  const isWin = gainPct >= 0;
+  state.autoTradeStats.totalTrades++;
+  state.autoTradeStats.totalPnlPct += gainPct;
+  if (isWin) {
+    state.autoTradeStats.wins++;
+    if (gainPct > state.autoTradeStats.bestTradePct) state.autoTradeStats.bestTradePct = gainPct;
+  } else {
+    state.autoTradeStats.losses++;
+    if (gainPct < state.autoTradeStats.worstTradePct) state.autoTradeStats.worstTradePct = gainPct;
+  }
+  state.livePositions = state.livePositions.filter((p) => p.id !== positionId);
+  addActivity2(state, {
+    type: "live_sell",
+    message: `\u2705 Live SOLD: ${pos.symbol} \u2014 P&L: ${gainPct >= 0 ? "+" : ""}${gainPct.toFixed(2)}% [TX: ${txHash.slice(0, 12)}...]`
+  });
+  recordSolBrainOutcome({
+    userId,
+    symbol: pos.symbol,
+    strategy: pos.strategyId || "unknown",
+    direction: "long",
+    returnPct: gainPct,
+    holdingMinutes: Math.max(0, Math.round((Date.now() - new Date(pos.openedAt).getTime()) / 6e4)),
+    exitReason: "manual",
+    profitLoss: pos.size * (gainPct / 100)
+  }).catch(() => {
+  });
+  upsertPosition(userId, pos).catch(() => {
+  });
+  saveEngineState(userId, state).catch(() => {
+  });
+  return true;
+}
+function getAutoTradePositions(userId) {
+  const state = engineStates2.get(userId);
+  if (!state) {
+    return {
+      autoTradeEnabled: false,
+      liveTradeEnabled: false,
+      paperPositions: [],
+      closedPaperPositions: [],
+      livePositions: [],
+      closedLivePositions: [],
+      autoTradeStats: { totalTrades: 0, wins: 0, losses: 0, totalPnlPct: 0, bestTradePct: 0, worstTradePct: 0 }
+    };
+  }
+  return {
+    autoTradeEnabled: state.autoTradeEnabled,
+    liveTradeEnabled: state.liveTradeEnabled,
+    autoTradeTP: state.autoTradeTP,
+    autoTradeSL: state.autoTradeSL,
+    autoTrailActivationPct: state.autoTrailActivationPct,
+    autoTrailDistancePct: state.autoTrailDistancePct,
+    paperPositions: state.paperPositions,
+    closedPaperPositions: state.closedPaperPositions.slice(0, 20),
+    livePositions: state.livePositions,
+    closedLivePositions: state.closedLivePositions.slice(0, 20),
+    autoTradeStats: state.autoTradeStats
+  };
+}
+function updateSolPortfolioValue(userId, solValue) {
+  const state = engineStates2.get(userId);
+  if (!state) return { shieldActive: false };
+  if (!(solValue > 0) || solValue > SOL_PAPER_MAX_SOL) return { shieldActive: !!state.shieldActive };
+  state.currentPortfolioValue = solValue;
+  if (solValue > state.sessionHighWatermark) state.sessionHighWatermark = solValue;
+  db.execute(sql6`UPDATE sol_engine_settings SET paper_base_capital = ${solValue} WHERE user_id = ${userId}`).catch((err) => console.warn("[SolEngine] persist paper_base_capital (updateSolPortfolioValue) failed:", err));
+  if (!state.config.shieldEnabled) return { shieldActive: false };
+  const threshold = state.config.shieldThreshold / 100;
+  const triggerLevel = state.sessionHighWatermark * (1 - threshold);
+  const disengageLevel = state.sessionHighWatermark * 0.97;
+  if (!state.shieldActive && state.sessionHighWatermark > 0 && solValue < triggerLevel) {
+    state.shieldActive = true;
+    const dropPct = ((1 - solValue / state.sessionHighWatermark) * 100).toFixed(1);
+    addActivity2(state, {
+      type: "shield",
+      message: `\u{1F6E1}\uFE0F Shield of protection manifested \u2014 portfolio dropped ${dropPct}% from peak (${state.sessionHighWatermark.toFixed(3)} SOL). Righteously restricting to 85%+ confidence only`
+    });
+  } else if (state.shieldActive && solValue >= disengageLevel) {
+    state.shieldActive = false;
+    addActivity2(state, { type: "shield", message: "\u2705 Shield lifted \u2014 peace restored. Full cipher resumed" });
+  }
+  return { shieldActive: state.shieldActive };
+}
+function setShieldActive(userId, active) {
+  const state = engineStates2.get(userId);
+  if (!state) return { success: false, shieldActive: false };
+  state.shieldActive = active;
+  addActivity2(state, {
+    type: "shield",
+    message: active ? "\u{1F6E1}\uFE0F Shield manually activated \u2014 restricting to high-confidence signals only" : "\u2705 Shield manually deactivated \u2014 full cipher resumed"
+  });
+  return { success: true, shieldActive: state.shieldActive };
+}
+async function saveServerWallet(userId, privateKeyBase58) {
+  try {
+    const { Keypair: Keypair2 } = await import("@solana/web3.js");
+    const bs58 = (await import("bs58")).default;
+    const secretKey = bs58.decode(privateKeyBase58);
+    const keypair = Keypair2.fromSecretKey(secretKey);
+    const walletAddress = keypair.publicKey.toBase58();
+    const encrypted = encryptWalletKey(privateKeyBase58);
+    await db.insert(solEngineSettings).values({
+      userId,
+      serverWalletKey: encrypted,
+      activeStrategy: "momentum_surfer",
+      activeStrategies: [],
+      autoTradeEnabled: false,
+      liveTradeEnabled: true,
+      // auto-enable live trade when wallet is connected
+      autoTradeTP: 8,
+      autoTradeSL: 4,
+      weeklyGoal: {},
+      autoTradeStats: {},
+      updatedAt: /* @__PURE__ */ new Date()
+    }).onConflictDoUpdate({
+      target: solEngineSettings.userId,
+      set: { serverWalletKey: encrypted, liveTradeEnabled: true, updatedAt: /* @__PURE__ */ new Date() }
+    });
+    try {
+      const { Connection: Connection3 } = await import("@solana/web3.js");
+      const rpcUrl = process.env.SOLANA_RPC_URL || "https://mainnet.helius-rpc.com/?api-key=15319bf4-5b40-4958-ac8d-6313aa55eb92";
+      const connection2 = new Connection3(rpcUrl, { commitment: "confirmed" });
+      const lamports = await connection2.getBalance(keypair.publicKey);
+      const solBalance = lamports / 1e9;
+      if (solBalance > 0) {
+        const existing = engineStates2.get(userId);
+        if (existing) {
+          existing.currentPortfolioValue = solBalance;
+          existing.liveTradeEnabled = true;
+          addActivity2(existing, {
+            type: "info",
+            message: `\u{1F511} Server wallet connected: ${walletAddress.slice(0, 8)}... | Balance: ${solBalance.toFixed(4)} SOL | Live trading ENABLED \u2014 ready to execute`
+          });
+        }
+      }
+    } catch {
+    }
+    return { success: true, walletAddress };
+  } catch (err) {
+    return { success: false, error: err.message || "Invalid private key" };
+  }
+}
+async function clearServerWallet(userId) {
+  await db.update(solEngineSettings).set({ serverWalletKey: null, updatedAt: /* @__PURE__ */ new Date() }).where(eq5(solEngineSettings.userId, userId));
+}
+async function getServerWalletStatus(userId) {
+  try {
+    const [settings] = await db.select({ serverWalletKey: solEngineSettings.serverWalletKey }).from(solEngineSettings).where(eq5(solEngineSettings.userId, userId));
+    if (!settings?.serverWalletKey) return { hasServerWallet: false };
+    const privateKeyBase58 = decryptWalletKey(settings.serverWalletKey);
+    const { Keypair: Keypair2, Connection: Connection3 } = await import("@solana/web3.js");
+    const bs58 = (await import("bs58")).default;
+    const secretKey = bs58.decode(privateKeyBase58);
+    const keypair = Keypair2.fromSecretKey(secretKey);
+    const walletAddress = keypair.publicKey.toBase58();
+    let balanceLamports = 0;
+    let balanceSol = 0;
+    try {
+      const rpcUrl = process.env.SOLANA_RPC_URL || "https://mainnet.helius-rpc.com/?api-key=15319bf4-5b40-4958-ac8d-6313aa55eb92";
+      const connection2 = new Connection3(rpcUrl, { commitment: "confirmed" });
+      balanceLamports = await connection2.getBalance(keypair.publicKey);
+      balanceSol = Math.round(balanceLamports / 1e9 * 1e4) / 1e4;
+    } catch {
+    }
+    return { hasServerWallet: true, walletAddress, balanceLamports, balanceSol };
+  } catch {
+    return { hasServerWallet: false };
+  }
+}
+var SOL_BRAIN_ENABLED, SOL_BRAIN_GATING, SOL_CONFLUENCE_REQUIRED, SOL_COMPOSITE_FLOOR, SOL_CONFLUENCE_BONUS, SOL_MAX_HOLD_HOURS, SOL_MAX_HOLD_MS, MAX_PRICE_SPIKE, DEX_NAMES, SOL_STRATEGIES, DEFAULT_CONFIG, DEFAULT_WEEKLY_GOAL, engineStates2, startingSolUsers, PAPER_DEFAULT_PORTFOLIO_SOL, SOL_PAPER_MAX_SOL;
+var init_sol_engine = __esm({
+  "server/services/sol-engine.ts"() {
+    "use strict";
+    init_solana_scanner();
+    init_db();
+    init_schema();
+    init_sol_brain();
+    init_weekend_boost();
+    SOL_BRAIN_ENABLED = true;
+    SOL_BRAIN_GATING = true;
+    SOL_CONFLUENCE_REQUIRED = 2;
+    SOL_COMPOSITE_FLOOR = 72;
+    SOL_CONFLUENCE_BONUS = 4;
+    SOL_MAX_HOLD_HOURS = Number(process.env.SOL_MAX_HOLD_HOURS) || 12;
+    SOL_MAX_HOLD_MS = SOL_MAX_HOLD_HOURS * 60 * 60 * 1e3;
+    MAX_PRICE_SPIKE = 10;
+    DEX_NAMES = ["raydium", "orca", "meteora", "pumpfun", "jupiter"];
+    SOL_STRATEGIES = [
+      {
+        id: "momentum_surfer",
+        name: "Momentum Surfer",
+        icon: "\u{1F3C4}",
+        description: "Rides strong directional price momentum with buy pressure confirmation",
+        minConfidence: 70,
+        maxRisk: "MEDIUM",
+        baseFraction: 0.03,
+        minSignal: "BUY",
+        holdTarget: "1\u20134h"
+      },
+      {
+        id: "breakout_hunter",
+        name: "Breakout Hunter",
+        icon: "\u{1F680}",
+        description: "Targets tokens breaking out of consolidation on strong buy signals",
+        minConfidence: 75,
+        maxRisk: "MEDIUM",
+        baseFraction: 0.025,
+        minSignal: "STRONG_BUY",
+        holdTarget: "30min\u20132h"
+      },
+      {
+        id: "dip_sniper",
+        name: "Dip Sniper",
+        icon: "\u{1F3AF}",
+        description: "Enters on brief pullbacks in overall uptrends \u2014 low risk entries",
+        minConfidence: 68,
+        maxRisk: "LOW",
+        baseFraction: 0.02,
+        minSignal: "BUY",
+        holdTarget: "2\u20138h"
+      },
+      {
+        id: "meme_velocity",
+        name: "Meme Velocity",
+        icon: "\u26A1",
+        description: "Captures explosive meme token moves with quick in-out on Pump.fun",
+        minConfidence: 65,
+        maxRisk: "HIGH",
+        baseFraction: 0.04,
+        minSignal: "BUY",
+        holdTarget: "10\u201315min",
+        dexPreference: "pumpfun"
+      },
+      {
+        id: "whale_follower",
+        name: "Whale Follower",
+        icon: "\u{1F40B}",
+        description: "Tracks large wallet accumulation patterns and high maker counts",
+        minConfidence: 72,
+        maxRisk: "MEDIUM",
+        baseFraction: 0.02,
+        minSignal: "BUY",
+        holdTarget: "4\u201324h"
+      },
+      {
+        id: "volume_explosion",
+        name: "Volume Explosion",
+        icon: "\u{1F4A5}",
+        description: "Enters tokens with sudden 3x+ volume spikes on strong buy signals",
+        minConfidence: 65,
+        maxRisk: "MEDIUM",
+        baseFraction: 0.035,
+        minSignal: "STRONG_BUY",
+        holdTarget: "20\u201345min"
+      },
+      {
+        id: "smart_money_flow",
+        name: "Smart Money Flow",
+        icon: "\u{1F9E0}",
+        description: "Institutional-grade entries on high-confidence, low-risk accumulation",
+        minConfidence: 78,
+        maxRisk: "LOW",
+        baseFraction: 0.025,
+        minSignal: "STRONG_BUY",
+        holdTarget: "1\u20133 days"
+      },
+      {
+        id: "liquidity_sweep",
+        name: "Liquidity Sweep",
+        icon: "\u{1F30A}",
+        description: "Scalps sharp moves after liquidity pool sweeps \u2014 small, frequent gains",
+        minConfidence: 60,
+        maxRisk: "HIGH",
+        baseFraction: 0.03,
+        minSignal: "BUY",
+        holdTarget: "10\u201330min"
+      },
+      {
+        id: "order_flow_scalper",
+        name: "Order Flow Scalper",
+        icon: "\u{1F4CA}",
+        description: "Institutional order flow \u2014 enters when buy/sell delta diverges from price, signalling hidden accumulation or distribution",
+        minConfidence: 70,
+        maxRisk: "MEDIUM",
+        baseFraction: 0.025,
+        minSignal: "BUY",
+        holdTarget: "15\u201360min"
+      },
+      {
+        id: "trend_rider",
+        name: "Trend Rider",
+        icon: "\u{1F4C8}",
+        description: "Rides established multi-hour uptrends with steady volume and consistent buy pressure \u2014 fewer, higher-quality entries that compound",
+        minConfidence: 74,
+        maxRisk: "MEDIUM",
+        baseFraction: 0.03,
+        minSignal: "BUY",
+        holdTarget: "6\u201324h"
+      },
+      {
+        id: "adaptive",
+        name: "Adaptive (Auto)",
+        icon: "\u{1F916}",
+        description: "Auto-selects the best strategy each scan based on current market conditions \u2014 whale activity, breakouts, dips, macro bias",
+        minConfidence: 68,
+        maxRisk: "MEDIUM",
+        baseFraction: 0.03,
+        minSignal: "BUY",
+        holdTarget: "varies"
+      }
+    ];
+    DEFAULT_CONFIG = {
+      dexFilter: "all",
+      minConfidence: 65,
+      maxTokens: 10,
+      useKelly: false,
+      shieldEnabled: true,
+      shieldThreshold: 10,
+      adaptiveScan: true,
+      aiMode: "full",
+      directionFilter: "buy_only",
+      riskPerTradePct: 1,
+      maxDailyTrades: 0,
+      stopOrdersEnabled: false
+    };
+    DEFAULT_WEEKLY_GOAL = {
+      targetSol: 0,
+      targetPct: 0,
+      startPortfolio: 0,
+      currentProfitSol: 0,
+      phase: "idle",
+      weekStart: 0,
+      winStreak: 0,
+      tradeHistory: []
+    };
+    engineStates2 = /* @__PURE__ */ new Map();
+    startingSolUsers = /* @__PURE__ */ new Set();
+    PAPER_DEFAULT_PORTFOLIO_SOL = 10;
+    SOL_PAPER_MAX_SOL = Number(process.env.SOL_PAPER_MAX_SOL ?? 1e3);
+  }
+});
+
+// server/services/abba-setup.ts
+var abba_setup_exports = {};
+__export(abba_setup_exports, {
+  MAX_RISK_PCT: () => MAX_RISK_PCT,
+  applySetup: () => applySetup,
+  buildSetupReview: () => buildSetupReview,
+  currentSettings: () => currentSettings,
+  sanitizeProposal: () => sanitizeProposal
+});
+function sanitizeProposal(p) {
+  if (!p || typeof p !== "object") return null;
+  const out = { title: String(p.title || "Next week plan").slice(0, 120), rationale: String(p.rationale || "").slice(0, 1500) };
+  const wt = clamp2(p.weeklyTarget, 0, 1e7);
+  if (wt) out.weeklyTarget = Math.round(wt);
+  if (p.fx && typeof p.fx === "object") {
+    const f = p.fx;
+    const pdo = f.pairDirectionOverrides && typeof f.pairDirectionOverrides === "object" ? Object.fromEntries(Object.entries(f.pairDirectionOverrides).map(([k2, v]) => [sym(k2), v]).filter(([k2, v]) => k2 && DIRS.includes(v))) : void 0;
+    out.fx = {
+      run: f.run !== false,
+      pairs: Array.isArray(f.pairs) ? f.pairs.map(sym).filter((s) => s.length >= 3 && s.length <= 12).slice(0, 15) : void 0,
+      riskPerTrade: clamp2(f.riskPerTrade, 0.1, MAX_RISK_PCT),
+      maxOpenTrades: clamp2(f.maxOpenTrades, 1, 10),
+      minConfidence: clamp2(f.minConfidence, 55, 95),
+      maxDailyTrades: clamp2(f.maxDailyTrades, 1, 30),
+      directionFilter: DIRS.includes(f.directionFilter) ? f.directionFilter : void 0,
+      pairDirectionOverrides: pdo && Object.keys(pdo).length ? pdo : void 0
+    };
+    if (out.fx.pairs && !out.fx.pairs.length) delete out.fx.pairs;
+  }
+  if (p.crypto && typeof p.crypto === "object") {
+    const c = p.crypto;
+    out.crypto = {
+      run: c.run !== false,
+      symbols: Array.isArray(c.symbols) ? c.symbols.map(sym).filter(Boolean).slice(0, 10) : void 0,
+      riskPerTrade: clamp2(c.riskPerTrade, 0.1, MAX_RISK_PCT),
+      minConfidence: clamp2(c.minConfidence, 55, 95),
+      maxDailyTrades: clamp2(c.maxDailyTrades, 1, 30),
+      directionFilter: ["long_only", "short_only", "both"].includes(c.directionFilter) ? c.directionFilter : void 0
+    };
+    if (out.crypto.symbols && !out.crypto.symbols.length) delete out.crypto.symbols;
+  }
+  if (p.sol && typeof p.sol === "object") {
+    out.sol = { run: p.sol.run !== false, riskPerTradePct: clamp2(p.sol.riskPerTradePct, 0.1, MAX_RISK_PCT), minConfidence: clamp2(p.sol.minConfidence, 55, 95), maxDailyTrades: clamp2(p.sol.maxDailyTrades, 1, 50) };
+  }
+  if (p.models && typeof p.models === "object") {
+    out.models = { m1DailyCap: clamp2(p.models.m1DailyCap, 0, 10), m2DailyCap: clamp2(p.models.m2DailyCap, 0, 10) };
+  }
+  return out.fx || out.crypto || out.sol || out.models ? out : null;
+}
+async function currentSettings(userId) {
+  const fx = getEffectiveEngineConfig(userId);
+  const fxState = getLiveEngineState(userId);
+  const crypto17 = await storage.getUserCryptocomEngineConfig(userId).catch(() => null);
+  const sol = getSolEngineStatus(userId);
+  const models = await getFxModelSettings(userId).catch(() => ({}));
+  return {
+    fx: {
+      running: fxState?.status === "running",
+      pairs: fx.pairs,
+      riskPerTrade: fx.riskPerTrade,
+      maxOpenTrades: fx.maxOpenTrades,
+      minConfidence: fx.minConfidence,
+      maxDailyTrades: fx.maxDailyTrades,
+      directionFilter: fx.directionFilter,
+      pairDirectionOverrides: fx.pairDirectionOverrides || {},
+      weeklyProfitTarget: fx.weeklyProfitTarget
+    },
+    crypto: crypto17 ? { running: !!crypto17.isActive, symbols: crypto17.symbols, riskPerTrade: crypto17.riskPerTrade, minConfidence: crypto17.minConfidence, maxDailyTrades: crypto17.maxDailyTrades, directionFilter: crypto17.directionFilter } : null,
+    sol: { running: !!sol?.running, riskPerTradePct: sol?.config?.riskPerTradePct, minConfidence: sol?.config?.minConfidence, maxDailyTrades: sol?.config?.maxDailyTrades },
+    models: { live: !!models.live, m1DailyCap: models.m1DailyCap, m2DailyCap: models.m2DailyCap }
+  };
+}
+async function buildSetupReview(userId, p) {
+  const cur = await currentSettings(userId);
+  const changes = [];
+  const diff = (engine, field, from, to, riskUp = false) => {
+    if (to === void 0) return;
+    if (JSON.stringify(from ?? null) === JSON.stringify(to)) return;
+    changes.push({ engine, field, from: show(from), to: show(to), riskUp });
+  };
+  if (p.fx) {
+    diff("FX", "Engine", cur.fx.running ? "running" : "stopped", p.fx.run ? "running" : "stopped");
+    diff("FX", "Pairs", cur.fx.pairs, p.fx.pairs);
+    diff("FX", "Risk per trade %", cur.fx.riskPerTrade, p.fx.riskPerTrade, (p.fx.riskPerTrade ?? 0) > (cur.fx.riskPerTrade ?? 0));
+    diff("FX", "Max open trades", cur.fx.maxOpenTrades, p.fx.maxOpenTrades, (p.fx.maxOpenTrades ?? 0) > (cur.fx.maxOpenTrades ?? 0));
+    diff("FX", "Min confidence", cur.fx.minConfidence, p.fx.minConfidence);
+    diff("FX", "Max trades / day", cur.fx.maxDailyTrades || "unlimited", p.fx.maxDailyTrades, !!cur.fx.maxDailyTrades && (p.fx.maxDailyTrades ?? 0) > cur.fx.maxDailyTrades);
+    diff("FX", "Direction", cur.fx.directionFilter, p.fx.directionFilter);
+    diff("FX", "Per-pair direction", cur.fx.pairDirectionOverrides, p.fx.pairDirectionOverrides);
+  }
+  if (p.weeklyTarget) diff("Goal", "Weekly profit target $", cur.fx.weeklyProfitTarget, p.weeklyTarget);
+  if (p.crypto) {
+    const c = cur.crypto || {};
+    diff("Crypto", "Engine", c.running ? "running" : "stopped", p.crypto.run ? "running" : "stopped");
+    diff("Crypto", "Symbols", c.symbols, p.crypto.symbols);
+    diff("Crypto", "Risk per trade %", c.riskPerTrade, p.crypto.riskPerTrade, (p.crypto.riskPerTrade ?? 0) > (c.riskPerTrade ?? 0));
+    diff("Crypto", "Min confidence", c.minConfidence, p.crypto.minConfidence);
+    diff("Crypto", "Max trades / day", c.maxDailyTrades || "unlimited", p.crypto.maxDailyTrades);
+    diff("Crypto", "Direction", c.directionFilter, p.crypto.directionFilter);
+  }
+  if (p.sol) {
+    diff("Sol", "Engine", cur.sol.running ? "running" : "stopped", p.sol.run ? "running" : "stopped");
+    diff("Sol", "Risk per trade %", cur.sol.riskPerTradePct, p.sol.riskPerTradePct, (p.sol.riskPerTradePct ?? 0) > (cur.sol.riskPerTradePct ?? 0));
+    diff("Sol", "Min confidence", cur.sol.minConfidence, p.sol.minConfidence);
+    diff("Sol", "Max trades / day", cur.sol.maxDailyTrades || "unlimited", p.sol.maxDailyTrades);
+  }
+  if (p.models) {
+    diff("Model 1/2", "Model 1 daily cap", cur.models.m1DailyCap, p.models.m1DailyCap);
+    diff("Model 1/2", "Model 2 daily cap", cur.models.m2DailyCap, p.models.m2DailyCap);
+  }
+  const fxRisk = p.fx?.riskPerTrade ?? cur.fx.riskPerTrade ?? 1;
+  const fxDaily = p.fx?.maxDailyTrades ?? cur.fx.maxDailyTrades ?? 0;
+  const balance = Number(getLiveEngineState(userId)?.config?.accountBalance || getEffectiveEngineConfig(userId).accountBalance || 0);
+  const target = p.weeklyTarget ?? cur.fx.weeklyProfitTarget ?? 0;
+  const math = {
+    balance: balance || null,
+    worstDayLossPct: fxDaily ? Math.round(fxRisk * fxDaily * 10) / 10 : null,
+    worstDayLossUsd: balance && fxDaily ? Math.round(balance * fxRisk * fxDaily / 100) : null,
+    targetPerDay: target ? Math.round(target / 5) : null,
+    targetPctOfBalance: balance && target ? Math.round(target / balance * 1e3) / 10 : null
+  };
+  const warnings = [];
+  const blockers = [];
+  if (p.fx?.run && isEngineHardHalted(userId)) blockers.push("FX engine is halted today (daily loss limit or emergency stop). It stays off until tomorrow: that halt protects the account.");
+  if ((p.fx?.run || p.crypto?.run) && fxShouldPauseForCredits()) blockers.push("AI credits are out, so engines are paused. Top up the AI provider first.");
+  if (p.fx?.run) {
+    const [tl, mt5] = await Promise.all([
+      storage.getUserTradelockerConnections(userId).catch(() => []),
+      Promise.resolve(global.mt5AccountData?.[userId])
+    ]);
+    if (!tl.some((c) => c.isActive) && !mt5) blockers.push("No active broker connection for FX (TradeLocker or MT5). Connect one first.");
+  }
+  if (changes.some((c) => c.riskUp)) warnings.push("This plan RAISES risk on at least one engine. Make sure that is what you want.");
+  if (math.worstDayLossPct && math.worstDayLossPct > 6) warnings.push(`If every FX trade on a max-trades day hits its stop, that is a ${math.worstDayLossPct}% day.`);
+  if (math.targetPctOfBalance && math.targetPctOfBalance > 10) warnings.push(`The weekly target is ${math.targetPctOfBalance}% of the balance. That pace needs outsized risk; a smaller goal is safer.`);
+  try {
+    const week = await getPeriodReview(userId, "week", 0);
+    if (target && week.totals.pnl < 0 && changes.some((c) => c.riskUp)) warnings.push(`You're ${week.totals.pnl < 0 ? "down" : "up"} $${Math.abs(week.totals.pnl)} this week. Raising risk to catch up is how accounts get blown.`);
+  } catch {
+  }
+  if (p.models?.m2DailyCap) warnings.push("Model 2 has a negative shadow record (about -51R last month). Its cap only matters if Model 1/2 live mode is on, which this plan does not change.");
+  return { proposal: p, current: cur, changes, math, warnings, blockers, canApply: blockers.length === 0 && changes.length > 0 };
+}
+async function applySetup(userId, p) {
+  const review = await buildSetupReview(userId, p);
+  if (!review.canApply) return { ok: false, review, applied: [], error: review.blockers[0] || "Nothing to change." };
+  const applied = [];
+  const errors = [];
+  if (p.fx) {
+    try {
+      const upd = {};
+      for (const k2 of ["pairs", "riskPerTrade", "maxOpenTrades", "minConfidence", "maxDailyTrades", "directionFilter", "pairDirectionOverrides"]) {
+        if (p.fx[k2] !== void 0) upd[k2] = p.fx[k2];
+      }
+      if (p.weeklyTarget) upd.weeklyProfitTarget = p.weeklyTarget;
+      const running = getLiveEngineState(userId)?.status === "running";
+      if (p.fx.run && !running) {
+        startLiveEngine(userId, { ...getEffectiveEngineConfig(userId), ...upd });
+        applied.push("FX engine started with the new settings");
+      } else {
+        updateLiveEngineConfig(userId, upd);
+        applied.push(running ? "FX settings updated (engine running)" : "FX settings saved (engine stays off)");
+        if (!p.fx.run && running) errors.push("FX is running and the plan says off. Stop it from the engine page if you want it off; ABBA does not stop engines.");
+      }
+    } catch (e) {
+      errors.push(`FX: ${e.message}`);
+    }
+  }
+  if (p.crypto) {
+    try {
+      const upd = {};
+      for (const k2 of ["symbols", "riskPerTrade", "minConfidence", "maxDailyTrades", "directionFilter"]) {
+        if (p.crypto[k2] !== void 0) upd[k2] = p.crypto[k2];
+      }
+      if (p.crypto.run) upd.isActive = true;
+      await storage.upsertCryptocomEngineConfig(userId, upd);
+      applied.push(p.crypto.run ? "Crypto engine on with the new settings" : "Crypto settings saved");
+    } catch (e) {
+      errors.push(`Crypto: ${e.message}`);
+    }
+  }
+  if (p.sol) {
+    try {
+      const st = getSolEngineStatus(userId);
+      if (p.sol.run) {
+        await startSolEngine(userId, {
+          ...st?.config || {},
+          ...p.sol.riskPerTradePct !== void 0 ? { riskPerTradePct: p.sol.riskPerTradePct } : {},
+          ...p.sol.minConfidence !== void 0 ? { minConfidence: p.sol.minConfidence } : {},
+          ...p.sol.maxDailyTrades !== void 0 ? { maxDailyTrades: p.sol.maxDailyTrades } : {}
+        });
+        applied.push(st?.running ? "Sol engine restarted with the new settings" : "Sol engine started");
+      } else applied.push("Sol left as is");
+    } catch (e) {
+      errors.push(`Sol: ${e.message}`);
+    }
+  }
+  if (p.models && (p.models.m1DailyCap !== void 0 || p.models.m2DailyCap !== void 0)) {
+    try {
+      const cur = await getFxModelSettings(userId);
+      await saveFxModelSettings(userId, { ...cur, ...p.models.m1DailyCap !== void 0 ? { m1DailyCap: p.models.m1DailyCap } : {}, ...p.models.m2DailyCap !== void 0 ? { m2DailyCap: p.models.m2DailyCap } : {} });
+      applied.push("Model 1/2 daily caps saved (live mode unchanged)");
+    } catch (e) {
+      errors.push(`Models: ${e.message}`);
+    }
+  }
+  return { ok: errors.length === 0, applied, errors, review };
+}
+var clamp2, sym, DIRS, MAX_RISK_PCT, show;
+var init_abba_setup = __esm({
+  "server/services/abba-setup.ts"() {
+    "use strict";
+    init_storage();
+    init_live_trading_engine();
+    init_sol_engine();
     init_fx_models();
-    IDEA_SESSIONS = ["Asian", "London", "London/NY overlap", "New York"];
-    IDEA_DAY_TYPES = ["range", "trend", "mixed"];
-    IDEA_MODELS = ["M1", "M2", "engine"];
-    ensured4 = null;
-    norm3 = (s) => String(s || "").toUpperCase().replace(/[^A-Z0-9]/g, "");
+    init_ai_budget_guard();
+    init_weekly_review();
+    clamp2 = (v, lo, hi) => {
+      const n = Number(v);
+      return Number.isFinite(n) ? Math.min(hi, Math.max(lo, n)) : void 0;
+    };
+    sym = (s) => String(s || "").toUpperCase().replace(/[^A-Z0-9-]/g, "");
+    DIRS = ["buy_only", "sell_only", "both"];
+    MAX_RISK_PCT = 2;
+    show = (v) => v == null ? "\u2014" : Array.isArray(v) ? v.join(", ") : typeof v === "object" ? Object.entries(v).map(([k2, x]) => `${k2}:${x}`).join(", ") || "\u2014" : String(v);
   }
 });
 
@@ -35037,11 +38444,13 @@ var init_brain_ideas = __esm({
 var abba_strategist_exports = {};
 __export(abba_strategist_exports, {
   IDEA_MARKER: () => IDEA_MARKER,
+  SETUP_MARKER: () => SETUP_MARKER,
   abbaChatHandler: () => abbaChatHandler,
   abbaIdeaLabPrompt: () => abbaIdeaLabPrompt,
   abbaStrategistHandler: () => abbaStrategistHandler,
   buildAbbaContext: () => buildAbbaContext,
-  extractIdeaDraft: () => extractIdeaDraft
+  extractIdeaDraft: () => extractIdeaDraft,
+  extractSetupDraft: () => extractSetupDraft
 });
 async function buildAbbaContext(userId) {
   const all = await storage.getAiTradeResults(userId, 500);
@@ -35189,6 +38598,8 @@ ${await reviewContextText(userId)}
 
 === PLANNING PARTNER ===
 You're their partner for hitting weekly, monthly and yearly profit goals. When they want to review a week or plan the next one: lead with how last week went (vs goal, best/worst pair, session, weekday, what the gates blocked, what the shadows say), then ask what they want next week to look like. Give 2-3 concrete options backed by the numbers above (e.g. cut the worst pair, focus the best session, what win rate the goal needs at their risk). Mid-week, tell them where they stand vs pace.
+WHAT-IF: when they ask what would have made a week/month profitable, answer from WHAT WOULD HAVE TURNED IT AROUND. Lead with the changes that HELD UP over the prior 90 days; call the ones that didn't hold up flukes and say why (they'd have cost money before). Then offer to add the best one to their brain as a shadow-tested idea (Idea Lab flow below).
+WEEK SETUP: once you've agreed the plan for next week with them, offer to set up the engines. Settings you can set: FX (run on/off, pairs, risk per trade % max 2, max open trades, min confidence 55-95, max trades/day, direction both/buy_only/sell_only, per-pair direction), crypto (run, symbols, risk %, min confidence, max trades/day, direction long_only/short_only/both), Sol (run, risk %, min confidence, max trades/day), Model 1/2 daily caps, weekly profit target $. Read the settings back in plain words and ask "Want me to put that on the review screen?". ONLY after a clear yes, end your reply with [[SETUP_READY]] on its own line. You never switch anything on yourself: they review every change and tap Confirm.
 RISK RULE: when they're BEHIND pace, NEVER suggest raising risk per trade, lot size or trades per day to catch up. Suggest better pairs/sessions/setups, tighter selection, or resetting the goal. When AHEAD, suggest protecting gains (lower risk, fewer trades). Chasing a goal is how accounts get blown.
 
 === WHAT'S NEW IN THE ENGINE (newest first) ===
@@ -35203,6 +38614,27 @@ When they want to add an idea, or you spot one in their data, interview them ONE
 Skip questions they already answered. Suggest ideas backed by their BY PAIR / BY SESSION numbers when they're unsure. Then read the idea back in one sentence and ask "Want me to test that in shadow mode?". ONLY after they clearly say yes, end your reply with the exact marker [[IDEA_READY]] on its own line. Never output the marker otherwise.
 Their current ideas:
 ${await ideasContextText(userId)}`;
+}
+async function extractSetupDraft(ai, convo, message, reply) {
+  const transcript = [...convo, { role: "user", content: message }, { role: "assistant", content: reply }].map((m2) => `${m2.role === "assistant" ? "ABBA" : "TRADER"}: ${String(m2.content).slice(0, 1500)}`).join("\n");
+  const r = await ai.client.chat.completions.create({
+    model: ai.model,
+    temperature: 0,
+    max_tokens: 700,
+    messages: [
+      { role: "system", content: `Extract the engine settings the trader just agreed to. Include ONLY engines and fields that were agreed; omit everything else. Reply with JSON only.
+{"title":"short plan name","rationale":"why, 1-3 sentences","weeklyTarget":number?,
+"fx":{"run":bool,"pairs":["EURUSD"],"riskPerTrade":number,"maxOpenTrades":number,"minConfidence":number,"maxDailyTrades":number,"directionFilter":"both|buy_only|sell_only","pairDirectionOverrides":{"USDJPY":"buy_only"}}?,
+"crypto":{"run":bool,"symbols":["BTCUSD-PERP"],"riskPerTrade":number,"minConfidence":number,"maxDailyTrades":number,"directionFilter":"both|long_only|short_only"}?,
+"sol":{"run":bool,"riskPerTradePct":number,"minConfidence":number,"maxDailyTrades":number}?,
+"models":{"m1DailyCap":number,"m2DailyCap":number}?}` },
+      { role: "user", content: transcript }
+    ]
+  });
+  const m = String(r.choices[0]?.message?.content || "").match(/\{[\s\S]*\}/);
+  if (!m) return null;
+  const { sanitizeProposal: sanitizeProposal2 } = await Promise.resolve().then(() => (init_abba_setup(), abba_setup_exports));
+  return sanitizeProposal2(JSON.parse(m[0]));
 }
 async function extractIdeaDraft(ai, userId, convo, message, reply) {
   const transcript = [...convo, { role: "user", content: message }, { role: "assistant", content: reply }].map((m2) => `${m2.role === "assistant" ? "ABBA" : "TRADER"}: ${String(m2.content).slice(0, 1500)}`).join("\n");
@@ -35443,13 +38875,21 @@ ${contextSummary(ctx)}`;
         return null;
       });
     }
-    res.json({ reply, ideaDraft });
+    let setupDraft = null;
+    if (reply.includes(SETUP_MARKER)) {
+      reply = reply.split(SETUP_MARKER).join("").trim();
+      setupDraft = await extractSetupDraft(ai, msgs.slice(1), message, reply).catch((e) => {
+        console.error("[Abba setup extract]", e?.message);
+        return null;
+      });
+    }
+    res.json({ reply, ideaDraft, setupDraft });
   } catch (err) {
     console.error("[Abba chat]", err);
     res.status(500).json({ error: err.message });
   }
 }
-var sessionOf, IDEA_MARKER;
+var sessionOf, IDEA_MARKER, SETUP_MARKER;
 var init_abba_strategist = __esm({
   "server/abba-strategist.ts"() {
     "use strict";
@@ -35462,6 +38902,7 @@ var init_abba_strategist = __esm({
       return h < 7 ? "Asian" : h < 13 ? "London" : h < 20 ? "New York" : "Late NY";
     };
     IDEA_MARKER = "[[IDEA_READY]]";
+    SETUP_MARKER = "[[SETUP_READY]]";
   }
 });
 
@@ -35774,8 +39215,8 @@ __export(alpaca_exports, {
   encryptApiSecret: () => encryptApiSecret2,
   parseOccSymbol: () => parseOccSymbol
 });
-import crypto6 from "crypto";
-function getEncryptionKey4() {
+import crypto7 from "crypto";
+function getEncryptionKey5() {
   const key = process.env.ALPACA_ENCRYPTION_KEY;
   if (!key) {
     console.warn("[Alpaca] ALPACA_ENCRYPTION_KEY not set \u2014 using default key. Set it in your Render environment variables.");
@@ -35788,10 +39229,10 @@ function getEncryptionKey4() {
   return key;
 }
 function encryptApiSecret2(secret) {
-  const iv = crypto6.randomBytes(IV_LENGTH3);
-  const salt = crypto6.randomBytes(SALT_LENGTH3);
-  const key = crypto6.scryptSync(getEncryptionKey4(), salt, 32);
-  const cipher = crypto6.createCipheriv("aes-256-cbc", key, iv);
+  const iv = crypto7.randomBytes(IV_LENGTH3);
+  const salt = crypto7.randomBytes(SALT_LENGTH3);
+  const key = crypto7.scryptSync(getEncryptionKey5(), salt, 32);
+  const cipher = crypto7.createCipheriv("aes-256-cbc", key, iv);
   let encrypted = cipher.update(secret, "utf8", "hex");
   encrypted += cipher.final("hex");
   return salt.toString("hex") + ":" + iv.toString("hex") + ":" + encrypted;
@@ -35800,8 +39241,8 @@ function decryptApiSecret2(encrypted) {
   const parts = encrypted.split(":");
   if (parts.length !== 3) throw new Error("Invalid encrypted secret format");
   const [saltHex, ivHex, data] = parts;
-  const key = crypto6.scryptSync(getEncryptionKey4(), Buffer.from(saltHex, "hex"), 32);
-  const decipher = crypto6.createDecipheriv("aes-256-cbc", key, Buffer.from(ivHex, "hex"));
+  const key = crypto7.scryptSync(getEncryptionKey5(), Buffer.from(saltHex, "hex"), 32);
+  const decipher = crypto7.createDecipheriv("aes-256-cbc", key, Buffer.from(ivHex, "hex"));
   let decrypted = decipher.update(data, "hex", "utf8");
   decrypted += decipher.final("utf8");
   return decrypted;
@@ -36061,8 +39502,8 @@ __export(tastytrade_exports, {
   decryptPassword: () => decryptPassword2,
   encryptPassword: () => encryptPassword2
 });
-import crypto7 from "crypto";
-function getEncryptionKey5() {
+import crypto8 from "crypto";
+function getEncryptionKey6() {
   const key = process.env.TASTYTRADE_ENCRYPTION_KEY;
   if (!key) {
     console.warn("[TastyTrade] TASTYTRADE_ENCRYPTION_KEY not set \u2014 using default key. Set it in your Render environment variables.");
@@ -36075,10 +39516,10 @@ function getEncryptionKey5() {
   return key;
 }
 function encryptPassword2(password) {
-  const iv = crypto7.randomBytes(IV_LENGTH4);
-  const salt = crypto7.randomBytes(SALT_LENGTH4);
-  const key = crypto7.scryptSync(getEncryptionKey5(), salt, 32);
-  const cipher = crypto7.createCipheriv("aes-256-cbc", key, iv);
+  const iv = crypto8.randomBytes(IV_LENGTH4);
+  const salt = crypto8.randomBytes(SALT_LENGTH4);
+  const key = crypto8.scryptSync(getEncryptionKey6(), salt, 32);
+  const cipher = crypto8.createCipheriv("aes-256-cbc", key, iv);
   let encrypted = cipher.update(password, "utf8", "hex");
   encrypted += cipher.final("hex");
   return salt.toString("hex") + ":" + iv.toString("hex") + ":" + encrypted;
@@ -36087,8 +39528,8 @@ function decryptPassword2(encryptedPassword) {
   const parts = encryptedPassword.split(":");
   if (parts.length !== 3) throw new Error("Invalid encrypted password format");
   const [saltHex, ivHex, data] = parts;
-  const key = crypto7.scryptSync(getEncryptionKey5(), Buffer.from(saltHex, "hex"), 32);
-  const decipher = crypto7.createDecipheriv("aes-256-cbc", key, Buffer.from(ivHex, "hex"));
+  const key = crypto8.scryptSync(getEncryptionKey6(), Buffer.from(saltHex, "hex"), 32);
+  const decipher = crypto8.createDecipheriv("aes-256-cbc", key, Buffer.from(ivHex, "hex"));
   let decrypted = decipher.update(data, "hex", "utf8");
   decrypted += decipher.final("utf8");
   return decrypted;
@@ -36269,7 +39710,7 @@ __export(cred_store_exports, {
 });
 import * as fs4 from "fs";
 import * as path4 from "path";
-function ensureTable() {
+function ensureTable2() {
   if (!tableReady) {
     tableReady = pool.query(`CREATE TABLE IF NOT EXISTS durable_files (
         name        text PRIMARY KEY,
@@ -36284,7 +39725,7 @@ function ensureTable() {
 }
 async function restoreDurableFiles() {
   try {
-    await ensureTable();
+    await ensureTable2();
     if (!fs4.existsSync(DATA_DIR)) fs4.mkdirSync(DATA_DIR, { recursive: true });
     const { rows } = await pool.query("SELECT name, content FROM durable_files");
     for (const r of rows) {
@@ -36301,7 +39742,7 @@ async function restoreDurableFiles() {
   }
 }
 function backupDurableFile(name, content) {
-  ensureTable().then(
+  ensureTable2().then(
     () => pool.query(
       `INSERT INTO durable_files (name, content, updated_at)
          VALUES ($1, $2, now())
@@ -36340,7 +39781,7 @@ __export(vedd_token_service_exports, {
 });
 import { Connection, PublicKey, Keypair, Transaction, sendAndConfirmTransaction } from "@solana/web3.js";
 import { getAssociatedTokenAddress, createTransferInstruction, TOKEN_PROGRAM_ID, getOrCreateAssociatedTokenAccount } from "@solana/spl-token";
-import { eq as eq8, and as and6, sql as sql7, desc as desc2, isNull as isNull2, gte as gte5 } from "drizzle-orm";
+import { eq as eq9, and as and6, sql as sql8, desc as desc2, isNull as isNull2, gte as gte5 } from "drizzle-orm";
 function getConnection() {
   if (!connection) {
     connection = new Connection(SOLANA_RPC_URL, "confirmed");
@@ -36374,8 +39815,8 @@ var init_vedd_token_service = __esm({
     VeddTokenService = class {
       async getPoolWalletInfo(walletType = "rewards") {
         const [wallet] = await db.select().from(veddPoolWallets).where(and6(
-          eq8(veddPoolWallets.walletType, walletType),
-          eq8(veddPoolWallets.status, "active")
+          eq9(veddPoolWallets.walletType, walletType),
+          eq9(veddPoolWallets.status, "active")
         )).limit(1);
         if (!wallet) return null;
         return {
@@ -36391,7 +39832,7 @@ var init_vedd_token_service = __esm({
       }
       async syncPoolBalance(walletId) {
         const conn = getConnection();
-        const [wallet] = await db.select().from(veddPoolWallets).where(eq8(veddPoolWallets.id, walletId)).limit(1);
+        const [wallet] = await db.select().from(veddPoolWallets).where(eq9(veddPoolWallets.id, walletId)).limit(1);
         if (!wallet || !VEDD_TOKEN_MINT) return 0;
         try {
           const walletPubkey = new PublicKey(wallet.publicKey);
@@ -36402,7 +39843,7 @@ var init_vedd_token_service = __esm({
           await db.update(veddPoolWallets).set({
             tokenBalance: balance,
             lastSyncAt: /* @__PURE__ */ new Date()
-          }).where(eq8(veddPoolWallets.id, walletId));
+          }).where(eq9(veddPoolWallets.id, walletId));
           return balance;
         } catch (error) {
           console.error("Failed to sync pool balance:", error);
@@ -36411,8 +39852,8 @@ var init_vedd_token_service = __esm({
       }
       async getRewardConfig(actionType) {
         const [config] = await db.select().from(veddRewardConfig).where(and6(
-          eq8(veddRewardConfig.actionType, actionType),
-          eq8(veddRewardConfig.isActive, true)
+          eq9(veddRewardConfig.actionType, actionType),
+          eq9(veddRewardConfig.isActive, true)
         )).limit(1);
         if (!config) return null;
         return {
@@ -36426,8 +39867,8 @@ var init_vedd_token_service = __esm({
       async getDailyTotalEarned(userId) {
         const todayStart = /* @__PURE__ */ new Date();
         todayStart.setHours(0, 0, 0, 0);
-        const rows = await db.select({ total: sql7`coalesce(sum(total_reward), 0)` }).from(ambassadorActionRewards).where(and6(
-          eq8(ambassadorActionRewards.userId, userId),
+        const rows = await db.select({ total: sql8`coalesce(sum(total_reward), 0)` }).from(ambassadorActionRewards).where(and6(
+          eq9(ambassadorActionRewards.userId, userId),
           gte5(ambassadorActionRewards.createdAt, todayStart)
         ));
         return Number(rows[0]?.total || 0);
@@ -36440,8 +39881,8 @@ var init_vedd_token_service = __esm({
         const weekStart = new Date(now);
         weekStart.setDate(now.getDate() + diffToMon);
         weekStart.setHours(0, 0, 0, 0);
-        const rows = await db.select({ total: sql7`coalesce(sum(total_reward), 0)` }).from(ambassadorActionRewards).where(and6(
-          eq8(ambassadorActionRewards.userId, userId),
+        const rows = await db.select({ total: sql8`coalesce(sum(total_reward), 0)` }).from(ambassadorActionRewards).where(and6(
+          eq9(ambassadorActionRewards.userId, userId),
           gte5(ambassadorActionRewards.createdAt, weekStart)
         ));
         return Number(rows[0]?.total || 0);
@@ -36451,9 +39892,9 @@ var init_vedd_token_service = __esm({
         if (!config) return null;
         const todayStart = /* @__PURE__ */ new Date();
         todayStart.setHours(0, 0, 0, 0);
-        const todaysRewards = await db.select({ count: sql7`count(*)` }).from(ambassadorActionRewards).where(and6(
-          eq8(ambassadorActionRewards.userId, userId),
-          eq8(ambassadorActionRewards.actionType, actionType),
+        const todaysRewards = await db.select({ count: sql8`count(*)` }).from(ambassadorActionRewards).where(and6(
+          eq9(ambassadorActionRewards.userId, userId),
+          eq9(ambassadorActionRewards.actionType, actionType),
           gte5(ambassadorActionRewards.createdAt, todayStart)
         ));
         const rewardCount = todaysRewards[0]?.count || 0;
@@ -36471,9 +39912,9 @@ var init_vedd_token_service = __esm({
           return null;
         }
         const tenMinsAgo = new Date(Date.now() - 10 * 60 * 1e3);
-        const recentBurst = await db.select({ count: sql7`count(*)` }).from(ambassadorActionRewards).where(and6(
-          eq8(ambassadorActionRewards.userId, userId),
-          eq8(ambassadorActionRewards.actionType, actionType),
+        const recentBurst = await db.select({ count: sql8`count(*)` }).from(ambassadorActionRewards).where(and6(
+          eq9(ambassadorActionRewards.userId, userId),
+          eq9(ambassadorActionRewards.actionType, actionType),
           gte5(ambassadorActionRewards.createdAt, tenMinsAgo)
         ));
         const burstCount = recentBurst[0]?.count || 0;
@@ -36486,11 +39927,11 @@ var init_vedd_token_service = __esm({
           const now = /* @__PURE__ */ new Date();
           const startToday = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()));
           const startYesterday = new Date(startToday.getTime() - 24 * 60 * 60 * 1e3);
-          const [prev] = await db.select({ c: sql7`count(*)` }).from(ambassadorActionRewards).where(and6(
-            eq8(ambassadorActionRewards.userId, userId),
-            eq8(ambassadorActionRewards.actionType, actionType),
+          const [prev] = await db.select({ c: sql8`count(*)` }).from(ambassadorActionRewards).where(and6(
+            eq9(ambassadorActionRewards.userId, userId),
+            eq9(ambassadorActionRewards.actionType, actionType),
             gte5(ambassadorActionRewards.createdAt, startYesterday),
-            sql7`${ambassadorActionRewards.createdAt} < ${startToday}`
+            sql8`${ambassadorActionRewards.createdAt} < ${startToday}`
           ));
           if ((prev?.c || 0) > 0) bonusReward = Math.round(baseReward * (mult - 1));
         }
@@ -36499,16 +39940,16 @@ var init_vedd_token_service = __esm({
         return { baseReward, bonusReward, totalReward, securityFlag };
       }
       async enqueueReward(userId, actionType, actionId, metadata) {
-        const [user] = await db.select().from(users).where(eq8(users.id, userId)).limit(1);
+        const [user] = await db.select().from(users).where(eq9(users.id, userId)).limit(1);
         if (!user) {
           console.log(`User ${userId} not found - cannot enqueue reward`);
           return null;
         }
         const hasWallet = !!user.walletAddress;
-        const userRecord = await db.select({ walletAddress: users.walletAddress }).from(users).where(eq8(users.id, userId)).limit(1);
+        const userRecord = await db.select({ walletAddress: users.walletAddress }).from(users).where(eq9(users.id, userId)).limit(1);
         const walletAddr = userRecord[0]?.walletAddress;
         if (walletAddr) {
-          const [blacklisted] = await db.select({ id: veddWalletBlacklist.id }).from(veddWalletBlacklist).where(and6(eq8(veddWalletBlacklist.walletAddress, walletAddr), eq8(veddWalletBlacklist.isActive, true))).limit(1);
+          const [blacklisted] = await db.select({ id: veddWalletBlacklist.id }).from(veddWalletBlacklist).where(and6(eq9(veddWalletBlacklist.walletAddress, walletAddr), eq9(veddWalletBlacklist.isActive, true))).limit(1);
           if (blacklisted) {
             console.warn(`[VEDD Security] Blocked reward for blacklisted wallet: ${walletAddr} (userId: ${userId})`);
             return null;
@@ -36542,7 +39983,7 @@ var init_vedd_token_service = __esm({
         return { rewardId: reward.id, pendingVerification: true, pendingWallet: !hasWallet };
       }
       async processTransfer(jobId) {
-        const [job] = await db.select().from(veddTransferJobs).where(eq8(veddTransferJobs.id, jobId)).limit(1);
+        const [job] = await db.select().from(veddTransferJobs).where(eq9(veddTransferJobs.id, jobId)).limit(1);
         if (!job) {
           return { success: false, error: "Job not found" };
         }
@@ -36555,7 +39996,7 @@ var init_vedd_token_service = __esm({
         const MAX_SINGLE_TRANSFER = 1e3;
         if (job.amount > MAX_SINGLE_TRANSFER) {
           console.warn(`[VEDD Security] Transfer amount ${job.amount} exceeds MAX_SINGLE_TRANSFER (${MAX_SINGLE_TRANSFER}). Requires manual review.`);
-          await db.update(veddTransferJobs).set({ status: "failed", errorMessage: `Amount ${job.amount} exceeds security limit of ${MAX_SINGLE_TRANSFER} VEDD per transfer. Admin must manually approve.` }).where(eq8(veddTransferJobs.id, jobId));
+          await db.update(veddTransferJobs).set({ status: "failed", errorMessage: `Amount ${job.amount} exceeds security limit of ${MAX_SINGLE_TRANSFER} VEDD per transfer. Admin must manually approve.` }).where(eq9(veddTransferJobs.id, jobId));
           return { success: false, error: "Transfer blocked by security limit" };
         }
         if (!VEDD_TOKEN_MINT || !POOL_WALLET_PRIVATE_KEY) {
@@ -36564,18 +40005,18 @@ var init_vedd_token_service = __esm({
             status: "failed",
             errorMessage: "Solana credentials not configured. Please set VEDD_TOKEN_MINT and POOL_WALLET_PRIVATE_KEY environment variables.",
             processedAt: /* @__PURE__ */ new Date()
-          }).where(eq8(veddTransferJobs.id, jobId));
+          }).where(eq9(veddTransferJobs.id, jobId));
           return {
             success: false,
             error: "Token transfer system not configured. Reward is pending - tokens will be sent once configuration is complete."
           };
         }
-        const [poolWallet] = await db.select().from(veddPoolWallets).where(and6(eq8(veddPoolWallets.walletType, "rewards"), eq8(veddPoolWallets.status, "active"))).limit(1);
+        const [poolWallet] = await db.select().from(veddPoolWallets).where(and6(eq9(veddPoolWallets.walletType, "rewards"), eq9(veddPoolWallets.status, "active"))).limit(1);
         if (poolWallet && (poolWallet.tokenBalance || 0) < job.amount) {
-          await db.update(veddTransferJobs).set({ status: "pending", errorMessage: `Pool balance ${poolWallet.tokenBalance ?? 0} below reward ${job.amount} \u2014 held until the pool is refilled.` }).where(eq8(veddTransferJobs.id, jobId));
+          await db.update(veddTransferJobs).set({ status: "pending", errorMessage: `Pool balance ${poolWallet.tokenBalance ?? 0} below reward ${job.amount} \u2014 held until the pool is refilled.` }).where(eq9(veddTransferJobs.id, jobId));
           return { success: false, error: "Insufficient pool balance \u2014 reward held pending." };
         }
-        await db.update(veddTransferJobs).set({ status: "processing" }).where(eq8(veddTransferJobs.id, jobId));
+        await db.update(veddTransferJobs).set({ status: "processing" }).where(eq9(veddTransferJobs.id, jobId));
         try {
           const keypair = getPoolKeypair();
           if (!keypair) {
@@ -36608,11 +40049,11 @@ var init_vedd_token_service = __esm({
             status: "completed",
             solanaTransactionSig: signature,
             processedAt: /* @__PURE__ */ new Date()
-          }).where(eq8(veddTransferJobs.id, jobId));
+          }).where(eq9(veddTransferJobs.id, jobId));
           await db.update(users).set({
-            veddTokenBalance: sql7`COALESCE(${users.veddTokenBalance}, 0) + ${job.amount}`
-          }).where(eq8(users.id, job.userId));
-          await db.update(veddPoolWallets).set({ tokenBalance: sql7`GREATEST(0, COALESCE(${veddPoolWallets.tokenBalance}, 0) - ${job.amount})` }).where(and6(eq8(veddPoolWallets.walletType, "rewards"), eq8(veddPoolWallets.status, "active")));
+            veddTokenBalance: sql8`COALESCE(${users.veddTokenBalance}, 0) + ${job.amount}`
+          }).where(eq9(users.id, job.userId));
+          await db.update(veddPoolWallets).set({ tokenBalance: sql8`GREATEST(0, COALESCE(${veddPoolWallets.tokenBalance}, 0) - ${job.amount})` }).where(and6(eq9(veddPoolWallets.walletType, "rewards"), eq9(veddPoolWallets.status, "active")));
           return { success: true, transactionSig: signature };
         } catch (error) {
           const retryCount = (job.retryCount || 0) + 1;
@@ -36621,7 +40062,7 @@ var init_vedd_token_service = __esm({
             status: retryCount >= maxRetries ? "failed" : "pending",
             errorMessage: error.message,
             retryCount
-          }).where(eq8(veddTransferJobs.id, jobId));
+          }).where(eq9(veddTransferJobs.id, jobId));
           return { success: false, error: error.message };
         }
       }
@@ -36633,13 +40074,13 @@ var init_vedd_token_service = __esm({
           verificationStatus: ambassadorActionRewards.verificationStatus,
           createdAt: ambassadorActionRewards.createdAt,
           transferJobId: ambassadorActionRewards.transferJobId
-        }).from(ambassadorActionRewards).where(eq8(ambassadorActionRewards.userId, userId)).orderBy(desc2(ambassadorActionRewards.createdAt)).limit(limit);
+        }).from(ambassadorActionRewards).where(eq9(ambassadorActionRewards.userId, userId)).orderBy(desc2(ambassadorActionRewards.createdAt)).limit(limit);
         const result = [];
         for (const reward of rewards) {
           let status = reward.verificationStatus;
           let transactionSig;
           if (reward.transferJobId) {
-            const [job] = await db.select().from(veddTransferJobs).where(eq8(veddTransferJobs.id, reward.transferJobId)).limit(1);
+            const [job] = await db.select().from(veddTransferJobs).where(eq9(veddTransferJobs.id, reward.transferJobId)).limit(1);
             if (job) {
               status = job.status;
               transactionSig = job.solanaTransactionSig || void 0;
@@ -36659,8 +40100,8 @@ var init_vedd_token_service = __esm({
       async getUserTotalEarnings(userId) {
         const earnings = await db.select({
           status: ambassadorActionRewards.verificationStatus,
-          total: sql7`SUM(${ambassadorActionRewards.totalReward})`
-        }).from(ambassadorActionRewards).where(eq8(ambassadorActionRewards.userId, userId)).groupBy(ambassadorActionRewards.verificationStatus);
+          total: sql8`SUM(${ambassadorActionRewards.totalReward})`
+        }).from(ambassadorActionRewards).where(eq9(ambassadorActionRewards.userId, userId)).groupBy(ambassadorActionRewards.verificationStatus);
         let total = 0;
         let pending = 0;
         let completed = 0;
@@ -36673,7 +40114,7 @@ var init_vedd_token_service = __esm({
         return { total, pending, completed };
       }
       async verifyReward(rewardId, adminId, approved, notes) {
-        const [reward] = await db.select().from(ambassadorActionRewards).where(eq8(ambassadorActionRewards.id, rewardId)).limit(1);
+        const [reward] = await db.select().from(ambassadorActionRewards).where(eq9(ambassadorActionRewards.id, rewardId)).limit(1);
         if (!reward || reward.verificationStatus !== "pending") {
           return false;
         }
@@ -36683,17 +40124,17 @@ var init_vedd_token_service = __esm({
             verifiedBy: adminId,
             verifiedAt: /* @__PURE__ */ new Date(),
             notes
-          }).where(eq8(ambassadorActionRewards.id, rewardId));
+          }).where(eq9(ambassadorActionRewards.id, rewardId));
           return true;
         }
-        const [user] = await db.select().from(users).where(eq8(users.id, reward.userId)).limit(1);
+        const [user] = await db.select().from(users).where(eq9(users.id, reward.userId)).limit(1);
         if (!user?.walletAddress) {
           await db.update(ambassadorActionRewards).set({
             verificationStatus: "verified",
             verifiedBy: adminId,
             verifiedAt: /* @__PURE__ */ new Date(),
             notes: notes || "Verified - pending wallet connection for transfer"
-          }).where(eq8(ambassadorActionRewards.id, rewardId));
+          }).where(eq9(ambassadorActionRewards.id, rewardId));
           return true;
         }
         const poolWallet = await this.getPoolWalletInfo("rewards");
@@ -36703,7 +40144,7 @@ var init_vedd_token_service = __esm({
             verifiedBy: adminId,
             verifiedAt: /* @__PURE__ */ new Date(),
             notes: notes || "Verified - pending pool wallet setup for transfer"
-          }).where(eq8(ambassadorActionRewards.id, rewardId));
+          }).where(eq9(ambassadorActionRewards.id, rewardId));
           return true;
         }
         const idempotencyKey = `reward-${rewardId}`;
@@ -36725,7 +40166,7 @@ var init_vedd_token_service = __esm({
           verifiedAt: /* @__PURE__ */ new Date(),
           transferJobId: transferJob.id,
           notes
-        }).where(eq8(ambassadorActionRewards.id, rewardId));
+        }).where(eq9(ambassadorActionRewards.id, rewardId));
         this.processTransfer(transferJob.id).catch(
           (err) => console.error("Background transfer processing error:", err)
         );
@@ -36734,7 +40175,7 @@ var init_vedd_token_service = __esm({
       async getPoolOverview() {
         let poolInfos = [];
         try {
-          const pools = await db.select().from(veddPoolWallets).where(eq8(veddPoolWallets.status, "active"));
+          const pools = await db.select().from(veddPoolWallets).where(eq9(veddPoolWallets.status, "active"));
           poolInfos = pools.map((p) => ({
             id: p.id,
             label: p.label,
@@ -36754,13 +40195,13 @@ var init_vedd_token_service = __esm({
         try {
           const todayStart = /* @__PURE__ */ new Date();
           todayStart.setHours(0, 0, 0, 0);
-          const [pendingResult] = await db.select({ count: sql7`count(*)` }).from(veddTransferJobs).where(eq8(veddTransferJobs.status, "pending"));
+          const [pendingResult] = await db.select({ count: sql8`count(*)` }).from(veddTransferJobs).where(eq9(veddTransferJobs.status, "pending"));
           const [completedResult] = await db.select({
-            count: sql7`count(*)`,
-            total: sql7`COALESCE(SUM(${veddTransferJobs.amount}), 0)`
+            count: sql8`count(*)`,
+            total: sql8`COALESCE(SUM(${veddTransferJobs.amount}), 0)`
           }).from(veddTransferJobs).where(and6(
-            eq8(veddTransferJobs.status, "completed"),
-            sql7`${veddTransferJobs.processedAt} >= ${todayStart}`
+            eq9(veddTransferJobs.status, "completed"),
+            sql8`${veddTransferJobs.processedAt} >= ${todayStart}`
           ));
           pendingTransfers = pendingResult?.count || 0;
           completedTransfersToday = completedResult?.count || 0;
@@ -36782,8 +40223,8 @@ var init_vedd_token_service = __esm({
       }
       async processWalletConnectedRewards(userId, walletAddress) {
         const verifiedRewardsWithoutTransfer = await db.select().from(ambassadorActionRewards).where(and6(
-          eq8(ambassadorActionRewards.userId, userId),
-          eq8(ambassadorActionRewards.verificationStatus, "verified"),
+          eq9(ambassadorActionRewards.userId, userId),
+          eq9(ambassadorActionRewards.verificationStatus, "verified"),
           isNull2(ambassadorActionRewards.transferJobId)
         ));
         if (verifiedRewardsWithoutTransfer.length === 0) {
@@ -36813,7 +40254,7 @@ var init_vedd_token_service = __esm({
             await db.update(ambassadorActionRewards).set({
               transferJobId: transferJob.id,
               notes: "Transfer job created on wallet connection"
-            }).where(eq8(ambassadorActionRewards.id, reward.id));
+            }).where(eq9(ambassadorActionRewards.id, reward.id));
             this.processTransfer(transferJob.id).catch(
               (err) => console.error(`Background transfer error for job ${transferJob.id}:`, err)
             );
@@ -36837,7 +40278,7 @@ var init_vedd_token_service = __esm({
        */
       async enqueueReferralReward(referrerId, actionType, amount) {
         try {
-          const [referrer] = await db.select().from(users).where(eq8(users.id, referrerId)).limit(1);
+          const [referrer] = await db.select().from(users).where(eq9(users.id, referrerId)).limit(1);
           if (!referrer) return;
           const poolWallet = await this.getPoolWalletInfo("rewards");
           const [reward] = await db.insert(ambassadorActionRewards).values({
@@ -36855,7 +40296,7 @@ var init_vedd_token_service = __esm({
             console.log(`[Referral Token] ${amount} VEDD reward logged for user ${referrerId} \u2014 wallet not connected, held pending`);
             return;
           }
-          const [blacklisted] = await db.select({ id: veddWalletBlacklist.id }).from(veddWalletBlacklist).where(and6(eq8(veddWalletBlacklist.walletAddress, walletAddr), eq8(veddWalletBlacklist.isActive, true))).limit(1);
+          const [blacklisted] = await db.select({ id: veddWalletBlacklist.id }).from(veddWalletBlacklist).where(and6(eq9(veddWalletBlacklist.walletAddress, walletAddr), eq9(veddWalletBlacklist.isActive, true))).limit(1);
           if (blacklisted) {
             console.warn(`[Referral Token] Blocked \u2014 blacklisted wallet: ${walletAddr} (userId: ${referrerId})`);
             return;
@@ -37468,7 +40909,7 @@ __export(futures_scanner_exports, {
 function uid() {
   return `${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
 }
-function addActivity2(userId, entry) {
+function addActivity3(userId, entry) {
   const state = scannerStates[userId];
   if (!state) return;
   state.activities.unshift({ id: uid(), timestamp: (/* @__PURE__ */ new Date()).toISOString(), ...entry });
@@ -37515,7 +40956,7 @@ function recordOutcome(userId, symbol, won, rMultiple2) {
     state.losses++;
   }
   perf.totalR += rMultiple2;
-  addActivity2(userId, {
+  addActivity3(userId, {
     type: "info",
     symbol,
     message: `\u{1F4CA} Learning update: ${symbol} W:${perf.wins} L:${perf.losses} | AvgR:${(perf.totalR / (perf.wins + perf.losses)).toFixed(2)} | Session W:${state.wins} L:${state.losses}`
@@ -37603,7 +41044,7 @@ async function monitorOpenFuturesPositions(userId, cfg) {
           }
           const realizedPnl = (isLong ? currentPrice - trade.entryPrice : trade.entryPrice - currentPrice) * trade.contracts * (getInstrument(trade.symbol)?.tickValue || 1) / (getInstrument(trade.symbol)?.tickSize || 1);
           await storage.closeFuturesEngineTrade(trade.id, { exitPrice: currentPrice, exitReason: "trailing_stop", realizedPnl });
-          addActivity2(userId, { type: "trade_open", symbol: trade.symbol, message: `\u{1F4C9} Trailing stop closed ${trade.symbol} at ${currentR.toFixed(2)}R (peak ${peakR.toFixed(2)}R).` });
+          addActivity3(userId, { type: "trade_open", symbol: trade.symbol, message: `\u{1F4C9} Trailing stop closed ${trade.symbol} at ${currentR.toFixed(2)}R (peak ${peakR.toFixed(2)}R).` });
           continue;
         }
       }
@@ -37615,8 +41056,8 @@ async function monitorOpenFuturesPositions(userId, cfg) {
     }
   }
 }
-function futuresBasketOf(sym) {
-  const s = (sym || "").toUpperCase();
+function futuresBasketOf(sym2) {
+  const s = (sym2 || "").toUpperCase();
   for (const b of FUTURES_CORRELATED_BASKETS) if (b.some((root) => s.startsWith(root))) return b;
   return null;
 }
@@ -37922,7 +41363,7 @@ async function runFuturesAIAnalysis(userId, marketAnalysis) {
   const session3 = getCurrentFuturesSession();
   if (config.aiMode === "rule_based") {
     const newsBlock = isHighImpactNewsWindow();
-    if (newsBlock) addActivity2(userId, { type: "info", message: "\u{1F4F0} High-impact news window active \u2014 confidence penalized on all signals" });
+    if (newsBlock) addActivity3(userId, { type: "info", message: "\u{1F4F0} High-impact news window active \u2014 confidence penalized on all signals" });
     for (const [symbol, data] of Object.entries(marketAnalysis)) {
       const inst = getInstrument(symbol);
       if (!inst) continue;
@@ -38094,7 +41535,7 @@ async function runFuturesAIAnalysis(userId, marketAnalysis) {
         confluences,
         status: "pending"
       };
-      addActivity2(userId, { type: "signal", symbol, direction, confidence: signal.confidence, message: `\u26A1 ${strategy.toUpperCase()}: ${direction} ${symbol} @ ${entryPrice} | Conf: ${signal.confidence}% | SL: ${slTicks}t TP: ${tpTicks}t | ${confluences.slice(0, 3).join(", ")}` });
+      addActivity3(userId, { type: "signal", symbol, direction, confidence: signal.confidence, message: `\u26A1 ${strategy.toUpperCase()}: ${direction} ${symbol} @ ${entryPrice} | Conf: ${signal.confidence}% | SL: ${slTicks}t TP: ${tpTicks}t | ${confluences.slice(0, 3).join(", ")}` });
       addSignal(userId, signal);
       const tradeAllowed = await assembleFuturesConsensus(userId, symbol, strategy, direction, data, config);
       if (tradeAllowed) {
@@ -38102,7 +41543,7 @@ async function runFuturesAIAnalysis(userId, marketAnalysis) {
       } else {
         signal.status = "rejected";
         signal.executionResult = "Blocked by Dual-Vote Consensus";
-        addActivity2(userId, { type: "info", symbol, message: `${symbol}: signal confirmed by quant scan, but consensus blocked execution.` });
+        addActivity3(userId, { type: "info", symbol, message: `${symbol}: signal confirmed by quant scan, but consensus blocked execution.` });
       }
     }
     return;
@@ -38112,7 +41553,7 @@ async function runFuturesAIAnalysis(userId, marketAnalysis) {
     const { getUniversalAIClientForUser: getUniversalAIClientForUser2 } = await Promise.resolve().then(() => (init_openai(), openai_exports));
     openai2 = await getUniversalAIClientForUser2(userId);
   } catch {
-    addActivity2(userId, { type: "error", message: "No AI API key configured \u2014 futures scanner cannot analyze." });
+    addActivity3(userId, { type: "error", message: "No AI API key configured \u2014 futures scanner cannot analyze." });
     return;
   }
   const _primaryClient = openai2;
@@ -38130,16 +41571,16 @@ async function runFuturesAIAnalysis(userId, marketAnalysis) {
   }
   const model = openai2.defaultModel || "gpt-4o";
   const newsWindowActive = isHighImpactNewsWindow();
-  if (newsWindowActive) addActivity2(userId, { type: "info", message: "\u{1F4F0} High-impact news window active \u2014 AI will reduce signal confidence accordingly" });
-  const marketSummary = Object.entries(marketAnalysis).map(([sym, data]) => {
-    const inst = getInstrument(sym);
+  if (newsWindowActive) addActivity3(userId, { type: "info", message: "\u{1F4F0} High-impact news window active \u2014 AI will reduce signal confidence accordingly" });
+  const marketSummary = Object.entries(marketAnalysis).map(([sym2, data]) => {
+    const inst = getInstrument(sym2);
     const vol = data.volatilityContext;
     const sr = data.supportResistance;
     const atr2 = vol?.currentATR || 0;
     const atrTicks = inst ? Math.round(atr2 / inst.tickSize) : 0;
     const candles = data.candles || [];
     const perfNote = (() => {
-      const perf = state.symbolPerformance[sym];
+      const perf = state.symbolPerformance[sym2];
       if (!perf || perf.wins + perf.losses < 2) return "";
       const wr = (perf.wins / (perf.wins + perf.losses) * 100).toFixed(0);
       return `, HistoricalWR=${wr}%(${perf.wins}W/${perf.losses}L)`;
@@ -38170,12 +41611,12 @@ async function runFuturesAIAnalysis(userId, marketAnalysis) {
     const markovNote = (() => {
       if (candles.length < 10) return "";
       const dir = data.trend === "BULLISH" ? "BUY" : "SELL";
-      const m = getMarkovSignal(sym, dir, candles.map((c) => ({ open: c.o, close: c.c })));
+      const m = getMarkovSignal(sym2, dir, candles.map((c) => ({ open: c.o, close: c.c })));
       return `, Markov(bullP=${Math.round(m.bullishProbability * 100)}%,bearP=${Math.round(m.bearishProbability * 100)}%,adj=${m.confidenceAdjustment > 0 ? "+" : ""}${m.confidenceAdjustment})`;
     })();
-    return `${sym}(${inst?.description || ""}): Price=${data.currentPrice}, Trend=${data.trend}, ADX=${data.adx?.adx?.toFixed(1) || "N/A"}, RSI=${data.rsi?.value?.toFixed(1) || "N/A"}, MACD_hist=${data.macd?.histogram?.toFixed(2) || "N/A"}, ATR=${atr2.toFixed(2)}(${atrTicks}ticks), TickVal=$${inst?.tickValue || "?"}/tick, Support=${sr?.supports?.[0]?.toFixed(2) || "N/A"}, Resistance=${sr?.resistances?.[0]?.toFixed(2) || "N/A"}, Patterns=[${(data.candlePatterns || []).join(",")}]${perfNote}${smNote}${vpNote}${deltaNote}${markovNote}`;
+    return `${sym2}(${inst?.description || ""}): Price=${data.currentPrice}, Trend=${data.trend}, ADX=${data.adx?.adx?.toFixed(1) || "N/A"}, RSI=${data.rsi?.value?.toFixed(1) || "N/A"}, MACD_hist=${data.macd?.histogram?.toFixed(2) || "N/A"}, ATR=${atr2.toFixed(2)}(${atrTicks}ticks), TickVal=$${inst?.tickValue || "?"}/tick, Support=${sr?.supports?.[0]?.toFixed(2) || "N/A"}, Resistance=${sr?.resistances?.[0]?.toFixed(2) || "N/A"}, Patterns=[${(data.candlePatterns || []).join(",")}]${perfNote}${smNote}${vpNote}${deltaNote}${markovNote}`;
   }).join("\n");
-  const symbolPerformanceSummary = Object.entries(state.symbolPerformance).map(([sym, p]) => `${sym}: ${p.wins}W/${p.losses}L avgR=${p.wins + p.losses > 0 ? (p.totalR / (p.wins + p.losses)).toFixed(2) : "N/A"}`).join(", ") || "No history yet";
+  const symbolPerformanceSummary = Object.entries(state.symbolPerformance).map(([sym2, p]) => `${sym2}: ${p.wins}W/${p.losses}L avgR=${p.wins + p.losses > 0 ? (p.totalR / (p.wins + p.losses)).toFixed(2) : "N/A"}`).join(", ") || "No history yet";
   const newsWarning = newsWindowActive ? "\n\u26A0\uFE0F HIGH-IMPACT NEWS WINDOW ACTIVE \u2014 reduce all signal confidence by 15 points and avoid new entries unless confidence > 85%." : "";
   const prompt = `You are VEDD AI \u2014 an expert futures trader with deep knowledge of CME equity index, metals, and energy futures.
 
@@ -38234,7 +41675,7 @@ Rules for decisions array:
 - stopLossTicks and takeProfitTicks must be positive integers
 - confidence is 0-100`;
   try {
-    addActivity2(userId, { type: "info", message: `\u{1F916} Futures AI analyzing ${Object.keys(marketAnalysis).length} instruments (${session3}) via ${model}...` });
+    addActivity3(userId, { type: "info", message: `\u{1F916} Futures AI analyzing ${Object.keys(marketAnalysis).length} instruments (${session3}) via ${model}...` });
     const _mkReq = (m) => ({
       model: m,
       messages: [{ role: "user", content: prompt }],
@@ -38247,7 +41688,7 @@ Rules for decisions array:
       response = await openai2.chat.completions.create(_mkReq(model));
     } catch (aiErr) {
       if (_usingGroq) {
-        addActivity2(userId, { type: "info", message: `\u26A0\uFE0F Groq failed (${(aiErr?.message || "").slice(0, 80)}) \u2014 retrying on primary AI client` });
+        addActivity3(userId, { type: "info", message: `\u26A0\uFE0F Groq failed (${(aiErr?.message || "").slice(0, 80)}) \u2014 retrying on primary AI client` });
         response = await _primaryClient.chat.completions.create(_mkReq(_primaryModel));
       } else {
         throw aiErr;
@@ -38262,10 +41703,10 @@ Rules for decisions array:
     }
     const decisions = parsed.decisions || [];
     if (parsed.marketOverview) {
-      addActivity2(userId, { type: "info", message: `\u{1F4CA} ${parsed.marketOverview}${parsed.sessionNote ? " | " + parsed.sessionNote : ""}` });
+      addActivity3(userId, { type: "info", message: `\u{1F4CA} ${parsed.marketOverview}${parsed.sessionNote ? " | " + parsed.sessionNote : ""}` });
     }
     if (decisions.length === 0) {
-      addActivity2(userId, { type: "info", message: "No futures setups this cycle \u2014 waiting for higher-quality alignment." });
+      addActivity3(userId, { type: "info", message: "No futures setups this cycle \u2014 waiting for higher-quality alignment." });
       return;
     }
     for (const d of decisions) {
@@ -38275,7 +41716,7 @@ Rules for decisions array:
       if (!directionAllowed) continue;
       const minConf = getAdjustedMinConfidence(userId, d.symbol);
       if (d.confidence < minConf) {
-        addActivity2(userId, { type: "info", symbol: d.symbol, message: `Skipped ${d.symbol}: confidence ${d.confidence}% < adjusted threshold ${minConf}% (learning-adjusted)` });
+        addActivity3(userId, { type: "info", symbol: d.symbol, message: `Skipped ${d.symbol}: confidence ${d.confidence}% < adjusted threshold ${minConf}% (learning-adjusted)` });
         continue;
       }
       const inst = getInstrument(d.symbol);
@@ -38305,7 +41746,7 @@ Rules for decisions array:
         confluences: d.confluences || [],
         status: "pending"
       };
-      addActivity2(userId, {
+      addActivity3(userId, {
         type: "signal",
         symbol: d.symbol,
         direction: d.direction,
@@ -38320,11 +41761,11 @@ Rules for decisions array:
       } else {
         signal.status = "rejected";
         signal.executionResult = "Blocked by Dual-Vote Consensus";
-        addActivity2(userId, { type: "info", symbol: d.symbol, message: `${d.symbol}: AI signal confirmed, but consensus (Quant Agent disagreed) blocked execution.` });
+        addActivity3(userId, { type: "info", symbol: d.symbol, message: `${d.symbol}: AI signal confirmed, but consensus (Quant Agent disagreed) blocked execution.` });
       }
     }
   } catch (err) {
-    addActivity2(userId, { type: "error", message: `Futures AI error: ${err.message}` });
+    addActivity3(userId, { type: "error", message: `Futures AI error: ${err.message}` });
   }
 }
 async function executeSignalIfEnabled(userId, signal) {
@@ -38338,25 +41779,25 @@ async function executeSignalIfEnabled(userId, signal) {
   if (!gate.allowed) {
     signal.status = "rejected";
     signal.executionResult = gate.reason;
-    addActivity2(userId, { type: "info", symbol: signal.symbol, message: `${signal.symbol}: signal confirmed, but execution blocked \u2014 ${gate.reason}.` });
+    addActivity3(userId, { type: "info", symbol: signal.symbol, message: `${signal.symbol}: signal confirmed, but execution blocked \u2014 ${gate.reason}.` });
     return;
   }
   if (gate.riskMultiplier < 1) {
     if ((signal.confidence ?? 0) < 80) {
       signal.status = "rejected";
       signal.executionResult = "Drawdown Shield active \u2014 only 80%+ confidence setups allowed during drawdown";
-      addActivity2(userId, { type: "info", symbol: signal.symbol, message: `${signal.symbol}: Drawdown Shield active \u2014 only 80%+ confidence setups allowed during drawdown (this signal: ${signal.confidence}%).` });
+      addActivity3(userId, { type: "info", symbol: signal.symbol, message: `${signal.symbol}: Drawdown Shield active \u2014 only 80%+ confidence setups allowed during drawdown (this signal: ${signal.confidence}%).` });
       return;
     }
     const bestStrategies = global.veddFuturesBrain?.[userId]?.symbolKnowledge?.[signal.symbol]?.bestStrategies ?? [];
     if (bestStrategies.length > 0 && !bestStrategies.includes(signal.strategy)) {
       signal.status = "rejected";
       signal.executionResult = `Drawdown Shield active \u2014 only best-performing strategies (${bestStrategies.join(", ")}) allowed during drawdown`;
-      addActivity2(userId, { type: "info", symbol: signal.symbol, message: `${signal.symbol}: Drawdown Shield active \u2014 only this symbol's best-performing strategies (${bestStrategies.join(", ")}) are allowed during drawdown ("${signal.strategy}" isn't one of them).` });
+      addActivity3(userId, { type: "info", symbol: signal.symbol, message: `${signal.symbol}: Drawdown Shield active \u2014 only this symbol's best-performing strategies (${bestStrategies.join(", ")}) are allowed during drawdown ("${signal.strategy}" isn't one of them).` });
       return;
     }
     signal.contracts = Math.max(1, Math.round(signal.contracts * gate.riskMultiplier));
-    addActivity2(userId, { type: "info", symbol: signal.symbol, message: `\u26A0\uFE0F Risk reduced to ${Math.round(gate.riskMultiplier * 100)}% (Drawdown Shield / consistency rule active) \u2014 sized to ${signal.contracts} contracts.` });
+    addActivity3(userId, { type: "info", symbol: signal.symbol, message: `\u26A0\uFE0F Risk reduced to ${Math.round(gate.riskMultiplier * 100)}% (Drawdown Shield / consistency rule active) \u2014 sized to ${signal.contracts} contracts.` });
   }
   const moomoo = getMoomooService(userId);
   if (moomoo && moomoo.isConnected()) {
@@ -38371,7 +41812,7 @@ async function executeSignalIfEnabled(userId, signal) {
       if (result.success) {
         signal.status = "executed";
         signal.executionResult = `Moomoo Order #${result.orderId}`;
-        addActivity2(userId, { type: "trade_open", symbol: signal.symbol, direction: signal.direction, message: `\u2705 MOOMOO EXECUTED: ${signal.direction} ${signal.contracts} ${signal.symbol} | Order: ${result.orderId}` });
+        addActivity3(userId, { type: "trade_open", symbol: signal.symbol, direction: signal.direction, message: `\u2705 MOOMOO EXECUTED: ${signal.direction} ${signal.contracts} ${signal.symbol} | Order: ${result.orderId}` });
         await storage.createFuturesEngineTrade({
           userId,
           connectionId: 0,
@@ -38391,17 +41832,17 @@ async function executeSignalIfEnabled(userId, signal) {
       } else {
         signal.status = "rejected";
         signal.executionResult = result.error || "Moomoo execution failed";
-        addActivity2(userId, { type: "error", symbol: signal.symbol, message: `\u274C Moomoo failed: ${signal.symbol} \u2014 ${result.error}` });
+        addActivity3(userId, { type: "error", symbol: signal.symbol, message: `\u274C Moomoo failed: ${signal.symbol} \u2014 ${result.error}` });
       }
       return;
     } catch (err) {
-      addActivity2(userId, { type: "error", symbol: signal.symbol, message: `Moomoo error: ${err.message} \u2014 falling back to Tradovate` });
+      addActivity3(userId, { type: "error", symbol: signal.symbol, message: `Moomoo error: ${err.message} \u2014 falling back to Tradovate` });
     }
   }
   try {
     const connection2 = await storage.getUserTradovateConnection(userId);
     if (!connection2 || !connection2.isActive) {
-      addActivity2(userId, { type: "info", symbol: signal.symbol, message: `Signal queued (no broker connected): ${signal.direction} ${signal.symbol}` });
+      addActivity3(userId, { type: "info", symbol: signal.symbol, message: `Signal queued (no broker connected): ${signal.direction} ${signal.symbol}` });
       return;
     }
     const result = await executeFuturesSignal(connection2, {
@@ -38415,7 +41856,7 @@ async function executeSignalIfEnabled(userId, signal) {
     if (result.success) {
       signal.status = "executed";
       signal.executionResult = `Tradovate Order #${result.orderId}`;
-      addActivity2(userId, { type: "trade_open", symbol: signal.symbol, direction: signal.direction, message: `\u2705 TRADOVATE EXECUTED: ${signal.direction} ${signal.contracts} ${signal.symbol} | Order: ${result.orderId}` });
+      addActivity3(userId, { type: "trade_open", symbol: signal.symbol, direction: signal.direction, message: `\u2705 TRADOVATE EXECUTED: ${signal.direction} ${signal.contracts} ${signal.symbol} | Order: ${result.orderId}` });
       await storage.createFuturesEngineTrade({
         userId,
         connectionId: connection2.id ?? 0,
@@ -38435,12 +41876,12 @@ async function executeSignalIfEnabled(userId, signal) {
     } else {
       signal.status = "rejected";
       signal.executionResult = result.error || "Execution failed";
-      addActivity2(userId, { type: "error", symbol: signal.symbol, message: `\u274C Execution failed: ${signal.symbol} \u2014 ${result.error}` });
+      addActivity3(userId, { type: "error", symbol: signal.symbol, message: `\u274C Execution failed: ${signal.symbol} \u2014 ${result.error}` });
     }
   } catch (err) {
     signal.status = "rejected";
     signal.executionResult = err.message;
-    addActivity2(userId, { type: "error", symbol: signal.symbol, message: `Execution error: ${err.message}` });
+    addActivity3(userId, { type: "error", symbol: signal.symbol, message: `Execution error: ${err.message}` });
   }
 }
 async function scanFuturesMarkets(userId) {
@@ -38463,7 +41904,7 @@ async function scanFuturesMarkets(userId) {
   const gateCheck = await checkFuturesSafetyGates(userId, state.config, _haltEquity, void 0, _haltAcct.unrealizedPnl, _haltPc.connectionId, _haltPc.connectionType).catch(() => ({ allowed: true, riskMultiplier: 1 }));
   if (!gateCheck.allowed) {
     state.dailyLossHalted = true;
-    addActivity2(userId, { type: "error", message: `\u{1F6A8} Scanner halted \u2014 ${gateCheck.reason}.` });
+    addActivity3(userId, { type: "error", message: `\u{1F6A8} Scanner halted \u2014 ${gateCheck.reason}.` });
     return;
   }
   state.dailyLossHalted = false;
@@ -38473,18 +41914,18 @@ async function scanFuturesMarkets(userId) {
   const session3 = getCurrentFuturesSession();
   try {
     if (!marketDataService.isInitialized()) {
-      addActivity2(userId, { type: "error", message: "Market data service not initialized \u2014 check TWELVE_DATA_API_KEY." });
+      addActivity3(userId, { type: "error", message: "Market data service not initialized \u2014 check TWELVE_DATA_API_KEY." });
       return;
     }
     await monitorOpenFuturesPositions(userId, state.config).catch(
       (e) => console.error(`[futures-scanner] monitorOpenFuturesPositions failed for user ${userId}:`, e.message)
     );
     const symbolDaySchedule = state.config.symbolDaySchedule || {};
-    const symbols = state.config.symbols.filter((sym) => {
-      const days = symbolDaySchedule[sym];
+    const symbols = state.config.symbols.filter((sym2) => {
+      const days = symbolDaySchedule[sym2];
       return !Array.isArray(days) || days.length === 0 || days.includes(todayDow);
     }).slice(0, 8);
-    addActivity2(userId, { type: "scan", message: `\u{1F50D} Futures scan #${state.scanCount}: ${symbols.join(", ")} [${session3}]` });
+    addActivity3(userId, { type: "scan", message: `\u{1F50D} Futures scan #${state.scanCount}: ${symbols.join(", ")} [${session3}]` });
     const marketAnalysis = {};
     for (const symbol of symbols) {
       try {
@@ -38520,16 +41961,16 @@ async function scanFuturesMarkets(userId) {
         };
         await new Promise((r) => setTimeout(r, 4e3));
       } catch (err) {
-        addActivity2(userId, { type: "error", symbol, message: `Data fetch failed: ${err.message}` });
+        addActivity3(userId, { type: "error", symbol, message: `Data fetch failed: ${err.message}` });
       }
     }
     if (Object.keys(marketAnalysis).length === 0) {
-      addActivity2(userId, { type: "info", message: "No futures market data available this cycle." });
+      addActivity3(userId, { type: "info", message: "No futures market data available this cycle." });
       return;
     }
     await runFuturesAIAnalysis(userId, marketAnalysis);
   } catch (err) {
-    addActivity2(userId, { type: "error", message: `Futures scan error: ${err.message}` });
+    addActivity3(userId, { type: "error", message: `Futures scan error: ${err.message}` });
   } finally {
     state.currentlyScanning = false;
   }
@@ -38599,7 +42040,7 @@ function startFuturesScanner(config) {
     losses: 0,
     symbolPerformance: {}
   };
-  addActivity2(config.userId, {
+  addActivity3(config.userId, {
     type: "info",
     message: `\u{1F680} Futures Scanner STARTED | Instruments: ${fullConfig.symbols.join(", ")} | Interval: ${fullConfig.scanIntervalMs / 1e3}s | Min confidence: ${fullConfig.minConfidence}% | Auto-execute: ${fullConfig.enableAutoExecution ? "ON" : "OFF (signals only)"}`
   });
@@ -38616,7 +42057,7 @@ function stopFuturesScanner(userId) {
   const state = scannerStates[userId];
   if (state) {
     state.status = "stopped";
-    addActivity2(userId, { type: "info", message: "\u23F9\uFE0F Futures Scanner STOPPED." });
+    addActivity3(userId, { type: "info", message: "\u23F9\uFE0F Futures Scanner STOPPED." });
   }
 }
 function getFuturesScannerState(userId) {
@@ -38901,427 +42342,6 @@ var init_futures_brain = __esm({
     "use strict";
     init_storage();
     STALE_MS = 6e4;
-  }
-});
-
-// server/solana-scanner.ts
-import OpenAI4 from "openai";
-async function fetchTrendingSolanaTokens() {
-  try {
-    const boostedResponse = await fetch("https://api.dexscreener.com/token-boosts/top/v1");
-    let tokenAddresses = [];
-    if (boostedResponse.ok) {
-      const boostedData = await boostedResponse.json();
-      const solanaTokens = boostedData.filter((t) => t.chainId === "solana");
-      tokenAddresses = solanaTokens.slice(0, 20).map((t) => t.tokenAddress);
-    }
-    if (tokenAddresses.length === 0) {
-      const searchResponse = await fetch("https://api.dexscreener.com/latest/dex/search?q=sol");
-      if (searchResponse.ok) {
-        const searchData = await searchResponse.json();
-        const solanaPairs = (searchData.pairs || []).filter((p) => p.chainId === "solana");
-        return solanaPairs.slice(0, 30).map((pair) => mapPairToToken(pair));
-      }
-      return [];
-    }
-    const batchAddresses = tokenAddresses.slice(0, 30).join(",");
-    const tokensResponse = await fetch(`https://api.dexscreener.com/latest/dex/tokens/${batchAddresses}`);
-    if (!tokensResponse.ok) {
-      console.error("Failed to fetch token data");
-      return [];
-    }
-    const tokensData = await tokensResponse.json();
-    const pairs = tokensData.pairs || [];
-    const seen = /* @__PURE__ */ new Set();
-    const uniquePairs = [];
-    for (const pair of pairs) {
-      if (pair.chainId === "solana" && !seen.has(pair.baseToken?.address)) {
-        seen.add(pair.baseToken?.address);
-        uniquePairs.push(pair);
-      }
-    }
-    return uniquePairs.slice(0, 30).map((pair) => mapPairToToken(pair));
-  } catch (error) {
-    console.error("Error fetching trending tokens:", error);
-    return [];
-  }
-}
-function mapPairToToken(pair) {
-  const dexId = (pair.dexId || "unknown").toLowerCase();
-  let dexSource = "jupiter";
-  if (dexId.includes("raydium")) dexSource = "raydium";
-  else if (dexId.includes("orca") || dexId.includes("whirlpool")) dexSource = "orca";
-  else if (dexId.includes("meteora")) dexSource = "meteora";
-  else if (dexId.includes("pump") || dexId.includes("pumpfun")) dexSource = "pumpfun";
-  return {
-    address: pair.baseToken?.address || "",
-    symbol: pair.baseToken?.symbol || "UNKNOWN",
-    name: pair.baseToken?.name || "Unknown Token",
-    priceUsd: pair.priceUsd || "0",
-    priceChange24h: pair.priceChange?.h24 || 0,
-    volume24h: pair.volume?.h24 || 0,
-    liquidity: pair.liquidity?.usd || 0,
-    fdv: pair.fdv || 0,
-    txns24h: {
-      buys: pair.txns?.h24?.buys || 0,
-      sells: pair.txns?.h24?.sells || 0
-    },
-    makers24h: pair.info?.makers24h || pair.txns?.h24?.m || (pair.txns?.h24?.buys || 0) + (pair.txns?.h24?.sells || 0),
-    pairAddress: pair.pairAddress || "",
-    dexId: pair.dexId || "unknown",
-    createdAt: pair.pairCreatedAt ? new Date(pair.pairCreatedAt).toISOString() : void 0,
-    dexSource,
-    availableDexes: [pair.dexId || "unknown"],
-    poolType: pair.labels?.join(", ") || void 0
-  };
-}
-async function fetchRaydiumTokens() {
-  try {
-    const response = await fetch("https://api.dexscreener.com/latest/dex/search?q=raydium%20sol");
-    if (!response.ok) return [];
-    const data = await response.json();
-    const pairs = (data.pairs || []).filter((p) => p.chainId === "solana" && p.dexId?.toLowerCase().includes("raydium"));
-    return pairs.slice(0, 20).map((pair) => {
-      const token = mapPairToToken(pair);
-      token.dexSource = "raydium";
-      return token;
-    });
-  } catch (error) {
-    console.error("Error fetching Raydium tokens:", error);
-    return [];
-  }
-}
-async function fetchOrcaTokens() {
-  try {
-    const response = await fetch("https://api.dexscreener.com/latest/dex/search?q=orca%20sol");
-    if (!response.ok) return [];
-    const data = await response.json();
-    const pairs = (data.pairs || []).filter((p) => p.chainId === "solana" && p.dexId?.toLowerCase().includes("orca"));
-    return pairs.slice(0, 20).map((pair) => {
-      const token = mapPairToToken(pair);
-      token.dexSource = "orca";
-      token.poolType = "Whirlpool";
-      return token;
-    });
-  } catch (error) {
-    console.error("Error fetching Orca tokens:", error);
-    return [];
-  }
-}
-async function fetchMeteoraTokens() {
-  try {
-    const response = await fetch("https://api.dexscreener.com/latest/dex/search?q=meteora%20sol");
-    if (!response.ok) return [];
-    const data = await response.json();
-    const pairs = (data.pairs || []).filter((p) => p.chainId === "solana" && p.dexId?.toLowerCase().includes("meteora"));
-    return pairs.slice(0, 20).map((pair) => {
-      const token = mapPairToToken(pair);
-      token.dexSource = "meteora";
-      token.poolType = "DLMM";
-      return token;
-    });
-  } catch (error) {
-    console.error("Error fetching Meteora tokens:", error);
-    return [];
-  }
-}
-async function fetchPumpFunTokens() {
-  try {
-    const response = await fetch("https://api.dexscreener.com/latest/dex/search?q=pump.fun");
-    if (!response.ok) return [];
-    const data = await response.json();
-    const pairs = (data.pairs || []).filter((p) => p.chainId === "solana" && (p.dexId?.toLowerCase().includes("pump") || p.url?.includes("pump.fun") || p.baseToken?.name?.toLowerCase().includes("pump")));
-    return pairs.slice(0, 20).map((pair) => {
-      const token = mapPairToToken(pair);
-      token.dexSource = "pumpfun";
-      token.poolType = "Bonding Curve";
-      return token;
-    });
-  } catch (error) {
-    console.error("Error fetching Pump.fun tokens:", error);
-    return [];
-  }
-}
-function mergeAndDedupeTokens(tokenArrays) {
-  const tokenMap = /* @__PURE__ */ new Map();
-  for (const tokens of tokenArrays) {
-    for (const token of tokens) {
-      if (!token.address) continue;
-      const existing = tokenMap.get(token.address);
-      if (existing) {
-        const existingDexes = new Set(existing.availableDexes || []);
-        (token.availableDexes || []).forEach((d) => existingDexes.add(d));
-        existing.availableDexes = Array.from(existingDexes);
-        if (token.liquidity > existing.liquidity) {
-          existing.priceUsd = token.priceUsd;
-          existing.liquidity = token.liquidity;
-          existing.volume24h = Math.max(existing.volume24h, token.volume24h);
-          existing.dexId = token.dexId;
-          existing.dexSource = token.dexSource;
-          existing.pairAddress = token.pairAddress;
-        }
-      } else {
-        tokenMap.set(token.address, { ...token });
-      }
-    }
-  }
-  return Array.from(tokenMap.values());
-}
-async function fetchMultiDexTokens(dexFilter = "all") {
-  try {
-    if (dexFilter === "raydium") return await fetchRaydiumTokens();
-    if (dexFilter === "orca") return await fetchOrcaTokens();
-    if (dexFilter === "meteora") return await fetchMeteoraTokens();
-    if (dexFilter === "pumpfun") return await fetchPumpFunTokens();
-    if (dexFilter === "jupiter") return await fetchTrendingSolanaTokens();
-    const [trending, raydium, orca, meteora, pumpfun] = await Promise.all([
-      fetchTrendingSolanaTokens(),
-      fetchRaydiumTokens(),
-      fetchOrcaTokens(),
-      fetchMeteoraTokens(),
-      fetchPumpFunTokens()
-    ]);
-    return mergeAndDedupeTokens([trending, raydium, orca, meteora, pumpfun]);
-  } catch (error) {
-    console.error("Error fetching multi-DEX tokens:", error);
-    return fetchTrendingSolanaTokens();
-  }
-}
-async function searchSolanaToken(query) {
-  try {
-    const response = await fetch(`https://api.dexscreener.com/latest/dex/search?q=${encodeURIComponent(query)}`);
-    if (!response.ok) return [];
-    const data = await response.json();
-    const pairs = (data.pairs || []).filter((p) => p.chainId === "solana");
-    return pairs.slice(0, 10).map((pair) => mapPairToToken(pair));
-  } catch (error) {
-    console.error("Error searching token:", error);
-    return [];
-  }
-}
-function calculateTokenomicsScore(token) {
-  let score = 50;
-  if (token.liquidity > 1e5) score += 15;
-  else if (token.liquidity > 5e4) score += 10;
-  else if (token.liquidity > 1e4) score += 5;
-  else if (token.liquidity < 5e3) score -= 15;
-  if (token.fdv > 0 && token.liquidity > 0) {
-    const liquidityRatio = token.liquidity / token.fdv;
-    if (liquidityRatio > 0.1) score += 10;
-    else if (liquidityRatio > 0.05) score += 5;
-    else if (liquidityRatio < 0.01) score -= 10;
-  }
-  if (token.volume24h > 5e5) score += 10;
-  else if (token.volume24h > 1e5) score += 5;
-  else if (token.volume24h < 1e4) score -= 5;
-  return Math.max(0, Math.min(100, score));
-}
-function calculateWhaleScore(token) {
-  let score = 50;
-  const totalTxns = token.txns24h.buys + token.txns24h.sells;
-  if (totalTxns === 0) return 30;
-  const buyRatio = token.txns24h.buys / totalTxns;
-  if (buyRatio > 0.7) score += 20;
-  else if (buyRatio > 0.6) score += 10;
-  else if (buyRatio < 0.4) score -= 15;
-  else if (buyRatio < 0.3) score -= 25;
-  if (token.volume24h > 0 && totalTxns > 0) {
-    const avgTxSize = token.volume24h / totalTxns;
-    if (avgTxSize > 5e3) score += 15;
-    else if (avgTxSize > 1e3) score += 5;
-  }
-  if (token.makers24h > 500) score += 10;
-  else if (token.makers24h > 100) score += 5;
-  else if (token.makers24h < 20) score -= 10;
-  return Math.max(0, Math.min(100, score));
-}
-function calculateSentimentScore(token) {
-  let score = 50;
-  if (token.priceChange24h > 50) score += 20;
-  else if (token.priceChange24h > 20) score += 15;
-  else if (token.priceChange24h > 10) score += 10;
-  else if (token.priceChange24h > 0) score += 5;
-  else if (token.priceChange24h < -30) score -= 20;
-  else if (token.priceChange24h < -15) score -= 10;
-  else if (token.priceChange24h < 0) score -= 5;
-  const buyRatio = token.txns24h.buys / Math.max(1, token.txns24h.buys + token.txns24h.sells);
-  if (buyRatio > 0.65) score += 15;
-  else if (buyRatio > 0.55) score += 5;
-  else if (buyRatio < 0.35) score -= 15;
-  return Math.max(0, Math.min(100, score));
-}
-function determineSignal(sentimentScore, tokenomicsScore, whaleScore) {
-  const avgScore = (sentimentScore + tokenomicsScore + whaleScore) / 3;
-  if (avgScore >= 72 && Math.min(sentimentScore, tokenomicsScore, whaleScore) >= 55) {
-    return { signal: "STRONG_BUY", confidence: Math.round(avgScore) };
-  } else if (avgScore >= 58 && Math.min(sentimentScore, tokenomicsScore, whaleScore) >= 40) {
-    return { signal: "BUY", confidence: Math.round(avgScore) };
-  } else if (avgScore >= 45) {
-    return { signal: "HOLD", confidence: Math.round(avgScore) };
-  } else if (avgScore >= 30) {
-    return { signal: "SELL", confidence: Math.round(100 - avgScore) };
-  } else {
-    return { signal: "STRONG_SELL", confidence: Math.round(100 - avgScore) };
-  }
-}
-function determineRiskLevel(token, tokenomicsScore) {
-  if (token.liquidity < 1e4 || tokenomicsScore < 30) return "EXTREME";
-  if (token.liquidity < 5e4 || tokenomicsScore < 45) return "HIGH";
-  if (token.liquidity < 2e5 || tokenomicsScore < 60) return "MEDIUM";
-  return "LOW";
-}
-function estimateHoldDuration(signal, riskLevel) {
-  if (signal === "STRONG_SELL" || signal === "SELL") return "Exit immediately";
-  if (riskLevel === "EXTREME") return "1-4 hours (scalp only)";
-  if (riskLevel === "HIGH") return "4-24 hours";
-  if (riskLevel === "MEDIUM") return "1-3 days";
-  return "3-7 days";
-}
-async function fetchCryptoMacroContext() {
-  const queries = [
-    { key: "btc", q: "WBTC" },
-    { key: "eth", q: "WETH" },
-    { key: "sol", q: "SOL" }
-  ];
-  const changes = { btc: 0, eth: 0, sol: 0 };
-  await Promise.all(queries.map(async ({ key, q }) => {
-    try {
-      const res = await fetch(`https://api.dexscreener.com/latest/dex/search?q=${q}`);
-      if (!res.ok) return;
-      const data = await res.json();
-      const pairs = (data.pairs || []).filter((p) => p.chainId === "solana");
-      if (pairs.length > 0) {
-        changes[key] = parseFloat(pairs[0].priceChange?.h24 || "0") || 0;
-      }
-    } catch {
-    }
-  }));
-  const score = (changes.btc > 1 ? 1 : changes.btc < -1 ? -1 : 0) + (changes.eth > 1 ? 1 : changes.eth < -1 ? -1 : 0) + (changes.sol > 1 ? 1 : changes.sol < -1 ? -1 : 0);
-  const bias = score >= 2 ? "RISK_ON" : score <= -2 ? "RISK_OFF" : "NEUTRAL";
-  const implication = bias === "RISK_ON" ? "Risk-on environment \u2014 favour momentum tokens with high buy pressure." : bias === "RISK_OFF" ? "Risk-off environment \u2014 be selective, prefer LOW risk tokens with 80%+ confidence." : "Mixed signals \u2014 evaluate each token on its own merits.";
-  return { btcChange: changes.btc, ethChange: changes.eth, solChange: changes.sol, riskScore: score, bias, implication };
-}
-function buildDexWeightsBlock(signalWeights) {
-  const labels = Object.entries(signalWeights).map(([dex, w]) => {
-    const label = w >= 1.5 ? "\u{1F525}HOT" : w >= 1.2 ? "\u2705WARM" : w <= 0.3 ? "\u274CCOLD" : w <= 0.6 ? "\u26A0\uFE0FCOOL" : "\u2014";
-    return `${dex}=${w.toFixed(2)}${label}`;
-  });
-  return labels.join(", ");
-}
-function calculateSolKellySize(wins, losses, totalGainPct, portfolioSol) {
-  const total = wins + losses;
-  if (total < 3 || portfolioSol <= 0) return 0;
-  const winRate2 = wins / total;
-  const avgGain = wins > 0 ? totalGainPct / wins / 100 : 0.5;
-  const kelly = winRate2 - (1 - winRate2) / Math.max(avgGain, 0.01);
-  const fractional = Math.max(0.01, Math.min(0.1, kelly * 0.25));
-  return Math.round(portfolioSol * fractional * 1e3) / 1e3;
-}
-async function analyzeToken(token, options = {}) {
-  const { signalWeights, macro, kellyStats, portfolioSol = 0, openai: openaiOverride } = options;
-  const sentimentScore = calculateSentimentScore(token);
-  const tokenomicsScore = calculateTokenomicsScore(token);
-  const whaleScore = calculateWhaleScore(token);
-  let { signal, confidence: confidence2 } = determineSignal(sentimentScore, tokenomicsScore, whaleScore);
-  if (signalWeights) {
-    const dexKey = (token.dexId || "").toLowerCase().split("_")[0];
-    const weight = signalWeights[dexKey] || 1;
-    confidence2 = Math.round(Math.min(98, Math.max(10, confidence2 * weight)));
-  }
-  if (macro) {
-    if (macro.bias === "RISK_ON" && (signal === "STRONG_BUY" || signal === "BUY")) {
-      confidence2 = Math.min(98, confidence2 + 5);
-    } else if (macro.bias === "RISK_OFF" && (signal === "STRONG_BUY" || signal === "BUY")) {
-      confidence2 = Math.max(10, confidence2 - 8);
-    }
-  }
-  const riskLevel = determineRiskLevel(token, tokenomicsScore);
-  const holdDuration = estimateHoldDuration(signal, riskLevel);
-  let reasoning = "";
-  try {
-    const macroBlock = macro ? ` Macro: BTC${macro.btcChange >= 0 ? "+" : ""}${macro.btcChange.toFixed(1)}%/ETH${macro.ethChange >= 0 ? "+" : ""}${macro.ethChange.toFixed(1)}%/SOL${macro.solChange >= 0 ? "+" : ""}${macro.solChange.toFixed(1)}% (${macro.bias}).` : "";
-    const weightsBlock = signalWeights ? ` DEX weights: ${buildDexWeightsBlock(signalWeights)}.` : "";
-    const prompt = `Solana token: ${token.symbol} | DEX: ${token.dexId || "?"} | Price: $${token.priceUsd} | 24h: ${token.priceChange24h.toFixed(1)}% | Vol: $${(token.volume24h / 1e3).toFixed(0)}K | Liq: $${(token.liquidity / 1e3).toFixed(0)}K | Buys/Sells: ${token.txns24h.buys}/${token.txns24h.sells} | Traders: ${token.makers24h} | Scores: sent=${sentimentScore} tok=${tokenomicsScore} whale=${whaleScore} | Signal: ${signal} ${confidence2}% | Risk: ${riskLevel}.${macroBlock}${weightsBlock} Give a sharp 2-sentence trade analysis. Be direct.`;
-    let openaiClient = openaiOverride;
-    let fallbackModel = "gpt-4o-mini";
-    if (!openaiClient) {
-      if (process.env.OPENROUTER_API_KEY) {
-        openaiClient = new OpenAI4({ apiKey: process.env.OPENROUTER_API_KEY, baseURL: "https://openrouter.ai/api/v1", defaultHeaders: { "HTTP-Referer": "https://veddbuild.com", "X-Title": "VEDDBuild" } });
-        fallbackModel = "openai/gpt-oss-20b";
-      } else if (process.env.OPENAI_API_KEY) {
-        openaiClient = new OpenAI4({ apiKey: process.env.OPENAI_API_KEY });
-      } else {
-        openaiClient = new OpenAI4({ apiKey: "" });
-      }
-    }
-    const model = openaiClient.defaultModel || fallbackModel;
-    const response = await openaiClient.chat.completions.create({
-      model,
-      messages: [{ role: "user", content: prompt }],
-      max_tokens: 100,
-      // 2 sentences ≈ 60-80 tokens; was 180
-      temperature: 0.5
-    });
-    reasoning = response.choices[0]?.message?.content || "";
-  } catch (error) {
-    reasoning = `${signal} signal: sentiment ${sentimentScore}/100, tokenomics ${tokenomicsScore}/100, whale activity ${whaleScore}/100. Risk: ${riskLevel}.`;
-  }
-  const price = parseFloat(token.priceUsd) || 0;
-  let targetPrice;
-  let stopLoss;
-  if (signal === "STRONG_BUY" || signal === "BUY") {
-    targetPrice = (price * (signal === "STRONG_BUY" ? 1.5 : 1.25)).toFixed(8);
-    stopLoss = (price * 0.85).toFixed(8);
-  }
-  let recommendedSolAmount;
-  if (kellyStats && portfolioSol > 0 && (signal === "STRONG_BUY" || signal === "BUY")) {
-    const dexKey = (token.dexId || "").toLowerCase().split("_")[0];
-    const stats = kellyStats[dexKey];
-    if (stats) {
-      const solAmt = calculateSolKellySize(stats.wins, stats.losses, stats.totalGainPct, portfolioSol);
-      if (solAmt > 0) recommendedSolAmount = solAmt;
-    }
-  }
-  return {
-    token,
-    signal,
-    confidence: confidence2,
-    holdDuration,
-    reasoning,
-    sentimentScore,
-    tokenomicsScore,
-    whaleScore,
-    riskLevel,
-    entryPrice: token.priceUsd,
-    targetPrice,
-    stopLoss,
-    recommendedSolAmount
-  };
-}
-async function scanAndAnalyzeTokens(limit = 10, dexFilter = "all", options = {}) {
-  const tokens = await fetchMultiDexTokens(dexFilter === "all" ? "all" : dexFilter);
-  let filteredTokens = tokens.filter((t) => t.liquidity > 5e3 && t.volume24h > 1e3);
-  const analyses = await Promise.all(
-    filteredTokens.slice(0, limit * 2).map((token) => analyzeToken(token, options))
-  );
-  let results = analyses;
-  if (options.shieldActive) {
-    results = results.filter((a) => a.riskLevel === "LOW" && a.confidence >= 85);
-  }
-  if (options.minConfidence && options.minConfidence > 0) {
-    results = results.filter((a) => a.confidence >= options.minConfidence);
-  }
-  return results.slice(0, limit).sort((a, b) => {
-    const signalOrder = { "STRONG_BUY": 0, "BUY": 1, "HOLD": 2, "SELL": 3, "STRONG_SELL": 4 };
-    if (signalOrder[a.signal] !== signalOrder[b.signal]) {
-      return signalOrder[a.signal] - signalOrder[b.signal];
-    }
-    return b.confidence - a.confidence;
-  });
-}
-var init_solana_scanner = __esm({
-  "server/solana-scanner.ts"() {
-    "use strict";
   }
 });
 
@@ -40541,7 +43561,7 @@ __export(whop_exports, {
   whopEnabled: () => whopEnabled,
   whopPlanMap: () => whopPlanMap
 });
-import crypto8 from "crypto";
+import crypto9 from "crypto";
 function whopPlanMap() {
   const out = {};
   for (const id of [2, 3, 4]) {
@@ -40615,11 +43635,11 @@ function verifyWhopWebhook(rawBody, headers) {
   }
   const provided = sigHeader.split(" ").map((p) => p.trim()).filter(Boolean).map((p) => p.includes(",") ? p.split(",")[1] : p);
   for (const k2 of keys) {
-    const expected = crypto8.createHmac("sha256", k2).update(signed).digest("base64");
+    const expected = crypto9.createHmac("sha256", k2).update(signed).digest("base64");
     const eb = Buffer.from(expected);
     for (const p of provided) {
       const pb = Buffer.from(p);
-      if (pb.length === eb.length && crypto8.timingSafeEqual(pb, eb)) return true;
+      if (pb.length === eb.length && crypto9.timingSafeEqual(pb, eb)) return true;
     }
   }
   return false;
@@ -41686,7 +44706,7 @@ __export(paper_trade_tracker_exports, {
   getPaperTradeStats: () => getPaperTradeStats,
   resolvePaperTrade: () => resolvePaperTrade
 });
-import { eq as eq12, desc as desc6, and as and8, sql as sql9 } from "drizzle-orm";
+import { eq as eq13, desc as desc6, and as and8, sql as sql10 } from "drizzle-orm";
 async function createPaperTrade(data) {
   try {
     const [trade] = await db.insert(paperTrades).values({
@@ -41702,7 +44722,7 @@ async function createPaperTrade(data) {
 }
 async function resolvePaperTrade(tradeId, currentPrice) {
   try {
-    const [trade] = await db.select().from(paperTrades).where(eq12(paperTrades.id, tradeId));
+    const [trade] = await db.select().from(paperTrades).where(eq13(paperTrades.id, tradeId));
     if (!trade || trade.outcome !== "pending") return;
     const now = /* @__PURE__ */ new Date();
     const ageHours = (now.getTime() - trade.createdAt.getTime()) / (1e3 * 60 * 60);
@@ -41732,7 +44752,7 @@ async function resolvePaperTrade(tradeId, currentPrice) {
       console.log(`[PaperTrade] Resolved #${tradeId} \u2014 ${trade.symbol} ${trade.direction}: ${outcome.toUpperCase()} (${pnlPips > 0 ? "+" : ""}${pnlPips} pips)`);
     }
     if (Object.keys(updates).length > 0) {
-      await db.update(paperTrades).set(updates).where(eq12(paperTrades.id, tradeId));
+      await db.update(paperTrades).set(updates).where(eq13(paperTrades.id, tradeId));
     }
   } catch (e) {
     console.error("[PaperTrade] Failed to resolve:", e);
@@ -41740,10 +44760,10 @@ async function resolvePaperTrade(tradeId, currentPrice) {
 }
 async function getAIAccuracyContext(userId, symbol) {
   try {
-    const conditions = [eq12(paperTrades.userId, userId)];
+    const conditions = [eq13(paperTrades.userId, userId)];
     if (symbol) {
       const cleanSymbol = symbol.replace(/[^A-Z0-9]/gi, "").toUpperCase();
-      conditions.push(sql9`UPPER(REPLACE(${paperTrades.symbol}, '/', '')) = ${cleanSymbol}`);
+      conditions.push(sql10`UPPER(REPLACE(${paperTrades.symbol}, '/', '')) = ${cleanSymbol}`);
     }
     const trades = await db.select().from(paperTrades).where(and8(...conditions)).orderBy(desc6(paperTrades.createdAt)).limit(50);
     const resolved = trades.filter((t) => t.outcome !== "pending");
@@ -41795,7 +44815,7 @@ Last ${last5.length} trades:
 }
 async function getPaperTradeStats(userId) {
   try {
-    const trades = await db.select().from(paperTrades).where(eq12(paperTrades.userId, userId)).orderBy(desc6(paperTrades.createdAt));
+    const trades = await db.select().from(paperTrades).where(eq13(paperTrades.userId, userId)).orderBy(desc6(paperTrades.createdAt));
     const resolved = trades.filter((t) => t.outcome !== "pending");
     const wins = resolved.filter((t) => t.outcome === "win");
     const losses = resolved.filter((t) => t.outcome === "loss");
@@ -42351,65 +45371,65 @@ __export(crypto_market_data_exports, {
   getAggregatedQuote: () => getAggregatedQuote,
   getAggregatedQuotes: () => getAggregatedQuotes
 });
-function krakenPair(sym) {
-  const s = sym.toUpperCase();
+function krakenPair(sym2) {
+  const s = sym2.toUpperCase();
   return (s === "BTC" ? "XBT" : s) + "USD";
 }
-async function coinbaseSpot(sym) {
+async function coinbaseSpot(sym2) {
   try {
-    const r = await fetch(`https://api.coinbase.com/v2/prices/${sym}-USD/spot`, { headers: { "User-Agent": "VEDD/1.0" }, signal: AbortSignal.timeout(6e3) });
-    if (!r.ok) return { venue: "coinbase", symbol: sym, price: null, error: `HTTP ${r.status}` };
+    const r = await fetch(`https://api.coinbase.com/v2/prices/${sym2}-USD/spot`, { headers: { "User-Agent": "VEDD/1.0" }, signal: AbortSignal.timeout(6e3) });
+    if (!r.ok) return { venue: "coinbase", symbol: sym2, price: null, error: `HTTP ${r.status}` };
     const d = await r.json();
     const p = parseFloat(d?.data?.amount);
-    return { venue: "coinbase", symbol: sym, price: isFinite(p) ? p : null };
+    return { venue: "coinbase", symbol: sym2, price: isFinite(p) ? p : null };
   } catch (e) {
-    return { venue: "coinbase", symbol: sym, price: null, error: e.message };
+    return { venue: "coinbase", symbol: sym2, price: null, error: e.message };
   }
 }
-async function krakenTicker(sym) {
+async function krakenTicker(sym2) {
   try {
-    const r = await fetch(`https://api.kraken.com/0/public/Ticker?pair=${krakenPair(sym)}`, { headers: { "User-Agent": "VEDD/1.0" }, signal: AbortSignal.timeout(6e3) });
-    if (!r.ok) return { venue: "kraken", symbol: sym, price: null, error: `HTTP ${r.status}` };
+    const r = await fetch(`https://api.kraken.com/0/public/Ticker?pair=${krakenPair(sym2)}`, { headers: { "User-Agent": "VEDD/1.0" }, signal: AbortSignal.timeout(6e3) });
+    if (!r.ok) return { venue: "kraken", symbol: sym2, price: null, error: `HTTP ${r.status}` };
     const d = await r.json();
     const first = Object.values(d?.result || {})[0];
     const p = parseFloat(first?.c?.[0]);
     const v = parseFloat(first?.v?.[1]);
-    return { venue: "kraken", symbol: sym, price: isFinite(p) ? p : null, volume24h: isFinite(v) ? v : null, error: d?.error?.length ? d.error.join(",") : void 0 };
+    return { venue: "kraken", symbol: sym2, price: isFinite(p) ? p : null, volume24h: isFinite(v) ? v : null, error: d?.error?.length ? d.error.join(",") : void 0 };
   } catch (e) {
-    return { venue: "kraken", symbol: sym, price: null, error: e.message };
+    return { venue: "kraken", symbol: sym2, price: null, error: e.message };
   }
 }
-async function geminiTicker(sym) {
+async function geminiTicker(sym2) {
   try {
-    const r = await fetch(`https://api.gemini.com/v1/pubticker/${sym.toLowerCase()}usd`, { headers: { "User-Agent": "VEDD/1.0" }, signal: AbortSignal.timeout(6e3) });
-    if (!r.ok) return { venue: "gemini", symbol: sym, price: null, error: `HTTP ${r.status}` };
+    const r = await fetch(`https://api.gemini.com/v1/pubticker/${sym2.toLowerCase()}usd`, { headers: { "User-Agent": "VEDD/1.0" }, signal: AbortSignal.timeout(6e3) });
+    if (!r.ok) return { venue: "gemini", symbol: sym2, price: null, error: `HTTP ${r.status}` };
     const d = await r.json();
     const p = parseFloat(d?.last);
-    const v = parseFloat(d?.volume?.[sym.toUpperCase()]);
-    return { venue: "gemini", symbol: sym, price: isFinite(p) ? p : null, volume24h: isFinite(v) ? v : null };
+    const v = parseFloat(d?.volume?.[sym2.toUpperCase()]);
+    return { venue: "gemini", symbol: sym2, price: isFinite(p) ? p : null, volume24h: isFinite(v) ? v : null };
   } catch (e) {
-    return { venue: "gemini", symbol: sym, price: null, error: e.message };
+    return { venue: "gemini", symbol: sym2, price: null, error: e.message };
   }
 }
-async function cryptocomTicker(sym) {
+async function cryptocomTicker(sym2) {
   try {
-    const r = await fetch(`https://api.crypto.com/v2/public/get-ticker?instrument_name=${sym.toUpperCase()}_USDT`, { headers: { "User-Agent": "VEDD/1.0" }, signal: AbortSignal.timeout(6e3) });
-    if (!r.ok) return { venue: "cryptocom", symbol: sym, price: null, error: `HTTP ${r.status}` };
+    const r = await fetch(`https://api.crypto.com/v2/public/get-ticker?instrument_name=${sym2.toUpperCase()}_USDT`, { headers: { "User-Agent": "VEDD/1.0" }, signal: AbortSignal.timeout(6e3) });
+    if (!r.ok) return { venue: "cryptocom", symbol: sym2, price: null, error: `HTTP ${r.status}` };
     const d = await r.json();
     const t = d?.result?.data;
     const row = Array.isArray(t) ? t[0] : t;
     const p = parseFloat(row?.a ?? row?.k);
     const v = parseFloat(row?.v);
-    return { venue: "cryptocom", symbol: sym, price: isFinite(p) ? p : null, volume24h: isFinite(v) ? v : null };
+    return { venue: "cryptocom", symbol: sym2, price: isFinite(p) ? p : null, volume24h: isFinite(v) ? v : null };
   } catch (e) {
-    return { venue: "cryptocom", symbol: sym, price: null, error: e.message };
+    return { venue: "cryptocom", symbol: sym2, price: null, error: e.message };
   }
 }
 async function getAggregatedQuote(symbol) {
-  const sym = symbol.toUpperCase().replace(/[^A-Z0-9]/g, "");
-  const hit = _cache2.get(sym);
+  const sym2 = symbol.toUpperCase().replace(/[^A-Z0-9]/g, "");
+  const hit = _cache3.get(sym2);
   if (hit && Date.now() - hit.ts < TTL_MS6) return hit.q;
-  const venues = await Promise.all([coinbaseSpot(sym), krakenTicker(sym), geminiTicker(sym), cryptocomTicker(sym)]);
+  const venues = await Promise.all([coinbaseSpot(sym2), krakenTicker(sym2), geminiTicker(sym2), cryptocomTicker(sym2)]);
   const priced = venues.filter((v) => typeof v.price === "number" && v.price > 0);
   let best = null;
   let spreadPct = null;
@@ -42419,20 +45439,20 @@ async function getAggregatedQuote(symbol) {
     best = { venue: lo.venue, price: lo.price };
     spreadPct = lo.price > 0 ? Math.round((hi.price - lo.price) / lo.price * 1e4) / 100 : null;
   }
-  const q = { symbol: sym, best, spreadPct, venues, fetchedAt: (/* @__PURE__ */ new Date()).toISOString() };
-  _cache2.set(sym, { q, ts: Date.now() });
+  const q = { symbol: sym2, best, spreadPct, venues, fetchedAt: (/* @__PURE__ */ new Date()).toISOString() };
+  _cache3.set(sym2, { q, ts: Date.now() });
   return q;
 }
 async function getAggregatedQuotes(symbols) {
   const uniq = Array.from(new Set(symbols.map((s) => s.toUpperCase().replace(/[^A-Z0-9]/g, "")))).slice(0, 25);
   return Promise.all(uniq.map(getAggregatedQuote));
 }
-var TTL_MS6, _cache2;
+var TTL_MS6, _cache3;
 var init_crypto_market_data = __esm({
   "server/services/crypto-market-data.ts"() {
     "use strict";
     TTL_MS6 = 15e3;
-    _cache2 = /* @__PURE__ */ new Map();
+    _cache3 = /* @__PURE__ */ new Map();
   }
 });
 
@@ -42677,32 +45697,6 @@ var init_onchain_balances = __esm({
   }
 });
 
-// server/services/weekend-boost.ts
-function isWeekendBoostWindow(d = /* @__PURE__ */ new Date()) {
-  const day = d.getUTCDay();
-  return day === 5 || day === 6 || day === 0;
-}
-function weekendBoostActive(d = /* @__PURE__ */ new Date()) {
-  return ENABLED && isWeekendBoostWindow(d);
-}
-function boostedMinConfidence(minConfidence, d = /* @__PURE__ */ new Date()) {
-  if (!weekendBoostActive(d)) return minConfidence;
-  return Math.max(CONF_HARD_FLOOR, minConfidence - CONF_DELTA);
-}
-function weekendBoostSizeMultiplier(d = /* @__PURE__ */ new Date()) {
-  return weekendBoostActive(d) ? SIZE_MULT : 1;
-}
-var ENABLED, CONF_DELTA, CONF_HARD_FLOOR, SIZE_MULT;
-var init_weekend_boost = __esm({
-  "server/services/weekend-boost.ts"() {
-    "use strict";
-    ENABLED = process.env.WEEKEND_BOOST_ENABLED !== "false";
-    CONF_DELTA = Number(process.env.WEEKEND_BOOST_CONF_DELTA ?? 5);
-    CONF_HARD_FLOOR = 50;
-    SIZE_MULT = Number(process.env.WEEKEND_BOOST_SIZE_MULT ?? 1.3);
-  }
-});
-
 // server/services/process-fingerprint.ts
 var PROCESS_BOOT_ID;
 var init_process_fingerprint = __esm({
@@ -42719,7 +45713,7 @@ __export(coinbase_exports, {
   decryptApiSecret: () => decryptApiSecret,
   encryptApiSecret: () => encryptApiSecret
 });
-import crypto9 from "crypto";
+import crypto10 from "crypto";
 import jwt from "jsonwebtoken";
 function buildJwt(keyName, privateKeyPem, method, path19) {
   const uri = `${method} ${API_HOST}${path19}`;
@@ -42727,7 +45721,7 @@ function buildJwt(keyName, privateKeyPem, method, path19) {
   const payload2 = { sub: keyName, iss: "cdp", nbf: now, exp: now + 120, uri };
   return jwt.sign(payload2, privateKeyPem, {
     algorithm: "ES256",
-    header: { kid: keyName, nonce: crypto9.randomBytes(16).toString("hex"), typ: "JWT", alg: "ES256" }
+    header: { kid: keyName, nonce: crypto10.randomBytes(16).toString("hex"), typ: "JWT", alg: "ES256" }
   });
 }
 var API_HOST, CoinbaseService;
@@ -42777,7 +45771,7 @@ var init_coinbase = __esm({
        *  - limitPrice: required for limit orders
        */
       async placeOrder(o) {
-        const clientOrderId = crypto9.randomUUID();
+        const clientOrderId = crypto10.randomUUID();
         let order_configuration;
         if (o.type === "market") {
           order_configuration = o.side === "BUY" && o.quoteSize ? { market_market_ioc: { quote_size: String(o.quoteSize) } } : { market_market_ioc: { base_size: String(o.baseSize) } };
@@ -42849,7 +45843,7 @@ __export(kraken_exports, {
   decryptApiSecret: () => decryptApiSecret,
   encryptApiSecret: () => encryptApiSecret
 });
-import crypto10 from "crypto";
+import crypto11 from "crypto";
 function normalizeAsset(code) {
   const c = code.toUpperCase().replace(/\.(S|F|M)$/, "");
   const map = { XXBT: "BTC", XBT: "BTC", XETH: "ETH", XXRP: "XRP", XLTC: "LTC", XXDG: "DOGE", XDG: "DOGE", ZUSD: "USD", ZEUR: "EUR", ZGBP: "GBP", XXLM: "XLM", XETC: "ETC", XZEC: "ZEC" };
@@ -42871,10 +45865,10 @@ var init_kraken = __esm({
         this.secret = secret;
       }
       sign(path19, nonce, postData) {
-        const sha256 = crypto10.createHash("sha256").update(nonce + postData).digest();
+        const sha256 = crypto11.createHash("sha256").update(nonce + postData).digest();
         const message = Buffer.concat([Buffer.from(path19, "utf8"), sha256]);
         const key = Buffer.from(this.secret, "base64");
-        return crypto10.createHmac("sha512", key).update(message).digest("base64");
+        return crypto11.createHmac("sha512", key).update(message).digest("base64");
       }
       async privatePost(endpoint, params = {}) {
         const path19 = `/0/private/${endpoint}`;
@@ -42958,7 +45952,7 @@ __export(gemini_exports, {
   decryptApiSecret: () => decryptApiSecret,
   encryptApiSecret: () => encryptApiSecret
 });
-import crypto11 from "crypto";
+import crypto12 from "crypto";
 var API_HOST3, GeminiService;
 var init_gemini = __esm({
   "server/gemini.ts"() {
@@ -42976,7 +45970,7 @@ var init_gemini = __esm({
         const nonce = Date.now();
         const payload2 = { request: endpoint, nonce, ...params };
         const b64 = Buffer.from(JSON.stringify(payload2)).toString("base64");
-        const signature = crypto11.createHmac("sha384", this.secret).update(b64).digest("hex");
+        const signature = crypto12.createHmac("sha384", this.secret).update(b64).digest("hex");
         const res = await fetch(`${API_HOST3}${endpoint}`, {
           method: "POST",
           headers: {
@@ -43081,42 +46075,42 @@ async function serviceFor(userId, venue) {
   return new GeminiService2(rows[0].k, decryptApiSecret3(rows[0].s));
 }
 async function cefiEntryBuy(userId, venue, base, notionalUsd) {
-  const sym = venueSymbol(venue, base);
+  const sym2 = venueSymbol(venue, base);
   const svc = await serviceFor(userId, venue);
-  if (!svc) return { ok: false, venue, venueSymbol: sym, qtyBase: 0, entryPrice: 0, orderId: "", reason: `no active ${venue} connection` };
+  if (!svc) return { ok: false, venue, venueSymbol: sym2, qtyBase: 0, entryPrice: 0, orderId: "", reason: `no active ${venue} connection` };
   const q = await getAggregatedQuote(base).catch(() => null);
   const price = q?.best?.price ?? 0;
-  if (!price) return { ok: false, venue, venueSymbol: sym, qtyBase: 0, entryPrice: 0, orderId: "", reason: `no live price for ${base}` };
+  if (!price) return { ok: false, venue, venueSymbol: sym2, qtyBase: 0, entryPrice: 0, orderId: "", reason: `no live price for ${base}` };
   const qtyBase = Math.max(0, Math.round(notionalUsd / price * 1e6) / 1e6);
-  if (qtyBase <= 0) return { ok: false, venue, venueSymbol: sym, qtyBase: 0, entryPrice: price, orderId: "", reason: "size rounds to 0" };
+  if (qtyBase <= 0) return { ok: false, venue, venueSymbol: sym2, qtyBase: 0, entryPrice: price, orderId: "", reason: "size rounds to 0" };
   let orderId = "";
   if (venue === "coinbase") {
-    const r = await svc.placeOrder({ product: sym, side: "BUY", type: "market", quoteSize: Math.round(notionalUsd * 100) / 100 });
+    const r = await svc.placeOrder({ product: sym2, side: "BUY", type: "market", quoteSize: Math.round(notionalUsd * 100) / 100 });
     orderId = r.orderId;
   } else if (venue === "kraken") {
-    const r = await svc.placeOrder({ pair: sym, type: "buy", ordertype: "market", volume: qtyBase });
+    const r = await svc.placeOrder({ pair: sym2, type: "buy", ordertype: "market", volume: qtyBase });
     orderId = (r.txids || [])[0] || "";
   } else {
-    const r = await svc.placeOrder({ symbol: sym, side: "buy", amount: qtyBase, price: Math.round(price * 1.01 * 100) / 100, immediateOrCancel: true });
+    const r = await svc.placeOrder({ symbol: sym2, side: "buy", amount: qtyBase, price: Math.round(price * 1.01 * 100) / 100, immediateOrCancel: true });
     orderId = r.orderId;
   }
-  return { ok: true, venue, venueSymbol: sym, qtyBase, entryPrice: price, orderId };
+  return { ok: true, venue, venueSymbol: sym2, qtyBase, entryPrice: price, orderId };
 }
 async function cefiExitSell(userId, venue, base, qtyBase) {
-  const sym = venueSymbol(venue, base);
+  const sym2 = venueSymbol(venue, base);
   const svc = await serviceFor(userId, venue);
   if (!svc) return { ok: false, exitPrice: 0, orderId: "", reason: `no active ${venue} connection` };
   const q = await getAggregatedQuote(base).catch(() => null);
   const price = q?.best?.price ?? 0;
   let orderId = "";
   if (venue === "coinbase") {
-    const r = await svc.placeOrder({ product: sym, side: "SELL", type: "market", baseSize: qtyBase });
+    const r = await svc.placeOrder({ product: sym2, side: "SELL", type: "market", baseSize: qtyBase });
     orderId = r.orderId;
   } else if (venue === "kraken") {
-    const r = await svc.placeOrder({ pair: sym, type: "sell", ordertype: "market", volume: qtyBase });
+    const r = await svc.placeOrder({ pair: sym2, type: "sell", ordertype: "market", volume: qtyBase });
     orderId = (r.txids || [])[0] || "";
   } else {
-    const r = await svc.placeOrder({ symbol: sym, side: "sell", amount: qtyBase, price: price ? Math.round(price * 0.99 * 100) / 100 : 0.01, immediateOrCancel: true });
+    const r = await svc.placeOrder({ symbol: sym2, side: "sell", amount: qtyBase, price: price ? Math.round(price * 0.99 * 100) / 100 : 0.01, immediateOrCancel: true });
     orderId = r.orderId;
   }
   return { ok: true, exitPrice: price, orderId };
@@ -43563,8 +46557,8 @@ async function resolveToken(chainKey, token) {
   if (up === "WETH") return c.weth;
   const idx = await loadTokenIndex(chainKey);
   const candidates = SYMBOL_ALIASES[up] ?? [up];
-  for (const sym of candidates) {
-    const addr = idx.get(sym);
+  for (const sym2 of candidates) {
+    const addr = idx.get(sym2);
     if (addr) return addr;
   }
   throw new Error(`Token "${token}" isn't listed on ${chainKey} \u2014 it may not exist on this chain. Use a 0x address, or pick a token that trades on ${chainKey}.`);
@@ -44435,11 +47429,11 @@ async function refreshDefiUniverse(chain) {
   const { discoverDefiTokens: discoverDefiTokens2 } = await Promise.resolve().then(() => (init_defi_market_data(), defi_market_data_exports));
   const STABLE = /^(USDT|USDC|USDBC|USDC\.E|DAI|USDE|SUSDE|FDUSD|TUSD|USDS|PYUSD|EURC|EURS|LUSD|CRVUSD|GHO|USD\+|USDZ|FRAX|MIM|USDP|BUSD|USD0|USDX|DOLA|AXLUSDC|USDM|USDB)$/i;
   const tokens = (await discoverDefiTokens2(chain)).filter((t) => {
-    const sym = String(t.symbol || "").toUpperCase();
-    if (STABLE.test(sym)) return false;
-    if (/^(S|W|ST|A|C|Y)?USD[A-Z0-9.+]*$/i.test(sym)) return false;
+    const sym2 = String(t.symbol || "").toUpperCase();
+    if (STABLE.test(sym2)) return false;
+    if (/^(S|W|ST|A|C|Y)?USD[A-Z0-9.+]*$/i.test(sym2)) return false;
     const px = Number(t.priceUsd);
-    if (/USD|EUR/.test(sym) && px > 0 && Math.abs(px - 1) < 0.015) return false;
+    if (/USD|EUR/.test(sym2) && px > 0 && Math.abs(px - 1) < 0.015) return false;
     return true;
   });
   for (const t of tokens) {
@@ -46930,7 +49924,7 @@ function getEngineState(userId) {
       totalRealizedPnl: 0,
       totalUnrealizedPnl: 0,
       tradesOpened: 0,
-      config: { ...DEFAULT_CONFIG }
+      config: { ...DEFAULT_CONFIG2 }
     });
   }
   return _states.get(userId);
@@ -47200,7 +50194,7 @@ async function closeAllPositions(userId) {
   }
   return closed;
 }
-var CLOB_BASE2, POLY_CHAIN, CTF_ADDRESS, _privateKeys, _states, _intervals, DEFAULT_CONFIG;
+var CLOB_BASE2, POLY_CHAIN, CTF_ADDRESS, _privateKeys, _states, _intervals, DEFAULT_CONFIG2;
 var init_polymarket_autonomous_engine = __esm({
   "server/services/polymarket-autonomous-engine.ts"() {
     "use strict";
@@ -47212,7 +50206,7 @@ var init_polymarket_autonomous_engine = __esm({
     _privateKeys = /* @__PURE__ */ new Map();
     _states = /* @__PURE__ */ new Map();
     _intervals = /* @__PURE__ */ new Map();
-    DEFAULT_CONFIG = {
+    DEFAULT_CONFIG2 = {
       minBullishScore: 70,
       minBearishScore: 70,
       stakePerTrade: 10,
@@ -47241,7 +50235,7 @@ function volumeProfileSignal(candles) {
   for (const c of window) {
     const tp = (c.high + c.low + c.close) / 3;
     let idx = Math.floor((tp - lo) / binSize);
-    idx = clamp2(idx, 0, bins - 1);
+    idx = clamp3(idx, 0, bins - 1);
     vol[idx] += c.volume;
   }
   const totalVol = vol.reduce((a, b) => a + b, 0) || 1;
@@ -47272,12 +50266,12 @@ function volumeProfileSignal(candles) {
   if (price > VAH && volConfirm) {
     direction = "BUY";
     const dist = (price - VAH) / binSize;
-    confidence2 = clamp2(Math.round(60 + dist * 8), 55, 90);
+    confidence2 = clamp3(Math.round(60 + dist * 8), 55, 90);
     reason = `VP breakout: price $${price.toFixed(0)} above value-area-high $${VAH.toFixed(0)} (POC $${pocPrice.toFixed(0)}), volume confirming`;
   } else if (price < VAL && volConfirm) {
     direction = "SELL";
     const dist = (VAL - price) / binSize;
-    confidence2 = clamp2(Math.round(60 + dist * 8), 55, 90);
+    confidence2 = clamp3(Math.round(60 + dist * 8), 55, 90);
     reason = `VP breakdown: price $${price.toFixed(0)} below value-area-low $${VAL.toFixed(0)} (POC $${pocPrice.toFixed(0)}), volume confirming`;
   } else if (price > VAH || price < VAL) {
     direction = "NEUTRAL";
@@ -47314,13 +50308,13 @@ function markovSignal(candles) {
   const enoughSamples = rowSum >= 8;
   if (enoughSamples && pU >= MIN_PROB && pU - pD >= MIN_MARGIN) {
     direction = "BUY";
-    confidence2 = clamp2(Math.round(pU * 100), 55, 92);
+    confidence2 = clamp3(Math.round(pU * 100), 55, 92);
   } else if (enoughSamples && pD >= MIN_PROB && pD - pU >= MIN_MARGIN) {
     direction = "SELL";
-    confidence2 = clamp2(Math.round(pD * 100), 55, 92);
+    confidence2 = clamp3(Math.round(pD * 100), 55, 92);
   } else {
     direction = "NEUTRAL";
-    confidence2 = clamp2(Math.round(Math.max(pU, pD) * 100), 40, 54);
+    confidence2 = clamp3(Math.round(Math.max(pU, pD) * 100), 40, 54);
   }
   const reason = `Markov from '${cur}' state: P(up)=${(pU * 100).toFixed(0)}%, P(down)=${(pD * 100).toFixed(0)}% (${rowSum} samples)`;
   return { direction, confidence: confidence2, currentPrice: price, priceChange1h, reason, strategy: "markov" };
@@ -47454,13 +50448,13 @@ function ensembleSignal(candles) {
   let confidence2 = 50;
   if (bull >= 4 && bull > bear) {
     direction = "BUY";
-    confidence2 = clamp2(60 + bull * 6, 60, 92);
+    confidence2 = clamp3(60 + bull * 6, 60, 92);
   } else if (bear >= 4 && bear > bull) {
     direction = "SELL";
-    confidence2 = clamp2(60 + bear * 6, 60, 92);
+    confidence2 = clamp3(60 + bear * 6, 60, 92);
   } else {
     direction = "NEUTRAL";
-    confidence2 = clamp2(45 + Math.max(bull, bear) * 3, 40, 58);
+    confidence2 = clamp3(45 + Math.max(bull, bear) * 3, 40, 58);
   }
   const reason = `Ensemble ${direction}: ${Math.max(bull, bear)}/5 factors agree (${notes.join(", ")}). Trending regime confirmed.`;
   return { direction, confidence: confidence2, currentPrice: price, priceChange1h, reason, strategy: "ensemble" };
@@ -47546,13 +50540,13 @@ async function getKalshiConsensus(coin = "BTC") {
   const reasons = signals.map((s) => `${s.strategy}: ${s.direction} ${s.confidence}%`);
   return { direction, confidence: confidence2, agreement, currentPrice: price, priceChange1h, signals, reasons };
 }
-var clamp2;
+var clamp3;
 var init_kalshi_strategies = __esm({
   "server/services/kalshi-strategies.ts"() {
     "use strict";
     init_btc_5min_predictor();
     init_orderflow_strategy();
-    clamp2 = (n, lo, hi) => Math.max(lo, Math.min(hi, n));
+    clamp3 = (n, lo, hi) => Math.max(lo, Math.min(hi, n));
   }
 });
 
@@ -47572,7 +50566,7 @@ __export(kalshi_trading_exports, {
 });
 import * as fs9 from "fs";
 import * as path9 from "path";
-import * as crypto12 from "crypto";
+import * as crypto13 from "crypto";
 function loadAllCreds() {
   try {
     if (fs9.existsSync(CREDS_FILE)) return JSON.parse(fs9.readFileSync(CREDS_FILE, "utf-8"));
@@ -47615,7 +50609,7 @@ ${wrapped}
   }
   pem = pem.trim();
   try {
-    crypto12.createPrivateKey(pem);
+    crypto13.createPrivateKey(pem);
   } catch {
     throw new Error('Private key is not a valid RSA PEM. Paste the full contents of the key file Kalshi gave you, including the "-----BEGIN ... PRIVATE KEY-----" and "-----END ... PRIVATE KEY-----" lines.');
   }
@@ -47664,14 +50658,14 @@ async function getOrRefreshToken(userId, creds) {
 function signKalshiRequest(privateKeyPem, timestampMs, method, endpoint) {
   const pathOnly = endpoint.split("?")[0];
   const message = String(timestampMs) + method.toUpperCase() + KALSHI_PATH_PREFIX + pathOnly;
-  const sign3 = crypto12.createSign("sha256");
+  const sign3 = crypto13.createSign("sha256");
   sign3.update(message);
   sign3.end();
   return sign3.sign(
     {
       key: privateKeyPem,
-      padding: crypto12.constants.RSA_PKCS1_PSS_PADDING,
-      saltLength: crypto12.constants.RSA_PSS_SALTLEN_DIGEST
+      padding: crypto13.constants.RSA_PKCS1_PSS_PADDING,
+      saltLength: crypto13.constants.RSA_PSS_SALTLEN_DIGEST
     },
     "base64"
   );
@@ -47898,7 +50892,7 @@ __export(kalshi_brain_exports, {
   kalshiBrainValueWeight: () => kalshiBrainValueWeight,
   learnFromKalshiTrades: () => learnFromKalshiTrades
 });
-import { and as and9, desc as desc7, eq as eq13, sql as sql10 } from "drizzle-orm";
+import { and as and9, desc as desc7, eq as eq14, sql as sql11 } from "drizzle-orm";
 function _band(n, size) {
   const lo = Math.floor(n / size) * size;
   return `${lo}-${lo + size}`;
@@ -47926,9 +50920,9 @@ function _valueWeight(winRate2, trades) {
   return Math.round((0.7 + winRate2 / 100 * 0.6) * 100) / 100;
 }
 async function _backfillIfEmpty(userId) {
-  const [{ n }] = await db.select({ n: sql10`count(*)` }).from(kalshiBrainOutcomes).where(eq13(kalshiBrainOutcomes.userId, userId));
+  const [{ n }] = await db.select({ n: sql11`count(*)` }).from(kalshiBrainOutcomes).where(eq14(kalshiBrainOutcomes.userId, userId));
   if (Number(n) > 0) return;
-  const rows = await db.select().from(aiTradeResults).where(and9(eq13(aiTradeResults.userId, userId), eq13(aiTradeResults.source, "kalshi"))).orderBy(desc7(aiTradeResults.closedAt)).limit(1e3);
+  const rows = await db.select().from(aiTradeResults).where(and9(eq14(aiTradeResults.userId, userId), eq14(aiTradeResults.source, "kalshi"))).orderBy(desc7(aiTradeResults.closedAt)).limit(1e3);
   if (!rows.length) return;
   const seed = rows.filter((r) => r.closedAt).map((r) => {
     const strat = (r.notes ?? "").split(":")[0].trim() || "unknown";
@@ -47960,7 +50954,7 @@ async function _backfillIfEmpty(userId) {
 async function learnFromKalshiTrades(userId) {
   await _backfillIfEmpty(userId).catch(() => {
   });
-  const rows = await db.select().from(kalshiBrainOutcomes).where(eq13(kalshiBrainOutcomes.userId, userId)).orderBy(desc7(kalshiBrainOutcomes.closedAt)).limit(2e3);
+  const rows = await db.select().from(kalshiBrainOutcomes).where(eq14(kalshiBrainOutcomes.userId, userId)).orderBy(desc7(kalshiBrainOutcomes.closedAt)).limit(2e3);
   const coins = {};
   const winSum = {}, winN = {};
   const lossSum = {}, lossN = {};
@@ -48040,24 +51034,24 @@ async function learnFromKalshiTrades(userId) {
     coinKnowledge: coins,
     insights
   };
-  _cache3.set(userId, { brain, at: Date.now() });
+  _cache4.set(userId, { brain, at: Date.now() });
   return brain;
 }
 async function getOrRefreshKalshiBrain(userId, force = false) {
-  const hit = _cache3.get(userId);
-  if (!force && hit && Date.now() - hit.at < REFRESH_TTL_MS2) return hit.brain;
+  const hit = _cache4.get(userId);
+  if (!force && hit && Date.now() - hit.at < REFRESH_TTL_MS3) return hit.brain;
   return learnFromKalshiTrades(userId);
 }
 function cachedKalshiBrain(userId) {
-  return _cache3.get(userId)?.brain ?? null;
+  return _cache4.get(userId)?.brain ?? null;
 }
 function kalshiBrainSizeMultiplier(userId, coin) {
-  const b = _cache3.get(userId)?.brain;
+  const b = _cache4.get(userId)?.brain;
   const k2 = b?.coinKnowledge[coin];
   return k2 ? k2.recommendedSizeMultiplier : 1;
 }
 function kalshiBrainGate(userId, coin, strikeType, hourUtc, confidence2) {
-  const k2 = _cache3.get(userId)?.brain?.coinKnowledge[coin];
+  const k2 = _cache4.get(userId)?.brain?.coinKnowledge[coin];
   if (!k2) return { blocked: false, reason: "" };
   const decided = k2.wins + k2.losses;
   if (decided >= 15 && k2.winRate < 35) {
@@ -48084,7 +51078,7 @@ function kalshiBrainGate(userId, coin, strikeType, hourUtc, confidence2) {
   return { blocked: false, reason: "" };
 }
 function kalshiBrainValueWeight(userId, coin, strikeType) {
-  const k2 = _cache3.get(userId)?.brain?.coinKnowledge[coin];
+  const k2 = _cache4.get(userId)?.brain?.coinKnowledge[coin];
   if (!k2) return 1;
   let w = k2.valueScoreWeight;
   if (strikeType) {
@@ -48093,15 +51087,15 @@ function kalshiBrainValueWeight(userId, coin, strikeType) {
   }
   return Math.max(0.6, Math.min(1.4, Math.round(w * 100) / 100));
 }
-var MIN_TRADES_FOR_COIN, REFRESH_TTL_MS2, _cache3;
+var MIN_TRADES_FOR_COIN, REFRESH_TTL_MS3, _cache4;
 var init_kalshi_brain = __esm({
   "server/services/kalshi-brain.ts"() {
     "use strict";
     init_db();
     init_schema();
     MIN_TRADES_FOR_COIN = 10;
-    REFRESH_TTL_MS2 = 60 * 1e3;
-    _cache3 = /* @__PURE__ */ new Map();
+    REFRESH_TTL_MS3 = 60 * 1e3;
+    _cache4 = /* @__PURE__ */ new Map();
   }
 });
 
@@ -48316,7 +51310,7 @@ function getKalshiEngineState(userId) {
       closedTrades: [],
       totalRealizedPnl: 0,
       totalUnrealizedPnl: 0,
-      config: override ? { ...DEFAULT_CONFIG2, ...override } : { ...DEFAULT_CONFIG2 }
+      config: override ? { ...DEFAULT_CONFIG3, ...override } : { ...DEFAULT_CONFIG3 }
     });
   }
   const s = _states2.get(userId);
@@ -49237,7 +52231,7 @@ async function closeAllKalshiTrades(userId) {
   }
   return closed;
 }
-var KALSHI_TRADEABLE_COINS, _sessionPeakBankroll, _states2, _timers, DEFAULT_CONFIG2, STRATEGY_LABELS, _persistedConfigOverrides, _credValidity, CRED_VALIDITY_TTL_MS, _priceTimers;
+var KALSHI_TRADEABLE_COINS, _sessionPeakBankroll, _states2, _timers, DEFAULT_CONFIG3, STRATEGY_LABELS, _persistedConfigOverrides, _credValidity, CRED_VALIDITY_TTL_MS, _priceTimers;
 var init_kalshi_engine = __esm({
   "server/services/kalshi-engine.ts"() {
     "use strict";
@@ -49252,7 +52246,7 @@ var init_kalshi_engine = __esm({
     _sessionPeakBankroll = /* @__PURE__ */ new Map();
     _states2 = /* @__PURE__ */ new Map();
     _timers = /* @__PURE__ */ new Map();
-    DEFAULT_CONFIG2 = {
+    DEFAULT_CONFIG3 = {
       symbols: ["BTC"],
       // preserves existing behavior for accounts that never touch this setting
       timeframe: "hourly",
@@ -49331,7 +52325,7 @@ __export(polymarket_us_exports, {
 });
 import * as fs11 from "fs";
 import * as path11 from "path";
-import * as crypto13 from "crypto";
+import * as crypto14 from "crypto";
 function loadAll3() {
   try {
     if (fs11.existsSync(FILE3)) return JSON.parse(fs11.readFileSync(FILE3, "utf-8"));
@@ -49376,13 +52370,13 @@ function ed25519KeyFromSecret(secretKeyB64) {
   const raw = Buffer.from(secretKeyB64, "base64");
   const seed = raw.subarray(0, 32);
   const der = Buffer.concat([PKCS8_ED25519_PREFIX, seed]);
-  return crypto13.createPrivateKey({ key: der, format: "der", type: "pkcs8" });
+  return crypto14.createPrivateKey({ key: der, format: "der", type: "pkcs8" });
 }
 function signHeaders(keyId, secret, method, reqPath) {
   const timestamp2 = Date.now().toString();
   const message = `${timestamp2}${method.toUpperCase()}${reqPath}`;
   const key = ed25519KeyFromSecret(secret);
-  const signature = crypto13.sign(null, Buffer.from(message, "utf-8"), key).toString("base64");
+  const signature = crypto14.sign(null, Buffer.from(message, "utf-8"), key).toString("base64");
   return {
     "X-PM-Access-Key": keyId,
     "X-PM-Timestamp": timestamp2,
@@ -49508,7 +52502,7 @@ function getPmUsEngineState(userId) {
       closedTrades: [],
       totalRealizedPnl: 0,
       totalUnrealizedPnl: 0,
-      config: { ...DEFAULT_CONFIG3 }
+      config: { ...DEFAULT_CONFIG4 }
     });
   }
   const s = _states3.get(userId);
@@ -49816,14 +52810,14 @@ async function _runScan2(userId, manual = false) {
     return { fired: false, reason: r };
   }
 }
-var DEFAULT_CONFIG3, STRATEGY_LABELS2, _states3, _timers2, _credValidity2, CRED_VALIDITY_TTL_MS2;
+var DEFAULT_CONFIG4, STRATEGY_LABELS2, _states3, _timers2, _credValidity2, CRED_VALIDITY_TTL_MS2;
 var init_polymarket_us_engine = __esm({
   "server/services/polymarket-us-engine.ts"() {
     "use strict";
     init_kalshi_strategies();
     init_kalshi_engine();
     init_polymarket_us();
-    DEFAULT_CONFIG3 = {
+    DEFAULT_CONFIG4 = {
       contractsPerTrade: 5,
       maxOpenTrades: 3,
       cooldownMinutes: 20,
@@ -49861,7 +52855,7 @@ __export(ruin_cone_exports, {
   FTUK_DEFAULTS: () => FTUK_DEFAULTS,
   runRuinConeSimulation: () => runRuinConeSimulation
 });
-import { and as and10, desc as desc8, eq as eq14, isNotNull } from "drizzle-orm";
+import { and as and10, desc as desc8, eq as eq15, isNotNull } from "drizzle-orm";
 function _cacheKey(userId, p) {
   return `${userId}:${JSON.stringify(p)}`;
 }
@@ -49898,12 +52892,12 @@ async function runRuinConeSimulation(userId, params = {}) {
     source
   };
   if (!params.noCache) {
-    const hit = _cache4.get(_cacheKey(userId, resolved));
+    const hit = _cache5.get(_cacheKey(userId, resolved));
     if (hit && hit.expires > Date.now()) return hit.result;
   }
   const rows = await db.select({ pnl: aiTradeResults.profitLoss, closedAt: aiTradeResults.closedAt }).from(aiTradeResults).where(and10(
-    eq14(aiTradeResults.userId, userId),
-    eq14(aiTradeResults.source, source),
+    eq15(aiTradeResults.userId, userId),
+    eq15(aiTradeResults.source, source),
     isNotNull(aiTradeResults.profitLoss),
     isNotNull(aiTradeResults.closedAt)
   )).orderBy(desc8(aiTradeResults.closedAt)).limit(sourceLimit);
@@ -49946,7 +52940,7 @@ async function runRuinConeSimulation(userId, params = {}) {
       },
       warning: `Only ${sourceTradeCount} closed '${source}' trade(s) on record \u2014 need at least 2 to simulate. Let the scanner build more history.`
     };
-    _cache4.set(_cacheKey(userId, resolved), { expires: Date.now() + CACHE_TTL_MS7, result: result2 });
+    _cache5.set(_cacheKey(userId, resolved), { expires: Date.now() + CACHE_TTL_MS7, result: result2 });
     return result2;
   }
   const paths = new Array(numSimulations);
@@ -50046,10 +53040,10 @@ async function runRuinConeSimulation(userId, params = {}) {
     },
     warning: sourceTradeCount < 20 ? `Thin history: only ${sourceTradeCount} closed '${source}' trade(s). Results are indicative only until more trades accumulate.` : void 0
   };
-  _cache4.set(_cacheKey(userId, resolved), { expires: Date.now() + CACHE_TTL_MS7, result });
+  _cache5.set(_cacheKey(userId, resolved), { expires: Date.now() + CACHE_TTL_MS7, result });
   return result;
 }
-var FTUK_DEFAULTS, DEFAULT_NUM_SIMULATIONS, DEFAULT_NUM_TRADES, DEFAULT_SOURCE_LIMIT, CACHE_TTL_MS7, _cache4;
+var FTUK_DEFAULTS, DEFAULT_NUM_SIMULATIONS, DEFAULT_NUM_TRADES, DEFAULT_SOURCE_LIMIT, CACHE_TTL_MS7, _cache5;
 var init_ruin_cone = __esm({
   "server/services/ruin-cone.ts"() {
     "use strict";
@@ -50070,7 +53064,7 @@ var init_ruin_cone = __esm({
     DEFAULT_NUM_TRADES = 100;
     DEFAULT_SOURCE_LIMIT = 200;
     CACHE_TTL_MS7 = 5 * 60 * 1e3;
-    _cache4 = /* @__PURE__ */ new Map();
+    _cache5 = /* @__PURE__ */ new Map();
   }
 });
 
@@ -50238,2655 +53232,6 @@ var init_abba_ea_generator = __esm({
   "server/services/abba-ea-generator.ts"() {
     "use strict";
     init_openai();
-  }
-});
-
-// server/services/sol-brain.ts
-async function ensureTable2() {
-  if (_ensured3) return;
-  try {
-    await pool.query(`
-      CREATE TABLE IF NOT EXISTS "sol_brain_outcomes" (
-        "id" serial PRIMARY KEY NOT NULL,
-        "user_id" integer NOT NULL,
-        "symbol" text NOT NULL,
-        "strategy" text NOT NULL,
-        "direction" text NOT NULL,
-        "entry_confidence" double precision,
-        "return_pct" double precision,
-        "hour_utc" integer,
-        "holding_minutes" integer,
-        "exit_reason" text,
-        "result" text NOT NULL,
-        "profit_loss" double precision NOT NULL DEFAULT 0,
-        "source" text NOT NULL DEFAULT 'live',
-        "closed_at" timestamp DEFAULT now() NOT NULL,
-        "created_at" timestamp DEFAULT now() NOT NULL
-      );
-      CREATE INDEX IF NOT EXISTS "idx_sol_brain_outcomes_user_symbol" ON "sol_brain_outcomes" ("user_id", "symbol");
-    `);
-    _ensured3 = true;
-  } catch (err) {
-    console.error("[sol-brain] ensureTable failed (non-fatal):", err?.message ?? err);
-  }
-}
-function bump2(map, key, win) {
-  const s = map[key] ??= { trades: 0, wins: 0, winRate: 0 };
-  s.trades++;
-  if (win) s.wins++;
-  s.winRate = Math.round(s.wins / s.trades * 100);
-}
-function sizeMult2(winRate2, rr, trades) {
-  if (trades < MIN_TRADES4) return 1;
-  const w = winRate2 / 100, r = rr > 0 ? rr : 1;
-  const kelly = w - (1 - w) / r;
-  return Math.max(0.25, Math.min(1.5, 1 + kelly));
-}
-async function backfillIfEmpty2(userId) {
-  const { rows } = await pool.query(`SELECT count(*)::int n FROM sol_brain_outcomes WHERE user_id=$1`, [userId]);
-  if (rows[0].n > 0) return;
-  const { rows: trades } = await pool.query(
-    `SELECT token_symbol, strategy_id, close_pnl_pct, closed_at FROM sol_engine_positions
-     WHERE user_id=$1 AND status='closed' AND close_pnl_pct IS NOT NULL ORDER BY closed_at DESC LIMIT 1000`,
-    [userId]
-  );
-  if (!trades.length) return;
-  for (const t of trades) {
-    const pnl = Number(t.close_pnl_pct) || 0;
-    const d = t.closed_at ? new Date(t.closed_at) : /* @__PURE__ */ new Date();
-    await pool.query(
-      `INSERT INTO sol_brain_outcomes (user_id, symbol, strategy, direction, result, profit_loss, return_pct, hour_utc, source, closed_at)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,'backfill',$9)`,
-      [userId, t.token_symbol || "UNKNOWN", t.strategy_id || "unknown", "long", pnl > 0 ? "WIN" : pnl < 0 ? "LOSS" : "BREAKEVEN", pnl, pnl, d.getUTCHours(), d]
-    ).catch(() => {
-    });
-  }
-}
-async function learnFromSolTrades(userId) {
-  await ensureTable2();
-  await backfillIfEmpty2(userId).catch(() => {
-  });
-  const { rows } = await pool.query(
-    `SELECT symbol, strategy, direction, result, profit_loss, hour_utc FROM sol_brain_outcomes
-     WHERE user_id=$1 ORDER BY closed_at DESC LIMIT 2000`,
-    [userId]
-  );
-  const symbols = {};
-  const winSum = {}, winN = {}, lossSum = {}, lossN = {};
-  let totalWins = 0, totalDecided = 0, totalPnl = 0;
-  for (const r of rows) {
-    const sym = r.symbol || "UNKNOWN";
-    const k2 = symbols[sym] ??= { totalTrades: 0, wins: 0, losses: 0, winRate: 0, totalPnl: 0, avgWin: 0, avgLoss: 0, riskReward: 0, byStrategy: {}, byHour: {}, bestStrategy: null, recommendedSizeMultiplier: 1 };
-    const pnl = Number(r.profit_loss) || 0;
-    const win = r.result === "WIN", loss = r.result === "LOSS";
-    k2.totalTrades++;
-    k2.totalPnl += pnl;
-    totalPnl += pnl;
-    if (win) {
-      k2.wins++;
-      totalWins++;
-      winSum[sym] = (winSum[sym] ?? 0) + pnl;
-      winN[sym] = (winN[sym] ?? 0) + 1;
-    }
-    if (loss) {
-      k2.losses++;
-      lossSum[sym] = (lossSum[sym] ?? 0) + Math.abs(pnl);
-      lossN[sym] = (lossN[sym] ?? 0) + 1;
-    }
-    if (win || loss) totalDecided++;
-    if (r.strategy) bump2(k2.byStrategy, r.strategy, win);
-    if (r.hour_utc != null) bump2(k2.byHour, String(r.hour_utc), win);
-  }
-  for (const [sym, k2] of Object.entries(symbols)) {
-    const decided = k2.wins + k2.losses;
-    k2.winRate = decided ? Math.round(k2.wins / decided * 100) : 0;
-    k2.avgWin = winN[sym] ? winSum[sym] / winN[sym] : 0;
-    k2.avgLoss = lossN[sym] ? lossSum[sym] / lossN[sym] : 0;
-    k2.riskReward = k2.avgLoss > 0 ? k2.avgWin / k2.avgLoss : k2.avgWin > 0 ? 2 : 1;
-    k2.recommendedSizeMultiplier = sizeMult2(k2.winRate, k2.riskReward, decided);
-    let best = null, bestWr = -1;
-    for (const [s, b] of Object.entries(k2.byStrategy)) if (b.trades >= 3 && b.winRate > bestWr) {
-      best = s;
-      bestWr = b.winRate;
-    }
-    k2.bestStrategy = best;
-  }
-  const insights = [];
-  for (const [sym, k2] of Object.entries(symbols)) {
-    if (k2.wins + k2.losses >= MIN_TRADES4) insights.push(`${sym}: ${k2.winRate}% WR over ${k2.wins + k2.losses} \u2192 sizing \xD7${k2.recommendedSizeMultiplier}${k2.bestStrategy ? `, best on ${k2.bestStrategy}` : ""}.`);
-    else insights.push(`${sym}: still learning (${k2.wins + k2.losses}/${MIN_TRADES4}).`);
-  }
-  const brain = { userId, lastLearned: (/* @__PURE__ */ new Date()).toISOString(), totalTrades: rows.length, overallWinRate: totalDecided ? Math.round(totalWins / totalDecided * 100) : 0, totalPnl: Math.round(totalPnl * 100) / 100, symbolKnowledge: symbols, insights };
-  _cache5.set(userId, { brain, at: Date.now() });
-  return brain;
-}
-async function getOrRefreshSolBrain(userId, force = false) {
-  const hit = _cache5.get(userId);
-  if (!force && hit && Date.now() - hit.at < REFRESH_TTL_MS3) return hit.brain;
-  return learnFromSolTrades(userId);
-}
-function solBrainSizeMultiplier(userId, symbol) {
-  const k2 = _cache5.get(userId)?.brain?.symbolKnowledge[symbol];
-  return k2 ? k2.recommendedSizeMultiplier : 1;
-}
-function solBrainGate(userId, symbol, strategy, hourUtc) {
-  const k2 = _cache5.get(userId)?.brain?.symbolKnowledge[symbol];
-  if (!k2) return { blocked: false, reason: "" };
-  const decided = k2.wins + k2.losses;
-  if (decided >= 15 && k2.winRate < 35) return { blocked: true, reason: `\u{1F9E0} Sol brain: ${symbol} ${k2.winRate}% WR over ${decided} \u2014 skipping symbol` };
-  if (strategy) {
-    const st = k2.byStrategy[strategy];
-    if (st && st.trades >= 8 && st.winRate < 30) return { blocked: true, reason: `\u{1F9E0} Sol brain: ${symbol}/${strategy} ${st.winRate}% WR over ${st.trades} \u2014 skipping` };
-  }
-  if (hourUtc != null) {
-    const h = k2.byHour[String(hourUtc)];
-    if (h && h.trades >= 8 && h.winRate < 30) return { blocked: true, reason: `\u{1F9E0} Sol brain: ${symbol} @ ${hourUtc}:00 UTC ${h.winRate}% WR over ${h.trades} \u2014 skipping this hour` };
-  }
-  return { blocked: false, reason: "" };
-}
-async function recordSolBrainOutcome(o) {
-  try {
-    await ensureTable2();
-    if (o.returnPct != null && (o.returnPct > 1e3 || o.returnPct < -100)) {
-      console.warn(`[sol-brain] rejected impossible return ${o.returnPct}% for ${o.symbol} \u2014 not recorded (bad price data)`);
-      return;
-    }
-    await pool.query(
-      `INSERT INTO sol_brain_outcomes (user_id, symbol, strategy, direction, entry_confidence, return_pct, hour_utc, holding_minutes, exit_reason, result, profit_loss, source)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)`,
-      [
-        o.userId,
-        o.symbol,
-        o.strategy || "unknown",
-        o.direction || "long",
-        o.entryConfidence ?? null,
-        o.returnPct ?? null,
-        (/* @__PURE__ */ new Date()).getUTCHours(),
-        o.holdingMinutes ?? null,
-        o.exitReason ?? null,
-        o.profitLoss > 0 ? "WIN" : o.profitLoss < 0 ? "LOSS" : "BREAKEVEN",
-        o.profitLoss,
-        o.source === "paper" ? "paper" : "live"
-      ]
-    );
-    await learnFromSolTrades(o.userId);
-  } catch (err) {
-    console.error("[sol-brain] recordSolBrainOutcome failed (non-fatal):", err?.message ?? err);
-  }
-}
-var MIN_TRADES4, REFRESH_TTL_MS3, _ensured3, _cache5;
-var init_sol_brain = __esm({
-  "server/services/sol-brain.ts"() {
-    "use strict";
-    init_db();
-    MIN_TRADES4 = 10;
-    REFRESH_TTL_MS3 = 60 * 1e3;
-    _ensured3 = false;
-    _cache5 = /* @__PURE__ */ new Map();
-  }
-});
-
-// server/services/sol-engine.ts
-var sol_engine_exports = {};
-__export(sol_engine_exports, {
-  SOL_PAPER_MAX_SOL: () => SOL_PAPER_MAX_SOL,
-  SOL_STRATEGIES: () => SOL_STRATEGIES,
-  cancelSignal: () => cancelSignal,
-  clearServerWallet: () => clearServerWallet,
-  confirmLiveExit: () => confirmLiveExit,
-  confirmLiveTrade: () => confirmLiveTrade,
-  getAutoTradePositions: () => getAutoTradePositions,
-  getPendingExits: () => getPendingExits,
-  getPendingSignals: () => getPendingSignals,
-  getServerWalletStatus: () => getServerWalletStatus,
-  getSolEngineStatus: () => getSolEngineStatus,
-  getSolStrategies: () => getSolStrategies,
-  recordSolSignalResult: () => recordSolSignalResult,
-  resetSolWeeklyGoal: () => resetSolWeeklyGoal,
-  saveServerWallet: () => saveServerWallet,
-  setAutoTrade: () => setAutoTrade,
-  setCompoundSettings: () => setCompoundSettings,
-  setShieldActive: () => setShieldActive,
-  setSolStrategies: () => setSolStrategies,
-  setSolStrategy: () => setSolStrategy,
-  setSolWeeklyGoal: () => setSolWeeklyGoal,
-  startSolEngine: () => startSolEngine,
-  stopSolEngine: () => stopSolEngine,
-  triggerSolAIReview: () => triggerSolAIReview,
-  updateSolPortfolioValue: () => updateSolPortfolioValue
-});
-import { eq as eq15, sql as sql11 } from "drizzle-orm";
-import crypto14 from "crypto";
-function isBadPriceSample(next, lastGood) {
-  if (!(next > 0) || !(lastGood > 0)) return false;
-  return next / lastGood > MAX_PRICE_SPIKE || lastGood / next > MAX_PRICE_SPIKE;
-}
-function getEncryptionKey6() {
-  const seed = (process.env.DATABASE_URL || "vedd-sol-engine-fallback") + "sol-v1";
-  return crypto14.createHash("sha256").update(seed).digest();
-}
-function encryptWalletKey(plain) {
-  const iv = crypto14.randomBytes(16);
-  const cipher = crypto14.createCipheriv("aes-256-cbc", getEncryptionKey6(), iv);
-  const enc = Buffer.concat([cipher.update(plain, "utf8"), cipher.final()]);
-  return iv.toString("hex") + ":" + enc.toString("hex");
-}
-function decryptWalletKey(ciphertext) {
-  const [ivHex, encHex] = ciphertext.split(":");
-  const iv = Buffer.from(ivHex, "hex");
-  const decipher = crypto14.createDecipheriv("aes-256-cbc", getEncryptionKey6(), iv);
-  const dec = Buffer.concat([decipher.update(Buffer.from(encHex, "hex")), decipher.final()]);
-  return dec.toString("utf8");
-}
-async function saveEngineState(userId, state) {
-  try {
-    await db.insert(solEngineSettings).values({
-      userId,
-      activeStrategy: state.activeStrategy,
-      activeStrategies: state.activeStrategies,
-      autoTradeEnabled: state.autoTradeEnabled,
-      liveTradeEnabled: state.liveTradeEnabled,
-      autoTradeTP: state.autoTradeTP,
-      autoTradeSL: state.autoTradeSL,
-      weeklyGoal: state.weeklyGoal,
-      autoTradeStats: state.autoTradeStats,
-      updatedAt: /* @__PURE__ */ new Date()
-    }).onConflictDoUpdate({
-      target: solEngineSettings.userId,
-      set: {
-        activeStrategy: state.activeStrategy,
-        activeStrategies: state.activeStrategies,
-        autoTradeEnabled: state.autoTradeEnabled,
-        liveTradeEnabled: state.liveTradeEnabled,
-        autoTradeTP: state.autoTradeTP,
-        autoTradeSL: state.autoTradeSL,
-        weeklyGoal: state.weeklyGoal,
-        autoTradeStats: state.autoTradeStats,
-        updatedAt: /* @__PURE__ */ new Date()
-      }
-    });
-  } catch (err) {
-    console.error("[SolEngine] saveEngineState settings error:", err);
-  }
-}
-async function upsertPosition(userId, pos) {
-  try {
-    await db.insert(solEnginePositions).values({
-      userId,
-      positionId: pos.id,
-      mode: pos.mode,
-      symbol: pos.symbol,
-      mint: pos.mint,
-      entryPrice: pos.entryPrice,
-      currentPrice: pos.currentPrice,
-      targetPct: pos.targetPct,
-      slPct: pos.slPct,
-      size: pos.size,
-      tokenAmount: pos.tokenAmount,
-      decimals: pos.decimals,
-      strategyId: pos.strategyId,
-      txHash: pos.txHash,
-      status: pos.status,
-      openedAt: pos.openedAt,
-      closedAt: pos.closedAt,
-      closePnlPct: pos.closePnlPct,
-      updatedAt: /* @__PURE__ */ new Date()
-    }).onConflictDoUpdate({
-      target: solEnginePositions.positionId,
-      set: {
-        currentPrice: pos.currentPrice,
-        status: pos.status,
-        closedAt: pos.closedAt,
-        closePnlPct: pos.closePnlPct,
-        tokenAmount: pos.tokenAmount,
-        updatedAt: /* @__PURE__ */ new Date()
-      }
-    });
-  } catch (err) {
-    console.error("[SolEngine] upsertPosition error:", err);
-  }
-}
-async function loadEngineStateFromDb(userId, state) {
-  try {
-    const [settings] = await db.select().from(solEngineSettings).where(eq15(solEngineSettings.userId, userId));
-    if (settings) {
-      state.activeStrategy = settings.activeStrategy;
-      state.activeStrategies = settings.activeStrategies || [settings.activeStrategy];
-      state.autoTradeEnabled = settings.autoTradeEnabled;
-      state.liveTradeEnabled = settings.liveTradeEnabled;
-      state.autoTradeTP = settings.autoTradeTP;
-      state.autoTradeSL = settings.autoTradeSL;
-      state.autoTrailActivationPct = settings.autoTrailActivationPct ?? 4;
-      state.autoTrailDistancePct = settings.autoTrailDistancePct ?? 3;
-      if (settings.weeklyGoal && typeof settings.weeklyGoal === "object") {
-        state.weeklyGoal = { ...DEFAULT_WEEKLY_GOAL, ...settings.weeklyGoal };
-      }
-      if (settings.autoTradeStats && typeof settings.autoTradeStats === "object") {
-        state.autoTradeStats = { ...state.autoTradeStats, ...settings.autoTradeStats };
-      }
-      if (settings.serverWalletKey && state.currentPortfolioValue <= 0) {
-        try {
-          const privateKeyBase58 = decryptWalletKey(settings.serverWalletKey);
-          const { Keypair: Keypair2, Connection: Connection3 } = await import("@solana/web3.js");
-          const bs58 = (await import("bs58")).default;
-          const keypair = Keypair2.fromSecretKey(bs58.decode(privateKeyBase58));
-          const rpcUrl = process.env.SOLANA_RPC_URL || "https://mainnet.helius-rpc.com/?api-key=15319bf4-5b40-4958-ac8d-6313aa55eb92";
-          const connection2 = new Connection3(rpcUrl, { commitment: "confirmed" });
-          const lamports = await connection2.getBalance(keypair.publicKey);
-          const solBalance = lamports / 1e9;
-          if (solBalance > 0) {
-            state.currentPortfolioValue = solBalance;
-            console.log(`[SolEngine] Auto-set portfolio value from server wallet: ${solBalance.toFixed(4)} SOL`);
-          }
-        } catch (walletErr) {
-          console.warn("[SolEngine] Could not fetch server wallet balance for portfolio init:", walletErr);
-        }
-      }
-    }
-    const positions = await db.select().from(solEnginePositions).where(eq15(solEnginePositions.userId, userId));
-    for (const row of positions) {
-      const pos = {
-        id: row.positionId,
-        symbol: row.symbol,
-        mint: row.mint,
-        entryPrice: row.entryPrice,
-        currentPrice: row.currentPrice,
-        targetPct: row.targetPct,
-        slPct: row.slPct,
-        size: row.size,
-        tokenAmount: row.tokenAmount,
-        decimals: row.decimals,
-        strategyId: row.strategyId,
-        txHash: row.txHash || void 0,
-        mode: row.mode,
-        status: row.status,
-        openedAt: row.openedAt,
-        closedAt: row.closedAt || void 0,
-        closePnlPct: row.closePnlPct || void 0
-      };
-      if (pos.mode === "paper") {
-        if (pos.status === "open") state.paperPositions.push(pos);
-        else state.closedPaperPositions.push(pos);
-      } else {
-        if (pos.status === "open") state.livePositions.push(pos);
-        else state.closedLivePositions.push(pos);
-      }
-    }
-    console.log(`[SolEngine] Loaded state for user ${userId}: ${positions.length} positions restored`);
-  } catch (err) {
-    console.error("[SolEngine] loadEngineStateFromDb error:", err);
-  }
-}
-async function fetchPricesByMint(mints) {
-  const out = {};
-  const unique2 = Array.from(new Set(mints.filter(Boolean)));
-  if (unique2.length === 0) return out;
-  for (let i = 0; i < unique2.length; i += 30) {
-    const batch = unique2.slice(i, i + 30);
-    try {
-      const resp = await fetch(`https://api.dexscreener.com/latest/dex/tokens/${batch.join(",")}`);
-      if (!resp.ok) continue;
-      const data = await resp.json();
-      const pairs = data?.pairs || [];
-      const bestLiq = {};
-      for (const pair of pairs) {
-        if (pair?.chainId && pair.chainId !== "solana") continue;
-        const mint = pair?.baseToken?.address;
-        if (!mint) continue;
-        const price = parseFloat(pair?.priceUsd) || 0;
-        const liq = pair?.liquidity?.usd || 0;
-        if (price <= 0) continue;
-        if (out[mint] === void 0 || liq > (bestLiq[mint] ?? -1)) {
-          out[mint] = price;
-          bestLiq[mint] = liq;
-        }
-      }
-    } catch (err) {
-      console.warn("[SolEngine] fetchPricesByMint DexScreener batch failed:", err instanceof Error ? err.message : err);
-    }
-  }
-  const missing = unique2.filter((m) => !(out[m] > 0));
-  if (missing.length > 0) {
-    try {
-      const resp = await fetch(`https://lite-api.jup.ag/price/v2?ids=${missing.join(",")}`);
-      if (resp.ok) {
-        const data = await resp.json();
-        const priceData = data?.data || {};
-        for (const mint of missing) {
-          const p = parseFloat(priceData?.[mint]?.price) || 0;
-          if (p > 0) out[mint] = p;
-        }
-      }
-    } catch (err) {
-      console.warn("[SolEngine] fetchPricesByMint Jupiter fallback failed:", err instanceof Error ? err.message : err);
-    }
-  }
-  return out;
-}
-function finalizeAbandonedPosition(userId, state, pos, reason) {
-  const gainPct = pos.entryPrice > 0 ? (pos.currentPrice - pos.entryPrice) / pos.entryPrice * 100 : 0;
-  pos.status = "closed";
-  pos.closedAt = (/* @__PURE__ */ new Date()).toISOString();
-  pos.closePnlPct = gainPct;
-  pos.closeReason = "abandoned";
-  pos.exitReason = reason;
-  state.livePositions = state.livePositions.filter((p) => p.id !== pos.id);
-  state.closedLivePositions.unshift(pos);
-  if (state.closedLivePositions.length > 50) state.closedLivePositions = state.closedLivePositions.slice(0, 50);
-  addActivity3(state, {
-    type: "live_sell",
-    message: `\u{1F6A8} ABANDONED: ${pos.symbol} marked closed (${reason}) \u2014 could not exit on-chain. MANUAL HANDLING REQUIRED. mint: ${pos.mint} | tokenAmount: ${pos.tokenAmount}`
-  });
-  console.error(`[SolEngine] ABANDONED position ${pos.id} (${pos.symbol}) reason=${reason} mint=${pos.mint} tokenAmount=${pos.tokenAmount}`);
-  upsertPosition(userId, pos).catch(() => {
-  });
-  saveEngineState(userId, state).catch(() => {
-  });
-}
-async function executeServerSideSell(userId, pos, reason, state) {
-  try {
-    const [settings] = await db.select({ serverWalletKey: solEngineSettings.serverWalletKey }).from(solEngineSettings).where(eq15(solEngineSettings.userId, userId));
-    if (!settings?.serverWalletKey) return false;
-    const privateKeyBase58 = decryptWalletKey(settings.serverWalletKey);
-    const { Keypair: Keypair2, Connection: Connection3, VersionedTransaction } = await import("@solana/web3.js");
-    const bs58 = (await import("bs58")).default;
-    const secretKey = bs58.decode(privateKeyBase58);
-    const keypair = Keypair2.fromSecretKey(secretKey);
-    const SOL_MINT = "So11111111111111111111111111111111111111112";
-    const amount = Math.floor(pos.tokenAmount);
-    if (amount <= 0) {
-      finalizeAbandonedPosition(userId, state, pos, `${reason}_zero_amount`);
-      return true;
-    }
-    const rpcUrl = process.env.SOLANA_RPC_URL || "https://mainnet.helius-rpc.com/?api-key=15319bf4-5b40-4958-ac8d-6313aa55eb92";
-    const connection2 = new Connection3(rpcUrl, { commitment: "confirmed" });
-    const slippageLadder = [300, 800, 1500];
-    let signature = null;
-    for (let attempt = 0; attempt < slippageLadder.length; attempt++) {
-      const slippageBps = slippageLadder[attempt];
-      try {
-        const quoteResp = await fetch(
-          `https://quote-api.jup.ag/v6/quote?inputMint=${pos.mint}&outputMint=${SOL_MINT}&amount=${amount}&slippageBps=${slippageBps}`
-        );
-        if (!quoteResp.ok) continue;
-        const quote = await quoteResp.json();
-        if (quote?.error) continue;
-        const swapResp = await fetch("https://quote-api.jup.ag/v6/swap", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            quoteResponse: quote,
-            userPublicKey: keypair.publicKey.toBase58(),
-            wrapAndUnwrapSol: true,
-            dynamicComputeUnitLimit: true,
-            prioritizationFeeLamports: "auto"
-          })
-        });
-        if (!swapResp.ok) continue;
-        const { swapTransaction } = await swapResp.json();
-        if (!swapTransaction) continue;
-        const txBuffer = Buffer.from(swapTransaction, "base64");
-        const transaction = VersionedTransaction.deserialize(txBuffer);
-        transaction.sign([keypair]);
-        const sig = await connection2.sendRawTransaction(transaction.serialize(), { skipPreflight: true, maxRetries: 3 });
-        let ok = false;
-        try {
-          const latest = await connection2.getLatestBlockhash("confirmed");
-          const conf = await connection2.confirmTransaction(
-            { signature: sig, blockhash: latest.blockhash, lastValidBlockHeight: latest.lastValidBlockHeight },
-            "confirmed"
-          );
-          ok = !conf.value.err;
-        } catch {
-          for (let i = 0; i < 20; i++) {
-            await new Promise((r) => setTimeout(r, 2e3));
-            try {
-              const st = await connection2.getSignatureStatuses([sig]);
-              const s = st.value[0];
-              if (s && (s.confirmationStatus === "confirmed" || s.confirmationStatus === "finalized")) {
-                ok = !s.err;
-                break;
-              }
-              if (s && s.err) {
-                ok = false;
-                break;
-              }
-            } catch {
-            }
-          }
-        }
-        if (ok) {
-          signature = sig;
-          break;
-        }
-        addActivity3(state, {
-          type: "live_sell",
-          message: `\u21BB Sell attempt ${attempt + 1}/${slippageLadder.length} unconfirmed for ${pos.symbol} (slippage ${slippageBps}bps) \u2014 retrying`
-        });
-      } catch (attemptErr) {
-        console.warn(`[SolEngine] sell attempt ${attempt + 1} failed:`, attemptErr instanceof Error ? attemptErr.message : attemptErr);
-      }
-    }
-    if (!signature) {
-      finalizeAbandonedPosition(userId, state, pos, "abandoned_sell_failed");
-      return true;
-    }
-    const gainPct = pos.entryPrice > 0 ? (pos.currentPrice - pos.entryPrice) / pos.entryPrice * 100 : 0;
-    const label = reason === "tp" ? "TP \u2705" : "SL \u{1F6E1}\uFE0F";
-    pos.status = "closed";
-    pos.closedAt = (/* @__PURE__ */ new Date()).toISOString();
-    pos.closePnlPct = gainPct;
-    state.livePositions = state.livePositions.filter((p) => p.id !== pos.id);
-    state.closedLivePositions.unshift(pos);
-    if (state.closedLivePositions.length > 50) state.closedLivePositions = state.closedLivePositions.slice(0, 50);
-    const isWin = gainPct >= 0;
-    state.autoTradeStats.totalTrades++;
-    state.autoTradeStats.totalPnlPct += gainPct;
-    if (isWin) {
-      state.autoTradeStats.wins++;
-      if (gainPct > state.autoTradeStats.bestTradePct) state.autoTradeStats.bestTradePct = gainPct;
-    } else {
-      state.autoTradeStats.losses++;
-      if (gainPct < state.autoTradeStats.worstTradePct) state.autoTradeStats.worstTradePct = gainPct;
-    }
-    const dexKeyLive = (pos.dex || "unknown").toLowerCase().replace(/[^a-z]/g, "") || "unknown";
-    if (!state.signalWeights[dexKeyLive]) state.signalWeights[dexKeyLive] = 1;
-    if (!state.kellyStats[dexKeyLive]) state.kellyStats[dexKeyLive] = { wins: 0, losses: 0, totalGainPct: 0 };
-    if (isWin) {
-      state.signalWeights[dexKeyLive] = Math.min(2, state.signalWeights[dexKeyLive] + 0.05);
-      state.kellyStats[dexKeyLive].wins++;
-      state.kellyStats[dexKeyLive].totalGainPct += Math.abs(gainPct);
-      state.weeklyGoal.winStreak = (state.weeklyGoal.winStreak || 0) + 1;
-    } else {
-      state.signalWeights[dexKeyLive] = Math.max(0.2, state.signalWeights[dexKeyLive] - 0.08);
-      state.kellyStats[dexKeyLive].losses++;
-      state.weeklyGoal.winStreak = 0;
-    }
-    if (state.weeklyGoal.phase !== "idle") {
-      state.weeklyGoal.currentProfitSol += pos.size * (gainPct / 100);
-      state.weeklyGoal.tradeHistory.unshift({
-        timestamp: (/* @__PURE__ */ new Date()).toISOString(),
-        symbol: pos.symbol,
-        sol: pos.size,
-        gainPct,
-        outcome: isWin ? "WIN" : "LOSS",
-        strategy: pos.strategyId || state.activeStrategy
-      });
-      if (state.weeklyGoal.tradeHistory.length > 100) state.weeklyGoal.tradeHistory = state.weeklyGoal.tradeHistory.slice(0, 100);
-    }
-    addActivity3(state, {
-      type: "live_sell",
-      message: `\u{1F916} Server auto-sold ${pos.symbol} [${label}] ${gainPct >= 0 ? "+" : ""}${gainPct.toFixed(2)}% \u2014 TX: ${signature.slice(0, 16)}...`
-    });
-    recordSolBrainOutcome({
-      userId,
-      symbol: pos.symbol,
-      strategy: pos.strategyId || "unknown",
-      direction: "long",
-      returnPct: gainPct,
-      holdingMinutes: Math.max(0, Math.round((Date.now() - new Date(pos.openedAt).getTime()) / 6e4)),
-      exitReason: reason,
-      profitLoss: pos.size * (gainPct / 100)
-    }).catch(() => {
-    });
-    upsertPosition(userId, pos).catch(() => {
-    });
-    saveEngineState(userId, state).catch(() => {
-    });
-    state.lastWalletRefreshAt = 0;
-    refreshServerWalletBalance(userId, state).catch(() => {
-    });
-    return true;
-  } catch (err) {
-    console.error("[SolEngine] executeServerSideSell error:", err);
-    return false;
-  }
-}
-async function executeServerSideBuy(userId, signal, state) {
-  try {
-    const [settings] = await db.select({ serverWalletKey: solEngineSettings.serverWalletKey }).from(solEngineSettings).where(eq15(solEngineSettings.userId, userId));
-    if (!settings?.serverWalletKey) return false;
-    const privateKeyBase58 = decryptWalletKey(settings.serverWalletKey);
-    const { Keypair: Keypair2, Connection: Connection3, VersionedTransaction } = await import("@solana/web3.js");
-    const bs58 = (await import("bs58")).default;
-    const secretKey = bs58.decode(privateKeyBase58);
-    const keypair = Keypair2.fromSecretKey(secretKey);
-    const SOL_MINT = "So11111111111111111111111111111111111111112";
-    const lamports = Math.floor(signal.sizeSOL * 1e9);
-    if (lamports <= 0) return false;
-    const quoteResp = await fetch(
-      `https://quote-api.jup.ag/v6/quote?inputMint=${SOL_MINT}&outputMint=${signal.mint}&amount=${lamports}&slippageBps=200`
-    );
-    if (!quoteResp.ok) return false;
-    const quote = await quoteResp.json();
-    if (quote.error) {
-      console.warn("[SolEngine] Jupiter buy quote error:", quote.error);
-      return false;
-    }
-    const swapResp = await fetch("https://quote-api.jup.ag/v6/swap", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        quoteResponse: quote,
-        userPublicKey: keypair.publicKey.toBase58(),
-        wrapAndUnwrapSol: true,
-        dynamicComputeUnitLimit: true,
-        prioritizationFeeLamports: "auto"
-      })
-    });
-    if (!swapResp.ok) return false;
-    const { swapTransaction } = await swapResp.json();
-    const txBuffer = Buffer.from(swapTransaction, "base64");
-    const transaction = VersionedTransaction.deserialize(txBuffer);
-    transaction.sign([keypair]);
-    const rpcUrl = process.env.SOLANA_RPC_URL || "https://mainnet.helius-rpc.com/?api-key=15319bf4-5b40-4958-ac8d-6313aa55eb92";
-    const connection2 = new Connection3(rpcUrl, { commitment: "confirmed" });
-    const signature = await connection2.sendRawTransaction(transaction.serialize(), {
-      skipPreflight: true,
-      maxRetries: 3
-    });
-    let confirmedOk = false;
-    try {
-      const latest = await connection2.getLatestBlockhash("confirmed");
-      const conf = await connection2.confirmTransaction(
-        { signature, blockhash: latest.blockhash, lastValidBlockHeight: latest.lastValidBlockHeight },
-        "confirmed"
-      );
-      confirmedOk = !conf.value.err;
-    } catch {
-      for (let i = 0; i < 30; i++) {
-        await new Promise((r) => setTimeout(r, 2e3));
-        try {
-          const st = await connection2.getSignatureStatuses([signature]);
-          const s = st.value[0];
-          if (s && (s.confirmationStatus === "confirmed" || s.confirmationStatus === "finalized")) {
-            confirmedOk = !s.err;
-            break;
-          }
-          if (s && s.err) {
-            confirmedOk = false;
-            break;
-          }
-        } catch {
-        }
-      }
-    }
-    if (!confirmedOk) {
-      addActivity3(state, {
-        type: "live_signal",
-        message: `\u274C Buy not confirmed \u2014 no position recorded: ${signal.symbol} (TX ${signature.slice(0, 16)}...). SOL not deployed.`
-      });
-      return false;
-    }
-    let tokenAmount = 0;
-    let decimals = 9;
-    try {
-      const { PublicKey: PublicKey3 } = await import("@solana/web3.js");
-      const balResp = await connection2.getParsedTokenAccountsByOwner(keypair.publicKey, { mint: new PublicKey3(signal.mint) });
-      for (const acc of balResp.value) {
-        const info2 = acc.account?.data?.parsed?.info?.tokenAmount;
-        if (info2) {
-          tokenAmount += Number(info2.amount) || 0;
-          if (info2.decimals != null) decimals = Number(info2.decimals);
-        }
-      }
-    } catch (balErr) {
-      console.warn("[SolEngine] getParsedTokenAccountsByOwner failed after buy:", balErr instanceof Error ? balErr.message : balErr);
-    }
-    if (!(tokenAmount > 0)) {
-      addActivity3(state, {
-        type: "live_signal",
-        message: `\u274C Buy confirmed but zero token balance found \u2014 no position recorded: ${signal.symbol}. MANUAL CHECK (TX ${signature.slice(0, 16)}...).`
-      });
-      return false;
-    }
-    const pos = {
-      id: `live_pos_${Date.now()}_${signal.symbol}`,
-      symbol: signal.symbol,
-      mint: signal.mint,
-      entryPrice: signal.price,
-      currentPrice: signal.price,
-      targetPct: state.autoTradeTP,
-      slPct: state.autoTradeSL,
-      size: signal.sizeSOL,
-      tokenAmount,
-      decimals,
-      strategyId: signal.strategyId,
-      mode: "live",
-      txHash: signature,
-      openedAt: (/* @__PURE__ */ new Date()).toISOString(),
-      status: "open",
-      stopLossPrice: signal.stopLossPrice,
-      takeProfitPrice: signal.takeProfitPrice,
-      dex: signal.dex
-    };
-    state.livePositions.push(pos);
-    state.dailyTradeCount++;
-    addActivity3(state, {
-      type: "live_buy",
-      message: `\u{1F916} Server auto-bought ${signal.symbol} \u2014 ${signal.sizeSOL.toFixed(3)} SOL @ $${signal.price.toFixed(6)} | TX: ${signature.slice(0, 16)}... | TP: +${state.autoTradeTP}% | SL: -${state.autoTradeSL}%`
-    });
-    upsertPosition(userId, pos).catch(() => {
-    });
-    saveEngineState(userId, state).catch(() => {
-    });
-    state.lastWalletRefreshAt = 0;
-    refreshServerWalletBalance(userId, state).catch(() => {
-    });
-    return true;
-  } catch (err) {
-    console.error("[SolEngine] executeServerSideBuy error:", err);
-    return false;
-  }
-}
-function passesStrategyFilter(analysis, strategy) {
-  const token = analysis.token;
-  const totalTxns = token.txns24h.buys + token.txns24h.sells;
-  const buyRatio = totalTxns > 0 ? token.txns24h.buys / totalTxns : 0.5;
-  const avgTxSize = totalTxns > 0 ? token.volume24h / totalTxns : 0;
-  const priceChg = token.priceChange24h;
-  switch (strategy.id) {
-    case "whale_follower":
-      return avgTxSize > 200 && token.makers24h < 500 && buyRatio > 0.55 && analysis.whaleScore >= 60;
-    case "momentum_surfer":
-      return priceChg >= 5 && priceChg <= 80 && buyRatio > 0.55 && token.volume24h >= 3e4;
-    case "breakout_hunter":
-      return priceChg >= 10 && priceChg <= 80 && token.volume24h >= 3e4 && buyRatio > 0.54;
-    case "dip_sniper":
-      return priceChg >= -40 && priceChg <= -4 && buyRatio > 0.62;
-    case "meme_velocity":
-      return priceChg >= 20 && token.volume24h >= 15e3;
-    case "volume_explosion":
-      return token.volume24h >= 25e4 && buyRatio > 0.52;
-    case "smart_money_flow":
-      return analysis.riskLevel === "LOW" && token.makers24h >= 50 && analysis.signal === "STRONG_BUY";
-    case "liquidity_sweep":
-      return priceChg >= -15 && priceChg <= 10 && buyRatio > 0.62 && analysis.sentimentScore >= 55;
-    case "order_flow_scalper":
-      return buyRatio > 0.65 && priceChg >= -5 && priceChg <= 20 && token.volume24h >= 5e4;
-    case "trend_rider":
-      return priceChg >= 8 && priceChg <= 60 && buyRatio > 0.56 && buyRatio < 0.8 && token.volume24h >= 75e3 && token.makers24h >= 40 && analysis.riskLevel !== "HIGH";
-    case "adaptive":
-      return true;
-    default:
-      return true;
-  }
-}
-function selectAdaptiveSolStrategy(macro, scanResult) {
-  if (scanResult.length === 0) {
-    return { strategyId: "momentum_surfer", reason: "No scan data \u2014 defaulting to momentum" };
-  }
-  const counts = { whale: 0, dip: 0, breakout: 0, volExplosion: 0, meme: 0, smartMoney: 0, orderFlow: 0 };
-  for (const t of scanResult) {
-    const tt = t.token.txns24h.buys + t.token.txns24h.sells;
-    const br = tt > 0 ? t.token.txns24h.buys / tt : 0.5;
-    const avgTx = tt > 0 ? t.token.volume24h / tt : 0;
-    const chg = t.token.priceChange24h;
-    if (avgTx > 1e3 && t.token.makers24h < 150 && t.whaleScore >= 65) counts.whale++;
-    if (chg >= -40 && chg <= -4 && br > 0.62) counts.dip++;
-    if (chg >= 12 && chg <= 70 && t.token.volume24h >= 8e4) counts.breakout++;
-    if (t.token.volume24h >= 25e4) counts.volExplosion++;
-    if (chg >= 20 && (t.token.dexSource === "pumpfun" || (t.token.dexId || "").toLowerCase().includes("pump"))) counts.meme++;
-    if (t.riskLevel === "LOW" && t.signal === "STRONG_BUY" && t.token.makers24h >= 150) counts.smartMoney++;
-    if (br > 0.65 && chg >= -5 && chg <= 20 && t.token.volume24h >= 5e4) counts.orderFlow++;
-  }
-  if (macro?.bias === "RISK_OFF") {
-    if (counts.smartMoney >= 1) return { strategyId: "smart_money_flow", reason: `RISK_OFF macro \u2014 ${counts.smartMoney} LOW-risk STRONG_BUY token(s). Institutional-grade entries only` };
-    if (counts.dip >= 1) return { strategyId: "dip_sniper", reason: `RISK_OFF macro \u2014 ${counts.dip} accumulation dip(s) with strong buy pressure. Cautious entries only` };
-    return { strategyId: "smart_money_flow", reason: "RISK_OFF macro \u2014 conservative mode, waiting for institutional quality setups" };
-  }
-  if (counts.volExplosion >= 2) return { strategyId: "volume_explosion", reason: `${counts.volExplosion} tokens with explosive volume (>$250K) \u2014 institutional attention confirmed` };
-  if (counts.whale >= 2) return { strategyId: "whale_follower", reason: `${counts.whale} tokens with real whale accumulation (large avg tx + concentrated wallets)` };
-  if (counts.breakout >= 2) return { strategyId: "breakout_hunter", reason: `${counts.breakout} confirmed breakout setups (12\u201370% move + volume >$80K)` };
-  if (counts.meme >= 2) return { strategyId: "meme_velocity", reason: `${counts.meme} meme tokens pumping on Pump.fun \u2014 velocity play` };
-  if (counts.dip >= 2) return { strategyId: "dip_sniper", reason: `${counts.dip} tokens dipping with smart-money accumulation` };
-  if (counts.whale >= 1) return { strategyId: "whale_follower", reason: `${counts.whale} whale accumulation token detected \u2014 follow the smart money` };
-  if (counts.volExplosion >= 1) return { strategyId: "volume_explosion", reason: `${counts.volExplosion} explosive volume token \u2014 institutional move in progress` };
-  if (counts.orderFlow >= 2) return { strategyId: "order_flow_scalper", reason: `${counts.orderFlow} tokens with strong buy delta but price not yet moved \u2014 order flow leading price, entry before the move` };
-  if (macro?.bias === "RISK_ON") return { strategyId: "momentum_surfer", reason: `RISK_ON macro \u2014 BTC/ETH/SOL all positive. Ride the momentum` };
-  return { strategyId: "momentum_surfer", reason: "Mixed market \u2014 default momentum scan" };
-}
-function getStrategyEntryContext(strategyId) {
-  switch (strategyId) {
-    case "whale_follower":
-      return "ENTRY FILTER: avg transaction size >$1K (whale-sized, not retail), <150 unique wallets (concentrated accumulation), whale score \u226565, buy/sell ratio >58%. SKIP tokens with many small retail txns or scattered wallets.";
-    case "momentum_surfer":
-      return "ENTRY FILTER: price up 5\u201380%, buy ratio >55%, volume >$30K. Riding an existing uptrend. Skip flat or down tokens.";
-    case "breakout_hunter":
-      return "ENTRY FILTER: price up 12\u201370% (not overextended), volume >$80K, buy ratio >58%. STRONG_BUY preferred. Skip micro-cap low-volume setups.";
-    case "dip_sniper":
-      return "ENTRY FILTER: price DOWN 4\u201340% in 24h BUT buy ratio >62% (smart accumulation against the trend). Counter-trend entry \u2014 requires clear accumulation signal in the dip.";
-    case "meme_velocity":
-      return "ENTRY FILTER: price up >20%, Pump.fun preferred, high velocity short-lived pump. Quick in-out (10\u201315 min). Accept HIGH risk. Prioritise momentum and exit speed.";
-    case "volume_explosion":
-      return "ENTRY FILTER: 24h volume >$250K (institutional or viral event), buy ratio >52%. Volume is the primary signal \u2014 price direction secondary.";
-    case "smart_money_flow":
-      return "ENTRY FILTER: LOW risk ONLY, STRONG_BUY only, \u2265150 unique wallets (distributed, not pumped), multi-day hold target. SKIP HIGH/EXTREME risk tokens.";
-    case "liquidity_sweep":
-      return "ENTRY FILTER: recent dip then bounce (price -15% to +10%), buy ratio >62%, sentiment \u226555. Quick scalp on a liquidity sweep bounce. Small size, fast exit.";
-    case "order_flow_scalper":
-      return "ENTRY FILTER: buy/sell ratio >65% (strong delta imbalance), price movement -5% to +20% (delta leading price \u2014 hasn't moved yet), volume >$50K. SKIP tokens where price has already moved >20% \u2014 you want to catch the move BEFORE price reacts to the flow. 15\u201360min hold. This is an institutional order flow play \u2014 buy pressure is accumulating before the price reflects it.";
-    case "adaptive":
-      return "ENTRY FILTER: adaptive mode \u2014 strategy selected each scan based on current conditions. Evaluate against the actual strategy in use this cycle.";
-    default:
-      return "";
-  }
-}
-function createInitialState(config) {
-  return {
-    isRunning: false,
-    config,
-    lastScanAt: 0,
-    lastTokenSnapshot: {},
-    lastTriggerAt: {},
-    activityFeed: [],
-    signalWeights: Object.fromEntries(DEX_NAMES.map((d) => [d, 1])),
-    kellyStats: Object.fromEntries(DEX_NAMES.map((d) => [d, { wins: 0, losses: 0, totalGainPct: 0 }])),
-    sessionHighWatermark: 0,
-    currentPortfolioValue: 0,
-    shieldActive: false,
-    scanTimer: null,
-    isScanning: false,
-    lastResults: [],
-    lastMacro: null,
-    weeklyGoal: { ...DEFAULT_WEEKLY_GOAL },
-    activeStrategy: "momentum_surfer",
-    activeStrategies: ["momentum_surfer"],
-    lastAgentConsensus: [],
-    autoTradeEnabled: false,
-    liveTradeEnabled: false,
-    paperPositions: [],
-    closedPaperPositions: [],
-    livePositions: [],
-    closedLivePositions: [],
-    pendingSignals: [],
-    pendingExits: [],
-    signalCooldowns: /* @__PURE__ */ new Map(),
-    autoTradeTP: 8,
-    autoTradeSL: 4,
-    autoTrailActivationPct: 4,
-    autoTrailDistancePct: 3,
-    paperTradeSize: 0,
-    compoundMode: false,
-    compoundRate: 100,
-    paperBaseCapital: 0,
-    paperPortfolioValue: 0,
-    paperPortfolioHistory: [],
-    autoTradeStats: { totalTrades: 0, wins: 0, losses: 0, totalPnlPct: 0, bestTradePct: 0, worstTradePct: 0 },
-    aiReviewCache: {},
-    serverWalletBalance: 0,
-    lastWalletRefreshAt: 0,
-    dailyTradeCount: 0,
-    dailyTradeDate: ""
-  };
-}
-function addActivity3(state, entry) {
-  state.activityFeed.unshift({ ...entry, timestamp: (/* @__PURE__ */ new Date()).toISOString() });
-  if (state.activityFeed.length > 100) state.activityFeed = state.activityFeed.slice(0, 100);
-}
-function getAdaptiveScanInterval2(config) {
-  if (!config.adaptiveScan) return 6e4;
-  const hourUtc = (/* @__PURE__ */ new Date()).getUTCHours();
-  const dayUtc = (/* @__PURE__ */ new Date()).getUTCDay();
-  if (dayUtc === 0 || dayUtc === 6) return 12e4;
-  if (hourUtc >= 13 && hourUtc < 20) return 3e4;
-  if (hourUtc >= 7 && hourUtc < 13) return 6e4;
-  return 12e4;
-}
-function calculateSolKellySize2(wins, losses, totalGainPct, portfolioSol) {
-  const total = wins + losses;
-  if (total < 3 || portfolioSol <= 0) return 0;
-  const winRate2 = wins / total;
-  const avgGain = wins > 0 ? totalGainPct / wins / 100 : 0.5;
-  const kelly = winRate2 - (1 - winRate2) / Math.max(avgGain, 0.01);
-  const fractional = Math.max(5e-3, Math.min(0.15, kelly * 0.25));
-  return Math.round(portfolioSol * fractional * 1e3) / 1e3;
-}
-function getPhaseMultiplier(phase2, winStreak) {
-  switch (phase2) {
-    case "warming_up":
-      return 0.8;
-    case "building":
-      return 1;
-    case "accelerating":
-      return 1.25;
-    case "cruising":
-      return 1;
-    case "pushing":
-      return Math.min(2, 1.5 + (winStreak >= 3 ? 0.25 : 0));
-    case "target_reached":
-      return 0.5;
-    default:
-      return 1;
-  }
-}
-function computeGoalPhase(goal) {
-  if (goal.targetSol <= 0 || goal.phase === "idle") return "idle";
-  const pct3 = goal.currentProfitSol / goal.targetSol;
-  if (pct3 >= 1) return "target_reached";
-  if (pct3 >= 0.85) return "pushing";
-  if (pct3 >= 0.7) return "cruising";
-  if (pct3 >= 0.5) return "accelerating";
-  if (pct3 >= 0.2) return "building";
-  return "warming_up";
-}
-function computeAutoSolSize(state, dex, overrideStrategy, mode = "live") {
-  if (mode === "paper" && state.paperTradeSize > 0) return state.paperTradeSize;
-  let portfolio;
-  if (mode === "paper") {
-    portfolio = state.compoundMode && state.paperPortfolioValue > 0 ? state.paperPortfolioValue : state.paperBaseCapital > 0 ? state.paperBaseCapital : state.paperPortfolioValue > 0 ? state.paperPortfolioValue : state.currentPortfolioValue > 0 ? state.currentPortfolioValue : PAPER_DEFAULT_PORTFOLIO_SOL;
-  } else {
-    portfolio = state.currentPortfolioValue;
-  }
-  if (portfolio <= 0) return 0;
-  const _sizeBoost = weekendBoostSizeMultiplier();
-  const riskPct = state.config.riskPerTradePct;
-  if (riskPct > 0) {
-    const phaseMultiplier2 = getPhaseMultiplier(state.weeklyGoal.phase, state.weeklyGoal.winStreak);
-    const riskFraction = riskPct / 100 * phaseMultiplier2 * _sizeBoost;
-    const capped = Math.max(5e-3, Math.min(0.15, riskFraction));
-    return Math.round(portfolio * capped * 1e3) / 1e3;
-  }
-  const strategy = overrideStrategy || SOL_STRATEGIES.find((s) => s.id === state.activeStrategy) || SOL_STRATEGIES[0];
-  const phaseMultiplier = getPhaseMultiplier(state.weeklyGoal.phase, state.weeklyGoal.winStreak);
-  let fraction = strategy.baseFraction * phaseMultiplier;
-  if (state.config.useKelly) {
-    const stats = state.kellyStats[dex] || { wins: 0, losses: 0, totalGainPct: 0 };
-    const kellySize2 = calculateSolKellySize2(stats.wins, stats.losses, stats.totalGainPct, portfolio);
-    if (kellySize2 > 0) {
-      const kellyFrac = kellySize2 / portfolio;
-      fraction = (fraction + kellyFrac) / 2;
-    }
-  }
-  fraction = fraction * _sizeBoost;
-  fraction = Math.max(5e-3, Math.min(0.15, fraction));
-  return Math.round(portfolio * fraction * 1e3) / 1e3;
-}
-function runQuantRulesAgent(token, macroBias) {
-  let score = 0;
-  if (token.sentimentScore > 70) score += 20;
-  else if (token.sentimentScore >= 50) score += 5;
-  else if (token.sentimentScore < 40) score -= 15;
-  if (token.tokenomicsScore > 70) score += 20;
-  else if (token.tokenomicsScore >= 50) score += 5;
-  else if (token.tokenomicsScore < 40) score -= 15;
-  if (token.whaleScore > 65) score += 15;
-  else if (token.whaleScore >= 45) score += 5;
-  else if (token.whaleScore < 35) score -= 10;
-  const buys = token.token.txns24h?.buys ?? 0;
-  const sells = token.token.txns24h?.sells ?? 0;
-  const totalTxns = buys + sells;
-  if (totalTxns > 0) {
-    const buyRatio = buys / totalTxns;
-    if (buyRatio > 0.65) score += 15;
-    else if (buyRatio > 0.5) score += 5;
-    else if (buyRatio < 0.35) score -= 15;
-  }
-  const chg = token.token.priceChange24h;
-  if (chg > 50) score -= 15;
-  else if (chg > 20) score -= 5;
-  else if (chg >= 5) score += 10;
-  else if (chg >= 0) score += 5;
-  else score -= 5;
-  if (macroBias === "bullish") score += 10;
-  else if (macroBias === "bearish") score -= 15;
-  if (token.riskLevel === "EXTREME") score -= 10;
-  else if (token.riskLevel === "LOW") score += 5;
-  if (score >= 60) return { verdict: "CONFIRM_BUY", score };
-  if (score >= 30) return { verdict: "WATCH", score };
-  return { verdict: "SKIP", score };
-}
-async function runSolAIReview(userId, state, scanResult, openPositions) {
-  const buySignals = scanResult.filter((t) => t.signal === "STRONG_BUY" || t.signal === "BUY").slice(0, 5);
-  if (buySignals.length === 0 && openPositions.length === 0) return;
-  try {
-    const { shouldDeferLowPriorityAi: shouldDeferLowPriorityAi2, aiBudgetDeferReason: aiBudgetDeferReason2 } = await Promise.resolve().then(() => (init_ai_budget_guard(), ai_budget_guard_exports));
-    if (shouldDeferLowPriorityAi2()) {
-      addActivity3(state, { type: "info", message: `\u23F8 Sol AI review deferred \u2014 shared AI budget ${aiBudgetDeferReason2()} (FX priority). Quant filters still active.` });
-      return;
-    }
-  } catch {
-  }
-  const cacheKey = [
-    ...buySignals.map((t) => t.token.symbol).sort(),
-    ...openPositions.map((p) => p.symbol).sort()
-  ].join("|");
-  const REVIEW_CACHE_TTL = 5 * 6e4;
-  const cached2 = state.aiReviewCache[cacheKey];
-  if (cached2 && Date.now() - cached2.ts < REVIEW_CACHE_TTL) {
-    const ageS = Math.round((Date.now() - cached2.ts) / 1e3);
-    const macroBiasCache = state.lastMacro?.bias ?? null;
-    const cacheConsensus = [];
-    let confirms = 0, skips = 0;
-    for (const d of cached2.result) {
-      if (!d || !d.symbol || d.type !== "signal") continue;
-      const tokenData = buySignals.find((t) => t.token.symbol === d.symbol);
-      if (!tokenData) continue;
-      const quant = runQuantRulesAgent(tokenData, macroBiasCache);
-      let consensusLabel = "WATCH";
-      if (quant.verdict === "CONFIRM_BUY" && d.action === "CONFIRM_BUY") {
-        consensusLabel = "STRONG_CONFIRM";
-        confirms++;
-      } else if (quant.verdict === "SKIP" && d.action === "SKIP") {
-        consensusLabel = "STRONG_SKIP";
-        skips++;
-      } else if (quant.verdict === "CONFIRM_BUY" && d.action === "SKIP" || quant.verdict === "SKIP" && d.action === "CONFIRM_BUY") consensusLabel = "CAUTION";
-      else if (quant.verdict === "WATCH" || d.action === "WATCH") consensusLabel = "WATCH";
-      cacheConsensus.push({
-        symbol: d.symbol,
-        quantVerdict: quant.verdict,
-        quantScore: quant.score,
-        gptVerdict: d.action,
-        consensus: consensusLabel,
-        timestamp: (/* @__PURE__ */ new Date()).toISOString()
-      });
-    }
-    if (cacheConsensus.length > 0) {
-      state.lastAgentConsensus = [...cacheConsensus, ...state.lastAgentConsensus].slice(0, 20);
-    }
-    addActivity3(state, {
-      type: "info",
-      message: `\u{1F4BE} Sol AI cache hit (${ageS}s old) \u2014 consensus rebuilt: ${confirms} confirm, ${skips} skip${cacheConsensus.length > 0 ? ` across ${cacheConsensus.length} signals` : " (no matching signals)"}`
-    });
-    return;
-  }
-  try {
-    const { getUniversalAIClientForUser: getUniversalAIClientForUser2 } = await Promise.resolve().then(() => (init_openai(), openai_exports));
-    let openai2;
-    let modelLabel = "GPT-4o";
-    const userClient = await getUniversalAIClientForUser2(userId);
-    const useEconomy = state.config.aiMode === "economy" || userClient.provider === "groq";
-    if (useEconomy) {
-      const groqKey = process.env.GROQ_API_KEY;
-      if (groqKey) {
-        const OpenAI9 = (await import("openai")).default;
-        openai2 = new OpenAI9({ apiKey: groqKey, baseURL: "https://api.groq.com/openai/v1", maxRetries: 4, timeout: 9e4 });
-        openai2.defaultModel = "openai/gpt-oss-120b";
-        modelLabel = "Groq Llama";
-        addActivity3(state, {
-          type: "info",
-          message: "\u{1F49A} Sol Economy: Groq Llama 3.3-70b (free) \u2014 full analysis, zero cost"
-        });
-      } else {
-        openai2 = userClient;
-        modelLabel = userClient.defaultModel || "User model";
-      }
-    } else {
-      openai2 = userClient;
-    }
-    const effectiveStrategyId = state.activeStrategy === "adaptive" || state.activeStrategies.includes("adaptive") ? state._adaptiveStrategy || "momentum_surfer" : state.activeStrategy;
-    const strategy = SOL_STRATEGIES.find((s) => s.id === effectiveStrategyId) || SOL_STRATEGIES[0];
-    const macro = state.lastMacro;
-    const goal = state.weeklyGoal;
-    const macroLine = macro ? `MACRO: BTC ${macro.btcChange >= 0 ? "+" : ""}${macro.btcChange.toFixed(1)}% | ETH ${macro.ethChange >= 0 ? "+" : ""}${macro.ethChange.toFixed(1)}% | SOL ${macro.solChange >= 0 ? "+" : ""}${macro.solChange.toFixed(1)}% \u2014 Bias: ${macro.bias}` : "";
-    const goalLine = goal.phase !== "idle" ? `WEEKLY GOAL: ${goal.currentProfitSol.toFixed(3)} / ${goal.targetSol.toFixed(3)} SOL (${(goal.currentProfitSol / Math.max(goal.targetSol, 1e-3) * 100).toFixed(1)}%) \u2014 Phase: ${goal.phase.replace(/_/g, " ").toUpperCase()}` : "WEEKLY GOAL: None set";
-    const entryContext = getStrategyEntryContext(effectiveStrategyId);
-    const systemPrompt = `You are VEDD Sol AI \u2014 autonomous Solana trading mind. Supreme Mathematics style: use "Peace", "Word is bond", "That's the mathematics", "Stay in the cipher", "dropping science" naturally in reason fields.
-STRATEGY: ${strategy.icon} ${strategy.name} \u2014 ${strategy.description} | Hold: ${strategy.holdTarget} | Min conf: ${strategy.minConfidence}% | Max risk: ${strategy.maxRisk}
-${entryContext ? entryContext + "\n" : ""}${goalLine} | Win streak: ${goal.winStreak} | Shield: ${state.shieldActive ? "ACTIVE" : "off"}
-${macroLine}
-
-Output a JSON array only (no markdown):
-- Signals: {symbol, type:"signal", action:CONFIRM_BUY|SKIP|WATCH|WAIT, reason:<80chars}
-  CONFIRM_BUY only if token matches THIS strategy's entry criteria. SKIP if it doesn't fit regardless of confidence.
-- Positions: {symbol, type:"position", action:HOLD|TRAIL|PARTIAL_CLOSE|CLOSE, trailPct?:int, reason:<80chars}`;
-    const signalsText = buySignals.length > 0 ? buySignals.map(
-      (t) => `${t.token.symbol}: ${t.signal} | Conf:${t.confidence}% | Sent:${t.sentimentScore} | Tok:${t.tokenomicsScore} | Whale:${t.whaleScore} | Vol:$${(t.token.volume24h / 1e3).toFixed(0)}K | Chg:${t.token.priceChange24h.toFixed(1)}%`
-    ).join("\n") : "None";
-    const positionsText = openPositions.length > 0 ? openPositions.map(
-      (p) => `${p.symbol}: entry $${p.entryPrice.toFixed(8)} \u2192 now $${p.currentPrice.toFixed(8)} | ${p.gainPct >= 0 ? "+" : ""}${p.gainPct.toFixed(1)}% | vol:${p.volumeStatus}`
-    ).join("\n") : "None";
-    const _solLessons = await Promise.resolve().then(() => (init_shadow_lessons(), shadow_lessons_exports)).then((m) => m.getShadowLessonsText(userId, "sol", 8)).catch(() => "");
-    const userPrompt = `${_solLessons ? `${_solLessons}
-
-` : ""}SIGNALS:
-${signalsText}
-
-OPEN POSITIONS:
-${positionsText}`;
-    const response = await openai2.chat.completions.create({
-      model: openai2.defaultModel || "gpt-4o",
-      messages: [
-        { role: "system", content: systemPrompt },
-        { role: "user", content: userPrompt }
-      ],
-      temperature: 0.25,
-      max_tokens: 600
-    });
-    const raw = response.choices[0]?.message?.content?.trim() || "[]";
-    let decisions = [];
-    try {
-      decisions = JSON.parse(raw.replace(/```json|```/g, "").trim());
-      if (!Array.isArray(decisions)) decisions = [];
-    } catch {
-      addActivity3(state, {
-        type: "info",
-        message: `\u26A0\uFE0F 2nd confirmation AI returned invalid JSON \u2014 consensus skipped this cycle. Raw: ${raw.slice(0, 80)}`
-      });
-      return;
-    }
-    state.aiReviewCache[cacheKey] = { ts: Date.now(), result: decisions };
-    const newConsensus = [];
-    const macroBias = state.lastMacro?.bias ?? null;
-    for (const d of decisions) {
-      if (!d || !d.symbol) continue;
-      if (d.type === "signal") {
-        const tokenData = buySignals.find((t) => t.token.symbol === d.symbol);
-        let gptVerdict = d.action;
-        let consensusLabel = "WATCH";
-        if (tokenData) {
-          const quant = runQuantRulesAgent(tokenData, macroBias);
-          const bothConfirm = quant.verdict === "CONFIRM_BUY" && d.action === "CONFIRM_BUY";
-          const bothSkip = quant.verdict === "SKIP" && d.action === "SKIP";
-          const disagree = quant.verdict === "CONFIRM_BUY" && d.action === "SKIP" || quant.verdict === "SKIP" && d.action === "CONFIRM_BUY";
-          const oneWatch = quant.verdict === "WATCH" || d.action === "WATCH";
-          if (bothConfirm) consensusLabel = "STRONG_CONFIRM";
-          else if (bothSkip) consensusLabel = "STRONG_SKIP";
-          else if (disagree) consensusLabel = "CAUTION";
-          else if (oneWatch) consensusLabel = "WATCH";
-          newConsensus.push({
-            symbol: d.symbol,
-            quantVerdict: quant.verdict,
-            quantScore: quant.score,
-            gptVerdict,
-            consensus: consensusLabel,
-            timestamp: (/* @__PURE__ */ new Date()).toISOString()
-          });
-          const consensusMsg = consensusLabel === "STRONG_CONFIRM" ? `\u{1F91D} STRONG CONFIRM: ${d.symbol} \u2014 Both agents aligned. Word is bond.` : consensusLabel === "STRONG_SKIP" ? `\u274C STRONG SKIP: ${d.symbol} \u2014 Both agents say pass. That's the mathematics.` : consensusLabel === "CAUTION" ? `\u26A0\uFE0F SPLIT SIGNAL: ${d.symbol} \u2014 Agents disagree. Knowledge yourself before entry.` : `\u{1F441}\uFE0F WATCH: ${d.symbol} \u2014 Mixed readings. Stay in the cipher.`;
-          addActivity3(state, { type: "signal", message: consensusMsg });
-        }
-        const icon = d.action === "CONFIRM_BUY" ? "\u{1F916}\u2705" : d.action === "SKIP" ? "\u{1F916}\u274C" : d.action === "WAIT" ? "\u{1F916}\u23F8\uFE0F" : "\u{1F916}\u{1F441}\uFE0F";
-        addActivity3(state, {
-          type: "signal",
-          message: `${icon} ${modelLabel} ${d.action}: ${d.symbol} \u2014 ${d.reason || ""}`
-        });
-      } else if (d.type === "position") {
-        const icon = d.action === "CLOSE" ? "\u{1F4CA}\u{1F534}" : d.action === "TRAIL" ? "\u{1F4CA}\u{1F53C}" : d.action === "PARTIAL_CLOSE" ? "\u{1F4CA}\u26A1" : "\u{1F4CA}\u{1F7E2}";
-        addActivity3(state, {
-          type: "strategy",
-          message: `${icon} AI ${d.action}: ${d.symbol}${d.trailPct ? ` (${d.trailPct}% trail dist)` : ""} \u2014 ${d.reason || ""}`
-        });
-      }
-    }
-    if (newConsensus.length > 0) {
-      state.lastAgentConsensus = [...newConsensus, ...state.lastAgentConsensus].slice(0, 20);
-    }
-  } catch (reviewErr) {
-    addActivity3(state, {
-      type: "info",
-      message: `\u26A0\uFE0F 2nd confirmation AI error: ${reviewErr instanceof Error ? reviewErr.message : "unknown"} \u2014 trades will proceed without consensus this cycle`
-    });
-  }
-}
-async function triggerSolAIReview(userId, openPositions = []) {
-  const state = engineStates2.get(userId);
-  if (!state) return;
-  await runSolAIReview(userId, state, state.lastResults, openPositions);
-}
-function computeServerTrailDist(gainPct, volStatus) {
-  const isStrong = volStatus === "surging" || volStatus === "above_average";
-  const isWeak = volStatus === "below_average" || volStatus === "dry";
-  if (gainPct >= 80) return isStrong ? 10 : isWeak ? 6 : 8;
-  if (gainPct >= 40) return isStrong ? 12 : isWeak ? 8 : 10;
-  return isStrong ? 15 : isWeak ? 10 : 12;
-}
-function getVolStatus(entryVol, currentVol) {
-  if (entryVol <= 0) return "average";
-  const ratio = currentVol / entryVol;
-  if (ratio >= 2.5) return "surging";
-  if (ratio >= 1.25) return "above_average";
-  if (ratio <= 0.5) return "dry";
-  if (ratio <= 0.75) return "below_average";
-  return "average";
-}
-async function monitorPaperPositions(userId, state) {
-  const openPositions = state.paperPositions.filter((p) => p.status === "open");
-  if (openPositions.length === 0) return;
-  const volumeMap = {};
-  for (const r of state.lastResults) {
-    if (r.token.address) volumeMap[r.token.address] = r.token.volume24h || 0;
-  }
-  const priceMap = await fetchPricesByMint(openPositions.map((p) => p.mint)).catch(() => ({}));
-  for (const r of state.lastResults) {
-    const m = r.token.address;
-    if (m && !(priceMap[m] > 0)) priceMap[m] = parseFloat(r.token.priceUsd) || 0;
-  }
-  for (const pos of openPositions) {
-    const currentPrice = priceMap[pos.mint];
-    if (!currentPrice || currentPrice <= 0) continue;
-    if (isBadPriceSample(currentPrice, pos.currentPrice > 0 ? pos.currentPrice : pos.entryPrice)) {
-      addActivity3(state, { type: "info", message: `\u26A0\uFE0F ${pos.symbol}: bad price sample ignored ($${currentPrice} vs $${pos.currentPrice > 0 ? pos.currentPrice : pos.entryPrice}) \u2014 skipping this cycle` });
-      continue;
-    }
-    pos.currentPrice = currentPrice;
-    const gainPct = (currentPrice - pos.entryPrice) / pos.entryPrice * 100;
-    if (!pos.peakPrice || currentPrice > pos.peakPrice) {
-      pos.peakPrice = currentPrice;
-    }
-    const currentVol = volumeMap[pos.mint] || 0;
-    const volStatus = getVolStatus(pos.entryVolume24h || 0, currentVol);
-    const trailActivation = pos.trailActivationPct && pos.trailActivationPct > 0 ? pos.trailActivationPct : 20;
-    let isTrailHit = false;
-    if (gainPct >= trailActivation) {
-      if (!pos.trailingActive) {
-        pos.trailingActive = true;
-        const dist2 = computeServerTrailDist(gainPct, volStatus);
-        addActivity3(state, {
-          type: "info",
-          message: `\u{1F512} Trail LOCKED: ${pos.symbol} hit +${gainPct.toFixed(1)}% (activation: ${trailActivation}%) \u2014 staged trail active | vol: ${volStatus} | dist: ${dist2}% from peak`
-        });
-      }
-      const dist = computeServerTrailDist(gainPct, volStatus);
-      const trailFloor = pos.peakPrice * (1 - dist / 100);
-      const effectiveFloor = Math.max(trailFloor, pos.entryPrice);
-      if (currentPrice <= effectiveFloor) {
-        isTrailHit = true;
-      }
-    } else if (gainPct >= 8) {
-      if (!pos.breakevenActive) {
-        pos.breakevenActive = true;
-        addActivity3(state, {
-          type: "info",
-          message: `\u{1F6E1}\uFE0F Breakeven floor set: ${pos.symbol} at +${gainPct.toFixed(1)}% \u2014 floor locked at entry price`
-        });
-      }
-    }
-    const isWin = gainPct >= pos.targetPct;
-    const isLoss = gainPct <= -pos.slPct;
-    if (isWin || isLoss || isTrailHit) {
-      const reason = isTrailHit ? "trail" : isWin ? "tp" : "sl";
-      pos.status = "closed";
-      pos.closedAt = (/* @__PURE__ */ new Date()).toISOString();
-      pos.closePnlPct = gainPct;
-      pos.closeReason = reason;
-      state.closedPaperPositions.unshift(pos);
-      if (state.closedPaperPositions.length > 50) state.closedPaperPositions = state.closedPaperPositions.slice(0, 50);
-      upsertPosition(userId, pos).catch(() => {
-      });
-      recordSolBrainOutcome({
-        userId,
-        symbol: pos.symbol,
-        strategy: pos.strategyId || "unknown",
-        direction: "long",
-        returnPct: gainPct,
-        holdingMinutes: Math.max(0, Math.round((Date.now() - new Date(pos.openedAt).getTime()) / 6e4)),
-        exitReason: reason,
-        profitLoss: pos.size * (gainPct / 100),
-        source: "paper"
-      }).catch(() => {
-      });
-      state.autoTradeStats.totalTrades++;
-      state.autoTradeStats.totalPnlPct += gainPct;
-      const isProfit = gainPct > 0;
-      if (isProfit) {
-        state.autoTradeStats.wins++;
-        if (gainPct > state.autoTradeStats.bestTradePct) state.autoTradeStats.bestTradePct = gainPct;
-      } else {
-        state.autoTradeStats.losses++;
-        if (gainPct < state.autoTradeStats.worstTradePct) state.autoTradeStats.worstTradePct = gainPct;
-      }
-      if (state.compoundMode && state.paperPortfolioValue > 0) {
-        const tradeSol = pos.size;
-        const rawPnlSol = tradeSol * (gainPct / 100);
-        const compoundedPnl = rawPnlSol * (state.compoundRate / 100);
-        const prev = state.paperPortfolioValue;
-        state.paperPortfolioValue = Math.max(1e-3, prev + compoundedPnl);
-        state.paperPortfolioHistory.push({ t: Date.now(), v: state.paperPortfolioValue });
-        if (state.paperPortfolioHistory.length > 50) state.paperPortfolioHistory = state.paperPortfolioHistory.slice(-50);
-        const growthPct = (state.paperPortfolioValue - state.paperBaseCapital) / state.paperBaseCapital * 100;
-        addActivity3(state, {
-          type: "info",
-          message: `\u{1F4B9} Compound update: ${compoundedPnl >= 0 ? "+" : ""}${compoundedPnl.toFixed(4)} SOL ${state.compoundRate < 100 ? `(${state.compoundRate}% reinvested)` : "fully reinvested"} \u2192 pool now ${state.paperPortfolioValue.toFixed(4)} SOL (${growthPct >= 0 ? "+" : ""}${growthPct.toFixed(1)}% from base)`
-        });
-      }
-      const emoji = isTrailHit ? "\u{1F512}" : isWin ? "\u2705" : "\u274C";
-      const label = isTrailHit ? `TRAIL EXIT` : isWin ? "WIN" : "LOSS";
-      addActivity3(state, {
-        type: "paper_sell",
-        message: `${emoji} Paper ${label}: ${pos.symbol} closed @ $${currentPrice.toFixed(6)} \u2014 ${gainPct >= 0 ? "+" : ""}${gainPct.toFixed(2)}% | ${pos.size.toFixed(3)} SOL ${isTrailHit ? "(trailing stop hit)" : isWin ? "profit sealed" : "lesson built"}`
-      });
-      const dexKeyClose = (pos.dex || "unknown").toLowerCase().replace(/[^a-z]/g, "") || "unknown";
-      if (!state.signalWeights[dexKeyClose]) state.signalWeights[dexKeyClose] = 1;
-      if (!state.kellyStats[dexKeyClose]) state.kellyStats[dexKeyClose] = { wins: 0, losses: 0, totalGainPct: 0 };
-      if (isProfit) {
-        state.signalWeights[dexKeyClose] = Math.min(2, state.signalWeights[dexKeyClose] + 0.05);
-        state.kellyStats[dexKeyClose].wins++;
-        state.kellyStats[dexKeyClose].totalGainPct += Math.abs(gainPct);
-        state.weeklyGoal.winStreak = (state.weeklyGoal.winStreak || 0) + 1;
-      } else {
-        state.signalWeights[dexKeyClose] = Math.max(0.2, state.signalWeights[dexKeyClose] - 0.08);
-        state.kellyStats[dexKeyClose].losses++;
-        state.weeklyGoal.winStreak = 0;
-      }
-      if (state.weeklyGoal.phase !== "idle") {
-        state.weeklyGoal.currentProfitSol += pos.size * (gainPct / 100);
-        state.weeklyGoal.tradeHistory.unshift({
-          timestamp: (/* @__PURE__ */ new Date()).toISOString(),
-          symbol: pos.symbol,
-          sol: pos.size,
-          gainPct,
-          outcome: isProfit ? "WIN" : "LOSS",
-          strategy: pos.strategyId || state.activeStrategy
-        });
-        if (state.weeklyGoal.tradeHistory.length > 100) state.weeklyGoal.tradeHistory = state.weeklyGoal.tradeHistory.slice(0, 100);
-      }
-    }
-  }
-  state.paperPositions = state.paperPositions.filter((p) => p.status === "open");
-}
-async function monitorLivePositions(userId, state) {
-  const allOpen = state.livePositions.filter((p) => p.status === "open");
-  if (allOpen.length === 0) return;
-  const now = Date.now();
-  state.pendingExits = state.pendingExits.filter((e) => new Date(e.expiresAt).getTime() > now);
-  for (const pos of allOpen) {
-    if (!(pos.entryPrice > 0) || !(pos.tokenAmount > 0)) {
-      finalizeAbandonedPosition(userId, state, pos, "reconciled_zero_amount");
-    }
-  }
-  const openPositions = state.livePositions.filter((p) => p.status === "open" && p.entryPrice > 0 && p.tokenAmount > 0);
-  if (openPositions.length === 0) return;
-  const volumeMap = {};
-  for (const r of state.lastResults) {
-    if (r.token.address) volumeMap[r.token.address] = r.token.volume24h || 0;
-  }
-  const priceMap = await fetchPricesByMint(openPositions.map((p) => p.mint)).catch(() => ({}));
-  for (const r of state.lastResults) {
-    const m = r.token.address;
-    if (m && !(priceMap[m] > 0)) priceMap[m] = parseFloat(r.token.priceUsd) || 0;
-  }
-  for (const pos of openPositions) {
-    const ageMs = Date.now() - new Date(pos.openedAt).getTime();
-    if (ageMs > SOL_MAX_HOLD_MS) {
-      const alreadyQueuedMH = state.pendingExits.some((e) => e.positionId === pos.id);
-      if (!alreadyQueuedMH) {
-        addActivity3(state, {
-          type: "live_sell",
-          message: `\u23F1\uFE0F Max-hold reached: ${pos.symbol} held ${(ageMs / 36e5).toFixed(1)}h (limit ${SOL_MAX_HOLD_HOURS}h) \u2014 forcing exit`
-        });
-        const forcedSold = await executeServerSideSell(userId, pos, "sl", state);
-        if (!forcedSold) {
-          const createdMH = /* @__PURE__ */ new Date();
-          state.pendingExits.push({
-            positionId: pos.id,
-            symbol: pos.symbol,
-            mint: pos.mint,
-            tokenAmount: pos.tokenAmount,
-            decimals: pos.decimals,
-            reason: "sl",
-            createdAt: createdMH.toISOString(),
-            expiresAt: new Date(createdMH.getTime() + 9e4).toISOString()
-          });
-        }
-      }
-      continue;
-    }
-    const currentPrice = priceMap[pos.mint];
-    if (!currentPrice || currentPrice <= 0) continue;
-    if (isBadPriceSample(currentPrice, pos.currentPrice > 0 ? pos.currentPrice : pos.entryPrice)) {
-      addActivity3(state, { type: "live_signal", message: `\u26A0\uFE0F ${pos.symbol}: bad price sample ignored ($${currentPrice} vs $${pos.currentPrice > 0 ? pos.currentPrice : pos.entryPrice}) \u2014 not acting this cycle` });
-      continue;
-    }
-    pos.currentPrice = currentPrice;
-    const gainPct = (currentPrice - pos.entryPrice) / pos.entryPrice * 100;
-    if (!pos.peakPrice || currentPrice > pos.peakPrice) pos.peakPrice = currentPrice;
-    const alreadyQueued = state.pendingExits.some((e) => e.positionId === pos.id);
-    if (alreadyQueued) continue;
-    const liveTrailActivation = pos.trailActivationPct && pos.trailActivationPct > 0 ? pos.trailActivationPct : 20;
-    const volStatus = getVolStatus(pos.entryVolume24h || 0, volumeMap[pos.mint] || 0);
-    let trailHit = false;
-    if (gainPct >= liveTrailActivation && pos.peakPrice) {
-      if (!pos.trailingActive) {
-        pos.trailingActive = true;
-        addActivity3(state, { type: "info", message: `\u{1F512} Live Trail LOCKED: ${pos.symbol} hit +${gainPct.toFixed(1)}% (activation: ${liveTrailActivation}%) \u2014 staged trail active (${volStatus} vol)` });
-      }
-      const dist = computeServerTrailDist(gainPct, volStatus);
-      const effectiveFloor = Math.max(pos.peakPrice * (1 - dist / 100), pos.entryPrice);
-      if (currentPrice <= effectiveFloor) trailHit = true;
-    }
-    const tpHit = gainPct >= pos.targetPct;
-    const slHit = gainPct <= -pos.slPct;
-    if (tpHit || slHit || trailHit) {
-      const reason = tpHit ? "tp" : trailHit ? "trail" : "sl";
-      const serverSold = await executeServerSideSell(userId, pos, reason, state);
-      if (!serverSold) {
-        const created = /* @__PURE__ */ new Date();
-        const expires = new Date(created.getTime() + 9e4);
-        state.pendingExits.push({
-          positionId: pos.id,
-          symbol: pos.symbol,
-          mint: pos.mint,
-          tokenAmount: pos.tokenAmount,
-          decimals: pos.decimals,
-          reason: reason === "trail" ? "sl" : reason,
-          createdAt: created.toISOString(),
-          expiresAt: expires.toISOString()
-        });
-        addActivity3(state, {
-          type: "live_sell",
-          message: tpHit ? `\u{1F3AF} TP hit: ${pos.symbol} +${gainPct.toFixed(1)}% \u2014 sell queued for wallet execution` : trailHit ? `\u{1F512} Trail exit: ${pos.symbol} +${gainPct.toFixed(1)}% \u2014 sell queued for wallet execution` : `\u{1F6E1}\uFE0F SL hit: ${pos.symbol} ${gainPct.toFixed(1)}% \u2014 sell queued for wallet execution`
-        });
-      }
-    }
-  }
-}
-async function refreshServerWalletBalance(userId, state) {
-  if (!state.liveTradeEnabled) return;
-  const now = Date.now();
-  if (now - state.lastWalletRefreshAt < 6e4) return;
-  state.lastWalletRefreshAt = now;
-  try {
-    const [settings] = await db.select({ serverWalletKey: solEngineSettings.serverWalletKey }).from(solEngineSettings).where(eq15(solEngineSettings.userId, userId));
-    if (!settings?.serverWalletKey) return;
-    const privateKeyBase58 = decryptWalletKey(settings.serverWalletKey);
-    const { Keypair: Keypair2, Connection: Connection3 } = await import("@solana/web3.js");
-    const bs58 = (await import("bs58")).default;
-    const keypair = Keypair2.fromSecretKey(bs58.decode(privateKeyBase58));
-    const rpcUrl = process.env.SOLANA_RPC_URL || "https://mainnet.helius-rpc.com/?api-key=15319bf4-5b40-4958-ac8d-6313aa55eb92";
-    const connection2 = new Connection3(rpcUrl, { commitment: "confirmed" });
-    const lamports = await connection2.getBalance(keypair.publicKey);
-    const solBalance = lamports / 1e9;
-    state.serverWalletBalance = solBalance;
-    if (Math.abs(state.currentPortfolioValue - solBalance) > 1e-3) {
-      console.log(`[SolEngine] Wallet sync: ${state.currentPortfolioValue.toFixed(4)} \u2192 ${solBalance.toFixed(4)} SOL (user ${userId})`);
-      state.currentPortfolioValue = solBalance;
-    }
-  } catch (err) {
-    console.warn("[SolEngine] refreshServerWalletBalance failed:", err instanceof Error ? err.message : err);
-  }
-}
-function pruneEngineMaps(state) {
-  const now = Date.now();
-  const ONE_HOUR = 60 * 6e4;
-  const REVIEW_TTL = 5 * 6e4;
-  const MAX_SNAPSHOTS = 500;
-  for (const k2 of Object.keys(state.lastTriggerAt)) {
-    if (now - (state.lastTriggerAt[k2] || 0) > ONE_HOUR) delete state.lastTriggerAt[k2];
-  }
-  for (const k2 of Object.keys(state.aiReviewCache)) {
-    if (now - (state.aiReviewCache[k2]?.ts || 0) > REVIEW_TTL) delete state.aiReviewCache[k2];
-  }
-  state.signalCooldowns.forEach((ts, k2) => {
-    if (now - (ts || 0) > ONE_HOUR) state.signalCooldowns.delete(k2);
-  });
-  const snapKeys = Object.keys(state.lastTokenSnapshot);
-  if (snapKeys.length > MAX_SNAPSHOTS) {
-    for (const k2 of snapKeys.slice(0, snapKeys.length - MAX_SNAPSHOTS)) delete state.lastTokenSnapshot[k2];
-  }
-}
-async function runScan(userId, state, triggerToken) {
-  if (!state.isRunning) return;
-  if (state.isScanning) return;
-  state.isScanning = true;
-  try {
-    const _boostActive = weekendBoostActive();
-    const _effMinConf = (s) => _boostActive ? boostedMinConfidence(s.minConfidence) : s.minConfidence;
-    const todayUTC = (/* @__PURE__ */ new Date()).toISOString().slice(0, 10);
-    if (state.dailyTradeDate !== todayUTC) {
-      state.dailyTradeDate = todayUTC;
-      state.dailyTradeCount = 0;
-    }
-    await refreshServerWalletBalance(userId, state).catch(() => {
-    });
-    if (SOL_BRAIN_ENABLED) await getOrRefreshSolBrain(userId).catch(() => {
-    });
-    const macro = await fetchCryptoMacroContext().catch(() => null);
-    state.lastMacro = macro;
-    if (macro && macro.bias === "RISK_OFF") {
-      addActivity3(state, {
-        type: "info",
-        message: `\u{1F4C9} Macro RISK_OFF: BTC${macro.btcChange >= 0 ? "+" : ""}${macro.btcChange.toFixed(1)}% / ETH${macro.ethChange >= 0 ? "+" : ""}${macro.ethChange.toFixed(1)}% / SOL${macro.solChange >= 0 ? "+" : ""}${macro.solChange.toFixed(1)}% \u2014 signal confidence reduced by 8%. Engine still trading at reduced size.`
-      });
-    }
-    const shieldFilter = state.config.shieldEnabled && state.shieldActive;
-    const { getUniversalAIClientForUser: getUniversalAIClientForUser2 } = await Promise.resolve().then(() => (init_openai(), openai_exports));
-    const userOpenai = await getUniversalAIClientForUser2(userId).catch(() => null);
-    const scanResult = await scanAndAnalyzeTokens(
-      state.config.maxTokens,
-      state.config.dexFilter,
-      {
-        signalWeights: state.signalWeights,
-        macro: macro || void 0,
-        kellyStats: state.config.useKelly ? state.kellyStats : void 0,
-        portfolioSol: state.currentPortfolioValue,
-        shieldActive: shieldFilter,
-        minConfidence: state.config.minConfidence,
-        openai: userOpenai || void 0
-      }
-    );
-    const now = Date.now();
-    state.lastScanAt = now;
-    const hasBuySignals = scanResult.some((t) => t.signal === "STRONG_BUY" || t.signal === "BUY");
-    const allOpenPositions = [
-      ...state.livePositions.filter((p) => p.status === "open").map((p) => {
-        const latestPrice = scanResult.find((r) => r.token.address === p.mint);
-        const currentPrice = latestPrice ? parseFloat(latestPrice.token.priceUsd) || p.currentPrice : p.currentPrice;
-        const gainPct = p.entryPrice > 0 ? (currentPrice - p.entryPrice) / p.entryPrice * 100 : 0;
-        return { symbol: p.symbol, entryPrice: p.entryPrice, currentPrice, gainPct, volumeStatus: "average" };
-      }),
-      ...state.paperPositions.filter((p) => p.status === "open").map((p) => {
-        const latestPrice = scanResult.find((r) => r.token.address === p.mint);
-        const currentPrice = latestPrice ? parseFloat(latestPrice.token.priceUsd) || p.currentPrice : p.currentPrice;
-        const gainPct = p.entryPrice > 0 ? (currentPrice - p.entryPrice) / p.entryPrice * 100 : 0;
-        return { symbol: p.symbol, entryPrice: p.entryPrice, currentPrice, gainPct, volumeStatus: "average" };
-      })
-    ].slice(0, 5);
-    const _reviewEveryMs = Math.max(30, Number(process.env.SOL_AI_REVIEW_MIN_SECONDS ?? 180)) * 1e3;
-    const _sinceReview = Date.now() - (state._lastAIReviewAt || 0);
-    if ((hasBuySignals || allOpenPositions.length > 0) && _sinceReview >= _reviewEveryMs) {
-      state._lastAIReviewAt = Date.now();
-      await runSolAIReview(userId, state, scanResult, allOpenPositions).catch(() => {
-      });
-    }
-    for (const dex of DEX_NAMES) {
-      state.signalWeights[dex] = Math.round((state.signalWeights[dex] * 0.99 + 1 * 0.01) * 1e3) / 1e3;
-    }
-    for (const analysis of scanResult) {
-      const key = analysis.token.address;
-      const prev = state.lastTokenSnapshot[key];
-      if (prev && analysis.token.volume24h > 0 && prev.volume > 0) {
-        const volumeMultiple = analysis.token.volume24h / prev.volume;
-        const lastTrigger = state.lastTriggerAt[key] || 0;
-        if (volumeMultiple >= 3 && now - lastTrigger > 6e4) {
-          state.lastTriggerAt[key] = now;
-          addActivity3(state, {
-            type: "trigger",
-            message: `\u26A1 Power surge on ${analysis.token.symbol} (${volumeMultiple.toFixed(1)}\xD7) \u2014 knowledge deepens in 8s`
-          });
-          setTimeout(() => runScan(userId, state, analysis.token.symbol), 8e3);
-        }
-      }
-      state.lastTokenSnapshot[key] = {
-        volume: analysis.token.volume24h,
-        price: parseFloat(analysis.token.priceUsd) || 0,
-        signal: analysis.signal,
-        confidence: analysis.confidence
-      };
-      const hasPaperCapital = state.autoTradeEnabled;
-      const hasLiveCapital = state.liveTradeEnabled && state.currentPortfolioValue > 0;
-      const canEnterTrade = hasPaperCapital || hasLiveCapital;
-      if ((analysis.signal === "STRONG_BUY" || analysis.signal === "BUY") && !canEnterTrade) {
-        if (state.liveTradeEnabled && state.currentPortfolioValue <= 0) {
-          addActivity3(state, {
-            type: "info",
-            message: `\u26A0\uFE0F Live signal skipped: ${analysis.token.symbol} \u2014 Live Trade is ON but portfolio SOL value is 0. Set it in engine settings \u2192 Portfolio Value.`
-          });
-        } else {
-          addActivity3(state, {
-            type: "info",
-            message: `\u{1F4E1} Signal: ${analysis.token.symbol} [${analysis.signal} ${analysis.confidence}%] \u2014 Paper & Live trade are OFF. Toggle Paper Trade ON in the \u2699\uFE0F Settings panel to auto-execute.`
-          });
-        }
-        continue;
-      }
-      const dirFilter = state.config.directionFilter || "buy_only";
-      const isBuySignal = analysis.signal === "STRONG_BUY" || analysis.signal === "BUY";
-      const isSellSignal = analysis.signal === "SELL" || analysis.signal === "STRONG_SELL";
-      if (dirFilter === "buy_only" && !isBuySignal) continue;
-      if (dirFilter === "sell_only" && !isSellSignal) continue;
-      if ((analysis.signal === "STRONG_BUY" || analysis.signal === "BUY") && canEnterTrade) {
-        if (analysis.token.priceChange24h > 80) {
-          addActivity3(state, {
-            type: "info",
-            message: `\u26D4 Overextended: ${analysis.token.symbol} skipped \u2014 already +${analysis.token.priceChange24h.toFixed(0)}% in 24h (>80% = likely top)`
-          });
-          continue;
-        }
-        const CONSENSUS_TTL_MS = 10 * 60 * 1e3;
-        const priorConsensus = state.lastAgentConsensus?.find((c) => c.symbol === analysis.token.symbol);
-        const consensusAge = priorConsensus?.timestamp ? Date.now() - new Date(priorConsensus.timestamp).getTime() : Infinity;
-        const consensusStale = consensusAge > CONSENSUS_TTL_MS;
-        if (priorConsensus && !consensusStale && priorConsensus.consensus === "STRONG_SKIP") {
-          addActivity3(state, {
-            type: "info",
-            message: `\u{1F916}\u274C Consensus BLOCK: ${analysis.token.symbol} \u2014 both AI and quant said SKIP (quant score: ${priorConsensus.quantScore}). That's the mathematics.`
-          });
-          continue;
-        }
-        if (priorConsensus && !consensusStale && priorConsensus.quantVerdict === "SKIP" && priorConsensus.quantScore < 10) {
-          addActivity3(state, {
-            type: "info",
-            message: `\u{1F4D0}\u274C Quant BLOCK: ${analysis.token.symbol} \u2014 quant score ${priorConsensus.quantScore} too low. Knowledge yourself.`
-          });
-          continue;
-        }
-        const dexKey = (analysis.token.dexId || "").toLowerCase().split("_")[0];
-        let activeStrats = state.activeStrategies.length > 0 ? state.activeStrategies : [state.activeStrategy];
-        const isAdaptiveMode = activeStrats.includes("adaptive") || state.activeStrategy === "adaptive";
-        if (isAdaptiveMode) {
-          const autoRec = selectAdaptiveSolStrategy(state.lastMacro, scanResult);
-          if (!state._adaptiveStrategy || state._adaptiveStrategy !== autoRec.strategyId) {
-            state._adaptiveStrategy = autoRec.strategyId;
-            addActivity3(state, {
-              type: "strategy",
-              message: `\u{1F916} Adaptive selected: ${SOL_STRATEGIES.find((s) => s.id === autoRec.strategyId)?.icon || ""}${autoRec.strategyId.replace(/_/g, " ").toUpperCase()} \u2014 ${autoRec.reason}`
-            });
-          }
-          activeStrats = [autoRec.strategyId];
-        }
-        const confirmingStrats = activeStrats.map((id) => SOL_STRATEGIES.find((s) => s.id === id)).filter((s) => !!s).filter((s) => {
-          if (analysis.confidence < _effMinConf(s)) return false;
-          if (s.minSignal === "STRONG_BUY" && analysis.signal !== "STRONG_BUY") return false;
-          if (s.maxRisk === "LOW" && (analysis.riskLevel === "HIGH" || analysis.riskLevel === "EXTREME")) return false;
-          if (!passesStrategyFilter(analysis, s)) return false;
-          return true;
-        });
-        if (confirmingStrats.length >= 2) {
-          const names = confirmingStrats.map((s) => `${s.icon}${s.name}`).join(" + ");
-          addActivity3(state, {
-            type: "strategy",
-            message: `\u{1F3AF} Multi-Strategy Confirmed: ${analysis.token.symbol} \u2014 ${names} all in agreement. Knowledge multiplied.`
-          });
-        }
-        const bestStrat = confirmingStrats.sort((a, b) => b.baseFraction - a.baseFraction)[0];
-        const paperAutoSize = computeAutoSolSize(state, dexKey, bestStrat, "paper");
-        const liveAutoSize = computeAutoSolSize(state, dexKey, bestStrat, "live");
-        if (paperAutoSize > 0) {
-          analysis.recommendedSolAmount = paperAutoSize;
-        }
-        const paperSizeSOL = paperAutoSize > 0 ? paperAutoSize : computeAutoSolSize(state, dexKey, void 0, "paper");
-        const sizeSOL = liveAutoSize > 0 ? liveAutoSize : computeAutoSolSize(state, dexKey, void 0, "live");
-        const topStrat = confirmingStrats[0] || SOL_STRATEGIES.find((s) => s.id === state.activeStrategy) || SOL_STRATEGIES[0];
-        const tokenPrice = parseFloat(analysis.token.priceUsd) || 0;
-        const tokenMint = analysis.token.address;
-        const now2 = (/* @__PURE__ */ new Date()).toISOString();
-        const maxDaily = state.config.maxDailyTrades || 0;
-        if (maxDaily > 0 && state.dailyTradeCount >= maxDaily) {
-          addActivity3(state, {
-            type: "info",
-            message: `\u{1F6AB} Daily limit reached: ${analysis.token.symbol} skipped \u2014 ${state.dailyTradeCount}/${maxDaily} trades taken today. Resets at UTC midnight.`
-          });
-          continue;
-        }
-        let stopLossPrice;
-        let takeProfitPrice;
-        if (state.config.stopOrdersEnabled && tokenPrice > 0) {
-          stopLossPrice = tokenPrice * (1 - state.autoTradeSL / 100);
-          takeProfitPrice = tokenPrice * (1 + state.autoTradeTP / 100);
-        }
-        if (state.autoTradeEnabled && paperSizeSOL > 0 && tokenPrice > 0) {
-          const alreadyOpen = state.paperPositions.some((p) => p.symbol === analysis.token.symbol && p.status === "open");
-          if (!alreadyOpen) {
-            const pos = {
-              id: `paper_${Date.now()}_${analysis.token.symbol}`,
-              symbol: analysis.token.symbol,
-              mint: tokenMint,
-              entryPrice: tokenPrice,
-              currentPrice: tokenPrice,
-              targetPct: state.autoTradeTP,
-              slPct: state.autoTradeSL,
-              size: paperSizeSOL,
-              tokenAmount: 0,
-              decimals: 9,
-              strategyId: topStrat.id,
-              dex: dexKey,
-              mode: "paper",
-              openedAt: now2,
-              status: "open",
-              peakPrice: tokenPrice,
-              trailingActive: false,
-              breakevenActive: false,
-              trailActivationPct: state.autoTrailActivationPct,
-              trailDistancePct: state.autoTrailDistancePct,
-              entryVolume24h: analysis.token.volume24h || 0,
-              stopLossPrice,
-              takeProfitPrice
-            };
-            state.paperPositions.push(pos);
-            upsertPosition(userId, pos).catch(() => {
-            });
-            state.dailyTradeCount++;
-            const compoundNote = state.compoundMode ? ` [\u{1F4B9} Compounding ON \u2014 ${state.paperPortfolioValue.toFixed(3)} SOL pool]` : "";
-            const stopNote = state.config.stopOrdersEnabled && stopLossPrice ? ` | \u{1F6D1} Stop @$${stopLossPrice.toFixed(6)} \xB7 \u{1F3AF} TP @$${takeProfitPrice?.toFixed(6)}` : ` | TP: +${state.autoTradeTP}% | SL: -${state.autoTradeSL}%`;
-            addActivity3(state, {
-              type: "paper_buy",
-              message: `\u{1F4C4} Paper BUY: ${analysis.token.symbol} \u2014 ${paperSizeSOL.toFixed(3)} SOL @ $${tokenPrice.toFixed(6)} [${topStrat.icon}${topStrat.name}]${stopNote} | Breakeven @+8% \xB7 Trail @+20% (vol-adjusted)${compoundNote}`
-            });
-          }
-        }
-        if (state.liveTradeEnabled && sizeSOL > 0 && tokenPrice > 0) {
-          const alreadyOpen = state.livePositions.some((p) => p.symbol === analysis.token.symbol && p.status === "open");
-          const alreadyQueued = state.pendingSignals.some((s) => s.symbol === analysis.token.symbol);
-          const SIGNAL_COOLDOWN_MS = 5 * 60 * 1e3;
-          const lastRejected = state.signalCooldowns.get(tokenMint);
-          const onCooldown = lastRejected && Date.now() - lastRejected < SIGNAL_COOLDOWN_MS;
-          const confluenceCount = SOL_STRATEGIES.filter((s) => {
-            if (analysis.confidence < _effMinConf(s)) return false;
-            if (s.minSignal === "STRONG_BUY" && analysis.signal !== "STRONG_BUY") return false;
-            if (s.maxRisk === "LOW" && (analysis.riskLevel === "HIGH" || analysis.riskLevel === "EXTREME")) return false;
-            if (!passesStrategyFilter(analysis, s)) return false;
-            return true;
-          }).length;
-          const compositeEdge = Math.min(100, analysis.confidence + Math.max(0, confluenceCount - 1) * SOL_CONFLUENCE_BONUS);
-          const confluenceOk = confluenceCount >= SOL_CONFLUENCE_REQUIRED && compositeEdge >= SOL_COMPOSITE_FLOOR;
-          const brainGate = SOL_BRAIN_ENABLED && SOL_BRAIN_GATING ? solBrainGate(userId, analysis.token.symbol, topStrat.id, (/* @__PURE__ */ new Date()).getUTCHours()) : { blocked: false, reason: "" };
-          const brainMult = SOL_BRAIN_ENABLED ? solBrainSizeMultiplier(userId, analysis.token.symbol) : 1;
-          const liveSizeSOL = brainMult !== 1 ? Math.round(sizeSOL * brainMult * 1e3) / 1e3 : sizeSOL;
-          if (!alreadyOpen && !alreadyQueued && !onCooldown && !confluenceOk) {
-            addActivity3(state, {
-              type: "info",
-              message: `\u{1F6A6} Live entry BLOCKED (confluence): ${analysis.token.symbol} \u2014 ${confluenceCount}/${SOL_CONFLUENCE_REQUIRED} strategies agree, composite ${compositeEdge.toFixed(0)} < ${SOL_COMPOSITE_FLOOR}. Paper still learning.`
-            });
-          } else if (!alreadyOpen && !alreadyQueued && !onCooldown && brainGate.blocked) {
-            addActivity3(state, {
-              type: "info",
-              message: `${brainGate.reason} (live entry skipped \u2014 paper still learning)`
-            });
-          } else if (!alreadyOpen && !alreadyQueued && !onCooldown) {
-            const created = /* @__PURE__ */ new Date();
-            const expires = new Date(created.getTime() + 9e4);
-            const brainNote = brainMult !== 1 ? ` \u{1F9E0} Brain ${brainMult}\xD7` : "";
-            const sig = {
-              id: `live_${Date.now()}_${analysis.token.symbol}`,
-              symbol: analysis.token.symbol,
-              mint: tokenMint,
-              signal: "BUY",
-              confidence: analysis.confidence,
-              price: tokenPrice,
-              sizeSOL: liveSizeSOL,
-              strategyId: topStrat.id,
-              createdAt: created.toISOString(),
-              expiresAt: expires.toISOString(),
-              // Carried through to the live SolAutoPosition once confirmed
-              // (executeServerSideBuy / the Phantom-approval confirm path).
-              // Previously computed above for the paper position only, so a
-              // live position stopOrdersEnabled believed it had never
-              // actually recorded one.
-              stopLossPrice,
-              takeProfitPrice,
-              dex: dexKey
-            };
-            addActivity3(state, {
-              type: "live_signal",
-              message: `\u26A1 Live signal: ${analysis.token.symbol} \u2014 ${liveSizeSOL.toFixed(3)} SOL @ $${tokenPrice.toFixed(6)} [${topStrat.icon}${topStrat.name}]${brainNote} | ${confluenceCount} strat confluence (edge ${compositeEdge.toFixed(0)}) | Attempting server-side execution...`
-            });
-            executeServerSideBuy(userId, sig, state).then((executed) => {
-              if (!executed) {
-                state.pendingSignals.push(sig);
-                addActivity3(state, {
-                  type: "live_signal",
-                  message: `\u26A1 Live signal queued: ${analysis.token.symbol} \u2014 ${liveSizeSOL.toFixed(3)} SOL @ $${tokenPrice.toFixed(6)} [${topStrat.icon}${topStrat.name}]${brainNote} | \u26A0\uFE0F APPROVE IN PHANTOM (90s window)`
-                });
-              }
-            }).catch(() => {
-              state.pendingSignals.push(sig);
-              addActivity3(state, {
-                type: "live_signal",
-                message: `\u26A1 Live signal queued: ${analysis.token.symbol} \u2014 ${sizeSOL.toFixed(3)} SOL @ $${tokenPrice.toFixed(6)} [${topStrat.icon}${topStrat.name}] | \u26A0\uFE0F APPROVE IN PHANTOM (90s window)`
-              });
-            });
-          }
-        }
-      }
-    }
-    state.lastResults = scanResult;
-    await monitorPaperPositions(userId, state);
-    await monitorLivePositions(userId, state);
-    const label = triggerToken ? ` (trigger: ${triggerToken})` : "";
-    const intervalSec = getAdaptiveScanInterval2(state.config) / 1e3;
-    const buys = scanResult.filter((t) => t.signal === "STRONG_BUY" || t.signal === "BUY").length;
-    const shieldNote = shieldFilter ? " \u{1F6E1}\uFE0F" : "";
-    const activeStrats2 = state.activeStrategies.length > 0 ? state.activeStrategies : [state.activeStrategy];
-    const stratNote = activeStrats2.length > 1 ? ` [${activeStrats2.map((id) => {
-      const s = SOL_STRATEGIES.find((x) => x.id === id);
-      return s ? s.icon + s.name : id;
-    }).join(" + ")}]` : (() => {
-      const strategy = SOL_STRATEGIES.find((s) => s.id === state.activeStrategy);
-      return strategy ? ` [${strategy.icon}${strategy.name}]` : "";
-    })();
-    addActivity3(state, {
-      type: "info",
-      message: `\u{1F50D} Knowledge dropped on ${scanResult.length} tokens${label}${shieldNote}${stratNote} \u2014 ${buys} buy signal${buys !== 1 ? "s" : ""} born. Next cipher in ${intervalSec}s`
-    });
-    if (macro) {
-      const btcStr = `BTC ${macro.btcChange >= 0 ? "+" : ""}${macro.btcChange.toFixed(1)}%`;
-      const ethStr = `ETH ${macro.ethChange >= 0 ? "+" : ""}${macro.ethChange.toFixed(1)}%`;
-      const solStr = `SOL ${macro.solChange >= 0 ? "+" : ""}${macro.solChange.toFixed(1)}%`;
-      addActivity3(state, {
-        type: "info",
-        message: `\u{1F4CA} The science: ${btcStr} \u2022 ${ethStr} \u2022 ${solStr} \u2014 bias: ${macro.bias}`
-      });
-    }
-    if (state.currentPortfolioValue > 0) {
-      for (const analysis of scanResult) {
-        if ((analysis.signal === "STRONG_BUY" || analysis.signal === "BUY") && analysis.recommendedSolAmount && analysis.recommendedSolAmount > 0) {
-          const dexKey = (analysis.token.dexId || "").toLowerCase().split("_")[0];
-          const phase2 = state.weeklyGoal.phase;
-          const mult = getPhaseMultiplier(phase2, state.weeklyGoal.winStreak);
-          addActivity3(state, {
-            type: "kelly",
-            message: `\u{1F4D0} Mathematics: ${analysis.token.symbol} on ${dexKey} \u2192 ${analysis.recommendedSolAmount.toFixed(3)} SOL (${mult}\xD7 ${phase2.replace("_", " ")} phase)`
-          });
-        }
-      }
-    }
-  } catch (err) {
-    addActivity3(state, {
-      type: "info",
-      message: `\u26A0\uFE0F Interruption in the cipher: ${err instanceof Error ? err.message : "unknown"}`
-    });
-  } finally {
-    state.isScanning = false;
-  }
-  try {
-    pruneEngineMaps(state);
-  } catch {
-  }
-  saveEngineState(userId, state).catch(() => {
-  });
-  if (state.isRunning) {
-    if (state.scanTimer) clearTimeout(state.scanTimer);
-    const nextMs = getAdaptiveScanInterval2(state.config);
-    state.scanTimer = setTimeout(() => runScan(userId, state), nextMs);
-  }
-}
-async function startSolEngine(userId, config = {}) {
-  if (startingSolUsers.has(userId)) return;
-  startingSolUsers.add(userId);
-  try {
-    const existing = engineStates2.get(userId);
-    if (existing?.isRunning) stopSolEngine(userId);
-    const fullConfig = { ...DEFAULT_CONFIG4, ...config };
-    const state = createInitialState(fullConfig);
-    if (existing) {
-      state.weeklyGoal = existing.weeklyGoal;
-      state.activeStrategy = existing.activeStrategy;
-      state.activeStrategies = existing.activeStrategies;
-      state.signalWeights = existing.signalWeights;
-      state.kellyStats = existing.kellyStats;
-      state.sessionHighWatermark = existing.sessionHighWatermark;
-      state.currentPortfolioValue = existing.currentPortfolioValue;
-      state.shieldActive = existing.shieldActive;
-      state.autoTradeEnabled = existing.autoTradeEnabled;
-      state.liveTradeEnabled = existing.liveTradeEnabled;
-      state.paperPositions = existing.paperPositions;
-      state.closedPaperPositions = existing.closedPaperPositions;
-      state.livePositions = existing.livePositions;
-      state.closedLivePositions = existing.closedLivePositions;
-      state.pendingExits = existing.pendingExits || [];
-      state.autoTradeStats = existing.autoTradeStats;
-      state.autoTradeTP = existing.autoTradeTP;
-      state.autoTradeSL = existing.autoTradeSL;
-      state.serverWalletBalance = existing.serverWalletBalance;
-      state.lastWalletRefreshAt = existing.lastWalletRefreshAt;
-      state.dailyTradeCount = existing.dailyTradeCount;
-      state.dailyTradeDate = existing.dailyTradeDate;
-    } else {
-      await loadEngineStateFromDb(userId, state);
-    }
-    try {
-      const _res = await db.execute(
-        sql11`SELECT paper_base_capital, server_wallet_key FROM sol_engine_settings WHERE user_id = ${userId}`
-      );
-      const rows = Array.isArray(_res) ? _res : _res?.rows ?? [];
-      let paperBase = Number(rows?.[0]?.paper_base_capital ?? 0);
-      if (paperBase > SOL_PAPER_MAX_SOL) {
-        console.warn(`[SolEngine] paper_base_capital ${paperBase} > ${SOL_PAPER_MAX_SOL} SOL looks like a USD figure \u2014 using 5 SOL`);
-        paperBase = 5;
-      }
-      const hasServerWallet = !!rows?.[0]?.server_wallet_key;
-      if (paperBase > 0) {
-        state.paperBaseCapital = paperBase;
-        if (state.paperPortfolioValue <= 0) state.paperPortfolioValue = paperBase;
-        if (!hasServerWallet && state.currentPortfolioValue <= 0) state.currentPortfolioValue = paperBase;
-      }
-    } catch (err) {
-      console.warn("[SolEngine] paper_base_capital restore failed (non-fatal):", err);
-    }
-    if (state.currentPortfolioValue <= 0) {
-      try {
-        const [settings] = await db.select({ serverWalletKey: solEngineSettings.serverWalletKey, liveTradeEnabled: solEngineSettings.liveTradeEnabled }).from(solEngineSettings).where(eq15(solEngineSettings.userId, userId));
-        if (settings?.serverWalletKey) {
-          const privateKeyBase58 = decryptWalletKey(settings.serverWalletKey);
-          const { Keypair: Keypair2, Connection: Connection3 } = await import("@solana/web3.js");
-          const bs58 = (await import("bs58")).default;
-          const keypair = Keypair2.fromSecretKey(bs58.decode(privateKeyBase58));
-          const rpcUrl = process.env.SOLANA_RPC_URL || "https://mainnet.helius-rpc.com/?api-key=15319bf4-5b40-4958-ac8d-6313aa55eb92";
-          const connection2 = new Connection3(rpcUrl, { commitment: "confirmed" });
-          const lamports = await connection2.getBalance(keypair.publicKey);
-          const solBalance = lamports / 1e9;
-          if (solBalance > 0) {
-            state.currentPortfolioValue = solBalance;
-            state.liveTradeEnabled = settings?.liveTradeEnabled === true;
-            console.log(`[SolEngine] Portfolio auto-set from wallet on start: ${solBalance.toFixed(4)} SOL (live=${state.liveTradeEnabled})`);
-          }
-        }
-      } catch {
-      }
-    }
-    state.isRunning = true;
-    engineStates2.set(userId, state);
-    const intervalSec = getAdaptiveScanInterval2(fullConfig) / 1e3;
-    const windowLabel = intervalSec === 30 ? "peak hours (13\u201320 UTC)" : intervalSec === 60 ? "standard hours" : "overnight / weekend";
-    const activeIds = state.activeStrategies.length > 0 ? state.activeStrategies : [state.activeStrategy];
-    const stratLabel = activeIds.map((id) => {
-      const s = SOL_STRATEGIES.find((x) => x.id === id);
-      return s ? `${s.icon}${s.name}` : id;
-    }).join(" + ");
-    addActivity3(state, {
-      type: "info",
-      message: `\u26A1 Peace \u2014 Sol cipher activated. ${stratLabel} in rotation, dropping knowledge every ${intervalSec}s (${windowLabel})`
-    });
-    runScan(userId, state);
-  } finally {
-    startingSolUsers.delete(userId);
-  }
-}
-function stopSolEngine(userId) {
-  const state = engineStates2.get(userId);
-  if (!state) return;
-  state.isRunning = false;
-  if (state.scanTimer) {
-    clearTimeout(state.scanTimer);
-    state.scanTimer = null;
-  }
-  addActivity3(state, { type: "info", message: "\u{1F6D1} Engine at rest \u2014 knowledge preserved, cipher closed" });
-}
-function getSolEngineStatus(userId) {
-  const state = engineStates2.get(userId);
-  if (!state) {
-    return {
-      running: false,
-      activityFeed: [],
-      signalWeights: Object.fromEntries(DEX_NAMES.map((d) => [d, 1])),
-      shieldActive: false,
-      lastResults: [],
-      kellyStats: {},
-      lastMacro: null,
-      weeklyGoal: { ...DEFAULT_WEEKLY_GOAL },
-      activeStrategy: "momentum_surfer",
-      activeStrategies: ["momentum_surfer"]
-    };
-  }
-  return {
-    running: state.isRunning,
-    config: state.config,
-    activityFeed: state.activityFeed.slice(0, 20),
-    signalWeights: state.signalWeights,
-    kellyStats: state.kellyStats,
-    shieldActive: state.shieldActive,
-    sessionHighWatermark: state.sessionHighWatermark,
-    currentPortfolioValue: state.currentPortfolioValue,
-    lastScanAt: state.lastScanAt,
-    lastResults: state.lastResults,
-    lastMacro: state.lastMacro,
-    weeklyGoal: state.weeklyGoal,
-    activeStrategy: state.activeStrategy,
-    activeStrategies: state.activeStrategies,
-    lastAgentConsensus: state.lastAgentConsensus,
-    paperTradeSize: state.paperTradeSize,
-    compoundMode: state.compoundMode,
-    compoundRate: state.compoundRate,
-    paperBaseCapital: state.paperBaseCapital,
-    paperPortfolioValue: state.paperPortfolioValue,
-    paperPortfolioHistory: state.paperPortfolioHistory,
-    autoTradeEnabled: state.autoTradeEnabled,
-    liveTradeEnabled: state.liveTradeEnabled,
-    autoTradeMode: state.liveTradeEnabled ? "live" : state.autoTradeEnabled ? "paper" : "off",
-    pendingSignalsCount: state.pendingSignals.filter((s) => new Date(s.expiresAt).getTime() > Date.now()).length,
-    pendingSignalSymbols: state.pendingSignals.filter((s) => new Date(s.expiresAt).getTime() > Date.now()).map((s) => s.symbol),
-    serverWalletBalance: state.serverWalletBalance,
-    dailyTradeCount: state.dailyTradeCount,
-    dailyTradeDate: state.dailyTradeDate
-  };
-}
-function getSolStrategies() {
-  return SOL_STRATEGIES;
-}
-function setSolStrategies(userId, strategyIds) {
-  const valid = strategyIds.filter((id) => SOL_STRATEGIES.some((s) => s.id === id));
-  if (valid.length === 0) return { success: false };
-  let state = engineStates2.get(userId);
-  if (!state) {
-    state = createInitialState({ ...DEFAULT_CONFIG4 });
-    engineStates2.set(userId, state);
-  }
-  state.activeStrategies = valid;
-  state.activeStrategy = valid[0];
-  const strats = valid.map((id) => SOL_STRATEGIES.find((s) => s.id === id)).filter(Boolean);
-  const label = strats.map((s) => `${s.icon}${s.name}`).join(" + ");
-  const modeNote = valid.length > 1 ? ` \u2014 Multi-Strategy Mode \u{1F3AF} active` : "";
-  addActivity3(state, {
-    type: "strategy",
-    message: `\u{1F504} Cipher updated \u2014 ${label}${modeNote}. Word is bond.`
-  });
-  return { success: true, strategies: strats };
-}
-function setSolStrategy(userId, strategyId) {
-  const strategy = SOL_STRATEGIES.find((s) => s.id === strategyId);
-  if (!strategy) return { success: false };
-  let state = engineStates2.get(userId);
-  if (!state) {
-    state = createInitialState({ ...DEFAULT_CONFIG4 });
-    engineStates2.set(userId, state);
-  }
-  state.activeStrategy = strategyId;
-  state.activeStrategies = [strategyId];
-  addActivity3(state, {
-    type: "strategy",
-    message: `${strategy.icon} Word is bond \u2014 ${strategy.name} now in rotation. Min ${strategy.minConfidence}% confidence, ${strategy.baseFraction * 100}% base size, ${strategy.holdTarget} hold`
-  });
-  return { success: true, strategy };
-}
-function setSolWeeklyGoal(userId, params) {
-  let state = engineStates2.get(userId);
-  if (!state) {
-    state = createInitialState({ ...DEFAULT_CONFIG4 });
-    engineStates2.set(userId, state);
-  }
-  const portfolio = state.currentPortfolioValue;
-  let targetSol = params.targetSol || 0;
-  let targetPct = params.targetPct || 0;
-  if (targetPct > 0 && portfolio > 0 && targetSol <= 0) {
-    targetSol = portfolio * (targetPct / 100);
-  } else if (targetSol > 0 && portfolio > 0 && targetPct <= 0) {
-    targetPct = targetSol / portfolio * 100;
-  }
-  if (targetSol <= 0) return { success: false };
-  state.weeklyGoal = {
-    targetSol,
-    targetPct,
-    startPortfolio: portfolio,
-    currentProfitSol: 0,
-    phase: "warming_up",
-    weekStart: Date.now(),
-    winStreak: 0,
-    tradeHistory: []
-  };
-  addActivity3(state, {
-    type: "goal",
-    message: `\u{1F3AF} Target manifested \u2014 +${targetSol.toFixed(3)} SOL (${targetPct.toFixed(1)}%) this week. Warming up the cipher (0.8\xD7 size)`
-  });
-  return { success: true };
-}
-function resetSolWeeklyGoal(userId) {
-  const state = engineStates2.get(userId);
-  if (!state) return { success: false };
-  state.weeklyGoal = { ...DEFAULT_WEEKLY_GOAL };
-  addActivity3(state, { type: "goal", message: "\u{1F504} Cipher cleared \u2014 knowledge reset, back to zero point" });
-  return { success: true };
-}
-function recordSolSignalResult(userId, params) {
-  const state = engineStates2.get(userId);
-  if (!state) return { success: false };
-  const dex = (params.dex || "unknown").toLowerCase().replace(/[^a-z]/g, "") || "unknown";
-  if (!state.signalWeights[dex]) state.signalWeights[dex] = 1;
-  if (!state.kellyStats[dex]) state.kellyStats[dex] = { wins: 0, losses: 0, totalGainPct: 0 };
-  if (params.outcome === "WIN") {
-    state.signalWeights[dex] = Math.min(2, state.signalWeights[dex] + 0.05);
-    state.kellyStats[dex].wins++;
-    state.kellyStats[dex].totalGainPct += Math.abs(params.gainPct);
-    state.weeklyGoal.winStreak = (state.weeklyGoal.winStreak || 0) + 1;
-    addActivity3(state, {
-      type: "signal",
-      message: `\u2705 Born \u2014 ${params.symbol || dex} +${params.gainPct.toFixed(1)}% sealed in profit. ${dex} weight ${state.signalWeights[dex].toFixed(2)} | Streak: ${state.weeklyGoal.winStreak}`
-    });
-  } else {
-    state.signalWeights[dex] = Math.max(0.2, state.signalWeights[dex] - 0.08);
-    state.kellyStats[dex].losses++;
-    state.weeklyGoal.winStreak = 0;
-    addActivity3(state, {
-      type: "signal",
-      message: `\u274C Lesson built \u2014 ${params.symbol || dex}. The cipher teaches. ${dex} weight ${state.signalWeights[dex].toFixed(2)} | Streak reset`
-    });
-  }
-  if (state.weeklyGoal.phase !== "idle") {
-    const solAmount = params.sol || 0;
-    const actualGainPct = params.gainPct;
-    const gainSol = solAmount * (actualGainPct / 100);
-    state.weeklyGoal.currentProfitSol += gainSol;
-    state.weeklyGoal.tradeHistory.unshift({
-      timestamp: (/* @__PURE__ */ new Date()).toISOString(),
-      symbol: params.symbol || dex,
-      sol: solAmount,
-      gainPct: actualGainPct,
-      outcome: params.outcome,
-      strategy: state.activeStrategy
-    });
-    if (state.weeklyGoal.tradeHistory.length > 100) {
-      state.weeklyGoal.tradeHistory = state.weeklyGoal.tradeHistory.slice(0, 100);
-    }
-    const prevPhase = state.weeklyGoal.phase;
-    const newPhase = computeGoalPhase(state.weeklyGoal);
-    if (newPhase !== prevPhase) {
-      state.weeklyGoal.phase = newPhase;
-      const mult = getPhaseMultiplier(newPhase, state.weeklyGoal.winStreak);
-      const phaseNames = {
-        warming_up: "\u{1F535} WARMING UP",
-        building: "\u{1F535} BUILDING",
-        accelerating: "\u{1F7E1} ACCELERATING",
-        cruising: "\u{1F7E2} CRUISING",
-        pushing: "\u{1F7E0} PUSHING",
-        target_reached: "\u{1F3C6} TARGET REACHED"
-      };
-      addActivity3(state, {
-        type: "goal",
-        message: `${phaseNames[newPhase] || newPhase} \u2014 the God builds on. Sizing ${mult}\xD7 | Progress: ${(state.weeklyGoal.currentProfitSol / state.weeklyGoal.targetSol * 100).toFixed(1)}%`
-      });
-    }
-  }
-  return { success: true };
-}
-function setAutoTrade(userId, opts) {
-  let state = engineStates2.get(userId);
-  if (!state) {
-    state = createInitialState({ ...DEFAULT_CONFIG4 });
-    engineStates2.set(userId, state);
-  }
-  if (opts.paperEnabled !== void 0) {
-    state.autoTradeEnabled = opts.paperEnabled;
-    addActivity3(state, {
-      type: "info",
-      message: opts.paperEnabled ? "\u{1F4C4} Paper Auto-Trade ENABLED \u2014 the cipher will open virtual positions on every buy signal" : "\u{1F4C4} Paper Auto-Trade DISABLED"
-    });
-  }
-  if (opts.liveEnabled !== void 0) {
-    state.liveTradeEnabled = opts.liveEnabled;
-    if (!opts.liveEnabled) state.pendingSignals = [];
-    addActivity3(state, {
-      type: "info",
-      message: opts.liveEnabled ? "\u26A1 Live Auto-Trade ENABLED \u2014 buy signals will be queued for wallet execution" : "\u26A1 Live Auto-Trade DISABLED \u2014 pending signals cleared"
-    });
-  }
-  if (opts.tpPct !== void 0 && opts.tpPct > 0 && opts.tpPct <= 200) {
-    state.autoTradeTP = opts.tpPct;
-    addActivity3(state, {
-      type: "info",
-      message: `\u{1F3AF} Take-profit updated \u2014 positions will close at +${opts.tpPct}%`
-    });
-  }
-  if (opts.slPct !== void 0 && opts.slPct > 0 && opts.slPct <= 50) {
-    state.autoTradeSL = opts.slPct;
-    addActivity3(state, {
-      type: "info",
-      message: `\u{1F6E1}\uFE0F Stop-loss updated \u2014 positions protected at -${opts.slPct}%`
-    });
-  }
-  if (opts.trailActivationPct !== void 0 && opts.trailActivationPct > 0 && opts.trailActivationPct <= 100) {
-    state.autoTrailActivationPct = opts.trailActivationPct;
-    addActivity3(state, {
-      type: "info",
-      message: `\u{1F512} Trail activation updated \u2014 trailing stop kicks in at +${opts.trailActivationPct}%`
-    });
-  }
-  if (opts.trailDistancePct !== void 0 && opts.trailDistancePct > 0 && opts.trailDistancePct <= 50) {
-    state.autoTrailDistancePct = opts.trailDistancePct;
-    addActivity3(state, {
-      type: "info",
-      message: `\u{1F4CF} Trail distance updated \u2014 will exit if price drops ${opts.trailDistancePct}% from peak`
-    });
-  }
-  if (opts.paperTradeSize !== void 0) {
-    const sz = Math.max(0, opts.paperTradeSize);
-    state.paperTradeSize = sz;
-    addActivity3(state, {
-      type: "info",
-      message: sz > 0 ? `\u{1F4D0} Paper trade size fixed at ${sz} SOL per position \u2014 overrides portfolio-fraction sizing` : `\u{1F4D0} Paper trade size set to auto (portfolio-fraction mode restored)`
-    });
-  }
-  saveEngineState(userId, state).catch(() => {
-  });
-}
-function setCompoundSettings(userId, opts) {
-  let state = engineStates2.get(userId);
-  if (!state) {
-    state = createInitialState({ ...DEFAULT_CONFIG4 });
-    engineStates2.set(userId, state);
-  }
-  if (opts.compoundMode !== void 0) {
-    state.compoundMode = opts.compoundMode;
-    addActivity3(state, {
-      type: "info",
-      message: opts.compoundMode ? `\u{1F4B9} Compound Mode ACTIVATED \u2014 profits will grow your paper pool (${state.compoundRate}% reinvestment rate)` : "\u{1F4B9} Compound Mode OFF \u2014 fixed position sizing restored"
-    });
-  }
-  if (opts.compoundRate !== void 0) {
-    const rate = Math.max(1, Math.min(100, opts.compoundRate));
-    state.compoundRate = rate;
-    addActivity3(state, {
-      type: "info",
-      message: `\u{1F4B9} Compound rate set to ${rate}% \u2014 ${rate === 100 ? "all profits" : `${rate}% of profits`} reinvested into paper pool`
-    });
-  }
-  if (opts.paperBaseCapital !== void 0 && opts.paperBaseCapital > 0) {
-    state.paperBaseCapital = opts.paperBaseCapital;
-    state.paperPortfolioValue = opts.paperBaseCapital;
-    state.paperPortfolioHistory = [{ t: Date.now(), v: opts.paperBaseCapital }];
-    addActivity3(state, {
-      type: "info",
-      message: `\u{1F4BC} Paper capital reset to ${opts.paperBaseCapital.toFixed(3)} SOL \u2014 compound growth clock starts now`
-    });
-    const persistValue = opts.paperBaseCapital;
-    db.execute(sql11`UPDATE sol_engine_settings SET paper_base_capital = ${persistValue} WHERE user_id = ${userId}`).catch((err) => console.warn("[SolEngine] persist paper_base_capital (setCompoundSettings) failed:", err));
-  }
-}
-function getPendingSignals(userId) {
-  const state = engineStates2.get(userId);
-  if (!state) return [];
-  const now = Date.now();
-  const valid = state.pendingSignals.filter((s) => new Date(s.expiresAt).getTime() > now);
-  const expired = state.pendingSignals.filter((s) => new Date(s.expiresAt).getTime() <= now);
-  for (const s of expired) {
-    addActivity3(state, {
-      type: "signal_expired",
-      message: `\u23F1\uFE0F Missed: ${s.symbol} buy signal expired unconfirmed (90s window passed) \u2014 no server wallet set up for full auto.`
-    });
-  }
-  state.pendingSignals = [];
-  return valid;
-}
-function cancelSignal(userId, mint) {
-  const state = engineStates2.get(userId);
-  if (!state) return;
-  state.pendingSignals = state.pendingSignals.filter((s) => s.mint !== mint);
-  state.signalCooldowns.set(mint, Date.now());
-}
-function confirmLiveTrade(userId, signalId, txHash, tradeData) {
-  const state = engineStates2.get(userId);
-  if (!state) return false;
-  const parts = signalId.split("_");
-  const symbol = parts.slice(2).join("_");
-  if (!symbol) return false;
-  const signal = state.pendingSignals.find((s) => s.id === signalId);
-  const sizeSOL = signal?.sizeSOL || 0;
-  if (signal) {
-    state.pendingSignals = state.pendingSignals.filter((s) => s.id !== signalId);
-  }
-  const pos = {
-    id: `live_pos_${Date.now()}_${symbol}`,
-    symbol,
-    mint: tradeData?.mint || signal?.mint || "",
-    entryPrice: tradeData?.entryPrice || 0,
-    currentPrice: tradeData?.entryPrice || 0,
-    targetPct: state.autoTradeTP,
-    slPct: state.autoTradeSL,
-    size: sizeSOL,
-    tokenAmount: tradeData?.tokenAmount || 0,
-    decimals: tradeData?.decimals || 9,
-    strategyId: signal?.strategyId || state.activeStrategy,
-    mode: "live",
-    txHash,
-    openedAt: (/* @__PURE__ */ new Date()).toISOString(),
-    status: "open",
-    stopLossPrice: signal?.stopLossPrice,
-    takeProfitPrice: signal?.takeProfitPrice,
-    dex: signal?.dex
-  };
-  state.livePositions.push(pos);
-  state.dailyTradeCount++;
-  addActivity3(state, {
-    type: "live_buy",
-    message: `\u26A1 Live EXECUTED: ${symbol} \u2014 ${tradeData?.tokenAmount ? (tradeData.tokenAmount / Math.pow(10, tradeData.decimals || 9)).toFixed(4) + " tokens @ $" + (tradeData.entryPrice || 0).toFixed(6) : ""} tx: ${txHash.slice(0, 16)}...`
-  });
-  upsertPosition(userId, pos).catch(() => {
-  });
-  return true;
-}
-function getPendingExits(userId) {
-  const state = engineStates2.get(userId);
-  if (!state) return [];
-  const now = Date.now();
-  const valid = state.pendingExits.filter((e) => new Date(e.expiresAt).getTime() > now);
-  const expired = state.pendingExits.filter((e) => new Date(e.expiresAt).getTime() <= now);
-  for (const e of expired) {
-    addActivity3(state, {
-      type: "exit_expired",
-      message: `\u23F1\uFE0F Missed exit: ${e.symbol} close signal expired unconfirmed (90s window passed) \u2014 position remains OPEN, still being monitored.`
-    });
-  }
-  state.pendingExits = state.pendingExits.filter((e) => new Date(e.expiresAt).getTime() > now);
-  return valid;
-}
-function confirmLiveExit(userId, positionId, txHash) {
-  const state = engineStates2.get(userId);
-  if (!state) return false;
-  const pos = state.livePositions.find((p) => p.id === positionId && p.status === "open");
-  if (!pos) return false;
-  const gainPct = pos.entryPrice > 0 ? (pos.currentPrice - pos.entryPrice) / pos.entryPrice * 100 : 0;
-  pos.status = "closed";
-  pos.closedAt = (/* @__PURE__ */ new Date()).toISOString();
-  pos.closePnlPct = gainPct;
-  state.closedLivePositions.unshift(pos);
-  if (state.closedLivePositions.length > 50) state.closedLivePositions = state.closedLivePositions.slice(0, 50);
-  const isWin = gainPct >= 0;
-  state.autoTradeStats.totalTrades++;
-  state.autoTradeStats.totalPnlPct += gainPct;
-  if (isWin) {
-    state.autoTradeStats.wins++;
-    if (gainPct > state.autoTradeStats.bestTradePct) state.autoTradeStats.bestTradePct = gainPct;
-  } else {
-    state.autoTradeStats.losses++;
-    if (gainPct < state.autoTradeStats.worstTradePct) state.autoTradeStats.worstTradePct = gainPct;
-  }
-  state.livePositions = state.livePositions.filter((p) => p.id !== positionId);
-  addActivity3(state, {
-    type: "live_sell",
-    message: `\u2705 Live SOLD: ${pos.symbol} \u2014 P&L: ${gainPct >= 0 ? "+" : ""}${gainPct.toFixed(2)}% [TX: ${txHash.slice(0, 12)}...]`
-  });
-  recordSolBrainOutcome({
-    userId,
-    symbol: pos.symbol,
-    strategy: pos.strategyId || "unknown",
-    direction: "long",
-    returnPct: gainPct,
-    holdingMinutes: Math.max(0, Math.round((Date.now() - new Date(pos.openedAt).getTime()) / 6e4)),
-    exitReason: "manual",
-    profitLoss: pos.size * (gainPct / 100)
-  }).catch(() => {
-  });
-  upsertPosition(userId, pos).catch(() => {
-  });
-  saveEngineState(userId, state).catch(() => {
-  });
-  return true;
-}
-function getAutoTradePositions(userId) {
-  const state = engineStates2.get(userId);
-  if (!state) {
-    return {
-      autoTradeEnabled: false,
-      liveTradeEnabled: false,
-      paperPositions: [],
-      closedPaperPositions: [],
-      livePositions: [],
-      closedLivePositions: [],
-      autoTradeStats: { totalTrades: 0, wins: 0, losses: 0, totalPnlPct: 0, bestTradePct: 0, worstTradePct: 0 }
-    };
-  }
-  return {
-    autoTradeEnabled: state.autoTradeEnabled,
-    liveTradeEnabled: state.liveTradeEnabled,
-    autoTradeTP: state.autoTradeTP,
-    autoTradeSL: state.autoTradeSL,
-    autoTrailActivationPct: state.autoTrailActivationPct,
-    autoTrailDistancePct: state.autoTrailDistancePct,
-    paperPositions: state.paperPositions,
-    closedPaperPositions: state.closedPaperPositions.slice(0, 20),
-    livePositions: state.livePositions,
-    closedLivePositions: state.closedLivePositions.slice(0, 20),
-    autoTradeStats: state.autoTradeStats
-  };
-}
-function updateSolPortfolioValue(userId, solValue) {
-  const state = engineStates2.get(userId);
-  if (!state) return { shieldActive: false };
-  if (!(solValue > 0) || solValue > SOL_PAPER_MAX_SOL) return { shieldActive: !!state.shieldActive };
-  state.currentPortfolioValue = solValue;
-  if (solValue > state.sessionHighWatermark) state.sessionHighWatermark = solValue;
-  db.execute(sql11`UPDATE sol_engine_settings SET paper_base_capital = ${solValue} WHERE user_id = ${userId}`).catch((err) => console.warn("[SolEngine] persist paper_base_capital (updateSolPortfolioValue) failed:", err));
-  if (!state.config.shieldEnabled) return { shieldActive: false };
-  const threshold = state.config.shieldThreshold / 100;
-  const triggerLevel = state.sessionHighWatermark * (1 - threshold);
-  const disengageLevel = state.sessionHighWatermark * 0.97;
-  if (!state.shieldActive && state.sessionHighWatermark > 0 && solValue < triggerLevel) {
-    state.shieldActive = true;
-    const dropPct = ((1 - solValue / state.sessionHighWatermark) * 100).toFixed(1);
-    addActivity3(state, {
-      type: "shield",
-      message: `\u{1F6E1}\uFE0F Shield of protection manifested \u2014 portfolio dropped ${dropPct}% from peak (${state.sessionHighWatermark.toFixed(3)} SOL). Righteously restricting to 85%+ confidence only`
-    });
-  } else if (state.shieldActive && solValue >= disengageLevel) {
-    state.shieldActive = false;
-    addActivity3(state, { type: "shield", message: "\u2705 Shield lifted \u2014 peace restored. Full cipher resumed" });
-  }
-  return { shieldActive: state.shieldActive };
-}
-function setShieldActive(userId, active) {
-  const state = engineStates2.get(userId);
-  if (!state) return { success: false, shieldActive: false };
-  state.shieldActive = active;
-  addActivity3(state, {
-    type: "shield",
-    message: active ? "\u{1F6E1}\uFE0F Shield manually activated \u2014 restricting to high-confidence signals only" : "\u2705 Shield manually deactivated \u2014 full cipher resumed"
-  });
-  return { success: true, shieldActive: state.shieldActive };
-}
-async function saveServerWallet(userId, privateKeyBase58) {
-  try {
-    const { Keypair: Keypair2 } = await import("@solana/web3.js");
-    const bs58 = (await import("bs58")).default;
-    const secretKey = bs58.decode(privateKeyBase58);
-    const keypair = Keypair2.fromSecretKey(secretKey);
-    const walletAddress = keypair.publicKey.toBase58();
-    const encrypted = encryptWalletKey(privateKeyBase58);
-    await db.insert(solEngineSettings).values({
-      userId,
-      serverWalletKey: encrypted,
-      activeStrategy: "momentum_surfer",
-      activeStrategies: [],
-      autoTradeEnabled: false,
-      liveTradeEnabled: true,
-      // auto-enable live trade when wallet is connected
-      autoTradeTP: 8,
-      autoTradeSL: 4,
-      weeklyGoal: {},
-      autoTradeStats: {},
-      updatedAt: /* @__PURE__ */ new Date()
-    }).onConflictDoUpdate({
-      target: solEngineSettings.userId,
-      set: { serverWalletKey: encrypted, liveTradeEnabled: true, updatedAt: /* @__PURE__ */ new Date() }
-    });
-    try {
-      const { Connection: Connection3 } = await import("@solana/web3.js");
-      const rpcUrl = process.env.SOLANA_RPC_URL || "https://mainnet.helius-rpc.com/?api-key=15319bf4-5b40-4958-ac8d-6313aa55eb92";
-      const connection2 = new Connection3(rpcUrl, { commitment: "confirmed" });
-      const lamports = await connection2.getBalance(keypair.publicKey);
-      const solBalance = lamports / 1e9;
-      if (solBalance > 0) {
-        const existing = engineStates2.get(userId);
-        if (existing) {
-          existing.currentPortfolioValue = solBalance;
-          existing.liveTradeEnabled = true;
-          addActivity3(existing, {
-            type: "info",
-            message: `\u{1F511} Server wallet connected: ${walletAddress.slice(0, 8)}... | Balance: ${solBalance.toFixed(4)} SOL | Live trading ENABLED \u2014 ready to execute`
-          });
-        }
-      }
-    } catch {
-    }
-    return { success: true, walletAddress };
-  } catch (err) {
-    return { success: false, error: err.message || "Invalid private key" };
-  }
-}
-async function clearServerWallet(userId) {
-  await db.update(solEngineSettings).set({ serverWalletKey: null, updatedAt: /* @__PURE__ */ new Date() }).where(eq15(solEngineSettings.userId, userId));
-}
-async function getServerWalletStatus(userId) {
-  try {
-    const [settings] = await db.select({ serverWalletKey: solEngineSettings.serverWalletKey }).from(solEngineSettings).where(eq15(solEngineSettings.userId, userId));
-    if (!settings?.serverWalletKey) return { hasServerWallet: false };
-    const privateKeyBase58 = decryptWalletKey(settings.serverWalletKey);
-    const { Keypair: Keypair2, Connection: Connection3 } = await import("@solana/web3.js");
-    const bs58 = (await import("bs58")).default;
-    const secretKey = bs58.decode(privateKeyBase58);
-    const keypair = Keypair2.fromSecretKey(secretKey);
-    const walletAddress = keypair.publicKey.toBase58();
-    let balanceLamports = 0;
-    let balanceSol = 0;
-    try {
-      const rpcUrl = process.env.SOLANA_RPC_URL || "https://mainnet.helius-rpc.com/?api-key=15319bf4-5b40-4958-ac8d-6313aa55eb92";
-      const connection2 = new Connection3(rpcUrl, { commitment: "confirmed" });
-      balanceLamports = await connection2.getBalance(keypair.publicKey);
-      balanceSol = Math.round(balanceLamports / 1e9 * 1e4) / 1e4;
-    } catch {
-    }
-    return { hasServerWallet: true, walletAddress, balanceLamports, balanceSol };
-  } catch {
-    return { hasServerWallet: false };
-  }
-}
-var SOL_BRAIN_ENABLED, SOL_BRAIN_GATING, SOL_CONFLUENCE_REQUIRED, SOL_COMPOSITE_FLOOR, SOL_CONFLUENCE_BONUS, SOL_MAX_HOLD_HOURS, SOL_MAX_HOLD_MS, MAX_PRICE_SPIKE, DEX_NAMES, SOL_STRATEGIES, DEFAULT_CONFIG4, DEFAULT_WEEKLY_GOAL, engineStates2, startingSolUsers, PAPER_DEFAULT_PORTFOLIO_SOL, SOL_PAPER_MAX_SOL;
-var init_sol_engine = __esm({
-  "server/services/sol-engine.ts"() {
-    "use strict";
-    init_solana_scanner();
-    init_db();
-    init_schema();
-    init_sol_brain();
-    init_weekend_boost();
-    SOL_BRAIN_ENABLED = true;
-    SOL_BRAIN_GATING = true;
-    SOL_CONFLUENCE_REQUIRED = 2;
-    SOL_COMPOSITE_FLOOR = 72;
-    SOL_CONFLUENCE_BONUS = 4;
-    SOL_MAX_HOLD_HOURS = Number(process.env.SOL_MAX_HOLD_HOURS) || 12;
-    SOL_MAX_HOLD_MS = SOL_MAX_HOLD_HOURS * 60 * 60 * 1e3;
-    MAX_PRICE_SPIKE = 10;
-    DEX_NAMES = ["raydium", "orca", "meteora", "pumpfun", "jupiter"];
-    SOL_STRATEGIES = [
-      {
-        id: "momentum_surfer",
-        name: "Momentum Surfer",
-        icon: "\u{1F3C4}",
-        description: "Rides strong directional price momentum with buy pressure confirmation",
-        minConfidence: 70,
-        maxRisk: "MEDIUM",
-        baseFraction: 0.03,
-        minSignal: "BUY",
-        holdTarget: "1\u20134h"
-      },
-      {
-        id: "breakout_hunter",
-        name: "Breakout Hunter",
-        icon: "\u{1F680}",
-        description: "Targets tokens breaking out of consolidation on strong buy signals",
-        minConfidence: 75,
-        maxRisk: "MEDIUM",
-        baseFraction: 0.025,
-        minSignal: "STRONG_BUY",
-        holdTarget: "30min\u20132h"
-      },
-      {
-        id: "dip_sniper",
-        name: "Dip Sniper",
-        icon: "\u{1F3AF}",
-        description: "Enters on brief pullbacks in overall uptrends \u2014 low risk entries",
-        minConfidence: 68,
-        maxRisk: "LOW",
-        baseFraction: 0.02,
-        minSignal: "BUY",
-        holdTarget: "2\u20138h"
-      },
-      {
-        id: "meme_velocity",
-        name: "Meme Velocity",
-        icon: "\u26A1",
-        description: "Captures explosive meme token moves with quick in-out on Pump.fun",
-        minConfidence: 65,
-        maxRisk: "HIGH",
-        baseFraction: 0.04,
-        minSignal: "BUY",
-        holdTarget: "10\u201315min",
-        dexPreference: "pumpfun"
-      },
-      {
-        id: "whale_follower",
-        name: "Whale Follower",
-        icon: "\u{1F40B}",
-        description: "Tracks large wallet accumulation patterns and high maker counts",
-        minConfidence: 72,
-        maxRisk: "MEDIUM",
-        baseFraction: 0.02,
-        minSignal: "BUY",
-        holdTarget: "4\u201324h"
-      },
-      {
-        id: "volume_explosion",
-        name: "Volume Explosion",
-        icon: "\u{1F4A5}",
-        description: "Enters tokens with sudden 3x+ volume spikes on strong buy signals",
-        minConfidence: 65,
-        maxRisk: "MEDIUM",
-        baseFraction: 0.035,
-        minSignal: "STRONG_BUY",
-        holdTarget: "20\u201345min"
-      },
-      {
-        id: "smart_money_flow",
-        name: "Smart Money Flow",
-        icon: "\u{1F9E0}",
-        description: "Institutional-grade entries on high-confidence, low-risk accumulation",
-        minConfidence: 78,
-        maxRisk: "LOW",
-        baseFraction: 0.025,
-        minSignal: "STRONG_BUY",
-        holdTarget: "1\u20133 days"
-      },
-      {
-        id: "liquidity_sweep",
-        name: "Liquidity Sweep",
-        icon: "\u{1F30A}",
-        description: "Scalps sharp moves after liquidity pool sweeps \u2014 small, frequent gains",
-        minConfidence: 60,
-        maxRisk: "HIGH",
-        baseFraction: 0.03,
-        minSignal: "BUY",
-        holdTarget: "10\u201330min"
-      },
-      {
-        id: "order_flow_scalper",
-        name: "Order Flow Scalper",
-        icon: "\u{1F4CA}",
-        description: "Institutional order flow \u2014 enters when buy/sell delta diverges from price, signalling hidden accumulation or distribution",
-        minConfidence: 70,
-        maxRisk: "MEDIUM",
-        baseFraction: 0.025,
-        minSignal: "BUY",
-        holdTarget: "15\u201360min"
-      },
-      {
-        id: "trend_rider",
-        name: "Trend Rider",
-        icon: "\u{1F4C8}",
-        description: "Rides established multi-hour uptrends with steady volume and consistent buy pressure \u2014 fewer, higher-quality entries that compound",
-        minConfidence: 74,
-        maxRisk: "MEDIUM",
-        baseFraction: 0.03,
-        minSignal: "BUY",
-        holdTarget: "6\u201324h"
-      },
-      {
-        id: "adaptive",
-        name: "Adaptive (Auto)",
-        icon: "\u{1F916}",
-        description: "Auto-selects the best strategy each scan based on current market conditions \u2014 whale activity, breakouts, dips, macro bias",
-        minConfidence: 68,
-        maxRisk: "MEDIUM",
-        baseFraction: 0.03,
-        minSignal: "BUY",
-        holdTarget: "varies"
-      }
-    ];
-    DEFAULT_CONFIG4 = {
-      dexFilter: "all",
-      minConfidence: 65,
-      maxTokens: 10,
-      useKelly: false,
-      shieldEnabled: true,
-      shieldThreshold: 10,
-      adaptiveScan: true,
-      aiMode: "full",
-      directionFilter: "buy_only",
-      riskPerTradePct: 1,
-      maxDailyTrades: 0,
-      stopOrdersEnabled: false
-    };
-    DEFAULT_WEEKLY_GOAL = {
-      targetSol: 0,
-      targetPct: 0,
-      startPortfolio: 0,
-      currentProfitSol: 0,
-      phase: "idle",
-      weekStart: 0,
-      winStreak: 0,
-      tradeHistory: []
-    };
-    engineStates2 = /* @__PURE__ */ new Map();
-    startingSolUsers = /* @__PURE__ */ new Set();
-    PAPER_DEFAULT_PORTFOLIO_SOL = 10;
-    SOL_PAPER_MAX_SOL = Number(process.env.SOL_PAPER_MAX_SOL ?? 1e3);
   }
 });
 
@@ -58629,7 +58974,7 @@ async function scrapeNewsRSS(theme, pairSymbols = []) {
     // Pair-specific search — grounds the research in this week's ACTUAL
     // pairs (from the weekly plan) instead of only the generic theme angle.
     ...pairSymbols.slice(0, 3).map(
-      (sym) => `https://news.google.com/rss/search?q=${encodeURIComponent(sym)}+forex&hl=en-US&gl=US&ceid=US:en`
+      (sym2) => `https://news.google.com/rss/search?q=${encodeURIComponent(sym2)}+forex&hl=en-US&gl=US&ceid=US:en`
     )
   ];
   const headers = { "User-Agent": "VEDD-Ambassador-Prime/1.0" };
@@ -58801,12 +59146,12 @@ async function aggregateWeeklyPairs() {
     for (const day of Object.keys(weeklyPlan)) {
       const pairs = weeklyPlan[day]?.pairs || [];
       for (const p of pairs) {
-        const sym = (p.symbol || "").toUpperCase().replace("/", "");
-        if (!sym || !sym.includes("USD")) continue;
-        if (!tally[sym]) tally[sym] = { symbol: p.symbol, directions: {}, mentionCount: 0 };
-        tally[sym].mentionCount++;
+        const sym2 = (p.symbol || "").toUpperCase().replace("/", "");
+        if (!sym2 || !sym2.includes("USD")) continue;
+        if (!tally[sym2]) tally[sym2] = { symbol: p.symbol, directions: {}, mentionCount: 0 };
+        tally[sym2].mentionCount++;
         const dir = (p.direction || "BOTH").toUpperCase();
-        tally[sym].directions[dir] = (tally[sym].directions[dir] || 0) + 1;
+        tally[sym2].directions[dir] = (tally[sym2].directions[dir] || 0) + 1;
       }
     }
   }
@@ -63967,7 +64312,7 @@ async function marketInsightsHandler(req, res) {
 // server/services/stopOrderService.ts
 init_db();
 init_schema();
-import { eq as eq5, and as and5, sql as sql6 } from "drizzle-orm";
+import { eq as eq6, and as and5, sql as sql7 } from "drizzle-orm";
 async function createStopOrder(params) {
   const { currentPrice, ...insertData } = params;
   if (currentPrice != null && currentPrice > 0) {
@@ -63995,8 +64340,8 @@ async function checkBreakoutTriggers(symbol, currentPrice) {
   try {
     pending = await db.select().from(stopOrders).where(
       and5(
-        eq5(stopOrders.symbol, normalised),
-        eq5(stopOrders.status, "PENDING")
+        eq6(stopOrders.symbol, normalised),
+        eq6(stopOrders.status, "PENDING")
       )
     );
   } catch (err) {
@@ -64013,7 +64358,7 @@ async function checkBreakoutTriggers(symbol, currentPrice) {
         status: "TRIGGERED",
         triggeredAt: /* @__PURE__ */ new Date(),
         updatedAt: /* @__PURE__ */ new Date()
-      }).where(and5(eq5(stopOrders.id, order.id), eq5(stopOrders.status, "PENDING"))).returning();
+      }).where(and5(eq6(stopOrders.id, order.id), eq6(stopOrders.status, "PENDING"))).returning();
       if (updated) {
         triggered.push(updated);
         console.log(
@@ -64027,41 +64372,41 @@ async function checkBreakoutTriggers(symbol, currentPrice) {
   return triggered;
 }
 async function cancelStopOrder(orderId, userId) {
-  const [existing] = await db.select().from(stopOrders).where(and5(eq5(stopOrders.id, orderId), eq5(stopOrders.userId, userId)));
+  const [existing] = await db.select().from(stopOrders).where(and5(eq6(stopOrders.id, orderId), eq6(stopOrders.userId, userId)));
   if (!existing) {
     throw new Error(`Stop order id=${orderId} not found for this user`);
   }
   if (existing.status !== "PENDING") {
     throw new Error(`Stop order id=${orderId} is already ${existing.status}`);
   }
-  const [cancelled] = await db.update(stopOrders).set({ status: "CANCELLED", cancelledAt: /* @__PURE__ */ new Date(), updatedAt: /* @__PURE__ */ new Date() }).where(and5(eq5(stopOrders.id, orderId), eq5(stopOrders.userId, userId))).returning();
+  const [cancelled] = await db.update(stopOrders).set({ status: "CANCELLED", cancelledAt: /* @__PURE__ */ new Date(), updatedAt: /* @__PURE__ */ new Date() }).where(and5(eq6(stopOrders.id, orderId), eq6(stopOrders.userId, userId))).returning();
   console.log(`[StopOrders] Cancelled id=${orderId} userId=${userId}`);
   return cancelled;
 }
 async function getStopOrdersForUser(userId, filters = {}) {
-  const conditions = [eq5(stopOrders.userId, userId)];
+  const conditions = [eq6(stopOrders.userId, userId)];
   if (filters.symbol) {
-    conditions.push(eq5(stopOrders.symbol, filters.symbol.toUpperCase().replace("/", "")));
+    conditions.push(eq6(stopOrders.symbol, filters.symbol.toUpperCase().replace("/", "")));
   }
   if (filters.status) {
-    conditions.push(eq5(stopOrders.status, filters.status.toUpperCase()));
+    conditions.push(eq6(stopOrders.status, filters.status.toUpperCase()));
   }
-  return db.select().from(stopOrders).where(and5(...conditions)).orderBy(sql6`${stopOrders.createdAt} DESC`);
+  return db.select().from(stopOrders).where(and5(...conditions)).orderBy(sql7`${stopOrders.createdAt} DESC`);
 }
 
 // server/routes.ts
 init_schema();
 
 // server/build-info.ts
-var BUILD_COMMIT = "904a6580-dirty";
+var BUILD_COMMIT = "d194c810-dirty";
 var BUILD_BRANCH = "HEAD";
-var BUILT_AT = "2026-11-01T16:43:11.282Z";
+var BUILT_AT = "2026-11-01T17:03:02.401Z";
 
 // server/stripe.ts
 init_db();
 init_schema();
 import Stripe2 from "stripe";
-import { eq as eq6 } from "drizzle-orm";
+import { eq as eq7 } from "drizzle-orm";
 
 // server/stripeClient.ts
 import Stripe from "stripe";
@@ -64112,7 +64457,7 @@ async function createStripeCustomer(userId, email, name) {
     });
     await db.update(users).set({
       stripeCustomerId: customer.id
-    }).where(eq6(users.id, userId));
+    }).where(eq7(users.id, userId));
     return customer;
   } catch (error) {
     console.error("Error creating Stripe customer:", error);
@@ -64122,11 +64467,11 @@ async function createStripeCustomer(userId, email, name) {
 async function createSubscription(userId, planId, successUrl, cancelUrl) {
   try {
     const stripeClient = await getStripe();
-    const [user] = await db.select().from(users).where(eq6(users.id, userId));
+    const [user] = await db.select().from(users).where(eq7(users.id, userId));
     if (!user) {
       throw new Error("User not found");
     }
-    const [plan] = await db.select().from(subscriptionPlans).where(eq6(subscriptionPlans.id, planId));
+    const [plan] = await db.select().from(subscriptionPlans).where(eq7(subscriptionPlans.id, planId));
     if (!plan) {
       throw new Error("Subscription plan not found");
     }
@@ -64139,7 +64484,7 @@ async function createSubscription(userId, planId, successUrl, cancelUrl) {
       } catch (e) {
         console.log("Stripe customer not found, creating new one:", e.message);
         user.stripeCustomerId = null;
-        await db.update(users).set({ stripeCustomerId: null }).where(eq6(users.id, user.id));
+        await db.update(users).set({ stripeCustomerId: null }).where(eq7(users.id, user.id));
       }
     }
     if (!user.stripeCustomerId) {
@@ -64171,7 +64516,7 @@ async function createSubscription(userId, planId, successUrl, cancelUrl) {
       await db.update(subscriptionPlans).set({
         stripeProductId: product.id,
         stripePriceId: price.id
-      }).where(eq6(subscriptionPlans.id, plan.id));
+      }).where(eq7(subscriptionPlans.id, plan.id));
       plan.stripeProductId = product.id;
       plan.stripePriceId = price.id;
     }
@@ -64181,7 +64526,7 @@ async function createSubscription(userId, planId, successUrl, cancelUrl) {
         subscriptionStatus: "active",
         subscriptionCurrentPeriodEnd: new Date(Date.now() + 30 * 24 * 60 * 60 * 1e3)
         // 30 days
-      }).where(eq6(users.id, userId));
+      }).where(eq7(users.id, userId));
       return {
         status: "active",
         currentPeriodEnd: new Date(Date.now() + 30 * 24 * 60 * 60 * 1e3),
@@ -64239,7 +64584,7 @@ async function checkUserSubscriptionLimits(userId, actionType) {
       monthlySocialShareCount: users.monthlySocialShareCount,
       lastCountReset: users.lastCountReset,
       membershipTier: users.membershipTier
-    }).from(users).where(eq6(users.id, userId));
+    }).from(users).where(eq7(users.id, userId));
     if (!user) {
       throw new Error("User not found");
     }
@@ -64247,7 +64592,7 @@ async function checkUserSubscriptionLimits(userId, actionType) {
       await db.update(users).set({
         subscriptionPlanId: 1,
         subscriptionStatus: "active"
-      }).where(eq6(users.id, userId));
+      }).where(eq7(users.id, userId));
       user.subscriptionPlanId = 1;
       user.subscriptionStatus = "active";
     }
@@ -64255,14 +64600,14 @@ async function checkUserSubscriptionLimits(userId, actionType) {
     if (user.membershipTier && user.membershipTier !== "none") {
       const equivalentPlanName = MEMBERSHIP_PLAN_MAP[user.membershipTier];
       if (equivalentPlanName) {
-        const [tokenPlan] = await db.select().from(subscriptionPlans).where(eq6(subscriptionPlans.name, equivalentPlanName));
+        const [tokenPlan] = await db.select().from(subscriptionPlans).where(eq7(subscriptionPlans.name, equivalentPlanName));
         if (tokenPlan) {
           plan = tokenPlan;
         }
       }
     }
     if (!plan) {
-      const [dbPlan] = await db.select().from(subscriptionPlans).where(eq6(subscriptionPlans.id, user.subscriptionPlanId));
+      const [dbPlan] = await db.select().from(subscriptionPlans).where(eq7(subscriptionPlans.id, user.subscriptionPlanId));
       plan = dbPlan;
     }
     if (!plan) {
@@ -64276,7 +64621,7 @@ async function checkUserSubscriptionLimits(userId, actionType) {
         monthlyAnalysisCount: 0,
         monthlySocialShareCount: 0,
         lastCountReset: now
-      }).where(eq6(users.id, userId));
+      }).where(eq7(users.id, userId));
       user.monthlyAnalysisCount = 0;
       user.monthlySocialShareCount = 0;
       user.lastCountReset = now;
@@ -64291,7 +64636,7 @@ async function checkUserSubscriptionLimits(userId, actionType) {
       if (allowed) {
         await db.update(users).set({
           monthlyAnalysisCount: (user.monthlyAnalysisCount || 0) + 1
-        }).where(eq6(users.id, userId));
+        }).where(eq7(users.id, userId));
       }
     } else if (actionType === "social_share") {
       currentCount = user.monthlySocialShareCount || 0;
@@ -64300,7 +64645,7 @@ async function checkUserSubscriptionLimits(userId, actionType) {
       if (allowed) {
         await db.update(users).set({
           monthlySocialShareCount: (user.monthlySocialShareCount || 0) + 1
-        }).where(eq6(users.id, userId));
+        }).where(eq7(users.id, userId));
       }
     }
     return {
@@ -64318,7 +64663,7 @@ async function checkUserSubscriptionLimits(userId, actionType) {
 async function cancelSubscription(userId) {
   try {
     const stripeClient = await getStripe();
-    const [user] = await db.select().from(users).where(eq6(users.id, userId));
+    const [user] = await db.select().from(users).where(eq7(users.id, userId));
     if (!user) {
       throw new Error("User not found");
     }
@@ -64328,7 +64673,7 @@ async function cancelSubscription(userId) {
     const subscription = await stripeClient.subscriptions.cancel(user.stripeSubscriptionId);
     await db.update(users).set({
       subscriptionStatus: subscription.status
-    }).where(eq6(users.id, userId));
+    }).where(eq7(users.id, userId));
     return {
       status: subscription.status
     };
@@ -64339,7 +64684,7 @@ async function cancelSubscription(userId) {
 }
 async function getSubscriptionPlans() {
   try {
-    return await db.select().from(subscriptionPlans).where(eq6(subscriptionPlans.isActive, true));
+    return await db.select().from(subscriptionPlans).where(eq7(subscriptionPlans.isActive, true));
   } catch (error) {
     console.error("Error getting subscription plans:", error);
     throw error;
@@ -64347,14 +64692,14 @@ async function getSubscriptionPlans() {
 }
 async function getUserSubscription(userId) {
   try {
-    const [user] = await db.select().from(users).where(eq6(users.id, userId));
+    const [user] = await db.select().from(users).where(eq7(users.id, userId));
     if (!user) {
       throw new Error("User not found");
     }
     if (!user.subscriptionPlanId) {
       return null;
     }
-    const [plan] = await db.select().from(subscriptionPlans).where(eq6(subscriptionPlans.id, user.subscriptionPlanId));
+    const [plan] = await db.select().from(subscriptionPlans).where(eq7(subscriptionPlans.id, user.subscriptionPlanId));
     if (!plan) {
       return null;
     }
@@ -64378,15 +64723,15 @@ async function getUserSubscription(userId) {
 // server/lemonsqueezy.ts
 init_db();
 init_schema();
-import crypto5 from "crypto";
-import { eq as eq7 } from "drizzle-orm";
+import crypto6 from "crypto";
+import { eq as eq8 } from "drizzle-orm";
 
 // server/veddConversionHook.ts
-import crypto4 from "crypto";
+import crypto5 from "crypto";
 var PORTAL_URL = process.env.VEDD_PORTAL_URL || "";
 var WEBHOOK_SECRET = process.env.WEBHOOK_SECRET || "";
 function sign(body) {
-  return crypto4.createHmac("sha256", WEBHOOK_SECRET).update(body).digest("hex");
+  return crypto5.createHmac("sha256", WEBHOOK_SECRET).update(body).digest("hex");
 }
 async function fireConversionHook(payload2) {
   if (!PORTAL_URL || !WEBHOOK_SECRET) {
@@ -64492,11 +64837,11 @@ async function lsCancelSubscription(subscriptionId) {
 }
 function lsVerifyWebhook(rawBody, signature) {
   if (!LS_WEBHOOK_SECRET || !signature) return false;
-  const hmac = crypto5.createHmac("sha256", LS_WEBHOOK_SECRET);
+  const hmac = crypto6.createHmac("sha256", LS_WEBHOOK_SECRET);
   hmac.update(rawBody);
   const digest = hmac.digest("hex");
   try {
-    return crypto5.timingSafeEqual(Buffer.from(digest, "hex"), Buffer.from(signature, "hex"));
+    return crypto6.timingSafeEqual(Buffer.from(digest, "hex"), Buffer.from(signature, "hex"));
   } catch {
     return false;
   }
@@ -64525,16 +64870,16 @@ async function lsHandleWebhookEvent(event) {
         subscriptionPlanId: planId || void 0,
         subscriptionStatus: status === "active" ? "active" : status,
         subscriptionCurrentPeriodEnd: renewsAt || void 0
-      }).where(eq7(users.id, userId));
+      }).where(eq8(users.id, userId));
       const [userRow] = await db.select({
         email: users.email,
         username: users.username,
         referredBy: users.referredBy
-      }).from(users).where(eq7(users.id, userId)).limit(1).catch(() => [null]);
+      }).from(users).where(eq8(users.id, userId)).limit(1).catch(() => [null]);
       if (userRow) {
         let resolvedReferralCode = referralCode;
         if (!resolvedReferralCode && userRow.referredBy) {
-          const [referrer] = await db.select({ referralCode: users.referralCode }).from(users).where(eq7(users.id, userRow.referredBy)).limit(1).catch(() => [null]);
+          const [referrer] = await db.select({ referralCode: users.referralCode }).from(users).where(eq8(users.id, userRow.referredBy)).limit(1).catch(() => [null]);
           resolvedReferralCode = referrer?.referralCode ?? void 0;
         }
         const planName = planId === 2 ? "pro" : planId === 3 ? "enterprise" : "pro";
@@ -64559,7 +64904,7 @@ async function lsHandleWebhookEvent(event) {
       await db.update(users).set({
         subscriptionStatus: status,
         subscriptionCurrentPeriodEnd: renewsAt || void 0
-      }).where(eq7(users.id, userId));
+      }).where(eq8(users.id, userId));
       return { handled: true, action: "updated" };
     }
     case "subscription_cancelled":
@@ -64568,7 +64913,7 @@ async function lsHandleWebhookEvent(event) {
         subscriptionStatus: "canceled",
         subscriptionPlanId: 1,
         lsSubscriptionId: null
-      }).where(eq7(users.id, userId));
+      }).where(eq8(users.id, userId));
       return { handled: true, action: "cancelled" };
     }
     case "subscription_payment_success": {
@@ -64577,13 +64922,13 @@ async function lsHandleWebhookEvent(event) {
       await db.update(users).set({
         subscriptionStatus: "active",
         subscriptionCurrentPeriodEnd: renewsAt || void 0
-      }).where(eq7(users.id, userId));
+      }).where(eq8(users.id, userId));
       return { handled: true, action: "payment_success" };
     }
     case "subscription_payment_failed": {
       await db.update(users).set({
         subscriptionStatus: "past_due"
-      }).where(eq7(users.id, userId));
+      }).where(eq8(users.id, userId));
       return { handled: true, action: "payment_failed" };
     }
     default:
@@ -64591,7 +64936,7 @@ async function lsHandleWebhookEvent(event) {
   }
 }
 async function lsSetPlanVariantId(planId, variantId) {
-  await db.update(subscriptionPlans).set({ lsVariantId: variantId }).where(eq7(subscriptionPlans.id, planId));
+  await db.update(subscriptionPlans).set({ lsVariantId: variantId }).where(eq8(subscriptionPlans.id, planId));
 }
 async function lsGetPlanVariants() {
   const plans = await db.select({
@@ -65101,14 +65446,14 @@ init_db();
 init_schema();
 init_token_rewards();
 import { Router } from "express";
-import { eq as eq9, desc as desc3, sql as sql8 } from "drizzle-orm";
+import { eq as eq10, desc as desc3, sql as sql9 } from "drizzle-orm";
 var router = Router();
 async function requireAdmin(req, res, next) {
   if (!req.isAuthenticated()) {
     return res.status(401).json({ error: "Not authenticated" });
   }
   const userId = req.user.id;
-  const [user] = await db.select({ isAdmin: users.isAdmin }).from(users).where(eq9(users.id, userId)).limit(1);
+  const [user] = await db.select({ isAdmin: users.isAdmin }).from(users).where(eq10(users.id, userId)).limit(1);
   if (!user?.isAdmin) {
     return res.status(403).json({ error: "Admin access required" });
   }
@@ -65153,7 +65498,7 @@ router.get("/daily-missions", async (req, res) => {
     const weekStart = new Date(now);
     weekStart.setDate(now.getDate() + diffToMon);
     weekStart.setHours(0, 0, 0, 0);
-    const rawToday = await db.execute(sql8`
+    const rawToday = await db.execute(sql9`
       SELECT action_type, COUNT(*) as count, COALESCE(SUM(total_reward),0) as earned
       FROM ambassador_action_rewards
       WHERE user_id = ${userId} AND created_at >= ${todayStart.toISOString()}
@@ -65162,7 +65507,7 @@ router.get("/daily-missions", async (req, res) => {
     const todayRows = Array.isArray(rawToday) ? rawToday : rawToday.rows || [];
     const todayMap = {};
     for (const r of todayRows) todayMap[r.action_type] = { count: Number(r.count), earned: Number(r.earned) };
-    const rawWeek = await db.execute(sql8`
+    const rawWeek = await db.execute(sql9`
       SELECT action_type, COUNT(*) as count, COALESCE(SUM(total_reward),0) as earned
       FROM ambassador_action_rewards
       WHERE user_id = ${userId} AND created_at >= ${weekStart.toISOString()}
@@ -65197,7 +65542,7 @@ router.get("/daily-missions", async (req, res) => {
       const veddReward = TOKEN_REWARDS[t.actionType] ?? t.veddReward;
       return { ...t, veddReward, completedCount: done, earnedVedd: earned, completed: done >= t.maxCount };
     });
-    const rawDevDays = await db.execute(sql8`
+    const rawDevDays = await db.execute(sql9`
       SELECT COUNT(DISTINCT DATE(created_at)) as days
       FROM ambassador_action_rewards
       WHERE user_id = ${userId}
@@ -65235,7 +65580,7 @@ router.post("/track", async (req, res) => {
 });
 router.get("/config", async (req, res) => {
   try {
-    const configs = await db.select().from(veddRewardConfig).where(eq9(veddRewardConfig.isActive, true));
+    const configs = await db.select().from(veddRewardConfig).where(eq10(veddRewardConfig.isActive, true));
     res.json(configs.map((c) => ({
       actionType: c.actionType,
       baseAmount: c.baseAmount,
@@ -65310,7 +65655,7 @@ router.post("/admin/pool/:walletId/sync", requireAdmin, async (req, res) => {
 });
 router.get("/admin/pending-rewards", requireAdmin, async (req, res) => {
   try {
-    const pendingRewards = await db.select().from(ambassadorActionRewards).where(eq9(ambassadorActionRewards.verificationStatus, "pending")).orderBy(desc3(ambassadorActionRewards.createdAt)).limit(100);
+    const pendingRewards = await db.select().from(ambassadorActionRewards).where(eq10(ambassadorActionRewards.verificationStatus, "pending")).orderBy(desc3(ambassadorActionRewards.createdAt)).limit(100);
     res.json(pendingRewards);
   } catch (error) {
     console.error("Error fetching pending rewards:", error);
@@ -65341,7 +65686,7 @@ router.get("/admin/transfers", requireAdmin, async (req, res) => {
     const limit = parseInt(req.query.limit) || 50;
     let query = db.select().from(veddTransferJobs).orderBy(desc3(veddTransferJobs.createdAt)).limit(limit);
     if (status) {
-      query = query.where(eq9(veddTransferJobs.status, status));
+      query = query.where(eq10(veddTransferJobs.status, status));
     }
     const transfers = await query;
     res.json(transfers);
@@ -65353,7 +65698,7 @@ router.get("/admin/transfers", requireAdmin, async (req, res) => {
 router.post("/admin/transfers/:jobId/retry", requireAdmin, async (req, res) => {
   try {
     const jobId = parseInt(req.params.jobId);
-    await db.update(veddTransferJobs).set({ status: "pending", retryCount: 0 }).where(eq9(veddTransferJobs.id, jobId));
+    await db.update(veddTransferJobs).set({ status: "pending", retryCount: 0 }).where(eq10(veddTransferJobs.id, jobId));
     const result = await veddTokenService.processTransfer(jobId);
     res.json(result);
   } catch (error) {
@@ -65373,7 +65718,7 @@ router.post("/admin/config/:actionType", requireAdmin, async (req, res) => {
       ...description !== void 0 && { description },
       ...isActive !== void 0 && { isActive },
       updatedAt: /* @__PURE__ */ new Date()
-    }).where(eq9(veddRewardConfig.actionType, actionType));
+    }).where(eq10(veddRewardConfig.actionType, actionType));
     res.json({ success: true });
   } catch (error) {
     console.error("Error updating reward config:", error);
@@ -65407,7 +65752,7 @@ router.post("/admin/blacklist", requireAdmin, async (req, res) => {
 });
 router.delete("/admin/blacklist/:address", requireAdmin, async (req, res) => {
   try {
-    await db.update(veddWalletBlacklist).set({ isActive: false }).where(eq9(veddWalletBlacklist.walletAddress, req.params.address));
+    await db.update(veddWalletBlacklist).set({ isActive: false }).where(eq10(veddWalletBlacklist.walletAddress, req.params.address));
     res.json({ success: true });
   } catch (error) {
     res.status(500).json({ error: "Failed to remove from blacklist" });
@@ -65415,7 +65760,7 @@ router.delete("/admin/blacklist/:address", requireAdmin, async (req, res) => {
 });
 router.get("/admin/security-alerts", requireAdmin, async (req, res) => {
   try {
-    const flagged = await db.select().from(ambassadorActionRewards).where(sql8`${ambassadorActionRewards.securityFlag} IS NOT NULL`).orderBy(desc3(ambassadorActionRewards.createdAt)).limit(100);
+    const flagged = await db.select().from(ambassadorActionRewards).where(sql9`${ambassadorActionRewards.securityFlag} IS NOT NULL`).orderBy(desc3(ambassadorActionRewards.createdAt)).limit(100);
     res.json(flagged);
   } catch (error) {
     res.status(500).json({ error: "Failed to fetch security alerts" });
@@ -65431,7 +65776,7 @@ router.post("/referral/trade-profit", async (req, res) => {
     if (typeof profitAmount !== "number" || profitAmount <= 0) {
       return res.status(400).json({ error: "Valid positive profitAmount required" });
     }
-    const [referral] = await db.select().from(referrals2).where(eq9(referrals2.referredId, traderId)).limit(1);
+    const [referral] = await db.select().from(referrals2).where(eq10(referrals2.referredId, traderId)).limit(1);
     if (!referral) {
       return res.json({ success: false, message: "No referrer found for this user" });
     }
@@ -65467,7 +65812,7 @@ router.post("/referral/signup", async (req, res) => {
       return res.status(401).json({ error: "Not authenticated" });
     }
     const newUserId = req.user.id;
-    const [referral] = await db.select().from(referrals2).where(eq9(referrals2.referredId, newUserId)).limit(1);
+    const [referral] = await db.select().from(referrals2).where(eq10(referrals2.referredId, newUserId)).limit(1);
     if (!referral) {
       return res.json({ success: false, message: "No referrer found for this user" });
     }
@@ -65502,7 +65847,7 @@ router.get("/referral/stats", async (req, res) => {
       return res.status(401).json({ error: "Not authenticated" });
     }
     const userId = req.user.id;
-    const referralRewards = await db.select().from(ambassadorActionRewards).where(eq9(ambassadorActionRewards.userId, userId));
+    const referralRewards = await db.select().from(ambassadorActionRewards).where(eq10(ambassadorActionRewards.userId, userId));
     const referralTypes = ["referral_signup", "referral_profit_share", "referral_first_trade", "referral_ambassador"];
     const referralOnlyRewards = referralRewards.filter((r) => referralTypes.includes(r.actionType));
     const totalReferrals = referralOnlyRewards.filter((r) => r.actionType === "referral_signup").length;
@@ -66724,7 +67069,7 @@ var moomoo_default = router3;
 init_db();
 init_schema();
 import { Router as Router4 } from "express";
-import { eq as eq10, desc as desc4 } from "drizzle-orm";
+import { eq as eq11, desc as desc4 } from "drizzle-orm";
 var router4 = Router4();
 function requireAuth3(req, res) {
   if (!req.isAuthenticated || !req.isAuthenticated()) {
@@ -66817,15 +67162,15 @@ router4.get("/biz-builder/my-profile", async (req, res) => {
   if (!requireAuth3(req, res)) return;
   const userId = getUserId3(req);
   try {
-    const profiles = await db.select().from(bizProfiles).where(eq10(bizProfiles.userId, userId)).orderBy(desc4(bizProfiles.createdAt)).limit(1);
+    const profiles = await db.select().from(bizProfiles).where(eq11(bizProfiles.userId, userId)).orderBy(desc4(bizProfiles.createdAt)).limit(1);
     if (!profiles.length) return res.json({ profile: null });
     const profile = profiles[0];
     const [nameChecks, formationLinks, bankLinks, creditTasks, fundingMatches] = await Promise.all([
-      db.select().from(bizNameChecks).where(eq10(bizNameChecks.bizProfileId, profile.id)),
-      db.select().from(bizFormationLinks).where(eq10(bizFormationLinks.bizProfileId, profile.id)),
-      db.select().from(bizBankLinks).where(eq10(bizBankLinks.bizProfileId, profile.id)),
-      db.select().from(bizCreditTasks).where(eq10(bizCreditTasks.bizProfileId, profile.id)),
-      db.select().from(bizFundingMatches).where(eq10(bizFundingMatches.bizProfileId, profile.id))
+      db.select().from(bizNameChecks).where(eq11(bizNameChecks.bizProfileId, profile.id)),
+      db.select().from(bizFormationLinks).where(eq11(bizFormationLinks.bizProfileId, profile.id)),
+      db.select().from(bizBankLinks).where(eq11(bizBankLinks.bizProfileId, profile.id)),
+      db.select().from(bizCreditTasks).where(eq11(bizCreditTasks.bizProfileId, profile.id)),
+      db.select().from(bizFundingMatches).where(eq11(bizFundingMatches.bizProfileId, profile.id))
     ]);
     res.json({ profile, nameChecks, formationLinks, bankLinks, creditTasks, fundingMatches });
   } catch (e) {
@@ -66837,15 +67182,15 @@ router4.get("/biz-builder/:profileId", async (req, res) => {
   if (!requireAuth3(req, res)) return;
   try {
     const profileId = parseInt(req.params.profileId);
-    const profiles = await db.select().from(bizProfiles).where(eq10(bizProfiles.id, profileId)).limit(1);
+    const profiles = await db.select().from(bizProfiles).where(eq11(bizProfiles.id, profileId)).limit(1);
     if (!profiles.length) return res.status(404).json({ error: "Profile not found" });
     const profile = profiles[0];
     const [nameChecks, formationLinks, bankLinks, creditTasks, fundingMatches] = await Promise.all([
-      db.select().from(bizNameChecks).where(eq10(bizNameChecks.bizProfileId, profile.id)),
-      db.select().from(bizFormationLinks).where(eq10(bizFormationLinks.bizProfileId, profile.id)),
-      db.select().from(bizBankLinks).where(eq10(bizBankLinks.bizProfileId, profile.id)),
-      db.select().from(bizCreditTasks).where(eq10(bizCreditTasks.bizProfileId, profile.id)),
-      db.select().from(bizFundingMatches).where(eq10(bizFundingMatches.bizProfileId, profile.id))
+      db.select().from(bizNameChecks).where(eq11(bizNameChecks.bizProfileId, profile.id)),
+      db.select().from(bizFormationLinks).where(eq11(bizFormationLinks.bizProfileId, profile.id)),
+      db.select().from(bizBankLinks).where(eq11(bizBankLinks.bizProfileId, profile.id)),
+      db.select().from(bizCreditTasks).where(eq11(bizCreditTasks.bizProfileId, profile.id)),
+      db.select().from(bizFundingMatches).where(eq11(bizFundingMatches.bizProfileId, profile.id))
     ]);
     res.json({ profile, nameChecks, formationLinks, bankLinks, creditTasks, fundingMatches });
   } catch (e) {
@@ -66885,7 +67230,7 @@ router4.post("/biz-builder/:profileId/select-formation", async (req, res) => {
     }
     const redirectUrl = FORMATION_URLS[provider];
     await db.insert(bizFormationLinks).values({ bizProfileId: profileId, provider, redirectUrl });
-    await db.update(bizProfiles).set({ status: "formation", updatedAt: /* @__PURE__ */ new Date() }).where(eq10(bizProfiles.id, profileId));
+    await db.update(bizProfiles).set({ status: "formation", updatedAt: /* @__PURE__ */ new Date() }).where(eq11(bizProfiles.id, profileId));
     res.json({ provider, redirectUrl });
   } catch (e) {
     console.error("[BizBuilder] select-formation error:", e.message);
@@ -66902,7 +67247,7 @@ router4.post("/biz-builder/:profileId/select-bank", async (req, res) => {
     }
     const referralUrl = BANK_URLS[provider];
     await db.insert(bizBankLinks).values({ bizProfileId: profileId, provider, referralUrl });
-    await db.update(bizProfiles).set({ status: "banking", updatedAt: /* @__PURE__ */ new Date() }).where(eq10(bizProfiles.id, profileId));
+    await db.update(bizProfiles).set({ status: "banking", updatedAt: /* @__PURE__ */ new Date() }).where(eq11(bizProfiles.id, profileId));
     res.json({ provider, referralUrl });
   } catch (e) {
     console.error("[BizBuilder] select-bank error:", e.message);
@@ -66913,7 +67258,7 @@ router4.post("/biz-builder/:profileId/generate-credit-tasks", async (req, res) =
   if (!requireAuth3(req, res)) return;
   try {
     const profileId = parseInt(req.params.profileId);
-    const profiles = await db.select().from(bizProfiles).where(eq10(bizProfiles.id, profileId)).limit(1);
+    const profiles = await db.select().from(bizProfiles).where(eq11(bizProfiles.id, profileId)).limit(1);
     if (!profiles.length) return res.status(404).json({ error: "Profile not found" });
     const p = profiles[0];
     const today = /* @__PURE__ */ new Date();
@@ -66954,7 +67299,7 @@ Return a JSON array: [{ "task_name": "string", "task_type": "net30"|"credit_moni
         status: "pending"
       }))
     ).returning();
-    await db.update(bizProfiles).set({ status: "credit_building", updatedAt: /* @__PURE__ */ new Date() }).where(eq10(bizProfiles.id, profileId));
+    await db.update(bizProfiles).set({ status: "credit_building", updatedAt: /* @__PURE__ */ new Date() }).where(eq11(bizProfiles.id, profileId));
     res.json({ tasks: inserted });
   } catch (e) {
     console.error("[BizBuilder] generate-credit-tasks error:", e.message);
@@ -66965,7 +67310,7 @@ router4.post("/biz-builder/:profileId/generate-funding-matches", async (req, res
   if (!requireAuth3(req, res)) return;
   try {
     const profileId = parseInt(req.params.profileId);
-    const profiles = await db.select().from(bizProfiles).where(eq10(bizProfiles.id, profileId)).limit(1);
+    const profiles = await db.select().from(bizProfiles).where(eq11(bizProfiles.id, profileId)).limit(1);
     if (!profiles.length) return res.status(404).json({ error: "Profile not found" });
     const p = profiles[0];
     const raw = await callClaude(
@@ -66987,7 +67332,7 @@ Return a JSON array: [{ "funder_name": "string", "funder_type": "grant"|"cdfi"|"
         notes: f.notes || null
       }))
     ).returning();
-    await db.update(bizProfiles).set({ status: "funded", updatedAt: /* @__PURE__ */ new Date() }).where(eq10(bizProfiles.id, profileId));
+    await db.update(bizProfiles).set({ status: "funded", updatedAt: /* @__PURE__ */ new Date() }).where(eq11(bizProfiles.id, profileId));
     res.json({ matches: inserted });
   } catch (e) {
     console.error("[BizBuilder] generate-funding-matches error:", e.message);
@@ -66998,14 +67343,14 @@ router4.patch("/biz-builder/tasks/:taskId/complete", async (req, res) => {
   if (!requireAuth3(req, res)) return;
   try {
     const taskId = parseInt(req.params.taskId);
-    const existing = await db.select().from(bizCreditTasks).where(eq10(bizCreditTasks.id, taskId)).limit(1);
+    const existing = await db.select().from(bizCreditTasks).where(eq11(bizCreditTasks.id, taskId)).limit(1);
     if (!existing.length) return res.status(404).json({ error: "Task not found" });
     const isComplete = existing[0].status === "complete";
     const newStatus = isComplete ? "pending" : "complete";
     const [updated] = await db.update(bizCreditTasks).set({
       status: newStatus,
       completedAt: newStatus === "complete" ? /* @__PURE__ */ new Date() : null
-    }).where(eq10(bizCreditTasks.id, taskId)).returning();
+    }).where(eq11(bizCreditTasks.id, taskId)).returning();
     res.json({ task: updated });
   } catch (e) {
     console.error("[BizBuilder] complete task error:", e.message);
@@ -67250,9 +67595,9 @@ async function hashPasswordForWallet(password) {
 function dynamicMaxLot(balance, symbol) {
   if (!(balance > 0)) return 0.1;
   const pipVal = getPipValue(symbol) || 10;
-  const MAX_RISK_PCT = 0.05;
+  const MAX_RISK_PCT2 = 0.05;
   const REF_STOP_PIPS = 15;
-  const cap = balance * MAX_RISK_PCT / (REF_STOP_PIPS * pipVal);
+  const cap = balance * MAX_RISK_PCT2 / (REF_STOP_PIPS * pipVal);
   return Math.max(0.1, Math.round(cap * 100) / 100);
 }
 function effectiveMaxLot(configuredMaxLot, balance, symbol) {
@@ -67459,10 +67804,10 @@ function isInTradingSession(symbol, hourUTC) {
     "USINDEX": "SPX500",
     "SPX500USD": "SPX500"
   };
-  const sym = ALIAS_MAP[raw] ?? raw;
-  const windows = PAIR_SESSION_WINDOWS[sym];
+  const sym2 = ALIAS_MAP[raw] ?? raw;
+  const windows = PAIR_SESSION_WINDOWS[sym2];
   if (!windows) {
-    const fallback = Object.keys(PAIR_SESSION_WINDOWS).find((k2) => k2.startsWith(sym) || sym.startsWith(k2));
+    const fallback = Object.keys(PAIR_SESSION_WINDOWS).find((k2) => k2.startsWith(sym2) || sym2.startsWith(k2));
     if (fallback) return PAIR_SESSION_WINDOWS[fallback].some(([s, e]) => hourUTC >= s && hourUTC < e);
     return true;
   }
@@ -67480,31 +67825,31 @@ function tlSignalGuard(params) {
     riskScore,
     minRR
   } = params;
-  const sym = params.symbol || "";
+  const sym2 = params.symbol || "";
   const dir = (params.direction || "").toUpperCase();
   if (confidence2 < minConfidence) {
     return { allow: false, reason: `Confidence ${confidence2}% below ${minConfidence}% minimum \u2014 blocked` };
   }
   if (requireSLTP && (!stopLoss || stopLoss <= 0)) {
-    return { allow: false, reason: `No stop loss on ${sym} \u2014 undefined risk, blocked` };
+    return { allow: false, reason: `No stop loss on ${sym2} \u2014 undefined risk, blocked` };
   }
   if (requireSLTP && (!takeProfit || takeProfit <= 0)) {
-    return { allow: false, reason: `No take profit on ${sym} \u2014 no exit target, blocked` };
+    return { allow: false, reason: `No take profit on ${sym2} \u2014 no exit target, blocked` };
   }
   if (entryPrice && entryPrice > 0 && stopLoss && stopLoss > 0 && takeProfit && takeProfit > 0) {
     if (dir === "BUY") {
       if (stopLoss >= entryPrice) {
-        return { allow: false, reason: `BUY ${sym}: SL ${stopLoss} >= entry ${entryPrice} \u2014 inverted levels, blocked` };
+        return { allow: false, reason: `BUY ${sym2}: SL ${stopLoss} >= entry ${entryPrice} \u2014 inverted levels, blocked` };
       }
       if (takeProfit <= entryPrice) {
-        return { allow: false, reason: `BUY ${sym}: TP ${takeProfit} <= entry ${entryPrice} \u2014 inverted levels, blocked` };
+        return { allow: false, reason: `BUY ${sym2}: TP ${takeProfit} <= entry ${entryPrice} \u2014 inverted levels, blocked` };
       }
     } else if (dir === "SELL") {
       if (stopLoss <= entryPrice) {
-        return { allow: false, reason: `SELL ${sym}: SL ${stopLoss} <= entry ${entryPrice} \u2014 inverted levels, blocked` };
+        return { allow: false, reason: `SELL ${sym2}: SL ${stopLoss} <= entry ${entryPrice} \u2014 inverted levels, blocked` };
       }
       if (takeProfit >= entryPrice) {
-        return { allow: false, reason: `SELL ${sym}: TP ${takeProfit} >= entry ${entryPrice} \u2014 inverted levels, blocked` };
+        return { allow: false, reason: `SELL ${sym2}: TP ${takeProfit} >= entry ${entryPrice} \u2014 inverted levels, blocked` };
       }
     }
     const riskDist = Math.abs(entryPrice - stopLoss);
@@ -67512,16 +67857,16 @@ function tlSignalGuard(params) {
     if (riskDist > 0) {
       const rr = rewardDist / riskDist;
       const slPct = riskDist / entryPrice;
-      const isCryptoOrComm = ["BTC", "ETH", "XAU", "GOLD", "OIL", "SILVER"].some((t) => sym.toUpperCase().includes(t));
+      const isCryptoOrComm = ["BTC", "ETH", "XAU", "GOLD", "OIL", "SILVER"].some((t) => sym2.toUpperCase().includes(t));
       const tightRangeThreshold = isCryptoOrComm ? 3e-3 : 15e-4;
       const effectiveMinRR = minRR !== void 0 ? minRR : slPct < tightRangeThreshold ? 1.5 : 2;
       if (rr < effectiveMinRR) {
-        return { allow: false, reason: `R:R ${rr.toFixed(2)} on ${sym} ${dir} below ${effectiveMinRR.toFixed(1)} minimum${slPct < tightRangeThreshold ? " (ranging market)" : ""} \u2014 blocked` };
+        return { allow: false, reason: `R:R ${rr.toFixed(2)} on ${sym2} ${dir} below ${effectiveMinRR.toFixed(1)} minimum${slPct < tightRangeThreshold ? " (ranging market)" : ""} \u2014 blocked` };
       }
     }
   }
   if (riskScore != null && riskScore > 7) {
-    return { allow: false, reason: `AI risk score ${riskScore}/10 on ${sym} exceeds max 7 \u2014 blocked` };
+    return { allow: false, reason: `AI risk score ${riskScore}/10 on ${sym2} exceeds max 7 \u2014 blocked` };
   }
   const nowForNews = /* @__PURE__ */ new Date();
   const dayUTC = nowForNews.getUTCDay();
@@ -67542,8 +67887,8 @@ function tlSignalGuard(params) {
   }
   if (checkSession) {
     const hourUTC = (/* @__PURE__ */ new Date()).getUTCHours();
-    if (!isInTradingSession(sym, hourUTC)) {
-      return { allow: false, reason: `${sym} outside its best session at ${hourUTC}:00 UTC \u2014 low liquidity, blocked` };
+    if (!isInTradingSession(sym2, hourUTC)) {
+      return { allow: false, reason: `${sym2} outside its best session at ${hourUTC}:00 UTC \u2014 low liquidity, blocked` };
     }
   }
   return { allow: true, reason: "Passed all signal quality gates" };
@@ -70737,6 +71082,32 @@ Respond ONLY in valid JSON format with these exact keys:
       res.status(500).json({ error: e.message });
     }
   });
+  app2.post("/api/abba/setup/review", async (req, res) => {
+    if (!req.isAuthenticated()) return res.status(401).json({ error: "Authentication required" });
+    try {
+      const { sanitizeProposal: sanitizeProposal2, buildSetupReview: buildSetupReview2 } = await Promise.resolve().then(() => (init_abba_setup(), abba_setup_exports));
+      const p = sanitizeProposal2(req.body?.proposal);
+      if (!p) return res.status(400).json({ error: "No settings in this plan." });
+      res.json(await buildSetupReview2(req.user.id, p));
+    } catch (e) {
+      res.status(500).json({ error: e.message });
+    }
+  });
+  app2.post("/api/abba/setup/apply", async (req, res) => {
+    if (!req.isAuthenticated()) return res.status(401).json({ error: "Authentication required" });
+    if (req.body?.confirm !== true) return res.status(400).json({ error: "Confirm required" });
+    try {
+      const { sanitizeProposal: sanitizeProposal2, applySetup: applySetup2 } = await Promise.resolve().then(() => (init_abba_setup(), abba_setup_exports));
+      const p = sanitizeProposal2(req.body?.proposal);
+      if (!p) return res.status(400).json({ error: "No settings in this plan." });
+      const userId = req.user.id;
+      const out = await applySetup2(userId, p);
+      console.log(`[ABBA setup] user ${userId} applied=${JSON.stringify(out.applied)} errors=${JSON.stringify(out.errors || [])}`);
+      res.json(out);
+    } catch (e) {
+      res.status(500).json({ error: e.message });
+    }
+  });
   app2.get("/api/abba/engine-updates", async (_req, res) => {
     const { ENGINE_UPDATES: ENGINE_UPDATES2 } = await Promise.resolve().then(() => (init_engine_updates(), engine_updates_exports));
     res.json({ updates: ENGINE_UPDATES2 });
@@ -70821,9 +71192,9 @@ Respond ONLY in valid JSON format with these exact keys:
       const mt5ChartCache = global.mt5ChartDataCache || {};
       const orbLiveContext = [];
       const trackedSymbols = Object.keys(mt5ChartCache).filter((k2) => k2.startsWith(`mt5_chart_${userId}_`)).map((k2) => k2.replace(`mt5_chart_${userId}_`, "").replace(/_[A-Z0-9]+$/, "")).filter((v, i, a) => a.indexOf(v) === i);
-      for (const sym of trackedSymbols.slice(0, 6)) {
+      for (const sym2 of trackedSymbols.slice(0, 6)) {
         for (const tf of ["M6", "M5", "M1", "M15", "M30"]) {
-          const cacheKey = `mt5_chart_${userId}_${sym}_${tf}`;
+          const cacheKey = `mt5_chart_${userId}_${sym2}_${tf}`;
           const cacheEntry = mt5ChartCache[cacheKey];
           if (!cacheEntry?.candles?.length) continue;
           const candles = cacheEntry.candles;
@@ -70913,7 +71284,7 @@ Respond ONLY in valid JSON format with these exact keys:
           }
           const rng = orbH > 0 ? (orbH - orbL).toFixed(2) : "?";
           orbLiveContext.push(
-            `${sym} (${tf}): Price=${currPrice.toFixed(4)} | ORB High=${orbH > 0 ? orbH.toFixed(4) : "N/A"} | ORB Low=${orbL > 0 ? orbL.toFixed(4) : "N/A"} | Range=${rng} | Phase=${phase2}${dir ? " " + dir : ""} | Pre-Mkt Bias=${pmBias} | Pattern=${pattern || "none"}`
+            `${sym2} (${tf}): Price=${currPrice.toFixed(4)} | ORB High=${orbH > 0 ? orbH.toFixed(4) : "N/A"} | ORB Low=${orbL > 0 ? orbL.toFixed(4) : "N/A"} | Range=${rng} | Phase=${phase2}${dir ? " " + dir : ""} | Pre-Mkt Bias=${pmBias} | Pattern=${pattern || "none"}`
           );
           break;
         }
@@ -71392,9 +71763,9 @@ data: ${JSON.stringify(data)}
       const mt5ChartCacheStream = global.mt5ChartDataCache || {};
       const orbStreamContext = [];
       const streamSymbols = Object.keys(mt5ChartCacheStream).filter((k2) => k2.startsWith(`mt5_chart_${userId}_`)).map((k2) => k2.replace(`mt5_chart_${userId}_`, "").replace(/_[A-Z0-9]+$/, "")).filter((v, i, a) => a.indexOf(v) === i).slice(0, 4);
-      for (const sym of streamSymbols) {
+      for (const sym2 of streamSymbols) {
         for (const tf of ["M6", "M5", "M1", "M15"]) {
-          const ce = mt5ChartCacheStream[`mt5_chart_${userId}_${sym}_${tf}`];
+          const ce = mt5ChartCacheStream[`mt5_chart_${userId}_${sym2}_${tf}`];
           if (!ce?.candles?.length) continue;
           const c0 = ce.candles[0];
           const cp = c0?.c || c0?.close || 0;
@@ -71444,7 +71815,7 @@ data: ${JSON.stringify(data)}
               }
             }
           }
-          orbStreamContext.push(`${sym}: ${cp.toFixed(4)} | ORB ${oh > 0 ? oh.toFixed(4) : "?"}/${ol > 0 ? ol.toFixed(4) : "?"} | ${phase2} | Pattern: ${pat || "none"}`);
+          orbStreamContext.push(`${sym2}: ${cp.toFixed(4)} | ORB ${oh > 0 ? oh.toFixed(4) : "?"}/${ol > 0 ? ol.toFixed(4) : "?"} | ${phase2} | Pattern: ${pat || "none"}`);
           break;
         }
       }
@@ -71487,7 +71858,7 @@ ${await abbaIdeaLabPrompt(userId)}`;
       let tokenBuffer = "";
       let fullText = "";
       const processSentence = (sentence) => {
-        sentence = sentence.split(IDEA_MARKER).join("");
+        sentence = sentence.split(IDEA_MARKER).join("").split(SETUP_MARKER).join("");
         const stripped = sentence.replace(/\[NAV:\/[^\]]*\]/g, "").replace(/\[PLAN_PROPOSAL:\{[\s\S]*?\}\]/g, "").trim();
         if (!stripped || stripped.length < 4) return;
         sendEvent("text", { text: sentence, speak: stripped });
@@ -71529,11 +71900,24 @@ ${await abbaIdeaLabPrompt(userId)}`;
           return null;
         });
       }
+      let setupDraft = null;
+      if (fullText.includes(SETUP_MARKER)) {
+        setupDraft = await extractSetupDraft(
+          { client: aiClient, model: aiClient.defaultModel || "gpt-4o" },
+          historyMessages,
+          message,
+          fullText.split(SETUP_MARKER).join("")
+        ).catch((e) => {
+          console.error("[ABBA stream setup]", e?.message);
+          return null;
+        });
+      }
       sendEvent("done", {
         navigateTo,
         planProposal,
         suggestions,
         ideaDraft,
+        setupDraft,
         context: { weekPct, weekProfit, weekTarget, todayProfit, dailyTarget, unrealizedPnL, openCount: openPositions.length, targetRemaining, pacingNeededPerDay, weekTrades: strategy?.progressTrades || 0, weekWinRate: strategy?.progressWinRate || 0, balance, planPairs, todayPairs, hasStrategy: !!strategy && weekTarget > 0 }
       });
       res.end();
@@ -72947,8 +73331,8 @@ Return ONLY a JSON object with this structure:
         });
       }
       const provider = new TwelveDataProvider2(apiKey);
-      const inferAssetType = (sym) => {
-        const s = sym.toUpperCase();
+      const inferAssetType = (sym2) => {
+        const s = sym2.toUpperCase();
         const cryptoBases = ["BTC", "ETH", "XRP", "LTC", "ADA", "DOT", "DOGE", "SOL", "AVAX", "MATIC", "BNB"];
         if (cryptoBases.some((c) => s.includes(c))) return "crypto";
         const forexPairs = ["EUR", "GBP", "USD", "JPY", "CHF", "AUD", "NZD", "CAD"];
@@ -74796,10 +75180,10 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
         }
         const symbolStats = {};
         for (const trade of closedTrades) {
-          const sym = (trade.symbol || "").toUpperCase();
-          if (!sym) continue;
-          if (!symbolStats[sym]) {
-            symbolStats[sym] = {
+          const sym2 = (trade.symbol || "").toUpperCase();
+          if (!sym2) continue;
+          if (!symbolStats[sym2]) {
+            symbolStats[sym2] = {
               wins: 0,
               losses: 0,
               hourlyTrades: {},
@@ -74812,7 +75196,7 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
               sellLosses: 0
             };
           }
-          const stats = symbolStats[sym];
+          const stats = symbolStats[sym2];
           const isWin = trade.profit > 0;
           const isLoss = trade.profit < 0;
           const isBuy = trade.direction === "BUY";
@@ -74837,7 +75221,7 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
           }
         }
         const recommendations = {};
-        for (const [sym, stats] of Object.entries(symbolStats)) {
+        for (const [sym2, stats] of Object.entries(symbolStats)) {
           const totalTrades = stats.wins + stats.losses;
           if (totalTrades < 3) continue;
           const winRate2 = stats.wins / totalTrades;
@@ -74867,8 +75251,8 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
               if (lossRate > 0.65) avoidDays.push(dayNames[parseInt(day)] || "");
             }
           }
-          recommendations[sym] = {
-            symbol: sym,
+          recommendations[sym2] = {
+            symbol: sym2,
             totalTrades,
             winRate: Math.round(winRate2 * 100),
             avgWinPL: Math.round(avgWin * 100) / 100,
@@ -77745,8 +78129,8 @@ BEAR CASE: ${_bearCase || "n/a"}` : aiConfirmation.reasoning;
       }
       if (!tlGateBlocked && analysis.signal !== "NEUTRAL") {
         try {
-          const _usdBias = (sym, dir) => {
-            const s = (sym || "").toUpperCase().replace("/", "");
+          const _usdBias = (sym2, dir) => {
+            const s = (sym2 || "").toUpperCase().replace("/", "");
             if (!s.includes("USD")) return null;
             const isBuy = dir === "BUY";
             return s.startsWith("USD") ? isBuy ? "LONG_USD" : "SHORT_USD" : isBuy ? "SHORT_USD" : "LONG_USD";
@@ -78574,9 +78958,9 @@ BEAR CASE: ${_bearCase || "n/a"}` : aiConfirmation.reasoning;
     for (const key of Object.keys(chartCache)) {
       if (!key.startsWith(prefix)) continue;
       const entry = chartCache[key];
-      const sym = key.replace(prefix, "").replace(/_[A-Z0-9]+$/, "").toUpperCase();
+      const sym2 = key.replace(prefix, "").replace(/_[A-Z0-9]+$/, "").toUpperCase();
       const receivedAt = entry?.receivedAt ? new Date(entry.receivedAt).getTime() : 0;
-      if (now - receivedAt < RECENT_MS) coveredPairs.add(sym);
+      if (now - receivedAt < RECENT_MS) coveredPairs.add(sym2);
     }
     const missingPairs = configuredPairs.filter((p) => !coveredPairs.has(p));
     res.json({
@@ -79204,12 +79588,12 @@ BEAR CASE: ${_bearCase || "n/a"}` : aiConfirmation.reasoning;
         allPairSymbols.delete(pairKey);
       }
     }
-    for (const sym of allPairSymbols) {
-      const enabled = perPairSettings[sym] !== false;
-      const indResult = independentMonitor?.results?.[sym];
+    for (const sym2 of allPairSymbols) {
+      const enabled = perPairSettings[sym2] !== false;
+      const indResult = independentMonitor?.results?.[sym2];
       const hasIndData = indResult && indResult.isBreakoutWindow;
       pairStatuses.push({
-        symbol: sym,
+        symbol: sym2,
         timeframe: hasIndData ? "M15" : "N/A",
         updatedAt: hasIndData ? indResult.detectedAt : null,
         ageSeconds: hasIndData ? Math.floor((now.getTime() - new Date(indResult.detectedAt).getTime()) / 1e3) : null,
@@ -79705,16 +80089,16 @@ Respond with ONLY valid JSON:
           const existingDay = plan.weeklyPlan[day] || {};
           const existingBySymbol = {};
           for (const p of existingDay.pairs || []) {
-            const sym = String(p?.symbol || "").toUpperCase().replace("/", "");
-            if (sym) existingBySymbol[sym] = p;
+            const sym2 = String(p?.symbol || "").toUpperCase().replace("/", "");
+            if (sym2) existingBySymbol[sym2] = p;
           }
           plan.weeklyPlan[day] = {
             ...existingDay,
             skip: false,
-            pairs: allPairs.map((sym) => {
-              const prior = existingBySymbol[sym] || {};
+            pairs: allPairs.map((sym2) => {
+              const prior = existingBySymbol[sym2] || {};
               return {
-                symbol: sym,
+                symbol: sym2,
                 direction: "BOTH",
                 // vote engine + AI second opinion pick direction
                 confidence: prior.confidence ?? 70,
@@ -79866,8 +80250,8 @@ Respond with ONLY valid JSON:
     const openPosData = global.mt5OpenPositions?.[userId];
     const allOpenPositions = openPosData?.positions || [];
     const activeTrades = allOpenPositions.filter((p) => {
-      const sym = (p.symbol || "").toUpperCase().replace("/", "");
-      return planPairs.includes(sym);
+      const sym2 = (p.symbol || "").toUpperCase().replace("/", "");
+      return planPairs.includes(sym2);
     });
     const mt5UnrealizedPnL = activeTrades.reduce((s, p) => s + (p.profit || 0), 0);
     const unrealizedPnL = mt5UnrealizedPnL + _tlUnrealizedLive;
@@ -79876,14 +80260,14 @@ Respond with ONLY valid JSON:
     const todayName = dayNames[(/* @__PURE__ */ new Date()).getUTCDay()];
     const todayPlan = strategy.plan?.weeklyPlan?.[todayName];
     const activeTradeDetails = activeTrades.map((p) => {
-      const sym = (p.symbol || "").toUpperCase().replace("/", "");
+      const sym2 = (p.symbol || "").toUpperCase().replace("/", "");
       const matchingPlanPair = todayPlan?.pairs?.find(
-        (pp) => (pp.symbol || "").toUpperCase().replace("/", "") === sym
+        (pp) => (pp.symbol || "").toUpperCase().replace("/", "") === sym2
       );
       const planAligned = matchingPlanPair ? matchingPlanPair.direction === "BOTH" || matchingPlanPair.direction === p.direction : null;
-      const lotOverride = global.veddSSAILotOverride?.[`${userId}_${sym}`];
+      const lotOverride = global.veddSSAILotOverride?.[`${userId}_${sym2}`];
       return {
-        symbol: sym,
+        symbol: sym2,
         direction: p.direction,
         lots: p.lots || 0,
         openPrice: p.openPrice || 0,
@@ -79904,12 +80288,12 @@ Respond with ONLY valid JSON:
     const pairDailyStats = {};
     for (const pair of planPairs) {
       const pairDbToday = dbWeekTrades.filter((t) => {
-        const sym = (t.symbol || "").toUpperCase().replace("/", "");
-        return sym === pair && new Date(t.closedAt || t.createdAt) >= todayStart;
+        const sym2 = (t.symbol || "").toUpperCase().replace("/", "");
+        return sym2 === pair && new Date(t.closedAt || t.createdAt) >= todayStart;
       });
       const pairCacheToday = cacheWeekTrades.filter((t) => {
-        const sym = (t.symbol || "").toUpperCase().replace("/", "");
-        return sym === pair && new Date(t.closeTime || t.timestamp || 0) >= todayStart;
+        const sym2 = (t.symbol || "").toUpperCase().replace("/", "");
+        return sym2 === pair && new Date(t.closeTime || t.timestamp || 0) >= todayStart;
       });
       const pairDbWeek = dbWeekTrades.filter((t) => (t.symbol || "").toUpperCase().replace("/", "") === pair);
       const pairCacheWeek = cacheWeekTrades.filter((t) => (t.symbol || "").toUpperCase().replace("/", "") === pair);
@@ -83002,9 +83386,9 @@ Format each recommendation as a clear, concise action item.`;
     ];
     const pairKnowledge = {};
     const { collapseToSignals: _collapse } = await Promise.resolve().then(() => (init_signal_groups(), signal_groups_exports));
-    for (const sym of uniqueSymbols) {
+    for (const sym2 of uniqueSymbols) {
       const symTrades = _collapse(
-        combinedTrades.filter((t) => t.symbol === sym && (t.result === "WIN" || t.result === "LOSS" || t.result === "BREAKEVEN")).map((t) => ({ ...t, pnl: Number(t.profit) || 0, entryMs: Number(t.closedTs || t.timestamp) || 0 }))
+        combinedTrades.filter((t) => t.symbol === sym2 && (t.result === "WIN" || t.result === "LOSS" || t.result === "BREAKEVEN")).map((t) => ({ ...t, pnl: Number(t.profit) || 0, entryMs: Number(t.closedTs || t.timestamp) || 0 }))
       ).map((g) => ({ ...g, profit: g.pnl }));
       const _lossStreak = computeLossStreak(symTrades);
       const wins = symTrades.filter((t) => t.result === "WIN");
@@ -83062,7 +83446,7 @@ Format each recommendation as a clear, concise action item.`;
         }
       });
       const pairConnected = Object.values(connectedPairs).find(
-        (p) => (p.symbol || "").toUpperCase().replace("/", "") === sym
+        (p) => (p.symbol || "").toUpperCase().replace("/", "") === sym2
       );
       const strategyStats = {};
       symTrades.forEach((t) => {
@@ -83103,9 +83487,9 @@ Format each recommendation as a clear, concise action item.`;
         winFraction - (1 - winFraction) / Math.max(rrRatio, 0.5)
       ));
       const optimalTrailPips = Math.max(5, Math.round(avgWinPips * 0.4));
-      const _pip = /JPY/.test(sym) ? 0.01 : /^XAU/.test(sym) ? 0.1 : /^(BTC|ETH)/.test(sym) ? 1 : /^(US30|NAS|SPX|GER|UK1|JP2)/.test(sym) ? 1 : 1e-4;
+      const _pip = /JPY/.test(sym2) ? 0.01 : /^XAU/.test(sym2) ? 0.1 : /^(BTC|ETH)/.test(sym2) ? 1 : /^(US30|NAS|SPX|GER|UK1|JP2)/.test(sym2) ? 1 : 1e-4;
       const minProfitableATR = avgWinPips > 0 ? avgWinPips * _pip / 10 : 0;
-      pairKnowledge[sym] = {
+      pairKnowledge[sym2] = {
         totalTrades: totalCompleted,
         winRate: winRate2,
         avgWinPips,
@@ -83127,7 +83511,7 @@ Format each recommendation as a clear, concise action item.`;
         lastSignal: pairConnected?.signal || null,
         lastConfidence: pairConnected?.confidence || null,
         currentSpread: pairConnected?.spread || null,
-        lastPrice: pairConnected?.price || lastChartData[sym]?.close || null,
+        lastPrice: pairConnected?.price || lastChartData[sym2]?.close || null,
         // ── New enforcement fields (T001) ────────────────────────────
         bestStrategies,
         optimalTrailPips,
@@ -83162,28 +83546,28 @@ Format each recommendation as a clear, concise action item.`;
     };
     if (overallWR >= 60) brain.learningInsights.push(`Strong edge detected: ${overallWR}% overall win rate across ${overallTotal} trades`);
     if (overallWR < 50 && overallTotal >= 10) brain.learningInsights.push(`Win rate below 50% - AI will prioritize higher-confidence setups only`);
-    for (const [sym, k2] of Object.entries(pairKnowledge)) {
+    for (const [sym2, k2] of Object.entries(pairKnowledge)) {
       if (k2.topSessions.length > 0 && k2.topSessions[0].winRate >= 70) {
-        brain.learningInsights.push(`${sym}: ${k2.topSessions[0].session} session is a goldmine (${k2.topSessions[0].winRate}% WR)`);
+        brain.learningInsights.push(`${sym2}: ${k2.topSessions[0].session} session is a goldmine (${k2.topSessions[0].winRate}% WR)`);
       }
       if (k2.preferredDirection !== "BOTH") {
-        brain.learningInsights.push(`${sym}: Strong ${k2.preferredDirection} bias detected (${k2.preferredDirection === "BUY" ? k2.buyWinRate : k2.sellWinRate}% WR)`);
+        brain.learningInsights.push(`${sym2}: Strong ${k2.preferredDirection} bias detected (${k2.preferredDirection === "BUY" ? k2.buyWinRate : k2.sellWinRate}% WR)`);
       }
       if (k2.worstHours.length > 0 && k2.worstHours[0].winRate < 30 && k2.worstHours[0].total >= 3) {
-        brain.learningInsights.push(`${sym}: Avoid ${k2.worstHours[0].hour}:00 UTC (${k2.worstHours[0].winRate}% WR - loss zone)`);
+        brain.learningInsights.push(`${sym2}: Avoid ${k2.worstHours[0].hour}:00 UTC (${k2.worstHours[0].winRate}% WR - loss zone)`);
       }
     }
     const optimalMinConfidence = {};
-    for (const [sym, k2] of Object.entries(pairKnowledge)) {
+    for (const [sym2, k2] of Object.entries(pairKnowledge)) {
       if (k2.totalTrades < 10) continue;
-      const symTrades = combinedTrades.filter((t) => t.symbol === sym);
+      const symTrades = combinedTrades.filter((t) => t.symbol === sym2);
       for (const threshold of [85, 80, 75, 70, 65]) {
         const above = symTrades.filter((t) => (t.confidence || 0) >= threshold);
         if (above.length < 3) continue;
         const wr = above.filter((t) => t.result === "WIN").length / above.length;
         if (wr >= 0.6) {
-          optimalMinConfidence[sym] = threshold;
-          if (wr >= 0.7) brain.learningInsights.push(`${sym}: optimal confidence gate auto-set to ${threshold}% (${Math.round(wr * 100)}% WR above this threshold)`);
+          optimalMinConfidence[sym2] = threshold;
+          if (wr >= 0.7) brain.learningInsights.push(`${sym2}: optimal confidence gate auto-set to ${threshold}% (${Math.round(wr * 100)}% WR above this threshold)`);
           break;
         }
       }
@@ -83198,12 +83582,12 @@ Format each recommendation as a clear, concise action item.`;
       if (newTrades > 0) updateChanges.push(`+${newTrades} new trade${newTrades !== 1 ? "s" : ""} ingested (${brain.totalTradesAnalyzed} total)`);
       const newPairs = Object.keys(brain.pairKnowledge).filter((p) => !prevBrain.pairKnowledge?.[p]);
       if (newPairs.length > 0) updateChanges.push(`New pairs learned: ${newPairs.join(", ")}`);
-      for (const [sym, k2] of Object.entries(brain.pairKnowledge)) {
-        const prev = prevBrain.pairKnowledge?.[sym];
+      for (const [sym2, k2] of Object.entries(brain.pairKnowledge)) {
+        const prev = prevBrain.pairKnowledge?.[sym2];
         if (!prev) continue;
         const wrChange = k2.winRate - (prev.winRate ?? 0);
-        if (Math.abs(wrChange) >= 3) updateChanges.push(`${sym} win rate ${wrChange > 0 ? "\u25B2" : "\u25BC"} ${Math.abs(wrChange)}% \u2192 ${k2.winRate}%`);
-        if (prev.preferredDirection !== k2.preferredDirection) updateChanges.push(`${sym} direction bias changed: ${prev.preferredDirection} \u2192 ${k2.preferredDirection}`);
+        if (Math.abs(wrChange) >= 3) updateChanges.push(`${sym2} win rate ${wrChange > 0 ? "\u25B2" : "\u25BC"} ${Math.abs(wrChange)}% \u2192 ${k2.winRate}%`);
+        if (prev.preferredDirection !== k2.preferredDirection) updateChanges.push(`${sym2} direction bias changed: ${prev.preferredDirection} \u2192 ${k2.preferredDirection}`);
       }
     } else {
       updateChanges.push(`Brain initialized from ${brain.totalTradesAnalyzed} trades across ${brain.pairsLearned} pairs`);
@@ -83833,22 +84217,22 @@ Format each recommendation as a clear, concise action item.`;
       const connectedPairs = global.mt5ConnectedPairs?.[userId] || {};
       const mt5Cache = global.mt5ChartDataCache || {};
       const openPositions = global.mt5OpenPositions?.[userId]?.positions || [];
-      const getBestCandles = (sym) => {
+      const getBestCandles = (sym2) => {
         for (const tf of ["M15", "M30", "H1", "M5", "M6", "M1"]) {
-          const entry = mt5Cache[`mt5_chart_${userId}_${sym}_${tf}`];
+          const entry = mt5Cache[`mt5_chart_${userId}_${sym2}_${tf}`];
           if (entry?.candles?.length >= 10) return entry.candles;
         }
         return [];
       };
       const liveContext = {};
-      const buildContextEntry = async (sym, knowledge) => {
+      const buildContextEntry = async (sym2, knowledge) => {
         const pairData = Object.values(connectedPairs).find(
-          (p) => (p.symbol || "").toUpperCase().replace("/", "") === sym
+          (p) => (p.symbol || "").toUpperCase().replace("/", "") === sym2
         );
         const hasOpenPos = openPositions.some(
-          (p) => (p.symbol || "").toUpperCase().replace("/", "") === sym
+          (p) => (p.symbol || "").toUpperCase().replace("/", "") === sym2
         );
-        const candles = getBestCandles(sym);
+        const candles = getBestCandles(sym2);
         const latest = candles[0];
         const atr2 = latest?.atr || null;
         const rsi3 = latest?.rsi || null;
@@ -83891,13 +84275,13 @@ Format each recommendation as a clear, concise action item.`;
           cvd: cvdData.signal ? cvdData : void 0
         };
       };
-      for (const [sym, knowledge] of Object.entries(brain.pairKnowledge)) {
-        liveContext[sym] = await buildContextEntry(sym, knowledge);
+      for (const [sym2, knowledge] of Object.entries(brain.pairKnowledge)) {
+        liveContext[sym2] = await buildContextEntry(sym2, knowledge);
       }
-      for (const sym of userPairs) {
-        if (liveContext[sym]) continue;
-        liveContext[sym] = {
-          ...await buildContextEntry(sym, {}),
+      for (const sym2 of userPairs) {
+        if (liveContext[sym2]) continue;
+        liveContext[sym2] = {
+          ...await buildContextEntry(sym2, {}),
           noHistory: true,
           // flag rendered in context table
           totalTrades: 0
@@ -83920,9 +84304,9 @@ RULES: 1) Only trade instruments where ORB High/Low is in the ORB DATA section. 
       const mt5ChartCacheBrain = global.mt5ChartDataCache || {};
       const orbContextLines = [];
       const trackedSymsBrain = Object.keys(mt5ChartCacheBrain).filter((k2) => k2.startsWith(`mt5_chart_${userId}_`)).map((k2) => k2.replace(`mt5_chart_${userId}_`, "").replace(/_[A-Z0-9]+$/, "")).filter((v, i, a) => a.indexOf(v) === i);
-      for (const sym of trackedSymsBrain.slice(0, 8)) {
+      for (const sym2 of trackedSymsBrain.slice(0, 8)) {
         for (const tf of ["M6", "M5", "M1", "M15"]) {
-          const entry = mt5ChartCacheBrain[`mt5_chart_${userId}_${sym}_${tf}`];
+          const entry = mt5ChartCacheBrain[`mt5_chart_${userId}_${sym2}_${tf}`];
           if (!entry?.candles?.length) continue;
           const candles = entry.candles;
           const currPrice = candles[0]?.c || candles[0]?.close || 0;
@@ -83956,7 +84340,7 @@ RULES: 1) Only trade instruments where ORB High/Low is in the ORB DATA section. 
             else if (Math.abs(currPrice - orbH) / orbH < 2e-3) phase2 = "AT ORB HIGH \u2014 breakout watch";
             else if (Math.abs(currPrice - orbL) / orbL < 2e-3) phase2 = "AT ORB LOW \u2014 breakdown watch";
             orbContextLines.push(
-              `${sym}: ORB_HIGH=${orbH} ORB_LOW=${orbL} RANGE=${range} PRICE=${currPrice.toFixed(4)} PHASE="${phase2}" | Suggested BUY STOP entryPrice=${orbH} SL=${slLong} TP=${tp1Long} | Suggested SELL STOP entryPrice=${orbL} SL=${slShort} TP=${tp1Short}`
+              `${sym2}: ORB_HIGH=${orbH} ORB_LOW=${orbL} RANGE=${range} PRICE=${currPrice.toFixed(4)} PHASE="${phase2}" | Suggested BUY STOP entryPrice=${orbH} SL=${slLong} TP=${tp1Long} | Suggested SELL STOP entryPrice=${orbL} SL=${slShort} TP=${tp1Short}`
             );
           }
           break;
@@ -83967,7 +84351,7 @@ LIVE ORB DATA (use these exact levels for ORB signals \u2014 do NOT fabricate):
 ${orbContextLines.join("\n")}` : `
 ORB DATA: No ORB data available (MT5 EA not connected or market not open). Do not generate ORB signals.`;
       const vpLines = [];
-      for (const [sym, ctx] of Object.entries(liveContext)) {
+      for (const [sym2, ctx] of Object.entries(liveContext)) {
         const vp = ctx.volumeProfile;
         if (!vp?.poc) continue;
         const price = ctx.currentPrice;
@@ -83979,12 +84363,12 @@ ORB DATA: No ORB data available (MT5 EA not connected or market not open). Do no
           else if (price > vp.poc) priceRelation = " \u2014 price between POC and VAH (bullish value area, support near POC)";
           else priceRelation = " \u2014 price between POC and VAL (bearish value area, resistance near POC)";
         }
-        vpLines.push(`${sym}: POC=${vp.poc} VAH=${vp.vah} VAL=${vp.val} (POC strength: ${vp.pocStrength}% of vol)${priceRelation}`);
+        vpLines.push(`${sym2}: POC=${vp.poc} VAH=${vp.vah} VAL=${vp.val} (POC strength: ${vp.pocStrength}% of vol)${priceRelation}`);
       }
       const vpSection = vpLines.length > 0 ? `
 VOLUME PROFILE (computed from live candles \u2014 highest-volume price nodes):
 ${vpLines.join("\n")}` : "";
-      const buildContextTable = () => Object.entries(liveContext).map(([sym, c]) => {
+      const buildContextTable = () => Object.entries(liveContext).map(([sym2, c]) => {
         const live = [
           c.currentPrice ? `px=${c.currentPrice}` : "",
           c.rsi ? `rsi=${c.rsi}` : "",
@@ -83996,7 +84380,7 @@ ${vpLines.join("\n")}` : "";
           c.cvd?.signal && c.cvd.signal !== "NEUTRAL" ? `CVD=${c.cvd.signal}(${c.cvd.aggressionStrength}_${c.cvd.aggressionSide}${c.cvd.cvdDivergence !== "NONE" ? ",DIV:" + c.cvd.cvdDivergence : ""})` : ""
         ].filter(Boolean).join(" ");
         if (c.noHistory) {
-          return `${sym}: ${live || "no live data"} | NEW PAIR \u2014 no trade history, signal based on price action, KC, CVD and VP levels`;
+          return `${sym2}: ${live || "no live data"} | NEW PAIR \u2014 no trade history, signal based on price action, KC, CVD and VP levels`;
         }
         const hist = [
           c.winRate != null ? `wr=${c.winRate}%(${c.totalTrades || 0}t)` : "",
@@ -84011,7 +84395,7 @@ ${vpLines.join("\n")}` : "";
           c.bestStrategies?.length ? `edge=${c.bestStrategies.slice(0, 2).join("/")}` : "",
           c.hasOpenPosition ? "OPEN_POS" : ""
         ].filter(Boolean).join(" ");
-        return `${sym}: ${live} | ${hist}`;
+        return `${sym2}: ${live} | ${hist}`;
       }).join("\n");
       const buildPrompt = (mode) => `GENERATE TRADE SIGNALS \u2014 ${mode.toUpperCase()} MODE
 Time: ${nowUTC.toISOString()} (${currentSession} session, ${currentDay}, UTC${currentHour})
@@ -84220,14 +84604,14 @@ Respond with ONLY valid JSON:
               continue;
             }
             const aiSuggestedLot = parseNum(sig.lotSize);
-            const sym = (sig.symbol || "").toUpperCase().replace("/", "");
+            const sym2 = (sig.symbol || "").toUpperCase().replace("/", "");
             let baseLotSize;
             if (stopLoss && entryPrice && entryPrice > 0 && stopLoss > 0) {
               const slDistance = Math.abs(entryPrice - stopLoss);
               const riskAmount = userAccountBalance * (userRiskPerTrade / 100);
-              if (sym.includes("XAU") || sym.includes("GOLD")) {
+              if (sym2.includes("XAU") || sym2.includes("GOLD")) {
                 baseLotSize = Math.max(userBaseLotSize, Math.min(aiSuggestedLot || userBaseLotSize, userMaxLotSize));
-              } else if (sym.includes("BTC") || sym.includes("ETH") || sym.includes("NAS") || sym.includes("US30") || sym.includes("SPX")) {
+              } else if (sym2.includes("BTC") || sym2.includes("ETH") || sym2.includes("NAS") || sym2.includes("US30") || sym2.includes("SPX")) {
                 baseLotSize = Math.max(userBaseLotSize, Math.min(aiSuggestedLot || userBaseLotSize, userMaxLotSize));
               } else {
                 const estimatedLot = slDistance > 0 ? riskAmount / (slDistance * 1e5 * 1e-4 * 10) : userBaseLotSize;
@@ -84237,7 +84621,7 @@ Respond with ONLY valid JSON:
               baseLotSize = Math.max(userBaseLotSize, Math.min(aiSuggestedLot || userBaseLotSize, userMaxLotSize));
             }
             baseLotSize = Math.round(baseLotSize * 100) / 100;
-            const pairOptimalConf = brain.optimalMinConfidence?.[sym] ?? userMinConfidence;
+            const pairOptimalConf = brain.optimalMinConfidence?.[sym2] ?? userMinConfidence;
             const effectiveMinConf = Math.max(pairOptimalConf, userMinConfidence - 5);
             const brainGuard = tlSignalGuard({
               confidence: confidence2,
@@ -84517,11 +84901,11 @@ Respond with ONLY valid JSON:
       scan.netPnL = Math.round(scan.netPnL * 100) / 100;
       const pairGroups = {};
       for (const t of weekResults) {
-        const sym = (t.symbol || "UNKNOWN").toUpperCase().replace("/", "");
-        if (!pairGroups[sym]) pairGroups[sym] = [];
-        pairGroups[sym].push(t);
+        const sym2 = (t.symbol || "UNKNOWN").toUpperCase().replace("/", "");
+        if (!pairGroups[sym2]) pairGroups[sym2] = [];
+        pairGroups[sym2].push(t);
       }
-      for (const [sym, trades] of Object.entries(pairGroups)) {
+      for (const [sym2, trades] of Object.entries(pairGroups)) {
         const w = trades.filter((t) => t.result === "WIN");
         const l = trades.filter((t) => t.result === "LOSS");
         const tot = w.length + l.length;
@@ -84533,7 +84917,7 @@ Respond with ONLY valid JSON:
         const pairPnL = Math.round(trades.reduce((s, t) => s + Number(t.profitLoss ?? 0), 0) * 100) / 100;
         const avgWinPips = w.length > 0 ? Math.round(w.reduce((s, t) => s + Number(t.profitLossPips ?? 0), 0) / w.length * 10) / 10 : 0;
         const potentialTrailTrades = w.filter((t) => avgWinPips > 20);
-        scan.pairAnalysis[sym] = {
+        scan.pairAnalysis[sym2] = {
           total: trades.length,
           wins: w.length,
           losses: l.length,
@@ -84547,20 +84931,20 @@ Respond with ONLY valid JSON:
           trailingOpportunity: potentialTrailTrades.length > 0
         };
         if (tot === 0 && trades.length > 0) {
-          scan.scanInsights.push(`${sym}: ${trades.length} signal(s) this week but 0 completed trades \u2014 check if pending or blocked before execution`);
+          scan.scanInsights.push(`${sym2}: ${trades.length} signal(s) this week but 0 completed trades \u2014 check if pending or blocked before execution`);
         }
         if (wr < 40 && tot >= 3) {
-          scan.scanInsights.push(`${sym}: Win rate only ${wr}% this week (${w.length}W/${l.length}L) \u2014 likely entering at wrong session or against trend`);
-          scan.accuracyImprovements.push(`${sym}: Wait for strong session confirmation before entry; current signals may be fighting the higher-timeframe trend`);
+          scan.scanInsights.push(`${sym2}: Win rate only ${wr}% this week (${w.length}W/${l.length}L) \u2014 likely entering at wrong session or against trend`);
+          scan.accuracyImprovements.push(`${sym2}: Wait for strong session confirmation before entry; current signals may be fighting the higher-timeframe trend`);
         }
         if (wr >= 70 && tot >= 2) {
-          scan.scanInsights.push(`${sym}: Strong week \u2014 ${wr}% win rate. Brain will auto-increase lot recommendation for this pair`);
+          scan.scanInsights.push(`${sym2}: Strong week \u2014 ${wr}% win rate. Brain will auto-increase lot recommendation for this pair`);
         }
         if (avgConf < 72 && trades.length >= 2) {
-          scan.accuracyImprovements.push(`${sym}: Average confidence this week was ${avgConf}% \u2014 consider raising minimum confidence gate to 75%+ for this pair`);
+          scan.accuracyImprovements.push(`${sym2}: Average confidence this week was ${avgConf}% \u2014 consider raising minimum confidence gate to 75%+ for this pair`);
         }
         if (potentialTrailTrades.length > 0) {
-          scan.trailingOpportunities.push(`${sym}: ${potentialTrailTrades.length} winning trade(s) averaged ${avgWinPips} pips \u2014 a trailing stop would have captured more. Enable trailing stop in Profile settings.`);
+          scan.trailingOpportunities.push(`${sym2}: ${potentialTrailTrades.length} winning trade(s) averaged ${avgWinPips} pips \u2014 a trailing stop would have captured more. Enable trailing stop in Profile settings.`);
         }
       }
       if (scan.weeklyWinRate < 50 && completed >= 5) {
@@ -84655,8 +85039,8 @@ Respond with ONLY valid JSON:
         if (t.result === "WIN") pairMap[t.symbol].wins++;
         pairMap[t.symbol].profit += t.profit || 0;
       }
-      const pairList = Object.entries(pairMap).map(([sym, d]) => ({
-        symbol: sym,
+      const pairList = Object.entries(pairMap).map(([sym2, d]) => ({
+        symbol: sym2,
         ...d,
         winRate: d.trades > 0 ? Math.round(d.wins / d.trades * 100) : 0
       }));
@@ -84686,7 +85070,7 @@ Respond with ONLY valid JSON:
         goalAcceleration = `Weekly goal ACHIEVED! $${closedProfit.toFixed(2)} / $${weekTarget}. Consider switching to SAFE path to protect profits.`;
       }
       const brainInsights = brain?.learningInsights?.slice(0, 4) || [];
-      const pairOptimalConfs = Object.entries(optimalConf).slice(0, 5).map(([sym, conf]) => `${sym}: ${conf}%+ confidence`);
+      const pairOptimalConfs = Object.entries(optimalConf).slice(0, 5).map(([sym2, conf]) => `${sym2}: ${conf}%+ confidence`);
       res.json({
         weeklyIssues,
         goalAcceleration,
@@ -91275,7 +91659,7 @@ This request will not trigger a transaction or cost any fees.`;
         coolOffRemainingMin: mind.coolOffUntil > Date.now() ? Math.ceil((mind.coolOffUntil - Date.now()) / 6e4) : 0,
         adaptedConfidenceFloor: mind.adaptedConfidenceFloor,
         configuredConfidenceFloor: state.config.minConfidence,
-        softBlockedPairs: Object.entries(mind.softBlockedPairs || {}).filter(([, v]) => v.until > Date.now()).map(([sym, v]) => ({ sym, reason: v.reason, remainingMin: Math.ceil((v.until - Date.now()) / 6e4) })),
+        softBlockedPairs: Object.entries(mind.softBlockedPairs || {}).filter(([, v]) => v.until > Date.now()).map(([sym2, v]) => ({ sym: sym2, reason: v.reason, remainingMin: Math.ceil((v.until - Date.now()) / 6e4) })),
         blockedStrategies: mind.blockedStrategies ? [...mind.blockedStrategies] : [],
         pairSessionWins: mind.pairSessionWins,
         pairSessionLosses: mind.pairSessionLosses,
@@ -94791,11 +95175,11 @@ Scene idea: ${script.videoPrompt}`, {
     } catch {
     }
     const results = {};
-    for (const sym of symbols) {
+    for (const sym2 of symbols) {
       let candles = [];
       let usedTf = "";
       for (const tf of ["M15", "M30", "H1", "M5", "M6", "M1"]) {
-        const key = `mt5_chart_${userId}_${sym}_${tf}`;
+        const key = `mt5_chart_${userId}_${sym2}_${tf}`;
         const entry = mt5Cache[key];
         if (entry?.candles?.length >= 10) {
           candles = entry.candles;
@@ -94804,12 +95188,12 @@ Scene idea: ${script.videoPrompt}`, {
         }
       }
       if (candles.length < 10 || !computeVP) {
-        results[sym] = { available: false, reason: candles.length < 10 ? "no_data" : "vp_unavailable" };
+        results[sym2] = { available: false, reason: candles.length < 10 ? "no_data" : "vp_unavailable" };
         continue;
       }
       const vp = computeVP(candles);
       if (!vp) {
-        results[sym] = { available: false, reason: "insufficient_candles" };
+        results[sym2] = { available: false, reason: "insufficient_candles" };
         continue;
       }
       const lastCandle = candles[candles.length - 1];
@@ -94841,7 +95225,7 @@ Scene idea: ${script.videoPrompt}`, {
         direction = "SELL";
         entryNote = `Limit Entry SELL at POC retest ${poc.toFixed(5)}`;
       }
-      const ssSnap = ssEngineSnapshot[sym];
+      const ssSnap = ssEngineSnapshot[sym2];
       let ssEngineBias = null;
       if (ssSnap) {
         const ssDir = ssSnap.trend === "up" ? "BUY" : ssSnap.trend === "down" ? "SELL" : null;
@@ -94852,7 +95236,7 @@ Scene idea: ${script.videoPrompt}`, {
           agrees: !!(direction && ssDir && direction === ssDir)
         };
       }
-      results[sym] = {
+      results[sym2] = {
         available: true,
         poc,
         vah,
@@ -95763,11 +96147,11 @@ Scene idea: ${script.videoPrompt}`, {
       ]);
       const closed = trades.filter((t) => t.result && t.result !== "PENDING" && t.closedAt && new Date(t.closedAt).getTime() >= since);
       const matchOutcome = (t) => {
-        const sym = (t.symbol || "").toUpperCase().replace("/", "");
+        const sym2 = (t.symbol || "").toUpperCase().replace("/", "");
         const entryT = t.createdAt ? new Date(t.createdAt).getTime() : 0;
         let best = null, bestDiff = Infinity;
         for (const o of outcomes) {
-          if ((o.symbol || "").toUpperCase().replace("/", "") !== sym) continue;
+          if ((o.symbol || "").toUpperCase().replace("/", "") !== sym2) continue;
           const ot = o.confirmedAt ? new Date(o.confirmedAt).getTime() : 0;
           const d = Math.abs(ot - entryT);
           if (d < bestDiff) {
