@@ -64006,9 +64006,9 @@ async function getStopOrdersForUser(userId, filters = {}) {
 init_schema();
 
 // server/build-info.ts
-var BUILD_COMMIT = "904a658-dirty";
-var BUILD_BRANCH = "main";
-var BUILT_AT = "2026-11-01T16:43:02.418Z";
+var BUILD_COMMIT = "f16f2ec";
+var BUILD_BRANCH = "feature/my-presenter";
+var BUILT_AT = "2026-11-01T17:59:57.953Z";
 
 // server/stripe.ts
 init_db();
