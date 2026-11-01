@@ -31051,7 +31051,6 @@ Generate an agenda with timing, topics, and hosting tips. Return JSON: {
         const p = await getPresenter(u.id, Number(presenterId));
         if (p) startImage = presenterAbsoluteUrl(req, p.imageUrl);
       }
-      const video = await renderContentVideo(`Topic: ${topic}
       let backgroundScene: string | undefined;
       if (backgroundId) {
         const { getBackgroundPreset } = await import('./services/backgrounds');

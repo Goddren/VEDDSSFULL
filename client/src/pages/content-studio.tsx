@@ -1041,6 +1041,10 @@ function PresenterPicker({ selectedId, onSelect, imageData, onSaved }: {
         </div>
       )}
       {saveError && <p className="text-[11px] text-red-400 mt-1">{saveError}</p>}
+    </div>
+  );
+}
+
 // ── Background + ad-format pickers ──────────────────────────────────────────
 // Background presets come from the server (GET /api/content-studio/
 // backgrounds) so the list the user sees always matches the scenes the
@@ -1100,6 +1104,10 @@ function ReelFormatPicker({ value, onChange }: {
           <button key={f.id} type="button" onClick={() => onChange(f.id)} className="text-[11px] font-bold px-2 py-1.5 rounded-lg" style={chip(value === f.id)}>{f.label}</button>
         ))}
       </div>
+    </div>
+  );
+}
+
 // ── Sync: top-ad styles ─────────────────────────────────────────────────────
 // The Sync button pulls the researched bank of ad styles that are working
 // in the trading niche (server: GET /api/content-studio/sync-ads). "Make my
