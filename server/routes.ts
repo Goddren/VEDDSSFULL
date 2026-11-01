@@ -30866,7 +30866,14 @@ Generate an agenda with timing, topics, and hosting tips. Return JSON: {
       if (!u.isAdmin && (await ex.rendersToday(u.id)) >= limit) {
         return res.status(429).json({ error: `You've made ${limit} explainer videos today. You can make more tomorrow.` });
       }
-      const jobId = await ex.startExplainerJob(u.id, prompt, aspect);
+      let presenterImage: string | undefined;
+      const presenterId = Number((req.body as any)?.presenterId) || 0;
+      if (presenterId) {
+        const { getPresenter, presenterAbsoluteUrl } = await import('./services/presenters');
+        const p = await getPresenter(u.id, presenterId);
+        if (p) presenterImage = presenterAbsoluteUrl(req, p.imageUrl);
+      }
+      const jobId = await ex.startExplainerJob(u.id, prompt, aspect, { presenterImage });
       res.json({ jobId });
     } catch (err: any) { res.status(500).json({ error: err.message }); }
   });
@@ -30876,6 +30883,56 @@ Generate an agenda with timing, topics, and hosting tips. Return JSON: {
     const job = await ex.getJob(Number(req.params.id), (req.user as any).id);
     if (!job) return res.status(404).json({ error: "Not found" });
     res.json({ id: job.id, status: job.status, step: job.step, progress: job.progress, url: job.result_url, error: job.error, script: job.script, aspect: job.aspect });
+  });
+
+  // ── My Presenter ──────────────────────────────────────────────────────
+  // Save a face once (photo -> durable asset store), reuse it as the start
+  // image for clips/reels and as the filmed-from photo for explainers.
+  app.get("/api/content-studio/presenters", async (req, res) => {
+    const u = req.user as any;
+    if (!req.isAuthenticated() || !(u?.isAmbassador || u?.isAdmin)) {
+      return res.status(403).json({ error: "Ambassador or admin only" });
+    }
+    try {
+      const { listPresenters } = await import('./services/presenters');
+      res.json({ presenters: await listPresenters(u.id) });
+    } catch (err: any) { res.status(500).json({ error: err.message }); }
+  });
+
+  app.post("/api/content-studio/presenters", async (req, res) => {
+    const u = req.user as any;
+    if (!req.isAuthenticated() || !(u?.isAmbassador || u?.isAdmin)) {
+      return res.status(403).json({ error: "Ambassador or admin only" });
+    }
+    try {
+      const name = String((req.body as any)?.name || '').trim().slice(0, 60) || 'My presenter';
+      const imageData = String((req.body as any)?.imageData || '');
+      const m = imageData.match(/^data:(image\/[a-zA-Z0-9.+-]+);base64,([A-Za-z0-9+/=]+)$/);
+      if (!m) return res.status(400).json({ error: "imageData must be an image data URI" });
+      const buf = Buffer.from(m[2], 'base64');
+      if (buf.byteLength < 100 || buf.byteLength > 8 * 1024 * 1024) {
+        return res.status(400).json({ error: "Image must be between 100 bytes and 8MB" });
+      }
+      const { persistBuffer } = await import('./services/content-asset-store');
+      const saved = await persistBuffer(buf, m[1]);
+      if (!saved) return res.status(500).json({ error: "Could not save that photo. Please try again." });
+      const { createPresenter } = await import('./services/presenters');
+      const presenter = await createPresenter(u.id, name, saved.url);
+      res.json({ presenter });
+    } catch (err: any) { res.status(500).json({ error: err.message }); }
+  });
+
+  app.delete("/api/content-studio/presenters/:id", async (req, res) => {
+    const u = req.user as any;
+    if (!req.isAuthenticated() || !(u?.isAmbassador || u?.isAdmin)) {
+      return res.status(403).json({ error: "Ambassador or admin only" });
+    }
+    try {
+      const { deletePresenter } = await import('./services/presenters');
+      const ok = await deletePresenter(u.id, Number(req.params.id));
+      if (!ok) return res.status(404).json({ error: "Not found" });
+      res.json({ ok: true });
+    } catch (err: any) { res.status(500).json({ error: err.message }); }
   });
 
   // POST /api/content-studio/plan-shot — preview the single shot the video
@@ -30899,14 +30956,22 @@ Generate an agenda with timing, topics, and hosting tips. Return JSON: {
       return res.status(403).json({ error: "Ambassador or admin only" });
     }
     try {
-      const { prompt, shot, exact, aspect, brand, duration, quality, image } = req.body as {
+      const { prompt, shot, exact, aspect, brand, duration, quality, image, presenterId } = req.body as {
         prompt?: string; shot?: string; exact?: boolean; aspect?: any; brand?: boolean;
-        duration?: number; quality?: 'fast' | 'high'; image?: string;
+        duration?: number; quality?: 'fast' | 'high'; image?: string; presenterId?: number;
       };
       if (!prompt && !shot) return res.status(400).json({ error: "prompt is required" });
       // prompt -> one filmable shot -> render -> VEDD branding + social size (content-video.ts)
       const { renderContentVideo } = await import('./services/content-video');
-      const video = await renderContentVideo(prompt || shot || '', { userId: u.id, shot, exact, aspect, brand, duration, quality, image });
+      // A saved presenter beats a one-off upload: resolve it to the public
+      // URL the video providers fetch the start image from.
+      let startImage = image;
+      if (presenterId) {
+        const { getPresenter, presenterAbsoluteUrl } = await import('./services/presenters');
+        const p = await getPresenter(u.id, Number(presenterId));
+        if (p) startImage = presenterAbsoluteUrl(req, p.imageUrl);
+      }
+      const video = await renderContentVideo(prompt || shot || '', { userId: u.id, shot, exact, aspect, brand, duration, quality, image: startImage });
       if (!video) return res.status(502).json({ error: "The video couldn't be made right now. Please try again in a minute." });
 
       if (video.persisted) {
@@ -30930,7 +30995,7 @@ Generate an agenda with timing, topics, and hosting tips. Return JSON: {
       return res.status(403).json({ error: "Ambassador or admin only" });
     }
     try {
-      const { topic, duration, quality, image } = req.body as { topic?: string; duration?: number; quality?: 'fast' | 'high'; image?: string };
+      const { topic, duration, quality, image, presenterId } = req.body as { topic?: string; duration?: number; quality?: 'fast' | 'high'; image?: string; presenterId?: number };
       if (!topic) return res.status(400).json({ error: "topic is required" });
 
       const { generateReelScript } = await import('./openai');
@@ -30938,9 +31003,15 @@ Generate an agenda with timing, topics, and hosting tips. Return JSON: {
 
       const { renderContentVideo } = await import('./services/content-video');
       // The reel's videoPrompt is still planned into one shot, anchored on the topic.
+      let startImage = image;
+      if (presenterId) {
+        const { getPresenter, presenterAbsoluteUrl } = await import('./services/presenters');
+        const p = await getPresenter(u.id, Number(presenterId));
+        if (p) startImage = presenterAbsoluteUrl(req, p.imageUrl);
+      }
       const video = await renderContentVideo(`Topic: ${topic}
 Scene idea: ${script.videoPrompt}`, {
-        userId: u.id, aspect: (req.body as any).aspect, duration, quality, image,
+        userId: u.id, aspect: (req.body as any).aspect, duration, quality, image: startImage,
       });
       if (!video) return res.status(502).json({ error: "The video couldn't be made right now. Please try again in a minute." });
 

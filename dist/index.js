@@ -55599,7 +55599,7 @@ async function runJob(id, userId, input, aspect, opts) {
   let done = 0;
   const predictions = [];
   const queue = script.scenes.map((s, i) => async () => {
-    const r = await renderScene(s, script, aspect);
+    const r = await renderScene(s, script, aspect, opts.presenterImage);
     urls[i] = r.url;
     predictions.push(r.predictionId);
     done++;
@@ -55609,7 +55609,7 @@ async function runJob(id, userId, input, aspect, opts) {
     while (queue.length) await queue.shift()();
   });
   await Promise.all(workers);
-  await update(id, { step: "Adding VEDD branding and joining scenes", progress: 85, meta: { predictions, model: MODEL() } });
+  await update(id, { step: "Adding VEDD branding and joining scenes", progress: 85, meta: { predictions, model: MODEL(), presenter: opts.presenterImage ? "custom" : "ai" } });
   const video = await assemble(urls, aspect, script.scenes.map((s) => s.chart ?? null));
   const saved = await persistBuffer(video, "video/mp4");
   if (!saved) throw new Error("could not save the finished video");
@@ -55623,7 +55623,7 @@ async function runJob(id, userId, input, aspect, opts) {
       title: script.title,
       caption: script.caption,
       assetUrl: saved.url,
-      metadata: { kind: "explainer", aspect, model: MODEL(), script, predictions }
+      metadata: { kind: "explainer", aspect, model: MODEL(), script, predictions, presenter: opts.presenterImage ? "custom" : "ai" }
     });
   } catch {
   }
@@ -55670,16 +55670,17 @@ JSON: {"title":"...","caption":"one-line social caption with a question","presen
   const setting = String(out.setting || "").trim().slice(0, 300) || DEFAULT_SETTING;
   return { title: String(out.title || "VEDD lesson").slice(0, 120), caption: String(out.caption || "").slice(0, 300), presenter, setting, scenes };
 }
-async function renderScene(scene, script, aspect) {
+async function renderScene(scene, script, aspect, presenterImage) {
   const token = process.env.REPLICATE_API_TOKEN;
   if (!token) throw new Error("REPLICATE_API_TOKEN not set");
   const framing = scene.chart ? "Medium shot with the presenter in the upper half of the frame, pointing down toward the lower half, which is a plain darker area of the scene." : "Medium close-up, presenter talking straight to camera.";
-  const prompt = `Presenter: ${script.presenter}. Setting: ${script.setting}. ${scene.visual} ${framing} Authentic urban street style, cinematic 35mm look, natural skin tones, warm gold light, shallow depth of field, handheld-smooth camera. The presenter speaks directly to the camera and says: "${scene.narration.replace(/"/g, "'")}" Light hip-hop beat under the voice. No subtitles, no on-screen text, no logos.`;
-  const create = () => fetch(`https://api.replicate.com/v1/models/${MODEL()}/predictions`, {
+  const prompt = presenterImage ? `The person in the starting image is the presenter \u2014 keep their exact face, hair and appearance in every frame. Setting: ${script.setting}. ${scene.visual} ${framing} Authentic urban street style, cinematic 35mm look, natural skin tones, warm gold light, shallow depth of field, handheld-smooth camera. The presenter speaks directly to the camera and says: "${scene.narration.replace(/"/g, "'")}" Light hip-hop beat under the voice. No subtitles, no on-screen text, no logos.` : `Presenter: ${script.presenter}. Setting: ${script.setting}. ${scene.visual} ${framing} Authentic urban street style, cinematic 35mm look, natural skin tones, warm gold light, shallow depth of field, handheld-smooth camera. The presenter speaks directly to the camera and says: "${scene.narration.replace(/"/g, "'")}" Light hip-hop beat under the voice. No subtitles, no on-screen text, no logos.`;
+  const create = (withImage) => fetch(`https://api.replicate.com/v1/models/${MODEL()}/predictions`, {
     method: "POST",
     headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json", Prefer: "wait=55" },
     body: JSON.stringify({ input: {
       prompt,
+      ...withImage && presenterImage ? { image: presenterImage } : {},
       aspect_ratio: aspect === "16:9" ? "16:9" : "9:16",
       duration: CLIP_SECONDS,
       resolution: "720p",
@@ -55688,11 +55689,19 @@ async function renderScene(scene, script, aspect) {
     } }),
     signal: AbortSignal.timeout(7e4)
   });
-  let res = await create();
-  for (let attempt = 0; res.status === 429 && attempt < 8; attempt++) {
-    const body = await res.json().catch(() => ({}));
-    await new Promise((r) => setTimeout(r, (Number(body?.retry_after) || 10) * 1e3 + 1e3));
-    res = await create();
+  const createWithRetry = async (withImage) => {
+    let r = await create(withImage);
+    for (let attempt = 0; r.status === 429 && attempt < 8; attempt++) {
+      const body = await r.json().catch(() => ({}));
+      await new Promise((resolve) => setTimeout(resolve, (Number(body?.retry_after) || 10) * 1e3 + 1e3));
+      r = await create(withImage);
+    }
+    return r;
+  };
+  let res = await createWithRetry(!!presenterImage);
+  if (!res.ok && presenterImage) {
+    console.warn("[explainer] scene create failed with presenter image \u2014 retrying without it");
+    res = await createWithRetry(false);
   }
   if (!res.ok) throw new Error(`Replicate ${res.status}: ${(await res.text().catch(() => "")).slice(0, 200)}`);
   let data = await res.json();
@@ -56285,6 +56294,78 @@ var init_image_generation = __esm({
       "blog-cover": ", a photographic scene with a soft dark gradient overlay suitable for a news/article cover, cinematic depth of field, no text, no logos, no words, no letters anywhere in the frame"
     };
     HUMAN_STYLE_SUFFIX = ". If depicting people: they are Black, Brown, or Indigenous people of color with natural skin tones, styled in contemporary urban/hip-hop-inspired fashion (streetwear, fresh sneakers, gold chains, fitted caps), shown with smartphones and modern tech, in authentic inner-city settings \u2014 no generic stock-photo corporate look.";
+  }
+});
+
+// server/services/presenters.ts
+var presenters_exports = {};
+__export(presenters_exports, {
+  createPresenter: () => createPresenter,
+  deletePresenter: () => deletePresenter,
+  getPresenter: () => getPresenter,
+  listPresenters: () => listPresenters,
+  presenterAbsoluteUrl: () => presenterAbsoluteUrl
+});
+function ensureTable3() {
+  return tableReady3 ??= pool.query(`CREATE TABLE IF NOT EXISTS content_presenters (
+      id SERIAL PRIMARY KEY,
+      user_id INTEGER NOT NULL,
+      name TEXT NOT NULL,
+      image_url TEXT NOT NULL,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+    )`).then(() => void 0).catch((e) => {
+    tableReady3 = null;
+    throw e;
+  });
+}
+function rowToPresenter(r) {
+  return { id: r.id, name: r.name, imageUrl: r.image_url, createdAt: r.created_at };
+}
+async function listPresenters(userId) {
+  await ensureTable3();
+  const { rows } = await pool.query(
+    `SELECT id, name, image_url, created_at FROM content_presenters WHERE user_id=$1 ORDER BY created_at DESC`,
+    [userId]
+  );
+  return rows.map(rowToPresenter);
+}
+async function createPresenter(userId, name, imageUrl) {
+  await ensureTable3();
+  const { rows } = await pool.query(
+    `INSERT INTO content_presenters (user_id, name, image_url) VALUES ($1,$2,$3)
+     RETURNING id, name, image_url, created_at`,
+    [userId, name, imageUrl]
+  );
+  return rowToPresenter(rows[0]);
+}
+async function getPresenter(userId, id) {
+  await ensureTable3();
+  const { rows } = await pool.query(
+    `SELECT id, name, image_url, created_at FROM content_presenters WHERE id=$1 AND user_id=$2`,
+    [id, userId]
+  );
+  return rows.length ? rowToPresenter(rows[0]) : null;
+}
+async function deletePresenter(userId, id) {
+  await ensureTable3();
+  const { rowCount } = await pool.query(
+    `DELETE FROM content_presenters WHERE id=$1 AND user_id=$2`,
+    [id, userId]
+  );
+  return (rowCount ?? 0) > 0;
+}
+function presenterAbsoluteUrl(req, imageUrl) {
+  if (/^https?:\/\//i.test(imageUrl)) return imageUrl;
+  const host = req && typeof req.get === "function" ? req.get("host") : null;
+  if (!host) return imageUrl;
+  return `${req.protocol || "https"}://${host}${imageUrl}`;
+}
+var tableReady3;
+var init_presenters = __esm({
+  "server/services/presenters.ts"() {
+    "use strict";
+    init_db();
+    tableReady3 = null;
   }
 });
 
@@ -64041,6 +64122,7 @@ init_schema();
 
 // server/build-info.ts
 <<<<<<< HEAD
+<<<<<<< HEAD
 var BUILD_COMMIT = "24d792b-dirty";
 var BUILD_BRANCH = "main";
 var BUILT_AT = "2026-11-01T16:13:25.036Z";
@@ -64049,6 +64131,11 @@ var BUILD_COMMIT = "80b4eb9";
 var BUILD_BRANCH = "fix/content-studio-top3";
 var BUILT_AT = "2026-11-01T17:58:59.129Z";
 >>>>>>> origin/fix/content-studio-top3
+=======
+var BUILD_COMMIT = "f16f2ec";
+var BUILD_BRANCH = "feature/my-presenter";
+var BUILT_AT = "2026-11-01T17:59:57.953Z";
+>>>>>>> origin/feature/my-presenter
 
 // server/stripe.ts
 init_db();
@@ -93135,7 +93222,14 @@ Sitemap: ${SEO_BASE_URL}/sitemap.xml
       if (!u.isAdmin && await ex.rendersToday(u.id) >= limit) {
         return res.status(429).json({ error: `You've made ${limit} explainer videos today. You can make more tomorrow.` });
       }
-      const jobId = await ex.startExplainerJob(u.id, prompt, aspect);
+      let presenterImage;
+      const presenterId = Number(req.body?.presenterId) || 0;
+      if (presenterId) {
+        const { getPresenter: getPresenter2, presenterAbsoluteUrl: presenterAbsoluteUrl2 } = await Promise.resolve().then(() => (init_presenters(), presenters_exports));
+        const p = await getPresenter2(u.id, presenterId);
+        if (p) presenterImage = presenterAbsoluteUrl2(req, p.imageUrl);
+      }
+      const jobId = await ex.startExplainerJob(u.id, prompt, aspect, { presenterImage });
       res.json({ jobId });
     } catch (err) {
       res.status(500).json({ error: err.message });
@@ -93147,6 +93241,56 @@ Sitemap: ${SEO_BASE_URL}/sitemap.xml
     const job = await ex.getJob(Number(req.params.id), req.user.id);
     if (!job) return res.status(404).json({ error: "Not found" });
     res.json({ id: job.id, status: job.status, step: job.step, progress: job.progress, url: job.result_url, error: job.error, script: job.script, aspect: job.aspect });
+  });
+  app2.get("/api/content-studio/presenters", async (req, res) => {
+    const u = req.user;
+    if (!req.isAuthenticated() || !(u?.isAmbassador || u?.isAdmin)) {
+      return res.status(403).json({ error: "Ambassador or admin only" });
+    }
+    try {
+      const { listPresenters: listPresenters2 } = await Promise.resolve().then(() => (init_presenters(), presenters_exports));
+      res.json({ presenters: await listPresenters2(u.id) });
+    } catch (err) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+  app2.post("/api/content-studio/presenters", async (req, res) => {
+    const u = req.user;
+    if (!req.isAuthenticated() || !(u?.isAmbassador || u?.isAdmin)) {
+      return res.status(403).json({ error: "Ambassador or admin only" });
+    }
+    try {
+      const name = String(req.body?.name || "").trim().slice(0, 60) || "My presenter";
+      const imageData = String(req.body?.imageData || "");
+      const m = imageData.match(/^data:(image\/[a-zA-Z0-9.+-]+);base64,([A-Za-z0-9+/=]+)$/);
+      if (!m) return res.status(400).json({ error: "imageData must be an image data URI" });
+      const buf = Buffer.from(m[2], "base64");
+      if (buf.byteLength < 100 || buf.byteLength > 8 * 1024 * 1024) {
+        return res.status(400).json({ error: "Image must be between 100 bytes and 8MB" });
+      }
+      const { persistBuffer: persistBuffer2 } = await Promise.resolve().then(() => (init_content_asset_store(), content_asset_store_exports));
+      const saved = await persistBuffer2(buf, m[1]);
+      if (!saved) return res.status(500).json({ error: "Could not save that photo. Please try again." });
+      const { createPresenter: createPresenter2 } = await Promise.resolve().then(() => (init_presenters(), presenters_exports));
+      const presenter = await createPresenter2(u.id, name, saved.url);
+      res.json({ presenter });
+    } catch (err) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+  app2.delete("/api/content-studio/presenters/:id", async (req, res) => {
+    const u = req.user;
+    if (!req.isAuthenticated() || !(u?.isAmbassador || u?.isAdmin)) {
+      return res.status(403).json({ error: "Ambassador or admin only" });
+    }
+    try {
+      const { deletePresenter: deletePresenter2 } = await Promise.resolve().then(() => (init_presenters(), presenters_exports));
+      const ok = await deletePresenter2(u.id, Number(req.params.id));
+      if (!ok) return res.status(404).json({ error: "Not found" });
+      res.json({ ok: true });
+    } catch (err) {
+      res.status(500).json({ error: err.message });
+    }
   });
   app2.post("/api/content-studio/plan-shot", async (req, res) => {
     const u = req.user;
@@ -93168,10 +93312,16 @@ Sitemap: ${SEO_BASE_URL}/sitemap.xml
       return res.status(403).json({ error: "Ambassador or admin only" });
     }
     try {
-      const { prompt, shot, exact, aspect, brand, duration, quality, image } = req.body;
+      const { prompt, shot, exact, aspect, brand, duration, quality, image, presenterId } = req.body;
       if (!prompt && !shot) return res.status(400).json({ error: "prompt is required" });
       const { renderContentVideo: renderContentVideo2 } = await Promise.resolve().then(() => (init_content_video(), content_video_exports));
-      const video = await renderContentVideo2(prompt || shot || "", { userId: u.id, shot, exact, aspect, brand, duration, quality, image });
+      let startImage = image;
+      if (presenterId) {
+        const { getPresenter: getPresenter2, presenterAbsoluteUrl: presenterAbsoluteUrl2 } = await Promise.resolve().then(() => (init_presenters(), presenters_exports));
+        const p = await getPresenter2(u.id, Number(presenterId));
+        if (p) startImage = presenterAbsoluteUrl2(req, p.imageUrl);
+      }
+      const video = await renderContentVideo2(prompt || shot || "", { userId: u.id, shot, exact, aspect, brand, duration, quality, image: startImage });
       if (!video) return res.status(502).json({ error: "The video couldn't be made right now. Please try again in a minute." });
       if (video.persisted) {
         await storage.createContentStudioGeneration({
@@ -93194,18 +93344,24 @@ Sitemap: ${SEO_BASE_URL}/sitemap.xml
       return res.status(403).json({ error: "Ambassador or admin only" });
     }
     try {
-      const { topic, duration, quality, image } = req.body;
+      const { topic, duration, quality, image, presenterId } = req.body;
       if (!topic) return res.status(400).json({ error: "topic is required" });
       const { generateReelScript: generateReelScript2 } = await Promise.resolve().then(() => (init_openai(), openai_exports));
       const script = await generateReelScript2(topic, u?.id);
       const { renderContentVideo: renderContentVideo2 } = await Promise.resolve().then(() => (init_content_video(), content_video_exports));
+      let startImage = image;
+      if (presenterId) {
+        const { getPresenter: getPresenter2, presenterAbsoluteUrl: presenterAbsoluteUrl2 } = await Promise.resolve().then(() => (init_presenters(), presenters_exports));
+        const p = await getPresenter2(u.id, Number(presenterId));
+        if (p) startImage = presenterAbsoluteUrl2(req, p.imageUrl);
+      }
       const video = await renderContentVideo2(`Topic: ${topic}
 Scene idea: ${script.videoPrompt}`, {
         userId: u.id,
         aspect: req.body.aspect,
         duration,
         quality,
-        image
+        image: startImage
       });
       if (!video) return res.status(502).json({ error: "The video couldn't be made right now. Please try again in a minute." });
       if (video.persisted) {

@@ -67,6 +67,16 @@ export function ExplainerMaker({ initialTopic = '' }: { initialTopic?: string })
   const [jobId, setJobId] = useState<number | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [starting, setStarting] = useState(false);
+  // My Presenter: pick a saved face and every scene is filmed from that
+  // photo. Managed in the studio's Video tab; loaded best-effort here.
+  const [presenters, setPresenters] = useState<{ id: number; name: string; imageUrl: string }[]>([]);
+  const [presenterId, setPresenterId] = useState<number | null>(null);
+  useEffect(() => {
+    fetch('/api/content-studio/presenters', { credentials: 'include' })
+      .then((r) => (r.ok ? r.json() : null))
+      .then((d) => { if (d?.presenters) setPresenters(d.presenters); })
+      .catch(() => {});
+  }, []);
   const job = useExplainerJob(jobId);
   const busy = starting || (!!job && (job.status === 'running' || job.status === 'queued'));
 
@@ -74,7 +84,7 @@ export function ExplainerMaker({ initialTopic = '' }: { initialTopic?: string })
     if (!topic.trim() || busy) return;
     setStarting(true); setError(null); setJobId(null);
     try {
-      const res = await apiRequest('POST', '/api/content-studio/explainer', { prompt: topic.trim(), aspect });
+      const res = await apiRequest('POST', '/api/content-studio/explainer', { prompt: topic.trim(), aspect, presenterId: presenterId || undefined });
       const data = await res.json();
       setJobId(data.jobId);
     } catch (e: any) {
@@ -96,6 +106,24 @@ export function ExplainerMaker({ initialTopic = '' }: { initialTopic?: string })
           placeholder="e.g. How the opening range breakout works and where to put your stop"
           className="bg-black/40 border-white/10 text-white text-sm" />
       </div>
+      {presenters.length > 0 && (
+        <div>
+          <label className="text-[10px] text-gray-500 mb-1 block">Presenter</label>
+          <div className="flex flex-wrap gap-2">
+            <button onClick={() => setPresenterId(null)} disabled={busy} className="px-3 py-1.5 rounded-lg text-xs font-bold"
+              style={{ background: presenterId === null ? 'rgba(245,196,81,.2)' : 'rgba(255,255,255,.05)', border: `1px solid ${presenterId === null ? 'rgba(245,196,81,.5)' : 'rgba(255,255,255,.1)'}`, color: presenterId === null ? '#F5C451' : '#9ca3af' }}>
+              AI presenter
+            </button>
+            {presenters.map((p) => (
+              <button key={p.id} onClick={() => setPresenterId(p.id)} disabled={busy} className="inline-flex items-center gap-1.5 px-2 py-1.5 rounded-lg text-xs font-bold"
+                style={{ background: presenterId === p.id ? 'rgba(245,196,81,.2)' : 'rgba(255,255,255,.05)', border: `1px solid ${presenterId === p.id ? 'rgba(245,196,81,.5)' : 'rgba(255,255,255,.1)'}`, color: presenterId === p.id ? '#F5C451' : '#9ca3af' }}>
+                <img src={p.imageUrl} alt={p.name} className="w-5 h-5 rounded object-cover" /> {p.name}
+              </button>
+            ))}
+          </div>
+          <p className="text-[10px] text-gray-500 mt-1">Pick your saved presenter and every scene is filmed from your photo.</p>
+        </div>
+      )}
       <div>
         <label className="text-[10px] text-gray-500 mb-1 block">Size</label>
         <div className="grid grid-cols-2 gap-2">

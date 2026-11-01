@@ -86,7 +86,7 @@ export async function rendersToday(userId: number): Promise<number> {
 
 export async function startExplainerJob(
   userId: number, input: string, aspect: ExplainerAspect,
-  opts: { sceneCount?: number; onDone?: (url: string, script: ExplainerScript) => Promise<void> } = {},
+  opts: { sceneCount?: number; presenterImage?: string; onDone?: (url: string, script: ExplainerScript) => Promise<void> } = {},
 ): Promise<number> {
   await ensureJobTable();
   const { rows } = await pool.query(
@@ -111,7 +111,7 @@ function friendlyError(e: any): string {
 }
 
 async function runJob(id: number, userId: number, input: string, aspect: ExplainerAspect,
-  opts: { sceneCount?: number; onDone?: (url: string, script: ExplainerScript) => Promise<void> }) {
+  opts: { sceneCount?: number; presenterImage?: string; onDone?: (url: string, script: ExplainerScript) => Promise<void> }) {
   const script = await writeScript(input, userId, opts.sceneCount ?? 4);
   await update(id, { script, step: `Filming ${script.scenes.length} scenes with voiceover`, progress: 10 });
 
@@ -121,7 +121,7 @@ async function runJob(id: number, userId: number, input: string, aspect: Explain
   let done = 0;
   const predictions: string[] = [];
   const queue = script.scenes.map((s, i) => async () => {
-    const r = await renderScene(s, script, aspect);
+    const r = await renderScene(s, script, aspect, opts.presenterImage);
     urls[i] = r.url; predictions.push(r.predictionId);
     done++;
     await update(id, { progress: 10 + Math.round((done / script.scenes.length) * 70), step: `Filmed ${done} of ${script.scenes.length} scenes` });
@@ -129,7 +129,7 @@ async function runJob(id: number, userId: number, input: string, aspect: Explain
   const workers = Array.from({ length: Math.min(Math.max(1, Number(process.env.EXPLAINER_CONCURRENCY ?? 1)), queue.length) }, async () => { while (queue.length) await queue.shift()!(); });
   await Promise.all(workers);
 
-  await update(id, { step: 'Adding VEDD branding and joining scenes', progress: 85, meta: { predictions, model: MODEL() } });
+  await update(id, { step: 'Adding VEDD branding and joining scenes', progress: 85, meta: { predictions, model: MODEL(), presenter: opts.presenterImage ? 'custom' : 'ai' } });
   const video = await assemble(urls, aspect, script.scenes.map((s) => s.chart ?? null));
   const saved = await persistBuffer(video, 'video/mp4');
   if (!saved) throw new Error('could not save the finished video');
@@ -139,7 +139,7 @@ async function runJob(id: number, userId: number, input: string, aspect: Explain
     const { storage } = await import('../storage');
     await storage.createContentStudioGeneration({
       userId, contentType: 'video', prompt: input.slice(0, 2000), title: script.title, caption: script.caption, assetUrl: saved.url,
-      metadata: { kind: 'explainer', aspect, model: MODEL(), script, predictions },
+      metadata: { kind: 'explainer', aspect, model: MODEL(), script, predictions, presenter: opts.presenterImage ? 'custom' : 'ai' },
     } as any);
   } catch { /* library record is best-effort */ }
   if (opts.onDone) await opts.onDone(saved.url, script).catch((e) => console.error('[explainer] onDone failed:', e?.message));
@@ -191,22 +191,31 @@ JSON: {"title":"...","caption":"one-line social caption with a question","presen
 }
 
 // ─── Scenes (Replicate) ──────────────────────────────────────────────────────
-async function renderScene(scene: ExplainerScene, script: ExplainerScript, aspect: ExplainerAspect): Promise<{ url: string; predictionId: string }> {
+async function renderScene(scene: ExplainerScene, script: ExplainerScript, aspect: ExplainerAspect, presenterImage?: string): Promise<{ url: string; predictionId: string }> {
   const token = process.env.REPLICATE_API_TOKEN;
   if (!token) throw new Error('REPLICATE_API_TOKEN not set');
   // Same presenter + setting text in every scene keeps one person, one place.
   const framing = scene.chart
     ? 'Medium shot with the presenter in the upper half of the frame, pointing down toward the lower half, which is a plain darker area of the scene.'
     : 'Medium close-up, presenter talking straight to camera.';
-  const prompt = `Presenter: ${script.presenter}. Setting: ${script.setting}. ${scene.visual} ${framing} `
-    + `Authentic urban street style, cinematic 35mm look, natural skin tones, warm gold light, shallow depth of field, handheld-smooth camera. `
-    + `The presenter speaks directly to the camera and says: "${scene.narration.replace(/"/g, "'")}" `
-    + `Light hip-hop beat under the voice. No subtitles, no on-screen text, no logos.`;
-  const create = () => fetch(`https://api.replicate.com/v1/models/${MODEL()}/predictions`, {
+  // With a saved presenter photo, every scene starts FROM that photo (Veo
+  // image-to-video): the person on screen is the real user, not the
+  // text-described AI presenter.
+  const prompt = presenterImage
+    ? `The person in the starting image is the presenter — keep their exact face, hair and appearance in every frame. Setting: ${script.setting}. ${scene.visual} ${framing} `
+      + `Authentic urban street style, cinematic 35mm look, natural skin tones, warm gold light, shallow depth of field, handheld-smooth camera. `
+      + `The presenter speaks directly to the camera and says: "${scene.narration.replace(/"/g, "'")}" `
+      + `Light hip-hop beat under the voice. No subtitles, no on-screen text, no logos.`
+    : `Presenter: ${script.presenter}. Setting: ${script.setting}. ${scene.visual} ${framing} `
+      + `Authentic urban street style, cinematic 35mm look, natural skin tones, warm gold light, shallow depth of field, handheld-smooth camera. `
+      + `The presenter speaks directly to the camera and says: "${scene.narration.replace(/"/g, "'")}" `
+      + `Light hip-hop beat under the voice. No subtitles, no on-screen text, no logos.`;
+  const create = (withImage: boolean) => fetch(`https://api.replicate.com/v1/models/${MODEL()}/predictions`, {
     method: 'POST',
     headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json', Prefer: 'wait=55' },
     body: JSON.stringify({ input: {
       prompt,
+      ...(withImage && presenterImage ? { image: presenterImage } : {}),
       aspect_ratio: aspect === '16:9' ? '16:9' : '9:16',
       duration: CLIP_SECONDS,
       resolution: '720p',
@@ -216,11 +225,22 @@ async function renderScene(scene: ExplainerScene, script: ExplainerScript, aspec
     signal: AbortSignal.timeout(70000),
   });
   // 429 = rate limited (Replicate tells us how long to wait): retry, don't fail.
-  let res = await create();
-  for (let attempt = 0; res.status === 429 && attempt < 8; attempt++) {
-    const body: any = await res.json().catch(() => ({}));
-    await new Promise((r) => setTimeout(r, (Number(body?.retry_after) || 10) * 1000 + 1000));
-    res = await create();
+  const createWithRetry = async (withImage: boolean) => {
+    let r = await create(withImage);
+    for (let attempt = 0; r.status === 429 && attempt < 8; attempt++) {
+      const body: any = await r.json().catch(() => ({}));
+      await new Promise((resolve) => setTimeout(resolve, (Number(body?.retry_after) || 10) * 1000 + 1000));
+      r = await create(withImage);
+    }
+    return r;
+  };
+  let res = await createWithRetry(!!presenterImage);
+  // If the model rejected the start image (a swapped-in model without an
+  // image input, or a photo it refuses), fall back to the text-described
+  // presenter instead of failing the whole video.
+  if (!res.ok && presenterImage) {
+    console.warn('[explainer] scene create failed with presenter image — retrying without it');
+    res = await createWithRetry(false);
   }
   if (!res.ok) throw new Error(`Replicate ${res.status}: ${(await res.text().catch(() => '')).slice(0, 200)}`);
   let data: any = await res.json();
