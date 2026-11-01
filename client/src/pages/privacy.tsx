@@ -159,14 +159,11 @@ const PrivacyPage: React.FC = () => {
         </p>
         <div className="mt-4">
           <p className="font-medium">VEDD</p>
-          <p>123 Trading Street</p>
-          <p>New York, NY 10001</p>
           <p className="mt-2">
             <a href="mailto:privacy@vedd.ai" className="text-primary hover:underline">
               privacy@vedd.ai
             </a>
           </p>
-          <p>+1 (555) 123-4567</p>
         </div>
       </section>
     </ContentPage>

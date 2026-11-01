@@ -6,7 +6,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { useToast } from '@/hooks/use-toast';
-import { Mail, MapPin, Phone } from 'lucide-react';
+import { Mail } from 'lucide-react';
 
 const ContactPage: React.FC = () => {
   const { toast } = useToast();
@@ -39,36 +39,10 @@ const ContactPage: React.FC = () => {
               </div>
               <div>
                 <h3 className="text-sm font-medium text-muted-foreground">Email</h3>
-                <p className="mt-1">support@vedd.ai</p>
-                <p className="mt-1">info@vedd.ai</p>
+                <p className="mt-1">info@veddbuild.xyz</p>
               </div>
             </div>
 
-            <div className="flex gap-4">
-              <div className="flex-shrink-0">
-                <div className="w-10 h-10 rounded-full bg-primary/10 flex items-center justify-center">
-                  <Phone className="w-5 h-5 text-primary" />
-                </div>
-              </div>
-              <div>
-                <h3 className="text-sm font-medium text-muted-foreground">Phone</h3>
-                <p className="mt-1">+1 (555) 123-4567</p>
-                <p className="mt-1">Mon-Fri, 9AM-5PM EST</p>
-              </div>
-            </div>
-
-            <div className="flex gap-4">
-              <div className="flex-shrink-0">
-                <div className="w-10 h-10 rounded-full bg-primary/10 flex items-center justify-center">
-                  <MapPin className="w-5 h-5 text-primary" />
-                </div>
-              </div>
-              <div>
-                <h3 className="text-sm font-medium text-muted-foreground">Office</h3>
-                <p className="mt-1">123 Trading Street</p>
-                <p className="mt-1">New York, NY 10001</p>
-              </div>
-            </div>
           </div>
           
           <div className="mt-8">
@@ -155,10 +129,10 @@ const ContactPage: React.FC = () => {
           </div>
           
           <div>
-            <h3 className="text-lg font-medium mb-2">Do you offer technical support via phone?</h3>
+            <h3 className="text-lg font-medium mb-2">How do I get technical support?</h3>
             <p className="text-muted-foreground">
-              Yes, we provide technical support over the phone for subscribers on our Pro and Enterprise plans. 
-              Basic plan subscribers receive email support.
+              Email us at info@veddbuild.xyz and we'll help you out. We respond to all inquiries
+              within 24 hours during business days.
             </p>
           </div>
           
