@@ -15926,7 +15926,7 @@ Make it timely, relevant to current market conditions, and show how VEDD's tools
     currentEventsContext
   };
 }
-async function generateReelScript(topic, userId) {
+async function generateReelScript(topic, userId, styleNote) {
   let openai2;
   let model = "gpt-4o";
   try {
@@ -15952,10 +15952,14 @@ Return a JSON object with these exact fields:
   "caption": "a social caption for the post (2-4 sentences, includes a CTA to veddbuild.com, no hashtags \u2014 those get added separately)",
   "videoPrompt": "a vivid, concrete visual SCENE (1-2 sentences) for an AI video generator, staying FAITHFUL to the topic above \u2014 describe the setting, subject and mood only. Do NOT describe film style, grain, color grade or camera settings (those are applied automatically). No text overlays, captions, signage, logos or readable words. If the scene includes people, they are young Black people in contemporary streetwear in an authentic inner-city/urban setting."
 }`;
+  const system = styleNote?.trim() ? `${systemPrompt}
+
+ADAPT THIS PROVEN AD STRUCTURE \u2014 copy the shape only, written for VEDD in the brand voice above:
+${styleNote.trim().slice(0, 900)}` : systemPrompt;
   const response = await openai2.chat.completions.create({
     model,
     messages: [
-      { role: "system", content: systemPrompt },
+      { role: "system", content: system },
       { role: "user", content: `Write a VEDD reel script about: ${topic}` }
     ],
     response_format: { type: "json_object" },
