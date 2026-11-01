@@ -34916,9 +34916,12 @@ var init_brain_ideas = __esm({
 // server/abba-strategist.ts
 var abba_strategist_exports = {};
 __export(abba_strategist_exports, {
+  IDEA_MARKER: () => IDEA_MARKER,
   abbaChatHandler: () => abbaChatHandler,
+  abbaIdeaLabPrompt: () => abbaIdeaLabPrompt,
   abbaStrategistHandler: () => abbaStrategistHandler,
-  buildAbbaContext: () => buildAbbaContext
+  buildAbbaContext: () => buildAbbaContext,
+  extractIdeaDraft: () => extractIdeaDraft
 });
 async function buildAbbaContext(userId) {
   const all = await storage.getAiTradeResults(userId, 500);
@@ -35059,6 +35062,20 @@ async function getClient(userId) {
   } catch {
     return null;
   }
+}
+async function abbaIdeaLabPrompt(userId) {
+  return `=== WHAT'S NEW IN THE ENGINE (newest first) ===
+When they ask what changed, why trades got skipped, or how Model 1 / Model 2 are doing, explain from this log in plain words and tie it to THEIR numbers:
+${engineUpdatesText()}
+Model 1 = range-day / mean-reversion strategy. Model 2 = trend-day continuation. Both trade in SHADOW (simulated) until a slice proves itself: 50+ trades, avg R 0.2+, win rate 40%+, no losing week in the last two.
+
+=== IDEA LAB: BUILD THEIR EXCLUSIVE BRAIN ===
+The trader can add their own strategy ideas to their personal brain. Ideas are FILTERS: they skip signals (e.g. "no GBPJPY in Asia") or limit trading to a scope (e.g. "only EURUSD BUYs in London"). They never open trades. New ideas run in SHADOW mode only; going live needs a manual approval later. A proven idea makes their brain exclusive, and they can sell access to it on the VEDD brain marketplace.
+When they want to add an idea, or you spot one in their data, interview them ONE short question at a time until you know:
+1. Block or only-allow?  2. Which pairs (or all)?  3. BUY, SELL or both?  4. Which session (Asian, London, London/NY overlap, New York) or UTC hours?  5. Any day type (range / trend days) or model (Model 1, Model 2, the live engine)?  6. WHY \u2014 what did they see that makes them believe it?
+Skip questions they already answered. Suggest ideas backed by their BY PAIR / BY SESSION numbers when they're unsure. Then read the idea back in one sentence and ask "Want me to test that in shadow mode?". ONLY after they clearly say yes, end your reply with the exact marker [[IDEA_READY]] on its own line. Never output the marker otherwise.
+Their current ideas:
+${await ideasContextText(userId)}`;
 }
 async function extractIdeaDraft(ai, userId, convo, message, reply) {
   const transcript = [...convo, { role: "user", content: message }, { role: "assistant", content: reply }].map((m2) => `${m2.role === "assistant" ? "ABBA" : "TRADER"}: ${String(m2.content).slice(0, 1500)}`).join("\n");
@@ -35268,18 +35285,7 @@ Keep answers under 300 words unless asked for depth. Stay in your street-smart v
 - When asked about account balances or connections, use the LIVE ACCOUNTS data above \u2014 it includes BOTH MT5 and TradeLocker in real time. Never say you can't see TradeLocker.
 - The BRAIN line shows the live VEDD AI Brain (learning from both MT5 + TradeLocker closed trades) \u2014 reference its win rate and insights when discussing performance.
 
-=== WHAT'S NEW IN THE ENGINE (newest first) ===
-When they ask what changed, why trades got skipped, or how Model 1 / Model 2 are doing, explain from this log in plain words and tie it to THEIR numbers:
-${engineUpdatesText()}
-Model 1 = range-day / mean-reversion strategy. Model 2 = trend-day continuation. Both trade in SHADOW (simulated) until a slice proves itself: 50+ trades, avg R 0.2+, win rate 40%+, no losing week in the last two.
-
-=== IDEA LAB: BUILD THEIR EXCLUSIVE BRAIN ===
-The trader can add their own strategy ideas to their personal brain. Ideas are FILTERS: they skip signals (e.g. "no GBPJPY in Asia") or limit trading to a scope (e.g. "only EURUSD BUYs in London"). They never open trades. New ideas run in SHADOW mode only; going live needs a manual approval later. A proven idea makes their brain exclusive, and they can sell access to it on the VEDD brain marketplace.
-When they want to add an idea, or you spot one in their data, interview them ONE short question at a time until you know:
-1. Block or only-allow?  2. Which pairs (or all)?  3. BUY, SELL or both?  4. Which session (Asian, London, London/NY overlap, New York) or UTC hours?  5. Any day type (range / trend days) or model (Model 1, Model 2, the live engine)?  6. WHY \u2014 what did they see that makes them believe it?
-Skip questions they already answered. Suggest ideas backed by their BY PAIR / BY SESSION numbers when they're unsure. Then read the idea back in one sentence and ask "Want me to test that in shadow mode?". ONLY after they clearly say yes, end your reply with the exact marker [[IDEA_READY]] on its own line. Never output the marker otherwise.
-Their current ideas:
-${await ideasContextText(userId)}
+${await abbaIdeaLabPrompt(userId)}
 
 === TRADER'S LIVE DATA ===
 ${contextSummary(ctx)}`;
@@ -35316,7 +35322,7 @@ ${contextSummary(ctx)}`;
     res.status(500).json({ error: err.message });
   }
 }
-var sessionOf;
+var sessionOf, IDEA_MARKER;
 var init_abba_strategist = __esm({
   "server/abba-strategist.ts"() {
     "use strict";
@@ -35327,6 +35333,7 @@ var init_abba_strategist = __esm({
       const h = d.getUTCHours();
       return h < 7 ? "Asian" : h < 13 ? "London" : h < 20 ? "New York" : "Late NY";
     };
+    IDEA_MARKER = "[[IDEA_READY]]";
   }
 });
 
@@ -63918,9 +63925,9 @@ async function getStopOrdersForUser(userId, filters = {}) {
 init_schema();
 
 // server/build-info.ts
-var BUILD_COMMIT = "2cd36191-dirty";
+var BUILD_COMMIT = "24d792bf-dirty";
 var BUILD_BRANCH = "HEAD";
-var BUILT_AT = "2026-11-01T15:52:12.988Z";
+var BUILT_AT = "2026-11-01T16:20:06.092Z";
 
 // server/stripe.ts
 init_db();
@@ -71322,7 +71329,9 @@ Keep responses under 120 words. Lead with the most important insight. Make ${fir
 HARD RULE: NEVER include code, code blocks, JSON, or markdown fences in replies \u2014 plain talk only. ONLY exception: user explicitly asks for an EA/indicator/script (MQL4, MQL5, Pine Script) \u2014 then point them to the EA Generator with [NAV:/futures-ea-generator].
 NAV: include [NAV:/path] to navigate. Use EXACT paths only \u2014 wrong paths lead to dead pages.
 Routes: /dashboard | /analysis | /multi-timeframe | /weekly-strategy | /orb-breakout | /historical | /what-if | /my-eas | /ea-marketplace | /mt5-chart-data | /mobile-alerts | /live-monitor | /solana-scanner | /activity | /streak | /community | /social-hub | /blog | /devotional | /vedd-wallet | /my-wallet | /account-growth | /referral | /grants | /credit-builder | /achievements | /profile | /ai-api-keys | /training-calendar | /ambassador/free-path | /vedd-clothing | /subscription | /support
-PLAN: include [PLAN_PROPOSAL:{json}] to propose a plan.`;
+PLAN: include [PLAN_PROPOSAL:{json}] to propose a plan.
+
+${await abbaIdeaLabPrompt(userId)}`;
       const { getUniversalAIClientForUser: getStreamAI } = await Promise.resolve().then(() => (init_openai(), openai_exports));
       const aiClient = await getStreamAI(userId);
       const historyMessages = (history || []).slice(-6).map((m) => ({
@@ -71339,6 +71348,7 @@ PLAN: include [PLAN_PROPOSAL:{json}] to propose a plan.`;
       let tokenBuffer = "";
       let fullText = "";
       const processSentence = (sentence) => {
+        sentence = sentence.split(IDEA_MARKER).join("");
         const stripped = sentence.replace(/\[NAV:\/[^\]]*\]/g, "").replace(/\[PLAN_PROPOSAL:\{[\s\S]*?\}\]/g, "").trim();
         if (!stripped || stripped.length < 4) return;
         sendEvent("text", { text: sentence, speak: stripped });
@@ -71367,10 +71377,24 @@ PLAN: include [PLAN_PROPOSAL:{json}] to propose a plan.`;
       }
       const lc = fullText.toLowerCase();
       const suggestions = lc.includes("plan") || lc.includes("pairs") ? ["Best entry for my pairs?", "What session today?", "Protect my gains"] : lc.includes("pacing") || lc.includes("goal") || lc.includes("%") ? ["Break down daily targets", "Should I increase lots?", "Pairs to close the gap"] : lc.includes("entry") || lc.includes("setup") || lc.includes("trade") ? ["SL and TP for this?", "High or medium confidence?", "Invalidation point?"] : ["Am I on pace?", "Best trade now?", "Today's summary"];
+      let ideaDraft = null;
+      if (fullText.includes(IDEA_MARKER)) {
+        ideaDraft = await extractIdeaDraft(
+          { client: aiClient, model: aiClient.defaultModel || "gpt-4o" },
+          userId,
+          historyMessages,
+          message,
+          fullText.split(IDEA_MARKER).join("")
+        ).catch((e) => {
+          console.error("[ABBA stream idea]", e?.message);
+          return null;
+        });
+      }
       sendEvent("done", {
         navigateTo,
         planProposal,
         suggestions,
+        ideaDraft,
         context: { weekPct, weekProfit, weekTarget, todayProfit, dailyTarget, unrealizedPnL, openCount: openPositions.length, targetRemaining, pacingNeededPerDay, weekTrades: strategy?.progressTrades || 0, weekWinRate: strategy?.progressWinRate || 0, balance, planPairs, todayPairs, hasStrategy: !!strategy && weekTarget > 0 }
       });
       res.end();

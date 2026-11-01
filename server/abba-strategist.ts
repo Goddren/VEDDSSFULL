@@ -161,8 +161,25 @@ async function getClient(userId: number): Promise<{ client: any; model: string }
   } catch { return null; }
 }
 
-// ── Idea Lab: conversation → structured filter rule + backtest ─────────────────
-async function extractIdeaDraft(ai: { client: any; model: string }, userId: number, convo: any[], message: string, reply: string) {
+// ── Idea Lab: shared by /api/abba/chat and /api/abba/stream ───────────────────
+export const IDEA_MARKER = '[[IDEA_READY]]';
+export async function abbaIdeaLabPrompt(userId: number): Promise<string> {
+  return `=== WHAT'S NEW IN THE ENGINE (newest first) ===
+When they ask what changed, why trades got skipped, or how Model 1 / Model 2 are doing, explain from this log in plain words and tie it to THEIR numbers:
+${engineUpdatesText()}
+Model 1 = range-day / mean-reversion strategy. Model 2 = trend-day continuation. Both trade in SHADOW (simulated) until a slice proves itself: 50+ trades, avg R 0.2+, win rate 40%+, no losing week in the last two.
+
+=== IDEA LAB: BUILD THEIR EXCLUSIVE BRAIN ===
+The trader can add their own strategy ideas to their personal brain. Ideas are FILTERS: they skip signals (e.g. "no GBPJPY in Asia") or limit trading to a scope (e.g. "only EURUSD BUYs in London"). They never open trades. New ideas run in SHADOW mode only; going live needs a manual approval later. A proven idea makes their brain exclusive, and they can sell access to it on the VEDD brain marketplace.
+When they want to add an idea, or you spot one in their data, interview them ONE short question at a time until you know:
+1. Block or only-allow?  2. Which pairs (or all)?  3. BUY, SELL or both?  4. Which session (Asian, London, London/NY overlap, New York) or UTC hours?  5. Any day type (range / trend days) or model (Model 1, Model 2, the live engine)?  6. WHY — what did they see that makes them believe it?
+Skip questions they already answered. Suggest ideas backed by their BY PAIR / BY SESSION numbers when they're unsure. Then read the idea back in one sentence and ask "Want me to test that in shadow mode?". ONLY after they clearly say yes, end your reply with the exact marker [[IDEA_READY]] on its own line. Never output the marker otherwise.
+Their current ideas:
+${await ideasContextText(userId)}`;
+}
+
+// Conversation → structured filter rule + backtest
+export async function extractIdeaDraft(ai: { client: any; model: string }, userId: number, convo: any[], message: string, reply: string) {
   const transcript = [...convo, { role: 'user', content: message }, { role: 'assistant', content: reply }]
     .map((m) => `${m.role === 'assistant' ? 'ABBA' : 'TRADER'}: ${String(m.content).slice(0, 1500)}`).join('\n');
   const r = await ai.client.chat.completions.create({
@@ -370,18 +387,7 @@ Keep answers under 300 words unless asked for depth. Stay in your street-smart v
 - When asked about account balances or connections, use the LIVE ACCOUNTS data above — it includes BOTH MT5 and TradeLocker in real time. Never say you can't see TradeLocker.
 - The BRAIN line shows the live VEDD AI Brain (learning from both MT5 + TradeLocker closed trades) — reference its win rate and insights when discussing performance.
 
-=== WHAT'S NEW IN THE ENGINE (newest first) ===
-When they ask what changed, why trades got skipped, or how Model 1 / Model 2 are doing, explain from this log in plain words and tie it to THEIR numbers:
-${engineUpdatesText()}
-Model 1 = range-day / mean-reversion strategy. Model 2 = trend-day continuation. Both trade in SHADOW (simulated) until a slice proves itself: 50+ trades, avg R 0.2+, win rate 40%+, no losing week in the last two.
-
-=== IDEA LAB: BUILD THEIR EXCLUSIVE BRAIN ===
-The trader can add their own strategy ideas to their personal brain. Ideas are FILTERS: they skip signals (e.g. "no GBPJPY in Asia") or limit trading to a scope (e.g. "only EURUSD BUYs in London"). They never open trades. New ideas run in SHADOW mode only; going live needs a manual approval later. A proven idea makes their brain exclusive, and they can sell access to it on the VEDD brain marketplace.
-When they want to add an idea, or you spot one in their data, interview them ONE short question at a time until you know:
-1. Block or only-allow?  2. Which pairs (or all)?  3. BUY, SELL or both?  4. Which session (Asian, London, London/NY overlap, New York) or UTC hours?  5. Any day type (range / trend days) or model (Model 1, Model 2, the live engine)?  6. WHY — what did they see that makes them believe it?
-Skip questions they already answered. Suggest ideas backed by their BY PAIR / BY SESSION numbers when they're unsure. Then read the idea back in one sentence and ask "Want me to test that in shadow mode?". ONLY after they clearly say yes, end your reply with the exact marker [[IDEA_READY]] on its own line. Never output the marker otherwise.
-Their current ideas:
-${await ideasContextText(userId)}
+${await abbaIdeaLabPrompt(userId)}
 
 === TRADER'S LIVE DATA ===
 ${contextSummary(ctx)}`;

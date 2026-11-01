@@ -26,7 +26,7 @@ import { setupTwilio, sendTradingSignal, sendSmsRaw } from "./twilio";
 import { checkUserAchievements } from "./achievement-tracker";
 import { generateMT5EACode, generateTradingViewCode, generateTradeLockerCode } from './ea-generators';
 import { tradingCoachHandler, tradingTipsHandler } from "./trading-coach";
-import { abbaStrategistHandler, abbaChatHandler } from "./abba-strategist";
+import { abbaStrategistHandler, abbaChatHandler, abbaIdeaLabPrompt, extractIdeaDraft, IDEA_MARKER } from "./abba-strategist";
 import { marketInsightsHandler, contextualInsightHandler } from "./market-insights";
 import { createStopOrder, checkBreakoutTriggers, cancelStopOrder, getStopOrdersForUser } from "./services/stopOrderService";
 import { insertStopOrderSchema, stopOrders } from "@shared/schema";
@@ -4930,7 +4930,9 @@ Keep responses under 120 words. Lead with the most important insight. Make ${fir
 HARD RULE: NEVER include code, code blocks, JSON, or markdown fences in replies — plain talk only. ONLY exception: user explicitly asks for an EA/indicator/script (MQL4, MQL5, Pine Script) — then point them to the EA Generator with [NAV:/futures-ea-generator].
 NAV: include [NAV:/path] to navigate. Use EXACT paths only — wrong paths lead to dead pages.
 Routes: /dashboard | /analysis | /multi-timeframe | /weekly-strategy | /orb-breakout | /historical | /what-if | /my-eas | /ea-marketplace | /mt5-chart-data | /mobile-alerts | /live-monitor | /solana-scanner | /activity | /streak | /community | /social-hub | /blog | /devotional | /vedd-wallet | /my-wallet | /account-growth | /referral | /grants | /credit-builder | /achievements | /profile | /ai-api-keys | /training-calendar | /ambassador/free-path | /vedd-clothing | /subscription | /support
-PLAN: include [PLAN_PROPOSAL:{json}] to propose a plan.`;
+PLAN: include [PLAN_PROPOSAL:{json}] to propose a plan.
+
+${await abbaIdeaLabPrompt(userId)}`;
 
       const { getUniversalAIClientForUser: getStreamAI } = await import('./openai');
       const aiClient = await getStreamAI(userId);
@@ -4954,6 +4956,7 @@ PLAN: include [PLAN_PROPOSAL:{json}] to propose a plan.`;
       // Send each sentence as a text event immediately — no server-side TTS in stream.
       // The client speaks via browser speechSynthesis (instant, no autoplay block).
       const processSentence = (sentence: string) => {
+        sentence = sentence.split(IDEA_MARKER).join('');
         const stripped = sentence.replace(/\[NAV:\/[^\]]*\]/g, '').replace(/\[PLAN_PROPOSAL:\{[\s\S]*?\}\]/g, '').trim();
         if (!stripped || stripped.length < 4) return;
         sendEvent('text', { text: sentence, speak: stripped });
@@ -4988,8 +4991,15 @@ PLAN: include [PLAN_PROPOSAL:{json}] to propose a plan.`;
         : lc.includes('entry') || lc.includes('setup') || lc.includes('trade') ? ['SL and TP for this?','High or medium confidence?','Invalidation point?']
         : ['Am I on pace?','Best trade now?',"Today's summary"];
 
+      // Idea Lab: the trader agreed to an idea → structured rule + backtest card.
+      let ideaDraft: any = null;
+      if (fullText.includes(IDEA_MARKER)) {
+        ideaDraft = await extractIdeaDraft({ client: aiClient, model: (aiClient as any).defaultModel || 'gpt-4o' }, userId,
+          historyMessages, message, fullText.split(IDEA_MARKER).join('')).catch((e: any) => { console.error('[ABBA stream idea]', e?.message); return null; });
+      }
+
       sendEvent('done', {
-        navigateTo, planProposal, suggestions,
+        navigateTo, planProposal, suggestions, ideaDraft,
         context: { weekPct, weekProfit, weekTarget, todayProfit, dailyTarget, unrealizedPnL, openCount: openPositions.length, targetRemaining, pacingNeededPerDay, weekTrades: strategy?.progressTrades||0, weekWinRate: strategy?.progressWinRate||0, balance, planPairs, todayPairs, hasStrategy: !!strategy && weekTarget > 0 },
       });
       res.end();

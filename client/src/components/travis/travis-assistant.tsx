@@ -1,4 +1,5 @@
 ﻿import React, { useState, useEffect, useRef, useCallback } from 'react';
+import { IdeaDraftCard, type IdeaDraft } from "@/components/abba/idea-lab";
 import { useLocation } from 'wouter';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
@@ -37,6 +38,7 @@ interface AbbaMessage {
   timestamp: Date;
   navigateTo?: string | null;
   planProposal?: PlanProposal | null;
+  ideaDraft?: IdeaDraft | null;
   suggestions?: string[];
   audioUrl?: string; // blob URL for tap-to-play
 }
@@ -463,6 +465,9 @@ const MsgBubble = ({
           >
             {msg.content}
           </div>
+        )}
+        {isAbba && msg.ideaDraft && (
+          <div className="w-full mt-1"><IdeaDraftCard draft={msg.ideaDraft} /></div>
         )}
         {/* Plan proposal card — rendered below the message bubble */}
         {isAbba && msg.planProposal && (
@@ -1291,6 +1296,7 @@ export function AbbaAssistant() {
               // We do NOT auto-navigate. User must tap the button to confirm.
               navigateTo: parsed.navigateTo || null,
               planProposal: parsed.planProposal || null,
+              ideaDraft: parsed.ideaDraft || null,
               suggestions: parsed.suggestions || [],
             } : m));
             // NO auto-navigate — removed intentionally
