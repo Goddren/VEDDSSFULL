@@ -190,14 +190,11 @@ const TermsPage: React.FC = () => {
         </p>
         <div>
           <p className="font-medium">VEDD</p>
-          <p>123 Trading Street</p>
-          <p>New York, NY 10001</p>
           <p className="mt-2">
             <a href="mailto:legal@vedd.ai" className="text-primary hover:underline">
               legal@vedd.ai
             </a>
           </p>
-          <p>+1 (555) 123-4567</p>
         </div>
       </section>
 
