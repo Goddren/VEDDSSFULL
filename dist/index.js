@@ -56385,7 +56385,7 @@ async function generateContentVideo(prompt, opts) {
   const input = buildModelInput(model, quality, styledPrompt, numFrames, durationSeconds, image, opts?.aspect === "16:9" ? "16:9" : "9:16");
   try {
     console.log(`[video-generation] quality=${quality} model=${model} mode=${image ? "image-to-video" : "text-to-video"}`);
-    const res = await fetch(`https://api.replicate.com/v1/models/${model}/predictions`, {
+    const create = () => fetch(`https://api.replicate.com/v1/models/${model}/predictions`, {
       method: "POST",
       headers: {
         Authorization: `Bearer ${apiKey}`,
@@ -56400,6 +56400,12 @@ async function generateContentVideo(prompt, opts) {
       // poll loop below. Give it headroom.
       signal: AbortSignal.timeout(75e3)
     });
+    let res = await create();
+    for (let attempt = 0; res.status === 429 && attempt < 8; attempt++) {
+      const body = await res.json().catch(() => ({}));
+      await new Promise((r) => setTimeout(r, (Number(body?.retry_after) || 10) * 1e3 + 1e3));
+      res = await create();
+    }
     if (!res.ok) {
       const body = await res.text().catch(() => "");
       console.error("[video-generation] Replicate error:", res.status, body.slice(0, 300));
@@ -63918,9 +63924,9 @@ async function getStopOrdersForUser(userId, filters = {}) {
 init_schema();
 
 // server/build-info.ts
-var BUILD_COMMIT = "2cd36191-dirty";
-var BUILD_BRANCH = "HEAD";
-var BUILT_AT = "2026-11-01T15:52:12.988Z";
+var BUILD_COMMIT = "24d792b-dirty";
+var BUILD_BRANCH = "main";
+var BUILT_AT = "2026-11-01T16:01:47.876Z";
 
 // server/stripe.ts
 init_db();
