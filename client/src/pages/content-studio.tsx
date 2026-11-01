@@ -36,22 +36,19 @@ type ContentType = 'lesson' | 'signal' | 'scripture' | 'update' | 'testimony';
 
 interface Testimony { id: string; author: string; result: string; quote: string; period: string; }
 
-// ── Static company updates ────────────────────────────────────────────────────
-const COMPANY_UPDATES = [
-  { id: 'upd1', date: 'April 2025', headline: 'VEDD AI Platform Now Live', body: 'Our full AI-powered trading intelligence platform is officially live — live signals, MT5 sync, weekly strategy builder, and the ABBA AI assistant are all running. Thousands of traders are already building consistent weekly profits.', tag: 'Launch' },
-  { id: 'upd2', date: 'April 2025', headline: 'Ambassador Program Open', body: 'The VEDD Ambassador Program is officially open. Ambassadors earn commissions + VEDD tokens for every trader they refer. Top ambassadors are earning $1,000–$5,000/month sharing AI trading knowledge with their networks.', tag: 'Opportunity' },
-  { id: 'upd3', date: 'April 2025', headline: 'VEDD Token (VEDD) Launching on Solana', body: 'The VEDD Token is launching on the Solana blockchain. Token holders gain access to premium signals, platform governance, and staking rewards. Early ambassadors receive bonus token allocations.', tag: 'Token' },
-  { id: 'upd4', date: 'April 2025', headline: 'Community Goal: 10,000 Traders', body: 'VEDD is on a mission to help 10,000 traders build consistent income from the markets using AI. Every ambassador referral moves us closer to this milestone. Join the movement.', tag: 'Mission' },
-  { id: 'upd5', date: 'April 2025', headline: 'Faith-Based Trading Community', body: 'VEDD combines financial intelligence with faith and purpose. Our devotional trading program connects scripture to market principles — helping traders grow spiritually and financially at the same time.', tag: 'Community' },
-];
+// ── Company updates ─────────────────────────────────────────────────────────
+// Intentionally empty. The previous hardcoded entries were stale (April 2025)
+// and carried profit claims ("consistent weekly profits", "$1,000–$5,000/month"
+// ambassador earnings, token staking rewards) that must never be posted as
+// fact. Updates belong here only from a real, current source.
+const COMPANY_UPDATES: { id: string; date: string; headline: string; body: string; tag: string }[] = [];
 
-// ── Default testimonies ───────────────────────────────────────────────────────
-const DEFAULT_TESTIMONIES: Testimony[] = [
-  { id: 't1', author: 'Marcus T.', result: '+$1,240 in Week 1', quote: "VEDD's AI weekly plan told me exactly which pairs to focus on. I followed the strategy and hit my weekly goal in 3 trading days. This platform is the real deal.", period: '1 week' },
-  { id: 't2', author: 'Priya K.', result: '87% Win Rate', quote: "The chart analysis feature breaks down every setup clearly — entry, stop, take profit, confidence score. My win rate jumped from 52% to 87% in 6 weeks using VEDD signals.", period: '6 weeks' },
-  { id: 't3', author: 'Jordan M.', result: '$3,800 Commission', quote: "As a VEDD Ambassador I earned $3,800 in commissions last month just by sharing content. The referral system makes it easy — every post, every share builds passive income.", period: '1 month' },
-  { id: 't4', author: 'Destiny W.', result: 'Left 9-to-5 in 90 Days', quote: "I came to VEDD with zero trading knowledge. The training, AI tools, and community showed me a path. 90 days later I resigned from my job. Faith + AI = financial freedom.", period: '90 days' },
-];
+// ── Testimonies ─────────────────────────────────────────────────────────────
+// No default testimonies. The previous hardcoded entries were invented people
+// with invented earnings ("+$1,240 in Week 1", "87% Win Rate", "Left 9-to-5 in
+// 90 Days") — posting fabricated results for a real-money product is a
+// regulatory and platform-ban risk. Ambassadors add real member stories with
+// the form in the Testimonies section below.
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 function stripHtml(html: string) { return html.replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim(); }
@@ -148,12 +145,12 @@ function buildCaption(type: ContentType, item: any, referralCode: string | null,
       `#VEDD #AITrading #TradingCommunity #Forex #Fintech`
     );
     case 'testimony': return (
-      `🙌 REAL RESULTS — VEDD AI Trading\n\n` +
+      `🙌 MEMBER STORY — VEDD AI Trading\n\n` +
       `"${item?.quote || ''}"\n— ${item?.author || 'VEDD Trader'}\n\n` +
       `Result: ${item?.result || ''} in ${item?.period || ''}\n\n` +
-      `This could be YOUR story. Start free today.\n\n` +
+      `Every member's journey is different.\n\n` +
       `👇 Join VEDD:\n${url}\n\n` +
-      `#VEDD #TradingResults #ProofOfProfit #Forex #AITrading`
+      `#VEDD #TradingJourney #AITrading #Forex #TradingCommunity`
     );
     default: return '';
   }
@@ -411,7 +408,7 @@ function ContentBrowser({ type, selected, onSelect }: {
     enabled: type === 'scripture',
   });
 
-  const [testimonies, setTestimonies] = useState<Testimony[]>(DEFAULT_TESTIMONIES);
+  const [testimonies, setTestimonies] = useState<Testimony[]>([]);
   const [newTestimony, setNewTestimony] = useState({ author: '', result: '', quote: '', period: '' });
   const [addingTestimony, setAddingTestimony] = useState(false);
 
@@ -483,7 +480,9 @@ function ContentBrowser({ type, selected, onSelect }: {
 
   if (type === 'update') return (
     <div className="space-y-2">
-      {COMPANY_UPDATES.map(u => <ItemRow key={u.id} item={u} label={u.headline} sub={`${u.tag} · ${u.date}`} />)}
+      {COMPANY_UPDATES.length === 0
+        ? <p className="text-xs text-gray-500 text-center py-6">No company updates yet.</p>
+        : COMPANY_UPDATES.map(u => <ItemRow key={u.id} item={u} label={u.headline} sub={`${u.tag} · ${u.date}`} />)}
     </div>
   );
 
@@ -495,7 +494,7 @@ function ContentBrowser({ type, selected, onSelect }: {
           <p className="text-[10px] font-bold text-amber-400 uppercase tracking-widest">Add New Testimony</p>
           {[
             { key: 'author', placeholder: "Trader name (e.g. 'Marcus T.')" },
-            { key: 'result', placeholder: "Result (e.g. '+$1,200 in Week 1')" },
+            { key: 'result', placeholder: "Result (e.g. 'Completed the Workforce Academy')" },
             { key: 'period', placeholder: "Time period (e.g. '30 days')" },
           ].map(f => (
             <input key={f.key} placeholder={f.placeholder}
@@ -521,6 +520,9 @@ function ContentBrowser({ type, selected, onSelect }: {
           style={{ background: 'rgba(245,158,11,.06)', border: '1px dashed rgba(245,158,11,.3)' }}>
           <span>+</span> Add a new testimony
         </button>
+      )}
+      {testimonies.length === 0 && (
+        <p className="text-xs text-gray-500 text-center py-6">No testimonies yet — add a real member story above.</p>
       )}
       {testimonies.map(t => <ItemRow key={t.id} item={t} label={`${t.author} — ${t.result}`} sub={`"${truncate(t.quote, 60)}"`} />)}
     </div>
@@ -961,7 +963,7 @@ const CAROUSEL_PIPELINE = [
 
 // ── Main Page ─────────────────────────────────────────────────────────────────
 export default function ContentStudioPage() {
-  const { user } = useAuth();
+  const { user, isLoading: authLoading } = useAuth();
   const isAmbassador = !!(user as any)?.isAmbassador;
   const isAdmin = !!(user as any)?.isAdmin;
   const { data: referralData } = useQuery<{ code: string; url: string; shortUrl: string }>({
@@ -1135,7 +1137,6 @@ export default function ContentStudioPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [showGenLoading]);
 
-  if (!isAmbassador && !isAdmin) return <Redirect to="/dashboard" />;
 
   const cfg = CONTENT_TYPES.find(c => c.id === activeType)!;
 
@@ -1197,6 +1198,15 @@ export default function ContentStudioPage() {
       setFlattening(false);
     }
   };
+
+  // Access gate — deliberately AFTER every hook in this component. This used
+  // to sit mid-component; the hooks below it were skipped while the signed-in
+  // user was still loading, then ran once the user resolved, and React threw
+  // on the changed hook count — crashing the page for ambassadors on cold
+  // load / deep link. While auth is loading, render a placeholder instead of
+  // redirecting, so a signed-in ambassador is never bounced mid-load.
+  if (authLoading) return <div className="min-h-screen flex items-center justify-center text-sm text-gray-400">Loading…</div>;
+  if (!isAmbassador && !isAdmin) return <Redirect to="/dashboard" />;
 
   return (
     <div className="min-h-screen pb-16" style={{ background: 'linear-gradient(180deg,#060610 0%,#080812 100%)' }}>

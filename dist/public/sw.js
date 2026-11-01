@@ -1,8 +1,12 @@
 <<<<<<< HEAD
+<<<<<<< HEAD
 const CACHE_VERSION = 'vedd-v209';
 =======
 const CACHE_VERSION = 'vedd-v205';
 >>>>>>> origin/fix/contact-info
+=======
+const CACHE_VERSION = 'vedd-v206';
+>>>>>>> origin/fix/content-studio-top3
 const STATIC_CACHE = `${CACHE_VERSION}-static`;
 const DYNAMIC_CACHE = `${CACHE_VERSION}-dynamic`;
 const RUNTIME_CACHE = `${CACHE_VERSION}-runtime`;
