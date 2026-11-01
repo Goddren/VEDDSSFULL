@@ -67,6 +67,16 @@ export function ExplainerMaker({ initialTopic = '' }: { initialTopic?: string })
   const [jobId, setJobId] = useState<number | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [starting, setStarting] = useState(false);
+  // Background preset: one setting for the whole explainer. Loaded
+  // best-effort; the server keeps the scene text.
+  const [backgrounds, setBackgrounds] = useState<{ id: string; label: string }[]>([]);
+  const [backgroundId, setBackgroundId] = useState<string | null>(null);
+  useEffect(() => {
+    fetch('/api/content-studio/backgrounds', { credentials: 'include' })
+      .then((r) => (r.ok ? r.json() : null))
+      .then((d) => { if (d?.backgrounds) setBackgrounds(d.backgrounds); })
+      .catch(() => {});
+  }, []);
   const job = useExplainerJob(jobId);
   const busy = starting || (!!job && (job.status === 'running' || job.status === 'queued'));
 
@@ -74,7 +84,7 @@ export function ExplainerMaker({ initialTopic = '' }: { initialTopic?: string })
     if (!topic.trim() || busy) return;
     setStarting(true); setError(null); setJobId(null);
     try {
-      const res = await apiRequest('POST', '/api/content-studio/explainer', { prompt: topic.trim(), aspect });
+      const res = await apiRequest('POST', '/api/content-studio/explainer', { prompt: topic.trim(), aspect, backgroundId: backgroundId || undefined });
       const data = await res.json();
       setJobId(data.jobId);
     } catch (e: any) {
@@ -96,6 +106,23 @@ export function ExplainerMaker({ initialTopic = '' }: { initialTopic?: string })
           placeholder="e.g. How the opening range breakout works and where to put your stop"
           className="bg-black/40 border-white/10 text-white text-sm" />
       </div>
+      {backgrounds.length > 0 && (
+        <div>
+          <label className="text-[10px] text-gray-500 mb-1 block">Background</label>
+          <div className="flex flex-wrap gap-1.5">
+            <button onClick={() => setBackgroundId(null)} disabled={busy} className="px-2.5 py-1.5 rounded-lg text-[11px] font-bold"
+              style={{ background: backgroundId === null ? 'rgba(245,196,81,.2)' : 'rgba(255,255,255,.05)', border: `1px solid ${backgroundId === null ? 'rgba(245,196,81,.5)' : 'rgba(255,255,255,.1)'}`, color: backgroundId === null ? '#F5C451' : '#9ca3af' }}>
+              AI picks
+            </button>
+            {backgrounds.map((b) => (
+              <button key={b.id} onClick={() => setBackgroundId(b.id)} disabled={busy} className="px-2.5 py-1.5 rounded-lg text-[11px] font-bold"
+                style={{ background: backgroundId === b.id ? 'rgba(245,196,81,.2)' : 'rgba(255,255,255,.05)', border: `1px solid ${backgroundId === b.id ? 'rgba(245,196,81,.5)' : 'rgba(255,255,255,.1)'}`, color: backgroundId === b.id ? '#F5C451' : '#9ca3af' }}>
+                {b.label}
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
       <div>
         <label className="text-[10px] text-gray-500 mb-1 block">Size</label>
         <div className="grid grid-cols-2 gap-2">

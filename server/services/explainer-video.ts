@@ -86,7 +86,7 @@ export async function rendersToday(userId: number): Promise<number> {
 
 export async function startExplainerJob(
   userId: number, input: string, aspect: ExplainerAspect,
-  opts: { sceneCount?: number; onDone?: (url: string, script: ExplainerScript) => Promise<void> } = {},
+  opts: { sceneCount?: number; backgroundScene?: string; onDone?: (url: string, script: ExplainerScript) => Promise<void> } = {},
 ): Promise<number> {
   await ensureJobTable();
   const { rows } = await pool.query(
@@ -111,8 +111,8 @@ function friendlyError(e: any): string {
 }
 
 async function runJob(id: number, userId: number, input: string, aspect: ExplainerAspect,
-  opts: { sceneCount?: number; onDone?: (url: string, script: ExplainerScript) => Promise<void> }) {
-  const script = await writeScript(input, userId, opts.sceneCount ?? 4);
+  opts: { sceneCount?: number; backgroundScene?: string; onDone?: (url: string, script: ExplainerScript) => Promise<void> }) {
+  const script = await writeScript(input, userId, opts.sceneCount ?? 4, opts.backgroundScene);
   await update(id, { script, step: `Filming ${script.scenes.length} scenes with voiceover`, progress: 10 });
 
   // One scene at a time by default: under $5 of credit Replicate allows a
@@ -129,7 +129,7 @@ async function runJob(id: number, userId: number, input: string, aspect: Explain
   const workers = Array.from({ length: Math.min(Math.max(1, Number(process.env.EXPLAINER_CONCURRENCY ?? 1)), queue.length) }, async () => { while (queue.length) await queue.shift()!(); });
   await Promise.all(workers);
 
-  await update(id, { step: 'Adding VEDD branding and joining scenes', progress: 85, meta: { predictions, model: MODEL() } });
+  await update(id, { step: 'Adding VEDD branding and joining scenes', progress: 85, meta: { predictions, model: MODEL(), background: opts.backgroundScene ? 'preset' : 'ai' } });
   const video = await assemble(urls, aspect, script.scenes.map((s) => s.chart ?? null));
   const saved = await persistBuffer(video, 'video/mp4');
   if (!saved) throw new Error('could not save the finished video');
@@ -146,7 +146,7 @@ async function runJob(id: number, userId: number, input: string, aspect: Explain
 }
 
 // ─── Script ──────────────────────────────────────────────────────────────────
-export async function writeScript(input: string, userId: number, sceneCount: number): Promise<ExplainerScript> {
+export async function writeScript(input: string, userId: number, sceneCount: number, settingOverride?: string): Promise<ExplainerScript> {
   const n = Math.min(Math.max(sceneCount, 3), 5);
   const { getUniversalAIClientForUser } = await import('../openai');
   const ai: any = await getUniversalAIClientForUser(userId || 0);
@@ -186,7 +186,7 @@ JSON: {"title":"...","caption":"one-line social caption with a question","presen
     .slice(0, n);
   if (scenes.length < 2) throw new Error('script generation returned too few scenes');
   const presenter = String(out.presenter || '').trim().slice(0, 300) || DEFAULT_PRESENTER;
-  const setting = String(out.setting || '').trim().slice(0, 300) || DEFAULT_SETTING;
+  const setting = (settingOverride || '').trim().slice(0, 300) || String(out.setting || '').trim().slice(0, 300) || DEFAULT_SETTING;
   return { title: String(out.title || 'VEDD lesson').slice(0, 120), caption: String(out.caption || '').slice(0, 300), presenter, setting, scenes };
 }
 
