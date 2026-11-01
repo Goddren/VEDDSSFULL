@@ -6147,9 +6147,9 @@ var init_storage = __esm({
       // snapshot; a different pair scope is a distinct, coexisting listing.
       async getUserActiveBrainListingBySymbols(sellerId, sourceCategory, symbols) {
         const listings = await db.select().from(brainDataListings).where(and(eq(brainDataListings.sellerId, sellerId), eq(brainDataListings.isActive, true), eq(brainDataListings.sourceCategory, sourceCategory)));
-        const norm3 = (s) => Array.isArray(s) && s.length ? [...s].map((x) => x.toUpperCase()).sort().join(",") : "";
-        const target = norm3(symbols);
-        return listings.find((l) => norm3(l.symbolFilter) === target);
+        const norm4 = (s) => Array.isArray(s) && s.length ? [...s].map((x) => x.toUpperCase()).sort().join(",") : "";
+        const target = norm4(symbols);
+        return listings.find((l) => norm4(l.symbolFilter) === target);
       }
       async importBrainDataSnapshot(buyerId, snapshotData) {
         if (!snapshotData.length) return 0;
@@ -18506,185 +18506,111 @@ var init_ea_generators = __esm({
   }
 });
 
-// server/utils/pipUtils.ts
-var pipUtils_exports = {};
-__export(pipUtils_exports, {
-  computePips: () => computePips,
-  getPipSize: () => getPipSize,
-  getPipValue: () => getPipValue,
-  setFxRate: () => setFxRate
+// server/services/engine-updates.ts
+var engine_updates_exports = {};
+__export(engine_updates_exports, {
+  ENGINE_UPDATES: () => ENGINE_UPDATES,
+  engineUpdatesText: () => engineUpdatesText
 });
-function matchesAny(symbol, patterns) {
-  const s = symbol.toUpperCase();
-  return patterns.some((p) => s.includes(p.toUpperCase()));
+function engineUpdatesText(limit = 15) {
+  return ENGINE_UPDATES.slice(0, limit).map((u) => `${u.date} [${u.area}] ${u.title}: ${u.detail}`).join("\n");
 }
-function getPipSize(symbol) {
-  if (!symbol) return 1e-4;
-  if (matchesAny(symbol, ["JPY"])) return 0.01;
-  if (matchesAny(symbol, ["XAU", "GOLD"])) return 0.1;
-  if (matchesAny(symbol, ["XAG", "SILVER"])) return 1e-3;
-  if (matchesAny(symbol, ["XPT", "XPD"])) return 0.01;
-  if (matchesAny(symbol, [
-    "US30",
-    "DJ30",
-    "WALLST",
-    "DOW",
-    "NAS100",
-    "USTEC",
-    "US100",
-    "NDX",
-    "NASDAQ",
-    "US500",
-    "SPX",
-    "SP500",
-    "GER40",
-    "GER30",
-    "DAX",
-    "DE40",
-    "UK100",
-    "FTSE",
-    "UKX",
-    "JP225",
-    "NKY",
-    "NIKKEI",
-    "JPN225",
-    "N225",
-    "AUS200",
-    "ASX",
-    "HK50",
-    "HSI",
-    "FRA40",
-    "CAC",
-    "ESP35",
-    "IBEX",
-    "EUSTX50",
-    "SWI20"
-  ])) return 1;
-  if (matchesAny(symbol, ["USOIL", "WTI", "CRUDE", "BRENT", "UKOIL", "OIL"])) return 0.01;
-  if (matchesAny(symbol, ["NGAS", "NATGAS"])) return 1e-3;
-  if (matchesAny(symbol, ["BTC", "XBT"])) return 1;
-  if (matchesAny(symbol, ["ETH", "BNB", "SOL", "ADA", "DOT", "AVAX", "MATIC", "LINK", "UNI"])) return 0.01;
-  if (matchesAny(symbol, ["XRP", "DOGE", "SHIB", "LTC", "TRX"])) return 1e-4;
-  return 1e-4;
-}
-function computePips(symbol, entryPrice, exitPrice, direction) {
-  const entry = Number(entryPrice), exit = Number(exitPrice);
-  if (!Number.isFinite(entry) || !Number.isFinite(exit) || entry <= 0 || exit <= 0) return null;
-  const pipSize2 = getPipSize(symbol);
-  if (!(pipSize2 > 0)) return null;
-  const isSell = /sell|short/i.test(String(direction ?? ""));
-  const diff = isSell ? entry - exit : exit - entry;
-  return Math.round(diff / pipSize2 * 10) / 10;
-}
-function getPipValue(symbol) {
-  if (!symbol) return 10;
-  if (matchesAny(symbol, ["XAU", "GOLD"])) return 10;
-  if (matchesAny(symbol, ["XAG", "SILVER"])) return 5;
-  if (matchesAny(symbol, ["XPT", "XPD"])) return 10;
-  if (matchesAny(symbol, [
-    "US30",
-    "DJ30",
-    "WALLST",
-    "DOW",
-    "NAS100",
-    "USTEC",
-    "US100",
-    "NDX",
-    "NASDAQ",
-    "US500",
-    "SPX",
-    "SP500",
-    "GER40",
-    "GER30",
-    "DAX",
-    "DE40",
-    "UK100",
-    "FTSE",
-    "JP225",
-    "NKY",
-    "NIKKEI",
-    "JPN225",
-    "AUS200",
-    "ASX",
-    "HK50",
-    "FRA40",
-    "CAC",
-    "ESP35",
-    "EUSTX50"
-  ])) return 1;
-  if (matchesAny(symbol, ["USOIL", "WTI", "CRUDE", "BRENT", "UKOIL", "OIL"])) return 10;
-  if (matchesAny(symbol, ["NGAS", "NATGAS"])) return 10;
-  if (matchesAny(symbol, ["BTC", "XBT"])) return 1;
-  if (matchesAny(symbol, ["ETH", "BNB", "SOL", "ADA", "DOT", "AVAX", "MATIC", "LINK", "UNI"])) return 1;
-  const s = symbol.toUpperCase().split(".")[0].replace(/[^A-Z]/g, "");
-  if (/^[A-Z]{6}$/.test(s)) {
-    const quote = s.slice(3);
-    const perLotQuote = 1e5 * getPipSize(symbol);
-    const rate = quoteToUsd(quote);
-    if (rate !== null) return perLotQuote * rate;
-  }
-  return 10;
-}
-function setFxRate(pair, rate) {
-  const p = String(pair || "").toUpperCase().replace(/[^A-Z]/g, "");
-  const r = Number(rate);
-  if (!/^[A-Z]{6}$/.test(p) || !isFinite(r) || r <= 0) return;
-  _fxLive.set(p, { rate: r, at: Date.now() });
-}
-function rateOf(pair) {
-  const live = _fxLive.get(pair);
-  if (live && Date.now() - live.at < FX_LIVE_TTL_MS) return live.rate;
-  return FX_FALLBACK[pair];
-}
-function quoteToUsd(quote) {
-  if (quote === "USD") return 1;
-  const direct = rateOf(`${quote}USD`);
-  if (direct > 0) return direct;
-  const inverse = rateOf(`USD${quote}`);
-  if (inverse > 0) return 1 / inverse;
-  return null;
-}
-var FX_FALLBACK, _fxLive, FX_LIVE_TTL_MS;
-var init_pipUtils = __esm({
-  "server/utils/pipUtils.ts"() {
+var ENGINE_UPDATES;
+var init_engine_updates = __esm({
+  "server/services/engine-updates.ts"() {
     "use strict";
-    FX_FALLBACK = {
-      USDJPY: 140,
-      GBPUSD: 1.36,
-      EURUSD: 1.17,
-      AUDUSD: 0.7,
-      NZDUSD: 0.63,
-      USDCHF: 0.8,
-      USDCAD: 1.3
-    };
-    _fxLive = /* @__PURE__ */ new Map();
-    FX_LIVE_TTL_MS = 6 * 60 * 60 * 1e3;
-  }
-});
-
-// server/utils/pair-key.ts
-var pair_key_exports = {};
-__export(pair_key_exports, {
-  basePairKey: () => basePairKey,
-  lookupPairKnowledge: () => lookupPairKnowledge
-});
-function basePairKey(symbol) {
-  return String(symbol ?? "").split(".")[0].toUpperCase().replace(/[^A-Z0-9]/g, "");
-}
-function lookupPairKnowledge(pairKnowledge, symbol) {
-  if (!pairKnowledge || !symbol) return void 0;
-  const direct = pairKnowledge[symbol];
-  if (direct) return direct;
-  const want = basePairKey(symbol);
-  if (!want) return void 0;
-  for (const k2 of Object.keys(pairKnowledge)) {
-    if (basePairKey(k2) === want) return pairKnowledge[k2];
-  }
-  return void 0;
-}
-var init_pair_key = __esm({
-  "server/utils/pair-key.ts"() {
-    "use strict";
+    ENGINE_UPDATES = [
+      {
+        date: "2026-10-30",
+        area: "brain",
+        title: "Shadow lessons feed the AI",
+        detail: 'Every shadow and paper trade (FX Model 1/2, crypto paper, Sol paper) now lands in one shadow ledger. Lessons with real sample sizes ("favor London BUYs on EURUSD, 31 trades") are fed to the FX, crypto and Sol AI as advice.'
+      },
+      {
+        date: "2026-10-30",
+        area: "fx-engine",
+        title: "Stricter entries",
+        detail: 'H1 and H4 trend must both agree before an entry. Trend entries are skipped on range days. No chasing: no BUY above RSI 70, no SELL below RSI 30. Every skip is logged with the reason in "Why trades were skipped".'
+      },
+      {
+        date: "2026-10-30",
+        area: "fx-engine",
+        title: "Trades get room to breathe",
+        detail: "Stops are no longer tightened until the trade is 1R in profit, so winners are not choked out early. Losing-side AI stops are kept as sent."
+      },
+      {
+        date: "2026-10-29",
+        area: "fx-engine",
+        title: "Fair value gaps fixed",
+        detail: "The FVG detector now uses the most recent unfilled gap instead of an old or filled one."
+      },
+      {
+        date: "2026-10-29",
+        area: "models",
+        title: "Model 1 server-side candidate",
+        detail: "Model 1 (range / mean reversion) now proposes its own candidates on the server for edges that do not fight the H4 trend. Still shadow only."
+      },
+      {
+        date: "2026-10-28",
+        area: "models",
+        title: "Model 2 shadow rules",
+        detail: "Model 2 (trend continuation) got stricter shadow rules and uses the real H1 ATR for stops. Its 10-17 to 10-27 shadow run was 219 trades at -47R, which is why it stays in shadow."
+      },
+      {
+        date: "2026-10-26",
+        area: "fx-engine",
+        title: "Late-session and weekend blocks",
+        detail: "No FX entries 21:00-24:00 UTC (thin late session and the Sunday reopen) and none from Friday 21:00 to Sunday 21:00 UTC. Crypto is not affected."
+      },
+      {
+        date: "2026-10-23",
+        area: "fx-engine",
+        title: "Market structure reads live bars",
+        detail: "H1/H4 break of structure, Wyckoff phase and premium/discount were reading week-old candles. Fixed, and an H4 structure filter now blocks entries against it. Each entry stores its structure context."
+      },
+      {
+        date: "2026-10-23",
+        area: "fx-engine",
+        title: "Pair pauses",
+        detail: "USDJPY resumed in both directions. GBPJPY stays paused: it was the biggest drain in trade history."
+      },
+      {
+        date: "2026-10-22",
+        area: "fx-engine",
+        title: "Breakeven at 1R",
+        detail: "Breakeven only moves at 1R (minimum 15 pips) and locks entry +2 pips, re-anchored to each account's own fill."
+      },
+      {
+        date: "2026-10-21",
+        area: "models",
+        title: "Tougher go-live bar",
+        detail: "A Model 1/2 slice (model x day type x pair x session) only goes live after 50+ shadow trades, average R of 0.2 or more, win rate of 40% or more and no losing week in the last two."
+      },
+      {
+        date: "2026-10-18",
+        area: "brain",
+        title: "Brain gates entries only",
+        detail: "Brain session/hour blocks stop new entries but no longer stop the analysis, so the brain keeps learning from blocked setups."
+      },
+      {
+        date: "2026-10-16",
+        area: "models",
+        title: "Model 1 / Model 2 launched",
+        detail: "Two strategies run side by side in shadow mode: Model 1 for range days, Model 2 for trend days. Each earns a mastery level (Learning, Developing, Proficient, Master). Proven bundles can be sold on the brain marketplace. Live trading for proven slices is off by default."
+      },
+      {
+        date: "2026-10-16",
+        area: "fx-engine",
+        title: "Sizing by agreement",
+        detail: "Position size scales with H1/H4 agreement and the day type, based on a 90-day replay."
+      },
+      {
+        date: "2026-09-23",
+        area: "brain",
+        title: "FX brain gate fixed",
+        detail: "The brain gate never fired before because of a session-name mismatch. It now blocks pair, direction and session combos that have been losing for this user."
+      }
+    ];
   }
 });
 
@@ -19436,6 +19362,2595 @@ var init_ai_level = __esm({
       turbo: { level: "turbo", scanMult: 0.67, cacheMs: 3e4, cachePips: 1.5, fxModelsEveryH: 1, cryptoSkipMemoryMin: 30, cryptoModelsEveryH: 1 }
     };
     cache4 = /* @__PURE__ */ new Map();
+  }
+});
+
+// server/utils/pair-key.ts
+var pair_key_exports = {};
+__export(pair_key_exports, {
+  basePairKey: () => basePairKey,
+  lookupPairKnowledge: () => lookupPairKnowledge
+});
+function basePairKey(symbol) {
+  return String(symbol ?? "").split(".")[0].toUpperCase().replace(/[^A-Z0-9]/g, "");
+}
+function lookupPairKnowledge(pairKnowledge, symbol) {
+  if (!pairKnowledge || !symbol) return void 0;
+  const direct = pairKnowledge[symbol];
+  if (direct) return direct;
+  const want = basePairKey(symbol);
+  if (!want) return void 0;
+  for (const k2 of Object.keys(pairKnowledge)) {
+    if (basePairKey(k2) === want) return pairKnowledge[k2];
+  }
+  return void 0;
+}
+var init_pair_key = __esm({
+  "server/utils/pair-key.ts"() {
+    "use strict";
+  }
+});
+
+// server/tradelocker.ts
+var tradelocker_exports = {};
+__export(tradelocker_exports, {
+  TradeLockerReadError: () => TradeLockerReadError,
+  TradeLockerService: () => TradeLockerService,
+  decryptPassword: () => decryptPassword,
+  encryptPassword: () => encryptPassword,
+  executeMT5SignalOnTradeLocker: () => executeMT5SignalOnTradeLocker,
+  getOrCreateService: () => getOrCreateService,
+  getTLAccountValue: () => getTLAccountValue,
+  isOnAuth429Cooldown: () => isOnAuth429Cooldown,
+  logTlClose: () => logTlClose,
+  noteAuthResult: () => noteAuthResult,
+  priceDecimals: () => priceDecimals,
+  roundToTick: () => roundToTick,
+  setUsdJpyRate: () => setUsdJpyRate,
+  tlRateLimitStatus: () => tlRateLimitStatus,
+  warmTradeLockerConnection: () => warmTradeLockerConnection
+});
+import crypto2 from "crypto";
+function getEncryptionKey2() {
+  const key = process.env.TRADELOCKER_ENCRYPTION_KEY;
+  if (!key) {
+    console.warn("[TradeLocker] TRADELOCKER_ENCRYPTION_KEY not set \u2014 using default key. Set it in your Render environment variables.");
+    return DEFAULT_ENCRYPTION_KEY;
+  }
+  if (key.length < 32) {
+    console.warn("[TradeLocker] TRADELOCKER_ENCRYPTION_KEY is too short, padding to 32 chars.");
+    return key.padEnd(32, "0");
+  }
+  return key;
+}
+function priceDecimals(symbol) {
+  const s = String(symbol || "").toUpperCase().split(".")[0].replace(/[^A-Z0-9]/g, "");
+  if (/^XAU/.test(s)) return 2;
+  if (/^XAG/.test(s)) return 3;
+  if (/^(US30|DJ30|WS30|US100|NAS100|USTEC|US500|SPX500|GER40|DE40|UK100|JP225|AUS200|HK50|FRA40|EU50)/.test(s)) return 2;
+  if (/^(BTC|ETH|SOL|LTC|XRP)/.test(s)) return 2;
+  if (/JPY/.test(s)) return 3;
+  return 5;
+}
+function roundToTick(symbol, v) {
+  if (!Number.isFinite(v)) return v;
+  const d = priceDecimals(symbol);
+  return Number(v.toFixed(d));
+}
+function isOnAuth429Cooldown(key) {
+  const until = authCooldownUntil.get(key) || 0;
+  return until > Date.now() ? until - Date.now() : 0;
+}
+function noteAuthResult(key, err) {
+  const is429 = err instanceof Error && /(^|\D)429(\D|$)/.test(err.message);
+  if (is429) {
+    authCooldownUntil.set(key, Date.now() + AUTH_429_COOLDOWN_MS);
+  } else {
+    authCooldownUntil.delete(key);
+  }
+}
+async function serializeAuth(label, fn) {
+  const run = authChain.then(async () => {
+    const wait = MIN_AUTH_GAP_MS - (Date.now() - lastAuthAt);
+    if (wait > 0) await new Promise((r) => setTimeout(r, wait));
+    try {
+      return await fn();
+    } finally {
+      lastAuthAt = Date.now();
+    }
+  });
+  authChain = run.then(() => {
+  }, () => {
+  });
+  return run;
+}
+async function loginFetchWith429Retry(url, body) {
+  const backoffs = [1500, 3500];
+  for (let attempt = 0; ; attempt++) {
+    const resp = await fetch(url, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+      signal: AbortSignal.timeout(12e3)
+    });
+    if (resp.status !== 429 || attempt >= backoffs.length) return resp;
+    await new Promise((r) => setTimeout(r, backoffs[attempt]));
+  }
+}
+function encryptPassword(password) {
+  const iv = crypto2.randomBytes(IV_LENGTH);
+  const salt = crypto2.randomBytes(SALT_LENGTH);
+  const encryptionKey = getEncryptionKey2();
+  const key = crypto2.scryptSync(encryptionKey, salt, 32);
+  const cipher = crypto2.createCipheriv("aes-256-cbc", key, iv);
+  let encrypted = cipher.update(password, "utf8", "hex");
+  encrypted += cipher.final("hex");
+  return salt.toString("hex") + ":" + iv.toString("hex") + ":" + encrypted;
+}
+function decryptPassword(encryptedPassword) {
+  const parts = encryptedPassword.split(":");
+  if (parts.length !== 3) {
+    throw new Error("Invalid encrypted password format");
+  }
+  const salt = Buffer.from(parts[0], "hex");
+  const iv = Buffer.from(parts[1], "hex");
+  const encrypted = parts[2];
+  const encryptionKey = getEncryptionKey2();
+  const key = crypto2.scryptSync(encryptionKey, salt, 32);
+  const decipher = crypto2.createDecipheriv("aes-256-cbc", key, iv);
+  let decrypted = decipher.update(encrypted, "hex", "utf8");
+  decrypted += decipher.final("utf8");
+  return decrypted;
+}
+function setUsdJpyRate(rate) {
+  const r = Number(rate);
+  if (isFinite(r) && r > 50 && r < 500) _usdJpyLive = { rate: r, at: Date.now() };
+}
+function noteUsdJpyObservation(atMs, rate) {
+  const r = Number(rate);
+  if (!isFinite(r) || r <= 50 || r >= 500 || !isFinite(atMs)) return;
+  _usdJpyObserved.push({ at: atMs, rate: r });
+  if (_usdJpyObserved.length > 2e3) _usdJpyObserved.splice(0, _usdJpyObserved.length - 2e3);
+}
+function usdJpyAt(atMs) {
+  let best = null;
+  for (const o of _usdJpyObserved) {
+    if (!best || Math.abs(o.at - atMs) < Math.abs(best.at - atMs)) best = o;
+  }
+  if (best && Math.abs(best.at - atMs) < 7 * 24 * 3600 * 1e3) return best.rate;
+  if (_usdJpyLive && Date.now() - _usdJpyLive.at < 24 * 3600 * 1e3) return _usdJpyLive.rate;
+  if (best) return best.rate;
+  console.warn(`[TradeLocker] no USD/JPY rate available for ${new Date(atMs).toISOString()} \u2014 using ${USDJPY_FALLBACK}; JPY P&L may be off by a few percent.`);
+  return USDJPY_FALLBACK;
+}
+function tlRateLimitStatus() {
+  return { bannedUntil: tlBannedUntil, bannedForMs: Math.max(0, tlBannedUntil - Date.now()) };
+}
+async function tlSharedRead(key, fn, fresh) {
+  const hit = tlReadCache.get(key);
+  if (!fresh && hit && Date.now() - hit.at < TL_READ_CACHE_MS) return hit.value;
+  if (Date.now() < tlBannedUntil) {
+    if (!fresh) {
+      if (hit && Date.now() - hit.at < TL_STALE_OK_MS) return hit.value;
+      throw new Error(`TradeLocker rate-limited cooldown (${Math.ceil((tlBannedUntil - Date.now()) / 1e3)}s left)`);
+    }
+    const wait = tlBannedUntil - Date.now();
+    if (wait > TL_FRESH_WAIT_MAX_MS) throw new Error(`TradeLocker rate-limited cooldown (${Math.ceil(wait / 1e3)}s left)`);
+    console.warn(`[TL] fresh read ${key} waiting ${Math.ceil(wait / 1e3)}s for rate-limit ban to clear`);
+    await new Promise((r) => setTimeout(r, wait + 250));
+  }
+  if (!fresh && tlInflight.has(key)) return tlInflight.get(key);
+  const p = (async () => {
+    try {
+      const value = await fn();
+      tlReadCache.set(key, { at: Date.now(), value });
+      return value;
+    } catch (e) {
+      if (_tlIsRateLimit(e)) {
+        tlBannedUntil = Math.max(tlBannedUntil, Date.now() + TL_BAN_MS);
+        console.warn(`[TL] rate limited on ${key} \u2014 backing off all TradeLocker reads for ${TL_BAN_MS / 1e3}s`);
+      }
+      throw e;
+    } finally {
+      tlInflight.delete(key);
+    }
+  })();
+  if (!fresh) tlInflight.set(key, p);
+  return p;
+}
+function stopTolerance(price) {
+  const pip = price >= 1e4 ? 1 : price >= 500 ? 0.1 : price >= 20 ? 0.01 : 1e-4;
+  return pip * 1.5;
+}
+async function getOrCreateService(connection2) {
+  const connId = connection2.id || `pending_${connection2.accountType}_${connection2.accountId}_${connection2.accNum || ""}`;
+  const cached2 = serviceCache.get(connId);
+  if (cached2 && Date.now() - cached2.createdAt < SERVICE_CACHE_TTL) {
+    console.log("[TradeLocker] Reusing cached service for connection", connId);
+    cached2.service.logConn = { id: connection2.id, userId: connection2.userId };
+    return cached2.service;
+  }
+  const service = new TradeLockerService(
+    connection2.accountType,
+    connection2.accountId,
+    connection2.serverId,
+    connection2.accNum || void 0
+  );
+  service.logConn = { id: connection2.id, userId: connection2.userId };
+  if (typeof connId === "number") {
+    service.onAccountIdCorrected = (accountId) => {
+      persistAccountIdCorrection(connId, accountId).catch(() => {
+      });
+    };
+  }
+  const TOKEN_BUFFER = 60 * 1e3;
+  const hasValidToken = connection2.accessToken && connection2.tokenExpiresAt && new Date(connection2.tokenExpiresAt).getTime() - TOKEN_BUFFER > Date.now();
+  if (hasValidToken) {
+    console.log("[TradeLocker] Using cached JWT tokens (expires:", connection2.tokenExpiresAt, ")");
+    service.setTokens(
+      connection2.accessToken,
+      connection2.refreshToken || "",
+      new Date(connection2.tokenExpiresAt)
+    );
+  } else if (connection2.refreshToken && connection2.accessToken) {
+    console.log("[TradeLocker] Token expired \u2014 attempting refresh...");
+    try {
+      service.setTokens(connection2.accessToken, connection2.refreshToken);
+      const refreshed = await service.refreshAccessToken(connection2.refreshToken);
+      noteAuthResult(String(connId), null);
+      await persistTokens(connection2, refreshed.accessToken, refreshed.refreshToken, refreshed.expiresIn, service.getResolvedAccNum());
+    } catch (refreshErr) {
+      console.log("[TradeLocker] Token refresh failed \u2014 falling back to full auth");
+      const cooldownMs = isOnAuth429Cooldown(String(connId));
+      if (cooldownMs > 0) {
+        throw new Error(`TradeLocker login is rate-limited (429) for this account \u2014 cooling down for another ${Math.ceil(cooldownMs / 1e3)}s before retrying, to avoid making the rate limit worse.`);
+      }
+      try {
+        const password = decryptPassword(connection2.encryptedPassword);
+        const authResult = await service.authenticate(connection2.email, password);
+        noteAuthResult(String(connId), null);
+        await persistTokens(connection2, authResult.accessToken, authResult.refreshToken, authResult.expiresIn, service.getResolvedAccNum());
+      } catch (authErr) {
+        noteAuthResult(String(connId), authErr);
+        throw authErr;
+      }
+    }
+  } else {
+    const cooldownMs = isOnAuth429Cooldown(String(connId));
+    if (cooldownMs > 0) {
+      throw new Error(`TradeLocker login is rate-limited (429) for this account \u2014 cooling down for another ${Math.ceil(cooldownMs / 1e3)}s before retrying, to avoid making the rate limit worse.`);
+    }
+    console.log("[TradeLocker] No cached tokens \u2014 performing full auth");
+    try {
+      const password = decryptPassword(connection2.encryptedPassword);
+      const authResult = await service.authenticate(connection2.email, password);
+      noteAuthResult(String(connId), null);
+      await persistTokens(connection2, authResult.accessToken, authResult.refreshToken, authResult.expiresIn, service.getResolvedAccNum());
+    } catch (authErr) {
+      noteAuthResult(String(connId), authErr);
+      throw authErr;
+    }
+  }
+  if (!connection2.accNum && connId) {
+    const origResolve = service.resolveAccNum.bind(service);
+    service.resolveAccNum = async () => {
+      const result = await origResolve();
+      if (result && result !== "0" && !connection2.accNum) {
+        persistTokens(connection2, connection2.accessToken || "", connection2.refreshToken || "", 3600, result).catch(() => {
+        });
+      }
+      return result;
+    };
+  }
+  service.onTokenRefresh = (accessToken, refreshToken, expiresIn) => {
+    persistTokens(connection2, accessToken, refreshToken, expiresIn, service.getResolvedAccNum()).catch(() => {
+    });
+  };
+  service.onReauthenticate = async () => {
+    const cooldownMs = isOnAuth429Cooldown(String(connId));
+    if (cooldownMs > 0) {
+      throw new Error(`TradeLocker login is rate-limited (429) for this account \u2014 cooling down for another ${Math.ceil(cooldownMs / 1e3)}s before retrying.`);
+    }
+    console.log("[TradeLocker] Full re-authentication triggered via callback");
+    try {
+      const password = decryptPassword(connection2.encryptedPassword);
+      const authResult = await service.authenticate(connection2.email, password);
+      noteAuthResult(String(connId), null);
+      await persistTokens(connection2, authResult.accessToken, authResult.refreshToken, authResult.expiresIn, service.getResolvedAccNum());
+    } catch (authErr) {
+      noteAuthResult(String(connId), authErr);
+      throw authErr;
+    }
+  };
+  serviceCache.set(connId, { service, createdAt: Date.now() });
+  return service;
+}
+async function getTLAccountValue(userId, conn) {
+  const g = global;
+  g.tlAccountBalances = g.tlAccountBalances || {};
+  g.tlAccountBalances[userId] = g.tlAccountBalances[userId] || {};
+  g.tlAccountEquity = g.tlAccountEquity || {};
+  g.tlAccountEquity[userId] = g.tlAccountEquity[userId] || {};
+  g.tlAccountValueAt = g.tlAccountValueAt || {};
+  g.tlAccountValueAt[userId] = g.tlAccountValueAt[userId] || {};
+  const acctId = conn.accountId;
+  const cachedBal = g.tlAccountBalances[userId][acctId];
+  const cachedEq = g.tlAccountEquity[userId][acctId];
+  const fetchedAt = g.tlAccountValueAt[userId][acctId] || 0;
+  const fresh = Date.now() - fetchedAt < TL_VALUE_TTL;
+  if (fresh && typeof cachedBal === "number" && cachedBal > 0) {
+    return { balance: cachedBal, equity: typeof cachedEq === "number" && cachedEq > 0 ? cachedEq : cachedBal };
+  }
+  try {
+    const svc = await getOrCreateService(conn);
+    const info2 = await svc.getAccountInfo();
+    const bal = info2.balance || 0;
+    const eq21 = info2.equity || bal;
+    if (bal > 0) {
+      g.tlAccountBalances[userId][acctId] = bal;
+      g.tlAccountEquity[userId][acctId] = eq21;
+      g.tlAccountValueAt[userId][acctId] = Date.now();
+      console.log(`[TL value] ${acctId}: balance=$${bal} equity=$${eq21} (live-fetched for sizing)`);
+      return { balance: bal, equity: eq21 };
+    }
+  } catch (e) {
+    console.warn(`[TL value] live-fetch failed for ${acctId}:`, e?.message ?? e);
+  }
+  if (!(typeof cachedBal === "number" && cachedBal > 0)) {
+    const _lb = Number(conn.lastBalance) || 0;
+    const _lbAt = new Date(conn.lastBalanceAt ?? 0).getTime();
+    if (_lb > 0 && Date.now() - _lbAt < 3 * 864e5) {
+      console.warn(`[TL value] ${acctId}: live read failed \u2014 sizing from last saved balance $${_lb} (${Math.round((Date.now() - _lbAt) / 6e4)} min old)`);
+      return { balance: _lb, equity: _lb };
+    }
+  }
+  return {
+    balance: typeof cachedBal === "number" ? cachedBal : 0,
+    equity: typeof cachedEq === "number" ? cachedEq : typeof cachedBal === "number" ? cachedBal : 0
+  };
+}
+async function persistTokens(connection2, accessToken, refreshToken, expiresIn, accNum) {
+  if (!connection2.id) return;
+  try {
+    const { storage: storage2 } = await Promise.resolve().then(() => (init_storage(), storage_exports));
+    await storage2.updateTradelockerConnection(connection2.id, {
+      accessToken,
+      refreshToken,
+      tokenExpiresAt: new Date(Date.now() + expiresIn * 1e3),
+      accNum: accNum !== "0" ? accNum : void 0
+    });
+    console.log("[TradeLocker] Persisted tokens to DB for connection", connection2.id);
+  } catch (e) {
+    console.log("[TradeLocker] Could not persist tokens to DB");
+  }
+}
+async function persistAccountIdCorrection(connectionId, accountId) {
+  try {
+    const { storage: storage2 } = await Promise.resolve().then(() => (init_storage(), storage_exports));
+    await storage2.updateTradelockerConnection(connectionId, { accountId });
+    console.log("[TradeLocker] Persisted corrected accountId to DB for connection", connectionId, ":", accountId);
+  } catch (e) {
+    console.log("[TradeLocker] Could not persist accountId correction to DB");
+  }
+}
+async function warmTradeLockerConnection(connection2) {
+  try {
+    console.log("[TradeLocker Warm] Pre-warming connection for account", connection2.accountId);
+    await getOrCreateService(connection2);
+    console.log("[TradeLocker Warm] Connection pre-warmed successfully");
+    return { success: true };
+  } catch (error) {
+    const msg = error instanceof Error ? error.message : "Unknown error";
+    console.error("[TradeLocker Warm] Pre-warm failed:", msg);
+    return { success: false, error: msg };
+  }
+}
+async function tlAccountRiskGuard(service, connection2, signal) {
+  if (process.env.TL_RISK_GUARD_DISABLED === "true") return {};
+  const connKey = String(connection2.id ?? connection2.accountId);
+  const norm4 = (s) => String(s || "").toUpperCase().split(".")[0].replace(/[^A-Z0-9]/g, "");
+  const want = norm4(signal.symbol);
+  let equity;
+  try {
+    const info2 = await guardRead(`acct:${connKey}`, () => service.getAccountInfo({ fresh: true }));
+    equity = Number(info2?.equity) > 0 ? Number(info2.equity) : Number(info2?.balance);
+    if (!(equity > 0)) return { block: "account equity unreadable \u2014 not trading this account (fail closed)" };
+  } catch (e) {
+    return { block: `account equity unreadable (${e?.message || e}) \u2014 not trading this account (fail closed)` };
+  }
+  const lossPct = Number(process.env.TL_DAILY_LOSS_PCT ?? 2);
+  if (lossPct > 0) {
+    const day = (/* @__PURE__ */ new Date()).toISOString().slice(0, 10);
+    const key = `${connKey}:${day}`;
+    let start = tlDayStartEquity.get(key);
+    if (start == null) {
+      try {
+        const { getRuntimeStateStrict: getRuntimeStateStrict2, insertRuntimeStateIfAbsent: insertRuntimeStateIfAbsent2 } = await Promise.resolve().then(() => (init_runtime_state(), runtime_state_exports));
+        const existing = await getRuntimeStateStrict2("tl_day_start", key);
+        if (Number(existing?.equity) > 0) start = Number(existing.equity);
+        else start = Number((await insertRuntimeStateIfAbsent2("tl_day_start", key, { equity }))?.equity) || equity;
+      } catch (e) {
+        return { block: `daily-loss baseline unreadable (${e?.message || e}) \u2014 not trading this account (fail closed)` };
+      }
+      tlDayStartEquity.set(key, start);
+    }
+    const ddPct = start > 0 ? (start - equity) / start * 100 : 0;
+    if (ddPct >= lossPct) {
+      return { block: `daily loss ${ddPct.toFixed(2)}% \u2265 ${lossPct}% (equity $${equity.toFixed(0)} vs day start $${start.toFixed(0)}) \u2014 no new trades on this account until 00:00 UTC` };
+    }
+  }
+  let positions;
+  try {
+    positions = await guardRead(`pos:${connKey}`, () => service.getPositionsNormalized({ fresh: true }), 0);
+  } catch (e) {
+    return { block: `open positions unreadable (${e?.message || e}) \u2014 not trading this account (fail closed)` };
+  }
+  if (positions.some((p) => /^\d+$/.test(String(p.symbol || "")))) {
+    return { block: "open positions show unresolved instrument ids \u2014 cannot confirm the pair is flat (fail closed)" };
+  }
+  if (!want) return { block: "order has no symbol" };
+  const held = positions.find((p) => {
+    const s = norm4(p.symbol);
+    return s === want || s.startsWith(want) || s.length >= 6 && want.startsWith(s);
+  });
+  if (held) return { block: `already holding ${held.symbol} ${String(held.side || "").toUpperCase()} ${held.qty} on this account (one position per pair)` };
+  try {
+    const { pool: pool2 } = await Promise.resolve().then(() => (init_db(), db_exports));
+    const { rows } = await pool2.query(
+      // TradeLocker rows only (DXtrade rows reuse connection_id numbers), and
+      // only recent ones: a PENDING row whose close never synced (an XAUUSD
+      // row on account 31 since 2026-09-23) used to block that pair forever.
+      `SELECT 1 FROM ai_trade_results WHERE connection_id = $1 AND result = 'PENDING'
+         AND coalesce(source, '') NOT ILIKE 'dx%' AND created_at > now() - interval '3 days'
+         AND upper(regexp_replace(split_part(symbol, '.', 1), '[^A-Za-z0-9]', '', 'g')) = $2 LIMIT 1`,
+      [connection2.id ?? -1, want]
+    );
+    if (rows.length) return { block: `an open ${want} trade is recorded for this account (one position per pair)` };
+  } catch (e) {
+    return { block: `could not check recorded open trades (${e?.message || e}) \u2014 fail closed` };
+  }
+  const scale = equity / 1e5;
+  const perOrder = Math.min(Number(process.env.TL_MAX_LOT_PER_ORDER ?? 5) || Infinity, (Number(process.env.TL_MAX_LOT_PER_100K ?? 10) || Infinity) * scale);
+  const openCap = Math.min(Number(process.env.TL_MAX_OPEN_LOTS ?? 6) || Infinity, (Number(process.env.TL_MAX_OPEN_LOTS_PER_100K ?? 12) || Infinity) * scale);
+  const openLots = positions.reduce((s, p) => s + (Number(p.qty) || 0), 0);
+  const room = Math.floor(Math.min(perOrder, openCap - openLots) * 100) / 100;
+  if (!(room >= 0.01)) {
+    return { block: `open lots ${openLots.toFixed(2)} already at the ${openCap.toFixed(2)}-lot cap for this account size` };
+  }
+  return { maxVolume: room, positionIds: positions.map((p) => String(p.id)) };
+}
+async function guardRead(key, fn, ttlMs = GUARD_CACHE_MS) {
+  const hit = guardCache.get(key);
+  if (ttlMs > 0 && hit && Date.now() - hit.at < ttlMs) return hit.value;
+  let value;
+  try {
+    value = await fn();
+  } catch (e) {
+    if (!_isRateLimit(e)) throw e;
+    await new Promise((r) => setTimeout(r, 1500));
+    value = await fn();
+  }
+  guardCache.set(key, { at: Date.now(), value });
+  return value;
+}
+function clearGuardPositions(connKey) {
+  guardCache.delete(`pos:${connKey}`);
+}
+async function logTlClose(connection2, info2) {
+  try {
+    const userId = Number(connection2?.userId ?? connection2?.user_id);
+    if (!(userId > 0) || !(Number(connection2?.id) > 0)) return;
+    const { pool: pool2 } = await Promise.resolve().then(() => (init_db(), db_exports));
+    const pnl = Number.isFinite(Number(info2.pnl)) && info2.pnl != null ? ` | floating P&L at close ${Number(info2.pnl).toFixed(2)}` : "";
+    const msg = `CLOSE reason: ${info2.reason}${pnl}${info2.positionId ? ` | position ${info2.positionId}` : ""}${info2.ok ? "" : ` | FAILED: ${String(info2.error || "").slice(0, 200)}`}`;
+    await pool2.query(
+      `INSERT INTO tradelocker_trade_logs (user_id, connection_id, action, symbol, direction, volume, status, error_message, created_at)
+       VALUES ($1, $2, 'CLOSE', $3, $4, $5, $6, $7, now())`,
+      [userId, connection2?.id ?? null, String(info2.symbol || ""), String(info2.direction || "").toUpperCase(), Number(info2.volume) || 0, info2.ok ? "executed" : "failed", msg.slice(0, 1e3)]
+    );
+  } catch (e) {
+    console.error("[TradeLocker] close log write failed (non-fatal):", e?.message || e);
+  }
+}
+async function executeMT5SignalOnTradeLocker(connection2, signal) {
+  console.log("[TradeLocker Execute] Starting trade execution:", {
+    accountType: connection2.accountType,
+    accountId: connection2.accountId,
+    serverId: connection2.serverId,
+    signal: { action: signal.action, symbol: signal.symbol, direction: signal.direction, volume: signal.volume }
+  });
+  try {
+    const service = await getOrCreateService(connection2);
+    if (signal.action === "OPEN" || signal.action.toUpperCase() === "OPEN") {
+      const tlOrderType = signal.orderType === "limit_entry" ? "limit" : signal.orderType === "stop_entry" ? "stop" : "market";
+      const usePrice = tlOrderType !== "market" && signal.entryPrice && signal.entryPrice > 0 ? signal.entryPrice : void 0;
+      const resolvedType = usePrice ? tlOrderType : "market";
+      const _slNum = Number(signal.stopLoss);
+      if (!Number.isFinite(_slNum) || _slNum <= 0) {
+        console.error(`[TradeLocker Execute] \u{1F6AB} NO-SL BLOCK: ${signal.symbol} ${signal.direction} rejected \u2014 no valid stop loss (SL=${signal.stopLoss}). Unprotected trades are never allowed (likely NaN ATR upstream).`);
+        return { success: false, error: `Blocked: no valid stop loss (SL=${signal.stopLoss}) \u2014 unprotected trade rejected` };
+      }
+      {
+        const _sym = String(signal.symbol || "").toUpperCase();
+        const _isFx = /^[A-Z]{6}/.test(_sym) && !/^(XAU|XAG|BTC|ETH|SOL|US30|NAS|SPX|GER|UK1|JP2)/.test(_sym);
+        const _ref = Number(signal.entryPrice);
+        const _minPips = Number(process.env.TL_MIN_SL_PIPS ?? 10);
+        if (_isFx && _minPips > 0 && Number.isFinite(_ref) && _ref > 0) {
+          const _pip = /JPY/.test(_sym) ? 0.01 : 1e-4;
+          const _slPips = Math.abs(_ref - _slNum) / _pip;
+          if (_slPips < _minPips) {
+            console.error(`[TradeLocker Execute] \u{1F6AB} TIGHT-SL BLOCK: ${_sym} ${signal.direction} stop ${_slPips.toFixed(1)} pips < ${_minPips} \u2014 rejected (would inflate the lot size).`);
+            return { success: false, error: `Blocked: stop ${_slPips.toFixed(1)} pips is tighter than the ${_minPips}-pip minimum (prevents oversized lots)` };
+          }
+        }
+      }
+      let _preOrderIds = null;
+      {
+        try {
+          const { isFxLeader: isFxLeader2 } = await Promise.resolve().then(() => (init_live_trading_engine(), live_trading_engine_exports));
+          if (!isFxLeader2()) return { success: false, error: "NOT LEADER: this server does not hold the FX lock \u2014 order not sent" };
+        } catch {
+          return { success: false, error: "NOT LEADER: leadership could not be confirmed \u2014 order not sent" };
+        }
+        const _guard = await tlAccountRiskGuard(service, connection2, signal);
+        _preOrderIds = _guard.positionIds ? new Set(_guard.positionIds) : null;
+        if (_guard.block) {
+          console.error(`[TradeLocker Execute] \u{1F6AB} RISK GUARD ${connection2.accountId} ${signal.symbol} ${signal.direction}: ${_guard.block}`);
+          return { success: false, error: `RISK GUARD: ${_guard.block}` };
+        }
+        if (_guard.maxVolume != null && Number(signal.volume) > _guard.maxVolume) {
+          console.warn(`[TradeLocker Execute] lot ${signal.volume} on ${signal.symbol} clamped to ${_guard.maxVolume} (account-size lot cap)`);
+          signal = { ...signal, volume: _guard.maxVolume };
+        }
+      }
+      const _pauseKey = `${connection2.id ?? connection2.accountId}|${String(signal.symbol).toUpperCase().split(".")[0]}|${signal.direction.toUpperCase()}`;
+      const _pausedUntil = rejectPauseUntil.get(_pauseKey) || 0;
+      if (Date.now() < _pausedUntil) {
+        const mins = Math.ceil((_pausedUntil - Date.now()) / 6e4);
+        return { success: false, error: `REJECT PAUSE: broker rejected this ${signal.symbol} ${signal.direction} on this account recently \u2014 not resending for ${mins} more min` };
+      }
+      const _isTransient = (msg) => /\b(429|5\d\d|1015)\b|rate.?limit|too many requests|timeout|timed out|network|ECONN|outcome unknown|<!doctype|<html/i.test(msg);
+      const _isBrokerReject = (msg) => {
+        const m = String(msg || "").slice(0, 300);
+        return !_isTransient(m) && /not valid|route is not active|instrument not found|forbidden|insufficient|market is closed|invalid/i.test(m);
+      };
+      console.log("[TradeLocker Execute] Placing order:", {
+        symbol: signal.symbol,
+        side: signal.direction.toLowerCase(),
+        type: resolvedType,
+        price: usePrice,
+        quantity: signal.volume
+      });
+      let orderResult;
+      try {
+        orderResult = await service.placeOrder({
+          symbol: signal.symbol,
+          side: signal.direction.toLowerCase(),
+          type: resolvedType,
+          quantity: signal.volume,
+          price: usePrice,
+          stopLoss: signal.stopLoss || void 0,
+          takeProfit: signal.takeProfit || void 0
+        });
+      } catch (e) {
+        const msg = e instanceof Error ? e.message : String(e);
+        if (_isBrokerReject(msg)) rejectPauseUntil.set(_pauseKey, Date.now() + REJECT_PAUSE_MS);
+        {
+          clearGuardPositions(String(connection2.id ?? connection2.accountId));
+          service.invalidateReadCache();
+        }
+        if (/timeout|timed out|outcome unknown|ECONN|socket|network|\b5\d\d\b/i.test(msg)) {
+          rejectPauseUntil.set(_pauseKey, Math.max(rejectPauseUntil.get(_pauseKey) || 0, Date.now() + UNKNOWN_OUTCOME_PAUSE_MS));
+        }
+        throw e;
+      }
+      console.log("[TradeLocker Execute] Order result:", orderResult);
+      if (orderResult.status === "rejected" && _isBrokerReject(String(orderResult.message || "rejected"))) {
+        rejectPauseUntil.set(_pauseKey, Date.now() + REJECT_PAUSE_MS);
+      }
+      if (orderResult.status !== "rejected") {
+        clearGuardPositions(String(connection2.id ?? connection2.accountId));
+        service.invalidateReadCache();
+      }
+      if (orderResult.status !== "rejected" && resolvedType === "market" && process.env.TL_REANCHOR_DISABLED !== "true") {
+        try {
+          const _plan = Number(signal.entryPrice), _sl = Number(signal.stopLoss), _tp = Number(signal.takeProfit);
+          const _slDist = Math.abs(_plan - _sl);
+          if (_plan > 0 && _sl > 0 && _slDist > 0) {
+            const _nrm = (x) => String(x || "").toUpperCase().split(".")[0].replace(/[^A-Z0-9]/g, "");
+            const _w = _nrm(signal.symbol);
+            const _isBuy = signal.direction.toUpperCase() === "BUY";
+            let _pos = null, _cands = 0;
+            for (let i = 0; i < 3 && !_pos; i++) {
+              await new Promise((r) => setTimeout(r, 1e3));
+              let ps = [];
+              try {
+                ps = await guardRead(`pos:${String(connection2.id ?? connection2.accountId)}`, () => service.getPositionsNormalized({ fresh: true }), 0);
+              } catch {
+                ps = [];
+              }
+              const c = ps.filter((x) => _nrm(x.symbol) === _w && String(x.side || "").toUpperCase() === (_isBuy ? "BUY" : "SELL") && !(_preOrderIds && _preOrderIds.has(String(x.id))));
+              _cands = c.length;
+              if (c.length === 1) _pos = c[0];
+              else if (c.length > 1) break;
+            }
+            if (!_pos) console.warn(`[TradeLocker Execute] re-anchor skipped for ${_w} on ${connection2.accountId}: ${_cands > 1 ? `${_cands} new positions match \u2014 ambiguous` : "new position not found"}`);
+            const _fill = Number(_pos?.avgPrice);
+            const _off = _fill - _plan;
+            const _dec = /^XAU/.test(_w) ? 2 : /^(XAG|BTC|ETH|LTC|XRP|SOL|ADA|DOGE)/.test(_w) ? -1 : /JPY/.test(_w) ? 3 : /^[A-Z]{6}$/.test(_w) ? 5 : -1;
+            if (_dec >= 0 && _pos && _fill > 0 && Math.abs(_off) > _slDist * 0.15) {
+              const _r = (x) => Number(x.toFixed(_dec));
+              const newSl = _r(_sl + _off);
+              const newTp = _tp > 0 ? _r(_tp + _off) : void 0;
+              const mod = await service.modifyPosition(String(_pos.id), newSl, newTp);
+              console.warn(`[TradeLocker Execute] RE-ANCHOR ${_w} ${signal.direction} on ${connection2.accountId}: fill ${_fill} vs plan ${_plan} \u2192 SL ${_sl}\u2192${newSl}, TP ${_tp}\u2192${newTp} (${mod.success ? "ok" : "FAILED: " + mod.error})`);
+            }
+          }
+        } catch (e) {
+          console.error(`[TradeLocker Execute] re-anchor failed (position keeps its original SL/TP): ${e?.message || e}`);
+        }
+      }
+      return {
+        success: orderResult.status !== "rejected",
+        orderId: orderResult.orderId,
+        error: orderResult.status === "rejected" ? orderResult.message : void 0,
+        volume: signal.volume
+        // size ACTUALLY sent (after caps) — log this, not the request
+      };
+    } else if (signal.action === "CLOSE" || signal.action.toUpperCase() === "CLOSE") {
+      console.log("[TradeLocker Execute] Closing position:", signal.positionId);
+      if (!signal.positionId) {
+        return { success: false, error: "Position ID required for close action" };
+      }
+      let closeResult;
+      try {
+        closeResult = await service.closePosition(signal.positionId);
+      } catch (e) {
+        await logTlClose(connection2, { symbol: signal.symbol, direction: signal.direction, positionId: signal.positionId, reason: signal.closeReason || "unspecified caller", pnl: signal.closePnl, volume: signal.volume, ok: false, error: e?.message || String(e) });
+        throw e;
+      }
+      await logTlClose(connection2, { symbol: signal.symbol, direction: signal.direction, positionId: signal.positionId, reason: signal.closeReason || "unspecified caller", pnl: signal.closePnl, volume: signal.volume, ok: true });
+      {
+        clearGuardPositions(String(connection2.id ?? connection2.accountId));
+        service.invalidateReadCache();
+      }
+      return {
+        success: true,
+        orderId: closeResult.orderId
+      };
+    } else if (signal.action === "MODIFY" || signal.action.toUpperCase() === "MODIFY") {
+      if (!signal.positionId) {
+        return { success: false, error: "Position ID required for modify action" };
+      }
+      console.log("[TradeLocker Execute] Modifying position:", {
+        positionId: signal.positionId,
+        stopLoss: signal.stopLoss,
+        takeProfit: signal.takeProfit
+      });
+      const modifyResult = await service.modifyPosition(
+        signal.positionId,
+        signal.stopLoss != null ? signal.stopLoss : void 0,
+        signal.takeProfit != null ? signal.takeProfit : void 0
+      );
+      console.log("[TradeLocker Execute] Modify result:", modifyResult);
+      return {
+        success: modifyResult.success,
+        error: modifyResult.error
+      };
+    }
+    console.log("[TradeLocker Execute] Unknown action type:", signal.action);
+    return { success: false, error: `Unknown action type: ${signal.action}` };
+  } catch (error) {
+    console.error("[TradeLocker Execute] Error:", error);
+    if (connection2.id) serviceCache.delete(connection2.id);
+    return {
+      success: false,
+      error: error instanceof Error ? error.message : "Unknown error"
+    };
+  }
+}
+var IV_LENGTH, DEFAULT_ENCRYPTION_KEY, SALT_LENGTH, INSTRUMENT_CACHE_TTL, instrumentCache, instrumentsListCache, serviceCache, SERVICE_CACHE_TTL, rejectPauseUntil, REJECT_PAUSE_MS, RETRY_DELAYS, RETRYABLE_STATUSES, TradeLockerReadError, AUTH_429_COOLDOWN_MS, authCooldownUntil, authChain, lastAuthAt, MIN_AUTH_GAP_MS, USDJPY_FALLBACK, _usdJpyLive, _usdJpyObserved, TL_READ_CACHE_MS, TL_BAN_MS, TL_STALE_OK_MS, TL_FRESH_WAIT_MAX_MS, tlBannedUntil, _tlIsRateLimit, tlReadCache, tlInflight, modifyChain, TL_STOP_DEDUPE_MS, lastStopSet, TradeLockerService, TL_VALUE_TTL, tlDayStartEquity, UNKNOWN_OUTCOME_PAUSE_MS, GUARD_CACHE_MS, guardCache, _isRateLimit;
+var init_tradelocker = __esm({
+  "server/tradelocker.ts"() {
+    "use strict";
+    IV_LENGTH = 16;
+    DEFAULT_ENCRYPTION_KEY = "vedd-tl-default-key-change-me-32chars!!";
+    SALT_LENGTH = 16;
+    INSTRUMENT_CACHE_TTL = 10 * 60 * 1e3;
+    instrumentCache = /* @__PURE__ */ new Map();
+    instrumentsListCache = /* @__PURE__ */ new Map();
+    serviceCache = /* @__PURE__ */ new Map();
+    SERVICE_CACHE_TTL = 50 * 60 * 1e3;
+    rejectPauseUntil = /* @__PURE__ */ new Map();
+    REJECT_PAUSE_MS = Number(process.env.TL_REJECT_PAUSE_MINUTES ?? 15) * 6e4;
+    RETRY_DELAYS = [1e3, 2e3];
+    RETRYABLE_STATUSES = /* @__PURE__ */ new Set([429, 500, 502, 503, 504]);
+    TradeLockerReadError = class extends Error {
+      status;
+      constructor(message, status) {
+        super(message);
+        this.name = "TradeLockerReadError";
+        this.status = status;
+      }
+    };
+    AUTH_429_COOLDOWN_MS = 5 * 60 * 1e3;
+    authCooldownUntil = /* @__PURE__ */ new Map();
+    authChain = Promise.resolve();
+    lastAuthAt = 0;
+    MIN_AUTH_GAP_MS = 1500;
+    USDJPY_FALLBACK = 150;
+    _usdJpyLive = null;
+    _usdJpyObserved = [];
+    TL_READ_CACHE_MS = Number(process.env.TL_READ_CACHE_MS ?? 12e3);
+    TL_BAN_MS = Number(process.env.TL_BAN_MS ?? 12e4);
+    TL_STALE_OK_MS = 5 * 6e4;
+    TL_FRESH_WAIT_MAX_MS = Number(process.env.TL_FRESH_WAIT_MAX_MS ?? 13e4);
+    tlBannedUntil = 0;
+    _tlIsRateLimit = (e) => /\b(429|1015)\b|rate.?limit|too many requests/i.test(String(e?.message || e).slice(0, 400));
+    tlReadCache = /* @__PURE__ */ new Map();
+    tlInflight = /* @__PURE__ */ new Map();
+    modifyChain = /* @__PURE__ */ new Map();
+    TL_STOP_DEDUPE_MS = Number(process.env.TL_STOP_DEDUPE_MS ?? 30 * 6e4);
+    lastStopSet = /* @__PURE__ */ new Map();
+    TradeLockerService = class _TradeLockerService {
+      baseUrl;
+      accessToken = null;
+      refreshToken = null;
+      tokenExpiresAt = null;
+      accountId;
+      serverId;
+      accNum = "0";
+      accNumResolved = false;
+      connectionId = null;
+      accountDetailsConfig = null;
+      // cached column spec from /trade/config
+      onTokenRefresh = null;
+      onReauthenticate = null;
+      // Fired when resolveAccNum() corrects a mismatched accountId (see there) —
+      // wired up by getOrCreateService() to persist the correction to the DB.
+      onAccountIdCorrected = null;
+      constructor(accountType, accountId, serverId, cachedAccNum) {
+        this.baseUrl = accountType === "demo" ? "https://demo.tradelocker.com/backend-api" : "https://live.tradelocker.com/backend-api";
+        this.accountId = accountId.replace(/^#/, "").trim();
+        if (this.accountId !== accountId) {
+          console.log("[TradeLocker] Stripped # prefix from accountId:", accountId, "\u2192", this.accountId);
+        }
+        this.serverId = serverId;
+        if (cachedAccNum && cachedAccNum !== "0") {
+          this.accNum = cachedAccNum;
+          this.accNumResolved = true;
+          console.log("[TradeLocker] Using cached accNum:", cachedAccNum);
+        }
+      }
+      getResolvedAccNum() {
+        return this.accNum;
+      }
+      // The accountId TradeLocker's own /instruments, /state, /orders endpoints
+      // actually need — may differ from what was originally passed to the
+      // constructor if resolveAccNum() had to correct a mismatched ID (see there).
+      getResolvedAccountId() {
+        return this.accountId;
+      }
+      // Bypasses the accNumResolved short-circuit below — needed because the
+      // constructor marks accNumResolved=true whenever a cached accNum from a
+      // prior (possibly wrong) resolution exists, so a normal resolveAccNum()
+      // call would never re-run and never reach the accountId-correction logic.
+      async forceResolveAccNum() {
+        this.accNumResolved = false;
+        return this.resolveAccNum();
+      }
+      async resolveAccNum() {
+        if (this.accNumResolved && this.accNum !== "0") {
+          return this.accNum;
+        }
+        await this.ensureAuthenticated();
+        try {
+          const response = await fetch(`${this.baseUrl}/auth/jwt/all-accounts`, {
+            method: "GET",
+            headers: {
+              "Authorization": `Bearer ${this.accessToken}`,
+              "Content-Type": "application/json"
+            },
+            signal: AbortSignal.timeout(8e3)
+          });
+          if (response.ok) {
+            const data = await response.json();
+            console.log("[TradeLocker] All accounts raw response:", JSON.stringify(data));
+            const accounts = Array.isArray(data) ? data : data.accounts || data.d?.accounts || [];
+            if (accounts.length > 0) {
+              const account = accounts.find(
+                (acc) => acc.id?.toString() === this.accountId || acc.accountId?.toString() === this.accountId
+              );
+              if (account && account.accNum !== void 0) {
+                this.accNum = account.accNum.toString();
+                this.accNumResolved = true;
+                console.log("[TradeLocker] Found matching account, using accNum:", this.accNum);
+                return this.accNum;
+              } else {
+                const fallback = accounts[0];
+                this.accNum = fallback.accNum?.toString() ?? "1";
+                this.accNumResolved = true;
+                const realAccountId = fallback.id?.toString() ?? fallback.accountId?.toString();
+                if (realAccountId && realAccountId !== this.accountId) {
+                  console.log("[TradeLocker] accountId", this.accountId, "did not match any account \u2014 correcting to real account ID:", realAccountId);
+                  this.accountId = realAccountId;
+                  this.onAccountIdCorrected?.(realAccountId);
+                }
+                console.log("[TradeLocker] Using first account accNum:", this.accNum);
+                return this.accNum;
+              }
+            }
+          }
+        } catch (error) {
+          console.log("[TradeLocker] All-accounts endpoint failed:", error);
+        }
+        console.log("[TradeLocker] All-accounts returned empty, probing accNum values...");
+        for (const testNum of ["1", "2"]) {
+          try {
+            const testResponse = await fetch(`${this.baseUrl}/trade/accounts/${this.accountId}/instruments`, {
+              method: "GET",
+              headers: {
+                "Authorization": `Bearer ${this.accessToken}`,
+                "Content-Type": "application/json",
+                "accNum": testNum
+              },
+              signal: AbortSignal.timeout(5e3)
+            });
+            if (testResponse.ok) {
+              this.accNum = testNum;
+              this.accNumResolved = true;
+              console.log("[TradeLocker] Probing found valid accNum:", testNum);
+              return this.accNum;
+            }
+            console.log(`[TradeLocker] accNum ${testNum} failed: ${testResponse.status}`);
+          } catch (err) {
+            console.log(`[TradeLocker] accNum ${testNum} probe error`);
+          }
+        }
+        this.accNum = "1";
+        this.accNumResolved = true;
+        console.log("[TradeLocker] Could not resolve accNum, defaulting to 1");
+        return this.accNum;
+      }
+      async authenticate(email, password) {
+        console.log("[TradeLocker Auth] Attempting authentication:", {
+          baseUrl: this.baseUrl,
+          email,
+          serverId: this.serverId,
+          accountId: this.accountId
+        });
+        try {
+          const response = await serializeAuth(`login:${this.serverId}:${email}`, () => loginFetchWith429Retry(`${this.baseUrl}/auth/jwt/token`, {
+            email,
+            password,
+            server: this.serverId
+          }));
+          console.log("[TradeLocker Auth] Response status:", response.status);
+          if (!response.ok) {
+            const errorText = await response.text();
+            console.log("[TradeLocker Auth] Error response:", errorText);
+            throw new Error(`Authentication failed: ${response.status} - ${errorText}`);
+          }
+          const data = await response.json();
+          this.accessToken = data.accessToken;
+          this.refreshToken = data.refreshToken;
+          this.tokenExpiresAt = new Date(Date.now() + (data.expiresIn || 3600) * 1e3);
+          await this.resolveAccNum();
+          return {
+            accessToken: data.accessToken,
+            refreshToken: data.refreshToken,
+            expiresIn: data.expiresIn || 3600
+          };
+        } catch (error) {
+          console.error("TradeLocker authentication error:", error);
+          throw error;
+        }
+      }
+      async refreshAccessToken(refreshToken) {
+        try {
+          const response = await serializeAuth(`refresh:${this.serverId}`, () => loginFetchWith429Retry(`${this.baseUrl}/auth/jwt/refresh`, { refreshToken }));
+          if (!response.ok) {
+            throw new Error(`Token refresh failed: ${response.status}`);
+          }
+          const data = await response.json();
+          this.accessToken = data.accessToken;
+          this.refreshToken = data.refreshToken;
+          this.tokenExpiresAt = new Date(Date.now() + (data.expiresIn || 3600) * 1e3);
+          return {
+            accessToken: data.accessToken,
+            refreshToken: data.refreshToken,
+            expiresIn: data.expiresIn || 3600
+          };
+        } catch (error) {
+          console.error("TradeLocker token refresh error:", error);
+          throw error;
+        }
+      }
+      setTokens(accessToken, refreshToken, expiresAt) {
+        this.accessToken = accessToken;
+        this.refreshToken = refreshToken;
+        this.tokenExpiresAt = expiresAt || null;
+      }
+      async ensureAuthenticated() {
+        if (!this.accessToken) {
+          throw new Error("Not authenticated. Call authenticate() first.");
+        }
+        const TOKEN_BUFFER = 60 * 1e3;
+        if (this.tokenExpiresAt && (/* @__PURE__ */ new Date()).getTime() + TOKEN_BUFFER >= this.tokenExpiresAt.getTime() && this.refreshToken) {
+          const result = await this.refreshAccessToken(this.refreshToken);
+          if (this.onTokenRefresh) {
+            this.onTokenRefresh(result.accessToken, result.refreshToken, result.expiresIn);
+          }
+        }
+      }
+      /**
+       * Loads & caches the accountDetailsConfig column spec from /trade/config.
+       * The /state endpoint returns accountDetailsData as a flat array whose
+       * positions map to these columns (by `id`), so we need this to read balance.
+       */
+      async loadAccountDetailsConfig(accNum) {
+        if (this.accountDetailsConfig) return this.accountDetailsConfig;
+        const res = await fetch(`${this.baseUrl}/trade/config`, {
+          method: "GET",
+          headers: {
+            "Authorization": `Bearer ${this.accessToken}`,
+            "Content-Type": "application/json",
+            "accNum": accNum
+          },
+          signal: AbortSignal.timeout(8e3)
+        });
+        if (!res.ok) throw new Error(`config ${res.status}`);
+        const json2 = await res.json();
+        const cfg = json2?.d?.accountDetailsConfig ?? json2?.accountDetailsConfig ?? [];
+        const cols = Array.isArray(cfg) ? cfg : cfg?.columns ?? [];
+        this.accountDetailsConfig = cols;
+        return cols;
+      }
+      // Full /trade/config response, cached — used to resolve column order for
+      // any array-format response section (ordersHistoryConfig, positionsConfig,
+      // etc). TradeLocker returns rows as plain arrays whose column order is
+      // defined here, not as named-field objects — code that skipped this and
+      // read `row.symbol`/`row.profit` directly always got undefined/blank.
+      tradeConfigCache = null;
+      async loadTradeConfig() {
+        if (this.tradeConfigCache) return this.tradeConfigCache;
+        const res = await fetch(`${this.baseUrl}/trade/config`, {
+          method: "GET",
+          headers: { "Authorization": `Bearer ${this.accessToken}`, "Content-Type": "application/json", "accNum": this.accNum },
+          signal: AbortSignal.timeout(8e3)
+        });
+        if (!res.ok) throw new Error(`trade/config ${res.status}`);
+        const json2 = await res.json();
+        this.tradeConfigCache = json2?.d ?? json2 ?? {};
+        return this.tradeConfigCache;
+      }
+      async resolveColumns(configKey) {
+        try {
+          await this.ensureAuthenticated();
+          const cfg = await this.loadTradeConfig();
+          const cols = cfg?.[configKey]?.columns ?? [];
+          return cols.map((c) => String(c.id || c.name || "").toLowerCase());
+        } catch {
+          return [];
+        }
+      }
+      /** Normalize a label for fuzzy matching: lowercase, strip all non-alphanumerics */
+      normLabel(s) {
+        return (s ?? "").toString().toLowerCase().replace(/[^a-z0-9]/g, "");
+      }
+      /** Finds the value in a flat state-data array for a column matching any candidate id/title.
+       *  Matching is normalized (case/space/punctuation-insensitive) with exact-first then substring. */
+      pickStateValue(cols, data, candidates) {
+        const normCands = candidates.map((c) => this.normLabel(c));
+        for (const cand of normCands) {
+          const idx = cols.findIndex(
+            (c) => this.normLabel(c?.id) === cand || this.normLabel(c?.title) === cand
+          );
+          if (idx >= 0 && data[idx] != null) {
+            const n = parseFloat(data[idx]);
+            if (!isNaN(n)) return n;
+          }
+        }
+        for (const cand of normCands) {
+          const idx = cols.findIndex((c) => {
+            const id = this.normLabel(c?.id), title = this.normLabel(c?.title);
+            return id && (id === cand || id.includes(cand)) || title && (title === cand || title.includes(cand));
+          });
+          if (idx >= 0 && data[idx] != null) {
+            const n = parseFloat(data[idx]);
+            if (!isNaN(n)) return n;
+          }
+        }
+        return null;
+      }
+      /** Finds a value in an object-form state payload by normalized key match. */
+      pickObjValue(obj, candidates) {
+        const keys = Object.keys(obj);
+        const normCands = candidates.map((c) => this.normLabel(c));
+        for (const cand of normCands) {
+          let k2 = keys.find((key) => this.normLabel(key) === cand);
+          if (!k2) k2 = keys.find((key) => this.normLabel(key).includes(cand));
+          if (k2 && obj[k2] != null) {
+            const n = parseFloat(obj[k2]);
+            if (!isNaN(n)) return n;
+          }
+        }
+        return null;
+      }
+      async getAccountInfo(opts) {
+        return tlSharedRead(`acct:${this.baseUrl}:${this.accountId}`, () => this._getAccountInfoRaw(), !!opts?.fresh);
+      }
+      async _getAccountInfoRaw() {
+        await this.ensureAuthenticated();
+        if (!this.accNumResolved || this.accNum === "0") {
+          await this.resolveAccNum();
+        }
+        const accNum = this.accNum;
+        console.log("[TradeLocker] getAccountInfo using accNum:", accNum, "for accountId:", this.accountId);
+        try {
+          const [cols, stateRes] = await Promise.all([
+            this.loadAccountDetailsConfig(accNum).catch((e) => {
+              console.log("[TradeLocker] /config columns failed:", e instanceof Error ? e.message : e);
+              return [];
+            }),
+            fetch(`${this.baseUrl}/trade/accounts/${this.accountId}/state`, {
+              method: "GET",
+              headers: {
+                "Authorization": `Bearer ${this.accessToken}`,
+                "Content-Type": "application/json",
+                "accNum": accNum
+              },
+              signal: AbortSignal.timeout(8e3)
+            })
+          ]);
+          if (stateRes.ok) {
+            const stateJson = await stateRes.json();
+            const raw = stateJson?.d?.accountDetailsData ?? stateJson?.accountDetailsData;
+            let balance = null, equity = null;
+            let usedMargin = null, freeMargin = null;
+            if (Array.isArray(raw) && raw.length && Array.isArray(cols) && cols.length) {
+              balance = this.pickStateValue(cols, raw, ["balance", "accountbalance"]);
+              equity = this.pickStateValue(cols, raw, ["equity", "projectedbalance"]);
+              usedMargin = this.pickStateValue(cols, raw, ["marginused", "usedmargin", "blockedbalance", "margin"]);
+              freeMargin = this.pickStateValue(cols, raw, ["availablefunds", "marginavailable", "freemargin"]);
+            } else if (raw && typeof raw === "object" && !Array.isArray(raw)) {
+              balance = this.pickObjValue(raw, ["balance", "accountbalance"]);
+              equity = this.pickObjValue(raw, ["equity", "projectedbalance"]);
+              usedMargin = this.pickObjValue(raw, ["marginused", "usedmargin", "blockedbalance", "margin"]);
+              freeMargin = this.pickObjValue(raw, ["availablefunds", "marginavailable", "freemargin"]);
+            } else {
+              console.log("[TradeLocker] /state shape unexpected \u2014 cols:", Array.isArray(cols) ? cols.length : typeof cols, "data:", Array.isArray(raw) ? `array[${raw.length}]` : typeof raw);
+            }
+            if (balance != null) {
+              console.log("[TradeLocker] getAccountInfo via /state \u2014 balance:", balance, "equity:", equity);
+              return {
+                accountId: this.accountId,
+                balance,
+                equity: equity ?? balance,
+                margin: usedMargin ?? 0,
+                freeMargin: freeMargin ?? equity ?? balance,
+                currency: "USD"
+              };
+            }
+            console.log("[TradeLocker] /state returned but could not map balance; falling back to /accounts list");
+          } else {
+            console.log("[TradeLocker] /state endpoint status:", stateRes.status, "\u2014 falling back to /accounts list");
+          }
+        } catch (stateErr) {
+          console.log("[TradeLocker] /state path failed, falling back to /accounts list:", stateErr instanceof Error ? stateErr.message : stateErr);
+        }
+        try {
+          const response = await fetch(`${this.baseUrl}/trade/accounts`, {
+            method: "GET",
+            headers: {
+              "Authorization": `Bearer ${this.accessToken}`,
+              "Content-Type": "application/json",
+              "accNum": accNum
+            },
+            signal: AbortSignal.timeout(8e3)
+          });
+          if (!response.ok) {
+            const errorText = await response.text();
+            console.log("[TradeLocker] Account details error:", errorText);
+            throw new Error(`Failed to get account info: ${response.status} - ${errorText}`);
+          }
+          const data = await response.json();
+          console.log("[TradeLocker] Account details (list):", JSON.stringify(data));
+          const accounts = Array.isArray(data) ? data : Array.isArray(data?.d) ? data.d : data.accounts || data.d?.accounts || [];
+          const accountData = accounts.find(
+            (a) => a.id?.toString() === this.accountId || a.accountId?.toString() === this.accountId
+          ) || accounts[0];
+          if (!accountData || accountData.balance == null && accountData.accountBalance == null && accountData.projectedBalance == null) {
+            throw new Error("TradeLocker returned no usable account data \u2014 the account may have been reset/expired by the broker, or the response shape changed. Reconnect required.");
+          }
+          const balance = parseFloat(
+            accountData?.accountBalance ?? accountData?.balance ?? accountData?.projectedBalance ?? 0
+          ) || 0;
+          return {
+            accountId: accountData?.id?.toString() || this.accountId,
+            balance,
+            equity: parseFloat(accountData?.projectedBalance ?? accountData?.equity ?? balance) || balance,
+            margin: parseFloat(accountData?.usedMargin ?? accountData?.margin ?? 0) || 0,
+            freeMargin: parseFloat(accountData?.availableFunds ?? accountData?.freeMargin ?? balance) || balance,
+            currency: accountData?.currency || "USD"
+          };
+        } catch (error) {
+          console.error("TradeLocker get account info error:", error);
+          throw error;
+        }
+      }
+      /** Diagnostic: returns the raw shapes of /config, /state and /accounts for debugging balance issues. */
+      async debugAccountState() {
+        await this.ensureAuthenticated();
+        if (!this.accNumResolved || this.accNum === "0") await this.resolveAccNum();
+        const accNum = this.accNum;
+        const hdrs = {
+          "Authorization": `Bearer ${this.accessToken}`,
+          "Content-Type": "application/json",
+          "accNum": accNum
+        };
+        const out = { accountId: this.accountId, accNum, baseUrl: this.baseUrl };
+        try {
+          const r = await fetch(`${this.baseUrl}/trade/config`, { method: "GET", headers: hdrs, signal: AbortSignal.timeout(8e3) });
+          out.configStatus = r.status;
+          if (r.ok) {
+            const j = await r.json();
+            const cols = j?.d?.accountDetailsConfig ?? j?.accountDetailsConfig ?? [];
+            out.configColumns = Array.isArray(cols) ? cols.map((c) => ({ id: c?.id, title: c?.title })) : cols;
+          }
+        } catch (e) {
+          out.configError = e?.message ?? String(e);
+        }
+        try {
+          const r = await fetch(`${this.baseUrl}/trade/accounts/${this.accountId}/state`, { method: "GET", headers: hdrs, signal: AbortSignal.timeout(8e3) });
+          out.stateStatus = r.status;
+          if (r.ok) {
+            const j = await r.json();
+            out.stateData = j?.d?.accountDetailsData ?? j?.accountDetailsData ?? null;
+            out.stateDataType = Array.isArray(out.stateData) ? `array[${out.stateData.length}]` : typeof out.stateData;
+          } else {
+            out.stateBody = (await r.text()).slice(0, 300);
+          }
+        } catch (e) {
+          out.stateError = e?.message ?? String(e);
+        }
+        try {
+          const r = await fetch(`${this.baseUrl}/trade/accounts`, { method: "GET", headers: hdrs, signal: AbortSignal.timeout(8e3) });
+          out.accountsStatus = r.status;
+          if (r.ok) {
+            const j = await r.json();
+            const accts = Array.isArray(j) ? j : j.accounts || j.d?.accounts || [];
+            out.accountsSample = Array.isArray(accts) ? accts.slice(0, 3) : accts;
+          }
+        } catch (e) {
+          out.accountsError = e?.message ?? String(e);
+        }
+        return out;
+      }
+      // Shared, cached, rate-limit-aware instruments fetch. One network call per
+      // account per TTL serves EVERY symbol lookup (order placement, getInstruments,
+      // candle feed) so a burst of signals doesn't fire one /instruments request per
+      // symbol and hammer the broker into a 429. On 429/5xx it backs off and retries
+      // (RETRY_DELAYS) instead of throwing on the first rate-limit response — which
+      // is exactly what was aborting every auto-trade with
+      // "Failed to get instruments: 429 - <Cloudflare block page>".
+      async fetchInstrumentsPayload(forceRefresh = false) {
+        await this.ensureAuthenticated();
+        const listKey = `${this.baseUrl}:${this.accountId}`;
+        if (!forceRefresh) {
+          const cached2 = instrumentsListCache.get(listKey);
+          if (cached2 && Date.now() - cached2.cachedAt < INSTRUMENT_CACHE_TTL) {
+            return { instruments: cached2.instruments, routes: cached2.routes ?? [] };
+          }
+        }
+        const doFetch = () => fetch(`${this.baseUrl}/trade/accounts/${this.accountId}/instruments`, {
+          method: "GET",
+          headers: {
+            "Authorization": `Bearer ${this.accessToken}`,
+            "Content-Type": "application/json",
+            "accNum": this.accNum
+          },
+          signal: AbortSignal.timeout(1e4)
+        });
+        let response = await doFetch();
+        if (response.status === 404) {
+          console.log("[TradeLocker] Instruments 404 for accountId", this.accountId, "\u2014 forcing accNum/accountId re-resolution");
+          await this.forceResolveAccNum();
+          response = await doFetch();
+        }
+        for (let i = 0; i < RETRY_DELAYS.length && RETRYABLE_STATUSES.has(response.status); i++) {
+          const delay = RETRY_DELAYS[i];
+          console.warn(`[TradeLocker] instruments ${response.status} \u2014 backing off ${delay}ms (retry ${i + 1}/${RETRY_DELAYS.length})`);
+          await new Promise((r) => setTimeout(r, delay));
+          response = await doFetch();
+        }
+        if (!response.ok) {
+          const errText = await response.text().catch(() => "");
+          throw new Error(`Failed to get instruments: ${response.status}${errText ? " - " + errText.slice(0, 120) : ""}`);
+        }
+        const data = await response.json();
+        const instruments = data?.d?.instruments ?? data?.instruments ?? (Array.isArray(data) ? data : []);
+        const routes = data?.d?.routes ?? data?.routes ?? [];
+        instrumentsListCache.set(listKey, { instruments, routes, cachedAt: Date.now() });
+        return { instruments, routes };
+      }
+      async getInstruments() {
+        try {
+          return (await this.fetchInstrumentsPayload()).instruments;
+        } catch (error) {
+          console.error("TradeLocker get instruments error:", error);
+          throw error;
+        }
+      }
+      /**
+       * Every order the app sends is written to tradelocker_trade_logs as
+       * action='ORDER' with the calling code path. Some callers (flip trade,
+       * copy-trade mirror) never logged their opens, so on 2026-10-19 a GBPUSD
+       * position on account 30 could not be traced. 'ORDER' (not 'OPEN') keeps
+       * the callers' own OPEN rows from being double-counted. Never throws.
+       */
+      async placeOrder(order) {
+        const caller = (new Error().stack || "").split("\n").slice(2, 4).map((l) => l.trim().replace(/^at\s+/, "").replace(/\s*\(.*\)$/, "").replace(/^async\s+/, "")).filter(Boolean).join(" <- ") || "unknown";
+        const write = (status, detail) => void (async () => {
+          try {
+            const c = this.logConn;
+            const userId = Number(c?.userId);
+            if (!(userId > 0) || !(Number(c?.id) > 0)) return;
+            const { pool: pool2 } = await Promise.resolve().then(() => (init_db(), db_exports));
+            await pool2.query(
+              `INSERT INTO tradelocker_trade_logs (user_id, connection_id, action, symbol, direction, volume, stop_loss, take_profit, status, error_message, created_at)
+           VALUES ($1, $2, 'ORDER', $3, $4, $5, $6, $7, $8, $9, now())`,
+              [
+                userId,
+                c.id,
+                order.symbol,
+                String(order.side || "").toUpperCase(),
+                Number(order.quantity) || 0,
+                Number(order.stopLoss) > 0 ? order.stopLoss : null,
+                Number(order.takeProfit) > 0 ? order.takeProfit : null,
+                status,
+                `ORDER ${order.type} by ${caller} | ${detail}`.slice(0, 1e3)
+              ]
+            );
+          } catch (e) {
+            console.error("[TradeLocker] order log write failed (non-fatal):", e?.message || e);
+          }
+        })();
+        const waitOutBan = async () => {
+          const wait = tlBannedUntil - Date.now();
+          if (wait <= 0) return true;
+          if (wait > TL_FRESH_WAIT_MAX_MS) return false;
+          console.warn(`[TL] order ${order.symbol} waiting ${Math.ceil(wait / 1e3)}s for rate-limit ban to clear`);
+          await new Promise((r) => setTimeout(r, wait + 250));
+          return true;
+        };
+        try {
+          await waitOutBan();
+          let res;
+          try {
+            res = await this.placeOrderRaw(order);
+          } catch (e) {
+            if (!_tlIsRateLimit(e)) throw e;
+            tlBannedUntil = Math.max(tlBannedUntil, Date.now() + TL_BAN_MS);
+            write("failed", `RATE LIMITED, retrying after ban: ${String(e?.message || e).slice(0, 120)}`);
+            if (!await waitOutBan()) throw e;
+            res = await this.placeOrderRaw(order);
+          }
+          write(res.status === "rejected" ? "failed" : "executed", `order ${res.orderId || "-"}${res.status === "rejected" ? ` | REJECTED: ${String(res.message || "").slice(0, 200)}` : ""}`);
+          return res;
+        } catch (e) {
+          write("failed", `ERROR: ${String(e?.message || e).slice(0, 200)}`);
+          throw e;
+        }
+      }
+      async placeOrderRaw(order) {
+        {
+          const _sl = Number(order.stopLoss);
+          if (!Number.isFinite(_sl) || _sl <= 0) {
+            console.error(`[TradeLocker] \u{1F6AB} NO-SL BLOCK (placeOrder): ${order.symbol} ${order.side} rejected \u2014 invalid stop loss (SL=${order.stopLoss}). Unprotected entry never allowed.`);
+            return { orderId: "", status: "rejected", message: `Blocked: no valid stop loss (SL=${order.stopLoss})` };
+          }
+        }
+        await this.ensureAuthenticated();
+        if (!this.accNumResolved || this.accNum === "0") {
+          await this.resolveAccNum();
+        }
+        try {
+          console.log("[TradeLocker] Placing order with accNum:", this.accNum, "(type:", typeof this.accNum, ") accountId:", this.accountId);
+          console.log("[TradeLocker] Order details:", order);
+          let tradableInstrumentId = null;
+          let routeId = null;
+          const instCacheKey = `${this.baseUrl}:${this.accountId}:${order.symbol.toUpperCase()}`;
+          const cachedInst = instrumentCache.get(instCacheKey);
+          if (cachedInst && Date.now() - cachedInst.cachedAt < INSTRUMENT_CACHE_TTL) {
+            tradableInstrumentId = cachedInst.tradableInstrumentId;
+            routeId = cachedInst.routeId;
+            console.log("[TradeLocker] Instrument cache HIT:", order.symbol, "\u2192 id:", tradableInstrumentId, "route:", routeId);
+          } else {
+            console.log("[TradeLocker] Instrument cache MISS \u2014 fetching instruments (shared cache + 429 backoff)...");
+            const { instruments, routes } = await this.fetchInstrumentsPayload();
+            if (Array.isArray(instruments)) {
+              const sym = order.symbol.toUpperCase();
+              const symVariants = [sym];
+              const suffixes = [".pro", "m", ".m", ".z", ".a", ".b", ".c", ".r", "_raw", ".ecn", ".stp", ".pro+", "PRO"];
+              for (const sfx of suffixes) {
+                symVariants.push(sym + sfx.toUpperCase());
+                symVariants.push(sym + sfx);
+              }
+              const strippedSym = sym.replace(/[._]?(PRO|ECN|STP|RAW|M|Z|A|B|C|R)\+?$/i, "");
+              if (strippedSym !== sym) symVariants.push(strippedSym);
+              const ALIASES = {
+                "XAUUSD": ["GOLD", "XAU/USD", "GOLD/USD", "XAUUSD.PRO", "XAUUSDPRO"],
+                "GOLD": ["XAUUSD", "XAU/USD"],
+                "XAGUSD": ["SILVER", "XAG/USD"],
+                "SILVER": ["XAGUSD", "XAG/USD"],
+                "USOIL": ["WTI", "CRUDE", "OIL", "USOUSD"],
+                "UKOIL": ["BRENT", "BRENTOIL"],
+                "NAS100": ["USTEC", "NDX100", "NASDAQ100", "US100", "NQ100"],
+                "US500": ["SPX500", "SP500", "US500", "SPX"],
+                "US30": ["DJ30", "WALLST30", "DJI30"],
+                "GER40": ["DAX40", "DE40", "GER30", "GER"],
+                "UK100": ["FTSE100", "UKX"],
+                "JP225": ["JPN225", "NIKKEI", "N225"]
+              };
+              const knownAliases = ALIASES[sym] || [];
+              for (const alias of knownAliases) {
+                symVariants.push(alias);
+                symVariants.push(alias.replace("/", ""));
+              }
+              const seen = /* @__PURE__ */ new Set();
+              const uniqueVariants = symVariants.filter((v) => {
+                if (seen.has(v)) return false;
+                seen.add(v);
+                return true;
+              });
+              console.log("[TradeLocker] Trying symbol variants:", uniqueVariants.slice(0, 10));
+              let matchedInstrument = null;
+              for (const variant of uniqueVariants) {
+                const found = instruments.find((inst) => {
+                  const instName = (inst.name || inst.symbol || "").toUpperCase().replace(/\s/g, "");
+                  const instDesc = (inst.description || inst.fullName || "").toUpperCase().replace(/\s/g, "");
+                  const v = variant.toUpperCase().replace(/\s/g, "");
+                  return instName === v || instDesc === v;
+                });
+                if (found) {
+                  matchedInstrument = found;
+                  console.log("[TradeLocker] Matched symbol variant:", variant, "\u2192", found.name, "tradableInstrumentId:", found.tradableInstrumentId || found.id);
+                  break;
+                }
+              }
+              if (matchedInstrument) {
+                tradableInstrumentId = matchedInstrument.tradableInstrumentId || matchedInstrument.id;
+                const instRoutes = Array.isArray(matchedInstrument.routes) ? matchedInstrument.routes : [];
+                console.log("[TradeLocker] Instrument routes:", JSON.stringify(instRoutes));
+                if (instRoutes.length > 0) {
+                  const tradeRoute = instRoutes.find((r) => r.type === "TRADE" || r.name === "TRADE") ?? instRoutes[0];
+                  routeId = tradeRoute.id;
+                  console.log("[TradeLocker] Using routeId", routeId, "from instrument routes");
+                }
+              }
+              if (Array.isArray(instruments) && instruments.length > 0) {
+                const sample = instruments.find((i) => (i.name || i.symbol || "").toUpperCase().includes(order.symbol.toUpperCase().slice(0, 3))) || instruments[0];
+                console.log("[TradeLocker] Sample instrument structure:", JSON.stringify(sample));
+              }
+            }
+            if (!routeId && Array.isArray(routes) && routes.length > 0) {
+              const tradeRoute = routes.find((r) => r.name === "TRADE" || r.type === "TRADE") ?? routes[0];
+              routeId = tradeRoute.id;
+              console.log("[TradeLocker] Using routeId", routeId, "from global routes fallback");
+            }
+            if (!tradableInstrumentId) {
+              const availableNames = Array.isArray(instruments) ? instruments.slice(0, 30).map((i) => i.name || i.symbol).filter(Boolean).join(", ") : "none";
+              throw new Error(
+                `Instrument not found: ${order.symbol}. Available symbols (first 30): ${availableNames}. Check the Instruments button on your TradeLocker connection to see exact names.`
+              );
+            }
+            if (!routeId) {
+              routeId = 1;
+              console.warn('[TradeLocker] WARNING: Could not find routeId from instrument or global routes. Defaulting to 1 \u2014 may cause "route forbidden".');
+            }
+            instrumentCache.set(instCacheKey, { tradableInstrumentId, routeId, cachedAt: Date.now() });
+            console.log("[TradeLocker] Instrument cached:", order.symbol, "\u2192 id:", tradableInstrumentId, "route:", routeId);
+          }
+          const orderPayload = {
+            tradableInstrumentId,
+            routeId: routeId || "TRADE",
+            // Use numeric routeId or string "TRADE" as fallback
+            qty: order.quantity,
+            side: order.side,
+            type: order.type,
+            validity: order.type === "market" ? "IOC" : "GTC",
+            price: 0
+            // Required field - 0 for market orders
+          };
+          const px = (v) => roundToTick(order.symbol, v);
+          if ((order.type === "limit" || order.type === "stop") && order.price) {
+            orderPayload.price = px(order.price);
+          }
+          if (order.stopLoss) {
+            orderPayload.stopLoss = px(order.stopLoss);
+            orderPayload.stopLossType = "absolute";
+          }
+          if (order.takeProfit) {
+            orderPayload.takeProfit = px(order.takeProfit);
+            orderPayload.takeProfitType = "absolute";
+          }
+          console.log("[TradeLocker] Order payload:", JSON.stringify(orderPayload));
+          let response = null;
+          let responseText = "";
+          let lastError = null;
+          let preIds = null;
+          if (order.type === "market") {
+            try {
+              preIds = new Set((await this.getPositionsNormalized()).map((p) => p.id));
+            } catch {
+              preIds = null;
+            }
+          }
+          const symKey = order.symbol.toUpperCase().replace(/[^A-Z0-9]/g, "");
+          const resolveAmbiguous = async (why) => {
+            if (preIds) {
+              try {
+                const now = await this.getPositionsNormalized();
+                const landed = now.find((p) => !preIds.has(p.id) && p.side === order.side && (p.symbol.toUpperCase().replace(/[^A-Z0-9]/g, "").startsWith(symKey) || p.symbol === String(tradableInstrumentId)));
+                if (landed) {
+                  console.warn(`[TradeLocker] ${why} \u2014 but a new ${order.symbol} ${order.side} position ${landed.id} appeared, so the order DID fill. Not resending.`);
+                  return { orderId: landed.id, status: "submitted", filledQuantity: landed.qty, filledPrice: landed.avgPrice, message: `Order filled (confirmed from positions after ${why}; id is the position id)` };
+                }
+                return null;
+              } catch {
+              }
+            }
+            console.error(`[TradeLocker] ${why} \u2014 could not verify whether ${order.symbol} filled. NOT retrying, to avoid a duplicate position. Check the account.`);
+            return { orderId: "", status: "rejected", message: `Outcome unknown after ${why} \u2014 not retried to avoid a duplicate order. Check the account for an open ${order.symbol} position.` };
+          };
+          for (let attempt = 0; attempt <= RETRY_DELAYS.length; attempt++) {
+            try {
+              response = await fetch(`${this.baseUrl}/trade/accounts/${this.accountId}/orders`, {
+                method: "POST",
+                headers: {
+                  "Authorization": `Bearer ${this.accessToken}`,
+                  "Content-Type": "application/json",
+                  "accNum": this.accNum
+                },
+                body: JSON.stringify(orderPayload)
+              });
+              responseText = await response.text();
+              console.log(`[TradeLocker] Order response (attempt ${attempt + 1}): status=${response.status} body=${responseText.substring(0, 300)}`);
+              if (response.ok) break;
+              if (response.status === 401 && attempt < RETRY_DELAYS.length) {
+                console.log("[TradeLocker] 401 on order \u2014 forcing full re-auth before retry...");
+                try {
+                  if (this.onReauthenticate) {
+                    await this.onReauthenticate();
+                  } else if (this.refreshToken) {
+                    const result = await this.refreshAccessToken(this.refreshToken);
+                    if (this.onTokenRefresh) {
+                      this.onTokenRefresh(result.accessToken, result.refreshToken, result.expiresIn);
+                    }
+                  }
+                } catch (authErr) {
+                  console.log("[TradeLocker] Re-auth failed during 401 retry:", authErr.message);
+                }
+                await new Promise((r) => setTimeout(r, RETRY_DELAYS[attempt]));
+                continue;
+              }
+              if (RETRYABLE_STATUSES.has(response.status) && attempt < RETRY_DELAYS.length) {
+                console.log(`[TradeLocker] Retryable status ${response.status} \u2014 waiting ${RETRY_DELAYS[attempt]}ms before retry ${attempt + 2}...`);
+                await new Promise((r) => setTimeout(r, RETRY_DELAYS[attempt]));
+                if (response.status !== 429) {
+                  const settled = await resolveAmbiguous(`HTTP ${response.status}`);
+                  if (settled) return settled;
+                }
+                continue;
+              }
+              throw new Error(`Order placement failed: ${response.status} - ${responseText}`);
+            } catch (err) {
+              lastError = err;
+              if (attempt < RETRY_DELAYS.length && !responseText) {
+                console.log(`[TradeLocker] Network error on attempt ${attempt + 1}: ${lastError.message} \u2014 retrying in ${RETRY_DELAYS[attempt]}ms...`);
+                await new Promise((r) => setTimeout(r, RETRY_DELAYS[attempt]));
+                const settled = await resolveAmbiguous(`network error (${lastError.message})`);
+                if (settled) return settled;
+                continue;
+              }
+              throw lastError;
+            }
+          }
+          if (!response || !response.ok) {
+            throw lastError || new Error("Order placement failed after retries");
+          }
+          const data = JSON.parse(responseText);
+          if (data.s !== "ok") {
+            const errorDetails = [];
+            if (data.errmsg) errorDetails.push(data.errmsg);
+            if (data.d?.errmsg) errorDetails.push(data.d.errmsg);
+            if (data.d?.message) errorDetails.push(data.d.message);
+            if (data.d?.messages && Array.isArray(data.d.messages)) errorDetails.push(...data.d.messages);
+            if (data.d?.error) errorDetails.push(data.d.error);
+            if (data.d?.errorCode) errorDetails.push(`Code: ${data.d.errorCode}`);
+            if (data.message) errorDetails.push(data.message);
+            if (data.error) errorDetails.push(data.error);
+            const errorMsg = errorDetails.length > 0 ? errorDetails.join(" | ") : `Rejected (status: ${data.s}, raw: ${responseText.substring(0, 200)})`;
+            console.log("[TradeLocker] Order rejected - Full response:", responseText);
+            console.log("[TradeLocker] Parsed error:", errorMsg);
+            return {
+              orderId: "",
+              status: "rejected",
+              message: errorMsg
+            };
+          }
+          const orderId = data.d?.orderId || data.d?.id || data.orderId || data.id;
+          if (!orderId) {
+            console.log("[TradeLocker] No orderId in response:", data);
+            return {
+              orderId: "",
+              status: "rejected",
+              message: "No order ID returned - order may not have been placed"
+            };
+          }
+          console.log("[TradeLocker] Order successfully placed with orderId:", orderId);
+          return {
+            orderId: orderId.toString(),
+            status: "submitted",
+            filledQuantity: data.d?.filledQty || data.filledQuantity,
+            filledPrice: data.d?.avgPrice || data.filledPrice,
+            message: "Order placed successfully"
+          };
+        } catch (error) {
+          console.error("TradeLocker place order error:", error);
+          throw error;
+        }
+      }
+      /**
+       * Fetch OHLCV candlestick bars for a symbol from TradeLocker.
+       * Returns candles in ascending time order (oldest first), same shape as MT5 cache:
+       * { t, o, h, l, c, v }
+       */
+      async getCandlesticks(symbol, resolutionMinutes = 5, fromTs, toTs) {
+        await this.ensureAuthenticated();
+        await this.resolveAccNum();
+        const instCacheKey = `${this.baseUrl}:${this.accountId}:${symbol.toUpperCase()}`;
+        let tradableInstrumentId = null;
+        let infoRouteId = null;
+        const cached2 = instrumentCache.get(instCacheKey);
+        if (cached2 && cached2.infoRouteId != null && Date.now() - cached2.cachedAt < INSTRUMENT_CACHE_TTL) {
+          tradableInstrumentId = cached2.tradableInstrumentId;
+          infoRouteId = cached2.infoRouteId;
+        } else {
+          const { instruments } = await this.fetchInstrumentsPayload();
+          const sym = symbol.toUpperCase();
+          const ALIASES = {
+            "XAUUSD": ["GOLD", "XAU/USD"],
+            "NAS100": ["USTEC", "US100", "NDX100"],
+            "US30": ["DJ30", "WALLST30"],
+            "US500": ["SPX500", "SP500", "SPX"]
+          };
+          const variants = [sym, ...ALIASES[sym] || []];
+          let matched = null;
+          for (const v of variants) {
+            matched = instruments.find((i) => (i.name || i.symbol || "").toUpperCase().replace(/\s/g, "") === v.replace(/\s/g, ""));
+            if (matched) break;
+          }
+          if (!matched) throw new Error(`Instrument not found in TradeLocker: ${symbol}`);
+          tradableInstrumentId = matched.tradableInstrumentId || matched.id;
+          const routes = Array.isArray(matched.routes) ? matched.routes : [];
+          const tradeRouteId = (routes.find((r) => r.type === "TRADE" || r.name === "TRADE") ?? routes[0])?.id ?? 1;
+          infoRouteId = (routes.find((r) => r.type === "INFO" || r.name === "INFO") ?? routes[0])?.id ?? tradeRouteId;
+          instrumentCache.set(instCacheKey, { tradableInstrumentId, routeId: tradeRouteId, infoRouteId, cachedAt: Date.now() });
+        }
+        const resolution = resolutionMinutes >= 1440 ? "1D" : resolutionMinutes >= 60 ? String(resolutionMinutes / 60) + "h" : String(resolutionMinutes) + "m";
+        const nowMs = Date.now();
+        const fromMs = fromTs != null ? fromTs * 1e3 : nowMs - 864e5;
+        const toMs = toTs != null ? toTs * 1e3 : nowMs;
+        const url = `${this.baseUrl}/trade/history?routeId=${infoRouteId}&tradableInstrumentId=${tradableInstrumentId}&resolution=${resolution}&from=${fromMs}&to=${toMs}`;
+        let histResp = null;
+        const backoffs = [400, 900];
+        for (let attempt = 0; ; attempt++) {
+          histResp = await fetch(url, {
+            headers: { "Authorization": `Bearer ${this.accessToken}`, "Content-Type": "application/json", "accNum": this.accNum }
+          });
+          if (histResp.status !== 429 || attempt >= backoffs.length) break;
+          await new Promise((r) => setTimeout(r, backoffs[attempt]));
+        }
+        if (!histResp.ok) {
+          const txt = await histResp.text();
+          throw new Error(`TradeLocker history error: ${histResp.status} \u2014 ${txt}`);
+        }
+        const histData = await histResp.json();
+        const bars = histData.d?.barDetails || histData.d?.bars || histData.barDetails || histData.bars || [];
+        return bars.map((b) => ({
+          t: b.t ?? b.time ?? b.timestamp ?? 0,
+          o: b.o ?? b.open ?? 0,
+          h: b.h ?? b.high ?? 0,
+          l: b.l ?? b.low ?? 0,
+          c: b.c ?? b.close ?? 0,
+          v: b.v ?? b.volume ?? 0
+        })).sort((a, b) => a.t - b.t);
+      }
+      async closePosition(positionId) {
+        await this.ensureAuthenticated();
+        try {
+          const response = await fetch(`${this.baseUrl}/trade/accounts/${this.accountId}/positions/${positionId}/close`, {
+            method: "POST",
+            headers: {
+              "Authorization": `Bearer ${this.accessToken}`,
+              "Content-Type": "application/json",
+              "accNum": this.accNum
+            }
+          });
+          if (!response.ok) {
+            const errorText = await response.text();
+            throw new Error(`Position close failed: ${response.status} - ${errorText}`);
+          }
+          const data = await response.json();
+          if (data.s && data.s !== "ok") {
+            throw new Error(`Position close rejected by broker: ${data.errmsg || JSON.stringify(data)}`);
+          }
+          return {
+            orderId: data.orderId || positionId,
+            status: "closed",
+            message: data.message
+          };
+        } catch (error) {
+          console.error("TradeLocker close position error:", error);
+          throw error;
+        }
+      }
+      // Approximate $ value per unit of price movement per 1.0 qty — TradeLocker's
+      // order/position endpoints report raw price levels, not realized $ P&L, so
+      // this is needed to convert (exit - entry) * qty into an actual dollar
+      // figure. Not exact (real pip/point values vary by broker/instrument
+      // spec), but far closer than treating a JPY-pair price difference or a
+      // 0.00001-precision FX price as if it were already in dollars.
+      /**
+       * Strip broker decoration so symbol tests actually match. White-labels ship
+       * the same instrument as `EURUSD`, `EUR/USD`, `EURUSD.PRO`, `EURUSD-ECN`,
+       * `EURUSD_raw` … Previously an undecorated-only comparison meant `XAUUSD.PRO`
+       * missed the gold branch and fell through to multiplier 1 (100x understated,
+       * audited 2026-09-18: 4 live rows booked at $7.07 instead of ~$707).
+       */
+      static normalizeSymbol(symbol) {
+        return String(symbol ?? "").toUpperCase().split(".")[0].replace(/[^A-Z0-9]/g, "");
+      }
+      /**
+       * Contract size: units of the BASE asset per 1.0 of reported qty. This is the
+       * `(exit - entry) * qty * size` term only — it yields a figure in the QUOTE
+       * currency, which `quoteToUsd` then converts. Keeping the two concerns apart
+       * is deliberate: the old single "multiplier" tried to do both at once and got
+       * both wrong for non-USD-quoted instruments.
+       *
+       * Previous bug (fixed 2026-09-19): the crypto/index line read
+       *   `if (s.includes('BTC') || s.includes('ETH') || /^[A-Z]{2,5}USD$/.test(s) === false) return 1;`
+       * which returned BEFORE the 6-char FX line for every pair NOT ending in USD.
+       * EURGBP/AUDCAD/GBPCHF etc. were therefore booked at multiplier 1 — i.e. a
+       * ~100,000x understatement. Confirmed live: 7 AUDCAD rows booked at
+       * -$0.0008 total, which the sync then dropped as "zero P&L = not closed",
+       * leaving them PENDING forever.
+       */
+      static contractSize(symbol) {
+        const s = _TradeLockerService.normalizeSymbol(symbol);
+        if (s.startsWith("XAU") || s === "GOLD") return 100;
+        if (s.startsWith("XAG") || s === "SILVER") return 5e3;
+        if (s.startsWith("XPT") || s.startsWith("XPD")) return 100;
+        if (/^(BTC|ETH|LTC|XRP|BCH|ADA|SOL|DOGE|DOT|ETC|LINK)/.test(s)) return 1;
+        if (/^[A-Z]{6}$/.test(s)) return 1e5;
+        return 1;
+      }
+      /**
+       * Fetch filled/closed orders from TradeLocker's actual order-history
+       * endpoint. TradeLocker returns rows as plain arrays whose column order is
+       * defined by /trade/config's ordersHistoryConfig — NOT named-field
+       * objects — so column order is resolved dynamically (same pattern
+       * getPositionsNormalized already uses for /positions) rather than reading
+       * row.symbol/row.profit directly, which always returned undefined/blank.
+       * Returns normalised array: { id, symbol, side, qty, avgPrice, status, createdDate, positionId }
+       */
+      async getFilledOrders(fromTs) {
+        await this.ensureAuthenticated();
+        try {
+          const columns = await this.resolveColumns("ordersHistoryConfig");
+          const idx = (name) => columns.indexOf(name.toLowerCase());
+          const iId = idx("id"), iInst = idx("tradableInstrumentId"), iSide = idx("side"), iQty = idx("qty"), iAvg = idx("avgPrice"), iStatus = idx("status"), iCreated = idx("createdDate"), iPosId = idx("positionId");
+          const toMs = Date.now();
+          const fromMs = fromTs ? fromTs * 1e3 : toMs - 90 * 24 * 60 * 60 * 1e3;
+          const histUrl = `${this.baseUrl}/trade/accounts/${this.accountId}/ordersHistory?from=${fromMs}&to=${toMs}`;
+          let response = null;
+          for (let attempt = 0; attempt <= RETRY_DELAYS.length; attempt++) {
+            response = await fetch(histUrl, {
+              method: "GET",
+              headers: { "Authorization": `Bearer ${this.accessToken}`, "Content-Type": "application/json", "accNum": this.accNum }
+            });
+            if (response.ok) break;
+            if (!RETRYABLE_STATUSES.has(response.status) || attempt === RETRY_DELAYS.length) break;
+            console.warn(`[TradeLocker] ordersHistory ${response.status} \u2014 retry ${attempt + 1}/${RETRY_DELAYS.length}`);
+            await new Promise((r) => setTimeout(r, RETRY_DELAYS[attempt]));
+          }
+          if (!response || !response.ok) {
+            throw new TradeLockerReadError(
+              `ordersHistory read failed (${response?.status ?? "no response"}) \u2014 refusing to report an empty fill history`,
+              response?.status
+            );
+          }
+          const data = await response.json();
+          const rows = data?.d?.ordersHistory || data?.ordersHistory || [];
+          const instruments = await this.getInstruments().catch(() => []);
+          const instMap = /* @__PURE__ */ new Map();
+          for (const inst of instruments) {
+            const id = String(inst.tradableInstrumentId ?? inst.id ?? "");
+            if (id) instMap.set(id, inst.name || inst.symbol || id);
+          }
+          return rows.map((row) => {
+            const instId = iInst >= 0 ? String(row[iInst]) : "";
+            const createdMs = iCreated >= 0 ? Number(row[iCreated]) : 0;
+            return {
+              id: iId >= 0 ? String(row[iId]) : "",
+              symbol: instMap.get(instId) || instId,
+              side: iSide >= 0 ? String(row[iSide]).toLowerCase() : "",
+              qty: iQty >= 0 ? parseFloat(row[iQty]) || 0 : 0,
+              avgPrice: iAvg >= 0 ? parseFloat(row[iAvg]) || 0 : 0,
+              status: iStatus >= 0 ? String(row[iStatus]) : "",
+              closeTime: createdMs ? new Date(createdMs).toISOString() : null,
+              positionId: iPosId >= 0 ? String(row[iPosId]) : ""
+            };
+          }).filter((o) => /^(filled|executed)$/i.test(o.status)).filter((o) => {
+            if (!fromTs || !o.closeTime) return true;
+            return new Date(o.closeTime).getTime() >= fromTs * 1e3;
+          });
+        } catch (err) {
+          if (err instanceof TradeLockerReadError) throw err;
+          console.error("[TradeLocker] getFilledOrders error:", err.message);
+          return [];
+        }
+      }
+      /**
+       * Pairs each position's entry and exit fills (matched by positionId) to
+       * compute realized P&L per closed trade — TradeLocker's order/position
+       * data reports price levels, not a ready-made "profit" field, so this
+       * does the pairing + $ conversion that server/routes.ts's outcome-sync
+       * previously assumed already existed on each row (it never did — every
+       * synced "trade" silently had profit=0 and got skipped).
+       * Returns: { id, symbol, side, qty, profit, openPrice, closePrice, closeTime }[]
+       * — one entry per CLOSED position (positions with only one fill, i.e.
+       * still open, are excluded).
+       */
+      /** Position ids currently OPEN at the broker, or null when the open book
+       *  could not be read. Null is meaningful: callers must NOT treat "couldn't
+       *  read" as "nothing is open", or every position would look closed. */
+      async getOpenPositionIds() {
+        for (let attempt = 0; attempt < 3; attempt++) {
+          try {
+            const raw = await this.getPositions();
+            if (!Array.isArray(raw)) return null;
+            const ids = /* @__PURE__ */ new Set();
+            for (const p of raw) {
+              const id = Array.isArray(p) ? p[0] : p?.id ?? p?.positionId;
+              if (id != null && String(id).length > 0) ids.add(String(id));
+            }
+            return ids;
+          } catch (e) {
+            const transient = /429|rate.?limit|timeout|ECONN|502|503|504/i.test(e?.message || "");
+            if (!transient || attempt === 2) {
+              console.warn(`[TradeLocker] open-book read failed (${e?.message}) \u2014 close detection falls back to the conservative time guard for this pass.`);
+              return null;
+            }
+            await new Promise((r) => setTimeout(r, 1e3 * (attempt + 1)));
+          }
+        }
+        return null;
+      }
+      async getClosedTradesWithPnl(fromTs) {
+        const openIds = await this.getOpenPositionIds();
+        const fills = await this.getFilledOrders(fromTs ? fromTs - 30 * 24 * 3600 : void 0);
+        const byPosition = /* @__PURE__ */ new Map();
+        for (const f of fills) {
+          if (_TradeLockerService.normalizeSymbol(f.symbol) === "USDJPY" && Number(f.avgPrice) > 0) {
+            noteUsdJpyObservation(new Date(f.closeTime).getTime(), Number(f.avgPrice));
+          }
+          if (!f.positionId) continue;
+          if (!byPosition.has(f.positionId)) byPosition.set(f.positionId, []);
+          byPosition.get(f.positionId).push(f);
+        }
+        const closed = [];
+        for (const [positionId, legs] of Array.from(byPosition)) {
+          if (legs.length < 2) continue;
+          legs.sort((a, b) => new Date(a.closeTime).getTime() - new Date(b.closeTime).getTime());
+          const buys = legs.filter((l) => String(l.side).toLowerCase() === "buy");
+          const sells = legs.filter((l) => String(l.side).toLowerCase() === "sell");
+          if (buys.length === 0 || sells.length === 0) continue;
+          const sumQty = (arr2) => arr2.reduce((s, l) => s + (Number(l.qty) || 0), 0);
+          const wAvg = (arr2) => {
+            const q = sumQty(arr2);
+            return q > 0 ? arr2.reduce((s, l) => s + Number(l.avgPrice) * (Number(l.qty) || 0), 0) / q : 0;
+          };
+          const buyQty = sumQty(buys), sellQty = sumQty(sells);
+          const closedQty = Math.min(buyQty, sellQty);
+          if (!(closedQty > 0)) continue;
+          const direction = String(legs[0].side).toLowerCase();
+          const buyAvg = wAvg(buys), sellAvg = wAvg(sells);
+          const openAvg = direction === "buy" ? buyAvg : sellAvg;
+          const exitAvg = direction === "buy" ? sellAvg : buyAvg;
+          const priceDiff = direction === "buy" ? exitAvg - openAvg : openAvg - exitAvg;
+          const closingLegs = direction === "buy" ? sells : buys;
+          const closeTime = closingLegs[closingLegs.length - 1]?.closeTime || legs[legs.length - 1].closeTime;
+          const openMs = new Date(legs[0].closeTime).getTime();
+          const closeMs = new Date(closeTime).getTime();
+          if (openIds) {
+            if (openIds.has(String(positionId))) continue;
+          } else if (isFinite(openMs) && isFinite(closeMs) && closeMs - openMs < 6e4) {
+            continue;
+          }
+          if (fromTs && closeMs < fromTs * 1e3) continue;
+          const _symN = _TradeLockerService.normalizeSymbol(legs[0].symbol);
+          const _quote = /^[A-Z]{6}$/.test(_symN) ? _symN.slice(3) : "USD";
+          let _quoteToUsd = 1;
+          if (_quote === "JPY") {
+            const _usdJpy = _symN === "USDJPY" && exitAvg > 0 ? exitAvg : usdJpyAt(new Date(closeTime).getTime());
+            _quoteToUsd = _usdJpy > 0 ? 1 / _usdJpy : 0;
+          } else if (_quote !== "USD" && /^[A-Z]{6}$/.test(_symN)) {
+            _quoteToUsd = 1;
+          }
+          const profit = priceDiff * closedQty * _TradeLockerService.contractSize(legs[0].symbol) * _quoteToUsd;
+          const _fxConverted = _quote === "USD" || _quote === "JPY" ? true : !/^[A-Z]{6}$/.test(_symN);
+          closed.push({
+            id: legs[legs.length - 1].id,
+            positionId,
+            symbol: legs[0].symbol,
+            side: direction,
+            qty: closedQty,
+            profit,
+            openPrice: openAvg,
+            closePrice: exitAvg,
+            openTime: legs[0].closeTime,
+            closeTime,
+            quoteCurrency: _quote,
+            // false => `profit` is in quoteCurrency, NOT USD (no rate available).
+            usdConverted: _fxConverted
+          });
+        }
+        return closed;
+      }
+      /**
+       * Fetch CLOSED positions (realized P&L) — now backed by the same
+       * ordersHistory + position-pairing logic as getClosedTradesWithPnl,
+       * shaped to match this method's original consumer expectations.
+       */
+      async getClosedPositions(fromTs) {
+        const closed = await this.getClosedTradesWithPnl(fromTs);
+        return closed.map((c) => ({ id: c.id, positionId: c.positionId, symbol: c.symbol, side: c.side, profit: c.profit, closeTime: c.closeTime, qty: c.qty, openPrice: c.openPrice, closePrice: c.closePrice }));
+      }
+      /**
+       * Working (unfilled) orders on this account. Rows are arrays ordered by
+       * /trade/config ordersConfig; falls back to the layout seen live on
+       * 2026-10-30: [id, instId, routeId, qty, side, type, status, …, createdDate@13].
+       */
+      async getPendingOrders() {
+        await this.ensureAuthenticated();
+        const cols = await this.resolveColumns("ordersConfig");
+        const at = (name, fb) => {
+          const i = cols.indexOf(name);
+          return i >= 0 ? i : fb;
+        };
+        const iId = at("id", 0), iQty = at("qty", 3), iSide = at("side", 4), iType = at("type", 5), iStatus = at("status", 6), iCreated = at("createddate", 13);
+        const r = await fetch(`${this.baseUrl}/trade/accounts/${this.accountId}/orders`, {
+          headers: { "Authorization": `Bearer ${this.accessToken}`, "accNum": this.accNum }
+        });
+        if (!r.ok) throw new Error(`Failed to get orders: ${r.status}`);
+        const j = await r.json();
+        const rows = j?.d?.orders || j?.orders || [];
+        return rows.map((row) => ({
+          id: String(row[iId]),
+          side: String(row[iSide] || "").toLowerCase(),
+          type: String(row[iType] || "").toLowerCase(),
+          status: String(row[iStatus] || ""),
+          qty: parseFloat(row[iQty]) || 0,
+          createdMs: Number(row[iCreated]) || 0
+        }));
+      }
+      /** Cancel a working order (DELETE /trade/orders/{id}). Verified live 2026-10-30. */
+      async cancelOrder(orderId) {
+        await this.ensureAuthenticated();
+        const r = await fetch(`${this.baseUrl}/trade/orders/${encodeURIComponent(orderId)}`, {
+          method: "DELETE",
+          headers: { "Authorization": `Bearer ${this.accessToken}`, "accNum": this.accNum }
+        });
+        const body = await r.text().catch(() => "");
+        this.invalidateReadCache();
+        return r.ok ? { success: true } : { success: false, error: `${r.status} ${body.slice(0, 200)}` };
+      }
+      async getPositions(opts) {
+        return tlSharedRead(`pos:${this.baseUrl}:${this.accountId}`, () => this._getPositionsRaw(), !!opts?.fresh);
+      }
+      /** Drop this account's cached positions/balance (after an order or close). */
+      invalidateReadCache() {
+        tlReadCache.delete(`pos:${this.baseUrl}:${this.accountId}`);
+        tlReadCache.delete(`acct:${this.baseUrl}:${this.accountId}`);
+      }
+      async _getPositionsRaw() {
+        await this.ensureAuthenticated();
+        try {
+          const response = await fetch(`${this.baseUrl}/trade/accounts/${this.accountId}/positions`, {
+            method: "GET",
+            headers: {
+              "Authorization": `Bearer ${this.accessToken}`,
+              "Content-Type": "application/json",
+              "accNum": this.accNum
+            }
+          });
+          if (!response.ok) {
+            throw new Error(`Failed to get positions: ${response.status}`);
+          }
+          const data = await response.json();
+          return Array.isArray(data) ? data : data?.d?.positions || data?.positions || [];
+        } catch (error) {
+          console.error("TradeLocker get positions error:", error);
+          throw error;
+        }
+      }
+      // Normalized open positions — handles BOTH response shapes TradeLocker uses:
+      // object rows (named fields) and column-array rows (order defined by
+      // /trade/config's positionsConfig). Also maps tradableInstrumentId → symbol
+      // via the instruments list so the UI can show real pair names.
+      async getPositionsNormalized(opts) {
+        const raw = await this.getPositions(opts);
+        if (!raw || raw.length === 0) return [];
+        let instMap = /* @__PURE__ */ new Map();
+        try {
+          const instruments = await this.getInstruments();
+          for (const inst of instruments) {
+            const id = String(inst.tradableInstrumentId ?? inst.id ?? "");
+            if (id) instMap.set(id, inst.name || inst.symbol || id);
+          }
+        } catch {
+        }
+        const norm4 = (v) => parseFloat(v) || 0;
+        const toIsoDate = (v) => {
+          if (v == null || v === "") return void 0;
+          const n = typeof v === "number" ? v : /^\d+(\.\d+)?$/.test(String(v).trim()) ? Number(v) : NaN;
+          const ms = Number.isFinite(n) ? n < 1e12 ? n * 1e3 : n : new Date(String(v)).getTime();
+          return Number.isFinite(ms) && ms > 0 ? new Date(ms).toISOString() : void 0;
+        };
+        const sanePrice = (v, ref) => {
+          if (!(v > 0)) return void 0;
+          if (!(ref > 0)) return v < 1e7 ? v : void 0;
+          const ratio = v / ref;
+          return ratio > 0.2 && ratio < 5 ? v : void 0;
+        };
+        if (!Array.isArray(raw[0])) {
+          return raw.map((p) => ({
+            id: String(p.id ?? p.positionId ?? ""),
+            symbol: p.s || p.symbol || instMap.get(String(p.tradableInstrumentId ?? "")) || String(p.tradableInstrumentId ?? ""),
+            instrumentId: p.tradableInstrumentId != null ? String(p.tradableInstrumentId) : void 0,
+            side: (p.side || "").toString().toLowerCase(),
+            qty: norm4(p.qty),
+            avgPrice: norm4(p.avgPrice ?? p.openPrice ?? p.price),
+            unrealizedPl: norm4(p.unrealizedPl ?? p.unrealizedPnL ?? p.uPnL ?? p.pl),
+            openDate: toIsoDate(p.openDate || p.createdDate),
+            stopLoss: sanePrice(norm4(p.stopLoss ?? p.sl ?? p.stopLossPrice), norm4(p.avgPrice ?? p.openPrice ?? p.price)),
+            takeProfit: sanePrice(norm4(p.takeProfit ?? p.tp ?? p.takeProfitPrice), norm4(p.avgPrice ?? p.openPrice ?? p.price))
+          }));
+        }
+        let columns = [];
+        try {
+          await this.ensureAuthenticated();
+          const cfgRes = await fetch(`${this.baseUrl}/trade/config`, {
+            method: "GET",
+            headers: { "Authorization": `Bearer ${this.accessToken}`, "Content-Type": "application/json", "accNum": this.accNum },
+            signal: AbortSignal.timeout(1e4)
+          });
+          if (cfgRes.ok) {
+            const cfg = await cfgRes.json();
+            const cols = cfg?.d?.positionsConfig?.columns || cfg?.positionsConfig?.columns || [];
+            columns = cols.map((c) => String(c.id || c.name || "").toLowerCase());
+          }
+        } catch {
+        }
+        const idx = (candidates) => {
+          for (const k2 of candidates) {
+            const exact = columns.indexOf(k2);
+            if (exact >= 0) return exact;
+          }
+          return columns.findIndex((c) => candidates.some((k2) => c.includes(k2)));
+        };
+        const iId = idx(["id"]);
+        const iInst = idx(["tradableinstrumentid", "tradableinstrument"]);
+        const iSide = idx(["side"]);
+        const iQty = idx(["qty", "quantity"]);
+        const iAvg = idx(["avgprice", "openprice", "price"]);
+        const iPl = idx(["unrealizedpl", "unrealizedpnl", "pnl", "pl"]);
+        const iDate = idx(["opendate", "date"]);
+        const idxPrice = (candidates) => {
+          for (const k2 of candidates) {
+            const exact = columns.indexOf(k2);
+            if (exact >= 0) return exact;
+          }
+          return columns.findIndex((c) => !c.endsWith("id") && candidates.some((k2) => c.includes(k2)));
+        };
+        const iSl = idxPrice(["stoploss", "stoplossprice", "sl"]);
+        const iTp = idxPrice(["takeprofit", "takeprofitprice", "tp"]);
+        return raw.map((row) => {
+          const instId = iInst >= 0 ? String(row[iInst]) : "";
+          return {
+            id: iId >= 0 ? String(row[iId]) : "",
+            symbol: instMap.get(instId) || instId,
+            instrumentId: instId || void 0,
+            side: iSide >= 0 ? String(row[iSide]).toLowerCase() : "",
+            qty: iQty >= 0 ? norm4(row[iQty]) : 0,
+            avgPrice: iAvg >= 0 ? norm4(row[iAvg]) : 0,
+            unrealizedPl: iPl >= 0 ? norm4(row[iPl]) : 0,
+            openDate: iDate >= 0 ? toIsoDate(row[iDate]) : void 0,
+            // Second line of defence, independent of column naming: a protective
+            // level sits near the entry. Anything orders of magnitude away is an id
+            // or a sentinel, not a price, and must not be recorded as protection.
+            stopLoss: sanePrice(iSl >= 0 ? norm4(row[iSl]) : 0, iAvg >= 0 ? norm4(row[iAvg]) : 0),
+            takeProfit: sanePrice(iTp >= 0 ? norm4(row[iTp]) : 0, iAvg >= 0 ? norm4(row[iAvg]) : 0)
+          };
+        });
+      }
+      /** Connection this service belongs to (set by getOrCreateService) — used to log modifies. */
+      logConn;
+      /**
+       * Every stop/target change the server makes is persisted (action='MODIFY'),
+       * so a broker close at a moved stop can be explained afterwards. The caller
+       * is taken from the stack, so trail, profit lock, re-anchor, AI management
+       * and copy-trade changes are all captured without touching each call site.
+       */
+      async modifyPosition(positionId, stopLoss, takeProfit) {
+        const caller = (new Error().stack || "").split("\n").slice(2, 4).map((l) => l.trim().replace(/^at\s+/, "").replace(/\s*\(.*\)$/, "").replace(/^async\s+/, "")).filter(Boolean).join(" <- ") || "unknown";
+        const prev = modifyChain.get(positionId) || Promise.resolve();
+        let release;
+        const mine = new Promise((r) => {
+          release = r;
+        });
+        const chained = prev.then(() => mine);
+        modifyChain.set(positionId, chained);
+        await prev;
+        try {
+          const last = lastStopSet.get(positionId);
+          const sl = Number(stopLoss);
+          if (last && sl > 0 && last.sl > 0 && Date.now() - last.at < TL_STOP_DEDUPE_MS && (takeProfit == null || takeProfit === last.tp) && Math.abs(sl - last.sl) <= stopTolerance(sl)) {
+            console.log(`[TradeLocker] modify ${positionId} SL ${sl} skipped \u2014 within tolerance of ${last.sl} set ${Math.round((Date.now() - last.at) / 1e3)}s ago by ${last.by}`);
+            return { success: true };
+          }
+          const r = await this.modifyPositionInner(positionId, stopLoss, takeProfit, caller);
+          if (r.success && sl > 0) lastStopSet.set(positionId, { sl, tp: takeProfit, at: Date.now(), by: caller });
+          return r;
+        } finally {
+          release();
+          if (modifyChain.get(positionId) === chained) modifyChain.delete(positionId);
+        }
+      }
+      async modifyPositionInner(positionId, stopLoss, takeProfit, caller) {
+        const res = await this.modifyPositionRaw(positionId, stopLoss, takeProfit);
+        void (async () => {
+          try {
+            const c = this.logConn;
+            const userId = Number(c?.userId);
+            if (!(userId > 0) || !(Number(c?.id) > 0)) return;
+            const { pool: pool2 } = await Promise.resolve().then(() => (init_db(), db_exports));
+            const msg = `MODIFY by ${caller} | position ${positionId} | SL ${stopLoss ?? "-"} TP ${takeProfit ?? "-"}${res.success ? "" : ` | FAILED: ${String(res.error || "").slice(0, 200)}`}`;
+            await pool2.query(
+              `INSERT INTO tradelocker_trade_logs (user_id, connection_id, action, symbol, direction, volume, stop_loss, take_profit, status, error_message, created_at)
+           VALUES ($1, $2, 'MODIFY', '', '', 0, $3, $4, $5, $6, now())`,
+              [userId, c?.id ?? null, Number(stopLoss) > 0 ? stopLoss : null, Number(takeProfit) > 0 ? takeProfit : null, res.success ? "executed" : "failed", msg.slice(0, 1e3)]
+            );
+          } catch (e) {
+            console.error("[TradeLocker] modify log write failed (non-fatal):", e?.message || e);
+          }
+        })();
+        return res;
+      }
+      async modifyPositionRaw(positionId, stopLoss, takeProfit) {
+        await this.ensureAuthenticated();
+        const body = {};
+        if (typeof stopLoss === "number" && stopLoss > 0) body.stopLoss = stopLoss;
+        if (typeof takeProfit === "number" && takeProfit > 0) body.takeProfit = takeProfit;
+        if (Object.keys(body).length === 0) {
+          return { success: false, error: "No SL or TP provided to modify" };
+        }
+        const url = `${this.baseUrl}/trade/positions/${positionId}`;
+        console.log(`[TradeLocker Modify] PATCH ${url} | SL=${stopLoss} TP=${takeProfit} accNum=${this.accNum}`);
+        try {
+          const response = await fetch(url, {
+            method: "PATCH",
+            headers: {
+              "Authorization": `Bearer ${this.accessToken}`,
+              "Content-Type": "application/json",
+              "accNum": this.accNum
+            },
+            body: JSON.stringify(body)
+          });
+          if (response.status === 405) {
+            console.log("[TradeLocker Modify] PATCH not supported, trying PUT");
+            const putResponse = await fetch(url, {
+              method: "PUT",
+              headers: {
+                "Authorization": `Bearer ${this.accessToken}`,
+                "Content-Type": "application/json",
+                "accNum": this.accNum
+              },
+              body: JSON.stringify(body)
+            });
+            if (!putResponse.ok) {
+              const errText = await putResponse.text();
+              console.log(`[TradeLocker Modify] PUT failed: ${putResponse.status} - ${errText}`);
+              return { success: false, error: `Modify failed: ${putResponse.status} - ${errText}` };
+            }
+            console.log("[TradeLocker Modify] PUT success");
+            return { success: true };
+          }
+          if (!response.ok) {
+            const errText = await response.text();
+            console.log(`[TradeLocker Modify] PATCH failed: ${response.status} - ${errText}`);
+            return { success: false, error: `Modify failed: ${response.status} - ${errText}` };
+          }
+          console.log("[TradeLocker Modify] PATCH success");
+          return { success: true };
+        } catch (error) {
+          const msg = error instanceof Error ? error.message : "Unknown error";
+          console.error("[TradeLocker Modify] Exception:", msg);
+          return { success: false, error: msg };
+        }
+      }
+    };
+    TL_VALUE_TTL = 60 * 1e3;
+    tlDayStartEquity = /* @__PURE__ */ new Map();
+    UNKNOWN_OUTCOME_PAUSE_MS = Number(process.env.TL_UNKNOWN_OUTCOME_PAUSE_SEC ?? 120) * 1e3;
+    GUARD_CACHE_MS = Number(process.env.TL_GUARD_CACHE_MS ?? 5e3);
+    guardCache = /* @__PURE__ */ new Map();
+    _isRateLimit = (e) => /\b(429|1015)\b|rate.?limit|too many requests/i.test(String(e?.message || e).slice(0, 400));
+  }
+});
+
+// server/utils/pipUtils.ts
+var pipUtils_exports = {};
+__export(pipUtils_exports, {
+  computePips: () => computePips,
+  getPipSize: () => getPipSize,
+  getPipValue: () => getPipValue,
+  setFxRate: () => setFxRate
+});
+function matchesAny(symbol, patterns) {
+  const s = symbol.toUpperCase();
+  return patterns.some((p) => s.includes(p.toUpperCase()));
+}
+function getPipSize(symbol) {
+  if (!symbol) return 1e-4;
+  if (matchesAny(symbol, ["JPY"])) return 0.01;
+  if (matchesAny(symbol, ["XAU", "GOLD"])) return 0.1;
+  if (matchesAny(symbol, ["XAG", "SILVER"])) return 1e-3;
+  if (matchesAny(symbol, ["XPT", "XPD"])) return 0.01;
+  if (matchesAny(symbol, [
+    "US30",
+    "DJ30",
+    "WALLST",
+    "DOW",
+    "NAS100",
+    "USTEC",
+    "US100",
+    "NDX",
+    "NASDAQ",
+    "US500",
+    "SPX",
+    "SP500",
+    "GER40",
+    "GER30",
+    "DAX",
+    "DE40",
+    "UK100",
+    "FTSE",
+    "UKX",
+    "JP225",
+    "NKY",
+    "NIKKEI",
+    "JPN225",
+    "N225",
+    "AUS200",
+    "ASX",
+    "HK50",
+    "HSI",
+    "FRA40",
+    "CAC",
+    "ESP35",
+    "IBEX",
+    "EUSTX50",
+    "SWI20"
+  ])) return 1;
+  if (matchesAny(symbol, ["USOIL", "WTI", "CRUDE", "BRENT", "UKOIL", "OIL"])) return 0.01;
+  if (matchesAny(symbol, ["NGAS", "NATGAS"])) return 1e-3;
+  if (matchesAny(symbol, ["BTC", "XBT"])) return 1;
+  if (matchesAny(symbol, ["ETH", "BNB", "SOL", "ADA", "DOT", "AVAX", "MATIC", "LINK", "UNI"])) return 0.01;
+  if (matchesAny(symbol, ["XRP", "DOGE", "SHIB", "LTC", "TRX"])) return 1e-4;
+  return 1e-4;
+}
+function computePips(symbol, entryPrice, exitPrice, direction) {
+  const entry = Number(entryPrice), exit = Number(exitPrice);
+  if (!Number.isFinite(entry) || !Number.isFinite(exit) || entry <= 0 || exit <= 0) return null;
+  const pipSize2 = getPipSize(symbol);
+  if (!(pipSize2 > 0)) return null;
+  const isSell = /sell|short/i.test(String(direction ?? ""));
+  const diff = isSell ? entry - exit : exit - entry;
+  return Math.round(diff / pipSize2 * 10) / 10;
+}
+function getPipValue(symbol) {
+  if (!symbol) return 10;
+  if (matchesAny(symbol, ["XAU", "GOLD"])) return 10;
+  if (matchesAny(symbol, ["XAG", "SILVER"])) return 5;
+  if (matchesAny(symbol, ["XPT", "XPD"])) return 10;
+  if (matchesAny(symbol, [
+    "US30",
+    "DJ30",
+    "WALLST",
+    "DOW",
+    "NAS100",
+    "USTEC",
+    "US100",
+    "NDX",
+    "NASDAQ",
+    "US500",
+    "SPX",
+    "SP500",
+    "GER40",
+    "GER30",
+    "DAX",
+    "DE40",
+    "UK100",
+    "FTSE",
+    "JP225",
+    "NKY",
+    "NIKKEI",
+    "JPN225",
+    "AUS200",
+    "ASX",
+    "HK50",
+    "FRA40",
+    "CAC",
+    "ESP35",
+    "EUSTX50"
+  ])) return 1;
+  if (matchesAny(symbol, ["USOIL", "WTI", "CRUDE", "BRENT", "UKOIL", "OIL"])) return 10;
+  if (matchesAny(symbol, ["NGAS", "NATGAS"])) return 10;
+  if (matchesAny(symbol, ["BTC", "XBT"])) return 1;
+  if (matchesAny(symbol, ["ETH", "BNB", "SOL", "ADA", "DOT", "AVAX", "MATIC", "LINK", "UNI"])) return 1;
+  const s = symbol.toUpperCase().split(".")[0].replace(/[^A-Z]/g, "");
+  if (/^[A-Z]{6}$/.test(s)) {
+    const quote = s.slice(3);
+    const perLotQuote = 1e5 * getPipSize(symbol);
+    const rate = quoteToUsd(quote);
+    if (rate !== null) return perLotQuote * rate;
+  }
+  return 10;
+}
+function setFxRate(pair, rate) {
+  const p = String(pair || "").toUpperCase().replace(/[^A-Z]/g, "");
+  const r = Number(rate);
+  if (!/^[A-Z]{6}$/.test(p) || !isFinite(r) || r <= 0) return;
+  _fxLive.set(p, { rate: r, at: Date.now() });
+}
+function rateOf(pair) {
+  const live = _fxLive.get(pair);
+  if (live && Date.now() - live.at < FX_LIVE_TTL_MS) return live.rate;
+  return FX_FALLBACK[pair];
+}
+function quoteToUsd(quote) {
+  if (quote === "USD") return 1;
+  const direct = rateOf(`${quote}USD`);
+  if (direct > 0) return direct;
+  const inverse = rateOf(`USD${quote}`);
+  if (inverse > 0) return 1 / inverse;
+  return null;
+}
+var FX_FALLBACK, _fxLive, FX_LIVE_TTL_MS;
+var init_pipUtils = __esm({
+  "server/utils/pipUtils.ts"() {
+    "use strict";
+    FX_FALLBACK = {
+      USDJPY: 140,
+      GBPUSD: 1.36,
+      EURUSD: 1.17,
+      AUDUSD: 0.7,
+      NZDUSD: 0.63,
+      USDCHF: 0.8,
+      USDCAD: 1.3
+    };
+    _fxLive = /* @__PURE__ */ new Map();
+    FX_LIVE_TTL_MS = 6 * 60 * 60 * 1e3;
+  }
+});
+
+// server/services/prop-firm-consistency.ts
+var prop_firm_consistency_exports = {};
+__export(prop_firm_consistency_exports, {
+  DEFAULT_CONSISTENCY_THRESHOLD_PCT: () => DEFAULT_CONSISTENCY_THRESHOLD_PCT,
+  getConsistencyPlan: () => getConsistencyPlan,
+  getConsistencyStatus: () => getConsistencyStatus,
+  rebuildDailyLedgerFromClosedTrades: () => rebuildDailyLedgerFromClosedTrades,
+  recordRealizedPnl: () => recordRealizedPnl
+});
+function todayUtcDateStr() {
+  return (/* @__PURE__ */ new Date()).toISOString().slice(0, 10);
+}
+async function getConsistencyPlan(connectionId, connectionType, thresholdPct) {
+  const threshold = typeof thresholdPct === "number" && thresholdPct > 0 ? thresholdPct : DEFAULT_CONSISTENCY_THRESHOLD_PCT;
+  const frac = threshold / 100;
+  let rows = [];
+  try {
+    const { rows: r } = await pool.query(
+      `SELECT trade_date, realized_pnl FROM prop_firm_daily_pnl WHERE connection_id = $1 AND connection_type = $2`,
+      [connectionId, connectionType]
+    );
+    rows = r;
+  } catch (err) {
+    console.error("[Consistency] Plan read failed (defaulting to empty):", err?.message ?? err);
+  }
+  let totalPositive = 0;
+  let maxDayPnl = 0;
+  let maxDayDate = null;
+  for (const r of rows) {
+    const pnl = typeof r.realized_pnl === "number" ? r.realized_pnl : parseFloat(r.realized_pnl || "0");
+    if (!isFinite(pnl) || pnl <= 0) continue;
+    totalPositive += pnl;
+    if (pnl > maxDayPnl) {
+      maxDayPnl = pnl;
+      maxDayDate = r.trade_date;
+    }
+  }
+  const maxDayRatioPct = totalPositive > 0 ? maxDayPnl / totalPositive * 100 : 0;
+  const passing = totalPositive <= 0 || maxDayRatioPct <= threshold;
+  const targetTotalPnl = maxDayPnl > 0 ? maxDayPnl / frac : 0;
+  const additionalProfitNeeded = Math.max(0, targetTotalPnl - totalPositive);
+  const safeDailyProfitCap = maxDayPnl > 0 ? Math.max(1, round2(maxDayPnl * DILUTION_DAY_FRACTION)) : 0;
+  const estDaysNeeded = additionalProfitNeeded > 0 && safeDailyProfitCap > 0 ? Math.ceil(additionalProfitNeeded / safeDailyProfitCap) : 0;
+  const growthMultiple = totalPositive > 0 && targetTotalPnl > 0 ? targetTotalPnl / totalPositive : 0;
+  let feasibility;
+  if (passing) feasibility = "passing";
+  else if (growthMultiple <= 1.5) feasibility = "achievable";
+  else if (growthMultiple <= 2.5) feasibility = "hard";
+  else feasibility = "unrealistic";
+  let recommendation;
+  if (passing) {
+    recommendation = "Consistency requirement met \u2014 request the payout / evaluation pass.";
+  } else if (feasibility === "achievable") {
+    recommendation = `Keep VEDD's auto-dilution on \u2014 small green days at \u2264 $${safeDailyProfitCap}/day will clear the cap in ~${estDaysNeeded} day(s).`;
+  } else if (feasibility === "hard") {
+    recommendation = `Doable but slow: total profit must ${growthMultiple.toFixed(1)}\xD7 (grind ~${estDaysNeeded} days at \u2264 $${safeDailyProfitCap}/day). Auto-dilution will handle it, but weigh the days against a fresh reset.`;
+  } else {
+    recommendation = `\u26A0\uFE0F Impractical to dilute: your biggest day ($${round2(maxDayPnl)}) is so large that total profit would have to ${growthMultiple.toFixed(1)}\xD7 (to ~$${round2(targetTotalPnl)}) to get it under ${threshold}%. That's ~${estDaysNeeded} more grind days. Consider RESETTING this account and trading smaller, even days from the start so no single day dominates.`;
+  }
+  let summary;
+  if (passing) {
+    summary = totalPositive > 0 ? `Consistency PASSING: biggest day $${round2(maxDayPnl)} is ${maxDayRatioPct.toFixed(1)}% of $${round2(totalPositive)} total (cap ${threshold}%).` : `No positive profit recorded yet \u2014 nothing to evaluate.`;
+  } else {
+    summary = `Consistency STUCK at ${maxDayRatioPct.toFixed(1)}% (cap ${threshold}%). Biggest day $${round2(maxDayPnl)} of $${round2(totalPositive)} total. To pass, grow total to $${round2(targetTotalPnl)} \u2014 about $${round2(additionalProfitNeeded)} more profit, spread across ~${estDaysNeeded} day(s) at \u2264 $${safeDailyProfitCap}/day so no new day breaches the cap.`;
+  }
+  return {
+    passing,
+    thresholdPct: threshold,
+    totalPositivePnl: round2(totalPositive),
+    maxDayPnl: round2(maxDayPnl),
+    maxDayDate,
+    maxDayRatioPct: round2(maxDayRatioPct),
+    targetTotalPnl: round2(targetTotalPnl),
+    additionalProfitNeeded: round2(additionalProfitNeeded),
+    safeDailyProfitCap,
+    estDaysNeeded,
+    growthMultiple: round2(growthMultiple),
+    feasibility,
+    recommendation,
+    summary
+  };
+}
+function round2(n) {
+  return Math.round(n * 100) / 100;
+}
+async function rebuildDailyLedgerFromClosedTrades(userId, connectionId, connectionType, closedTrades, opts) {
+  const byDay = /* @__PURE__ */ new Map();
+  let used = 0;
+  for (const t of closedTrades) {
+    const pnl = Number(t.profit);
+    if (!isFinite(pnl) || pnl === 0) continue;
+    const d = new Date(t.closeTime);
+    if (isNaN(d.getTime())) continue;
+    const day = d.toISOString().slice(0, 10);
+    byDay.set(day, (byDay.get(day) ?? 0) + pnl);
+    used++;
+  }
+  const { rows: existingRows } = await pool.query(
+    `SELECT count(*)::int AS days FROM prop_firm_daily_pnl WHERE connection_id = $1 AND connection_type = $2`,
+    [connectionId, connectionType]
+  );
+  const existingDays = Number(existingRows?.[0]?.days ?? 0);
+  if (opts?.force && existingDays > 0) {
+    console.warn(`[Consistency] FORCED rebuild for connection ${connectionId}: replacing ${existingDays} day(s) with ${byDay.size}.`);
+  }
+  if (!opts?.force && existingDays > 0 && byDay.size === 0) {
+    throw new Error(
+      `Refusing to rebuild ledger for connection ${connectionId}: would delete ${existingDays} day(s) and write 0. The broker returned no closed trades \u2014 treat this as a failed read, not an empty account.`
+    );
+  }
+  if (!opts?.force && existingDays >= 5 && byDay.size < existingDays / 2) {
+    throw new Error(
+      `Refusing to rebuild ledger for connection ${connectionId}: would shrink ${existingDays} day(s) to ${byDay.size}. This looks like a truncated broker read. Re-run when the broker history is complete, or pass force to override.`
+    );
+  }
+  const client2 = await pool.connect();
+  try {
+    await client2.query("BEGIN");
+    await client2.query(
+      `DELETE FROM prop_firm_daily_pnl WHERE connection_id = $1 AND connection_type = $2`,
+      [connectionId, connectionType]
+    );
+    for (const [day, pnl] of Array.from(byDay)) {
+      await client2.query(
+        `INSERT INTO prop_firm_daily_pnl (user_id, connection_id, connection_type, trade_date, realized_pnl)
+         VALUES ($1, $2, $3, $4, $5)
+         ON CONFLICT (connection_id, connection_type, trade_date)
+         DO UPDATE SET realized_pnl = $5, updated_at = now()`,
+        [userId, connectionId, connectionType, day, round2(pnl)]
+      );
+    }
+    await client2.query("COMMIT");
+  } catch (err) {
+    await client2.query("ROLLBACK").catch(() => {
+    });
+    throw err;
+  } finally {
+    client2.release();
+  }
+  let totalPositive = 0, maxDay = 0, maxDayDate = null;
+  for (const [day, pnl] of Array.from(byDay)) {
+    if (pnl > 0) totalPositive += pnl;
+    if (pnl > maxDay) {
+      maxDay = pnl;
+      maxDayDate = day;
+    }
+  }
+  return { days: byDay.size, totalPositive: round2(totalPositive), maxDay: round2(maxDay), maxDayDate, tradesUsed: used };
+}
+async function recordRealizedPnl(userId, connectionId, connectionType, realizedPnlDelta, tradeDate) {
+  if (!isFinite(realizedPnlDelta) || realizedPnlDelta === 0) return;
+  const dateStr = tradeDate || todayUtcDateStr();
+  try {
+    await pool.query(
+      `INSERT INTO prop_firm_daily_pnl (user_id, connection_id, connection_type, trade_date, realized_pnl)
+       VALUES ($1, $2, $3, $4, $5)
+       ON CONFLICT (connection_id, connection_type, trade_date)
+       DO UPDATE SET realized_pnl = prop_firm_daily_pnl.realized_pnl + $5, updated_at = now()`,
+      [userId, connectionId, connectionType, dateStr, realizedPnlDelta]
+    );
+  } catch (err) {
+    console.error("[Consistency] Failed to record daily P&L (non-fatal):", err?.message ?? err);
+  }
+}
+async function getConsistencyStatus(connectionId, connectionType, thresholdPct, enabled = true) {
+  const threshold = typeof thresholdPct === "number" && thresholdPct > 0 ? thresholdPct : DEFAULT_CONSISTENCY_THRESHOLD_PCT;
+  if (!enabled) {
+    return {
+      connectionId,
+      connectionType,
+      enabled: false,
+      thresholdPct: threshold,
+      todayPnl: 0,
+      totalPositivePnl: 0,
+      ratioPct: 0,
+      status: "disabled",
+      sizeMultiplier: 1,
+      hardBlocked: false,
+      guidance: "Consistency rule is turned off for this account \u2014 trades are not tapered or blocked based on daily profit share. Turn it on if your prop firm enforces a max-single-day-profit rule."
+    };
+  }
+  const dateStr = todayUtcDateStr();
+  let rows = [];
+  try {
+    const { rows: r } = await pool.query(
+      `SELECT trade_date, realized_pnl FROM prop_firm_daily_pnl WHERE connection_id = $1 AND connection_type = $2`,
+      [connectionId, connectionType]
+    );
+    rows = r;
+  } catch (err) {
+    console.error("[Consistency] Failed to read daily P&L \u2014 BLOCKING new trades on this account until it can be read:", err?.message ?? err);
+    return {
+      connectionId,
+      connectionType,
+      enabled: true,
+      thresholdPct: threshold,
+      todayPnl: 0,
+      totalPositivePnl: 0,
+      ratioPct: 0,
+      status: "breached",
+      sizeMultiplier: 0,
+      hardBlocked: true,
+      guidance: `Couldn't read this account's daily P&L ledger (${err?.message ?? "database error"}) \u2014 new trades are blocked on this account until it can be read, rather than trading blind on the consistency rule.`
+    };
+  }
+  let todayPnl = 0;
+  let totalPositivePnl = 0;
+  for (const r of rows) {
+    const pnl = typeof r.realized_pnl === "number" ? r.realized_pnl : parseFloat(r.realized_pnl || "0");
+    if (!isFinite(pnl)) continue;
+    if (r.trade_date === dateStr) todayPnl = pnl;
+    if (pnl > 0) totalPositivePnl += pnl;
+  }
+  const todayPositive = Math.max(0, todayPnl);
+  const ratioPct = totalPositivePnl > 0 ? todayPositive / totalPositivePnl * 100 : 0;
+  let maxDayPnl = 0;
+  let maxDayDate = null;
+  let positiveDays = 0;
+  for (const r of rows) {
+    const pnl = typeof r.realized_pnl === "number" ? r.realized_pnl : parseFloat(r.realized_pnl || "0");
+    if (!isFinite(pnl)) continue;
+    if (pnl > 0) positiveDays++;
+    if (pnl > maxDayPnl) {
+      maxDayPnl = pnl;
+      maxDayDate = r.trade_date;
+    }
+  }
+  const maxDayRatioPct = totalPositivePnl > 0 ? maxDayPnl / totalPositivePnl * 100 : 0;
+  const minDaysForRule = Math.ceil(100 / threshold);
+  const todayIsMax = maxDayDate === dateStr;
+  const stuck = maxDayRatioPct > threshold && positiveDays >= minDaysForRule && !todayIsMax;
+  const taperStartPct = threshold * TAPER_START_FRACTION;
+  let status = "safe";
+  let sizeMultiplier = 1;
+  let hardBlocked = false;
+  let guidance = `Today's profit is ${ratioPct.toFixed(1)}% of total realized profit \u2014 well within the ${threshold}% consistency cap.`;
+  if (stuck) {
+    const dailyCap = Math.max(1, maxDayPnl * DILUTION_DAY_FRACTION);
+    const targetTotal = maxDayPnl / (threshold / 100);
+    const addNeeded = Math.max(0, targetTotal - totalPositivePnl);
+    const daysLeft = dailyCap > 0 ? Math.ceil(addNeeded / dailyCap) : 0;
+    if (todayPositive >= dailyCap) {
+      status = "breached";
+      sizeMultiplier = 0;
+      hardBlocked = true;
+      guidance = `Consistency dilution: today's profit ($${todayPositive.toFixed(2)}) hit the per-day cap ($${dailyCap.toFixed(2)}). Trading paused for today so this day doesn't become a new breach. Biggest day is ${maxDayRatioPct.toFixed(1)}% of total (cap ${threshold}%) \u2014 grow total to $${targetTotal.toFixed(0)} (~$${addNeeded.toFixed(0)} more, ~${daysLeft} day(s)) to pass.`;
+    } else {
+      status = "warning";
+      const room = dailyCap - todayPositive;
+      const progress2 = dailyCap > 0 ? todayPositive / dailyCap : 1;
+      sizeMultiplier = Math.max(TAPER_FLOOR_MULTIPLIER, 1 - progress2 * (1 - TAPER_FLOOR_MULTIPLIER));
+      guidance = `Consistency dilution active: biggest day is ${maxDayRatioPct.toFixed(1)}% of total (cap ${threshold}%). Taking small green days \u2014 up to $${room.toFixed(2)} more today (cap $${dailyCap.toFixed(2)}). Need ~$${addNeeded.toFixed(0)} more total over ~${daysLeft} day(s) to pass.`;
+    }
+  } else if (ratioPct >= threshold && positiveDays < minDaysForRule) {
+    guidance = `Consistency rule not enforced yet: this account has ${positiveDays} green day${positiveDays === 1 ? "" : "s"} \u2014 the ${threshold}% cap starts after ${minDaysForRule}, when one day's share can actually be measured.`;
+  } else if (ratioPct >= threshold) {
+    status = "breached";
+    sizeMultiplier = 0;
+    hardBlocked = true;
+    guidance = `Consistency cap breached: today's profit is ${ratioPct.toFixed(1)}% of total (cap ${threshold}%). New trades are blocked on this account until the next trading day. The ratio will come down as more profit accumulates on other days without adding to today's total.`;
+  } else if (ratioPct >= taperStartPct) {
+    status = "warning";
+    const span = threshold - taperStartPct;
+    const progress2 = span > 0 ? (ratioPct - taperStartPct) / span : 1;
+    sizeMultiplier = Math.max(TAPER_FLOOR_MULTIPLIER, 1 - progress2 * (1 - TAPER_FLOOR_MULTIPLIER));
+    guidance = `Approaching the consistency cap: today's profit is ${ratioPct.toFixed(1)}% of total (cap ${threshold}%). Position sizing is being reduced (${Math.round(sizeMultiplier * 100)}% of normal) to avoid crossing the line today.`;
+  }
+  return {
+    connectionId,
+    connectionType,
+    enabled: true,
+    thresholdPct: threshold,
+    todayPnl,
+    totalPositivePnl,
+    ratioPct,
+    maxDayPnl: round2(maxDayPnl),
+    maxDayRatioPct: round2(maxDayRatioPct),
+    dilutionActive: stuck,
+    status,
+    sizeMultiplier,
+    hardBlocked,
+    guidance
+  };
+}
+var DEFAULT_CONSISTENCY_THRESHOLD_PCT, TAPER_START_FRACTION, TAPER_FLOOR_MULTIPLIER, DILUTION_DAY_FRACTION;
+var init_prop_firm_consistency = __esm({
+  "server/services/prop-firm-consistency.ts"() {
+    "use strict";
+    init_db();
+    DEFAULT_CONSISTENCY_THRESHOLD_PCT = 20;
+    TAPER_START_FRACTION = 0.7;
+    TAPER_FLOOR_MULTIPLIER = 0.25;
+    DILUTION_DAY_FRACTION = 0.8;
   }
 });
 
@@ -20306,6 +22821,749 @@ function computeAllAdvancedIndicators(candles, currentATR, symbol, timeframe = "
 var init_indicators = __esm({
   "server/indicators.ts"() {
     "use strict";
+  }
+});
+
+// server/services/signal-confidence.ts
+var signal_confidence_exports = {};
+__export(signal_confidence_exports, {
+  lookupSignalConfidence: () => lookupSignalConfidence
+});
+async function lookupSignalConfidence(userId, symbol, direction) {
+  try {
+    const sym = String(symbol || "").toUpperCase().replace(/[^A-Z0-9]/g, "");
+    if (!sym) return null;
+    const { rows } = await pool.query(
+      `SELECT confidence FROM mt5_signal_logs
+        WHERE user_id = $1 AND action = 'OPEN' AND upper(direction) = $2
+          AND upper(regexp_replace(symbol, '[^A-Za-z0-9]', '', 'g')) = left($3, length(upper(regexp_replace(symbol, '[^A-Za-z0-9]', '', 'g'))))
+          AND source = 'vedd_live_engine' AND confidence IS NOT NULL
+          AND created_at > now() - interval '30 minutes'
+        ORDER BY created_at DESC LIMIT 1`,
+      [userId, String(direction || "").toUpperCase(), sym]
+    );
+    const c = Number(rows[0]?.confidence);
+    return Number.isFinite(c) && c > 0 ? c : null;
+  } catch {
+    return null;
+  }
+}
+var init_signal_confidence = __esm({
+  "server/services/signal-confidence.ts"() {
+    "use strict";
+    init_db();
+  }
+});
+
+// server/services/tradelocker-sync.ts
+var tradelocker_sync_exports = {};
+__export(tradelocker_sync_exports, {
+  getTlAccountData: () => getTlAccountData,
+  markTlUserActive: () => markTlUserActive,
+  refreshTlAfterTrade: () => refreshTlAfterTrade,
+  startTradeLockerSync: () => startTradeLockerSync,
+  syncUserTradeLocker: () => syncUserTradeLocker
+});
+async function _recordOrBackfillConfirmationOutcome(userId, symbol, direction, result, closeTime) {
+  try {
+    const resolved = await storage.resolveConfirmationOutcome(userId, symbol, direction, result, null, closeTime ?? null);
+    if (resolved) return;
+    const closedAt = closeTime ? new Date(closeTime) : /* @__PURE__ */ new Date();
+    const hour = closedAt.getUTCHours();
+    const session3 = hour < 7 ? "Asian" : hour < 13 ? "London" : hour < 20 ? "New York" : "Late NY";
+    await storage.createConfirmationOutcome({
+      userId,
+      symbol: symbol.toUpperCase(),
+      direction,
+      session: session3,
+      aiDecision: "EA_ONLY",
+      tradeSource: "ea_only",
+      tradeOutcome: result,
+      confirmedAt: closedAt,
+      closedAt
+    });
+  } catch {
+  }
+}
+function _plausibleCloseTime(closeTime, existing) {
+  const now = /* @__PURE__ */ new Date();
+  if (!closeTime) return now;
+  const t = new Date(closeTime);
+  if (isNaN(t.getTime())) return now;
+  const opened = new Date(existing?.createdAt ?? existing?.created_at ?? 0).getTime();
+  return opened > 0 && t.getTime() <= opened ? now : t;
+}
+async function _invalidateDailyStop(userId) {
+  try {
+    const { invalidatePairDailyStop: invalidatePairDailyStop2 } = await Promise.resolve().then(() => (init_pair_daily_stop(), pair_daily_stop_exports));
+    invalidatePairDailyStop2(userId);
+  } catch {
+  }
+}
+async function _classifyHoldRegime(conn, symbol, openedAt, closedAt) {
+  if (!openedAt || !(closedAt.getTime() > openedAt.getTime())) return null;
+  try {
+    const holdMinutes = (closedAt.getTime() - openedAt.getTime()) / 6e4;
+    const resolutionMinutes = holdMinutes < 100 ? 5 : holdMinutes < 300 ? 15 : holdMinutes < 1200 ? 30 : 60;
+    const padMs = resolutionMinutes * 60 * 1e3 * 20;
+    const fromTs = Math.floor((openedAt.getTime() - padMs) / 1e3);
+    const toTs = Math.ceil(closedAt.getTime() / 1e3);
+    const svc = await getOrCreateService(conn);
+    const bars = await svc.getCandlesticks(symbol, resolutionMinutes, fromTs, toTs);
+    if (!bars || bars.length < 20) return null;
+    const { calculateADX: calculateADX2 } = await Promise.resolve().then(() => (init_indicators(), indicators_exports));
+    const candles = bars.slice().reverse().map((b) => ({ o: b.o, h: b.h, l: b.l, c: b.c, v: b.v }));
+    const adx = calculateADX2(candles, 14);
+    if (!adx) return null;
+    if (adx.value >= 25) return "trending";
+    if (adx.value < 20) return "ranging";
+    return "volatile";
+  } catch (e) {
+    console.warn(`[FxBrain] hold-regime classification skipped for ${symbol} (${e?.message}) \u2014 recording outcome without it.`);
+    return null;
+  }
+}
+async function _recordFxBrainOutcome(userId, conn, existing, match, result, profit) {
+  try {
+    const { pool: pool2 } = await Promise.resolve().then(() => (init_db(), db_exports));
+    const closedAt = match?.closeTime ? new Date(match.closeTime) : /* @__PURE__ */ new Date();
+    const symbol = String(existing.symbol || "").toUpperCase().replace(/[^A-Z0-9.]/g, "");
+    const direction = String(existing.direction || "").toUpperCase();
+    const ticket = String(existing.mt5Ticket || "");
+    if (!symbol || !direction) return;
+    const _openedAtRaw = existing.createdAt ? new Date(existing.createdAt) : null;
+    const _anchor = _openedAtRaw && !isNaN(_openedAtRaw.getTime()) ? _openedAtRaw : closedAt;
+    const { rows: cf } = await pool2.query(
+      `SELECT adx_value, rsi_value, macd_direction, confluence_grade, confluence_score,
+              smc_verdict, ict_macro_valid, htf_aligned, ai_confidence, proposed_confidence,
+              timeframe, session, confirmed_at
+         FROM ai_confirmation_outcomes
+        WHERE user_id = $1 AND symbol = $2 AND direction = $3
+          AND confirmed_at BETWEEN $4::timestamp - interval '2 hours' AND $4::timestamp + interval '10 minutes'
+        ORDER BY (adx_value IS NOT NULL) DESC,
+                 abs(extract(epoch FROM (confirmed_at - $4::timestamp))) ASC
+        LIMIT 1`,
+      [userId, symbol, direction, _anchor.toISOString()]
+    );
+    const f = cf[0] || {};
+    if (!f.adx_value) {
+      console.warn(`[FxBrain] ${symbol} ${direction} ticket ${ticket}: no confirmation with indicator values found near open ${_anchor.toISOString()} \u2014 recording outcome without setup.`);
+    }
+    const entry = Number(existing.entryPrice ?? match?.openPrice) || null;
+    const exit = Number(match?.closePrice) || null;
+    const sl = Number(existing.stopLoss) || null;
+    const tp = Number(existing.takeProfit) || null;
+    const plannedRR = entry && sl && tp && Math.abs(entry - sl) > 0 ? Math.abs(tp - entry) / Math.abs(entry - sl) : null;
+    const realisedRR = entry && exit && sl && Math.abs(entry - sl) > 0 ? Math.abs(exit - entry) / Math.abs(entry - sl) * (result === "WIN" ? 1 : -1) : null;
+    const maePnl = Number(existing.maePnl);
+    const mfePnl = Number(existing.mfePnl);
+    const openedAt = existing.createdAt ? new Date(existing.createdAt) : null;
+    const holdMins = openedAt && closedAt > openedAt ? Math.round((closedAt.getTime() - openedAt.getTime()) / 6e4) : null;
+    const hour = closedAt.getUTCHours();
+    const { canonSession: canonSession2 } = await Promise.resolve().then(() => (init_session(), session_exports));
+    const session3 = canonSession2(f.session, hour) ?? canonSession2(null, hour);
+    const holdRegime = await _classifyHoldRegime(conn, symbol, openedAt, closedAt);
+    await pool2.query(
+      `INSERT INTO fx_brain_outcomes
+        (user_id, symbol, direction, timeframe, hour_utc, session, day_of_week,
+         adx_value, rsi_value, macd_direction, confluence_grade, confluence_score,
+         smc_verdict, ict_macro_valid, htf_aligned, ea_confidence, ai_confidence,
+         entry_price, exit_price, stop_loss, take_profit, planned_rr, realised_rr,
+         result, profit_loss, holding_minutes, connection_id, account_id, ticket, closed_at,
+         mae_pnl, mfe_pnl, minutes_to_mae, minutes_to_mfe, hold_regime)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25,$26,$27,$28,$29,$30,$31,$32,$33,$34,$35)
+       ON CONFLICT (user_id, ticket) WHERE ticket IS NOT NULL DO NOTHING`,
+      [
+        userId,
+        symbol,
+        direction,
+        f.timeframe ?? null,
+        hour,
+        session3,
+        closedAt.getUTCDay(),
+        f.adx_value ?? null,
+        f.rsi_value ?? null,
+        f.macd_direction ?? null,
+        f.confluence_grade ?? null,
+        f.confluence_score ?? null,
+        f.smc_verdict ?? null,
+        f.ict_macro_valid ?? null,
+        f.htf_aligned ?? null,
+        f.proposed_confidence ?? null,
+        f.ai_confidence ?? null,
+        entry,
+        exit,
+        sl,
+        tp,
+        plannedRR,
+        realisedRR,
+        result,
+        profit,
+        holdMins,
+        conn?.id ?? null,
+        String(conn?.accountId ?? ""),
+        ticket || null,
+        closedAt,
+        Number.isFinite(maePnl) ? maePnl : null,
+        Number.isFinite(mfePnl) ? mfePnl : null,
+        existing.maeAt && openedAt ? Math.max(0, Math.round((new Date(existing.maeAt).getTime() - openedAt.getTime()) / 6e4)) : null,
+        existing.mfeAt && openedAt ? Math.max(0, Math.round((new Date(existing.mfeAt).getTime() - openedAt.getTime()) / 6e4)) : null,
+        holdRegime
+      ]
+    );
+    console.log(`[FxBrain] recorded ${symbol} ${direction} ${result} ${profit >= 0 ? "+" : ""}${profit.toFixed(2)}` + (f.adx_value != null ? ` (adx ${Number(f.adx_value).toFixed(1)}, grade ${f.confluence_grade ?? "n/a"})` : " (setup unknown)"));
+  } catch (e) {
+    console.error(
+      `[FxBrain] outcome record failed (non-fatal) for user=${userId} symbol=${existing?.symbol} direction=${existing?.direction} ticket=${existing?.mt5Ticket} result=${result} profit=${profit}: ${e?.message}` + (e?.code ? ` | pg_code=${e.code}` : "") + (e?.detail ? ` | pg_detail=${e.detail}` : "") + (e?.constraint ? ` | pg_constraint=${e.constraint}` : ""),
+      e?.stack
+    );
+  }
+}
+function cache5() {
+  global.tlAccountData = global.tlAccountData || {};
+  return global.tlAccountData;
+}
+function markTlUserActive(userId) {
+  activeUsers.set(userId, Date.now());
+}
+async function _feedEngineBrain(userId, symbol, profit, direction, closeTime, ticket) {
+  try {
+    const { recordTradeResult: recordTradeResult2 } = await Promise.resolve().then(() => (init_live_trading_engine(), live_trading_engine_exports));
+    const h = new Date(closeTime || Date.now()).getUTCHours();
+    const session3 = h < 7 ? "Asian" : h < 13 ? "London" : h < 20 ? "New York" : "Late NY";
+    recordTradeResult2(userId, {
+      symbol: String(symbol || "").toUpperCase().replace("/", ""),
+      profit: Number(profit) || 0,
+      strategy: "unknown",
+      session: session3,
+      direction,
+      ...ticket ? { tradeKey: `tl:${ticket}` } : {}
+    });
+  } catch (_) {
+  }
+}
+async function sweepStalePendingOrders(userId, conn, svc) {
+  if (process.env.TL_PENDING_EXPIRY === "off" || typeof svc?.getPendingOrders !== "function") return;
+  const now = Date.now();
+  if (now - (_lastPendingSweep.get(conn.id) || 0) < PENDING_SWEEP_MS) return;
+  _lastPendingSweep.set(conn.id, now);
+  const maxMs = Math.max(0.5, Number(process.env.TL_PENDING_MAX_HOURS ?? 4)) * 36e5;
+  const d = new Date(now);
+  const fridayClose = d.getUTCDay() === 5 && (d.getUTCHours() > 20 || d.getUTCHours() === 20 && d.getUTCMinutes() >= 30);
+  const orders = await svc.getPendingOrders().catch(() => []);
+  for (const o of orders) {
+    if (!/limit|stop/.test(o.type) || /filled|cancel|reject/i.test(o.status)) continue;
+    const age = o.createdMs > 0 ? now - o.createdMs : 0;
+    if (!fridayClose && age < maxMs) continue;
+    try {
+      const { pool: pool2 } = await Promise.resolve().then(() => (init_db(), db_exports));
+      const { rows } = await pool2.query(
+        `SELECT symbol, direction FROM tradelocker_trade_logs WHERE connection_id=$1 AND action='ORDER' AND error_message LIKE $2 LIMIT 1`,
+        [conn.id, `%order ${o.id}%`]
+      );
+      if (!rows.length) continue;
+      const why = fridayClose ? "Friday close \u2014 no pending orders over the weekend" : `unfilled for ${(age / 36e5).toFixed(1)}h (limit ${maxMs / 36e5}h)`;
+      const r = await svc.cancelOrder(o.id);
+      await pool2.query(
+        `INSERT INTO tradelocker_trade_logs (user_id, connection_id, action, symbol, direction, volume, status, error_message, created_at)
+         VALUES ($1,$2,'CANCEL',$3,$4,$5,$6,$7,now())`,
+        [
+          userId,
+          conn.id,
+          rows[0].symbol,
+          rows[0].direction,
+          o.qty,
+          r.success ? "executed" : "failed",
+          `Pending ${o.type} order ${o.id} cancelled: ${why}${r.success ? "" : ` | FAILED: ${r.error}`}`.slice(0, 1e3)
+        ]
+      );
+      const { logGuard: logGuard2 } = await Promise.resolve().then(() => (init_guard_events(), guard_events_exports));
+      logGuard2(userId, "pending_order_expired", rows[0].symbol, `${rows[0].direction} ${o.type} order on TL ${conn.accountId} cancelled \u2014 ${why}${r.success ? "" : " (cancel FAILED)"}`);
+    } catch (e) {
+      console.error(`[TL-sync] pending-order sweep failed for ${o.id} (non-fatal):`, e?.message || e);
+    }
+  }
+}
+async function syncTradeLockerTrades(userId, conn, svc) {
+  await sweepStalePendingOrders(userId, conn, svc).catch(() => {
+  });
+  const cacheKey = `${userId}:${conn.accountId}`;
+  const openPositions = await svc.getPositionsNormalized().catch(() => []);
+  const currentTickets = new Set(openPositions.map((p) => `tl_${conn.accountId}_${p.id}`));
+  for (const p of openPositions) {
+    const ticket = `tl_${conn.accountId}_${p.id}`;
+    const existing = await storage.getAiTradeResultByTicket(userId, ticket);
+    if (existing) continue;
+    let _sl = p.stopLoss || 0;
+    let _tp = p.takeProfit || 0;
+    if (!(_sl > 0)) {
+      try {
+        const { pool: _slPool } = await Promise.resolve().then(() => (init_db(), db_exports));
+        const _sym = String(p.symbol || "").toUpperCase().replace(/[^A-Z0-9]/g, "");
+        const { rows: _lg } = await _slPool.query(
+          `SELECT stop_loss, take_profit FROM tradelocker_trade_logs
+            WHERE user_id = $1 AND connection_id = $2 AND action = 'OPEN' AND status = 'executed'
+              AND upper(regexp_replace(symbol, '[^A-Za-z0-9]', '', 'g')) = $3
+              AND created_at > now() - interval '7 days'
+            ORDER BY created_at DESC LIMIT 1`,
+          [userId, conn.id, _sym]
+        );
+        if (_lg[0]) {
+          if (!(_sl > 0) && Number(_lg[0].stop_loss) > 0) _sl = Number(_lg[0].stop_loss);
+          if (!(_tp > 0) && Number(_lg[0].take_profit) > 0) _tp = Number(_lg[0].take_profit);
+          if (_sl > 0) console.log(`[TL-sync] ${ticket}: broker reported no stop price; recovered SL=${_sl} TP=${_tp || "n/a"} from the order we placed.`);
+        }
+      } catch (e) {
+        console.error(`[TL-sync] ${ticket}: could not recover SL/TP from the trade log (${e?.message}); recording 0.`);
+      }
+    }
+    const _pfDir = (p.side || "").toUpperCase() === "SELL" ? "SELL" : "BUY";
+    const _pfEntry = Number(p.avgPrice) || 0;
+    let _pfNote = "";
+    if (_pfEntry > 0 && _sl > 0 && _tp > 0) {
+      const _pfRisk = Math.abs(_pfEntry - _sl);
+      const _pfReward = Math.abs(_tp - _pfEntry);
+      const _slCorrect = _pfDir === "BUY" ? _sl < _pfEntry : _sl > _pfEntry;
+      const _tpCorrect = _pfDir === "BUY" ? _tp > _pfEntry : _tp < _pfEntry;
+      if (!_slCorrect || !_tpCorrect) {
+        console.error(`[TL-sync] ${ticket} ${p.symbol} ${_pfDir}: MALFORMED LEVELS \u2014 entry ${_pfEntry}, SL ${_sl}, TP ${_tp} (stop or target on the wrong side of entry).`);
+        _pfNote = ` | POST-FILL: malformed levels (SL ${_sl} / TP ${_tp} vs entry ${_pfEntry})`;
+      } else if (_pfRisk > 0) {
+        const _pfRR = _pfReward / _pfRisk;
+        const _softFloor = Number(process.env.POSTFILL_RR_MIN ?? 1.5);
+        const _hardFloor = Number(process.env.POSTFILL_RR_HARD_FLOOR ?? 1);
+        _pfNote = ` | POST-FILL R:R 1:${_pfRR.toFixed(2)} (risk ${_pfRisk.toFixed(5)}, reward ${_pfReward.toFixed(5)})`;
+        if (_pfRR < _hardFloor) {
+          console.error(`[TL-sync] ${ticket} ${p.symbol} ${_pfDir}: INVERTED R:R 1:${_pfRR.toFixed(2)} after fill \u2014 risks more than it can gain. Entry ${_pfEntry}, SL ${_sl}, TP ${_tp}.`);
+          if (process.env.POSTFILL_RR_AUTOCLOSE === "true") {
+            try {
+              await svc.closePosition(p.id);
+              console.warn(`[TL-sync] ${ticket}: closed on inverted post-fill R:R (POSTFILL_RR_AUTOCLOSE=true).`);
+              {
+                const { logTlClose: logTlClose2 } = await Promise.resolve().then(() => (init_tradelocker(), tradelocker_exports));
+                await logTlClose2(conn, { symbol: p.symbol, direction: p.side, positionId: String(p.id), reason: `inverted post-fill R:R 1:${_pfRR.toFixed(2)} (POSTFILL_RR_AUTOCLOSE)`, pnl: p.unrealizedPl, ok: true });
+              }
+              _pfNote += " \u2014 AUTO-CLOSED";
+            } catch (ce) {
+              console.error(`[TL-sync] ${ticket}: auto-close failed (${ce?.message}) \u2014 position left open, flagged.`);
+            }
+          }
+        } else if (_pfRR < _softFloor) {
+          console.warn(`[TL-sync] ${ticket} ${p.symbol} ${_pfDir}: post-fill R:R 1:${_pfRR.toFixed(2)} is below the ${_softFloor} floor the pre-trade gate required \u2014 slippage degraded the setup.`);
+        }
+      }
+    }
+    try {
+      const { pool: _xp } = await Promise.resolve().then(() => (init_db(), db_exports));
+      const _openAt = p.openDate ? new Date(p.openDate) : /* @__PURE__ */ new Date();
+      const _sym = String(p.symbol || "").toUpperCase().split(".")[0];
+      const { rows: _ord } = await _xp.query(
+        // A pending (limit/stop) order can fill long after it was sent — on
+        // 2026-10-22 BTCUSD limits placed 07:33 the day before filled at 02:20
+        // and were wrongly flagged external. Market orders: 20-min window;
+        // pending orders this app placed: 3 days.
+        `SELECT 1 FROM tradelocker_trade_logs WHERE connection_id=$1 AND action IN ('ORDER','OPEN') AND status='executed'
+           AND upper(split_part(symbol,'.',1))=$2
+           AND (created_at BETWEEN $3::timestamptz - interval '20 minutes' AND $3::timestamptz + interval '2 minutes'
+                OR (action='ORDER' AND (error_message LIKE 'ORDER limit%' OR error_message LIKE 'ORDER stop%')
+                    AND created_at BETWEEN $3::timestamptz - interval '3 days' AND $3::timestamptz + interval '2 minutes'))
+           LIMIT 1`,
+        [conn.id, _sym, _openAt.toISOString()]
+      );
+      if (!_ord.length) {
+        console.warn(`[TL-sync] ${ticket} ${p.symbol} ${p.side} opened ${_openAt.toISOString()} \u2014 NO matching app order: external open`);
+        await _xp.query(
+          `INSERT INTO tradelocker_trade_logs (user_id, connection_id, action, symbol, direction, volume, stop_loss, take_profit, status, error_message, created_at)
+           VALUES ($1, $2, 'EXTERNAL_OPEN', $3, $4, $5, $6, $7, 'detected', $8, now())`,
+          [
+            userId,
+            conn.id,
+            p.symbol,
+            String(p.side || "").toUpperCase(),
+            Number(p.qty) || 0,
+            _sl > 0 ? _sl : null,
+            _tp > 0 ? _tp : null,
+            `Position ${p.id} opened ${_openAt.toISOString()} at ${p.avgPrice} with no matching order from this app (manual in TradeLocker or another EA/app)`
+          ]
+        );
+      }
+    } catch (e) {
+      console.error("[TL-sync] external-open check failed (non-fatal):", e?.message || e);
+    }
+    const { lookupSignalConfidence: lookupSignalConfidence2 } = await Promise.resolve().then(() => (init_signal_confidence(), signal_confidence_exports));
+    const _sigConf = await lookupSignalConfidence2(userId, p.symbol, (p.side || "").toUpperCase() === "SELL" ? "SELL" : "BUY");
+    await storage.createAiTradeResult({
+      userId,
+      symbol: p.symbol,
+      direction: (p.side || "").toUpperCase() === "SELL" ? "SELL" : "BUY",
+      entryPrice: p.avgPrice || 0,
+      // F5: persist the broker's SL/TP so the row reflects real protection state
+      // (was omitted → every tradelocker_auto row showed SL=null/TP=null, masking
+      // whether a live position was actually protected).
+      stopLoss: _sl,
+      takeProfit: _tp,
+      aiConfidence: _sigConf ?? 0,
+      // engine signal's confidence when one opened it
+      result: "PENDING",
+      source: "tradelocker_auto",
+      connectionId: conn.id,
+      mt5Ticket: ticket,
+      // Realised ratio, so it is measurable rather than assumed. The planned R:R
+      // is what the gate approved; this is what the fill actually produced.
+      notes: `TradeLocker position${_pfNote}`
+    });
+  }
+  for (const p of openPositions) {
+    const upl = Number(p.unrealizedPl);
+    if (!Number.isFinite(upl)) continue;
+    const ticket = `tl_${conn.accountId}_${p.id}`;
+    try {
+      const { pool: _exPool } = await Promise.resolve().then(() => (init_db(), db_exports));
+      await _exPool.query(
+        `UPDATE ai_trade_results
+            SET mae_pnl = LEAST(COALESCE(mae_pnl, $2), $2),
+                mfe_pnl = GREATEST(COALESCE(mfe_pnl, $2), $2),
+                mae_at  = CASE WHEN $2 < COALESCE(mae_pnl, $2) OR mae_pnl IS NULL THEN now() ELSE mae_at END,
+                mfe_at  = CASE WHEN $2 > COALESCE(mfe_pnl, $2) OR mfe_pnl IS NULL THEN now() ELSE mfe_at END
+          WHERE user_id = $1 AND mt5_ticket = $3 AND result = 'PENDING'`,
+        [userId, upl, ticket]
+      );
+    } catch {
+    }
+  }
+  const previousTickets = lastOpenTickets.get(cacheKey);
+  if (previousTickets) {
+    const closedTicketIds = Array.from(previousTickets).filter((t) => !currentTickets.has(t));
+    if (closedTicketIds.length > 0) {
+      const closed = await svc.getClosedPositions().catch(() => []);
+      const closedById = new Map(closed.map((c) => [`tl_${conn.accountId}_${c.positionId}`, c]));
+      for (const ticket of closedTicketIds) {
+        const existing = await storage.getAiTradeResultByTicket(userId, ticket);
+        if (!existing || existing.result !== "PENDING") continue;
+        const match = closedById.get(ticket);
+        if (!match) continue;
+        const profit = match.profit;
+        const result = profit > 0 ? "WIN" : profit < 0 ? "LOSS" : "BREAKEVEN";
+        await storage.updateAiTradeResult(existing.id, userId, {
+          result,
+          profitLoss: profit,
+          // Persist the exit price. Without it the reconstructed P&L on this row
+          // can never be checked against the prices it came from, and no
+          // R-multiple can be computed, so the brain only ever learns the SIGN
+          // of an outcome and not its quality.
+          ...Number(match.closePrice) > 0 ? { exitPrice: Number(match.closePrice) } : {},
+          ...(() => {
+            const pips = computePips(existing.symbol, existing.entryPrice || match.openPrice, match.closePrice, existing.direction);
+            return pips === null ? {} : { profitLossPips: pips };
+          })(),
+          // Backfill the entry too when the PENDING row was written before the
+          // broker reported an average fill price.
+          ...!(Number(existing.entryPrice) > 0) && Number(match.openPrice) > 0 ? { entryPrice: Number(match.openPrice) } : {},
+          closedAt: _plausibleCloseTime(match.closeTime, existing)
+        });
+        const dStr = match.closeTime ? new Date(match.closeTime).toISOString().slice(0, 10) : void 0;
+        await recordRealizedPnl(userId, conn.id, "tradelocker", profit, dStr);
+        await _recordOrBackfillConfirmationOutcome(userId, existing.symbol, existing.direction, result, match.closeTime);
+        await _feedEngineBrain(userId, existing.symbol, profit, existing.direction, match.closeTime, ticket);
+        await _recordFxBrainOutcome(userId, conn, existing, match, result, profit);
+        await _invalidateDailyStop(userId);
+      }
+    }
+  }
+  lastOpenTickets.set(cacheKey, currentTickets);
+  const lastRecon = lastOutcomeReconcile.get(cacheKey) || 0;
+  if (Date.now() - lastRecon >= OUTCOME_RECONCILE_MS) {
+    lastOutcomeReconcile.set(cacheKey, Date.now());
+    try {
+      const lastDeep = lastDeepBackfill.get(cacheKey) || 0;
+      const isDeepPass = Date.now() - lastDeep >= DEEP_BACKFILL_MS;
+      if (isDeepPass) lastDeepBackfill.set(cacheKey, Date.now());
+      const lookbackDays = isDeepPass ? 90 : 14;
+      const fromTs = Math.floor((Date.now() - lookbackDays * 24 * 3600 * 1e3) / 1e3);
+      const closedTrades = await svc.getClosedTradesWithPnl(fromTs).catch(() => []);
+      let brainTickets = null;
+      try {
+        const { pool: _bp } = await Promise.resolve().then(() => (init_db(), db_exports));
+        const { rows: _bt } = await _bp.query(
+          `SELECT ticket FROM fx_brain_outcomes WHERE user_id = $1 AND ticket IS NOT NULL AND closed_at > now() - ($2 || ' days')::interval`,
+          [userId, String(lookbackDays + 1)]
+        );
+        brainTickets = new Set(_bt.map((r) => String(r.ticket)));
+      } catch {
+        brainTickets = null;
+      }
+      let _netBudget = 10;
+      for (const o of closedTrades) {
+        const rawProfit = o.profit ?? o.pnl ?? o.realizedPnl ?? o.realizedPnL ?? o.grossProfit ?? null;
+        const p = typeof rawProfit === "number" ? rawProfit : parseFloat(rawProfit || "");
+        if (!isFinite(p) || p === 0) continue;
+        const tk = o.positionId ? `tl_${conn.accountId}_${o.positionId}` : `tl_${o.id || o.orderId}`;
+        if (!tk || tk === "tl_undefined") continue;
+        const reconDateStr = o.closeTime ? new Date(o.closeTime).toISOString().slice(0, 10) : void 0;
+        const reconResult = p > 0 ? "WIN" : "LOSS";
+        const existing = await storage.getAiTradeResultByTicket(userId, tk);
+        if (existing) {
+          const isStaleZeroBreakeven = existing.result === "BREAKEVEN" && !existing.profitLoss;
+          const needsResolve = existing.result === "PENDING" || isStaleZeroBreakeven;
+          if (needsResolve || existing.connectionId == null) {
+            await storage.updateAiTradeResult(existing.id, userId, {
+              result: reconResult,
+              profitLoss: p,
+              connectionId: conn.id,
+              // Same as the poll-and-diff path: record the prices the P&L was
+              // reconstructed FROM, so the number is auditable later.
+              ...Number(o.closePrice) > 0 ? { exitPrice: Number(o.closePrice) } : {},
+              ...(() => {
+                const pips = computePips(existing.symbol, existing.entryPrice || o.openPrice, o.closePrice, existing.direction);
+                return pips === null ? {} : { profitLossPips: pips };
+              })(),
+              ...!(Number(existing.entryPrice) > 0) && Number(o.openPrice) > 0 ? { entryPrice: Number(o.openPrice) } : {},
+              closedAt: _plausibleCloseTime(o.closeTime, existing)
+            }).catch(() => {
+            });
+            if (needsResolve) {
+              await recordRealizedPnl(userId, conn.id, "tradelocker", p, reconDateStr);
+              await _recordOrBackfillConfirmationOutcome(userId, existing.symbol, existing.direction, reconResult, o.closeTime);
+              await _feedEngineBrain(userId, existing.symbol, p, existing.direction, o.closeTime, tk);
+              await _invalidateDailyStop(userId);
+              await _recordFxBrainOutcome(
+                userId,
+                conn,
+                existing,
+                { closeTime: o.closeTime, closePrice: o.closePrice, openPrice: o.openPrice },
+                reconResult,
+                p
+              );
+              brainTickets?.add(tk);
+            }
+          }
+          const _recent = o.closeTime && Date.now() - new Date(o.closeTime).getTime() < 3 * 864e5;
+          if (brainTickets && _netBudget > 0 && _recent && !brainTickets.has(tk) && (existing.result === "WIN" || existing.result === "LOSS")) {
+            _netBudget--;
+            await _recordFxBrainOutcome(
+              userId,
+              conn,
+              existing,
+              { closeTime: o.closeTime, closePrice: o.closePrice, openPrice: o.openPrice },
+              existing.result,
+              p
+            );
+            brainTickets.add(tk);
+          }
+          continue;
+        }
+        const reconDirection = /sell|short/i.test(o.side || "") ? "SELL" : "BUY";
+        const reconSymbol = (o.symbol || "UNKNOWN").toUpperCase().replace("/", "");
+        await storage.createAiTradeResult({
+          userId,
+          symbol: reconSymbol,
+          direction: reconDirection,
+          entryPrice: o.openPrice || 0,
+          exitPrice: o.closePrice || 0,
+          profitLossPips: computePips(reconSymbol, o.openPrice, o.closePrice, reconDirection),
+          aiConfidence: 0,
+          result: reconResult,
+          profitLoss: p,
+          source: "tradelocker",
+          connectionId: conn.id,
+          mt5Ticket: tk,
+          notes: "TradeLocker closed position (auto-reconciled)",
+          closedAt: o.closeTime ? new Date(o.closeTime) : /* @__PURE__ */ new Date()
+        }).catch(() => {
+        });
+        await recordRealizedPnl(userId, conn.id, "tradelocker", p, reconDateStr);
+        await _recordOrBackfillConfirmationOutcome(userId, reconSymbol, reconDirection, reconResult, o.closeTime);
+        await _feedEngineBrain(userId, reconSymbol, p, reconDirection, o.closeTime, tk);
+        await _invalidateDailyStop(userId);
+        await _recordFxBrainOutcome(
+          userId,
+          conn,
+          { symbol: reconSymbol, direction: reconDirection, entryPrice: o.openPrice, mt5Ticket: tk },
+          { closeTime: o.closeTime, closePrice: o.closePrice, openPrice: o.openPrice },
+          reconResult,
+          p
+        );
+        brainTickets?.add(tk);
+      }
+    } catch (err) {
+      console.error(`[TL-sync] Outcome reconciliation failed for ${conn.accountId} (non-fatal):`, err?.message);
+    }
+  }
+}
+async function syncUserTradeLocker(userId, force = false) {
+  const now = Date.now();
+  if (!force) {
+    const last = lastSyncAt.get(userId) || 0;
+    if (now - last < MIN_RESYNC_GAP_MS) {
+      return Object.values(cache5()[userId] || {});
+    }
+  }
+  if (inFlight.has(userId)) {
+    return Object.values(cache5()[userId] || {});
+  }
+  inFlight.add(userId);
+  try {
+    const connections = await storage.getUserTradelockerConnections(userId);
+    const active = connections.filter((c) => c.isActive);
+    const store = cache5();
+    store[userId] = store[userId] || {};
+    const activeIds = new Set(active.map((c) => c.accountId));
+    for (const key of Object.keys(store[userId])) {
+      if (!activeIds.has(key)) delete store[userId][key];
+    }
+    for (const conn of active) {
+      if (store[userId][conn.accountId]) continue;
+      const lb = conn.lastBalance;
+      if (lb != null) {
+        store[userId][conn.accountId] = {
+          accountId: conn.accountId,
+          connectionId: conn.id,
+          accountType: conn.accountType,
+          broker: conn.brokerName || "TradeLocker",
+          label: `TradeLocker \u2013 ${conn.email} (${conn.accountType})`,
+          balance: lb || 0,
+          equity: conn.lastEquity ?? lb ?? 0,
+          margin: 0,
+          freeMargin: 0,
+          currency: "USD",
+          lastUpdated: conn.lastBalanceAt ? new Date(conn.lastBalanceAt).toISOString() : (/* @__PURE__ */ new Date(0)).toISOString()
+        };
+      }
+    }
+    for (const conn of active) {
+      try {
+        const svc = await getOrCreateService(conn);
+        const info2 = await svc.getAccountInfo();
+        if (conn.lastError) {
+          storage.updateTradelockerConnection(conn.id, { lastError: null }).catch(() => {
+          });
+        }
+        store[userId][conn.accountId] = {
+          accountId: conn.accountId,
+          connectionId: conn.id,
+          accountType: conn.accountType,
+          broker: conn.brokerName || "TradeLocker",
+          label: `TradeLocker \u2013 ${conn.email} (${conn.accountType})`,
+          balance: info2.balance || 0,
+          equity: info2.equity || 0,
+          margin: info2.margin || 0,
+          freeMargin: info2.freeMargin || 0,
+          currency: info2.currency || "USD",
+          lastUpdated: (/* @__PURE__ */ new Date()).toISOString()
+        };
+        global.tlAccountBalances = global.tlAccountBalances || {};
+        global.tlAccountBalances[userId] = global.tlAccountBalances[userId] || {};
+        global.tlAccountBalances[userId][conn.accountId] = info2.balance || 0;
+        if (info2.balance > 0) {
+          const pk = `${userId}:${conn.accountId}`;
+          const prevPersist = lastBalancePersist.get(pk);
+          const changed = !prevPersist || Math.abs(prevPersist.balance - info2.balance) > 0.01;
+          if (changed && (!prevPersist || Date.now() - prevPersist.at > BALANCE_PERSIST_MS)) {
+            lastBalancePersist.set(pk, { at: Date.now(), balance: info2.balance });
+            storage.updateTradelockerConnection(conn.id, {
+              lastBalance: info2.balance,
+              lastEquity: info2.equity || info2.balance,
+              lastBalanceAt: /* @__PURE__ */ new Date()
+            }).catch(() => {
+            });
+          }
+        }
+        await syncTradeLockerTrades(userId, conn, svc).catch(
+          (err) => console.error(`[TL-sync] Trade auto-log failed for ${conn.accountId} (non-fatal):`, err.message)
+        );
+      } catch (err) {
+        const prev = store[userId][conn.accountId];
+        const msg = err?.message || "fetch failed";
+        const isRateLimit = err?.status === 429 || /429|rate.?limit|too many requests|cooling down/i.test(msg);
+        if (isRateLimit && prev && !prev.error) {
+          continue;
+        }
+        store[userId][conn.accountId] = {
+          accountId: conn.accountId,
+          connectionId: conn.id,
+          accountType: conn.accountType,
+          broker: conn.brokerName || "TradeLocker",
+          label: `TradeLocker \u2013 ${conn.email} (${conn.accountType})`,
+          balance: prev?.balance || 0,
+          equity: prev?.equity || 0,
+          margin: prev?.margin || 0,
+          freeMargin: prev?.freeMargin || 0,
+          currency: prev?.currency || "USD",
+          lastUpdated: prev?.lastUpdated || (/* @__PURE__ */ new Date(0)).toISOString(),
+          // Don't show a scary 429 to the user — if we have any last-known
+          // balance, present a soft "refreshing" note instead of a hard error.
+          error: isRateLimit ? prev?.balance ? void 0 : "Reconnecting to TradeLocker\u2026" : msg
+        };
+      }
+    }
+    lastSyncAt.set(userId, Date.now());
+    return Object.values(store[userId]);
+  } finally {
+    inFlight.delete(userId);
+  }
+}
+function getTlAccountData(userId) {
+  markTlUserActive(userId);
+  const store = cache5()[userId] || {};
+  const now = Date.now();
+  const accounts = Object.values(store).map((a) => {
+    const secondsAgo = Math.floor((now - new Date(a.lastUpdated).getTime()) / 1e3);
+    return { ...a, secondsAgo, isConnected: secondsAgo < 120 && !a.error };
+  });
+  return {
+    connected: accounts.some((a) => a.isConnected),
+    accounts,
+    totalBalance: accounts.reduce((s, a) => s + (a.balance || 0), 0),
+    totalEquity: accounts.reduce((s, a) => s + (a.equity || 0), 0)
+  };
+}
+function refreshTlAfterTrade(userId) {
+  markTlUserActive(userId);
+  syncUserTradeLocker(userId, true).catch(() => {
+  });
+}
+function startTradeLockerSync() {
+  if (started) return;
+  started = true;
+  setInterval(async () => {
+    const now = Date.now();
+    for (const [userId, seenAt] of Array.from(activeUsers.entries())) {
+      if (now - seenAt > ACTIVE_WINDOW_MS) {
+        activeUsers.delete(userId);
+        continue;
+      }
+      try {
+        await syncUserTradeLocker(userId);
+      } catch {
+      }
+    }
+  }, SYNC_INTERVAL_MS);
+  console.log("[TL-sync] Background TradeLocker balance sync started (20s interval).");
+}
+var lastOpenTickets, lastOutcomeReconcile, OUTCOME_RECONCILE_MS, lastDeepBackfill, DEEP_BACKFILL_MS, lastBalancePersist, BALANCE_PERSIST_MS, activeUsers, ACTIVE_WINDOW_MS, SYNC_INTERVAL_MS, MIN_RESYNC_GAP_MS, lastSyncAt, inFlight, PENDING_SWEEP_MS, _lastPendingSweep, started;
+var init_tradelocker_sync = __esm({
+  "server/services/tradelocker-sync.ts"() {
+    "use strict";
+    init_storage();
+    init_pipUtils();
+    init_tradelocker();
+    init_prop_firm_consistency();
+    lastOpenTickets = /* @__PURE__ */ new Map();
+    lastOutcomeReconcile = /* @__PURE__ */ new Map();
+    OUTCOME_RECONCILE_MS = 5 * 60 * 1e3;
+    lastDeepBackfill = /* @__PURE__ */ new Map();
+    DEEP_BACKFILL_MS = 24 * 60 * 60 * 1e3;
+    lastBalancePersist = /* @__PURE__ */ new Map();
+    BALANCE_PERSIST_MS = 60 * 1e3;
+    activeUsers = /* @__PURE__ */ new Map();
+    ACTIVE_WINDOW_MS = 15 * 60 * 1e3;
+    SYNC_INTERVAL_MS = 20 * 1e3;
+    MIN_RESYNC_GAP_MS = 8 * 1e3;
+    lastSyncAt = /* @__PURE__ */ new Map();
+    inFlight = /* @__PURE__ */ new Set();
+    PENDING_SWEEP_MS = 5 * 6e4;
+    _lastPendingSweep = /* @__PURE__ */ new Map();
+    started = false;
   }
 });
 
@@ -21483,856 +24741,6 @@ var init_markov_chain = __esm({
   }
 });
 
-// server/services/fx-models.ts
-var fx_models_exports = {};
-__export(fx_models_exports, {
-  FX_MODEL_MIN_TO_LIST: () => FX_MODEL_MIN_TO_LIST,
-  classifyDayType: () => classifyDayType,
-  ensureFxModelTables: () => ensureFxModelTables,
-  fxModelRowsForStats: () => fxModelRowsForStats,
-  getFxModelListingRows: () => getFxModelListingRows,
-  getFxModelSettings: () => getFxModelSettings,
-  getModelMastery: () => getModelMastery,
-  importFxModelSnapshot: () => importFxModelSnapshot,
-  liveEligibleSlices: () => liveEligibleSlices,
-  m1Candidate: () => m1Candidate,
-  m1Reject: () => m1Reject,
-  m2Reject: () => m2Reject,
-  masteryLevel: () => masteryLevel,
-  parseFxModelScope: () => parseFxModelScope,
-  rangeFeatures: () => rangeFeatures,
-  registerBarsProvider: () => registerBarsProvider,
-  resolveShadowDecisions: () => resolveShadowDecisions,
-  runCryptoModelsCycle: () => runCryptoModelsCycle,
-  runFxModelsCycle: () => runFxModelsCycle,
-  saveFxModelSettings: () => saveFxModelSettings,
-  sessionFor: () => sessionFor
-});
-function ensureFxModelTables() {
-  if (!ensured3) {
-    ensured3 = pool.query(DDL2).then(() => void 0).catch((e) => {
-      console.error("[fx-models] ensure tables failed (non-fatal):", e?.message || e);
-      ensured3 = null;
-    });
-  }
-  return ensured3;
-}
-function sessionFor(d = /* @__PURE__ */ new Date()) {
-  const h = d.getUTCHours();
-  if (h >= 12 && h < 16) return "London/NY overlap";
-  if (h >= 7 && h < 12) return "London";
-  if (h >= 16 && h < 21) return "New York";
-  return "Asian";
-}
-function registerBarsProvider(engine, fn) {
-  barsProviders[engine] = fn;
-}
-function classifyDayType(input) {
-  let s = 0;
-  const adx = Number(input.adx);
-  if (Number.isFinite(adx)) s += adx >= 25 ? 2 : adx >= 18 ? 1 : 0;
-  const h1 = input.h1 || "NEUTRAL", h4 = input.h4 || "NEUTRAL";
-  if (h1 !== "NEUTRAL" && h1 === h4) s += 2;
-  else if (h1 !== "NEUTRAL" || h4 !== "NEUTRAL") s += 1;
-  const rv = Number(input.relVolume);
-  if (Number.isFinite(rv)) s += rv >= 1.3 ? 1 : rv < 0.8 ? -1 : 0;
-  if (input.news) s += 1;
-  if (input.session === "London/NY overlap" || input.session === "London") s += 1;
-  if (input.session === "Asian") s -= 1;
-  const dayType = s >= 4 ? "trend" : s <= 1 ? "range" : "mixed";
-  const autoModel = dayType === "trend" ? "M2" : dayType === "range" ? "M1" : Number.isFinite(adx) && adx >= 18 ? "M2" : "M1";
-  return { dayType, autoModel, score: s };
-}
-async function runFxModelsCycle(userId, ctx) {
-  if (process.env.FX_MODELS_SHADOW === "off") return;
-  try {
-    await ensureFxModelTables();
-    const now = /* @__PURE__ */ new Date();
-    const session3 = sessionFor(now);
-    const day = now.toISOString().slice(0, 10);
-    const hour = now.getUTCHours();
-    const pairs = [];
-    for (const [symbol, a] of Object.entries(ctx.marketAnalysis || {})) {
-      const snap = ctx.snapshot?.[symbol] || {};
-      const { h1, h4 } = ctx.mtf(symbol);
-      const cls = classifyDayType({ adx: snap.adx, relVolume: snap.relativeVolume, h1: h1?.trend, h4: h4?.trend, session: session3 });
-      const features = {
-        price: a?.currentPrice ?? snap.price,
-        m15Trend: snap.trend,
-        rsi: snap.rsi,
-        adx: snap.adx,
-        plusDI: snap.plusDI,
-        minusDI: snap.minusDI,
-        atr: Number(snap.atr) > 0 ? snap.atr : null,
-        // 0 means "not computed", never tell the AI ATR is zero
-        relVolume: snap.relativeVolume,
-        volumeTrend: snap.volumeTrend,
-        h1: h1 ? { trend: h1.trend, bos: h1.bosChoch?.detected ? h1.bosChoch.description : null, pd: h1.premiumDiscount?.zone, wyckoff: h1.wyckoff?.detected ? h1.wyckoff.phase : null } : null,
-        h4: h4 ? { trend: h4.trend, bos: h4.bosChoch?.detected ? h4.bosChoch.description : null, pd: h4.premiumDiscount?.zone, wyckoff: h4.wyckoff?.detected ? h4.wyckoff.phase : null } : null,
-        signals: a?.signals ?? a?.strategySignals ?? void 0
-      };
-      await pool.query(
-        `INSERT INTO fx_day_regimes (user_id, symbol, day, hour_utc, session, day_type, auto_model, trend_score, adx_m15, rel_volume, atr, h1_trend, h4_trend, features)
-         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14::jsonb)
-         ON CONFLICT (user_id, symbol, day, hour_utc) DO UPDATE SET day_type=EXCLUDED.day_type, auto_model=EXCLUDED.auto_model,
-           trend_score=EXCLUDED.trend_score, adx_m15=EXCLUDED.adx_m15, rel_volume=EXCLUDED.rel_volume, atr=EXCLUDED.atr,
-           h1_trend=EXCLUDED.h1_trend, h4_trend=EXCLUDED.h4_trend, features=EXCLUDED.features`,
-        [userId, symbol, day, hour, session3, cls.dayType, cls.autoModel, cls.score, num(snap.adx), num(snap.relativeVolume), num(snap.atr), h1?.trend ?? null, h4?.trend ?? null, JSON.stringify(features)]
-      ).catch(() => {
-      });
-      const candle = Math.floor(now.getTime() / 36e5);
-      const key = `${userId}|${symbol}`;
-      if (lastShadowCandle.get(key) !== candle && Number(features.price) > 0) {
-        lastShadowCandle.set(key, candle);
-        pairs.push({ symbol, ctx: { ...features, dayType: cls.dayType, autoModel: cls.autoModel, trendScore: cls.score } });
-      }
-    }
-    let _fxEvery = 1;
-    try {
-      _fxEvery = (await (await Promise.resolve().then(() => (init_ai_level(), ai_level_exports))).getAiLevel(userId)).fxModelsEveryH;
-    } catch {
-    }
-    if (pairs.length && hour % _fxEvery === 0) await shadowDecide(userId, session3, pairs);
-    if (Date.now() - lastResolveAt > 15 * 6e4) {
-      lastResolveAt = Date.now();
-      await resolveShadowDecisions("fx");
-    }
-  } catch (e) {
-    console.error("[fx-models] cycle failed (non-fatal):", e?.message || e);
-  }
-}
-function num(x) {
-  const n = Number(x);
-  return Number.isFinite(n) ? n : null;
-}
-async function rangeFeatures(symbol, engine = "fx") {
-  const ck = `${engine}|${symbol}`;
-  const hit = rangeCache.get(ck);
-  if (hit && Date.now() - hit.at < 30 * 6e4) return hit.data;
-  let bars = [];
-  try {
-    bars = (await barsFor(engine)(symbol, "1h", 72)).slice(0, -1);
-  } catch {
-    return null;
-  }
-  if (bars.length < 30) return null;
-  const ts = (b) => Number(b.timestamp) < 1e12 ? Number(b.timestamp) * 1e3 : Number(b.timestamp);
-  const box = bars.slice(-24);
-  const hi = Math.max(...box.map((b) => b.high)), lo = Math.min(...box.map((b) => b.low));
-  const width = hi - lo;
-  if (!(width > 0)) return null;
-  const tol = width * 0.15;
-  const touchesHigh = box.filter((b) => b.high >= hi - tol).length;
-  const touchesLow = box.filter((b) => b.low <= lo + tol).length;
-  const last = bars[bars.length - 1];
-  const price = Number(last.close);
-  const posPct = (price - lo) / width * 100;
-  const prior = bars.slice(-25, -1);
-  const pHi = Math.max(...prior.map((b) => b.high)), pLo = Math.min(...prior.map((b) => b.low));
-  const sweepHigh = last.high > pHi && last.close < pHi;
-  const sweepLow = last.low < pLo && last.close > pLo;
-  const closes = bars.map((b) => Number(b.close));
-  const bw = (i) => {
-    const w = closes.slice(i - 20, i);
-    const m = w.reduce((a, c) => a + c, 0) / 20;
-    const sd = Math.sqrt(w.reduce((a, c) => a + (c - m) ** 2, 0) / 20);
-    return m > 0 ? 4 * sd / m : 0;
-  };
-  const widths = [];
-  for (let i = Math.max(20, closes.length - 40); i <= closes.length; i++) widths.push(bw(i));
-  const nowW = widths[widths.length - 1];
-  const bbPct = Math.round(widths.filter((w) => w <= nowW).length / widths.length * 100);
-  const trs = bars.slice(-15).map((b, i, a) => i === 0 ? b.high - b.low : Math.max(b.high - b.low, Math.abs(b.high - a[i - 1].close), Math.abs(b.low - a[i - 1].close))).slice(1);
-  const atrH1 = trs.reduce((s, x) => s + x, 0) / trs.length;
-  const today = /* @__PURE__ */ new Date();
-  today.setUTCHours(0, 0, 0, 0);
-  const t0 = today.getTime();
-  const prevDay = bars.filter((b) => ts(b) >= t0 - 864e5 && ts(b) < t0);
-  const asian = bars.filter((b) => ts(b) >= t0 && ts(b) < t0 + 7 * 36e5);
-  const data = {
-    rangeHigh: hi,
-    rangeLow: lo,
-    rangeMid: (hi + lo) / 2,
-    widthPips: width / pipSize(symbol),
-    touchesHigh,
-    touchesLow,
-    positionInRangePct: Math.round(posPct),
-    bbWidthPercentile: bbPct,
-    sweepHigh,
-    sweepLow,
-    atrH1: Number(atrH1.toPrecision(5)),
-    prevDayHigh: prevDay.length ? Math.max(...prevDay.map((b) => b.high)) : null,
-    prevDayLow: prevDay.length ? Math.min(...prevDay.map((b) => b.low)) : null,
-    asianHigh: asian.length ? Math.max(...asian.map((b) => b.high)) : null,
-    asianLow: asian.length ? Math.min(...asian.map((b) => b.low)) : null,
-    qualifies: touchesHigh >= 2 && touchesLow >= 2 && bbPct <= 65
-  };
-  rangeCache.set(ck, { at: Date.now(), data });
-  return data;
-}
-function m2Reject(symbol, dir, entry, sl, tp, ctx, session3, engine = "fx") {
-  const want = dir === "BUY" ? "BULLISH" : "BEARISH";
-  if (ctx?.h1?.trend !== want || ctx?.h4?.trend !== want) return `H1 ${ctx?.h1?.trend ?? "n/a"} / H4 ${ctx?.h4?.trend ?? "n/a"} not both ${want}`;
-  if (engine !== "fx") return null;
-  if (M2_PAIRS_EXCLUDED.includes(symbol)) return `${symbol} excluded from trend model`;
-  if (!M2_SESSIONS.includes(session3)) return `${session3} session (Model 2 trades ${M2_SESSIONS.join(" / ")} only)`;
-  const pd = ctx?.h1?.pd;
-  if (dir === "BUY" && pd === "PREMIUM") return "BUY at H1 premium";
-  if (dir === "SELL" && pd === "DISCOUNT") return "SELL at H1 discount";
-  const adx = Number(ctx?.adx);
-  if (Number.isFinite(adx) && adx >= M2_MAX_ADX) return `ADX ${adx.toFixed(0)} \u2265 ${M2_MAX_ADX} (trend already stretched)`;
-  const risk = Math.abs(entry - sl);
-  const rr = risk > 0 ? Math.abs(tp - entry) / risk : 0;
-  if (rr < M2_MIN_RR - 1e-6) return `target ${rr.toFixed(2)}R < ${M2_MIN_RR}R`;
-  return null;
-}
-function m1Reject(symbol, dir, entry, sl, ctx, engine = "fx") {
-  const r = ctx?.range;
-  if (engine === "fx" && M1_PAIRS_EXCLUDED.includes(symbol)) return `${symbol} excluded from range model`;
-  if (!r) return "range data unavailable";
-  if (!r.qualifies) return `no qualified range (touches ${r.touchesHigh}/${r.touchesLow}, BB width pct ${r.bbWidthPercentile})`;
-  const atTop = r.positionInRangePct >= 75, atBottom = r.positionInRangePct <= 25;
-  if (dir === "SELL" && !atTop) return `SELL not at range top (${r.positionInRangePct}%)`;
-  if (dir === "BUY" && !atBottom) return `BUY not at range bottom (${r.positionInRangePct}%)`;
-  const h4 = ctx?.h4?.trend;
-  if (dir === "SELL" && h4 === "BULLISH" || dir === "BUY" && h4 === "BEARISH") return `fading a trending H4 (${h4})`;
-  const risk = Math.abs(entry - sl);
-  const toMid = Math.abs(r.rangeMid - entry);
-  if (!(risk > 0) || toMid / risk < 1) return `R:R to range middle ${(toMid / (risk || 1)).toFixed(2)} < 1`;
-  return null;
-}
-function m1Candidate(symbol, ctx, engine = "fx") {
-  const r = ctx?.range;
-  if (!r?.qualifies) return null;
-  if (engine === "fx" && M1_PAIRS_EXCLUDED.includes(symbol)) return null;
-  const atTop = r.positionInRangePct >= 75, atBottom = r.positionInRangePct <= 25;
-  if (!atTop && !atBottom) return null;
-  const direction = atTop ? "SELL" : "BUY";
-  if (engine === "crypto" && direction === "SELL") return null;
-  const h4 = ctx?.h4?.trend || "NEUTRAL";
-  if (direction === "SELL" && h4 === "BULLISH" || direction === "BUY" && h4 === "BEARISH") return null;
-  const width = r.rangeHigh - r.rangeLow;
-  const price = Number(ctx?.price);
-  const stopRef = atTop ? r.rangeHigh + 0.1 * width : r.rangeLow - 0.1 * width;
-  const risk = Math.abs(price - stopRef);
-  const rrToMidEst = price > 0 && risk > 0 ? Math.abs(r.rangeMid - price) / risk : 0;
-  return {
-    direction,
-    edge: atTop ? "top" : "bottom",
-    h4,
-    sweep: !!(atTop ? r.sweepHigh : r.sweepLow),
-    stopRef: Number(stopRef.toPrecision(6)),
-    target: Number(Number(r.rangeMid).toPrecision(6)),
-    rrToMidEst: Math.round(rrToMidEst * 100) / 100
-  };
-}
-async function shadowDecide(userId, session3, pairs, engine = "fx") {
-  try {
-    const { fxShouldPauseForCredits: fxShouldPauseForCredits2 } = await Promise.resolve().then(() => (init_ai_budget_guard(), ai_budget_guard_exports));
-    if (fxShouldPauseForCredits2()) return;
-  } catch {
-  }
-  let ai;
-  try {
-    const { getUniversalAIClientForUser: getUniversalAIClientForUser2 } = await Promise.resolve().then(() => (init_openai(), openai_exports));
-    ai = await getUniversalAIClientForUser2(userId);
-  } catch {
-    return;
-  }
-  for (const p of pairs) {
-    const range = await rangeFeatures(p.symbol, engine).catch(() => null);
-    p.ctx.range = range ? { ...range } : null;
-    if (p.ctx.range) p.ctx.range.m1Candidate = m1Candidate(p.symbol, p.ctx, engine);
-  }
-  const mastery2 = await getModelMastery(userId, { engine }).catch(() => null);
-  const masteryLines = (mastery2?.slices || []).filter((m) => m.trades >= 5).slice(0, 20).map((m) => `${m.model} ${m.dayType} ${m.symbol} ${m.session}: ${m.trades} trades, WR ${(m.winRate * 100).toFixed(0)}%, avg ${m.avgR.toFixed(2)}R (${m.level})`).join("\n");
-  const prompt = `You run TWO ${engine === "crypto" ? "CRYPTO (24/7 on-chain tokens)" : "FX"} trading models side by side. For EACH ${engine === "crypto" ? "token" : "pair"} below, say what each model would trade RIGHT NOW (or NONE).
-${engine === "crypto" ? 'Crypto notes: markets never close; "sessions" are when US/EU volume is highest (London/NY hours give the cleanest trends). The live venue is spot DeFi (long-only): give BUY or NONE only \u2014 never SELL. Thin tokens wick hard \u2014 stops must sit beyond real structure, not inside noise.\n' : ""}
-MODEL 1 (range / low-volume days) \u2014 only when ctx.range.qualifies is true:
-  \u2022 Trade ONLY at an edge: SELL when positionInRangePct >= 75, BUY when <= 25. Never the middle.
-  \u2022 Best trigger is a liquidity sweep (sweepHigh/sweepLow true: wick through the edge, close back inside). Also valid: rejection at prevDay/Asian high/low that sits on the edge, RSI stretched at the edge.
-  \u2022 Stop beyond the sweep wick / range edge plus a small buffer. First target = rangeMid (must be >= 1.0R), runner to the opposite edge.
-  \u2022 Never fade a trending H4, never trade a range during London open (07:00-08:00 UTC) or NY open (12:30-13:30 UTC) when breakouts start, max 1-3 trades a day.
-  \u2022 ctx.range.m1Candidate is the setup the server has ALREADY checked: the range qualifies, price is at an edge, and that edge does not fight the H4. When it is set, Model 1 TAKES that trade \u2014 its direction, entry at the current price, stop beyond the edge / sweep wick (stopRef is a guide), first target rangeMid \u2014 unless you name a specific, concrete reason in "reason" (e.g. "London open window", "H1 just closed outside the box", "R:R to rangeMid under 1 with a sensible stop"). "Range does not qualify" or "position does not qualify" are never valid reasons when m1Candidate is set.
-  \u2022 When ctx.range.m1Candidate is null, Model 1 says NONE.
-MODEL 2 (trend / volume days): trade only in the H4+H1 direction \u2014 breakouts with volume or pullbacks to structure. Target ${engine === "fx" ? `${M2_MIN_RR}R or more` : "2-4R"}, stop beyond the last H1 swing. Skip if H4 and H1 disagree.
-${engine === "fx" ? `  \u2022 Only in ${M2_SESSIONS.join(" / ")} sessions${M2_PAIRS_EXCLUDED.length ? `, never on ${M2_PAIRS_EXCLUDED.join(", ")}` : ""} \u2014 otherwise Model 2 says NONE.
-  \u2022 Buy pullbacks into H1 discount/equilibrium, sell rallies into H1 premium/equilibrium; never BUY at H1 premium or SELL at H1 discount (that is chasing).
-  \u2022 Skip when ADX is ${M2_MAX_ADX} or higher \u2014 the move is already stretched; the best entries come while ADX is building (about 20-30).
-  \u2022 The target must be at least ${M2_MIN_RR}R from the current price; if the next structure is closer, say NONE.
-  \u2022 ctx.range.atrH1 is the H1 ATR(14) \u2014 use it to judge how far price normally moves in an hour when placing the stop and target.
-` : ""}Both models use every input: trend, ADX/DI, RSI, volume, BOS/CHOCH, Wyckoff, premium/discount, session and the day type. Reason toward the best risk-adjusted trade of the day; NONE is a valid, often correct answer.
-
-Session: ${session3}
-${masteryLines ? `Your own track record so far (use it \u2014 lean on what has worked, avoid what has not):
-${masteryLines}
-` : ""}
-PAIRS:
-${pairs.map((p) => `${p.symbol}: ${JSON.stringify(p.ctx)}`).join("\n")}
-
-Respond ONLY with JSON:
-{"ideas":[{"symbol":"EURUSD","model":"M1","direction":"BUY|SELL|NONE","entry":1.0,"stopLoss":1.0,"takeProfit":1.0,"confidence":0-100,"setup":"short name","reason":"one sentence"}]}
-Give exactly one M1 and one M2 entry per pair.`;
-  let content = "";
-  try {
-    const resp = await ai.chat.completions.create({
-      model: ai.defaultModel || "gpt-4o-mini",
-      messages: [{ role: "system", content: `You are a disciplined ${engine === "crypto" ? "crypto" : "FX"} analyst. Valid JSON only.` }, { role: "user", content: prompt }],
-      response_format: { type: "json_object" },
-      max_tokens: 1800,
-      temperature: 0.2
-    });
-    content = resp?.choices?.[0]?.message?.content || "";
-  } catch (e) {
-    try {
-      const { noteAiBudgetError: noteAiBudgetError2 } = await Promise.resolve().then(() => (init_ai_budget_guard(), ai_budget_guard_exports));
-      noteAiBudgetError2(e);
-    } catch {
-    }
-    return;
-  }
-  let ideas = [];
-  try {
-    ideas = JSON.parse(content.slice(content.indexOf("{"), content.lastIndexOf("}") + 1))?.ideas || [];
-  } catch {
-    return;
-  }
-  const byPair = new Map(pairs.map((p) => [p.symbol.toUpperCase(), p.ctx]));
-  for (const i of ideas) {
-    const sym = String(i?.symbol || "").toUpperCase().replace("/", "");
-    const model = i?.model === "M1" || i?.model === "M2" ? i.model : null;
-    const ctx = byPair.get(sym);
-    if (!ctx || !model) continue;
-    const dir = String(i?.direction || "NONE").toUpperCase();
-    const entry = Number(i?.entry), sl = Number(i?.stopLoss), tp = Number(i?.takeProfit);
-    const valid = dir === "BUY" && sl < entry && tp > entry || dir === "SELL" && sl > entry && tp < entry;
-    const price = Number(ctx.price);
-    const near = price > 0 && Math.abs(entry - price) / price < (engine === "crypto" ? 0.01 : 3e-3);
-    let isTrade = (dir === "BUY" || dir === "SELL") && valid && near;
-    let ruleNote = "";
-    if (engine === "crypto" && dir === "SELL") {
-      isTrade = false;
-      ruleNote = "crypto is long-only";
-    }
-    if (isTrade) {
-      const sidesOk = dir === "BUY" ? sl < price && tp > price : sl > price && tp < price;
-      const planned = Math.abs(entry - sl), actual = Math.abs(price - sl);
-      const ratio = planned > 0 ? actual / planned : 0;
-      if (!sidesOk) {
-        isTrade = false;
-        ruleNote = `stop/target on the wrong side of live price ${price}`;
-      } else if (!(ratio >= 0.5 && ratio <= 1.5)) {
-        isTrade = false;
-        ruleNote = `risk at live price is ${ratio.toFixed(2)}x the planned risk`;
-      }
-    }
-    if (isTrade && model === "M1") {
-      const why = m1Reject(sym, dir, price, sl, ctx, engine);
-      if (why) {
-        isTrade = false;
-        ruleNote = `M1 rule: ${why}`;
-      }
-    }
-    if (isTrade && model === "M2") {
-      const why = m2Reject(sym, dir, price, sl, tp, ctx, session3, engine);
-      if (why) {
-        isTrade = false;
-        ruleNote = `M2 rule: ${why}`;
-      }
-    }
-    const ins = await pool.query(
-      `INSERT INTO fx_model_decisions (user_id, symbol, model, mode, day_type, session, direction, entry_price, stop_loss, take_profit, confidence, setup, reasoning, context, result, engine)
-       VALUES ($1,$2,$3,'shadow',$4,$5,$6,$7,$8,$9,$10,$11,$12,$13::jsonb,$14,$15) RETURNING id`,
-      [
-        userId,
-        sym,
-        model,
-        ctx.dayType,
-        session3,
-        isTrade ? dir : "NONE",
-        isTrade ? price : null,
-        isTrade ? sl : null,
-        isTrade ? tp : null,
-        Math.max(0, Math.min(100, Math.round(Number(i?.confidence) || 0))),
-        String(i?.setup || "").slice(0, 80),
-        (ruleNote ? `[${ruleNote}] ` : "") + String(i?.reason || "").slice(0, 500),
-        JSON.stringify(ctx),
-        isTrade ? null : "NO_TRADE",
-        engine
-      ]
-    ).catch(() => null);
-    if (engine === "fx" && isTrade && ins?.rows?.[0]?.id) {
-      await maybeGoLive(userId, {
-        id: ins.rows[0].id,
-        symbol: sym,
-        model,
-        dayType: ctx.dayType,
-        autoModel: ctx.autoModel,
-        session: session3,
-        direction: dir,
-        entry: price,
-        stopLoss: sl,
-        takeProfit: tp,
-        confidence: Math.round(Number(i?.confidence) || 0),
-        setup: String(i?.setup || ""),
-        reason: String(i?.reason || "")
-      }).catch((e) => console.error("[fx-models] live hand-off failed (non-fatal):", e?.message || e));
-    }
-  }
-}
-async function resolveShadowDecisions(engine = "fx", userId) {
-  await pool.query(
-    `UPDATE fx_model_decisions SET result='EXPIRED', exit_price=entry_price, r_multiple=0, pips=0, resolved_at=now()
-      WHERE engine = $1 AND result IS NULL AND direction IN ('BUY','SELL') AND created_at < now() - interval '50 hours'`,
-    [engine === "crypto" ? "crypto" : "fx"]
-  ).catch(() => {
-  });
-  const { rows } = await pool.query(
-    `SELECT id, symbol, direction, entry_price, stop_loss, take_profit, created_at FROM fx_model_decisions
-      WHERE engine = '${engine === "crypto" ? "crypto" : "fx"}' ${userId ? `AND user_id = ${Math.floor(Number(userId))}` : ""} AND result IS NULL AND direction IN ('BUY','SELL') AND created_at < now() - interval '15 minutes'
-      ORDER BY created_at LIMIT 40`
-  );
-  const bySym = /* @__PURE__ */ new Map();
-  for (const r of rows) {
-    const a = bySym.get(r.symbol) || [];
-    a.push(r);
-    bySym.set(r.symbol, a);
-  }
-  for (const [symbol, list] of Array.from(bySym.entries())) {
-    let bars = [];
-    try {
-      bars = await barsFor(engine)(symbol, "15m", 200);
-    } catch {
-      continue;
-    }
-    if (!bars.length) continue;
-    for (const r of list) {
-      const t0 = new Date(r.created_at).getTime();
-      const entry = Number(r.entry_price), sl = Number(r.stop_loss), tp = Number(r.take_profit);
-      const risk = Math.abs(entry - sl);
-      if (!(risk > 0)) continue;
-      const buy = r.direction === "BUY";
-      let result = null, exit = 0;
-      for (const b of bars) {
-        const ts = Number(b.timestamp) < 1e12 ? Number(b.timestamp) * 1e3 : Number(b.timestamp);
-        if (ts < t0) continue;
-        const hitSl = buy ? b.low <= sl : b.high >= sl;
-        const hitTp = buy ? b.high >= tp : b.low <= tp;
-        if (hitSl) {
-          result = "LOSS";
-          exit = sl;
-          break;
-        }
-        if (hitTp) {
-          result = "WIN";
-          exit = tp;
-          break;
-        }
-      }
-      if (!result && Date.now() - t0 > 48 * 36e5) {
-        const cutoff = t0 + 48 * 36e5;
-        const atCut = bars.filter((b) => (Number(b.timestamp) < 1e12 ? Number(b.timestamp) * 1e3 : Number(b.timestamp)) <= cutoff);
-        exit = Number(atCut[atCut.length - 1]?.close) || Number(bars[bars.length - 1]?.close) || entry;
-        result = "EXPIRED";
-      }
-      if (!result) continue;
-      const move = buy ? exit - entry : entry - exit;
-      await pool.query(
-        `UPDATE fx_model_decisions SET result=$2, exit_price=$3, r_multiple=$4, pips=$5, resolved_at=now() WHERE id=$1 AND result IS NULL`,
-        [r.id, result, exit, move / risk, engine === "crypto" ? entry > 0 ? move / entry * 100 : 0 : move / pipSize(symbol)]
-      ).catch(() => {
-      });
-    }
-  }
-}
-function parseFxModelScope(filter) {
-  const f = (filter || []).map((x) => String(x).trim().toUpperCase()).filter(Boolean);
-  const model = f.find((x) => x.startsWith("MODEL:"))?.slice(6) || null;
-  const dayType = f.find((x) => x.startsWith("DAY:"))?.slice(4)?.toLowerCase() || null;
-  const symbols = f.filter((x) => !x.includes(":"));
-  const engine = f.includes("ENGINE:CRYPTO") ? "crypto" : "fx";
-  return { model: model === "M1" || model === "M2" ? model : null, dayType: ["range", "trend", "mixed"].includes(dayType || "") ? dayType : null, symbols, engine };
-}
-async function getFxModelListingRows(userId, filter) {
-  await ensureFxModelTables();
-  const { model, dayType, symbols, engine } = parseFxModelScope(filter);
-  const { rows } = await pool.query(
-    `SELECT symbol, model, day_type, session, direction, entry_price, stop_loss, take_profit, confidence, setup, reasoning, context,
-            result, r_multiple, pips, exit_price, created_at, resolved_at, engine
-       FROM fx_model_decisions
-      WHERE user_id=$1 AND source='own' AND engine='${engine}' AND result IN ('WIN','LOSS','EXPIRED')
-        AND ($2::text IS NULL OR model=$2) AND ($3::text IS NULL OR day_type=$3)
-        AND (cardinality($4::text[]) = 0 OR symbol = ANY($4::text[]))
-      ORDER BY created_at DESC LIMIT 3000`,
-    [userId, model, dayType, symbols]
-  );
-  const n = rows.length;
-  const wins = rows.filter((r) => r.result === "WIN").length;
-  const avgR = n ? rows.reduce((a, r) => a + (Number(r.r_multiple) || 0), 0) / n : 0;
-  const winRate2 = n ? wins / n : 0;
-  const masteryScore = Math.round(Math.min(1, n / 150) * 50 + Math.max(0, Math.min(1, (avgR + 0.5) / 1.5)) * 50);
-  return { rows, avgR, masteryScore, level: masteryLevel(n, winRate2, avgR) };
-}
-function fxModelRowsForStats(rows) {
-  return rows.map((r) => ({
-    symbol: r.symbol,
-    confirmedAt: r.resolved_at || r.created_at,
-    tradeOutcome: r.result === "WIN" || r.result === "EXPIRED" && Number(r.r_multiple) > 0 ? "WIN" : "LOSS"
-  }));
-}
-async function importFxModelSnapshot(buyerId, snapshot) {
-  await ensureFxModelTables();
-  let n = 0;
-  for (const r of snapshot || []) {
-    await pool.query(
-      `INSERT INTO fx_model_decisions (user_id, symbol, model, mode, day_type, session, direction, entry_price, stop_loss, take_profit,
-         confidence, setup, reasoning, context, result, r_multiple, pips, exit_price, resolved_at, created_at, source, engine)
-       VALUES ($1,$2,$3,'purchased',$4,$5,$6,$7,$8,$9,$10,$11,$12,$13::jsonb,$14,$15,$16,$17,$18,$19,'purchased_brain',$20)`,
-      [
-        buyerId,
-        r.symbol,
-        r.model,
-        r.day_type,
-        r.session,
-        r.direction,
-        r.entry_price,
-        r.stop_loss,
-        r.take_profit,
-        r.confidence,
-        r.setup,
-        r.reasoning,
-        JSON.stringify(r.context ?? null),
-        r.result,
-        r.r_multiple,
-        r.pips,
-        r.exit_price,
-        r.resolved_at ? new Date(r.resolved_at) : null,
-        r.created_at ? new Date(r.created_at) : /* @__PURE__ */ new Date(),
-        r.engine === "crypto" ? "crypto" : "fx"
-      ]
-    ).then(() => {
-      n++;
-    }).catch(() => {
-    });
-  }
-  return n;
-}
-async function getFxModelSettings(userId) {
-  try {
-    const { getRuntimeStateStrict: getRuntimeStateStrict2 } = await Promise.resolve().then(() => (init_runtime_state(), runtime_state_exports));
-    const v = await getRuntimeStateStrict2("fx_models", String(userId));
-    return { ...DEFAULT_SETTINGS, ...v || {} };
-  } catch {
-    return { ...DEFAULT_SETTINGS };
-  }
-}
-async function saveFxModelSettings(userId, patch) {
-  const cur = await getFxModelSettings(userId);
-  const next = {
-    live: typeof patch.live === "boolean" ? patch.live : cur.live,
-    m1DailyCap: clampInt(patch.m1DailyCap ?? cur.m1DailyCap, 0, 5),
-    m2DailyCap: clampInt(patch.m2DailyCap ?? cur.m2DailyCap, 0, 5)
-  };
-  const { pool: p } = await Promise.resolve().then(() => (init_db(), db_exports));
-  const { ensureRuntimeStateTable: ensureRuntimeStateTable2 } = await Promise.resolve().then(() => (init_runtime_state(), runtime_state_exports));
-  await ensureRuntimeStateTable2();
-  await p.query(
-    `INSERT INTO runtime_state (scope, key, value, updated_at) VALUES ('fx_models', $1, $2::jsonb, now())
-     ON CONFLICT (scope, key) DO UPDATE SET value = EXCLUDED.value, updated_at = now()`,
-    [String(userId), JSON.stringify(next)]
-  );
-  return next;
-}
-function clampInt(n, lo, hi) {
-  const x = Math.round(Number(n));
-  return Number.isFinite(x) ? Math.max(lo, Math.min(hi, x)) : lo;
-}
-async function sliceLiveReady(userId, s) {
-  if (!LIVE_LEVELS.includes(s.level)) return false;
-  if (s.trades < GO_LIVE.minTrades || s.avgR < GO_LIVE.minAvgR || s.winRate < GO_LIVE.minWinRate) return false;
-  const { rows } = await pool.query(
-    `SELECT date_trunc('week', created_at) AS wk, SUM(r_multiple)::float AS r
-       FROM fx_model_decisions
-      WHERE user_id=$1 AND engine='fx' AND source='own' AND result IN ('WIN','LOSS','EXPIRED')
-        AND model=$2 AND day_type=$3 AND symbol=$4 AND session=$5
-        AND created_at >= date_trunc('week', now()) - interval '7 days'
-      GROUP BY 1`,
-    [userId, s.model, s.dayType, s.symbol, s.session]
-  );
-  return rows.every((r) => Number(r.r) >= 0);
-}
-async function liveEligibleSlices(userId) {
-  const m = await getModelMastery(userId, { ownOnly: true });
-  const out = [];
-  for (const s of m.slices) if (await sliceLiveReady(userId, s)) out.push(s);
-  return out;
-}
-async function maybeGoLive(userId, idea) {
-  const settings = await getFxModelSettings(userId);
-  if (!settings.live) return;
-  if (idea.model !== idea.autoModel) return;
-  const mastery2 = await getModelMastery(userId, { ownOnly: true });
-  const slice = mastery2.slices.find((s) => s.model === idea.model && s.dayType === idea.dayType && s.symbol === idea.symbol && s.session === idea.session);
-  if (!slice || !await sliceLiveReady(userId, slice)) return;
-  const cap = idea.model === "M1" ? settings.m1DailyCap : settings.m2DailyCap;
-  const client2 = await pool.connect();
-  let claimed = false;
-  try {
-    await client2.query("BEGIN");
-    await client2.query("SELECT pg_advisory_xact_lock(918273700, $1)", [userId]);
-    const { rows } = await client2.query(
-      `SELECT COUNT(*)::int AS n FROM fx_model_decisions WHERE user_id=$1 AND model=$2 AND mode IN ('live','live_pending') AND created_at >= date_trunc('day', now())`,
-      [userId, idea.model]
-    );
-    if (Number(rows[0]?.n) < cap) {
-      await client2.query(`UPDATE fx_model_decisions SET mode='live_pending' WHERE id=$1`, [idea.id]);
-      claimed = true;
-    }
-    await client2.query("COMMIT");
-  } catch (e) {
-    await client2.query("ROLLBACK").catch(() => {
-    });
-    throw e;
-  } finally {
-    client2.release();
-  }
-  if (!claimed) return;
-  const { submitFxModelTrade: submitFxModelTrade2 } = await Promise.resolve().then(() => (init_live_trading_engine(), live_trading_engine_exports));
-  const placed = await submitFxModelTrade2(userId, {
-    model: idea.model,
-    symbol: idea.symbol,
-    direction: idea.direction,
-    confidence: idea.confidence,
-    entryPrice: idea.entry,
-    stopLoss: idea.stopLoss,
-    takeProfit: idea.takeProfit,
-    reason: `${idea.model === "M1" ? "Model 1 \xB7 Range" : "Model 2 \xB7 Trend"} [${slice.level}, ${slice.trades} ideas, ${(slice.winRate * 100).toFixed(0)}% WR, ${slice.avgR >= 0 ? "+" : ""}${slice.avgR.toFixed(2)}R] ${idea.setup}: ${idea.reason}`.slice(0, 500)
-  }).catch(() => false);
-  await pool.query(`UPDATE fx_model_decisions SET mode=$2 WHERE id=$1`, [idea.id, placed ? "live" : "shadow"]).catch(() => {
-  });
-}
-function barTrend(bars) {
-  const c = bars.map((b) => Number(b.close));
-  const e20 = emaLast(c, 20), e50 = emaLast(c, 50), last = c[c.length - 1];
-  if (!(e20 > 0) || !(e50 > 0)) return "NEUTRAL";
-  if (e20 > e50 && last > e20) return "BULLISH";
-  if (e20 < e50 && last < e20) return "BEARISH";
-  return "NEUTRAL";
-}
-function adx14(bars) {
-  if (bars.length < 30) return null;
-  let tr = 0, pdm = 0, mdm = 0;
-  const dxs = [];
-  for (let i = 1; i < bars.length; i++) {
-    const h = bars[i].high, l = bars[i].low, pc = bars[i - 1].close;
-    const up = h - bars[i - 1].high, dn = bars[i - 1].low - l;
-    const t = Math.max(h - l, Math.abs(h - pc), Math.abs(l - pc));
-    tr = tr - tr / 14 + t;
-    pdm = pdm - pdm / 14 + (up > dn && up > 0 ? up : 0);
-    mdm = mdm - mdm / 14 + (dn > up && dn > 0 ? dn : 0);
-    if (i >= 14 && tr > 0) {
-      const pdi = 100 * pdm / tr, mdi = 100 * mdm / tr;
-      dxs.push(pdi + mdi > 0 ? 100 * Math.abs(pdi - mdi) / (pdi + mdi) : 0);
-    }
-  }
-  const last = dxs.slice(-14);
-  return last.length ? last.reduce((a, c) => a + c, 0) / last.length : null;
-}
-async function runCryptoModelsCycle(userId, symbols) {
-  if (process.env.CRYPTO_MODELS_SHADOW === "off") return;
-  let _lvlEvery = 2;
-  try {
-    _lvlEvery = (await (await Promise.resolve().then(() => (init_ai_level(), ai_level_exports))).getAiLevel(userId)).cryptoModelsEveryH;
-  } catch {
-  }
-  const everyH = Math.max(1, Number(process.env.CRYPTO_MODELS_EVERY_HOURS ?? _lvlEvery));
-  if ((/* @__PURE__ */ new Date()).getUTCHours() % everyH !== 0) {
-    await resolveShadowDecisions("crypto", userId).catch(() => {
-    });
-    return;
-  }
-  try {
-    await ensureFxModelTables();
-    const fetchBars2 = barsFor("crypto");
-    const now = /* @__PURE__ */ new Date();
-    const session3 = sessionFor(now);
-    const day = now.toISOString().slice(0, 10);
-    const hour = now.getUTCHours();
-    const candle = Math.floor(now.getTime() / 36e5);
-    const maxTokens = Math.max(1, Number(process.env.CRYPTO_MODELS_MAX_TOKENS ?? 8));
-    const pairs = [];
-    const done = new Set((await pool.query(
-      `SELECT DISTINCT symbol FROM fx_day_regimes WHERE engine='crypto' AND user_id=$1 AND day = (now() at time zone 'utc')::date AND hour_utc = extract(hour from now() at time zone 'utc')`,
-      [userId]
-    ).catch(() => ({ rows: [] }))).rows.map((r) => String(r.symbol)));
-    const perRun = Math.max(1, Number(process.env.CRYPTO_MODELS_PER_RUN ?? 3));
-    let fetched = 0;
-    for (const symbol of symbols.slice(0, maxTokens)) {
-      const key = `crypto|${userId}|${symbol}`;
-      if (done.has(symbol.toUpperCase()) || lastShadowCandle.get(key) === candle) continue;
-      if (fetched >= perRun) break;
-      fetched++;
-      let h1 = [], h4 = [];
-      try {
-        h1 = (await fetchBars2(symbol, "1h", 80)).slice(0, -1);
-        h4 = (await fetchBars2(symbol, "4h", 80)).slice(0, -1);
-      } catch {
-        continue;
-      }
-      if (h1.length < 55) continue;
-      const price = Number(h1[h1.length - 1].close);
-      const vols = h1.map((b) => Number(b.volume) || 0);
-      const avgVol = vols.slice(-21, -1).reduce((a, c) => a + c, 0) / 20;
-      const relVolume = avgVol > 0 ? vols[vols.length - 1] / avgVol : null;
-      const adx = adx14(h1);
-      const t1 = barTrend(h1), t4 = h4.length >= 55 ? barTrend(h4) : "NEUTRAL";
-      const cls = classifyDayType({ adx, relVolume, h1: t1, h4: t4, session: session3 });
-      const features = { price, adx, relVolume, h1: { trend: t1 }, h4: { trend: t4 } };
-      await pool.query(
-        `INSERT INTO fx_day_regimes (user_id, symbol, day, hour_utc, session, day_type, auto_model, trend_score, adx_m15, rel_volume, atr, h1_trend, h4_trend, features, engine)
-         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,NULL,$11,$12,$13::jsonb,'crypto')
-         ON CONFLICT (user_id, symbol, day, hour_utc) DO UPDATE SET day_type=EXCLUDED.day_type, auto_model=EXCLUDED.auto_model, trend_score=EXCLUDED.trend_score,
-           adx_m15=EXCLUDED.adx_m15, rel_volume=EXCLUDED.rel_volume, h1_trend=EXCLUDED.h1_trend, h4_trend=EXCLUDED.h4_trend, features=EXCLUDED.features, engine='crypto'`,
-        [userId, symbol, day, hour, session3, cls.dayType, cls.autoModel, cls.score, num(adx), num(relVolume), t1, t4, JSON.stringify(features)]
-      ).catch(() => {
-      });
-      lastShadowCandle.set(key, candle);
-      pairs.push({ symbol, ctx: { ...features, dayType: cls.dayType, autoModel: cls.autoModel, trendScore: cls.score } });
-    }
-    if (pairs.length) await shadowDecide(userId, session3, pairs, "crypto");
-    await resolveShadowDecisions("crypto", userId);
-  } catch (e) {
-    console.error("[crypto-models] cycle failed (non-fatal):", e?.message || e);
-  }
-}
-function masteryLevel(trades, winRate2, avgR) {
-  if (trades < 20) return "Learning";
-  if (trades < 50) return avgR > 0 ? "Developing" : "Developing (negative)";
-  if (trades < 150) return avgR > 0 ? "Proficient" : "Unproven";
-  return avgR > 0.2 && winRate2 >= 0.45 ? "Master" : avgR > 0 ? "Proficient" : "Unproven";
-}
-async function getModelMastery(userId, opts = {}) {
-  const _eng = opts.engine === "crypto" ? "crypto" : "fx";
-  await ensureFxModelTables();
-  const agg = async (group) => (await pool.query(
-    `SELECT ${group}, COUNT(*)::int AS trades,
-            COUNT(*) FILTER (WHERE result='WIN')::int AS wins,
-            COALESCE(AVG(r_multiple),0)::float AS avg_r,
-            COALESCE(SUM(r_multiple),0)::float AS total_r
-       FROM fx_model_decisions
-      WHERE user_id=$1 AND engine='${_eng}' AND result IN ('WIN','LOSS','EXPIRED')${opts.ownOnly ? " AND source='own'" : ""}
-      GROUP BY ${group} ORDER BY trades DESC`,
-    [userId]
-  )).rows;
-  const shape = (r) => {
-    const winRate2 = r.trades ? r.wins / r.trades : 0;
-    const dataPart = Math.min(1, r.trades / 150) * 50;
-    const edgePart = Math.max(0, Math.min(1, (r.avg_r + 0.5) / 1.5)) * 50;
-    return {
-      model: r.model,
-      dayType: r.day_type,
-      symbol: r.symbol,
-      session: r.session,
-      trades: r.trades,
-      wins: r.wins,
-      winRate: winRate2,
-      avgR: r.avg_r,
-      totalR: r.total_r,
-      masteryScore: Math.round(dataPart + edgePart),
-      level: masteryLevel(r.trades, winRate2, r.avg_r)
-    };
-  };
-  return {
-    models: (await agg("model")).map(shape),
-    slices: (await agg("model, day_type, symbol, session")).map(shape)
-  };
-}
-var DDL2, ensured3, barsProviders, barsFor, pipSize, lastShadowCandle, lastResolveAt, M1_PAIRS_EXCLUDED, rangeCache, M2_PAIRS_EXCLUDED, M2_SESSIONS, M2_MAX_ADX, M2_MIN_RR, FX_MODEL_MIN_TO_LIST, DEFAULT_SETTINGS, LIVE_LEVELS, GO_LIVE, emaLast;
-var init_fx_models = __esm({
-  "server/services/fx-models.ts"() {
-    "use strict";
-    init_db();
-    init_service();
-    DDL2 = `
-CREATE TABLE IF NOT EXISTS fx_day_regimes (
-  id serial PRIMARY KEY,
-  user_id integer NOT NULL,
-  symbol text NOT NULL,
-  day date NOT NULL,
-  hour_utc smallint NOT NULL,
-  session text,
-  day_type text NOT NULL,
-  auto_model text NOT NULL,
-  trend_score real,
-  adx_m15 real,
-  rel_volume real,
-  atr real,
-  h1_trend text,
-  h4_trend text,
-  features jsonb,
-  created_at timestamp NOT NULL DEFAULT now(),
-  UNIQUE (user_id, symbol, day, hour_utc)
-);
-CREATE TABLE IF NOT EXISTS fx_model_decisions (
-  id serial PRIMARY KEY,
-  user_id integer NOT NULL,
-  symbol text NOT NULL,
-  model text NOT NULL,
-  mode text NOT NULL DEFAULT 'shadow',
-  day_type text,
-  session text,
-  direction text,
-  entry_price double precision,
-  stop_loss double precision,
-  take_profit double precision,
-  confidence integer,
-  setup text,
-  reasoning text,
-  context jsonb,
-  result text,
-  r_multiple real,
-  pips real,
-  exit_price double precision,
-  resolved_at timestamp,
-  created_at timestamp NOT NULL DEFAULT now()
-);
-CREATE INDEX IF NOT EXISTS fx_model_decisions_open_idx ON fx_model_decisions (result, created_at);
-CREATE INDEX IF NOT EXISTS fx_model_decisions_user_idx ON fx_model_decisions (user_id, model, created_at);
-ALTER TABLE fx_model_decisions ADD COLUMN IF NOT EXISTS source text NOT NULL DEFAULT 'own';
-ALTER TABLE fx_model_decisions ADD COLUMN IF NOT EXISTS engine text NOT NULL DEFAULT 'fx';
-ALTER TABLE fx_day_regimes ADD COLUMN IF NOT EXISTS engine text NOT NULL DEFAULT 'fx';
-`;
-    ensured3 = null;
-    barsProviders = {
-      fx: async (symbol, tf, n) => {
-        const r = await marketDataService.fetchMarketData({ symbol, assetType: marketDataService.detectAssetType(symbol), timeframe: tf, limit: n });
-        return r?.bars || [];
-      }
-    };
-    barsFor = (engine) => barsProviders[engine] || barsProviders.fx;
-    pipSize = (sym) => /JPY/.test(sym) ? 0.01 : /^XAU/.test(sym) ? 0.1 : /^(BTC|ETH)/.test(sym) ? 1 : /^(US30|NAS|SPX|GER|UK1|JP2)/.test(sym) ? 1 : 1e-4;
-    lastShadowCandle = /* @__PURE__ */ new Map();
-    lastResolveAt = 0;
-    M1_PAIRS_EXCLUDED = (process.env.FX_M1_EXCLUDED_PAIRS || "GBPJPY,XAUUSD,BTCUSD,US30,NAS100").split(",").map((x) => x.trim().toUpperCase()).filter(Boolean);
-    rangeCache = /* @__PURE__ */ new Map();
-    M2_PAIRS_EXCLUDED = (process.env.FX_M2_EXCLUDED_PAIRS || "USDJPY").split(",").map((x) => x.trim().toUpperCase()).filter(Boolean);
-    M2_SESSIONS = (process.env.FX_M2_SESSIONS || "London,London/NY overlap").split(",").map((x) => x.trim()).filter(Boolean);
-    M2_MAX_ADX = Number(process.env.FX_M2_MAX_ADX) || 30;
-    M2_MIN_RR = Number(process.env.FX_M2_MIN_RR) || 3;
-    FX_MODEL_MIN_TO_LIST = 20;
-    DEFAULT_SETTINGS = { live: false, m1DailyCap: 3, m2DailyCap: 2 };
-    LIVE_LEVELS = ["Proficient", "Master"];
-    GO_LIVE = { minTrades: 50, minAvgR: 0.2, minWinRate: 0.4 };
-    emaLast = (xs, n) => {
-      if (xs.length < n) return NaN;
-      const k2 = 2 / (n + 1);
-      let e = xs.slice(0, n).reduce((a, c) => a + c, 0) / n;
-      for (const x of xs.slice(n)) e = x * k2 + e * (1 - k2);
-      return e;
-    };
-  }
-});
-
 // server/cryptocom.ts
 var cryptocom_exports = {};
 __export(cryptocom_exports, {
@@ -22340,12 +24748,12 @@ __export(cryptocom_exports, {
   decryptApiSecret: () => decryptApiSecret,
   encryptApiSecret: () => encryptApiSecret
 });
-import crypto2 from "crypto";
-function getEncryptionKey2() {
+import crypto3 from "crypto";
+function getEncryptionKey3() {
   const key = process.env.CRYPTOCOM_ENCRYPTION_KEY;
   if (!key) {
     console.warn("[Crypto.com] CRYPTOCOM_ENCRYPTION_KEY not set \u2014 using default key. Set it in your Render environment variables.");
-    return DEFAULT_ENCRYPTION_KEY;
+    return DEFAULT_ENCRYPTION_KEY2;
   }
   if (key.length < 32) {
     console.warn("[Crypto.com] CRYPTOCOM_ENCRYPTION_KEY is too short, padding to 32 chars.");
@@ -22354,10 +24762,10 @@ function getEncryptionKey2() {
   return key;
 }
 function encryptApiSecret(secret) {
-  const iv = crypto2.randomBytes(IV_LENGTH);
-  const salt = crypto2.randomBytes(SALT_LENGTH);
-  const key = crypto2.scryptSync(getEncryptionKey2(), salt, 32);
-  const cipher = crypto2.createCipheriv("aes-256-cbc", key, iv);
+  const iv = crypto3.randomBytes(IV_LENGTH2);
+  const salt = crypto3.randomBytes(SALT_LENGTH2);
+  const key = crypto3.scryptSync(getEncryptionKey3(), salt, 32);
+  const cipher = crypto3.createCipheriv("aes-256-cbc", key, iv);
   let encrypted = cipher.update(secret, "utf8", "hex");
   encrypted += cipher.final("hex");
   return salt.toString("hex") + ":" + iv.toString("hex") + ":" + encrypted;
@@ -22366,19 +24774,19 @@ function decryptApiSecret(encrypted) {
   const parts = encrypted.split(":");
   if (parts.length !== 3) throw new Error("Invalid encrypted secret format");
   const [saltHex, ivHex, data] = parts;
-  const key = crypto2.scryptSync(getEncryptionKey2(), Buffer.from(saltHex, "hex"), 32);
-  const decipher = crypto2.createDecipheriv("aes-256-cbc", key, Buffer.from(ivHex, "hex"));
+  const key = crypto3.scryptSync(getEncryptionKey3(), Buffer.from(saltHex, "hex"), 32);
+  const decipher = crypto3.createDecipheriv("aes-256-cbc", key, Buffer.from(ivHex, "hex"));
   let decrypted = decipher.update(data, "hex", "utf8");
   decrypted += decipher.final("utf8");
   return decrypted;
 }
-var IV_LENGTH, SALT_LENGTH, DEFAULT_ENCRYPTION_KEY, CryptoComService;
+var IV_LENGTH2, SALT_LENGTH2, DEFAULT_ENCRYPTION_KEY2, CryptoComService;
 var init_cryptocom = __esm({
   "server/cryptocom.ts"() {
     "use strict";
-    IV_LENGTH = 16;
-    SALT_LENGTH = 16;
-    DEFAULT_ENCRYPTION_KEY = "vedd-cryptocom-default-key-change-32ch";
+    IV_LENGTH2 = 16;
+    SALT_LENGTH2 = 16;
+    DEFAULT_ENCRYPTION_KEY2 = "vedd-cryptocom-default-key-change-32ch";
     CryptoComService = class {
       baseUrl = "https://api.crypto.com/exchange/v1";
       apiKey;
@@ -22390,7 +24798,7 @@ var init_cryptocom = __esm({
       sign(method, id, params, nonce) {
         const paramString = Object.keys(params).sort().map((k2) => `${k2}${typeof params[k2] === "object" ? JSON.stringify(params[k2]) : params[k2]}`).join("");
         const sigPayload = `${method}${id}${this.apiKey}${paramString}${nonce}`;
-        return crypto2.createHmac("sha256", this.apiSecret).update(sigPayload).digest("hex");
+        return crypto3.createHmac("sha256", this.apiSecret).update(sigPayload).digest("hex");
       }
       async call(method, params = {}) {
         const id = Date.now();
@@ -22709,9 +25117,9 @@ var init_dxtrade = __esm({
         let code = o.positionCode;
         if (!code) {
           try {
-            const norm3 = (s) => s.replace(/\//g, "").toUpperCase();
+            const norm4 = (s) => s.replace(/\//g, "").toUpperCase();
             const positions = await this.getPositions(accountCode);
-            code = positions.find((p) => p.instrument === norm3(o.instrument) && p.side === o.positionSide)?.positionId;
+            code = positions.find((p) => p.instrument === norm4(o.instrument) && p.side === o.positionSide)?.positionId;
           } catch {
           }
         }
@@ -22766,12 +25174,12 @@ var init_dxtrade = __esm({
        *  avoid ever cancelling a genuine entry order. Best-effort — never throws. */
       async cancelProtectiveOrders(accountCode, instrument) {
         try {
-          const norm3 = (s) => String(s ?? "").replace(/\//g, "").toUpperCase();
-          const target = norm3(instrument);
+          const norm4 = (s) => String(s ?? "").replace(/\//g, "").toUpperCase();
+          const target = norm4(instrument);
           const orders = await this.getWorkingOrders(accountCode);
           let n = 0;
           for (const o of orders) {
-            const sym = norm3(o.instrument ?? o.symbol);
+            const sym = norm4(o.instrument ?? o.symbol);
             const effect = String(o.positionEffect ?? o.legs?.[0]?.positionEffect ?? "").toUpperCase();
             if (sym !== target || effect !== "CLOSE") continue;
             const id = o.orderId ?? o.id ?? o.orderCode ?? o.code;
@@ -22798,9 +25206,9 @@ var init_dxtrade = __esm({
         let code = positionCode;
         if (!code) {
           try {
-            const norm3 = (s) => s.replace(/\//g, "").toUpperCase();
+            const norm4 = (s) => s.replace(/\//g, "").toUpperCase();
             const positions = await this.getPositions(accountCode);
-            const match = positions.find((p) => p.instrument === norm3(instrument) && p.side === side);
+            const match = positions.find((p) => p.instrument === norm4(instrument) && p.side === side);
             code = match?.positionId;
           } catch {
           }
@@ -24955,11 +27363,11 @@ async function compute2(userId) {
 async function hourFilterVerdict(userId, hourUtc) {
   if (process.env.HOUR_FILTER_ENABLED === "false") return null;
   try {
-    let entry = cache5.get(userId);
+    let entry = cache6.get(userId);
     if (!entry || Date.now() - entry.at > TTL_MS4) {
       const fresh = await compute2(userId);
       entry = { at: Date.now(), ...fresh };
-      cache5.set(userId, entry);
+      cache6.set(userId, entry);
       const list = Array.from(fresh.blocked).sort((a, b) => a - b).map((h) => `${h}:00`).join(", ");
       console.log(`[HourFilter] user ${userId}: recomputed over ${LOOKBACK_DAYS2}d \u2014 blocking ${fresh.blocked.size} hour(s)${list ? ": " + list : ""} (floor ${WR_FLOOR}% on ${MIN_SAMPLE}+ trades)`);
     }
@@ -24975,7 +27383,7 @@ async function hourFilterTable(userId) {
   const { stats, blocked } = await compute2(userId);
   return { stats: stats.sort((a, b) => a.hour - b.hour), blocked: Array.from(blocked).sort((a, b) => a - b) };
 }
-var MIN_SAMPLE, WR_FLOOR, TTL_MS4, LOOKBACK_DAYS2, cache5;
+var MIN_SAMPLE, WR_FLOOR, TTL_MS4, LOOKBACK_DAYS2, cache6;
 var init_hour_filter = __esm({
   "server/services/hour-filter.ts"() {
     "use strict";
@@ -24983,303 +27391,7 @@ var init_hour_filter = __esm({
     WR_FLOOR = Number(process.env.HOUR_FILTER_MIN_WINRATE ?? 45);
     TTL_MS4 = Number(process.env.HOUR_FILTER_TTL_MS ?? 60 * 60 * 1e3);
     LOOKBACK_DAYS2 = Number(process.env.HOUR_FILTER_LOOKBACK_DAYS ?? 180);
-    cache5 = /* @__PURE__ */ new Map();
-  }
-});
-
-// server/services/prop-firm-consistency.ts
-var prop_firm_consistency_exports = {};
-__export(prop_firm_consistency_exports, {
-  DEFAULT_CONSISTENCY_THRESHOLD_PCT: () => DEFAULT_CONSISTENCY_THRESHOLD_PCT,
-  getConsistencyPlan: () => getConsistencyPlan,
-  getConsistencyStatus: () => getConsistencyStatus,
-  rebuildDailyLedgerFromClosedTrades: () => rebuildDailyLedgerFromClosedTrades,
-  recordRealizedPnl: () => recordRealizedPnl
-});
-function todayUtcDateStr() {
-  return (/* @__PURE__ */ new Date()).toISOString().slice(0, 10);
-}
-async function getConsistencyPlan(connectionId, connectionType, thresholdPct) {
-  const threshold = typeof thresholdPct === "number" && thresholdPct > 0 ? thresholdPct : DEFAULT_CONSISTENCY_THRESHOLD_PCT;
-  const frac = threshold / 100;
-  let rows = [];
-  try {
-    const { rows: r } = await pool.query(
-      `SELECT trade_date, realized_pnl FROM prop_firm_daily_pnl WHERE connection_id = $1 AND connection_type = $2`,
-      [connectionId, connectionType]
-    );
-    rows = r;
-  } catch (err) {
-    console.error("[Consistency] Plan read failed (defaulting to empty):", err?.message ?? err);
-  }
-  let totalPositive = 0;
-  let maxDayPnl = 0;
-  let maxDayDate = null;
-  for (const r of rows) {
-    const pnl = typeof r.realized_pnl === "number" ? r.realized_pnl : parseFloat(r.realized_pnl || "0");
-    if (!isFinite(pnl) || pnl <= 0) continue;
-    totalPositive += pnl;
-    if (pnl > maxDayPnl) {
-      maxDayPnl = pnl;
-      maxDayDate = r.trade_date;
-    }
-  }
-  const maxDayRatioPct = totalPositive > 0 ? maxDayPnl / totalPositive * 100 : 0;
-  const passing = totalPositive <= 0 || maxDayRatioPct <= threshold;
-  const targetTotalPnl = maxDayPnl > 0 ? maxDayPnl / frac : 0;
-  const additionalProfitNeeded = Math.max(0, targetTotalPnl - totalPositive);
-  const safeDailyProfitCap = maxDayPnl > 0 ? Math.max(1, round2(maxDayPnl * DILUTION_DAY_FRACTION)) : 0;
-  const estDaysNeeded = additionalProfitNeeded > 0 && safeDailyProfitCap > 0 ? Math.ceil(additionalProfitNeeded / safeDailyProfitCap) : 0;
-  const growthMultiple = totalPositive > 0 && targetTotalPnl > 0 ? targetTotalPnl / totalPositive : 0;
-  let feasibility;
-  if (passing) feasibility = "passing";
-  else if (growthMultiple <= 1.5) feasibility = "achievable";
-  else if (growthMultiple <= 2.5) feasibility = "hard";
-  else feasibility = "unrealistic";
-  let recommendation;
-  if (passing) {
-    recommendation = "Consistency requirement met \u2014 request the payout / evaluation pass.";
-  } else if (feasibility === "achievable") {
-    recommendation = `Keep VEDD's auto-dilution on \u2014 small green days at \u2264 $${safeDailyProfitCap}/day will clear the cap in ~${estDaysNeeded} day(s).`;
-  } else if (feasibility === "hard") {
-    recommendation = `Doable but slow: total profit must ${growthMultiple.toFixed(1)}\xD7 (grind ~${estDaysNeeded} days at \u2264 $${safeDailyProfitCap}/day). Auto-dilution will handle it, but weigh the days against a fresh reset.`;
-  } else {
-    recommendation = `\u26A0\uFE0F Impractical to dilute: your biggest day ($${round2(maxDayPnl)}) is so large that total profit would have to ${growthMultiple.toFixed(1)}\xD7 (to ~$${round2(targetTotalPnl)}) to get it under ${threshold}%. That's ~${estDaysNeeded} more grind days. Consider RESETTING this account and trading smaller, even days from the start so no single day dominates.`;
-  }
-  let summary;
-  if (passing) {
-    summary = totalPositive > 0 ? `Consistency PASSING: biggest day $${round2(maxDayPnl)} is ${maxDayRatioPct.toFixed(1)}% of $${round2(totalPositive)} total (cap ${threshold}%).` : `No positive profit recorded yet \u2014 nothing to evaluate.`;
-  } else {
-    summary = `Consistency STUCK at ${maxDayRatioPct.toFixed(1)}% (cap ${threshold}%). Biggest day $${round2(maxDayPnl)} of $${round2(totalPositive)} total. To pass, grow total to $${round2(targetTotalPnl)} \u2014 about $${round2(additionalProfitNeeded)} more profit, spread across ~${estDaysNeeded} day(s) at \u2264 $${safeDailyProfitCap}/day so no new day breaches the cap.`;
-  }
-  return {
-    passing,
-    thresholdPct: threshold,
-    totalPositivePnl: round2(totalPositive),
-    maxDayPnl: round2(maxDayPnl),
-    maxDayDate,
-    maxDayRatioPct: round2(maxDayRatioPct),
-    targetTotalPnl: round2(targetTotalPnl),
-    additionalProfitNeeded: round2(additionalProfitNeeded),
-    safeDailyProfitCap,
-    estDaysNeeded,
-    growthMultiple: round2(growthMultiple),
-    feasibility,
-    recommendation,
-    summary
-  };
-}
-function round2(n) {
-  return Math.round(n * 100) / 100;
-}
-async function rebuildDailyLedgerFromClosedTrades(userId, connectionId, connectionType, closedTrades, opts) {
-  const byDay = /* @__PURE__ */ new Map();
-  let used = 0;
-  for (const t of closedTrades) {
-    const pnl = Number(t.profit);
-    if (!isFinite(pnl) || pnl === 0) continue;
-    const d = new Date(t.closeTime);
-    if (isNaN(d.getTime())) continue;
-    const day = d.toISOString().slice(0, 10);
-    byDay.set(day, (byDay.get(day) ?? 0) + pnl);
-    used++;
-  }
-  const { rows: existingRows } = await pool.query(
-    `SELECT count(*)::int AS days FROM prop_firm_daily_pnl WHERE connection_id = $1 AND connection_type = $2`,
-    [connectionId, connectionType]
-  );
-  const existingDays = Number(existingRows?.[0]?.days ?? 0);
-  if (opts?.force && existingDays > 0) {
-    console.warn(`[Consistency] FORCED rebuild for connection ${connectionId}: replacing ${existingDays} day(s) with ${byDay.size}.`);
-  }
-  if (!opts?.force && existingDays > 0 && byDay.size === 0) {
-    throw new Error(
-      `Refusing to rebuild ledger for connection ${connectionId}: would delete ${existingDays} day(s) and write 0. The broker returned no closed trades \u2014 treat this as a failed read, not an empty account.`
-    );
-  }
-  if (!opts?.force && existingDays >= 5 && byDay.size < existingDays / 2) {
-    throw new Error(
-      `Refusing to rebuild ledger for connection ${connectionId}: would shrink ${existingDays} day(s) to ${byDay.size}. This looks like a truncated broker read. Re-run when the broker history is complete, or pass force to override.`
-    );
-  }
-  const client2 = await pool.connect();
-  try {
-    await client2.query("BEGIN");
-    await client2.query(
-      `DELETE FROM prop_firm_daily_pnl WHERE connection_id = $1 AND connection_type = $2`,
-      [connectionId, connectionType]
-    );
-    for (const [day, pnl] of Array.from(byDay)) {
-      await client2.query(
-        `INSERT INTO prop_firm_daily_pnl (user_id, connection_id, connection_type, trade_date, realized_pnl)
-         VALUES ($1, $2, $3, $4, $5)
-         ON CONFLICT (connection_id, connection_type, trade_date)
-         DO UPDATE SET realized_pnl = $5, updated_at = now()`,
-        [userId, connectionId, connectionType, day, round2(pnl)]
-      );
-    }
-    await client2.query("COMMIT");
-  } catch (err) {
-    await client2.query("ROLLBACK").catch(() => {
-    });
-    throw err;
-  } finally {
-    client2.release();
-  }
-  let totalPositive = 0, maxDay = 0, maxDayDate = null;
-  for (const [day, pnl] of Array.from(byDay)) {
-    if (pnl > 0) totalPositive += pnl;
-    if (pnl > maxDay) {
-      maxDay = pnl;
-      maxDayDate = day;
-    }
-  }
-  return { days: byDay.size, totalPositive: round2(totalPositive), maxDay: round2(maxDay), maxDayDate, tradesUsed: used };
-}
-async function recordRealizedPnl(userId, connectionId, connectionType, realizedPnlDelta, tradeDate) {
-  if (!isFinite(realizedPnlDelta) || realizedPnlDelta === 0) return;
-  const dateStr = tradeDate || todayUtcDateStr();
-  try {
-    await pool.query(
-      `INSERT INTO prop_firm_daily_pnl (user_id, connection_id, connection_type, trade_date, realized_pnl)
-       VALUES ($1, $2, $3, $4, $5)
-       ON CONFLICT (connection_id, connection_type, trade_date)
-       DO UPDATE SET realized_pnl = prop_firm_daily_pnl.realized_pnl + $5, updated_at = now()`,
-      [userId, connectionId, connectionType, dateStr, realizedPnlDelta]
-    );
-  } catch (err) {
-    console.error("[Consistency] Failed to record daily P&L (non-fatal):", err?.message ?? err);
-  }
-}
-async function getConsistencyStatus(connectionId, connectionType, thresholdPct, enabled = true) {
-  const threshold = typeof thresholdPct === "number" && thresholdPct > 0 ? thresholdPct : DEFAULT_CONSISTENCY_THRESHOLD_PCT;
-  if (!enabled) {
-    return {
-      connectionId,
-      connectionType,
-      enabled: false,
-      thresholdPct: threshold,
-      todayPnl: 0,
-      totalPositivePnl: 0,
-      ratioPct: 0,
-      status: "disabled",
-      sizeMultiplier: 1,
-      hardBlocked: false,
-      guidance: "Consistency rule is turned off for this account \u2014 trades are not tapered or blocked based on daily profit share. Turn it on if your prop firm enforces a max-single-day-profit rule."
-    };
-  }
-  const dateStr = todayUtcDateStr();
-  let rows = [];
-  try {
-    const { rows: r } = await pool.query(
-      `SELECT trade_date, realized_pnl FROM prop_firm_daily_pnl WHERE connection_id = $1 AND connection_type = $2`,
-      [connectionId, connectionType]
-    );
-    rows = r;
-  } catch (err) {
-    console.error("[Consistency] Failed to read daily P&L \u2014 BLOCKING new trades on this account until it can be read:", err?.message ?? err);
-    return {
-      connectionId,
-      connectionType,
-      enabled: true,
-      thresholdPct: threshold,
-      todayPnl: 0,
-      totalPositivePnl: 0,
-      ratioPct: 0,
-      status: "breached",
-      sizeMultiplier: 0,
-      hardBlocked: true,
-      guidance: `Couldn't read this account's daily P&L ledger (${err?.message ?? "database error"}) \u2014 new trades are blocked on this account until it can be read, rather than trading blind on the consistency rule.`
-    };
-  }
-  let todayPnl = 0;
-  let totalPositivePnl = 0;
-  for (const r of rows) {
-    const pnl = typeof r.realized_pnl === "number" ? r.realized_pnl : parseFloat(r.realized_pnl || "0");
-    if (!isFinite(pnl)) continue;
-    if (r.trade_date === dateStr) todayPnl = pnl;
-    if (pnl > 0) totalPositivePnl += pnl;
-  }
-  const todayPositive = Math.max(0, todayPnl);
-  const ratioPct = totalPositivePnl > 0 ? todayPositive / totalPositivePnl * 100 : 0;
-  let maxDayPnl = 0;
-  let maxDayDate = null;
-  let positiveDays = 0;
-  for (const r of rows) {
-    const pnl = typeof r.realized_pnl === "number" ? r.realized_pnl : parseFloat(r.realized_pnl || "0");
-    if (!isFinite(pnl)) continue;
-    if (pnl > 0) positiveDays++;
-    if (pnl > maxDayPnl) {
-      maxDayPnl = pnl;
-      maxDayDate = r.trade_date;
-    }
-  }
-  const maxDayRatioPct = totalPositivePnl > 0 ? maxDayPnl / totalPositivePnl * 100 : 0;
-  const minDaysForRule = Math.ceil(100 / threshold);
-  const todayIsMax = maxDayDate === dateStr;
-  const stuck = maxDayRatioPct > threshold && positiveDays >= minDaysForRule && !todayIsMax;
-  const taperStartPct = threshold * TAPER_START_FRACTION;
-  let status = "safe";
-  let sizeMultiplier = 1;
-  let hardBlocked = false;
-  let guidance = `Today's profit is ${ratioPct.toFixed(1)}% of total realized profit \u2014 well within the ${threshold}% consistency cap.`;
-  if (stuck) {
-    const dailyCap = Math.max(1, maxDayPnl * DILUTION_DAY_FRACTION);
-    const targetTotal = maxDayPnl / (threshold / 100);
-    const addNeeded = Math.max(0, targetTotal - totalPositivePnl);
-    const daysLeft = dailyCap > 0 ? Math.ceil(addNeeded / dailyCap) : 0;
-    if (todayPositive >= dailyCap) {
-      status = "breached";
-      sizeMultiplier = 0;
-      hardBlocked = true;
-      guidance = `Consistency dilution: today's profit ($${todayPositive.toFixed(2)}) hit the per-day cap ($${dailyCap.toFixed(2)}). Trading paused for today so this day doesn't become a new breach. Biggest day is ${maxDayRatioPct.toFixed(1)}% of total (cap ${threshold}%) \u2014 grow total to $${targetTotal.toFixed(0)} (~$${addNeeded.toFixed(0)} more, ~${daysLeft} day(s)) to pass.`;
-    } else {
-      status = "warning";
-      const room = dailyCap - todayPositive;
-      const progress2 = dailyCap > 0 ? todayPositive / dailyCap : 1;
-      sizeMultiplier = Math.max(TAPER_FLOOR_MULTIPLIER, 1 - progress2 * (1 - TAPER_FLOOR_MULTIPLIER));
-      guidance = `Consistency dilution active: biggest day is ${maxDayRatioPct.toFixed(1)}% of total (cap ${threshold}%). Taking small green days \u2014 up to $${room.toFixed(2)} more today (cap $${dailyCap.toFixed(2)}). Need ~$${addNeeded.toFixed(0)} more total over ~${daysLeft} day(s) to pass.`;
-    }
-  } else if (ratioPct >= threshold && positiveDays < minDaysForRule) {
-    guidance = `Consistency rule not enforced yet: this account has ${positiveDays} green day${positiveDays === 1 ? "" : "s"} \u2014 the ${threshold}% cap starts after ${minDaysForRule}, when one day's share can actually be measured.`;
-  } else if (ratioPct >= threshold) {
-    status = "breached";
-    sizeMultiplier = 0;
-    hardBlocked = true;
-    guidance = `Consistency cap breached: today's profit is ${ratioPct.toFixed(1)}% of total (cap ${threshold}%). New trades are blocked on this account until the next trading day. The ratio will come down as more profit accumulates on other days without adding to today's total.`;
-  } else if (ratioPct >= taperStartPct) {
-    status = "warning";
-    const span = threshold - taperStartPct;
-    const progress2 = span > 0 ? (ratioPct - taperStartPct) / span : 1;
-    sizeMultiplier = Math.max(TAPER_FLOOR_MULTIPLIER, 1 - progress2 * (1 - TAPER_FLOOR_MULTIPLIER));
-    guidance = `Approaching the consistency cap: today's profit is ${ratioPct.toFixed(1)}% of total (cap ${threshold}%). Position sizing is being reduced (${Math.round(sizeMultiplier * 100)}% of normal) to avoid crossing the line today.`;
-  }
-  return {
-    connectionId,
-    connectionType,
-    enabled: true,
-    thresholdPct: threshold,
-    todayPnl,
-    totalPositivePnl,
-    ratioPct,
-    maxDayPnl: round2(maxDayPnl),
-    maxDayRatioPct: round2(maxDayRatioPct),
-    dilutionActive: stuck,
-    status,
-    sizeMultiplier,
-    hardBlocked,
-    guidance
-  };
-}
-var DEFAULT_CONSISTENCY_THRESHOLD_PCT, TAPER_START_FRACTION, TAPER_FLOOR_MULTIPLIER, DILUTION_DAY_FRACTION;
-var init_prop_firm_consistency = __esm({
-  "server/services/prop-firm-consistency.ts"() {
-    "use strict";
-    init_db();
-    DEFAULT_CONSISTENCY_THRESHOLD_PCT = 20;
-    TAPER_START_FRACTION = 0.7;
-    TAPER_FLOOR_MULTIPLIER = 0.25;
-    DILUTION_DAY_FRACTION = 0.8;
+    cache6 = /* @__PURE__ */ new Map();
   }
 });
 
@@ -31781,2857 +33893,1023 @@ var init_live_trading_engine = __esm({
   }
 });
 
-// server/tradelocker.ts
-var tradelocker_exports = {};
-__export(tradelocker_exports, {
-  TradeLockerReadError: () => TradeLockerReadError,
-  TradeLockerService: () => TradeLockerService,
-  decryptPassword: () => decryptPassword,
-  encryptPassword: () => encryptPassword,
-  executeMT5SignalOnTradeLocker: () => executeMT5SignalOnTradeLocker,
-  getOrCreateService: () => getOrCreateService,
-  getTLAccountValue: () => getTLAccountValue,
-  isOnAuth429Cooldown: () => isOnAuth429Cooldown,
-  logTlClose: () => logTlClose,
-  noteAuthResult: () => noteAuthResult,
-  priceDecimals: () => priceDecimals,
-  roundToTick: () => roundToTick,
-  setUsdJpyRate: () => setUsdJpyRate,
-  tlRateLimitStatus: () => tlRateLimitStatus,
-  warmTradeLockerConnection: () => warmTradeLockerConnection
+// server/services/fx-models.ts
+var fx_models_exports = {};
+__export(fx_models_exports, {
+  FX_MODEL_MIN_TO_LIST: () => FX_MODEL_MIN_TO_LIST,
+  classifyDayType: () => classifyDayType,
+  ensureFxModelTables: () => ensureFxModelTables,
+  fxModelRowsForStats: () => fxModelRowsForStats,
+  getFxModelListingRows: () => getFxModelListingRows,
+  getFxModelSettings: () => getFxModelSettings,
+  getModelMastery: () => getModelMastery,
+  importFxModelSnapshot: () => importFxModelSnapshot,
+  liveEligibleSlices: () => liveEligibleSlices,
+  m1Candidate: () => m1Candidate,
+  m1Reject: () => m1Reject,
+  m2Reject: () => m2Reject,
+  masteryLevel: () => masteryLevel,
+  parseFxModelScope: () => parseFxModelScope,
+  rangeFeatures: () => rangeFeatures,
+  registerBarsProvider: () => registerBarsProvider,
+  resolveShadowDecisions: () => resolveShadowDecisions,
+  runCryptoModelsCycle: () => runCryptoModelsCycle,
+  runFxModelsCycle: () => runFxModelsCycle,
+  saveFxModelSettings: () => saveFxModelSettings,
+  sessionFor: () => sessionFor
 });
-import crypto3 from "crypto";
-function getEncryptionKey3() {
-  const key = process.env.TRADELOCKER_ENCRYPTION_KEY;
-  if (!key) {
-    console.warn("[TradeLocker] TRADELOCKER_ENCRYPTION_KEY not set \u2014 using default key. Set it in your Render environment variables.");
-    return DEFAULT_ENCRYPTION_KEY2;
-  }
-  if (key.length < 32) {
-    console.warn("[TradeLocker] TRADELOCKER_ENCRYPTION_KEY is too short, padding to 32 chars.");
-    return key.padEnd(32, "0");
-  }
-  return key;
-}
-function priceDecimals(symbol) {
-  const s = String(symbol || "").toUpperCase().split(".")[0].replace(/[^A-Z0-9]/g, "");
-  if (/^XAU/.test(s)) return 2;
-  if (/^XAG/.test(s)) return 3;
-  if (/^(US30|DJ30|WS30|US100|NAS100|USTEC|US500|SPX500|GER40|DE40|UK100|JP225|AUS200|HK50|FRA40|EU50)/.test(s)) return 2;
-  if (/^(BTC|ETH|SOL|LTC|XRP)/.test(s)) return 2;
-  if (/JPY/.test(s)) return 3;
-  return 5;
-}
-function roundToTick(symbol, v) {
-  if (!Number.isFinite(v)) return v;
-  const d = priceDecimals(symbol);
-  return Number(v.toFixed(d));
-}
-function isOnAuth429Cooldown(key) {
-  const until = authCooldownUntil.get(key) || 0;
-  return until > Date.now() ? until - Date.now() : 0;
-}
-function noteAuthResult(key, err) {
-  const is429 = err instanceof Error && /(^|\D)429(\D|$)/.test(err.message);
-  if (is429) {
-    authCooldownUntil.set(key, Date.now() + AUTH_429_COOLDOWN_MS);
-  } else {
-    authCooldownUntil.delete(key);
-  }
-}
-async function serializeAuth(label, fn) {
-  const run = authChain.then(async () => {
-    const wait = MIN_AUTH_GAP_MS - (Date.now() - lastAuthAt);
-    if (wait > 0) await new Promise((r) => setTimeout(r, wait));
-    try {
-      return await fn();
-    } finally {
-      lastAuthAt = Date.now();
-    }
-  });
-  authChain = run.then(() => {
-  }, () => {
-  });
-  return run;
-}
-async function loginFetchWith429Retry(url, body) {
-  const backoffs = [1500, 3500];
-  for (let attempt = 0; ; attempt++) {
-    const resp = await fetch(url, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(body),
-      signal: AbortSignal.timeout(12e3)
+function ensureFxModelTables() {
+  if (!ensured3) {
+    ensured3 = pool.query(DDL2).then(() => void 0).catch((e) => {
+      console.error("[fx-models] ensure tables failed (non-fatal):", e?.message || e);
+      ensured3 = null;
     });
-    if (resp.status !== 429 || attempt >= backoffs.length) return resp;
-    await new Promise((r) => setTimeout(r, backoffs[attempt]));
   }
+  return ensured3;
 }
-function encryptPassword(password) {
-  const iv = crypto3.randomBytes(IV_LENGTH2);
-  const salt = crypto3.randomBytes(SALT_LENGTH2);
-  const encryptionKey = getEncryptionKey3();
-  const key = crypto3.scryptSync(encryptionKey, salt, 32);
-  const cipher = crypto3.createCipheriv("aes-256-cbc", key, iv);
-  let encrypted = cipher.update(password, "utf8", "hex");
-  encrypted += cipher.final("hex");
-  return salt.toString("hex") + ":" + iv.toString("hex") + ":" + encrypted;
+function sessionFor(d = /* @__PURE__ */ new Date()) {
+  const h = d.getUTCHours();
+  if (h >= 12 && h < 16) return "London/NY overlap";
+  if (h >= 7 && h < 12) return "London";
+  if (h >= 16 && h < 21) return "New York";
+  return "Asian";
 }
-function decryptPassword(encryptedPassword) {
-  const parts = encryptedPassword.split(":");
-  if (parts.length !== 3) {
-    throw new Error("Invalid encrypted password format");
-  }
-  const salt = Buffer.from(parts[0], "hex");
-  const iv = Buffer.from(parts[1], "hex");
-  const encrypted = parts[2];
-  const encryptionKey = getEncryptionKey3();
-  const key = crypto3.scryptSync(encryptionKey, salt, 32);
-  const decipher = crypto3.createDecipheriv("aes-256-cbc", key, iv);
-  let decrypted = decipher.update(encrypted, "hex", "utf8");
-  decrypted += decipher.final("utf8");
-  return decrypted;
+function registerBarsProvider(engine, fn) {
+  barsProviders[engine] = fn;
 }
-function setUsdJpyRate(rate) {
-  const r = Number(rate);
-  if (isFinite(r) && r > 50 && r < 500) _usdJpyLive = { rate: r, at: Date.now() };
+function classifyDayType(input) {
+  let s = 0;
+  const adx = Number(input.adx);
+  if (Number.isFinite(adx)) s += adx >= 25 ? 2 : adx >= 18 ? 1 : 0;
+  const h1 = input.h1 || "NEUTRAL", h4 = input.h4 || "NEUTRAL";
+  if (h1 !== "NEUTRAL" && h1 === h4) s += 2;
+  else if (h1 !== "NEUTRAL" || h4 !== "NEUTRAL") s += 1;
+  const rv = Number(input.relVolume);
+  if (Number.isFinite(rv)) s += rv >= 1.3 ? 1 : rv < 0.8 ? -1 : 0;
+  if (input.news) s += 1;
+  if (input.session === "London/NY overlap" || input.session === "London") s += 1;
+  if (input.session === "Asian") s -= 1;
+  const dayType = s >= 4 ? "trend" : s <= 1 ? "range" : "mixed";
+  const autoModel = dayType === "trend" ? "M2" : dayType === "range" ? "M1" : Number.isFinite(adx) && adx >= 18 ? "M2" : "M1";
+  return { dayType, autoModel, score: s };
 }
-function noteUsdJpyObservation(atMs, rate) {
-  const r = Number(rate);
-  if (!isFinite(r) || r <= 50 || r >= 500 || !isFinite(atMs)) return;
-  _usdJpyObserved.push({ at: atMs, rate: r });
-  if (_usdJpyObserved.length > 2e3) _usdJpyObserved.splice(0, _usdJpyObserved.length - 2e3);
-}
-function usdJpyAt(atMs) {
-  let best = null;
-  for (const o of _usdJpyObserved) {
-    if (!best || Math.abs(o.at - atMs) < Math.abs(best.at - atMs)) best = o;
-  }
-  if (best && Math.abs(best.at - atMs) < 7 * 24 * 3600 * 1e3) return best.rate;
-  if (_usdJpyLive && Date.now() - _usdJpyLive.at < 24 * 3600 * 1e3) return _usdJpyLive.rate;
-  if (best) return best.rate;
-  console.warn(`[TradeLocker] no USD/JPY rate available for ${new Date(atMs).toISOString()} \u2014 using ${USDJPY_FALLBACK}; JPY P&L may be off by a few percent.`);
-  return USDJPY_FALLBACK;
-}
-function tlRateLimitStatus() {
-  return { bannedUntil: tlBannedUntil, bannedForMs: Math.max(0, tlBannedUntil - Date.now()) };
-}
-async function tlSharedRead(key, fn, fresh) {
-  const hit = tlReadCache.get(key);
-  if (!fresh && hit && Date.now() - hit.at < TL_READ_CACHE_MS) return hit.value;
-  if (Date.now() < tlBannedUntil) {
-    if (!fresh) {
-      if (hit && Date.now() - hit.at < TL_STALE_OK_MS) return hit.value;
-      throw new Error(`TradeLocker rate-limited cooldown (${Math.ceil((tlBannedUntil - Date.now()) / 1e3)}s left)`);
-    }
-    const wait = tlBannedUntil - Date.now();
-    if (wait > TL_FRESH_WAIT_MAX_MS) throw new Error(`TradeLocker rate-limited cooldown (${Math.ceil(wait / 1e3)}s left)`);
-    console.warn(`[TL] fresh read ${key} waiting ${Math.ceil(wait / 1e3)}s for rate-limit ban to clear`);
-    await new Promise((r) => setTimeout(r, wait + 250));
-  }
-  if (!fresh && tlInflight.has(key)) return tlInflight.get(key);
-  const p = (async () => {
-    try {
-      const value = await fn();
-      tlReadCache.set(key, { at: Date.now(), value });
-      return value;
-    } catch (e) {
-      if (_tlIsRateLimit(e)) {
-        tlBannedUntil = Math.max(tlBannedUntil, Date.now() + TL_BAN_MS);
-        console.warn(`[TL] rate limited on ${key} \u2014 backing off all TradeLocker reads for ${TL_BAN_MS / 1e3}s`);
-      }
-      throw e;
-    } finally {
-      tlInflight.delete(key);
-    }
-  })();
-  if (!fresh) tlInflight.set(key, p);
-  return p;
-}
-function stopTolerance(price) {
-  const pip = price >= 1e4 ? 1 : price >= 500 ? 0.1 : price >= 20 ? 0.01 : 1e-4;
-  return pip * 1.5;
-}
-async function getOrCreateService(connection2) {
-  const connId = connection2.id || `pending_${connection2.accountType}_${connection2.accountId}_${connection2.accNum || ""}`;
-  const cached2 = serviceCache.get(connId);
-  if (cached2 && Date.now() - cached2.createdAt < SERVICE_CACHE_TTL) {
-    console.log("[TradeLocker] Reusing cached service for connection", connId);
-    cached2.service.logConn = { id: connection2.id, userId: connection2.userId };
-    return cached2.service;
-  }
-  const service = new TradeLockerService(
-    connection2.accountType,
-    connection2.accountId,
-    connection2.serverId,
-    connection2.accNum || void 0
-  );
-  service.logConn = { id: connection2.id, userId: connection2.userId };
-  if (typeof connId === "number") {
-    service.onAccountIdCorrected = (accountId) => {
-      persistAccountIdCorrection(connId, accountId).catch(() => {
+async function runFxModelsCycle(userId, ctx) {
+  if (process.env.FX_MODELS_SHADOW === "off") return;
+  try {
+    await ensureFxModelTables();
+    const now = /* @__PURE__ */ new Date();
+    const session3 = sessionFor(now);
+    const day = now.toISOString().slice(0, 10);
+    const hour = now.getUTCHours();
+    const pairs = [];
+    for (const [symbol, a] of Object.entries(ctx.marketAnalysis || {})) {
+      const snap = ctx.snapshot?.[symbol] || {};
+      const { h1, h4 } = ctx.mtf(symbol);
+      const cls = classifyDayType({ adx: snap.adx, relVolume: snap.relativeVolume, h1: h1?.trend, h4: h4?.trend, session: session3 });
+      const features = {
+        price: a?.currentPrice ?? snap.price,
+        m15Trend: snap.trend,
+        rsi: snap.rsi,
+        adx: snap.adx,
+        plusDI: snap.plusDI,
+        minusDI: snap.minusDI,
+        atr: Number(snap.atr) > 0 ? snap.atr : null,
+        // 0 means "not computed", never tell the AI ATR is zero
+        relVolume: snap.relativeVolume,
+        volumeTrend: snap.volumeTrend,
+        h1: h1 ? { trend: h1.trend, bos: h1.bosChoch?.detected ? h1.bosChoch.description : null, pd: h1.premiumDiscount?.zone, wyckoff: h1.wyckoff?.detected ? h1.wyckoff.phase : null } : null,
+        h4: h4 ? { trend: h4.trend, bos: h4.bosChoch?.detected ? h4.bosChoch.description : null, pd: h4.premiumDiscount?.zone, wyckoff: h4.wyckoff?.detected ? h4.wyckoff.phase : null } : null,
+        signals: a?.signals ?? a?.strategySignals ?? void 0
+      };
+      await pool.query(
+        `INSERT INTO fx_day_regimes (user_id, symbol, day, hour_utc, session, day_type, auto_model, trend_score, adx_m15, rel_volume, atr, h1_trend, h4_trend, features)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14::jsonb)
+         ON CONFLICT (user_id, symbol, day, hour_utc) DO UPDATE SET day_type=EXCLUDED.day_type, auto_model=EXCLUDED.auto_model,
+           trend_score=EXCLUDED.trend_score, adx_m15=EXCLUDED.adx_m15, rel_volume=EXCLUDED.rel_volume, atr=EXCLUDED.atr,
+           h1_trend=EXCLUDED.h1_trend, h4_trend=EXCLUDED.h4_trend, features=EXCLUDED.features`,
+        [userId, symbol, day, hour, session3, cls.dayType, cls.autoModel, cls.score, num(snap.adx), num(snap.relativeVolume), num(snap.atr), h1?.trend ?? null, h4?.trend ?? null, JSON.stringify(features)]
+      ).catch(() => {
       });
-    };
-  }
-  const TOKEN_BUFFER = 60 * 1e3;
-  const hasValidToken = connection2.accessToken && connection2.tokenExpiresAt && new Date(connection2.tokenExpiresAt).getTime() - TOKEN_BUFFER > Date.now();
-  if (hasValidToken) {
-    console.log("[TradeLocker] Using cached JWT tokens (expires:", connection2.tokenExpiresAt, ")");
-    service.setTokens(
-      connection2.accessToken,
-      connection2.refreshToken || "",
-      new Date(connection2.tokenExpiresAt)
-    );
-  } else if (connection2.refreshToken && connection2.accessToken) {
-    console.log("[TradeLocker] Token expired \u2014 attempting refresh...");
+      const candle = Math.floor(now.getTime() / 36e5);
+      const key = `${userId}|${symbol}`;
+      if (lastShadowCandle.get(key) !== candle && Number(features.price) > 0) {
+        lastShadowCandle.set(key, candle);
+        pairs.push({ symbol, ctx: { ...features, dayType: cls.dayType, autoModel: cls.autoModel, trendScore: cls.score } });
+      }
+    }
+    let _fxEvery = 1;
     try {
-      service.setTokens(connection2.accessToken, connection2.refreshToken);
-      const refreshed = await service.refreshAccessToken(connection2.refreshToken);
-      noteAuthResult(String(connId), null);
-      await persistTokens(connection2, refreshed.accessToken, refreshed.refreshToken, refreshed.expiresIn, service.getResolvedAccNum());
-    } catch (refreshErr) {
-      console.log("[TradeLocker] Token refresh failed \u2014 falling back to full auth");
-      const cooldownMs = isOnAuth429Cooldown(String(connId));
-      if (cooldownMs > 0) {
-        throw new Error(`TradeLocker login is rate-limited (429) for this account \u2014 cooling down for another ${Math.ceil(cooldownMs / 1e3)}s before retrying, to avoid making the rate limit worse.`);
-      }
-      try {
-        const password = decryptPassword(connection2.encryptedPassword);
-        const authResult = await service.authenticate(connection2.email, password);
-        noteAuthResult(String(connId), null);
-        await persistTokens(connection2, authResult.accessToken, authResult.refreshToken, authResult.expiresIn, service.getResolvedAccNum());
-      } catch (authErr) {
-        noteAuthResult(String(connId), authErr);
-        throw authErr;
-      }
-    }
-  } else {
-    const cooldownMs = isOnAuth429Cooldown(String(connId));
-    if (cooldownMs > 0) {
-      throw new Error(`TradeLocker login is rate-limited (429) for this account \u2014 cooling down for another ${Math.ceil(cooldownMs / 1e3)}s before retrying, to avoid making the rate limit worse.`);
-    }
-    console.log("[TradeLocker] No cached tokens \u2014 performing full auth");
-    try {
-      const password = decryptPassword(connection2.encryptedPassword);
-      const authResult = await service.authenticate(connection2.email, password);
-      noteAuthResult(String(connId), null);
-      await persistTokens(connection2, authResult.accessToken, authResult.refreshToken, authResult.expiresIn, service.getResolvedAccNum());
-    } catch (authErr) {
-      noteAuthResult(String(connId), authErr);
-      throw authErr;
-    }
-  }
-  if (!connection2.accNum && connId) {
-    const origResolve = service.resolveAccNum.bind(service);
-    service.resolveAccNum = async () => {
-      const result = await origResolve();
-      if (result && result !== "0" && !connection2.accNum) {
-        persistTokens(connection2, connection2.accessToken || "", connection2.refreshToken || "", 3600, result).catch(() => {
-        });
-      }
-      return result;
-    };
-  }
-  service.onTokenRefresh = (accessToken, refreshToken, expiresIn) => {
-    persistTokens(connection2, accessToken, refreshToken, expiresIn, service.getResolvedAccNum()).catch(() => {
-    });
-  };
-  service.onReauthenticate = async () => {
-    const cooldownMs = isOnAuth429Cooldown(String(connId));
-    if (cooldownMs > 0) {
-      throw new Error(`TradeLocker login is rate-limited (429) for this account \u2014 cooling down for another ${Math.ceil(cooldownMs / 1e3)}s before retrying.`);
-    }
-    console.log("[TradeLocker] Full re-authentication triggered via callback");
-    try {
-      const password = decryptPassword(connection2.encryptedPassword);
-      const authResult = await service.authenticate(connection2.email, password);
-      noteAuthResult(String(connId), null);
-      await persistTokens(connection2, authResult.accessToken, authResult.refreshToken, authResult.expiresIn, service.getResolvedAccNum());
-    } catch (authErr) {
-      noteAuthResult(String(connId), authErr);
-      throw authErr;
-    }
-  };
-  serviceCache.set(connId, { service, createdAt: Date.now() });
-  return service;
-}
-async function getTLAccountValue(userId, conn) {
-  const g = global;
-  g.tlAccountBalances = g.tlAccountBalances || {};
-  g.tlAccountBalances[userId] = g.tlAccountBalances[userId] || {};
-  g.tlAccountEquity = g.tlAccountEquity || {};
-  g.tlAccountEquity[userId] = g.tlAccountEquity[userId] || {};
-  g.tlAccountValueAt = g.tlAccountValueAt || {};
-  g.tlAccountValueAt[userId] = g.tlAccountValueAt[userId] || {};
-  const acctId = conn.accountId;
-  const cachedBal = g.tlAccountBalances[userId][acctId];
-  const cachedEq = g.tlAccountEquity[userId][acctId];
-  const fetchedAt = g.tlAccountValueAt[userId][acctId] || 0;
-  const fresh = Date.now() - fetchedAt < TL_VALUE_TTL;
-  if (fresh && typeof cachedBal === "number" && cachedBal > 0) {
-    return { balance: cachedBal, equity: typeof cachedEq === "number" && cachedEq > 0 ? cachedEq : cachedBal };
-  }
-  try {
-    const svc = await getOrCreateService(conn);
-    const info2 = await svc.getAccountInfo();
-    const bal = info2.balance || 0;
-    const eq21 = info2.equity || bal;
-    if (bal > 0) {
-      g.tlAccountBalances[userId][acctId] = bal;
-      g.tlAccountEquity[userId][acctId] = eq21;
-      g.tlAccountValueAt[userId][acctId] = Date.now();
-      console.log(`[TL value] ${acctId}: balance=$${bal} equity=$${eq21} (live-fetched for sizing)`);
-      return { balance: bal, equity: eq21 };
-    }
-  } catch (e) {
-    console.warn(`[TL value] live-fetch failed for ${acctId}:`, e?.message ?? e);
-  }
-  if (!(typeof cachedBal === "number" && cachedBal > 0)) {
-    const _lb = Number(conn.lastBalance) || 0;
-    const _lbAt = new Date(conn.lastBalanceAt ?? 0).getTime();
-    if (_lb > 0 && Date.now() - _lbAt < 3 * 864e5) {
-      console.warn(`[TL value] ${acctId}: live read failed \u2014 sizing from last saved balance $${_lb} (${Math.round((Date.now() - _lbAt) / 6e4)} min old)`);
-      return { balance: _lb, equity: _lb };
-    }
-  }
-  return {
-    balance: typeof cachedBal === "number" ? cachedBal : 0,
-    equity: typeof cachedEq === "number" ? cachedEq : typeof cachedBal === "number" ? cachedBal : 0
-  };
-}
-async function persistTokens(connection2, accessToken, refreshToken, expiresIn, accNum) {
-  if (!connection2.id) return;
-  try {
-    const { storage: storage2 } = await Promise.resolve().then(() => (init_storage(), storage_exports));
-    await storage2.updateTradelockerConnection(connection2.id, {
-      accessToken,
-      refreshToken,
-      tokenExpiresAt: new Date(Date.now() + expiresIn * 1e3),
-      accNum: accNum !== "0" ? accNum : void 0
-    });
-    console.log("[TradeLocker] Persisted tokens to DB for connection", connection2.id);
-  } catch (e) {
-    console.log("[TradeLocker] Could not persist tokens to DB");
-  }
-}
-async function persistAccountIdCorrection(connectionId, accountId) {
-  try {
-    const { storage: storage2 } = await Promise.resolve().then(() => (init_storage(), storage_exports));
-    await storage2.updateTradelockerConnection(connectionId, { accountId });
-    console.log("[TradeLocker] Persisted corrected accountId to DB for connection", connectionId, ":", accountId);
-  } catch (e) {
-    console.log("[TradeLocker] Could not persist accountId correction to DB");
-  }
-}
-async function warmTradeLockerConnection(connection2) {
-  try {
-    console.log("[TradeLocker Warm] Pre-warming connection for account", connection2.accountId);
-    await getOrCreateService(connection2);
-    console.log("[TradeLocker Warm] Connection pre-warmed successfully");
-    return { success: true };
-  } catch (error) {
-    const msg = error instanceof Error ? error.message : "Unknown error";
-    console.error("[TradeLocker Warm] Pre-warm failed:", msg);
-    return { success: false, error: msg };
-  }
-}
-async function tlAccountRiskGuard(service, connection2, signal) {
-  if (process.env.TL_RISK_GUARD_DISABLED === "true") return {};
-  const connKey = String(connection2.id ?? connection2.accountId);
-  const norm3 = (s) => String(s || "").toUpperCase().split(".")[0].replace(/[^A-Z0-9]/g, "");
-  const want = norm3(signal.symbol);
-  let equity;
-  try {
-    const info2 = await guardRead(`acct:${connKey}`, () => service.getAccountInfo({ fresh: true }));
-    equity = Number(info2?.equity) > 0 ? Number(info2.equity) : Number(info2?.balance);
-    if (!(equity > 0)) return { block: "account equity unreadable \u2014 not trading this account (fail closed)" };
-  } catch (e) {
-    return { block: `account equity unreadable (${e?.message || e}) \u2014 not trading this account (fail closed)` };
-  }
-  const lossPct = Number(process.env.TL_DAILY_LOSS_PCT ?? 2);
-  if (lossPct > 0) {
-    const day = (/* @__PURE__ */ new Date()).toISOString().slice(0, 10);
-    const key = `${connKey}:${day}`;
-    let start = tlDayStartEquity.get(key);
-    if (start == null) {
-      try {
-        const { getRuntimeStateStrict: getRuntimeStateStrict2, insertRuntimeStateIfAbsent: insertRuntimeStateIfAbsent2 } = await Promise.resolve().then(() => (init_runtime_state(), runtime_state_exports));
-        const existing = await getRuntimeStateStrict2("tl_day_start", key);
-        if (Number(existing?.equity) > 0) start = Number(existing.equity);
-        else start = Number((await insertRuntimeStateIfAbsent2("tl_day_start", key, { equity }))?.equity) || equity;
-      } catch (e) {
-        return { block: `daily-loss baseline unreadable (${e?.message || e}) \u2014 not trading this account (fail closed)` };
-      }
-      tlDayStartEquity.set(key, start);
-    }
-    const ddPct = start > 0 ? (start - equity) / start * 100 : 0;
-    if (ddPct >= lossPct) {
-      return { block: `daily loss ${ddPct.toFixed(2)}% \u2265 ${lossPct}% (equity $${equity.toFixed(0)} vs day start $${start.toFixed(0)}) \u2014 no new trades on this account until 00:00 UTC` };
-    }
-  }
-  let positions;
-  try {
-    positions = await guardRead(`pos:${connKey}`, () => service.getPositionsNormalized({ fresh: true }), 0);
-  } catch (e) {
-    return { block: `open positions unreadable (${e?.message || e}) \u2014 not trading this account (fail closed)` };
-  }
-  if (positions.some((p) => /^\d+$/.test(String(p.symbol || "")))) {
-    return { block: "open positions show unresolved instrument ids \u2014 cannot confirm the pair is flat (fail closed)" };
-  }
-  if (!want) return { block: "order has no symbol" };
-  const held = positions.find((p) => {
-    const s = norm3(p.symbol);
-    return s === want || s.startsWith(want) || s.length >= 6 && want.startsWith(s);
-  });
-  if (held) return { block: `already holding ${held.symbol} ${String(held.side || "").toUpperCase()} ${held.qty} on this account (one position per pair)` };
-  try {
-    const { pool: pool2 } = await Promise.resolve().then(() => (init_db(), db_exports));
-    const { rows } = await pool2.query(
-      // TradeLocker rows only (DXtrade rows reuse connection_id numbers), and
-      // only recent ones: a PENDING row whose close never synced (an XAUUSD
-      // row on account 31 since 2026-09-23) used to block that pair forever.
-      `SELECT 1 FROM ai_trade_results WHERE connection_id = $1 AND result = 'PENDING'
-         AND coalesce(source, '') NOT ILIKE 'dx%' AND created_at > now() - interval '3 days'
-         AND upper(regexp_replace(split_part(symbol, '.', 1), '[^A-Za-z0-9]', '', 'g')) = $2 LIMIT 1`,
-      [connection2.id ?? -1, want]
-    );
-    if (rows.length) return { block: `an open ${want} trade is recorded for this account (one position per pair)` };
-  } catch (e) {
-    return { block: `could not check recorded open trades (${e?.message || e}) \u2014 fail closed` };
-  }
-  const scale = equity / 1e5;
-  const perOrder = Math.min(Number(process.env.TL_MAX_LOT_PER_ORDER ?? 5) || Infinity, (Number(process.env.TL_MAX_LOT_PER_100K ?? 10) || Infinity) * scale);
-  const openCap = Math.min(Number(process.env.TL_MAX_OPEN_LOTS ?? 6) || Infinity, (Number(process.env.TL_MAX_OPEN_LOTS_PER_100K ?? 12) || Infinity) * scale);
-  const openLots = positions.reduce((s, p) => s + (Number(p.qty) || 0), 0);
-  const room = Math.floor(Math.min(perOrder, openCap - openLots) * 100) / 100;
-  if (!(room >= 0.01)) {
-    return { block: `open lots ${openLots.toFixed(2)} already at the ${openCap.toFixed(2)}-lot cap for this account size` };
-  }
-  return { maxVolume: room, positionIds: positions.map((p) => String(p.id)) };
-}
-async function guardRead(key, fn, ttlMs = GUARD_CACHE_MS) {
-  const hit = guardCache.get(key);
-  if (ttlMs > 0 && hit && Date.now() - hit.at < ttlMs) return hit.value;
-  let value;
-  try {
-    value = await fn();
-  } catch (e) {
-    if (!_isRateLimit(e)) throw e;
-    await new Promise((r) => setTimeout(r, 1500));
-    value = await fn();
-  }
-  guardCache.set(key, { at: Date.now(), value });
-  return value;
-}
-function clearGuardPositions(connKey) {
-  guardCache.delete(`pos:${connKey}`);
-}
-async function logTlClose(connection2, info2) {
-  try {
-    const userId = Number(connection2?.userId ?? connection2?.user_id);
-    if (!(userId > 0) || !(Number(connection2?.id) > 0)) return;
-    const { pool: pool2 } = await Promise.resolve().then(() => (init_db(), db_exports));
-    const pnl = Number.isFinite(Number(info2.pnl)) && info2.pnl != null ? ` | floating P&L at close ${Number(info2.pnl).toFixed(2)}` : "";
-    const msg = `CLOSE reason: ${info2.reason}${pnl}${info2.positionId ? ` | position ${info2.positionId}` : ""}${info2.ok ? "" : ` | FAILED: ${String(info2.error || "").slice(0, 200)}`}`;
-    await pool2.query(
-      `INSERT INTO tradelocker_trade_logs (user_id, connection_id, action, symbol, direction, volume, status, error_message, created_at)
-       VALUES ($1, $2, 'CLOSE', $3, $4, $5, $6, $7, now())`,
-      [userId, connection2?.id ?? null, String(info2.symbol || ""), String(info2.direction || "").toUpperCase(), Number(info2.volume) || 0, info2.ok ? "executed" : "failed", msg.slice(0, 1e3)]
-    );
-  } catch (e) {
-    console.error("[TradeLocker] close log write failed (non-fatal):", e?.message || e);
-  }
-}
-async function executeMT5SignalOnTradeLocker(connection2, signal) {
-  console.log("[TradeLocker Execute] Starting trade execution:", {
-    accountType: connection2.accountType,
-    accountId: connection2.accountId,
-    serverId: connection2.serverId,
-    signal: { action: signal.action, symbol: signal.symbol, direction: signal.direction, volume: signal.volume }
-  });
-  try {
-    const service = await getOrCreateService(connection2);
-    if (signal.action === "OPEN" || signal.action.toUpperCase() === "OPEN") {
-      const tlOrderType = signal.orderType === "limit_entry" ? "limit" : signal.orderType === "stop_entry" ? "stop" : "market";
-      const usePrice = tlOrderType !== "market" && signal.entryPrice && signal.entryPrice > 0 ? signal.entryPrice : void 0;
-      const resolvedType = usePrice ? tlOrderType : "market";
-      const _slNum = Number(signal.stopLoss);
-      if (!Number.isFinite(_slNum) || _slNum <= 0) {
-        console.error(`[TradeLocker Execute] \u{1F6AB} NO-SL BLOCK: ${signal.symbol} ${signal.direction} rejected \u2014 no valid stop loss (SL=${signal.stopLoss}). Unprotected trades are never allowed (likely NaN ATR upstream).`);
-        return { success: false, error: `Blocked: no valid stop loss (SL=${signal.stopLoss}) \u2014 unprotected trade rejected` };
-      }
-      {
-        const _sym = String(signal.symbol || "").toUpperCase();
-        const _isFx = /^[A-Z]{6}/.test(_sym) && !/^(XAU|XAG|BTC|ETH|SOL|US30|NAS|SPX|GER|UK1|JP2)/.test(_sym);
-        const _ref = Number(signal.entryPrice);
-        const _minPips = Number(process.env.TL_MIN_SL_PIPS ?? 10);
-        if (_isFx && _minPips > 0 && Number.isFinite(_ref) && _ref > 0) {
-          const _pip = /JPY/.test(_sym) ? 0.01 : 1e-4;
-          const _slPips = Math.abs(_ref - _slNum) / _pip;
-          if (_slPips < _minPips) {
-            console.error(`[TradeLocker Execute] \u{1F6AB} TIGHT-SL BLOCK: ${_sym} ${signal.direction} stop ${_slPips.toFixed(1)} pips < ${_minPips} \u2014 rejected (would inflate the lot size).`);
-            return { success: false, error: `Blocked: stop ${_slPips.toFixed(1)} pips is tighter than the ${_minPips}-pip minimum (prevents oversized lots)` };
-          }
-        }
-      }
-      let _preOrderIds = null;
-      {
-        try {
-          const { isFxLeader: isFxLeader2 } = await Promise.resolve().then(() => (init_live_trading_engine(), live_trading_engine_exports));
-          if (!isFxLeader2()) return { success: false, error: "NOT LEADER: this server does not hold the FX lock \u2014 order not sent" };
-        } catch {
-          return { success: false, error: "NOT LEADER: leadership could not be confirmed \u2014 order not sent" };
-        }
-        const _guard = await tlAccountRiskGuard(service, connection2, signal);
-        _preOrderIds = _guard.positionIds ? new Set(_guard.positionIds) : null;
-        if (_guard.block) {
-          console.error(`[TradeLocker Execute] \u{1F6AB} RISK GUARD ${connection2.accountId} ${signal.symbol} ${signal.direction}: ${_guard.block}`);
-          return { success: false, error: `RISK GUARD: ${_guard.block}` };
-        }
-        if (_guard.maxVolume != null && Number(signal.volume) > _guard.maxVolume) {
-          console.warn(`[TradeLocker Execute] lot ${signal.volume} on ${signal.symbol} clamped to ${_guard.maxVolume} (account-size lot cap)`);
-          signal = { ...signal, volume: _guard.maxVolume };
-        }
-      }
-      const _pauseKey = `${connection2.id ?? connection2.accountId}|${String(signal.symbol).toUpperCase().split(".")[0]}|${signal.direction.toUpperCase()}`;
-      const _pausedUntil = rejectPauseUntil.get(_pauseKey) || 0;
-      if (Date.now() < _pausedUntil) {
-        const mins = Math.ceil((_pausedUntil - Date.now()) / 6e4);
-        return { success: false, error: `REJECT PAUSE: broker rejected this ${signal.symbol} ${signal.direction} on this account recently \u2014 not resending for ${mins} more min` };
-      }
-      const _isTransient = (msg) => /\b(429|5\d\d|1015)\b|rate.?limit|too many requests|timeout|timed out|network|ECONN|outcome unknown|<!doctype|<html/i.test(msg);
-      const _isBrokerReject = (msg) => {
-        const m = String(msg || "").slice(0, 300);
-        return !_isTransient(m) && /not valid|route is not active|instrument not found|forbidden|insufficient|market is closed|invalid/i.test(m);
-      };
-      console.log("[TradeLocker Execute] Placing order:", {
-        symbol: signal.symbol,
-        side: signal.direction.toLowerCase(),
-        type: resolvedType,
-        price: usePrice,
-        quantity: signal.volume
-      });
-      let orderResult;
-      try {
-        orderResult = await service.placeOrder({
-          symbol: signal.symbol,
-          side: signal.direction.toLowerCase(),
-          type: resolvedType,
-          quantity: signal.volume,
-          price: usePrice,
-          stopLoss: signal.stopLoss || void 0,
-          takeProfit: signal.takeProfit || void 0
-        });
-      } catch (e) {
-        const msg = e instanceof Error ? e.message : String(e);
-        if (_isBrokerReject(msg)) rejectPauseUntil.set(_pauseKey, Date.now() + REJECT_PAUSE_MS);
-        {
-          clearGuardPositions(String(connection2.id ?? connection2.accountId));
-          service.invalidateReadCache();
-        }
-        if (/timeout|timed out|outcome unknown|ECONN|socket|network|\b5\d\d\b/i.test(msg)) {
-          rejectPauseUntil.set(_pauseKey, Math.max(rejectPauseUntil.get(_pauseKey) || 0, Date.now() + UNKNOWN_OUTCOME_PAUSE_MS));
-        }
-        throw e;
-      }
-      console.log("[TradeLocker Execute] Order result:", orderResult);
-      if (orderResult.status === "rejected" && _isBrokerReject(String(orderResult.message || "rejected"))) {
-        rejectPauseUntil.set(_pauseKey, Date.now() + REJECT_PAUSE_MS);
-      }
-      if (orderResult.status !== "rejected") {
-        clearGuardPositions(String(connection2.id ?? connection2.accountId));
-        service.invalidateReadCache();
-      }
-      if (orderResult.status !== "rejected" && resolvedType === "market" && process.env.TL_REANCHOR_DISABLED !== "true") {
-        try {
-          const _plan = Number(signal.entryPrice), _sl = Number(signal.stopLoss), _tp = Number(signal.takeProfit);
-          const _slDist = Math.abs(_plan - _sl);
-          if (_plan > 0 && _sl > 0 && _slDist > 0) {
-            const _nrm = (x) => String(x || "").toUpperCase().split(".")[0].replace(/[^A-Z0-9]/g, "");
-            const _w = _nrm(signal.symbol);
-            const _isBuy = signal.direction.toUpperCase() === "BUY";
-            let _pos = null, _cands = 0;
-            for (let i = 0; i < 3 && !_pos; i++) {
-              await new Promise((r) => setTimeout(r, 1e3));
-              let ps = [];
-              try {
-                ps = await guardRead(`pos:${String(connection2.id ?? connection2.accountId)}`, () => service.getPositionsNormalized({ fresh: true }), 0);
-              } catch {
-                ps = [];
-              }
-              const c = ps.filter((x) => _nrm(x.symbol) === _w && String(x.side || "").toUpperCase() === (_isBuy ? "BUY" : "SELL") && !(_preOrderIds && _preOrderIds.has(String(x.id))));
-              _cands = c.length;
-              if (c.length === 1) _pos = c[0];
-              else if (c.length > 1) break;
-            }
-            if (!_pos) console.warn(`[TradeLocker Execute] re-anchor skipped for ${_w} on ${connection2.accountId}: ${_cands > 1 ? `${_cands} new positions match \u2014 ambiguous` : "new position not found"}`);
-            const _fill = Number(_pos?.avgPrice);
-            const _off = _fill - _plan;
-            const _dec = /^XAU/.test(_w) ? 2 : /^(XAG|BTC|ETH|LTC|XRP|SOL|ADA|DOGE)/.test(_w) ? -1 : /JPY/.test(_w) ? 3 : /^[A-Z]{6}$/.test(_w) ? 5 : -1;
-            if (_dec >= 0 && _pos && _fill > 0 && Math.abs(_off) > _slDist * 0.15) {
-              const _r = (x) => Number(x.toFixed(_dec));
-              const newSl = _r(_sl + _off);
-              const newTp = _tp > 0 ? _r(_tp + _off) : void 0;
-              const mod = await service.modifyPosition(String(_pos.id), newSl, newTp);
-              console.warn(`[TradeLocker Execute] RE-ANCHOR ${_w} ${signal.direction} on ${connection2.accountId}: fill ${_fill} vs plan ${_plan} \u2192 SL ${_sl}\u2192${newSl}, TP ${_tp}\u2192${newTp} (${mod.success ? "ok" : "FAILED: " + mod.error})`);
-            }
-          }
-        } catch (e) {
-          console.error(`[TradeLocker Execute] re-anchor failed (position keeps its original SL/TP): ${e?.message || e}`);
-        }
-      }
-      return {
-        success: orderResult.status !== "rejected",
-        orderId: orderResult.orderId,
-        error: orderResult.status === "rejected" ? orderResult.message : void 0,
-        volume: signal.volume
-        // size ACTUALLY sent (after caps) — log this, not the request
-      };
-    } else if (signal.action === "CLOSE" || signal.action.toUpperCase() === "CLOSE") {
-      console.log("[TradeLocker Execute] Closing position:", signal.positionId);
-      if (!signal.positionId) {
-        return { success: false, error: "Position ID required for close action" };
-      }
-      let closeResult;
-      try {
-        closeResult = await service.closePosition(signal.positionId);
-      } catch (e) {
-        await logTlClose(connection2, { symbol: signal.symbol, direction: signal.direction, positionId: signal.positionId, reason: signal.closeReason || "unspecified caller", pnl: signal.closePnl, volume: signal.volume, ok: false, error: e?.message || String(e) });
-        throw e;
-      }
-      await logTlClose(connection2, { symbol: signal.symbol, direction: signal.direction, positionId: signal.positionId, reason: signal.closeReason || "unspecified caller", pnl: signal.closePnl, volume: signal.volume, ok: true });
-      {
-        clearGuardPositions(String(connection2.id ?? connection2.accountId));
-        service.invalidateReadCache();
-      }
-      return {
-        success: true,
-        orderId: closeResult.orderId
-      };
-    } else if (signal.action === "MODIFY" || signal.action.toUpperCase() === "MODIFY") {
-      if (!signal.positionId) {
-        return { success: false, error: "Position ID required for modify action" };
-      }
-      console.log("[TradeLocker Execute] Modifying position:", {
-        positionId: signal.positionId,
-        stopLoss: signal.stopLoss,
-        takeProfit: signal.takeProfit
-      });
-      const modifyResult = await service.modifyPosition(
-        signal.positionId,
-        signal.stopLoss != null ? signal.stopLoss : void 0,
-        signal.takeProfit != null ? signal.takeProfit : void 0
-      );
-      console.log("[TradeLocker Execute] Modify result:", modifyResult);
-      return {
-        success: modifyResult.success,
-        error: modifyResult.error
-      };
-    }
-    console.log("[TradeLocker Execute] Unknown action type:", signal.action);
-    return { success: false, error: `Unknown action type: ${signal.action}` };
-  } catch (error) {
-    console.error("[TradeLocker Execute] Error:", error);
-    if (connection2.id) serviceCache.delete(connection2.id);
-    return {
-      success: false,
-      error: error instanceof Error ? error.message : "Unknown error"
-    };
-  }
-}
-var IV_LENGTH2, DEFAULT_ENCRYPTION_KEY2, SALT_LENGTH2, INSTRUMENT_CACHE_TTL, instrumentCache, instrumentsListCache, serviceCache, SERVICE_CACHE_TTL, rejectPauseUntil, REJECT_PAUSE_MS, RETRY_DELAYS, RETRYABLE_STATUSES, TradeLockerReadError, AUTH_429_COOLDOWN_MS, authCooldownUntil, authChain, lastAuthAt, MIN_AUTH_GAP_MS, USDJPY_FALLBACK, _usdJpyLive, _usdJpyObserved, TL_READ_CACHE_MS, TL_BAN_MS, TL_STALE_OK_MS, TL_FRESH_WAIT_MAX_MS, tlBannedUntil, _tlIsRateLimit, tlReadCache, tlInflight, modifyChain, TL_STOP_DEDUPE_MS, lastStopSet, TradeLockerService, TL_VALUE_TTL, tlDayStartEquity, UNKNOWN_OUTCOME_PAUSE_MS, GUARD_CACHE_MS, guardCache, _isRateLimit;
-var init_tradelocker = __esm({
-  "server/tradelocker.ts"() {
-    "use strict";
-    IV_LENGTH2 = 16;
-    DEFAULT_ENCRYPTION_KEY2 = "vedd-tl-default-key-change-me-32chars!!";
-    SALT_LENGTH2 = 16;
-    INSTRUMENT_CACHE_TTL = 10 * 60 * 1e3;
-    instrumentCache = /* @__PURE__ */ new Map();
-    instrumentsListCache = /* @__PURE__ */ new Map();
-    serviceCache = /* @__PURE__ */ new Map();
-    SERVICE_CACHE_TTL = 50 * 60 * 1e3;
-    rejectPauseUntil = /* @__PURE__ */ new Map();
-    REJECT_PAUSE_MS = Number(process.env.TL_REJECT_PAUSE_MINUTES ?? 15) * 6e4;
-    RETRY_DELAYS = [1e3, 2e3];
-    RETRYABLE_STATUSES = /* @__PURE__ */ new Set([429, 500, 502, 503, 504]);
-    TradeLockerReadError = class extends Error {
-      status;
-      constructor(message, status) {
-        super(message);
-        this.name = "TradeLockerReadError";
-        this.status = status;
-      }
-    };
-    AUTH_429_COOLDOWN_MS = 5 * 60 * 1e3;
-    authCooldownUntil = /* @__PURE__ */ new Map();
-    authChain = Promise.resolve();
-    lastAuthAt = 0;
-    MIN_AUTH_GAP_MS = 1500;
-    USDJPY_FALLBACK = 150;
-    _usdJpyLive = null;
-    _usdJpyObserved = [];
-    TL_READ_CACHE_MS = Number(process.env.TL_READ_CACHE_MS ?? 12e3);
-    TL_BAN_MS = Number(process.env.TL_BAN_MS ?? 12e4);
-    TL_STALE_OK_MS = 5 * 6e4;
-    TL_FRESH_WAIT_MAX_MS = Number(process.env.TL_FRESH_WAIT_MAX_MS ?? 13e4);
-    tlBannedUntil = 0;
-    _tlIsRateLimit = (e) => /\b(429|1015)\b|rate.?limit|too many requests/i.test(String(e?.message || e).slice(0, 400));
-    tlReadCache = /* @__PURE__ */ new Map();
-    tlInflight = /* @__PURE__ */ new Map();
-    modifyChain = /* @__PURE__ */ new Map();
-    TL_STOP_DEDUPE_MS = Number(process.env.TL_STOP_DEDUPE_MS ?? 30 * 6e4);
-    lastStopSet = /* @__PURE__ */ new Map();
-    TradeLockerService = class _TradeLockerService {
-      baseUrl;
-      accessToken = null;
-      refreshToken = null;
-      tokenExpiresAt = null;
-      accountId;
-      serverId;
-      accNum = "0";
-      accNumResolved = false;
-      connectionId = null;
-      accountDetailsConfig = null;
-      // cached column spec from /trade/config
-      onTokenRefresh = null;
-      onReauthenticate = null;
-      // Fired when resolveAccNum() corrects a mismatched accountId (see there) —
-      // wired up by getOrCreateService() to persist the correction to the DB.
-      onAccountIdCorrected = null;
-      constructor(accountType, accountId, serverId, cachedAccNum) {
-        this.baseUrl = accountType === "demo" ? "https://demo.tradelocker.com/backend-api" : "https://live.tradelocker.com/backend-api";
-        this.accountId = accountId.replace(/^#/, "").trim();
-        if (this.accountId !== accountId) {
-          console.log("[TradeLocker] Stripped # prefix from accountId:", accountId, "\u2192", this.accountId);
-        }
-        this.serverId = serverId;
-        if (cachedAccNum && cachedAccNum !== "0") {
-          this.accNum = cachedAccNum;
-          this.accNumResolved = true;
-          console.log("[TradeLocker] Using cached accNum:", cachedAccNum);
-        }
-      }
-      getResolvedAccNum() {
-        return this.accNum;
-      }
-      // The accountId TradeLocker's own /instruments, /state, /orders endpoints
-      // actually need — may differ from what was originally passed to the
-      // constructor if resolveAccNum() had to correct a mismatched ID (see there).
-      getResolvedAccountId() {
-        return this.accountId;
-      }
-      // Bypasses the accNumResolved short-circuit below — needed because the
-      // constructor marks accNumResolved=true whenever a cached accNum from a
-      // prior (possibly wrong) resolution exists, so a normal resolveAccNum()
-      // call would never re-run and never reach the accountId-correction logic.
-      async forceResolveAccNum() {
-        this.accNumResolved = false;
-        return this.resolveAccNum();
-      }
-      async resolveAccNum() {
-        if (this.accNumResolved && this.accNum !== "0") {
-          return this.accNum;
-        }
-        await this.ensureAuthenticated();
-        try {
-          const response = await fetch(`${this.baseUrl}/auth/jwt/all-accounts`, {
-            method: "GET",
-            headers: {
-              "Authorization": `Bearer ${this.accessToken}`,
-              "Content-Type": "application/json"
-            },
-            signal: AbortSignal.timeout(8e3)
-          });
-          if (response.ok) {
-            const data = await response.json();
-            console.log("[TradeLocker] All accounts raw response:", JSON.stringify(data));
-            const accounts = Array.isArray(data) ? data : data.accounts || data.d?.accounts || [];
-            if (accounts.length > 0) {
-              const account = accounts.find(
-                (acc) => acc.id?.toString() === this.accountId || acc.accountId?.toString() === this.accountId
-              );
-              if (account && account.accNum !== void 0) {
-                this.accNum = account.accNum.toString();
-                this.accNumResolved = true;
-                console.log("[TradeLocker] Found matching account, using accNum:", this.accNum);
-                return this.accNum;
-              } else {
-                const fallback = accounts[0];
-                this.accNum = fallback.accNum?.toString() ?? "1";
-                this.accNumResolved = true;
-                const realAccountId = fallback.id?.toString() ?? fallback.accountId?.toString();
-                if (realAccountId && realAccountId !== this.accountId) {
-                  console.log("[TradeLocker] accountId", this.accountId, "did not match any account \u2014 correcting to real account ID:", realAccountId);
-                  this.accountId = realAccountId;
-                  this.onAccountIdCorrected?.(realAccountId);
-                }
-                console.log("[TradeLocker] Using first account accNum:", this.accNum);
-                return this.accNum;
-              }
-            }
-          }
-        } catch (error) {
-          console.log("[TradeLocker] All-accounts endpoint failed:", error);
-        }
-        console.log("[TradeLocker] All-accounts returned empty, probing accNum values...");
-        for (const testNum of ["1", "2"]) {
-          try {
-            const testResponse = await fetch(`${this.baseUrl}/trade/accounts/${this.accountId}/instruments`, {
-              method: "GET",
-              headers: {
-                "Authorization": `Bearer ${this.accessToken}`,
-                "Content-Type": "application/json",
-                "accNum": testNum
-              },
-              signal: AbortSignal.timeout(5e3)
-            });
-            if (testResponse.ok) {
-              this.accNum = testNum;
-              this.accNumResolved = true;
-              console.log("[TradeLocker] Probing found valid accNum:", testNum);
-              return this.accNum;
-            }
-            console.log(`[TradeLocker] accNum ${testNum} failed: ${testResponse.status}`);
-          } catch (err) {
-            console.log(`[TradeLocker] accNum ${testNum} probe error`);
-          }
-        }
-        this.accNum = "1";
-        this.accNumResolved = true;
-        console.log("[TradeLocker] Could not resolve accNum, defaulting to 1");
-        return this.accNum;
-      }
-      async authenticate(email, password) {
-        console.log("[TradeLocker Auth] Attempting authentication:", {
-          baseUrl: this.baseUrl,
-          email,
-          serverId: this.serverId,
-          accountId: this.accountId
-        });
-        try {
-          const response = await serializeAuth(`login:${this.serverId}:${email}`, () => loginFetchWith429Retry(`${this.baseUrl}/auth/jwt/token`, {
-            email,
-            password,
-            server: this.serverId
-          }));
-          console.log("[TradeLocker Auth] Response status:", response.status);
-          if (!response.ok) {
-            const errorText = await response.text();
-            console.log("[TradeLocker Auth] Error response:", errorText);
-            throw new Error(`Authentication failed: ${response.status} - ${errorText}`);
-          }
-          const data = await response.json();
-          this.accessToken = data.accessToken;
-          this.refreshToken = data.refreshToken;
-          this.tokenExpiresAt = new Date(Date.now() + (data.expiresIn || 3600) * 1e3);
-          await this.resolveAccNum();
-          return {
-            accessToken: data.accessToken,
-            refreshToken: data.refreshToken,
-            expiresIn: data.expiresIn || 3600
-          };
-        } catch (error) {
-          console.error("TradeLocker authentication error:", error);
-          throw error;
-        }
-      }
-      async refreshAccessToken(refreshToken) {
-        try {
-          const response = await serializeAuth(`refresh:${this.serverId}`, () => loginFetchWith429Retry(`${this.baseUrl}/auth/jwt/refresh`, { refreshToken }));
-          if (!response.ok) {
-            throw new Error(`Token refresh failed: ${response.status}`);
-          }
-          const data = await response.json();
-          this.accessToken = data.accessToken;
-          this.refreshToken = data.refreshToken;
-          this.tokenExpiresAt = new Date(Date.now() + (data.expiresIn || 3600) * 1e3);
-          return {
-            accessToken: data.accessToken,
-            refreshToken: data.refreshToken,
-            expiresIn: data.expiresIn || 3600
-          };
-        } catch (error) {
-          console.error("TradeLocker token refresh error:", error);
-          throw error;
-        }
-      }
-      setTokens(accessToken, refreshToken, expiresAt) {
-        this.accessToken = accessToken;
-        this.refreshToken = refreshToken;
-        this.tokenExpiresAt = expiresAt || null;
-      }
-      async ensureAuthenticated() {
-        if (!this.accessToken) {
-          throw new Error("Not authenticated. Call authenticate() first.");
-        }
-        const TOKEN_BUFFER = 60 * 1e3;
-        if (this.tokenExpiresAt && (/* @__PURE__ */ new Date()).getTime() + TOKEN_BUFFER >= this.tokenExpiresAt.getTime() && this.refreshToken) {
-          const result = await this.refreshAccessToken(this.refreshToken);
-          if (this.onTokenRefresh) {
-            this.onTokenRefresh(result.accessToken, result.refreshToken, result.expiresIn);
-          }
-        }
-      }
-      /**
-       * Loads & caches the accountDetailsConfig column spec from /trade/config.
-       * The /state endpoint returns accountDetailsData as a flat array whose
-       * positions map to these columns (by `id`), so we need this to read balance.
-       */
-      async loadAccountDetailsConfig(accNum) {
-        if (this.accountDetailsConfig) return this.accountDetailsConfig;
-        const res = await fetch(`${this.baseUrl}/trade/config`, {
-          method: "GET",
-          headers: {
-            "Authorization": `Bearer ${this.accessToken}`,
-            "Content-Type": "application/json",
-            "accNum": accNum
-          },
-          signal: AbortSignal.timeout(8e3)
-        });
-        if (!res.ok) throw new Error(`config ${res.status}`);
-        const json2 = await res.json();
-        const cfg = json2?.d?.accountDetailsConfig ?? json2?.accountDetailsConfig ?? [];
-        const cols = Array.isArray(cfg) ? cfg : cfg?.columns ?? [];
-        this.accountDetailsConfig = cols;
-        return cols;
-      }
-      // Full /trade/config response, cached — used to resolve column order for
-      // any array-format response section (ordersHistoryConfig, positionsConfig,
-      // etc). TradeLocker returns rows as plain arrays whose column order is
-      // defined here, not as named-field objects — code that skipped this and
-      // read `row.symbol`/`row.profit` directly always got undefined/blank.
-      tradeConfigCache = null;
-      async loadTradeConfig() {
-        if (this.tradeConfigCache) return this.tradeConfigCache;
-        const res = await fetch(`${this.baseUrl}/trade/config`, {
-          method: "GET",
-          headers: { "Authorization": `Bearer ${this.accessToken}`, "Content-Type": "application/json", "accNum": this.accNum },
-          signal: AbortSignal.timeout(8e3)
-        });
-        if (!res.ok) throw new Error(`trade/config ${res.status}`);
-        const json2 = await res.json();
-        this.tradeConfigCache = json2?.d ?? json2 ?? {};
-        return this.tradeConfigCache;
-      }
-      async resolveColumns(configKey) {
-        try {
-          await this.ensureAuthenticated();
-          const cfg = await this.loadTradeConfig();
-          const cols = cfg?.[configKey]?.columns ?? [];
-          return cols.map((c) => String(c.id || c.name || "").toLowerCase());
-        } catch {
-          return [];
-        }
-      }
-      /** Normalize a label for fuzzy matching: lowercase, strip all non-alphanumerics */
-      normLabel(s) {
-        return (s ?? "").toString().toLowerCase().replace(/[^a-z0-9]/g, "");
-      }
-      /** Finds the value in a flat state-data array for a column matching any candidate id/title.
-       *  Matching is normalized (case/space/punctuation-insensitive) with exact-first then substring. */
-      pickStateValue(cols, data, candidates) {
-        const normCands = candidates.map((c) => this.normLabel(c));
-        for (const cand of normCands) {
-          const idx = cols.findIndex(
-            (c) => this.normLabel(c?.id) === cand || this.normLabel(c?.title) === cand
-          );
-          if (idx >= 0 && data[idx] != null) {
-            const n = parseFloat(data[idx]);
-            if (!isNaN(n)) return n;
-          }
-        }
-        for (const cand of normCands) {
-          const idx = cols.findIndex((c) => {
-            const id = this.normLabel(c?.id), title = this.normLabel(c?.title);
-            return id && (id === cand || id.includes(cand)) || title && (title === cand || title.includes(cand));
-          });
-          if (idx >= 0 && data[idx] != null) {
-            const n = parseFloat(data[idx]);
-            if (!isNaN(n)) return n;
-          }
-        }
-        return null;
-      }
-      /** Finds a value in an object-form state payload by normalized key match. */
-      pickObjValue(obj, candidates) {
-        const keys = Object.keys(obj);
-        const normCands = candidates.map((c) => this.normLabel(c));
-        for (const cand of normCands) {
-          let k2 = keys.find((key) => this.normLabel(key) === cand);
-          if (!k2) k2 = keys.find((key) => this.normLabel(key).includes(cand));
-          if (k2 && obj[k2] != null) {
-            const n = parseFloat(obj[k2]);
-            if (!isNaN(n)) return n;
-          }
-        }
-        return null;
-      }
-      async getAccountInfo(opts) {
-        return tlSharedRead(`acct:${this.baseUrl}:${this.accountId}`, () => this._getAccountInfoRaw(), !!opts?.fresh);
-      }
-      async _getAccountInfoRaw() {
-        await this.ensureAuthenticated();
-        if (!this.accNumResolved || this.accNum === "0") {
-          await this.resolveAccNum();
-        }
-        const accNum = this.accNum;
-        console.log("[TradeLocker] getAccountInfo using accNum:", accNum, "for accountId:", this.accountId);
-        try {
-          const [cols, stateRes] = await Promise.all([
-            this.loadAccountDetailsConfig(accNum).catch((e) => {
-              console.log("[TradeLocker] /config columns failed:", e instanceof Error ? e.message : e);
-              return [];
-            }),
-            fetch(`${this.baseUrl}/trade/accounts/${this.accountId}/state`, {
-              method: "GET",
-              headers: {
-                "Authorization": `Bearer ${this.accessToken}`,
-                "Content-Type": "application/json",
-                "accNum": accNum
-              },
-              signal: AbortSignal.timeout(8e3)
-            })
-          ]);
-          if (stateRes.ok) {
-            const stateJson = await stateRes.json();
-            const raw = stateJson?.d?.accountDetailsData ?? stateJson?.accountDetailsData;
-            let balance = null, equity = null;
-            let usedMargin = null, freeMargin = null;
-            if (Array.isArray(raw) && raw.length && Array.isArray(cols) && cols.length) {
-              balance = this.pickStateValue(cols, raw, ["balance", "accountbalance"]);
-              equity = this.pickStateValue(cols, raw, ["equity", "projectedbalance"]);
-              usedMargin = this.pickStateValue(cols, raw, ["marginused", "usedmargin", "blockedbalance", "margin"]);
-              freeMargin = this.pickStateValue(cols, raw, ["availablefunds", "marginavailable", "freemargin"]);
-            } else if (raw && typeof raw === "object" && !Array.isArray(raw)) {
-              balance = this.pickObjValue(raw, ["balance", "accountbalance"]);
-              equity = this.pickObjValue(raw, ["equity", "projectedbalance"]);
-              usedMargin = this.pickObjValue(raw, ["marginused", "usedmargin", "blockedbalance", "margin"]);
-              freeMargin = this.pickObjValue(raw, ["availablefunds", "marginavailable", "freemargin"]);
-            } else {
-              console.log("[TradeLocker] /state shape unexpected \u2014 cols:", Array.isArray(cols) ? cols.length : typeof cols, "data:", Array.isArray(raw) ? `array[${raw.length}]` : typeof raw);
-            }
-            if (balance != null) {
-              console.log("[TradeLocker] getAccountInfo via /state \u2014 balance:", balance, "equity:", equity);
-              return {
-                accountId: this.accountId,
-                balance,
-                equity: equity ?? balance,
-                margin: usedMargin ?? 0,
-                freeMargin: freeMargin ?? equity ?? balance,
-                currency: "USD"
-              };
-            }
-            console.log("[TradeLocker] /state returned but could not map balance; falling back to /accounts list");
-          } else {
-            console.log("[TradeLocker] /state endpoint status:", stateRes.status, "\u2014 falling back to /accounts list");
-          }
-        } catch (stateErr) {
-          console.log("[TradeLocker] /state path failed, falling back to /accounts list:", stateErr instanceof Error ? stateErr.message : stateErr);
-        }
-        try {
-          const response = await fetch(`${this.baseUrl}/trade/accounts`, {
-            method: "GET",
-            headers: {
-              "Authorization": `Bearer ${this.accessToken}`,
-              "Content-Type": "application/json",
-              "accNum": accNum
-            },
-            signal: AbortSignal.timeout(8e3)
-          });
-          if (!response.ok) {
-            const errorText = await response.text();
-            console.log("[TradeLocker] Account details error:", errorText);
-            throw new Error(`Failed to get account info: ${response.status} - ${errorText}`);
-          }
-          const data = await response.json();
-          console.log("[TradeLocker] Account details (list):", JSON.stringify(data));
-          const accounts = Array.isArray(data) ? data : Array.isArray(data?.d) ? data.d : data.accounts || data.d?.accounts || [];
-          const accountData = accounts.find(
-            (a) => a.id?.toString() === this.accountId || a.accountId?.toString() === this.accountId
-          ) || accounts[0];
-          if (!accountData || accountData.balance == null && accountData.accountBalance == null && accountData.projectedBalance == null) {
-            throw new Error("TradeLocker returned no usable account data \u2014 the account may have been reset/expired by the broker, or the response shape changed. Reconnect required.");
-          }
-          const balance = parseFloat(
-            accountData?.accountBalance ?? accountData?.balance ?? accountData?.projectedBalance ?? 0
-          ) || 0;
-          return {
-            accountId: accountData?.id?.toString() || this.accountId,
-            balance,
-            equity: parseFloat(accountData?.projectedBalance ?? accountData?.equity ?? balance) || balance,
-            margin: parseFloat(accountData?.usedMargin ?? accountData?.margin ?? 0) || 0,
-            freeMargin: parseFloat(accountData?.availableFunds ?? accountData?.freeMargin ?? balance) || balance,
-            currency: accountData?.currency || "USD"
-          };
-        } catch (error) {
-          console.error("TradeLocker get account info error:", error);
-          throw error;
-        }
-      }
-      /** Diagnostic: returns the raw shapes of /config, /state and /accounts for debugging balance issues. */
-      async debugAccountState() {
-        await this.ensureAuthenticated();
-        if (!this.accNumResolved || this.accNum === "0") await this.resolveAccNum();
-        const accNum = this.accNum;
-        const hdrs = {
-          "Authorization": `Bearer ${this.accessToken}`,
-          "Content-Type": "application/json",
-          "accNum": accNum
-        };
-        const out = { accountId: this.accountId, accNum, baseUrl: this.baseUrl };
-        try {
-          const r = await fetch(`${this.baseUrl}/trade/config`, { method: "GET", headers: hdrs, signal: AbortSignal.timeout(8e3) });
-          out.configStatus = r.status;
-          if (r.ok) {
-            const j = await r.json();
-            const cols = j?.d?.accountDetailsConfig ?? j?.accountDetailsConfig ?? [];
-            out.configColumns = Array.isArray(cols) ? cols.map((c) => ({ id: c?.id, title: c?.title })) : cols;
-          }
-        } catch (e) {
-          out.configError = e?.message ?? String(e);
-        }
-        try {
-          const r = await fetch(`${this.baseUrl}/trade/accounts/${this.accountId}/state`, { method: "GET", headers: hdrs, signal: AbortSignal.timeout(8e3) });
-          out.stateStatus = r.status;
-          if (r.ok) {
-            const j = await r.json();
-            out.stateData = j?.d?.accountDetailsData ?? j?.accountDetailsData ?? null;
-            out.stateDataType = Array.isArray(out.stateData) ? `array[${out.stateData.length}]` : typeof out.stateData;
-          } else {
-            out.stateBody = (await r.text()).slice(0, 300);
-          }
-        } catch (e) {
-          out.stateError = e?.message ?? String(e);
-        }
-        try {
-          const r = await fetch(`${this.baseUrl}/trade/accounts`, { method: "GET", headers: hdrs, signal: AbortSignal.timeout(8e3) });
-          out.accountsStatus = r.status;
-          if (r.ok) {
-            const j = await r.json();
-            const accts = Array.isArray(j) ? j : j.accounts || j.d?.accounts || [];
-            out.accountsSample = Array.isArray(accts) ? accts.slice(0, 3) : accts;
-          }
-        } catch (e) {
-          out.accountsError = e?.message ?? String(e);
-        }
-        return out;
-      }
-      // Shared, cached, rate-limit-aware instruments fetch. One network call per
-      // account per TTL serves EVERY symbol lookup (order placement, getInstruments,
-      // candle feed) so a burst of signals doesn't fire one /instruments request per
-      // symbol and hammer the broker into a 429. On 429/5xx it backs off and retries
-      // (RETRY_DELAYS) instead of throwing on the first rate-limit response — which
-      // is exactly what was aborting every auto-trade with
-      // "Failed to get instruments: 429 - <Cloudflare block page>".
-      async fetchInstrumentsPayload(forceRefresh = false) {
-        await this.ensureAuthenticated();
-        const listKey = `${this.baseUrl}:${this.accountId}`;
-        if (!forceRefresh) {
-          const cached2 = instrumentsListCache.get(listKey);
-          if (cached2 && Date.now() - cached2.cachedAt < INSTRUMENT_CACHE_TTL) {
-            return { instruments: cached2.instruments, routes: cached2.routes ?? [] };
-          }
-        }
-        const doFetch = () => fetch(`${this.baseUrl}/trade/accounts/${this.accountId}/instruments`, {
-          method: "GET",
-          headers: {
-            "Authorization": `Bearer ${this.accessToken}`,
-            "Content-Type": "application/json",
-            "accNum": this.accNum
-          },
-          signal: AbortSignal.timeout(1e4)
-        });
-        let response = await doFetch();
-        if (response.status === 404) {
-          console.log("[TradeLocker] Instruments 404 for accountId", this.accountId, "\u2014 forcing accNum/accountId re-resolution");
-          await this.forceResolveAccNum();
-          response = await doFetch();
-        }
-        for (let i = 0; i < RETRY_DELAYS.length && RETRYABLE_STATUSES.has(response.status); i++) {
-          const delay = RETRY_DELAYS[i];
-          console.warn(`[TradeLocker] instruments ${response.status} \u2014 backing off ${delay}ms (retry ${i + 1}/${RETRY_DELAYS.length})`);
-          await new Promise((r) => setTimeout(r, delay));
-          response = await doFetch();
-        }
-        if (!response.ok) {
-          const errText = await response.text().catch(() => "");
-          throw new Error(`Failed to get instruments: ${response.status}${errText ? " - " + errText.slice(0, 120) : ""}`);
-        }
-        const data = await response.json();
-        const instruments = data?.d?.instruments ?? data?.instruments ?? (Array.isArray(data) ? data : []);
-        const routes = data?.d?.routes ?? data?.routes ?? [];
-        instrumentsListCache.set(listKey, { instruments, routes, cachedAt: Date.now() });
-        return { instruments, routes };
-      }
-      async getInstruments() {
-        try {
-          return (await this.fetchInstrumentsPayload()).instruments;
-        } catch (error) {
-          console.error("TradeLocker get instruments error:", error);
-          throw error;
-        }
-      }
-      /**
-       * Every order the app sends is written to tradelocker_trade_logs as
-       * action='ORDER' with the calling code path. Some callers (flip trade,
-       * copy-trade mirror) never logged their opens, so on 2026-10-19 a GBPUSD
-       * position on account 30 could not be traced. 'ORDER' (not 'OPEN') keeps
-       * the callers' own OPEN rows from being double-counted. Never throws.
-       */
-      async placeOrder(order) {
-        const caller = (new Error().stack || "").split("\n").slice(2, 4).map((l) => l.trim().replace(/^at\s+/, "").replace(/\s*\(.*\)$/, "").replace(/^async\s+/, "")).filter(Boolean).join(" <- ") || "unknown";
-        const write = (status, detail) => void (async () => {
-          try {
-            const c = this.logConn;
-            const userId = Number(c?.userId);
-            if (!(userId > 0) || !(Number(c?.id) > 0)) return;
-            const { pool: pool2 } = await Promise.resolve().then(() => (init_db(), db_exports));
-            await pool2.query(
-              `INSERT INTO tradelocker_trade_logs (user_id, connection_id, action, symbol, direction, volume, stop_loss, take_profit, status, error_message, created_at)
-           VALUES ($1, $2, 'ORDER', $3, $4, $5, $6, $7, $8, $9, now())`,
-              [
-                userId,
-                c.id,
-                order.symbol,
-                String(order.side || "").toUpperCase(),
-                Number(order.quantity) || 0,
-                Number(order.stopLoss) > 0 ? order.stopLoss : null,
-                Number(order.takeProfit) > 0 ? order.takeProfit : null,
-                status,
-                `ORDER ${order.type} by ${caller} | ${detail}`.slice(0, 1e3)
-              ]
-            );
-          } catch (e) {
-            console.error("[TradeLocker] order log write failed (non-fatal):", e?.message || e);
-          }
-        })();
-        const waitOutBan = async () => {
-          const wait = tlBannedUntil - Date.now();
-          if (wait <= 0) return true;
-          if (wait > TL_FRESH_WAIT_MAX_MS) return false;
-          console.warn(`[TL] order ${order.symbol} waiting ${Math.ceil(wait / 1e3)}s for rate-limit ban to clear`);
-          await new Promise((r) => setTimeout(r, wait + 250));
-          return true;
-        };
-        try {
-          await waitOutBan();
-          let res;
-          try {
-            res = await this.placeOrderRaw(order);
-          } catch (e) {
-            if (!_tlIsRateLimit(e)) throw e;
-            tlBannedUntil = Math.max(tlBannedUntil, Date.now() + TL_BAN_MS);
-            write("failed", `RATE LIMITED, retrying after ban: ${String(e?.message || e).slice(0, 120)}`);
-            if (!await waitOutBan()) throw e;
-            res = await this.placeOrderRaw(order);
-          }
-          write(res.status === "rejected" ? "failed" : "executed", `order ${res.orderId || "-"}${res.status === "rejected" ? ` | REJECTED: ${String(res.message || "").slice(0, 200)}` : ""}`);
-          return res;
-        } catch (e) {
-          write("failed", `ERROR: ${String(e?.message || e).slice(0, 200)}`);
-          throw e;
-        }
-      }
-      async placeOrderRaw(order) {
-        {
-          const _sl = Number(order.stopLoss);
-          if (!Number.isFinite(_sl) || _sl <= 0) {
-            console.error(`[TradeLocker] \u{1F6AB} NO-SL BLOCK (placeOrder): ${order.symbol} ${order.side} rejected \u2014 invalid stop loss (SL=${order.stopLoss}). Unprotected entry never allowed.`);
-            return { orderId: "", status: "rejected", message: `Blocked: no valid stop loss (SL=${order.stopLoss})` };
-          }
-        }
-        await this.ensureAuthenticated();
-        if (!this.accNumResolved || this.accNum === "0") {
-          await this.resolveAccNum();
-        }
-        try {
-          console.log("[TradeLocker] Placing order with accNum:", this.accNum, "(type:", typeof this.accNum, ") accountId:", this.accountId);
-          console.log("[TradeLocker] Order details:", order);
-          let tradableInstrumentId = null;
-          let routeId = null;
-          const instCacheKey = `${this.baseUrl}:${this.accountId}:${order.symbol.toUpperCase()}`;
-          const cachedInst = instrumentCache.get(instCacheKey);
-          if (cachedInst && Date.now() - cachedInst.cachedAt < INSTRUMENT_CACHE_TTL) {
-            tradableInstrumentId = cachedInst.tradableInstrumentId;
-            routeId = cachedInst.routeId;
-            console.log("[TradeLocker] Instrument cache HIT:", order.symbol, "\u2192 id:", tradableInstrumentId, "route:", routeId);
-          } else {
-            console.log("[TradeLocker] Instrument cache MISS \u2014 fetching instruments (shared cache + 429 backoff)...");
-            const { instruments, routes } = await this.fetchInstrumentsPayload();
-            if (Array.isArray(instruments)) {
-              const sym = order.symbol.toUpperCase();
-              const symVariants = [sym];
-              const suffixes = [".pro", "m", ".m", ".z", ".a", ".b", ".c", ".r", "_raw", ".ecn", ".stp", ".pro+", "PRO"];
-              for (const sfx of suffixes) {
-                symVariants.push(sym + sfx.toUpperCase());
-                symVariants.push(sym + sfx);
-              }
-              const strippedSym = sym.replace(/[._]?(PRO|ECN|STP|RAW|M|Z|A|B|C|R)\+?$/i, "");
-              if (strippedSym !== sym) symVariants.push(strippedSym);
-              const ALIASES = {
-                "XAUUSD": ["GOLD", "XAU/USD", "GOLD/USD", "XAUUSD.PRO", "XAUUSDPRO"],
-                "GOLD": ["XAUUSD", "XAU/USD"],
-                "XAGUSD": ["SILVER", "XAG/USD"],
-                "SILVER": ["XAGUSD", "XAG/USD"],
-                "USOIL": ["WTI", "CRUDE", "OIL", "USOUSD"],
-                "UKOIL": ["BRENT", "BRENTOIL"],
-                "NAS100": ["USTEC", "NDX100", "NASDAQ100", "US100", "NQ100"],
-                "US500": ["SPX500", "SP500", "US500", "SPX"],
-                "US30": ["DJ30", "WALLST30", "DJI30"],
-                "GER40": ["DAX40", "DE40", "GER30", "GER"],
-                "UK100": ["FTSE100", "UKX"],
-                "JP225": ["JPN225", "NIKKEI", "N225"]
-              };
-              const knownAliases = ALIASES[sym] || [];
-              for (const alias of knownAliases) {
-                symVariants.push(alias);
-                symVariants.push(alias.replace("/", ""));
-              }
-              const seen = /* @__PURE__ */ new Set();
-              const uniqueVariants = symVariants.filter((v) => {
-                if (seen.has(v)) return false;
-                seen.add(v);
-                return true;
-              });
-              console.log("[TradeLocker] Trying symbol variants:", uniqueVariants.slice(0, 10));
-              let matchedInstrument = null;
-              for (const variant of uniqueVariants) {
-                const found = instruments.find((inst) => {
-                  const instName = (inst.name || inst.symbol || "").toUpperCase().replace(/\s/g, "");
-                  const instDesc = (inst.description || inst.fullName || "").toUpperCase().replace(/\s/g, "");
-                  const v = variant.toUpperCase().replace(/\s/g, "");
-                  return instName === v || instDesc === v;
-                });
-                if (found) {
-                  matchedInstrument = found;
-                  console.log("[TradeLocker] Matched symbol variant:", variant, "\u2192", found.name, "tradableInstrumentId:", found.tradableInstrumentId || found.id);
-                  break;
-                }
-              }
-              if (matchedInstrument) {
-                tradableInstrumentId = matchedInstrument.tradableInstrumentId || matchedInstrument.id;
-                const instRoutes = Array.isArray(matchedInstrument.routes) ? matchedInstrument.routes : [];
-                console.log("[TradeLocker] Instrument routes:", JSON.stringify(instRoutes));
-                if (instRoutes.length > 0) {
-                  const tradeRoute = instRoutes.find((r) => r.type === "TRADE" || r.name === "TRADE") ?? instRoutes[0];
-                  routeId = tradeRoute.id;
-                  console.log("[TradeLocker] Using routeId", routeId, "from instrument routes");
-                }
-              }
-              if (Array.isArray(instruments) && instruments.length > 0) {
-                const sample = instruments.find((i) => (i.name || i.symbol || "").toUpperCase().includes(order.symbol.toUpperCase().slice(0, 3))) || instruments[0];
-                console.log("[TradeLocker] Sample instrument structure:", JSON.stringify(sample));
-              }
-            }
-            if (!routeId && Array.isArray(routes) && routes.length > 0) {
-              const tradeRoute = routes.find((r) => r.name === "TRADE" || r.type === "TRADE") ?? routes[0];
-              routeId = tradeRoute.id;
-              console.log("[TradeLocker] Using routeId", routeId, "from global routes fallback");
-            }
-            if (!tradableInstrumentId) {
-              const availableNames = Array.isArray(instruments) ? instruments.slice(0, 30).map((i) => i.name || i.symbol).filter(Boolean).join(", ") : "none";
-              throw new Error(
-                `Instrument not found: ${order.symbol}. Available symbols (first 30): ${availableNames}. Check the Instruments button on your TradeLocker connection to see exact names.`
-              );
-            }
-            if (!routeId) {
-              routeId = 1;
-              console.warn('[TradeLocker] WARNING: Could not find routeId from instrument or global routes. Defaulting to 1 \u2014 may cause "route forbidden".');
-            }
-            instrumentCache.set(instCacheKey, { tradableInstrumentId, routeId, cachedAt: Date.now() });
-            console.log("[TradeLocker] Instrument cached:", order.symbol, "\u2192 id:", tradableInstrumentId, "route:", routeId);
-          }
-          const orderPayload = {
-            tradableInstrumentId,
-            routeId: routeId || "TRADE",
-            // Use numeric routeId or string "TRADE" as fallback
-            qty: order.quantity,
-            side: order.side,
-            type: order.type,
-            validity: order.type === "market" ? "IOC" : "GTC",
-            price: 0
-            // Required field - 0 for market orders
-          };
-          const px = (v) => roundToTick(order.symbol, v);
-          if ((order.type === "limit" || order.type === "stop") && order.price) {
-            orderPayload.price = px(order.price);
-          }
-          if (order.stopLoss) {
-            orderPayload.stopLoss = px(order.stopLoss);
-            orderPayload.stopLossType = "absolute";
-          }
-          if (order.takeProfit) {
-            orderPayload.takeProfit = px(order.takeProfit);
-            orderPayload.takeProfitType = "absolute";
-          }
-          console.log("[TradeLocker] Order payload:", JSON.stringify(orderPayload));
-          let response = null;
-          let responseText = "";
-          let lastError = null;
-          let preIds = null;
-          if (order.type === "market") {
-            try {
-              preIds = new Set((await this.getPositionsNormalized()).map((p) => p.id));
-            } catch {
-              preIds = null;
-            }
-          }
-          const symKey = order.symbol.toUpperCase().replace(/[^A-Z0-9]/g, "");
-          const resolveAmbiguous = async (why) => {
-            if (preIds) {
-              try {
-                const now = await this.getPositionsNormalized();
-                const landed = now.find((p) => !preIds.has(p.id) && p.side === order.side && (p.symbol.toUpperCase().replace(/[^A-Z0-9]/g, "").startsWith(symKey) || p.symbol === String(tradableInstrumentId)));
-                if (landed) {
-                  console.warn(`[TradeLocker] ${why} \u2014 but a new ${order.symbol} ${order.side} position ${landed.id} appeared, so the order DID fill. Not resending.`);
-                  return { orderId: landed.id, status: "submitted", filledQuantity: landed.qty, filledPrice: landed.avgPrice, message: `Order filled (confirmed from positions after ${why}; id is the position id)` };
-                }
-                return null;
-              } catch {
-              }
-            }
-            console.error(`[TradeLocker] ${why} \u2014 could not verify whether ${order.symbol} filled. NOT retrying, to avoid a duplicate position. Check the account.`);
-            return { orderId: "", status: "rejected", message: `Outcome unknown after ${why} \u2014 not retried to avoid a duplicate order. Check the account for an open ${order.symbol} position.` };
-          };
-          for (let attempt = 0; attempt <= RETRY_DELAYS.length; attempt++) {
-            try {
-              response = await fetch(`${this.baseUrl}/trade/accounts/${this.accountId}/orders`, {
-                method: "POST",
-                headers: {
-                  "Authorization": `Bearer ${this.accessToken}`,
-                  "Content-Type": "application/json",
-                  "accNum": this.accNum
-                },
-                body: JSON.stringify(orderPayload)
-              });
-              responseText = await response.text();
-              console.log(`[TradeLocker] Order response (attempt ${attempt + 1}): status=${response.status} body=${responseText.substring(0, 300)}`);
-              if (response.ok) break;
-              if (response.status === 401 && attempt < RETRY_DELAYS.length) {
-                console.log("[TradeLocker] 401 on order \u2014 forcing full re-auth before retry...");
-                try {
-                  if (this.onReauthenticate) {
-                    await this.onReauthenticate();
-                  } else if (this.refreshToken) {
-                    const result = await this.refreshAccessToken(this.refreshToken);
-                    if (this.onTokenRefresh) {
-                      this.onTokenRefresh(result.accessToken, result.refreshToken, result.expiresIn);
-                    }
-                  }
-                } catch (authErr) {
-                  console.log("[TradeLocker] Re-auth failed during 401 retry:", authErr.message);
-                }
-                await new Promise((r) => setTimeout(r, RETRY_DELAYS[attempt]));
-                continue;
-              }
-              if (RETRYABLE_STATUSES.has(response.status) && attempt < RETRY_DELAYS.length) {
-                console.log(`[TradeLocker] Retryable status ${response.status} \u2014 waiting ${RETRY_DELAYS[attempt]}ms before retry ${attempt + 2}...`);
-                await new Promise((r) => setTimeout(r, RETRY_DELAYS[attempt]));
-                if (response.status !== 429) {
-                  const settled = await resolveAmbiguous(`HTTP ${response.status}`);
-                  if (settled) return settled;
-                }
-                continue;
-              }
-              throw new Error(`Order placement failed: ${response.status} - ${responseText}`);
-            } catch (err) {
-              lastError = err;
-              if (attempt < RETRY_DELAYS.length && !responseText) {
-                console.log(`[TradeLocker] Network error on attempt ${attempt + 1}: ${lastError.message} \u2014 retrying in ${RETRY_DELAYS[attempt]}ms...`);
-                await new Promise((r) => setTimeout(r, RETRY_DELAYS[attempt]));
-                const settled = await resolveAmbiguous(`network error (${lastError.message})`);
-                if (settled) return settled;
-                continue;
-              }
-              throw lastError;
-            }
-          }
-          if (!response || !response.ok) {
-            throw lastError || new Error("Order placement failed after retries");
-          }
-          const data = JSON.parse(responseText);
-          if (data.s !== "ok") {
-            const errorDetails = [];
-            if (data.errmsg) errorDetails.push(data.errmsg);
-            if (data.d?.errmsg) errorDetails.push(data.d.errmsg);
-            if (data.d?.message) errorDetails.push(data.d.message);
-            if (data.d?.messages && Array.isArray(data.d.messages)) errorDetails.push(...data.d.messages);
-            if (data.d?.error) errorDetails.push(data.d.error);
-            if (data.d?.errorCode) errorDetails.push(`Code: ${data.d.errorCode}`);
-            if (data.message) errorDetails.push(data.message);
-            if (data.error) errorDetails.push(data.error);
-            const errorMsg = errorDetails.length > 0 ? errorDetails.join(" | ") : `Rejected (status: ${data.s}, raw: ${responseText.substring(0, 200)})`;
-            console.log("[TradeLocker] Order rejected - Full response:", responseText);
-            console.log("[TradeLocker] Parsed error:", errorMsg);
-            return {
-              orderId: "",
-              status: "rejected",
-              message: errorMsg
-            };
-          }
-          const orderId = data.d?.orderId || data.d?.id || data.orderId || data.id;
-          if (!orderId) {
-            console.log("[TradeLocker] No orderId in response:", data);
-            return {
-              orderId: "",
-              status: "rejected",
-              message: "No order ID returned - order may not have been placed"
-            };
-          }
-          console.log("[TradeLocker] Order successfully placed with orderId:", orderId);
-          return {
-            orderId: orderId.toString(),
-            status: "submitted",
-            filledQuantity: data.d?.filledQty || data.filledQuantity,
-            filledPrice: data.d?.avgPrice || data.filledPrice,
-            message: "Order placed successfully"
-          };
-        } catch (error) {
-          console.error("TradeLocker place order error:", error);
-          throw error;
-        }
-      }
-      /**
-       * Fetch OHLCV candlestick bars for a symbol from TradeLocker.
-       * Returns candles in ascending time order (oldest first), same shape as MT5 cache:
-       * { t, o, h, l, c, v }
-       */
-      async getCandlesticks(symbol, resolutionMinutes = 5, fromTs, toTs) {
-        await this.ensureAuthenticated();
-        await this.resolveAccNum();
-        const instCacheKey = `${this.baseUrl}:${this.accountId}:${symbol.toUpperCase()}`;
-        let tradableInstrumentId = null;
-        let infoRouteId = null;
-        const cached2 = instrumentCache.get(instCacheKey);
-        if (cached2 && cached2.infoRouteId != null && Date.now() - cached2.cachedAt < INSTRUMENT_CACHE_TTL) {
-          tradableInstrumentId = cached2.tradableInstrumentId;
-          infoRouteId = cached2.infoRouteId;
-        } else {
-          const { instruments } = await this.fetchInstrumentsPayload();
-          const sym = symbol.toUpperCase();
-          const ALIASES = {
-            "XAUUSD": ["GOLD", "XAU/USD"],
-            "NAS100": ["USTEC", "US100", "NDX100"],
-            "US30": ["DJ30", "WALLST30"],
-            "US500": ["SPX500", "SP500", "SPX"]
-          };
-          const variants = [sym, ...ALIASES[sym] || []];
-          let matched = null;
-          for (const v of variants) {
-            matched = instruments.find((i) => (i.name || i.symbol || "").toUpperCase().replace(/\s/g, "") === v.replace(/\s/g, ""));
-            if (matched) break;
-          }
-          if (!matched) throw new Error(`Instrument not found in TradeLocker: ${symbol}`);
-          tradableInstrumentId = matched.tradableInstrumentId || matched.id;
-          const routes = Array.isArray(matched.routes) ? matched.routes : [];
-          const tradeRouteId = (routes.find((r) => r.type === "TRADE" || r.name === "TRADE") ?? routes[0])?.id ?? 1;
-          infoRouteId = (routes.find((r) => r.type === "INFO" || r.name === "INFO") ?? routes[0])?.id ?? tradeRouteId;
-          instrumentCache.set(instCacheKey, { tradableInstrumentId, routeId: tradeRouteId, infoRouteId, cachedAt: Date.now() });
-        }
-        const resolution = resolutionMinutes >= 1440 ? "1D" : resolutionMinutes >= 60 ? String(resolutionMinutes / 60) + "h" : String(resolutionMinutes) + "m";
-        const nowMs = Date.now();
-        const fromMs = fromTs != null ? fromTs * 1e3 : nowMs - 864e5;
-        const toMs = toTs != null ? toTs * 1e3 : nowMs;
-        const url = `${this.baseUrl}/trade/history?routeId=${infoRouteId}&tradableInstrumentId=${tradableInstrumentId}&resolution=${resolution}&from=${fromMs}&to=${toMs}`;
-        let histResp = null;
-        const backoffs = [400, 900];
-        for (let attempt = 0; ; attempt++) {
-          histResp = await fetch(url, {
-            headers: { "Authorization": `Bearer ${this.accessToken}`, "Content-Type": "application/json", "accNum": this.accNum }
-          });
-          if (histResp.status !== 429 || attempt >= backoffs.length) break;
-          await new Promise((r) => setTimeout(r, backoffs[attempt]));
-        }
-        if (!histResp.ok) {
-          const txt = await histResp.text();
-          throw new Error(`TradeLocker history error: ${histResp.status} \u2014 ${txt}`);
-        }
-        const histData = await histResp.json();
-        const bars = histData.d?.barDetails || histData.d?.bars || histData.barDetails || histData.bars || [];
-        return bars.map((b) => ({
-          t: b.t ?? b.time ?? b.timestamp ?? 0,
-          o: b.o ?? b.open ?? 0,
-          h: b.h ?? b.high ?? 0,
-          l: b.l ?? b.low ?? 0,
-          c: b.c ?? b.close ?? 0,
-          v: b.v ?? b.volume ?? 0
-        })).sort((a, b) => a.t - b.t);
-      }
-      async closePosition(positionId) {
-        await this.ensureAuthenticated();
-        try {
-          const response = await fetch(`${this.baseUrl}/trade/accounts/${this.accountId}/positions/${positionId}/close`, {
-            method: "POST",
-            headers: {
-              "Authorization": `Bearer ${this.accessToken}`,
-              "Content-Type": "application/json",
-              "accNum": this.accNum
-            }
-          });
-          if (!response.ok) {
-            const errorText = await response.text();
-            throw new Error(`Position close failed: ${response.status} - ${errorText}`);
-          }
-          const data = await response.json();
-          if (data.s && data.s !== "ok") {
-            throw new Error(`Position close rejected by broker: ${data.errmsg || JSON.stringify(data)}`);
-          }
-          return {
-            orderId: data.orderId || positionId,
-            status: "closed",
-            message: data.message
-          };
-        } catch (error) {
-          console.error("TradeLocker close position error:", error);
-          throw error;
-        }
-      }
-      // Approximate $ value per unit of price movement per 1.0 qty — TradeLocker's
-      // order/position endpoints report raw price levels, not realized $ P&L, so
-      // this is needed to convert (exit - entry) * qty into an actual dollar
-      // figure. Not exact (real pip/point values vary by broker/instrument
-      // spec), but far closer than treating a JPY-pair price difference or a
-      // 0.00001-precision FX price as if it were already in dollars.
-      /**
-       * Strip broker decoration so symbol tests actually match. White-labels ship
-       * the same instrument as `EURUSD`, `EUR/USD`, `EURUSD.PRO`, `EURUSD-ECN`,
-       * `EURUSD_raw` … Previously an undecorated-only comparison meant `XAUUSD.PRO`
-       * missed the gold branch and fell through to multiplier 1 (100x understated,
-       * audited 2026-09-18: 4 live rows booked at $7.07 instead of ~$707).
-       */
-      static normalizeSymbol(symbol) {
-        return String(symbol ?? "").toUpperCase().split(".")[0].replace(/[^A-Z0-9]/g, "");
-      }
-      /**
-       * Contract size: units of the BASE asset per 1.0 of reported qty. This is the
-       * `(exit - entry) * qty * size` term only — it yields a figure in the QUOTE
-       * currency, which `quoteToUsd` then converts. Keeping the two concerns apart
-       * is deliberate: the old single "multiplier" tried to do both at once and got
-       * both wrong for non-USD-quoted instruments.
-       *
-       * Previous bug (fixed 2026-09-19): the crypto/index line read
-       *   `if (s.includes('BTC') || s.includes('ETH') || /^[A-Z]{2,5}USD$/.test(s) === false) return 1;`
-       * which returned BEFORE the 6-char FX line for every pair NOT ending in USD.
-       * EURGBP/AUDCAD/GBPCHF etc. were therefore booked at multiplier 1 — i.e. a
-       * ~100,000x understatement. Confirmed live: 7 AUDCAD rows booked at
-       * -$0.0008 total, which the sync then dropped as "zero P&L = not closed",
-       * leaving them PENDING forever.
-       */
-      static contractSize(symbol) {
-        const s = _TradeLockerService.normalizeSymbol(symbol);
-        if (s.startsWith("XAU") || s === "GOLD") return 100;
-        if (s.startsWith("XAG") || s === "SILVER") return 5e3;
-        if (s.startsWith("XPT") || s.startsWith("XPD")) return 100;
-        if (/^(BTC|ETH|LTC|XRP|BCH|ADA|SOL|DOGE|DOT|ETC|LINK)/.test(s)) return 1;
-        if (/^[A-Z]{6}$/.test(s)) return 1e5;
-        return 1;
-      }
-      /**
-       * Fetch filled/closed orders from TradeLocker's actual order-history
-       * endpoint. TradeLocker returns rows as plain arrays whose column order is
-       * defined by /trade/config's ordersHistoryConfig — NOT named-field
-       * objects — so column order is resolved dynamically (same pattern
-       * getPositionsNormalized already uses for /positions) rather than reading
-       * row.symbol/row.profit directly, which always returned undefined/blank.
-       * Returns normalised array: { id, symbol, side, qty, avgPrice, status, createdDate, positionId }
-       */
-      async getFilledOrders(fromTs) {
-        await this.ensureAuthenticated();
-        try {
-          const columns = await this.resolveColumns("ordersHistoryConfig");
-          const idx = (name) => columns.indexOf(name.toLowerCase());
-          const iId = idx("id"), iInst = idx("tradableInstrumentId"), iSide = idx("side"), iQty = idx("qty"), iAvg = idx("avgPrice"), iStatus = idx("status"), iCreated = idx("createdDate"), iPosId = idx("positionId");
-          const toMs = Date.now();
-          const fromMs = fromTs ? fromTs * 1e3 : toMs - 90 * 24 * 60 * 60 * 1e3;
-          const histUrl = `${this.baseUrl}/trade/accounts/${this.accountId}/ordersHistory?from=${fromMs}&to=${toMs}`;
-          let response = null;
-          for (let attempt = 0; attempt <= RETRY_DELAYS.length; attempt++) {
-            response = await fetch(histUrl, {
-              method: "GET",
-              headers: { "Authorization": `Bearer ${this.accessToken}`, "Content-Type": "application/json", "accNum": this.accNum }
-            });
-            if (response.ok) break;
-            if (!RETRYABLE_STATUSES.has(response.status) || attempt === RETRY_DELAYS.length) break;
-            console.warn(`[TradeLocker] ordersHistory ${response.status} \u2014 retry ${attempt + 1}/${RETRY_DELAYS.length}`);
-            await new Promise((r) => setTimeout(r, RETRY_DELAYS[attempt]));
-          }
-          if (!response || !response.ok) {
-            throw new TradeLockerReadError(
-              `ordersHistory read failed (${response?.status ?? "no response"}) \u2014 refusing to report an empty fill history`,
-              response?.status
-            );
-          }
-          const data = await response.json();
-          const rows = data?.d?.ordersHistory || data?.ordersHistory || [];
-          const instruments = await this.getInstruments().catch(() => []);
-          const instMap = /* @__PURE__ */ new Map();
-          for (const inst of instruments) {
-            const id = String(inst.tradableInstrumentId ?? inst.id ?? "");
-            if (id) instMap.set(id, inst.name || inst.symbol || id);
-          }
-          return rows.map((row) => {
-            const instId = iInst >= 0 ? String(row[iInst]) : "";
-            const createdMs = iCreated >= 0 ? Number(row[iCreated]) : 0;
-            return {
-              id: iId >= 0 ? String(row[iId]) : "",
-              symbol: instMap.get(instId) || instId,
-              side: iSide >= 0 ? String(row[iSide]).toLowerCase() : "",
-              qty: iQty >= 0 ? parseFloat(row[iQty]) || 0 : 0,
-              avgPrice: iAvg >= 0 ? parseFloat(row[iAvg]) || 0 : 0,
-              status: iStatus >= 0 ? String(row[iStatus]) : "",
-              closeTime: createdMs ? new Date(createdMs).toISOString() : null,
-              positionId: iPosId >= 0 ? String(row[iPosId]) : ""
-            };
-          }).filter((o) => /^(filled|executed)$/i.test(o.status)).filter((o) => {
-            if (!fromTs || !o.closeTime) return true;
-            return new Date(o.closeTime).getTime() >= fromTs * 1e3;
-          });
-        } catch (err) {
-          if (err instanceof TradeLockerReadError) throw err;
-          console.error("[TradeLocker] getFilledOrders error:", err.message);
-          return [];
-        }
-      }
-      /**
-       * Pairs each position's entry and exit fills (matched by positionId) to
-       * compute realized P&L per closed trade — TradeLocker's order/position
-       * data reports price levels, not a ready-made "profit" field, so this
-       * does the pairing + $ conversion that server/routes.ts's outcome-sync
-       * previously assumed already existed on each row (it never did — every
-       * synced "trade" silently had profit=0 and got skipped).
-       * Returns: { id, symbol, side, qty, profit, openPrice, closePrice, closeTime }[]
-       * — one entry per CLOSED position (positions with only one fill, i.e.
-       * still open, are excluded).
-       */
-      /** Position ids currently OPEN at the broker, or null when the open book
-       *  could not be read. Null is meaningful: callers must NOT treat "couldn't
-       *  read" as "nothing is open", or every position would look closed. */
-      async getOpenPositionIds() {
-        for (let attempt = 0; attempt < 3; attempt++) {
-          try {
-            const raw = await this.getPositions();
-            if (!Array.isArray(raw)) return null;
-            const ids = /* @__PURE__ */ new Set();
-            for (const p of raw) {
-              const id = Array.isArray(p) ? p[0] : p?.id ?? p?.positionId;
-              if (id != null && String(id).length > 0) ids.add(String(id));
-            }
-            return ids;
-          } catch (e) {
-            const transient = /429|rate.?limit|timeout|ECONN|502|503|504/i.test(e?.message || "");
-            if (!transient || attempt === 2) {
-              console.warn(`[TradeLocker] open-book read failed (${e?.message}) \u2014 close detection falls back to the conservative time guard for this pass.`);
-              return null;
-            }
-            await new Promise((r) => setTimeout(r, 1e3 * (attempt + 1)));
-          }
-        }
-        return null;
-      }
-      async getClosedTradesWithPnl(fromTs) {
-        const openIds = await this.getOpenPositionIds();
-        const fills = await this.getFilledOrders(fromTs ? fromTs - 30 * 24 * 3600 : void 0);
-        const byPosition = /* @__PURE__ */ new Map();
-        for (const f of fills) {
-          if (_TradeLockerService.normalizeSymbol(f.symbol) === "USDJPY" && Number(f.avgPrice) > 0) {
-            noteUsdJpyObservation(new Date(f.closeTime).getTime(), Number(f.avgPrice));
-          }
-          if (!f.positionId) continue;
-          if (!byPosition.has(f.positionId)) byPosition.set(f.positionId, []);
-          byPosition.get(f.positionId).push(f);
-        }
-        const closed = [];
-        for (const [positionId, legs] of Array.from(byPosition)) {
-          if (legs.length < 2) continue;
-          legs.sort((a, b) => new Date(a.closeTime).getTime() - new Date(b.closeTime).getTime());
-          const buys = legs.filter((l) => String(l.side).toLowerCase() === "buy");
-          const sells = legs.filter((l) => String(l.side).toLowerCase() === "sell");
-          if (buys.length === 0 || sells.length === 0) continue;
-          const sumQty = (arr2) => arr2.reduce((s, l) => s + (Number(l.qty) || 0), 0);
-          const wAvg = (arr2) => {
-            const q = sumQty(arr2);
-            return q > 0 ? arr2.reduce((s, l) => s + Number(l.avgPrice) * (Number(l.qty) || 0), 0) / q : 0;
-          };
-          const buyQty = sumQty(buys), sellQty = sumQty(sells);
-          const closedQty = Math.min(buyQty, sellQty);
-          if (!(closedQty > 0)) continue;
-          const direction = String(legs[0].side).toLowerCase();
-          const buyAvg = wAvg(buys), sellAvg = wAvg(sells);
-          const openAvg = direction === "buy" ? buyAvg : sellAvg;
-          const exitAvg = direction === "buy" ? sellAvg : buyAvg;
-          const priceDiff = direction === "buy" ? exitAvg - openAvg : openAvg - exitAvg;
-          const closingLegs = direction === "buy" ? sells : buys;
-          const closeTime = closingLegs[closingLegs.length - 1]?.closeTime || legs[legs.length - 1].closeTime;
-          const openMs = new Date(legs[0].closeTime).getTime();
-          const closeMs = new Date(closeTime).getTime();
-          if (openIds) {
-            if (openIds.has(String(positionId))) continue;
-          } else if (isFinite(openMs) && isFinite(closeMs) && closeMs - openMs < 6e4) {
-            continue;
-          }
-          if (fromTs && closeMs < fromTs * 1e3) continue;
-          const _symN = _TradeLockerService.normalizeSymbol(legs[0].symbol);
-          const _quote = /^[A-Z]{6}$/.test(_symN) ? _symN.slice(3) : "USD";
-          let _quoteToUsd = 1;
-          if (_quote === "JPY") {
-            const _usdJpy = _symN === "USDJPY" && exitAvg > 0 ? exitAvg : usdJpyAt(new Date(closeTime).getTime());
-            _quoteToUsd = _usdJpy > 0 ? 1 / _usdJpy : 0;
-          } else if (_quote !== "USD" && /^[A-Z]{6}$/.test(_symN)) {
-            _quoteToUsd = 1;
-          }
-          const profit = priceDiff * closedQty * _TradeLockerService.contractSize(legs[0].symbol) * _quoteToUsd;
-          const _fxConverted = _quote === "USD" || _quote === "JPY" ? true : !/^[A-Z]{6}$/.test(_symN);
-          closed.push({
-            id: legs[legs.length - 1].id,
-            positionId,
-            symbol: legs[0].symbol,
-            side: direction,
-            qty: closedQty,
-            profit,
-            openPrice: openAvg,
-            closePrice: exitAvg,
-            openTime: legs[0].closeTime,
-            closeTime,
-            quoteCurrency: _quote,
-            // false => `profit` is in quoteCurrency, NOT USD (no rate available).
-            usdConverted: _fxConverted
-          });
-        }
-        return closed;
-      }
-      /**
-       * Fetch CLOSED positions (realized P&L) — now backed by the same
-       * ordersHistory + position-pairing logic as getClosedTradesWithPnl,
-       * shaped to match this method's original consumer expectations.
-       */
-      async getClosedPositions(fromTs) {
-        const closed = await this.getClosedTradesWithPnl(fromTs);
-        return closed.map((c) => ({ id: c.id, positionId: c.positionId, symbol: c.symbol, side: c.side, profit: c.profit, closeTime: c.closeTime, qty: c.qty, openPrice: c.openPrice, closePrice: c.closePrice }));
-      }
-      /**
-       * Working (unfilled) orders on this account. Rows are arrays ordered by
-       * /trade/config ordersConfig; falls back to the layout seen live on
-       * 2026-10-30: [id, instId, routeId, qty, side, type, status, …, createdDate@13].
-       */
-      async getPendingOrders() {
-        await this.ensureAuthenticated();
-        const cols = await this.resolveColumns("ordersConfig");
-        const at = (name, fb) => {
-          const i = cols.indexOf(name);
-          return i >= 0 ? i : fb;
-        };
-        const iId = at("id", 0), iQty = at("qty", 3), iSide = at("side", 4), iType = at("type", 5), iStatus = at("status", 6), iCreated = at("createddate", 13);
-        const r = await fetch(`${this.baseUrl}/trade/accounts/${this.accountId}/orders`, {
-          headers: { "Authorization": `Bearer ${this.accessToken}`, "accNum": this.accNum }
-        });
-        if (!r.ok) throw new Error(`Failed to get orders: ${r.status}`);
-        const j = await r.json();
-        const rows = j?.d?.orders || j?.orders || [];
-        return rows.map((row) => ({
-          id: String(row[iId]),
-          side: String(row[iSide] || "").toLowerCase(),
-          type: String(row[iType] || "").toLowerCase(),
-          status: String(row[iStatus] || ""),
-          qty: parseFloat(row[iQty]) || 0,
-          createdMs: Number(row[iCreated]) || 0
-        }));
-      }
-      /** Cancel a working order (DELETE /trade/orders/{id}). Verified live 2026-10-30. */
-      async cancelOrder(orderId) {
-        await this.ensureAuthenticated();
-        const r = await fetch(`${this.baseUrl}/trade/orders/${encodeURIComponent(orderId)}`, {
-          method: "DELETE",
-          headers: { "Authorization": `Bearer ${this.accessToken}`, "accNum": this.accNum }
-        });
-        const body = await r.text().catch(() => "");
-        this.invalidateReadCache();
-        return r.ok ? { success: true } : { success: false, error: `${r.status} ${body.slice(0, 200)}` };
-      }
-      async getPositions(opts) {
-        return tlSharedRead(`pos:${this.baseUrl}:${this.accountId}`, () => this._getPositionsRaw(), !!opts?.fresh);
-      }
-      /** Drop this account's cached positions/balance (after an order or close). */
-      invalidateReadCache() {
-        tlReadCache.delete(`pos:${this.baseUrl}:${this.accountId}`);
-        tlReadCache.delete(`acct:${this.baseUrl}:${this.accountId}`);
-      }
-      async _getPositionsRaw() {
-        await this.ensureAuthenticated();
-        try {
-          const response = await fetch(`${this.baseUrl}/trade/accounts/${this.accountId}/positions`, {
-            method: "GET",
-            headers: {
-              "Authorization": `Bearer ${this.accessToken}`,
-              "Content-Type": "application/json",
-              "accNum": this.accNum
-            }
-          });
-          if (!response.ok) {
-            throw new Error(`Failed to get positions: ${response.status}`);
-          }
-          const data = await response.json();
-          return Array.isArray(data) ? data : data?.d?.positions || data?.positions || [];
-        } catch (error) {
-          console.error("TradeLocker get positions error:", error);
-          throw error;
-        }
-      }
-      // Normalized open positions — handles BOTH response shapes TradeLocker uses:
-      // object rows (named fields) and column-array rows (order defined by
-      // /trade/config's positionsConfig). Also maps tradableInstrumentId → symbol
-      // via the instruments list so the UI can show real pair names.
-      async getPositionsNormalized(opts) {
-        const raw = await this.getPositions(opts);
-        if (!raw || raw.length === 0) return [];
-        let instMap = /* @__PURE__ */ new Map();
-        try {
-          const instruments = await this.getInstruments();
-          for (const inst of instruments) {
-            const id = String(inst.tradableInstrumentId ?? inst.id ?? "");
-            if (id) instMap.set(id, inst.name || inst.symbol || id);
-          }
-        } catch {
-        }
-        const norm3 = (v) => parseFloat(v) || 0;
-        const toIsoDate = (v) => {
-          if (v == null || v === "") return void 0;
-          const n = typeof v === "number" ? v : /^\d+(\.\d+)?$/.test(String(v).trim()) ? Number(v) : NaN;
-          const ms = Number.isFinite(n) ? n < 1e12 ? n * 1e3 : n : new Date(String(v)).getTime();
-          return Number.isFinite(ms) && ms > 0 ? new Date(ms).toISOString() : void 0;
-        };
-        const sanePrice = (v, ref) => {
-          if (!(v > 0)) return void 0;
-          if (!(ref > 0)) return v < 1e7 ? v : void 0;
-          const ratio = v / ref;
-          return ratio > 0.2 && ratio < 5 ? v : void 0;
-        };
-        if (!Array.isArray(raw[0])) {
-          return raw.map((p) => ({
-            id: String(p.id ?? p.positionId ?? ""),
-            symbol: p.s || p.symbol || instMap.get(String(p.tradableInstrumentId ?? "")) || String(p.tradableInstrumentId ?? ""),
-            instrumentId: p.tradableInstrumentId != null ? String(p.tradableInstrumentId) : void 0,
-            side: (p.side || "").toString().toLowerCase(),
-            qty: norm3(p.qty),
-            avgPrice: norm3(p.avgPrice ?? p.openPrice ?? p.price),
-            unrealizedPl: norm3(p.unrealizedPl ?? p.unrealizedPnL ?? p.uPnL ?? p.pl),
-            openDate: toIsoDate(p.openDate || p.createdDate),
-            stopLoss: sanePrice(norm3(p.stopLoss ?? p.sl ?? p.stopLossPrice), norm3(p.avgPrice ?? p.openPrice ?? p.price)),
-            takeProfit: sanePrice(norm3(p.takeProfit ?? p.tp ?? p.takeProfitPrice), norm3(p.avgPrice ?? p.openPrice ?? p.price))
-          }));
-        }
-        let columns = [];
-        try {
-          await this.ensureAuthenticated();
-          const cfgRes = await fetch(`${this.baseUrl}/trade/config`, {
-            method: "GET",
-            headers: { "Authorization": `Bearer ${this.accessToken}`, "Content-Type": "application/json", "accNum": this.accNum },
-            signal: AbortSignal.timeout(1e4)
-          });
-          if (cfgRes.ok) {
-            const cfg = await cfgRes.json();
-            const cols = cfg?.d?.positionsConfig?.columns || cfg?.positionsConfig?.columns || [];
-            columns = cols.map((c) => String(c.id || c.name || "").toLowerCase());
-          }
-        } catch {
-        }
-        const idx = (candidates) => {
-          for (const k2 of candidates) {
-            const exact = columns.indexOf(k2);
-            if (exact >= 0) return exact;
-          }
-          return columns.findIndex((c) => candidates.some((k2) => c.includes(k2)));
-        };
-        const iId = idx(["id"]);
-        const iInst = idx(["tradableinstrumentid", "tradableinstrument"]);
-        const iSide = idx(["side"]);
-        const iQty = idx(["qty", "quantity"]);
-        const iAvg = idx(["avgprice", "openprice", "price"]);
-        const iPl = idx(["unrealizedpl", "unrealizedpnl", "pnl", "pl"]);
-        const iDate = idx(["opendate", "date"]);
-        const idxPrice = (candidates) => {
-          for (const k2 of candidates) {
-            const exact = columns.indexOf(k2);
-            if (exact >= 0) return exact;
-          }
-          return columns.findIndex((c) => !c.endsWith("id") && candidates.some((k2) => c.includes(k2)));
-        };
-        const iSl = idxPrice(["stoploss", "stoplossprice", "sl"]);
-        const iTp = idxPrice(["takeprofit", "takeprofitprice", "tp"]);
-        return raw.map((row) => {
-          const instId = iInst >= 0 ? String(row[iInst]) : "";
-          return {
-            id: iId >= 0 ? String(row[iId]) : "",
-            symbol: instMap.get(instId) || instId,
-            instrumentId: instId || void 0,
-            side: iSide >= 0 ? String(row[iSide]).toLowerCase() : "",
-            qty: iQty >= 0 ? norm3(row[iQty]) : 0,
-            avgPrice: iAvg >= 0 ? norm3(row[iAvg]) : 0,
-            unrealizedPl: iPl >= 0 ? norm3(row[iPl]) : 0,
-            openDate: iDate >= 0 ? toIsoDate(row[iDate]) : void 0,
-            // Second line of defence, independent of column naming: a protective
-            // level sits near the entry. Anything orders of magnitude away is an id
-            // or a sentinel, not a price, and must not be recorded as protection.
-            stopLoss: sanePrice(iSl >= 0 ? norm3(row[iSl]) : 0, iAvg >= 0 ? norm3(row[iAvg]) : 0),
-            takeProfit: sanePrice(iTp >= 0 ? norm3(row[iTp]) : 0, iAvg >= 0 ? norm3(row[iAvg]) : 0)
-          };
-        });
-      }
-      /** Connection this service belongs to (set by getOrCreateService) — used to log modifies. */
-      logConn;
-      /**
-       * Every stop/target change the server makes is persisted (action='MODIFY'),
-       * so a broker close at a moved stop can be explained afterwards. The caller
-       * is taken from the stack, so trail, profit lock, re-anchor, AI management
-       * and copy-trade changes are all captured without touching each call site.
-       */
-      async modifyPosition(positionId, stopLoss, takeProfit) {
-        const caller = (new Error().stack || "").split("\n").slice(2, 4).map((l) => l.trim().replace(/^at\s+/, "").replace(/\s*\(.*\)$/, "").replace(/^async\s+/, "")).filter(Boolean).join(" <- ") || "unknown";
-        const prev = modifyChain.get(positionId) || Promise.resolve();
-        let release;
-        const mine = new Promise((r) => {
-          release = r;
-        });
-        const chained = prev.then(() => mine);
-        modifyChain.set(positionId, chained);
-        await prev;
-        try {
-          const last = lastStopSet.get(positionId);
-          const sl = Number(stopLoss);
-          if (last && sl > 0 && last.sl > 0 && Date.now() - last.at < TL_STOP_DEDUPE_MS && (takeProfit == null || takeProfit === last.tp) && Math.abs(sl - last.sl) <= stopTolerance(sl)) {
-            console.log(`[TradeLocker] modify ${positionId} SL ${sl} skipped \u2014 within tolerance of ${last.sl} set ${Math.round((Date.now() - last.at) / 1e3)}s ago by ${last.by}`);
-            return { success: true };
-          }
-          const r = await this.modifyPositionInner(positionId, stopLoss, takeProfit, caller);
-          if (r.success && sl > 0) lastStopSet.set(positionId, { sl, tp: takeProfit, at: Date.now(), by: caller });
-          return r;
-        } finally {
-          release();
-          if (modifyChain.get(positionId) === chained) modifyChain.delete(positionId);
-        }
-      }
-      async modifyPositionInner(positionId, stopLoss, takeProfit, caller) {
-        const res = await this.modifyPositionRaw(positionId, stopLoss, takeProfit);
-        void (async () => {
-          try {
-            const c = this.logConn;
-            const userId = Number(c?.userId);
-            if (!(userId > 0) || !(Number(c?.id) > 0)) return;
-            const { pool: pool2 } = await Promise.resolve().then(() => (init_db(), db_exports));
-            const msg = `MODIFY by ${caller} | position ${positionId} | SL ${stopLoss ?? "-"} TP ${takeProfit ?? "-"}${res.success ? "" : ` | FAILED: ${String(res.error || "").slice(0, 200)}`}`;
-            await pool2.query(
-              `INSERT INTO tradelocker_trade_logs (user_id, connection_id, action, symbol, direction, volume, stop_loss, take_profit, status, error_message, created_at)
-           VALUES ($1, $2, 'MODIFY', '', '', 0, $3, $4, $5, $6, now())`,
-              [userId, c?.id ?? null, Number(stopLoss) > 0 ? stopLoss : null, Number(takeProfit) > 0 ? takeProfit : null, res.success ? "executed" : "failed", msg.slice(0, 1e3)]
-            );
-          } catch (e) {
-            console.error("[TradeLocker] modify log write failed (non-fatal):", e?.message || e);
-          }
-        })();
-        return res;
-      }
-      async modifyPositionRaw(positionId, stopLoss, takeProfit) {
-        await this.ensureAuthenticated();
-        const body = {};
-        if (typeof stopLoss === "number" && stopLoss > 0) body.stopLoss = stopLoss;
-        if (typeof takeProfit === "number" && takeProfit > 0) body.takeProfit = takeProfit;
-        if (Object.keys(body).length === 0) {
-          return { success: false, error: "No SL or TP provided to modify" };
-        }
-        const url = `${this.baseUrl}/trade/positions/${positionId}`;
-        console.log(`[TradeLocker Modify] PATCH ${url} | SL=${stopLoss} TP=${takeProfit} accNum=${this.accNum}`);
-        try {
-          const response = await fetch(url, {
-            method: "PATCH",
-            headers: {
-              "Authorization": `Bearer ${this.accessToken}`,
-              "Content-Type": "application/json",
-              "accNum": this.accNum
-            },
-            body: JSON.stringify(body)
-          });
-          if (response.status === 405) {
-            console.log("[TradeLocker Modify] PATCH not supported, trying PUT");
-            const putResponse = await fetch(url, {
-              method: "PUT",
-              headers: {
-                "Authorization": `Bearer ${this.accessToken}`,
-                "Content-Type": "application/json",
-                "accNum": this.accNum
-              },
-              body: JSON.stringify(body)
-            });
-            if (!putResponse.ok) {
-              const errText = await putResponse.text();
-              console.log(`[TradeLocker Modify] PUT failed: ${putResponse.status} - ${errText}`);
-              return { success: false, error: `Modify failed: ${putResponse.status} - ${errText}` };
-            }
-            console.log("[TradeLocker Modify] PUT success");
-            return { success: true };
-          }
-          if (!response.ok) {
-            const errText = await response.text();
-            console.log(`[TradeLocker Modify] PATCH failed: ${response.status} - ${errText}`);
-            return { success: false, error: `Modify failed: ${response.status} - ${errText}` };
-          }
-          console.log("[TradeLocker Modify] PATCH success");
-          return { success: true };
-        } catch (error) {
-          const msg = error instanceof Error ? error.message : "Unknown error";
-          console.error("[TradeLocker Modify] Exception:", msg);
-          return { success: false, error: msg };
-        }
-      }
-    };
-    TL_VALUE_TTL = 60 * 1e3;
-    tlDayStartEquity = /* @__PURE__ */ new Map();
-    UNKNOWN_OUTCOME_PAUSE_MS = Number(process.env.TL_UNKNOWN_OUTCOME_PAUSE_SEC ?? 120) * 1e3;
-    GUARD_CACHE_MS = Number(process.env.TL_GUARD_CACHE_MS ?? 5e3);
-    guardCache = /* @__PURE__ */ new Map();
-    _isRateLimit = (e) => /\b(429|1015)\b|rate.?limit|too many requests/i.test(String(e?.message || e).slice(0, 400));
-  }
-});
-
-// server/services/signal-confidence.ts
-var signal_confidence_exports = {};
-__export(signal_confidence_exports, {
-  lookupSignalConfidence: () => lookupSignalConfidence
-});
-async function lookupSignalConfidence(userId, symbol, direction) {
-  try {
-    const sym = String(symbol || "").toUpperCase().replace(/[^A-Z0-9]/g, "");
-    if (!sym) return null;
-    const { rows } = await pool.query(
-      `SELECT confidence FROM mt5_signal_logs
-        WHERE user_id = $1 AND action = 'OPEN' AND upper(direction) = $2
-          AND upper(regexp_replace(symbol, '[^A-Za-z0-9]', '', 'g')) = left($3, length(upper(regexp_replace(symbol, '[^A-Za-z0-9]', '', 'g'))))
-          AND source = 'vedd_live_engine' AND confidence IS NOT NULL
-          AND created_at > now() - interval '30 minutes'
-        ORDER BY created_at DESC LIMIT 1`,
-      [userId, String(direction || "").toUpperCase(), sym]
-    );
-    const c = Number(rows[0]?.confidence);
-    return Number.isFinite(c) && c > 0 ? c : null;
-  } catch {
-    return null;
-  }
-}
-var init_signal_confidence = __esm({
-  "server/services/signal-confidence.ts"() {
-    "use strict";
-    init_db();
-  }
-});
-
-// server/services/tradelocker-sync.ts
-var tradelocker_sync_exports = {};
-__export(tradelocker_sync_exports, {
-  getTlAccountData: () => getTlAccountData,
-  markTlUserActive: () => markTlUserActive,
-  refreshTlAfterTrade: () => refreshTlAfterTrade,
-  startTradeLockerSync: () => startTradeLockerSync,
-  syncUserTradeLocker: () => syncUserTradeLocker
-});
-async function _recordOrBackfillConfirmationOutcome(userId, symbol, direction, result, closeTime) {
-  try {
-    const resolved = await storage.resolveConfirmationOutcome(userId, symbol, direction, result, null, closeTime ?? null);
-    if (resolved) return;
-    const closedAt = closeTime ? new Date(closeTime) : /* @__PURE__ */ new Date();
-    const hour = closedAt.getUTCHours();
-    const session3 = hour < 7 ? "Asian" : hour < 13 ? "London" : hour < 20 ? "New York" : "Late NY";
-    await storage.createConfirmationOutcome({
-      userId,
-      symbol: symbol.toUpperCase(),
-      direction,
-      session: session3,
-      aiDecision: "EA_ONLY",
-      tradeSource: "ea_only",
-      tradeOutcome: result,
-      confirmedAt: closedAt,
-      closedAt
-    });
-  } catch {
-  }
-}
-function _plausibleCloseTime(closeTime, existing) {
-  const now = /* @__PURE__ */ new Date();
-  if (!closeTime) return now;
-  const t = new Date(closeTime);
-  if (isNaN(t.getTime())) return now;
-  const opened = new Date(existing?.createdAt ?? existing?.created_at ?? 0).getTime();
-  return opened > 0 && t.getTime() <= opened ? now : t;
-}
-async function _invalidateDailyStop(userId) {
-  try {
-    const { invalidatePairDailyStop: invalidatePairDailyStop2 } = await Promise.resolve().then(() => (init_pair_daily_stop(), pair_daily_stop_exports));
-    invalidatePairDailyStop2(userId);
-  } catch {
-  }
-}
-async function _classifyHoldRegime(conn, symbol, openedAt, closedAt) {
-  if (!openedAt || !(closedAt.getTime() > openedAt.getTime())) return null;
-  try {
-    const holdMinutes = (closedAt.getTime() - openedAt.getTime()) / 6e4;
-    const resolutionMinutes = holdMinutes < 100 ? 5 : holdMinutes < 300 ? 15 : holdMinutes < 1200 ? 30 : 60;
-    const padMs = resolutionMinutes * 60 * 1e3 * 20;
-    const fromTs = Math.floor((openedAt.getTime() - padMs) / 1e3);
-    const toTs = Math.ceil(closedAt.getTime() / 1e3);
-    const svc = await getOrCreateService(conn);
-    const bars = await svc.getCandlesticks(symbol, resolutionMinutes, fromTs, toTs);
-    if (!bars || bars.length < 20) return null;
-    const { calculateADX: calculateADX2 } = await Promise.resolve().then(() => (init_indicators(), indicators_exports));
-    const candles = bars.slice().reverse().map((b) => ({ o: b.o, h: b.h, l: b.l, c: b.c, v: b.v }));
-    const adx = calculateADX2(candles, 14);
-    if (!adx) return null;
-    if (adx.value >= 25) return "trending";
-    if (adx.value < 20) return "ranging";
-    return "volatile";
-  } catch (e) {
-    console.warn(`[FxBrain] hold-regime classification skipped for ${symbol} (${e?.message}) \u2014 recording outcome without it.`);
-    return null;
-  }
-}
-async function _recordFxBrainOutcome(userId, conn, existing, match, result, profit) {
-  try {
-    const { pool: pool2 } = await Promise.resolve().then(() => (init_db(), db_exports));
-    const closedAt = match?.closeTime ? new Date(match.closeTime) : /* @__PURE__ */ new Date();
-    const symbol = String(existing.symbol || "").toUpperCase().replace(/[^A-Z0-9.]/g, "");
-    const direction = String(existing.direction || "").toUpperCase();
-    const ticket = String(existing.mt5Ticket || "");
-    if (!symbol || !direction) return;
-    const _openedAtRaw = existing.createdAt ? new Date(existing.createdAt) : null;
-    const _anchor = _openedAtRaw && !isNaN(_openedAtRaw.getTime()) ? _openedAtRaw : closedAt;
-    const { rows: cf } = await pool2.query(
-      `SELECT adx_value, rsi_value, macd_direction, confluence_grade, confluence_score,
-              smc_verdict, ict_macro_valid, htf_aligned, ai_confidence, proposed_confidence,
-              timeframe, session, confirmed_at
-         FROM ai_confirmation_outcomes
-        WHERE user_id = $1 AND symbol = $2 AND direction = $3
-          AND confirmed_at BETWEEN $4::timestamp - interval '2 hours' AND $4::timestamp + interval '10 minutes'
-        ORDER BY (adx_value IS NOT NULL) DESC,
-                 abs(extract(epoch FROM (confirmed_at - $4::timestamp))) ASC
-        LIMIT 1`,
-      [userId, symbol, direction, _anchor.toISOString()]
-    );
-    const f = cf[0] || {};
-    if (!f.adx_value) {
-      console.warn(`[FxBrain] ${symbol} ${direction} ticket ${ticket}: no confirmation with indicator values found near open ${_anchor.toISOString()} \u2014 recording outcome without setup.`);
-    }
-    const entry = Number(existing.entryPrice ?? match?.openPrice) || null;
-    const exit = Number(match?.closePrice) || null;
-    const sl = Number(existing.stopLoss) || null;
-    const tp = Number(existing.takeProfit) || null;
-    const plannedRR = entry && sl && tp && Math.abs(entry - sl) > 0 ? Math.abs(tp - entry) / Math.abs(entry - sl) : null;
-    const realisedRR = entry && exit && sl && Math.abs(entry - sl) > 0 ? Math.abs(exit - entry) / Math.abs(entry - sl) * (result === "WIN" ? 1 : -1) : null;
-    const maePnl = Number(existing.maePnl);
-    const mfePnl = Number(existing.mfePnl);
-    const openedAt = existing.createdAt ? new Date(existing.createdAt) : null;
-    const holdMins = openedAt && closedAt > openedAt ? Math.round((closedAt.getTime() - openedAt.getTime()) / 6e4) : null;
-    const hour = closedAt.getUTCHours();
-    const { canonSession: canonSession2 } = await Promise.resolve().then(() => (init_session(), session_exports));
-    const session3 = canonSession2(f.session, hour) ?? canonSession2(null, hour);
-    const holdRegime = await _classifyHoldRegime(conn, symbol, openedAt, closedAt);
-    await pool2.query(
-      `INSERT INTO fx_brain_outcomes
-        (user_id, symbol, direction, timeframe, hour_utc, session, day_of_week,
-         adx_value, rsi_value, macd_direction, confluence_grade, confluence_score,
-         smc_verdict, ict_macro_valid, htf_aligned, ea_confidence, ai_confidence,
-         entry_price, exit_price, stop_loss, take_profit, planned_rr, realised_rr,
-         result, profit_loss, holding_minutes, connection_id, account_id, ticket, closed_at,
-         mae_pnl, mfe_pnl, minutes_to_mae, minutes_to_mfe, hold_regime)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25,$26,$27,$28,$29,$30,$31,$32,$33,$34,$35)
-       ON CONFLICT (user_id, ticket) WHERE ticket IS NOT NULL DO NOTHING`,
-      [
-        userId,
-        symbol,
-        direction,
-        f.timeframe ?? null,
-        hour,
-        session3,
-        closedAt.getUTCDay(),
-        f.adx_value ?? null,
-        f.rsi_value ?? null,
-        f.macd_direction ?? null,
-        f.confluence_grade ?? null,
-        f.confluence_score ?? null,
-        f.smc_verdict ?? null,
-        f.ict_macro_valid ?? null,
-        f.htf_aligned ?? null,
-        f.proposed_confidence ?? null,
-        f.ai_confidence ?? null,
-        entry,
-        exit,
-        sl,
-        tp,
-        plannedRR,
-        realisedRR,
-        result,
-        profit,
-        holdMins,
-        conn?.id ?? null,
-        String(conn?.accountId ?? ""),
-        ticket || null,
-        closedAt,
-        Number.isFinite(maePnl) ? maePnl : null,
-        Number.isFinite(mfePnl) ? mfePnl : null,
-        existing.maeAt && openedAt ? Math.max(0, Math.round((new Date(existing.maeAt).getTime() - openedAt.getTime()) / 6e4)) : null,
-        existing.mfeAt && openedAt ? Math.max(0, Math.round((new Date(existing.mfeAt).getTime() - openedAt.getTime()) / 6e4)) : null,
-        holdRegime
-      ]
-    );
-    console.log(`[FxBrain] recorded ${symbol} ${direction} ${result} ${profit >= 0 ? "+" : ""}${profit.toFixed(2)}` + (f.adx_value != null ? ` (adx ${Number(f.adx_value).toFixed(1)}, grade ${f.confluence_grade ?? "n/a"})` : " (setup unknown)"));
-  } catch (e) {
-    console.error(
-      `[FxBrain] outcome record failed (non-fatal) for user=${userId} symbol=${existing?.symbol} direction=${existing?.direction} ticket=${existing?.mt5Ticket} result=${result} profit=${profit}: ${e?.message}` + (e?.code ? ` | pg_code=${e.code}` : "") + (e?.detail ? ` | pg_detail=${e.detail}` : "") + (e?.constraint ? ` | pg_constraint=${e.constraint}` : ""),
-      e?.stack
-    );
-  }
-}
-function cache6() {
-  global.tlAccountData = global.tlAccountData || {};
-  return global.tlAccountData;
-}
-function markTlUserActive(userId) {
-  activeUsers.set(userId, Date.now());
-}
-async function _feedEngineBrain(userId, symbol, profit, direction, closeTime, ticket) {
-  try {
-    const { recordTradeResult: recordTradeResult2 } = await Promise.resolve().then(() => (init_live_trading_engine(), live_trading_engine_exports));
-    const h = new Date(closeTime || Date.now()).getUTCHours();
-    const session3 = h < 7 ? "Asian" : h < 13 ? "London" : h < 20 ? "New York" : "Late NY";
-    recordTradeResult2(userId, {
-      symbol: String(symbol || "").toUpperCase().replace("/", ""),
-      profit: Number(profit) || 0,
-      strategy: "unknown",
-      session: session3,
-      direction,
-      ...ticket ? { tradeKey: `tl:${ticket}` } : {}
-    });
-  } catch (_) {
-  }
-}
-async function sweepStalePendingOrders(userId, conn, svc) {
-  if (process.env.TL_PENDING_EXPIRY === "off" || typeof svc?.getPendingOrders !== "function") return;
-  const now = Date.now();
-  if (now - (_lastPendingSweep.get(conn.id) || 0) < PENDING_SWEEP_MS) return;
-  _lastPendingSweep.set(conn.id, now);
-  const maxMs = Math.max(0.5, Number(process.env.TL_PENDING_MAX_HOURS ?? 4)) * 36e5;
-  const d = new Date(now);
-  const fridayClose = d.getUTCDay() === 5 && (d.getUTCHours() > 20 || d.getUTCHours() === 20 && d.getUTCMinutes() >= 30);
-  const orders = await svc.getPendingOrders().catch(() => []);
-  for (const o of orders) {
-    if (!/limit|stop/.test(o.type) || /filled|cancel|reject/i.test(o.status)) continue;
-    const age = o.createdMs > 0 ? now - o.createdMs : 0;
-    if (!fridayClose && age < maxMs) continue;
-    try {
-      const { pool: pool2 } = await Promise.resolve().then(() => (init_db(), db_exports));
-      const { rows } = await pool2.query(
-        `SELECT symbol, direction FROM tradelocker_trade_logs WHERE connection_id=$1 AND action='ORDER' AND error_message LIKE $2 LIMIT 1`,
-        [conn.id, `%order ${o.id}%`]
-      );
-      if (!rows.length) continue;
-      const why = fridayClose ? "Friday close \u2014 no pending orders over the weekend" : `unfilled for ${(age / 36e5).toFixed(1)}h (limit ${maxMs / 36e5}h)`;
-      const r = await svc.cancelOrder(o.id);
-      await pool2.query(
-        `INSERT INTO tradelocker_trade_logs (user_id, connection_id, action, symbol, direction, volume, status, error_message, created_at)
-         VALUES ($1,$2,'CANCEL',$3,$4,$5,$6,$7,now())`,
-        [
-          userId,
-          conn.id,
-          rows[0].symbol,
-          rows[0].direction,
-          o.qty,
-          r.success ? "executed" : "failed",
-          `Pending ${o.type} order ${o.id} cancelled: ${why}${r.success ? "" : ` | FAILED: ${r.error}`}`.slice(0, 1e3)
-        ]
-      );
-      const { logGuard: logGuard2 } = await Promise.resolve().then(() => (init_guard_events(), guard_events_exports));
-      logGuard2(userId, "pending_order_expired", rows[0].symbol, `${rows[0].direction} ${o.type} order on TL ${conn.accountId} cancelled \u2014 ${why}${r.success ? "" : " (cancel FAILED)"}`);
-    } catch (e) {
-      console.error(`[TL-sync] pending-order sweep failed for ${o.id} (non-fatal):`, e?.message || e);
-    }
-  }
-}
-async function syncTradeLockerTrades(userId, conn, svc) {
-  await sweepStalePendingOrders(userId, conn, svc).catch(() => {
-  });
-  const cacheKey = `${userId}:${conn.accountId}`;
-  const openPositions = await svc.getPositionsNormalized().catch(() => []);
-  const currentTickets = new Set(openPositions.map((p) => `tl_${conn.accountId}_${p.id}`));
-  for (const p of openPositions) {
-    const ticket = `tl_${conn.accountId}_${p.id}`;
-    const existing = await storage.getAiTradeResultByTicket(userId, ticket);
-    if (existing) continue;
-    let _sl = p.stopLoss || 0;
-    let _tp = p.takeProfit || 0;
-    if (!(_sl > 0)) {
-      try {
-        const { pool: _slPool } = await Promise.resolve().then(() => (init_db(), db_exports));
-        const _sym = String(p.symbol || "").toUpperCase().replace(/[^A-Z0-9]/g, "");
-        const { rows: _lg } = await _slPool.query(
-          `SELECT stop_loss, take_profit FROM tradelocker_trade_logs
-            WHERE user_id = $1 AND connection_id = $2 AND action = 'OPEN' AND status = 'executed'
-              AND upper(regexp_replace(symbol, '[^A-Za-z0-9]', '', 'g')) = $3
-              AND created_at > now() - interval '7 days'
-            ORDER BY created_at DESC LIMIT 1`,
-          [userId, conn.id, _sym]
-        );
-        if (_lg[0]) {
-          if (!(_sl > 0) && Number(_lg[0].stop_loss) > 0) _sl = Number(_lg[0].stop_loss);
-          if (!(_tp > 0) && Number(_lg[0].take_profit) > 0) _tp = Number(_lg[0].take_profit);
-          if (_sl > 0) console.log(`[TL-sync] ${ticket}: broker reported no stop price; recovered SL=${_sl} TP=${_tp || "n/a"} from the order we placed.`);
-        }
-      } catch (e) {
-        console.error(`[TL-sync] ${ticket}: could not recover SL/TP from the trade log (${e?.message}); recording 0.`);
-      }
-    }
-    const _pfDir = (p.side || "").toUpperCase() === "SELL" ? "SELL" : "BUY";
-    const _pfEntry = Number(p.avgPrice) || 0;
-    let _pfNote = "";
-    if (_pfEntry > 0 && _sl > 0 && _tp > 0) {
-      const _pfRisk = Math.abs(_pfEntry - _sl);
-      const _pfReward = Math.abs(_tp - _pfEntry);
-      const _slCorrect = _pfDir === "BUY" ? _sl < _pfEntry : _sl > _pfEntry;
-      const _tpCorrect = _pfDir === "BUY" ? _tp > _pfEntry : _tp < _pfEntry;
-      if (!_slCorrect || !_tpCorrect) {
-        console.error(`[TL-sync] ${ticket} ${p.symbol} ${_pfDir}: MALFORMED LEVELS \u2014 entry ${_pfEntry}, SL ${_sl}, TP ${_tp} (stop or target on the wrong side of entry).`);
-        _pfNote = ` | POST-FILL: malformed levels (SL ${_sl} / TP ${_tp} vs entry ${_pfEntry})`;
-      } else if (_pfRisk > 0) {
-        const _pfRR = _pfReward / _pfRisk;
-        const _softFloor = Number(process.env.POSTFILL_RR_MIN ?? 1.5);
-        const _hardFloor = Number(process.env.POSTFILL_RR_HARD_FLOOR ?? 1);
-        _pfNote = ` | POST-FILL R:R 1:${_pfRR.toFixed(2)} (risk ${_pfRisk.toFixed(5)}, reward ${_pfReward.toFixed(5)})`;
-        if (_pfRR < _hardFloor) {
-          console.error(`[TL-sync] ${ticket} ${p.symbol} ${_pfDir}: INVERTED R:R 1:${_pfRR.toFixed(2)} after fill \u2014 risks more than it can gain. Entry ${_pfEntry}, SL ${_sl}, TP ${_tp}.`);
-          if (process.env.POSTFILL_RR_AUTOCLOSE === "true") {
-            try {
-              await svc.closePosition(p.id);
-              console.warn(`[TL-sync] ${ticket}: closed on inverted post-fill R:R (POSTFILL_RR_AUTOCLOSE=true).`);
-              {
-                const { logTlClose: logTlClose2 } = await Promise.resolve().then(() => (init_tradelocker(), tradelocker_exports));
-                await logTlClose2(conn, { symbol: p.symbol, direction: p.side, positionId: String(p.id), reason: `inverted post-fill R:R 1:${_pfRR.toFixed(2)} (POSTFILL_RR_AUTOCLOSE)`, pnl: p.unrealizedPl, ok: true });
-              }
-              _pfNote += " \u2014 AUTO-CLOSED";
-            } catch (ce) {
-              console.error(`[TL-sync] ${ticket}: auto-close failed (${ce?.message}) \u2014 position left open, flagged.`);
-            }
-          }
-        } else if (_pfRR < _softFloor) {
-          console.warn(`[TL-sync] ${ticket} ${p.symbol} ${_pfDir}: post-fill R:R 1:${_pfRR.toFixed(2)} is below the ${_softFloor} floor the pre-trade gate required \u2014 slippage degraded the setup.`);
-        }
-      }
-    }
-    try {
-      const { pool: _xp } = await Promise.resolve().then(() => (init_db(), db_exports));
-      const _openAt = p.openDate ? new Date(p.openDate) : /* @__PURE__ */ new Date();
-      const _sym = String(p.symbol || "").toUpperCase().split(".")[0];
-      const { rows: _ord } = await _xp.query(
-        // A pending (limit/stop) order can fill long after it was sent — on
-        // 2026-10-22 BTCUSD limits placed 07:33 the day before filled at 02:20
-        // and were wrongly flagged external. Market orders: 20-min window;
-        // pending orders this app placed: 3 days.
-        `SELECT 1 FROM tradelocker_trade_logs WHERE connection_id=$1 AND action IN ('ORDER','OPEN') AND status='executed'
-           AND upper(split_part(symbol,'.',1))=$2
-           AND (created_at BETWEEN $3::timestamptz - interval '20 minutes' AND $3::timestamptz + interval '2 minutes'
-                OR (action='ORDER' AND (error_message LIKE 'ORDER limit%' OR error_message LIKE 'ORDER stop%')
-                    AND created_at BETWEEN $3::timestamptz - interval '3 days' AND $3::timestamptz + interval '2 minutes'))
-           LIMIT 1`,
-        [conn.id, _sym, _openAt.toISOString()]
-      );
-      if (!_ord.length) {
-        console.warn(`[TL-sync] ${ticket} ${p.symbol} ${p.side} opened ${_openAt.toISOString()} \u2014 NO matching app order: external open`);
-        await _xp.query(
-          `INSERT INTO tradelocker_trade_logs (user_id, connection_id, action, symbol, direction, volume, stop_loss, take_profit, status, error_message, created_at)
-           VALUES ($1, $2, 'EXTERNAL_OPEN', $3, $4, $5, $6, $7, 'detected', $8, now())`,
-          [
-            userId,
-            conn.id,
-            p.symbol,
-            String(p.side || "").toUpperCase(),
-            Number(p.qty) || 0,
-            _sl > 0 ? _sl : null,
-            _tp > 0 ? _tp : null,
-            `Position ${p.id} opened ${_openAt.toISOString()} at ${p.avgPrice} with no matching order from this app (manual in TradeLocker or another EA/app)`
-          ]
-        );
-      }
-    } catch (e) {
-      console.error("[TL-sync] external-open check failed (non-fatal):", e?.message || e);
-    }
-    const { lookupSignalConfidence: lookupSignalConfidence2 } = await Promise.resolve().then(() => (init_signal_confidence(), signal_confidence_exports));
-    const _sigConf = await lookupSignalConfidence2(userId, p.symbol, (p.side || "").toUpperCase() === "SELL" ? "SELL" : "BUY");
-    await storage.createAiTradeResult({
-      userId,
-      symbol: p.symbol,
-      direction: (p.side || "").toUpperCase() === "SELL" ? "SELL" : "BUY",
-      entryPrice: p.avgPrice || 0,
-      // F5: persist the broker's SL/TP so the row reflects real protection state
-      // (was omitted → every tradelocker_auto row showed SL=null/TP=null, masking
-      // whether a live position was actually protected).
-      stopLoss: _sl,
-      takeProfit: _tp,
-      aiConfidence: _sigConf ?? 0,
-      // engine signal's confidence when one opened it
-      result: "PENDING",
-      source: "tradelocker_auto",
-      connectionId: conn.id,
-      mt5Ticket: ticket,
-      // Realised ratio, so it is measurable rather than assumed. The planned R:R
-      // is what the gate approved; this is what the fill actually produced.
-      notes: `TradeLocker position${_pfNote}`
-    });
-  }
-  for (const p of openPositions) {
-    const upl = Number(p.unrealizedPl);
-    if (!Number.isFinite(upl)) continue;
-    const ticket = `tl_${conn.accountId}_${p.id}`;
-    try {
-      const { pool: _exPool } = await Promise.resolve().then(() => (init_db(), db_exports));
-      await _exPool.query(
-        `UPDATE ai_trade_results
-            SET mae_pnl = LEAST(COALESCE(mae_pnl, $2), $2),
-                mfe_pnl = GREATEST(COALESCE(mfe_pnl, $2), $2),
-                mae_at  = CASE WHEN $2 < COALESCE(mae_pnl, $2) OR mae_pnl IS NULL THEN now() ELSE mae_at END,
-                mfe_at  = CASE WHEN $2 > COALESCE(mfe_pnl, $2) OR mfe_pnl IS NULL THEN now() ELSE mfe_at END
-          WHERE user_id = $1 AND mt5_ticket = $3 AND result = 'PENDING'`,
-        [userId, upl, ticket]
-      );
+      _fxEvery = (await (await Promise.resolve().then(() => (init_ai_level(), ai_level_exports))).getAiLevel(userId)).fxModelsEveryH;
     } catch {
     }
-  }
-  const previousTickets = lastOpenTickets.get(cacheKey);
-  if (previousTickets) {
-    const closedTicketIds = Array.from(previousTickets).filter((t) => !currentTickets.has(t));
-    if (closedTicketIds.length > 0) {
-      const closed = await svc.getClosedPositions().catch(() => []);
-      const closedById = new Map(closed.map((c) => [`tl_${conn.accountId}_${c.positionId}`, c]));
-      for (const ticket of closedTicketIds) {
-        const existing = await storage.getAiTradeResultByTicket(userId, ticket);
-        if (!existing || existing.result !== "PENDING") continue;
-        const match = closedById.get(ticket);
-        if (!match) continue;
-        const profit = match.profit;
-        const result = profit > 0 ? "WIN" : profit < 0 ? "LOSS" : "BREAKEVEN";
-        await storage.updateAiTradeResult(existing.id, userId, {
-          result,
-          profitLoss: profit,
-          // Persist the exit price. Without it the reconstructed P&L on this row
-          // can never be checked against the prices it came from, and no
-          // R-multiple can be computed, so the brain only ever learns the SIGN
-          // of an outcome and not its quality.
-          ...Number(match.closePrice) > 0 ? { exitPrice: Number(match.closePrice) } : {},
-          ...(() => {
-            const pips = computePips(existing.symbol, existing.entryPrice || match.openPrice, match.closePrice, existing.direction);
-            return pips === null ? {} : { profitLossPips: pips };
-          })(),
-          // Backfill the entry too when the PENDING row was written before the
-          // broker reported an average fill price.
-          ...!(Number(existing.entryPrice) > 0) && Number(match.openPrice) > 0 ? { entryPrice: Number(match.openPrice) } : {},
-          closedAt: _plausibleCloseTime(match.closeTime, existing)
-        });
-        const dStr = match.closeTime ? new Date(match.closeTime).toISOString().slice(0, 10) : void 0;
-        await recordRealizedPnl(userId, conn.id, "tradelocker", profit, dStr);
-        await _recordOrBackfillConfirmationOutcome(userId, existing.symbol, existing.direction, result, match.closeTime);
-        await _feedEngineBrain(userId, existing.symbol, profit, existing.direction, match.closeTime, ticket);
-        await _recordFxBrainOutcome(userId, conn, existing, match, result, profit);
-        await _invalidateDailyStop(userId);
-      }
+    if (pairs.length && hour % _fxEvery === 0) await shadowDecide(userId, session3, pairs);
+    if (Date.now() - lastResolveAt > 15 * 6e4) {
+      lastResolveAt = Date.now();
+      await resolveShadowDecisions("fx");
     }
-  }
-  lastOpenTickets.set(cacheKey, currentTickets);
-  const lastRecon = lastOutcomeReconcile.get(cacheKey) || 0;
-  if (Date.now() - lastRecon >= OUTCOME_RECONCILE_MS) {
-    lastOutcomeReconcile.set(cacheKey, Date.now());
-    try {
-      const lastDeep = lastDeepBackfill.get(cacheKey) || 0;
-      const isDeepPass = Date.now() - lastDeep >= DEEP_BACKFILL_MS;
-      if (isDeepPass) lastDeepBackfill.set(cacheKey, Date.now());
-      const lookbackDays = isDeepPass ? 90 : 14;
-      const fromTs = Math.floor((Date.now() - lookbackDays * 24 * 3600 * 1e3) / 1e3);
-      const closedTrades = await svc.getClosedTradesWithPnl(fromTs).catch(() => []);
-      let brainTickets = null;
-      try {
-        const { pool: _bp } = await Promise.resolve().then(() => (init_db(), db_exports));
-        const { rows: _bt } = await _bp.query(
-          `SELECT ticket FROM fx_brain_outcomes WHERE user_id = $1 AND ticket IS NOT NULL AND closed_at > now() - ($2 || ' days')::interval`,
-          [userId, String(lookbackDays + 1)]
-        );
-        brainTickets = new Set(_bt.map((r) => String(r.ticket)));
-      } catch {
-        brainTickets = null;
-      }
-      let _netBudget = 10;
-      for (const o of closedTrades) {
-        const rawProfit = o.profit ?? o.pnl ?? o.realizedPnl ?? o.realizedPnL ?? o.grossProfit ?? null;
-        const p = typeof rawProfit === "number" ? rawProfit : parseFloat(rawProfit || "");
-        if (!isFinite(p) || p === 0) continue;
-        const tk = o.positionId ? `tl_${conn.accountId}_${o.positionId}` : `tl_${o.id || o.orderId}`;
-        if (!tk || tk === "tl_undefined") continue;
-        const reconDateStr = o.closeTime ? new Date(o.closeTime).toISOString().slice(0, 10) : void 0;
-        const reconResult = p > 0 ? "WIN" : "LOSS";
-        const existing = await storage.getAiTradeResultByTicket(userId, tk);
-        if (existing) {
-          const isStaleZeroBreakeven = existing.result === "BREAKEVEN" && !existing.profitLoss;
-          const needsResolve = existing.result === "PENDING" || isStaleZeroBreakeven;
-          if (needsResolve || existing.connectionId == null) {
-            await storage.updateAiTradeResult(existing.id, userId, {
-              result: reconResult,
-              profitLoss: p,
-              connectionId: conn.id,
-              // Same as the poll-and-diff path: record the prices the P&L was
-              // reconstructed FROM, so the number is auditable later.
-              ...Number(o.closePrice) > 0 ? { exitPrice: Number(o.closePrice) } : {},
-              ...(() => {
-                const pips = computePips(existing.symbol, existing.entryPrice || o.openPrice, o.closePrice, existing.direction);
-                return pips === null ? {} : { profitLossPips: pips };
-              })(),
-              ...!(Number(existing.entryPrice) > 0) && Number(o.openPrice) > 0 ? { entryPrice: Number(o.openPrice) } : {},
-              closedAt: _plausibleCloseTime(o.closeTime, existing)
-            }).catch(() => {
-            });
-            if (needsResolve) {
-              await recordRealizedPnl(userId, conn.id, "tradelocker", p, reconDateStr);
-              await _recordOrBackfillConfirmationOutcome(userId, existing.symbol, existing.direction, reconResult, o.closeTime);
-              await _feedEngineBrain(userId, existing.symbol, p, existing.direction, o.closeTime, tk);
-              await _invalidateDailyStop(userId);
-              await _recordFxBrainOutcome(
-                userId,
-                conn,
-                existing,
-                { closeTime: o.closeTime, closePrice: o.closePrice, openPrice: o.openPrice },
-                reconResult,
-                p
-              );
-              brainTickets?.add(tk);
-            }
-          }
-          const _recent = o.closeTime && Date.now() - new Date(o.closeTime).getTime() < 3 * 864e5;
-          if (brainTickets && _netBudget > 0 && _recent && !brainTickets.has(tk) && (existing.result === "WIN" || existing.result === "LOSS")) {
-            _netBudget--;
-            await _recordFxBrainOutcome(
-              userId,
-              conn,
-              existing,
-              { closeTime: o.closeTime, closePrice: o.closePrice, openPrice: o.openPrice },
-              existing.result,
-              p
-            );
-            brainTickets.add(tk);
-          }
-          continue;
-        }
-        const reconDirection = /sell|short/i.test(o.side || "") ? "SELL" : "BUY";
-        const reconSymbol = (o.symbol || "UNKNOWN").toUpperCase().replace("/", "");
-        await storage.createAiTradeResult({
-          userId,
-          symbol: reconSymbol,
-          direction: reconDirection,
-          entryPrice: o.openPrice || 0,
-          exitPrice: o.closePrice || 0,
-          profitLossPips: computePips(reconSymbol, o.openPrice, o.closePrice, reconDirection),
-          aiConfidence: 0,
-          result: reconResult,
-          profitLoss: p,
-          source: "tradelocker",
-          connectionId: conn.id,
-          mt5Ticket: tk,
-          notes: "TradeLocker closed position (auto-reconciled)",
-          closedAt: o.closeTime ? new Date(o.closeTime) : /* @__PURE__ */ new Date()
-        }).catch(() => {
-        });
-        await recordRealizedPnl(userId, conn.id, "tradelocker", p, reconDateStr);
-        await _recordOrBackfillConfirmationOutcome(userId, reconSymbol, reconDirection, reconResult, o.closeTime);
-        await _feedEngineBrain(userId, reconSymbol, p, reconDirection, o.closeTime, tk);
-        await _invalidateDailyStop(userId);
-        await _recordFxBrainOutcome(
-          userId,
-          conn,
-          { symbol: reconSymbol, direction: reconDirection, entryPrice: o.openPrice, mt5Ticket: tk },
-          { closeTime: o.closeTime, closePrice: o.closePrice, openPrice: o.openPrice },
-          reconResult,
-          p
-        );
-        brainTickets?.add(tk);
-      }
-    } catch (err) {
-      console.error(`[TL-sync] Outcome reconciliation failed for ${conn.accountId} (non-fatal):`, err?.message);
-    }
+  } catch (e) {
+    console.error("[fx-models] cycle failed (non-fatal):", e?.message || e);
   }
 }
-async function syncUserTradeLocker(userId, force = false) {
-  const now = Date.now();
-  if (!force) {
-    const last = lastSyncAt.get(userId) || 0;
-    if (now - last < MIN_RESYNC_GAP_MS) {
-      return Object.values(cache6()[userId] || {});
-    }
-  }
-  if (inFlight.has(userId)) {
-    return Object.values(cache6()[userId] || {});
-  }
-  inFlight.add(userId);
+function num(x) {
+  const n = Number(x);
+  return Number.isFinite(n) ? n : null;
+}
+async function rangeFeatures(symbol, engine = "fx") {
+  const ck = `${engine}|${symbol}`;
+  const hit = rangeCache.get(ck);
+  if (hit && Date.now() - hit.at < 30 * 6e4) return hit.data;
+  let bars = [];
   try {
-    const connections = await storage.getUserTradelockerConnections(userId);
-    const active = connections.filter((c) => c.isActive);
-    const store = cache6();
-    store[userId] = store[userId] || {};
-    const activeIds = new Set(active.map((c) => c.accountId));
-    for (const key of Object.keys(store[userId])) {
-      if (!activeIds.has(key)) delete store[userId][key];
-    }
-    for (const conn of active) {
-      if (store[userId][conn.accountId]) continue;
-      const lb = conn.lastBalance;
-      if (lb != null) {
-        store[userId][conn.accountId] = {
-          accountId: conn.accountId,
-          connectionId: conn.id,
-          accountType: conn.accountType,
-          broker: conn.brokerName || "TradeLocker",
-          label: `TradeLocker \u2013 ${conn.email} (${conn.accountType})`,
-          balance: lb || 0,
-          equity: conn.lastEquity ?? lb ?? 0,
-          margin: 0,
-          freeMargin: 0,
-          currency: "USD",
-          lastUpdated: conn.lastBalanceAt ? new Date(conn.lastBalanceAt).toISOString() : (/* @__PURE__ */ new Date(0)).toISOString()
-        };
-      }
-    }
-    for (const conn of active) {
-      try {
-        const svc = await getOrCreateService(conn);
-        const info2 = await svc.getAccountInfo();
-        if (conn.lastError) {
-          storage.updateTradelockerConnection(conn.id, { lastError: null }).catch(() => {
-          });
-        }
-        store[userId][conn.accountId] = {
-          accountId: conn.accountId,
-          connectionId: conn.id,
-          accountType: conn.accountType,
-          broker: conn.brokerName || "TradeLocker",
-          label: `TradeLocker \u2013 ${conn.email} (${conn.accountType})`,
-          balance: info2.balance || 0,
-          equity: info2.equity || 0,
-          margin: info2.margin || 0,
-          freeMargin: info2.freeMargin || 0,
-          currency: info2.currency || "USD",
-          lastUpdated: (/* @__PURE__ */ new Date()).toISOString()
-        };
-        global.tlAccountBalances = global.tlAccountBalances || {};
-        global.tlAccountBalances[userId] = global.tlAccountBalances[userId] || {};
-        global.tlAccountBalances[userId][conn.accountId] = info2.balance || 0;
-        if (info2.balance > 0) {
-          const pk = `${userId}:${conn.accountId}`;
-          const prevPersist = lastBalancePersist.get(pk);
-          const changed = !prevPersist || Math.abs(prevPersist.balance - info2.balance) > 0.01;
-          if (changed && (!prevPersist || Date.now() - prevPersist.at > BALANCE_PERSIST_MS)) {
-            lastBalancePersist.set(pk, { at: Date.now(), balance: info2.balance });
-            storage.updateTradelockerConnection(conn.id, {
-              lastBalance: info2.balance,
-              lastEquity: info2.equity || info2.balance,
-              lastBalanceAt: /* @__PURE__ */ new Date()
-            }).catch(() => {
-            });
-          }
-        }
-        await syncTradeLockerTrades(userId, conn, svc).catch(
-          (err) => console.error(`[TL-sync] Trade auto-log failed for ${conn.accountId} (non-fatal):`, err.message)
-        );
-      } catch (err) {
-        const prev = store[userId][conn.accountId];
-        const msg = err?.message || "fetch failed";
-        const isRateLimit = err?.status === 429 || /429|rate.?limit|too many requests|cooling down/i.test(msg);
-        if (isRateLimit && prev && !prev.error) {
-          continue;
-        }
-        store[userId][conn.accountId] = {
-          accountId: conn.accountId,
-          connectionId: conn.id,
-          accountType: conn.accountType,
-          broker: conn.brokerName || "TradeLocker",
-          label: `TradeLocker \u2013 ${conn.email} (${conn.accountType})`,
-          balance: prev?.balance || 0,
-          equity: prev?.equity || 0,
-          margin: prev?.margin || 0,
-          freeMargin: prev?.freeMargin || 0,
-          currency: prev?.currency || "USD",
-          lastUpdated: prev?.lastUpdated || (/* @__PURE__ */ new Date(0)).toISOString(),
-          // Don't show a scary 429 to the user — if we have any last-known
-          // balance, present a soft "refreshing" note instead of a hard error.
-          error: isRateLimit ? prev?.balance ? void 0 : "Reconnecting to TradeLocker\u2026" : msg
-        };
-      }
-    }
-    lastSyncAt.set(userId, Date.now());
-    return Object.values(store[userId]);
-  } finally {
-    inFlight.delete(userId);
+    bars = (await barsFor(engine)(symbol, "1h", 72)).slice(0, -1);
+  } catch {
+    return null;
   }
+  if (bars.length < 30) return null;
+  const ts = (b) => Number(b.timestamp) < 1e12 ? Number(b.timestamp) * 1e3 : Number(b.timestamp);
+  const box = bars.slice(-24);
+  const hi = Math.max(...box.map((b) => b.high)), lo = Math.min(...box.map((b) => b.low));
+  const width = hi - lo;
+  if (!(width > 0)) return null;
+  const tol = width * 0.15;
+  const touchesHigh = box.filter((b) => b.high >= hi - tol).length;
+  const touchesLow = box.filter((b) => b.low <= lo + tol).length;
+  const last = bars[bars.length - 1];
+  const price = Number(last.close);
+  const posPct = (price - lo) / width * 100;
+  const prior = bars.slice(-25, -1);
+  const pHi = Math.max(...prior.map((b) => b.high)), pLo = Math.min(...prior.map((b) => b.low));
+  const sweepHigh = last.high > pHi && last.close < pHi;
+  const sweepLow = last.low < pLo && last.close > pLo;
+  const closes = bars.map((b) => Number(b.close));
+  const bw = (i) => {
+    const w = closes.slice(i - 20, i);
+    const m = w.reduce((a, c) => a + c, 0) / 20;
+    const sd = Math.sqrt(w.reduce((a, c) => a + (c - m) ** 2, 0) / 20);
+    return m > 0 ? 4 * sd / m : 0;
+  };
+  const widths = [];
+  for (let i = Math.max(20, closes.length - 40); i <= closes.length; i++) widths.push(bw(i));
+  const nowW = widths[widths.length - 1];
+  const bbPct = Math.round(widths.filter((w) => w <= nowW).length / widths.length * 100);
+  const trs = bars.slice(-15).map((b, i, a) => i === 0 ? b.high - b.low : Math.max(b.high - b.low, Math.abs(b.high - a[i - 1].close), Math.abs(b.low - a[i - 1].close))).slice(1);
+  const atrH1 = trs.reduce((s, x) => s + x, 0) / trs.length;
+  const today = /* @__PURE__ */ new Date();
+  today.setUTCHours(0, 0, 0, 0);
+  const t0 = today.getTime();
+  const prevDay = bars.filter((b) => ts(b) >= t0 - 864e5 && ts(b) < t0);
+  const asian = bars.filter((b) => ts(b) >= t0 && ts(b) < t0 + 7 * 36e5);
+  const data = {
+    rangeHigh: hi,
+    rangeLow: lo,
+    rangeMid: (hi + lo) / 2,
+    widthPips: width / pipSize(symbol),
+    touchesHigh,
+    touchesLow,
+    positionInRangePct: Math.round(posPct),
+    bbWidthPercentile: bbPct,
+    sweepHigh,
+    sweepLow,
+    atrH1: Number(atrH1.toPrecision(5)),
+    prevDayHigh: prevDay.length ? Math.max(...prevDay.map((b) => b.high)) : null,
+    prevDayLow: prevDay.length ? Math.min(...prevDay.map((b) => b.low)) : null,
+    asianHigh: asian.length ? Math.max(...asian.map((b) => b.high)) : null,
+    asianLow: asian.length ? Math.min(...asian.map((b) => b.low)) : null,
+    qualifies: touchesHigh >= 2 && touchesLow >= 2 && bbPct <= 65
+  };
+  rangeCache.set(ck, { at: Date.now(), data });
+  return data;
 }
-function getTlAccountData(userId) {
-  markTlUserActive(userId);
-  const store = cache6()[userId] || {};
-  const now = Date.now();
-  const accounts = Object.values(store).map((a) => {
-    const secondsAgo = Math.floor((now - new Date(a.lastUpdated).getTime()) / 1e3);
-    return { ...a, secondsAgo, isConnected: secondsAgo < 120 && !a.error };
-  });
+function m2Reject(symbol, dir, entry, sl, tp, ctx, session3, engine = "fx") {
+  const want = dir === "BUY" ? "BULLISH" : "BEARISH";
+  if (ctx?.h1?.trend !== want || ctx?.h4?.trend !== want) return `H1 ${ctx?.h1?.trend ?? "n/a"} / H4 ${ctx?.h4?.trend ?? "n/a"} not both ${want}`;
+  if (engine !== "fx") return null;
+  if (M2_PAIRS_EXCLUDED.includes(symbol)) return `${symbol} excluded from trend model`;
+  if (!M2_SESSIONS.includes(session3)) return `${session3} session (Model 2 trades ${M2_SESSIONS.join(" / ")} only)`;
+  const pd = ctx?.h1?.pd;
+  if (dir === "BUY" && pd === "PREMIUM") return "BUY at H1 premium";
+  if (dir === "SELL" && pd === "DISCOUNT") return "SELL at H1 discount";
+  const adx = Number(ctx?.adx);
+  if (Number.isFinite(adx) && adx >= M2_MAX_ADX) return `ADX ${adx.toFixed(0)} \u2265 ${M2_MAX_ADX} (trend already stretched)`;
+  const risk = Math.abs(entry - sl);
+  const rr = risk > 0 ? Math.abs(tp - entry) / risk : 0;
+  if (rr < M2_MIN_RR - 1e-6) return `target ${rr.toFixed(2)}R < ${M2_MIN_RR}R`;
+  return null;
+}
+function m1Reject(symbol, dir, entry, sl, ctx, engine = "fx") {
+  const r = ctx?.range;
+  if (engine === "fx" && M1_PAIRS_EXCLUDED.includes(symbol)) return `${symbol} excluded from range model`;
+  if (!r) return "range data unavailable";
+  if (!r.qualifies) return `no qualified range (touches ${r.touchesHigh}/${r.touchesLow}, BB width pct ${r.bbWidthPercentile})`;
+  const atTop = r.positionInRangePct >= 75, atBottom = r.positionInRangePct <= 25;
+  if (dir === "SELL" && !atTop) return `SELL not at range top (${r.positionInRangePct}%)`;
+  if (dir === "BUY" && !atBottom) return `BUY not at range bottom (${r.positionInRangePct}%)`;
+  const h4 = ctx?.h4?.trend;
+  if (dir === "SELL" && h4 === "BULLISH" || dir === "BUY" && h4 === "BEARISH") return `fading a trending H4 (${h4})`;
+  const risk = Math.abs(entry - sl);
+  const toMid = Math.abs(r.rangeMid - entry);
+  if (!(risk > 0) || toMid / risk < 1) return `R:R to range middle ${(toMid / (risk || 1)).toFixed(2)} < 1`;
+  return null;
+}
+function m1Candidate(symbol, ctx, engine = "fx") {
+  const r = ctx?.range;
+  if (!r?.qualifies) return null;
+  if (engine === "fx" && M1_PAIRS_EXCLUDED.includes(symbol)) return null;
+  const atTop = r.positionInRangePct >= 75, atBottom = r.positionInRangePct <= 25;
+  if (!atTop && !atBottom) return null;
+  const direction = atTop ? "SELL" : "BUY";
+  if (engine === "crypto" && direction === "SELL") return null;
+  const h4 = ctx?.h4?.trend || "NEUTRAL";
+  if (direction === "SELL" && h4 === "BULLISH" || direction === "BUY" && h4 === "BEARISH") return null;
+  const width = r.rangeHigh - r.rangeLow;
+  const price = Number(ctx?.price);
+  const stopRef = atTop ? r.rangeHigh + 0.1 * width : r.rangeLow - 0.1 * width;
+  const risk = Math.abs(price - stopRef);
+  const rrToMidEst = price > 0 && risk > 0 ? Math.abs(r.rangeMid - price) / risk : 0;
   return {
-    connected: accounts.some((a) => a.isConnected),
-    accounts,
-    totalBalance: accounts.reduce((s, a) => s + (a.balance || 0), 0),
-    totalEquity: accounts.reduce((s, a) => s + (a.equity || 0), 0)
+    direction,
+    edge: atTop ? "top" : "bottom",
+    h4,
+    sweep: !!(atTop ? r.sweepHigh : r.sweepLow),
+    stopRef: Number(stopRef.toPrecision(6)),
+    target: Number(Number(r.rangeMid).toPrecision(6)),
+    rrToMidEst: Math.round(rrToMidEst * 100) / 100
   };
 }
-function refreshTlAfterTrade(userId) {
-  markTlUserActive(userId);
-  syncUserTradeLocker(userId, true).catch(() => {
-  });
-}
-function startTradeLockerSync() {
-  if (started) return;
-  started = true;
-  setInterval(async () => {
-    const now = Date.now();
-    for (const [userId, seenAt] of Array.from(activeUsers.entries())) {
-      if (now - seenAt > ACTIVE_WINDOW_MS) {
-        activeUsers.delete(userId);
-        continue;
-      }
-      try {
-        await syncUserTradeLocker(userId);
-      } catch {
+async function shadowDecide(userId, session3, pairs, engine = "fx") {
+  try {
+    const { fxShouldPauseForCredits: fxShouldPauseForCredits2 } = await Promise.resolve().then(() => (init_ai_budget_guard(), ai_budget_guard_exports));
+    if (fxShouldPauseForCredits2()) return;
+  } catch {
+  }
+  let ai;
+  try {
+    const { getUniversalAIClientForUser: getUniversalAIClientForUser2 } = await Promise.resolve().then(() => (init_openai(), openai_exports));
+    ai = await getUniversalAIClientForUser2(userId);
+  } catch {
+    return;
+  }
+  for (const p of pairs) {
+    const range = await rangeFeatures(p.symbol, engine).catch(() => null);
+    p.ctx.range = range ? { ...range } : null;
+    if (p.ctx.range) p.ctx.range.m1Candidate = m1Candidate(p.symbol, p.ctx, engine);
+  }
+  const mastery2 = await getModelMastery(userId, { engine }).catch(() => null);
+  const masteryLines = (mastery2?.slices || []).filter((m) => m.trades >= 5).slice(0, 20).map((m) => `${m.model} ${m.dayType} ${m.symbol} ${m.session}: ${m.trades} trades, WR ${(m.winRate * 100).toFixed(0)}%, avg ${m.avgR.toFixed(2)}R (${m.level})`).join("\n");
+  const prompt = `You run TWO ${engine === "crypto" ? "CRYPTO (24/7 on-chain tokens)" : "FX"} trading models side by side. For EACH ${engine === "crypto" ? "token" : "pair"} below, say what each model would trade RIGHT NOW (or NONE).
+${engine === "crypto" ? 'Crypto notes: markets never close; "sessions" are when US/EU volume is highest (London/NY hours give the cleanest trends). The live venue is spot DeFi (long-only): give BUY or NONE only \u2014 never SELL. Thin tokens wick hard \u2014 stops must sit beyond real structure, not inside noise.\n' : ""}
+MODEL 1 (range / low-volume days) \u2014 only when ctx.range.qualifies is true:
+  \u2022 Trade ONLY at an edge: SELL when positionInRangePct >= 75, BUY when <= 25. Never the middle.
+  \u2022 Best trigger is a liquidity sweep (sweepHigh/sweepLow true: wick through the edge, close back inside). Also valid: rejection at prevDay/Asian high/low that sits on the edge, RSI stretched at the edge.
+  \u2022 Stop beyond the sweep wick / range edge plus a small buffer. First target = rangeMid (must be >= 1.0R), runner to the opposite edge.
+  \u2022 Never fade a trending H4, never trade a range during London open (07:00-08:00 UTC) or NY open (12:30-13:30 UTC) when breakouts start, max 1-3 trades a day.
+  \u2022 ctx.range.m1Candidate is the setup the server has ALREADY checked: the range qualifies, price is at an edge, and that edge does not fight the H4. When it is set, Model 1 TAKES that trade \u2014 its direction, entry at the current price, stop beyond the edge / sweep wick (stopRef is a guide), first target rangeMid \u2014 unless you name a specific, concrete reason in "reason" (e.g. "London open window", "H1 just closed outside the box", "R:R to rangeMid under 1 with a sensible stop"). "Range does not qualify" or "position does not qualify" are never valid reasons when m1Candidate is set.
+  \u2022 When ctx.range.m1Candidate is null, Model 1 says NONE.
+MODEL 2 (trend / volume days): trade only in the H4+H1 direction \u2014 breakouts with volume or pullbacks to structure. Target ${engine === "fx" ? `${M2_MIN_RR}R or more` : "2-4R"}, stop beyond the last H1 swing. Skip if H4 and H1 disagree.
+${engine === "fx" ? `  \u2022 Only in ${M2_SESSIONS.join(" / ")} sessions${M2_PAIRS_EXCLUDED.length ? `, never on ${M2_PAIRS_EXCLUDED.join(", ")}` : ""} \u2014 otherwise Model 2 says NONE.
+  \u2022 Buy pullbacks into H1 discount/equilibrium, sell rallies into H1 premium/equilibrium; never BUY at H1 premium or SELL at H1 discount (that is chasing).
+  \u2022 Skip when ADX is ${M2_MAX_ADX} or higher \u2014 the move is already stretched; the best entries come while ADX is building (about 20-30).
+  \u2022 The target must be at least ${M2_MIN_RR}R from the current price; if the next structure is closer, say NONE.
+  \u2022 ctx.range.atrH1 is the H1 ATR(14) \u2014 use it to judge how far price normally moves in an hour when placing the stop and target.
+` : ""}Both models use every input: trend, ADX/DI, RSI, volume, BOS/CHOCH, Wyckoff, premium/discount, session and the day type. Reason toward the best risk-adjusted trade of the day; NONE is a valid, often correct answer.
+
+Session: ${session3}
+${masteryLines ? `Your own track record so far (use it \u2014 lean on what has worked, avoid what has not):
+${masteryLines}
+` : ""}
+PAIRS:
+${pairs.map((p) => `${p.symbol}: ${JSON.stringify(p.ctx)}`).join("\n")}
+
+Respond ONLY with JSON:
+{"ideas":[{"symbol":"EURUSD","model":"M1","direction":"BUY|SELL|NONE","entry":1.0,"stopLoss":1.0,"takeProfit":1.0,"confidence":0-100,"setup":"short name","reason":"one sentence"}]}
+Give exactly one M1 and one M2 entry per pair.`;
+  let content = "";
+  try {
+    const resp = await ai.chat.completions.create({
+      model: ai.defaultModel || "gpt-4o-mini",
+      messages: [{ role: "system", content: `You are a disciplined ${engine === "crypto" ? "crypto" : "FX"} analyst. Valid JSON only.` }, { role: "user", content: prompt }],
+      response_format: { type: "json_object" },
+      max_tokens: 1800,
+      temperature: 0.2
+    });
+    content = resp?.choices?.[0]?.message?.content || "";
+  } catch (e) {
+    try {
+      const { noteAiBudgetError: noteAiBudgetError2 } = await Promise.resolve().then(() => (init_ai_budget_guard(), ai_budget_guard_exports));
+      noteAiBudgetError2(e);
+    } catch {
+    }
+    return;
+  }
+  let ideas = [];
+  try {
+    ideas = JSON.parse(content.slice(content.indexOf("{"), content.lastIndexOf("}") + 1))?.ideas || [];
+  } catch {
+    return;
+  }
+  const byPair = new Map(pairs.map((p) => [p.symbol.toUpperCase(), p.ctx]));
+  for (const i of ideas) {
+    const sym = String(i?.symbol || "").toUpperCase().replace("/", "");
+    const model = i?.model === "M1" || i?.model === "M2" ? i.model : null;
+    const ctx = byPair.get(sym);
+    if (!ctx || !model) continue;
+    const dir = String(i?.direction || "NONE").toUpperCase();
+    const entry = Number(i?.entry), sl = Number(i?.stopLoss), tp = Number(i?.takeProfit);
+    const valid = dir === "BUY" && sl < entry && tp > entry || dir === "SELL" && sl > entry && tp < entry;
+    const price = Number(ctx.price);
+    const near = price > 0 && Math.abs(entry - price) / price < (engine === "crypto" ? 0.01 : 3e-3);
+    let isTrade = (dir === "BUY" || dir === "SELL") && valid && near;
+    let ruleNote = "";
+    if (engine === "crypto" && dir === "SELL") {
+      isTrade = false;
+      ruleNote = "crypto is long-only";
+    }
+    if (isTrade) {
+      const sidesOk = dir === "BUY" ? sl < price && tp > price : sl > price && tp < price;
+      const planned = Math.abs(entry - sl), actual = Math.abs(price - sl);
+      const ratio = planned > 0 ? actual / planned : 0;
+      if (!sidesOk) {
+        isTrade = false;
+        ruleNote = `stop/target on the wrong side of live price ${price}`;
+      } else if (!(ratio >= 0.5 && ratio <= 1.5)) {
+        isTrade = false;
+        ruleNote = `risk at live price is ${ratio.toFixed(2)}x the planned risk`;
       }
     }
-  }, SYNC_INTERVAL_MS);
-  console.log("[TL-sync] Background TradeLocker balance sync started (20s interval).");
+    if (isTrade && model === "M1") {
+      const why = m1Reject(sym, dir, price, sl, ctx, engine);
+      if (why) {
+        isTrade = false;
+        ruleNote = `M1 rule: ${why}`;
+      }
+    }
+    if (isTrade && model === "M2") {
+      const why = m2Reject(sym, dir, price, sl, tp, ctx, session3, engine);
+      if (why) {
+        isTrade = false;
+        ruleNote = `M2 rule: ${why}`;
+      }
+    }
+    const ins = await pool.query(
+      `INSERT INTO fx_model_decisions (user_id, symbol, model, mode, day_type, session, direction, entry_price, stop_loss, take_profit, confidence, setup, reasoning, context, result, engine)
+       VALUES ($1,$2,$3,'shadow',$4,$5,$6,$7,$8,$9,$10,$11,$12,$13::jsonb,$14,$15) RETURNING id`,
+      [
+        userId,
+        sym,
+        model,
+        ctx.dayType,
+        session3,
+        isTrade ? dir : "NONE",
+        isTrade ? price : null,
+        isTrade ? sl : null,
+        isTrade ? tp : null,
+        Math.max(0, Math.min(100, Math.round(Number(i?.confidence) || 0))),
+        String(i?.setup || "").slice(0, 80),
+        (ruleNote ? `[${ruleNote}] ` : "") + String(i?.reason || "").slice(0, 500),
+        JSON.stringify(ctx),
+        isTrade ? null : "NO_TRADE",
+        engine
+      ]
+    ).catch(() => null);
+    if (engine === "fx" && isTrade && ins?.rows?.[0]?.id) {
+      await maybeGoLive(userId, {
+        id: ins.rows[0].id,
+        symbol: sym,
+        model,
+        dayType: ctx.dayType,
+        autoModel: ctx.autoModel,
+        session: session3,
+        direction: dir,
+        entry: price,
+        stopLoss: sl,
+        takeProfit: tp,
+        confidence: Math.round(Number(i?.confidence) || 0),
+        setup: String(i?.setup || ""),
+        reason: String(i?.reason || "")
+      }).catch((e) => console.error("[fx-models] live hand-off failed (non-fatal):", e?.message || e));
+    }
+  }
 }
-var lastOpenTickets, lastOutcomeReconcile, OUTCOME_RECONCILE_MS, lastDeepBackfill, DEEP_BACKFILL_MS, lastBalancePersist, BALANCE_PERSIST_MS, activeUsers, ACTIVE_WINDOW_MS, SYNC_INTERVAL_MS, MIN_RESYNC_GAP_MS, lastSyncAt, inFlight, PENDING_SWEEP_MS, _lastPendingSweep, started;
-var init_tradelocker_sync = __esm({
-  "server/services/tradelocker-sync.ts"() {
+async function resolveShadowDecisions(engine = "fx", userId) {
+  await pool.query(
+    `UPDATE fx_model_decisions SET result='EXPIRED', exit_price=entry_price, r_multiple=0, pips=0, resolved_at=now()
+      WHERE engine = $1 AND result IS NULL AND direction IN ('BUY','SELL') AND created_at < now() - interval '50 hours'`,
+    [engine === "crypto" ? "crypto" : "fx"]
+  ).catch(() => {
+  });
+  const { rows } = await pool.query(
+    `SELECT id, symbol, direction, entry_price, stop_loss, take_profit, created_at FROM fx_model_decisions
+      WHERE engine = '${engine === "crypto" ? "crypto" : "fx"}' ${userId ? `AND user_id = ${Math.floor(Number(userId))}` : ""} AND result IS NULL AND direction IN ('BUY','SELL') AND created_at < now() - interval '15 minutes'
+      ORDER BY created_at LIMIT 40`
+  );
+  const bySym = /* @__PURE__ */ new Map();
+  for (const r of rows) {
+    const a = bySym.get(r.symbol) || [];
+    a.push(r);
+    bySym.set(r.symbol, a);
+  }
+  for (const [symbol, list] of Array.from(bySym.entries())) {
+    let bars = [];
+    try {
+      bars = await barsFor(engine)(symbol, "15m", 200);
+    } catch {
+      continue;
+    }
+    if (!bars.length) continue;
+    for (const r of list) {
+      const t0 = new Date(r.created_at).getTime();
+      const entry = Number(r.entry_price), sl = Number(r.stop_loss), tp = Number(r.take_profit);
+      const risk = Math.abs(entry - sl);
+      if (!(risk > 0)) continue;
+      const buy = r.direction === "BUY";
+      let result = null, exit = 0;
+      for (const b of bars) {
+        const ts = Number(b.timestamp) < 1e12 ? Number(b.timestamp) * 1e3 : Number(b.timestamp);
+        if (ts < t0) continue;
+        const hitSl = buy ? b.low <= sl : b.high >= sl;
+        const hitTp = buy ? b.high >= tp : b.low <= tp;
+        if (hitSl) {
+          result = "LOSS";
+          exit = sl;
+          break;
+        }
+        if (hitTp) {
+          result = "WIN";
+          exit = tp;
+          break;
+        }
+      }
+      if (!result && Date.now() - t0 > 48 * 36e5) {
+        const cutoff = t0 + 48 * 36e5;
+        const atCut = bars.filter((b) => (Number(b.timestamp) < 1e12 ? Number(b.timestamp) * 1e3 : Number(b.timestamp)) <= cutoff);
+        exit = Number(atCut[atCut.length - 1]?.close) || Number(bars[bars.length - 1]?.close) || entry;
+        result = "EXPIRED";
+      }
+      if (!result) continue;
+      const move = buy ? exit - entry : entry - exit;
+      await pool.query(
+        `UPDATE fx_model_decisions SET result=$2, exit_price=$3, r_multiple=$4, pips=$5, resolved_at=now() WHERE id=$1 AND result IS NULL`,
+        [r.id, result, exit, move / risk, engine === "crypto" ? entry > 0 ? move / entry * 100 : 0 : move / pipSize(symbol)]
+      ).catch(() => {
+      });
+    }
+  }
+}
+function parseFxModelScope(filter) {
+  const f = (filter || []).map((x) => String(x).trim().toUpperCase()).filter(Boolean);
+  const model = f.find((x) => x.startsWith("MODEL:"))?.slice(6) || null;
+  const dayType = f.find((x) => x.startsWith("DAY:"))?.slice(4)?.toLowerCase() || null;
+  const symbols = f.filter((x) => !x.includes(":"));
+  const engine = f.includes("ENGINE:CRYPTO") ? "crypto" : "fx";
+  return { model: model === "M1" || model === "M2" ? model : null, dayType: ["range", "trend", "mixed"].includes(dayType || "") ? dayType : null, symbols, engine };
+}
+async function getFxModelListingRows(userId, filter) {
+  await ensureFxModelTables();
+  const { model, dayType, symbols, engine } = parseFxModelScope(filter);
+  const { rows } = await pool.query(
+    `SELECT symbol, model, day_type, session, direction, entry_price, stop_loss, take_profit, confidence, setup, reasoning, context,
+            result, r_multiple, pips, exit_price, created_at, resolved_at, engine
+       FROM fx_model_decisions
+      WHERE user_id=$1 AND source='own' AND engine='${engine}' AND result IN ('WIN','LOSS','EXPIRED')
+        AND ($2::text IS NULL OR model=$2) AND ($3::text IS NULL OR day_type=$3)
+        AND (cardinality($4::text[]) = 0 OR symbol = ANY($4::text[]))
+      ORDER BY created_at DESC LIMIT 3000`,
+    [userId, model, dayType, symbols]
+  );
+  const n = rows.length;
+  const wins = rows.filter((r) => r.result === "WIN").length;
+  const avgR = n ? rows.reduce((a, r) => a + (Number(r.r_multiple) || 0), 0) / n : 0;
+  const winRate2 = n ? wins / n : 0;
+  const masteryScore = Math.round(Math.min(1, n / 150) * 50 + Math.max(0, Math.min(1, (avgR + 0.5) / 1.5)) * 50);
+  return { rows, avgR, masteryScore, level: masteryLevel(n, winRate2, avgR) };
+}
+function fxModelRowsForStats(rows) {
+  return rows.map((r) => ({
+    symbol: r.symbol,
+    confirmedAt: r.resolved_at || r.created_at,
+    tradeOutcome: r.result === "WIN" || r.result === "EXPIRED" && Number(r.r_multiple) > 0 ? "WIN" : "LOSS"
+  }));
+}
+async function importFxModelSnapshot(buyerId, snapshot) {
+  await ensureFxModelTables();
+  let n = 0;
+  for (const r of snapshot || []) {
+    await pool.query(
+      `INSERT INTO fx_model_decisions (user_id, symbol, model, mode, day_type, session, direction, entry_price, stop_loss, take_profit,
+         confidence, setup, reasoning, context, result, r_multiple, pips, exit_price, resolved_at, created_at, source, engine)
+       VALUES ($1,$2,$3,'purchased',$4,$5,$6,$7,$8,$9,$10,$11,$12,$13::jsonb,$14,$15,$16,$17,$18,$19,'purchased_brain',$20)`,
+      [
+        buyerId,
+        r.symbol,
+        r.model,
+        r.day_type,
+        r.session,
+        r.direction,
+        r.entry_price,
+        r.stop_loss,
+        r.take_profit,
+        r.confidence,
+        r.setup,
+        r.reasoning,
+        JSON.stringify(r.context ?? null),
+        r.result,
+        r.r_multiple,
+        r.pips,
+        r.exit_price,
+        r.resolved_at ? new Date(r.resolved_at) : null,
+        r.created_at ? new Date(r.created_at) : /* @__PURE__ */ new Date(),
+        r.engine === "crypto" ? "crypto" : "fx"
+      ]
+    ).then(() => {
+      n++;
+    }).catch(() => {
+    });
+  }
+  return n;
+}
+async function getFxModelSettings(userId) {
+  try {
+    const { getRuntimeStateStrict: getRuntimeStateStrict2 } = await Promise.resolve().then(() => (init_runtime_state(), runtime_state_exports));
+    const v = await getRuntimeStateStrict2("fx_models", String(userId));
+    return { ...DEFAULT_SETTINGS, ...v || {} };
+  } catch {
+    return { ...DEFAULT_SETTINGS };
+  }
+}
+async function saveFxModelSettings(userId, patch) {
+  const cur = await getFxModelSettings(userId);
+  const next = {
+    live: typeof patch.live === "boolean" ? patch.live : cur.live,
+    m1DailyCap: clampInt(patch.m1DailyCap ?? cur.m1DailyCap, 0, 5),
+    m2DailyCap: clampInt(patch.m2DailyCap ?? cur.m2DailyCap, 0, 5)
+  };
+  const { pool: p } = await Promise.resolve().then(() => (init_db(), db_exports));
+  const { ensureRuntimeStateTable: ensureRuntimeStateTable2 } = await Promise.resolve().then(() => (init_runtime_state(), runtime_state_exports));
+  await ensureRuntimeStateTable2();
+  await p.query(
+    `INSERT INTO runtime_state (scope, key, value, updated_at) VALUES ('fx_models', $1, $2::jsonb, now())
+     ON CONFLICT (scope, key) DO UPDATE SET value = EXCLUDED.value, updated_at = now()`,
+    [String(userId), JSON.stringify(next)]
+  );
+  return next;
+}
+function clampInt(n, lo, hi) {
+  const x = Math.round(Number(n));
+  return Number.isFinite(x) ? Math.max(lo, Math.min(hi, x)) : lo;
+}
+async function sliceLiveReady(userId, s) {
+  if (!LIVE_LEVELS.includes(s.level)) return false;
+  if (s.trades < GO_LIVE.minTrades || s.avgR < GO_LIVE.minAvgR || s.winRate < GO_LIVE.minWinRate) return false;
+  const { rows } = await pool.query(
+    `SELECT date_trunc('week', created_at) AS wk, SUM(r_multiple)::float AS r
+       FROM fx_model_decisions
+      WHERE user_id=$1 AND engine='fx' AND source='own' AND result IN ('WIN','LOSS','EXPIRED')
+        AND model=$2 AND day_type=$3 AND symbol=$4 AND session=$5
+        AND created_at >= date_trunc('week', now()) - interval '7 days'
+      GROUP BY 1`,
+    [userId, s.model, s.dayType, s.symbol, s.session]
+  );
+  return rows.every((r) => Number(r.r) >= 0);
+}
+async function liveEligibleSlices(userId) {
+  const m = await getModelMastery(userId, { ownOnly: true });
+  const out = [];
+  for (const s of m.slices) if (await sliceLiveReady(userId, s)) out.push(s);
+  return out;
+}
+async function maybeGoLive(userId, idea) {
+  const settings = await getFxModelSettings(userId);
+  if (!settings.live) return;
+  if (idea.model !== idea.autoModel) return;
+  const mastery2 = await getModelMastery(userId, { ownOnly: true });
+  const slice = mastery2.slices.find((s) => s.model === idea.model && s.dayType === idea.dayType && s.symbol === idea.symbol && s.session === idea.session);
+  if (!slice || !await sliceLiveReady(userId, slice)) return;
+  const cap = idea.model === "M1" ? settings.m1DailyCap : settings.m2DailyCap;
+  const client2 = await pool.connect();
+  let claimed = false;
+  try {
+    await client2.query("BEGIN");
+    await client2.query("SELECT pg_advisory_xact_lock(918273700, $1)", [userId]);
+    const { rows } = await client2.query(
+      `SELECT COUNT(*)::int AS n FROM fx_model_decisions WHERE user_id=$1 AND model=$2 AND mode IN ('live','live_pending') AND created_at >= date_trunc('day', now())`,
+      [userId, idea.model]
+    );
+    if (Number(rows[0]?.n) < cap) {
+      await client2.query(`UPDATE fx_model_decisions SET mode='live_pending' WHERE id=$1`, [idea.id]);
+      claimed = true;
+    }
+    await client2.query("COMMIT");
+  } catch (e) {
+    await client2.query("ROLLBACK").catch(() => {
+    });
+    throw e;
+  } finally {
+    client2.release();
+  }
+  if (!claimed) return;
+  const { submitFxModelTrade: submitFxModelTrade2 } = await Promise.resolve().then(() => (init_live_trading_engine(), live_trading_engine_exports));
+  const placed = await submitFxModelTrade2(userId, {
+    model: idea.model,
+    symbol: idea.symbol,
+    direction: idea.direction,
+    confidence: idea.confidence,
+    entryPrice: idea.entry,
+    stopLoss: idea.stopLoss,
+    takeProfit: idea.takeProfit,
+    reason: `${idea.model === "M1" ? "Model 1 \xB7 Range" : "Model 2 \xB7 Trend"} [${slice.level}, ${slice.trades} ideas, ${(slice.winRate * 100).toFixed(0)}% WR, ${slice.avgR >= 0 ? "+" : ""}${slice.avgR.toFixed(2)}R] ${idea.setup}: ${idea.reason}`.slice(0, 500)
+  }).catch(() => false);
+  await pool.query(`UPDATE fx_model_decisions SET mode=$2 WHERE id=$1`, [idea.id, placed ? "live" : "shadow"]).catch(() => {
+  });
+}
+function barTrend(bars) {
+  const c = bars.map((b) => Number(b.close));
+  const e20 = emaLast(c, 20), e50 = emaLast(c, 50), last = c[c.length - 1];
+  if (!(e20 > 0) || !(e50 > 0)) return "NEUTRAL";
+  if (e20 > e50 && last > e20) return "BULLISH";
+  if (e20 < e50 && last < e20) return "BEARISH";
+  return "NEUTRAL";
+}
+function adx14(bars) {
+  if (bars.length < 30) return null;
+  let tr = 0, pdm = 0, mdm = 0;
+  const dxs = [];
+  for (let i = 1; i < bars.length; i++) {
+    const h = bars[i].high, l = bars[i].low, pc = bars[i - 1].close;
+    const up = h - bars[i - 1].high, dn = bars[i - 1].low - l;
+    const t = Math.max(h - l, Math.abs(h - pc), Math.abs(l - pc));
+    tr = tr - tr / 14 + t;
+    pdm = pdm - pdm / 14 + (up > dn && up > 0 ? up : 0);
+    mdm = mdm - mdm / 14 + (dn > up && dn > 0 ? dn : 0);
+    if (i >= 14 && tr > 0) {
+      const pdi = 100 * pdm / tr, mdi = 100 * mdm / tr;
+      dxs.push(pdi + mdi > 0 ? 100 * Math.abs(pdi - mdi) / (pdi + mdi) : 0);
+    }
+  }
+  const last = dxs.slice(-14);
+  return last.length ? last.reduce((a, c) => a + c, 0) / last.length : null;
+}
+async function runCryptoModelsCycle(userId, symbols) {
+  if (process.env.CRYPTO_MODELS_SHADOW === "off") return;
+  let _lvlEvery = 2;
+  try {
+    _lvlEvery = (await (await Promise.resolve().then(() => (init_ai_level(), ai_level_exports))).getAiLevel(userId)).cryptoModelsEveryH;
+  } catch {
+  }
+  const everyH = Math.max(1, Number(process.env.CRYPTO_MODELS_EVERY_HOURS ?? _lvlEvery));
+  if ((/* @__PURE__ */ new Date()).getUTCHours() % everyH !== 0) {
+    await resolveShadowDecisions("crypto", userId).catch(() => {
+    });
+    return;
+  }
+  try {
+    await ensureFxModelTables();
+    const fetchBars2 = barsFor("crypto");
+    const now = /* @__PURE__ */ new Date();
+    const session3 = sessionFor(now);
+    const day = now.toISOString().slice(0, 10);
+    const hour = now.getUTCHours();
+    const candle = Math.floor(now.getTime() / 36e5);
+    const maxTokens = Math.max(1, Number(process.env.CRYPTO_MODELS_MAX_TOKENS ?? 8));
+    const pairs = [];
+    const done = new Set((await pool.query(
+      `SELECT DISTINCT symbol FROM fx_day_regimes WHERE engine='crypto' AND user_id=$1 AND day = (now() at time zone 'utc')::date AND hour_utc = extract(hour from now() at time zone 'utc')`,
+      [userId]
+    ).catch(() => ({ rows: [] }))).rows.map((r) => String(r.symbol)));
+    const perRun = Math.max(1, Number(process.env.CRYPTO_MODELS_PER_RUN ?? 3));
+    let fetched = 0;
+    for (const symbol of symbols.slice(0, maxTokens)) {
+      const key = `crypto|${userId}|${symbol}`;
+      if (done.has(symbol.toUpperCase()) || lastShadowCandle.get(key) === candle) continue;
+      if (fetched >= perRun) break;
+      fetched++;
+      let h1 = [], h4 = [];
+      try {
+        h1 = (await fetchBars2(symbol, "1h", 80)).slice(0, -1);
+        h4 = (await fetchBars2(symbol, "4h", 80)).slice(0, -1);
+      } catch {
+        continue;
+      }
+      if (h1.length < 55) continue;
+      const price = Number(h1[h1.length - 1].close);
+      const vols = h1.map((b) => Number(b.volume) || 0);
+      const avgVol = vols.slice(-21, -1).reduce((a, c) => a + c, 0) / 20;
+      const relVolume = avgVol > 0 ? vols[vols.length - 1] / avgVol : null;
+      const adx = adx14(h1);
+      const t1 = barTrend(h1), t4 = h4.length >= 55 ? barTrend(h4) : "NEUTRAL";
+      const cls = classifyDayType({ adx, relVolume, h1: t1, h4: t4, session: session3 });
+      const features = { price, adx, relVolume, h1: { trend: t1 }, h4: { trend: t4 } };
+      await pool.query(
+        `INSERT INTO fx_day_regimes (user_id, symbol, day, hour_utc, session, day_type, auto_model, trend_score, adx_m15, rel_volume, atr, h1_trend, h4_trend, features, engine)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,NULL,$11,$12,$13::jsonb,'crypto')
+         ON CONFLICT (user_id, symbol, day, hour_utc) DO UPDATE SET day_type=EXCLUDED.day_type, auto_model=EXCLUDED.auto_model, trend_score=EXCLUDED.trend_score,
+           adx_m15=EXCLUDED.adx_m15, rel_volume=EXCLUDED.rel_volume, h1_trend=EXCLUDED.h1_trend, h4_trend=EXCLUDED.h4_trend, features=EXCLUDED.features, engine='crypto'`,
+        [userId, symbol, day, hour, session3, cls.dayType, cls.autoModel, cls.score, num(adx), num(relVolume), t1, t4, JSON.stringify(features)]
+      ).catch(() => {
+      });
+      lastShadowCandle.set(key, candle);
+      pairs.push({ symbol, ctx: { ...features, dayType: cls.dayType, autoModel: cls.autoModel, trendScore: cls.score } });
+    }
+    if (pairs.length) await shadowDecide(userId, session3, pairs, "crypto");
+    await resolveShadowDecisions("crypto", userId);
+  } catch (e) {
+    console.error("[crypto-models] cycle failed (non-fatal):", e?.message || e);
+  }
+}
+function masteryLevel(trades, winRate2, avgR) {
+  if (trades < 20) return "Learning";
+  if (trades < 50) return avgR > 0 ? "Developing" : "Developing (negative)";
+  if (trades < 150) return avgR > 0 ? "Proficient" : "Unproven";
+  return avgR > 0.2 && winRate2 >= 0.45 ? "Master" : avgR > 0 ? "Proficient" : "Unproven";
+}
+async function getModelMastery(userId, opts = {}) {
+  const _eng = opts.engine === "crypto" ? "crypto" : "fx";
+  await ensureFxModelTables();
+  const agg = async (group) => (await pool.query(
+    `SELECT ${group}, COUNT(*)::int AS trades,
+            COUNT(*) FILTER (WHERE result='WIN')::int AS wins,
+            COALESCE(AVG(r_multiple),0)::float AS avg_r,
+            COALESCE(SUM(r_multiple),0)::float AS total_r
+       FROM fx_model_decisions
+      WHERE user_id=$1 AND engine='${_eng}' AND result IN ('WIN','LOSS','EXPIRED')${opts.ownOnly ? " AND source='own'" : ""}
+      GROUP BY ${group} ORDER BY trades DESC`,
+    [userId]
+  )).rows;
+  const shape = (r) => {
+    const winRate2 = r.trades ? r.wins / r.trades : 0;
+    const dataPart = Math.min(1, r.trades / 150) * 50;
+    const edgePart = Math.max(0, Math.min(1, (r.avg_r + 0.5) / 1.5)) * 50;
+    return {
+      model: r.model,
+      dayType: r.day_type,
+      symbol: r.symbol,
+      session: r.session,
+      trades: r.trades,
+      wins: r.wins,
+      winRate: winRate2,
+      avgR: r.avg_r,
+      totalR: r.total_r,
+      masteryScore: Math.round(dataPart + edgePart),
+      level: masteryLevel(r.trades, winRate2, r.avg_r)
+    };
+  };
+  return {
+    models: (await agg("model")).map(shape),
+    slices: (await agg("model, day_type, symbol, session")).map(shape)
+  };
+}
+var DDL2, ensured3, barsProviders, barsFor, pipSize, lastShadowCandle, lastResolveAt, M1_PAIRS_EXCLUDED, rangeCache, M2_PAIRS_EXCLUDED, M2_SESSIONS, M2_MAX_ADX, M2_MIN_RR, FX_MODEL_MIN_TO_LIST, DEFAULT_SETTINGS, LIVE_LEVELS, GO_LIVE, emaLast;
+var init_fx_models = __esm({
+  "server/services/fx-models.ts"() {
     "use strict";
-    init_storage();
-    init_pipUtils();
-    init_tradelocker();
-    init_prop_firm_consistency();
-    lastOpenTickets = /* @__PURE__ */ new Map();
-    lastOutcomeReconcile = /* @__PURE__ */ new Map();
-    OUTCOME_RECONCILE_MS = 5 * 60 * 1e3;
-    lastDeepBackfill = /* @__PURE__ */ new Map();
-    DEEP_BACKFILL_MS = 24 * 60 * 60 * 1e3;
-    lastBalancePersist = /* @__PURE__ */ new Map();
-    BALANCE_PERSIST_MS = 60 * 1e3;
-    activeUsers = /* @__PURE__ */ new Map();
-    ACTIVE_WINDOW_MS = 15 * 60 * 1e3;
-    SYNC_INTERVAL_MS = 20 * 1e3;
-    MIN_RESYNC_GAP_MS = 8 * 1e3;
-    lastSyncAt = /* @__PURE__ */ new Map();
-    inFlight = /* @__PURE__ */ new Set();
-    PENDING_SWEEP_MS = 5 * 6e4;
-    _lastPendingSweep = /* @__PURE__ */ new Map();
-    started = false;
+    init_db();
+    init_service();
+    DDL2 = `
+CREATE TABLE IF NOT EXISTS fx_day_regimes (
+  id serial PRIMARY KEY,
+  user_id integer NOT NULL,
+  symbol text NOT NULL,
+  day date NOT NULL,
+  hour_utc smallint NOT NULL,
+  session text,
+  day_type text NOT NULL,
+  auto_model text NOT NULL,
+  trend_score real,
+  adx_m15 real,
+  rel_volume real,
+  atr real,
+  h1_trend text,
+  h4_trend text,
+  features jsonb,
+  created_at timestamp NOT NULL DEFAULT now(),
+  UNIQUE (user_id, symbol, day, hour_utc)
+);
+CREATE TABLE IF NOT EXISTS fx_model_decisions (
+  id serial PRIMARY KEY,
+  user_id integer NOT NULL,
+  symbol text NOT NULL,
+  model text NOT NULL,
+  mode text NOT NULL DEFAULT 'shadow',
+  day_type text,
+  session text,
+  direction text,
+  entry_price double precision,
+  stop_loss double precision,
+  take_profit double precision,
+  confidence integer,
+  setup text,
+  reasoning text,
+  context jsonb,
+  result text,
+  r_multiple real,
+  pips real,
+  exit_price double precision,
+  resolved_at timestamp,
+  created_at timestamp NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS fx_model_decisions_open_idx ON fx_model_decisions (result, created_at);
+CREATE INDEX IF NOT EXISTS fx_model_decisions_user_idx ON fx_model_decisions (user_id, model, created_at);
+ALTER TABLE fx_model_decisions ADD COLUMN IF NOT EXISTS source text NOT NULL DEFAULT 'own';
+ALTER TABLE fx_model_decisions ADD COLUMN IF NOT EXISTS engine text NOT NULL DEFAULT 'fx';
+ALTER TABLE fx_day_regimes ADD COLUMN IF NOT EXISTS engine text NOT NULL DEFAULT 'fx';
+`;
+    ensured3 = null;
+    barsProviders = {
+      fx: async (symbol, tf, n) => {
+        const r = await marketDataService.fetchMarketData({ symbol, assetType: marketDataService.detectAssetType(symbol), timeframe: tf, limit: n });
+        return r?.bars || [];
+      }
+    };
+    barsFor = (engine) => barsProviders[engine] || barsProviders.fx;
+    pipSize = (sym) => /JPY/.test(sym) ? 0.01 : /^XAU/.test(sym) ? 0.1 : /^(BTC|ETH)/.test(sym) ? 1 : /^(US30|NAS|SPX|GER|UK1|JP2)/.test(sym) ? 1 : 1e-4;
+    lastShadowCandle = /* @__PURE__ */ new Map();
+    lastResolveAt = 0;
+    M1_PAIRS_EXCLUDED = (process.env.FX_M1_EXCLUDED_PAIRS || "GBPJPY,XAUUSD,BTCUSD,US30,NAS100").split(",").map((x) => x.trim().toUpperCase()).filter(Boolean);
+    rangeCache = /* @__PURE__ */ new Map();
+    M2_PAIRS_EXCLUDED = (process.env.FX_M2_EXCLUDED_PAIRS || "USDJPY").split(",").map((x) => x.trim().toUpperCase()).filter(Boolean);
+    M2_SESSIONS = (process.env.FX_M2_SESSIONS || "London,London/NY overlap").split(",").map((x) => x.trim()).filter(Boolean);
+    M2_MAX_ADX = Number(process.env.FX_M2_MAX_ADX) || 30;
+    M2_MIN_RR = Number(process.env.FX_M2_MIN_RR) || 3;
+    FX_MODEL_MIN_TO_LIST = 20;
+    DEFAULT_SETTINGS = { live: false, m1DailyCap: 3, m2DailyCap: 2 };
+    LIVE_LEVELS = ["Proficient", "Master"];
+    GO_LIVE = { minTrades: 50, minAvgR: 0.2, minWinRate: 0.4 };
+    emaLast = (xs, n) => {
+      if (xs.length < n) return NaN;
+      const k2 = 2 / (n + 1);
+      let e = xs.slice(0, n).reduce((a, c) => a + c, 0) / n;
+      for (const x of xs.slice(n)) e = x * k2 + e * (1 - k2);
+      return e;
+    };
+  }
+});
+
+// server/services/brain-ideas.ts
+var brain_ideas_exports = {};
+__export(brain_ideas_exports, {
+  IDEA_DAY_TYPES: () => IDEA_DAY_TYPES,
+  IDEA_MODELS: () => IDEA_MODELS,
+  IDEA_SESSIONS: () => IDEA_SESSIONS,
+  backtestIdea: () => backtestIdea,
+  describeRule: () => describeRule,
+  ensureBrainIdeasTable: () => ensureBrainIdeasTable,
+  ideasContextText: () => ideasContextText,
+  listIdeas: () => listIdeas,
+  ruleMatches: () => ruleMatches,
+  ruleSkips: () => ruleSkips,
+  sanitizeRule: () => sanitizeRule,
+  saveIdea: () => saveIdea,
+  setIdeaStatus: () => setIdeaStatus
+});
+function ensureBrainIdeasTable() {
+  if (!ensured4) {
+    ensured4 = pool.query(`
+CREATE TABLE IF NOT EXISTS user_brain_ideas (
+  id serial PRIMARY KEY,
+  user_id integer NOT NULL,
+  title text NOT NULL,
+  rule jsonb NOT NULL,
+  rationale text,
+  evidence jsonb,
+  status text NOT NULL DEFAULT 'shadow',
+  created_at timestamp NOT NULL DEFAULT now(),
+  updated_at timestamp NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS user_brain_ideas_user_idx ON user_brain_ideas (user_id, status);`).then(() => void 0).catch((e) => {
+      ensured4 = null;
+      throw e;
+    });
+  }
+  return ensured4;
+}
+function sanitizeRule(r) {
+  if (!r || typeof r !== "object") return null;
+  const arr2 = (v) => Array.isArray(v) ? v : v ? [v] : [];
+  const rule = {
+    action: r.action === "only" ? "only" : "block",
+    symbols: arr2(r.symbols).map(norm3).filter((s) => s.length >= 3 && s.length <= 12).slice(0, 20),
+    directions: arr2(r.directions).map((d) => String(d).toUpperCase()).filter((d) => d === "BUY" || d === "SELL"),
+    sessions: arr2(r.sessions).map((s) => IDEA_SESSIONS.find((x) => x.toLowerCase() === String(s).toLowerCase())).filter(Boolean),
+    hoursUtc: arr2(r.hoursUtc).map((h) => Number(h)).filter((h) => Number.isInteger(h) && h >= 0 && h <= 23),
+    dayTypes: arr2(r.dayTypes).map((d) => String(d).toLowerCase()).filter((d) => IDEA_DAY_TYPES.includes(d)),
+    models: arr2(r.models).map((m) => /^m?1$/i.test(m) ? "M1" : /^m?2$/i.test(m) ? "M2" : String(m).toLowerCase() === "engine" ? "engine" : null).filter(Boolean)
+  };
+  const hasCondition = rule.symbols.length || rule.directions.length || rule.sessions.length || rule.hoursUtc.length || rule.dayTypes.length;
+  return hasCondition ? rule : null;
+}
+function ruleMatches(rule, s) {
+  if (rule.models.length && !rule.models.includes(s.model)) return false;
+  if (rule.symbols.length && !rule.symbols.includes(norm3(s.symbol))) return false;
+  if (rule.directions.length && !rule.directions.includes(String(s.direction || "").toUpperCase())) return false;
+  if (rule.sessions.length && !rule.sessions.includes(sessionFor(s.at))) return false;
+  if (rule.hoursUtc.length && !rule.hoursUtc.includes(s.at.getUTCHours())) return false;
+  if (rule.dayTypes.length && (!s.dayType || !rule.dayTypes.includes(s.dayType))) return false;
+  return true;
+}
+function ruleSkips(rule, s) {
+  if (rule.action === "block") return ruleMatches(rule, s);
+  if (rule.models.length && !rule.models.includes(s.model)) return false;
+  return !ruleMatches(rule, s);
+}
+async function backtestIdea(userId, rule) {
+  const [trades, shadows] = await Promise.all([
+    pool.query(`SELECT symbol, direction, result, profit_loss, created_at FROM ai_trade_results
+      WHERE user_id = $1 AND result IN ('WIN','LOSS','BREAKEVEN') AND created_at > now() - interval '365 days'
+      ORDER BY created_at DESC LIMIT 3000`, [userId]),
+    pool.query(`SELECT symbol, direction, model, day_type, r_multiple, created_at FROM fx_model_decisions
+      WHERE user_id = $1 AND engine = 'fx' AND r_multiple IS NOT NULL AND created_at > now() - interval '180 days'
+      ORDER BY created_at DESC LIMIT 5000`, [userId])
+  ]);
+  const t = { matched: 0, wouldSkip: 0, skipWins: 0, skipLosses: 0, skipPnl: 0, keptPnl: 0 };
+  for (const r of trades.rows) {
+    const sig = { symbol: r.symbol, direction: r.direction, at: new Date(r.created_at), model: "engine" };
+    if (ruleMatches(rule, sig)) t.matched++;
+    const pnl = Number(r.profit_loss) || 0;
+    if (ruleSkips(rule, sig)) {
+      t.wouldSkip++;
+      t.skipPnl += pnl;
+      if (r.result === "WIN") t.skipWins++;
+      else if (r.result === "LOSS") t.skipLosses++;
+    } else t.keptPnl += pnl;
+  }
+  const sh = { matched: 0, wouldSkip: 0, skipR: 0, keptR: 0 };
+  for (const r of shadows.rows) {
+    const sig = { symbol: r.symbol, direction: r.direction, at: new Date(r.created_at), dayType: r.day_type, model: r.model };
+    if (ruleMatches(rule, sig)) sh.matched++;
+    const R = Number(r.r_multiple) || 0;
+    if (ruleSkips(rule, sig)) {
+      sh.wouldSkip++;
+      sh.skipR += R;
+    } else sh.keptR += R;
+  }
+  t.skipPnl = Math.round(t.skipPnl * 100) / 100;
+  t.keptPnl = Math.round(t.keptPnl * 100) / 100;
+  sh.skipR = Math.round(sh.skipR * 10) / 10;
+  sh.keptR = Math.round(sh.keptR * 10) / 10;
+  const parts = [];
+  if (t.wouldSkip) parts.push(`would have skipped ${t.wouldSkip} real trades (${t.skipWins}W/${t.skipLosses}L, ${t.skipPnl >= 0 ? "+" : "-"}$${Math.abs(t.skipPnl).toFixed(2)})`);
+  if (sh.wouldSkip) parts.push(`${sh.wouldSkip} Model 1/2 shadow trades (${sh.skipR >= 0 ? "+" : ""}${sh.skipR}R)`);
+  let verdict;
+  if (!parts.length) verdict = "No past trades fall under this idea yet, so shadow mode will be the first real test.";
+  else {
+    const helps = t.skipPnl < 0 || t.wouldSkip === 0 && sh.skipR < 0;
+    const hurts = t.skipPnl > 0 || t.wouldSkip === 0 && sh.skipR > 0;
+    verdict = `This idea ${parts.join(" and ")}. ` + (helps ? "Those were net losers, so history backs it." : hurts ? "Those were net winners, so history says it would have cost you." : "Those roughly broke even.") + (t.wouldSkip + sh.wouldSkip < 20 ? " Small sample: treat it as a hunch until shadow mode adds more." : "");
+  }
+  return { trades: t, shadows: sh, verdict };
+}
+function describeRule(rule) {
+  const scope = [
+    rule.models.length ? rule.models.map((m) => m === "engine" ? "live engine" : m === "M1" ? "Model 1" : "Model 2").join("/") : null,
+    rule.symbols.length ? rule.symbols.join(", ") : "all pairs",
+    rule.directions.length ? rule.directions.join("/") : null,
+    rule.sessions.length ? rule.sessions.join("/") + " session" : null,
+    rule.hoursUtc.length ? `hours ${rule.hoursUtc.join(",")} UTC` : null,
+    rule.dayTypes.length ? rule.dayTypes.join("/") + " days" : null
+  ].filter(Boolean).join(", ");
+  return rule.action === "block" ? `Skip signals on: ${scope}` : `Only take signals on: ${scope}`;
+}
+async function listIdeas(userId) {
+  await ensureBrainIdeasTable();
+  const { rows } = await pool.query(`SELECT id, title, rule, rationale, evidence, status, created_at FROM user_brain_ideas
+    WHERE user_id = $1 AND status <> 'retired' ORDER BY created_at DESC LIMIT 50`, [userId]);
+  return rows.map((r) => ({ ...r, summary: describeRule(r.rule) }));
+}
+async function saveIdea(userId, title, rule, rationale) {
+  await ensureBrainIdeasTable();
+  const evidence = await backtestIdea(userId, rule);
+  const { rows } = await pool.query(
+    `INSERT INTO user_brain_ideas (user_id, title, rule, rationale, evidence)
+    VALUES ($1, $2, $3, $4, $5) RETURNING id, title, rule, rationale, evidence, status, created_at`,
+    [userId, title.slice(0, 120), JSON.stringify(rule), rationale.slice(0, 1e3), JSON.stringify(evidence)]
+  );
+  return { ...rows[0], summary: describeRule(rows[0].rule) };
+}
+async function setIdeaStatus(userId, id, status) {
+  await ensureBrainIdeasTable();
+  const { rowCount } = await pool.query(`UPDATE user_brain_ideas SET status = $3, updated_at = now()
+    WHERE id = $1 AND user_id = $2 AND status <> 'approved'`, [id, userId, status]);
+  return (rowCount || 0) > 0;
+}
+async function ideasContextText(userId) {
+  try {
+    const ideas = await listIdeas(userId);
+    if (!ideas.length) return "None yet.";
+    return ideas.slice(0, 10).map((i) => `#${i.id} "${i.title}" [${i.status}] ${i.summary}. Backtest: ${i.evidence?.verdict || "n/a"}`).join("\n");
+  } catch {
+    return "Unavailable.";
+  }
+}
+var IDEA_SESSIONS, IDEA_DAY_TYPES, IDEA_MODELS, ensured4, norm3;
+var init_brain_ideas = __esm({
+  "server/services/brain-ideas.ts"() {
+    "use strict";
+    init_db();
+    init_fx_models();
+    IDEA_SESSIONS = ["Asian", "London", "London/NY overlap", "New York"];
+    IDEA_DAY_TYPES = ["range", "trend", "mixed"];
+    IDEA_MODELS = ["M1", "M2", "engine"];
+    ensured4 = null;
+    norm3 = (s) => String(s || "").toUpperCase().replace(/[^A-Z0-9]/g, "");
   }
 });
 
@@ -34781,6 +35059,28 @@ async function getClient(userId) {
   } catch {
     return null;
   }
+}
+async function extractIdeaDraft(ai, userId, convo, message, reply) {
+  const transcript = [...convo, { role: "user", content: message }, { role: "assistant", content: reply }].map((m2) => `${m2.role === "assistant" ? "ABBA" : "TRADER"}: ${String(m2.content).slice(0, 1500)}`).join("\n");
+  const r = await ai.client.chat.completions.create({
+    model: ai.model,
+    temperature: 0,
+    max_tokens: 600,
+    messages: [
+      { role: "system", content: `Extract the trading idea the trader just agreed to as a JSON filter rule. Use only what was agreed. Reply with JSON only.
+JSON: {"title":"short name, max 8 words","rationale":"why, in the trader's words, 1-2 sentences","rule":{"action":"block|only","symbols":["EURUSD"],"directions":["BUY","SELL"],"sessions":[${IDEA_SESSIONS.map((s) => `"${s}"`).join(",")}],"hoursUtc":[0-23],"dayTypes":["range","trend","mixed"],"models":["M1","M2","engine"]}}
+Use empty arrays for "any". action "block" skips matching signals, "only" trades nothing outside the scope.` },
+      { role: "user", content: transcript }
+    ]
+  });
+  const raw = String(r.choices[0]?.message?.content || "");
+  const m = raw.match(/\{[\s\S]*\}/);
+  if (!m) return null;
+  const out = JSON.parse(m[0]);
+  const rule = sanitizeRule(out?.rule);
+  if (!rule) return null;
+  const evidence = await backtestIdea(userId, rule);
+  return { title: String(out.title || "My idea").slice(0, 120), rationale: String(out.rationale || "").slice(0, 1e3), rule, summary: describeRule(rule), evidence };
 }
 async function abbaStrategistHandler(req, res) {
   if (!req.isAuthenticated?.()) return res.status(401).json({ error: "Authentication required" });
@@ -34968,6 +35268,19 @@ Keep answers under 300 words unless asked for depth. Stay in your street-smart v
 - When asked about account balances or connections, use the LIVE ACCOUNTS data above \u2014 it includes BOTH MT5 and TradeLocker in real time. Never say you can't see TradeLocker.
 - The BRAIN line shows the live VEDD AI Brain (learning from both MT5 + TradeLocker closed trades) \u2014 reference its win rate and insights when discussing performance.
 
+=== WHAT'S NEW IN THE ENGINE (newest first) ===
+When they ask what changed, why trades got skipped, or how Model 1 / Model 2 are doing, explain from this log in plain words and tie it to THEIR numbers:
+${engineUpdatesText()}
+Model 1 = range-day / mean-reversion strategy. Model 2 = trend-day continuation. Both trade in SHADOW (simulated) until a slice proves itself: 50+ trades, avg R 0.2+, win rate 40%+, no losing week in the last two.
+
+=== IDEA LAB: BUILD THEIR EXCLUSIVE BRAIN ===
+The trader can add their own strategy ideas to their personal brain. Ideas are FILTERS: they skip signals (e.g. "no GBPJPY in Asia") or limit trading to a scope (e.g. "only EURUSD BUYs in London"). They never open trades. New ideas run in SHADOW mode only; going live needs a manual approval later. A proven idea makes their brain exclusive, and they can sell access to it on the VEDD brain marketplace.
+When they want to add an idea, or you spot one in their data, interview them ONE short question at a time until you know:
+1. Block or only-allow?  2. Which pairs (or all)?  3. BUY, SELL or both?  4. Which session (Asian, London, London/NY overlap, New York) or UTC hours?  5. Any day type (range / trend days) or model (Model 1, Model 2, the live engine)?  6. WHY \u2014 what did they see that makes them believe it?
+Skip questions they already answered. Suggest ideas backed by their BY PAIR / BY SESSION numbers when they're unsure. Then read the idea back in one sentence and ask "Want me to test that in shadow mode?". ONLY after they clearly say yes, end your reply with the exact marker [[IDEA_READY]] on its own line. Never output the marker otherwise.
+Their current ideas:
+${await ideasContextText(userId)}
+
 === TRADER'S LIVE DATA ===
 ${contextSummary(ctx)}`;
     const msgs = [{ role: "system", content: system }];
@@ -34989,7 +35302,15 @@ ${contextSummary(ctx)}`;
       reply = reply.replace(/```[\s\S]*?```/g, "").replace(/\n{3,}/g, "\n\n").trim();
       if (!reply) reply = "Run that by me one more time, fam \u2014 I got you.";
     }
-    res.json({ reply });
+    let ideaDraft = null;
+    if (reply.includes("[[IDEA_READY]]")) {
+      reply = reply.replace(/\[\[IDEA_READY\]\]/g, "").trim();
+      ideaDraft = await extractIdeaDraft(ai, userId, msgs.slice(1), message, reply).catch((e) => {
+        console.error("[Abba idea extract]", e?.message);
+        return null;
+      });
+    }
+    res.json({ reply, ideaDraft });
   } catch (err) {
     console.error("[Abba chat]", err);
     res.status(500).json({ error: err.message });
@@ -35000,6 +35321,8 @@ var init_abba_strategist = __esm({
   "server/abba-strategist.ts"() {
     "use strict";
     init_storage();
+    init_engine_updates();
+    init_brain_ideas();
     sessionOf = (d) => {
       const h = d.getUTCHours();
       return h < 7 ? "Asian" : h < 13 ? "London" : h < 20 ? "New York" : "Late NY";
@@ -39442,8 +39765,8 @@ __export(social_autopilot_exports, {
   startSocialAutopilot: () => startSocialAutopilot
 });
 function ensureSocialTables() {
-  if (!ensured4) {
-    ensured4 = pool.query(`
+  if (!ensured5) {
+    ensured5 = pool.query(`
       CREATE TABLE IF NOT EXISTS social_posts (
         id serial PRIMARY KEY,
         kind text NOT NULL,
@@ -39463,10 +39786,10 @@ function ensureSocialTables() {
       CREATE INDEX IF NOT EXISTS social_posts_status_idx ON social_posts (status, created_at);
     `).then(() => void 0).catch((e) => {
       console.error("[social] ensure failed:", e?.message || e);
-      ensured4 = null;
+      ensured5 = null;
     });
   }
-  return ensured4;
+  return ensured5;
 }
 async function renderCard(c) {
   const W = 1080, H2 = 1080, F = "DejaVu Sans, Arial, Helvetica, sans-serif";
@@ -40055,7 +40378,7 @@ async function previewKind(kind) {
   const d = kind === "challenge_daily" ? await buildChallengeDaily() : kind === "weekly_recap" ? await buildWeeklyRecap() : kind === "shadow_progress" ? await buildShadowProgress() : await buildEngineInsight();
   return { draft: d, png: d ? await renderCard(d.card) : void 0 };
 }
-var OWNER, SITE, RISK, TAGS_IG, ensured4, esc, pct2, lvl, pick2, CH_CONN;
+var OWNER, SITE, RISK, TAGS_IG, ensured5, esc, pct2, lvl, pick2, CH_CONN;
 var init_social_autopilot = __esm({
   "server/services/social-autopilot.ts"() {
     "use strict";
@@ -40064,7 +40387,7 @@ var init_social_autopilot = __esm({
     SITE = () => (process.env.PUBLIC_SITE_URL || "https://veddbuild.com").replace(/\/$/, "");
     RISK = "Not financial advice. Trading involves risk; past results don\u2019t guarantee future returns.";
     TAGS_IG = "#algotrading #forex #aitrading #tradingbot #buildinpublic #propfirm #tradingjourney";
-    ensured4 = null;
+    ensured5 = null;
     esc = (s) => String(s).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
     pct2 = (x, d = 1) => `${x >= 0 ? "+" : ""}${x.toFixed(d)}%`;
     lvl = (l) => String(l || "").replace(/\s*\(negative\)/i, "");
@@ -40096,8 +40419,8 @@ function whopEnabled() {
   return !!process.env.WHOP_API_KEY && Object.keys(whopPlanMap()).length > 0;
 }
 function ensureWhopSchema() {
-  if (!ensured5) {
-    ensured5 = pool.query(`
+  if (!ensured6) {
+    ensured6 = pool.query(`
       ALTER TABLE users ADD COLUMN IF NOT EXISTS whop_membership_id text;
       ALTER TABLE users ADD COLUMN IF NOT EXISTS whop_user_id text;
       CREATE TABLE IF NOT EXISTS whop_webhook_events (
@@ -40108,10 +40431,10 @@ function ensureWhopSchema() {
       );
     `).then(() => void 0).catch((e) => {
       console.error("[whop] schema ensure failed:", e?.message || e);
-      ensured5 = null;
+      ensured6 = null;
     });
   }
-  return ensured5;
+  return ensured6;
 }
 async function createWhopCheckout(userId, veddPlanId) {
   const key = process.env.WHOP_API_KEY;
@@ -40228,7 +40551,7 @@ async function handleWhopEvent(webhookId, evt) {
       return { handled: false, note: `unhandled ${type}` };
   }
 }
-var API_BASE, SITE2, NAMED, ensured5;
+var API_BASE, SITE2, NAMED, ensured6;
 var init_whop = __esm({
   "server/whop.ts"() {
     "use strict";
@@ -40236,7 +40559,7 @@ var init_whop = __esm({
     API_BASE = () => (process.env.WHOP_API_BASE || "https://api.whop.com/api/v1").replace(/\/$/, "");
     SITE2 = () => (process.env.PUBLIC_SITE_URL || "https://veddbuild.com").replace(/\/$/, "");
     NAMED = { 2: "STARTER", 3: "PREMIUM", 4: "YEARLY" };
-    ensured5 = null;
+    ensured6 = null;
   }
 });
 
@@ -41205,9 +41528,9 @@ async function getLatestMarketBriefing() {
 }
 function findBriefingPair(briefing, symbol) {
   if (!briefing) return null;
-  const norm3 = symbol.toUpperCase().replace("/", "");
+  const norm4 = symbol.toUpperCase().replace("/", "");
   const pairs = briefing.pairs || [];
-  const match = pairs.find((p) => (p.symbol || "").toUpperCase().replace("/", "") === norm3);
+  const match = pairs.find((p) => (p.symbol || "").toUpperCase().replace("/", "") === norm4);
   return match ?? null;
 }
 var MAX_CONFIDENCE_BOOST;
@@ -63595,9 +63918,9 @@ async function getStopOrdersForUser(userId, filters = {}) {
 init_schema();
 
 // server/build-info.ts
-var BUILD_COMMIT = "0224407e-dirty";
+var BUILD_COMMIT = "2cd36191-dirty";
 var BUILD_BRANCH = "HEAD";
-var BUILT_AT = "2026-10-31T05:19:46.538Z";
+var BUILT_AT = "2026-11-01T15:52:12.988Z";
 
 // server/stripe.ts
 init_db();
@@ -70235,6 +70558,43 @@ Respond ONLY in valid JSON format with these exact keys:
   app2.post("/api/trading-coach", tradingCoachHandler);
   app2.get("/api/abba/strategist", abbaStrategistHandler);
   app2.post("/api/abba/chat", abbaChatHandler);
+  app2.get("/api/abba/ideas", async (req, res) => {
+    if (!req.isAuthenticated()) return res.status(401).json({ error: "Authentication required" });
+    try {
+      const { listIdeas: listIdeas2 } = await Promise.resolve().then(() => (init_brain_ideas(), brain_ideas_exports));
+      res.json({ ideas: await listIdeas2(req.user.id) });
+    } catch (e) {
+      res.status(500).json({ error: e.message });
+    }
+  });
+  app2.post("/api/abba/ideas", async (req, res) => {
+    if (!req.isAuthenticated()) return res.status(401).json({ error: "Authentication required" });
+    try {
+      const { sanitizeRule: sanitizeRule2, saveIdea: saveIdea2 } = await Promise.resolve().then(() => (init_brain_ideas(), brain_ideas_exports));
+      const rule = sanitizeRule2(req.body?.rule);
+      if (!rule) return res.status(400).json({ error: "The idea needs at least one condition (pair, direction, session, hour or day type)." });
+      const idea = await saveIdea2(req.user.id, String(req.body?.title || "My idea"), rule, String(req.body?.rationale || ""));
+      res.json({ idea });
+    } catch (e) {
+      res.status(500).json({ error: e.message });
+    }
+  });
+  app2.patch("/api/abba/ideas/:id", async (req, res) => {
+    if (!req.isAuthenticated()) return res.status(401).json({ error: "Authentication required" });
+    const status = req.body?.status;
+    if (!["shadow", "paused", "retired"].includes(status)) return res.status(400).json({ error: "status must be shadow, paused or retired" });
+    try {
+      const { setIdeaStatus: setIdeaStatus2 } = await Promise.resolve().then(() => (init_brain_ideas(), brain_ideas_exports));
+      const ok = await setIdeaStatus2(req.user.id, Number(req.params.id), status);
+      res.json({ ok });
+    } catch (e) {
+      res.status(500).json({ error: e.message });
+    }
+  });
+  app2.get("/api/abba/engine-updates", async (_req, res) => {
+    const { ENGINE_UPDATES: ENGINE_UPDATES2 } = await Promise.resolve().then(() => (init_engine_updates(), engine_updates_exports));
+    res.json({ updates: ENGINE_UPDATES2 });
+  });
   app2.post("/api/abba/chat", async (req, res) => {
     if (!req.isAuthenticated()) return res.status(401).json({ error: "Authentication required" });
     const userId = req.user.id;

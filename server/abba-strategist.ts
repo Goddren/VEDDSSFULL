@@ -7,6 +7,8 @@
 
 import type { Request, Response } from 'express';
 import { storage } from './storage';
+import { engineUpdatesText } from './services/engine-updates';
+import { IDEA_SESSIONS, sanitizeRule, backtestIdea, describeRule, ideasContextText } from './services/brain-ideas';
 
 interface AbbaContext {
   goal: { weeklyTarget: number; currentProfit: number; progressPct: number; tradingPairs: string[] };
@@ -157,6 +159,29 @@ async function getClient(userId: number): Promise<{ client: any; model: string }
     const client = await getUniversalAIClientForUser(userId);
     return { client, model: (client as any).defaultModel || 'gpt-4o' };
   } catch { return null; }
+}
+
+// ── Idea Lab: conversation → structured filter rule + backtest ─────────────────
+async function extractIdeaDraft(ai: { client: any; model: string }, userId: number, convo: any[], message: string, reply: string) {
+  const transcript = [...convo, { role: 'user', content: message }, { role: 'assistant', content: reply }]
+    .map((m) => `${m.role === 'assistant' ? 'ABBA' : 'TRADER'}: ${String(m.content).slice(0, 1500)}`).join('\n');
+  const r = await ai.client.chat.completions.create({
+    model: ai.model, temperature: 0, max_tokens: 600,
+    messages: [
+      { role: 'system', content: `Extract the trading idea the trader just agreed to as a JSON filter rule. Use only what was agreed. Reply with JSON only.
+JSON: {"title":"short name, max 8 words","rationale":"why, in the trader's words, 1-2 sentences","rule":{"action":"block|only","symbols":["EURUSD"],"directions":["BUY","SELL"],"sessions":[${IDEA_SESSIONS.map((s) => `"${s}"`).join(',')}],"hoursUtc":[0-23],"dayTypes":["range","trend","mixed"],"models":["M1","M2","engine"]}}
+Use empty arrays for "any". action "block" skips matching signals, "only" trades nothing outside the scope.` },
+      { role: 'user', content: transcript },
+    ],
+  });
+  const raw = String(r.choices[0]?.message?.content || '');
+  const m = raw.match(/\{[\s\S]*\}/);
+  if (!m) return null;
+  const out = JSON.parse(m[0]);
+  const rule = sanitizeRule(out?.rule);
+  if (!rule) return null;
+  const evidence = await backtestIdea(userId, rule);
+  return { title: String(out.title || 'My idea').slice(0, 120), rationale: String(out.rationale || '').slice(0, 1000), rule, summary: describeRule(rule), evidence };
 }
 
 // ── Strategist: diagnose + adapt next-day/weekly plan + setups ──────────────────
@@ -345,6 +370,19 @@ Keep answers under 300 words unless asked for depth. Stay in your street-smart v
 - When asked about account balances or connections, use the LIVE ACCOUNTS data above — it includes BOTH MT5 and TradeLocker in real time. Never say you can't see TradeLocker.
 - The BRAIN line shows the live VEDD AI Brain (learning from both MT5 + TradeLocker closed trades) — reference its win rate and insights when discussing performance.
 
+=== WHAT'S NEW IN THE ENGINE (newest first) ===
+When they ask what changed, why trades got skipped, or how Model 1 / Model 2 are doing, explain from this log in plain words and tie it to THEIR numbers:
+${engineUpdatesText()}
+Model 1 = range-day / mean-reversion strategy. Model 2 = trend-day continuation. Both trade in SHADOW (simulated) until a slice proves itself: 50+ trades, avg R 0.2+, win rate 40%+, no losing week in the last two.
+
+=== IDEA LAB: BUILD THEIR EXCLUSIVE BRAIN ===
+The trader can add their own strategy ideas to their personal brain. Ideas are FILTERS: they skip signals (e.g. "no GBPJPY in Asia") or limit trading to a scope (e.g. "only EURUSD BUYs in London"). They never open trades. New ideas run in SHADOW mode only; going live needs a manual approval later. A proven idea makes their brain exclusive, and they can sell access to it on the VEDD brain marketplace.
+When they want to add an idea, or you spot one in their data, interview them ONE short question at a time until you know:
+1. Block or only-allow?  2. Which pairs (or all)?  3. BUY, SELL or both?  4. Which session (Asian, London, London/NY overlap, New York) or UTC hours?  5. Any day type (range / trend days) or model (Model 1, Model 2, the live engine)?  6. WHY — what did they see that makes them believe it?
+Skip questions they already answered. Suggest ideas backed by their BY PAIR / BY SESSION numbers when they're unsure. Then read the idea back in one sentence and ask "Want me to test that in shadow mode?". ONLY after they clearly say yes, end your reply with the exact marker [[IDEA_READY]] on its own line. Never output the marker otherwise.
+Their current ideas:
+${await ideasContextText(userId)}
+
 === TRADER'S LIVE DATA ===
 ${contextSummary(ctx)}`;
 
@@ -367,7 +405,15 @@ ${contextSummary(ctx)}`;
       reply = reply.replace(/```[\s\S]*?```/g, '').replace(/\n{3,}/g, '\n\n').trim();
       if (!reply) reply = "Run that by me one more time, fam — I got you.";
     }
-    res.json({ reply });
+    // Idea Lab: the user agreed to an idea → turn the conversation into a rule + backtest.
+    let ideaDraft: any = null;
+    if (reply.includes('[[IDEA_READY]]')) {
+      reply = reply.replace(/\[\[IDEA_READY\]\]/g, '').trim();
+      ideaDraft = await extractIdeaDraft(ai, userId, msgs.slice(1), message, reply).catch((e) => {
+        console.error('[Abba idea extract]', e?.message); return null;
+      });
+    }
+    res.json({ reply, ideaDraft });
   } catch (err: any) {
     console.error('[Abba chat]', err);
     res.status(500).json({ error: err.message });

@@ -9,6 +9,7 @@ import {
   HelpCircle, ExternalLink, Play, Image, ChevronDown, ChevronUp,
   CheckCircle2, XCircle, AlertCircle, Send as SendIcon,
 } from "lucide-react";
+import { IdeaDraftCard, MyIdeasPanel, type IdeaDraft } from "@/components/abba/idea-lab";
 import { TradePerformanceCard, TodayReviewPanel, AiHealthStrip } from "@/components/trade-performance-card";
 
 interface GeneratedEA {
@@ -188,7 +189,7 @@ function StepMediaBlock({ media }: { media: StepMedia }) {
   return null;
 }
 
-type ChatMsg = { role: "user" | "assistant"; content: string };
+type ChatMsg = { role: "user" | "assistant"; content: string; ideaDraft?: IdeaDraft | null };
 type AbbaTab = "manual" | "bot" | "daily" | "outreach" | "setup";
 
 const QUICK_PROMPTS = [
@@ -304,10 +305,10 @@ export default function AbbaBotPage() {
     setMessages(next);
     setSending(true);
     try {
-      const res = await apiRequest("POST", "/api/abba/chat", { message: text, history: next.slice(-9, -1) });
+      const res = await apiRequest("POST", "/api/abba/chat", { message: text, history: next.slice(-9, -1).map(({ role, content }) => ({ role, content })) });
       const data = await res.json();
       const reply = data.reply || data.error || "No response.";
-      setMessages(m => [...m, { role: "assistant", content: reply }]);
+      setMessages(m => [...m, { role: "assistant", content: reply, ideaDraft: data.ideaDraft || null }]);
       speak(reply);
     } catch {
       setMessages(m => [...m, { role: "assistant", content: "Connection issue — try again in a moment." }]);
@@ -502,6 +503,12 @@ export default function AbbaBotPage() {
               ))}
             </div>
 
+            <div className="flex flex-wrap gap-2">
+              {["What's new in the FX engine?", "How are Model 1 and Model 2 doing?", "Help me add a strategy idea to my brain"].map((q) => (
+                <button key={q} onClick={() => send(q)} disabled={sending}
+                  className="rounded-full border border-purple-700/50 bg-purple-900/20 px-3 py-1 text-[11px] text-purple-200 hover:bg-purple-800/30">{q}</button>
+              ))}
+            </div>
             {/* Chat window */}
             <div className="rounded-2xl border border-purple-800/40 bg-gray-900/40 overflow-hidden">
               <div className="px-4 py-2 border-b border-gray-800 flex items-center gap-2">
@@ -521,6 +528,7 @@ export default function AbbaBotPage() {
                       m.role === "user" ? "bg-purple-600/30 text-purple-50" : "bg-gray-800/70 text-gray-200"
                     }`}>
                       {m.content}
+                      {m.ideaDraft && <IdeaDraftCard draft={m.ideaDraft} />}
                     </div>
                   </div>
                 ))}
@@ -554,6 +562,8 @@ export default function AbbaBotPage() {
                 </button>
               </div>
             </div>
+
+            <MyIdeasPanel />
 
             {/* EA Builder */}
             <div className="rounded-2xl border border-amber-800/40 bg-amber-950/20 overflow-hidden">

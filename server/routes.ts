@@ -4149,6 +4149,38 @@ Respond ONLY in valid JSON format with these exact keys:
   // Abba — AI strategist that reads all trade data, adapts the plan, and chats
   app.get('/api/abba/strategist', abbaStrategistHandler);
   app.post('/api/abba/chat', abbaChatHandler);
+  // Idea Lab: per-user brain ideas (filters, shadow-tested). Live approval is not exposed here.
+  app.get('/api/abba/ideas', async (req, res) => {
+    if (!req.isAuthenticated()) return res.status(401).json({ error: 'Authentication required' });
+    try {
+      const { listIdeas } = await import('./services/brain-ideas');
+      res.json({ ideas: await listIdeas((req.user as any).id) });
+    } catch (e: any) { res.status(500).json({ error: e.message }); }
+  });
+  app.post('/api/abba/ideas', async (req, res) => {
+    if (!req.isAuthenticated()) return res.status(401).json({ error: 'Authentication required' });
+    try {
+      const { sanitizeRule, saveIdea } = await import('./services/brain-ideas');
+      const rule = sanitizeRule(req.body?.rule);
+      if (!rule) return res.status(400).json({ error: 'The idea needs at least one condition (pair, direction, session, hour or day type).' });
+      const idea = await saveIdea((req.user as any).id, String(req.body?.title || 'My idea'), rule, String(req.body?.rationale || ''));
+      res.json({ idea });
+    } catch (e: any) { res.status(500).json({ error: e.message }); }
+  });
+  app.patch('/api/abba/ideas/:id', async (req, res) => {
+    if (!req.isAuthenticated()) return res.status(401).json({ error: 'Authentication required' });
+    const status = req.body?.status;
+    if (!['shadow', 'paused', 'retired'].includes(status)) return res.status(400).json({ error: 'status must be shadow, paused or retired' });
+    try {
+      const { setIdeaStatus } = await import('./services/brain-ideas');
+      const ok = await setIdeaStatus((req.user as any).id, Number(req.params.id), status);
+      res.json({ ok });
+    } catch (e: any) { res.status(500).json({ error: e.message }); }
+  });
+  app.get('/api/abba/engine-updates', async (_req, res) => {
+    const { ENGINE_UPDATES } = await import('./services/engine-updates');
+    res.json({ updates: ENGINE_UPDATES });
+  });
 
   // ── ABBA — VEDD Personal Trading Intelligence System ───────────────────
   app.post('/api/abba/chat', async (req: Request, res: Response) => {
