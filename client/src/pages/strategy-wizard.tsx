@@ -18,6 +18,7 @@ import {
   ArrowLeftRight, Waves, CandlestickChart, FilterX
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import { MyWizardStrategies } from '@/components/strategy/my-wizard-strategies';
 import { motion } from 'framer-motion';
 
 // Types for trading strategy
@@ -788,6 +789,12 @@ const predefinedStrategies: TradingStrategy[] = [
 // Wizard steps
 type WizardStep = 'select' | 'configure' | 'backtest' | 'results';
 
+// Strategies the server can backtest on real candles (server/services/wizard-strategies.ts WIZARD_SUPPORTED).
+const REAL_BACKTEST = [
+  'moving-average-crossover', 'rsi-overbought-oversold', 'breakout-with-volume', 'macd-signal-crossover',
+  'stochastic-crossover', 'engulfing-candles', 'channel-trading', 'support-resistance-bounce', 'double-top-bottom',
+];
+
 // Helper function to get optimal trading session based on strategy
 function getTradingSessionBasedOnStrategy(strategyId: string | undefined): string {
   if (!strategyId) return "London Session (08:00-16:00 GMT)";
@@ -862,6 +869,27 @@ export default function StrategyWizard() {
   const [testPeriod, setTestPeriod] = useState<string>('6M');
   const [isLoading, setIsLoading] = useState<boolean>(false);
   const [results, setResults] = useState<StrategyResults | null>(null);
+  const [raw, setRaw] = useState<any>(null);
+  const [rr, setRr] = useState<number>(2);
+  const [saving, setSaving] = useState(false);
+  const [savedTick, setSavedTick] = useState(0);
+  const paramMap = (st: TradingStrategy) => Object.fromEntries(st.parameters.map((x) => [x.id, x.value]));
+  const handleSaveStrategy = async () => {
+    if (!customizedStrategy) return;
+    setSaving(true);
+    try {
+      const res = await fetch('/api/strategy-wizard/strategies', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'include',
+        body: JSON.stringify({ strategyId: customizedStrategy.id, name: `${customizedStrategy.name} · ${symbol} ${timeframe}`, params: paramMap(customizedStrategy), symbol, timeframe, period: testPeriod, rr }),
+      });
+      const r = await res.json();
+      if (!res.ok) throw new Error(r.error || 'Save failed');
+      setSavedTick((n) => n + 1);
+      toast({ title: 'Saved. Paper test started', description: 'From now on the same rules run on every new candle. Once it has 10+ trades in profit you can add it to your brain.' });
+    } catch (e: any) {
+      toast({ title: 'Could not save', description: e.message, variant: 'destructive' });
+    } finally { setSaving(false); }
+  };
   
   // Filter states
   const [selectedCategoryFilter, setSelectedCategoryFilter] = useState<string>('all');
@@ -907,6 +935,11 @@ export default function StrategyWizard() {
       return;
     }
 
+    if (currentStep === 'select' && selectedStrategy && !REAL_BACKTEST.includes(selectedStrategy.id)) {
+      toast({ title: "Not backtestable yet", description: "This pattern doesn't have a real-candle backtest yet. Pick a strategy marked \"Real backtest\"." });
+      return;
+    }
+
     const stepOrder: WizardStep[] = ['select', 'configure', 'backtest', 'results'];
     const currentIndex = stepOrder.indexOf(currentStep);
     if (currentIndex < stepOrder.length - 1) {
@@ -930,151 +963,39 @@ export default function StrategyWizard() {
     setIsLoading(true);
     
     try {
-      // Simulate API call for backtest
-      // In a real implementation, this would be an API call to the backend
-      await new Promise(resolve => setTimeout(resolve, 2000));
-      
-      // Generate mock results with detailed timing information
-      const mockResults: StrategyResults = {
-        winRate: 65 + Math.random() * 10,
-        profitFactor: 1.5 + Math.random(),
-        averageWin: 50 + Math.random() * 20,
-        averageLoss: 30 + Math.random() * 10,
-        maxDrawdown: 15 + Math.random() * 5,
-        sharpeRatio: 1.2 + Math.random() * 0.5,
-        averageHoldingTime: `${Math.floor(4 + Math.random() * 8)} hours`,
-        optimalEntryTime: getTradingSessionBasedOnStrategy(customizedStrategy?.id),
-        trades: [],
-        equity: [],
-        optimalTradingHours: [
-          {
-            session: "Asian Session (00:00-08:00 GMT)",
-            winRate: 58 + Math.random() * 10,
-            averageProfit: 35 + Math.random() * 15,
-            volume: "Moderate"
-          },
-          {
-            session: "London Session (08:00-16:00 GMT)",
-            winRate: 72 + Math.random() * 10,
-            averageProfit: 55 + Math.random() * 20,
-            volume: "High"
-          },
-          {
-            session: "New York Session (13:00-21:00 GMT)",
-            winRate: 67 + Math.random() * 10,
-            averageProfit: 48 + Math.random() * 20,
-            volume: "High"
-          }
-        ],
-        exitIndicators: [
-          {
-            name: "Price Action Reversal",
-            description: "Exit when candle closes against trend with increased volume",
-            reliability: 75 + Math.random() * 15
-          },
-          {
-            name: "Moving Average Crossover",
-            description: "Exit when fast MA crosses back over slow MA",
-            reliability: 68 + Math.random() * 12
-          },
-          {
-            name: "Take Profit Target",
-            description: "Exit at predetermined price target based on support/resistance",
-            reliability: 85 + Math.random() * 10
-          },
-          {
-            name: "RSI Divergence",
-            description: "Exit when RSI shows divergence against price movement",
-            reliability: 70 + Math.random() * 15
-          }
-        ]
+      // Real backtest on real candles (server/services/wizard-strategies.ts).
+      const res = await fetch('/api/strategy-wizard/backtest', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'include',
+        body: JSON.stringify({ strategyId: customizedStrategy.id, params: paramMap(customizedStrategy), symbol, timeframe, period: testPeriod, rr }),
+      });
+      const r = await res.json();
+      if (!res.ok) throw new Error(r.error || 'Backtest failed');
+      setRaw(r);
+
+      // $ figures assume 1% risk on a $10,000 account, so 1R = $100.
+      const R = 100;
+      const best = [...r.bySession].sort((a: any, b: any) => b.r - a.r)[0];
+      const reasons = new Map<string, { n: number; w: number }>();
+      r.trades.forEach((t: any) => { const k = reasons.get(t.exitReason) || { n: 0, w: 0 }; k.n++; if (t.r > 0) k.w++; reasons.set(t.exitReason, k); });
+      const tfHours: Record<string, number> = { M5: 1 / 12, M15: 0.25, M30: 0.5, H1: 1, H4: 4, D1: 24 };
+      const hold = (bars: number) => { const h = bars * (tfHours[r.timeframe] || 1); return h >= 24 ? `${(h / 24).toFixed(1)} days` : `${h.toFixed(1)} hours`; };
+      let eq = 10000;
+      const realResults: StrategyResults = {
+        winRate: r.winRate, profitFactor: r.profitFactor,
+        averageWin: r.avgWinR * R, averageLoss: Math.abs(r.avgLossR) * R,
+        maxDrawdown: r.maxDrawdownR, sharpeRatio: r.sharpe,
+        averageHoldingTime: hold(r.avgHoldBars),
+        optimalEntryTime: best ? `${best.session} (${best.winRate}% wins, ${best.r > 0 ? '+' : ''}${best.r}R)` : 'Not enough trades',
+        trades: r.trades.slice().reverse().map((t: any) => ({
+          date: t.time.slice(0, 10), time: `${t.time.slice(11, 16)} UTC · ${t.session}`,
+          type: t.dir === 'BUY' ? 'buy' : 'sell', price: t.entry, result: t.r > 0 ? 'win' : 'loss',
+          profit: t.r * R, holdingPeriod: hold(t.bars), exitReason: `${t.exitReason} · ${t.r > 0 ? '+' : ''}${t.r}R`,
+        })),
+        equity: r.trades.map((t: any) => { eq += t.r * R; return { date: t.time.slice(0, 10), value: Math.round(eq) }; }),
+        optimalTradingHours: r.bySession.map((x: any) => ({ session: x.session, winRate: x.winRate, averageProfit: x.trades ? (x.r / x.trades) * R : 0, volume: `${x.trades} trades` })),
+        exitIndicators: Array.from(reasons.entries()).map(([name, k]) => ({ name, description: `${k.n} trades closed this way, ${k.w} of them winners`, reliability: k.n ? (k.w / k.n) * 100 : 0 })),
       };
-      
-      // Generate mock trade history with timing details
-      const startDate = new Date();
-      startDate.setMonth(startDate.getMonth() - 6);
-      
-      // Trading sessions with their time ranges
-      const tradingSessions = [
-        { name: "Asian", hours: [0, 1, 2, 3, 4, 5, 6, 7] },
-        { name: "London", hours: [8, 9, 10, 11, 12, 13, 14, 15] },
-        { name: "New York", hours: [13, 14, 15, 16, 17, 18, 19, 20] }
-      ];
-      
-      // Exit reasons
-      const exitReasons = [
-        "Take Profit Target Reached",
-        "Stop Loss Triggered",
-        "Technical Indicator Signal",
-        "Pattern Completion",
-        "Time-Based Exit",
-        "Support/Resistance Level Reached",
-        "Volatility Spike",
-        "Risk Management Rule"
-      ];
-      
-      for (let i = 0; i < 50; i++) {
-        const tradeDate = new Date(startDate);
-        tradeDate.setDate(tradeDate.getDate() + i * 3);
-        
-        // Randomly select session and hour within session
-        const randomSession = tradingSessions[Math.floor(Math.random() * tradingSessions.length)];
-        const randomHour = randomSession.hours[Math.floor(Math.random() * randomSession.hours.length)];
-        const randomMinute = Math.floor(Math.random() * 60);
-        
-        // Format time
-        const timeString = `${randomHour.toString().padStart(2, '0')}:${randomMinute.toString().padStart(2, '0')} GMT`;
-        
-        // Determine holding period (longer for winning trades typically)
-        const isWin = Math.random() > 0.35;
-        const holdingHours = isWin ? 
-          Math.floor(3 + Math.random() * 12) : 
-          Math.floor(1 + Math.random() * 6);
-        const holdingMinutes = Math.floor(Math.random() * 60);
-        const holdingPeriod = `${holdingHours}h ${holdingMinutes}m`;
-        
-        // Calculate profit
-        const profit = isWin 
-          ? mockResults.averageWin * (0.8 + Math.random() * 0.4) 
-          : -mockResults.averageLoss * (0.8 + Math.random() * 0.4);
-        
-        // Select exit reason based on result
-        const exitReason = isWin ? 
-          exitReasons[Math.floor(Math.random() * 3)] : // Better exit reasons for wins
-          exitReasons[3 + Math.floor(Math.random() * 5)]; // Different reasons for losses
-        
-        mockResults.trades.push({
-          date: tradeDate.toISOString().split('T')[0],
-          time: timeString,
-          type: Math.random() > 0.5 ? 'buy' : 'sell',
-          price: 1.1000 + (Math.random() * 0.1000),
-          result: isWin ? 'win' : 'loss',
-          profit,
-          holdingPeriod,
-          exitReason
-        });
-      }
-      
-      // Generate equity curve
-      let equity = 10000;
-      for (let i = 0; i < 180; i++) {
-        const date = new Date(startDate);
-        date.setDate(date.getDate() + i);
-        
-        if (i % 3 === 0 && mockResults.trades[i/3]) {
-          equity += mockResults.trades[i/3].profit;
-        } else {
-          // Small random fluctuation
-          equity += (Math.random() * 10) - 5;
-        }
-        
-        mockResults.equity.push({
-          date: date.toISOString().split('T')[0],
-          value: equity
-        });
-      }
-      
-      setResults(mockResults);
+      setResults(realResults);
       setCurrentStep('results');
       
       toast({
@@ -1084,7 +1005,7 @@ export default function StrategyWizard() {
     } catch (error) {
       toast({
         title: "Backtest Failed",
-        description: "There was an error running the backtest",
+        description: error instanceof Error ? error.message : "There was an error running the backtest",
         variant: "destructive"
       });
     } finally {
@@ -1282,6 +1203,9 @@ export default function StrategyWizard() {
                               strategy.riskLevel === 'low' ? "text-green-500" : 
                               strategy.riskLevel === 'medium' ? "text-amber-500" : "text-rose-500"
                             )}>{strategy.riskLevel.toUpperCase()}</span>
+                            {REAL_BACKTEST.includes(strategy.id)
+                              ? <Badge variant="outline" className="ml-2 text-green-600 border-green-600/40">Real backtest</Badge>
+                              : <Badge variant="outline" className="ml-2">Coming soon</Badge>}
                           </div>
                           <Button size="sm" variant="ghost">
                             Select <ChevronRight className="h-4 w-4 ml-1" />
@@ -1422,6 +1346,9 @@ export default function StrategyWizard() {
                             <SelectItem value="USDJPY">USD/JPY</SelectItem>
                             <SelectItem value="BTCUSD">BTC/USD</SelectItem>
                             <SelectItem value="ETHUSD">ETH/USD</SelectItem>
+                            <SelectItem value="XAUUSD">XAU/USD (Gold)</SelectItem>
+                            <SelectItem value="GBPJPY">GBP/JPY</SelectItem>
+                            <SelectItem value="AUDUSD">AUD/USD</SelectItem>
                           </SelectContent>
                         </Select>
                       </div>
@@ -1460,50 +1387,26 @@ export default function StrategyWizard() {
                       </div>
                       
                       <div className="space-y-2">
-                        <Label htmlFor="initialCapital">Initial Capital</Label>
-                        <Input 
-                          id="initialCapital" 
-                          type="number" 
-                          defaultValue="10000" 
-                          className="text-right"
-                        />
+                        <Label htmlFor="rr">Target (reward : risk)</Label>
+                        <Select value={String(rr)} onValueChange={(v) => setRr(Number(v))}>
+                          <SelectTrigger id="rr"><SelectValue /></SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="1">1R: target = stop distance</SelectItem>
+                            <SelectItem value="1.5">1.5R</SelectItem>
+                            <SelectItem value="2">2R (default)</SelectItem>
+                            <SelectItem value="3">3R</SelectItem>
+                          </SelectContent>
+                        </Select>
                       </div>
                     </div>
-                    
+
                     <Separator />
-                    
-                    <div className="space-y-4">
-                      <h3 className="text-lg font-medium">Advanced Settings</h3>
-                      
-                      <div className="flex items-center justify-between">
-                        <div>
-                          <Label htmlFor="spreadAdjustment" className="block">Spread Adjustment</Label>
-                          <p className="text-xs text-muted-foreground">
-                            Account for trading spreads in simulation
-                          </p>
-                        </div>
-                        <Switch id="spreadAdjustment" defaultChecked />
-                      </div>
-                      
-                      <div className="flex items-center justify-between">
-                        <div>
-                          <Label htmlFor="slippage" className="block">Slippage</Label>
-                          <p className="text-xs text-muted-foreground">
-                            Simulate execution slippage
-                          </p>
-                        </div>
-                        <Switch id="slippage" defaultChecked />
-                      </div>
-                      
-                      <div className="flex items-center justify-between">
-                        <div>
-                          <Label htmlFor="commissions" className="block">Include Commissions</Label>
-                          <p className="text-xs text-muted-foreground">
-                            Factor in broker commissions
-                          </p>
-                        </div>
-                        <Switch id="commissions" defaultChecked />
-                      </div>
+
+                    <div className="space-y-2 text-sm text-muted-foreground">
+                      <h3 className="text-lg font-medium text-foreground">How the test works</h3>
+                      <p>Real {symbol} candles from VEDD's market data feed. A signal is read when a candle closes; the trade enters at the next candle's open.</p>
+                      <p>Stop = 1.5 × ATR(14). Target = {rr} × the stop. One trade at a time. If neither is hit within about two days the trade closes at market.</p>
+                      <p>Spread and commission are not included, so treat results as slightly optimistic. M5/M15 tests cover fewer days because of the candle limit (5,000).</p>
                     </div>
                   </CardContent>
                   <CardFooter className="flex justify-center">
@@ -1548,6 +1451,28 @@ export default function StrategyWizard() {
                     </CardDescription>
                   </CardHeader>
                   <CardContent>
+                    {raw && (
+                      <div className="mb-6 rounded-lg border p-4 space-y-2 text-sm">
+                        <div className="flex flex-wrap items-baseline gap-x-4 gap-y-1">
+                          <span className={cn("text-2xl font-bold", raw.totalR > 0 ? "text-green-500" : "text-red-500")}>{raw.totalR > 0 ? '+' : ''}{raw.totalR}R</span>
+                          <span>{raw.trades.length} trades on {raw.bars} real {raw.symbol} {raw.timeframe} candles</span>
+                          <span className="text-muted-foreground">{raw.from?.slice(0, 10)} → {raw.to?.slice(0, 10)}</span>
+                        </div>
+                        <p className="text-muted-foreground">R = what you risk per trade. +10R at 1% risk is about +10% on the account. Dollar figures below assume $10,000 at 1% risk ($100 per R).</p>
+                        {raw.byDirection?.length > 0 && (
+                          <p>By direction: {raw.byDirection.map((d: any) => `${d.dir} ${d.trades} trades, ${d.winRate}% wins, ${d.r > 0 ? '+' : ''}${d.r}R`).join(' · ')}</p>
+                        )}
+                        {raw.notes?.map((n: string, i: number) => <p key={i} className="text-amber-600 dark:text-amber-400">{n}</p>)}
+                        <div className="pt-2 border-t">
+                          <div className="font-medium mb-1">Next steps</div>
+                          <ol className="list-decimal ml-5 space-y-0.5 text-muted-foreground">
+                            <li><b>Save & start paper test</b>: from now on the same rules run on every new candle. No orders are placed.</li>
+                            <li>After 10+ paper trades with a positive result, <b>Add to brain</b> turns it into a filter for your engine: keep only the sessions and direction where it made money.</li>
+                            <li>Brain ideas stay in shadow. Going live is a manual approval. Ask ABBA about it any time.</li>
+                          </ol>
+                        </div>
+                      </div>
+                    )}
                     <div className="grid grid-cols-2 md:grid-cols-3 gap-4 mb-8">
                       <div className="bg-card border rounded-lg p-4 text-center">
                         <div className="text-sm text-muted-foreground mb-1">Win Rate</div>
@@ -1564,7 +1489,7 @@ export default function StrategyWizard() {
                       </div>
                       
                       <div className="bg-card border rounded-lg p-4 text-center">
-                        <div className="text-sm text-muted-foreground mb-1">Max Drawdown</div>
+                        <div className="text-sm text-muted-foreground mb-1">Max Drawdown (at 1% risk)</div>
                         <div className="text-2xl font-bold text-amber-500">
                           {results.maxDrawdown.toFixed(1)}%
                         </div>
@@ -1643,9 +1568,9 @@ export default function StrategyWizard() {
 
                       <Card>
                         <CardHeader className="pb-2">
-                          <CardTitle className="text-lg">Exit Indicators</CardTitle>
+                          <CardTitle className="text-lg">How Trades Closed</CardTitle>
                           <CardDescription>
-                            Recommended exit conditions for this strategy
+                            Exit type and how often each one was a winner
                           </CardDescription>
                         </CardHeader>
                         <CardContent>
@@ -1817,9 +1742,9 @@ export default function StrategyWizard() {
                       Adjust Parameters
                     </Button>
                     
-                    <Button>
+                    <Button onClick={handleSaveStrategy} disabled={saving || !raw || raw.trades.length === 0}>
                       <Save className="h-4 w-4 mr-2" />
-                      Save Strategy
+                      {saving ? 'Saving...' : 'Save & start paper test'}
                     </Button>
                   </CardFooter>
                 </Card>
@@ -1937,6 +1862,8 @@ export default function StrategyWizard() {
           </Button>
         )}
       </div>
+
+      <MyWizardStrategies refreshKey={savedTick} />
     </div>
   );
 }

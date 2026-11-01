@@ -4149,6 +4149,43 @@ Respond ONLY in valid JSON format with these exact keys:
   // Abba — AI strategist that reads all trade data, adapts the plan, and chats
   app.get('/api/abba/strategist', abbaStrategistHandler);
   app.post('/api/abba/chat', abbaChatHandler);
+  // Strategy Wizard: real candle backtests → saved strategies → paper test (out of sample) → brain filter idea.
+  app.post('/api/strategy-wizard/backtest', async (req, res) => {
+    if (!req.isAuthenticated()) return res.status(401).json({ error: 'Authentication required' });
+    try {
+      const { runWizardBacktest } = await import('./services/wizard-strategies');
+      res.json(await runWizardBacktest(req.body || {}));
+    } catch (e: any) { res.status(400).json({ error: e.message }); }
+  });
+  app.get('/api/strategy-wizard/strategies', async (req, res) => {
+    if (!req.isAuthenticated()) return res.status(401).json({ error: 'Authentication required' });
+    try {
+      const { listWizardStrategies } = await import('./services/wizard-strategies');
+      res.json({ strategies: await listWizardStrategies((req.user as User).id) });
+    } catch (e: any) { res.status(500).json({ error: e.message }); }
+  });
+  app.post('/api/strategy-wizard/strategies', async (req, res) => {
+    if (!req.isAuthenticated()) return res.status(401).json({ error: 'Authentication required' });
+    try {
+      const { saveWizardStrategy } = await import('./services/wizard-strategies');
+      res.json(await saveWizardStrategy((req.user as User).id, req.body || {}));
+    } catch (e: any) { res.status(400).json({ error: e.message }); }
+  });
+  app.post('/api/strategy-wizard/strategies/:id/promote', async (req, res) => {
+    if (!req.isAuthenticated()) return res.status(401).json({ error: 'Authentication required' });
+    try {
+      const { promoteToBrain } = await import('./services/wizard-strategies');
+      res.json({ idea: await promoteToBrain((req.user as User).id, Number(req.params.id)) });
+    } catch (e: any) { res.status(400).json({ error: e.message }); }
+  });
+  app.delete('/api/strategy-wizard/strategies/:id', async (req, res) => {
+    if (!req.isAuthenticated()) return res.status(401).json({ error: 'Authentication required' });
+    try {
+      const { retireWizardStrategy } = await import('./services/wizard-strategies');
+      await retireWizardStrategy((req.user as User).id, Number(req.params.id));
+      res.json({ ok: true });
+    } catch (e: any) { res.status(500).json({ error: e.message }); }
+  });
   // Idea Lab: per-user brain ideas (filters, shadow-tested). Live approval is not exposed here.
   app.get('/api/abba/ideas', async (req, res) => {
     if (!req.isAuthenticated()) return res.status(401).json({ error: 'Authentication required' });

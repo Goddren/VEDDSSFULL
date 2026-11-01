@@ -107,6 +107,10 @@ export async function buildSetupReview(userId: number, p: SetupProposal) {
     diff('FX', 'Per-pair direction', cur.fx.pairDirectionOverrides, p.fx.pairDirectionOverrides);
   }
   if (p.weeklyTarget) diff('Goal', 'Weekly profit target $', cur.fx.weeklyProfitTarget, p.weeklyTarget);
+  // The plan itself becomes this week's active weekly plan, so confirming it always does something.
+  const activePlan: any = await storage.getActiveWeeklyStrategy(userId).catch(() => undefined);
+  const activeTitle = activePlan?.plan?.abbaSetup?.title || (activePlan ? 'existing plan' : 'none');
+  if (p.title) diff('Plan', 'Active weekly plan', activeTitle, p.title);
   if (p.crypto) {
     const c = cur.crypto || ({} as any);
     diff('Crypto', 'Engine', c.running ? 'running' : 'stopped', p.crypto.run ? 'running' : 'stopped');
@@ -209,6 +213,27 @@ export async function applySetup(userId: number, p: SetupProposal) {
         applied.push(st?.running ? 'Sol engine restarted with the new settings' : 'Sol engine started');
       } else applied.push('Sol left as is');
     } catch (e: any) { errors.push(`Sol: ${e.message}`); }
+  }
+  if (p.title) {
+    try {
+      const prev: any = await storage.getActiveWeeklyStrategy(userId).catch(() => undefined);
+      const weekStart = new Date(); weekStart.setUTCHours(0, 0, 0, 0);
+      const dow = weekStart.getUTCDay(); // plans made on the weekend are for the coming week
+      weekStart.setUTCDate(weekStart.getUTCDate() + (dow === 0 ? 1 : dow === 6 ? 2 : 1 - dow));
+      const balance = Number(getEffectiveEngineConfig(userId).accountBalance || prev?.accountBalance || 0);
+      await storage.saveWeeklyStrategy(userId, {
+        profitTarget: p.weeklyTarget ?? prev?.profitTarget ?? Number(getEffectiveEngineConfig(userId).weeklyProfitTarget || 0),
+        accountBalance: balance,
+        pairs: p.fx?.pairs || prev?.pairs || getEffectiveEngineConfig(userId).pairs || [],
+        riskLevel: prev?.riskLevel || 'ai-controlled',
+        lotSize: prev?.lotSize || 'auto',
+        plan: { ...(prev?.plan || {}), abbaGenerated: true, abbaSetup: { title: p.title, rationale: p.rationale, proposal: p, appliedAt: new Date().toISOString() } },
+        pairStats: prev?.pairStats || null,
+        generatedAt: new Date().toISOString(),
+        weekStart: weekStart.toISOString().slice(0, 10),
+      });
+      applied.push(`Weekly plan "${p.title}" is now your active plan`);
+    } catch (e: any) { errors.push(`Weekly plan: ${e.message}`); }
   }
   if (p.models && (p.models.m1DailyCap !== undefined || p.models.m2DailyCap !== undefined)) {
     try {
