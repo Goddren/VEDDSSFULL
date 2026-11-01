@@ -131,21 +131,62 @@ export default function AmbassadorAgentPage({ embedded = false }: { embedded?: b
   const refCode = (posts[0]?.link || "").match(/\/r\/([^?]+)/)?.[1];
 
   return (
-    <div className={embedded ? "space-y-4" : "container max-w-3xl mx-auto px-4 py-6 space-y-4"}>
+    <div className={embedded ? "space-y-4 vedd-rise" : "container max-w-3xl mx-auto px-4 py-6 pb-28 space-y-4 vedd-rise"}>
+      <style>{`
+        @keyframes veddRise { from { opacity: 0; transform: translateY(14px); } to { opacity: 1; transform: none; } }
+        @keyframes veddGlow { 0%,100% { opacity: .55; transform: scale(1); } 50% { opacity: .9; transform: scale(1.08); } }
+        @keyframes veddShine { from { background-position: 200% 0; } to { background-position: -200% 0; } }
+        .vedd-rise > * { animation: veddRise .5s cubic-bezier(.2,.8,.2,1) both; }
+        .vedd-rise > *:nth-child(2) { animation-delay: .06s } .vedd-rise > *:nth-child(3) { animation-delay: .12s }
+        .vedd-rise > *:nth-child(4) { animation-delay: .18s } .vedd-rise > *:nth-child(5) { animation-delay: .24s }
+        .vedd-rise > *:nth-child(n+6) { animation-delay: .3s }
+        .vedd-grad-text { background: linear-gradient(90deg,#ef4444,#f97316,#8b5cf6,#ef4444); background-size: 200% 100%;
+          -webkit-background-clip: text; background-clip: text; color: transparent; animation: veddShine 6s linear infinite; }
+      `}</style>
+
       {!embedded && (
-        <div>
-          <h1 className="text-2xl font-bold">Today's content</h1>
-          <p className="text-sm text-muted-foreground">
-            One trading lesson a day from the 44-day plan, turned into posts, videos and an article, all with your tracked link.
-          </p>
+        <div className="relative overflow-hidden rounded-3xl border border-white/10 p-5 sm:p-7"
+          style={{ background: "radial-gradient(120% 140% at 0% 0%, rgba(239,68,68,.22), transparent 55%), radial-gradient(120% 140% at 100% 100%, rgba(139,92,246,.25), transparent 55%), #0A0B10" }}>
+          <div className="pointer-events-none absolute -top-16 -right-16 h-48 w-48 rounded-full blur-3xl"
+            style={{ background: "#8b5cf6", animation: "veddGlow 5s ease-in-out infinite" }} />
+          <div className="relative">
+            <div className="flex items-center gap-2 text-[11px] font-bold uppercase tracking-[0.18em] text-orange-300/90">
+              <span className="h-2 w-2 rounded-full bg-orange-400 animate-pulse" />
+              {d.toLocaleDateString(undefined, { weekday: "long", month: "long", day: "numeric" })}
+            </div>
+            <h1 className="mt-2 text-3xl sm:text-4xl font-black tracking-tight text-white leading-[1.05]">
+              Today's <span className="vedd-grad-text">content drop</span>
+            </h1>
+            <p className="mt-2 max-w-xl text-sm text-gray-300">
+              One trading lesson a day, ready to post: social posts, videos, a carousel and an article, all carrying your tracked link.
+            </p>
+            {posts[0] && (
+              <div className="mt-4 max-w-sm">
+                <div className="flex justify-between text-[11px] font-semibold text-gray-300">
+                  <span>Day {posts[0].day_number} of 44</span><span>{Math.round(posts[0].day_number / 44 * 100)}%</span>
+                </div>
+                <div className="mt-1 h-2 overflow-hidden rounded-full bg-white/10">
+                  <div className="h-full rounded-full" style={{ width: `${Math.min(100, posts[0].day_number / 44 * 100)}%`, background: "linear-gradient(90deg,#ef4444,#8b5cf6)", boxShadow: "0 0 12px rgba(239,68,68,.6)" }} />
+                </div>
+              </div>
+            )}
+          </div>
         </div>
       )}
 
       {t && (
-        <div className="grid grid-cols-3 gap-2 text-center">
-          <Card><CardContent className="p-3"><div className="text-xl font-semibold">{t.days_posted}</div><div className="text-xs text-muted-foreground">days posted</div></CardContent></Card>
-          <Card><CardContent className="p-3"><div className="text-xl font-semibold">{t.posts}</div><div className="text-xs text-muted-foreground">posts</div></CardContent></Card>
-          <Card><CardContent className="p-3"><div className="text-xl font-semibold">{t.clicks}</div><div className="text-xs text-muted-foreground">link clicks</div></CardContent></Card>
+        <div className="grid grid-cols-3 gap-2 sm:gap-3 text-center">
+          {[
+            { v: t.days_posted, l: "days posted", c: "#ef4444" },
+            { v: t.posts, l: "posts", c: "#f97316" },
+            { v: t.clicks, l: "link clicks", c: "#8b5cf6" },
+          ].map((x) => (
+            <div key={x.l} className="rounded-2xl border p-3 transition-transform hover:-translate-y-0.5"
+              style={{ borderColor: `${x.c}40`, background: `linear-gradient(160deg, ${x.c}1f, transparent 70%)` }}>
+              <div className="text-2xl font-black" style={{ color: x.c }}>{x.v}</div>
+              <div className="text-[11px] font-medium text-muted-foreground">{x.l}</div>
+            </div>
+          ))}
         </div>
       )}
 
@@ -160,7 +201,7 @@ export default function AmbassadorAgentPage({ embedded = false }: { embedded?: b
       ) : (
         <>
           <div className="flex flex-wrap items-center justify-between gap-2">
-            <Badge variant="secondary">Day {posts[0].day_number} of 44</Badge>
+            <Badge className="border-0 text-white" style={{ background: "linear-gradient(90deg,#ef4444,#8b5cf6)" }}>Day {posts[0].day_number} of 44</Badge>
             <Button size="sm" variant="ghost" onClick={() => generate.mutate(true)} disabled={generate.isPending}>
               <RefreshCw className="h-4 w-4 mr-1" />Rewrite posts I haven't used
             </Button>

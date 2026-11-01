@@ -331,11 +331,13 @@ export function MobileBottomNav() {
   const close = () => setOpen(false);
 
   const tabs = [
-    { name: 'Home',    path: '/dashboard',         Icon: Home,       liveKey: null        },
-    { name: 'Trade',   path: '/weekly-strategy',   Icon: TrendingUp, liveKey: 'ss'        },
-    { name: 'ORB',     path: '/orb-breakout',      Icon: Radio,      liveKey: null        },
-    { name: 'Predict', path: '/polymarket-engine', Icon: DollarSign, liveKey: 'poly'      },
-    { name: 'Analyse', path: '/analysis',          Icon: LineChart,  liveKey: null        },
+    { name: 'Home',    path: '/dashboard',                  Icon: Home,          liveKey: null, color: '#6366f1' },
+    { name: 'Trade',   path: '/weekly-strategy',            Icon: TrendingUp,    liveKey: 'ss', color: '#ef4444' },
+    { name: 'Crypto',  path: '/crypto-engine',              Icon: Coins,         liveKey: null, color: '#f59e0b' },
+    { name: 'ORB',     path: '/orb-breakout',               Icon: Radio,         liveKey: null, color: '#22c55e' },
+    { name: 'Studio',  path: '/ambassador/content-studio',  Icon: Video,         liveKey: null, color: '#a855f7' },
+    { name: 'Today',   path: '/ambassador/agent',           Icon: Flame,         liveKey: null, color: '#f97316' },
+    { name: 'Train',   path: '/ambassador-training',        Icon: GraduationCap, liveKey: null, color: '#38bdf8' },
   ];
 
   const ssLive   = engineStatus?.status === 'running' || forexActive;
@@ -869,13 +871,14 @@ export function MobileBottomNav() {
 
       {/* ── Tab Bar ── */}
       <nav className="tab-bar md:hidden">
-        {tabs.map(({ name, path, Icon, liveKey }) => {
-          const active = location === path || (path === '/dashboard' && location === '/');
+        {tabs.map(({ name, path, Icon, liveKey, color }) => {
+          const active = location === path.split('?')[0] || (path === '/dashboard' && location === '/');
           const isLive = liveKey === 'ss' ? ssLive : liveKey === 'poly' ? polyLive : false;
           return (
             <Link key={path} href={path}>
               <button
                 className={`tab-item ${active ? 'active' : ''}`}
+                style={{ ['--tab-c' as any]: color }}
                 onClick={() => {
                   // Already on this page → jump straight to the top
                   if (active) window.scrollTo({ top: 0, behavior: 'smooth' });
