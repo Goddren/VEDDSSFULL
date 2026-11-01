@@ -121,7 +121,7 @@ export async function generateContentVideo(
 
   try {
     console.log(`[video-generation] quality=${quality} model=${model} mode=${image ? 'image-to-video' : 'text-to-video'}`);
-    const res = await fetch(`https://api.replicate.com/v1/models/${model}/predictions`, {
+    const create = () => fetch(`https://api.replicate.com/v1/models/${model}/predictions`, {
       method: 'POST',
       headers: {
         Authorization: `Bearer ${apiKey}`,
@@ -136,6 +136,16 @@ export async function generateContentVideo(
       // poll loop below. Give it headroom.
       signal: AbortSignal.timeout(75000),
     });
+    // 429 = rate limited (Replicate says how long to wait): retry instead of
+    // failing — same pattern as explainer-video.ts. This account's burst
+    // limit is 1, so an unretried create made 429 the most common failure
+    // for clip and reel generation.
+    let res = await create();
+    for (let attempt = 0; res.status === 429 && attempt < 8; attempt++) {
+      const body: any = await res.json().catch(() => ({}));
+      await new Promise((r) => setTimeout(r, (Number(body?.retry_after) || 10) * 1000 + 1000));
+      res = await create();
+    }
 
     if (!res.ok) {
       const body = await res.text().catch(() => '');
