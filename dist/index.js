@@ -34953,6 +34953,22 @@ function atr2(b, n = 14) {
   const tr = b.map((x, i) => i === 0 ? x.h - x.l : Math.max(x.h - x.l, Math.abs(x.h - b[i - 1].c), Math.abs(x.l - b[i - 1].c)));
   return ema(tr, n);
 }
+function pivotScan(b, k2, cb) {
+  const P = [];
+  for (let i = 2 * k2; i < b.length; i++) {
+    const j = i - k2;
+    let isH = true, isL = true;
+    for (let m = j - k2; m <= j + k2; m++) {
+      if (m === j) continue;
+      if (b[m].h >= b[j].h) isH = false;
+      if (b[m].l <= b[j].l) isL = false;
+    }
+    if (isH) P.push({ i: j, p: b[j].h, hi: true });
+    if (isL) P.push({ i: j, p: b[j].l, hi: false });
+    if (P.length > 60) P.splice(0, P.length - 60);
+    cb(i, P);
+  }
+}
 function buildSignals(id, b, params) {
   const c = b.map((x) => x.c);
   const v = b.map((x) => x.v);
@@ -35061,6 +35077,97 @@ function buildSignals(id, b, params) {
       }
       break;
     }
+    case "head-and-shoulders": {
+      const sym2 = p(params, "symmetry-tolerance", 15) / 100;
+      pivotScan(b, 3, (i, P) => {
+        const H2 = P.filter((x) => x.hi).slice(-3), L2 = P.filter((x) => !x.hi).slice(-3);
+        if (H2.length === 3 && H2[1].p > H2[0].p && H2[1].p > H2[2].p) {
+          const neck = Math.min(...L2.filter((x) => x.i > H2[0].i && x.i < H2[2].i).map((x) => x.p));
+          const height = H2[1].p - Math.max(H2[0].p, H2[2].p);
+          if (Number.isFinite(neck) && height > 0 && Math.abs(H2[0].p - H2[2].p) <= (H2[1].p - neck) * sym2 && i - H2[2].i < 30 && c[i] < neck && c[i - 1] >= neck) sig[i] = "SELL";
+        }
+        if (L2.length === 3 && L2[1].p < L2[0].p && L2[1].p < L2[2].p) {
+          const neck = Math.max(...H2.filter((x) => x.i > L2[0].i && x.i < L2[2].i).map((x) => x.p));
+          const height = Math.min(L2[0].p, L2[2].p) - L2[1].p;
+          if (Number.isFinite(neck) && height > 0 && Math.abs(L2[0].p - L2[2].p) <= (neck - L2[1].p) * sym2 && i - L2[2].i < 30 && c[i] > neck && c[i - 1] <= neck) sig[i] = "BUY";
+        }
+      });
+      break;
+    }
+    case "flag-pennant": {
+      const a = atr2(b);
+      const m = Math.min(Math.max(p(params, "consolidation-duration", 15), 5), 40);
+      const pole = Math.max(p(params, "pole-height", 5), 1) * 0.6;
+      for (let i = m + 12; i < b.length; i++) {
+        const s = i - m, move = c[s - 1] - c[s - 11];
+        const H2 = hi(b, s, i - 1), L2 = lo(b, s, i - 1);
+        if (!(a[s] > 0) || Math.abs(move) < pole * a[s] || H2 - L2 > Math.abs(move) * 0.6) continue;
+        if (move > 0 && c[i] > H2) sig[i] = "BUY";
+        else if (move < 0 && c[i] < L2) sig[i] = "SELL";
+      }
+      break;
+    }
+    case "harmonic-patterns": {
+      const tol = p(params, "fib-tolerance", 3) / 100;
+      const near = (x, lo_, hi_) => x >= lo_ - tol && x <= hi_ + tol;
+      let lastD = -1;
+      pivotScan(b, 3, (i, P) => {
+        if (P.length < 5) return;
+        const [X, A, B, C2, D] = P.slice(-5);
+        if (D.i === lastD || i - D.i > 3) return;
+        const XA = Math.abs(A.p - X.p);
+        if (!XA) return;
+        const ab = Math.abs(B.p - A.p) / XA, bc = Math.abs(C2.p - B.p) / (Math.abs(B.p - A.p) || 1), ad = Math.abs(A.p - D.p) / XA;
+        if (near(ab, 0.382, 0.886) && near(bc, 0.382, 0.886) && near(ad, 0.786, 1.27)) {
+          sig[i] = D.hi ? "SELL" : "BUY";
+          lastD = D.i;
+        }
+      });
+      break;
+    }
+    case "three-drive-pattern": {
+      const eq21 = p(params, "drive-equality", 10) / 100;
+      let last = -1;
+      pivotScan(b, 3, (i, P) => {
+        for (const isHi of [true, false]) {
+          const S = P.filter((x) => x.hi === isHi).slice(-3);
+          if (S.length < 3 || S[2].i === last || i - S[2].i > 3) continue;
+          const d1 = S[1].p - S[0].p, d2 = S[2].p - S[1].p;
+          const trending = isHi ? d1 > 0 && d2 > 0 : d1 < 0 && d2 < 0;
+          if (trending && Math.abs(d1 - d2) <= Math.abs(d1) * (eq21 * 3)) {
+            sig[i] = isHi ? "SELL" : "BUY";
+            last = S[2].i;
+          }
+        }
+      });
+      break;
+    }
+    case "cup-and-handle": {
+      const w = Math.min(Math.max(p(params, "cup-width", 40), 20), 120), depthMax = p(params, "cup-depth", 30) / 100, hr = p(params, "handle-retracement", 38) / 100;
+      for (let i = w + 10; i < b.length; i++) {
+        const cs = i - w - 8, ce = i - 8;
+        const rimL = hi(b, cs, cs + 5), bottom = lo(b, cs, ce), rimR = hi(b, ce - 5, ce);
+        const depth = rimL - bottom;
+        if (depth <= 0) continue;
+        const handleLow = lo(b, ce, i - 1);
+        const mid = lo(b, cs + Math.floor(w * 0.3), cs + Math.floor(w * 0.7));
+        if (Math.abs(rimR - rimL) <= depth * 0.15 && mid <= bottom + depth * 0.25 && depth / rimL <= depthMax && rimR - handleLow <= depth * hr && rimR - handleLow > 0 && c[i] > Math.max(rimL, rimR) && c[i - 1] <= Math.max(rimL, rimR)) sig[i] = "BUY";
+      }
+      break;
+    }
+    case "wedge-patterns": {
+      const t = params?.["wedge-type"] || "both";
+      pivotScan(b, 3, (i, P) => {
+        const H2 = P.filter((x) => x.hi).slice(-3), L2 = P.filter((x) => !x.hi).slice(-3);
+        if (H2.length < 3 || L2.length < 3 || i - Math.max(H2[2].i, L2[2].i) > 20) return;
+        const sH = (H2[2].p - H2[0].p) / (H2[2].i - H2[0].i), sL = (L2[2].p - L2[0].p) / (L2[2].i - L2[0].i);
+        const upper = H2[2].p + sH * (i - H2[2].i), lower = L2[2].p + sL * (i - L2[2].i);
+        const upperPrev = upper - sH, lowerPrev = lower - sL;
+        if (t !== "falling" && sH > 0 && sL > 0 && sL > sH && c[i] < lower && c[i - 1] >= lowerPrev) sig[i] = "SELL";
+        else if (t !== "rising" && sH < 0 && sL < 0 && sH < sL && c[i] > upper && c[i - 1] <= upperPrev) sig[i] = "BUY";
+      });
+      break;
+    }
     case "double-top-bottom": {
       const tol = p(params, "price-threshold", 3) / 1e3;
       const t = params?.["pattern-type"] || "both";
@@ -35154,14 +35261,60 @@ async function loadBars(symbol, timeframe, days) {
   const key = `${s}|${tf.tf}|${limit}`;
   const hit = barCache.get(key);
   if (hit && Date.now() - hit.at < 10 * 6e4) return hit.bars;
-  if (!process.env.TWELVE_DATA_API_KEY) throw new Error("Market data is not configured (TWELVE_DATA_API_KEY).");
-  const { TwelveDataProvider: TwelveDataProvider2 } = await Promise.resolve().then(() => (init_twelve_data(), twelve_data_exports));
   const assetType = /^(BTC|ETH|SOL|XRP|DOGE)/.test(s) ? "crypto" : "forex";
-  const raw = await new TwelveDataProvider2(process.env.TWELVE_DATA_API_KEY).fetchOHLCV({ symbol: s, timeframe: tf.tf, assetType, limit });
-  const bars = (raw || []).map((x) => ({ t: Number(x.timestamp), o: +x.open, h: +x.high, l: +x.low, c: +x.close, v: +(x.volume || 0) })).filter((x) => Number.isFinite(x.c)).sort((a, z3) => a.t - z3.t);
+  let bars = [];
+  let tdErr = "";
+  if (process.env.TWELVE_DATA_API_KEY) {
+    try {
+      const { TwelveDataProvider: TwelveDataProvider2 } = await Promise.resolve().then(() => (init_twelve_data(), twelve_data_exports));
+      const raw = await new TwelveDataProvider2(process.env.TWELVE_DATA_API_KEY).fetchOHLCV({ symbol: s, timeframe: tf.tf, assetType, limit });
+      bars = (raw || []).map((x) => ({ t: Number(x.timestamp), o: +x.open, h: +x.high, l: +x.low, c: +x.close, v: +(x.volume || 0) })).filter((x) => Number.isFinite(x.c)).sort((a, z3) => a.t - z3.t);
+    } catch (e) {
+      tdErr = e.message;
+    }
+  }
+  if (bars.length < 60) {
+    const y = await yahooBars(s, tf.tf).catch(() => []);
+    if (y.length > bars.length) bars = y.slice(-limit);
+  }
+  if (bars.length < 60 && tdErr) throw new Error(`No candles for ${s} ${timeframe}: ${tdErr}`);
   barCache.set(key, { at: Date.now(), bars });
   if (barCache.size > 60) barCache.delete(barCache.keys().next().value);
   return bars;
+}
+async function yahooBars(s, tf) {
+  const ysym = s === "XAUUSD" ? "GC=F" : s === "XAGUSD" ? "SI=F" : /^(BTC|ETH|SOL|XRP|DOGE)USD/.test(s) ? `${s.slice(0, -3)}-USD` : `${s}=X`;
+  const interval = tf === "1d" ? "1d" : tf === "1h" || tf === "4h" ? "60m" : tf;
+  const range = interval === "1d" ? "5y" : interval === "60m" ? "730d" : "60d";
+  const r = await fetch(
+    `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(ysym)}?interval=${interval}&range=${range}`,
+    { headers: { "User-Agent": "Mozilla/5.0" }, signal: AbortSignal.timeout(15e3) }
+  );
+  if (!r.ok) return [];
+  const res = (await r.json())?.chart?.result?.[0];
+  const q = res?.indicators?.quote?.[0];
+  if (!res?.timestamp || !q) return [];
+  let out = [];
+  res.timestamp.forEach((t, i) => {
+    if ([q.open[i], q.high[i], q.low[i], q.close[i]].some((x) => x == null)) return;
+    out.push({ t: t * 1e3, o: q.open[i], h: q.high[i], l: q.low[i], c: q.close[i], v: q.volume?.[i] || 0 });
+  });
+  if (tf === "4h") {
+    const m = /* @__PURE__ */ new Map();
+    for (const x of out) {
+      const k2 = Math.floor(x.t / 144e5) * 144e5;
+      const g = m.get(k2);
+      if (!g) m.set(k2, { ...x, t: k2 });
+      else {
+        g.h = Math.max(g.h, x.h);
+        g.l = Math.min(g.l, x.l);
+        g.c = x.c;
+        g.v += x.v;
+      }
+    }
+    out = Array.from(m.values()).sort((a, z3) => a.t - z3.t);
+  }
+  return out;
 }
 async function runWizardBacktest(opts) {
   if (!WIZARD_SUPPORTED.includes(opts.strategyId)) throw new Error(`This pattern can't be backtested on real candles yet. Pick one of the strategies marked "Real backtest".`);
@@ -35299,6 +35452,12 @@ var init_wizard_strategies = __esm({
     init_fx_models();
     init_brain_ideas();
     WIZARD_SUPPORTED = [
+      "head-and-shoulders",
+      "flag-pennant",
+      "harmonic-patterns",
+      "three-drive-pattern",
+      "cup-and-handle",
+      "wedge-patterns",
       "moving-average-crossover",
       "rsi-overbought-oversold",
       "breakout-with-volume",
@@ -65403,9 +65562,9 @@ async function getStopOrdersForUser(userId, filters = {}) {
 init_schema();
 
 // server/build-info.ts
-var BUILD_COMMIT = "9da3e192-dirty";
+var BUILD_COMMIT = "da0ac08d-dirty";
 var BUILD_BRANCH = "HEAD";
-var BUILT_AT = "2026-11-01T19:35:36.346Z";
+var BUILT_AT = "2026-11-01T20:15:07.982Z";
 
 // server/stripe.ts
 init_db();

@@ -791,6 +791,7 @@ type WizardStep = 'select' | 'configure' | 'backtest' | 'results';
 
 // Strategies the server can backtest on real candles (server/services/wizard-strategies.ts WIZARD_SUPPORTED).
 const REAL_BACKTEST = [
+  'head-and-shoulders', 'flag-pennant', 'harmonic-patterns', 'three-drive-pattern', 'cup-and-handle', 'wedge-patterns',
   'moving-average-crossover', 'rsi-overbought-oversold', 'breakout-with-volume', 'macd-signal-crossover',
   'stochastic-crossover', 'engulfing-candles', 'channel-trading', 'support-resistance-bounce', 'double-top-bottom',
 ];
