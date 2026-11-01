@@ -13084,7 +13084,7 @@ Make it timely, relevant to current market conditions, and show how VEDD's tools
     currentEventsContext
   };
 }
-async function generateReelScript(topic, userId) {
+async function generateReelScript(topic, userId, format) {
   let openai2;
   let model = "gpt-4o";
   try {
@@ -13110,10 +13110,26 @@ Return a JSON object with these exact fields:
   "caption": "a social caption for the post (2-4 sentences, includes a CTA to veddbuild.com, no hashtags \u2014 those get added separately)",
   "videoPrompt": "a vivid, concrete visual SCENE (1-2 sentences) for an AI video generator, staying FAITHFUL to the topic above \u2014 describe the setting, subject and mood only. Do NOT describe film style, grain, color grade or camera settings (those are applied automatically). No text overlays, captions, signage, logos or readable words. If the scene includes people, they are young Black people in contemporary streetwear in an authentic inner-city/urban setting."
 }`;
+  const FORMAT_INSTRUCTIONS = {
+    "product-ad": `FORMAT \u2014 PRODUCT AD (direct response):
+- The hook names a painful trading problem as a question or a blunt statement.
+- Beats: (1) the problem up close, (2) the presenter pulls out their phone / turns to their screen where a candlestick chart is being analyzed for them, (3) what the VEDD AI Trading Vault does with that chart, in plain words, (4) the call to action: start free at veddbuild.com.
+- The videoPrompt scene is a product-demo moment: the presenter in frame, phone or chart screen beside them, energy like showing a friend something that works.
+- No income or profit promises, no win-rate claims.`,
+    "got-milk": `FORMAT \u2014 "GOT MILK?"-STYLE PARODY AD:
+- Playful 90s TV-spot energy. The hook is a relatable stuck moment for a trader (missed the entry, ten charts open, analysis paralysis) played for comedy, never mocking the viewer.
+- Beats: the frustration builds, then the turn \u2014 the presenter looks straight at the camera, holds up their phone, deadpan. The final script line is the closer: "got VEDD?"
+- The caption MUST end with the exact closer: got VEDD?
+- The videoPrompt scene matches the stuck moment, then the turn to camera.
+- No income or profit promises \u2014 the joke is the situation, never the money.`
+  };
+  const system = format && FORMAT_INSTRUCTIONS[format] ? `${systemPrompt}
+
+${FORMAT_INSTRUCTIONS[format]}` : systemPrompt;
   const response = await openai2.chat.completions.create({
     model,
     messages: [
-      { role: "system", content: systemPrompt },
+      { role: "system", content: system },
       { role: "user", content: `Write a VEDD reel script about: ${topic}` }
     ],
     response_format: { type: "json_object" },
@@ -13125,6 +13141,9 @@ Return a JSON object with these exact fields:
     data = JSON.parse(raw);
   } catch {
     data = {};
+  }
+  if (format === "got-milk" && data.caption && !/got vedd\?\s*$/i.test(data.caption.trim())) {
+    data.caption = `${data.caption.trim()} got VEDD?`;
   }
   return {
     hook: data.hook || `Stop scrolling \u2014 this is about ${topic}.`,
@@ -55593,7 +55612,7 @@ function friendlyError(e) {
   return "The video could not be made right now. Please try again in a few minutes.";
 }
 async function runJob(id, userId, input, aspect, opts) {
-  const script = await writeScript(input, userId, opts.sceneCount ?? 4);
+  const script = await writeScript(input, userId, opts.sceneCount ?? 4, opts.backgroundScene);
   await update(id, { script, step: `Filming ${script.scenes.length} scenes with voiceover`, progress: 10 });
   const urls = new Array(script.scenes.length);
   let done = 0;
@@ -55609,7 +55628,11 @@ async function runJob(id, userId, input, aspect, opts) {
     while (queue.length) await queue.shift()();
   });
   await Promise.all(workers);
+<<<<<<< HEAD
   await update(id, { step: "Adding VEDD branding and joining scenes", progress: 85, meta: { predictions, model: MODEL(), presenter: opts.presenterImage ? "custom" : "ai" } });
+=======
+  await update(id, { step: "Adding VEDD branding and joining scenes", progress: 85, meta: { predictions, model: MODEL(), background: opts.backgroundScene ? "preset" : "ai" } });
+>>>>>>> origin/feature/backgrounds-ad-formats
   const video = await assemble(urls, aspect, script.scenes.map((s) => s.chart ?? null));
   const saved = await persistBuffer(video, "video/mp4");
   if (!saved) throw new Error("could not save the finished video");
@@ -55629,7 +55652,7 @@ async function runJob(id, userId, input, aspect, opts) {
   }
   if (opts.onDone) await opts.onDone(saved.url, script).catch((e) => console.error("[explainer] onDone failed:", e?.message));
 }
-async function writeScript(input, userId, sceneCount) {
+async function writeScript(input, userId, sceneCount, settingOverride) {
   const n = Math.min(Math.max(sceneCount, 3), 5);
   const { getUniversalAIClientForUser: getUniversalAIClientForUser2 } = await Promise.resolve().then(() => (init_openai(), openai_exports));
   const ai = await getUniversalAIClientForUser2(userId || 0);
@@ -55667,7 +55690,7 @@ JSON: {"title":"...","caption":"one-line social caption with a question","presen
   })).filter((s) => s.narration && s.visual).slice(0, n);
   if (scenes.length < 2) throw new Error("script generation returned too few scenes");
   const presenter = String(out.presenter || "").trim().slice(0, 300) || DEFAULT_PRESENTER;
-  const setting = String(out.setting || "").trim().slice(0, 300) || DEFAULT_SETTING;
+  const setting = (settingOverride || "").trim().slice(0, 300) || String(out.setting || "").trim().slice(0, 300) || DEFAULT_SETTING;
   return { title: String(out.title || "VEDD lesson").slice(0, 120), caption: String(out.caption || "").slice(0, 300), presenter, setting, scenes };
 }
 async function renderScene(scene, script, aspect, presenterImage) {
@@ -56297,6 +56320,7 @@ var init_image_generation = __esm({
   }
 });
 
+<<<<<<< HEAD
 // server/services/presenters.ts
 var presenters_exports = {};
 __export(presenters_exports, {
@@ -56366,6 +56390,34 @@ var init_presenters = __esm({
     "use strict";
     init_db();
     tableReady3 = null;
+=======
+// server/services/backgrounds.ts
+var backgrounds_exports = {};
+__export(backgrounds_exports, {
+  BACKGROUND_PRESETS: () => BACKGROUND_PRESETS,
+  getBackgroundPreset: () => getBackgroundPreset
+});
+function getBackgroundPreset(id) {
+  if (!id) return null;
+  return BACKGROUND_PRESETS.find((b) => b.id === id) ?? null;
+}
+var BACKGROUND_PRESETS;
+var init_backgrounds = __esm({
+  "server/services/backgrounds.ts"() {
+    "use strict";
+    BACKGROUND_PRESETS = [
+      { id: "podcast-studio", label: "Podcast Studio", scene: "a podcast studio with a broadcast microphone on a boom arm in front of the presenter, warm amber lighting, acoustic panels and a softly lit city window behind" },
+      { id: "barbershop", label: "Barbershop", scene: "a neighborhood barbershop with barber chairs, big mirrors and bright shop lights" },
+      { id: "rooftop-skyline", label: "Rooftop Skyline", scene: "a city rooftop at golden hour with brick buildings, fire escapes and the skyline behind" },
+      { id: "corner-store", label: "Corner Store", scene: "the front of a corner store on a city block, awning and store windows behind" },
+      { id: "car-interior", label: "Luxury Car", scene: "the driver seat of a clean luxury car at night, soft dashboard glow and city lights through the windshield" },
+      { id: "gym", label: "Gym", scene: "a modern gym with dumbbell racks and mirrors behind, bright energetic light" },
+      { id: "coffee-shop", label: "Coffee Shop", scene: "a cozy coffee shop corner table with a laptop and a coffee cup, warm window light" },
+      { id: "night-street", label: "City Street at Night", scene: "a city street at night with graffiti walls, streetlights and wet pavement reflections" },
+      { id: "brownstone-stoop", label: "Brownstone Stoop", scene: "the stoop of a brownstone building on a tree-lined city block, late afternoon light" },
+      { id: "basketball-court", label: "Basketball Court", scene: "an outdoor basketball court with a chain-link fence and city buildings behind" }
+    ];
+>>>>>>> origin/feature/backgrounds-ad-formats
   }
 });
 
@@ -56665,6 +56717,7 @@ async function renderContentVideo(prompt, o = {}) {
     if (o.exact) shot = prompt.trim();
     else ({ shot, hook } = await planVideoShot(prompt, o.userId));
   }
+  if (o.backgroundScene) shot = `${shot} Setting: ${o.backgroundScene}.`;
   const video = await generateContentVideo(shot, {
     duration: o.duration,
     quality: o.quality,
@@ -64123,6 +64176,7 @@ init_schema();
 // server/build-info.ts
 <<<<<<< HEAD
 <<<<<<< HEAD
+<<<<<<< HEAD
 var BUILD_COMMIT = "24d792b-dirty";
 var BUILD_BRANCH = "main";
 var BUILT_AT = "2026-11-01T16:13:25.036Z";
@@ -64136,6 +64190,11 @@ var BUILD_COMMIT = "f16f2ec";
 var BUILD_BRANCH = "feature/my-presenter";
 var BUILT_AT = "2026-11-01T17:59:57.953Z";
 >>>>>>> origin/feature/my-presenter
+=======
+var BUILD_COMMIT = "584f499";
+var BUILD_BRANCH = "feature/backgrounds-ad-formats";
+var BUILT_AT = "2026-11-01T18:00:55.629Z";
+>>>>>>> origin/feature/backgrounds-ad-formats
 
 // server/stripe.ts
 init_db();
@@ -93218,10 +93277,12 @@ Sitemap: ${SEO_BASE_URL}/sitemap.xml
       if (!prompt) return res.status(400).json({ error: "Tell us what the video should explain." });
       const aspect = ["9:16", "4:5", "1:1", "16:9"].includes(req.body?.aspect) ? req.body.aspect : "9:16";
       const ex = await Promise.resolve().then(() => (init_explainer_video(), explainer_video_exports));
+      const { getBackgroundPreset: getBackgroundPreset2 } = await Promise.resolve().then(() => (init_backgrounds(), backgrounds_exports));
       const limit = Number(process.env.EXPLAINER_DAILY_LIMIT ?? 2);
       if (!u.isAdmin && await ex.rendersToday(u.id) >= limit) {
         return res.status(429).json({ error: `You've made ${limit} explainer videos today. You can make more tomorrow.` });
       }
+<<<<<<< HEAD
       let presenterImage;
       const presenterId = Number(req.body?.presenterId) || 0;
       if (presenterId) {
@@ -93230,6 +93291,10 @@ Sitemap: ${SEO_BASE_URL}/sitemap.xml
         if (p) presenterImage = presenterAbsoluteUrl2(req, p.imageUrl);
       }
       const jobId = await ex.startExplainerJob(u.id, prompt, aspect, { presenterImage });
+=======
+      const bg = getBackgroundPreset2(req.body?.backgroundId);
+      const jobId = await ex.startExplainerJob(u.id, prompt, aspect, { backgroundScene: bg?.scene });
+>>>>>>> origin/feature/backgrounds-ad-formats
       res.json({ jobId });
     } catch (err) {
       res.status(500).json({ error: err.message });
@@ -93242,11 +93307,16 @@ Sitemap: ${SEO_BASE_URL}/sitemap.xml
     if (!job) return res.status(404).json({ error: "Not found" });
     res.json({ id: job.id, status: job.status, step: job.step, progress: job.progress, url: job.result_url, error: job.error, script: job.script, aspect: job.aspect });
   });
+<<<<<<< HEAD
   app2.get("/api/content-studio/presenters", async (req, res) => {
+=======
+  app2.get("/api/content-studio/backgrounds", async (req, res) => {
+>>>>>>> origin/feature/backgrounds-ad-formats
     const u = req.user;
     if (!req.isAuthenticated() || !(u?.isAmbassador || u?.isAdmin)) {
       return res.status(403).json({ error: "Ambassador or admin only" });
     }
+<<<<<<< HEAD
     try {
       const { listPresenters: listPresenters2 } = await Promise.resolve().then(() => (init_presenters(), presenters_exports));
       res.json({ presenters: await listPresenters2(u.id) });
@@ -93291,6 +93361,10 @@ Sitemap: ${SEO_BASE_URL}/sitemap.xml
     } catch (err) {
       res.status(500).json({ error: err.message });
     }
+=======
+    const { BACKGROUND_PRESETS: BACKGROUND_PRESETS2 } = await Promise.resolve().then(() => (init_backgrounds(), backgrounds_exports));
+    res.json({ backgrounds: BACKGROUND_PRESETS2.map(({ id, label }) => ({ id, label })) });
+>>>>>>> origin/feature/backgrounds-ad-formats
   });
   app2.post("/api/content-studio/plan-shot", async (req, res) => {
     const u = req.user;
@@ -93312,6 +93386,7 @@ Sitemap: ${SEO_BASE_URL}/sitemap.xml
       return res.status(403).json({ error: "Ambassador or admin only" });
     }
     try {
+<<<<<<< HEAD
       const { prompt, shot, exact, aspect, brand, duration, quality, image, presenterId } = req.body;
       if (!prompt && !shot) return res.status(400).json({ error: "prompt is required" });
       const { renderContentVideo: renderContentVideo2 } = await Promise.resolve().then(() => (init_content_video(), content_video_exports));
@@ -93322,6 +93397,17 @@ Sitemap: ${SEO_BASE_URL}/sitemap.xml
         if (p) startImage = presenterAbsoluteUrl2(req, p.imageUrl);
       }
       const video = await renderContentVideo2(prompt || shot || "", { userId: u.id, shot, exact, aspect, brand, duration, quality, image: startImage });
+=======
+      const { prompt, shot, exact, aspect, brand, duration, quality, image, backgroundId } = req.body;
+      if (!prompt && !shot) return res.status(400).json({ error: "prompt is required" });
+      const { renderContentVideo: renderContentVideo2 } = await Promise.resolve().then(() => (init_content_video(), content_video_exports));
+      let backgroundScene;
+      if (backgroundId) {
+        const { getBackgroundPreset: getBackgroundPreset2 } = await Promise.resolve().then(() => (init_backgrounds(), backgrounds_exports));
+        backgroundScene = getBackgroundPreset2(backgroundId)?.scene;
+      }
+      const video = await renderContentVideo2(prompt || shot || "", { userId: u.id, shot, exact, aspect, brand, duration, quality, image, backgroundScene });
+>>>>>>> origin/feature/backgrounds-ad-formats
       if (!video) return res.status(502).json({ error: "The video couldn't be made right now. Please try again in a minute." });
       if (video.persisted) {
         await storage.createContentStudioGeneration({
@@ -93344,16 +93430,28 @@ Sitemap: ${SEO_BASE_URL}/sitemap.xml
       return res.status(403).json({ error: "Ambassador or admin only" });
     }
     try {
+<<<<<<< HEAD
       const { topic, duration, quality, image, presenterId } = req.body;
+=======
+      const { topic, duration, quality, image, backgroundId, format } = req.body;
+>>>>>>> origin/feature/backgrounds-ad-formats
       if (!topic) return res.status(400).json({ error: "topic is required" });
       const { generateReelScript: generateReelScript2 } = await Promise.resolve().then(() => (init_openai(), openai_exports));
-      const script = await generateReelScript2(topic, u?.id);
+      const reelFormat = format === "product-ad" || format === "got-milk" ? format : "standard";
+      const script = await generateReelScript2(topic, u?.id, reelFormat);
       const { renderContentVideo: renderContentVideo2 } = await Promise.resolve().then(() => (init_content_video(), content_video_exports));
+<<<<<<< HEAD
       let startImage = image;
       if (presenterId) {
         const { getPresenter: getPresenter2, presenterAbsoluteUrl: presenterAbsoluteUrl2 } = await Promise.resolve().then(() => (init_presenters(), presenters_exports));
         const p = await getPresenter2(u.id, Number(presenterId));
         if (p) startImage = presenterAbsoluteUrl2(req, p.imageUrl);
+=======
+      let backgroundScene;
+      if (backgroundId) {
+        const { getBackgroundPreset: getBackgroundPreset2 } = await Promise.resolve().then(() => (init_backgrounds(), backgrounds_exports));
+        backgroundScene = getBackgroundPreset2(backgroundId)?.scene;
+>>>>>>> origin/feature/backgrounds-ad-formats
       }
       const video = await renderContentVideo2(`Topic: ${topic}
 Scene idea: ${script.videoPrompt}`, {
@@ -93361,7 +93459,12 @@ Scene idea: ${script.videoPrompt}`, {
         aspect: req.body.aspect,
         duration,
         quality,
+<<<<<<< HEAD
         image: startImage
+=======
+        image,
+        backgroundScene
+>>>>>>> origin/feature/backgrounds-ad-formats
       });
       if (!video) return res.status(502).json({ error: "The video couldn't be made right now. Please try again in a minute." });
       if (video.persisted) {

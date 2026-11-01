@@ -4919,7 +4919,7 @@ OUTPUT: Return a JSON object with these exact fields:
 // scene prompt for the Replicate video model, all from one topic string.
 // Mirrors generateVeddBlogPost's client/provider fallback but with a much
 // shorter, punchier output tuned for a 5-6s vertical clip.
-export async function generateReelScript(topic: string, userId?: number): Promise<{
+export async function generateReelScript(topic: string, userId?: number, format?: string): Promise<{
   hook: string;
   script: string[];
   caption: string;
@@ -4951,10 +4951,27 @@ Return a JSON object with these exact fields:
   "videoPrompt": "a vivid, concrete visual SCENE (1-2 sentences) for an AI video generator, staying FAITHFUL to the topic above — describe the setting, subject and mood only. Do NOT describe film style, grain, color grade or camera settings (those are applied automatically). No text overlays, captions, signage, logos or readable words. If the scene includes people, they are young Black people in contemporary streetwear in an authentic inner-city/urban setting."
 }`;
 
+  // Ad formats: extra structure layered over the base reel writer. The
+  // caption closer for 'got-milk' is also enforced after generation below.
+  const FORMAT_INSTRUCTIONS: Record<string, string> = {
+    'product-ad': `FORMAT — PRODUCT AD (direct response):
+- The hook names a painful trading problem as a question or a blunt statement.
+- Beats: (1) the problem up close, (2) the presenter pulls out their phone / turns to their screen where a candlestick chart is being analyzed for them, (3) what the VEDD AI Trading Vault does with that chart, in plain words, (4) the call to action: start free at veddbuild.com.
+- The videoPrompt scene is a product-demo moment: the presenter in frame, phone or chart screen beside them, energy like showing a friend something that works.
+- No income or profit promises, no win-rate claims.`,
+    'got-milk': `FORMAT — "GOT MILK?"-STYLE PARODY AD:
+- Playful 90s TV-spot energy. The hook is a relatable stuck moment for a trader (missed the entry, ten charts open, analysis paralysis) played for comedy, never mocking the viewer.
+- Beats: the frustration builds, then the turn — the presenter looks straight at the camera, holds up their phone, deadpan. The final script line is the closer: "got VEDD?"
+- The caption MUST end with the exact closer: got VEDD?
+- The videoPrompt scene matches the stuck moment, then the turn to camera.
+- No income or profit promises — the joke is the situation, never the money.`,
+  };
+  const system = format && FORMAT_INSTRUCTIONS[format] ? `${systemPrompt}\n\n${FORMAT_INSTRUCTIONS[format]}` : systemPrompt;
+
   const response = await openai.chat.completions.create({
     model,
     messages: [
-      { role: "system", content: systemPrompt },
+      { role: "system", content: system },
       { role: "user", content: `Write a VEDD reel script about: ${topic}` },
     ],
     response_format: { type: "json_object" },
@@ -4967,6 +4984,12 @@ Return a JSON object with these exact fields:
     data = JSON.parse(raw);
   } catch {
     data = {};
+  }
+
+  // The Got Milk?-style format always lands its closer, even if the model
+  // forgot it: the caption ends with "got VEDD?".
+  if (format === 'got-milk' && data.caption && !/got vedd\?\s*$/i.test(data.caption.trim())) {
+    data.caption = `${data.caption.trim()} got VEDD?`;
   }
 
   return {

@@ -30862,6 +30862,7 @@ Generate an agenda with timing, topics, and hosting tips. Return JSON: {
       if (!prompt) return res.status(400).json({ error: "Tell us what the video should explain." });
       const aspect = ['9:16', '4:5', '1:1', '16:9'].includes((req.body as any)?.aspect) ? (req.body as any).aspect : '9:16';
       const ex = await import('./services/explainer-video');
+      const { getBackgroundPreset } = await import('./services/backgrounds');
       const limit = Number(process.env.EXPLAINER_DAILY_LIMIT ?? 2);
       if (!u.isAdmin && (await ex.rendersToday(u.id)) >= limit) {
         return res.status(429).json({ error: `You've made ${limit} explainer videos today. You can make more tomorrow.` });
@@ -30873,7 +30874,8 @@ Generate an agenda with timing, topics, and hosting tips. Return JSON: {
         const p = await getPresenter(u.id, presenterId);
         if (p) presenterImage = presenterAbsoluteUrl(req, p.imageUrl);
       }
-      const jobId = await ex.startExplainerJob(u.id, prompt, aspect, { presenterImage });
+      const bg = getBackgroundPreset((req.body as any)?.backgroundId);
+      const jobId = await ex.startExplainerJob(u.id, prompt, aspect, { presenterImage, backgroundScene: bg?.scene });
       res.json({ jobId });
     } catch (err: any) { res.status(500).json({ error: err.message }); }
   });
@@ -30935,6 +30937,18 @@ Generate an agenda with timing, topics, and hosting tips. Return JSON: {
     } catch (err: any) { res.status(500).json({ error: err.message }); }
   });
 
+  // ── Background presets (id + label for the studio UI; scene text stays
+  // server-side and is resolved from the id at generation time) ──
+  app.get("/api/content-studio/backgrounds", async (req, res) => {
+    const u = req.user as any;
+    if (!req.isAuthenticated() || !(u?.isAmbassador || u?.isAdmin)) {
+      return res.status(403).json({ error: "Ambassador or admin only" });
+    }
+    const { BACKGROUND_PRESETS } = await import('./services/backgrounds');
+    res.json({ backgrounds: BACKGROUND_PRESETS.map(({ id, label }) => ({ id, label })) });
+  });
+  });
+
   // POST /api/content-studio/plan-shot — preview the single shot the video
   // model will film, so the user can check/edit it before paying for a render.
   app.post("/api/content-studio/plan-shot", async (req, res) => {
@@ -30956,9 +30970,9 @@ Generate an agenda with timing, topics, and hosting tips. Return JSON: {
       return res.status(403).json({ error: "Ambassador or admin only" });
     }
     try {
-      const { prompt, shot, exact, aspect, brand, duration, quality, image, presenterId } = req.body as {
+      const { prompt, shot, exact, aspect, brand, duration, quality, image, presenterId, backgroundId } = req.body as {
         prompt?: string; shot?: string; exact?: boolean; aspect?: any; brand?: boolean;
-        duration?: number; quality?: 'fast' | 'high'; image?: string; presenterId?: number;
+        duration?: number; quality?: 'fast' | 'high'; image?: string; presenterId?: number; backgroundId?: string;
       };
       if (!prompt && !shot) return res.status(400).json({ error: "prompt is required" });
       // prompt -> one filmable shot -> render -> VEDD branding + social size (content-video.ts)
@@ -30971,7 +30985,12 @@ Generate an agenda with timing, topics, and hosting tips. Return JSON: {
         const p = await getPresenter(u.id, Number(presenterId));
         if (p) startImage = presenterAbsoluteUrl(req, p.imageUrl);
       }
-      const video = await renderContentVideo(prompt || shot || '', { userId: u.id, shot, exact, aspect, brand, duration, quality, image: startImage });
+      let backgroundScene: string | undefined;
+      if (backgroundId) {
+        const { getBackgroundPreset } = await import('./services/backgrounds');
+        backgroundScene = getBackgroundPreset(backgroundId)?.scene;
+      }
+      const video = await renderContentVideo(prompt || shot || '', { userId: u.id, shot, exact, aspect, brand, duration, quality, image: startImage, backgroundScene });
       if (!video) return res.status(502).json({ error: "The video couldn't be made right now. Please try again in a minute." });
 
       if (video.persisted) {
@@ -30995,11 +31014,12 @@ Generate an agenda with timing, topics, and hosting tips. Return JSON: {
       return res.status(403).json({ error: "Ambassador or admin only" });
     }
     try {
-      const { topic, duration, quality, image, presenterId } = req.body as { topic?: string; duration?: number; quality?: 'fast' | 'high'; image?: string; presenterId?: number };
+      const { topic, duration, quality, image, presenterId, backgroundId, format } = req.body as { topic?: string; duration?: number; quality?: 'fast' | 'high'; image?: string; presenterId?: number; backgroundId?: string; format?: string };
       if (!topic) return res.status(400).json({ error: "topic is required" });
 
       const { generateReelScript } = await import('./openai');
-      const script = await generateReelScript(topic, u?.id);
+      const reelFormat = format === 'product-ad' || format === 'got-milk' ? format : 'standard';
+      const script = await generateReelScript(topic, u?.id, reelFormat);
 
       const { renderContentVideo } = await import('./services/content-video');
       // The reel's videoPrompt is still planned into one shot, anchored on the topic.
@@ -31010,8 +31030,14 @@ Generate an agenda with timing, topics, and hosting tips. Return JSON: {
         if (p) startImage = presenterAbsoluteUrl(req, p.imageUrl);
       }
       const video = await renderContentVideo(`Topic: ${topic}
+      let backgroundScene: string | undefined;
+      if (backgroundId) {
+        const { getBackgroundPreset } = await import('./services/backgrounds');
+        backgroundScene = getBackgroundPreset(backgroundId)?.scene;
+      }
+      const video = await renderContentVideo(`Topic: ${topic}
 Scene idea: ${script.videoPrompt}`, {
-        userId: u.id, aspect: (req.body as any).aspect, duration, quality, image: startImage,
+        userId: u.id, aspect: (req.body as any).aspect, duration, quality, image: startImage, backgroundScene,
       });
       if (!video) return res.status(502).json({ error: "The video couldn't be made right now. Please try again in a minute." });
 

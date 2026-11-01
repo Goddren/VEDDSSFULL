@@ -25,6 +25,7 @@ export interface RenderOptions {
   quality?: VideoQuality;
   duration?: number;
   image?: string;
+  backgroundScene?: string; // chosen background preset's scene text
   brand?: boolean;      // default true
 }
 
@@ -46,6 +47,11 @@ export async function renderContentVideo(prompt: string, o: RenderOptions = {}):
     if (o.exact) shot = prompt.trim();
     else ({ shot, hook } = await planVideoShot(prompt, o.userId));
   }
+
+  // A chosen background preset wins over whatever setting the planner (or
+  // the user) put in the shot: append it as an explicit Setting line so
+  // every render path (planned, exact, pre-written shot) honors it.
+  if (o.backgroundScene) shot = `${shot} Setting: ${o.backgroundScene}.`;
 
   const video = await generateContentVideo(shot, {
     duration: o.duration, quality: o.quality, image: o.image,

@@ -1041,6 +1041,65 @@ function PresenterPicker({ selectedId, onSelect, imageData, onSaved }: {
         </div>
       )}
       {saveError && <p className="text-[11px] text-red-400 mt-1">{saveError}</p>}
+// ── Background + ad-format pickers ──────────────────────────────────────────
+// Background presets come from the server (GET /api/content-studio/
+// backgrounds) so the list the user sees always matches the scenes the
+// server can apply. null background = the AI picks the setting.
+interface BackgroundOption { id: string; label: string; }
+
+function BackgroundPicker({ selectedId, onSelect }: {
+  selectedId: string | null;
+  onSelect: (id: string | null) => void;
+}) {
+  const { data } = useQuery<{ backgrounds: BackgroundOption[] }>({
+    queryKey: ['/api/content-studio/backgrounds'],
+    queryFn: async () => {
+      const res = await apiRequest('GET', '/api/content-studio/backgrounds');
+      return res.json();
+    },
+  });
+  const backgrounds = data?.backgrounds ?? [];
+  const chip = (active: boolean) => ({
+    background: active ? 'rgba(245,196,81,.2)' : 'rgba(255,255,255,.05)',
+    color: active ? '#F5C451' : '#9ca3af',
+    border: `1px solid ${active ? 'rgba(245,196,81,.5)' : 'rgba(255,255,255,.1)'}`,
+  });
+  return (
+    <div>
+      <label className="text-[10px] text-gray-500 mb-1 block">Background <span className="opacity-60">(the setting that carries on TikTok)</span></label>
+      <div className="flex flex-wrap gap-1.5">
+        <button type="button" onClick={() => onSelect(null)} className="text-[11px] font-bold px-2 py-1.5 rounded-lg" style={chip(selectedId === null)}>AI picks</button>
+        {backgrounds.map(b => (
+          <button key={b.id} type="button" onClick={() => onSelect(b.id)} className="text-[11px] font-bold px-2 py-1.5 rounded-lg" style={chip(selectedId === b.id)}>{b.label}</button>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+const REEL_FORMATS = [
+  { id: 'standard', label: 'Standard Reel' },
+  { id: 'product-ad', label: 'Product Ad' },
+  { id: 'got-milk', label: 'Got VEDD? Ad' },
+] as const;
+
+function ReelFormatPicker({ value, onChange }: {
+  value: 'standard' | 'product-ad' | 'got-milk';
+  onChange: (f: 'standard' | 'product-ad' | 'got-milk') => void;
+}) {
+  const chip = (active: boolean) => ({
+    background: active ? 'rgba(168,85,247,.22)' : 'rgba(255,255,255,.05)',
+    color: active ? '#c084fc' : '#9ca3af',
+    border: `1px solid ${active ? 'rgba(168,85,247,.5)' : 'rgba(255,255,255,.1)'}`,
+  });
+  return (
+    <div>
+      <label className="text-[10px] text-gray-500 mb-1 block">Ad format</label>
+      <div className="flex flex-wrap gap-1.5">
+        {REEL_FORMATS.map(f => (
+          <button key={f.id} type="button" onClick={() => onChange(f.id)} className="text-[11px] font-bold px-2 py-1.5 rounded-lg" style={chip(value === f.id)}>{f.label}</button>
+        ))}
+      </div>
     </div>
   );
 }
@@ -1105,6 +1164,10 @@ export default function ContentStudioPage() {
   // Social size + the one shot the model will film (previewed and editable
   // before rendering, so the clip matches what the user asked for).
   const [videoAspect, setVideoAspect] = useState<string>('9:16');
+  // Background preset + reel ad format, shared by the Video and Reel tabs.
+  // The server resolves backgroundId to the preset's scene text.
+  const [backgroundId, setBackgroundId] = useState<string | null>(null);
+  const [reelFormat, setReelFormat] = useState<'standard' | 'product-ad' | 'got-milk'>('standard');
   const [videoShot, setVideoShot] = useState('');
   const [planningShot, setPlanningShot] = useState(false);
   const planShot = async () => {
@@ -1133,6 +1196,7 @@ export default function ContentStudioPage() {
         quality: videoQuality,
         image: presenterId ? undefined : (videoImage || undefined),
         presenterId: presenterId || undefined,
+        backgroundId: backgroundId || undefined,
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data?.error || 'Video generation failed');
@@ -1164,6 +1228,8 @@ export default function ContentStudioPage() {
         aspect: videoAspect,
         image: presenterId ? undefined : (videoImage || undefined),
         presenterId: presenterId || undefined,
+        backgroundId: backgroundId || undefined,
+        format: reelFormat,
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data?.error || 'Reel generation failed');
@@ -1537,6 +1603,8 @@ export default function ContentStudioPage() {
 
               <PresenterPicker selectedId={presenterId} onSelect={selectPresenter} imageData={videoImage} onSaved={onPresenterSaved} />
 
+              <BackgroundPicker selectedId={backgroundId} onSelect={setBackgroundId} />
+
               <Button onClick={generateVideo} disabled={!videoPrompt.trim() || generatingVideo} className="w-full bg-purple-600 hover:bg-purple-500">
                 {generatingVideo ? 'Making your video… about 1–3 minutes' : 'Make video'}
               </Button>
@@ -1640,6 +1708,10 @@ export default function ContentStudioPage() {
               </div>
 
               <PresenterPicker selectedId={presenterId} onSelect={selectPresenter} imageData={videoImage} onSaved={onPresenterSaved} />
+
+              <BackgroundPicker selectedId={backgroundId} onSelect={setBackgroundId} />
+
+              <ReelFormatPicker value={reelFormat} onChange={setReelFormat} />
 
               <Button onClick={generateReel} disabled={!reelTopic.trim() || generatingReel} className="w-full bg-emerald-600 hover:bg-emerald-500">
                 {generatingReel ? 'Writing script & generating clip… this can take a few minutes' : 'Generate Reel'}
