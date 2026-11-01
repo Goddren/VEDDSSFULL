@@ -34743,6 +34743,126 @@ ALTER TABLE fx_day_regimes ADD COLUMN IF NOT EXISTS engine text NOT NULL DEFAULT
   }
 });
 
+// server/services/weekly-review.ts
+var weekly_review_exports = {};
+__export(weekly_review_exports, {
+  getPeriodReview: () => getPeriodReview,
+  reviewContextText: () => reviewContextText,
+  reviewText: () => reviewText
+});
+function bucketize(rows, keyOf) {
+  const m = /* @__PURE__ */ new Map();
+  for (const r of rows) {
+    const k2 = keyOf(r);
+    const b = m.get(k2) || { key: k2, trades: 0, wins: 0, losses: 0, pnl: 0, winRate: 0 };
+    b.trades++;
+    b.pnl += Number(r.profit_loss) || 0;
+    if (r.result === "WIN") b.wins++;
+    else if (r.result === "LOSS") b.losses++;
+    m.set(k2, b);
+  }
+  return Array.from(m.values()).map((b) => ({ ...b, pnl: Math.round(b.pnl * 100) / 100, winRate: b.trades ? Math.round(b.wins / b.trades * 100) : 0 })).sort((a, b) => b.pnl - a.pnl);
+}
+async function getPeriodReview(userId, period = "week", offset = 1) {
+  const now = /* @__PURE__ */ new Date();
+  let from, to;
+  if (period === "week") {
+    const monday = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate() - (now.getUTCDay() + 6) % 7));
+    from = new Date(monday.getTime() - offset * 7 * 864e5);
+    to = new Date(from.getTime() + 7 * 864e5);
+  } else {
+    from = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() - offset, 1));
+    to = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() - offset + 1, 1));
+  }
+  if (to > now) to = now;
+  const q = (sql18, params) => pool.query(sql18, params).then((r) => r.rows).catch(() => []);
+  const [trades, blocks, shadows, goalRows, ideas] = await Promise.all([
+    q(`SELECT symbol, direction, result, profit_loss, created_at, COALESCE(closed_at, created_at) AS closed
+       FROM ai_trade_results WHERE user_id = $1 AND result IN ('WIN','LOSS','BREAKEVEN')
+       AND COALESCE(closed_at, created_at) >= $2 AND COALESCE(closed_at, created_at) < $3`, [userId, from, to]),
+    // The gate re-logs the same block on every scan, so count distinct hours per pair + pattern.
+    q(`SELECT symbol || ' ' || COALESCE(pattern_value, dimension, '') AS reason,
+       count(DISTINCT date_trunc('hour', blocked_at))::int n
+       FROM fx_brain_gate_blocks WHERE user_id = $1 AND blocked_at >= $2 AND blocked_at < $3
+       GROUP BY 1 ORDER BY n DESC LIMIT 6`, [userId, from, to]),
+    q(`SELECT engine, strategy, count(*)::int trades, round(100.0 * avg((result = 'WIN')::int))::int win_rate,
+       round(sum(COALESCE(r_multiple, 0))::numeric, 1)::float sum_r
+       FROM shadow_ledger WHERE user_id = $1 AND opened_at >= $2 AND opened_at < $3 GROUP BY 1, 2 ORDER BY 1, 2`, [userId, from, to]),
+    q(`SELECT profit_target FROM weekly_strategies WHERE user_id = $1 ORDER BY (is_active IS TRUE) DESC, id DESC LIMIT 1`, [userId]),
+    q(`SELECT title, status, evidence->>'verdict' AS verdict FROM user_brain_ideas WHERE user_id = $1 AND status <> 'retired' ORDER BY id DESC LIMIT 10`, [userId])
+  ]);
+  const byDay = bucketize(trades, (r) => new Date(r.closed).toISOString().slice(0, 10));
+  const wins = trades.filter((r) => r.result === "WIN").length;
+  const losses = trades.filter((r) => r.result === "LOSS").length;
+  const pnl = Math.round(trades.reduce((s, r) => s + (Number(r.profit_loss) || 0), 0) * 100) / 100;
+  const weeklyTarget = goalRows[0]?.profit_target != null ? Number(goalRows[0].profit_target) : null;
+  const target = weeklyTarget == null ? null : period === "month" ? weeklyTarget * 4 : weeklyTarget;
+  return {
+    period,
+    from: from.toISOString().slice(0, 10),
+    to: to.toISOString().slice(0, 10),
+    goal: { weeklyTarget, hit: target == null ? null : pnl >= target },
+    totals: {
+      trades: trades.length,
+      wins,
+      losses,
+      winRate: trades.length ? Math.round(wins / trades.length * 100) : 0,
+      pnl,
+      bestDay: byDay[0] ? `${byDay[0].key} ${byDay[0].pnl >= 0 ? "+" : ""}$${byDay[0].pnl}` : null,
+      worstDay: byDay.length ? `${byDay[byDay.length - 1].key} ${byDay[byDay.length - 1].pnl >= 0 ? "+" : ""}$${byDay[byDay.length - 1].pnl}` : null
+    },
+    byPair: bucketize(trades, (r) => String(r.symbol).toUpperCase()),
+    bySession: bucketize(trades, (r) => sessionFor(new Date(r.created_at))),
+    byWeekday: bucketize(trades, (r) => DAYS[new Date(r.created_at).getUTCDay()]),
+    gateBlocks: { total: blocks.reduce((s, b) => s + b.n, 0), top: blocks.map((b) => ({ reason: String(b.reason || "").slice(0, 120), n: b.n })) },
+    shadows: shadows.map((s) => ({ engine: s.engine, strategy: s.strategy, trades: s.trades, winRate: s.win_rate, sumR: s.sum_r })),
+    ideas: ideas.map((i) => ({ title: i.title, status: i.status, verdict: i.verdict || "" }))
+  };
+}
+function reviewText(r) {
+  const t = r.totals;
+  const goal = r.goal.weeklyTarget == null ? "no weekly goal set" : `goal ${r.period === "month" ? "$" + r.goal.weeklyTarget * 4 + " (4x weekly)" : "$" + r.goal.weeklyTarget} \u2192 ${r.goal.hit ? "HIT" : "missed"}`;
+  return [
+    `${r.period.toUpperCase()} ${r.from} to ${r.to}: ${t.trades} trades, ${t.wins}W/${t.losses}L (${t.winRate}%), ${money(t.pnl)}; ${goal}. Best day ${t.bestDay || "n/a"}, worst ${t.worstDay || "n/a"}.`,
+    r.byPair.length ? `By pair: ${r.byPair.slice(0, 8).map(line).join(" | ")}` : "No closed trades in this period.",
+    r.bySession.length ? `By session: ${r.bySession.map(line).join(" | ")}` : "",
+    r.byWeekday.length ? `By weekday: ${r.byWeekday.map(line).join(" | ")}` : "",
+    r.gateBlocks.total ? `Brain gate (losing pair+session combos it kept them out of, in hours blocked): ${r.gateBlocks.top.map((b) => `${b.reason} ${b.n}h`).join("; ")}` : "Brain gate blocked nothing.",
+    r.shadows.length ? `Shadow/paper: ${r.shadows.map((s) => `${s.engine} ${s.strategy} ${s.trades}t ${s.winRate}%WR ${s.sumR >= 0 ? "+" : ""}${s.sumR}R`).join(" | ")}` : "No shadow trades resolved.",
+    r.ideas.length ? `Their brain ideas: ${r.ideas.map((i) => `"${i.title}" [${i.status}] ${i.verdict}`).join(" | ")}` : ""
+  ].filter(Boolean).join("\n");
+}
+async function reviewContextText(userId) {
+  try {
+    const [last, current, lastMonth] = await Promise.all([
+      getPeriodReview(userId, "week", 1),
+      getPeriodReview(userId, "week", 0),
+      getPeriodReview(userId, "month", 1)
+    ]);
+    return `LAST WEEK
+${reviewText(last)}
+
+THIS WEEK SO FAR
+${reviewText(current)}
+
+LAST MONTH
+${reviewText(lastMonth)}`;
+  } catch (e) {
+    return `Review unavailable (${e?.message || "error"}).`;
+  }
+}
+var DAYS, money, line;
+var init_weekly_review = __esm({
+  "server/services/weekly-review.ts"() {
+    "use strict";
+    init_db();
+    init_fx_models();
+    DAYS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+    money = (n) => `${n >= 0 ? "+" : "-"}$${Math.abs(n).toFixed(2)}`;
+    line = (b) => `${b.key} ${b.trades}t ${b.winRate}%WR ${money(b.pnl)}`;
+  }
+});
+
 // server/services/brain-ideas.ts
 var brain_ideas_exports = {};
 __export(brain_ideas_exports, {
@@ -35064,7 +35184,14 @@ async function getClient(userId) {
   }
 }
 async function abbaIdeaLabPrompt(userId) {
-  return `=== WHAT'S NEW IN THE ENGINE (newest first) ===
+  return `=== WEEKLY REVIEW (real numbers, UTC weeks Mon-Sun) ===
+${await reviewContextText(userId)}
+
+=== PLANNING PARTNER ===
+You're their partner for hitting weekly, monthly and yearly profit goals. When they want to review a week or plan the next one: lead with how last week went (vs goal, best/worst pair, session, weekday, what the gates blocked, what the shadows say), then ask what they want next week to look like. Give 2-3 concrete options backed by the numbers above (e.g. cut the worst pair, focus the best session, what win rate the goal needs at their risk). Mid-week, tell them where they stand vs pace.
+RISK RULE: when they're BEHIND pace, NEVER suggest raising risk per trade, lot size or trades per day to catch up. Suggest better pairs/sessions/setups, tighter selection, or resetting the goal. When AHEAD, suggest protecting gains (lower risk, fewer trades). Chasing a goal is how accounts get blown.
+
+=== WHAT'S NEW IN THE ENGINE (newest first) ===
 When they ask what changed, why trades got skipped, or how Model 1 / Model 2 are doing, explain from this log in plain words and tie it to THEIR numbers:
 ${engineUpdatesText()}
 Model 1 = range-day / mean-reversion strategy. Model 2 = trend-day continuation. Both trade in SHADOW (simulated) until a slice proves itself: 50+ trades, avg R 0.2+, win rate 40%+, no losing week in the last two.
@@ -35328,6 +35455,7 @@ var init_abba_strategist = __esm({
     "use strict";
     init_storage();
     init_engine_updates();
+    init_weekly_review();
     init_brain_ideas();
     sessionOf = (d) => {
       const h = d.getUTCHours();
@@ -41108,8 +41236,8 @@ async function generateShareCard(data) {
     ctx.fillStyle = TEXT_COLOR;
     ctx.font = "16px Arial, sans-serif";
     const recLines = wrapText(ctx, firstAnalysis.recommendation, CARD_WIDTH - PADDING * 2 - 40);
-    recLines.slice(0, 3).forEach((line, i) => {
-      ctx.fillText(line, PADDING + 20, yPos + 30 + i * 22);
+    recLines.slice(0, 3).forEach((line2, i) => {
+      ctx.fillText(line2, PADDING + 20, yPos + 30 + i * 22);
     });
     yPos += 110;
   }
@@ -41153,8 +41281,8 @@ async function generateShareCard(data) {
   ctx.font = "italic 18px Arial, sans-serif";
   const verseLines = wrapText(ctx, `"${devotion.verse}"`, CARD_WIDTH - PADDING * 2 - 40);
   let verseY = yPos + 70;
-  for (const line of verseLines.slice(0, 3)) {
-    ctx.fillText(line, PADDING + 20, verseY);
+  for (const line2 of verseLines.slice(0, 3)) {
+    ctx.fillText(line2, PADDING + 20, verseY);
     verseY += 24;
   }
   ctx.fillStyle = "#94a3b8";
@@ -56160,8 +56288,8 @@ async function generateBlogOgImage(title, category) {
   ctx.font = "bold 58px Arial";
   const titleLines = wrapText2(ctx, title, width - 144, 3);
   let titleY = 240;
-  for (const line of titleLines) {
-    ctx.fillText(line, 72, titleY);
+  for (const line2 of titleLines) {
+    ctx.fillText(line2, 72, titleY);
     titleY += 68;
   }
   ctx.fillStyle = "#dc2626";
@@ -56556,13 +56684,13 @@ async function flattenSlideImage(opts) {
   if (headingLines.length > 0) {
     textSvgParts.push(`<rect x="48" y="${y - 96}" width="60" height="5" fill="${GOLD2}" />`);
   }
-  for (const line of headingLines) {
-    textSvgParts.push(`<text x="48" y="${y}" font-family="Arial, Helvetica, sans-serif" font-size="${HEADING_SIZE}" font-weight="800" fill="#ffffff">${escapeXml(line)}</text>`);
+  for (const line2 of headingLines) {
+    textSvgParts.push(`<text x="48" y="${y}" font-family="Arial, Helvetica, sans-serif" font-size="${HEADING_SIZE}" font-weight="800" fill="#ffffff">${escapeXml(line2)}</text>`);
     y += 88;
   }
   y += 12;
-  for (const line of bodyLines) {
-    textSvgParts.push(`<text x="48" y="${y}" font-family="Arial, Helvetica, sans-serif" font-size="${BODY_SIZE}" font-weight="400" fill="#e5e5e5">${escapeXml(line)}</text>`);
+  for (const line2 of bodyLines) {
+    textSvgParts.push(`<text x="48" y="${y}" font-family="Arial, Helvetica, sans-serif" font-size="${BODY_SIZE}" font-weight="400" fill="#e5e5e5">${escapeXml(line2)}</text>`);
     y += 60;
   }
   const overlaySvg = `
@@ -63925,9 +64053,9 @@ async function getStopOrdersForUser(userId, filters = {}) {
 init_schema();
 
 // server/build-info.ts
-var BUILD_COMMIT = "24d792bf-dirty";
+var BUILD_COMMIT = "904a6580-dirty";
 var BUILD_BRANCH = "HEAD";
-var BUILT_AT = "2026-11-01T16:20:06.092Z";
+var BUILT_AT = "2026-11-01T16:43:11.282Z";
 
 // server/stripe.ts
 init_db();
@@ -70598,6 +70726,17 @@ Respond ONLY in valid JSON format with these exact keys:
       res.status(500).json({ error: e.message });
     }
   });
+  app2.get("/api/abba/review", async (req, res) => {
+    if (!req.isAuthenticated()) return res.status(401).json({ error: "Authentication required" });
+    try {
+      const { getPeriodReview: getPeriodReview2 } = await Promise.resolve().then(() => (init_weekly_review(), weekly_review_exports));
+      const period = req.query.period === "month" ? "month" : "week";
+      const offset = Math.max(0, Math.min(12, Number(req.query.offset ?? 1) || 0));
+      res.json(await getPeriodReview2(req.user.id, period, offset));
+    } catch (e) {
+      res.status(500).json({ error: e.message });
+    }
+  });
   app2.get("/api/abba/engine-updates", async (_req, res) => {
     const { ENGINE_UPDATES: ENGINE_UPDATES2 } = await Promise.resolve().then(() => (init_engine_updates(), engine_updates_exports));
     res.json({ updates: ENGINE_UPDATES2 });
@@ -71501,7 +71640,7 @@ For summary, write a 1-sentence human-readable description of the plan.`;
       riskLevel,
       tradingDays,
       maxTradesPerDay
-    } = req.body;
+    } = req.body?.proposal && typeof req.body.proposal === "object" ? req.body.proposal : req.body;
     if (!pairs?.length || !profitTarget || !accountBalance) {
       return res.status(400).json({ error: "pairs, profitTarget, and accountBalance are required" });
     }
@@ -76264,8 +76403,8 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
       };
       const _tlSkips = [];
       const _markTlSkip = (acct, reason) => {
-        const line = `${acct}: ${reason}`;
-        _tlSkips.push(line);
+        const line2 = `${acct}: ${reason}`;
+        _tlSkips.push(line2);
         void (async () => {
           try {
             const id = await _cdiagIdP;
@@ -82683,7 +82822,7 @@ Format each recommendation as a clear, concise action item.`;
         temperature: 0.7
       });
       const aiResponse = response.choices[0]?.message?.content || "";
-      const recommendations = aiResponse.split("\n").filter((line) => line.trim().match(/^\d+\.|\-|\*/) || line.includes("Recommendation")).map((line) => line.replace(/^\d+\.\s*|\-\s*|\*\s*/, "").trim()).filter((line) => line.length > 10).slice(0, 6);
+      const recommendations = aiResponse.split("\n").filter((line2) => line2.trim().match(/^\d+\.|\-|\*/) || line2.includes("Recommendation")).map((line2) => line2.replace(/^\d+\.\s*|\-\s*|\*\s*/, "").trim()).filter((line2) => line2.length > 10).slice(0, 6);
       const eaSettings = {
         symbol,
         directionBias,

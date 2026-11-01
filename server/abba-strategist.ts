@@ -8,6 +8,7 @@
 import type { Request, Response } from 'express';
 import { storage } from './storage';
 import { engineUpdatesText } from './services/engine-updates';
+import { reviewContextText } from './services/weekly-review';
 import { IDEA_SESSIONS, sanitizeRule, backtestIdea, describeRule, ideasContextText } from './services/brain-ideas';
 
 interface AbbaContext {
@@ -164,7 +165,14 @@ async function getClient(userId: number): Promise<{ client: any; model: string }
 // ── Idea Lab: shared by /api/abba/chat and /api/abba/stream ───────────────────
 export const IDEA_MARKER = '[[IDEA_READY]]';
 export async function abbaIdeaLabPrompt(userId: number): Promise<string> {
-  return `=== WHAT'S NEW IN THE ENGINE (newest first) ===
+  return `=== WEEKLY REVIEW (real numbers, UTC weeks Mon-Sun) ===
+${await reviewContextText(userId)}
+
+=== PLANNING PARTNER ===
+You're their partner for hitting weekly, monthly and yearly profit goals. When they want to review a week or plan the next one: lead with how last week went (vs goal, best/worst pair, session, weekday, what the gates blocked, what the shadows say), then ask what they want next week to look like. Give 2-3 concrete options backed by the numbers above (e.g. cut the worst pair, focus the best session, what win rate the goal needs at their risk). Mid-week, tell them where they stand vs pace.
+RISK RULE: when they're BEHIND pace, NEVER suggest raising risk per trade, lot size or trades per day to catch up. Suggest better pairs/sessions/setups, tighter selection, or resetting the goal. When AHEAD, suggest protecting gains (lower risk, fewer trades). Chasing a goal is how accounts get blown.
+
+=== WHAT'S NEW IN THE ENGINE (newest first) ===
 When they ask what changed, why trades got skipped, or how Model 1 / Model 2 are doing, explain from this log in plain words and tie it to THEIR numbers:
 ${engineUpdatesText()}
 Model 1 = range-day / mean-reversion strategy. Model 2 = trend-day continuation. Both trade in SHADOW (simulated) until a slice proves itself: 50+ trades, avg R 0.2+, win rate 40%+, no losing week in the last two.

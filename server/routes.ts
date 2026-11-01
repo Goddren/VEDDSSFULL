@@ -4177,6 +4177,15 @@ Respond ONLY in valid JSON format with these exact keys:
       res.json({ ok });
     } catch (e: any) { res.status(500).json({ error: e.message }); }
   });
+  app.get('/api/abba/review', async (req, res) => {
+    if (!req.isAuthenticated()) return res.status(401).json({ error: 'Authentication required' });
+    try {
+      const { getPeriodReview } = await import('./services/weekly-review');
+      const period = req.query.period === 'month' ? 'month' : 'week';
+      const offset = Math.max(0, Math.min(12, Number(req.query.offset ?? 1) || 0));
+      res.json(await getPeriodReview((req.user as any).id, period, offset));
+    } catch (e: any) { res.status(500).json({ error: e.message }); }
+  });
   app.get('/api/abba/engine-updates', async (_req, res) => {
     const { ENGINE_UPDATES } = await import('./services/engine-updates');
     res.json({ updates: ENGINE_UPDATES });
@@ -5115,7 +5124,7 @@ For summary, write a 1-sentence human-readable description of the plan.`;
     const {
       pairs, profitTarget, accountBalance, sessions, direction,
       strategyType, lotSize, riskLevel, tradingDays, maxTradesPerDay,
-    } = req.body;
+    } = (req.body?.proposal && typeof req.body.proposal === 'object') ? req.body.proposal : req.body; // client sends { proposal }
 
     if (!pairs?.length || !profitTarget || !accountBalance) {
       return res.status(400).json({ error: 'pairs, profitTarget, and accountBalance are required' });
