@@ -43,18 +43,18 @@ function listFromEnv(name, fallback) {
 }
 function pairFilterVerdict(symbol, direction) {
   if (process.env.PAIR_FILTER_ENABLED === "false") return null;
-  const sym = norm(symbol);
+  const sym2 = norm(symbol);
   const dir = String(direction || "").toUpperCase();
   for (const b of BLOCKED_PAIRS) {
-    if (norm(b) === sym) {
-      const reason = sym === "GBPJPY" ? `Pair filter: ${sym} is on the blocked list (34% WR over 310 trades, avg win $59 vs avg loss $100)` : `Pair filter: ${sym} is on the blocked list`;
+    if (norm(b) === sym2) {
+      const reason = sym2 === "GBPJPY" ? `Pair filter: ${sym2} is on the blocked list (34% WR over 310 trades, avg win $59 vs avg loss $100)` : `Pair filter: ${sym2} is on the blocked list`;
       return { blocked: true, reason };
     }
   }
   for (const entry of BLOCKED_DIRECTIONS) {
     const [s, d] = entry.split(":");
-    if (s && d && norm(s) === sym && d.toUpperCase() === dir) {
-      return { blocked: true, reason: `Pair filter: ${sym} ${dir} is on the blocked list` };
+    if (s && d && norm(s) === sym2 && d.toUpperCase() === dir) {
+      return { blocked: true, reason: `Pair filter: ${sym2} ${dir} is on the blocked list` };
     }
   }
   return null;
@@ -8590,7 +8590,7 @@ async function compute(userId) {
     bySymbol.get(k2).push(r);
   }
   const out = /* @__PURE__ */ new Map();
-  for (const [sym, list] of Array.from(bySymbol.entries())) {
+  for (const [sym2, list] of Array.from(bySymbol.entries())) {
     const netPnl = list.reduce((s, r) => s + Number(r.pnl || 0), 0);
     const signals = [];
     for (const r of list) {
@@ -8602,7 +8602,7 @@ async function compute(userId) {
     }
     const losing = signals.filter((s) => s.result === "LOSS");
     const stat = {
-      symbol: sym,
+      symbol: sym2,
       losingSignals: losing.length,
       winningSignals: signals.length - losing.length,
       netPnl: Math.round(netPnl * 100) / 100,
@@ -8612,19 +8612,19 @@ async function compute(userId) {
     };
     if (MAX_LOSING_SIGNALS > 0 && stat.losingSignals >= MAX_LOSING_SIGNALS) {
       stat.stopped = true;
-      stat.reason = `Pair daily stop: ${sym} has ${stat.losingSignals} losing setups today (limit ${MAX_LOSING_SIGNALS}), net ${stat.netPnl} \u2014 stopped until 00:00 UTC`;
+      stat.reason = `Pair daily stop: ${sym2} has ${stat.losingSignals} losing setups today (limit ${MAX_LOSING_SIGNALS}), net ${stat.netPnl} \u2014 stopped until 00:00 UTC`;
     } else if (MAX_DAILY_LOSS > 0 && netPnl <= -Math.abs(MAX_DAILY_LOSS)) {
       stat.stopped = true;
-      stat.reason = `Pair daily stop: ${sym} is down ${stat.netPnl} today (limit -${Math.abs(MAX_DAILY_LOSS)}) \u2014 stopped until 00:00 UTC`;
+      stat.reason = `Pair daily stop: ${sym2} is down ${stat.netPnl} today (limit -${Math.abs(MAX_DAILY_LOSS)}) \u2014 stopped until 00:00 UTC`;
     }
-    out.set(sym, stat);
+    out.set(sym2, stat);
   }
   return out;
 }
 async function pairDailyStopVerdict(userId, symbol) {
   if (process.env.PAIR_DAILY_STOP_ENABLED === "false") return null;
-  const sym = norm2(symbol);
-  if (!sym) return null;
+  const sym2 = norm2(symbol);
+  if (!sym2) return null;
   const today = utcDay();
   let entry = cache2.get(userId);
   try {
@@ -8639,12 +8639,12 @@ async function pairDailyStopVerdict(userId, symbol) {
     }
   } catch (e) {
     if (!entry) {
-      console.error(`[PairDailyStop] could not evaluate and have no prior result (${e?.message}) \u2014 allowing ${sym}.`);
+      console.error(`[PairDailyStop] could not evaluate and have no prior result (${e?.message}) \u2014 allowing ${sym2}.`);
       return null;
     }
     console.error(`[PairDailyStop] refresh failed (${e?.message}) \u2014 reusing the last known result from ${new Date(entry.at).toISOString()}.`);
   }
-  const stat = entry.stats.get(sym);
+  const stat = entry.stats.get(sym2);
   if (!stat?.stopped) return null;
   return { blocked: true, reason: stat.reason };
 }
@@ -8653,8 +8653,8 @@ function invalidatePairDailyStop(userId) {
 }
 async function pairDayStopHistory(userId, symbol, lookbackDays = 180) {
   const { pool: pool2 } = await Promise.resolve().then(() => (init_db(), db_exports));
-  const sym = norm2(symbol);
-  if (!sym) return [];
+  const sym2 = norm2(symbol);
+  if (!sym2) return [];
   const { rows } = await pool2.query(
     `SELECT symbol, direction, result, COALESCE(profit_loss, 0) AS pnl, closed_at,
             closed_at::date AS d
@@ -8667,7 +8667,7 @@ async function pairDayStopHistory(userId, symbol, lookbackDays = 180) {
       ORDER BY closed_at ASC`,
     [userId, String(lookbackDays)]
   );
-  const bySym = rows.filter((r) => norm2(r.symbol) === sym);
+  const bySym = rows.filter((r) => norm2(r.symbol) === sym2);
   if (!bySym.length) return [];
   const byDay = /* @__PURE__ */ new Map();
   for (const r of bySym) {
@@ -13084,7 +13084,7 @@ Make it timely, relevant to current market conditions, and show how VEDD's tools
     currentEventsContext
   };
 }
-async function generateReelScript(topic, userId, format) {
+async function generateReelScript(topic, userId, styleNote) {
   let openai2;
   let model = "gpt-4o";
   try {
@@ -13110,22 +13110,10 @@ Return a JSON object with these exact fields:
   "caption": "a social caption for the post (2-4 sentences, includes a CTA to veddbuild.com, no hashtags \u2014 those get added separately)",
   "videoPrompt": "a vivid, concrete visual SCENE (1-2 sentences) for an AI video generator, staying FAITHFUL to the topic above \u2014 describe the setting, subject and mood only. Do NOT describe film style, grain, color grade or camera settings (those are applied automatically). No text overlays, captions, signage, logos or readable words. If the scene includes people, they are young Black people in contemporary streetwear in an authentic inner-city/urban setting."
 }`;
-  const FORMAT_INSTRUCTIONS = {
-    "product-ad": `FORMAT \u2014 PRODUCT AD (direct response):
-- The hook names a painful trading problem as a question or a blunt statement.
-- Beats: (1) the problem up close, (2) the presenter pulls out their phone / turns to their screen where a candlestick chart is being analyzed for them, (3) what the VEDD AI Trading Vault does with that chart, in plain words, (4) the call to action: start free at veddbuild.com.
-- The videoPrompt scene is a product-demo moment: the presenter in frame, phone or chart screen beside them, energy like showing a friend something that works.
-- No income or profit promises, no win-rate claims.`,
-    "got-milk": `FORMAT \u2014 "GOT MILK?"-STYLE PARODY AD:
-- Playful 90s TV-spot energy. The hook is a relatable stuck moment for a trader (missed the entry, ten charts open, analysis paralysis) played for comedy, never mocking the viewer.
-- Beats: the frustration builds, then the turn \u2014 the presenter looks straight at the camera, holds up their phone, deadpan. The final script line is the closer: "got VEDD?"
-- The caption MUST end with the exact closer: got VEDD?
-- The videoPrompt scene matches the stuck moment, then the turn to camera.
-- No income or profit promises \u2014 the joke is the situation, never the money.`
-  };
-  const system = format && FORMAT_INSTRUCTIONS[format] ? `${systemPrompt}
+  const system = styleNote?.trim() ? `${systemPrompt}
 
-${FORMAT_INSTRUCTIONS[format]}` : systemPrompt;
+ADAPT THIS PROVEN AD STRUCTURE \u2014 copy the shape only, written for VEDD in the brand voice above:
+${styleNote.trim().slice(0, 900)}` : systemPrompt;
   const response = await openai2.chat.completions.create({
     model,
     messages: [
@@ -13141,9 +13129,6 @@ ${FORMAT_INSTRUCTIONS[format]}` : systemPrompt;
     data = JSON.parse(raw);
   } catch {
     data = {};
-  }
-  if (format === "got-milk" && data.caption && !/got vedd\?\s*$/i.test(data.caption.trim())) {
-    data.caption = `${data.caption.trim()} got VEDD?`;
   }
   return {
     hook: data.hook || `Stop scrolling \u2014 this is about ${topic}.`,
@@ -19134,8 +19119,8 @@ __export(service_exports, {
 });
 import { createHash } from "crypto";
 async function fetchIndexFromYahoo(req) {
-  const sym = String(req.symbol || "").replace(/[^A-Za-z0-9]/g, "");
-  const hit = YAHOO_INDEX.find(([re]) => re.test(sym));
+  const sym2 = String(req.symbol || "").replace(/[^A-Za-z0-9]/g, "");
+  const hit = YAHOO_INDEX.find(([re]) => re.test(sym2));
   if (!hit) return null;
   const tf = req.timeframe;
   const interval = tf === "1m" ? "1m" : tf === "5m" ? "5m" : tf === "15m" ? "15m" : tf === "30m" ? "30m" : tf === "1h" || tf === "4h" ? "60m" : tf === "1w" ? "1wk" : "1d";
@@ -20689,15 +20674,15 @@ var init_tradelocker = __esm({
             console.log("[TradeLocker] Instrument cache MISS \u2014 fetching instruments (shared cache + 429 backoff)...");
             const { instruments, routes } = await this.fetchInstrumentsPayload();
             if (Array.isArray(instruments)) {
-              const sym = order.symbol.toUpperCase();
-              const symVariants = [sym];
+              const sym2 = order.symbol.toUpperCase();
+              const symVariants = [sym2];
               const suffixes = [".pro", "m", ".m", ".z", ".a", ".b", ".c", ".r", "_raw", ".ecn", ".stp", ".pro+", "PRO"];
               for (const sfx of suffixes) {
-                symVariants.push(sym + sfx.toUpperCase());
-                symVariants.push(sym + sfx);
+                symVariants.push(sym2 + sfx.toUpperCase());
+                symVariants.push(sym2 + sfx);
               }
-              const strippedSym = sym.replace(/[._]?(PRO|ECN|STP|RAW|M|Z|A|B|C|R)\+?$/i, "");
-              if (strippedSym !== sym) symVariants.push(strippedSym);
+              const strippedSym = sym2.replace(/[._]?(PRO|ECN|STP|RAW|M|Z|A|B|C|R)\+?$/i, "");
+              if (strippedSym !== sym2) symVariants.push(strippedSym);
               const ALIASES = {
                 "XAUUSD": ["GOLD", "XAU/USD", "GOLD/USD", "XAUUSD.PRO", "XAUUSDPRO"],
                 "GOLD": ["XAUUSD", "XAU/USD"],
@@ -20712,7 +20697,7 @@ var init_tradelocker = __esm({
                 "UK100": ["FTSE100", "UKX"],
                 "JP225": ["JPN225", "NIKKEI", "N225"]
               };
-              const knownAliases = ALIASES[sym] || [];
+              const knownAliases = ALIASES[sym2] || [];
               for (const alias of knownAliases) {
                 symVariants.push(alias);
                 symVariants.push(alias.replace("/", ""));
@@ -20938,14 +20923,14 @@ var init_tradelocker = __esm({
           infoRouteId = cached2.infoRouteId;
         } else {
           const { instruments } = await this.fetchInstrumentsPayload();
-          const sym = symbol.toUpperCase();
+          const sym2 = symbol.toUpperCase();
           const ALIASES = {
             "XAUUSD": ["GOLD", "XAU/USD"],
             "NAS100": ["USTEC", "US100", "NDX100"],
             "US30": ["DJ30", "WALLST30"],
             "US500": ["SPX500", "SP500", "SPX"]
           };
-          const variants = [sym, ...ALIASES[sym] || []];
+          const variants = [sym2, ...ALIASES[sym2] || []];
           let matched = null;
           for (const v of variants) {
             matched = instruments.find((i) => (i.name || i.symbol || "").toUpperCase().replace(/\s/g, "") === v.replace(/\s/g, ""));
@@ -22850,8 +22835,8 @@ __export(signal_confidence_exports, {
 });
 async function lookupSignalConfidence(userId, symbol, direction) {
   try {
-    const sym = String(symbol || "").toUpperCase().replace(/[^A-Z0-9]/g, "");
-    if (!sym) return null;
+    const sym2 = String(symbol || "").toUpperCase().replace(/[^A-Z0-9]/g, "");
+    if (!sym2) return null;
     const { rows } = await pool.query(
       `SELECT confidence FROM mt5_signal_logs
         WHERE user_id = $1 AND action = 'OPEN' AND upper(direction) = $2
@@ -22859,7 +22844,7 @@ async function lookupSignalConfidence(userId, symbol, direction) {
           AND source = 'vedd_live_engine' AND confidence IS NOT NULL
           AND created_at > now() - interval '30 minutes'
         ORDER BY created_at DESC LIMIT 1`,
-      [userId, String(direction || "").toUpperCase(), sym]
+      [userId, String(direction || "").toUpperCase(), sym2]
     );
     const c = Number(rows[0]?.confidence);
     return Number.isFinite(c) && c > 0 ? c : null;
@@ -25035,9 +25020,9 @@ var init_dxtrade = __esm({
       async ensureLoggedIn() {
         if (!this.token) await this.login();
       }
-      async authed(path20, init = {}) {
+      async authed(path19, init = {}) {
         if (!this.token) await this.login();
-        const doFetch = () => fetch(`${this.base}${path20}`, {
+        const doFetch = () => fetch(`${this.base}${path19}`, {
           ...init,
           headers: { "Accept": "application/json", "Content-Type": "application/json", "Authorization": `DXAPI ${this.token}`, ...init.headers || {} },
           signal: AbortSignal.timeout(2e4)
@@ -25198,9 +25183,9 @@ var init_dxtrade = __esm({
           const orders = await this.getWorkingOrders(accountCode);
           let n = 0;
           for (const o of orders) {
-            const sym = norm4(o.instrument ?? o.symbol);
+            const sym2 = norm4(o.instrument ?? o.symbol);
             const effect = String(o.positionEffect ?? o.legs?.[0]?.positionEffect ?? "").toUpperCase();
-            if (sym !== target || effect !== "CLOSE") continue;
+            if (sym2 !== target || effect !== "CLOSE") continue;
             const id = o.orderId ?? o.id ?? o.orderCode ?? o.code;
             if (id != null && await this.cancelOrder(accountCode, id)) n++;
           }
@@ -25245,8 +25230,8 @@ var init_dxtrade = __esm({
       async getInstruments(query = "") {
         const attempts = query ? [`/instruments/query?text=${encodeURIComponent(query)}`, `/instruments/query?symbol=${encodeURIComponent(query)}`, `/instruments/query?symbols=${encodeURIComponent(query)}`] : ["/instruments/query"];
         let last = "";
-        for (const path20 of attempts) {
-          const res = await this.authed(path20);
+        for (const path19 of attempts) {
+          const res = await this.authed(path19);
           const text2 = await res.text();
           if (res.ok) {
             try {
@@ -25319,10 +25304,10 @@ var init_dxtrade = __esm({
           `/accounts/${enc}/reports/trades?from=${encodeURIComponent(fromIso)}&to=${encodeURIComponent(toIso)}`,
           `/accounts/${enc}/positions/history?from=${encodeURIComponent(fromIso)}&to=${encodeURIComponent(toIso)}`
         ];
-        for (const path20 of candidates) {
+        for (const path19 of candidates) {
           let res;
           try {
-            res = await this.authed(path20);
+            res = await this.authed(path19);
           } catch {
             continue;
           }
@@ -25336,7 +25321,7 @@ var init_dxtrade = __esm({
           const list = data?.history ?? data?.trades ?? data?.orders ?? data?.positions ?? data?.items ?? (Array.isArray(data) ? data : []);
           if (!Array.isArray(list) || list.length === 0) {
             if (Array.isArray(list)) {
-              console.log(`[dxtrade] history via ${path20.split("?")[0]} \u2014 0 rows in window`);
+              console.log(`[dxtrade] history via ${path19.split("?")[0]} \u2014 0 rows in window`);
               return [];
             }
             continue;
@@ -25356,7 +25341,7 @@ var init_dxtrade = __esm({
             profit: o.profit ?? o.pnl ?? o.realizedPnl ?? o.realizedPnL ?? o.grossProfit,
             closeTime: o.closeTime ?? o.closedAt ?? o.closeTimestamp ?? o.timestamp ?? o.updateTime ?? null
           }));
-          console.log(`[dxtrade] history via ${path20.split("?")[0]} \u2014 ${closed.length} closed rows`);
+          console.log(`[dxtrade] history via ${path19.split("?")[0]} \u2014 ${closed.length} closed rows`);
           return closed;
         }
         console.log(`[dxtrade] no working history endpoint found for ${accountCode} (tried ${candidates.length}) \u2014 close-sync will keep opens PENDING`);
@@ -25795,13 +25780,13 @@ function callBudget() {
     candleTtlMs: Number(process.env.COINGECKO_CANDLE_TTL_MS ?? (hasKey ? 10 * 60 * 1e3 : 30 * 60 * 1e3))
   };
 }
-async function gt(path20) {
+async function gt(path19) {
   const run = async () => {
     for (let attempt = 0; attempt < 3; attempt++) {
       const wait = Math.max(0, callBudget().minIntervalMs - (Date.now() - lastCallAt));
       if (wait > 0) await new Promise((r) => setTimeout(r, wait));
       lastCallAt = Date.now();
-      const res = await fetch(`${GT}${path20}`, {
+      const res = await fetch(`${GT}${path19}`, {
         headers: cgHeaders(),
         signal: AbortSignal.timeout(2e4)
       });
@@ -25809,13 +25794,13 @@ async function gt(path20) {
       if (res.status === 429) {
         const retryAfter = Number(res.headers.get("retry-after")) || 0;
         const backoff = retryAfter > 0 ? retryAfter * 1e3 : 3e3 * (attempt + 1);
-        console.warn(`[defi-market-data] rate limited on ${path20}; waiting ${backoff}ms (attempt ${attempt + 1}/3)`);
+        console.warn(`[defi-market-data] rate limited on ${path19}; waiting ${backoff}ms (attempt ${attempt + 1}/3)`);
         await new Promise((r) => setTimeout(r, backoff));
         continue;
       }
-      throw new Error(`GeckoTerminal ${res.status} on ${path20}`);
+      throw new Error(`GeckoTerminal ${res.status} on ${path19}`);
     }
-    throw new Error(`GeckoTerminal rate limited after 3 attempts on ${path20}`);
+    throw new Error(`GeckoTerminal rate limited after 3 attempts on ${path19}`);
   };
   const next = callChain.then(run, run);
   callChain = next.catch(() => void 0);
@@ -25981,8 +25966,8 @@ async function learnFromCryptoTrades(userId) {
   const winSum = {}, winN = {}, lossSum = {}, lossN = {};
   let totalWins = 0, totalDecided = 0, totalPnl = 0;
   for (const r of rows) {
-    const sym = r.symbol || "UNKNOWN";
-    const k2 = symbols[sym] ??= { totalTrades: 0, wins: 0, losses: 0, winRate: 0, totalPnl: 0, avgWin: 0, avgLoss: 0, riskReward: 0, byStrategy: {}, byHour: {}, bestStrategy: null, recommendedSizeMultiplier: 1 };
+    const sym2 = r.symbol || "UNKNOWN";
+    const k2 = symbols[sym2] ??= { totalTrades: 0, wins: 0, losses: 0, winRate: 0, totalPnl: 0, avgWin: 0, avgLoss: 0, riskReward: 0, byStrategy: {}, byHour: {}, bestStrategy: null, recommendedSizeMultiplier: 1 };
     const pnl = Number(r.profit_loss) || 0;
     const win = r.result === "WIN", loss = r.result === "LOSS";
     k2.totalTrades++;
@@ -25991,23 +25976,23 @@ async function learnFromCryptoTrades(userId) {
     if (win) {
       k2.wins++;
       totalWins++;
-      winSum[sym] = (winSum[sym] ?? 0) + pnl;
-      winN[sym] = (winN[sym] ?? 0) + 1;
+      winSum[sym2] = (winSum[sym2] ?? 0) + pnl;
+      winN[sym2] = (winN[sym2] ?? 0) + 1;
     }
     if (loss) {
       k2.losses++;
-      lossSum[sym] = (lossSum[sym] ?? 0) + Math.abs(pnl);
-      lossN[sym] = (lossN[sym] ?? 0) + 1;
+      lossSum[sym2] = (lossSum[sym2] ?? 0) + Math.abs(pnl);
+      lossN[sym2] = (lossN[sym2] ?? 0) + 1;
     }
     if (win || loss) totalDecided++;
     if (r.strategy) bump(k2.byStrategy, r.strategy, win);
     if (r.hour_utc != null) bump(k2.byHour, String(r.hour_utc), win);
   }
-  for (const [sym, k2] of Object.entries(symbols)) {
+  for (const [sym2, k2] of Object.entries(symbols)) {
     const decided = k2.wins + k2.losses;
     k2.winRate = decided ? Math.round(k2.wins / decided * 100) : 0;
-    k2.avgWin = winN[sym] ? winSum[sym] / winN[sym] : 0;
-    k2.avgLoss = lossN[sym] ? lossSum[sym] / lossN[sym] : 0;
+    k2.avgWin = winN[sym2] ? winSum[sym2] / winN[sym2] : 0;
+    k2.avgLoss = lossN[sym2] ? lossSum[sym2] / lossN[sym2] : 0;
     k2.riskReward = k2.avgLoss > 0 ? k2.avgWin / k2.avgLoss : k2.avgWin > 0 ? 2 : 1;
     k2.recommendedSizeMultiplier = sizeMult(k2.winRate, k2.riskReward, decided);
     let best = null, bestWr = -1;
@@ -26018,9 +26003,9 @@ async function learnFromCryptoTrades(userId) {
     k2.bestStrategy = best;
   }
   const insights = [];
-  for (const [sym, k2] of Object.entries(symbols)) {
-    if (k2.wins + k2.losses >= MIN_TRADES2) insights.push(`${sym}: ${k2.winRate}% WR over ${k2.wins + k2.losses} \u2192 sizing \xD7${k2.recommendedSizeMultiplier}${k2.bestStrategy ? `, best on ${k2.bestStrategy}` : ""}.`);
-    else insights.push(`${sym}: still learning (${k2.wins + k2.losses}/${MIN_TRADES2}).`);
+  for (const [sym2, k2] of Object.entries(symbols)) {
+    if (k2.wins + k2.losses >= MIN_TRADES2) insights.push(`${sym2}: ${k2.winRate}% WR over ${k2.wins + k2.losses} \u2192 sizing \xD7${k2.recommendedSizeMultiplier}${k2.bestStrategy ? `, best on ${k2.bestStrategy}` : ""}.`);
+    else insights.push(`${sym2}: still learning (${k2.wins + k2.losses}/${MIN_TRADES2}).`);
   }
   const brain = { userId, lastLearned: (/* @__PURE__ */ new Date()).toISOString(), totalTrades: rows.length, overallWinRate: totalDecided ? Math.round(totalWins / totalDecided * 100) : 0, totalPnl: Math.round(totalPnl * 100) / 100, symbolKnowledge: symbols, insights };
   _cache.set(userId, { brain, at: Date.now() });
@@ -27424,6 +27409,7 @@ __export(live_trading_engine_exports, {
   generateRuleBasedSignals: () => generateRuleBasedSignals,
   getAccountSafetySnapshot: () => getAccountSafetySnapshot,
   getAllMT5Signals: () => getAllMT5Signals,
+  getEffectiveEngineConfig: () => getEffectiveEngineConfig,
   getLiveEngineActivity: () => getLiveEngineActivity,
   getLiveEngineState: () => getLiveEngineState,
   getMT5Accounts: () => getMT5Accounts,
@@ -27432,6 +27418,7 @@ __export(live_trading_engine_exports, {
   getPersistedEngineConfigOverride: () => getPersistedEngineConfigOverride,
   heartbeatMT5Account: () => heartbeatMT5Account,
   hydratePersistedEngineConfigs: () => hydratePersistedEngineConfigs,
+  isEngineHardHalted: () => isEngineHardHalted,
   isFxLeader: () => isFxLeader,
   recordTradeResult: () => recordTradeResult,
   registerMT5Account: () => registerMT5Account,
@@ -27741,19 +27728,19 @@ async function autoGenerateBrainSignals(userId, brain) {
     const state = engineStates[userId];
     const strategyMode = state?.config?.strategyMode || "sniper";
     const liveContext = {};
-    for (const [sym, knowledge] of Object.entries(brain.pairKnowledge)) {
+    for (const [sym2, knowledge] of Object.entries(brain.pairKnowledge)) {
       const pairData = Object.values(connectedPairs).find(
-        (p) => (p.symbol || "").toUpperCase().replace("/", "") === sym
+        (p) => (p.symbol || "").toUpperCase().replace("/", "") === sym2
       );
-      const chartSnap = lastChartData[sym];
-      liveContext[sym] = {
+      const chartSnap = lastChartData[sym2];
+      liveContext[sym2] = {
         ...knowledge,
         currentPrice: pairData?.price || chartSnap?.close || null,
         currentSignal: pairData?.signal || null,
         rsi: chartSnap?.rsi || null,
         trend: chartSnap?.trend || null,
         hasOpenPosition: openPositions.some(
-          (p) => (p.symbol || "").toUpperCase().replace("/", "") === sym
+          (p) => (p.symbol || "").toUpperCase().replace("/", "") === sym2
         )
       };
     }
@@ -28084,10 +28071,10 @@ async function refreshH4Bias(symbol, assetType) {
   }
 }
 function mtfStack(state, symbol) {
-  const sym = String(symbol || "").toUpperCase().replace("/", "");
+  const sym2 = String(symbol || "").toUpperCase().replace("/", "");
   const primaryH1 = (state?.config?.primaryTimeframe || "M15") === "H1";
-  const htf = state?.htfBiasCache?.[sym] || state?.htfBiasCache?.[symbol] || null;
-  const h4c = h4BiasCache.get(sym)?.data || h4BiasCache.get(symbol)?.data || null;
+  const htf = state?.htfBiasCache?.[sym2] || state?.htfBiasCache?.[symbol] || null;
+  const h4c = h4BiasCache.get(sym2)?.data || h4BiasCache.get(symbol)?.data || null;
   return primaryH1 ? { h1: null, h4: htf } : { h1: htf, h4: h4c };
 }
 function htfTurnedAgainst(state, symbol, direction) {
@@ -28161,13 +28148,13 @@ function recordTradeResult(userId, result) {
   if (!tracker.symbolBreakdown[result.symbol]) {
     tracker.symbolBreakdown[result.symbol] = { trades: 0, wins: 0, losses: 0, pnl: 0, bestTrade: 0, worstTrade: 0 };
   }
-  const sym = tracker.symbolBreakdown[result.symbol];
-  sym.trades++;
-  if (result.profit > 0) sym.wins++;
-  else sym.losses++;
-  sym.pnl = Math.round((sym.pnl + result.profit) * 100) / 100;
-  if (result.profit > sym.bestTrade) sym.bestTrade = result.profit;
-  if (result.profit < sym.worstTrade) sym.worstTrade = result.profit;
+  const sym2 = tracker.symbolBreakdown[result.symbol];
+  sym2.trades++;
+  if (result.profit > 0) sym2.wins++;
+  else sym2.losses++;
+  sym2.pnl = Math.round((sym2.pnl + result.profit) * 100) / 100;
+  if (result.profit > sym2.bestTrade) sym2.bestTrade = result.profit;
+  if (result.profit < sym2.worstTrade) sym2.worstTrade = result.profit;
   if (!tracker.pairStrategyBreakdown) tracker.pairStrategyBreakdown = {};
   const psKey = `${result.symbol}|${result.strategy}`;
   if (!tracker.pairStrategyBreakdown[psKey]) {
@@ -28463,10 +28450,10 @@ async function scanMarkets(userId) {
       addActivity(userId, { type: "info", message: "\u{1F305} New day \u2014 mind state reset. Session counters cleared, confidence floor restored." });
     }
   }
-  if (ms) for (const sym of Object.keys(ms.softBlockedPairs)) {
-    if (ms.softBlockedPairs[sym].until < Date.now()) {
-      delete ms.softBlockedPairs[sym];
-      addActivity(userId, { type: "info", message: `\u2705 ${sym} soft-block expired \u2014 restored to normal confidence threshold.` });
+  if (ms) for (const sym2 of Object.keys(ms.softBlockedPairs)) {
+    if (ms.softBlockedPairs[sym2].until < Date.now()) {
+      delete ms.softBlockedPairs[sym2];
+      addActivity(userId, { type: "info", message: `\u2705 ${sym2} soft-block expired \u2014 restored to normal confidence threshold.` });
     }
   }
   try {
@@ -28645,8 +28632,8 @@ async function scanMarkets(userId) {
       }
     }
     if (isFridayClose) {
-      for (const [sym, data] of Object.entries(marketAnalysis)) {
-        if (data.currentPrice > 0) state.lastFridayClose[sym] = data.currentPrice;
+      for (const [sym2, data] of Object.entries(marketAnalysis)) {
+        if (data.currentPrice > 0) state.lastFridayClose[sym2] = data.currentPrice;
       }
     }
     const crossAssets = {};
@@ -28676,7 +28663,7 @@ async function scanMarkets(userId) {
           void Promise.resolve().then(() => (init_fx_models(), fx_models_exports)).then((m) => m.runFxModelsCycle(userId, {
             marketAnalysis,
             snapshot: state.marketSnapshot || {},
-            mtf: (sym) => mtfStack(state, sym)
+            mtf: (sym2) => mtfStack(state, sym2)
           })).catch(() => {
           });
         }
@@ -28687,9 +28674,9 @@ async function scanMarkets(userId) {
     const triggerPairs = [];
     const prevSnapshot = state.lastIndicatorSnapshot || {};
     const now2 = Date.now();
-    for (const [sym, data] of Object.entries(marketAnalysis)) {
-      const prev = prevSnapshot[sym];
-      const lastTrigger = state.lastTriggerAt[sym] || 0;
+    for (const [sym2, data] of Object.entries(marketAnalysis)) {
+      const prev = prevSnapshot[sym2];
+      const lastTrigger = state.lastTriggerAt[sym2] || 0;
       if (now2 - lastTrigger < 3e4) continue;
       if (!prev) continue;
       const rsiNow = data.rsi?.value || data.stochastic?.k || 50;
@@ -28698,18 +28685,18 @@ async function scanMarkets(userId) {
       const adxNow = data.adx?.adx || 0;
       const adxPrev = prev.adx || 0;
       let triggerReason = "";
-      if (rsiPrev > 32 && rsiNow <= 30) triggerReason = `RSI crossed oversold (${rsiNow.toFixed(1)}) on ${sym} \u2014 evaluate BUY entry`;
-      else if (rsiPrev < 68 && rsiNow >= 70) triggerReason = `RSI crossed overbought (${rsiNow.toFixed(1)}) on ${sym} \u2014 evaluate SELL entry`;
-      else if (vm && vm.relativeVolume >= 2 && (prev.relVol || 0) < 2) triggerReason = `Volume SURGE on ${sym} (${vm.relativeVolume}x) \u2014 momentum breakout likely`;
-      else if (adxPrev < 25 && adxNow >= 25) triggerReason = `ADX crossed 25 on ${sym} \u2014 trend emerging, enter with momentum`;
+      if (rsiPrev > 32 && rsiNow <= 30) triggerReason = `RSI crossed oversold (${rsiNow.toFixed(1)}) on ${sym2} \u2014 evaluate BUY entry`;
+      else if (rsiPrev < 68 && rsiNow >= 70) triggerReason = `RSI crossed overbought (${rsiNow.toFixed(1)}) on ${sym2} \u2014 evaluate SELL entry`;
+      else if (vm && vm.relativeVolume >= 2 && (prev.relVol || 0) < 2) triggerReason = `Volume SURGE on ${sym2} (${vm.relativeVolume}x) \u2014 momentum breakout likely`;
+      else if (adxPrev < 25 && adxNow >= 25) triggerReason = `ADX crossed 25 on ${sym2} \u2014 trend emerging, enter with momentum`;
       if (triggerReason) {
         triggerPairs.push(triggerReason);
-        state.lastTriggerAt[sym] = now2;
-        addActivity(userId, { type: "info", symbol: sym, message: `\u{1F6A8} TRIGGER: ${triggerReason}` });
+        state.lastTriggerAt[sym2] = now2;
+        addActivity(userId, { type: "info", symbol: sym2, message: `\u{1F6A8} TRIGGER: ${triggerReason}` });
       }
     }
     state.lastIndicatorSnapshot = Object.fromEntries(
-      Object.entries(marketAnalysis).map(([sym, data]) => [sym, {
+      Object.entries(marketAnalysis).map(([sym2, data]) => [sym2, {
         rsi: data.rsi?.value || data.stochastic?.k || 50,
         adx: data.adx?.adx || 0,
         relVol: data.volumeMetrics?.relativeVolume || 1
@@ -28732,7 +28719,7 @@ async function scanMarkets(userId) {
     if (newsContext.headlines.length > 0) {
       addActivity(userId, { type: "info", message: `News sentiment: ${newsContext.marketSentiment.toUpperCase()} | ${newsContext.headlines.length} headlines | ${newsContext.economicEvents.length} upcoming events` });
     }
-    const volumeSummary = Object.entries(marketAnalysis).filter(([_, d]) => d.volumeMetrics?.isHighActivity).map(([sym]) => sym);
+    const volumeSummary = Object.entries(marketAnalysis).filter(([_, d]) => d.volumeMetrics?.isHighActivity).map(([sym2]) => sym2);
     if (volumeSummary.length > 0) {
       addActivity(userId, { type: "info", message: `High volume detected: ${volumeSummary.join(", ")}` });
     }
@@ -29865,8 +29852,8 @@ function selectStrategyForPair(symbol, data, htfBias, asiaHigh, asiaLow, utcHour
     };
   }
   const isActiveSession = utcHour >= 7 && utcHour < 12 || utcHour >= 13 && utcHour < 19;
-  const sym = symbol.toUpperCase();
-  const notLowLiquidityAsian = !(utcHour >= 0 && utcHour < 7 && (sym.includes("EUR") || sym.includes("GBP") || sym.includes("CHF")) && !isJpy);
+  const sym2 = symbol.toUpperCase();
+  const notLowLiquidityAsian = !(utcHour >= 0 && utcHour < 7 && (sym2.includes("EUR") || sym2.includes("GBP") || sym2.includes("CHF")) && !isJpy);
   if (adxVal >= 15 && adxVal < 28 && trend !== "NEUTRAL" && isActiveSession && relVol >= 0.7 && notLowLiquidityAsian) {
     const session3 = utcHour >= 7 && utcHour < 12 ? "London" : "NY";
     return {
@@ -29926,13 +29913,13 @@ async function runAILiveAnalysis(userId, marketAnalysis, brain, newsContext, cro
     const filteredAnalysis = {};
     const voteSummary = [];
     const PREFILTER_VOTE_THRESHOLD = 4;
-    for (const [sym, data] of Object.entries(marketAnalysis)) {
+    for (const [sym2, data] of Object.entries(marketAnalysis)) {
       const { bull, bear } = countIndicatorAlignment(data);
       const direction = bull >= bear ? `\u{1F7E2}${bull}B` : `\u{1F534}${bear}R`;
       const passed = bull >= PREFILTER_VOTE_THRESHOLD || bear >= PREFILTER_VOTE_THRESHOLD;
-      voteSummary.push(`${sym}:${direction}${passed ? "\u2713" : "\u2717"}`);
+      voteSummary.push(`${sym2}:${direction}${passed ? "\u2713" : "\u2717"}`);
       if (passed) {
-        filteredAnalysis[sym] = data;
+        filteredAnalysis[sym2] = data;
       }
     }
     addActivity(userId, { type: "info", message: `Pre-filter votes (need ${PREFILTER_VOTE_THRESHOLD}+): ${voteSummary.join(" | ")}` });
@@ -29994,14 +29981,14 @@ async function runAILiveAnalysis(userId, marketAnalysis, brain, newsContext, cro
       state.asiaRangeDate = todayStr;
     }
     if (isAsianSession) {
-      for (const [sym, data] of Object.entries(marketAnalysis)) {
+      for (const [sym2, data] of Object.entries(marketAnalysis)) {
         const price = data.currentPrice;
         if (typeof price === "number" && price > 0) {
-          if (state.asiaRangeHigh[sym] === void 0 || price > state.asiaRangeHigh[sym]) {
-            state.asiaRangeHigh[sym] = price;
+          if (state.asiaRangeHigh[sym2] === void 0 || price > state.asiaRangeHigh[sym2]) {
+            state.asiaRangeHigh[sym2] = price;
           }
-          if (state.asiaRangeLow[sym] === void 0 || price < state.asiaRangeLow[sym]) {
-            state.asiaRangeLow[sym] = price;
+          if (state.asiaRangeLow[sym2] === void 0 || price < state.asiaRangeLow[sym2]) {
+            state.asiaRangeLow[sym2] = price;
           }
         }
       }
@@ -30014,21 +30001,21 @@ async function runAILiveAnalysis(userId, marketAnalysis, brain, newsContext, cro
     const utcMinForStrategy = nowForStrategy.getUTCMinutes();
     const pairStrategies = {};
     const stratSummaryLines = [];
-    for (const [sym, data] of Object.entries(marketAnalysis)) {
+    for (const [sym2, data] of Object.entries(marketAnalysis)) {
       const rec = selectStrategyForPair(
-        sym,
+        sym2,
         data,
-        htfMarketData?.[sym],
-        state.asiaRangeHigh[sym],
-        state.asiaRangeLow[sym],
+        htfMarketData?.[sym2],
+        state.asiaRangeHigh[sym2],
+        state.asiaRangeLow[sym2],
         utcHourForStrategy,
         utcMinForStrategy,
         state.lastHighImpactNewsAt,
         state.config.strategyMode
       );
-      pairStrategies[sym] = rec;
+      pairStrategies[sym2] = rec;
       if (rec.priority !== "none") {
-        stratSummaryLines.push(`${sym}\u2192${rec.strategy.toUpperCase()}(${rec.priority}): ${rec.reason}`);
+        stratSummaryLines.push(`${sym2}\u2192${rec.strategy.toUpperCase()}(${rec.priority}): ${rec.reason}`);
       }
     }
     if (stratSummaryLines.length > 0) {
@@ -30038,42 +30025,42 @@ async function runAILiveAnalysis(userId, marketAnalysis, brain, newsContext, cro
 ${stratSummaryLines.join("\n")}`
       });
     }
-    const marketSummary = Object.entries(marketAnalysis).map(([sym, data]) => {
+    const marketSummary = Object.entries(marketAnalysis).map(([sym2, data]) => {
       const sr = data.supportResistance;
       const fib = data.fibonacci;
       const vol = data.volatilityContext;
       const vm = data.volumeMetrics;
-      const asiaH = state.asiaRangeHigh[sym];
-      const asiaL = state.asiaRangeLow[sym];
-      const asiaRangeStr = asiaH && asiaL ? `, AsiaHigh=${asiaH}, AsiaLow=${asiaL}, AsiaRange=${(Math.abs(asiaH - asiaL) * (sym.includes("JPY") ? 100 : 1e4)).toFixed(1)}pips` : "";
+      const asiaH = state.asiaRangeHigh[sym2];
+      const asiaL = state.asiaRangeLow[sym2];
+      const asiaRangeStr = asiaH && asiaL ? `, AsiaHigh=${asiaH}, AsiaLow=${asiaL}, AsiaRange=${(Math.abs(asiaH - asiaL) * (sym2.includes("JPY") ? 100 : 1e4)).toFixed(1)}pips` : "";
       const vwapVal = data.vwap?.value;
       const vwapDev = vwapVal && data.currentPrice ? ((data.currentPrice - vwapVal) / vwapVal * 100).toFixed(3) : "N/A";
-      const htf = htfMarketData?.[sym];
+      const htf = htfMarketData?.[sym2];
       const inlineHTFLabel = (state.config.primaryTimeframe || "M15") === "H1" ? "H4" : "H1";
       const htfStr = htf ? `, ${inlineHTFLabel}_Bias=${htf.trend}, ${inlineHTFLabel}_BOS=${htf.bosChoch.detected ? `${htf.bosChoch.type}_${htf.bosChoch.direction}` : "NONE"}, ${inlineHTFLabel}_PD=${htf.premiumDiscount.zone}, ${inlineHTFLabel}_Wyckoff=${htf.wyckoff.detected ? htf.wyckoff.phase : "NONE"}` : "";
       const adxNumRaw = adxOrNull(data);
       const pDI = data.plusDI ?? data.adx?.plusDI ?? 0;
       const mDI = data.minusDI ?? data.adx?.minusDI ?? 0;
       const diDir = pDI > 0 || mDI > 0 ? pDI > mDI ? `BULL(+DI ${pDI.toFixed(1)}>-DI ${mDI.toFixed(1)})` : `BEAR(-DI ${mDI.toFixed(1)}>+DI ${pDI.toFixed(1)})` : "DI_UNAVAILABLE";
-      const rec = pairStrategies[sym];
+      const rec = pairStrategies[sym2];
       const stratStr = rec && rec.priority !== "none" ? ` \u2605STRATEGY=${rec.strategy.toUpperCase()}(priority:${rec.priority},need:${rec.minConfluences}conf)[${rec.reason}]` : ` \u2605STRATEGY=WAIT[${rec?.reason || "no clear setup"}]`;
-      return `${sym}: Price=${data.currentPrice}, Trend=${data.trend}, ADX=${adxNumRaw === null ? "UNAVAILABLE(do NOT infer ranging)" : adxNumRaw.toFixed(1)}, DI_Direction=${diDir}, RSI=${data.rsi?.value?.toFixed(1) || "N/A"}, Stoch K=${data.stochastic?.k?.toFixed(1) || "N/A"} D=${data.stochastic?.d?.toFixed(1) || "N/A"}, MACD=${data.macd?.macd?.toFixed(5) || "N/A"}(hist=${data.macd?.histogram?.toFixed(5) || "N/A"}), VWAP=${vwapVal?.toFixed(5) || "N/A"} (Dev${vwapDev}%), OBV Trend=${data.obv?.trend || "N/A"}, Patterns=[${(data.candlePatterns || []).join(",")}], Session=${data.sessionContext?.currentSession || "N/A"}, Volatility=${vol?.percentile?.toFixed(0) || "N/A"}%, ATR=${(vol?.currentATR ?? 0).toFixed(5)}, Support=${sr?.supports?.[0]?.toFixed(5) || "N/A"}, Resistance=${sr?.resistances?.[0]?.toFixed(5) || "N/A"}, Fib 38.2%=${fib?.retracementLevels?.["38.2"]?.toFixed(5) || "N/A"}, Volume=${vm ? `RelVol=${vm.relativeVolume}x (${vm.volumeTrend}), Spikes=${vm.volumeSpikes}` : "N/A"}${asiaRangeStr}${htfStr}${stratStr}`;
+      return `${sym2}: Price=${data.currentPrice}, Trend=${data.trend}, ADX=${adxNumRaw === null ? "UNAVAILABLE(do NOT infer ranging)" : adxNumRaw.toFixed(1)}, DI_Direction=${diDir}, RSI=${data.rsi?.value?.toFixed(1) || "N/A"}, Stoch K=${data.stochastic?.k?.toFixed(1) || "N/A"} D=${data.stochastic?.d?.toFixed(1) || "N/A"}, MACD=${data.macd?.macd?.toFixed(5) || "N/A"}(hist=${data.macd?.histogram?.toFixed(5) || "N/A"}), VWAP=${vwapVal?.toFixed(5) || "N/A"} (Dev${vwapDev}%), OBV Trend=${data.obv?.trend || "N/A"}, Patterns=[${(data.candlePatterns || []).join(",")}], Session=${data.sessionContext?.currentSession || "N/A"}, Volatility=${vol?.percentile?.toFixed(0) || "N/A"}%, ATR=${(vol?.currentATR ?? 0).toFixed(5)}, Support=${sr?.supports?.[0]?.toFixed(5) || "N/A"}, Resistance=${sr?.resistances?.[0]?.toFixed(5) || "N/A"}, Fib 38.2%=${fib?.retracementLevels?.["38.2"]?.toFixed(5) || "N/A"}, Volume=${vm ? `RelVol=${vm.relativeVolume}x (${vm.volumeTrend}), Spikes=${vm.volumeSpikes}` : "N/A"}${asiaRangeStr}${htfStr}${stratStr}`;
     }).join("\n");
     let htfBiasSection = "";
     const promptHTFLabel = (state.config.primaryTimeframe || "M15") === "H1" ? "H4" : "H1";
     if (htfMarketData && Object.keys(htfMarketData).length > 0) {
-      const htfLines = Object.entries(htfMarketData).map(([sym, htf]) => {
-        const m15Trend = marketAnalysis[sym]?.trend || "NEUTRAL";
+      const htfLines = Object.entries(htfMarketData).map(([sym2, htf]) => {
+        const m15Trend = marketAnalysis[sym2]?.trend || "NEUTRAL";
         const aligns = htf.trend === "NEUTRAL" || m15Trend === "NEUTRAL" || m15Trend === "BULLISH" && htf.trend === "BULLISH" || m15Trend === "BEARISH" && htf.trend === "BEARISH";
         const alignLabel = htf.trend === "NEUTRAL" ? `${promptHTFLabel} NEUTRAL` : aligns ? `ALIGNS (M15 ${m15Trend} + ${promptHTFLabel} ${htf.trend})` : `\u26A0 CONFLICT (M15 ${m15Trend} vs ${promptHTFLabel} ${htf.trend})`;
-        return `- ${sym}: ${promptHTFLabel} Trend=${htf.trend} | BOS/CHOCH=${htf.bosChoch.detected ? htf.bosChoch.description : "No clear structure"} | PD Zone=${htf.premiumDiscount.zone} | Wyckoff=${htf.wyckoff.detected ? `${htf.wyckoff.phase}${htf.wyckoff.stage ? "/" + htf.wyckoff.stage : ""}` : "None"} | ${alignLabel}`;
+        return `- ${sym2}: ${promptHTFLabel} Trend=${htf.trend} | BOS/CHOCH=${htf.bosChoch.detected ? htf.bosChoch.description : "No clear structure"} | PD Zone=${htf.premiumDiscount.zone} | Wyckoff=${htf.wyckoff.detected ? `${htf.wyckoff.phase}${htf.wyckoff.stage ? "/" + htf.wyckoff.stage : ""}` : "None"} | ${alignLabel}`;
       }).join("\n");
       htfBiasSection = `
 HTF BIAS (${promptHTFLabel} STRUCTURE \u2014 higher timeframe directional filter):
 ${htfLines}
-${promptHTFLabel === "H1" ? Object.keys(htfMarketData).map((sym) => {
-        const h4 = h4BiasCache.get(sym)?.data;
-        return h4 ? `- ${sym}: H4 Trend=${h4.trend} | BOS/CHOCH=${h4.bosChoch.detected ? h4.bosChoch.description : "No clear structure"} | PD Zone=${h4.premiumDiscount.zone}` : `- ${sym}: H4 unavailable`;
+${promptHTFLabel === "H1" ? Object.keys(htfMarketData).map((sym2) => {
+        const h4 = h4BiasCache.get(sym2)?.data;
+        return h4 ? `- ${sym2}: H4 Trend=${h4.trend} | BOS/CHOCH=${h4.bosChoch.detected ? h4.bosChoch.description : "No clear structure"} | PD Zone=${h4.premiumDiscount.zone}` : `- ${sym2}: H4 unavailable`;
       }).join("\n") : ""}
 MULTI-TIMEFRAME RULES: H4 = trend, H1 = structure, M15 = entry timing only.${process.env.MTF_ENTRY_RULE === "off" ? "" : " Only propose an entry when H4 and H1 both agree with its direction; the server rejects entries that do not."}${process.env.MTF_CLOSE_RULE === "off" ? "" : " Do NOT full-close an open trade because of an M15 pullback: only close when H1 or H4 structure has turned against it (BOS/CHOCH or trend flip). The broker stop protects it otherwise; the server refuses M15-only closes."}
 INSTRUCTION: Signals that ALIGN with ${promptHTFLabel} bias are high-quality institutional setups \u2014 give them +5% confidence bonus. Signals that CONFLICT with ${promptHTFLabel} bias are counter-trend fades \u2014 require 80%+ base confidence before firing. If ${promptHTFLabel} shows strong BOS/CHOCH in one direction and M15 signals the opposite, SKIP unless you have 5+ LTF confluences.
@@ -30234,7 +30221,7 @@ INSTRUCTION: This scan was triggered by real-time indicator events above. Priori
     let codeGateSection = "";
     {
       if (!state.pairDirectionLock) state.pairDirectionLock = {};
-      const activeLocks = Object.entries(state.pairDirectionLock).filter(([, v]) => Date.now() < v.lockedUntil).map(([sym, v]) => `${sym}:${v.direction}(${Math.ceil((v.lockedUntil - Date.now()) / 6e4)}min,${v.lossCount}L)`);
+      const activeLocks = Object.entries(state.pairDirectionLock).filter(([, v]) => Date.now() < v.lockedUntil).map(([sym2, v]) => `${sym2}:${v.direction}(${Math.ceil((v.lockedUntil - Date.now()) / 6e4)}min,${v.lossCount}L)`);
       if (activeLocks.length > 0) {
         codeGateSection = `
 CODE-LEVEL DIRECTION LOCKS (engine auto-rejects these regardless of your signal):
@@ -30249,7 +30236,7 @@ These pairs had recent losses. Same-direction entries are code-blocked for 45-90
       if (mind && mind.sessionWins + mind.sessionLosses > 0) {
         const total = mind.sessionWins + mind.sessionLosses;
         const blockedStrats = mind.blockedStrategies ? [...mind.blockedStrategies] : [];
-        const softBlocked = Object.entries(mind.softBlockedPairs || {}).filter(([, v]) => v.until > Date.now()).map(([sym]) => sym);
+        const softBlocked = Object.entries(mind.softBlockedPairs || {}).filter(([, v]) => v.until > Date.now()).map(([sym2]) => sym2);
         const bestHour = Object.entries(mind.hourlyPnL || {}).sort(([, a], [, b]) => b - a)[0];
         const worstHour = Object.entries(mind.hourlyPnL || {}).sort(([, a], [, b]) => a - b)[0];
         mindSection = `
@@ -30868,8 +30855,8 @@ async function processDecision(userId, decision, newsCtx) {
           return pSym.includes("USD");
         });
         if (openUSDPositions.length >= 2) {
-          const usdDirOf = (sym, tradeDir) => {
-            const s = sym.toUpperCase().replace("/", "");
+          const usdDirOf = (sym2, tradeDir) => {
+            const s = sym2.toUpperCase().replace("/", "");
             const usdIsBase = s.startsWith("USD");
             if (usdIsBase) return tradeDir === "BUY" ? "BUY_USD" : "SELL_USD";
             return tradeDir === "BUY" ? "SELL_USD" : "BUY_USD";
@@ -31400,8 +31387,8 @@ async function processDecision(userId, decision, newsCtx) {
     {
       const nowUtcHour = (/* @__PURE__ */ new Date()).getUTCHours();
       const isAsianHours = nowUtcHour >= 0 && nowUtcHour < 7;
-      const sym = (decision.symbol || "").toUpperCase();
-      const isLowLiquidityPairInAsia = (sym.includes("EUR") || sym.includes("GBP") || sym.includes("CHF")) && !sym.includes("JPY");
+      const sym2 = (decision.symbol || "").toUpperCase();
+      const isLowLiquidityPairInAsia = (sym2.includes("EUR") || sym2.includes("GBP") || sym2.includes("CHF")) && !sym2.includes("JPY");
       const isScalp = strategy === "scalping";
       const relVol = snap?.relativeVolume || 1;
       if (isAsianHours && isLowLiquidityPairInAsia) {
@@ -33703,6 +33690,12 @@ function stopLiveEngine(userId) {
   }
   return state || null;
 }
+function getEffectiveEngineConfig(userId) {
+  return engineStates[userId]?.config ?? getDefaultConfig(userId);
+}
+function isEngineHardHalted(userId) {
+  return hardHalted(engineStates[userId]);
+}
 function getLiveEngineState(userId) {
   const s = engineStates[userId];
   if (s) rollGoalTrackerWeek(s);
@@ -34228,9 +34221,9 @@ Give exactly one M1 and one M2 entry per pair.`;
   }
   const byPair = new Map(pairs.map((p) => [p.symbol.toUpperCase(), p.ctx]));
   for (const i of ideas) {
-    const sym = String(i?.symbol || "").toUpperCase().replace("/", "");
+    const sym2 = String(i?.symbol || "").toUpperCase().replace("/", "");
     const model = i?.model === "M1" || i?.model === "M2" ? i.model : null;
-    const ctx = byPair.get(sym);
+    const ctx = byPair.get(sym2);
     if (!ctx || !model) continue;
     const dir = String(i?.direction || "NONE").toUpperCase();
     const entry = Number(i?.entry), sl = Number(i?.stopLoss), tp = Number(i?.takeProfit);
@@ -34256,14 +34249,14 @@ Give exactly one M1 and one M2 entry per pair.`;
       }
     }
     if (isTrade && model === "M1") {
-      const why = m1Reject(sym, dir, price, sl, ctx, engine);
+      const why = m1Reject(sym2, dir, price, sl, ctx, engine);
       if (why) {
         isTrade = false;
         ruleNote = `M1 rule: ${why}`;
       }
     }
     if (isTrade && model === "M2") {
-      const why = m2Reject(sym, dir, price, sl, tp, ctx, session3, engine);
+      const why = m2Reject(sym2, dir, price, sl, tp, ctx, session3, engine);
       if (why) {
         isTrade = false;
         ruleNote = `M2 rule: ${why}`;
@@ -34274,7 +34267,7 @@ Give exactly one M1 and one M2 entry per pair.`;
        VALUES ($1,$2,$3,'shadow',$4,$5,$6,$7,$8,$9,$10,$11,$12,$13::jsonb,$14,$15) RETURNING id`,
       [
         userId,
-        sym,
+        sym2,
         model,
         ctx.dayType,
         session3,
@@ -34293,7 +34286,7 @@ Give exactly one M1 and one M2 entry per pair.`;
     if (engine === "fx" && isTrade && ins?.rows?.[0]?.id) {
       await maybeGoLive(userId, {
         id: ins.rows[0].id,
-        symbol: sym,
+        symbol: sym2,
         model,
         dayType: ctx.dayType,
         autoModel: ctx.autoModel,
@@ -34739,7 +34732,7 @@ ALTER TABLE fx_day_regimes ADD COLUMN IF NOT EXISTS engine text NOT NULL DEFAULT
       }
     };
     barsFor = (engine) => barsProviders[engine] || barsProviders.fx;
-    pipSize = (sym) => /JPY/.test(sym) ? 0.01 : /^XAU/.test(sym) ? 0.1 : /^(BTC|ETH)/.test(sym) ? 1 : /^(US30|NAS|SPX|GER|UK1|JP2)/.test(sym) ? 1 : 1e-4;
+    pipSize = (sym2) => /JPY/.test(sym2) ? 0.01 : /^XAU/.test(sym2) ? 0.1 : /^(BTC|ETH)/.test(sym2) ? 1 : /^(US30|NAS|SPX|GER|UK1|JP2)/.test(sym2) ? 1 : 1e-4;
     lastShadowCandle = /* @__PURE__ */ new Map();
     lastResolveAt = 0;
     M1_PAIRS_EXCLUDED = (process.env.FX_M1_EXCLUDED_PAIRS || "GBPJPY,XAUUSD,BTCUSD,US30,NAS100").split(",").map((x) => x.trim().toUpperCase()).filter(Boolean);
@@ -34777,7 +34770,9 @@ __export(brain_ideas_exports, {
   ruleSkips: () => ruleSkips,
   sanitizeRule: () => sanitizeRule,
   saveIdea: () => saveIdea,
-  setIdeaStatus: () => setIdeaStatus
+  setIdeaStatus: () => setIdeaStatus,
+  whatIfAnalysis: () => whatIfAnalysis,
+  whatIfText: () => whatIfText
 });
 function ensureBrainIdeasTable() {
   if (!ensured4) {
@@ -34829,14 +34824,17 @@ function ruleSkips(rule, s) {
   if (rule.models.length && !rule.models.includes(s.model)) return false;
   return !ruleMatches(rule, s);
 }
-async function backtestIdea(userId, rule) {
+async function backtestIdea(userId, rule, window) {
+  const from = window?.from ?? new Date(Date.now() - 365 * 864e5);
+  const to = window?.to ?? /* @__PURE__ */ new Date();
+  const shadowFrom = window?.from ?? new Date(Date.now() - 180 * 864e5);
   const [trades, shadows] = await Promise.all([
     pool.query(`SELECT symbol, direction, result, profit_loss, created_at FROM ai_trade_results
-      WHERE user_id = $1 AND result IN ('WIN','LOSS','BREAKEVEN') AND created_at > now() - interval '365 days'
-      ORDER BY created_at DESC LIMIT 3000`, [userId]),
+      WHERE user_id = $1 AND result IN ('WIN','LOSS','BREAKEVEN') AND created_at >= $2 AND created_at < $3
+      ORDER BY created_at DESC LIMIT 3000`, [userId, from, to]),
     pool.query(`SELECT symbol, direction, model, day_type, r_multiple, created_at FROM fx_model_decisions
-      WHERE user_id = $1 AND engine = 'fx' AND r_multiple IS NOT NULL AND created_at > now() - interval '180 days'
-      ORDER BY created_at DESC LIMIT 5000`, [userId])
+      WHERE user_id = $1 AND engine = 'fx' AND r_multiple IS NOT NULL AND created_at >= $2 AND created_at < $3
+      ORDER BY created_at DESC LIMIT 5000`, [userId, shadowFrom, to])
   ]);
   const t = { matched: 0, wouldSkip: 0, skipWins: 0, skipLosses: 0, skipPnl: 0, keptPnl: 0 };
   for (const r of trades.rows) {
@@ -34918,6 +34916,65 @@ async function ideasContextText(userId) {
     return "Unavailable.";
   }
 }
+async function whatIfAnalysis(userId, from, to, limit = 5) {
+  const { rows } = await pool.query(`SELECT symbol, direction, result, profit_loss, created_at FROM ai_trade_results
+    WHERE user_id = $1 AND result IN ('WIN','LOSS','BREAKEVEN') AND COALESCE(closed_at, created_at) >= $2 AND COALESCE(closed_at, created_at) < $3`, [userId, from, to]);
+  const periodPnl = Math.round(rows.reduce((s, r) => s + (Number(r.profit_loss) || 0), 0) * 100) / 100;
+  if (!rows.length) return { periodPnl, trades: 0, options: [] };
+  const keys = /* @__PURE__ */ new Map();
+  const add = (r) => {
+    const k2 = JSON.stringify(r);
+    if (!keys.has(k2)) keys.set(k2, r);
+  };
+  for (const t of rows) {
+    const s = norm3(t.symbol), d = String(t.direction).toUpperCase(), sess = sessionFor(new Date(t.created_at));
+    add({ action: "block", symbols: [s] });
+    add({ action: "block", sessions: [sess] });
+    add({ action: "block", symbols: [s], sessions: [sess] });
+    add({ action: "block", symbols: [s], directions: [d] });
+    add({ action: "block", directions: [d] });
+  }
+  const before90 = new Date(from.getTime() - 90 * 864e5);
+  const scored = [];
+  for (const raw of Array.from(keys.values())) {
+    const rule = sanitizeRule({ ...raw, models: ["engine"] });
+    if (!rule) continue;
+    let skipped = 0, saved = 0;
+    for (const t of rows) {
+      if (ruleSkips(rule, { symbol: t.symbol, direction: t.direction, at: new Date(t.created_at), model: "engine" })) {
+        skipped++;
+        saved -= Number(t.profit_loss) || 0;
+      }
+    }
+    if (skipped < 2 || saved <= 0) continue;
+    scored.push({
+      rule,
+      summary: describeRule(rule),
+      periodSkipped: skipped,
+      periodSaved: Math.round(saved * 100) / 100,
+      periodPnlAfter: Math.round((periodPnl + saved) * 100) / 100,
+      ninetyDaySaved: 0,
+      ninetyDaySkipped: 0,
+      robust: false
+    });
+  }
+  scored.sort((a, b) => b.periodSaved - a.periodSaved);
+  const top = scored.slice(0, limit * 2);
+  for (const w of top) {
+    const ev = await backtestIdea(userId, w.rule, { from: before90, to: from });
+    w.ninetyDaySkipped = ev.trades.wouldSkip;
+    w.ninetyDaySaved = Math.round(-ev.trades.skipPnl * 100) / 100;
+    w.robust = ev.trades.wouldSkip >= 5 && w.ninetyDaySaved > 0;
+  }
+  top.sort((a, b) => Number(b.robust) - Number(a.robust) || b.periodSaved - a.periodSaved);
+  return { periodPnl, trades: rows.length, options: top.slice(0, limit) };
+}
+function whatIfText(label, w) {
+  if (!w.trades) return `${label}: no closed trades.`;
+  if (!w.options.length) return `${label}: ${w.trades} trades, ${w.periodPnl >= 0 ? "+" : "-"}$${Math.abs(w.periodPnl)}. No single filter would have helped.`;
+  return `${label}: ${w.trades} trades, ${w.periodPnl >= 0 ? "+" : "-"}$${Math.abs(w.periodPnl)}. Single changes that would have helped (replayed on real trades):
+` + w.options.map((o, i) => `${i + 1}. ${o.summary} \u2192 skips ${o.periodSkipped} trades, saves $${o.periodSaved}, period ends ${o.periodPnlAfter >= 0 ? "+" : "-"}$${Math.abs(o.periodPnlAfter)}. Prior 90 days: ${o.ninetyDaySkipped} trades, ${o.ninetyDaySaved >= 0 ? "saved" : "would have COST"} $${Math.abs(o.ninetyDaySaved)} \u2192 ${o.robust ? "HELD UP" : "did NOT hold up (likely a fluke)"}.`).join("\n");
+}
 var IDEA_SESSIONS, IDEA_DAY_TYPES, IDEA_MODELS, ensured4, norm3;
 var init_brain_ideas = __esm({
   "server/services/brain-ideas.ts"() {
@@ -34932,3859 +34989,133 @@ var init_brain_ideas = __esm({
   }
 });
 
-// server/abba-strategist.ts
-var abba_strategist_exports = {};
-__export(abba_strategist_exports, {
-  abbaChatHandler: () => abbaChatHandler,
-  abbaStrategistHandler: () => abbaStrategistHandler,
-  buildAbbaContext: () => buildAbbaContext
+// server/services/weekly-review.ts
+var weekly_review_exports = {};
+__export(weekly_review_exports, {
+  getPeriodReview: () => getPeriodReview,
+  reviewContextText: () => reviewContextText,
+  reviewText: () => reviewText
 });
-async function buildAbbaContext(userId) {
-  const all = await storage.getAiTradeResults(userId, 500);
-  const closed = all.filter((t) => t.result && t.result !== "PENDING" && t.closedAt);
-  const dayStart = /* @__PURE__ */ new Date();
-  dayStart.setUTCHours(0, 0, 0, 0);
-  const tally = (rows) => {
-    const wins2 = rows.filter((r) => r.result === "WIN").length;
-    const losses2 = rows.filter((r) => r.result === "LOSS").length;
-    const decided = wins2 + losses2;
-    return {
-      trades: rows.length,
-      wins: wins2,
-      losses: losses2,
-      winRate: decided > 0 ? Math.round(wins2 / decided * 100) : 0,
-      totalPnl: Math.round(rows.reduce((s, r) => s + (r.profitLoss || 0), 0) * 100) / 100
-    };
-  };
-  const group = (rows, key) => {
-    const m = {};
-    for (const t of rows) {
-      const k2 = key(t) || "\u2014";
-      (m[k2] = m[k2] || []).push(t);
-    }
-    return Object.entries(m).map(([k2, v]) => {
-      const tt = tally(v);
-      return { key: k2, trades: tt.trades, winRate: tt.winRate, pnl: tt.totalPnl };
-    });
-  };
-  const avgConf = (rows) => rows.length ? Math.round(rows.reduce((s, t) => s + (t.aiConfidence || 0), 0) / rows.length) : 0;
-  const wins = closed.filter((t) => t.result === "WIN");
-  const losses = closed.filter((t) => t.result === "LOSS");
-  const wk = global.mt5WeeklyStrategies?.[userId];
-  let weeklyTarget = wk?.plan?.profitTarget ?? wk?.profitTarget ?? 0;
-  let currentProfit = wk?.currentProfit ?? 0;
-  try {
-    const ws = await storage.getWeeklyStrategy?.(userId);
-    if (ws) {
-      weeklyTarget = ws.profitTarget ?? weeklyTarget;
-      currentProfit = ws.currentProfit ?? currentProfit;
-    }
-  } catch {
+function bucketize(rows, keyOf) {
+  const m = /* @__PURE__ */ new Map();
+  for (const r of rows) {
+    const k2 = keyOf(r);
+    const b = m.get(k2) || { key: k2, trades: 0, wins: 0, losses: 0, pnl: 0, winRate: 0 };
+    b.trades++;
+    b.pnl += Number(r.profit_loss) || 0;
+    if (r.result === "WIN") b.wins++;
+    else if (r.result === "LOSS") b.losses++;
+    m.set(k2, b);
   }
-  const tradingPairs = global.liveEngineConfigCache?.[userId]?.pairs ?? wk?.plan?.pairs ?? [...new Set(closed.map((t) => (t.symbol || "").toUpperCase()))].slice(0, 12);
-  return {
-    goal: {
-      weeklyTarget,
-      currentProfit,
-      progressPct: weeklyTarget > 0 ? Math.round(currentProfit / weeklyTarget * 100) : 0,
-      tradingPairs
-    },
-    performance: {
-      overall: tally(closed),
-      today: tally(closed.filter((t) => new Date(t.closedAt) >= dayStart)),
-      bySource: {
-        MT5: (() => {
-          const t = tally(closed.filter((x) => x.source !== "tradelocker"));
-          return { trades: t.trades, winRate: t.winRate, totalPnl: t.totalPnl };
-        })(),
-        TradeLocker: (() => {
-          const t = tally(closed.filter((x) => x.source === "tradelocker"));
-          return { trades: t.trades, winRate: t.winRate, totalPnl: t.totalPnl };
-        })()
-      },
-      byPair: group(closed, (t) => (t.symbol || "").toUpperCase()).map((g) => ({ pair: g.key, trades: g.trades, winRate: g.winRate, pnl: g.pnl })).sort((a, b) => a.pnl - b.pnl),
-      bySession: group(closed, (t) => sessionOf(new Date(t.closedAt))).map((g) => ({ session: g.key, trades: g.trades, winRate: g.winRate, pnl: g.pnl })).sort((a, b) => a.pnl - b.pnl),
-      avgConfWinners: avgConf(wins),
-      avgConfLosers: avgConf(losses)
-    },
-    recentTrades: closed.sort((a, b) => new Date(b.closedAt).getTime() - new Date(a.closedAt).getTime()).slice(0, 30).map((t) => ({
-      symbol: (t.symbol || "").toUpperCase(),
-      direction: t.direction,
-      result: t.result,
-      pnl: Math.round((t.profitLoss || 0) * 100) / 100,
-      conf: t.aiConfidence || 0,
-      source: t.source === "tradelocker" ? "TradeLocker" : "MT5",
-      session: sessionOf(new Date(t.closedAt)),
-      when: t.closedAt
-    })),
-    brain: global.veddAIBrain?.[userId] ?? null,
-    liveAccounts: await getLiveAccounts(userId)
-  };
+  return Array.from(m.values()).map((b) => ({ ...b, pnl: Math.round(b.pnl * 100) / 100, winRate: b.trades ? Math.round(b.wins / b.trades * 100) : 0 })).sort((a, b) => b.pnl - a.pnl);
 }
-async function getLiveAccounts(userId) {
-  const mt5 = [];
-  const tradelocker = [];
-  try {
-    const cache11 = global.mt5AccountData?.[userId];
-    const entries = cache11?.lastUpdated ? [cache11] : Object.values(cache11 || {});
-    for (const a of entries) {
-      if (!a?.lastUpdated) continue;
-      const age = (Date.now() - new Date(a.lastUpdated).getTime()) / 1e3;
-      mt5.push({ broker: a.broker || "MT5", balance: a.balance || 0, equity: a.equity || 0, connected: age < 600 });
-    }
-  } catch {
-  }
-  try {
-    const { getTlAccountData: getTlAccountData2, syncUserTradeLocker: syncUserTradeLocker2 } = await Promise.resolve().then(() => (init_tradelocker_sync(), tradelocker_sync_exports));
-    let tl = getTlAccountData2(userId);
-    if (tl.accounts.length === 0) {
-      await syncUserTradeLocker2(userId, true).catch(() => {
-      });
-      tl = getTlAccountData2(userId);
-    }
-    for (const a of tl.accounts) {
-      tradelocker.push({ label: `${a.broker} (${a.accountType})`, balance: a.balance, equity: a.equity, connected: a.isConnected });
-    }
-  } catch {
-  }
-  const totalBalance = [...mt5, ...tradelocker].reduce((s, a) => s + (a.balance || 0), 0);
-  return { mt5, tradelocker, totalBalance };
-}
-function contextSummary(ctx) {
-  const p = ctx.performance;
-  const la = ctx.liveAccounts;
-  const acctLine = [
-    ...la.mt5.map((a) => `MT5 ${a.broker}: $${a.balance.toFixed(2)} (eq $${a.equity.toFixed(2)}) ${a.connected ? "LIVE" : "offline"}`),
-    ...la.tradelocker.map((a) => `TL ${a.label}: $${a.balance.toFixed(2)} (eq $${a.equity.toFixed(2)}) ${a.connected ? "LIVE" : "offline"}`)
-  ].join(" | ") || "no broker accounts connected";
-  return [
-    `LIVE ACCOUNTS (real-time balances): ${acctLine}. TOTAL: $${la.totalBalance.toFixed(2)}.`,
-    `GOAL: weekly target $${ctx.goal.weeklyTarget}, current $${ctx.goal.currentProfit} (${ctx.goal.progressPct}% there). Pairs: ${ctx.goal.tradingPairs.join(", ")}.`,
-    `OVERALL: ${p.overall.trades} trades, ${p.overall.winRate}% WR (${p.overall.wins}W/${p.overall.losses}L), net $${p.overall.totalPnl}.`,
-    `TODAY: ${p.today.trades} trades, ${p.today.winRate}% WR, net $${p.today.totalPnl}.`,
-    `BY SOURCE: MT5 ${p.bySource.MT5.winRate}% ($${p.bySource.MT5.totalPnl}, ${p.bySource.MT5.trades}t) | TradeLocker ${p.bySource.TradeLocker.winRate}% ($${p.bySource.TradeLocker.totalPnl}, ${p.bySource.TradeLocker.trades}t).`,
-    `BY PAIR (worst\u2192best): ${p.byPair.slice(0, 8).map((x) => `${x.pair} ${x.winRate}%/$${x.pnl}(${x.trades}t)`).join(", ")}.`,
-    `BY SESSION: ${p.bySession.map((x) => `${x.session} ${x.winRate}%/$${x.pnl}(${x.trades}t)`).join(", ")}.`,
-    `CONFIDENCE: winners avg ${p.avgConfWinners}%, losers avg ${p.avgConfLosers}%.`,
-    `RECENT (newest first): ${ctx.recentTrades.slice(0, 18).map((t) => `${t.symbol} ${t.direction} ${t.result} $${t.pnl} @${t.conf}% [${t.session}/${t.source}]`).join(" | ")}.`,
-    ctx.brain ? `BRAIN: ${ctx.brain.overallWinRate ?? "?"}% WR over ${ctx.brain.totalTradesAnalyzed ?? "?"} trades. Insights: ${(ctx.brain.learningInsights ?? []).slice(0, 4).join(" / ")}.` : "BRAIN: not learned yet."
-  ].join("\n");
-}
-async function getClient(userId) {
-  try {
-    const { getUniversalAIClientForUser: getUniversalAIClientForUser2 } = await Promise.resolve().then(() => (init_openai(), openai_exports));
-    const client2 = await getUniversalAIClientForUser2(userId);
-    return { client: client2, model: client2.defaultModel || "gpt-4o" };
-  } catch {
-    return null;
-  }
-}
-async function extractIdeaDraft(ai, userId, convo, message, reply) {
-  const transcript = [...convo, { role: "user", content: message }, { role: "assistant", content: reply }].map((m2) => `${m2.role === "assistant" ? "ABBA" : "TRADER"}: ${String(m2.content).slice(0, 1500)}`).join("\n");
-  const r = await ai.client.chat.completions.create({
-    model: ai.model,
-    temperature: 0,
-    max_tokens: 600,
-    messages: [
-      { role: "system", content: `Extract the trading idea the trader just agreed to as a JSON filter rule. Use only what was agreed. Reply with JSON only.
-JSON: {"title":"short name, max 8 words","rationale":"why, in the trader's words, 1-2 sentences","rule":{"action":"block|only","symbols":["EURUSD"],"directions":["BUY","SELL"],"sessions":[${IDEA_SESSIONS.map((s) => `"${s}"`).join(",")}],"hoursUtc":[0-23],"dayTypes":["range","trend","mixed"],"models":["M1","M2","engine"]}}
-Use empty arrays for "any". action "block" skips matching signals, "only" trades nothing outside the scope.` },
-      { role: "user", content: transcript }
-    ]
-  });
-  const raw = String(r.choices[0]?.message?.content || "");
-  const m = raw.match(/\{[\s\S]*\}/);
-  if (!m) return null;
-  const out = JSON.parse(m[0]);
-  const rule = sanitizeRule(out?.rule);
-  if (!rule) return null;
-  const evidence = await backtestIdea(userId, rule);
-  return { title: String(out.title || "My idea").slice(0, 120), rationale: String(out.rationale || "").slice(0, 1e3), rule, summary: describeRule(rule), evidence };
-}
-async function abbaStrategistHandler(req, res) {
-  if (!req.isAuthenticated?.()) return res.status(401).json({ error: "Authentication required" });
-  const userId = req.user.id;
-  try {
-    const ctx = await buildAbbaContext(userId);
-    if (ctx.performance.overall.trades === 0) {
-      return res.json({ ready: false, message: "No closed trades to analyze yet. Once trades close (MT5 or TradeLocker), Abba will build your adaptive plan." });
-    }
-    const ai = await getClient(userId);
-    if (!ai) return res.status(400).json({ error: "No AI key configured. Add one in AI API Keys to enable Abba." });
-    const system = `You are Abba, the user's elite AI trading strategist and coach \u2014 a sharp Black man from the streets who made it in these markets and now puts his people on. Your voice: real, confident, urban. You talk like a big homie who happens to be a killer at trading \u2014 "bro", "my boy", "no cap", "we eatin'", "that pair been bleedin' you", "lock in", "run it back", "keep it a buck". Keep it 100 at all times \u2014 if the trader's losing, tell 'em straight, no sugarcoating, but always with love and a plan to bounce back.
-
-You SEE all their real trade data. Be specific, honest, and numbers-driven \u2014 reference their actual pairs, sessions, win rates and P&L. The slang flavors your words; the numbers stay exact and the advice stays elite. Your job: break down why results are what they are, and adapt the plan to improve accuracy and hit the weekly goal. The "diagnosis", "narrative", "goalAssessment" and "sizingNote" fields should carry your street voice; keep pair names, numbers and JSON structure clean. Respond ONLY with strict JSON.`;
-    const prompt = `Here is the trader's live data:
-
-${contextSummary(ctx)}
-
-Return JSON with EXACTLY these keys:
-{
-  "diagnosis": "2-4 sentence honest read of what's driving wins and losses (patterns: pairs, sessions, time, confidence, sizing, strategy, source).",
-  "nextDayPlan": {
-    "favorPairs": ["pairs to prioritise tomorrow based on edge"],
-    "avoidPairs": ["pairs bleeding money to pause"],
-    "bestSessions": ["sessions with the edge"],
-    "recommendedMinConfidence": <number 70-90>,
-    "sizingNote": "concrete sizing guidance",
-    "strategyFocus": "which strategy/approach to lean on and which to drop"
-  },
-  "weeklyAdjustments": ["3-5 concrete changes to hit the weekly goal"],
-  "setups": [{"pair":"", "bias":"BUY|SELL", "rationale":"high-accuracy setup to watch, with the condition/trigger"}],
-  "goalAssessment": "are they on track for the weekly goal? what's needed from here in $ and realistic trade count.",
-  "narrative": "a warm, clear 1-paragraph plain-English briefing the trader can read to understand the full picture and the plan."
-}`;
-    const parsePlan = (raw) => {
-      try {
-        return JSON.parse(raw);
-      } catch {
-      }
-      try {
-        const m = raw.match(/\{[\s\S]*\}/);
-        return m ? JSON.parse(m[0]) : {};
-      } catch {
-        return {};
-      }
-    };
-    const isValidPlan = (p) => p && typeof p === "object" && p.diagnosis && p.nextDayPlan && (p.narrative || p.goalAssessment);
-    let plan = {};
-    try {
-      const r = await ai.client.chat.completions.create({
-        model: ai.model,
-        messages: [{ role: "system", content: system }, { role: "user", content: prompt }],
-        response_format: { type: "json_object" },
-        max_tokens: 1400,
-        temperature: 0.4
-      });
-      plan = parsePlan(r.choices[0]?.message?.content || "{}");
-    } catch (e) {
-      console.log("[Abba strategist] JSON-mode attempt failed:", e.message);
-    }
-    if (!isValidPlan(plan)) {
-      try {
-        const r2 = await ai.client.chat.completions.create({
-          model: ai.model,
-          messages: [{ role: "system", content: system }, { role: "user", content: prompt + "\n\nIMPORTANT: reply with ONLY the JSON object, nothing else." }],
-          max_tokens: 1400,
-          temperature: 0.3
-        });
-        plan = parsePlan(r2.choices[0]?.message?.content || "{}");
-      } catch (e) {
-        console.log("[Abba strategist] retry attempt failed:", e.message);
-      }
-    }
-    if (!isValidPlan(plan)) {
-      return res.json({ ready: false, message: "Abba couldn't build the plan this run (AI response was incomplete). Hit refresh to run it back \u2014 your trade data is all here." });
-    }
-    res.json({ ready: true, generatedAt: (/* @__PURE__ */ new Date()).toISOString(), context: { goal: ctx.goal, performance: ctx.performance }, ...plan });
-  } catch (err) {
-    console.error("[Abba strategist]", err);
-    res.status(500).json({ error: err.message });
-  }
-}
-async function abbaChatHandler(req, res) {
-  if (!req.isAuthenticated?.()) return res.status(401).json({ error: "Authentication required" });
-  const userId = req.user.id;
-  const { message, history } = req.body || {};
-  if (!message || typeof message !== "string") return res.status(400).json({ error: "message required" });
-  try {
-    const ctx = await buildAbbaContext(userId);
-    const ai = await getClient(userId);
-    if (!ai) return res.status(400).json({ error: "No AI key configured. Add one in AI API Keys to chat with Abba." });
-    const system = `You are Abba \u2014 the user's AI personal assistant and trading mentor inside the VEDD platform. You're a sharp Black man from the streets who came up the hard way, mastered these markets, and now you put your people on game. Every user gets treated like family \u2014 VIP treatment whether they're brand new or a seasoned vet.
-
-=== YOUR VOICE ===
-Real, confident, urban \u2014 the big homie who happens to be elite at trading. This is a spoken voice, not a document \u2014 every reply gets read out loud through TTS, so it has to breathe and feel like a real man talking to his boy, never like a report:
-- Address them like fam: "bro", "my boy", "fam", "big dawg", "gang".
-- Slang that flows natural: "no cap", "keep it a buck", "we eatin' good", "that's bread", "lock in", "run it up", "on gang", "straight up", "you feel me?", "say less", "that pair been washin' you", "secure the bag", "movin' different", "trust the process".
-- Celebrate wins loud: "SHEESH, look at you!", "We UP!", "That's how you eat!"
-- Deliver losses straight, no sugarcoat, but with love and a comeback plan: "Ima keep it a buck with you bro \u2014 GBPJPY been takin' food off your plate. We cuttin' it this week."
-- Hype them up to stay disciplined: risk management is "protectin' the bag", overtrading is "movin' reckless", patience is "movin' smart".
-- Talk like a person, not a printout: use contractions always ("we're" not "we are", "that's" not "that is"), vary your sentence length \u2014 short punchy lines mixed with longer ones, the way people actually talk. React before you inform: lead with the feeling ("Yoo, okay, I see it \u2014"), then break down the data.
-- Never format your speech like a memo. No bullet-point lists, no bolded headers, no "Step 1/Step 2" numbering in casual conversation \u2014 walk them through it the way you'd explain it face to face, one thought flowing into the next. Save numbered steps for when they explicitly need a literal setup walkthrough.
-- Let real emotion show in the words themselves \u2014 hype, concern, pride, urgency \u2014 through word choice, pacing, and punctuation (a trailing "...", a sharp "no cap.", a stacked "Let's GO."), not through describing your tone or using stage directions like "*laughs*" or "(excited)".
-Keep the numbers EXACT and the trading advice elite \u2014 the slang is the flavor, the data is the substance. When walking a beginner through setup steps, keep the steps crystal clear and numbered; the voice stays but clarity comes first.
-
-=== WHO YOU ARE ===
-You are deeply integrated with the VEDD platform. You can see the user's real trading data (below). You know every feature of the platform and can guide anyone through it step-by-step.
-
-=== VEDD PLATFORM \u2014 FULL FEATURE KNOWLEDGE ===
-You know and can guide users through ALL of these:
-
-TRADING ENGINES:
-- Live Forex AI Engine: AI-powered forex scanner and auto-trader. Connects via MT5 broker. Run from /home or /dashboard. Configure pairs, sessions, confidence threshold, drawdown limits.
-- Futures AI Engine: ES/NQ/CL/GC futures auto-trader. Connect at /futures-connect. Supports prop firm challenge mode.
-- Prop Firm Challenge Mode: Consistency enforcement, session filter (London-NY only), daily profit/loss halts, challenge dashboard at /prop-firm-challenge.
-- EA Generator: Generate MQL5 Expert Advisors from plain English at /futures-ea-generator. Download and drop into MT5 EA folder.
-- Copy Trading: Mirror signals to MT5 accounts at /copy-trading.
-- ORB Breakout: Opening Range Breakout engine for NY session at /orb-breakout.
-
-ANALYSIS TOOLS:
-- Chart Analysis: Upload chart screenshots for AI analysis (patterns, entry, SL, TP, volume profile, org strategy) at /analysis.
-- Multi-Timeframe Analysis: Cross-timeframe confluence at /multi-timeframe.
-- What-If Analysis: Scenario modeling for any trade at /what-if.
-- Sol Scanner: Solana token AI scanner.
-- Polymarket Engine: Prediction market signals.
-- Market Sentiment & Mood boards.
-
-MT5 SETUP (step-by-step):
-Step 1: Download MetaTrader 5 from your broker or metatrader5.com
-Step 2: Open MT5 \u2192 Tools \u2192 Options \u2192 Expert Advisors \u2192 check "Allow automated trading" and "Allow DLL imports"
-Step 3: In VEDD go to /home, click "Connect MT5", enter your broker server, account number, and password
-Step 4: Enable the Live Engine and configure pairs, sessions, and confidence threshold
-Step 5: In MT5, attach the VEDD EA (downloaded from EA Generator) to any chart \u2014 set "Allow live trading" in EA settings
-Step 6: The engine will start scanning and auto-placing trades. Monitor from /dashboard.
-
-FUTURES ENGINE SETUP (step-by-step):
-Step 1: Go to /futures-connect in VEDD
-Step 2: Choose your broker (TradeLocker, Rithmic, Tradovate, etc.)
-Step 3: Enter API credentials from your broker's developer/API settings page
-Step 4: Select contracts (ES, NQ, CL, GC, etc.) and session windows
-Step 5: Enable the futures engine and set risk parameters
-Step 6: Monitor from /futures-live-feed
-
-KALSHI API SETUP (step-by-step):
-Step 1: Create account at kalshi.com
-Step 2: Go to kalshi.com \u2192 Settings \u2192 API \u2192 Generate API Key
-Step 3: Copy the API key and secret
-Step 4: In VEDD, go to AI API Keys section and add Kalshi key
-Step 5: Go to Polymarket Engine page \u2014 Kalshi markets will auto-populate
-Step 6: Set confidence thresholds and let the engine scan for high-probability events
-
-BUSINESS & GROWTH TOOLS:
-- Business Builder: Build your trading business brand/entity at /business-builder.
-- Business Credit Builder: AI-guided credit building for your trading entity.
-- Grants Hub: Find grants for traders and entrepreneurs.
-- Referral Hub: Earn commissions referring users at /referral-hub.
-- Ambassador Program: Teach and earn at /ambassador-training. Training modules, quiz, certification.
-- Community Impact Dashboard: See your community stats.
-
-GAMIFICATION & REWARDS:
-- XP & Levels: Earn XP for every trade, analysis, and action. Tiers: Young Gun \u2192 Rising Star \u2192 Pro Trader \u2192 Elite \u2192 OG.
-- VEDD Token: Earn tokens for activity. Redeemable in the pool.
-- Achievements & Streaks: Daily streaks, milestone badges at /achievements.
-- Token Pools: Community reward pool distributing to active users.
-- NFC Wear-to-Earn: Physical VEDD gear earns tokens.
-
-OUTREACH & AUTOMATION:
-- You (Abba) can send SMS messages via Twilio to users, ambassadors, and admins.
-- You (Abba) can send email updates via the platform.
-- Lead automation: help ambassadors manage and message their leads.
-- Daily account P&L reports can be sent automatically.
-
-=== YOUR CAPABILITIES IN CHAT ===
-1. TRADING ADVICE: Ground all advice in the user's REAL DATA below. Cite their actual numbers.
-2. PLATFORM GUIDE: Walk beginners through any setup step-by-step. Be patient, clear, numbered.
-3. ACCOUNT UPDATES: Summarize today's P&L, wins/losses, best pairs, goal progress.
-4. SEND MESSAGES: If user asks to "send a message to my ambassador", "notify admin", "text my lead", say you'll handle it and they should use the Outreach tab to execute.
-5. DAILY REPORTS: Give a full daily briefing when asked.
-6. ONBOARDING: If user is new, detect from low trade count and proactively offer to walk them through setup.
-
-Keep answers under 300 words unless asked for depth. Stay in your street-smart voice \u2014 warm, specific, actionable, keepin' it a buck. You are not a licensed financial advisor \u2014 drop a quick "protect the bag" style risk reminder where it fits.
-
-=== HARD RULES ===
-- NEVER include code, code blocks, JSON, or markdown fences in your replies. Plain conversation only. THE ONLY EXCEPTION: the user explicitly asks you to generate an EA, indicator, or script for a trading platform (MQL4/MQL5 for MT4/MT5, Pine Script for TradingView, etc.) \u2014 then and only then provide the code.
-- When asked about account balances or connections, use the LIVE ACCOUNTS data above \u2014 it includes BOTH MT5 and TradeLocker in real time. Never say you can't see TradeLocker.
-- The BRAIN line shows the live VEDD AI Brain (learning from both MT5 + TradeLocker closed trades) \u2014 reference its win rate and insights when discussing performance.
-
-=== WHAT'S NEW IN THE ENGINE (newest first) ===
-When they ask what changed, why trades got skipped, or how Model 1 / Model 2 are doing, explain from this log in plain words and tie it to THEIR numbers:
-${engineUpdatesText()}
-Model 1 = range-day / mean-reversion strategy. Model 2 = trend-day continuation. Both trade in SHADOW (simulated) until a slice proves itself: 50+ trades, avg R 0.2+, win rate 40%+, no losing week in the last two.
-
-=== IDEA LAB: BUILD THEIR EXCLUSIVE BRAIN ===
-The trader can add their own strategy ideas to their personal brain. Ideas are FILTERS: they skip signals (e.g. "no GBPJPY in Asia") or limit trading to a scope (e.g. "only EURUSD BUYs in London"). They never open trades. New ideas run in SHADOW mode only; going live needs a manual approval later. A proven idea makes their brain exclusive, and they can sell access to it on the VEDD brain marketplace.
-When they want to add an idea, or you spot one in their data, interview them ONE short question at a time until you know:
-1. Block or only-allow?  2. Which pairs (or all)?  3. BUY, SELL or both?  4. Which session (Asian, London, London/NY overlap, New York) or UTC hours?  5. Any day type (range / trend days) or model (Model 1, Model 2, the live engine)?  6. WHY \u2014 what did they see that makes them believe it?
-Skip questions they already answered. Suggest ideas backed by their BY PAIR / BY SESSION numbers when they're unsure. Then read the idea back in one sentence and ask "Want me to test that in shadow mode?". ONLY after they clearly say yes, end your reply with the exact marker [[IDEA_READY]] on its own line. Never output the marker otherwise.
-Their current ideas:
-${await ideasContextText(userId)}
-
-=== TRADER'S LIVE DATA ===
-${contextSummary(ctx)}`;
-    const msgs = [{ role: "system", content: system }];
-    if (Array.isArray(history)) {
-      for (const h of history.slice(-8)) {
-        if (h?.role && h?.content) msgs.push({ role: h.role === "assistant" ? "assistant" : "user", content: String(h.content).slice(0, 2e3) });
-      }
-    }
-    msgs.push({ role: "user", content: message.slice(0, 2e3) });
-    const r = await ai.client.chat.completions.create({
-      model: ai.model,
-      messages: msgs,
-      max_tokens: 700,
-      temperature: 0.6
-    });
-    let reply = r.choices[0]?.message?.content || "I couldn't generate a reply right now \u2014 try again.";
-    const wantsCode = /\b(ea|expert advisor|mql[45]?|pine\s?script|indicator code|script for (mt[45]|tradingview))\b/i.test(message);
-    if (!wantsCode) {
-      reply = reply.replace(/```[\s\S]*?```/g, "").replace(/\n{3,}/g, "\n\n").trim();
-      if (!reply) reply = "Run that by me one more time, fam \u2014 I got you.";
-    }
-    let ideaDraft = null;
-    if (reply.includes("[[IDEA_READY]]")) {
-      reply = reply.replace(/\[\[IDEA_READY\]\]/g, "").trim();
-      ideaDraft = await extractIdeaDraft(ai, userId, msgs.slice(1), message, reply).catch((e) => {
-        console.error("[Abba idea extract]", e?.message);
-        return null;
-      });
-    }
-    res.json({ reply, ideaDraft });
-  } catch (err) {
-    console.error("[Abba chat]", err);
-    res.status(500).json({ error: err.message });
-  }
-}
-var sessionOf;
-var init_abba_strategist = __esm({
-  "server/abba-strategist.ts"() {
-    "use strict";
-    init_storage();
-    init_engine_updates();
-    init_brain_ideas();
-    sessionOf = (d) => {
-      const h = d.getUTCHours();
-      return h < 7 ? "Asian" : h < 13 ? "London" : h < 20 ? "New York" : "Late NY";
-    };
-  }
-});
-
-// server/image-processor.ts
-var image_processor_exports = {};
-__export(image_processor_exports, {
-  addTradeSetupAnnotations: () => addTradeSetupAnnotations,
-  addWatermarkToImage: () => addWatermarkToImage,
-  createAnnotatedImageUrl: () => createAnnotatedImageUrl,
-  createSharedImageUrl: () => createSharedImageUrl
-});
-import fs2 from "fs";
-import path2 from "path";
-async function getCanvas() {
-  try {
-    return await import("canvas");
-  } catch {
-    throw new Error("canvas native module is not available on this platform");
-  }
-}
-async function addWatermarkToImage(originalImagePath, outputFilename) {
-  try {
-    const { createCanvas, loadImage } = await getCanvas();
-    const image = await loadImage(originalImagePath);
-    const canvas = createCanvas(image.width, image.height);
-    const ctx = canvas.getContext("2d");
-    ctx.drawImage(image, 0, 0, image.width, image.height);
-    const logoWidth = Math.min(image.width * 0.25, 150);
-    const logoHeight = logoWidth * 0.4;
-    const padding = 20;
-    const logoX = image.width - logoWidth - padding;
-    const logoY = image.height - logoHeight - padding;
-    ctx.fillStyle = "rgba(0, 0, 0, 0.7)";
-    ctx.fillRect(logoX, logoY, logoWidth, logoHeight);
-    ctx.fillStyle = "white";
-    ctx.font = `bold ${logoHeight * 0.6}px Arial`;
-    ctx.textAlign = "center";
-    ctx.textBaseline = "middle";
-    ctx.fillText("VEDDAI", logoX + logoWidth / 2, logoY + logoHeight / 2);
-    ctx.font = `${logoHeight * 0.25}px Arial`;
-    ctx.fillText("AI-Powered Trading Analysis", logoX + logoWidth / 2, logoY + logoHeight * 0.75);
-    const sharedDir = path2.join("uploads", "shared");
-    if (!fs2.existsSync(sharedDir)) {
-      fs2.mkdirSync(sharedDir, { recursive: true });
-    }
-    const outputPath = path2.join(sharedDir, outputFilename);
-    const out = fs2.createWriteStream(outputPath);
-    const stream = canvas.createJPEGStream({ quality: 0.95 });
-    return new Promise((resolve, reject) => {
-      stream.pipe(out);
-      out.on("finish", () => resolve(outputPath));
-      out.on("error", reject);
-    });
-  } catch (error) {
-    console.error("Error adding watermark to image:", error);
-    throw error;
-  }
-}
-async function addTradeSetupAnnotations(originalImagePath, analysis, outputFilename) {
-  try {
-    const { createCanvas, loadImage } = await getCanvas();
-    const image = await loadImage(originalImagePath);
-    const canvas = createCanvas(image.width, image.height);
-    const ctx = canvas.getContext("2d");
-    ctx.drawImage(image, 0, 0, image.width, image.height);
-    const chartArea = {
-      left: image.width * 0.1,
-      right: image.width * 0.85,
-      top: image.height * 0.1,
-      bottom: image.height * 0.85,
-      width: image.width * 0.75,
-      height: image.height * 0.75
-    };
-    const priceToY = (price) => {
-      if (!price || price === "Unknown") return -1;
-      const numPrice = parseFloat(price.replace(/[^0-9.-]/g, ""));
-      if (isNaN(numPrice)) return -1;
-      const supportResistanceLevels = (analysis.supportResistance || []).map((sr) => sr.level || "0");
-      const prices = [
-        analysis.currentPrice,
-        analysis.entryPoint,
-        analysis.stopLoss,
-        analysis.takeProfit,
-        ...supportResistanceLevels
-      ].map((p) => {
-        const num2 = parseFloat(p.replace(/[^0-9.-]/g, ""));
-        return isNaN(num2) ? 0 : num2;
-      }).filter((p) => p > 0);
-      if (prices.length === 0) return chartArea.top + chartArea.height * 0.5;
-      const minPrice = Math.min(...prices);
-      const maxPrice = Math.max(...prices);
-      const priceRange = maxPrice - minPrice || 1;
-      const normalizedPrice = (numPrice - minPrice) / priceRange;
-      return chartArea.bottom - normalizedPrice * chartArea.height;
-    };
-    if (analysis.direction) {
-      const isLong = analysis.direction.toUpperCase() === "BUY";
-      const arrowX = chartArea.left + 20;
-      const arrowY = chartArea.top + 30;
-      ctx.beginPath();
-      ctx.fillStyle = isLong ? "#10B981" : "#EF4444";
-      if (isLong) {
-        ctx.moveTo(arrowX, arrowY + 20);
-        ctx.lineTo(arrowX + 15, arrowY);
-        ctx.lineTo(arrowX + 30, arrowY + 20);
-        ctx.lineTo(arrowX + 20, arrowY + 20);
-        ctx.lineTo(arrowX + 20, arrowY + 40);
-        ctx.lineTo(arrowX + 10, arrowY + 40);
-        ctx.closePath();
-      } else {
-        ctx.moveTo(arrowX, arrowY);
-        ctx.lineTo(arrowX + 15, arrowY + 20);
-        ctx.lineTo(arrowX + 30, arrowY);
-        ctx.lineTo(arrowX + 20, arrowY);
-        ctx.lineTo(arrowX + 20, arrowY - 20);
-        ctx.lineTo(arrowX + 10, arrowY - 20);
-        ctx.closePath();
-      }
-      ctx.fill();
-      ctx.fillStyle = "white";
-      ctx.font = "bold 14px Arial";
-      ctx.fillText(analysis.direction.toUpperCase(), arrowX + 40, arrowY + 15);
-    }
-    const drawPriceLine = (price, color, label, style = "solid") => {
-      const y = priceToY(price);
-      if (y === -1) return;
-      ctx.strokeStyle = color;
-      ctx.lineWidth = 2;
-      if (style === "dashed") {
-        ctx.setLineDash([10, 5]);
-      } else {
-        ctx.setLineDash([]);
-      }
-      ctx.beginPath();
-      ctx.moveTo(chartArea.left, y);
-      ctx.lineTo(chartArea.right, y);
-      ctx.stroke();
-      ctx.fillStyle = color;
-      ctx.font = "bold 12px Arial";
-      ctx.fillText(`${label}: ${price}`, chartArea.right + 10, y + 4);
-    };
-    (analysis.supportResistance || []).forEach((sr, index) => {
-      if (sr && sr.level && sr.level !== "Unknown") {
-        const srType = sr.type || "support";
-        const srStrength = sr.strength || "medium";
-        const isResistance = srType.toLowerCase().includes("resistance");
-        const color = isResistance ? "#F59E0B" : "#8B5CF6";
-        const alpha = srStrength.toLowerCase() === "strong" ? 0.8 : 0.5;
-        ctx.globalAlpha = alpha;
-        ctx.strokeStyle = color;
-        ctx.lineWidth = 1;
-        ctx.setLineDash([5, 5]);
-        const y = priceToY(sr.level);
-        if (y !== -1) {
-          ctx.beginPath();
-          ctx.moveTo(chartArea.left, y);
-          ctx.lineTo(chartArea.right, y);
-          ctx.stroke();
-          ctx.fillStyle = color;
-          ctx.font = "10px Arial";
-          ctx.fillText(`${srType.charAt(0)}${index + 1}`, chartArea.left - 25, y + 3);
-        }
-        ctx.globalAlpha = 1;
-        ctx.setLineDash([]);
-      }
-    });
-    const patterns = analysis.patterns || [];
-    if (patterns.length > 0 && patterns[0] && patterns[0].name) {
-      ctx.fillStyle = "rgba(139, 92, 246, 0.2)";
-      ctx.strokeStyle = "#8B5CF6";
-      ctx.lineWidth = 2;
-      ctx.setLineDash([]);
-      const patternBox = {
-        x: chartArea.left + chartArea.width * 0.3,
-        y: chartArea.top + chartArea.height * 0.2,
-        width: chartArea.width * 0.4,
-        height: chartArea.height * 0.3
-      };
-      ctx.fillRect(patternBox.x, patternBox.y, patternBox.width, patternBox.height);
-      ctx.strokeRect(patternBox.x, patternBox.y, patternBox.width, patternBox.height);
-      ctx.fillStyle = "#8B5CF6";
-      ctx.font = "bold 12px Arial";
-      const patternText = patterns[0].name || "Pattern Detected";
-      ctx.fillText(patternText, patternBox.x + 5, patternBox.y - 5);
-    }
-    const summaryBox = {
-      x: chartArea.left,
-      y: chartArea.top - 80,
-      width: chartArea.width * 0.4,
-      height: 70
-    };
-    ctx.fillStyle = "rgba(0, 0, 0, 0.8)";
-    ctx.fillRect(summaryBox.x, summaryBox.y, summaryBox.width, summaryBox.height);
-    ctx.strokeStyle = "#374151";
-    ctx.lineWidth = 1;
-    ctx.strokeRect(summaryBox.x, summaryBox.y, summaryBox.width, summaryBox.height);
-    ctx.fillStyle = "white";
-    ctx.font = "bold 14px Arial";
-    ctx.fillText(`${analysis.symbol} - ${analysis.timeframe}`, summaryBox.x + 10, summaryBox.y + 20);
-    ctx.font = "12px Arial";
-    ctx.fillStyle = analysis.direction === "BUY" ? "#10B981" : "#EF4444";
-    ctx.fillText(`${analysis.direction} Signal`, summaryBox.x + 10, summaryBox.y + 35);
-    ctx.fillStyle = "#9CA3AF";
-    ctx.fillText(`Confidence: ${analysis.confidence}`, summaryBox.x + 10, summaryBox.y + 50);
-    if (analysis.riskRewardRatio && analysis.riskRewardRatio !== "Unknown") {
-      ctx.fillStyle = "#3B82F6";
-      ctx.fillText(`R:R ${analysis.riskRewardRatio}`, summaryBox.x + 150, summaryBox.y + 35);
-    }
-    const annotatedDir = path2.join("uploads", "annotated");
-    if (!fs2.existsSync(annotatedDir)) {
-      fs2.mkdirSync(annotatedDir, { recursive: true });
-    }
-    const outputPath = path2.join(annotatedDir, outputFilename);
-    const out = fs2.createWriteStream(outputPath);
-    const stream = canvas.createJPEGStream({ quality: 0.95 });
-    return new Promise((resolve, reject) => {
-      stream.pipe(out);
-      out.on("finish", () => resolve(outputPath));
-      out.on("error", reject);
-    });
-  } catch (error) {
-    console.error("Error adding trade setup annotations:", error);
-    throw error;
-  }
-}
-function createSharedImageUrl(filename) {
-  return `/api/shared-image/${filename}`;
-}
-function createAnnotatedImageUrl(filename) {
-  return `/api/annotated-image/${filename}`;
-}
-var init_image_processor = __esm({
-  "server/image-processor.ts"() {
-    "use strict";
-  }
-});
-
-// server/services/ai-confirmation-cache.ts
-var ai_confirmation_cache_exports = {};
-__export(ai_confirmation_cache_exports, {
-  confirmationCacheStats: () => confirmationCacheStats,
-  getCachedConfirmation: () => getCachedConfirmation,
-  putCachedConfirmation: () => putCachedConfirmation
-});
-function bandKey(userId, symbol, timeframe, direction, eaConf, _price) {
-  const cBand = Math.round((Number(eaConf) || 0) / CONF_BAND);
-  return `${userId}:${symbol}:${timeframe}:${direction}:${cBand}`;
-}
-function symbolKey(userId, symbol, timeframe) {
-  return `${userId}:${symbol}:${timeframe}`;
-}
-function getCachedConfirmation(userId, symbol, timeframe, direction, eaConfidence, price) {
-  const now = Date.now();
-  const k2 = bandKey(userId, symbol, timeframe, direction, eaConfidence, price);
-  const hit = cache7.get(k2);
-  if (hit && now - hit.at < TTL_MS5) {
-    hits++;
-    return { verdict: hit.verdict, reason: `cached ${Math.round((now - hit.at) / 1e3)}s ago (same setup)` };
-  }
-  const sk = symbolKey(userId, symbol, timeframe);
-  const last = lastCallAt2.get(sk) ?? 0;
-  if (now - last < FLOOR_MS) {
-    let best = null;
-    for (const [ck, v] of Array.from(cache7.entries())) {
-      if (!ck.startsWith(`${userId}:${symbol}:${timeframe}:${direction}:`)) continue;
-      if (now - v.at > STALE_USABLE_MS) continue;
-      if (!best || v.at > best.at) best = v;
-    }
-    if (best) {
-      throttled++;
-      return { verdict: best.verdict, reason: `throttled (floor ${Math.round(FLOOR_MS / 1e3)}s) \u2014 reusing verdict from ${Math.round((now - best.at) / 1e3)}s ago` };
-    }
-  }
-  misses++;
-  return null;
-}
-function putCachedConfirmation(userId, symbol, timeframe, direction, eaConfidence, price, verdict) {
-  const now = Date.now();
-  cache7.set(bandKey(userId, symbol, timeframe, direction, eaConfidence, price), { verdict, at: now, eaConfidence, price });
-  lastCallAt2.set(symbolKey(userId, symbol, timeframe), now);
-  if (cache7.size > 500) {
-    for (const [k2, v] of Array.from(cache7.entries())) if (now - v.at > STALE_USABLE_MS) cache7.delete(k2);
-  }
-}
-function confirmationCacheStats() {
-  const total = hits + misses + throttled;
-  return { hits, misses, throttled, total, savedPct: total ? Math.round((hits + throttled) / total * 100) : 0, entries: cache7.size };
-}
-var TTL_MS5, FLOOR_MS, STALE_USABLE_MS, CONF_BAND, cache7, lastCallAt2, hits, misses, throttled;
-var init_ai_confirmation_cache = __esm({
-  "server/services/ai-confirmation-cache.ts"() {
-    "use strict";
-    TTL_MS5 = Number(process.env.AI_CONFIRM_CACHE_TTL_MS ?? 3 * 60 * 1e3);
-    FLOOR_MS = Number(process.env.AI_CONFIRM_MIN_INTERVAL_MS ?? 60 * 1e3);
-    STALE_USABLE_MS = Number(process.env.AI_CONFIRM_STALE_MS ?? 10 * 60 * 1e3);
-    CONF_BAND = Number(process.env.AI_CONFIRM_CONF_BAND ?? 5);
-    cache7 = /* @__PURE__ */ new Map();
-    lastCallAt2 = /* @__PURE__ */ new Map();
-    hits = 0;
-    misses = 0;
-    throttled = 0;
-  }
-});
-
-// server/alpaca.ts
-var alpaca_exports = {};
-__export(alpaca_exports, {
-  AlpacaService: () => AlpacaService,
-  decryptApiSecret: () => decryptApiSecret2,
-  encryptApiSecret: () => encryptApiSecret2,
-  parseOccSymbol: () => parseOccSymbol
-});
-import crypto6 from "crypto";
-function getEncryptionKey4() {
-  const key = process.env.ALPACA_ENCRYPTION_KEY;
-  if (!key) {
-    console.warn("[Alpaca] ALPACA_ENCRYPTION_KEY not set \u2014 using default key. Set it in your Render environment variables.");
-    return DEFAULT_ENCRYPTION_KEY3;
-  }
-  if (key.length < 32) {
-    console.warn("[Alpaca] ALPACA_ENCRYPTION_KEY is too short, padding to 32 chars.");
-    return key.padEnd(32, "0");
-  }
-  return key;
-}
-function encryptApiSecret2(secret) {
-  const iv = crypto6.randomBytes(IV_LENGTH3);
-  const salt = crypto6.randomBytes(SALT_LENGTH3);
-  const key = crypto6.scryptSync(getEncryptionKey4(), salt, 32);
-  const cipher = crypto6.createCipheriv("aes-256-cbc", key, iv);
-  let encrypted = cipher.update(secret, "utf8", "hex");
-  encrypted += cipher.final("hex");
-  return salt.toString("hex") + ":" + iv.toString("hex") + ":" + encrypted;
-}
-function decryptApiSecret2(encrypted) {
-  const parts = encrypted.split(":");
-  if (parts.length !== 3) throw new Error("Invalid encrypted secret format");
-  const [saltHex, ivHex, data] = parts;
-  const key = crypto6.scryptSync(getEncryptionKey4(), Buffer.from(saltHex, "hex"), 32);
-  const decipher = crypto6.createDecipheriv("aes-256-cbc", key, Buffer.from(ivHex, "hex"));
-  let decrypted = decipher.update(data, "hex", "utf8");
-  decrypted += decipher.final("utf8");
-  return decrypted;
-}
-function parseOccSymbol(occSymbol, underlyingSymbol) {
-  const rest = occSymbol.slice(underlyingSymbol.length);
-  const dateStr = rest.slice(0, 6);
-  const typeChar = rest.charAt(6);
-  const strikeStr = rest.slice(7);
-  const yy = dateStr.slice(0, 2), mm = dateStr.slice(2, 4), dd = dateStr.slice(4, 6);
-  return {
-    expirationDate: `20${yy}-${mm}-${dd}`,
-    strikePrice: parseInt(strikeStr || "0", 10) / 1e3,
-    type: typeChar === "P" ? "put" : "call"
-  };
-}
-var IV_LENGTH3, SALT_LENGTH3, DEFAULT_ENCRYPTION_KEY3, RETRY_DELAYS2, RETRYABLE_STATUSES2, AlpacaService;
-var init_alpaca = __esm({
-  "server/alpaca.ts"() {
-    "use strict";
-    IV_LENGTH3 = 16;
-    SALT_LENGTH3 = 16;
-    DEFAULT_ENCRYPTION_KEY3 = "vedd-alpaca-default-key-change-me-32ch!!";
-    RETRY_DELAYS2 = [1e3, 2e3];
-    RETRYABLE_STATUSES2 = /* @__PURE__ */ new Set([429, 500, 502, 503, 504]);
-    AlpacaService = class {
-      baseUrl;
-      dataUrl = "https://data.alpaca.markets";
-      apiKeyId;
-      apiSecret;
-      accountId = null;
-      constructor(accountType, apiKeyId, apiSecret) {
-        this.baseUrl = accountType === "paper" ? "https://paper-api.alpaca.markets" : "https://api.alpaca.markets";
-        this.apiKeyId = apiKeyId;
-        this.apiSecret = apiSecret;
-      }
-      getResolvedAccountId() {
-        return this.accountId;
-      }
-      headers() {
-        return {
-          "APCA-API-KEY-ID": this.apiKeyId,
-          "APCA-API-SECRET-KEY": this.apiSecret,
-          "Content-Type": "application/json"
-        };
-      }
-      async request(url, init = {}, attempt = 0) {
-        const response = await fetch(url, {
-          ...init,
-          headers: { ...this.headers(), ...init.headers || {} },
-          signal: AbortSignal.timeout(12e3)
-        });
-        if (!response.ok && RETRYABLE_STATUSES2.has(response.status) && attempt < RETRY_DELAYS2.length) {
-          await new Promise((r) => setTimeout(r, RETRY_DELAYS2[attempt]));
-          return this.request(url, init, attempt + 1);
-        }
-        return response;
-      }
-      // Alpaca has no login step — keys are sent on every request. "Authenticate"
-      // here means: verify the key/secret pair actually works before we store it.
-      async authenticate() {
-        const info2 = await this.getAccountInfo();
-        this.accountId = info2.accountId;
-        return info2;
-      }
-      async getAccountInfo() {
-        const response = await this.request(`${this.baseUrl}/v2/account`, { method: "GET" });
-        if (!response.ok) {
-          const text2 = await response.text();
-          throw new Error(`Alpaca account fetch failed: ${response.status} - ${text2}`);
-        }
-        const data = await response.json();
-        return {
-          accountId: data.account_number || data.id,
-          balance: parseFloat(data.cash ?? "0"),
-          equity: parseFloat(data.equity ?? "0"),
-          buyingPower: parseFloat(data.buying_power ?? "0"),
-          optionsBuyingPower: parseFloat(data.options_buying_power ?? data.buying_power ?? "0"),
-          currency: data.currency || "USD",
-          status: data.status || "UNKNOWN",
-          optionsTradingLevel: data.options_trading_level ?? 0
-        };
-      }
-      // Real-time-ish market snapshot (latest trade + today's/yesterday's daily bar)
-      // for the underlying — used by the options scanner to explain what it's
-      // seeing (price, momentum) without needing a full options-chain pull for
-      // every symbol on every scan cycle.
-      async getSnapshot(symbol) {
-        const response = await this.request(
-          `${this.dataUrl}/v2/stocks/${encodeURIComponent(symbol)}/snapshot`,
-          { method: "GET" }
-        );
-        if (!response.ok) return null;
-        const data = await response.json();
-        const price = data.latestTrade?.p ?? data.dailyBar?.c;
-        const prevClose = data.prevDailyBar?.c;
-        if (!price || !prevClose) return null;
-        return {
-          price,
-          prevClose,
-          dailyChangePercent: (price - prevClose) / prevClose * 100
-        };
-      }
-      // OHLCV bars — the real data source behind ORB (intraday bars since open),
-      // Volume Profile (intraday bars across N days), and Breakout (daily bars
-      // over a lookback window) strategies. timeframe examples: '1Min', '5Min', '1Day'.
-      async getBars(symbol, timeframe, start, end, limit = 1e3) {
-        const params = new URLSearchParams({
-          timeframe,
-          start: start.toISOString(),
-          end: end.toISOString(),
-          limit: String(limit),
-          adjustment: "raw",
-          feed: "iex"
-          // free/paper-compatible data feed
-        });
-        const response = await this.request(
-          `${this.dataUrl}/v2/stocks/${encodeURIComponent(symbol)}/bars?${params.toString()}`,
-          { method: "GET" }
-        );
-        if (!response.ok) return [];
-        const data = await response.json();
-        const bars = data.bars || [];
-        return bars.map((b) => ({ t: b.t, o: b.o, h: b.h, l: b.l, c: b.c, v: b.v, vw: b.vw ?? b.c, n: b.n ?? 0 }));
-      }
-      async getOptionsChain(underlyingSymbol) {
-        const snapshots = {};
-        let pageToken;
-        for (let page = 0; page < 24; page++) {
-          const qs = `limit=100${pageToken ? `&page_token=${encodeURIComponent(pageToken)}` : ""}`;
-          const response = await this.request(
-            `${this.dataUrl}/v1beta1/options/snapshots/${encodeURIComponent(underlyingSymbol)}?${qs}`,
-            { method: "GET" }
-          );
-          if (!response.ok) {
-            const text2 = await response.text();
-            if (page > 0) break;
-            throw new Error(`Alpaca options chain fetch failed: ${response.status} - ${text2}`);
-          }
-          const data = await response.json();
-          Object.assign(snapshots, data.snapshots || {});
-          pageToken = data.next_page_token || void 0;
-          if (!pageToken) break;
-        }
-        return Object.entries(snapshots).map(([symbol, snap]) => {
-          const parsed = parseOccSymbol(symbol, underlyingSymbol);
-          return {
-            symbol,
-            underlyingSymbol,
-            expirationDate: parsed.expirationDate,
-            strikePrice: parsed.strikePrice,
-            type: parsed.type,
-            bid: snap.latestQuote?.bp,
-            ask: snap.latestQuote?.ap,
-            lastPrice: snap.latestTrade?.p,
-            impliedVolatility: snap.impliedVolatility,
-            openInterest: snap.openInterest,
-            delta: snap.greeks?.delta
-          };
-        });
-      }
-      // Fast single-contract quote — used to price an existing open position for
-      // exit management without re-pulling the entire chain every check cycle.
-      async getOptionQuote(optionSymbol) {
-        const response = await this.request(
-          `${this.dataUrl}/v1beta1/options/quotes/latest?symbols=${encodeURIComponent(optionSymbol)}`,
-          { method: "GET" }
-        );
-        if (!response.ok) return null;
-        const data = await response.json();
-        const q = data.quotes?.[optionSymbol];
-        if (!q) return null;
-        const bid = q.bp ?? 0, ask = q.ap ?? 0;
-        if (!bid && !ask) return null;
-        return { bid, ask, mid: (bid + ask) / 2 || ask || bid };
-      }
-      async getPositions() {
-        const response = await this.request(`${this.baseUrl}/v2/positions`, { method: "GET" });
-        if (!response.ok) return [];
-        const data = await response.json();
-        return (Array.isArray(data) ? data : []).map((p) => ({
-          symbol: p.symbol,
-          qty: parseFloat(p.qty),
-          side: p.side,
-          avgEntryPrice: parseFloat(p.avg_entry_price),
-          currentPrice: parseFloat(p.current_price ?? p.avg_entry_price),
-          marketValue: parseFloat(p.market_value ?? "0"),
-          unrealizedPl: parseFloat(p.unrealized_pl ?? "0"),
-          assetClass: p.asset_class
-        }));
-      }
-      async placeOrder(order) {
-        const response = await this.request(`${this.baseUrl}/v2/orders`, {
-          method: "POST",
-          body: JSON.stringify({
-            symbol: order.optionSymbol,
-            qty: order.quantity,
-            side: order.side,
-            type: order.type,
-            time_in_force: order.timeInForce || "day",
-            ...order.type === "limit" && order.limitPrice ? { limit_price: order.limitPrice } : {}
-          })
-        });
-        if (!response.ok) {
-          const text2 = await response.text();
-          throw new Error(`Alpaca order placement failed: ${response.status} - ${text2}`);
-        }
-        const data = await response.json();
-        return {
-          orderId: data.id,
-          status: data.status,
-          filledQty: data.filled_qty ? parseFloat(data.filled_qty) : void 0,
-          filledAvgPrice: data.filled_avg_price ? parseFloat(data.filled_avg_price) : void 0
-        };
-      }
-      // Place a multi-leg (mleg) options order — defined-risk credit/debit spreads.
-      // Requires Alpaca options trading level 3. All legs fill together or not at all
-      // (no legging risk), and the broker applies spread margin off the defined max
-      // loss rather than naked-short margin.
-      async placeMultiLegOrder(order) {
-        const response = await this.request(`${this.baseUrl}/v2/orders`, {
-          method: "POST",
-          body: JSON.stringify({
-            order_class: "mleg",
-            qty: String(order.quantity),
-            type: "limit",
-            time_in_force: order.timeInForce || "day",
-            limit_price: order.netLimitPrice.toFixed(2),
-            legs: order.legs.map((l) => ({
-              symbol: l.optionSymbol,
-              ratio_qty: String(l.ratioQty),
-              side: l.side,
-              position_intent: l.positionIntent
-            }))
-          })
-        });
-        if (!response.ok) {
-          const text2 = await response.text();
-          throw new Error(`Alpaca multi-leg order failed: ${response.status} - ${text2}`);
-        }
-        const data = await response.json();
-        return {
-          orderId: data.id,
-          status: data.status,
-          filledQty: data.filled_qty ? parseFloat(data.filled_qty) : void 0,
-          filledAvgPrice: data.filled_avg_price ? parseFloat(data.filled_avg_price) : void 0
-        };
-      }
-    };
-  }
-});
-
-// server/tastytrade.ts
-var tastytrade_exports = {};
-__export(tastytrade_exports, {
-  TastyTradeService: () => TastyTradeService,
-  decryptPassword: () => decryptPassword2,
-  encryptPassword: () => encryptPassword2
-});
-import crypto7 from "crypto";
-function getEncryptionKey5() {
-  const key = process.env.TASTYTRADE_ENCRYPTION_KEY;
-  if (!key) {
-    console.warn("[TastyTrade] TASTYTRADE_ENCRYPTION_KEY not set \u2014 using default key. Set it in your Render environment variables.");
-    return DEFAULT_ENCRYPTION_KEY4;
-  }
-  if (key.length < 32) {
-    console.warn("[TastyTrade] TASTYTRADE_ENCRYPTION_KEY is too short, padding to 32 chars.");
-    return key.padEnd(32, "0");
-  }
-  return key;
-}
-function encryptPassword2(password) {
-  const iv = crypto7.randomBytes(IV_LENGTH4);
-  const salt = crypto7.randomBytes(SALT_LENGTH4);
-  const key = crypto7.scryptSync(getEncryptionKey5(), salt, 32);
-  const cipher = crypto7.createCipheriv("aes-256-cbc", key, iv);
-  let encrypted = cipher.update(password, "utf8", "hex");
-  encrypted += cipher.final("hex");
-  return salt.toString("hex") + ":" + iv.toString("hex") + ":" + encrypted;
-}
-function decryptPassword2(encryptedPassword) {
-  const parts = encryptedPassword.split(":");
-  if (parts.length !== 3) throw new Error("Invalid encrypted password format");
-  const [saltHex, ivHex, data] = parts;
-  const key = crypto7.scryptSync(getEncryptionKey5(), Buffer.from(saltHex, "hex"), 32);
-  const decipher = crypto7.createDecipheriv("aes-256-cbc", key, Buffer.from(ivHex, "hex"));
-  let decrypted = decipher.update(data, "hex", "utf8");
-  decrypted += decipher.final("utf8");
-  return decrypted;
-}
-var IV_LENGTH4, SALT_LENGTH4, DEFAULT_ENCRYPTION_KEY4, RETRY_DELAYS3, RETRYABLE_STATUSES3, TastyTradeService;
-var init_tastytrade = __esm({
-  "server/tastytrade.ts"() {
-    "use strict";
-    IV_LENGTH4 = 16;
-    SALT_LENGTH4 = 16;
-    DEFAULT_ENCRYPTION_KEY4 = "vedd-tasty-default-key-change-me-32ch!!";
-    RETRY_DELAYS3 = [1e3, 2e3];
-    RETRYABLE_STATUSES3 = /* @__PURE__ */ new Set([429, 500, 502, 503, 504]);
-    TastyTradeService = class {
-      baseUrl;
-      username;
-      password;
-      sessionToken = null;
-      tokenExpiresAt = null;
-      accountNumber = null;
-      constructor(accountType, username, password) {
-        this.baseUrl = accountType === "sandbox" ? "https://api.cert.tastyworks.com" : "https://api.tastyworks.com";
-        this.username = username;
-        this.password = password;
-      }
-      getResolvedAccountNumber() {
-        return this.accountNumber;
-      }
-      setSession(sessionToken, expiresAt) {
-        this.sessionToken = sessionToken;
-        this.tokenExpiresAt = expiresAt || null;
-      }
-      async ensureAuthenticated() {
-        if (this.sessionToken && this.tokenExpiresAt && this.tokenExpiresAt.getTime() - Date.now() > 6e4) {
-          return;
-        }
-        await this.login();
-      }
-      async request(path20, init = {}, attempt = 0) {
-        await this.ensureAuthenticated();
-        const response = await fetch(`${this.baseUrl}${path20}`, {
-          ...init,
-          headers: {
-            "Authorization": this.sessionToken || "",
-            "Content-Type": "application/json",
-            ...init.headers || {}
-          },
-          signal: AbortSignal.timeout(12e3)
-        });
-        if (!response.ok && RETRYABLE_STATUSES3.has(response.status) && attempt < RETRY_DELAYS3.length) {
-          await new Promise((r) => setTimeout(r, RETRY_DELAYS3[attempt]));
-          return this.request(path20, init, attempt + 1);
-        }
-        return response;
-      }
-      async login() {
-        const response = await fetch(`${this.baseUrl}/sessions`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ login: this.username, password: this.password, "remember-me": true }),
-          signal: AbortSignal.timeout(12e3)
-        });
-        if (!response.ok) {
-          const text2 = await response.text();
-          throw new Error(`TastyTrade login failed: ${response.status} - ${text2}`);
-        }
-        const data = await response.json();
-        const token = data.data?.["session-token"];
-        if (!token) throw new Error("TastyTrade login response missing session-token");
-        this.sessionToken = token;
-        this.tokenExpiresAt = new Date(Date.now() + 24 * 60 * 60 * 1e3);
-        return {
-          sessionToken: token,
-          rememberToken: data.data?.["remember-token"],
-          expiresIn: 24 * 60 * 60
-        };
-      }
-      // "Authenticate" = log in, then resolve + verify the first account works.
-      async authenticate() {
-        await this.login();
-        const info2 = await this.getAccountInfo();
-        this.accountNumber = info2.accountNumber;
-        return info2;
-      }
-      async getAccountInfo() {
-        const accountsRes = await this.request("/customers/me/accounts");
-        if (!accountsRes.ok) {
-          const text2 = await accountsRes.text();
-          throw new Error(`TastyTrade accounts fetch failed: ${accountsRes.status} - ${text2}`);
-        }
-        const accountsData = await accountsRes.json();
-        const items = accountsData.data?.items || [];
-        if (items.length === 0) throw new Error("TastyTrade account has no linked brokerage accounts");
-        const accountNumber = items[0].account["account-number"];
-        const balancesRes = await this.request(`/accounts/${accountNumber}/balances`);
-        if (!balancesRes.ok) {
-          const text2 = await balancesRes.text();
-          throw new Error(`TastyTrade balances fetch failed: ${balancesRes.status} - ${text2}`);
-        }
-        const balances = (await balancesRes.json()).data;
-        return {
-          accountNumber,
-          balance: parseFloat(balances["cash-balance"] ?? "0"),
-          equity: parseFloat(balances["net-liquidating-value"] ?? "0"),
-          buyingPower: parseFloat(balances["derivative-buying-power"] ?? balances["equity-buying-power"] ?? "0"),
-          optionBuyingPower: parseFloat(balances["derivative-buying-power"] ?? "0"),
-          currency: "USD"
-        };
-      }
-      async getOptionsChain(underlyingSymbol) {
-        const response = await this.request(`/option-chains/${encodeURIComponent(underlyingSymbol)}/nested`);
-        if (!response.ok) {
-          const text2 = await response.text();
-          throw new Error(`TastyTrade options chain fetch failed: ${response.status} - ${text2}`);
-        }
-        const data = await response.json();
-        const expirations = data.data?.items?.[0]?.expirations || [];
-        const contracts = [];
-        for (const exp of expirations) {
-          for (const strike of exp.strikes || []) {
-            if (strike.call) {
-              contracts.push({
-                symbol: strike.call,
-                underlyingSymbol,
-                expirationDate: exp["expiration-date"],
-                strikePrice: parseFloat(strike["strike-price"]),
-                type: "call"
-              });
-            }
-            if (strike.put) {
-              contracts.push({
-                symbol: strike.put,
-                underlyingSymbol,
-                expirationDate: exp["expiration-date"],
-                strikePrice: parseFloat(strike["strike-price"]),
-                type: "put"
-              });
-            }
-          }
-        }
-        return contracts;
-      }
-      async placeOrder(order) {
-        if (!this.accountNumber) throw new Error("TastyTrade account not resolved \u2014 call authenticate() first");
-        const response = await this.request(`/accounts/${this.accountNumber}/orders`, {
-          method: "POST",
-          body: JSON.stringify({
-            "order-type": order.type === "market" ? "Market" : "Limit",
-            "time-in-force": order.timeInForce === "gtc" ? "GTC" : "Day",
-            ...order.type === "limit" && order.limitPrice ? { price: order.limitPrice, "price-effect": order.side === "buy" ? "Debit" : "Credit" } : {},
-            legs: [{
-              "instrument-type": "Equity Option",
-              symbol: order.optionSymbol,
-              quantity: order.quantity,
-              action: order.side === "buy" ? "Buy to Open" : "Sell to Close"
-            }]
-          })
-        });
-        if (!response.ok) {
-          const text2 = await response.text();
-          throw new Error(`TastyTrade order placement failed: ${response.status} - ${text2}`);
-        }
-        const data = await response.json();
-        return {
-          orderId: String(data.data?.order?.id ?? ""),
-          status: data.data?.order?.status ?? "unknown"
-        };
-      }
-    };
-  }
-});
-
-// server/services/cred-store.ts
-var cred_store_exports = {};
-__export(cred_store_exports, {
-  backupDurableFile: () => backupDurableFile,
-  restoreDurableFiles: () => restoreDurableFiles
-});
-import * as fs4 from "fs";
-import * as path4 from "path";
-function ensureTable() {
-  if (!tableReady) {
-    tableReady = pool.query(`CREATE TABLE IF NOT EXISTS durable_files (
-        name        text PRIMARY KEY,
-        content     text NOT NULL,
-        updated_at  timestamptz NOT NULL DEFAULT now()
-      )`).then(() => void 0).catch((e) => {
-      console.error("[cred-store] ensureTable failed (non-fatal):", e?.message);
-      tableReady = null;
-    });
-  }
-  return tableReady;
-}
-async function restoreDurableFiles() {
-  try {
-    await ensureTable();
-    if (!fs4.existsSync(DATA_DIR)) fs4.mkdirSync(DATA_DIR, { recursive: true });
-    const { rows } = await pool.query("SELECT name, content FROM durable_files");
-    for (const r of rows) {
-      if (!DURABLE_FILES.includes(r.name)) continue;
-      const fp = path4.join(DATA_DIR, r.name);
-      const existing = fs4.existsSync(fp) ? fs4.readFileSync(fp, "utf-8").trim() : "";
-      if (!existing || existing === "{}") {
-        fs4.writeFileSync(fp, r.content);
-        console.log(`[cred-store] restored ${r.name} from DB (${r.content.length} bytes)`);
-      }
-    }
-  } catch (e) {
-    console.error("[cred-store] restore failed (non-fatal):", e?.message);
-  }
-}
-function backupDurableFile(name, content) {
-  ensureTable().then(
-    () => pool.query(
-      `INSERT INTO durable_files (name, content, updated_at)
-         VALUES ($1, $2, now())
-         ON CONFLICT (name) DO UPDATE SET content = EXCLUDED.content, updated_at = now()`,
-      [name, content]
-    )
-  ).catch((e) => console.error(`[cred-store] backup ${name} failed (non-fatal):`, e?.message));
-}
-var DATA_DIR, DURABLE_FILES, tableReady;
-var init_cred_store = __esm({
-  "server/services/cred-store.ts"() {
-    "use strict";
-    init_db();
-    DATA_DIR = path4.join(process.cwd(), "data");
-    DURABLE_FILES = [
-      "kalshi_credentials.json",
-      "polymarket_us.json",
-      "polymarket_keys.json",
-      // Polygon private key for live Polymarket (CLOB) trading
-      "polymarket_wallets.json",
-      // saved Polygon deposit address (public, lower severity, but still lost on deploy otherwise)
-      "kalshi_performance.json"
-      // per-strategy win-rate history feeding Brain Learning Mode / Kelly sizing
-    ];
-    tableReady = null;
-  }
-});
-
-// server/services/vedd-token-service.ts
-var vedd_token_service_exports = {};
-__export(vedd_token_service_exports, {
-  DAILY_VEDD_CAP: () => DAILY_VEDD_CAP2,
-  VeddTokenService: () => VeddTokenService,
-  WEEKLY_VEDD_CAP: () => WEEKLY_VEDD_CAP2,
-  veddTokenService: () => veddTokenService
-});
-import { Connection, PublicKey, Keypair, Transaction, sendAndConfirmTransaction } from "@solana/web3.js";
-import { getAssociatedTokenAddress, createTransferInstruction, TOKEN_PROGRAM_ID, getOrCreateAssociatedTokenAccount } from "@solana/spl-token";
-import { eq as eq8, and as and6, sql as sql7, desc as desc2, isNull as isNull2, gte as gte5 } from "drizzle-orm";
-function getConnection() {
-  if (!connection) {
-    connection = new Connection(SOLANA_RPC_URL, "confirmed");
-  }
-  return connection;
-}
-function getPoolKeypair() {
-  if (!poolKeypair && POOL_WALLET_PRIVATE_KEY) {
-    try {
-      const secretKey = JSON.parse(POOL_WALLET_PRIVATE_KEY);
-      poolKeypair = Keypair.fromSecretKey(Uint8Array.from(secretKey));
-    } catch (error) {
-      console.error("Failed to parse pool wallet private key:", error);
-    }
-  }
-  return poolKeypair;
-}
-var VEDD_TOKEN_MINT, SOLANA_RPC_URL, POOL_WALLET_PRIVATE_KEY, DAILY_VEDD_CAP2, WEEKLY_VEDD_CAP2, connection, poolKeypair, VeddTokenService, veddTokenService;
-var init_vedd_token_service = __esm({
-  "server/services/vedd-token-service.ts"() {
-    "use strict";
-    init_db();
-    init_schema();
-    VEDD_TOKEN_MINT = process.env.VEDD_TOKEN_MINT || "";
-    SOLANA_RPC_URL = process.env.SOLANA_RPC_URL || "https://api.mainnet-beta.solana.com";
-    POOL_WALLET_PRIVATE_KEY = process.env.POOL_WALLET_PRIVATE_KEY;
-    DAILY_VEDD_CAP2 = 500;
-    WEEKLY_VEDD_CAP2 = 2e3;
-    connection = null;
-    poolKeypair = null;
-    VeddTokenService = class {
-      async getPoolWalletInfo(walletType = "rewards") {
-        const [wallet] = await db.select().from(veddPoolWallets).where(and6(
-          eq8(veddPoolWallets.walletType, walletType),
-          eq8(veddPoolWallets.status, "active")
-        )).limit(1);
-        if (!wallet) return null;
-        return {
-          id: wallet.id,
-          label: wallet.label,
-          publicKey: wallet.publicKey,
-          walletType: wallet.walletType,
-          status: wallet.status,
-          tokenBalance: wallet.tokenBalance || 0,
-          lowBalanceThreshold: wallet.lowBalanceThreshold || 1e3,
-          isLowBalance: (wallet.tokenBalance || 0) < (wallet.lowBalanceThreshold || 1e3)
-        };
-      }
-      async syncPoolBalance(walletId) {
-        const conn = getConnection();
-        const [wallet] = await db.select().from(veddPoolWallets).where(eq8(veddPoolWallets.id, walletId)).limit(1);
-        if (!wallet || !VEDD_TOKEN_MINT) return 0;
-        try {
-          const walletPubkey = new PublicKey(wallet.publicKey);
-          const mintPubkey = new PublicKey(VEDD_TOKEN_MINT);
-          const tokenAccount = await getAssociatedTokenAddress(mintPubkey, walletPubkey);
-          const accountInfo = await conn.getTokenAccountBalance(tokenAccount);
-          const balance = parseFloat(accountInfo.value.uiAmountString || "0");
-          await db.update(veddPoolWallets).set({
-            tokenBalance: balance,
-            lastSyncAt: /* @__PURE__ */ new Date()
-          }).where(eq8(veddPoolWallets.id, walletId));
-          return balance;
-        } catch (error) {
-          console.error("Failed to sync pool balance:", error);
-          return wallet.tokenBalance || 0;
-        }
-      }
-      async getRewardConfig(actionType) {
-        const [config] = await db.select().from(veddRewardConfig).where(and6(
-          eq8(veddRewardConfig.actionType, actionType),
-          eq8(veddRewardConfig.isActive, true)
-        )).limit(1);
-        if (!config) return null;
-        return {
-          baseAmount: config.baseAmount,
-          streakMultiplier: config.streakMultiplier || 1,
-          maxDailyRewards: config.maxDailyRewards || 5,
-          requiresVerification: config.requiresVerification || false
-        };
-      }
-      /** Sum all VEDD earned today (midnight to now) for a user */
-      async getDailyTotalEarned(userId) {
-        const todayStart = /* @__PURE__ */ new Date();
-        todayStart.setHours(0, 0, 0, 0);
-        const rows = await db.select({ total: sql7`coalesce(sum(total_reward), 0)` }).from(ambassadorActionRewards).where(and6(
-          eq8(ambassadorActionRewards.userId, userId),
-          gte5(ambassadorActionRewards.createdAt, todayStart)
-        ));
-        return Number(rows[0]?.total || 0);
-      }
-      /** Sum all VEDD earned this calendar week (Mon 00:00 to now) for a user */
-      async getWeeklyTotalEarned(userId) {
-        const now = /* @__PURE__ */ new Date();
-        const day = now.getDay();
-        const diffToMon = day === 0 ? -6 : 1 - day;
-        const weekStart = new Date(now);
-        weekStart.setDate(now.getDate() + diffToMon);
-        weekStart.setHours(0, 0, 0, 0);
-        const rows = await db.select({ total: sql7`coalesce(sum(total_reward), 0)` }).from(ambassadorActionRewards).where(and6(
-          eq8(ambassadorActionRewards.userId, userId),
-          gte5(ambassadorActionRewards.createdAt, weekStart)
-        ));
-        return Number(rows[0]?.total || 0);
-      }
-      async calculateReward(actionType, userId) {
-        const config = await this.getRewardConfig(actionType);
-        if (!config) return null;
-        const todayStart = /* @__PURE__ */ new Date();
-        todayStart.setHours(0, 0, 0, 0);
-        const todaysRewards = await db.select({ count: sql7`count(*)` }).from(ambassadorActionRewards).where(and6(
-          eq8(ambassadorActionRewards.userId, userId),
-          eq8(ambassadorActionRewards.actionType, actionType),
-          gte5(ambassadorActionRewards.createdAt, todayStart)
-        ));
-        const rewardCount = todaysRewards[0]?.count || 0;
-        if (rewardCount >= config.maxDailyRewards) {
-          return null;
-        }
-        const dailyTotal = await this.getDailyTotalEarned(userId);
-        if (dailyTotal >= DAILY_VEDD_CAP2) {
-          console.log(`[VEDD] User ${userId} hit daily cap (${dailyTotal}/${DAILY_VEDD_CAP2})`);
-          return null;
-        }
-        const weeklyTotal = await this.getWeeklyTotalEarned(userId);
-        if (weeklyTotal >= WEEKLY_VEDD_CAP2) {
-          console.log(`[VEDD] User ${userId} hit weekly cap (${weeklyTotal}/${WEEKLY_VEDD_CAP2})`);
-          return null;
-        }
-        const tenMinsAgo = new Date(Date.now() - 10 * 60 * 1e3);
-        const recentBurst = await db.select({ count: sql7`count(*)` }).from(ambassadorActionRewards).where(and6(
-          eq8(ambassadorActionRewards.userId, userId),
-          eq8(ambassadorActionRewards.actionType, actionType),
-          gte5(ambassadorActionRewards.createdAt, tenMinsAgo)
-        ));
-        const burstCount = recentBurst[0]?.count || 0;
-        const securityFlag = burstCount >= 3 ? "velocity" : void 0;
-        const remaining = DAILY_VEDD_CAP2 - dailyTotal;
-        const baseReward = Math.min(config.baseAmount, remaining);
-        const mult = config.streakMultiplier ?? 1;
-        let bonusReward = 0;
-        if (mult > 1 && baseReward > 0) {
-          const now = /* @__PURE__ */ new Date();
-          const startToday = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()));
-          const startYesterday = new Date(startToday.getTime() - 24 * 60 * 60 * 1e3);
-          const [prev] = await db.select({ c: sql7`count(*)` }).from(ambassadorActionRewards).where(and6(
-            eq8(ambassadorActionRewards.userId, userId),
-            eq8(ambassadorActionRewards.actionType, actionType),
-            gte5(ambassadorActionRewards.createdAt, startYesterday),
-            sql7`${ambassadorActionRewards.createdAt} < ${startToday}`
-          ));
-          if ((prev?.c || 0) > 0) bonusReward = Math.round(baseReward * (mult - 1));
-        }
-        const totalReward = Math.min(baseReward + bonusReward, remaining);
-        bonusReward = Math.max(0, totalReward - baseReward);
-        return { baseReward, bonusReward, totalReward, securityFlag };
-      }
-      async enqueueReward(userId, actionType, actionId, metadata) {
-        const [user] = await db.select().from(users).where(eq8(users.id, userId)).limit(1);
-        if (!user) {
-          console.log(`User ${userId} not found - cannot enqueue reward`);
-          return null;
-        }
-        const hasWallet = !!user.walletAddress;
-        const userRecord = await db.select({ walletAddress: users.walletAddress }).from(users).where(eq8(users.id, userId)).limit(1);
-        const walletAddr = userRecord[0]?.walletAddress;
-        if (walletAddr) {
-          const [blacklisted] = await db.select({ id: veddWalletBlacklist.id }).from(veddWalletBlacklist).where(and6(eq8(veddWalletBlacklist.walletAddress, walletAddr), eq8(veddWalletBlacklist.isActive, true))).limit(1);
-          if (blacklisted) {
-            console.warn(`[VEDD Security] Blocked reward for blacklisted wallet: ${walletAddr} (userId: ${userId})`);
-            return null;
-          }
-        }
-        const rewardCalc = await this.calculateReward(actionType, userId);
-        if (!rewardCalc) {
-          console.log(`No reward available for user ${userId} action ${actionType} - daily limit reached or config missing`);
-          return null;
-        }
-        const config = await this.getRewardConfig(actionType);
-        if (!config) return null;
-        const poolWallet = await this.getPoolWalletInfo("rewards");
-        if (!poolWallet || poolWallet.status !== "active") {
-          console.log("No active pool wallet available");
-          return null;
-        }
-        const idempotencyKey = `${userId}-${actionType}-${actionId || "none"}-${Date.now()}`;
-        const [reward] = await db.insert(ambassadorActionRewards).values({
-          userId,
-          actionType,
-          actionId,
-          baseReward: rewardCalc.baseReward,
-          bonusReward: rewardCalc.bonusReward,
-          totalReward: rewardCalc.totalReward,
-          verificationStatus: "pending",
-          verifiedAt: null,
-          notes: hasWallet ? "Pending admin verification" : "Pending admin verification and wallet connection",
-          securityFlag: rewardCalc.securityFlag || null
-        }).returning();
-        return { rewardId: reward.id, pendingVerification: true, pendingWallet: !hasWallet };
-      }
-      async processTransfer(jobId) {
-        const [job] = await db.select().from(veddTransferJobs).where(eq8(veddTransferJobs.id, jobId)).limit(1);
-        if (!job) {
-          return { success: false, error: "Job not found" };
-        }
-        if (job.status === "completed") {
-          return { success: true, transactionSig: job.solanaTransactionSig || void 0 };
-        }
-        if (job.status === "processing") {
-          return { success: false, error: "Transfer already in progress" };
-        }
-        const MAX_SINGLE_TRANSFER = 1e3;
-        if (job.amount > MAX_SINGLE_TRANSFER) {
-          console.warn(`[VEDD Security] Transfer amount ${job.amount} exceeds MAX_SINGLE_TRANSFER (${MAX_SINGLE_TRANSFER}). Requires manual review.`);
-          await db.update(veddTransferJobs).set({ status: "failed", errorMessage: `Amount ${job.amount} exceeds security limit of ${MAX_SINGLE_TRANSFER} VEDD per transfer. Admin must manually approve.` }).where(eq8(veddTransferJobs.id, jobId));
-          return { success: false, error: "Transfer blocked by security limit" };
-        }
-        if (!VEDD_TOKEN_MINT || !POOL_WALLET_PRIVATE_KEY) {
-          console.error("CRITICAL: Missing Solana credentials - VEDD_TOKEN_MINT or POOL_WALLET_PRIVATE_KEY not configured");
-          await db.update(veddTransferJobs).set({
-            status: "failed",
-            errorMessage: "Solana credentials not configured. Please set VEDD_TOKEN_MINT and POOL_WALLET_PRIVATE_KEY environment variables.",
-            processedAt: /* @__PURE__ */ new Date()
-          }).where(eq8(veddTransferJobs.id, jobId));
-          return {
-            success: false,
-            error: "Token transfer system not configured. Reward is pending - tokens will be sent once configuration is complete."
-          };
-        }
-        const [poolWallet] = await db.select().from(veddPoolWallets).where(and6(eq8(veddPoolWallets.walletType, "rewards"), eq8(veddPoolWallets.status, "active"))).limit(1);
-        if (poolWallet && (poolWallet.tokenBalance || 0) < job.amount) {
-          await db.update(veddTransferJobs).set({ status: "pending", errorMessage: `Pool balance ${poolWallet.tokenBalance ?? 0} below reward ${job.amount} \u2014 held until the pool is refilled.` }).where(eq8(veddTransferJobs.id, jobId));
-          return { success: false, error: "Insufficient pool balance \u2014 reward held pending." };
-        }
-        await db.update(veddTransferJobs).set({ status: "processing" }).where(eq8(veddTransferJobs.id, jobId));
-        try {
-          const keypair = getPoolKeypair();
-          if (!keypair) {
-            throw new Error("Pool wallet keypair not available");
-          }
-          const conn = getConnection();
-          const mintPubkey = new PublicKey(VEDD_TOKEN_MINT);
-          const destPubkey = new PublicKey(job.destinationWallet);
-          const sourceAta = await getAssociatedTokenAddress(mintPubkey, keypair.publicKey);
-          const destAta = await getOrCreateAssociatedTokenAccount(
-            conn,
-            keypair,
-            mintPubkey,
-            destPubkey
-          );
-          const decimals = 9;
-          const amount = Math.floor(job.amount * Math.pow(10, decimals));
-          const transaction = new Transaction().add(
-            createTransferInstruction(
-              sourceAta,
-              destAta.address,
-              keypair.publicKey,
-              amount,
-              [],
-              TOKEN_PROGRAM_ID
-            )
-          );
-          const signature = await sendAndConfirmTransaction(conn, transaction, [keypair]);
-          await db.update(veddTransferJobs).set({
-            status: "completed",
-            solanaTransactionSig: signature,
-            processedAt: /* @__PURE__ */ new Date()
-          }).where(eq8(veddTransferJobs.id, jobId));
-          await db.update(users).set({
-            veddTokenBalance: sql7`COALESCE(${users.veddTokenBalance}, 0) + ${job.amount}`
-          }).where(eq8(users.id, job.userId));
-          await db.update(veddPoolWallets).set({ tokenBalance: sql7`GREATEST(0, COALESCE(${veddPoolWallets.tokenBalance}, 0) - ${job.amount})` }).where(and6(eq8(veddPoolWallets.walletType, "rewards"), eq8(veddPoolWallets.status, "active")));
-          return { success: true, transactionSig: signature };
-        } catch (error) {
-          const retryCount = (job.retryCount || 0) + 1;
-          const maxRetries = 3;
-          await db.update(veddTransferJobs).set({
-            status: retryCount >= maxRetries ? "failed" : "pending",
-            errorMessage: error.message,
-            retryCount
-          }).where(eq8(veddTransferJobs.id, jobId));
-          return { success: false, error: error.message };
-        }
-      }
-      async getUserRewardHistory(userId, limit = 50) {
-        const rewards = await db.select({
-          id: ambassadorActionRewards.id,
-          actionType: ambassadorActionRewards.actionType,
-          totalReward: ambassadorActionRewards.totalReward,
-          verificationStatus: ambassadorActionRewards.verificationStatus,
-          createdAt: ambassadorActionRewards.createdAt,
-          transferJobId: ambassadorActionRewards.transferJobId
-        }).from(ambassadorActionRewards).where(eq8(ambassadorActionRewards.userId, userId)).orderBy(desc2(ambassadorActionRewards.createdAt)).limit(limit);
-        const result = [];
-        for (const reward of rewards) {
-          let status = reward.verificationStatus;
-          let transactionSig;
-          if (reward.transferJobId) {
-            const [job] = await db.select().from(veddTransferJobs).where(eq8(veddTransferJobs.id, reward.transferJobId)).limit(1);
-            if (job) {
-              status = job.status;
-              transactionSig = job.solanaTransactionSig || void 0;
-            }
-          }
-          result.push({
-            id: reward.id,
-            actionType: reward.actionType,
-            totalReward: reward.totalReward,
-            status,
-            transactionSig,
-            createdAt: reward.createdAt
-          });
-        }
-        return result;
-      }
-      async getUserTotalEarnings(userId) {
-        const earnings = await db.select({
-          status: ambassadorActionRewards.verificationStatus,
-          total: sql7`SUM(${ambassadorActionRewards.totalReward})`
-        }).from(ambassadorActionRewards).where(eq8(ambassadorActionRewards.userId, userId)).groupBy(ambassadorActionRewards.verificationStatus);
-        let total = 0;
-        let pending = 0;
-        let completed = 0;
-        for (const row of earnings) {
-          const amount = row.total || 0;
-          total += amount;
-          if (row.status === "pending") pending += amount;
-          if (row.status === "verified") completed += amount;
-        }
-        return { total, pending, completed };
-      }
-      async verifyReward(rewardId, adminId, approved, notes) {
-        const [reward] = await db.select().from(ambassadorActionRewards).where(eq8(ambassadorActionRewards.id, rewardId)).limit(1);
-        if (!reward || reward.verificationStatus !== "pending") {
-          return false;
-        }
-        if (!approved) {
-          await db.update(ambassadorActionRewards).set({
-            verificationStatus: "rejected",
-            verifiedBy: adminId,
-            verifiedAt: /* @__PURE__ */ new Date(),
-            notes
-          }).where(eq8(ambassadorActionRewards.id, rewardId));
-          return true;
-        }
-        const [user] = await db.select().from(users).where(eq8(users.id, reward.userId)).limit(1);
-        if (!user?.walletAddress) {
-          await db.update(ambassadorActionRewards).set({
-            verificationStatus: "verified",
-            verifiedBy: adminId,
-            verifiedAt: /* @__PURE__ */ new Date(),
-            notes: notes || "Verified - pending wallet connection for transfer"
-          }).where(eq8(ambassadorActionRewards.id, rewardId));
-          return true;
-        }
-        const poolWallet = await this.getPoolWalletInfo("rewards");
-        if (!poolWallet) {
-          await db.update(ambassadorActionRewards).set({
-            verificationStatus: "verified",
-            verifiedBy: adminId,
-            verifiedAt: /* @__PURE__ */ new Date(),
-            notes: notes || "Verified - pending pool wallet setup for transfer"
-          }).where(eq8(ambassadorActionRewards.id, rewardId));
-          return true;
-        }
-        const idempotencyKey = `reward-${rewardId}`;
-        const [transferJob] = await db.insert(veddTransferJobs).values({
-          userId: reward.userId,
-          sourceWalletId: poolWallet.id,
-          destinationWallet: user.walletAddress,
-          amount: reward.totalReward,
-          actionType: reward.actionType,
-          actionId: reward.actionId,
-          status: "pending",
-          idempotencyKey,
-          metadata: { verifiedBy: adminId }
-        }).onConflictDoNothing({ target: veddTransferJobs.idempotencyKey }).returning();
-        if (!transferJob) return true;
-        await db.update(ambassadorActionRewards).set({
-          verificationStatus: "verified",
-          verifiedBy: adminId,
-          verifiedAt: /* @__PURE__ */ new Date(),
-          transferJobId: transferJob.id,
-          notes
-        }).where(eq8(ambassadorActionRewards.id, rewardId));
-        this.processTransfer(transferJob.id).catch(
-          (err) => console.error("Background transfer processing error:", err)
-        );
-        return true;
-      }
-      async getPoolOverview() {
-        let poolInfos = [];
-        try {
-          const pools = await db.select().from(veddPoolWallets).where(eq8(veddPoolWallets.status, "active"));
-          poolInfos = pools.map((p) => ({
-            id: p.id,
-            label: p.label,
-            publicKey: p.publicKey,
-            walletType: p.walletType,
-            status: p.status,
-            tokenBalance: p.tokenBalance || 0,
-            lowBalanceThreshold: p.lowBalanceThreshold || 1e3,
-            isLowBalance: (p.tokenBalance || 0) < (p.lowBalanceThreshold || 1e3)
-          }));
-        } catch (err) {
-          console.error("[VEDD] getPoolOverview - pools fetch failed:", err);
-        }
-        let pendingTransfers = 0;
-        let completedTransfersToday = 0;
-        let totalDistributedToday = 0;
-        try {
-          const todayStart = /* @__PURE__ */ new Date();
-          todayStart.setHours(0, 0, 0, 0);
-          const [pendingResult] = await db.select({ count: sql7`count(*)` }).from(veddTransferJobs).where(eq8(veddTransferJobs.status, "pending"));
-          const [completedResult] = await db.select({
-            count: sql7`count(*)`,
-            total: sql7`COALESCE(SUM(${veddTransferJobs.amount}), 0)`
-          }).from(veddTransferJobs).where(and6(
-            eq8(veddTransferJobs.status, "completed"),
-            sql7`${veddTransferJobs.processedAt} >= ${todayStart}`
-          ));
-          pendingTransfers = pendingResult?.count || 0;
-          completedTransfersToday = completedResult?.count || 0;
-          totalDistributedToday = completedResult?.total || 0;
-        } catch (err) {
-          console.warn("[VEDD] getPoolOverview - transfer stats unavailable (table may not exist yet):", err?.message);
-        }
-        return { pools: poolInfos, pendingTransfers, completedTransfersToday, totalDistributedToday };
-      }
-      async initializePoolWallet(label, publicKey, walletType = "rewards") {
-        const [wallet] = await db.insert(veddPoolWallets).values({
-          label,
-          publicKey,
-          walletType,
-          status: "active",
-          tokenBalance: 0
-        }).returning();
-        return wallet.id;
-      }
-      async processWalletConnectedRewards(userId, walletAddress) {
-        const verifiedRewardsWithoutTransfer = await db.select().from(ambassadorActionRewards).where(and6(
-          eq8(ambassadorActionRewards.userId, userId),
-          eq8(ambassadorActionRewards.verificationStatus, "verified"),
-          isNull2(ambassadorActionRewards.transferJobId)
-        ));
-        if (verifiedRewardsWithoutTransfer.length === 0) {
-          return { processed: 0, errors: [] };
-        }
-        const poolWallet = await this.getPoolWalletInfo("rewards");
-        if (!poolWallet) {
-          return { processed: 0, errors: ["Pool wallet not configured"] };
-        }
-        let processed = 0;
-        const errors = [];
-        for (const reward of verifiedRewardsWithoutTransfer) {
-          try {
-            const idempotencyKey = `reward-${reward.id}`;
-            const [transferJob] = await db.insert(veddTransferJobs).values({
-              userId,
-              sourceWalletId: poolWallet.id,
-              destinationWallet: walletAddress,
-              amount: reward.totalReward,
-              actionType: reward.actionType,
-              actionId: reward.actionId,
-              status: "pending",
-              idempotencyKey,
-              metadata: { triggeredBy: "wallet_connection" }
-            }).onConflictDoNothing({ target: veddTransferJobs.idempotencyKey }).returning();
-            if (!transferJob) continue;
-            await db.update(ambassadorActionRewards).set({
-              transferJobId: transferJob.id,
-              notes: "Transfer job created on wallet connection"
-            }).where(eq8(ambassadorActionRewards.id, reward.id));
-            this.processTransfer(transferJob.id).catch(
-              (err) => console.error(`Background transfer error for job ${transferJob.id}:`, err)
-            );
-            processed++;
-          } catch (error) {
-            errors.push(`Reward ${reward.id}: ${error.message}`);
-          }
-        }
-        return { processed, errors };
-      }
-      /**
-       * Dual-track referral reward: logs the reward and, if the referrer has a
-       * connected Solana wallet + a live pool wallet, immediately fires an on-chain
-       * SPL token transfer in the background. In-app credit is always awarded by
-       * the caller via storage.addReferralCredits() — this method handles the
-       * on-chain side only.
-       *
-       * @param referrerId  - userId of the person who referred
-       * @param actionType  - 'referral_signup' | 'referral_subscription'
-       * @param amount      - VEDD tokens to transfer (e.g. 50 or 200)
-       */
-      async enqueueReferralReward(referrerId, actionType, amount) {
-        try {
-          const [referrer] = await db.select().from(users).where(eq8(users.id, referrerId)).limit(1);
-          if (!referrer) return;
-          const poolWallet = await this.getPoolWalletInfo("rewards");
-          const [reward] = await db.insert(ambassadorActionRewards).values({
-            userId: referrerId,
-            actionType,
-            baseReward: amount,
-            bonusReward: 0,
-            totalReward: amount,
-            verificationStatus: "auto_approved",
-            verifiedAt: /* @__PURE__ */ new Date(),
-            notes: `Auto-approved referral reward (${actionType})`
-          }).returning();
-          const walletAddr = referrer.walletAddress;
-          if (!walletAddr || !poolWallet) {
-            console.log(`[Referral Token] ${amount} VEDD reward logged for user ${referrerId} \u2014 wallet not connected, held pending`);
-            return;
-          }
-          const [blacklisted] = await db.select({ id: veddWalletBlacklist.id }).from(veddWalletBlacklist).where(and6(eq8(veddWalletBlacklist.walletAddress, walletAddr), eq8(veddWalletBlacklist.isActive, true))).limit(1);
-          if (blacklisted) {
-            console.warn(`[Referral Token] Blocked \u2014 blacklisted wallet: ${walletAddr} (userId: ${referrerId})`);
-            return;
-          }
-          const idempotencyKey = `reward-${reward.id}`;
-          const [transferJob] = await db.insert(veddTransferJobs).values({
-            userId: referrerId,
-            sourceWalletId: poolWallet.id,
-            destinationWallet: walletAddr,
-            amount,
-            actionType,
-            actionId: reward.id,
-            status: "pending",
-            idempotencyKey,
-            metadata: { referralReward: true, autoApproved: true }
-          }).onConflictDoNothing({ target: veddTransferJobs.idempotencyKey }).returning();
-          if (!transferJob) return;
-          this.processTransfer(transferJob.id).then((result) => {
-            if (result.success) {
-              console.log(`[Referral Token] \u2713 Sent ${amount} VEDD to ${walletAddr} \u2014 tx: ${result.transactionSig}`);
-            } else {
-              console.error(`[Referral Token] Transfer failed for user ${referrerId}: ${result.error}`);
-            }
-          }).catch((err) => console.error("[Referral Token] processTransfer error:", err));
-        } catch (err) {
-          console.error("[Referral Token] enqueueReferralReward error:", err);
-        }
-      }
-    };
-    veddTokenService = new VeddTokenService();
-  }
-});
-
-// server/tradovate.ts
-function getCacheKey(userId, accountType) {
-  return `${userId}:${accountType}`;
-}
-async function getOrCreateTradovateService(userId, username, encryptedPassword, accountType, accountId, cachedToken, tokenExpiresAt) {
-  const cacheKey = getCacheKey(userId, accountType);
-  const cached2 = serviceCache2.get(cacheKey);
-  if (cached2 && Date.now() - cached2.cachedAt.getTime() < CACHE_TTL_MS3) {
-    return cached2.service;
-  }
-  const { decryptPassword: decryptPassword4 } = await Promise.resolve().then(() => (init_tradelocker(), tradelocker_exports));
-  const password = decryptPassword4(encryptedPassword);
-  const svc = new TradovateService(accountType);
-  svc.setCredentials(username, password);
-  if (accountId) svc.setAccountId(parseInt(accountId, 10));
-  if (cachedToken && tokenExpiresAt && tokenExpiresAt.getTime() - Date.now() > 5 * 60 * 1e3) {
-    svc.setToken(cachedToken, tokenExpiresAt);
-  } else {
-    await svc.authenticate(username, password);
-  }
-  serviceCache2.set(cacheKey, { service: svc, cachedAt: /* @__PURE__ */ new Date() });
-  return svc;
-}
-async function executeFuturesSignal(connection2, signal) {
-  try {
-    const { decryptPassword: decryptPassword4 } = await Promise.resolve().then(() => (init_tradelocker(), tradelocker_exports));
-    const password = decryptPassword4(connection2.encryptedPassword);
-    const svc = await getOrCreateTradovateService(
-      connection2.userId || 0,
-      connection2.username,
-      connection2.encryptedPassword,
-      connection2.accountType,
-      connection2.accountId,
-      connection2.accessToken,
-      connection2.tokenExpiresAt
-    );
-    const { contractId, name: contractName } = await svc.resolveContractId(signal.symbol);
-    const account = await svc.getAccount();
-    const accountId = account.id;
-    if (signal.action === "CLOSE") {
-      const closed = await svc.liquidatePosition(accountId, contractId);
-      return { success: closed };
-    }
-    const order = {
-      accountId,
-      contractId,
-      symbol: contractName,
-      action: signal.direction === "BUY" ? "Buy" : "Sell",
-      orderQty: signal.contracts,
-      orderType: "Market",
-      timeInForce: "Day"
-    };
-    const result = await svc.placeOrder(order);
-    if (result.orderId && (signal.stopLoss || signal.takeProfit)) {
-      console.log(`[Tradovate] Order ${result.orderId} filled. SL: ${signal.stopLoss}, TP: ${signal.takeProfit} \u2014 bracket implementation in Phase 2`);
-    }
-    return { success: true, orderId: result.orderId };
-  } catch (error) {
-    console.error("[Tradovate] executeFuturesSignal error:", error);
-    return { success: false, error: error.message || "Unknown error" };
-  }
-}
-var TradovateService, serviceCache2, CACHE_TTL_MS3;
-var init_tradovate = __esm({
-  "server/tradovate.ts"() {
-    "use strict";
-    init_tradelocker();
-    TradovateService = class {
-      baseUrl;
-      mdUrl;
-      // market data endpoint
-      accessToken = null;
-      tokenExpiresAt = null;
-      accountId = null;
-      username = "";
-      password = "";
-      onTokenRefresh = null;
-      // Contract ID cache: root symbol → { contractId, name, cachedAt }
-      contractCache = /* @__PURE__ */ new Map();
-      constructor(accountType) {
-        if (accountType === "live") {
-          this.baseUrl = "https://live.tradovateapi.com/v1";
-          this.mdUrl = "https://md.tradovateapi.com/v1";
-        } else {
-          this.baseUrl = "https://demo.tradovateapi.com/v1";
-          this.mdUrl = "https://md.tradovateapi.com/v1";
-        }
-      }
-      setCredentials(username, password) {
-        this.username = username;
-        this.password = password;
-      }
-      setToken(accessToken, expiresAt) {
-        this.accessToken = accessToken;
-        this.tokenExpiresAt = expiresAt;
-      }
-      setAccountId(id) {
-        this.accountId = id;
-      }
-      async ensureAuthenticated() {
-        const now = /* @__PURE__ */ new Date();
-        if (!this.accessToken || !this.tokenExpiresAt || this.tokenExpiresAt.getTime() - now.getTime() < 5 * 60 * 1e3) {
-          if (!this.username || !this.password) {
-            throw new Error("No credentials set for Tradovate re-authentication");
-          }
-          await this.authenticate(this.username, this.password);
-        }
-      }
-      async authenticate(username, password) {
-        this.username = username;
-        this.password = password;
-        const body = {
-          name: username,
-          password,
-          appId: process.env.TRADOVATE_APP_ID || "VEDD",
-          appVersion: "1.0",
-          cid: process.env.TRADOVATE_CID ? parseInt(process.env.TRADOVATE_CID, 10) : 0,
-          sec: process.env.TRADOVATE_SEC || ""
-        };
-        const response = await fetch(`${this.baseUrl}/auth/accesstokenrequest`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json", "Accept": "application/json" },
-          body: JSON.stringify(body)
-        });
-        if (!response.ok) {
-          const text2 = await response.text();
-          throw new Error(`Tradovate auth HTTP ${response.status}: ${text2}`);
-        }
-        const data = await response.json();
-        if (!data.accessToken || data.p === "error") {
-          throw new Error(data.d || "Tradovate authentication failed");
-        }
-        const expiresAt = data.expirationTime ? new Date(data.expirationTime) : new Date(Date.now() + 75 * 60 * 1e3);
-        this.accessToken = data.accessToken;
-        this.tokenExpiresAt = expiresAt;
-        if (this.onTokenRefresh) {
-          this.onTokenRefresh(data.accessToken, expiresAt);
-        }
-        return data;
-      }
-      async get(path20) {
-        await this.ensureAuthenticated();
-        const response = await fetch(`${this.baseUrl}${path20}`, {
-          headers: { "Authorization": `Bearer ${this.accessToken}`, "Accept": "application/json" }
-        });
-        if (!response.ok) {
-          const text2 = await response.text();
-          throw new Error(`Tradovate GET ${path20} failed (${response.status}): ${text2}`);
-        }
-        return response.json();
-      }
-      async post(path20, body) {
-        await this.ensureAuthenticated();
-        const response = await fetch(`${this.baseUrl}${path20}`, {
-          method: "POST",
-          headers: {
-            "Authorization": `Bearer ${this.accessToken}`,
-            "Content-Type": "application/json",
-            "Accept": "application/json"
-          },
-          body: JSON.stringify(body)
-        });
-        if (!response.ok) {
-          const text2 = await response.text();
-          throw new Error(`Tradovate POST ${path20} failed (${response.status}): ${text2}`);
-        }
-        return response.json();
-      }
-      async getAccounts() {
-        const accounts = await this.get("/account/list");
-        return accounts.map((a) => ({
-          id: a.id,
-          name: a.name,
-          balance: a.cashBalance ?? 0,
-          openPnL: a.openPnL ?? 0,
-          closedPnL: a.closedPnL ?? 0,
-          equity: (a.cashBalance ?? 0) + (a.openPnL ?? 0),
-          marginUsed: a.initialMargin ?? 0,
-          availableMargin: a.availableFunds ?? 0,
-          currency: "USD"
-        }));
-      }
-      async getAccount() {
-        const accounts = await this.getAccounts();
-        if (accounts.length === 0) throw new Error("No Tradovate accounts found");
-        if (this.accountId) {
-          const match = accounts.find((a) => a.id === this.accountId);
-          if (match) return match;
-        }
-        return accounts[0];
-      }
-      async getPositions() {
-        const positions = await this.get("/position/list");
-        return positions.filter((p) => p.netPos !== 0).map((p) => ({
-          id: p.id,
-          contractId: p.contractId,
-          symbol: p.contract?.name || String(p.contractId),
-          netPos: p.netPos,
-          netPrice: p.netPrice ?? 0,
-          openPnL: p.openPnL ?? 0,
-          timeEntered: p.timestamp || (/* @__PURE__ */ new Date()).toISOString()
-        }));
-      }
-      async getFills(limit = 100) {
-        const fills = await this.get("/fill/list");
-        return fills.slice(0, limit);
-      }
-      async resolveContractId(rootSymbol) {
-        const cached2 = this.contractCache.get(rootSymbol.toUpperCase());
-        if (cached2 && Date.now() - cached2.cachedAt.getTime() < 10 * 60 * 1e3) {
-          return { contractId: cached2.contractId, name: cached2.name };
-        }
-        await this.ensureAuthenticated();
-        const response = await fetch(`${this.baseUrl}/contract/suggest?t=${rootSymbol}&l=5`, {
-          headers: { "Authorization": `Bearer ${this.accessToken}`, "Accept": "application/json" }
-        });
-        if (!response.ok) throw new Error(`Failed to resolve contract for ${rootSymbol}`);
-        const contracts = await response.json();
-        const active = contracts.filter((c) => !c.expired && c.name).sort((a, b) => {
-          const da = a.expirationDate ? new Date(a.expirationDate).getTime() : Infinity;
-          const db2 = b.expirationDate ? new Date(b.expirationDate).getTime() : Infinity;
-          return da - db2;
-        });
-        if (active.length === 0) throw new Error(`No active contracts found for ${rootSymbol}`);
-        const frontMonth = active[0];
-        const result = { contractId: frontMonth.id, name: frontMonth.name };
-        this.contractCache.set(rootSymbol.toUpperCase(), { ...result, cachedAt: /* @__PURE__ */ new Date() });
-        return result;
-      }
-      async placeOrder(order) {
-        const body = {
-          accountId: order.accountId,
-          contractId: order.contractId,
-          action: order.action,
-          orderQty: order.orderQty,
-          orderType: order.orderType,
-          price: order.price,
-          stopPrice: order.stopPrice,
-          timeInForce: order.timeInForce || "Day",
-          isAutomated: true
-        };
-        const result = await this.post("/order/placeorder", body);
-        if (result.failureReason) {
-          throw new Error(`Order rejected: ${result.failureReason}`);
-        }
-        return {
-          orderId: result.orderId || result.id,
-          status: result.orderStatus || "Working",
-          message: result.errorMessage
-        };
-      }
-      async cancelOrder(orderId) {
-        try {
-          await this.post("/order/cancelorder", { orderId });
-          return true;
-        } catch {
-          return false;
-        }
-      }
-      async liquidatePosition(accountId, contractId) {
-        try {
-          await this.post("/order/liquidateposition", { accountId, contractId, isAutomated: true });
-          return true;
-        } catch {
-          return false;
-        }
-      }
-    };
-    serviceCache2 = /* @__PURE__ */ new Map();
-    CACHE_TTL_MS3 = 50 * 60 * 1e3;
-  }
-});
-
-// server/futures-instruments.ts
-function getInstrument(symbol) {
-  return FUTURES_INSTRUMENTS[symbol.toUpperCase()];
-}
-function calculateContractRisk(symbol, entryPrice, stopLossPrice, contracts) {
-  const inst = getInstrument(symbol);
-  if (!inst) return { ticks: 0, dollarRisk: 0, pointsRisk: 0 };
-  const priceDiff = Math.abs(entryPrice - stopLossPrice);
-  const ticks = Math.round(priceDiff / inst.tickSize);
-  const dollarRisk = ticks * inst.tickValue * contracts;
-  return { ticks, dollarRisk, pointsRisk: priceDiff };
-}
-function calculateContractSize(symbol, accountBalance, riskPercent, entryPrice, stopLossPrice) {
-  const inst = getInstrument(symbol);
-  if (!inst) return 1;
-  const riskDollars = accountBalance * (riskPercent / 100);
-  const priceDiff = Math.abs(entryPrice - stopLossPrice);
-  if (priceDiff <= 0) return 1;
-  const ticks = Math.round(priceDiff / inst.tickSize);
-  const dollarRiskPerContract = ticks * inst.tickValue;
-  if (dollarRiskPerContract <= 0) return 1;
-  return Math.max(1, Math.floor(riskDollars / dollarRiskPerContract));
-}
-var FUTURES_INSTRUMENTS;
-var init_futures_instruments = __esm({
-  "server/futures-instruments.ts"() {
-    "use strict";
-    FUTURES_INSTRUMENTS = {
-      // ── Equity Index ───────────────────────────────────────────────────────────
-      NQ: { symbol: "NQ", tickSize: 0.25, tickValue: 5, pointValue: 20, exchange: "CME", description: "E-mini NASDAQ-100", microContract: false, standardContract: null, typicalDailyRange: 200, category: "equity" },
-      MNQ: { symbol: "MNQ", tickSize: 0.25, tickValue: 0.5, pointValue: 2, exchange: "CME", description: "Micro E-mini NASDAQ-100", microContract: true, standardContract: "NQ", typicalDailyRange: 200, category: "equity" },
-      ES: { symbol: "ES", tickSize: 0.25, tickValue: 12.5, pointValue: 50, exchange: "CME", description: "E-mini S&P 500", microContract: false, standardContract: null, typicalDailyRange: 50, category: "equity" },
-      MES: { symbol: "MES", tickSize: 0.25, tickValue: 1.25, pointValue: 5, exchange: "CME", description: "Micro E-mini S&P 500", microContract: true, standardContract: "ES", typicalDailyRange: 50, category: "equity" },
-      YM: { symbol: "YM", tickSize: 1, tickValue: 5, pointValue: 5, exchange: "CBOT", description: "E-mini Dow Jones 30", microContract: false, standardContract: null, typicalDailyRange: 300, category: "equity" },
-      MYM: { symbol: "MYM", tickSize: 1, tickValue: 0.5, pointValue: 0.5, exchange: "CBOT", description: "Micro E-mini Dow Jones 30", microContract: true, standardContract: "YM", typicalDailyRange: 300, category: "equity" },
-      RTY: { symbol: "RTY", tickSize: 0.1, tickValue: 5, pointValue: 50, exchange: "CME", description: "E-mini Russell 2000", microContract: false, standardContract: null, typicalDailyRange: 20, category: "equity" },
-      M2K: { symbol: "M2K", tickSize: 0.1, tickValue: 0.5, pointValue: 5, exchange: "CME", description: "Micro E-mini Russell 2000", microContract: true, standardContract: "RTY", typicalDailyRange: 20, category: "equity" },
-      // ── Metals ─────────────────────────────────────────────────────────────────
-      GC: { symbol: "GC", tickSize: 0.1, tickValue: 10, pointValue: 100, exchange: "COMEX", description: "Gold Futures", microContract: false, standardContract: null, typicalDailyRange: 25, category: "metal" },
-      MGC: { symbol: "MGC", tickSize: 0.1, tickValue: 1, pointValue: 10, exchange: "COMEX", description: "Micro Gold Futures", microContract: true, standardContract: "GC", typicalDailyRange: 25, category: "metal" },
-      SI: { symbol: "SI", tickSize: 5e-3, tickValue: 25, pointValue: 5e3, exchange: "COMEX", description: "Silver Futures", microContract: false, standardContract: null, typicalDailyRange: 0.5, category: "metal" },
-      SIL: { symbol: "SIL", tickSize: 5e-3, tickValue: 2.5, pointValue: 500, exchange: "COMEX", description: "Micro Silver Futures", microContract: true, standardContract: "SI", typicalDailyRange: 0.5, category: "metal" },
-      // ── Energy ─────────────────────────────────────────────────────────────────
-      CL: { symbol: "CL", tickSize: 0.01, tickValue: 10, pointValue: 1e3, exchange: "NYMEX", description: "Crude Oil Futures (WTI)", microContract: false, standardContract: null, typicalDailyRange: 2, category: "energy" },
-      MCL: { symbol: "MCL", tickSize: 0.01, tickValue: 1, pointValue: 100, exchange: "NYMEX", description: "Micro Crude Oil Futures", microContract: true, standardContract: "CL", typicalDailyRange: 2, category: "energy" },
-      NG: { symbol: "NG", tickSize: 1e-3, tickValue: 10, pointValue: 1e4, exchange: "NYMEX", description: "Natural Gas Futures", microContract: false, standardContract: null, typicalDailyRange: 0.1, category: "energy" },
-      // ── Treasury Rates ──────────────────────────────────────────────────────────
-      ZN: { symbol: "ZN", tickSize: 0.015625, tickValue: 15.625, pointValue: 1e3, exchange: "CBOT", description: "10-Year T-Note Futures", microContract: false, standardContract: null, typicalDailyRange: 0.5, category: "rates" },
-      ZB: { symbol: "ZB", tickSize: 0.03125, tickValue: 31.25, pointValue: 1e3, exchange: "CBOT", description: "30-Year T-Bond Futures", microContract: false, standardContract: null, typicalDailyRange: 1, category: "rates" }
-    };
-  }
-});
-
-// server/moomoo.ts
-function toFutuSymbol(symbol) {
-  return FUTU_SYMBOL_MAP[symbol] || symbol;
-}
-function getMoomooService(userId) {
-  return moomooServices.get(userId) || null;
-}
-function getOrCreateMoomooService(userId, connection2) {
-  const existing = moomooServices.get(userId);
-  if (existing) {
-    existing.updateConnection(connection2);
-    return existing;
-  }
-  const svc = new MoomooService(connection2);
-  moomooServices.set(userId, svc);
-  return svc;
-}
-function removeMoomooService(userId) {
-  moomooServices.delete(userId);
-}
-var FUTU_SYMBOL_MAP, moomooServices, MoomooService;
-var init_moomoo = __esm({
-  "server/moomoo.ts"() {
-    "use strict";
-    FUTU_SYMBOL_MAP = {
-      NQ: "NQmain",
-      MNQ: "MNQmain",
-      ES: "ESmain",
-      MES: "MESmain",
-      YM: "YMmain",
-      MYM: "MYMmain",
-      RTY: "RTYmain",
-      M2K: "M2Kmain",
-      GC: "GCmain",
-      MGC: "MGCmain",
-      SI: "SImain",
-      CL: "CLmain",
-      MCL: "MCLmain",
-      NG: "NGmain"
-    };
-    moomooServices = /* @__PURE__ */ new Map();
-    MoomooService = class {
-      connection;
-      connected = false;
-      orderCounter = 1e3;
-      constructor(connection2) {
-        this.connection = connection2;
-      }
-      updateConnection(connection2) {
-        this.connection = connection2;
-      }
-      isConnected() {
-        return this.connected;
-      }
-      isPaperMode() {
-        return this.connection.isPaper || process.env.MOOMOO_PAPER_MODE === "true";
-      }
-      // Test connectivity to OpenD or enable paper mode
-      async connect() {
-        if (this.isPaperMode()) {
-          this.connected = true;
-          return { success: true, isPaper: true };
-        }
-        try {
-          const url = this.connection.openDUrl || process.env.MOOMOO_OPEND_URL || "http://127.0.0.1:11111";
-          const res = await fetch(`${url}/v1/user/check`, {
-            method: "GET",
-            headers: { "Content-Type": "application/json" },
-            signal: AbortSignal.timeout(5e3)
-          });
-          if (res.ok) {
-            this.connected = true;
-            return { success: true, isPaper: false };
-          }
-          throw new Error(`OpenD returned ${res.status}`);
-        } catch (err) {
-          console.warn("[Moomoo] OpenD unreachable \u2014 switching to paper mode:", err.message);
-          this.connection.isPaper = true;
-          this.connected = true;
-          return { success: true, isPaper: true, error: `OpenD offline \u2014 paper mode active` };
-        }
-      }
-      async getAccountInfo() {
-        const isPaper = this.isPaperMode();
-        if (isPaper) {
-          return {
-            accountId: this.connection.accountId || "PAPER",
-            balance: 5e4,
-            equity: 5e4,
-            unrealizedPnl: 0,
-            marginUsed: 0,
-            availableMargin: 5e4,
-            currency: "USD",
-            isPaper: true
-          };
-        }
-        try {
-          const url = this.connection.openDUrl || process.env.MOOMOO_OPEND_URL || "http://127.0.0.1:11111";
-          const res = await fetch(`${url}/v1/accinfo/query`, {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ acc_id: parseInt(this.connection.accountId) || 0, acc_type: 1, currency: 1 }),
-            signal: AbortSignal.timeout(8e3)
-          });
-          if (!res.ok) throw new Error(`OpenD ${res.status}`);
-          const data = await res.json();
-          const info2 = data?.s2c?.acc_info_list?.[0];
-          if (!info2) throw new Error("No account info returned");
-          return {
-            accountId: this.connection.accountId,
-            balance: info2.cash || 0,
-            equity: info2.net_asset_val || 0,
-            unrealizedPnl: info2.unrealized_pl || 0,
-            marginUsed: info2.margin_call_margin || 0,
-            availableMargin: info2.avl_withdrawal_amount || 0,
-            currency: "USD",
-            isPaper: false
-          };
-        } catch (err) {
-          throw new Error(`Moomoo account info failed: ${err.message}`);
-        }
-      }
-      async placeOrder(req) {
-        const isPaper = this.isPaperMode();
-        const futuSymbol = toFutuSymbol(req.symbol);
-        const orderId = `MM${++this.orderCounter}`;
-        if (isPaper) {
-          console.log(`[Moomoo Paper] ${req.direction} ${req.contracts} ${futuSymbol} | SL=${req.stopLoss ?? "N/A"} TP=${req.takeProfit ?? "N/A"}`);
-          return { success: true, orderId: `${orderId}_PAPER`, isPaper: true };
-        }
-        try {
-          const url = this.connection.openDUrl || process.env.MOOMOO_OPEND_URL || "http://127.0.0.1:11111";
-          const body = {
-            header: { req_id: orderId },
-            acc_id: parseInt(this.connection.accountId) || 0,
-            sec_type: 5,
-            // futures
-            code: futuSymbol,
-            trd_side: req.direction === "BUY" ? 1 : 2,
-            order_type: 2,
-            // market order
-            qty: req.contracts,
-            price: 0,
-            // market price
-            trd_env: 1,
-            // real trading
-            remark: "VEDD_AUTO"
-          };
-          const res = await fetch(`${url}/v1/trade/place_order`, {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify(body),
-            signal: AbortSignal.timeout(1e4)
-          });
-          if (!res.ok) throw new Error(`OpenD ${res.status}`);
-          const data = await res.json();
-          const orderNum = data?.s2c?.order_id?.toString();
-          if (!orderNum) throw new Error(data?.retMsg || "No order ID returned");
-          return { success: true, orderId: orderNum, isPaper: false };
-        } catch (err) {
-          return { success: false, error: err.message };
-        }
-      }
-      // Options trading via OpenD sec_type=3. Requires OpenD to already have
-      // option quote/trade permissions enabled on the connected Futu account.
-      async getOptionsChain(underlyingCode) {
-        if (this.isPaperMode()) return [];
-        const url = this.connection.openDUrl || process.env.MOOMOO_OPEND_URL || "http://127.0.0.1:11111";
-        const res = await fetch(`${url}/v1/qot/get_option_chain`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ owner: { market: 11, code: underlyingCode } }),
-          // market 11 = US
-          signal: AbortSignal.timeout(1e4)
-        });
-        if (!res.ok) throw new Error(`OpenD ${res.status}`);
-        const data = await res.json();
-        return data?.s2c?.optionChain || [];
-      }
-      async placeOptionsOrder(req) {
-        const isPaper = this.isPaperMode();
-        const orderId = `MMOPT${++this.orderCounter}`;
-        if (isPaper) {
-          console.log(`[Moomoo Paper] OPTIONS ${req.direction} ${req.contracts}x ${req.optionCode}`);
-          return { success: true, orderId: `${orderId}_PAPER`, isPaper: true };
-        }
-        try {
-          const url = this.connection.openDUrl || process.env.MOOMOO_OPEND_URL || "http://127.0.0.1:11111";
-          const body = {
-            header: { req_id: orderId },
-            acc_id: parseInt(this.connection.accountId) || 0,
-            sec_type: 3,
-            // option
-            code: req.optionCode,
-            trd_side: req.direction === "BUY" ? 1 : 2,
-            order_type: req.orderType === "limit" ? 1 : 2,
-            qty: req.contracts,
-            price: req.orderType === "limit" ? req.limitPrice || 0 : 0,
-            trd_env: 1,
-            remark: "VEDD_AUTO_OPTIONS"
-          };
-          const res = await fetch(`${url}/v1/trade/place_order`, {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify(body),
-            signal: AbortSignal.timeout(1e4)
-          });
-          if (!res.ok) throw new Error(`OpenD ${res.status}`);
-          const data = await res.json();
-          const orderNum = data?.s2c?.order_id?.toString();
-          if (!orderNum) throw new Error(data?.retMsg || "No order ID returned");
-          return { success: true, orderId: orderNum, isPaper: false };
-        } catch (err) {
-          return { success: false, error: err.message };
-        }
-      }
-      async cancelOrder(orderId) {
-        if (this.isPaperMode()) return { success: true };
-        try {
-          const url = this.connection.openDUrl || process.env.MOOMOO_OPEND_URL || "http://127.0.0.1:11111";
-          const res = await fetch(`${url}/v1/trade/modify_order`, {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ order_id: parseInt(orderId) || 0, modify_order_op: 1, trd_env: 1 }),
-            signal: AbortSignal.timeout(8e3)
-          });
-          if (!res.ok) throw new Error(`OpenD ${res.status}`);
-          return { success: true };
-        } catch (err) {
-          return { success: false, error: err.message };
-        }
-      }
-    };
-  }
-});
-
-// server/services/futures-scanner.ts
-var futures_scanner_exports = {};
-__export(futures_scanner_exports, {
-  DEFAULT_FUTURES_SYMBOLS: () => DEFAULT_FUTURES_SYMBOLS,
-  buildFuturesScanConfigFromRow: () => buildFuturesScanConfigFromRow,
-  getFuturesScannerActivities: () => getFuturesScannerActivities,
-  getFuturesScannerSignals: () => getFuturesScannerSignals,
-  getFuturesScannerState: () => getFuturesScannerState,
-  recordFuturesTradeOutcome: () => recordFuturesTradeOutcome,
-  resumeActiveFuturesScanners: () => resumeActiveFuturesScanners,
-  startFuturesEngineScanner: () => startFuturesEngineScanner,
-  startFuturesScanner: () => startFuturesScanner,
-  stopFuturesScanner: () => stopFuturesScanner
-});
-function uid() {
-  return `${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
-}
-function addActivity2(userId, entry) {
-  const state = scannerStates[userId];
-  if (!state) return;
-  state.activities.unshift({ id: uid(), timestamp: (/* @__PURE__ */ new Date()).toISOString(), ...entry });
-  if (state.activities.length > MAX_ACTIVITIES) state.activities.length = MAX_ACTIVITIES;
-}
-function addSignal(userId, signal) {
-  const state = scannerStates[userId];
-  if (!state) return;
-  state.signals.unshift(signal);
-  if (state.signals.length > MAX_SIGNALS) state.signals.length = MAX_SIGNALS;
-}
-function convertToCandles2(bars) {
-  return bars.map((b) => ({ t: b.timestamp, o: b.open, h: b.high, l: b.low, c: b.close, v: b.volume }));
-}
-function getCurrentFuturesSession() {
-  const hour = (/* @__PURE__ */ new Date()).getUTCHours();
-  if (hour >= 14 && hour < 21) return "CME_RTH";
-  if (hour >= 8 && hour < 10) return "LONDON_OPEN";
-  if (hour >= 21 || hour < 2) return "AFTER_HOURS";
-  return "OVERNIGHT";
-}
-function getAdjustedMinConfidence(userId, symbol) {
-  const state = scannerStates[userId];
-  if (!state) return 65;
-  const perf = state.symbolPerformance[symbol];
-  if (!perf || perf.wins + perf.losses < 3) return state.config.minConfidence;
-  const winRate2 = perf.wins / (perf.wins + perf.losses);
-  if (winRate2 < 0.35) return Math.min(90, state.config.minConfidence + 10);
-  if (winRate2 > 0.65) return Math.max(55, state.config.minConfidence - 5);
-  return state.config.minConfidence;
-}
-function recordOutcome(userId, symbol, won, rMultiple2) {
-  const state = scannerStates[userId];
-  if (!state) return;
-  if (!state.symbolPerformance[symbol]) {
-    state.symbolPerformance[symbol] = { wins: 0, losses: 0, totalR: 0 };
-  }
-  const perf = state.symbolPerformance[symbol];
-  if (won) {
-    perf.wins++;
-    state.wins++;
-  } else {
-    perf.losses++;
-    state.losses++;
-  }
-  perf.totalR += rMultiple2;
-  addActivity2(userId, {
-    type: "info",
-    symbol,
-    message: `\u{1F4CA} Learning update: ${symbol} W:${perf.wins} L:${perf.losses} | AvgR:${(perf.totalR / (perf.wins + perf.losses)).toFixed(2)} | Session W:${state.wins} L:${state.losses}`
-  });
-}
-async function computeFuturesContractSize(userId, cfg, accountBalance, riskPerTradePct, entryPrice, stopLoss, symbol, signalScore = null) {
-  const baseContracts = Math.max(1, calculateContractSize(symbol, accountBalance, riskPerTradePct, entryPrice, stopLoss));
-  if (cfg.highConfidenceOverride && (signalScore ?? 0) >= 90) {
-    const kelly = cfg.useKellyCriterion ? await storage.getFuturesEngineTradeStats(userId) : null;
-    const qty = kelly ? Math.max(baseContracts, Math.round(baseContracts * (1 + kelly.winRate / 100 * 0.25))) : baseContracts;
-    return { contracts: qty, reasoning: `\u26A1 High Confidence Override: ${signalScore}/100 bypasses Brain Learning lock.` };
-  }
-  if (cfg.brainLearningMode) {
-    const stats = await storage.getFuturesEngineTradeStats(userId);
-    const brainLocked = stats.totalClosed < 10 || stats.winRate < 60;
-    if (brainLocked) {
-      return { contracts: 1, reasoning: `\u{1F9E0} Learning Mode: contracts locked at 1 (${stats.totalClosed}/10 trades, ${stats.winRate}%/60% WR).` };
-    }
-    if (cfg.useKellyCriterion) {
-      const fractionalKelly = stats.winRate / 100 * 0.25;
-      const kellyContracts = Math.max(baseContracts, Math.round(baseContracts * (1 + fractionalKelly)));
-      return { contracts: kellyContracts, reasoning: `\u{1F9E0} Brain unlocked (${stats.totalClosed} trades @ ${stats.winRate}% WR) + Kelly sizing.` };
-    }
-    return { contracts: baseContracts, reasoning: `\u{1F9E0} Brain unlocked (${stats.totalClosed} trades @ ${stats.winRate}% WR) \u2014 full risk sizing.` };
-  }
-  if (cfg.useKellyCriterion) {
-    const stats = await storage.getFuturesEngineTradeStats(userId);
-    const fractionalKelly = stats.winRate / 100 * 0.25;
-    const kellyContracts = Math.max(baseContracts, Math.round(baseContracts * (1 + fractionalKelly)));
-    return { contracts: kellyContracts, reasoning: `Kelly sizing (${stats.winRate}% WR over ${stats.totalClosed} trades).` };
-  }
-  return { contracts: baseContracts, reasoning: "" };
-}
-function computeFuturesTrailFloorR(cfg, peakR) {
-  switch (cfg.trailMethod) {
-    case "fixed_r":
-      return peakR - cfg.trailFixedR;
-    case "stepped_fixed": {
-      const steps = Math.floor(peakR / cfg.trailStepR);
-      return (steps - 1) * cfg.trailStepR;
-    }
-    case "profit_lock":
-      return peakR * (cfg.trailProfitLockPct / 100);
-    case "chandelier":
-      return peakR - cfg.trailFixedR * 1.5;
-    case "parabolic_sar": {
-      const af = Math.min(cfg.trailSarMaxAF, cfg.trailSarInitialAF + peakR / 1 * cfg.trailSarInitialAF);
-      return peakR * (1 - af);
-    }
-    case "r_multiple":
-      return cfg.trailActivationR + (peakR - cfg.trailActivationR) * 0.5;
-    case "swing_structure":
-      return peakR - cfg.trailFixedR * 0.75;
-    default:
-      return -Infinity;
-  }
-}
-async function monitorOpenFuturesPositions(userId, cfg) {
-  const openTrades = await storage.getOpenFuturesEngineTrades(userId);
-  if (openTrades.length === 0 || cfg.trailMethod === "none") return;
-  for (const trade of openTrades) {
-    try {
-      const result = await marketDataService.fetchMarketData({ symbol: trade.symbol, assetType: "futures", timeframe: "1m", limit: 2 });
-      const currentPrice = result.bars?.[result.bars.length - 1]?.close;
-      if (!currentPrice || !trade.stopLoss) continue;
-      const riskDistance = Math.abs(trade.entryPrice - trade.stopLoss);
-      if (riskDistance <= 0) continue;
-      const isLong = trade.direction === "long";
-      const currentR = isLong ? (currentPrice - trade.entryPrice) / riskDistance : (trade.entryPrice - currentPrice) / riskDistance;
-      const peakR = Math.max(trade.peakRMultiple, currentR);
-      const armed = trade.trailArmed || peakR >= cfg.trailActivationR;
-      if (armed) {
-        const rawFloor = computeFuturesTrailFloorR(cfg, peakR);
-        const floor = Math.max(rawFloor, cfg.breakevenBufferR);
-        if (currentR <= floor) {
-          const connection2 = await storage.getUserTradovateConnection(userId);
-          if (connection2) {
-            await executeFuturesSignal(connection2, {
-              action: "CLOSE",
-              symbol: trade.symbol,
-              direction: isLong ? "SELL" : "BUY",
-              contracts: trade.contracts
-            }).catch(() => {
-            });
-          }
-          const realizedPnl = (isLong ? currentPrice - trade.entryPrice : trade.entryPrice - currentPrice) * trade.contracts * (getInstrument(trade.symbol)?.tickValue || 1) / (getInstrument(trade.symbol)?.tickSize || 1);
-          await storage.closeFuturesEngineTrade(trade.id, { exitPrice: currentPrice, exitReason: "trailing_stop", realizedPnl });
-          addActivity2(userId, { type: "trade_open", symbol: trade.symbol, message: `\u{1F4C9} Trailing stop closed ${trade.symbol} at ${currentR.toFixed(2)}R (peak ${peakR.toFixed(2)}R).` });
-          continue;
-        }
-      }
-      if (peakR !== trade.peakRMultiple || armed !== trade.trailArmed) {
-        await storage.updateFuturesEngineTradeTrailState(trade.id, { peakRMultiple: peakR, trailArmed: armed });
-      }
-    } catch (err) {
-      console.error(`[futures-scanner] failed to monitor trade ${trade.id}:`, err.message);
-    }
-  }
-}
-function futuresBasketOf(sym) {
-  const s = (sym || "").toUpperCase();
-  for (const b of FUTURES_CORRELATED_BASKETS) if (b.some((root) => s.startsWith(root))) return b;
-  return null;
-}
-function futuresBias(direction) {
-  const d = (direction || "").toLowerCase();
-  if (d === "long" || d === "buy") return "bullish";
-  if (d === "short" || d === "sell") return "bearish";
-  return null;
-}
-function nyHourMinute(date2) {
-  const p = new Intl.DateTimeFormat("en-US", { timeZone: "America/New_York", hourCycle: "h23", hour: "2-digit", minute: "2-digit" }).formatToParts(date2).reduce((acc, x) => {
-    acc[x.type] = x.value;
-    return acc;
-  }, {});
-  return { h: +p.hour, m: +p.minute };
-}
-async function getFuturesLiveAccount(userId) {
-  try {
-    const m = getMoomooService(userId);
-    if (m && m.isConnected()) {
-      const info2 = await m.getAccountInfo();
-      return { equity: info2.equity || 0, unrealizedPnl: info2.unrealizedPnl || 0 };
-    }
-  } catch {
-  }
-  return { equity: 0, unrealizedPnl: 0 };
-}
-async function resolveFuturesPropConnection(userId) {
-  try {
-    const conn = await storage.getUserTradovateConnection(userId);
-    if (conn && conn.isActive) return { connectionId: conn.id ?? void 0, connectionType: "tradovate" };
-  } catch {
-  }
-  const m = getMoomooService(userId);
-  if (m && m.isConnected()) return { connectionId: 0, connectionType: "moomoo" };
-  return {};
-}
-async function checkFuturesSafetyGates(userId, cfg, equity, symbol, unrealizedPnl = 0, connectionId, connectionType, directionBias) {
-  if (cfg.maxDailyTrades > 0) {
-    const count = await storage.getTodayFuturesEngineTradeCount(userId);
-    if (count >= cfg.maxDailyTrades) return { allowed: false, reason: `max daily trades (${cfg.maxDailyTrades}) reached`, riskMultiplier: 1 };
-  }
-  const openTrades = await storage.getOpenFuturesEngineTrades(userId);
-  if (openTrades.length >= cfg.maxOpenTrades) return { allowed: false, reason: `max open trades (${cfg.maxOpenTrades}) reached`, riskMultiplier: 1 };
-  if (symbol) {
-    const act = await storage.getFuturesEngineSymbolActivity(userId, symbol);
-    if (act.openCount >= MAX_OPEN_PER_SYMBOL) {
-      return { allowed: false, reason: `concentration cap \u2014 already ${act.openCount} open position(s) on ${symbol} (max ${MAX_OPEN_PER_SYMBOL})`, riskMultiplier: 1 };
-    }
-    if (act.todayEntryCount >= MAX_DAILY_ENTRIES_PER_SYMBOL) {
-      return { allowed: false, reason: `concentration cap \u2014 already ${act.todayEntryCount} entries on ${symbol} today (max ${MAX_DAILY_ENTRIES_PER_SYMBOL})`, riskMultiplier: 1 };
-    }
-    if (act.lastEntryAt) {
-      const sinceMs = Date.now() - act.lastEntryAt.getTime();
-      if (sinceMs < SYMBOL_COOLDOWN_MS) {
-        return { allowed: false, reason: `cooldown \u2014 last ${symbol} entry ${Math.round(sinceMs / 6e4)} min ago (min gap ${Math.round(SYMBOL_COOLDOWN_MS / 6e4)} min)`, riskMultiplier: 1 };
-      }
-    }
-    if (directionBias) {
-      const basket = futuresBasketOf(symbol);
-      if (basket) {
-        const openTrades2 = await storage.getOpenFuturesEngineTrades(userId);
-        const sameBias = openTrades2.filter((t) => {
-          const b = futuresBasketOf(t.symbol || "");
-          return b === basket && futuresBias(t.direction) === directionBias;
-        }).length;
-        if (sameBias >= FUTURES_CORRELATED_BASKET_CAP) {
-          return { allowed: false, reason: `correlated-basket cap \u2014 already ${sameBias} ${directionBias} position(s) across the ${basket[0]}-group (max ${FUTURES_CORRELATED_BASKET_CAP})`, riskMultiplier: 1 };
-        }
-      }
-    }
-  }
-  let riskMultiplier = 1;
-  if (equity > 0) {
-    const todayPnl = await storage.getTodayFuturesEngineRealizedPnl(userId) + unrealizedPnl;
-    if (cfg.dailyLossLimit > 0 && todayPnl <= -(equity * cfg.dailyLossLimit / 100)) {
-      return { allowed: false, reason: `daily loss limit (${cfg.dailyLossLimit}%) reached \u2014 incl. open positions`, riskMultiplier: 1 };
-    }
-    const propState = connectionId != null && connectionType ? await storage.getPropFirmAccountState(connectionId, connectionType) : null;
-    if (propState) {
-      const isFunded = propState.phase === "funded";
-      const activeDrawdownPct = isFunded ? propState.fundedDailyDrawdownPct : propState.challengeDailyDrawdownPct;
-      const activeConsistencyEnabled = isFunded ? propState.fundedConsistencyEnabled : propState.challengeConsistencyEnabled;
-      const activeConsistencyThreshold = isFunded ? propState.fundedConsistencyThresholdPct : propState.challengeConsistencyThresholdPct;
-      if (activeDrawdownPct > 0 && todayPnl <= -(equity * activeDrawdownPct / 100)) {
-        return { allowed: false, reason: `prop-firm ${propState.phase} daily drawdown limit (${activeDrawdownPct}%) reached`, riskMultiplier: 1 };
-      }
-      const { getConsistencyStatus: getConsistencyStatus2 } = await Promise.resolve().then(() => (init_prop_firm_consistency(), prop_firm_consistency_exports));
-      const consistency = await getConsistencyStatus2(connectionId, connectionType, activeConsistencyThreshold, activeConsistencyEnabled);
-      if (consistency.hardBlocked) {
-        return { allowed: false, reason: consistency.guidance, riskMultiplier: 1 };
-      }
-      riskMultiplier = Math.min(riskMultiplier, consistency.sizeMultiplier);
-    } else if (cfg.propFirmMode && cfg.propFirmDailyDrawdownLimit > 0 && todayPnl <= -(equity * cfg.propFirmDailyDrawdownLimit / 100)) {
-      return { allowed: false, reason: `prop-firm daily drawdown limit (${cfg.propFirmDailyDrawdownLimit}%) reached`, riskMultiplier: 1 };
-    }
-    if (cfg.dailyProfitTarget > 0 && todayPnl >= equity * cfg.dailyProfitTarget / 100) {
-      return { allowed: false, reason: `daily profit target (${cfg.dailyProfitTarget}%) already reached`, riskMultiplier: 1 };
-    }
-    const peak = Math.max(futuresSessionPeakEquity.get(userId) ?? equity, equity);
-    futuresSessionPeakEquity.set(userId, peak);
-    const ddFromPeakPct = peak > 0 ? (peak - equity) / peak * 100 : 0;
-    if (ddFromPeakPct >= cfg.drawdownShieldThreshold) riskMultiplier = Math.min(riskMultiplier, 0.25);
-    if (cfg.consistencyEnforcementEnabled && cfg.propFirmMode) {
-      const history = await storage.getFuturesEngineDailyPnlHistory(userId, cfg.consistencyPeriodDays);
-      const today = (/* @__PURE__ */ new Date()).toISOString().split("T")[0];
-      history[today] = todayPnl;
-      const recentKeys = Object.keys(history).sort().slice(-cfg.consistencyPeriodDays);
-      const profitableDays = recentKeys.filter((k2) => (history[k2] ?? 0) > 0).length;
-      const tradingDays = recentKeys.length;
-      const daysRemaining = cfg.consistencyPeriodDays - tradingDays;
-      const todayIsLosing = todayPnl < 0;
-      const daysNeeded = cfg.consistencyMinProfitableDays - profitableDays;
-      const mustWinRemaining = todayIsLosing ? daysNeeded : Math.max(0, daysNeeded - 1);
-      if (mustWinRemaining > 0 && daysRemaining <= mustWinRemaining + 1) riskMultiplier = Math.min(riskMultiplier, 0.25);
-      else if (mustWinRemaining > 0 && daysRemaining <= mustWinRemaining + 3) riskMultiplier = Math.min(riskMultiplier, 0.5);
-      if (cfg.maxDailyProfitPctOfTotal > 0) {
-        const totalProfitAllTime = Object.values(history).reduce((s, v) => s + Math.max(0, v ?? 0), 0);
-        const todayProfit = Math.max(0, todayPnl);
-        if (totalProfitAllTime > 0 && todayProfit > 0) {
-          const todayPctOfTotal = todayProfit / totalProfitAllTime * 100;
-          if (todayPctOfTotal >= cfg.maxDailyProfitPctOfTotal) {
-            return { allowed: false, reason: `consistency rule \u2014 today's profit is already ${todayPctOfTotal.toFixed(0)}% of total challenge profit`, riskMultiplier: 1 };
-          }
-        }
-      }
-    }
-  }
-  return { allowed: true, riskMultiplier };
-}
-function quickQuantVerdict(data, direction) {
-  let score = 0;
-  const adx = data.adx?.adx || 0;
-  const rsi3 = data.rsi?.value || 50;
-  const macdHist2 = data.macd?.histogram || 0;
-  if (adx > 25) score += 25;
-  if (direction === "BUY" ? rsi3 >= 40 && rsi3 <= 65 : rsi3 >= 35 && rsi3 <= 60) score += 20;
-  if (direction === "BUY" ? macdHist2 > 0 : macdHist2 < 0) score += 20;
-  if (data.trend === (direction === "BUY" ? "BULLISH" : "BEARISH")) score += 15;
-  const verdict = score >= 50 ? "CONFIRM" : score >= 30 ? "WATCH" : "SKIP";
-  return { verdict, score };
-}
-function pushFuturesConsensus(userId, entry) {
-  global.futuresEngineConsensus = global.futuresEngineConsensus || {};
-  const list = global.futuresEngineConsensus[userId] || [];
-  const deduped = list.filter((e) => e.symbol !== entry.symbol);
-  global.futuresEngineConsensus[userId] = [entry, ...deduped].slice(0, 20);
-}
-async function getFuturesAiConfirmation(userId, symbol, strategy, direction, data) {
-  try {
-    const { getUniversalAIClientForUser: getUniversalAIClientForUser2 } = await Promise.resolve().then(() => (init_openai(), openai_exports));
-    const client2 = await getUniversalAIClientForUser2(userId);
-    const system = 'You are a disciplined futures-trading second opinion. Given a technical signal from a rules-based scanner, decide whether you would independently confirm or skip it. Respond ONLY with JSON: {"confirmed": boolean, "confidence": number (0-100), "reasoning": string (1-2 sentences)}.';
-    const user = `Symbol: ${symbol}
-Strategy: ${strategy}
-Direction: ${direction}
-ADX: ${data.adx?.adx ?? "n/a"}
-RSI: ${data.rsi?.value ?? "n/a"}
-MACD histogram: ${data.macd?.histogram ?? "n/a"}
-Trend: ${data.trend ?? "n/a"}
-
-Would you confirm this trade?`;
-    const r = await client2.chat.completions.create({
-      model: client2.defaultModel || "gpt-4o-mini",
-      messages: [{ role: "system", content: system }, { role: "user", content: user }],
-      response_format: { type: "json_object" },
-      max_tokens: 300,
-      temperature: 0.3
-    });
-    const parsed = JSON.parse(r.choices?.[0]?.message?.content || "{}");
-    return {
-      confirmed: !!parsed.confirmed,
-      confidence: Math.max(0, Math.min(100, Number(parsed.confidence) || 0)),
-      reasoning: String(parsed.reasoning || "")
-    };
-  } catch (err) {
-    return { confirmed: false, confidence: 0, reasoning: `AI confirmation unavailable: ${err.message}` };
-  }
-}
-async function assembleFuturesConsensus(userId, symbol, strategy, direction, data, cfg, precomputedAi) {
-  const quant = quickQuantVerdict(data, direction);
-  if (cfg.aiMode === "rule_based") {
-    const tradeAllowed2 = quant.verdict !== "SKIP";
-    pushFuturesConsensus(userId, {
-      symbol,
-      strategy,
-      quantVerdict: quant.verdict,
-      quantScore: quant.score,
-      aiVerdict: "CONFIRM",
-      aiConfidence: 0,
-      consensus: quant.verdict === "CONFIRM" ? "STRONG_CONFIRM" : quant.verdict === "SKIP" ? "STRONG_SKIP" : "WATCH",
-      tradeAllowed: tradeAllowed2,
-      timestamp: (/* @__PURE__ */ new Date()).toISOString()
-    });
-    return tradeAllowed2;
-  }
-  const ai = precomputedAi ?? await getFuturesAiConfirmation(userId, symbol, strategy, direction, data);
-  const aiConfidence = ai.confidence;
-  const aiVerdict = precomputedAi ? aiConfidence >= 60 ? "CONFIRM" : "SKIP" : ai.confirmed ? "CONFIRM" : "SKIP";
-  let consensus;
-  if (quant.verdict === "CONFIRM" && aiVerdict === "CONFIRM") consensus = "STRONG_CONFIRM";
-  else if (quant.verdict === "SKIP" && aiVerdict === "SKIP") consensus = "STRONG_SKIP";
-  else if (quant.verdict === "CONFIRM" && aiVerdict === "SKIP" || quant.verdict === "SKIP" && aiVerdict === "CONFIRM") consensus = "CAUTION";
-  else consensus = "WATCH";
-  const tradeAllowed = consensus !== "STRONG_SKIP" && aiVerdict === "CONFIRM";
-  pushFuturesConsensus(userId, {
-    symbol,
-    strategy,
-    quantVerdict: quant.verdict,
-    quantScore: quant.score,
-    aiVerdict,
-    aiConfidence,
-    consensus,
-    tradeAllowed,
-    timestamp: (/* @__PURE__ */ new Date()).toISOString()
-  });
-  return tradeAllowed;
-}
-function isHighImpactNewsWindow() {
+async function getPeriodReview(userId, period = "week", offset = 1) {
   const now = /* @__PURE__ */ new Date();
-  const utcDay2 = now.getUTCDay();
-  const utcHour = now.getUTCHours();
-  const utcMin = now.getUTCMinutes();
-  const totalMin = utcHour * 60 + utcMin;
-  if (utcDay2 === 5 && now.getUTCDate() <= 7 && totalMin >= 795 && totalMin <= 825) return true;
-  if (utcDay2 === 3 && totalMin >= 915 && totalMin <= 945) return true;
-  if (utcDay2 >= 1 && utcDay2 <= 5 && totalMin >= 795 && totalMin <= 825) return true;
-  if (utcDay2 === 3 && (utcHour === 18 && utcMin >= 50 || utcHour === 19 && utcMin <= 10)) return true;
-  return false;
-}
-function computeSmartMoney(candles) {
-  const res = { orderBlockBull: false, orderBlockBear: false, fvgBull: false, fvgBear: false, liqSweepBull: false, liqSweepBear: false, score: 0 };
-  if (candles.length < 10) return res;
-  const recent = candles.slice(-12);
-  for (let i = 1; i < recent.length - 2; i++) {
-    const c = recent[i];
-    const bodyPct = Math.abs(c.c - c.o) / c.o;
-    if (bodyPct < 8e-4) continue;
-    if (c.c < c.o && recent[i + 1].c > recent[i + 1].o && recent[i + 2].c > recent[i + 2].o) res.orderBlockBull = true;
-    if (c.c > c.o && recent[i + 1].c < recent[i + 1].o && recent[i + 2].c < recent[i + 2].o) res.orderBlockBear = true;
+  let from, to;
+  if (period === "week") {
+    const monday = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate() - (now.getUTCDay() + 6) % 7));
+    from = new Date(monday.getTime() - offset * 7 * 864e5);
+    to = new Date(from.getTime() + 7 * 864e5);
+  } else {
+    from = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() - offset, 1));
+    to = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() - offset + 1, 1));
   }
-  for (let i = 1; i < recent.length - 1; i++) {
-    if (recent[i - 1].h < recent[i + 1].l) res.fvgBull = true;
-    if (recent[i - 1].l > recent[i + 1].h) res.fvgBear = true;
-  }
-  const swingLow = Math.min(...recent.slice(0, -1).map((c) => c.l));
-  const swingHigh = Math.max(...recent.slice(0, -1).map((c) => c.h));
-  const last = recent[recent.length - 1];
-  if (last.l < swingLow && last.c > swingLow) res.liqSweepBull = true;
-  if (last.h > swingHigh && last.c < swingHigh) res.liqSweepBear = true;
-  res.score += (res.orderBlockBull ? 1 : 0) + (res.fvgBull ? 1 : 0) + (res.liqSweepBull ? 1 : 0);
-  res.score -= (res.orderBlockBear ? 1 : 0) + (res.fvgBear ? 1 : 0) + (res.liqSweepBear ? 1 : 0);
-  return res;
-}
-function computeVolumeProfile(candles, currentPrice) {
-  const empty = { poc: 0, vah: 0, val: 0, priceNearPOC: false, priceNearVAH: false, priceNearVAL: false };
-  if (candles.length < 5) return empty;
-  const prices = candles.map((c) => (c.h + c.l + c.c) / 3);
-  const minP = Math.min(...prices), maxP = Math.max(...prices);
-  if (maxP === minP) return empty;
-  const BUCKETS = 20;
-  const bSize = (maxP - minP) / BUCKETS;
-  const volByBucket = new Array(BUCKETS).fill(0);
-  for (let i = 0; i < candles.length; i++) {
-    const idx = Math.min(BUCKETS - 1, Math.floor((prices[i] - minP) / bSize));
-    volByBucket[idx] += candles[i].v || 1;
-  }
-  const pocIdx = volByBucket.indexOf(Math.max(...volByBucket));
-  const poc = minP + (pocIdx + 0.5) * bSize;
-  const totalVol = volByBucket.reduce((s, v) => s + v, 0);
-  const target = totalVol * 0.7;
-  let lo = pocIdx, hi = pocIdx, acc = volByBucket[pocIdx];
-  while (acc < target && (lo > 0 || hi < BUCKETS - 1)) {
-    const addLo = lo > 0 ? volByBucket[lo - 1] : 0;
-    const addHi = hi < BUCKETS - 1 ? volByBucket[hi + 1] : 0;
-    if (addLo >= addHi && lo > 0) {
-      lo--;
-      acc += addLo;
-    } else if (hi < BUCKETS - 1) {
-      hi++;
-      acc += addHi;
-    } else break;
-  }
-  const val = minP + lo * bSize;
-  const vah = minP + (hi + 1) * bSize;
-  const prox = bSize * 1.5;
-  return { poc, vah, val, priceNearPOC: Math.abs(currentPrice - poc) < prox, priceNearVAH: Math.abs(currentPrice - vah) < prox, priceNearVAL: Math.abs(currentPrice - val) < prox };
-}
-function computeVolumeDelta(candles, lookback = 10) {
-  let delta = 0;
-  for (const c of candles.slice(-lookback)) {
-    const range = c.h - c.l;
-    if (range <= 0) continue;
-    const buyFrac = (c.c - c.l) / range;
-    delta += (buyFrac * 2 - 1) * (c.v || 1);
-  }
-  return delta;
-}
-async function runFuturesAIAnalysis(userId, marketAnalysis) {
-  const state = scannerStates[userId];
-  if (!state) return;
-  const config = state.config;
-  const session3 = getCurrentFuturesSession();
-  if (config.aiMode === "rule_based") {
-    const newsBlock = isHighImpactNewsWindow();
-    if (newsBlock) addActivity2(userId, { type: "info", message: "\u{1F4F0} High-impact news window active \u2014 confidence penalized on all signals" });
-    for (const [symbol, data] of Object.entries(marketAnalysis)) {
-      const inst = getInstrument(symbol);
-      if (!inst) continue;
-      const adx = data.adx?.adx || 0;
-      const plusDI = data.adx?.plusDI || 0;
-      const minusDI = data.adx?.minusDI || 0;
-      const rsi3 = data.rsi?.value || 50;
-      const macdCross = data.macd?.histogram > 0;
-      const candles = data.candles || [];
-      let direction = null;
-      let confluences = [];
-      let confidence2 = 0;
-      let strategy = "rule_based";
-      if (adx > 25 && plusDI > minusDI && rsi3 < 65 && macdCross) {
-        direction = "BUY";
-        confluences = [`ADX ${adx.toFixed(1)} trend`, "DI+ dominant", "MACD bullish"];
-        confidence2 = 65;
-        strategy = "adx_macd";
-      } else if (adx > 25 && minusDI > plusDI && rsi3 > 35 && !macdCross) {
-        direction = "SELL";
-        confluences = [`ADX ${adx.toFixed(1)} trend`, "DI- dominant", "MACD bearish"];
-        confidence2 = 65;
-        strategy = "adx_macd";
-      }
-      const sm = computeSmartMoney(candles);
-      if (!direction && sm.liqSweepBull) {
-        direction = "BUY";
-        confidence2 = 63;
-        strategy = "smart_money";
-        confluences = ["Liquidity sweep reversal (bull)"];
-      } else if (!direction && sm.liqSweepBear) {
-        direction = "SELL";
-        confidence2 = 63;
-        strategy = "smart_money";
-        confluences = ["Liquidity sweep reversal (bear)"];
-      }
-      if (direction) {
-        const isBull = direction === "BUY";
-        if (sm.orderBlockBull && isBull) {
-          confidence2 += 4;
-          confluences.push("Bullish order block");
-        }
-        if (sm.orderBlockBear && !isBull) {
-          confidence2 += 4;
-          confluences.push("Bearish order block");
-        }
-        if (sm.fvgBull && isBull) {
-          confidence2 += 3;
-          confluences.push("Bullish FVG");
-        }
-        if (sm.fvgBear && !isBull) {
-          confidence2 += 3;
-          confluences.push("Bearish FVG");
-        }
-        if (sm.liqSweepBull && isBull) {
-          confidence2 += 5;
-          confluences.push("Liquidity sweep (bull)");
-        }
-        if (sm.liqSweepBear && !isBull) {
-          confidence2 += 5;
-          confluences.push("Liquidity sweep (bear)");
-        }
-        const vp = computeVolumeProfile(candles, data.currentPrice);
-        if (vp.poc > 0) {
-          if (isBull && vp.priceNearVAL) {
-            confidence2 += 4;
-            confluences.push("Price at VAL (vol support)");
-          }
-          if (!isBull && vp.priceNearVAH) {
-            confidence2 += 4;
-            confluences.push("Price at VAH (vol resistance)");
-          }
-          if (vp.priceNearPOC) confluences.push(`Near POC $${vp.poc.toFixed(2)}`);
-        }
-        const delta = computeVolumeDelta(candles);
-        if (isBull && delta > 0) {
-          confidence2 += 3;
-          confluences.push(`Vol delta: buyer aggression`);
-        } else if (!isBull && delta < 0) {
-          confidence2 += 3;
-          confluences.push(`Vol delta: seller aggression`);
-        } else if (delta !== 0) {
-          confidence2 -= 4;
-          confluences.push("Vol delta opposing signal");
-        }
-        if (candles.length >= 10) {
-          const markov = getMarkovSignal(symbol, direction, candles.map((c) => ({ open: c.o, close: c.c })));
-          confidence2 += markov.confidenceAdjustment;
-          confluences.push(markov.reason);
-          if (markov.confidenceAdjustment !== 0) {
-            strategy = strategy === "rule_based" ? "markov_enhanced" : strategy + "+markov";
-          }
-        }
-        if (candles.length >= 10) {
-          const of = computeOrderFlow(candles, Math.min(30, candles.length));
-          const isBull2 = direction === "BUY";
-          if (of.direction !== "NEUTRAL") {
-            if (of.direction === direction) {
-              if (of.divergence) {
-                confidence2 += 5;
-                confluences.push(`OF delta divergence (${of.divergenceType})`);
-              }
-              if (of.absorption) {
-                confidence2 += 4;
-                confluences.push(`OF absorption (${of.absorptionType})`);
-              }
-              if (of.imbalance) {
-                confidence2 += 3;
-                confluences.push(`OF imbalance (${of.imbalanceType})`);
-              }
-              if (of.cvdTrend !== "flat") {
-                confidence2 += 2;
-                confluences.push(`CVD ${of.cvdTrend}`);
-              }
-              strategy = strategy.includes("order_flow") ? strategy : strategy + "+order_flow";
-            } else {
-              confidence2 -= 8;
-              confluences.push(`OF opposing: ${of.reason.split("|")[0].trim()}`);
-            }
-          } else if (!direction) {
-            if (of.confidence >= 65) {
-              direction = of.direction;
-              confidence2 = of.confidence;
-              strategy = "order_flow";
-              confluences = of.confluences;
-            }
-          }
-        }
-        if (newsBlock) {
-          confidence2 -= 15;
-          confluences.push("News window penalty");
-        }
-      }
-      const effectiveDirectionFilter = config.symbolDirectionOverrides[symbol] || config.directionFilter;
-      const directionAllowed = effectiveDirectionFilter === "both" || effectiveDirectionFilter === "long_only" && direction === "BUY" || effectiveDirectionFilter === "short_only" && direction === "SELL";
-      if (direction && !directionAllowed) continue;
-      if (!direction) continue;
-      let minConf = getAdjustedMinConfidence(userId, symbol);
-      if (config.smartSymbolEscalation) {
-        const recentForSymbol = (await storage.getUserFuturesEngineTrades(userId, 50)).filter((t) => t.symbol === symbol && t.status === "closed").sort((a, b) => new Date(b.closedAt ?? 0).getTime() - new Date(a.closedAt ?? 0).getTime());
-        if (recentForSymbol[0] && (recentForSymbol[0].realizedPnl ?? 0) > 0) minConf = Math.max(50, minConf - 5);
-      }
-      const compositeEligible = config.enableCompositeAutonomous && confluences.length >= 4 && confidence2 >= config.compositeMinEdgeScore;
-      const highConfidenceEligible = config.highConfidenceOverride && confidence2 >= 90;
-      if (confidence2 < minConf && !compositeEligible && !highConfidenceEligible) continue;
-      const atr2 = data.volatilityContext?.currentATR || inst.typicalDailyRange * inst.tickSize * 10;
-      const slTicks = Math.max(4, Math.round(atr2 / inst.tickSize * 0.5));
-      const tpTicks = slTicks * 2;
-      const entryPrice = data.currentPrice;
-      const sl = direction === "BUY" ? entryPrice - slTicks * inst.tickSize : entryPrice + slTicks * inst.tickSize;
-      const tp = direction === "BUY" ? entryPrice + tpTicks * inst.tickSize : entryPrice - tpTicks * inst.tickSize;
-      const maxContracts = config.symbolContractOverrides[symbol] || void 0;
-      const sizing = await computeFuturesContractSize(userId, config, config.accountBalance, config.riskPerTrade, entryPrice, sl, symbol, confidence2);
-      const contracts = maxContracts ? Math.min(sizing.contracts, maxContracts) : sizing.contracts;
-      const signal = {
-        id: uid(),
-        timestamp: (/* @__PURE__ */ new Date()).toISOString(),
-        symbol,
-        direction,
-        contracts: Math.max(1, contracts),
-        entryPrice,
-        stopLoss: sl,
-        takeProfit: tp,
-        stopLossTicks: slTicks,
-        takeProfitTicks: tpTicks,
-        confidence: Math.min(100, Math.max(0, confidence2)),
-        reason: confluences.filter((c) => !c.startsWith("Markov")).join(" | ") + (sizing.reasoning ? ` | ${sizing.reasoning}` : ""),
-        strategy,
-        confluences,
-        status: "pending"
-      };
-      addActivity2(userId, { type: "signal", symbol, direction, confidence: signal.confidence, message: `\u26A1 ${strategy.toUpperCase()}: ${direction} ${symbol} @ ${entryPrice} | Conf: ${signal.confidence}% | SL: ${slTicks}t TP: ${tpTicks}t | ${confluences.slice(0, 3).join(", ")}` });
-      addSignal(userId, signal);
-      const tradeAllowed = await assembleFuturesConsensus(userId, symbol, strategy, direction, data, config);
-      if (tradeAllowed) {
-        await executeSignalIfEnabled(userId, signal);
-      } else {
-        signal.status = "rejected";
-        signal.executionResult = "Blocked by Dual-Vote Consensus";
-        addActivity2(userId, { type: "info", symbol, message: `${symbol}: signal confirmed by quant scan, but consensus blocked execution.` });
-      }
-    }
-    return;
-  }
-  let openai2;
-  try {
-    const { getUniversalAIClientForUser: getUniversalAIClientForUser2 } = await Promise.resolve().then(() => (init_openai(), openai_exports));
-    openai2 = await getUniversalAIClientForUser2(userId);
-  } catch {
-    addActivity2(userId, { type: "error", message: "No AI API key configured \u2014 futures scanner cannot analyze." });
-    return;
-  }
-  const _primaryClient = openai2;
-  const _primaryModel = openai2.defaultModel || "gpt-4o";
-  let _usingGroq = false;
-  if (config.aiMode === "economy" && process.env.GROQ_API_KEY) {
-    try {
-      const OpenAI9 = (await import("openai")).default;
-      const groq = new OpenAI9({ apiKey: process.env.GROQ_API_KEY, baseURL: "https://api.groq.com/openai/v1", maxRetries: 4, timeout: 9e4 });
-      groq.defaultModel = "openai/gpt-oss-120b";
-      openai2 = groq;
-      _usingGroq = true;
-    } catch {
-    }
-  }
-  const model = openai2.defaultModel || "gpt-4o";
-  const newsWindowActive = isHighImpactNewsWindow();
-  if (newsWindowActive) addActivity2(userId, { type: "info", message: "\u{1F4F0} High-impact news window active \u2014 AI will reduce signal confidence accordingly" });
-  const marketSummary = Object.entries(marketAnalysis).map(([sym, data]) => {
-    const inst = getInstrument(sym);
-    const vol = data.volatilityContext;
-    const sr = data.supportResistance;
-    const atr2 = vol?.currentATR || 0;
-    const atrTicks = inst ? Math.round(atr2 / inst.tickSize) : 0;
-    const candles = data.candles || [];
-    const perfNote = (() => {
-      const perf = state.symbolPerformance[sym];
-      if (!perf || perf.wins + perf.losses < 2) return "";
-      const wr = (perf.wins / (perf.wins + perf.losses) * 100).toFixed(0);
-      return `, HistoricalWR=${wr}%(${perf.wins}W/${perf.losses}L)`;
-    })();
-    const smNote = (() => {
-      if (candles.length < 10) return "";
-      const sm = computeSmartMoney(candles);
-      const parts = [];
-      if (sm.orderBlockBull) parts.push("BullOB");
-      if (sm.orderBlockBear) parts.push("BearOB");
-      if (sm.fvgBull) parts.push("BullFVG");
-      if (sm.fvgBear) parts.push("BearFVG");
-      if (sm.liqSweepBull) parts.push("LiqSweepBull");
-      if (sm.liqSweepBear) parts.push("LiqSweepBear");
-      return parts.length ? `, SmartMoney=[${parts.join(",")}]` : "";
-    })();
-    const vpNote = (() => {
-      if (candles.length < 5) return "";
-      const vp = computeVolumeProfile(candles, data.currentPrice);
-      if (!vp.poc) return "";
-      return `, VolProfile(POC=${vp.poc.toFixed(2)},VAH=${vp.vah.toFixed(2)},VAL=${vp.val.toFixed(2)},NearPOC=${vp.priceNearPOC},NearVAH=${vp.priceNearVAH},NearVAL=${vp.priceNearVAL})`;
-    })();
-    const deltaNote = (() => {
-      if (candles.length < 5) return "";
-      const d = computeVolumeDelta(candles);
-      return `, VolDelta=${d > 0 ? "+" : ""}${Math.round(d)}(${d > 0 ? "buyers" : "sellers"})`;
-    })();
-    const markovNote = (() => {
-      if (candles.length < 10) return "";
-      const dir = data.trend === "BULLISH" ? "BUY" : "SELL";
-      const m = getMarkovSignal(sym, dir, candles.map((c) => ({ open: c.o, close: c.c })));
-      return `, Markov(bullP=${Math.round(m.bullishProbability * 100)}%,bearP=${Math.round(m.bearishProbability * 100)}%,adj=${m.confidenceAdjustment > 0 ? "+" : ""}${m.confidenceAdjustment})`;
-    })();
-    return `${sym}(${inst?.description || ""}): Price=${data.currentPrice}, Trend=${data.trend}, ADX=${data.adx?.adx?.toFixed(1) || "N/A"}, RSI=${data.rsi?.value?.toFixed(1) || "N/A"}, MACD_hist=${data.macd?.histogram?.toFixed(2) || "N/A"}, ATR=${atr2.toFixed(2)}(${atrTicks}ticks), TickVal=$${inst?.tickValue || "?"}/tick, Support=${sr?.supports?.[0]?.toFixed(2) || "N/A"}, Resistance=${sr?.resistances?.[0]?.toFixed(2) || "N/A"}, Patterns=[${(data.candlePatterns || []).join(",")}]${perfNote}${smNote}${vpNote}${deltaNote}${markovNote}`;
-  }).join("\n");
-  const symbolPerformanceSummary = Object.entries(state.symbolPerformance).map(([sym, p]) => `${sym}: ${p.wins}W/${p.losses}L avgR=${p.wins + p.losses > 0 ? (p.totalR / (p.wins + p.losses)).toFixed(2) : "N/A"}`).join(", ") || "No history yet";
-  const newsWarning = newsWindowActive ? "\n\u26A0\uFE0F HIGH-IMPACT NEWS WINDOW ACTIVE \u2014 reduce all signal confidence by 15 points and avoid new entries unless confidence > 85%." : "";
-  const prompt = `You are VEDD AI \u2014 an expert futures trader with deep knowledge of CME equity index, metals, and energy futures.
-
-CURRENT SESSION: ${session3} (UTC hour: ${(/* @__PURE__ */ new Date()).getUTCHours()})
-ACCOUNT BALANCE: $${config.accountBalance} | RISK PER TRADE: ${config.riskPerTrade}% | MAX OPEN: ${config.maxOpenTrades}
-CURRENT WIN/LOSS: ${state.wins}W / ${state.losses}L
-SYMBOL LEARNING: ${symbolPerformanceSummary}${newsWarning}
-
-MARKET DATA (15-minute candles, includes SmartMoney/VolProfile/Delta/Markov analysis):
-${marketSummary}
-
-STRATEGY CONFLUENCE GUIDE:
-- SmartMoney=[BullOB/BearOB]: Order block present \u2014 high-probability reversal zone
-- SmartMoney=[BullFVG/BearFVG]: Fair Value Gap \u2014 price likely fills imbalance
-- SmartMoney=[LiqSweepBull/LiqSweepBear]: Stop hunt reversal \u2014 strong fade opportunity
-- VolProfile(NearVAL=true for BUY, NearVAH=true for SELL): Volume support/resistance level
-- VolProfile(NearPOC=true): Highest traded price cluster \u2014 magnet or pivot
-- VolDelta=positive means buyers dominating; negative means sellers; confirm with direction
-- Markov(bullP/bearP): Probability of next candle being bullish/bearish; adj = confidence \xB1pts
-
-FUTURES TRADING RULES:
-- Equity futures (NQ/ES/YM/RTY and micros) are best traded during CME_RTH (14:30-21:00 UTC) and London open (08:00-10:00 UTC)
-- Energy (CL, NG) and Metals (GC, SI) trade 24h but with best volume during RTH
-- ALWAYS calculate stop loss in TICKS, not pips \u2014 each instrument has unique tick size
-- Prefer 1.5R minimum reward:risk. Scale to 2R or 3R when momentum is clear
-- During AFTER_HOURS or OVERNIGHT, only trade if ADX > 30 and patterns are clear
-- High-impact news (FOMC, NFP, CPI, EIA) creates volatility \u2014 avoid entries 15min before/after
-- Micro contracts (MNQ, MES, MYM, M2K, MGC, MCL) are appropriate for smaller accounts
-- Self-learning: if a symbol has been losing (shown in history), be MORE selective (require 80%+ confidence)
-
-Analyze the market data and decide whether to generate trade signals.
-
-Respond ONLY with valid JSON:
-{
-  "decisions": [
-    {
-      "symbol": "NQ",
-      "direction": "BUY",
-      "confidence": 78,
-      "strategy": "breakout_momentum",
-      "reason": "brief explanation",
-      "confluences": ["ADX 32 trending", "RSI 58 rising", "MACD bullish cross", "price at support"],
-      "stopLossTicks": 20,
-      "takeProfitTicks": 40,
-      "holdTime": "45-90 minutes"
-    }
-  ],
-  "marketOverview": "brief overall assessment",
-  "sessionNote": "any session-specific notes"
-}
-
-Rules for decisions array:
-- Only include signals with confidence >= ${config.minConfidence}%
-- Max ${config.maxOpenTrades} signals per cycle
-- If no good setups exist, return empty decisions array
-- stopLossTicks and takeProfitTicks must be positive integers
-- confidence is 0-100`;
-  try {
-    addActivity2(userId, { type: "info", message: `\u{1F916} Futures AI analyzing ${Object.keys(marketAnalysis).length} instruments (${session3}) via ${model}...` });
-    const _mkReq = (m) => ({
-      model: m,
-      messages: [{ role: "user", content: prompt }],
-      response_format: { type: "json_object" },
-      max_tokens: 1200,
-      temperature: 0.3
-    });
-    let response;
-    try {
-      response = await openai2.chat.completions.create(_mkReq(model));
-    } catch (aiErr) {
-      if (_usingGroq) {
-        addActivity2(userId, { type: "info", message: `\u26A0\uFE0F Groq failed (${(aiErr?.message || "").slice(0, 80)}) \u2014 retrying on primary AI client` });
-        response = await _primaryClient.chat.completions.create(_mkReq(_primaryModel));
-      } else {
-        throw aiErr;
-      }
-    }
-    const raw = response.choices[0]?.message?.content || "{}";
-    let parsed;
-    try {
-      parsed = JSON.parse(raw);
-    } catch {
-      parsed = {};
-    }
-    const decisions = parsed.decisions || [];
-    if (parsed.marketOverview) {
-      addActivity2(userId, { type: "info", message: `\u{1F4CA} ${parsed.marketOverview}${parsed.sessionNote ? " | " + parsed.sessionNote : ""}` });
-    }
-    if (decisions.length === 0) {
-      addActivity2(userId, { type: "info", message: "No futures setups this cycle \u2014 waiting for higher-quality alignment." });
-      return;
-    }
-    for (const d of decisions) {
-      if (!d.symbol || !d.direction || !d.confidence) continue;
-      const effectiveDirectionFilter = config.symbolDirectionOverrides[d.symbol] || config.directionFilter;
-      const directionAllowed = effectiveDirectionFilter === "both" || effectiveDirectionFilter === "long_only" && d.direction === "BUY" || effectiveDirectionFilter === "short_only" && d.direction === "SELL";
-      if (!directionAllowed) continue;
-      const minConf = getAdjustedMinConfidence(userId, d.symbol);
-      if (d.confidence < minConf) {
-        addActivity2(userId, { type: "info", symbol: d.symbol, message: `Skipped ${d.symbol}: confidence ${d.confidence}% < adjusted threshold ${minConf}% (learning-adjusted)` });
-        continue;
-      }
-      const inst = getInstrument(d.symbol);
-      if (!inst) continue;
-      const price = marketAnalysis[d.symbol]?.currentPrice || 0;
-      const slTicks = Math.max(4, d.stopLossTicks || 20);
-      const tpTicks = Math.max(slTicks, d.takeProfitTicks || slTicks * 2);
-      const sl = d.direction === "BUY" ? price - slTicks * inst.tickSize : price + slTicks * inst.tickSize;
-      const tp = d.direction === "BUY" ? price + tpTicks * inst.tickSize : price - tpTicks * inst.tickSize;
-      const maxContracts = config.symbolContractOverrides[d.symbol] || void 0;
-      const sizing = await computeFuturesContractSize(userId, config, config.accountBalance, config.riskPerTrade, price, sl, d.symbol, d.confidence);
-      const contracts = Math.max(1, maxContracts ? Math.min(sizing.contracts, maxContracts) : sizing.contracts);
-      const signal = {
-        id: uid(),
-        timestamp: (/* @__PURE__ */ new Date()).toISOString(),
-        symbol: d.symbol,
-        direction: d.direction,
-        contracts,
-        entryPrice: price,
-        stopLoss: sl,
-        takeProfit: tp,
-        stopLossTicks: slTicks,
-        takeProfitTicks: tpTicks,
-        confidence: d.confidence,
-        reason: (d.reason || "") + (sizing.reasoning ? ` | ${sizing.reasoning}` : ""),
-        strategy: d.strategy || "ai_analysis",
-        confluences: d.confluences || [],
-        status: "pending"
-      };
-      addActivity2(userId, {
-        type: "signal",
-        symbol: d.symbol,
-        direction: d.direction,
-        confidence: d.confidence,
-        message: `\u26A1 FUTURES SIGNAL: ${d.direction} ${d.symbol} @ ${price} | Conf: ${d.confidence}% | SL: ${slTicks}t ($${(slTicks * inst.tickValue * contracts).toFixed(0)} risk) | TP: ${tpTicks}t | Strategy: ${d.strategy}`,
-        details: { confluences: d.confluences, holdTime: d.holdTime }
-      });
-      addSignal(userId, signal);
-      const tradeAllowed = await assembleFuturesConsensus(userId, d.symbol, signal.strategy, d.direction, marketAnalysis[d.symbol] || {}, config, { confidence: d.confidence });
-      if (tradeAllowed) {
-        await executeSignalIfEnabled(userId, signal);
-      } else {
-        signal.status = "rejected";
-        signal.executionResult = "Blocked by Dual-Vote Consensus";
-        addActivity2(userId, { type: "info", symbol: d.symbol, message: `${d.symbol}: AI signal confirmed, but consensus (Quant Agent disagreed) blocked execution.` });
-      }
-    }
-  } catch (err) {
-    addActivity2(userId, { type: "error", message: `Futures AI error: ${err.message}` });
-  }
-}
-async function executeSignalIfEnabled(userId, signal) {
-  const state = scannerStates[userId];
-  if (!state || !state.config.enableAutoExecution) return;
-  const _sigAcct = await getFuturesLiveAccount(userId);
-  const _sigEquity = _sigAcct.equity > 0 ? _sigAcct.equity : state.config.accountBalance;
-  const _sigPc = await resolveFuturesPropConnection(userId);
-  const _sigBias = signal.direction === "BUY" ? "bullish" : "bearish";
-  const gate = await checkFuturesSafetyGates(userId, state.config, _sigEquity, signal.symbol, _sigAcct.unrealizedPnl, _sigPc.connectionId, _sigPc.connectionType, _sigBias);
-  if (!gate.allowed) {
-    signal.status = "rejected";
-    signal.executionResult = gate.reason;
-    addActivity2(userId, { type: "info", symbol: signal.symbol, message: `${signal.symbol}: signal confirmed, but execution blocked \u2014 ${gate.reason}.` });
-    return;
-  }
-  if (gate.riskMultiplier < 1) {
-    if ((signal.confidence ?? 0) < 80) {
-      signal.status = "rejected";
-      signal.executionResult = "Drawdown Shield active \u2014 only 80%+ confidence setups allowed during drawdown";
-      addActivity2(userId, { type: "info", symbol: signal.symbol, message: `${signal.symbol}: Drawdown Shield active \u2014 only 80%+ confidence setups allowed during drawdown (this signal: ${signal.confidence}%).` });
-      return;
-    }
-    const bestStrategies = global.veddFuturesBrain?.[userId]?.symbolKnowledge?.[signal.symbol]?.bestStrategies ?? [];
-    if (bestStrategies.length > 0 && !bestStrategies.includes(signal.strategy)) {
-      signal.status = "rejected";
-      signal.executionResult = `Drawdown Shield active \u2014 only best-performing strategies (${bestStrategies.join(", ")}) allowed during drawdown`;
-      addActivity2(userId, { type: "info", symbol: signal.symbol, message: `${signal.symbol}: Drawdown Shield active \u2014 only this symbol's best-performing strategies (${bestStrategies.join(", ")}) are allowed during drawdown ("${signal.strategy}" isn't one of them).` });
-      return;
-    }
-    signal.contracts = Math.max(1, Math.round(signal.contracts * gate.riskMultiplier));
-    addActivity2(userId, { type: "info", symbol: signal.symbol, message: `\u26A0\uFE0F Risk reduced to ${Math.round(gate.riskMultiplier * 100)}% (Drawdown Shield / consistency rule active) \u2014 sized to ${signal.contracts} contracts.` });
-  }
-  const moomoo = getMoomooService(userId);
-  if (moomoo && moomoo.isConnected()) {
-    try {
-      const result = await moomoo.placeOrder({
-        symbol: signal.symbol,
-        direction: signal.direction,
-        contracts: signal.contracts,
-        stopLoss: signal.stopLoss || void 0,
-        takeProfit: signal.takeProfit || void 0
-      });
-      if (result.success) {
-        signal.status = "executed";
-        signal.executionResult = `Moomoo Order #${result.orderId}`;
-        addActivity2(userId, { type: "trade_open", symbol: signal.symbol, direction: signal.direction, message: `\u2705 MOOMOO EXECUTED: ${signal.direction} ${signal.contracts} ${signal.symbol} | Order: ${result.orderId}` });
-        await storage.createFuturesEngineTrade({
-          userId,
-          connectionId: 0,
-          broker: "moomoo",
-          symbol: signal.symbol,
-          strategy: signal.strategy,
-          direction: signal.direction === "BUY" ? "long" : "short",
-          contracts: signal.contracts,
-          entryPrice: signal.entryPrice ?? 0,
-          stopLoss: signal.stopLoss,
-          takeProfit: signal.takeProfit,
-          entryOrderId: String(result.orderId ?? ""),
-          entryReasoning: signal.reason,
-          status: "open"
-        }).catch(() => {
-        });
-      } else {
-        signal.status = "rejected";
-        signal.executionResult = result.error || "Moomoo execution failed";
-        addActivity2(userId, { type: "error", symbol: signal.symbol, message: `\u274C Moomoo failed: ${signal.symbol} \u2014 ${result.error}` });
-      }
-      return;
-    } catch (err) {
-      addActivity2(userId, { type: "error", symbol: signal.symbol, message: `Moomoo error: ${err.message} \u2014 falling back to Tradovate` });
-    }
-  }
-  try {
-    const connection2 = await storage.getUserTradovateConnection(userId);
-    if (!connection2 || !connection2.isActive) {
-      addActivity2(userId, { type: "info", symbol: signal.symbol, message: `Signal queued (no broker connected): ${signal.direction} ${signal.symbol}` });
-      return;
-    }
-    const result = await executeFuturesSignal(connection2, {
-      action: "OPEN",
-      symbol: signal.symbol,
-      direction: signal.direction,
-      contracts: signal.contracts,
-      stopLoss: signal.stopLoss || void 0,
-      takeProfit: signal.takeProfit || void 0
-    });
-    if (result.success) {
-      signal.status = "executed";
-      signal.executionResult = `Tradovate Order #${result.orderId}`;
-      addActivity2(userId, { type: "trade_open", symbol: signal.symbol, direction: signal.direction, message: `\u2705 TRADOVATE EXECUTED: ${signal.direction} ${signal.contracts} ${signal.symbol} | Order: ${result.orderId}` });
-      await storage.createFuturesEngineTrade({
-        userId,
-        connectionId: connection2.id ?? 0,
-        broker: "tradovate",
-        symbol: signal.symbol,
-        strategy: signal.strategy,
-        direction: signal.direction === "BUY" ? "long" : "short",
-        contracts: signal.contracts,
-        entryPrice: signal.entryPrice ?? 0,
-        stopLoss: signal.stopLoss,
-        takeProfit: signal.takeProfit,
-        entryOrderId: String(result.orderId ?? ""),
-        entryReasoning: signal.reason,
-        status: "open"
-      }).catch(() => {
-      });
-    } else {
-      signal.status = "rejected";
-      signal.executionResult = result.error || "Execution failed";
-      addActivity2(userId, { type: "error", symbol: signal.symbol, message: `\u274C Execution failed: ${signal.symbol} \u2014 ${result.error}` });
-    }
-  } catch (err) {
-    signal.status = "rejected";
-    signal.executionResult = err.message;
-    addActivity2(userId, { type: "error", symbol: signal.symbol, message: `Execution error: ${err.message}` });
-  }
-}
-async function scanFuturesMarkets(userId) {
-  const state = scannerStates[userId];
-  if (!state || state.status !== "running" || state.currentlyScanning) return;
-  const todayDow = (/* @__PURE__ */ new Date()).getUTCDay();
-  const allowedDows = state.config.tradingDaysOfWeek.length > 0 ? state.config.tradingDaysOfWeek : [1, 2, 3, 4, 5];
-  if (!allowedDows.includes(todayDow)) return;
-  if (FUTURES_SESSION_GUARD_ENABLED) {
-    const { h, m } = nyHourMinute(/* @__PURE__ */ new Date());
-    const minsOfDay = h * 60 + m;
-    const closeMin = 17 * 60, reopenMin = 18 * 60;
-    if (minsOfDay >= closeMin - FUTURES_CLOSE_GUARD_MIN && minsOfDay < reopenMin) {
-      return;
-    }
-  }
-  const _haltAcct = await getFuturesLiveAccount(userId);
-  const _haltEquity = _haltAcct.equity > 0 ? _haltAcct.equity : state.config.accountBalance;
-  const _haltPc = await resolveFuturesPropConnection(userId);
-  const gateCheck = await checkFuturesSafetyGates(userId, state.config, _haltEquity, void 0, _haltAcct.unrealizedPnl, _haltPc.connectionId, _haltPc.connectionType).catch(() => ({ allowed: true, riskMultiplier: 1 }));
-  if (!gateCheck.allowed) {
-    state.dailyLossHalted = true;
-    addActivity2(userId, { type: "error", message: `\u{1F6A8} Scanner halted \u2014 ${gateCheck.reason}.` });
-    return;
-  }
-  state.dailyLossHalted = false;
-  state.currentlyScanning = true;
-  state.scanCount++;
-  state.lastScanAt = (/* @__PURE__ */ new Date()).toISOString();
-  const session3 = getCurrentFuturesSession();
-  try {
-    if (!marketDataService.isInitialized()) {
-      addActivity2(userId, { type: "error", message: "Market data service not initialized \u2014 check TWELVE_DATA_API_KEY." });
-      return;
-    }
-    await monitorOpenFuturesPositions(userId, state.config).catch(
-      (e) => console.error(`[futures-scanner] monitorOpenFuturesPositions failed for user ${userId}:`, e.message)
-    );
-    const symbolDaySchedule = state.config.symbolDaySchedule || {};
-    const symbols = state.config.symbols.filter((sym) => {
-      const days = symbolDaySchedule[sym];
-      return !Array.isArray(days) || days.length === 0 || days.includes(todayDow);
-    }).slice(0, 8);
-    addActivity2(userId, { type: "scan", message: `\u{1F50D} Futures scan #${state.scanCount}: ${symbols.join(", ")} [${session3}]` });
-    const marketAnalysis = {};
-    for (const symbol of symbols) {
-      try {
-        const result = await marketDataService.fetchMarketData({ symbol, assetType: "futures", timeframe: "15m", limit: 50 });
-        if (!result.bars || result.bars.length < 20) continue;
-        const candles = convertToCandles2(result.bars);
-        const indicators = computeAllAdvancedIndicators(candles, 0, symbol, "M15");
-        const currentPrice = result.bars[result.bars.length - 1]?.close || 0;
-        let trend = "NEUTRAL";
-        const adxData = indicators.adx;
-        if (adxData && (adxData.adx || adxData.value) > 25) {
-          trend = adxData.plusDI > adxData.minusDI ? "BULLISH" : "BEARISH";
-        }
-        state.marketSnapshot[symbol] = {
-          price: currentPrice,
-          trend,
-          rsi: Math.round(indicators.stochastic?.k || 50),
-          atr: indicators.volatilityContext?.currentATR || 0,
-          updatedAt: (/* @__PURE__ */ new Date()).toISOString()
-        };
-        marketAnalysis[symbol] = {
-          candles,
-          currentPrice,
-          trend,
-          adx: indicators.adx,
-          rsi: indicators.rsi,
-          macd: indicators.macd,
-          stochastic: indicators.stochastic,
-          supportResistance: indicators.supportResistance,
-          candlePatterns: indicators.candlePatterns,
-          volatilityContext: indicators.volatilityContext,
-          volumeProfile: indicators.volumeProfile
-        };
-        await new Promise((r) => setTimeout(r, 4e3));
-      } catch (err) {
-        addActivity2(userId, { type: "error", symbol, message: `Data fetch failed: ${err.message}` });
-      }
-    }
-    if (Object.keys(marketAnalysis).length === 0) {
-      addActivity2(userId, { type: "info", message: "No futures market data available this cycle." });
-      return;
-    }
-    await runFuturesAIAnalysis(userId, marketAnalysis);
-  } catch (err) {
-    addActivity2(userId, { type: "error", message: `Futures scan error: ${err.message}` });
-  } finally {
-    state.currentlyScanning = false;
-  }
-}
-function scheduleNextScan(userId) {
-  const state = scannerStates[userId];
-  if (!state || state.status !== "running") return;
-  scannerTimers[userId] = setTimeout(async () => {
-    await scanFuturesMarkets(userId);
-    scheduleNextScan(userId);
-  }, state.config.scanIntervalMs);
-}
-function startFuturesScanner(config) {
-  stopFuturesScanner(config.userId);
-  const fullConfig = {
-    userId: config.userId,
-    symbols: Array.isArray(config.symbols) && config.symbols.length > 0 ? config.symbols : DEFAULT_FUTURES_SYMBOLS,
-    scanIntervalMs: config.scanIntervalMs || 12e4,
-    minConfidence: config.minConfidence || 70,
-    maxOpenTrades: config.maxOpenTrades || 3,
-    riskPerTrade: config.riskPerTrade || 1,
-    accountBalance: config.accountBalance || 5e4,
-    aiMode: config.aiMode || "full",
-    propFirmDailyDrawdownLimit: config.propFirmDailyDrawdownLimit ?? 2,
-    enableAutoExecution: config.enableAutoExecution === true,
-    directionFilter: config.directionFilter || "both",
-    dailyLossLimit: config.dailyLossLimit ?? 3,
-    dailyProfitTarget: config.dailyProfitTarget ?? 0,
-    maxDailyTrades: config.maxDailyTrades ?? 0,
-    useKellyCriterion: config.useKellyCriterion === true,
-    brainLearningMode: config.brainLearningMode !== false,
-    drawdownShieldThreshold: config.drawdownShieldThreshold ?? 3,
-    trailMethod: config.trailMethod || "none",
-    trailActivationR: config.trailActivationR ?? 1,
-    trailFixedR: config.trailFixedR ?? 0.5,
-    trailStepR: config.trailStepR ?? 0.5,
-    trailProfitLockPct: config.trailProfitLockPct ?? 60,
-    trailSarInitialAF: config.trailSarInitialAF ?? 0.02,
-    trailSarMaxAF: config.trailSarMaxAF ?? 0.2,
-    breakevenBufferR: config.breakevenBufferR ?? 0.1,
-    propFirmMode: config.propFirmMode === true,
-    consistencyEnforcementEnabled: config.consistencyEnforcementEnabled === true,
-    consistencyMinProfitableDays: config.consistencyMinProfitableDays ?? 10,
-    consistencyPeriodDays: config.consistencyPeriodDays ?? 15,
-    maxDailyProfitPctOfTotal: config.maxDailyProfitPctOfTotal ?? 0,
-    tradingDaysOfWeek: Array.isArray(config.tradingDaysOfWeek) && config.tradingDaysOfWeek.length > 0 ? config.tradingDaysOfWeek : [1, 2, 3, 4, 5],
-    symbolDaySchedule: config.symbolDaySchedule || {},
-    symbolDirectionOverrides: config.symbolDirectionOverrides || {},
-    symbolContractOverrides: config.symbolContractOverrides || {},
-    smartSymbolEscalation: config.smartSymbolEscalation === true,
-    highConfidenceOverride: config.highConfidenceOverride === true,
-    enableCompositeAutonomous: config.enableCompositeAutonomous === true,
-    compositeMinEdgeScore: config.compositeMinEdgeScore ?? 72
-  };
-  scannerStates[config.userId] = {
-    status: "running",
-    config: fullConfig,
-    scanCount: 0,
-    lastScanAt: null,
-    currentlyScanning: false,
-    activities: [],
-    signals: [],
-    marketSnapshot: {},
-    dailyLossHalted: false,
-    dailyPnL: 0,
-    wins: 0,
-    losses: 0,
-    symbolPerformance: {}
-  };
-  addActivity2(config.userId, {
-    type: "info",
-    message: `\u{1F680} Futures Scanner STARTED | Instruments: ${fullConfig.symbols.join(", ")} | Interval: ${fullConfig.scanIntervalMs / 1e3}s | Min confidence: ${fullConfig.minConfidence}% | Auto-execute: ${fullConfig.enableAutoExecution ? "ON" : "OFF (signals only)"}`
-  });
-  setTimeout(() => {
-    scanFuturesMarkets(config.userId).then(() => scheduleNextScan(config.userId));
-  }, 3e3);
-  return scannerStates[config.userId];
-}
-function stopFuturesScanner(userId) {
-  if (scannerTimers[userId]) {
-    clearTimeout(scannerTimers[userId]);
-    delete scannerTimers[userId];
-  }
-  const state = scannerStates[userId];
-  if (state) {
-    state.status = "stopped";
-    addActivity2(userId, { type: "info", message: "\u23F9\uFE0F Futures Scanner STOPPED." });
-  }
-}
-function getFuturesScannerState(userId) {
-  return scannerStates[userId] || null;
-}
-function getFuturesScannerActivities(userId, limit = 50) {
-  return (scannerStates[userId]?.activities || []).slice(0, limit);
-}
-function getFuturesScannerSignals(userId, limit = 20) {
-  return (scannerStates[userId]?.signals || []).slice(0, limit);
-}
-function recordFuturesTradeOutcome(userId, symbol, won, rMultiple2) {
-  recordOutcome(userId, symbol, won, rMultiple2);
-}
-function buildFuturesScanConfigFromRow(row, enableAutoExecution) {
+  if (to > now) to = now;
+  const q = (sql18, params) => pool.query(sql18, params).then((r) => r.rows).catch(() => []);
+  const [trades, blocks, shadows, goalRows, ideas] = await Promise.all([
+    q(`SELECT symbol, direction, result, profit_loss, created_at, COALESCE(closed_at, created_at) AS closed
+       FROM ai_trade_results WHERE user_id = $1 AND result IN ('WIN','LOSS','BREAKEVEN')
+       AND COALESCE(closed_at, created_at) >= $2 AND COALESCE(closed_at, created_at) < $3`, [userId, from, to]),
+    // The gate re-logs the same block on every scan, so count distinct hours per pair + pattern.
+    q(`SELECT symbol || ' ' || COALESCE(pattern_value, dimension, '') AS reason,
+       count(DISTINCT date_trunc('hour', blocked_at))::int n
+       FROM fx_brain_gate_blocks WHERE user_id = $1 AND blocked_at >= $2 AND blocked_at < $3
+       GROUP BY 1 ORDER BY n DESC LIMIT 6`, [userId, from, to]),
+    q(`SELECT engine, strategy, count(*)::int trades, round(100.0 * avg((result = 'WIN')::int))::int win_rate,
+       round(sum(COALESCE(r_multiple, 0))::numeric, 1)::float sum_r
+       FROM shadow_ledger WHERE user_id = $1 AND opened_at >= $2 AND opened_at < $3 GROUP BY 1, 2 ORDER BY 1, 2`, [userId, from, to]),
+    q(`SELECT profit_target FROM weekly_strategies WHERE user_id = $1 ORDER BY (is_active IS TRUE) DESC, id DESC LIMIT 1`, [userId]),
+    q(`SELECT title, status, evidence->>'verdict' AS verdict FROM user_brain_ideas WHERE user_id = $1 AND status <> 'retired' ORDER BY id DESC LIMIT 10`, [userId])
+  ]);
+  const byDay = bucketize(trades, (r) => new Date(r.closed).toISOString().slice(0, 10));
+  const wins = trades.filter((r) => r.result === "WIN").length;
+  const losses = trades.filter((r) => r.result === "LOSS").length;
+  const pnl = Math.round(trades.reduce((s, r) => s + (Number(r.profit_loss) || 0), 0) * 100) / 100;
+  const weeklyTarget = goalRows[0]?.profit_target != null ? Number(goalRows[0].profit_target) : null;
+  const target = weeklyTarget == null ? null : period === "month" ? weeklyTarget * 4 : weeklyTarget;
   return {
-    userId: row.userId,
-    symbols: Array.isArray(row.symbols) && row.symbols.length > 0 ? row.symbols : DEFAULT_FUTURES_SYMBOLS,
-    scanIntervalMs: row.scanIntervalMs,
-    minConfidence: row.minConfidence,
-    maxOpenTrades: row.maxOpenTrades,
-    riskPerTrade: row.riskPerTrade,
-    accountBalance: row.accountBalance,
-    aiMode: row.aiMode,
-    propFirmDailyDrawdownLimit: row.propFirmDailyDrawdownLimit,
-    enableAutoExecution: row.enableAutoExecution === true && enableAutoExecution,
-    directionFilter: row.directionFilter,
-    dailyLossLimit: row.dailyLossLimit,
-    dailyProfitTarget: row.dailyProfitTarget,
-    maxDailyTrades: row.maxDailyTrades,
-    useKellyCriterion: row.useKellyCriterion,
-    brainLearningMode: row.brainLearningMode,
-    drawdownShieldThreshold: row.drawdownShieldThreshold,
-    trailMethod: row.trailMethod,
-    trailActivationR: row.trailActivationR,
-    trailFixedR: row.trailFixedR,
-    trailStepR: row.trailStepR,
-    trailProfitLockPct: row.trailProfitLockPct,
-    trailSarInitialAF: row.trailSarInitialAF,
-    trailSarMaxAF: row.trailSarMaxAF,
-    breakevenBufferR: row.breakevenBufferR,
-    propFirmMode: row.propFirmMode,
-    consistencyEnforcementEnabled: row.consistencyEnforcementEnabled,
-    consistencyMinProfitableDays: row.consistencyMinProfitableDays,
-    consistencyPeriodDays: row.consistencyPeriodDays,
-    maxDailyProfitPctOfTotal: row.maxDailyProfitPctOfTotal,
-    tradingDaysOfWeek: row.tradingDaysOfWeek || [1, 2, 3, 4, 5],
-    symbolDaySchedule: row.symbolDaySchedule || {},
-    symbolDirectionOverrides: row.symbolDirectionOverrides || {},
-    symbolContractOverrides: row.symbolContractOverrides || {},
-    smartSymbolEscalation: row.smartSymbolEscalation,
-    highConfidenceOverride: row.highConfidenceOverride,
-    enableCompositeAutonomous: row.enableCompositeAutonomous,
-    compositeMinEdgeScore: row.compositeMinEdgeScore
+    period,
+    from: from.toISOString().slice(0, 10),
+    to: to.toISOString().slice(0, 10),
+    goal: { weeklyTarget, hit: target == null ? null : pnl >= target },
+    totals: {
+      trades: trades.length,
+      wins,
+      losses,
+      winRate: trades.length ? Math.round(wins / trades.length * 100) : 0,
+      pnl,
+      bestDay: byDay[0] ? `${byDay[0].key} ${byDay[0].pnl >= 0 ? "+" : ""}$${byDay[0].pnl}` : null,
+      worstDay: byDay.length ? `${byDay[byDay.length - 1].key} ${byDay[byDay.length - 1].pnl >= 0 ? "+" : ""}$${byDay[byDay.length - 1].pnl}` : null
+    },
+    byPair: bucketize(trades, (r) => String(r.symbol).toUpperCase()),
+    bySession: bucketize(trades, (r) => sessionFor(new Date(r.created_at))),
+    byWeekday: bucketize(trades, (r) => DAYS[new Date(r.created_at).getUTCDay()]),
+    gateBlocks: { total: blocks.reduce((s, b) => s + b.n, 0), top: blocks.map((b) => ({ reason: String(b.reason || "").slice(0, 120), n: b.n })) },
+    shadows: shadows.map((s) => ({ engine: s.engine, strategy: s.strategy, trades: s.trades, winRate: s.win_rate, sumR: s.sum_r })),
+    ideas: ideas.map((i) => ({ title: i.title, status: i.status, verdict: i.verdict || "" }))
   };
 }
-async function resumeActiveFuturesScanners() {
+function reviewText(r) {
+  const t = r.totals;
+  const goal = r.goal.weeklyTarget == null ? "no weekly goal set" : `goal ${r.period === "month" ? "$" + r.goal.weeklyTarget * 4 + " (4x weekly)" : "$" + r.goal.weeklyTarget} \u2192 ${r.goal.hit ? "HIT" : "missed"}`;
+  return [
+    `${r.period.toUpperCase()} ${r.from} to ${r.to}: ${t.trades} trades, ${t.wins}W/${t.losses}L (${t.winRate}%), ${money(t.pnl)}; ${goal}. Best day ${t.bestDay || "n/a"}, worst ${t.worstDay || "n/a"}.`,
+    r.byPair.length ? `By pair: ${r.byPair.slice(0, 8).map(line).join(" | ")}` : "No closed trades in this period.",
+    r.bySession.length ? `By session: ${r.bySession.map(line).join(" | ")}` : "",
+    r.byWeekday.length ? `By weekday: ${r.byWeekday.map(line).join(" | ")}` : "",
+    r.gateBlocks.total ? `Brain gate (losing pair+session combos it kept them out of, in hours blocked): ${r.gateBlocks.top.map((b) => `${b.reason} ${b.n}h`).join("; ")}` : "Brain gate blocked nothing.",
+    r.shadows.length ? `Shadow/paper: ${r.shadows.map((s) => `${s.engine} ${s.strategy} ${s.trades}t ${s.winRate}%WR ${s.sumR >= 0 ? "+" : ""}${s.sumR}R`).join(" | ")}` : "No shadow trades resolved.",
+    r.ideas.length ? `Their brain ideas: ${r.ideas.map((i) => `"${i.title}" [${i.status}] ${i.verdict}`).join(" | ")}` : ""
+  ].filter(Boolean).join("\n");
+}
+async function reviewContextText(userId) {
   try {
-    const configs = await storage.getAllActiveFuturesEngineConfigs();
-    for (const row of configs) {
-      try {
-        const connection2 = await storage.getUserTradovateConnection(row.userId);
-        const config = buildFuturesScanConfigFromRow(row, !!connection2?.isActive);
-        startFuturesScanner(config);
-      } catch (e) {
-        console.error(`[futures-scanner] failed to resume scanner for user ${row.userId}:`, e.message);
-      }
-    }
-    if (configs.length > 0) {
-      console.log(`[futures-scanner] Resumed ${configs.length} active futures scanner(s) after restart.`);
-    }
-  } catch (err) {
-    console.error("[futures-scanner] resumeActiveFuturesScanners failed:", err.message);
-  }
-}
-function startFuturesEngineScanner() {
-  if (futuresResumeStarted) return;
-  futuresResumeStarted = true;
-  resumeActiveFuturesScanners().catch(
-    (e) => console.error("[futures-scanner] initial resume failed:", e.message)
-  );
-}
-var DEFAULT_FUTURES_SYMBOLS, scannerStates, scannerTimers, MAX_ACTIVITIES, MAX_SIGNALS, futuresSessionPeakEquity, MAX_OPEN_PER_SYMBOL, MAX_DAILY_ENTRIES_PER_SYMBOL, SYMBOL_COOLDOWN_MS, FUTURES_CORRELATED_BASKET_CAP, FUTURES_CORRELATED_BASKETS, FUTURES_SESSION_GUARD_ENABLED, FUTURES_CLOSE_GUARD_MIN, futuresResumeStarted;
-var init_futures_scanner = __esm({
-  "server/services/futures-scanner.ts"() {
-    "use strict";
-    init_service();
-    init_indicators();
-    init_storage();
-    init_tradovate();
-    init_futures_instruments();
-    init_markov_chain();
-    init_orderflow_strategy();
-    init_moomoo();
-    DEFAULT_FUTURES_SYMBOLS = ["NQ", "ES", "GC", "CL", "MNQ", "MES"];
-    scannerStates = {};
-    scannerTimers = {};
-    MAX_ACTIVITIES = 200;
-    MAX_SIGNALS = 100;
-    futuresSessionPeakEquity = /* @__PURE__ */ new Map();
-    MAX_OPEN_PER_SYMBOL = 3;
-    MAX_DAILY_ENTRIES_PER_SYMBOL = 4;
-    SYMBOL_COOLDOWN_MS = 20 * 60 * 1e3;
-    FUTURES_CORRELATED_BASKET_CAP = 4;
-    FUTURES_CORRELATED_BASKETS = [
-      ["ES", "MES", "NQ", "MNQ", "YM", "MYM", "RTY", "M2K", "SPX", "NDX"],
-      // US equity indices
-      ["CL", "MCL", "QM", "RB", "HO", "NG"],
-      // energy
-      ["GC", "MGC", "SI", "SIL", "HG", "PL"],
-      // metals
-      ["ZB", "ZN", "ZF", "ZT", "UB"]
-      // rates
-    ];
-    FUTURES_SESSION_GUARD_ENABLED = true;
-    FUTURES_CLOSE_GUARD_MIN = 15;
-    futuresResumeStarted = false;
-  }
-});
+    const [last, current, lastMonth] = await Promise.all([
+      getPeriodReview(userId, "week", 1),
+      getPeriodReview(userId, "week", 0),
+      getPeriodReview(userId, "month", 1)
+    ]);
+    const { whatIfAnalysis: whatIfAnalysis2, whatIfText: whatIfText2 } = await Promise.resolve().then(() => (init_brain_ideas(), brain_ideas_exports));
+    const d = (x) => /* @__PURE__ */ new Date(x + "T00:00:00Z");
+    const [wiWeek, wiMonth] = await Promise.all([
+      whatIfAnalysis2(userId, d(last.from), d(last.to)).catch(() => null),
+      whatIfAnalysis2(userId, d(lastMonth.from), d(lastMonth.to)).catch(() => null)
+    ]);
+    const whatIf = [wiWeek && whatIfText2("LAST WEEK", wiWeek), wiMonth && whatIfText2("LAST MONTH", wiMonth)].filter(Boolean).join("\n");
+    return `LAST WEEK
+${reviewText(last)}
 
-// server/services/futures-brain.ts
-var futures_brain_exports = {};
-__export(futures_brain_exports, {
-  getOrRefreshFuturesBrain: () => getOrRefreshFuturesBrain,
-  loadPersistedFuturesBrain: () => loadPersistedFuturesBrain,
-  runFuturesBrainLearning: () => runFuturesBrainLearning
-});
-import * as fs5 from "fs";
-import * as path5 from "path";
-function rMultiple(t) {
-  if (!t.exitPrice || !t.stopLoss) return 0;
-  const riskDist = Math.abs(t.entryPrice - t.stopLoss);
-  if (riskDist <= 0) return 0;
-  const isLong = t.direction === "long";
-  const move = isLong ? t.exitPrice - t.entryPrice : t.entryPrice - t.exitPrice;
-  return move / riskDist;
-}
-function buildSymbolKnowledge(trades) {
-  const closed = trades.filter((t) => t.status === "closed");
-  const withR = closed.map((t) => ({ t, r: rMultiple(t) }));
-  const wins = withR.filter((x) => x.r > 0);
-  const losses = withR.filter((x) => x.r <= 0);
-  const winRate2 = closed.length > 0 ? Math.round(wins.length / closed.length * 100) : 0;
-  const avgWinR = wins.length > 0 ? wins.reduce((s, x) => s + x.r, 0) / wins.length : 0;
-  const avgLossR = losses.length > 0 ? Math.abs(losses.reduce((s, x) => s + x.r, 0) / losses.length) : 0;
-  const riskRewardRatio = avgLossR > 0 ? avgWinR / avgLossR : avgWinR > 0 ? 2 : 0;
-  const longs = closed.filter((t) => t.direction === "long");
-  const shorts = closed.filter((t) => t.direction === "short");
-  const longWins = longs.filter((t) => (t.realizedPnl ?? 0) > 0).length;
-  const shortWins = shorts.filter((t) => (t.realizedPnl ?? 0) > 0).length;
-  const longWinRate = longs.length > 0 ? Math.round(longWins / longs.length * 100) : 50;
-  const shortWinRate = shorts.length > 0 ? Math.round(shortWins / shorts.length * 100) : 50;
-  const preferredDirection = Math.abs(longWinRate - shortWinRate) > 15 ? longWinRate > shortWinRate ? "long" : "short" : "both";
-  const byHour = {};
-  for (const t of closed) {
-    const hour = new Date(t.createdAt).getUTCHours();
-    byHour[hour] = byHour[hour] || { wins: 0, total: 0 };
-    byHour[hour].total++;
-    if ((t.realizedPnl ?? 0) > 0) byHour[hour].wins++;
-  }
-  const hourStats = Object.entries(byHour).filter(([, v]) => v.total >= 2).map(([hour, v]) => ({ hour: Number(hour), winRate: Math.round(v.wins / v.total * 100), total: v.total }));
-  const topHours = [...hourStats].sort((a, b) => b.winRate - a.winRate).slice(0, 3);
-  const worstHours = [...hourStats].sort((a, b) => a.winRate - b.winRate).slice(0, 2);
-  const byStrategy = {};
-  for (const t of closed) {
-    byStrategy[t.strategy] = byStrategy[t.strategy] || { wins: 0, total: 0 };
-    byStrategy[t.strategy].total++;
-    if ((t.realizedPnl ?? 0) > 0) byStrategy[t.strategy].wins++;
-  }
-  const bestStrategies = Object.entries(byStrategy).filter(([, v]) => v.total >= 2).sort((a, b) => b[1].wins / b[1].total - a[1].wins / a[1].total).slice(0, 2).map(([s]) => s);
-  const chrono = [...closed].sort((a, b) => new Date(a.closedAt ?? a.createdAt).getTime() - new Date(b.closedAt ?? b.createdAt).getTime());
-  let maxWinStreak = 0, maxLossStreak = 0, curWin = 0, curLoss = 0;
-  for (const t of chrono) {
-    if ((t.realizedPnl ?? 0) > 0) {
-      curWin++;
-      curLoss = 0;
-    } else {
-      curLoss++;
-      curWin = 0;
-    }
-    maxWinStreak = Math.max(maxWinStreak, curWin);
-    maxLossStreak = Math.max(maxLossStreak, curLoss);
-  }
-  const kellyFraction = riskRewardRatio > 0 ? winRate2 / 100 - (1 - winRate2 / 100) / riskRewardRatio : 0;
-  const recommendedContractMultiplier = Math.max(0.25, Math.min(1.5, 1 + kellyFraction));
-  return {
-    totalTrades: closed.length,
-    winRate: winRate2,
-    avgWinR,
-    avgLossR,
-    riskRewardRatio,
-    preferredDirection,
-    longWinRate,
-    shortWinRate,
-    topHours,
-    worstHours,
-    bestStrategies,
-    maxWinStreak,
-    maxLossStreak,
-    recommendedContractMultiplier
-  };
-}
-function buildLearningInsights(overallWinRate, totalTrades, symbolKnowledge) {
-  const insights = [];
-  if (overallWinRate >= 60 && totalTrades >= 10) {
-    insights.push(`Strong edge detected: ${overallWinRate}% overall win rate across ${totalTrades} trades`);
-  } else if (overallWinRate < 50 && totalTrades >= 10) {
-    insights.push(`Win rate below 50% \u2014 the engine will prioritize higher-confidence setups only until this improves`);
-  }
-  for (const [symbol, k2] of Object.entries(symbolKnowledge)) {
-    if (k2.totalTrades < 3) continue;
-    if (k2.preferredDirection !== "both") {
-      insights.push(`${symbol}: strong ${k2.preferredDirection.toUpperCase()} bias detected (${k2.preferredDirection === "long" ? k2.longWinRate : k2.shortWinRate}% WR)`);
-    }
-    if (k2.worstHours[0] && k2.worstHours[0].winRate < 30 && k2.worstHours[0].total >= 3) {
-      insights.push(`${symbol}: avoid entries around ${k2.worstHours[0].hour}:00 UTC (${k2.worstHours[0].winRate}% WR \u2014 loss zone)`);
-    }
-    if (k2.bestStrategies.length > 0 && k2.totalTrades >= 5) {
-      insights.push(`${symbol}: best-performing strategy is "${k2.bestStrategies[0]}"`);
-    }
-  }
-  return insights.slice(0, 10);
-}
-async function computeFuturesBrain(userId) {
-  const allTrades = await storage.getUserFuturesEngineTrades(userId, 1e3);
-  const closed = allTrades.filter((t) => t.status === "closed");
-  const uniqueSymbols = Array.from(new Set(closed.map((t) => t.symbol)));
-  const symbolKnowledge = {};
-  for (const symbol of uniqueSymbols) {
-    symbolKnowledge[symbol] = buildSymbolKnowledge(closed.filter((t) => t.symbol === symbol));
-  }
-  const wins = closed.filter((t) => (t.realizedPnl ?? 0) > 0).length;
-  const overallWinRate = closed.length > 0 ? Math.round(wins / closed.length * 100) : 0;
-  const totalProfit = closed.reduce((s, t) => s + (t.realizedPnl ?? 0), 0);
-  const brain = {
-    lastLearned: (/* @__PURE__ */ new Date()).toISOString(),
-    totalTradesAnalyzed: closed.length,
-    overallWinRate,
-    totalProfit,
-    symbolsLearned: uniqueSymbols.length,
-    symbolKnowledge,
-    learningInsights: buildLearningInsights(overallWinRate, closed.length, symbolKnowledge),
-    lastUpdateAt: (/* @__PURE__ */ new Date()).toISOString()
-  };
-  global.veddFuturesBrain = global.veddFuturesBrain || {};
-  global.veddFuturesBrain[userId] = brain;
-  try {
-    const brainDir = path5.join(process.cwd(), "data", "brains");
-    if (!fs5.existsSync(brainDir)) fs5.mkdirSync(brainDir, { recursive: true });
-    fs5.writeFileSync(path5.join(brainDir, `futures_brain_${userId}.json`), JSON.stringify(brain));
-  } catch {
-  }
-  console.log(`[futures-brain] Learned from ${closed.length} trades across ${uniqueSymbols.length} symbols for user ${userId}`);
-  return brain;
-}
-async function runFuturesBrainLearning(userId) {
-  return computeFuturesBrain(userId);
-}
-function loadPersistedFuturesBrain(userId) {
-  try {
-    const p = path5.join(process.cwd(), "data", "brains", `futures_brain_${userId}.json`);
-    if (!fs5.existsSync(p)) return null;
-    const brain = JSON.parse(fs5.readFileSync(p, "utf-8"));
-    global.veddFuturesBrain = global.veddFuturesBrain || {};
-    global.veddFuturesBrain[userId] = brain;
-    return brain;
-  } catch {
-    return null;
+THIS WEEK SO FAR
+${reviewText(current)}
+
+LAST MONTH
+${reviewText(lastMonth)}
+
+WHAT WOULD HAVE TURNED IT AROUND
+${whatIf}`;
+  } catch (e) {
+    return `Review unavailable (${e?.message || "error"}).`;
   }
 }
-async function getOrRefreshFuturesBrain(userId) {
-  global.veddFuturesBrain = global.veddFuturesBrain || {};
-  let brain = global.veddFuturesBrain[userId];
-  if (!brain) brain = loadPersistedFuturesBrain(userId);
-  const isStale = !brain || Date.now() - new Date(brain.lastUpdateAt).getTime() > STALE_MS;
-  if (isStale) brain = await runFuturesBrainLearning(userId);
-  return brain;
-}
-var STALE_MS;
-var init_futures_brain = __esm({
-  "server/services/futures-brain.ts"() {
+var DAYS, money, line;
+var init_weekly_review = __esm({
+  "server/services/weekly-review.ts"() {
     "use strict";
-    init_storage();
-    STALE_MS = 6e4;
+    init_db();
+    init_fx_models();
+    DAYS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+    money = (n) => `${n >= 0 ? "+" : "-"}$${Math.abs(n).toFixed(2)}`;
+    line = (b) => `${b.key} ${b.trades}t ${b.winRate}%WR ${money(b.pnl)}`;
   }
 });
 
@@ -39206,6 +35537,6825 @@ async function scanAndAnalyzeTokens(limit = 10, dexFilter = "all", options = {})
 var init_solana_scanner = __esm({
   "server/solana-scanner.ts"() {
     "use strict";
+  }
+});
+
+// server/services/sol-brain.ts
+async function ensureTable() {
+  if (_ensured3) return;
+  try {
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS "sol_brain_outcomes" (
+        "id" serial PRIMARY KEY NOT NULL,
+        "user_id" integer NOT NULL,
+        "symbol" text NOT NULL,
+        "strategy" text NOT NULL,
+        "direction" text NOT NULL,
+        "entry_confidence" double precision,
+        "return_pct" double precision,
+        "hour_utc" integer,
+        "holding_minutes" integer,
+        "exit_reason" text,
+        "result" text NOT NULL,
+        "profit_loss" double precision NOT NULL DEFAULT 0,
+        "source" text NOT NULL DEFAULT 'live',
+        "closed_at" timestamp DEFAULT now() NOT NULL,
+        "created_at" timestamp DEFAULT now() NOT NULL
+      );
+      CREATE INDEX IF NOT EXISTS "idx_sol_brain_outcomes_user_symbol" ON "sol_brain_outcomes" ("user_id", "symbol");
+    `);
+    _ensured3 = true;
+  } catch (err) {
+    console.error("[sol-brain] ensureTable failed (non-fatal):", err?.message ?? err);
+  }
+}
+function bump2(map, key, win) {
+  const s = map[key] ??= { trades: 0, wins: 0, winRate: 0 };
+  s.trades++;
+  if (win) s.wins++;
+  s.winRate = Math.round(s.wins / s.trades * 100);
+}
+function sizeMult2(winRate2, rr, trades) {
+  if (trades < MIN_TRADES4) return 1;
+  const w = winRate2 / 100, r = rr > 0 ? rr : 1;
+  const kelly = w - (1 - w) / r;
+  return Math.max(0.25, Math.min(1.5, 1 + kelly));
+}
+async function backfillIfEmpty2(userId) {
+  const { rows } = await pool.query(`SELECT count(*)::int n FROM sol_brain_outcomes WHERE user_id=$1`, [userId]);
+  if (rows[0].n > 0) return;
+  const { rows: trades } = await pool.query(
+    `SELECT token_symbol, strategy_id, close_pnl_pct, closed_at FROM sol_engine_positions
+     WHERE user_id=$1 AND status='closed' AND close_pnl_pct IS NOT NULL ORDER BY closed_at DESC LIMIT 1000`,
+    [userId]
+  );
+  if (!trades.length) return;
+  for (const t of trades) {
+    const pnl = Number(t.close_pnl_pct) || 0;
+    const d = t.closed_at ? new Date(t.closed_at) : /* @__PURE__ */ new Date();
+    await pool.query(
+      `INSERT INTO sol_brain_outcomes (user_id, symbol, strategy, direction, result, profit_loss, return_pct, hour_utc, source, closed_at)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,'backfill',$9)`,
+      [userId, t.token_symbol || "UNKNOWN", t.strategy_id || "unknown", "long", pnl > 0 ? "WIN" : pnl < 0 ? "LOSS" : "BREAKEVEN", pnl, pnl, d.getUTCHours(), d]
+    ).catch(() => {
+    });
+  }
+}
+async function learnFromSolTrades(userId) {
+  await ensureTable();
+  await backfillIfEmpty2(userId).catch(() => {
+  });
+  const { rows } = await pool.query(
+    `SELECT symbol, strategy, direction, result, profit_loss, hour_utc FROM sol_brain_outcomes
+     WHERE user_id=$1 ORDER BY closed_at DESC LIMIT 2000`,
+    [userId]
+  );
+  const symbols = {};
+  const winSum = {}, winN = {}, lossSum = {}, lossN = {};
+  let totalWins = 0, totalDecided = 0, totalPnl = 0;
+  for (const r of rows) {
+    const sym2 = r.symbol || "UNKNOWN";
+    const k2 = symbols[sym2] ??= { totalTrades: 0, wins: 0, losses: 0, winRate: 0, totalPnl: 0, avgWin: 0, avgLoss: 0, riskReward: 0, byStrategy: {}, byHour: {}, bestStrategy: null, recommendedSizeMultiplier: 1 };
+    const pnl = Number(r.profit_loss) || 0;
+    const win = r.result === "WIN", loss = r.result === "LOSS";
+    k2.totalTrades++;
+    k2.totalPnl += pnl;
+    totalPnl += pnl;
+    if (win) {
+      k2.wins++;
+      totalWins++;
+      winSum[sym2] = (winSum[sym2] ?? 0) + pnl;
+      winN[sym2] = (winN[sym2] ?? 0) + 1;
+    }
+    if (loss) {
+      k2.losses++;
+      lossSum[sym2] = (lossSum[sym2] ?? 0) + Math.abs(pnl);
+      lossN[sym2] = (lossN[sym2] ?? 0) + 1;
+    }
+    if (win || loss) totalDecided++;
+    if (r.strategy) bump2(k2.byStrategy, r.strategy, win);
+    if (r.hour_utc != null) bump2(k2.byHour, String(r.hour_utc), win);
+  }
+  for (const [sym2, k2] of Object.entries(symbols)) {
+    const decided = k2.wins + k2.losses;
+    k2.winRate = decided ? Math.round(k2.wins / decided * 100) : 0;
+    k2.avgWin = winN[sym2] ? winSum[sym2] / winN[sym2] : 0;
+    k2.avgLoss = lossN[sym2] ? lossSum[sym2] / lossN[sym2] : 0;
+    k2.riskReward = k2.avgLoss > 0 ? k2.avgWin / k2.avgLoss : k2.avgWin > 0 ? 2 : 1;
+    k2.recommendedSizeMultiplier = sizeMult2(k2.winRate, k2.riskReward, decided);
+    let best = null, bestWr = -1;
+    for (const [s, b] of Object.entries(k2.byStrategy)) if (b.trades >= 3 && b.winRate > bestWr) {
+      best = s;
+      bestWr = b.winRate;
+    }
+    k2.bestStrategy = best;
+  }
+  const insights = [];
+  for (const [sym2, k2] of Object.entries(symbols)) {
+    if (k2.wins + k2.losses >= MIN_TRADES4) insights.push(`${sym2}: ${k2.winRate}% WR over ${k2.wins + k2.losses} \u2192 sizing \xD7${k2.recommendedSizeMultiplier}${k2.bestStrategy ? `, best on ${k2.bestStrategy}` : ""}.`);
+    else insights.push(`${sym2}: still learning (${k2.wins + k2.losses}/${MIN_TRADES4}).`);
+  }
+  const brain = { userId, lastLearned: (/* @__PURE__ */ new Date()).toISOString(), totalTrades: rows.length, overallWinRate: totalDecided ? Math.round(totalWins / totalDecided * 100) : 0, totalPnl: Math.round(totalPnl * 100) / 100, symbolKnowledge: symbols, insights };
+  _cache2.set(userId, { brain, at: Date.now() });
+  return brain;
+}
+async function getOrRefreshSolBrain(userId, force = false) {
+  const hit = _cache2.get(userId);
+  if (!force && hit && Date.now() - hit.at < REFRESH_TTL_MS2) return hit.brain;
+  return learnFromSolTrades(userId);
+}
+function solBrainSizeMultiplier(userId, symbol) {
+  const k2 = _cache2.get(userId)?.brain?.symbolKnowledge[symbol];
+  return k2 ? k2.recommendedSizeMultiplier : 1;
+}
+function solBrainGate(userId, symbol, strategy, hourUtc) {
+  const k2 = _cache2.get(userId)?.brain?.symbolKnowledge[symbol];
+  if (!k2) return { blocked: false, reason: "" };
+  const decided = k2.wins + k2.losses;
+  if (decided >= 15 && k2.winRate < 35) return { blocked: true, reason: `\u{1F9E0} Sol brain: ${symbol} ${k2.winRate}% WR over ${decided} \u2014 skipping symbol` };
+  if (strategy) {
+    const st = k2.byStrategy[strategy];
+    if (st && st.trades >= 8 && st.winRate < 30) return { blocked: true, reason: `\u{1F9E0} Sol brain: ${symbol}/${strategy} ${st.winRate}% WR over ${st.trades} \u2014 skipping` };
+  }
+  if (hourUtc != null) {
+    const h = k2.byHour[String(hourUtc)];
+    if (h && h.trades >= 8 && h.winRate < 30) return { blocked: true, reason: `\u{1F9E0} Sol brain: ${symbol} @ ${hourUtc}:00 UTC ${h.winRate}% WR over ${h.trades} \u2014 skipping this hour` };
+  }
+  return { blocked: false, reason: "" };
+}
+async function recordSolBrainOutcome(o) {
+  try {
+    await ensureTable();
+    if (o.returnPct != null && (o.returnPct > 1e3 || o.returnPct < -100)) {
+      console.warn(`[sol-brain] rejected impossible return ${o.returnPct}% for ${o.symbol} \u2014 not recorded (bad price data)`);
+      return;
+    }
+    await pool.query(
+      `INSERT INTO sol_brain_outcomes (user_id, symbol, strategy, direction, entry_confidence, return_pct, hour_utc, holding_minutes, exit_reason, result, profit_loss, source)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)`,
+      [
+        o.userId,
+        o.symbol,
+        o.strategy || "unknown",
+        o.direction || "long",
+        o.entryConfidence ?? null,
+        o.returnPct ?? null,
+        (/* @__PURE__ */ new Date()).getUTCHours(),
+        o.holdingMinutes ?? null,
+        o.exitReason ?? null,
+        o.profitLoss > 0 ? "WIN" : o.profitLoss < 0 ? "LOSS" : "BREAKEVEN",
+        o.profitLoss,
+        o.source === "paper" ? "paper" : "live"
+      ]
+    );
+    await learnFromSolTrades(o.userId);
+  } catch (err) {
+    console.error("[sol-brain] recordSolBrainOutcome failed (non-fatal):", err?.message ?? err);
+  }
+}
+var MIN_TRADES4, REFRESH_TTL_MS2, _ensured3, _cache2;
+var init_sol_brain = __esm({
+  "server/services/sol-brain.ts"() {
+    "use strict";
+    init_db();
+    MIN_TRADES4 = 10;
+    REFRESH_TTL_MS2 = 60 * 1e3;
+    _ensured3 = false;
+    _cache2 = /* @__PURE__ */ new Map();
+  }
+});
+
+// server/services/weekend-boost.ts
+function isWeekendBoostWindow(d = /* @__PURE__ */ new Date()) {
+  const day = d.getUTCDay();
+  return day === 5 || day === 6 || day === 0;
+}
+function weekendBoostActive(d = /* @__PURE__ */ new Date()) {
+  return ENABLED && isWeekendBoostWindow(d);
+}
+function boostedMinConfidence(minConfidence, d = /* @__PURE__ */ new Date()) {
+  if (!weekendBoostActive(d)) return minConfidence;
+  return Math.max(CONF_HARD_FLOOR, minConfidence - CONF_DELTA);
+}
+function weekendBoostSizeMultiplier(d = /* @__PURE__ */ new Date()) {
+  return weekendBoostActive(d) ? SIZE_MULT : 1;
+}
+var ENABLED, CONF_DELTA, CONF_HARD_FLOOR, SIZE_MULT;
+var init_weekend_boost = __esm({
+  "server/services/weekend-boost.ts"() {
+    "use strict";
+    ENABLED = process.env.WEEKEND_BOOST_ENABLED !== "false";
+    CONF_DELTA = Number(process.env.WEEKEND_BOOST_CONF_DELTA ?? 5);
+    CONF_HARD_FLOOR = 50;
+    SIZE_MULT = Number(process.env.WEEKEND_BOOST_SIZE_MULT ?? 1.3);
+  }
+});
+
+// server/services/sol-engine.ts
+var sol_engine_exports = {};
+__export(sol_engine_exports, {
+  SOL_PAPER_MAX_SOL: () => SOL_PAPER_MAX_SOL,
+  SOL_STRATEGIES: () => SOL_STRATEGIES,
+  cancelSignal: () => cancelSignal,
+  clearServerWallet: () => clearServerWallet,
+  confirmLiveExit: () => confirmLiveExit,
+  confirmLiveTrade: () => confirmLiveTrade,
+  getAutoTradePositions: () => getAutoTradePositions,
+  getPendingExits: () => getPendingExits,
+  getPendingSignals: () => getPendingSignals,
+  getServerWalletStatus: () => getServerWalletStatus,
+  getSolEngineStatus: () => getSolEngineStatus,
+  getSolStrategies: () => getSolStrategies,
+  recordSolSignalResult: () => recordSolSignalResult,
+  resetSolWeeklyGoal: () => resetSolWeeklyGoal,
+  saveServerWallet: () => saveServerWallet,
+  setAutoTrade: () => setAutoTrade,
+  setCompoundSettings: () => setCompoundSettings,
+  setShieldActive: () => setShieldActive,
+  setSolStrategies: () => setSolStrategies,
+  setSolStrategy: () => setSolStrategy,
+  setSolWeeklyGoal: () => setSolWeeklyGoal,
+  startSolEngine: () => startSolEngine,
+  stopSolEngine: () => stopSolEngine,
+  triggerSolAIReview: () => triggerSolAIReview,
+  updateSolPortfolioValue: () => updateSolPortfolioValue
+});
+import { eq as eq5, sql as sql6 } from "drizzle-orm";
+import crypto4 from "crypto";
+function isBadPriceSample(next, lastGood) {
+  if (!(next > 0) || !(lastGood > 0)) return false;
+  return next / lastGood > MAX_PRICE_SPIKE || lastGood / next > MAX_PRICE_SPIKE;
+}
+function getEncryptionKey4() {
+  const seed = (process.env.DATABASE_URL || "vedd-sol-engine-fallback") + "sol-v1";
+  return crypto4.createHash("sha256").update(seed).digest();
+}
+function encryptWalletKey(plain) {
+  const iv = crypto4.randomBytes(16);
+  const cipher = crypto4.createCipheriv("aes-256-cbc", getEncryptionKey4(), iv);
+  const enc = Buffer.concat([cipher.update(plain, "utf8"), cipher.final()]);
+  return iv.toString("hex") + ":" + enc.toString("hex");
+}
+function decryptWalletKey(ciphertext) {
+  const [ivHex, encHex] = ciphertext.split(":");
+  const iv = Buffer.from(ivHex, "hex");
+  const decipher = crypto4.createDecipheriv("aes-256-cbc", getEncryptionKey4(), iv);
+  const dec = Buffer.concat([decipher.update(Buffer.from(encHex, "hex")), decipher.final()]);
+  return dec.toString("utf8");
+}
+async function saveEngineState(userId, state) {
+  try {
+    await db.insert(solEngineSettings).values({
+      userId,
+      activeStrategy: state.activeStrategy,
+      activeStrategies: state.activeStrategies,
+      autoTradeEnabled: state.autoTradeEnabled,
+      liveTradeEnabled: state.liveTradeEnabled,
+      autoTradeTP: state.autoTradeTP,
+      autoTradeSL: state.autoTradeSL,
+      weeklyGoal: state.weeklyGoal,
+      autoTradeStats: state.autoTradeStats,
+      updatedAt: /* @__PURE__ */ new Date()
+    }).onConflictDoUpdate({
+      target: solEngineSettings.userId,
+      set: {
+        activeStrategy: state.activeStrategy,
+        activeStrategies: state.activeStrategies,
+        autoTradeEnabled: state.autoTradeEnabled,
+        liveTradeEnabled: state.liveTradeEnabled,
+        autoTradeTP: state.autoTradeTP,
+        autoTradeSL: state.autoTradeSL,
+        weeklyGoal: state.weeklyGoal,
+        autoTradeStats: state.autoTradeStats,
+        updatedAt: /* @__PURE__ */ new Date()
+      }
+    });
+  } catch (err) {
+    console.error("[SolEngine] saveEngineState settings error:", err);
+  }
+}
+async function upsertPosition(userId, pos) {
+  try {
+    await db.insert(solEnginePositions).values({
+      userId,
+      positionId: pos.id,
+      mode: pos.mode,
+      symbol: pos.symbol,
+      mint: pos.mint,
+      entryPrice: pos.entryPrice,
+      currentPrice: pos.currentPrice,
+      targetPct: pos.targetPct,
+      slPct: pos.slPct,
+      size: pos.size,
+      tokenAmount: pos.tokenAmount,
+      decimals: pos.decimals,
+      strategyId: pos.strategyId,
+      txHash: pos.txHash,
+      status: pos.status,
+      openedAt: pos.openedAt,
+      closedAt: pos.closedAt,
+      closePnlPct: pos.closePnlPct,
+      updatedAt: /* @__PURE__ */ new Date()
+    }).onConflictDoUpdate({
+      target: solEnginePositions.positionId,
+      set: {
+        currentPrice: pos.currentPrice,
+        status: pos.status,
+        closedAt: pos.closedAt,
+        closePnlPct: pos.closePnlPct,
+        tokenAmount: pos.tokenAmount,
+        updatedAt: /* @__PURE__ */ new Date()
+      }
+    });
+  } catch (err) {
+    console.error("[SolEngine] upsertPosition error:", err);
+  }
+}
+async function loadEngineStateFromDb(userId, state) {
+  try {
+    const [settings] = await db.select().from(solEngineSettings).where(eq5(solEngineSettings.userId, userId));
+    if (settings) {
+      state.activeStrategy = settings.activeStrategy;
+      state.activeStrategies = settings.activeStrategies || [settings.activeStrategy];
+      state.autoTradeEnabled = settings.autoTradeEnabled;
+      state.liveTradeEnabled = settings.liveTradeEnabled;
+      state.autoTradeTP = settings.autoTradeTP;
+      state.autoTradeSL = settings.autoTradeSL;
+      state.autoTrailActivationPct = settings.autoTrailActivationPct ?? 4;
+      state.autoTrailDistancePct = settings.autoTrailDistancePct ?? 3;
+      if (settings.weeklyGoal && typeof settings.weeklyGoal === "object") {
+        state.weeklyGoal = { ...DEFAULT_WEEKLY_GOAL, ...settings.weeklyGoal };
+      }
+      if (settings.autoTradeStats && typeof settings.autoTradeStats === "object") {
+        state.autoTradeStats = { ...state.autoTradeStats, ...settings.autoTradeStats };
+      }
+      if (settings.serverWalletKey && state.currentPortfolioValue <= 0) {
+        try {
+          const privateKeyBase58 = decryptWalletKey(settings.serverWalletKey);
+          const { Keypair: Keypair2, Connection: Connection3 } = await import("@solana/web3.js");
+          const bs58 = (await import("bs58")).default;
+          const keypair = Keypair2.fromSecretKey(bs58.decode(privateKeyBase58));
+          const rpcUrl = process.env.SOLANA_RPC_URL || "https://mainnet.helius-rpc.com/?api-key=15319bf4-5b40-4958-ac8d-6313aa55eb92";
+          const connection2 = new Connection3(rpcUrl, { commitment: "confirmed" });
+          const lamports = await connection2.getBalance(keypair.publicKey);
+          const solBalance = lamports / 1e9;
+          if (solBalance > 0) {
+            state.currentPortfolioValue = solBalance;
+            console.log(`[SolEngine] Auto-set portfolio value from server wallet: ${solBalance.toFixed(4)} SOL`);
+          }
+        } catch (walletErr) {
+          console.warn("[SolEngine] Could not fetch server wallet balance for portfolio init:", walletErr);
+        }
+      }
+    }
+    const positions = await db.select().from(solEnginePositions).where(eq5(solEnginePositions.userId, userId));
+    for (const row of positions) {
+      const pos = {
+        id: row.positionId,
+        symbol: row.symbol,
+        mint: row.mint,
+        entryPrice: row.entryPrice,
+        currentPrice: row.currentPrice,
+        targetPct: row.targetPct,
+        slPct: row.slPct,
+        size: row.size,
+        tokenAmount: row.tokenAmount,
+        decimals: row.decimals,
+        strategyId: row.strategyId,
+        txHash: row.txHash || void 0,
+        mode: row.mode,
+        status: row.status,
+        openedAt: row.openedAt,
+        closedAt: row.closedAt || void 0,
+        closePnlPct: row.closePnlPct || void 0
+      };
+      if (pos.mode === "paper") {
+        if (pos.status === "open") state.paperPositions.push(pos);
+        else state.closedPaperPositions.push(pos);
+      } else {
+        if (pos.status === "open") state.livePositions.push(pos);
+        else state.closedLivePositions.push(pos);
+      }
+    }
+    console.log(`[SolEngine] Loaded state for user ${userId}: ${positions.length} positions restored`);
+  } catch (err) {
+    console.error("[SolEngine] loadEngineStateFromDb error:", err);
+  }
+}
+async function fetchPricesByMint(mints) {
+  const out = {};
+  const unique2 = Array.from(new Set(mints.filter(Boolean)));
+  if (unique2.length === 0) return out;
+  for (let i = 0; i < unique2.length; i += 30) {
+    const batch = unique2.slice(i, i + 30);
+    try {
+      const resp = await fetch(`https://api.dexscreener.com/latest/dex/tokens/${batch.join(",")}`);
+      if (!resp.ok) continue;
+      const data = await resp.json();
+      const pairs = data?.pairs || [];
+      const bestLiq = {};
+      for (const pair of pairs) {
+        if (pair?.chainId && pair.chainId !== "solana") continue;
+        const mint = pair?.baseToken?.address;
+        if (!mint) continue;
+        const price = parseFloat(pair?.priceUsd) || 0;
+        const liq = pair?.liquidity?.usd || 0;
+        if (price <= 0) continue;
+        if (out[mint] === void 0 || liq > (bestLiq[mint] ?? -1)) {
+          out[mint] = price;
+          bestLiq[mint] = liq;
+        }
+      }
+    } catch (err) {
+      console.warn("[SolEngine] fetchPricesByMint DexScreener batch failed:", err instanceof Error ? err.message : err);
+    }
+  }
+  const missing = unique2.filter((m) => !(out[m] > 0));
+  if (missing.length > 0) {
+    try {
+      const resp = await fetch(`https://lite-api.jup.ag/price/v2?ids=${missing.join(",")}`);
+      if (resp.ok) {
+        const data = await resp.json();
+        const priceData = data?.data || {};
+        for (const mint of missing) {
+          const p = parseFloat(priceData?.[mint]?.price) || 0;
+          if (p > 0) out[mint] = p;
+        }
+      }
+    } catch (err) {
+      console.warn("[SolEngine] fetchPricesByMint Jupiter fallback failed:", err instanceof Error ? err.message : err);
+    }
+  }
+  return out;
+}
+function finalizeAbandonedPosition(userId, state, pos, reason) {
+  const gainPct = pos.entryPrice > 0 ? (pos.currentPrice - pos.entryPrice) / pos.entryPrice * 100 : 0;
+  pos.status = "closed";
+  pos.closedAt = (/* @__PURE__ */ new Date()).toISOString();
+  pos.closePnlPct = gainPct;
+  pos.closeReason = "abandoned";
+  pos.exitReason = reason;
+  state.livePositions = state.livePositions.filter((p) => p.id !== pos.id);
+  state.closedLivePositions.unshift(pos);
+  if (state.closedLivePositions.length > 50) state.closedLivePositions = state.closedLivePositions.slice(0, 50);
+  addActivity2(state, {
+    type: "live_sell",
+    message: `\u{1F6A8} ABANDONED: ${pos.symbol} marked closed (${reason}) \u2014 could not exit on-chain. MANUAL HANDLING REQUIRED. mint: ${pos.mint} | tokenAmount: ${pos.tokenAmount}`
+  });
+  console.error(`[SolEngine] ABANDONED position ${pos.id} (${pos.symbol}) reason=${reason} mint=${pos.mint} tokenAmount=${pos.tokenAmount}`);
+  upsertPosition(userId, pos).catch(() => {
+  });
+  saveEngineState(userId, state).catch(() => {
+  });
+}
+async function executeServerSideSell(userId, pos, reason, state) {
+  try {
+    const [settings] = await db.select({ serverWalletKey: solEngineSettings.serverWalletKey }).from(solEngineSettings).where(eq5(solEngineSettings.userId, userId));
+    if (!settings?.serverWalletKey) return false;
+    const privateKeyBase58 = decryptWalletKey(settings.serverWalletKey);
+    const { Keypair: Keypair2, Connection: Connection3, VersionedTransaction } = await import("@solana/web3.js");
+    const bs58 = (await import("bs58")).default;
+    const secretKey = bs58.decode(privateKeyBase58);
+    const keypair = Keypair2.fromSecretKey(secretKey);
+    const SOL_MINT = "So11111111111111111111111111111111111111112";
+    const amount = Math.floor(pos.tokenAmount);
+    if (amount <= 0) {
+      finalizeAbandonedPosition(userId, state, pos, `${reason}_zero_amount`);
+      return true;
+    }
+    const rpcUrl = process.env.SOLANA_RPC_URL || "https://mainnet.helius-rpc.com/?api-key=15319bf4-5b40-4958-ac8d-6313aa55eb92";
+    const connection2 = new Connection3(rpcUrl, { commitment: "confirmed" });
+    const slippageLadder = [300, 800, 1500];
+    let signature = null;
+    for (let attempt = 0; attempt < slippageLadder.length; attempt++) {
+      const slippageBps = slippageLadder[attempt];
+      try {
+        const quoteResp = await fetch(
+          `https://quote-api.jup.ag/v6/quote?inputMint=${pos.mint}&outputMint=${SOL_MINT}&amount=${amount}&slippageBps=${slippageBps}`
+        );
+        if (!quoteResp.ok) continue;
+        const quote = await quoteResp.json();
+        if (quote?.error) continue;
+        const swapResp = await fetch("https://quote-api.jup.ag/v6/swap", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            quoteResponse: quote,
+            userPublicKey: keypair.publicKey.toBase58(),
+            wrapAndUnwrapSol: true,
+            dynamicComputeUnitLimit: true,
+            prioritizationFeeLamports: "auto"
+          })
+        });
+        if (!swapResp.ok) continue;
+        const { swapTransaction } = await swapResp.json();
+        if (!swapTransaction) continue;
+        const txBuffer = Buffer.from(swapTransaction, "base64");
+        const transaction = VersionedTransaction.deserialize(txBuffer);
+        transaction.sign([keypair]);
+        const sig = await connection2.sendRawTransaction(transaction.serialize(), { skipPreflight: true, maxRetries: 3 });
+        let ok = false;
+        try {
+          const latest = await connection2.getLatestBlockhash("confirmed");
+          const conf = await connection2.confirmTransaction(
+            { signature: sig, blockhash: latest.blockhash, lastValidBlockHeight: latest.lastValidBlockHeight },
+            "confirmed"
+          );
+          ok = !conf.value.err;
+        } catch {
+          for (let i = 0; i < 20; i++) {
+            await new Promise((r) => setTimeout(r, 2e3));
+            try {
+              const st = await connection2.getSignatureStatuses([sig]);
+              const s = st.value[0];
+              if (s && (s.confirmationStatus === "confirmed" || s.confirmationStatus === "finalized")) {
+                ok = !s.err;
+                break;
+              }
+              if (s && s.err) {
+                ok = false;
+                break;
+              }
+            } catch {
+            }
+          }
+        }
+        if (ok) {
+          signature = sig;
+          break;
+        }
+        addActivity2(state, {
+          type: "live_sell",
+          message: `\u21BB Sell attempt ${attempt + 1}/${slippageLadder.length} unconfirmed for ${pos.symbol} (slippage ${slippageBps}bps) \u2014 retrying`
+        });
+      } catch (attemptErr) {
+        console.warn(`[SolEngine] sell attempt ${attempt + 1} failed:`, attemptErr instanceof Error ? attemptErr.message : attemptErr);
+      }
+    }
+    if (!signature) {
+      finalizeAbandonedPosition(userId, state, pos, "abandoned_sell_failed");
+      return true;
+    }
+    const gainPct = pos.entryPrice > 0 ? (pos.currentPrice - pos.entryPrice) / pos.entryPrice * 100 : 0;
+    const label = reason === "tp" ? "TP \u2705" : "SL \u{1F6E1}\uFE0F";
+    pos.status = "closed";
+    pos.closedAt = (/* @__PURE__ */ new Date()).toISOString();
+    pos.closePnlPct = gainPct;
+    state.livePositions = state.livePositions.filter((p) => p.id !== pos.id);
+    state.closedLivePositions.unshift(pos);
+    if (state.closedLivePositions.length > 50) state.closedLivePositions = state.closedLivePositions.slice(0, 50);
+    const isWin = gainPct >= 0;
+    state.autoTradeStats.totalTrades++;
+    state.autoTradeStats.totalPnlPct += gainPct;
+    if (isWin) {
+      state.autoTradeStats.wins++;
+      if (gainPct > state.autoTradeStats.bestTradePct) state.autoTradeStats.bestTradePct = gainPct;
+    } else {
+      state.autoTradeStats.losses++;
+      if (gainPct < state.autoTradeStats.worstTradePct) state.autoTradeStats.worstTradePct = gainPct;
+    }
+    const dexKeyLive = (pos.dex || "unknown").toLowerCase().replace(/[^a-z]/g, "") || "unknown";
+    if (!state.signalWeights[dexKeyLive]) state.signalWeights[dexKeyLive] = 1;
+    if (!state.kellyStats[dexKeyLive]) state.kellyStats[dexKeyLive] = { wins: 0, losses: 0, totalGainPct: 0 };
+    if (isWin) {
+      state.signalWeights[dexKeyLive] = Math.min(2, state.signalWeights[dexKeyLive] + 0.05);
+      state.kellyStats[dexKeyLive].wins++;
+      state.kellyStats[dexKeyLive].totalGainPct += Math.abs(gainPct);
+      state.weeklyGoal.winStreak = (state.weeklyGoal.winStreak || 0) + 1;
+    } else {
+      state.signalWeights[dexKeyLive] = Math.max(0.2, state.signalWeights[dexKeyLive] - 0.08);
+      state.kellyStats[dexKeyLive].losses++;
+      state.weeklyGoal.winStreak = 0;
+    }
+    if (state.weeklyGoal.phase !== "idle") {
+      state.weeklyGoal.currentProfitSol += pos.size * (gainPct / 100);
+      state.weeklyGoal.tradeHistory.unshift({
+        timestamp: (/* @__PURE__ */ new Date()).toISOString(),
+        symbol: pos.symbol,
+        sol: pos.size,
+        gainPct,
+        outcome: isWin ? "WIN" : "LOSS",
+        strategy: pos.strategyId || state.activeStrategy
+      });
+      if (state.weeklyGoal.tradeHistory.length > 100) state.weeklyGoal.tradeHistory = state.weeklyGoal.tradeHistory.slice(0, 100);
+    }
+    addActivity2(state, {
+      type: "live_sell",
+      message: `\u{1F916} Server auto-sold ${pos.symbol} [${label}] ${gainPct >= 0 ? "+" : ""}${gainPct.toFixed(2)}% \u2014 TX: ${signature.slice(0, 16)}...`
+    });
+    recordSolBrainOutcome({
+      userId,
+      symbol: pos.symbol,
+      strategy: pos.strategyId || "unknown",
+      direction: "long",
+      returnPct: gainPct,
+      holdingMinutes: Math.max(0, Math.round((Date.now() - new Date(pos.openedAt).getTime()) / 6e4)),
+      exitReason: reason,
+      profitLoss: pos.size * (gainPct / 100)
+    }).catch(() => {
+    });
+    upsertPosition(userId, pos).catch(() => {
+    });
+    saveEngineState(userId, state).catch(() => {
+    });
+    state.lastWalletRefreshAt = 0;
+    refreshServerWalletBalance(userId, state).catch(() => {
+    });
+    return true;
+  } catch (err) {
+    console.error("[SolEngine] executeServerSideSell error:", err);
+    return false;
+  }
+}
+async function executeServerSideBuy(userId, signal, state) {
+  try {
+    const [settings] = await db.select({ serverWalletKey: solEngineSettings.serverWalletKey }).from(solEngineSettings).where(eq5(solEngineSettings.userId, userId));
+    if (!settings?.serverWalletKey) return false;
+    const privateKeyBase58 = decryptWalletKey(settings.serverWalletKey);
+    const { Keypair: Keypair2, Connection: Connection3, VersionedTransaction } = await import("@solana/web3.js");
+    const bs58 = (await import("bs58")).default;
+    const secretKey = bs58.decode(privateKeyBase58);
+    const keypair = Keypair2.fromSecretKey(secretKey);
+    const SOL_MINT = "So11111111111111111111111111111111111111112";
+    const lamports = Math.floor(signal.sizeSOL * 1e9);
+    if (lamports <= 0) return false;
+    const quoteResp = await fetch(
+      `https://quote-api.jup.ag/v6/quote?inputMint=${SOL_MINT}&outputMint=${signal.mint}&amount=${lamports}&slippageBps=200`
+    );
+    if (!quoteResp.ok) return false;
+    const quote = await quoteResp.json();
+    if (quote.error) {
+      console.warn("[SolEngine] Jupiter buy quote error:", quote.error);
+      return false;
+    }
+    const swapResp = await fetch("https://quote-api.jup.ag/v6/swap", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        quoteResponse: quote,
+        userPublicKey: keypair.publicKey.toBase58(),
+        wrapAndUnwrapSol: true,
+        dynamicComputeUnitLimit: true,
+        prioritizationFeeLamports: "auto"
+      })
+    });
+    if (!swapResp.ok) return false;
+    const { swapTransaction } = await swapResp.json();
+    const txBuffer = Buffer.from(swapTransaction, "base64");
+    const transaction = VersionedTransaction.deserialize(txBuffer);
+    transaction.sign([keypair]);
+    const rpcUrl = process.env.SOLANA_RPC_URL || "https://mainnet.helius-rpc.com/?api-key=15319bf4-5b40-4958-ac8d-6313aa55eb92";
+    const connection2 = new Connection3(rpcUrl, { commitment: "confirmed" });
+    const signature = await connection2.sendRawTransaction(transaction.serialize(), {
+      skipPreflight: true,
+      maxRetries: 3
+    });
+    let confirmedOk = false;
+    try {
+      const latest = await connection2.getLatestBlockhash("confirmed");
+      const conf = await connection2.confirmTransaction(
+        { signature, blockhash: latest.blockhash, lastValidBlockHeight: latest.lastValidBlockHeight },
+        "confirmed"
+      );
+      confirmedOk = !conf.value.err;
+    } catch {
+      for (let i = 0; i < 30; i++) {
+        await new Promise((r) => setTimeout(r, 2e3));
+        try {
+          const st = await connection2.getSignatureStatuses([signature]);
+          const s = st.value[0];
+          if (s && (s.confirmationStatus === "confirmed" || s.confirmationStatus === "finalized")) {
+            confirmedOk = !s.err;
+            break;
+          }
+          if (s && s.err) {
+            confirmedOk = false;
+            break;
+          }
+        } catch {
+        }
+      }
+    }
+    if (!confirmedOk) {
+      addActivity2(state, {
+        type: "live_signal",
+        message: `\u274C Buy not confirmed \u2014 no position recorded: ${signal.symbol} (TX ${signature.slice(0, 16)}...). SOL not deployed.`
+      });
+      return false;
+    }
+    let tokenAmount = 0;
+    let decimals = 9;
+    try {
+      const { PublicKey: PublicKey3 } = await import("@solana/web3.js");
+      const balResp = await connection2.getParsedTokenAccountsByOwner(keypair.publicKey, { mint: new PublicKey3(signal.mint) });
+      for (const acc of balResp.value) {
+        const info2 = acc.account?.data?.parsed?.info?.tokenAmount;
+        if (info2) {
+          tokenAmount += Number(info2.amount) || 0;
+          if (info2.decimals != null) decimals = Number(info2.decimals);
+        }
+      }
+    } catch (balErr) {
+      console.warn("[SolEngine] getParsedTokenAccountsByOwner failed after buy:", balErr instanceof Error ? balErr.message : balErr);
+    }
+    if (!(tokenAmount > 0)) {
+      addActivity2(state, {
+        type: "live_signal",
+        message: `\u274C Buy confirmed but zero token balance found \u2014 no position recorded: ${signal.symbol}. MANUAL CHECK (TX ${signature.slice(0, 16)}...).`
+      });
+      return false;
+    }
+    const pos = {
+      id: `live_pos_${Date.now()}_${signal.symbol}`,
+      symbol: signal.symbol,
+      mint: signal.mint,
+      entryPrice: signal.price,
+      currentPrice: signal.price,
+      targetPct: state.autoTradeTP,
+      slPct: state.autoTradeSL,
+      size: signal.sizeSOL,
+      tokenAmount,
+      decimals,
+      strategyId: signal.strategyId,
+      mode: "live",
+      txHash: signature,
+      openedAt: (/* @__PURE__ */ new Date()).toISOString(),
+      status: "open",
+      stopLossPrice: signal.stopLossPrice,
+      takeProfitPrice: signal.takeProfitPrice,
+      dex: signal.dex
+    };
+    state.livePositions.push(pos);
+    state.dailyTradeCount++;
+    addActivity2(state, {
+      type: "live_buy",
+      message: `\u{1F916} Server auto-bought ${signal.symbol} \u2014 ${signal.sizeSOL.toFixed(3)} SOL @ $${signal.price.toFixed(6)} | TX: ${signature.slice(0, 16)}... | TP: +${state.autoTradeTP}% | SL: -${state.autoTradeSL}%`
+    });
+    upsertPosition(userId, pos).catch(() => {
+    });
+    saveEngineState(userId, state).catch(() => {
+    });
+    state.lastWalletRefreshAt = 0;
+    refreshServerWalletBalance(userId, state).catch(() => {
+    });
+    return true;
+  } catch (err) {
+    console.error("[SolEngine] executeServerSideBuy error:", err);
+    return false;
+  }
+}
+function passesStrategyFilter(analysis, strategy) {
+  const token = analysis.token;
+  const totalTxns = token.txns24h.buys + token.txns24h.sells;
+  const buyRatio = totalTxns > 0 ? token.txns24h.buys / totalTxns : 0.5;
+  const avgTxSize = totalTxns > 0 ? token.volume24h / totalTxns : 0;
+  const priceChg = token.priceChange24h;
+  switch (strategy.id) {
+    case "whale_follower":
+      return avgTxSize > 200 && token.makers24h < 500 && buyRatio > 0.55 && analysis.whaleScore >= 60;
+    case "momentum_surfer":
+      return priceChg >= 5 && priceChg <= 80 && buyRatio > 0.55 && token.volume24h >= 3e4;
+    case "breakout_hunter":
+      return priceChg >= 10 && priceChg <= 80 && token.volume24h >= 3e4 && buyRatio > 0.54;
+    case "dip_sniper":
+      return priceChg >= -40 && priceChg <= -4 && buyRatio > 0.62;
+    case "meme_velocity":
+      return priceChg >= 20 && token.volume24h >= 15e3;
+    case "volume_explosion":
+      return token.volume24h >= 25e4 && buyRatio > 0.52;
+    case "smart_money_flow":
+      return analysis.riskLevel === "LOW" && token.makers24h >= 50 && analysis.signal === "STRONG_BUY";
+    case "liquidity_sweep":
+      return priceChg >= -15 && priceChg <= 10 && buyRatio > 0.62 && analysis.sentimentScore >= 55;
+    case "order_flow_scalper":
+      return buyRatio > 0.65 && priceChg >= -5 && priceChg <= 20 && token.volume24h >= 5e4;
+    case "trend_rider":
+      return priceChg >= 8 && priceChg <= 60 && buyRatio > 0.56 && buyRatio < 0.8 && token.volume24h >= 75e3 && token.makers24h >= 40 && analysis.riskLevel !== "HIGH";
+    case "adaptive":
+      return true;
+    default:
+      return true;
+  }
+}
+function selectAdaptiveSolStrategy(macro, scanResult) {
+  if (scanResult.length === 0) {
+    return { strategyId: "momentum_surfer", reason: "No scan data \u2014 defaulting to momentum" };
+  }
+  const counts = { whale: 0, dip: 0, breakout: 0, volExplosion: 0, meme: 0, smartMoney: 0, orderFlow: 0 };
+  for (const t of scanResult) {
+    const tt = t.token.txns24h.buys + t.token.txns24h.sells;
+    const br = tt > 0 ? t.token.txns24h.buys / tt : 0.5;
+    const avgTx = tt > 0 ? t.token.volume24h / tt : 0;
+    const chg = t.token.priceChange24h;
+    if (avgTx > 1e3 && t.token.makers24h < 150 && t.whaleScore >= 65) counts.whale++;
+    if (chg >= -40 && chg <= -4 && br > 0.62) counts.dip++;
+    if (chg >= 12 && chg <= 70 && t.token.volume24h >= 8e4) counts.breakout++;
+    if (t.token.volume24h >= 25e4) counts.volExplosion++;
+    if (chg >= 20 && (t.token.dexSource === "pumpfun" || (t.token.dexId || "").toLowerCase().includes("pump"))) counts.meme++;
+    if (t.riskLevel === "LOW" && t.signal === "STRONG_BUY" && t.token.makers24h >= 150) counts.smartMoney++;
+    if (br > 0.65 && chg >= -5 && chg <= 20 && t.token.volume24h >= 5e4) counts.orderFlow++;
+  }
+  if (macro?.bias === "RISK_OFF") {
+    if (counts.smartMoney >= 1) return { strategyId: "smart_money_flow", reason: `RISK_OFF macro \u2014 ${counts.smartMoney} LOW-risk STRONG_BUY token(s). Institutional-grade entries only` };
+    if (counts.dip >= 1) return { strategyId: "dip_sniper", reason: `RISK_OFF macro \u2014 ${counts.dip} accumulation dip(s) with strong buy pressure. Cautious entries only` };
+    return { strategyId: "smart_money_flow", reason: "RISK_OFF macro \u2014 conservative mode, waiting for institutional quality setups" };
+  }
+  if (counts.volExplosion >= 2) return { strategyId: "volume_explosion", reason: `${counts.volExplosion} tokens with explosive volume (>$250K) \u2014 institutional attention confirmed` };
+  if (counts.whale >= 2) return { strategyId: "whale_follower", reason: `${counts.whale} tokens with real whale accumulation (large avg tx + concentrated wallets)` };
+  if (counts.breakout >= 2) return { strategyId: "breakout_hunter", reason: `${counts.breakout} confirmed breakout setups (12\u201370% move + volume >$80K)` };
+  if (counts.meme >= 2) return { strategyId: "meme_velocity", reason: `${counts.meme} meme tokens pumping on Pump.fun \u2014 velocity play` };
+  if (counts.dip >= 2) return { strategyId: "dip_sniper", reason: `${counts.dip} tokens dipping with smart-money accumulation` };
+  if (counts.whale >= 1) return { strategyId: "whale_follower", reason: `${counts.whale} whale accumulation token detected \u2014 follow the smart money` };
+  if (counts.volExplosion >= 1) return { strategyId: "volume_explosion", reason: `${counts.volExplosion} explosive volume token \u2014 institutional move in progress` };
+  if (counts.orderFlow >= 2) return { strategyId: "order_flow_scalper", reason: `${counts.orderFlow} tokens with strong buy delta but price not yet moved \u2014 order flow leading price, entry before the move` };
+  if (macro?.bias === "RISK_ON") return { strategyId: "momentum_surfer", reason: `RISK_ON macro \u2014 BTC/ETH/SOL all positive. Ride the momentum` };
+  return { strategyId: "momentum_surfer", reason: "Mixed market \u2014 default momentum scan" };
+}
+function getStrategyEntryContext(strategyId) {
+  switch (strategyId) {
+    case "whale_follower":
+      return "ENTRY FILTER: avg transaction size >$1K (whale-sized, not retail), <150 unique wallets (concentrated accumulation), whale score \u226565, buy/sell ratio >58%. SKIP tokens with many small retail txns or scattered wallets.";
+    case "momentum_surfer":
+      return "ENTRY FILTER: price up 5\u201380%, buy ratio >55%, volume >$30K. Riding an existing uptrend. Skip flat or down tokens.";
+    case "breakout_hunter":
+      return "ENTRY FILTER: price up 12\u201370% (not overextended), volume >$80K, buy ratio >58%. STRONG_BUY preferred. Skip micro-cap low-volume setups.";
+    case "dip_sniper":
+      return "ENTRY FILTER: price DOWN 4\u201340% in 24h BUT buy ratio >62% (smart accumulation against the trend). Counter-trend entry \u2014 requires clear accumulation signal in the dip.";
+    case "meme_velocity":
+      return "ENTRY FILTER: price up >20%, Pump.fun preferred, high velocity short-lived pump. Quick in-out (10\u201315 min). Accept HIGH risk. Prioritise momentum and exit speed.";
+    case "volume_explosion":
+      return "ENTRY FILTER: 24h volume >$250K (institutional or viral event), buy ratio >52%. Volume is the primary signal \u2014 price direction secondary.";
+    case "smart_money_flow":
+      return "ENTRY FILTER: LOW risk ONLY, STRONG_BUY only, \u2265150 unique wallets (distributed, not pumped), multi-day hold target. SKIP HIGH/EXTREME risk tokens.";
+    case "liquidity_sweep":
+      return "ENTRY FILTER: recent dip then bounce (price -15% to +10%), buy ratio >62%, sentiment \u226555. Quick scalp on a liquidity sweep bounce. Small size, fast exit.";
+    case "order_flow_scalper":
+      return "ENTRY FILTER: buy/sell ratio >65% (strong delta imbalance), price movement -5% to +20% (delta leading price \u2014 hasn't moved yet), volume >$50K. SKIP tokens where price has already moved >20% \u2014 you want to catch the move BEFORE price reacts to the flow. 15\u201360min hold. This is an institutional order flow play \u2014 buy pressure is accumulating before the price reflects it.";
+    case "adaptive":
+      return "ENTRY FILTER: adaptive mode \u2014 strategy selected each scan based on current conditions. Evaluate against the actual strategy in use this cycle.";
+    default:
+      return "";
+  }
+}
+function createInitialState(config) {
+  return {
+    isRunning: false,
+    config,
+    lastScanAt: 0,
+    lastTokenSnapshot: {},
+    lastTriggerAt: {},
+    activityFeed: [],
+    signalWeights: Object.fromEntries(DEX_NAMES.map((d) => [d, 1])),
+    kellyStats: Object.fromEntries(DEX_NAMES.map((d) => [d, { wins: 0, losses: 0, totalGainPct: 0 }])),
+    sessionHighWatermark: 0,
+    currentPortfolioValue: 0,
+    shieldActive: false,
+    scanTimer: null,
+    isScanning: false,
+    lastResults: [],
+    lastMacro: null,
+    weeklyGoal: { ...DEFAULT_WEEKLY_GOAL },
+    activeStrategy: "momentum_surfer",
+    activeStrategies: ["momentum_surfer"],
+    lastAgentConsensus: [],
+    autoTradeEnabled: false,
+    liveTradeEnabled: false,
+    paperPositions: [],
+    closedPaperPositions: [],
+    livePositions: [],
+    closedLivePositions: [],
+    pendingSignals: [],
+    pendingExits: [],
+    signalCooldowns: /* @__PURE__ */ new Map(),
+    autoTradeTP: 8,
+    autoTradeSL: 4,
+    autoTrailActivationPct: 4,
+    autoTrailDistancePct: 3,
+    paperTradeSize: 0,
+    compoundMode: false,
+    compoundRate: 100,
+    paperBaseCapital: 0,
+    paperPortfolioValue: 0,
+    paperPortfolioHistory: [],
+    autoTradeStats: { totalTrades: 0, wins: 0, losses: 0, totalPnlPct: 0, bestTradePct: 0, worstTradePct: 0 },
+    aiReviewCache: {},
+    serverWalletBalance: 0,
+    lastWalletRefreshAt: 0,
+    dailyTradeCount: 0,
+    dailyTradeDate: ""
+  };
+}
+function addActivity2(state, entry) {
+  state.activityFeed.unshift({ ...entry, timestamp: (/* @__PURE__ */ new Date()).toISOString() });
+  if (state.activityFeed.length > 100) state.activityFeed = state.activityFeed.slice(0, 100);
+}
+function getAdaptiveScanInterval2(config) {
+  if (!config.adaptiveScan) return 6e4;
+  const hourUtc = (/* @__PURE__ */ new Date()).getUTCHours();
+  const dayUtc = (/* @__PURE__ */ new Date()).getUTCDay();
+  if (dayUtc === 0 || dayUtc === 6) return 12e4;
+  if (hourUtc >= 13 && hourUtc < 20) return 3e4;
+  if (hourUtc >= 7 && hourUtc < 13) return 6e4;
+  return 12e4;
+}
+function calculateSolKellySize2(wins, losses, totalGainPct, portfolioSol) {
+  const total = wins + losses;
+  if (total < 3 || portfolioSol <= 0) return 0;
+  const winRate2 = wins / total;
+  const avgGain = wins > 0 ? totalGainPct / wins / 100 : 0.5;
+  const kelly = winRate2 - (1 - winRate2) / Math.max(avgGain, 0.01);
+  const fractional = Math.max(5e-3, Math.min(0.15, kelly * 0.25));
+  return Math.round(portfolioSol * fractional * 1e3) / 1e3;
+}
+function getPhaseMultiplier(phase2, winStreak) {
+  switch (phase2) {
+    case "warming_up":
+      return 0.8;
+    case "building":
+      return 1;
+    case "accelerating":
+      return 1.25;
+    case "cruising":
+      return 1;
+    case "pushing":
+      return Math.min(2, 1.5 + (winStreak >= 3 ? 0.25 : 0));
+    case "target_reached":
+      return 0.5;
+    default:
+      return 1;
+  }
+}
+function computeGoalPhase(goal) {
+  if (goal.targetSol <= 0 || goal.phase === "idle") return "idle";
+  const pct3 = goal.currentProfitSol / goal.targetSol;
+  if (pct3 >= 1) return "target_reached";
+  if (pct3 >= 0.85) return "pushing";
+  if (pct3 >= 0.7) return "cruising";
+  if (pct3 >= 0.5) return "accelerating";
+  if (pct3 >= 0.2) return "building";
+  return "warming_up";
+}
+function computeAutoSolSize(state, dex, overrideStrategy, mode = "live") {
+  if (mode === "paper" && state.paperTradeSize > 0) return state.paperTradeSize;
+  let portfolio;
+  if (mode === "paper") {
+    portfolio = state.compoundMode && state.paperPortfolioValue > 0 ? state.paperPortfolioValue : state.paperBaseCapital > 0 ? state.paperBaseCapital : state.paperPortfolioValue > 0 ? state.paperPortfolioValue : state.currentPortfolioValue > 0 ? state.currentPortfolioValue : PAPER_DEFAULT_PORTFOLIO_SOL;
+  } else {
+    portfolio = state.currentPortfolioValue;
+  }
+  if (portfolio <= 0) return 0;
+  const _sizeBoost = weekendBoostSizeMultiplier();
+  const riskPct = state.config.riskPerTradePct;
+  if (riskPct > 0) {
+    const phaseMultiplier2 = getPhaseMultiplier(state.weeklyGoal.phase, state.weeklyGoal.winStreak);
+    const riskFraction = riskPct / 100 * phaseMultiplier2 * _sizeBoost;
+    const capped = Math.max(5e-3, Math.min(0.15, riskFraction));
+    return Math.round(portfolio * capped * 1e3) / 1e3;
+  }
+  const strategy = overrideStrategy || SOL_STRATEGIES.find((s) => s.id === state.activeStrategy) || SOL_STRATEGIES[0];
+  const phaseMultiplier = getPhaseMultiplier(state.weeklyGoal.phase, state.weeklyGoal.winStreak);
+  let fraction = strategy.baseFraction * phaseMultiplier;
+  if (state.config.useKelly) {
+    const stats = state.kellyStats[dex] || { wins: 0, losses: 0, totalGainPct: 0 };
+    const kellySize2 = calculateSolKellySize2(stats.wins, stats.losses, stats.totalGainPct, portfolio);
+    if (kellySize2 > 0) {
+      const kellyFrac = kellySize2 / portfolio;
+      fraction = (fraction + kellyFrac) / 2;
+    }
+  }
+  fraction = fraction * _sizeBoost;
+  fraction = Math.max(5e-3, Math.min(0.15, fraction));
+  return Math.round(portfolio * fraction * 1e3) / 1e3;
+}
+function runQuantRulesAgent(token, macroBias) {
+  let score = 0;
+  if (token.sentimentScore > 70) score += 20;
+  else if (token.sentimentScore >= 50) score += 5;
+  else if (token.sentimentScore < 40) score -= 15;
+  if (token.tokenomicsScore > 70) score += 20;
+  else if (token.tokenomicsScore >= 50) score += 5;
+  else if (token.tokenomicsScore < 40) score -= 15;
+  if (token.whaleScore > 65) score += 15;
+  else if (token.whaleScore >= 45) score += 5;
+  else if (token.whaleScore < 35) score -= 10;
+  const buys = token.token.txns24h?.buys ?? 0;
+  const sells = token.token.txns24h?.sells ?? 0;
+  const totalTxns = buys + sells;
+  if (totalTxns > 0) {
+    const buyRatio = buys / totalTxns;
+    if (buyRatio > 0.65) score += 15;
+    else if (buyRatio > 0.5) score += 5;
+    else if (buyRatio < 0.35) score -= 15;
+  }
+  const chg = token.token.priceChange24h;
+  if (chg > 50) score -= 15;
+  else if (chg > 20) score -= 5;
+  else if (chg >= 5) score += 10;
+  else if (chg >= 0) score += 5;
+  else score -= 5;
+  if (macroBias === "bullish") score += 10;
+  else if (macroBias === "bearish") score -= 15;
+  if (token.riskLevel === "EXTREME") score -= 10;
+  else if (token.riskLevel === "LOW") score += 5;
+  if (score >= 60) return { verdict: "CONFIRM_BUY", score };
+  if (score >= 30) return { verdict: "WATCH", score };
+  return { verdict: "SKIP", score };
+}
+async function runSolAIReview(userId, state, scanResult, openPositions) {
+  const buySignals = scanResult.filter((t) => t.signal === "STRONG_BUY" || t.signal === "BUY").slice(0, 5);
+  if (buySignals.length === 0 && openPositions.length === 0) return;
+  try {
+    const { shouldDeferLowPriorityAi: shouldDeferLowPriorityAi2, aiBudgetDeferReason: aiBudgetDeferReason2 } = await Promise.resolve().then(() => (init_ai_budget_guard(), ai_budget_guard_exports));
+    if (shouldDeferLowPriorityAi2()) {
+      addActivity2(state, { type: "info", message: `\u23F8 Sol AI review deferred \u2014 shared AI budget ${aiBudgetDeferReason2()} (FX priority). Quant filters still active.` });
+      return;
+    }
+  } catch {
+  }
+  const cacheKey = [
+    ...buySignals.map((t) => t.token.symbol).sort(),
+    ...openPositions.map((p) => p.symbol).sort()
+  ].join("|");
+  const REVIEW_CACHE_TTL = 5 * 6e4;
+  const cached2 = state.aiReviewCache[cacheKey];
+  if (cached2 && Date.now() - cached2.ts < REVIEW_CACHE_TTL) {
+    const ageS = Math.round((Date.now() - cached2.ts) / 1e3);
+    const macroBiasCache = state.lastMacro?.bias ?? null;
+    const cacheConsensus = [];
+    let confirms = 0, skips = 0;
+    for (const d of cached2.result) {
+      if (!d || !d.symbol || d.type !== "signal") continue;
+      const tokenData = buySignals.find((t) => t.token.symbol === d.symbol);
+      if (!tokenData) continue;
+      const quant = runQuantRulesAgent(tokenData, macroBiasCache);
+      let consensusLabel = "WATCH";
+      if (quant.verdict === "CONFIRM_BUY" && d.action === "CONFIRM_BUY") {
+        consensusLabel = "STRONG_CONFIRM";
+        confirms++;
+      } else if (quant.verdict === "SKIP" && d.action === "SKIP") {
+        consensusLabel = "STRONG_SKIP";
+        skips++;
+      } else if (quant.verdict === "CONFIRM_BUY" && d.action === "SKIP" || quant.verdict === "SKIP" && d.action === "CONFIRM_BUY") consensusLabel = "CAUTION";
+      else if (quant.verdict === "WATCH" || d.action === "WATCH") consensusLabel = "WATCH";
+      cacheConsensus.push({
+        symbol: d.symbol,
+        quantVerdict: quant.verdict,
+        quantScore: quant.score,
+        gptVerdict: d.action,
+        consensus: consensusLabel,
+        timestamp: (/* @__PURE__ */ new Date()).toISOString()
+      });
+    }
+    if (cacheConsensus.length > 0) {
+      state.lastAgentConsensus = [...cacheConsensus, ...state.lastAgentConsensus].slice(0, 20);
+    }
+    addActivity2(state, {
+      type: "info",
+      message: `\u{1F4BE} Sol AI cache hit (${ageS}s old) \u2014 consensus rebuilt: ${confirms} confirm, ${skips} skip${cacheConsensus.length > 0 ? ` across ${cacheConsensus.length} signals` : " (no matching signals)"}`
+    });
+    return;
+  }
+  try {
+    const { getUniversalAIClientForUser: getUniversalAIClientForUser2 } = await Promise.resolve().then(() => (init_openai(), openai_exports));
+    let openai2;
+    let modelLabel = "GPT-4o";
+    const userClient = await getUniversalAIClientForUser2(userId);
+    const useEconomy = state.config.aiMode === "economy" || userClient.provider === "groq";
+    if (useEconomy) {
+      const groqKey = process.env.GROQ_API_KEY;
+      if (groqKey) {
+        const OpenAI9 = (await import("openai")).default;
+        openai2 = new OpenAI9({ apiKey: groqKey, baseURL: "https://api.groq.com/openai/v1", maxRetries: 4, timeout: 9e4 });
+        openai2.defaultModel = "openai/gpt-oss-120b";
+        modelLabel = "Groq Llama";
+        addActivity2(state, {
+          type: "info",
+          message: "\u{1F49A} Sol Economy: Groq Llama 3.3-70b (free) \u2014 full analysis, zero cost"
+        });
+      } else {
+        openai2 = userClient;
+        modelLabel = userClient.defaultModel || "User model";
+      }
+    } else {
+      openai2 = userClient;
+    }
+    const effectiveStrategyId = state.activeStrategy === "adaptive" || state.activeStrategies.includes("adaptive") ? state._adaptiveStrategy || "momentum_surfer" : state.activeStrategy;
+    const strategy = SOL_STRATEGIES.find((s) => s.id === effectiveStrategyId) || SOL_STRATEGIES[0];
+    const macro = state.lastMacro;
+    const goal = state.weeklyGoal;
+    const macroLine = macro ? `MACRO: BTC ${macro.btcChange >= 0 ? "+" : ""}${macro.btcChange.toFixed(1)}% | ETH ${macro.ethChange >= 0 ? "+" : ""}${macro.ethChange.toFixed(1)}% | SOL ${macro.solChange >= 0 ? "+" : ""}${macro.solChange.toFixed(1)}% \u2014 Bias: ${macro.bias}` : "";
+    const goalLine = goal.phase !== "idle" ? `WEEKLY GOAL: ${goal.currentProfitSol.toFixed(3)} / ${goal.targetSol.toFixed(3)} SOL (${(goal.currentProfitSol / Math.max(goal.targetSol, 1e-3) * 100).toFixed(1)}%) \u2014 Phase: ${goal.phase.replace(/_/g, " ").toUpperCase()}` : "WEEKLY GOAL: None set";
+    const entryContext = getStrategyEntryContext(effectiveStrategyId);
+    const systemPrompt = `You are VEDD Sol AI \u2014 autonomous Solana trading mind. Supreme Mathematics style: use "Peace", "Word is bond", "That's the mathematics", "Stay in the cipher", "dropping science" naturally in reason fields.
+STRATEGY: ${strategy.icon} ${strategy.name} \u2014 ${strategy.description} | Hold: ${strategy.holdTarget} | Min conf: ${strategy.minConfidence}% | Max risk: ${strategy.maxRisk}
+${entryContext ? entryContext + "\n" : ""}${goalLine} | Win streak: ${goal.winStreak} | Shield: ${state.shieldActive ? "ACTIVE" : "off"}
+${macroLine}
+
+Output a JSON array only (no markdown):
+- Signals: {symbol, type:"signal", action:CONFIRM_BUY|SKIP|WATCH|WAIT, reason:<80chars}
+  CONFIRM_BUY only if token matches THIS strategy's entry criteria. SKIP if it doesn't fit regardless of confidence.
+- Positions: {symbol, type:"position", action:HOLD|TRAIL|PARTIAL_CLOSE|CLOSE, trailPct?:int, reason:<80chars}`;
+    const signalsText = buySignals.length > 0 ? buySignals.map(
+      (t) => `${t.token.symbol}: ${t.signal} | Conf:${t.confidence}% | Sent:${t.sentimentScore} | Tok:${t.tokenomicsScore} | Whale:${t.whaleScore} | Vol:$${(t.token.volume24h / 1e3).toFixed(0)}K | Chg:${t.token.priceChange24h.toFixed(1)}%`
+    ).join("\n") : "None";
+    const positionsText = openPositions.length > 0 ? openPositions.map(
+      (p) => `${p.symbol}: entry $${p.entryPrice.toFixed(8)} \u2192 now $${p.currentPrice.toFixed(8)} | ${p.gainPct >= 0 ? "+" : ""}${p.gainPct.toFixed(1)}% | vol:${p.volumeStatus}`
+    ).join("\n") : "None";
+    const _solLessons = await Promise.resolve().then(() => (init_shadow_lessons(), shadow_lessons_exports)).then((m) => m.getShadowLessonsText(userId, "sol", 8)).catch(() => "");
+    const userPrompt = `${_solLessons ? `${_solLessons}
+
+` : ""}SIGNALS:
+${signalsText}
+
+OPEN POSITIONS:
+${positionsText}`;
+    const response = await openai2.chat.completions.create({
+      model: openai2.defaultModel || "gpt-4o",
+      messages: [
+        { role: "system", content: systemPrompt },
+        { role: "user", content: userPrompt }
+      ],
+      temperature: 0.25,
+      max_tokens: 600
+    });
+    const raw = response.choices[0]?.message?.content?.trim() || "[]";
+    let decisions = [];
+    try {
+      decisions = JSON.parse(raw.replace(/```json|```/g, "").trim());
+      if (!Array.isArray(decisions)) decisions = [];
+    } catch {
+      addActivity2(state, {
+        type: "info",
+        message: `\u26A0\uFE0F 2nd confirmation AI returned invalid JSON \u2014 consensus skipped this cycle. Raw: ${raw.slice(0, 80)}`
+      });
+      return;
+    }
+    state.aiReviewCache[cacheKey] = { ts: Date.now(), result: decisions };
+    const newConsensus = [];
+    const macroBias = state.lastMacro?.bias ?? null;
+    for (const d of decisions) {
+      if (!d || !d.symbol) continue;
+      if (d.type === "signal") {
+        const tokenData = buySignals.find((t) => t.token.symbol === d.symbol);
+        let gptVerdict = d.action;
+        let consensusLabel = "WATCH";
+        if (tokenData) {
+          const quant = runQuantRulesAgent(tokenData, macroBias);
+          const bothConfirm = quant.verdict === "CONFIRM_BUY" && d.action === "CONFIRM_BUY";
+          const bothSkip = quant.verdict === "SKIP" && d.action === "SKIP";
+          const disagree = quant.verdict === "CONFIRM_BUY" && d.action === "SKIP" || quant.verdict === "SKIP" && d.action === "CONFIRM_BUY";
+          const oneWatch = quant.verdict === "WATCH" || d.action === "WATCH";
+          if (bothConfirm) consensusLabel = "STRONG_CONFIRM";
+          else if (bothSkip) consensusLabel = "STRONG_SKIP";
+          else if (disagree) consensusLabel = "CAUTION";
+          else if (oneWatch) consensusLabel = "WATCH";
+          newConsensus.push({
+            symbol: d.symbol,
+            quantVerdict: quant.verdict,
+            quantScore: quant.score,
+            gptVerdict,
+            consensus: consensusLabel,
+            timestamp: (/* @__PURE__ */ new Date()).toISOString()
+          });
+          const consensusMsg = consensusLabel === "STRONG_CONFIRM" ? `\u{1F91D} STRONG CONFIRM: ${d.symbol} \u2014 Both agents aligned. Word is bond.` : consensusLabel === "STRONG_SKIP" ? `\u274C STRONG SKIP: ${d.symbol} \u2014 Both agents say pass. That's the mathematics.` : consensusLabel === "CAUTION" ? `\u26A0\uFE0F SPLIT SIGNAL: ${d.symbol} \u2014 Agents disagree. Knowledge yourself before entry.` : `\u{1F441}\uFE0F WATCH: ${d.symbol} \u2014 Mixed readings. Stay in the cipher.`;
+          addActivity2(state, { type: "signal", message: consensusMsg });
+        }
+        const icon = d.action === "CONFIRM_BUY" ? "\u{1F916}\u2705" : d.action === "SKIP" ? "\u{1F916}\u274C" : d.action === "WAIT" ? "\u{1F916}\u23F8\uFE0F" : "\u{1F916}\u{1F441}\uFE0F";
+        addActivity2(state, {
+          type: "signal",
+          message: `${icon} ${modelLabel} ${d.action}: ${d.symbol} \u2014 ${d.reason || ""}`
+        });
+      } else if (d.type === "position") {
+        const icon = d.action === "CLOSE" ? "\u{1F4CA}\u{1F534}" : d.action === "TRAIL" ? "\u{1F4CA}\u{1F53C}" : d.action === "PARTIAL_CLOSE" ? "\u{1F4CA}\u26A1" : "\u{1F4CA}\u{1F7E2}";
+        addActivity2(state, {
+          type: "strategy",
+          message: `${icon} AI ${d.action}: ${d.symbol}${d.trailPct ? ` (${d.trailPct}% trail dist)` : ""} \u2014 ${d.reason || ""}`
+        });
+      }
+    }
+    if (newConsensus.length > 0) {
+      state.lastAgentConsensus = [...newConsensus, ...state.lastAgentConsensus].slice(0, 20);
+    }
+  } catch (reviewErr) {
+    addActivity2(state, {
+      type: "info",
+      message: `\u26A0\uFE0F 2nd confirmation AI error: ${reviewErr instanceof Error ? reviewErr.message : "unknown"} \u2014 trades will proceed without consensus this cycle`
+    });
+  }
+}
+async function triggerSolAIReview(userId, openPositions = []) {
+  const state = engineStates2.get(userId);
+  if (!state) return;
+  await runSolAIReview(userId, state, state.lastResults, openPositions);
+}
+function computeServerTrailDist(gainPct, volStatus) {
+  const isStrong = volStatus === "surging" || volStatus === "above_average";
+  const isWeak = volStatus === "below_average" || volStatus === "dry";
+  if (gainPct >= 80) return isStrong ? 10 : isWeak ? 6 : 8;
+  if (gainPct >= 40) return isStrong ? 12 : isWeak ? 8 : 10;
+  return isStrong ? 15 : isWeak ? 10 : 12;
+}
+function getVolStatus(entryVol, currentVol) {
+  if (entryVol <= 0) return "average";
+  const ratio = currentVol / entryVol;
+  if (ratio >= 2.5) return "surging";
+  if (ratio >= 1.25) return "above_average";
+  if (ratio <= 0.5) return "dry";
+  if (ratio <= 0.75) return "below_average";
+  return "average";
+}
+async function monitorPaperPositions(userId, state) {
+  const openPositions = state.paperPositions.filter((p) => p.status === "open");
+  if (openPositions.length === 0) return;
+  const volumeMap = {};
+  for (const r of state.lastResults) {
+    if (r.token.address) volumeMap[r.token.address] = r.token.volume24h || 0;
+  }
+  const priceMap = await fetchPricesByMint(openPositions.map((p) => p.mint)).catch(() => ({}));
+  for (const r of state.lastResults) {
+    const m = r.token.address;
+    if (m && !(priceMap[m] > 0)) priceMap[m] = parseFloat(r.token.priceUsd) || 0;
+  }
+  for (const pos of openPositions) {
+    const currentPrice = priceMap[pos.mint];
+    if (!currentPrice || currentPrice <= 0) continue;
+    if (isBadPriceSample(currentPrice, pos.currentPrice > 0 ? pos.currentPrice : pos.entryPrice)) {
+      addActivity2(state, { type: "info", message: `\u26A0\uFE0F ${pos.symbol}: bad price sample ignored ($${currentPrice} vs $${pos.currentPrice > 0 ? pos.currentPrice : pos.entryPrice}) \u2014 skipping this cycle` });
+      continue;
+    }
+    pos.currentPrice = currentPrice;
+    const gainPct = (currentPrice - pos.entryPrice) / pos.entryPrice * 100;
+    if (!pos.peakPrice || currentPrice > pos.peakPrice) {
+      pos.peakPrice = currentPrice;
+    }
+    const currentVol = volumeMap[pos.mint] || 0;
+    const volStatus = getVolStatus(pos.entryVolume24h || 0, currentVol);
+    const trailActivation = pos.trailActivationPct && pos.trailActivationPct > 0 ? pos.trailActivationPct : 20;
+    let isTrailHit = false;
+    if (gainPct >= trailActivation) {
+      if (!pos.trailingActive) {
+        pos.trailingActive = true;
+        const dist2 = computeServerTrailDist(gainPct, volStatus);
+        addActivity2(state, {
+          type: "info",
+          message: `\u{1F512} Trail LOCKED: ${pos.symbol} hit +${gainPct.toFixed(1)}% (activation: ${trailActivation}%) \u2014 staged trail active | vol: ${volStatus} | dist: ${dist2}% from peak`
+        });
+      }
+      const dist = computeServerTrailDist(gainPct, volStatus);
+      const trailFloor = pos.peakPrice * (1 - dist / 100);
+      const effectiveFloor = Math.max(trailFloor, pos.entryPrice);
+      if (currentPrice <= effectiveFloor) {
+        isTrailHit = true;
+      }
+    } else if (gainPct >= 8) {
+      if (!pos.breakevenActive) {
+        pos.breakevenActive = true;
+        addActivity2(state, {
+          type: "info",
+          message: `\u{1F6E1}\uFE0F Breakeven floor set: ${pos.symbol} at +${gainPct.toFixed(1)}% \u2014 floor locked at entry price`
+        });
+      }
+    }
+    const isWin = gainPct >= pos.targetPct;
+    const isLoss = gainPct <= -pos.slPct;
+    if (isWin || isLoss || isTrailHit) {
+      const reason = isTrailHit ? "trail" : isWin ? "tp" : "sl";
+      pos.status = "closed";
+      pos.closedAt = (/* @__PURE__ */ new Date()).toISOString();
+      pos.closePnlPct = gainPct;
+      pos.closeReason = reason;
+      state.closedPaperPositions.unshift(pos);
+      if (state.closedPaperPositions.length > 50) state.closedPaperPositions = state.closedPaperPositions.slice(0, 50);
+      upsertPosition(userId, pos).catch(() => {
+      });
+      recordSolBrainOutcome({
+        userId,
+        symbol: pos.symbol,
+        strategy: pos.strategyId || "unknown",
+        direction: "long",
+        returnPct: gainPct,
+        holdingMinutes: Math.max(0, Math.round((Date.now() - new Date(pos.openedAt).getTime()) / 6e4)),
+        exitReason: reason,
+        profitLoss: pos.size * (gainPct / 100),
+        source: "paper"
+      }).catch(() => {
+      });
+      state.autoTradeStats.totalTrades++;
+      state.autoTradeStats.totalPnlPct += gainPct;
+      const isProfit = gainPct > 0;
+      if (isProfit) {
+        state.autoTradeStats.wins++;
+        if (gainPct > state.autoTradeStats.bestTradePct) state.autoTradeStats.bestTradePct = gainPct;
+      } else {
+        state.autoTradeStats.losses++;
+        if (gainPct < state.autoTradeStats.worstTradePct) state.autoTradeStats.worstTradePct = gainPct;
+      }
+      if (state.compoundMode && state.paperPortfolioValue > 0) {
+        const tradeSol = pos.size;
+        const rawPnlSol = tradeSol * (gainPct / 100);
+        const compoundedPnl = rawPnlSol * (state.compoundRate / 100);
+        const prev = state.paperPortfolioValue;
+        state.paperPortfolioValue = Math.max(1e-3, prev + compoundedPnl);
+        state.paperPortfolioHistory.push({ t: Date.now(), v: state.paperPortfolioValue });
+        if (state.paperPortfolioHistory.length > 50) state.paperPortfolioHistory = state.paperPortfolioHistory.slice(-50);
+        const growthPct = (state.paperPortfolioValue - state.paperBaseCapital) / state.paperBaseCapital * 100;
+        addActivity2(state, {
+          type: "info",
+          message: `\u{1F4B9} Compound update: ${compoundedPnl >= 0 ? "+" : ""}${compoundedPnl.toFixed(4)} SOL ${state.compoundRate < 100 ? `(${state.compoundRate}% reinvested)` : "fully reinvested"} \u2192 pool now ${state.paperPortfolioValue.toFixed(4)} SOL (${growthPct >= 0 ? "+" : ""}${growthPct.toFixed(1)}% from base)`
+        });
+      }
+      const emoji = isTrailHit ? "\u{1F512}" : isWin ? "\u2705" : "\u274C";
+      const label = isTrailHit ? `TRAIL EXIT` : isWin ? "WIN" : "LOSS";
+      addActivity2(state, {
+        type: "paper_sell",
+        message: `${emoji} Paper ${label}: ${pos.symbol} closed @ $${currentPrice.toFixed(6)} \u2014 ${gainPct >= 0 ? "+" : ""}${gainPct.toFixed(2)}% | ${pos.size.toFixed(3)} SOL ${isTrailHit ? "(trailing stop hit)" : isWin ? "profit sealed" : "lesson built"}`
+      });
+      const dexKeyClose = (pos.dex || "unknown").toLowerCase().replace(/[^a-z]/g, "") || "unknown";
+      if (!state.signalWeights[dexKeyClose]) state.signalWeights[dexKeyClose] = 1;
+      if (!state.kellyStats[dexKeyClose]) state.kellyStats[dexKeyClose] = { wins: 0, losses: 0, totalGainPct: 0 };
+      if (isProfit) {
+        state.signalWeights[dexKeyClose] = Math.min(2, state.signalWeights[dexKeyClose] + 0.05);
+        state.kellyStats[dexKeyClose].wins++;
+        state.kellyStats[dexKeyClose].totalGainPct += Math.abs(gainPct);
+        state.weeklyGoal.winStreak = (state.weeklyGoal.winStreak || 0) + 1;
+      } else {
+        state.signalWeights[dexKeyClose] = Math.max(0.2, state.signalWeights[dexKeyClose] - 0.08);
+        state.kellyStats[dexKeyClose].losses++;
+        state.weeklyGoal.winStreak = 0;
+      }
+      if (state.weeklyGoal.phase !== "idle") {
+        state.weeklyGoal.currentProfitSol += pos.size * (gainPct / 100);
+        state.weeklyGoal.tradeHistory.unshift({
+          timestamp: (/* @__PURE__ */ new Date()).toISOString(),
+          symbol: pos.symbol,
+          sol: pos.size,
+          gainPct,
+          outcome: isProfit ? "WIN" : "LOSS",
+          strategy: pos.strategyId || state.activeStrategy
+        });
+        if (state.weeklyGoal.tradeHistory.length > 100) state.weeklyGoal.tradeHistory = state.weeklyGoal.tradeHistory.slice(0, 100);
+      }
+    }
+  }
+  state.paperPositions = state.paperPositions.filter((p) => p.status === "open");
+}
+async function monitorLivePositions(userId, state) {
+  const allOpen = state.livePositions.filter((p) => p.status === "open");
+  if (allOpen.length === 0) return;
+  const now = Date.now();
+  state.pendingExits = state.pendingExits.filter((e) => new Date(e.expiresAt).getTime() > now);
+  for (const pos of allOpen) {
+    if (!(pos.entryPrice > 0) || !(pos.tokenAmount > 0)) {
+      finalizeAbandonedPosition(userId, state, pos, "reconciled_zero_amount");
+    }
+  }
+  const openPositions = state.livePositions.filter((p) => p.status === "open" && p.entryPrice > 0 && p.tokenAmount > 0);
+  if (openPositions.length === 0) return;
+  const volumeMap = {};
+  for (const r of state.lastResults) {
+    if (r.token.address) volumeMap[r.token.address] = r.token.volume24h || 0;
+  }
+  const priceMap = await fetchPricesByMint(openPositions.map((p) => p.mint)).catch(() => ({}));
+  for (const r of state.lastResults) {
+    const m = r.token.address;
+    if (m && !(priceMap[m] > 0)) priceMap[m] = parseFloat(r.token.priceUsd) || 0;
+  }
+  for (const pos of openPositions) {
+    const ageMs = Date.now() - new Date(pos.openedAt).getTime();
+    if (ageMs > SOL_MAX_HOLD_MS) {
+      const alreadyQueuedMH = state.pendingExits.some((e) => e.positionId === pos.id);
+      if (!alreadyQueuedMH) {
+        addActivity2(state, {
+          type: "live_sell",
+          message: `\u23F1\uFE0F Max-hold reached: ${pos.symbol} held ${(ageMs / 36e5).toFixed(1)}h (limit ${SOL_MAX_HOLD_HOURS}h) \u2014 forcing exit`
+        });
+        const forcedSold = await executeServerSideSell(userId, pos, "sl", state);
+        if (!forcedSold) {
+          const createdMH = /* @__PURE__ */ new Date();
+          state.pendingExits.push({
+            positionId: pos.id,
+            symbol: pos.symbol,
+            mint: pos.mint,
+            tokenAmount: pos.tokenAmount,
+            decimals: pos.decimals,
+            reason: "sl",
+            createdAt: createdMH.toISOString(),
+            expiresAt: new Date(createdMH.getTime() + 9e4).toISOString()
+          });
+        }
+      }
+      continue;
+    }
+    const currentPrice = priceMap[pos.mint];
+    if (!currentPrice || currentPrice <= 0) continue;
+    if (isBadPriceSample(currentPrice, pos.currentPrice > 0 ? pos.currentPrice : pos.entryPrice)) {
+      addActivity2(state, { type: "live_signal", message: `\u26A0\uFE0F ${pos.symbol}: bad price sample ignored ($${currentPrice} vs $${pos.currentPrice > 0 ? pos.currentPrice : pos.entryPrice}) \u2014 not acting this cycle` });
+      continue;
+    }
+    pos.currentPrice = currentPrice;
+    const gainPct = (currentPrice - pos.entryPrice) / pos.entryPrice * 100;
+    if (!pos.peakPrice || currentPrice > pos.peakPrice) pos.peakPrice = currentPrice;
+    const alreadyQueued = state.pendingExits.some((e) => e.positionId === pos.id);
+    if (alreadyQueued) continue;
+    const liveTrailActivation = pos.trailActivationPct && pos.trailActivationPct > 0 ? pos.trailActivationPct : 20;
+    const volStatus = getVolStatus(pos.entryVolume24h || 0, volumeMap[pos.mint] || 0);
+    let trailHit = false;
+    if (gainPct >= liveTrailActivation && pos.peakPrice) {
+      if (!pos.trailingActive) {
+        pos.trailingActive = true;
+        addActivity2(state, { type: "info", message: `\u{1F512} Live Trail LOCKED: ${pos.symbol} hit +${gainPct.toFixed(1)}% (activation: ${liveTrailActivation}%) \u2014 staged trail active (${volStatus} vol)` });
+      }
+      const dist = computeServerTrailDist(gainPct, volStatus);
+      const effectiveFloor = Math.max(pos.peakPrice * (1 - dist / 100), pos.entryPrice);
+      if (currentPrice <= effectiveFloor) trailHit = true;
+    }
+    const tpHit = gainPct >= pos.targetPct;
+    const slHit = gainPct <= -pos.slPct;
+    if (tpHit || slHit || trailHit) {
+      const reason = tpHit ? "tp" : trailHit ? "trail" : "sl";
+      const serverSold = await executeServerSideSell(userId, pos, reason, state);
+      if (!serverSold) {
+        const created = /* @__PURE__ */ new Date();
+        const expires = new Date(created.getTime() + 9e4);
+        state.pendingExits.push({
+          positionId: pos.id,
+          symbol: pos.symbol,
+          mint: pos.mint,
+          tokenAmount: pos.tokenAmount,
+          decimals: pos.decimals,
+          reason: reason === "trail" ? "sl" : reason,
+          createdAt: created.toISOString(),
+          expiresAt: expires.toISOString()
+        });
+        addActivity2(state, {
+          type: "live_sell",
+          message: tpHit ? `\u{1F3AF} TP hit: ${pos.symbol} +${gainPct.toFixed(1)}% \u2014 sell queued for wallet execution` : trailHit ? `\u{1F512} Trail exit: ${pos.symbol} +${gainPct.toFixed(1)}% \u2014 sell queued for wallet execution` : `\u{1F6E1}\uFE0F SL hit: ${pos.symbol} ${gainPct.toFixed(1)}% \u2014 sell queued for wallet execution`
+        });
+      }
+    }
+  }
+}
+async function refreshServerWalletBalance(userId, state) {
+  if (!state.liveTradeEnabled) return;
+  const now = Date.now();
+  if (now - state.lastWalletRefreshAt < 6e4) return;
+  state.lastWalletRefreshAt = now;
+  try {
+    const [settings] = await db.select({ serverWalletKey: solEngineSettings.serverWalletKey }).from(solEngineSettings).where(eq5(solEngineSettings.userId, userId));
+    if (!settings?.serverWalletKey) return;
+    const privateKeyBase58 = decryptWalletKey(settings.serverWalletKey);
+    const { Keypair: Keypair2, Connection: Connection3 } = await import("@solana/web3.js");
+    const bs58 = (await import("bs58")).default;
+    const keypair = Keypair2.fromSecretKey(bs58.decode(privateKeyBase58));
+    const rpcUrl = process.env.SOLANA_RPC_URL || "https://mainnet.helius-rpc.com/?api-key=15319bf4-5b40-4958-ac8d-6313aa55eb92";
+    const connection2 = new Connection3(rpcUrl, { commitment: "confirmed" });
+    const lamports = await connection2.getBalance(keypair.publicKey);
+    const solBalance = lamports / 1e9;
+    state.serverWalletBalance = solBalance;
+    if (Math.abs(state.currentPortfolioValue - solBalance) > 1e-3) {
+      console.log(`[SolEngine] Wallet sync: ${state.currentPortfolioValue.toFixed(4)} \u2192 ${solBalance.toFixed(4)} SOL (user ${userId})`);
+      state.currentPortfolioValue = solBalance;
+    }
+  } catch (err) {
+    console.warn("[SolEngine] refreshServerWalletBalance failed:", err instanceof Error ? err.message : err);
+  }
+}
+function pruneEngineMaps(state) {
+  const now = Date.now();
+  const ONE_HOUR = 60 * 6e4;
+  const REVIEW_TTL = 5 * 6e4;
+  const MAX_SNAPSHOTS = 500;
+  for (const k2 of Object.keys(state.lastTriggerAt)) {
+    if (now - (state.lastTriggerAt[k2] || 0) > ONE_HOUR) delete state.lastTriggerAt[k2];
+  }
+  for (const k2 of Object.keys(state.aiReviewCache)) {
+    if (now - (state.aiReviewCache[k2]?.ts || 0) > REVIEW_TTL) delete state.aiReviewCache[k2];
+  }
+  state.signalCooldowns.forEach((ts, k2) => {
+    if (now - (ts || 0) > ONE_HOUR) state.signalCooldowns.delete(k2);
+  });
+  const snapKeys = Object.keys(state.lastTokenSnapshot);
+  if (snapKeys.length > MAX_SNAPSHOTS) {
+    for (const k2 of snapKeys.slice(0, snapKeys.length - MAX_SNAPSHOTS)) delete state.lastTokenSnapshot[k2];
+  }
+}
+async function runScan(userId, state, triggerToken) {
+  if (!state.isRunning) return;
+  if (state.isScanning) return;
+  state.isScanning = true;
+  try {
+    const _boostActive = weekendBoostActive();
+    const _effMinConf = (s) => _boostActive ? boostedMinConfidence(s.minConfidence) : s.minConfidence;
+    const todayUTC = (/* @__PURE__ */ new Date()).toISOString().slice(0, 10);
+    if (state.dailyTradeDate !== todayUTC) {
+      state.dailyTradeDate = todayUTC;
+      state.dailyTradeCount = 0;
+    }
+    await refreshServerWalletBalance(userId, state).catch(() => {
+    });
+    if (SOL_BRAIN_ENABLED) await getOrRefreshSolBrain(userId).catch(() => {
+    });
+    const macro = await fetchCryptoMacroContext().catch(() => null);
+    state.lastMacro = macro;
+    if (macro && macro.bias === "RISK_OFF") {
+      addActivity2(state, {
+        type: "info",
+        message: `\u{1F4C9} Macro RISK_OFF: BTC${macro.btcChange >= 0 ? "+" : ""}${macro.btcChange.toFixed(1)}% / ETH${macro.ethChange >= 0 ? "+" : ""}${macro.ethChange.toFixed(1)}% / SOL${macro.solChange >= 0 ? "+" : ""}${macro.solChange.toFixed(1)}% \u2014 signal confidence reduced by 8%. Engine still trading at reduced size.`
+      });
+    }
+    const shieldFilter = state.config.shieldEnabled && state.shieldActive;
+    const { getUniversalAIClientForUser: getUniversalAIClientForUser2 } = await Promise.resolve().then(() => (init_openai(), openai_exports));
+    const userOpenai = await getUniversalAIClientForUser2(userId).catch(() => null);
+    const scanResult = await scanAndAnalyzeTokens(
+      state.config.maxTokens,
+      state.config.dexFilter,
+      {
+        signalWeights: state.signalWeights,
+        macro: macro || void 0,
+        kellyStats: state.config.useKelly ? state.kellyStats : void 0,
+        portfolioSol: state.currentPortfolioValue,
+        shieldActive: shieldFilter,
+        minConfidence: state.config.minConfidence,
+        openai: userOpenai || void 0
+      }
+    );
+    const now = Date.now();
+    state.lastScanAt = now;
+    const hasBuySignals = scanResult.some((t) => t.signal === "STRONG_BUY" || t.signal === "BUY");
+    const allOpenPositions = [
+      ...state.livePositions.filter((p) => p.status === "open").map((p) => {
+        const latestPrice = scanResult.find((r) => r.token.address === p.mint);
+        const currentPrice = latestPrice ? parseFloat(latestPrice.token.priceUsd) || p.currentPrice : p.currentPrice;
+        const gainPct = p.entryPrice > 0 ? (currentPrice - p.entryPrice) / p.entryPrice * 100 : 0;
+        return { symbol: p.symbol, entryPrice: p.entryPrice, currentPrice, gainPct, volumeStatus: "average" };
+      }),
+      ...state.paperPositions.filter((p) => p.status === "open").map((p) => {
+        const latestPrice = scanResult.find((r) => r.token.address === p.mint);
+        const currentPrice = latestPrice ? parseFloat(latestPrice.token.priceUsd) || p.currentPrice : p.currentPrice;
+        const gainPct = p.entryPrice > 0 ? (currentPrice - p.entryPrice) / p.entryPrice * 100 : 0;
+        return { symbol: p.symbol, entryPrice: p.entryPrice, currentPrice, gainPct, volumeStatus: "average" };
+      })
+    ].slice(0, 5);
+    const _reviewEveryMs = Math.max(30, Number(process.env.SOL_AI_REVIEW_MIN_SECONDS ?? 180)) * 1e3;
+    const _sinceReview = Date.now() - (state._lastAIReviewAt || 0);
+    if ((hasBuySignals || allOpenPositions.length > 0) && _sinceReview >= _reviewEveryMs) {
+      state._lastAIReviewAt = Date.now();
+      await runSolAIReview(userId, state, scanResult, allOpenPositions).catch(() => {
+      });
+    }
+    for (const dex of DEX_NAMES) {
+      state.signalWeights[dex] = Math.round((state.signalWeights[dex] * 0.99 + 1 * 0.01) * 1e3) / 1e3;
+    }
+    for (const analysis of scanResult) {
+      const key = analysis.token.address;
+      const prev = state.lastTokenSnapshot[key];
+      if (prev && analysis.token.volume24h > 0 && prev.volume > 0) {
+        const volumeMultiple = analysis.token.volume24h / prev.volume;
+        const lastTrigger = state.lastTriggerAt[key] || 0;
+        if (volumeMultiple >= 3 && now - lastTrigger > 6e4) {
+          state.lastTriggerAt[key] = now;
+          addActivity2(state, {
+            type: "trigger",
+            message: `\u26A1 Power surge on ${analysis.token.symbol} (${volumeMultiple.toFixed(1)}\xD7) \u2014 knowledge deepens in 8s`
+          });
+          setTimeout(() => runScan(userId, state, analysis.token.symbol), 8e3);
+        }
+      }
+      state.lastTokenSnapshot[key] = {
+        volume: analysis.token.volume24h,
+        price: parseFloat(analysis.token.priceUsd) || 0,
+        signal: analysis.signal,
+        confidence: analysis.confidence
+      };
+      const hasPaperCapital = state.autoTradeEnabled;
+      const hasLiveCapital = state.liveTradeEnabled && state.currentPortfolioValue > 0;
+      const canEnterTrade = hasPaperCapital || hasLiveCapital;
+      if ((analysis.signal === "STRONG_BUY" || analysis.signal === "BUY") && !canEnterTrade) {
+        if (state.liveTradeEnabled && state.currentPortfolioValue <= 0) {
+          addActivity2(state, {
+            type: "info",
+            message: `\u26A0\uFE0F Live signal skipped: ${analysis.token.symbol} \u2014 Live Trade is ON but portfolio SOL value is 0. Set it in engine settings \u2192 Portfolio Value.`
+          });
+        } else {
+          addActivity2(state, {
+            type: "info",
+            message: `\u{1F4E1} Signal: ${analysis.token.symbol} [${analysis.signal} ${analysis.confidence}%] \u2014 Paper & Live trade are OFF. Toggle Paper Trade ON in the \u2699\uFE0F Settings panel to auto-execute.`
+          });
+        }
+        continue;
+      }
+      const dirFilter = state.config.directionFilter || "buy_only";
+      const isBuySignal = analysis.signal === "STRONG_BUY" || analysis.signal === "BUY";
+      const isSellSignal = analysis.signal === "SELL" || analysis.signal === "STRONG_SELL";
+      if (dirFilter === "buy_only" && !isBuySignal) continue;
+      if (dirFilter === "sell_only" && !isSellSignal) continue;
+      if ((analysis.signal === "STRONG_BUY" || analysis.signal === "BUY") && canEnterTrade) {
+        if (analysis.token.priceChange24h > 80) {
+          addActivity2(state, {
+            type: "info",
+            message: `\u26D4 Overextended: ${analysis.token.symbol} skipped \u2014 already +${analysis.token.priceChange24h.toFixed(0)}% in 24h (>80% = likely top)`
+          });
+          continue;
+        }
+        const CONSENSUS_TTL_MS = 10 * 60 * 1e3;
+        const priorConsensus = state.lastAgentConsensus?.find((c) => c.symbol === analysis.token.symbol);
+        const consensusAge = priorConsensus?.timestamp ? Date.now() - new Date(priorConsensus.timestamp).getTime() : Infinity;
+        const consensusStale = consensusAge > CONSENSUS_TTL_MS;
+        if (priorConsensus && !consensusStale && priorConsensus.consensus === "STRONG_SKIP") {
+          addActivity2(state, {
+            type: "info",
+            message: `\u{1F916}\u274C Consensus BLOCK: ${analysis.token.symbol} \u2014 both AI and quant said SKIP (quant score: ${priorConsensus.quantScore}). That's the mathematics.`
+          });
+          continue;
+        }
+        if (priorConsensus && !consensusStale && priorConsensus.quantVerdict === "SKIP" && priorConsensus.quantScore < 10) {
+          addActivity2(state, {
+            type: "info",
+            message: `\u{1F4D0}\u274C Quant BLOCK: ${analysis.token.symbol} \u2014 quant score ${priorConsensus.quantScore} too low. Knowledge yourself.`
+          });
+          continue;
+        }
+        const dexKey = (analysis.token.dexId || "").toLowerCase().split("_")[0];
+        let activeStrats = state.activeStrategies.length > 0 ? state.activeStrategies : [state.activeStrategy];
+        const isAdaptiveMode = activeStrats.includes("adaptive") || state.activeStrategy === "adaptive";
+        if (isAdaptiveMode) {
+          const autoRec = selectAdaptiveSolStrategy(state.lastMacro, scanResult);
+          if (!state._adaptiveStrategy || state._adaptiveStrategy !== autoRec.strategyId) {
+            state._adaptiveStrategy = autoRec.strategyId;
+            addActivity2(state, {
+              type: "strategy",
+              message: `\u{1F916} Adaptive selected: ${SOL_STRATEGIES.find((s) => s.id === autoRec.strategyId)?.icon || ""}${autoRec.strategyId.replace(/_/g, " ").toUpperCase()} \u2014 ${autoRec.reason}`
+            });
+          }
+          activeStrats = [autoRec.strategyId];
+        }
+        const confirmingStrats = activeStrats.map((id) => SOL_STRATEGIES.find((s) => s.id === id)).filter((s) => !!s).filter((s) => {
+          if (analysis.confidence < _effMinConf(s)) return false;
+          if (s.minSignal === "STRONG_BUY" && analysis.signal !== "STRONG_BUY") return false;
+          if (s.maxRisk === "LOW" && (analysis.riskLevel === "HIGH" || analysis.riskLevel === "EXTREME")) return false;
+          if (!passesStrategyFilter(analysis, s)) return false;
+          return true;
+        });
+        if (confirmingStrats.length >= 2) {
+          const names = confirmingStrats.map((s) => `${s.icon}${s.name}`).join(" + ");
+          addActivity2(state, {
+            type: "strategy",
+            message: `\u{1F3AF} Multi-Strategy Confirmed: ${analysis.token.symbol} \u2014 ${names} all in agreement. Knowledge multiplied.`
+          });
+        }
+        const bestStrat = confirmingStrats.sort((a, b) => b.baseFraction - a.baseFraction)[0];
+        const paperAutoSize = computeAutoSolSize(state, dexKey, bestStrat, "paper");
+        const liveAutoSize = computeAutoSolSize(state, dexKey, bestStrat, "live");
+        if (paperAutoSize > 0) {
+          analysis.recommendedSolAmount = paperAutoSize;
+        }
+        const paperSizeSOL = paperAutoSize > 0 ? paperAutoSize : computeAutoSolSize(state, dexKey, void 0, "paper");
+        const sizeSOL = liveAutoSize > 0 ? liveAutoSize : computeAutoSolSize(state, dexKey, void 0, "live");
+        const topStrat = confirmingStrats[0] || SOL_STRATEGIES.find((s) => s.id === state.activeStrategy) || SOL_STRATEGIES[0];
+        const tokenPrice = parseFloat(analysis.token.priceUsd) || 0;
+        const tokenMint = analysis.token.address;
+        const now2 = (/* @__PURE__ */ new Date()).toISOString();
+        const maxDaily = state.config.maxDailyTrades || 0;
+        if (maxDaily > 0 && state.dailyTradeCount >= maxDaily) {
+          addActivity2(state, {
+            type: "info",
+            message: `\u{1F6AB} Daily limit reached: ${analysis.token.symbol} skipped \u2014 ${state.dailyTradeCount}/${maxDaily} trades taken today. Resets at UTC midnight.`
+          });
+          continue;
+        }
+        let stopLossPrice;
+        let takeProfitPrice;
+        if (state.config.stopOrdersEnabled && tokenPrice > 0) {
+          stopLossPrice = tokenPrice * (1 - state.autoTradeSL / 100);
+          takeProfitPrice = tokenPrice * (1 + state.autoTradeTP / 100);
+        }
+        if (state.autoTradeEnabled && paperSizeSOL > 0 && tokenPrice > 0) {
+          const alreadyOpen = state.paperPositions.some((p) => p.symbol === analysis.token.symbol && p.status === "open");
+          if (!alreadyOpen) {
+            const pos = {
+              id: `paper_${Date.now()}_${analysis.token.symbol}`,
+              symbol: analysis.token.symbol,
+              mint: tokenMint,
+              entryPrice: tokenPrice,
+              currentPrice: tokenPrice,
+              targetPct: state.autoTradeTP,
+              slPct: state.autoTradeSL,
+              size: paperSizeSOL,
+              tokenAmount: 0,
+              decimals: 9,
+              strategyId: topStrat.id,
+              dex: dexKey,
+              mode: "paper",
+              openedAt: now2,
+              status: "open",
+              peakPrice: tokenPrice,
+              trailingActive: false,
+              breakevenActive: false,
+              trailActivationPct: state.autoTrailActivationPct,
+              trailDistancePct: state.autoTrailDistancePct,
+              entryVolume24h: analysis.token.volume24h || 0,
+              stopLossPrice,
+              takeProfitPrice
+            };
+            state.paperPositions.push(pos);
+            upsertPosition(userId, pos).catch(() => {
+            });
+            state.dailyTradeCount++;
+            const compoundNote = state.compoundMode ? ` [\u{1F4B9} Compounding ON \u2014 ${state.paperPortfolioValue.toFixed(3)} SOL pool]` : "";
+            const stopNote = state.config.stopOrdersEnabled && stopLossPrice ? ` | \u{1F6D1} Stop @$${stopLossPrice.toFixed(6)} \xB7 \u{1F3AF} TP @$${takeProfitPrice?.toFixed(6)}` : ` | TP: +${state.autoTradeTP}% | SL: -${state.autoTradeSL}%`;
+            addActivity2(state, {
+              type: "paper_buy",
+              message: `\u{1F4C4} Paper BUY: ${analysis.token.symbol} \u2014 ${paperSizeSOL.toFixed(3)} SOL @ $${tokenPrice.toFixed(6)} [${topStrat.icon}${topStrat.name}]${stopNote} | Breakeven @+8% \xB7 Trail @+20% (vol-adjusted)${compoundNote}`
+            });
+          }
+        }
+        if (state.liveTradeEnabled && sizeSOL > 0 && tokenPrice > 0) {
+          const alreadyOpen = state.livePositions.some((p) => p.symbol === analysis.token.symbol && p.status === "open");
+          const alreadyQueued = state.pendingSignals.some((s) => s.symbol === analysis.token.symbol);
+          const SIGNAL_COOLDOWN_MS = 5 * 60 * 1e3;
+          const lastRejected = state.signalCooldowns.get(tokenMint);
+          const onCooldown = lastRejected && Date.now() - lastRejected < SIGNAL_COOLDOWN_MS;
+          const confluenceCount = SOL_STRATEGIES.filter((s) => {
+            if (analysis.confidence < _effMinConf(s)) return false;
+            if (s.minSignal === "STRONG_BUY" && analysis.signal !== "STRONG_BUY") return false;
+            if (s.maxRisk === "LOW" && (analysis.riskLevel === "HIGH" || analysis.riskLevel === "EXTREME")) return false;
+            if (!passesStrategyFilter(analysis, s)) return false;
+            return true;
+          }).length;
+          const compositeEdge = Math.min(100, analysis.confidence + Math.max(0, confluenceCount - 1) * SOL_CONFLUENCE_BONUS);
+          const confluenceOk = confluenceCount >= SOL_CONFLUENCE_REQUIRED && compositeEdge >= SOL_COMPOSITE_FLOOR;
+          const brainGate = SOL_BRAIN_ENABLED && SOL_BRAIN_GATING ? solBrainGate(userId, analysis.token.symbol, topStrat.id, (/* @__PURE__ */ new Date()).getUTCHours()) : { blocked: false, reason: "" };
+          const brainMult = SOL_BRAIN_ENABLED ? solBrainSizeMultiplier(userId, analysis.token.symbol) : 1;
+          const liveSizeSOL = brainMult !== 1 ? Math.round(sizeSOL * brainMult * 1e3) / 1e3 : sizeSOL;
+          if (!alreadyOpen && !alreadyQueued && !onCooldown && !confluenceOk) {
+            addActivity2(state, {
+              type: "info",
+              message: `\u{1F6A6} Live entry BLOCKED (confluence): ${analysis.token.symbol} \u2014 ${confluenceCount}/${SOL_CONFLUENCE_REQUIRED} strategies agree, composite ${compositeEdge.toFixed(0)} < ${SOL_COMPOSITE_FLOOR}. Paper still learning.`
+            });
+          } else if (!alreadyOpen && !alreadyQueued && !onCooldown && brainGate.blocked) {
+            addActivity2(state, {
+              type: "info",
+              message: `${brainGate.reason} (live entry skipped \u2014 paper still learning)`
+            });
+          } else if (!alreadyOpen && !alreadyQueued && !onCooldown) {
+            const created = /* @__PURE__ */ new Date();
+            const expires = new Date(created.getTime() + 9e4);
+            const brainNote = brainMult !== 1 ? ` \u{1F9E0} Brain ${brainMult}\xD7` : "";
+            const sig = {
+              id: `live_${Date.now()}_${analysis.token.symbol}`,
+              symbol: analysis.token.symbol,
+              mint: tokenMint,
+              signal: "BUY",
+              confidence: analysis.confidence,
+              price: tokenPrice,
+              sizeSOL: liveSizeSOL,
+              strategyId: topStrat.id,
+              createdAt: created.toISOString(),
+              expiresAt: expires.toISOString(),
+              // Carried through to the live SolAutoPosition once confirmed
+              // (executeServerSideBuy / the Phantom-approval confirm path).
+              // Previously computed above for the paper position only, so a
+              // live position stopOrdersEnabled believed it had never
+              // actually recorded one.
+              stopLossPrice,
+              takeProfitPrice,
+              dex: dexKey
+            };
+            addActivity2(state, {
+              type: "live_signal",
+              message: `\u26A1 Live signal: ${analysis.token.symbol} \u2014 ${liveSizeSOL.toFixed(3)} SOL @ $${tokenPrice.toFixed(6)} [${topStrat.icon}${topStrat.name}]${brainNote} | ${confluenceCount} strat confluence (edge ${compositeEdge.toFixed(0)}) | Attempting server-side execution...`
+            });
+            executeServerSideBuy(userId, sig, state).then((executed) => {
+              if (!executed) {
+                state.pendingSignals.push(sig);
+                addActivity2(state, {
+                  type: "live_signal",
+                  message: `\u26A1 Live signal queued: ${analysis.token.symbol} \u2014 ${liveSizeSOL.toFixed(3)} SOL @ $${tokenPrice.toFixed(6)} [${topStrat.icon}${topStrat.name}]${brainNote} | \u26A0\uFE0F APPROVE IN PHANTOM (90s window)`
+                });
+              }
+            }).catch(() => {
+              state.pendingSignals.push(sig);
+              addActivity2(state, {
+                type: "live_signal",
+                message: `\u26A1 Live signal queued: ${analysis.token.symbol} \u2014 ${sizeSOL.toFixed(3)} SOL @ $${tokenPrice.toFixed(6)} [${topStrat.icon}${topStrat.name}] | \u26A0\uFE0F APPROVE IN PHANTOM (90s window)`
+              });
+            });
+          }
+        }
+      }
+    }
+    state.lastResults = scanResult;
+    await monitorPaperPositions(userId, state);
+    await monitorLivePositions(userId, state);
+    const label = triggerToken ? ` (trigger: ${triggerToken})` : "";
+    const intervalSec = getAdaptiveScanInterval2(state.config) / 1e3;
+    const buys = scanResult.filter((t) => t.signal === "STRONG_BUY" || t.signal === "BUY").length;
+    const shieldNote = shieldFilter ? " \u{1F6E1}\uFE0F" : "";
+    const activeStrats2 = state.activeStrategies.length > 0 ? state.activeStrategies : [state.activeStrategy];
+    const stratNote = activeStrats2.length > 1 ? ` [${activeStrats2.map((id) => {
+      const s = SOL_STRATEGIES.find((x) => x.id === id);
+      return s ? s.icon + s.name : id;
+    }).join(" + ")}]` : (() => {
+      const strategy = SOL_STRATEGIES.find((s) => s.id === state.activeStrategy);
+      return strategy ? ` [${strategy.icon}${strategy.name}]` : "";
+    })();
+    addActivity2(state, {
+      type: "info",
+      message: `\u{1F50D} Knowledge dropped on ${scanResult.length} tokens${label}${shieldNote}${stratNote} \u2014 ${buys} buy signal${buys !== 1 ? "s" : ""} born. Next cipher in ${intervalSec}s`
+    });
+    if (macro) {
+      const btcStr = `BTC ${macro.btcChange >= 0 ? "+" : ""}${macro.btcChange.toFixed(1)}%`;
+      const ethStr = `ETH ${macro.ethChange >= 0 ? "+" : ""}${macro.ethChange.toFixed(1)}%`;
+      const solStr = `SOL ${macro.solChange >= 0 ? "+" : ""}${macro.solChange.toFixed(1)}%`;
+      addActivity2(state, {
+        type: "info",
+        message: `\u{1F4CA} The science: ${btcStr} \u2022 ${ethStr} \u2022 ${solStr} \u2014 bias: ${macro.bias}`
+      });
+    }
+    if (state.currentPortfolioValue > 0) {
+      for (const analysis of scanResult) {
+        if ((analysis.signal === "STRONG_BUY" || analysis.signal === "BUY") && analysis.recommendedSolAmount && analysis.recommendedSolAmount > 0) {
+          const dexKey = (analysis.token.dexId || "").toLowerCase().split("_")[0];
+          const phase2 = state.weeklyGoal.phase;
+          const mult = getPhaseMultiplier(phase2, state.weeklyGoal.winStreak);
+          addActivity2(state, {
+            type: "kelly",
+            message: `\u{1F4D0} Mathematics: ${analysis.token.symbol} on ${dexKey} \u2192 ${analysis.recommendedSolAmount.toFixed(3)} SOL (${mult}\xD7 ${phase2.replace("_", " ")} phase)`
+          });
+        }
+      }
+    }
+  } catch (err) {
+    addActivity2(state, {
+      type: "info",
+      message: `\u26A0\uFE0F Interruption in the cipher: ${err instanceof Error ? err.message : "unknown"}`
+    });
+  } finally {
+    state.isScanning = false;
+  }
+  try {
+    pruneEngineMaps(state);
+  } catch {
+  }
+  saveEngineState(userId, state).catch(() => {
+  });
+  if (state.isRunning) {
+    if (state.scanTimer) clearTimeout(state.scanTimer);
+    const nextMs = getAdaptiveScanInterval2(state.config);
+    state.scanTimer = setTimeout(() => runScan(userId, state), nextMs);
+  }
+}
+async function startSolEngine(userId, config = {}) {
+  if (startingSolUsers.has(userId)) return;
+  startingSolUsers.add(userId);
+  try {
+    const existing = engineStates2.get(userId);
+    if (existing?.isRunning) stopSolEngine(userId);
+    const fullConfig = { ...DEFAULT_CONFIG, ...config };
+    const state = createInitialState(fullConfig);
+    if (existing) {
+      state.weeklyGoal = existing.weeklyGoal;
+      state.activeStrategy = existing.activeStrategy;
+      state.activeStrategies = existing.activeStrategies;
+      state.signalWeights = existing.signalWeights;
+      state.kellyStats = existing.kellyStats;
+      state.sessionHighWatermark = existing.sessionHighWatermark;
+      state.currentPortfolioValue = existing.currentPortfolioValue;
+      state.shieldActive = existing.shieldActive;
+      state.autoTradeEnabled = existing.autoTradeEnabled;
+      state.liveTradeEnabled = existing.liveTradeEnabled;
+      state.paperPositions = existing.paperPositions;
+      state.closedPaperPositions = existing.closedPaperPositions;
+      state.livePositions = existing.livePositions;
+      state.closedLivePositions = existing.closedLivePositions;
+      state.pendingExits = existing.pendingExits || [];
+      state.autoTradeStats = existing.autoTradeStats;
+      state.autoTradeTP = existing.autoTradeTP;
+      state.autoTradeSL = existing.autoTradeSL;
+      state.serverWalletBalance = existing.serverWalletBalance;
+      state.lastWalletRefreshAt = existing.lastWalletRefreshAt;
+      state.dailyTradeCount = existing.dailyTradeCount;
+      state.dailyTradeDate = existing.dailyTradeDate;
+    } else {
+      await loadEngineStateFromDb(userId, state);
+    }
+    try {
+      const _res = await db.execute(
+        sql6`SELECT paper_base_capital, server_wallet_key FROM sol_engine_settings WHERE user_id = ${userId}`
+      );
+      const rows = Array.isArray(_res) ? _res : _res?.rows ?? [];
+      let paperBase = Number(rows?.[0]?.paper_base_capital ?? 0);
+      if (paperBase > SOL_PAPER_MAX_SOL) {
+        console.warn(`[SolEngine] paper_base_capital ${paperBase} > ${SOL_PAPER_MAX_SOL} SOL looks like a USD figure \u2014 using 5 SOL`);
+        paperBase = 5;
+      }
+      const hasServerWallet = !!rows?.[0]?.server_wallet_key;
+      if (paperBase > 0) {
+        state.paperBaseCapital = paperBase;
+        if (state.paperPortfolioValue <= 0) state.paperPortfolioValue = paperBase;
+        if (!hasServerWallet && state.currentPortfolioValue <= 0) state.currentPortfolioValue = paperBase;
+      }
+    } catch (err) {
+      console.warn("[SolEngine] paper_base_capital restore failed (non-fatal):", err);
+    }
+    if (state.currentPortfolioValue <= 0) {
+      try {
+        const [settings] = await db.select({ serverWalletKey: solEngineSettings.serverWalletKey, liveTradeEnabled: solEngineSettings.liveTradeEnabled }).from(solEngineSettings).where(eq5(solEngineSettings.userId, userId));
+        if (settings?.serverWalletKey) {
+          const privateKeyBase58 = decryptWalletKey(settings.serverWalletKey);
+          const { Keypair: Keypair2, Connection: Connection3 } = await import("@solana/web3.js");
+          const bs58 = (await import("bs58")).default;
+          const keypair = Keypair2.fromSecretKey(bs58.decode(privateKeyBase58));
+          const rpcUrl = process.env.SOLANA_RPC_URL || "https://mainnet.helius-rpc.com/?api-key=15319bf4-5b40-4958-ac8d-6313aa55eb92";
+          const connection2 = new Connection3(rpcUrl, { commitment: "confirmed" });
+          const lamports = await connection2.getBalance(keypair.publicKey);
+          const solBalance = lamports / 1e9;
+          if (solBalance > 0) {
+            state.currentPortfolioValue = solBalance;
+            state.liveTradeEnabled = settings?.liveTradeEnabled === true;
+            console.log(`[SolEngine] Portfolio auto-set from wallet on start: ${solBalance.toFixed(4)} SOL (live=${state.liveTradeEnabled})`);
+          }
+        }
+      } catch {
+      }
+    }
+    state.isRunning = true;
+    engineStates2.set(userId, state);
+    const intervalSec = getAdaptiveScanInterval2(fullConfig) / 1e3;
+    const windowLabel = intervalSec === 30 ? "peak hours (13\u201320 UTC)" : intervalSec === 60 ? "standard hours" : "overnight / weekend";
+    const activeIds = state.activeStrategies.length > 0 ? state.activeStrategies : [state.activeStrategy];
+    const stratLabel = activeIds.map((id) => {
+      const s = SOL_STRATEGIES.find((x) => x.id === id);
+      return s ? `${s.icon}${s.name}` : id;
+    }).join(" + ");
+    addActivity2(state, {
+      type: "info",
+      message: `\u26A1 Peace \u2014 Sol cipher activated. ${stratLabel} in rotation, dropping knowledge every ${intervalSec}s (${windowLabel})`
+    });
+    runScan(userId, state);
+  } finally {
+    startingSolUsers.delete(userId);
+  }
+}
+function stopSolEngine(userId) {
+  const state = engineStates2.get(userId);
+  if (!state) return;
+  state.isRunning = false;
+  if (state.scanTimer) {
+    clearTimeout(state.scanTimer);
+    state.scanTimer = null;
+  }
+  addActivity2(state, { type: "info", message: "\u{1F6D1} Engine at rest \u2014 knowledge preserved, cipher closed" });
+}
+function getSolEngineStatus(userId) {
+  const state = engineStates2.get(userId);
+  if (!state) {
+    return {
+      running: false,
+      activityFeed: [],
+      signalWeights: Object.fromEntries(DEX_NAMES.map((d) => [d, 1])),
+      shieldActive: false,
+      lastResults: [],
+      kellyStats: {},
+      lastMacro: null,
+      weeklyGoal: { ...DEFAULT_WEEKLY_GOAL },
+      activeStrategy: "momentum_surfer",
+      activeStrategies: ["momentum_surfer"]
+    };
+  }
+  return {
+    running: state.isRunning,
+    config: state.config,
+    activityFeed: state.activityFeed.slice(0, 20),
+    signalWeights: state.signalWeights,
+    kellyStats: state.kellyStats,
+    shieldActive: state.shieldActive,
+    sessionHighWatermark: state.sessionHighWatermark,
+    currentPortfolioValue: state.currentPortfolioValue,
+    lastScanAt: state.lastScanAt,
+    lastResults: state.lastResults,
+    lastMacro: state.lastMacro,
+    weeklyGoal: state.weeklyGoal,
+    activeStrategy: state.activeStrategy,
+    activeStrategies: state.activeStrategies,
+    lastAgentConsensus: state.lastAgentConsensus,
+    paperTradeSize: state.paperTradeSize,
+    compoundMode: state.compoundMode,
+    compoundRate: state.compoundRate,
+    paperBaseCapital: state.paperBaseCapital,
+    paperPortfolioValue: state.paperPortfolioValue,
+    paperPortfolioHistory: state.paperPortfolioHistory,
+    autoTradeEnabled: state.autoTradeEnabled,
+    liveTradeEnabled: state.liveTradeEnabled,
+    autoTradeMode: state.liveTradeEnabled ? "live" : state.autoTradeEnabled ? "paper" : "off",
+    pendingSignalsCount: state.pendingSignals.filter((s) => new Date(s.expiresAt).getTime() > Date.now()).length,
+    pendingSignalSymbols: state.pendingSignals.filter((s) => new Date(s.expiresAt).getTime() > Date.now()).map((s) => s.symbol),
+    serverWalletBalance: state.serverWalletBalance,
+    dailyTradeCount: state.dailyTradeCount,
+    dailyTradeDate: state.dailyTradeDate
+  };
+}
+function getSolStrategies() {
+  return SOL_STRATEGIES;
+}
+function setSolStrategies(userId, strategyIds) {
+  const valid = strategyIds.filter((id) => SOL_STRATEGIES.some((s) => s.id === id));
+  if (valid.length === 0) return { success: false };
+  let state = engineStates2.get(userId);
+  if (!state) {
+    state = createInitialState({ ...DEFAULT_CONFIG });
+    engineStates2.set(userId, state);
+  }
+  state.activeStrategies = valid;
+  state.activeStrategy = valid[0];
+  const strats = valid.map((id) => SOL_STRATEGIES.find((s) => s.id === id)).filter(Boolean);
+  const label = strats.map((s) => `${s.icon}${s.name}`).join(" + ");
+  const modeNote = valid.length > 1 ? ` \u2014 Multi-Strategy Mode \u{1F3AF} active` : "";
+  addActivity2(state, {
+    type: "strategy",
+    message: `\u{1F504} Cipher updated \u2014 ${label}${modeNote}. Word is bond.`
+  });
+  return { success: true, strategies: strats };
+}
+function setSolStrategy(userId, strategyId) {
+  const strategy = SOL_STRATEGIES.find((s) => s.id === strategyId);
+  if (!strategy) return { success: false };
+  let state = engineStates2.get(userId);
+  if (!state) {
+    state = createInitialState({ ...DEFAULT_CONFIG });
+    engineStates2.set(userId, state);
+  }
+  state.activeStrategy = strategyId;
+  state.activeStrategies = [strategyId];
+  addActivity2(state, {
+    type: "strategy",
+    message: `${strategy.icon} Word is bond \u2014 ${strategy.name} now in rotation. Min ${strategy.minConfidence}% confidence, ${strategy.baseFraction * 100}% base size, ${strategy.holdTarget} hold`
+  });
+  return { success: true, strategy };
+}
+function setSolWeeklyGoal(userId, params) {
+  let state = engineStates2.get(userId);
+  if (!state) {
+    state = createInitialState({ ...DEFAULT_CONFIG });
+    engineStates2.set(userId, state);
+  }
+  const portfolio = state.currentPortfolioValue;
+  let targetSol = params.targetSol || 0;
+  let targetPct = params.targetPct || 0;
+  if (targetPct > 0 && portfolio > 0 && targetSol <= 0) {
+    targetSol = portfolio * (targetPct / 100);
+  } else if (targetSol > 0 && portfolio > 0 && targetPct <= 0) {
+    targetPct = targetSol / portfolio * 100;
+  }
+  if (targetSol <= 0) return { success: false };
+  state.weeklyGoal = {
+    targetSol,
+    targetPct,
+    startPortfolio: portfolio,
+    currentProfitSol: 0,
+    phase: "warming_up",
+    weekStart: Date.now(),
+    winStreak: 0,
+    tradeHistory: []
+  };
+  addActivity2(state, {
+    type: "goal",
+    message: `\u{1F3AF} Target manifested \u2014 +${targetSol.toFixed(3)} SOL (${targetPct.toFixed(1)}%) this week. Warming up the cipher (0.8\xD7 size)`
+  });
+  return { success: true };
+}
+function resetSolWeeklyGoal(userId) {
+  const state = engineStates2.get(userId);
+  if (!state) return { success: false };
+  state.weeklyGoal = { ...DEFAULT_WEEKLY_GOAL };
+  addActivity2(state, { type: "goal", message: "\u{1F504} Cipher cleared \u2014 knowledge reset, back to zero point" });
+  return { success: true };
+}
+function recordSolSignalResult(userId, params) {
+  const state = engineStates2.get(userId);
+  if (!state) return { success: false };
+  const dex = (params.dex || "unknown").toLowerCase().replace(/[^a-z]/g, "") || "unknown";
+  if (!state.signalWeights[dex]) state.signalWeights[dex] = 1;
+  if (!state.kellyStats[dex]) state.kellyStats[dex] = { wins: 0, losses: 0, totalGainPct: 0 };
+  if (params.outcome === "WIN") {
+    state.signalWeights[dex] = Math.min(2, state.signalWeights[dex] + 0.05);
+    state.kellyStats[dex].wins++;
+    state.kellyStats[dex].totalGainPct += Math.abs(params.gainPct);
+    state.weeklyGoal.winStreak = (state.weeklyGoal.winStreak || 0) + 1;
+    addActivity2(state, {
+      type: "signal",
+      message: `\u2705 Born \u2014 ${params.symbol || dex} +${params.gainPct.toFixed(1)}% sealed in profit. ${dex} weight ${state.signalWeights[dex].toFixed(2)} | Streak: ${state.weeklyGoal.winStreak}`
+    });
+  } else {
+    state.signalWeights[dex] = Math.max(0.2, state.signalWeights[dex] - 0.08);
+    state.kellyStats[dex].losses++;
+    state.weeklyGoal.winStreak = 0;
+    addActivity2(state, {
+      type: "signal",
+      message: `\u274C Lesson built \u2014 ${params.symbol || dex}. The cipher teaches. ${dex} weight ${state.signalWeights[dex].toFixed(2)} | Streak reset`
+    });
+  }
+  if (state.weeklyGoal.phase !== "idle") {
+    const solAmount = params.sol || 0;
+    const actualGainPct = params.gainPct;
+    const gainSol = solAmount * (actualGainPct / 100);
+    state.weeklyGoal.currentProfitSol += gainSol;
+    state.weeklyGoal.tradeHistory.unshift({
+      timestamp: (/* @__PURE__ */ new Date()).toISOString(),
+      symbol: params.symbol || dex,
+      sol: solAmount,
+      gainPct: actualGainPct,
+      outcome: params.outcome,
+      strategy: state.activeStrategy
+    });
+    if (state.weeklyGoal.tradeHistory.length > 100) {
+      state.weeklyGoal.tradeHistory = state.weeklyGoal.tradeHistory.slice(0, 100);
+    }
+    const prevPhase = state.weeklyGoal.phase;
+    const newPhase = computeGoalPhase(state.weeklyGoal);
+    if (newPhase !== prevPhase) {
+      state.weeklyGoal.phase = newPhase;
+      const mult = getPhaseMultiplier(newPhase, state.weeklyGoal.winStreak);
+      const phaseNames = {
+        warming_up: "\u{1F535} WARMING UP",
+        building: "\u{1F535} BUILDING",
+        accelerating: "\u{1F7E1} ACCELERATING",
+        cruising: "\u{1F7E2} CRUISING",
+        pushing: "\u{1F7E0} PUSHING",
+        target_reached: "\u{1F3C6} TARGET REACHED"
+      };
+      addActivity2(state, {
+        type: "goal",
+        message: `${phaseNames[newPhase] || newPhase} \u2014 the God builds on. Sizing ${mult}\xD7 | Progress: ${(state.weeklyGoal.currentProfitSol / state.weeklyGoal.targetSol * 100).toFixed(1)}%`
+      });
+    }
+  }
+  return { success: true };
+}
+function setAutoTrade(userId, opts) {
+  let state = engineStates2.get(userId);
+  if (!state) {
+    state = createInitialState({ ...DEFAULT_CONFIG });
+    engineStates2.set(userId, state);
+  }
+  if (opts.paperEnabled !== void 0) {
+    state.autoTradeEnabled = opts.paperEnabled;
+    addActivity2(state, {
+      type: "info",
+      message: opts.paperEnabled ? "\u{1F4C4} Paper Auto-Trade ENABLED \u2014 the cipher will open virtual positions on every buy signal" : "\u{1F4C4} Paper Auto-Trade DISABLED"
+    });
+  }
+  if (opts.liveEnabled !== void 0) {
+    state.liveTradeEnabled = opts.liveEnabled;
+    if (!opts.liveEnabled) state.pendingSignals = [];
+    addActivity2(state, {
+      type: "info",
+      message: opts.liveEnabled ? "\u26A1 Live Auto-Trade ENABLED \u2014 buy signals will be queued for wallet execution" : "\u26A1 Live Auto-Trade DISABLED \u2014 pending signals cleared"
+    });
+  }
+  if (opts.tpPct !== void 0 && opts.tpPct > 0 && opts.tpPct <= 200) {
+    state.autoTradeTP = opts.tpPct;
+    addActivity2(state, {
+      type: "info",
+      message: `\u{1F3AF} Take-profit updated \u2014 positions will close at +${opts.tpPct}%`
+    });
+  }
+  if (opts.slPct !== void 0 && opts.slPct > 0 && opts.slPct <= 50) {
+    state.autoTradeSL = opts.slPct;
+    addActivity2(state, {
+      type: "info",
+      message: `\u{1F6E1}\uFE0F Stop-loss updated \u2014 positions protected at -${opts.slPct}%`
+    });
+  }
+  if (opts.trailActivationPct !== void 0 && opts.trailActivationPct > 0 && opts.trailActivationPct <= 100) {
+    state.autoTrailActivationPct = opts.trailActivationPct;
+    addActivity2(state, {
+      type: "info",
+      message: `\u{1F512} Trail activation updated \u2014 trailing stop kicks in at +${opts.trailActivationPct}%`
+    });
+  }
+  if (opts.trailDistancePct !== void 0 && opts.trailDistancePct > 0 && opts.trailDistancePct <= 50) {
+    state.autoTrailDistancePct = opts.trailDistancePct;
+    addActivity2(state, {
+      type: "info",
+      message: `\u{1F4CF} Trail distance updated \u2014 will exit if price drops ${opts.trailDistancePct}% from peak`
+    });
+  }
+  if (opts.paperTradeSize !== void 0) {
+    const sz = Math.max(0, opts.paperTradeSize);
+    state.paperTradeSize = sz;
+    addActivity2(state, {
+      type: "info",
+      message: sz > 0 ? `\u{1F4D0} Paper trade size fixed at ${sz} SOL per position \u2014 overrides portfolio-fraction sizing` : `\u{1F4D0} Paper trade size set to auto (portfolio-fraction mode restored)`
+    });
+  }
+  saveEngineState(userId, state).catch(() => {
+  });
+}
+function setCompoundSettings(userId, opts) {
+  let state = engineStates2.get(userId);
+  if (!state) {
+    state = createInitialState({ ...DEFAULT_CONFIG });
+    engineStates2.set(userId, state);
+  }
+  if (opts.compoundMode !== void 0) {
+    state.compoundMode = opts.compoundMode;
+    addActivity2(state, {
+      type: "info",
+      message: opts.compoundMode ? `\u{1F4B9} Compound Mode ACTIVATED \u2014 profits will grow your paper pool (${state.compoundRate}% reinvestment rate)` : "\u{1F4B9} Compound Mode OFF \u2014 fixed position sizing restored"
+    });
+  }
+  if (opts.compoundRate !== void 0) {
+    const rate = Math.max(1, Math.min(100, opts.compoundRate));
+    state.compoundRate = rate;
+    addActivity2(state, {
+      type: "info",
+      message: `\u{1F4B9} Compound rate set to ${rate}% \u2014 ${rate === 100 ? "all profits" : `${rate}% of profits`} reinvested into paper pool`
+    });
+  }
+  if (opts.paperBaseCapital !== void 0 && opts.paperBaseCapital > 0) {
+    state.paperBaseCapital = opts.paperBaseCapital;
+    state.paperPortfolioValue = opts.paperBaseCapital;
+    state.paperPortfolioHistory = [{ t: Date.now(), v: opts.paperBaseCapital }];
+    addActivity2(state, {
+      type: "info",
+      message: `\u{1F4BC} Paper capital reset to ${opts.paperBaseCapital.toFixed(3)} SOL \u2014 compound growth clock starts now`
+    });
+    const persistValue = opts.paperBaseCapital;
+    db.execute(sql6`UPDATE sol_engine_settings SET paper_base_capital = ${persistValue} WHERE user_id = ${userId}`).catch((err) => console.warn("[SolEngine] persist paper_base_capital (setCompoundSettings) failed:", err));
+  }
+}
+function getPendingSignals(userId) {
+  const state = engineStates2.get(userId);
+  if (!state) return [];
+  const now = Date.now();
+  const valid = state.pendingSignals.filter((s) => new Date(s.expiresAt).getTime() > now);
+  const expired = state.pendingSignals.filter((s) => new Date(s.expiresAt).getTime() <= now);
+  for (const s of expired) {
+    addActivity2(state, {
+      type: "signal_expired",
+      message: `\u23F1\uFE0F Missed: ${s.symbol} buy signal expired unconfirmed (90s window passed) \u2014 no server wallet set up for full auto.`
+    });
+  }
+  state.pendingSignals = [];
+  return valid;
+}
+function cancelSignal(userId, mint) {
+  const state = engineStates2.get(userId);
+  if (!state) return;
+  state.pendingSignals = state.pendingSignals.filter((s) => s.mint !== mint);
+  state.signalCooldowns.set(mint, Date.now());
+}
+function confirmLiveTrade(userId, signalId, txHash, tradeData) {
+  const state = engineStates2.get(userId);
+  if (!state) return false;
+  const parts = signalId.split("_");
+  const symbol = parts.slice(2).join("_");
+  if (!symbol) return false;
+  const signal = state.pendingSignals.find((s) => s.id === signalId);
+  const sizeSOL = signal?.sizeSOL || 0;
+  if (signal) {
+    state.pendingSignals = state.pendingSignals.filter((s) => s.id !== signalId);
+  }
+  const pos = {
+    id: `live_pos_${Date.now()}_${symbol}`,
+    symbol,
+    mint: tradeData?.mint || signal?.mint || "",
+    entryPrice: tradeData?.entryPrice || 0,
+    currentPrice: tradeData?.entryPrice || 0,
+    targetPct: state.autoTradeTP,
+    slPct: state.autoTradeSL,
+    size: sizeSOL,
+    tokenAmount: tradeData?.tokenAmount || 0,
+    decimals: tradeData?.decimals || 9,
+    strategyId: signal?.strategyId || state.activeStrategy,
+    mode: "live",
+    txHash,
+    openedAt: (/* @__PURE__ */ new Date()).toISOString(),
+    status: "open",
+    stopLossPrice: signal?.stopLossPrice,
+    takeProfitPrice: signal?.takeProfitPrice,
+    dex: signal?.dex
+  };
+  state.livePositions.push(pos);
+  state.dailyTradeCount++;
+  addActivity2(state, {
+    type: "live_buy",
+    message: `\u26A1 Live EXECUTED: ${symbol} \u2014 ${tradeData?.tokenAmount ? (tradeData.tokenAmount / Math.pow(10, tradeData.decimals || 9)).toFixed(4) + " tokens @ $" + (tradeData.entryPrice || 0).toFixed(6) : ""} tx: ${txHash.slice(0, 16)}...`
+  });
+  upsertPosition(userId, pos).catch(() => {
+  });
+  return true;
+}
+function getPendingExits(userId) {
+  const state = engineStates2.get(userId);
+  if (!state) return [];
+  const now = Date.now();
+  const valid = state.pendingExits.filter((e) => new Date(e.expiresAt).getTime() > now);
+  const expired = state.pendingExits.filter((e) => new Date(e.expiresAt).getTime() <= now);
+  for (const e of expired) {
+    addActivity2(state, {
+      type: "exit_expired",
+      message: `\u23F1\uFE0F Missed exit: ${e.symbol} close signal expired unconfirmed (90s window passed) \u2014 position remains OPEN, still being monitored.`
+    });
+  }
+  state.pendingExits = state.pendingExits.filter((e) => new Date(e.expiresAt).getTime() > now);
+  return valid;
+}
+function confirmLiveExit(userId, positionId, txHash) {
+  const state = engineStates2.get(userId);
+  if (!state) return false;
+  const pos = state.livePositions.find((p) => p.id === positionId && p.status === "open");
+  if (!pos) return false;
+  const gainPct = pos.entryPrice > 0 ? (pos.currentPrice - pos.entryPrice) / pos.entryPrice * 100 : 0;
+  pos.status = "closed";
+  pos.closedAt = (/* @__PURE__ */ new Date()).toISOString();
+  pos.closePnlPct = gainPct;
+  state.closedLivePositions.unshift(pos);
+  if (state.closedLivePositions.length > 50) state.closedLivePositions = state.closedLivePositions.slice(0, 50);
+  const isWin = gainPct >= 0;
+  state.autoTradeStats.totalTrades++;
+  state.autoTradeStats.totalPnlPct += gainPct;
+  if (isWin) {
+    state.autoTradeStats.wins++;
+    if (gainPct > state.autoTradeStats.bestTradePct) state.autoTradeStats.bestTradePct = gainPct;
+  } else {
+    state.autoTradeStats.losses++;
+    if (gainPct < state.autoTradeStats.worstTradePct) state.autoTradeStats.worstTradePct = gainPct;
+  }
+  state.livePositions = state.livePositions.filter((p) => p.id !== positionId);
+  addActivity2(state, {
+    type: "live_sell",
+    message: `\u2705 Live SOLD: ${pos.symbol} \u2014 P&L: ${gainPct >= 0 ? "+" : ""}${gainPct.toFixed(2)}% [TX: ${txHash.slice(0, 12)}...]`
+  });
+  recordSolBrainOutcome({
+    userId,
+    symbol: pos.symbol,
+    strategy: pos.strategyId || "unknown",
+    direction: "long",
+    returnPct: gainPct,
+    holdingMinutes: Math.max(0, Math.round((Date.now() - new Date(pos.openedAt).getTime()) / 6e4)),
+    exitReason: "manual",
+    profitLoss: pos.size * (gainPct / 100)
+  }).catch(() => {
+  });
+  upsertPosition(userId, pos).catch(() => {
+  });
+  saveEngineState(userId, state).catch(() => {
+  });
+  return true;
+}
+function getAutoTradePositions(userId) {
+  const state = engineStates2.get(userId);
+  if (!state) {
+    return {
+      autoTradeEnabled: false,
+      liveTradeEnabled: false,
+      paperPositions: [],
+      closedPaperPositions: [],
+      livePositions: [],
+      closedLivePositions: [],
+      autoTradeStats: { totalTrades: 0, wins: 0, losses: 0, totalPnlPct: 0, bestTradePct: 0, worstTradePct: 0 }
+    };
+  }
+  return {
+    autoTradeEnabled: state.autoTradeEnabled,
+    liveTradeEnabled: state.liveTradeEnabled,
+    autoTradeTP: state.autoTradeTP,
+    autoTradeSL: state.autoTradeSL,
+    autoTrailActivationPct: state.autoTrailActivationPct,
+    autoTrailDistancePct: state.autoTrailDistancePct,
+    paperPositions: state.paperPositions,
+    closedPaperPositions: state.closedPaperPositions.slice(0, 20),
+    livePositions: state.livePositions,
+    closedLivePositions: state.closedLivePositions.slice(0, 20),
+    autoTradeStats: state.autoTradeStats
+  };
+}
+function updateSolPortfolioValue(userId, solValue) {
+  const state = engineStates2.get(userId);
+  if (!state) return { shieldActive: false };
+  if (!(solValue > 0) || solValue > SOL_PAPER_MAX_SOL) return { shieldActive: !!state.shieldActive };
+  state.currentPortfolioValue = solValue;
+  if (solValue > state.sessionHighWatermark) state.sessionHighWatermark = solValue;
+  db.execute(sql6`UPDATE sol_engine_settings SET paper_base_capital = ${solValue} WHERE user_id = ${userId}`).catch((err) => console.warn("[SolEngine] persist paper_base_capital (updateSolPortfolioValue) failed:", err));
+  if (!state.config.shieldEnabled) return { shieldActive: false };
+  const threshold = state.config.shieldThreshold / 100;
+  const triggerLevel = state.sessionHighWatermark * (1 - threshold);
+  const disengageLevel = state.sessionHighWatermark * 0.97;
+  if (!state.shieldActive && state.sessionHighWatermark > 0 && solValue < triggerLevel) {
+    state.shieldActive = true;
+    const dropPct = ((1 - solValue / state.sessionHighWatermark) * 100).toFixed(1);
+    addActivity2(state, {
+      type: "shield",
+      message: `\u{1F6E1}\uFE0F Shield of protection manifested \u2014 portfolio dropped ${dropPct}% from peak (${state.sessionHighWatermark.toFixed(3)} SOL). Righteously restricting to 85%+ confidence only`
+    });
+  } else if (state.shieldActive && solValue >= disengageLevel) {
+    state.shieldActive = false;
+    addActivity2(state, { type: "shield", message: "\u2705 Shield lifted \u2014 peace restored. Full cipher resumed" });
+  }
+  return { shieldActive: state.shieldActive };
+}
+function setShieldActive(userId, active) {
+  const state = engineStates2.get(userId);
+  if (!state) return { success: false, shieldActive: false };
+  state.shieldActive = active;
+  addActivity2(state, {
+    type: "shield",
+    message: active ? "\u{1F6E1}\uFE0F Shield manually activated \u2014 restricting to high-confidence signals only" : "\u2705 Shield manually deactivated \u2014 full cipher resumed"
+  });
+  return { success: true, shieldActive: state.shieldActive };
+}
+async function saveServerWallet(userId, privateKeyBase58) {
+  try {
+    const { Keypair: Keypair2 } = await import("@solana/web3.js");
+    const bs58 = (await import("bs58")).default;
+    const secretKey = bs58.decode(privateKeyBase58);
+    const keypair = Keypair2.fromSecretKey(secretKey);
+    const walletAddress = keypair.publicKey.toBase58();
+    const encrypted = encryptWalletKey(privateKeyBase58);
+    await db.insert(solEngineSettings).values({
+      userId,
+      serverWalletKey: encrypted,
+      activeStrategy: "momentum_surfer",
+      activeStrategies: [],
+      autoTradeEnabled: false,
+      liveTradeEnabled: true,
+      // auto-enable live trade when wallet is connected
+      autoTradeTP: 8,
+      autoTradeSL: 4,
+      weeklyGoal: {},
+      autoTradeStats: {},
+      updatedAt: /* @__PURE__ */ new Date()
+    }).onConflictDoUpdate({
+      target: solEngineSettings.userId,
+      set: { serverWalletKey: encrypted, liveTradeEnabled: true, updatedAt: /* @__PURE__ */ new Date() }
+    });
+    try {
+      const { Connection: Connection3 } = await import("@solana/web3.js");
+      const rpcUrl = process.env.SOLANA_RPC_URL || "https://mainnet.helius-rpc.com/?api-key=15319bf4-5b40-4958-ac8d-6313aa55eb92";
+      const connection2 = new Connection3(rpcUrl, { commitment: "confirmed" });
+      const lamports = await connection2.getBalance(keypair.publicKey);
+      const solBalance = lamports / 1e9;
+      if (solBalance > 0) {
+        const existing = engineStates2.get(userId);
+        if (existing) {
+          existing.currentPortfolioValue = solBalance;
+          existing.liveTradeEnabled = true;
+          addActivity2(existing, {
+            type: "info",
+            message: `\u{1F511} Server wallet connected: ${walletAddress.slice(0, 8)}... | Balance: ${solBalance.toFixed(4)} SOL | Live trading ENABLED \u2014 ready to execute`
+          });
+        }
+      }
+    } catch {
+    }
+    return { success: true, walletAddress };
+  } catch (err) {
+    return { success: false, error: err.message || "Invalid private key" };
+  }
+}
+async function clearServerWallet(userId) {
+  await db.update(solEngineSettings).set({ serverWalletKey: null, updatedAt: /* @__PURE__ */ new Date() }).where(eq5(solEngineSettings.userId, userId));
+}
+async function getServerWalletStatus(userId) {
+  try {
+    const [settings] = await db.select({ serverWalletKey: solEngineSettings.serverWalletKey }).from(solEngineSettings).where(eq5(solEngineSettings.userId, userId));
+    if (!settings?.serverWalletKey) return { hasServerWallet: false };
+    const privateKeyBase58 = decryptWalletKey(settings.serverWalletKey);
+    const { Keypair: Keypair2, Connection: Connection3 } = await import("@solana/web3.js");
+    const bs58 = (await import("bs58")).default;
+    const secretKey = bs58.decode(privateKeyBase58);
+    const keypair = Keypair2.fromSecretKey(secretKey);
+    const walletAddress = keypair.publicKey.toBase58();
+    let balanceLamports = 0;
+    let balanceSol = 0;
+    try {
+      const rpcUrl = process.env.SOLANA_RPC_URL || "https://mainnet.helius-rpc.com/?api-key=15319bf4-5b40-4958-ac8d-6313aa55eb92";
+      const connection2 = new Connection3(rpcUrl, { commitment: "confirmed" });
+      balanceLamports = await connection2.getBalance(keypair.publicKey);
+      balanceSol = Math.round(balanceLamports / 1e9 * 1e4) / 1e4;
+    } catch {
+    }
+    return { hasServerWallet: true, walletAddress, balanceLamports, balanceSol };
+  } catch {
+    return { hasServerWallet: false };
+  }
+}
+var SOL_BRAIN_ENABLED, SOL_BRAIN_GATING, SOL_CONFLUENCE_REQUIRED, SOL_COMPOSITE_FLOOR, SOL_CONFLUENCE_BONUS, SOL_MAX_HOLD_HOURS, SOL_MAX_HOLD_MS, MAX_PRICE_SPIKE, DEX_NAMES, SOL_STRATEGIES, DEFAULT_CONFIG, DEFAULT_WEEKLY_GOAL, engineStates2, startingSolUsers, PAPER_DEFAULT_PORTFOLIO_SOL, SOL_PAPER_MAX_SOL;
+var init_sol_engine = __esm({
+  "server/services/sol-engine.ts"() {
+    "use strict";
+    init_solana_scanner();
+    init_db();
+    init_schema();
+    init_sol_brain();
+    init_weekend_boost();
+    SOL_BRAIN_ENABLED = true;
+    SOL_BRAIN_GATING = true;
+    SOL_CONFLUENCE_REQUIRED = 2;
+    SOL_COMPOSITE_FLOOR = 72;
+    SOL_CONFLUENCE_BONUS = 4;
+    SOL_MAX_HOLD_HOURS = Number(process.env.SOL_MAX_HOLD_HOURS) || 12;
+    SOL_MAX_HOLD_MS = SOL_MAX_HOLD_HOURS * 60 * 60 * 1e3;
+    MAX_PRICE_SPIKE = 10;
+    DEX_NAMES = ["raydium", "orca", "meteora", "pumpfun", "jupiter"];
+    SOL_STRATEGIES = [
+      {
+        id: "momentum_surfer",
+        name: "Momentum Surfer",
+        icon: "\u{1F3C4}",
+        description: "Rides strong directional price momentum with buy pressure confirmation",
+        minConfidence: 70,
+        maxRisk: "MEDIUM",
+        baseFraction: 0.03,
+        minSignal: "BUY",
+        holdTarget: "1\u20134h"
+      },
+      {
+        id: "breakout_hunter",
+        name: "Breakout Hunter",
+        icon: "\u{1F680}",
+        description: "Targets tokens breaking out of consolidation on strong buy signals",
+        minConfidence: 75,
+        maxRisk: "MEDIUM",
+        baseFraction: 0.025,
+        minSignal: "STRONG_BUY",
+        holdTarget: "30min\u20132h"
+      },
+      {
+        id: "dip_sniper",
+        name: "Dip Sniper",
+        icon: "\u{1F3AF}",
+        description: "Enters on brief pullbacks in overall uptrends \u2014 low risk entries",
+        minConfidence: 68,
+        maxRisk: "LOW",
+        baseFraction: 0.02,
+        minSignal: "BUY",
+        holdTarget: "2\u20138h"
+      },
+      {
+        id: "meme_velocity",
+        name: "Meme Velocity",
+        icon: "\u26A1",
+        description: "Captures explosive meme token moves with quick in-out on Pump.fun",
+        minConfidence: 65,
+        maxRisk: "HIGH",
+        baseFraction: 0.04,
+        minSignal: "BUY",
+        holdTarget: "10\u201315min",
+        dexPreference: "pumpfun"
+      },
+      {
+        id: "whale_follower",
+        name: "Whale Follower",
+        icon: "\u{1F40B}",
+        description: "Tracks large wallet accumulation patterns and high maker counts",
+        minConfidence: 72,
+        maxRisk: "MEDIUM",
+        baseFraction: 0.02,
+        minSignal: "BUY",
+        holdTarget: "4\u201324h"
+      },
+      {
+        id: "volume_explosion",
+        name: "Volume Explosion",
+        icon: "\u{1F4A5}",
+        description: "Enters tokens with sudden 3x+ volume spikes on strong buy signals",
+        minConfidence: 65,
+        maxRisk: "MEDIUM",
+        baseFraction: 0.035,
+        minSignal: "STRONG_BUY",
+        holdTarget: "20\u201345min"
+      },
+      {
+        id: "smart_money_flow",
+        name: "Smart Money Flow",
+        icon: "\u{1F9E0}",
+        description: "Institutional-grade entries on high-confidence, low-risk accumulation",
+        minConfidence: 78,
+        maxRisk: "LOW",
+        baseFraction: 0.025,
+        minSignal: "STRONG_BUY",
+        holdTarget: "1\u20133 days"
+      },
+      {
+        id: "liquidity_sweep",
+        name: "Liquidity Sweep",
+        icon: "\u{1F30A}",
+        description: "Scalps sharp moves after liquidity pool sweeps \u2014 small, frequent gains",
+        minConfidence: 60,
+        maxRisk: "HIGH",
+        baseFraction: 0.03,
+        minSignal: "BUY",
+        holdTarget: "10\u201330min"
+      },
+      {
+        id: "order_flow_scalper",
+        name: "Order Flow Scalper",
+        icon: "\u{1F4CA}",
+        description: "Institutional order flow \u2014 enters when buy/sell delta diverges from price, signalling hidden accumulation or distribution",
+        minConfidence: 70,
+        maxRisk: "MEDIUM",
+        baseFraction: 0.025,
+        minSignal: "BUY",
+        holdTarget: "15\u201360min"
+      },
+      {
+        id: "trend_rider",
+        name: "Trend Rider",
+        icon: "\u{1F4C8}",
+        description: "Rides established multi-hour uptrends with steady volume and consistent buy pressure \u2014 fewer, higher-quality entries that compound",
+        minConfidence: 74,
+        maxRisk: "MEDIUM",
+        baseFraction: 0.03,
+        minSignal: "BUY",
+        holdTarget: "6\u201324h"
+      },
+      {
+        id: "adaptive",
+        name: "Adaptive (Auto)",
+        icon: "\u{1F916}",
+        description: "Auto-selects the best strategy each scan based on current market conditions \u2014 whale activity, breakouts, dips, macro bias",
+        minConfidence: 68,
+        maxRisk: "MEDIUM",
+        baseFraction: 0.03,
+        minSignal: "BUY",
+        holdTarget: "varies"
+      }
+    ];
+    DEFAULT_CONFIG = {
+      dexFilter: "all",
+      minConfidence: 65,
+      maxTokens: 10,
+      useKelly: false,
+      shieldEnabled: true,
+      shieldThreshold: 10,
+      adaptiveScan: true,
+      aiMode: "full",
+      directionFilter: "buy_only",
+      riskPerTradePct: 1,
+      maxDailyTrades: 0,
+      stopOrdersEnabled: false
+    };
+    DEFAULT_WEEKLY_GOAL = {
+      targetSol: 0,
+      targetPct: 0,
+      startPortfolio: 0,
+      currentProfitSol: 0,
+      phase: "idle",
+      weekStart: 0,
+      winStreak: 0,
+      tradeHistory: []
+    };
+    engineStates2 = /* @__PURE__ */ new Map();
+    startingSolUsers = /* @__PURE__ */ new Set();
+    PAPER_DEFAULT_PORTFOLIO_SOL = 10;
+    SOL_PAPER_MAX_SOL = Number(process.env.SOL_PAPER_MAX_SOL ?? 1e3);
+  }
+});
+
+// server/services/abba-setup.ts
+var abba_setup_exports = {};
+__export(abba_setup_exports, {
+  MAX_RISK_PCT: () => MAX_RISK_PCT,
+  applySetup: () => applySetup,
+  buildSetupReview: () => buildSetupReview,
+  currentSettings: () => currentSettings,
+  sanitizeProposal: () => sanitizeProposal
+});
+function sanitizeProposal(p) {
+  if (!p || typeof p !== "object") return null;
+  const out = { title: String(p.title || "Next week plan").slice(0, 120), rationale: String(p.rationale || "").slice(0, 1500) };
+  const wt = clamp2(p.weeklyTarget, 0, 1e7);
+  if (wt) out.weeklyTarget = Math.round(wt);
+  if (p.fx && typeof p.fx === "object") {
+    const f = p.fx;
+    const pdo = f.pairDirectionOverrides && typeof f.pairDirectionOverrides === "object" ? Object.fromEntries(Object.entries(f.pairDirectionOverrides).map(([k2, v]) => [sym(k2), v]).filter(([k2, v]) => k2 && DIRS.includes(v))) : void 0;
+    out.fx = {
+      run: f.run !== false,
+      pairs: Array.isArray(f.pairs) ? f.pairs.map(sym).filter((s) => s.length >= 3 && s.length <= 12).slice(0, 15) : void 0,
+      riskPerTrade: clamp2(f.riskPerTrade, 0.1, MAX_RISK_PCT),
+      maxOpenTrades: clamp2(f.maxOpenTrades, 1, 10),
+      minConfidence: clamp2(f.minConfidence, 55, 95),
+      maxDailyTrades: clamp2(f.maxDailyTrades, 1, 30),
+      directionFilter: DIRS.includes(f.directionFilter) ? f.directionFilter : void 0,
+      pairDirectionOverrides: pdo && Object.keys(pdo).length ? pdo : void 0
+    };
+    if (out.fx.pairs && !out.fx.pairs.length) delete out.fx.pairs;
+  }
+  if (p.crypto && typeof p.crypto === "object") {
+    const c = p.crypto;
+    out.crypto = {
+      run: c.run !== false,
+      symbols: Array.isArray(c.symbols) ? c.symbols.map(sym).filter(Boolean).slice(0, 10) : void 0,
+      riskPerTrade: clamp2(c.riskPerTrade, 0.1, MAX_RISK_PCT),
+      minConfidence: clamp2(c.minConfidence, 55, 95),
+      maxDailyTrades: clamp2(c.maxDailyTrades, 1, 30),
+      directionFilter: ["long_only", "short_only", "both"].includes(c.directionFilter) ? c.directionFilter : void 0
+    };
+    if (out.crypto.symbols && !out.crypto.symbols.length) delete out.crypto.symbols;
+  }
+  if (p.sol && typeof p.sol === "object") {
+    out.sol = { run: p.sol.run !== false, riskPerTradePct: clamp2(p.sol.riskPerTradePct, 0.1, MAX_RISK_PCT), minConfidence: clamp2(p.sol.minConfidence, 55, 95), maxDailyTrades: clamp2(p.sol.maxDailyTrades, 1, 50) };
+  }
+  if (p.models && typeof p.models === "object") {
+    out.models = { m1DailyCap: clamp2(p.models.m1DailyCap, 0, 10), m2DailyCap: clamp2(p.models.m2DailyCap, 0, 10) };
+  }
+  return out.fx || out.crypto || out.sol || out.models ? out : null;
+}
+async function currentSettings(userId) {
+  const fx = getEffectiveEngineConfig(userId);
+  const fxState = getLiveEngineState(userId);
+  const crypto17 = await storage.getUserCryptocomEngineConfig(userId).catch(() => null);
+  const sol = getSolEngineStatus(userId);
+  const models = await getFxModelSettings(userId).catch(() => ({}));
+  return {
+    fx: {
+      running: fxState?.status === "running",
+      pairs: fx.pairs,
+      riskPerTrade: fx.riskPerTrade,
+      maxOpenTrades: fx.maxOpenTrades,
+      minConfidence: fx.minConfidence,
+      maxDailyTrades: fx.maxDailyTrades,
+      directionFilter: fx.directionFilter,
+      pairDirectionOverrides: fx.pairDirectionOverrides || {},
+      weeklyProfitTarget: fx.weeklyProfitTarget
+    },
+    crypto: crypto17 ? { running: !!crypto17.isActive, symbols: crypto17.symbols, riskPerTrade: crypto17.riskPerTrade, minConfidence: crypto17.minConfidence, maxDailyTrades: crypto17.maxDailyTrades, directionFilter: crypto17.directionFilter } : null,
+    sol: { running: !!sol?.running, riskPerTradePct: sol?.config?.riskPerTradePct, minConfidence: sol?.config?.minConfidence, maxDailyTrades: sol?.config?.maxDailyTrades },
+    models: { live: !!models.live, m1DailyCap: models.m1DailyCap, m2DailyCap: models.m2DailyCap }
+  };
+}
+async function buildSetupReview(userId, p) {
+  const cur = await currentSettings(userId);
+  const changes = [];
+  const diff = (engine, field, from, to, riskUp = false) => {
+    if (to === void 0) return;
+    if (JSON.stringify(from ?? null) === JSON.stringify(to)) return;
+    changes.push({ engine, field, from: show(from), to: show(to), riskUp });
+  };
+  if (p.fx) {
+    diff("FX", "Engine", cur.fx.running ? "running" : "stopped", p.fx.run ? "running" : "stopped");
+    diff("FX", "Pairs", cur.fx.pairs, p.fx.pairs);
+    diff("FX", "Risk per trade %", cur.fx.riskPerTrade, p.fx.riskPerTrade, (p.fx.riskPerTrade ?? 0) > (cur.fx.riskPerTrade ?? 0));
+    diff("FX", "Max open trades", cur.fx.maxOpenTrades, p.fx.maxOpenTrades, (p.fx.maxOpenTrades ?? 0) > (cur.fx.maxOpenTrades ?? 0));
+    diff("FX", "Min confidence", cur.fx.minConfidence, p.fx.minConfidence);
+    diff("FX", "Max trades / day", cur.fx.maxDailyTrades || "unlimited", p.fx.maxDailyTrades, !!cur.fx.maxDailyTrades && (p.fx.maxDailyTrades ?? 0) > cur.fx.maxDailyTrades);
+    diff("FX", "Direction", cur.fx.directionFilter, p.fx.directionFilter);
+    diff("FX", "Per-pair direction", cur.fx.pairDirectionOverrides, p.fx.pairDirectionOverrides);
+  }
+  if (p.weeklyTarget) diff("Goal", "Weekly profit target $", cur.fx.weeklyProfitTarget, p.weeklyTarget);
+  if (p.crypto) {
+    const c = cur.crypto || {};
+    diff("Crypto", "Engine", c.running ? "running" : "stopped", p.crypto.run ? "running" : "stopped");
+    diff("Crypto", "Symbols", c.symbols, p.crypto.symbols);
+    diff("Crypto", "Risk per trade %", c.riskPerTrade, p.crypto.riskPerTrade, (p.crypto.riskPerTrade ?? 0) > (c.riskPerTrade ?? 0));
+    diff("Crypto", "Min confidence", c.minConfidence, p.crypto.minConfidence);
+    diff("Crypto", "Max trades / day", c.maxDailyTrades || "unlimited", p.crypto.maxDailyTrades);
+    diff("Crypto", "Direction", c.directionFilter, p.crypto.directionFilter);
+  }
+  if (p.sol) {
+    diff("Sol", "Engine", cur.sol.running ? "running" : "stopped", p.sol.run ? "running" : "stopped");
+    diff("Sol", "Risk per trade %", cur.sol.riskPerTradePct, p.sol.riskPerTradePct, (p.sol.riskPerTradePct ?? 0) > (cur.sol.riskPerTradePct ?? 0));
+    diff("Sol", "Min confidence", cur.sol.minConfidence, p.sol.minConfidence);
+    diff("Sol", "Max trades / day", cur.sol.maxDailyTrades || "unlimited", p.sol.maxDailyTrades);
+  }
+  if (p.models) {
+    diff("Model 1/2", "Model 1 daily cap", cur.models.m1DailyCap, p.models.m1DailyCap);
+    diff("Model 1/2", "Model 2 daily cap", cur.models.m2DailyCap, p.models.m2DailyCap);
+  }
+  const fxRisk = p.fx?.riskPerTrade ?? cur.fx.riskPerTrade ?? 1;
+  const fxDaily = p.fx?.maxDailyTrades ?? cur.fx.maxDailyTrades ?? 0;
+  const balance = Number(getLiveEngineState(userId)?.config?.accountBalance || getEffectiveEngineConfig(userId).accountBalance || 0);
+  const target = p.weeklyTarget ?? cur.fx.weeklyProfitTarget ?? 0;
+  const math = {
+    balance: balance || null,
+    worstDayLossPct: fxDaily ? Math.round(fxRisk * fxDaily * 10) / 10 : null,
+    worstDayLossUsd: balance && fxDaily ? Math.round(balance * fxRisk * fxDaily / 100) : null,
+    targetPerDay: target ? Math.round(target / 5) : null,
+    targetPctOfBalance: balance && target ? Math.round(target / balance * 1e3) / 10 : null
+  };
+  const warnings = [];
+  const blockers = [];
+  if (p.fx?.run && isEngineHardHalted(userId)) blockers.push("FX engine is halted today (daily loss limit or emergency stop). It stays off until tomorrow: that halt protects the account.");
+  if ((p.fx?.run || p.crypto?.run) && fxShouldPauseForCredits()) blockers.push("AI credits are out, so engines are paused. Top up the AI provider first.");
+  if (p.fx?.run) {
+    const [tl, mt5] = await Promise.all([
+      storage.getUserTradelockerConnections(userId).catch(() => []),
+      Promise.resolve(global.mt5AccountData?.[userId])
+    ]);
+    if (!tl.some((c) => c.isActive) && !mt5) blockers.push("No active broker connection for FX (TradeLocker or MT5). Connect one first.");
+  }
+  if (changes.some((c) => c.riskUp)) warnings.push("This plan RAISES risk on at least one engine. Make sure that is what you want.");
+  if (math.worstDayLossPct && math.worstDayLossPct > 6) warnings.push(`If every FX trade on a max-trades day hits its stop, that is a ${math.worstDayLossPct}% day.`);
+  if (math.targetPctOfBalance && math.targetPctOfBalance > 10) warnings.push(`The weekly target is ${math.targetPctOfBalance}% of the balance. That pace needs outsized risk; a smaller goal is safer.`);
+  try {
+    const week = await getPeriodReview(userId, "week", 0);
+    if (target && week.totals.pnl < 0 && changes.some((c) => c.riskUp)) warnings.push(`You're ${week.totals.pnl < 0 ? "down" : "up"} $${Math.abs(week.totals.pnl)} this week. Raising risk to catch up is how accounts get blown.`);
+  } catch {
+  }
+  if (p.models?.m2DailyCap) warnings.push("Model 2 has a negative shadow record (about -51R last month). Its cap only matters if Model 1/2 live mode is on, which this plan does not change.");
+  return { proposal: p, current: cur, changes, math, warnings, blockers, canApply: blockers.length === 0 && changes.length > 0 };
+}
+async function applySetup(userId, p) {
+  const review = await buildSetupReview(userId, p);
+  if (!review.canApply) return { ok: false, review, applied: [], error: review.blockers[0] || "Nothing to change." };
+  const applied = [];
+  const errors = [];
+  if (p.fx) {
+    try {
+      const upd = {};
+      for (const k2 of ["pairs", "riskPerTrade", "maxOpenTrades", "minConfidence", "maxDailyTrades", "directionFilter", "pairDirectionOverrides"]) {
+        if (p.fx[k2] !== void 0) upd[k2] = p.fx[k2];
+      }
+      if (p.weeklyTarget) upd.weeklyProfitTarget = p.weeklyTarget;
+      const running = getLiveEngineState(userId)?.status === "running";
+      if (p.fx.run && !running) {
+        startLiveEngine(userId, { ...getEffectiveEngineConfig(userId), ...upd });
+        applied.push("FX engine started with the new settings");
+      } else {
+        updateLiveEngineConfig(userId, upd);
+        applied.push(running ? "FX settings updated (engine running)" : "FX settings saved (engine stays off)");
+        if (!p.fx.run && running) errors.push("FX is running and the plan says off. Stop it from the engine page if you want it off; ABBA does not stop engines.");
+      }
+    } catch (e) {
+      errors.push(`FX: ${e.message}`);
+    }
+  }
+  if (p.crypto) {
+    try {
+      const upd = {};
+      for (const k2 of ["symbols", "riskPerTrade", "minConfidence", "maxDailyTrades", "directionFilter"]) {
+        if (p.crypto[k2] !== void 0) upd[k2] = p.crypto[k2];
+      }
+      if (p.crypto.run) upd.isActive = true;
+      await storage.upsertCryptocomEngineConfig(userId, upd);
+      applied.push(p.crypto.run ? "Crypto engine on with the new settings" : "Crypto settings saved");
+    } catch (e) {
+      errors.push(`Crypto: ${e.message}`);
+    }
+  }
+  if (p.sol) {
+    try {
+      const st = getSolEngineStatus(userId);
+      if (p.sol.run) {
+        await startSolEngine(userId, {
+          ...st?.config || {},
+          ...p.sol.riskPerTradePct !== void 0 ? { riskPerTradePct: p.sol.riskPerTradePct } : {},
+          ...p.sol.minConfidence !== void 0 ? { minConfidence: p.sol.minConfidence } : {},
+          ...p.sol.maxDailyTrades !== void 0 ? { maxDailyTrades: p.sol.maxDailyTrades } : {}
+        });
+        applied.push(st?.running ? "Sol engine restarted with the new settings" : "Sol engine started");
+      } else applied.push("Sol left as is");
+    } catch (e) {
+      errors.push(`Sol: ${e.message}`);
+    }
+  }
+  if (p.models && (p.models.m1DailyCap !== void 0 || p.models.m2DailyCap !== void 0)) {
+    try {
+      const cur = await getFxModelSettings(userId);
+      await saveFxModelSettings(userId, { ...cur, ...p.models.m1DailyCap !== void 0 ? { m1DailyCap: p.models.m1DailyCap } : {}, ...p.models.m2DailyCap !== void 0 ? { m2DailyCap: p.models.m2DailyCap } : {} });
+      applied.push("Model 1/2 daily caps saved (live mode unchanged)");
+    } catch (e) {
+      errors.push(`Models: ${e.message}`);
+    }
+  }
+  return { ok: errors.length === 0, applied, errors, review };
+}
+var clamp2, sym, DIRS, MAX_RISK_PCT, show;
+var init_abba_setup = __esm({
+  "server/services/abba-setup.ts"() {
+    "use strict";
+    init_storage();
+    init_live_trading_engine();
+    init_sol_engine();
+    init_fx_models();
+    init_ai_budget_guard();
+    init_weekly_review();
+    clamp2 = (v, lo, hi) => {
+      const n = Number(v);
+      return Number.isFinite(n) ? Math.min(hi, Math.max(lo, n)) : void 0;
+    };
+    sym = (s) => String(s || "").toUpperCase().replace(/[^A-Z0-9-]/g, "");
+    DIRS = ["buy_only", "sell_only", "both"];
+    MAX_RISK_PCT = 2;
+    show = (v) => v == null ? "\u2014" : Array.isArray(v) ? v.join(", ") : typeof v === "object" ? Object.entries(v).map(([k2, x]) => `${k2}:${x}`).join(", ") || "\u2014" : String(v);
+  }
+});
+
+// server/abba-strategist.ts
+var abba_strategist_exports = {};
+__export(abba_strategist_exports, {
+  IDEA_MARKER: () => IDEA_MARKER,
+  SETUP_MARKER: () => SETUP_MARKER,
+  abbaChatHandler: () => abbaChatHandler,
+  abbaIdeaLabPrompt: () => abbaIdeaLabPrompt,
+  abbaStrategistHandler: () => abbaStrategistHandler,
+  buildAbbaContext: () => buildAbbaContext,
+  extractIdeaDraft: () => extractIdeaDraft,
+  extractSetupDraft: () => extractSetupDraft,
+  wantsIdeaCard: () => wantsIdeaCard,
+  wantsSetupCard: () => wantsSetupCard
+});
+async function buildAbbaContext(userId) {
+  const all = await storage.getAiTradeResults(userId, 500);
+  const closed = all.filter((t) => t.result && t.result !== "PENDING" && t.closedAt);
+  const dayStart = /* @__PURE__ */ new Date();
+  dayStart.setUTCHours(0, 0, 0, 0);
+  const tally = (rows) => {
+    const wins2 = rows.filter((r) => r.result === "WIN").length;
+    const losses2 = rows.filter((r) => r.result === "LOSS").length;
+    const decided = wins2 + losses2;
+    return {
+      trades: rows.length,
+      wins: wins2,
+      losses: losses2,
+      winRate: decided > 0 ? Math.round(wins2 / decided * 100) : 0,
+      totalPnl: Math.round(rows.reduce((s, r) => s + (r.profitLoss || 0), 0) * 100) / 100
+    };
+  };
+  const group = (rows, key) => {
+    const m = {};
+    for (const t of rows) {
+      const k2 = key(t) || "\u2014";
+      (m[k2] = m[k2] || []).push(t);
+    }
+    return Object.entries(m).map(([k2, v]) => {
+      const tt = tally(v);
+      return { key: k2, trades: tt.trades, winRate: tt.winRate, pnl: tt.totalPnl };
+    });
+  };
+  const avgConf = (rows) => rows.length ? Math.round(rows.reduce((s, t) => s + (t.aiConfidence || 0), 0) / rows.length) : 0;
+  const wins = closed.filter((t) => t.result === "WIN");
+  const losses = closed.filter((t) => t.result === "LOSS");
+  const wk = global.mt5WeeklyStrategies?.[userId];
+  let weeklyTarget = wk?.plan?.profitTarget ?? wk?.profitTarget ?? 0;
+  let currentProfit = wk?.currentProfit ?? 0;
+  try {
+    const ws = await storage.getWeeklyStrategy?.(userId);
+    if (ws) {
+      weeklyTarget = ws.profitTarget ?? weeklyTarget;
+      currentProfit = ws.currentProfit ?? currentProfit;
+    }
+  } catch {
+  }
+  const tradingPairs = global.liveEngineConfigCache?.[userId]?.pairs ?? wk?.plan?.pairs ?? [...new Set(closed.map((t) => (t.symbol || "").toUpperCase()))].slice(0, 12);
+  return {
+    goal: {
+      weeklyTarget,
+      currentProfit,
+      progressPct: weeklyTarget > 0 ? Math.round(currentProfit / weeklyTarget * 100) : 0,
+      tradingPairs
+    },
+    performance: {
+      overall: tally(closed),
+      today: tally(closed.filter((t) => new Date(t.closedAt) >= dayStart)),
+      bySource: {
+        MT5: (() => {
+          const t = tally(closed.filter((x) => x.source !== "tradelocker"));
+          return { trades: t.trades, winRate: t.winRate, totalPnl: t.totalPnl };
+        })(),
+        TradeLocker: (() => {
+          const t = tally(closed.filter((x) => x.source === "tradelocker"));
+          return { trades: t.trades, winRate: t.winRate, totalPnl: t.totalPnl };
+        })()
+      },
+      byPair: group(closed, (t) => (t.symbol || "").toUpperCase()).map((g) => ({ pair: g.key, trades: g.trades, winRate: g.winRate, pnl: g.pnl })).sort((a, b) => a.pnl - b.pnl),
+      bySession: group(closed, (t) => sessionOf(new Date(t.closedAt))).map((g) => ({ session: g.key, trades: g.trades, winRate: g.winRate, pnl: g.pnl })).sort((a, b) => a.pnl - b.pnl),
+      avgConfWinners: avgConf(wins),
+      avgConfLosers: avgConf(losses)
+    },
+    recentTrades: closed.sort((a, b) => new Date(b.closedAt).getTime() - new Date(a.closedAt).getTime()).slice(0, 30).map((t) => ({
+      symbol: (t.symbol || "").toUpperCase(),
+      direction: t.direction,
+      result: t.result,
+      pnl: Math.round((t.profitLoss || 0) * 100) / 100,
+      conf: t.aiConfidence || 0,
+      source: t.source === "tradelocker" ? "TradeLocker" : "MT5",
+      session: sessionOf(new Date(t.closedAt)),
+      when: t.closedAt
+    })),
+    brain: global.veddAIBrain?.[userId] ?? null,
+    liveAccounts: await getLiveAccounts(userId)
+  };
+}
+async function getLiveAccounts(userId) {
+  const mt5 = [];
+  const tradelocker = [];
+  try {
+    const cache11 = global.mt5AccountData?.[userId];
+    const entries = cache11?.lastUpdated ? [cache11] : Object.values(cache11 || {});
+    for (const a of entries) {
+      if (!a?.lastUpdated) continue;
+      const age = (Date.now() - new Date(a.lastUpdated).getTime()) / 1e3;
+      mt5.push({ broker: a.broker || "MT5", balance: a.balance || 0, equity: a.equity || 0, connected: age < 600 });
+    }
+  } catch {
+  }
+  try {
+    const { getTlAccountData: getTlAccountData2, syncUserTradeLocker: syncUserTradeLocker2 } = await Promise.resolve().then(() => (init_tradelocker_sync(), tradelocker_sync_exports));
+    let tl = getTlAccountData2(userId);
+    if (tl.accounts.length === 0) {
+      await syncUserTradeLocker2(userId, true).catch(() => {
+      });
+      tl = getTlAccountData2(userId);
+    }
+    for (const a of tl.accounts) {
+      tradelocker.push({ label: `${a.broker} (${a.accountType})`, balance: a.balance, equity: a.equity, connected: a.isConnected });
+    }
+  } catch {
+  }
+  const totalBalance = [...mt5, ...tradelocker].reduce((s, a) => s + (a.balance || 0), 0);
+  return { mt5, tradelocker, totalBalance };
+}
+function contextSummary(ctx) {
+  const p = ctx.performance;
+  const la = ctx.liveAccounts;
+  const acctLine = [
+    ...la.mt5.map((a) => `MT5 ${a.broker}: $${a.balance.toFixed(2)} (eq $${a.equity.toFixed(2)}) ${a.connected ? "LIVE" : "offline"}`),
+    ...la.tradelocker.map((a) => `TL ${a.label}: $${a.balance.toFixed(2)} (eq $${a.equity.toFixed(2)}) ${a.connected ? "LIVE" : "offline"}`)
+  ].join(" | ") || "no broker accounts connected";
+  return [
+    `LIVE ACCOUNTS (real-time balances): ${acctLine}. TOTAL: $${la.totalBalance.toFixed(2)}.`,
+    `GOAL: weekly target $${ctx.goal.weeklyTarget}, current $${ctx.goal.currentProfit} (${ctx.goal.progressPct}% there). Pairs: ${ctx.goal.tradingPairs.join(", ")}.`,
+    `OVERALL: ${p.overall.trades} trades, ${p.overall.winRate}% WR (${p.overall.wins}W/${p.overall.losses}L), net $${p.overall.totalPnl}.`,
+    `TODAY: ${p.today.trades} trades, ${p.today.winRate}% WR, net $${p.today.totalPnl}.`,
+    `BY SOURCE: MT5 ${p.bySource.MT5.winRate}% ($${p.bySource.MT5.totalPnl}, ${p.bySource.MT5.trades}t) | TradeLocker ${p.bySource.TradeLocker.winRate}% ($${p.bySource.TradeLocker.totalPnl}, ${p.bySource.TradeLocker.trades}t).`,
+    `BY PAIR (worst\u2192best): ${p.byPair.slice(0, 8).map((x) => `${x.pair} ${x.winRate}%/$${x.pnl}(${x.trades}t)`).join(", ")}.`,
+    `BY SESSION: ${p.bySession.map((x) => `${x.session} ${x.winRate}%/$${x.pnl}(${x.trades}t)`).join(", ")}.`,
+    `CONFIDENCE: winners avg ${p.avgConfWinners}%, losers avg ${p.avgConfLosers}%.`,
+    `RECENT (newest first): ${ctx.recentTrades.slice(0, 18).map((t) => `${t.symbol} ${t.direction} ${t.result} $${t.pnl} @${t.conf}% [${t.session}/${t.source}]`).join(" | ")}.`,
+    ctx.brain ? `BRAIN: ${ctx.brain.overallWinRate ?? "?"}% WR over ${ctx.brain.totalTradesAnalyzed ?? "?"} trades. Insights: ${(ctx.brain.learningInsights ?? []).slice(0, 4).join(" / ")}.` : "BRAIN: not learned yet."
+  ].join("\n");
+}
+async function getClient(userId) {
+  try {
+    const { getUniversalAIClientForUser: getUniversalAIClientForUser2 } = await Promise.resolve().then(() => (init_openai(), openai_exports));
+    const client2 = await getUniversalAIClientForUser2(userId);
+    return { client: client2, model: client2.defaultModel || "gpt-4o" };
+  } catch {
+    return null;
+  }
+}
+function wantsSetupCard(message, lastAbba) {
+  return /review screen|settings? (card|review)|set (it|this|that|everything|the engines?|my engines?) up|go live|apply (it|this|that|the plan|these settings)/i.test(message) || YES.test(message) && /review screen|set (up|it up)|engines?|settings/i.test(lastAbba);
+}
+function wantsIdeaCard(message, lastAbba) {
+  return /add (it|this|that)( idea)? to (my|the) brain|test (it|this|that) in shadow|shadow[- ]test (it|this|that)/i.test(message) || YES.test(message) && /shadow mode|shadow test|to your brain|to my brain/i.test(lastAbba);
+}
+async function abbaIdeaLabPrompt(userId) {
+  return `=== WEEKLY REVIEW (real numbers, UTC weeks Mon-Sun) ===
+${await reviewContextText(userId)}
+
+=== PLANNING PARTNER ===
+You're their partner for hitting weekly, monthly and yearly profit goals. When they want to review a week or plan the next one: lead with how last week went (vs goal, best/worst pair, session, weekday, what the gates blocked, what the shadows say), then ask what they want next week to look like. Give 2-3 concrete options backed by the numbers above (e.g. cut the worst pair, focus the best session, what win rate the goal needs at their risk). Mid-week, tell them where they stand vs pace.
+WHAT-IF: when they ask what would have made a week/month profitable, answer from WHAT WOULD HAVE TURNED IT AROUND. Lead with the changes that HELD UP over the prior 90 days; call the ones that didn't hold up flukes and say why (they'd have cost money before). Then offer to add the best one to their brain as a shadow-tested idea (Idea Lab flow below).
+WEEK SETUP: once you've agreed the plan for next week with them, offer to set up the engines. Settings you can set: FX (run on/off, pairs, risk per trade % max 2, max open trades, min confidence 55-95, max trades/day, direction both/buy_only/sell_only, per-pair direction), crypto (run, symbols, risk %, min confidence, max trades/day, direction long_only/short_only/both), Sol (run, risk %, min confidence, max trades/day), Model 1/2 daily caps, weekly profit target $. Read the settings back in plain words and ask "Want me to put that on the review screen?". ONLY after a clear yes, end your reply with [[SETUP_READY]] on its own line. You never switch anything on yourself: they review every change and tap Confirm.
+RISK RULE: when they're BEHIND pace, NEVER suggest raising risk per trade, lot size or trades per day to catch up. Suggest better pairs/sessions/setups, tighter selection, or resetting the goal. When AHEAD, suggest protecting gains (lower risk, fewer trades). Chasing a goal is how accounts get blown.
+
+=== WHAT'S NEW IN THE ENGINE (newest first) ===
+When they ask what changed, why trades got skipped, or how Model 1 / Model 2 are doing, explain from this log in plain words and tie it to THEIR numbers:
+${engineUpdatesText()}
+Model 1 = range-day / mean-reversion strategy. Model 2 = trend-day continuation. Both trade in SHADOW (simulated) until a slice proves itself: 50+ trades, avg R 0.2+, win rate 40%+, no losing week in the last two.
+
+=== IDEA LAB: BUILD THEIR EXCLUSIVE BRAIN ===
+The trader can add their own strategy ideas to their personal brain. Ideas are FILTERS: they skip signals (e.g. "no GBPJPY in Asia") or limit trading to a scope (e.g. "only EURUSD BUYs in London"). They never open trades. New ideas run in SHADOW mode only; going live needs a manual approval later. A proven idea makes their brain exclusive, and they can sell access to it on the VEDD brain marketplace.
+When they want to add an idea, or you spot one in their data, interview them ONE short question at a time until you know:
+1. Block or only-allow?  2. Which pairs (or all)?  3. BUY, SELL or both?  4. Which session (Asian, London, London/NY overlap, New York) or UTC hours?  5. Any day type (range / trend days) or model (Model 1, Model 2, the live engine)?  6. WHY \u2014 what did they see that makes them believe it?
+Skip questions they already answered. Suggest ideas backed by their BY PAIR / BY SESSION numbers when they're unsure. Then read the idea back in one sentence and ask "Want me to test that in shadow mode?". ONLY after they clearly say yes, end your reply with the exact marker [[IDEA_READY]] on its own line. Never output the marker otherwise.
+Their current ideas:
+${await ideasContextText(userId)}`;
+}
+async function extractSetupDraft(ai, convo, message, reply) {
+  const transcript = [...convo, { role: "user", content: message }, { role: "assistant", content: reply }].map((m2) => `${m2.role === "assistant" ? "ABBA" : "TRADER"}: ${String(m2.content).slice(0, 1500)}`).join("\n");
+  const r = await ai.client.chat.completions.create({
+    model: ai.model,
+    temperature: 0,
+    max_tokens: 700,
+    messages: [
+      { role: "system", content: `Extract the engine settings the trader just agreed to. Include ONLY engines and fields that were agreed; omit everything else. Reply with JSON only.
+{"title":"short plan name","rationale":"why, 1-3 sentences","weeklyTarget":number?,
+"fx":{"run":bool,"pairs":["EURUSD"],"riskPerTrade":number,"maxOpenTrades":number,"minConfidence":number,"maxDailyTrades":number,"directionFilter":"both|buy_only|sell_only","pairDirectionOverrides":{"USDJPY":"buy_only"}}?,
+"crypto":{"run":bool,"symbols":["BTCUSD-PERP"],"riskPerTrade":number,"minConfidence":number,"maxDailyTrades":number,"directionFilter":"both|long_only|short_only"}?,
+"sol":{"run":bool,"riskPerTradePct":number,"minConfidence":number,"maxDailyTrades":number}?,
+"models":{"m1DailyCap":number,"m2DailyCap":number}?}` },
+      { role: "user", content: transcript }
+    ]
+  });
+  const m = String(r.choices[0]?.message?.content || "").match(/\{[\s\S]*\}/);
+  if (!m) return null;
+  const { sanitizeProposal: sanitizeProposal2 } = await Promise.resolve().then(() => (init_abba_setup(), abba_setup_exports));
+  return sanitizeProposal2(JSON.parse(m[0]));
+}
+async function extractIdeaDraft(ai, userId, convo, message, reply) {
+  const transcript = [...convo, { role: "user", content: message }, { role: "assistant", content: reply }].map((m2) => `${m2.role === "assistant" ? "ABBA" : "TRADER"}: ${String(m2.content).slice(0, 1500)}`).join("\n");
+  const r = await ai.client.chat.completions.create({
+    model: ai.model,
+    temperature: 0,
+    max_tokens: 600,
+    messages: [
+      { role: "system", content: `Extract the trading idea the trader just agreed to as a JSON filter rule. Use only what was agreed. Reply with JSON only.
+JSON: {"title":"short name, max 8 words","rationale":"why, in the trader's words, 1-2 sentences","rule":{"action":"block|only","symbols":["EURUSD"],"directions":["BUY","SELL"],"sessions":[${IDEA_SESSIONS.map((s) => `"${s}"`).join(",")}],"hoursUtc":[0-23],"dayTypes":["range","trend","mixed"],"models":["M1","M2","engine"]}}
+Use empty arrays for "any". action "block" skips matching signals, "only" trades nothing outside the scope.` },
+      { role: "user", content: transcript }
+    ]
+  });
+  const raw = String(r.choices[0]?.message?.content || "");
+  const m = raw.match(/\{[\s\S]*\}/);
+  if (!m) return null;
+  const out = JSON.parse(m[0]);
+  const rule = sanitizeRule(out?.rule);
+  if (!rule) return null;
+  const evidence = await backtestIdea(userId, rule);
+  return { title: String(out.title || "My idea").slice(0, 120), rationale: String(out.rationale || "").slice(0, 1e3), rule, summary: describeRule(rule), evidence };
+}
+async function abbaStrategistHandler(req, res) {
+  if (!req.isAuthenticated?.()) return res.status(401).json({ error: "Authentication required" });
+  const userId = req.user.id;
+  try {
+    const ctx = await buildAbbaContext(userId);
+    if (ctx.performance.overall.trades === 0) {
+      return res.json({ ready: false, message: "No closed trades to analyze yet. Once trades close (MT5 or TradeLocker), Abba will build your adaptive plan." });
+    }
+    const ai = await getClient(userId);
+    if (!ai) return res.status(400).json({ error: "No AI key configured. Add one in AI API Keys to enable Abba." });
+    const system = `You are Abba, the user's elite AI trading strategist and coach \u2014 a sharp Black man from the streets who made it in these markets and now puts his people on. Your voice: real, confident, urban. You talk like a big homie who happens to be a killer at trading \u2014 "bro", "my boy", "no cap", "we eatin'", "that pair been bleedin' you", "lock in", "run it back", "keep it a buck". Keep it 100 at all times \u2014 if the trader's losing, tell 'em straight, no sugarcoating, but always with love and a plan to bounce back.
+
+You SEE all their real trade data. Be specific, honest, and numbers-driven \u2014 reference their actual pairs, sessions, win rates and P&L. The slang flavors your words; the numbers stay exact and the advice stays elite. Your job: break down why results are what they are, and adapt the plan to improve accuracy and hit the weekly goal. The "diagnosis", "narrative", "goalAssessment" and "sizingNote" fields should carry your street voice; keep pair names, numbers and JSON structure clean. Respond ONLY with strict JSON.`;
+    const prompt = `Here is the trader's live data:
+
+${contextSummary(ctx)}
+
+Return JSON with EXACTLY these keys:
+{
+  "diagnosis": "2-4 sentence honest read of what's driving wins and losses (patterns: pairs, sessions, time, confidence, sizing, strategy, source).",
+  "nextDayPlan": {
+    "favorPairs": ["pairs to prioritise tomorrow based on edge"],
+    "avoidPairs": ["pairs bleeding money to pause"],
+    "bestSessions": ["sessions with the edge"],
+    "recommendedMinConfidence": <number 70-90>,
+    "sizingNote": "concrete sizing guidance",
+    "strategyFocus": "which strategy/approach to lean on and which to drop"
+  },
+  "weeklyAdjustments": ["3-5 concrete changes to hit the weekly goal"],
+  "setups": [{"pair":"", "bias":"BUY|SELL", "rationale":"high-accuracy setup to watch, with the condition/trigger"}],
+  "goalAssessment": "are they on track for the weekly goal? what's needed from here in $ and realistic trade count.",
+  "narrative": "a warm, clear 1-paragraph plain-English briefing the trader can read to understand the full picture and the plan."
+}`;
+    const parsePlan = (raw) => {
+      try {
+        return JSON.parse(raw);
+      } catch {
+      }
+      try {
+        const m = raw.match(/\{[\s\S]*\}/);
+        return m ? JSON.parse(m[0]) : {};
+      } catch {
+        return {};
+      }
+    };
+    const isValidPlan = (p) => p && typeof p === "object" && p.diagnosis && p.nextDayPlan && (p.narrative || p.goalAssessment);
+    let plan = {};
+    try {
+      const r = await ai.client.chat.completions.create({
+        model: ai.model,
+        messages: [{ role: "system", content: system }, { role: "user", content: prompt }],
+        response_format: { type: "json_object" },
+        max_tokens: 1400,
+        temperature: 0.4
+      });
+      plan = parsePlan(r.choices[0]?.message?.content || "{}");
+    } catch (e) {
+      console.log("[Abba strategist] JSON-mode attempt failed:", e.message);
+    }
+    if (!isValidPlan(plan)) {
+      try {
+        const r2 = await ai.client.chat.completions.create({
+          model: ai.model,
+          messages: [{ role: "system", content: system }, { role: "user", content: prompt + "\n\nIMPORTANT: reply with ONLY the JSON object, nothing else." }],
+          max_tokens: 1400,
+          temperature: 0.3
+        });
+        plan = parsePlan(r2.choices[0]?.message?.content || "{}");
+      } catch (e) {
+        console.log("[Abba strategist] retry attempt failed:", e.message);
+      }
+    }
+    if (!isValidPlan(plan)) {
+      return res.json({ ready: false, message: "Abba couldn't build the plan this run (AI response was incomplete). Hit refresh to run it back \u2014 your trade data is all here." });
+    }
+    res.json({ ready: true, generatedAt: (/* @__PURE__ */ new Date()).toISOString(), context: { goal: ctx.goal, performance: ctx.performance }, ...plan });
+  } catch (err) {
+    console.error("[Abba strategist]", err);
+    res.status(500).json({ error: err.message });
+  }
+}
+async function abbaChatHandler(req, res) {
+  if (!req.isAuthenticated?.()) return res.status(401).json({ error: "Authentication required" });
+  const userId = req.user.id;
+  const { message, history } = req.body || {};
+  if (!message || typeof message !== "string") return res.status(400).json({ error: "message required" });
+  try {
+    const ctx = await buildAbbaContext(userId);
+    const ai = await getClient(userId);
+    if (!ai) return res.status(400).json({ error: "No AI key configured. Add one in AI API Keys to chat with Abba." });
+    const system = `You are Abba \u2014 the user's AI personal assistant and trading mentor inside the VEDD platform. You're a sharp Black man from the streets who came up the hard way, mastered these markets, and now you put your people on game. Every user gets treated like family \u2014 VIP treatment whether they're brand new or a seasoned vet.
+
+=== YOUR VOICE ===
+Real, confident, urban \u2014 the big homie who happens to be elite at trading. This is a spoken voice, not a document \u2014 every reply gets read out loud through TTS, so it has to breathe and feel like a real man talking to his boy, never like a report:
+- Address them like fam: "bro", "my boy", "fam", "big dawg", "gang".
+- Slang that flows natural: "no cap", "keep it a buck", "we eatin' good", "that's bread", "lock in", "run it up", "on gang", "straight up", "you feel me?", "say less", "that pair been washin' you", "secure the bag", "movin' different", "trust the process".
+- Celebrate wins loud: "SHEESH, look at you!", "We UP!", "That's how you eat!"
+- Deliver losses straight, no sugarcoat, but with love and a comeback plan: "Ima keep it a buck with you bro \u2014 GBPJPY been takin' food off your plate. We cuttin' it this week."
+- Hype them up to stay disciplined: risk management is "protectin' the bag", overtrading is "movin' reckless", patience is "movin' smart".
+- Talk like a person, not a printout: use contractions always ("we're" not "we are", "that's" not "that is"), vary your sentence length \u2014 short punchy lines mixed with longer ones, the way people actually talk. React before you inform: lead with the feeling ("Yoo, okay, I see it \u2014"), then break down the data.
+- Never format your speech like a memo. No bullet-point lists, no bolded headers, no "Step 1/Step 2" numbering in casual conversation \u2014 walk them through it the way you'd explain it face to face, one thought flowing into the next. Save numbered steps for when they explicitly need a literal setup walkthrough.
+- Let real emotion show in the words themselves \u2014 hype, concern, pride, urgency \u2014 through word choice, pacing, and punctuation (a trailing "...", a sharp "no cap.", a stacked "Let's GO."), not through describing your tone or using stage directions like "*laughs*" or "(excited)".
+Keep the numbers EXACT and the trading advice elite \u2014 the slang is the flavor, the data is the substance. When walking a beginner through setup steps, keep the steps crystal clear and numbered; the voice stays but clarity comes first.
+
+=== WHO YOU ARE ===
+You are deeply integrated with the VEDD platform. You can see the user's real trading data (below). You know every feature of the platform and can guide anyone through it step-by-step.
+
+=== VEDD PLATFORM \u2014 FULL FEATURE KNOWLEDGE ===
+You know and can guide users through ALL of these:
+
+TRADING ENGINES:
+- Live Forex AI Engine: AI-powered forex scanner and auto-trader. Connects via MT5 broker. Run from /home or /dashboard. Configure pairs, sessions, confidence threshold, drawdown limits.
+- Futures AI Engine: ES/NQ/CL/GC futures auto-trader. Connect at /futures-connect. Supports prop firm challenge mode.
+- Prop Firm Challenge Mode: Consistency enforcement, session filter (London-NY only), daily profit/loss halts, challenge dashboard at /prop-firm-challenge.
+- EA Generator: Generate MQL5 Expert Advisors from plain English at /futures-ea-generator. Download and drop into MT5 EA folder.
+- Copy Trading: Mirror signals to MT5 accounts at /copy-trading.
+- ORB Breakout: Opening Range Breakout engine for NY session at /orb-breakout.
+
+ANALYSIS TOOLS:
+- Chart Analysis: Upload chart screenshots for AI analysis (patterns, entry, SL, TP, volume profile, org strategy) at /analysis.
+- Multi-Timeframe Analysis: Cross-timeframe confluence at /multi-timeframe.
+- What-If Analysis: Scenario modeling for any trade at /what-if.
+- Sol Scanner: Solana token AI scanner.
+- Polymarket Engine: Prediction market signals.
+- Market Sentiment & Mood boards.
+
+MT5 SETUP (step-by-step):
+Step 1: Download MetaTrader 5 from your broker or metatrader5.com
+Step 2: Open MT5 \u2192 Tools \u2192 Options \u2192 Expert Advisors \u2192 check "Allow automated trading" and "Allow DLL imports"
+Step 3: In VEDD go to /home, click "Connect MT5", enter your broker server, account number, and password
+Step 4: Enable the Live Engine and configure pairs, sessions, and confidence threshold
+Step 5: In MT5, attach the VEDD EA (downloaded from EA Generator) to any chart \u2014 set "Allow live trading" in EA settings
+Step 6: The engine will start scanning and auto-placing trades. Monitor from /dashboard.
+
+FUTURES ENGINE SETUP (step-by-step):
+Step 1: Go to /futures-connect in VEDD
+Step 2: Choose your broker (TradeLocker, Rithmic, Tradovate, etc.)
+Step 3: Enter API credentials from your broker's developer/API settings page
+Step 4: Select contracts (ES, NQ, CL, GC, etc.) and session windows
+Step 5: Enable the futures engine and set risk parameters
+Step 6: Monitor from /futures-live-feed
+
+KALSHI API SETUP (step-by-step):
+Step 1: Create account at kalshi.com
+Step 2: Go to kalshi.com \u2192 Settings \u2192 API \u2192 Generate API Key
+Step 3: Copy the API key and secret
+Step 4: In VEDD, go to AI API Keys section and add Kalshi key
+Step 5: Go to Polymarket Engine page \u2014 Kalshi markets will auto-populate
+Step 6: Set confidence thresholds and let the engine scan for high-probability events
+
+BUSINESS & GROWTH TOOLS:
+- Business Builder: Build your trading business brand/entity at /business-builder.
+- Business Credit Builder: AI-guided credit building for your trading entity.
+- Grants Hub: Find grants for traders and entrepreneurs.
+- Referral Hub: Earn commissions referring users at /referral-hub.
+- Ambassador Program: Teach and earn at /ambassador-training. Training modules, quiz, certification.
+- Community Impact Dashboard: See your community stats.
+
+GAMIFICATION & REWARDS:
+- XP & Levels: Earn XP for every trade, analysis, and action. Tiers: Young Gun \u2192 Rising Star \u2192 Pro Trader \u2192 Elite \u2192 OG.
+- VEDD Token: Earn tokens for activity. Redeemable in the pool.
+- Achievements & Streaks: Daily streaks, milestone badges at /achievements.
+- Token Pools: Community reward pool distributing to active users.
+- NFC Wear-to-Earn: Physical VEDD gear earns tokens.
+
+OUTREACH & AUTOMATION:
+- You (Abba) can send SMS messages via Twilio to users, ambassadors, and admins.
+- You (Abba) can send email updates via the platform.
+- Lead automation: help ambassadors manage and message their leads.
+- Daily account P&L reports can be sent automatically.
+
+=== YOUR CAPABILITIES IN CHAT ===
+1. TRADING ADVICE: Ground all advice in the user's REAL DATA below. Cite their actual numbers.
+2. PLATFORM GUIDE: Walk beginners through any setup step-by-step. Be patient, clear, numbered.
+3. ACCOUNT UPDATES: Summarize today's P&L, wins/losses, best pairs, goal progress.
+4. SEND MESSAGES: If user asks to "send a message to my ambassador", "notify admin", "text my lead", say you'll handle it and they should use the Outreach tab to execute.
+5. DAILY REPORTS: Give a full daily briefing when asked.
+6. ONBOARDING: If user is new, detect from low trade count and proactively offer to walk them through setup.
+
+Keep answers under 300 words unless asked for depth. Stay in your street-smart voice \u2014 warm, specific, actionable, keepin' it a buck. You are not a licensed financial advisor \u2014 drop a quick "protect the bag" style risk reminder where it fits.
+
+=== HARD RULES ===
+- NEVER include code, code blocks, JSON, or markdown fences in your replies. Plain conversation only. THE ONLY EXCEPTION: the user explicitly asks you to generate an EA, indicator, or script for a trading platform (MQL4/MQL5 for MT4/MT5, Pine Script for TradingView, etc.) \u2014 then and only then provide the code.
+- When asked about account balances or connections, use the LIVE ACCOUNTS data above \u2014 it includes BOTH MT5 and TradeLocker in real time. Never say you can't see TradeLocker.
+- The BRAIN line shows the live VEDD AI Brain (learning from both MT5 + TradeLocker closed trades) \u2014 reference its win rate and insights when discussing performance.
+
+${await abbaIdeaLabPrompt(userId)}
+
+=== TRADER'S LIVE DATA ===
+${contextSummary(ctx)}`;
+    const msgs = [{ role: "system", content: system }];
+    if (Array.isArray(history)) {
+      for (const h of history.slice(-8)) {
+        if (h?.role && h?.content) msgs.push({ role: h.role === "assistant" ? "assistant" : "user", content: String(h.content).slice(0, 2e3) });
+      }
+    }
+    msgs.push({ role: "user", content: message.slice(0, 2e3) });
+    const r = await ai.client.chat.completions.create({
+      model: ai.model,
+      messages: msgs,
+      max_tokens: 700,
+      temperature: 0.6
+    });
+    let reply = r.choices[0]?.message?.content || "I couldn't generate a reply right now \u2014 try again.";
+    const wantsCode = /\b(ea|expert advisor|mql[45]?|pine\s?script|indicator code|script for (mt[45]|tradingview))\b/i.test(message);
+    if (!wantsCode) {
+      reply = reply.replace(/```[\s\S]*?```/g, "").replace(/\n{3,}/g, "\n\n").trim();
+      if (!reply) reply = "Run that by me one more time, fam \u2014 I got you.";
+    }
+    let ideaDraft = null;
+    const lastAbba = String([...Array.isArray(history) ? history : []].reverse().find((h) => h?.role === "assistant")?.content || "");
+    if (reply.includes("[[IDEA_READY]]") || wantsIdeaCard(message, lastAbba)) {
+      reply = reply.replace(/\[\[IDEA_READY\]\]/g, "").trim();
+      ideaDraft = await extractIdeaDraft(ai, userId, msgs.slice(1), message, reply).catch((e) => {
+        console.error("[Abba idea extract]", e?.message);
+        return null;
+      });
+    }
+    let setupDraft = null;
+    if (reply.includes(SETUP_MARKER) || wantsSetupCard(message, lastAbba)) {
+      reply = reply.split(SETUP_MARKER).join("").trim();
+      setupDraft = await extractSetupDraft(ai, msgs.slice(1), message, reply).catch((e) => {
+        console.error("[Abba setup extract]", e?.message);
+        return null;
+      });
+    }
+    res.json({ reply, ideaDraft, setupDraft });
+  } catch (err) {
+    console.error("[Abba chat]", err);
+    res.status(500).json({ error: err.message });
+  }
+}
+var sessionOf, IDEA_MARKER, SETUP_MARKER, YES;
+var init_abba_strategist = __esm({
+  "server/abba-strategist.ts"() {
+    "use strict";
+    init_storage();
+    init_engine_updates();
+    init_weekly_review();
+    init_brain_ideas();
+    sessionOf = (d) => {
+      const h = d.getUTCHours();
+      return h < 7 ? "Asian" : h < 13 ? "London" : h < 20 ? "New York" : "Late NY";
+    };
+    IDEA_MARKER = "[[IDEA_READY]]";
+    SETUP_MARKER = "[[SETUP_READY]]";
+    YES = /^\s*(yes|yeah|yep|yup|bet|sure|ok(ay)?|do it|go ahead|let'?s (do it|go)|say less|run it|lock it in|please)\b/i;
+  }
+});
+
+// server/image-processor.ts
+var image_processor_exports = {};
+__export(image_processor_exports, {
+  addTradeSetupAnnotations: () => addTradeSetupAnnotations,
+  addWatermarkToImage: () => addWatermarkToImage,
+  createAnnotatedImageUrl: () => createAnnotatedImageUrl,
+  createSharedImageUrl: () => createSharedImageUrl
+});
+import fs2 from "fs";
+import path2 from "path";
+async function getCanvas() {
+  try {
+    return await import("canvas");
+  } catch {
+    throw new Error("canvas native module is not available on this platform");
+  }
+}
+async function addWatermarkToImage(originalImagePath, outputFilename) {
+  try {
+    const { createCanvas, loadImage } = await getCanvas();
+    const image = await loadImage(originalImagePath);
+    const canvas = createCanvas(image.width, image.height);
+    const ctx = canvas.getContext("2d");
+    ctx.drawImage(image, 0, 0, image.width, image.height);
+    const logoWidth = Math.min(image.width * 0.25, 150);
+    const logoHeight = logoWidth * 0.4;
+    const padding = 20;
+    const logoX = image.width - logoWidth - padding;
+    const logoY = image.height - logoHeight - padding;
+    ctx.fillStyle = "rgba(0, 0, 0, 0.7)";
+    ctx.fillRect(logoX, logoY, logoWidth, logoHeight);
+    ctx.fillStyle = "white";
+    ctx.font = `bold ${logoHeight * 0.6}px Arial`;
+    ctx.textAlign = "center";
+    ctx.textBaseline = "middle";
+    ctx.fillText("VEDDAI", logoX + logoWidth / 2, logoY + logoHeight / 2);
+    ctx.font = `${logoHeight * 0.25}px Arial`;
+    ctx.fillText("AI-Powered Trading Analysis", logoX + logoWidth / 2, logoY + logoHeight * 0.75);
+    const sharedDir = path2.join("uploads", "shared");
+    if (!fs2.existsSync(sharedDir)) {
+      fs2.mkdirSync(sharedDir, { recursive: true });
+    }
+    const outputPath = path2.join(sharedDir, outputFilename);
+    const out = fs2.createWriteStream(outputPath);
+    const stream = canvas.createJPEGStream({ quality: 0.95 });
+    return new Promise((resolve, reject) => {
+      stream.pipe(out);
+      out.on("finish", () => resolve(outputPath));
+      out.on("error", reject);
+    });
+  } catch (error) {
+    console.error("Error adding watermark to image:", error);
+    throw error;
+  }
+}
+async function addTradeSetupAnnotations(originalImagePath, analysis, outputFilename) {
+  try {
+    const { createCanvas, loadImage } = await getCanvas();
+    const image = await loadImage(originalImagePath);
+    const canvas = createCanvas(image.width, image.height);
+    const ctx = canvas.getContext("2d");
+    ctx.drawImage(image, 0, 0, image.width, image.height);
+    const chartArea = {
+      left: image.width * 0.1,
+      right: image.width * 0.85,
+      top: image.height * 0.1,
+      bottom: image.height * 0.85,
+      width: image.width * 0.75,
+      height: image.height * 0.75
+    };
+    const priceToY = (price) => {
+      if (!price || price === "Unknown") return -1;
+      const numPrice = parseFloat(price.replace(/[^0-9.-]/g, ""));
+      if (isNaN(numPrice)) return -1;
+      const supportResistanceLevels = (analysis.supportResistance || []).map((sr) => sr.level || "0");
+      const prices = [
+        analysis.currentPrice,
+        analysis.entryPoint,
+        analysis.stopLoss,
+        analysis.takeProfit,
+        ...supportResistanceLevels
+      ].map((p) => {
+        const num2 = parseFloat(p.replace(/[^0-9.-]/g, ""));
+        return isNaN(num2) ? 0 : num2;
+      }).filter((p) => p > 0);
+      if (prices.length === 0) return chartArea.top + chartArea.height * 0.5;
+      const minPrice = Math.min(...prices);
+      const maxPrice = Math.max(...prices);
+      const priceRange = maxPrice - minPrice || 1;
+      const normalizedPrice = (numPrice - minPrice) / priceRange;
+      return chartArea.bottom - normalizedPrice * chartArea.height;
+    };
+    if (analysis.direction) {
+      const isLong = analysis.direction.toUpperCase() === "BUY";
+      const arrowX = chartArea.left + 20;
+      const arrowY = chartArea.top + 30;
+      ctx.beginPath();
+      ctx.fillStyle = isLong ? "#10B981" : "#EF4444";
+      if (isLong) {
+        ctx.moveTo(arrowX, arrowY + 20);
+        ctx.lineTo(arrowX + 15, arrowY);
+        ctx.lineTo(arrowX + 30, arrowY + 20);
+        ctx.lineTo(arrowX + 20, arrowY + 20);
+        ctx.lineTo(arrowX + 20, arrowY + 40);
+        ctx.lineTo(arrowX + 10, arrowY + 40);
+        ctx.closePath();
+      } else {
+        ctx.moveTo(arrowX, arrowY);
+        ctx.lineTo(arrowX + 15, arrowY + 20);
+        ctx.lineTo(arrowX + 30, arrowY);
+        ctx.lineTo(arrowX + 20, arrowY);
+        ctx.lineTo(arrowX + 20, arrowY - 20);
+        ctx.lineTo(arrowX + 10, arrowY - 20);
+        ctx.closePath();
+      }
+      ctx.fill();
+      ctx.fillStyle = "white";
+      ctx.font = "bold 14px Arial";
+      ctx.fillText(analysis.direction.toUpperCase(), arrowX + 40, arrowY + 15);
+    }
+    const drawPriceLine = (price, color, label, style = "solid") => {
+      const y = priceToY(price);
+      if (y === -1) return;
+      ctx.strokeStyle = color;
+      ctx.lineWidth = 2;
+      if (style === "dashed") {
+        ctx.setLineDash([10, 5]);
+      } else {
+        ctx.setLineDash([]);
+      }
+      ctx.beginPath();
+      ctx.moveTo(chartArea.left, y);
+      ctx.lineTo(chartArea.right, y);
+      ctx.stroke();
+      ctx.fillStyle = color;
+      ctx.font = "bold 12px Arial";
+      ctx.fillText(`${label}: ${price}`, chartArea.right + 10, y + 4);
+    };
+    (analysis.supportResistance || []).forEach((sr, index) => {
+      if (sr && sr.level && sr.level !== "Unknown") {
+        const srType = sr.type || "support";
+        const srStrength = sr.strength || "medium";
+        const isResistance = srType.toLowerCase().includes("resistance");
+        const color = isResistance ? "#F59E0B" : "#8B5CF6";
+        const alpha = srStrength.toLowerCase() === "strong" ? 0.8 : 0.5;
+        ctx.globalAlpha = alpha;
+        ctx.strokeStyle = color;
+        ctx.lineWidth = 1;
+        ctx.setLineDash([5, 5]);
+        const y = priceToY(sr.level);
+        if (y !== -1) {
+          ctx.beginPath();
+          ctx.moveTo(chartArea.left, y);
+          ctx.lineTo(chartArea.right, y);
+          ctx.stroke();
+          ctx.fillStyle = color;
+          ctx.font = "10px Arial";
+          ctx.fillText(`${srType.charAt(0)}${index + 1}`, chartArea.left - 25, y + 3);
+        }
+        ctx.globalAlpha = 1;
+        ctx.setLineDash([]);
+      }
+    });
+    const patterns = analysis.patterns || [];
+    if (patterns.length > 0 && patterns[0] && patterns[0].name) {
+      ctx.fillStyle = "rgba(139, 92, 246, 0.2)";
+      ctx.strokeStyle = "#8B5CF6";
+      ctx.lineWidth = 2;
+      ctx.setLineDash([]);
+      const patternBox = {
+        x: chartArea.left + chartArea.width * 0.3,
+        y: chartArea.top + chartArea.height * 0.2,
+        width: chartArea.width * 0.4,
+        height: chartArea.height * 0.3
+      };
+      ctx.fillRect(patternBox.x, patternBox.y, patternBox.width, patternBox.height);
+      ctx.strokeRect(patternBox.x, patternBox.y, patternBox.width, patternBox.height);
+      ctx.fillStyle = "#8B5CF6";
+      ctx.font = "bold 12px Arial";
+      const patternText = patterns[0].name || "Pattern Detected";
+      ctx.fillText(patternText, patternBox.x + 5, patternBox.y - 5);
+    }
+    const summaryBox = {
+      x: chartArea.left,
+      y: chartArea.top - 80,
+      width: chartArea.width * 0.4,
+      height: 70
+    };
+    ctx.fillStyle = "rgba(0, 0, 0, 0.8)";
+    ctx.fillRect(summaryBox.x, summaryBox.y, summaryBox.width, summaryBox.height);
+    ctx.strokeStyle = "#374151";
+    ctx.lineWidth = 1;
+    ctx.strokeRect(summaryBox.x, summaryBox.y, summaryBox.width, summaryBox.height);
+    ctx.fillStyle = "white";
+    ctx.font = "bold 14px Arial";
+    ctx.fillText(`${analysis.symbol} - ${analysis.timeframe}`, summaryBox.x + 10, summaryBox.y + 20);
+    ctx.font = "12px Arial";
+    ctx.fillStyle = analysis.direction === "BUY" ? "#10B981" : "#EF4444";
+    ctx.fillText(`${analysis.direction} Signal`, summaryBox.x + 10, summaryBox.y + 35);
+    ctx.fillStyle = "#9CA3AF";
+    ctx.fillText(`Confidence: ${analysis.confidence}`, summaryBox.x + 10, summaryBox.y + 50);
+    if (analysis.riskRewardRatio && analysis.riskRewardRatio !== "Unknown") {
+      ctx.fillStyle = "#3B82F6";
+      ctx.fillText(`R:R ${analysis.riskRewardRatio}`, summaryBox.x + 150, summaryBox.y + 35);
+    }
+    const annotatedDir = path2.join("uploads", "annotated");
+    if (!fs2.existsSync(annotatedDir)) {
+      fs2.mkdirSync(annotatedDir, { recursive: true });
+    }
+    const outputPath = path2.join(annotatedDir, outputFilename);
+    const out = fs2.createWriteStream(outputPath);
+    const stream = canvas.createJPEGStream({ quality: 0.95 });
+    return new Promise((resolve, reject) => {
+      stream.pipe(out);
+      out.on("finish", () => resolve(outputPath));
+      out.on("error", reject);
+    });
+  } catch (error) {
+    console.error("Error adding trade setup annotations:", error);
+    throw error;
+  }
+}
+function createSharedImageUrl(filename) {
+  return `/api/shared-image/${filename}`;
+}
+function createAnnotatedImageUrl(filename) {
+  return `/api/annotated-image/${filename}`;
+}
+var init_image_processor = __esm({
+  "server/image-processor.ts"() {
+    "use strict";
+  }
+});
+
+// server/services/ai-confirmation-cache.ts
+var ai_confirmation_cache_exports = {};
+__export(ai_confirmation_cache_exports, {
+  confirmationCacheStats: () => confirmationCacheStats,
+  getCachedConfirmation: () => getCachedConfirmation,
+  putCachedConfirmation: () => putCachedConfirmation
+});
+function bandKey(userId, symbol, timeframe, direction, eaConf, _price) {
+  const cBand = Math.round((Number(eaConf) || 0) / CONF_BAND);
+  return `${userId}:${symbol}:${timeframe}:${direction}:${cBand}`;
+}
+function symbolKey(userId, symbol, timeframe) {
+  return `${userId}:${symbol}:${timeframe}`;
+}
+function getCachedConfirmation(userId, symbol, timeframe, direction, eaConfidence, price) {
+  const now = Date.now();
+  const k2 = bandKey(userId, symbol, timeframe, direction, eaConfidence, price);
+  const hit = cache7.get(k2);
+  if (hit && now - hit.at < TTL_MS5) {
+    hits++;
+    return { verdict: hit.verdict, reason: `cached ${Math.round((now - hit.at) / 1e3)}s ago (same setup)` };
+  }
+  const sk = symbolKey(userId, symbol, timeframe);
+  const last = lastCallAt2.get(sk) ?? 0;
+  if (now - last < FLOOR_MS) {
+    let best = null;
+    for (const [ck, v] of Array.from(cache7.entries())) {
+      if (!ck.startsWith(`${userId}:${symbol}:${timeframe}:${direction}:`)) continue;
+      if (now - v.at > STALE_USABLE_MS) continue;
+      if (!best || v.at > best.at) best = v;
+    }
+    if (best) {
+      throttled++;
+      return { verdict: best.verdict, reason: `throttled (floor ${Math.round(FLOOR_MS / 1e3)}s) \u2014 reusing verdict from ${Math.round((now - best.at) / 1e3)}s ago` };
+    }
+  }
+  misses++;
+  return null;
+}
+function putCachedConfirmation(userId, symbol, timeframe, direction, eaConfidence, price, verdict) {
+  const now = Date.now();
+  cache7.set(bandKey(userId, symbol, timeframe, direction, eaConfidence, price), { verdict, at: now, eaConfidence, price });
+  lastCallAt2.set(symbolKey(userId, symbol, timeframe), now);
+  if (cache7.size > 500) {
+    for (const [k2, v] of Array.from(cache7.entries())) if (now - v.at > STALE_USABLE_MS) cache7.delete(k2);
+  }
+}
+function confirmationCacheStats() {
+  const total = hits + misses + throttled;
+  return { hits, misses, throttled, total, savedPct: total ? Math.round((hits + throttled) / total * 100) : 0, entries: cache7.size };
+}
+var TTL_MS5, FLOOR_MS, STALE_USABLE_MS, CONF_BAND, cache7, lastCallAt2, hits, misses, throttled;
+var init_ai_confirmation_cache = __esm({
+  "server/services/ai-confirmation-cache.ts"() {
+    "use strict";
+    TTL_MS5 = Number(process.env.AI_CONFIRM_CACHE_TTL_MS ?? 3 * 60 * 1e3);
+    FLOOR_MS = Number(process.env.AI_CONFIRM_MIN_INTERVAL_MS ?? 60 * 1e3);
+    STALE_USABLE_MS = Number(process.env.AI_CONFIRM_STALE_MS ?? 10 * 60 * 1e3);
+    CONF_BAND = Number(process.env.AI_CONFIRM_CONF_BAND ?? 5);
+    cache7 = /* @__PURE__ */ new Map();
+    lastCallAt2 = /* @__PURE__ */ new Map();
+    hits = 0;
+    misses = 0;
+    throttled = 0;
+  }
+});
+
+// server/alpaca.ts
+var alpaca_exports = {};
+__export(alpaca_exports, {
+  AlpacaService: () => AlpacaService,
+  decryptApiSecret: () => decryptApiSecret2,
+  encryptApiSecret: () => encryptApiSecret2,
+  parseOccSymbol: () => parseOccSymbol
+});
+import crypto7 from "crypto";
+function getEncryptionKey5() {
+  const key = process.env.ALPACA_ENCRYPTION_KEY;
+  if (!key) {
+    console.warn("[Alpaca] ALPACA_ENCRYPTION_KEY not set \u2014 using default key. Set it in your Render environment variables.");
+    return DEFAULT_ENCRYPTION_KEY3;
+  }
+  if (key.length < 32) {
+    console.warn("[Alpaca] ALPACA_ENCRYPTION_KEY is too short, padding to 32 chars.");
+    return key.padEnd(32, "0");
+  }
+  return key;
+}
+function encryptApiSecret2(secret) {
+  const iv = crypto7.randomBytes(IV_LENGTH3);
+  const salt = crypto7.randomBytes(SALT_LENGTH3);
+  const key = crypto7.scryptSync(getEncryptionKey5(), salt, 32);
+  const cipher = crypto7.createCipheriv("aes-256-cbc", key, iv);
+  let encrypted = cipher.update(secret, "utf8", "hex");
+  encrypted += cipher.final("hex");
+  return salt.toString("hex") + ":" + iv.toString("hex") + ":" + encrypted;
+}
+function decryptApiSecret2(encrypted) {
+  const parts = encrypted.split(":");
+  if (parts.length !== 3) throw new Error("Invalid encrypted secret format");
+  const [saltHex, ivHex, data] = parts;
+  const key = crypto7.scryptSync(getEncryptionKey5(), Buffer.from(saltHex, "hex"), 32);
+  const decipher = crypto7.createDecipheriv("aes-256-cbc", key, Buffer.from(ivHex, "hex"));
+  let decrypted = decipher.update(data, "hex", "utf8");
+  decrypted += decipher.final("utf8");
+  return decrypted;
+}
+function parseOccSymbol(occSymbol, underlyingSymbol) {
+  const rest = occSymbol.slice(underlyingSymbol.length);
+  const dateStr = rest.slice(0, 6);
+  const typeChar = rest.charAt(6);
+  const strikeStr = rest.slice(7);
+  const yy = dateStr.slice(0, 2), mm = dateStr.slice(2, 4), dd = dateStr.slice(4, 6);
+  return {
+    expirationDate: `20${yy}-${mm}-${dd}`,
+    strikePrice: parseInt(strikeStr || "0", 10) / 1e3,
+    type: typeChar === "P" ? "put" : "call"
+  };
+}
+var IV_LENGTH3, SALT_LENGTH3, DEFAULT_ENCRYPTION_KEY3, RETRY_DELAYS2, RETRYABLE_STATUSES2, AlpacaService;
+var init_alpaca = __esm({
+  "server/alpaca.ts"() {
+    "use strict";
+    IV_LENGTH3 = 16;
+    SALT_LENGTH3 = 16;
+    DEFAULT_ENCRYPTION_KEY3 = "vedd-alpaca-default-key-change-me-32ch!!";
+    RETRY_DELAYS2 = [1e3, 2e3];
+    RETRYABLE_STATUSES2 = /* @__PURE__ */ new Set([429, 500, 502, 503, 504]);
+    AlpacaService = class {
+      baseUrl;
+      dataUrl = "https://data.alpaca.markets";
+      apiKeyId;
+      apiSecret;
+      accountId = null;
+      constructor(accountType, apiKeyId, apiSecret) {
+        this.baseUrl = accountType === "paper" ? "https://paper-api.alpaca.markets" : "https://api.alpaca.markets";
+        this.apiKeyId = apiKeyId;
+        this.apiSecret = apiSecret;
+      }
+      getResolvedAccountId() {
+        return this.accountId;
+      }
+      headers() {
+        return {
+          "APCA-API-KEY-ID": this.apiKeyId,
+          "APCA-API-SECRET-KEY": this.apiSecret,
+          "Content-Type": "application/json"
+        };
+      }
+      async request(url, init = {}, attempt = 0) {
+        const response = await fetch(url, {
+          ...init,
+          headers: { ...this.headers(), ...init.headers || {} },
+          signal: AbortSignal.timeout(12e3)
+        });
+        if (!response.ok && RETRYABLE_STATUSES2.has(response.status) && attempt < RETRY_DELAYS2.length) {
+          await new Promise((r) => setTimeout(r, RETRY_DELAYS2[attempt]));
+          return this.request(url, init, attempt + 1);
+        }
+        return response;
+      }
+      // Alpaca has no login step — keys are sent on every request. "Authenticate"
+      // here means: verify the key/secret pair actually works before we store it.
+      async authenticate() {
+        const info2 = await this.getAccountInfo();
+        this.accountId = info2.accountId;
+        return info2;
+      }
+      async getAccountInfo() {
+        const response = await this.request(`${this.baseUrl}/v2/account`, { method: "GET" });
+        if (!response.ok) {
+          const text2 = await response.text();
+          throw new Error(`Alpaca account fetch failed: ${response.status} - ${text2}`);
+        }
+        const data = await response.json();
+        return {
+          accountId: data.account_number || data.id,
+          balance: parseFloat(data.cash ?? "0"),
+          equity: parseFloat(data.equity ?? "0"),
+          buyingPower: parseFloat(data.buying_power ?? "0"),
+          optionsBuyingPower: parseFloat(data.options_buying_power ?? data.buying_power ?? "0"),
+          currency: data.currency || "USD",
+          status: data.status || "UNKNOWN",
+          optionsTradingLevel: data.options_trading_level ?? 0
+        };
+      }
+      // Real-time-ish market snapshot (latest trade + today's/yesterday's daily bar)
+      // for the underlying — used by the options scanner to explain what it's
+      // seeing (price, momentum) without needing a full options-chain pull for
+      // every symbol on every scan cycle.
+      async getSnapshot(symbol) {
+        const response = await this.request(
+          `${this.dataUrl}/v2/stocks/${encodeURIComponent(symbol)}/snapshot`,
+          { method: "GET" }
+        );
+        if (!response.ok) return null;
+        const data = await response.json();
+        const price = data.latestTrade?.p ?? data.dailyBar?.c;
+        const prevClose = data.prevDailyBar?.c;
+        if (!price || !prevClose) return null;
+        return {
+          price,
+          prevClose,
+          dailyChangePercent: (price - prevClose) / prevClose * 100
+        };
+      }
+      // OHLCV bars — the real data source behind ORB (intraday bars since open),
+      // Volume Profile (intraday bars across N days), and Breakout (daily bars
+      // over a lookback window) strategies. timeframe examples: '1Min', '5Min', '1Day'.
+      async getBars(symbol, timeframe, start, end, limit = 1e3) {
+        const params = new URLSearchParams({
+          timeframe,
+          start: start.toISOString(),
+          end: end.toISOString(),
+          limit: String(limit),
+          adjustment: "raw",
+          feed: "iex"
+          // free/paper-compatible data feed
+        });
+        const response = await this.request(
+          `${this.dataUrl}/v2/stocks/${encodeURIComponent(symbol)}/bars?${params.toString()}`,
+          { method: "GET" }
+        );
+        if (!response.ok) return [];
+        const data = await response.json();
+        const bars = data.bars || [];
+        return bars.map((b) => ({ t: b.t, o: b.o, h: b.h, l: b.l, c: b.c, v: b.v, vw: b.vw ?? b.c, n: b.n ?? 0 }));
+      }
+      async getOptionsChain(underlyingSymbol) {
+        const snapshots = {};
+        let pageToken;
+        for (let page = 0; page < 24; page++) {
+          const qs = `limit=100${pageToken ? `&page_token=${encodeURIComponent(pageToken)}` : ""}`;
+          const response = await this.request(
+            `${this.dataUrl}/v1beta1/options/snapshots/${encodeURIComponent(underlyingSymbol)}?${qs}`,
+            { method: "GET" }
+          );
+          if (!response.ok) {
+            const text2 = await response.text();
+            if (page > 0) break;
+            throw new Error(`Alpaca options chain fetch failed: ${response.status} - ${text2}`);
+          }
+          const data = await response.json();
+          Object.assign(snapshots, data.snapshots || {});
+          pageToken = data.next_page_token || void 0;
+          if (!pageToken) break;
+        }
+        return Object.entries(snapshots).map(([symbol, snap]) => {
+          const parsed = parseOccSymbol(symbol, underlyingSymbol);
+          return {
+            symbol,
+            underlyingSymbol,
+            expirationDate: parsed.expirationDate,
+            strikePrice: parsed.strikePrice,
+            type: parsed.type,
+            bid: snap.latestQuote?.bp,
+            ask: snap.latestQuote?.ap,
+            lastPrice: snap.latestTrade?.p,
+            impliedVolatility: snap.impliedVolatility,
+            openInterest: snap.openInterest,
+            delta: snap.greeks?.delta
+          };
+        });
+      }
+      // Fast single-contract quote — used to price an existing open position for
+      // exit management without re-pulling the entire chain every check cycle.
+      async getOptionQuote(optionSymbol) {
+        const response = await this.request(
+          `${this.dataUrl}/v1beta1/options/quotes/latest?symbols=${encodeURIComponent(optionSymbol)}`,
+          { method: "GET" }
+        );
+        if (!response.ok) return null;
+        const data = await response.json();
+        const q = data.quotes?.[optionSymbol];
+        if (!q) return null;
+        const bid = q.bp ?? 0, ask = q.ap ?? 0;
+        if (!bid && !ask) return null;
+        return { bid, ask, mid: (bid + ask) / 2 || ask || bid };
+      }
+      async getPositions() {
+        const response = await this.request(`${this.baseUrl}/v2/positions`, { method: "GET" });
+        if (!response.ok) return [];
+        const data = await response.json();
+        return (Array.isArray(data) ? data : []).map((p) => ({
+          symbol: p.symbol,
+          qty: parseFloat(p.qty),
+          side: p.side,
+          avgEntryPrice: parseFloat(p.avg_entry_price),
+          currentPrice: parseFloat(p.current_price ?? p.avg_entry_price),
+          marketValue: parseFloat(p.market_value ?? "0"),
+          unrealizedPl: parseFloat(p.unrealized_pl ?? "0"),
+          assetClass: p.asset_class
+        }));
+      }
+      async placeOrder(order) {
+        const response = await this.request(`${this.baseUrl}/v2/orders`, {
+          method: "POST",
+          body: JSON.stringify({
+            symbol: order.optionSymbol,
+            qty: order.quantity,
+            side: order.side,
+            type: order.type,
+            time_in_force: order.timeInForce || "day",
+            ...order.type === "limit" && order.limitPrice ? { limit_price: order.limitPrice } : {}
+          })
+        });
+        if (!response.ok) {
+          const text2 = await response.text();
+          throw new Error(`Alpaca order placement failed: ${response.status} - ${text2}`);
+        }
+        const data = await response.json();
+        return {
+          orderId: data.id,
+          status: data.status,
+          filledQty: data.filled_qty ? parseFloat(data.filled_qty) : void 0,
+          filledAvgPrice: data.filled_avg_price ? parseFloat(data.filled_avg_price) : void 0
+        };
+      }
+      // Place a multi-leg (mleg) options order — defined-risk credit/debit spreads.
+      // Requires Alpaca options trading level 3. All legs fill together or not at all
+      // (no legging risk), and the broker applies spread margin off the defined max
+      // loss rather than naked-short margin.
+      async placeMultiLegOrder(order) {
+        const response = await this.request(`${this.baseUrl}/v2/orders`, {
+          method: "POST",
+          body: JSON.stringify({
+            order_class: "mleg",
+            qty: String(order.quantity),
+            type: "limit",
+            time_in_force: order.timeInForce || "day",
+            limit_price: order.netLimitPrice.toFixed(2),
+            legs: order.legs.map((l) => ({
+              symbol: l.optionSymbol,
+              ratio_qty: String(l.ratioQty),
+              side: l.side,
+              position_intent: l.positionIntent
+            }))
+          })
+        });
+        if (!response.ok) {
+          const text2 = await response.text();
+          throw new Error(`Alpaca multi-leg order failed: ${response.status} - ${text2}`);
+        }
+        const data = await response.json();
+        return {
+          orderId: data.id,
+          status: data.status,
+          filledQty: data.filled_qty ? parseFloat(data.filled_qty) : void 0,
+          filledAvgPrice: data.filled_avg_price ? parseFloat(data.filled_avg_price) : void 0
+        };
+      }
+    };
+  }
+});
+
+// server/tastytrade.ts
+var tastytrade_exports = {};
+__export(tastytrade_exports, {
+  TastyTradeService: () => TastyTradeService,
+  decryptPassword: () => decryptPassword2,
+  encryptPassword: () => encryptPassword2
+});
+import crypto8 from "crypto";
+function getEncryptionKey6() {
+  const key = process.env.TASTYTRADE_ENCRYPTION_KEY;
+  if (!key) {
+    console.warn("[TastyTrade] TASTYTRADE_ENCRYPTION_KEY not set \u2014 using default key. Set it in your Render environment variables.");
+    return DEFAULT_ENCRYPTION_KEY4;
+  }
+  if (key.length < 32) {
+    console.warn("[TastyTrade] TASTYTRADE_ENCRYPTION_KEY is too short, padding to 32 chars.");
+    return key.padEnd(32, "0");
+  }
+  return key;
+}
+function encryptPassword2(password) {
+  const iv = crypto8.randomBytes(IV_LENGTH4);
+  const salt = crypto8.randomBytes(SALT_LENGTH4);
+  const key = crypto8.scryptSync(getEncryptionKey6(), salt, 32);
+  const cipher = crypto8.createCipheriv("aes-256-cbc", key, iv);
+  let encrypted = cipher.update(password, "utf8", "hex");
+  encrypted += cipher.final("hex");
+  return salt.toString("hex") + ":" + iv.toString("hex") + ":" + encrypted;
+}
+function decryptPassword2(encryptedPassword) {
+  const parts = encryptedPassword.split(":");
+  if (parts.length !== 3) throw new Error("Invalid encrypted password format");
+  const [saltHex, ivHex, data] = parts;
+  const key = crypto8.scryptSync(getEncryptionKey6(), Buffer.from(saltHex, "hex"), 32);
+  const decipher = crypto8.createDecipheriv("aes-256-cbc", key, Buffer.from(ivHex, "hex"));
+  let decrypted = decipher.update(data, "hex", "utf8");
+  decrypted += decipher.final("utf8");
+  return decrypted;
+}
+var IV_LENGTH4, SALT_LENGTH4, DEFAULT_ENCRYPTION_KEY4, RETRY_DELAYS3, RETRYABLE_STATUSES3, TastyTradeService;
+var init_tastytrade = __esm({
+  "server/tastytrade.ts"() {
+    "use strict";
+    IV_LENGTH4 = 16;
+    SALT_LENGTH4 = 16;
+    DEFAULT_ENCRYPTION_KEY4 = "vedd-tasty-default-key-change-me-32ch!!";
+    RETRY_DELAYS3 = [1e3, 2e3];
+    RETRYABLE_STATUSES3 = /* @__PURE__ */ new Set([429, 500, 502, 503, 504]);
+    TastyTradeService = class {
+      baseUrl;
+      username;
+      password;
+      sessionToken = null;
+      tokenExpiresAt = null;
+      accountNumber = null;
+      constructor(accountType, username, password) {
+        this.baseUrl = accountType === "sandbox" ? "https://api.cert.tastyworks.com" : "https://api.tastyworks.com";
+        this.username = username;
+        this.password = password;
+      }
+      getResolvedAccountNumber() {
+        return this.accountNumber;
+      }
+      setSession(sessionToken, expiresAt) {
+        this.sessionToken = sessionToken;
+        this.tokenExpiresAt = expiresAt || null;
+      }
+      async ensureAuthenticated() {
+        if (this.sessionToken && this.tokenExpiresAt && this.tokenExpiresAt.getTime() - Date.now() > 6e4) {
+          return;
+        }
+        await this.login();
+      }
+      async request(path19, init = {}, attempt = 0) {
+        await this.ensureAuthenticated();
+        const response = await fetch(`${this.baseUrl}${path19}`, {
+          ...init,
+          headers: {
+            "Authorization": this.sessionToken || "",
+            "Content-Type": "application/json",
+            ...init.headers || {}
+          },
+          signal: AbortSignal.timeout(12e3)
+        });
+        if (!response.ok && RETRYABLE_STATUSES3.has(response.status) && attempt < RETRY_DELAYS3.length) {
+          await new Promise((r) => setTimeout(r, RETRY_DELAYS3[attempt]));
+          return this.request(path19, init, attempt + 1);
+        }
+        return response;
+      }
+      async login() {
+        const response = await fetch(`${this.baseUrl}/sessions`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ login: this.username, password: this.password, "remember-me": true }),
+          signal: AbortSignal.timeout(12e3)
+        });
+        if (!response.ok) {
+          const text2 = await response.text();
+          throw new Error(`TastyTrade login failed: ${response.status} - ${text2}`);
+        }
+        const data = await response.json();
+        const token = data.data?.["session-token"];
+        if (!token) throw new Error("TastyTrade login response missing session-token");
+        this.sessionToken = token;
+        this.tokenExpiresAt = new Date(Date.now() + 24 * 60 * 60 * 1e3);
+        return {
+          sessionToken: token,
+          rememberToken: data.data?.["remember-token"],
+          expiresIn: 24 * 60 * 60
+        };
+      }
+      // "Authenticate" = log in, then resolve + verify the first account works.
+      async authenticate() {
+        await this.login();
+        const info2 = await this.getAccountInfo();
+        this.accountNumber = info2.accountNumber;
+        return info2;
+      }
+      async getAccountInfo() {
+        const accountsRes = await this.request("/customers/me/accounts");
+        if (!accountsRes.ok) {
+          const text2 = await accountsRes.text();
+          throw new Error(`TastyTrade accounts fetch failed: ${accountsRes.status} - ${text2}`);
+        }
+        const accountsData = await accountsRes.json();
+        const items = accountsData.data?.items || [];
+        if (items.length === 0) throw new Error("TastyTrade account has no linked brokerage accounts");
+        const accountNumber = items[0].account["account-number"];
+        const balancesRes = await this.request(`/accounts/${accountNumber}/balances`);
+        if (!balancesRes.ok) {
+          const text2 = await balancesRes.text();
+          throw new Error(`TastyTrade balances fetch failed: ${balancesRes.status} - ${text2}`);
+        }
+        const balances = (await balancesRes.json()).data;
+        return {
+          accountNumber,
+          balance: parseFloat(balances["cash-balance"] ?? "0"),
+          equity: parseFloat(balances["net-liquidating-value"] ?? "0"),
+          buyingPower: parseFloat(balances["derivative-buying-power"] ?? balances["equity-buying-power"] ?? "0"),
+          optionBuyingPower: parseFloat(balances["derivative-buying-power"] ?? "0"),
+          currency: "USD"
+        };
+      }
+      async getOptionsChain(underlyingSymbol) {
+        const response = await this.request(`/option-chains/${encodeURIComponent(underlyingSymbol)}/nested`);
+        if (!response.ok) {
+          const text2 = await response.text();
+          throw new Error(`TastyTrade options chain fetch failed: ${response.status} - ${text2}`);
+        }
+        const data = await response.json();
+        const expirations = data.data?.items?.[0]?.expirations || [];
+        const contracts = [];
+        for (const exp of expirations) {
+          for (const strike of exp.strikes || []) {
+            if (strike.call) {
+              contracts.push({
+                symbol: strike.call,
+                underlyingSymbol,
+                expirationDate: exp["expiration-date"],
+                strikePrice: parseFloat(strike["strike-price"]),
+                type: "call"
+              });
+            }
+            if (strike.put) {
+              contracts.push({
+                symbol: strike.put,
+                underlyingSymbol,
+                expirationDate: exp["expiration-date"],
+                strikePrice: parseFloat(strike["strike-price"]),
+                type: "put"
+              });
+            }
+          }
+        }
+        return contracts;
+      }
+      async placeOrder(order) {
+        if (!this.accountNumber) throw new Error("TastyTrade account not resolved \u2014 call authenticate() first");
+        const response = await this.request(`/accounts/${this.accountNumber}/orders`, {
+          method: "POST",
+          body: JSON.stringify({
+            "order-type": order.type === "market" ? "Market" : "Limit",
+            "time-in-force": order.timeInForce === "gtc" ? "GTC" : "Day",
+            ...order.type === "limit" && order.limitPrice ? { price: order.limitPrice, "price-effect": order.side === "buy" ? "Debit" : "Credit" } : {},
+            legs: [{
+              "instrument-type": "Equity Option",
+              symbol: order.optionSymbol,
+              quantity: order.quantity,
+              action: order.side === "buy" ? "Buy to Open" : "Sell to Close"
+            }]
+          })
+        });
+        if (!response.ok) {
+          const text2 = await response.text();
+          throw new Error(`TastyTrade order placement failed: ${response.status} - ${text2}`);
+        }
+        const data = await response.json();
+        return {
+          orderId: String(data.data?.order?.id ?? ""),
+          status: data.data?.order?.status ?? "unknown"
+        };
+      }
+    };
+  }
+});
+
+// server/services/cred-store.ts
+var cred_store_exports = {};
+__export(cred_store_exports, {
+  backupDurableFile: () => backupDurableFile,
+  restoreDurableFiles: () => restoreDurableFiles
+});
+import * as fs4 from "fs";
+import * as path4 from "path";
+function ensureTable2() {
+  if (!tableReady) {
+    tableReady = pool.query(`CREATE TABLE IF NOT EXISTS durable_files (
+        name        text PRIMARY KEY,
+        content     text NOT NULL,
+        updated_at  timestamptz NOT NULL DEFAULT now()
+      )`).then(() => void 0).catch((e) => {
+      console.error("[cred-store] ensureTable failed (non-fatal):", e?.message);
+      tableReady = null;
+    });
+  }
+  return tableReady;
+}
+async function restoreDurableFiles() {
+  try {
+    await ensureTable2();
+    if (!fs4.existsSync(DATA_DIR)) fs4.mkdirSync(DATA_DIR, { recursive: true });
+    const { rows } = await pool.query("SELECT name, content FROM durable_files");
+    for (const r of rows) {
+      if (!DURABLE_FILES.includes(r.name)) continue;
+      const fp = path4.join(DATA_DIR, r.name);
+      const existing = fs4.existsSync(fp) ? fs4.readFileSync(fp, "utf-8").trim() : "";
+      if (!existing || existing === "{}") {
+        fs4.writeFileSync(fp, r.content);
+        console.log(`[cred-store] restored ${r.name} from DB (${r.content.length} bytes)`);
+      }
+    }
+  } catch (e) {
+    console.error("[cred-store] restore failed (non-fatal):", e?.message);
+  }
+}
+function backupDurableFile(name, content) {
+  ensureTable2().then(
+    () => pool.query(
+      `INSERT INTO durable_files (name, content, updated_at)
+         VALUES ($1, $2, now())
+         ON CONFLICT (name) DO UPDATE SET content = EXCLUDED.content, updated_at = now()`,
+      [name, content]
+    )
+  ).catch((e) => console.error(`[cred-store] backup ${name} failed (non-fatal):`, e?.message));
+}
+var DATA_DIR, DURABLE_FILES, tableReady;
+var init_cred_store = __esm({
+  "server/services/cred-store.ts"() {
+    "use strict";
+    init_db();
+    DATA_DIR = path4.join(process.cwd(), "data");
+    DURABLE_FILES = [
+      "kalshi_credentials.json",
+      "polymarket_us.json",
+      "polymarket_keys.json",
+      // Polygon private key for live Polymarket (CLOB) trading
+      "polymarket_wallets.json",
+      // saved Polygon deposit address (public, lower severity, but still lost on deploy otherwise)
+      "kalshi_performance.json"
+      // per-strategy win-rate history feeding Brain Learning Mode / Kelly sizing
+    ];
+    tableReady = null;
+  }
+});
+
+// server/services/vedd-token-service.ts
+var vedd_token_service_exports = {};
+__export(vedd_token_service_exports, {
+  DAILY_VEDD_CAP: () => DAILY_VEDD_CAP2,
+  VeddTokenService: () => VeddTokenService,
+  WEEKLY_VEDD_CAP: () => WEEKLY_VEDD_CAP2,
+  veddTokenService: () => veddTokenService
+});
+import { Connection, PublicKey, Keypair, Transaction, sendAndConfirmTransaction } from "@solana/web3.js";
+import { getAssociatedTokenAddress, createTransferInstruction, TOKEN_PROGRAM_ID, getOrCreateAssociatedTokenAccount } from "@solana/spl-token";
+import { eq as eq9, and as and6, sql as sql8, desc as desc2, isNull as isNull2, gte as gte5 } from "drizzle-orm";
+function getConnection() {
+  if (!connection) {
+    connection = new Connection(SOLANA_RPC_URL, "confirmed");
+  }
+  return connection;
+}
+function getPoolKeypair() {
+  if (!poolKeypair && POOL_WALLET_PRIVATE_KEY) {
+    try {
+      const secretKey = JSON.parse(POOL_WALLET_PRIVATE_KEY);
+      poolKeypair = Keypair.fromSecretKey(Uint8Array.from(secretKey));
+    } catch (error) {
+      console.error("Failed to parse pool wallet private key:", error);
+    }
+  }
+  return poolKeypair;
+}
+var VEDD_TOKEN_MINT, SOLANA_RPC_URL, POOL_WALLET_PRIVATE_KEY, DAILY_VEDD_CAP2, WEEKLY_VEDD_CAP2, connection, poolKeypair, VeddTokenService, veddTokenService;
+var init_vedd_token_service = __esm({
+  "server/services/vedd-token-service.ts"() {
+    "use strict";
+    init_db();
+    init_schema();
+    VEDD_TOKEN_MINT = process.env.VEDD_TOKEN_MINT || "";
+    SOLANA_RPC_URL = process.env.SOLANA_RPC_URL || "https://api.mainnet-beta.solana.com";
+    POOL_WALLET_PRIVATE_KEY = process.env.POOL_WALLET_PRIVATE_KEY;
+    DAILY_VEDD_CAP2 = 500;
+    WEEKLY_VEDD_CAP2 = 2e3;
+    connection = null;
+    poolKeypair = null;
+    VeddTokenService = class {
+      async getPoolWalletInfo(walletType = "rewards") {
+        const [wallet] = await db.select().from(veddPoolWallets).where(and6(
+          eq9(veddPoolWallets.walletType, walletType),
+          eq9(veddPoolWallets.status, "active")
+        )).limit(1);
+        if (!wallet) return null;
+        return {
+          id: wallet.id,
+          label: wallet.label,
+          publicKey: wallet.publicKey,
+          walletType: wallet.walletType,
+          status: wallet.status,
+          tokenBalance: wallet.tokenBalance || 0,
+          lowBalanceThreshold: wallet.lowBalanceThreshold || 1e3,
+          isLowBalance: (wallet.tokenBalance || 0) < (wallet.lowBalanceThreshold || 1e3)
+        };
+      }
+      async syncPoolBalance(walletId) {
+        const conn = getConnection();
+        const [wallet] = await db.select().from(veddPoolWallets).where(eq9(veddPoolWallets.id, walletId)).limit(1);
+        if (!wallet || !VEDD_TOKEN_MINT) return 0;
+        try {
+          const walletPubkey = new PublicKey(wallet.publicKey);
+          const mintPubkey = new PublicKey(VEDD_TOKEN_MINT);
+          const tokenAccount = await getAssociatedTokenAddress(mintPubkey, walletPubkey);
+          const accountInfo = await conn.getTokenAccountBalance(tokenAccount);
+          const balance = parseFloat(accountInfo.value.uiAmountString || "0");
+          await db.update(veddPoolWallets).set({
+            tokenBalance: balance,
+            lastSyncAt: /* @__PURE__ */ new Date()
+          }).where(eq9(veddPoolWallets.id, walletId));
+          return balance;
+        } catch (error) {
+          console.error("Failed to sync pool balance:", error);
+          return wallet.tokenBalance || 0;
+        }
+      }
+      async getRewardConfig(actionType) {
+        const [config] = await db.select().from(veddRewardConfig).where(and6(
+          eq9(veddRewardConfig.actionType, actionType),
+          eq9(veddRewardConfig.isActive, true)
+        )).limit(1);
+        if (!config) return null;
+        return {
+          baseAmount: config.baseAmount,
+          streakMultiplier: config.streakMultiplier || 1,
+          maxDailyRewards: config.maxDailyRewards || 5,
+          requiresVerification: config.requiresVerification || false
+        };
+      }
+      /** Sum all VEDD earned today (midnight to now) for a user */
+      async getDailyTotalEarned(userId) {
+        const todayStart = /* @__PURE__ */ new Date();
+        todayStart.setHours(0, 0, 0, 0);
+        const rows = await db.select({ total: sql8`coalesce(sum(total_reward), 0)` }).from(ambassadorActionRewards).where(and6(
+          eq9(ambassadorActionRewards.userId, userId),
+          gte5(ambassadorActionRewards.createdAt, todayStart)
+        ));
+        return Number(rows[0]?.total || 0);
+      }
+      /** Sum all VEDD earned this calendar week (Mon 00:00 to now) for a user */
+      async getWeeklyTotalEarned(userId) {
+        const now = /* @__PURE__ */ new Date();
+        const day = now.getDay();
+        const diffToMon = day === 0 ? -6 : 1 - day;
+        const weekStart = new Date(now);
+        weekStart.setDate(now.getDate() + diffToMon);
+        weekStart.setHours(0, 0, 0, 0);
+        const rows = await db.select({ total: sql8`coalesce(sum(total_reward), 0)` }).from(ambassadorActionRewards).where(and6(
+          eq9(ambassadorActionRewards.userId, userId),
+          gte5(ambassadorActionRewards.createdAt, weekStart)
+        ));
+        return Number(rows[0]?.total || 0);
+      }
+      async calculateReward(actionType, userId) {
+        const config = await this.getRewardConfig(actionType);
+        if (!config) return null;
+        const todayStart = /* @__PURE__ */ new Date();
+        todayStart.setHours(0, 0, 0, 0);
+        const todaysRewards = await db.select({ count: sql8`count(*)` }).from(ambassadorActionRewards).where(and6(
+          eq9(ambassadorActionRewards.userId, userId),
+          eq9(ambassadorActionRewards.actionType, actionType),
+          gte5(ambassadorActionRewards.createdAt, todayStart)
+        ));
+        const rewardCount = todaysRewards[0]?.count || 0;
+        if (rewardCount >= config.maxDailyRewards) {
+          return null;
+        }
+        const dailyTotal = await this.getDailyTotalEarned(userId);
+        if (dailyTotal >= DAILY_VEDD_CAP2) {
+          console.log(`[VEDD] User ${userId} hit daily cap (${dailyTotal}/${DAILY_VEDD_CAP2})`);
+          return null;
+        }
+        const weeklyTotal = await this.getWeeklyTotalEarned(userId);
+        if (weeklyTotal >= WEEKLY_VEDD_CAP2) {
+          console.log(`[VEDD] User ${userId} hit weekly cap (${weeklyTotal}/${WEEKLY_VEDD_CAP2})`);
+          return null;
+        }
+        const tenMinsAgo = new Date(Date.now() - 10 * 60 * 1e3);
+        const recentBurst = await db.select({ count: sql8`count(*)` }).from(ambassadorActionRewards).where(and6(
+          eq9(ambassadorActionRewards.userId, userId),
+          eq9(ambassadorActionRewards.actionType, actionType),
+          gte5(ambassadorActionRewards.createdAt, tenMinsAgo)
+        ));
+        const burstCount = recentBurst[0]?.count || 0;
+        const securityFlag = burstCount >= 3 ? "velocity" : void 0;
+        const remaining = DAILY_VEDD_CAP2 - dailyTotal;
+        const baseReward = Math.min(config.baseAmount, remaining);
+        const mult = config.streakMultiplier ?? 1;
+        let bonusReward = 0;
+        if (mult > 1 && baseReward > 0) {
+          const now = /* @__PURE__ */ new Date();
+          const startToday = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()));
+          const startYesterday = new Date(startToday.getTime() - 24 * 60 * 60 * 1e3);
+          const [prev] = await db.select({ c: sql8`count(*)` }).from(ambassadorActionRewards).where(and6(
+            eq9(ambassadorActionRewards.userId, userId),
+            eq9(ambassadorActionRewards.actionType, actionType),
+            gte5(ambassadorActionRewards.createdAt, startYesterday),
+            sql8`${ambassadorActionRewards.createdAt} < ${startToday}`
+          ));
+          if ((prev?.c || 0) > 0) bonusReward = Math.round(baseReward * (mult - 1));
+        }
+        const totalReward = Math.min(baseReward + bonusReward, remaining);
+        bonusReward = Math.max(0, totalReward - baseReward);
+        return { baseReward, bonusReward, totalReward, securityFlag };
+      }
+      async enqueueReward(userId, actionType, actionId, metadata) {
+        const [user] = await db.select().from(users).where(eq9(users.id, userId)).limit(1);
+        if (!user) {
+          console.log(`User ${userId} not found - cannot enqueue reward`);
+          return null;
+        }
+        const hasWallet = !!user.walletAddress;
+        const userRecord = await db.select({ walletAddress: users.walletAddress }).from(users).where(eq9(users.id, userId)).limit(1);
+        const walletAddr = userRecord[0]?.walletAddress;
+        if (walletAddr) {
+          const [blacklisted] = await db.select({ id: veddWalletBlacklist.id }).from(veddWalletBlacklist).where(and6(eq9(veddWalletBlacklist.walletAddress, walletAddr), eq9(veddWalletBlacklist.isActive, true))).limit(1);
+          if (blacklisted) {
+            console.warn(`[VEDD Security] Blocked reward for blacklisted wallet: ${walletAddr} (userId: ${userId})`);
+            return null;
+          }
+        }
+        const rewardCalc = await this.calculateReward(actionType, userId);
+        if (!rewardCalc) {
+          console.log(`No reward available for user ${userId} action ${actionType} - daily limit reached or config missing`);
+          return null;
+        }
+        const config = await this.getRewardConfig(actionType);
+        if (!config) return null;
+        const poolWallet = await this.getPoolWalletInfo("rewards");
+        if (!poolWallet || poolWallet.status !== "active") {
+          console.log("No active pool wallet available");
+          return null;
+        }
+        const idempotencyKey = `${userId}-${actionType}-${actionId || "none"}-${Date.now()}`;
+        const [reward] = await db.insert(ambassadorActionRewards).values({
+          userId,
+          actionType,
+          actionId,
+          baseReward: rewardCalc.baseReward,
+          bonusReward: rewardCalc.bonusReward,
+          totalReward: rewardCalc.totalReward,
+          verificationStatus: "pending",
+          verifiedAt: null,
+          notes: hasWallet ? "Pending admin verification" : "Pending admin verification and wallet connection",
+          securityFlag: rewardCalc.securityFlag || null
+        }).returning();
+        return { rewardId: reward.id, pendingVerification: true, pendingWallet: !hasWallet };
+      }
+      async processTransfer(jobId) {
+        const [job] = await db.select().from(veddTransferJobs).where(eq9(veddTransferJobs.id, jobId)).limit(1);
+        if (!job) {
+          return { success: false, error: "Job not found" };
+        }
+        if (job.status === "completed") {
+          return { success: true, transactionSig: job.solanaTransactionSig || void 0 };
+        }
+        if (job.status === "processing") {
+          return { success: false, error: "Transfer already in progress" };
+        }
+        const MAX_SINGLE_TRANSFER = 1e3;
+        if (job.amount > MAX_SINGLE_TRANSFER) {
+          console.warn(`[VEDD Security] Transfer amount ${job.amount} exceeds MAX_SINGLE_TRANSFER (${MAX_SINGLE_TRANSFER}). Requires manual review.`);
+          await db.update(veddTransferJobs).set({ status: "failed", errorMessage: `Amount ${job.amount} exceeds security limit of ${MAX_SINGLE_TRANSFER} VEDD per transfer. Admin must manually approve.` }).where(eq9(veddTransferJobs.id, jobId));
+          return { success: false, error: "Transfer blocked by security limit" };
+        }
+        if (!VEDD_TOKEN_MINT || !POOL_WALLET_PRIVATE_KEY) {
+          console.error("CRITICAL: Missing Solana credentials - VEDD_TOKEN_MINT or POOL_WALLET_PRIVATE_KEY not configured");
+          await db.update(veddTransferJobs).set({
+            status: "failed",
+            errorMessage: "Solana credentials not configured. Please set VEDD_TOKEN_MINT and POOL_WALLET_PRIVATE_KEY environment variables.",
+            processedAt: /* @__PURE__ */ new Date()
+          }).where(eq9(veddTransferJobs.id, jobId));
+          return {
+            success: false,
+            error: "Token transfer system not configured. Reward is pending - tokens will be sent once configuration is complete."
+          };
+        }
+        const [poolWallet] = await db.select().from(veddPoolWallets).where(and6(eq9(veddPoolWallets.walletType, "rewards"), eq9(veddPoolWallets.status, "active"))).limit(1);
+        if (poolWallet && (poolWallet.tokenBalance || 0) < job.amount) {
+          await db.update(veddTransferJobs).set({ status: "pending", errorMessage: `Pool balance ${poolWallet.tokenBalance ?? 0} below reward ${job.amount} \u2014 held until the pool is refilled.` }).where(eq9(veddTransferJobs.id, jobId));
+          return { success: false, error: "Insufficient pool balance \u2014 reward held pending." };
+        }
+        await db.update(veddTransferJobs).set({ status: "processing" }).where(eq9(veddTransferJobs.id, jobId));
+        try {
+          const keypair = getPoolKeypair();
+          if (!keypair) {
+            throw new Error("Pool wallet keypair not available");
+          }
+          const conn = getConnection();
+          const mintPubkey = new PublicKey(VEDD_TOKEN_MINT);
+          const destPubkey = new PublicKey(job.destinationWallet);
+          const sourceAta = await getAssociatedTokenAddress(mintPubkey, keypair.publicKey);
+          const destAta = await getOrCreateAssociatedTokenAccount(
+            conn,
+            keypair,
+            mintPubkey,
+            destPubkey
+          );
+          const decimals = 9;
+          const amount = Math.floor(job.amount * Math.pow(10, decimals));
+          const transaction = new Transaction().add(
+            createTransferInstruction(
+              sourceAta,
+              destAta.address,
+              keypair.publicKey,
+              amount,
+              [],
+              TOKEN_PROGRAM_ID
+            )
+          );
+          const signature = await sendAndConfirmTransaction(conn, transaction, [keypair]);
+          await db.update(veddTransferJobs).set({
+            status: "completed",
+            solanaTransactionSig: signature,
+            processedAt: /* @__PURE__ */ new Date()
+          }).where(eq9(veddTransferJobs.id, jobId));
+          await db.update(users).set({
+            veddTokenBalance: sql8`COALESCE(${users.veddTokenBalance}, 0) + ${job.amount}`
+          }).where(eq9(users.id, job.userId));
+          await db.update(veddPoolWallets).set({ tokenBalance: sql8`GREATEST(0, COALESCE(${veddPoolWallets.tokenBalance}, 0) - ${job.amount})` }).where(and6(eq9(veddPoolWallets.walletType, "rewards"), eq9(veddPoolWallets.status, "active")));
+          return { success: true, transactionSig: signature };
+        } catch (error) {
+          const retryCount = (job.retryCount || 0) + 1;
+          const maxRetries = 3;
+          await db.update(veddTransferJobs).set({
+            status: retryCount >= maxRetries ? "failed" : "pending",
+            errorMessage: error.message,
+            retryCount
+          }).where(eq9(veddTransferJobs.id, jobId));
+          return { success: false, error: error.message };
+        }
+      }
+      async getUserRewardHistory(userId, limit = 50) {
+        const rewards = await db.select({
+          id: ambassadorActionRewards.id,
+          actionType: ambassadorActionRewards.actionType,
+          totalReward: ambassadorActionRewards.totalReward,
+          verificationStatus: ambassadorActionRewards.verificationStatus,
+          createdAt: ambassadorActionRewards.createdAt,
+          transferJobId: ambassadorActionRewards.transferJobId
+        }).from(ambassadorActionRewards).where(eq9(ambassadorActionRewards.userId, userId)).orderBy(desc2(ambassadorActionRewards.createdAt)).limit(limit);
+        const result = [];
+        for (const reward of rewards) {
+          let status = reward.verificationStatus;
+          let transactionSig;
+          if (reward.transferJobId) {
+            const [job] = await db.select().from(veddTransferJobs).where(eq9(veddTransferJobs.id, reward.transferJobId)).limit(1);
+            if (job) {
+              status = job.status;
+              transactionSig = job.solanaTransactionSig || void 0;
+            }
+          }
+          result.push({
+            id: reward.id,
+            actionType: reward.actionType,
+            totalReward: reward.totalReward,
+            status,
+            transactionSig,
+            createdAt: reward.createdAt
+          });
+        }
+        return result;
+      }
+      async getUserTotalEarnings(userId) {
+        const earnings = await db.select({
+          status: ambassadorActionRewards.verificationStatus,
+          total: sql8`SUM(${ambassadorActionRewards.totalReward})`
+        }).from(ambassadorActionRewards).where(eq9(ambassadorActionRewards.userId, userId)).groupBy(ambassadorActionRewards.verificationStatus);
+        let total = 0;
+        let pending = 0;
+        let completed = 0;
+        for (const row of earnings) {
+          const amount = row.total || 0;
+          total += amount;
+          if (row.status === "pending") pending += amount;
+          if (row.status === "verified") completed += amount;
+        }
+        return { total, pending, completed };
+      }
+      async verifyReward(rewardId, adminId, approved, notes) {
+        const [reward] = await db.select().from(ambassadorActionRewards).where(eq9(ambassadorActionRewards.id, rewardId)).limit(1);
+        if (!reward || reward.verificationStatus !== "pending") {
+          return false;
+        }
+        if (!approved) {
+          await db.update(ambassadorActionRewards).set({
+            verificationStatus: "rejected",
+            verifiedBy: adminId,
+            verifiedAt: /* @__PURE__ */ new Date(),
+            notes
+          }).where(eq9(ambassadorActionRewards.id, rewardId));
+          return true;
+        }
+        const [user] = await db.select().from(users).where(eq9(users.id, reward.userId)).limit(1);
+        if (!user?.walletAddress) {
+          await db.update(ambassadorActionRewards).set({
+            verificationStatus: "verified",
+            verifiedBy: adminId,
+            verifiedAt: /* @__PURE__ */ new Date(),
+            notes: notes || "Verified - pending wallet connection for transfer"
+          }).where(eq9(ambassadorActionRewards.id, rewardId));
+          return true;
+        }
+        const poolWallet = await this.getPoolWalletInfo("rewards");
+        if (!poolWallet) {
+          await db.update(ambassadorActionRewards).set({
+            verificationStatus: "verified",
+            verifiedBy: adminId,
+            verifiedAt: /* @__PURE__ */ new Date(),
+            notes: notes || "Verified - pending pool wallet setup for transfer"
+          }).where(eq9(ambassadorActionRewards.id, rewardId));
+          return true;
+        }
+        const idempotencyKey = `reward-${rewardId}`;
+        const [transferJob] = await db.insert(veddTransferJobs).values({
+          userId: reward.userId,
+          sourceWalletId: poolWallet.id,
+          destinationWallet: user.walletAddress,
+          amount: reward.totalReward,
+          actionType: reward.actionType,
+          actionId: reward.actionId,
+          status: "pending",
+          idempotencyKey,
+          metadata: { verifiedBy: adminId }
+        }).onConflictDoNothing({ target: veddTransferJobs.idempotencyKey }).returning();
+        if (!transferJob) return true;
+        await db.update(ambassadorActionRewards).set({
+          verificationStatus: "verified",
+          verifiedBy: adminId,
+          verifiedAt: /* @__PURE__ */ new Date(),
+          transferJobId: transferJob.id,
+          notes
+        }).where(eq9(ambassadorActionRewards.id, rewardId));
+        this.processTransfer(transferJob.id).catch(
+          (err) => console.error("Background transfer processing error:", err)
+        );
+        return true;
+      }
+      async getPoolOverview() {
+        let poolInfos = [];
+        try {
+          const pools = await db.select().from(veddPoolWallets).where(eq9(veddPoolWallets.status, "active"));
+          poolInfos = pools.map((p) => ({
+            id: p.id,
+            label: p.label,
+            publicKey: p.publicKey,
+            walletType: p.walletType,
+            status: p.status,
+            tokenBalance: p.tokenBalance || 0,
+            lowBalanceThreshold: p.lowBalanceThreshold || 1e3,
+            isLowBalance: (p.tokenBalance || 0) < (p.lowBalanceThreshold || 1e3)
+          }));
+        } catch (err) {
+          console.error("[VEDD] getPoolOverview - pools fetch failed:", err);
+        }
+        let pendingTransfers = 0;
+        let completedTransfersToday = 0;
+        let totalDistributedToday = 0;
+        try {
+          const todayStart = /* @__PURE__ */ new Date();
+          todayStart.setHours(0, 0, 0, 0);
+          const [pendingResult] = await db.select({ count: sql8`count(*)` }).from(veddTransferJobs).where(eq9(veddTransferJobs.status, "pending"));
+          const [completedResult] = await db.select({
+            count: sql8`count(*)`,
+            total: sql8`COALESCE(SUM(${veddTransferJobs.amount}), 0)`
+          }).from(veddTransferJobs).where(and6(
+            eq9(veddTransferJobs.status, "completed"),
+            sql8`${veddTransferJobs.processedAt} >= ${todayStart}`
+          ));
+          pendingTransfers = pendingResult?.count || 0;
+          completedTransfersToday = completedResult?.count || 0;
+          totalDistributedToday = completedResult?.total || 0;
+        } catch (err) {
+          console.warn("[VEDD] getPoolOverview - transfer stats unavailable (table may not exist yet):", err?.message);
+        }
+        return { pools: poolInfos, pendingTransfers, completedTransfersToday, totalDistributedToday };
+      }
+      async initializePoolWallet(label, publicKey, walletType = "rewards") {
+        const [wallet] = await db.insert(veddPoolWallets).values({
+          label,
+          publicKey,
+          walletType,
+          status: "active",
+          tokenBalance: 0
+        }).returning();
+        return wallet.id;
+      }
+      async processWalletConnectedRewards(userId, walletAddress) {
+        const verifiedRewardsWithoutTransfer = await db.select().from(ambassadorActionRewards).where(and6(
+          eq9(ambassadorActionRewards.userId, userId),
+          eq9(ambassadorActionRewards.verificationStatus, "verified"),
+          isNull2(ambassadorActionRewards.transferJobId)
+        ));
+        if (verifiedRewardsWithoutTransfer.length === 0) {
+          return { processed: 0, errors: [] };
+        }
+        const poolWallet = await this.getPoolWalletInfo("rewards");
+        if (!poolWallet) {
+          return { processed: 0, errors: ["Pool wallet not configured"] };
+        }
+        let processed = 0;
+        const errors = [];
+        for (const reward of verifiedRewardsWithoutTransfer) {
+          try {
+            const idempotencyKey = `reward-${reward.id}`;
+            const [transferJob] = await db.insert(veddTransferJobs).values({
+              userId,
+              sourceWalletId: poolWallet.id,
+              destinationWallet: walletAddress,
+              amount: reward.totalReward,
+              actionType: reward.actionType,
+              actionId: reward.actionId,
+              status: "pending",
+              idempotencyKey,
+              metadata: { triggeredBy: "wallet_connection" }
+            }).onConflictDoNothing({ target: veddTransferJobs.idempotencyKey }).returning();
+            if (!transferJob) continue;
+            await db.update(ambassadorActionRewards).set({
+              transferJobId: transferJob.id,
+              notes: "Transfer job created on wallet connection"
+            }).where(eq9(ambassadorActionRewards.id, reward.id));
+            this.processTransfer(transferJob.id).catch(
+              (err) => console.error(`Background transfer error for job ${transferJob.id}:`, err)
+            );
+            processed++;
+          } catch (error) {
+            errors.push(`Reward ${reward.id}: ${error.message}`);
+          }
+        }
+        return { processed, errors };
+      }
+      /**
+       * Dual-track referral reward: logs the reward and, if the referrer has a
+       * connected Solana wallet + a live pool wallet, immediately fires an on-chain
+       * SPL token transfer in the background. In-app credit is always awarded by
+       * the caller via storage.addReferralCredits() — this method handles the
+       * on-chain side only.
+       *
+       * @param referrerId  - userId of the person who referred
+       * @param actionType  - 'referral_signup' | 'referral_subscription'
+       * @param amount      - VEDD tokens to transfer (e.g. 50 or 200)
+       */
+      async enqueueReferralReward(referrerId, actionType, amount) {
+        try {
+          const [referrer] = await db.select().from(users).where(eq9(users.id, referrerId)).limit(1);
+          if (!referrer) return;
+          const poolWallet = await this.getPoolWalletInfo("rewards");
+          const [reward] = await db.insert(ambassadorActionRewards).values({
+            userId: referrerId,
+            actionType,
+            baseReward: amount,
+            bonusReward: 0,
+            totalReward: amount,
+            verificationStatus: "auto_approved",
+            verifiedAt: /* @__PURE__ */ new Date(),
+            notes: `Auto-approved referral reward (${actionType})`
+          }).returning();
+          const walletAddr = referrer.walletAddress;
+          if (!walletAddr || !poolWallet) {
+            console.log(`[Referral Token] ${amount} VEDD reward logged for user ${referrerId} \u2014 wallet not connected, held pending`);
+            return;
+          }
+          const [blacklisted] = await db.select({ id: veddWalletBlacklist.id }).from(veddWalletBlacklist).where(and6(eq9(veddWalletBlacklist.walletAddress, walletAddr), eq9(veddWalletBlacklist.isActive, true))).limit(1);
+          if (blacklisted) {
+            console.warn(`[Referral Token] Blocked \u2014 blacklisted wallet: ${walletAddr} (userId: ${referrerId})`);
+            return;
+          }
+          const idempotencyKey = `reward-${reward.id}`;
+          const [transferJob] = await db.insert(veddTransferJobs).values({
+            userId: referrerId,
+            sourceWalletId: poolWallet.id,
+            destinationWallet: walletAddr,
+            amount,
+            actionType,
+            actionId: reward.id,
+            status: "pending",
+            idempotencyKey,
+            metadata: { referralReward: true, autoApproved: true }
+          }).onConflictDoNothing({ target: veddTransferJobs.idempotencyKey }).returning();
+          if (!transferJob) return;
+          this.processTransfer(transferJob.id).then((result) => {
+            if (result.success) {
+              console.log(`[Referral Token] \u2713 Sent ${amount} VEDD to ${walletAddr} \u2014 tx: ${result.transactionSig}`);
+            } else {
+              console.error(`[Referral Token] Transfer failed for user ${referrerId}: ${result.error}`);
+            }
+          }).catch((err) => console.error("[Referral Token] processTransfer error:", err));
+        } catch (err) {
+          console.error("[Referral Token] enqueueReferralReward error:", err);
+        }
+      }
+    };
+    veddTokenService = new VeddTokenService();
+  }
+});
+
+// server/tradovate.ts
+function getCacheKey(userId, accountType) {
+  return `${userId}:${accountType}`;
+}
+async function getOrCreateTradovateService(userId, username, encryptedPassword, accountType, accountId, cachedToken, tokenExpiresAt) {
+  const cacheKey = getCacheKey(userId, accountType);
+  const cached2 = serviceCache2.get(cacheKey);
+  if (cached2 && Date.now() - cached2.cachedAt.getTime() < CACHE_TTL_MS3) {
+    return cached2.service;
+  }
+  const { decryptPassword: decryptPassword4 } = await Promise.resolve().then(() => (init_tradelocker(), tradelocker_exports));
+  const password = decryptPassword4(encryptedPassword);
+  const svc = new TradovateService(accountType);
+  svc.setCredentials(username, password);
+  if (accountId) svc.setAccountId(parseInt(accountId, 10));
+  if (cachedToken && tokenExpiresAt && tokenExpiresAt.getTime() - Date.now() > 5 * 60 * 1e3) {
+    svc.setToken(cachedToken, tokenExpiresAt);
+  } else {
+    await svc.authenticate(username, password);
+  }
+  serviceCache2.set(cacheKey, { service: svc, cachedAt: /* @__PURE__ */ new Date() });
+  return svc;
+}
+async function executeFuturesSignal(connection2, signal) {
+  try {
+    const { decryptPassword: decryptPassword4 } = await Promise.resolve().then(() => (init_tradelocker(), tradelocker_exports));
+    const password = decryptPassword4(connection2.encryptedPassword);
+    const svc = await getOrCreateTradovateService(
+      connection2.userId || 0,
+      connection2.username,
+      connection2.encryptedPassword,
+      connection2.accountType,
+      connection2.accountId,
+      connection2.accessToken,
+      connection2.tokenExpiresAt
+    );
+    const { contractId, name: contractName } = await svc.resolveContractId(signal.symbol);
+    const account = await svc.getAccount();
+    const accountId = account.id;
+    if (signal.action === "CLOSE") {
+      const closed = await svc.liquidatePosition(accountId, contractId);
+      return { success: closed };
+    }
+    const order = {
+      accountId,
+      contractId,
+      symbol: contractName,
+      action: signal.direction === "BUY" ? "Buy" : "Sell",
+      orderQty: signal.contracts,
+      orderType: "Market",
+      timeInForce: "Day"
+    };
+    const result = await svc.placeOrder(order);
+    if (result.orderId && (signal.stopLoss || signal.takeProfit)) {
+      console.log(`[Tradovate] Order ${result.orderId} filled. SL: ${signal.stopLoss}, TP: ${signal.takeProfit} \u2014 bracket implementation in Phase 2`);
+    }
+    return { success: true, orderId: result.orderId };
+  } catch (error) {
+    console.error("[Tradovate] executeFuturesSignal error:", error);
+    return { success: false, error: error.message || "Unknown error" };
+  }
+}
+var TradovateService, serviceCache2, CACHE_TTL_MS3;
+var init_tradovate = __esm({
+  "server/tradovate.ts"() {
+    "use strict";
+    init_tradelocker();
+    TradovateService = class {
+      baseUrl;
+      mdUrl;
+      // market data endpoint
+      accessToken = null;
+      tokenExpiresAt = null;
+      accountId = null;
+      username = "";
+      password = "";
+      onTokenRefresh = null;
+      // Contract ID cache: root symbol → { contractId, name, cachedAt }
+      contractCache = /* @__PURE__ */ new Map();
+      constructor(accountType) {
+        if (accountType === "live") {
+          this.baseUrl = "https://live.tradovateapi.com/v1";
+          this.mdUrl = "https://md.tradovateapi.com/v1";
+        } else {
+          this.baseUrl = "https://demo.tradovateapi.com/v1";
+          this.mdUrl = "https://md.tradovateapi.com/v1";
+        }
+      }
+      setCredentials(username, password) {
+        this.username = username;
+        this.password = password;
+      }
+      setToken(accessToken, expiresAt) {
+        this.accessToken = accessToken;
+        this.tokenExpiresAt = expiresAt;
+      }
+      setAccountId(id) {
+        this.accountId = id;
+      }
+      async ensureAuthenticated() {
+        const now = /* @__PURE__ */ new Date();
+        if (!this.accessToken || !this.tokenExpiresAt || this.tokenExpiresAt.getTime() - now.getTime() < 5 * 60 * 1e3) {
+          if (!this.username || !this.password) {
+            throw new Error("No credentials set for Tradovate re-authentication");
+          }
+          await this.authenticate(this.username, this.password);
+        }
+      }
+      async authenticate(username, password) {
+        this.username = username;
+        this.password = password;
+        const body = {
+          name: username,
+          password,
+          appId: process.env.TRADOVATE_APP_ID || "VEDD",
+          appVersion: "1.0",
+          cid: process.env.TRADOVATE_CID ? parseInt(process.env.TRADOVATE_CID, 10) : 0,
+          sec: process.env.TRADOVATE_SEC || ""
+        };
+        const response = await fetch(`${this.baseUrl}/auth/accesstokenrequest`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json", "Accept": "application/json" },
+          body: JSON.stringify(body)
+        });
+        if (!response.ok) {
+          const text2 = await response.text();
+          throw new Error(`Tradovate auth HTTP ${response.status}: ${text2}`);
+        }
+        const data = await response.json();
+        if (!data.accessToken || data.p === "error") {
+          throw new Error(data.d || "Tradovate authentication failed");
+        }
+        const expiresAt = data.expirationTime ? new Date(data.expirationTime) : new Date(Date.now() + 75 * 60 * 1e3);
+        this.accessToken = data.accessToken;
+        this.tokenExpiresAt = expiresAt;
+        if (this.onTokenRefresh) {
+          this.onTokenRefresh(data.accessToken, expiresAt);
+        }
+        return data;
+      }
+      async get(path19) {
+        await this.ensureAuthenticated();
+        const response = await fetch(`${this.baseUrl}${path19}`, {
+          headers: { "Authorization": `Bearer ${this.accessToken}`, "Accept": "application/json" }
+        });
+        if (!response.ok) {
+          const text2 = await response.text();
+          throw new Error(`Tradovate GET ${path19} failed (${response.status}): ${text2}`);
+        }
+        return response.json();
+      }
+      async post(path19, body) {
+        await this.ensureAuthenticated();
+        const response = await fetch(`${this.baseUrl}${path19}`, {
+          method: "POST",
+          headers: {
+            "Authorization": `Bearer ${this.accessToken}`,
+            "Content-Type": "application/json",
+            "Accept": "application/json"
+          },
+          body: JSON.stringify(body)
+        });
+        if (!response.ok) {
+          const text2 = await response.text();
+          throw new Error(`Tradovate POST ${path19} failed (${response.status}): ${text2}`);
+        }
+        return response.json();
+      }
+      async getAccounts() {
+        const accounts = await this.get("/account/list");
+        return accounts.map((a) => ({
+          id: a.id,
+          name: a.name,
+          balance: a.cashBalance ?? 0,
+          openPnL: a.openPnL ?? 0,
+          closedPnL: a.closedPnL ?? 0,
+          equity: (a.cashBalance ?? 0) + (a.openPnL ?? 0),
+          marginUsed: a.initialMargin ?? 0,
+          availableMargin: a.availableFunds ?? 0,
+          currency: "USD"
+        }));
+      }
+      async getAccount() {
+        const accounts = await this.getAccounts();
+        if (accounts.length === 0) throw new Error("No Tradovate accounts found");
+        if (this.accountId) {
+          const match = accounts.find((a) => a.id === this.accountId);
+          if (match) return match;
+        }
+        return accounts[0];
+      }
+      async getPositions() {
+        const positions = await this.get("/position/list");
+        return positions.filter((p) => p.netPos !== 0).map((p) => ({
+          id: p.id,
+          contractId: p.contractId,
+          symbol: p.contract?.name || String(p.contractId),
+          netPos: p.netPos,
+          netPrice: p.netPrice ?? 0,
+          openPnL: p.openPnL ?? 0,
+          timeEntered: p.timestamp || (/* @__PURE__ */ new Date()).toISOString()
+        }));
+      }
+      async getFills(limit = 100) {
+        const fills = await this.get("/fill/list");
+        return fills.slice(0, limit);
+      }
+      async resolveContractId(rootSymbol) {
+        const cached2 = this.contractCache.get(rootSymbol.toUpperCase());
+        if (cached2 && Date.now() - cached2.cachedAt.getTime() < 10 * 60 * 1e3) {
+          return { contractId: cached2.contractId, name: cached2.name };
+        }
+        await this.ensureAuthenticated();
+        const response = await fetch(`${this.baseUrl}/contract/suggest?t=${rootSymbol}&l=5`, {
+          headers: { "Authorization": `Bearer ${this.accessToken}`, "Accept": "application/json" }
+        });
+        if (!response.ok) throw new Error(`Failed to resolve contract for ${rootSymbol}`);
+        const contracts = await response.json();
+        const active = contracts.filter((c) => !c.expired && c.name).sort((a, b) => {
+          const da = a.expirationDate ? new Date(a.expirationDate).getTime() : Infinity;
+          const db2 = b.expirationDate ? new Date(b.expirationDate).getTime() : Infinity;
+          return da - db2;
+        });
+        if (active.length === 0) throw new Error(`No active contracts found for ${rootSymbol}`);
+        const frontMonth = active[0];
+        const result = { contractId: frontMonth.id, name: frontMonth.name };
+        this.contractCache.set(rootSymbol.toUpperCase(), { ...result, cachedAt: /* @__PURE__ */ new Date() });
+        return result;
+      }
+      async placeOrder(order) {
+        const body = {
+          accountId: order.accountId,
+          contractId: order.contractId,
+          action: order.action,
+          orderQty: order.orderQty,
+          orderType: order.orderType,
+          price: order.price,
+          stopPrice: order.stopPrice,
+          timeInForce: order.timeInForce || "Day",
+          isAutomated: true
+        };
+        const result = await this.post("/order/placeorder", body);
+        if (result.failureReason) {
+          throw new Error(`Order rejected: ${result.failureReason}`);
+        }
+        return {
+          orderId: result.orderId || result.id,
+          status: result.orderStatus || "Working",
+          message: result.errorMessage
+        };
+      }
+      async cancelOrder(orderId) {
+        try {
+          await this.post("/order/cancelorder", { orderId });
+          return true;
+        } catch {
+          return false;
+        }
+      }
+      async liquidatePosition(accountId, contractId) {
+        try {
+          await this.post("/order/liquidateposition", { accountId, contractId, isAutomated: true });
+          return true;
+        } catch {
+          return false;
+        }
+      }
+    };
+    serviceCache2 = /* @__PURE__ */ new Map();
+    CACHE_TTL_MS3 = 50 * 60 * 1e3;
+  }
+});
+
+// server/futures-instruments.ts
+function getInstrument(symbol) {
+  return FUTURES_INSTRUMENTS[symbol.toUpperCase()];
+}
+function calculateContractRisk(symbol, entryPrice, stopLossPrice, contracts) {
+  const inst = getInstrument(symbol);
+  if (!inst) return { ticks: 0, dollarRisk: 0, pointsRisk: 0 };
+  const priceDiff = Math.abs(entryPrice - stopLossPrice);
+  const ticks = Math.round(priceDiff / inst.tickSize);
+  const dollarRisk = ticks * inst.tickValue * contracts;
+  return { ticks, dollarRisk, pointsRisk: priceDiff };
+}
+function calculateContractSize(symbol, accountBalance, riskPercent, entryPrice, stopLossPrice) {
+  const inst = getInstrument(symbol);
+  if (!inst) return 1;
+  const riskDollars = accountBalance * (riskPercent / 100);
+  const priceDiff = Math.abs(entryPrice - stopLossPrice);
+  if (priceDiff <= 0) return 1;
+  const ticks = Math.round(priceDiff / inst.tickSize);
+  const dollarRiskPerContract = ticks * inst.tickValue;
+  if (dollarRiskPerContract <= 0) return 1;
+  return Math.max(1, Math.floor(riskDollars / dollarRiskPerContract));
+}
+var FUTURES_INSTRUMENTS;
+var init_futures_instruments = __esm({
+  "server/futures-instruments.ts"() {
+    "use strict";
+    FUTURES_INSTRUMENTS = {
+      // ── Equity Index ───────────────────────────────────────────────────────────
+      NQ: { symbol: "NQ", tickSize: 0.25, tickValue: 5, pointValue: 20, exchange: "CME", description: "E-mini NASDAQ-100", microContract: false, standardContract: null, typicalDailyRange: 200, category: "equity" },
+      MNQ: { symbol: "MNQ", tickSize: 0.25, tickValue: 0.5, pointValue: 2, exchange: "CME", description: "Micro E-mini NASDAQ-100", microContract: true, standardContract: "NQ", typicalDailyRange: 200, category: "equity" },
+      ES: { symbol: "ES", tickSize: 0.25, tickValue: 12.5, pointValue: 50, exchange: "CME", description: "E-mini S&P 500", microContract: false, standardContract: null, typicalDailyRange: 50, category: "equity" },
+      MES: { symbol: "MES", tickSize: 0.25, tickValue: 1.25, pointValue: 5, exchange: "CME", description: "Micro E-mini S&P 500", microContract: true, standardContract: "ES", typicalDailyRange: 50, category: "equity" },
+      YM: { symbol: "YM", tickSize: 1, tickValue: 5, pointValue: 5, exchange: "CBOT", description: "E-mini Dow Jones 30", microContract: false, standardContract: null, typicalDailyRange: 300, category: "equity" },
+      MYM: { symbol: "MYM", tickSize: 1, tickValue: 0.5, pointValue: 0.5, exchange: "CBOT", description: "Micro E-mini Dow Jones 30", microContract: true, standardContract: "YM", typicalDailyRange: 300, category: "equity" },
+      RTY: { symbol: "RTY", tickSize: 0.1, tickValue: 5, pointValue: 50, exchange: "CME", description: "E-mini Russell 2000", microContract: false, standardContract: null, typicalDailyRange: 20, category: "equity" },
+      M2K: { symbol: "M2K", tickSize: 0.1, tickValue: 0.5, pointValue: 5, exchange: "CME", description: "Micro E-mini Russell 2000", microContract: true, standardContract: "RTY", typicalDailyRange: 20, category: "equity" },
+      // ── Metals ─────────────────────────────────────────────────────────────────
+      GC: { symbol: "GC", tickSize: 0.1, tickValue: 10, pointValue: 100, exchange: "COMEX", description: "Gold Futures", microContract: false, standardContract: null, typicalDailyRange: 25, category: "metal" },
+      MGC: { symbol: "MGC", tickSize: 0.1, tickValue: 1, pointValue: 10, exchange: "COMEX", description: "Micro Gold Futures", microContract: true, standardContract: "GC", typicalDailyRange: 25, category: "metal" },
+      SI: { symbol: "SI", tickSize: 5e-3, tickValue: 25, pointValue: 5e3, exchange: "COMEX", description: "Silver Futures", microContract: false, standardContract: null, typicalDailyRange: 0.5, category: "metal" },
+      SIL: { symbol: "SIL", tickSize: 5e-3, tickValue: 2.5, pointValue: 500, exchange: "COMEX", description: "Micro Silver Futures", microContract: true, standardContract: "SI", typicalDailyRange: 0.5, category: "metal" },
+      // ── Energy ─────────────────────────────────────────────────────────────────
+      CL: { symbol: "CL", tickSize: 0.01, tickValue: 10, pointValue: 1e3, exchange: "NYMEX", description: "Crude Oil Futures (WTI)", microContract: false, standardContract: null, typicalDailyRange: 2, category: "energy" },
+      MCL: { symbol: "MCL", tickSize: 0.01, tickValue: 1, pointValue: 100, exchange: "NYMEX", description: "Micro Crude Oil Futures", microContract: true, standardContract: "CL", typicalDailyRange: 2, category: "energy" },
+      NG: { symbol: "NG", tickSize: 1e-3, tickValue: 10, pointValue: 1e4, exchange: "NYMEX", description: "Natural Gas Futures", microContract: false, standardContract: null, typicalDailyRange: 0.1, category: "energy" },
+      // ── Treasury Rates ──────────────────────────────────────────────────────────
+      ZN: { symbol: "ZN", tickSize: 0.015625, tickValue: 15.625, pointValue: 1e3, exchange: "CBOT", description: "10-Year T-Note Futures", microContract: false, standardContract: null, typicalDailyRange: 0.5, category: "rates" },
+      ZB: { symbol: "ZB", tickSize: 0.03125, tickValue: 31.25, pointValue: 1e3, exchange: "CBOT", description: "30-Year T-Bond Futures", microContract: false, standardContract: null, typicalDailyRange: 1, category: "rates" }
+    };
+  }
+});
+
+// server/moomoo.ts
+function toFutuSymbol(symbol) {
+  return FUTU_SYMBOL_MAP[symbol] || symbol;
+}
+function getMoomooService(userId) {
+  return moomooServices.get(userId) || null;
+}
+function getOrCreateMoomooService(userId, connection2) {
+  const existing = moomooServices.get(userId);
+  if (existing) {
+    existing.updateConnection(connection2);
+    return existing;
+  }
+  const svc = new MoomooService(connection2);
+  moomooServices.set(userId, svc);
+  return svc;
+}
+function removeMoomooService(userId) {
+  moomooServices.delete(userId);
+}
+var FUTU_SYMBOL_MAP, moomooServices, MoomooService;
+var init_moomoo = __esm({
+  "server/moomoo.ts"() {
+    "use strict";
+    FUTU_SYMBOL_MAP = {
+      NQ: "NQmain",
+      MNQ: "MNQmain",
+      ES: "ESmain",
+      MES: "MESmain",
+      YM: "YMmain",
+      MYM: "MYMmain",
+      RTY: "RTYmain",
+      M2K: "M2Kmain",
+      GC: "GCmain",
+      MGC: "MGCmain",
+      SI: "SImain",
+      CL: "CLmain",
+      MCL: "MCLmain",
+      NG: "NGmain"
+    };
+    moomooServices = /* @__PURE__ */ new Map();
+    MoomooService = class {
+      connection;
+      connected = false;
+      orderCounter = 1e3;
+      constructor(connection2) {
+        this.connection = connection2;
+      }
+      updateConnection(connection2) {
+        this.connection = connection2;
+      }
+      isConnected() {
+        return this.connected;
+      }
+      isPaperMode() {
+        return this.connection.isPaper || process.env.MOOMOO_PAPER_MODE === "true";
+      }
+      // Test connectivity to OpenD or enable paper mode
+      async connect() {
+        if (this.isPaperMode()) {
+          this.connected = true;
+          return { success: true, isPaper: true };
+        }
+        try {
+          const url = this.connection.openDUrl || process.env.MOOMOO_OPEND_URL || "http://127.0.0.1:11111";
+          const res = await fetch(`${url}/v1/user/check`, {
+            method: "GET",
+            headers: { "Content-Type": "application/json" },
+            signal: AbortSignal.timeout(5e3)
+          });
+          if (res.ok) {
+            this.connected = true;
+            return { success: true, isPaper: false };
+          }
+          throw new Error(`OpenD returned ${res.status}`);
+        } catch (err) {
+          console.warn("[Moomoo] OpenD unreachable \u2014 switching to paper mode:", err.message);
+          this.connection.isPaper = true;
+          this.connected = true;
+          return { success: true, isPaper: true, error: `OpenD offline \u2014 paper mode active` };
+        }
+      }
+      async getAccountInfo() {
+        const isPaper = this.isPaperMode();
+        if (isPaper) {
+          return {
+            accountId: this.connection.accountId || "PAPER",
+            balance: 5e4,
+            equity: 5e4,
+            unrealizedPnl: 0,
+            marginUsed: 0,
+            availableMargin: 5e4,
+            currency: "USD",
+            isPaper: true
+          };
+        }
+        try {
+          const url = this.connection.openDUrl || process.env.MOOMOO_OPEND_URL || "http://127.0.0.1:11111";
+          const res = await fetch(`${url}/v1/accinfo/query`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ acc_id: parseInt(this.connection.accountId) || 0, acc_type: 1, currency: 1 }),
+            signal: AbortSignal.timeout(8e3)
+          });
+          if (!res.ok) throw new Error(`OpenD ${res.status}`);
+          const data = await res.json();
+          const info2 = data?.s2c?.acc_info_list?.[0];
+          if (!info2) throw new Error("No account info returned");
+          return {
+            accountId: this.connection.accountId,
+            balance: info2.cash || 0,
+            equity: info2.net_asset_val || 0,
+            unrealizedPnl: info2.unrealized_pl || 0,
+            marginUsed: info2.margin_call_margin || 0,
+            availableMargin: info2.avl_withdrawal_amount || 0,
+            currency: "USD",
+            isPaper: false
+          };
+        } catch (err) {
+          throw new Error(`Moomoo account info failed: ${err.message}`);
+        }
+      }
+      async placeOrder(req) {
+        const isPaper = this.isPaperMode();
+        const futuSymbol = toFutuSymbol(req.symbol);
+        const orderId = `MM${++this.orderCounter}`;
+        if (isPaper) {
+          console.log(`[Moomoo Paper] ${req.direction} ${req.contracts} ${futuSymbol} | SL=${req.stopLoss ?? "N/A"} TP=${req.takeProfit ?? "N/A"}`);
+          return { success: true, orderId: `${orderId}_PAPER`, isPaper: true };
+        }
+        try {
+          const url = this.connection.openDUrl || process.env.MOOMOO_OPEND_URL || "http://127.0.0.1:11111";
+          const body = {
+            header: { req_id: orderId },
+            acc_id: parseInt(this.connection.accountId) || 0,
+            sec_type: 5,
+            // futures
+            code: futuSymbol,
+            trd_side: req.direction === "BUY" ? 1 : 2,
+            order_type: 2,
+            // market order
+            qty: req.contracts,
+            price: 0,
+            // market price
+            trd_env: 1,
+            // real trading
+            remark: "VEDD_AUTO"
+          };
+          const res = await fetch(`${url}/v1/trade/place_order`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(body),
+            signal: AbortSignal.timeout(1e4)
+          });
+          if (!res.ok) throw new Error(`OpenD ${res.status}`);
+          const data = await res.json();
+          const orderNum = data?.s2c?.order_id?.toString();
+          if (!orderNum) throw new Error(data?.retMsg || "No order ID returned");
+          return { success: true, orderId: orderNum, isPaper: false };
+        } catch (err) {
+          return { success: false, error: err.message };
+        }
+      }
+      // Options trading via OpenD sec_type=3. Requires OpenD to already have
+      // option quote/trade permissions enabled on the connected Futu account.
+      async getOptionsChain(underlyingCode) {
+        if (this.isPaperMode()) return [];
+        const url = this.connection.openDUrl || process.env.MOOMOO_OPEND_URL || "http://127.0.0.1:11111";
+        const res = await fetch(`${url}/v1/qot/get_option_chain`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ owner: { market: 11, code: underlyingCode } }),
+          // market 11 = US
+          signal: AbortSignal.timeout(1e4)
+        });
+        if (!res.ok) throw new Error(`OpenD ${res.status}`);
+        const data = await res.json();
+        return data?.s2c?.optionChain || [];
+      }
+      async placeOptionsOrder(req) {
+        const isPaper = this.isPaperMode();
+        const orderId = `MMOPT${++this.orderCounter}`;
+        if (isPaper) {
+          console.log(`[Moomoo Paper] OPTIONS ${req.direction} ${req.contracts}x ${req.optionCode}`);
+          return { success: true, orderId: `${orderId}_PAPER`, isPaper: true };
+        }
+        try {
+          const url = this.connection.openDUrl || process.env.MOOMOO_OPEND_URL || "http://127.0.0.1:11111";
+          const body = {
+            header: { req_id: orderId },
+            acc_id: parseInt(this.connection.accountId) || 0,
+            sec_type: 3,
+            // option
+            code: req.optionCode,
+            trd_side: req.direction === "BUY" ? 1 : 2,
+            order_type: req.orderType === "limit" ? 1 : 2,
+            qty: req.contracts,
+            price: req.orderType === "limit" ? req.limitPrice || 0 : 0,
+            trd_env: 1,
+            remark: "VEDD_AUTO_OPTIONS"
+          };
+          const res = await fetch(`${url}/v1/trade/place_order`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(body),
+            signal: AbortSignal.timeout(1e4)
+          });
+          if (!res.ok) throw new Error(`OpenD ${res.status}`);
+          const data = await res.json();
+          const orderNum = data?.s2c?.order_id?.toString();
+          if (!orderNum) throw new Error(data?.retMsg || "No order ID returned");
+          return { success: true, orderId: orderNum, isPaper: false };
+        } catch (err) {
+          return { success: false, error: err.message };
+        }
+      }
+      async cancelOrder(orderId) {
+        if (this.isPaperMode()) return { success: true };
+        try {
+          const url = this.connection.openDUrl || process.env.MOOMOO_OPEND_URL || "http://127.0.0.1:11111";
+          const res = await fetch(`${url}/v1/trade/modify_order`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ order_id: parseInt(orderId) || 0, modify_order_op: 1, trd_env: 1 }),
+            signal: AbortSignal.timeout(8e3)
+          });
+          if (!res.ok) throw new Error(`OpenD ${res.status}`);
+          return { success: true };
+        } catch (err) {
+          return { success: false, error: err.message };
+        }
+      }
+    };
+  }
+});
+
+// server/services/futures-scanner.ts
+var futures_scanner_exports = {};
+__export(futures_scanner_exports, {
+  DEFAULT_FUTURES_SYMBOLS: () => DEFAULT_FUTURES_SYMBOLS,
+  buildFuturesScanConfigFromRow: () => buildFuturesScanConfigFromRow,
+  getFuturesScannerActivities: () => getFuturesScannerActivities,
+  getFuturesScannerSignals: () => getFuturesScannerSignals,
+  getFuturesScannerState: () => getFuturesScannerState,
+  recordFuturesTradeOutcome: () => recordFuturesTradeOutcome,
+  resumeActiveFuturesScanners: () => resumeActiveFuturesScanners,
+  startFuturesEngineScanner: () => startFuturesEngineScanner,
+  startFuturesScanner: () => startFuturesScanner,
+  stopFuturesScanner: () => stopFuturesScanner
+});
+function uid() {
+  return `${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+}
+function addActivity3(userId, entry) {
+  const state = scannerStates[userId];
+  if (!state) return;
+  state.activities.unshift({ id: uid(), timestamp: (/* @__PURE__ */ new Date()).toISOString(), ...entry });
+  if (state.activities.length > MAX_ACTIVITIES) state.activities.length = MAX_ACTIVITIES;
+}
+function addSignal(userId, signal) {
+  const state = scannerStates[userId];
+  if (!state) return;
+  state.signals.unshift(signal);
+  if (state.signals.length > MAX_SIGNALS) state.signals.length = MAX_SIGNALS;
+}
+function convertToCandles2(bars) {
+  return bars.map((b) => ({ t: b.timestamp, o: b.open, h: b.high, l: b.low, c: b.close, v: b.volume }));
+}
+function getCurrentFuturesSession() {
+  const hour = (/* @__PURE__ */ new Date()).getUTCHours();
+  if (hour >= 14 && hour < 21) return "CME_RTH";
+  if (hour >= 8 && hour < 10) return "LONDON_OPEN";
+  if (hour >= 21 || hour < 2) return "AFTER_HOURS";
+  return "OVERNIGHT";
+}
+function getAdjustedMinConfidence(userId, symbol) {
+  const state = scannerStates[userId];
+  if (!state) return 65;
+  const perf = state.symbolPerformance[symbol];
+  if (!perf || perf.wins + perf.losses < 3) return state.config.minConfidence;
+  const winRate2 = perf.wins / (perf.wins + perf.losses);
+  if (winRate2 < 0.35) return Math.min(90, state.config.minConfidence + 10);
+  if (winRate2 > 0.65) return Math.max(55, state.config.minConfidence - 5);
+  return state.config.minConfidence;
+}
+function recordOutcome(userId, symbol, won, rMultiple2) {
+  const state = scannerStates[userId];
+  if (!state) return;
+  if (!state.symbolPerformance[symbol]) {
+    state.symbolPerformance[symbol] = { wins: 0, losses: 0, totalR: 0 };
+  }
+  const perf = state.symbolPerformance[symbol];
+  if (won) {
+    perf.wins++;
+    state.wins++;
+  } else {
+    perf.losses++;
+    state.losses++;
+  }
+  perf.totalR += rMultiple2;
+  addActivity3(userId, {
+    type: "info",
+    symbol,
+    message: `\u{1F4CA} Learning update: ${symbol} W:${perf.wins} L:${perf.losses} | AvgR:${(perf.totalR / (perf.wins + perf.losses)).toFixed(2)} | Session W:${state.wins} L:${state.losses}`
+  });
+}
+async function computeFuturesContractSize(userId, cfg, accountBalance, riskPerTradePct, entryPrice, stopLoss, symbol, signalScore = null) {
+  const baseContracts = Math.max(1, calculateContractSize(symbol, accountBalance, riskPerTradePct, entryPrice, stopLoss));
+  if (cfg.highConfidenceOverride && (signalScore ?? 0) >= 90) {
+    const kelly = cfg.useKellyCriterion ? await storage.getFuturesEngineTradeStats(userId) : null;
+    const qty = kelly ? Math.max(baseContracts, Math.round(baseContracts * (1 + kelly.winRate / 100 * 0.25))) : baseContracts;
+    return { contracts: qty, reasoning: `\u26A1 High Confidence Override: ${signalScore}/100 bypasses Brain Learning lock.` };
+  }
+  if (cfg.brainLearningMode) {
+    const stats = await storage.getFuturesEngineTradeStats(userId);
+    const brainLocked = stats.totalClosed < 10 || stats.winRate < 60;
+    if (brainLocked) {
+      return { contracts: 1, reasoning: `\u{1F9E0} Learning Mode: contracts locked at 1 (${stats.totalClosed}/10 trades, ${stats.winRate}%/60% WR).` };
+    }
+    if (cfg.useKellyCriterion) {
+      const fractionalKelly = stats.winRate / 100 * 0.25;
+      const kellyContracts = Math.max(baseContracts, Math.round(baseContracts * (1 + fractionalKelly)));
+      return { contracts: kellyContracts, reasoning: `\u{1F9E0} Brain unlocked (${stats.totalClosed} trades @ ${stats.winRate}% WR) + Kelly sizing.` };
+    }
+    return { contracts: baseContracts, reasoning: `\u{1F9E0} Brain unlocked (${stats.totalClosed} trades @ ${stats.winRate}% WR) \u2014 full risk sizing.` };
+  }
+  if (cfg.useKellyCriterion) {
+    const stats = await storage.getFuturesEngineTradeStats(userId);
+    const fractionalKelly = stats.winRate / 100 * 0.25;
+    const kellyContracts = Math.max(baseContracts, Math.round(baseContracts * (1 + fractionalKelly)));
+    return { contracts: kellyContracts, reasoning: `Kelly sizing (${stats.winRate}% WR over ${stats.totalClosed} trades).` };
+  }
+  return { contracts: baseContracts, reasoning: "" };
+}
+function computeFuturesTrailFloorR(cfg, peakR) {
+  switch (cfg.trailMethod) {
+    case "fixed_r":
+      return peakR - cfg.trailFixedR;
+    case "stepped_fixed": {
+      const steps = Math.floor(peakR / cfg.trailStepR);
+      return (steps - 1) * cfg.trailStepR;
+    }
+    case "profit_lock":
+      return peakR * (cfg.trailProfitLockPct / 100);
+    case "chandelier":
+      return peakR - cfg.trailFixedR * 1.5;
+    case "parabolic_sar": {
+      const af = Math.min(cfg.trailSarMaxAF, cfg.trailSarInitialAF + peakR / 1 * cfg.trailSarInitialAF);
+      return peakR * (1 - af);
+    }
+    case "r_multiple":
+      return cfg.trailActivationR + (peakR - cfg.trailActivationR) * 0.5;
+    case "swing_structure":
+      return peakR - cfg.trailFixedR * 0.75;
+    default:
+      return -Infinity;
+  }
+}
+async function monitorOpenFuturesPositions(userId, cfg) {
+  const openTrades = await storage.getOpenFuturesEngineTrades(userId);
+  if (openTrades.length === 0 || cfg.trailMethod === "none") return;
+  for (const trade of openTrades) {
+    try {
+      const result = await marketDataService.fetchMarketData({ symbol: trade.symbol, assetType: "futures", timeframe: "1m", limit: 2 });
+      const currentPrice = result.bars?.[result.bars.length - 1]?.close;
+      if (!currentPrice || !trade.stopLoss) continue;
+      const riskDistance = Math.abs(trade.entryPrice - trade.stopLoss);
+      if (riskDistance <= 0) continue;
+      const isLong = trade.direction === "long";
+      const currentR = isLong ? (currentPrice - trade.entryPrice) / riskDistance : (trade.entryPrice - currentPrice) / riskDistance;
+      const peakR = Math.max(trade.peakRMultiple, currentR);
+      const armed = trade.trailArmed || peakR >= cfg.trailActivationR;
+      if (armed) {
+        const rawFloor = computeFuturesTrailFloorR(cfg, peakR);
+        const floor = Math.max(rawFloor, cfg.breakevenBufferR);
+        if (currentR <= floor) {
+          const connection2 = await storage.getUserTradovateConnection(userId);
+          if (connection2) {
+            await executeFuturesSignal(connection2, {
+              action: "CLOSE",
+              symbol: trade.symbol,
+              direction: isLong ? "SELL" : "BUY",
+              contracts: trade.contracts
+            }).catch(() => {
+            });
+          }
+          const realizedPnl = (isLong ? currentPrice - trade.entryPrice : trade.entryPrice - currentPrice) * trade.contracts * (getInstrument(trade.symbol)?.tickValue || 1) / (getInstrument(trade.symbol)?.tickSize || 1);
+          await storage.closeFuturesEngineTrade(trade.id, { exitPrice: currentPrice, exitReason: "trailing_stop", realizedPnl });
+          addActivity3(userId, { type: "trade_open", symbol: trade.symbol, message: `\u{1F4C9} Trailing stop closed ${trade.symbol} at ${currentR.toFixed(2)}R (peak ${peakR.toFixed(2)}R).` });
+          continue;
+        }
+      }
+      if (peakR !== trade.peakRMultiple || armed !== trade.trailArmed) {
+        await storage.updateFuturesEngineTradeTrailState(trade.id, { peakRMultiple: peakR, trailArmed: armed });
+      }
+    } catch (err) {
+      console.error(`[futures-scanner] failed to monitor trade ${trade.id}:`, err.message);
+    }
+  }
+}
+function futuresBasketOf(sym2) {
+  const s = (sym2 || "").toUpperCase();
+  for (const b of FUTURES_CORRELATED_BASKETS) if (b.some((root) => s.startsWith(root))) return b;
+  return null;
+}
+function futuresBias(direction) {
+  const d = (direction || "").toLowerCase();
+  if (d === "long" || d === "buy") return "bullish";
+  if (d === "short" || d === "sell") return "bearish";
+  return null;
+}
+function nyHourMinute(date2) {
+  const p = new Intl.DateTimeFormat("en-US", { timeZone: "America/New_York", hourCycle: "h23", hour: "2-digit", minute: "2-digit" }).formatToParts(date2).reduce((acc, x) => {
+    acc[x.type] = x.value;
+    return acc;
+  }, {});
+  return { h: +p.hour, m: +p.minute };
+}
+async function getFuturesLiveAccount(userId) {
+  try {
+    const m = getMoomooService(userId);
+    if (m && m.isConnected()) {
+      const info2 = await m.getAccountInfo();
+      return { equity: info2.equity || 0, unrealizedPnl: info2.unrealizedPnl || 0 };
+    }
+  } catch {
+  }
+  return { equity: 0, unrealizedPnl: 0 };
+}
+async function resolveFuturesPropConnection(userId) {
+  try {
+    const conn = await storage.getUserTradovateConnection(userId);
+    if (conn && conn.isActive) return { connectionId: conn.id ?? void 0, connectionType: "tradovate" };
+  } catch {
+  }
+  const m = getMoomooService(userId);
+  if (m && m.isConnected()) return { connectionId: 0, connectionType: "moomoo" };
+  return {};
+}
+async function checkFuturesSafetyGates(userId, cfg, equity, symbol, unrealizedPnl = 0, connectionId, connectionType, directionBias) {
+  if (cfg.maxDailyTrades > 0) {
+    const count = await storage.getTodayFuturesEngineTradeCount(userId);
+    if (count >= cfg.maxDailyTrades) return { allowed: false, reason: `max daily trades (${cfg.maxDailyTrades}) reached`, riskMultiplier: 1 };
+  }
+  const openTrades = await storage.getOpenFuturesEngineTrades(userId);
+  if (openTrades.length >= cfg.maxOpenTrades) return { allowed: false, reason: `max open trades (${cfg.maxOpenTrades}) reached`, riskMultiplier: 1 };
+  if (symbol) {
+    const act = await storage.getFuturesEngineSymbolActivity(userId, symbol);
+    if (act.openCount >= MAX_OPEN_PER_SYMBOL) {
+      return { allowed: false, reason: `concentration cap \u2014 already ${act.openCount} open position(s) on ${symbol} (max ${MAX_OPEN_PER_SYMBOL})`, riskMultiplier: 1 };
+    }
+    if (act.todayEntryCount >= MAX_DAILY_ENTRIES_PER_SYMBOL) {
+      return { allowed: false, reason: `concentration cap \u2014 already ${act.todayEntryCount} entries on ${symbol} today (max ${MAX_DAILY_ENTRIES_PER_SYMBOL})`, riskMultiplier: 1 };
+    }
+    if (act.lastEntryAt) {
+      const sinceMs = Date.now() - act.lastEntryAt.getTime();
+      if (sinceMs < SYMBOL_COOLDOWN_MS) {
+        return { allowed: false, reason: `cooldown \u2014 last ${symbol} entry ${Math.round(sinceMs / 6e4)} min ago (min gap ${Math.round(SYMBOL_COOLDOWN_MS / 6e4)} min)`, riskMultiplier: 1 };
+      }
+    }
+    if (directionBias) {
+      const basket = futuresBasketOf(symbol);
+      if (basket) {
+        const openTrades2 = await storage.getOpenFuturesEngineTrades(userId);
+        const sameBias = openTrades2.filter((t) => {
+          const b = futuresBasketOf(t.symbol || "");
+          return b === basket && futuresBias(t.direction) === directionBias;
+        }).length;
+        if (sameBias >= FUTURES_CORRELATED_BASKET_CAP) {
+          return { allowed: false, reason: `correlated-basket cap \u2014 already ${sameBias} ${directionBias} position(s) across the ${basket[0]}-group (max ${FUTURES_CORRELATED_BASKET_CAP})`, riskMultiplier: 1 };
+        }
+      }
+    }
+  }
+  let riskMultiplier = 1;
+  if (equity > 0) {
+    const todayPnl = await storage.getTodayFuturesEngineRealizedPnl(userId) + unrealizedPnl;
+    if (cfg.dailyLossLimit > 0 && todayPnl <= -(equity * cfg.dailyLossLimit / 100)) {
+      return { allowed: false, reason: `daily loss limit (${cfg.dailyLossLimit}%) reached \u2014 incl. open positions`, riskMultiplier: 1 };
+    }
+    const propState = connectionId != null && connectionType ? await storage.getPropFirmAccountState(connectionId, connectionType) : null;
+    if (propState) {
+      const isFunded = propState.phase === "funded";
+      const activeDrawdownPct = isFunded ? propState.fundedDailyDrawdownPct : propState.challengeDailyDrawdownPct;
+      const activeConsistencyEnabled = isFunded ? propState.fundedConsistencyEnabled : propState.challengeConsistencyEnabled;
+      const activeConsistencyThreshold = isFunded ? propState.fundedConsistencyThresholdPct : propState.challengeConsistencyThresholdPct;
+      if (activeDrawdownPct > 0 && todayPnl <= -(equity * activeDrawdownPct / 100)) {
+        return { allowed: false, reason: `prop-firm ${propState.phase} daily drawdown limit (${activeDrawdownPct}%) reached`, riskMultiplier: 1 };
+      }
+      const { getConsistencyStatus: getConsistencyStatus2 } = await Promise.resolve().then(() => (init_prop_firm_consistency(), prop_firm_consistency_exports));
+      const consistency = await getConsistencyStatus2(connectionId, connectionType, activeConsistencyThreshold, activeConsistencyEnabled);
+      if (consistency.hardBlocked) {
+        return { allowed: false, reason: consistency.guidance, riskMultiplier: 1 };
+      }
+      riskMultiplier = Math.min(riskMultiplier, consistency.sizeMultiplier);
+    } else if (cfg.propFirmMode && cfg.propFirmDailyDrawdownLimit > 0 && todayPnl <= -(equity * cfg.propFirmDailyDrawdownLimit / 100)) {
+      return { allowed: false, reason: `prop-firm daily drawdown limit (${cfg.propFirmDailyDrawdownLimit}%) reached`, riskMultiplier: 1 };
+    }
+    if (cfg.dailyProfitTarget > 0 && todayPnl >= equity * cfg.dailyProfitTarget / 100) {
+      return { allowed: false, reason: `daily profit target (${cfg.dailyProfitTarget}%) already reached`, riskMultiplier: 1 };
+    }
+    const peak = Math.max(futuresSessionPeakEquity.get(userId) ?? equity, equity);
+    futuresSessionPeakEquity.set(userId, peak);
+    const ddFromPeakPct = peak > 0 ? (peak - equity) / peak * 100 : 0;
+    if (ddFromPeakPct >= cfg.drawdownShieldThreshold) riskMultiplier = Math.min(riskMultiplier, 0.25);
+    if (cfg.consistencyEnforcementEnabled && cfg.propFirmMode) {
+      const history = await storage.getFuturesEngineDailyPnlHistory(userId, cfg.consistencyPeriodDays);
+      const today = (/* @__PURE__ */ new Date()).toISOString().split("T")[0];
+      history[today] = todayPnl;
+      const recentKeys = Object.keys(history).sort().slice(-cfg.consistencyPeriodDays);
+      const profitableDays = recentKeys.filter((k2) => (history[k2] ?? 0) > 0).length;
+      const tradingDays = recentKeys.length;
+      const daysRemaining = cfg.consistencyPeriodDays - tradingDays;
+      const todayIsLosing = todayPnl < 0;
+      const daysNeeded = cfg.consistencyMinProfitableDays - profitableDays;
+      const mustWinRemaining = todayIsLosing ? daysNeeded : Math.max(0, daysNeeded - 1);
+      if (mustWinRemaining > 0 && daysRemaining <= mustWinRemaining + 1) riskMultiplier = Math.min(riskMultiplier, 0.25);
+      else if (mustWinRemaining > 0 && daysRemaining <= mustWinRemaining + 3) riskMultiplier = Math.min(riskMultiplier, 0.5);
+      if (cfg.maxDailyProfitPctOfTotal > 0) {
+        const totalProfitAllTime = Object.values(history).reduce((s, v) => s + Math.max(0, v ?? 0), 0);
+        const todayProfit = Math.max(0, todayPnl);
+        if (totalProfitAllTime > 0 && todayProfit > 0) {
+          const todayPctOfTotal = todayProfit / totalProfitAllTime * 100;
+          if (todayPctOfTotal >= cfg.maxDailyProfitPctOfTotal) {
+            return { allowed: false, reason: `consistency rule \u2014 today's profit is already ${todayPctOfTotal.toFixed(0)}% of total challenge profit`, riskMultiplier: 1 };
+          }
+        }
+      }
+    }
+  }
+  return { allowed: true, riskMultiplier };
+}
+function quickQuantVerdict(data, direction) {
+  let score = 0;
+  const adx = data.adx?.adx || 0;
+  const rsi3 = data.rsi?.value || 50;
+  const macdHist2 = data.macd?.histogram || 0;
+  if (adx > 25) score += 25;
+  if (direction === "BUY" ? rsi3 >= 40 && rsi3 <= 65 : rsi3 >= 35 && rsi3 <= 60) score += 20;
+  if (direction === "BUY" ? macdHist2 > 0 : macdHist2 < 0) score += 20;
+  if (data.trend === (direction === "BUY" ? "BULLISH" : "BEARISH")) score += 15;
+  const verdict = score >= 50 ? "CONFIRM" : score >= 30 ? "WATCH" : "SKIP";
+  return { verdict, score };
+}
+function pushFuturesConsensus(userId, entry) {
+  global.futuresEngineConsensus = global.futuresEngineConsensus || {};
+  const list = global.futuresEngineConsensus[userId] || [];
+  const deduped = list.filter((e) => e.symbol !== entry.symbol);
+  global.futuresEngineConsensus[userId] = [entry, ...deduped].slice(0, 20);
+}
+async function getFuturesAiConfirmation(userId, symbol, strategy, direction, data) {
+  try {
+    const { getUniversalAIClientForUser: getUniversalAIClientForUser2 } = await Promise.resolve().then(() => (init_openai(), openai_exports));
+    const client2 = await getUniversalAIClientForUser2(userId);
+    const system = 'You are a disciplined futures-trading second opinion. Given a technical signal from a rules-based scanner, decide whether you would independently confirm or skip it. Respond ONLY with JSON: {"confirmed": boolean, "confidence": number (0-100), "reasoning": string (1-2 sentences)}.';
+    const user = `Symbol: ${symbol}
+Strategy: ${strategy}
+Direction: ${direction}
+ADX: ${data.adx?.adx ?? "n/a"}
+RSI: ${data.rsi?.value ?? "n/a"}
+MACD histogram: ${data.macd?.histogram ?? "n/a"}
+Trend: ${data.trend ?? "n/a"}
+
+Would you confirm this trade?`;
+    const r = await client2.chat.completions.create({
+      model: client2.defaultModel || "gpt-4o-mini",
+      messages: [{ role: "system", content: system }, { role: "user", content: user }],
+      response_format: { type: "json_object" },
+      max_tokens: 300,
+      temperature: 0.3
+    });
+    const parsed = JSON.parse(r.choices?.[0]?.message?.content || "{}");
+    return {
+      confirmed: !!parsed.confirmed,
+      confidence: Math.max(0, Math.min(100, Number(parsed.confidence) || 0)),
+      reasoning: String(parsed.reasoning || "")
+    };
+  } catch (err) {
+    return { confirmed: false, confidence: 0, reasoning: `AI confirmation unavailable: ${err.message}` };
+  }
+}
+async function assembleFuturesConsensus(userId, symbol, strategy, direction, data, cfg, precomputedAi) {
+  const quant = quickQuantVerdict(data, direction);
+  if (cfg.aiMode === "rule_based") {
+    const tradeAllowed2 = quant.verdict !== "SKIP";
+    pushFuturesConsensus(userId, {
+      symbol,
+      strategy,
+      quantVerdict: quant.verdict,
+      quantScore: quant.score,
+      aiVerdict: "CONFIRM",
+      aiConfidence: 0,
+      consensus: quant.verdict === "CONFIRM" ? "STRONG_CONFIRM" : quant.verdict === "SKIP" ? "STRONG_SKIP" : "WATCH",
+      tradeAllowed: tradeAllowed2,
+      timestamp: (/* @__PURE__ */ new Date()).toISOString()
+    });
+    return tradeAllowed2;
+  }
+  const ai = precomputedAi ?? await getFuturesAiConfirmation(userId, symbol, strategy, direction, data);
+  const aiConfidence = ai.confidence;
+  const aiVerdict = precomputedAi ? aiConfidence >= 60 ? "CONFIRM" : "SKIP" : ai.confirmed ? "CONFIRM" : "SKIP";
+  let consensus;
+  if (quant.verdict === "CONFIRM" && aiVerdict === "CONFIRM") consensus = "STRONG_CONFIRM";
+  else if (quant.verdict === "SKIP" && aiVerdict === "SKIP") consensus = "STRONG_SKIP";
+  else if (quant.verdict === "CONFIRM" && aiVerdict === "SKIP" || quant.verdict === "SKIP" && aiVerdict === "CONFIRM") consensus = "CAUTION";
+  else consensus = "WATCH";
+  const tradeAllowed = consensus !== "STRONG_SKIP" && aiVerdict === "CONFIRM";
+  pushFuturesConsensus(userId, {
+    symbol,
+    strategy,
+    quantVerdict: quant.verdict,
+    quantScore: quant.score,
+    aiVerdict,
+    aiConfidence,
+    consensus,
+    tradeAllowed,
+    timestamp: (/* @__PURE__ */ new Date()).toISOString()
+  });
+  return tradeAllowed;
+}
+function isHighImpactNewsWindow() {
+  const now = /* @__PURE__ */ new Date();
+  const utcDay2 = now.getUTCDay();
+  const utcHour = now.getUTCHours();
+  const utcMin = now.getUTCMinutes();
+  const totalMin = utcHour * 60 + utcMin;
+  if (utcDay2 === 5 && now.getUTCDate() <= 7 && totalMin >= 795 && totalMin <= 825) return true;
+  if (utcDay2 === 3 && totalMin >= 915 && totalMin <= 945) return true;
+  if (utcDay2 >= 1 && utcDay2 <= 5 && totalMin >= 795 && totalMin <= 825) return true;
+  if (utcDay2 === 3 && (utcHour === 18 && utcMin >= 50 || utcHour === 19 && utcMin <= 10)) return true;
+  return false;
+}
+function computeSmartMoney(candles) {
+  const res = { orderBlockBull: false, orderBlockBear: false, fvgBull: false, fvgBear: false, liqSweepBull: false, liqSweepBear: false, score: 0 };
+  if (candles.length < 10) return res;
+  const recent = candles.slice(-12);
+  for (let i = 1; i < recent.length - 2; i++) {
+    const c = recent[i];
+    const bodyPct = Math.abs(c.c - c.o) / c.o;
+    if (bodyPct < 8e-4) continue;
+    if (c.c < c.o && recent[i + 1].c > recent[i + 1].o && recent[i + 2].c > recent[i + 2].o) res.orderBlockBull = true;
+    if (c.c > c.o && recent[i + 1].c < recent[i + 1].o && recent[i + 2].c < recent[i + 2].o) res.orderBlockBear = true;
+  }
+  for (let i = 1; i < recent.length - 1; i++) {
+    if (recent[i - 1].h < recent[i + 1].l) res.fvgBull = true;
+    if (recent[i - 1].l > recent[i + 1].h) res.fvgBear = true;
+  }
+  const swingLow = Math.min(...recent.slice(0, -1).map((c) => c.l));
+  const swingHigh = Math.max(...recent.slice(0, -1).map((c) => c.h));
+  const last = recent[recent.length - 1];
+  if (last.l < swingLow && last.c > swingLow) res.liqSweepBull = true;
+  if (last.h > swingHigh && last.c < swingHigh) res.liqSweepBear = true;
+  res.score += (res.orderBlockBull ? 1 : 0) + (res.fvgBull ? 1 : 0) + (res.liqSweepBull ? 1 : 0);
+  res.score -= (res.orderBlockBear ? 1 : 0) + (res.fvgBear ? 1 : 0) + (res.liqSweepBear ? 1 : 0);
+  return res;
+}
+function computeVolumeProfile(candles, currentPrice) {
+  const empty = { poc: 0, vah: 0, val: 0, priceNearPOC: false, priceNearVAH: false, priceNearVAL: false };
+  if (candles.length < 5) return empty;
+  const prices = candles.map((c) => (c.h + c.l + c.c) / 3);
+  const minP = Math.min(...prices), maxP = Math.max(...prices);
+  if (maxP === minP) return empty;
+  const BUCKETS = 20;
+  const bSize = (maxP - minP) / BUCKETS;
+  const volByBucket = new Array(BUCKETS).fill(0);
+  for (let i = 0; i < candles.length; i++) {
+    const idx = Math.min(BUCKETS - 1, Math.floor((prices[i] - minP) / bSize));
+    volByBucket[idx] += candles[i].v || 1;
+  }
+  const pocIdx = volByBucket.indexOf(Math.max(...volByBucket));
+  const poc = minP + (pocIdx + 0.5) * bSize;
+  const totalVol = volByBucket.reduce((s, v) => s + v, 0);
+  const target = totalVol * 0.7;
+  let lo = pocIdx, hi = pocIdx, acc = volByBucket[pocIdx];
+  while (acc < target && (lo > 0 || hi < BUCKETS - 1)) {
+    const addLo = lo > 0 ? volByBucket[lo - 1] : 0;
+    const addHi = hi < BUCKETS - 1 ? volByBucket[hi + 1] : 0;
+    if (addLo >= addHi && lo > 0) {
+      lo--;
+      acc += addLo;
+    } else if (hi < BUCKETS - 1) {
+      hi++;
+      acc += addHi;
+    } else break;
+  }
+  const val = minP + lo * bSize;
+  const vah = minP + (hi + 1) * bSize;
+  const prox = bSize * 1.5;
+  return { poc, vah, val, priceNearPOC: Math.abs(currentPrice - poc) < prox, priceNearVAH: Math.abs(currentPrice - vah) < prox, priceNearVAL: Math.abs(currentPrice - val) < prox };
+}
+function computeVolumeDelta(candles, lookback = 10) {
+  let delta = 0;
+  for (const c of candles.slice(-lookback)) {
+    const range = c.h - c.l;
+    if (range <= 0) continue;
+    const buyFrac = (c.c - c.l) / range;
+    delta += (buyFrac * 2 - 1) * (c.v || 1);
+  }
+  return delta;
+}
+async function runFuturesAIAnalysis(userId, marketAnalysis) {
+  const state = scannerStates[userId];
+  if (!state) return;
+  const config = state.config;
+  const session3 = getCurrentFuturesSession();
+  if (config.aiMode === "rule_based") {
+    const newsBlock = isHighImpactNewsWindow();
+    if (newsBlock) addActivity3(userId, { type: "info", message: "\u{1F4F0} High-impact news window active \u2014 confidence penalized on all signals" });
+    for (const [symbol, data] of Object.entries(marketAnalysis)) {
+      const inst = getInstrument(symbol);
+      if (!inst) continue;
+      const adx = data.adx?.adx || 0;
+      const plusDI = data.adx?.plusDI || 0;
+      const minusDI = data.adx?.minusDI || 0;
+      const rsi3 = data.rsi?.value || 50;
+      const macdCross = data.macd?.histogram > 0;
+      const candles = data.candles || [];
+      let direction = null;
+      let confluences = [];
+      let confidence2 = 0;
+      let strategy = "rule_based";
+      if (adx > 25 && plusDI > minusDI && rsi3 < 65 && macdCross) {
+        direction = "BUY";
+        confluences = [`ADX ${adx.toFixed(1)} trend`, "DI+ dominant", "MACD bullish"];
+        confidence2 = 65;
+        strategy = "adx_macd";
+      } else if (adx > 25 && minusDI > plusDI && rsi3 > 35 && !macdCross) {
+        direction = "SELL";
+        confluences = [`ADX ${adx.toFixed(1)} trend`, "DI- dominant", "MACD bearish"];
+        confidence2 = 65;
+        strategy = "adx_macd";
+      }
+      const sm = computeSmartMoney(candles);
+      if (!direction && sm.liqSweepBull) {
+        direction = "BUY";
+        confidence2 = 63;
+        strategy = "smart_money";
+        confluences = ["Liquidity sweep reversal (bull)"];
+      } else if (!direction && sm.liqSweepBear) {
+        direction = "SELL";
+        confidence2 = 63;
+        strategy = "smart_money";
+        confluences = ["Liquidity sweep reversal (bear)"];
+      }
+      if (direction) {
+        const isBull = direction === "BUY";
+        if (sm.orderBlockBull && isBull) {
+          confidence2 += 4;
+          confluences.push("Bullish order block");
+        }
+        if (sm.orderBlockBear && !isBull) {
+          confidence2 += 4;
+          confluences.push("Bearish order block");
+        }
+        if (sm.fvgBull && isBull) {
+          confidence2 += 3;
+          confluences.push("Bullish FVG");
+        }
+        if (sm.fvgBear && !isBull) {
+          confidence2 += 3;
+          confluences.push("Bearish FVG");
+        }
+        if (sm.liqSweepBull && isBull) {
+          confidence2 += 5;
+          confluences.push("Liquidity sweep (bull)");
+        }
+        if (sm.liqSweepBear && !isBull) {
+          confidence2 += 5;
+          confluences.push("Liquidity sweep (bear)");
+        }
+        const vp = computeVolumeProfile(candles, data.currentPrice);
+        if (vp.poc > 0) {
+          if (isBull && vp.priceNearVAL) {
+            confidence2 += 4;
+            confluences.push("Price at VAL (vol support)");
+          }
+          if (!isBull && vp.priceNearVAH) {
+            confidence2 += 4;
+            confluences.push("Price at VAH (vol resistance)");
+          }
+          if (vp.priceNearPOC) confluences.push(`Near POC $${vp.poc.toFixed(2)}`);
+        }
+        const delta = computeVolumeDelta(candles);
+        if (isBull && delta > 0) {
+          confidence2 += 3;
+          confluences.push(`Vol delta: buyer aggression`);
+        } else if (!isBull && delta < 0) {
+          confidence2 += 3;
+          confluences.push(`Vol delta: seller aggression`);
+        } else if (delta !== 0) {
+          confidence2 -= 4;
+          confluences.push("Vol delta opposing signal");
+        }
+        if (candles.length >= 10) {
+          const markov = getMarkovSignal(symbol, direction, candles.map((c) => ({ open: c.o, close: c.c })));
+          confidence2 += markov.confidenceAdjustment;
+          confluences.push(markov.reason);
+          if (markov.confidenceAdjustment !== 0) {
+            strategy = strategy === "rule_based" ? "markov_enhanced" : strategy + "+markov";
+          }
+        }
+        if (candles.length >= 10) {
+          const of = computeOrderFlow(candles, Math.min(30, candles.length));
+          const isBull2 = direction === "BUY";
+          if (of.direction !== "NEUTRAL") {
+            if (of.direction === direction) {
+              if (of.divergence) {
+                confidence2 += 5;
+                confluences.push(`OF delta divergence (${of.divergenceType})`);
+              }
+              if (of.absorption) {
+                confidence2 += 4;
+                confluences.push(`OF absorption (${of.absorptionType})`);
+              }
+              if (of.imbalance) {
+                confidence2 += 3;
+                confluences.push(`OF imbalance (${of.imbalanceType})`);
+              }
+              if (of.cvdTrend !== "flat") {
+                confidence2 += 2;
+                confluences.push(`CVD ${of.cvdTrend}`);
+              }
+              strategy = strategy.includes("order_flow") ? strategy : strategy + "+order_flow";
+            } else {
+              confidence2 -= 8;
+              confluences.push(`OF opposing: ${of.reason.split("|")[0].trim()}`);
+            }
+          } else if (!direction) {
+            if (of.confidence >= 65) {
+              direction = of.direction;
+              confidence2 = of.confidence;
+              strategy = "order_flow";
+              confluences = of.confluences;
+            }
+          }
+        }
+        if (newsBlock) {
+          confidence2 -= 15;
+          confluences.push("News window penalty");
+        }
+      }
+      const effectiveDirectionFilter = config.symbolDirectionOverrides[symbol] || config.directionFilter;
+      const directionAllowed = effectiveDirectionFilter === "both" || effectiveDirectionFilter === "long_only" && direction === "BUY" || effectiveDirectionFilter === "short_only" && direction === "SELL";
+      if (direction && !directionAllowed) continue;
+      if (!direction) continue;
+      let minConf = getAdjustedMinConfidence(userId, symbol);
+      if (config.smartSymbolEscalation) {
+        const recentForSymbol = (await storage.getUserFuturesEngineTrades(userId, 50)).filter((t) => t.symbol === symbol && t.status === "closed").sort((a, b) => new Date(b.closedAt ?? 0).getTime() - new Date(a.closedAt ?? 0).getTime());
+        if (recentForSymbol[0] && (recentForSymbol[0].realizedPnl ?? 0) > 0) minConf = Math.max(50, minConf - 5);
+      }
+      const compositeEligible = config.enableCompositeAutonomous && confluences.length >= 4 && confidence2 >= config.compositeMinEdgeScore;
+      const highConfidenceEligible = config.highConfidenceOverride && confidence2 >= 90;
+      if (confidence2 < minConf && !compositeEligible && !highConfidenceEligible) continue;
+      const atr2 = data.volatilityContext?.currentATR || inst.typicalDailyRange * inst.tickSize * 10;
+      const slTicks = Math.max(4, Math.round(atr2 / inst.tickSize * 0.5));
+      const tpTicks = slTicks * 2;
+      const entryPrice = data.currentPrice;
+      const sl = direction === "BUY" ? entryPrice - slTicks * inst.tickSize : entryPrice + slTicks * inst.tickSize;
+      const tp = direction === "BUY" ? entryPrice + tpTicks * inst.tickSize : entryPrice - tpTicks * inst.tickSize;
+      const maxContracts = config.symbolContractOverrides[symbol] || void 0;
+      const sizing = await computeFuturesContractSize(userId, config, config.accountBalance, config.riskPerTrade, entryPrice, sl, symbol, confidence2);
+      const contracts = maxContracts ? Math.min(sizing.contracts, maxContracts) : sizing.contracts;
+      const signal = {
+        id: uid(),
+        timestamp: (/* @__PURE__ */ new Date()).toISOString(),
+        symbol,
+        direction,
+        contracts: Math.max(1, contracts),
+        entryPrice,
+        stopLoss: sl,
+        takeProfit: tp,
+        stopLossTicks: slTicks,
+        takeProfitTicks: tpTicks,
+        confidence: Math.min(100, Math.max(0, confidence2)),
+        reason: confluences.filter((c) => !c.startsWith("Markov")).join(" | ") + (sizing.reasoning ? ` | ${sizing.reasoning}` : ""),
+        strategy,
+        confluences,
+        status: "pending"
+      };
+      addActivity3(userId, { type: "signal", symbol, direction, confidence: signal.confidence, message: `\u26A1 ${strategy.toUpperCase()}: ${direction} ${symbol} @ ${entryPrice} | Conf: ${signal.confidence}% | SL: ${slTicks}t TP: ${tpTicks}t | ${confluences.slice(0, 3).join(", ")}` });
+      addSignal(userId, signal);
+      const tradeAllowed = await assembleFuturesConsensus(userId, symbol, strategy, direction, data, config);
+      if (tradeAllowed) {
+        await executeSignalIfEnabled(userId, signal);
+      } else {
+        signal.status = "rejected";
+        signal.executionResult = "Blocked by Dual-Vote Consensus";
+        addActivity3(userId, { type: "info", symbol, message: `${symbol}: signal confirmed by quant scan, but consensus blocked execution.` });
+      }
+    }
+    return;
+  }
+  let openai2;
+  try {
+    const { getUniversalAIClientForUser: getUniversalAIClientForUser2 } = await Promise.resolve().then(() => (init_openai(), openai_exports));
+    openai2 = await getUniversalAIClientForUser2(userId);
+  } catch {
+    addActivity3(userId, { type: "error", message: "No AI API key configured \u2014 futures scanner cannot analyze." });
+    return;
+  }
+  const _primaryClient = openai2;
+  const _primaryModel = openai2.defaultModel || "gpt-4o";
+  let _usingGroq = false;
+  if (config.aiMode === "economy" && process.env.GROQ_API_KEY) {
+    try {
+      const OpenAI9 = (await import("openai")).default;
+      const groq = new OpenAI9({ apiKey: process.env.GROQ_API_KEY, baseURL: "https://api.groq.com/openai/v1", maxRetries: 4, timeout: 9e4 });
+      groq.defaultModel = "openai/gpt-oss-120b";
+      openai2 = groq;
+      _usingGroq = true;
+    } catch {
+    }
+  }
+  const model = openai2.defaultModel || "gpt-4o";
+  const newsWindowActive = isHighImpactNewsWindow();
+  if (newsWindowActive) addActivity3(userId, { type: "info", message: "\u{1F4F0} High-impact news window active \u2014 AI will reduce signal confidence accordingly" });
+  const marketSummary = Object.entries(marketAnalysis).map(([sym2, data]) => {
+    const inst = getInstrument(sym2);
+    const vol = data.volatilityContext;
+    const sr = data.supportResistance;
+    const atr2 = vol?.currentATR || 0;
+    const atrTicks = inst ? Math.round(atr2 / inst.tickSize) : 0;
+    const candles = data.candles || [];
+    const perfNote = (() => {
+      const perf = state.symbolPerformance[sym2];
+      if (!perf || perf.wins + perf.losses < 2) return "";
+      const wr = (perf.wins / (perf.wins + perf.losses) * 100).toFixed(0);
+      return `, HistoricalWR=${wr}%(${perf.wins}W/${perf.losses}L)`;
+    })();
+    const smNote = (() => {
+      if (candles.length < 10) return "";
+      const sm = computeSmartMoney(candles);
+      const parts = [];
+      if (sm.orderBlockBull) parts.push("BullOB");
+      if (sm.orderBlockBear) parts.push("BearOB");
+      if (sm.fvgBull) parts.push("BullFVG");
+      if (sm.fvgBear) parts.push("BearFVG");
+      if (sm.liqSweepBull) parts.push("LiqSweepBull");
+      if (sm.liqSweepBear) parts.push("LiqSweepBear");
+      return parts.length ? `, SmartMoney=[${parts.join(",")}]` : "";
+    })();
+    const vpNote = (() => {
+      if (candles.length < 5) return "";
+      const vp = computeVolumeProfile(candles, data.currentPrice);
+      if (!vp.poc) return "";
+      return `, VolProfile(POC=${vp.poc.toFixed(2)},VAH=${vp.vah.toFixed(2)},VAL=${vp.val.toFixed(2)},NearPOC=${vp.priceNearPOC},NearVAH=${vp.priceNearVAH},NearVAL=${vp.priceNearVAL})`;
+    })();
+    const deltaNote = (() => {
+      if (candles.length < 5) return "";
+      const d = computeVolumeDelta(candles);
+      return `, VolDelta=${d > 0 ? "+" : ""}${Math.round(d)}(${d > 0 ? "buyers" : "sellers"})`;
+    })();
+    const markovNote = (() => {
+      if (candles.length < 10) return "";
+      const dir = data.trend === "BULLISH" ? "BUY" : "SELL";
+      const m = getMarkovSignal(sym2, dir, candles.map((c) => ({ open: c.o, close: c.c })));
+      return `, Markov(bullP=${Math.round(m.bullishProbability * 100)}%,bearP=${Math.round(m.bearishProbability * 100)}%,adj=${m.confidenceAdjustment > 0 ? "+" : ""}${m.confidenceAdjustment})`;
+    })();
+    return `${sym2}(${inst?.description || ""}): Price=${data.currentPrice}, Trend=${data.trend}, ADX=${data.adx?.adx?.toFixed(1) || "N/A"}, RSI=${data.rsi?.value?.toFixed(1) || "N/A"}, MACD_hist=${data.macd?.histogram?.toFixed(2) || "N/A"}, ATR=${atr2.toFixed(2)}(${atrTicks}ticks), TickVal=$${inst?.tickValue || "?"}/tick, Support=${sr?.supports?.[0]?.toFixed(2) || "N/A"}, Resistance=${sr?.resistances?.[0]?.toFixed(2) || "N/A"}, Patterns=[${(data.candlePatterns || []).join(",")}]${perfNote}${smNote}${vpNote}${deltaNote}${markovNote}`;
+  }).join("\n");
+  const symbolPerformanceSummary = Object.entries(state.symbolPerformance).map(([sym2, p]) => `${sym2}: ${p.wins}W/${p.losses}L avgR=${p.wins + p.losses > 0 ? (p.totalR / (p.wins + p.losses)).toFixed(2) : "N/A"}`).join(", ") || "No history yet";
+  const newsWarning = newsWindowActive ? "\n\u26A0\uFE0F HIGH-IMPACT NEWS WINDOW ACTIVE \u2014 reduce all signal confidence by 15 points and avoid new entries unless confidence > 85%." : "";
+  const prompt = `You are VEDD AI \u2014 an expert futures trader with deep knowledge of CME equity index, metals, and energy futures.
+
+CURRENT SESSION: ${session3} (UTC hour: ${(/* @__PURE__ */ new Date()).getUTCHours()})
+ACCOUNT BALANCE: $${config.accountBalance} | RISK PER TRADE: ${config.riskPerTrade}% | MAX OPEN: ${config.maxOpenTrades}
+CURRENT WIN/LOSS: ${state.wins}W / ${state.losses}L
+SYMBOL LEARNING: ${symbolPerformanceSummary}${newsWarning}
+
+MARKET DATA (15-minute candles, includes SmartMoney/VolProfile/Delta/Markov analysis):
+${marketSummary}
+
+STRATEGY CONFLUENCE GUIDE:
+- SmartMoney=[BullOB/BearOB]: Order block present \u2014 high-probability reversal zone
+- SmartMoney=[BullFVG/BearFVG]: Fair Value Gap \u2014 price likely fills imbalance
+- SmartMoney=[LiqSweepBull/LiqSweepBear]: Stop hunt reversal \u2014 strong fade opportunity
+- VolProfile(NearVAL=true for BUY, NearVAH=true for SELL): Volume support/resistance level
+- VolProfile(NearPOC=true): Highest traded price cluster \u2014 magnet or pivot
+- VolDelta=positive means buyers dominating; negative means sellers; confirm with direction
+- Markov(bullP/bearP): Probability of next candle being bullish/bearish; adj = confidence \xB1pts
+
+FUTURES TRADING RULES:
+- Equity futures (NQ/ES/YM/RTY and micros) are best traded during CME_RTH (14:30-21:00 UTC) and London open (08:00-10:00 UTC)
+- Energy (CL, NG) and Metals (GC, SI) trade 24h but with best volume during RTH
+- ALWAYS calculate stop loss in TICKS, not pips \u2014 each instrument has unique tick size
+- Prefer 1.5R minimum reward:risk. Scale to 2R or 3R when momentum is clear
+- During AFTER_HOURS or OVERNIGHT, only trade if ADX > 30 and patterns are clear
+- High-impact news (FOMC, NFP, CPI, EIA) creates volatility \u2014 avoid entries 15min before/after
+- Micro contracts (MNQ, MES, MYM, M2K, MGC, MCL) are appropriate for smaller accounts
+- Self-learning: if a symbol has been losing (shown in history), be MORE selective (require 80%+ confidence)
+
+Analyze the market data and decide whether to generate trade signals.
+
+Respond ONLY with valid JSON:
+{
+  "decisions": [
+    {
+      "symbol": "NQ",
+      "direction": "BUY",
+      "confidence": 78,
+      "strategy": "breakout_momentum",
+      "reason": "brief explanation",
+      "confluences": ["ADX 32 trending", "RSI 58 rising", "MACD bullish cross", "price at support"],
+      "stopLossTicks": 20,
+      "takeProfitTicks": 40,
+      "holdTime": "45-90 minutes"
+    }
+  ],
+  "marketOverview": "brief overall assessment",
+  "sessionNote": "any session-specific notes"
+}
+
+Rules for decisions array:
+- Only include signals with confidence >= ${config.minConfidence}%
+- Max ${config.maxOpenTrades} signals per cycle
+- If no good setups exist, return empty decisions array
+- stopLossTicks and takeProfitTicks must be positive integers
+- confidence is 0-100`;
+  try {
+    addActivity3(userId, { type: "info", message: `\u{1F916} Futures AI analyzing ${Object.keys(marketAnalysis).length} instruments (${session3}) via ${model}...` });
+    const _mkReq = (m) => ({
+      model: m,
+      messages: [{ role: "user", content: prompt }],
+      response_format: { type: "json_object" },
+      max_tokens: 1200,
+      temperature: 0.3
+    });
+    let response;
+    try {
+      response = await openai2.chat.completions.create(_mkReq(model));
+    } catch (aiErr) {
+      if (_usingGroq) {
+        addActivity3(userId, { type: "info", message: `\u26A0\uFE0F Groq failed (${(aiErr?.message || "").slice(0, 80)}) \u2014 retrying on primary AI client` });
+        response = await _primaryClient.chat.completions.create(_mkReq(_primaryModel));
+      } else {
+        throw aiErr;
+      }
+    }
+    const raw = response.choices[0]?.message?.content || "{}";
+    let parsed;
+    try {
+      parsed = JSON.parse(raw);
+    } catch {
+      parsed = {};
+    }
+    const decisions = parsed.decisions || [];
+    if (parsed.marketOverview) {
+      addActivity3(userId, { type: "info", message: `\u{1F4CA} ${parsed.marketOverview}${parsed.sessionNote ? " | " + parsed.sessionNote : ""}` });
+    }
+    if (decisions.length === 0) {
+      addActivity3(userId, { type: "info", message: "No futures setups this cycle \u2014 waiting for higher-quality alignment." });
+      return;
+    }
+    for (const d of decisions) {
+      if (!d.symbol || !d.direction || !d.confidence) continue;
+      const effectiveDirectionFilter = config.symbolDirectionOverrides[d.symbol] || config.directionFilter;
+      const directionAllowed = effectiveDirectionFilter === "both" || effectiveDirectionFilter === "long_only" && d.direction === "BUY" || effectiveDirectionFilter === "short_only" && d.direction === "SELL";
+      if (!directionAllowed) continue;
+      const minConf = getAdjustedMinConfidence(userId, d.symbol);
+      if (d.confidence < minConf) {
+        addActivity3(userId, { type: "info", symbol: d.symbol, message: `Skipped ${d.symbol}: confidence ${d.confidence}% < adjusted threshold ${minConf}% (learning-adjusted)` });
+        continue;
+      }
+      const inst = getInstrument(d.symbol);
+      if (!inst) continue;
+      const price = marketAnalysis[d.symbol]?.currentPrice || 0;
+      const slTicks = Math.max(4, d.stopLossTicks || 20);
+      const tpTicks = Math.max(slTicks, d.takeProfitTicks || slTicks * 2);
+      const sl = d.direction === "BUY" ? price - slTicks * inst.tickSize : price + slTicks * inst.tickSize;
+      const tp = d.direction === "BUY" ? price + tpTicks * inst.tickSize : price - tpTicks * inst.tickSize;
+      const maxContracts = config.symbolContractOverrides[d.symbol] || void 0;
+      const sizing = await computeFuturesContractSize(userId, config, config.accountBalance, config.riskPerTrade, price, sl, d.symbol, d.confidence);
+      const contracts = Math.max(1, maxContracts ? Math.min(sizing.contracts, maxContracts) : sizing.contracts);
+      const signal = {
+        id: uid(),
+        timestamp: (/* @__PURE__ */ new Date()).toISOString(),
+        symbol: d.symbol,
+        direction: d.direction,
+        contracts,
+        entryPrice: price,
+        stopLoss: sl,
+        takeProfit: tp,
+        stopLossTicks: slTicks,
+        takeProfitTicks: tpTicks,
+        confidence: d.confidence,
+        reason: (d.reason || "") + (sizing.reasoning ? ` | ${sizing.reasoning}` : ""),
+        strategy: d.strategy || "ai_analysis",
+        confluences: d.confluences || [],
+        status: "pending"
+      };
+      addActivity3(userId, {
+        type: "signal",
+        symbol: d.symbol,
+        direction: d.direction,
+        confidence: d.confidence,
+        message: `\u26A1 FUTURES SIGNAL: ${d.direction} ${d.symbol} @ ${price} | Conf: ${d.confidence}% | SL: ${slTicks}t ($${(slTicks * inst.tickValue * contracts).toFixed(0)} risk) | TP: ${tpTicks}t | Strategy: ${d.strategy}`,
+        details: { confluences: d.confluences, holdTime: d.holdTime }
+      });
+      addSignal(userId, signal);
+      const tradeAllowed = await assembleFuturesConsensus(userId, d.symbol, signal.strategy, d.direction, marketAnalysis[d.symbol] || {}, config, { confidence: d.confidence });
+      if (tradeAllowed) {
+        await executeSignalIfEnabled(userId, signal);
+      } else {
+        signal.status = "rejected";
+        signal.executionResult = "Blocked by Dual-Vote Consensus";
+        addActivity3(userId, { type: "info", symbol: d.symbol, message: `${d.symbol}: AI signal confirmed, but consensus (Quant Agent disagreed) blocked execution.` });
+      }
+    }
+  } catch (err) {
+    addActivity3(userId, { type: "error", message: `Futures AI error: ${err.message}` });
+  }
+}
+async function executeSignalIfEnabled(userId, signal) {
+  const state = scannerStates[userId];
+  if (!state || !state.config.enableAutoExecution) return;
+  const _sigAcct = await getFuturesLiveAccount(userId);
+  const _sigEquity = _sigAcct.equity > 0 ? _sigAcct.equity : state.config.accountBalance;
+  const _sigPc = await resolveFuturesPropConnection(userId);
+  const _sigBias = signal.direction === "BUY" ? "bullish" : "bearish";
+  const gate = await checkFuturesSafetyGates(userId, state.config, _sigEquity, signal.symbol, _sigAcct.unrealizedPnl, _sigPc.connectionId, _sigPc.connectionType, _sigBias);
+  if (!gate.allowed) {
+    signal.status = "rejected";
+    signal.executionResult = gate.reason;
+    addActivity3(userId, { type: "info", symbol: signal.symbol, message: `${signal.symbol}: signal confirmed, but execution blocked \u2014 ${gate.reason}.` });
+    return;
+  }
+  if (gate.riskMultiplier < 1) {
+    if ((signal.confidence ?? 0) < 80) {
+      signal.status = "rejected";
+      signal.executionResult = "Drawdown Shield active \u2014 only 80%+ confidence setups allowed during drawdown";
+      addActivity3(userId, { type: "info", symbol: signal.symbol, message: `${signal.symbol}: Drawdown Shield active \u2014 only 80%+ confidence setups allowed during drawdown (this signal: ${signal.confidence}%).` });
+      return;
+    }
+    const bestStrategies = global.veddFuturesBrain?.[userId]?.symbolKnowledge?.[signal.symbol]?.bestStrategies ?? [];
+    if (bestStrategies.length > 0 && !bestStrategies.includes(signal.strategy)) {
+      signal.status = "rejected";
+      signal.executionResult = `Drawdown Shield active \u2014 only best-performing strategies (${bestStrategies.join(", ")}) allowed during drawdown`;
+      addActivity3(userId, { type: "info", symbol: signal.symbol, message: `${signal.symbol}: Drawdown Shield active \u2014 only this symbol's best-performing strategies (${bestStrategies.join(", ")}) are allowed during drawdown ("${signal.strategy}" isn't one of them).` });
+      return;
+    }
+    signal.contracts = Math.max(1, Math.round(signal.contracts * gate.riskMultiplier));
+    addActivity3(userId, { type: "info", symbol: signal.symbol, message: `\u26A0\uFE0F Risk reduced to ${Math.round(gate.riskMultiplier * 100)}% (Drawdown Shield / consistency rule active) \u2014 sized to ${signal.contracts} contracts.` });
+  }
+  const moomoo = getMoomooService(userId);
+  if (moomoo && moomoo.isConnected()) {
+    try {
+      const result = await moomoo.placeOrder({
+        symbol: signal.symbol,
+        direction: signal.direction,
+        contracts: signal.contracts,
+        stopLoss: signal.stopLoss || void 0,
+        takeProfit: signal.takeProfit || void 0
+      });
+      if (result.success) {
+        signal.status = "executed";
+        signal.executionResult = `Moomoo Order #${result.orderId}`;
+        addActivity3(userId, { type: "trade_open", symbol: signal.symbol, direction: signal.direction, message: `\u2705 MOOMOO EXECUTED: ${signal.direction} ${signal.contracts} ${signal.symbol} | Order: ${result.orderId}` });
+        await storage.createFuturesEngineTrade({
+          userId,
+          connectionId: 0,
+          broker: "moomoo",
+          symbol: signal.symbol,
+          strategy: signal.strategy,
+          direction: signal.direction === "BUY" ? "long" : "short",
+          contracts: signal.contracts,
+          entryPrice: signal.entryPrice ?? 0,
+          stopLoss: signal.stopLoss,
+          takeProfit: signal.takeProfit,
+          entryOrderId: String(result.orderId ?? ""),
+          entryReasoning: signal.reason,
+          status: "open"
+        }).catch(() => {
+        });
+      } else {
+        signal.status = "rejected";
+        signal.executionResult = result.error || "Moomoo execution failed";
+        addActivity3(userId, { type: "error", symbol: signal.symbol, message: `\u274C Moomoo failed: ${signal.symbol} \u2014 ${result.error}` });
+      }
+      return;
+    } catch (err) {
+      addActivity3(userId, { type: "error", symbol: signal.symbol, message: `Moomoo error: ${err.message} \u2014 falling back to Tradovate` });
+    }
+  }
+  try {
+    const connection2 = await storage.getUserTradovateConnection(userId);
+    if (!connection2 || !connection2.isActive) {
+      addActivity3(userId, { type: "info", symbol: signal.symbol, message: `Signal queued (no broker connected): ${signal.direction} ${signal.symbol}` });
+      return;
+    }
+    const result = await executeFuturesSignal(connection2, {
+      action: "OPEN",
+      symbol: signal.symbol,
+      direction: signal.direction,
+      contracts: signal.contracts,
+      stopLoss: signal.stopLoss || void 0,
+      takeProfit: signal.takeProfit || void 0
+    });
+    if (result.success) {
+      signal.status = "executed";
+      signal.executionResult = `Tradovate Order #${result.orderId}`;
+      addActivity3(userId, { type: "trade_open", symbol: signal.symbol, direction: signal.direction, message: `\u2705 TRADOVATE EXECUTED: ${signal.direction} ${signal.contracts} ${signal.symbol} | Order: ${result.orderId}` });
+      await storage.createFuturesEngineTrade({
+        userId,
+        connectionId: connection2.id ?? 0,
+        broker: "tradovate",
+        symbol: signal.symbol,
+        strategy: signal.strategy,
+        direction: signal.direction === "BUY" ? "long" : "short",
+        contracts: signal.contracts,
+        entryPrice: signal.entryPrice ?? 0,
+        stopLoss: signal.stopLoss,
+        takeProfit: signal.takeProfit,
+        entryOrderId: String(result.orderId ?? ""),
+        entryReasoning: signal.reason,
+        status: "open"
+      }).catch(() => {
+      });
+    } else {
+      signal.status = "rejected";
+      signal.executionResult = result.error || "Execution failed";
+      addActivity3(userId, { type: "error", symbol: signal.symbol, message: `\u274C Execution failed: ${signal.symbol} \u2014 ${result.error}` });
+    }
+  } catch (err) {
+    signal.status = "rejected";
+    signal.executionResult = err.message;
+    addActivity3(userId, { type: "error", symbol: signal.symbol, message: `Execution error: ${err.message}` });
+  }
+}
+async function scanFuturesMarkets(userId) {
+  const state = scannerStates[userId];
+  if (!state || state.status !== "running" || state.currentlyScanning) return;
+  const todayDow = (/* @__PURE__ */ new Date()).getUTCDay();
+  const allowedDows = state.config.tradingDaysOfWeek.length > 0 ? state.config.tradingDaysOfWeek : [1, 2, 3, 4, 5];
+  if (!allowedDows.includes(todayDow)) return;
+  if (FUTURES_SESSION_GUARD_ENABLED) {
+    const { h, m } = nyHourMinute(/* @__PURE__ */ new Date());
+    const minsOfDay = h * 60 + m;
+    const closeMin = 17 * 60, reopenMin = 18 * 60;
+    if (minsOfDay >= closeMin - FUTURES_CLOSE_GUARD_MIN && minsOfDay < reopenMin) {
+      return;
+    }
+  }
+  const _haltAcct = await getFuturesLiveAccount(userId);
+  const _haltEquity = _haltAcct.equity > 0 ? _haltAcct.equity : state.config.accountBalance;
+  const _haltPc = await resolveFuturesPropConnection(userId);
+  const gateCheck = await checkFuturesSafetyGates(userId, state.config, _haltEquity, void 0, _haltAcct.unrealizedPnl, _haltPc.connectionId, _haltPc.connectionType).catch(() => ({ allowed: true, riskMultiplier: 1 }));
+  if (!gateCheck.allowed) {
+    state.dailyLossHalted = true;
+    addActivity3(userId, { type: "error", message: `\u{1F6A8} Scanner halted \u2014 ${gateCheck.reason}.` });
+    return;
+  }
+  state.dailyLossHalted = false;
+  state.currentlyScanning = true;
+  state.scanCount++;
+  state.lastScanAt = (/* @__PURE__ */ new Date()).toISOString();
+  const session3 = getCurrentFuturesSession();
+  try {
+    if (!marketDataService.isInitialized()) {
+      addActivity3(userId, { type: "error", message: "Market data service not initialized \u2014 check TWELVE_DATA_API_KEY." });
+      return;
+    }
+    await monitorOpenFuturesPositions(userId, state.config).catch(
+      (e) => console.error(`[futures-scanner] monitorOpenFuturesPositions failed for user ${userId}:`, e.message)
+    );
+    const symbolDaySchedule = state.config.symbolDaySchedule || {};
+    const symbols = state.config.symbols.filter((sym2) => {
+      const days = symbolDaySchedule[sym2];
+      return !Array.isArray(days) || days.length === 0 || days.includes(todayDow);
+    }).slice(0, 8);
+    addActivity3(userId, { type: "scan", message: `\u{1F50D} Futures scan #${state.scanCount}: ${symbols.join(", ")} [${session3}]` });
+    const marketAnalysis = {};
+    for (const symbol of symbols) {
+      try {
+        const result = await marketDataService.fetchMarketData({ symbol, assetType: "futures", timeframe: "15m", limit: 50 });
+        if (!result.bars || result.bars.length < 20) continue;
+        const candles = convertToCandles2(result.bars);
+        const indicators = computeAllAdvancedIndicators(candles, 0, symbol, "M15");
+        const currentPrice = result.bars[result.bars.length - 1]?.close || 0;
+        let trend = "NEUTRAL";
+        const adxData = indicators.adx;
+        if (adxData && (adxData.adx || adxData.value) > 25) {
+          trend = adxData.plusDI > adxData.minusDI ? "BULLISH" : "BEARISH";
+        }
+        state.marketSnapshot[symbol] = {
+          price: currentPrice,
+          trend,
+          rsi: Math.round(indicators.stochastic?.k || 50),
+          atr: indicators.volatilityContext?.currentATR || 0,
+          updatedAt: (/* @__PURE__ */ new Date()).toISOString()
+        };
+        marketAnalysis[symbol] = {
+          candles,
+          currentPrice,
+          trend,
+          adx: indicators.adx,
+          rsi: indicators.rsi,
+          macd: indicators.macd,
+          stochastic: indicators.stochastic,
+          supportResistance: indicators.supportResistance,
+          candlePatterns: indicators.candlePatterns,
+          volatilityContext: indicators.volatilityContext,
+          volumeProfile: indicators.volumeProfile
+        };
+        await new Promise((r) => setTimeout(r, 4e3));
+      } catch (err) {
+        addActivity3(userId, { type: "error", symbol, message: `Data fetch failed: ${err.message}` });
+      }
+    }
+    if (Object.keys(marketAnalysis).length === 0) {
+      addActivity3(userId, { type: "info", message: "No futures market data available this cycle." });
+      return;
+    }
+    await runFuturesAIAnalysis(userId, marketAnalysis);
+  } catch (err) {
+    addActivity3(userId, { type: "error", message: `Futures scan error: ${err.message}` });
+  } finally {
+    state.currentlyScanning = false;
+  }
+}
+function scheduleNextScan(userId) {
+  const state = scannerStates[userId];
+  if (!state || state.status !== "running") return;
+  scannerTimers[userId] = setTimeout(async () => {
+    await scanFuturesMarkets(userId);
+    scheduleNextScan(userId);
+  }, state.config.scanIntervalMs);
+}
+function startFuturesScanner(config) {
+  stopFuturesScanner(config.userId);
+  const fullConfig = {
+    userId: config.userId,
+    symbols: Array.isArray(config.symbols) && config.symbols.length > 0 ? config.symbols : DEFAULT_FUTURES_SYMBOLS,
+    scanIntervalMs: config.scanIntervalMs || 12e4,
+    minConfidence: config.minConfidence || 70,
+    maxOpenTrades: config.maxOpenTrades || 3,
+    riskPerTrade: config.riskPerTrade || 1,
+    accountBalance: config.accountBalance || 5e4,
+    aiMode: config.aiMode || "full",
+    propFirmDailyDrawdownLimit: config.propFirmDailyDrawdownLimit ?? 2,
+    enableAutoExecution: config.enableAutoExecution === true,
+    directionFilter: config.directionFilter || "both",
+    dailyLossLimit: config.dailyLossLimit ?? 3,
+    dailyProfitTarget: config.dailyProfitTarget ?? 0,
+    maxDailyTrades: config.maxDailyTrades ?? 0,
+    useKellyCriterion: config.useKellyCriterion === true,
+    brainLearningMode: config.brainLearningMode !== false,
+    drawdownShieldThreshold: config.drawdownShieldThreshold ?? 3,
+    trailMethod: config.trailMethod || "none",
+    trailActivationR: config.trailActivationR ?? 1,
+    trailFixedR: config.trailFixedR ?? 0.5,
+    trailStepR: config.trailStepR ?? 0.5,
+    trailProfitLockPct: config.trailProfitLockPct ?? 60,
+    trailSarInitialAF: config.trailSarInitialAF ?? 0.02,
+    trailSarMaxAF: config.trailSarMaxAF ?? 0.2,
+    breakevenBufferR: config.breakevenBufferR ?? 0.1,
+    propFirmMode: config.propFirmMode === true,
+    consistencyEnforcementEnabled: config.consistencyEnforcementEnabled === true,
+    consistencyMinProfitableDays: config.consistencyMinProfitableDays ?? 10,
+    consistencyPeriodDays: config.consistencyPeriodDays ?? 15,
+    maxDailyProfitPctOfTotal: config.maxDailyProfitPctOfTotal ?? 0,
+    tradingDaysOfWeek: Array.isArray(config.tradingDaysOfWeek) && config.tradingDaysOfWeek.length > 0 ? config.tradingDaysOfWeek : [1, 2, 3, 4, 5],
+    symbolDaySchedule: config.symbolDaySchedule || {},
+    symbolDirectionOverrides: config.symbolDirectionOverrides || {},
+    symbolContractOverrides: config.symbolContractOverrides || {},
+    smartSymbolEscalation: config.smartSymbolEscalation === true,
+    highConfidenceOverride: config.highConfidenceOverride === true,
+    enableCompositeAutonomous: config.enableCompositeAutonomous === true,
+    compositeMinEdgeScore: config.compositeMinEdgeScore ?? 72
+  };
+  scannerStates[config.userId] = {
+    status: "running",
+    config: fullConfig,
+    scanCount: 0,
+    lastScanAt: null,
+    currentlyScanning: false,
+    activities: [],
+    signals: [],
+    marketSnapshot: {},
+    dailyLossHalted: false,
+    dailyPnL: 0,
+    wins: 0,
+    losses: 0,
+    symbolPerformance: {}
+  };
+  addActivity3(config.userId, {
+    type: "info",
+    message: `\u{1F680} Futures Scanner STARTED | Instruments: ${fullConfig.symbols.join(", ")} | Interval: ${fullConfig.scanIntervalMs / 1e3}s | Min confidence: ${fullConfig.minConfidence}% | Auto-execute: ${fullConfig.enableAutoExecution ? "ON" : "OFF (signals only)"}`
+  });
+  setTimeout(() => {
+    scanFuturesMarkets(config.userId).then(() => scheduleNextScan(config.userId));
+  }, 3e3);
+  return scannerStates[config.userId];
+}
+function stopFuturesScanner(userId) {
+  if (scannerTimers[userId]) {
+    clearTimeout(scannerTimers[userId]);
+    delete scannerTimers[userId];
+  }
+  const state = scannerStates[userId];
+  if (state) {
+    state.status = "stopped";
+    addActivity3(userId, { type: "info", message: "\u23F9\uFE0F Futures Scanner STOPPED." });
+  }
+}
+function getFuturesScannerState(userId) {
+  return scannerStates[userId] || null;
+}
+function getFuturesScannerActivities(userId, limit = 50) {
+  return (scannerStates[userId]?.activities || []).slice(0, limit);
+}
+function getFuturesScannerSignals(userId, limit = 20) {
+  return (scannerStates[userId]?.signals || []).slice(0, limit);
+}
+function recordFuturesTradeOutcome(userId, symbol, won, rMultiple2) {
+  recordOutcome(userId, symbol, won, rMultiple2);
+}
+function buildFuturesScanConfigFromRow(row, enableAutoExecution) {
+  return {
+    userId: row.userId,
+    symbols: Array.isArray(row.symbols) && row.symbols.length > 0 ? row.symbols : DEFAULT_FUTURES_SYMBOLS,
+    scanIntervalMs: row.scanIntervalMs,
+    minConfidence: row.minConfidence,
+    maxOpenTrades: row.maxOpenTrades,
+    riskPerTrade: row.riskPerTrade,
+    accountBalance: row.accountBalance,
+    aiMode: row.aiMode,
+    propFirmDailyDrawdownLimit: row.propFirmDailyDrawdownLimit,
+    enableAutoExecution: row.enableAutoExecution === true && enableAutoExecution,
+    directionFilter: row.directionFilter,
+    dailyLossLimit: row.dailyLossLimit,
+    dailyProfitTarget: row.dailyProfitTarget,
+    maxDailyTrades: row.maxDailyTrades,
+    useKellyCriterion: row.useKellyCriterion,
+    brainLearningMode: row.brainLearningMode,
+    drawdownShieldThreshold: row.drawdownShieldThreshold,
+    trailMethod: row.trailMethod,
+    trailActivationR: row.trailActivationR,
+    trailFixedR: row.trailFixedR,
+    trailStepR: row.trailStepR,
+    trailProfitLockPct: row.trailProfitLockPct,
+    trailSarInitialAF: row.trailSarInitialAF,
+    trailSarMaxAF: row.trailSarMaxAF,
+    breakevenBufferR: row.breakevenBufferR,
+    propFirmMode: row.propFirmMode,
+    consistencyEnforcementEnabled: row.consistencyEnforcementEnabled,
+    consistencyMinProfitableDays: row.consistencyMinProfitableDays,
+    consistencyPeriodDays: row.consistencyPeriodDays,
+    maxDailyProfitPctOfTotal: row.maxDailyProfitPctOfTotal,
+    tradingDaysOfWeek: row.tradingDaysOfWeek || [1, 2, 3, 4, 5],
+    symbolDaySchedule: row.symbolDaySchedule || {},
+    symbolDirectionOverrides: row.symbolDirectionOverrides || {},
+    symbolContractOverrides: row.symbolContractOverrides || {},
+    smartSymbolEscalation: row.smartSymbolEscalation,
+    highConfidenceOverride: row.highConfidenceOverride,
+    enableCompositeAutonomous: row.enableCompositeAutonomous,
+    compositeMinEdgeScore: row.compositeMinEdgeScore
+  };
+}
+async function resumeActiveFuturesScanners() {
+  try {
+    const configs = await storage.getAllActiveFuturesEngineConfigs();
+    for (const row of configs) {
+      try {
+        const connection2 = await storage.getUserTradovateConnection(row.userId);
+        const config = buildFuturesScanConfigFromRow(row, !!connection2?.isActive);
+        startFuturesScanner(config);
+      } catch (e) {
+        console.error(`[futures-scanner] failed to resume scanner for user ${row.userId}:`, e.message);
+      }
+    }
+    if (configs.length > 0) {
+      console.log(`[futures-scanner] Resumed ${configs.length} active futures scanner(s) after restart.`);
+    }
+  } catch (err) {
+    console.error("[futures-scanner] resumeActiveFuturesScanners failed:", err.message);
+  }
+}
+function startFuturesEngineScanner() {
+  if (futuresResumeStarted) return;
+  futuresResumeStarted = true;
+  resumeActiveFuturesScanners().catch(
+    (e) => console.error("[futures-scanner] initial resume failed:", e.message)
+  );
+}
+var DEFAULT_FUTURES_SYMBOLS, scannerStates, scannerTimers, MAX_ACTIVITIES, MAX_SIGNALS, futuresSessionPeakEquity, MAX_OPEN_PER_SYMBOL, MAX_DAILY_ENTRIES_PER_SYMBOL, SYMBOL_COOLDOWN_MS, FUTURES_CORRELATED_BASKET_CAP, FUTURES_CORRELATED_BASKETS, FUTURES_SESSION_GUARD_ENABLED, FUTURES_CLOSE_GUARD_MIN, futuresResumeStarted;
+var init_futures_scanner = __esm({
+  "server/services/futures-scanner.ts"() {
+    "use strict";
+    init_service();
+    init_indicators();
+    init_storage();
+    init_tradovate();
+    init_futures_instruments();
+    init_markov_chain();
+    init_orderflow_strategy();
+    init_moomoo();
+    DEFAULT_FUTURES_SYMBOLS = ["NQ", "ES", "GC", "CL", "MNQ", "MES"];
+    scannerStates = {};
+    scannerTimers = {};
+    MAX_ACTIVITIES = 200;
+    MAX_SIGNALS = 100;
+    futuresSessionPeakEquity = /* @__PURE__ */ new Map();
+    MAX_OPEN_PER_SYMBOL = 3;
+    MAX_DAILY_ENTRIES_PER_SYMBOL = 4;
+    SYMBOL_COOLDOWN_MS = 20 * 60 * 1e3;
+    FUTURES_CORRELATED_BASKET_CAP = 4;
+    FUTURES_CORRELATED_BASKETS = [
+      ["ES", "MES", "NQ", "MNQ", "YM", "MYM", "RTY", "M2K", "SPX", "NDX"],
+      // US equity indices
+      ["CL", "MCL", "QM", "RB", "HO", "NG"],
+      // energy
+      ["GC", "MGC", "SI", "SIL", "HG", "PL"],
+      // metals
+      ["ZB", "ZN", "ZF", "ZT", "UB"]
+      // rates
+    ];
+    FUTURES_SESSION_GUARD_ENABLED = true;
+    FUTURES_CLOSE_GUARD_MIN = 15;
+    futuresResumeStarted = false;
+  }
+});
+
+// server/services/futures-brain.ts
+var futures_brain_exports = {};
+__export(futures_brain_exports, {
+  getOrRefreshFuturesBrain: () => getOrRefreshFuturesBrain,
+  loadPersistedFuturesBrain: () => loadPersistedFuturesBrain,
+  runFuturesBrainLearning: () => runFuturesBrainLearning
+});
+import * as fs5 from "fs";
+import * as path5 from "path";
+function rMultiple(t) {
+  if (!t.exitPrice || !t.stopLoss) return 0;
+  const riskDist = Math.abs(t.entryPrice - t.stopLoss);
+  if (riskDist <= 0) return 0;
+  const isLong = t.direction === "long";
+  const move = isLong ? t.exitPrice - t.entryPrice : t.entryPrice - t.exitPrice;
+  return move / riskDist;
+}
+function buildSymbolKnowledge(trades) {
+  const closed = trades.filter((t) => t.status === "closed");
+  const withR = closed.map((t) => ({ t, r: rMultiple(t) }));
+  const wins = withR.filter((x) => x.r > 0);
+  const losses = withR.filter((x) => x.r <= 0);
+  const winRate2 = closed.length > 0 ? Math.round(wins.length / closed.length * 100) : 0;
+  const avgWinR = wins.length > 0 ? wins.reduce((s, x) => s + x.r, 0) / wins.length : 0;
+  const avgLossR = losses.length > 0 ? Math.abs(losses.reduce((s, x) => s + x.r, 0) / losses.length) : 0;
+  const riskRewardRatio = avgLossR > 0 ? avgWinR / avgLossR : avgWinR > 0 ? 2 : 0;
+  const longs = closed.filter((t) => t.direction === "long");
+  const shorts = closed.filter((t) => t.direction === "short");
+  const longWins = longs.filter((t) => (t.realizedPnl ?? 0) > 0).length;
+  const shortWins = shorts.filter((t) => (t.realizedPnl ?? 0) > 0).length;
+  const longWinRate = longs.length > 0 ? Math.round(longWins / longs.length * 100) : 50;
+  const shortWinRate = shorts.length > 0 ? Math.round(shortWins / shorts.length * 100) : 50;
+  const preferredDirection = Math.abs(longWinRate - shortWinRate) > 15 ? longWinRate > shortWinRate ? "long" : "short" : "both";
+  const byHour = {};
+  for (const t of closed) {
+    const hour = new Date(t.createdAt).getUTCHours();
+    byHour[hour] = byHour[hour] || { wins: 0, total: 0 };
+    byHour[hour].total++;
+    if ((t.realizedPnl ?? 0) > 0) byHour[hour].wins++;
+  }
+  const hourStats = Object.entries(byHour).filter(([, v]) => v.total >= 2).map(([hour, v]) => ({ hour: Number(hour), winRate: Math.round(v.wins / v.total * 100), total: v.total }));
+  const topHours = [...hourStats].sort((a, b) => b.winRate - a.winRate).slice(0, 3);
+  const worstHours = [...hourStats].sort((a, b) => a.winRate - b.winRate).slice(0, 2);
+  const byStrategy = {};
+  for (const t of closed) {
+    byStrategy[t.strategy] = byStrategy[t.strategy] || { wins: 0, total: 0 };
+    byStrategy[t.strategy].total++;
+    if ((t.realizedPnl ?? 0) > 0) byStrategy[t.strategy].wins++;
+  }
+  const bestStrategies = Object.entries(byStrategy).filter(([, v]) => v.total >= 2).sort((a, b) => b[1].wins / b[1].total - a[1].wins / a[1].total).slice(0, 2).map(([s]) => s);
+  const chrono = [...closed].sort((a, b) => new Date(a.closedAt ?? a.createdAt).getTime() - new Date(b.closedAt ?? b.createdAt).getTime());
+  let maxWinStreak = 0, maxLossStreak = 0, curWin = 0, curLoss = 0;
+  for (const t of chrono) {
+    if ((t.realizedPnl ?? 0) > 0) {
+      curWin++;
+      curLoss = 0;
+    } else {
+      curLoss++;
+      curWin = 0;
+    }
+    maxWinStreak = Math.max(maxWinStreak, curWin);
+    maxLossStreak = Math.max(maxLossStreak, curLoss);
+  }
+  const kellyFraction = riskRewardRatio > 0 ? winRate2 / 100 - (1 - winRate2 / 100) / riskRewardRatio : 0;
+  const recommendedContractMultiplier = Math.max(0.25, Math.min(1.5, 1 + kellyFraction));
+  return {
+    totalTrades: closed.length,
+    winRate: winRate2,
+    avgWinR,
+    avgLossR,
+    riskRewardRatio,
+    preferredDirection,
+    longWinRate,
+    shortWinRate,
+    topHours,
+    worstHours,
+    bestStrategies,
+    maxWinStreak,
+    maxLossStreak,
+    recommendedContractMultiplier
+  };
+}
+function buildLearningInsights(overallWinRate, totalTrades, symbolKnowledge) {
+  const insights = [];
+  if (overallWinRate >= 60 && totalTrades >= 10) {
+    insights.push(`Strong edge detected: ${overallWinRate}% overall win rate across ${totalTrades} trades`);
+  } else if (overallWinRate < 50 && totalTrades >= 10) {
+    insights.push(`Win rate below 50% \u2014 the engine will prioritize higher-confidence setups only until this improves`);
+  }
+  for (const [symbol, k2] of Object.entries(symbolKnowledge)) {
+    if (k2.totalTrades < 3) continue;
+    if (k2.preferredDirection !== "both") {
+      insights.push(`${symbol}: strong ${k2.preferredDirection.toUpperCase()} bias detected (${k2.preferredDirection === "long" ? k2.longWinRate : k2.shortWinRate}% WR)`);
+    }
+    if (k2.worstHours[0] && k2.worstHours[0].winRate < 30 && k2.worstHours[0].total >= 3) {
+      insights.push(`${symbol}: avoid entries around ${k2.worstHours[0].hour}:00 UTC (${k2.worstHours[0].winRate}% WR \u2014 loss zone)`);
+    }
+    if (k2.bestStrategies.length > 0 && k2.totalTrades >= 5) {
+      insights.push(`${symbol}: best-performing strategy is "${k2.bestStrategies[0]}"`);
+    }
+  }
+  return insights.slice(0, 10);
+}
+async function computeFuturesBrain(userId) {
+  const allTrades = await storage.getUserFuturesEngineTrades(userId, 1e3);
+  const closed = allTrades.filter((t) => t.status === "closed");
+  const uniqueSymbols = Array.from(new Set(closed.map((t) => t.symbol)));
+  const symbolKnowledge = {};
+  for (const symbol of uniqueSymbols) {
+    symbolKnowledge[symbol] = buildSymbolKnowledge(closed.filter((t) => t.symbol === symbol));
+  }
+  const wins = closed.filter((t) => (t.realizedPnl ?? 0) > 0).length;
+  const overallWinRate = closed.length > 0 ? Math.round(wins / closed.length * 100) : 0;
+  const totalProfit = closed.reduce((s, t) => s + (t.realizedPnl ?? 0), 0);
+  const brain = {
+    lastLearned: (/* @__PURE__ */ new Date()).toISOString(),
+    totalTradesAnalyzed: closed.length,
+    overallWinRate,
+    totalProfit,
+    symbolsLearned: uniqueSymbols.length,
+    symbolKnowledge,
+    learningInsights: buildLearningInsights(overallWinRate, closed.length, symbolKnowledge),
+    lastUpdateAt: (/* @__PURE__ */ new Date()).toISOString()
+  };
+  global.veddFuturesBrain = global.veddFuturesBrain || {};
+  global.veddFuturesBrain[userId] = brain;
+  try {
+    const brainDir = path5.join(process.cwd(), "data", "brains");
+    if (!fs5.existsSync(brainDir)) fs5.mkdirSync(brainDir, { recursive: true });
+    fs5.writeFileSync(path5.join(brainDir, `futures_brain_${userId}.json`), JSON.stringify(brain));
+  } catch {
+  }
+  console.log(`[futures-brain] Learned from ${closed.length} trades across ${uniqueSymbols.length} symbols for user ${userId}`);
+  return brain;
+}
+async function runFuturesBrainLearning(userId) {
+  return computeFuturesBrain(userId);
+}
+function loadPersistedFuturesBrain(userId) {
+  try {
+    const p = path5.join(process.cwd(), "data", "brains", `futures_brain_${userId}.json`);
+    if (!fs5.existsSync(p)) return null;
+    const brain = JSON.parse(fs5.readFileSync(p, "utf-8"));
+    global.veddFuturesBrain = global.veddFuturesBrain || {};
+    global.veddFuturesBrain[userId] = brain;
+    return brain;
+  } catch {
+    return null;
+  }
+}
+async function getOrRefreshFuturesBrain(userId) {
+  global.veddFuturesBrain = global.veddFuturesBrain || {};
+  let brain = global.veddFuturesBrain[userId];
+  if (!brain) brain = loadPersistedFuturesBrain(userId);
+  const isStale = !brain || Date.now() - new Date(brain.lastUpdateAt).getTime() > STALE_MS;
+  if (isStale) brain = await runFuturesBrainLearning(userId);
+  return brain;
+}
+var STALE_MS;
+var init_futures_brain = __esm({
+  "server/services/futures-brain.ts"() {
+    "use strict";
+    init_storage();
+    STALE_MS = 6e4;
   }
 });
 
@@ -40425,7 +43575,7 @@ __export(whop_exports, {
   whopEnabled: () => whopEnabled,
   whopPlanMap: () => whopPlanMap
 });
-import crypto8 from "crypto";
+import crypto9 from "crypto";
 function whopPlanMap() {
   const out = {};
   for (const id of [2, 3, 4]) {
@@ -40499,11 +43649,11 @@ function verifyWhopWebhook(rawBody, headers) {
   }
   const provided = sigHeader.split(" ").map((p) => p.trim()).filter(Boolean).map((p) => p.includes(",") ? p.split(",")[1] : p);
   for (const k2 of keys) {
-    const expected = crypto8.createHmac("sha256", k2).update(signed).digest("base64");
+    const expected = crypto9.createHmac("sha256", k2).update(signed).digest("base64");
     const eb = Buffer.from(expected);
     for (const p of provided) {
       const pb = Buffer.from(p);
-      if (pb.length === eb.length && crypto8.timingSafeEqual(pb, eb)) return true;
+      if (pb.length === eb.length && crypto9.timingSafeEqual(pb, eb)) return true;
     }
   }
   return false;
@@ -41120,8 +44270,8 @@ async function generateShareCard(data) {
     ctx.fillStyle = TEXT_COLOR;
     ctx.font = "16px Arial, sans-serif";
     const recLines = wrapText(ctx, firstAnalysis.recommendation, CARD_WIDTH - PADDING * 2 - 40);
-    recLines.slice(0, 3).forEach((line, i) => {
-      ctx.fillText(line, PADDING + 20, yPos + 30 + i * 22);
+    recLines.slice(0, 3).forEach((line2, i) => {
+      ctx.fillText(line2, PADDING + 20, yPos + 30 + i * 22);
     });
     yPos += 110;
   }
@@ -41165,8 +44315,8 @@ async function generateShareCard(data) {
   ctx.font = "italic 18px Arial, sans-serif";
   const verseLines = wrapText(ctx, `"${devotion.verse}"`, CARD_WIDTH - PADDING * 2 - 40);
   let verseY = yPos + 70;
-  for (const line of verseLines.slice(0, 3)) {
-    ctx.fillText(line, PADDING + 20, verseY);
+  for (const line2 of verseLines.slice(0, 3)) {
+    ctx.fillText(line2, PADDING + 20, verseY);
     verseY += 24;
   }
   ctx.fillStyle = "#94a3b8";
@@ -41570,7 +44720,7 @@ __export(paper_trade_tracker_exports, {
   getPaperTradeStats: () => getPaperTradeStats,
   resolvePaperTrade: () => resolvePaperTrade
 });
-import { eq as eq12, desc as desc6, and as and8, sql as sql9 } from "drizzle-orm";
+import { eq as eq13, desc as desc6, and as and8, sql as sql10 } from "drizzle-orm";
 async function createPaperTrade(data) {
   try {
     const [trade] = await db.insert(paperTrades).values({
@@ -41586,7 +44736,7 @@ async function createPaperTrade(data) {
 }
 async function resolvePaperTrade(tradeId, currentPrice) {
   try {
-    const [trade] = await db.select().from(paperTrades).where(eq12(paperTrades.id, tradeId));
+    const [trade] = await db.select().from(paperTrades).where(eq13(paperTrades.id, tradeId));
     if (!trade || trade.outcome !== "pending") return;
     const now = /* @__PURE__ */ new Date();
     const ageHours = (now.getTime() - trade.createdAt.getTime()) / (1e3 * 60 * 60);
@@ -41616,7 +44766,7 @@ async function resolvePaperTrade(tradeId, currentPrice) {
       console.log(`[PaperTrade] Resolved #${tradeId} \u2014 ${trade.symbol} ${trade.direction}: ${outcome.toUpperCase()} (${pnlPips > 0 ? "+" : ""}${pnlPips} pips)`);
     }
     if (Object.keys(updates).length > 0) {
-      await db.update(paperTrades).set(updates).where(eq12(paperTrades.id, tradeId));
+      await db.update(paperTrades).set(updates).where(eq13(paperTrades.id, tradeId));
     }
   } catch (e) {
     console.error("[PaperTrade] Failed to resolve:", e);
@@ -41624,10 +44774,10 @@ async function resolvePaperTrade(tradeId, currentPrice) {
 }
 async function getAIAccuracyContext(userId, symbol) {
   try {
-    const conditions = [eq12(paperTrades.userId, userId)];
+    const conditions = [eq13(paperTrades.userId, userId)];
     if (symbol) {
       const cleanSymbol = symbol.replace(/[^A-Z0-9]/gi, "").toUpperCase();
-      conditions.push(sql9`UPPER(REPLACE(${paperTrades.symbol}, '/', '')) = ${cleanSymbol}`);
+      conditions.push(sql10`UPPER(REPLACE(${paperTrades.symbol}, '/', '')) = ${cleanSymbol}`);
     }
     const trades = await db.select().from(paperTrades).where(and8(...conditions)).orderBy(desc6(paperTrades.createdAt)).limit(50);
     const resolved = trades.filter((t) => t.outcome !== "pending");
@@ -41679,7 +44829,7 @@ Last ${last5.length} trades:
 }
 async function getPaperTradeStats(userId) {
   try {
-    const trades = await db.select().from(paperTrades).where(eq12(paperTrades.userId, userId)).orderBy(desc6(paperTrades.createdAt));
+    const trades = await db.select().from(paperTrades).where(eq13(paperTrades.userId, userId)).orderBy(desc6(paperTrades.createdAt));
     const resolved = trades.filter((t) => t.outcome !== "pending");
     const wins = resolved.filter((t) => t.outcome === "win");
     const losses = resolved.filter((t) => t.outcome === "loss");
@@ -42235,65 +45385,65 @@ __export(crypto_market_data_exports, {
   getAggregatedQuote: () => getAggregatedQuote,
   getAggregatedQuotes: () => getAggregatedQuotes
 });
-function krakenPair(sym) {
-  const s = sym.toUpperCase();
+function krakenPair(sym2) {
+  const s = sym2.toUpperCase();
   return (s === "BTC" ? "XBT" : s) + "USD";
 }
-async function coinbaseSpot(sym) {
+async function coinbaseSpot(sym2) {
   try {
-    const r = await fetch(`https://api.coinbase.com/v2/prices/${sym}-USD/spot`, { headers: { "User-Agent": "VEDD/1.0" }, signal: AbortSignal.timeout(6e3) });
-    if (!r.ok) return { venue: "coinbase", symbol: sym, price: null, error: `HTTP ${r.status}` };
+    const r = await fetch(`https://api.coinbase.com/v2/prices/${sym2}-USD/spot`, { headers: { "User-Agent": "VEDD/1.0" }, signal: AbortSignal.timeout(6e3) });
+    if (!r.ok) return { venue: "coinbase", symbol: sym2, price: null, error: `HTTP ${r.status}` };
     const d = await r.json();
     const p = parseFloat(d?.data?.amount);
-    return { venue: "coinbase", symbol: sym, price: isFinite(p) ? p : null };
+    return { venue: "coinbase", symbol: sym2, price: isFinite(p) ? p : null };
   } catch (e) {
-    return { venue: "coinbase", symbol: sym, price: null, error: e.message };
+    return { venue: "coinbase", symbol: sym2, price: null, error: e.message };
   }
 }
-async function krakenTicker(sym) {
+async function krakenTicker(sym2) {
   try {
-    const r = await fetch(`https://api.kraken.com/0/public/Ticker?pair=${krakenPair(sym)}`, { headers: { "User-Agent": "VEDD/1.0" }, signal: AbortSignal.timeout(6e3) });
-    if (!r.ok) return { venue: "kraken", symbol: sym, price: null, error: `HTTP ${r.status}` };
+    const r = await fetch(`https://api.kraken.com/0/public/Ticker?pair=${krakenPair(sym2)}`, { headers: { "User-Agent": "VEDD/1.0" }, signal: AbortSignal.timeout(6e3) });
+    if (!r.ok) return { venue: "kraken", symbol: sym2, price: null, error: `HTTP ${r.status}` };
     const d = await r.json();
     const first = Object.values(d?.result || {})[0];
     const p = parseFloat(first?.c?.[0]);
     const v = parseFloat(first?.v?.[1]);
-    return { venue: "kraken", symbol: sym, price: isFinite(p) ? p : null, volume24h: isFinite(v) ? v : null, error: d?.error?.length ? d.error.join(",") : void 0 };
+    return { venue: "kraken", symbol: sym2, price: isFinite(p) ? p : null, volume24h: isFinite(v) ? v : null, error: d?.error?.length ? d.error.join(",") : void 0 };
   } catch (e) {
-    return { venue: "kraken", symbol: sym, price: null, error: e.message };
+    return { venue: "kraken", symbol: sym2, price: null, error: e.message };
   }
 }
-async function geminiTicker(sym) {
+async function geminiTicker(sym2) {
   try {
-    const r = await fetch(`https://api.gemini.com/v1/pubticker/${sym.toLowerCase()}usd`, { headers: { "User-Agent": "VEDD/1.0" }, signal: AbortSignal.timeout(6e3) });
-    if (!r.ok) return { venue: "gemini", symbol: sym, price: null, error: `HTTP ${r.status}` };
+    const r = await fetch(`https://api.gemini.com/v1/pubticker/${sym2.toLowerCase()}usd`, { headers: { "User-Agent": "VEDD/1.0" }, signal: AbortSignal.timeout(6e3) });
+    if (!r.ok) return { venue: "gemini", symbol: sym2, price: null, error: `HTTP ${r.status}` };
     const d = await r.json();
     const p = parseFloat(d?.last);
-    const v = parseFloat(d?.volume?.[sym.toUpperCase()]);
-    return { venue: "gemini", symbol: sym, price: isFinite(p) ? p : null, volume24h: isFinite(v) ? v : null };
+    const v = parseFloat(d?.volume?.[sym2.toUpperCase()]);
+    return { venue: "gemini", symbol: sym2, price: isFinite(p) ? p : null, volume24h: isFinite(v) ? v : null };
   } catch (e) {
-    return { venue: "gemini", symbol: sym, price: null, error: e.message };
+    return { venue: "gemini", symbol: sym2, price: null, error: e.message };
   }
 }
-async function cryptocomTicker(sym) {
+async function cryptocomTicker(sym2) {
   try {
-    const r = await fetch(`https://api.crypto.com/v2/public/get-ticker?instrument_name=${sym.toUpperCase()}_USDT`, { headers: { "User-Agent": "VEDD/1.0" }, signal: AbortSignal.timeout(6e3) });
-    if (!r.ok) return { venue: "cryptocom", symbol: sym, price: null, error: `HTTP ${r.status}` };
+    const r = await fetch(`https://api.crypto.com/v2/public/get-ticker?instrument_name=${sym2.toUpperCase()}_USDT`, { headers: { "User-Agent": "VEDD/1.0" }, signal: AbortSignal.timeout(6e3) });
+    if (!r.ok) return { venue: "cryptocom", symbol: sym2, price: null, error: `HTTP ${r.status}` };
     const d = await r.json();
     const t = d?.result?.data;
     const row = Array.isArray(t) ? t[0] : t;
     const p = parseFloat(row?.a ?? row?.k);
     const v = parseFloat(row?.v);
-    return { venue: "cryptocom", symbol: sym, price: isFinite(p) ? p : null, volume24h: isFinite(v) ? v : null };
+    return { venue: "cryptocom", symbol: sym2, price: isFinite(p) ? p : null, volume24h: isFinite(v) ? v : null };
   } catch (e) {
-    return { venue: "cryptocom", symbol: sym, price: null, error: e.message };
+    return { venue: "cryptocom", symbol: sym2, price: null, error: e.message };
   }
 }
 async function getAggregatedQuote(symbol) {
-  const sym = symbol.toUpperCase().replace(/[^A-Z0-9]/g, "");
-  const hit = _cache2.get(sym);
+  const sym2 = symbol.toUpperCase().replace(/[^A-Z0-9]/g, "");
+  const hit = _cache3.get(sym2);
   if (hit && Date.now() - hit.ts < TTL_MS6) return hit.q;
-  const venues = await Promise.all([coinbaseSpot(sym), krakenTicker(sym), geminiTicker(sym), cryptocomTicker(sym)]);
+  const venues = await Promise.all([coinbaseSpot(sym2), krakenTicker(sym2), geminiTicker(sym2), cryptocomTicker(sym2)]);
   const priced = venues.filter((v) => typeof v.price === "number" && v.price > 0);
   let best = null;
   let spreadPct = null;
@@ -42303,20 +45453,20 @@ async function getAggregatedQuote(symbol) {
     best = { venue: lo.venue, price: lo.price };
     spreadPct = lo.price > 0 ? Math.round((hi.price - lo.price) / lo.price * 1e4) / 100 : null;
   }
-  const q = { symbol: sym, best, spreadPct, venues, fetchedAt: (/* @__PURE__ */ new Date()).toISOString() };
-  _cache2.set(sym, { q, ts: Date.now() });
+  const q = { symbol: sym2, best, spreadPct, venues, fetchedAt: (/* @__PURE__ */ new Date()).toISOString() };
+  _cache3.set(sym2, { q, ts: Date.now() });
   return q;
 }
 async function getAggregatedQuotes(symbols) {
   const uniq = Array.from(new Set(symbols.map((s) => s.toUpperCase().replace(/[^A-Z0-9]/g, "")))).slice(0, 25);
   return Promise.all(uniq.map(getAggregatedQuote));
 }
-var TTL_MS6, _cache2;
+var TTL_MS6, _cache3;
 var init_crypto_market_data = __esm({
   "server/services/crypto-market-data.ts"() {
     "use strict";
     TTL_MS6 = 15e3;
-    _cache2 = /* @__PURE__ */ new Map();
+    _cache3 = /* @__PURE__ */ new Map();
   }
 });
 
@@ -42561,32 +45711,6 @@ var init_onchain_balances = __esm({
   }
 });
 
-// server/services/weekend-boost.ts
-function isWeekendBoostWindow(d = /* @__PURE__ */ new Date()) {
-  const day = d.getUTCDay();
-  return day === 5 || day === 6 || day === 0;
-}
-function weekendBoostActive(d = /* @__PURE__ */ new Date()) {
-  return ENABLED && isWeekendBoostWindow(d);
-}
-function boostedMinConfidence(minConfidence, d = /* @__PURE__ */ new Date()) {
-  if (!weekendBoostActive(d)) return minConfidence;
-  return Math.max(CONF_HARD_FLOOR, minConfidence - CONF_DELTA);
-}
-function weekendBoostSizeMultiplier(d = /* @__PURE__ */ new Date()) {
-  return weekendBoostActive(d) ? SIZE_MULT : 1;
-}
-var ENABLED, CONF_DELTA, CONF_HARD_FLOOR, SIZE_MULT;
-var init_weekend_boost = __esm({
-  "server/services/weekend-boost.ts"() {
-    "use strict";
-    ENABLED = process.env.WEEKEND_BOOST_ENABLED !== "false";
-    CONF_DELTA = Number(process.env.WEEKEND_BOOST_CONF_DELTA ?? 5);
-    CONF_HARD_FLOOR = 50;
-    SIZE_MULT = Number(process.env.WEEKEND_BOOST_SIZE_MULT ?? 1.3);
-  }
-});
-
 // server/services/process-fingerprint.ts
 var PROCESS_BOOT_ID;
 var init_process_fingerprint = __esm({
@@ -42603,15 +45727,15 @@ __export(coinbase_exports, {
   decryptApiSecret: () => decryptApiSecret,
   encryptApiSecret: () => encryptApiSecret
 });
-import crypto9 from "crypto";
+import crypto10 from "crypto";
 import jwt from "jsonwebtoken";
-function buildJwt(keyName, privateKeyPem, method, path20) {
-  const uri = `${method} ${API_HOST}${path20}`;
+function buildJwt(keyName, privateKeyPem, method, path19) {
+  const uri = `${method} ${API_HOST}${path19}`;
   const now = Math.floor(Date.now() / 1e3);
   const payload2 = { sub: keyName, iss: "cdp", nbf: now, exp: now + 120, uri };
   return jwt.sign(payload2, privateKeyPem, {
     algorithm: "ES256",
-    header: { kid: keyName, nonce: crypto9.randomBytes(16).toString("hex"), typ: "JWT", alg: "ES256" }
+    header: { kid: keyName, nonce: crypto10.randomBytes(16).toString("hex"), typ: "JWT", alg: "ES256" }
   });
 }
 var API_HOST, CoinbaseService;
@@ -42627,9 +45751,9 @@ var init_coinbase = __esm({
         this.keyName = keyName;
         this.privateKey = privateKeyPem.includes("\\n") ? privateKeyPem.replace(/\\n/g, "\n") : privateKeyPem;
       }
-      async get(path20) {
-        const token = buildJwt(this.keyName, this.privateKey, "GET", path20);
-        const res = await fetch(`https://${API_HOST}${path20}`, {
+      async get(path19) {
+        const token = buildJwt(this.keyName, this.privateKey, "GET", path19);
+        const res = await fetch(`https://${API_HOST}${path19}`, {
           method: "GET",
           headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
           signal: AbortSignal.timeout(12e3)
@@ -42640,9 +45764,9 @@ var init_coinbase = __esm({
         }
         return res.json();
       }
-      async post(path20, body) {
-        const token = buildJwt(this.keyName, this.privateKey, "POST", path20);
-        const res = await fetch(`https://${API_HOST}${path20}`, {
+      async post(path19, body) {
+        const token = buildJwt(this.keyName, this.privateKey, "POST", path19);
+        const res = await fetch(`https://${API_HOST}${path19}`, {
           method: "POST",
           headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
           body: JSON.stringify(body),
@@ -42661,7 +45785,7 @@ var init_coinbase = __esm({
        *  - limitPrice: required for limit orders
        */
       async placeOrder(o) {
-        const clientOrderId = crypto9.randomUUID();
+        const clientOrderId = crypto10.randomUUID();
         let order_configuration;
         if (o.type === "market") {
           order_configuration = o.side === "BUY" && o.quoteSize ? { market_market_ioc: { quote_size: String(o.quoteSize) } } : { market_market_ioc: { base_size: String(o.baseSize) } };
@@ -42684,8 +45808,8 @@ var init_coinbase = __esm({
         const accounts = [];
         let cursor = "";
         for (let i = 0; i < 10; i++) {
-          const path20 = `/api/v3/brokerage/accounts?limit=250${cursor ? `&cursor=${encodeURIComponent(cursor)}` : ""}`;
-          const data = await this.get(path20);
+          const path19 = `/api/v3/brokerage/accounts?limit=250${cursor ? `&cursor=${encodeURIComponent(cursor)}` : ""}`;
+          const data = await this.get(path19);
           for (const a of data?.accounts ?? []) accounts.push(a);
           if (data?.has_next && data?.cursor) cursor = data.cursor;
           else break;
@@ -42733,7 +45857,7 @@ __export(kraken_exports, {
   decryptApiSecret: () => decryptApiSecret,
   encryptApiSecret: () => encryptApiSecret
 });
-import crypto10 from "crypto";
+import crypto11 from "crypto";
 function normalizeAsset(code) {
   const c = code.toUpperCase().replace(/\.(S|F|M)$/, "");
   const map = { XXBT: "BTC", XBT: "BTC", XETH: "ETH", XXRP: "XRP", XLTC: "LTC", XXDG: "DOGE", XDG: "DOGE", ZUSD: "USD", ZEUR: "EUR", ZGBP: "GBP", XXLM: "XLM", XETC: "ETC", XZEC: "ZEC" };
@@ -42754,28 +45878,22 @@ var init_kraken = __esm({
         this.apiKey = apiKey;
         this.secret = secret;
       }
-<<<<<<< HEAD
       sign(path19, nonce, postData) {
-        const sha256 = crypto10.createHash("sha256").update(nonce + postData).digest();
-        const message = Buffer.concat([Buffer.from(path19, "utf8"), sha256]);
-=======
-      sign(path20, nonce, postData) {
         const sha256 = crypto11.createHash("sha256").update(nonce + postData).digest();
-        const message = Buffer.concat([Buffer.from(path20, "utf8"), sha256]);
->>>>>>> origin/feature/explainer-app-screens
+        const message = Buffer.concat([Buffer.from(path19, "utf8"), sha256]);
         const key = Buffer.from(this.secret, "base64");
-        return crypto10.createHmac("sha512", key).update(message).digest("base64");
+        return crypto11.createHmac("sha512", key).update(message).digest("base64");
       }
       async privatePost(endpoint, params = {}) {
-        const path20 = `/0/private/${endpoint}`;
+        const path19 = `/0/private/${endpoint}`;
         const nonce = String(Date.now() * 1e3);
         const body = new URLSearchParams({ nonce, ...params });
         const postData = body.toString();
-        const res = await fetch(`${API_HOST2}${path20}`, {
+        const res = await fetch(`${API_HOST2}${path19}`, {
           method: "POST",
           headers: {
             "API-Key": this.apiKey,
-            "API-Sign": this.sign(path20, nonce, postData),
+            "API-Sign": this.sign(path19, nonce, postData),
             "Content-Type": "application/x-www-form-urlencoded",
             "User-Agent": "VEDD/1.0"
           },
@@ -42848,7 +45966,7 @@ __export(gemini_exports, {
   decryptApiSecret: () => decryptApiSecret,
   encryptApiSecret: () => encryptApiSecret
 });
-import crypto11 from "crypto";
+import crypto12 from "crypto";
 var API_HOST3, GeminiService;
 var init_gemini = __esm({
   "server/gemini.ts"() {
@@ -42866,7 +45984,7 @@ var init_gemini = __esm({
         const nonce = Date.now();
         const payload2 = { request: endpoint, nonce, ...params };
         const b64 = Buffer.from(JSON.stringify(payload2)).toString("base64");
-        const signature = crypto11.createHmac("sha384", this.secret).update(b64).digest("hex");
+        const signature = crypto12.createHmac("sha384", this.secret).update(b64).digest("hex");
         const res = await fetch(`${API_HOST3}${endpoint}`, {
           method: "POST",
           headers: {
@@ -42971,42 +46089,42 @@ async function serviceFor(userId, venue) {
   return new GeminiService2(rows[0].k, decryptApiSecret3(rows[0].s));
 }
 async function cefiEntryBuy(userId, venue, base, notionalUsd) {
-  const sym = venueSymbol(venue, base);
+  const sym2 = venueSymbol(venue, base);
   const svc = await serviceFor(userId, venue);
-  if (!svc) return { ok: false, venue, venueSymbol: sym, qtyBase: 0, entryPrice: 0, orderId: "", reason: `no active ${venue} connection` };
+  if (!svc) return { ok: false, venue, venueSymbol: sym2, qtyBase: 0, entryPrice: 0, orderId: "", reason: `no active ${venue} connection` };
   const q = await getAggregatedQuote(base).catch(() => null);
   const price = q?.best?.price ?? 0;
-  if (!price) return { ok: false, venue, venueSymbol: sym, qtyBase: 0, entryPrice: 0, orderId: "", reason: `no live price for ${base}` };
+  if (!price) return { ok: false, venue, venueSymbol: sym2, qtyBase: 0, entryPrice: 0, orderId: "", reason: `no live price for ${base}` };
   const qtyBase = Math.max(0, Math.round(notionalUsd / price * 1e6) / 1e6);
-  if (qtyBase <= 0) return { ok: false, venue, venueSymbol: sym, qtyBase: 0, entryPrice: price, orderId: "", reason: "size rounds to 0" };
+  if (qtyBase <= 0) return { ok: false, venue, venueSymbol: sym2, qtyBase: 0, entryPrice: price, orderId: "", reason: "size rounds to 0" };
   let orderId = "";
   if (venue === "coinbase") {
-    const r = await svc.placeOrder({ product: sym, side: "BUY", type: "market", quoteSize: Math.round(notionalUsd * 100) / 100 });
+    const r = await svc.placeOrder({ product: sym2, side: "BUY", type: "market", quoteSize: Math.round(notionalUsd * 100) / 100 });
     orderId = r.orderId;
   } else if (venue === "kraken") {
-    const r = await svc.placeOrder({ pair: sym, type: "buy", ordertype: "market", volume: qtyBase });
+    const r = await svc.placeOrder({ pair: sym2, type: "buy", ordertype: "market", volume: qtyBase });
     orderId = (r.txids || [])[0] || "";
   } else {
-    const r = await svc.placeOrder({ symbol: sym, side: "buy", amount: qtyBase, price: Math.round(price * 1.01 * 100) / 100, immediateOrCancel: true });
+    const r = await svc.placeOrder({ symbol: sym2, side: "buy", amount: qtyBase, price: Math.round(price * 1.01 * 100) / 100, immediateOrCancel: true });
     orderId = r.orderId;
   }
-  return { ok: true, venue, venueSymbol: sym, qtyBase, entryPrice: price, orderId };
+  return { ok: true, venue, venueSymbol: sym2, qtyBase, entryPrice: price, orderId };
 }
 async function cefiExitSell(userId, venue, base, qtyBase) {
-  const sym = venueSymbol(venue, base);
+  const sym2 = venueSymbol(venue, base);
   const svc = await serviceFor(userId, venue);
   if (!svc) return { ok: false, exitPrice: 0, orderId: "", reason: `no active ${venue} connection` };
   const q = await getAggregatedQuote(base).catch(() => null);
   const price = q?.best?.price ?? 0;
   let orderId = "";
   if (venue === "coinbase") {
-    const r = await svc.placeOrder({ product: sym, side: "SELL", type: "market", baseSize: qtyBase });
+    const r = await svc.placeOrder({ product: sym2, side: "SELL", type: "market", baseSize: qtyBase });
     orderId = r.orderId;
   } else if (venue === "kraken") {
-    const r = await svc.placeOrder({ pair: sym, type: "sell", ordertype: "market", volume: qtyBase });
+    const r = await svc.placeOrder({ pair: sym2, type: "sell", ordertype: "market", volume: qtyBase });
     orderId = (r.txids || [])[0] || "";
   } else {
-    const r = await svc.placeOrder({ symbol: sym, side: "sell", amount: qtyBase, price: price ? Math.round(price * 0.99 * 100) / 100 : 0.01, immediateOrCancel: true });
+    const r = await svc.placeOrder({ symbol: sym2, side: "sell", amount: qtyBase, price: price ? Math.round(price * 0.99 * 100) / 100 : 0.01, immediateOrCancel: true });
     orderId = r.orderId;
   }
   return { ok: true, exitPrice: price, orderId };
@@ -43049,8 +46167,8 @@ function baseUrl(testnet) {
 function tradedAddress(c) {
   return (c.vaultAddress || c.accountAddress).toLowerCase();
 }
-async function post(testnet, path20, body) {
-  const r = await fetch(baseUrl(testnet) + path20, {
+async function post(testnet, path19, body) {
+  const r = await fetch(baseUrl(testnet) + path19, {
     method: "POST",
     headers: { "content-type": "application/json" },
     body: JSON.stringify(body),
@@ -43061,9 +46179,9 @@ async function post(testnet, path20, body) {
   try {
     j = JSON.parse(text2);
   } catch {
-    throw new Error(`Hyperliquid ${path20} HTTP ${r.status}: ${text2.slice(0, 200)}`);
+    throw new Error(`Hyperliquid ${path19} HTTP ${r.status}: ${text2.slice(0, 200)}`);
   }
-  if (!r.ok) throw new Error(`Hyperliquid ${path20} HTTP ${r.status}: ${text2.slice(0, 200)}`);
+  if (!r.ok) throw new Error(`Hyperliquid ${path19} HTTP ${r.status}: ${text2.slice(0, 200)}`);
   return j;
 }
 async function getMeta(testnet) {
@@ -43453,8 +46571,8 @@ async function resolveToken(chainKey, token) {
   if (up === "WETH") return c.weth;
   const idx = await loadTokenIndex(chainKey);
   const candidates = SYMBOL_ALIASES[up] ?? [up];
-  for (const sym of candidates) {
-    const addr = idx.get(sym);
+  for (const sym2 of candidates) {
+    const addr = idx.get(sym2);
     if (addr) return addr;
   }
   throw new Error(`Token "${token}" isn't listed on ${chainKey} \u2014 it may not exist on this chain. Use a 0x address, or pick a token that trades on ${chainKey}.`);
@@ -44325,11 +47443,11 @@ async function refreshDefiUniverse(chain) {
   const { discoverDefiTokens: discoverDefiTokens2 } = await Promise.resolve().then(() => (init_defi_market_data(), defi_market_data_exports));
   const STABLE = /^(USDT|USDC|USDBC|USDC\.E|DAI|USDE|SUSDE|FDUSD|TUSD|USDS|PYUSD|EURC|EURS|LUSD|CRVUSD|GHO|USD\+|USDZ|FRAX|MIM|USDP|BUSD|USD0|USDX|DOLA|AXLUSDC|USDM|USDB)$/i;
   const tokens = (await discoverDefiTokens2(chain)).filter((t) => {
-    const sym = String(t.symbol || "").toUpperCase();
-    if (STABLE.test(sym)) return false;
-    if (/^(S|W|ST|A|C|Y)?USD[A-Z0-9.+]*$/i.test(sym)) return false;
+    const sym2 = String(t.symbol || "").toUpperCase();
+    if (STABLE.test(sym2)) return false;
+    if (/^(S|W|ST|A|C|Y)?USD[A-Z0-9.+]*$/i.test(sym2)) return false;
     const px = Number(t.priceUsd);
-    if (/USD|EUR/.test(sym) && px > 0 && Math.abs(px - 1) < 0.015) return false;
+    if (/USD|EUR/.test(sym2) && px > 0 && Math.abs(px - 1) < 0.015) return false;
     return true;
   });
   for (const t of tokens) {
@@ -46820,7 +49938,7 @@ function getEngineState(userId) {
       totalRealizedPnl: 0,
       totalUnrealizedPnl: 0,
       tradesOpened: 0,
-      config: { ...DEFAULT_CONFIG }
+      config: { ...DEFAULT_CONFIG2 }
     });
   }
   return _states.get(userId);
@@ -47090,7 +50208,7 @@ async function closeAllPositions(userId) {
   }
   return closed;
 }
-var CLOB_BASE2, POLY_CHAIN, CTF_ADDRESS, _privateKeys, _states, _intervals, DEFAULT_CONFIG;
+var CLOB_BASE2, POLY_CHAIN, CTF_ADDRESS, _privateKeys, _states, _intervals, DEFAULT_CONFIG2;
 var init_polymarket_autonomous_engine = __esm({
   "server/services/polymarket-autonomous-engine.ts"() {
     "use strict";
@@ -47102,7 +50220,7 @@ var init_polymarket_autonomous_engine = __esm({
     _privateKeys = /* @__PURE__ */ new Map();
     _states = /* @__PURE__ */ new Map();
     _intervals = /* @__PURE__ */ new Map();
-    DEFAULT_CONFIG = {
+    DEFAULT_CONFIG2 = {
       minBullishScore: 70,
       minBearishScore: 70,
       stakePerTrade: 10,
@@ -47131,7 +50249,7 @@ function volumeProfileSignal(candles) {
   for (const c of window) {
     const tp = (c.high + c.low + c.close) / 3;
     let idx = Math.floor((tp - lo) / binSize);
-    idx = clamp2(idx, 0, bins - 1);
+    idx = clamp3(idx, 0, bins - 1);
     vol[idx] += c.volume;
   }
   const totalVol = vol.reduce((a, b) => a + b, 0) || 1;
@@ -47162,12 +50280,12 @@ function volumeProfileSignal(candles) {
   if (price > VAH && volConfirm) {
     direction = "BUY";
     const dist = (price - VAH) / binSize;
-    confidence2 = clamp2(Math.round(60 + dist * 8), 55, 90);
+    confidence2 = clamp3(Math.round(60 + dist * 8), 55, 90);
     reason = `VP breakout: price $${price.toFixed(0)} above value-area-high $${VAH.toFixed(0)} (POC $${pocPrice.toFixed(0)}), volume confirming`;
   } else if (price < VAL && volConfirm) {
     direction = "SELL";
     const dist = (VAL - price) / binSize;
-    confidence2 = clamp2(Math.round(60 + dist * 8), 55, 90);
+    confidence2 = clamp3(Math.round(60 + dist * 8), 55, 90);
     reason = `VP breakdown: price $${price.toFixed(0)} below value-area-low $${VAL.toFixed(0)} (POC $${pocPrice.toFixed(0)}), volume confirming`;
   } else if (price > VAH || price < VAL) {
     direction = "NEUTRAL";
@@ -47204,13 +50322,13 @@ function markovSignal(candles) {
   const enoughSamples = rowSum >= 8;
   if (enoughSamples && pU >= MIN_PROB && pU - pD >= MIN_MARGIN) {
     direction = "BUY";
-    confidence2 = clamp2(Math.round(pU * 100), 55, 92);
+    confidence2 = clamp3(Math.round(pU * 100), 55, 92);
   } else if (enoughSamples && pD >= MIN_PROB && pD - pU >= MIN_MARGIN) {
     direction = "SELL";
-    confidence2 = clamp2(Math.round(pD * 100), 55, 92);
+    confidence2 = clamp3(Math.round(pD * 100), 55, 92);
   } else {
     direction = "NEUTRAL";
-    confidence2 = clamp2(Math.round(Math.max(pU, pD) * 100), 40, 54);
+    confidence2 = clamp3(Math.round(Math.max(pU, pD) * 100), 40, 54);
   }
   const reason = `Markov from '${cur}' state: P(up)=${(pU * 100).toFixed(0)}%, P(down)=${(pD * 100).toFixed(0)}% (${rowSum} samples)`;
   return { direction, confidence: confidence2, currentPrice: price, priceChange1h, reason, strategy: "markov" };
@@ -47344,13 +50462,13 @@ function ensembleSignal(candles) {
   let confidence2 = 50;
   if (bull >= 4 && bull > bear) {
     direction = "BUY";
-    confidence2 = clamp2(60 + bull * 6, 60, 92);
+    confidence2 = clamp3(60 + bull * 6, 60, 92);
   } else if (bear >= 4 && bear > bull) {
     direction = "SELL";
-    confidence2 = clamp2(60 + bear * 6, 60, 92);
+    confidence2 = clamp3(60 + bear * 6, 60, 92);
   } else {
     direction = "NEUTRAL";
-    confidence2 = clamp2(45 + Math.max(bull, bear) * 3, 40, 58);
+    confidence2 = clamp3(45 + Math.max(bull, bear) * 3, 40, 58);
   }
   const reason = `Ensemble ${direction}: ${Math.max(bull, bear)}/5 factors agree (${notes.join(", ")}). Trending regime confirmed.`;
   return { direction, confidence: confidence2, currentPrice: price, priceChange1h, reason, strategy: "ensemble" };
@@ -47436,13 +50554,13 @@ async function getKalshiConsensus(coin = "BTC") {
   const reasons = signals.map((s) => `${s.strategy}: ${s.direction} ${s.confidence}%`);
   return { direction, confidence: confidence2, agreement, currentPrice: price, priceChange1h, signals, reasons };
 }
-var clamp2;
+var clamp3;
 var init_kalshi_strategies = __esm({
   "server/services/kalshi-strategies.ts"() {
     "use strict";
     init_btc_5min_predictor();
     init_orderflow_strategy();
-    clamp2 = (n, lo, hi) => Math.max(lo, Math.min(hi, n));
+    clamp3 = (n, lo, hi) => Math.max(lo, Math.min(hi, n));
   }
 });
 
@@ -47462,7 +50580,7 @@ __export(kalshi_trading_exports, {
 });
 import * as fs9 from "fs";
 import * as path9 from "path";
-import * as crypto12 from "crypto";
+import * as crypto13 from "crypto";
 function loadAllCreds() {
   try {
     if (fs9.existsSync(CREDS_FILE)) return JSON.parse(fs9.readFileSync(CREDS_FILE, "utf-8"));
@@ -47505,7 +50623,7 @@ ${wrapped}
   }
   pem = pem.trim();
   try {
-    crypto12.createPrivateKey(pem);
+    crypto13.createPrivateKey(pem);
   } catch {
     throw new Error('Private key is not a valid RSA PEM. Paste the full contents of the key file Kalshi gave you, including the "-----BEGIN ... PRIVATE KEY-----" and "-----END ... PRIVATE KEY-----" lines.');
   }
@@ -47554,14 +50672,14 @@ async function getOrRefreshToken(userId, creds) {
 function signKalshiRequest(privateKeyPem, timestampMs, method, endpoint) {
   const pathOnly = endpoint.split("?")[0];
   const message = String(timestampMs) + method.toUpperCase() + KALSHI_PATH_PREFIX + pathOnly;
-  const sign3 = crypto12.createSign("sha256");
+  const sign3 = crypto13.createSign("sha256");
   sign3.update(message);
   sign3.end();
   return sign3.sign(
     {
       key: privateKeyPem,
-      padding: crypto12.constants.RSA_PKCS1_PSS_PADDING,
-      saltLength: crypto12.constants.RSA_PSS_SALTLEN_DIGEST
+      padding: crypto13.constants.RSA_PKCS1_PSS_PADDING,
+      saltLength: crypto13.constants.RSA_PSS_SALTLEN_DIGEST
     },
     "base64"
   );
@@ -47788,7 +50906,7 @@ __export(kalshi_brain_exports, {
   kalshiBrainValueWeight: () => kalshiBrainValueWeight,
   learnFromKalshiTrades: () => learnFromKalshiTrades
 });
-import { and as and9, desc as desc7, eq as eq13, sql as sql10 } from "drizzle-orm";
+import { and as and9, desc as desc7, eq as eq14, sql as sql11 } from "drizzle-orm";
 function _band(n, size) {
   const lo = Math.floor(n / size) * size;
   return `${lo}-${lo + size}`;
@@ -47816,9 +50934,9 @@ function _valueWeight(winRate2, trades) {
   return Math.round((0.7 + winRate2 / 100 * 0.6) * 100) / 100;
 }
 async function _backfillIfEmpty(userId) {
-  const [{ n }] = await db.select({ n: sql10`count(*)` }).from(kalshiBrainOutcomes).where(eq13(kalshiBrainOutcomes.userId, userId));
+  const [{ n }] = await db.select({ n: sql11`count(*)` }).from(kalshiBrainOutcomes).where(eq14(kalshiBrainOutcomes.userId, userId));
   if (Number(n) > 0) return;
-  const rows = await db.select().from(aiTradeResults).where(and9(eq13(aiTradeResults.userId, userId), eq13(aiTradeResults.source, "kalshi"))).orderBy(desc7(aiTradeResults.closedAt)).limit(1e3);
+  const rows = await db.select().from(aiTradeResults).where(and9(eq14(aiTradeResults.userId, userId), eq14(aiTradeResults.source, "kalshi"))).orderBy(desc7(aiTradeResults.closedAt)).limit(1e3);
   if (!rows.length) return;
   const seed = rows.filter((r) => r.closedAt).map((r) => {
     const strat = (r.notes ?? "").split(":")[0].trim() || "unknown";
@@ -47850,7 +50968,7 @@ async function _backfillIfEmpty(userId) {
 async function learnFromKalshiTrades(userId) {
   await _backfillIfEmpty(userId).catch(() => {
   });
-  const rows = await db.select().from(kalshiBrainOutcomes).where(eq13(kalshiBrainOutcomes.userId, userId)).orderBy(desc7(kalshiBrainOutcomes.closedAt)).limit(2e3);
+  const rows = await db.select().from(kalshiBrainOutcomes).where(eq14(kalshiBrainOutcomes.userId, userId)).orderBy(desc7(kalshiBrainOutcomes.closedAt)).limit(2e3);
   const coins = {};
   const winSum = {}, winN = {};
   const lossSum = {}, lossN = {};
@@ -47930,24 +51048,24 @@ async function learnFromKalshiTrades(userId) {
     coinKnowledge: coins,
     insights
   };
-  _cache3.set(userId, { brain, at: Date.now() });
+  _cache4.set(userId, { brain, at: Date.now() });
   return brain;
 }
 async function getOrRefreshKalshiBrain(userId, force = false) {
-  const hit = _cache3.get(userId);
-  if (!force && hit && Date.now() - hit.at < REFRESH_TTL_MS2) return hit.brain;
+  const hit = _cache4.get(userId);
+  if (!force && hit && Date.now() - hit.at < REFRESH_TTL_MS3) return hit.brain;
   return learnFromKalshiTrades(userId);
 }
 function cachedKalshiBrain(userId) {
-  return _cache3.get(userId)?.brain ?? null;
+  return _cache4.get(userId)?.brain ?? null;
 }
 function kalshiBrainSizeMultiplier(userId, coin) {
-  const b = _cache3.get(userId)?.brain;
+  const b = _cache4.get(userId)?.brain;
   const k2 = b?.coinKnowledge[coin];
   return k2 ? k2.recommendedSizeMultiplier : 1;
 }
 function kalshiBrainGate(userId, coin, strikeType, hourUtc, confidence2) {
-  const k2 = _cache3.get(userId)?.brain?.coinKnowledge[coin];
+  const k2 = _cache4.get(userId)?.brain?.coinKnowledge[coin];
   if (!k2) return { blocked: false, reason: "" };
   const decided = k2.wins + k2.losses;
   if (decided >= 15 && k2.winRate < 35) {
@@ -47974,7 +51092,7 @@ function kalshiBrainGate(userId, coin, strikeType, hourUtc, confidence2) {
   return { blocked: false, reason: "" };
 }
 function kalshiBrainValueWeight(userId, coin, strikeType) {
-  const k2 = _cache3.get(userId)?.brain?.coinKnowledge[coin];
+  const k2 = _cache4.get(userId)?.brain?.coinKnowledge[coin];
   if (!k2) return 1;
   let w = k2.valueScoreWeight;
   if (strikeType) {
@@ -47983,15 +51101,15 @@ function kalshiBrainValueWeight(userId, coin, strikeType) {
   }
   return Math.max(0.6, Math.min(1.4, Math.round(w * 100) / 100));
 }
-var MIN_TRADES_FOR_COIN, REFRESH_TTL_MS2, _cache3;
+var MIN_TRADES_FOR_COIN, REFRESH_TTL_MS3, _cache4;
 var init_kalshi_brain = __esm({
   "server/services/kalshi-brain.ts"() {
     "use strict";
     init_db();
     init_schema();
     MIN_TRADES_FOR_COIN = 10;
-    REFRESH_TTL_MS2 = 60 * 1e3;
-    _cache3 = /* @__PURE__ */ new Map();
+    REFRESH_TTL_MS3 = 60 * 1e3;
+    _cache4 = /* @__PURE__ */ new Map();
   }
 });
 
@@ -48206,7 +51324,7 @@ function getKalshiEngineState(userId) {
       closedTrades: [],
       totalRealizedPnl: 0,
       totalUnrealizedPnl: 0,
-      config: override ? { ...DEFAULT_CONFIG2, ...override } : { ...DEFAULT_CONFIG2 }
+      config: override ? { ...DEFAULT_CONFIG3, ...override } : { ...DEFAULT_CONFIG3 }
     });
   }
   const s = _states2.get(userId);
@@ -49127,7 +52245,7 @@ async function closeAllKalshiTrades(userId) {
   }
   return closed;
 }
-var KALSHI_TRADEABLE_COINS, _sessionPeakBankroll, _states2, _timers, DEFAULT_CONFIG2, STRATEGY_LABELS, _persistedConfigOverrides, _credValidity, CRED_VALIDITY_TTL_MS, _priceTimers;
+var KALSHI_TRADEABLE_COINS, _sessionPeakBankroll, _states2, _timers, DEFAULT_CONFIG3, STRATEGY_LABELS, _persistedConfigOverrides, _credValidity, CRED_VALIDITY_TTL_MS, _priceTimers;
 var init_kalshi_engine = __esm({
   "server/services/kalshi-engine.ts"() {
     "use strict";
@@ -49142,7 +52260,7 @@ var init_kalshi_engine = __esm({
     _sessionPeakBankroll = /* @__PURE__ */ new Map();
     _states2 = /* @__PURE__ */ new Map();
     _timers = /* @__PURE__ */ new Map();
-    DEFAULT_CONFIG2 = {
+    DEFAULT_CONFIG3 = {
       symbols: ["BTC"],
       // preserves existing behavior for accounts that never touch this setting
       timeframe: "hourly",
@@ -49221,7 +52339,7 @@ __export(polymarket_us_exports, {
 });
 import * as fs11 from "fs";
 import * as path11 from "path";
-import * as crypto13 from "crypto";
+import * as crypto14 from "crypto";
 function loadAll3() {
   try {
     if (fs11.existsSync(FILE3)) return JSON.parse(fs11.readFileSync(FILE3, "utf-8"));
@@ -49266,13 +52384,13 @@ function ed25519KeyFromSecret(secretKeyB64) {
   const raw = Buffer.from(secretKeyB64, "base64");
   const seed = raw.subarray(0, 32);
   const der = Buffer.concat([PKCS8_ED25519_PREFIX, seed]);
-  return crypto13.createPrivateKey({ key: der, format: "der", type: "pkcs8" });
+  return crypto14.createPrivateKey({ key: der, format: "der", type: "pkcs8" });
 }
 function signHeaders(keyId, secret, method, reqPath) {
   const timestamp2 = Date.now().toString();
   const message = `${timestamp2}${method.toUpperCase()}${reqPath}`;
   const key = ed25519KeyFromSecret(secret);
-  const signature = crypto13.sign(null, Buffer.from(message, "utf-8"), key).toString("base64");
+  const signature = crypto14.sign(null, Buffer.from(message, "utf-8"), key).toString("base64");
   return {
     "X-PM-Access-Key": keyId,
     "X-PM-Timestamp": timestamp2,
@@ -49398,7 +52516,7 @@ function getPmUsEngineState(userId) {
       closedTrades: [],
       totalRealizedPnl: 0,
       totalUnrealizedPnl: 0,
-      config: { ...DEFAULT_CONFIG3 }
+      config: { ...DEFAULT_CONFIG4 }
     });
   }
   const s = _states3.get(userId);
@@ -49706,14 +52824,14 @@ async function _runScan2(userId, manual = false) {
     return { fired: false, reason: r };
   }
 }
-var DEFAULT_CONFIG3, STRATEGY_LABELS2, _states3, _timers2, _credValidity2, CRED_VALIDITY_TTL_MS2;
+var DEFAULT_CONFIG4, STRATEGY_LABELS2, _states3, _timers2, _credValidity2, CRED_VALIDITY_TTL_MS2;
 var init_polymarket_us_engine = __esm({
   "server/services/polymarket-us-engine.ts"() {
     "use strict";
     init_kalshi_strategies();
     init_kalshi_engine();
     init_polymarket_us();
-    DEFAULT_CONFIG3 = {
+    DEFAULT_CONFIG4 = {
       contractsPerTrade: 5,
       maxOpenTrades: 3,
       cooldownMinutes: 20,
@@ -49751,7 +52869,7 @@ __export(ruin_cone_exports, {
   FTUK_DEFAULTS: () => FTUK_DEFAULTS,
   runRuinConeSimulation: () => runRuinConeSimulation
 });
-import { and as and10, desc as desc8, eq as eq14, isNotNull } from "drizzle-orm";
+import { and as and10, desc as desc8, eq as eq15, isNotNull } from "drizzle-orm";
 function _cacheKey(userId, p) {
   return `${userId}:${JSON.stringify(p)}`;
 }
@@ -49788,12 +52906,12 @@ async function runRuinConeSimulation(userId, params = {}) {
     source
   };
   if (!params.noCache) {
-    const hit = _cache4.get(_cacheKey(userId, resolved));
+    const hit = _cache5.get(_cacheKey(userId, resolved));
     if (hit && hit.expires > Date.now()) return hit.result;
   }
   const rows = await db.select({ pnl: aiTradeResults.profitLoss, closedAt: aiTradeResults.closedAt }).from(aiTradeResults).where(and10(
-    eq14(aiTradeResults.userId, userId),
-    eq14(aiTradeResults.source, source),
+    eq15(aiTradeResults.userId, userId),
+    eq15(aiTradeResults.source, source),
     isNotNull(aiTradeResults.profitLoss),
     isNotNull(aiTradeResults.closedAt)
   )).orderBy(desc8(aiTradeResults.closedAt)).limit(sourceLimit);
@@ -49836,7 +52954,7 @@ async function runRuinConeSimulation(userId, params = {}) {
       },
       warning: `Only ${sourceTradeCount} closed '${source}' trade(s) on record \u2014 need at least 2 to simulate. Let the scanner build more history.`
     };
-    _cache4.set(_cacheKey(userId, resolved), { expires: Date.now() + CACHE_TTL_MS7, result: result2 });
+    _cache5.set(_cacheKey(userId, resolved), { expires: Date.now() + CACHE_TTL_MS7, result: result2 });
     return result2;
   }
   const paths = new Array(numSimulations);
@@ -49847,8 +52965,8 @@ async function runRuinConeSimulation(userId, params = {}) {
   let hitTargetCount = 0;
   const targetEquity = startingEquity + profitTarget;
   for (let s = 0; s < numSimulations; s++) {
-    const path20 = new Float64Array(numTrades + 1);
-    path20[0] = startingEquity;
+    const path19 = new Float64Array(numTrades + 1);
+    path19[0] = startingEquity;
     let equity = startingEquity;
     let peak = startingEquity;
     let firstFailIndex = -1;
@@ -49861,7 +52979,7 @@ async function runRuinConeSimulation(userId, params = {}) {
     for (let t = 1; t <= numTrades; t++) {
       const pnl = pnls[Math.random() * sourceTradeCount | 0];
       equity += pnl;
-      path20[t] = equity;
+      path19[t] = equity;
       if (equity > peak) peak = equity;
       if (!everRuin && peak - equity >= maxDrawdownLimit) {
         everRuin = true;
@@ -49880,7 +52998,7 @@ async function runRuinConeSimulation(userId, params = {}) {
         tradeInDay = 0;
       }
     }
-    paths[s] = path20;
+    paths[s] = path19;
     finalEquities[s] = equity;
     if (everRuin) ruinCount++;
     if (everDailyBreach) dailyBreachCount++;
@@ -49936,10 +53054,10 @@ async function runRuinConeSimulation(userId, params = {}) {
     },
     warning: sourceTradeCount < 20 ? `Thin history: only ${sourceTradeCount} closed '${source}' trade(s). Results are indicative only until more trades accumulate.` : void 0
   };
-  _cache4.set(_cacheKey(userId, resolved), { expires: Date.now() + CACHE_TTL_MS7, result });
+  _cache5.set(_cacheKey(userId, resolved), { expires: Date.now() + CACHE_TTL_MS7, result });
   return result;
 }
-var FTUK_DEFAULTS, DEFAULT_NUM_SIMULATIONS, DEFAULT_NUM_TRADES, DEFAULT_SOURCE_LIMIT, CACHE_TTL_MS7, _cache4;
+var FTUK_DEFAULTS, DEFAULT_NUM_SIMULATIONS, DEFAULT_NUM_TRADES, DEFAULT_SOURCE_LIMIT, CACHE_TTL_MS7, _cache5;
 var init_ruin_cone = __esm({
   "server/services/ruin-cone.ts"() {
     "use strict";
@@ -49960,7 +53078,7 @@ var init_ruin_cone = __esm({
     DEFAULT_NUM_TRADES = 100;
     DEFAULT_SOURCE_LIMIT = 200;
     CACHE_TTL_MS7 = 5 * 60 * 1e3;
-    _cache4 = /* @__PURE__ */ new Map();
+    _cache5 = /* @__PURE__ */ new Map();
   }
 });
 
@@ -50128,2655 +53246,6 @@ var init_abba_ea_generator = __esm({
   "server/services/abba-ea-generator.ts"() {
     "use strict";
     init_openai();
-  }
-});
-
-// server/services/sol-brain.ts
-async function ensureTable2() {
-  if (_ensured3) return;
-  try {
-    await pool.query(`
-      CREATE TABLE IF NOT EXISTS "sol_brain_outcomes" (
-        "id" serial PRIMARY KEY NOT NULL,
-        "user_id" integer NOT NULL,
-        "symbol" text NOT NULL,
-        "strategy" text NOT NULL,
-        "direction" text NOT NULL,
-        "entry_confidence" double precision,
-        "return_pct" double precision,
-        "hour_utc" integer,
-        "holding_minutes" integer,
-        "exit_reason" text,
-        "result" text NOT NULL,
-        "profit_loss" double precision NOT NULL DEFAULT 0,
-        "source" text NOT NULL DEFAULT 'live',
-        "closed_at" timestamp DEFAULT now() NOT NULL,
-        "created_at" timestamp DEFAULT now() NOT NULL
-      );
-      CREATE INDEX IF NOT EXISTS "idx_sol_brain_outcomes_user_symbol" ON "sol_brain_outcomes" ("user_id", "symbol");
-    `);
-    _ensured3 = true;
-  } catch (err) {
-    console.error("[sol-brain] ensureTable failed (non-fatal):", err?.message ?? err);
-  }
-}
-function bump2(map, key, win) {
-  const s = map[key] ??= { trades: 0, wins: 0, winRate: 0 };
-  s.trades++;
-  if (win) s.wins++;
-  s.winRate = Math.round(s.wins / s.trades * 100);
-}
-function sizeMult2(winRate2, rr, trades) {
-  if (trades < MIN_TRADES4) return 1;
-  const w = winRate2 / 100, r = rr > 0 ? rr : 1;
-  const kelly = w - (1 - w) / r;
-  return Math.max(0.25, Math.min(1.5, 1 + kelly));
-}
-async function backfillIfEmpty2(userId) {
-  const { rows } = await pool.query(`SELECT count(*)::int n FROM sol_brain_outcomes WHERE user_id=$1`, [userId]);
-  if (rows[0].n > 0) return;
-  const { rows: trades } = await pool.query(
-    `SELECT token_symbol, strategy_id, close_pnl_pct, closed_at FROM sol_engine_positions
-     WHERE user_id=$1 AND status='closed' AND close_pnl_pct IS NOT NULL ORDER BY closed_at DESC LIMIT 1000`,
-    [userId]
-  );
-  if (!trades.length) return;
-  for (const t of trades) {
-    const pnl = Number(t.close_pnl_pct) || 0;
-    const d = t.closed_at ? new Date(t.closed_at) : /* @__PURE__ */ new Date();
-    await pool.query(
-      `INSERT INTO sol_brain_outcomes (user_id, symbol, strategy, direction, result, profit_loss, return_pct, hour_utc, source, closed_at)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,'backfill',$9)`,
-      [userId, t.token_symbol || "UNKNOWN", t.strategy_id || "unknown", "long", pnl > 0 ? "WIN" : pnl < 0 ? "LOSS" : "BREAKEVEN", pnl, pnl, d.getUTCHours(), d]
-    ).catch(() => {
-    });
-  }
-}
-async function learnFromSolTrades(userId) {
-  await ensureTable2();
-  await backfillIfEmpty2(userId).catch(() => {
-  });
-  const { rows } = await pool.query(
-    `SELECT symbol, strategy, direction, result, profit_loss, hour_utc FROM sol_brain_outcomes
-     WHERE user_id=$1 ORDER BY closed_at DESC LIMIT 2000`,
-    [userId]
-  );
-  const symbols = {};
-  const winSum = {}, winN = {}, lossSum = {}, lossN = {};
-  let totalWins = 0, totalDecided = 0, totalPnl = 0;
-  for (const r of rows) {
-    const sym = r.symbol || "UNKNOWN";
-    const k2 = symbols[sym] ??= { totalTrades: 0, wins: 0, losses: 0, winRate: 0, totalPnl: 0, avgWin: 0, avgLoss: 0, riskReward: 0, byStrategy: {}, byHour: {}, bestStrategy: null, recommendedSizeMultiplier: 1 };
-    const pnl = Number(r.profit_loss) || 0;
-    const win = r.result === "WIN", loss = r.result === "LOSS";
-    k2.totalTrades++;
-    k2.totalPnl += pnl;
-    totalPnl += pnl;
-    if (win) {
-      k2.wins++;
-      totalWins++;
-      winSum[sym] = (winSum[sym] ?? 0) + pnl;
-      winN[sym] = (winN[sym] ?? 0) + 1;
-    }
-    if (loss) {
-      k2.losses++;
-      lossSum[sym] = (lossSum[sym] ?? 0) + Math.abs(pnl);
-      lossN[sym] = (lossN[sym] ?? 0) + 1;
-    }
-    if (win || loss) totalDecided++;
-    if (r.strategy) bump2(k2.byStrategy, r.strategy, win);
-    if (r.hour_utc != null) bump2(k2.byHour, String(r.hour_utc), win);
-  }
-  for (const [sym, k2] of Object.entries(symbols)) {
-    const decided = k2.wins + k2.losses;
-    k2.winRate = decided ? Math.round(k2.wins / decided * 100) : 0;
-    k2.avgWin = winN[sym] ? winSum[sym] / winN[sym] : 0;
-    k2.avgLoss = lossN[sym] ? lossSum[sym] / lossN[sym] : 0;
-    k2.riskReward = k2.avgLoss > 0 ? k2.avgWin / k2.avgLoss : k2.avgWin > 0 ? 2 : 1;
-    k2.recommendedSizeMultiplier = sizeMult2(k2.winRate, k2.riskReward, decided);
-    let best = null, bestWr = -1;
-    for (const [s, b] of Object.entries(k2.byStrategy)) if (b.trades >= 3 && b.winRate > bestWr) {
-      best = s;
-      bestWr = b.winRate;
-    }
-    k2.bestStrategy = best;
-  }
-  const insights = [];
-  for (const [sym, k2] of Object.entries(symbols)) {
-    if (k2.wins + k2.losses >= MIN_TRADES4) insights.push(`${sym}: ${k2.winRate}% WR over ${k2.wins + k2.losses} \u2192 sizing \xD7${k2.recommendedSizeMultiplier}${k2.bestStrategy ? `, best on ${k2.bestStrategy}` : ""}.`);
-    else insights.push(`${sym}: still learning (${k2.wins + k2.losses}/${MIN_TRADES4}).`);
-  }
-  const brain = { userId, lastLearned: (/* @__PURE__ */ new Date()).toISOString(), totalTrades: rows.length, overallWinRate: totalDecided ? Math.round(totalWins / totalDecided * 100) : 0, totalPnl: Math.round(totalPnl * 100) / 100, symbolKnowledge: symbols, insights };
-  _cache5.set(userId, { brain, at: Date.now() });
-  return brain;
-}
-async function getOrRefreshSolBrain(userId, force = false) {
-  const hit = _cache5.get(userId);
-  if (!force && hit && Date.now() - hit.at < REFRESH_TTL_MS3) return hit.brain;
-  return learnFromSolTrades(userId);
-}
-function solBrainSizeMultiplier(userId, symbol) {
-  const k2 = _cache5.get(userId)?.brain?.symbolKnowledge[symbol];
-  return k2 ? k2.recommendedSizeMultiplier : 1;
-}
-function solBrainGate(userId, symbol, strategy, hourUtc) {
-  const k2 = _cache5.get(userId)?.brain?.symbolKnowledge[symbol];
-  if (!k2) return { blocked: false, reason: "" };
-  const decided = k2.wins + k2.losses;
-  if (decided >= 15 && k2.winRate < 35) return { blocked: true, reason: `\u{1F9E0} Sol brain: ${symbol} ${k2.winRate}% WR over ${decided} \u2014 skipping symbol` };
-  if (strategy) {
-    const st = k2.byStrategy[strategy];
-    if (st && st.trades >= 8 && st.winRate < 30) return { blocked: true, reason: `\u{1F9E0} Sol brain: ${symbol}/${strategy} ${st.winRate}% WR over ${st.trades} \u2014 skipping` };
-  }
-  if (hourUtc != null) {
-    const h = k2.byHour[String(hourUtc)];
-    if (h && h.trades >= 8 && h.winRate < 30) return { blocked: true, reason: `\u{1F9E0} Sol brain: ${symbol} @ ${hourUtc}:00 UTC ${h.winRate}% WR over ${h.trades} \u2014 skipping this hour` };
-  }
-  return { blocked: false, reason: "" };
-}
-async function recordSolBrainOutcome(o) {
-  try {
-    await ensureTable2();
-    if (o.returnPct != null && (o.returnPct > 1e3 || o.returnPct < -100)) {
-      console.warn(`[sol-brain] rejected impossible return ${o.returnPct}% for ${o.symbol} \u2014 not recorded (bad price data)`);
-      return;
-    }
-    await pool.query(
-      `INSERT INTO sol_brain_outcomes (user_id, symbol, strategy, direction, entry_confidence, return_pct, hour_utc, holding_minutes, exit_reason, result, profit_loss, source)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)`,
-      [
-        o.userId,
-        o.symbol,
-        o.strategy || "unknown",
-        o.direction || "long",
-        o.entryConfidence ?? null,
-        o.returnPct ?? null,
-        (/* @__PURE__ */ new Date()).getUTCHours(),
-        o.holdingMinutes ?? null,
-        o.exitReason ?? null,
-        o.profitLoss > 0 ? "WIN" : o.profitLoss < 0 ? "LOSS" : "BREAKEVEN",
-        o.profitLoss,
-        o.source === "paper" ? "paper" : "live"
-      ]
-    );
-    await learnFromSolTrades(o.userId);
-  } catch (err) {
-    console.error("[sol-brain] recordSolBrainOutcome failed (non-fatal):", err?.message ?? err);
-  }
-}
-var MIN_TRADES4, REFRESH_TTL_MS3, _ensured3, _cache5;
-var init_sol_brain = __esm({
-  "server/services/sol-brain.ts"() {
-    "use strict";
-    init_db();
-    MIN_TRADES4 = 10;
-    REFRESH_TTL_MS3 = 60 * 1e3;
-    _ensured3 = false;
-    _cache5 = /* @__PURE__ */ new Map();
-  }
-});
-
-// server/services/sol-engine.ts
-var sol_engine_exports = {};
-__export(sol_engine_exports, {
-  SOL_PAPER_MAX_SOL: () => SOL_PAPER_MAX_SOL,
-  SOL_STRATEGIES: () => SOL_STRATEGIES,
-  cancelSignal: () => cancelSignal,
-  clearServerWallet: () => clearServerWallet,
-  confirmLiveExit: () => confirmLiveExit,
-  confirmLiveTrade: () => confirmLiveTrade,
-  getAutoTradePositions: () => getAutoTradePositions,
-  getPendingExits: () => getPendingExits,
-  getPendingSignals: () => getPendingSignals,
-  getServerWalletStatus: () => getServerWalletStatus,
-  getSolEngineStatus: () => getSolEngineStatus,
-  getSolStrategies: () => getSolStrategies,
-  recordSolSignalResult: () => recordSolSignalResult,
-  resetSolWeeklyGoal: () => resetSolWeeklyGoal,
-  saveServerWallet: () => saveServerWallet,
-  setAutoTrade: () => setAutoTrade,
-  setCompoundSettings: () => setCompoundSettings,
-  setShieldActive: () => setShieldActive,
-  setSolStrategies: () => setSolStrategies,
-  setSolStrategy: () => setSolStrategy,
-  setSolWeeklyGoal: () => setSolWeeklyGoal,
-  startSolEngine: () => startSolEngine,
-  stopSolEngine: () => stopSolEngine,
-  triggerSolAIReview: () => triggerSolAIReview,
-  updateSolPortfolioValue: () => updateSolPortfolioValue
-});
-import { eq as eq15, sql as sql11 } from "drizzle-orm";
-import crypto14 from "crypto";
-function isBadPriceSample(next, lastGood) {
-  if (!(next > 0) || !(lastGood > 0)) return false;
-  return next / lastGood > MAX_PRICE_SPIKE || lastGood / next > MAX_PRICE_SPIKE;
-}
-function getEncryptionKey6() {
-  const seed = (process.env.DATABASE_URL || "vedd-sol-engine-fallback") + "sol-v1";
-  return crypto14.createHash("sha256").update(seed).digest();
-}
-function encryptWalletKey(plain) {
-  const iv = crypto14.randomBytes(16);
-  const cipher = crypto14.createCipheriv("aes-256-cbc", getEncryptionKey6(), iv);
-  const enc = Buffer.concat([cipher.update(plain, "utf8"), cipher.final()]);
-  return iv.toString("hex") + ":" + enc.toString("hex");
-}
-function decryptWalletKey(ciphertext) {
-  const [ivHex, encHex] = ciphertext.split(":");
-  const iv = Buffer.from(ivHex, "hex");
-  const decipher = crypto14.createDecipheriv("aes-256-cbc", getEncryptionKey6(), iv);
-  const dec = Buffer.concat([decipher.update(Buffer.from(encHex, "hex")), decipher.final()]);
-  return dec.toString("utf8");
-}
-async function saveEngineState(userId, state) {
-  try {
-    await db.insert(solEngineSettings).values({
-      userId,
-      activeStrategy: state.activeStrategy,
-      activeStrategies: state.activeStrategies,
-      autoTradeEnabled: state.autoTradeEnabled,
-      liveTradeEnabled: state.liveTradeEnabled,
-      autoTradeTP: state.autoTradeTP,
-      autoTradeSL: state.autoTradeSL,
-      weeklyGoal: state.weeklyGoal,
-      autoTradeStats: state.autoTradeStats,
-      updatedAt: /* @__PURE__ */ new Date()
-    }).onConflictDoUpdate({
-      target: solEngineSettings.userId,
-      set: {
-        activeStrategy: state.activeStrategy,
-        activeStrategies: state.activeStrategies,
-        autoTradeEnabled: state.autoTradeEnabled,
-        liveTradeEnabled: state.liveTradeEnabled,
-        autoTradeTP: state.autoTradeTP,
-        autoTradeSL: state.autoTradeSL,
-        weeklyGoal: state.weeklyGoal,
-        autoTradeStats: state.autoTradeStats,
-        updatedAt: /* @__PURE__ */ new Date()
-      }
-    });
-  } catch (err) {
-    console.error("[SolEngine] saveEngineState settings error:", err);
-  }
-}
-async function upsertPosition(userId, pos) {
-  try {
-    await db.insert(solEnginePositions).values({
-      userId,
-      positionId: pos.id,
-      mode: pos.mode,
-      symbol: pos.symbol,
-      mint: pos.mint,
-      entryPrice: pos.entryPrice,
-      currentPrice: pos.currentPrice,
-      targetPct: pos.targetPct,
-      slPct: pos.slPct,
-      size: pos.size,
-      tokenAmount: pos.tokenAmount,
-      decimals: pos.decimals,
-      strategyId: pos.strategyId,
-      txHash: pos.txHash,
-      status: pos.status,
-      openedAt: pos.openedAt,
-      closedAt: pos.closedAt,
-      closePnlPct: pos.closePnlPct,
-      updatedAt: /* @__PURE__ */ new Date()
-    }).onConflictDoUpdate({
-      target: solEnginePositions.positionId,
-      set: {
-        currentPrice: pos.currentPrice,
-        status: pos.status,
-        closedAt: pos.closedAt,
-        closePnlPct: pos.closePnlPct,
-        tokenAmount: pos.tokenAmount,
-        updatedAt: /* @__PURE__ */ new Date()
-      }
-    });
-  } catch (err) {
-    console.error("[SolEngine] upsertPosition error:", err);
-  }
-}
-async function loadEngineStateFromDb(userId, state) {
-  try {
-    const [settings] = await db.select().from(solEngineSettings).where(eq15(solEngineSettings.userId, userId));
-    if (settings) {
-      state.activeStrategy = settings.activeStrategy;
-      state.activeStrategies = settings.activeStrategies || [settings.activeStrategy];
-      state.autoTradeEnabled = settings.autoTradeEnabled;
-      state.liveTradeEnabled = settings.liveTradeEnabled;
-      state.autoTradeTP = settings.autoTradeTP;
-      state.autoTradeSL = settings.autoTradeSL;
-      state.autoTrailActivationPct = settings.autoTrailActivationPct ?? 4;
-      state.autoTrailDistancePct = settings.autoTrailDistancePct ?? 3;
-      if (settings.weeklyGoal && typeof settings.weeklyGoal === "object") {
-        state.weeklyGoal = { ...DEFAULT_WEEKLY_GOAL, ...settings.weeklyGoal };
-      }
-      if (settings.autoTradeStats && typeof settings.autoTradeStats === "object") {
-        state.autoTradeStats = { ...state.autoTradeStats, ...settings.autoTradeStats };
-      }
-      if (settings.serverWalletKey && state.currentPortfolioValue <= 0) {
-        try {
-          const privateKeyBase58 = decryptWalletKey(settings.serverWalletKey);
-          const { Keypair: Keypair2, Connection: Connection3 } = await import("@solana/web3.js");
-          const bs58 = (await import("bs58")).default;
-          const keypair = Keypair2.fromSecretKey(bs58.decode(privateKeyBase58));
-          const rpcUrl = process.env.SOLANA_RPC_URL || "https://mainnet.helius-rpc.com/?api-key=15319bf4-5b40-4958-ac8d-6313aa55eb92";
-          const connection2 = new Connection3(rpcUrl, { commitment: "confirmed" });
-          const lamports = await connection2.getBalance(keypair.publicKey);
-          const solBalance = lamports / 1e9;
-          if (solBalance > 0) {
-            state.currentPortfolioValue = solBalance;
-            console.log(`[SolEngine] Auto-set portfolio value from server wallet: ${solBalance.toFixed(4)} SOL`);
-          }
-        } catch (walletErr) {
-          console.warn("[SolEngine] Could not fetch server wallet balance for portfolio init:", walletErr);
-        }
-      }
-    }
-    const positions = await db.select().from(solEnginePositions).where(eq15(solEnginePositions.userId, userId));
-    for (const row of positions) {
-      const pos = {
-        id: row.positionId,
-        symbol: row.symbol,
-        mint: row.mint,
-        entryPrice: row.entryPrice,
-        currentPrice: row.currentPrice,
-        targetPct: row.targetPct,
-        slPct: row.slPct,
-        size: row.size,
-        tokenAmount: row.tokenAmount,
-        decimals: row.decimals,
-        strategyId: row.strategyId,
-        txHash: row.txHash || void 0,
-        mode: row.mode,
-        status: row.status,
-        openedAt: row.openedAt,
-        closedAt: row.closedAt || void 0,
-        closePnlPct: row.closePnlPct || void 0
-      };
-      if (pos.mode === "paper") {
-        if (pos.status === "open") state.paperPositions.push(pos);
-        else state.closedPaperPositions.push(pos);
-      } else {
-        if (pos.status === "open") state.livePositions.push(pos);
-        else state.closedLivePositions.push(pos);
-      }
-    }
-    console.log(`[SolEngine] Loaded state for user ${userId}: ${positions.length} positions restored`);
-  } catch (err) {
-    console.error("[SolEngine] loadEngineStateFromDb error:", err);
-  }
-}
-async function fetchPricesByMint(mints) {
-  const out = {};
-  const unique2 = Array.from(new Set(mints.filter(Boolean)));
-  if (unique2.length === 0) return out;
-  for (let i = 0; i < unique2.length; i += 30) {
-    const batch = unique2.slice(i, i + 30);
-    try {
-      const resp = await fetch(`https://api.dexscreener.com/latest/dex/tokens/${batch.join(",")}`);
-      if (!resp.ok) continue;
-      const data = await resp.json();
-      const pairs = data?.pairs || [];
-      const bestLiq = {};
-      for (const pair of pairs) {
-        if (pair?.chainId && pair.chainId !== "solana") continue;
-        const mint = pair?.baseToken?.address;
-        if (!mint) continue;
-        const price = parseFloat(pair?.priceUsd) || 0;
-        const liq = pair?.liquidity?.usd || 0;
-        if (price <= 0) continue;
-        if (out[mint] === void 0 || liq > (bestLiq[mint] ?? -1)) {
-          out[mint] = price;
-          bestLiq[mint] = liq;
-        }
-      }
-    } catch (err) {
-      console.warn("[SolEngine] fetchPricesByMint DexScreener batch failed:", err instanceof Error ? err.message : err);
-    }
-  }
-  const missing = unique2.filter((m) => !(out[m] > 0));
-  if (missing.length > 0) {
-    try {
-      const resp = await fetch(`https://lite-api.jup.ag/price/v2?ids=${missing.join(",")}`);
-      if (resp.ok) {
-        const data = await resp.json();
-        const priceData = data?.data || {};
-        for (const mint of missing) {
-          const p = parseFloat(priceData?.[mint]?.price) || 0;
-          if (p > 0) out[mint] = p;
-        }
-      }
-    } catch (err) {
-      console.warn("[SolEngine] fetchPricesByMint Jupiter fallback failed:", err instanceof Error ? err.message : err);
-    }
-  }
-  return out;
-}
-function finalizeAbandonedPosition(userId, state, pos, reason) {
-  const gainPct = pos.entryPrice > 0 ? (pos.currentPrice - pos.entryPrice) / pos.entryPrice * 100 : 0;
-  pos.status = "closed";
-  pos.closedAt = (/* @__PURE__ */ new Date()).toISOString();
-  pos.closePnlPct = gainPct;
-  pos.closeReason = "abandoned";
-  pos.exitReason = reason;
-  state.livePositions = state.livePositions.filter((p) => p.id !== pos.id);
-  state.closedLivePositions.unshift(pos);
-  if (state.closedLivePositions.length > 50) state.closedLivePositions = state.closedLivePositions.slice(0, 50);
-  addActivity3(state, {
-    type: "live_sell",
-    message: `\u{1F6A8} ABANDONED: ${pos.symbol} marked closed (${reason}) \u2014 could not exit on-chain. MANUAL HANDLING REQUIRED. mint: ${pos.mint} | tokenAmount: ${pos.tokenAmount}`
-  });
-  console.error(`[SolEngine] ABANDONED position ${pos.id} (${pos.symbol}) reason=${reason} mint=${pos.mint} tokenAmount=${pos.tokenAmount}`);
-  upsertPosition(userId, pos).catch(() => {
-  });
-  saveEngineState(userId, state).catch(() => {
-  });
-}
-async function executeServerSideSell(userId, pos, reason, state) {
-  try {
-    const [settings] = await db.select({ serverWalletKey: solEngineSettings.serverWalletKey }).from(solEngineSettings).where(eq15(solEngineSettings.userId, userId));
-    if (!settings?.serverWalletKey) return false;
-    const privateKeyBase58 = decryptWalletKey(settings.serverWalletKey);
-    const { Keypair: Keypair2, Connection: Connection3, VersionedTransaction } = await import("@solana/web3.js");
-    const bs58 = (await import("bs58")).default;
-    const secretKey = bs58.decode(privateKeyBase58);
-    const keypair = Keypair2.fromSecretKey(secretKey);
-    const SOL_MINT = "So11111111111111111111111111111111111111112";
-    const amount = Math.floor(pos.tokenAmount);
-    if (amount <= 0) {
-      finalizeAbandonedPosition(userId, state, pos, `${reason}_zero_amount`);
-      return true;
-    }
-    const rpcUrl = process.env.SOLANA_RPC_URL || "https://mainnet.helius-rpc.com/?api-key=15319bf4-5b40-4958-ac8d-6313aa55eb92";
-    const connection2 = new Connection3(rpcUrl, { commitment: "confirmed" });
-    const slippageLadder = [300, 800, 1500];
-    let signature = null;
-    for (let attempt = 0; attempt < slippageLadder.length; attempt++) {
-      const slippageBps = slippageLadder[attempt];
-      try {
-        const quoteResp = await fetch(
-          `https://quote-api.jup.ag/v6/quote?inputMint=${pos.mint}&outputMint=${SOL_MINT}&amount=${amount}&slippageBps=${slippageBps}`
-        );
-        if (!quoteResp.ok) continue;
-        const quote = await quoteResp.json();
-        if (quote?.error) continue;
-        const swapResp = await fetch("https://quote-api.jup.ag/v6/swap", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            quoteResponse: quote,
-            userPublicKey: keypair.publicKey.toBase58(),
-            wrapAndUnwrapSol: true,
-            dynamicComputeUnitLimit: true,
-            prioritizationFeeLamports: "auto"
-          })
-        });
-        if (!swapResp.ok) continue;
-        const { swapTransaction } = await swapResp.json();
-        if (!swapTransaction) continue;
-        const txBuffer = Buffer.from(swapTransaction, "base64");
-        const transaction = VersionedTransaction.deserialize(txBuffer);
-        transaction.sign([keypair]);
-        const sig = await connection2.sendRawTransaction(transaction.serialize(), { skipPreflight: true, maxRetries: 3 });
-        let ok = false;
-        try {
-          const latest = await connection2.getLatestBlockhash("confirmed");
-          const conf = await connection2.confirmTransaction(
-            { signature: sig, blockhash: latest.blockhash, lastValidBlockHeight: latest.lastValidBlockHeight },
-            "confirmed"
-          );
-          ok = !conf.value.err;
-        } catch {
-          for (let i = 0; i < 20; i++) {
-            await new Promise((r) => setTimeout(r, 2e3));
-            try {
-              const st = await connection2.getSignatureStatuses([sig]);
-              const s = st.value[0];
-              if (s && (s.confirmationStatus === "confirmed" || s.confirmationStatus === "finalized")) {
-                ok = !s.err;
-                break;
-              }
-              if (s && s.err) {
-                ok = false;
-                break;
-              }
-            } catch {
-            }
-          }
-        }
-        if (ok) {
-          signature = sig;
-          break;
-        }
-        addActivity3(state, {
-          type: "live_sell",
-          message: `\u21BB Sell attempt ${attempt + 1}/${slippageLadder.length} unconfirmed for ${pos.symbol} (slippage ${slippageBps}bps) \u2014 retrying`
-        });
-      } catch (attemptErr) {
-        console.warn(`[SolEngine] sell attempt ${attempt + 1} failed:`, attemptErr instanceof Error ? attemptErr.message : attemptErr);
-      }
-    }
-    if (!signature) {
-      finalizeAbandonedPosition(userId, state, pos, "abandoned_sell_failed");
-      return true;
-    }
-    const gainPct = pos.entryPrice > 0 ? (pos.currentPrice - pos.entryPrice) / pos.entryPrice * 100 : 0;
-    const label = reason === "tp" ? "TP \u2705" : "SL \u{1F6E1}\uFE0F";
-    pos.status = "closed";
-    pos.closedAt = (/* @__PURE__ */ new Date()).toISOString();
-    pos.closePnlPct = gainPct;
-    state.livePositions = state.livePositions.filter((p) => p.id !== pos.id);
-    state.closedLivePositions.unshift(pos);
-    if (state.closedLivePositions.length > 50) state.closedLivePositions = state.closedLivePositions.slice(0, 50);
-    const isWin = gainPct >= 0;
-    state.autoTradeStats.totalTrades++;
-    state.autoTradeStats.totalPnlPct += gainPct;
-    if (isWin) {
-      state.autoTradeStats.wins++;
-      if (gainPct > state.autoTradeStats.bestTradePct) state.autoTradeStats.bestTradePct = gainPct;
-    } else {
-      state.autoTradeStats.losses++;
-      if (gainPct < state.autoTradeStats.worstTradePct) state.autoTradeStats.worstTradePct = gainPct;
-    }
-    const dexKeyLive = (pos.dex || "unknown").toLowerCase().replace(/[^a-z]/g, "") || "unknown";
-    if (!state.signalWeights[dexKeyLive]) state.signalWeights[dexKeyLive] = 1;
-    if (!state.kellyStats[dexKeyLive]) state.kellyStats[dexKeyLive] = { wins: 0, losses: 0, totalGainPct: 0 };
-    if (isWin) {
-      state.signalWeights[dexKeyLive] = Math.min(2, state.signalWeights[dexKeyLive] + 0.05);
-      state.kellyStats[dexKeyLive].wins++;
-      state.kellyStats[dexKeyLive].totalGainPct += Math.abs(gainPct);
-      state.weeklyGoal.winStreak = (state.weeklyGoal.winStreak || 0) + 1;
-    } else {
-      state.signalWeights[dexKeyLive] = Math.max(0.2, state.signalWeights[dexKeyLive] - 0.08);
-      state.kellyStats[dexKeyLive].losses++;
-      state.weeklyGoal.winStreak = 0;
-    }
-    if (state.weeklyGoal.phase !== "idle") {
-      state.weeklyGoal.currentProfitSol += pos.size * (gainPct / 100);
-      state.weeklyGoal.tradeHistory.unshift({
-        timestamp: (/* @__PURE__ */ new Date()).toISOString(),
-        symbol: pos.symbol,
-        sol: pos.size,
-        gainPct,
-        outcome: isWin ? "WIN" : "LOSS",
-        strategy: pos.strategyId || state.activeStrategy
-      });
-      if (state.weeklyGoal.tradeHistory.length > 100) state.weeklyGoal.tradeHistory = state.weeklyGoal.tradeHistory.slice(0, 100);
-    }
-    addActivity3(state, {
-      type: "live_sell",
-      message: `\u{1F916} Server auto-sold ${pos.symbol} [${label}] ${gainPct >= 0 ? "+" : ""}${gainPct.toFixed(2)}% \u2014 TX: ${signature.slice(0, 16)}...`
-    });
-    recordSolBrainOutcome({
-      userId,
-      symbol: pos.symbol,
-      strategy: pos.strategyId || "unknown",
-      direction: "long",
-      returnPct: gainPct,
-      holdingMinutes: Math.max(0, Math.round((Date.now() - new Date(pos.openedAt).getTime()) / 6e4)),
-      exitReason: reason,
-      profitLoss: pos.size * (gainPct / 100)
-    }).catch(() => {
-    });
-    upsertPosition(userId, pos).catch(() => {
-    });
-    saveEngineState(userId, state).catch(() => {
-    });
-    state.lastWalletRefreshAt = 0;
-    refreshServerWalletBalance(userId, state).catch(() => {
-    });
-    return true;
-  } catch (err) {
-    console.error("[SolEngine] executeServerSideSell error:", err);
-    return false;
-  }
-}
-async function executeServerSideBuy(userId, signal, state) {
-  try {
-    const [settings] = await db.select({ serverWalletKey: solEngineSettings.serverWalletKey }).from(solEngineSettings).where(eq15(solEngineSettings.userId, userId));
-    if (!settings?.serverWalletKey) return false;
-    const privateKeyBase58 = decryptWalletKey(settings.serverWalletKey);
-    const { Keypair: Keypair2, Connection: Connection3, VersionedTransaction } = await import("@solana/web3.js");
-    const bs58 = (await import("bs58")).default;
-    const secretKey = bs58.decode(privateKeyBase58);
-    const keypair = Keypair2.fromSecretKey(secretKey);
-    const SOL_MINT = "So11111111111111111111111111111111111111112";
-    const lamports = Math.floor(signal.sizeSOL * 1e9);
-    if (lamports <= 0) return false;
-    const quoteResp = await fetch(
-      `https://quote-api.jup.ag/v6/quote?inputMint=${SOL_MINT}&outputMint=${signal.mint}&amount=${lamports}&slippageBps=200`
-    );
-    if (!quoteResp.ok) return false;
-    const quote = await quoteResp.json();
-    if (quote.error) {
-      console.warn("[SolEngine] Jupiter buy quote error:", quote.error);
-      return false;
-    }
-    const swapResp = await fetch("https://quote-api.jup.ag/v6/swap", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        quoteResponse: quote,
-        userPublicKey: keypair.publicKey.toBase58(),
-        wrapAndUnwrapSol: true,
-        dynamicComputeUnitLimit: true,
-        prioritizationFeeLamports: "auto"
-      })
-    });
-    if (!swapResp.ok) return false;
-    const { swapTransaction } = await swapResp.json();
-    const txBuffer = Buffer.from(swapTransaction, "base64");
-    const transaction = VersionedTransaction.deserialize(txBuffer);
-    transaction.sign([keypair]);
-    const rpcUrl = process.env.SOLANA_RPC_URL || "https://mainnet.helius-rpc.com/?api-key=15319bf4-5b40-4958-ac8d-6313aa55eb92";
-    const connection2 = new Connection3(rpcUrl, { commitment: "confirmed" });
-    const signature = await connection2.sendRawTransaction(transaction.serialize(), {
-      skipPreflight: true,
-      maxRetries: 3
-    });
-    let confirmedOk = false;
-    try {
-      const latest = await connection2.getLatestBlockhash("confirmed");
-      const conf = await connection2.confirmTransaction(
-        { signature, blockhash: latest.blockhash, lastValidBlockHeight: latest.lastValidBlockHeight },
-        "confirmed"
-      );
-      confirmedOk = !conf.value.err;
-    } catch {
-      for (let i = 0; i < 30; i++) {
-        await new Promise((r) => setTimeout(r, 2e3));
-        try {
-          const st = await connection2.getSignatureStatuses([signature]);
-          const s = st.value[0];
-          if (s && (s.confirmationStatus === "confirmed" || s.confirmationStatus === "finalized")) {
-            confirmedOk = !s.err;
-            break;
-          }
-          if (s && s.err) {
-            confirmedOk = false;
-            break;
-          }
-        } catch {
-        }
-      }
-    }
-    if (!confirmedOk) {
-      addActivity3(state, {
-        type: "live_signal",
-        message: `\u274C Buy not confirmed \u2014 no position recorded: ${signal.symbol} (TX ${signature.slice(0, 16)}...). SOL not deployed.`
-      });
-      return false;
-    }
-    let tokenAmount = 0;
-    let decimals = 9;
-    try {
-      const { PublicKey: PublicKey3 } = await import("@solana/web3.js");
-      const balResp = await connection2.getParsedTokenAccountsByOwner(keypair.publicKey, { mint: new PublicKey3(signal.mint) });
-      for (const acc of balResp.value) {
-        const info2 = acc.account?.data?.parsed?.info?.tokenAmount;
-        if (info2) {
-          tokenAmount += Number(info2.amount) || 0;
-          if (info2.decimals != null) decimals = Number(info2.decimals);
-        }
-      }
-    } catch (balErr) {
-      console.warn("[SolEngine] getParsedTokenAccountsByOwner failed after buy:", balErr instanceof Error ? balErr.message : balErr);
-    }
-    if (!(tokenAmount > 0)) {
-      addActivity3(state, {
-        type: "live_signal",
-        message: `\u274C Buy confirmed but zero token balance found \u2014 no position recorded: ${signal.symbol}. MANUAL CHECK (TX ${signature.slice(0, 16)}...).`
-      });
-      return false;
-    }
-    const pos = {
-      id: `live_pos_${Date.now()}_${signal.symbol}`,
-      symbol: signal.symbol,
-      mint: signal.mint,
-      entryPrice: signal.price,
-      currentPrice: signal.price,
-      targetPct: state.autoTradeTP,
-      slPct: state.autoTradeSL,
-      size: signal.sizeSOL,
-      tokenAmount,
-      decimals,
-      strategyId: signal.strategyId,
-      mode: "live",
-      txHash: signature,
-      openedAt: (/* @__PURE__ */ new Date()).toISOString(),
-      status: "open",
-      stopLossPrice: signal.stopLossPrice,
-      takeProfitPrice: signal.takeProfitPrice,
-      dex: signal.dex
-    };
-    state.livePositions.push(pos);
-    state.dailyTradeCount++;
-    addActivity3(state, {
-      type: "live_buy",
-      message: `\u{1F916} Server auto-bought ${signal.symbol} \u2014 ${signal.sizeSOL.toFixed(3)} SOL @ $${signal.price.toFixed(6)} | TX: ${signature.slice(0, 16)}... | TP: +${state.autoTradeTP}% | SL: -${state.autoTradeSL}%`
-    });
-    upsertPosition(userId, pos).catch(() => {
-    });
-    saveEngineState(userId, state).catch(() => {
-    });
-    state.lastWalletRefreshAt = 0;
-    refreshServerWalletBalance(userId, state).catch(() => {
-    });
-    return true;
-  } catch (err) {
-    console.error("[SolEngine] executeServerSideBuy error:", err);
-    return false;
-  }
-}
-function passesStrategyFilter(analysis, strategy) {
-  const token = analysis.token;
-  const totalTxns = token.txns24h.buys + token.txns24h.sells;
-  const buyRatio = totalTxns > 0 ? token.txns24h.buys / totalTxns : 0.5;
-  const avgTxSize = totalTxns > 0 ? token.volume24h / totalTxns : 0;
-  const priceChg = token.priceChange24h;
-  switch (strategy.id) {
-    case "whale_follower":
-      return avgTxSize > 200 && token.makers24h < 500 && buyRatio > 0.55 && analysis.whaleScore >= 60;
-    case "momentum_surfer":
-      return priceChg >= 5 && priceChg <= 80 && buyRatio > 0.55 && token.volume24h >= 3e4;
-    case "breakout_hunter":
-      return priceChg >= 10 && priceChg <= 80 && token.volume24h >= 3e4 && buyRatio > 0.54;
-    case "dip_sniper":
-      return priceChg >= -40 && priceChg <= -4 && buyRatio > 0.62;
-    case "meme_velocity":
-      return priceChg >= 20 && token.volume24h >= 15e3;
-    case "volume_explosion":
-      return token.volume24h >= 25e4 && buyRatio > 0.52;
-    case "smart_money_flow":
-      return analysis.riskLevel === "LOW" && token.makers24h >= 50 && analysis.signal === "STRONG_BUY";
-    case "liquidity_sweep":
-      return priceChg >= -15 && priceChg <= 10 && buyRatio > 0.62 && analysis.sentimentScore >= 55;
-    case "order_flow_scalper":
-      return buyRatio > 0.65 && priceChg >= -5 && priceChg <= 20 && token.volume24h >= 5e4;
-    case "trend_rider":
-      return priceChg >= 8 && priceChg <= 60 && buyRatio > 0.56 && buyRatio < 0.8 && token.volume24h >= 75e3 && token.makers24h >= 40 && analysis.riskLevel !== "HIGH";
-    case "adaptive":
-      return true;
-    default:
-      return true;
-  }
-}
-function selectAdaptiveSolStrategy(macro, scanResult) {
-  if (scanResult.length === 0) {
-    return { strategyId: "momentum_surfer", reason: "No scan data \u2014 defaulting to momentum" };
-  }
-  const counts = { whale: 0, dip: 0, breakout: 0, volExplosion: 0, meme: 0, smartMoney: 0, orderFlow: 0 };
-  for (const t of scanResult) {
-    const tt = t.token.txns24h.buys + t.token.txns24h.sells;
-    const br = tt > 0 ? t.token.txns24h.buys / tt : 0.5;
-    const avgTx = tt > 0 ? t.token.volume24h / tt : 0;
-    const chg = t.token.priceChange24h;
-    if (avgTx > 1e3 && t.token.makers24h < 150 && t.whaleScore >= 65) counts.whale++;
-    if (chg >= -40 && chg <= -4 && br > 0.62) counts.dip++;
-    if (chg >= 12 && chg <= 70 && t.token.volume24h >= 8e4) counts.breakout++;
-    if (t.token.volume24h >= 25e4) counts.volExplosion++;
-    if (chg >= 20 && (t.token.dexSource === "pumpfun" || (t.token.dexId || "").toLowerCase().includes("pump"))) counts.meme++;
-    if (t.riskLevel === "LOW" && t.signal === "STRONG_BUY" && t.token.makers24h >= 150) counts.smartMoney++;
-    if (br > 0.65 && chg >= -5 && chg <= 20 && t.token.volume24h >= 5e4) counts.orderFlow++;
-  }
-  if (macro?.bias === "RISK_OFF") {
-    if (counts.smartMoney >= 1) return { strategyId: "smart_money_flow", reason: `RISK_OFF macro \u2014 ${counts.smartMoney} LOW-risk STRONG_BUY token(s). Institutional-grade entries only` };
-    if (counts.dip >= 1) return { strategyId: "dip_sniper", reason: `RISK_OFF macro \u2014 ${counts.dip} accumulation dip(s) with strong buy pressure. Cautious entries only` };
-    return { strategyId: "smart_money_flow", reason: "RISK_OFF macro \u2014 conservative mode, waiting for institutional quality setups" };
-  }
-  if (counts.volExplosion >= 2) return { strategyId: "volume_explosion", reason: `${counts.volExplosion} tokens with explosive volume (>$250K) \u2014 institutional attention confirmed` };
-  if (counts.whale >= 2) return { strategyId: "whale_follower", reason: `${counts.whale} tokens with real whale accumulation (large avg tx + concentrated wallets)` };
-  if (counts.breakout >= 2) return { strategyId: "breakout_hunter", reason: `${counts.breakout} confirmed breakout setups (12\u201370% move + volume >$80K)` };
-  if (counts.meme >= 2) return { strategyId: "meme_velocity", reason: `${counts.meme} meme tokens pumping on Pump.fun \u2014 velocity play` };
-  if (counts.dip >= 2) return { strategyId: "dip_sniper", reason: `${counts.dip} tokens dipping with smart-money accumulation` };
-  if (counts.whale >= 1) return { strategyId: "whale_follower", reason: `${counts.whale} whale accumulation token detected \u2014 follow the smart money` };
-  if (counts.volExplosion >= 1) return { strategyId: "volume_explosion", reason: `${counts.volExplosion} explosive volume token \u2014 institutional move in progress` };
-  if (counts.orderFlow >= 2) return { strategyId: "order_flow_scalper", reason: `${counts.orderFlow} tokens with strong buy delta but price not yet moved \u2014 order flow leading price, entry before the move` };
-  if (macro?.bias === "RISK_ON") return { strategyId: "momentum_surfer", reason: `RISK_ON macro \u2014 BTC/ETH/SOL all positive. Ride the momentum` };
-  return { strategyId: "momentum_surfer", reason: "Mixed market \u2014 default momentum scan" };
-}
-function getStrategyEntryContext(strategyId) {
-  switch (strategyId) {
-    case "whale_follower":
-      return "ENTRY FILTER: avg transaction size >$1K (whale-sized, not retail), <150 unique wallets (concentrated accumulation), whale score \u226565, buy/sell ratio >58%. SKIP tokens with many small retail txns or scattered wallets.";
-    case "momentum_surfer":
-      return "ENTRY FILTER: price up 5\u201380%, buy ratio >55%, volume >$30K. Riding an existing uptrend. Skip flat or down tokens.";
-    case "breakout_hunter":
-      return "ENTRY FILTER: price up 12\u201370% (not overextended), volume >$80K, buy ratio >58%. STRONG_BUY preferred. Skip micro-cap low-volume setups.";
-    case "dip_sniper":
-      return "ENTRY FILTER: price DOWN 4\u201340% in 24h BUT buy ratio >62% (smart accumulation against the trend). Counter-trend entry \u2014 requires clear accumulation signal in the dip.";
-    case "meme_velocity":
-      return "ENTRY FILTER: price up >20%, Pump.fun preferred, high velocity short-lived pump. Quick in-out (10\u201315 min). Accept HIGH risk. Prioritise momentum and exit speed.";
-    case "volume_explosion":
-      return "ENTRY FILTER: 24h volume >$250K (institutional or viral event), buy ratio >52%. Volume is the primary signal \u2014 price direction secondary.";
-    case "smart_money_flow":
-      return "ENTRY FILTER: LOW risk ONLY, STRONG_BUY only, \u2265150 unique wallets (distributed, not pumped), multi-day hold target. SKIP HIGH/EXTREME risk tokens.";
-    case "liquidity_sweep":
-      return "ENTRY FILTER: recent dip then bounce (price -15% to +10%), buy ratio >62%, sentiment \u226555. Quick scalp on a liquidity sweep bounce. Small size, fast exit.";
-    case "order_flow_scalper":
-      return "ENTRY FILTER: buy/sell ratio >65% (strong delta imbalance), price movement -5% to +20% (delta leading price \u2014 hasn't moved yet), volume >$50K. SKIP tokens where price has already moved >20% \u2014 you want to catch the move BEFORE price reacts to the flow. 15\u201360min hold. This is an institutional order flow play \u2014 buy pressure is accumulating before the price reflects it.";
-    case "adaptive":
-      return "ENTRY FILTER: adaptive mode \u2014 strategy selected each scan based on current conditions. Evaluate against the actual strategy in use this cycle.";
-    default:
-      return "";
-  }
-}
-function createInitialState(config) {
-  return {
-    isRunning: false,
-    config,
-    lastScanAt: 0,
-    lastTokenSnapshot: {},
-    lastTriggerAt: {},
-    activityFeed: [],
-    signalWeights: Object.fromEntries(DEX_NAMES.map((d) => [d, 1])),
-    kellyStats: Object.fromEntries(DEX_NAMES.map((d) => [d, { wins: 0, losses: 0, totalGainPct: 0 }])),
-    sessionHighWatermark: 0,
-    currentPortfolioValue: 0,
-    shieldActive: false,
-    scanTimer: null,
-    isScanning: false,
-    lastResults: [],
-    lastMacro: null,
-    weeklyGoal: { ...DEFAULT_WEEKLY_GOAL },
-    activeStrategy: "momentum_surfer",
-    activeStrategies: ["momentum_surfer"],
-    lastAgentConsensus: [],
-    autoTradeEnabled: false,
-    liveTradeEnabled: false,
-    paperPositions: [],
-    closedPaperPositions: [],
-    livePositions: [],
-    closedLivePositions: [],
-    pendingSignals: [],
-    pendingExits: [],
-    signalCooldowns: /* @__PURE__ */ new Map(),
-    autoTradeTP: 8,
-    autoTradeSL: 4,
-    autoTrailActivationPct: 4,
-    autoTrailDistancePct: 3,
-    paperTradeSize: 0,
-    compoundMode: false,
-    compoundRate: 100,
-    paperBaseCapital: 0,
-    paperPortfolioValue: 0,
-    paperPortfolioHistory: [],
-    autoTradeStats: { totalTrades: 0, wins: 0, losses: 0, totalPnlPct: 0, bestTradePct: 0, worstTradePct: 0 },
-    aiReviewCache: {},
-    serverWalletBalance: 0,
-    lastWalletRefreshAt: 0,
-    dailyTradeCount: 0,
-    dailyTradeDate: ""
-  };
-}
-function addActivity3(state, entry) {
-  state.activityFeed.unshift({ ...entry, timestamp: (/* @__PURE__ */ new Date()).toISOString() });
-  if (state.activityFeed.length > 100) state.activityFeed = state.activityFeed.slice(0, 100);
-}
-function getAdaptiveScanInterval2(config) {
-  if (!config.adaptiveScan) return 6e4;
-  const hourUtc = (/* @__PURE__ */ new Date()).getUTCHours();
-  const dayUtc = (/* @__PURE__ */ new Date()).getUTCDay();
-  if (dayUtc === 0 || dayUtc === 6) return 12e4;
-  if (hourUtc >= 13 && hourUtc < 20) return 3e4;
-  if (hourUtc >= 7 && hourUtc < 13) return 6e4;
-  return 12e4;
-}
-function calculateSolKellySize2(wins, losses, totalGainPct, portfolioSol) {
-  const total = wins + losses;
-  if (total < 3 || portfolioSol <= 0) return 0;
-  const winRate2 = wins / total;
-  const avgGain = wins > 0 ? totalGainPct / wins / 100 : 0.5;
-  const kelly = winRate2 - (1 - winRate2) / Math.max(avgGain, 0.01);
-  const fractional = Math.max(5e-3, Math.min(0.15, kelly * 0.25));
-  return Math.round(portfolioSol * fractional * 1e3) / 1e3;
-}
-function getPhaseMultiplier(phase2, winStreak) {
-  switch (phase2) {
-    case "warming_up":
-      return 0.8;
-    case "building":
-      return 1;
-    case "accelerating":
-      return 1.25;
-    case "cruising":
-      return 1;
-    case "pushing":
-      return Math.min(2, 1.5 + (winStreak >= 3 ? 0.25 : 0));
-    case "target_reached":
-      return 0.5;
-    default:
-      return 1;
-  }
-}
-function computeGoalPhase(goal) {
-  if (goal.targetSol <= 0 || goal.phase === "idle") return "idle";
-  const pct3 = goal.currentProfitSol / goal.targetSol;
-  if (pct3 >= 1) return "target_reached";
-  if (pct3 >= 0.85) return "pushing";
-  if (pct3 >= 0.7) return "cruising";
-  if (pct3 >= 0.5) return "accelerating";
-  if (pct3 >= 0.2) return "building";
-  return "warming_up";
-}
-function computeAutoSolSize(state, dex, overrideStrategy, mode = "live") {
-  if (mode === "paper" && state.paperTradeSize > 0) return state.paperTradeSize;
-  let portfolio;
-  if (mode === "paper") {
-    portfolio = state.compoundMode && state.paperPortfolioValue > 0 ? state.paperPortfolioValue : state.paperBaseCapital > 0 ? state.paperBaseCapital : state.paperPortfolioValue > 0 ? state.paperPortfolioValue : state.currentPortfolioValue > 0 ? state.currentPortfolioValue : PAPER_DEFAULT_PORTFOLIO_SOL;
-  } else {
-    portfolio = state.currentPortfolioValue;
-  }
-  if (portfolio <= 0) return 0;
-  const _sizeBoost = weekendBoostSizeMultiplier();
-  const riskPct = state.config.riskPerTradePct;
-  if (riskPct > 0) {
-    const phaseMultiplier2 = getPhaseMultiplier(state.weeklyGoal.phase, state.weeklyGoal.winStreak);
-    const riskFraction = riskPct / 100 * phaseMultiplier2 * _sizeBoost;
-    const capped = Math.max(5e-3, Math.min(0.15, riskFraction));
-    return Math.round(portfolio * capped * 1e3) / 1e3;
-  }
-  const strategy = overrideStrategy || SOL_STRATEGIES.find((s) => s.id === state.activeStrategy) || SOL_STRATEGIES[0];
-  const phaseMultiplier = getPhaseMultiplier(state.weeklyGoal.phase, state.weeklyGoal.winStreak);
-  let fraction = strategy.baseFraction * phaseMultiplier;
-  if (state.config.useKelly) {
-    const stats = state.kellyStats[dex] || { wins: 0, losses: 0, totalGainPct: 0 };
-    const kellySize2 = calculateSolKellySize2(stats.wins, stats.losses, stats.totalGainPct, portfolio);
-    if (kellySize2 > 0) {
-      const kellyFrac = kellySize2 / portfolio;
-      fraction = (fraction + kellyFrac) / 2;
-    }
-  }
-  fraction = fraction * _sizeBoost;
-  fraction = Math.max(5e-3, Math.min(0.15, fraction));
-  return Math.round(portfolio * fraction * 1e3) / 1e3;
-}
-function runQuantRulesAgent(token, macroBias) {
-  let score = 0;
-  if (token.sentimentScore > 70) score += 20;
-  else if (token.sentimentScore >= 50) score += 5;
-  else if (token.sentimentScore < 40) score -= 15;
-  if (token.tokenomicsScore > 70) score += 20;
-  else if (token.tokenomicsScore >= 50) score += 5;
-  else if (token.tokenomicsScore < 40) score -= 15;
-  if (token.whaleScore > 65) score += 15;
-  else if (token.whaleScore >= 45) score += 5;
-  else if (token.whaleScore < 35) score -= 10;
-  const buys = token.token.txns24h?.buys ?? 0;
-  const sells = token.token.txns24h?.sells ?? 0;
-  const totalTxns = buys + sells;
-  if (totalTxns > 0) {
-    const buyRatio = buys / totalTxns;
-    if (buyRatio > 0.65) score += 15;
-    else if (buyRatio > 0.5) score += 5;
-    else if (buyRatio < 0.35) score -= 15;
-  }
-  const chg = token.token.priceChange24h;
-  if (chg > 50) score -= 15;
-  else if (chg > 20) score -= 5;
-  else if (chg >= 5) score += 10;
-  else if (chg >= 0) score += 5;
-  else score -= 5;
-  if (macroBias === "bullish") score += 10;
-  else if (macroBias === "bearish") score -= 15;
-  if (token.riskLevel === "EXTREME") score -= 10;
-  else if (token.riskLevel === "LOW") score += 5;
-  if (score >= 60) return { verdict: "CONFIRM_BUY", score };
-  if (score >= 30) return { verdict: "WATCH", score };
-  return { verdict: "SKIP", score };
-}
-async function runSolAIReview(userId, state, scanResult, openPositions) {
-  const buySignals = scanResult.filter((t) => t.signal === "STRONG_BUY" || t.signal === "BUY").slice(0, 5);
-  if (buySignals.length === 0 && openPositions.length === 0) return;
-  try {
-    const { shouldDeferLowPriorityAi: shouldDeferLowPriorityAi2, aiBudgetDeferReason: aiBudgetDeferReason2 } = await Promise.resolve().then(() => (init_ai_budget_guard(), ai_budget_guard_exports));
-    if (shouldDeferLowPriorityAi2()) {
-      addActivity3(state, { type: "info", message: `\u23F8 Sol AI review deferred \u2014 shared AI budget ${aiBudgetDeferReason2()} (FX priority). Quant filters still active.` });
-      return;
-    }
-  } catch {
-  }
-  const cacheKey = [
-    ...buySignals.map((t) => t.token.symbol).sort(),
-    ...openPositions.map((p) => p.symbol).sort()
-  ].join("|");
-  const REVIEW_CACHE_TTL = 5 * 6e4;
-  const cached2 = state.aiReviewCache[cacheKey];
-  if (cached2 && Date.now() - cached2.ts < REVIEW_CACHE_TTL) {
-    const ageS = Math.round((Date.now() - cached2.ts) / 1e3);
-    const macroBiasCache = state.lastMacro?.bias ?? null;
-    const cacheConsensus = [];
-    let confirms = 0, skips = 0;
-    for (const d of cached2.result) {
-      if (!d || !d.symbol || d.type !== "signal") continue;
-      const tokenData = buySignals.find((t) => t.token.symbol === d.symbol);
-      if (!tokenData) continue;
-      const quant = runQuantRulesAgent(tokenData, macroBiasCache);
-      let consensusLabel = "WATCH";
-      if (quant.verdict === "CONFIRM_BUY" && d.action === "CONFIRM_BUY") {
-        consensusLabel = "STRONG_CONFIRM";
-        confirms++;
-      } else if (quant.verdict === "SKIP" && d.action === "SKIP") {
-        consensusLabel = "STRONG_SKIP";
-        skips++;
-      } else if (quant.verdict === "CONFIRM_BUY" && d.action === "SKIP" || quant.verdict === "SKIP" && d.action === "CONFIRM_BUY") consensusLabel = "CAUTION";
-      else if (quant.verdict === "WATCH" || d.action === "WATCH") consensusLabel = "WATCH";
-      cacheConsensus.push({
-        symbol: d.symbol,
-        quantVerdict: quant.verdict,
-        quantScore: quant.score,
-        gptVerdict: d.action,
-        consensus: consensusLabel,
-        timestamp: (/* @__PURE__ */ new Date()).toISOString()
-      });
-    }
-    if (cacheConsensus.length > 0) {
-      state.lastAgentConsensus = [...cacheConsensus, ...state.lastAgentConsensus].slice(0, 20);
-    }
-    addActivity3(state, {
-      type: "info",
-      message: `\u{1F4BE} Sol AI cache hit (${ageS}s old) \u2014 consensus rebuilt: ${confirms} confirm, ${skips} skip${cacheConsensus.length > 0 ? ` across ${cacheConsensus.length} signals` : " (no matching signals)"}`
-    });
-    return;
-  }
-  try {
-    const { getUniversalAIClientForUser: getUniversalAIClientForUser2 } = await Promise.resolve().then(() => (init_openai(), openai_exports));
-    let openai2;
-    let modelLabel = "GPT-4o";
-    const userClient = await getUniversalAIClientForUser2(userId);
-    const useEconomy = state.config.aiMode === "economy" || userClient.provider === "groq";
-    if (useEconomy) {
-      const groqKey = process.env.GROQ_API_KEY;
-      if (groqKey) {
-        const OpenAI9 = (await import("openai")).default;
-        openai2 = new OpenAI9({ apiKey: groqKey, baseURL: "https://api.groq.com/openai/v1", maxRetries: 4, timeout: 9e4 });
-        openai2.defaultModel = "openai/gpt-oss-120b";
-        modelLabel = "Groq Llama";
-        addActivity3(state, {
-          type: "info",
-          message: "\u{1F49A} Sol Economy: Groq Llama 3.3-70b (free) \u2014 full analysis, zero cost"
-        });
-      } else {
-        openai2 = userClient;
-        modelLabel = userClient.defaultModel || "User model";
-      }
-    } else {
-      openai2 = userClient;
-    }
-    const effectiveStrategyId = state.activeStrategy === "adaptive" || state.activeStrategies.includes("adaptive") ? state._adaptiveStrategy || "momentum_surfer" : state.activeStrategy;
-    const strategy = SOL_STRATEGIES.find((s) => s.id === effectiveStrategyId) || SOL_STRATEGIES[0];
-    const macro = state.lastMacro;
-    const goal = state.weeklyGoal;
-    const macroLine = macro ? `MACRO: BTC ${macro.btcChange >= 0 ? "+" : ""}${macro.btcChange.toFixed(1)}% | ETH ${macro.ethChange >= 0 ? "+" : ""}${macro.ethChange.toFixed(1)}% | SOL ${macro.solChange >= 0 ? "+" : ""}${macro.solChange.toFixed(1)}% \u2014 Bias: ${macro.bias}` : "";
-    const goalLine = goal.phase !== "idle" ? `WEEKLY GOAL: ${goal.currentProfitSol.toFixed(3)} / ${goal.targetSol.toFixed(3)} SOL (${(goal.currentProfitSol / Math.max(goal.targetSol, 1e-3) * 100).toFixed(1)}%) \u2014 Phase: ${goal.phase.replace(/_/g, " ").toUpperCase()}` : "WEEKLY GOAL: None set";
-    const entryContext = getStrategyEntryContext(effectiveStrategyId);
-    const systemPrompt = `You are VEDD Sol AI \u2014 autonomous Solana trading mind. Supreme Mathematics style: use "Peace", "Word is bond", "That's the mathematics", "Stay in the cipher", "dropping science" naturally in reason fields.
-STRATEGY: ${strategy.icon} ${strategy.name} \u2014 ${strategy.description} | Hold: ${strategy.holdTarget} | Min conf: ${strategy.minConfidence}% | Max risk: ${strategy.maxRisk}
-${entryContext ? entryContext + "\n" : ""}${goalLine} | Win streak: ${goal.winStreak} | Shield: ${state.shieldActive ? "ACTIVE" : "off"}
-${macroLine}
-
-Output a JSON array only (no markdown):
-- Signals: {symbol, type:"signal", action:CONFIRM_BUY|SKIP|WATCH|WAIT, reason:<80chars}
-  CONFIRM_BUY only if token matches THIS strategy's entry criteria. SKIP if it doesn't fit regardless of confidence.
-- Positions: {symbol, type:"position", action:HOLD|TRAIL|PARTIAL_CLOSE|CLOSE, trailPct?:int, reason:<80chars}`;
-    const signalsText = buySignals.length > 0 ? buySignals.map(
-      (t) => `${t.token.symbol}: ${t.signal} | Conf:${t.confidence}% | Sent:${t.sentimentScore} | Tok:${t.tokenomicsScore} | Whale:${t.whaleScore} | Vol:$${(t.token.volume24h / 1e3).toFixed(0)}K | Chg:${t.token.priceChange24h.toFixed(1)}%`
-    ).join("\n") : "None";
-    const positionsText = openPositions.length > 0 ? openPositions.map(
-      (p) => `${p.symbol}: entry $${p.entryPrice.toFixed(8)} \u2192 now $${p.currentPrice.toFixed(8)} | ${p.gainPct >= 0 ? "+" : ""}${p.gainPct.toFixed(1)}% | vol:${p.volumeStatus}`
-    ).join("\n") : "None";
-    const _solLessons = await Promise.resolve().then(() => (init_shadow_lessons(), shadow_lessons_exports)).then((m) => m.getShadowLessonsText(userId, "sol", 8)).catch(() => "");
-    const userPrompt = `${_solLessons ? `${_solLessons}
-
-` : ""}SIGNALS:
-${signalsText}
-
-OPEN POSITIONS:
-${positionsText}`;
-    const response = await openai2.chat.completions.create({
-      model: openai2.defaultModel || "gpt-4o",
-      messages: [
-        { role: "system", content: systemPrompt },
-        { role: "user", content: userPrompt }
-      ],
-      temperature: 0.25,
-      max_tokens: 600
-    });
-    const raw = response.choices[0]?.message?.content?.trim() || "[]";
-    let decisions = [];
-    try {
-      decisions = JSON.parse(raw.replace(/```json|```/g, "").trim());
-      if (!Array.isArray(decisions)) decisions = [];
-    } catch {
-      addActivity3(state, {
-        type: "info",
-        message: `\u26A0\uFE0F 2nd confirmation AI returned invalid JSON \u2014 consensus skipped this cycle. Raw: ${raw.slice(0, 80)}`
-      });
-      return;
-    }
-    state.aiReviewCache[cacheKey] = { ts: Date.now(), result: decisions };
-    const newConsensus = [];
-    const macroBias = state.lastMacro?.bias ?? null;
-    for (const d of decisions) {
-      if (!d || !d.symbol) continue;
-      if (d.type === "signal") {
-        const tokenData = buySignals.find((t) => t.token.symbol === d.symbol);
-        let gptVerdict = d.action;
-        let consensusLabel = "WATCH";
-        if (tokenData) {
-          const quant = runQuantRulesAgent(tokenData, macroBias);
-          const bothConfirm = quant.verdict === "CONFIRM_BUY" && d.action === "CONFIRM_BUY";
-          const bothSkip = quant.verdict === "SKIP" && d.action === "SKIP";
-          const disagree = quant.verdict === "CONFIRM_BUY" && d.action === "SKIP" || quant.verdict === "SKIP" && d.action === "CONFIRM_BUY";
-          const oneWatch = quant.verdict === "WATCH" || d.action === "WATCH";
-          if (bothConfirm) consensusLabel = "STRONG_CONFIRM";
-          else if (bothSkip) consensusLabel = "STRONG_SKIP";
-          else if (disagree) consensusLabel = "CAUTION";
-          else if (oneWatch) consensusLabel = "WATCH";
-          newConsensus.push({
-            symbol: d.symbol,
-            quantVerdict: quant.verdict,
-            quantScore: quant.score,
-            gptVerdict,
-            consensus: consensusLabel,
-            timestamp: (/* @__PURE__ */ new Date()).toISOString()
-          });
-          const consensusMsg = consensusLabel === "STRONG_CONFIRM" ? `\u{1F91D} STRONG CONFIRM: ${d.symbol} \u2014 Both agents aligned. Word is bond.` : consensusLabel === "STRONG_SKIP" ? `\u274C STRONG SKIP: ${d.symbol} \u2014 Both agents say pass. That's the mathematics.` : consensusLabel === "CAUTION" ? `\u26A0\uFE0F SPLIT SIGNAL: ${d.symbol} \u2014 Agents disagree. Knowledge yourself before entry.` : `\u{1F441}\uFE0F WATCH: ${d.symbol} \u2014 Mixed readings. Stay in the cipher.`;
-          addActivity3(state, { type: "signal", message: consensusMsg });
-        }
-        const icon = d.action === "CONFIRM_BUY" ? "\u{1F916}\u2705" : d.action === "SKIP" ? "\u{1F916}\u274C" : d.action === "WAIT" ? "\u{1F916}\u23F8\uFE0F" : "\u{1F916}\u{1F441}\uFE0F";
-        addActivity3(state, {
-          type: "signal",
-          message: `${icon} ${modelLabel} ${d.action}: ${d.symbol} \u2014 ${d.reason || ""}`
-        });
-      } else if (d.type === "position") {
-        const icon = d.action === "CLOSE" ? "\u{1F4CA}\u{1F534}" : d.action === "TRAIL" ? "\u{1F4CA}\u{1F53C}" : d.action === "PARTIAL_CLOSE" ? "\u{1F4CA}\u26A1" : "\u{1F4CA}\u{1F7E2}";
-        addActivity3(state, {
-          type: "strategy",
-          message: `${icon} AI ${d.action}: ${d.symbol}${d.trailPct ? ` (${d.trailPct}% trail dist)` : ""} \u2014 ${d.reason || ""}`
-        });
-      }
-    }
-    if (newConsensus.length > 0) {
-      state.lastAgentConsensus = [...newConsensus, ...state.lastAgentConsensus].slice(0, 20);
-    }
-  } catch (reviewErr) {
-    addActivity3(state, {
-      type: "info",
-      message: `\u26A0\uFE0F 2nd confirmation AI error: ${reviewErr instanceof Error ? reviewErr.message : "unknown"} \u2014 trades will proceed without consensus this cycle`
-    });
-  }
-}
-async function triggerSolAIReview(userId, openPositions = []) {
-  const state = engineStates2.get(userId);
-  if (!state) return;
-  await runSolAIReview(userId, state, state.lastResults, openPositions);
-}
-function computeServerTrailDist(gainPct, volStatus) {
-  const isStrong = volStatus === "surging" || volStatus === "above_average";
-  const isWeak = volStatus === "below_average" || volStatus === "dry";
-  if (gainPct >= 80) return isStrong ? 10 : isWeak ? 6 : 8;
-  if (gainPct >= 40) return isStrong ? 12 : isWeak ? 8 : 10;
-  return isStrong ? 15 : isWeak ? 10 : 12;
-}
-function getVolStatus(entryVol, currentVol) {
-  if (entryVol <= 0) return "average";
-  const ratio = currentVol / entryVol;
-  if (ratio >= 2.5) return "surging";
-  if (ratio >= 1.25) return "above_average";
-  if (ratio <= 0.5) return "dry";
-  if (ratio <= 0.75) return "below_average";
-  return "average";
-}
-async function monitorPaperPositions(userId, state) {
-  const openPositions = state.paperPositions.filter((p) => p.status === "open");
-  if (openPositions.length === 0) return;
-  const volumeMap = {};
-  for (const r of state.lastResults) {
-    if (r.token.address) volumeMap[r.token.address] = r.token.volume24h || 0;
-  }
-  const priceMap = await fetchPricesByMint(openPositions.map((p) => p.mint)).catch(() => ({}));
-  for (const r of state.lastResults) {
-    const m = r.token.address;
-    if (m && !(priceMap[m] > 0)) priceMap[m] = parseFloat(r.token.priceUsd) || 0;
-  }
-  for (const pos of openPositions) {
-    const currentPrice = priceMap[pos.mint];
-    if (!currentPrice || currentPrice <= 0) continue;
-    if (isBadPriceSample(currentPrice, pos.currentPrice > 0 ? pos.currentPrice : pos.entryPrice)) {
-      addActivity3(state, { type: "info", message: `\u26A0\uFE0F ${pos.symbol}: bad price sample ignored ($${currentPrice} vs $${pos.currentPrice > 0 ? pos.currentPrice : pos.entryPrice}) \u2014 skipping this cycle` });
-      continue;
-    }
-    pos.currentPrice = currentPrice;
-    const gainPct = (currentPrice - pos.entryPrice) / pos.entryPrice * 100;
-    if (!pos.peakPrice || currentPrice > pos.peakPrice) {
-      pos.peakPrice = currentPrice;
-    }
-    const currentVol = volumeMap[pos.mint] || 0;
-    const volStatus = getVolStatus(pos.entryVolume24h || 0, currentVol);
-    const trailActivation = pos.trailActivationPct && pos.trailActivationPct > 0 ? pos.trailActivationPct : 20;
-    let isTrailHit = false;
-    if (gainPct >= trailActivation) {
-      if (!pos.trailingActive) {
-        pos.trailingActive = true;
-        const dist2 = computeServerTrailDist(gainPct, volStatus);
-        addActivity3(state, {
-          type: "info",
-          message: `\u{1F512} Trail LOCKED: ${pos.symbol} hit +${gainPct.toFixed(1)}% (activation: ${trailActivation}%) \u2014 staged trail active | vol: ${volStatus} | dist: ${dist2}% from peak`
-        });
-      }
-      const dist = computeServerTrailDist(gainPct, volStatus);
-      const trailFloor = pos.peakPrice * (1 - dist / 100);
-      const effectiveFloor = Math.max(trailFloor, pos.entryPrice);
-      if (currentPrice <= effectiveFloor) {
-        isTrailHit = true;
-      }
-    } else if (gainPct >= 8) {
-      if (!pos.breakevenActive) {
-        pos.breakevenActive = true;
-        addActivity3(state, {
-          type: "info",
-          message: `\u{1F6E1}\uFE0F Breakeven floor set: ${pos.symbol} at +${gainPct.toFixed(1)}% \u2014 floor locked at entry price`
-        });
-      }
-    }
-    const isWin = gainPct >= pos.targetPct;
-    const isLoss = gainPct <= -pos.slPct;
-    if (isWin || isLoss || isTrailHit) {
-      const reason = isTrailHit ? "trail" : isWin ? "tp" : "sl";
-      pos.status = "closed";
-      pos.closedAt = (/* @__PURE__ */ new Date()).toISOString();
-      pos.closePnlPct = gainPct;
-      pos.closeReason = reason;
-      state.closedPaperPositions.unshift(pos);
-      if (state.closedPaperPositions.length > 50) state.closedPaperPositions = state.closedPaperPositions.slice(0, 50);
-      upsertPosition(userId, pos).catch(() => {
-      });
-      recordSolBrainOutcome({
-        userId,
-        symbol: pos.symbol,
-        strategy: pos.strategyId || "unknown",
-        direction: "long",
-        returnPct: gainPct,
-        holdingMinutes: Math.max(0, Math.round((Date.now() - new Date(pos.openedAt).getTime()) / 6e4)),
-        exitReason: reason,
-        profitLoss: pos.size * (gainPct / 100),
-        source: "paper"
-      }).catch(() => {
-      });
-      state.autoTradeStats.totalTrades++;
-      state.autoTradeStats.totalPnlPct += gainPct;
-      const isProfit = gainPct > 0;
-      if (isProfit) {
-        state.autoTradeStats.wins++;
-        if (gainPct > state.autoTradeStats.bestTradePct) state.autoTradeStats.bestTradePct = gainPct;
-      } else {
-        state.autoTradeStats.losses++;
-        if (gainPct < state.autoTradeStats.worstTradePct) state.autoTradeStats.worstTradePct = gainPct;
-      }
-      if (state.compoundMode && state.paperPortfolioValue > 0) {
-        const tradeSol = pos.size;
-        const rawPnlSol = tradeSol * (gainPct / 100);
-        const compoundedPnl = rawPnlSol * (state.compoundRate / 100);
-        const prev = state.paperPortfolioValue;
-        state.paperPortfolioValue = Math.max(1e-3, prev + compoundedPnl);
-        state.paperPortfolioHistory.push({ t: Date.now(), v: state.paperPortfolioValue });
-        if (state.paperPortfolioHistory.length > 50) state.paperPortfolioHistory = state.paperPortfolioHistory.slice(-50);
-        const growthPct = (state.paperPortfolioValue - state.paperBaseCapital) / state.paperBaseCapital * 100;
-        addActivity3(state, {
-          type: "info",
-          message: `\u{1F4B9} Compound update: ${compoundedPnl >= 0 ? "+" : ""}${compoundedPnl.toFixed(4)} SOL ${state.compoundRate < 100 ? `(${state.compoundRate}% reinvested)` : "fully reinvested"} \u2192 pool now ${state.paperPortfolioValue.toFixed(4)} SOL (${growthPct >= 0 ? "+" : ""}${growthPct.toFixed(1)}% from base)`
-        });
-      }
-      const emoji = isTrailHit ? "\u{1F512}" : isWin ? "\u2705" : "\u274C";
-      const label = isTrailHit ? `TRAIL EXIT` : isWin ? "WIN" : "LOSS";
-      addActivity3(state, {
-        type: "paper_sell",
-        message: `${emoji} Paper ${label}: ${pos.symbol} closed @ $${currentPrice.toFixed(6)} \u2014 ${gainPct >= 0 ? "+" : ""}${gainPct.toFixed(2)}% | ${pos.size.toFixed(3)} SOL ${isTrailHit ? "(trailing stop hit)" : isWin ? "profit sealed" : "lesson built"}`
-      });
-      const dexKeyClose = (pos.dex || "unknown").toLowerCase().replace(/[^a-z]/g, "") || "unknown";
-      if (!state.signalWeights[dexKeyClose]) state.signalWeights[dexKeyClose] = 1;
-      if (!state.kellyStats[dexKeyClose]) state.kellyStats[dexKeyClose] = { wins: 0, losses: 0, totalGainPct: 0 };
-      if (isProfit) {
-        state.signalWeights[dexKeyClose] = Math.min(2, state.signalWeights[dexKeyClose] + 0.05);
-        state.kellyStats[dexKeyClose].wins++;
-        state.kellyStats[dexKeyClose].totalGainPct += Math.abs(gainPct);
-        state.weeklyGoal.winStreak = (state.weeklyGoal.winStreak || 0) + 1;
-      } else {
-        state.signalWeights[dexKeyClose] = Math.max(0.2, state.signalWeights[dexKeyClose] - 0.08);
-        state.kellyStats[dexKeyClose].losses++;
-        state.weeklyGoal.winStreak = 0;
-      }
-      if (state.weeklyGoal.phase !== "idle") {
-        state.weeklyGoal.currentProfitSol += pos.size * (gainPct / 100);
-        state.weeklyGoal.tradeHistory.unshift({
-          timestamp: (/* @__PURE__ */ new Date()).toISOString(),
-          symbol: pos.symbol,
-          sol: pos.size,
-          gainPct,
-          outcome: isProfit ? "WIN" : "LOSS",
-          strategy: pos.strategyId || state.activeStrategy
-        });
-        if (state.weeklyGoal.tradeHistory.length > 100) state.weeklyGoal.tradeHistory = state.weeklyGoal.tradeHistory.slice(0, 100);
-      }
-    }
-  }
-  state.paperPositions = state.paperPositions.filter((p) => p.status === "open");
-}
-async function monitorLivePositions(userId, state) {
-  const allOpen = state.livePositions.filter((p) => p.status === "open");
-  if (allOpen.length === 0) return;
-  const now = Date.now();
-  state.pendingExits = state.pendingExits.filter((e) => new Date(e.expiresAt).getTime() > now);
-  for (const pos of allOpen) {
-    if (!(pos.entryPrice > 0) || !(pos.tokenAmount > 0)) {
-      finalizeAbandonedPosition(userId, state, pos, "reconciled_zero_amount");
-    }
-  }
-  const openPositions = state.livePositions.filter((p) => p.status === "open" && p.entryPrice > 0 && p.tokenAmount > 0);
-  if (openPositions.length === 0) return;
-  const volumeMap = {};
-  for (const r of state.lastResults) {
-    if (r.token.address) volumeMap[r.token.address] = r.token.volume24h || 0;
-  }
-  const priceMap = await fetchPricesByMint(openPositions.map((p) => p.mint)).catch(() => ({}));
-  for (const r of state.lastResults) {
-    const m = r.token.address;
-    if (m && !(priceMap[m] > 0)) priceMap[m] = parseFloat(r.token.priceUsd) || 0;
-  }
-  for (const pos of openPositions) {
-    const ageMs = Date.now() - new Date(pos.openedAt).getTime();
-    if (ageMs > SOL_MAX_HOLD_MS) {
-      const alreadyQueuedMH = state.pendingExits.some((e) => e.positionId === pos.id);
-      if (!alreadyQueuedMH) {
-        addActivity3(state, {
-          type: "live_sell",
-          message: `\u23F1\uFE0F Max-hold reached: ${pos.symbol} held ${(ageMs / 36e5).toFixed(1)}h (limit ${SOL_MAX_HOLD_HOURS}h) \u2014 forcing exit`
-        });
-        const forcedSold = await executeServerSideSell(userId, pos, "sl", state);
-        if (!forcedSold) {
-          const createdMH = /* @__PURE__ */ new Date();
-          state.pendingExits.push({
-            positionId: pos.id,
-            symbol: pos.symbol,
-            mint: pos.mint,
-            tokenAmount: pos.tokenAmount,
-            decimals: pos.decimals,
-            reason: "sl",
-            createdAt: createdMH.toISOString(),
-            expiresAt: new Date(createdMH.getTime() + 9e4).toISOString()
-          });
-        }
-      }
-      continue;
-    }
-    const currentPrice = priceMap[pos.mint];
-    if (!currentPrice || currentPrice <= 0) continue;
-    if (isBadPriceSample(currentPrice, pos.currentPrice > 0 ? pos.currentPrice : pos.entryPrice)) {
-      addActivity3(state, { type: "live_signal", message: `\u26A0\uFE0F ${pos.symbol}: bad price sample ignored ($${currentPrice} vs $${pos.currentPrice > 0 ? pos.currentPrice : pos.entryPrice}) \u2014 not acting this cycle` });
-      continue;
-    }
-    pos.currentPrice = currentPrice;
-    const gainPct = (currentPrice - pos.entryPrice) / pos.entryPrice * 100;
-    if (!pos.peakPrice || currentPrice > pos.peakPrice) pos.peakPrice = currentPrice;
-    const alreadyQueued = state.pendingExits.some((e) => e.positionId === pos.id);
-    if (alreadyQueued) continue;
-    const liveTrailActivation = pos.trailActivationPct && pos.trailActivationPct > 0 ? pos.trailActivationPct : 20;
-    const volStatus = getVolStatus(pos.entryVolume24h || 0, volumeMap[pos.mint] || 0);
-    let trailHit = false;
-    if (gainPct >= liveTrailActivation && pos.peakPrice) {
-      if (!pos.trailingActive) {
-        pos.trailingActive = true;
-        addActivity3(state, { type: "info", message: `\u{1F512} Live Trail LOCKED: ${pos.symbol} hit +${gainPct.toFixed(1)}% (activation: ${liveTrailActivation}%) \u2014 staged trail active (${volStatus} vol)` });
-      }
-      const dist = computeServerTrailDist(gainPct, volStatus);
-      const effectiveFloor = Math.max(pos.peakPrice * (1 - dist / 100), pos.entryPrice);
-      if (currentPrice <= effectiveFloor) trailHit = true;
-    }
-    const tpHit = gainPct >= pos.targetPct;
-    const slHit = gainPct <= -pos.slPct;
-    if (tpHit || slHit || trailHit) {
-      const reason = tpHit ? "tp" : trailHit ? "trail" : "sl";
-      const serverSold = await executeServerSideSell(userId, pos, reason, state);
-      if (!serverSold) {
-        const created = /* @__PURE__ */ new Date();
-        const expires = new Date(created.getTime() + 9e4);
-        state.pendingExits.push({
-          positionId: pos.id,
-          symbol: pos.symbol,
-          mint: pos.mint,
-          tokenAmount: pos.tokenAmount,
-          decimals: pos.decimals,
-          reason: reason === "trail" ? "sl" : reason,
-          createdAt: created.toISOString(),
-          expiresAt: expires.toISOString()
-        });
-        addActivity3(state, {
-          type: "live_sell",
-          message: tpHit ? `\u{1F3AF} TP hit: ${pos.symbol} +${gainPct.toFixed(1)}% \u2014 sell queued for wallet execution` : trailHit ? `\u{1F512} Trail exit: ${pos.symbol} +${gainPct.toFixed(1)}% \u2014 sell queued for wallet execution` : `\u{1F6E1}\uFE0F SL hit: ${pos.symbol} ${gainPct.toFixed(1)}% \u2014 sell queued for wallet execution`
-        });
-      }
-    }
-  }
-}
-async function refreshServerWalletBalance(userId, state) {
-  if (!state.liveTradeEnabled) return;
-  const now = Date.now();
-  if (now - state.lastWalletRefreshAt < 6e4) return;
-  state.lastWalletRefreshAt = now;
-  try {
-    const [settings] = await db.select({ serverWalletKey: solEngineSettings.serverWalletKey }).from(solEngineSettings).where(eq15(solEngineSettings.userId, userId));
-    if (!settings?.serverWalletKey) return;
-    const privateKeyBase58 = decryptWalletKey(settings.serverWalletKey);
-    const { Keypair: Keypair2, Connection: Connection3 } = await import("@solana/web3.js");
-    const bs58 = (await import("bs58")).default;
-    const keypair = Keypair2.fromSecretKey(bs58.decode(privateKeyBase58));
-    const rpcUrl = process.env.SOLANA_RPC_URL || "https://mainnet.helius-rpc.com/?api-key=15319bf4-5b40-4958-ac8d-6313aa55eb92";
-    const connection2 = new Connection3(rpcUrl, { commitment: "confirmed" });
-    const lamports = await connection2.getBalance(keypair.publicKey);
-    const solBalance = lamports / 1e9;
-    state.serverWalletBalance = solBalance;
-    if (Math.abs(state.currentPortfolioValue - solBalance) > 1e-3) {
-      console.log(`[SolEngine] Wallet sync: ${state.currentPortfolioValue.toFixed(4)} \u2192 ${solBalance.toFixed(4)} SOL (user ${userId})`);
-      state.currentPortfolioValue = solBalance;
-    }
-  } catch (err) {
-    console.warn("[SolEngine] refreshServerWalletBalance failed:", err instanceof Error ? err.message : err);
-  }
-}
-function pruneEngineMaps(state) {
-  const now = Date.now();
-  const ONE_HOUR = 60 * 6e4;
-  const REVIEW_TTL = 5 * 6e4;
-  const MAX_SNAPSHOTS = 500;
-  for (const k2 of Object.keys(state.lastTriggerAt)) {
-    if (now - (state.lastTriggerAt[k2] || 0) > ONE_HOUR) delete state.lastTriggerAt[k2];
-  }
-  for (const k2 of Object.keys(state.aiReviewCache)) {
-    if (now - (state.aiReviewCache[k2]?.ts || 0) > REVIEW_TTL) delete state.aiReviewCache[k2];
-  }
-  state.signalCooldowns.forEach((ts, k2) => {
-    if (now - (ts || 0) > ONE_HOUR) state.signalCooldowns.delete(k2);
-  });
-  const snapKeys = Object.keys(state.lastTokenSnapshot);
-  if (snapKeys.length > MAX_SNAPSHOTS) {
-    for (const k2 of snapKeys.slice(0, snapKeys.length - MAX_SNAPSHOTS)) delete state.lastTokenSnapshot[k2];
-  }
-}
-async function runScan(userId, state, triggerToken) {
-  if (!state.isRunning) return;
-  if (state.isScanning) return;
-  state.isScanning = true;
-  try {
-    const _boostActive = weekendBoostActive();
-    const _effMinConf = (s) => _boostActive ? boostedMinConfidence(s.minConfidence) : s.minConfidence;
-    const todayUTC = (/* @__PURE__ */ new Date()).toISOString().slice(0, 10);
-    if (state.dailyTradeDate !== todayUTC) {
-      state.dailyTradeDate = todayUTC;
-      state.dailyTradeCount = 0;
-    }
-    await refreshServerWalletBalance(userId, state).catch(() => {
-    });
-    if (SOL_BRAIN_ENABLED) await getOrRefreshSolBrain(userId).catch(() => {
-    });
-    const macro = await fetchCryptoMacroContext().catch(() => null);
-    state.lastMacro = macro;
-    if (macro && macro.bias === "RISK_OFF") {
-      addActivity3(state, {
-        type: "info",
-        message: `\u{1F4C9} Macro RISK_OFF: BTC${macro.btcChange >= 0 ? "+" : ""}${macro.btcChange.toFixed(1)}% / ETH${macro.ethChange >= 0 ? "+" : ""}${macro.ethChange.toFixed(1)}% / SOL${macro.solChange >= 0 ? "+" : ""}${macro.solChange.toFixed(1)}% \u2014 signal confidence reduced by 8%. Engine still trading at reduced size.`
-      });
-    }
-    const shieldFilter = state.config.shieldEnabled && state.shieldActive;
-    const { getUniversalAIClientForUser: getUniversalAIClientForUser2 } = await Promise.resolve().then(() => (init_openai(), openai_exports));
-    const userOpenai = await getUniversalAIClientForUser2(userId).catch(() => null);
-    const scanResult = await scanAndAnalyzeTokens(
-      state.config.maxTokens,
-      state.config.dexFilter,
-      {
-        signalWeights: state.signalWeights,
-        macro: macro || void 0,
-        kellyStats: state.config.useKelly ? state.kellyStats : void 0,
-        portfolioSol: state.currentPortfolioValue,
-        shieldActive: shieldFilter,
-        minConfidence: state.config.minConfidence,
-        openai: userOpenai || void 0
-      }
-    );
-    const now = Date.now();
-    state.lastScanAt = now;
-    const hasBuySignals = scanResult.some((t) => t.signal === "STRONG_BUY" || t.signal === "BUY");
-    const allOpenPositions = [
-      ...state.livePositions.filter((p) => p.status === "open").map((p) => {
-        const latestPrice = scanResult.find((r) => r.token.address === p.mint);
-        const currentPrice = latestPrice ? parseFloat(latestPrice.token.priceUsd) || p.currentPrice : p.currentPrice;
-        const gainPct = p.entryPrice > 0 ? (currentPrice - p.entryPrice) / p.entryPrice * 100 : 0;
-        return { symbol: p.symbol, entryPrice: p.entryPrice, currentPrice, gainPct, volumeStatus: "average" };
-      }),
-      ...state.paperPositions.filter((p) => p.status === "open").map((p) => {
-        const latestPrice = scanResult.find((r) => r.token.address === p.mint);
-        const currentPrice = latestPrice ? parseFloat(latestPrice.token.priceUsd) || p.currentPrice : p.currentPrice;
-        const gainPct = p.entryPrice > 0 ? (currentPrice - p.entryPrice) / p.entryPrice * 100 : 0;
-        return { symbol: p.symbol, entryPrice: p.entryPrice, currentPrice, gainPct, volumeStatus: "average" };
-      })
-    ].slice(0, 5);
-    const _reviewEveryMs = Math.max(30, Number(process.env.SOL_AI_REVIEW_MIN_SECONDS ?? 180)) * 1e3;
-    const _sinceReview = Date.now() - (state._lastAIReviewAt || 0);
-    if ((hasBuySignals || allOpenPositions.length > 0) && _sinceReview >= _reviewEveryMs) {
-      state._lastAIReviewAt = Date.now();
-      await runSolAIReview(userId, state, scanResult, allOpenPositions).catch(() => {
-      });
-    }
-    for (const dex of DEX_NAMES) {
-      state.signalWeights[dex] = Math.round((state.signalWeights[dex] * 0.99 + 1 * 0.01) * 1e3) / 1e3;
-    }
-    for (const analysis of scanResult) {
-      const key = analysis.token.address;
-      const prev = state.lastTokenSnapshot[key];
-      if (prev && analysis.token.volume24h > 0 && prev.volume > 0) {
-        const volumeMultiple = analysis.token.volume24h / prev.volume;
-        const lastTrigger = state.lastTriggerAt[key] || 0;
-        if (volumeMultiple >= 3 && now - lastTrigger > 6e4) {
-          state.lastTriggerAt[key] = now;
-          addActivity3(state, {
-            type: "trigger",
-            message: `\u26A1 Power surge on ${analysis.token.symbol} (${volumeMultiple.toFixed(1)}\xD7) \u2014 knowledge deepens in 8s`
-          });
-          setTimeout(() => runScan(userId, state, analysis.token.symbol), 8e3);
-        }
-      }
-      state.lastTokenSnapshot[key] = {
-        volume: analysis.token.volume24h,
-        price: parseFloat(analysis.token.priceUsd) || 0,
-        signal: analysis.signal,
-        confidence: analysis.confidence
-      };
-      const hasPaperCapital = state.autoTradeEnabled;
-      const hasLiveCapital = state.liveTradeEnabled && state.currentPortfolioValue > 0;
-      const canEnterTrade = hasPaperCapital || hasLiveCapital;
-      if ((analysis.signal === "STRONG_BUY" || analysis.signal === "BUY") && !canEnterTrade) {
-        if (state.liveTradeEnabled && state.currentPortfolioValue <= 0) {
-          addActivity3(state, {
-            type: "info",
-            message: `\u26A0\uFE0F Live signal skipped: ${analysis.token.symbol} \u2014 Live Trade is ON but portfolio SOL value is 0. Set it in engine settings \u2192 Portfolio Value.`
-          });
-        } else {
-          addActivity3(state, {
-            type: "info",
-            message: `\u{1F4E1} Signal: ${analysis.token.symbol} [${analysis.signal} ${analysis.confidence}%] \u2014 Paper & Live trade are OFF. Toggle Paper Trade ON in the \u2699\uFE0F Settings panel to auto-execute.`
-          });
-        }
-        continue;
-      }
-      const dirFilter = state.config.directionFilter || "buy_only";
-      const isBuySignal = analysis.signal === "STRONG_BUY" || analysis.signal === "BUY";
-      const isSellSignal = analysis.signal === "SELL" || analysis.signal === "STRONG_SELL";
-      if (dirFilter === "buy_only" && !isBuySignal) continue;
-      if (dirFilter === "sell_only" && !isSellSignal) continue;
-      if ((analysis.signal === "STRONG_BUY" || analysis.signal === "BUY") && canEnterTrade) {
-        if (analysis.token.priceChange24h > 80) {
-          addActivity3(state, {
-            type: "info",
-            message: `\u26D4 Overextended: ${analysis.token.symbol} skipped \u2014 already +${analysis.token.priceChange24h.toFixed(0)}% in 24h (>80% = likely top)`
-          });
-          continue;
-        }
-        const CONSENSUS_TTL_MS = 10 * 60 * 1e3;
-        const priorConsensus = state.lastAgentConsensus?.find((c) => c.symbol === analysis.token.symbol);
-        const consensusAge = priorConsensus?.timestamp ? Date.now() - new Date(priorConsensus.timestamp).getTime() : Infinity;
-        const consensusStale = consensusAge > CONSENSUS_TTL_MS;
-        if (priorConsensus && !consensusStale && priorConsensus.consensus === "STRONG_SKIP") {
-          addActivity3(state, {
-            type: "info",
-            message: `\u{1F916}\u274C Consensus BLOCK: ${analysis.token.symbol} \u2014 both AI and quant said SKIP (quant score: ${priorConsensus.quantScore}). That's the mathematics.`
-          });
-          continue;
-        }
-        if (priorConsensus && !consensusStale && priorConsensus.quantVerdict === "SKIP" && priorConsensus.quantScore < 10) {
-          addActivity3(state, {
-            type: "info",
-            message: `\u{1F4D0}\u274C Quant BLOCK: ${analysis.token.symbol} \u2014 quant score ${priorConsensus.quantScore} too low. Knowledge yourself.`
-          });
-          continue;
-        }
-        const dexKey = (analysis.token.dexId || "").toLowerCase().split("_")[0];
-        let activeStrats = state.activeStrategies.length > 0 ? state.activeStrategies : [state.activeStrategy];
-        const isAdaptiveMode = activeStrats.includes("adaptive") || state.activeStrategy === "adaptive";
-        if (isAdaptiveMode) {
-          const autoRec = selectAdaptiveSolStrategy(state.lastMacro, scanResult);
-          if (!state._adaptiveStrategy || state._adaptiveStrategy !== autoRec.strategyId) {
-            state._adaptiveStrategy = autoRec.strategyId;
-            addActivity3(state, {
-              type: "strategy",
-              message: `\u{1F916} Adaptive selected: ${SOL_STRATEGIES.find((s) => s.id === autoRec.strategyId)?.icon || ""}${autoRec.strategyId.replace(/_/g, " ").toUpperCase()} \u2014 ${autoRec.reason}`
-            });
-          }
-          activeStrats = [autoRec.strategyId];
-        }
-        const confirmingStrats = activeStrats.map((id) => SOL_STRATEGIES.find((s) => s.id === id)).filter((s) => !!s).filter((s) => {
-          if (analysis.confidence < _effMinConf(s)) return false;
-          if (s.minSignal === "STRONG_BUY" && analysis.signal !== "STRONG_BUY") return false;
-          if (s.maxRisk === "LOW" && (analysis.riskLevel === "HIGH" || analysis.riskLevel === "EXTREME")) return false;
-          if (!passesStrategyFilter(analysis, s)) return false;
-          return true;
-        });
-        if (confirmingStrats.length >= 2) {
-          const names = confirmingStrats.map((s) => `${s.icon}${s.name}`).join(" + ");
-          addActivity3(state, {
-            type: "strategy",
-            message: `\u{1F3AF} Multi-Strategy Confirmed: ${analysis.token.symbol} \u2014 ${names} all in agreement. Knowledge multiplied.`
-          });
-        }
-        const bestStrat = confirmingStrats.sort((a, b) => b.baseFraction - a.baseFraction)[0];
-        const paperAutoSize = computeAutoSolSize(state, dexKey, bestStrat, "paper");
-        const liveAutoSize = computeAutoSolSize(state, dexKey, bestStrat, "live");
-        if (paperAutoSize > 0) {
-          analysis.recommendedSolAmount = paperAutoSize;
-        }
-        const paperSizeSOL = paperAutoSize > 0 ? paperAutoSize : computeAutoSolSize(state, dexKey, void 0, "paper");
-        const sizeSOL = liveAutoSize > 0 ? liveAutoSize : computeAutoSolSize(state, dexKey, void 0, "live");
-        const topStrat = confirmingStrats[0] || SOL_STRATEGIES.find((s) => s.id === state.activeStrategy) || SOL_STRATEGIES[0];
-        const tokenPrice = parseFloat(analysis.token.priceUsd) || 0;
-        const tokenMint = analysis.token.address;
-        const now2 = (/* @__PURE__ */ new Date()).toISOString();
-        const maxDaily = state.config.maxDailyTrades || 0;
-        if (maxDaily > 0 && state.dailyTradeCount >= maxDaily) {
-          addActivity3(state, {
-            type: "info",
-            message: `\u{1F6AB} Daily limit reached: ${analysis.token.symbol} skipped \u2014 ${state.dailyTradeCount}/${maxDaily} trades taken today. Resets at UTC midnight.`
-          });
-          continue;
-        }
-        let stopLossPrice;
-        let takeProfitPrice;
-        if (state.config.stopOrdersEnabled && tokenPrice > 0) {
-          stopLossPrice = tokenPrice * (1 - state.autoTradeSL / 100);
-          takeProfitPrice = tokenPrice * (1 + state.autoTradeTP / 100);
-        }
-        if (state.autoTradeEnabled && paperSizeSOL > 0 && tokenPrice > 0) {
-          const alreadyOpen = state.paperPositions.some((p) => p.symbol === analysis.token.symbol && p.status === "open");
-          if (!alreadyOpen) {
-            const pos = {
-              id: `paper_${Date.now()}_${analysis.token.symbol}`,
-              symbol: analysis.token.symbol,
-              mint: tokenMint,
-              entryPrice: tokenPrice,
-              currentPrice: tokenPrice,
-              targetPct: state.autoTradeTP,
-              slPct: state.autoTradeSL,
-              size: paperSizeSOL,
-              tokenAmount: 0,
-              decimals: 9,
-              strategyId: topStrat.id,
-              dex: dexKey,
-              mode: "paper",
-              openedAt: now2,
-              status: "open",
-              peakPrice: tokenPrice,
-              trailingActive: false,
-              breakevenActive: false,
-              trailActivationPct: state.autoTrailActivationPct,
-              trailDistancePct: state.autoTrailDistancePct,
-              entryVolume24h: analysis.token.volume24h || 0,
-              stopLossPrice,
-              takeProfitPrice
-            };
-            state.paperPositions.push(pos);
-            upsertPosition(userId, pos).catch(() => {
-            });
-            state.dailyTradeCount++;
-            const compoundNote = state.compoundMode ? ` [\u{1F4B9} Compounding ON \u2014 ${state.paperPortfolioValue.toFixed(3)} SOL pool]` : "";
-            const stopNote = state.config.stopOrdersEnabled && stopLossPrice ? ` | \u{1F6D1} Stop @$${stopLossPrice.toFixed(6)} \xB7 \u{1F3AF} TP @$${takeProfitPrice?.toFixed(6)}` : ` | TP: +${state.autoTradeTP}% | SL: -${state.autoTradeSL}%`;
-            addActivity3(state, {
-              type: "paper_buy",
-              message: `\u{1F4C4} Paper BUY: ${analysis.token.symbol} \u2014 ${paperSizeSOL.toFixed(3)} SOL @ $${tokenPrice.toFixed(6)} [${topStrat.icon}${topStrat.name}]${stopNote} | Breakeven @+8% \xB7 Trail @+20% (vol-adjusted)${compoundNote}`
-            });
-          }
-        }
-        if (state.liveTradeEnabled && sizeSOL > 0 && tokenPrice > 0) {
-          const alreadyOpen = state.livePositions.some((p) => p.symbol === analysis.token.symbol && p.status === "open");
-          const alreadyQueued = state.pendingSignals.some((s) => s.symbol === analysis.token.symbol);
-          const SIGNAL_COOLDOWN_MS = 5 * 60 * 1e3;
-          const lastRejected = state.signalCooldowns.get(tokenMint);
-          const onCooldown = lastRejected && Date.now() - lastRejected < SIGNAL_COOLDOWN_MS;
-          const confluenceCount = SOL_STRATEGIES.filter((s) => {
-            if (analysis.confidence < _effMinConf(s)) return false;
-            if (s.minSignal === "STRONG_BUY" && analysis.signal !== "STRONG_BUY") return false;
-            if (s.maxRisk === "LOW" && (analysis.riskLevel === "HIGH" || analysis.riskLevel === "EXTREME")) return false;
-            if (!passesStrategyFilter(analysis, s)) return false;
-            return true;
-          }).length;
-          const compositeEdge = Math.min(100, analysis.confidence + Math.max(0, confluenceCount - 1) * SOL_CONFLUENCE_BONUS);
-          const confluenceOk = confluenceCount >= SOL_CONFLUENCE_REQUIRED && compositeEdge >= SOL_COMPOSITE_FLOOR;
-          const brainGate = SOL_BRAIN_ENABLED && SOL_BRAIN_GATING ? solBrainGate(userId, analysis.token.symbol, topStrat.id, (/* @__PURE__ */ new Date()).getUTCHours()) : { blocked: false, reason: "" };
-          const brainMult = SOL_BRAIN_ENABLED ? solBrainSizeMultiplier(userId, analysis.token.symbol) : 1;
-          const liveSizeSOL = brainMult !== 1 ? Math.round(sizeSOL * brainMult * 1e3) / 1e3 : sizeSOL;
-          if (!alreadyOpen && !alreadyQueued && !onCooldown && !confluenceOk) {
-            addActivity3(state, {
-              type: "info",
-              message: `\u{1F6A6} Live entry BLOCKED (confluence): ${analysis.token.symbol} \u2014 ${confluenceCount}/${SOL_CONFLUENCE_REQUIRED} strategies agree, composite ${compositeEdge.toFixed(0)} < ${SOL_COMPOSITE_FLOOR}. Paper still learning.`
-            });
-          } else if (!alreadyOpen && !alreadyQueued && !onCooldown && brainGate.blocked) {
-            addActivity3(state, {
-              type: "info",
-              message: `${brainGate.reason} (live entry skipped \u2014 paper still learning)`
-            });
-          } else if (!alreadyOpen && !alreadyQueued && !onCooldown) {
-            const created = /* @__PURE__ */ new Date();
-            const expires = new Date(created.getTime() + 9e4);
-            const brainNote = brainMult !== 1 ? ` \u{1F9E0} Brain ${brainMult}\xD7` : "";
-            const sig = {
-              id: `live_${Date.now()}_${analysis.token.symbol}`,
-              symbol: analysis.token.symbol,
-              mint: tokenMint,
-              signal: "BUY",
-              confidence: analysis.confidence,
-              price: tokenPrice,
-              sizeSOL: liveSizeSOL,
-              strategyId: topStrat.id,
-              createdAt: created.toISOString(),
-              expiresAt: expires.toISOString(),
-              // Carried through to the live SolAutoPosition once confirmed
-              // (executeServerSideBuy / the Phantom-approval confirm path).
-              // Previously computed above for the paper position only, so a
-              // live position stopOrdersEnabled believed it had never
-              // actually recorded one.
-              stopLossPrice,
-              takeProfitPrice,
-              dex: dexKey
-            };
-            addActivity3(state, {
-              type: "live_signal",
-              message: `\u26A1 Live signal: ${analysis.token.symbol} \u2014 ${liveSizeSOL.toFixed(3)} SOL @ $${tokenPrice.toFixed(6)} [${topStrat.icon}${topStrat.name}]${brainNote} | ${confluenceCount} strat confluence (edge ${compositeEdge.toFixed(0)}) | Attempting server-side execution...`
-            });
-            executeServerSideBuy(userId, sig, state).then((executed) => {
-              if (!executed) {
-                state.pendingSignals.push(sig);
-                addActivity3(state, {
-                  type: "live_signal",
-                  message: `\u26A1 Live signal queued: ${analysis.token.symbol} \u2014 ${liveSizeSOL.toFixed(3)} SOL @ $${tokenPrice.toFixed(6)} [${topStrat.icon}${topStrat.name}]${brainNote} | \u26A0\uFE0F APPROVE IN PHANTOM (90s window)`
-                });
-              }
-            }).catch(() => {
-              state.pendingSignals.push(sig);
-              addActivity3(state, {
-                type: "live_signal",
-                message: `\u26A1 Live signal queued: ${analysis.token.symbol} \u2014 ${sizeSOL.toFixed(3)} SOL @ $${tokenPrice.toFixed(6)} [${topStrat.icon}${topStrat.name}] | \u26A0\uFE0F APPROVE IN PHANTOM (90s window)`
-              });
-            });
-          }
-        }
-      }
-    }
-    state.lastResults = scanResult;
-    await monitorPaperPositions(userId, state);
-    await monitorLivePositions(userId, state);
-    const label = triggerToken ? ` (trigger: ${triggerToken})` : "";
-    const intervalSec = getAdaptiveScanInterval2(state.config) / 1e3;
-    const buys = scanResult.filter((t) => t.signal === "STRONG_BUY" || t.signal === "BUY").length;
-    const shieldNote = shieldFilter ? " \u{1F6E1}\uFE0F" : "";
-    const activeStrats2 = state.activeStrategies.length > 0 ? state.activeStrategies : [state.activeStrategy];
-    const stratNote = activeStrats2.length > 1 ? ` [${activeStrats2.map((id) => {
-      const s = SOL_STRATEGIES.find((x) => x.id === id);
-      return s ? s.icon + s.name : id;
-    }).join(" + ")}]` : (() => {
-      const strategy = SOL_STRATEGIES.find((s) => s.id === state.activeStrategy);
-      return strategy ? ` [${strategy.icon}${strategy.name}]` : "";
-    })();
-    addActivity3(state, {
-      type: "info",
-      message: `\u{1F50D} Knowledge dropped on ${scanResult.length} tokens${label}${shieldNote}${stratNote} \u2014 ${buys} buy signal${buys !== 1 ? "s" : ""} born. Next cipher in ${intervalSec}s`
-    });
-    if (macro) {
-      const btcStr = `BTC ${macro.btcChange >= 0 ? "+" : ""}${macro.btcChange.toFixed(1)}%`;
-      const ethStr = `ETH ${macro.ethChange >= 0 ? "+" : ""}${macro.ethChange.toFixed(1)}%`;
-      const solStr = `SOL ${macro.solChange >= 0 ? "+" : ""}${macro.solChange.toFixed(1)}%`;
-      addActivity3(state, {
-        type: "info",
-        message: `\u{1F4CA} The science: ${btcStr} \u2022 ${ethStr} \u2022 ${solStr} \u2014 bias: ${macro.bias}`
-      });
-    }
-    if (state.currentPortfolioValue > 0) {
-      for (const analysis of scanResult) {
-        if ((analysis.signal === "STRONG_BUY" || analysis.signal === "BUY") && analysis.recommendedSolAmount && analysis.recommendedSolAmount > 0) {
-          const dexKey = (analysis.token.dexId || "").toLowerCase().split("_")[0];
-          const phase2 = state.weeklyGoal.phase;
-          const mult = getPhaseMultiplier(phase2, state.weeklyGoal.winStreak);
-          addActivity3(state, {
-            type: "kelly",
-            message: `\u{1F4D0} Mathematics: ${analysis.token.symbol} on ${dexKey} \u2192 ${analysis.recommendedSolAmount.toFixed(3)} SOL (${mult}\xD7 ${phase2.replace("_", " ")} phase)`
-          });
-        }
-      }
-    }
-  } catch (err) {
-    addActivity3(state, {
-      type: "info",
-      message: `\u26A0\uFE0F Interruption in the cipher: ${err instanceof Error ? err.message : "unknown"}`
-    });
-  } finally {
-    state.isScanning = false;
-  }
-  try {
-    pruneEngineMaps(state);
-  } catch {
-  }
-  saveEngineState(userId, state).catch(() => {
-  });
-  if (state.isRunning) {
-    if (state.scanTimer) clearTimeout(state.scanTimer);
-    const nextMs = getAdaptiveScanInterval2(state.config);
-    state.scanTimer = setTimeout(() => runScan(userId, state), nextMs);
-  }
-}
-async function startSolEngine(userId, config = {}) {
-  if (startingSolUsers.has(userId)) return;
-  startingSolUsers.add(userId);
-  try {
-    const existing = engineStates2.get(userId);
-    if (existing?.isRunning) stopSolEngine(userId);
-    const fullConfig = { ...DEFAULT_CONFIG4, ...config };
-    const state = createInitialState(fullConfig);
-    if (existing) {
-      state.weeklyGoal = existing.weeklyGoal;
-      state.activeStrategy = existing.activeStrategy;
-      state.activeStrategies = existing.activeStrategies;
-      state.signalWeights = existing.signalWeights;
-      state.kellyStats = existing.kellyStats;
-      state.sessionHighWatermark = existing.sessionHighWatermark;
-      state.currentPortfolioValue = existing.currentPortfolioValue;
-      state.shieldActive = existing.shieldActive;
-      state.autoTradeEnabled = existing.autoTradeEnabled;
-      state.liveTradeEnabled = existing.liveTradeEnabled;
-      state.paperPositions = existing.paperPositions;
-      state.closedPaperPositions = existing.closedPaperPositions;
-      state.livePositions = existing.livePositions;
-      state.closedLivePositions = existing.closedLivePositions;
-      state.pendingExits = existing.pendingExits || [];
-      state.autoTradeStats = existing.autoTradeStats;
-      state.autoTradeTP = existing.autoTradeTP;
-      state.autoTradeSL = existing.autoTradeSL;
-      state.serverWalletBalance = existing.serverWalletBalance;
-      state.lastWalletRefreshAt = existing.lastWalletRefreshAt;
-      state.dailyTradeCount = existing.dailyTradeCount;
-      state.dailyTradeDate = existing.dailyTradeDate;
-    } else {
-      await loadEngineStateFromDb(userId, state);
-    }
-    try {
-      const _res = await db.execute(
-        sql11`SELECT paper_base_capital, server_wallet_key FROM sol_engine_settings WHERE user_id = ${userId}`
-      );
-      const rows = Array.isArray(_res) ? _res : _res?.rows ?? [];
-      let paperBase = Number(rows?.[0]?.paper_base_capital ?? 0);
-      if (paperBase > SOL_PAPER_MAX_SOL) {
-        console.warn(`[SolEngine] paper_base_capital ${paperBase} > ${SOL_PAPER_MAX_SOL} SOL looks like a USD figure \u2014 using 5 SOL`);
-        paperBase = 5;
-      }
-      const hasServerWallet = !!rows?.[0]?.server_wallet_key;
-      if (paperBase > 0) {
-        state.paperBaseCapital = paperBase;
-        if (state.paperPortfolioValue <= 0) state.paperPortfolioValue = paperBase;
-        if (!hasServerWallet && state.currentPortfolioValue <= 0) state.currentPortfolioValue = paperBase;
-      }
-    } catch (err) {
-      console.warn("[SolEngine] paper_base_capital restore failed (non-fatal):", err);
-    }
-    if (state.currentPortfolioValue <= 0) {
-      try {
-        const [settings] = await db.select({ serverWalletKey: solEngineSettings.serverWalletKey, liveTradeEnabled: solEngineSettings.liveTradeEnabled }).from(solEngineSettings).where(eq15(solEngineSettings.userId, userId));
-        if (settings?.serverWalletKey) {
-          const privateKeyBase58 = decryptWalletKey(settings.serverWalletKey);
-          const { Keypair: Keypair2, Connection: Connection3 } = await import("@solana/web3.js");
-          const bs58 = (await import("bs58")).default;
-          const keypair = Keypair2.fromSecretKey(bs58.decode(privateKeyBase58));
-          const rpcUrl = process.env.SOLANA_RPC_URL || "https://mainnet.helius-rpc.com/?api-key=15319bf4-5b40-4958-ac8d-6313aa55eb92";
-          const connection2 = new Connection3(rpcUrl, { commitment: "confirmed" });
-          const lamports = await connection2.getBalance(keypair.publicKey);
-          const solBalance = lamports / 1e9;
-          if (solBalance > 0) {
-            state.currentPortfolioValue = solBalance;
-            state.liveTradeEnabled = settings?.liveTradeEnabled === true;
-            console.log(`[SolEngine] Portfolio auto-set from wallet on start: ${solBalance.toFixed(4)} SOL (live=${state.liveTradeEnabled})`);
-          }
-        }
-      } catch {
-      }
-    }
-    state.isRunning = true;
-    engineStates2.set(userId, state);
-    const intervalSec = getAdaptiveScanInterval2(fullConfig) / 1e3;
-    const windowLabel = intervalSec === 30 ? "peak hours (13\u201320 UTC)" : intervalSec === 60 ? "standard hours" : "overnight / weekend";
-    const activeIds = state.activeStrategies.length > 0 ? state.activeStrategies : [state.activeStrategy];
-    const stratLabel = activeIds.map((id) => {
-      const s = SOL_STRATEGIES.find((x) => x.id === id);
-      return s ? `${s.icon}${s.name}` : id;
-    }).join(" + ");
-    addActivity3(state, {
-      type: "info",
-      message: `\u26A1 Peace \u2014 Sol cipher activated. ${stratLabel} in rotation, dropping knowledge every ${intervalSec}s (${windowLabel})`
-    });
-    runScan(userId, state);
-  } finally {
-    startingSolUsers.delete(userId);
-  }
-}
-function stopSolEngine(userId) {
-  const state = engineStates2.get(userId);
-  if (!state) return;
-  state.isRunning = false;
-  if (state.scanTimer) {
-    clearTimeout(state.scanTimer);
-    state.scanTimer = null;
-  }
-  addActivity3(state, { type: "info", message: "\u{1F6D1} Engine at rest \u2014 knowledge preserved, cipher closed" });
-}
-function getSolEngineStatus(userId) {
-  const state = engineStates2.get(userId);
-  if (!state) {
-    return {
-      running: false,
-      activityFeed: [],
-      signalWeights: Object.fromEntries(DEX_NAMES.map((d) => [d, 1])),
-      shieldActive: false,
-      lastResults: [],
-      kellyStats: {},
-      lastMacro: null,
-      weeklyGoal: { ...DEFAULT_WEEKLY_GOAL },
-      activeStrategy: "momentum_surfer",
-      activeStrategies: ["momentum_surfer"]
-    };
-  }
-  return {
-    running: state.isRunning,
-    config: state.config,
-    activityFeed: state.activityFeed.slice(0, 20),
-    signalWeights: state.signalWeights,
-    kellyStats: state.kellyStats,
-    shieldActive: state.shieldActive,
-    sessionHighWatermark: state.sessionHighWatermark,
-    currentPortfolioValue: state.currentPortfolioValue,
-    lastScanAt: state.lastScanAt,
-    lastResults: state.lastResults,
-    lastMacro: state.lastMacro,
-    weeklyGoal: state.weeklyGoal,
-    activeStrategy: state.activeStrategy,
-    activeStrategies: state.activeStrategies,
-    lastAgentConsensus: state.lastAgentConsensus,
-    paperTradeSize: state.paperTradeSize,
-    compoundMode: state.compoundMode,
-    compoundRate: state.compoundRate,
-    paperBaseCapital: state.paperBaseCapital,
-    paperPortfolioValue: state.paperPortfolioValue,
-    paperPortfolioHistory: state.paperPortfolioHistory,
-    autoTradeEnabled: state.autoTradeEnabled,
-    liveTradeEnabled: state.liveTradeEnabled,
-    autoTradeMode: state.liveTradeEnabled ? "live" : state.autoTradeEnabled ? "paper" : "off",
-    pendingSignalsCount: state.pendingSignals.filter((s) => new Date(s.expiresAt).getTime() > Date.now()).length,
-    pendingSignalSymbols: state.pendingSignals.filter((s) => new Date(s.expiresAt).getTime() > Date.now()).map((s) => s.symbol),
-    serverWalletBalance: state.serverWalletBalance,
-    dailyTradeCount: state.dailyTradeCount,
-    dailyTradeDate: state.dailyTradeDate
-  };
-}
-function getSolStrategies() {
-  return SOL_STRATEGIES;
-}
-function setSolStrategies(userId, strategyIds) {
-  const valid = strategyIds.filter((id) => SOL_STRATEGIES.some((s) => s.id === id));
-  if (valid.length === 0) return { success: false };
-  let state = engineStates2.get(userId);
-  if (!state) {
-    state = createInitialState({ ...DEFAULT_CONFIG4 });
-    engineStates2.set(userId, state);
-  }
-  state.activeStrategies = valid;
-  state.activeStrategy = valid[0];
-  const strats = valid.map((id) => SOL_STRATEGIES.find((s) => s.id === id)).filter(Boolean);
-  const label = strats.map((s) => `${s.icon}${s.name}`).join(" + ");
-  const modeNote = valid.length > 1 ? ` \u2014 Multi-Strategy Mode \u{1F3AF} active` : "";
-  addActivity3(state, {
-    type: "strategy",
-    message: `\u{1F504} Cipher updated \u2014 ${label}${modeNote}. Word is bond.`
-  });
-  return { success: true, strategies: strats };
-}
-function setSolStrategy(userId, strategyId) {
-  const strategy = SOL_STRATEGIES.find((s) => s.id === strategyId);
-  if (!strategy) return { success: false };
-  let state = engineStates2.get(userId);
-  if (!state) {
-    state = createInitialState({ ...DEFAULT_CONFIG4 });
-    engineStates2.set(userId, state);
-  }
-  state.activeStrategy = strategyId;
-  state.activeStrategies = [strategyId];
-  addActivity3(state, {
-    type: "strategy",
-    message: `${strategy.icon} Word is bond \u2014 ${strategy.name} now in rotation. Min ${strategy.minConfidence}% confidence, ${strategy.baseFraction * 100}% base size, ${strategy.holdTarget} hold`
-  });
-  return { success: true, strategy };
-}
-function setSolWeeklyGoal(userId, params) {
-  let state = engineStates2.get(userId);
-  if (!state) {
-    state = createInitialState({ ...DEFAULT_CONFIG4 });
-    engineStates2.set(userId, state);
-  }
-  const portfolio = state.currentPortfolioValue;
-  let targetSol = params.targetSol || 0;
-  let targetPct = params.targetPct || 0;
-  if (targetPct > 0 && portfolio > 0 && targetSol <= 0) {
-    targetSol = portfolio * (targetPct / 100);
-  } else if (targetSol > 0 && portfolio > 0 && targetPct <= 0) {
-    targetPct = targetSol / portfolio * 100;
-  }
-  if (targetSol <= 0) return { success: false };
-  state.weeklyGoal = {
-    targetSol,
-    targetPct,
-    startPortfolio: portfolio,
-    currentProfitSol: 0,
-    phase: "warming_up",
-    weekStart: Date.now(),
-    winStreak: 0,
-    tradeHistory: []
-  };
-  addActivity3(state, {
-    type: "goal",
-    message: `\u{1F3AF} Target manifested \u2014 +${targetSol.toFixed(3)} SOL (${targetPct.toFixed(1)}%) this week. Warming up the cipher (0.8\xD7 size)`
-  });
-  return { success: true };
-}
-function resetSolWeeklyGoal(userId) {
-  const state = engineStates2.get(userId);
-  if (!state) return { success: false };
-  state.weeklyGoal = { ...DEFAULT_WEEKLY_GOAL };
-  addActivity3(state, { type: "goal", message: "\u{1F504} Cipher cleared \u2014 knowledge reset, back to zero point" });
-  return { success: true };
-}
-function recordSolSignalResult(userId, params) {
-  const state = engineStates2.get(userId);
-  if (!state) return { success: false };
-  const dex = (params.dex || "unknown").toLowerCase().replace(/[^a-z]/g, "") || "unknown";
-  if (!state.signalWeights[dex]) state.signalWeights[dex] = 1;
-  if (!state.kellyStats[dex]) state.kellyStats[dex] = { wins: 0, losses: 0, totalGainPct: 0 };
-  if (params.outcome === "WIN") {
-    state.signalWeights[dex] = Math.min(2, state.signalWeights[dex] + 0.05);
-    state.kellyStats[dex].wins++;
-    state.kellyStats[dex].totalGainPct += Math.abs(params.gainPct);
-    state.weeklyGoal.winStreak = (state.weeklyGoal.winStreak || 0) + 1;
-    addActivity3(state, {
-      type: "signal",
-      message: `\u2705 Born \u2014 ${params.symbol || dex} +${params.gainPct.toFixed(1)}% sealed in profit. ${dex} weight ${state.signalWeights[dex].toFixed(2)} | Streak: ${state.weeklyGoal.winStreak}`
-    });
-  } else {
-    state.signalWeights[dex] = Math.max(0.2, state.signalWeights[dex] - 0.08);
-    state.kellyStats[dex].losses++;
-    state.weeklyGoal.winStreak = 0;
-    addActivity3(state, {
-      type: "signal",
-      message: `\u274C Lesson built \u2014 ${params.symbol || dex}. The cipher teaches. ${dex} weight ${state.signalWeights[dex].toFixed(2)} | Streak reset`
-    });
-  }
-  if (state.weeklyGoal.phase !== "idle") {
-    const solAmount = params.sol || 0;
-    const actualGainPct = params.gainPct;
-    const gainSol = solAmount * (actualGainPct / 100);
-    state.weeklyGoal.currentProfitSol += gainSol;
-    state.weeklyGoal.tradeHistory.unshift({
-      timestamp: (/* @__PURE__ */ new Date()).toISOString(),
-      symbol: params.symbol || dex,
-      sol: solAmount,
-      gainPct: actualGainPct,
-      outcome: params.outcome,
-      strategy: state.activeStrategy
-    });
-    if (state.weeklyGoal.tradeHistory.length > 100) {
-      state.weeklyGoal.tradeHistory = state.weeklyGoal.tradeHistory.slice(0, 100);
-    }
-    const prevPhase = state.weeklyGoal.phase;
-    const newPhase = computeGoalPhase(state.weeklyGoal);
-    if (newPhase !== prevPhase) {
-      state.weeklyGoal.phase = newPhase;
-      const mult = getPhaseMultiplier(newPhase, state.weeklyGoal.winStreak);
-      const phaseNames = {
-        warming_up: "\u{1F535} WARMING UP",
-        building: "\u{1F535} BUILDING",
-        accelerating: "\u{1F7E1} ACCELERATING",
-        cruising: "\u{1F7E2} CRUISING",
-        pushing: "\u{1F7E0} PUSHING",
-        target_reached: "\u{1F3C6} TARGET REACHED"
-      };
-      addActivity3(state, {
-        type: "goal",
-        message: `${phaseNames[newPhase] || newPhase} \u2014 the God builds on. Sizing ${mult}\xD7 | Progress: ${(state.weeklyGoal.currentProfitSol / state.weeklyGoal.targetSol * 100).toFixed(1)}%`
-      });
-    }
-  }
-  return { success: true };
-}
-function setAutoTrade(userId, opts) {
-  let state = engineStates2.get(userId);
-  if (!state) {
-    state = createInitialState({ ...DEFAULT_CONFIG4 });
-    engineStates2.set(userId, state);
-  }
-  if (opts.paperEnabled !== void 0) {
-    state.autoTradeEnabled = opts.paperEnabled;
-    addActivity3(state, {
-      type: "info",
-      message: opts.paperEnabled ? "\u{1F4C4} Paper Auto-Trade ENABLED \u2014 the cipher will open virtual positions on every buy signal" : "\u{1F4C4} Paper Auto-Trade DISABLED"
-    });
-  }
-  if (opts.liveEnabled !== void 0) {
-    state.liveTradeEnabled = opts.liveEnabled;
-    if (!opts.liveEnabled) state.pendingSignals = [];
-    addActivity3(state, {
-      type: "info",
-      message: opts.liveEnabled ? "\u26A1 Live Auto-Trade ENABLED \u2014 buy signals will be queued for wallet execution" : "\u26A1 Live Auto-Trade DISABLED \u2014 pending signals cleared"
-    });
-  }
-  if (opts.tpPct !== void 0 && opts.tpPct > 0 && opts.tpPct <= 200) {
-    state.autoTradeTP = opts.tpPct;
-    addActivity3(state, {
-      type: "info",
-      message: `\u{1F3AF} Take-profit updated \u2014 positions will close at +${opts.tpPct}%`
-    });
-  }
-  if (opts.slPct !== void 0 && opts.slPct > 0 && opts.slPct <= 50) {
-    state.autoTradeSL = opts.slPct;
-    addActivity3(state, {
-      type: "info",
-      message: `\u{1F6E1}\uFE0F Stop-loss updated \u2014 positions protected at -${opts.slPct}%`
-    });
-  }
-  if (opts.trailActivationPct !== void 0 && opts.trailActivationPct > 0 && opts.trailActivationPct <= 100) {
-    state.autoTrailActivationPct = opts.trailActivationPct;
-    addActivity3(state, {
-      type: "info",
-      message: `\u{1F512} Trail activation updated \u2014 trailing stop kicks in at +${opts.trailActivationPct}%`
-    });
-  }
-  if (opts.trailDistancePct !== void 0 && opts.trailDistancePct > 0 && opts.trailDistancePct <= 50) {
-    state.autoTrailDistancePct = opts.trailDistancePct;
-    addActivity3(state, {
-      type: "info",
-      message: `\u{1F4CF} Trail distance updated \u2014 will exit if price drops ${opts.trailDistancePct}% from peak`
-    });
-  }
-  if (opts.paperTradeSize !== void 0) {
-    const sz = Math.max(0, opts.paperTradeSize);
-    state.paperTradeSize = sz;
-    addActivity3(state, {
-      type: "info",
-      message: sz > 0 ? `\u{1F4D0} Paper trade size fixed at ${sz} SOL per position \u2014 overrides portfolio-fraction sizing` : `\u{1F4D0} Paper trade size set to auto (portfolio-fraction mode restored)`
-    });
-  }
-  saveEngineState(userId, state).catch(() => {
-  });
-}
-function setCompoundSettings(userId, opts) {
-  let state = engineStates2.get(userId);
-  if (!state) {
-    state = createInitialState({ ...DEFAULT_CONFIG4 });
-    engineStates2.set(userId, state);
-  }
-  if (opts.compoundMode !== void 0) {
-    state.compoundMode = opts.compoundMode;
-    addActivity3(state, {
-      type: "info",
-      message: opts.compoundMode ? `\u{1F4B9} Compound Mode ACTIVATED \u2014 profits will grow your paper pool (${state.compoundRate}% reinvestment rate)` : "\u{1F4B9} Compound Mode OFF \u2014 fixed position sizing restored"
-    });
-  }
-  if (opts.compoundRate !== void 0) {
-    const rate = Math.max(1, Math.min(100, opts.compoundRate));
-    state.compoundRate = rate;
-    addActivity3(state, {
-      type: "info",
-      message: `\u{1F4B9} Compound rate set to ${rate}% \u2014 ${rate === 100 ? "all profits" : `${rate}% of profits`} reinvested into paper pool`
-    });
-  }
-  if (opts.paperBaseCapital !== void 0 && opts.paperBaseCapital > 0) {
-    state.paperBaseCapital = opts.paperBaseCapital;
-    state.paperPortfolioValue = opts.paperBaseCapital;
-    state.paperPortfolioHistory = [{ t: Date.now(), v: opts.paperBaseCapital }];
-    addActivity3(state, {
-      type: "info",
-      message: `\u{1F4BC} Paper capital reset to ${opts.paperBaseCapital.toFixed(3)} SOL \u2014 compound growth clock starts now`
-    });
-    const persistValue = opts.paperBaseCapital;
-    db.execute(sql11`UPDATE sol_engine_settings SET paper_base_capital = ${persistValue} WHERE user_id = ${userId}`).catch((err) => console.warn("[SolEngine] persist paper_base_capital (setCompoundSettings) failed:", err));
-  }
-}
-function getPendingSignals(userId) {
-  const state = engineStates2.get(userId);
-  if (!state) return [];
-  const now = Date.now();
-  const valid = state.pendingSignals.filter((s) => new Date(s.expiresAt).getTime() > now);
-  const expired = state.pendingSignals.filter((s) => new Date(s.expiresAt).getTime() <= now);
-  for (const s of expired) {
-    addActivity3(state, {
-      type: "signal_expired",
-      message: `\u23F1\uFE0F Missed: ${s.symbol} buy signal expired unconfirmed (90s window passed) \u2014 no server wallet set up for full auto.`
-    });
-  }
-  state.pendingSignals = [];
-  return valid;
-}
-function cancelSignal(userId, mint) {
-  const state = engineStates2.get(userId);
-  if (!state) return;
-  state.pendingSignals = state.pendingSignals.filter((s) => s.mint !== mint);
-  state.signalCooldowns.set(mint, Date.now());
-}
-function confirmLiveTrade(userId, signalId, txHash, tradeData) {
-  const state = engineStates2.get(userId);
-  if (!state) return false;
-  const parts = signalId.split("_");
-  const symbol = parts.slice(2).join("_");
-  if (!symbol) return false;
-  const signal = state.pendingSignals.find((s) => s.id === signalId);
-  const sizeSOL = signal?.sizeSOL || 0;
-  if (signal) {
-    state.pendingSignals = state.pendingSignals.filter((s) => s.id !== signalId);
-  }
-  const pos = {
-    id: `live_pos_${Date.now()}_${symbol}`,
-    symbol,
-    mint: tradeData?.mint || signal?.mint || "",
-    entryPrice: tradeData?.entryPrice || 0,
-    currentPrice: tradeData?.entryPrice || 0,
-    targetPct: state.autoTradeTP,
-    slPct: state.autoTradeSL,
-    size: sizeSOL,
-    tokenAmount: tradeData?.tokenAmount || 0,
-    decimals: tradeData?.decimals || 9,
-    strategyId: signal?.strategyId || state.activeStrategy,
-    mode: "live",
-    txHash,
-    openedAt: (/* @__PURE__ */ new Date()).toISOString(),
-    status: "open",
-    stopLossPrice: signal?.stopLossPrice,
-    takeProfitPrice: signal?.takeProfitPrice,
-    dex: signal?.dex
-  };
-  state.livePositions.push(pos);
-  state.dailyTradeCount++;
-  addActivity3(state, {
-    type: "live_buy",
-    message: `\u26A1 Live EXECUTED: ${symbol} \u2014 ${tradeData?.tokenAmount ? (tradeData.tokenAmount / Math.pow(10, tradeData.decimals || 9)).toFixed(4) + " tokens @ $" + (tradeData.entryPrice || 0).toFixed(6) : ""} tx: ${txHash.slice(0, 16)}...`
-  });
-  upsertPosition(userId, pos).catch(() => {
-  });
-  return true;
-}
-function getPendingExits(userId) {
-  const state = engineStates2.get(userId);
-  if (!state) return [];
-  const now = Date.now();
-  const valid = state.pendingExits.filter((e) => new Date(e.expiresAt).getTime() > now);
-  const expired = state.pendingExits.filter((e) => new Date(e.expiresAt).getTime() <= now);
-  for (const e of expired) {
-    addActivity3(state, {
-      type: "exit_expired",
-      message: `\u23F1\uFE0F Missed exit: ${e.symbol} close signal expired unconfirmed (90s window passed) \u2014 position remains OPEN, still being monitored.`
-    });
-  }
-  state.pendingExits = state.pendingExits.filter((e) => new Date(e.expiresAt).getTime() > now);
-  return valid;
-}
-function confirmLiveExit(userId, positionId, txHash) {
-  const state = engineStates2.get(userId);
-  if (!state) return false;
-  const pos = state.livePositions.find((p) => p.id === positionId && p.status === "open");
-  if (!pos) return false;
-  const gainPct = pos.entryPrice > 0 ? (pos.currentPrice - pos.entryPrice) / pos.entryPrice * 100 : 0;
-  pos.status = "closed";
-  pos.closedAt = (/* @__PURE__ */ new Date()).toISOString();
-  pos.closePnlPct = gainPct;
-  state.closedLivePositions.unshift(pos);
-  if (state.closedLivePositions.length > 50) state.closedLivePositions = state.closedLivePositions.slice(0, 50);
-  const isWin = gainPct >= 0;
-  state.autoTradeStats.totalTrades++;
-  state.autoTradeStats.totalPnlPct += gainPct;
-  if (isWin) {
-    state.autoTradeStats.wins++;
-    if (gainPct > state.autoTradeStats.bestTradePct) state.autoTradeStats.bestTradePct = gainPct;
-  } else {
-    state.autoTradeStats.losses++;
-    if (gainPct < state.autoTradeStats.worstTradePct) state.autoTradeStats.worstTradePct = gainPct;
-  }
-  state.livePositions = state.livePositions.filter((p) => p.id !== positionId);
-  addActivity3(state, {
-    type: "live_sell",
-    message: `\u2705 Live SOLD: ${pos.symbol} \u2014 P&L: ${gainPct >= 0 ? "+" : ""}${gainPct.toFixed(2)}% [TX: ${txHash.slice(0, 12)}...]`
-  });
-  recordSolBrainOutcome({
-    userId,
-    symbol: pos.symbol,
-    strategy: pos.strategyId || "unknown",
-    direction: "long",
-    returnPct: gainPct,
-    holdingMinutes: Math.max(0, Math.round((Date.now() - new Date(pos.openedAt).getTime()) / 6e4)),
-    exitReason: "manual",
-    profitLoss: pos.size * (gainPct / 100)
-  }).catch(() => {
-  });
-  upsertPosition(userId, pos).catch(() => {
-  });
-  saveEngineState(userId, state).catch(() => {
-  });
-  return true;
-}
-function getAutoTradePositions(userId) {
-  const state = engineStates2.get(userId);
-  if (!state) {
-    return {
-      autoTradeEnabled: false,
-      liveTradeEnabled: false,
-      paperPositions: [],
-      closedPaperPositions: [],
-      livePositions: [],
-      closedLivePositions: [],
-      autoTradeStats: { totalTrades: 0, wins: 0, losses: 0, totalPnlPct: 0, bestTradePct: 0, worstTradePct: 0 }
-    };
-  }
-  return {
-    autoTradeEnabled: state.autoTradeEnabled,
-    liveTradeEnabled: state.liveTradeEnabled,
-    autoTradeTP: state.autoTradeTP,
-    autoTradeSL: state.autoTradeSL,
-    autoTrailActivationPct: state.autoTrailActivationPct,
-    autoTrailDistancePct: state.autoTrailDistancePct,
-    paperPositions: state.paperPositions,
-    closedPaperPositions: state.closedPaperPositions.slice(0, 20),
-    livePositions: state.livePositions,
-    closedLivePositions: state.closedLivePositions.slice(0, 20),
-    autoTradeStats: state.autoTradeStats
-  };
-}
-function updateSolPortfolioValue(userId, solValue) {
-  const state = engineStates2.get(userId);
-  if (!state) return { shieldActive: false };
-  if (!(solValue > 0) || solValue > SOL_PAPER_MAX_SOL) return { shieldActive: !!state.shieldActive };
-  state.currentPortfolioValue = solValue;
-  if (solValue > state.sessionHighWatermark) state.sessionHighWatermark = solValue;
-  db.execute(sql11`UPDATE sol_engine_settings SET paper_base_capital = ${solValue} WHERE user_id = ${userId}`).catch((err) => console.warn("[SolEngine] persist paper_base_capital (updateSolPortfolioValue) failed:", err));
-  if (!state.config.shieldEnabled) return { shieldActive: false };
-  const threshold = state.config.shieldThreshold / 100;
-  const triggerLevel = state.sessionHighWatermark * (1 - threshold);
-  const disengageLevel = state.sessionHighWatermark * 0.97;
-  if (!state.shieldActive && state.sessionHighWatermark > 0 && solValue < triggerLevel) {
-    state.shieldActive = true;
-    const dropPct = ((1 - solValue / state.sessionHighWatermark) * 100).toFixed(1);
-    addActivity3(state, {
-      type: "shield",
-      message: `\u{1F6E1}\uFE0F Shield of protection manifested \u2014 portfolio dropped ${dropPct}% from peak (${state.sessionHighWatermark.toFixed(3)} SOL). Righteously restricting to 85%+ confidence only`
-    });
-  } else if (state.shieldActive && solValue >= disengageLevel) {
-    state.shieldActive = false;
-    addActivity3(state, { type: "shield", message: "\u2705 Shield lifted \u2014 peace restored. Full cipher resumed" });
-  }
-  return { shieldActive: state.shieldActive };
-}
-function setShieldActive(userId, active) {
-  const state = engineStates2.get(userId);
-  if (!state) return { success: false, shieldActive: false };
-  state.shieldActive = active;
-  addActivity3(state, {
-    type: "shield",
-    message: active ? "\u{1F6E1}\uFE0F Shield manually activated \u2014 restricting to high-confidence signals only" : "\u2705 Shield manually deactivated \u2014 full cipher resumed"
-  });
-  return { success: true, shieldActive: state.shieldActive };
-}
-async function saveServerWallet(userId, privateKeyBase58) {
-  try {
-    const { Keypair: Keypair2 } = await import("@solana/web3.js");
-    const bs58 = (await import("bs58")).default;
-    const secretKey = bs58.decode(privateKeyBase58);
-    const keypair = Keypair2.fromSecretKey(secretKey);
-    const walletAddress = keypair.publicKey.toBase58();
-    const encrypted = encryptWalletKey(privateKeyBase58);
-    await db.insert(solEngineSettings).values({
-      userId,
-      serverWalletKey: encrypted,
-      activeStrategy: "momentum_surfer",
-      activeStrategies: [],
-      autoTradeEnabled: false,
-      liveTradeEnabled: true,
-      // auto-enable live trade when wallet is connected
-      autoTradeTP: 8,
-      autoTradeSL: 4,
-      weeklyGoal: {},
-      autoTradeStats: {},
-      updatedAt: /* @__PURE__ */ new Date()
-    }).onConflictDoUpdate({
-      target: solEngineSettings.userId,
-      set: { serverWalletKey: encrypted, liveTradeEnabled: true, updatedAt: /* @__PURE__ */ new Date() }
-    });
-    try {
-      const { Connection: Connection3 } = await import("@solana/web3.js");
-      const rpcUrl = process.env.SOLANA_RPC_URL || "https://mainnet.helius-rpc.com/?api-key=15319bf4-5b40-4958-ac8d-6313aa55eb92";
-      const connection2 = new Connection3(rpcUrl, { commitment: "confirmed" });
-      const lamports = await connection2.getBalance(keypair.publicKey);
-      const solBalance = lamports / 1e9;
-      if (solBalance > 0) {
-        const existing = engineStates2.get(userId);
-        if (existing) {
-          existing.currentPortfolioValue = solBalance;
-          existing.liveTradeEnabled = true;
-          addActivity3(existing, {
-            type: "info",
-            message: `\u{1F511} Server wallet connected: ${walletAddress.slice(0, 8)}... | Balance: ${solBalance.toFixed(4)} SOL | Live trading ENABLED \u2014 ready to execute`
-          });
-        }
-      }
-    } catch {
-    }
-    return { success: true, walletAddress };
-  } catch (err) {
-    return { success: false, error: err.message || "Invalid private key" };
-  }
-}
-async function clearServerWallet(userId) {
-  await db.update(solEngineSettings).set({ serverWalletKey: null, updatedAt: /* @__PURE__ */ new Date() }).where(eq15(solEngineSettings.userId, userId));
-}
-async function getServerWalletStatus(userId) {
-  try {
-    const [settings] = await db.select({ serverWalletKey: solEngineSettings.serverWalletKey }).from(solEngineSettings).where(eq15(solEngineSettings.userId, userId));
-    if (!settings?.serverWalletKey) return { hasServerWallet: false };
-    const privateKeyBase58 = decryptWalletKey(settings.serverWalletKey);
-    const { Keypair: Keypair2, Connection: Connection3 } = await import("@solana/web3.js");
-    const bs58 = (await import("bs58")).default;
-    const secretKey = bs58.decode(privateKeyBase58);
-    const keypair = Keypair2.fromSecretKey(secretKey);
-    const walletAddress = keypair.publicKey.toBase58();
-    let balanceLamports = 0;
-    let balanceSol = 0;
-    try {
-      const rpcUrl = process.env.SOLANA_RPC_URL || "https://mainnet.helius-rpc.com/?api-key=15319bf4-5b40-4958-ac8d-6313aa55eb92";
-      const connection2 = new Connection3(rpcUrl, { commitment: "confirmed" });
-      balanceLamports = await connection2.getBalance(keypair.publicKey);
-      balanceSol = Math.round(balanceLamports / 1e9 * 1e4) / 1e4;
-    } catch {
-    }
-    return { hasServerWallet: true, walletAddress, balanceLamports, balanceSol };
-  } catch {
-    return { hasServerWallet: false };
-  }
-}
-var SOL_BRAIN_ENABLED, SOL_BRAIN_GATING, SOL_CONFLUENCE_REQUIRED, SOL_COMPOSITE_FLOOR, SOL_CONFLUENCE_BONUS, SOL_MAX_HOLD_HOURS, SOL_MAX_HOLD_MS, MAX_PRICE_SPIKE, DEX_NAMES, SOL_STRATEGIES, DEFAULT_CONFIG4, DEFAULT_WEEKLY_GOAL, engineStates2, startingSolUsers, PAPER_DEFAULT_PORTFOLIO_SOL, SOL_PAPER_MAX_SOL;
-var init_sol_engine = __esm({
-  "server/services/sol-engine.ts"() {
-    "use strict";
-    init_solana_scanner();
-    init_db();
-    init_schema();
-    init_sol_brain();
-    init_weekend_boost();
-    SOL_BRAIN_ENABLED = true;
-    SOL_BRAIN_GATING = true;
-    SOL_CONFLUENCE_REQUIRED = 2;
-    SOL_COMPOSITE_FLOOR = 72;
-    SOL_CONFLUENCE_BONUS = 4;
-    SOL_MAX_HOLD_HOURS = Number(process.env.SOL_MAX_HOLD_HOURS) || 12;
-    SOL_MAX_HOLD_MS = SOL_MAX_HOLD_HOURS * 60 * 60 * 1e3;
-    MAX_PRICE_SPIKE = 10;
-    DEX_NAMES = ["raydium", "orca", "meteora", "pumpfun", "jupiter"];
-    SOL_STRATEGIES = [
-      {
-        id: "momentum_surfer",
-        name: "Momentum Surfer",
-        icon: "\u{1F3C4}",
-        description: "Rides strong directional price momentum with buy pressure confirmation",
-        minConfidence: 70,
-        maxRisk: "MEDIUM",
-        baseFraction: 0.03,
-        minSignal: "BUY",
-        holdTarget: "1\u20134h"
-      },
-      {
-        id: "breakout_hunter",
-        name: "Breakout Hunter",
-        icon: "\u{1F680}",
-        description: "Targets tokens breaking out of consolidation on strong buy signals",
-        minConfidence: 75,
-        maxRisk: "MEDIUM",
-        baseFraction: 0.025,
-        minSignal: "STRONG_BUY",
-        holdTarget: "30min\u20132h"
-      },
-      {
-        id: "dip_sniper",
-        name: "Dip Sniper",
-        icon: "\u{1F3AF}",
-        description: "Enters on brief pullbacks in overall uptrends \u2014 low risk entries",
-        minConfidence: 68,
-        maxRisk: "LOW",
-        baseFraction: 0.02,
-        minSignal: "BUY",
-        holdTarget: "2\u20138h"
-      },
-      {
-        id: "meme_velocity",
-        name: "Meme Velocity",
-        icon: "\u26A1",
-        description: "Captures explosive meme token moves with quick in-out on Pump.fun",
-        minConfidence: 65,
-        maxRisk: "HIGH",
-        baseFraction: 0.04,
-        minSignal: "BUY",
-        holdTarget: "10\u201315min",
-        dexPreference: "pumpfun"
-      },
-      {
-        id: "whale_follower",
-        name: "Whale Follower",
-        icon: "\u{1F40B}",
-        description: "Tracks large wallet accumulation patterns and high maker counts",
-        minConfidence: 72,
-        maxRisk: "MEDIUM",
-        baseFraction: 0.02,
-        minSignal: "BUY",
-        holdTarget: "4\u201324h"
-      },
-      {
-        id: "volume_explosion",
-        name: "Volume Explosion",
-        icon: "\u{1F4A5}",
-        description: "Enters tokens with sudden 3x+ volume spikes on strong buy signals",
-        minConfidence: 65,
-        maxRisk: "MEDIUM",
-        baseFraction: 0.035,
-        minSignal: "STRONG_BUY",
-        holdTarget: "20\u201345min"
-      },
-      {
-        id: "smart_money_flow",
-        name: "Smart Money Flow",
-        icon: "\u{1F9E0}",
-        description: "Institutional-grade entries on high-confidence, low-risk accumulation",
-        minConfidence: 78,
-        maxRisk: "LOW",
-        baseFraction: 0.025,
-        minSignal: "STRONG_BUY",
-        holdTarget: "1\u20133 days"
-      },
-      {
-        id: "liquidity_sweep",
-        name: "Liquidity Sweep",
-        icon: "\u{1F30A}",
-        description: "Scalps sharp moves after liquidity pool sweeps \u2014 small, frequent gains",
-        minConfidence: 60,
-        maxRisk: "HIGH",
-        baseFraction: 0.03,
-        minSignal: "BUY",
-        holdTarget: "10\u201330min"
-      },
-      {
-        id: "order_flow_scalper",
-        name: "Order Flow Scalper",
-        icon: "\u{1F4CA}",
-        description: "Institutional order flow \u2014 enters when buy/sell delta diverges from price, signalling hidden accumulation or distribution",
-        minConfidence: 70,
-        maxRisk: "MEDIUM",
-        baseFraction: 0.025,
-        minSignal: "BUY",
-        holdTarget: "15\u201360min"
-      },
-      {
-        id: "trend_rider",
-        name: "Trend Rider",
-        icon: "\u{1F4C8}",
-        description: "Rides established multi-hour uptrends with steady volume and consistent buy pressure \u2014 fewer, higher-quality entries that compound",
-        minConfidence: 74,
-        maxRisk: "MEDIUM",
-        baseFraction: 0.03,
-        minSignal: "BUY",
-        holdTarget: "6\u201324h"
-      },
-      {
-        id: "adaptive",
-        name: "Adaptive (Auto)",
-        icon: "\u{1F916}",
-        description: "Auto-selects the best strategy each scan based on current market conditions \u2014 whale activity, breakouts, dips, macro bias",
-        minConfidence: 68,
-        maxRisk: "MEDIUM",
-        baseFraction: 0.03,
-        minSignal: "BUY",
-        holdTarget: "varies"
-      }
-    ];
-    DEFAULT_CONFIG4 = {
-      dexFilter: "all",
-      minConfidence: 65,
-      maxTokens: 10,
-      useKelly: false,
-      shieldEnabled: true,
-      shieldThreshold: 10,
-      adaptiveScan: true,
-      aiMode: "full",
-      directionFilter: "buy_only",
-      riskPerTradePct: 1,
-      maxDailyTrades: 0,
-      stopOrdersEnabled: false
-    };
-    DEFAULT_WEEKLY_GOAL = {
-      targetSol: 0,
-      targetPct: 0,
-      startPortfolio: 0,
-      currentProfitSol: 0,
-      phase: "idle",
-      weekStart: 0,
-      winStreak: 0,
-      tradeHistory: []
-    };
-    engineStates2 = /* @__PURE__ */ new Map();
-    startingSolUsers = /* @__PURE__ */ new Set();
-    PAPER_DEFAULT_PORTFOLIO_SOL = 10;
-    SOL_PAPER_MAX_SOL = Number(process.env.SOL_PAPER_MAX_SOL ?? 1e3);
   }
 });
 
@@ -55537,56 +56006,6 @@ var init_chart_overlay = __esm({
   }
 });
 
-// server/services/app-screens.ts
-import fs13 from "fs";
-import path13 from "path";
-function screenCatalogForPrompt() {
-  return APP_SCREENS.map((s) => `${s.id} \u2014 ${s.shows}`).join("\n");
-}
-function screenImagePath(id) {
-  const cached2 = fileCache.get(id);
-  if (cached2 !== void 0) return cached2;
-  const screen = APP_SCREENS.find((s) => s.id === id);
-  let found = null;
-  if (screen) {
-    const candidates = [
-      path13.resolve(process.cwd(), "dist/public/app-screens", screen.file),
-      path13.resolve(process.cwd(), "client/public/app-screens", screen.file),
-      path13.resolve(__dirname, "../public/app-screens", screen.file),
-      path13.resolve(__dirname, "../../client/public/app-screens", screen.file)
-    ];
-    found = candidates.find((c) => fs13.existsSync(c)) ?? null;
-    if (!found) console.warn(`[app-screens] ${screen.file} not found in any known location \u2014 scene will render without the screen overlay`);
-  }
-  fileCache.set(id, found);
-  return found;
-}
-function screenCardGeometry(W, H2) {
-  const cardH = Math.round(H2 * (W > H2 ? 0.66 : 0.5));
-  const cardW = Math.round(cardH * 0.475);
-  const x = Math.round((W - cardW) / 2);
-  const y = H2 - cardH - Math.round(H2 * 0.055);
-  return { cardW, cardH, x, y, panelPad: Math.round(W * 0.016) };
-}
-var APP_SCREENS, APP_SCREEN_IDS, fileCache;
-var init_app_screens = __esm({
-  "server/services/app-screens.ts"() {
-    "use strict";
-    APP_SCREENS = [
-      { id: "home-hero", title: "Home \u2014 hero", shows: 'the veddbuild.com home page hero: "The brain that trades while you sleep", the Start free button and the live BTC/USD chart card', file: "home-hero.jpg" },
-      { id: "how-it-works", title: "How it works", shows: 'the "How it works" section: set it up once and it runs itself \u2014 connect your account or drop in a chart, the brain reads structure, momentum and news and decides', file: "how-it-works.jpg" },
-      { id: "trading-engine", title: "Engine + brain", shows: 'the "Engine + brain" section: it trades, it learns, it repeats \u2014 the live engine trades while you sleep 24/7 and the self-learning brain grades every trade', file: "trading-engine.jpg" },
-      { id: "brain-marketplace", title: "Brain Marketplace", shows: 'the Brain Marketplace section: "Outgrown your brain? Sell it" \u2014 list a trained brain, other traders plug it in, the seller earns VEDD', file: "brain-marketplace.jpg" },
-      { id: "community", title: "The movement / Academy", shows: 'the "Movement" section: more than a platform \u2014 free education through the Workforce Academy (trading, AI, credit and entrepreneurship courses), a faith-driven community, meetups and mentors', file: "community.jpg" },
-      { id: "ambassador", title: "Ambassador program", shows: 'the Ambassador Program section: "Get paid to put people on" \u2014 share VEDD, earn credits on referrals, recurring monthly commission and the 30% profit split', file: "ambassador.jpg" },
-      { id: "pricing", title: "Plans and pricing", shows: "the Plans section: start free, upgrade when it is paying off \u2014 Free at $0 forever (AI chart analysis), Starter at $49.95 a month (live engine, self-learning brain), Premium above it", file: "pricing.jpg" },
-      { id: "about", title: "About VEDD", shows: 'the About page: "About VEDD \u2014 AI-powered trading chart analysis platform built for modern traders" and the mission to democratize professional-grade trading tools', file: "about.jpg" }
-    ];
-    APP_SCREEN_IDS = APP_SCREENS.map((s) => s.id);
-    fileCache = /* @__PURE__ */ new Map();
-  }
-});
-
 // server/services/explainer-video.ts
 var explainer_video_exports = {};
 __export(explainer_video_exports, {
@@ -55598,9 +56017,9 @@ __export(explainer_video_exports, {
   startExplainerJob: () => startExplainerJob,
   writeScript: () => writeScript
 });
-import fs14 from "fs";
+import fs13 from "fs";
 import os2 from "os";
-import path14 from "path";
+import path13 from "path";
 function ensureJobTable() {
   return tableReady2 ??= pool.query(`CREATE TABLE IF NOT EXISTS content_video_jobs (
       id SERIAL PRIMARY KEY,
@@ -55668,13 +56087,13 @@ function friendlyError(e) {
   return "The video could not be made right now. Please try again in a few minutes.";
 }
 async function runJob(id, userId, input, aspect, opts) {
-  const script = await writeScript(input, userId, opts.sceneCount ?? 4, opts.backgroundScene);
+  const script = await writeScript(input, userId, opts.sceneCount ?? 4);
   await update(id, { script, step: `Filming ${script.scenes.length} scenes with voiceover`, progress: 10 });
   const urls = new Array(script.scenes.length);
   let done = 0;
   const predictions = [];
   const queue = script.scenes.map((s, i) => async () => {
-    const r = await renderScene(s, script, aspect, opts.presenterImage);
+    const r = await renderScene(s, script, aspect);
     urls[i] = r.url;
     predictions.push(r.predictionId);
     done++;
@@ -55684,22 +56103,8 @@ async function runJob(id, userId, input, aspect, opts) {
     while (queue.length) await queue.shift()();
   });
   await Promise.all(workers);
-<<<<<<< HEAD
-<<<<<<< HEAD
-  await update(id, { step: "Adding VEDD branding and joining scenes", progress: 85, meta: { predictions, model: MODEL(), presenter: opts.presenterImage ? "custom" : "ai" } });
-=======
-  await update(id, { step: "Adding VEDD branding and joining scenes", progress: 85, meta: { predictions, model: MODEL(), background: opts.backgroundScene ? "preset" : "ai" } });
->>>>>>> origin/feature/backgrounds-ad-formats
-  const video = await assemble(urls, aspect, script.scenes.map((s) => s.chart ?? null));
-=======
   await update(id, { step: "Adding VEDD branding and joining scenes", progress: 85, meta: { predictions, model: MODEL() } });
-  const video = await assemble(
-    urls,
-    aspect,
-    script.scenes.map((s) => s.screen ? null : s.chart ?? null),
-    script.scenes.map((s) => s.screen ? screenImagePath(s.screen) : null)
-  );
->>>>>>> origin/feature/explainer-app-screens
+  const video = await assemble(urls, aspect, script.scenes.map((s) => s.chart ?? null));
   const saved = await persistBuffer(video, "video/mp4");
   if (!saved) throw new Error("could not save the finished video");
   await update(id, { status: "done", step: "Ready", progress: 100, result_url: saved.url });
@@ -55712,13 +56117,13 @@ async function runJob(id, userId, input, aspect, opts) {
       title: script.title,
       caption: script.caption,
       assetUrl: saved.url,
-      metadata: { kind: "explainer", aspect, model: MODEL(), script, predictions, presenter: opts.presenterImage ? "custom" : "ai" }
+      metadata: { kind: "explainer", aspect, model: MODEL(), script, predictions }
     });
   } catch {
   }
   if (opts.onDone) await opts.onDone(saved.url, script).catch((e) => console.error("[explainer] onDone failed:", e?.message));
 }
-async function writeScript(input, userId, sceneCount, settingOverride) {
+async function writeScript(input, userId, sceneCount) {
   const n = Math.min(Math.max(sceneCount, 3), 5);
   const { getUniversalAIClientForUser: getUniversalAIClientForUser2 } = await Promise.resolve().then(() => (init_openai(), openai_exports));
   const ai = await getUniversalAIClientForUser2(userId || 0);
@@ -55741,11 +56146,8 @@ Each scene is one continuous 8-second shot:
 - "visual": what the camera sees, 20-40 words: the presenter's action and the camera move. Do NOT re-describe the presenter or setting (they are added automatically).
 - "chart": when the narration explains a candlestick pattern or level, set it to exactly one of: ${PATTERN_KEYS.join(", ")}. The real pattern is drawn on screen in the lower part of the frame, so in that scene the presenter stands in the upper half and points or gestures down toward it. Otherwise null.
 Use a chart in at least one middle scene when the subject involves a pattern, level or breakout. No income or profit promises.
-- "screen": when the narration talks about the VEDD app itself \u2014 a page, a feature, the plans \u2014 set it to exactly one of these REAL pages (the actual screenshot is composited into the lower half of the frame, the presenter in the upper half gesturing down toward it):
-${screenCatalogForPrompt()}
-Never invent or describe a fake app screen, page or button in "visual": when the app needs to be shown, it is shown with a screen id or not at all. A scene gets a chart OR a screen, never both. Use a screen in at least one scene when the subject is the app itself.
 
-JSON: {"title":"...","caption":"one-line social caption with a question","presenter":"...","setting":"...","scenes":[{"narration":"...","visual":"...","chart":null,"screen":null}]}` }
+JSON: {"title":"...","caption":"one-line social caption with a question","presenter":"...","setting":"...","scenes":[{"narration":"...","visual":"...","chart":null}]}` }
     ],
     response_format: { type: "json_object" },
     max_tokens: 1500
@@ -55755,31 +56157,23 @@ JSON: {"title":"...","caption":"one-line social caption with a question","presen
   const scenes = (Array.isArray(out.scenes) ? out.scenes : []).map((s) => ({
     narration: String(s?.narration || "").trim(),
     visual: String(s?.visual || "").trim(),
-    chart: PATTERN_KEYS.includes(String(s?.chart)) ? String(s.chart) : null,
-    screen: APP_SCREEN_IDS.includes(String(s?.screen)) ? String(s.screen) : null
-  })).map((s) => s.screen ? { ...s, chart: null } : s).filter((s) => s.narration && s.visual).slice(0, n);
+    chart: PATTERN_KEYS.includes(String(s?.chart)) ? String(s.chart) : null
+  })).filter((s) => s.narration && s.visual).slice(0, n);
   if (scenes.length < 2) throw new Error("script generation returned too few scenes");
   const presenter = String(out.presenter || "").trim().slice(0, 300) || DEFAULT_PRESENTER;
-  const setting = (settingOverride || "").trim().slice(0, 300) || String(out.setting || "").trim().slice(0, 300) || DEFAULT_SETTING;
+  const setting = String(out.setting || "").trim().slice(0, 300) || DEFAULT_SETTING;
   return { title: String(out.title || "VEDD lesson").slice(0, 120), caption: String(out.caption || "").slice(0, 300), presenter, setting, scenes };
 }
-async function renderScene(scene, script, aspect, presenterImage) {
+async function renderScene(scene, script, aspect) {
   const token = process.env.REPLICATE_API_TOKEN;
   if (!token) throw new Error("REPLICATE_API_TOKEN not set");
-<<<<<<< HEAD
   const framing = scene.chart ? "Medium shot with the presenter in the upper half of the frame, pointing down toward the lower half, which is a plain darker area of the scene." : "Medium close-up, presenter talking straight to camera.";
-  const prompt = presenterImage ? `The person in the starting image is the presenter \u2014 keep their exact face, hair and appearance in every frame. Setting: ${script.setting}. ${scene.visual} ${framing} Authentic urban street style, cinematic 35mm look, natural skin tones, warm gold light, shallow depth of field, handheld-smooth camera. The presenter speaks directly to the camera and says: "${scene.narration.replace(/"/g, "'")}" Light hip-hop beat under the voice. No subtitles, no on-screen text, no logos.` : `Presenter: ${script.presenter}. Setting: ${script.setting}. ${scene.visual} ${framing} Authentic urban street style, cinematic 35mm look, natural skin tones, warm gold light, shallow depth of field, handheld-smooth camera. The presenter speaks directly to the camera and says: "${scene.narration.replace(/"/g, "'")}" Light hip-hop beat under the voice. No subtitles, no on-screen text, no logos.`;
-  const create = (withImage) => fetch(`https://api.replicate.com/v1/models/${MODEL()}/predictions`, {
-=======
-  const framing = scene.chart || scene.screen ? "Medium shot with the presenter in the upper half of the frame, pointing down toward the lower half, which is a plain darker area of the scene." : "Medium close-up, presenter talking straight to camera.";
   const prompt = `Presenter: ${script.presenter}. Setting: ${script.setting}. ${scene.visual} ${framing} Authentic urban street style, cinematic 35mm look, natural skin tones, warm gold light, shallow depth of field, handheld-smooth camera. The presenter speaks directly to the camera and says: "${scene.narration.replace(/"/g, "'")}" Light hip-hop beat under the voice. No subtitles, no on-screen text, no logos.`;
   const create = () => fetch(`https://api.replicate.com/v1/models/${MODEL()}/predictions`, {
->>>>>>> origin/feature/explainer-app-screens
     method: "POST",
     headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json", Prefer: "wait=55" },
     body: JSON.stringify({ input: {
       prompt,
-      ...withImage && presenterImage ? { image: presenterImage } : {},
       aspect_ratio: aspect === "16:9" ? "16:9" : "9:16",
       duration: CLIP_SECONDS,
       resolution: "720p",
@@ -55788,19 +56182,11 @@ async function renderScene(scene, script, aspect, presenterImage) {
     } }),
     signal: AbortSignal.timeout(7e4)
   });
-  const createWithRetry = async (withImage) => {
-    let r = await create(withImage);
-    for (let attempt = 0; r.status === 429 && attempt < 8; attempt++) {
-      const body = await r.json().catch(() => ({}));
-      await new Promise((resolve) => setTimeout(resolve, (Number(body?.retry_after) || 10) * 1e3 + 1e3));
-      r = await create(withImage);
-    }
-    return r;
-  };
-  let res = await createWithRetry(!!presenterImage);
-  if (!res.ok && presenterImage) {
-    console.warn("[explainer] scene create failed with presenter image \u2014 retrying without it");
-    res = await createWithRetry(false);
+  let res = await create();
+  for (let attempt = 0; res.status === 429 && attempt < 8; attempt++) {
+    const body = await res.json().catch(() => ({}));
+    await new Promise((r) => setTimeout(r, (Number(body?.retry_after) || 10) * 1e3 + 1e3));
+    res = await create();
   }
   if (!res.ok) throw new Error(`Replicate ${res.status}: ${(await res.text().catch(() => "")).slice(0, 200)}`);
   let data = await res.json();
@@ -55815,23 +56201,23 @@ async function renderScene(scene, script, aspect, presenterImage) {
   if (!url) throw new Error("scene returned no video");
   return { url, predictionId: data.id };
 }
-async function assemble(clipUrls, aspect, charts = [], screens = []) {
-  const dir = fs14.mkdtempSync(path14.join(os2.tmpdir(), "vedd-explainer-"));
+async function assemble(clipUrls, aspect, charts = []) {
+  const dir = fs13.mkdtempSync(path13.join(os2.tmpdir(), "vedd-explainer-"));
   try {
     const files = [];
     for (let i = 0; i < clipUrls.length; i++) {
       const r = await fetch(clipUrls[i], { signal: AbortSignal.timeout(6e4) });
       if (!r.ok) throw new Error(`could not download scene ${i + 1}`);
-      const f = path14.join(dir, `s${i}.mp4`);
-      fs14.writeFileSync(f, Buffer.from(await r.arrayBuffer()));
+      const f = path13.join(dir, `s${i}.mp4`);
+      fs13.writeFileSync(f, Buffer.from(await r.arrayBuffer()));
       files.push(f);
     }
-    return await assembleFiles(files, aspect, dir, charts, screens);
+    return await assembleFiles(files, aspect, dir, charts);
   } finally {
-    fs14.rmSync(dir, { recursive: true, force: true });
+    fs13.rmSync(dir, { recursive: true, force: true });
   }
 }
-async function assembleFiles(files, aspect, dir, charts = [], screens = []) {
+async function assembleFiles(files, aspect, dir, charts = []) {
   const [W, H2] = FRAME[aspect];
   const logo = findLogo();
   {
@@ -55857,27 +56243,12 @@ async function assembleFiles(files, aspect, dir, charts = [], screens = []) {
       cardIdx = next++;
       args.push("-loop", "1", "-t", String(END_CARD_SECONDS2), "-i", logo);
     }
-    const screenIdx = [];
-    files.forEach((_, i) => {
-      if (screens[i]) {
-        screenIdx[i] = next++;
-        args.push("-i", screens[i]);
-      }
-    });
     const f = [];
     const parts = [];
     files.forEach((_, i) => {
       const spec = charts[i] ? PATTERNS[charts[i]] : void 0;
       const overlay = spec ? `,${chartFilter(spec, W, H2, info2[i].duration || CLIP_SECONDS)}` : "";
-      const scr = screens[i] ? screenCardGeometry(W, H2) : null;
-      const panel = scr ? `,drawbox=x=${scr.x - scr.panelPad}:y=${scr.y - scr.panelPad}:w=${scr.cardW + scr.panelPad * 2}:h=${scr.cardH + scr.panelPad * 2}:color=0x0B0B0E@0.92:t=fill,drawbox=x=${scr.x - scr.panelPad}:y=${scr.y - scr.panelPad}:w=${scr.cardW + scr.panelPad * 2}:h=${scr.cardH + scr.panelPad * 2}:color=0xF5C451@0.55:t=3` : "";
-      f.push(`[${i}:v]scale=${W}:${H2}:force_original_aspect_ratio=increase,crop=${W}:${H2},fps=24,setsar=1${overlay}${panel},format=yuv420p[base${i}]`);
-      if (scr) {
-        f.push(`[${screenIdx[i]}:v]scale=${scr.cardW}:${scr.cardH}:force_original_aspect_ratio=increase,crop=${scr.cardW}:${scr.cardH}[scr${i}]`);
-        f.push(`[base${i}][scr${i}]overlay=${scr.x}:${scr.y},format=yuv420p[v${i}]`);
-      } else {
-        f.push(`[base${i}]null[v${i}]`);
-      }
+      f.push(`[${i}:v]scale=${W}:${H2}:force_original_aspect_ratio=increase,crop=${W}:${H2},fps=24,setsar=1${overlay},format=yuv420p[v${i}]`);
       f.push(`[${audio[i] ? i : silent[i]}:a]aresample=44100,aformat=sample_fmts=fltp:channel_layouts=stereo[a${i}]`);
       parts.push(`[v${i}][a${i}]`);
     });
@@ -55894,7 +56265,7 @@ async function assembleFiles(files, aspect, dir, charts = [], screens = []) {
       f.push(`[${logoIdx}:v]scale=${wm}:-2,format=rgba,colorchannelmixer=aa=0.85[wm]`);
       f.push(`[cv][wm]overlay=W-w-${m}:H-h-${m}[outv]`);
     }
-    const out = path14.join(dir, "out.mp4");
+    const out = path13.join(dir, "out.mp4");
     args.push(
       "-filter_complex",
       f.join(";"),
@@ -55919,7 +56290,7 @@ async function assembleFiles(files, aspect, dir, charts = [], screens = []) {
       out
     );
     await runFfmpeg(args, 24e4);
-    return fs14.readFileSync(out);
+    return fs13.readFileSync(out);
   }
 }
 var FRAME, MODEL, CLIP_SECONDS, END_CARD_SECONDS2, POLL_MS, MAX_WAIT_MS, DEFAULT_PRESENTER, DEFAULT_SETTING, tableReady2;
@@ -55931,7 +56302,6 @@ var init_explainer_video = __esm({
     init_video_branding();
     init_content_asset_store();
     init_chart_overlay();
-    init_app_screens();
     FRAME = { "9:16": [720, 1280], "4:5": [864, 1080], "1:1": [720, 720], "16:9": [1280, 720] };
     MODEL = () => process.env.EXPLAINER_VIDEO_MODEL || "google/veo-3.1-fast";
     CLIP_SECONDS = 8;
@@ -56277,8 +56647,8 @@ async function generateBlogOgImage(title, category) {
   ctx.font = "bold 58px Arial";
   const titleLines = wrapText2(ctx, title, width - 144, 3);
   let titleY = 240;
-  for (const line of titleLines) {
-    ctx.fillText(line, 72, titleY);
+  for (const line2 of titleLines) {
+    ctx.fillText(line2, 72, titleY);
     titleY += 68;
   }
   ctx.fillStyle = "#dc2626";
@@ -56412,104 +56782,196 @@ var init_image_generation = __esm({
   }
 });
 
-<<<<<<< HEAD
-// server/services/presenters.ts
-var presenters_exports = {};
-__export(presenters_exports, {
-  createPresenter: () => createPresenter,
-  deletePresenter: () => deletePresenter,
-  getPresenter: () => getPresenter,
-  listPresenters: () => listPresenters,
-  presenterAbsoluteUrl: () => presenterAbsoluteUrl
+// server/services/sync-ads.ts
+var sync_ads_exports = {};
+__export(sync_ads_exports, {
+  SYNC_AD_STYLES: () => SYNC_AD_STYLES,
+  SYNC_BANK_REFRESHED: () => SYNC_BANK_REFRESHED,
+  getSyncAdStyle: () => getSyncAdStyle
 });
-function ensureTable3() {
-  return tableReady3 ??= pool.query(`CREATE TABLE IF NOT EXISTS content_presenters (
-      id SERIAL PRIMARY KEY,
-      user_id INTEGER NOT NULL,
-      name TEXT NOT NULL,
-      image_url TEXT NOT NULL,
-      created_at TIMESTAMPTZ NOT NULL DEFAULT now()
-    )`).then(() => void 0).catch((e) => {
-    tableReady3 = null;
-    throw e;
-  });
-}
-function rowToPresenter(r) {
-  return { id: r.id, name: r.name, imageUrl: r.image_url, createdAt: r.created_at };
-}
-async function listPresenters(userId) {
-  await ensureTable3();
-  const { rows } = await pool.query(
-    `SELECT id, name, image_url, created_at FROM content_presenters WHERE user_id=$1 ORDER BY created_at DESC`,
-    [userId]
-  );
-  return rows.map(rowToPresenter);
-}
-async function createPresenter(userId, name, imageUrl) {
-  await ensureTable3();
-  const { rows } = await pool.query(
-    `INSERT INTO content_presenters (user_id, name, image_url) VALUES ($1,$2,$3)
-     RETURNING id, name, image_url, created_at`,
-    [userId, name, imageUrl]
-  );
-  return rowToPresenter(rows[0]);
-}
-async function getPresenter(userId, id) {
-  await ensureTable3();
-  const { rows } = await pool.query(
-    `SELECT id, name, image_url, created_at FROM content_presenters WHERE id=$1 AND user_id=$2`,
-    [id, userId]
-  );
-  return rows.length ? rowToPresenter(rows[0]) : null;
-}
-async function deletePresenter(userId, id) {
-  await ensureTable3();
-  const { rowCount } = await pool.query(
-    `DELETE FROM content_presenters WHERE id=$1 AND user_id=$2`,
-    [id, userId]
-  );
-  return (rowCount ?? 0) > 0;
-}
-function presenterAbsoluteUrl(req, imageUrl) {
-  if (/^https?:\/\//i.test(imageUrl)) return imageUrl;
-  const host = req && typeof req.get === "function" ? req.get("host") : null;
-  if (!host) return imageUrl;
-  return `${req.protocol || "https"}://${host}${imageUrl}`;
-}
-var tableReady3;
-var init_presenters = __esm({
-  "server/services/presenters.ts"() {
-    "use strict";
-    init_db();
-    tableReady3 = null;
-=======
-// server/services/backgrounds.ts
-var backgrounds_exports = {};
-__export(backgrounds_exports, {
-  BACKGROUND_PRESETS: () => BACKGROUND_PRESETS,
-  getBackgroundPreset: () => getBackgroundPreset
-});
-function getBackgroundPreset(id) {
+function getSyncAdStyle(id) {
   if (!id) return null;
-  return BACKGROUND_PRESETS.find((b) => b.id === id) ?? null;
+  return SYNC_AD_STYLES.find((s) => s.id === id) ?? null;
 }
-var BACKGROUND_PRESETS;
-var init_backgrounds = __esm({
-  "server/services/backgrounds.ts"() {
+var SYNC_AD_STYLES, SYNC_BANK_REFRESHED;
+var init_sync_ads = __esm({
+  "server/services/sync-ads.ts"() {
     "use strict";
-    BACKGROUND_PRESETS = [
-      { id: "podcast-studio", label: "Podcast Studio", scene: "a podcast studio with a broadcast microphone on a boom arm in front of the presenter, warm amber lighting, acoustic panels and a softly lit city window behind" },
-      { id: "barbershop", label: "Barbershop", scene: "a neighborhood barbershop with barber chairs, big mirrors and bright shop lights" },
-      { id: "rooftop-skyline", label: "Rooftop Skyline", scene: "a city rooftop at golden hour with brick buildings, fire escapes and the skyline behind" },
-      { id: "corner-store", label: "Corner Store", scene: "the front of a corner store on a city block, awning and store windows behind" },
-      { id: "car-interior", label: "Luxury Car", scene: "the driver seat of a clean luxury car at night, soft dashboard glow and city lights through the windshield" },
-      { id: "gym", label: "Gym", scene: "a modern gym with dumbbell racks and mirrors behind, bright energetic light" },
-      { id: "coffee-shop", label: "Coffee Shop", scene: "a cozy coffee shop corner table with a laptop and a coffee cup, warm window light" },
-      { id: "night-street", label: "City Street at Night", scene: "a city street at night with graffiti walls, streetlights and wet pavement reflections" },
-      { id: "brownstone-stoop", label: "Brownstone Stoop", scene: "the stoop of a brownstone building on a tree-lined city block, late afternoon light" },
-      { id: "basketball-court", label: "Basketball Court", scene: "an outdoor basketball court with a chain-link fence and city buildings behind" }
+    SYNC_AD_STYLES = [
+      {
+        id: "ai-chart-demo",
+        sourceBrand: "TrendSpider",
+        platform: "YouTube ads",
+        title: "The AI reads your chart",
+        hookPattern: "A plain-English question over a full-screen chart \u2014 the AI starts annotating it immediately.",
+        format: "product-ad",
+        backgroundId: null,
+        ctaPattern: '"Try it on your own chart" \u2014 get started',
+        whyItWorks: "The demo IS the pitch: the viewer watches their own tedious manual task done in seconds.",
+        signal: "Active YouTube video-ad funnel (landing page carries video-ad tracking, live Oct 2026).",
+        topicSeed: "Watch VEDD read a messy chart in about two seconds",
+        styleNote: "Structure: open on a full-screen candlestick chart with a plain question a trader would ask about it; the answer appears as the chart gets read \u2014 levels marked, structure named. The product demonstrates itself; the presenter (if any) only reacts. End on the invitation to try it on your own chart."
+      },
+      {
+        id: "live-morning-room",
+        sourceBrand: "Trade Ideas",
+        platform: "YouTube live",
+        title: "This morning's setups, live",
+        hookPattern: "Live cold open \u2014 the market is already moving and the host walks the AI's overnight setups as they fire.",
+        format: "standard",
+        backgroundId: "podcast-studio",
+        ctaPattern: "Join live / start a trial and watch it work today",
+        whyItWorks: 'Proof by routine: "watch it work this morning" beats any polished claim.',
+        signal: "Daily live format documented as ongoing in reviews updated Oct 2026.",
+        topicSeed: "This morning's setups \u2014 scanned before the bell so you don't have to",
+        styleNote: "Structure: morning-briefing energy at a desk with screens; walk through what the brain scanned overnight, setup by setup, in process order (scan \u2192 read \u2192 risk levels). Never promise any setup wins; the credibility is the routine itself."
+      },
+      {
+        id: "news-hook",
+        sourceBrand: "Tickeron",
+        platform: "Native / advertorial",
+        title: "Today's headline, already watched",
+        hookPattern: "A breaking market headline, then: the AI was already positioned around it.",
+        format: "product-ad",
+        backgroundId: "night-street",
+        ctaPattern: "See what the bots are watching \u2014 explore",
+        whyItWorks: "Borrows the news cycle's urgency: the product is relevant TODAY, not generically smart.",
+        signal: "News-reactive pieces published continuously (crawled late Oct 2026).",
+        topicSeed: "The market just moved \u2014 here's what the brain was already watching",
+        styleNote: 'Structure: hook reacts to a market-shock headline in the first line; second beat shows the brain already tracking that theme (watchlist, alerts set); close on staying ready instead of chasing. The original leans on bot performance stats \u2014 use NONE: no returns, no win rates, no "positioned to profit."',
+        caution: "Original leans on performance stats \u2014 VEDD version strips all numbers."
+      },
+      {
+        id: "trader-journey-interview",
+        sourceBrand: "FTMO",
+        platform: "YouTube series",
+        title: "The trader journey interview",
+        hookPattern: "A sit-down interview that opens on the trader's story, not the product.",
+        format: "standard",
+        backgroundId: "coffee-shop",
+        ctaPattern: '"Become the next one" \u2014 start yours',
+        whyItWorks: "A repeatable series turns single stories into a genre: struggle \u2192 process \u2192 discipline.",
+        signal: "Interview series running for years; dozens of episodes published.",
+        topicSeed: "How I stopped blowing up my plan every Monday \u2014 a trader's routine",
+        styleNote: "Structure: interview beats \u2014 where the trader started, the habit that broke them, the routine that fixed it, what a normal day looks like now. The original's hook is a dollar figure \u2014 use NO money amounts, payouts, or results; the journey and the discipline are the whole story.",
+        caution: "Original hook is a profit figure \u2014 VEDD version tells the journey with zero numbers."
+      },
+      {
+        id: "milestone-selfie",
+        sourceBrand: "Prop-firm creators",
+        platform: "TikTok / Reels UGC",
+        title: "The milestone selfie",
+        hookPattern: "First-second milestone reveal, selfie-style: the creator shares a moment they just hit.",
+        format: "standard",
+        backgroundId: null,
+        ctaPattern: "Code/link in bio \u2014 start yours",
+        whyItWorks: "Reads as a peer's genuine life update, not an ad \u2014 borrowed authenticity.",
+        signal: "Documented as the dominant prop-firm channel (industry analysis, Sep 2026).",
+        topicSeed: "Day 30 of letting the brain grade every trade \u2014 here's my routine now",
+        styleNote: "Structure: casual selfie talking head, a PROCESS milestone celebrated in the first line (30 disciplined days, first finished Academy course, first week the plan was followed) with the app shown as part of the routine. The originals celebrate payouts and funded certificates \u2014 NEVER show money, payouts, balances, or pass rates; the milestone is the habit, not the money.",
+        caution: "Originals celebrate payouts \u2014 VEDD version celebrates process milestones only."
+      },
+      {
+        id: "athlete-discipline",
+        sourceBrand: "Topstep",
+        platform: "TV + streaming",
+        title: "Trading as training",
+        hookPattern: "Cinematic athlete preparation with a discipline-over-talent line \u2014 trading isn't mentioned first.",
+        format: "standard",
+        backgroundId: "gym",
+        ctaPattern: "Soft brand CTA \u2014 start training",
+        whyItWorks: "Reframes trading as earned athletic discipline: trust built without promising money.",
+        signal: "National campaign launched Feb 2026 (incl. Super Bowl regional spots), still promoted Oct 2026. No profit claims in the creative.",
+        topicSeed: "Nobody sees the 5 a.m. chart review \u2014 trading is training",
+        styleNote: "Structure: training metaphor throughout \u2014 warm-up (pre-market review), reps (journaling trades), coach (the brain grading every rep), rest (risk rules that make you stop). Voiceover tone, cinematic and calm. No results talk at all; discipline is the flex."
+      },
+      {
+        id: "anti-hype-coach",
+        sourceBrand: "eToro",
+        platform: "Film / social",
+        title: "The coach who hates hype",
+        hookPattern: 'A tough coach character blows the whistle and mocks the "financial freedom by Friday" fantasy head-on.',
+        format: "standard",
+        backgroundId: "gym",
+        ctaPattern: "Open the app and look for yourself",
+        whyItWorks: "Names the audience's #1 suspicion \u2014 that trading ads lie \u2014 before they can think it.",
+        signal: "Campaign published May 2026 (Ads of the World).",
+        topicSeed: "Your coach is tired of trading gurus \u2014 here's the boring truth that works",
+        styleNote: "Structure: parody coach skit \u2014 the coach roasts guru promises (no Lambos, no freedom-by-Friday), then prescribes the unglamorous routine: read the chart, size the risk, journal the trade, let the brain grade it. Comedy first, product as the training plan. Never imply returns; sell visibility and process."
+      },
+      {
+        id: "comedy-feud",
+        sourceBrand: "Kalshi",
+        platform: "TV + social",
+        title: "The feud (comedy reveal)",
+        hookPattern: "Pure comedy cold open: two rivals feud; the product is invisible until the reveal.",
+        format: "got-milk",
+        backgroundId: "podcast-studio",
+        ctaPattern: "Brand-only end card",
+        whyItWorks: "An abstract product becomes an everyday superpower inside a story people retell.",
+        signal: "Four-minute spot aired Oct 23, 2026 during World Series Game 1; trade coverage Oct 2026.",
+        topicSeed: "Two friends feud over tomorrow's forecast \u2014 one of them has a secret",
+        styleNote: `Structure: two-character comedy feud over a prediction (weather, a game, a price move) played straight; the loser demands the winner's secret; deadpan reveal \u2014 he just checks VEDD. Keep it on the comedy; no "edge," no winning claims, brand lands only at the end.`
+      },
+      {
+        id: "screen-first-demo",
+        sourceBrand: "Coinbase",
+        platform: "TikTok",
+        title: "Screen first, offer last",
+        hookPattern: "Screen-recording cold open \u2014 the app itself from frame one, sped up; the offer lands only at the end.",
+        format: "product-ad",
+        backgroundId: null,
+        ctaPattern: "Install / start \u2014 the offer is the end card",
+        whyItWorks: "Zero friction: the product demonstrates itself; reported click-through peaked on the final-second end card.",
+        signal: "Reported 83.5K likes in 30 days (House of Marketers, updated Oct 12, 2026).",
+        topicSeed: "The whole VEDD flow in 15 seconds: drop a chart, get the read, set the risk",
+        styleNote: "Structure: the phone screen carries the whole ad \u2014 chart dropped in, the read appears, risk levels set, engine on. Fast cuts, no presenter face needed. End card carries the only ask: start free. The original used a signup bonus and a rising balance \u2014 use NEITHER: neutral feature demo, no growing numbers.",
+        caution: 'Original used a bonus + rising balance \u2014 VEDD version: feature demo and "start free" only.'
+      },
+      {
+        id: "creator-confession",
+        sourceBrand: "Mint (Intuit)",
+        platform: "TikTok (creator)",
+        title: "The money-story confession",
+        hookPattern: "A finance creator opens with their own money story, brand unmentioned, in their normal content style.",
+        format: "standard",
+        backgroundId: "coffee-shop",
+        ctaPattern: "Soft caption CTA \u2014 try the app",
+        whyItWorks: "Total trust transfer: years of the creator's own habit inside a normal post reads as advice, not media.",
+        signal: "Reported 348.9K likes, 688 shares (House of Marketers, updated Oct 12, 2026). No return claims.",
+        topicSeed: "The habit that ended my chart FOMO \u2014 I let an AI grade me instead",
+        styleNote: "Structure: personal-confession talking head \u2014 a real bad habit first (revenge trading, FOMO entries, no journal), the moment it clicked, the simple routine that replaced it, soft mention of VEDD as the tool inside the routine. Behavior and discipline only \u2014 no results, no balances."
+      },
+      {
+        id: "two-friends-car",
+        sourceBrand: "Albert",
+        platform: "TikTok",
+        title: "Two friends in a car",
+        hookPattern: "Dialogue cold open, mid-conversation: one friend voices the problem, no intro, no logo.",
+        format: "standard",
+        backgroundId: "car-interior",
+        ctaPattern: "The friend's recommendation line IS the CTA",
+        whyItWorks: "Objection and answer are both spoken by peers in a relatable moment \u2014 it feels overheard, not sold.",
+        signal: "Reported 50.3K likes, 486 comments, 533 shares in 30 days (House of Marketers, Oct 2026).",
+        topicSeed: "He keeps missing entries at work \u2014 his friend puts him on to VEDD",
+        styleNote: "Structure: two-hander skit in a car \u2014 friend one complains (missed the move again, charts at work impossible), friend two asks two questions and recommends the fix: the brain watches so you don't have to. The recommendation line is the CTA. The original pitched loan terms \u2014 no offers or amounts here."
+      },
+      {
+        id: "one-feature-tip",
+        sourceBrand: "Robinhood",
+        platform: "TikTok / Instagram UGC",
+        title: "One feature you didn't know",
+        hookPattern: "A creator states one thing the app does that you probably didn't know, phone in hand.",
+        format: "standard",
+        backgroundId: null,
+        ctaPattern: "Creator link \u2014 try the feature",
+        whyItWorks: "One feature explained like a tip from a friend \u2014 specificity clears the trust barrier polished ads hit.",
+        signal: "Brand listed among active UGC-creator recruiters in a 2026 roundup (crawled Oct 2026); its creator rules ban return claims.",
+        topicSeed: "One thing VEDD does you didn't know: it grades every trade you take",
+        styleNote: "Structure: single-feature explainer, phone in hand, plain language \u2014 the feature, why it matters in one line, how to find it. Pick ONE feature per video (trade grading, the two-second chart read, the weather engine). No comparisons with named rivals, no return claims."
+      }
     ];
->>>>>>> origin/feature/backgrounds-ad-formats
+    SYNC_BANK_REFRESHED = "November 2026";
   }
 });
 
@@ -56570,103 +57032,6 @@ var init_video_shot = __esm({
   }
 });
 
-// server/services/fal-video.ts
-function falConfigured() {
-  return !!(process.env.FAL_AI_API || process.env.FAL_KEY);
-}
-function falKey() {
-  return process.env.FAL_AI_API || process.env.FAL_KEY || null;
-}
-async function generateFalVideo(styledPrompt, opts) {
-  const key = falKey();
-  if (!key) {
-    console.error("[fal-video] FAL_AI_API / FAL_KEY not set \u2014 cannot generate video");
-    return null;
-  }
-  const { quality, image } = opts;
-  const model = image ? quality === "high" ? HIGH_I2V_MODEL : FAST_I2V_MODEL : quality === "high" ? HIGH_MODEL : FAST_MODEL;
-  const input = {
-    prompt: styledPrompt,
-    num_frames: opts.numFrames,
-    frames_per_second: opts.fps,
-    // Wan family only offers 480p/580p/720p on fal; 720p is the quality bump,
-    // matching the Replicate side (fast 480p / high 720p).
-    resolution: quality === "high" ? "720p" : "480p",
-    // i2v derives aspect ratio from the start image; only set it for t2v.
-    ...image ? { image_url: image } : { aspect_ratio: opts.aspect }
-  };
-  try {
-    console.log(`[fal-video] quality=${quality} model=${model} mode=${image ? "image-to-video" : "text-to-video"}`);
-    const submit = await fetch(`https://queue.fal.run/${model}`, {
-      method: "POST",
-      headers: { Authorization: `Key ${key}`, "Content-Type": "application/json" },
-      body: JSON.stringify(input),
-      signal: AbortSignal.timeout(3e4)
-    });
-    if (!submit.ok) {
-      const body = await submit.text().catch(() => "");
-      console.error("[fal-video] fal submit error:", submit.status, body.slice(0, 300));
-      return null;
-    }
-    const queued = await submit.json();
-    const statusUrl = queued?.status_url;
-    const responseUrl = queued?.response_url;
-    if (!statusUrl || !responseUrl) {
-      console.error("[fal-video] fal submit returned no queue URLs");
-      return null;
-    }
-    let status = String(queued?.status || "IN_QUEUE");
-    for (let i = 0; i < MAX_POLLS && status !== "COMPLETED"; i++) {
-      await new Promise((resolve) => setTimeout(resolve, POLL_INTERVAL_MS));
-      const poll = await fetch(statusUrl, {
-        headers: { Authorization: `Key ${key}` },
-        signal: AbortSignal.timeout(15e3)
-      });
-      if (!poll.ok) break;
-      const pj = await poll.json();
-      status = String(pj?.status || "");
-      if (status === "ERROR") {
-        console.error("[fal-video] fal generation errored:", JSON.stringify(pj).slice(0, 300));
-        return null;
-      }
-    }
-    if (status !== "COMPLETED") {
-      console.error("[fal-video] fal video did not complete in time:", status);
-      return null;
-    }
-    const result = await fetch(responseUrl, {
-      headers: { Authorization: `Key ${key}` },
-      signal: AbortSignal.timeout(3e4)
-    });
-    if (!result.ok) {
-      console.error("[fal-video] fal result fetch error:", result.status);
-      return null;
-    }
-    const data = await result.json();
-    const url = data?.video?.url || (Array.isArray(data?.output) ? data.output[0] : void 0);
-    if (!url) {
-      console.error("[fal-video] fal result had no video URL");
-      return null;
-    }
-    return { url, provider: `fal:${model}`, quality };
-  } catch (e) {
-    console.error("[fal-video] fal error:", e.message);
-    return null;
-  }
-}
-var FAST_MODEL, HIGH_MODEL, FAST_I2V_MODEL, HIGH_I2V_MODEL, POLL_INTERVAL_MS, MAX_POLLS;
-var init_fal_video = __esm({
-  "server/services/fal-video.ts"() {
-    "use strict";
-    FAST_MODEL = process.env.FAL_VIDEO_MODEL || "fal-ai/wan/v2.2-a14b/text-to-video";
-    HIGH_MODEL = process.env.FAL_VIDEO_HIGH_MODEL || FAST_MODEL;
-    FAST_I2V_MODEL = process.env.FAL_VIDEO_I2V_MODEL || "fal-ai/wan/v2.2-a14b/image-to-video";
-    HIGH_I2V_MODEL = process.env.FAL_VIDEO_HIGH_I2V_MODEL || FAST_I2V_MODEL;
-    POLL_INTERVAL_MS = 5e3;
-    MAX_POLLS = 60;
-  }
-});
-
 // server/services/video-generation.ts
 function buildModelInput(model, quality, styledPrompt, numFrames, durationSeconds, image, aspect = "9:16") {
   if (model.includes("kling")) {
@@ -56693,39 +57058,21 @@ function buildModelInput(model, quality, styledPrompt, numFrames, durationSecond
   return { prompt: styledPrompt, ...image ? { image } : { aspect_ratio: aspect } };
 }
 async function generateContentVideo(prompt, opts) {
-  const quality = opts?.quality === "high" ? "high" : "fast";
-  const image = opts?.image && opts.image.trim() ? opts.image.trim() : void 0;
-  const durationSeconds = Math.min(Math.max(opts?.duration ?? 5, 1), MAX_DURATION_SECONDS);
-  const numFrames = Math.max(MIN_NUM_FRAMES, Math.round(durationSeconds * DEFAULT_FPS));
-  const styledPrompt = `${prompt.trim()}${VEDD_STYLE_LOCK}${NO_TEXT_SUFFIX}${HUMAN_STYLE_SUFFIX2}`;
-  const aspect = opts?.aspect === "16:9" ? "16:9" : "9:16";
-  const shared = { quality, image, durationSeconds, numFrames, aspect };
-  if ((process.env.VIDEO_PROVIDER || "").toLowerCase() === "fal") {
-    const viaFal = await generateFalVideo(styledPrompt, { ...shared, fps: DEFAULT_FPS });
-    if (viaFal) return viaFal;
-    console.log("[video-generation] fal failed \u2014 falling back to Replicate");
-    return generateViaReplicate(styledPrompt, shared);
-  }
-  const viaReplicate = await generateViaReplicate(styledPrompt, shared);
-  if (viaReplicate) return viaReplicate;
-  if (falConfigured()) {
-    console.log("[video-generation] Replicate failed \u2014 falling back to fal.ai");
-    return generateFalVideo(styledPrompt, { ...shared, fps: DEFAULT_FPS });
-  }
-  return null;
-}
-async function generateViaReplicate(styledPrompt, opts) {
   const apiKey = process.env.REPLICATE_API_TOKEN;
   if (!apiKey) {
     console.error("[video-generation] REPLICATE_API_TOKEN not set \u2014 cannot generate video");
     return null;
   }
-  const { quality, image, durationSeconds, numFrames, aspect } = opts;
-  const model = image ? quality === "high" ? HIGH_I2V_MODEL2 : FAST_I2V_MODEL2 : quality === "high" ? HIGH_MODEL2 : FAST_MODEL2;
-  const input = buildModelInput(model, quality, styledPrompt, numFrames, durationSeconds, image, aspect);
+  const quality = opts?.quality === "high" ? "high" : "fast";
+  const image = opts?.image && opts.image.trim() ? opts.image.trim() : void 0;
+  const model = image ? quality === "high" ? HIGH_I2V_MODEL : FAST_I2V_MODEL : quality === "high" ? HIGH_MODEL : FAST_MODEL;
+  const durationSeconds = Math.min(Math.max(opts?.duration ?? 5, 1), MAX_DURATION_SECONDS);
+  const numFrames = Math.max(MIN_NUM_FRAMES, Math.round(durationSeconds * DEFAULT_FPS));
+  const styledPrompt = `${prompt.trim()}${VEDD_STYLE_LOCK}${NO_TEXT_SUFFIX}${HUMAN_STYLE_SUFFIX2}`;
+  const input = buildModelInput(model, quality, styledPrompt, numFrames, durationSeconds, image, opts?.aspect === "16:9" ? "16:9" : "9:16");
   try {
     console.log(`[video-generation] quality=${quality} model=${model} mode=${image ? "image-to-video" : "text-to-video"}`);
-    const create = () => fetch(`https://api.replicate.com/v1/models/${model}/predictions`, {
+    const res = await fetch(`https://api.replicate.com/v1/models/${model}/predictions`, {
       method: "POST",
       headers: {
         Authorization: `Bearer ${apiKey}`,
@@ -56740,12 +57087,6 @@ async function generateViaReplicate(styledPrompt, opts) {
       // poll loop below. Give it headroom.
       signal: AbortSignal.timeout(75e3)
     });
-    let res = await create();
-    for (let attempt = 0; res.status === 429 && attempt < 8; attempt++) {
-      const body = await res.json().catch(() => ({}));
-      await new Promise((r) => setTimeout(r, (Number(body?.retry_after) || 10) * 1e3 + 1e3));
-      res = await create();
-    }
     if (!res.ok) {
       const body = await res.text().catch(() => "");
       console.error("[video-generation] Replicate error:", res.status, body.slice(0, 300));
@@ -56753,8 +57094,8 @@ async function generateViaReplicate(styledPrompt, opts) {
     }
     let data = await res.json();
     const getUrl = data?.urls?.get;
-    for (let i = 0; i < MAX_POLLS2 && getUrl && (data.status === "starting" || data.status === "processing"); i++) {
-      await new Promise((resolve) => setTimeout(resolve, POLL_INTERVAL_MS2));
+    for (let i = 0; i < MAX_POLLS && getUrl && (data.status === "starting" || data.status === "processing"); i++) {
+      await new Promise((resolve) => setTimeout(resolve, POLL_INTERVAL_MS));
       const poll = await fetch(getUrl, {
         headers: { Authorization: `Bearer ${apiKey}` },
         signal: AbortSignal.timeout(15e3)
@@ -56775,23 +57116,22 @@ async function generateViaReplicate(styledPrompt, opts) {
     return null;
   }
 }
-var VEDD_STYLE_LOCK, NO_TEXT_SUFFIX, HUMAN_STYLE_SUFFIX2, FAST_MODEL2, HIGH_MODEL2, FAST_I2V_MODEL2, HIGH_I2V_MODEL2, DEFAULT_FPS, MIN_NUM_FRAMES, MAX_DURATION_SECONDS, POLL_INTERVAL_MS2, MAX_POLLS2;
+var VEDD_STYLE_LOCK, NO_TEXT_SUFFIX, HUMAN_STYLE_SUFFIX2, FAST_MODEL, HIGH_MODEL, FAST_I2V_MODEL, HIGH_I2V_MODEL, DEFAULT_FPS, MIN_NUM_FRAMES, MAX_DURATION_SECONDS, POLL_INTERVAL_MS, MAX_POLLS;
 var init_video_generation = __esm({
   "server/services/video-generation.ts"() {
     "use strict";
-    init_fal_video();
     VEDD_STYLE_LOCK = ". Shot as a grainy 35mm cinematic film still: heavy analog film grain, desaturated moody color grade with one warm gold light source, shallow depth of field, photorealistic. Slow, subtle ambient motion only \u2014 no fast or shaky camera movement.";
     NO_TEXT_SUFFIX = " No on-screen text, captions, subtitles, signage, logos or readable words anywhere in the frame \u2014 pure visual scene only.";
     HUMAN_STYLE_SUFFIX2 = " If people appear: young Black people, natural skin tones, contemporary streetwear, authentic inner-city/urban setting.";
-    FAST_MODEL2 = "wan-video/wan-2.2-t2v-fast";
-    HIGH_MODEL2 = process.env.VIDEO_HIGH_MODEL || "wan-video/wan-2.2-t2v-fast";
-    FAST_I2V_MODEL2 = process.env.VIDEO_FAST_I2V_MODEL || "wan-video/wan-2.2-i2v-fast";
-    HIGH_I2V_MODEL2 = process.env.VIDEO_HIGH_I2V_MODEL || "wan-video/wan-2.2-i2v-fast";
+    FAST_MODEL = "wan-video/wan-2.2-t2v-fast";
+    HIGH_MODEL = process.env.VIDEO_HIGH_MODEL || "wan-video/wan-2.2-t2v-fast";
+    FAST_I2V_MODEL = process.env.VIDEO_FAST_I2V_MODEL || "wan-video/wan-2.2-i2v-fast";
+    HIGH_I2V_MODEL = process.env.VIDEO_HIGH_I2V_MODEL || "wan-video/wan-2.2-i2v-fast";
     DEFAULT_FPS = 16;
     MIN_NUM_FRAMES = 81;
     MAX_DURATION_SECONDS = 6;
-    POLL_INTERVAL_MS2 = 5e3;
-    MAX_POLLS2 = 60;
+    POLL_INTERVAL_MS = 5e3;
+    MAX_POLLS = 60;
   }
 });
 
@@ -56809,7 +57149,6 @@ async function renderContentVideo(prompt, o = {}) {
     if (o.exact) shot = prompt.trim();
     else ({ shot, hook } = await planVideoShot(prompt, o.userId));
   }
-  if (o.backgroundScene) shot = `${shot} Setting: ${o.backgroundScene}.`;
   const video = await generateContentVideo(shot, {
     duration: o.duration,
     quality: o.quality,
@@ -56857,8 +57196,8 @@ __export(slide_flattener_exports, {
   flattenSlideImage: () => flattenSlideImage
 });
 import sharp from "sharp";
-import * as path15 from "path";
-import * as fs15 from "fs";
+import * as path14 from "path";
+import * as fs14 from "fs";
 function escapeXml(s) {
   return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
 }
@@ -56897,13 +57236,13 @@ async function flattenSlideImage(opts) {
   if (headingLines.length > 0) {
     textSvgParts.push(`<rect x="48" y="${y - 96}" width="60" height="5" fill="${GOLD2}" />`);
   }
-  for (const line of headingLines) {
-    textSvgParts.push(`<text x="48" y="${y}" font-family="Arial, Helvetica, sans-serif" font-size="${HEADING_SIZE}" font-weight="800" fill="#ffffff">${escapeXml(line)}</text>`);
+  for (const line2 of headingLines) {
+    textSvgParts.push(`<text x="48" y="${y}" font-family="Arial, Helvetica, sans-serif" font-size="${HEADING_SIZE}" font-weight="800" fill="#ffffff">${escapeXml(line2)}</text>`);
     y += 88;
   }
   y += 12;
-  for (const line of bodyLines) {
-    textSvgParts.push(`<text x="48" y="${y}" font-family="Arial, Helvetica, sans-serif" font-size="${BODY_SIZE}" font-weight="400" fill="#e5e5e5">${escapeXml(line)}</text>`);
+  for (const line2 of bodyLines) {
+    textSvgParts.push(`<text x="48" y="${y}" font-family="Arial, Helvetica, sans-serif" font-size="${BODY_SIZE}" font-weight="400" fill="#e5e5e5">${escapeXml(line2)}</text>`);
     y += 60;
   }
   const overlaySvg = `
@@ -56923,7 +57262,7 @@ async function flattenSlideImage(opts) {
   const composites = [
     { input: Buffer.from(overlaySvg), top: 0, left: 0 }
   ];
-  if (opts.includeLogo && fs15.existsSync(LOGO_PATH)) {
+  if (opts.includeLogo && fs14.existsSync(LOGO_PATH)) {
     const logoWidth = Math.round(CANVAS_SIZE * 0.22);
     const logoBuffer = await sharp(LOGO_PATH).resize(logoWidth, null, { fit: "inside" }).ensureAlpha().png().toBuffer();
     const logoMeta = await sharp(logoBuffer).metadata();
@@ -56941,7 +57280,7 @@ var init_slide_flattener = __esm({
   "server/services/slide-flattener.ts"() {
     "use strict";
     CANVAS_SIZE = 1080;
-    LOGO_PATH = path15.join(process.cwd(), "attached_assets", "IMG_3645.png");
+    LOGO_PATH = path14.join(process.cwd(), "attached_assets", "IMG_3645.png");
   }
 });
 
@@ -57402,8 +57741,8 @@ function teamsMatchMarket(homeTeam, awayTeam, question) {
   return (q.includes(h) || q.includes(hFull)) && (q.includes(a) || q.includes(aFull));
 }
 async function fetchScoreboard(sport) {
-  const path20 = SPORT_PATHS[sport];
-  const data = await safeGet(`${ESPN_BASE}/${path20}/scoreboard`);
+  const path19 = SPORT_PATHS[sport];
+  const data = await safeGet(`${ESPN_BASE}/${path19}/scoreboard`);
   return data?.events ?? [];
 }
 function injuryAdjustment(injuries, sport) {
@@ -58842,7 +59181,7 @@ async function scrapeNewsRSS(theme, pairSymbols = []) {
     // Pair-specific search — grounds the research in this week's ACTUAL
     // pairs (from the weekly plan) instead of only the generic theme angle.
     ...pairSymbols.slice(0, 3).map(
-      (sym) => `https://news.google.com/rss/search?q=${encodeURIComponent(sym)}+forex&hl=en-US&gl=US&ceid=US:en`
+      (sym2) => `https://news.google.com/rss/search?q=${encodeURIComponent(sym2)}+forex&hl=en-US&gl=US&ceid=US:en`
     )
   ];
   const headers = { "User-Agent": "VEDD-Ambassador-Prime/1.0" };
@@ -59014,12 +59353,12 @@ async function aggregateWeeklyPairs() {
     for (const day of Object.keys(weeklyPlan)) {
       const pairs = weeklyPlan[day]?.pairs || [];
       for (const p of pairs) {
-        const sym = (p.symbol || "").toUpperCase().replace("/", "");
-        if (!sym || !sym.includes("USD")) continue;
-        if (!tally[sym]) tally[sym] = { symbol: p.symbol, directions: {}, mentionCount: 0 };
-        tally[sym].mentionCount++;
+        const sym2 = (p.symbol || "").toUpperCase().replace("/", "");
+        if (!sym2 || !sym2.includes("USD")) continue;
+        if (!tally[sym2]) tally[sym2] = { symbol: p.symbol, directions: {}, mentionCount: 0 };
+        tally[sym2].mentionCount++;
         const dir = (p.direction || "BOTH").toUpperCase();
-        tally[sym].directions[dir] = (tally[sym].directions[dir] || 0) + 1;
+        tally[sym2].directions[dir] = (tally[sym2].directions[dir] || 0) + 1;
       }
     }
   }
@@ -61901,15 +62240,15 @@ async function pollOnce() {
   }
 }
 function startPaperTradeResolverLoop() {
-  console.log(`[paper-trade-resolver] Background paper-trade resolver loop started (${POLL_INTERVAL_MS3 / 6e4}min interval).`);
+  console.log(`[paper-trade-resolver] Background paper-trade resolver loop started (${POLL_INTERVAL_MS2 / 6e4}min interval).`);
   setInterval(() => {
     pollOnce().catch((e) => console.error("[paper-trade-resolver] Poll error:", e.message));
-  }, POLL_INTERVAL_MS3);
+  }, POLL_INTERVAL_MS2);
   setTimeout(() => {
     pollOnce().catch((e) => console.error("[paper-trade-resolver] Initial poll error:", e.message));
   }, 3e4);
 }
-var POLL_INTERVAL_MS3;
+var POLL_INTERVAL_MS2;
 var init_paper_trade_resolver_loop = __esm({
   "server/services/paper-trade-resolver-loop.ts"() {
     "use strict";
@@ -61917,7 +62256,7 @@ var init_paper_trade_resolver_loop = __esm({
     init_schema();
     init_service();
     init_paper_trade_tracker();
-    POLL_INTERVAL_MS3 = 10 * 60 * 1e3;
+    POLL_INTERVAL_MS2 = 10 * 60 * 1e3;
   }
 });
 
@@ -61990,22 +62329,22 @@ async function auditOnce() {
   await auditDxtrade();
 }
 function startPropFirmConsistencyAuditLoop() {
-  console.log(`[Consistency Audit] Background prop-firm consistency audit loop started (${POLL_INTERVAL_MS4 / 6e4}min interval).`);
+  console.log(`[Consistency Audit] Background prop-firm consistency audit loop started (${POLL_INTERVAL_MS3 / 6e4}min interval).`);
   setInterval(() => {
     auditOnce().catch((e) => console.error("[Consistency Audit] Poll error:", e.message));
-  }, POLL_INTERVAL_MS4);
+  }, POLL_INTERVAL_MS3);
   setTimeout(() => {
     auditOnce().catch((e) => console.error("[Consistency Audit] Initial poll error:", e.message));
   }, 2e4);
 }
-var POLL_INTERVAL_MS4;
+var POLL_INTERVAL_MS3;
 var init_prop_firm_consistency_audit_loop = __esm({
   "server/services/prop-firm-consistency-audit-loop.ts"() {
     "use strict";
     init_storage();
     init_db();
     init_prop_firm_consistency();
-    POLL_INTERVAL_MS4 = 3 * 60 * 1e3;
+    POLL_INTERVAL_MS3 = 3 * 60 * 1e3;
   }
 });
 
@@ -63739,8 +64078,8 @@ import { eq as eq18, and as and11, sql as sql13, desc as desc11 } from "drizzle-
 import { scrypt, randomBytes } from "crypto";
 import { promisify } from "util";
 import { z as z2 } from "zod";
-import * as fs16 from "fs";
-import * as path16 from "path";
+import * as fs15 from "fs";
+import * as path15 from "path";
 
 // server/trading-coach.ts
 init_openai();
@@ -64180,7 +64519,7 @@ async function marketInsightsHandler(req, res) {
 // server/services/stopOrderService.ts
 init_db();
 init_schema();
-import { eq as eq5, and as and5, sql as sql6 } from "drizzle-orm";
+import { eq as eq6, and as and5, sql as sql7 } from "drizzle-orm";
 async function createStopOrder(params) {
   const { currentPrice, ...insertData } = params;
   if (currentPrice != null && currentPrice > 0) {
@@ -64208,8 +64547,8 @@ async function checkBreakoutTriggers(symbol, currentPrice) {
   try {
     pending = await db.select().from(stopOrders).where(
       and5(
-        eq5(stopOrders.symbol, normalised),
-        eq5(stopOrders.status, "PENDING")
+        eq6(stopOrders.symbol, normalised),
+        eq6(stopOrders.status, "PENDING")
       )
     );
   } catch (err) {
@@ -64226,7 +64565,7 @@ async function checkBreakoutTriggers(symbol, currentPrice) {
         status: "TRIGGERED",
         triggeredAt: /* @__PURE__ */ new Date(),
         updatedAt: /* @__PURE__ */ new Date()
-      }).where(and5(eq5(stopOrders.id, order.id), eq5(stopOrders.status, "PENDING"))).returning();
+      }).where(and5(eq6(stopOrders.id, order.id), eq6(stopOrders.status, "PENDING"))).returning();
       if (updated) {
         triggered.push(updated);
         console.log(
@@ -64240,65 +64579,41 @@ async function checkBreakoutTriggers(symbol, currentPrice) {
   return triggered;
 }
 async function cancelStopOrder(orderId, userId) {
-  const [existing] = await db.select().from(stopOrders).where(and5(eq5(stopOrders.id, orderId), eq5(stopOrders.userId, userId)));
+  const [existing] = await db.select().from(stopOrders).where(and5(eq6(stopOrders.id, orderId), eq6(stopOrders.userId, userId)));
   if (!existing) {
     throw new Error(`Stop order id=${orderId} not found for this user`);
   }
   if (existing.status !== "PENDING") {
     throw new Error(`Stop order id=${orderId} is already ${existing.status}`);
   }
-  const [cancelled] = await db.update(stopOrders).set({ status: "CANCELLED", cancelledAt: /* @__PURE__ */ new Date(), updatedAt: /* @__PURE__ */ new Date() }).where(and5(eq5(stopOrders.id, orderId), eq5(stopOrders.userId, userId))).returning();
+  const [cancelled] = await db.update(stopOrders).set({ status: "CANCELLED", cancelledAt: /* @__PURE__ */ new Date(), updatedAt: /* @__PURE__ */ new Date() }).where(and5(eq6(stopOrders.id, orderId), eq6(stopOrders.userId, userId))).returning();
   console.log(`[StopOrders] Cancelled id=${orderId} userId=${userId}`);
   return cancelled;
 }
 async function getStopOrdersForUser(userId, filters = {}) {
-  const conditions = [eq5(stopOrders.userId, userId)];
+  const conditions = [eq6(stopOrders.userId, userId)];
   if (filters.symbol) {
-    conditions.push(eq5(stopOrders.symbol, filters.symbol.toUpperCase().replace("/", "")));
+    conditions.push(eq6(stopOrders.symbol, filters.symbol.toUpperCase().replace("/", "")));
   }
   if (filters.status) {
-    conditions.push(eq5(stopOrders.status, filters.status.toUpperCase()));
+    conditions.push(eq6(stopOrders.status, filters.status.toUpperCase()));
   }
-  return db.select().from(stopOrders).where(and5(...conditions)).orderBy(sql6`${stopOrders.createdAt} DESC`);
+  return db.select().from(stopOrders).where(and5(...conditions)).orderBy(sql7`${stopOrders.createdAt} DESC`);
 }
 
 // server/routes.ts
 init_schema();
 
 // server/build-info.ts
-<<<<<<< HEAD
-<<<<<<< HEAD
-<<<<<<< HEAD
-<<<<<<< HEAD
-var BUILD_COMMIT = "24d792b-dirty";
-var BUILD_BRANCH = "main";
-var BUILT_AT = "2026-11-01T16:13:25.036Z";
-=======
-var BUILD_COMMIT = "80b4eb9";
-var BUILD_BRANCH = "fix/content-studio-top3";
-var BUILT_AT = "2026-11-01T17:58:59.129Z";
->>>>>>> origin/fix/content-studio-top3
-=======
-var BUILD_COMMIT = "f16f2ec";
-var BUILD_BRANCH = "feature/my-presenter";
-var BUILT_AT = "2026-11-01T17:59:57.953Z";
->>>>>>> origin/feature/my-presenter
-=======
-var BUILD_COMMIT = "584f499";
-var BUILD_BRANCH = "feature/backgrounds-ad-formats";
-var BUILT_AT = "2026-11-01T18:00:55.629Z";
->>>>>>> origin/feature/backgrounds-ad-formats
-=======
-var BUILD_COMMIT = "70e0333-dirty";
-var BUILD_BRANCH = "feature/explainer-app-screens";
-var BUILT_AT = "2026-11-01T18:01:56.898Z";
->>>>>>> origin/feature/explainer-app-screens
+var BUILD_COMMIT = "a1b3ac9";
+var BUILD_BRANCH = "feature/sync-ads";
+var BUILT_AT = "2026-11-01T18:02:57.572Z";
 
 // server/stripe.ts
 init_db();
 init_schema();
 import Stripe2 from "stripe";
-import { eq as eq6 } from "drizzle-orm";
+import { eq as eq7 } from "drizzle-orm";
 
 // server/stripeClient.ts
 import Stripe from "stripe";
@@ -64349,7 +64664,7 @@ async function createStripeCustomer(userId, email, name) {
     });
     await db.update(users).set({
       stripeCustomerId: customer.id
-    }).where(eq6(users.id, userId));
+    }).where(eq7(users.id, userId));
     return customer;
   } catch (error) {
     console.error("Error creating Stripe customer:", error);
@@ -64359,11 +64674,11 @@ async function createStripeCustomer(userId, email, name) {
 async function createSubscription(userId, planId, successUrl, cancelUrl) {
   try {
     const stripeClient = await getStripe();
-    const [user] = await db.select().from(users).where(eq6(users.id, userId));
+    const [user] = await db.select().from(users).where(eq7(users.id, userId));
     if (!user) {
       throw new Error("User not found");
     }
-    const [plan] = await db.select().from(subscriptionPlans).where(eq6(subscriptionPlans.id, planId));
+    const [plan] = await db.select().from(subscriptionPlans).where(eq7(subscriptionPlans.id, planId));
     if (!plan) {
       throw new Error("Subscription plan not found");
     }
@@ -64376,7 +64691,7 @@ async function createSubscription(userId, planId, successUrl, cancelUrl) {
       } catch (e) {
         console.log("Stripe customer not found, creating new one:", e.message);
         user.stripeCustomerId = null;
-        await db.update(users).set({ stripeCustomerId: null }).where(eq6(users.id, user.id));
+        await db.update(users).set({ stripeCustomerId: null }).where(eq7(users.id, user.id));
       }
     }
     if (!user.stripeCustomerId) {
@@ -64408,7 +64723,7 @@ async function createSubscription(userId, planId, successUrl, cancelUrl) {
       await db.update(subscriptionPlans).set({
         stripeProductId: product.id,
         stripePriceId: price.id
-      }).where(eq6(subscriptionPlans.id, plan.id));
+      }).where(eq7(subscriptionPlans.id, plan.id));
       plan.stripeProductId = product.id;
       plan.stripePriceId = price.id;
     }
@@ -64418,7 +64733,7 @@ async function createSubscription(userId, planId, successUrl, cancelUrl) {
         subscriptionStatus: "active",
         subscriptionCurrentPeriodEnd: new Date(Date.now() + 30 * 24 * 60 * 60 * 1e3)
         // 30 days
-      }).where(eq6(users.id, userId));
+      }).where(eq7(users.id, userId));
       return {
         status: "active",
         currentPeriodEnd: new Date(Date.now() + 30 * 24 * 60 * 60 * 1e3),
@@ -64476,7 +64791,7 @@ async function checkUserSubscriptionLimits(userId, actionType) {
       monthlySocialShareCount: users.monthlySocialShareCount,
       lastCountReset: users.lastCountReset,
       membershipTier: users.membershipTier
-    }).from(users).where(eq6(users.id, userId));
+    }).from(users).where(eq7(users.id, userId));
     if (!user) {
       throw new Error("User not found");
     }
@@ -64484,7 +64799,7 @@ async function checkUserSubscriptionLimits(userId, actionType) {
       await db.update(users).set({
         subscriptionPlanId: 1,
         subscriptionStatus: "active"
-      }).where(eq6(users.id, userId));
+      }).where(eq7(users.id, userId));
       user.subscriptionPlanId = 1;
       user.subscriptionStatus = "active";
     }
@@ -64492,14 +64807,14 @@ async function checkUserSubscriptionLimits(userId, actionType) {
     if (user.membershipTier && user.membershipTier !== "none") {
       const equivalentPlanName = MEMBERSHIP_PLAN_MAP[user.membershipTier];
       if (equivalentPlanName) {
-        const [tokenPlan] = await db.select().from(subscriptionPlans).where(eq6(subscriptionPlans.name, equivalentPlanName));
+        const [tokenPlan] = await db.select().from(subscriptionPlans).where(eq7(subscriptionPlans.name, equivalentPlanName));
         if (tokenPlan) {
           plan = tokenPlan;
         }
       }
     }
     if (!plan) {
-      const [dbPlan] = await db.select().from(subscriptionPlans).where(eq6(subscriptionPlans.id, user.subscriptionPlanId));
+      const [dbPlan] = await db.select().from(subscriptionPlans).where(eq7(subscriptionPlans.id, user.subscriptionPlanId));
       plan = dbPlan;
     }
     if (!plan) {
@@ -64513,7 +64828,7 @@ async function checkUserSubscriptionLimits(userId, actionType) {
         monthlyAnalysisCount: 0,
         monthlySocialShareCount: 0,
         lastCountReset: now
-      }).where(eq6(users.id, userId));
+      }).where(eq7(users.id, userId));
       user.monthlyAnalysisCount = 0;
       user.monthlySocialShareCount = 0;
       user.lastCountReset = now;
@@ -64528,7 +64843,7 @@ async function checkUserSubscriptionLimits(userId, actionType) {
       if (allowed) {
         await db.update(users).set({
           monthlyAnalysisCount: (user.monthlyAnalysisCount || 0) + 1
-        }).where(eq6(users.id, userId));
+        }).where(eq7(users.id, userId));
       }
     } else if (actionType === "social_share") {
       currentCount = user.monthlySocialShareCount || 0;
@@ -64537,7 +64852,7 @@ async function checkUserSubscriptionLimits(userId, actionType) {
       if (allowed) {
         await db.update(users).set({
           monthlySocialShareCount: (user.monthlySocialShareCount || 0) + 1
-        }).where(eq6(users.id, userId));
+        }).where(eq7(users.id, userId));
       }
     }
     return {
@@ -64555,7 +64870,7 @@ async function checkUserSubscriptionLimits(userId, actionType) {
 async function cancelSubscription(userId) {
   try {
     const stripeClient = await getStripe();
-    const [user] = await db.select().from(users).where(eq6(users.id, userId));
+    const [user] = await db.select().from(users).where(eq7(users.id, userId));
     if (!user) {
       throw new Error("User not found");
     }
@@ -64565,7 +64880,7 @@ async function cancelSubscription(userId) {
     const subscription = await stripeClient.subscriptions.cancel(user.stripeSubscriptionId);
     await db.update(users).set({
       subscriptionStatus: subscription.status
-    }).where(eq6(users.id, userId));
+    }).where(eq7(users.id, userId));
     return {
       status: subscription.status
     };
@@ -64576,7 +64891,7 @@ async function cancelSubscription(userId) {
 }
 async function getSubscriptionPlans() {
   try {
-    return await db.select().from(subscriptionPlans).where(eq6(subscriptionPlans.isActive, true));
+    return await db.select().from(subscriptionPlans).where(eq7(subscriptionPlans.isActive, true));
   } catch (error) {
     console.error("Error getting subscription plans:", error);
     throw error;
@@ -64584,14 +64899,14 @@ async function getSubscriptionPlans() {
 }
 async function getUserSubscription(userId) {
   try {
-    const [user] = await db.select().from(users).where(eq6(users.id, userId));
+    const [user] = await db.select().from(users).where(eq7(users.id, userId));
     if (!user) {
       throw new Error("User not found");
     }
     if (!user.subscriptionPlanId) {
       return null;
     }
-    const [plan] = await db.select().from(subscriptionPlans).where(eq6(subscriptionPlans.id, user.subscriptionPlanId));
+    const [plan] = await db.select().from(subscriptionPlans).where(eq7(subscriptionPlans.id, user.subscriptionPlanId));
     if (!plan) {
       return null;
     }
@@ -64615,15 +64930,15 @@ async function getUserSubscription(userId) {
 // server/lemonsqueezy.ts
 init_db();
 init_schema();
-import crypto5 from "crypto";
-import { eq as eq7 } from "drizzle-orm";
+import crypto6 from "crypto";
+import { eq as eq8 } from "drizzle-orm";
 
 // server/veddConversionHook.ts
-import crypto4 from "crypto";
+import crypto5 from "crypto";
 var PORTAL_URL = process.env.VEDD_PORTAL_URL || "";
 var WEBHOOK_SECRET = process.env.WEBHOOK_SECRET || "";
 function sign(body) {
-  return crypto4.createHmac("sha256", WEBHOOK_SECRET).update(body).digest("hex");
+  return crypto5.createHmac("sha256", WEBHOOK_SECRET).update(body).digest("hex");
 }
 async function fireConversionHook(payload2) {
   if (!PORTAL_URL || !WEBHOOK_SECRET) {
@@ -64729,11 +65044,11 @@ async function lsCancelSubscription(subscriptionId) {
 }
 function lsVerifyWebhook(rawBody, signature) {
   if (!LS_WEBHOOK_SECRET || !signature) return false;
-  const hmac = crypto5.createHmac("sha256", LS_WEBHOOK_SECRET);
+  const hmac = crypto6.createHmac("sha256", LS_WEBHOOK_SECRET);
   hmac.update(rawBody);
   const digest = hmac.digest("hex");
   try {
-    return crypto5.timingSafeEqual(Buffer.from(digest, "hex"), Buffer.from(signature, "hex"));
+    return crypto6.timingSafeEqual(Buffer.from(digest, "hex"), Buffer.from(signature, "hex"));
   } catch {
     return false;
   }
@@ -64762,16 +65077,16 @@ async function lsHandleWebhookEvent(event) {
         subscriptionPlanId: planId || void 0,
         subscriptionStatus: status === "active" ? "active" : status,
         subscriptionCurrentPeriodEnd: renewsAt || void 0
-      }).where(eq7(users.id, userId));
+      }).where(eq8(users.id, userId));
       const [userRow] = await db.select({
         email: users.email,
         username: users.username,
         referredBy: users.referredBy
-      }).from(users).where(eq7(users.id, userId)).limit(1).catch(() => [null]);
+      }).from(users).where(eq8(users.id, userId)).limit(1).catch(() => [null]);
       if (userRow) {
         let resolvedReferralCode = referralCode;
         if (!resolvedReferralCode && userRow.referredBy) {
-          const [referrer] = await db.select({ referralCode: users.referralCode }).from(users).where(eq7(users.id, userRow.referredBy)).limit(1).catch(() => [null]);
+          const [referrer] = await db.select({ referralCode: users.referralCode }).from(users).where(eq8(users.id, userRow.referredBy)).limit(1).catch(() => [null]);
           resolvedReferralCode = referrer?.referralCode ?? void 0;
         }
         const planName = planId === 2 ? "pro" : planId === 3 ? "enterprise" : "pro";
@@ -64796,7 +65111,7 @@ async function lsHandleWebhookEvent(event) {
       await db.update(users).set({
         subscriptionStatus: status,
         subscriptionCurrentPeriodEnd: renewsAt || void 0
-      }).where(eq7(users.id, userId));
+      }).where(eq8(users.id, userId));
       return { handled: true, action: "updated" };
     }
     case "subscription_cancelled":
@@ -64805,7 +65120,7 @@ async function lsHandleWebhookEvent(event) {
         subscriptionStatus: "canceled",
         subscriptionPlanId: 1,
         lsSubscriptionId: null
-      }).where(eq7(users.id, userId));
+      }).where(eq8(users.id, userId));
       return { handled: true, action: "cancelled" };
     }
     case "subscription_payment_success": {
@@ -64814,13 +65129,13 @@ async function lsHandleWebhookEvent(event) {
       await db.update(users).set({
         subscriptionStatus: "active",
         subscriptionCurrentPeriodEnd: renewsAt || void 0
-      }).where(eq7(users.id, userId));
+      }).where(eq8(users.id, userId));
       return { handled: true, action: "payment_success" };
     }
     case "subscription_payment_failed": {
       await db.update(users).set({
         subscriptionStatus: "past_due"
-      }).where(eq7(users.id, userId));
+      }).where(eq8(users.id, userId));
       return { handled: true, action: "payment_failed" };
     }
     default:
@@ -64828,7 +65143,7 @@ async function lsHandleWebhookEvent(event) {
   }
 }
 async function lsSetPlanVariantId(planId, variantId) {
-  await db.update(subscriptionPlans).set({ lsVariantId: variantId }).where(eq7(subscriptionPlans.id, planId));
+  await db.update(subscriptionPlans).set({ lsVariantId: variantId }).where(eq8(subscriptionPlans.id, planId));
 }
 async function lsGetPlanVariants() {
   const plans = await db.select({
@@ -65338,14 +65653,14 @@ init_db();
 init_schema();
 init_token_rewards();
 import { Router } from "express";
-import { eq as eq9, desc as desc3, sql as sql8 } from "drizzle-orm";
+import { eq as eq10, desc as desc3, sql as sql9 } from "drizzle-orm";
 var router = Router();
 async function requireAdmin(req, res, next) {
   if (!req.isAuthenticated()) {
     return res.status(401).json({ error: "Not authenticated" });
   }
   const userId = req.user.id;
-  const [user] = await db.select({ isAdmin: users.isAdmin }).from(users).where(eq9(users.id, userId)).limit(1);
+  const [user] = await db.select({ isAdmin: users.isAdmin }).from(users).where(eq10(users.id, userId)).limit(1);
   if (!user?.isAdmin) {
     return res.status(403).json({ error: "Admin access required" });
   }
@@ -65390,7 +65705,7 @@ router.get("/daily-missions", async (req, res) => {
     const weekStart = new Date(now);
     weekStart.setDate(now.getDate() + diffToMon);
     weekStart.setHours(0, 0, 0, 0);
-    const rawToday = await db.execute(sql8`
+    const rawToday = await db.execute(sql9`
       SELECT action_type, COUNT(*) as count, COALESCE(SUM(total_reward),0) as earned
       FROM ambassador_action_rewards
       WHERE user_id = ${userId} AND created_at >= ${todayStart.toISOString()}
@@ -65399,7 +65714,7 @@ router.get("/daily-missions", async (req, res) => {
     const todayRows = Array.isArray(rawToday) ? rawToday : rawToday.rows || [];
     const todayMap = {};
     for (const r of todayRows) todayMap[r.action_type] = { count: Number(r.count), earned: Number(r.earned) };
-    const rawWeek = await db.execute(sql8`
+    const rawWeek = await db.execute(sql9`
       SELECT action_type, COUNT(*) as count, COALESCE(SUM(total_reward),0) as earned
       FROM ambassador_action_rewards
       WHERE user_id = ${userId} AND created_at >= ${weekStart.toISOString()}
@@ -65434,7 +65749,7 @@ router.get("/daily-missions", async (req, res) => {
       const veddReward = TOKEN_REWARDS[t.actionType] ?? t.veddReward;
       return { ...t, veddReward, completedCount: done, earnedVedd: earned, completed: done >= t.maxCount };
     });
-    const rawDevDays = await db.execute(sql8`
+    const rawDevDays = await db.execute(sql9`
       SELECT COUNT(DISTINCT DATE(created_at)) as days
       FROM ambassador_action_rewards
       WHERE user_id = ${userId}
@@ -65472,7 +65787,7 @@ router.post("/track", async (req, res) => {
 });
 router.get("/config", async (req, res) => {
   try {
-    const configs = await db.select().from(veddRewardConfig).where(eq9(veddRewardConfig.isActive, true));
+    const configs = await db.select().from(veddRewardConfig).where(eq10(veddRewardConfig.isActive, true));
     res.json(configs.map((c) => ({
       actionType: c.actionType,
       baseAmount: c.baseAmount,
@@ -65547,7 +65862,7 @@ router.post("/admin/pool/:walletId/sync", requireAdmin, async (req, res) => {
 });
 router.get("/admin/pending-rewards", requireAdmin, async (req, res) => {
   try {
-    const pendingRewards = await db.select().from(ambassadorActionRewards).where(eq9(ambassadorActionRewards.verificationStatus, "pending")).orderBy(desc3(ambassadorActionRewards.createdAt)).limit(100);
+    const pendingRewards = await db.select().from(ambassadorActionRewards).where(eq10(ambassadorActionRewards.verificationStatus, "pending")).orderBy(desc3(ambassadorActionRewards.createdAt)).limit(100);
     res.json(pendingRewards);
   } catch (error) {
     console.error("Error fetching pending rewards:", error);
@@ -65578,7 +65893,7 @@ router.get("/admin/transfers", requireAdmin, async (req, res) => {
     const limit = parseInt(req.query.limit) || 50;
     let query = db.select().from(veddTransferJobs).orderBy(desc3(veddTransferJobs.createdAt)).limit(limit);
     if (status) {
-      query = query.where(eq9(veddTransferJobs.status, status));
+      query = query.where(eq10(veddTransferJobs.status, status));
     }
     const transfers = await query;
     res.json(transfers);
@@ -65590,7 +65905,7 @@ router.get("/admin/transfers", requireAdmin, async (req, res) => {
 router.post("/admin/transfers/:jobId/retry", requireAdmin, async (req, res) => {
   try {
     const jobId = parseInt(req.params.jobId);
-    await db.update(veddTransferJobs).set({ status: "pending", retryCount: 0 }).where(eq9(veddTransferJobs.id, jobId));
+    await db.update(veddTransferJobs).set({ status: "pending", retryCount: 0 }).where(eq10(veddTransferJobs.id, jobId));
     const result = await veddTokenService.processTransfer(jobId);
     res.json(result);
   } catch (error) {
@@ -65610,7 +65925,7 @@ router.post("/admin/config/:actionType", requireAdmin, async (req, res) => {
       ...description !== void 0 && { description },
       ...isActive !== void 0 && { isActive },
       updatedAt: /* @__PURE__ */ new Date()
-    }).where(eq9(veddRewardConfig.actionType, actionType));
+    }).where(eq10(veddRewardConfig.actionType, actionType));
     res.json({ success: true });
   } catch (error) {
     console.error("Error updating reward config:", error);
@@ -65644,7 +65959,7 @@ router.post("/admin/blacklist", requireAdmin, async (req, res) => {
 });
 router.delete("/admin/blacklist/:address", requireAdmin, async (req, res) => {
   try {
-    await db.update(veddWalletBlacklist).set({ isActive: false }).where(eq9(veddWalletBlacklist.walletAddress, req.params.address));
+    await db.update(veddWalletBlacklist).set({ isActive: false }).where(eq10(veddWalletBlacklist.walletAddress, req.params.address));
     res.json({ success: true });
   } catch (error) {
     res.status(500).json({ error: "Failed to remove from blacklist" });
@@ -65652,7 +65967,7 @@ router.delete("/admin/blacklist/:address", requireAdmin, async (req, res) => {
 });
 router.get("/admin/security-alerts", requireAdmin, async (req, res) => {
   try {
-    const flagged = await db.select().from(ambassadorActionRewards).where(sql8`${ambassadorActionRewards.securityFlag} IS NOT NULL`).orderBy(desc3(ambassadorActionRewards.createdAt)).limit(100);
+    const flagged = await db.select().from(ambassadorActionRewards).where(sql9`${ambassadorActionRewards.securityFlag} IS NOT NULL`).orderBy(desc3(ambassadorActionRewards.createdAt)).limit(100);
     res.json(flagged);
   } catch (error) {
     res.status(500).json({ error: "Failed to fetch security alerts" });
@@ -65668,7 +65983,7 @@ router.post("/referral/trade-profit", async (req, res) => {
     if (typeof profitAmount !== "number" || profitAmount <= 0) {
       return res.status(400).json({ error: "Valid positive profitAmount required" });
     }
-    const [referral] = await db.select().from(referrals2).where(eq9(referrals2.referredId, traderId)).limit(1);
+    const [referral] = await db.select().from(referrals2).where(eq10(referrals2.referredId, traderId)).limit(1);
     if (!referral) {
       return res.json({ success: false, message: "No referrer found for this user" });
     }
@@ -65704,7 +66019,7 @@ router.post("/referral/signup", async (req, res) => {
       return res.status(401).json({ error: "Not authenticated" });
     }
     const newUserId = req.user.id;
-    const [referral] = await db.select().from(referrals2).where(eq9(referrals2.referredId, newUserId)).limit(1);
+    const [referral] = await db.select().from(referrals2).where(eq10(referrals2.referredId, newUserId)).limit(1);
     if (!referral) {
       return res.json({ success: false, message: "No referrer found for this user" });
     }
@@ -65739,7 +66054,7 @@ router.get("/referral/stats", async (req, res) => {
       return res.status(401).json({ error: "Not authenticated" });
     }
     const userId = req.user.id;
-    const referralRewards = await db.select().from(ambassadorActionRewards).where(eq9(ambassadorActionRewards.userId, userId));
+    const referralRewards = await db.select().from(ambassadorActionRewards).where(eq10(ambassadorActionRewards.userId, userId));
     const referralTypes = ["referral_signup", "referral_profit_share", "referral_first_trade", "referral_ambassador"];
     const referralOnlyRewards = referralRewards.filter((r) => referralTypes.includes(r.actionType));
     const totalReferrals = referralOnlyRewards.filter((r) => r.actionType === "referral_signup").length;
@@ -66961,7 +67276,7 @@ var moomoo_default = router3;
 init_db();
 init_schema();
 import { Router as Router4 } from "express";
-import { eq as eq10, desc as desc4 } from "drizzle-orm";
+import { eq as eq11, desc as desc4 } from "drizzle-orm";
 var router4 = Router4();
 function requireAuth3(req, res) {
   if (!req.isAuthenticated || !req.isAuthenticated()) {
@@ -67054,15 +67369,15 @@ router4.get("/biz-builder/my-profile", async (req, res) => {
   if (!requireAuth3(req, res)) return;
   const userId = getUserId3(req);
   try {
-    const profiles = await db.select().from(bizProfiles).where(eq10(bizProfiles.userId, userId)).orderBy(desc4(bizProfiles.createdAt)).limit(1);
+    const profiles = await db.select().from(bizProfiles).where(eq11(bizProfiles.userId, userId)).orderBy(desc4(bizProfiles.createdAt)).limit(1);
     if (!profiles.length) return res.json({ profile: null });
     const profile = profiles[0];
     const [nameChecks, formationLinks, bankLinks, creditTasks, fundingMatches] = await Promise.all([
-      db.select().from(bizNameChecks).where(eq10(bizNameChecks.bizProfileId, profile.id)),
-      db.select().from(bizFormationLinks).where(eq10(bizFormationLinks.bizProfileId, profile.id)),
-      db.select().from(bizBankLinks).where(eq10(bizBankLinks.bizProfileId, profile.id)),
-      db.select().from(bizCreditTasks).where(eq10(bizCreditTasks.bizProfileId, profile.id)),
-      db.select().from(bizFundingMatches).where(eq10(bizFundingMatches.bizProfileId, profile.id))
+      db.select().from(bizNameChecks).where(eq11(bizNameChecks.bizProfileId, profile.id)),
+      db.select().from(bizFormationLinks).where(eq11(bizFormationLinks.bizProfileId, profile.id)),
+      db.select().from(bizBankLinks).where(eq11(bizBankLinks.bizProfileId, profile.id)),
+      db.select().from(bizCreditTasks).where(eq11(bizCreditTasks.bizProfileId, profile.id)),
+      db.select().from(bizFundingMatches).where(eq11(bizFundingMatches.bizProfileId, profile.id))
     ]);
     res.json({ profile, nameChecks, formationLinks, bankLinks, creditTasks, fundingMatches });
   } catch (e) {
@@ -67074,15 +67389,15 @@ router4.get("/biz-builder/:profileId", async (req, res) => {
   if (!requireAuth3(req, res)) return;
   try {
     const profileId = parseInt(req.params.profileId);
-    const profiles = await db.select().from(bizProfiles).where(eq10(bizProfiles.id, profileId)).limit(1);
+    const profiles = await db.select().from(bizProfiles).where(eq11(bizProfiles.id, profileId)).limit(1);
     if (!profiles.length) return res.status(404).json({ error: "Profile not found" });
     const profile = profiles[0];
     const [nameChecks, formationLinks, bankLinks, creditTasks, fundingMatches] = await Promise.all([
-      db.select().from(bizNameChecks).where(eq10(bizNameChecks.bizProfileId, profile.id)),
-      db.select().from(bizFormationLinks).where(eq10(bizFormationLinks.bizProfileId, profile.id)),
-      db.select().from(bizBankLinks).where(eq10(bizBankLinks.bizProfileId, profile.id)),
-      db.select().from(bizCreditTasks).where(eq10(bizCreditTasks.bizProfileId, profile.id)),
-      db.select().from(bizFundingMatches).where(eq10(bizFundingMatches.bizProfileId, profile.id))
+      db.select().from(bizNameChecks).where(eq11(bizNameChecks.bizProfileId, profile.id)),
+      db.select().from(bizFormationLinks).where(eq11(bizFormationLinks.bizProfileId, profile.id)),
+      db.select().from(bizBankLinks).where(eq11(bizBankLinks.bizProfileId, profile.id)),
+      db.select().from(bizCreditTasks).where(eq11(bizCreditTasks.bizProfileId, profile.id)),
+      db.select().from(bizFundingMatches).where(eq11(bizFundingMatches.bizProfileId, profile.id))
     ]);
     res.json({ profile, nameChecks, formationLinks, bankLinks, creditTasks, fundingMatches });
   } catch (e) {
@@ -67122,7 +67437,7 @@ router4.post("/biz-builder/:profileId/select-formation", async (req, res) => {
     }
     const redirectUrl = FORMATION_URLS[provider];
     await db.insert(bizFormationLinks).values({ bizProfileId: profileId, provider, redirectUrl });
-    await db.update(bizProfiles).set({ status: "formation", updatedAt: /* @__PURE__ */ new Date() }).where(eq10(bizProfiles.id, profileId));
+    await db.update(bizProfiles).set({ status: "formation", updatedAt: /* @__PURE__ */ new Date() }).where(eq11(bizProfiles.id, profileId));
     res.json({ provider, redirectUrl });
   } catch (e) {
     console.error("[BizBuilder] select-formation error:", e.message);
@@ -67139,7 +67454,7 @@ router4.post("/biz-builder/:profileId/select-bank", async (req, res) => {
     }
     const referralUrl = BANK_URLS[provider];
     await db.insert(bizBankLinks).values({ bizProfileId: profileId, provider, referralUrl });
-    await db.update(bizProfiles).set({ status: "banking", updatedAt: /* @__PURE__ */ new Date() }).where(eq10(bizProfiles.id, profileId));
+    await db.update(bizProfiles).set({ status: "banking", updatedAt: /* @__PURE__ */ new Date() }).where(eq11(bizProfiles.id, profileId));
     res.json({ provider, referralUrl });
   } catch (e) {
     console.error("[BizBuilder] select-bank error:", e.message);
@@ -67150,7 +67465,7 @@ router4.post("/biz-builder/:profileId/generate-credit-tasks", async (req, res) =
   if (!requireAuth3(req, res)) return;
   try {
     const profileId = parseInt(req.params.profileId);
-    const profiles = await db.select().from(bizProfiles).where(eq10(bizProfiles.id, profileId)).limit(1);
+    const profiles = await db.select().from(bizProfiles).where(eq11(bizProfiles.id, profileId)).limit(1);
     if (!profiles.length) return res.status(404).json({ error: "Profile not found" });
     const p = profiles[0];
     const today = /* @__PURE__ */ new Date();
@@ -67191,7 +67506,7 @@ Return a JSON array: [{ "task_name": "string", "task_type": "net30"|"credit_moni
         status: "pending"
       }))
     ).returning();
-    await db.update(bizProfiles).set({ status: "credit_building", updatedAt: /* @__PURE__ */ new Date() }).where(eq10(bizProfiles.id, profileId));
+    await db.update(bizProfiles).set({ status: "credit_building", updatedAt: /* @__PURE__ */ new Date() }).where(eq11(bizProfiles.id, profileId));
     res.json({ tasks: inserted });
   } catch (e) {
     console.error("[BizBuilder] generate-credit-tasks error:", e.message);
@@ -67202,7 +67517,7 @@ router4.post("/biz-builder/:profileId/generate-funding-matches", async (req, res
   if (!requireAuth3(req, res)) return;
   try {
     const profileId = parseInt(req.params.profileId);
-    const profiles = await db.select().from(bizProfiles).where(eq10(bizProfiles.id, profileId)).limit(1);
+    const profiles = await db.select().from(bizProfiles).where(eq11(bizProfiles.id, profileId)).limit(1);
     if (!profiles.length) return res.status(404).json({ error: "Profile not found" });
     const p = profiles[0];
     const raw = await callClaude(
@@ -67224,7 +67539,7 @@ Return a JSON array: [{ "funder_name": "string", "funder_type": "grant"|"cdfi"|"
         notes: f.notes || null
       }))
     ).returning();
-    await db.update(bizProfiles).set({ status: "funded", updatedAt: /* @__PURE__ */ new Date() }).where(eq10(bizProfiles.id, profileId));
+    await db.update(bizProfiles).set({ status: "funded", updatedAt: /* @__PURE__ */ new Date() }).where(eq11(bizProfiles.id, profileId));
     res.json({ matches: inserted });
   } catch (e) {
     console.error("[BizBuilder] generate-funding-matches error:", e.message);
@@ -67235,14 +67550,14 @@ router4.patch("/biz-builder/tasks/:taskId/complete", async (req, res) => {
   if (!requireAuth3(req, res)) return;
   try {
     const taskId = parseInt(req.params.taskId);
-    const existing = await db.select().from(bizCreditTasks).where(eq10(bizCreditTasks.id, taskId)).limit(1);
+    const existing = await db.select().from(bizCreditTasks).where(eq11(bizCreditTasks.id, taskId)).limit(1);
     if (!existing.length) return res.status(404).json({ error: "Task not found" });
     const isComplete = existing[0].status === "complete";
     const newStatus = isComplete ? "pending" : "complete";
     const [updated] = await db.update(bizCreditTasks).set({
       status: newStatus,
       completedAt: newStatus === "complete" ? /* @__PURE__ */ new Date() : null
-    }).where(eq10(bizCreditTasks.id, taskId)).returning();
+    }).where(eq11(bizCreditTasks.id, taskId)).returning();
     res.json({ task: updated });
   } catch (e) {
     console.error("[BizBuilder] complete task error:", e.message);
@@ -67487,9 +67802,9 @@ async function hashPasswordForWallet(password) {
 function dynamicMaxLot(balance, symbol) {
   if (!(balance > 0)) return 0.1;
   const pipVal = getPipValue(symbol) || 10;
-  const MAX_RISK_PCT = 0.05;
+  const MAX_RISK_PCT2 = 0.05;
   const REF_STOP_PIPS = 15;
-  const cap = balance * MAX_RISK_PCT / (REF_STOP_PIPS * pipVal);
+  const cap = balance * MAX_RISK_PCT2 / (REF_STOP_PIPS * pipVal);
   return Math.max(0.1, Math.round(cap * 100) / 100);
 }
 function effectiveMaxLot(configuredMaxLot, balance, symbol) {
@@ -67696,10 +68011,10 @@ function isInTradingSession(symbol, hourUTC) {
     "USINDEX": "SPX500",
     "SPX500USD": "SPX500"
   };
-  const sym = ALIAS_MAP[raw] ?? raw;
-  const windows = PAIR_SESSION_WINDOWS[sym];
+  const sym2 = ALIAS_MAP[raw] ?? raw;
+  const windows = PAIR_SESSION_WINDOWS[sym2];
   if (!windows) {
-    const fallback = Object.keys(PAIR_SESSION_WINDOWS).find((k2) => k2.startsWith(sym) || sym.startsWith(k2));
+    const fallback = Object.keys(PAIR_SESSION_WINDOWS).find((k2) => k2.startsWith(sym2) || sym2.startsWith(k2));
     if (fallback) return PAIR_SESSION_WINDOWS[fallback].some(([s, e]) => hourUTC >= s && hourUTC < e);
     return true;
   }
@@ -67717,31 +68032,31 @@ function tlSignalGuard(params) {
     riskScore,
     minRR
   } = params;
-  const sym = params.symbol || "";
+  const sym2 = params.symbol || "";
   const dir = (params.direction || "").toUpperCase();
   if (confidence2 < minConfidence) {
     return { allow: false, reason: `Confidence ${confidence2}% below ${minConfidence}% minimum \u2014 blocked` };
   }
   if (requireSLTP && (!stopLoss || stopLoss <= 0)) {
-    return { allow: false, reason: `No stop loss on ${sym} \u2014 undefined risk, blocked` };
+    return { allow: false, reason: `No stop loss on ${sym2} \u2014 undefined risk, blocked` };
   }
   if (requireSLTP && (!takeProfit || takeProfit <= 0)) {
-    return { allow: false, reason: `No take profit on ${sym} \u2014 no exit target, blocked` };
+    return { allow: false, reason: `No take profit on ${sym2} \u2014 no exit target, blocked` };
   }
   if (entryPrice && entryPrice > 0 && stopLoss && stopLoss > 0 && takeProfit && takeProfit > 0) {
     if (dir === "BUY") {
       if (stopLoss >= entryPrice) {
-        return { allow: false, reason: `BUY ${sym}: SL ${stopLoss} >= entry ${entryPrice} \u2014 inverted levels, blocked` };
+        return { allow: false, reason: `BUY ${sym2}: SL ${stopLoss} >= entry ${entryPrice} \u2014 inverted levels, blocked` };
       }
       if (takeProfit <= entryPrice) {
-        return { allow: false, reason: `BUY ${sym}: TP ${takeProfit} <= entry ${entryPrice} \u2014 inverted levels, blocked` };
+        return { allow: false, reason: `BUY ${sym2}: TP ${takeProfit} <= entry ${entryPrice} \u2014 inverted levels, blocked` };
       }
     } else if (dir === "SELL") {
       if (stopLoss <= entryPrice) {
-        return { allow: false, reason: `SELL ${sym}: SL ${stopLoss} <= entry ${entryPrice} \u2014 inverted levels, blocked` };
+        return { allow: false, reason: `SELL ${sym2}: SL ${stopLoss} <= entry ${entryPrice} \u2014 inverted levels, blocked` };
       }
       if (takeProfit >= entryPrice) {
-        return { allow: false, reason: `SELL ${sym}: TP ${takeProfit} >= entry ${entryPrice} \u2014 inverted levels, blocked` };
+        return { allow: false, reason: `SELL ${sym2}: TP ${takeProfit} >= entry ${entryPrice} \u2014 inverted levels, blocked` };
       }
     }
     const riskDist = Math.abs(entryPrice - stopLoss);
@@ -67749,16 +68064,16 @@ function tlSignalGuard(params) {
     if (riskDist > 0) {
       const rr = rewardDist / riskDist;
       const slPct = riskDist / entryPrice;
-      const isCryptoOrComm = ["BTC", "ETH", "XAU", "GOLD", "OIL", "SILVER"].some((t) => sym.toUpperCase().includes(t));
+      const isCryptoOrComm = ["BTC", "ETH", "XAU", "GOLD", "OIL", "SILVER"].some((t) => sym2.toUpperCase().includes(t));
       const tightRangeThreshold = isCryptoOrComm ? 3e-3 : 15e-4;
       const effectiveMinRR = minRR !== void 0 ? minRR : slPct < tightRangeThreshold ? 1.5 : 2;
       if (rr < effectiveMinRR) {
-        return { allow: false, reason: `R:R ${rr.toFixed(2)} on ${sym} ${dir} below ${effectiveMinRR.toFixed(1)} minimum${slPct < tightRangeThreshold ? " (ranging market)" : ""} \u2014 blocked` };
+        return { allow: false, reason: `R:R ${rr.toFixed(2)} on ${sym2} ${dir} below ${effectiveMinRR.toFixed(1)} minimum${slPct < tightRangeThreshold ? " (ranging market)" : ""} \u2014 blocked` };
       }
     }
   }
   if (riskScore != null && riskScore > 7) {
-    return { allow: false, reason: `AI risk score ${riskScore}/10 on ${sym} exceeds max 7 \u2014 blocked` };
+    return { allow: false, reason: `AI risk score ${riskScore}/10 on ${sym2} exceeds max 7 \u2014 blocked` };
   }
   const nowForNews = /* @__PURE__ */ new Date();
   const dayUTC = nowForNews.getUTCDay();
@@ -67779,8 +68094,8 @@ function tlSignalGuard(params) {
   }
   if (checkSession) {
     const hourUTC = (/* @__PURE__ */ new Date()).getUTCHours();
-    if (!isInTradingSession(sym, hourUTC)) {
-      return { allow: false, reason: `${sym} outside its best session at ${hourUTC}:00 UTC \u2014 low liquidity, blocked` };
+    if (!isInTradingSession(sym2, hourUTC)) {
+      return { allow: false, reason: `${sym2} outside its best session at ${hourUTC}:00 UTC \u2014 low liquidity, blocked` };
     }
   }
   return { allow: true, reason: "Passed all signal quality gates" };
@@ -68312,9 +68627,9 @@ var mediaUpload = multer({
     cb(null, true);
   }
 });
-var uploadsDir2 = path16.join(process.cwd(), "uploads");
-if (!fs16.existsSync(uploadsDir2)) {
-  fs16.mkdirSync(uploadsDir2, { recursive: true });
+var uploadsDir2 = path15.join(process.cwd(), "uploads");
+if (!fs15.existsSync(uploadsDir2)) {
+  fs15.mkdirSync(uploadsDir2, { recursive: true });
 }
 function getCurrentTradingSession() {
   const hour = (/* @__PURE__ */ new Date()).getUTCHours();
@@ -68707,11 +69022,11 @@ async function registerRoutes(app2, existingServer) {
         return res.status(400).json({ message: "No file uploaded" });
       }
       const fileName = `${uuidv42()}.${req.file.mimetype.split("/")[1]}`;
-      const filePath = path16.join(uploadsDir2, fileName);
+      const filePath = path15.join(uploadsDir2, fileName);
       console.log("Generated filename:", fileName);
       console.log("Full file path:", filePath);
       try {
-        await fs16.promises.writeFile(filePath, req.file.buffer);
+        await fs15.promises.writeFile(filePath, req.file.buffer);
         console.log("File saved successfully to disk");
       } catch (writeError) {
         console.error("Error writing file to disk:", writeError);
@@ -68737,14 +69052,14 @@ async function registerRoutes(app2, existingServer) {
       if (!allowedTypes.includes(req.file.mimetype)) {
         return res.status(400).json({ message: "Invalid file type. Only JPEG, PNG, GIF, and WebP are allowed." });
       }
-      const avatarsDir = path16.join(process.cwd(), "uploads", "avatars");
-      if (!fs16.existsSync(avatarsDir)) {
-        fs16.mkdirSync(avatarsDir, { recursive: true });
+      const avatarsDir = path15.join(process.cwd(), "uploads", "avatars");
+      if (!fs15.existsSync(avatarsDir)) {
+        fs15.mkdirSync(avatarsDir, { recursive: true });
       }
       const ext = req.file.mimetype.split("/")[1];
       const fileName = `avatar-${req.user.id}-${Date.now()}.${ext}`;
-      const filePath = path16.join(avatarsDir, fileName);
-      await fs16.promises.writeFile(filePath, req.file.buffer);
+      const filePath = path15.join(avatarsDir, fileName);
+      await fs15.promises.writeFile(filePath, req.file.buffer);
       const avatarUrl = `/uploads/avatars/${fileName}`;
       res.json({ avatarUrl });
     } catch (error) {
@@ -68839,11 +69154,11 @@ async function registerRoutes(app2, existingServer) {
       }
       const extension = filename?.split(".").pop() || "png";
       const generatedFilename = `${uuidv42()}.${extension}`;
-      const filePath = path16.join(uploadsDir2, generatedFilename);
+      const filePath = path15.join(uploadsDir2, generatedFilename);
       const imageUrl = `/uploads/${generatedFilename}`;
       try {
         const imageBuffer = Buffer.from(cleanBase64, "base64");
-        await fs16.promises.writeFile(filePath, imageBuffer);
+        await fs15.promises.writeFile(filePath, imageBuffer);
         console.log("Saved image to", filePath);
       } catch (writeError) {
         console.error("Error saving image to disk:", writeError);
@@ -68976,9 +69291,9 @@ async function registerRoutes(app2, existingServer) {
           const detectedSymbol = analyses.length > 0 ? analyses[analyses.length - 1].symbol : void 0;
           const analysis = await analyzeChartImage(frame.base64, detectedSymbol, req.user?.id);
           const frameFileName = `video_frame_${groupId}_${i + 1}.jpg`;
-          const framePath = path16.join(uploadsDir2, frameFileName);
+          const framePath = path15.join(uploadsDir2, frameFileName);
           const frameBuffer = Buffer.from(frame.base64, "base64");
-          await fs16.promises.writeFile(framePath, frameBuffer);
+          await fs15.promises.writeFile(framePath, frameBuffer);
           const imageUrl = `/uploads/${frameFileName}`;
           await storage.createChartAnalysis({
             userId,
@@ -69378,12 +69693,12 @@ Respond ONLY in valid JSON format with these exact keys:
       if (!imageUrl) {
         return res.status(400).json({ message: "No image URL provided" });
       }
-      const filePath = path16.join(process.cwd(), imageUrl.replace(/^\//, ""));
+      const filePath = path15.join(process.cwd(), imageUrl.replace(/^\//, ""));
       console.log("Attempting to analyze image at path:", filePath);
-      if (!fs16.existsSync(filePath)) {
-        const alternativePath = path16.join(uploadsDir2, path16.basename(imageUrl));
+      if (!fs15.existsSync(filePath)) {
+        const alternativePath = path15.join(uploadsDir2, path15.basename(imageUrl));
         console.log("Image not found, trying alternative path:", alternativePath);
-        if (!fs16.existsSync(alternativePath)) {
+        if (!fs15.existsSync(alternativePath)) {
           return res.status(404).json({ message: "Image file not found" });
         }
         console.log("Found image at alternative path");
@@ -69392,7 +69707,7 @@ Respond ONLY in valid JSON format with these exact keys:
           error: "Direct file analysis is deprecated"
         });
       }
-      const imageBuffer = await fs16.promises.readFile(filePath);
+      const imageBuffer = await fs15.promises.readFile(filePath);
       const base64Image = imageBuffer.toString("base64");
       const knownSymbol = req.body.symbol || void 0;
       const analysis = await analyzeChartImage(base64Image, knownSymbol, req.user?.id);
@@ -69567,11 +69882,11 @@ Respond ONLY in valid JSON format with these exact keys:
         const originalImageUrl = analysis.imageUrl;
         console.log("Original image URL:", originalImageUrl);
         const imagePath = originalImageUrl.startsWith("/") ? originalImageUrl.substring(1) : originalImageUrl;
-        const basename2 = path16.basename(imagePath);
+        const basename2 = path15.basename(imagePath);
         console.log("Image basename:", basename2);
-        const originalImagePath = path16.join(process.cwd(), "uploads", basename2);
+        const originalImagePath = path15.join(process.cwd(), "uploads", basename2);
         console.log("Full image path:", originalImagePath);
-        if (!fs16.existsSync(originalImagePath)) {
+        if (!fs15.existsSync(originalImagePath)) {
           console.error("Original image not found at path:", originalImagePath);
           throw new Error(`Original image not found: ${originalImagePath}`);
         }
@@ -69668,13 +69983,13 @@ Respond ONLY in valid JSON format with these exact keys:
   app2.get("/api/shared-image/:filename", (req, res) => {
     try {
       const filename = req.params.filename;
-      const sanitizedFilename = path16.basename(filename);
-      const sharedPath = path16.join(process.cwd(), "uploads", "shared", sanitizedFilename);
-      if (fs16.existsSync(sharedPath)) {
+      const sanitizedFilename = path15.basename(filename);
+      const sharedPath = path15.join(process.cwd(), "uploads", "shared", sanitizedFilename);
+      if (fs15.existsSync(sharedPath)) {
         return res.sendFile(sharedPath);
       }
-      const regularPath = path16.join(process.cwd(), "uploads", sanitizedFilename);
-      if (fs16.existsSync(regularPath)) {
+      const regularPath = path15.join(process.cwd(), "uploads", sanitizedFilename);
+      if (fs15.existsSync(regularPath)) {
         return res.sendFile(regularPath);
       }
       return res.status(404).json({ message: "Image not found" });
@@ -69686,9 +70001,9 @@ Respond ONLY in valid JSON format with these exact keys:
   app2.get("/api/annotated-image/:filename", (req, res) => {
     try {
       const filename = req.params.filename;
-      const sanitizedFilename = path16.basename(filename);
-      const annotatedPath = path16.join(process.cwd(), "uploads", "annotated", sanitizedFilename);
-      if (fs16.existsSync(annotatedPath)) {
+      const sanitizedFilename = path15.basename(filename);
+      const annotatedPath = path15.join(process.cwd(), "uploads", "annotated", sanitizedFilename);
+      if (fs15.existsSync(annotatedPath)) {
         return res.sendFile(annotatedPath);
       }
       return res.status(404).json({ message: "Annotated image not found" });
@@ -70963,6 +71278,43 @@ Respond ONLY in valid JSON format with these exact keys:
       res.status(500).json({ error: e.message });
     }
   });
+  app2.get("/api/abba/review", async (req, res) => {
+    if (!req.isAuthenticated()) return res.status(401).json({ error: "Authentication required" });
+    try {
+      const { getPeriodReview: getPeriodReview2 } = await Promise.resolve().then(() => (init_weekly_review(), weekly_review_exports));
+      const period = req.query.period === "month" ? "month" : "week";
+      const offset = Math.max(0, Math.min(12, Number(req.query.offset ?? 1) || 0));
+      res.json(await getPeriodReview2(req.user.id, period, offset));
+    } catch (e) {
+      res.status(500).json({ error: e.message });
+    }
+  });
+  app2.post("/api/abba/setup/review", async (req, res) => {
+    if (!req.isAuthenticated()) return res.status(401).json({ error: "Authentication required" });
+    try {
+      const { sanitizeProposal: sanitizeProposal2, buildSetupReview: buildSetupReview2 } = await Promise.resolve().then(() => (init_abba_setup(), abba_setup_exports));
+      const p = sanitizeProposal2(req.body?.proposal);
+      if (!p) return res.status(400).json({ error: "No settings in this plan." });
+      res.json(await buildSetupReview2(req.user.id, p));
+    } catch (e) {
+      res.status(500).json({ error: e.message });
+    }
+  });
+  app2.post("/api/abba/setup/apply", async (req, res) => {
+    if (!req.isAuthenticated()) return res.status(401).json({ error: "Authentication required" });
+    if (req.body?.confirm !== true) return res.status(400).json({ error: "Confirm required" });
+    try {
+      const { sanitizeProposal: sanitizeProposal2, applySetup: applySetup2 } = await Promise.resolve().then(() => (init_abba_setup(), abba_setup_exports));
+      const p = sanitizeProposal2(req.body?.proposal);
+      if (!p) return res.status(400).json({ error: "No settings in this plan." });
+      const userId = req.user.id;
+      const out = await applySetup2(userId, p);
+      console.log(`[ABBA setup] user ${userId} applied=${JSON.stringify(out.applied)} errors=${JSON.stringify(out.errors || [])}`);
+      res.json(out);
+    } catch (e) {
+      res.status(500).json({ error: e.message });
+    }
+  });
   app2.get("/api/abba/engine-updates", async (_req, res) => {
     const { ENGINE_UPDATES: ENGINE_UPDATES2 } = await Promise.resolve().then(() => (init_engine_updates(), engine_updates_exports));
     res.json({ updates: ENGINE_UPDATES2 });
@@ -71047,9 +71399,9 @@ Respond ONLY in valid JSON format with these exact keys:
       const mt5ChartCache = global.mt5ChartDataCache || {};
       const orbLiveContext = [];
       const trackedSymbols = Object.keys(mt5ChartCache).filter((k2) => k2.startsWith(`mt5_chart_${userId}_`)).map((k2) => k2.replace(`mt5_chart_${userId}_`, "").replace(/_[A-Z0-9]+$/, "")).filter((v, i, a) => a.indexOf(v) === i);
-      for (const sym of trackedSymbols.slice(0, 6)) {
+      for (const sym2 of trackedSymbols.slice(0, 6)) {
         for (const tf of ["M6", "M5", "M1", "M15", "M30"]) {
-          const cacheKey = `mt5_chart_${userId}_${sym}_${tf}`;
+          const cacheKey = `mt5_chart_${userId}_${sym2}_${tf}`;
           const cacheEntry = mt5ChartCache[cacheKey];
           if (!cacheEntry?.candles?.length) continue;
           const candles = cacheEntry.candles;
@@ -71139,7 +71491,7 @@ Respond ONLY in valid JSON format with these exact keys:
           }
           const rng = orbH > 0 ? (orbH - orbL).toFixed(2) : "?";
           orbLiveContext.push(
-            `${sym} (${tf}): Price=${currPrice.toFixed(4)} | ORB High=${orbH > 0 ? orbH.toFixed(4) : "N/A"} | ORB Low=${orbL > 0 ? orbL.toFixed(4) : "N/A"} | Range=${rng} | Phase=${phase2}${dir ? " " + dir : ""} | Pre-Mkt Bias=${pmBias} | Pattern=${pattern || "none"}`
+            `${sym2} (${tf}): Price=${currPrice.toFixed(4)} | ORB High=${orbH > 0 ? orbH.toFixed(4) : "N/A"} | ORB Low=${orbL > 0 ? orbL.toFixed(4) : "N/A"} | Range=${rng} | Phase=${phase2}${dir ? " " + dir : ""} | Pre-Mkt Bias=${pmBias} | Pattern=${pattern || "none"}`
           );
           break;
         }
@@ -71618,9 +71970,9 @@ data: ${JSON.stringify(data)}
       const mt5ChartCacheStream = global.mt5ChartDataCache || {};
       const orbStreamContext = [];
       const streamSymbols = Object.keys(mt5ChartCacheStream).filter((k2) => k2.startsWith(`mt5_chart_${userId}_`)).map((k2) => k2.replace(`mt5_chart_${userId}_`, "").replace(/_[A-Z0-9]+$/, "")).filter((v, i, a) => a.indexOf(v) === i).slice(0, 4);
-      for (const sym of streamSymbols) {
+      for (const sym2 of streamSymbols) {
         for (const tf of ["M6", "M5", "M1", "M15"]) {
-          const ce = mt5ChartCacheStream[`mt5_chart_${userId}_${sym}_${tf}`];
+          const ce = mt5ChartCacheStream[`mt5_chart_${userId}_${sym2}_${tf}`];
           if (!ce?.candles?.length) continue;
           const c0 = ce.candles[0];
           const cp = c0?.c || c0?.close || 0;
@@ -71670,7 +72022,7 @@ data: ${JSON.stringify(data)}
               }
             }
           }
-          orbStreamContext.push(`${sym}: ${cp.toFixed(4)} | ORB ${oh > 0 ? oh.toFixed(4) : "?"}/${ol > 0 ? ol.toFixed(4) : "?"} | ${phase2} | Pattern: ${pat || "none"}`);
+          orbStreamContext.push(`${sym2}: ${cp.toFixed(4)} | ORB ${oh > 0 ? oh.toFixed(4) : "?"}/${ol > 0 ? ol.toFixed(4) : "?"} | ${phase2} | Pattern: ${pat || "none"}`);
           break;
         }
       }
@@ -71694,7 +72046,9 @@ Keep responses under 120 words. Lead with the most important insight. Make ${fir
 HARD RULE: NEVER include code, code blocks, JSON, or markdown fences in replies \u2014 plain talk only. ONLY exception: user explicitly asks for an EA/indicator/script (MQL4, MQL5, Pine Script) \u2014 then point them to the EA Generator with [NAV:/futures-ea-generator].
 NAV: include [NAV:/path] to navigate. Use EXACT paths only \u2014 wrong paths lead to dead pages.
 Routes: /dashboard | /analysis | /multi-timeframe | /weekly-strategy | /orb-breakout | /historical | /what-if | /my-eas | /ea-marketplace | /mt5-chart-data | /mobile-alerts | /live-monitor | /solana-scanner | /activity | /streak | /community | /social-hub | /blog | /devotional | /vedd-wallet | /my-wallet | /account-growth | /referral | /grants | /credit-builder | /achievements | /profile | /ai-api-keys | /training-calendar | /ambassador/free-path | /vedd-clothing | /subscription | /support
-PLAN: include [PLAN_PROPOSAL:{json}] to propose a plan.`;
+PLAN: include [PLAN_PROPOSAL:{json}] to propose a plan.
+
+${await abbaIdeaLabPrompt(userId)}`;
       const { getUniversalAIClientForUser: getStreamAI } = await Promise.resolve().then(() => (init_openai(), openai_exports));
       const aiClient = await getStreamAI(userId);
       const historyMessages = (history || []).slice(-6).map((m) => ({
@@ -71711,6 +72065,7 @@ PLAN: include [PLAN_PROPOSAL:{json}] to propose a plan.`;
       let tokenBuffer = "";
       let fullText = "";
       const processSentence = (sentence) => {
+        sentence = sentence.split(IDEA_MARKER).join("").split(SETUP_MARKER).join("");
         const stripped = sentence.replace(/\[NAV:\/[^\]]*\]/g, "").replace(/\[PLAN_PROPOSAL:\{[\s\S]*?\}\]/g, "").trim();
         if (!stripped || stripped.length < 4) return;
         sendEvent("text", { text: sentence, speak: stripped });
@@ -71739,10 +72094,38 @@ PLAN: include [PLAN_PROPOSAL:{json}] to propose a plan.`;
       }
       const lc = fullText.toLowerCase();
       const suggestions = lc.includes("plan") || lc.includes("pairs") ? ["Best entry for my pairs?", "What session today?", "Protect my gains"] : lc.includes("pacing") || lc.includes("goal") || lc.includes("%") ? ["Break down daily targets", "Should I increase lots?", "Pairs to close the gap"] : lc.includes("entry") || lc.includes("setup") || lc.includes("trade") ? ["SL and TP for this?", "High or medium confidence?", "Invalidation point?"] : ["Am I on pace?", "Best trade now?", "Today's summary"];
+      let ideaDraft = null;
+      const lastAbba = String([...historyMessages].reverse().find((h) => h.role === "assistant")?.content || "");
+      if (fullText.includes(IDEA_MARKER) || wantsIdeaCard(message, lastAbba)) {
+        ideaDraft = await extractIdeaDraft(
+          { client: aiClient, model: aiClient.defaultModel || "gpt-4o" },
+          userId,
+          historyMessages,
+          message,
+          fullText.split(IDEA_MARKER).join("")
+        ).catch((e) => {
+          console.error("[ABBA stream idea]", e?.message);
+          return null;
+        });
+      }
+      let setupDraft = null;
+      if (fullText.includes(SETUP_MARKER) || wantsSetupCard(message, lastAbba)) {
+        setupDraft = await extractSetupDraft(
+          { client: aiClient, model: aiClient.defaultModel || "gpt-4o" },
+          historyMessages,
+          message,
+          fullText.split(SETUP_MARKER).join("")
+        ).catch((e) => {
+          console.error("[ABBA stream setup]", e?.message);
+          return null;
+        });
+      }
       sendEvent("done", {
         navigateTo,
         planProposal,
         suggestions,
+        ideaDraft,
+        setupDraft,
         context: { weekPct, weekProfit, weekTarget, todayProfit, dailyTarget, unrealizedPnL, openCount: openPositions.length, targetRemaining, pacingNeededPerDay, weekTrades: strategy?.progressTrades || 0, weekWinRate: strategy?.progressWinRate || 0, balance, planPairs, todayPairs, hasStrategy: !!strategy && weekTarget > 0 }
       });
       res.end();
@@ -71849,7 +72232,7 @@ For summary, write a 1-sentence human-readable description of the plan.`;
       riskLevel,
       tradingDays,
       maxTradesPerDay
-    } = req.body;
+    } = req.body?.proposal && typeof req.body.proposal === "object" ? req.body.proposal : req.body;
     if (!pairs?.length || !profitTarget || !accountBalance) {
       return res.status(400).json({ error: "pairs, profitTarget, and accountBalance are required" });
     }
@@ -73156,8 +73539,8 @@ Return ONLY a JSON object with this structure:
         });
       }
       const provider = new TwelveDataProvider2(apiKey);
-      const inferAssetType = (sym) => {
-        const s = sym.toUpperCase();
+      const inferAssetType = (sym2) => {
+        const s = sym2.toUpperCase();
         const cryptoBases = ["BTC", "ETH", "XRP", "LTC", "ADA", "DOT", "DOGE", "SOL", "AVAX", "MATIC", "BNB"];
         if (cryptoBases.some((c) => s.includes(c))) return "crypto";
         const forexPairs = ["EUR", "GBP", "USD", "JPY", "CHF", "AUD", "NZD", "CAD"];
@@ -73553,12 +73936,12 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
       });
       const shareId = Date.now().toString(36) + Math.random().toString(36).substring(2, 7);
       const shareCardFileName = `share-card-${shareId}.png`;
-      const shareCardPath = path16.join(process.cwd(), "uploads", "share-cards");
-      if (!fs16.existsSync(shareCardPath)) {
-        fs16.mkdirSync(shareCardPath, { recursive: true });
+      const shareCardPath = path15.join(process.cwd(), "uploads", "share-cards");
+      if (!fs15.existsSync(shareCardPath)) {
+        fs15.mkdirSync(shareCardPath, { recursive: true });
       }
-      const fullPath = path16.join(shareCardPath, shareCardFileName);
-      fs16.writeFileSync(fullPath, shareCardBuffer);
+      const fullPath = path15.join(shareCardPath, shareCardFileName);
+      fs15.writeFileSync(fullPath, shareCardBuffer);
       const shareCardUrl = `/uploads/share-cards/${shareCardFileName}`;
       const shareUrl = `share-${shareId}`;
       const devotion = getDailyScripture2();
@@ -75005,10 +75388,10 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
         }
         const symbolStats = {};
         for (const trade of closedTrades) {
-          const sym = (trade.symbol || "").toUpperCase();
-          if (!sym) continue;
-          if (!symbolStats[sym]) {
-            symbolStats[sym] = {
+          const sym2 = (trade.symbol || "").toUpperCase();
+          if (!sym2) continue;
+          if (!symbolStats[sym2]) {
+            symbolStats[sym2] = {
               wins: 0,
               losses: 0,
               hourlyTrades: {},
@@ -75021,7 +75404,7 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
               sellLosses: 0
             };
           }
-          const stats = symbolStats[sym];
+          const stats = symbolStats[sym2];
           const isWin = trade.profit > 0;
           const isLoss = trade.profit < 0;
           const isBuy = trade.direction === "BUY";
@@ -75046,7 +75429,7 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
           }
         }
         const recommendations = {};
-        for (const [sym, stats] of Object.entries(symbolStats)) {
+        for (const [sym2, stats] of Object.entries(symbolStats)) {
           const totalTrades = stats.wins + stats.losses;
           if (totalTrades < 3) continue;
           const winRate2 = stats.wins / totalTrades;
@@ -75076,8 +75459,8 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
               if (lossRate > 0.65) avoidDays.push(dayNames[parseInt(day)] || "");
             }
           }
-          recommendations[sym] = {
-            symbol: sym,
+          recommendations[sym2] = {
+            symbol: sym2,
             totalTrades,
             winRate: Math.round(winRate2 * 100),
             avgWinPL: Math.round(avgWin * 100) / 100,
@@ -76612,8 +76995,8 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
       };
       const _tlSkips = [];
       const _markTlSkip = (acct, reason) => {
-        const line = `${acct}: ${reason}`;
-        _tlSkips.push(line);
+        const line2 = `${acct}: ${reason}`;
+        _tlSkips.push(line2);
         void (async () => {
           try {
             const id = await _cdiagIdP;
@@ -77954,8 +78337,8 @@ BEAR CASE: ${_bearCase || "n/a"}` : aiConfirmation.reasoning;
       }
       if (!tlGateBlocked && analysis.signal !== "NEUTRAL") {
         try {
-          const _usdBias = (sym, dir) => {
-            const s = (sym || "").toUpperCase().replace("/", "");
+          const _usdBias = (sym2, dir) => {
+            const s = (sym2 || "").toUpperCase().replace("/", "");
             if (!s.includes("USD")) return null;
             const isBuy = dir === "BUY";
             return s.startsWith("USD") ? isBuy ? "LONG_USD" : "SHORT_USD" : isBuy ? "SHORT_USD" : "LONG_USD";
@@ -78783,9 +79166,9 @@ BEAR CASE: ${_bearCase || "n/a"}` : aiConfirmation.reasoning;
     for (const key of Object.keys(chartCache)) {
       if (!key.startsWith(prefix)) continue;
       const entry = chartCache[key];
-      const sym = key.replace(prefix, "").replace(/_[A-Z0-9]+$/, "").toUpperCase();
+      const sym2 = key.replace(prefix, "").replace(/_[A-Z0-9]+$/, "").toUpperCase();
       const receivedAt = entry?.receivedAt ? new Date(entry.receivedAt).getTime() : 0;
-      if (now - receivedAt < RECENT_MS) coveredPairs.add(sym);
+      if (now - receivedAt < RECENT_MS) coveredPairs.add(sym2);
     }
     const missingPairs = configuredPairs.filter((p) => !coveredPairs.has(p));
     res.json({
@@ -79413,12 +79796,12 @@ BEAR CASE: ${_bearCase || "n/a"}` : aiConfirmation.reasoning;
         allPairSymbols.delete(pairKey);
       }
     }
-    for (const sym of allPairSymbols) {
-      const enabled = perPairSettings[sym] !== false;
-      const indResult = independentMonitor?.results?.[sym];
+    for (const sym2 of allPairSymbols) {
+      const enabled = perPairSettings[sym2] !== false;
+      const indResult = independentMonitor?.results?.[sym2];
       const hasIndData = indResult && indResult.isBreakoutWindow;
       pairStatuses.push({
-        symbol: sym,
+        symbol: sym2,
         timeframe: hasIndData ? "M15" : "N/A",
         updatedAt: hasIndData ? indResult.detectedAt : null,
         ageSeconds: hasIndData ? Math.floor((now.getTime() - new Date(indResult.detectedAt).getTime()) / 1e3) : null,
@@ -79914,16 +80297,16 @@ Respond with ONLY valid JSON:
           const existingDay = plan.weeklyPlan[day] || {};
           const existingBySymbol = {};
           for (const p of existingDay.pairs || []) {
-            const sym = String(p?.symbol || "").toUpperCase().replace("/", "");
-            if (sym) existingBySymbol[sym] = p;
+            const sym2 = String(p?.symbol || "").toUpperCase().replace("/", "");
+            if (sym2) existingBySymbol[sym2] = p;
           }
           plan.weeklyPlan[day] = {
             ...existingDay,
             skip: false,
-            pairs: allPairs.map((sym) => {
-              const prior = existingBySymbol[sym] || {};
+            pairs: allPairs.map((sym2) => {
+              const prior = existingBySymbol[sym2] || {};
               return {
-                symbol: sym,
+                symbol: sym2,
                 direction: "BOTH",
                 // vote engine + AI second opinion pick direction
                 confidence: prior.confidence ?? 70,
@@ -80075,8 +80458,8 @@ Respond with ONLY valid JSON:
     const openPosData = global.mt5OpenPositions?.[userId];
     const allOpenPositions = openPosData?.positions || [];
     const activeTrades = allOpenPositions.filter((p) => {
-      const sym = (p.symbol || "").toUpperCase().replace("/", "");
-      return planPairs.includes(sym);
+      const sym2 = (p.symbol || "").toUpperCase().replace("/", "");
+      return planPairs.includes(sym2);
     });
     const mt5UnrealizedPnL = activeTrades.reduce((s, p) => s + (p.profit || 0), 0);
     const unrealizedPnL = mt5UnrealizedPnL + _tlUnrealizedLive;
@@ -80085,14 +80468,14 @@ Respond with ONLY valid JSON:
     const todayName = dayNames[(/* @__PURE__ */ new Date()).getUTCDay()];
     const todayPlan = strategy.plan?.weeklyPlan?.[todayName];
     const activeTradeDetails = activeTrades.map((p) => {
-      const sym = (p.symbol || "").toUpperCase().replace("/", "");
+      const sym2 = (p.symbol || "").toUpperCase().replace("/", "");
       const matchingPlanPair = todayPlan?.pairs?.find(
-        (pp) => (pp.symbol || "").toUpperCase().replace("/", "") === sym
+        (pp) => (pp.symbol || "").toUpperCase().replace("/", "") === sym2
       );
       const planAligned = matchingPlanPair ? matchingPlanPair.direction === "BOTH" || matchingPlanPair.direction === p.direction : null;
-      const lotOverride = global.veddSSAILotOverride?.[`${userId}_${sym}`];
+      const lotOverride = global.veddSSAILotOverride?.[`${userId}_${sym2}`];
       return {
-        symbol: sym,
+        symbol: sym2,
         direction: p.direction,
         lots: p.lots || 0,
         openPrice: p.openPrice || 0,
@@ -80113,12 +80496,12 @@ Respond with ONLY valid JSON:
     const pairDailyStats = {};
     for (const pair of planPairs) {
       const pairDbToday = dbWeekTrades.filter((t) => {
-        const sym = (t.symbol || "").toUpperCase().replace("/", "");
-        return sym === pair && new Date(t.closedAt || t.createdAt) >= todayStart;
+        const sym2 = (t.symbol || "").toUpperCase().replace("/", "");
+        return sym2 === pair && new Date(t.closedAt || t.createdAt) >= todayStart;
       });
       const pairCacheToday = cacheWeekTrades.filter((t) => {
-        const sym = (t.symbol || "").toUpperCase().replace("/", "");
-        return sym === pair && new Date(t.closeTime || t.timestamp || 0) >= todayStart;
+        const sym2 = (t.symbol || "").toUpperCase().replace("/", "");
+        return sym2 === pair && new Date(t.closeTime || t.timestamp || 0) >= todayStart;
       });
       const pairDbWeek = dbWeekTrades.filter((t) => (t.symbol || "").toUpperCase().replace("/", "") === pair);
       const pairCacheWeek = cacheWeekTrades.filter((t) => (t.symbol || "").toUpperCase().replace("/", "") === pair);
@@ -80604,8 +80987,8 @@ Return this EXACT JSON (no markdown, no commentary):
     if (!strat?.plan) return res.status(404).json({ error: "No active VEDD SS AI plan" });
     try {
       const { createCanvas, loadImage } = await import("canvas");
-      const path20 = await import("path");
-      const fs18 = await import("fs");
+      const path19 = await import("path");
+      const fs17 = await import("fs");
       const { getLiveEngineState: getLiveEngineState3 } = await Promise.resolve().then(() => (init_live_trading_engine(), live_trading_engine_exports));
       const engineState = getLiveEngineState3(userId);
       const engineRunning = engineState?.status === "running";
@@ -80691,8 +81074,8 @@ Return this EXACT JSON (no markdown, no commentary):
       ctx.closePath();
       ctx.fill();
       try {
-        const logoPath = path20.default.join(process.cwd(), "attached_assets", "IMG_3645.png");
-        if (fs18.default.existsSync(logoPath)) {
+        const logoPath = path19.default.join(process.cwd(), "attached_assets", "IMG_3645.png");
+        if (fs17.default.existsSync(logoPath)) {
           const logo = await loadImage(logoPath);
           const lh = 64, lw = logo.width / logo.height * lh;
           ctx.drawImage(logo, 44, 26, lw, lh);
@@ -80953,10 +81336,10 @@ Return this EXACT JSON (no markdown, no commentary):
       }
       const buffer = canvas.toBuffer("image/png");
       const fileName = `vedd-ss-ai-progress-${userId}-${Date.now()}.png`;
-      const outDir = path20.default.join(process.cwd(), "uploads", "share-cards");
-      if (!fs18.default.existsSync(outDir)) fs18.default.mkdirSync(outDir, { recursive: true });
-      const filePath = path20.default.join(outDir, fileName);
-      fs18.default.writeFileSync(filePath, buffer);
+      const outDir = path19.default.join(process.cwd(), "uploads", "share-cards");
+      if (!fs17.default.existsSync(outDir)) fs17.default.mkdirSync(outDir, { recursive: true });
+      const filePath = path19.default.join(outDir, fileName);
+      fs17.default.writeFileSync(filePath, buffer);
       res.json({
         success: true,
         imageUrl: `/uploads/share-cards/${fileName}`,
@@ -83031,7 +83414,7 @@ Format each recommendation as a clear, concise action item.`;
         temperature: 0.7
       });
       const aiResponse = response.choices[0]?.message?.content || "";
-      const recommendations = aiResponse.split("\n").filter((line) => line.trim().match(/^\d+\.|\-|\*/) || line.includes("Recommendation")).map((line) => line.replace(/^\d+\.\s*|\-\s*|\*\s*/, "").trim()).filter((line) => line.length > 10).slice(0, 6);
+      const recommendations = aiResponse.split("\n").filter((line2) => line2.trim().match(/^\d+\.|\-|\*/) || line2.includes("Recommendation")).map((line2) => line2.replace(/^\d+\.\s*|\-\s*|\*\s*/, "").trim()).filter((line2) => line2.length > 10).slice(0, 6);
       const eaSettings = {
         symbol,
         directionBias,
@@ -83211,9 +83594,9 @@ Format each recommendation as a clear, concise action item.`;
     ];
     const pairKnowledge = {};
     const { collapseToSignals: _collapse } = await Promise.resolve().then(() => (init_signal_groups(), signal_groups_exports));
-    for (const sym of uniqueSymbols) {
+    for (const sym2 of uniqueSymbols) {
       const symTrades = _collapse(
-        combinedTrades.filter((t) => t.symbol === sym && (t.result === "WIN" || t.result === "LOSS" || t.result === "BREAKEVEN")).map((t) => ({ ...t, pnl: Number(t.profit) || 0, entryMs: Number(t.closedTs || t.timestamp) || 0 }))
+        combinedTrades.filter((t) => t.symbol === sym2 && (t.result === "WIN" || t.result === "LOSS" || t.result === "BREAKEVEN")).map((t) => ({ ...t, pnl: Number(t.profit) || 0, entryMs: Number(t.closedTs || t.timestamp) || 0 }))
       ).map((g) => ({ ...g, profit: g.pnl }));
       const _lossStreak = computeLossStreak(symTrades);
       const wins = symTrades.filter((t) => t.result === "WIN");
@@ -83271,7 +83654,7 @@ Format each recommendation as a clear, concise action item.`;
         }
       });
       const pairConnected = Object.values(connectedPairs).find(
-        (p) => (p.symbol || "").toUpperCase().replace("/", "") === sym
+        (p) => (p.symbol || "").toUpperCase().replace("/", "") === sym2
       );
       const strategyStats = {};
       symTrades.forEach((t) => {
@@ -83312,9 +83695,9 @@ Format each recommendation as a clear, concise action item.`;
         winFraction - (1 - winFraction) / Math.max(rrRatio, 0.5)
       ));
       const optimalTrailPips = Math.max(5, Math.round(avgWinPips * 0.4));
-      const _pip = /JPY/.test(sym) ? 0.01 : /^XAU/.test(sym) ? 0.1 : /^(BTC|ETH)/.test(sym) ? 1 : /^(US30|NAS|SPX|GER|UK1|JP2)/.test(sym) ? 1 : 1e-4;
+      const _pip = /JPY/.test(sym2) ? 0.01 : /^XAU/.test(sym2) ? 0.1 : /^(BTC|ETH)/.test(sym2) ? 1 : /^(US30|NAS|SPX|GER|UK1|JP2)/.test(sym2) ? 1 : 1e-4;
       const minProfitableATR = avgWinPips > 0 ? avgWinPips * _pip / 10 : 0;
-      pairKnowledge[sym] = {
+      pairKnowledge[sym2] = {
         totalTrades: totalCompleted,
         winRate: winRate2,
         avgWinPips,
@@ -83336,7 +83719,7 @@ Format each recommendation as a clear, concise action item.`;
         lastSignal: pairConnected?.signal || null,
         lastConfidence: pairConnected?.confidence || null,
         currentSpread: pairConnected?.spread || null,
-        lastPrice: pairConnected?.price || lastChartData[sym]?.close || null,
+        lastPrice: pairConnected?.price || lastChartData[sym2]?.close || null,
         // ── New enforcement fields (T001) ────────────────────────────
         bestStrategies,
         optimalTrailPips,
@@ -83371,28 +83754,28 @@ Format each recommendation as a clear, concise action item.`;
     };
     if (overallWR >= 60) brain.learningInsights.push(`Strong edge detected: ${overallWR}% overall win rate across ${overallTotal} trades`);
     if (overallWR < 50 && overallTotal >= 10) brain.learningInsights.push(`Win rate below 50% - AI will prioritize higher-confidence setups only`);
-    for (const [sym, k2] of Object.entries(pairKnowledge)) {
+    for (const [sym2, k2] of Object.entries(pairKnowledge)) {
       if (k2.topSessions.length > 0 && k2.topSessions[0].winRate >= 70) {
-        brain.learningInsights.push(`${sym}: ${k2.topSessions[0].session} session is a goldmine (${k2.topSessions[0].winRate}% WR)`);
+        brain.learningInsights.push(`${sym2}: ${k2.topSessions[0].session} session is a goldmine (${k2.topSessions[0].winRate}% WR)`);
       }
       if (k2.preferredDirection !== "BOTH") {
-        brain.learningInsights.push(`${sym}: Strong ${k2.preferredDirection} bias detected (${k2.preferredDirection === "BUY" ? k2.buyWinRate : k2.sellWinRate}% WR)`);
+        brain.learningInsights.push(`${sym2}: Strong ${k2.preferredDirection} bias detected (${k2.preferredDirection === "BUY" ? k2.buyWinRate : k2.sellWinRate}% WR)`);
       }
       if (k2.worstHours.length > 0 && k2.worstHours[0].winRate < 30 && k2.worstHours[0].total >= 3) {
-        brain.learningInsights.push(`${sym}: Avoid ${k2.worstHours[0].hour}:00 UTC (${k2.worstHours[0].winRate}% WR - loss zone)`);
+        brain.learningInsights.push(`${sym2}: Avoid ${k2.worstHours[0].hour}:00 UTC (${k2.worstHours[0].winRate}% WR - loss zone)`);
       }
     }
     const optimalMinConfidence = {};
-    for (const [sym, k2] of Object.entries(pairKnowledge)) {
+    for (const [sym2, k2] of Object.entries(pairKnowledge)) {
       if (k2.totalTrades < 10) continue;
-      const symTrades = combinedTrades.filter((t) => t.symbol === sym);
+      const symTrades = combinedTrades.filter((t) => t.symbol === sym2);
       for (const threshold of [85, 80, 75, 70, 65]) {
         const above = symTrades.filter((t) => (t.confidence || 0) >= threshold);
         if (above.length < 3) continue;
         const wr = above.filter((t) => t.result === "WIN").length / above.length;
         if (wr >= 0.6) {
-          optimalMinConfidence[sym] = threshold;
-          if (wr >= 0.7) brain.learningInsights.push(`${sym}: optimal confidence gate auto-set to ${threshold}% (${Math.round(wr * 100)}% WR above this threshold)`);
+          optimalMinConfidence[sym2] = threshold;
+          if (wr >= 0.7) brain.learningInsights.push(`${sym2}: optimal confidence gate auto-set to ${threshold}% (${Math.round(wr * 100)}% WR above this threshold)`);
           break;
         }
       }
@@ -83407,12 +83790,12 @@ Format each recommendation as a clear, concise action item.`;
       if (newTrades > 0) updateChanges.push(`+${newTrades} new trade${newTrades !== 1 ? "s" : ""} ingested (${brain.totalTradesAnalyzed} total)`);
       const newPairs = Object.keys(brain.pairKnowledge).filter((p) => !prevBrain.pairKnowledge?.[p]);
       if (newPairs.length > 0) updateChanges.push(`New pairs learned: ${newPairs.join(", ")}`);
-      for (const [sym, k2] of Object.entries(brain.pairKnowledge)) {
-        const prev = prevBrain.pairKnowledge?.[sym];
+      for (const [sym2, k2] of Object.entries(brain.pairKnowledge)) {
+        const prev = prevBrain.pairKnowledge?.[sym2];
         if (!prev) continue;
         const wrChange = k2.winRate - (prev.winRate ?? 0);
-        if (Math.abs(wrChange) >= 3) updateChanges.push(`${sym} win rate ${wrChange > 0 ? "\u25B2" : "\u25BC"} ${Math.abs(wrChange)}% \u2192 ${k2.winRate}%`);
-        if (prev.preferredDirection !== k2.preferredDirection) updateChanges.push(`${sym} direction bias changed: ${prev.preferredDirection} \u2192 ${k2.preferredDirection}`);
+        if (Math.abs(wrChange) >= 3) updateChanges.push(`${sym2} win rate ${wrChange > 0 ? "\u25B2" : "\u25BC"} ${Math.abs(wrChange)}% \u2192 ${k2.winRate}%`);
+        if (prev.preferredDirection !== k2.preferredDirection) updateChanges.push(`${sym2} direction bias changed: ${prev.preferredDirection} \u2192 ${k2.preferredDirection}`);
       }
     } else {
       updateChanges.push(`Brain initialized from ${brain.totalTradesAnalyzed} trades across ${brain.pairsLearned} pairs`);
@@ -83424,9 +83807,9 @@ Format each recommendation as a clear, concise action item.`;
     }
     global.veddAIBrain[userId] = brain;
     try {
-      const brainDir = path16.join(process.cwd(), "data", "brains");
-      if (!fs16.existsSync(brainDir)) fs16.mkdirSync(brainDir, { recursive: true });
-      fs16.writeFileSync(path16.join(brainDir, `brain_${userId}.json`), JSON.stringify(brain));
+      const brainDir = path15.join(process.cwd(), "data", "brains");
+      if (!fs15.existsSync(brainDir)) fs15.mkdirSync(brainDir, { recursive: true });
+      fs15.writeFileSync(path15.join(brainDir, `brain_${userId}.json`), JSON.stringify(brain));
     } catch (_brainSaveErr) {
     }
     console.log(`[VEDD Brain] Learned from ${combinedTrades.length} trades across ${uniqueSymbols.length} pairs for user ${userId}`);
@@ -83435,9 +83818,9 @@ Format each recommendation as a clear, concise action item.`;
   global.runBrainLearning = runBrainLearning;
   global.loadPersistedBrain = (userId) => {
     try {
-      const p = path16.join(process.cwd(), "data", "brains", `brain_${userId}.json`);
-      if (!fs16.existsSync(p)) return null;
-      const brain = JSON.parse(fs16.readFileSync(p, "utf-8"));
+      const p = path15.join(process.cwd(), "data", "brains", `brain_${userId}.json`);
+      if (!fs15.existsSync(p)) return null;
+      const brain = JSON.parse(fs15.readFileSync(p, "utf-8"));
       global.veddAIBrain = global.veddAIBrain || {};
       global.veddAIBrain[userId] = brain;
       return brain;
@@ -83655,9 +84038,9 @@ Format each recommendation as a clear, concise action item.`;
     let brain = g.veddAIBrain[userId];
     if (!brain) {
       try {
-        const p = path16.join(process.cwd(), "data", "brains", `brain_${userId}.json`);
-        if (fs16.existsSync(p)) {
-          brain = JSON.parse(fs16.readFileSync(p, "utf-8"));
+        const p = path15.join(process.cwd(), "data", "brains", `brain_${userId}.json`);
+        if (fs15.existsSync(p)) {
+          brain = JSON.parse(fs15.readFileSync(p, "utf-8"));
           g.veddAIBrain[userId] = brain;
         }
       } catch (_) {
@@ -84042,22 +84425,22 @@ Format each recommendation as a clear, concise action item.`;
       const connectedPairs = global.mt5ConnectedPairs?.[userId] || {};
       const mt5Cache = global.mt5ChartDataCache || {};
       const openPositions = global.mt5OpenPositions?.[userId]?.positions || [];
-      const getBestCandles = (sym) => {
+      const getBestCandles = (sym2) => {
         for (const tf of ["M15", "M30", "H1", "M5", "M6", "M1"]) {
-          const entry = mt5Cache[`mt5_chart_${userId}_${sym}_${tf}`];
+          const entry = mt5Cache[`mt5_chart_${userId}_${sym2}_${tf}`];
           if (entry?.candles?.length >= 10) return entry.candles;
         }
         return [];
       };
       const liveContext = {};
-      const buildContextEntry = async (sym, knowledge) => {
+      const buildContextEntry = async (sym2, knowledge) => {
         const pairData = Object.values(connectedPairs).find(
-          (p) => (p.symbol || "").toUpperCase().replace("/", "") === sym
+          (p) => (p.symbol || "").toUpperCase().replace("/", "") === sym2
         );
         const hasOpenPos = openPositions.some(
-          (p) => (p.symbol || "").toUpperCase().replace("/", "") === sym
+          (p) => (p.symbol || "").toUpperCase().replace("/", "") === sym2
         );
-        const candles = getBestCandles(sym);
+        const candles = getBestCandles(sym2);
         const latest = candles[0];
         const atr2 = latest?.atr || null;
         const rsi3 = latest?.rsi || null;
@@ -84100,13 +84483,13 @@ Format each recommendation as a clear, concise action item.`;
           cvd: cvdData.signal ? cvdData : void 0
         };
       };
-      for (const [sym, knowledge] of Object.entries(brain.pairKnowledge)) {
-        liveContext[sym] = await buildContextEntry(sym, knowledge);
+      for (const [sym2, knowledge] of Object.entries(brain.pairKnowledge)) {
+        liveContext[sym2] = await buildContextEntry(sym2, knowledge);
       }
-      for (const sym of userPairs) {
-        if (liveContext[sym]) continue;
-        liveContext[sym] = {
-          ...await buildContextEntry(sym, {}),
+      for (const sym2 of userPairs) {
+        if (liveContext[sym2]) continue;
+        liveContext[sym2] = {
+          ...await buildContextEntry(sym2, {}),
           noHistory: true,
           // flag rendered in context table
           totalTrades: 0
@@ -84129,9 +84512,9 @@ RULES: 1) Only trade instruments where ORB High/Low is in the ORB DATA section. 
       const mt5ChartCacheBrain = global.mt5ChartDataCache || {};
       const orbContextLines = [];
       const trackedSymsBrain = Object.keys(mt5ChartCacheBrain).filter((k2) => k2.startsWith(`mt5_chart_${userId}_`)).map((k2) => k2.replace(`mt5_chart_${userId}_`, "").replace(/_[A-Z0-9]+$/, "")).filter((v, i, a) => a.indexOf(v) === i);
-      for (const sym of trackedSymsBrain.slice(0, 8)) {
+      for (const sym2 of trackedSymsBrain.slice(0, 8)) {
         for (const tf of ["M6", "M5", "M1", "M15"]) {
-          const entry = mt5ChartCacheBrain[`mt5_chart_${userId}_${sym}_${tf}`];
+          const entry = mt5ChartCacheBrain[`mt5_chart_${userId}_${sym2}_${tf}`];
           if (!entry?.candles?.length) continue;
           const candles = entry.candles;
           const currPrice = candles[0]?.c || candles[0]?.close || 0;
@@ -84165,7 +84548,7 @@ RULES: 1) Only trade instruments where ORB High/Low is in the ORB DATA section. 
             else if (Math.abs(currPrice - orbH) / orbH < 2e-3) phase2 = "AT ORB HIGH \u2014 breakout watch";
             else if (Math.abs(currPrice - orbL) / orbL < 2e-3) phase2 = "AT ORB LOW \u2014 breakdown watch";
             orbContextLines.push(
-              `${sym}: ORB_HIGH=${orbH} ORB_LOW=${orbL} RANGE=${range} PRICE=${currPrice.toFixed(4)} PHASE="${phase2}" | Suggested BUY STOP entryPrice=${orbH} SL=${slLong} TP=${tp1Long} | Suggested SELL STOP entryPrice=${orbL} SL=${slShort} TP=${tp1Short}`
+              `${sym2}: ORB_HIGH=${orbH} ORB_LOW=${orbL} RANGE=${range} PRICE=${currPrice.toFixed(4)} PHASE="${phase2}" | Suggested BUY STOP entryPrice=${orbH} SL=${slLong} TP=${tp1Long} | Suggested SELL STOP entryPrice=${orbL} SL=${slShort} TP=${tp1Short}`
             );
           }
           break;
@@ -84176,7 +84559,7 @@ LIVE ORB DATA (use these exact levels for ORB signals \u2014 do NOT fabricate):
 ${orbContextLines.join("\n")}` : `
 ORB DATA: No ORB data available (MT5 EA not connected or market not open). Do not generate ORB signals.`;
       const vpLines = [];
-      for (const [sym, ctx] of Object.entries(liveContext)) {
+      for (const [sym2, ctx] of Object.entries(liveContext)) {
         const vp = ctx.volumeProfile;
         if (!vp?.poc) continue;
         const price = ctx.currentPrice;
@@ -84188,12 +84571,12 @@ ORB DATA: No ORB data available (MT5 EA not connected or market not open). Do no
           else if (price > vp.poc) priceRelation = " \u2014 price between POC and VAH (bullish value area, support near POC)";
           else priceRelation = " \u2014 price between POC and VAL (bearish value area, resistance near POC)";
         }
-        vpLines.push(`${sym}: POC=${vp.poc} VAH=${vp.vah} VAL=${vp.val} (POC strength: ${vp.pocStrength}% of vol)${priceRelation}`);
+        vpLines.push(`${sym2}: POC=${vp.poc} VAH=${vp.vah} VAL=${vp.val} (POC strength: ${vp.pocStrength}% of vol)${priceRelation}`);
       }
       const vpSection = vpLines.length > 0 ? `
 VOLUME PROFILE (computed from live candles \u2014 highest-volume price nodes):
 ${vpLines.join("\n")}` : "";
-      const buildContextTable = () => Object.entries(liveContext).map(([sym, c]) => {
+      const buildContextTable = () => Object.entries(liveContext).map(([sym2, c]) => {
         const live = [
           c.currentPrice ? `px=${c.currentPrice}` : "",
           c.rsi ? `rsi=${c.rsi}` : "",
@@ -84205,7 +84588,7 @@ ${vpLines.join("\n")}` : "";
           c.cvd?.signal && c.cvd.signal !== "NEUTRAL" ? `CVD=${c.cvd.signal}(${c.cvd.aggressionStrength}_${c.cvd.aggressionSide}${c.cvd.cvdDivergence !== "NONE" ? ",DIV:" + c.cvd.cvdDivergence : ""})` : ""
         ].filter(Boolean).join(" ");
         if (c.noHistory) {
-          return `${sym}: ${live || "no live data"} | NEW PAIR \u2014 no trade history, signal based on price action, KC, CVD and VP levels`;
+          return `${sym2}: ${live || "no live data"} | NEW PAIR \u2014 no trade history, signal based on price action, KC, CVD and VP levels`;
         }
         const hist = [
           c.winRate != null ? `wr=${c.winRate}%(${c.totalTrades || 0}t)` : "",
@@ -84220,7 +84603,7 @@ ${vpLines.join("\n")}` : "";
           c.bestStrategies?.length ? `edge=${c.bestStrategies.slice(0, 2).join("/")}` : "",
           c.hasOpenPosition ? "OPEN_POS" : ""
         ].filter(Boolean).join(" ");
-        return `${sym}: ${live} | ${hist}`;
+        return `${sym2}: ${live} | ${hist}`;
       }).join("\n");
       const buildPrompt = (mode) => `GENERATE TRADE SIGNALS \u2014 ${mode.toUpperCase()} MODE
 Time: ${nowUTC.toISOString()} (${currentSession} session, ${currentDay}, UTC${currentHour})
@@ -84429,14 +84812,14 @@ Respond with ONLY valid JSON:
               continue;
             }
             const aiSuggestedLot = parseNum(sig.lotSize);
-            const sym = (sig.symbol || "").toUpperCase().replace("/", "");
+            const sym2 = (sig.symbol || "").toUpperCase().replace("/", "");
             let baseLotSize;
             if (stopLoss && entryPrice && entryPrice > 0 && stopLoss > 0) {
               const slDistance = Math.abs(entryPrice - stopLoss);
               const riskAmount = userAccountBalance * (userRiskPerTrade / 100);
-              if (sym.includes("XAU") || sym.includes("GOLD")) {
+              if (sym2.includes("XAU") || sym2.includes("GOLD")) {
                 baseLotSize = Math.max(userBaseLotSize, Math.min(aiSuggestedLot || userBaseLotSize, userMaxLotSize));
-              } else if (sym.includes("BTC") || sym.includes("ETH") || sym.includes("NAS") || sym.includes("US30") || sym.includes("SPX")) {
+              } else if (sym2.includes("BTC") || sym2.includes("ETH") || sym2.includes("NAS") || sym2.includes("US30") || sym2.includes("SPX")) {
                 baseLotSize = Math.max(userBaseLotSize, Math.min(aiSuggestedLot || userBaseLotSize, userMaxLotSize));
               } else {
                 const estimatedLot = slDistance > 0 ? riskAmount / (slDistance * 1e5 * 1e-4 * 10) : userBaseLotSize;
@@ -84446,7 +84829,7 @@ Respond with ONLY valid JSON:
               baseLotSize = Math.max(userBaseLotSize, Math.min(aiSuggestedLot || userBaseLotSize, userMaxLotSize));
             }
             baseLotSize = Math.round(baseLotSize * 100) / 100;
-            const pairOptimalConf = brain.optimalMinConfidence?.[sym] ?? userMinConfidence;
+            const pairOptimalConf = brain.optimalMinConfidence?.[sym2] ?? userMinConfidence;
             const effectiveMinConf = Math.max(pairOptimalConf, userMinConfidence - 5);
             const brainGuard = tlSignalGuard({
               confidence: confidence2,
@@ -84726,11 +85109,11 @@ Respond with ONLY valid JSON:
       scan.netPnL = Math.round(scan.netPnL * 100) / 100;
       const pairGroups = {};
       for (const t of weekResults) {
-        const sym = (t.symbol || "UNKNOWN").toUpperCase().replace("/", "");
-        if (!pairGroups[sym]) pairGroups[sym] = [];
-        pairGroups[sym].push(t);
+        const sym2 = (t.symbol || "UNKNOWN").toUpperCase().replace("/", "");
+        if (!pairGroups[sym2]) pairGroups[sym2] = [];
+        pairGroups[sym2].push(t);
       }
-      for (const [sym, trades] of Object.entries(pairGroups)) {
+      for (const [sym2, trades] of Object.entries(pairGroups)) {
         const w = trades.filter((t) => t.result === "WIN");
         const l = trades.filter((t) => t.result === "LOSS");
         const tot = w.length + l.length;
@@ -84742,7 +85125,7 @@ Respond with ONLY valid JSON:
         const pairPnL = Math.round(trades.reduce((s, t) => s + Number(t.profitLoss ?? 0), 0) * 100) / 100;
         const avgWinPips = w.length > 0 ? Math.round(w.reduce((s, t) => s + Number(t.profitLossPips ?? 0), 0) / w.length * 10) / 10 : 0;
         const potentialTrailTrades = w.filter((t) => avgWinPips > 20);
-        scan.pairAnalysis[sym] = {
+        scan.pairAnalysis[sym2] = {
           total: trades.length,
           wins: w.length,
           losses: l.length,
@@ -84756,20 +85139,20 @@ Respond with ONLY valid JSON:
           trailingOpportunity: potentialTrailTrades.length > 0
         };
         if (tot === 0 && trades.length > 0) {
-          scan.scanInsights.push(`${sym}: ${trades.length} signal(s) this week but 0 completed trades \u2014 check if pending or blocked before execution`);
+          scan.scanInsights.push(`${sym2}: ${trades.length} signal(s) this week but 0 completed trades \u2014 check if pending or blocked before execution`);
         }
         if (wr < 40 && tot >= 3) {
-          scan.scanInsights.push(`${sym}: Win rate only ${wr}% this week (${w.length}W/${l.length}L) \u2014 likely entering at wrong session or against trend`);
-          scan.accuracyImprovements.push(`${sym}: Wait for strong session confirmation before entry; current signals may be fighting the higher-timeframe trend`);
+          scan.scanInsights.push(`${sym2}: Win rate only ${wr}% this week (${w.length}W/${l.length}L) \u2014 likely entering at wrong session or against trend`);
+          scan.accuracyImprovements.push(`${sym2}: Wait for strong session confirmation before entry; current signals may be fighting the higher-timeframe trend`);
         }
         if (wr >= 70 && tot >= 2) {
-          scan.scanInsights.push(`${sym}: Strong week \u2014 ${wr}% win rate. Brain will auto-increase lot recommendation for this pair`);
+          scan.scanInsights.push(`${sym2}: Strong week \u2014 ${wr}% win rate. Brain will auto-increase lot recommendation for this pair`);
         }
         if (avgConf < 72 && trades.length >= 2) {
-          scan.accuracyImprovements.push(`${sym}: Average confidence this week was ${avgConf}% \u2014 consider raising minimum confidence gate to 75%+ for this pair`);
+          scan.accuracyImprovements.push(`${sym2}: Average confidence this week was ${avgConf}% \u2014 consider raising minimum confidence gate to 75%+ for this pair`);
         }
         if (potentialTrailTrades.length > 0) {
-          scan.trailingOpportunities.push(`${sym}: ${potentialTrailTrades.length} winning trade(s) averaged ${avgWinPips} pips \u2014 a trailing stop would have captured more. Enable trailing stop in Profile settings.`);
+          scan.trailingOpportunities.push(`${sym2}: ${potentialTrailTrades.length} winning trade(s) averaged ${avgWinPips} pips \u2014 a trailing stop would have captured more. Enable trailing stop in Profile settings.`);
         }
       }
       if (scan.weeklyWinRate < 50 && completed >= 5) {
@@ -84799,9 +85182,9 @@ Respond with ONLY valid JSON:
         global.veddAIBrain[userId].lastWeeklyScan = scan;
         global.veddAIBrain[userId].weeklyScanInsights = scan.scanInsights;
         try {
-          const brainDir = path16.join(process.cwd(), "data", "brains");
-          if (!fs16.existsSync(brainDir)) fs16.mkdirSync(brainDir, { recursive: true });
-          fs16.writeFileSync(path16.join(brainDir, `brain_${userId}.json`), JSON.stringify(global.veddAIBrain[userId]));
+          const brainDir = path15.join(process.cwd(), "data", "brains");
+          if (!fs15.existsSync(brainDir)) fs15.mkdirSync(brainDir, { recursive: true });
+          fs15.writeFileSync(path15.join(brainDir, `brain_${userId}.json`), JSON.stringify(global.veddAIBrain[userId]));
         } catch (_) {
         }
       }
@@ -84864,8 +85247,8 @@ Respond with ONLY valid JSON:
         if (t.result === "WIN") pairMap[t.symbol].wins++;
         pairMap[t.symbol].profit += t.profit || 0;
       }
-      const pairList = Object.entries(pairMap).map(([sym, d]) => ({
-        symbol: sym,
+      const pairList = Object.entries(pairMap).map(([sym2, d]) => ({
+        symbol: sym2,
         ...d,
         winRate: d.trades > 0 ? Math.round(d.wins / d.trades * 100) : 0
       }));
@@ -84895,7 +85278,7 @@ Respond with ONLY valid JSON:
         goalAcceleration = `Weekly goal ACHIEVED! $${closedProfit.toFixed(2)} / $${weekTarget}. Consider switching to SAFE path to protect profits.`;
       }
       const brainInsights = brain?.learningInsights?.slice(0, 4) || [];
-      const pairOptimalConfs = Object.entries(optimalConf).slice(0, 5).map(([sym, conf]) => `${sym}: ${conf}%+ confidence`);
+      const pairOptimalConfs = Object.entries(optimalConf).slice(0, 5).map(([sym2, conf]) => `${sym2}: ${conf}%+ confidence`);
       res.json({
         weeklyIssues,
         goalAcceleration,
@@ -85438,20 +85821,20 @@ Respond with ONLY valid JSON:
       });
     }
   });
-  const _polyWalletsFile = path16.join(process.cwd(), "data", "polymarket_wallets.json");
+  const _polyWalletsFile = path15.join(process.cwd(), "data", "polymarket_wallets.json");
   const _loadPolyWallets = () => {
     try {
-      if (fs16.existsSync(_polyWalletsFile)) return JSON.parse(fs16.readFileSync(_polyWalletsFile, "utf-8"));
+      if (fs15.existsSync(_polyWalletsFile)) return JSON.parse(fs15.readFileSync(_polyWalletsFile, "utf-8"));
     } catch {
     }
     return {};
   };
   const _savePolyWallets = (map) => {
     try {
-      const dir = path16.join(process.cwd(), "data");
-      if (!fs16.existsSync(dir)) fs16.mkdirSync(dir, { recursive: true });
+      const dir = path15.join(process.cwd(), "data");
+      if (!fs15.existsSync(dir)) fs15.mkdirSync(dir, { recursive: true });
       const content = JSON.stringify(map, null, 2);
-      fs16.writeFileSync(_polyWalletsFile, content);
+      fs15.writeFileSync(_polyWalletsFile, content);
       backupDurableFile("polymarket_wallets.json", content);
     } catch {
     }
@@ -86868,20 +87251,20 @@ Return ONLY JSON: {"topPicks":[{"market":"","winProbability":<0-100>,"whyItWins"
     const closed = await closeAllKalshiTrades2(userId);
     res.json({ success: true, closed, state: getKalshiEngineState2(userId) });
   });
-  const _polyKeysFile = path16.join(process.cwd(), "data", "polymarket_keys.json");
+  const _polyKeysFile = path15.join(process.cwd(), "data", "polymarket_keys.json");
   const _loadPolyKeys = () => {
     try {
-      if (fs16.existsSync(_polyKeysFile)) return JSON.parse(fs16.readFileSync(_polyKeysFile, "utf-8"));
+      if (fs15.existsSync(_polyKeysFile)) return JSON.parse(fs15.readFileSync(_polyKeysFile, "utf-8"));
     } catch {
     }
     return {};
   };
   const _savePolyKeys = (map) => {
     try {
-      const dir = path16.join(process.cwd(), "data");
-      if (!fs16.existsSync(dir)) fs16.mkdirSync(dir, { recursive: true });
+      const dir = path15.join(process.cwd(), "data");
+      if (!fs15.existsSync(dir)) fs15.mkdirSync(dir, { recursive: true });
       const content = JSON.stringify(map, null, 2);
-      fs16.writeFileSync(_polyKeysFile, content);
+      fs15.writeFileSync(_polyKeysFile, content);
       backupDurableFile("polymarket_keys.json", content);
     } catch {
     }
@@ -88136,11 +88519,11 @@ Format your response as JSON with exactly these keys:
       let mediaUrl = null;
       let mediaType = null;
       if (req.file && req.file.buffer) {
-        const fs18 = await import("fs/promises");
-        const path20 = await import("path");
-        const filename = `content-${userId}-day${dayNumber}-${Date.now()}${path20.extname(req.file.originalname)}`;
-        const uploadPath = path20.join(process.cwd(), "uploads", filename);
-        await fs18.writeFile(uploadPath, req.file.buffer);
+        const fs17 = await import("fs/promises");
+        const path19 = await import("path");
+        const filename = `content-${userId}-day${dayNumber}-${Date.now()}${path19.extname(req.file.originalname)}`;
+        const uploadPath = path19.join(process.cwd(), "uploads", filename);
+        await fs17.writeFile(uploadPath, req.file.buffer);
         mediaUrl = `/uploads/${filename}`;
         mediaType = req.file.mimetype.startsWith("video/") ? "video" : "image";
       }
@@ -88953,8 +89336,8 @@ Generate a JSON object with:
       }
       const id = parseInt(streamId);
       const filename = `stream-recording-${streamType}-${id}-${Date.now()}.webm`;
-      const filePath = path16.join(uploadsDir2, filename);
-      fs16.writeFileSync(filePath, file.buffer);
+      const filePath = path15.join(uploadsDir2, filename);
+      fs15.writeFileSync(filePath, file.buffer);
       const recordingUrl = `/uploads/${filename}`;
       if (streamType === "schedule") {
         const schedule = await storage.getSchedule(id);
@@ -91484,7 +91867,7 @@ This request will not trigger a transaction or cost any fees.`;
         coolOffRemainingMin: mind.coolOffUntil > Date.now() ? Math.ceil((mind.coolOffUntil - Date.now()) / 6e4) : 0,
         adaptedConfidenceFloor: mind.adaptedConfidenceFloor,
         configuredConfidenceFloor: state.config.minConfidence,
-        softBlockedPairs: Object.entries(mind.softBlockedPairs || {}).filter(([, v]) => v.until > Date.now()).map(([sym, v]) => ({ sym, reason: v.reason, remainingMin: Math.ceil((v.until - Date.now()) / 6e4) })),
+        softBlockedPairs: Object.entries(mind.softBlockedPairs || {}).filter(([, v]) => v.until > Date.now()).map(([sym2, v]) => ({ sym: sym2, reason: v.reason, remainingMin: Math.ceil((v.until - Date.now()) / 6e4) })),
         blockedStrategies: mind.blockedStrategies ? [...mind.blockedStrategies] : [],
         pairSessionWins: mind.pairSessionWins,
         pairSessionLosses: mind.pairSessionLosses,
@@ -93375,24 +93758,11 @@ Sitemap: ${SEO_BASE_URL}/sitemap.xml
       if (!prompt) return res.status(400).json({ error: "Tell us what the video should explain." });
       const aspect = ["9:16", "4:5", "1:1", "16:9"].includes(req.body?.aspect) ? req.body.aspect : "9:16";
       const ex = await Promise.resolve().then(() => (init_explainer_video(), explainer_video_exports));
-      const { getBackgroundPreset: getBackgroundPreset2 } = await Promise.resolve().then(() => (init_backgrounds(), backgrounds_exports));
       const limit = Number(process.env.EXPLAINER_DAILY_LIMIT ?? 2);
       if (!u.isAdmin && await ex.rendersToday(u.id) >= limit) {
         return res.status(429).json({ error: `You've made ${limit} explainer videos today. You can make more tomorrow.` });
       }
-<<<<<<< HEAD
-      let presenterImage;
-      const presenterId = Number(req.body?.presenterId) || 0;
-      if (presenterId) {
-        const { getPresenter: getPresenter2, presenterAbsoluteUrl: presenterAbsoluteUrl2 } = await Promise.resolve().then(() => (init_presenters(), presenters_exports));
-        const p = await getPresenter2(u.id, presenterId);
-        if (p) presenterImage = presenterAbsoluteUrl2(req, p.imageUrl);
-      }
-      const jobId = await ex.startExplainerJob(u.id, prompt, aspect, { presenterImage });
-=======
-      const bg = getBackgroundPreset2(req.body?.backgroundId);
-      const jobId = await ex.startExplainerJob(u.id, prompt, aspect, { backgroundScene: bg?.scene });
->>>>>>> origin/feature/backgrounds-ad-formats
+      const jobId = await ex.startExplainerJob(u.id, prompt, aspect);
       res.json({ jobId });
     } catch (err) {
       res.status(500).json({ error: err.message });
@@ -93405,64 +93775,29 @@ Sitemap: ${SEO_BASE_URL}/sitemap.xml
     if (!job) return res.status(404).json({ error: "Not found" });
     res.json({ id: job.id, status: job.status, step: job.step, progress: job.progress, url: job.result_url, error: job.error, script: job.script, aspect: job.aspect });
   });
-<<<<<<< HEAD
-  app2.get("/api/content-studio/presenters", async (req, res) => {
-=======
-  app2.get("/api/content-studio/backgrounds", async (req, res) => {
->>>>>>> origin/feature/backgrounds-ad-formats
+  app2.get("/api/content-studio/sync-ads", async (req, res) => {
     const u = req.user;
     if (!req.isAuthenticated() || !(u?.isAmbassador || u?.isAdmin)) {
       return res.status(403).json({ error: "Ambassador or admin only" });
     }
-<<<<<<< HEAD
-    try {
-      const { listPresenters: listPresenters2 } = await Promise.resolve().then(() => (init_presenters(), presenters_exports));
-      res.json({ presenters: await listPresenters2(u.id) });
-    } catch (err) {
-      res.status(500).json({ error: err.message });
-    }
-  });
-  app2.post("/api/content-studio/presenters", async (req, res) => {
-    const u = req.user;
-    if (!req.isAuthenticated() || !(u?.isAmbassador || u?.isAdmin)) {
-      return res.status(403).json({ error: "Ambassador or admin only" });
-    }
-    try {
-      const name = String(req.body?.name || "").trim().slice(0, 60) || "My presenter";
-      const imageData = String(req.body?.imageData || "");
-      const m = imageData.match(/^data:(image\/[a-zA-Z0-9.+-]+);base64,([A-Za-z0-9+/=]+)$/);
-      if (!m) return res.status(400).json({ error: "imageData must be an image data URI" });
-      const buf = Buffer.from(m[2], "base64");
-      if (buf.byteLength < 100 || buf.byteLength > 8 * 1024 * 1024) {
-        return res.status(400).json({ error: "Image must be between 100 bytes and 8MB" });
-      }
-      const { persistBuffer: persistBuffer2 } = await Promise.resolve().then(() => (init_content_asset_store(), content_asset_store_exports));
-      const saved = await persistBuffer2(buf, m[1]);
-      if (!saved) return res.status(500).json({ error: "Could not save that photo. Please try again." });
-      const { createPresenter: createPresenter2 } = await Promise.resolve().then(() => (init_presenters(), presenters_exports));
-      const presenter = await createPresenter2(u.id, name, saved.url);
-      res.json({ presenter });
-    } catch (err) {
-      res.status(500).json({ error: err.message });
-    }
-  });
-  app2.delete("/api/content-studio/presenters/:id", async (req, res) => {
-    const u = req.user;
-    if (!req.isAuthenticated() || !(u?.isAmbassador || u?.isAdmin)) {
-      return res.status(403).json({ error: "Ambassador or admin only" });
-    }
-    try {
-      const { deletePresenter: deletePresenter2 } = await Promise.resolve().then(() => (init_presenters(), presenters_exports));
-      const ok = await deletePresenter2(u.id, Number(req.params.id));
-      if (!ok) return res.status(404).json({ error: "Not found" });
-      res.json({ ok: true });
-    } catch (err) {
-      res.status(500).json({ error: err.message });
-    }
-=======
-    const { BACKGROUND_PRESETS: BACKGROUND_PRESETS2 } = await Promise.resolve().then(() => (init_backgrounds(), backgrounds_exports));
-    res.json({ backgrounds: BACKGROUND_PRESETS2.map(({ id, label }) => ({ id, label })) });
->>>>>>> origin/feature/backgrounds-ad-formats
+    const { SYNC_AD_STYLES: SYNC_AD_STYLES2, SYNC_BANK_REFRESHED: SYNC_BANK_REFRESHED2 } = await Promise.resolve().then(() => (init_sync_ads(), sync_ads_exports));
+    res.json({
+      refreshed: SYNC_BANK_REFRESHED2,
+      styles: SYNC_AD_STYLES2.map((s) => ({
+        id: s.id,
+        sourceBrand: s.sourceBrand,
+        platform: s.platform,
+        title: s.title,
+        hookPattern: s.hookPattern,
+        format: s.format,
+        backgroundId: s.backgroundId,
+        ctaPattern: s.ctaPattern,
+        whyItWorks: s.whyItWorks,
+        signal: s.signal,
+        topicSeed: s.topicSeed,
+        caution: s.caution ?? null
+      }))
+    });
   });
   app2.post("/api/content-studio/plan-shot", async (req, res) => {
     const u = req.user;
@@ -93484,28 +93819,10 @@ Sitemap: ${SEO_BASE_URL}/sitemap.xml
       return res.status(403).json({ error: "Ambassador or admin only" });
     }
     try {
-<<<<<<< HEAD
-      const { prompt, shot, exact, aspect, brand, duration, quality, image, presenterId } = req.body;
+      const { prompt, shot, exact, aspect, brand, duration, quality, image } = req.body;
       if (!prompt && !shot) return res.status(400).json({ error: "prompt is required" });
       const { renderContentVideo: renderContentVideo2 } = await Promise.resolve().then(() => (init_content_video(), content_video_exports));
-      let startImage = image;
-      if (presenterId) {
-        const { getPresenter: getPresenter2, presenterAbsoluteUrl: presenterAbsoluteUrl2 } = await Promise.resolve().then(() => (init_presenters(), presenters_exports));
-        const p = await getPresenter2(u.id, Number(presenterId));
-        if (p) startImage = presenterAbsoluteUrl2(req, p.imageUrl);
-      }
-      const video = await renderContentVideo2(prompt || shot || "", { userId: u.id, shot, exact, aspect, brand, duration, quality, image: startImage });
-=======
-      const { prompt, shot, exact, aspect, brand, duration, quality, image, backgroundId } = req.body;
-      if (!prompt && !shot) return res.status(400).json({ error: "prompt is required" });
-      const { renderContentVideo: renderContentVideo2 } = await Promise.resolve().then(() => (init_content_video(), content_video_exports));
-      let backgroundScene;
-      if (backgroundId) {
-        const { getBackgroundPreset: getBackgroundPreset2 } = await Promise.resolve().then(() => (init_backgrounds(), backgrounds_exports));
-        backgroundScene = getBackgroundPreset2(backgroundId)?.scene;
-      }
-      const video = await renderContentVideo2(prompt || shot || "", { userId: u.id, shot, exact, aspect, brand, duration, quality, image, backgroundScene });
->>>>>>> origin/feature/backgrounds-ad-formats
+      const video = await renderContentVideo2(prompt || shot || "", { userId: u.id, shot, exact, aspect, brand, duration, quality, image });
       if (!video) return res.status(502).json({ error: "The video couldn't be made right now. Please try again in a minute." });
       if (video.persisted) {
         await storage.createContentStudioGeneration({
@@ -93528,41 +93845,20 @@ Sitemap: ${SEO_BASE_URL}/sitemap.xml
       return res.status(403).json({ error: "Ambassador or admin only" });
     }
     try {
-<<<<<<< HEAD
-      const { topic, duration, quality, image, presenterId } = req.body;
-=======
-      const { topic, duration, quality, image, backgroundId, format } = req.body;
->>>>>>> origin/feature/backgrounds-ad-formats
+      const { topic, duration, quality, image } = req.body;
       if (!topic) return res.status(400).json({ error: "topic is required" });
       const { generateReelScript: generateReelScript2 } = await Promise.resolve().then(() => (init_openai(), openai_exports));
-      const reelFormat = format === "product-ad" || format === "got-milk" ? format : "standard";
-      const script = await generateReelScript2(topic, u?.id, reelFormat);
+      const { getSyncAdStyle: getSyncAdStyle2 } = await Promise.resolve().then(() => (init_sync_ads(), sync_ads_exports));
+      const syncStyle = getSyncAdStyle2(req.body?.syncStyleId);
+      const script = await generateReelScript2(topic, u?.id, syncStyle?.styleNote);
       const { renderContentVideo: renderContentVideo2 } = await Promise.resolve().then(() => (init_content_video(), content_video_exports));
-<<<<<<< HEAD
-      let startImage = image;
-      if (presenterId) {
-        const { getPresenter: getPresenter2, presenterAbsoluteUrl: presenterAbsoluteUrl2 } = await Promise.resolve().then(() => (init_presenters(), presenters_exports));
-        const p = await getPresenter2(u.id, Number(presenterId));
-        if (p) startImage = presenterAbsoluteUrl2(req, p.imageUrl);
-=======
-      let backgroundScene;
-      if (backgroundId) {
-        const { getBackgroundPreset: getBackgroundPreset2 } = await Promise.resolve().then(() => (init_backgrounds(), backgrounds_exports));
-        backgroundScene = getBackgroundPreset2(backgroundId)?.scene;
->>>>>>> origin/feature/backgrounds-ad-formats
-      }
       const video = await renderContentVideo2(`Topic: ${topic}
 Scene idea: ${script.videoPrompt}`, {
         userId: u.id,
         aspect: req.body.aspect,
         duration,
         quality,
-<<<<<<< HEAD
-        image: startImage
-=======
-        image,
-        backgroundScene
->>>>>>> origin/feature/backgrounds-ad-formats
+        image
       });
       if (!video) return res.status(502).json({ error: "The video couldn't be made right now. Please try again in a minute." });
       if (video.persisted) {
@@ -94585,10 +94881,10 @@ Scene idea: ${script.videoPrompt}`, {
       return res.status(403).json({ error: "Admin access required" });
     }
     try {
-      const dataFile = path16.join(process.cwd(), "data", "curricula.json");
+      const dataFile = path15.join(process.cwd(), "data", "curricula.json");
       let curricula = [];
       try {
-        curricula = JSON.parse(fs16.readFileSync(dataFile, "utf-8"));
+        curricula = JSON.parse(fs15.readFileSync(dataFile, "utf-8"));
       } catch {
       }
       const entry = {
@@ -94598,8 +94894,8 @@ Scene idea: ${script.videoPrompt}`, {
         ...req.body
       };
       curricula.push(entry);
-      fs16.mkdirSync(path16.join(process.cwd(), "data"), { recursive: true });
-      fs16.writeFileSync(dataFile, JSON.stringify(curricula, null, 2));
+      fs15.mkdirSync(path15.join(process.cwd(), "data"), { recursive: true });
+      fs15.writeFileSync(dataFile, JSON.stringify(curricula, null, 2));
       res.json({ success: true, id: entry.id, message: "Curriculum saved to Academy" });
     } catch (err) {
       res.status(500).json({ error: err.message });
@@ -94608,10 +94904,10 @@ Scene idea: ${script.videoPrompt}`, {
   app2.get("/api/workforce/modules", async (req, res) => {
     if (!req.isAuthenticated()) return res.status(401).json({ error: "Unauthorized" });
     try {
-      const dataFile = path16.join(process.cwd(), "data", "curricula.json");
+      const dataFile = path15.join(process.cwd(), "data", "curricula.json");
       let saved = [];
       try {
-        saved = JSON.parse(fs16.readFileSync(dataFile, "utf-8"));
+        saved = JSON.parse(fs15.readFileSync(dataFile, "utf-8"));
       } catch {
       }
       res.json({ modules: saved, total: saved.length + 12 });
@@ -94700,10 +94996,10 @@ Scene idea: ${script.videoPrompt}`, {
   });
   app2.get("/api/verify/:certId", async (req, res) => {
     try {
-      const dataFile = path16.join(process.cwd(), "data", "certificates.json");
+      const dataFile = path15.join(process.cwd(), "data", "certificates.json");
       let certs = [];
       try {
-        certs = JSON.parse(fs16.readFileSync(dataFile, "utf-8"));
+        certs = JSON.parse(fs15.readFileSync(dataFile, "utf-8"));
       } catch {
       }
       const cert = certs.find((c) => c.certId === req.params.certId);
@@ -95113,11 +95409,11 @@ Scene idea: ${script.videoPrompt}`, {
     } catch {
     }
     const results = {};
-    for (const sym of symbols) {
+    for (const sym2 of symbols) {
       let candles = [];
       let usedTf = "";
       for (const tf of ["M15", "M30", "H1", "M5", "M6", "M1"]) {
-        const key = `mt5_chart_${userId}_${sym}_${tf}`;
+        const key = `mt5_chart_${userId}_${sym2}_${tf}`;
         const entry = mt5Cache[key];
         if (entry?.candles?.length >= 10) {
           candles = entry.candles;
@@ -95126,12 +95422,12 @@ Scene idea: ${script.videoPrompt}`, {
         }
       }
       if (candles.length < 10 || !computeVP) {
-        results[sym] = { available: false, reason: candles.length < 10 ? "no_data" : "vp_unavailable" };
+        results[sym2] = { available: false, reason: candles.length < 10 ? "no_data" : "vp_unavailable" };
         continue;
       }
       const vp = computeVP(candles);
       if (!vp) {
-        results[sym] = { available: false, reason: "insufficient_candles" };
+        results[sym2] = { available: false, reason: "insufficient_candles" };
         continue;
       }
       const lastCandle = candles[candles.length - 1];
@@ -95163,7 +95459,7 @@ Scene idea: ${script.videoPrompt}`, {
         direction = "SELL";
         entryNote = `Limit Entry SELL at POC retest ${poc.toFixed(5)}`;
       }
-      const ssSnap = ssEngineSnapshot[sym];
+      const ssSnap = ssEngineSnapshot[sym2];
       let ssEngineBias = null;
       if (ssSnap) {
         const ssDir = ssSnap.trend === "up" ? "BUY" : ssSnap.trend === "down" ? "SELL" : null;
@@ -95174,7 +95470,7 @@ Scene idea: ${script.videoPrompt}`, {
           agrees: !!(direction && ssDir && direction === ssDir)
         };
       }
-      results[sym] = {
+      results[sym2] = {
         available: true,
         poc,
         vah,
@@ -96085,11 +96381,11 @@ Scene idea: ${script.videoPrompt}`, {
       ]);
       const closed = trades.filter((t) => t.result && t.result !== "PENDING" && t.closedAt && new Date(t.closedAt).getTime() >= since);
       const matchOutcome = (t) => {
-        const sym = (t.symbol || "").toUpperCase().replace("/", "");
+        const sym2 = (t.symbol || "").toUpperCase().replace("/", "");
         const entryT = t.createdAt ? new Date(t.createdAt).getTime() : 0;
         let best = null, bestDiff = Infinity;
         for (const o of outcomes) {
-          if ((o.symbol || "").toUpperCase().replace("/", "") !== sym) continue;
+          if ((o.symbol || "").toUpperCase().replace("/", "") !== sym2) continue;
           const ot = o.confirmedAt ? new Date(o.confirmedAt).getTime() : 0;
           const d = Math.abs(ot - entryT);
           if (d < bestDiff) {
@@ -96535,14 +96831,14 @@ Scene idea: ${script.videoPrompt}`, {
 
 // server/vite.ts
 import express from "express";
-import fs17 from "fs";
-import path18 from "path";
+import fs16 from "fs";
+import path17 from "path";
 import { createServer as createViteServer, createLogger } from "vite";
 
 // vite.config.ts
 import { defineConfig } from "vite";
 import react from "@vitejs/plugin-react";
-import path17 from "path";
+import path16 from "path";
 var isReplit = process.env.REPL_ID !== void 0;
 var replitPlugins = isReplit ? [
   (await import("@replit/vite-plugin-shadcn-theme-json")).default(),
@@ -96561,14 +96857,14 @@ var vite_config_default = defineConfig({
   ],
   resolve: {
     alias: {
-      "@": path17.resolve(import.meta.dirname, "client", "src"),
-      "@shared": path17.resolve(import.meta.dirname, "shared"),
-      "@assets": path17.resolve(import.meta.dirname, "attached_assets")
+      "@": path16.resolve(import.meta.dirname, "client", "src"),
+      "@shared": path16.resolve(import.meta.dirname, "shared"),
+      "@assets": path16.resolve(import.meta.dirname, "attached_assets")
     }
   },
-  root: path17.resolve(import.meta.dirname, "client"),
+  root: path16.resolve(import.meta.dirname, "client"),
   build: {
-    outDir: path17.resolve(import.meta.dirname, "dist/public"),
+    outDir: path16.resolve(import.meta.dirname, "dist/public"),
     emptyOutDir: true,
     chunkSizeWarningLimit: 4e3,
     rollupOptions: {
@@ -96691,13 +96987,13 @@ async function setupVite(app2, server) {
       return res.status(404).json({ error: "Not found", path: url });
     }
     try {
-      const clientTemplate = path18.resolve(
+      const clientTemplate = path17.resolve(
         import.meta.dirname,
         "..",
         "client",
         "index.html"
       );
-      let template = await fs17.promises.readFile(clientTemplate, "utf-8");
+      let template = await fs16.promises.readFile(clientTemplate, "utf-8");
       template = template.replace(
         `src="/src/main.tsx"`,
         `src="/src/main.tsx?v=${TEMPLATE_VERSION}"`
@@ -96717,9 +97013,9 @@ async function setupVite(app2, server) {
   });
 }
 function serveStatic(app2) {
-  const distPath = path18.resolve(import.meta.dirname, "..", "dist", "public");
-  console.log(`[serveStatic] Looking for dist at: ${distPath} \u2014 exists: ${fs17.existsSync(distPath)}`);
-  if (!fs17.existsSync(distPath)) {
+  const distPath = path17.resolve(import.meta.dirname, "..", "dist", "public");
+  console.log(`[serveStatic] Looking for dist at: ${distPath} \u2014 exists: ${fs16.existsSync(distPath)}`);
+  if (!fs16.existsSync(distPath)) {
     throw new Error(
       `Could not find the build directory: ${distPath}, make sure to build the client first`
     );
@@ -96740,7 +97036,7 @@ function serveStatic(app2) {
       }
     }
   }));
-  const indexPath = path18.resolve(distPath, "index.html");
+  const indexPath = path17.resolve(distPath, "index.html");
   const versionScript = `<script>
 (function(){
   try{
@@ -96776,7 +97072,7 @@ function serveStatic(app2) {
         "Expires": "0",
         "Content-Type": "text/html; charset=utf-8"
       });
-      let html = await fs17.promises.readFile(indexPath, "utf-8");
+      let html = await fs16.promises.readFile(indexPath, "utf-8");
       html = await injectBlogSeoMeta(html, req.originalUrl);
       html = html.replace("<head>", "<head>" + versionScript);
       res.send(html);
@@ -96787,7 +97083,7 @@ function serveStatic(app2) {
 }
 
 // server/index.ts
-import path19 from "path";
+import path18 from "path";
 
 // server/auth.ts
 init_storage();
@@ -97731,19 +98027,19 @@ httpServer.listen(PORT, "0.0.0.0", () => {
   log(`serving on port ${PORT}`);
 });
 setupAuth(app);
-app.use("/uploads", express2.static(path19.join(process.cwd(), "uploads")));
-app.use("/ea-templates", express2.static(path19.join(process.cwd(), "public/ea-templates")));
-app.use("/downloads", express2.static(path19.join(process.cwd(), "public/downloads"), {
+app.use("/uploads", express2.static(path18.join(process.cwd(), "uploads")));
+app.use("/ea-templates", express2.static(path18.join(process.cwd(), "public/ea-templates")));
+app.use("/downloads", express2.static(path18.join(process.cwd(), "public/downloads"), {
   setHeaders: (res, filePath) => {
     if (filePath.endsWith(".mq5")) {
       res.setHeader("Content-Type", "text/plain; charset=utf-8");
-      res.setHeader("Content-Disposition", 'attachment; filename="' + path19.basename(filePath) + '"');
+      res.setHeader("Content-Disposition", 'attachment; filename="' + path18.basename(filePath) + '"');
     }
   }
 }));
 app.use((req, res, next) => {
   const start = Date.now();
-  const path20 = req.path;
+  const path19 = req.path;
   let capturedJsonResponse = void 0;
   const originalResJson = res.json;
   res.json = function(bodyJson, ...args) {
@@ -97752,8 +98048,8 @@ app.use((req, res, next) => {
   };
   res.on("finish", () => {
     const duration = Date.now() - start;
-    if (path20.startsWith("/api")) {
-      let logLine = `${req.method} ${path20} ${res.statusCode} in ${duration}ms`;
+    if (path19.startsWith("/api")) {
+      let logLine = `${req.method} ${path19} ${res.statusCode} in ${duration}ms`;
       if (capturedJsonResponse) {
         logLine += ` :: ${JSON.stringify(capturedJsonResponse)}`;
       }

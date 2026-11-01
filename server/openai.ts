@@ -4919,7 +4919,7 @@ OUTPUT: Return a JSON object with these exact fields:
 // scene prompt for the Replicate video model, all from one topic string.
 // Mirrors generateVeddBlogPost's client/provider fallback but with a much
 // shorter, punchier output tuned for a 5-6s vertical clip.
-export async function generateReelScript(topic: string, userId?: number, format?: string): Promise<{
+export async function generateReelScript(topic: string, userId?: number, format?: string, styleNote?: string): Promise<{
   hook: string;
   script: string[];
   caption: string;
@@ -4966,7 +4966,13 @@ Return a JSON object with these exact fields:
 - The videoPrompt scene matches the stuck moment, then the turn to camera.
 - No income or profit promises — the joke is the situation, never the money.`,
   };
-  const system = format && FORMAT_INSTRUCTIONS[format] ? `${systemPrompt}\n\n${FORMAT_INSTRUCTIONS[format]}` : systemPrompt;
+  const withFormat = format && FORMAT_INSTRUCTIONS[format] ? `${systemPrompt}\n\n${FORMAT_INSTRUCTIONS[format]}` : systemPrompt;
+  // Sync styles (services/sync-ads.ts): adapt a proven ad's STRUCTURE —
+  // its hook pattern, beats, setting and CTA shape — never its words,
+  // claims, footage or numbers.
+  const system = styleNote?.trim()
+    ? `${withFormat}\n\nADAPT THIS PROVEN AD STRUCTURE — copy the shape only, written for VEDD in the brand voice above:\n${styleNote.trim().slice(0, 900)}`
+    : withFormat;
 
   const response = await openai.chat.completions.create({
     model,

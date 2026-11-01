@@ -30947,6 +30947,26 @@ Generate an agenda with timing, topics, and hosting tips. Return JSON: {
     const { BACKGROUND_PRESETS } = await import('./services/backgrounds');
     res.json({ backgrounds: BACKGROUND_PRESETS.map(({ id, label }) => ({ id, label })) });
   });
+
+  // ── Sync: top-ad styles in the trading niche (researched bank — see
+  // services/sync-ads.ts for why this is a bank and not a live scrape).
+  // The styleNote stays server-side; the client gets the card data plus the
+  // generation knobs (format/background/topic seed) for "Make my version".
+  app.get("/api/content-studio/sync-ads", async (req, res) => {
+    const u = req.user as any;
+    if (!req.isAuthenticated() || !(u?.isAmbassador || u?.isAdmin)) {
+      return res.status(403).json({ error: "Ambassador or admin only" });
+    }
+    const { SYNC_AD_STYLES, SYNC_BANK_REFRESHED } = await import('./services/sync-ads');
+    res.json({
+      refreshed: SYNC_BANK_REFRESHED,
+      styles: SYNC_AD_STYLES.map((s) => ({
+        id: s.id, sourceBrand: s.sourceBrand, platform: s.platform, title: s.title,
+        hookPattern: s.hookPattern, format: s.format, backgroundId: s.backgroundId,
+        ctaPattern: s.ctaPattern, whyItWorks: s.whyItWorks, signal: s.signal,
+        topicSeed: s.topicSeed, caution: s.caution ?? null,
+      })),
+    });
   });
 
   // POST /api/content-studio/plan-shot — preview the single shot the video
@@ -31019,7 +31039,9 @@ Generate an agenda with timing, topics, and hosting tips. Return JSON: {
 
       const { generateReelScript } = await import('./openai');
       const reelFormat = format === 'product-ad' || format === 'got-milk' ? format : 'standard';
-      const script = await generateReelScript(topic, u?.id, reelFormat);
+      const { getSyncAdStyle } = await import('./services/sync-ads');
+      const syncStyle = getSyncAdStyle((req.body as any)?.syncStyleId);
+      const script = await generateReelScript(topic, u?.id, reelFormat, syncStyle?.styleNote);
 
       const { renderContentVideo } = await import('./services/content-video');
       // The reel's videoPrompt is still planned into one shot, anchored on the topic.
