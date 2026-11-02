@@ -16896,7 +16896,8 @@ CREATE OR REPLACE VIEW shadow_ledger AS
     FROM crypto_paper_trades c
    WHERE c.status = 'closed'
   UNION ALL
-  SELECT ('sol_paper:' || s.id)::text, 'sol_paper', 'sol', s.user_id,
+  SELECT ('sol_' || s.mode || ':' || s.id)::text,
+         CASE WHEN s.mode = 'shadow' THEN 'sol_shadow' ELSE 'sol_paper' END, 'sol', s.user_id,
          s.strategy_id, s.symbol, 'LONG',
          s.opened_at::timestamptz, NULLIF(s.closed_at, '')::timestamptz,
          extract(hour from s.opened_at::timestamptz AT TIME ZONE 'UTC')::int,
@@ -16906,7 +16907,7 @@ CREATE OR REPLACE VIEW shadow_ledger AS
          CASE WHEN s.sl_pct > 0 THEN (s.close_pnl_pct / s.sl_pct)::float END,
          s.close_pnl_pct::float
     FROM sol_engine_positions s
-   WHERE s.mode = 'paper' AND s.status = 'closed' AND s.close_pnl_pct IS NOT NULL
+   WHERE s.mode IN ('paper', 'shadow') AND s.status = 'closed' AND s.close_pnl_pct IS NOT NULL
 `;
     _ensured2 = null;
   }
@@ -17014,12 +17015,13 @@ var init_shadow_lessons = __esm({
       fx_shadow: "FX shadow models",
       crypto_shadow: "Crypto shadow models",
       crypto_paper: "Crypto paper engine",
-      sol_paper: "Sol paper engine"
+      sol_paper: "Sol paper engine",
+      sol_shadow: "Sol shadow tests"
     };
     ENGINE_SOURCES = {
       fx: ["fx_shadow"],
       crypto: ["crypto_paper", "crypto_shadow"],
-      sol: ["sol_paper"]
+      sol: ["sol_paper", "sol_shadow"]
     };
     _mem = /* @__PURE__ */ new Map();
   }

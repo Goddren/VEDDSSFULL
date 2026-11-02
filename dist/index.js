@@ -26430,7 +26430,8 @@ CREATE OR REPLACE VIEW shadow_ledger AS
     FROM crypto_paper_trades c
    WHERE c.status = 'closed'
   UNION ALL
-  SELECT ('sol_paper:' || s.id)::text, 'sol_paper', 'sol', s.user_id,
+  SELECT ('sol_' || s.mode || ':' || s.id)::text,
+         CASE WHEN s.mode = 'shadow' THEN 'sol_shadow' ELSE 'sol_paper' END, 'sol', s.user_id,
          s.strategy_id, s.symbol, 'LONG',
          s.opened_at::timestamptz, NULLIF(s.closed_at, '')::timestamptz,
          extract(hour from s.opened_at::timestamptz AT TIME ZONE 'UTC')::int,
@@ -26440,7 +26441,7 @@ CREATE OR REPLACE VIEW shadow_ledger AS
          CASE WHEN s.sl_pct > 0 THEN (s.close_pnl_pct / s.sl_pct)::float END,
          s.close_pnl_pct::float
     FROM sol_engine_positions s
-   WHERE s.mode = 'paper' AND s.status = 'closed' AND s.close_pnl_pct IS NOT NULL
+   WHERE s.mode IN ('paper', 'shadow') AND s.status = 'closed' AND s.close_pnl_pct IS NOT NULL
 `;
     _ensured2 = null;
   }
@@ -26548,12 +26549,13 @@ var init_shadow_lessons = __esm({
       fx_shadow: "FX shadow models",
       crypto_shadow: "Crypto shadow models",
       crypto_paper: "Crypto paper engine",
-      sol_paper: "Sol paper engine"
+      sol_paper: "Sol paper engine",
+      sol_shadow: "Sol shadow tests"
     };
     ENGINE_SOURCES = {
       fx: ["fx_shadow"],
       crypto: ["crypto_paper", "crypto_shadow"],
-      sol: ["sol_paper"]
+      sol: ["sol_paper", "sol_shadow"]
     };
     _mem = /* @__PURE__ */ new Map();
   }
@@ -36711,6 +36713,7 @@ __export(sol_engine_exports, {
   PUMP_SCALP_MIN_BUY_RATIO: () => PUMP_SCALP_MIN_BUY_RATIO,
   PUMP_SCALP_MIN_GAIN_1H_PCT: () => PUMP_SCALP_MIN_GAIN_1H_PCT,
   PUMP_SCALP_MIN_LIQ_USD: () => PUMP_SCALP_MIN_LIQ_USD,
+  SHADOW_MAX_OPEN: () => SHADOW_MAX_OPEN,
   SOL_PAPER_MAX_SOL: () => SOL_PAPER_MAX_SOL,
   SOL_STRATEGIES: () => SOL_STRATEGIES,
   cancelSignal: () => cancelSignal,
@@ -36734,6 +36737,8 @@ __export(sol_engine_exports, {
   setSolStrategies: () => setSolStrategies,
   setSolStrategy: () => setSolStrategy,
   setSolWeeklyGoal: () => setSolWeeklyGoal,
+  shadowEntryCandidate: () => shadowEntryCandidate,
+  shadowTestEnabled: () => shadowTestEnabled,
   startSolEngine: () => startSolEngine,
   stopSolEngine: () => stopSolEngine,
   triggerSolAIReview: () => triggerSolAIReview,
@@ -36891,6 +36896,9 @@ async function loadEngineStateFromDb(userId, state) {
       if (pos.mode === "paper") {
         if (pos.status === "open") state.paperPositions.push(pos);
         else state.closedPaperPositions.push(pos);
+      } else if (pos.mode === "shadow") {
+        if (pos.status === "open") state.shadowPositions.push(pos);
+        else state.closedShadowPositions.push(pos);
       } else {
         if (pos.status === "open") state.livePositions.push(pos);
         else state.closedLivePositions.push(pos);
@@ -37409,6 +37417,8 @@ function createInitialState(config) {
     closedPaperPositions: [],
     livePositions: [],
     closedLivePositions: [],
+    shadowPositions: [],
+    closedShadowPositions: [],
     pendingSignals: [],
     pendingExits: [],
     signalCooldowns: /* @__PURE__ */ new Map(),
@@ -37886,6 +37896,97 @@ async function monitorPaperPositions(userId, state) {
   }
   state.paperPositions = state.paperPositions.filter((p2) => p2.status === "open");
 }
+function shadowTestEnabled() {
+  return process.env.SOL_PUMP_SHADOW !== "off";
+}
+function shadowEntryCandidate(analysis, strat) {
+  if (!(analysis.signal === "BUY" || analysis.signal === "STRONG_BUY")) return false;
+  if (analysis.confidence < strat.minConfidence) return false;
+  if (strat.id === "pump_scalp_60") return passesPumpScalpGate(analysis.token);
+  return passesStrategyFilter(analysis, strat);
+}
+async function evaluateShadowEntries(userId, state, scanResult) {
+  if (!shadowTestEnabled()) return;
+  const strat = SOL_STRATEGIES.find((s) => s.id === "pump_scalp_60" && s.shadowTest);
+  if (!strat) return;
+  for (const analysis of scanResult) {
+    if (state.shadowPositions.filter((p2) => p2.status === "open").length >= SHADOW_MAX_OPEN) break;
+    if (!shadowEntryCandidate(analysis, strat)) continue;
+    const mint = analysis.token.address;
+    if (!mint) continue;
+    if (state.shadowPositions.some((p2) => p2.mint === mint && p2.status === "open")) continue;
+    const tokenPrice = parseFloat(analysis.token.priceUsd) || 0;
+    if (tokenPrice <= 0) continue;
+    const dexKey = (analysis.token.dexId || "").toLowerCase().split("_")[0];
+    const sized = computeAutoSolSize(state, dexKey, strat, "paper");
+    const pos = {
+      id: `shadow_${Date.now()}_${analysis.token.symbol}`,
+      symbol: analysis.token.symbol,
+      mint,
+      entryPrice: tokenPrice,
+      currentPrice: tokenPrice,
+      targetPct: state.autoTradeTP,
+      slPct: state.autoTradeSL,
+      size: sized > 0 ? sized : 0.25,
+      tokenAmount: 0,
+      decimals: 9,
+      strategyId: strat.id,
+      maxHoldMinutes: strat.maxHoldMinutes,
+      dex: dexKey,
+      mode: "shadow",
+      openedAt: (/* @__PURE__ */ new Date()).toISOString(),
+      status: "open",
+      peakPrice: tokenPrice,
+      trailingActive: false,
+      breakevenActive: false,
+      entryVolume24h: analysis.token.volume24h || 0
+    };
+    state.shadowPositions.push(pos);
+    upsertPosition(userId, pos).catch(() => {
+    });
+    addActivity2(state, {
+      type: "strategy",
+      message: `\u{1F576}\uFE0F SHADOW entry (Pump Scalp 60 test): ${analysis.token.symbol} \u2014 +${(analysis.token.priceChange1h ?? 0).toFixed(0)}% in the last hour, virtual ${pos.size.toFixed(3)} SOL @ $${tokenPrice.toFixed(6)} | 60-min clock running, TP +${state.autoTradeTP}% / SL -${state.autoTradeSL}%`
+    });
+  }
+}
+async function monitorShadowPositions(userId, state) {
+  const openPositions = state.shadowPositions.filter((p2) => p2.status === "open");
+  if (openPositions.length === 0) return;
+  const priceMap = await fetchPricesByMint(openPositions.map((p2) => p2.mint)).catch(() => ({}));
+  for (const r of state.lastResults) {
+    const m = r.token.address;
+    if (m && !(priceMap[m] > 0)) priceMap[m] = parseFloat(r.token.priceUsd) || 0;
+  }
+  for (const pos of openPositions) {
+    const effHold = effectiveMaxHoldMs(pos);
+    const isMaxHold = Date.now() - new Date(pos.openedAt).getTime() > effHold.ms;
+    const currentPrice = priceMap[pos.mint] || (isMaxHold ? pos.currentPrice : 0);
+    if (!currentPrice || currentPrice <= 0) continue;
+    if (isBadPriceSample(currentPrice, pos.currentPrice > 0 ? pos.currentPrice : pos.entryPrice)) continue;
+    pos.currentPrice = currentPrice;
+    if (!pos.peakPrice || currentPrice > pos.peakPrice) pos.peakPrice = currentPrice;
+    const gainPct = (currentPrice - pos.entryPrice) / pos.entryPrice * 100;
+    const isWin = gainPct >= pos.targetPct;
+    const isLoss = gainPct <= -pos.slPct;
+    if (isWin || isLoss || isMaxHold) {
+      const reason = isMaxHold ? "max_hold" : isWin ? "tp" : "sl";
+      pos.status = "closed";
+      pos.closedAt = (/* @__PURE__ */ new Date()).toISOString();
+      pos.closePnlPct = gainPct;
+      pos.closeReason = reason;
+      state.closedShadowPositions.unshift(pos);
+      if (state.closedShadowPositions.length > 50) state.closedShadowPositions = state.closedShadowPositions.slice(0, 50);
+      upsertPosition(userId, pos).catch(() => {
+      });
+      addActivity2(state, {
+        type: "info",
+        message: `\u{1F576}\uFE0F SHADOW exit (${reason === "max_hold" ? "60-min window over" : reason === "tp" ? "target hit" : "stop hit"}): ${pos.symbol} closed @ $${currentPrice.toFixed(6)} \u2014 ${gainPct >= 0 ? "+" : ""}${gainPct.toFixed(2)}% (shadow test, no real money)`
+      });
+    }
+  }
+  state.shadowPositions = state.shadowPositions.filter((p2) => p2.status === "open");
+}
 async function monitorLivePositions(userId, state) {
   const allOpen = state.livePositions.filter((p2) => p2.status === "open");
   if (allOpen.length === 0) return;
@@ -38341,6 +38442,8 @@ async function runScan(userId, state, triggerToken) {
     state.lastResults = scanResult;
     await monitorPaperPositions(userId, state);
     await monitorLivePositions(userId, state);
+    await evaluateShadowEntries(userId, state, scanResult);
+    await monitorShadowPositions(userId, state);
     const label = triggerToken ? ` (trigger: ${triggerToken})` : "";
     const intervalSec = getAdaptiveScanInterval2(state.config) / 1e3;
     const buys = scanResult.filter((t) => t.signal === "STRONG_BUY" || t.signal === "BUY").length;
@@ -39037,7 +39140,7 @@ async function getServerWalletStatus(userId) {
     return { hasServerWallet: false };
   }
 }
-var SOL_BRAIN_ENABLED, SOL_BRAIN_GATING, SOL_CONFLUENCE_REQUIRED, SOL_COMPOSITE_FLOOR, SOL_CONFLUENCE_BONUS, SOL_MAX_HOLD_HOURS, SOL_MAX_HOLD_MS, MAX_PRICE_SPIKE, DEX_NAMES, SOL_STRATEGIES, DEFAULT_CONFIG, DEFAULT_WEEKLY_GOAL, engineStates2, startingSolUsers, PUMP_SCALP_MIN_GAIN_1H_PCT, PUMP_SCALP_MIN_LIQ_USD, PUMP_SCALP_MIN_BUY_RATIO, PAPER_DEFAULT_PORTFOLIO_SOL, SOL_PAPER_MAX_SOL;
+var SOL_BRAIN_ENABLED, SOL_BRAIN_GATING, SOL_CONFLUENCE_REQUIRED, SOL_COMPOSITE_FLOOR, SOL_CONFLUENCE_BONUS, SOL_MAX_HOLD_HOURS, SOL_MAX_HOLD_MS, MAX_PRICE_SPIKE, DEX_NAMES, SOL_STRATEGIES, DEFAULT_CONFIG, DEFAULT_WEEKLY_GOAL, engineStates2, startingSolUsers, PUMP_SCALP_MIN_GAIN_1H_PCT, PUMP_SCALP_MIN_LIQ_USD, PUMP_SCALP_MIN_BUY_RATIO, PAPER_DEFAULT_PORTFOLIO_SOL, SHADOW_MAX_OPEN, SOL_PAPER_MAX_SOL;
 var init_sol_engine = __esm({
   "server/services/sol-engine.ts"() {
     "use strict";
@@ -39112,7 +39215,8 @@ var init_sol_engine = __esm({
         minSignal: "BUY",
         holdTarget: "\u226460min",
         dexPreference: "pumpfun",
-        maxHoldMinutes: 60
+        maxHoldMinutes: 60,
+        shadowTest: true
       },
       {
         id: "whale_follower",
@@ -39222,6 +39326,7 @@ var init_sol_engine = __esm({
     PUMP_SCALP_MIN_LIQ_USD = Number(process.env.PUMP_SCALP_MIN_LIQ_USD ?? 1e4);
     PUMP_SCALP_MIN_BUY_RATIO = Number(process.env.PUMP_SCALP_MIN_BUY_RATIO ?? 0.55);
     PAPER_DEFAULT_PORTFOLIO_SOL = 10;
+    SHADOW_MAX_OPEN = 5;
     SOL_PAPER_MAX_SOL = Number(process.env.SOL_PAPER_MAX_SOL ?? 1e3);
   }
 });
@@ -67765,9 +67870,9 @@ async function getStopOrdersForUser(userId, filters = {}) {
 init_schema();
 
 // server/build-info.ts
-var BUILD_COMMIT = "b734cc0";
-var BUILD_BRANCH = "main";
-var BUILT_AT = "2026-11-02T19:49:41.095Z";
+var BUILD_COMMIT = "e1a990d-dirty";
+var BUILD_BRANCH = "feature/sol-pump-shadow";
+var BUILT_AT = "2026-11-02T20:00:40.825Z";
 
 // server/stripe.ts
 init_db();

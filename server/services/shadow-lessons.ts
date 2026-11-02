@@ -30,11 +30,11 @@ const MIN_TRADES = () => Number(process.env.SHADOW_LESSON_MIN_TRADES ?? 8);
 const EDGE_R = () => Number(process.env.SHADOW_LESSON_EDGE_R ?? 0.3);
 const TTL_MS = () => Math.max(1, Number(process.env.SHADOW_LESSONS_TTL_H ?? 6)) * 3_600_000;
 const SOURCE_LABEL: Record<string, string> = {
-  fx_shadow: 'FX shadow models', crypto_shadow: 'Crypto shadow models', crypto_paper: 'Crypto paper engine', sol_paper: 'Sol paper engine',
+  fx_shadow: 'FX shadow models', crypto_shadow: 'Crypto shadow models', crypto_paper: 'Crypto paper engine', sol_paper: 'Sol paper engine', sol_shadow: 'Sol shadow tests',
 };
 /** Which ledger sources inform which engine's AI. */
 const ENGINE_SOURCES: Record<string, string[]> = {
-  fx: ['fx_shadow'], crypto: ['crypto_paper', 'crypto_shadow'], sol: ['sol_paper'],
+  fx: ['fx_shadow'], crypto: ['crypto_paper', 'crypto_shadow'], sol: ['sol_paper', 'sol_shadow'],
 };
 
 const _mem = new Map<number, { at: number; lessons: ShadowLesson[] }>();

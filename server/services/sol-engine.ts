@@ -77,7 +77,7 @@ export interface SolAutoPosition {
    *  confirmed this entry — e.g. Pump Scalp 60 stamps 60. The monitors
    *  force-exit when it elapses. Falls back to the strategy lookup. */
   maxHoldMinutes?: number;
-  mode: 'paper' | 'live';
+  mode: 'paper' | 'live' | 'shadow';
   txHash?: string;
   openedAt: string;
   closedAt?: string;
@@ -141,6 +141,11 @@ export interface SolStrategy {
   minSignal: 'BUY' | 'STRONG_BUY';
   holdTarget: string;
   dexPreference?: string;
+  /** True when this strategy also runs in the engine's shadow-test lane:
+   *  evaluated on every scan and traded virtually (mode 'shadow') whether
+   *  or not the user selected it, so it builds a shadow-ledger track
+   *  record without touching paper/live portfolios. */
+  shadowTest?: boolean;
   /** Hard per-strategy time stop: positions opened under this strategy are
    *  force-exited after this many minutes, regardless of TP/SL. The global
    *  SOL_MAX_HOLD still applies as an outer bound. */
@@ -200,6 +205,8 @@ interface SolEngineState {
   closedPaperPositions: SolAutoPosition[];
   livePositions: SolAutoPosition[];
   closedLivePositions: SolAutoPosition[];
+  shadowPositions: SolAutoPosition[];
+  closedShadowPositions: SolAutoPosition[];
   pendingSignals: SolPendingSignal[];
   pendingExits: SolPendingExit[];
   signalCooldowns: Map<string, number>; // mint -> timestamp of last rejection/failure
@@ -291,6 +298,7 @@ export const SOL_STRATEGIES: SolStrategy[] = [
     holdTarget: '≤60min',
     dexPreference: 'pumpfun',
     maxHoldMinutes: 60,
+    shadowTest: true,
   },
   {
     id: 'whale_follower',
@@ -555,7 +563,7 @@ async function loadEngineStateFromDb(userId: number, state: SolEngineState): Pro
         decimals: row.decimals,
         strategyId: row.strategyId,
         txHash: row.txHash || undefined,
-        mode: row.mode as 'paper' | 'live',
+        mode: row.mode as 'paper' | 'live' | 'shadow',
         status: row.status as 'open' | 'closed',
         openedAt: row.openedAt,
         closedAt: row.closedAt || undefined,
@@ -564,6 +572,9 @@ async function loadEngineStateFromDb(userId: number, state: SolEngineState): Pro
       if (pos.mode === 'paper') {
         if (pos.status === 'open') state.paperPositions.push(pos);
         else state.closedPaperPositions.push(pos);
+      } else if (pos.mode === 'shadow') {
+        if (pos.status === 'open') state.shadowPositions.push(pos);
+        else state.closedShadowPositions.push(pos);
       } else {
         if (pos.status === 'open') state.livePositions.push(pos);
         else state.closedLivePositions.push(pos);
@@ -1205,6 +1216,8 @@ function createInitialState(config: SolEngineConfig): SolEngineState {
     closedPaperPositions: [],
     livePositions: [],
     closedLivePositions: [],
+    shadowPositions: [],
+    closedShadowPositions: [],
     pendingSignals: [],
     pendingExits: [],
     signalCooldowns: new Map(),
@@ -1823,6 +1836,113 @@ async function monitorPaperPositions(userId: number, state: SolEngineState) {
   }
 
   state.paperPositions = state.paperPositions.filter(p => p.status === 'open');
+}
+
+// ── Shadow-test lane ────────────────────────────────────────────────────────
+// Strategies flagged shadowTest (Pump Scalp 60) are evaluated on EVERY scan
+// and traded virtually — mode 'shadow' rows in sol_engine_positions —
+// whether or not the user selected the strategy and whether paper/live
+// trading is on. A running engine is the only requirement. Shadow trades
+// never touch the paper portfolio, the live wallet, the daily trade count
+// or the auto-trade stats; closed ones land in the shadow ledger (source
+// 'sol_shadow') where the lessons job and the weekly review read them.
+// Kill switch: SOL_PUMP_SHADOW=off.
+export const SHADOW_MAX_OPEN = 5;
+
+export function shadowTestEnabled(): boolean {
+  return process.env.SOL_PUMP_SHADOW !== 'off';
+}
+
+/** Pure entry decision for the shadow lane: buy signal + the strategy's
+ *  confidence bar + its own gate (Pump Scalp 60: the hot-hour pump gate). */
+export function shadowEntryCandidate(analysis: TokenAnalysis, strat: SolStrategy): boolean {
+  if (!(analysis.signal === 'BUY' || analysis.signal === 'STRONG_BUY')) return false;
+  if (analysis.confidence < strat.minConfidence) return false;
+  if (strat.id === 'pump_scalp_60') return passesPumpScalpGate(analysis.token);
+  return passesStrategyFilter(analysis, strat);
+}
+
+async function evaluateShadowEntries(userId: number, state: SolEngineState, scanResult: TokenAnalysis[]) {
+  if (!shadowTestEnabled()) return;
+  const strat = SOL_STRATEGIES.find(s => s.id === 'pump_scalp_60' && s.shadowTest);
+  if (!strat) return;
+  for (const analysis of scanResult) {
+    if (state.shadowPositions.filter(p => p.status === 'open').length >= SHADOW_MAX_OPEN) break;
+    if (!shadowEntryCandidate(analysis, strat)) continue;
+    const mint = analysis.token.address;
+    if (!mint) continue;
+    if (state.shadowPositions.some(p => p.mint === mint && p.status === 'open')) continue;
+    const tokenPrice = parseFloat(analysis.token.priceUsd) || 0;
+    if (tokenPrice <= 0) continue;
+    const dexKey = (analysis.token.dexId || '').toLowerCase().split('_')[0];
+    const sized = computeAutoSolSize(state, dexKey, strat, 'paper');
+    const pos: SolAutoPosition = {
+      id: `shadow_${Date.now()}_${analysis.token.symbol}`,
+      symbol: analysis.token.symbol,
+      mint,
+      entryPrice: tokenPrice,
+      currentPrice: tokenPrice,
+      targetPct: state.autoTradeTP,
+      slPct: state.autoTradeSL,
+      size: sized > 0 ? sized : 0.25,
+      tokenAmount: 0,
+      decimals: 9,
+      strategyId: strat.id,
+      maxHoldMinutes: strat.maxHoldMinutes,
+      dex: dexKey,
+      mode: 'shadow',
+      openedAt: new Date().toISOString(),
+      status: 'open',
+      peakPrice: tokenPrice,
+      trailingActive: false,
+      breakevenActive: false,
+      entryVolume24h: analysis.token.volume24h || 0,
+    };
+    state.shadowPositions.push(pos);
+    upsertPosition(userId, pos).catch(() => {});
+    addActivity(state, {
+      type: 'strategy',
+      message: `🕶️ SHADOW entry (Pump Scalp 60 test): ${analysis.token.symbol} — +${(analysis.token.priceChange1h ?? 0).toFixed(0)}% in the last hour, virtual ${pos.size.toFixed(3)} SOL @ $${tokenPrice.toFixed(6)} | 60-min clock running, TP +${state.autoTradeTP}% / SL -${state.autoTradeSL}%`,
+    });
+  }
+}
+
+async function monitorShadowPositions(userId: number, state: SolEngineState) {
+  const openPositions = state.shadowPositions.filter(p => p.status === 'open');
+  if (openPositions.length === 0) return;
+  const priceMap = await fetchPricesByMint(openPositions.map(p => p.mint)).catch(() => ({} as Record<string, number>));
+  for (const r of state.lastResults) {
+    const m = r.token.address;
+    if (m && !(priceMap[m] > 0)) priceMap[m] = parseFloat(r.token.priceUsd) || 0;
+  }
+  for (const pos of openPositions) {
+    const effHold = effectiveMaxHoldMs(pos);
+    const isMaxHold = Date.now() - new Date(pos.openedAt).getTime() > effHold.ms;
+    // The 60-minute stop fires even without a fresh print — last mark prices it.
+    const currentPrice = priceMap[pos.mint] || (isMaxHold ? pos.currentPrice : 0);
+    if (!currentPrice || currentPrice <= 0) continue;
+    if (isBadPriceSample(currentPrice, pos.currentPrice > 0 ? pos.currentPrice : pos.entryPrice)) continue;
+    pos.currentPrice = currentPrice;
+    if (!pos.peakPrice || currentPrice > pos.peakPrice) pos.peakPrice = currentPrice;
+    const gainPct = ((currentPrice - pos.entryPrice) / pos.entryPrice) * 100;
+    const isWin = gainPct >= pos.targetPct;
+    const isLoss = gainPct <= -pos.slPct;
+    if (isWin || isLoss || isMaxHold) {
+      const reason = isMaxHold ? 'max_hold' : isWin ? 'tp' : 'sl';
+      pos.status = 'closed';
+      pos.closedAt = new Date().toISOString();
+      pos.closePnlPct = gainPct;
+      pos.closeReason = reason as SolAutoPosition['closeReason'];
+      state.closedShadowPositions.unshift(pos);
+      if (state.closedShadowPositions.length > 50) state.closedShadowPositions = state.closedShadowPositions.slice(0, 50);
+      upsertPosition(userId, pos).catch(() => {});
+      addActivity(state, {
+        type: 'info',
+        message: `🕶️ SHADOW exit (${reason === 'max_hold' ? '60-min window over' : reason === 'tp' ? 'target hit' : 'stop hit'}): ${pos.symbol} closed @ $${currentPrice.toFixed(6)} — ${gainPct >= 0 ? '+' : ''}${gainPct.toFixed(2)}% (shadow test, no real money)`,
+      });
+    }
+  }
+  state.shadowPositions = state.shadowPositions.filter(p => p.status === 'open');
 }
 
 async function monitorLivePositions(userId: number, state: SolEngineState) {
@@ -2460,6 +2580,11 @@ async function runScan(userId: number, state: SolEngineState, triggerToken?: str
     // Monitor paper and live positions for SL/TP
     await monitorPaperPositions(userId, state);
     await monitorLivePositions(userId, state);
+
+    // Shadow-test lane (Pump Scalp 60): virtual entries + exits that only
+    // feed the shadow ledger — no paper/live money, no stats, no counters.
+    await evaluateShadowEntries(userId, state, scanResult);
+    await monitorShadowPositions(userId, state);
 
     const label = triggerToken ? ` (trigger: ${triggerToken})` : '';
     const intervalSec = getAdaptiveScanInterval(state.config) / 1000;

@@ -7,6 +7,7 @@
 //   • crypto_shadow  — crypto Model 1 / Model 2 (fx_model_decisions engine='crypto')
 //   • crypto_paper   — crypto engine paper trades incl. shorts + ORB (crypto_paper_trades)
 //   • sol_paper      — Sol engine paper trades (sol_engine_positions mode='paper')
+//   • sol_shadow     — Sol engine shadow tests (same table, mode='shadow')
 // A VIEW, not a copy: always current, nothing to sync, no duplicates.
 //
 // Common columns: source, engine, user_id, strategy, symbol, direction
@@ -62,7 +63,8 @@ CREATE OR REPLACE VIEW shadow_ledger AS
     FROM crypto_paper_trades c
    WHERE c.status = 'closed'
   UNION ALL
-  SELECT ('sol_paper:' || s.id)::text, 'sol_paper', 'sol', s.user_id,
+  SELECT ('sol_' || s.mode || ':' || s.id)::text,
+         CASE WHEN s.mode = 'shadow' THEN 'sol_shadow' ELSE 'sol_paper' END, 'sol', s.user_id,
          s.strategy_id, s.symbol, 'LONG',
          s.opened_at::timestamptz, NULLIF(s.closed_at, '')::timestamptz,
          extract(hour from s.opened_at::timestamptz AT TIME ZONE 'UTC')::int,
@@ -72,7 +74,7 @@ CREATE OR REPLACE VIEW shadow_ledger AS
          CASE WHEN s.sl_pct > 0 THEN (s.close_pnl_pct / s.sl_pct)::float END,
          s.close_pnl_pct::float
     FROM sol_engine_positions s
-   WHERE s.mode = 'paper' AND s.status = 'closed' AND s.close_pnl_pct IS NOT NULL
+   WHERE s.mode IN ('paper', 'shadow') AND s.status = 'closed' AND s.close_pnl_pct IS NOT NULL
 `;
 
 let _ensured: Promise<void> | null = null;

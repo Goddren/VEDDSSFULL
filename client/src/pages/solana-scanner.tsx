@@ -4072,6 +4072,7 @@ export default function SolanaScanner() {
           { id: 'breakout_hunter', name: 'Breakout Hunter', icon: '🚀', hold: '30m–2h', conf: 75, risk: 'MEDIUM', base: 2.5, color: 'orange', desc: 'Targets tokens breaking out of consolidation' },
           { id: 'dip_sniper', name: 'Dip Sniper', icon: '🎯', hold: '2–8h', conf: 68, risk: 'LOW', base: 2, color: 'blue', desc: 'Enters on brief pullbacks in uptrends' },
           { id: 'meme_velocity', name: 'Meme Velocity', icon: '⚡', hold: '10–15m', conf: 65, risk: 'HIGH', base: 4, color: 'pink', desc: 'Captures explosive meme moves on Pump.fun' },
+          { id: 'pump_scalp_60', name: 'Pump Scalp 60', icon: '⏱️', hold: '≤60m', conf: 60, risk: 'HIGH', base: 3, color: 'red', desc: 'Top pump.fun pattern: +40% in an hour, out by 60 min', shadow: true },
           { id: 'whale_follower', name: 'Whale Follower', icon: '🐋', hold: '4–24h', conf: 72, risk: 'MEDIUM', base: 2, color: 'teal', desc: 'Tracks large wallet accumulation patterns' },
           { id: 'volume_explosion', name: 'Volume Explosion', icon: '💥', hold: '20–45m', conf: 65, risk: 'MEDIUM', base: 3.5, color: 'red', desc: 'Enters tokens with sudden 3x+ volume spikes' },
           { id: 'smart_money_flow', name: 'Smart Money', icon: '🧠', hold: '1–3d', conf: 78, risk: 'LOW', base: 2.5, color: 'green', desc: 'Institutional-grade high-confidence entries' },
@@ -4154,6 +4155,7 @@ export default function SolanaScanner() {
                       <span className="text-[8px] px-1 py-0.5 rounded bg-gray-800 text-gray-400">{s.hold}</span>
                       <span className={`text-[8px] px-1 py-0.5 rounded ${riskBadge}`}>{s.risk}</span>
                       <span className="text-[8px] px-1 py-0.5 rounded bg-gray-800 text-gray-400">{s.base}% base</span>
+                      {(s as any).shadow && <span className="text-[8px] px-1 py-0.5 rounded bg-indigo-500/20 text-indigo-300">🕶️ SHADOW TEST</span>}
                     </div>
                   </button>
                 );
