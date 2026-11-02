@@ -1,12 +1,17 @@
 // DXtrade (Devexperts dxsca-web) platform integration for the FX SS AI engine.
-// Mirrors the TradeLocker service pattern. PHASE 1 = read-only (login + accounts +
-// balances/positions) so we can verify auth and exact field shapes against a live
-// Velotrade account BEFORE wiring order placement + engine routing (Phase 2).
+// Mirrors the TradeLocker service pattern. FULL integration: login + accounts,
+// balances/positions, order placement, position close/modify, and engine
+// routing (open fan-out in live-trading-engine; CLOSE/MODIFY via
+// executeSignalOnDxtrade below).
 //
-// API: base like https://dx.velotrade.com/dxsca-web
+// Works for ANY broker hosting a dxsca-web instance — the connection's host
+// is user-supplied (dxBase() normalizes it), nothing here is Velotrade-specific
+// beyond tolerant parsing of the common dxsca payload shapes.
+//
+// API: base like https://<broker-host>/dxsca-web
 //   POST /login {username, domain, password} -> { sessionToken }
 //   All authed calls send header: Authorization: DXAPI <sessionToken>
-//   Session idle timeout ~30 min. Algo/API trading is officially allowed on Velotrade.
+//   Session idle timeout ~30 min.
 
 import { encryptApiSecret, decryptApiSecret } from './cryptocom';
 
@@ -47,6 +52,25 @@ function pickNum(obj: any, keys: string[]): number | null {
   if (!obj || typeof obj !== 'object') return null;
   for (const k of keys) { const v = Number(obj[k]); if (Number.isFinite(v) && v > 0) return v; }
   return null;
+}
+
+/** Balance AND equity as DISTINCT numbers from a /metrics payload.
+ *  extractBalance() returns whichever it finds first (equity-preferred) —
+ *  fine for sizing, wrong for dashboards that show both. This scans the
+ *  same tolerant node set but tracks the two fields separately. Either
+ *  side stays null when the broker doesn't expose it (callers decide the
+ *  fallback; equity commonly falls back to balance, never the reverse). */
+export function extractAccountFunds(metrics: any): { balance: number | null; equity: number | null } {
+  const out: { balance: number | null; equity: number | null } = { balance: null, equity: null };
+  if (!metrics) return out;
+  const nodes = [metrics, metrics.metrics, metrics.balances, metrics.account, ...(Array.isArray(metrics?.metrics) ? metrics.metrics : []), ...(Array.isArray(metrics?.balances) ? metrics.balances : [])].filter(Boolean);
+  const scan = (n: any) => {
+    if (!n || typeof n !== 'object') return;
+    if (out.balance == null) out.balance = pickNum(n, ['balance', 'cashBalance', 'availableBalance', 'availableFunds']);
+    if (out.equity == null) out.equity = pickNum(n, ['equity', 'netLiquidatingValue', 'netAssetValue']);
+  };
+  for (const n of nodes) { if (Array.isArray(n)) n.forEach(scan); else scan(n); }
+  return out;
 }
 
 /** Compute order quantity from % -of-account risk. loss/unit = |entry-stop| ×
@@ -266,6 +290,31 @@ export class DxtradeService {
         code = positions.find(p => p.instrument === norm(o.instrument) && p.side === o.positionSide)?.positionId;
       } catch { /* fall through */ }
     }
+    // Cancel-and-replace: snapshot the CURRENT resting protective order ids
+    // first, place the new legs, then cancel the snapshot. The old flow
+    // stacked a fresh STOP/LIMIT pair on every modify without removing the
+    // previous pair — a trailed position accumulated multiple stops, any of
+    // which could fire, and one leg of an old pair could survive its sibling.
+    // Placing BEFORE cancelling means a failed replacement never leaves the
+    // position unprotected.
+    // Kind matters: cancelling must only replace the legs actually being
+    // re-placed. A trail that moves just the stop must NOT cancel the
+    // resting take-profit (and vice versa).
+    const priorProtective: Array<{ id: string; kind: 'STOP' | 'LIMIT' | 'OTHER' }> = [];
+    try {
+      const normW = (s: any) => String(s ?? '').replace(/\//g, '').toUpperCase();
+      const target = normW(o.instrument);
+      const orders = await this.getWorkingOrders(accountCode);
+      for (const wo of orders) {
+        const sym = normW(wo.instrument ?? wo.symbol);
+        const effect = String(wo.positionEffect ?? wo.legs?.[0]?.positionEffect ?? '').toUpperCase();
+        if (sym !== target || effect !== 'CLOSE') continue;
+        const id = wo.orderId ?? wo.id ?? wo.orderCode ?? wo.code;
+        if (id == null) continue;
+        const t = String(wo.type ?? wo.orderType ?? '').toUpperCase();
+        priorProtective.push({ id: String(id), kind: t.includes('STOP') ? 'STOP' : t.includes('LIMIT') ? 'LIMIT' : 'OTHER' });
+      }
+    } catch { /* snapshot failed → still place; skip the cancel phase */ }
     // Resilient: each protective leg is placed independently so a take-profit
     // failure can NEVER discard an already-placed stop (which previously threw
     // out of here, lost the stop result, and triggered an emergency close that
@@ -277,6 +326,25 @@ export class DxtradeService {
     if (o.takeProfit != null && o.takeProfit > 0) {
       try { out.takeProfit = await this.placeOrder(accountCode, { instrument: o.instrument, side: closeSide, quantity: o.quantity, type: 'LIMIT', limitPrice: o.takeProfit, positionEffect: 'CLOSE', tif: 'GTC', positionCode: code }); }
       catch (e: any) { out.tpError = e?.message || String(e); }
+    }
+    if (priorProtective.length) {
+      const newIds = new Set<string>();
+      for (const leg of [out.stop, out.takeProfit]) {
+        const id = (leg as any)?.orderId ?? (leg as any)?.id ?? (leg as any)?.orderCode ?? (leg as any)?._sent?.orderCode;
+        if (id != null) newIds.add(String(id));
+      }
+      for (const prior of priorProtective) {
+        // Only cancel a prior leg when its replacement was actually placed:
+        // STOP priors die when a new stop landed, LIMIT priors when a new TP
+        // landed. An 'OTHER'-typed prior is cancelled when either leg was
+        // replaced (can't tell which it was — same treatment as before).
+        const replaced = prior.kind === 'STOP' ? !!out.stop
+          : prior.kind === 'LIMIT' ? !!out.takeProfit
+          : !!(out.stop || out.takeProfit);
+        if (replaced && !newIds.has(prior.id)) {
+          try { await this.cancelOrder(accountCode, prior.id); } catch { /* best-effort */ }
+        }
+      }
     }
     return out;
   }
@@ -388,8 +456,11 @@ export class DxtradeService {
   }
 
   /** Normalized open positions for an account (id/instrument/side/qty/entry),
-   *  tolerant of dxsca shape (portfolio.positions | positions | flat array). */
-  async getPositions(accountCode: string): Promise<Array<{ positionId?: string; instrument: string; side: string; quantity: number; openPrice?: number; raw: any }>> {
+   *  tolerant of dxsca shape (portfolio.positions | positions | flat array).
+   *  sl/tp/unrealizedPnl/openTime are extracted tolerantly when the broker's
+   *  payload carries them (field names vary across dxsca hosts); absent
+   *  fields stay undefined rather than being fabricated as 0. */
+  async getPositions(accountCode: string): Promise<Array<{ positionId?: string; instrument: string; side: string; quantity: number; openPrice?: number; sl?: number; tp?: number; unrealizedPnl?: number; openTime?: number; raw: any }>> {
     // A FAILED READ MUST THROW. This used to be `.catch(() => null)`, which
     // turned every 429 / 401-after-retry / timeout / HTML error page into an
     // empty array — indistinguishable from "the account genuinely has no open
@@ -431,12 +502,20 @@ export class DxtradeService {
     const p0 = pf?.portfolios?.[0] ?? pf;
     const arr: any[] = p0?.positions ?? p0?.openPositions ?? (Array.isArray(pf) ? pf : []) ?? [];
     if (!Array.isArray(arr)) return [];
+    const posNum = (...vals: any[]): number | undefined => {
+      for (const v of vals) { const n = Number(v); if (Number.isFinite(n) && n > 0) return n; }
+      return undefined;
+    };
     return arr.map((p: any) => ({
       positionId: p.positionCode != null ? String(p.positionCode) : (p.positionId != null ? String(p.positionId) : (p.id != null ? String(p.id) : (p.code != null ? String(p.code) : undefined))),
       instrument: String(p.instrument ?? p.symbol ?? '').replace(/\//g, '').toUpperCase(),
       side: /sell|short/i.test(String(p.side ?? p.direction ?? (Number(p.quantity ?? p.qty ?? 0) < 0 ? 'SELL' : 'BUY'))) ? 'SELL' : 'BUY',
       quantity: Math.abs(Number(p.quantity ?? p.qty ?? p.size ?? 0)),
       openPrice: Number(p.openPrice ?? p.entryPrice ?? p.avgPrice ?? p.price ?? 0) || undefined,
+      sl: posNum(p.stopLoss, p.sl, p.stopPrice, p.stopLossPrice),
+      tp: posNum(p.takeProfit, p.tp, p.takeProfitPrice, p.limitPrice),
+      unrealizedPnl: (() => { const v = p.unrealizedPnl ?? p.unrealizedPnL ?? p.profit ?? p.pnl ?? p.floatingPnl; const n = Number(v); return v != null && Number.isFinite(n) ? n : undefined; })(),
+      openTime: (() => { const v = p.openTime ?? p.openDate ?? p.createdAt ?? p.creationTime ?? p.timestamp; if (v == null) return undefined; const t = typeof v === 'number' ? (v > 1e12 ? v : v * 1000) : new Date(v).getTime(); return Number.isFinite(t) ? Math.floor(t / 1000) : undefined; })(),
       raw: p,
     }));
   }
@@ -524,4 +603,79 @@ export function getDxtradeService(
   const svc = new DxtradeService(host, username, password, domain);
   _dxServiceCache.set(cacheKey, { svc, ts: Date.now() });
   return svc;
+}
+
+// ── Unified engine dispatcher (TradeLocker parity) ────────────────────────
+// executeMT5SignalOnTradeLocker's DXtrade counterpart for position
+// MANAGEMENT: the live engine's AI manager, server-side trails, reversal
+// exit, XAU lock and BTC trail all route CLOSE / MODIFY for a DX position
+// through here. OPEN stays with the engine's DX fan-out, which carries the
+// specialized risk-sizing + fill-verify pipeline this dispatcher must not
+// duplicate. `conn` is a raw dxtrade_connections row (with
+// encrypted_password). Never throws — returns { success, error } like the
+// TradeLocker dispatcher.
+export interface DxtradeSignal {
+  action: 'CLOSE' | 'MODIFY';
+  symbol: string;
+  direction?: string;          // the POSITION's side (BUY/SELL)
+  volume?: number;             // CLOSE only: quantity to close (0/omitted = full position)
+  stopLoss?: number | null;    // MODIFY only
+  takeProfit?: number | null;  // MODIFY only
+  positionId?: string | null;  // positionCode when the caller knows it
+  positionCode?: string | null;
+}
+
+function dxWireSymbol(normalized: string): string {
+  // dxsca wire format for currency pairs is 'EUR/USD'; anything else passes through.
+  return /^[A-Z]{6}$/.test(normalized) ? `${normalized.slice(0, 3)}/${normalized.slice(3)}` : normalized;
+}
+
+export async function executeSignalOnDxtrade(
+  conn: any,
+  signal: DxtradeSignal,
+): Promise<{ success: boolean; error?: string; result?: any }> {
+  try {
+    const svc = getDxtradeService(conn.host, conn.username, decryptApiSecret(conn.encrypted_password), conn.domain || 'default', String(conn.id));
+    await svc.ensureLoggedIn();
+    const acct = conn.account_code || extractAccountCode(await svc.getAccounts());
+    if (!acct) return { success: false, error: 'could not resolve DXtrade account code' };
+    const norm = (s: any) => String(s ?? '').replace(/\//g, '').toUpperCase();
+    const symbol = norm(signal.symbol);
+    const positions = await svc.getPositions(acct);
+    const code = signal.positionCode || signal.positionId || undefined;
+    let pos = code ? positions.find((p) => p.positionId === String(code)) : undefined;
+    if (!pos) {
+      const dir = signal.direction ? String(signal.direction).toUpperCase() : null;
+      const matches = positions.filter((p) => p.instrument === symbol && (!dir || p.side === dir));
+      if (matches.length > 1 && !dir) {
+        return { success: false, error: `multiple ${symbol} positions on this account and no direction given — refusing to guess the leg` };
+      }
+      pos = matches[0];
+    }
+    if (!pos) return { success: false, error: `no open ${symbol} position on this DXtrade account` };
+    const wireInstrument = String(pos.raw?.instrument ?? pos.raw?.symbol ?? dxWireSymbol(symbol));
+
+    if (signal.action === 'CLOSE') {
+      // DXtrade supports partial closes natively (quantity on the CLOSE
+      // order) — unlike TradeLocker, a partial here really is partial.
+      const qty = signal.volume && signal.volume > 0 ? Math.min(signal.volume, pos.quantity) : pos.quantity;
+      const res = await svc.closePosition(acct, wireInstrument, pos.side as 'BUY' | 'SELL', qty, pos.positionId);
+      return { success: true, result: res };
+    }
+
+    // MODIFY — dxsca has no native SL/TP patch; modifyProtection emulates
+    // it with cancel-and-replace protective orders.
+    const res = await svc.modifyProtection(acct, {
+      instrument: wireInstrument,
+      positionSide: pos.side as 'BUY' | 'SELL',
+      quantity: pos.quantity,
+      stopLoss: signal.stopLoss ?? undefined,
+      takeProfit: signal.takeProfit ?? undefined,
+      positionCode: pos.positionId,
+    });
+    if (res.stopError || res.tpError) return { success: false, error: res.stopError || res.tpError, result: res };
+    return { success: true, result: res };
+  } catch (e: any) {
+    return { success: false, error: e?.message ?? String(e) };
+  }
 }

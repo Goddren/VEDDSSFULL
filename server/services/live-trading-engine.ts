@@ -2460,12 +2460,17 @@ async function getMergedOpenPositions(userId: number, marketAnalysis?: Record<st
               direction,
               openPrice,
               currentPrice,
-              sl: 0, // set via modifyProtection at open; not exposed on the position read
-              tp: 0,
+              // Real broker-side protection when the dxsca payload exposes it
+              // (getPositions now extracts sl/tp tolerantly per host); 0 when
+              // the host doesn't report them, exactly as before.
+              sl: Number(p.sl) || 0,
+              tp: Number(p.tp) || 0,
+              brokerSl: Number(p.sl) || 0,
               profit,
               volume: qty,
-              openTime: undefined,
+              openTime: p.openTime,
               ticket: `dx_${acct}_${p.positionId ?? ''}`,
+              positionCode: p.positionId,
               source: 'dx',
               connectionId: dc.id,
             };
@@ -2499,6 +2504,34 @@ function tlTargetOf(pos: any, conns: any[]): { conn: any; positionId: string } |
   return conn ? { conn, positionId: m[2] } : null;
 }
 
+/** For a merged DXtrade position: its connection row + positionCode. The
+ *  merged position carries connectionId + positionCode directly (the ticket
+ *  embeds the ACCOUNT code, which itself contains a ':' — parsing it back
+ *  out of the ticket string would be guesswork, so the ticket is only a
+ *  last-resort fallback via the conn's known account_code prefix). */
+function dxTargetOf(pos: any, conns: any[]): { conn: any; positionCode: string } | null {
+  const conn = conns.find((c: any) => c.id === Number(pos?.connectionId));
+  if (!conn) return null;
+  let code = pos?.positionCode ? String(pos.positionCode) : '';
+  if (!code && conn.account_code) {
+    const prefix = `dx_${conn.account_code}_`;
+    if (String(pos?.ticket || '').startsWith(prefix)) code = String(pos.ticket).slice(prefix.length);
+  }
+  return code ? { conn, positionCode: code } : null;
+}
+
+/** Load a user's active DXtrade connection rows (raw table — no storage getter). */
+async function loadDxConnections(userId: number): Promise<any[]> {
+  try {
+    const { pool } = await import('../db');
+    const { rows } = await pool.query(
+      `SELECT id, host, username, encrypted_password, domain, account_code FROM dxtrade_connections WHERE user_id=$1 AND is_active=true`,
+      [userId],
+    );
+    return rows;
+  } catch { return []; }
+}
+
 // ── Let the trade breathe (2026-10-30, user) ─────────────────────────────
 // No stop is tightened — by the AI, the XAU lock or the BTC trail — until the
 // trade is STOP_HOLD_UNTIL_R × its original risk in profit (default 1R). The
@@ -2521,8 +2554,9 @@ async function manageBtcTrail(userId: number, openPositions: any[], marketAnalys
   if (!btc.BTC_PROFILE_ON()) return;
   const live = new Set<string>();
   let tlConns: any[] | null = null;
+  let dxConns: any[] | null = null;
   for (const pos of openPositions) {
-    if (pos.source !== 'tl' || !btc.isBtc(pos.symbol)) continue;
+    if ((pos.source !== 'tl' && pos.source !== 'dx') || !btc.isBtc(pos.symbol)) continue;
     const key = `${userId}:${pos.ticket}`;
     live.add(key);
     const entry = Number(pos.openPrice) || 0;
@@ -2553,6 +2587,24 @@ async function manageBtcTrail(userId: number, openPositions: any[], marketAnalys
     if (!h1) continue;
     const want = btc.btcTrailStop({ direction: pos.direction, entry, initialStop: initial, price, currentStop: _tightest, bars: h1.bars });
     if (!want) continue;
+    if (pos.source === 'dx') {
+      if (!dxConns) dxConns = await loadDxConnections(userId);
+      const _dxT = dxTargetOf(pos, dxConns);
+      if (!_dxT) continue;
+      try {
+        const { executeSignalOnDxtrade } = await import('../dxtrade');
+        const r = await executeSignalOnDxtrade(_dxT.conn, { action: 'MODIFY', symbol: pos.symbol, direction: pos.direction, stopLoss: want.stop, positionCode: _dxT.positionCode });
+        if (r.success) {
+          btcLastStop.set(key, want.stop);
+          addActivity(userId, { type: 'position_update', symbol: pos.symbol, message: `₿ BTC trail on DXtrade [conn ${_dxT.conn.id}]: ${pos.direction} ${want.why} → stop ${want.stop}` });
+        } else {
+          addActivity(userId, { type: 'error', symbol: pos.symbol, message: `⚠️ BTC trail failed on DXtrade [conn ${_dxT.conn.id}]: ${r.error}` });
+        }
+      } catch (e: any) {
+        addActivity(userId, { type: 'error', symbol: pos.symbol, message: `⚠️ BTC trail error on DXtrade [conn ${_dxT.conn.id}]: ${e?.message ?? e}` });
+      }
+      continue;
+    }
     const m = String(pos.ticket).match(/^tl_(\d+)_(.+)$/);
     if (!m) continue;
     if (!tlConns) tlConns = (await storage.getUserTradelockerConnections(userId)).filter((c: any) => c.isActive);
@@ -2578,8 +2630,9 @@ async function manageXauProfitLock(userId: number, openPositions: any[]): Promis
   if (!rules.XAU_LOCK_ON()) return;
   const live = new Set<string>();
   let tlConns: any[] | null = null;
+  let dxConns: any[] | null = null;
   for (const pos of openPositions) {
-    if (pos.source !== 'tl' || !rules.isXau(pos.symbol)) continue;
+    if ((pos.source !== 'tl' && pos.source !== 'dx') || !rules.isXau(pos.symbol)) continue;
     const key = `${userId}:${pos.ticket}`; // per user — the maps are shared by every engine
     live.add(key);
     const qty = Number(pos.volume) || 0;
@@ -2587,8 +2640,12 @@ async function manageXauProfitLock(userId: number, openPositions: any[]): Promis
     if (!(qty > 0) || !(entry > 0)) continue;
     // Live favourable move in points, from the broker's own unrealized P&L
     // (TL's position list carries no live price; the engine's analysis price
-    // is up to a scan old). P&L ÷ (lots × oz/lot) = points.
-    const favPts = (Number(pos.profit) || 0) / (qty * rules.XAU_CONTRACT_SIZE);
+    // is up to a scan old). P&L ÷ (lots × oz/lot) = points. DXtrade volume
+    // is in UNITS (oz), not lots — P&L ÷ units is already points there, so
+    // the two sources scale differently and must not share the formula.
+    const favPts = pos.source === 'dx'
+      ? (Number(pos.profit) || 0) / qty
+      : (Number(pos.profit) || 0) / (qty * rules.XAU_CONTRACT_SIZE);
     if (!Number.isFinite(favPts)) continue;
     {
       // Let it breathe: no lock until the move is ≥ STOP_HOLD_UNTIL_R × the original stop distance.
@@ -2604,11 +2661,6 @@ async function manageXauProfitLock(userId: number, openPositions: any[]): Promis
     const already = xauLockedPts.get(key) ?? -Infinity;
     if (want < already + 1) continue;          // only tighten, in ≥1-point steps
     if (favPts < want + 2) continue;           // never place the stop at/through the current price
-    const m = String(pos.ticket).match(/^tl_(\d+)_(.+)$/);
-    if (!m) continue;
-    if (!tlConns) tlConns = (await storage.getUserTradelockerConnections(userId)).filter((c: any) => c.isActive);
-    const tlConn = tlConns.find((c: any) => c.id === Number(m[1]));
-    if (!tlConn) continue;
     const isBuy = pos.direction === 'BUY';
     const newSl = Math.round((isBuy ? entry + want : entry - want) * 100) / 100;
     // The peak lives in memory; after a restart it restarts low. Never move a
@@ -2621,6 +2673,31 @@ async function manageXauProfitLock(userId: number, openPositions: any[]): Promis
         continue;
       }
     }
+    if (pos.source === 'dx') {
+      if (!dxConns) dxConns = await loadDxConnections(userId);
+      const _dxT = dxTargetOf(pos, dxConns);
+      if (!_dxT) continue;
+      try {
+        const { executeSignalOnDxtrade } = await import('../dxtrade');
+        const r = await executeSignalOnDxtrade(_dxT.conn, {
+          action: 'MODIFY', symbol: pos.symbol, direction: pos.direction, stopLoss: newSl, positionCode: _dxT.positionCode,
+        });
+        if (r.success) {
+          xauLockedPts.set(key, want);
+          addActivity(userId, { type: 'position_update', symbol: pos.symbol, message: `🔒 XAUUSD profit lock on DXtrade [conn ${_dxT.conn.id}]: ${pos.direction} +${peak.toFixed(1)} pts peak → stop moved to ${newSl} (+${want.toFixed(1)} pts locked)` });
+        } else {
+          addActivity(userId, { type: 'error', symbol: pos.symbol, message: `⚠️ XAUUSD profit lock failed on DXtrade [conn ${_dxT.conn.id}]: ${r.error}` });
+        }
+      } catch (e: any) {
+        addActivity(userId, { type: 'error', symbol: pos.symbol, message: `⚠️ XAUUSD profit lock error on DXtrade [conn ${_dxT.conn.id}]: ${e?.message ?? e}` });
+      }
+      continue;
+    }
+    const m = String(pos.ticket).match(/^tl_(\d+)_(.+)$/);
+    if (!m) continue;
+    if (!tlConns) tlConns = (await storage.getUserTradelockerConnections(userId)).filter((c: any) => c.isActive);
+    const tlConn = tlConns.find((c: any) => c.id === Number(m[1]));
+    if (!tlConn) continue;
     try {
       const r = await executeMT5SignalOnTradeLocker(tlConn, {
         action: 'MODIFY', symbol: pos.symbol, direction: pos.direction, volume: 0, stopLoss: newSl, positionId: m[2],
@@ -2657,6 +2734,7 @@ async function applyServerSideTrails(
     const allTL = await storage.getUserTradelockerConnections(userId);
     tlConnections = allTL.filter((c: any) => c.isActive);
   } catch { /* no TL — MT5 only */ }
+  const dxConnections = await loadDxConnections(userId);
 
   const methodLabel = TRAIL_METHOD_LABELS[config.trailMethod] || config.trailMethod;
   const activationPips = config.trailActivationPips ?? 10;
@@ -2725,7 +2803,11 @@ async function applyServerSideTrails(
       if (!_xauHold && !_mtfHold && _against && !_choppy && _revScore >= _sensitivity) {
         const _reason = `Reversal exit: ${pos.symbol} ${pos.direction} — ${_revScore}/5 reversal confluence in a trending market (ADX ${Math.round(_adx)}, DI sep ${Math.round(_diSep)}, need ${_sensitivity})`;
         addActivity(userId, { type: 'trade_close', symbol: pos.symbol, message: `🔄 ${_reason}` });
-        if (pos.source !== 'tl') broadcastMT5Signal(userId, {
+        // Only MT5 positions go to the MT5 queue. DXtrade positions used to
+        // fall into this branch too (source !== 'tl'), broadcasting a CLOSE
+        // for a dx_ ticket the EA can never act on while the actual DX
+        // position stayed open — they now take the DX branch below.
+        if (pos.source === 'mt5') broadcastMT5Signal(userId, {
           id: `revexit_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
           timestamp: new Date().toISOString(),
           symbol: pos.symbol, direction: pos.direction, action: 'CLOSE', lotSize: 0,
@@ -2733,6 +2815,19 @@ async function applyServerSideTrails(
           reason: _reason, holdTime: '', strategy: 'position_management', confluences: [],
           status: 'pending', modifyAction: 'full_close', positionId: pos.ticket || pos.id || null,
         } as PendingMT5Signal);
+        const _dxT = pos.source === 'dx' ? dxTargetOf(pos, dxConnections) : null;
+        if (_dxT) {
+          try {
+            const { executeSignalOnDxtrade } = await import('../dxtrade');
+            const r = await executeSignalOnDxtrade(_dxT.conn, {
+              action: 'CLOSE', symbol: pos.symbol, direction: pos.direction, positionCode: _dxT.positionCode,
+            });
+            if (r.success) addActivity(userId, { type: 'trade_close', symbol: pos.symbol, message: `✅ Reversal exit closed on DXtrade [conn ${_dxT.conn.id}]: ${pos.symbol}` });
+            else addActivity(userId, { type: 'error', symbol: pos.symbol, message: `⚠️ Reversal exit close failed on DXtrade [conn ${_dxT.conn.id}]: ${r.error}` });
+          } catch (e: any) {
+            addActivity(userId, { type: 'error', symbol: pos.symbol, message: `⚠️ Reversal exit error on DXtrade [conn ${_dxT.conn.id}]: ${e?.message ?? e}` });
+          }
+        }
         const _rxT = pos.source === 'tl' ? tlTargetOf(pos, tlConnections) : null;
         for (const tlConn of (_rxT ? [_rxT.conn] : [])) {
           try {
@@ -2833,11 +2928,13 @@ async function applyServerSideTrails(
     const _px = Number(pos.currentPrice) || 0;
     if (_px > 0 && (isBuy ? newSL >= _px : newSL <= _px)) { logGuard(userId, 'stop_through_price_refused', pos.symbol, `trail ${newSL} vs price ${_px}`); continue; }
 
-    // pos.source === 'tl' means this position only exists on a TradeLocker
-    // account (merged in by getMergedOpenPositions) — there's no matching
+    // pos.source === 'tl' / 'dx' means this position only exists on that
+    // platform (merged in by getMergedOpenPositions) — there's no matching
     // MT5 ticket for the EA to act on, so skip the MT5 broadcast entirely
-    // and go straight to the TL modify loop below.
-    if (pos.source !== 'tl') broadcastMT5Signal(userId, {
+    // and go straight to the platform modify below. DXtrade positions used
+    // to be broadcast to the MT5 queue here (a trail that could never land)
+    // while their real stop never moved.
+    if (pos.source === 'mt5') broadcastMT5Signal(userId, {
       id: `trail_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
       timestamp: new Date().toISOString(),
       symbol: pos.symbol,
@@ -2902,6 +2999,42 @@ async function applyServerSideTrails(
             message: `⚠️ TradeLocker trail error on ${tlConn.accountId}: ${pos.symbol} — ${tlErr.message}`,
           });
         }
+      }
+    }
+
+    // DXtrade: same trail, executed as a cancel-and-replace of the
+    // position's protective stop (dxsca has no native SL patch).
+    const _dxTrailT = pos.source === 'dx' ? dxTargetOf(pos, dxConnections) : null;
+    if (_dxTrailT) {
+      try {
+        const { executeSignalOnDxtrade } = await import('../dxtrade');
+        const r = await executeSignalOnDxtrade(_dxTrailT.conn, {
+          action: 'MODIFY',
+          symbol: pos.symbol,
+          direction: pos.direction || 'BUY',
+          stopLoss: Math.round(newSL * 100000) / 100000,
+          takeProfit: pos.tp || null,
+          positionCode: _dxTrailT.positionCode,
+        });
+        if (r.success) {
+          addActivity(userId, {
+            type: 'position_update',
+            symbol: pos.symbol,
+            message: `✅ DXtrade trail applied [conn ${_dxTrailT.conn.id}]: ${pos.symbol} SL → ${Math.round(newSL * 100000) / 100000}`,
+          });
+        } else {
+          addActivity(userId, {
+            type: 'error',
+            symbol: pos.symbol,
+            message: `⚠️ DXtrade trail failed [conn ${_dxTrailT.conn.id}]: ${pos.symbol} — ${r.error}`,
+          });
+        }
+      } catch (dxErr: any) {
+        addActivity(userId, {
+          type: 'error',
+          symbol: pos.symbol,
+          message: `⚠️ DXtrade trail error [conn ${_dxTrailT.conn.id}]: ${pos.symbol} — ${dxErr?.message ?? dxErr}`,
+        });
       }
     }
   }
@@ -6826,7 +6959,12 @@ async function processDecision(userId: number, decision: any, newsCtx?: any): Pr
       modifyAction,
       positionId: decision.positionId || null,
     };
-    broadcastMT5Signal(userId, mgmtSignal);
+    // A decision aimed at a DXtrade position (dx_ ticket) must not also be
+    // broadcast to the MT5 queue — the EA can't act on it and the queue
+    // entry is pure noise. DX positions are handled by the DX loop below.
+    if (!String(decision.positionId || '').startsWith('dx_')) {
+      broadcastMT5Signal(userId, mgmtSignal);
+    }
 
     // Then try TradeLocker — execute on ALL active accounts simultaneously
     const tlConnectionsForMgmt = await storage.getUserTradelockerConnections(userId);
@@ -6980,6 +7118,103 @@ async function processDecision(userId: number, decision: any, newsCtx?: any): Pr
             }
           } catch (err: any) {
             addActivity(userId, { type: 'error', symbol: decision.symbol, message: `Position management error on TradeLocker ${acctLabel}: ${err.message}` });
+          }
+        })
+      );
+    }
+
+    // Then DXtrade — the branch that didn't exist: before this, an AI
+    // CLOSE/MODIFY decision never reached a DX position at all (the MT5
+    // broadcast went nowhere and there was no DX loop). Mirrors the
+    // TradeLocker loop: resolve THIS connection's own position by
+    // symbol/direction rather than trusting the MT5-scoped positionId.
+    const dxConnsForMgmt = await loadDxConnections(userId);
+    if (dxConnsForMgmt.length > 0) {
+      const { executeSignalOnDxtrade } = await import('../dxtrade');
+      await Promise.allSettled(
+        dxConnsForMgmt.map(async (dc: any) => {
+          const acctLabel = `[DXtrade conn ${dc.id}]`;
+          try {
+            const { getDxtradeService, decryptApiSecret, extractAccountCode } = await import('../dxtrade');
+            const svc = getDxtradeService(dc.host, dc.username, decryptApiSecret(dc.encrypted_password), dc.domain, String(dc.id));
+            await svc.ensureLoggedIn();
+            const acct = dc.account_code || extractAccountCode(await svc.getAccounts());
+            if (!acct) return;
+            const positions = await svc.getPositions(acct).catch(() => [] as any[]);
+            const matchDir = decision.direction ? String(decision.direction).toUpperCase() : null;
+            const symMatches = positions.filter((p: any) =>
+              (p.instrument || '').toUpperCase().replace('/', '') === decision.symbol?.toUpperCase().replace('/', ''));
+            if (!matchDir && new Set(symMatches.map((p: any) => String(p.side || '').toUpperCase())).size > 1) {
+              addActivity(userId, { type: 'info', symbol: decision.symbol, message: `⚠️ ${acctLabel}: AI asked to manage ${decision.symbol} without a direction but this account holds both a BUY and a SELL — skipped rather than guess the leg.` });
+              return;
+            }
+            const dxMatch = symMatches.find((p: any) => !matchDir || (p.side || '').toUpperCase() === matchDir);
+            if (!dxMatch) return; // position lives elsewhere — skip silently like TL
+
+            if (signalAction === 'CLOSE') {
+              const { xauTooYoungToClose } = await import('./xau-rules');
+              if (xauTooYoungToClose(decision.symbol, dxMatch.openTime)) {
+                addActivity(userId, { type: 'info', symbol: decision.symbol, message: `⏳ AI close held off on ${acctLabel}: ${decision.symbol} is inside the gold/index minimum hold — the broker stop still protects it.` });
+                return;
+              }
+              // The AI's partialVolume is denominated in MT5 lots; DXtrade
+              // quantities are instrument units. Converting safely needs the
+              // instrument multiplier, so — like TradeLocker — a partial is
+              // refused rather than mis-sized. Full closes work.
+              if (partialVolume && partialVolume > 0) {
+                addActivity(userId, { type: 'info', symbol: decision.symbol, message: `✂️ Partial close (${partialVolume}) refused on ${acctLabel}: lot-denominated partials can't be sized safely in DXtrade units yet. Position kept; trail/stop still protect it.` });
+                logGuard(userId, 'partial_close_refused', decision.symbol, `${acctLabel} partial ${partialVolume}`);
+                return;
+              }
+              const r = await executeSignalOnDxtrade(dc, {
+                action: 'CLOSE',
+                symbol: decision.symbol,
+                direction: dxMatch.side,
+                volume: 0,
+                positionCode: dxMatch.positionId,
+              });
+              if (r.success) {
+                addActivity(userId, { type: 'trade_close', symbol: decision.symbol, message: `Position CLOSED via DXtrade ${acctLabel}: ${decision.symbol} - ${decision.reason}` });
+              } else {
+                addActivity(userId, { type: 'error', symbol: decision.symbol, message: `CLOSE failed on DXtrade ${acctLabel}: ${r.error}` });
+              }
+            } else if (signalAction === 'MODIFY') {
+              // Same guards as the TradeLocker modify: never loosen, never
+              // cross price, and let the trade breathe before tightening.
+              let _sl = newSL;
+              const _buy = String(dxMatch.side || 'BUY').toUpperCase() === 'BUY';
+              const _cur = Number(dxMatch.sl) || 0;
+              const _px = Number(state.marketSnapshot?.[decision.symbol]?.price) || 0;
+              const _entry = Number(dxMatch.openPrice) || 0;
+              if (_sl && _cur > 0 && (_buy ? _sl > _cur : _sl < _cur)) {
+                const _h = stopHoldActive(_buy, _entry, _cur, _px);
+                if (_h.hold) {
+                  logGuard(userId, 'stop_hold_breathe', decision.symbol, `AI stop ${_sl} held on ${acctLabel} — trade at ${_h.rNow.toFixed(2)}R, stop stays at ${_cur} until +${stopHoldUntilR()}R`);
+                  _sl = undefined;
+                }
+              }
+              if (_sl && _px > 0 && (_buy ? _sl >= _px : _sl <= _px)) { logGuard(userId, 'stop_through_price_refused', decision.symbol, `AI SL ${_sl} vs price ${_px} on ${acctLabel}`); _sl = undefined; }
+              if (_sl && _cur > 0 && (_buy ? _sl <= _cur : _sl >= _cur)) { logGuard(userId, 'stop_loosen_refused', decision.symbol, `AI SL ${_sl} looser than ${_cur} on ${acctLabel}`); _sl = undefined; }
+              if (!_sl && !newTP) {
+                addActivity(userId, { type: 'info', symbol: decision.symbol, message: `🛡️ ${acctLabel}: AI stop change for ${decision.symbol} refused (would loosen or cross price).` });
+                return;
+              }
+              const r = await executeSignalOnDxtrade(dc, {
+                action: 'MODIFY',
+                symbol: decision.symbol,
+                direction: dxMatch.side,
+                stopLoss: _sl,
+                takeProfit: newTP,
+                positionCode: dxMatch.positionId,
+              });
+              if (r.success) {
+                addActivity(userId, { type: 'position_update', symbol: decision.symbol, message: `Position MODIFIED via DXtrade ${acctLabel}: ${decision.symbol} | New SL: ${newSL || 'N/A'} | New TP: ${newTP || 'N/A'}` });
+              } else {
+                addActivity(userId, { type: 'error', symbol: decision.symbol, message: `MODIFY failed on DXtrade ${acctLabel}: ${r.error}` });
+              }
+            }
+          } catch (err: any) {
+            addActivity(userId, { type: 'error', symbol: decision.symbol, message: `Position management error on DXtrade ${acctLabel}: ${err.message}` });
           }
         })
       );

@@ -19548,10 +19548,11 @@ Format each recommendation as a clear, concise action item.`;
           const cached = dxCache[dc.id];
           const dxFresh = !!cached && Date.now() - cached.updatedAt < 300_000;
           const dxBalance = dxFresh ? (Number(cached.balance) || 0) : 0;
+          const dxEquity = dxFresh ? (Number(cached.equity) || dxBalance) : 0;
           accountCurves.push({
             key: `dx_${dc.id}`,
             label: 'DXtrade' + (dc.label ? ` · ${dc.label}` : dc.account_code ? ` · ${dc.account_code}` : ''),
-            platform: 'DXtrade', isConnected: dxFresh, balance: dxBalance, equity: dxBalance,
+            platform: 'DXtrade', isConnected: dxFresh, balance: dxBalance, equity: dxEquity,
             ...tally(rows), realizedTodayPnl: dxRealizedToday, todayPnl: dxRealizedToday,
             openCount: dxFresh ? (Number(cached.openPositions) || 0) : 0, unrealizedPnl: 0,
             weeklyPnl: weekOf(rows), curve: curveOf(rows),
@@ -22316,7 +22317,7 @@ Respond with ONLY valid JSON:
         `SELECT id, host, username, domain, account_code, label, is_active, last_connected_at, last_error, auto_trade_enabled, use_risk_percent, risk_percent, lot_multiplier, is_prop_firm_account, prop_firm_name, prop_firm_account_size, weekly_profit_target, consistency_enabled, consistency_threshold_pct FROM dxtrade_connections WHERE user_id=$1 ORDER BY id`,
         [userId],
       );
-      const { DxtradeService, decryptApiSecret, extractAccountCode, extractBalance } = await import('./dxtrade');
+      const { DxtradeService, decryptApiSecret, extractAccountCode, extractBalance, extractAccountFunds } = await import('./dxtrade');
       const connections = await Promise.all(rows.map(async (c: any) => {
         try {
           const pw = decryptApiSecret((await pool.query(`SELECT encrypted_password FROM dxtrade_connections WHERE id=$1`, [c.id])).rows[0].encrypted_password);
@@ -22426,6 +22427,41 @@ Respond with ONLY valid JSON:
       res.json({ ok: true, accountCode: acct, result });
     } catch (err: any) {
       res.status(400).json({ error: err?.message || 'modify failed' });
+    }
+  });
+
+  // Manual, confirm-gated DXtrade position close — the route that didn't
+  // exist (modify and order did; close only lived inside the engine).
+  // Mirrors /api/dxtrade/modify: user-initiated, positionCode optional
+  // (the service resolves it from the live position list when omitted).
+  app.post("/api/dxtrade/close", async (req: Request, res: Response) => {
+    if (!req.isAuthenticated()) return res.status(401).json({ error: "Authentication required" });
+    const userId = (req.user as User).id;
+    const { connectionId, instrument, side, quantity, positionCode, confirm } = req.body || {};
+    if (confirm !== true) return res.status(400).json({ error: "confirm:true required" });
+    if (!connectionId || !instrument || !side || !(Number(quantity) > 0)) {
+      return res.status(400).json({ error: "connectionId, instrument, side and quantity are required" });
+    }
+    try {
+      const { pool } = await import('./db');
+      const { rows } = await pool.query(`SELECT host, username, encrypted_password, domain, account_code FROM dxtrade_connections WHERE id=$1 AND user_id=$2 AND is_active=true`, [Number(connectionId), userId]);
+      if (!rows.length) return res.status(404).json({ error: "DXtrade connection not found" });
+      const c = rows[0];
+      const { DxtradeService, decryptApiSecret, extractAccountCode } = await import('./dxtrade');
+      const svc = new DxtradeService(c.host, c.username, decryptApiSecret(c.encrypted_password), c.domain);
+      await svc.login();
+      const acct = c.account_code || extractAccountCode(await svc.getAccounts());
+      if (!acct) return res.status(400).json({ error: "could not resolve account code" });
+      const result = await svc.closePosition(
+        acct,
+        String(instrument),
+        side === 'BUY' ? 'BUY' : 'SELL',
+        Number(quantity),
+        positionCode ? String(positionCode) : undefined,
+      );
+      res.json({ ok: true, accountCode: acct, result });
+    } catch (err: any) {
+      res.status(400).json({ error: err?.message || 'close failed' });
     }
   });
 
