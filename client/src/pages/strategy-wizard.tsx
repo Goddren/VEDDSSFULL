@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
@@ -15,7 +15,8 @@ import {
   ChevronRight, ChevronLeft, CheckCircle2, CircleDot, Filter, Sliders,
   Activity, ArrowUpRight, Undo, Flame,
   ShieldCheck, Scale, Settings,
-  ArrowLeftRight, Waves, CandlestickChart, FilterX
+  ArrowLeftRight, Waves, CandlestickChart, FilterX,
+  Rocket, BrainCircuit, Store, Square
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { motion } from 'framer-motion';
@@ -1033,6 +1034,112 @@ export default function StrategyWizard() {
     }
   };
 
+  // ── Deployments + strategy brain (Stage 5) ──────────────────────
+  const [deployAccounts, setDeployAccounts] = useState<any[]>([]);
+  const [deployPick, setDeployPick] = useState<string>('');
+  const [deployments, setDeployments] = useState<any[]>([]);
+  const [deployNote, setDeployNote] = useState<string>('');
+  const [isDeploying, setIsDeploying] = useState(false);
+  const [brainProfile, setBrainProfile] = useState<any | null>(null);
+  const [brainBusy, setBrainBusy] = useState(false);
+  const [listedBrain, setListedBrain] = useState(false);
+
+  const loadDeployData = async (sid: number) => {
+    try {
+      const [accRes, depRes, stratRes] = await Promise.all([
+        apiRequest('GET', '/api/strategy-wizard/accounts'),
+        apiRequest('GET', `/api/strategy-wizard/deployments?strategyId=${sid}`),
+        apiRequest('GET', '/api/strategy-wizard/strategies'),
+      ]);
+      const acc = await accRes.json().catch(() => ({}));
+      const dep = await depRes.json().catch(() => ({}));
+      const strat = await stratRes.json().catch(() => ({}));
+      setDeployAccounts(acc.accounts || []);
+      setDeployments(dep.deployments || []);
+      const mine = (strat.strategies || []).find((s: any) => s.id === sid);
+      if (mine) {
+        setBrainProfile(mine.brainProfile || null);
+        setListedBrain(!!mine.brainListingId);
+      }
+    } catch { /* panel simply stays empty */ }
+  };
+
+  useEffect(() => {
+    if (savedId) loadDeployData(savedId);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [savedId]);
+
+  const handleDeploy = async () => {
+    if (!savedId) {
+      toast({ title: 'Save the strategy first', description: 'Deployments attach to a saved strategy so its trades build the right brain.', variant: 'destructive' });
+      return;
+    }
+    const acct = deployAccounts.find((a) => `${a.platform}:${a.ref}` === deployPick);
+    if (!acct) {
+      toast({ title: 'Pick an account', description: 'Choose which live account this strategy runs on.', variant: 'destructive' });
+      return;
+    }
+    setIsDeploying(true);
+    try {
+      const res = await apiRequest('POST', '/api/strategy-wizard/deployments', {
+        strategyId: savedId, platform: acct.platform, connectionRef: acct.ref, accountLabel: acct.label,
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data?.error || 'Deploy failed');
+      setDeployNote(data.note || '');
+      toast({ title: 'Strategy deployed', description: `${spec?.name} is now running on ${acct.label} (${acct.sub}).` });
+      loadDeployData(savedId);
+    } catch (error: any) {
+      toast({ title: 'Deploy failed', description: errText(error), variant: 'destructive' });
+    } finally {
+      setIsDeploying(false);
+    }
+  };
+
+  const handleStopDeployment = async (id: number) => {
+    try {
+      const res = await apiRequest('POST', `/api/strategy-wizard/deployments/${id}/stop`);
+      if (!res.ok) throw new Error('stop failed');
+      toast({ title: 'Deployment stopped', description: 'No new entries will be opened. An open position keeps its broker stop/target and is not force-closed.' });
+      if (savedId) loadDeployData(savedId);
+    } catch (error: any) {
+      toast({ title: 'Stop failed', description: errText(error), variant: 'destructive' });
+    }
+  };
+
+  const handleBuildBrain = async () => {
+    if (!savedId) return;
+    setBrainBusy(true);
+    try {
+      const res = await apiRequest('POST', `/api/strategy-wizard/strategies/${savedId}/brain`);
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data?.error || 'Brain build failed');
+      setBrainProfile(data.brain);
+      toast({ title: 'Brain updated', description: 'Built from this strategy\'s backtest data points and live track record.' });
+    } catch (error: any) {
+      toast({ title: 'Brain build failed', description: errText(error), variant: 'destructive' });
+    } finally {
+      setBrainBusy(false);
+    }
+  };
+
+  const handleListBrain = async () => {
+    if (!savedId) return;
+    setBrainBusy(true);
+    try {
+      const res = await apiRequest('POST', `/api/strategy-wizard/strategies/${savedId}/list-brain`, {});
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data?.error || 'Listing failed');
+      setListedBrain(true);
+      setBrainProfile(data.brain || brainProfile);
+      toast({ title: 'Brain listed on the Marketplace', description: `"${data.listing?.title}" is live at ${data.listing?.priceVedd} VEDD.` });
+    } catch (error: any) {
+      toast({ title: 'Cannot list yet', description: errText(error), variant: 'destructive' });
+    } finally {
+      setBrainBusy(false);
+    }
+  };
+
   // Start the condition builder with a fresh editable spec.
   const handleStartBuilder = () => {
     setMode('builder');
@@ -1701,6 +1808,117 @@ export default function StrategyWizard() {
                       </Button>
                     </div>
                   </CardFooter>
+                </Card>
+
+                {/* ── Deploy + Strategy Brain (Stage 5) ── */}
+                <Card>
+                  <CardHeader>
+                    <CardTitle className="flex items-center gap-2">
+                      <Rocket className="h-5 w-5" />
+                      Deploy & Strategy Brain
+                    </CardTitle>
+                    <CardDescription>
+                      Run this strategy on one of your live accounts, and grow a brain from everything it does — backtest data points plus its live track record.
+                    </CardDescription>
+                  </CardHeader>
+                  <CardContent className="space-y-5">
+                    {!savedId ? (
+                      <p className="text-sm text-muted-foreground">Save the strategy first — deployments and its brain attach to the saved strategy.</p>
+                    ) : (
+                      <>
+                        <div className="flex flex-wrap items-end gap-3">
+                          <div className="min-w-[240px] flex-1">
+                            <Label>Live account</Label>
+                            <Select value={deployPick} onValueChange={setDeployPick}>
+                              <SelectTrigger>
+                                <SelectValue placeholder={deployAccounts.length ? 'Choose an account…' : 'No live accounts connected'} />
+                              </SelectTrigger>
+                              <SelectContent>
+                                {deployAccounts.map((a) => (
+                                  <SelectItem key={`${a.platform}:${a.ref}`} value={`${a.platform}:${a.ref}`}>
+                                    {a.label} · {a.sub}{a.platform === 'mt5' ? (a.online ? ' · online' : ' · offline') : ''}
+                                  </SelectItem>
+                                ))}
+                              </SelectContent>
+                            </Select>
+                          </div>
+                          <Button onClick={handleDeploy} disabled={isDeploying || !deployPick}>
+                            <Play className="h-4 w-4 mr-2" />
+                            {isDeploying ? 'Deploying…' : 'Deploy to Account'}
+                          </Button>
+                        </div>
+                        {deployNote && <p className="text-xs text-muted-foreground">{deployNote}</p>}
+                        {spec?.source === 'engine' && (
+                          <p className="text-xs text-amber-600 dark:text-amber-400">
+                            Engine strategies execute through the FX engine, which trades your auto-enabled accounts as one pool. A deployment binds this strategy to the chosen account for tracking and its brain.
+                          </p>
+                        )}
+                        {deployments.length > 0 && (
+                          <div className="space-y-2">
+                            {deployments.map((d) => (
+                              <div key={d.id} className="flex items-center gap-3 rounded-md border px-3 py-2 text-sm">
+                                <Badge variant={d.status === 'running' ? 'default' : 'secondary'}>{d.status}</Badge>
+                                <span className="font-medium">{d.accountLabel || d.connectionRef}</span>
+                                <span className="text-muted-foreground capitalize">{d.platform}</span>
+                                {d.lastError && <span className="text-xs text-red-500 truncate max-w-[280px]" title={d.lastError}>{d.lastError}</span>}
+                                {d.status === 'running' && (
+                                  <Button size="sm" variant="outline" className="ml-auto" onClick={() => handleStopDeployment(d.id)}>
+                                    <Square className="h-3 w-3 mr-1" /> Stop
+                                  </Button>
+                                )}
+                              </div>
+                            ))}
+                            <p className="text-xs text-muted-foreground">Stopping halts new entries — an open position keeps its broker stop/target and is not force-closed.</p>
+                          </div>
+                        )}
+
+                        <div className="border-t pt-4 space-y-3">
+                          <div className="flex flex-wrap items-center gap-3">
+                            <h4 className="flex items-center gap-2 font-medium">
+                              <BrainCircuit className="h-4 w-4" /> Strategy Brain
+                            </h4>
+                            <Button size="sm" variant="secondary" onClick={handleBuildBrain} disabled={brainBusy}>
+                              {brainBusy ? 'Working…' : brainProfile ? 'Rebuild Brain' : 'Build Brain'}
+                            </Button>
+                            <Button size="sm" onClick={handleListBrain} disabled={brainBusy || listedBrain}>
+                              <Store className="h-4 w-4 mr-2" />
+                              {listedBrain ? 'Listed on Marketplace' : 'List Brain on Marketplace'}
+                            </Button>
+                          </div>
+                          {brainProfile ? (
+                            <div className="grid grid-cols-2 md:grid-cols-4 gap-3 text-sm">
+                              <div className="rounded-md border p-3">
+                                <div className="text-muted-foreground text-xs">Backtest trades</div>
+                                <div className="font-semibold">{brainProfile.backtest?.trades ?? 0}</div>
+                                <div className="text-xs text-muted-foreground">
+                                  {brainProfile.backtest ? `win ${brainProfile.backtest.winRate != null ? Math.round(brainProfile.backtest.winRate * 100) : '—'}% · net $${Number(brainProfile.backtest.netPnl ?? 0).toFixed(2)}` : 'no backtest saved'}
+                                </div>
+                              </div>
+                              <div className="rounded-md border p-3">
+                                <div className="text-muted-foreground text-xs">Live trades</div>
+                                <div className="font-semibold">{brainProfile.live?.trades ?? 0}</div>
+                                <div className="text-xs text-muted-foreground">
+                                  win {brainProfile.live?.winRate != null ? Math.round(brainProfile.live.winRate * 100) : '—'}% · net ${Number(brainProfile.live?.netPnl ?? 0).toFixed(2)}
+                                </div>
+                              </div>
+                              <div className="rounded-md border p-3">
+                                <div className="text-muted-foreground text-xs">Open right now</div>
+                                <div className="font-semibold">{brainProfile.live?.openTrades ?? 0}</div>
+                                <div className="text-xs text-muted-foreground">across {brainProfile.deployments?.filter((d: any) => d.status === 'running').length ?? 0} running deployment(s)</div>
+                              </div>
+                              <div className="rounded-md border p-3">
+                                <div className="text-muted-foreground text-xs">Marketplace ready</div>
+                                <div className="font-semibold">{brainProfile.listableTrades ?? 0} / 10 live trades</div>
+                                <div className="text-xs text-muted-foreground">only live trades count — backtests are never sold as experience</div>
+                              </div>
+                            </div>
+                          ) : (
+                            <p className="text-sm text-muted-foreground">No brain yet. Build one to fuse this strategy's backtest data points with its live results — 10+ live trades makes it listable on the Brain Marketplace.</p>
+                          )}
+                        </div>
+                      </>
+                    )}
+                  </CardContent>
                 </Card>
               </div>
             ) : (

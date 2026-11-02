@@ -20910,6 +20910,198 @@ Respond with ONLY valid JSON:
     }
   });
 
+  // ── Strategy deployments + brain (Stage 5) ─────────────────────────
+  // Every live account the user can deploy a strategy to, one list:
+  // MT5 terminals (signal-queue aliases), TradeLocker connections,
+  // DXtrade connections.
+  app.get("/api/strategy-wizard/accounts", async (req: Request, res: Response) => {
+    if (!req.isAuthenticated()) return res.status(401).json({ error: "Authentication required" });
+    const userId = (req.user as User).id;
+    try {
+      const accounts: any[] = [];
+      const { getMT5Accounts } = await import('./services/live-trading-engine');
+      for (const a of getMT5Accounts(userId)) {
+        accounts.push({ platform: 'mt5', ref: a.alias, label: a.label || a.alias, sub: a.accountNumber ? `MT5 ${a.accountNumber}` : 'MT5 terminal', online: (a as any).online });
+      }
+      const tl = await storage.getUserTradelockerConnections(userId).catch(() => [] as any[]);
+      for (const c of tl.filter((c: any) => c.isActive)) {
+        accounts.push({ platform: 'tradelocker', ref: String(c.id), label: c.accountId || `TradeLocker #${c.id}`, sub: 'TradeLocker', online: true });
+      }
+      const { pool } = await import('./db');
+      const { rows } = await pool.query(
+        `SELECT id, account_code, label FROM dxtrade_connections WHERE user_id=$1 AND is_active=true ORDER BY id`,
+        [userId],
+      ).catch(() => ({ rows: [] as any[] }));
+      for (const c of rows) {
+        accounts.push({ platform: 'dxtrade', ref: String(c.id), label: c.label || c.account_code || `DXtrade #${c.id}`, sub: 'DXtrade', online: true });
+      }
+      return res.json({ accounts });
+    } catch (err: any) {
+      return res.status(500).json({ error: err?.message || 'accounts lookup failed' });
+    }
+  });
+
+  app.get("/api/strategy-wizard/deployments", async (req: Request, res: Response) => {
+    if (!req.isAuthenticated()) return res.status(401).json({ error: "Authentication required" });
+    const userId = (req.user as User).id;
+    const { listDeployments } = await import('./services/strategy-deployments');
+    const strategyId = Number(req.query.strategyId ?? 0);
+    return res.json({ deployments: await listDeployments(userId, strategyId > 0 ? strategyId : undefined) });
+  });
+
+  // Deploy a saved strategy to one account. Spec strategies are executed
+  // by the deployment runner on exactly this account. Engine-native
+  // strategies execute through the FX engine itself (per user) — the
+  // deployment binds the strategy to this account for tracking + brain,
+  // and the response says so instead of pretending otherwise.
+  app.post("/api/strategy-wizard/deployments", async (req: Request, res: Response) => {
+    if (!req.isAuthenticated()) return res.status(401).json({ error: "Authentication required" });
+    const userId = (req.user as User).id;
+    try {
+      const strategyId = Number(req.body?.strategyId ?? 0);
+      const platform = String(req.body?.platform ?? '');
+      const connectionRef = String(req.body?.connectionRef ?? '');
+      const accountLabel = req.body?.accountLabel ? String(req.body.accountLabel) : null;
+      if (!strategyId || !['mt5', 'tradelocker', 'dxtrade'].includes(platform) || !connectionRef) {
+        return res.status(400).json({ error: 'strategyId, platform (mt5|tradelocker|dxtrade) and connectionRef are required' });
+      }
+      const { getWizardStrategy } = await import('./services/wizard-strategies');
+      const strat = await getWizardStrategy(userId, strategyId);
+      if (!strat) return res.status(404).json({ error: 'strategy not found' });
+      const spec: any = strat.spec;
+      const isEngine = spec.source === 'engine';
+      if (!isEngine && !spec.entryLong?.conditions?.length && !spec.entryShort?.conditions?.length) {
+        return res.status(400).json({ error: 'This strategy has no mechanical entry rules to run live. Pattern templates need the MT5 EA or a manual run — there is nothing honest to deploy.' });
+      }
+      // One running deployment per strategy+account.
+      const { listDeployments, createDeployment } = await import('./services/strategy-deployments');
+      const existing = await listDeployments(userId, strategyId);
+      if (existing.some((d) => d.status === 'running' && d.platform === platform && d.connectionRef === connectionRef)) {
+        return res.status(409).json({ error: 'This strategy is already running on that account.' });
+      }
+      // Verify the account belongs to the user + exists.
+      if (platform === 'tradelocker') {
+        const conns = await storage.getUserTradelockerConnections(userId);
+        if (!conns.some((c: any) => c.id === Number(connectionRef) && c.isActive)) return res.status(404).json({ error: 'TradeLocker connection not found' });
+      } else if (platform === 'dxtrade') {
+        const { pool } = await import('./db');
+        const { rows } = await pool.query(`SELECT id FROM dxtrade_connections WHERE id=$1 AND user_id=$2 AND is_active=true`, [Number(connectionRef), userId]);
+        if (!rows.length) return res.status(404).json({ error: 'DXtrade connection not found' });
+      } else if (platform === 'mt5') {
+        const { getMT5Accounts, setMT5AccountReceiveSignals } = await import('./services/live-trading-engine');
+        const accts = getMT5Accounts(userId);
+        if (!accts.some((a) => a.alias === connectionRef)) return res.status(404).json({ error: 'MT5 terminal not found (is the EA connected?)' });
+        // Aim the signal queue at the chosen terminal only.
+        for (const a of accts) setMT5AccountReceiveSignals(userId, a.alias, a.alias === connectionRef);
+      }
+      const dep = await createDeployment(userId, strategyId, platform, connectionRef, accountLabel);
+      return res.status(201).json({
+        deployment: dep,
+        execution: isEngine
+          ? 'engine'
+          : 'runner',
+        note: isEngine
+          ? 'Engine strategies run through the FX engine, which trades your auto-enabled accounts as one pool. This deployment binds the strategy to the chosen account for tracking and its brain — it does not re-route the engine.'
+          : platform === 'mt5'
+            ? 'The runner sends this strategy\'s signals to the chosen MT5 terminal only (its receive-signals flag is now exclusive). The EA on that terminal executes them.'
+            : 'The runner evaluates this strategy on closed bars and trades only the chosen account.',
+      });
+    } catch (err: any) {
+      console.error('[strategy-wizard] deploy failed:', err);
+      return res.status(500).json({ error: err?.message || 'deploy failed' });
+    }
+  });
+
+  app.post("/api/strategy-wizard/deployments/:id/stop", async (req: Request, res: Response) => {
+    if (!req.isAuthenticated()) return res.status(401).json({ error: "Authentication required" });
+    const userId = (req.user as User).id;
+    const { stopDeployment, getDeployment } = await import('./services/strategy-deployments');
+    const id = Number(req.params.id);
+    const ok = await stopDeployment(userId, id);
+    if (!ok) return res.status(404).json({ error: 'running deployment not found' });
+    // Note: stopping halts new entries; an open position keeps its
+    // broker-side stop/target and is NOT force-closed.
+    return res.json({ success: true, deployment: await getDeployment(userId, id) });
+  });
+
+  // (Re)build the strategy brain from backtest + live data points.
+  app.post("/api/strategy-wizard/strategies/:id/brain", async (req: Request, res: Response) => {
+    if (!req.isAuthenticated()) return res.status(401).json({ error: "Authentication required" });
+    const userId = (req.user as User).id;
+    const { buildStrategyBrain } = await import('./services/strategy-brain');
+    const profile = await buildStrategyBrain(userId, Number(req.params.id));
+    if (!profile) return res.status(404).json({ error: 'strategy not found' });
+    return res.json({ brain: profile });
+  });
+
+  // List the strategy's brain on the Brain Marketplace. The snapshot
+  // sold is the strategy's LIVE outcome rows (the marketplace's own
+  // shape: symbol/confirmedAt/tradeOutcome) — backtest data informs the
+  // brain profile but is never sold as experience. Same minimums as
+  // every other brain listing (MIN_TRADES_TO_LIST live trades).
+  app.post("/api/strategy-wizard/strategies/:id/list-brain", async (req: Request, res: Response) => {
+    if (!req.isAuthenticated()) return res.status(401).json({ error: "Authentication required" });
+    const userId = (req.user as User).id;
+    try {
+      const strategyId = Number(req.params.id);
+      const { getWizardStrategy, recordWizardBrain } = await import('./services/wizard-strategies');
+      const strat = await getWizardStrategy(userId, strategyId);
+      if (!strat) return res.status(404).json({ error: 'strategy not found' });
+      const { buildStrategyBrain } = await import('./services/strategy-brain');
+      const brain = await buildStrategyBrain(userId, strategyId);
+      const { MIN_TRADES_TO_LIST, computeListingStats, clampPrice } = await import('./services/brain-marketplace');
+      if (!brain || brain.listableTrades < MIN_TRADES_TO_LIST) {
+        return res.status(400).json({ error: `Need at least ${MIN_TRADES_TO_LIST} live trades from this strategy to list its brain (you have ${brain?.listableTrades ?? 0}). Backtest trades don't count — a brain is sold on live evidence.` });
+      }
+      const { listStrategyTrades } = await import('./services/strategy-deployments');
+      const trades = await listStrategyTrades(userId, strategyId, 2000);
+      const rows = trades
+        .filter((t) => t.status === 'closed' && t.pnl != null)
+        .map((t) => ({
+          symbol: String(t.symbol || '').toUpperCase(),
+          direction: t.direction,
+          confirmedAt: t.closed_at,
+          tradeOutcome: Number(t.pnl) > 0 ? 'WIN' : Number(t.pnl) < 0 ? 'LOSS' : 'BREAKEVEN',
+          profitLoss: Number(t.pnl),
+          exitReason: t.exit_reason ?? null,
+          source: 'wizard_strategy',
+          strategyName: strat.name,
+        }));
+      const stats = computeListingStats(rows as any);
+      const title = String(req.body?.title || `${strat.name} — strategy brain`);
+      const description = String(req.body?.description ||
+        `Live track record of the custom strategy "${strat.name}" (${strat.spec.symbol} ${strat.spec.timeframe}), built in the Strategy Wizard and run through VEDD deployments. ${brain.live.trades} live trades, ${brain.live.winRate != null ? Math.round(brain.live.winRate * 100) : '—'}% win rate. Backtest data points inform the profile; the snapshot contains live outcomes only.`);
+      const price = clampPrice(Number(req.body?.priceVedd ?? stats.suggestedPriceVedd));
+      // One active strategy-brain listing per strategy: retire the old one.
+      if ((strat as any).brainListingId) {
+        await storage.deactivateBrainListing((strat as any).brainListingId).catch(() => {});
+      }
+      const listing = await storage.createBrainListing({
+        sellerId: userId,
+        sourceCategory: 'forex' as any,
+        symbolFilter: [strat.spec.symbol],
+        includesManualTrades: false,
+        title,
+        description,
+        priceVedd: price,
+        suggestedPriceVedd: stats.suggestedPriceVedd,
+        snapshotData: rows,
+        tradeCount: stats.tradeCount,
+        distinctPairs: stats.distinctPairs,
+        ageDays: stats.ageDays,
+        winRate: stats.winRate,
+        oldestTradeAt: stats.oldestTradeAt,
+        newestTradeAt: stats.newestTradeAt,
+      } as any);
+      await recordWizardBrain(userId, strategyId, { listingId: listing.id });
+      const { snapshotData: _omit, ...safe } = listing as any;
+      return res.status(201).json({ listing: safe, brain });
+    } catch (err: any) {
+      console.error('[strategy-wizard] list-brain failed:', err);
+      return res.status(500).json({ error: err?.message || 'listing failed' });
+    }
+  });
+
   app.get("/api/strategy-wizard/strategies", async (req: Request, res: Response) => {
     if (!req.isAuthenticated()) return res.status(401).json({ error: "Authentication required" });
     const { listWizardStrategies } = await import('./services/wizard-strategies');

@@ -23,6 +23,8 @@ export interface WizardStrategy {
   spec: StrategySpec;
   lastBacktest: Record<string, any> | null;
   hasEa: boolean;
+  brainProfile: Record<string, any> | null;
+  brainListingId: number | null;
   status: WizardStrategyStatus;
   createdAt: string;
   updatedAt: string;
@@ -45,6 +47,8 @@ function ensureTable(): Promise<void> {
     )`);
     await pool.query(`CREATE INDEX IF NOT EXISTS wizard_strategies_user_idx ON wizard_strategies (user_id, id DESC)`);
     await pool.query(`ALTER TABLE wizard_strategies ADD COLUMN IF NOT EXISTS ea_code TEXT`);
+    await pool.query(`ALTER TABLE wizard_strategies ADD COLUMN IF NOT EXISTS brain_profile JSONB`);
+    await pool.query(`ALTER TABLE wizard_strategies ADD COLUMN IF NOT EXISTS brain_listing_id INTEGER`);
   })().catch((e) => { tableReady = null; throw e; }));
 }
 
@@ -58,13 +62,15 @@ function rowToStrategy(r: any): WizardStrategy {
     spec: r.spec,
     lastBacktest: r.last_backtest ?? null,
     hasEa: !!r.has_ea,
+    brainProfile: r.brain_profile ?? null,
+    brainListingId: r.brain_listing_id ?? null,
     status: r.status,
     createdAt: r.created_at instanceof Date ? r.created_at.toISOString() : String(r.created_at),
     updatedAt: r.updated_at instanceof Date ? r.updated_at.toISOString() : String(r.updated_at),
   };
 }
 
-const COLS = `id, user_id, name, source, template_id, spec, last_backtest, (ea_code IS NOT NULL) AS has_ea, status, created_at, updated_at`;
+const COLS = `id, user_id, name, source, template_id, spec, last_backtest, (ea_code IS NOT NULL) AS has_ea, status, created_at, updated_at, brain_profile, brain_listing_id`;
 
 export async function createWizardStrategy(userId: number, spec: StrategySpec): Promise<WizardStrategy> {
   await ensureTable();
@@ -106,6 +112,26 @@ export async function deleteWizardStrategy(userId: number, id: number): Promise<
 }
 
 /** Persist the generated MT5 EA code on the strategy. */
+/** Store (or clear) the strategy's brain profile / marketplace listing link. */
+export async function recordWizardBrain(
+  userId: number,
+  id: number,
+  patch: { profile?: any; listingId?: number | null },
+): Promise<boolean> {
+  await ensureTable();
+  const sets: string[] = [];
+  const params: any[] = [id, userId];
+  if (patch.profile !== undefined) { params.push(JSON.stringify(patch.profile)); sets.push(`brain_profile = $${params.length}`); }
+  if (patch.listingId !== undefined) { params.push(patch.listingId); sets.push(`brain_listing_id = $${params.length}`); }
+  if (!sets.length) return false;
+  sets.push('updated_at = now()');
+  const r = await pool.query(
+    `UPDATE wizard_strategies SET ${sets.join(', ')} WHERE id = $1 AND user_id = $2`,
+    params,
+  );
+  return (r.rowCount ?? 0) > 0;
+}
+
 export async function recordWizardEa(userId: number, id: number, code: string): Promise<boolean> {
   await ensureTable();
   const { rowCount } = await pool.query(

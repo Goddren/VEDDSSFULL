@@ -43862,7 +43862,7 @@ async function sendMorningSocialEmail(force = false) {
 }
 function startSocialAutopilot() {
   if (process.env.SOCIAL_AUTOPILOT === "off") return;
-  const tick2 = async () => {
+  const tick3 = async () => {
     try {
       const { isFxLeader: isFxLeader2 } = await Promise.resolve().then(() => (init_live_trading_engine(), live_trading_engine_exports));
       if (!isFxLeader2()) return;
@@ -43885,8 +43885,8 @@ function startSocialAutopilot() {
       console.error("[social] tick failed (non-fatal):", e?.message || e);
     }
   };
-  setInterval(tick2, 60 * 60 * 1e3);
-  setTimeout(tick2, 5 * 60 * 1e3);
+  setInterval(tick3, 60 * 60 * 1e3);
+  setTimeout(tick3, 5 * 60 * 1e3);
 }
 async function previewKind(kind) {
   const d = kind === "challenge_daily" ? await buildChallengeDaily() : kind === "weekly_recap" ? await buildWeeklyRecap() : kind === "shadow_progress" ? await buildShadowProgress() : await buildEngineInsight();
@@ -49412,9 +49412,9 @@ async function breakStaleRunLock() {
   try {
     const { pool: pool2 } = await Promise.resolve().then(() => (init_db(), db_exports));
     const { rows: hb2 } = await pool2.query(`SELECT worker_id, tick_at FROM crypto_engine_heartbeat WHERE id=1`);
-    const tick2 = hb2[0]?.tick_at ? new Date(hb2[0].tick_at).getTime() : 0;
-    const age = Date.now() - tick2;
-    if (tick2 && age < STALE_AFTER_MS) return;
+    const tick3 = hb2[0]?.tick_at ? new Date(hb2[0].tick_at).getTime() : 0;
+    const age = Date.now() - tick3;
+    if (tick3 && age < STALE_AFTER_MS) return;
     const { rows } = await pool2.query(
       `SELECT a.pid, round(extract(epoch from now()-a.backend_start)/60) held_min
          FROM pg_locks l JOIN pg_stat_activity a ON a.pid = l.pid
@@ -49424,7 +49424,7 @@ async function breakStaleRunLock() {
       [CRYPTO_RUN_LOCK_KEY]
     );
     for (const r of rows) {
-      console.error(`[cryptocom-scanner] run lock held by pid ${r.pid} for ${r.held_min} min with a heartbeat ${tick2 ? Math.round(age / 6e4) + " min" : "never written"} \u2014 its process is gone. Terminating that session to release the lock.`);
+      console.error(`[cryptocom-scanner] run lock held by pid ${r.pid} for ${r.held_min} min with a heartbeat ${tick3 ? Math.round(age / 6e4) + " min" : "never written"} \u2014 its process is gone. Terminating that session to release the lock.`);
       await pool2.query(`SELECT pg_terminate_backend($1)`, [r.pid]);
     }
   } catch (e) {
@@ -49841,6 +49841,7 @@ var init_strategy_spec = __esm({
 // server/services/strategy-backtest.ts
 var strategy_backtest_exports = {};
 __export(strategy_backtest_exports, {
+  evaluateSpecSignals: () => evaluateSpecSignals,
   runBacktest: () => runBacktest
 });
 function contractSize(symbol) {
@@ -50024,6 +50025,29 @@ function evalGroup(g, series, i) {
   const results = g.conditions.map((c) => evalCondition(c, series, i));
   return g.logic === "AND" ? results.every(Boolean) : results.some(Boolean);
 }
+function evaluateSpecSignals(spec, barsIn) {
+  const bars = [...barsIn].sort((a, b) => a.timestamp - b.timestamp);
+  if (bars.length < 3) return null;
+  const series = buildSeries(spec, bars);
+  const i = bars.length - 1;
+  let atr2 = null;
+  for (const ind of spec.indicators) {
+    if (ind.kind === "ATR") {
+      const s = series.get(`${ind.id}:value`);
+      const v = s ? s[i] : null;
+      if (typeof v === "number" && isFinite(v)) atr2 = v;
+    }
+  }
+  return {
+    enterLong: evalGroup(spec.entryLong, series, i),
+    enterShort: evalGroup(spec.entryShort, series, i),
+    exitLong: evalGroup(spec.exitLong, series, i),
+    exitShort: evalGroup(spec.exitShort, series, i),
+    atr: atr2,
+    close: bars[i].close,
+    barTime: bars[i].timestamp
+  };
+}
 function runBacktest(spec, barsIn, opts) {
   const bars = [...barsIn].sort((a, b) => a.timestamp - b.timestamp);
   const pipSize2 = getPipSize(spec.symbol);
@@ -50192,6 +50216,7 @@ __export(wizard_strategies_exports, {
   getWizardStrategy: () => getWizardStrategy,
   listWizardStrategies: () => listWizardStrategies,
   recordWizardBacktest: () => recordWizardBacktest,
+  recordWizardBrain: () => recordWizardBrain,
   recordWizardEa: () => recordWizardEa,
   updateWizardStrategySpec: () => updateWizardStrategySpec
 });
@@ -50211,6 +50236,8 @@ function ensureTable3() {
     )`);
     await pool.query(`CREATE INDEX IF NOT EXISTS wizard_strategies_user_idx ON wizard_strategies (user_id, id DESC)`);
     await pool.query(`ALTER TABLE wizard_strategies ADD COLUMN IF NOT EXISTS ea_code TEXT`);
+    await pool.query(`ALTER TABLE wizard_strategies ADD COLUMN IF NOT EXISTS brain_profile JSONB`);
+    await pool.query(`ALTER TABLE wizard_strategies ADD COLUMN IF NOT EXISTS brain_listing_id INTEGER`);
   })().catch((e) => {
     tableReady2 = null;
     throw e;
@@ -50226,6 +50253,8 @@ function rowToStrategy(r) {
     spec: r.spec,
     lastBacktest: r.last_backtest ?? null,
     hasEa: !!r.has_ea,
+    brainProfile: r.brain_profile ?? null,
+    brainListingId: r.brain_listing_id ?? null,
     status: r.status,
     createdAt: r.created_at instanceof Date ? r.created_at.toISOString() : String(r.created_at),
     updatedAt: r.updated_at instanceof Date ? r.updated_at.toISOString() : String(r.updated_at)
@@ -50273,6 +50302,26 @@ async function deleteWizardStrategy(userId, id) {
   );
   return (rowCount ?? 0) > 0;
 }
+async function recordWizardBrain(userId, id, patch) {
+  await ensureTable3();
+  const sets = [];
+  const params = [id, userId];
+  if (patch.profile !== void 0) {
+    params.push(JSON.stringify(patch.profile));
+    sets.push(`brain_profile = $${params.length}`);
+  }
+  if (patch.listingId !== void 0) {
+    params.push(patch.listingId);
+    sets.push(`brain_listing_id = $${params.length}`);
+  }
+  if (!sets.length) return false;
+  sets.push("updated_at = now()");
+  const r = await pool.query(
+    `UPDATE wizard_strategies SET ${sets.join(", ")} WHERE id = $1 AND user_id = $2`,
+    params
+  );
+  return (r.rowCount ?? 0) > 0;
+}
 async function recordWizardEa(userId, id, code) {
   await ensureTable3();
   const { rowCount } = await pool.query(
@@ -50296,7 +50345,7 @@ var init_wizard_strategies = __esm({
     "use strict";
     init_db();
     tableReady2 = null;
-    COLS = `id, user_id, name, source, template_id, spec, last_backtest, (ea_code IS NOT NULL) AS has_ea, status, created_at, updated_at`;
+    COLS = `id, user_id, name, source, template_id, spec, last_backtest, (ea_code IS NOT NULL) AS has_ea, status, created_at, updated_at, brain_profile, brain_listing_id`;
   }
 });
 
@@ -50720,6 +50769,293 @@ var init_spec_ea_generator = __esm({
       BOLLINGER: { middle: 0, upper: 1, lower: 2, value: 0 }
     };
     seriesFn = (id, field) => `S_${id}_${field}`;
+  }
+});
+
+// server/services/strategy-deployments.ts
+var strategy_deployments_exports = {};
+__export(strategy_deployments_exports, {
+  closeStrategyTrade: () => closeStrategyTrade,
+  createDeployment: () => createDeployment,
+  getDeployment: () => getDeployment,
+  getOpenStrategyTrade: () => getOpenStrategyTrade,
+  listDeployments: () => listDeployments,
+  listRunningDeployments: () => listRunningDeployments,
+  listStrategyTrades: () => listStrategyTrades,
+  openStrategyTrade: () => openStrategyTrade,
+  stopDeployment: () => stopDeployment,
+  touchDeployment: () => touchDeployment
+});
+function ensureTables() {
+  if (!tableReady3) {
+    tableReady3 = (async () => {
+      await pool.query(`
+        CREATE TABLE IF NOT EXISTS strategy_deployments (
+          id SERIAL PRIMARY KEY,
+          user_id INTEGER NOT NULL,
+          strategy_id INTEGER NOT NULL,
+          platform TEXT NOT NULL,
+          connection_ref TEXT NOT NULL,
+          account_label TEXT,
+          status TEXT NOT NULL DEFAULT 'running',
+          last_bar_time BIGINT DEFAULT 0,
+          last_signal_at TIMESTAMPTZ,
+          last_error TEXT,
+          error_streak INTEGER NOT NULL DEFAULT 0,
+          created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+          stopped_at TIMESTAMPTZ
+        )`);
+      await pool.query(`
+        CREATE TABLE IF NOT EXISTS strategy_trades (
+          id SERIAL PRIMARY KEY,
+          deployment_id INTEGER NOT NULL,
+          strategy_id INTEGER NOT NULL,
+          user_id INTEGER NOT NULL,
+          platform TEXT NOT NULL,
+          symbol TEXT NOT NULL,
+          direction TEXT NOT NULL,
+          volume DOUBLE PRECISION NOT NULL DEFAULT 0,
+          entry_price DOUBLE PRECISION NOT NULL DEFAULT 0,
+          exit_price DOUBLE PRECISION,
+          pnl DOUBLE PRECISION,
+          platform_ref TEXT,
+          status TEXT NOT NULL DEFAULT 'open',
+          opened_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+          closed_at TIMESTAMPTZ,
+          exit_reason TEXT
+        )`);
+      await pool.query(`CREATE INDEX IF NOT EXISTS idx_strategy_deployments_user ON strategy_deployments (user_id, status)`);
+      await pool.query(`CREATE INDEX IF NOT EXISTS idx_strategy_trades_strategy ON strategy_trades (strategy_id, status)`);
+    })().catch((e) => {
+      tableReady3 = null;
+      throw e;
+    });
+  }
+  return tableReady3;
+}
+function rowToDeployment(r) {
+  return {
+    id: r.id,
+    userId: r.user_id,
+    strategyId: r.strategy_id,
+    platform: r.platform,
+    connectionRef: r.connection_ref,
+    accountLabel: r.account_label ?? null,
+    status: r.status,
+    lastBarTime: Number(r.last_bar_time) || 0,
+    lastSignalAt: r.last_signal_at ?? null,
+    lastError: r.last_error ?? null,
+    createdAt: r.created_at,
+    stoppedAt: r.stopped_at ?? null
+  };
+}
+async function createDeployment(userId, strategyId, platform, connectionRef, accountLabel) {
+  await ensureTables();
+  const { rows } = await pool.query(
+    `INSERT INTO strategy_deployments (user_id, strategy_id, platform, connection_ref, account_label)
+     VALUES ($1, $2, $3, $4, $5) RETURNING *`,
+    [userId, strategyId, platform, connectionRef, accountLabel]
+  );
+  return rowToDeployment(rows[0]);
+}
+async function listDeployments(userId, strategyId) {
+  await ensureTables();
+  const { rows } = strategyId ? await pool.query(`SELECT * FROM strategy_deployments WHERE user_id=$1 AND strategy_id=$2 ORDER BY created_at DESC`, [userId, strategyId]) : await pool.query(`SELECT * FROM strategy_deployments WHERE user_id=$1 ORDER BY created_at DESC`, [userId]);
+  return rows.map(rowToDeployment);
+}
+async function listRunningDeployments() {
+  await ensureTables();
+  const { rows } = await pool.query(`SELECT * FROM strategy_deployments WHERE status='running' ORDER BY id ASC`);
+  return rows.map(rowToDeployment);
+}
+async function getDeployment(userId, id) {
+  await ensureTables();
+  const { rows } = await pool.query(`SELECT * FROM strategy_deployments WHERE id=$1 AND user_id=$2`, [id, userId]);
+  return rows.length ? rowToDeployment(rows[0]) : null;
+}
+async function stopDeployment(userId, id) {
+  await ensureTables();
+  const r = await pool.query(
+    `UPDATE strategy_deployments SET status='stopped', stopped_at=now() WHERE id=$1 AND user_id=$2 AND status='running'`,
+    [id, userId]
+  );
+  return (r.rowCount ?? 0) > 0;
+}
+async function touchDeployment(id, patch) {
+  await ensureTables();
+  if (patch.error === null) {
+    await pool.query(
+      `UPDATE strategy_deployments SET last_error=NULL, error_streak=0,
+         last_bar_time=COALESCE($2, last_bar_time),
+         last_signal_at=CASE WHEN $3 THEN now() ELSE last_signal_at END
+       WHERE id=$1`,
+      [id, patch.lastBarTime ?? null, !!patch.lastSignalAt]
+    );
+  } else if (typeof patch.error === "string") {
+    await pool.query(
+      `UPDATE strategy_deployments SET last_error=$2, error_streak=error_streak+1,
+         status=CASE WHEN error_streak+1 >= 5 THEN 'stopped' ELSE status END,
+         stopped_at=CASE WHEN error_streak+1 >= 5 THEN now() ELSE stopped_at END
+       WHERE id=$1`,
+      [id, patch.error.slice(0, 500)]
+    );
+  } else if (patch.lastBarTime != null || patch.lastSignalAt) {
+    await pool.query(
+      `UPDATE strategy_deployments SET last_bar_time=COALESCE($2, last_bar_time),
+         last_signal_at=CASE WHEN $3 THEN now() ELSE last_signal_at END WHERE id=$1`,
+      [id, patch.lastBarTime ?? null, !!patch.lastSignalAt]
+    );
+  }
+}
+async function openStrategyTrade(dep, t) {
+  await ensureTables();
+  const { rows } = await pool.query(
+    `INSERT INTO strategy_trades (deployment_id, strategy_id, user_id, platform, symbol, direction, volume, entry_price, platform_ref)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9) RETURNING id`,
+    [dep.id, dep.strategyId, dep.userId, dep.platform, t.symbol, t.direction, t.volume, t.entryPrice, t.platformRef]
+  );
+  return rows[0].id;
+}
+async function getOpenStrategyTrade(deploymentId) {
+  await ensureTables();
+  const { rows } = await pool.query(
+    `SELECT * FROM strategy_trades WHERE deployment_id=$1 AND status='open' ORDER BY opened_at DESC LIMIT 1`,
+    [deploymentId]
+  );
+  return rows[0] ?? null;
+}
+async function closeStrategyTrade(id, exitPrice, pnl, exitReason) {
+  await ensureTables();
+  await pool.query(
+    `UPDATE strategy_trades SET status='closed', exit_price=$2, pnl=$3, exit_reason=$4, closed_at=now() WHERE id=$1`,
+    [id, exitPrice, pnl, exitReason]
+  );
+}
+async function listStrategyTrades(userId, strategyId, limit = 500) {
+  await ensureTables();
+  const { rows } = await pool.query(
+    `SELECT * FROM strategy_trades WHERE user_id=$1 AND strategy_id=$2 ORDER BY opened_at DESC LIMIT $3`,
+    [userId, strategyId, limit]
+  );
+  return rows;
+}
+var tableReady3;
+var init_strategy_deployments = __esm({
+  "server/services/strategy-deployments.ts"() {
+    "use strict";
+    init_db();
+    tableReady3 = null;
+  }
+});
+
+// server/services/strategy-brain.ts
+var strategy_brain_exports = {};
+__export(strategy_brain_exports, {
+  buildStrategyBrain: () => buildStrategyBrain
+});
+async function buildStrategyBrain(userId, strategyId) {
+  const strat = await getWizardStrategy(userId, strategyId);
+  if (!strat) return null;
+  const bt = strat.lastBacktest;
+  const backtest = bt?.stats ? {
+    trades: bt.stats.totalTrades ?? 0,
+    winRate: bt.stats.winRate ?? null,
+    netPnl: bt.stats.netPnl ?? 0,
+    profitFactor: bt.stats.profitFactor ?? null,
+    maxDrawdownPct: bt.stats.maxDrawdownPct ?? null,
+    dataPoints: bt.dataPoints ?? null
+  } : null;
+  const trades = await listStrategyTrades(userId, strategyId, 2e3);
+  const closed = trades.filter((t) => t.status === "closed" && t.pnl != null);
+  const bySymbol = {};
+  const exitReasons = {};
+  let wins = 0, netPnl = 0;
+  for (const t of closed) {
+    const pnl = Number(t.pnl) || 0;
+    netPnl += pnl;
+    if (pnl > 0) wins++;
+    const sym2 = String(t.symbol || "").toUpperCase();
+    bySymbol[sym2] = bySymbol[sym2] || { trades: 0, wins: 0, netPnl: 0 };
+    bySymbol[sym2].trades++;
+    if (pnl > 0) bySymbol[sym2].wins++;
+    bySymbol[sym2].netPnl += pnl;
+    const reason = String(t.exit_reason || "unknown");
+    exitReasons[reason] = (exitReasons[reason] || 0) + 1;
+  }
+  const times = closed.map((t) => new Date(t.closed_at).getTime()).filter((n) => isFinite(n));
+  const deployments = await listDeployments(userId, strategyId);
+  const profile = {
+    strategyId,
+    name: strat.name,
+    symbol: strat.spec.symbol,
+    timeframe: strat.spec.timeframe,
+    builtAt: (/* @__PURE__ */ new Date()).toISOString(),
+    backtest,
+    live: {
+      trades: closed.length,
+      wins,
+      losses: closed.length - wins,
+      winRate: closed.length ? wins / closed.length : null,
+      netPnl: Math.round(netPnl * 100) / 100,
+      openTrades: trades.filter((t) => t.status === "open").length,
+      bySymbol,
+      exitReasons,
+      firstTradeAt: times.length ? new Date(Math.min(...times)).toISOString() : null,
+      lastTradeAt: times.length ? new Date(Math.max(...times)).toISOString() : null
+    },
+    deployments: deployments.map((d) => ({ id: d.id, platform: d.platform, accountLabel: d.accountLabel, status: d.status })),
+    listableTrades: closed.length
+  };
+  await recordWizardBrain(userId, strategyId, { profile });
+  return profile;
+}
+var init_strategy_brain = __esm({
+  "server/services/strategy-brain.ts"() {
+    "use strict";
+    init_wizard_strategies();
+    init_strategy_deployments();
+  }
+});
+
+// server/services/brain-marketplace.ts
+var brain_marketplace_exports = {};
+__export(brain_marketplace_exports, {
+  MAX_PRICE_VEDD: () => MAX_PRICE_VEDD,
+  MIN_PRICE_VEDD: () => MIN_PRICE_VEDD,
+  MIN_TRADES_TO_LIST: () => MIN_TRADES_TO_LIST,
+  clampPrice: () => clampPrice,
+  computeListingStats: () => computeListingStats
+});
+function clampPrice(n) {
+  if (!Number.isFinite(n)) return MIN_PRICE_VEDD;
+  return Math.max(MIN_PRICE_VEDD, Math.min(MAX_PRICE_VEDD, Math.round(n)));
+}
+function computeListingStats(rows) {
+  const tradeCount = rows.length;
+  const distinctPairs = new Set(rows.map((r) => (r.symbol || "").toUpperCase())).size;
+  const timestamps = rows.map((r) => new Date(r.confirmedAt).getTime()).filter((t) => !Number.isNaN(t));
+  const oldestMs = timestamps.length ? Math.min(...timestamps) : Date.now();
+  const newestMs = timestamps.length ? Math.max(...timestamps) : Date.now();
+  const oldestTradeAt = new Date(oldestMs);
+  const newestTradeAt = new Date(newestMs);
+  const ageDays = Math.max(0, Math.round((newestMs - oldestMs) / 864e5));
+  const closed = rows.filter((r) => r.tradeOutcome && r.tradeOutcome !== "PENDING");
+  const wins = closed.filter((r) => r.tradeOutcome === "WIN");
+  const winRate2 = closed.length > 0 ? wins.length / closed.length : null;
+  const ageMultiplier = 1 + Math.min(ageDays / 30, 2);
+  const pairsMultiplier = 1 + Math.min(distinctPairs * 0.15, 1.5);
+  const tradesMultiplier = 1 + Math.min(tradeCount / 50, 2);
+  const winRateMultiplier = 0.5 + Math.min(winRate2 ?? 0.5, 1);
+  const suggestedPriceVedd = clampPrice(5 * ageMultiplier * pairsMultiplier * tradesMultiplier * winRateMultiplier);
+  return { tradeCount, distinctPairs, ageDays, winRate: winRate2, oldestTradeAt, newestTradeAt, suggestedPriceVedd };
+}
+var MIN_TRADES_TO_LIST, MIN_PRICE_VEDD, MAX_PRICE_VEDD;
+var init_brain_marketplace = __esm({
+  "server/services/brain-marketplace.ts"() {
+    "use strict";
+    MIN_TRADES_TO_LIST = 10;
+    MIN_PRICE_VEDD = 5;
+    MAX_PRICE_VEDD = 500;
   }
 });
 
@@ -57430,7 +57766,7 @@ import fs14 from "fs";
 import os2 from "os";
 import path14 from "path";
 function ensureJobTable() {
-  return tableReady3 ??= pool.query(`CREATE TABLE IF NOT EXISTS content_video_jobs (
+  return tableReady4 ??= pool.query(`CREATE TABLE IF NOT EXISTS content_video_jobs (
       id SERIAL PRIMARY KEY,
       user_id INTEGER NOT NULL,
       kind TEXT NOT NULL DEFAULT 'explainer',
@@ -57446,7 +57782,7 @@ function ensureJobTable() {
       created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
       updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
     )`).then(() => void 0).catch((e) => {
-    tableReady3 = null;
+    tableReady4 = null;
     throw e;
   });
 }
@@ -57617,8 +57953,8 @@ async function renderScene(scene, script, aspect, presenterImage) {
   }
   if (!res.ok) throw new Error(`Replicate ${res.status}: ${(await res.text().catch(() => "")).slice(0, 200)}`);
   let data = await res.json();
-  const started6 = Date.now();
-  while ((data.status === "starting" || data.status === "processing") && Date.now() - started6 < MAX_WAIT_MS) {
+  const started7 = Date.now();
+  while ((data.status === "starting" || data.status === "processing") && Date.now() - started7 < MAX_WAIT_MS) {
     await new Promise((r) => setTimeout(r, POLL_MS));
     const poll = await fetch(data.urls.get, { headers: { Authorization: `Bearer ${token}` }, signal: AbortSignal.timeout(2e4) });
     if (poll.ok) data = await poll.json();
@@ -57735,7 +58071,7 @@ async function assembleFiles(files, aspect, dir, charts = [], screens = []) {
     return fs14.readFileSync(out);
   }
 }
-var FRAME, MODEL, CLIP_SECONDS, END_CARD_SECONDS2, POLL_MS, MAX_WAIT_MS, DEFAULT_PRESENTER, DEFAULT_SETTING, tableReady3;
+var FRAME, MODEL, CLIP_SECONDS, END_CARD_SECONDS2, POLL_MS, MAX_WAIT_MS, DEFAULT_PRESENTER, DEFAULT_SETTING, tableReady4;
 var init_explainer_video = __esm({
   "server/services/explainer-video.ts"() {
     "use strict";
@@ -57753,7 +58089,7 @@ var init_explainer_video = __esm({
     MAX_WAIT_MS = 8 * 60 * 1e3;
     DEFAULT_PRESENTER = "a young Black man in his mid-20s with short twists, wearing a black hoodie, a thin gold chain and a fitted cap";
     DEFAULT_SETTING = "a city rooftop at golden hour with brick buildings, fire escapes and the skyline behind him";
-    tableReady3 = null;
+    tableReady4 = null;
   }
 });
 
@@ -58264,14 +58600,14 @@ __export(presenters_exports, {
   presenterAbsoluteUrl: () => presenterAbsoluteUrl
 });
 function ensureTable4() {
-  return tableReady4 ??= pool.query(`CREATE TABLE IF NOT EXISTS content_presenters (
+  return tableReady5 ??= pool.query(`CREATE TABLE IF NOT EXISTS content_presenters (
       id SERIAL PRIMARY KEY,
       user_id INTEGER NOT NULL,
       name TEXT NOT NULL,
       image_url TEXT NOT NULL,
       created_at TIMESTAMPTZ NOT NULL DEFAULT now()
     )`).then(() => void 0).catch((e) => {
-    tableReady4 = null;
+    tableReady5 = null;
     throw e;
   });
 }
@@ -58317,12 +58653,12 @@ function presenterAbsoluteUrl(req, imageUrl) {
   if (!host) return imageUrl;
   return `${req.protocol || "https"}://${host}${imageUrl}`;
 }
-var tableReady4;
+var tableReady5;
 var init_presenters = __esm({
   "server/services/presenters.ts"() {
     "use strict";
     init_db();
-    tableReady4 = null;
+    tableReady5 = null;
   }
 });
 
@@ -59303,48 +59639,6 @@ var init_copy_trade_execution = __esm({
     MAX_COPY_SL_DISTANCE_PCT = 5;
     MARGIN_LEVEL_FLOOR_PCT = 200;
     STALE_CACHE_MS = 2 * 60 * 1e3;
-  }
-});
-
-// server/services/brain-marketplace.ts
-var brain_marketplace_exports = {};
-__export(brain_marketplace_exports, {
-  MAX_PRICE_VEDD: () => MAX_PRICE_VEDD,
-  MIN_PRICE_VEDD: () => MIN_PRICE_VEDD,
-  MIN_TRADES_TO_LIST: () => MIN_TRADES_TO_LIST,
-  clampPrice: () => clampPrice,
-  computeListingStats: () => computeListingStats
-});
-function clampPrice(n) {
-  if (!Number.isFinite(n)) return MIN_PRICE_VEDD;
-  return Math.max(MIN_PRICE_VEDD, Math.min(MAX_PRICE_VEDD, Math.round(n)));
-}
-function computeListingStats(rows) {
-  const tradeCount = rows.length;
-  const distinctPairs = new Set(rows.map((r) => (r.symbol || "").toUpperCase())).size;
-  const timestamps = rows.map((r) => new Date(r.confirmedAt).getTime()).filter((t) => !Number.isNaN(t));
-  const oldestMs = timestamps.length ? Math.min(...timestamps) : Date.now();
-  const newestMs = timestamps.length ? Math.max(...timestamps) : Date.now();
-  const oldestTradeAt = new Date(oldestMs);
-  const newestTradeAt = new Date(newestMs);
-  const ageDays = Math.max(0, Math.round((newestMs - oldestMs) / 864e5));
-  const closed = rows.filter((r) => r.tradeOutcome && r.tradeOutcome !== "PENDING");
-  const wins = closed.filter((r) => r.tradeOutcome === "WIN");
-  const winRate2 = closed.length > 0 ? wins.length / closed.length : null;
-  const ageMultiplier = 1 + Math.min(ageDays / 30, 2);
-  const pairsMultiplier = 1 + Math.min(distinctPairs * 0.15, 1.5);
-  const tradesMultiplier = 1 + Math.min(tradeCount / 50, 2);
-  const winRateMultiplier = 0.5 + Math.min(winRate2 ?? 0.5, 1);
-  const suggestedPriceVedd = clampPrice(5 * ageMultiplier * pairsMultiplier * tradesMultiplier * winRateMultiplier);
-  return { tradeCount, distinctPairs, ageDays, winRate: winRate2, oldestTradeAt, newestTradeAt, suggestedPriceVedd };
-}
-var MIN_TRADES_TO_LIST, MIN_PRICE_VEDD, MAX_PRICE_VEDD;
-var init_brain_marketplace = __esm({
-  "server/services/brain-marketplace.ts"() {
-    "use strict";
-    MIN_TRADES_TO_LIST = 10;
-    MIN_PRICE_VEDD = 5;
-    MAX_PRICE_VEDD = 500;
   }
 });
 
@@ -64006,6 +64300,359 @@ var init_dxtrade_sync = __esm({
   }
 });
 
+// server/services/strategy-runner.ts
+var strategy_runner_exports = {};
+__export(strategy_runner_exports, {
+  startStrategyRunner: () => startStrategyRunner
+});
+function startStrategyRunner() {
+  if (started4) return;
+  started4 = true;
+  setInterval(() => {
+    tick().catch(() => {
+    });
+  }, TICK_MS2);
+  console.log("[Strategy Runner] Deployment runner started (30s interval).");
+}
+async function tick() {
+  if (ticking) return;
+  ticking = true;
+  try {
+    const deps = await listRunningDeployments().catch(() => []);
+    for (const dep of deps) {
+      try {
+        await runDeployment(dep);
+      } catch (e) {
+        await touchDeployment(dep.id, { error: e?.message || "runner error" }).catch(() => {
+        });
+      }
+    }
+  } finally {
+    ticking = false;
+  }
+}
+async function runDeployment(dep) {
+  const strat = await getWizardStrategy(dep.userId, dep.strategyId);
+  if (!strat) {
+    await touchDeployment(dep.id, { error: "strategy no longer exists" });
+    return;
+  }
+  const spec = strat.spec;
+  if (spec.source === "engine") return;
+  if (!spec.entryLong?.conditions?.length && !spec.entryShort?.conditions?.length) return;
+  const { marketDataService: marketDataService2 } = await Promise.resolve().then(() => (init_market_data(), market_data_exports));
+  const limit = Math.min(specWarmupBars(spec) + 60, 400);
+  const result = await marketDataService2.fetchMarketData({
+    symbol: spec.symbol,
+    timeframe: TF_API[spec.timeframe] || "1h",
+    assetType: CRYPTOS.has(spec.symbol) ? "crypto" : "forex",
+    limit
+  });
+  let bars = (result?.data ?? []).map((b) => ({
+    timestamp: new Date(b.timestamp ?? b.time ?? b.date).getTime(),
+    open: Number(b.open),
+    high: Number(b.high),
+    low: Number(b.low),
+    close: Number(b.close),
+    volume: Number(b.volume) || 0
+  })).filter((b) => isFinite(b.timestamp) && isFinite(b.close) && b.close > 0).sort((a, b) => a.timestamp - b.timestamp);
+  const tfMs = TF_MS[spec.timeframe] || 36e5;
+  if (bars.length && bars[bars.length - 1].timestamp + tfMs > Date.now()) bars = bars.slice(0, -1);
+  if (bars.length < 50) {
+    await touchDeployment(dep.id, { error: `only ${bars.length} bars available for ${spec.symbol}` });
+    return;
+  }
+  const sig = evaluateSpecSignals(spec, bars);
+  if (!sig) return;
+  if (sig.barTime <= dep.lastBarTime) return;
+  await touchDeployment(dep.id, { lastBarTime: sig.barTime });
+  const open = await getOpenStrategyTrade(dep.id);
+  if (open) {
+    if (dep.platform !== "mt5") {
+      const vanished = await resolveVanishedPosition(dep, open, sig.close);
+      if (vanished) {
+        await touchDeployment(dep.id, { error: null, lastSignalAt: true });
+        return;
+      }
+    }
+    const isLong = String(open.direction).toUpperCase() === "BUY";
+    const exitNow = isLong ? sig.exitLong : sig.exitShort;
+    if (!exitNow) {
+      await touchDeployment(dep.id, { error: null });
+      return;
+    }
+    const ok = await dispatchClose(dep, open);
+    if (!ok) {
+      await touchDeployment(dep.id, { error: "exit dispatch failed \u2014 position may still be open, will retry next bar" });
+      return;
+    }
+    const pnl = tradePnl(spec, open, sig.close);
+    await closeStrategyTrade(open.id, sig.close, pnl, "exit_signal");
+    await touchDeployment(dep.id, { error: null, lastSignalAt: true });
+    return;
+  }
+  const direction = sig.enterLong && !sig.enterShort ? "BUY" : sig.enterShort && !sig.enterLong ? "SELL" : null;
+  if (!direction) {
+    await touchDeployment(dep.id, { error: null });
+    return;
+  }
+  if (spec.risk.maxTradesPerDay && spec.risk.maxTradesPerDay > 0) {
+    const { pool: pool2 } = await Promise.resolve().then(() => (init_db(), db_exports));
+    const { rows } = await pool2.query(
+      `SELECT COUNT(*)::int AS n FROM strategy_trades WHERE deployment_id=$1 AND opened_at::date = CURRENT_DATE`,
+      [dep.id]
+    );
+    if ((rows[0]?.n ?? 0) >= spec.risk.maxTradesPerDay) {
+      await touchDeployment(dep.id, { error: null });
+      return;
+    }
+  }
+  const pipSize2 = getPipSize(spec.symbol);
+  const slDist = spec.risk.stopLossAtrMult && sig.atr ? spec.risk.stopLossAtrMult * sig.atr : spec.risk.stopLossPips ? spec.risk.stopLossPips * pipSize2 : null;
+  const tpDist = spec.risk.takeProfitAtrMult && sig.atr ? spec.risk.takeProfitAtrMult * sig.atr : spec.risk.takeProfitPips ? spec.risk.takeProfitPips * pipSize2 : null;
+  const stopLoss = slDist ? direction === "BUY" ? sig.close - slDist : sig.close + slDist : null;
+  const takeProfit = tpDist ? direction === "BUY" ? sig.close + tpDist : sig.close - tpDist : null;
+  const round = (n) => n == null ? null : Math.round(n * 1e5) / 1e5;
+  const opened = await dispatchOpen(dep, spec, direction, round(stopLoss), round(takeProfit), sig.close);
+  if (!opened) {
+    await touchDeployment(dep.id, { error: "entry dispatch failed" });
+    return;
+  }
+  await openStrategyTrade(dep, {
+    symbol: spec.symbol,
+    direction,
+    volume: opened.volume,
+    entryPrice: sig.close,
+    platformRef: opened.ref
+  });
+  await touchDeployment(dep.id, { error: null, lastSignalAt: true });
+}
+async function resolveVanishedPosition(dep, open, lastClose) {
+  try {
+    if (dep.platform === "dxtrade") {
+      const { pool: pool2 } = await Promise.resolve().then(() => (init_db(), db_exports));
+      const { rows } = await pool2.query(
+        `SELECT id, host, username, encrypted_password, domain, account_code FROM dxtrade_connections WHERE id=$1 AND user_id=$2 AND is_active=true`,
+        [Number(dep.connectionRef), dep.userId]
+      );
+      if (!rows.length) return false;
+      const dc = rows[0];
+      const { getDxtradeService: getDxtradeService2, decryptApiSecret: decryptApiSecret3, extractAccountCode: extractAccountCode2 } = await Promise.resolve().then(() => (init_dxtrade(), dxtrade_exports));
+      const svc = getDxtradeService2(dc.host, dc.username, decryptApiSecret3(dc.encrypted_password), dc.domain, String(dc.id));
+      await svc.ensureLoggedIn();
+      const acct = dc.account_code || extractAccountCode2(await svc.getAccounts());
+      if (!acct) return false;
+      const positions = await svc.getPositions(acct).catch(() => null);
+      if (!positions) return false;
+      const stillOpen = positions.some((p) => open.platform_ref && String(p.positionId) === String(open.platform_ref) || (p.instrument || "").replace("/", "").toUpperCase() === open.symbol && String(p.side).toUpperCase() === String(open.direction).toUpperCase());
+      if (stillOpen) return false;
+      const since = new Date(open.opened_at).getTime() - 6e4;
+      const closed = await svc.getClosedTradesWithPnl(acct, since).catch(() => []);
+      const mine = closed.find((o) => open.platform_ref && String(o.positionId) === String(open.platform_ref));
+      const raw = mine ? mine.profit ?? mine.pnl ?? mine.realizedPnl ?? null : null;
+      const pnl = raw != null && isFinite(Number(raw)) ? Number(raw) : null;
+      await closeStrategyTrade(open.id, Number(mine?.closePrice) || lastClose, pnl, "broker_sl_tp");
+      return true;
+    }
+    if (dep.platform === "tradelocker") {
+      const { storage: storage2 } = await Promise.resolve().then(() => (init_storage(), storage_exports));
+      const { getOrCreateService: getOrCreateService2 } = await Promise.resolve().then(() => (init_tradelocker(), tradelocker_exports));
+      const conns = (await storage2.getUserTradelockerConnections(dep.userId)).filter((c) => c.isActive);
+      const conn = conns.find((c) => c.id === Number(dep.connectionRef));
+      if (!conn) return false;
+      const svc = await getOrCreateService2(conn);
+      const positions = await svc.getPositionsNormalized({ fresh: true }).catch(() => null);
+      if (!positions) return false;
+      const stillOpen = positions.some((p) => open.platform_ref && String(p.id) === String(open.platform_ref) || (p.symbol || "").toUpperCase() === open.symbol && String(p.direction).toUpperCase() === String(open.direction).toUpperCase());
+      if (stillOpen) return false;
+      const since = new Date(open.opened_at).getTime() - 6e4;
+      const closed = await svc.getClosedPositions(since).catch(() => []);
+      const mine = closed.find((o) => String(o.symbol || "").toUpperCase().replace("/", "") === open.symbol && new Date(o.closedAt ?? o.closeTime ?? o.createdAt ?? 0).getTime() >= since);
+      const raw = mine ? mine.pnl ?? mine.realizedPnl ?? mine.profit ?? null : null;
+      const pnl = raw != null && isFinite(Number(raw)) ? Number(raw) : null;
+      await closeStrategyTrade(open.id, Number(mine?.closePrice ?? mine?.exitPrice) || lastClose, pnl, "broker_sl_tp");
+      return true;
+    }
+  } catch {
+    return false;
+  }
+  return false;
+}
+function tradePnl(spec, open, exitPrice) {
+  const entry = Number(open.entry_price) || 0;
+  const dirSign = String(open.direction).toUpperCase() === "BUY" ? 1 : -1;
+  const diff = (exitPrice - entry) * dirSign;
+  const volume = Number(open.volume) || 0;
+  let pnl;
+  if (open.platform === "dxtrade") {
+    pnl = diff * volume;
+  } else {
+    const cs = CONTRACT_SIZE2[spec.symbol.replace(/[^A-Z]/g, "")] ?? 1e5;
+    pnl = diff * cs * volume;
+  }
+  if (spec.symbol.length === 6 && spec.symbol.startsWith("USD") && exitPrice > 0) pnl = pnl / exitPrice;
+  return Math.round(pnl * 100) / 100;
+}
+async function dispatchOpen(dep, spec, direction, stopLoss, takeProfit, refPrice) {
+  try {
+    if (dep.platform === "mt5") {
+      const { broadcastMT5Signal: broadcastMT5Signal2 } = await Promise.resolve().then(() => (init_live_trading_engine(), live_trading_engine_exports));
+      broadcastMT5Signal2(dep.userId, {
+        id: `wiz_${dep.id}_${Date.now()}`,
+        timestamp: (/* @__PURE__ */ new Date()).toISOString(),
+        symbol: spec.symbol,
+        direction,
+        action: "OPEN",
+        lotSize: spec.risk.lotSize,
+        entryPrice: null,
+        stopLoss,
+        takeProfit,
+        confidence: 100,
+        reason: `Wizard strategy "${spec.name}" entry (${dep.accountLabel || "deployment " + dep.id})`,
+        holdTime: "",
+        strategy: "wizard_strategy",
+        confluences: [],
+        status: "pending",
+        positionId: null
+      });
+      return { volume: spec.risk.lotSize, ref: null };
+    }
+    if (dep.platform === "tradelocker") {
+      const { storage: storage2 } = await Promise.resolve().then(() => (init_storage(), storage_exports));
+      const { executeMT5SignalOnTradeLocker: executeMT5SignalOnTradeLocker2 } = await Promise.resolve().then(() => (init_tradelocker(), tradelocker_exports));
+      const conns = (await storage2.getUserTradelockerConnections(dep.userId)).filter((c) => c.isActive);
+      const conn = conns.find((c) => c.id === Number(dep.connectionRef));
+      if (!conn) return null;
+      const r = await executeMT5SignalOnTradeLocker2(conn, {
+        action: "OPEN",
+        symbol: spec.symbol,
+        direction,
+        volume: spec.risk.lotSize,
+        stopLoss,
+        takeProfit
+      });
+      return r.success ? { volume: spec.risk.lotSize, ref: r.orderId ?? null } : null;
+    }
+    if (dep.platform === "dxtrade") {
+      const { pool: pool2 } = await Promise.resolve().then(() => (init_db(), db_exports));
+      const { rows } = await pool2.query(
+        `SELECT id, host, username, encrypted_password, domain, account_code FROM dxtrade_connections WHERE id=$1 AND user_id=$2 AND is_active=true`,
+        [Number(dep.connectionRef), dep.userId]
+      );
+      if (!rows.length) return null;
+      const dc = rows[0];
+      const { getDxtradeService: getDxtradeService2, decryptApiSecret: decryptApiSecret3, extractAccountCode: extractAccountCode2 } = await Promise.resolve().then(() => (init_dxtrade(), dxtrade_exports));
+      const svc = getDxtradeService2(dc.host, dc.username, decryptApiSecret3(dc.encrypted_password), dc.domain, String(dc.id));
+      await svc.ensureLoggedIn();
+      const acct = dc.account_code || extractAccountCode2(await svc.getAccounts());
+      if (!acct) return null;
+      const wire = spec.symbol.length === 6 ? `${spec.symbol.slice(0, 3)}/${spec.symbol.slice(3)}` : spec.symbol;
+      const inst = await svc.getInstrument(wire).catch(() => null);
+      const lotSize = Number(inst?.lotSize) || 1e5;
+      let units = Math.round(spec.risk.lotSize * lotSize);
+      const inc = Number(inst?.quantityIncrement) || 0;
+      if (inc > 0) units = Math.max(inc, Math.round(units / inc) * inc);
+      if (!(units > 0)) return null;
+      await svc.placeOrder(acct, {
+        instrument: wire,
+        side: direction,
+        quantity: units,
+        type: "MARKET",
+        positionEffect: "OPEN",
+        stopLoss: stopLoss ?? void 0,
+        takeProfit: takeProfit ?? void 0
+      });
+      await new Promise((r) => setTimeout(r, 1500));
+      const positions = await svc.getPositions(acct).catch(() => []);
+      const mine = positions.find((p) => (p.instrument || "").replace("/", "").toUpperCase() === spec.symbol && String(p.side).toUpperCase() === direction);
+      return { volume: units, ref: mine?.positionId ?? null };
+    }
+  } catch {
+    return null;
+  }
+  return null;
+}
+async function dispatchClose(dep, open) {
+  try {
+    if (dep.platform === "mt5") {
+      const { broadcastMT5Signal: broadcastMT5Signal2 } = await Promise.resolve().then(() => (init_live_trading_engine(), live_trading_engine_exports));
+      broadcastMT5Signal2(dep.userId, {
+        id: `wiz_close_${dep.id}_${Date.now()}`,
+        timestamp: (/* @__PURE__ */ new Date()).toISOString(),
+        symbol: open.symbol,
+        direction: open.direction,
+        action: "CLOSE",
+        lotSize: 0,
+        entryPrice: null,
+        stopLoss: null,
+        takeProfit: null,
+        confidence: 100,
+        reason: "Wizard strategy exit rule fired",
+        holdTime: "",
+        strategy: "wizard_strategy",
+        confluences: [],
+        status: "pending",
+        modifyAction: "full_close",
+        positionId: null
+      });
+      return true;
+    }
+    if (dep.platform === "tradelocker") {
+      const { storage: storage2 } = await Promise.resolve().then(() => (init_storage(), storage_exports));
+      const { executeMT5SignalOnTradeLocker: executeMT5SignalOnTradeLocker2 } = await Promise.resolve().then(() => (init_tradelocker(), tradelocker_exports));
+      const conns = (await storage2.getUserTradelockerConnections(dep.userId)).filter((c) => c.isActive);
+      const conn = conns.find((c) => c.id === Number(dep.connectionRef));
+      if (!conn) return false;
+      const r = await executeMT5SignalOnTradeLocker2(conn, {
+        action: "CLOSE",
+        symbol: open.symbol,
+        direction: open.direction,
+        volume: 0,
+        positionId: open.platform_ref || void 0,
+        closeReason: "wizard strategy exit rule"
+      });
+      return !!r.success;
+    }
+    if (dep.platform === "dxtrade") {
+      const { pool: pool2 } = await Promise.resolve().then(() => (init_db(), db_exports));
+      const { rows } = await pool2.query(
+        `SELECT id, host, username, encrypted_password, domain, account_code FROM dxtrade_connections WHERE id=$1 AND user_id=$2 AND is_active=true`,
+        [Number(dep.connectionRef), dep.userId]
+      );
+      if (!rows.length) return false;
+      const { executeSignalOnDxtrade: executeSignalOnDxtrade2 } = await Promise.resolve().then(() => (init_dxtrade(), dxtrade_exports));
+      const r = await executeSignalOnDxtrade2(rows[0], {
+        action: "CLOSE",
+        symbol: open.symbol,
+        direction: open.direction,
+        positionCode: open.platform_ref || void 0
+      });
+      return !!r.success;
+    }
+  } catch {
+    return false;
+  }
+  return false;
+}
+var TICK_MS2, TF_API, TF_MS, CRYPTOS, CONTRACT_SIZE2, started4, ticking;
+var init_strategy_runner = __esm({
+  "server/services/strategy-runner.ts"() {
+    "use strict";
+    init_wizard_strategies();
+    init_strategy_deployments();
+    init_strategy_backtest();
+    init_strategy_spec();
+    init_pipUtils();
+    TICK_MS2 = 3e4;
+    TF_API = { M1: "1min", M5: "5min", M15: "15min", M30: "30min", H1: "1h", H4: "4h", D1: "1day" };
+    TF_MS = { M1: 6e4, M5: 3e5, M15: 9e5, M30: 18e5, H1: 36e5, H4: 144e5, D1: 864e5 };
+    CRYPTOS = /* @__PURE__ */ new Set(["BTCUSD", "ETHUSD", "SOLUSD", "XRPUSD", "LTCUSD", "DOGEUSD"]);
+    CONTRACT_SIZE2 = { XAUUSD: 100, XAGUSD: 5e3, BTCUSD: 1, ETHUSD: 10, SOLUSD: 100, XRPUSD: 1e4 };
+    started4 = false;
+    ticking = false;
+  }
+});
+
 // server/services/paper-trade-resolver-loop.ts
 var paper_trade_resolver_loop_exports = {};
 __export(paper_trade_resolver_loop_exports, {
@@ -65592,8 +66239,8 @@ async function runOptionsEngineScan() {
   }
 }
 function startOptionsEngineScanner() {
-  if (started4) return;
-  started4 = true;
+  if (started5) return;
+  started5 = true;
   const LOOP_INTERVAL_MS = 6e4;
   setInterval(() => {
     runOptionsEngineScan().catch(() => {
@@ -65601,7 +66248,7 @@ function startOptionsEngineScanner() {
   }, LOOP_INTERVAL_MS);
   console.log("[options-scanner] Background options-engine scan loop started (60s tick, per-user throttled, strategies: orb/volume_profile/breakout/momentum/order_flow/auto).");
 }
-var MIN_SCAN_INTERVAL_MS2, lastScanAt2, MAX_OPEN_PER_SYMBOL2, MAX_DAILY_ENTRIES_PER_SYMBOL2, SYMBOL_COOLDOWN_MS2, CORRELATED_BASKET_CAP, CORRELATED_BASKETS, STRATEGY_RUNNERS2, sessionPeakEquity2, OPTIONS_USER_BUDGET_MS, optionsUserInFlight, optionsScanRunning, optionsCycle, started4;
+var MIN_SCAN_INTERVAL_MS2, lastScanAt2, MAX_OPEN_PER_SYMBOL2, MAX_DAILY_ENTRIES_PER_SYMBOL2, SYMBOL_COOLDOWN_MS2, CORRELATED_BASKET_CAP, CORRELATED_BASKETS, STRATEGY_RUNNERS2, sessionPeakEquity2, OPTIONS_USER_BUDGET_MS, optionsUserInFlight, optionsScanRunning, optionsCycle, started5;
 var init_options_scanner = __esm({
   "server/services/options-scanner.ts"() {
     "use strict";
@@ -65636,7 +66283,7 @@ var init_options_scanner = __esm({
     optionsUserInFlight = /* @__PURE__ */ new Set();
     optionsScanRunning = false;
     optionsCycle = 0;
-    started4 = false;
+    started5 = false;
   }
 });
 
@@ -65704,7 +66351,7 @@ async function closeCascade(t, exit, pnl, pips, hit) {
   }
   console.log(`[fx-paper-monitor] closed #${t.id} ${t.pair} ${t.direction} @ ${exit} (${hit}) pnl ${pnl} pips ${pips}`);
 }
-async function tick() {
+async function tick2() {
   let open;
   try {
     open = arr(await db.execute(sql16`SELECT id, user_id, pair, direction, entry_price, stop_loss, take_profit, lot_size, opened_at FROM fx_paper_trades WHERE status='open'`));
@@ -65773,26 +66420,26 @@ async function tick() {
   if (closed) console.log(`[fx-paper-monitor] tick closed ${closed}/${open.length} open paper trade(s).`);
 }
 function startFxPaperMonitor() {
-  if (started5) return;
-  started5 = true;
-  console.log(`[fx-paper-monitor] started \u2014 closing open FX paper trades on SL/TP every ${TICK_MS2 / 6e4} min (max-hold ${MAX_HOLD_MS / 36e5}h).`);
+  if (started6) return;
+  started6 = true;
+  console.log(`[fx-paper-monitor] started \u2014 closing open FX paper trades on SL/TP every ${TICK_MS3 / 6e4} min (max-hold ${MAX_HOLD_MS / 36e5}h).`);
   setInterval(() => {
-    tick().catch((e) => console.error("[fx-paper-monitor] tick error:", e?.message ?? e));
-  }, TICK_MS2);
+    tick2().catch((e) => console.error("[fx-paper-monitor] tick error:", e?.message ?? e));
+  }, TICK_MS3);
   setTimeout(() => {
-    tick().catch(() => {
+    tick2().catch(() => {
     });
   }, 15e3);
 }
-var TICK_MS2, MAX_HOLD_MS, started5;
+var TICK_MS3, MAX_HOLD_MS, started6;
 var init_fx_paper_monitor = __esm({
   "server/services/fx-paper-monitor.ts"() {
     "use strict";
     init_db();
     init_service();
-    TICK_MS2 = 3 * 60 * 1e3;
+    TICK_MS3 = 3 * 60 * 1e3;
     MAX_HOLD_MS = 3 * 24 * 60 * 60 * 1e3;
-    started5 = false;
+    started6 = false;
   }
 });
 
@@ -66399,9 +67046,9 @@ async function getStopOrdersForUser(userId, filters = {}) {
 init_schema();
 
 // server/build-info.ts
-var BUILD_COMMIT = "c170d3e-dirty";
-var BUILD_BRANCH = "feature/dxtrade-engine-parity";
-var BUILT_AT = "2026-11-02T01:54:36.018Z";
+var BUILD_COMMIT = "66273d2-dirty";
+var BUILD_BRANCH = "feature/strategy-deploy-brain";
+var BUILT_AT = "2026-11-02T02:04:48.383Z";
 
 // server/stripe.ts
 init_db();
@@ -87223,6 +87870,163 @@ Respond with ONLY valid JSON:
       return res.status(500).json({ error: err?.message || "EA generation failed" });
     }
   });
+  app2.get("/api/strategy-wizard/accounts", async (req, res) => {
+    if (!req.isAuthenticated()) return res.status(401).json({ error: "Authentication required" });
+    const userId = req.user.id;
+    try {
+      const accounts = [];
+      const { getMT5Accounts: getMT5Accounts3 } = await Promise.resolve().then(() => (init_live_trading_engine(), live_trading_engine_exports));
+      for (const a of getMT5Accounts3(userId)) {
+        accounts.push({ platform: "mt5", ref: a.alias, label: a.label || a.alias, sub: a.accountNumber ? `MT5 ${a.accountNumber}` : "MT5 terminal", online: a.online });
+      }
+      const tl = await storage.getUserTradelockerConnections(userId).catch(() => []);
+      for (const c of tl.filter((c2) => c2.isActive)) {
+        accounts.push({ platform: "tradelocker", ref: String(c.id), label: c.accountId || `TradeLocker #${c.id}`, sub: "TradeLocker", online: true });
+      }
+      const { pool: pool2 } = await Promise.resolve().then(() => (init_db(), db_exports));
+      const { rows } = await pool2.query(
+        `SELECT id, account_code, label FROM dxtrade_connections WHERE user_id=$1 AND is_active=true ORDER BY id`,
+        [userId]
+      ).catch(() => ({ rows: [] }));
+      for (const c of rows) {
+        accounts.push({ platform: "dxtrade", ref: String(c.id), label: c.label || c.account_code || `DXtrade #${c.id}`, sub: "DXtrade", online: true });
+      }
+      return res.json({ accounts });
+    } catch (err) {
+      return res.status(500).json({ error: err?.message || "accounts lookup failed" });
+    }
+  });
+  app2.get("/api/strategy-wizard/deployments", async (req, res) => {
+    if (!req.isAuthenticated()) return res.status(401).json({ error: "Authentication required" });
+    const userId = req.user.id;
+    const { listDeployments: listDeployments2 } = await Promise.resolve().then(() => (init_strategy_deployments(), strategy_deployments_exports));
+    const strategyId = Number(req.query.strategyId ?? 0);
+    return res.json({ deployments: await listDeployments2(userId, strategyId > 0 ? strategyId : void 0) });
+  });
+  app2.post("/api/strategy-wizard/deployments", async (req, res) => {
+    if (!req.isAuthenticated()) return res.status(401).json({ error: "Authentication required" });
+    const userId = req.user.id;
+    try {
+      const strategyId = Number(req.body?.strategyId ?? 0);
+      const platform = String(req.body?.platform ?? "");
+      const connectionRef = String(req.body?.connectionRef ?? "");
+      const accountLabel = req.body?.accountLabel ? String(req.body.accountLabel) : null;
+      if (!strategyId || !["mt5", "tradelocker", "dxtrade"].includes(platform) || !connectionRef) {
+        return res.status(400).json({ error: "strategyId, platform (mt5|tradelocker|dxtrade) and connectionRef are required" });
+      }
+      const { getWizardStrategy: getWizardStrategy2 } = await Promise.resolve().then(() => (init_wizard_strategies(), wizard_strategies_exports));
+      const strat = await getWizardStrategy2(userId, strategyId);
+      if (!strat) return res.status(404).json({ error: "strategy not found" });
+      const spec = strat.spec;
+      const isEngine = spec.source === "engine";
+      if (!isEngine && !spec.entryLong?.conditions?.length && !spec.entryShort?.conditions?.length) {
+        return res.status(400).json({ error: "This strategy has no mechanical entry rules to run live. Pattern templates need the MT5 EA or a manual run \u2014 there is nothing honest to deploy." });
+      }
+      const { listDeployments: listDeployments2, createDeployment: createDeployment2 } = await Promise.resolve().then(() => (init_strategy_deployments(), strategy_deployments_exports));
+      const existing = await listDeployments2(userId, strategyId);
+      if (existing.some((d) => d.status === "running" && d.platform === platform && d.connectionRef === connectionRef)) {
+        return res.status(409).json({ error: "This strategy is already running on that account." });
+      }
+      if (platform === "tradelocker") {
+        const conns = await storage.getUserTradelockerConnections(userId);
+        if (!conns.some((c) => c.id === Number(connectionRef) && c.isActive)) return res.status(404).json({ error: "TradeLocker connection not found" });
+      } else if (platform === "dxtrade") {
+        const { pool: pool2 } = await Promise.resolve().then(() => (init_db(), db_exports));
+        const { rows } = await pool2.query(`SELECT id FROM dxtrade_connections WHERE id=$1 AND user_id=$2 AND is_active=true`, [Number(connectionRef), userId]);
+        if (!rows.length) return res.status(404).json({ error: "DXtrade connection not found" });
+      } else if (platform === "mt5") {
+        const { getMT5Accounts: getMT5Accounts3, setMT5AccountReceiveSignals: setMT5AccountReceiveSignals3 } = await Promise.resolve().then(() => (init_live_trading_engine(), live_trading_engine_exports));
+        const accts = getMT5Accounts3(userId);
+        if (!accts.some((a) => a.alias === connectionRef)) return res.status(404).json({ error: "MT5 terminal not found (is the EA connected?)" });
+        for (const a of accts) setMT5AccountReceiveSignals3(userId, a.alias, a.alias === connectionRef);
+      }
+      const dep = await createDeployment2(userId, strategyId, platform, connectionRef, accountLabel);
+      return res.status(201).json({
+        deployment: dep,
+        execution: isEngine ? "engine" : "runner",
+        note: isEngine ? "Engine strategies run through the FX engine, which trades your auto-enabled accounts as one pool. This deployment binds the strategy to the chosen account for tracking and its brain \u2014 it does not re-route the engine." : platform === "mt5" ? "The runner sends this strategy's signals to the chosen MT5 terminal only (its receive-signals flag is now exclusive). The EA on that terminal executes them." : "The runner evaluates this strategy on closed bars and trades only the chosen account."
+      });
+    } catch (err) {
+      console.error("[strategy-wizard] deploy failed:", err);
+      return res.status(500).json({ error: err?.message || "deploy failed" });
+    }
+  });
+  app2.post("/api/strategy-wizard/deployments/:id/stop", async (req, res) => {
+    if (!req.isAuthenticated()) return res.status(401).json({ error: "Authentication required" });
+    const userId = req.user.id;
+    const { stopDeployment: stopDeployment2, getDeployment: getDeployment2 } = await Promise.resolve().then(() => (init_strategy_deployments(), strategy_deployments_exports));
+    const id = Number(req.params.id);
+    const ok = await stopDeployment2(userId, id);
+    if (!ok) return res.status(404).json({ error: "running deployment not found" });
+    return res.json({ success: true, deployment: await getDeployment2(userId, id) });
+  });
+  app2.post("/api/strategy-wizard/strategies/:id/brain", async (req, res) => {
+    if (!req.isAuthenticated()) return res.status(401).json({ error: "Authentication required" });
+    const userId = req.user.id;
+    const { buildStrategyBrain: buildStrategyBrain2 } = await Promise.resolve().then(() => (init_strategy_brain(), strategy_brain_exports));
+    const profile = await buildStrategyBrain2(userId, Number(req.params.id));
+    if (!profile) return res.status(404).json({ error: "strategy not found" });
+    return res.json({ brain: profile });
+  });
+  app2.post("/api/strategy-wizard/strategies/:id/list-brain", async (req, res) => {
+    if (!req.isAuthenticated()) return res.status(401).json({ error: "Authentication required" });
+    const userId = req.user.id;
+    try {
+      const strategyId = Number(req.params.id);
+      const { getWizardStrategy: getWizardStrategy2, recordWizardBrain: recordWizardBrain2 } = await Promise.resolve().then(() => (init_wizard_strategies(), wizard_strategies_exports));
+      const strat = await getWizardStrategy2(userId, strategyId);
+      if (!strat) return res.status(404).json({ error: "strategy not found" });
+      const { buildStrategyBrain: buildStrategyBrain2 } = await Promise.resolve().then(() => (init_strategy_brain(), strategy_brain_exports));
+      const brain = await buildStrategyBrain2(userId, strategyId);
+      const { MIN_TRADES_TO_LIST: MIN_TRADES_TO_LIST2, computeListingStats: computeListingStats2, clampPrice: clampPrice2 } = await Promise.resolve().then(() => (init_brain_marketplace(), brain_marketplace_exports));
+      if (!brain || brain.listableTrades < MIN_TRADES_TO_LIST2) {
+        return res.status(400).json({ error: `Need at least ${MIN_TRADES_TO_LIST2} live trades from this strategy to list its brain (you have ${brain?.listableTrades ?? 0}). Backtest trades don't count \u2014 a brain is sold on live evidence.` });
+      }
+      const { listStrategyTrades: listStrategyTrades2 } = await Promise.resolve().then(() => (init_strategy_deployments(), strategy_deployments_exports));
+      const trades = await listStrategyTrades2(userId, strategyId, 2e3);
+      const rows = trades.filter((t) => t.status === "closed" && t.pnl != null).map((t) => ({
+        symbol: String(t.symbol || "").toUpperCase(),
+        direction: t.direction,
+        confirmedAt: t.closed_at,
+        tradeOutcome: Number(t.pnl) > 0 ? "WIN" : Number(t.pnl) < 0 ? "LOSS" : "BREAKEVEN",
+        profitLoss: Number(t.pnl),
+        exitReason: t.exit_reason ?? null,
+        source: "wizard_strategy",
+        strategyName: strat.name
+      }));
+      const stats = computeListingStats2(rows);
+      const title = String(req.body?.title || `${strat.name} \u2014 strategy brain`);
+      const description = String(req.body?.description || `Live track record of the custom strategy "${strat.name}" (${strat.spec.symbol} ${strat.spec.timeframe}), built in the Strategy Wizard and run through VEDD deployments. ${brain.live.trades} live trades, ${brain.live.winRate != null ? Math.round(brain.live.winRate * 100) : "\u2014"}% win rate. Backtest data points inform the profile; the snapshot contains live outcomes only.`);
+      const price = clampPrice2(Number(req.body?.priceVedd ?? stats.suggestedPriceVedd));
+      if (strat.brainListingId) {
+        await storage.deactivateBrainListing(strat.brainListingId).catch(() => {
+        });
+      }
+      const listing = await storage.createBrainListing({
+        sellerId: userId,
+        sourceCategory: "forex",
+        symbolFilter: [strat.spec.symbol],
+        includesManualTrades: false,
+        title,
+        description,
+        priceVedd: price,
+        suggestedPriceVedd: stats.suggestedPriceVedd,
+        snapshotData: rows,
+        tradeCount: stats.tradeCount,
+        distinctPairs: stats.distinctPairs,
+        ageDays: stats.ageDays,
+        winRate: stats.winRate,
+        oldestTradeAt: stats.oldestTradeAt,
+        newestTradeAt: stats.newestTradeAt
+      });
+      await recordWizardBrain2(userId, strategyId, { listingId: listing.id });
+      const { snapshotData: _omit, ...safe2 } = listing;
+      return res.status(201).json({ listing: safe2, brain });
+    } catch (err) {
+      console.error("[strategy-wizard] list-brain failed:", err);
+      return res.status(500).json({ error: err?.message || "listing failed" });
+    }
+  });
   app2.get("/api/strategy-wizard/strategies", async (req, res) => {
     if (!req.isAuthenticated()) return res.status(401).json({ error: "Authentication required" });
     const { listWizardStrategies: listWizardStrategies2 } = await Promise.resolve().then(() => (init_wizard_strategies(), wizard_strategies_exports));
@@ -101359,6 +102163,8 @@ async function withRetry(fn, label, maxAttempts = 6, baseDelayMs = 2e3) {
     startTradeLockerSync2();
     const { startDxtradeSync: startDxtradeSync2 } = await Promise.resolve().then(() => (init_dxtrade_sync(), dxtrade_sync_exports));
     startDxtradeSync2();
+    const { startStrategyRunner: startStrategyRunner2 } = await Promise.resolve().then(() => (init_strategy_runner(), strategy_runner_exports));
+    startStrategyRunner2();
     const { startPaperTradeResolverLoop: startPaperTradeResolverLoop2 } = await Promise.resolve().then(() => (init_paper_trade_resolver_loop(), paper_trade_resolver_loop_exports));
     startPaperTradeResolverLoop2();
     const { startPropFirmConsistencyAuditLoop: startPropFirmConsistencyAuditLoop2 } = await Promise.resolve().then(() => (init_prop_firm_consistency_audit_loop(), prop_firm_consistency_audit_loop_exports));

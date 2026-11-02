@@ -232,6 +232,51 @@ function evalGroup(g: ConditionGroup | null | undefined, series: Map<string, Ser
   return g.logic === 'AND' ? results.every(Boolean) : results.some(Boolean);
 }
 
+export interface SpecSignals {
+  enterLong: boolean;
+  enterShort: boolean;
+  exitLong: boolean;
+  exitShort: boolean;
+  /** ATR value at the evaluated bar when the spec declares an ATR indicator. */
+  atr: number | null;
+  /** Close of the evaluated (last closed) bar. */
+  close: number;
+  /** Timestamp of the evaluated bar. */
+  barTime: number;
+}
+
+/**
+ * Live-signal evaluation — the SAME series builders and condition
+ * evaluators the backtester replays with, applied to the last bar of a
+ * live candle series. One definition of the strategy's rules, used by
+ * both the backtest and the live deployment runner, so a deployed
+ * strategy trades exactly what was backtested. Bars must be ascending
+ * and the last bar must be CLOSED (callers slice off any forming bar).
+ */
+export function evaluateSpecSignals(spec: StrategySpec, barsIn: BacktestBar[]): SpecSignals | null {
+  const bars = [...barsIn].sort((a, b) => a.timestamp - b.timestamp);
+  if (bars.length < 3) return null;
+  const series = buildSeries(spec, bars);
+  const i = bars.length - 1;
+  let atr: number | null = null;
+  for (const ind of spec.indicators) {
+    if (ind.kind === 'ATR') {
+      const s = series.get(`${ind.id}:value`);
+      const v = s ? s[i] : null;
+      if (typeof v === 'number' && isFinite(v)) atr = v;
+    }
+  }
+  return {
+    enterLong: evalGroup(spec.entryLong, series, i),
+    enterShort: evalGroup(spec.entryShort, series, i),
+    exitLong: evalGroup(spec.exitLong, series, i),
+    exitShort: evalGroup(spec.exitShort, series, i),
+    atr,
+    close: bars[i].close,
+    barTime: bars[i].timestamp,
+  };
+}
+
 // ── Replay ──────────────────────────────────────────────────────────
 
 export function runBacktest(spec: StrategySpec, barsIn: BacktestBar[], opts: BacktestOptions): BacktestResult {
