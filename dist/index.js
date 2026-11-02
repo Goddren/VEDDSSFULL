@@ -10736,8 +10736,8 @@ ${ictLines.join("\n")}`;
         const pdConflicts = !pdResult.aligns && pdResult.zone !== "EQUILIBRIUM";
         const aligns = bosAligns && !pdConflicts;
         const recentCloses = level.candles.slice(0, 10).map((c) => c.c);
-        const sma2 = recentCloses.reduce((s, v) => s + v, 0) / recentCloses.length;
-        const trendDirection = recentCloses[0] > sma2 * 1.001 ? "BULLISH" : recentCloses[0] < sma2 * 0.999 ? "BEARISH" : "NEUTRAL";
+        const sma3 = recentCloses.reduce((s, v) => s + v, 0) / recentCloses.length;
+        const trendDirection = recentCloses[0] > sma3 * 1.001 ? "BULLISH" : recentCloses[0] < sma3 * 0.999 ? "BEARISH" : "NEUTRAL";
         levelResults.push({ label: role, tf: tfLabel, trendDirection, aligns, bosCHOCH: bosResult, pd: pdResult, wyckoff: wyckoffResult });
       }
       if (levelResults.length > 0) {
@@ -22435,11 +22435,11 @@ function calculateRSI(candles, period = 14) {
 }
 function calcEMA(values, period) {
   const k2 = 2 / (period + 1);
-  const ema3 = [values[0]];
+  const ema4 = [values[0]];
   for (let i = 1; i < values.length; i++) {
-    ema3.push(values[i] * k2 + ema3[i - 1] * (1 - k2));
+    ema4.push(values[i] * k2 + ema4[i - 1] * (1 - k2));
   }
-  return ema3;
+  return ema4;
 }
 function calculateMACD(candles, fast = 12, slow = 26, signalPeriod = 9) {
   if (candles.length < slow + signalPeriod) return void 0;
@@ -22627,9 +22627,9 @@ function computeKeltnerChannels(candles, emaPeriod = 20, atrPeriod = 10, multipl
   if (candles.length < emaPeriod + 2) return void 0;
   const chronological = [...candles].reverse();
   const k2 = 2 / (emaPeriod + 1);
-  let ema3 = chronological.slice(0, emaPeriod).reduce((s, c) => s + c.c, 0) / emaPeriod;
+  let ema4 = chronological.slice(0, emaPeriod).reduce((s, c) => s + c.c, 0) / emaPeriod;
   for (let i = emaPeriod; i < chronological.length; i++) {
-    ema3 = chronological[i].c * k2 + ema3 * (1 - k2);
+    ema4 = chronological[i].c * k2 + ema4 * (1 - k2);
   }
   const trValues = [];
   for (let i = 1; i < chronological.length; i++) {
@@ -22639,10 +22639,10 @@ function computeKeltnerChannels(candles, emaPeriod = 20, atrPeriod = 10, multipl
   const atrSlice = trValues.slice(-atrPeriod);
   const atr2 = atrSlice.length > 0 ? atrSlice.reduce((s, v) => s + v, 0) / atrSlice.length : 0;
   if (atr2 === 0) return void 0;
-  const upper = ema3 + multiplier * atr2;
-  const lower = ema3 - multiplier * atr2;
+  const upper = ema4 + multiplier * atr2;
+  const lower = ema4 - multiplier * atr2;
   const currentPrice = chronological[chronological.length - 1].c;
-  const bandwidth = (upper - lower) / ema3 * 100;
+  const bandwidth = (upper - lower) / ema4 * 100;
   const prevBandwidths = [];
   let prevEma = chronological.slice(0, emaPeriod).reduce((s, c) => s + c.c, 0) / emaPeriod;
   for (let i = emaPeriod; i < chronological.length - 5; i++) {
@@ -22699,7 +22699,7 @@ function computeKeltnerChannels(candles, emaPeriod = 20, atrPeriod = 10, multipl
   }
   return {
     upper: Math.round(upper * 1e5) / 1e5,
-    middle: Math.round(ema3 * 1e5) / 1e5,
+    middle: Math.round(ema4 * 1e5) / 1e5,
     lower: Math.round(lower * 1e5) / 1e5,
     bandwidth: Math.round(bandwidth * 100) / 100,
     position,
@@ -25420,13 +25420,13 @@ async function btcDailyTrend(symbol) {
     const r = await marketDataService.fetchMarketData({ symbol, assetType: marketDataService.detectAssetType(symbol), timeframe: "1d", limit: 80 });
     const closes = (r?.bars || []).slice(0, -1).map((b) => Number(b.close));
     if (closes.length < 55) return null;
-    const ema3 = (n) => {
+    const ema4 = (n) => {
       const k2 = 2 / (n + 1);
       let e = closes.slice(0, n).reduce((a, c) => a + c, 0) / n;
       for (const c of closes.slice(n)) e = c * k2 + e * (1 - k2);
       return e;
     };
-    const e20 = ema3(20), e50 = ema3(50), last = closes[closes.length - 1];
+    const e20 = ema4(20), e50 = ema4(50), last = closes[closes.length - 1];
     const trend = e20 > e50 && last > e20 ? "BULLISH" : e20 < e50 && last < e20 ? "BEARISH" : "NEUTRAL";
     d1Cache.set(symbol, { at: Date.now(), trend });
     return trend;
@@ -45011,8 +45011,8 @@ async function backtestCreditSpread(service, symbol, years, p) {
     const mn = Math.min(...windowIv), mx = Math.max(...windowIv);
     const ivRank = mx > mn ? Math.round((sigma - mn) / (mx - mn) * 100) : 50;
     if (ivRank < p.ivRankMin && sigma < p.minIv) continue;
-    const sma2 = closes.slice(i - 20, i).reduce((a, b) => a + b, 0) / 20;
-    const spreadType = S >= sma2 ? "bull_put" : "bear_call";
+    const sma3 = closes.slice(i - 20, i).reduce((a, b) => a + b, 0) / 20;
+    const spreadType = S >= sma3 ? "bull_put" : "bear_call";
     const optType = spreadType === "bull_put" ? "put" : "call";
     const T = p.dte / 365;
     let shortK = S, best = Infinity;
@@ -49383,6 +49383,559 @@ var init_all_time_performance = __esm({
   }
 });
 
+// server/services/strategy-spec.ts
+var strategy_spec_exports = {};
+__export(strategy_spec_exports, {
+  INDICATOR_CATALOG: () => INDICATOR_CATALOG,
+  specWarmupBars: () => specWarmupBars,
+  validateStrategySpec: () => validateStrategySpec
+});
+function isNum(x, min, max) {
+  return typeof x === "number" && Number.isFinite(x) && x >= min && x <= max;
+}
+function validateGroup(g, indicatorIds, label) {
+  if (!g || g.logic !== "AND" && g.logic !== "OR") return `${label}: logic must be AND or OR`;
+  if (!Array.isArray(g.conditions) || g.conditions.length < 1 || g.conditions.length > 6) {
+    return `${label}: needs 1\u20136 conditions`;
+  }
+  for (const c of g.conditions) {
+    if (c.indicatorId !== "price" && !indicatorIds.has(c.indicatorId)) {
+      return `${label}: unknown indicator "${c.indicatorId}"`;
+    }
+    if (!FIELDS.includes(c.field)) return `${label}: bad field "${c.field}"`;
+    if (!OPERATORS.includes(c.operator)) return `${label}: bad operator "${c.operator}"`;
+    const cmp = c.compare;
+    if (!cmp || !["value", "indicator", "price"].includes(cmp.kind)) return `${label}: bad compare target`;
+    if (cmp.kind === "value" && !isNum(cmp.value, -1e9, 1e9)) return `${label}: compare value must be a number`;
+    if (cmp.kind === "indicator" && cmp.indicatorId !== "price" && !indicatorIds.has(cmp.indicatorId)) {
+      return `${label}: unknown compare indicator "${cmp.indicatorId}"`;
+    }
+  }
+  return null;
+}
+function validateStrategySpec(x) {
+  if (!x || typeof x !== "object") return { ok: false, error: "spec must be an object" };
+  const s = x;
+  if (typeof s.name !== "string" || !s.name.trim() || s.name.length > 80) return { ok: false, error: "name is required (max 80 chars)" };
+  if (s.source !== "template" && s.source !== "builder") return { ok: false, error: "source must be 'template' or 'builder'" };
+  if (typeof s.symbol !== "string" || !/^[A-Za-z0-9./_-]{3,15}$/.test(s.symbol)) return { ok: false, error: "bad symbol" };
+  if (!TIMEFRAMES.includes(s.timeframe)) return { ok: false, error: "bad timeframe" };
+  if (!Array.isArray(s.indicators) || s.indicators.length > 8) return { ok: false, error: "indicators: max 8" };
+  const ids = /* @__PURE__ */ new Set();
+  for (const ind of s.indicators) {
+    if (!ind.id || typeof ind.id !== "string" || ids.has(ind.id)) return { ok: false, error: "indicator ids must be unique strings" };
+    ids.add(ind.id);
+    if (!INDICATOR_CATALOG.some((c) => c.kind === ind.kind)) return { ok: false, error: `bad indicator kind "${ind.kind}"` };
+    if (ind.period !== void 0 && !isNum(ind.period, 1, 500)) return { ok: false, error: "indicator period out of range" };
+    if (ind.fastPeriod !== void 0 && !isNum(ind.fastPeriod, 1, 500)) return { ok: false, error: "fastPeriod out of range" };
+    if (ind.slowPeriod !== void 0 && !isNum(ind.slowPeriod, 1, 500)) return { ok: false, error: "slowPeriod out of range" };
+    if (ind.signalPeriod !== void 0 && !isNum(ind.signalPeriod, 1, 100)) return { ok: false, error: "signalPeriod out of range" };
+    if (ind.stdDev !== void 0 && !isNum(ind.stdDev, 0.1, 10)) return { ok: false, error: "stdDev out of range" };
+  }
+  for (const [label, g] of [["entryLong", s.entryLong], ["entryShort", s.entryShort]]) {
+    const err = validateGroup(g, ids, label);
+    if (err) return { ok: false, error: err };
+  }
+  for (const [label, g] of [["exitLong", s.exitLong], ["exitShort", s.exitShort]]) {
+    if (g == null) continue;
+    const err = validateGroup(g, ids, label);
+    if (err) return { ok: false, error: err };
+  }
+  const r = s.risk;
+  if (!r || !isNum(r.lotSize, 0.01, 50)) return { ok: false, error: "risk.lotSize must be 0.01\u201350" };
+  for (const k2 of ["stopLossPips", "takeProfitPips", "trailingStopPips"]) {
+    if (r[k2] != null && !isNum(r[k2], 0, 1e5)) return { ok: false, error: `risk.${k2} out of range` };
+  }
+  for (const k2 of ["stopLossAtrMult", "takeProfitAtrMult"]) {
+    if (r[k2] != null && !isNum(r[k2], 0, 100)) return { ok: false, error: `risk.${k2} out of range` };
+  }
+  if (r.maxTradesPerDay != null && !isNum(r.maxTradesPerDay, 1, 1e3)) return { ok: false, error: "risk.maxTradesPerDay out of range" };
+  if ((r.stopLossAtrMult != null || r.takeProfitAtrMult != null) && !s.indicators.some((i) => i.kind === "ATR")) {
+    return { ok: false, error: "ATR-based stops need an ATR indicator in the spec" };
+  }
+  if (r.stopLossPips == null && r.stopLossAtrMult == null && r.takeProfitPips == null && r.takeProfitAtrMult == null) {
+    return { ok: false, error: "a strategy needs at least a stop loss or a take profit" };
+  }
+  return { ok: true, spec: { ...s, symbol: s.symbol.toUpperCase(), name: s.name.trim() } };
+}
+function specWarmupBars(spec) {
+  let w = 2;
+  for (const ind of spec.indicators) {
+    const need = ind.kind === "MACD" ? (ind.slowPeriod ?? 26) + (ind.signalPeriod ?? 9) : ind.kind === "STOCHASTIC" ? (ind.period ?? 14) + (ind.signalPeriod ?? 3) : ind.period ?? 14;
+    w = Math.max(w, need + 2);
+  }
+  return w;
+}
+var INDICATOR_CATALOG, TIMEFRAMES, OPERATORS, FIELDS;
+var init_strategy_spec = __esm({
+  "server/services/strategy-spec.ts"() {
+    "use strict";
+    INDICATOR_CATALOG = [
+      { kind: "EMA", label: "Exponential Moving Average", fields: ["value"], defaults: { period: 21 } },
+      { kind: "SMA", label: "Simple Moving Average", fields: ["value"], defaults: { period: 50 } },
+      { kind: "RSI", label: "Relative Strength Index", fields: ["value"], defaults: { period: 14 } },
+      { kind: "MACD", label: "MACD", fields: ["value", "signal", "histogram"], defaults: { fastPeriod: 12, slowPeriod: 26, signalPeriod: 9 } },
+      { kind: "STOCHASTIC", label: "Stochastic Oscillator", fields: ["k", "d"], defaults: { period: 14, signalPeriod: 3 } },
+      { kind: "BOLLINGER", label: "Bollinger Bands", fields: ["upper", "middle", "lower"], defaults: { period: 20, stdDev: 2 } },
+      { kind: "ATR", label: "Average True Range", fields: ["value"], defaults: { period: 14 } }
+    ];
+    TIMEFRAMES = ["M1", "M5", "M15", "M30", "H1", "H4", "D1"];
+    OPERATORS = ["crosses_above", "crosses_below", "above", "below", "rising", "falling"];
+    FIELDS = ["value", "signal", "histogram", "upper", "middle", "lower", "k", "d", "price"];
+  }
+});
+
+// server/services/strategy-backtest.ts
+var strategy_backtest_exports = {};
+__export(strategy_backtest_exports, {
+  runBacktest: () => runBacktest
+});
+function contractSize(symbol) {
+  return CONTRACT_SIZE[symbol.replace(/[^A-Z]/g, "")] ?? 1e5;
+}
+function sma(values, period) {
+  const out = new Array(values.length).fill(null);
+  let sum = 0;
+  for (let i = 0; i < values.length; i++) {
+    sum += values[i];
+    if (i >= period) sum -= values[i - period];
+    if (i >= period - 1) out[i] = sum / period;
+  }
+  return out;
+}
+function ema(values, period) {
+  const out = new Array(values.length).fill(null);
+  const k2 = 2 / (period + 1);
+  let prev = null;
+  let seedSum = 0;
+  for (let i = 0; i < values.length; i++) {
+    if (i < period - 1) {
+      seedSum += values[i];
+      continue;
+    }
+    if (i === period - 1) {
+      seedSum += values[i];
+      prev = seedSum / period;
+      out[i] = prev;
+      continue;
+    }
+    prev = (values[i] - prev) * k2 + prev;
+    out[i] = prev;
+  }
+  return out;
+}
+function rsiSeries(closes, period) {
+  const out = new Array(closes.length).fill(null);
+  if (closes.length <= period) return out;
+  let gain = 0, loss = 0;
+  for (let i = 1; i <= period; i++) {
+    const d = closes[i] - closes[i - 1];
+    if (d >= 0) gain += d;
+    else loss -= d;
+  }
+  gain /= period;
+  loss /= period;
+  out[period] = loss === 0 ? 100 : 100 - 100 / (1 + gain / loss);
+  for (let i = period + 1; i < closes.length; i++) {
+    const d = closes[i] - closes[i - 1];
+    gain = (gain * (period - 1) + Math.max(d, 0)) / period;
+    loss = (loss * (period - 1) + Math.max(-d, 0)) / period;
+    out[i] = loss === 0 ? 100 : 100 - 100 / (1 + gain / loss);
+  }
+  return out;
+}
+function atrSeries(bars, period) {
+  const out = new Array(bars.length).fill(null);
+  if (bars.length <= period) return out;
+  const tr = (i) => {
+    const h = bars[i].high, l = bars[i].low, pc = bars[i - 1].close;
+    return Math.max(h - l, Math.abs(h - pc), Math.abs(l - pc));
+  };
+  let atr2 = 0;
+  for (let i = 1; i <= period; i++) atr2 += tr(i);
+  atr2 /= period;
+  out[period] = atr2;
+  for (let i = period + 1; i < bars.length; i++) {
+    atr2 = (atr2 * (period - 1) + tr(i)) / period;
+    out[i] = atr2;
+  }
+  return out;
+}
+function buildSeries(spec, bars) {
+  const closes = bars.map((b) => b.close);
+  const map = /* @__PURE__ */ new Map();
+  map.set("price:price", closes.slice());
+  map.set("price:value", closes.slice());
+  for (const ind of spec.indicators) {
+    const key = (f) => `${ind.id}:${f}`;
+    switch (ind.kind) {
+      case "EMA":
+        map.set(key("value"), ema(closes, ind.period ?? 21));
+        break;
+      case "SMA":
+        map.set(key("value"), sma(closes, ind.period ?? 50));
+        break;
+      case "RSI":
+        map.set(key("value"), rsiSeries(closes, ind.period ?? 14));
+        break;
+      case "ATR":
+        map.set(key("value"), atrSeries(bars, ind.period ?? 14));
+        break;
+      case "MACD": {
+        const fast = ema(closes, ind.fastPeriod ?? 12);
+        const slow = ema(closes, ind.slowPeriod ?? 26);
+        const macd2 = closes.map((_, i) => fast[i] != null && slow[i] != null ? fast[i] - slow[i] : null);
+        const macdNums = macd2.map((v) => v ?? 0);
+        const firstValid = macd2.findIndex((v) => v != null);
+        const sigRaw = ema(macdNums, ind.signalPeriod ?? 9);
+        const signal = macd2.map((v, i) => v == null || i < firstValid + (ind.signalPeriod ?? 9) - 1 ? null : sigRaw[i]);
+        map.set(key("value"), macd2);
+        map.set(key("signal"), signal);
+        map.set(key("histogram"), macd2.map((v, i) => v != null && signal[i] != null ? v - signal[i] : null));
+        break;
+      }
+      case "STOCHASTIC": {
+        const period = ind.period ?? 14;
+        const kSeries = new Array(bars.length).fill(null);
+        for (let i = period - 1; i < bars.length; i++) {
+          let hh = -Infinity, ll = Infinity;
+          for (let j = i - period + 1; j <= i; j++) {
+            hh = Math.max(hh, bars[j].high);
+            ll = Math.min(ll, bars[j].low);
+          }
+          kSeries[i] = hh === ll ? 50 : (bars[i].close - ll) / (hh - ll) * 100;
+        }
+        const kNums = kSeries.map((v) => v ?? 50);
+        const dRaw = sma(kNums, ind.signalPeriod ?? 3);
+        map.set(key("k"), kSeries);
+        map.set(key("value"), kSeries);
+        map.set(key("d"), kSeries.map((v, i) => v == null ? null : dRaw[i]));
+        break;
+      }
+      case "BOLLINGER": {
+        const period = ind.period ?? 20;
+        const mid = sma(closes, period);
+        const upper = new Array(bars.length).fill(null);
+        const lower = new Array(bars.length).fill(null);
+        for (let i = period - 1; i < bars.length; i++) {
+          let sq = 0;
+          for (let j = i - period + 1; j <= i; j++) sq += (closes[j] - mid[i]) ** 2;
+          const sd = Math.sqrt(sq / period) * (ind.stdDev ?? 2);
+          upper[i] = mid[i] + sd;
+          lower[i] = mid[i] - sd;
+        }
+        map.set(key("middle"), mid);
+        map.set(key("value"), mid);
+        map.set(key("upper"), upper);
+        map.set(key("lower"), lower);
+        break;
+      }
+    }
+  }
+  return map;
+}
+function evalCondition(c, series, i) {
+  if (i < 1) return false;
+  const a = series.get(`${c.indicatorId}:${c.field}`);
+  if (!a) return false;
+  const ai = a[i], aiPrev = a[i - 1];
+  if (ai == null || aiPrev == null) return false;
+  if (c.operator === "rising") return ai > aiPrev;
+  if (c.operator === "falling") return ai < aiPrev;
+  let bNow, bPrev;
+  if (c.compare.kind === "value") {
+    bNow = c.compare.value;
+    bPrev = c.compare.value;
+  } else {
+    const bKey = c.compare.kind === "price" ? "price:price" : `${c.compare.indicatorId}:${c.compare.field}`;
+    const b = series.get(bKey);
+    if (!b) return false;
+    bNow = b[i];
+    bPrev = b[i - 1];
+  }
+  if (bNow == null || bPrev == null) return false;
+  switch (c.operator) {
+    case "above":
+      return ai > bNow;
+    case "below":
+      return ai < bNow;
+    case "crosses_above":
+      return aiPrev <= bPrev && ai > bNow;
+    case "crosses_below":
+      return aiPrev >= bPrev && ai < bNow;
+  }
+  return false;
+}
+function evalGroup(g, series, i) {
+  if (!g || g.conditions.length === 0) return false;
+  const results = g.conditions.map((c) => evalCondition(c, series, i));
+  return g.logic === "AND" ? results.every(Boolean) : results.some(Boolean);
+}
+function runBacktest(spec, barsIn, opts) {
+  const bars = [...barsIn].sort((a, b) => a.timestamp - b.timestamp);
+  const pipSize2 = getPipSize(spec.symbol);
+  const spread = (opts.spreadPips ?? 1) * pipSize2;
+  const slippage = (opts.slippagePips ?? 0.3) * pipSize2;
+  const commission = (opts.commissionPerLot ?? 0) * spec.risk.lotSize * 2;
+  const pipValueMoney = pipSize2 * contractSize(spec.symbol) * spec.risk.lotSize;
+  const usdBase = spec.symbol.replace(/[^A-Z]/g, "").startsWith("USD");
+  const series = buildSeries(spec, bars);
+  const atrId = spec.indicators.find((x) => x.kind === "ATR")?.id;
+  const atrAt = (i) => atrId ? series.get(`${atrId}:value`)?.[i] ?? null : null;
+  const trades = [];
+  const equityCurve = [];
+  let balance = opts.initialCapital;
+  let peak = balance, maxDd = 0, maxDdPct = 0;
+  equityCurve.push({ timestamp: bars.length ? bars[0].timestamp : 0, equity: balance });
+  let pos = null;
+  const entriesByDay = /* @__PURE__ */ new Map();
+  const closePos = (i, rawExit, reason) => {
+    if (!pos) return;
+    const dir = pos.side === "long" ? 1 : -1;
+    const exitPrice = rawExit - dir * slippage;
+    const pips = (exitPrice - pos.entryPrice) * dir / pipSize2;
+    let pnl = pips * pipValueMoney - commission;
+    if (usdBase && exitPrice > 0) pnl = pnl / exitPrice;
+    balance += pnl;
+    trades.push({ side: pos.side, entryTime: pos.entryTime, exitTime: bars[i].timestamp, entryIndex: pos.entryIndex, exitIndex: i, entryPrice: pos.entryPrice, exitPrice, pips, pnl, exitReason: reason });
+    peak = Math.max(peak, balance);
+    const dd = peak - balance;
+    if (dd > maxDd) {
+      maxDd = dd;
+      maxDdPct = peak > 0 ? dd / peak * 100 : 0;
+    }
+    equityCurve.push({ timestamp: bars[i].timestamp, equity: balance });
+    pos = null;
+  };
+  const warmup = Math.min(specWarmupBars(spec), Math.max(0, bars.length - 1));
+  for (let i = warmup; i < bars.length; i++) {
+    const bar = bars[i];
+    if (pos) {
+      const dir = pos.side === "long" ? 1 : -1;
+      if (spec.risk.trailingStopPips && i > pos.entryIndex) {
+        const trailDist = spec.risk.trailingStopPips * pipSize2;
+        if (pos.side === "long") {
+          pos.best = Math.max(pos.best, bars[i - 1].high);
+          const cand = pos.best - trailDist;
+          if (cand > (pos.sl ?? -Infinity)) pos.sl = cand;
+        } else {
+          pos.best = Math.min(pos.best, bars[i - 1].low);
+          const cand = pos.best + trailDist;
+          if (cand < (pos.sl ?? Infinity)) pos.sl = cand;
+        }
+      }
+      if (pos.side === "long") {
+        if (pos.sl != null && bar.low <= pos.sl) {
+          closePos(i, pos.sl, "stop_loss");
+        } else if (pos.tp != null && bar.high >= pos.tp) {
+          closePos(i, pos.tp, "take_profit");
+        }
+      } else {
+        if (pos.sl != null && bar.high >= pos.sl) {
+          closePos(i, pos.sl, "stop_loss");
+        } else if (pos.tp != null && bar.low <= pos.tp) {
+          closePos(i, pos.tp, "take_profit");
+        }
+      }
+      if (pos) {
+        const exitGroup = pos.side === "long" ? spec.exitLong : spec.exitShort;
+        if (evalGroup(exitGroup, series, i)) closePos(i, bar.close, "exit_signal");
+      }
+    }
+    if (!pos && i < bars.length - 1) {
+      const dayKey = new Date(bar.timestamp).toISOString().slice(0, 10);
+      const todayCount = entriesByDay.get(dayKey) ?? 0;
+      if (spec.risk.maxTradesPerDay == null || todayCount < spec.risk.maxTradesPerDay) {
+        const goLong = evalGroup(spec.entryLong, series, i);
+        const goShort = !goLong && evalGroup(spec.entryShort, series, i);
+        if (goLong || goShort) {
+          const side = goLong ? "long" : "short";
+          const dir = goLong ? 1 : -1;
+          const entryPrice = bar.close + dir * (spread / 2 + slippage);
+          const atr2 = atrAt(i);
+          const slDist = spec.risk.stopLossPips != null ? spec.risk.stopLossPips * pipSize2 : spec.risk.stopLossAtrMult != null && atr2 != null ? spec.risk.stopLossAtrMult * atr2 : null;
+          const tpDist = spec.risk.takeProfitPips != null ? spec.risk.takeProfitPips * pipSize2 : spec.risk.takeProfitAtrMult != null && atr2 != null ? spec.risk.takeProfitAtrMult * atr2 : null;
+          pos = {
+            side,
+            entryPrice,
+            entryTime: bar.timestamp,
+            entryIndex: i,
+            sl: slDist != null ? entryPrice - dir * slDist : null,
+            tp: tpDist != null ? entryPrice + dir * tpDist : null,
+            best: entryPrice
+          };
+          entriesByDay.set(dayKey, todayCount + 1);
+        }
+      }
+    }
+  }
+  if (pos && bars.length) closePos(bars.length - 1, bars[bars.length - 1].close, "end");
+  const wins = trades.filter((t) => t.pnl > 0);
+  const losses = trades.filter((t) => t.pnl <= 0);
+  const grossProfit = wins.reduce((s, t) => s + t.pnl, 0);
+  const grossLoss = Math.abs(losses.reduce((s, t) => s + t.pnl, 0));
+  const longs = trades.filter((t) => t.side === "long");
+  const shorts = trades.filter((t) => t.side === "short");
+  const byReason = {};
+  for (const t of trades) byReason[t.exitReason] = (byReason[t.exitReason] ?? 0) + 1;
+  const holdBars = trades.length ? trades.reduce((s, t) => s + (t.exitIndex - t.entryIndex), 0) / trades.length : 0;
+  return {
+    trades,
+    equityCurve,
+    stats: {
+      barsUsed: bars.length,
+      totalTrades: trades.length,
+      wins: wins.length,
+      losses: losses.length,
+      winRate: trades.length ? wins.length / trades.length * 100 : 0,
+      netPnl: balance - opts.initialCapital,
+      netPips: trades.reduce((s, t) => s + t.pips, 0),
+      returnPct: opts.initialCapital > 0 ? (balance - opts.initialCapital) / opts.initialCapital * 100 : 0,
+      grossProfit,
+      grossLoss,
+      profitFactor: grossLoss > 0 ? grossProfit / grossLoss : null,
+      maxDrawdown: maxDd,
+      maxDrawdownPct: maxDdPct,
+      avgWin: wins.length ? grossProfit / wins.length : 0,
+      avgLoss: losses.length ? grossLoss / losses.length : 0,
+      bestTrade: trades.length ? Math.max(...trades.map((t) => t.pnl)) : 0,
+      worstTrade: trades.length ? Math.min(...trades.map((t) => t.pnl)) : 0,
+      finalBalance: balance
+    },
+    dataPoints: {
+      perSymbol: spec.symbol,
+      timeframe: spec.timeframe,
+      tradesByExitReason: byReason,
+      longTrades: longs.length,
+      shortTrades: shorts.length,
+      longWinRate: longs.length ? longs.filter((t) => t.pnl > 0).length / longs.length * 100 : null,
+      shortWinRate: shorts.length ? shorts.filter((t) => t.pnl > 0).length / shorts.length * 100 : null,
+      avgHoldBars: holdBars
+    }
+  };
+}
+var CONTRACT_SIZE;
+var init_strategy_backtest = __esm({
+  "server/services/strategy-backtest.ts"() {
+    "use strict";
+    init_pipUtils();
+    init_strategy_spec();
+    CONTRACT_SIZE = {
+      XAUUSD: 100,
+      XAGUSD: 5e3,
+      BTCUSD: 1,
+      ETHUSD: 10,
+      SOLUSD: 100,
+      XRPUSD: 1e4
+    };
+  }
+});
+
+// server/services/wizard-strategies.ts
+var wizard_strategies_exports = {};
+__export(wizard_strategies_exports, {
+  createWizardStrategy: () => createWizardStrategy,
+  deleteWizardStrategy: () => deleteWizardStrategy,
+  getWizardStrategy: () => getWizardStrategy,
+  listWizardStrategies: () => listWizardStrategies,
+  recordWizardBacktest: () => recordWizardBacktest,
+  updateWizardStrategySpec: () => updateWizardStrategySpec
+});
+function ensureTable3() {
+  return tableReady2 ??= (async () => {
+    await pool.query(`CREATE TABLE IF NOT EXISTS wizard_strategies (
+      id SERIAL PRIMARY KEY,
+      user_id INTEGER NOT NULL,
+      name TEXT NOT NULL,
+      source TEXT NOT NULL DEFAULT 'builder',
+      template_id TEXT,
+      spec JSONB NOT NULL,
+      last_backtest JSONB,
+      status TEXT NOT NULL DEFAULT 'draft',
+      created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+    )`);
+    await pool.query(`CREATE INDEX IF NOT EXISTS wizard_strategies_user_idx ON wizard_strategies (user_id, id DESC)`);
+  })().catch((e) => {
+    tableReady2 = null;
+    throw e;
+  });
+}
+function rowToStrategy(r) {
+  return {
+    id: r.id,
+    userId: r.user_id,
+    name: r.name,
+    source: r.source,
+    templateId: r.template_id ?? null,
+    spec: r.spec,
+    lastBacktest: r.last_backtest ?? null,
+    status: r.status,
+    createdAt: r.created_at instanceof Date ? r.created_at.toISOString() : String(r.created_at),
+    updatedAt: r.updated_at instanceof Date ? r.updated_at.toISOString() : String(r.updated_at)
+  };
+}
+async function createWizardStrategy(userId, spec) {
+  await ensureTable3();
+  const { rows } = await pool.query(
+    `INSERT INTO wizard_strategies (user_id, name, source, template_id, spec)
+     VALUES ($1,$2,$3,$4,$5) RETURNING ${COLS}`,
+    [userId, spec.name, spec.source, spec.templateId ?? null, JSON.stringify(spec)]
+  );
+  return rowToStrategy(rows[0]);
+}
+async function listWizardStrategies(userId) {
+  await ensureTable3();
+  const { rows } = await pool.query(
+    `SELECT ${COLS} FROM wizard_strategies WHERE user_id=$1 ORDER BY id DESC LIMIT 100`,
+    [userId]
+  );
+  return rows.map(rowToStrategy);
+}
+async function getWizardStrategy(userId, id) {
+  await ensureTable3();
+  const { rows } = await pool.query(
+    `SELECT ${COLS} FROM wizard_strategies WHERE id=$1 AND user_id=$2`,
+    [id, userId]
+  );
+  return rows.length ? rowToStrategy(rows[0]) : null;
+}
+async function updateWizardStrategySpec(userId, id, spec) {
+  await ensureTable3();
+  const { rows } = await pool.query(
+    `UPDATE wizard_strategies SET name=$3, source=$4, template_id=$5, spec=$6, updated_at=now()
+     WHERE id=$1 AND user_id=$2 RETURNING ${COLS}`,
+    [id, userId, spec.name, spec.source, spec.templateId ?? null, JSON.stringify(spec)]
+  );
+  return rows.length ? rowToStrategy(rows[0]) : null;
+}
+async function deleteWizardStrategy(userId, id) {
+  await ensureTable3();
+  const { rowCount } = await pool.query(
+    `DELETE FROM wizard_strategies WHERE id=$1 AND user_id=$2`,
+    [id, userId]
+  );
+  return (rowCount ?? 0) > 0;
+}
+async function recordWizardBacktest(userId, id, summary) {
+  await ensureTable3();
+  const { rows } = await pool.query(
+    `UPDATE wizard_strategies SET last_backtest=$3, status='backtested', updated_at=now()
+     WHERE id=$1 AND user_id=$2 RETURNING ${COLS}`,
+    [id, userId, JSON.stringify(summary)]
+  );
+  return rows.length ? rowToStrategy(rows[0]) : null;
+}
+var tableReady2, COLS;
+var init_wizard_strategies = __esm({
+  "server/services/wizard-strategies.ts"() {
+    "use strict";
+    init_db();
+    tableReady2 = null;
+    COLS = `id, user_id, name, source, template_id, spec, last_backtest, status, created_at, updated_at`;
+  }
+});
+
 // server/services/btc-5min-predictor.ts
 var btc_5min_predictor_exports = {};
 __export(btc_5min_predictor_exports, {
@@ -49393,7 +49946,7 @@ __export(btc_5min_predictor_exports, {
   getCryptoCandles: () => getCryptoCandles,
   getCryptoPrediction: () => getCryptoPrediction
 });
-function ema(values, period) {
+function ema2(values, period) {
   const k2 = 2 / (period + 1);
   const result = [];
   let e = values[0];
@@ -49419,10 +49972,10 @@ function rsi(closes, period = 14) {
   return Math.round(100 - 100 / (1 + rs));
 }
 function macd(closes) {
-  const ema12 = ema(closes, 12);
-  const ema26 = ema(closes, 26);
+  const ema12 = ema2(closes, 12);
+  const ema26 = ema2(closes, 26);
   const macdLine = ema12.map((v, i) => v - ema26[i]);
-  const signalLine = ema(macdLine, 9);
+  const signalLine = ema2(macdLine, 9);
   const last = closes.length - 1;
   return {
     macdLine: macdLine[last],
@@ -49430,7 +49983,7 @@ function macd(closes) {
     histogram: macdLine[last] - signalLine[last]
   };
 }
-function sma(values, period) {
+function sma2(values, period) {
   const slice = values.slice(-period);
   return slice.reduce((a, b) => a + b, 0) / slice.length;
 }
@@ -49516,13 +50069,13 @@ function buildPrediction(candles, fromCache, source = "binance", binanceSymbol =
   const currentPrice = last.close;
   const priceChange5m = (last.close - prev.close) / prev.close * 100;
   const priceChange1h = (last.close - candles[candles.length - 13].close) / candles[candles.length - 13].close * 100;
-  const ema9Val = ema(closes, 9)[closes.length - 1];
-  const ema21Val = ema(closes, 21)[closes.length - 1];
-  const ema50Val = ema(closes, 50)[closes.length - 1];
+  const ema9Val = ema2(closes, 9)[closes.length - 1];
+  const ema21Val = ema2(closes, 21)[closes.length - 1];
+  const ema50Val = ema2(closes, 50)[closes.length - 1];
   const rsiVal = rsi(closes, 14);
   const { macdLine, signalLine, histogram } = macd(closes);
-  const volSma20 = sma(volumes, 20);
-  const volLast3 = sma(volumes.slice(-3), 3);
+  const volSma20 = sma2(volumes, 20);
+  const volLast3 = sma2(volumes.slice(-3), 3);
   const volumeTrend = volLast3 > volSma20 * 1.15 ? "rising" : volLast3 < volSma20 * 0.85 ? "falling" : "flat";
   const macdSignalDir = histogram > 0 ? "bullish" : histogram < 0 ? "bearish" : "neutral";
   const recent20H = Math.max(...highs.slice(-20));
@@ -50369,7 +50922,7 @@ function orderFlowSignal(candles) {
     strategy: "order_flow"
   };
 }
-function ema2(values, period) {
+function ema3(values, period) {
   if (!values.length) return 0;
   const k2 = 2 / (period + 1);
   let e = values[0];
@@ -50425,9 +50978,9 @@ function ensembleSignal(candles) {
   }
   const closes = candles.map((c) => c.close);
   const recent = candles.slice(-30);
-  const ema9 = ema2(closes.slice(-40), 9);
-  const ema21 = ema2(closes.slice(-60), 21);
-  const ema50 = ema2(closes.slice(-80), 50);
+  const ema9 = ema3(closes.slice(-40), 9);
+  const ema21 = ema3(closes.slice(-60), 21);
+  const ema50 = ema3(closes.slice(-80), 50);
   const trendUp = ema9 > ema21 && ema21 > ema50 && price > ema50;
   const trendDn = ema9 < ema21 && ema21 < ema50 && price < ema50;
   const r = rsi2(closes);
@@ -56090,7 +56643,7 @@ import fs14 from "fs";
 import os2 from "os";
 import path14 from "path";
 function ensureJobTable() {
-  return tableReady2 ??= pool.query(`CREATE TABLE IF NOT EXISTS content_video_jobs (
+  return tableReady3 ??= pool.query(`CREATE TABLE IF NOT EXISTS content_video_jobs (
       id SERIAL PRIMARY KEY,
       user_id INTEGER NOT NULL,
       kind TEXT NOT NULL DEFAULT 'explainer',
@@ -56106,7 +56659,7 @@ function ensureJobTable() {
       created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
       updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
     )`).then(() => void 0).catch((e) => {
-    tableReady2 = null;
+    tableReady3 = null;
     throw e;
   });
 }
@@ -56395,7 +56948,7 @@ async function assembleFiles(files, aspect, dir, charts = [], screens = []) {
     return fs14.readFileSync(out);
   }
 }
-var FRAME, MODEL, CLIP_SECONDS, END_CARD_SECONDS2, POLL_MS, MAX_WAIT_MS, DEFAULT_PRESENTER, DEFAULT_SETTING, tableReady2;
+var FRAME, MODEL, CLIP_SECONDS, END_CARD_SECONDS2, POLL_MS, MAX_WAIT_MS, DEFAULT_PRESENTER, DEFAULT_SETTING, tableReady3;
 var init_explainer_video = __esm({
   "server/services/explainer-video.ts"() {
     "use strict";
@@ -56413,7 +56966,7 @@ var init_explainer_video = __esm({
     MAX_WAIT_MS = 8 * 60 * 1e3;
     DEFAULT_PRESENTER = "a young Black man in his mid-20s with short twists, wearing a black hoodie, a thin gold chain and a fitted cap";
     DEFAULT_SETTING = "a city rooftop at golden hour with brick buildings, fire escapes and the skyline behind him";
-    tableReady2 = null;
+    tableReady3 = null;
   }
 });
 
@@ -56923,15 +57476,15 @@ __export(presenters_exports, {
   listPresenters: () => listPresenters,
   presenterAbsoluteUrl: () => presenterAbsoluteUrl
 });
-function ensureTable3() {
-  return tableReady3 ??= pool.query(`CREATE TABLE IF NOT EXISTS content_presenters (
+function ensureTable4() {
+  return tableReady4 ??= pool.query(`CREATE TABLE IF NOT EXISTS content_presenters (
       id SERIAL PRIMARY KEY,
       user_id INTEGER NOT NULL,
       name TEXT NOT NULL,
       image_url TEXT NOT NULL,
       created_at TIMESTAMPTZ NOT NULL DEFAULT now()
     )`).then(() => void 0).catch((e) => {
-    tableReady3 = null;
+    tableReady4 = null;
     throw e;
   });
 }
@@ -56939,7 +57492,7 @@ function rowToPresenter(r) {
   return { id: r.id, name: r.name, imageUrl: r.image_url, createdAt: r.created_at };
 }
 async function listPresenters(userId) {
-  await ensureTable3();
+  await ensureTable4();
   const { rows } = await pool.query(
     `SELECT id, name, image_url, created_at FROM content_presenters WHERE user_id=$1 ORDER BY created_at DESC`,
     [userId]
@@ -56947,7 +57500,7 @@ async function listPresenters(userId) {
   return rows.map(rowToPresenter);
 }
 async function createPresenter(userId, name, imageUrl) {
-  await ensureTable3();
+  await ensureTable4();
   const { rows } = await pool.query(
     `INSERT INTO content_presenters (user_id, name, image_url) VALUES ($1,$2,$3)
      RETURNING id, name, image_url, created_at`,
@@ -56956,7 +57509,7 @@ async function createPresenter(userId, name, imageUrl) {
   return rowToPresenter(rows[0]);
 }
 async function getPresenter(userId, id) {
-  await ensureTable3();
+  await ensureTable4();
   const { rows } = await pool.query(
     `SELECT id, name, image_url, created_at FROM content_presenters WHERE id=$1 AND user_id=$2`,
     [id, userId]
@@ -56964,7 +57517,7 @@ async function getPresenter(userId, id) {
   return rows.length ? rowToPresenter(rows[0]) : null;
 }
 async function deletePresenter(userId, id) {
-  await ensureTable3();
+  await ensureTable4();
   const { rowCount } = await pool.query(
     `DELETE FROM content_presenters WHERE id=$1 AND user_id=$2`,
     [id, userId]
@@ -56977,12 +57530,12 @@ function presenterAbsoluteUrl(req, imageUrl) {
   if (!host) return imageUrl;
   return `${req.protocol || "https"}://${host}${imageUrl}`;
 }
-var tableReady3;
+var tableReady4;
 var init_presenters = __esm({
   "server/services/presenters.ts"() {
     "use strict";
     init_db();
-    tableReady3 = null;
+    tableReady4 = null;
   }
 });
 
@@ -64932,9 +65485,9 @@ async function getStopOrdersForUser(userId, filters = {}) {
 init_schema();
 
 // server/build-info.ts
-var BUILD_COMMIT = "e77d075";
-var BUILD_BRANCH = "main";
-var BUILT_AT = "2026-11-01T18:39:49.570Z";
+var BUILD_COMMIT = "9da3e19-dirty";
+var BUILD_BRANCH = "feature/strategy-spec-backtester";
+var BUILT_AT = "2026-11-02T00:21:34.650Z";
 
 // server/stripe.ts
 init_db();
@@ -77491,11 +78044,11 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
                       console.log(`[HTF] Fetched ${mapped.length} ${stack[idx]} (${roles[idx]}) candles for bias injection`);
                       if (roles[idx] === "MACRO" && mapped.length >= 20) {
                         const closes = mapped.map((c) => c.c);
-                        const sma2 = closes.slice(-20).reduce((s, v) => s + v, 0) / 20;
+                        const sma3 = closes.slice(-20).reduce((s, v) => s + v, 0) / 20;
                         const last = closes[closes.length - 1];
                         const first20Ago = closes[closes.length - 20];
-                        if (last > sma2 && last > first20Ago) _htfMacroTrend = "BULL";
-                        else if (last < sma2 && last < first20Ago) _htfMacroTrend = "BEAR";
+                        if (last > sma3 && last > first20Ago) _htfMacroTrend = "BULL";
+                        else if (last < sma3 && last < first20Ago) _htfMacroTrend = "BEAR";
                         else _htfMacroTrend = "NEUTRAL";
                       }
                     }
@@ -85643,6 +86196,123 @@ Respond with ONLY valid JSON:
     }
   });
   const { startLiveEngine: startLiveEngine2, stopLiveEngine: stopLiveEngine2, emergencyStopEngine: emergencyStopEngine2, getLiveEngineState: getLiveEngineState2, getLiveEngineActivity: getLiveEngineActivity2, updateLiveEngineConfig: updateLiveEngineConfig2, getPendingMT5Signals: getPendingMT5Signals2, confirmMT5Signal: confirmMT5Signal2, getAllMT5Signals: getAllMT5Signals2, recordTradeResult: recordTradeResult2, registerMT5Account: registerMT5Account2, heartbeatMT5Account: heartbeatMT5Account2, getMT5Accounts: getMT5Accounts2, setMT5AccountReceiveSignals: setMT5AccountReceiveSignals2 } = await Promise.resolve().then(() => (init_live_trading_engine(), live_trading_engine_exports));
+  const wizardTfMap = { M1: "1min", M5: "5min", M15: "15min", M30: "30min", H1: "1h", H4: "4h", D1: "1day" };
+  app2.post("/api/strategy-wizard/backtest", async (req, res) => {
+    if (!req.isAuthenticated()) return res.status(401).json({ error: "Authentication required" });
+    const userId = req.user.id;
+    try {
+      const { validateStrategySpec: validateStrategySpec2 } = await Promise.resolve().then(() => (init_strategy_spec(), strategy_spec_exports));
+      const v = validateStrategySpec2(req.body?.spec);
+      if (!v.ok) return res.status(400).json({ error: v.error });
+      const spec = v.spec;
+      const initialCapital = Math.min(Math.max(Number(req.body?.initialCapital ?? 1e4), 100), 1e9);
+      const limit = Math.min(Math.max(Number(req.body?.limit ?? 1e3), 100), 5e3);
+      let bars = [];
+      let provider = "none";
+      try {
+        const { marketDataService: marketDataService2 } = await Promise.resolve().then(() => (init_service(), service_exports));
+        const clean = spec.symbol.replace(/[^A-Za-z]/g, "").toUpperCase();
+        const assetType = /^(BTC|ETH|SOL|XRP|LTC|DOGE)/.test(clean) ? "crypto" : "forex";
+        const result2 = await marketDataService2.fetchMarketData({
+          symbol: spec.symbol,
+          timeframe: wizardTfMap[spec.timeframe] || "1h",
+          assetType,
+          limit
+        });
+        bars = result2.bars;
+        provider = result2.provider;
+      } catch {
+      }
+      if (bars.length < 50) {
+        const mt5Cache = global.mt5ChartDataCache || {};
+        const cached2 = mt5Cache[`mt5_chart_${userId}_${spec.symbol}_${spec.timeframe}`];
+        if (cached2?.candles?.length >= 50) {
+          bars = cached2.candles.map((c) => ({
+            timestamp: typeof c.timestamp === "number" ? c.timestamp : new Date(c.time || c.timestamp).getTime(),
+            open: Number(c.open),
+            high: Number(c.high),
+            low: Number(c.low),
+            close: Number(c.close),
+            volume: Number(c.volume || 0)
+          }));
+          provider = "mt5-cache";
+        }
+      }
+      if (bars.length < 50) {
+        return res.status(400).json({ error: `Not enough historical data for ${spec.symbol} ${spec.timeframe} (got ${bars.length} bars, need 50+). Add a market data API key or connect MT5 so candles are available.` });
+      }
+      const { runBacktest: runBacktest2 } = await Promise.resolve().then(() => (init_strategy_backtest(), strategy_backtest_exports));
+      const result = runBacktest2(spec, bars, {
+        initialCapital,
+        spreadPips: Number(req.body?.spreadPips ?? 1),
+        slippagePips: Number(req.body?.slippagePips ?? 0.3),
+        commissionPerLot: Number(req.body?.commissionPerLot ?? 0)
+      });
+      const strategyId = Number(req.body?.strategyId ?? 0);
+      if (strategyId > 0) {
+        const { recordWizardBacktest: recordWizardBacktest2, getWizardStrategy: getWizardStrategy2 } = await Promise.resolve().then(() => (init_wizard_strategies(), wizard_strategies_exports));
+        if (await getWizardStrategy2(userId, strategyId)) {
+          await recordWizardBacktest2(userId, strategyId, {
+            stats: result.stats,
+            dataPoints: result.dataPoints,
+            ranAt: (/* @__PURE__ */ new Date()).toISOString(),
+            barsUsed: result.stats.barsUsed
+          }).catch(() => null);
+        }
+      }
+      const curve = result.equityCurve;
+      const sampled = curve.length > 300 ? curve.filter((_, idx) => idx % Math.ceil(curve.length / 300) === 0).concat(curve[curve.length - 1]) : curve;
+      return res.json({
+        success: true,
+        provider,
+        stats: result.stats,
+        dataPoints: result.dataPoints,
+        equityCurve: sampled,
+        trades: result.trades.slice(-200)
+      });
+    } catch (err) {
+      console.error("[strategy-wizard] backtest failed:", err);
+      return res.status(500).json({ error: err?.message || "Backtest failed" });
+    }
+  });
+  app2.get("/api/strategy-wizard/strategies", async (req, res) => {
+    if (!req.isAuthenticated()) return res.status(401).json({ error: "Authentication required" });
+    const { listWizardStrategies: listWizardStrategies2 } = await Promise.resolve().then(() => (init_wizard_strategies(), wizard_strategies_exports));
+    return res.json({ strategies: await listWizardStrategies2(req.user.id) });
+  });
+  app2.post("/api/strategy-wizard/strategies", async (req, res) => {
+    if (!req.isAuthenticated()) return res.status(401).json({ error: "Authentication required" });
+    const { validateStrategySpec: validateStrategySpec2 } = await Promise.resolve().then(() => (init_strategy_spec(), strategy_spec_exports));
+    const v = validateStrategySpec2(req.body?.spec);
+    if (!v.ok) return res.status(400).json({ error: v.error });
+    const { createWizardStrategy: createWizardStrategy2 } = await Promise.resolve().then(() => (init_wizard_strategies(), wizard_strategies_exports));
+    const created = await createWizardStrategy2(req.user.id, v.spec);
+    return res.status(201).json({ strategy: created });
+  });
+  app2.get("/api/strategy-wizard/strategies/:id", async (req, res) => {
+    if (!req.isAuthenticated()) return res.status(401).json({ error: "Authentication required" });
+    const { getWizardStrategy: getWizardStrategy2 } = await Promise.resolve().then(() => (init_wizard_strategies(), wizard_strategies_exports));
+    const found = await getWizardStrategy2(req.user.id, Number(req.params.id));
+    if (!found) return res.status(404).json({ error: "Strategy not found" });
+    return res.json({ strategy: found });
+  });
+  app2.put("/api/strategy-wizard/strategies/:id", async (req, res) => {
+    if (!req.isAuthenticated()) return res.status(401).json({ error: "Authentication required" });
+    const { validateStrategySpec: validateStrategySpec2 } = await Promise.resolve().then(() => (init_strategy_spec(), strategy_spec_exports));
+    const v = validateStrategySpec2(req.body?.spec);
+    if (!v.ok) return res.status(400).json({ error: v.error });
+    const { updateWizardStrategySpec: updateWizardStrategySpec2 } = await Promise.resolve().then(() => (init_wizard_strategies(), wizard_strategies_exports));
+    const updated = await updateWizardStrategySpec2(req.user.id, Number(req.params.id), v.spec);
+    if (!updated) return res.status(404).json({ error: "Strategy not found" });
+    return res.json({ strategy: updated });
+  });
+  app2.delete("/api/strategy-wizard/strategies/:id", async (req, res) => {
+    if (!req.isAuthenticated()) return res.status(401).json({ error: "Authentication required" });
+    const { deleteWizardStrategy: deleteWizardStrategy2 } = await Promise.resolve().then(() => (init_wizard_strategies(), wizard_strategies_exports));
+    const ok = await deleteWizardStrategy2(req.user.id, Number(req.params.id));
+    if (!ok) return res.status(404).json({ error: "Strategy not found" });
+    return res.json({ success: true });
+  });
   app2.post("/api/vedd-live-engine/backtest", async (req, res) => {
     if (!req.isAuthenticated()) return res.status(401).json({ error: "Authentication required" });
     const userId = req.user.id;
@@ -85673,11 +86343,11 @@ Respond with ONLY valid JSON:
       }, computeEMA2 = function(closes2, i, period) {
         if (i < period - 1) return closes2[i];
         const k2 = 2 / (period + 1);
-        let ema3 = closes2[i - period + 1];
+        let ema4 = closes2[i - period + 1];
         for (let j = i - period + 2; j <= i; j++) {
-          ema3 = closes2[j] * k2 + ema3 * (1 - k2);
+          ema4 = closes2[j] * k2 + ema4 * (1 - k2);
         }
-        return ema3;
+        return ema4;
       };
       var computeRSI = computeRSI2, computeEMA = computeEMA2;
       let bars = [];

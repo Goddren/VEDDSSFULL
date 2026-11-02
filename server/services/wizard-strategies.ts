@@ -1,0 +1,117 @@
+/**
+ * Saved wizard strategies — the strategy entity for the whole platform.
+ *
+ * A row holds the StrategySpec (a template preset or condition-builder
+ * output), the latest backtest summary, and the accumulating data
+ * points (backtest today, live results later) that the strategy's
+ * brain is built from. Table is created lazily (same pattern as
+ * content presenters) so no migration step is needed. Rows are
+ * strictly per-user: every read/write is scoped by user_id.
+ */
+
+import { pool } from '../db';
+import type { StrategySpec } from './strategy-spec';
+
+export type WizardStrategyStatus = 'draft' | 'backtested';
+
+export interface WizardStrategy {
+  id: number;
+  userId: number;
+  name: string;
+  source: 'template' | 'builder';
+  templateId: string | null;
+  spec: StrategySpec;
+  lastBacktest: Record<string, any> | null;
+  status: WizardStrategyStatus;
+  createdAt: string;
+  updatedAt: string;
+}
+
+let tableReady: Promise<void> | null = null;
+function ensureTable(): Promise<void> {
+  return (tableReady ??= (async () => {
+    await pool.query(`CREATE TABLE IF NOT EXISTS wizard_strategies (
+      id SERIAL PRIMARY KEY,
+      user_id INTEGER NOT NULL,
+      name TEXT NOT NULL,
+      source TEXT NOT NULL DEFAULT 'builder',
+      template_id TEXT,
+      spec JSONB NOT NULL,
+      last_backtest JSONB,
+      status TEXT NOT NULL DEFAULT 'draft',
+      created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+    )`);
+    await pool.query(`CREATE INDEX IF NOT EXISTS wizard_strategies_user_idx ON wizard_strategies (user_id, id DESC)`);
+  })().catch((e) => { tableReady = null; throw e; }));
+}
+
+function rowToStrategy(r: any): WizardStrategy {
+  return {
+    id: r.id,
+    userId: r.user_id,
+    name: r.name,
+    source: r.source,
+    templateId: r.template_id ?? null,
+    spec: r.spec,
+    lastBacktest: r.last_backtest ?? null,
+    status: r.status,
+    createdAt: r.created_at instanceof Date ? r.created_at.toISOString() : String(r.created_at),
+    updatedAt: r.updated_at instanceof Date ? r.updated_at.toISOString() : String(r.updated_at),
+  };
+}
+
+const COLS = `id, user_id, name, source, template_id, spec, last_backtest, status, created_at, updated_at`;
+
+export async function createWizardStrategy(userId: number, spec: StrategySpec): Promise<WizardStrategy> {
+  await ensureTable();
+  const { rows } = await pool.query(
+    `INSERT INTO wizard_strategies (user_id, name, source, template_id, spec)
+     VALUES ($1,$2,$3,$4,$5) RETURNING ${COLS}`,
+    [userId, spec.name, spec.source, spec.templateId ?? null, JSON.stringify(spec)]);
+  return rowToStrategy(rows[0]);
+}
+
+export async function listWizardStrategies(userId: number): Promise<WizardStrategy[]> {
+  await ensureTable();
+  const { rows } = await pool.query(
+    `SELECT ${COLS} FROM wizard_strategies WHERE user_id=$1 ORDER BY id DESC LIMIT 100`, [userId]);
+  return rows.map(rowToStrategy);
+}
+
+export async function getWizardStrategy(userId: number, id: number): Promise<WizardStrategy | null> {
+  await ensureTable();
+  const { rows } = await pool.query(
+    `SELECT ${COLS} FROM wizard_strategies WHERE id=$1 AND user_id=$2`, [id, userId]);
+  return rows.length ? rowToStrategy(rows[0]) : null;
+}
+
+export async function updateWizardStrategySpec(userId: number, id: number, spec: StrategySpec): Promise<WizardStrategy | null> {
+  await ensureTable();
+  const { rows } = await pool.query(
+    `UPDATE wizard_strategies SET name=$3, source=$4, template_id=$5, spec=$6, updated_at=now()
+     WHERE id=$1 AND user_id=$2 RETURNING ${COLS}`,
+    [id, userId, spec.name, spec.source, spec.templateId ?? null, JSON.stringify(spec)]);
+  return rows.length ? rowToStrategy(rows[0]) : null;
+}
+
+export async function deleteWizardStrategy(userId: number, id: number): Promise<boolean> {
+  await ensureTable();
+  const { rowCount } = await pool.query(
+    `DELETE FROM wizard_strategies WHERE id=$1 AND user_id=$2`, [id, userId]);
+  return (rowCount ?? 0) > 0;
+}
+
+/** Persist a backtest run on the strategy — stats + data points feed the strategy's brain later. */
+export async function recordWizardBacktest(
+  userId: number,
+  id: number,
+  summary: { stats: Record<string, any>; dataPoints: Record<string, any>; ranAt: string; barsUsed: number },
+): Promise<WizardStrategy | null> {
+  await ensureTable();
+  const { rows } = await pool.query(
+    `UPDATE wizard_strategies SET last_backtest=$3, status='backtested', updated_at=now()
+     WHERE id=$1 AND user_id=$2 RETURNING ${COLS}`,
+    [id, userId, JSON.stringify(summary)]);
+  return rows.length ? rowToStrategy(rows[0]) : null;
+}

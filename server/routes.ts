@@ -20784,6 +20784,137 @@ Respond with ONLY valid JSON:
   // ==================== VEDD AI LIVE TRADING ENGINE ====================
   const { startLiveEngine, stopLiveEngine, emergencyStopEngine, getLiveEngineState, getLiveEngineActivity, updateLiveEngineConfig, getPendingMT5Signals, confirmMT5Signal, getAllMT5Signals, recordTradeResult, registerMT5Account, heartbeatMT5Account, getMT5Accounts, setMT5AccountReceiveSignals } = await import('./services/live-trading-engine');
 
+  // ==================== STRATEGY WIZARD (spec / backtest / saved strategies) ====================
+  // The wizard's strategies are StrategySpec objects (strategy-spec.ts):
+  // template presets or condition-builder rules. Backtests here are
+  // DETERMINISTIC replays (strategy-backtest.ts) — same spec + same bars
+  // always give the same result, unlike the legacy engine backtest below.
+  const wizardTfMap: Record<string, string> = { M1: '1min', M5: '5min', M15: '15min', M30: '30min', H1: '1h', H4: '4h', D1: '1day' };
+
+  app.post("/api/strategy-wizard/backtest", async (req: Request, res: Response) => {
+    if (!req.isAuthenticated()) return res.status(401).json({ error: "Authentication required" });
+    const userId = (req.user as User).id;
+    try {
+      const { validateStrategySpec } = await import('./services/strategy-spec');
+      const v = validateStrategySpec(req.body?.spec);
+      if (!v.ok) return res.status(400).json({ error: v.error });
+      const spec = v.spec;
+      const initialCapital = Math.min(Math.max(Number(req.body?.initialCapital ?? 10000), 100), 1e9);
+      const limit = Math.min(Math.max(Number(req.body?.limit ?? 1000), 100), 5000);
+
+      let bars: Array<{ timestamp: number; open: number; high: number; low: number; close: number; volume: number }> = [];
+      let provider = 'none';
+      try {
+        const { marketDataService } = await import('./market-data/service');
+        const clean = spec.symbol.replace(/[^A-Za-z]/g, '').toUpperCase();
+        const assetType = /^(BTC|ETH|SOL|XRP|LTC|DOGE)/.test(clean) ? 'crypto' : 'forex';
+        const result = await marketDataService.fetchMarketData({
+          symbol: spec.symbol,
+          timeframe: (wizardTfMap[spec.timeframe] || '1h') as any,
+          assetType: assetType as any,
+          limit,
+        });
+        bars = result.bars as any;
+        provider = result.provider;
+      } catch { /* fall through to the MT5 candle cache */ }
+      if (bars.length < 50) {
+        const mt5Cache = (global as any).mt5ChartDataCache || {};
+        const cached = mt5Cache[`mt5_chart_${userId}_${spec.symbol}_${spec.timeframe}`];
+        if (cached?.candles?.length >= 50) {
+          bars = cached.candles.map((c: any) => ({
+            timestamp: typeof c.timestamp === 'number' ? c.timestamp : new Date(c.time || c.timestamp).getTime(),
+            open: Number(c.open), high: Number(c.high), low: Number(c.low), close: Number(c.close),
+            volume: Number(c.volume || 0),
+          }));
+          provider = 'mt5-cache';
+        }
+      }
+      if (bars.length < 50) {
+        return res.status(400).json({ error: `Not enough historical data for ${spec.symbol} ${spec.timeframe} (got ${bars.length} bars, need 50+). Add a market data API key or connect MT5 so candles are available.` });
+      }
+
+      const { runBacktest } = await import('./services/strategy-backtest');
+      const result = runBacktest(spec, bars, {
+        initialCapital,
+        spreadPips: Number(req.body?.spreadPips ?? 1),
+        slippagePips: Number(req.body?.slippagePips ?? 0.3),
+        commissionPerLot: Number(req.body?.commissionPerLot ?? 0),
+      });
+
+      // Persist the run on the saved strategy (when one is named) — these
+      // data points are the raw material the strategy's brain is built from.
+      const strategyId = Number(req.body?.strategyId ?? 0);
+      if (strategyId > 0) {
+        const { recordWizardBacktest, getWizardStrategy } = await import('./services/wizard-strategies');
+        if (await getWizardStrategy(userId, strategyId)) {
+          await recordWizardBacktest(userId, strategyId, {
+            stats: result.stats, dataPoints: result.dataPoints,
+            ranAt: new Date().toISOString(), barsUsed: result.stats.barsUsed,
+          }).catch(() => null);
+        }
+      }
+
+      const curve = result.equityCurve;
+      const sampled = curve.length > 300
+        ? curve.filter((_, idx) => idx % Math.ceil(curve.length / 300) === 0).concat(curve[curve.length - 1])
+        : curve;
+      return res.json({
+        success: true,
+        provider,
+        stats: result.stats,
+        dataPoints: result.dataPoints,
+        equityCurve: sampled,
+        trades: result.trades.slice(-200),
+      });
+    } catch (err: any) {
+      console.error('[strategy-wizard] backtest failed:', err);
+      return res.status(500).json({ error: err?.message || 'Backtest failed' });
+    }
+  });
+
+  app.get("/api/strategy-wizard/strategies", async (req: Request, res: Response) => {
+    if (!req.isAuthenticated()) return res.status(401).json({ error: "Authentication required" });
+    const { listWizardStrategies } = await import('./services/wizard-strategies');
+    return res.json({ strategies: await listWizardStrategies((req.user as User).id) });
+  });
+
+  app.post("/api/strategy-wizard/strategies", async (req: Request, res: Response) => {
+    if (!req.isAuthenticated()) return res.status(401).json({ error: "Authentication required" });
+    const { validateStrategySpec } = await import('./services/strategy-spec');
+    const v = validateStrategySpec(req.body?.spec);
+    if (!v.ok) return res.status(400).json({ error: v.error });
+    const { createWizardStrategy } = await import('./services/wizard-strategies');
+    const created = await createWizardStrategy((req.user as User).id, v.spec);
+    return res.status(201).json({ strategy: created });
+  });
+
+  app.get("/api/strategy-wizard/strategies/:id", async (req: Request, res: Response) => {
+    if (!req.isAuthenticated()) return res.status(401).json({ error: "Authentication required" });
+    const { getWizardStrategy } = await import('./services/wizard-strategies');
+    const found = await getWizardStrategy((req.user as User).id, Number(req.params.id));
+    if (!found) return res.status(404).json({ error: "Strategy not found" });
+    return res.json({ strategy: found });
+  });
+
+  app.put("/api/strategy-wizard/strategies/:id", async (req: Request, res: Response) => {
+    if (!req.isAuthenticated()) return res.status(401).json({ error: "Authentication required" });
+    const { validateStrategySpec } = await import('./services/strategy-spec');
+    const v = validateStrategySpec(req.body?.spec);
+    if (!v.ok) return res.status(400).json({ error: v.error });
+    const { updateWizardStrategySpec } = await import('./services/wizard-strategies');
+    const updated = await updateWizardStrategySpec((req.user as User).id, Number(req.params.id), v.spec);
+    if (!updated) return res.status(404).json({ error: "Strategy not found" });
+    return res.json({ strategy: updated });
+  });
+
+  app.delete("/api/strategy-wizard/strategies/:id", async (req: Request, res: Response) => {
+    if (!req.isAuthenticated()) return res.status(401).json({ error: "Authentication required" });
+    const { deleteWizardStrategy } = await import('./services/wizard-strategies');
+    const ok = await deleteWizardStrategy((req.user as User).id, Number(req.params.id));
+    if (!ok) return res.status(404).json({ error: "Strategy not found" });
+    return res.json({ success: true });
+  });
+
   // ==================== BACKTEST ENDPOINT ====================
   app.post("/api/vedd-live-engine/backtest", async (req: Request, res: Response) => {
     if (!req.isAuthenticated()) return res.status(401).json({ error: "Authentication required" });
