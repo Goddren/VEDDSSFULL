@@ -1,6 +1,6 @@
 import AmbassadorAgentPage from '@/pages/ambassador-agent';
 import { ExplainerCarousel } from '@/components/content-studio/explainer-carousel';
-import { ExplainerMaker } from '@/components/content-studio/explainer-maker';
+import { ExplainerMaker, useContentJob } from '@/components/content-studio/explainer-maker';
 import { useState, useRef, useEffect, type ReactNode } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useAuth } from '@/hooks/use-auth';
@@ -1279,6 +1279,22 @@ export default function ContentStudioPage() {
     finally { setPlanningShot(false); }
   };
 
+  // Clips run as server jobs now: POST returns a jobId, useContentJob
+  // polls it, and the finished job's result carries the video payload.
+  const [clipJobId, setClipJobId] = useState<number | null>(null);
+  const clipJob = useContentJob(clipJobId,
+    (job) => {
+      setGenProgress(100);
+      setTimeout(() => setGeneratingVideo(false), 400);
+      if (job.result?.url) setGeneratedVideoUrl(job.result.url);
+      setClipJobId(null);
+    },
+    (job) => {
+      setVideoError(job.error || 'Video generation failed');
+      setGeneratingVideo(false);
+      setClipJobId(null);
+    });
+
   const generateVideo = async () => {
     if (!videoPrompt.trim() || generatingVideo) return;
     setGeneratingVideo(true);
@@ -1297,9 +1313,7 @@ export default function ContentStudioPage() {
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data?.error || 'Video generation failed');
-      setGenProgress(100);
-      setTimeout(() => setGeneratingVideo(false), 400);
-      setGeneratedVideoUrl(data.url);
+      setClipJobId(data.jobId);
     } catch (err: any) {
       setVideoError(err.message || 'Video generation failed');
       setGeneratingVideo(false);
@@ -1315,6 +1329,20 @@ export default function ContentStudioPage() {
   const [generatingReel, setGeneratingReel] = useState(false);
   const [reelError, setReelError] = useState<string | null>(null);
   const [generatedReel, setGeneratedReel] = useState<{ hook: string; script: string[]; caption: string; url: string } | null>(null);
+
+  const [reelJobId, setReelJobId] = useState<number | null>(null);
+  const reelJob = useContentJob(reelJobId,
+    (job) => {
+      setGenProgress(100);
+      setTimeout(() => setGeneratingReel(false), 400);
+      if (job.result) setGeneratedReel(job.result);
+      setReelJobId(null);
+    },
+    (job) => {
+      setReelError(job.error || 'Reel generation failed');
+      setGeneratingReel(false);
+      setReelJobId(null);
+    });
 
   const generateReel = async () => {
     if (!reelTopic.trim() || generatingReel) return;
@@ -1335,9 +1363,7 @@ export default function ContentStudioPage() {
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data?.error || 'Reel generation failed');
-      setGenProgress(100);
-      setTimeout(() => setGeneratingReel(false), 400);
-      setGeneratedReel(data);
+      setReelJobId(data.jobId);
     } catch (err: any) {
       setReelError(err.message || 'Reel generation failed');
       setGeneratingReel(false);
@@ -1711,6 +1737,7 @@ export default function ContentStudioPage() {
                 {generatingVideo ? 'Making your video… about 1–3 minutes' : 'Make video'}
               </Button>
               {videoError && <p className="text-xs text-red-400">{videoError}</p>}
+              {generatingVideo && clipJob?.step && <p className="text-xs text-muted-foreground">{clipJob.step}…</p>}
 
               {generatedVideoUrl && (
                 <div className="space-y-2">
@@ -1821,6 +1848,7 @@ export default function ContentStudioPage() {
                 {generatingReel ? 'Writing script & generating clip… this can take a few minutes' : 'Generate Reel'}
               </Button>
               {reelError && <p className="text-xs text-red-400">{reelError}</p>}
+              {generatingReel && reelJob?.step && <p className="text-xs text-muted-foreground">{reelJob.step}…</p>}
 
               {generatedReel && (
                 <div className="space-y-3">
