@@ -22,6 +22,7 @@ export interface WizardStrategy {
   templateId: string | null;
   spec: StrategySpec;
   lastBacktest: Record<string, any> | null;
+  hasEa: boolean;
   status: WizardStrategyStatus;
   createdAt: string;
   updatedAt: string;
@@ -43,6 +44,7 @@ function ensureTable(): Promise<void> {
       updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
     )`);
     await pool.query(`CREATE INDEX IF NOT EXISTS wizard_strategies_user_idx ON wizard_strategies (user_id, id DESC)`);
+    await pool.query(`ALTER TABLE wizard_strategies ADD COLUMN IF NOT EXISTS ea_code TEXT`);
   })().catch((e) => { tableReady = null; throw e; }));
 }
 
@@ -55,13 +57,14 @@ function rowToStrategy(r: any): WizardStrategy {
     templateId: r.template_id ?? null,
     spec: r.spec,
     lastBacktest: r.last_backtest ?? null,
+    hasEa: !!r.has_ea,
     status: r.status,
     createdAt: r.created_at instanceof Date ? r.created_at.toISOString() : String(r.created_at),
     updatedAt: r.updated_at instanceof Date ? r.updated_at.toISOString() : String(r.updated_at),
   };
 }
 
-const COLS = `id, user_id, name, source, template_id, spec, last_backtest, status, created_at, updated_at`;
+const COLS = `id, user_id, name, source, template_id, spec, last_backtest, (ea_code IS NOT NULL) AS has_ea, status, created_at, updated_at`;
 
 export async function createWizardStrategy(userId: number, spec: StrategySpec): Promise<WizardStrategy> {
   await ensureTable();
@@ -99,6 +102,15 @@ export async function deleteWizardStrategy(userId: number, id: number): Promise<
   await ensureTable();
   const { rowCount } = await pool.query(
     `DELETE FROM wizard_strategies WHERE id=$1 AND user_id=$2`, [id, userId]);
+  return (rowCount ?? 0) > 0;
+}
+
+/** Persist the generated MT5 EA code on the strategy. */
+export async function recordWizardEa(userId: number, id: number, code: string): Promise<boolean> {
+  await ensureTable();
+  const { rowCount } = await pool.query(
+    `UPDATE wizard_strategies SET ea_code=$3, updated_at=now() WHERE id=$1 AND user_id=$2`,
+    [id, userId, code]);
   return (rowCount ?? 0) > 0;
 }
 

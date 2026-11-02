@@ -49866,6 +49866,7 @@ __export(wizard_strategies_exports, {
   getWizardStrategy: () => getWizardStrategy,
   listWizardStrategies: () => listWizardStrategies,
   recordWizardBacktest: () => recordWizardBacktest,
+  recordWizardEa: () => recordWizardEa,
   updateWizardStrategySpec: () => updateWizardStrategySpec
 });
 function ensureTable3() {
@@ -49883,6 +49884,7 @@ function ensureTable3() {
       updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
     )`);
     await pool.query(`CREATE INDEX IF NOT EXISTS wizard_strategies_user_idx ON wizard_strategies (user_id, id DESC)`);
+    await pool.query(`ALTER TABLE wizard_strategies ADD COLUMN IF NOT EXISTS ea_code TEXT`);
   })().catch((e) => {
     tableReady2 = null;
     throw e;
@@ -49897,6 +49899,7 @@ function rowToStrategy(r) {
     templateId: r.template_id ?? null,
     spec: r.spec,
     lastBacktest: r.last_backtest ?? null,
+    hasEa: !!r.has_ea,
     status: r.status,
     createdAt: r.created_at instanceof Date ? r.created_at.toISOString() : String(r.created_at),
     updatedAt: r.updated_at instanceof Date ? r.updated_at.toISOString() : String(r.updated_at)
@@ -49944,6 +49947,14 @@ async function deleteWizardStrategy(userId, id) {
   );
   return (rowCount ?? 0) > 0;
 }
+async function recordWizardEa(userId, id, code) {
+  await ensureTable3();
+  const { rowCount } = await pool.query(
+    `UPDATE wizard_strategies SET ea_code=$3, updated_at=now() WHERE id=$1 AND user_id=$2`,
+    [id, userId, code]
+  );
+  return (rowCount ?? 0) > 0;
+}
 async function recordWizardBacktest(userId, id, summary) {
   await ensureTable3();
   const { rows } = await pool.query(
@@ -49959,7 +49970,430 @@ var init_wizard_strategies = __esm({
     "use strict";
     init_db();
     tableReady2 = null;
-    COLS = `id, user_id, name, source, template_id, spec, last_backtest, status, created_at, updated_at`;
+    COLS = `id, user_id, name, source, template_id, spec, last_backtest, (ea_code IS NOT NULL) AS has_ea, status, created_at, updated_at`;
+  }
+});
+
+// server/services/spec-ea-generator.ts
+var spec_ea_generator_exports = {};
+__export(spec_ea_generator_exports, {
+  generateSpecMT5EA: () => generateSpecMT5EA
+});
+function deterministicMagic(spec) {
+  const s = `${spec.name}|${spec.symbol}|${spec.timeframe}`;
+  let h = 7;
+  for (let i = 0; i < s.length; i++) h = h * 31 + s.charCodeAt(i) >>> 0;
+  return 1e4 + h % 9e4;
+}
+function sanitize(name) {
+  return name.replace(/[^A-Za-z0-9]+/g, "_").replace(/^_+|_+$/g, "").slice(0, 40) || "Strategy";
+}
+function collectRefs(spec) {
+  const seen = /* @__PURE__ */ new Map();
+  const add = (id, field) => {
+    if (id === "price") return;
+    const key = `${id}:${field}`;
+    if (!seen.has(key)) seen.set(key, { id, field });
+  };
+  const walk = (g) => {
+    if (!g) return;
+    for (const c of g.conditions) {
+      add(c.indicatorId, c.field);
+      if (c.compare.kind === "indicator") add(c.compare.indicatorId, c.compare.field);
+    }
+  };
+  walk(spec.entryLong);
+  walk(spec.entryShort);
+  walk(spec.exitLong);
+  walk(spec.exitShort);
+  return Array.from(seen.values());
+}
+function valueExpr(indicatorId, field, shift) {
+  if (indicatorId === "price") return `iClose(_Symbol, InpTimeframe, ${shift})`;
+  return `${seriesFn(indicatorId, field)}(${shift})`;
+}
+function rhsExpr(c, shift) {
+  if (c.compare.kind === "value") return `(${c.compare.value})`;
+  if (c.compare.kind === "price") return `iClose(_Symbol, InpTimeframe, ${shift})`;
+  return valueExpr(c.compare.indicatorId, c.compare.field, shift);
+}
+function conditionExpr(c) {
+  const L2 = (s) => valueExpr(c.indicatorId, c.field, s);
+  const R = (s) => rhsExpr(c, s);
+  switch (c.operator) {
+    case "above":
+      return `(${L2(1)} > ${R(1)})`;
+    case "below":
+      return `(${L2(1)} < ${R(1)})`;
+    case "crosses_above":
+      return `(${L2(2)} <= ${R(2)} && ${L2(1)} > ${R(1)})`;
+    case "crosses_below":
+      return `(${L2(2)} >= ${R(2)} && ${L2(1)} < ${R(1)})`;
+    case "rising":
+      return `(${L2(1)} > ${L2(2)})`;
+    case "falling":
+      return `(${L2(1)} < ${L2(2)})`;
+  }
+}
+function groupExpr(g) {
+  if (!g || g.conditions.length === 0) return null;
+  const joiner = g.logic === "AND" ? " && " : " || ";
+  return `(${g.conditions.map(conditionExpr).join(joiner)})`;
+}
+function generateSpecMT5EA(spec) {
+  const magic = deterministicMagic(spec);
+  const refs = collectRefs(spec);
+  const atrInd = spec.indicators.find((i) => i.kind === "ATR");
+  const useAtrStops = (spec.risk.stopLossAtrMult != null || spec.risk.takeProfitAtrMult != null) && !!atrInd;
+  if (useAtrStops && !refs.some((r2) => r2.id === atrInd.id && r2.field === "value")) {
+    refs.push({ id: atrInd.id, field: "value" });
+  }
+  const indById = new Map(spec.indicators.map((i) => [i.id, i]));
+  for (const ref of [...refs]) {
+    if (indById.get(ref.id)?.kind === "MACD") {
+      for (const f of ["value", "signal"]) {
+        if (!refs.some((r2) => r2.id === ref.id && r2.field === f)) refs.push({ id: ref.id, field: f });
+      }
+    }
+  }
+  const handleDecls = [];
+  const bufferDecls = [];
+  const handleInits = [];
+  const copyCalls = [];
+  const getters = [];
+  for (const ind of spec.indicators) {
+    const h = `h_${ind.id}`;
+    handleDecls.push(`int ${h} = INVALID_HANDLE;`);
+    let init = "";
+    switch (ind.kind) {
+      case "EMA":
+        init = `iMA(_Symbol, InpTimeframe, ${ind.period ?? 21}, 0, MODE_EMA, PRICE_CLOSE)`;
+        break;
+      case "SMA":
+        init = `iMA(_Symbol, InpTimeframe, ${ind.period ?? 50}, 0, MODE_SMA, PRICE_CLOSE)`;
+        break;
+      case "RSI":
+        init = `iRSI(_Symbol, InpTimeframe, ${ind.period ?? 14}, PRICE_CLOSE)`;
+        break;
+      case "ATR":
+        init = `iATR(_Symbol, InpTimeframe, ${ind.period ?? 14})`;
+        break;
+      case "MACD":
+        init = `iMACD(_Symbol, InpTimeframe, ${ind.fastPeriod ?? 12}, ${ind.slowPeriod ?? 26}, ${ind.signalPeriod ?? 9}, PRICE_CLOSE)`;
+        break;
+      case "STOCHASTIC":
+        init = `iStochastic(_Symbol, InpTimeframe, ${ind.period ?? 14}, ${ind.signalPeriod ?? 3}, 1, MODE_SMA, STO_LOWHIGH)`;
+        break;
+      case "BOLLINGER":
+        init = `iBands(_Symbol, InpTimeframe, ${ind.period ?? 20}, 0, ${ind.stdDev ?? 2}, PRICE_CLOSE)`;
+        break;
+    }
+    handleInits.push(`   ${h} = ${init};
+   if(${h} == INVALID_HANDLE) { Print("VEDD: failed to create ${ind.kind} handle"); return INIT_FAILED; }`);
+  }
+  for (const ref of refs) {
+    const ind = indById.get(ref.id);
+    if (!ind) continue;
+    const arr2 = `g_${ref.id}_${ref.field}`;
+    bufferDecls.push(`double ${arr2}[];`);
+    if (ind.kind === "MACD" && ref.field === "histogram") {
+      copyCalls.push(`   // histogram for ${ref.id} computed below`);
+    } else {
+      const bufIdx = BUFFER_INDEX[ind.kind]?.[ref.field] ?? 0;
+      copyCalls.push(`   if(CopyBuffer(h_${ref.id}, ${bufIdx}, 0, 5, ${arr2}) < 3) return false;
+   ArraySetAsSeries(${arr2}, true);`);
+    }
+    getters.push(`double ${seriesFn(ref.id, ref.field)}(int shift) { return g_${ref.id}_${ref.field}[shift]; }`);
+  }
+  const hasHistogram = refs.some((r2) => indById.get(r2.id)?.kind === "MACD" && r2.field === "histogram");
+  const histogramCode = hasHistogram ? (() => {
+    const mid = refs.find((r2) => indById.get(r2.id)?.kind === "MACD" && r2.field === "histogram").id;
+    return `
+   // MACD histogram = main - signal
+   if(ArraySize(g_${mid}_value) >= 3 && ArraySize(g_${mid}_signal) >= 3) {
+      ArrayResize(g_${mid}_histogram, ArraySize(g_${mid}_value));
+      ArraySetAsSeries(g_${mid}_histogram, true);
+      for(int i = 0; i < ArraySize(g_${mid}_value); i++) g_${mid}_histogram[i] = g_${mid}_value[i] - g_${mid}_signal[i];
+   }`;
+  })() : "";
+  const entryLongExpr = groupExpr(spec.entryLong);
+  const entryShortExpr = groupExpr(spec.entryShort);
+  const exitLongExpr = groupExpr(spec.exitLong);
+  const exitShortExpr = groupExpr(spec.exitShort);
+  const r = spec.risk;
+  const code = `//+------------------------------------------------------------------+
+//|                                            VEDD_${sanitize(spec.name)}.mq5 |
+//|  Generated by VEDD AI Trading Vault \u2014 Strategy Wizard            |
+//|  Strategy : ${spec.name} (${spec.source}${spec.engineStrategyKey ? ` \xB7 engine: ${spec.engineStrategyKey}` : ""}${spec.templateId ? ` \xB7 template: ${spec.templateId}` : ""})
+//|  Market   : ${spec.symbol} ${spec.timeframe} \u2014 attach to a ${spec.symbol} ${spec.timeframe} chart
+//|                                                                  |
+//|  These are the exact rules that were backtested in the wizard:   |
+//|  signals evaluate on the last CLOSED bar, one position at a      |
+//|  time, stops set on the order. Trailing ratchets on tick (the    |
+//|  backtester trailed from prior-bar extremes \u2014 live is tighter).  |
+//|  Past backtest results never guarantee live performance.         |
+//+------------------------------------------------------------------+
+#property strict
+#property version   "1.00"
+#property description "VEDD Strategy Wizard EA \u2014 ${spec.name.replace(/"/g, "")}"
+
+//--- Inputs (structure follows the VEDD EA generator)
+input group "=== Strategy ==="
+input ENUM_TIMEFRAMES InpTimeframe = ${TF_CONST[spec.timeframe] ?? "PERIOD_H1"}; // Signal timeframe
+
+input group "=== Risk Management ==="
+input double InpLotSize         = ${r.lotSize};       // Lot size
+input double InpStopLossPips    = ${r.stopLossPips ?? 0};    // Stop loss in pips (0 = off${useAtrStops && r.stopLossPips == null ? ", ATR mode below" : ""})
+input double InpTakeProfitPips  = ${r.takeProfitPips ?? 0};    // Take profit in pips (0 = off${useAtrStops && r.takeProfitPips == null ? ", ATR mode below" : ""})
+${useAtrStops ? `input double InpStopLossAtrMult   = ${r.stopLossAtrMult ?? 0};    // Stop loss x ATR (0 = off)
+input double InpTakeProfitAtrMult = ${r.takeProfitAtrMult ?? 0};    // Take profit x ATR (0 = off)` : ""}
+input double InpTrailingStopPips = ${r.trailingStopPips ?? 0};   // Trailing stop in pips (0 = off)
+input int    InpMaxTradesPerDay  = ${r.maxTradesPerDay ?? 0};   // Max entries per day (0 = no cap)
+
+input group "=== Execution ==="
+input long   InpMagicNumber     = ${magic};   // Magic number (stable for this strategy)
+input int    InpSlippagePoints  = 30;         // Max slippage (points)
+
+//--- Indicator handles
+${handleDecls.join("\n")}
+
+//--- Series buffers (index 0 = forming bar, 1 = last closed bar)
+${bufferDecls.join("\n")}
+
+${getters.join("\n")}
+
+//+------------------------------------------------------------------+
+//| Pip size \u2014 mirrors the VEDD backtester (pipUtils)                |
+//+------------------------------------------------------------------+
+double PipSize()
+{
+   string s = _Symbol;
+   if(StringFind(s, "JPY") >= 0) return 0.01;
+   if(StringFind(s, "XAU") >= 0) return 0.1;
+   if(StringFind(s, "XAG") >= 0) return 0.001;
+   if(StringFind(s, "US30") >= 0 || StringFind(s, "NAS100") >= 0 || StringFind(s, "USTEC") >= 0 || StringFind(s, "US500") >= 0) return 1.0;
+   if(StringFind(s, "BTC") >= 0) return 1.0;
+   if(StringFind(s, "ETH") >= 0 || StringFind(s, "SOL") >= 0) return 0.01;
+   if(StringFind(s, "XRP") >= 0) return 0.0001;
+   return 0.0001;
+}
+
+//+------------------------------------------------------------------+
+int OnInit()
+{
+${handleInits.join("\n")}
+   Print("VEDD Wizard EA initialized: ${spec.name.replace(/"/g, "")} on ", _Symbol);
+   return(INIT_SUCCEEDED);
+}
+
+void OnDeinit(const int reason)
+{
+${spec.indicators.map((i) => `   if(h_${i.id} != INVALID_HANDLE) IndicatorRelease(h_${i.id});`).join("\n")}
+}
+
+//+------------------------------------------------------------------+
+bool RefreshSeries()
+{
+${copyCalls.join("\n")}${histogramCode}
+   return true;
+}
+
+//+------------------------------------------------------------------+
+//| Position helpers (this EA's magic + symbol only)                 |
+//+------------------------------------------------------------------+
+bool FindMyPosition(ulong &ticket, long &type, double &openPrice, double &sl, double &tp, double &volume)
+{
+   for(int i = PositionsTotal() - 1; i >= 0; i--)
+   {
+      ticket = PositionGetTicket(i);
+      if(ticket == 0) continue;
+      if(PositionGetInteger(POSITION_MAGIC) != InpMagicNumber) continue;
+      if(PositionGetString(POSITION_SYMBOL) != _Symbol) continue;
+      type = PositionGetInteger(POSITION_TYPE);
+      openPrice = PositionGetDouble(POSITION_PRICE_OPEN);
+      sl = PositionGetDouble(POSITION_SL);
+      tp = PositionGetDouble(POSITION_TP);
+      volume = PositionGetDouble(POSITION_VOLUME);
+      return true;
+   }
+   return false;
+}
+
+int EntriesToday()
+{
+   datetime dayStart = iTime(_Symbol, PERIOD_D1, 0);
+   if(!HistorySelect(dayStart, TimeCurrent())) return 0;
+   int count = 0;
+   for(int i = 0; i < HistoryDealsTotal(); i++)
+   {
+      ulong deal = HistoryDealGetTicket(i);
+      if(deal == 0) continue;
+      if(HistoryDealGetInteger(deal, DEAL_MAGIC) != InpMagicNumber) continue;
+      if(HistoryDealGetString(deal, DEAL_SYMBOL) != _Symbol) continue;
+      if(HistoryDealGetInteger(deal, DEAL_ENTRY) == DEAL_ENTRY_IN) count++;
+   }
+   return count;
+}
+
+bool SendOrder(ENUM_ORDER_TYPE type, double price, double sl, double tp)
+{
+   MqlTradeRequest req = {};
+   MqlTradeResult  res = {};
+   req.action    = TRADE_ACTION_DEAL;
+   req.symbol    = _Symbol;
+   req.volume    = InpLotSize;
+   req.type      = type;
+   req.price     = price;
+   req.sl        = sl;
+   req.tp        = tp;
+   req.deviation = InpSlippagePoints;
+   req.magic     = InpMagicNumber;
+   req.comment   = "VEDD Wizard";
+   req.type_filling = ORDER_FILLING_IOC;
+   if(!OrderSend(req, res))
+      Print("VEDD: OrderSend failed, retcode=", res.retcode, " ", res.comment);
+   return (res.retcode == TRADE_RETCODE_DONE || res.retcode == TRADE_RETCODE_PLACED);
+}
+
+bool ClosePosition(ulong ticket)
+{
+   if(!PositionSelectByTicket(ticket)) return false;
+   long type = PositionGetInteger(POSITION_TYPE);
+   double volume = PositionGetDouble(POSITION_VOLUME);
+   MqlTradeRequest req = {};
+   MqlTradeResult  res = {};
+   req.action    = TRADE_ACTION_DEAL;
+   req.symbol    = _Symbol;
+   req.volume    = volume;
+   req.position  = ticket;
+   req.magic     = InpMagicNumber;
+   req.deviation = InpSlippagePoints;
+   req.comment   = "VEDD Wizard exit";
+   req.type_filling = ORDER_FILLING_IOC;
+   if(type == POSITION_TYPE_BUY) { req.type = ORDER_TYPE_SELL; req.price = SymbolInfoDouble(_Symbol, SYMBOL_BID); }
+   else                          { req.type = ORDER_TYPE_BUY;  req.price = SymbolInfoDouble(_Symbol, SYMBOL_ASK); }
+   if(!OrderSend(req, res))
+      Print("VEDD: close failed, retcode=", res.retcode, " ", res.comment);
+   return (res.retcode == TRADE_RETCODE_DONE);
+}
+
+bool ModifySL(ulong ticket, double newSL, double tp)
+{
+   MqlTradeRequest req = {};
+   MqlTradeResult  res = {};
+   req.action   = TRADE_ACTION_SLTP;
+   req.symbol   = _Symbol;
+   req.position = ticket;
+   req.sl       = newSL;
+   req.tp       = tp;
+   req.magic    = InpMagicNumber;
+   if(!OrderSend(req, res))
+      Print("VEDD: modify failed, retcode=", res.retcode, " ", res.comment);
+   return (res.retcode == TRADE_RETCODE_DONE);
+}
+
+//+------------------------------------------------------------------+
+void ManageTrailing(ulong ticket, long type, double currentSL, double tp)
+{
+   if(InpTrailingStopPips <= 0) return;
+   double dist = InpTrailingStopPips * PipSize();
+   double digits = (double)SymbolInfoInteger(_Symbol, SYMBOL_DIGITS);
+   if(type == POSITION_TYPE_BUY)
+   {
+      double bid = SymbolInfoDouble(_Symbol, SYMBOL_BID);
+      double candidate = NormalizeDouble(bid - dist, (int)digits);
+      if(candidate > currentSL + _Point) ModifySL(ticket, candidate, tp);
+   }
+   else
+   {
+      double ask = SymbolInfoDouble(_Symbol, SYMBOL_ASK);
+      double candidate = NormalizeDouble(ask + dist, (int)digits);
+      if(currentSL == 0 || candidate < currentSL - _Point) ModifySL(ticket, candidate, tp);
+   }
+}
+
+//+------------------------------------------------------------------+
+void OnTick()
+{
+   if(!RefreshSeries()) return;
+
+   ulong ticket; long ptype; double openPrice, sl, tp, volume;
+   bool havePos = FindMyPosition(ticket, ptype, openPrice, sl, tp, volume);
+   if(havePos) ManageTrailing(ticket, ptype, sl, tp);
+
+   // Entries and signal-exits evaluate once per new bar (on closed-bar data).
+   static datetime lastBarTime = 0;
+   datetime curBar = iTime(_Symbol, InpTimeframe, 0);
+   if(curBar == lastBarTime) return;
+   lastBarTime = curBar;
+
+   if(havePos)
+   {
+      bool exitNow = false;
+      ${exitLongExpr ? `if(ptype == POSITION_TYPE_BUY && ${exitLongExpr}) exitNow = true;` : ""}
+      ${exitShortExpr ? `if(ptype == POSITION_TYPE_SELL && ${exitShortExpr}) exitNow = true;` : ""}
+      if(exitNow) ClosePosition(ticket);
+      return;
+   }
+
+   if(InpMaxTradesPerDay > 0 && EntriesToday() >= InpMaxTradesPerDay) return;
+
+   double ask = SymbolInfoDouble(_Symbol, SYMBOL_ASK);
+   double bid = SymbolInfoDouble(_Symbol, SYMBOL_BID);
+   int digits = (int)SymbolInfoInteger(_Symbol, SYMBOL_DIGITS);
+   double pip = PipSize();
+   ${useAtrStops ? `double atr = ${seriesFn(atrInd.id, "value")}(1);` : ""}
+
+   ${entryLongExpr ? `if(${entryLongExpr})
+   {
+      double slDist = InpStopLossPips > 0 ? InpStopLossPips * pip : 0;
+      double tpDist = InpTakeProfitPips > 0 ? InpTakeProfitPips * pip : 0;
+      ${useAtrStops ? `if(InpStopLossAtrMult > 0) slDist = InpStopLossAtrMult * atr;
+      if(InpTakeProfitAtrMult > 0) tpDist = InpTakeProfitAtrMult * atr;` : ""}
+      double newSL = slDist > 0 ? NormalizeDouble(ask - slDist, digits) : 0;
+      double newTP = tpDist > 0 ? NormalizeDouble(ask + tpDist, digits) : 0;
+      SendOrder(ORDER_TYPE_BUY, ask, newSL, newTP);
+      return;
+   }` : "// (no long entry rules)"}
+   ${entryShortExpr ? `if(${entryShortExpr})
+   {
+      double slDist = InpStopLossPips > 0 ? InpStopLossPips * pip : 0;
+      double tpDist = InpTakeProfitPips > 0 ? InpTakeProfitPips * pip : 0;
+      ${useAtrStops ? `if(InpStopLossAtrMult > 0) slDist = InpStopLossAtrMult * atr;
+      if(InpTakeProfitAtrMult > 0) tpDist = InpTakeProfitAtrMult * atr;` : ""}
+      double newSL = slDist > 0 ? NormalizeDouble(bid + slDist, digits) : 0;
+      double newTP = tpDist > 0 ? NormalizeDouble(bid - tpDist, digits) : 0;
+      SendOrder(ORDER_TYPE_SELL, bid, newSL, newTP);
+      return;
+   }` : "// (no short entry rules)"}
+}
+//+------------------------------------------------------------------+
+`;
+  return { code, filename: `VEDD_${sanitize(spec.name)}.mq5`, magicNumber: magic };
+}
+var TF_CONST, BUFFER_INDEX, seriesFn;
+var init_spec_ea_generator = __esm({
+  "server/services/spec-ea-generator.ts"() {
+    "use strict";
+    TF_CONST = {
+      M1: "PERIOD_M1",
+      M5: "PERIOD_M5",
+      M15: "PERIOD_M15",
+      M30: "PERIOD_M30",
+      H1: "PERIOD_H1",
+      H4: "PERIOD_H4",
+      D1: "PERIOD_D1"
+    };
+    BUFFER_INDEX = {
+      EMA: { value: 0 },
+      SMA: { value: 0 },
+      RSI: { value: 0 },
+      ATR: { value: 0 },
+      MACD: { value: 0, signal: 1 },
+      STOCHASTIC: { k: 0, d: 1, value: 0 },
+      BOLLINGER: { middle: 0, upper: 1, lower: 2, value: 0 }
+    };
+    seriesFn = (id, field) => `S_${id}_${field}`;
   }
 });
 
@@ -65512,9 +65946,9 @@ async function getStopOrdersForUser(userId, filters = {}) {
 init_schema();
 
 // server/build-info.ts
-var BUILD_COMMIT = "534733f-dirty";
-var BUILD_BRANCH = "feature/strategy-wizard-ui";
-var BUILT_AT = "2026-11-02T00:31:09.199Z";
+var BUILD_COMMIT = "4d35e91-dirty";
+var BUILD_BRANCH = "feature/strategy-ea-bridge";
+var BUILT_AT = "2026-11-02T01:45:33.961Z";
 
 // server/stripe.ts
 init_db();
@@ -86303,6 +86737,36 @@ Respond with ONLY valid JSON:
     } catch (err) {
       console.error("[strategy-wizard] backtest failed:", err);
       return res.status(500).json({ error: err?.message || "Backtest failed" });
+    }
+  });
+  app2.post("/api/strategy-wizard/generate-ea", async (req, res) => {
+    if (!req.isAuthenticated()) return res.status(401).json({ error: "Authentication required" });
+    const userId = req.user.id;
+    try {
+      const { validateStrategySpec: validateStrategySpec2 } = await Promise.resolve().then(() => (init_strategy_spec(), strategy_spec_exports));
+      let specRaw = req.body?.spec;
+      const strategyId = Number(req.body?.strategyId ?? 0);
+      if (!specRaw && strategyId > 0) {
+        const { getWizardStrategy: getWizardStrategy2 } = await Promise.resolve().then(() => (init_wizard_strategies(), wizard_strategies_exports));
+        const saved = await getWizardStrategy2(userId, strategyId);
+        if (!saved) return res.status(404).json({ error: "Strategy not found" });
+        specRaw = saved.spec;
+      }
+      const v = validateStrategySpec2(specRaw);
+      if (!v.ok) return res.status(400).json({ error: v.error });
+      if (v.spec.entryLong.conditions.length + v.spec.entryShort.conditions.length === 0) {
+        return res.status(400).json({ error: "Engine-native strategies run on the FX engine's AI analysis \u2014 there are no fixed rules to compile into an EA. Pick a template, a builder strategy, or an engine strategy with a mechanical approximation." });
+      }
+      const { generateSpecMT5EA: generateSpecMT5EA2 } = await Promise.resolve().then(() => (init_spec_ea_generator(), spec_ea_generator_exports));
+      const { code, filename, magicNumber } = generateSpecMT5EA2(v.spec);
+      if (strategyId > 0) {
+        const { recordWizardEa: recordWizardEa2 } = await Promise.resolve().then(() => (init_wizard_strategies(), wizard_strategies_exports));
+        await recordWizardEa2(userId, strategyId, code).catch(() => false);
+      }
+      return res.json({ success: true, code, filename, magicNumber });
+    } catch (err) {
+      console.error("[strategy-wizard] generate-ea failed:", err);
+      return res.status(500).json({ error: err?.message || "EA generation failed" });
     }
   });
   app2.get("/api/strategy-wizard/strategies", async (req, res) => {

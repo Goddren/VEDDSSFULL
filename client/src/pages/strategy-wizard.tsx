@@ -833,6 +833,7 @@ export default function StrategyWizard() {
   const [realResults, setRealResults] = useState<any | null>(null);
   const [btError, setBtError] = useState<string | null>(null);
   const [isSaving, setIsSaving] = useState<boolean>(false);
+  const [isGeneratingEa, setIsGeneratingEa] = useState<boolean>(false);
   const [btCapital, setBtCapital] = useState<number>(10000);
   const [btSpread, setBtSpread] = useState<number>(1);
   const [btSlippage, setBtSlippage] = useState<number>(0.3);
@@ -990,6 +991,45 @@ export default function StrategyWizard() {
       toast({ title: 'Save failed', description: errText(error), variant: 'destructive' });
     } finally {
       setIsSaving(false);
+    }
+  };
+
+  // Compile the current spec into a downloadable MT5 EA (.mq5) — the EA
+  // trades exactly the rules shown in the builder / replayed in backtest.
+  const handleDownloadEa = async () => {
+    if (!spec) return;
+    if (spec.entryLong.conditions.length + spec.entryShort.conditions.length === 0) {
+      toast({
+        title: 'No rules to compile',
+        description: 'Engine-native strategies run on the FX engine\'s AI analysis — there\'s no fixed rule set to turn into an EA file.',
+        variant: 'destructive',
+      });
+      return;
+    }
+    setIsGeneratingEa(true);
+    try {
+      const res = await apiRequest('POST', '/api/strategy-wizard/generate-ea', {
+        spec, strategyId: savedId ?? undefined,
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data?.error || 'EA generation failed');
+      const blob = new Blob([data.code], { type: 'text/plain;charset=utf-8' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = data.filename || 'VEDD_Strategy.mq5';
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(url);
+      toast({
+        title: 'MT5 EA downloaded',
+        description: `${data.filename} · magic ${data.magicNumber} · open it in MetaEditor, compile, and attach it to a ${spec.symbol} ${spec.timeframe} chart.`,
+      });
+    } catch (error: any) {
+      toast({ title: 'EA generation failed', description: errText(error), variant: 'destructive' });
+    } finally {
+      setIsGeneratingEa(false);
     }
   };
 
@@ -1295,10 +1335,23 @@ export default function StrategyWizard() {
         return (
           <>
             {spec ? (
-              <StrategyBuilder
-                value={spec}
-                onChange={(s) => { setSpec(s); setSymbol(s.symbol); setTimeframe(s.timeframe); }}
-              />
+              <div className="space-y-4">
+                {spec.entryLong.conditions.length + spec.entryShort.conditions.length > 0 && (
+                  <div className="flex flex-wrap items-center justify-between gap-3 border rounded-lg p-3">
+                    <p className="text-sm text-muted-foreground">
+                      Like these rules? Turn them into a MetaTrader 5 Expert Advisor in the same format as VEDD's built-in EA generator.
+                    </p>
+                    <Button onClick={handleDownloadEa} disabled={isGeneratingEa}>
+                      <ArrowUpRight className="h-4 w-4 mr-2" />
+                      {isGeneratingEa ? 'Generating…' : 'Download MT5 EA (.mq5)'}
+                    </Button>
+                  </div>
+                )}
+                <StrategyBuilder
+                  value={spec}
+                  onChange={(s) => { setSpec(s); setSymbol(s.symbol); setTimeframe(s.timeframe); }}
+                />
+              </div>
             ) : customizedStrategy && (
               <div className="space-y-6">
                 <Card>
@@ -1637,10 +1690,16 @@ export default function StrategyWizard() {
                       <Settings2 className="h-4 w-4 mr-2" />
                       Adjust & Re-run
                     </Button>
-                    <Button onClick={handleSaveStrategy} disabled={isSaving || !spec}>
-                      <Save className="h-4 w-4 mr-2" />
-                      {isSaving ? 'Saving…' : savedId ? 'Update Saved Strategy' : 'Save Strategy'}
-                    </Button>
+                    <div className="flex flex-wrap gap-2">
+                      <Button variant="secondary" onClick={handleDownloadEa} disabled={isGeneratingEa || !spec}>
+                        <ArrowUpRight className="h-4 w-4 mr-2" />
+                        {isGeneratingEa ? 'Generating…' : 'Download MT5 EA'}
+                      </Button>
+                      <Button onClick={handleSaveStrategy} disabled={isSaving || !spec}>
+                        <Save className="h-4 w-4 mr-2" />
+                        {isSaving ? 'Saving…' : savedId ? 'Update Saved Strategy' : 'Save Strategy'}
+                      </Button>
+                    </div>
                   </CardFooter>
                 </Card>
               </div>

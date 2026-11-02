@@ -20875,6 +20875,40 @@ Respond with ONLY valid JSON:
     }
   });
 
+  // Compile the spec into a downloadable MT5 EA — same structure as the
+  // app's existing EA generator, but the signal core is the wizard spec's
+  // own rules, so the EA trades exactly what the backtester replayed.
+  app.post("/api/strategy-wizard/generate-ea", async (req: Request, res: Response) => {
+    if (!req.isAuthenticated()) return res.status(401).json({ error: "Authentication required" });
+    const userId = (req.user as User).id;
+    try {
+      const { validateStrategySpec } = await import('./services/strategy-spec');
+      let specRaw = req.body?.spec;
+      const strategyId = Number(req.body?.strategyId ?? 0);
+      if (!specRaw && strategyId > 0) {
+        const { getWizardStrategy } = await import('./services/wizard-strategies');
+        const saved = await getWizardStrategy(userId, strategyId);
+        if (!saved) return res.status(404).json({ error: "Strategy not found" });
+        specRaw = saved.spec;
+      }
+      const v = validateStrategySpec(specRaw);
+      if (!v.ok) return res.status(400).json({ error: v.error });
+      if (v.spec.entryLong.conditions.length + v.spec.entryShort.conditions.length === 0) {
+        return res.status(400).json({ error: "Engine-native strategies run on the FX engine's AI analysis — there are no fixed rules to compile into an EA. Pick a template, a builder strategy, or an engine strategy with a mechanical approximation." });
+      }
+      const { generateSpecMT5EA } = await import('./services/spec-ea-generator');
+      const { code, filename, magicNumber } = generateSpecMT5EA(v.spec);
+      if (strategyId > 0) {
+        const { recordWizardEa } = await import('./services/wizard-strategies');
+        await recordWizardEa(userId, strategyId, code).catch(() => false);
+      }
+      return res.json({ success: true, code, filename, magicNumber });
+    } catch (err: any) {
+      console.error('[strategy-wizard] generate-ea failed:', err);
+      return res.status(500).json({ error: err?.message || 'EA generation failed' });
+    }
+  });
+
   app.get("/api/strategy-wizard/strategies", async (req: Request, res: Response) => {
     if (!req.isAuthenticated()) return res.status(401).json({ error: "Authentication required" });
     const { listWizardStrategies } = await import('./services/wizard-strategies');
