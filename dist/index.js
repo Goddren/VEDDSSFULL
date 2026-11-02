@@ -51149,6 +51149,7 @@ var strategy_spec_exports = {};
 __export(strategy_spec_exports, {
   ENGINE_STRATEGY_KEYS: () => ENGINE_STRATEGY_KEYS,
   INDICATOR_CATALOG: () => INDICATOR_CATALOG,
+  TF_MINUTES: () => TF_MINUTES,
   specWarmupBars: () => specWarmupBars,
   validateStrategySpec: () => validateStrategySpec
 });
@@ -51167,6 +51168,8 @@ function validateGroup(g, indicatorIds, label, allowEmpty = false) {
     }
     if (!FIELDS.includes(c.field)) return `${label}: bad field "${c.field}"`;
     if (!OPERATORS.includes(c.operator)) return `${label}: bad operator "${c.operator}"`;
+    if (c.sustainBars !== void 0 && !isNum(c.sustainBars, 1, 50)) return `${label}: sustainBars out of range`;
+    if (c.minGapPips !== void 0 && !isNum(c.minGapPips, 0, 1e5)) return `${label}: minGapPips out of range`;
     const cmp = c.compare;
     if (!cmp || !["value", "indicator", "price"].includes(cmp.kind)) return `${label}: bad compare target`;
     if (cmp.kind === "value" && !isNum(cmp.value, -1e9, 1e9)) return `${label}: compare value must be a number`;
@@ -51187,7 +51190,7 @@ function validateStrategySpec(x) {
   }
   if (typeof s.symbol !== "string" || !/^[A-Za-z0-9./_-]{3,15}$/.test(s.symbol)) return { ok: false, error: "bad symbol" };
   if (!TIMEFRAMES.includes(s.timeframe)) return { ok: false, error: "bad timeframe" };
-  if (!Array.isArray(s.indicators) || s.indicators.length > 8) return { ok: false, error: "indicators: max 8" };
+  if (!Array.isArray(s.indicators) || s.indicators.length > 10) return { ok: false, error: "indicators: max 10" };
   const ids = /* @__PURE__ */ new Set();
   for (const ind of s.indicators) {
     if (!ind.id || typeof ind.id !== "string" || ids.has(ind.id)) return { ok: false, error: "indicator ids must be unique strings" };
@@ -51198,6 +51201,18 @@ function validateStrategySpec(x) {
     if (ind.slowPeriod !== void 0 && !isNum(ind.slowPeriod, 1, 500)) return { ok: false, error: "slowPeriod out of range" };
     if (ind.signalPeriod !== void 0 && !isNum(ind.signalPeriod, 1, 100)) return { ok: false, error: "signalPeriod out of range" };
     if (ind.stdDev !== void 0 && !isNum(ind.stdDev, 0.1, 10)) return { ok: false, error: "stdDev out of range" };
+    if (ind.sourceId !== void 0 && (typeof ind.sourceId !== "string" || ind.sourceId === ind.id)) return { ok: false, error: "sourceId must name another indicator" };
+    if (ind.lookbackBars !== void 0 && !isNum(ind.lookbackBars, 10, 1e3)) return { ok: false, error: "lookbackBars out of range" };
+    if (ind.valueAreaPct !== void 0 && !isNum(ind.valueAreaPct, 10, 100)) return { ok: false, error: "valueAreaPct out of range" };
+    if (ind.pivotLeft !== void 0 && !isNum(ind.pivotLeft, 1, 50)) return { ok: false, error: "pivotLeft out of range" };
+    if (ind.pivotRight !== void 0 && !isNum(ind.pivotRight, 1, 50)) return { ok: false, error: "pivotRight out of range" };
+    if (ind.sessionStartHourUtc !== void 0 && !isNum(ind.sessionStartHourUtc, 0, 23)) return { ok: false, error: "sessionStartHourUtc out of range" };
+    if (ind.sessionStartMinuteUtc !== void 0 && !isNum(ind.sessionStartMinuteUtc, 0, 59)) return { ok: false, error: "sessionStartMinuteUtc out of range" };
+    if (ind.rangeMinutes !== void 0 && !isNum(ind.rangeMinutes, 1, 720)) return { ok: false, error: "rangeMinutes out of range" };
+  }
+  for (const ind of s.indicators) {
+    if (ind.sourceId !== void 0 && !ids.has(ind.sourceId)) return { ok: false, error: `sourceId "${ind.sourceId}" is not an indicator` };
+    if (ind.sourceId !== void 0 && ind.kind !== "EMA" && ind.kind !== "SMA") return { ok: false, error: "only EMA/SMA can smooth another indicator" };
   }
   for (const [label, g] of [["entryLong", s.entryLong], ["entryShort", s.entryShort]]) {
     const err = validateGroup(g, ids, label, isEngineNative);
@@ -51208,9 +51223,33 @@ function validateStrategySpec(x) {
     const err = validateGroup(g, ids, label);
     if (err) return { ok: false, error: err };
   }
+  if (s.trendFilter != null) {
+    const tf = s.trendFilter;
+    if (!TIMEFRAMES.includes(tf.timeframe)) return { ok: false, error: "trendFilter: bad timeframe" };
+    if (TF_MINUTES[tf.timeframe] <= TF_MINUTES[s.timeframe]) {
+      return { ok: false, error: "trendFilter timeframe must be HIGHER than the strategy timeframe" };
+    }
+    if (tf.timeframe === "D1" && s.timeframe !== "H4" && s.timeframe !== "H1") {
+    }
+    for (const [label, g] of [["trendFilter.long", tf.longGroup], ["trendFilter.short", tf.shortGroup]]) {
+      if (g == null) continue;
+      const err = validateGroup(g, ids, label);
+      if (err) return { ok: false, error: err };
+    }
+    if (!tf.longGroup?.conditions?.length && !tf.shortGroup?.conditions?.length) {
+      return { ok: false, error: "trendFilter needs at least one filter group" };
+    }
+  }
+  if (s.sessionFilter != null) {
+    const sf = s.sessionFilter;
+    if (!isNum(sf.startHourUtc, 0, 23) || !isNum(sf.endHourUtc, 0, 24)) return { ok: false, error: "sessionFilter hours out of range" };
+    if (sf.daysUtc !== void 0 && (!Array.isArray(sf.daysUtc) || sf.daysUtc.some((d) => !isNum(d, 0, 6)))) {
+      return { ok: false, error: "sessionFilter days must be 0\u20136" };
+    }
+  }
   const r = s.risk;
   if (!r || !isNum(r.lotSize, 0.01, 50)) return { ok: false, error: "risk.lotSize must be 0.01\u201350" };
-  for (const k2 of ["stopLossPips", "takeProfitPips", "trailingStopPips"]) {
+  for (const k2 of ["stopLossPips", "takeProfitPips", "trailingStopPips", "breakevenTriggerPips", "breakevenOffsetPips"]) {
     if (r[k2] != null && !isNum(r[k2], 0, 1e5)) return { ok: false, error: `risk.${k2} out of range` };
   }
   for (const k2 of ["stopLossAtrMult", "takeProfitAtrMult"]) {
@@ -51228,12 +51267,21 @@ function validateStrategySpec(x) {
 function specWarmupBars(spec) {
   let w = 2;
   for (const ind of spec.indicators) {
-    const need = ind.kind === "MACD" ? (ind.slowPeriod ?? 26) + (ind.signalPeriod ?? 9) : ind.kind === "STOCHASTIC" ? (ind.period ?? 14) + (ind.signalPeriod ?? 3) : ind.period ?? 14;
+    const need = ind.kind === "MACD" ? (ind.slowPeriod ?? 26) + (ind.signalPeriod ?? 9) : ind.kind === "STOCHASTIC" ? (ind.period ?? 14) + (ind.signalPeriod ?? 3) : ind.kind === "ICHIMOKU" ? (ind.slowPeriod ?? 52) + (ind.fastPeriod ?? 26) : ind.kind === "VOLUME_PROFILE" || ind.kind === "FVG" || ind.kind === "ORDER_BLOCK" ? ind.lookbackBars ?? 100 : ind.kind === "SWINGS" ? (ind.pivotLeft ?? 3) + (ind.pivotRight ?? 3) + 10 : ind.kind === "ORB" || ind.kind === "PIVOTS" || ind.kind === "VWAP" ? 2 : ind.period ?? 14;
     w = Math.max(w, need + 2);
+  }
+  if (spec.trendFilter) {
+    const ratio = Math.max(1, Math.round(TF_MINUTES[spec.trendFilter.timeframe] / TF_MINUTES[spec.timeframe]));
+    let htfWarm = 2;
+    for (const ind of spec.indicators) {
+      const need = ind.kind === "MACD" ? (ind.slowPeriod ?? 26) + (ind.signalPeriod ?? 9) : ind.period ?? 14;
+      htfWarm = Math.max(htfWarm, need + 2);
+    }
+    w = Math.max(w, htfWarm * ratio + ratio);
   }
   return w;
 }
-var ENGINE_STRATEGY_KEYS, INDICATOR_CATALOG, TIMEFRAMES, OPERATORS, FIELDS;
+var ENGINE_STRATEGY_KEYS, INDICATOR_CATALOG, TIMEFRAMES, OPERATORS, FIELDS, TF_MINUTES;
 var init_strategy_spec = __esm({
   "server/services/strategy-spec.ts"() {
     "use strict";
@@ -51265,11 +51313,65 @@ var init_strategy_spec = __esm({
       { kind: "MACD", label: "MACD", fields: ["value", "signal", "histogram"], defaults: { fastPeriod: 12, slowPeriod: 26, signalPeriod: 9 } },
       { kind: "STOCHASTIC", label: "Stochastic Oscillator", fields: ["k", "d"], defaults: { period: 14, signalPeriod: 3 } },
       { kind: "BOLLINGER", label: "Bollinger Bands", fields: ["upper", "middle", "lower"], defaults: { period: 20, stdDev: 2 } },
-      { kind: "ATR", label: "Average True Range", fields: ["value"], defaults: { period: 14 } }
+      { kind: "ATR", label: "Average True Range", fields: ["value"], defaults: { period: 14 } },
+      { kind: "VWAP", label: "VWAP (daily reset)", fields: ["value"], defaults: {} },
+      { kind: "ADX", label: "ADX (trend strength)", fields: ["value", "plus", "minus"], defaults: { period: 14 } },
+      { kind: "CCI", label: "CCI", fields: ["value"], defaults: { period: 20 } },
+      { kind: "WILLIAMS_R", label: "Williams %R", fields: ["value"], defaults: { period: 14 } },
+      { kind: "ICHIMOKU", label: "Ichimoku Cloud", fields: ["tenkan", "kijun", "span_a", "span_b"], defaults: { period: 9, fastPeriod: 26, slowPeriod: 52 } },
+      { kind: "SUPERTREND", label: "Supertrend", fields: ["value"], defaults: { period: 10, stdDev: 3 } },
+      { kind: "DONCHIAN", label: "Donchian Channel", fields: ["upper", "middle", "lower"], defaults: { period: 20 } },
+      { kind: "VOLUME_PROFILE", label: "Volume Profile (POC / Value Area)", fields: ["poc", "vah", "val"], defaults: { lookbackBars: 100, valueAreaPct: 70 } },
+      { kind: "PIVOTS", label: "Daily Pivot Points", fields: ["pp", "r1", "r2", "s1", "s2"], defaults: {} },
+      { kind: "ORB", label: "Opening Range (ORB)", fields: ["or_high", "or_low"], defaults: { sessionStartHourUtc: 14, sessionStartMinuteUtc: 30, rangeMinutes: 30 } },
+      { kind: "SWINGS", label: "Swing Highs / Lows (structure)", fields: ["swing_high", "swing_low"], defaults: { pivotLeft: 3, pivotRight: 3 } },
+      { kind: "FVG", label: "Fair Value Gaps (ICT)", fields: ["bull_high", "bull_low", "bear_high", "bear_low"], defaults: { lookbackBars: 100 } },
+      { kind: "ORDER_BLOCK", label: "Order Blocks (ICT)", fields: ["bull_high", "bull_low", "bear_high", "bear_low"], defaults: { lookbackBars: 100, pivotLeft: 5 } }
     ];
     TIMEFRAMES = ["M1", "M5", "M15", "M30", "H1", "H4", "D1"];
-    OPERATORS = ["crosses_above", "crosses_below", "above", "below", "rising", "falling"];
-    FIELDS = ["value", "signal", "histogram", "upper", "middle", "lower", "k", "d", "price"];
+    OPERATORS = ["crosses_above", "crosses_below", "above", "below", "rising", "falling", "turns_up", "turns_down"];
+    FIELDS = [
+      "value",
+      "signal",
+      "histogram",
+      "upper",
+      "middle",
+      "lower",
+      "k",
+      "d",
+      "price",
+      "poc",
+      "vah",
+      "val",
+      "tenkan",
+      "kijun",
+      "span_a",
+      "span_b",
+      "plus",
+      "minus",
+      "swing_high",
+      "swing_low",
+      "or_high",
+      "or_low",
+      "bull_high",
+      "bull_low",
+      "bear_high",
+      "bear_low",
+      "pp",
+      "r1",
+      "r2",
+      "s1",
+      "s2"
+    ];
+    TF_MINUTES = {
+      M1: 1,
+      M5: 5,
+      M15: 15,
+      M30: 30,
+      H1: 60,
+      H4: 240,
+      D1: 1440
+    };
   }
 });
 
@@ -51277,6 +51379,7 @@ var init_strategy_spec = __esm({
 var strategy_backtest_exports = {};
 __export(strategy_backtest_exports, {
   evaluateSpecSignals: () => evaluateSpecSignals,
+  resampleBars: () => resampleBars,
   runBacktest: () => runBacktest
 });
 function contractSize(symbol) {
@@ -51350,20 +51453,384 @@ function atrSeries(bars, period) {
   }
   return out;
 }
+function vwapSeries(bars) {
+  const out = new Array(bars.length).fill(null);
+  let cumPV = 0, cumV = 0, day = "";
+  for (let i = 0; i < bars.length; i++) {
+    const d = new Date(bars[i].timestamp).toISOString().slice(0, 10);
+    if (d !== day) {
+      day = d;
+      cumPV = 0;
+      cumV = 0;
+    }
+    const tp = (bars[i].high + bars[i].low + bars[i].close) / 3;
+    const v = bars[i].volume || 0;
+    cumPV += tp * v;
+    cumV += v;
+    out[i] = cumV > 0 ? cumPV / cumV : null;
+  }
+  return out;
+}
+function adxParts(bars, period) {
+  const n = bars.length;
+  const adx = new Array(n).fill(null);
+  const plus = new Array(n).fill(null);
+  const minus = new Array(n).fill(null);
+  if (n <= period * 2) return { adx, plus, minus };
+  const trs = [0], pdm = [0], mdm = [0];
+  for (let i = 1; i < n; i++) {
+    const up = bars[i].high - bars[i - 1].high;
+    const dn = bars[i - 1].low - bars[i].low;
+    pdm.push(up > dn && up > 0 ? up : 0);
+    mdm.push(dn > up && dn > 0 ? dn : 0);
+    trs.push(Math.max(bars[i].high - bars[i].low, Math.abs(bars[i].high - bars[i - 1].close), Math.abs(bars[i].low - bars[i - 1].close)));
+  }
+  let sTr = 0, sP = 0, sM = 0;
+  for (let i = 1; i <= period; i++) {
+    sTr += trs[i];
+    sP += pdm[i];
+    sM += mdm[i];
+  }
+  const dx = new Array(n).fill(null);
+  const dxAt = (i) => {
+    if (sTr === 0) return 0;
+    const p2 = sP / sTr * 100, m = sM / sTr * 100;
+    plus[i] = p2;
+    minus[i] = m;
+    return p2 + m === 0 ? 0 : Math.abs(p2 - m) / (p2 + m) * 100;
+  };
+  dx[period] = dxAt(period);
+  let adxVal = 0;
+  let dxCount = 0;
+  let seedSum = 0;
+  for (let i = period + 1; i < n; i++) {
+    sTr = sTr - sTr / period + trs[i];
+    sP = sP - sP / period + pdm[i];
+    sM = sM - sM / period + mdm[i];
+    dx[i] = dxAt(i);
+    if (i <= period * 2) {
+      seedSum += dx[i];
+      dxCount++;
+      if (dxCount === period) {
+        adxVal = seedSum / period;
+        adx[i] = adxVal;
+      }
+    } else {
+      adxVal = (adxVal * (period - 1) + dx[i]) / period;
+      adx[i] = adxVal;
+    }
+  }
+  return { adx, plus, minus };
+}
+function cciSeries(bars, period) {
+  const out = new Array(bars.length).fill(null);
+  const tp = bars.map((b) => (b.high + b.low + b.close) / 3);
+  for (let i = period - 1; i < bars.length; i++) {
+    let sum = 0;
+    for (let j = i - period + 1; j <= i; j++) sum += tp[j];
+    const mean = sum / period;
+    let dev = 0;
+    for (let j = i - period + 1; j <= i; j++) dev += Math.abs(tp[j] - mean);
+    dev /= period;
+    out[i] = dev === 0 ? 0 : (tp[i] - mean) / (0.015 * dev);
+  }
+  return out;
+}
+function williamsRSeries(bars, period) {
+  const out = new Array(bars.length).fill(null);
+  for (let i = period - 1; i < bars.length; i++) {
+    let hh = -Infinity, ll = Infinity;
+    for (let j = i - period + 1; j <= i; j++) {
+      hh = Math.max(hh, bars[j].high);
+      ll = Math.min(ll, bars[j].low);
+    }
+    out[i] = hh === ll ? -50 : (hh - bars[i].close) / (hh - ll) * -100;
+  }
+  return out;
+}
+function donchianSeries(bars, period) {
+  const n = bars.length;
+  const upper = new Array(n).fill(null);
+  const mid = new Array(n).fill(null);
+  const lower = new Array(n).fill(null);
+  for (let i = period; i < n; i++) {
+    let hh = -Infinity, ll = Infinity;
+    for (let j = i - period; j < i; j++) {
+      hh = Math.max(hh, bars[j].high);
+      ll = Math.min(ll, bars[j].low);
+    }
+    upper[i] = hh;
+    lower[i] = ll;
+    mid[i] = (hh + ll) / 2;
+  }
+  return { upper, mid, lower };
+}
+function supertrendSeries(bars, period, mult) {
+  const n = bars.length;
+  const out = new Array(n).fill(null);
+  const atr3 = atrSeries(bars, period);
+  let prevUB = 0, prevLB = 0, prevST = 0, prevClose = 0;
+  for (let i = 0; i < n; i++) {
+    const a = atr3[i];
+    if (a == null) continue;
+    const mid = (bars[i].high + bars[i].low) / 2;
+    let ub = mid + mult * a;
+    let lb = mid - mult * a;
+    if (i > 0 && prevUB) {
+      ub = ub < prevUB || prevClose > prevUB ? ub : prevUB;
+      lb = lb > prevLB || prevClose < prevLB ? lb : prevLB;
+    }
+    const st = prevST === prevUB ? bars[i].close <= ub ? ub : lb : prevST === prevLB ? bars[i].close >= lb ? lb : ub : bars[i].close <= ub ? ub : lb;
+    out[i] = st;
+    prevUB = ub;
+    prevLB = lb;
+    prevST = st;
+    prevClose = bars[i].close;
+  }
+  return out;
+}
+function ichimokuParts(bars, tenkanP, kijunP, senkouP) {
+  const n = bars.length;
+  const hlMid2 = (period, shift) => {
+    const out = new Array(n).fill(null);
+    for (let i = period - 1; i < n; i++) {
+      let hh = -Infinity, ll = Infinity;
+      for (let j = i - period + 1; j <= i; j++) {
+        hh = Math.max(hh, bars[j].high);
+        ll = Math.min(ll, bars[j].low);
+      }
+      out[i] = (hh + ll) / 2;
+    }
+    if (shift > 0) {
+      const shifted = new Array(n).fill(null);
+      for (let i = shift; i < n; i++) shifted[i] = out[i - shift];
+      return shifted;
+    }
+    return out;
+  };
+  const tenkan = hlMid2(tenkanP, 0);
+  const kijun = hlMid2(kijunP, 0);
+  const spanARaw = tenkan.map((t, i) => t != null && kijun[i] != null ? (t + kijun[i]) / 2 : null);
+  const spanA = new Array(n).fill(null);
+  for (let i = 26; i < n; i++) spanA[i] = spanARaw[i - 26];
+  const spanB = hlMid2(senkouP, 26);
+  return { tenkan, kijun, spanA, spanB };
+}
+function volumeProfileSeries(bars, lookback, vaPct) {
+  const n = bars.length;
+  const poc = new Array(n).fill(null);
+  const vah = new Array(n).fill(null);
+  const val = new Array(n).fill(null);
+  const BINS = 24;
+  for (let i = 0; i < n; i++) {
+    const from = Math.max(0, i - lookback + 1);
+    let lo2 = Infinity, hi2 = -Infinity, total = 0;
+    for (let j = from; j <= i; j++) {
+      lo2 = Math.min(lo2, bars[j].low);
+      hi2 = Math.max(hi2, bars[j].high);
+      total += bars[j].volume || 0;
+    }
+    if (!(total > 0) || hi2 <= lo2) continue;
+    const width = (hi2 - lo2) / BINS;
+    const bins = new Array(BINS).fill(0);
+    for (let j = from; j <= i; j++) {
+      const idx = Math.min(BINS - 1, Math.max(0, Math.floor((bars[j].close - lo2) / width)));
+      bins[idx] += bars[j].volume || 0;
+    }
+    let pocBin = 0;
+    for (let b = 1; b < BINS; b++) if (bins[b] > bins[pocBin]) pocBin = b;
+    let acc = bins[pocBin], up = pocBin, dn = pocBin;
+    const target = total * (vaPct / 100);
+    while (acc < target && (up < BINS - 1 || dn > 0)) {
+      const upVol = up < BINS - 1 ? bins[up + 1] : -1;
+      const dnVol = dn > 0 ? bins[dn - 1] : -1;
+      if (upVol >= dnVol && upVol >= 0) {
+        up++;
+        acc += bins[up];
+      } else if (dnVol >= 0) {
+        dn--;
+        acc += bins[dn];
+      } else break;
+    }
+    poc[i] = lo2 + (pocBin + 0.5) * width;
+    vah[i] = lo2 + (up + 1) * width;
+    val[i] = lo2 + dn * width;
+  }
+  return { poc, vah, val };
+}
+function pivotsSeries(bars) {
+  const n = bars.length;
+  const mk = () => new Array(n).fill(null);
+  const pp = mk(), r1 = mk(), r2 = mk(), s1 = mk(), s2 = mk();
+  let prevDay = "", pH = 0, pL = 0, pC = 0, curH = -Infinity, curL = Infinity;
+  let levels = null;
+  for (let i = 0; i < n; i++) {
+    const d = new Date(bars[i].timestamp).toISOString().slice(0, 10);
+    if (d !== prevDay) {
+      if (prevDay && curH > -Infinity) {
+        const p2 = (pH + pL + pC) / 3;
+        levels = { pp: p2, r1: 2 * p2 - pL, s1: 2 * p2 - pH, r2: p2 + (pH - pL), s2: p2 - (pH - pL) };
+      }
+      prevDay = d;
+      curH = -Infinity;
+      curL = Infinity;
+    }
+    if (levels) {
+      pp[i] = levels.pp;
+      r1[i] = levels.r1;
+      r2[i] = levels.r2;
+      s1[i] = levels.s1;
+      s2[i] = levels.s2;
+    }
+    curH = Math.max(curH, bars[i].high);
+    curL = Math.min(curL, bars[i].low);
+    pH = curH;
+    pL = curL;
+    pC = bars[i].close;
+  }
+  return { pp, r1, r2, s1, s2 };
+}
+function orbSeries(bars, startH, startM, rangeMinutes, barMs) {
+  const n = bars.length;
+  const orHigh = new Array(n).fill(null);
+  const orLow = new Array(n).fill(null);
+  const startMs = (startH * 60 + startM) * 6e4;
+  const rangeMs = rangeMinutes * 6e4;
+  const dayMs = 864e5;
+  let curSession = -1, rH = -Infinity, rL = Infinity, formed = null;
+  for (let i = 0; i < n; i++) {
+    const t = bars[i].timestamp;
+    const sessionStart = Math.floor((t - startMs) / dayMs) * dayMs + startMs;
+    const sess = sessionStart;
+    if (sess !== curSession) {
+      curSession = sess;
+      rH = -Infinity;
+      rL = Infinity;
+      formed = null;
+    }
+    if (t < sess + rangeMs) {
+      rH = Math.max(rH, bars[i].high);
+      rL = Math.min(rL, bars[i].low);
+    }
+    if (t + barMs >= sess + rangeMs && rH > -Infinity) {
+      if (!formed) formed = { h: rH, l: rL };
+      orHigh[i] = formed.h;
+      orLow[i] = formed.l;
+    }
+  }
+  return { orHigh, orLow };
+}
+function swingsSeries(bars, left, right) {
+  const n = bars.length;
+  const swingHigh = new Array(n).fill(null);
+  const swingLow = new Array(n).fill(null);
+  let lastH = null, lastL = null;
+  for (let i = 0; i < n; i++) {
+    const j = i - right;
+    if (j >= left) {
+      let isH = true, isL = true;
+      for (let k2 = j - left; k2 <= j + right; k2++) {
+        if (k2 === j) continue;
+        if (bars[k2].high >= bars[j].high) isH = false;
+        if (bars[k2].low <= bars[j].low) isL = false;
+      }
+      if (isH) lastH = bars[j].high;
+      if (isL) lastL = bars[j].low;
+    }
+    swingHigh[i] = lastH;
+    swingLow[i] = lastL;
+  }
+  return { swingHigh, swingLow };
+}
+function fvgSeries(bars, maxAge) {
+  const n = bars.length;
+  const bullHigh = new Array(n).fill(null);
+  const bullLow = new Array(n).fill(null);
+  const bearHigh = new Array(n).fill(null);
+  const bearLow = new Array(n).fill(null);
+  let bulls = [], bears = [];
+  for (let i = 0; i < n; i++) {
+    bulls = bulls.filter((g) => bars[i].low > g.lo && i - g.born <= maxAge);
+    bears = bears.filter((g) => bars[i].high < g.hi && i - g.born <= maxAge);
+    if (i >= 2) {
+      if (bars[i].low > bars[i - 2].high) bulls.push({ hi: bars[i].low, lo: bars[i - 2].high, born: i });
+      if (bars[i].high < bars[i - 2].low) bears.push({ hi: bars[i - 2].low, lo: bars[i].high, born: i });
+    }
+    const b = bulls[bulls.length - 1];
+    if (b) {
+      bullHigh[i] = b.hi;
+      bullLow[i] = b.lo;
+    }
+    const s = bears[bears.length - 1];
+    if (s) {
+      bearHigh[i] = s.hi;
+      bearLow[i] = s.lo;
+    }
+  }
+  return { bullHigh, bullLow, bearHigh, bearLow };
+}
+function orderBlockSeries(bars, confirmWindow, maxAge) {
+  const n = bars.length;
+  const bullHigh = new Array(n).fill(null);
+  const bullLow = new Array(n).fill(null);
+  const bearHigh = new Array(n).fill(null);
+  const bearLow = new Array(n).fill(null);
+  let bulls = [], bears = [];
+  let bullCands = [], bearCands = [];
+  for (let i = 0; i < n; i++) {
+    bulls = bulls.filter((o) => bars[i].close >= o.lo && i - o.born <= maxAge);
+    bears = bears.filter((o) => bars[i].close <= o.hi && i - o.born <= maxAge);
+    bullCands = bullCands.filter((c) => {
+      if (bars[i].close > c.hi) {
+        bulls.push({ hi: c.hi, lo: c.lo, born: i });
+        return false;
+      }
+      return i - c.at < confirmWindow;
+    });
+    bearCands = bearCands.filter((c) => {
+      if (bars[i].close < c.lo) {
+        bears.push({ hi: c.hi, lo: c.lo, born: i });
+        return false;
+      }
+      return i - c.at < confirmWindow;
+    });
+    if (bars[i].close < bars[i].open) bullCands.push({ hi: bars[i].high, lo: bars[i].low, at: i });
+    if (bars[i].close > bars[i].open) bearCands.push({ hi: bars[i].high, lo: bars[i].low, at: i });
+    const b = bulls[bulls.length - 1];
+    if (b) {
+      bullHigh[i] = b.hi;
+      bullLow[i] = b.lo;
+    }
+    const s = bears[bears.length - 1];
+    if (s) {
+      bearHigh[i] = s.hi;
+      bearLow[i] = s.lo;
+    }
+  }
+  return { bullHigh, bullLow, bearHigh, bearLow };
+}
 function buildSeries(spec, bars) {
   const closes = bars.map((b) => b.close);
   const map = /* @__PURE__ */ new Map();
   map.set("price:price", closes.slice());
   map.set("price:value", closes.slice());
-  for (const ind of spec.indicators) {
+  const buildOne = (ind) => {
     const key = (f) => `${ind.id}:${f}`;
+    if (map.has(key("value")) && ind.kind !== "EMA" && ind.kind !== "SMA") return;
     switch (ind.kind) {
       case "EMA":
-        map.set(key("value"), ema2(closes, ind.period ?? 21));
+      case "SMA": {
+        if (ind.sourceId) {
+          const src = map.get(`${ind.sourceId}:value`);
+          if (!src) return;
+          const nums = src.map((v) => v ?? NaN);
+          const raw = ind.kind === "EMA" ? ema2(nums, ind.period ?? 21) : sma2(nums, ind.period ?? 50);
+          map.set(key("value"), raw.map((v, i) => src[i] == null || v == null || Number.isNaN(v) ? null : v));
+          return;
+        }
+        map.set(key("value"), ind.kind === "EMA" ? ema2(closes, ind.period ?? 21) : sma2(closes, ind.period ?? 50));
         break;
-      case "SMA":
-        map.set(key("value"), sma2(closes, ind.period ?? 50));
-        break;
+      }
       case "RSI":
         map.set(key("value"), rsiSeries(closes, ind.period ?? 14));
         break;
@@ -51419,11 +51886,100 @@ function buildSeries(spec, bars) {
         map.set(key("lower"), lower);
         break;
       }
+      case "VWAP":
+        map.set(key("value"), vwapSeries(bars));
+        break;
+      case "ADX": {
+        const p2 = adxParts(bars, ind.period ?? 14);
+        map.set(key("value"), p2.adx);
+        map.set(key("plus"), p2.plus);
+        map.set(key("minus"), p2.minus);
+        break;
+      }
+      case "CCI":
+        map.set(key("value"), cciSeries(bars, ind.period ?? 20));
+        break;
+      case "WILLIAMS_R":
+        map.set(key("value"), williamsRSeries(bars, ind.period ?? 14));
+        break;
+      case "DONCHIAN": {
+        const d = donchianSeries(bars, ind.period ?? 20);
+        map.set(key("upper"), d.upper);
+        map.set(key("middle"), d.mid);
+        map.set(key("value"), d.mid);
+        map.set(key("lower"), d.lower);
+        break;
+      }
+      case "SUPERTREND":
+        map.set(key("value"), supertrendSeries(bars, ind.period ?? 10, ind.stdDev ?? 3));
+        break;
+      case "ICHIMOKU": {
+        const p2 = ichimokuParts(bars, ind.period ?? 9, ind.fastPeriod ?? 26, ind.slowPeriod ?? 52);
+        map.set(key("tenkan"), p2.tenkan);
+        map.set(key("kijun"), p2.kijun);
+        map.set(key("span_a"), p2.spanA);
+        map.set(key("span_b"), p2.spanB);
+        map.set(key("value"), p2.kijun);
+        break;
+      }
+      case "VOLUME_PROFILE": {
+        const p2 = volumeProfileSeries(bars, ind.lookbackBars ?? 100, ind.valueAreaPct ?? 70);
+        map.set(key("poc"), p2.poc);
+        map.set(key("vah"), p2.vah);
+        map.set(key("val"), p2.val);
+        map.set(key("value"), p2.poc);
+        break;
+      }
+      case "PIVOTS": {
+        const p2 = pivotsSeries(bars);
+        map.set(key("pp"), p2.pp);
+        map.set(key("r1"), p2.r1);
+        map.set(key("r2"), p2.r2);
+        map.set(key("s1"), p2.s1);
+        map.set(key("s2"), p2.s2);
+        map.set(key("value"), p2.pp);
+        break;
+      }
+      case "ORB": {
+        const p2 = orbSeries(bars, ind.sessionStartHourUtc ?? 14, ind.sessionStartMinuteUtc ?? 30, ind.rangeMinutes ?? 30, TF_MINUTES[spec.timeframe] * 6e4);
+        map.set(key("or_high"), p2.orHigh);
+        map.set(key("or_low"), p2.orLow);
+        map.set(key("value"), p2.orHigh);
+        break;
+      }
+      case "SWINGS": {
+        const p2 = swingsSeries(bars, ind.pivotLeft ?? 3, ind.pivotRight ?? 3);
+        map.set(key("swing_high"), p2.swingHigh);
+        map.set(key("swing_low"), p2.swingLow);
+        map.set(key("value"), p2.swingHigh);
+        break;
+      }
+      case "FVG": {
+        const p2 = fvgSeries(bars, ind.lookbackBars ?? 100);
+        map.set(key("bull_high"), p2.bullHigh);
+        map.set(key("bull_low"), p2.bullLow);
+        map.set(key("bear_high"), p2.bearHigh);
+        map.set(key("bear_low"), p2.bearLow);
+        map.set(key("value"), p2.bullLow);
+        break;
+      }
+      case "ORDER_BLOCK": {
+        const p2 = orderBlockSeries(bars, ind.pivotLeft ?? 5, ind.lookbackBars ?? 100);
+        map.set(key("bull_high"), p2.bullHigh);
+        map.set(key("bull_low"), p2.bullLow);
+        map.set(key("bear_high"), p2.bearHigh);
+        map.set(key("bear_low"), p2.bearLow);
+        map.set(key("value"), p2.bullLow);
+        break;
+      }
     }
+  };
+  for (let pass = 0; pass <= spec.indicators.length; pass++) {
+    for (const ind of spec.indicators) buildOne(ind);
   }
   return map;
 }
-function evalCondition(c, series, i) {
+function evalBaseCondition(c, series, i, pipSize2) {
   if (i < 1) return false;
   const a = series.get(`${c.indicatorId}:${c.field}`);
   if (!a) return false;
@@ -51431,6 +51987,12 @@ function evalCondition(c, series, i) {
   if (ai == null || aiPrev == null) return false;
   if (c.operator === "rising") return ai > aiPrev;
   if (c.operator === "falling") return ai < aiPrev;
+  if (c.operator === "turns_up" || c.operator === "turns_down") {
+    if (i < 2) return false;
+    const aiPrev2 = a[i - 2];
+    if (aiPrev2 == null) return false;
+    return c.operator === "turns_up" ? aiPrev <= aiPrev2 && ai > aiPrev : aiPrev >= aiPrev2 && ai < aiPrev;
+  }
   let bNow, bPrev;
   if (c.compare.kind === "value") {
     bNow = c.compare.value;
@@ -51443,27 +52005,88 @@ function evalCondition(c, series, i) {
     bPrev = b[i - 1];
   }
   if (bNow == null || bPrev == null) return false;
+  const gap = (c.minGapPips ?? 0) * pipSize2;
   switch (c.operator) {
     case "above":
-      return ai > bNow;
+      return ai > bNow + gap;
     case "below":
-      return ai < bNow;
+      return ai < bNow - gap;
     case "crosses_above":
-      return aiPrev <= bPrev && ai > bNow;
+      return aiPrev <= bPrev && ai > bNow + gap;
     case "crosses_below":
-      return aiPrev >= bPrev && ai < bNow;
+      return aiPrev >= bPrev && ai < bNow - gap;
   }
   return false;
 }
-function evalGroup(g, series, i) {
+function evalCondition(c, series, i, pipSize2) {
+  const sustain = Math.max(1, Math.floor(c.sustainBars ?? 1));
+  for (let j = i - sustain + 1; j <= i; j++) {
+    if (j < 1 || !evalBaseCondition(c, series, j, pipSize2)) return false;
+  }
+  return true;
+}
+function evalGroup(g, series, i, pipSize2) {
   if (!g || g.conditions.length === 0) return false;
-  const results = g.conditions.map((c) => evalCondition(c, series, i));
+  const results = g.conditions.map((c) => evalCondition(c, series, i, pipSize2));
   return g.logic === "AND" ? results.every(Boolean) : results.some(Boolean);
+}
+function sessionAllows(spec, barTs) {
+  const sf = spec.sessionFilter;
+  if (!sf) return true;
+  const d = new Date(barTs);
+  if (sf.daysUtc && sf.daysUtc.length && !sf.daysUtc.includes(d.getUTCDay())) return false;
+  const h = d.getUTCHours();
+  return sf.endHourUtc > sf.startHourUtc ? h >= sf.startHourUtc && h < sf.endHourUtc : h >= sf.startHourUtc || h < sf.endHourUtc;
+}
+function resampleBars(bars, baseTf, htfTf) {
+  const ratio = Math.max(1, Math.round(TF_MINUTES[htfTf] / TF_MINUTES[baseTf]));
+  if (ratio <= 1) return bars.slice();
+  const bucketMs = TF_MINUTES[htfTf] * 6e4;
+  const out = [];
+  let cur = null;
+  for (const b of bars) {
+    const start = Math.floor(b.timestamp / bucketMs) * bucketMs;
+    if (!cur || cur.timestamp !== start) {
+      if (cur) out.push(cur);
+      cur = { timestamp: start, open: b.open, high: b.high, low: b.low, close: b.close, volume: b.volume || 0 };
+    } else {
+      cur.high = Math.max(cur.high, b.high);
+      cur.low = Math.min(cur.low, b.low);
+      cur.close = b.close;
+      cur.volume += b.volume || 0;
+    }
+  }
+  if (cur) out.push(cur);
+  return out;
+}
+function buildFilterCtx(spec, bars) {
+  if (!spec.trendFilter) return { htfSeries: null, htfBars: [], htfMs: 0 };
+  const htfBars = resampleBars(bars, spec.timeframe, spec.trendFilter.timeframe);
+  return {
+    htfSeries: buildSeries(spec, htfBars),
+    htfBars,
+    htfMs: TF_MINUTES[spec.trendFilter.timeframe] * 6e4
+  };
+}
+function entryAllowed(spec, ctx, series, bars, i, pipSize2, side) {
+  if (!sessionAllows(spec, bars[i].timestamp)) return false;
+  if (!spec.trendFilter || !ctx.htfSeries) return true;
+  const group = side === "long" ? spec.trendFilter.longGroup : spec.trendFilter.shortGroup;
+  if (!group || !group.conditions?.length) return true;
+  const barClose = bars[i].timestamp + TF_MINUTES[spec.timeframe] * 6e4;
+  let h = -1;
+  for (let k2 = 0; k2 < ctx.htfBars.length; k2++) {
+    if (ctx.htfBars[k2].timestamp + ctx.htfMs <= barClose) h = k2;
+    else break;
+  }
+  if (h < 1) return false;
+  return evalGroup(group, ctx.htfSeries, h, pipSize2);
 }
 function evaluateSpecSignals(spec, barsIn) {
   const bars = [...barsIn].sort((a, b) => a.timestamp - b.timestamp);
   if (bars.length < 3) return null;
   const series = buildSeries(spec, bars);
+  const pipSize2 = getPipSize(spec.symbol);
   const i = bars.length - 1;
   let atr3 = null;
   for (const ind of spec.indicators) {
@@ -51473,11 +52096,12 @@ function evaluateSpecSignals(spec, barsIn) {
       if (typeof v === "number" && isFinite(v)) atr3 = v;
     }
   }
+  const ctx = buildFilterCtx(spec, bars);
   return {
-    enterLong: evalGroup(spec.entryLong, series, i),
-    enterShort: evalGroup(spec.entryShort, series, i),
-    exitLong: evalGroup(spec.exitLong, series, i),
-    exitShort: evalGroup(spec.exitShort, series, i),
+    enterLong: evalGroup(spec.entryLong, series, i, pipSize2) && entryAllowed(spec, ctx, series, bars, i, pipSize2, "long"),
+    enterShort: evalGroup(spec.entryShort, series, i, pipSize2) && entryAllowed(spec, ctx, series, bars, i, pipSize2, "short"),
+    exitLong: evalGroup(spec.exitLong, series, i, pipSize2),
+    exitShort: evalGroup(spec.exitShort, series, i, pipSize2),
     atr: atr3,
     close: bars[i].close,
     barTime: bars[i].timestamp
@@ -51492,6 +52116,7 @@ function runBacktest(spec, barsIn, opts) {
   const pipValueMoney = pipSize2 * contractSize(spec.symbol) * spec.risk.lotSize;
   const usdBase = spec.symbol.replace(/[^A-Z]/g, "").startsWith("USD");
   const series = buildSeries(spec, bars);
+  const filterCtx = buildFilterCtx(spec, bars);
   const atrId = spec.indicators.find((x) => x.kind === "ATR")?.id;
   const atrAt = (i) => atrId ? series.get(`${atrId}:value`)?.[i] ?? null : null;
   const trades = [];
@@ -51524,14 +52149,26 @@ function runBacktest(spec, barsIn, opts) {
     const bar = bars[i];
     if (pos) {
       const dir = pos.side === "long" ? 1 : -1;
+      if (i > pos.entryIndex) {
+        pos.best = pos.side === "long" ? Math.max(pos.best, bars[i - 1].high) : Math.min(pos.best, bars[i - 1].low);
+      }
+      if (spec.risk.breakevenTriggerPips && i > pos.entryIndex) {
+        const trig = spec.risk.breakevenTriggerPips * pipSize2;
+        const off = (spec.risk.breakevenOffsetPips ?? 0) * pipSize2;
+        if (pos.side === "long" && pos.best - pos.entryPrice >= trig) {
+          const cand = pos.entryPrice + off;
+          if (cand > (pos.sl ?? -Infinity)) pos.sl = cand;
+        } else if (pos.side === "short" && pos.entryPrice - pos.best >= trig) {
+          const cand = pos.entryPrice - off;
+          if (cand < (pos.sl ?? Infinity)) pos.sl = cand;
+        }
+      }
       if (spec.risk.trailingStopPips && i > pos.entryIndex) {
         const trailDist = spec.risk.trailingStopPips * pipSize2;
         if (pos.side === "long") {
-          pos.best = Math.max(pos.best, bars[i - 1].high);
           const cand = pos.best - trailDist;
           if (cand > (pos.sl ?? -Infinity)) pos.sl = cand;
         } else {
-          pos.best = Math.min(pos.best, bars[i - 1].low);
           const cand = pos.best + trailDist;
           if (cand < (pos.sl ?? Infinity)) pos.sl = cand;
         }
@@ -51551,15 +52188,15 @@ function runBacktest(spec, barsIn, opts) {
       }
       if (pos) {
         const exitGroup = pos.side === "long" ? spec.exitLong : spec.exitShort;
-        if (evalGroup(exitGroup, series, i)) closePos(i, bar.close, "exit_signal");
+        if (evalGroup(exitGroup, series, i, pipSize2)) closePos(i, bar.close, "exit_signal");
       }
     }
     if (!pos && i < bars.length - 1) {
       const dayKey = new Date(bar.timestamp).toISOString().slice(0, 10);
       const todayCount = entriesByDay.get(dayKey) ?? 0;
       if (spec.risk.maxTradesPerDay == null || todayCount < spec.risk.maxTradesPerDay) {
-        const goLong = evalGroup(spec.entryLong, series, i);
-        const goShort = !goLong && evalGroup(spec.entryShort, series, i);
+        const goLong = evalGroup(spec.entryLong, series, i, pipSize2) && entryAllowed(spec, filterCtx, series, bars, i, pipSize2, "long");
+        const goShort = !goLong && evalGroup(spec.entryShort, series, i, pipSize2) && entryAllowed(spec, filterCtx, series, bars, i, pipSize2, "short");
         if (goLong || goShort) {
           const side = goLong ? "long" : "short";
           const dir = goLong ? 1 : -1;
@@ -51787,6 +52424,7 @@ var init_wizard_spec_strategies = __esm({
 // server/services/spec-ea-generator.ts
 var spec_ea_generator_exports = {};
 __export(spec_ea_generator_exports, {
+  eaCompileCheck: () => eaCompileCheck,
   generateSpecMT5EA: () => generateSpecMT5EA
 });
 function deterministicMagic(spec) {
@@ -51797,6 +52435,19 @@ function deterministicMagic(spec) {
 }
 function sanitize(name) {
   return name.replace(/[^A-Za-z0-9]+/g, "_").replace(/^_+|_+$/g, "").slice(0, 40) || "Strategy";
+}
+function eaCompileCheck(spec) {
+  const hard = spec.indicators.find((i) => ["VOLUME_PROFILE", "ORB", "SWINGS", "FVG", "ORDER_BLOCK"].includes(i.kind));
+  if (hard) {
+    return `The MT5 EA cannot reproduce ${hard.kind} faithfully (it needs the server's bar-history analysis). This strategy backtests and deploys through the VEDD runner \u2014 use Deploy to Account instead of the EA download.`;
+  }
+  if (spec.indicators.some((i) => i.sourceId)) {
+    return "The MT5 EA cannot reproduce indicator-on-indicator smoothing (sourceId). This strategy backtests and deploys through the VEDD runner.";
+  }
+  if (spec.trendFilter) {
+    return "The MT5 EA cannot reproduce the multi-timeframe trend filter. This strategy backtests and deploys through the VEDD runner \u2014 use Deploy to Account instead of the EA download.";
+  }
+  return null;
 }
 function collectRefs(spec) {
   const seen = /* @__PURE__ */ new Map();
@@ -51827,23 +52478,35 @@ function rhsExpr(c, shift) {
   if (c.compare.kind === "price") return `iClose(_Symbol, InpTimeframe, ${shift})`;
   return valueExpr(c.compare.indicatorId, c.compare.field, shift);
 }
-function conditionExpr(c) {
-  const L2 = (s) => valueExpr(c.indicatorId, c.field, s);
-  const R = (s) => rhsExpr(c, s);
+function conditionExprAt(c, s) {
+  const L2 = (sh) => valueExpr(c.indicatorId, c.field, sh);
+  const R = (sh) => rhsExpr(c, sh);
+  const gap = c.minGapPips ? ` + ${c.minGapPips} * PipSize()` : "";
+  const gapNeg = c.minGapPips ? ` - ${c.minGapPips} * PipSize()` : "";
   switch (c.operator) {
     case "above":
-      return `(${L2(1)} > ${R(1)})`;
+      return `(${L2(s)} > ${R(s)}${gap})`;
     case "below":
-      return `(${L2(1)} < ${R(1)})`;
+      return `(${L2(s)} < ${R(s)}${gapNeg})`;
     case "crosses_above":
-      return `(${L2(2)} <= ${R(2)} && ${L2(1)} > ${R(1)})`;
+      return `(${L2(s + 1)} <= ${R(s + 1)} && ${L2(s)} > ${R(s)}${gap})`;
     case "crosses_below":
-      return `(${L2(2)} >= ${R(2)} && ${L2(1)} < ${R(1)})`;
+      return `(${L2(s + 1)} >= ${R(s + 1)} && ${L2(s)} < ${R(s)}${gapNeg})`;
     case "rising":
-      return `(${L2(1)} > ${L2(2)})`;
+      return `(${L2(s)} > ${L2(s + 1)})`;
     case "falling":
-      return `(${L2(1)} < ${L2(2)})`;
+      return `(${L2(s)} < ${L2(s + 1)})`;
+    case "turns_up":
+      return `(${L2(s + 1)} <= ${L2(s + 2)} && ${L2(s)} > ${L2(s + 1)})`;
+    case "turns_down":
+      return `(${L2(s + 1)} >= ${L2(s + 2)} && ${L2(s)} < ${L2(s + 1)})`;
   }
+}
+function conditionExpr(c) {
+  const sustain = Math.max(1, Math.floor(c.sustainBars ?? 1));
+  const parts = [];
+  for (let k2 = 0; k2 < sustain; k2++) parts.push(conditionExprAt(c, 1 + k2));
+  return parts.length === 1 ? parts[0] : `(${parts.join(" && ")})`;
 }
 function groupExpr(g) {
   if (!g || g.conditions.length === 0) return null;
@@ -51851,8 +52514,21 @@ function groupExpr(g) {
   return `(${g.conditions.map(conditionExpr).join(joiner)})`;
 }
 function generateSpecMT5EA(spec) {
+  const unsupported = eaCompileCheck(spec);
+  if (unsupported) throw new Error(unsupported);
   const magic = deterministicMagic(spec);
   const refs = collectRefs(spec);
+  let maxSustain = 1;
+  const scanSustain = (g) => {
+    for (const c of g?.conditions ?? []) maxSustain = Math.max(maxSustain, Math.floor(c.sustainBars ?? 1));
+  };
+  scanSustain(spec.entryLong);
+  scanSustain(spec.entryShort);
+  scanSustain(spec.exitLong);
+  scanSustain(spec.exitShort);
+  const copyDepth = Math.min(90, 12 + maxSustain);
+  const customInds = spec.indicators.filter((i) => CUSTOM_COMPUTE.has(i.kind));
+  const hasCustom = customInds.length > 0;
   const atrInd = spec.indicators.find((i) => i.kind === "ATR");
   const useAtrStops = (spec.risk.stopLossAtrMult != null || spec.risk.takeProfitAtrMult != null) && !!atrInd;
   if (useAtrStops && !refs.some((r2) => r2.id === atrInd.id && r2.field === "value")) {
@@ -51873,6 +52549,24 @@ function generateSpecMT5EA(spec) {
   const getters = [];
   for (const ind of spec.indicators) {
     const h = `h_${ind.id}`;
+    if (CUSTOM_COMPUTE.has(ind.kind)) {
+      const fieldsByKind = {
+        VWAP: ["value"],
+        DONCHIAN: ["upper", "middle", "lower", "value"],
+        SUPERTREND: ["value"],
+        PIVOTS: ["pp", "r1", "r2", "s1", "s2", "value"]
+      };
+      for (const f of fieldsByKind[ind.kind] ?? ["value"]) bufferDecls.push(`double g_${ind.id}_${f}[];`);
+      if (ind.kind === "SUPERTREND") {
+        handleDecls.push(`int ${h}_atr = INVALID_HANDLE;`);
+        bufferDecls.push(`double g_${ind.id}_atrbuf[];`);
+        handleInits.push(`   ${h}_atr = iATR(_Symbol, InpTimeframe, ${ind.period ?? 10});
+   if(${h}_atr == INVALID_HANDLE) { Print("VEDD: failed to create SUPERTREND ATR handle"); return INIT_FAILED; }`);
+        copyCalls.push(`   if(CopyBuffer(${h}_atr, 0, 0, 300, g_${ind.id}_atrbuf) < 50) return false;
+   ArraySetAsSeries(g_${ind.id}_atrbuf, true);`);
+      }
+      continue;
+    }
     handleDecls.push(`int ${h} = INVALID_HANDLE;`);
     let init = "";
     switch (ind.kind) {
@@ -51897,6 +52591,18 @@ function generateSpecMT5EA(spec) {
       case "BOLLINGER":
         init = `iBands(_Symbol, InpTimeframe, ${ind.period ?? 20}, 0, ${ind.stdDev ?? 2}, PRICE_CLOSE)`;
         break;
+      case "ADX":
+        init = `iADX(_Symbol, InpTimeframe, ${ind.period ?? 14})`;
+        break;
+      case "CCI":
+        init = `iCCI(_Symbol, InpTimeframe, ${ind.period ?? 20}, PRICE_TYPICAL)`;
+        break;
+      case "WILLIAMS_R":
+        init = `iWPR(_Symbol, InpTimeframe, ${ind.period ?? 14})`;
+        break;
+      case "ICHIMOKU":
+        init = `iIchimoku(_Symbol, InpTimeframe, ${ind.period ?? 9}, ${ind.fastPeriod ?? 26}, ${ind.slowPeriod ?? 52})`;
+        break;
     }
     handleInits.push(`   ${h} = ${init};
    if(${h} == INVALID_HANDLE) { Print("VEDD: failed to create ${ind.kind} handle"); return INIT_FAILED; }`);
@@ -51905,12 +52611,14 @@ function generateSpecMT5EA(spec) {
     const ind = indById.get(ref.id);
     if (!ind) continue;
     const arr2 = `g_${ref.id}_${ref.field}`;
-    bufferDecls.push(`double ${arr2}[];`);
+    if (!CUSTOM_COMPUTE.has(ind.kind)) bufferDecls.push(`double ${arr2}[];`);
     if (ind.kind === "MACD" && ref.field === "histogram") {
       copyCalls.push(`   // histogram for ${ref.id} computed below`);
+    } else if (CUSTOM_COMPUTE.has(ind.kind)) {
+      copyCalls.push(`   // ${ref.id}:${ref.field} filled by Compute_${ref.id}() below`);
     } else {
       const bufIdx = BUFFER_INDEX[ind.kind]?.[ref.field] ?? 0;
-      copyCalls.push(`   if(CopyBuffer(h_${ref.id}, ${bufIdx}, 0, 5, ${arr2}) < 3) return false;
+      copyCalls.push(`   if(CopyBuffer(h_${ref.id}, ${bufIdx}, 0, ${copyDepth}, ${arr2}) < 4) return false;
    ArraySetAsSeries(${arr2}, true);`);
     }
     getters.push(`double ${seriesFn(ref.id, ref.field)}(int shift) { return g_${ref.id}_${ref.field}[shift]; }`);
@@ -51926,6 +52634,85 @@ function generateSpecMT5EA(spec) {
       for(int i = 0; i < ArraySize(g_${mid}_value); i++) g_${mid}_histogram[i] = g_${mid}_value[i] - g_${mid}_signal[i];
    }`;
   })() : "";
+  const computeFns = [];
+  for (const ind of customInds) {
+    if (ind.kind === "VWAP") {
+      computeFns.push(`void Compute_${ind.id}()
+{
+   int n = ArraySize(g_rates);
+   ArrayResize(g_${ind.id}_value, n); ArraySetAsSeries(g_${ind.id}_value, true);
+   double cumPV = 0, cumV = 0; long day = -1;
+   for(int i = n - 1; i >= 0; i--)
+   {
+      long d = (long)g_rates[i].time / 86400;
+      if(d != day) { day = d; cumPV = 0; cumV = 0; }
+      double tp = (g_rates[i].high + g_rates[i].low + g_rates[i].close) / 3.0;
+      double v = (double)g_rates[i].tick_volume;
+      cumPV += tp * v; cumV += v;
+      g_${ind.id}_value[i] = cumV > 0 ? cumPV / cumV : EMPTY_VALUE;
+   }
+}`);
+    } else if (ind.kind === "DONCHIAN") {
+      const period = ind.period ?? 20;
+      computeFns.push(`void Compute_${ind.id}()
+{
+   int n = ArraySize(g_rates);
+   ArrayResize(g_${ind.id}_upper, n); ArrayResize(g_${ind.id}_lower, n); ArrayResize(g_${ind.id}_middle, n); ArrayResize(g_${ind.id}_value, n);
+   ArraySetAsSeries(g_${ind.id}_upper, true); ArraySetAsSeries(g_${ind.id}_lower, true); ArraySetAsSeries(g_${ind.id}_middle, true); ArraySetAsSeries(g_${ind.id}_value, true);
+   for(int i = 0; i < n; i++)
+   {
+      if(i + ${period} >= n) { g_${ind.id}_upper[i] = EMPTY_VALUE; g_${ind.id}_lower[i] = EMPTY_VALUE; g_${ind.id}_middle[i] = EMPTY_VALUE; g_${ind.id}_value[i] = EMPTY_VALUE; continue; }
+      double hh = -DBL_MAX, ll = DBL_MAX;
+      for(int k = 1; k <= ${period}; k++) { hh = MathMax(hh, g_rates[i + k].high); ll = MathMin(ll, g_rates[i + k].low); }
+      g_${ind.id}_upper[i] = hh; g_${ind.id}_lower[i] = ll; g_${ind.id}_middle[i] = (hh + ll) / 2.0; g_${ind.id}_value[i] = (hh + ll) / 2.0;
+   }
+}`);
+    } else if (ind.kind === "PIVOTS") {
+      computeFns.push(`void Compute_${ind.id}()
+{
+   int n = ArraySize(g_rates);
+   ArrayResize(g_${ind.id}_pp, n); ArrayResize(g_${ind.id}_r1, n); ArrayResize(g_${ind.id}_r2, n); ArrayResize(g_${ind.id}_s1, n); ArrayResize(g_${ind.id}_s2, n); ArrayResize(g_${ind.id}_value, n);
+   ArraySetAsSeries(g_${ind.id}_pp, true); ArraySetAsSeries(g_${ind.id}_r1, true); ArraySetAsSeries(g_${ind.id}_r2, true); ArraySetAsSeries(g_${ind.id}_s1, true); ArraySetAsSeries(g_${ind.id}_s2, true); ArraySetAsSeries(g_${ind.id}_value, true);
+   long day = -1; double cH = -DBL_MAX, cL = DBL_MAX, pH = 0, pL = 0, pC = 0; bool have = false;
+   double pp = 0, r1 = 0, r2 = 0, s1 = 0, s2 = 0;
+   for(int i = n - 1; i >= 0; i--)
+   {
+      long d = (long)g_rates[i].time / 86400;
+      if(d != day)
+      {
+         if(day != -1) { pH = cH; pL = cL; pC = g_rates[i + 1].close; double p = (pH + pL + pC) / 3.0; pp = p; r1 = 2*p - pL; s1 = 2*p - pH; r2 = p + (pH - pL); s2 = p - (pH - pL); have = true; }
+         day = d; cH = -DBL_MAX; cL = DBL_MAX;
+      }
+      g_${ind.id}_pp[i] = have ? pp : EMPTY_VALUE; g_${ind.id}_r1[i] = have ? r1 : EMPTY_VALUE; g_${ind.id}_r2[i] = have ? r2 : EMPTY_VALUE; g_${ind.id}_s1[i] = have ? s1 : EMPTY_VALUE; g_${ind.id}_s2[i] = have ? s2 : EMPTY_VALUE; g_${ind.id}_value[i] = g_${ind.id}_pp[i];
+      cH = MathMax(cH, g_rates[i].high); cL = MathMin(cL, g_rates[i].low);
+   }
+}`);
+    } else if (ind.kind === "SUPERTREND") {
+      const mult = ind.stdDev ?? 3;
+      computeFns.push(`void Compute_${ind.id}()
+{
+   int n = MathMin(ArraySize(g_rates), ArraySize(g_${ind.id}_atrbuf));
+   ArrayResize(g_${ind.id}_value, n); ArraySetAsSeries(g_${ind.id}_value, true);
+   double prevUB = 0, prevLB = 0, prevST = 0, prevClose = 0;
+   for(int i = n - 1; i >= 0; i--)
+   {
+      double a = g_${ind.id}_atrbuf[i];
+      if(a == EMPTY_VALUE || a <= 0) { g_${ind.id}_value[i] = EMPTY_VALUE; continue; }
+      double mid = (g_rates[i].high + g_rates[i].low) / 2.0;
+      double ub = mid + ${mult} * a;
+      double lb = mid - ${mult} * a;
+      if(prevUB != 0) { ub = (ub < prevUB || prevClose > prevUB) ? ub : prevUB; lb = (lb > prevLB || prevClose < prevLB) ? lb : prevLB; }
+      double st;
+      if(prevST == prevUB && prevUB != 0) st = g_rates[i].close <= ub ? ub : lb;
+      else if(prevST == prevLB && prevLB != 0) st = g_rates[i].close >= lb ? lb : ub;
+      else st = g_rates[i].close <= ub ? ub : lb;
+      g_${ind.id}_value[i] = st;
+      prevUB = ub; prevLB = lb; prevST = st; prevClose = g_rates[i].close;
+   }
+}`);
+    }
+  }
+  const computeCalls = customInds.map((i) => `   Compute_${i.id}();`).join("\n");
   const entryLongExpr = groupExpr(spec.entryLong);
   const entryShortExpr = groupExpr(spec.entryShort);
   const exitLongExpr = groupExpr(spec.exitLong);
@@ -51959,6 +52746,13 @@ ${useAtrStops ? `input double InpStopLossAtrMult   = ${r.stopLossAtrMult ?? 0}; 
 input double InpTakeProfitAtrMult = ${r.takeProfitAtrMult ?? 0};    // Take profit x ATR (0 = off)` : ""}
 input double InpTrailingStopPips = ${r.trailingStopPips ?? 0};   // Trailing stop in pips (0 = off)
 input int    InpMaxTradesPerDay  = ${r.maxTradesPerDay ?? 0};   // Max entries per day (0 = no cap)
+${r.breakevenTriggerPips ? `input double InpBreakevenTriggerPips = ${r.breakevenTriggerPips};   // Move stop to entry after this profit (pips)
+input double InpBreakevenOffsetPips  = ${r.breakevenOffsetPips ?? 0};   // Breakeven stop offset from entry (pips)` : ""}
+${spec.sessionFilter ? `input group "=== Session Filter (from the spec, UTC) ==="
+input int    InpSessionStartHourUtc = ${spec.sessionFilter.startHourUtc};   // Entries from this UTC hour
+input int    InpSessionEndHourUtc   = ${spec.sessionFilter.endHourUtc};   // Entries until this UTC hour (exclusive)
+input string InpSessionDaysUtc      = "${(spec.sessionFilter.daysUtc && spec.sessionFilter.daysUtc.length ? spec.sessionFilter.daysUtc : [0, 1, 2, 3, 4, 5, 6]).join("")}";   // UTC weekdays allowed (0=Sun)
+input int    InpServerUtcOffsetHours = 0;   // Your broker server's UTC offset (e.g. 2 or 3) so the UTC window lands right` : ""}
 
 input group "=== Execution ==="
 input long   InpMagicNumber     = ${magic};   // Magic number (stable for this strategy)
@@ -51969,8 +52763,25 @@ ${handleDecls.join("\n")}
 
 //--- Series buffers (index 0 = forming bar, 1 = last closed bar)
 ${bufferDecls.join("\n")}
+${hasCustom ? "\n//--- Raw rates for the rates-computed series (VWAP / Donchian / Supertrend / Pivots)\nMqlRates g_rates[];" : ""}
 
 ${getters.join("\n")}
+${computeFns.length ? `
+//--- Rates-computed series builders
+${computeFns.join("\n\n")}` : ""}
+${spec.sessionFilter ? `
+//+------------------------------------------------------------------+
+//| Session filter from the spec (UTC window; broker offset input)   |
+//+------------------------------------------------------------------+
+bool InSession()
+{
+   datetime utcNow = TimeCurrent() - InpServerUtcOffsetHours * 3600;
+   MqlDateTime dt; TimeToStruct(utcNow, dt);
+   if(StringFind(InpSessionDaysUtc, IntegerToString(dt.day_of_week)) < 0) return false;
+   if(InpSessionEndHourUtc > InpSessionStartHourUtc)
+      return dt.hour >= InpSessionStartHourUtc && dt.hour < InpSessionEndHourUtc;
+   return dt.hour >= InpSessionStartHourUtc || dt.hour < InpSessionEndHourUtc;
+}` : ""}
 
 //+------------------------------------------------------------------+
 //| Pip size \u2014 mirrors the VEDD backtester (pipUtils)                |
@@ -51998,13 +52809,17 @@ ${handleInits.join("\n")}
 
 void OnDeinit(const int reason)
 {
-${spec.indicators.map((i) => `   if(h_${i.id} != INVALID_HANDLE) IndicatorRelease(h_${i.id});`).join("\n")}
+${spec.indicators.filter((i) => !CUSTOM_COMPUTE.has(i.kind)).map((i) => `   if(h_${i.id} != INVALID_HANDLE) IndicatorRelease(h_${i.id});`).join("\n")}
+${spec.indicators.filter((i) => i.kind === "SUPERTREND").map((i) => `   if(h_${i.id}_atr != INVALID_HANDLE) IndicatorRelease(h_${i.id}_atr);`).join("\n")}
 }
 
 //+------------------------------------------------------------------+
 bool RefreshSeries()
 {
+${hasCustom ? `   if(CopyRates(_Symbol, InpTimeframe, 0, 300, g_rates) < 50) return false;
+   ArraySetAsSeries(g_rates, true);` : ""}
 ${copyCalls.join("\n")}${histogramCode}
+${computeCalls}
    return true;
 }
 
@@ -52122,14 +52937,40 @@ void ManageTrailing(ulong ticket, long type, double currentSL, double tp)
    }
 }
 
-//+------------------------------------------------------------------+
+${r.breakevenTriggerPips ? `//+------------------------------------------------------------------+
+void ManageBreakeven(ulong ticket, long type, double openPrice, double currentSL, double tp)
+{
+   double trig = InpBreakevenTriggerPips * PipSize();
+   double off = InpBreakevenOffsetPips * PipSize();
+   int digits = (int)SymbolInfoInteger(_Symbol, SYMBOL_DIGITS);
+   if(type == POSITION_TYPE_BUY)
+   {
+      double bid = SymbolInfoDouble(_Symbol, SYMBOL_BID);
+      if(bid - openPrice >= trig)
+      {
+         double cand = NormalizeDouble(openPrice + off, digits);
+         if(cand > currentSL + _Point) ModifySL(ticket, cand, tp);
+      }
+   }
+   else
+   {
+      double ask = SymbolInfoDouble(_Symbol, SYMBOL_ASK);
+      if(openPrice - ask >= trig)
+      {
+         double cand = NormalizeDouble(openPrice - off, digits);
+         if(currentSL == 0 || cand < currentSL - _Point) ModifySL(ticket, cand, tp);
+      }
+   }
+}
+
+` : ""}//+------------------------------------------------------------------+
 void OnTick()
 {
    if(!RefreshSeries()) return;
 
    ulong ticket; long ptype; double openPrice, sl, tp, volume;
    bool havePos = FindMyPosition(ticket, ptype, openPrice, sl, tp, volume);
-   if(havePos) ManageTrailing(ticket, ptype, sl, tp);
+   if(havePos) { ManageTrailing(ticket, ptype, sl, tp);${r.breakevenTriggerPips ? " ManageBreakeven(ticket, ptype, openPrice, sl, tp);" : ""} }
 
    // Entries and signal-exits evaluate once per new bar (on closed-bar data).
    static datetime lastBarTime = 0;
@@ -52146,7 +52987,7 @@ void OnTick()
       return;
    }
 
-   if(InpMaxTradesPerDay > 0 && EntriesToday() >= InpMaxTradesPerDay) return;
+${spec.sessionFilter ? "   if(!InSession()) return;\n" : ""}   if(InpMaxTradesPerDay > 0 && EntriesToday() >= InpMaxTradesPerDay) return;
 
    double ask = SymbolInfoDouble(_Symbol, SYMBOL_ASK);
    double bid = SymbolInfoDouble(_Symbol, SYMBOL_BID);
@@ -52181,7 +53022,7 @@ void OnTick()
 `;
   return { code, filename: `VEDD_${sanitize(spec.name)}.mq5`, magicNumber: magic };
 }
-var TF_CONST, BUFFER_INDEX, seriesFn;
+var TF_CONST, BUFFER_INDEX, CUSTOM_COMPUTE, seriesFn;
 var init_spec_ea_generator = __esm({
   "server/services/spec-ea-generator.ts"() {
     "use strict";
@@ -52201,8 +53042,13 @@ var init_spec_ea_generator = __esm({
       ATR: { value: 0 },
       MACD: { value: 0, signal: 1 },
       STOCHASTIC: { k: 0, d: 1, value: 0 },
-      BOLLINGER: { middle: 0, upper: 1, lower: 2, value: 0 }
+      BOLLINGER: { middle: 0, upper: 1, lower: 2, value: 0 },
+      ADX: { value: 0, plus: 1, minus: 2 },
+      CCI: { value: 0 },
+      WILLIAMS_R: { value: 0 },
+      ICHIMOKU: { tenkan: 0, kijun: 1, span_a: 2, span_b: 3, value: 1 }
     };
+    CUSTOM_COMPUTE = /* @__PURE__ */ new Set(["VWAP", "DONCHIAN", "SUPERTREND", "PIVOTS"]);
     seriesFn = (id, field) => `S_${id}_${field}`;
   }
 });
@@ -52217,6 +53063,7 @@ __export(strategy_deployments_exports, {
   listDeployments: () => listDeployments,
   listRunningDeployments: () => listRunningDeployments,
   listStrategyTrades: () => listStrategyTrades,
+  markStrategyTradeBreakeven: () => markStrategyTradeBreakeven,
   openStrategyTrade: () => openStrategyTrade,
   stopDeployment: () => stopDeployment,
   touchDeployment: () => touchDeployment
@@ -52260,6 +53107,7 @@ function ensureTables() {
           exit_reason TEXT
         )`);
       await pool.query(`CREATE INDEX IF NOT EXISTS idx_strategy_deployments_user ON strategy_deployments (user_id, status)`);
+      await pool.query(`ALTER TABLE strategy_trades ADD COLUMN IF NOT EXISTS breakeven_applied BOOLEAN NOT NULL DEFAULT false`);
       await pool.query(`CREATE INDEX IF NOT EXISTS idx_strategy_trades_strategy ON strategy_trades (strategy_id, status)`);
     })().catch((e) => {
       tableReady3 = null;
@@ -52358,6 +53206,10 @@ async function getOpenStrategyTrade(deploymentId) {
     [deploymentId]
   );
   return rows[0] ?? null;
+}
+async function markStrategyTradeBreakeven(id) {
+  await ensureTables();
+  await pool.query(`UPDATE strategy_trades SET breakeven_applied=true WHERE id=$1`, [id]);
 }
 async function closeStrategyTrade(id, exitPrice, pnl, exitReason) {
   await ensureTables();
@@ -65811,6 +66663,22 @@ async function runDeployment(dep) {
       }
     }
     const isLong = String(open.direction).toUpperCase() === "BUY";
+    if (spec.risk.breakevenTriggerPips && !open.breakeven_applied) {
+      const pip = getPipSize(spec.symbol);
+      const entry = Number(open.entry_price);
+      const trig = spec.risk.breakevenTriggerPips * pip;
+      const hit = isLong ? sig.close >= entry + trig : sig.close <= entry - trig;
+      if (hit && entry > 0) {
+        const off = (spec.risk.breakevenOffsetPips ?? 0) * pip;
+        const round5 = (n) => Math.round(n * 1e5) / 1e5;
+        const newStop = round5(isLong ? entry + off : entry - off);
+        const tpDist2 = spec.risk.takeProfitAtrMult && sig.atr ? spec.risk.takeProfitAtrMult * sig.atr : spec.risk.takeProfitPips ? spec.risk.takeProfitPips * pip : null;
+        const newTp = tpDist2 ? round5(isLong ? entry + tpDist2 : entry - tpDist2) : null;
+        const moved = await dispatchBreakeven(dep, open, newStop, newTp);
+        if (moved) await markStrategyTradeBreakeven(open.id).catch(() => {
+        });
+      }
+    }
     const exitNow = isLong ? sig.exitLong : sig.exitShort;
     if (!exitNow) {
       await touchDeployment(dep.id, { error: null });
@@ -66061,6 +66929,70 @@ async function dispatchClose(dep, open) {
         symbol: open.symbol,
         direction: open.direction,
         positionCode: open.platform_ref || void 0
+      });
+      return !!r.success;
+    }
+  } catch {
+    return false;
+  }
+  return false;
+}
+async function dispatchBreakeven(dep, open, newStop, newTp) {
+  try {
+    if (dep.platform === "mt5") {
+      const { broadcastMT5Signal: broadcastMT5Signal2 } = await Promise.resolve().then(() => (init_live_trading_engine(), live_trading_engine_exports));
+      broadcastMT5Signal2(dep.userId, {
+        id: `wiz_be_${dep.id}_${Date.now()}`,
+        timestamp: (/* @__PURE__ */ new Date()).toISOString(),
+        symbol: open.symbol,
+        direction: open.direction,
+        action: "MODIFY",
+        lotSize: 0,
+        entryPrice: null,
+        stopLoss: newStop,
+        takeProfit: newTp,
+        confidence: 100,
+        reason: "Wizard strategy breakeven",
+        holdTime: "",
+        strategy: "wizard_strategy",
+        confluences: [],
+        status: "pending",
+        positionId: null
+      });
+      return true;
+    }
+    if (dep.platform === "tradelocker") {
+      const { storage: storage2 } = await Promise.resolve().then(() => (init_storage(), storage_exports));
+      const { executeMT5SignalOnTradeLocker: executeMT5SignalOnTradeLocker2 } = await Promise.resolve().then(() => (init_tradelocker(), tradelocker_exports));
+      const conns = (await storage2.getUserTradelockerConnections(dep.userId)).filter((c) => c.isActive);
+      const conn = conns.find((c) => c.id === Number(dep.connectionRef));
+      if (!conn) return false;
+      const r = await executeMT5SignalOnTradeLocker2(conn, {
+        action: "MODIFY",
+        symbol: open.symbol,
+        direction: open.direction,
+        volume: 0,
+        positionId: open.platform_ref || void 0,
+        stopLoss: newStop,
+        takeProfit: newTp ?? void 0
+      });
+      return !!r.success;
+    }
+    if (dep.platform === "dxtrade") {
+      const { pool: pool2 } = await Promise.resolve().then(() => (init_db(), db_exports));
+      const { rows } = await pool2.query(
+        `SELECT id, host, username, encrypted_password, domain, account_code FROM dxtrade_connections WHERE id=$1 AND user_id=$2 AND is_active=true`,
+        [Number(dep.connectionRef), dep.userId]
+      );
+      if (!rows.length) return false;
+      const { executeSignalOnDxtrade: executeSignalOnDxtrade2 } = await Promise.resolve().then(() => (init_dxtrade(), dxtrade_exports));
+      const r = await executeSignalOnDxtrade2(rows[0], {
+        action: "MODIFY",
+        symbol: open.symbol,
+        direction: open.direction,
+        positionCode: open.platform_ref || void 0,
+        stopLoss: newStop,
+        takeProfit: newTp ?? void 0
       });
       return !!r.success;
     }
@@ -68481,9 +69413,9 @@ async function getStopOrdersForUser(userId, filters = {}) {
 init_schema();
 
 // server/build-info.ts
-var BUILD_COMMIT = "1f8c29d9-dirty";
-var BUILD_BRANCH = "HEAD";
-var BUILT_AT = "2026-11-06T04:53:18.220Z";
+var BUILD_COMMIT = "130e9bc-dirty";
+var BUILD_BRANCH = "feature/studio-advanced-strategies";
+var BUILT_AT = "2026-11-06T14:00:02.907Z";
 
 // server/stripe.ts
 init_db();
@@ -89371,7 +90303,9 @@ Respond with ONLY valid JSON:
       if (v.spec.entryLong.conditions.length + v.spec.entryShort.conditions.length === 0) {
         return res.status(400).json({ error: "Engine-native strategies run on the FX engine's AI analysis \u2014 there are no fixed rules to compile into an EA. Pick a template, a builder strategy, or an engine strategy with a mechanical approximation." });
       }
-      const { generateSpecMT5EA: generateSpecMT5EA2 } = await Promise.resolve().then(() => (init_spec_ea_generator(), spec_ea_generator_exports));
+      const { generateSpecMT5EA: generateSpecMT5EA2, eaCompileCheck: eaCompileCheck2 } = await Promise.resolve().then(() => (init_spec_ea_generator(), spec_ea_generator_exports));
+      const unsupported = eaCompileCheck2(v.spec);
+      if (unsupported) return res.status(400).json({ error: unsupported });
       const { code, filename, magicNumber } = generateSpecMT5EA2(v.spec);
       if (strategyId > 0) {
         const { recordWizardEa: recordWizardEa2 } = await Promise.resolve().then(() => (init_wizard_spec_strategies(), wizard_spec_strategies_exports));

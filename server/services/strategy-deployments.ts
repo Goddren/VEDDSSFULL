@@ -58,6 +58,7 @@ function ensureTables(): Promise<void> {
           exit_reason TEXT
         )`);
       await pool.query(`CREATE INDEX IF NOT EXISTS idx_strategy_deployments_user ON strategy_deployments (user_id, status)`);
+      await pool.query(`ALTER TABLE strategy_trades ADD COLUMN IF NOT EXISTS breakeven_applied BOOLEAN NOT NULL DEFAULT false`);
       await pool.query(`CREATE INDEX IF NOT EXISTS idx_strategy_trades_strategy ON strategy_trades (strategy_id, status)`);
     })().catch((e) => { tableReady = null; throw e; });
   }
@@ -183,6 +184,11 @@ export async function getOpenStrategyTrade(deploymentId: number): Promise<any | 
     [deploymentId],
   );
   return rows[0] ?? null;
+}
+
+export async function markStrategyTradeBreakeven(id: number): Promise<void> {
+  await ensureTables();
+  await pool.query(`UPDATE strategy_trades SET breakeven_applied=true WHERE id=$1`, [id]);
 }
 
 export async function closeStrategyTrade(id: number, exitPrice: number, pnl: number | null, exitReason: string): Promise<void> {

@@ -20977,7 +20977,9 @@ Respond with ONLY valid JSON:
       if (v.spec.entryLong.conditions.length + v.spec.entryShort.conditions.length === 0) {
         return res.status(400).json({ error: "Engine-native strategies run on the FX engine's AI analysis — there are no fixed rules to compile into an EA. Pick a template, a builder strategy, or an engine strategy with a mechanical approximation." });
       }
-      const { generateSpecMT5EA } = await import('./services/spec-ea-generator');
+      const { generateSpecMT5EA, eaCompileCheck } = await import('./services/spec-ea-generator');
+      const unsupported = eaCompileCheck(v.spec);
+      if (unsupported) return res.status(400).json({ error: unsupported });
       const { code, filename, magicNumber } = generateSpecMT5EA(v.spec);
       if (strategyId > 0) {
         const { recordWizardEa } = await import('./services/wizard-spec-strategies');

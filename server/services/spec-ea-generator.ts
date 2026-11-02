@@ -40,7 +40,31 @@ const BUFFER_INDEX: Record<string, Record<string, number>> = {
   MACD: { value: 0, signal: 1 },
   STOCHASTIC: { k: 0, d: 1, value: 0 },
   BOLLINGER: { middle: 0, upper: 1, lower: 2, value: 0 },
+  ADX: { value: 0, plus: 1, minus: 2 },
+  CCI: { value: 0 },
+  WILLIAMS_R: { value: 0 },
+  ICHIMOKU: { tenkan: 0, kijun: 1, span_a: 2, span_b: 3, value: 1 },
 };
+
+/** Kinds computed from raw rates inside the EA (no MQL5 built-in buffer):
+ *  their series arrays are filled by a compute pass in RefreshSeries. */
+const CUSTOM_COMPUTE = new Set(['VWAP', 'DONCHIAN', 'SUPERTREND', 'PIVOTS']);
+
+/** Features the EA cannot faithfully reproduce — refused, never faked.
+ *  These run in the backtester and the server deployment runner instead. */
+export function eaCompileCheck(spec: StrategySpec): string | null {
+  const hard = spec.indicators.find((i) => ['VOLUME_PROFILE', 'ORB', 'SWINGS', 'FVG', 'ORDER_BLOCK'].includes(i.kind));
+  if (hard) {
+    return `The MT5 EA cannot reproduce ${hard.kind} faithfully (it needs the server's bar-history analysis). This strategy backtests and deploys through the VEDD runner — use Deploy to Account instead of the EA download.`;
+  }
+  if (spec.indicators.some((i) => i.sourceId)) {
+    return 'The MT5 EA cannot reproduce indicator-on-indicator smoothing (sourceId). This strategy backtests and deploys through the VEDD runner.';
+  }
+  if (spec.trendFilter) {
+    return 'The MT5 EA cannot reproduce the multi-timeframe trend filter. This strategy backtests and deploys through the VEDD runner — use Deploy to Account instead of the EA download.';
+  }
+  return null;
+}
 
 interface SeriesRef { id: string; field: string }
 
@@ -75,17 +99,28 @@ function rhsExpr(c: Condition, shift: number): string {
   return valueExpr(c.compare.indicatorId, c.compare.field, shift);
 }
 
-function conditionExpr(c: Condition): string {
-  const L = (s: number) => valueExpr(c.indicatorId, c.field, s);
-  const R = (s: number) => rhsExpr(c, s);
+function conditionExprAt(c: Condition, s: number): string {
+  const L = (sh: number) => valueExpr(c.indicatorId, c.field, sh);
+  const R = (sh: number) => rhsExpr(c, sh);
+  const gap = c.minGapPips ? ` + ${c.minGapPips} * PipSize()` : '';
+  const gapNeg = c.minGapPips ? ` - ${c.minGapPips} * PipSize()` : '';
   switch (c.operator) {
-    case 'above': return `(${L(1)} > ${R(1)})`;
-    case 'below': return `(${L(1)} < ${R(1)})`;
-    case 'crosses_above': return `(${L(2)} <= ${R(2)} && ${L(1)} > ${R(1)})`;
-    case 'crosses_below': return `(${L(2)} >= ${R(2)} && ${L(1)} < ${R(1)})`;
-    case 'rising': return `(${L(1)} > ${L(2)})`;
-    case 'falling': return `(${L(1)} < ${L(2)})`;
+    case 'above': return `(${L(s)} > ${R(s)}${gap})`;
+    case 'below': return `(${L(s)} < ${R(s)}${gapNeg})`;
+    case 'crosses_above': return `(${L(s + 1)} <= ${R(s + 1)} && ${L(s)} > ${R(s)}${gap})`;
+    case 'crosses_below': return `(${L(s + 1)} >= ${R(s + 1)} && ${L(s)} < ${R(s)}${gapNeg})`;
+    case 'rising': return `(${L(s)} > ${L(s + 1)})`;
+    case 'falling': return `(${L(s)} < ${L(s + 1)})`;
+    case 'turns_up': return `(${L(s + 1)} <= ${L(s + 2)} && ${L(s)} > ${L(s + 1)})`;
+    case 'turns_down': return `(${L(s + 1)} >= ${L(s + 2)} && ${L(s)} < ${L(s + 1)})`;
   }
+}
+
+function conditionExpr(c: Condition): string {
+  const sustain = Math.max(1, Math.floor(c.sustainBars ?? 1));
+  const parts: string[] = [];
+  for (let k = 0; k < sustain; k++) parts.push(conditionExprAt(c, 1 + k));
+  return parts.length === 1 ? parts[0] : `(${parts.join(' && ')})`;
 }
 
 function groupExpr(g: ConditionGroup | null | undefined): string | null {
@@ -95,8 +130,16 @@ function groupExpr(g: ConditionGroup | null | undefined): string | null {
 }
 
 export function generateSpecMT5EA(spec: StrategySpec): { code: string; filename: string; magicNumber: number } {
+  const unsupported = eaCompileCheck(spec);
+  if (unsupported) throw new Error(unsupported);
   const magic = deterministicMagic(spec);
   const refs = collectRefs(spec);
+  let maxSustain = 1;
+  const scanSustain = (g: ConditionGroup | null | undefined) => { for (const c of g?.conditions ?? []) maxSustain = Math.max(maxSustain, Math.floor(c.sustainBars ?? 1)); };
+  scanSustain(spec.entryLong); scanSustain(spec.entryShort); scanSustain(spec.exitLong); scanSustain(spec.exitShort);
+  const copyDepth = Math.min(90, 12 + maxSustain);
+  const customInds = spec.indicators.filter((i) => CUSTOM_COMPUTE.has(i.kind));
+  const hasCustom = customInds.length > 0;
   const atrInd = spec.indicators.find((i) => i.kind === 'ATR');
   const useAtrStops = (spec.risk.stopLossAtrMult != null || spec.risk.takeProfitAtrMult != null) && !!atrInd;
   if (useAtrStops && !refs.some((r) => r.id === atrInd!.id && r.field === 'value')) {
@@ -121,6 +164,25 @@ export function generateSpecMT5EA(spec: StrategySpec): { code: string; filename:
 
   for (const ind of spec.indicators) {
     const h = `h_${ind.id}`;
+    if (CUSTOM_COMPUTE.has(ind.kind)) {
+      // The compute pass owns these arrays: declare every field the kind
+      // exposes (the compute writes them all, referenced or not).
+      const fieldsByKind: Record<string, string[]> = {
+        VWAP: ['value'],
+        DONCHIAN: ['upper', 'middle', 'lower', 'value'],
+        SUPERTREND: ['value'],
+        PIVOTS: ['pp', 'r1', 'r2', 's1', 's2', 'value'],
+      };
+      for (const f of fieldsByKind[ind.kind] ?? ['value']) bufferDecls.push(`double g_${ind.id}_${f}[];`);
+      // No built-in handle; SUPERTREND needs an ATR helper handle.
+      if (ind.kind === 'SUPERTREND') {
+        handleDecls.push(`int ${h}_atr = INVALID_HANDLE;`);
+        bufferDecls.push(`double g_${ind.id}_atrbuf[];`);
+        handleInits.push(`   ${h}_atr = iATR(_Symbol, InpTimeframe, ${ind.period ?? 10});\n   if(${h}_atr == INVALID_HANDLE) { Print("VEDD: failed to create SUPERTREND ATR handle"); return INIT_FAILED; }`);
+        copyCalls.push(`   if(CopyBuffer(${h}_atr, 0, 0, 300, g_${ind.id}_atrbuf) < 50) return false;\n   ArraySetAsSeries(g_${ind.id}_atrbuf, true);`);
+      }
+      continue;
+    }
     handleDecls.push(`int ${h} = INVALID_HANDLE;`);
     let init = '';
     switch (ind.kind) {
@@ -131,6 +193,10 @@ export function generateSpecMT5EA(spec: StrategySpec): { code: string; filename:
       case 'MACD': init = `iMACD(_Symbol, InpTimeframe, ${ind.fastPeriod ?? 12}, ${ind.slowPeriod ?? 26}, ${ind.signalPeriod ?? 9}, PRICE_CLOSE)`; break;
       case 'STOCHASTIC': init = `iStochastic(_Symbol, InpTimeframe, ${ind.period ?? 14}, ${ind.signalPeriod ?? 3}, 1, MODE_SMA, STO_LOWHIGH)`; break;
       case 'BOLLINGER': init = `iBands(_Symbol, InpTimeframe, ${ind.period ?? 20}, 0, ${ind.stdDev ?? 2}, PRICE_CLOSE)`; break;
+      case 'ADX': init = `iADX(_Symbol, InpTimeframe, ${ind.period ?? 14})`; break;
+      case 'CCI': init = `iCCI(_Symbol, InpTimeframe, ${ind.period ?? 20}, PRICE_TYPICAL)`; break;
+      case 'WILLIAMS_R': init = `iWPR(_Symbol, InpTimeframe, ${ind.period ?? 14})`; break;
+      case 'ICHIMOKU': init = `iIchimoku(_Symbol, InpTimeframe, ${ind.period ?? 9}, ${ind.fastPeriod ?? 26}, ${ind.slowPeriod ?? 52})`; break;
     }
     handleInits.push(`   ${h} = ${init};\n   if(${h} == INVALID_HANDLE) { Print("VEDD: failed to create ${ind.kind} handle"); return INIT_FAILED; }`);
   }
@@ -139,13 +205,15 @@ export function generateSpecMT5EA(spec: StrategySpec): { code: string; filename:
     const ind = indById.get(ref.id);
     if (!ind) continue;
     const arr = `g_${ref.id}_${ref.field}`;
-    bufferDecls.push(`double ${arr}[];`);
+    if (!CUSTOM_COMPUTE.has(ind.kind)) bufferDecls.push(`double ${arr}[];`);
     if (ind.kind === 'MACD' && ref.field === 'histogram') {
       // histogram = main - signal, computed after both are copied
       copyCalls.push(`   // histogram for ${ref.id} computed below`);
+    } else if (CUSTOM_COMPUTE.has(ind.kind)) {
+      copyCalls.push(`   // ${ref.id}:${ref.field} filled by Compute_${ref.id}() below`);
     } else {
       const bufIdx = BUFFER_INDEX[ind.kind]?.[ref.field] ?? 0;
-      copyCalls.push(`   if(CopyBuffer(h_${ref.id}, ${bufIdx}, 0, 5, ${arr}) < 3) return false;\n   ArraySetAsSeries(${arr}, true);`);
+      copyCalls.push(`   if(CopyBuffer(h_${ref.id}, ${bufIdx}, 0, ${copyDepth}, ${arr}) < 4) return false;\n   ArraySetAsSeries(${arr}, true);`);
     }
     getters.push(`double ${seriesFn(ref.id, ref.field)}(int shift) { return g_${ref.id}_${ref.field}[shift]; }`);
   }
@@ -154,6 +222,88 @@ export function generateSpecMT5EA(spec: StrategySpec): { code: string; filename:
     const mid = refs.find((r) => indById.get(r.id)?.kind === 'MACD' && r.field === 'histogram')!.id;
     return `\n   // MACD histogram = main - signal\n   if(ArraySize(g_${mid}_value) >= 3 && ArraySize(g_${mid}_signal) >= 3) {\n      ArrayResize(g_${mid}_histogram, ArraySize(g_${mid}_value));\n      ArraySetAsSeries(g_${mid}_histogram, true);\n      for(int i = 0; i < ArraySize(g_${mid}_value); i++) g_${mid}_histogram[i] = g_${mid}_value[i] - g_${mid}_signal[i];\n   }`;
   })() : '';
+
+  // Rates-computed series (VWAP / Donchian / Supertrend / Pivots): filled
+  // from the last 300 bars each refresh — same formulas as the backtester.
+  const computeFns: string[] = [];
+  for (const ind of customInds) {
+    if (ind.kind === 'VWAP') {
+      computeFns.push(`void Compute_${ind.id}()
+{
+   int n = ArraySize(g_rates);
+   ArrayResize(g_${ind.id}_value, n); ArraySetAsSeries(g_${ind.id}_value, true);
+   double cumPV = 0, cumV = 0; long day = -1;
+   for(int i = n - 1; i >= 0; i--)
+   {
+      long d = (long)g_rates[i].time / 86400;
+      if(d != day) { day = d; cumPV = 0; cumV = 0; }
+      double tp = (g_rates[i].high + g_rates[i].low + g_rates[i].close) / 3.0;
+      double v = (double)g_rates[i].tick_volume;
+      cumPV += tp * v; cumV += v;
+      g_${ind.id}_value[i] = cumV > 0 ? cumPV / cumV : EMPTY_VALUE;
+   }
+}`);
+    } else if (ind.kind === 'DONCHIAN') {
+      const period = ind.period ?? 20;
+      computeFns.push(`void Compute_${ind.id}()
+{
+   int n = ArraySize(g_rates);
+   ArrayResize(g_${ind.id}_upper, n); ArrayResize(g_${ind.id}_lower, n); ArrayResize(g_${ind.id}_middle, n); ArrayResize(g_${ind.id}_value, n);
+   ArraySetAsSeries(g_${ind.id}_upper, true); ArraySetAsSeries(g_${ind.id}_lower, true); ArraySetAsSeries(g_${ind.id}_middle, true); ArraySetAsSeries(g_${ind.id}_value, true);
+   for(int i = 0; i < n; i++)
+   {
+      if(i + ${period} >= n) { g_${ind.id}_upper[i] = EMPTY_VALUE; g_${ind.id}_lower[i] = EMPTY_VALUE; g_${ind.id}_middle[i] = EMPTY_VALUE; g_${ind.id}_value[i] = EMPTY_VALUE; continue; }
+      double hh = -DBL_MAX, ll = DBL_MAX;
+      for(int k = 1; k <= ${period}; k++) { hh = MathMax(hh, g_rates[i + k].high); ll = MathMin(ll, g_rates[i + k].low); }
+      g_${ind.id}_upper[i] = hh; g_${ind.id}_lower[i] = ll; g_${ind.id}_middle[i] = (hh + ll) / 2.0; g_${ind.id}_value[i] = (hh + ll) / 2.0;
+   }
+}`);
+    } else if (ind.kind === 'PIVOTS') {
+      computeFns.push(`void Compute_${ind.id}()
+{
+   int n = ArraySize(g_rates);
+   ArrayResize(g_${ind.id}_pp, n); ArrayResize(g_${ind.id}_r1, n); ArrayResize(g_${ind.id}_r2, n); ArrayResize(g_${ind.id}_s1, n); ArrayResize(g_${ind.id}_s2, n); ArrayResize(g_${ind.id}_value, n);
+   ArraySetAsSeries(g_${ind.id}_pp, true); ArraySetAsSeries(g_${ind.id}_r1, true); ArraySetAsSeries(g_${ind.id}_r2, true); ArraySetAsSeries(g_${ind.id}_s1, true); ArraySetAsSeries(g_${ind.id}_s2, true); ArraySetAsSeries(g_${ind.id}_value, true);
+   long day = -1; double cH = -DBL_MAX, cL = DBL_MAX, pH = 0, pL = 0, pC = 0; bool have = false;
+   double pp = 0, r1 = 0, r2 = 0, s1 = 0, s2 = 0;
+   for(int i = n - 1; i >= 0; i--)
+   {
+      long d = (long)g_rates[i].time / 86400;
+      if(d != day)
+      {
+         if(day != -1) { pH = cH; pL = cL; pC = g_rates[i + 1].close; double p = (pH + pL + pC) / 3.0; pp = p; r1 = 2*p - pL; s1 = 2*p - pH; r2 = p + (pH - pL); s2 = p - (pH - pL); have = true; }
+         day = d; cH = -DBL_MAX; cL = DBL_MAX;
+      }
+      g_${ind.id}_pp[i] = have ? pp : EMPTY_VALUE; g_${ind.id}_r1[i] = have ? r1 : EMPTY_VALUE; g_${ind.id}_r2[i] = have ? r2 : EMPTY_VALUE; g_${ind.id}_s1[i] = have ? s1 : EMPTY_VALUE; g_${ind.id}_s2[i] = have ? s2 : EMPTY_VALUE; g_${ind.id}_value[i] = g_${ind.id}_pp[i];
+      cH = MathMax(cH, g_rates[i].high); cL = MathMin(cL, g_rates[i].low);
+   }
+}`);
+    } else if (ind.kind === 'SUPERTREND') {
+      const mult = ind.stdDev ?? 3;
+      computeFns.push(`void Compute_${ind.id}()
+{
+   int n = MathMin(ArraySize(g_rates), ArraySize(g_${ind.id}_atrbuf));
+   ArrayResize(g_${ind.id}_value, n); ArraySetAsSeries(g_${ind.id}_value, true);
+   double prevUB = 0, prevLB = 0, prevST = 0, prevClose = 0;
+   for(int i = n - 1; i >= 0; i--)
+   {
+      double a = g_${ind.id}_atrbuf[i];
+      if(a == EMPTY_VALUE || a <= 0) { g_${ind.id}_value[i] = EMPTY_VALUE; continue; }
+      double mid = (g_rates[i].high + g_rates[i].low) / 2.0;
+      double ub = mid + ${mult} * a;
+      double lb = mid - ${mult} * a;
+      if(prevUB != 0) { ub = (ub < prevUB || prevClose > prevUB) ? ub : prevUB; lb = (lb > prevLB || prevClose < prevLB) ? lb : prevLB; }
+      double st;
+      if(prevST == prevUB && prevUB != 0) st = g_rates[i].close <= ub ? ub : lb;
+      else if(prevST == prevLB && prevLB != 0) st = g_rates[i].close >= lb ? lb : ub;
+      else st = g_rates[i].close <= ub ? ub : lb;
+      g_${ind.id}_value[i] = st;
+      prevUB = ub; prevLB = lb; prevST = st; prevClose = g_rates[i].close;
+   }
+}`);
+    }
+  }
+  const computeCalls = customInds.map((i) => `   Compute_${i.id}();`).join('\n');
 
   const entryLongExpr = groupExpr(spec.entryLong);
   const entryShortExpr = groupExpr(spec.entryShort);
@@ -189,6 +339,13 @@ ${useAtrStops ? `input double InpStopLossAtrMult   = ${r.stopLossAtrMult ?? 0}; 
 input double InpTakeProfitAtrMult = ${r.takeProfitAtrMult ?? 0};    // Take profit x ATR (0 = off)` : ''}
 input double InpTrailingStopPips = ${r.trailingStopPips ?? 0};   // Trailing stop in pips (0 = off)
 input int    InpMaxTradesPerDay  = ${r.maxTradesPerDay ?? 0};   // Max entries per day (0 = no cap)
+${r.breakevenTriggerPips ? `input double InpBreakevenTriggerPips = ${r.breakevenTriggerPips};   // Move stop to entry after this profit (pips)
+input double InpBreakevenOffsetPips  = ${r.breakevenOffsetPips ?? 0};   // Breakeven stop offset from entry (pips)` : ''}
+${spec.sessionFilter ? `input group "=== Session Filter (from the spec, UTC) ==="
+input int    InpSessionStartHourUtc = ${spec.sessionFilter.startHourUtc};   // Entries from this UTC hour
+input int    InpSessionEndHourUtc   = ${spec.sessionFilter.endHourUtc};   // Entries until this UTC hour (exclusive)
+input string InpSessionDaysUtc      = "${(spec.sessionFilter.daysUtc && spec.sessionFilter.daysUtc.length ? spec.sessionFilter.daysUtc : [0, 1, 2, 3, 4, 5, 6]).join('')}";   // UTC weekdays allowed (0=Sun)
+input int    InpServerUtcOffsetHours = 0;   // Your broker server's UTC offset (e.g. 2 or 3) so the UTC window lands right` : ''}
 
 input group "=== Execution ==="
 input long   InpMagicNumber     = ${magic};   // Magic number (stable for this strategy)
@@ -199,8 +356,23 @@ ${handleDecls.join('\n')}
 
 //--- Series buffers (index 0 = forming bar, 1 = last closed bar)
 ${bufferDecls.join('\n')}
+${hasCustom ? '\n//--- Raw rates for the rates-computed series (VWAP / Donchian / Supertrend / Pivots)\nMqlRates g_rates[];' : ''}
 
 ${getters.join('\n')}
+${computeFns.length ? `\n//--- Rates-computed series builders\n${computeFns.join('\n\n')}` : ''}
+${spec.sessionFilter ? `
+//+------------------------------------------------------------------+
+//| Session filter from the spec (UTC window; broker offset input)   |
+//+------------------------------------------------------------------+
+bool InSession()
+{
+   datetime utcNow = TimeCurrent() - InpServerUtcOffsetHours * 3600;
+   MqlDateTime dt; TimeToStruct(utcNow, dt);
+   if(StringFind(InpSessionDaysUtc, IntegerToString(dt.day_of_week)) < 0) return false;
+   if(InpSessionEndHourUtc > InpSessionStartHourUtc)
+      return dt.hour >= InpSessionStartHourUtc && dt.hour < InpSessionEndHourUtc;
+   return dt.hour >= InpSessionStartHourUtc || dt.hour < InpSessionEndHourUtc;
+}` : ''}
 
 //+------------------------------------------------------------------+
 //| Pip size — mirrors the VEDD backtester (pipUtils)                |
@@ -228,13 +400,16 @@ ${handleInits.join('\n')}
 
 void OnDeinit(const int reason)
 {
-${spec.indicators.map((i) => `   if(h_${i.id} != INVALID_HANDLE) IndicatorRelease(h_${i.id});`).join('\n')}
+${spec.indicators.filter((i) => !CUSTOM_COMPUTE.has(i.kind)).map((i) => `   if(h_${i.id} != INVALID_HANDLE) IndicatorRelease(h_${i.id});`).join('\n')}
+${spec.indicators.filter((i) => i.kind === 'SUPERTREND').map((i) => `   if(h_${i.id}_atr != INVALID_HANDLE) IndicatorRelease(h_${i.id}_atr);`).join('\n')}
 }
 
 //+------------------------------------------------------------------+
 bool RefreshSeries()
 {
+${hasCustom ? `   if(CopyRates(_Symbol, InpTimeframe, 0, 300, g_rates) < 50) return false;\n   ArraySetAsSeries(g_rates, true);` : ''}
 ${copyCalls.join('\n')}${histogramCode}
+${computeCalls}
    return true;
 }
 
@@ -352,14 +527,40 @@ void ManageTrailing(ulong ticket, long type, double currentSL, double tp)
    }
 }
 
-//+------------------------------------------------------------------+
+${r.breakevenTriggerPips ? `//+------------------------------------------------------------------+
+void ManageBreakeven(ulong ticket, long type, double openPrice, double currentSL, double tp)
+{
+   double trig = InpBreakevenTriggerPips * PipSize();
+   double off = InpBreakevenOffsetPips * PipSize();
+   int digits = (int)SymbolInfoInteger(_Symbol, SYMBOL_DIGITS);
+   if(type == POSITION_TYPE_BUY)
+   {
+      double bid = SymbolInfoDouble(_Symbol, SYMBOL_BID);
+      if(bid - openPrice >= trig)
+      {
+         double cand = NormalizeDouble(openPrice + off, digits);
+         if(cand > currentSL + _Point) ModifySL(ticket, cand, tp);
+      }
+   }
+   else
+   {
+      double ask = SymbolInfoDouble(_Symbol, SYMBOL_ASK);
+      if(openPrice - ask >= trig)
+      {
+         double cand = NormalizeDouble(openPrice - off, digits);
+         if(currentSL == 0 || cand < currentSL - _Point) ModifySL(ticket, cand, tp);
+      }
+   }
+}
+
+` : ''}//+------------------------------------------------------------------+
 void OnTick()
 {
    if(!RefreshSeries()) return;
 
    ulong ticket; long ptype; double openPrice, sl, tp, volume;
    bool havePos = FindMyPosition(ticket, ptype, openPrice, sl, tp, volume);
-   if(havePos) ManageTrailing(ticket, ptype, sl, tp);
+   if(havePos) { ManageTrailing(ticket, ptype, sl, tp);${r.breakevenTriggerPips ? ' ManageBreakeven(ticket, ptype, openPrice, sl, tp);' : ''} }
 
    // Entries and signal-exits evaluate once per new bar (on closed-bar data).
    static datetime lastBarTime = 0;
@@ -376,7 +577,7 @@ void OnTick()
       return;
    }
 
-   if(InpMaxTradesPerDay > 0 && EntriesToday() >= InpMaxTradesPerDay) return;
+${spec.sessionFilter ? '   if(!InSession()) return;\n' : ''}   if(InpMaxTradesPerDay > 0 && EntriesToday() >= InpMaxTradesPerDay) return;
 
    double ask = SymbolInfoDouble(_Symbol, SYMBOL_ASK);
    double bid = SymbolInfoDouble(_Symbol, SYMBOL_BID);
