@@ -29,7 +29,7 @@
  * 30s — right for M15/H1/H4/D1 strategies. Sub-M5 strategies belong on
  * the generated MT5 EA, which ticks inside the terminal.
  */
-import { getWizardStrategy } from './wizard-strategies';
+import { getWizardStrategy } from './wizard-spec-strategies';
 import {
   listRunningDeployments, touchDeployment, openStrategyTrade,
   getOpenStrategyTrade, closeStrategyTrade, type StrategyDeployment,

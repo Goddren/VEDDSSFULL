@@ -16,7 +16,7 @@
  * (MIN_TRADES_TO_LIST) — backtests inform the profile, they are never
  * sold as experience.
  */
-import { getWizardStrategy, recordWizardBrain } from './wizard-strategies';
+import { getWizardStrategy, recordWizardBrain } from './wizard-spec-strategies';
 import { listDeployments, listStrategyTrades } from './strategy-deployments';
 
 export interface StrategyBrainProfile {

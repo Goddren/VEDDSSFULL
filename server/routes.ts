@@ -20792,7 +20792,7 @@ Respond with ONLY valid JSON:
   // always give the same result, unlike the legacy engine backtest below.
   const wizardTfMap: Record<string, string> = { M1: '1min', M5: '5min', M15: '15min', M30: '30min', H1: '1h', H4: '4h', D1: '1day' };
 
-  app.post("/api/strategy-wizard/backtest", async (req: Request, res: Response) => {
+  app.post("/api/strategy-wizard/spec-backtest", async (req: Request, res: Response) => {
     if (!req.isAuthenticated()) return res.status(401).json({ error: "Authentication required" });
     const userId = (req.user as User).id;
     try {
@@ -20849,7 +20849,7 @@ Respond with ONLY valid JSON:
       // data points are the raw material the strategy's brain is built from.
       const strategyId = Number(req.body?.strategyId ?? 0);
       if (strategyId > 0) {
-        const { recordWizardBacktest, getWizardStrategy } = await import('./services/wizard-strategies');
+        const { recordWizardBacktest, getWizardStrategy } = await import('./services/wizard-spec-strategies');
         if (await getWizardStrategy(userId, strategyId)) {
           await recordWizardBacktest(userId, strategyId, {
             stats: result.stats, dataPoints: result.dataPoints,
@@ -20887,7 +20887,7 @@ Respond with ONLY valid JSON:
       let specRaw = req.body?.spec;
       const strategyId = Number(req.body?.strategyId ?? 0);
       if (!specRaw && strategyId > 0) {
-        const { getWizardStrategy } = await import('./services/wizard-strategies');
+        const { getWizardStrategy } = await import('./services/wizard-spec-strategies');
         const saved = await getWizardStrategy(userId, strategyId);
         if (!saved) return res.status(404).json({ error: "Strategy not found" });
         specRaw = saved.spec;
@@ -20900,7 +20900,7 @@ Respond with ONLY valid JSON:
       const { generateSpecMT5EA } = await import('./services/spec-ea-generator');
       const { code, filename, magicNumber } = generateSpecMT5EA(v.spec);
       if (strategyId > 0) {
-        const { recordWizardEa } = await import('./services/wizard-strategies');
+        const { recordWizardEa } = await import('./services/wizard-spec-strategies');
         await recordWizardEa(userId, strategyId, code).catch(() => false);
       }
       return res.json({ success: true, code, filename, magicNumber });
@@ -20965,7 +20965,7 @@ Respond with ONLY valid JSON:
       if (!strategyId || !['mt5', 'tradelocker', 'dxtrade'].includes(platform) || !connectionRef) {
         return res.status(400).json({ error: 'strategyId, platform (mt5|tradelocker|dxtrade) and connectionRef are required' });
       }
-      const { getWizardStrategy } = await import('./services/wizard-strategies');
+      const { getWizardStrategy } = await import('./services/wizard-spec-strategies');
       const strat = await getWizardStrategy(userId, strategyId);
       if (!strat) return res.status(404).json({ error: 'strategy not found' });
       const spec: any = strat.spec;
@@ -21025,7 +21025,7 @@ Respond with ONLY valid JSON:
   });
 
   // (Re)build the strategy brain from backtest + live data points.
-  app.post("/api/strategy-wizard/strategies/:id/brain", async (req: Request, res: Response) => {
+  app.post("/api/strategy-wizard/spec-strategies/:id/brain", async (req: Request, res: Response) => {
     if (!req.isAuthenticated()) return res.status(401).json({ error: "Authentication required" });
     const userId = (req.user as User).id;
     const { buildStrategyBrain } = await import('./services/strategy-brain');
@@ -21039,12 +21039,12 @@ Respond with ONLY valid JSON:
   // shape: symbol/confirmedAt/tradeOutcome) — backtest data informs the
   // brain profile but is never sold as experience. Same minimums as
   // every other brain listing (MIN_TRADES_TO_LIST live trades).
-  app.post("/api/strategy-wizard/strategies/:id/list-brain", async (req: Request, res: Response) => {
+  app.post("/api/strategy-wizard/spec-strategies/:id/list-brain", async (req: Request, res: Response) => {
     if (!req.isAuthenticated()) return res.status(401).json({ error: "Authentication required" });
     const userId = (req.user as User).id;
     try {
       const strategyId = Number(req.params.id);
-      const { getWizardStrategy, recordWizardBrain } = await import('./services/wizard-strategies');
+      const { getWizardStrategy, recordWizardBrain } = await import('./services/wizard-spec-strategies');
       const strat = await getWizardStrategy(userId, strategyId);
       if (!strat) return res.status(404).json({ error: 'strategy not found' });
       const { buildStrategyBrain } = await import('./services/strategy-brain');
@@ -21102,44 +21102,44 @@ Respond with ONLY valid JSON:
     }
   });
 
-  app.get("/api/strategy-wizard/strategies", async (req: Request, res: Response) => {
+  app.get("/api/strategy-wizard/spec-strategies", async (req: Request, res: Response) => {
     if (!req.isAuthenticated()) return res.status(401).json({ error: "Authentication required" });
-    const { listWizardStrategies } = await import('./services/wizard-strategies');
+    const { listWizardStrategies } = await import('./services/wizard-spec-strategies');
     return res.json({ strategies: await listWizardStrategies((req.user as User).id) });
   });
 
-  app.post("/api/strategy-wizard/strategies", async (req: Request, res: Response) => {
+  app.post("/api/strategy-wizard/spec-strategies", async (req: Request, res: Response) => {
     if (!req.isAuthenticated()) return res.status(401).json({ error: "Authentication required" });
     const { validateStrategySpec } = await import('./services/strategy-spec');
     const v = validateStrategySpec(req.body?.spec);
     if (!v.ok) return res.status(400).json({ error: v.error });
-    const { createWizardStrategy } = await import('./services/wizard-strategies');
+    const { createWizardStrategy } = await import('./services/wizard-spec-strategies');
     const created = await createWizardStrategy((req.user as User).id, v.spec);
     return res.status(201).json({ strategy: created });
   });
 
-  app.get("/api/strategy-wizard/strategies/:id", async (req: Request, res: Response) => {
+  app.get("/api/strategy-wizard/spec-strategies/:id", async (req: Request, res: Response) => {
     if (!req.isAuthenticated()) return res.status(401).json({ error: "Authentication required" });
-    const { getWizardStrategy } = await import('./services/wizard-strategies');
+    const { getWizardStrategy } = await import('./services/wizard-spec-strategies');
     const found = await getWizardStrategy((req.user as User).id, Number(req.params.id));
     if (!found) return res.status(404).json({ error: "Strategy not found" });
     return res.json({ strategy: found });
   });
 
-  app.put("/api/strategy-wizard/strategies/:id", async (req: Request, res: Response) => {
+  app.put("/api/strategy-wizard/spec-strategies/:id", async (req: Request, res: Response) => {
     if (!req.isAuthenticated()) return res.status(401).json({ error: "Authentication required" });
     const { validateStrategySpec } = await import('./services/strategy-spec');
     const v = validateStrategySpec(req.body?.spec);
     if (!v.ok) return res.status(400).json({ error: v.error });
-    const { updateWizardStrategySpec } = await import('./services/wizard-strategies');
+    const { updateWizardStrategySpec } = await import('./services/wizard-spec-strategies');
     const updated = await updateWizardStrategySpec((req.user as User).id, Number(req.params.id), v.spec);
     if (!updated) return res.status(404).json({ error: "Strategy not found" });
     return res.json({ strategy: updated });
   });
 
-  app.delete("/api/strategy-wizard/strategies/:id", async (req: Request, res: Response) => {
+  app.delete("/api/strategy-wizard/spec-strategies/:id", async (req: Request, res: Response) => {
     if (!req.isAuthenticated()) return res.status(401).json({ error: "Authentication required" });
-    const { deleteWizardStrategy } = await import('./services/wizard-strategies');
+    const { deleteWizardStrategy } = await import('./services/wizard-spec-strategies');
     const ok = await deleteWizardStrategy((req.user as User).id, Number(req.params.id));
     if (!ok) return res.status(404).json({ error: "Strategy not found" });
     return res.json({ success: true });

@@ -14,7 +14,7 @@
  *    here is the tracking/brain binding for the chosen account, and the
  *    UI says so plainly rather than pretending to re-route the engine.
  *
- * Lazy table creation, same pattern as wizard-strategies.ts.
+ * Lazy table creation, same pattern as wizard-spec-strategies.ts.
  */
 import { pool } from '../db';
 

@@ -817,7 +817,7 @@ function getCategoryIcon(category: string) {
   }
 }
 
-export default function StrategyWizard() {
+export default function StrategyStudio() {
   const [currentStep, setCurrentStep] = useState<WizardStep>('select');
   const [selectedStrategy, setSelectedStrategy] = useState<TradingStrategy | null>(null);
   const [customizedStrategy, setCustomizedStrategy] = useState<TradingStrategy | null>(null);
@@ -943,7 +943,7 @@ export default function StrategyWizard() {
     setIsLoading(true);
     setBtError(null);
     try {
-      const res = await apiRequest('POST', '/api/strategy-wizard/backtest', {
+      const res = await apiRequest('POST', '/api/strategy-wizard/spec-backtest', {
         spec,
         strategyId: savedId ?? undefined,
         initialCapital: btCapital,
@@ -973,11 +973,11 @@ export default function StrategyWizard() {
     setIsSaving(true);
     try {
       if (savedId) {
-        const res = await apiRequest('PUT', `/api/strategy-wizard/strategies/${savedId}`, { spec });
+        const res = await apiRequest('PUT', `/api/strategy-wizard/spec-strategies/${savedId}`, { spec });
         if (!res.ok) { const d = await res.json().catch(() => ({})); throw new Error(d?.error || 'Save failed'); }
         toast({ title: 'Strategy updated', description: 'Your saved strategy now matches these rules.' });
       } else {
-        const res = await apiRequest('POST', '/api/strategy-wizard/strategies', { spec });
+        const res = await apiRequest('POST', '/api/strategy-wizard/spec-strategies', { spec });
         const data = await res.json().catch(() => ({}));
         if (!res.ok) throw new Error(data?.error || 'Save failed');
         setSavedId(data.strategy.id);
@@ -1049,7 +1049,7 @@ export default function StrategyWizard() {
       const [accRes, depRes, stratRes] = await Promise.all([
         apiRequest('GET', '/api/strategy-wizard/accounts'),
         apiRequest('GET', `/api/strategy-wizard/deployments?strategyId=${sid}`),
-        apiRequest('GET', '/api/strategy-wizard/strategies'),
+        apiRequest('GET', '/api/strategy-wizard/spec-strategies'),
       ]);
       const acc = await accRes.json().catch(() => ({}));
       const dep = await depRes.json().catch(() => ({}));
@@ -1111,7 +1111,7 @@ export default function StrategyWizard() {
     if (!savedId) return;
     setBrainBusy(true);
     try {
-      const res = await apiRequest('POST', `/api/strategy-wizard/strategies/${savedId}/brain`);
+      const res = await apiRequest('POST', `/api/strategy-wizard/spec-strategies/${savedId}/brain`);
       const data = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(data?.error || 'Brain build failed');
       setBrainProfile(data.brain);
@@ -1127,7 +1127,7 @@ export default function StrategyWizard() {
     if (!savedId) return;
     setBrainBusy(true);
     try {
-      const res = await apiRequest('POST', `/api/strategy-wizard/strategies/${savedId}/list-brain`, {});
+      const res = await apiRequest('POST', `/api/strategy-wizard/spec-strategies/${savedId}/list-brain`, {});
       const data = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(data?.error || 'Listing failed');
       setListedBrain(true);
@@ -1172,6 +1172,11 @@ export default function StrategyWizard() {
       case 'select':
         return (
           <div className="space-y-6">
+            <p className="text-sm text-muted-foreground">
+              This is the <span className="font-medium text-foreground">Strategy Studio</span> — custom indicator rules, real backtests, MT5 EAs, live deployment and strategy brains.
+              Looking for the pattern templates with paper testing?{' '}
+              <a href="/strategy-wizard" className="underline underline-offset-2">Open the Strategy Wizard</a>.
+            </p>
             {/* Build your own */}
             <Card className="border-indigo-500/40 bg-gradient-to-r from-indigo-500/10 to-transparent">
               <CardContent className="pt-6 flex flex-col md:flex-row md:items-center gap-4">
