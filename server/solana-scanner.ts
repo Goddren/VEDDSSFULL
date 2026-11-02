@@ -9,10 +9,14 @@ export interface SolanaToken {
   name: string;
   priceUsd: string;
   priceChange24h: number;
+  /** % price change over the last hour — the Pump Scalp 60 hot-window signal. */
+  priceChange1h: number;
   volume24h: number;
   liquidity: number;
   fdv: number;
   txns24h: { buys: number; sells: number };
+  /** Buys/sells inside the last hour (buy-pressure check for hot windows). */
+  txnsH1: { buys: number; sells: number };
   makers24h: number;
   pairAddress: string;
   dexId: string;
@@ -123,12 +127,17 @@ function mapPairToToken(pair: any): SolanaToken {
     name: pair.baseToken?.name || 'Unknown Token',
     priceUsd: pair.priceUsd || '0',
     priceChange24h: pair.priceChange?.h24 || 0,
+    priceChange1h: pair.priceChange?.h1 || 0,
     volume24h: pair.volume?.h24 || 0,
     liquidity: pair.liquidity?.usd || 0,
     fdv: pair.fdv || 0,
     txns24h: {
       buys: pair.txns?.h24?.buys || 0,
       sells: pair.txns?.h24?.sells || 0
+    },
+    txnsH1: {
+      buys: pair.txns?.h1?.buys || 0,
+      sells: pair.txns?.h1?.sells || 0
     },
     makers24h: pair.info?.makers24h || pair.txns?.h24?.m || (pair.txns?.h24?.buys || 0) + (pair.txns?.h24?.sells || 0),
     pairAddress: pair.pairAddress || '',

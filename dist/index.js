@@ -36123,12 +36123,17 @@ function mapPairToToken(pair) {
     name: pair.baseToken?.name || "Unknown Token",
     priceUsd: pair.priceUsd || "0",
     priceChange24h: pair.priceChange?.h24 || 0,
+    priceChange1h: pair.priceChange?.h1 || 0,
     volume24h: pair.volume?.h24 || 0,
     liquidity: pair.liquidity?.usd || 0,
     fdv: pair.fdv || 0,
     txns24h: {
       buys: pair.txns?.h24?.buys || 0,
       sells: pair.txns?.h24?.sells || 0
+    },
+    txnsH1: {
+      buys: pair.txns?.h1?.buys || 0,
+      sells: pair.txns?.h1?.sells || 0
     },
     makers24h: pair.info?.makers24h || pair.txns?.h24?.m || (pair.txns?.h24?.buys || 0) + (pair.txns?.h24?.sells || 0),
     pairAddress: pair.pairAddress || "",
@@ -36703,18 +36708,23 @@ var init_weekend_boost = __esm({
 // server/services/sol-engine.ts
 var sol_engine_exports = {};
 __export(sol_engine_exports, {
+  PUMP_SCALP_MIN_BUY_RATIO: () => PUMP_SCALP_MIN_BUY_RATIO,
+  PUMP_SCALP_MIN_GAIN_1H_PCT: () => PUMP_SCALP_MIN_GAIN_1H_PCT,
+  PUMP_SCALP_MIN_LIQ_USD: () => PUMP_SCALP_MIN_LIQ_USD,
   SOL_PAPER_MAX_SOL: () => SOL_PAPER_MAX_SOL,
   SOL_STRATEGIES: () => SOL_STRATEGIES,
   cancelSignal: () => cancelSignal,
   clearServerWallet: () => clearServerWallet,
   confirmLiveExit: () => confirmLiveExit,
   confirmLiveTrade: () => confirmLiveTrade,
+  effectiveMaxHoldMs: () => effectiveMaxHoldMs,
   getAutoTradePositions: () => getAutoTradePositions,
   getPendingExits: () => getPendingExits,
   getPendingSignals: () => getPendingSignals,
   getServerWalletStatus: () => getServerWalletStatus,
   getSolEngineStatus: () => getSolEngineStatus,
   getSolStrategies: () => getSolStrategies,
+  passesPumpScalpGate: () => passesPumpScalpGate,
   recordSolSignalResult: () => recordSolSignalResult,
   resetSolWeeklyGoal: () => resetSolWeeklyGoal,
   saveServerWallet: () => saveServerWallet,
@@ -37226,6 +37236,7 @@ async function executeServerSideBuy(userId, signal, state) {
       tokenAmount,
       decimals,
       strategyId: signal.strategyId,
+      maxHoldMinutes: signal.maxHoldMinutes,
       mode: "live",
       txHash: signature,
       openedAt: (/* @__PURE__ */ new Date()).toISOString(),
@@ -37253,6 +37264,27 @@ async function executeServerSideBuy(userId, signal, state) {
     return false;
   }
 }
+function passesPumpScalpGate(token) {
+  if (token.dexSource !== "pumpfun") return false;
+  if ((token.priceChange1h ?? 0) < PUMP_SCALP_MIN_GAIN_1H_PCT) return false;
+  if ((token.liquidity ?? 0) < PUMP_SCALP_MIN_LIQ_USD) return false;
+  const h1Total = (token.txnsH1?.buys ?? 0) + (token.txnsH1?.sells ?? 0);
+  if (h1Total >= 10) {
+    return token.txnsH1.buys / h1Total > PUMP_SCALP_MIN_BUY_RATIO;
+  }
+  const total = token.txns24h.buys + token.txns24h.sells;
+  return total > 0 ? token.txns24h.buys / total > PUMP_SCALP_MIN_BUY_RATIO : false;
+}
+function effectiveMaxHoldMs(pos) {
+  const strat = SOL_STRATEGIES.find((s) => s.id === pos.strategyId);
+  const stamped = pos.maxHoldMinutes && pos.maxHoldMinutes > 0 ? pos.maxHoldMinutes : void 0;
+  const minutes = stamped ?? strat?.maxHoldMinutes;
+  if (minutes && minutes > 0) {
+    const stratMs = minutes * 60 * 1e3;
+    if (stratMs < SOL_MAX_HOLD_MS) return { ms: stratMs, label: `${strat?.name ?? "Strategy"} ${minutes}-min window` };
+  }
+  return { ms: SOL_MAX_HOLD_MS, label: `${SOL_MAX_HOLD_HOURS}h max-hold` };
+}
 function passesStrategyFilter(analysis, strategy) {
   const token = analysis.token;
   const totalTxns = token.txns24h.buys + token.txns24h.sells;
@@ -37270,6 +37302,8 @@ function passesStrategyFilter(analysis, strategy) {
       return priceChg >= -40 && priceChg <= -4 && buyRatio > 0.62;
     case "meme_velocity":
       return priceChg >= 20 && token.volume24h >= 15e3;
+    case "pump_scalp_60":
+      return passesPumpScalpGate(token);
     case "volume_explosion":
       return token.volume24h >= 25e4 && buyRatio > 0.52;
     case "smart_money_flow":
@@ -37332,6 +37366,8 @@ function getStrategyEntryContext(strategyId) {
       return "ENTRY FILTER: price DOWN 4\u201340% in 24h BUT buy ratio >62% (smart accumulation against the trend). Counter-trend entry \u2014 requires clear accumulation signal in the dip.";
     case "meme_velocity":
       return "ENTRY FILTER: price up >20%, Pump.fun preferred, high velocity short-lived pump. Quick in-out (10\u201315 min). Accept HIGH risk. Prioritise momentum and exit speed.";
+    case "pump_scalp_60":
+      return "ENTRY FILTER: Pump.fun tokens ONLY, up \u226540% in the LAST HOUR (not 24h), last-hour buys dominating sells, liquidity \u2265$10K. This mirrors what top pump.fun wallets ride. HARD EXIT at 60 minutes regardless of P&L \u2014 pump-and-dump names are never held. Accept HIGH risk; speed over everything.";
     case "volume_explosion":
       return "ENTRY FILTER: 24h volume >$250K (institutional or viral event), buy ratio >52%. Volume is the primary signal \u2014 price direction secondary.";
     case "smart_money_flow":
@@ -37726,7 +37762,9 @@ async function monitorPaperPositions(userId, state) {
     if (m && !(priceMap[m] > 0)) priceMap[m] = parseFloat(r.token.priceUsd) || 0;
   }
   for (const pos of openPositions) {
-    const currentPrice = priceMap[pos.mint];
+    const effHoldP = effectiveMaxHoldMs(pos);
+    const isMaxHold = Date.now() - new Date(pos.openedAt).getTime() > effHoldP.ms;
+    const currentPrice = priceMap[pos.mint] || (isMaxHold ? pos.currentPrice : 0);
     if (!currentPrice || currentPrice <= 0) continue;
     if (isBadPriceSample(currentPrice, pos.currentPrice > 0 ? pos.currentPrice : pos.entryPrice)) {
       addActivity2(state, { type: "info", message: `\u26A0\uFE0F ${pos.symbol}: bad price sample ignored ($${currentPrice} vs $${pos.currentPrice > 0 ? pos.currentPrice : pos.entryPrice}) \u2014 skipping this cycle` });
@@ -37767,8 +37805,8 @@ async function monitorPaperPositions(userId, state) {
     }
     const isWin = gainPct >= pos.targetPct;
     const isLoss = gainPct <= -pos.slPct;
-    if (isWin || isLoss || isTrailHit) {
-      const reason = isTrailHit ? "trail" : isWin ? "tp" : "sl";
+    if (isWin || isLoss || isTrailHit || isMaxHold) {
+      const reason = isMaxHold ? "max_hold" : isTrailHit ? "trail" : isWin ? "tp" : "sl";
       pos.status = "closed";
       pos.closedAt = (/* @__PURE__ */ new Date()).toISOString();
       pos.closePnlPct = gainPct;
@@ -37813,11 +37851,11 @@ async function monitorPaperPositions(userId, state) {
           message: `\u{1F4B9} Compound update: ${compoundedPnl >= 0 ? "+" : ""}${compoundedPnl.toFixed(4)} SOL ${state.compoundRate < 100 ? `(${state.compoundRate}% reinvested)` : "fully reinvested"} \u2192 pool now ${state.paperPortfolioValue.toFixed(4)} SOL (${growthPct >= 0 ? "+" : ""}${growthPct.toFixed(1)}% from base)`
         });
       }
-      const emoji = isTrailHit ? "\u{1F512}" : isWin ? "\u2705" : "\u274C";
-      const label = isTrailHit ? `TRAIL EXIT` : isWin ? "WIN" : "LOSS";
+      const emoji = isMaxHold ? "\u23F1\uFE0F" : isTrailHit ? "\u{1F512}" : isWin ? "\u2705" : "\u274C";
+      const label = isMaxHold ? `TIME EXIT` : isTrailHit ? `TRAIL EXIT` : isWin ? "WIN" : "LOSS";
       addActivity2(state, {
         type: "paper_sell",
-        message: `${emoji} Paper ${label}: ${pos.symbol} closed @ $${currentPrice.toFixed(6)} \u2014 ${gainPct >= 0 ? "+" : ""}${gainPct.toFixed(2)}% | ${pos.size.toFixed(3)} SOL ${isTrailHit ? "(trailing stop hit)" : isWin ? "profit sealed" : "lesson built"}`
+        message: `${emoji} Paper ${label}: ${pos.symbol} closed @ $${currentPrice.toFixed(6)} \u2014 ${gainPct >= 0 ? "+" : ""}${gainPct.toFixed(2)}% | ${pos.size.toFixed(3)} SOL ${isMaxHold ? `(${effHoldP.label} over \u2014 out per strategy)` : isTrailHit ? "(trailing stop hit)" : isWin ? "profit sealed" : "lesson built"}`
       });
       const dexKeyClose = (pos.dex || "unknown").toLowerCase().replace(/[^a-z]/g, "") || "unknown";
       if (!state.signalWeights[dexKeyClose]) state.signalWeights[dexKeyClose] = 1;
@@ -37871,12 +37909,13 @@ async function monitorLivePositions(userId, state) {
   }
   for (const pos of openPositions) {
     const ageMs = Date.now() - new Date(pos.openedAt).getTime();
-    if (ageMs > SOL_MAX_HOLD_MS) {
+    const effHold = effectiveMaxHoldMs(pos);
+    if (ageMs > effHold.ms) {
       const alreadyQueuedMH = state.pendingExits.some((e) => e.positionId === pos.id);
       if (!alreadyQueuedMH) {
         addActivity2(state, {
           type: "live_sell",
-          message: `\u23F1\uFE0F Max-hold reached: ${pos.symbol} held ${(ageMs / 36e5).toFixed(1)}h (limit ${SOL_MAX_HOLD_HOURS}h) \u2014 forcing exit`
+          message: `\u23F1\uFE0F Max-hold reached: ${pos.symbol} held ${(ageMs / 6e4).toFixed(0)}min (${effHold.label}) \u2014 forcing exit`
         });
         const forcedSold = await executeServerSideSell(userId, pos, "sl", state);
         if (!forcedSold) {
@@ -38099,7 +38138,9 @@ async function runScan(userId, state, triggerToken) {
       if (dirFilter === "buy_only" && !isBuySignal) continue;
       if (dirFilter === "sell_only" && !isSellSignal) continue;
       if ((analysis.signal === "STRONG_BUY" || analysis.signal === "BUY") && canEnterTrade) {
-        if (analysis.token.priceChange24h > 80) {
+        const pumpScalpArmed = state.activeStrategy === "pump_scalp_60" || state.activeStrategies.includes("pump_scalp_60");
+        const waiveOverextension = pumpScalpArmed && passesPumpScalpGate(analysis.token);
+        if (analysis.token.priceChange24h > 80 && !waiveOverextension) {
           addActivity2(state, {
             type: "info",
             message: `\u26D4 Overextended: ${analysis.token.symbol} skipped \u2014 already +${analysis.token.priceChange24h.toFixed(0)}% in 24h (>80% = likely top)`
@@ -38152,6 +38193,8 @@ async function runScan(userId, state, triggerToken) {
             message: `\u{1F3AF} Multi-Strategy Confirmed: ${analysis.token.symbol} \u2014 ${names} all in agreement. Knowledge multiplied.`
           });
         }
+        const stratCaps = confirmingStrats.map((s) => s.maxHoldMinutes).filter((m) => !!m && m > 0);
+        const tightestMaxHold = stratCaps.length ? Math.min(...stratCaps) : void 0;
         const bestStrat = confirmingStrats.sort((a, b) => b.baseFraction - a.baseFraction)[0];
         const paperAutoSize = computeAutoSolSize(state, dexKey, bestStrat, "paper");
         const liveAutoSize = computeAutoSolSize(state, dexKey, bestStrat, "live");
@@ -38193,6 +38236,7 @@ async function runScan(userId, state, triggerToken) {
               tokenAmount: 0,
               decimals: 9,
               strategyId: topStrat.id,
+              maxHoldMinutes: tightestMaxHold,
               dex: dexKey,
               mode: "paper",
               openedAt: now2,
@@ -38259,6 +38303,7 @@ async function runScan(userId, state, triggerToken) {
               price: tokenPrice,
               sizeSOL: liveSizeSOL,
               strategyId: topStrat.id,
+              maxHoldMinutes: tightestMaxHold,
               createdAt: created.toISOString(),
               expiresAt: expires.toISOString(),
               // Carried through to the live SolAutoPosition once confirmed
@@ -38778,6 +38823,7 @@ function confirmLiveTrade(userId, signalId, txHash, tradeData) {
     tokenAmount: tradeData?.tokenAmount || 0,
     decimals: tradeData?.decimals || 9,
     strategyId: signal?.strategyId || state.activeStrategy,
+    maxHoldMinutes: signal?.maxHoldMinutes,
     mode: "live",
     txHash,
     openedAt: (/* @__PURE__ */ new Date()).toISOString(),
@@ -38991,7 +39037,7 @@ async function getServerWalletStatus(userId) {
     return { hasServerWallet: false };
   }
 }
-var SOL_BRAIN_ENABLED, SOL_BRAIN_GATING, SOL_CONFLUENCE_REQUIRED, SOL_COMPOSITE_FLOOR, SOL_CONFLUENCE_BONUS, SOL_MAX_HOLD_HOURS, SOL_MAX_HOLD_MS, MAX_PRICE_SPIKE, DEX_NAMES, SOL_STRATEGIES, DEFAULT_CONFIG, DEFAULT_WEEKLY_GOAL, engineStates2, startingSolUsers, PAPER_DEFAULT_PORTFOLIO_SOL, SOL_PAPER_MAX_SOL;
+var SOL_BRAIN_ENABLED, SOL_BRAIN_GATING, SOL_CONFLUENCE_REQUIRED, SOL_COMPOSITE_FLOOR, SOL_CONFLUENCE_BONUS, SOL_MAX_HOLD_HOURS, SOL_MAX_HOLD_MS, MAX_PRICE_SPIKE, DEX_NAMES, SOL_STRATEGIES, DEFAULT_CONFIG, DEFAULT_WEEKLY_GOAL, engineStates2, startingSolUsers, PUMP_SCALP_MIN_GAIN_1H_PCT, PUMP_SCALP_MIN_LIQ_USD, PUMP_SCALP_MIN_BUY_RATIO, PAPER_DEFAULT_PORTFOLIO_SOL, SOL_PAPER_MAX_SOL;
 var init_sol_engine = __esm({
   "server/services/sol-engine.ts"() {
     "use strict";
@@ -39054,6 +39100,19 @@ var init_sol_engine = __esm({
         minSignal: "BUY",
         holdTarget: "10\u201315min",
         dexPreference: "pumpfun"
+      },
+      {
+        id: "pump_scalp_60",
+        name: "Pump Scalp 60",
+        icon: "\u23F1\uFE0F",
+        description: "The top pump.fun traders' playbook, as a strategy: only enters a pump.fun token that is exploding \u2014 up 40%+ within the last hour with buyers dominating \u2014 and is OUT within 60 minutes no matter what. Pump.fun is pump-and-dump: get in fast, get out fast, never hold.",
+        minConfidence: 60,
+        maxRisk: "HIGH",
+        baseFraction: 0.03,
+        minSignal: "BUY",
+        holdTarget: "\u226460min",
+        dexPreference: "pumpfun",
+        maxHoldMinutes: 60
       },
       {
         id: "whale_follower",
@@ -39159,6 +39218,9 @@ var init_sol_engine = __esm({
     };
     engineStates2 = /* @__PURE__ */ new Map();
     startingSolUsers = /* @__PURE__ */ new Set();
+    PUMP_SCALP_MIN_GAIN_1H_PCT = Number(process.env.PUMP_SCALP_MIN_GAIN_1H_PCT ?? 40);
+    PUMP_SCALP_MIN_LIQ_USD = Number(process.env.PUMP_SCALP_MIN_LIQ_USD ?? 1e4);
+    PUMP_SCALP_MIN_BUY_RATIO = Number(process.env.PUMP_SCALP_MIN_BUY_RATIO ?? 0.55);
     PAPER_DEFAULT_PORTFOLIO_SOL = 10;
     SOL_PAPER_MAX_SOL = Number(process.env.SOL_PAPER_MAX_SOL ?? 1e3);
   }
@@ -67703,9 +67765,9 @@ async function getStopOrdersForUser(userId, filters = {}) {
 init_schema();
 
 // server/build-info.ts
-var BUILD_COMMIT = "dbf3b79-dirty";
-var BUILD_BRANCH = "feature/studio-menu-entry";
-var BUILT_AT = "2026-11-02T05:36:43.786Z";
+var BUILD_COMMIT = "301679b-dirty";
+var BUILD_BRANCH = "feature/sol-pump-scalp-60";
+var BUILT_AT = "2026-11-02T19:42:40.906Z";
 
 // server/stripe.ts
 init_db();

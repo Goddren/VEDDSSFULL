@@ -73,6 +73,10 @@ export interface SolAutoPosition {
   tokenAmount: number;
   decimals: number;
   strategyId: string;
+  /** Tightest strategy time-stop (minutes) among the strategies that
+   *  confirmed this entry — e.g. Pump Scalp 60 stamps 60. The monitors
+   *  force-exit when it elapses. Falls back to the strategy lookup. */
+  maxHoldMinutes?: number;
   mode: 'paper' | 'live';
   txHash?: string;
   openedAt: string;
@@ -85,7 +89,7 @@ export interface SolAutoPosition {
   breakevenActive?: boolean;
   trailActivationPct?: number;
   trailDistancePct?: number;
-  closeReason?: 'tp' | 'sl' | 'trail' | 'abandoned';
+  closeReason?: 'tp' | 'sl' | 'trail' | 'abandoned' | 'max_hold';
   exitReason?: string;       // distinct terminal reason (e.g. 'abandoned_sell_failed')
   entryVolume24h?: number;
   stopLossPrice?: number;    // absolute price-level stop order (when stopOrdersEnabled)
@@ -112,6 +116,7 @@ export interface SolPendingSignal {
   stopLossPrice?: number;    // absolute price stop order
   takeProfitPrice?: number;  // absolute price TP order
   dex?: string;              // carried onto the live SolAutoPosition on confirm
+  maxHoldMinutes?: number;   // tightest confirming-strategy time stop, carried onto the position
 }
 
 export interface SolPendingExit {
@@ -136,6 +141,10 @@ export interface SolStrategy {
   minSignal: 'BUY' | 'STRONG_BUY';
   holdTarget: string;
   dexPreference?: string;
+  /** Hard per-strategy time stop: positions opened under this strategy are
+   *  force-exited after this many minutes, regardless of TP/SL. The global
+   *  SOL_MAX_HOLD still applies as an outer bound. */
+  maxHoldMinutes?: number;
 }
 
 export interface SolWeeklyGoal {
@@ -269,6 +278,19 @@ export const SOL_STRATEGIES: SolStrategy[] = [
     minSignal: 'BUY',
     holdTarget: '10–15min',
     dexPreference: 'pumpfun',
+  },
+  {
+    id: 'pump_scalp_60',
+    name: 'Pump Scalp 60',
+    icon: '⏱️',
+    description: 'The top pump.fun traders\' playbook, as a strategy: only enters a pump.fun token that is exploding — up 40%+ within the last hour with buyers dominating — and is OUT within 60 minutes no matter what. Pump.fun is pump-and-dump: get in fast, get out fast, never hold.',
+    minConfidence: 60,
+    maxRisk: 'HIGH',
+    baseFraction: 0.03,
+    minSignal: 'BUY',
+    holdTarget: '≤60min',
+    dexPreference: 'pumpfun',
+    maxHoldMinutes: 60,
   },
   {
     id: 'whale_follower',
@@ -935,6 +957,7 @@ async function executeServerSideBuy(
       tokenAmount,
       decimals,
       strategyId: signal.strategyId,
+      maxHoldMinutes: signal.maxHoldMinutes,
       mode: 'live',
       txHash: signature,
       openedAt: new Date().toISOString(),
@@ -961,6 +984,43 @@ async function executeServerSideBuy(
     console.error('[SolEngine] executeServerSideBuy error:', err);
     return false;
   }
+}
+
+// ── Pump Scalp 60 gate ──────────────────────────────────────────────────────
+// The pattern the top pump.fun wallets ride: a token making a HIGH
+// percentage move inside a ~50–60 minute window, with buyers dominating
+// that same window. Thresholds are env-tunable. Liquidity floor keeps the
+// strategy out of pools too thin to exit from.
+export const PUMP_SCALP_MIN_GAIN_1H_PCT = Number(process.env.PUMP_SCALP_MIN_GAIN_1H_PCT ?? 40);
+export const PUMP_SCALP_MIN_LIQ_USD = Number(process.env.PUMP_SCALP_MIN_LIQ_USD ?? 10000);
+export const PUMP_SCALP_MIN_BUY_RATIO = Number(process.env.PUMP_SCALP_MIN_BUY_RATIO ?? 0.55);
+
+export function passesPumpScalpGate(token: TokenAnalysis['token']): boolean {
+  if (token.dexSource !== 'pumpfun') return false;
+  if ((token.priceChange1h ?? 0) < PUMP_SCALP_MIN_GAIN_1H_PCT) return false;
+  if ((token.liquidity ?? 0) < PUMP_SCALP_MIN_LIQ_USD) return false;
+  // Buy pressure inside the hot window: prefer the last-hour tape; when it
+  // is too thin to judge (<10 trades), fall back to the 24h tape.
+  const h1Total = (token.txnsH1?.buys ?? 0) + (token.txnsH1?.sells ?? 0);
+  if (h1Total >= 10) {
+    return (token.txnsH1.buys / h1Total) > PUMP_SCALP_MIN_BUY_RATIO;
+  }
+  const total = token.txns24h.buys + token.txns24h.sells;
+  return total > 0 ? (token.txns24h.buys / total) > PUMP_SCALP_MIN_BUY_RATIO : false;
+}
+
+/** The effective max-hold for a position: the time stop stamped at entry
+ *  (tightest across confirming strategies), else its own strategy's stop,
+ *  else the global cap. The global cap always wins as an outer bound. */
+export function effectiveMaxHoldMs(pos: SolAutoPosition): { ms: number; label: string } {
+  const strat = SOL_STRATEGIES.find(s => s.id === pos.strategyId);
+  const stamped = pos.maxHoldMinutes && pos.maxHoldMinutes > 0 ? pos.maxHoldMinutes : undefined;
+  const minutes = stamped ?? strat?.maxHoldMinutes;
+  if (minutes && minutes > 0) {
+    const stratMs = minutes * 60 * 1000;
+    if (stratMs < SOL_MAX_HOLD_MS) return { ms: stratMs, label: `${strat?.name ?? 'Strategy'} ${minutes}-min window` };
+  }
+  return { ms: SOL_MAX_HOLD_MS, label: `${SOL_MAX_HOLD_HOURS}h max-hold` };
 }
 
 // ── Strategy-specific entry filters ─────────────────────────────────────────
@@ -994,6 +1054,12 @@ function passesStrategyFilter(analysis: TokenAnalysis, strategy: SolStrategy): b
     case 'meme_velocity':
       // Extreme velocity pump — move fast, exit fast
       return priceChg >= 20 && token.volume24h >= 15000;
+
+    case 'pump_scalp_60':
+      // Top-trader pump pattern: explosive LAST-HOUR gain on pump.fun with
+      // buyers dominating the same window. Exit side is the 60-minute
+      // strategy max-hold in the monitors.
+      return passesPumpScalpGate(token);
 
     case 'volume_explosion':
       // Massive volume surge — institutional attention or viral event
@@ -1095,6 +1161,8 @@ function getStrategyEntryContext(strategyId: string): string {
       return 'ENTRY FILTER: price DOWN 4–40% in 24h BUT buy ratio >62% (smart accumulation against the trend). Counter-trend entry — requires clear accumulation signal in the dip.';
     case 'meme_velocity':
       return 'ENTRY FILTER: price up >20%, Pump.fun preferred, high velocity short-lived pump. Quick in-out (10–15 min). Accept HIGH risk. Prioritise momentum and exit speed.';
+    case 'pump_scalp_60':
+      return 'ENTRY FILTER: Pump.fun tokens ONLY, up ≥40% in the LAST HOUR (not 24h), last-hour buys dominating sells, liquidity ≥$10K. This mirrors what top pump.fun wallets ride. HARD EXIT at 60 minutes regardless of P&L — pump-and-dump names are never held. Accept HIGH risk; speed over everything.';
     case 'volume_explosion':
       return 'ENTRY FILTER: 24h volume >$250K (institutional or viral event), buy ratio >52%. Volume is the primary signal — price direction secondary.';
     case 'smart_money_flow':
@@ -1608,7 +1676,11 @@ async function monitorPaperPositions(userId: number, state: SolEngineState) {
   }
 
   for (const pos of openPositions) {
-    const currentPrice = priceMap[pos.mint];
+    // Strategy time stop (Pump Scalp 60: out at 60 minutes, win or lose).
+    // Fires even without a fresh print — the last mark prices the exit.
+    const effHoldP = effectiveMaxHoldMs(pos);
+    const isMaxHold = Date.now() - new Date(pos.openedAt).getTime() > effHoldP.ms;
+    const currentPrice = priceMap[pos.mint] || (isMaxHold ? pos.currentPrice : 0);
     if (!currentPrice || currentPrice <= 0) continue;
     // Reject a corrupt price print before it can trigger a phantom TP/SL.
     if (isBadPriceSample(currentPrice, pos.currentPrice > 0 ? pos.currentPrice : pos.entryPrice)) {
@@ -1667,8 +1739,8 @@ async function monitorPaperPositions(userId: number, state: SolEngineState) {
     const isWin = gainPct >= pos.targetPct;
     const isLoss = gainPct <= -pos.slPct;
 
-    if (isWin || isLoss || isTrailHit) {
-      const reason = isTrailHit ? 'trail' : isWin ? 'tp' : 'sl';
+    if (isWin || isLoss || isTrailHit || isMaxHold) {
+      const reason = isMaxHold ? 'max_hold' : isTrailHit ? 'trail' : isWin ? 'tp' : 'sl';
       pos.status = 'closed';
       pos.closedAt = new Date().toISOString();
       pos.closePnlPct = gainPct;
@@ -1712,11 +1784,11 @@ async function monitorPaperPositions(userId: number, state: SolEngineState) {
         });
       }
 
-      const emoji = isTrailHit ? '🔒' : isWin ? '✅' : '❌';
-      const label = isTrailHit ? `TRAIL EXIT` : isWin ? 'WIN' : 'LOSS';
+      const emoji = isMaxHold ? '⏱️' : isTrailHit ? '🔒' : isWin ? '✅' : '❌';
+      const label = isMaxHold ? `TIME EXIT` : isTrailHit ? `TRAIL EXIT` : isWin ? 'WIN' : 'LOSS';
       addActivity(state, {
         type: 'paper_sell',
-        message: `${emoji} Paper ${label}: ${pos.symbol} closed @ $${currentPrice.toFixed(6)} — ${gainPct >= 0 ? '+' : ''}${gainPct.toFixed(2)}% | ${pos.size.toFixed(3)} SOL ${isTrailHit ? '(trailing stop hit)' : isWin ? 'profit sealed' : 'lesson built'}`,
+        message: `${emoji} Paper ${label}: ${pos.symbol} closed @ $${currentPrice.toFixed(6)} — ${gainPct >= 0 ? '+' : ''}${gainPct.toFixed(2)}% | ${pos.size.toFixed(3)} SOL ${isMaxHold ? `(${effHoldP.label} over — out per strategy)` : isTrailHit ? '(trailing stop hit)' : isWin ? 'profit sealed' : 'lesson built'}`,
       });
 
       // Update DEX signal weights and Kelly stats from auto-closes
@@ -1789,13 +1861,16 @@ async function monitorLivePositions(userId: number, state: SolEngineState) {
   for (const pos of openPositions) {
     // FIX 8: max-hold time stop — force-exit anything older than the limit so a
     // position can never orphan indefinitely, even if pricing keeps failing.
+    // The limit is per-position: a strategy time stop (Pump Scalp 60: 60
+    // minutes) wins over the global cap via effectiveMaxHoldMs.
     const ageMs = Date.now() - new Date(pos.openedAt).getTime();
-    if (ageMs > SOL_MAX_HOLD_MS) {
+    const effHold = effectiveMaxHoldMs(pos);
+    if (ageMs > effHold.ms) {
       const alreadyQueuedMH = state.pendingExits.some(e => e.positionId === pos.id);
       if (!alreadyQueuedMH) {
         addActivity(state, {
           type: 'live_sell',
-          message: `⏱️ Max-hold reached: ${pos.symbol} held ${(ageMs / 3600000).toFixed(1)}h (limit ${SOL_MAX_HOLD_HOURS}h) — forcing exit`,
+          message: `⏱️ Max-hold reached: ${pos.symbol} held ${(ageMs / 60000).toFixed(0)}min (${effHold.label}) — forcing exit`,
         });
         const forcedSold = await executeServerSideSell(userId, pos, 'sl', state);
         if (!forcedSold) {
@@ -2107,7 +2182,14 @@ async function runScan(userId: number, state: SolEngineState, triggerToken?: str
         // ── Overextension filter: skip tokens already up >80% in 24h ───────────
         // Chasing a token after an 80%+ pump dramatically increases the chance of
         // buying the top. These are almost always exits not entries.
-        if (analysis.token.priceChange24h > 80) {
+        // Pump Scalp 60 exception: when that strategy is armed and the token
+        // passes its own hot-window gate, riding a pump IS the strategy (with
+        // a hard 60-minute exit), so the 24h gate is waived for it alone —
+        // every other strategy keeps the protection because the entry still
+        // has to confirm through its own filter below.
+        const pumpScalpArmed = state.activeStrategy === 'pump_scalp_60' || state.activeStrategies.includes('pump_scalp_60');
+        const waiveOverextension = pumpScalpArmed && passesPumpScalpGate(analysis.token);
+        if (analysis.token.priceChange24h > 80 && !waiveOverextension) {
           addActivity(state, {
             type: 'info',
             message: `⛔ Overextended: ${analysis.token.symbol} skipped — already +${analysis.token.priceChange24h.toFixed(0)}% in 24h (>80% = likely top)`,
@@ -2180,6 +2262,12 @@ async function runScan(userId: number, state: SolEngineState, triggerToken?: str
           });
         }
 
+        // Tightest time stop among the confirming strategies (Pump Scalp
+        // 60's 60 minutes) — stamped onto the position/signal so the
+        // monitors force-exit on the strategy's clock, whoever sized it.
+        const stratCaps = confirmingStrats.map(s => s.maxHoldMinutes).filter((m): m is number => !!m && m > 0);
+        const tightestMaxHold = stratCaps.length ? Math.min(...stratCaps) : undefined;
+
         // Use highest baseFraction strategy for sizing
         const bestStrat = confirmingStrats.sort((a, b) => b.baseFraction - a.baseFraction)[0];
         const paperAutoSize = computeAutoSolSize(state, dexKey, bestStrat, 'paper');
@@ -2229,6 +2317,7 @@ async function runScan(userId: number, state: SolEngineState, triggerToken?: str
               tokenAmount: 0,
               decimals: 9,
               strategyId: topStrat.id,
+              maxHoldMinutes: tightestMaxHold,
               dex: dexKey,
               mode: 'paper',
               openedAt: now2,
@@ -2313,6 +2402,7 @@ async function runScan(userId: number, state: SolEngineState, triggerToken?: str
               price: tokenPrice,
               sizeSOL: liveSizeSOL,
               strategyId: topStrat.id,
+              maxHoldMinutes: tightestMaxHold,
               createdAt: created.toISOString(),
               expiresAt: expires.toISOString(),
               // Carried through to the live SolAutoPosition once confirmed
@@ -2941,6 +3031,7 @@ export function confirmLiveTrade(
     tokenAmount: tradeData?.tokenAmount || 0,
     decimals: tradeData?.decimals || 9,
     strategyId: signal?.strategyId || state.activeStrategy,
+    maxHoldMinutes: signal?.maxHoldMinutes,
     mode: 'live',
     txHash,
     openedAt: new Date().toISOString(),
