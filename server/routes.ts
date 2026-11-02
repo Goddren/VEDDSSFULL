@@ -20799,6 +20799,9 @@ Respond with ONLY valid JSON:
       const v = validateStrategySpec(req.body?.spec);
       if (!v.ok) return res.status(400).json({ error: v.error });
       const spec = v.spec;
+      if (spec.entryLong.conditions.length + spec.entryShort.conditions.length === 0) {
+        return res.status(400).json({ error: 'This is an engine-native strategy — it runs on the FX engine\'s AI analysis and has no mechanical rules to replay. Backtest a template, a builder strategy, or an engine strategy with a mechanical approximation instead.' });
+      }
       const initialCapital = Math.min(Math.max(Number(req.body?.initialCapital ?? 10000), 100), 1e9);
       const limit = Math.min(Math.max(Number(req.body?.limit ?? 1000), 100), 5000);
 

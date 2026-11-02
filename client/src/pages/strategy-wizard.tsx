@@ -19,6 +19,10 @@ import {
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { motion } from 'framer-motion';
+import { apiRequest } from '@/lib/queryClient';
+import { StrategyBuilder } from '@/components/trading/strategy-builder';
+import type { StrategySpec, EngineStrategyInfo } from '@/lib/strategy-spec';
+import { templatePreset, defaultBuilderSpec, engineNativeSpec, ENGINE_STRATEGIES } from '@/lib/strategy-spec';
 
 // Types for trading strategy
 interface StrategyParameter {
@@ -789,47 +793,6 @@ const predefinedStrategies: TradingStrategy[] = [
 type WizardStep = 'select' | 'configure' | 'backtest' | 'results';
 
 // Helper function to get optimal trading session based on strategy
-function getTradingSessionBasedOnStrategy(strategyId: string | undefined): string {
-  if (!strategyId) return "London Session (08:00-16:00 GMT)";
-  
-  switch (strategyId) {
-    // Original strategies
-    case 'moving-average-crossover':
-      return "London/New York Overlap (13:00-16:00 GMT)";
-    case 'rsi-overbought-oversold':
-      return "End of New York Session (19:00-21:00 GMT)";
-    case 'breakout-with-volume':
-      return "London Opening (08:00-10:00 GMT)";
-    case 'macd-signal-crossover':
-      return "London Session (09:00-12:00 GMT)";
-    case 'double-top-bottom':
-      return "New York Session (14:00-17:00 GMT)";
-    case 'channel-trading':
-      return "Asian/London Overlap (07:00-09:00 GMT)";
-    case 'stochastic-crossover':
-      return "End of Asian Session (06:00-08:00 GMT)";
-    case 'support-resistance-bounce':
-      return "London/New York Overlap (13:00-15:00 GMT)";
-    case 'wedge-patterns':
-      return "New York Opening (13:00-15:00 GMT)";
-      
-    // New pattern indicators
-    case 'head-and-shoulders':
-      return "New York Session (14:00-17:00 GMT)";
-    case 'flag-pennant':
-      return "London/New York Overlap (13:00-16:00 GMT)";
-    case 'harmonic-patterns':
-      return "London Session (09:00-12:00 GMT)";
-    case 'engulfing-candles':
-      return "Asian/London Overlap (07:00-09:00 GMT)";
-    case 'three-drive-pattern':
-      return "New York Session (14:00-17:00 GMT)";
-    case 'cup-and-handle':
-      return "London/New York Overlap (13:00-16:00 GMT)";
-    default:
-      return "London Session (08:00-16:00 GMT)";
-  }
-}
 
 // Helper function to get strategy category icon
 function getCategoryIcon(category: string) {
@@ -862,6 +825,18 @@ export default function StrategyWizard() {
   const [testPeriod, setTestPeriod] = useState<string>('6M');
   const [isLoading, setIsLoading] = useState<boolean>(false);
   const [results, setResults] = useState<StrategyResults | null>(null);
+
+  // ── Spec-driven flow state (templates with presets / builder / engine) ──
+  const [mode, setMode] = useState<'template' | 'builder' | 'engine'>('template');
+  const [spec, setSpec] = useState<StrategySpec | null>(null);
+  const [savedId, setSavedId] = useState<number | null>(null);
+  const [realResults, setRealResults] = useState<any | null>(null);
+  const [btError, setBtError] = useState<string | null>(null);
+  const [isSaving, setIsSaving] = useState<boolean>(false);
+  const [btCapital, setBtCapital] = useState<number>(10000);
+  const [btSpread, setBtSpread] = useState<number>(1);
+  const [btSlippage, setBtSlippage] = useState<number>(0.3);
+  const [btCommission, setBtCommission] = useState<number>(0);
   
   // Filter states
   const [selectedCategoryFilter, setSelectedCategoryFilter] = useState<string>('all');
@@ -878,27 +853,42 @@ export default function StrategyWizard() {
   
   const { toast } = useToast();
 
-  // Handle strategy selection
+  // Handle strategy selection. Indicator-based templates load their
+  // mechanical preset as an editable spec; pattern templates keep the
+  // legacy parameter view (spec stays null — no invented backtest).
+  const syncSpecFromTemplate = (strategy: TradingStrategy) => {
+    const params: Record<string, any> = {};
+    strategy.parameters.forEach(p => { params[p.id] = p.value; });
+    setSpec(templatePreset(strategy.id, strategy.name, params, symbol, timeframe as StrategySpec['timeframe']));
+  };
+
   const handleSelectStrategy = (strategy: TradingStrategy) => {
+    setMode('template');
     setSelectedStrategy(strategy);
     setCustomizedStrategy({...strategy});
+    setSavedId(null);
+    setRealResults(null);
+    setBtError(null);
+    syncSpecFromTemplate(strategy);
   };
 
   // Update parameter value
   const handleParamChange = (paramId: string, value: any) => {
     if (!customizedStrategy) return;
-    
-    setCustomizedStrategy({
+
+    const updated = {
       ...customizedStrategy,
-      parameters: customizedStrategy.parameters.map(param => 
+      parameters: customizedStrategy.parameters.map(param =>
         param.id === paramId ? {...param, value} : param
       )
-    });
+    };
+    setCustomizedStrategy(updated);
+    syncSpecFromTemplate(updated);
   };
 
   // Navigate to next step
   const handleNext = () => {
-    if (currentStep === 'select' && !selectedStrategy) {
+    if (currentStep === 'select' && !selectedStrategy && !spec) {
       toast({
         title: "Select a Strategy",
         description: "Please select a strategy before proceeding",
@@ -923,173 +913,110 @@ export default function StrategyWizard() {
     }
   };
 
-  // Run backtest
+  // ── Real backtest: deterministic replay of the current spec on the server.
+  // (The old Math.random mock is gone — numbers a user sees are the numbers
+  //  the strategy actually produced on historical bars.)
+  const errText = (e: any): string => {
+    const raw = e?.message || 'Request failed';
+    try { const j = JSON.parse(raw); return j.error || raw; } catch { return String(raw).slice(0, 300); }
+  };
+
   const handleRunBacktest = async () => {
-    if (!customizedStrategy) return;
-    
+    if (!spec) {
+      toast({
+        title: 'Pattern templates can\'t be replayed mechanically',
+        description: 'This template is pattern-based (shapes on a chart), so an indicator backtest would be invented numbers. Pick an indicator template, an engine strategy with an approximation, or build your own rules.',
+        variant: 'destructive',
+      });
+      return;
+    }
+    if (spec.entryLong.conditions.length + spec.entryShort.conditions.length === 0) {
+      toast({
+        title: 'Engine-native strategy',
+        description: 'This one runs on the FX engine\'s AI analysis — there are no fixed rules to replay. Save it here; its track record comes from live results once deployed.',
+        variant: 'destructive',
+      });
+      return;
+    }
     setIsLoading(true);
-    
+    setBtError(null);
     try {
-      // Simulate API call for backtest
-      // In a real implementation, this would be an API call to the backend
-      await new Promise(resolve => setTimeout(resolve, 2000));
-      
-      // Generate mock results with detailed timing information
-      const mockResults: StrategyResults = {
-        winRate: 65 + Math.random() * 10,
-        profitFactor: 1.5 + Math.random(),
-        averageWin: 50 + Math.random() * 20,
-        averageLoss: 30 + Math.random() * 10,
-        maxDrawdown: 15 + Math.random() * 5,
-        sharpeRatio: 1.2 + Math.random() * 0.5,
-        averageHoldingTime: `${Math.floor(4 + Math.random() * 8)} hours`,
-        optimalEntryTime: getTradingSessionBasedOnStrategy(customizedStrategy?.id),
-        trades: [],
-        equity: [],
-        optimalTradingHours: [
-          {
-            session: "Asian Session (00:00-08:00 GMT)",
-            winRate: 58 + Math.random() * 10,
-            averageProfit: 35 + Math.random() * 15,
-            volume: "Moderate"
-          },
-          {
-            session: "London Session (08:00-16:00 GMT)",
-            winRate: 72 + Math.random() * 10,
-            averageProfit: 55 + Math.random() * 20,
-            volume: "High"
-          },
-          {
-            session: "New York Session (13:00-21:00 GMT)",
-            winRate: 67 + Math.random() * 10,
-            averageProfit: 48 + Math.random() * 20,
-            volume: "High"
-          }
-        ],
-        exitIndicators: [
-          {
-            name: "Price Action Reversal",
-            description: "Exit when candle closes against trend with increased volume",
-            reliability: 75 + Math.random() * 15
-          },
-          {
-            name: "Moving Average Crossover",
-            description: "Exit when fast MA crosses back over slow MA",
-            reliability: 68 + Math.random() * 12
-          },
-          {
-            name: "Take Profit Target",
-            description: "Exit at predetermined price target based on support/resistance",
-            reliability: 85 + Math.random() * 10
-          },
-          {
-            name: "RSI Divergence",
-            description: "Exit when RSI shows divergence against price movement",
-            reliability: 70 + Math.random() * 15
-          }
-        ]
-      };
-      
-      // Generate mock trade history with timing details
-      const startDate = new Date();
-      startDate.setMonth(startDate.getMonth() - 6);
-      
-      // Trading sessions with their time ranges
-      const tradingSessions = [
-        { name: "Asian", hours: [0, 1, 2, 3, 4, 5, 6, 7] },
-        { name: "London", hours: [8, 9, 10, 11, 12, 13, 14, 15] },
-        { name: "New York", hours: [13, 14, 15, 16, 17, 18, 19, 20] }
-      ];
-      
-      // Exit reasons
-      const exitReasons = [
-        "Take Profit Target Reached",
-        "Stop Loss Triggered",
-        "Technical Indicator Signal",
-        "Pattern Completion",
-        "Time-Based Exit",
-        "Support/Resistance Level Reached",
-        "Volatility Spike",
-        "Risk Management Rule"
-      ];
-      
-      for (let i = 0; i < 50; i++) {
-        const tradeDate = new Date(startDate);
-        tradeDate.setDate(tradeDate.getDate() + i * 3);
-        
-        // Randomly select session and hour within session
-        const randomSession = tradingSessions[Math.floor(Math.random() * tradingSessions.length)];
-        const randomHour = randomSession.hours[Math.floor(Math.random() * randomSession.hours.length)];
-        const randomMinute = Math.floor(Math.random() * 60);
-        
-        // Format time
-        const timeString = `${randomHour.toString().padStart(2, '0')}:${randomMinute.toString().padStart(2, '0')} GMT`;
-        
-        // Determine holding period (longer for winning trades typically)
-        const isWin = Math.random() > 0.35;
-        const holdingHours = isWin ? 
-          Math.floor(3 + Math.random() * 12) : 
-          Math.floor(1 + Math.random() * 6);
-        const holdingMinutes = Math.floor(Math.random() * 60);
-        const holdingPeriod = `${holdingHours}h ${holdingMinutes}m`;
-        
-        // Calculate profit
-        const profit = isWin 
-          ? mockResults.averageWin * (0.8 + Math.random() * 0.4) 
-          : -mockResults.averageLoss * (0.8 + Math.random() * 0.4);
-        
-        // Select exit reason based on result
-        const exitReason = isWin ? 
-          exitReasons[Math.floor(Math.random() * 3)] : // Better exit reasons for wins
-          exitReasons[3 + Math.floor(Math.random() * 5)]; // Different reasons for losses
-        
-        mockResults.trades.push({
-          date: tradeDate.toISOString().split('T')[0],
-          time: timeString,
-          type: Math.random() > 0.5 ? 'buy' : 'sell',
-          price: 1.1000 + (Math.random() * 0.1000),
-          result: isWin ? 'win' : 'loss',
-          profit,
-          holdingPeriod,
-          exitReason
-        });
-      }
-      
-      // Generate equity curve
-      let equity = 10000;
-      for (let i = 0; i < 180; i++) {
-        const date = new Date(startDate);
-        date.setDate(date.getDate() + i);
-        
-        if (i % 3 === 0 && mockResults.trades[i/3]) {
-          equity += mockResults.trades[i/3].profit;
-        } else {
-          // Small random fluctuation
-          equity += (Math.random() * 10) - 5;
-        }
-        
-        mockResults.equity.push({
-          date: date.toISOString().split('T')[0],
-          value: equity
-        });
-      }
-      
-      setResults(mockResults);
+      const res = await apiRequest('POST', '/api/strategy-wizard/backtest', {
+        spec,
+        strategyId: savedId ?? undefined,
+        initialCapital: btCapital,
+        spreadPips: btSpread,
+        slippagePips: btSlippage,
+        commissionPerLot: btCommission,
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data?.error || 'Backtest failed');
+      setRealResults(data);
       setCurrentStep('results');
-      
       toast({
-        title: "Backtest Complete",
-        description: "Your strategy has been successfully tested"
+        title: 'Backtest complete',
+        description: `${data.stats.totalTrades} trades over ${data.stats.barsUsed} bars · data: ${data.provider} · same inputs always give this result`,
       });
-    } catch (error) {
-      toast({
-        title: "Backtest Failed",
-        description: "There was an error running the backtest",
-        variant: "destructive"
-      });
+    } catch (error: any) {
+      const msg = errText(error);
+      setBtError(msg);
+      toast({ title: 'Backtest failed', description: msg, variant: 'destructive' });
     } finally {
       setIsLoading(false);
     }
+  };
+
+  const handleSaveStrategy = async () => {
+    if (!spec) return;
+    setIsSaving(true);
+    try {
+      if (savedId) {
+        const res = await apiRequest('PUT', `/api/strategy-wizard/strategies/${savedId}`, { spec });
+        if (!res.ok) { const d = await res.json().catch(() => ({})); throw new Error(d?.error || 'Save failed'); }
+        toast({ title: 'Strategy updated', description: 'Your saved strategy now matches these rules.' });
+      } else {
+        const res = await apiRequest('POST', '/api/strategy-wizard/strategies', { spec });
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok) throw new Error(data?.error || 'Save failed');
+        setSavedId(data.strategy.id);
+        toast({
+          title: 'Strategy saved',
+          description: realResults
+            ? 'Run the backtest once more and this run\'s data points attach to the strategy — they\'re what its brain is built from.'
+            : 'Run a backtest and its data points attach to the strategy — they\'re what its brain is built from.',
+        });
+      }
+    } catch (error: any) {
+      toast({ title: 'Save failed', description: errText(error), variant: 'destructive' });
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
+  // Start the condition builder with a fresh editable spec.
+  const handleStartBuilder = () => {
+    setMode('builder');
+    setSelectedStrategy(null);
+    setCustomizedStrategy(null);
+    setSpec(defaultBuilderSpec(symbol, timeframe as StrategySpec['timeframe']));
+    setSavedId(null);
+    setRealResults(null);
+    setBtError(null);
+    setCurrentStep('configure');
+  };
+
+  // Pick one of the FX engine's built-in strategies.
+  const handleSelectEngineStrategy = (info: EngineStrategyInfo) => {
+    setMode('engine');
+    setSelectedStrategy(null);
+    setCustomizedStrategy(null);
+    setSavedId(null);
+    setRealResults(null);
+    setBtError(null);
+    setSpec(info.approx
+      ? { ...info.approx(symbol, timeframe as StrategySpec['timeframe']), symbol, timeframe: timeframe as StrategySpec['timeframe'] }
+      : engineNativeSpec(info, symbol, timeframe as StrategySpec['timeframe']));
+    setCurrentStep('configure');
   };
 
   // UI Components for each step
@@ -1098,6 +1025,24 @@ export default function StrategyWizard() {
       case 'select':
         return (
           <div className="space-y-6">
+            {/* Build your own */}
+            <Card className="border-indigo-500/40 bg-gradient-to-r from-indigo-500/10 to-transparent">
+              <CardContent className="pt-6 flex flex-col md:flex-row md:items-center gap-4">
+                <div className="flex-1">
+                  <h3 className="text-lg font-semibold flex items-center gap-2">
+                    <Sliders className="h-5 w-5 text-indigo-400" /> Build Your Own Strategy
+                  </h3>
+                  <p className="text-sm text-muted-foreground mt-1">
+                    Combine indicators into your own entry and exit rules — EMA, RSI, MACD, Stochastic, Bollinger, ATR.
+                    Backtest it for real, save it, turn it into an MT5 EA, deploy it to a live account.
+                  </p>
+                </div>
+                <Button size="lg" onClick={handleStartBuilder} className="bg-gradient-to-r from-indigo-500 to-indigo-700 text-white shrink-0">
+                  Open the Condition Builder
+                </Button>
+              </CardContent>
+            </Card>
+
             {/* Filter Controls */}
             <div className="mb-6 p-4 bg-card border rounded-lg">
               <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-4">
@@ -1299,8 +1244,8 @@ export default function StrategyWizard() {
                 <p className="text-muted-foreground mb-4">
                   No strategies match your current filters. Try adjusting your criteria or reset the filters.
                 </p>
-                <Button 
-                  variant="outline" 
+                <Button
+                  variant="outline"
                   onClick={() => {
                     setSelectedCategoryFilter('all');
                     setSelectedRiskFilter('all');
@@ -1311,13 +1256,50 @@ export default function StrategyWizard() {
                 </Button>
               </div>
             )}
+
+            {/* FX Engine Strategies */}
+            <div className="pt-2">
+              <h3 className="text-lg font-medium mb-1">FX Engine Strategies</h3>
+              <p className="text-sm text-muted-foreground mb-4">
+                The strategies already built into the VEDD FX engine. Ones marked
+                <Badge variant="outline" className="mx-1">backtestable</Badge>
+                carry a mechanical approximation you can replay here; the rest run on the engine's AI analysis live.
+              </p>
+              <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
+                {ENGINE_STRATEGIES.map((info) => (
+                  <Card
+                    key={info.key}
+                    className={`cursor-pointer hover:border-primary/60 transition-colors ${spec?.engineStrategyKey === info.key ? 'border-2 border-primary' : ''}`}
+                    onClick={() => handleSelectEngineStrategy(info)}
+                  >
+                    <CardHeader className="pb-2">
+                      <CardTitle className="text-base flex items-center justify-between gap-2">
+                        {info.name}
+                        {info.approx
+                          ? <Badge variant="outline" className="shrink-0">backtestable</Badge>
+                          : <Badge variant="secondary" className="shrink-0">engine AI</Badge>}
+                      </CardTitle>
+                      <CardDescription>{info.description}</CardDescription>
+                    </CardHeader>
+                    <CardFooter className="pt-0">
+                      <span className="text-xs text-muted-foreground">{info.category} · FX Engine</span>
+                    </CardFooter>
+                  </Card>
+                ))}
+              </div>
+            </div>
           </div>
         );
-        
+
       case 'configure':
         return (
           <>
-            {customizedStrategy && (
+            {spec ? (
+              <StrategyBuilder
+                value={spec}
+                onChange={(s) => { setSpec(s); setSymbol(s.symbol); setTimeframe(s.timeframe); }}
+              />
+            ) : customizedStrategy && (
               <div className="space-y-6">
                 <Card>
                   <CardHeader>
@@ -1412,7 +1394,7 @@ export default function StrategyWizard() {
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                       <div className="space-y-2">
                         <Label htmlFor="symbol">Symbol</Label>
-                        <Select value={symbol} onValueChange={setSymbol}>
+                        <Select value={symbol} onValueChange={(v) => { setSymbol(v); setSpec(prev => prev ? { ...prev, symbol: v } : prev); }}>
                           <SelectTrigger id="symbol">
                             <SelectValue placeholder="Select symbol" />
                           </SelectTrigger>
@@ -1428,7 +1410,7 @@ export default function StrategyWizard() {
                       
                       <div className="space-y-2">
                         <Label htmlFor="timeframe">Timeframe</Label>
-                        <Select value={timeframe} onValueChange={setTimeframe}>
+                        <Select value={timeframe} onValueChange={(v) => { setTimeframe(v); setSpec(prev => prev ? { ...prev, timeframe: v as StrategySpec['timeframe'] } : prev); }}>
                           <SelectTrigger id="timeframe">
                             <SelectValue placeholder="Select timeframe" />
                           </SelectTrigger>
@@ -1461,10 +1443,11 @@ export default function StrategyWizard() {
                       
                       <div className="space-y-2">
                         <Label htmlFor="initialCapital">Initial Capital</Label>
-                        <Input 
-                          id="initialCapital" 
-                          type="number" 
-                          defaultValue="10000" 
+                        <Input
+                          id="initialCapital"
+                          type="number"
+                          value={btCapital}
+                          onChange={(e) => setBtCapital(Number(e.target.value))}
                           className="text-right"
                         />
                       </div>
@@ -1473,37 +1456,49 @@ export default function StrategyWizard() {
                     <Separator />
                     
                     <div className="space-y-4">
-                      <h3 className="text-lg font-medium">Advanced Settings</h3>
-                      
-                      <div className="flex items-center justify-between">
-                        <div>
-                          <Label htmlFor="spreadAdjustment" className="block">Spread Adjustment</Label>
-                          <p className="text-xs text-muted-foreground">
-                            Account for trading spreads in simulation
-                          </p>
+                      <h3 className="text-lg font-medium">Trading Costs (counted in the replay)</h3>
+
+                      <div className="grid gap-4 md:grid-cols-3">
+                        <div className="space-y-2">
+                          <Label htmlFor="spreadPips">Spread (pips)</Label>
+                          <Input
+                            id="spreadPips"
+                            type="number" step="0.1" min="0"
+                            value={btSpread}
+                            onChange={(e) => setBtSpread(Number(e.target.value))}
+                            className="text-right"
+                          />
                         </div>
-                        <Switch id="spreadAdjustment" defaultChecked />
-                      </div>
-                      
-                      <div className="flex items-center justify-between">
-                        <div>
-                          <Label htmlFor="slippage" className="block">Slippage</Label>
-                          <p className="text-xs text-muted-foreground">
-                            Simulate execution slippage
-                          </p>
+                        <div className="space-y-2">
+                          <Label htmlFor="slippagePips">Slippage (pips)</Label>
+                          <Input
+                            id="slippagePips"
+                            type="number" step="0.1" min="0"
+                            value={btSlippage}
+                            onChange={(e) => setBtSlippage(Number(e.target.value))}
+                            className="text-right"
+                          />
                         </div>
-                        <Switch id="slippage" defaultChecked />
-                      </div>
-                      
-                      <div className="flex items-center justify-between">
-                        <div>
-                          <Label htmlFor="commissions" className="block">Include Commissions</Label>
-                          <p className="text-xs text-muted-foreground">
-                            Factor in broker commissions
-                          </p>
+                        <div className="space-y-2">
+                          <Label htmlFor="commissionPerLot">Commission ($ / lot / side)</Label>
+                          <Input
+                            id="commissionPerLot"
+                            type="number" step="0.1" min="0"
+                            value={btCommission}
+                            onChange={(e) => setBtCommission(Number(e.target.value))}
+                            className="text-right"
+                          />
                         </div>
-                        <Switch id="commissions" defaultChecked />
                       </div>
+                      <p className="text-xs text-muted-foreground">
+                        The replay is deterministic: same rules + same bars + same costs = the same result every run.
+                        Bars come from the market data service (or your MT5 candle cache) — if there aren't enough real bars, the backtest refuses instead of inventing numbers.
+                      </p>
+                      {btError && (
+                        <div className="border border-red-500/40 bg-red-500/10 rounded-lg p-3 text-sm text-red-400">
+                          {btError}
+                        </div>
+                      )}
                     </div>
                   </CardContent>
                   <CardFooter className="flex justify-center">
@@ -1535,294 +1530,130 @@ export default function StrategyWizard() {
       case 'results':
         return (
           <>
-            {results && (
+            {realResults ? (
               <div className="space-y-6">
                 <Card>
                   <CardHeader>
                     <CardTitle className="flex items-center gap-2">
                       <CheckCircle2 className="h-5 w-5 text-green-500" />
-                      Strategy Performance Results
+                      Backtest Results — {spec?.name}
                     </CardTitle>
                     <CardDescription>
-                      Performance metrics for {customizedStrategy?.name} on {symbol} {timeframe}
+                      {spec?.symbol} {spec?.timeframe} · {realResults.stats.barsUsed} bars · data: {realResults.provider} · deterministic replay (same inputs, same result, every time)
                     </CardDescription>
                   </CardHeader>
                   <CardContent>
-                    <div className="grid grid-cols-2 md:grid-cols-3 gap-4 mb-8">
+                    <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-8">
+                      <div className="bg-card border rounded-lg p-4 text-center">
+                        <div className="text-sm text-muted-foreground mb-1">Net PnL</div>
+                        <div className={`text-2xl font-bold ${realResults.stats.netPnl >= 0 ? 'text-green-500' : 'text-red-500'}`}>
+                          {realResults.stats.netPnl >= 0 ? '+' : '-'}${Math.abs(realResults.stats.netPnl).toFixed(2)}
+                        </div>
+                        <div className="text-xs text-muted-foreground">{realResults.stats.returnPct >= 0 ? '+' : ''}{realResults.stats.returnPct.toFixed(2)}% return</div>
+                      </div>
                       <div className="bg-card border rounded-lg p-4 text-center">
                         <div className="text-sm text-muted-foreground mb-1">Win Rate</div>
-                        <div className="text-2xl font-bold text-green-500">
-                          {results.winRate.toFixed(1)}%
-                        </div>
+                        <div className="text-2xl font-bold text-green-500">{realResults.stats.winRate.toFixed(1)}%</div>
+                        <div className="text-xs text-muted-foreground">{realResults.stats.wins}W / {realResults.stats.losses}L</div>
                       </div>
-                      
                       <div className="bg-card border rounded-lg p-4 text-center">
                         <div className="text-sm text-muted-foreground mb-1">Profit Factor</div>
                         <div className="text-2xl font-bold text-indigo-500">
-                          {results.profitFactor.toFixed(2)}
+                          {realResults.stats.profitFactor == null ? (realResults.stats.grossProfit > 0 ? '∞' : '—') : realResults.stats.profitFactor.toFixed(2)}
                         </div>
+                        <div className="text-xs text-muted-foreground">{realResults.stats.totalTrades} trades · {realResults.stats.netPips >= 0 ? '+' : ''}{realResults.stats.netPips.toFixed(1)} pips</div>
                       </div>
-                      
                       <div className="bg-card border rounded-lg p-4 text-center">
                         <div className="text-sm text-muted-foreground mb-1">Max Drawdown</div>
-                        <div className="text-2xl font-bold text-amber-500">
-                          {results.maxDrawdown.toFixed(1)}%
-                        </div>
+                        <div className="text-2xl font-bold text-amber-500">{realResults.stats.maxDrawdownPct.toFixed(1)}%</div>
+                        <div className="text-xs text-muted-foreground">final balance ${realResults.stats.finalBalance.toFixed(2)}</div>
                       </div>
-                      
                       <div className="bg-card border rounded-lg p-4 text-center">
-                        <div className="text-sm text-muted-foreground mb-1">Avg. Win</div>
+                        <div className="text-sm text-muted-foreground mb-1">Avg Win</div>
+                        <div className="text-2xl font-bold">${realResults.stats.avgWin.toFixed(2)}</div>
+                      </div>
+                      <div className="bg-card border rounded-lg p-4 text-center">
+                        <div className="text-sm text-muted-foreground mb-1">Avg Loss</div>
+                        <div className="text-2xl font-bold">${realResults.stats.avgLoss.toFixed(2)}</div>
+                      </div>
+                      <div className="bg-card border rounded-lg p-4 text-center">
+                        <div className="text-sm text-muted-foreground mb-1">Long / Short Win Rate</div>
                         <div className="text-2xl font-bold">
-                          ${results.averageWin.toFixed(2)}
+                          {realResults.dataPoints.longWinRate == null ? '—' : `${realResults.dataPoints.longWinRate.toFixed(0)}%`}
+                          <span className="text-muted-foreground text-base"> / </span>
+                          {realResults.dataPoints.shortWinRate == null ? '—' : `${realResults.dataPoints.shortWinRate.toFixed(0)}%`}
                         </div>
+                        <div className="text-xs text-muted-foreground">{realResults.dataPoints.longTrades} long · {realResults.dataPoints.shortTrades} short</div>
                       </div>
-                      
                       <div className="bg-card border rounded-lg p-4 text-center">
-                        <div className="text-sm text-muted-foreground mb-1">Avg. Loss</div>
-                        <div className="text-2xl font-bold">
-                          ${results.averageLoss.toFixed(2)}
-                        </div>
-                      </div>
-                      
-                      <div className="bg-card border rounded-lg p-4 text-center">
-                        <div className="text-sm text-muted-foreground mb-1">Sharpe Ratio</div>
-                        <div className="text-2xl font-bold text-blue-500">
-                          {results.sharpeRatio.toFixed(2)}
+                        <div className="text-sm text-muted-foreground mb-1">Avg Hold</div>
+                        <div className="text-2xl font-bold">{realResults.dataPoints.avgHoldBars.toFixed(1)} bars</div>
+                        <div className="text-xs text-muted-foreground">
+                          exits: {Object.entries(realResults.dataPoints.tradesByExitReason).map(([k, v]) => `${k.replace('_', ' ')} ${v}`).join(' · ') || '—'}
                         </div>
                       </div>
                     </div>
 
-                    {/* Timing and Exit Information */}
-                    <div className="mb-8 grid grid-cols-1 md:grid-cols-2 gap-6">
-                      <Card>
-                        <CardHeader className="pb-2">
-                          <CardTitle className="text-lg">Optimal Trading Timing</CardTitle>
-                          <CardDescription>
-                            Best times to enter and exit trades based on historical data
-                          </CardDescription>
-                        </CardHeader>
-                        <CardContent>
-                          <div className="space-y-4">
-                            <div className="flex justify-between items-center border-b pb-2">
-                              <span className="font-medium">Best Entry Time</span>
-                              <span className="text-primary font-medium">{results.optimalEntryTime}</span>
-                            </div>
-                            <div className="flex justify-between items-center border-b pb-2">
-                              <span className="font-medium">Average Holding Period</span>
-                              <span>{results.averageHoldingTime}</span>
-                            </div>
-
-                            <div className="pt-2">
-                              <h4 className="font-medium mb-3">Session Performance</h4>
-                              <div className="space-y-3">
-                                {results.optimalTradingHours.map((session, index) => (
-                                  <div key={index} className="flex flex-col">
-                                    <div className="flex justify-between mb-1">
-                                      <span className="text-sm">{session.session}</span>
-                                      <span className="text-sm font-medium">
-                                        Win Rate: {session.winRate.toFixed(1)}%
-                                      </span>
-                                    </div>
-                                    <div className="h-2 w-full bg-muted rounded-full overflow-hidden">
-                                      <div 
-                                        className="h-full bg-primary rounded-full" 
-                                        style={{ width: `${session.winRate}%` }}
-                                      ></div>
-                                    </div>
-                                    <div className="flex justify-between mt-1 text-xs text-muted-foreground">
-                                      <span>Avg. Profit: ${session.averageProfit.toFixed(2)}</span>
-                                      <span>Volume: {session.volume}</span>
-                                    </div>
-                                  </div>
-                                ))}
-                              </div>
-                            </div>
-                          </div>
-                        </CardContent>
-                      </Card>
-
-                      <Card>
-                        <CardHeader className="pb-2">
-                          <CardTitle className="text-lg">Exit Indicators</CardTitle>
-                          <CardDescription>
-                            Recommended exit conditions for this strategy
-                          </CardDescription>
-                        </CardHeader>
-                        <CardContent>
-                          <div className="space-y-3">
-                            {results.exitIndicators.map((indicator, index) => (
-                              <div key={index} className="border-b pb-3 last:border-0">
-                                <div className="flex justify-between mb-1">
-                                  <span className="font-medium">{indicator.name}</span>
-                                  <span className="text-sm">
-                                    Reliability: {indicator.reliability.toFixed(0)}%
-                                  </span>
-                                </div>
-                                <p className="text-sm text-muted-foreground">{indicator.description}</p>
-                                <div className="h-1.5 w-full bg-muted rounded-full overflow-hidden mt-2">
-                                  <div 
-                                    className={cn(
-                                      "h-full rounded-full",
-                                      indicator.reliability > 80 ? "bg-green-500" :
-                                      indicator.reliability > 70 ? "bg-blue-500" :
-                                      "bg-amber-500"
-                                    )}
-                                    style={{ width: `${indicator.reliability}%` }}
-                                  ></div>
-                                </div>
-                              </div>
-                            ))}
-                          </div>
-                        </CardContent>
-                      </Card>
-                    </div>
-                    
-                    <Tabs defaultValue="equity">
-                      <TabsList className="grid w-full grid-cols-3">
-                        <TabsTrigger value="equity">Equity Curve</TabsTrigger>
-                        <TabsTrigger value="trades">Trade History</TabsTrigger>
-                        <TabsTrigger value="timing">Timing Analysis</TabsTrigger>
-                      </TabsList>
-                      
-                      <TabsContent value="equity" className="pt-4">
-                        <div className="h-[300px] border rounded-lg p-4 flex items-center justify-center">
-                          <div className="text-center">
-                            <div className="text-lg font-medium mb-2">Equity Curve Chart</div>
-                            <p className="text-muted-foreground">
-                              Visual chart would go here (Line chart plotting the equity curve over time)
-                            </p>
+                    {realResults.equityCurve.length > 1 && (() => {
+                      const pts = realResults.equityCurve;
+                      const min = Math.min(...pts.map((p: any) => p.equity));
+                      const max = Math.max(...pts.map((p: any) => p.equity));
+                      const range = max - min || 1;
+                      const poly = pts.map((p: any, i: number) =>
+                        `${(i / (pts.length - 1)) * 600},${110 - ((p.equity - min) / range) * 100}`).join(' ');
+                      return (
+                        <div className="mb-8">
+                          <div className="text-sm font-medium mb-2">Equity Curve</div>
+                          <svg viewBox="0 0 600 120" className="w-full h-28 border rounded-lg bg-card" preserveAspectRatio="none">
+                            <polyline points={poly} fill="none" stroke="#6366f1" strokeWidth="2" />
+                          </svg>
+                          <div className="flex justify-between text-xs text-muted-foreground mt-1">
+                            <span>${min.toFixed(0)}</span><span>${max.toFixed(0)}</span>
                           </div>
                         </div>
-                      </TabsContent>
-                      
-                      <TabsContent value="trades" className="pt-4">
-                        <div className="border rounded-lg overflow-hidden overflow-x-auto">
-                          <table className="w-full min-w-[560px]">
-                            <thead>
-                              <tr className="bg-muted/50">
-                                <th className="text-left p-3 font-medium">Date</th>
-                                <th className="text-left p-3 font-medium">Time</th>
-                                <th className="text-left p-3 font-medium">Type</th>
-                                <th className="text-left p-3 font-medium">Price</th>
-                                <th className="text-left p-3 font-medium">Result</th>
-                                <th className="text-left p-3 font-medium">Duration</th>
-                                <th className="text-right p-3 font-medium">Profit/Loss</th>
-                              </tr>
-                            </thead>
-                            <tbody>
-                              {results.trades.slice(0, 10).map((trade, index) => (
-                                <tr key={index} className="border-t">
-                                  <td className="p-3">{trade.date}</td>
-                                  <td className="p-3">{trade.time}</td>
-                                  <td className="p-3">
-                                    <span className={cn(
-                                      "px-2 py-1 text-xs font-medium rounded-full",
-                                      trade.type === 'buy' 
-                                        ? "bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-300"
-                                        : "bg-red-100 text-red-800 dark:bg-red-900 dark:text-red-300"
-                                    )}>
-                                      {trade.type === 'buy' ? 'BUY' : 'SELL'}
-                                    </span>
-                                  </td>
-                                  <td className="p-3">{trade.price.toFixed(4)}</td>
-                                  <td className="p-3">
-                                    <span className={cn(
-                                      "px-2 py-1 text-xs font-medium rounded-full",
-                                      trade.result === 'win' 
-                                        ? "bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-300"
-                                        : "bg-red-100 text-red-800 dark:bg-red-900 dark:text-red-300"
-                                    )}>
-                                      {trade.result.toUpperCase()}
-                                    </span>
-                                  </td>
-                                  <td className="p-3">{trade.holdingPeriod}</td>
-                                  <td className={cn(
-                                    "p-3 text-right font-medium",
-                                    trade.profit > 0 ? "text-green-500" : "text-red-500"
-                                  )}>
-                                    {trade.profit > 0 ? '+' : ''}{trade.profit.toFixed(2)}
-                                  </td>
-                                </tr>
-                              ))}
-                            </tbody>
-                          </table>
-                          {results.trades.length > 10 && (
-                            <div className="p-3 bg-muted/20 text-center text-sm text-muted-foreground">
-                              Showing 10 of {results.trades.length} trades
-                            </div>
-                          )}
-                        </div>
-                      </TabsContent>
+                      );
+                    })()}
 
-                      <TabsContent value="timing" className="pt-4">
-                        <div className="border rounded-lg p-4">
-                          <h3 className="text-lg font-medium mb-4">Exit Reason Analysis</h3>
-                          <div className="space-y-4">
-                            {results.trades.slice(0, 5).map((trade, index) => (
-                              <div key={index} className="border rounded-lg p-4">
-                                <div className="flex justify-between items-center mb-2">
-                                  <div>
-                                    <span className="text-sm text-muted-foreground">Trade #{index + 1} - </span>
-                                    <span className={cn(
-                                      "font-medium",
-                                      trade.result === 'win' ? "text-green-500" : "text-red-500"
-                                    )}>
-                                      {trade.result === 'win' ? 'Win' : 'Loss'}
-                                    </span>
-                                  </div>
-                                  <div className="text-sm">
-                                    {trade.date} at {trade.time}
-                                  </div>
-                                </div>
-                                
-                                <div className="grid grid-cols-1 md:grid-cols-3 gap-4 py-2">
-                                  <div>
-                                    <div className="text-xs text-muted-foreground mb-1">Entry</div>
-                                    <div className="flex items-center gap-2">
-                                      <div className={cn(
-                                        "w-3 h-3 rounded-full",
-                                        trade.type === 'buy' ? "bg-green-500" : "bg-red-500"
-                                      )}></div>
-                                      <span>{trade.type === 'buy' ? 'BUY' : 'SELL'} @ {trade.price.toFixed(4)}</span>
-                                    </div>
-                                  </div>
-                                  
-                                  <div>
-                                    <div className="text-xs text-muted-foreground mb-1">Duration</div>
-                                    <div>{trade.holdingPeriod}</div>
-                                  </div>
-                                  
-                                  <div>
-                                    <div className="text-xs text-muted-foreground mb-1">Profit/Loss</div>
-                                    <div className={trade.profit > 0 ? "text-green-500" : "text-red-500"}>
-                                      {trade.profit > 0 ? '+' : ''}{trade.profit.toFixed(2)}
-                                    </div>
-                                  </div>
-                                </div>
-                                
-                                <div className="mt-2 pt-2 border-t">
-                                  <div className="text-xs text-muted-foreground mb-1">Exit Reason</div>
-                                  <div className="font-medium">{trade.exitReason}</div>
-                                </div>
-                              </div>
-                            ))}
-                          </div>
+                    {realResults.trades.length > 0 && (
+                      <div className="mb-2">
+                        <div className="text-sm font-medium mb-2">Recent Trades (last {Math.min(10, realResults.trades.length)})</div>
+                        <div className="space-y-2">
+                          {[...realResults.trades].slice(-10).reverse().map((t: any, i: number) => (
+                            <div key={i} className="flex flex-wrap items-center gap-x-3 gap-y-1 border rounded-lg px-3 py-2 text-sm">
+                              <Badge variant={t.side === 'long' ? 'default' : 'secondary'}>{t.side.toUpperCase()}</Badge>
+                              <span className="text-muted-foreground">{new Date(t.entryTime).toLocaleString()}</span>
+                              <span>{t.entryPrice.toFixed(5)} → {t.exitPrice.toFixed(5)}</span>
+                              <span className={t.pips >= 0 ? 'text-green-500' : 'text-red-500'}>{t.pips >= 0 ? '+' : ''}{t.pips.toFixed(1)} pips</span>
+                              <span className={t.pnl >= 0 ? 'text-green-500 font-medium' : 'text-red-500 font-medium'}>{t.pnl >= 0 ? '+' : '-'}${Math.abs(t.pnl).toFixed(2)}</span>
+                              <span className="text-xs text-muted-foreground ml-auto">{String(t.exitReason).replace('_', ' ')}</span>
+                            </div>
+                          ))}
                         </div>
-                      </TabsContent>
-                    </Tabs>
+                      </div>
+                    )}
                   </CardContent>
-                  <CardFooter className="flex justify-between">
+                  <CardFooter className="flex flex-wrap gap-3 justify-between">
                     <Button variant="outline" onClick={() => setCurrentStep('backtest')}>
                       <Settings2 className="h-4 w-4 mr-2" />
-                      Adjust Parameters
+                      Adjust & Re-run
                     </Button>
-                    
-                    <Button>
+                    <Button onClick={handleSaveStrategy} disabled={isSaving || !spec}>
                       <Save className="h-4 w-4 mr-2" />
-                      Save Strategy
+                      {isSaving ? 'Saving…' : savedId ? 'Update Saved Strategy' : 'Save Strategy'}
                     </Button>
                   </CardFooter>
                 </Card>
+              </div>
+            ) : (
+              <div className="p-10 border rounded-lg text-center">
+                <BarChart3 className="w-12 h-12 mx-auto mb-4 text-muted-foreground" />
+                <h3 className="text-lg font-medium mb-2">No backtest results yet</h3>
+                <p className="text-muted-foreground mb-4">
+                  Run a backtest from the Backtest step — results here are a real replay of your rules on historical bars, never simulated numbers.
+                </p>
+                <Button variant="outline" onClick={() => setCurrentStep('backtest')} className="mx-auto">
+                  Go to Backtest
+                </Button>
               </div>
             )}
           </>

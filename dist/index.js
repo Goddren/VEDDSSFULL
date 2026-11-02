@@ -49386,6 +49386,7 @@ var init_all_time_performance = __esm({
 // server/services/strategy-spec.ts
 var strategy_spec_exports = {};
 __export(strategy_spec_exports, {
+  ENGINE_STRATEGY_KEYS: () => ENGINE_STRATEGY_KEYS,
   INDICATOR_CATALOG: () => INDICATOR_CATALOG,
   specWarmupBars: () => specWarmupBars,
   validateStrategySpec: () => validateStrategySpec
@@ -49393,10 +49394,11 @@ __export(strategy_spec_exports, {
 function isNum(x, min, max) {
   return typeof x === "number" && Number.isFinite(x) && x >= min && x <= max;
 }
-function validateGroup(g, indicatorIds, label) {
+function validateGroup(g, indicatorIds, label, allowEmpty = false) {
   if (!g || g.logic !== "AND" && g.logic !== "OR") return `${label}: logic must be AND or OR`;
-  if (!Array.isArray(g.conditions) || g.conditions.length < 1 || g.conditions.length > 6) {
-    return `${label}: needs 1\u20136 conditions`;
+  const min = allowEmpty ? 0 : 1;
+  if (!Array.isArray(g.conditions) || g.conditions.length < min || g.conditions.length > 6) {
+    return `${label}: needs ${min}\u20136 conditions`;
   }
   for (const c of g.conditions) {
     if (c.indicatorId !== "price" && !indicatorIds.has(c.indicatorId)) {
@@ -49417,7 +49419,11 @@ function validateStrategySpec(x) {
   if (!x || typeof x !== "object") return { ok: false, error: "spec must be an object" };
   const s = x;
   if (typeof s.name !== "string" || !s.name.trim() || s.name.length > 80) return { ok: false, error: "name is required (max 80 chars)" };
-  if (s.source !== "template" && s.source !== "builder") return { ok: false, error: "source must be 'template' or 'builder'" };
+  if (s.source !== "template" && s.source !== "builder" && s.source !== "engine") return { ok: false, error: "source must be 'template', 'builder' or 'engine'" };
+  const isEngineNative = s.source === "engine";
+  if (isEngineNative && !ENGINE_STRATEGY_KEYS.includes(s.engineStrategyKey ?? "")) {
+    return { ok: false, error: "engine source needs a valid engineStrategyKey" };
+  }
   if (typeof s.symbol !== "string" || !/^[A-Za-z0-9./_-]{3,15}$/.test(s.symbol)) return { ok: false, error: "bad symbol" };
   if (!TIMEFRAMES.includes(s.timeframe)) return { ok: false, error: "bad timeframe" };
   if (!Array.isArray(s.indicators) || s.indicators.length > 8) return { ok: false, error: "indicators: max 8" };
@@ -49433,7 +49439,7 @@ function validateStrategySpec(x) {
     if (ind.stdDev !== void 0 && !isNum(ind.stdDev, 0.1, 10)) return { ok: false, error: "stdDev out of range" };
   }
   for (const [label, g] of [["entryLong", s.entryLong], ["entryShort", s.entryShort]]) {
-    const err = validateGroup(g, ids, label);
+    const err = validateGroup(g, ids, label, isEngineNative);
     if (err) return { ok: false, error: err };
   }
   for (const [label, g] of [["exitLong", s.exitLong], ["exitShort", s.exitShort]]) {
@@ -49453,7 +49459,7 @@ function validateStrategySpec(x) {
   if ((r.stopLossAtrMult != null || r.takeProfitAtrMult != null) && !s.indicators.some((i) => i.kind === "ATR")) {
     return { ok: false, error: "ATR-based stops need an ATR indicator in the spec" };
   }
-  if (r.stopLossPips == null && r.stopLossAtrMult == null && r.takeProfitPips == null && r.takeProfitAtrMult == null) {
+  if (!isEngineNative && r.stopLossPips == null && r.stopLossAtrMult == null && r.takeProfitPips == null && r.takeProfitAtrMult == null) {
     return { ok: false, error: "a strategy needs at least a stop loss or a take profit" };
   }
   return { ok: true, spec: { ...s, symbol: s.symbol.toUpperCase(), name: s.name.trim() } };
@@ -49466,10 +49472,31 @@ function specWarmupBars(spec) {
   }
   return w;
 }
-var INDICATOR_CATALOG, TIMEFRAMES, OPERATORS, FIELDS;
+var ENGINE_STRATEGY_KEYS, INDICATOR_CATALOG, TIMEFRAMES, OPERATORS, FIELDS;
 var init_strategy_spec = __esm({
   "server/services/strategy-spec.ts"() {
     "use strict";
+    ENGINE_STRATEGY_KEYS = [
+      "scalping",
+      "momentum",
+      "session_breakout",
+      "aggressive",
+      "sniper",
+      "compound",
+      "chart_pattern",
+      "ict_order_blocks",
+      "ict_fvg",
+      "ict_liquidity_sweep",
+      "ict_bos",
+      "ict_ote",
+      "smc_demand_supply",
+      "asia_range_breakout",
+      "vwap_mean_reversion",
+      "news_fade",
+      "prop_firm_sniper",
+      "sunday_gap",
+      "order_flow"
+    ];
     INDICATOR_CATALOG = [
       { kind: "EMA", label: "Exponential Moving Average", fields: ["value"], defaults: { period: 21 } },
       { kind: "SMA", label: "Simple Moving Average", fields: ["value"], defaults: { period: 50 } },
@@ -65485,9 +65512,9 @@ async function getStopOrdersForUser(userId, filters = {}) {
 init_schema();
 
 // server/build-info.ts
-var BUILD_COMMIT = "9da3e19-dirty";
-var BUILD_BRANCH = "feature/strategy-spec-backtester";
-var BUILT_AT = "2026-11-02T00:21:34.650Z";
+var BUILD_COMMIT = "534733f-dirty";
+var BUILD_BRANCH = "feature/strategy-wizard-ui";
+var BUILT_AT = "2026-11-02T00:31:09.199Z";
 
 // server/stripe.ts
 init_db();
@@ -86205,6 +86232,9 @@ Respond with ONLY valid JSON:
       const v = validateStrategySpec2(req.body?.spec);
       if (!v.ok) return res.status(400).json({ error: v.error });
       const spec = v.spec;
+      if (spec.entryLong.conditions.length + spec.entryShort.conditions.length === 0) {
+        return res.status(400).json({ error: "This is an engine-native strategy \u2014 it runs on the FX engine's AI analysis and has no mechanical rules to replay. Backtest a template, a builder strategy, or an engine strategy with a mechanical approximation instead." });
+      }
       const initialCapital = Math.min(Math.max(Number(req.body?.initialCapital ?? 1e4), 100), 1e9);
       const limit = Math.min(Math.max(Number(req.body?.limit ?? 1e3), 100), 5e3);
       let bars = [];

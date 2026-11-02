@@ -58,9 +58,23 @@ export interface StrategyRisk {
   maxTradesPerDay?: number | null;
 }
 
+/** The FX engine's built-in strategy keys — mirror of ALL_STRATEGY_KEYS in
+ *  services/live-trading-engine.ts. Engine strategies join the wizard's
+ *  choose list; ones without mechanical rules carry source 'engine' with
+ *  empty condition groups and run on the engine's AI analysis when deployed. */
+export const ENGINE_STRATEGY_KEYS = [
+  'scalping', 'momentum', 'session_breakout', 'aggressive', 'sniper', 'compound',
+  'chart_pattern', 'ict_order_blocks', 'ict_fvg', 'ict_liquidity_sweep', 'ict_bos', 'ict_ote',
+  'smc_demand_supply', 'asia_range_breakout', 'vwap_mean_reversion', 'news_fade',
+  'prop_firm_sniper', 'sunday_gap', 'order_flow',
+] as const;
+export type EngineStrategyKey = (typeof ENGINE_STRATEGY_KEYS)[number];
+
 export interface StrategySpec {
   name: string;
-  source: 'template' | 'builder';
+  source: 'template' | 'builder' | 'engine';
+  /** Set when source is 'engine': which FX-engine strategy this entry is. */
+  engineStrategyKey?: string;
   templateId?: string;
   symbol: string;
   timeframe: StrategyTimeframe;
@@ -92,10 +106,11 @@ function isNum(x: any, min: number, max: number): x is number {
   return typeof x === 'number' && Number.isFinite(x) && x >= min && x <= max;
 }
 
-function validateGroup(g: any, indicatorIds: Set<string>, label: string): string | null {
+function validateGroup(g: any, indicatorIds: Set<string>, label: string, allowEmpty = false): string | null {
   if (!g || (g.logic !== 'AND' && g.logic !== 'OR')) return `${label}: logic must be AND or OR`;
-  if (!Array.isArray(g.conditions) || g.conditions.length < 1 || g.conditions.length > 6) {
-    return `${label}: needs 1–6 conditions`;
+  const min = allowEmpty ? 0 : 1;
+  if (!Array.isArray(g.conditions) || g.conditions.length < min || g.conditions.length > 6) {
+    return `${label}: needs ${min}–6 conditions`;
   }
   for (const c of g.conditions as Condition[]) {
     if (c.indicatorId !== 'price' && !indicatorIds.has(c.indicatorId)) {
@@ -117,7 +132,11 @@ export function validateStrategySpec(x: any): { ok: true; spec: StrategySpec } |
   if (!x || typeof x !== 'object') return { ok: false, error: 'spec must be an object' };
   const s = x as StrategySpec;
   if (typeof s.name !== 'string' || !s.name.trim() || s.name.length > 80) return { ok: false, error: 'name is required (max 80 chars)' };
-  if (s.source !== 'template' && s.source !== 'builder') return { ok: false, error: "source must be 'template' or 'builder'" };
+  if (s.source !== 'template' && s.source !== 'builder' && s.source !== 'engine') return { ok: false, error: "source must be 'template', 'builder' or 'engine'" };
+  const isEngineNative = s.source === 'engine';
+  if (isEngineNative && !(ENGINE_STRATEGY_KEYS as readonly string[]).includes(s.engineStrategyKey ?? '')) {
+    return { ok: false, error: 'engine source needs a valid engineStrategyKey' };
+  }
   if (typeof s.symbol !== 'string' || !/^[A-Za-z0-9./_-]{3,15}$/.test(s.symbol)) return { ok: false, error: 'bad symbol' };
   if (!TIMEFRAMES.includes(s.timeframe)) return { ok: false, error: 'bad timeframe' };
   if (!Array.isArray(s.indicators) || s.indicators.length > 8) return { ok: false, error: 'indicators: max 8' };
@@ -135,7 +154,7 @@ export function validateStrategySpec(x: any): { ok: true; spec: StrategySpec } |
   }
 
   for (const [label, g] of [['entryLong', s.entryLong], ['entryShort', s.entryShort]] as const) {
-    const err = validateGroup(g, ids, label);
+    const err = validateGroup(g, ids, label, isEngineNative);
     if (err) return { ok: false, error: err };
   }
   for (const [label, g] of [['exitLong', s.exitLong], ['exitShort', s.exitShort]] as const) {
@@ -156,7 +175,7 @@ export function validateStrategySpec(x: any): { ok: true; spec: StrategySpec } |
   if ((r.stopLossAtrMult != null || r.takeProfitAtrMult != null) && !s.indicators.some((i) => i.kind === 'ATR')) {
     return { ok: false, error: 'ATR-based stops need an ATR indicator in the spec' };
   }
-  if (r.stopLossPips == null && r.stopLossAtrMult == null && r.takeProfitPips == null && r.takeProfitAtrMult == null) {
+  if (!isEngineNative && r.stopLossPips == null && r.stopLossAtrMult == null && r.takeProfitPips == null && r.takeProfitAtrMult == null) {
     return { ok: false, error: 'a strategy needs at least a stop loss or a take profit' };
   }
 
