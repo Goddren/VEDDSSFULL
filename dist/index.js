@@ -10736,8 +10736,8 @@ ${ictLines.join("\n")}`;
         const pdConflicts = !pdResult.aligns && pdResult.zone !== "EQUILIBRIUM";
         const aligns = bosAligns && !pdConflicts;
         const recentCloses = level.candles.slice(0, 10).map((c) => c.c);
-        const sma3 = recentCloses.reduce((s, v) => s + v, 0) / recentCloses.length;
-        const trendDirection = recentCloses[0] > sma3 * 1.001 ? "BULLISH" : recentCloses[0] < sma3 * 0.999 ? "BEARISH" : "NEUTRAL";
+        const sma4 = recentCloses.reduce((s, v) => s + v, 0) / recentCloses.length;
+        const trendDirection = recentCloses[0] > sma4 * 1.001 ? "BULLISH" : recentCloses[0] < sma4 * 0.999 ? "BEARISH" : "NEUTRAL";
         levelResults.push({ label: role, tf: tfLabel, trendDirection, aligns, bosCHOCH: bosResult, pd: pdResult, wyckoff: wyckoffResult });
       }
       if (levelResults.length > 0) {
@@ -22327,11 +22327,11 @@ function calculateRSI(candles, period = 14) {
 }
 function calcEMA(values, period) {
   const k2 = 2 / (period + 1);
-  const ema4 = [values[0]];
+  const ema5 = [values[0]];
   for (let i = 1; i < values.length; i++) {
-    ema4.push(values[i] * k2 + ema4[i - 1] * (1 - k2));
+    ema5.push(values[i] * k2 + ema5[i - 1] * (1 - k2));
   }
-  return ema4;
+  return ema5;
 }
 function calculateMACD(candles, fast = 12, slow = 26, signalPeriod = 9) {
   if (candles.length < slow + signalPeriod) return void 0;
@@ -22519,9 +22519,9 @@ function computeKeltnerChannels(candles, emaPeriod = 20, atrPeriod = 10, multipl
   if (candles.length < emaPeriod + 2) return void 0;
   const chronological = [...candles].reverse();
   const k2 = 2 / (emaPeriod + 1);
-  let ema4 = chronological.slice(0, emaPeriod).reduce((s, c) => s + c.c, 0) / emaPeriod;
+  let ema5 = chronological.slice(0, emaPeriod).reduce((s, c) => s + c.c, 0) / emaPeriod;
   for (let i = emaPeriod; i < chronological.length; i++) {
-    ema4 = chronological[i].c * k2 + ema4 * (1 - k2);
+    ema5 = chronological[i].c * k2 + ema5 * (1 - k2);
   }
   const trValues = [];
   for (let i = 1; i < chronological.length; i++) {
@@ -22531,10 +22531,10 @@ function computeKeltnerChannels(candles, emaPeriod = 20, atrPeriod = 10, multipl
   const atrSlice = trValues.slice(-atrPeriod);
   const atr3 = atrSlice.length > 0 ? atrSlice.reduce((s, v) => s + v, 0) / atrSlice.length : 0;
   if (atr3 === 0) return void 0;
-  const upper = ema4 + multiplier * atr3;
-  const lower = ema4 - multiplier * atr3;
+  const upper = ema5 + multiplier * atr3;
+  const lower = ema5 - multiplier * atr3;
   const currentPrice = chronological[chronological.length - 1].c;
-  const bandwidth = (upper - lower) / ema4 * 100;
+  const bandwidth = (upper - lower) / ema5 * 100;
   const prevBandwidths = [];
   let prevEma = chronological.slice(0, emaPeriod).reduce((s, c) => s + c.c, 0) / emaPeriod;
   for (let i = emaPeriod; i < chronological.length - 5; i++) {
@@ -22591,7 +22591,7 @@ function computeKeltnerChannels(candles, emaPeriod = 20, atrPeriod = 10, multipl
   }
   return {
     upper: Math.round(upper * 1e5) / 1e5,
-    middle: Math.round(ema4 * 1e5) / 1e5,
+    middle: Math.round(ema5 * 1e5) / 1e5,
     lower: Math.round(lower * 1e5) / 1e5,
     bandwidth: Math.round(bandwidth * 100) / 100,
     position,
@@ -24804,7 +24804,9 @@ __export(dxtrade_exports, {
   decryptApiSecret: () => decryptApiSecret,
   dxBase: () => dxBase,
   encryptApiSecret: () => encryptApiSecret,
+  executeSignalOnDxtrade: () => executeSignalOnDxtrade,
   extractAccountCode: () => extractAccountCode,
+  extractAccountFunds: () => extractAccountFunds,
   extractBalance: () => extractBalance,
   getDxtradeService: () => getDxtradeService
 });
@@ -24840,6 +24842,21 @@ function pickNum(obj, keys) {
   }
   return null;
 }
+function extractAccountFunds(metrics) {
+  const out = { balance: null, equity: null };
+  if (!metrics) return out;
+  const nodes = [metrics, metrics.metrics, metrics.balances, metrics.account, ...Array.isArray(metrics?.metrics) ? metrics.metrics : [], ...Array.isArray(metrics?.balances) ? metrics.balances : []].filter(Boolean);
+  const scan = (n) => {
+    if (!n || typeof n !== "object") return;
+    if (out.balance == null) out.balance = pickNum(n, ["balance", "cashBalance", "availableBalance", "availableFunds"]);
+    if (out.equity == null) out.equity = pickNum(n, ["equity", "netLiquidatingValue", "netAssetValue"]);
+  };
+  for (const n of nodes) {
+    if (Array.isArray(n)) n.forEach(scan);
+    else scan(n);
+  }
+  return out;
+}
 function computeRiskQuantity(opts) {
   const { balance, riskPercent, entryPrice, stopPrice, instrument } = opts;
   const quoteToUsd2 = Number(opts.quoteToUsd) > 0 ? Number(opts.quoteToUsd) : 1;
@@ -24868,6 +24885,49 @@ function getDxtradeService(host, username, password, domain, cacheKey) {
   const svc = new DxtradeService(host, username, password, domain);
   _dxServiceCache.set(cacheKey, { svc, ts: Date.now() });
   return svc;
+}
+function dxWireSymbol(normalized) {
+  return /^[A-Z]{6}$/.test(normalized) ? `${normalized.slice(0, 3)}/${normalized.slice(3)}` : normalized;
+}
+async function executeSignalOnDxtrade(conn, signal) {
+  try {
+    const svc = getDxtradeService(conn.host, conn.username, decryptApiSecret(conn.encrypted_password), conn.domain || "default", String(conn.id));
+    await svc.ensureLoggedIn();
+    const acct = conn.account_code || extractAccountCode(await svc.getAccounts());
+    if (!acct) return { success: false, error: "could not resolve DXtrade account code" };
+    const norm4 = (s) => String(s ?? "").replace(/\//g, "").toUpperCase();
+    const symbol = norm4(signal.symbol);
+    const positions = await svc.getPositions(acct);
+    const code = signal.positionCode || signal.positionId || void 0;
+    let pos = code ? positions.find((p2) => p2.positionId === String(code)) : void 0;
+    if (!pos) {
+      const dir = signal.direction ? String(signal.direction).toUpperCase() : null;
+      const matches = positions.filter((p2) => p2.instrument === symbol && (!dir || p2.side === dir));
+      if (matches.length > 1 && !dir) {
+        return { success: false, error: `multiple ${symbol} positions on this account and no direction given \u2014 refusing to guess the leg` };
+      }
+      pos = matches[0];
+    }
+    if (!pos) return { success: false, error: `no open ${symbol} position on this DXtrade account` };
+    const wireInstrument = String(pos.raw?.instrument ?? pos.raw?.symbol ?? dxWireSymbol(symbol));
+    if (signal.action === "CLOSE") {
+      const qty = signal.volume && signal.volume > 0 ? Math.min(signal.volume, pos.quantity) : pos.quantity;
+      const res2 = await svc.closePosition(acct, wireInstrument, pos.side, qty, pos.positionId);
+      return { success: true, result: res2 };
+    }
+    const res = await svc.modifyProtection(acct, {
+      instrument: wireInstrument,
+      positionSide: pos.side,
+      quantity: pos.quantity,
+      stopLoss: signal.stopLoss ?? void 0,
+      takeProfit: signal.takeProfit ?? void 0,
+      positionCode: pos.positionId
+    });
+    if (res.stopError || res.tpError) return { success: false, error: res.stopError || res.tpError, result: res };
+    return { success: true, result: res };
+  } catch (e) {
+    return { success: false, error: e?.message ?? String(e) };
+  }
 }
 var DxtradeReadError, DxtradeService, _dxServiceCache, DX_SVC_TTL_MS;
 var init_dxtrade = __esm({
@@ -25038,6 +25098,22 @@ var init_dxtrade = __esm({
           } catch {
           }
         }
+        const priorProtective = [];
+        try {
+          const normW = (s) => String(s ?? "").replace(/\//g, "").toUpperCase();
+          const target = normW(o.instrument);
+          const orders = await this.getWorkingOrders(accountCode);
+          for (const wo of orders) {
+            const sym2 = normW(wo.instrument ?? wo.symbol);
+            const effect = String(wo.positionEffect ?? wo.legs?.[0]?.positionEffect ?? "").toUpperCase();
+            if (sym2 !== target || effect !== "CLOSE") continue;
+            const id = wo.orderId ?? wo.id ?? wo.orderCode ?? wo.code;
+            if (id == null) continue;
+            const t = String(wo.type ?? wo.orderType ?? "").toUpperCase();
+            priorProtective.push({ id: String(id), kind: t.includes("STOP") ? "STOP" : t.includes("LIMIT") ? "LIMIT" : "OTHER" });
+          }
+        } catch {
+        }
         if (o.stopLoss != null && o.stopLoss > 0) {
           try {
             out.stop = await this.placeOrder(accountCode, { instrument: o.instrument, side: closeSide, quantity: o.quantity, type: "STOP", stopPrice: o.stopLoss, positionEffect: "CLOSE", tif: "GTC", positionCode: code });
@@ -25050,6 +25126,22 @@ var init_dxtrade = __esm({
             out.takeProfit = await this.placeOrder(accountCode, { instrument: o.instrument, side: closeSide, quantity: o.quantity, type: "LIMIT", limitPrice: o.takeProfit, positionEffect: "CLOSE", tif: "GTC", positionCode: code });
           } catch (e) {
             out.tpError = e?.message || String(e);
+          }
+        }
+        if (priorProtective.length) {
+          const newIds = /* @__PURE__ */ new Set();
+          for (const leg of [out.stop, out.takeProfit]) {
+            const id = leg?.orderId ?? leg?.id ?? leg?.orderCode ?? leg?._sent?.orderCode;
+            if (id != null) newIds.add(String(id));
+          }
+          for (const prior of priorProtective) {
+            const replaced = prior.kind === "STOP" ? !!out.stop : prior.kind === "LIMIT" ? !!out.takeProfit : !!(out.stop || out.takeProfit);
+            if (replaced && !newIds.has(prior.id)) {
+              try {
+                await this.cancelOrder(accountCode, prior.id);
+              } catch {
+              }
+            }
           }
         }
         return out;
@@ -25167,7 +25259,10 @@ var init_dxtrade = __esm({
         }
       }
       /** Normalized open positions for an account (id/instrument/side/qty/entry),
-       *  tolerant of dxsca shape (portfolio.positions | positions | flat array). */
+       *  tolerant of dxsca shape (portfolio.positions | positions | flat array).
+       *  sl/tp/unrealizedPnl/openTime are extracted tolerantly when the broker's
+       *  payload carries them (field names vary across dxsca hosts); absent
+       *  fields stay undefined rather than being fabricated as 0. */
       async getPositions(accountCode) {
         let lastErr = null;
         let pf = null;
@@ -25189,12 +25284,32 @@ var init_dxtrade = __esm({
         const p0 = pf?.portfolios?.[0] ?? pf;
         const arr2 = p0?.positions ?? p0?.openPositions ?? (Array.isArray(pf) ? pf : []) ?? [];
         if (!Array.isArray(arr2)) return [];
+        const posNum = (...vals) => {
+          for (const v of vals) {
+            const n = Number(v);
+            if (Number.isFinite(n) && n > 0) return n;
+          }
+          return void 0;
+        };
         return arr2.map((p2) => ({
           positionId: p2.positionCode != null ? String(p2.positionCode) : p2.positionId != null ? String(p2.positionId) : p2.id != null ? String(p2.id) : p2.code != null ? String(p2.code) : void 0,
           instrument: String(p2.instrument ?? p2.symbol ?? "").replace(/\//g, "").toUpperCase(),
           side: /sell|short/i.test(String(p2.side ?? p2.direction ?? (Number(p2.quantity ?? p2.qty ?? 0) < 0 ? "SELL" : "BUY"))) ? "SELL" : "BUY",
           quantity: Math.abs(Number(p2.quantity ?? p2.qty ?? p2.size ?? 0)),
           openPrice: Number(p2.openPrice ?? p2.entryPrice ?? p2.avgPrice ?? p2.price ?? 0) || void 0,
+          sl: posNum(p2.stopLoss, p2.sl, p2.stopPrice, p2.stopLossPrice),
+          tp: posNum(p2.takeProfit, p2.tp, p2.takeProfitPrice, p2.limitPrice),
+          unrealizedPnl: (() => {
+            const v = p2.unrealizedPnl ?? p2.unrealizedPnL ?? p2.profit ?? p2.pnl ?? p2.floatingPnl;
+            const n = Number(v);
+            return v != null && Number.isFinite(n) ? n : void 0;
+          })(),
+          openTime: (() => {
+            const v = p2.openTime ?? p2.openDate ?? p2.createdAt ?? p2.creationTime ?? p2.timestamp;
+            if (v == null) return void 0;
+            const t = typeof v === "number" ? v > 1e12 ? v : v * 1e3 : new Date(v).getTime();
+            return Number.isFinite(t) ? Math.floor(t / 1e3) : void 0;
+          })(),
           raw: p2
         }));
       }
@@ -25312,13 +25427,13 @@ async function btcDailyTrend(symbol) {
     const r = await marketDataService.fetchMarketData({ symbol, assetType: marketDataService.detectAssetType(symbol), timeframe: "1d", limit: 80 });
     const closes = (r?.bars || []).slice(0, -1).map((b) => Number(b.close));
     if (closes.length < 55) return null;
-    const ema4 = (n) => {
+    const ema5 = (n) => {
       const k2 = 2 / (n + 1);
       let e = closes.slice(0, n).reduce((a, c) => a + c, 0) / n;
       for (const c of closes.slice(n)) e = c * k2 + e * (1 - k2);
       return e;
     };
-    const e20 = ema4(20), e50 = ema4(50), last = closes[closes.length - 1];
+    const e20 = ema5(20), e50 = ema5(50), last = closes[closes.length - 1];
     const trend = e20 > e50 && last > e20 ? "BULLISH" : e20 < e50 && last < e20 ? "BEARISH" : "NEUTRAL";
     d1Cache.set(symbol, { at: Date.now(), trend });
     return trend;
@@ -25509,10 +25624,10 @@ function estimateDelta(c) {
 }
 function cvdSeries(candles) {
   const series = [];
-  let running = 0;
+  let running2 = 0;
   for (const c of candles) {
-    running += estimateDelta(c);
-    series.push(running);
+    running2 += estimateDelta(c);
+    series.push(running2);
   }
   return series;
 }
@@ -28925,13 +29040,17 @@ async function getMergedOpenPositions(userId, marketAnalysis) {
               direction,
               openPrice,
               currentPrice,
-              sl: 0,
-              // set via modifyProtection at open; not exposed on the position read
-              tp: 0,
+              // Real broker-side protection when the dxsca payload exposes it
+              // (getPositions now extracts sl/tp tolerantly per host); 0 when
+              // the host doesn't report them, exactly as before.
+              sl: Number(p2.sl) || 0,
+              tp: Number(p2.tp) || 0,
+              brokerSl: Number(p2.sl) || 0,
               profit,
               volume: qty,
-              openTime: void 0,
+              openTime: p2.openTime,
               ticket: `dx_${acct}_${p2.positionId ?? ""}`,
+              positionCode: p2.positionId,
               source: "dx",
               connectionId: dc.id
             };
@@ -28952,6 +29071,28 @@ function tlTargetOf(pos, conns) {
   const conn = conns.find((c) => c.id === Number(m[1]));
   return conn ? { conn, positionId: m[2] } : null;
 }
+function dxTargetOf(pos, conns) {
+  const conn = conns.find((c) => c.id === Number(pos?.connectionId));
+  if (!conn) return null;
+  let code = pos?.positionCode ? String(pos.positionCode) : "";
+  if (!code && conn.account_code) {
+    const prefix = `dx_${conn.account_code}_`;
+    if (String(pos?.ticket || "").startsWith(prefix)) code = String(pos.ticket).slice(prefix.length);
+  }
+  return code ? { conn, positionCode: code } : null;
+}
+async function loadDxConnections(userId) {
+  try {
+    const { pool: pool2 } = await Promise.resolve().then(() => (init_db(), db_exports));
+    const { rows } = await pool2.query(
+      `SELECT id, host, username, encrypted_password, domain, account_code FROM dxtrade_connections WHERE user_id=$1 AND is_active=true`,
+      [userId]
+    );
+    return rows;
+  } catch {
+    return [];
+  }
+}
 function stopHoldUntilR() {
   const v = Number(process.env.STOP_HOLD_UNTIL_R ?? 1);
   return Number.isFinite(v) && v > 0 ? v : 0;
@@ -28969,8 +29110,9 @@ async function manageBtcTrail(userId, openPositions, marketAnalysis) {
   if (!btc.BTC_PROFILE_ON()) return;
   const live = /* @__PURE__ */ new Set();
   let tlConns = null;
+  let dxConns = null;
   for (const pos of openPositions) {
-    if (pos.source !== "tl" || !btc.isBtc(pos.symbol)) continue;
+    if (pos.source !== "tl" && pos.source !== "dx" || !btc.isBtc(pos.symbol)) continue;
     const key = `${userId}:${pos.ticket}`;
     live.add(key);
     const entry = Number(pos.openPrice) || 0;
@@ -29000,6 +29142,24 @@ async function manageBtcTrail(userId, openPositions, marketAnalysis) {
     if (!h1) continue;
     const want = btc.btcTrailStop({ direction: pos.direction, entry, initialStop: initial, price, currentStop: _tightest, bars: h1.bars });
     if (!want) continue;
+    if (pos.source === "dx") {
+      if (!dxConns) dxConns = await loadDxConnections(userId);
+      const _dxT = dxTargetOf(pos, dxConns);
+      if (!_dxT) continue;
+      try {
+        const { executeSignalOnDxtrade: executeSignalOnDxtrade2 } = await Promise.resolve().then(() => (init_dxtrade(), dxtrade_exports));
+        const r = await executeSignalOnDxtrade2(_dxT.conn, { action: "MODIFY", symbol: pos.symbol, direction: pos.direction, stopLoss: want.stop, positionCode: _dxT.positionCode });
+        if (r.success) {
+          btcLastStop.set(key, want.stop);
+          addActivity(userId, { type: "position_update", symbol: pos.symbol, message: `\u20BF BTC trail on DXtrade [conn ${_dxT.conn.id}]: ${pos.direction} ${want.why} \u2192 stop ${want.stop}` });
+        } else {
+          addActivity(userId, { type: "error", symbol: pos.symbol, message: `\u26A0\uFE0F BTC trail failed on DXtrade [conn ${_dxT.conn.id}]: ${r.error}` });
+        }
+      } catch (e) {
+        addActivity(userId, { type: "error", symbol: pos.symbol, message: `\u26A0\uFE0F BTC trail error on DXtrade [conn ${_dxT.conn.id}]: ${e?.message ?? e}` });
+      }
+      continue;
+    }
     const m = String(pos.ticket).match(/^tl_(\d+)_(.+)$/);
     if (!m) continue;
     if (!tlConns) tlConns = (await storage.getUserTradelockerConnections(userId)).filter((c) => c.isActive);
@@ -29027,14 +29187,15 @@ async function manageXauProfitLock(userId, openPositions) {
   if (!rules.XAU_LOCK_ON()) return;
   const live = /* @__PURE__ */ new Set();
   let tlConns = null;
+  let dxConns = null;
   for (const pos of openPositions) {
-    if (pos.source !== "tl" || !rules.isXau(pos.symbol)) continue;
+    if (pos.source !== "tl" && pos.source !== "dx" || !rules.isXau(pos.symbol)) continue;
     const key = `${userId}:${pos.ticket}`;
     live.add(key);
     const qty = Number(pos.volume) || 0;
     const entry = Number(pos.openPrice) || 0;
     if (!(qty > 0) || !(entry > 0)) continue;
-    const favPts = (Number(pos.profit) || 0) / (qty * rules.XAU_CONTRACT_SIZE);
+    const favPts = pos.source === "dx" ? (Number(pos.profit) || 0) / qty : (Number(pos.profit) || 0) / (qty * rules.XAU_CONTRACT_SIZE);
     if (!Number.isFinite(favPts)) continue;
     {
       const _bs0 = Number(pos.brokerSl) || 0;
@@ -29049,11 +29210,6 @@ async function manageXauProfitLock(userId, openPositions) {
     const already = xauLockedPts.get(key) ?? -Infinity;
     if (want < already + 1) continue;
     if (favPts < want + 2) continue;
-    const m = String(pos.ticket).match(/^tl_(\d+)_(.+)$/);
-    if (!m) continue;
-    if (!tlConns) tlConns = (await storage.getUserTradelockerConnections(userId)).filter((c) => c.isActive);
-    const tlConn = tlConns.find((c) => c.id === Number(m[1]));
-    if (!tlConn) continue;
     const isBuy = pos.direction === "BUY";
     const newSl = Math.round((isBuy ? entry + want : entry - want) * 100) / 100;
     {
@@ -29064,6 +29220,35 @@ async function manageXauProfitLock(userId, openPositions) {
         continue;
       }
     }
+    if (pos.source === "dx") {
+      if (!dxConns) dxConns = await loadDxConnections(userId);
+      const _dxT = dxTargetOf(pos, dxConns);
+      if (!_dxT) continue;
+      try {
+        const { executeSignalOnDxtrade: executeSignalOnDxtrade2 } = await Promise.resolve().then(() => (init_dxtrade(), dxtrade_exports));
+        const r = await executeSignalOnDxtrade2(_dxT.conn, {
+          action: "MODIFY",
+          symbol: pos.symbol,
+          direction: pos.direction,
+          stopLoss: newSl,
+          positionCode: _dxT.positionCode
+        });
+        if (r.success) {
+          xauLockedPts.set(key, want);
+          addActivity(userId, { type: "position_update", symbol: pos.symbol, message: `\u{1F512} XAUUSD profit lock on DXtrade [conn ${_dxT.conn.id}]: ${pos.direction} +${peak.toFixed(1)} pts peak \u2192 stop moved to ${newSl} (+${want.toFixed(1)} pts locked)` });
+        } else {
+          addActivity(userId, { type: "error", symbol: pos.symbol, message: `\u26A0\uFE0F XAUUSD profit lock failed on DXtrade [conn ${_dxT.conn.id}]: ${r.error}` });
+        }
+      } catch (e) {
+        addActivity(userId, { type: "error", symbol: pos.symbol, message: `\u26A0\uFE0F XAUUSD profit lock error on DXtrade [conn ${_dxT.conn.id}]: ${e?.message ?? e}` });
+      }
+      continue;
+    }
+    const m = String(pos.ticket).match(/^tl_(\d+)_(.+)$/);
+    if (!m) continue;
+    if (!tlConns) tlConns = (await storage.getUserTradelockerConnections(userId)).filter((c) => c.isActive);
+    const tlConn = tlConns.find((c) => c.id === Number(m[1]));
+    if (!tlConn) continue;
     try {
       const r = await executeMT5SignalOnTradeLocker(tlConn, {
         action: "MODIFY",
@@ -29101,6 +29286,7 @@ async function applyServerSideTrails(userId, openPositions, marketAnalysis) {
     tlConnections = allTL.filter((c) => c.isActive);
   } catch {
   }
+  const dxConnections = await loadDxConnections(userId);
   const methodLabel = TRAIL_METHOD_LABELS[config.trailMethod] || config.trailMethod;
   const activationPips = config.trailActivationPips ?? 10;
   for (const pos of openPositions) {
@@ -29153,7 +29339,7 @@ async function applyServerSideTrails(userId, openPositions, marketAnalysis) {
       if (!_xauHold && !_mtfHold && _against && !_choppy && _revScore >= _sensitivity) {
         const _reason = `Reversal exit: ${pos.symbol} ${pos.direction} \u2014 ${_revScore}/5 reversal confluence in a trending market (ADX ${Math.round(_adx)}, DI sep ${Math.round(_diSep)}, need ${_sensitivity})`;
         addActivity(userId, { type: "trade_close", symbol: pos.symbol, message: `\u{1F504} ${_reason}` });
-        if (pos.source !== "tl") broadcastMT5Signal(userId, {
+        if (pos.source === "mt5") broadcastMT5Signal(userId, {
           id: `revexit_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
           timestamp: (/* @__PURE__ */ new Date()).toISOString(),
           symbol: pos.symbol,
@@ -29172,6 +29358,22 @@ async function applyServerSideTrails(userId, openPositions, marketAnalysis) {
           modifyAction: "full_close",
           positionId: pos.ticket || pos.id || null
         });
+        const _dxT = pos.source === "dx" ? dxTargetOf(pos, dxConnections) : null;
+        if (_dxT) {
+          try {
+            const { executeSignalOnDxtrade: executeSignalOnDxtrade2 } = await Promise.resolve().then(() => (init_dxtrade(), dxtrade_exports));
+            const r = await executeSignalOnDxtrade2(_dxT.conn, {
+              action: "CLOSE",
+              symbol: pos.symbol,
+              direction: pos.direction,
+              positionCode: _dxT.positionCode
+            });
+            if (r.success) addActivity(userId, { type: "trade_close", symbol: pos.symbol, message: `\u2705 Reversal exit closed on DXtrade [conn ${_dxT.conn.id}]: ${pos.symbol}` });
+            else addActivity(userId, { type: "error", symbol: pos.symbol, message: `\u26A0\uFE0F Reversal exit close failed on DXtrade [conn ${_dxT.conn.id}]: ${r.error}` });
+          } catch (e) {
+            addActivity(userId, { type: "error", symbol: pos.symbol, message: `\u26A0\uFE0F Reversal exit error on DXtrade [conn ${_dxT.conn.id}]: ${e?.message ?? e}` });
+          }
+        }
         const _rxT = pos.source === "tl" ? tlTargetOf(pos, tlConnections) : null;
         for (const tlConn of _rxT ? [_rxT.conn] : []) {
           try {
@@ -29270,7 +29472,7 @@ async function applyServerSideTrails(userId, openPositions, marketAnalysis) {
       logGuard(userId, "stop_through_price_refused", pos.symbol, `trail ${newSL} vs price ${_px}`);
       continue;
     }
-    if (pos.source !== "tl") broadcastMT5Signal(userId, {
+    if (pos.source === "mt5") broadcastMT5Signal(userId, {
       id: `trail_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
       timestamp: (/* @__PURE__ */ new Date()).toISOString(),
       symbol: pos.symbol,
@@ -29328,6 +29530,39 @@ async function applyServerSideTrails(userId, openPositions, marketAnalysis) {
             message: `\u26A0\uFE0F TradeLocker trail error on ${tlConn.accountId}: ${pos.symbol} \u2014 ${tlErr.message}`
           });
         }
+      }
+    }
+    const _dxTrailT = pos.source === "dx" ? dxTargetOf(pos, dxConnections) : null;
+    if (_dxTrailT) {
+      try {
+        const { executeSignalOnDxtrade: executeSignalOnDxtrade2 } = await Promise.resolve().then(() => (init_dxtrade(), dxtrade_exports));
+        const r = await executeSignalOnDxtrade2(_dxTrailT.conn, {
+          action: "MODIFY",
+          symbol: pos.symbol,
+          direction: pos.direction || "BUY",
+          stopLoss: Math.round(newSL * 1e5) / 1e5,
+          takeProfit: pos.tp || null,
+          positionCode: _dxTrailT.positionCode
+        });
+        if (r.success) {
+          addActivity(userId, {
+            type: "position_update",
+            symbol: pos.symbol,
+            message: `\u2705 DXtrade trail applied [conn ${_dxTrailT.conn.id}]: ${pos.symbol} SL \u2192 ${Math.round(newSL * 1e5) / 1e5}`
+          });
+        } else {
+          addActivity(userId, {
+            type: "error",
+            symbol: pos.symbol,
+            message: `\u26A0\uFE0F DXtrade trail failed [conn ${_dxTrailT.conn.id}]: ${pos.symbol} \u2014 ${r.error}`
+          });
+        }
+      } catch (dxErr) {
+        addActivity(userId, {
+          type: "error",
+          symbol: pos.symbol,
+          message: `\u26A0\uFE0F DXtrade trail error [conn ${_dxTrailT.conn.id}]: ${pos.symbol} \u2014 ${dxErr?.message ?? dxErr}`
+        });
       }
     }
   }
@@ -32523,7 +32758,9 @@ async function processDecision(userId, decision, newsCtx) {
       modifyAction,
       positionId: decision.positionId || null
     };
-    broadcastMT5Signal(userId, mgmtSignal);
+    if (!String(decision.positionId || "").startsWith("dx_")) {
+      broadcastMT5Signal(userId, mgmtSignal);
+    }
     const tlConnectionsForMgmt = await storage.getUserTradelockerConnections(userId);
     const activeTLForMgmt = tlConnectionsForMgmt.filter((c) => c.isActive);
     if (activeTLForMgmt.length > 0) {
@@ -32631,6 +32868,95 @@ async function processDecision(userId, decision, newsCtx) {
             }
           } catch (err) {
             addActivity(userId, { type: "error", symbol: decision.symbol, message: `Position management error on TradeLocker ${acctLabel}: ${err.message}` });
+          }
+        })
+      );
+    }
+    const dxConnsForMgmt = await loadDxConnections(userId);
+    if (dxConnsForMgmt.length > 0) {
+      const { executeSignalOnDxtrade: executeSignalOnDxtrade2 } = await Promise.resolve().then(() => (init_dxtrade(), dxtrade_exports));
+      await Promise.allSettled(
+        dxConnsForMgmt.map(async (dc) => {
+          const acctLabel = `[DXtrade conn ${dc.id}]`;
+          try {
+            const { getDxtradeService: getDxtradeService2, decryptApiSecret: decryptApiSecret3, extractAccountCode: extractAccountCode2 } = await Promise.resolve().then(() => (init_dxtrade(), dxtrade_exports));
+            const svc = getDxtradeService2(dc.host, dc.username, decryptApiSecret3(dc.encrypted_password), dc.domain, String(dc.id));
+            await svc.ensureLoggedIn();
+            const acct = dc.account_code || extractAccountCode2(await svc.getAccounts());
+            if (!acct) return;
+            const positions = await svc.getPositions(acct).catch(() => []);
+            const matchDir = decision.direction ? String(decision.direction).toUpperCase() : null;
+            const symMatches = positions.filter((p2) => (p2.instrument || "").toUpperCase().replace("/", "") === decision.symbol?.toUpperCase().replace("/", ""));
+            if (!matchDir && new Set(symMatches.map((p2) => String(p2.side || "").toUpperCase())).size > 1) {
+              addActivity(userId, { type: "info", symbol: decision.symbol, message: `\u26A0\uFE0F ${acctLabel}: AI asked to manage ${decision.symbol} without a direction but this account holds both a BUY and a SELL \u2014 skipped rather than guess the leg.` });
+              return;
+            }
+            const dxMatch = symMatches.find((p2) => !matchDir || (p2.side || "").toUpperCase() === matchDir);
+            if (!dxMatch) return;
+            if (signalAction === "CLOSE") {
+              const { xauTooYoungToClose: xauTooYoungToClose2 } = await Promise.resolve().then(() => (init_xau_rules(), xau_rules_exports));
+              if (xauTooYoungToClose2(decision.symbol, dxMatch.openTime)) {
+                addActivity(userId, { type: "info", symbol: decision.symbol, message: `\u23F3 AI close held off on ${acctLabel}: ${decision.symbol} is inside the gold/index minimum hold \u2014 the broker stop still protects it.` });
+                return;
+              }
+              if (partialVolume && partialVolume > 0) {
+                addActivity(userId, { type: "info", symbol: decision.symbol, message: `\u2702\uFE0F Partial close (${partialVolume}) refused on ${acctLabel}: lot-denominated partials can't be sized safely in DXtrade units yet. Position kept; trail/stop still protect it.` });
+                logGuard(userId, "partial_close_refused", decision.symbol, `${acctLabel} partial ${partialVolume}`);
+                return;
+              }
+              const r = await executeSignalOnDxtrade2(dc, {
+                action: "CLOSE",
+                symbol: decision.symbol,
+                direction: dxMatch.side,
+                volume: 0,
+                positionCode: dxMatch.positionId
+              });
+              if (r.success) {
+                addActivity(userId, { type: "trade_close", symbol: decision.symbol, message: `Position CLOSED via DXtrade ${acctLabel}: ${decision.symbol} - ${decision.reason}` });
+              } else {
+                addActivity(userId, { type: "error", symbol: decision.symbol, message: `CLOSE failed on DXtrade ${acctLabel}: ${r.error}` });
+              }
+            } else if (signalAction === "MODIFY") {
+              let _sl = newSL;
+              const _buy = String(dxMatch.side || "BUY").toUpperCase() === "BUY";
+              const _cur = Number(dxMatch.sl) || 0;
+              const _px = Number(state.marketSnapshot?.[decision.symbol]?.price) || 0;
+              const _entry = Number(dxMatch.openPrice) || 0;
+              if (_sl && _cur > 0 && (_buy ? _sl > _cur : _sl < _cur)) {
+                const _h = stopHoldActive(_buy, _entry, _cur, _px);
+                if (_h.hold) {
+                  logGuard(userId, "stop_hold_breathe", decision.symbol, `AI stop ${_sl} held on ${acctLabel} \u2014 trade at ${_h.rNow.toFixed(2)}R, stop stays at ${_cur} until +${stopHoldUntilR()}R`);
+                  _sl = void 0;
+                }
+              }
+              if (_sl && _px > 0 && (_buy ? _sl >= _px : _sl <= _px)) {
+                logGuard(userId, "stop_through_price_refused", decision.symbol, `AI SL ${_sl} vs price ${_px} on ${acctLabel}`);
+                _sl = void 0;
+              }
+              if (_sl && _cur > 0 && (_buy ? _sl <= _cur : _sl >= _cur)) {
+                logGuard(userId, "stop_loosen_refused", decision.symbol, `AI SL ${_sl} looser than ${_cur} on ${acctLabel}`);
+                _sl = void 0;
+              }
+              if (!_sl && !newTP) {
+                addActivity(userId, { type: "info", symbol: decision.symbol, message: `\u{1F6E1}\uFE0F ${acctLabel}: AI stop change for ${decision.symbol} refused (would loosen or cross price).` });
+                return;
+              }
+              const r = await executeSignalOnDxtrade2(dc, {
+                action: "MODIFY",
+                symbol: decision.symbol,
+                direction: dxMatch.side,
+                stopLoss: _sl,
+                takeProfit: newTP,
+                positionCode: dxMatch.positionId
+              });
+              if (r.success) {
+                addActivity(userId, { type: "position_update", symbol: decision.symbol, message: `Position MODIFIED via DXtrade ${acctLabel}: ${decision.symbol} | New SL: ${newSL || "N/A"} | New TP: ${newTP || "N/A"}` });
+              } else {
+                addActivity(userId, { type: "error", symbol: decision.symbol, message: `MODIFY failed on DXtrade ${acctLabel}: ${r.error}` });
+              }
+            }
+          } catch (err) {
+            addActivity(userId, { type: "error", symbol: decision.symbol, message: `Position management error on DXtrade ${acctLabel}: ${err.message}` });
           }
         })
       );
@@ -38996,14 +39322,14 @@ async function applySetup(userId, p2) {
         if (p2.fx[k2] !== void 0) upd[k2] = p2.fx[k2];
       }
       if (p2.weeklyTarget) upd.weeklyProfitTarget = p2.weeklyTarget;
-      const running = getLiveEngineState(userId)?.status === "running";
-      if (p2.fx.run && !running) {
+      const running2 = getLiveEngineState(userId)?.status === "running";
+      if (p2.fx.run && !running2) {
         startLiveEngine(userId, { ...getEffectiveEngineConfig(userId), ...upd });
         applied.push("FX engine started with the new settings");
       } else {
         updateLiveEngineConfig(userId, upd);
-        applied.push(running ? "FX settings updated (engine running)" : "FX settings saved (engine stays off)");
-        if (!p2.fx.run && running) errors.push("FX is running and the plan says off. Stop it from the engine page if you want it off; ABBA does not stop engines.");
+        applied.push(running2 ? "FX settings updated (engine running)" : "FX settings saved (engine stays off)");
+        if (!p2.fx.run && running2) errors.push("FX is running and the plan says off. Stop it from the engine page if you want it off; ABBA does not stop engines.");
       }
     } catch (e) {
       errors.push(`FX: ${e.message}`);
@@ -44193,7 +44519,7 @@ async function sendMorningSocialEmail(force = false) {
 }
 function startSocialAutopilot() {
   if (process.env.SOCIAL_AUTOPILOT === "off") return;
-  const tick2 = async () => {
+  const tick3 = async () => {
     try {
       const { isFxLeader: isFxLeader2 } = await Promise.resolve().then(() => (init_live_trading_engine(), live_trading_engine_exports));
       if (!isFxLeader2()) return;
@@ -44216,8 +44542,8 @@ function startSocialAutopilot() {
       console.error("[social] tick failed (non-fatal):", e?.message || e);
     }
   };
-  setInterval(tick2, 60 * 60 * 1e3);
-  setTimeout(tick2, 5 * 60 * 1e3);
+  setInterval(tick3, 60 * 60 * 1e3);
+  setTimeout(tick3, 5 * 60 * 1e3);
 }
 async function previewKind(kind) {
   const d = kind === "challenge_daily" ? await buildChallengeDaily() : kind === "weekly_recap" ? await buildWeeklyRecap() : kind === "shadow_progress" ? await buildShadowProgress() : await buildEngineInsight();
@@ -45668,8 +45994,8 @@ async function backtestCreditSpread(service, symbol, years, p2) {
     const mn = Math.min(...windowIv), mx = Math.max(...windowIv);
     const ivRank = mx > mn ? Math.round((sigma - mn) / (mx - mn) * 100) : 50;
     if (ivRank < p2.ivRankMin && sigma < p2.minIv) continue;
-    const sma3 = closes.slice(i - 20, i).reduce((a, b) => a + b, 0) / 20;
-    const spreadType = S >= sma3 ? "bull_put" : "bear_call";
+    const sma4 = closes.slice(i - 20, i).reduce((a, b) => a + b, 0) / 20;
+    const spreadType = S >= sma4 ? "bull_put" : "bear_call";
     const optType = spreadType === "bull_put" ? "put" : "call";
     const T = p2.dte / 365;
     let shortK = S, best = Infinity;
@@ -49743,9 +50069,9 @@ async function breakStaleRunLock() {
   try {
     const { pool: pool2 } = await Promise.resolve().then(() => (init_db(), db_exports));
     const { rows: hb2 } = await pool2.query(`SELECT worker_id, tick_at FROM crypto_engine_heartbeat WHERE id=1`);
-    const tick2 = hb2[0]?.tick_at ? new Date(hb2[0].tick_at).getTime() : 0;
-    const age = Date.now() - tick2;
-    if (tick2 && age < STALE_AFTER_MS) return;
+    const tick3 = hb2[0]?.tick_at ? new Date(hb2[0].tick_at).getTime() : 0;
+    const age = Date.now() - tick3;
+    if (tick3 && age < STALE_AFTER_MS) return;
     const { rows } = await pool2.query(
       `SELECT a.pid, round(extract(epoch from now()-a.backend_start)/60) held_min
          FROM pg_locks l JOIN pg_stat_activity a ON a.pid = l.pid
@@ -49755,7 +50081,7 @@ async function breakStaleRunLock() {
       [CRYPTO_RUN_LOCK_KEY]
     );
     for (const r of rows) {
-      console.error(`[cryptocom-scanner] run lock held by pid ${r.pid} for ${r.held_min} min with a heartbeat ${tick2 ? Math.round(age / 6e4) + " min" : "never written"} \u2014 its process is gone. Terminating that session to release the lock.`);
+      console.error(`[cryptocom-scanner] run lock held by pid ${r.pid} for ${r.held_min} min with a heartbeat ${tick3 ? Math.round(age / 6e4) + " min" : "never written"} \u2014 its process is gone. Terminating that session to release the lock.`);
       await pool2.query(`SELECT pg_terminate_backend($1)`, [r.pid]);
     }
   } catch (e) {
@@ -50040,6 +50366,1356 @@ var init_all_time_performance = __esm({
   }
 });
 
+// server/services/strategy-spec.ts
+var strategy_spec_exports = {};
+__export(strategy_spec_exports, {
+  ENGINE_STRATEGY_KEYS: () => ENGINE_STRATEGY_KEYS,
+  INDICATOR_CATALOG: () => INDICATOR_CATALOG,
+  specWarmupBars: () => specWarmupBars,
+  validateStrategySpec: () => validateStrategySpec
+});
+function isNum(x, min, max) {
+  return typeof x === "number" && Number.isFinite(x) && x >= min && x <= max;
+}
+function validateGroup(g, indicatorIds, label, allowEmpty = false) {
+  if (!g || g.logic !== "AND" && g.logic !== "OR") return `${label}: logic must be AND or OR`;
+  const min = allowEmpty ? 0 : 1;
+  if (!Array.isArray(g.conditions) || g.conditions.length < min || g.conditions.length > 6) {
+    return `${label}: needs ${min}\u20136 conditions`;
+  }
+  for (const c of g.conditions) {
+    if (c.indicatorId !== "price" && !indicatorIds.has(c.indicatorId)) {
+      return `${label}: unknown indicator "${c.indicatorId}"`;
+    }
+    if (!FIELDS.includes(c.field)) return `${label}: bad field "${c.field}"`;
+    if (!OPERATORS.includes(c.operator)) return `${label}: bad operator "${c.operator}"`;
+    const cmp = c.compare;
+    if (!cmp || !["value", "indicator", "price"].includes(cmp.kind)) return `${label}: bad compare target`;
+    if (cmp.kind === "value" && !isNum(cmp.value, -1e9, 1e9)) return `${label}: compare value must be a number`;
+    if (cmp.kind === "indicator" && cmp.indicatorId !== "price" && !indicatorIds.has(cmp.indicatorId)) {
+      return `${label}: unknown compare indicator "${cmp.indicatorId}"`;
+    }
+  }
+  return null;
+}
+function validateStrategySpec(x) {
+  if (!x || typeof x !== "object") return { ok: false, error: "spec must be an object" };
+  const s = x;
+  if (typeof s.name !== "string" || !s.name.trim() || s.name.length > 80) return { ok: false, error: "name is required (max 80 chars)" };
+  if (s.source !== "template" && s.source !== "builder" && s.source !== "engine") return { ok: false, error: "source must be 'template', 'builder' or 'engine'" };
+  const isEngineNative = s.source === "engine";
+  if (isEngineNative && !ENGINE_STRATEGY_KEYS.includes(s.engineStrategyKey ?? "")) {
+    return { ok: false, error: "engine source needs a valid engineStrategyKey" };
+  }
+  if (typeof s.symbol !== "string" || !/^[A-Za-z0-9./_-]{3,15}$/.test(s.symbol)) return { ok: false, error: "bad symbol" };
+  if (!TIMEFRAMES.includes(s.timeframe)) return { ok: false, error: "bad timeframe" };
+  if (!Array.isArray(s.indicators) || s.indicators.length > 8) return { ok: false, error: "indicators: max 8" };
+  const ids = /* @__PURE__ */ new Set();
+  for (const ind of s.indicators) {
+    if (!ind.id || typeof ind.id !== "string" || ids.has(ind.id)) return { ok: false, error: "indicator ids must be unique strings" };
+    ids.add(ind.id);
+    if (!INDICATOR_CATALOG.some((c) => c.kind === ind.kind)) return { ok: false, error: `bad indicator kind "${ind.kind}"` };
+    if (ind.period !== void 0 && !isNum(ind.period, 1, 500)) return { ok: false, error: "indicator period out of range" };
+    if (ind.fastPeriod !== void 0 && !isNum(ind.fastPeriod, 1, 500)) return { ok: false, error: "fastPeriod out of range" };
+    if (ind.slowPeriod !== void 0 && !isNum(ind.slowPeriod, 1, 500)) return { ok: false, error: "slowPeriod out of range" };
+    if (ind.signalPeriod !== void 0 && !isNum(ind.signalPeriod, 1, 100)) return { ok: false, error: "signalPeriod out of range" };
+    if (ind.stdDev !== void 0 && !isNum(ind.stdDev, 0.1, 10)) return { ok: false, error: "stdDev out of range" };
+  }
+  for (const [label, g] of [["entryLong", s.entryLong], ["entryShort", s.entryShort]]) {
+    const err = validateGroup(g, ids, label, isEngineNative);
+    if (err) return { ok: false, error: err };
+  }
+  for (const [label, g] of [["exitLong", s.exitLong], ["exitShort", s.exitShort]]) {
+    if (g == null) continue;
+    const err = validateGroup(g, ids, label);
+    if (err) return { ok: false, error: err };
+  }
+  const r = s.risk;
+  if (!r || !isNum(r.lotSize, 0.01, 50)) return { ok: false, error: "risk.lotSize must be 0.01\u201350" };
+  for (const k2 of ["stopLossPips", "takeProfitPips", "trailingStopPips"]) {
+    if (r[k2] != null && !isNum(r[k2], 0, 1e5)) return { ok: false, error: `risk.${k2} out of range` };
+  }
+  for (const k2 of ["stopLossAtrMult", "takeProfitAtrMult"]) {
+    if (r[k2] != null && !isNum(r[k2], 0, 100)) return { ok: false, error: `risk.${k2} out of range` };
+  }
+  if (r.maxTradesPerDay != null && !isNum(r.maxTradesPerDay, 1, 1e3)) return { ok: false, error: "risk.maxTradesPerDay out of range" };
+  if ((r.stopLossAtrMult != null || r.takeProfitAtrMult != null) && !s.indicators.some((i) => i.kind === "ATR")) {
+    return { ok: false, error: "ATR-based stops need an ATR indicator in the spec" };
+  }
+  if (!isEngineNative && r.stopLossPips == null && r.stopLossAtrMult == null && r.takeProfitPips == null && r.takeProfitAtrMult == null) {
+    return { ok: false, error: "a strategy needs at least a stop loss or a take profit" };
+  }
+  return { ok: true, spec: { ...s, symbol: s.symbol.toUpperCase(), name: s.name.trim() } };
+}
+function specWarmupBars(spec) {
+  let w = 2;
+  for (const ind of spec.indicators) {
+    const need = ind.kind === "MACD" ? (ind.slowPeriod ?? 26) + (ind.signalPeriod ?? 9) : ind.kind === "STOCHASTIC" ? (ind.period ?? 14) + (ind.signalPeriod ?? 3) : ind.period ?? 14;
+    w = Math.max(w, need + 2);
+  }
+  return w;
+}
+var ENGINE_STRATEGY_KEYS, INDICATOR_CATALOG, TIMEFRAMES, OPERATORS, FIELDS;
+var init_strategy_spec = __esm({
+  "server/services/strategy-spec.ts"() {
+    "use strict";
+    ENGINE_STRATEGY_KEYS = [
+      "scalping",
+      "momentum",
+      "session_breakout",
+      "aggressive",
+      "sniper",
+      "compound",
+      "chart_pattern",
+      "ict_order_blocks",
+      "ict_fvg",
+      "ict_liquidity_sweep",
+      "ict_bos",
+      "ict_ote",
+      "smc_demand_supply",
+      "asia_range_breakout",
+      "vwap_mean_reversion",
+      "news_fade",
+      "prop_firm_sniper",
+      "sunday_gap",
+      "order_flow"
+    ];
+    INDICATOR_CATALOG = [
+      { kind: "EMA", label: "Exponential Moving Average", fields: ["value"], defaults: { period: 21 } },
+      { kind: "SMA", label: "Simple Moving Average", fields: ["value"], defaults: { period: 50 } },
+      { kind: "RSI", label: "Relative Strength Index", fields: ["value"], defaults: { period: 14 } },
+      { kind: "MACD", label: "MACD", fields: ["value", "signal", "histogram"], defaults: { fastPeriod: 12, slowPeriod: 26, signalPeriod: 9 } },
+      { kind: "STOCHASTIC", label: "Stochastic Oscillator", fields: ["k", "d"], defaults: { period: 14, signalPeriod: 3 } },
+      { kind: "BOLLINGER", label: "Bollinger Bands", fields: ["upper", "middle", "lower"], defaults: { period: 20, stdDev: 2 } },
+      { kind: "ATR", label: "Average True Range", fields: ["value"], defaults: { period: 14 } }
+    ];
+    TIMEFRAMES = ["M1", "M5", "M15", "M30", "H1", "H4", "D1"];
+    OPERATORS = ["crosses_above", "crosses_below", "above", "below", "rising", "falling"];
+    FIELDS = ["value", "signal", "histogram", "upper", "middle", "lower", "k", "d", "price"];
+  }
+});
+
+// server/services/strategy-backtest.ts
+var strategy_backtest_exports = {};
+__export(strategy_backtest_exports, {
+  evaluateSpecSignals: () => evaluateSpecSignals,
+  runBacktest: () => runBacktest
+});
+function contractSize(symbol) {
+  return CONTRACT_SIZE[symbol.replace(/[^A-Z]/g, "")] ?? 1e5;
+}
+function sma2(values, period) {
+  const out = new Array(values.length).fill(null);
+  let sum = 0;
+  for (let i = 0; i < values.length; i++) {
+    sum += values[i];
+    if (i >= period) sum -= values[i - period];
+    if (i >= period - 1) out[i] = sum / period;
+  }
+  return out;
+}
+function ema2(values, period) {
+  const out = new Array(values.length).fill(null);
+  const k2 = 2 / (period + 1);
+  let prev = null;
+  let seedSum = 0;
+  for (let i = 0; i < values.length; i++) {
+    if (i < period - 1) {
+      seedSum += values[i];
+      continue;
+    }
+    if (i === period - 1) {
+      seedSum += values[i];
+      prev = seedSum / period;
+      out[i] = prev;
+      continue;
+    }
+    prev = (values[i] - prev) * k2 + prev;
+    out[i] = prev;
+  }
+  return out;
+}
+function rsiSeries(closes, period) {
+  const out = new Array(closes.length).fill(null);
+  if (closes.length <= period) return out;
+  let gain = 0, loss = 0;
+  for (let i = 1; i <= period; i++) {
+    const d = closes[i] - closes[i - 1];
+    if (d >= 0) gain += d;
+    else loss -= d;
+  }
+  gain /= period;
+  loss /= period;
+  out[period] = loss === 0 ? 100 : 100 - 100 / (1 + gain / loss);
+  for (let i = period + 1; i < closes.length; i++) {
+    const d = closes[i] - closes[i - 1];
+    gain = (gain * (period - 1) + Math.max(d, 0)) / period;
+    loss = (loss * (period - 1) + Math.max(-d, 0)) / period;
+    out[i] = loss === 0 ? 100 : 100 - 100 / (1 + gain / loss);
+  }
+  return out;
+}
+function atrSeries(bars, period) {
+  const out = new Array(bars.length).fill(null);
+  if (bars.length <= period) return out;
+  const tr = (i) => {
+    const h = bars[i].high, l = bars[i].low, pc = bars[i - 1].close;
+    return Math.max(h - l, Math.abs(h - pc), Math.abs(l - pc));
+  };
+  let atr3 = 0;
+  for (let i = 1; i <= period; i++) atr3 += tr(i);
+  atr3 /= period;
+  out[period] = atr3;
+  for (let i = period + 1; i < bars.length; i++) {
+    atr3 = (atr3 * (period - 1) + tr(i)) / period;
+    out[i] = atr3;
+  }
+  return out;
+}
+function buildSeries(spec, bars) {
+  const closes = bars.map((b) => b.close);
+  const map = /* @__PURE__ */ new Map();
+  map.set("price:price", closes.slice());
+  map.set("price:value", closes.slice());
+  for (const ind of spec.indicators) {
+    const key = (f) => `${ind.id}:${f}`;
+    switch (ind.kind) {
+      case "EMA":
+        map.set(key("value"), ema2(closes, ind.period ?? 21));
+        break;
+      case "SMA":
+        map.set(key("value"), sma2(closes, ind.period ?? 50));
+        break;
+      case "RSI":
+        map.set(key("value"), rsiSeries(closes, ind.period ?? 14));
+        break;
+      case "ATR":
+        map.set(key("value"), atrSeries(bars, ind.period ?? 14));
+        break;
+      case "MACD": {
+        const fast = ema2(closes, ind.fastPeriod ?? 12);
+        const slow = ema2(closes, ind.slowPeriod ?? 26);
+        const macd2 = closes.map((_, i) => fast[i] != null && slow[i] != null ? fast[i] - slow[i] : null);
+        const macdNums = macd2.map((v) => v ?? 0);
+        const firstValid = macd2.findIndex((v) => v != null);
+        const sigRaw = ema2(macdNums, ind.signalPeriod ?? 9);
+        const signal = macd2.map((v, i) => v == null || i < firstValid + (ind.signalPeriod ?? 9) - 1 ? null : sigRaw[i]);
+        map.set(key("value"), macd2);
+        map.set(key("signal"), signal);
+        map.set(key("histogram"), macd2.map((v, i) => v != null && signal[i] != null ? v - signal[i] : null));
+        break;
+      }
+      case "STOCHASTIC": {
+        const period = ind.period ?? 14;
+        const kSeries = new Array(bars.length).fill(null);
+        for (let i = period - 1; i < bars.length; i++) {
+          let hh = -Infinity, ll = Infinity;
+          for (let j = i - period + 1; j <= i; j++) {
+            hh = Math.max(hh, bars[j].high);
+            ll = Math.min(ll, bars[j].low);
+          }
+          kSeries[i] = hh === ll ? 50 : (bars[i].close - ll) / (hh - ll) * 100;
+        }
+        const kNums = kSeries.map((v) => v ?? 50);
+        const dRaw = sma2(kNums, ind.signalPeriod ?? 3);
+        map.set(key("k"), kSeries);
+        map.set(key("value"), kSeries);
+        map.set(key("d"), kSeries.map((v, i) => v == null ? null : dRaw[i]));
+        break;
+      }
+      case "BOLLINGER": {
+        const period = ind.period ?? 20;
+        const mid = sma2(closes, period);
+        const upper = new Array(bars.length).fill(null);
+        const lower = new Array(bars.length).fill(null);
+        for (let i = period - 1; i < bars.length; i++) {
+          let sq = 0;
+          for (let j = i - period + 1; j <= i; j++) sq += (closes[j] - mid[i]) ** 2;
+          const sd = Math.sqrt(sq / period) * (ind.stdDev ?? 2);
+          upper[i] = mid[i] + sd;
+          lower[i] = mid[i] - sd;
+        }
+        map.set(key("middle"), mid);
+        map.set(key("value"), mid);
+        map.set(key("upper"), upper);
+        map.set(key("lower"), lower);
+        break;
+      }
+    }
+  }
+  return map;
+}
+function evalCondition(c, series, i) {
+  if (i < 1) return false;
+  const a = series.get(`${c.indicatorId}:${c.field}`);
+  if (!a) return false;
+  const ai = a[i], aiPrev = a[i - 1];
+  if (ai == null || aiPrev == null) return false;
+  if (c.operator === "rising") return ai > aiPrev;
+  if (c.operator === "falling") return ai < aiPrev;
+  let bNow, bPrev;
+  if (c.compare.kind === "value") {
+    bNow = c.compare.value;
+    bPrev = c.compare.value;
+  } else {
+    const bKey = c.compare.kind === "price" ? "price:price" : `${c.compare.indicatorId}:${c.compare.field}`;
+    const b = series.get(bKey);
+    if (!b) return false;
+    bNow = b[i];
+    bPrev = b[i - 1];
+  }
+  if (bNow == null || bPrev == null) return false;
+  switch (c.operator) {
+    case "above":
+      return ai > bNow;
+    case "below":
+      return ai < bNow;
+    case "crosses_above":
+      return aiPrev <= bPrev && ai > bNow;
+    case "crosses_below":
+      return aiPrev >= bPrev && ai < bNow;
+  }
+  return false;
+}
+function evalGroup(g, series, i) {
+  if (!g || g.conditions.length === 0) return false;
+  const results = g.conditions.map((c) => evalCondition(c, series, i));
+  return g.logic === "AND" ? results.every(Boolean) : results.some(Boolean);
+}
+function evaluateSpecSignals(spec, barsIn) {
+  const bars = [...barsIn].sort((a, b) => a.timestamp - b.timestamp);
+  if (bars.length < 3) return null;
+  const series = buildSeries(spec, bars);
+  const i = bars.length - 1;
+  let atr3 = null;
+  for (const ind of spec.indicators) {
+    if (ind.kind === "ATR") {
+      const s = series.get(`${ind.id}:value`);
+      const v = s ? s[i] : null;
+      if (typeof v === "number" && isFinite(v)) atr3 = v;
+    }
+  }
+  return {
+    enterLong: evalGroup(spec.entryLong, series, i),
+    enterShort: evalGroup(spec.entryShort, series, i),
+    exitLong: evalGroup(spec.exitLong, series, i),
+    exitShort: evalGroup(spec.exitShort, series, i),
+    atr: atr3,
+    close: bars[i].close,
+    barTime: bars[i].timestamp
+  };
+}
+function runBacktest(spec, barsIn, opts) {
+  const bars = [...barsIn].sort((a, b) => a.timestamp - b.timestamp);
+  const pipSize2 = getPipSize(spec.symbol);
+  const spread = (opts.spreadPips ?? 1) * pipSize2;
+  const slippage = (opts.slippagePips ?? 0.3) * pipSize2;
+  const commission = (opts.commissionPerLot ?? 0) * spec.risk.lotSize * 2;
+  const pipValueMoney = pipSize2 * contractSize(spec.symbol) * spec.risk.lotSize;
+  const usdBase = spec.symbol.replace(/[^A-Z]/g, "").startsWith("USD");
+  const series = buildSeries(spec, bars);
+  const atrId = spec.indicators.find((x) => x.kind === "ATR")?.id;
+  const atrAt = (i) => atrId ? series.get(`${atrId}:value`)?.[i] ?? null : null;
+  const trades = [];
+  const equityCurve = [];
+  let balance = opts.initialCapital;
+  let peak = balance, maxDd = 0, maxDdPct = 0;
+  equityCurve.push({ timestamp: bars.length ? bars[0].timestamp : 0, equity: balance });
+  let pos = null;
+  const entriesByDay = /* @__PURE__ */ new Map();
+  const closePos = (i, rawExit, reason) => {
+    if (!pos) return;
+    const dir = pos.side === "long" ? 1 : -1;
+    const exitPrice = rawExit - dir * slippage;
+    const pips = (exitPrice - pos.entryPrice) * dir / pipSize2;
+    let pnl = pips * pipValueMoney - commission;
+    if (usdBase && exitPrice > 0) pnl = pnl / exitPrice;
+    balance += pnl;
+    trades.push({ side: pos.side, entryTime: pos.entryTime, exitTime: bars[i].timestamp, entryIndex: pos.entryIndex, exitIndex: i, entryPrice: pos.entryPrice, exitPrice, pips, pnl, exitReason: reason });
+    peak = Math.max(peak, balance);
+    const dd = peak - balance;
+    if (dd > maxDd) {
+      maxDd = dd;
+      maxDdPct = peak > 0 ? dd / peak * 100 : 0;
+    }
+    equityCurve.push({ timestamp: bars[i].timestamp, equity: balance });
+    pos = null;
+  };
+  const warmup = Math.min(specWarmupBars(spec), Math.max(0, bars.length - 1));
+  for (let i = warmup; i < bars.length; i++) {
+    const bar = bars[i];
+    if (pos) {
+      const dir = pos.side === "long" ? 1 : -1;
+      if (spec.risk.trailingStopPips && i > pos.entryIndex) {
+        const trailDist = spec.risk.trailingStopPips * pipSize2;
+        if (pos.side === "long") {
+          pos.best = Math.max(pos.best, bars[i - 1].high);
+          const cand = pos.best - trailDist;
+          if (cand > (pos.sl ?? -Infinity)) pos.sl = cand;
+        } else {
+          pos.best = Math.min(pos.best, bars[i - 1].low);
+          const cand = pos.best + trailDist;
+          if (cand < (pos.sl ?? Infinity)) pos.sl = cand;
+        }
+      }
+      if (pos.side === "long") {
+        if (pos.sl != null && bar.low <= pos.sl) {
+          closePos(i, pos.sl, "stop_loss");
+        } else if (pos.tp != null && bar.high >= pos.tp) {
+          closePos(i, pos.tp, "take_profit");
+        }
+      } else {
+        if (pos.sl != null && bar.high >= pos.sl) {
+          closePos(i, pos.sl, "stop_loss");
+        } else if (pos.tp != null && bar.low <= pos.tp) {
+          closePos(i, pos.tp, "take_profit");
+        }
+      }
+      if (pos) {
+        const exitGroup = pos.side === "long" ? spec.exitLong : spec.exitShort;
+        if (evalGroup(exitGroup, series, i)) closePos(i, bar.close, "exit_signal");
+      }
+    }
+    if (!pos && i < bars.length - 1) {
+      const dayKey = new Date(bar.timestamp).toISOString().slice(0, 10);
+      const todayCount = entriesByDay.get(dayKey) ?? 0;
+      if (spec.risk.maxTradesPerDay == null || todayCount < spec.risk.maxTradesPerDay) {
+        const goLong = evalGroup(spec.entryLong, series, i);
+        const goShort = !goLong && evalGroup(spec.entryShort, series, i);
+        if (goLong || goShort) {
+          const side = goLong ? "long" : "short";
+          const dir = goLong ? 1 : -1;
+          const entryPrice = bar.close + dir * (spread / 2 + slippage);
+          const atr3 = atrAt(i);
+          const slDist = spec.risk.stopLossPips != null ? spec.risk.stopLossPips * pipSize2 : spec.risk.stopLossAtrMult != null && atr3 != null ? spec.risk.stopLossAtrMult * atr3 : null;
+          const tpDist = spec.risk.takeProfitPips != null ? spec.risk.takeProfitPips * pipSize2 : spec.risk.takeProfitAtrMult != null && atr3 != null ? spec.risk.takeProfitAtrMult * atr3 : null;
+          pos = {
+            side,
+            entryPrice,
+            entryTime: bar.timestamp,
+            entryIndex: i,
+            sl: slDist != null ? entryPrice - dir * slDist : null,
+            tp: tpDist != null ? entryPrice + dir * tpDist : null,
+            best: entryPrice
+          };
+          entriesByDay.set(dayKey, todayCount + 1);
+        }
+      }
+    }
+  }
+  if (pos && bars.length) closePos(bars.length - 1, bars[bars.length - 1].close, "end");
+  const wins = trades.filter((t) => t.pnl > 0);
+  const losses = trades.filter((t) => t.pnl <= 0);
+  const grossProfit = wins.reduce((s, t) => s + t.pnl, 0);
+  const grossLoss = Math.abs(losses.reduce((s, t) => s + t.pnl, 0));
+  const longs = trades.filter((t) => t.side === "long");
+  const shorts = trades.filter((t) => t.side === "short");
+  const byReason = {};
+  for (const t of trades) byReason[t.exitReason] = (byReason[t.exitReason] ?? 0) + 1;
+  const holdBars = trades.length ? trades.reduce((s, t) => s + (t.exitIndex - t.entryIndex), 0) / trades.length : 0;
+  return {
+    trades,
+    equityCurve,
+    stats: {
+      barsUsed: bars.length,
+      totalTrades: trades.length,
+      wins: wins.length,
+      losses: losses.length,
+      winRate: trades.length ? wins.length / trades.length * 100 : 0,
+      netPnl: balance - opts.initialCapital,
+      netPips: trades.reduce((s, t) => s + t.pips, 0),
+      returnPct: opts.initialCapital > 0 ? (balance - opts.initialCapital) / opts.initialCapital * 100 : 0,
+      grossProfit,
+      grossLoss,
+      profitFactor: grossLoss > 0 ? grossProfit / grossLoss : null,
+      maxDrawdown: maxDd,
+      maxDrawdownPct: maxDdPct,
+      avgWin: wins.length ? grossProfit / wins.length : 0,
+      avgLoss: losses.length ? grossLoss / losses.length : 0,
+      bestTrade: trades.length ? Math.max(...trades.map((t) => t.pnl)) : 0,
+      worstTrade: trades.length ? Math.min(...trades.map((t) => t.pnl)) : 0,
+      finalBalance: balance
+    },
+    dataPoints: {
+      perSymbol: spec.symbol,
+      timeframe: spec.timeframe,
+      tradesByExitReason: byReason,
+      longTrades: longs.length,
+      shortTrades: shorts.length,
+      longWinRate: longs.length ? longs.filter((t) => t.pnl > 0).length / longs.length * 100 : null,
+      shortWinRate: shorts.length ? shorts.filter((t) => t.pnl > 0).length / shorts.length * 100 : null,
+      avgHoldBars: holdBars
+    }
+  };
+}
+var CONTRACT_SIZE;
+var init_strategy_backtest = __esm({
+  "server/services/strategy-backtest.ts"() {
+    "use strict";
+    init_pipUtils();
+    init_strategy_spec();
+    CONTRACT_SIZE = {
+      XAUUSD: 100,
+      XAGUSD: 5e3,
+      BTCUSD: 1,
+      ETHUSD: 10,
+      SOLUSD: 100,
+      XRPUSD: 1e4
+    };
+  }
+});
+
+// server/services/wizard-spec-strategies.ts
+var wizard_spec_strategies_exports = {};
+__export(wizard_spec_strategies_exports, {
+  createWizardStrategy: () => createWizardStrategy,
+  deleteWizardStrategy: () => deleteWizardStrategy,
+  getWizardStrategy: () => getWizardStrategy,
+  listWizardStrategies: () => listWizardStrategies2,
+  recordWizardBacktest: () => recordWizardBacktest,
+  recordWizardBrain: () => recordWizardBrain,
+  recordWizardEa: () => recordWizardEa,
+  updateWizardStrategySpec: () => updateWizardStrategySpec
+});
+function ensureTable4() {
+  return tableReady2 ??= (async () => {
+    await pool.query(`CREATE TABLE IF NOT EXISTS wizard_strategies (
+      id SERIAL PRIMARY KEY,
+      user_id INTEGER NOT NULL,
+      name TEXT NOT NULL,
+      source TEXT NOT NULL DEFAULT 'builder',
+      template_id TEXT,
+      spec JSONB NOT NULL,
+      last_backtest JSONB,
+      status TEXT NOT NULL DEFAULT 'draft',
+      created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+    )`);
+    await pool.query(`CREATE INDEX IF NOT EXISTS wizard_strategies_user_idx ON wizard_strategies (user_id, id DESC)`);
+    await pool.query(`ALTER TABLE wizard_strategies ADD COLUMN IF NOT EXISTS ea_code TEXT`);
+    await pool.query(`ALTER TABLE wizard_strategies ADD COLUMN IF NOT EXISTS brain_profile JSONB`);
+    await pool.query(`ALTER TABLE wizard_strategies ADD COLUMN IF NOT EXISTS brain_listing_id INTEGER`);
+  })().catch((e) => {
+    tableReady2 = null;
+    throw e;
+  });
+}
+function rowToStrategy(r) {
+  return {
+    id: r.id,
+    userId: r.user_id,
+    name: r.name,
+    source: r.source,
+    templateId: r.template_id ?? null,
+    spec: r.spec,
+    lastBacktest: r.last_backtest ?? null,
+    hasEa: !!r.has_ea,
+    brainProfile: r.brain_profile ?? null,
+    brainListingId: r.brain_listing_id ?? null,
+    status: r.status,
+    createdAt: r.created_at instanceof Date ? r.created_at.toISOString() : String(r.created_at),
+    updatedAt: r.updated_at instanceof Date ? r.updated_at.toISOString() : String(r.updated_at)
+  };
+}
+async function createWizardStrategy(userId, spec) {
+  await ensureTable4();
+  const { rows } = await pool.query(
+    `INSERT INTO wizard_strategies (user_id, name, source, template_id, spec)
+     VALUES ($1,$2,$3,$4,$5) RETURNING ${COLS}`,
+    [userId, spec.name, spec.source, spec.templateId ?? null, JSON.stringify(spec)]
+  );
+  return rowToStrategy(rows[0]);
+}
+async function listWizardStrategies2(userId) {
+  await ensureTable4();
+  const { rows } = await pool.query(
+    `SELECT ${COLS} FROM wizard_strategies WHERE user_id=$1 ORDER BY id DESC LIMIT 100`,
+    [userId]
+  );
+  return rows.map(rowToStrategy);
+}
+async function getWizardStrategy(userId, id) {
+  await ensureTable4();
+  const { rows } = await pool.query(
+    `SELECT ${COLS} FROM wizard_strategies WHERE id=$1 AND user_id=$2`,
+    [id, userId]
+  );
+  return rows.length ? rowToStrategy(rows[0]) : null;
+}
+async function updateWizardStrategySpec(userId, id, spec) {
+  await ensureTable4();
+  const { rows } = await pool.query(
+    `UPDATE wizard_strategies SET name=$3, source=$4, template_id=$5, spec=$6, updated_at=now()
+     WHERE id=$1 AND user_id=$2 RETURNING ${COLS}`,
+    [id, userId, spec.name, spec.source, spec.templateId ?? null, JSON.stringify(spec)]
+  );
+  return rows.length ? rowToStrategy(rows[0]) : null;
+}
+async function deleteWizardStrategy(userId, id) {
+  await ensureTable4();
+  const { rowCount } = await pool.query(
+    `DELETE FROM wizard_strategies WHERE id=$1 AND user_id=$2`,
+    [id, userId]
+  );
+  return (rowCount ?? 0) > 0;
+}
+async function recordWizardBrain(userId, id, patch) {
+  await ensureTable4();
+  const sets = [];
+  const params = [id, userId];
+  if (patch.profile !== void 0) {
+    params.push(JSON.stringify(patch.profile));
+    sets.push(`brain_profile = $${params.length}`);
+  }
+  if (patch.listingId !== void 0) {
+    params.push(patch.listingId);
+    sets.push(`brain_listing_id = $${params.length}`);
+  }
+  if (!sets.length) return false;
+  sets.push("updated_at = now()");
+  const r = await pool.query(
+    `UPDATE wizard_strategies SET ${sets.join(", ")} WHERE id = $1 AND user_id = $2`,
+    params
+  );
+  return (r.rowCount ?? 0) > 0;
+}
+async function recordWizardEa(userId, id, code) {
+  await ensureTable4();
+  const { rowCount } = await pool.query(
+    `UPDATE wizard_strategies SET ea_code=$3, updated_at=now() WHERE id=$1 AND user_id=$2`,
+    [id, userId, code]
+  );
+  return (rowCount ?? 0) > 0;
+}
+async function recordWizardBacktest(userId, id, summary) {
+  await ensureTable4();
+  const { rows } = await pool.query(
+    `UPDATE wizard_strategies SET last_backtest=$3, status='backtested', updated_at=now()
+     WHERE id=$1 AND user_id=$2 RETURNING ${COLS}`,
+    [id, userId, JSON.stringify(summary)]
+  );
+  return rows.length ? rowToStrategy(rows[0]) : null;
+}
+var tableReady2, COLS;
+var init_wizard_spec_strategies = __esm({
+  "server/services/wizard-spec-strategies.ts"() {
+    "use strict";
+    init_db();
+    tableReady2 = null;
+    COLS = `id, user_id, name, source, template_id, spec, last_backtest, (ea_code IS NOT NULL) AS has_ea, status, created_at, updated_at, brain_profile, brain_listing_id`;
+  }
+});
+
+// server/services/spec-ea-generator.ts
+var spec_ea_generator_exports = {};
+__export(spec_ea_generator_exports, {
+  generateSpecMT5EA: () => generateSpecMT5EA
+});
+function deterministicMagic(spec) {
+  const s = `${spec.name}|${spec.symbol}|${spec.timeframe}`;
+  let h = 7;
+  for (let i = 0; i < s.length; i++) h = h * 31 + s.charCodeAt(i) >>> 0;
+  return 1e4 + h % 9e4;
+}
+function sanitize(name) {
+  return name.replace(/[^A-Za-z0-9]+/g, "_").replace(/^_+|_+$/g, "").slice(0, 40) || "Strategy";
+}
+function collectRefs(spec) {
+  const seen = /* @__PURE__ */ new Map();
+  const add = (id, field) => {
+    if (id === "price") return;
+    const key = `${id}:${field}`;
+    if (!seen.has(key)) seen.set(key, { id, field });
+  };
+  const walk = (g) => {
+    if (!g) return;
+    for (const c of g.conditions) {
+      add(c.indicatorId, c.field);
+      if (c.compare.kind === "indicator") add(c.compare.indicatorId, c.compare.field);
+    }
+  };
+  walk(spec.entryLong);
+  walk(spec.entryShort);
+  walk(spec.exitLong);
+  walk(spec.exitShort);
+  return Array.from(seen.values());
+}
+function valueExpr(indicatorId, field, shift) {
+  if (indicatorId === "price") return `iClose(_Symbol, InpTimeframe, ${shift})`;
+  return `${seriesFn(indicatorId, field)}(${shift})`;
+}
+function rhsExpr(c, shift) {
+  if (c.compare.kind === "value") return `(${c.compare.value})`;
+  if (c.compare.kind === "price") return `iClose(_Symbol, InpTimeframe, ${shift})`;
+  return valueExpr(c.compare.indicatorId, c.compare.field, shift);
+}
+function conditionExpr(c) {
+  const L2 = (s) => valueExpr(c.indicatorId, c.field, s);
+  const R = (s) => rhsExpr(c, s);
+  switch (c.operator) {
+    case "above":
+      return `(${L2(1)} > ${R(1)})`;
+    case "below":
+      return `(${L2(1)} < ${R(1)})`;
+    case "crosses_above":
+      return `(${L2(2)} <= ${R(2)} && ${L2(1)} > ${R(1)})`;
+    case "crosses_below":
+      return `(${L2(2)} >= ${R(2)} && ${L2(1)} < ${R(1)})`;
+    case "rising":
+      return `(${L2(1)} > ${L2(2)})`;
+    case "falling":
+      return `(${L2(1)} < ${L2(2)})`;
+  }
+}
+function groupExpr(g) {
+  if (!g || g.conditions.length === 0) return null;
+  const joiner = g.logic === "AND" ? " && " : " || ";
+  return `(${g.conditions.map(conditionExpr).join(joiner)})`;
+}
+function generateSpecMT5EA(spec) {
+  const magic = deterministicMagic(spec);
+  const refs = collectRefs(spec);
+  const atrInd = spec.indicators.find((i) => i.kind === "ATR");
+  const useAtrStops = (spec.risk.stopLossAtrMult != null || spec.risk.takeProfitAtrMult != null) && !!atrInd;
+  if (useAtrStops && !refs.some((r2) => r2.id === atrInd.id && r2.field === "value")) {
+    refs.push({ id: atrInd.id, field: "value" });
+  }
+  const indById = new Map(spec.indicators.map((i) => [i.id, i]));
+  for (const ref of [...refs]) {
+    if (indById.get(ref.id)?.kind === "MACD") {
+      for (const f of ["value", "signal"]) {
+        if (!refs.some((r2) => r2.id === ref.id && r2.field === f)) refs.push({ id: ref.id, field: f });
+      }
+    }
+  }
+  const handleDecls = [];
+  const bufferDecls = [];
+  const handleInits = [];
+  const copyCalls = [];
+  const getters = [];
+  for (const ind of spec.indicators) {
+    const h = `h_${ind.id}`;
+    handleDecls.push(`int ${h} = INVALID_HANDLE;`);
+    let init = "";
+    switch (ind.kind) {
+      case "EMA":
+        init = `iMA(_Symbol, InpTimeframe, ${ind.period ?? 21}, 0, MODE_EMA, PRICE_CLOSE)`;
+        break;
+      case "SMA":
+        init = `iMA(_Symbol, InpTimeframe, ${ind.period ?? 50}, 0, MODE_SMA, PRICE_CLOSE)`;
+        break;
+      case "RSI":
+        init = `iRSI(_Symbol, InpTimeframe, ${ind.period ?? 14}, PRICE_CLOSE)`;
+        break;
+      case "ATR":
+        init = `iATR(_Symbol, InpTimeframe, ${ind.period ?? 14})`;
+        break;
+      case "MACD":
+        init = `iMACD(_Symbol, InpTimeframe, ${ind.fastPeriod ?? 12}, ${ind.slowPeriod ?? 26}, ${ind.signalPeriod ?? 9}, PRICE_CLOSE)`;
+        break;
+      case "STOCHASTIC":
+        init = `iStochastic(_Symbol, InpTimeframe, ${ind.period ?? 14}, ${ind.signalPeriod ?? 3}, 1, MODE_SMA, STO_LOWHIGH)`;
+        break;
+      case "BOLLINGER":
+        init = `iBands(_Symbol, InpTimeframe, ${ind.period ?? 20}, 0, ${ind.stdDev ?? 2}, PRICE_CLOSE)`;
+        break;
+    }
+    handleInits.push(`   ${h} = ${init};
+   if(${h} == INVALID_HANDLE) { Print("VEDD: failed to create ${ind.kind} handle"); return INIT_FAILED; }`);
+  }
+  for (const ref of refs) {
+    const ind = indById.get(ref.id);
+    if (!ind) continue;
+    const arr2 = `g_${ref.id}_${ref.field}`;
+    bufferDecls.push(`double ${arr2}[];`);
+    if (ind.kind === "MACD" && ref.field === "histogram") {
+      copyCalls.push(`   // histogram for ${ref.id} computed below`);
+    } else {
+      const bufIdx = BUFFER_INDEX[ind.kind]?.[ref.field] ?? 0;
+      copyCalls.push(`   if(CopyBuffer(h_${ref.id}, ${bufIdx}, 0, 5, ${arr2}) < 3) return false;
+   ArraySetAsSeries(${arr2}, true);`);
+    }
+    getters.push(`double ${seriesFn(ref.id, ref.field)}(int shift) { return g_${ref.id}_${ref.field}[shift]; }`);
+  }
+  const hasHistogram = refs.some((r2) => indById.get(r2.id)?.kind === "MACD" && r2.field === "histogram");
+  const histogramCode = hasHistogram ? (() => {
+    const mid = refs.find((r2) => indById.get(r2.id)?.kind === "MACD" && r2.field === "histogram").id;
+    return `
+   // MACD histogram = main - signal
+   if(ArraySize(g_${mid}_value) >= 3 && ArraySize(g_${mid}_signal) >= 3) {
+      ArrayResize(g_${mid}_histogram, ArraySize(g_${mid}_value));
+      ArraySetAsSeries(g_${mid}_histogram, true);
+      for(int i = 0; i < ArraySize(g_${mid}_value); i++) g_${mid}_histogram[i] = g_${mid}_value[i] - g_${mid}_signal[i];
+   }`;
+  })() : "";
+  const entryLongExpr = groupExpr(spec.entryLong);
+  const entryShortExpr = groupExpr(spec.entryShort);
+  const exitLongExpr = groupExpr(spec.exitLong);
+  const exitShortExpr = groupExpr(spec.exitShort);
+  const r = spec.risk;
+  const code = `//+------------------------------------------------------------------+
+//|                                            VEDD_${sanitize(spec.name)}.mq5 |
+//|  Generated by VEDD AI Trading Vault \u2014 Strategy Wizard            |
+//|  Strategy : ${spec.name} (${spec.source}${spec.engineStrategyKey ? ` \xB7 engine: ${spec.engineStrategyKey}` : ""}${spec.templateId ? ` \xB7 template: ${spec.templateId}` : ""})
+//|  Market   : ${spec.symbol} ${spec.timeframe} \u2014 attach to a ${spec.symbol} ${spec.timeframe} chart
+//|                                                                  |
+//|  These are the exact rules that were backtested in the wizard:   |
+//|  signals evaluate on the last CLOSED bar, one position at a      |
+//|  time, stops set on the order. Trailing ratchets on tick (the    |
+//|  backtester trailed from prior-bar extremes \u2014 live is tighter).  |
+//|  Past backtest results never guarantee live performance.         |
+//+------------------------------------------------------------------+
+#property strict
+#property version   "1.00"
+#property description "VEDD Strategy Wizard EA \u2014 ${spec.name.replace(/"/g, "")}"
+
+//--- Inputs (structure follows the VEDD EA generator)
+input group "=== Strategy ==="
+input ENUM_TIMEFRAMES InpTimeframe = ${TF_CONST[spec.timeframe] ?? "PERIOD_H1"}; // Signal timeframe
+
+input group "=== Risk Management ==="
+input double InpLotSize         = ${r.lotSize};       // Lot size
+input double InpStopLossPips    = ${r.stopLossPips ?? 0};    // Stop loss in pips (0 = off${useAtrStops && r.stopLossPips == null ? ", ATR mode below" : ""})
+input double InpTakeProfitPips  = ${r.takeProfitPips ?? 0};    // Take profit in pips (0 = off${useAtrStops && r.takeProfitPips == null ? ", ATR mode below" : ""})
+${useAtrStops ? `input double InpStopLossAtrMult   = ${r.stopLossAtrMult ?? 0};    // Stop loss x ATR (0 = off)
+input double InpTakeProfitAtrMult = ${r.takeProfitAtrMult ?? 0};    // Take profit x ATR (0 = off)` : ""}
+input double InpTrailingStopPips = ${r.trailingStopPips ?? 0};   // Trailing stop in pips (0 = off)
+input int    InpMaxTradesPerDay  = ${r.maxTradesPerDay ?? 0};   // Max entries per day (0 = no cap)
+
+input group "=== Execution ==="
+input long   InpMagicNumber     = ${magic};   // Magic number (stable for this strategy)
+input int    InpSlippagePoints  = 30;         // Max slippage (points)
+
+//--- Indicator handles
+${handleDecls.join("\n")}
+
+//--- Series buffers (index 0 = forming bar, 1 = last closed bar)
+${bufferDecls.join("\n")}
+
+${getters.join("\n")}
+
+//+------------------------------------------------------------------+
+//| Pip size \u2014 mirrors the VEDD backtester (pipUtils)                |
+//+------------------------------------------------------------------+
+double PipSize()
+{
+   string s = _Symbol;
+   if(StringFind(s, "JPY") >= 0) return 0.01;
+   if(StringFind(s, "XAU") >= 0) return 0.1;
+   if(StringFind(s, "XAG") >= 0) return 0.001;
+   if(StringFind(s, "US30") >= 0 || StringFind(s, "NAS100") >= 0 || StringFind(s, "USTEC") >= 0 || StringFind(s, "US500") >= 0) return 1.0;
+   if(StringFind(s, "BTC") >= 0) return 1.0;
+   if(StringFind(s, "ETH") >= 0 || StringFind(s, "SOL") >= 0) return 0.01;
+   if(StringFind(s, "XRP") >= 0) return 0.0001;
+   return 0.0001;
+}
+
+//+------------------------------------------------------------------+
+int OnInit()
+{
+${handleInits.join("\n")}
+   Print("VEDD Wizard EA initialized: ${spec.name.replace(/"/g, "")} on ", _Symbol);
+   return(INIT_SUCCEEDED);
+}
+
+void OnDeinit(const int reason)
+{
+${spec.indicators.map((i) => `   if(h_${i.id} != INVALID_HANDLE) IndicatorRelease(h_${i.id});`).join("\n")}
+}
+
+//+------------------------------------------------------------------+
+bool RefreshSeries()
+{
+${copyCalls.join("\n")}${histogramCode}
+   return true;
+}
+
+//+------------------------------------------------------------------+
+//| Position helpers (this EA's magic + symbol only)                 |
+//+------------------------------------------------------------------+
+bool FindMyPosition(ulong &ticket, long &type, double &openPrice, double &sl, double &tp, double &volume)
+{
+   for(int i = PositionsTotal() - 1; i >= 0; i--)
+   {
+      ticket = PositionGetTicket(i);
+      if(ticket == 0) continue;
+      if(PositionGetInteger(POSITION_MAGIC) != InpMagicNumber) continue;
+      if(PositionGetString(POSITION_SYMBOL) != _Symbol) continue;
+      type = PositionGetInteger(POSITION_TYPE);
+      openPrice = PositionGetDouble(POSITION_PRICE_OPEN);
+      sl = PositionGetDouble(POSITION_SL);
+      tp = PositionGetDouble(POSITION_TP);
+      volume = PositionGetDouble(POSITION_VOLUME);
+      return true;
+   }
+   return false;
+}
+
+int EntriesToday()
+{
+   datetime dayStart = iTime(_Symbol, PERIOD_D1, 0);
+   if(!HistorySelect(dayStart, TimeCurrent())) return 0;
+   int count = 0;
+   for(int i = 0; i < HistoryDealsTotal(); i++)
+   {
+      ulong deal = HistoryDealGetTicket(i);
+      if(deal == 0) continue;
+      if(HistoryDealGetInteger(deal, DEAL_MAGIC) != InpMagicNumber) continue;
+      if(HistoryDealGetString(deal, DEAL_SYMBOL) != _Symbol) continue;
+      if(HistoryDealGetInteger(deal, DEAL_ENTRY) == DEAL_ENTRY_IN) count++;
+   }
+   return count;
+}
+
+bool SendOrder(ENUM_ORDER_TYPE type, double price, double sl, double tp)
+{
+   MqlTradeRequest req = {};
+   MqlTradeResult  res = {};
+   req.action    = TRADE_ACTION_DEAL;
+   req.symbol    = _Symbol;
+   req.volume    = InpLotSize;
+   req.type      = type;
+   req.price     = price;
+   req.sl        = sl;
+   req.tp        = tp;
+   req.deviation = InpSlippagePoints;
+   req.magic     = InpMagicNumber;
+   req.comment   = "VEDD Wizard";
+   req.type_filling = ORDER_FILLING_IOC;
+   if(!OrderSend(req, res))
+      Print("VEDD: OrderSend failed, retcode=", res.retcode, " ", res.comment);
+   return (res.retcode == TRADE_RETCODE_DONE || res.retcode == TRADE_RETCODE_PLACED);
+}
+
+bool ClosePosition(ulong ticket)
+{
+   if(!PositionSelectByTicket(ticket)) return false;
+   long type = PositionGetInteger(POSITION_TYPE);
+   double volume = PositionGetDouble(POSITION_VOLUME);
+   MqlTradeRequest req = {};
+   MqlTradeResult  res = {};
+   req.action    = TRADE_ACTION_DEAL;
+   req.symbol    = _Symbol;
+   req.volume    = volume;
+   req.position  = ticket;
+   req.magic     = InpMagicNumber;
+   req.deviation = InpSlippagePoints;
+   req.comment   = "VEDD Wizard exit";
+   req.type_filling = ORDER_FILLING_IOC;
+   if(type == POSITION_TYPE_BUY) { req.type = ORDER_TYPE_SELL; req.price = SymbolInfoDouble(_Symbol, SYMBOL_BID); }
+   else                          { req.type = ORDER_TYPE_BUY;  req.price = SymbolInfoDouble(_Symbol, SYMBOL_ASK); }
+   if(!OrderSend(req, res))
+      Print("VEDD: close failed, retcode=", res.retcode, " ", res.comment);
+   return (res.retcode == TRADE_RETCODE_DONE);
+}
+
+bool ModifySL(ulong ticket, double newSL, double tp)
+{
+   MqlTradeRequest req = {};
+   MqlTradeResult  res = {};
+   req.action   = TRADE_ACTION_SLTP;
+   req.symbol   = _Symbol;
+   req.position = ticket;
+   req.sl       = newSL;
+   req.tp       = tp;
+   req.magic    = InpMagicNumber;
+   if(!OrderSend(req, res))
+      Print("VEDD: modify failed, retcode=", res.retcode, " ", res.comment);
+   return (res.retcode == TRADE_RETCODE_DONE);
+}
+
+//+------------------------------------------------------------------+
+void ManageTrailing(ulong ticket, long type, double currentSL, double tp)
+{
+   if(InpTrailingStopPips <= 0) return;
+   double dist = InpTrailingStopPips * PipSize();
+   double digits = (double)SymbolInfoInteger(_Symbol, SYMBOL_DIGITS);
+   if(type == POSITION_TYPE_BUY)
+   {
+      double bid = SymbolInfoDouble(_Symbol, SYMBOL_BID);
+      double candidate = NormalizeDouble(bid - dist, (int)digits);
+      if(candidate > currentSL + _Point) ModifySL(ticket, candidate, tp);
+   }
+   else
+   {
+      double ask = SymbolInfoDouble(_Symbol, SYMBOL_ASK);
+      double candidate = NormalizeDouble(ask + dist, (int)digits);
+      if(currentSL == 0 || candidate < currentSL - _Point) ModifySL(ticket, candidate, tp);
+   }
+}
+
+//+------------------------------------------------------------------+
+void OnTick()
+{
+   if(!RefreshSeries()) return;
+
+   ulong ticket; long ptype; double openPrice, sl, tp, volume;
+   bool havePos = FindMyPosition(ticket, ptype, openPrice, sl, tp, volume);
+   if(havePos) ManageTrailing(ticket, ptype, sl, tp);
+
+   // Entries and signal-exits evaluate once per new bar (on closed-bar data).
+   static datetime lastBarTime = 0;
+   datetime curBar = iTime(_Symbol, InpTimeframe, 0);
+   if(curBar == lastBarTime) return;
+   lastBarTime = curBar;
+
+   if(havePos)
+   {
+      bool exitNow = false;
+      ${exitLongExpr ? `if(ptype == POSITION_TYPE_BUY && ${exitLongExpr}) exitNow = true;` : ""}
+      ${exitShortExpr ? `if(ptype == POSITION_TYPE_SELL && ${exitShortExpr}) exitNow = true;` : ""}
+      if(exitNow) ClosePosition(ticket);
+      return;
+   }
+
+   if(InpMaxTradesPerDay > 0 && EntriesToday() >= InpMaxTradesPerDay) return;
+
+   double ask = SymbolInfoDouble(_Symbol, SYMBOL_ASK);
+   double bid = SymbolInfoDouble(_Symbol, SYMBOL_BID);
+   int digits = (int)SymbolInfoInteger(_Symbol, SYMBOL_DIGITS);
+   double pip = PipSize();
+   ${useAtrStops ? `double atr = ${seriesFn(atrInd.id, "value")}(1);` : ""}
+
+   ${entryLongExpr ? `if(${entryLongExpr})
+   {
+      double slDist = InpStopLossPips > 0 ? InpStopLossPips * pip : 0;
+      double tpDist = InpTakeProfitPips > 0 ? InpTakeProfitPips * pip : 0;
+      ${useAtrStops ? `if(InpStopLossAtrMult > 0) slDist = InpStopLossAtrMult * atr;
+      if(InpTakeProfitAtrMult > 0) tpDist = InpTakeProfitAtrMult * atr;` : ""}
+      double newSL = slDist > 0 ? NormalizeDouble(ask - slDist, digits) : 0;
+      double newTP = tpDist > 0 ? NormalizeDouble(ask + tpDist, digits) : 0;
+      SendOrder(ORDER_TYPE_BUY, ask, newSL, newTP);
+      return;
+   }` : "// (no long entry rules)"}
+   ${entryShortExpr ? `if(${entryShortExpr})
+   {
+      double slDist = InpStopLossPips > 0 ? InpStopLossPips * pip : 0;
+      double tpDist = InpTakeProfitPips > 0 ? InpTakeProfitPips * pip : 0;
+      ${useAtrStops ? `if(InpStopLossAtrMult > 0) slDist = InpStopLossAtrMult * atr;
+      if(InpTakeProfitAtrMult > 0) tpDist = InpTakeProfitAtrMult * atr;` : ""}
+      double newSL = slDist > 0 ? NormalizeDouble(bid + slDist, digits) : 0;
+      double newTP = tpDist > 0 ? NormalizeDouble(bid - tpDist, digits) : 0;
+      SendOrder(ORDER_TYPE_SELL, bid, newSL, newTP);
+      return;
+   }` : "// (no short entry rules)"}
+}
+//+------------------------------------------------------------------+
+`;
+  return { code, filename: `VEDD_${sanitize(spec.name)}.mq5`, magicNumber: magic };
+}
+var TF_CONST, BUFFER_INDEX, seriesFn;
+var init_spec_ea_generator = __esm({
+  "server/services/spec-ea-generator.ts"() {
+    "use strict";
+    TF_CONST = {
+      M1: "PERIOD_M1",
+      M5: "PERIOD_M5",
+      M15: "PERIOD_M15",
+      M30: "PERIOD_M30",
+      H1: "PERIOD_H1",
+      H4: "PERIOD_H4",
+      D1: "PERIOD_D1"
+    };
+    BUFFER_INDEX = {
+      EMA: { value: 0 },
+      SMA: { value: 0 },
+      RSI: { value: 0 },
+      ATR: { value: 0 },
+      MACD: { value: 0, signal: 1 },
+      STOCHASTIC: { k: 0, d: 1, value: 0 },
+      BOLLINGER: { middle: 0, upper: 1, lower: 2, value: 0 }
+    };
+    seriesFn = (id, field) => `S_${id}_${field}`;
+  }
+});
+
+// server/services/strategy-deployments.ts
+var strategy_deployments_exports = {};
+__export(strategy_deployments_exports, {
+  closeStrategyTrade: () => closeStrategyTrade,
+  createDeployment: () => createDeployment,
+  getDeployment: () => getDeployment,
+  getOpenStrategyTrade: () => getOpenStrategyTrade,
+  listDeployments: () => listDeployments,
+  listRunningDeployments: () => listRunningDeployments,
+  listStrategyTrades: () => listStrategyTrades,
+  openStrategyTrade: () => openStrategyTrade,
+  stopDeployment: () => stopDeployment,
+  touchDeployment: () => touchDeployment
+});
+function ensureTables() {
+  if (!tableReady3) {
+    tableReady3 = (async () => {
+      await pool.query(`
+        CREATE TABLE IF NOT EXISTS strategy_deployments (
+          id SERIAL PRIMARY KEY,
+          user_id INTEGER NOT NULL,
+          strategy_id INTEGER NOT NULL,
+          platform TEXT NOT NULL,
+          connection_ref TEXT NOT NULL,
+          account_label TEXT,
+          status TEXT NOT NULL DEFAULT 'running',
+          last_bar_time BIGINT DEFAULT 0,
+          last_signal_at TIMESTAMPTZ,
+          last_error TEXT,
+          error_streak INTEGER NOT NULL DEFAULT 0,
+          created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+          stopped_at TIMESTAMPTZ
+        )`);
+      await pool.query(`
+        CREATE TABLE IF NOT EXISTS strategy_trades (
+          id SERIAL PRIMARY KEY,
+          deployment_id INTEGER NOT NULL,
+          strategy_id INTEGER NOT NULL,
+          user_id INTEGER NOT NULL,
+          platform TEXT NOT NULL,
+          symbol TEXT NOT NULL,
+          direction TEXT NOT NULL,
+          volume DOUBLE PRECISION NOT NULL DEFAULT 0,
+          entry_price DOUBLE PRECISION NOT NULL DEFAULT 0,
+          exit_price DOUBLE PRECISION,
+          pnl DOUBLE PRECISION,
+          platform_ref TEXT,
+          status TEXT NOT NULL DEFAULT 'open',
+          opened_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+          closed_at TIMESTAMPTZ,
+          exit_reason TEXT
+        )`);
+      await pool.query(`CREATE INDEX IF NOT EXISTS idx_strategy_deployments_user ON strategy_deployments (user_id, status)`);
+      await pool.query(`CREATE INDEX IF NOT EXISTS idx_strategy_trades_strategy ON strategy_trades (strategy_id, status)`);
+    })().catch((e) => {
+      tableReady3 = null;
+      throw e;
+    });
+  }
+  return tableReady3;
+}
+function rowToDeployment(r) {
+  return {
+    id: r.id,
+    userId: r.user_id,
+    strategyId: r.strategy_id,
+    platform: r.platform,
+    connectionRef: r.connection_ref,
+    accountLabel: r.account_label ?? null,
+    status: r.status,
+    lastBarTime: Number(r.last_bar_time) || 0,
+    lastSignalAt: r.last_signal_at ?? null,
+    lastError: r.last_error ?? null,
+    createdAt: r.created_at,
+    stoppedAt: r.stopped_at ?? null
+  };
+}
+async function createDeployment(userId, strategyId, platform, connectionRef, accountLabel) {
+  await ensureTables();
+  const { rows } = await pool.query(
+    `INSERT INTO strategy_deployments (user_id, strategy_id, platform, connection_ref, account_label)
+     VALUES ($1, $2, $3, $4, $5) RETURNING *`,
+    [userId, strategyId, platform, connectionRef, accountLabel]
+  );
+  return rowToDeployment(rows[0]);
+}
+async function listDeployments(userId, strategyId) {
+  await ensureTables();
+  const { rows } = strategyId ? await pool.query(`SELECT * FROM strategy_deployments WHERE user_id=$1 AND strategy_id=$2 ORDER BY created_at DESC`, [userId, strategyId]) : await pool.query(`SELECT * FROM strategy_deployments WHERE user_id=$1 ORDER BY created_at DESC`, [userId]);
+  return rows.map(rowToDeployment);
+}
+async function listRunningDeployments() {
+  await ensureTables();
+  const { rows } = await pool.query(`SELECT * FROM strategy_deployments WHERE status='running' ORDER BY id ASC`);
+  return rows.map(rowToDeployment);
+}
+async function getDeployment(userId, id) {
+  await ensureTables();
+  const { rows } = await pool.query(`SELECT * FROM strategy_deployments WHERE id=$1 AND user_id=$2`, [id, userId]);
+  return rows.length ? rowToDeployment(rows[0]) : null;
+}
+async function stopDeployment(userId, id) {
+  await ensureTables();
+  const r = await pool.query(
+    `UPDATE strategy_deployments SET status='stopped', stopped_at=now() WHERE id=$1 AND user_id=$2 AND status='running'`,
+    [id, userId]
+  );
+  return (r.rowCount ?? 0) > 0;
+}
+async function touchDeployment(id, patch) {
+  await ensureTables();
+  if (patch.error === null) {
+    await pool.query(
+      `UPDATE strategy_deployments SET last_error=NULL, error_streak=0,
+         last_bar_time=COALESCE($2, last_bar_time),
+         last_signal_at=CASE WHEN $3 THEN now() ELSE last_signal_at END
+       WHERE id=$1`,
+      [id, patch.lastBarTime ?? null, !!patch.lastSignalAt]
+    );
+  } else if (typeof patch.error === "string") {
+    await pool.query(
+      `UPDATE strategy_deployments SET last_error=$2, error_streak=error_streak+1,
+         status=CASE WHEN error_streak+1 >= 5 THEN 'stopped' ELSE status END,
+         stopped_at=CASE WHEN error_streak+1 >= 5 THEN now() ELSE stopped_at END
+       WHERE id=$1`,
+      [id, patch.error.slice(0, 500)]
+    );
+  } else if (patch.lastBarTime != null || patch.lastSignalAt) {
+    await pool.query(
+      `UPDATE strategy_deployments SET last_bar_time=COALESCE($2, last_bar_time),
+         last_signal_at=CASE WHEN $3 THEN now() ELSE last_signal_at END WHERE id=$1`,
+      [id, patch.lastBarTime ?? null, !!patch.lastSignalAt]
+    );
+  }
+}
+async function openStrategyTrade(dep, t) {
+  await ensureTables();
+  const { rows } = await pool.query(
+    `INSERT INTO strategy_trades (deployment_id, strategy_id, user_id, platform, symbol, direction, volume, entry_price, platform_ref)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9) RETURNING id`,
+    [dep.id, dep.strategyId, dep.userId, dep.platform, t.symbol, t.direction, t.volume, t.entryPrice, t.platformRef]
+  );
+  return rows[0].id;
+}
+async function getOpenStrategyTrade(deploymentId) {
+  await ensureTables();
+  const { rows } = await pool.query(
+    `SELECT * FROM strategy_trades WHERE deployment_id=$1 AND status='open' ORDER BY opened_at DESC LIMIT 1`,
+    [deploymentId]
+  );
+  return rows[0] ?? null;
+}
+async function closeStrategyTrade(id, exitPrice, pnl, exitReason) {
+  await ensureTables();
+  await pool.query(
+    `UPDATE strategy_trades SET status='closed', exit_price=$2, pnl=$3, exit_reason=$4, closed_at=now() WHERE id=$1`,
+    [id, exitPrice, pnl, exitReason]
+  );
+}
+async function listStrategyTrades(userId, strategyId, limit = 500) {
+  await ensureTables();
+  const { rows } = await pool.query(
+    `SELECT * FROM strategy_trades WHERE user_id=$1 AND strategy_id=$2 ORDER BY opened_at DESC LIMIT $3`,
+    [userId, strategyId, limit]
+  );
+  return rows;
+}
+var tableReady3;
+var init_strategy_deployments = __esm({
+  "server/services/strategy-deployments.ts"() {
+    "use strict";
+    init_db();
+    tableReady3 = null;
+  }
+});
+
+// server/services/strategy-brain.ts
+var strategy_brain_exports = {};
+__export(strategy_brain_exports, {
+  buildStrategyBrain: () => buildStrategyBrain
+});
+async function buildStrategyBrain(userId, strategyId) {
+  const strat = await getWizardStrategy(userId, strategyId);
+  if (!strat) return null;
+  const bt = strat.lastBacktest;
+  const backtest = bt?.stats ? {
+    trades: bt.stats.totalTrades ?? 0,
+    winRate: bt.stats.winRate ?? null,
+    netPnl: bt.stats.netPnl ?? 0,
+    profitFactor: bt.stats.profitFactor ?? null,
+    maxDrawdownPct: bt.stats.maxDrawdownPct ?? null,
+    dataPoints: bt.dataPoints ?? null
+  } : null;
+  const trades = await listStrategyTrades(userId, strategyId, 2e3);
+  const closed = trades.filter((t) => t.status === "closed" && t.pnl != null);
+  const bySymbol = {};
+  const exitReasons = {};
+  let wins = 0, netPnl = 0;
+  for (const t of closed) {
+    const pnl = Number(t.pnl) || 0;
+    netPnl += pnl;
+    if (pnl > 0) wins++;
+    const sym2 = String(t.symbol || "").toUpperCase();
+    bySymbol[sym2] = bySymbol[sym2] || { trades: 0, wins: 0, netPnl: 0 };
+    bySymbol[sym2].trades++;
+    if (pnl > 0) bySymbol[sym2].wins++;
+    bySymbol[sym2].netPnl += pnl;
+    const reason = String(t.exit_reason || "unknown");
+    exitReasons[reason] = (exitReasons[reason] || 0) + 1;
+  }
+  const times = closed.map((t) => new Date(t.closed_at).getTime()).filter((n) => isFinite(n));
+  const deployments = await listDeployments(userId, strategyId);
+  const profile = {
+    strategyId,
+    name: strat.name,
+    symbol: strat.spec.symbol,
+    timeframe: strat.spec.timeframe,
+    builtAt: (/* @__PURE__ */ new Date()).toISOString(),
+    backtest,
+    live: {
+      trades: closed.length,
+      wins,
+      losses: closed.length - wins,
+      winRate: closed.length ? wins / closed.length : null,
+      netPnl: Math.round(netPnl * 100) / 100,
+      openTrades: trades.filter((t) => t.status === "open").length,
+      bySymbol,
+      exitReasons,
+      firstTradeAt: times.length ? new Date(Math.min(...times)).toISOString() : null,
+      lastTradeAt: times.length ? new Date(Math.max(...times)).toISOString() : null
+    },
+    deployments: deployments.map((d) => ({ id: d.id, platform: d.platform, accountLabel: d.accountLabel, status: d.status })),
+    listableTrades: closed.length
+  };
+  await recordWizardBrain(userId, strategyId, { profile });
+  return profile;
+}
+var init_strategy_brain = __esm({
+  "server/services/strategy-brain.ts"() {
+    "use strict";
+    init_wizard_spec_strategies();
+    init_strategy_deployments();
+  }
+});
+
+// server/services/brain-marketplace.ts
+var brain_marketplace_exports = {};
+__export(brain_marketplace_exports, {
+  MAX_PRICE_VEDD: () => MAX_PRICE_VEDD,
+  MIN_PRICE_VEDD: () => MIN_PRICE_VEDD,
+  MIN_TRADES_TO_LIST: () => MIN_TRADES_TO_LIST,
+  clampPrice: () => clampPrice,
+  computeListingStats: () => computeListingStats
+});
+function clampPrice(n) {
+  if (!Number.isFinite(n)) return MIN_PRICE_VEDD;
+  return Math.max(MIN_PRICE_VEDD, Math.min(MAX_PRICE_VEDD, Math.round(n)));
+}
+function computeListingStats(rows) {
+  const tradeCount = rows.length;
+  const distinctPairs = new Set(rows.map((r) => (r.symbol || "").toUpperCase())).size;
+  const timestamps = rows.map((r) => new Date(r.confirmedAt).getTime()).filter((t) => !Number.isNaN(t));
+  const oldestMs = timestamps.length ? Math.min(...timestamps) : Date.now();
+  const newestMs = timestamps.length ? Math.max(...timestamps) : Date.now();
+  const oldestTradeAt = new Date(oldestMs);
+  const newestTradeAt = new Date(newestMs);
+  const ageDays = Math.max(0, Math.round((newestMs - oldestMs) / 864e5));
+  const closed = rows.filter((r) => r.tradeOutcome && r.tradeOutcome !== "PENDING");
+  const wins = closed.filter((r) => r.tradeOutcome === "WIN");
+  const winRate2 = closed.length > 0 ? wins.length / closed.length : null;
+  const ageMultiplier = 1 + Math.min(ageDays / 30, 2);
+  const pairsMultiplier = 1 + Math.min(distinctPairs * 0.15, 1.5);
+  const tradesMultiplier = 1 + Math.min(tradeCount / 50, 2);
+  const winRateMultiplier = 0.5 + Math.min(winRate2 ?? 0.5, 1);
+  const suggestedPriceVedd = clampPrice(5 * ageMultiplier * pairsMultiplier * tradesMultiplier * winRateMultiplier);
+  return { tradeCount, distinctPairs, ageDays, winRate: winRate2, oldestTradeAt, newestTradeAt, suggestedPriceVedd };
+}
+var MIN_TRADES_TO_LIST, MIN_PRICE_VEDD, MAX_PRICE_VEDD;
+var init_brain_marketplace = __esm({
+  "server/services/brain-marketplace.ts"() {
+    "use strict";
+    MIN_TRADES_TO_LIST = 10;
+    MIN_PRICE_VEDD = 5;
+    MAX_PRICE_VEDD = 500;
+  }
+});
+
 // server/services/btc-5min-predictor.ts
 var btc_5min_predictor_exports = {};
 __export(btc_5min_predictor_exports, {
@@ -50050,7 +51726,7 @@ __export(btc_5min_predictor_exports, {
   getCryptoCandles: () => getCryptoCandles,
   getCryptoPrediction: () => getCryptoPrediction
 });
-function ema2(values, period) {
+function ema3(values, period) {
   const k2 = 2 / (period + 1);
   const result = [];
   let e = values[0];
@@ -50076,10 +51752,10 @@ function rsi2(closes, period = 14) {
   return Math.round(100 - 100 / (1 + rs));
 }
 function macd(closes) {
-  const ema12 = ema2(closes, 12);
-  const ema26 = ema2(closes, 26);
+  const ema12 = ema3(closes, 12);
+  const ema26 = ema3(closes, 26);
   const macdLine = ema12.map((v, i) => v - ema26[i]);
-  const signalLine = ema2(macdLine, 9);
+  const signalLine = ema3(macdLine, 9);
   const last = closes.length - 1;
   return {
     macdLine: macdLine[last],
@@ -50087,7 +51763,7 @@ function macd(closes) {
     histogram: macdLine[last] - signalLine[last]
   };
 }
-function sma2(values, period) {
+function sma3(values, period) {
   const slice = values.slice(-period);
   return slice.reduce((a, b) => a + b, 0) / slice.length;
 }
@@ -50173,13 +51849,13 @@ function buildPrediction(candles, fromCache, source = "binance", binanceSymbol =
   const currentPrice = last.close;
   const priceChange5m = (last.close - prev.close) / prev.close * 100;
   const priceChange1h = (last.close - candles[candles.length - 13].close) / candles[candles.length - 13].close * 100;
-  const ema9Val = ema2(closes, 9)[closes.length - 1];
-  const ema21Val = ema2(closes, 21)[closes.length - 1];
-  const ema50Val = ema2(closes, 50)[closes.length - 1];
+  const ema9Val = ema3(closes, 9)[closes.length - 1];
+  const ema21Val = ema3(closes, 21)[closes.length - 1];
+  const ema50Val = ema3(closes, 50)[closes.length - 1];
   const rsiVal = rsi2(closes, 14);
   const { macdLine, signalLine, histogram } = macd(closes);
-  const volSma20 = sma2(volumes, 20);
-  const volLast3 = sma2(volumes.slice(-3), 3);
+  const volSma20 = sma3(volumes, 20);
+  const volLast3 = sma3(volumes.slice(-3), 3);
   const volumeTrend = volLast3 > volSma20 * 1.15 ? "rising" : volLast3 < volSma20 * 0.85 ? "falling" : "flat";
   const macdSignalDir = histogram > 0 ? "bullish" : histogram < 0 ? "bearish" : "neutral";
   const recent20H = Math.max(...highs.slice(-20));
@@ -51026,7 +52702,7 @@ function orderFlowSignal(candles) {
     strategy: "order_flow"
   };
 }
-function ema3(values, period) {
+function ema4(values, period) {
   if (!values.length) return 0;
   const k2 = 2 / (period + 1);
   let e = values[0];
@@ -51082,9 +52758,9 @@ function ensembleSignal(candles) {
   }
   const closes = candles.map((c) => c.close);
   const recent = candles.slice(-30);
-  const ema9 = ema3(closes.slice(-40), 9);
-  const ema21 = ema3(closes.slice(-60), 21);
-  const ema50 = ema3(closes.slice(-80), 50);
+  const ema9 = ema4(closes.slice(-40), 9);
+  const ema21 = ema4(closes.slice(-60), 21);
+  const ema50 = ema4(closes.slice(-80), 50);
   const trendUp = ema9 > ema21 && ema21 > ema50 && price > ema50;
   const trendDn = ema9 < ema21 && ema21 < ema50 && price < ema50;
   const r = rsi3(closes);
@@ -56747,7 +58423,7 @@ import fs14 from "fs";
 import os2 from "os";
 import path14 from "path";
 function ensureJobTable() {
-  return tableReady2 ??= pool.query(`CREATE TABLE IF NOT EXISTS content_video_jobs (
+  return tableReady4 ??= pool.query(`CREATE TABLE IF NOT EXISTS content_video_jobs (
       id SERIAL PRIMARY KEY,
       user_id INTEGER NOT NULL,
       kind TEXT NOT NULL DEFAULT 'explainer',
@@ -56763,7 +58439,7 @@ function ensureJobTable() {
       created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
       updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
     )`).then(() => void 0).catch((e) => {
-    tableReady2 = null;
+    tableReady4 = null;
     throw e;
   });
 }
@@ -56934,8 +58610,8 @@ async function renderScene(scene, script, aspect, presenterImage) {
   }
   if (!res.ok) throw new Error(`Replicate ${res.status}: ${(await res.text().catch(() => "")).slice(0, 200)}`);
   let data = await res.json();
-  const started5 = Date.now();
-  while ((data.status === "starting" || data.status === "processing") && Date.now() - started5 < MAX_WAIT_MS) {
+  const started7 = Date.now();
+  while ((data.status === "starting" || data.status === "processing") && Date.now() - started7 < MAX_WAIT_MS) {
     await new Promise((r) => setTimeout(r, POLL_MS));
     const poll = await fetch(data.urls.get, { headers: { Authorization: `Bearer ${token}` }, signal: AbortSignal.timeout(2e4) });
     if (poll.ok) data = await poll.json();
@@ -57052,7 +58728,7 @@ async function assembleFiles(files, aspect, dir, charts = [], screens = []) {
     return fs14.readFileSync(out);
   }
 }
-var FRAME, MODEL, CLIP_SECONDS, END_CARD_SECONDS2, POLL_MS, MAX_WAIT_MS, DEFAULT_PRESENTER, DEFAULT_SETTING, tableReady2;
+var FRAME, MODEL, CLIP_SECONDS, END_CARD_SECONDS2, POLL_MS, MAX_WAIT_MS, DEFAULT_PRESENTER, DEFAULT_SETTING, tableReady4;
 var init_explainer_video = __esm({
   "server/services/explainer-video.ts"() {
     "use strict";
@@ -57070,7 +58746,7 @@ var init_explainer_video = __esm({
     MAX_WAIT_MS = 8 * 60 * 1e3;
     DEFAULT_PRESENTER = "a young Black man in his mid-20s with short twists, wearing a black hoodie, a thin gold chain and a fitted cap";
     DEFAULT_SETTING = "a city rooftop at golden hour with brick buildings, fire escapes and the skyline behind him";
-    tableReady2 = null;
+    tableReady4 = null;
   }
 });
 
@@ -57580,15 +59256,15 @@ __export(presenters_exports, {
   listPresenters: () => listPresenters,
   presenterAbsoluteUrl: () => presenterAbsoluteUrl
 });
-function ensureTable4() {
-  return tableReady3 ??= pool.query(`CREATE TABLE IF NOT EXISTS content_presenters (
+function ensureTable5() {
+  return tableReady5 ??= pool.query(`CREATE TABLE IF NOT EXISTS content_presenters (
       id SERIAL PRIMARY KEY,
       user_id INTEGER NOT NULL,
       name TEXT NOT NULL,
       image_url TEXT NOT NULL,
       created_at TIMESTAMPTZ NOT NULL DEFAULT now()
     )`).then(() => void 0).catch((e) => {
-    tableReady3 = null;
+    tableReady5 = null;
     throw e;
   });
 }
@@ -57596,7 +59272,7 @@ function rowToPresenter(r) {
   return { id: r.id, name: r.name, imageUrl: r.image_url, createdAt: r.created_at };
 }
 async function listPresenters(userId) {
-  await ensureTable4();
+  await ensureTable5();
   const { rows } = await pool.query(
     `SELECT id, name, image_url, created_at FROM content_presenters WHERE user_id=$1 ORDER BY created_at DESC`,
     [userId]
@@ -57604,7 +59280,7 @@ async function listPresenters(userId) {
   return rows.map(rowToPresenter);
 }
 async function createPresenter(userId, name, imageUrl) {
-  await ensureTable4();
+  await ensureTable5();
   const { rows } = await pool.query(
     `INSERT INTO content_presenters (user_id, name, image_url) VALUES ($1,$2,$3)
      RETURNING id, name, image_url, created_at`,
@@ -57613,7 +59289,7 @@ async function createPresenter(userId, name, imageUrl) {
   return rowToPresenter(rows[0]);
 }
 async function getPresenter(userId, id) {
-  await ensureTable4();
+  await ensureTable5();
   const { rows } = await pool.query(
     `SELECT id, name, image_url, created_at FROM content_presenters WHERE id=$1 AND user_id=$2`,
     [id, userId]
@@ -57621,7 +59297,7 @@ async function getPresenter(userId, id) {
   return rows.length ? rowToPresenter(rows[0]) : null;
 }
 async function deletePresenter(userId, id) {
-  await ensureTable4();
+  await ensureTable5();
   const { rowCount } = await pool.query(
     `DELETE FROM content_presenters WHERE id=$1 AND user_id=$2`,
     [id, userId]
@@ -57634,12 +59310,12 @@ function presenterAbsoluteUrl(req, imageUrl) {
   if (!host) return imageUrl;
   return `${req.protocol || "https"}://${host}${imageUrl}`;
 }
-var tableReady3;
+var tableReady5;
 var init_presenters = __esm({
   "server/services/presenters.ts"() {
     "use strict";
     init_db();
-    tableReady3 = null;
+    tableReady5 = null;
   }
 });
 
@@ -58620,48 +60296,6 @@ var init_copy_trade_execution = __esm({
     MAX_COPY_SL_DISTANCE_PCT = 5;
     MARGIN_LEVEL_FLOOR_PCT = 200;
     STALE_CACHE_MS = 2 * 60 * 1e3;
-  }
-});
-
-// server/services/brain-marketplace.ts
-var brain_marketplace_exports = {};
-__export(brain_marketplace_exports, {
-  MAX_PRICE_VEDD: () => MAX_PRICE_VEDD,
-  MIN_PRICE_VEDD: () => MIN_PRICE_VEDD,
-  MIN_TRADES_TO_LIST: () => MIN_TRADES_TO_LIST,
-  clampPrice: () => clampPrice,
-  computeListingStats: () => computeListingStats
-});
-function clampPrice(n) {
-  if (!Number.isFinite(n)) return MIN_PRICE_VEDD;
-  return Math.max(MIN_PRICE_VEDD, Math.min(MAX_PRICE_VEDD, Math.round(n)));
-}
-function computeListingStats(rows) {
-  const tradeCount = rows.length;
-  const distinctPairs = new Set(rows.map((r) => (r.symbol || "").toUpperCase())).size;
-  const timestamps = rows.map((r) => new Date(r.confirmedAt).getTime()).filter((t) => !Number.isNaN(t));
-  const oldestMs = timestamps.length ? Math.min(...timestamps) : Date.now();
-  const newestMs = timestamps.length ? Math.max(...timestamps) : Date.now();
-  const oldestTradeAt = new Date(oldestMs);
-  const newestTradeAt = new Date(newestMs);
-  const ageDays = Math.max(0, Math.round((newestMs - oldestMs) / 864e5));
-  const closed = rows.filter((r) => r.tradeOutcome && r.tradeOutcome !== "PENDING");
-  const wins = closed.filter((r) => r.tradeOutcome === "WIN");
-  const winRate2 = closed.length > 0 ? wins.length / closed.length : null;
-  const ageMultiplier = 1 + Math.min(ageDays / 30, 2);
-  const pairsMultiplier = 1 + Math.min(distinctPairs * 0.15, 1.5);
-  const tradesMultiplier = 1 + Math.min(tradeCount / 50, 2);
-  const winRateMultiplier = 0.5 + Math.min(winRate2 ?? 0.5, 1);
-  const suggestedPriceVedd = clampPrice(5 * ageMultiplier * pairsMultiplier * tradesMultiplier * winRateMultiplier);
-  return { tradeCount, distinctPairs, ageDays, winRate: winRate2, oldestTradeAt, newestTradeAt, suggestedPriceVedd };
-}
-var MIN_TRADES_TO_LIST, MIN_PRICE_VEDD, MAX_PRICE_VEDD;
-var init_brain_marketplace = __esm({
-  "server/services/brain-marketplace.ts"() {
-    "use strict";
-    MIN_TRADES_TO_LIST = 10;
-    MIN_PRICE_VEDD = 5;
-    MAX_PRICE_VEDD = 500;
   }
 });
 
@@ -63196,6 +64830,486 @@ var init_tier_credit_scheduler = __esm({
   }
 });
 
+// server/services/dxtrade-sync.ts
+var dxtrade_sync_exports = {};
+__export(dxtrade_sync_exports, {
+  startDxtradeSync: () => startDxtradeSync,
+  syncAllDxtradeOutcomes: () => syncAllDxtradeOutcomes
+});
+async function syncAllDxtradeOutcomes() {
+  if (running) return;
+  running = true;
+  try {
+    const userRows = (await pool.query(
+      `SELECT DISTINCT user_id FROM dxtrade_connections WHERE is_active=true`
+    )).rows;
+    for (const { user_id: userId } of userRows) {
+      try {
+        await syncUserDxtradeOutcomes(Number(userId));
+      } catch {
+      }
+    }
+  } catch {
+  } finally {
+    running = false;
+  }
+}
+async function syncUserDxtradeOutcomes(userId) {
+  const g = global;
+  g.dxOutcomeSyncAt = g.dxOutcomeSyncAt || {};
+  g.dxOutcomeSyncAt[userId] = Date.now();
+  let added = 0;
+  const rows = (await pool.query(
+    `SELECT id, host, username, encrypted_password, domain, account_code FROM dxtrade_connections WHERE user_id=$1 AND is_active=true`,
+    [userId]
+  )).rows;
+  if (!rows.length) return 0;
+  const { getDxtradeService: getDxtradeService2, decryptApiSecret: decryptApiSecret3, extractAccountCode: extractAccountCode2 } = await Promise.resolve().then(() => (init_dxtrade(), dxtrade_exports));
+  const { recordRealizedPnl: recordRealizedPnl2 } = await Promise.resolve().then(() => (init_prop_firm_consistency(), prop_firm_consistency_exports));
+  const fromMs = Date.now() - LOOKBACK_MS;
+  for (const dc of rows) {
+    try {
+      const svc = getDxtradeService2(dc.host, dc.username, decryptApiSecret3(dc.encrypted_password), dc.domain, String(dc.id));
+      await svc.ensureLoggedIn();
+      const acct = dc.account_code || extractAccountCode2(await svc.getAccounts());
+      if (!acct) continue;
+      const closed = await svc.getClosedTradesWithPnl(acct, fromMs).catch(() => []);
+      for (const o of closed) {
+        const rawProfit = o.profit ?? o.pnl ?? o.realizedPnl ?? o.realizedPnL ?? o.grossProfit ?? null;
+        const p2 = typeof rawProfit === "number" ? rawProfit : parseFloat(rawProfit || "");
+        if (!isFinite(p2)) continue;
+        const closedDateStr = o.closeTime ? new Date(o.closeTime).toISOString().slice(0, 10) : void 0;
+        const tk = o.positionId ? `dx_${acct}_${o.positionId}` : o.id ? `dx_${acct}_${o.id}` : "";
+        if (!tk || /undefined|null|_$/.test(tk)) continue;
+        const label = p2 > 0 ? "WIN" : p2 < 0 ? "LOSS" : "BREAKEVEN";
+        const existing = await storage.getAiTradeResultByTicket(userId, tk);
+        if (existing) {
+          if (existing.result === "PENDING") {
+            await storage.updateAiTradeResult(existing.id, userId, {
+              result: label,
+              profitLoss: p2,
+              connectionId: dc.id,
+              exitPrice: o.closePrice || 0,
+              closedAt: (() => {
+                const t = o.closeTime ? new Date(o.closeTime) : /* @__PURE__ */ new Date();
+                const op = new Date(existing.createdAt ?? 0).getTime();
+                return op > 0 && t.getTime() <= op ? /* @__PURE__ */ new Date() : t;
+              })()
+            });
+            added++;
+            await recordRealizedPnl2(userId, dc.id, "dxtrade", p2, closedDateStr);
+            const closedSym = existing.symbol || o.symbol;
+            if (closedSym) {
+              try {
+                await svc.cancelProtectiveOrders(acct, closedSym);
+              } catch {
+              }
+            }
+          } else if (existing.connectionId == null) {
+            await storage.updateAiTradeResult(existing.id, userId, { connectionId: dc.id }).catch(() => {
+            });
+          }
+          continue;
+        }
+        await storage.createAiTradeResult({
+          userId,
+          symbol: String(o.symbol || o.instrument || "UNKNOWN").toUpperCase().replace("/", ""),
+          direction: /sell|short/i.test(o.side || o.direction || "") ? "SELL" : "BUY",
+          entryPrice: o.openPrice || 0,
+          exitPrice: o.closePrice || 0,
+          aiConfidence: 0,
+          result: label,
+          profitLoss: p2,
+          source: "dxtrade",
+          connectionId: dc.id,
+          mt5Ticket: tk,
+          notes: "DXtrade closed position (background sync)",
+          closedAt: o.closeTime ? new Date(o.closeTime) : /* @__PURE__ */ new Date()
+        });
+        added++;
+        await recordRealizedPnl2(userId, dc.id, "dxtrade", p2, closedDateStr);
+      }
+    } catch {
+    }
+  }
+  if (added > 0) console.log(`[DX Sync] user ${userId}: +${added} DXtrade trades resolved`);
+  return added;
+}
+function startDxtradeSync() {
+  if (started3) return;
+  started3 = true;
+  setInterval(() => {
+    syncAllDxtradeOutcomes().catch(() => {
+    });
+  }, SYNC_INTERVAL_MS2);
+  console.log("[DX Sync] Background DXtrade outcome sync started (90s interval).");
+}
+var SYNC_INTERVAL_MS2, LOOKBACK_MS, started3, running;
+var init_dxtrade_sync = __esm({
+  "server/services/dxtrade-sync.ts"() {
+    "use strict";
+    init_db();
+    init_storage();
+    SYNC_INTERVAL_MS2 = 9e4;
+    LOOKBACK_MS = 30 * 24 * 3600 * 1e3;
+    started3 = false;
+    running = false;
+  }
+});
+
+// server/services/strategy-runner.ts
+var strategy_runner_exports = {};
+__export(strategy_runner_exports, {
+  startStrategyRunner: () => startStrategyRunner
+});
+function startStrategyRunner() {
+  if (started4) return;
+  started4 = true;
+  setInterval(() => {
+    tick().catch(() => {
+    });
+  }, TICK_MS2);
+  console.log("[Strategy Runner] Deployment runner started (30s interval).");
+}
+async function tick() {
+  if (ticking) return;
+  ticking = true;
+  try {
+    const deps = await listRunningDeployments().catch(() => []);
+    for (const dep of deps) {
+      try {
+        await runDeployment(dep);
+      } catch (e) {
+        await touchDeployment(dep.id, { error: e?.message || "runner error" }).catch(() => {
+        });
+      }
+    }
+  } finally {
+    ticking = false;
+  }
+}
+async function runDeployment(dep) {
+  const strat = await getWizardStrategy(dep.userId, dep.strategyId);
+  if (!strat) {
+    await touchDeployment(dep.id, { error: "strategy no longer exists" });
+    return;
+  }
+  const spec = strat.spec;
+  if (spec.source === "engine") return;
+  if (!spec.entryLong?.conditions?.length && !spec.entryShort?.conditions?.length) return;
+  const { marketDataService: marketDataService2 } = await Promise.resolve().then(() => (init_market_data(), market_data_exports));
+  const limit = Math.min(specWarmupBars(spec) + 60, 400);
+  const result = await marketDataService2.fetchMarketData({
+    symbol: spec.symbol,
+    timeframe: TF_API[spec.timeframe] || "1h",
+    assetType: CRYPTOS.has(spec.symbol) ? "crypto" : "forex",
+    limit
+  });
+  let bars = (result?.data ?? []).map((b) => ({
+    timestamp: new Date(b.timestamp ?? b.time ?? b.date).getTime(),
+    open: Number(b.open),
+    high: Number(b.high),
+    low: Number(b.low),
+    close: Number(b.close),
+    volume: Number(b.volume) || 0
+  })).filter((b) => isFinite(b.timestamp) && isFinite(b.close) && b.close > 0).sort((a, b) => a.timestamp - b.timestamp);
+  const tfMs = TF_MS[spec.timeframe] || 36e5;
+  if (bars.length && bars[bars.length - 1].timestamp + tfMs > Date.now()) bars = bars.slice(0, -1);
+  if (bars.length < 50) {
+    await touchDeployment(dep.id, { error: `only ${bars.length} bars available for ${spec.symbol}` });
+    return;
+  }
+  const sig = evaluateSpecSignals(spec, bars);
+  if (!sig) return;
+  if (sig.barTime <= dep.lastBarTime) return;
+  await touchDeployment(dep.id, { lastBarTime: sig.barTime });
+  const open = await getOpenStrategyTrade(dep.id);
+  if (open) {
+    if (dep.platform !== "mt5") {
+      const vanished = await resolveVanishedPosition(dep, open, sig.close);
+      if (vanished) {
+        await touchDeployment(dep.id, { error: null, lastSignalAt: true });
+        return;
+      }
+    }
+    const isLong = String(open.direction).toUpperCase() === "BUY";
+    const exitNow = isLong ? sig.exitLong : sig.exitShort;
+    if (!exitNow) {
+      await touchDeployment(dep.id, { error: null });
+      return;
+    }
+    const ok = await dispatchClose(dep, open);
+    if (!ok) {
+      await touchDeployment(dep.id, { error: "exit dispatch failed \u2014 position may still be open, will retry next bar" });
+      return;
+    }
+    const pnl = tradePnl(spec, open, sig.close);
+    await closeStrategyTrade(open.id, sig.close, pnl, "exit_signal");
+    await touchDeployment(dep.id, { error: null, lastSignalAt: true });
+    return;
+  }
+  const direction = sig.enterLong && !sig.enterShort ? "BUY" : sig.enterShort && !sig.enterLong ? "SELL" : null;
+  if (!direction) {
+    await touchDeployment(dep.id, { error: null });
+    return;
+  }
+  if (spec.risk.maxTradesPerDay && spec.risk.maxTradesPerDay > 0) {
+    const { pool: pool2 } = await Promise.resolve().then(() => (init_db(), db_exports));
+    const { rows } = await pool2.query(
+      `SELECT COUNT(*)::int AS n FROM strategy_trades WHERE deployment_id=$1 AND opened_at::date = CURRENT_DATE`,
+      [dep.id]
+    );
+    if ((rows[0]?.n ?? 0) >= spec.risk.maxTradesPerDay) {
+      await touchDeployment(dep.id, { error: null });
+      return;
+    }
+  }
+  const pipSize2 = getPipSize(spec.symbol);
+  const slDist = spec.risk.stopLossAtrMult && sig.atr ? spec.risk.stopLossAtrMult * sig.atr : spec.risk.stopLossPips ? spec.risk.stopLossPips * pipSize2 : null;
+  const tpDist = spec.risk.takeProfitAtrMult && sig.atr ? spec.risk.takeProfitAtrMult * sig.atr : spec.risk.takeProfitPips ? spec.risk.takeProfitPips * pipSize2 : null;
+  const stopLoss = slDist ? direction === "BUY" ? sig.close - slDist : sig.close + slDist : null;
+  const takeProfit = tpDist ? direction === "BUY" ? sig.close + tpDist : sig.close - tpDist : null;
+  const round = (n) => n == null ? null : Math.round(n * 1e5) / 1e5;
+  const opened = await dispatchOpen(dep, spec, direction, round(stopLoss), round(takeProfit), sig.close);
+  if (!opened) {
+    await touchDeployment(dep.id, { error: "entry dispatch failed" });
+    return;
+  }
+  await openStrategyTrade(dep, {
+    symbol: spec.symbol,
+    direction,
+    volume: opened.volume,
+    entryPrice: sig.close,
+    platformRef: opened.ref
+  });
+  await touchDeployment(dep.id, { error: null, lastSignalAt: true });
+}
+async function resolveVanishedPosition(dep, open, lastClose) {
+  try {
+    if (dep.platform === "dxtrade") {
+      const { pool: pool2 } = await Promise.resolve().then(() => (init_db(), db_exports));
+      const { rows } = await pool2.query(
+        `SELECT id, host, username, encrypted_password, domain, account_code FROM dxtrade_connections WHERE id=$1 AND user_id=$2 AND is_active=true`,
+        [Number(dep.connectionRef), dep.userId]
+      );
+      if (!rows.length) return false;
+      const dc = rows[0];
+      const { getDxtradeService: getDxtradeService2, decryptApiSecret: decryptApiSecret3, extractAccountCode: extractAccountCode2 } = await Promise.resolve().then(() => (init_dxtrade(), dxtrade_exports));
+      const svc = getDxtradeService2(dc.host, dc.username, decryptApiSecret3(dc.encrypted_password), dc.domain, String(dc.id));
+      await svc.ensureLoggedIn();
+      const acct = dc.account_code || extractAccountCode2(await svc.getAccounts());
+      if (!acct) return false;
+      const positions = await svc.getPositions(acct).catch(() => null);
+      if (!positions) return false;
+      const stillOpen = positions.some((p2) => open.platform_ref && String(p2.positionId) === String(open.platform_ref) || (p2.instrument || "").replace("/", "").toUpperCase() === open.symbol && String(p2.side).toUpperCase() === String(open.direction).toUpperCase());
+      if (stillOpen) return false;
+      const since = new Date(open.opened_at).getTime() - 6e4;
+      const closed = await svc.getClosedTradesWithPnl(acct, since).catch(() => []);
+      const mine = closed.find((o) => open.platform_ref && String(o.positionId) === String(open.platform_ref));
+      const raw = mine ? mine.profit ?? mine.pnl ?? mine.realizedPnl ?? null : null;
+      const pnl = raw != null && isFinite(Number(raw)) ? Number(raw) : null;
+      await closeStrategyTrade(open.id, Number(mine?.closePrice) || lastClose, pnl, "broker_sl_tp");
+      return true;
+    }
+    if (dep.platform === "tradelocker") {
+      const { storage: storage2 } = await Promise.resolve().then(() => (init_storage(), storage_exports));
+      const { getOrCreateService: getOrCreateService2 } = await Promise.resolve().then(() => (init_tradelocker(), tradelocker_exports));
+      const conns = (await storage2.getUserTradelockerConnections(dep.userId)).filter((c) => c.isActive);
+      const conn = conns.find((c) => c.id === Number(dep.connectionRef));
+      if (!conn) return false;
+      const svc = await getOrCreateService2(conn);
+      const positions = await svc.getPositionsNormalized({ fresh: true }).catch(() => null);
+      if (!positions) return false;
+      const stillOpen = positions.some((p2) => open.platform_ref && String(p2.id) === String(open.platform_ref) || (p2.symbol || "").toUpperCase() === open.symbol && String(p2.direction).toUpperCase() === String(open.direction).toUpperCase());
+      if (stillOpen) return false;
+      const since = new Date(open.opened_at).getTime() - 6e4;
+      const closed = await svc.getClosedPositions(since).catch(() => []);
+      const mine = closed.find((o) => String(o.symbol || "").toUpperCase().replace("/", "") === open.symbol && new Date(o.closedAt ?? o.closeTime ?? o.createdAt ?? 0).getTime() >= since);
+      const raw = mine ? mine.pnl ?? mine.realizedPnl ?? mine.profit ?? null : null;
+      const pnl = raw != null && isFinite(Number(raw)) ? Number(raw) : null;
+      await closeStrategyTrade(open.id, Number(mine?.closePrice ?? mine?.exitPrice) || lastClose, pnl, "broker_sl_tp");
+      return true;
+    }
+  } catch {
+    return false;
+  }
+  return false;
+}
+function tradePnl(spec, open, exitPrice) {
+  const entry = Number(open.entry_price) || 0;
+  const dirSign = String(open.direction).toUpperCase() === "BUY" ? 1 : -1;
+  const diff = (exitPrice - entry) * dirSign;
+  const volume = Number(open.volume) || 0;
+  let pnl;
+  if (open.platform === "dxtrade") {
+    pnl = diff * volume;
+  } else {
+    const cs = CONTRACT_SIZE2[spec.symbol.replace(/[^A-Z]/g, "")] ?? 1e5;
+    pnl = diff * cs * volume;
+  }
+  if (spec.symbol.length === 6 && spec.symbol.startsWith("USD") && exitPrice > 0) pnl = pnl / exitPrice;
+  return Math.round(pnl * 100) / 100;
+}
+async function dispatchOpen(dep, spec, direction, stopLoss, takeProfit, refPrice) {
+  try {
+    if (dep.platform === "mt5") {
+      const { broadcastMT5Signal: broadcastMT5Signal2 } = await Promise.resolve().then(() => (init_live_trading_engine(), live_trading_engine_exports));
+      broadcastMT5Signal2(dep.userId, {
+        id: `wiz_${dep.id}_${Date.now()}`,
+        timestamp: (/* @__PURE__ */ new Date()).toISOString(),
+        symbol: spec.symbol,
+        direction,
+        action: "OPEN",
+        lotSize: spec.risk.lotSize,
+        entryPrice: null,
+        stopLoss,
+        takeProfit,
+        confidence: 100,
+        reason: `Wizard strategy "${spec.name}" entry (${dep.accountLabel || "deployment " + dep.id})`,
+        holdTime: "",
+        strategy: "wizard_strategy",
+        confluences: [],
+        status: "pending",
+        positionId: null
+      });
+      return { volume: spec.risk.lotSize, ref: null };
+    }
+    if (dep.platform === "tradelocker") {
+      const { storage: storage2 } = await Promise.resolve().then(() => (init_storage(), storage_exports));
+      const { executeMT5SignalOnTradeLocker: executeMT5SignalOnTradeLocker2 } = await Promise.resolve().then(() => (init_tradelocker(), tradelocker_exports));
+      const conns = (await storage2.getUserTradelockerConnections(dep.userId)).filter((c) => c.isActive);
+      const conn = conns.find((c) => c.id === Number(dep.connectionRef));
+      if (!conn) return null;
+      const r = await executeMT5SignalOnTradeLocker2(conn, {
+        action: "OPEN",
+        symbol: spec.symbol,
+        direction,
+        volume: spec.risk.lotSize,
+        stopLoss,
+        takeProfit
+      });
+      return r.success ? { volume: spec.risk.lotSize, ref: r.orderId ?? null } : null;
+    }
+    if (dep.platform === "dxtrade") {
+      const { pool: pool2 } = await Promise.resolve().then(() => (init_db(), db_exports));
+      const { rows } = await pool2.query(
+        `SELECT id, host, username, encrypted_password, domain, account_code FROM dxtrade_connections WHERE id=$1 AND user_id=$2 AND is_active=true`,
+        [Number(dep.connectionRef), dep.userId]
+      );
+      if (!rows.length) return null;
+      const dc = rows[0];
+      const { getDxtradeService: getDxtradeService2, decryptApiSecret: decryptApiSecret3, extractAccountCode: extractAccountCode2 } = await Promise.resolve().then(() => (init_dxtrade(), dxtrade_exports));
+      const svc = getDxtradeService2(dc.host, dc.username, decryptApiSecret3(dc.encrypted_password), dc.domain, String(dc.id));
+      await svc.ensureLoggedIn();
+      const acct = dc.account_code || extractAccountCode2(await svc.getAccounts());
+      if (!acct) return null;
+      const wire = spec.symbol.length === 6 ? `${spec.symbol.slice(0, 3)}/${spec.symbol.slice(3)}` : spec.symbol;
+      const inst = await svc.getInstrument(wire).catch(() => null);
+      const lotSize = Number(inst?.lotSize) || 1e5;
+      let units = Math.round(spec.risk.lotSize * lotSize);
+      const inc = Number(inst?.quantityIncrement) || 0;
+      if (inc > 0) units = Math.max(inc, Math.round(units / inc) * inc);
+      if (!(units > 0)) return null;
+      await svc.placeOrder(acct, {
+        instrument: wire,
+        side: direction,
+        quantity: units,
+        type: "MARKET",
+        positionEffect: "OPEN",
+        stopLoss: stopLoss ?? void 0,
+        takeProfit: takeProfit ?? void 0
+      });
+      await new Promise((r) => setTimeout(r, 1500));
+      const positions = await svc.getPositions(acct).catch(() => []);
+      const mine = positions.find((p2) => (p2.instrument || "").replace("/", "").toUpperCase() === spec.symbol && String(p2.side).toUpperCase() === direction);
+      return { volume: units, ref: mine?.positionId ?? null };
+    }
+  } catch {
+    return null;
+  }
+  return null;
+}
+async function dispatchClose(dep, open) {
+  try {
+    if (dep.platform === "mt5") {
+      const { broadcastMT5Signal: broadcastMT5Signal2 } = await Promise.resolve().then(() => (init_live_trading_engine(), live_trading_engine_exports));
+      broadcastMT5Signal2(dep.userId, {
+        id: `wiz_close_${dep.id}_${Date.now()}`,
+        timestamp: (/* @__PURE__ */ new Date()).toISOString(),
+        symbol: open.symbol,
+        direction: open.direction,
+        action: "CLOSE",
+        lotSize: 0,
+        entryPrice: null,
+        stopLoss: null,
+        takeProfit: null,
+        confidence: 100,
+        reason: "Wizard strategy exit rule fired",
+        holdTime: "",
+        strategy: "wizard_strategy",
+        confluences: [],
+        status: "pending",
+        modifyAction: "full_close",
+        positionId: null
+      });
+      return true;
+    }
+    if (dep.platform === "tradelocker") {
+      const { storage: storage2 } = await Promise.resolve().then(() => (init_storage(), storage_exports));
+      const { executeMT5SignalOnTradeLocker: executeMT5SignalOnTradeLocker2 } = await Promise.resolve().then(() => (init_tradelocker(), tradelocker_exports));
+      const conns = (await storage2.getUserTradelockerConnections(dep.userId)).filter((c) => c.isActive);
+      const conn = conns.find((c) => c.id === Number(dep.connectionRef));
+      if (!conn) return false;
+      const r = await executeMT5SignalOnTradeLocker2(conn, {
+        action: "CLOSE",
+        symbol: open.symbol,
+        direction: open.direction,
+        volume: 0,
+        positionId: open.platform_ref || void 0,
+        closeReason: "wizard strategy exit rule"
+      });
+      return !!r.success;
+    }
+    if (dep.platform === "dxtrade") {
+      const { pool: pool2 } = await Promise.resolve().then(() => (init_db(), db_exports));
+      const { rows } = await pool2.query(
+        `SELECT id, host, username, encrypted_password, domain, account_code FROM dxtrade_connections WHERE id=$1 AND user_id=$2 AND is_active=true`,
+        [Number(dep.connectionRef), dep.userId]
+      );
+      if (!rows.length) return false;
+      const { executeSignalOnDxtrade: executeSignalOnDxtrade2 } = await Promise.resolve().then(() => (init_dxtrade(), dxtrade_exports));
+      const r = await executeSignalOnDxtrade2(rows[0], {
+        action: "CLOSE",
+        symbol: open.symbol,
+        direction: open.direction,
+        positionCode: open.platform_ref || void 0
+      });
+      return !!r.success;
+    }
+  } catch {
+    return false;
+  }
+  return false;
+}
+var TICK_MS2, TF_API, TF_MS, CRYPTOS, CONTRACT_SIZE2, started4, ticking;
+var init_strategy_runner = __esm({
+  "server/services/strategy-runner.ts"() {
+    "use strict";
+    init_wizard_spec_strategies();
+    init_strategy_deployments();
+    init_strategy_backtest();
+    init_strategy_spec();
+    init_pipUtils();
+    TICK_MS2 = 3e4;
+    TF_API = { M1: "1min", M5: "5min", M15: "15min", M30: "30min", H1: "1h", H4: "4h", D1: "1day" };
+    TF_MS = { M1: 6e4, M5: 3e5, M15: 9e5, M30: 18e5, H1: 36e5, H4: 144e5, D1: 864e5 };
+    CRYPTOS = /* @__PURE__ */ new Set(["BTCUSD", "ETHUSD", "SOLUSD", "XRPUSD", "LTCUSD", "DOGEUSD"]);
+    CONTRACT_SIZE2 = { XAUUSD: 100, XAGUSD: 5e3, BTCUSD: 1, ETHUSD: 10, SOLUSD: 100, XRPUSD: 1e4 };
+    started4 = false;
+    ticking = false;
+  }
+});
+
 // server/services/paper-trade-resolver-loop.ts
 var paper_trade_resolver_loop_exports = {};
 __export(paper_trade_resolver_loop_exports, {
@@ -64782,8 +66896,8 @@ async function runOptionsEngineScan() {
   }
 }
 function startOptionsEngineScanner() {
-  if (started3) return;
-  started3 = true;
+  if (started5) return;
+  started5 = true;
   const LOOP_INTERVAL_MS = 6e4;
   setInterval(() => {
     runOptionsEngineScan().catch(() => {
@@ -64791,7 +66905,7 @@ function startOptionsEngineScanner() {
   }, LOOP_INTERVAL_MS);
   console.log("[options-scanner] Background options-engine scan loop started (60s tick, per-user throttled, strategies: orb/volume_profile/breakout/momentum/order_flow/auto).");
 }
-var MIN_SCAN_INTERVAL_MS2, lastScanAt2, MAX_OPEN_PER_SYMBOL2, MAX_DAILY_ENTRIES_PER_SYMBOL2, SYMBOL_COOLDOWN_MS2, CORRELATED_BASKET_CAP, CORRELATED_BASKETS, STRATEGY_RUNNERS2, sessionPeakEquity2, OPTIONS_USER_BUDGET_MS, optionsUserInFlight, optionsScanRunning, optionsCycle, started3;
+var MIN_SCAN_INTERVAL_MS2, lastScanAt2, MAX_OPEN_PER_SYMBOL2, MAX_DAILY_ENTRIES_PER_SYMBOL2, SYMBOL_COOLDOWN_MS2, CORRELATED_BASKET_CAP, CORRELATED_BASKETS, STRATEGY_RUNNERS2, sessionPeakEquity2, OPTIONS_USER_BUDGET_MS, optionsUserInFlight, optionsScanRunning, optionsCycle, started5;
 var init_options_scanner = __esm({
   "server/services/options-scanner.ts"() {
     "use strict";
@@ -64826,7 +66940,7 @@ var init_options_scanner = __esm({
     optionsUserInFlight = /* @__PURE__ */ new Set();
     optionsScanRunning = false;
     optionsCycle = 0;
-    started3 = false;
+    started5 = false;
   }
 });
 
@@ -64894,7 +67008,7 @@ async function closeCascade(t, exit, pnl, pips, hit) {
   }
   console.log(`[fx-paper-monitor] closed #${t.id} ${t.pair} ${t.direction} @ ${exit} (${hit}) pnl ${pnl} pips ${pips}`);
 }
-async function tick() {
+async function tick2() {
   let open;
   try {
     open = arr(await db.execute(sql16`SELECT id, user_id, pair, direction, entry_price, stop_loss, take_profit, lot_size, opened_at FROM fx_paper_trades WHERE status='open'`));
@@ -64963,26 +67077,26 @@ async function tick() {
   if (closed) console.log(`[fx-paper-monitor] tick closed ${closed}/${open.length} open paper trade(s).`);
 }
 function startFxPaperMonitor() {
-  if (started4) return;
-  started4 = true;
-  console.log(`[fx-paper-monitor] started \u2014 closing open FX paper trades on SL/TP every ${TICK_MS2 / 6e4} min (max-hold ${MAX_HOLD_MS / 36e5}h).`);
+  if (started6) return;
+  started6 = true;
+  console.log(`[fx-paper-monitor] started \u2014 closing open FX paper trades on SL/TP every ${TICK_MS3 / 6e4} min (max-hold ${MAX_HOLD_MS / 36e5}h).`);
   setInterval(() => {
-    tick().catch((e) => console.error("[fx-paper-monitor] tick error:", e?.message ?? e));
-  }, TICK_MS2);
+    tick2().catch((e) => console.error("[fx-paper-monitor] tick error:", e?.message ?? e));
+  }, TICK_MS3);
   setTimeout(() => {
-    tick().catch(() => {
+    tick2().catch(() => {
     });
   }, 15e3);
 }
-var TICK_MS2, MAX_HOLD_MS, started4;
+var TICK_MS3, MAX_HOLD_MS, started6;
 var init_fx_paper_monitor = __esm({
   "server/services/fx-paper-monitor.ts"() {
     "use strict";
     init_db();
     init_service();
-    TICK_MS2 = 3 * 60 * 1e3;
+    TICK_MS3 = 3 * 60 * 1e3;
     MAX_HOLD_MS = 3 * 24 * 60 * 60 * 1e3;
-    started4 = false;
+    started6 = false;
   }
 });
 
@@ -65589,9 +67703,9 @@ async function getStopOrdersForUser(userId, filters = {}) {
 init_schema();
 
 // server/build-info.ts
-var BUILD_COMMIT = "af505481-dirty";
-var BUILD_BRANCH = "HEAD";
-var BUILT_AT = "2026-11-01T22:10:07.338Z";
+var BUILD_COMMIT = "c9037c6-dirty";
+var BUILD_BRANCH = "main";
+var BUILT_AT = "2026-11-02T03:05:35.448Z";
 
 // server/stripe.ts
 init_db();
@@ -72241,8 +74355,8 @@ Respond ONLY in valid JSON format with these exact keys:
   app2.get("/api/strategy-wizard/strategies", async (req, res) => {
     if (!req.isAuthenticated()) return res.status(401).json({ error: "Authentication required" });
     try {
-      const { listWizardStrategies: listWizardStrategies2 } = await Promise.resolve().then(() => (init_wizard_strategies(), wizard_strategies_exports));
-      res.json({ strategies: await listWizardStrategies2(req.user.id) });
+      const { listWizardStrategies: listWizardStrategies3 } = await Promise.resolve().then(() => (init_wizard_strategies(), wizard_strategies_exports));
+      res.json({ strategies: await listWizardStrategies3(req.user.id) });
     } catch (e) {
       res.status(500).json({ error: e.message });
     }
@@ -78194,11 +80308,11 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
                       console.log(`[HTF] Fetched ${mapped.length} ${stack[idx]} (${roles[idx]}) candles for bias injection`);
                       if (roles[idx] === "MACRO" && mapped.length >= 20) {
                         const closes = mapped.map((c) => c.c);
-                        const sma3 = closes.slice(-20).reduce((s, v) => s + v, 0) / 20;
+                        const sma4 = closes.slice(-20).reduce((s, v) => s + v, 0) / 20;
                         const last = closes[closes.length - 1];
                         const first20Ago = closes[closes.length - 20];
-                        if (last > sma3 && last > first20Ago) _htfMacroTrend = "BULL";
-                        else if (last < sma3 && last < first20Ago) _htfMacroTrend = "BEAR";
+                        if (last > sma4 && last > first20Ago) _htfMacroTrend = "BULL";
+                        else if (last < sma4 && last < first20Ago) _htfMacroTrend = "BEAR";
                         else _htfMacroTrend = "NEUTRAL";
                       }
                     }
@@ -80448,11 +82562,11 @@ BEAR CASE: ${_bearCase || "n/a"}` : aiConfirmation.reasoning;
     const totalPnL = allPoints.reduce((s, p2) => s + p2.pnl, 0);
     const startBalance = currentBalance > 0 ? currentBalance - totalPnL : 0;
     const dailyMap = {};
-    let running = startBalance;
+    let running2 = startBalance;
     for (const pt of allPoints) {
-      running += pt.pnl;
+      running2 += pt.pnl;
       const day = new Date(pt.date).toISOString().substring(0, 10);
-      dailyMap[day] = Math.round(running * 100) / 100;
+      dailyMap[day] = Math.round(running2 * 100) / 100;
     }
     if (currentBalance > 0) {
       const today = (/* @__PURE__ */ new Date()).toISOString().substring(0, 10);
@@ -80481,11 +82595,11 @@ BEAR CASE: ${_bearCase || "n/a"}` : aiConfirmation.reasoning;
     const totalPnL = allPoints.reduce((s, p2) => s + p2.pnl, 0);
     const startBalance = currentBalance > 0 ? currentBalance - totalPnL : 0;
     const dailyMap = {};
-    let running = startBalance;
+    let running2 = startBalance;
     for (const pt of allPoints) {
-      running += pt.pnl;
+      running2 += pt.pnl;
       const day = new Date(pt.date).toISOString().substring(0, 10);
-      dailyMap[day] = Math.round(running * 100) / 100;
+      dailyMap[day] = Math.round(running2 * 100) / 100;
     }
     if (currentBalance > 0) {
       const today = (/* @__PURE__ */ new Date()).toISOString().substring(0, 10);
@@ -85276,13 +87390,14 @@ Format each recommendation as a clear, concise action item.`;
           const cached2 = dxCache[dc.id];
           const dxFresh = !!cached2 && Date.now() - cached2.updatedAt < 3e5;
           const dxBalance = dxFresh ? Number(cached2.balance) || 0 : 0;
+          const dxEquity = dxFresh ? Number(cached2.equity) || dxBalance : 0;
           accountCurves.push({
             key: `dx_${dc.id}`,
             label: "DXtrade" + (dc.label ? ` \xB7 ${dc.label}` : dc.account_code ? ` \xB7 ${dc.account_code}` : ""),
             platform: "DXtrade",
             isConnected: dxFresh,
             balance: dxBalance,
-            equity: dxBalance,
+            equity: dxEquity,
             ...tally(rows),
             realizedTodayPnl: dxRealizedToday,
             todayPnl: dxRealizedToday,
@@ -86346,6 +88461,313 @@ Respond with ONLY valid JSON:
     }
   });
   const { startLiveEngine: startLiveEngine2, stopLiveEngine: stopLiveEngine2, emergencyStopEngine: emergencyStopEngine2, getLiveEngineState: getLiveEngineState2, getLiveEngineActivity: getLiveEngineActivity2, updateLiveEngineConfig: updateLiveEngineConfig2, getPendingMT5Signals: getPendingMT5Signals2, confirmMT5Signal: confirmMT5Signal2, getAllMT5Signals: getAllMT5Signals2, recordTradeResult: recordTradeResult2, registerMT5Account: registerMT5Account2, heartbeatMT5Account: heartbeatMT5Account2, getMT5Accounts: getMT5Accounts2, setMT5AccountReceiveSignals: setMT5AccountReceiveSignals2 } = await Promise.resolve().then(() => (init_live_trading_engine(), live_trading_engine_exports));
+  const wizardTfMap = { M1: "1min", M5: "5min", M15: "15min", M30: "30min", H1: "1h", H4: "4h", D1: "1day" };
+  app2.post("/api/strategy-wizard/spec-backtest", async (req, res) => {
+    if (!req.isAuthenticated()) return res.status(401).json({ error: "Authentication required" });
+    const userId = req.user.id;
+    try {
+      const { validateStrategySpec: validateStrategySpec2 } = await Promise.resolve().then(() => (init_strategy_spec(), strategy_spec_exports));
+      const v = validateStrategySpec2(req.body?.spec);
+      if (!v.ok) return res.status(400).json({ error: v.error });
+      const spec = v.spec;
+      if (spec.entryLong.conditions.length + spec.entryShort.conditions.length === 0) {
+        return res.status(400).json({ error: "This is an engine-native strategy \u2014 it runs on the FX engine's AI analysis and has no mechanical rules to replay. Backtest a template, a builder strategy, or an engine strategy with a mechanical approximation instead." });
+      }
+      const initialCapital = Math.min(Math.max(Number(req.body?.initialCapital ?? 1e4), 100), 1e9);
+      const limit = Math.min(Math.max(Number(req.body?.limit ?? 1e3), 100), 5e3);
+      let bars = [];
+      let provider = "none";
+      try {
+        const { marketDataService: marketDataService2 } = await Promise.resolve().then(() => (init_service(), service_exports));
+        const clean = spec.symbol.replace(/[^A-Za-z]/g, "").toUpperCase();
+        const assetType = /^(BTC|ETH|SOL|XRP|LTC|DOGE)/.test(clean) ? "crypto" : "forex";
+        const result2 = await marketDataService2.fetchMarketData({
+          symbol: spec.symbol,
+          timeframe: wizardTfMap[spec.timeframe] || "1h",
+          assetType,
+          limit
+        });
+        bars = result2.bars;
+        provider = result2.provider;
+      } catch {
+      }
+      if (bars.length < 50) {
+        const mt5Cache = global.mt5ChartDataCache || {};
+        const cached2 = mt5Cache[`mt5_chart_${userId}_${spec.symbol}_${spec.timeframe}`];
+        if (cached2?.candles?.length >= 50) {
+          bars = cached2.candles.map((c) => ({
+            timestamp: typeof c.timestamp === "number" ? c.timestamp : new Date(c.time || c.timestamp).getTime(),
+            open: Number(c.open),
+            high: Number(c.high),
+            low: Number(c.low),
+            close: Number(c.close),
+            volume: Number(c.volume || 0)
+          }));
+          provider = "mt5-cache";
+        }
+      }
+      if (bars.length < 50) {
+        return res.status(400).json({ error: `Not enough historical data for ${spec.symbol} ${spec.timeframe} (got ${bars.length} bars, need 50+). Add a market data API key or connect MT5 so candles are available.` });
+      }
+      const { runBacktest: runBacktest2 } = await Promise.resolve().then(() => (init_strategy_backtest(), strategy_backtest_exports));
+      const result = runBacktest2(spec, bars, {
+        initialCapital,
+        spreadPips: Number(req.body?.spreadPips ?? 1),
+        slippagePips: Number(req.body?.slippagePips ?? 0.3),
+        commissionPerLot: Number(req.body?.commissionPerLot ?? 0)
+      });
+      const strategyId = Number(req.body?.strategyId ?? 0);
+      if (strategyId > 0) {
+        const { recordWizardBacktest: recordWizardBacktest2, getWizardStrategy: getWizardStrategy2 } = await Promise.resolve().then(() => (init_wizard_spec_strategies(), wizard_spec_strategies_exports));
+        if (await getWizardStrategy2(userId, strategyId)) {
+          await recordWizardBacktest2(userId, strategyId, {
+            stats: result.stats,
+            dataPoints: result.dataPoints,
+            ranAt: (/* @__PURE__ */ new Date()).toISOString(),
+            barsUsed: result.stats.barsUsed
+          }).catch(() => null);
+        }
+      }
+      const curve = result.equityCurve;
+      const sampled = curve.length > 300 ? curve.filter((_, idx) => idx % Math.ceil(curve.length / 300) === 0).concat(curve[curve.length - 1]) : curve;
+      return res.json({
+        success: true,
+        provider,
+        stats: result.stats,
+        dataPoints: result.dataPoints,
+        equityCurve: sampled,
+        trades: result.trades.slice(-200)
+      });
+    } catch (err) {
+      console.error("[strategy-wizard] backtest failed:", err);
+      return res.status(500).json({ error: err?.message || "Backtest failed" });
+    }
+  });
+  app2.post("/api/strategy-wizard/generate-ea", async (req, res) => {
+    if (!req.isAuthenticated()) return res.status(401).json({ error: "Authentication required" });
+    const userId = req.user.id;
+    try {
+      const { validateStrategySpec: validateStrategySpec2 } = await Promise.resolve().then(() => (init_strategy_spec(), strategy_spec_exports));
+      let specRaw = req.body?.spec;
+      const strategyId = Number(req.body?.strategyId ?? 0);
+      if (!specRaw && strategyId > 0) {
+        const { getWizardStrategy: getWizardStrategy2 } = await Promise.resolve().then(() => (init_wizard_spec_strategies(), wizard_spec_strategies_exports));
+        const saved = await getWizardStrategy2(userId, strategyId);
+        if (!saved) return res.status(404).json({ error: "Strategy not found" });
+        specRaw = saved.spec;
+      }
+      const v = validateStrategySpec2(specRaw);
+      if (!v.ok) return res.status(400).json({ error: v.error });
+      if (v.spec.entryLong.conditions.length + v.spec.entryShort.conditions.length === 0) {
+        return res.status(400).json({ error: "Engine-native strategies run on the FX engine's AI analysis \u2014 there are no fixed rules to compile into an EA. Pick a template, a builder strategy, or an engine strategy with a mechanical approximation." });
+      }
+      const { generateSpecMT5EA: generateSpecMT5EA2 } = await Promise.resolve().then(() => (init_spec_ea_generator(), spec_ea_generator_exports));
+      const { code, filename, magicNumber } = generateSpecMT5EA2(v.spec);
+      if (strategyId > 0) {
+        const { recordWizardEa: recordWizardEa2 } = await Promise.resolve().then(() => (init_wizard_spec_strategies(), wizard_spec_strategies_exports));
+        await recordWizardEa2(userId, strategyId, code).catch(() => false);
+      }
+      return res.json({ success: true, code, filename, magicNumber });
+    } catch (err) {
+      console.error("[strategy-wizard] generate-ea failed:", err);
+      return res.status(500).json({ error: err?.message || "EA generation failed" });
+    }
+  });
+  app2.get("/api/strategy-wizard/accounts", async (req, res) => {
+    if (!req.isAuthenticated()) return res.status(401).json({ error: "Authentication required" });
+    const userId = req.user.id;
+    try {
+      const accounts = [];
+      const { getMT5Accounts: getMT5Accounts3 } = await Promise.resolve().then(() => (init_live_trading_engine(), live_trading_engine_exports));
+      for (const a of getMT5Accounts3(userId)) {
+        accounts.push({ platform: "mt5", ref: a.alias, label: a.label || a.alias, sub: a.accountNumber ? `MT5 ${a.accountNumber}` : "MT5 terminal", online: a.online });
+      }
+      const tl = await storage.getUserTradelockerConnections(userId).catch(() => []);
+      for (const c of tl.filter((c2) => c2.isActive)) {
+        accounts.push({ platform: "tradelocker", ref: String(c.id), label: c.accountId || `TradeLocker #${c.id}`, sub: "TradeLocker", online: true });
+      }
+      const { pool: pool2 } = await Promise.resolve().then(() => (init_db(), db_exports));
+      const { rows } = await pool2.query(
+        `SELECT id, account_code, label FROM dxtrade_connections WHERE user_id=$1 AND is_active=true ORDER BY id`,
+        [userId]
+      ).catch(() => ({ rows: [] }));
+      for (const c of rows) {
+        accounts.push({ platform: "dxtrade", ref: String(c.id), label: c.label || c.account_code || `DXtrade #${c.id}`, sub: "DXtrade", online: true });
+      }
+      return res.json({ accounts });
+    } catch (err) {
+      return res.status(500).json({ error: err?.message || "accounts lookup failed" });
+    }
+  });
+  app2.get("/api/strategy-wizard/deployments", async (req, res) => {
+    if (!req.isAuthenticated()) return res.status(401).json({ error: "Authentication required" });
+    const userId = req.user.id;
+    const { listDeployments: listDeployments2 } = await Promise.resolve().then(() => (init_strategy_deployments(), strategy_deployments_exports));
+    const strategyId = Number(req.query.strategyId ?? 0);
+    return res.json({ deployments: await listDeployments2(userId, strategyId > 0 ? strategyId : void 0) });
+  });
+  app2.post("/api/strategy-wizard/deployments", async (req, res) => {
+    if (!req.isAuthenticated()) return res.status(401).json({ error: "Authentication required" });
+    const userId = req.user.id;
+    try {
+      const strategyId = Number(req.body?.strategyId ?? 0);
+      const platform = String(req.body?.platform ?? "");
+      const connectionRef = String(req.body?.connectionRef ?? "");
+      const accountLabel = req.body?.accountLabel ? String(req.body.accountLabel) : null;
+      if (!strategyId || !["mt5", "tradelocker", "dxtrade"].includes(platform) || !connectionRef) {
+        return res.status(400).json({ error: "strategyId, platform (mt5|tradelocker|dxtrade) and connectionRef are required" });
+      }
+      const { getWizardStrategy: getWizardStrategy2 } = await Promise.resolve().then(() => (init_wizard_spec_strategies(), wizard_spec_strategies_exports));
+      const strat = await getWizardStrategy2(userId, strategyId);
+      if (!strat) return res.status(404).json({ error: "strategy not found" });
+      const spec = strat.spec;
+      const isEngine = spec.source === "engine";
+      if (!isEngine && !spec.entryLong?.conditions?.length && !spec.entryShort?.conditions?.length) {
+        return res.status(400).json({ error: "This strategy has no mechanical entry rules to run live. Pattern templates need the MT5 EA or a manual run \u2014 there is nothing honest to deploy." });
+      }
+      const { listDeployments: listDeployments2, createDeployment: createDeployment2 } = await Promise.resolve().then(() => (init_strategy_deployments(), strategy_deployments_exports));
+      const existing = await listDeployments2(userId, strategyId);
+      if (existing.some((d) => d.status === "running" && d.platform === platform && d.connectionRef === connectionRef)) {
+        return res.status(409).json({ error: "This strategy is already running on that account." });
+      }
+      if (platform === "tradelocker") {
+        const conns = await storage.getUserTradelockerConnections(userId);
+        if (!conns.some((c) => c.id === Number(connectionRef) && c.isActive)) return res.status(404).json({ error: "TradeLocker connection not found" });
+      } else if (platform === "dxtrade") {
+        const { pool: pool2 } = await Promise.resolve().then(() => (init_db(), db_exports));
+        const { rows } = await pool2.query(`SELECT id FROM dxtrade_connections WHERE id=$1 AND user_id=$2 AND is_active=true`, [Number(connectionRef), userId]);
+        if (!rows.length) return res.status(404).json({ error: "DXtrade connection not found" });
+      } else if (platform === "mt5") {
+        const { getMT5Accounts: getMT5Accounts3, setMT5AccountReceiveSignals: setMT5AccountReceiveSignals3 } = await Promise.resolve().then(() => (init_live_trading_engine(), live_trading_engine_exports));
+        const accts = getMT5Accounts3(userId);
+        if (!accts.some((a) => a.alias === connectionRef)) return res.status(404).json({ error: "MT5 terminal not found (is the EA connected?)" });
+        for (const a of accts) setMT5AccountReceiveSignals3(userId, a.alias, a.alias === connectionRef);
+      }
+      const dep = await createDeployment2(userId, strategyId, platform, connectionRef, accountLabel);
+      return res.status(201).json({
+        deployment: dep,
+        execution: isEngine ? "engine" : "runner",
+        note: isEngine ? "Engine strategies run through the FX engine, which trades your auto-enabled accounts as one pool. This deployment binds the strategy to the chosen account for tracking and its brain \u2014 it does not re-route the engine." : platform === "mt5" ? "The runner sends this strategy's signals to the chosen MT5 terminal only (its receive-signals flag is now exclusive). The EA on that terminal executes them." : "The runner evaluates this strategy on closed bars and trades only the chosen account."
+      });
+    } catch (err) {
+      console.error("[strategy-wizard] deploy failed:", err);
+      return res.status(500).json({ error: err?.message || "deploy failed" });
+    }
+  });
+  app2.post("/api/strategy-wizard/deployments/:id/stop", async (req, res) => {
+    if (!req.isAuthenticated()) return res.status(401).json({ error: "Authentication required" });
+    const userId = req.user.id;
+    const { stopDeployment: stopDeployment2, getDeployment: getDeployment2 } = await Promise.resolve().then(() => (init_strategy_deployments(), strategy_deployments_exports));
+    const id = Number(req.params.id);
+    const ok = await stopDeployment2(userId, id);
+    if (!ok) return res.status(404).json({ error: "running deployment not found" });
+    return res.json({ success: true, deployment: await getDeployment2(userId, id) });
+  });
+  app2.post("/api/strategy-wizard/spec-strategies/:id/brain", async (req, res) => {
+    if (!req.isAuthenticated()) return res.status(401).json({ error: "Authentication required" });
+    const userId = req.user.id;
+    const { buildStrategyBrain: buildStrategyBrain2 } = await Promise.resolve().then(() => (init_strategy_brain(), strategy_brain_exports));
+    const profile = await buildStrategyBrain2(userId, Number(req.params.id));
+    if (!profile) return res.status(404).json({ error: "strategy not found" });
+    return res.json({ brain: profile });
+  });
+  app2.post("/api/strategy-wizard/spec-strategies/:id/list-brain", async (req, res) => {
+    if (!req.isAuthenticated()) return res.status(401).json({ error: "Authentication required" });
+    const userId = req.user.id;
+    try {
+      const strategyId = Number(req.params.id);
+      const { getWizardStrategy: getWizardStrategy2, recordWizardBrain: recordWizardBrain2 } = await Promise.resolve().then(() => (init_wizard_spec_strategies(), wizard_spec_strategies_exports));
+      const strat = await getWizardStrategy2(userId, strategyId);
+      if (!strat) return res.status(404).json({ error: "strategy not found" });
+      const { buildStrategyBrain: buildStrategyBrain2 } = await Promise.resolve().then(() => (init_strategy_brain(), strategy_brain_exports));
+      const brain = await buildStrategyBrain2(userId, strategyId);
+      const { MIN_TRADES_TO_LIST: MIN_TRADES_TO_LIST2, computeListingStats: computeListingStats2, clampPrice: clampPrice2 } = await Promise.resolve().then(() => (init_brain_marketplace(), brain_marketplace_exports));
+      if (!brain || brain.listableTrades < MIN_TRADES_TO_LIST2) {
+        return res.status(400).json({ error: `Need at least ${MIN_TRADES_TO_LIST2} live trades from this strategy to list its brain (you have ${brain?.listableTrades ?? 0}). Backtest trades don't count \u2014 a brain is sold on live evidence.` });
+      }
+      const { listStrategyTrades: listStrategyTrades2 } = await Promise.resolve().then(() => (init_strategy_deployments(), strategy_deployments_exports));
+      const trades = await listStrategyTrades2(userId, strategyId, 2e3);
+      const rows = trades.filter((t) => t.status === "closed" && t.pnl != null).map((t) => ({
+        symbol: String(t.symbol || "").toUpperCase(),
+        direction: t.direction,
+        confirmedAt: t.closed_at,
+        tradeOutcome: Number(t.pnl) > 0 ? "WIN" : Number(t.pnl) < 0 ? "LOSS" : "BREAKEVEN",
+        profitLoss: Number(t.pnl),
+        exitReason: t.exit_reason ?? null,
+        source: "wizard_strategy",
+        strategyName: strat.name
+      }));
+      const stats = computeListingStats2(rows);
+      const title = String(req.body?.title || `${strat.name} \u2014 strategy brain`);
+      const description = String(req.body?.description || `Live track record of the custom strategy "${strat.name}" (${strat.spec.symbol} ${strat.spec.timeframe}), built in the Strategy Wizard and run through VEDD deployments. ${brain.live.trades} live trades, ${brain.live.winRate != null ? Math.round(brain.live.winRate * 100) : "\u2014"}% win rate. Backtest data points inform the profile; the snapshot contains live outcomes only.`);
+      const price = clampPrice2(Number(req.body?.priceVedd ?? stats.suggestedPriceVedd));
+      if (strat.brainListingId) {
+        await storage.deactivateBrainListing(strat.brainListingId).catch(() => {
+        });
+      }
+      const listing = await storage.createBrainListing({
+        sellerId: userId,
+        sourceCategory: "forex",
+        symbolFilter: [strat.spec.symbol],
+        includesManualTrades: false,
+        title,
+        description,
+        priceVedd: price,
+        suggestedPriceVedd: stats.suggestedPriceVedd,
+        snapshotData: rows,
+        tradeCount: stats.tradeCount,
+        distinctPairs: stats.distinctPairs,
+        ageDays: stats.ageDays,
+        winRate: stats.winRate,
+        oldestTradeAt: stats.oldestTradeAt,
+        newestTradeAt: stats.newestTradeAt
+      });
+      await recordWizardBrain2(userId, strategyId, { listingId: listing.id });
+      const { snapshotData: _omit, ...safe2 } = listing;
+      return res.status(201).json({ listing: safe2, brain });
+    } catch (err) {
+      console.error("[strategy-wizard] list-brain failed:", err);
+      return res.status(500).json({ error: err?.message || "listing failed" });
+    }
+  });
+  app2.get("/api/strategy-wizard/spec-strategies", async (req, res) => {
+    if (!req.isAuthenticated()) return res.status(401).json({ error: "Authentication required" });
+    const { listWizardStrategies: listWizardStrategies3 } = await Promise.resolve().then(() => (init_wizard_spec_strategies(), wizard_spec_strategies_exports));
+    return res.json({ strategies: await listWizardStrategies3(req.user.id) });
+  });
+  app2.post("/api/strategy-wizard/spec-strategies", async (req, res) => {
+    if (!req.isAuthenticated()) return res.status(401).json({ error: "Authentication required" });
+    const { validateStrategySpec: validateStrategySpec2 } = await Promise.resolve().then(() => (init_strategy_spec(), strategy_spec_exports));
+    const v = validateStrategySpec2(req.body?.spec);
+    if (!v.ok) return res.status(400).json({ error: v.error });
+    const { createWizardStrategy: createWizardStrategy2 } = await Promise.resolve().then(() => (init_wizard_spec_strategies(), wizard_spec_strategies_exports));
+    const created = await createWizardStrategy2(req.user.id, v.spec);
+    return res.status(201).json({ strategy: created });
+  });
+  app2.get("/api/strategy-wizard/spec-strategies/:id", async (req, res) => {
+    if (!req.isAuthenticated()) return res.status(401).json({ error: "Authentication required" });
+    const { getWizardStrategy: getWizardStrategy2 } = await Promise.resolve().then(() => (init_wizard_spec_strategies(), wizard_spec_strategies_exports));
+    const found = await getWizardStrategy2(req.user.id, Number(req.params.id));
+    if (!found) return res.status(404).json({ error: "Strategy not found" });
+    return res.json({ strategy: found });
+  });
+  app2.put("/api/strategy-wizard/spec-strategies/:id", async (req, res) => {
+    if (!req.isAuthenticated()) return res.status(401).json({ error: "Authentication required" });
+    const { validateStrategySpec: validateStrategySpec2 } = await Promise.resolve().then(() => (init_strategy_spec(), strategy_spec_exports));
+    const v = validateStrategySpec2(req.body?.spec);
+    if (!v.ok) return res.status(400).json({ error: v.error });
+    const { updateWizardStrategySpec: updateWizardStrategySpec2 } = await Promise.resolve().then(() => (init_wizard_spec_strategies(), wizard_spec_strategies_exports));
+    const updated = await updateWizardStrategySpec2(req.user.id, Number(req.params.id), v.spec);
+    if (!updated) return res.status(404).json({ error: "Strategy not found" });
+    return res.json({ strategy: updated });
+  });
+  app2.delete("/api/strategy-wizard/spec-strategies/:id", async (req, res) => {
+    if (!req.isAuthenticated()) return res.status(401).json({ error: "Authentication required" });
+    const { deleteWizardStrategy: deleteWizardStrategy2 } = await Promise.resolve().then(() => (init_wizard_spec_strategies(), wizard_spec_strategies_exports));
+    const ok = await deleteWizardStrategy2(req.user.id, Number(req.params.id));
+    if (!ok) return res.status(404).json({ error: "Strategy not found" });
+    return res.json({ success: true });
+  });
   app2.post("/api/vedd-live-engine/backtest", async (req, res) => {
     if (!req.isAuthenticated()) return res.status(401).json({ error: "Authentication required" });
     const userId = req.user.id;
@@ -86376,11 +88798,11 @@ Respond with ONLY valid JSON:
       }, computeEMA2 = function(closes2, i, period) {
         if (i < period - 1) return closes2[i];
         const k2 = 2 / (period + 1);
-        let ema4 = closes2[i - period + 1];
+        let ema5 = closes2[i - period + 1];
         for (let j = i - period + 2; j <= i; j++) {
-          ema4 = closes2[j] * k2 + ema4 * (1 - k2);
+          ema5 = closes2[j] * k2 + ema5 * (1 - k2);
         }
-        return ema4;
+        return ema5;
       };
       var computeRSI = computeRSI2, computeEMA = computeEMA2;
       let bars = [];
@@ -87528,7 +89950,7 @@ Respond with ONLY valid JSON:
         `SELECT id, host, username, domain, account_code, label, is_active, last_connected_at, last_error, auto_trade_enabled, use_risk_percent, risk_percent, lot_multiplier, is_prop_firm_account, prop_firm_name, prop_firm_account_size, weekly_profit_target, consistency_enabled, consistency_threshold_pct FROM dxtrade_connections WHERE user_id=$1 ORDER BY id`,
         [userId]
       );
-      const { DxtradeService: DxtradeService2, decryptApiSecret: decryptApiSecret3, extractAccountCode: extractAccountCode2, extractBalance: extractBalance2 } = await Promise.resolve().then(() => (init_dxtrade(), dxtrade_exports));
+      const { DxtradeService: DxtradeService2, decryptApiSecret: decryptApiSecret3, extractAccountCode: extractAccountCode2, extractBalance: extractBalance2, extractAccountFunds: extractAccountFunds2 } = await Promise.resolve().then(() => (init_dxtrade(), dxtrade_exports));
       const connections = await Promise.all(rows.map(async (c) => {
         try {
           const pw = decryptApiSecret3((await pool2.query(`SELECT encrypted_password FROM dxtrade_connections WHERE id=$1`, [c.id])).rows[0].encrypted_password);
@@ -87662,6 +90084,36 @@ Respond with ONLY valid JSON:
       res.json({ ok: true, accountCode: acct, result });
     } catch (err) {
       res.status(400).json({ error: err?.message || "modify failed" });
+    }
+  });
+  app2.post("/api/dxtrade/close", async (req, res) => {
+    if (!req.isAuthenticated()) return res.status(401).json({ error: "Authentication required" });
+    const userId = req.user.id;
+    const { connectionId, instrument, side, quantity, positionCode, confirm } = req.body || {};
+    if (confirm !== true) return res.status(400).json({ error: "confirm:true required" });
+    if (!connectionId || !instrument || !side || !(Number(quantity) > 0)) {
+      return res.status(400).json({ error: "connectionId, instrument, side and quantity are required" });
+    }
+    try {
+      const { pool: pool2 } = await Promise.resolve().then(() => (init_db(), db_exports));
+      const { rows } = await pool2.query(`SELECT host, username, encrypted_password, domain, account_code FROM dxtrade_connections WHERE id=$1 AND user_id=$2 AND is_active=true`, [Number(connectionId), userId]);
+      if (!rows.length) return res.status(404).json({ error: "DXtrade connection not found" });
+      const c = rows[0];
+      const { DxtradeService: DxtradeService2, decryptApiSecret: decryptApiSecret3, extractAccountCode: extractAccountCode2 } = await Promise.resolve().then(() => (init_dxtrade(), dxtrade_exports));
+      const svc = new DxtradeService2(c.host, c.username, decryptApiSecret3(c.encrypted_password), c.domain);
+      await svc.login();
+      const acct = c.account_code || extractAccountCode2(await svc.getAccounts());
+      if (!acct) return res.status(400).json({ error: "could not resolve account code" });
+      const result = await svc.closePosition(
+        acct,
+        String(instrument),
+        side === "BUY" ? "BUY" : "SELL",
+        Number(quantity),
+        positionCode ? String(positionCode) : void 0
+      );
+      res.json({ ok: true, accountCode: acct, result });
+    } catch (err) {
+      res.status(400).json({ error: err?.message || "close failed" });
     }
   });
   app2.get("/api/dxtrade/instruments", async (req, res) => {
@@ -88826,10 +91278,10 @@ Return ONLY JSON: {"topPicks":[{"market":"","winProbability":<0-100>,"whyItWins"
     const dailyWinAmount = Math.round(todayTrades.filter((t) => (t.profitLoss || 0) > 0).reduce((s, t) => s + t.profitLoss, 0) * 100) / 100;
     const dailyLossAmount = Math.round(todayTrades.filter((t) => (t.profitLoss || 0) < 0).reduce((s, t) => s + t.profitLoss, 0) * 100) / 100;
     const chronological = [...closed].reverse();
-    let running = 0;
+    let running2 = 0;
     const equityCurve = chronological.map((t) => {
-      running = Math.round((running + (t.profitLoss || 0)) * 100) / 100;
-      return { date: t.closedAt, cumulativePnl: running };
+      running2 = Math.round((running2 + (t.profitLoss || 0)) * 100) / 100;
+      return { date: t.closedAt, cumulativePnl: running2 };
     });
     return { dailyWins, dailyLosses, dailyWinAmount, dailyLossAmount, equityCurve };
   }
@@ -100412,6 +102864,10 @@ async function withRetry(fn, label, maxAttempts = 6, baseDelayMs = 2e3) {
     startTierCreditScheduler2();
     const { startTradeLockerSync: startTradeLockerSync2 } = await Promise.resolve().then(() => (init_tradelocker_sync(), tradelocker_sync_exports));
     startTradeLockerSync2();
+    const { startDxtradeSync: startDxtradeSync2 } = await Promise.resolve().then(() => (init_dxtrade_sync(), dxtrade_sync_exports));
+    startDxtradeSync2();
+    const { startStrategyRunner: startStrategyRunner2 } = await Promise.resolve().then(() => (init_strategy_runner(), strategy_runner_exports));
+    startStrategyRunner2();
     const { startPaperTradeResolverLoop: startPaperTradeResolverLoop2 } = await Promise.resolve().then(() => (init_paper_trade_resolver_loop(), paper_trade_resolver_loop_exports));
     startPaperTradeResolverLoop2();
     const { startPropFirmConsistencyAuditLoop: startPropFirmConsistencyAuditLoop2 } = await Promise.resolve().then(() => (init_prop_firm_consistency_audit_loop(), prop_firm_consistency_audit_loop_exports));

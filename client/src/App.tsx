@@ -47,6 +47,7 @@ import InteractiveTooltipShowcase from "@/pages/interactive-tooltip-showcase";
 import BlogPage from "@/pages/blog";
 import DevotionalPage from "@/pages/devotional";
 import StrategyWizard from "@/pages/strategy-wizard";
+import StrategyStudio from "@/pages/strategy-studio";
 import MobileAlerts from "@/pages/mobile-alerts";
 import MyEAsPage from "@/pages/my-eas";
 import MySubscriptionsPage from "@/pages/my-subscriptions";
@@ -286,6 +287,7 @@ function AppLayout() {
             <ProtectedRoute path="/market-mood" component={MarketMoodPage} />
             <ProtectedRoute path="/market-sentiment" component={MarketSentimentPage} />
             <ProtectedRoute path="/strategy-wizard" component={StrategyWizard} />
+            <ProtectedRoute path="/strategy-studio" component={StrategyStudio} />
             <ProtectedRoute path="/interactive-tooltips" component={InteractiveTooltipShowcase} />
             <ProtectedRoute path="/mobile-alerts" component={MobileAlerts} />
             <ProtectedRoute path="/my-eas" component={MyEAsPage} />

@@ -1020,6 +1020,11 @@ export default function StrategyWizard() {
       case 'select':
         return (
           <div className="space-y-6">
+            <p className="text-sm text-muted-foreground">
+              This wizard backtests the pattern templates and paper-tests them forward.
+              Want to build your own indicator rules, generate an MT5 EA, or deploy a strategy to a live account?{' '}
+              <a href="/strategy-studio" className="underline underline-offset-2">Open the Strategy Studio</a>.
+            </p>
             {/* Filter Controls */}
             <div className="mb-6 p-4 bg-card border rounded-lg">
               <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-4">

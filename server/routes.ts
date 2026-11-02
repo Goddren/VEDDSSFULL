@@ -19585,10 +19585,11 @@ Format each recommendation as a clear, concise action item.`;
           const cached = dxCache[dc.id];
           const dxFresh = !!cached && Date.now() - cached.updatedAt < 300_000;
           const dxBalance = dxFresh ? (Number(cached.balance) || 0) : 0;
+          const dxEquity = dxFresh ? (Number(cached.equity) || dxBalance) : 0;
           accountCurves.push({
             key: `dx_${dc.id}`,
             label: 'DXtrade' + (dc.label ? ` · ${dc.label}` : dc.account_code ? ` · ${dc.account_code}` : ''),
-            platform: 'DXtrade', isConnected: dxFresh, balance: dxBalance, equity: dxBalance,
+            platform: 'DXtrade', isConnected: dxFresh, balance: dxBalance, equity: dxEquity,
             ...tally(rows), realizedTodayPnl: dxRealizedToday, todayPnl: dxRealizedToday,
             openCount: dxFresh ? (Number(cached.openPositions) || 0) : 0, unrealizedPnl: 0,
             weeklyPnl: weekOf(rows), curve: curveOf(rows),
@@ -20820,6 +20821,366 @@ Respond with ONLY valid JSON:
 
   // ==================== VEDD AI LIVE TRADING ENGINE ====================
   const { startLiveEngine, stopLiveEngine, emergencyStopEngine, getLiveEngineState, getLiveEngineActivity, updateLiveEngineConfig, getPendingMT5Signals, confirmMT5Signal, getAllMT5Signals, recordTradeResult, registerMT5Account, heartbeatMT5Account, getMT5Accounts, setMT5AccountReceiveSignals } = await import('./services/live-trading-engine');
+
+  // ==================== STRATEGY WIZARD (spec / backtest / saved strategies) ====================
+  // The wizard's strategies are StrategySpec objects (strategy-spec.ts):
+  // template presets or condition-builder rules. Backtests here are
+  // DETERMINISTIC replays (strategy-backtest.ts) — same spec + same bars
+  // always give the same result, unlike the legacy engine backtest below.
+  const wizardTfMap: Record<string, string> = { M1: '1min', M5: '5min', M15: '15min', M30: '30min', H1: '1h', H4: '4h', D1: '1day' };
+
+  app.post("/api/strategy-wizard/spec-backtest", async (req: Request, res: Response) => {
+    if (!req.isAuthenticated()) return res.status(401).json({ error: "Authentication required" });
+    const userId = (req.user as User).id;
+    try {
+      const { validateStrategySpec } = await import('./services/strategy-spec');
+      const v = validateStrategySpec(req.body?.spec);
+      if (!v.ok) return res.status(400).json({ error: v.error });
+      const spec = v.spec;
+      if (spec.entryLong.conditions.length + spec.entryShort.conditions.length === 0) {
+        return res.status(400).json({ error: 'This is an engine-native strategy — it runs on the FX engine\'s AI analysis and has no mechanical rules to replay. Backtest a template, a builder strategy, or an engine strategy with a mechanical approximation instead.' });
+      }
+      const initialCapital = Math.min(Math.max(Number(req.body?.initialCapital ?? 10000), 100), 1e9);
+      const limit = Math.min(Math.max(Number(req.body?.limit ?? 1000), 100), 5000);
+
+      let bars: Array<{ timestamp: number; open: number; high: number; low: number; close: number; volume: number }> = [];
+      let provider = 'none';
+      try {
+        const { marketDataService } = await import('./market-data/service');
+        const clean = spec.symbol.replace(/[^A-Za-z]/g, '').toUpperCase();
+        const assetType = /^(BTC|ETH|SOL|XRP|LTC|DOGE)/.test(clean) ? 'crypto' : 'forex';
+        const result = await marketDataService.fetchMarketData({
+          symbol: spec.symbol,
+          timeframe: (wizardTfMap[spec.timeframe] || '1h') as any,
+          assetType: assetType as any,
+          limit,
+        });
+        bars = result.bars as any;
+        provider = result.provider;
+      } catch { /* fall through to the MT5 candle cache */ }
+      if (bars.length < 50) {
+        const mt5Cache = (global as any).mt5ChartDataCache || {};
+        const cached = mt5Cache[`mt5_chart_${userId}_${spec.symbol}_${spec.timeframe}`];
+        if (cached?.candles?.length >= 50) {
+          bars = cached.candles.map((c: any) => ({
+            timestamp: typeof c.timestamp === 'number' ? c.timestamp : new Date(c.time || c.timestamp).getTime(),
+            open: Number(c.open), high: Number(c.high), low: Number(c.low), close: Number(c.close),
+            volume: Number(c.volume || 0),
+          }));
+          provider = 'mt5-cache';
+        }
+      }
+      if (bars.length < 50) {
+        return res.status(400).json({ error: `Not enough historical data for ${spec.symbol} ${spec.timeframe} (got ${bars.length} bars, need 50+). Add a market data API key or connect MT5 so candles are available.` });
+      }
+
+      const { runBacktest } = await import('./services/strategy-backtest');
+      const result = runBacktest(spec, bars, {
+        initialCapital,
+        spreadPips: Number(req.body?.spreadPips ?? 1),
+        slippagePips: Number(req.body?.slippagePips ?? 0.3),
+        commissionPerLot: Number(req.body?.commissionPerLot ?? 0),
+      });
+
+      // Persist the run on the saved strategy (when one is named) — these
+      // data points are the raw material the strategy's brain is built from.
+      const strategyId = Number(req.body?.strategyId ?? 0);
+      if (strategyId > 0) {
+        const { recordWizardBacktest, getWizardStrategy } = await import('./services/wizard-spec-strategies');
+        if (await getWizardStrategy(userId, strategyId)) {
+          await recordWizardBacktest(userId, strategyId, {
+            stats: result.stats, dataPoints: result.dataPoints,
+            ranAt: new Date().toISOString(), barsUsed: result.stats.barsUsed,
+          }).catch(() => null);
+        }
+      }
+
+      const curve = result.equityCurve;
+      const sampled = curve.length > 300
+        ? curve.filter((_, idx) => idx % Math.ceil(curve.length / 300) === 0).concat(curve[curve.length - 1])
+        : curve;
+      return res.json({
+        success: true,
+        provider,
+        stats: result.stats,
+        dataPoints: result.dataPoints,
+        equityCurve: sampled,
+        trades: result.trades.slice(-200),
+      });
+    } catch (err: any) {
+      console.error('[strategy-wizard] backtest failed:', err);
+      return res.status(500).json({ error: err?.message || 'Backtest failed' });
+    }
+  });
+
+  // Compile the spec into a downloadable MT5 EA — same structure as the
+  // app's existing EA generator, but the signal core is the wizard spec's
+  // own rules, so the EA trades exactly what the backtester replayed.
+  app.post("/api/strategy-wizard/generate-ea", async (req: Request, res: Response) => {
+    if (!req.isAuthenticated()) return res.status(401).json({ error: "Authentication required" });
+    const userId = (req.user as User).id;
+    try {
+      const { validateStrategySpec } = await import('./services/strategy-spec');
+      let specRaw = req.body?.spec;
+      const strategyId = Number(req.body?.strategyId ?? 0);
+      if (!specRaw && strategyId > 0) {
+        const { getWizardStrategy } = await import('./services/wizard-spec-strategies');
+        const saved = await getWizardStrategy(userId, strategyId);
+        if (!saved) return res.status(404).json({ error: "Strategy not found" });
+        specRaw = saved.spec;
+      }
+      const v = validateStrategySpec(specRaw);
+      if (!v.ok) return res.status(400).json({ error: v.error });
+      if (v.spec.entryLong.conditions.length + v.spec.entryShort.conditions.length === 0) {
+        return res.status(400).json({ error: "Engine-native strategies run on the FX engine's AI analysis — there are no fixed rules to compile into an EA. Pick a template, a builder strategy, or an engine strategy with a mechanical approximation." });
+      }
+      const { generateSpecMT5EA } = await import('./services/spec-ea-generator');
+      const { code, filename, magicNumber } = generateSpecMT5EA(v.spec);
+      if (strategyId > 0) {
+        const { recordWizardEa } = await import('./services/wizard-spec-strategies');
+        await recordWizardEa(userId, strategyId, code).catch(() => false);
+      }
+      return res.json({ success: true, code, filename, magicNumber });
+    } catch (err: any) {
+      console.error('[strategy-wizard] generate-ea failed:', err);
+      return res.status(500).json({ error: err?.message || 'EA generation failed' });
+    }
+  });
+
+  // ── Strategy deployments + brain (Stage 5) ─────────────────────────
+  // Every live account the user can deploy a strategy to, one list:
+  // MT5 terminals (signal-queue aliases), TradeLocker connections,
+  // DXtrade connections.
+  app.get("/api/strategy-wizard/accounts", async (req: Request, res: Response) => {
+    if (!req.isAuthenticated()) return res.status(401).json({ error: "Authentication required" });
+    const userId = (req.user as User).id;
+    try {
+      const accounts: any[] = [];
+      const { getMT5Accounts } = await import('./services/live-trading-engine');
+      for (const a of getMT5Accounts(userId)) {
+        accounts.push({ platform: 'mt5', ref: a.alias, label: a.label || a.alias, sub: a.accountNumber ? `MT5 ${a.accountNumber}` : 'MT5 terminal', online: (a as any).online });
+      }
+      const tl = await storage.getUserTradelockerConnections(userId).catch(() => [] as any[]);
+      for (const c of tl.filter((c: any) => c.isActive)) {
+        accounts.push({ platform: 'tradelocker', ref: String(c.id), label: c.accountId || `TradeLocker #${c.id}`, sub: 'TradeLocker', online: true });
+      }
+      const { pool } = await import('./db');
+      const { rows } = await pool.query(
+        `SELECT id, account_code, label FROM dxtrade_connections WHERE user_id=$1 AND is_active=true ORDER BY id`,
+        [userId],
+      ).catch(() => ({ rows: [] as any[] }));
+      for (const c of rows) {
+        accounts.push({ platform: 'dxtrade', ref: String(c.id), label: c.label || c.account_code || `DXtrade #${c.id}`, sub: 'DXtrade', online: true });
+      }
+      return res.json({ accounts });
+    } catch (err: any) {
+      return res.status(500).json({ error: err?.message || 'accounts lookup failed' });
+    }
+  });
+
+  app.get("/api/strategy-wizard/deployments", async (req: Request, res: Response) => {
+    if (!req.isAuthenticated()) return res.status(401).json({ error: "Authentication required" });
+    const userId = (req.user as User).id;
+    const { listDeployments } = await import('./services/strategy-deployments');
+    const strategyId = Number(req.query.strategyId ?? 0);
+    return res.json({ deployments: await listDeployments(userId, strategyId > 0 ? strategyId : undefined) });
+  });
+
+  // Deploy a saved strategy to one account. Spec strategies are executed
+  // by the deployment runner on exactly this account. Engine-native
+  // strategies execute through the FX engine itself (per user) — the
+  // deployment binds the strategy to this account for tracking + brain,
+  // and the response says so instead of pretending otherwise.
+  app.post("/api/strategy-wizard/deployments", async (req: Request, res: Response) => {
+    if (!req.isAuthenticated()) return res.status(401).json({ error: "Authentication required" });
+    const userId = (req.user as User).id;
+    try {
+      const strategyId = Number(req.body?.strategyId ?? 0);
+      const platform = String(req.body?.platform ?? '');
+      const connectionRef = String(req.body?.connectionRef ?? '');
+      const accountLabel = req.body?.accountLabel ? String(req.body.accountLabel) : null;
+      if (!strategyId || !['mt5', 'tradelocker', 'dxtrade'].includes(platform) || !connectionRef) {
+        return res.status(400).json({ error: 'strategyId, platform (mt5|tradelocker|dxtrade) and connectionRef are required' });
+      }
+      const { getWizardStrategy } = await import('./services/wizard-spec-strategies');
+      const strat = await getWizardStrategy(userId, strategyId);
+      if (!strat) return res.status(404).json({ error: 'strategy not found' });
+      const spec: any = strat.spec;
+      const isEngine = spec.source === 'engine';
+      if (!isEngine && !spec.entryLong?.conditions?.length && !spec.entryShort?.conditions?.length) {
+        return res.status(400).json({ error: 'This strategy has no mechanical entry rules to run live. Pattern templates need the MT5 EA or a manual run — there is nothing honest to deploy.' });
+      }
+      // One running deployment per strategy+account.
+      const { listDeployments, createDeployment } = await import('./services/strategy-deployments');
+      const existing = await listDeployments(userId, strategyId);
+      if (existing.some((d) => d.status === 'running' && d.platform === platform && d.connectionRef === connectionRef)) {
+        return res.status(409).json({ error: 'This strategy is already running on that account.' });
+      }
+      // Verify the account belongs to the user + exists.
+      if (platform === 'tradelocker') {
+        const conns = await storage.getUserTradelockerConnections(userId);
+        if (!conns.some((c: any) => c.id === Number(connectionRef) && c.isActive)) return res.status(404).json({ error: 'TradeLocker connection not found' });
+      } else if (platform === 'dxtrade') {
+        const { pool } = await import('./db');
+        const { rows } = await pool.query(`SELECT id FROM dxtrade_connections WHERE id=$1 AND user_id=$2 AND is_active=true`, [Number(connectionRef), userId]);
+        if (!rows.length) return res.status(404).json({ error: 'DXtrade connection not found' });
+      } else if (platform === 'mt5') {
+        const { getMT5Accounts, setMT5AccountReceiveSignals } = await import('./services/live-trading-engine');
+        const accts = getMT5Accounts(userId);
+        if (!accts.some((a) => a.alias === connectionRef)) return res.status(404).json({ error: 'MT5 terminal not found (is the EA connected?)' });
+        // Aim the signal queue at the chosen terminal only.
+        for (const a of accts) setMT5AccountReceiveSignals(userId, a.alias, a.alias === connectionRef);
+      }
+      const dep = await createDeployment(userId, strategyId, platform, connectionRef, accountLabel);
+      return res.status(201).json({
+        deployment: dep,
+        execution: isEngine
+          ? 'engine'
+          : 'runner',
+        note: isEngine
+          ? 'Engine strategies run through the FX engine, which trades your auto-enabled accounts as one pool. This deployment binds the strategy to the chosen account for tracking and its brain — it does not re-route the engine.'
+          : platform === 'mt5'
+            ? 'The runner sends this strategy\'s signals to the chosen MT5 terminal only (its receive-signals flag is now exclusive). The EA on that terminal executes them.'
+            : 'The runner evaluates this strategy on closed bars and trades only the chosen account.',
+      });
+    } catch (err: any) {
+      console.error('[strategy-wizard] deploy failed:', err);
+      return res.status(500).json({ error: err?.message || 'deploy failed' });
+    }
+  });
+
+  app.post("/api/strategy-wizard/deployments/:id/stop", async (req: Request, res: Response) => {
+    if (!req.isAuthenticated()) return res.status(401).json({ error: "Authentication required" });
+    const userId = (req.user as User).id;
+    const { stopDeployment, getDeployment } = await import('./services/strategy-deployments');
+    const id = Number(req.params.id);
+    const ok = await stopDeployment(userId, id);
+    if (!ok) return res.status(404).json({ error: 'running deployment not found' });
+    // Note: stopping halts new entries; an open position keeps its
+    // broker-side stop/target and is NOT force-closed.
+    return res.json({ success: true, deployment: await getDeployment(userId, id) });
+  });
+
+  // (Re)build the strategy brain from backtest + live data points.
+  app.post("/api/strategy-wizard/spec-strategies/:id/brain", async (req: Request, res: Response) => {
+    if (!req.isAuthenticated()) return res.status(401).json({ error: "Authentication required" });
+    const userId = (req.user as User).id;
+    const { buildStrategyBrain } = await import('./services/strategy-brain');
+    const profile = await buildStrategyBrain(userId, Number(req.params.id));
+    if (!profile) return res.status(404).json({ error: 'strategy not found' });
+    return res.json({ brain: profile });
+  });
+
+  // List the strategy's brain on the Brain Marketplace. The snapshot
+  // sold is the strategy's LIVE outcome rows (the marketplace's own
+  // shape: symbol/confirmedAt/tradeOutcome) — backtest data informs the
+  // brain profile but is never sold as experience. Same minimums as
+  // every other brain listing (MIN_TRADES_TO_LIST live trades).
+  app.post("/api/strategy-wizard/spec-strategies/:id/list-brain", async (req: Request, res: Response) => {
+    if (!req.isAuthenticated()) return res.status(401).json({ error: "Authentication required" });
+    const userId = (req.user as User).id;
+    try {
+      const strategyId = Number(req.params.id);
+      const { getWizardStrategy, recordWizardBrain } = await import('./services/wizard-spec-strategies');
+      const strat = await getWizardStrategy(userId, strategyId);
+      if (!strat) return res.status(404).json({ error: 'strategy not found' });
+      const { buildStrategyBrain } = await import('./services/strategy-brain');
+      const brain = await buildStrategyBrain(userId, strategyId);
+      const { MIN_TRADES_TO_LIST, computeListingStats, clampPrice } = await import('./services/brain-marketplace');
+      if (!brain || brain.listableTrades < MIN_TRADES_TO_LIST) {
+        return res.status(400).json({ error: `Need at least ${MIN_TRADES_TO_LIST} live trades from this strategy to list its brain (you have ${brain?.listableTrades ?? 0}). Backtest trades don't count — a brain is sold on live evidence.` });
+      }
+      const { listStrategyTrades } = await import('./services/strategy-deployments');
+      const trades = await listStrategyTrades(userId, strategyId, 2000);
+      const rows = trades
+        .filter((t) => t.status === 'closed' && t.pnl != null)
+        .map((t) => ({
+          symbol: String(t.symbol || '').toUpperCase(),
+          direction: t.direction,
+          confirmedAt: t.closed_at,
+          tradeOutcome: Number(t.pnl) > 0 ? 'WIN' : Number(t.pnl) < 0 ? 'LOSS' : 'BREAKEVEN',
+          profitLoss: Number(t.pnl),
+          exitReason: t.exit_reason ?? null,
+          source: 'wizard_strategy',
+          strategyName: strat.name,
+        }));
+      const stats = computeListingStats(rows as any);
+      const title = String(req.body?.title || `${strat.name} — strategy brain`);
+      const description = String(req.body?.description ||
+        `Live track record of the custom strategy "${strat.name}" (${strat.spec.symbol} ${strat.spec.timeframe}), built in the Strategy Wizard and run through VEDD deployments. ${brain.live.trades} live trades, ${brain.live.winRate != null ? Math.round(brain.live.winRate * 100) : '—'}% win rate. Backtest data points inform the profile; the snapshot contains live outcomes only.`);
+      const price = clampPrice(Number(req.body?.priceVedd ?? stats.suggestedPriceVedd));
+      // One active strategy-brain listing per strategy: retire the old one.
+      if ((strat as any).brainListingId) {
+        await storage.deactivateBrainListing((strat as any).brainListingId).catch(() => {});
+      }
+      const listing = await storage.createBrainListing({
+        sellerId: userId,
+        sourceCategory: 'forex' as any,
+        symbolFilter: [strat.spec.symbol],
+        includesManualTrades: false,
+        title,
+        description,
+        priceVedd: price,
+        suggestedPriceVedd: stats.suggestedPriceVedd,
+        snapshotData: rows,
+        tradeCount: stats.tradeCount,
+        distinctPairs: stats.distinctPairs,
+        ageDays: stats.ageDays,
+        winRate: stats.winRate,
+        oldestTradeAt: stats.oldestTradeAt,
+        newestTradeAt: stats.newestTradeAt,
+      } as any);
+      await recordWizardBrain(userId, strategyId, { listingId: listing.id });
+      const { snapshotData: _omit, ...safe } = listing as any;
+      return res.status(201).json({ listing: safe, brain });
+    } catch (err: any) {
+      console.error('[strategy-wizard] list-brain failed:', err);
+      return res.status(500).json({ error: err?.message || 'listing failed' });
+    }
+  });
+
+  app.get("/api/strategy-wizard/spec-strategies", async (req: Request, res: Response) => {
+    if (!req.isAuthenticated()) return res.status(401).json({ error: "Authentication required" });
+    const { listWizardStrategies } = await import('./services/wizard-spec-strategies');
+    return res.json({ strategies: await listWizardStrategies((req.user as User).id) });
+  });
+
+  app.post("/api/strategy-wizard/spec-strategies", async (req: Request, res: Response) => {
+    if (!req.isAuthenticated()) return res.status(401).json({ error: "Authentication required" });
+    const { validateStrategySpec } = await import('./services/strategy-spec');
+    const v = validateStrategySpec(req.body?.spec);
+    if (!v.ok) return res.status(400).json({ error: v.error });
+    const { createWizardStrategy } = await import('./services/wizard-spec-strategies');
+    const created = await createWizardStrategy((req.user as User).id, v.spec);
+    return res.status(201).json({ strategy: created });
+  });
+
+  app.get("/api/strategy-wizard/spec-strategies/:id", async (req: Request, res: Response) => {
+    if (!req.isAuthenticated()) return res.status(401).json({ error: "Authentication required" });
+    const { getWizardStrategy } = await import('./services/wizard-spec-strategies');
+    const found = await getWizardStrategy((req.user as User).id, Number(req.params.id));
+    if (!found) return res.status(404).json({ error: "Strategy not found" });
+    return res.json({ strategy: found });
+  });
+
+  app.put("/api/strategy-wizard/spec-strategies/:id", async (req: Request, res: Response) => {
+    if (!req.isAuthenticated()) return res.status(401).json({ error: "Authentication required" });
+    const { validateStrategySpec } = await import('./services/strategy-spec');
+    const v = validateStrategySpec(req.body?.spec);
+    if (!v.ok) return res.status(400).json({ error: v.error });
+    const { updateWizardStrategySpec } = await import('./services/wizard-spec-strategies');
+    const updated = await updateWizardStrategySpec((req.user as User).id, Number(req.params.id), v.spec);
+    if (!updated) return res.status(404).json({ error: "Strategy not found" });
+    return res.json({ strategy: updated });
+  });
+
+  app.delete("/api/strategy-wizard/spec-strategies/:id", async (req: Request, res: Response) => {
+    if (!req.isAuthenticated()) return res.status(401).json({ error: "Authentication required" });
+    const { deleteWizardStrategy } = await import('./services/wizard-spec-strategies');
+    const ok = await deleteWizardStrategy((req.user as User).id, Number(req.params.id));
+    if (!ok) return res.status(404).json({ error: "Strategy not found" });
+    return res.json({ success: true });
+  });
 
   // ==================== BACKTEST ENDPOINT ====================
   app.post("/api/vedd-live-engine/backtest", async (req: Request, res: Response) => {
@@ -22185,7 +22546,7 @@ Respond with ONLY valid JSON:
         `SELECT id, host, username, domain, account_code, label, is_active, last_connected_at, last_error, auto_trade_enabled, use_risk_percent, risk_percent, lot_multiplier, is_prop_firm_account, prop_firm_name, prop_firm_account_size, weekly_profit_target, consistency_enabled, consistency_threshold_pct FROM dxtrade_connections WHERE user_id=$1 ORDER BY id`,
         [userId],
       );
-      const { DxtradeService, decryptApiSecret, extractAccountCode, extractBalance } = await import('./dxtrade');
+      const { DxtradeService, decryptApiSecret, extractAccountCode, extractBalance, extractAccountFunds } = await import('./dxtrade');
       const connections = await Promise.all(rows.map(async (c: any) => {
         try {
           const pw = decryptApiSecret((await pool.query(`SELECT encrypted_password FROM dxtrade_connections WHERE id=$1`, [c.id])).rows[0].encrypted_password);
@@ -22295,6 +22656,41 @@ Respond with ONLY valid JSON:
       res.json({ ok: true, accountCode: acct, result });
     } catch (err: any) {
       res.status(400).json({ error: err?.message || 'modify failed' });
+    }
+  });
+
+  // Manual, confirm-gated DXtrade position close — the route that didn't
+  // exist (modify and order did; close only lived inside the engine).
+  // Mirrors /api/dxtrade/modify: user-initiated, positionCode optional
+  // (the service resolves it from the live position list when omitted).
+  app.post("/api/dxtrade/close", async (req: Request, res: Response) => {
+    if (!req.isAuthenticated()) return res.status(401).json({ error: "Authentication required" });
+    const userId = (req.user as User).id;
+    const { connectionId, instrument, side, quantity, positionCode, confirm } = req.body || {};
+    if (confirm !== true) return res.status(400).json({ error: "confirm:true required" });
+    if (!connectionId || !instrument || !side || !(Number(quantity) > 0)) {
+      return res.status(400).json({ error: "connectionId, instrument, side and quantity are required" });
+    }
+    try {
+      const { pool } = await import('./db');
+      const { rows } = await pool.query(`SELECT host, username, encrypted_password, domain, account_code FROM dxtrade_connections WHERE id=$1 AND user_id=$2 AND is_active=true`, [Number(connectionId), userId]);
+      if (!rows.length) return res.status(404).json({ error: "DXtrade connection not found" });
+      const c = rows[0];
+      const { DxtradeService, decryptApiSecret, extractAccountCode } = await import('./dxtrade');
+      const svc = new DxtradeService(c.host, c.username, decryptApiSecret(c.encrypted_password), c.domain);
+      await svc.login();
+      const acct = c.account_code || extractAccountCode(await svc.getAccounts());
+      if (!acct) return res.status(400).json({ error: "could not resolve account code" });
+      const result = await svc.closePosition(
+        acct,
+        String(instrument),
+        side === 'BUY' ? 'BUY' : 'SELL',
+        Number(quantity),
+        positionCode ? String(positionCode) : undefined,
+      );
+      res.json({ ok: true, accountCode: acct, result });
+    } catch (err: any) {
+      res.status(400).json({ error: err?.message || 'close failed' });
     }
   });
 

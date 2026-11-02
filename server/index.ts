@@ -1573,6 +1573,16 @@ async function withRetry<T>(
     const { startTradeLockerSync } = await import('./services/tradelocker-sync');
     startTradeLockerSync();
 
+    // Start DXtrade outcome sync (resolves closed DX trades into the
+    // results ledger in the background — previously view-triggered only)
+    const { startDxtradeSync } = await import('./services/dxtrade-sync');
+    startDxtradeSync();
+
+    // Start the wizard-strategy deployment runner (executes deployed
+    // custom strategies on their bound accounts)
+    const { startStrategyRunner } = await import('./services/strategy-runner');
+    startStrategyRunner();
+
     // Start Paper Trade AI Journal resolver (auto-closes pending paper trades against live price)
     const { startPaperTradeResolverLoop } = await import('./services/paper-trade-resolver-loop');
     startPaperTradeResolverLoop();

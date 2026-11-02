@@ -21939,7 +21939,9 @@ __export(dxtrade_exports, {
   decryptApiSecret: () => decryptApiSecret,
   dxBase: () => dxBase,
   encryptApiSecret: () => encryptApiSecret,
+  executeSignalOnDxtrade: () => executeSignalOnDxtrade,
   extractAccountCode: () => extractAccountCode,
+  extractAccountFunds: () => extractAccountFunds,
   extractBalance: () => extractBalance,
   getDxtradeService: () => getDxtradeService
 });
@@ -21975,6 +21977,21 @@ function pickNum(obj, keys) {
   }
   return null;
 }
+function extractAccountFunds(metrics) {
+  const out = { balance: null, equity: null };
+  if (!metrics) return out;
+  const nodes = [metrics, metrics.metrics, metrics.balances, metrics.account, ...Array.isArray(metrics?.metrics) ? metrics.metrics : [], ...Array.isArray(metrics?.balances) ? metrics.balances : []].filter(Boolean);
+  const scan = (n) => {
+    if (!n || typeof n !== "object") return;
+    if (out.balance == null) out.balance = pickNum(n, ["balance", "cashBalance", "availableBalance", "availableFunds"]);
+    if (out.equity == null) out.equity = pickNum(n, ["equity", "netLiquidatingValue", "netAssetValue"]);
+  };
+  for (const n of nodes) {
+    if (Array.isArray(n)) n.forEach(scan);
+    else scan(n);
+  }
+  return out;
+}
 function computeRiskQuantity(opts) {
   const { balance, riskPercent, entryPrice, stopPrice, instrument } = opts;
   const quoteToUsd2 = Number(opts.quoteToUsd) > 0 ? Number(opts.quoteToUsd) : 1;
@@ -22003,6 +22020,49 @@ function getDxtradeService(host, username, password, domain, cacheKey) {
   const svc = new DxtradeService(host, username, password, domain);
   _dxServiceCache.set(cacheKey, { svc, ts: Date.now() });
   return svc;
+}
+function dxWireSymbol(normalized) {
+  return /^[A-Z]{6}$/.test(normalized) ? `${normalized.slice(0, 3)}/${normalized.slice(3)}` : normalized;
+}
+async function executeSignalOnDxtrade(conn, signal) {
+  try {
+    const svc = getDxtradeService(conn.host, conn.username, decryptApiSecret(conn.encrypted_password), conn.domain || "default", String(conn.id));
+    await svc.ensureLoggedIn();
+    const acct = conn.account_code || extractAccountCode(await svc.getAccounts());
+    if (!acct) return { success: false, error: "could not resolve DXtrade account code" };
+    const norm3 = (s) => String(s ?? "").replace(/\//g, "").toUpperCase();
+    const symbol = norm3(signal.symbol);
+    const positions = await svc.getPositions(acct);
+    const code = signal.positionCode || signal.positionId || void 0;
+    let pos = code ? positions.find((p) => p.positionId === String(code)) : void 0;
+    if (!pos) {
+      const dir = signal.direction ? String(signal.direction).toUpperCase() : null;
+      const matches = positions.filter((p) => p.instrument === symbol && (!dir || p.side === dir));
+      if (matches.length > 1 && !dir) {
+        return { success: false, error: `multiple ${symbol} positions on this account and no direction given \u2014 refusing to guess the leg` };
+      }
+      pos = matches[0];
+    }
+    if (!pos) return { success: false, error: `no open ${symbol} position on this DXtrade account` };
+    const wireInstrument = String(pos.raw?.instrument ?? pos.raw?.symbol ?? dxWireSymbol(symbol));
+    if (signal.action === "CLOSE") {
+      const qty = signal.volume && signal.volume > 0 ? Math.min(signal.volume, pos.quantity) : pos.quantity;
+      const res2 = await svc.closePosition(acct, wireInstrument, pos.side, qty, pos.positionId);
+      return { success: true, result: res2 };
+    }
+    const res = await svc.modifyProtection(acct, {
+      instrument: wireInstrument,
+      positionSide: pos.side,
+      quantity: pos.quantity,
+      stopLoss: signal.stopLoss ?? void 0,
+      takeProfit: signal.takeProfit ?? void 0,
+      positionCode: pos.positionId
+    });
+    if (res.stopError || res.tpError) return { success: false, error: res.stopError || res.tpError, result: res };
+    return { success: true, result: res };
+  } catch (e) {
+    return { success: false, error: e?.message ?? String(e) };
+  }
 }
 var DxtradeReadError, DxtradeService, _dxServiceCache, DX_SVC_TTL_MS;
 var init_dxtrade = __esm({
@@ -22173,6 +22233,22 @@ var init_dxtrade = __esm({
           } catch {
           }
         }
+        const priorProtective = [];
+        try {
+          const normW = (s) => String(s ?? "").replace(/\//g, "").toUpperCase();
+          const target = normW(o.instrument);
+          const orders = await this.getWorkingOrders(accountCode);
+          for (const wo of orders) {
+            const sym = normW(wo.instrument ?? wo.symbol);
+            const effect = String(wo.positionEffect ?? wo.legs?.[0]?.positionEffect ?? "").toUpperCase();
+            if (sym !== target || effect !== "CLOSE") continue;
+            const id = wo.orderId ?? wo.id ?? wo.orderCode ?? wo.code;
+            if (id == null) continue;
+            const t = String(wo.type ?? wo.orderType ?? "").toUpperCase();
+            priorProtective.push({ id: String(id), kind: t.includes("STOP") ? "STOP" : t.includes("LIMIT") ? "LIMIT" : "OTHER" });
+          }
+        } catch {
+        }
         if (o.stopLoss != null && o.stopLoss > 0) {
           try {
             out.stop = await this.placeOrder(accountCode, { instrument: o.instrument, side: closeSide, quantity: o.quantity, type: "STOP", stopPrice: o.stopLoss, positionEffect: "CLOSE", tif: "GTC", positionCode: code });
@@ -22185,6 +22261,22 @@ var init_dxtrade = __esm({
             out.takeProfit = await this.placeOrder(accountCode, { instrument: o.instrument, side: closeSide, quantity: o.quantity, type: "LIMIT", limitPrice: o.takeProfit, positionEffect: "CLOSE", tif: "GTC", positionCode: code });
           } catch (e) {
             out.tpError = e?.message || String(e);
+          }
+        }
+        if (priorProtective.length) {
+          const newIds = /* @__PURE__ */ new Set();
+          for (const leg of [out.stop, out.takeProfit]) {
+            const id = leg?.orderId ?? leg?.id ?? leg?.orderCode ?? leg?._sent?.orderCode;
+            if (id != null) newIds.add(String(id));
+          }
+          for (const prior of priorProtective) {
+            const replaced = prior.kind === "STOP" ? !!out.stop : prior.kind === "LIMIT" ? !!out.takeProfit : !!(out.stop || out.takeProfit);
+            if (replaced && !newIds.has(prior.id)) {
+              try {
+                await this.cancelOrder(accountCode, prior.id);
+              } catch {
+              }
+            }
           }
         }
         return out;
@@ -22302,7 +22394,10 @@ var init_dxtrade = __esm({
         }
       }
       /** Normalized open positions for an account (id/instrument/side/qty/entry),
-       *  tolerant of dxsca shape (portfolio.positions | positions | flat array). */
+       *  tolerant of dxsca shape (portfolio.positions | positions | flat array).
+       *  sl/tp/unrealizedPnl/openTime are extracted tolerantly when the broker's
+       *  payload carries them (field names vary across dxsca hosts); absent
+       *  fields stay undefined rather than being fabricated as 0. */
       async getPositions(accountCode) {
         let lastErr = null;
         let pf = null;
@@ -22324,12 +22419,32 @@ var init_dxtrade = __esm({
         const p0 = pf?.portfolios?.[0] ?? pf;
         const arr = p0?.positions ?? p0?.openPositions ?? (Array.isArray(pf) ? pf : []) ?? [];
         if (!Array.isArray(arr)) return [];
+        const posNum = (...vals) => {
+          for (const v of vals) {
+            const n = Number(v);
+            if (Number.isFinite(n) && n > 0) return n;
+          }
+          return void 0;
+        };
         return arr.map((p) => ({
           positionId: p.positionCode != null ? String(p.positionCode) : p.positionId != null ? String(p.positionId) : p.id != null ? String(p.id) : p.code != null ? String(p.code) : void 0,
           instrument: String(p.instrument ?? p.symbol ?? "").replace(/\//g, "").toUpperCase(),
           side: /sell|short/i.test(String(p.side ?? p.direction ?? (Number(p.quantity ?? p.qty ?? 0) < 0 ? "SELL" : "BUY"))) ? "SELL" : "BUY",
           quantity: Math.abs(Number(p.quantity ?? p.qty ?? p.size ?? 0)),
           openPrice: Number(p.openPrice ?? p.entryPrice ?? p.avgPrice ?? p.price ?? 0) || void 0,
+          sl: posNum(p.stopLoss, p.sl, p.stopPrice, p.stopLossPrice),
+          tp: posNum(p.takeProfit, p.tp, p.takeProfitPrice, p.limitPrice),
+          unrealizedPnl: (() => {
+            const v = p.unrealizedPnl ?? p.unrealizedPnL ?? p.profit ?? p.pnl ?? p.floatingPnl;
+            const n = Number(v);
+            return v != null && Number.isFinite(n) ? n : void 0;
+          })(),
+          openTime: (() => {
+            const v = p.openTime ?? p.openDate ?? p.createdAt ?? p.creationTime ?? p.timestamp;
+            if (v == null) return void 0;
+            const t = typeof v === "number" ? v > 1e12 ? v : v * 1e3 : new Date(v).getTime();
+            return Number.isFinite(t) ? Math.floor(t / 1e3) : void 0;
+          })(),
           raw: p
         }));
       }
@@ -25292,13 +25407,17 @@ async function getMergedOpenPositions(userId, marketAnalysis) {
               direction,
               openPrice,
               currentPrice,
-              sl: 0,
-              // set via modifyProtection at open; not exposed on the position read
-              tp: 0,
+              // Real broker-side protection when the dxsca payload exposes it
+              // (getPositions now extracts sl/tp tolerantly per host); 0 when
+              // the host doesn't report them, exactly as before.
+              sl: Number(p.sl) || 0,
+              tp: Number(p.tp) || 0,
+              brokerSl: Number(p.sl) || 0,
               profit,
               volume: qty,
-              openTime: void 0,
+              openTime: p.openTime,
               ticket: `dx_${acct}_${p.positionId ?? ""}`,
+              positionCode: p.positionId,
               source: "dx",
               connectionId: dc.id
             };
@@ -25319,6 +25438,28 @@ function tlTargetOf(pos, conns) {
   const conn = conns.find((c) => c.id === Number(m[1]));
   return conn ? { conn, positionId: m[2] } : null;
 }
+function dxTargetOf(pos, conns) {
+  const conn = conns.find((c) => c.id === Number(pos?.connectionId));
+  if (!conn) return null;
+  let code = pos?.positionCode ? String(pos.positionCode) : "";
+  if (!code && conn.account_code) {
+    const prefix = `dx_${conn.account_code}_`;
+    if (String(pos?.ticket || "").startsWith(prefix)) code = String(pos.ticket).slice(prefix.length);
+  }
+  return code ? { conn, positionCode: code } : null;
+}
+async function loadDxConnections(userId) {
+  try {
+    const { pool: pool2 } = await Promise.resolve().then(() => (init_db(), db_exports));
+    const { rows } = await pool2.query(
+      `SELECT id, host, username, encrypted_password, domain, account_code FROM dxtrade_connections WHERE user_id=$1 AND is_active=true`,
+      [userId]
+    );
+    return rows;
+  } catch {
+    return [];
+  }
+}
 function stopHoldUntilR() {
   const v = Number(process.env.STOP_HOLD_UNTIL_R ?? 1);
   return Number.isFinite(v) && v > 0 ? v : 0;
@@ -25336,8 +25477,9 @@ async function manageBtcTrail(userId, openPositions, marketAnalysis) {
   if (!btc.BTC_PROFILE_ON()) return;
   const live = /* @__PURE__ */ new Set();
   let tlConns = null;
+  let dxConns = null;
   for (const pos of openPositions) {
-    if (pos.source !== "tl" || !btc.isBtc(pos.symbol)) continue;
+    if (pos.source !== "tl" && pos.source !== "dx" || !btc.isBtc(pos.symbol)) continue;
     const key = `${userId}:${pos.ticket}`;
     live.add(key);
     const entry = Number(pos.openPrice) || 0;
@@ -25367,6 +25509,24 @@ async function manageBtcTrail(userId, openPositions, marketAnalysis) {
     if (!h1) continue;
     const want = btc.btcTrailStop({ direction: pos.direction, entry, initialStop: initial, price, currentStop: _tightest, bars: h1.bars });
     if (!want) continue;
+    if (pos.source === "dx") {
+      if (!dxConns) dxConns = await loadDxConnections(userId);
+      const _dxT = dxTargetOf(pos, dxConns);
+      if (!_dxT) continue;
+      try {
+        const { executeSignalOnDxtrade: executeSignalOnDxtrade2 } = await Promise.resolve().then(() => (init_dxtrade(), dxtrade_exports));
+        const r = await executeSignalOnDxtrade2(_dxT.conn, { action: "MODIFY", symbol: pos.symbol, direction: pos.direction, stopLoss: want.stop, positionCode: _dxT.positionCode });
+        if (r.success) {
+          btcLastStop.set(key, want.stop);
+          addActivity(userId, { type: "position_update", symbol: pos.symbol, message: `\u20BF BTC trail on DXtrade [conn ${_dxT.conn.id}]: ${pos.direction} ${want.why} \u2192 stop ${want.stop}` });
+        } else {
+          addActivity(userId, { type: "error", symbol: pos.symbol, message: `\u26A0\uFE0F BTC trail failed on DXtrade [conn ${_dxT.conn.id}]: ${r.error}` });
+        }
+      } catch (e) {
+        addActivity(userId, { type: "error", symbol: pos.symbol, message: `\u26A0\uFE0F BTC trail error on DXtrade [conn ${_dxT.conn.id}]: ${e?.message ?? e}` });
+      }
+      continue;
+    }
     const m = String(pos.ticket).match(/^tl_(\d+)_(.+)$/);
     if (!m) continue;
     if (!tlConns) tlConns = (await storage.getUserTradelockerConnections(userId)).filter((c) => c.isActive);
@@ -25394,14 +25554,15 @@ async function manageXauProfitLock(userId, openPositions) {
   if (!rules.XAU_LOCK_ON()) return;
   const live = /* @__PURE__ */ new Set();
   let tlConns = null;
+  let dxConns = null;
   for (const pos of openPositions) {
-    if (pos.source !== "tl" || !rules.isXau(pos.symbol)) continue;
+    if (pos.source !== "tl" && pos.source !== "dx" || !rules.isXau(pos.symbol)) continue;
     const key = `${userId}:${pos.ticket}`;
     live.add(key);
     const qty = Number(pos.volume) || 0;
     const entry = Number(pos.openPrice) || 0;
     if (!(qty > 0) || !(entry > 0)) continue;
-    const favPts = (Number(pos.profit) || 0) / (qty * rules.XAU_CONTRACT_SIZE);
+    const favPts = pos.source === "dx" ? (Number(pos.profit) || 0) / qty : (Number(pos.profit) || 0) / (qty * rules.XAU_CONTRACT_SIZE);
     if (!Number.isFinite(favPts)) continue;
     {
       const _bs0 = Number(pos.brokerSl) || 0;
@@ -25416,11 +25577,6 @@ async function manageXauProfitLock(userId, openPositions) {
     const already = xauLockedPts.get(key) ?? -Infinity;
     if (want < already + 1) continue;
     if (favPts < want + 2) continue;
-    const m = String(pos.ticket).match(/^tl_(\d+)_(.+)$/);
-    if (!m) continue;
-    if (!tlConns) tlConns = (await storage.getUserTradelockerConnections(userId)).filter((c) => c.isActive);
-    const tlConn = tlConns.find((c) => c.id === Number(m[1]));
-    if (!tlConn) continue;
     const isBuy = pos.direction === "BUY";
     const newSl = Math.round((isBuy ? entry + want : entry - want) * 100) / 100;
     {
@@ -25431,6 +25587,35 @@ async function manageXauProfitLock(userId, openPositions) {
         continue;
       }
     }
+    if (pos.source === "dx") {
+      if (!dxConns) dxConns = await loadDxConnections(userId);
+      const _dxT = dxTargetOf(pos, dxConns);
+      if (!_dxT) continue;
+      try {
+        const { executeSignalOnDxtrade: executeSignalOnDxtrade2 } = await Promise.resolve().then(() => (init_dxtrade(), dxtrade_exports));
+        const r = await executeSignalOnDxtrade2(_dxT.conn, {
+          action: "MODIFY",
+          symbol: pos.symbol,
+          direction: pos.direction,
+          stopLoss: newSl,
+          positionCode: _dxT.positionCode
+        });
+        if (r.success) {
+          xauLockedPts.set(key, want);
+          addActivity(userId, { type: "position_update", symbol: pos.symbol, message: `\u{1F512} XAUUSD profit lock on DXtrade [conn ${_dxT.conn.id}]: ${pos.direction} +${peak.toFixed(1)} pts peak \u2192 stop moved to ${newSl} (+${want.toFixed(1)} pts locked)` });
+        } else {
+          addActivity(userId, { type: "error", symbol: pos.symbol, message: `\u26A0\uFE0F XAUUSD profit lock failed on DXtrade [conn ${_dxT.conn.id}]: ${r.error}` });
+        }
+      } catch (e) {
+        addActivity(userId, { type: "error", symbol: pos.symbol, message: `\u26A0\uFE0F XAUUSD profit lock error on DXtrade [conn ${_dxT.conn.id}]: ${e?.message ?? e}` });
+      }
+      continue;
+    }
+    const m = String(pos.ticket).match(/^tl_(\d+)_(.+)$/);
+    if (!m) continue;
+    if (!tlConns) tlConns = (await storage.getUserTradelockerConnections(userId)).filter((c) => c.isActive);
+    const tlConn = tlConns.find((c) => c.id === Number(m[1]));
+    if (!tlConn) continue;
     try {
       const r = await executeMT5SignalOnTradeLocker(tlConn, {
         action: "MODIFY",
@@ -25468,6 +25653,7 @@ async function applyServerSideTrails(userId, openPositions, marketAnalysis) {
     tlConnections = allTL.filter((c) => c.isActive);
   } catch {
   }
+  const dxConnections = await loadDxConnections(userId);
   const methodLabel = TRAIL_METHOD_LABELS[config.trailMethod] || config.trailMethod;
   const activationPips = config.trailActivationPips ?? 10;
   for (const pos of openPositions) {
@@ -25520,7 +25706,7 @@ async function applyServerSideTrails(userId, openPositions, marketAnalysis) {
       if (!_xauHold && !_mtfHold && _against && !_choppy && _revScore >= _sensitivity) {
         const _reason = `Reversal exit: ${pos.symbol} ${pos.direction} \u2014 ${_revScore}/5 reversal confluence in a trending market (ADX ${Math.round(_adx)}, DI sep ${Math.round(_diSep)}, need ${_sensitivity})`;
         addActivity(userId, { type: "trade_close", symbol: pos.symbol, message: `\u{1F504} ${_reason}` });
-        if (pos.source !== "tl") broadcastMT5Signal(userId, {
+        if (pos.source === "mt5") broadcastMT5Signal(userId, {
           id: `revexit_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
           timestamp: (/* @__PURE__ */ new Date()).toISOString(),
           symbol: pos.symbol,
@@ -25539,6 +25725,22 @@ async function applyServerSideTrails(userId, openPositions, marketAnalysis) {
           modifyAction: "full_close",
           positionId: pos.ticket || pos.id || null
         });
+        const _dxT = pos.source === "dx" ? dxTargetOf(pos, dxConnections) : null;
+        if (_dxT) {
+          try {
+            const { executeSignalOnDxtrade: executeSignalOnDxtrade2 } = await Promise.resolve().then(() => (init_dxtrade(), dxtrade_exports));
+            const r = await executeSignalOnDxtrade2(_dxT.conn, {
+              action: "CLOSE",
+              symbol: pos.symbol,
+              direction: pos.direction,
+              positionCode: _dxT.positionCode
+            });
+            if (r.success) addActivity(userId, { type: "trade_close", symbol: pos.symbol, message: `\u2705 Reversal exit closed on DXtrade [conn ${_dxT.conn.id}]: ${pos.symbol}` });
+            else addActivity(userId, { type: "error", symbol: pos.symbol, message: `\u26A0\uFE0F Reversal exit close failed on DXtrade [conn ${_dxT.conn.id}]: ${r.error}` });
+          } catch (e) {
+            addActivity(userId, { type: "error", symbol: pos.symbol, message: `\u26A0\uFE0F Reversal exit error on DXtrade [conn ${_dxT.conn.id}]: ${e?.message ?? e}` });
+          }
+        }
         const _rxT = pos.source === "tl" ? tlTargetOf(pos, tlConnections) : null;
         for (const tlConn of _rxT ? [_rxT.conn] : []) {
           try {
@@ -25637,7 +25839,7 @@ async function applyServerSideTrails(userId, openPositions, marketAnalysis) {
       logGuard(userId, "stop_through_price_refused", pos.symbol, `trail ${newSL} vs price ${_px}`);
       continue;
     }
-    if (pos.source !== "tl") broadcastMT5Signal(userId, {
+    if (pos.source === "mt5") broadcastMT5Signal(userId, {
       id: `trail_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
       timestamp: (/* @__PURE__ */ new Date()).toISOString(),
       symbol: pos.symbol,
@@ -25695,6 +25897,39 @@ async function applyServerSideTrails(userId, openPositions, marketAnalysis) {
             message: `\u26A0\uFE0F TradeLocker trail error on ${tlConn.accountId}: ${pos.symbol} \u2014 ${tlErr.message}`
           });
         }
+      }
+    }
+    const _dxTrailT = pos.source === "dx" ? dxTargetOf(pos, dxConnections) : null;
+    if (_dxTrailT) {
+      try {
+        const { executeSignalOnDxtrade: executeSignalOnDxtrade2 } = await Promise.resolve().then(() => (init_dxtrade(), dxtrade_exports));
+        const r = await executeSignalOnDxtrade2(_dxTrailT.conn, {
+          action: "MODIFY",
+          symbol: pos.symbol,
+          direction: pos.direction || "BUY",
+          stopLoss: Math.round(newSL * 1e5) / 1e5,
+          takeProfit: pos.tp || null,
+          positionCode: _dxTrailT.positionCode
+        });
+        if (r.success) {
+          addActivity(userId, {
+            type: "position_update",
+            symbol: pos.symbol,
+            message: `\u2705 DXtrade trail applied [conn ${_dxTrailT.conn.id}]: ${pos.symbol} SL \u2192 ${Math.round(newSL * 1e5) / 1e5}`
+          });
+        } else {
+          addActivity(userId, {
+            type: "error",
+            symbol: pos.symbol,
+            message: `\u26A0\uFE0F DXtrade trail failed [conn ${_dxTrailT.conn.id}]: ${pos.symbol} \u2014 ${r.error}`
+          });
+        }
+      } catch (dxErr) {
+        addActivity(userId, {
+          type: "error",
+          symbol: pos.symbol,
+          message: `\u26A0\uFE0F DXtrade trail error [conn ${_dxTrailT.conn.id}]: ${pos.symbol} \u2014 ${dxErr?.message ?? dxErr}`
+        });
       }
     }
   }
@@ -28890,7 +29125,9 @@ async function processDecision(userId, decision, newsCtx) {
       modifyAction,
       positionId: decision.positionId || null
     };
-    broadcastMT5Signal(userId, mgmtSignal);
+    if (!String(decision.positionId || "").startsWith("dx_")) {
+      broadcastMT5Signal(userId, mgmtSignal);
+    }
     const tlConnectionsForMgmt = await storage.getUserTradelockerConnections(userId);
     const activeTLForMgmt = tlConnectionsForMgmt.filter((c) => c.isActive);
     if (activeTLForMgmt.length > 0) {
@@ -28998,6 +29235,95 @@ async function processDecision(userId, decision, newsCtx) {
             }
           } catch (err) {
             addActivity(userId, { type: "error", symbol: decision.symbol, message: `Position management error on TradeLocker ${acctLabel}: ${err.message}` });
+          }
+        })
+      );
+    }
+    const dxConnsForMgmt = await loadDxConnections(userId);
+    if (dxConnsForMgmt.length > 0) {
+      const { executeSignalOnDxtrade: executeSignalOnDxtrade2 } = await Promise.resolve().then(() => (init_dxtrade(), dxtrade_exports));
+      await Promise.allSettled(
+        dxConnsForMgmt.map(async (dc) => {
+          const acctLabel = `[DXtrade conn ${dc.id}]`;
+          try {
+            const { getDxtradeService: getDxtradeService2, decryptApiSecret: decryptApiSecret2, extractAccountCode: extractAccountCode2 } = await Promise.resolve().then(() => (init_dxtrade(), dxtrade_exports));
+            const svc = getDxtradeService2(dc.host, dc.username, decryptApiSecret2(dc.encrypted_password), dc.domain, String(dc.id));
+            await svc.ensureLoggedIn();
+            const acct = dc.account_code || extractAccountCode2(await svc.getAccounts());
+            if (!acct) return;
+            const positions = await svc.getPositions(acct).catch(() => []);
+            const matchDir = decision.direction ? String(decision.direction).toUpperCase() : null;
+            const symMatches = positions.filter((p) => (p.instrument || "").toUpperCase().replace("/", "") === decision.symbol?.toUpperCase().replace("/", ""));
+            if (!matchDir && new Set(symMatches.map((p) => String(p.side || "").toUpperCase())).size > 1) {
+              addActivity(userId, { type: "info", symbol: decision.symbol, message: `\u26A0\uFE0F ${acctLabel}: AI asked to manage ${decision.symbol} without a direction but this account holds both a BUY and a SELL \u2014 skipped rather than guess the leg.` });
+              return;
+            }
+            const dxMatch = symMatches.find((p) => !matchDir || (p.side || "").toUpperCase() === matchDir);
+            if (!dxMatch) return;
+            if (signalAction === "CLOSE") {
+              const { xauTooYoungToClose: xauTooYoungToClose2 } = await Promise.resolve().then(() => (init_xau_rules(), xau_rules_exports));
+              if (xauTooYoungToClose2(decision.symbol, dxMatch.openTime)) {
+                addActivity(userId, { type: "info", symbol: decision.symbol, message: `\u23F3 AI close held off on ${acctLabel}: ${decision.symbol} is inside the gold/index minimum hold \u2014 the broker stop still protects it.` });
+                return;
+              }
+              if (partialVolume && partialVolume > 0) {
+                addActivity(userId, { type: "info", symbol: decision.symbol, message: `\u2702\uFE0F Partial close (${partialVolume}) refused on ${acctLabel}: lot-denominated partials can't be sized safely in DXtrade units yet. Position kept; trail/stop still protect it.` });
+                logGuard(userId, "partial_close_refused", decision.symbol, `${acctLabel} partial ${partialVolume}`);
+                return;
+              }
+              const r = await executeSignalOnDxtrade2(dc, {
+                action: "CLOSE",
+                symbol: decision.symbol,
+                direction: dxMatch.side,
+                volume: 0,
+                positionCode: dxMatch.positionId
+              });
+              if (r.success) {
+                addActivity(userId, { type: "trade_close", symbol: decision.symbol, message: `Position CLOSED via DXtrade ${acctLabel}: ${decision.symbol} - ${decision.reason}` });
+              } else {
+                addActivity(userId, { type: "error", symbol: decision.symbol, message: `CLOSE failed on DXtrade ${acctLabel}: ${r.error}` });
+              }
+            } else if (signalAction === "MODIFY") {
+              let _sl = newSL;
+              const _buy = String(dxMatch.side || "BUY").toUpperCase() === "BUY";
+              const _cur = Number(dxMatch.sl) || 0;
+              const _px = Number(state.marketSnapshot?.[decision.symbol]?.price) || 0;
+              const _entry = Number(dxMatch.openPrice) || 0;
+              if (_sl && _cur > 0 && (_buy ? _sl > _cur : _sl < _cur)) {
+                const _h = stopHoldActive(_buy, _entry, _cur, _px);
+                if (_h.hold) {
+                  logGuard(userId, "stop_hold_breathe", decision.symbol, `AI stop ${_sl} held on ${acctLabel} \u2014 trade at ${_h.rNow.toFixed(2)}R, stop stays at ${_cur} until +${stopHoldUntilR()}R`);
+                  _sl = void 0;
+                }
+              }
+              if (_sl && _px > 0 && (_buy ? _sl >= _px : _sl <= _px)) {
+                logGuard(userId, "stop_through_price_refused", decision.symbol, `AI SL ${_sl} vs price ${_px} on ${acctLabel}`);
+                _sl = void 0;
+              }
+              if (_sl && _cur > 0 && (_buy ? _sl <= _cur : _sl >= _cur)) {
+                logGuard(userId, "stop_loosen_refused", decision.symbol, `AI SL ${_sl} looser than ${_cur} on ${acctLabel}`);
+                _sl = void 0;
+              }
+              if (!_sl && !newTP) {
+                addActivity(userId, { type: "info", symbol: decision.symbol, message: `\u{1F6E1}\uFE0F ${acctLabel}: AI stop change for ${decision.symbol} refused (would loosen or cross price).` });
+                return;
+              }
+              const r = await executeSignalOnDxtrade2(dc, {
+                action: "MODIFY",
+                symbol: decision.symbol,
+                direction: dxMatch.side,
+                stopLoss: _sl,
+                takeProfit: newTP,
+                positionCode: dxMatch.positionId
+              });
+              if (r.success) {
+                addActivity(userId, { type: "position_update", symbol: decision.symbol, message: `Position MODIFIED via DXtrade ${acctLabel}: ${decision.symbol} | New SL: ${newSL || "N/A"} | New TP: ${newTP || "N/A"}` });
+              } else {
+                addActivity(userId, { type: "error", symbol: decision.symbol, message: `MODIFY failed on DXtrade ${acctLabel}: ${r.error}` });
+              }
+            }
+          } catch (err) {
+            addActivity(userId, { type: "error", symbol: decision.symbol, message: `Position management error on DXtrade ${acctLabel}: ${err.message}` });
           }
         })
       );
