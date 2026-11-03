@@ -904,6 +904,46 @@ function addActivity(userId: number, activity: Omit<LiveActivity, 'id' | 'timest
   };
   state.activityLog.unshift(entry);
   if (state.activityLog.length > 100) state.activityLog = state.activityLog.slice(0, 100);
+  persistActivity(userId, entry);
+}
+
+// Durable copy of the activity feed. activityLog is in-memory and capped at
+// 100, so after a restart (or a busy hour) nobody can answer "why did the
+// engine not trade at 09:00?". Every gate/skip reason already flows through
+// addActivity, so mirroring it here makes them queryable in engine_activity_log.
+// Repeats are collapsed: the same user+symbol+message shape (digits ignored)
+// is written at most once per 15 min. Rows older than 14 days are pruned.
+// Logging only — it never affects trading, and failures are swallowed.
+let _activityTableReady = false;
+let _activityLastPrune = 0;
+const _activitySeen = new Map<string, number>();
+function persistActivity(userId: number, a: LiveActivity): void {
+  const now = Date.now();
+  const shape = `${userId}|${a.symbol ?? ''}|${a.type}|${String(a.message).replace(/[0-9.,]+/g, '#')}`;
+  const last = _activitySeen.get(shape);
+  if (last && now - last < 15 * 60_000) return;
+  _activitySeen.set(shape, now);
+  if (_activitySeen.size > 5000) {
+    _activitySeen.forEach((t, k) => { if (now - t > 15 * 60_000) _activitySeen.delete(k); });
+  }
+  void (async () => {
+    try {
+      const { pool } = await import('../db');
+      if (!_activityTableReady) {
+        await pool.query(`CREATE TABLE IF NOT EXISTS engine_activity_log (id serial primary key, user_id int, engine text, type text, symbol text, direction text, confidence real, message text, created_at timestamptz default now())`);
+        await pool.query(`CREATE INDEX IF NOT EXISTS engine_activity_log_user_time ON engine_activity_log (user_id, created_at DESC)`);
+        _activityTableReady = true;
+      }
+      await pool.query(
+        `INSERT INTO engine_activity_log (user_id, engine, type, symbol, direction, confidence, message) VALUES ($1,'fx',$2,$3,$4,$5,$6)`,
+        [userId, a.type, a.symbol ?? null, a.direction ?? null, a.confidence ?? null, String(a.message).slice(0, 1000)],
+      );
+      if (now - _activityLastPrune > 3_600_000) {
+        _activityLastPrune = now;
+        await pool.query(`DELETE FROM engine_activity_log WHERE created_at < now() - interval '14 days'`);
+      }
+    } catch (_) { /* non-fatal — logging must never break trading */ }
+  })();
 }
 
 // Durable DXtrade skip/failure log. The engine's activityLog is in-memory only,

@@ -24268,6 +24268,38 @@ function addActivity(userId, activity) {
   };
   state.activityLog.unshift(entry);
   if (state.activityLog.length > 100) state.activityLog = state.activityLog.slice(0, 100);
+  persistActivity(userId, entry);
+}
+function persistActivity(userId, a) {
+  const now = Date.now();
+  const shape = `${userId}|${a.symbol ?? ""}|${a.type}|${String(a.message).replace(/[0-9.,]+/g, "#")}`;
+  const last = _activitySeen.get(shape);
+  if (last && now - last < 15 * 6e4) return;
+  _activitySeen.set(shape, now);
+  if (_activitySeen.size > 5e3) {
+    _activitySeen.forEach((t, k) => {
+      if (now - t > 15 * 6e4) _activitySeen.delete(k);
+    });
+  }
+  void (async () => {
+    try {
+      const { pool: pool2 } = await Promise.resolve().then(() => (init_db(), db_exports));
+      if (!_activityTableReady) {
+        await pool2.query(`CREATE TABLE IF NOT EXISTS engine_activity_log (id serial primary key, user_id int, engine text, type text, symbol text, direction text, confidence real, message text, created_at timestamptz default now())`);
+        await pool2.query(`CREATE INDEX IF NOT EXISTS engine_activity_log_user_time ON engine_activity_log (user_id, created_at DESC)`);
+        _activityTableReady = true;
+      }
+      await pool2.query(
+        `INSERT INTO engine_activity_log (user_id, engine, type, symbol, direction, confidence, message) VALUES ($1,'fx',$2,$3,$4,$5,$6)`,
+        [userId, a.type, a.symbol ?? null, a.direction ?? null, a.confidence ?? null, String(a.message).slice(0, 1e3)]
+      );
+      if (now - _activityLastPrune > 36e5) {
+        _activityLastPrune = now;
+        await pool2.query(`DELETE FROM engine_activity_log WHERE created_at < now() - interval '14 days'`);
+      }
+    } catch (_) {
+    }
+  })();
 }
 async function logDxtradeSkip(userId, connId, symbol, stage, detail) {
   try {
@@ -30415,7 +30447,7 @@ function getModelLockStatus(userId) {
   if (!state) return { locked: false, openPositions: 0 };
   return { locked: state.modelLocked, openPositions: state.openPositionCount };
 }
-var FX_MAX_OPEN_PER_SYMBOL, FX_SYMBOL_COOLDOWN_MS, mt5AccountQueues, mt5AccountRegistry, engineStates, engineIntervals, engineTimers, brainLearningIntervals, positionMonitorIntervals, _monitorBusy, persistedConfigOverrides, goalTrackerCache, ALL_STRATEGY_KEYS, _dxSkipTableReady, countedTradeKeys, h4BiasCache, H4_REFRESH_MS, TRAIL_METHOD_LABELS, xauPeakPts, xauLockedPts, btcInitialStop, btcLastStop, NY_TIME_FMT, INDEX_BROKER_ALIASES, FX_LEADER_LOCK_KEY, FX_LEADER_STALE_MS, _fxLeaderClient, _fxIsLeader, _fxLeaderLoop, hardHalted;
+var FX_MAX_OPEN_PER_SYMBOL, FX_SYMBOL_COOLDOWN_MS, mt5AccountQueues, mt5AccountRegistry, engineStates, engineIntervals, engineTimers, brainLearningIntervals, positionMonitorIntervals, _monitorBusy, persistedConfigOverrides, goalTrackerCache, ALL_STRATEGY_KEYS, _activityTableReady, _activityLastPrune, _activitySeen, _dxSkipTableReady, countedTradeKeys, h4BiasCache, H4_REFRESH_MS, TRAIL_METHOD_LABELS, xauPeakPts, xauLockedPts, btcInitialStop, btcLastStop, NY_TIME_FMT, INDEX_BROKER_ALIASES, FX_LEADER_LOCK_KEY, FX_LEADER_STALE_MS, _fxLeaderClient, _fxIsLeader, _fxLeaderLoop, hardHalted;
 var init_live_trading_engine = __esm({
   "server/services/live-trading-engine.ts"() {
     "use strict";
@@ -30469,6 +30501,9 @@ var init_live_trading_engine = __esm({
       "sunday_gap",
       "order_flow"
     ];
+    _activityTableReady = false;
+    _activityLastPrune = 0;
+    _activitySeen = /* @__PURE__ */ new Map();
     _dxSkipTableReady = false;
     countedTradeKeys = /* @__PURE__ */ new Map();
     h4BiasCache = /* @__PURE__ */ new Map();
