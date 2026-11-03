@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useRef } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useAuth } from '@/hooks/use-auth';
 import { apiRequest } from '@/lib/queryClient';
@@ -126,6 +126,8 @@ export default function PropFirmChallengePage() {
   const { toast } = useToast();
   const queryClient = useQueryClient();
   const [showSettings, setShowSettings] = useState(false);
+  const settingsOpenRef = useRef(false);
+  settingsOpenRef.current = showSettings;
   const [form, setForm] = useState({
     challengeSessionFilterEnabled: false,
     consistencyEnforcementEnabled: false,
@@ -173,7 +175,10 @@ export default function PropFirmChallengePage() {
     queryFn: async () => {
       const res = await apiRequest('GET', '/api/prop-firm-challenge/dashboard');
       const d = await res.json();
-      if (d.active) {
+      // Fill the form from the server only while the settings panel is closed.
+      // This query refetches every 15s; overwriting the form mid-edit reset any
+      // value the user had typed (e.g. min profitable days back to 10) before Save.
+      if (d.active && !settingsOpenRef.current) {
         setForm(f => ({
           ...f,
           challengeSessionFilterEnabled: d.sessionFilterEnabled,
