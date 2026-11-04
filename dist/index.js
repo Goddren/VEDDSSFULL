@@ -31499,7 +31499,7 @@ async function processDecision(userId, decision, newsCtx) {
     const confluences = Array.isArray(decision.confluences) ? decision.confluences : [];
     const strategy = (decision.strategy || "").toLowerCase();
     const _sniperMin = Number(process.env.SNIPER_MIN_CONFLUENCES ?? 4);
-    const _pairMin = String(process.env.PAIR_MIN_CONFLUENCES ?? "GBPJPY:3").split(",").map((p2) => p2.trim().split(":")).find(([p2]) => p2 && p2.toUpperCase() === String(decision.symbol || "").toUpperCase());
+    const _pairMin = String(process.env.PAIR_MIN_CONFLUENCES ?? "GBPJPY:3,USDJPY:3").split(",").map((p2) => p2.trim().split(":")).find(([p2]) => p2 && p2.toUpperCase() === String(decision.symbol || "").toUpperCase());
     const _baseMin = strategy === "scalping" ? 4 : strategy === "sniper" || strategy === "ict_ote" || strategy === "smc_demand_supply" || strategy === "prop_firm_sniper" ? _sniperMin : 3;
     const minConf = _pairMin && Number.isFinite(Number(_pairMin[1])) ? Math.min(_baseMin, Number(_pairMin[1])) : _baseMin;
     if (confluences.length < minConf) {
@@ -67909,9 +67909,9 @@ async function getStopOrdersForUser(userId, filters = {}) {
 init_schema();
 
 // server/build-info.ts
-var BUILD_COMMIT = "a7f3ae99-dirty";
+var BUILD_COMMIT = "bba5319b-dirty";
 var BUILD_BRANCH = "HEAD";
-var BUILT_AT = "2026-11-04T04:21:21.638Z";
+var BUILT_AT = "2026-11-04T07:48:31.336Z";
 
 // server/stripe.ts
 init_db();
