@@ -5327,9 +5327,14 @@ async function processDecision(userId: number, decision: any, newsCtx?: any): Pr
     // 2026-11-04: sniper tier 5 → 4 (user, after two no-trade days; 11-03 had
     // 64 confluence rejections, mostly 3/5). Restore with SNIPER_MIN_CONFLUENCES=5.
     const _sniperMin = Number(process.env.SNIPER_MIN_CONFLUENCES ?? 4);
-    const minConf = (strategy === 'scalping') ? 4
+    // 2026-11-04: per-pair override (user): GBPJPY BUYs kept missing at 3/4.
+    // Format 'PAIR:N,PAIR:N'; restore by setting PAIR_MIN_CONFLUENCES to an empty string.
+    const _pairMin = String(process.env.PAIR_MIN_CONFLUENCES ?? 'GBPJPY:3').split(',')
+      .map(p => p.trim().split(':')).find(([p]) => p && p.toUpperCase() === String(decision.symbol || '').toUpperCase());
+    const _baseMin = (strategy === 'scalping') ? 4
       : (strategy === 'sniper' || strategy === 'ict_ote' || strategy === 'smc_demand_supply' || strategy === 'prop_firm_sniper') ? _sniperMin
       : 3;
+    const minConf = _pairMin && Number.isFinite(Number(_pairMin[1])) ? Math.min(_baseMin, Number(_pairMin[1])) : _baseMin;
     if (confluences.length < minConf) {
       addActivity(userId, {
         type: 'info',

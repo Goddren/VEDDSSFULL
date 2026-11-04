@@ -27866,7 +27866,9 @@ async function processDecision(userId, decision, newsCtx) {
     const confluences = Array.isArray(decision.confluences) ? decision.confluences : [];
     const strategy = (decision.strategy || "").toLowerCase();
     const _sniperMin = Number(process.env.SNIPER_MIN_CONFLUENCES ?? 4);
-    const minConf = strategy === "scalping" ? 4 : strategy === "sniper" || strategy === "ict_ote" || strategy === "smc_demand_supply" || strategy === "prop_firm_sniper" ? _sniperMin : 3;
+    const _pairMin = String(process.env.PAIR_MIN_CONFLUENCES ?? "GBPJPY:3").split(",").map((p) => p.trim().split(":")).find(([p]) => p && p.toUpperCase() === String(decision.symbol || "").toUpperCase());
+    const _baseMin = strategy === "scalping" ? 4 : strategy === "sniper" || strategy === "ict_ote" || strategy === "smc_demand_supply" || strategy === "prop_firm_sniper" ? _sniperMin : 3;
+    const minConf = _pairMin && Number.isFinite(Number(_pairMin[1])) ? Math.min(_baseMin, Number(_pairMin[1])) : _baseMin;
     if (confluences.length < minConf) {
       addActivity(userId, {
         type: "info",
