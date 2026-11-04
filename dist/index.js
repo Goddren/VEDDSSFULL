@@ -67,8 +67,8 @@ var init_pair_filter = __esm({
   "server/services/pair-filter.ts"() {
     "use strict";
     norm = (s) => String(s || "").toUpperCase().replace(/[^A-Z0-9]/g, "");
-    BLOCKED_PAIRS = listFromEnv("BLOCKED_PAIRS", "GBPJPY");
-    BLOCKED_DIRECTIONS = listFromEnv("BLOCKED_PAIR_DIRECTIONS", "");
+    BLOCKED_PAIRS = listFromEnv("BLOCKED_PAIRS", "");
+    BLOCKED_DIRECTIONS = listFromEnv("BLOCKED_PAIR_DIRECTIONS", "GBPJPY:SELL");
     console.log(`[PairFilter] enabled=${process.env.PAIR_FILTER_ENABLED !== "false"} pairs=[${BLOCKED_PAIRS.join(", ") || "none"}] directions=[${BLOCKED_DIRECTIONS.join(", ") || "none"}]`);
   }
 });
@@ -27652,11 +27652,12 @@ function applyBrainEnforcement(userId, symbol, proposedDirection, currentATR, ne
   const session3 = sessionForHour(hour);
   const sessionData = k2.topSessions?.find((s) => sameSession(s.session, session3));
   const _minN = Number(process.env.BRAIN_BLOCK_MIN_TRADES ?? 8);
-  if (sessionData && sessionData.total >= 3 && sessionData.total < _minN && sessionData.winRate < 45) {
+  const _sessWR = Number(process.env.BRAIN_BLOCK_SESSION_WR ?? 40);
+  if (sessionData && sessionData.total >= 3 && sessionData.total < _minN && sessionData.winRate < _sessWR) {
     logGuard(userId, "brain_block_thin_data", symbol, `${session3} session ${sessionData.winRate}% over only ${sessionData.total} trades \u2014 not blocking (needs ${_minN})`);
   }
-  if (sessionData && sessionData.total >= _minN && sessionData.winRate < 45) {
-    const msg = `\u{1F9E0} Brain block: ${symbol} ${session3} session only ${sessionData.winRate}% WR (${sessionData.total} trades) \u2014 below 45% threshold, skipping`;
+  if (sessionData && sessionData.total >= _minN && sessionData.winRate < _sessWR) {
+    const msg = `\u{1F9E0} Brain block: ${symbol} ${session3} session only ${sessionData.winRate}% WR (${sessionData.total} trades) \u2014 below ${_sessWR}% threshold, skipping`;
     pushEnforcementLog(userId, { symbol, rule: "session_block", direction: proposedDirection, reason: msg });
     return { ...passthrough, allowed: false, reason: msg };
   }
@@ -31497,7 +31498,8 @@ async function processDecision(userId, decision, newsCtx) {
     }
     const confluences = Array.isArray(decision.confluences) ? decision.confluences : [];
     const strategy = (decision.strategy || "").toLowerCase();
-    const minConf = strategy === "scalping" ? 4 : strategy === "sniper" || strategy === "ict_ote" || strategy === "smc_demand_supply" || strategy === "prop_firm_sniper" ? 5 : 3;
+    const _sniperMin = Number(process.env.SNIPER_MIN_CONFLUENCES ?? 4);
+    const minConf = strategy === "scalping" ? 4 : strategy === "sniper" || strategy === "ict_ote" || strategy === "smc_demand_supply" || strategy === "prop_firm_sniper" ? _sniperMin : 3;
     if (confluences.length < minConf) {
       addActivity(userId, {
         type: "info",
@@ -67905,9 +67907,9 @@ async function getStopOrdersForUser(userId, filters = {}) {
 init_schema();
 
 // server/build-info.ts
-var BUILD_COMMIT = "73f9a5d9-dirty";
+var BUILD_COMMIT = "17b8869a-dirty";
 var BUILD_BRANCH = "HEAD";
-var BUILT_AT = "2026-11-03T05:41:40.783Z";
+var BUILT_AT = "2026-11-04T00:56:10.218Z";
 
 // server/stripe.ts
 init_db();

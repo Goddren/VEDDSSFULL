@@ -589,11 +589,15 @@ function applyBrainEnforcement(
   // 3 trades used to be enough to block a session — and a blocked session
   // never trades, so it never recovers. Needs BRAIN_BLOCK_MIN_TRADES (8).
   const _minN = Number(process.env.BRAIN_BLOCK_MIN_TRADES ?? 8);
-  if (sessionData && sessionData.total >= 3 && sessionData.total < _minN && sessionData.winRate < 45) {
+  // 2026-11-04: 45% → 40% (BRAIN_BLOCK_SESSION_WR). At 45% borderline sessions
+  // such as EURUSD NY (43%/14) were blocked alongside real drains; at 40% the
+  // drains (GBPUSD Asian 22%, USDJPY NY 16%) stay blocked.
+  const _sessWR = Number(process.env.BRAIN_BLOCK_SESSION_WR ?? 40);
+  if (sessionData && sessionData.total >= 3 && sessionData.total < _minN && sessionData.winRate < _sessWR) {
     logGuard(userId, 'brain_block_thin_data', symbol, `${session} session ${sessionData.winRate}% over only ${sessionData.total} trades — not blocking (needs ${_minN})`);
   }
-  if (sessionData && sessionData.total >= _minN && sessionData.winRate < 45) {
-    const msg = `🧠 Brain block: ${symbol} ${session} session only ${sessionData.winRate}% WR (${sessionData.total} trades) — below 45% threshold, skipping`;
+  if (sessionData && sessionData.total >= _minN && sessionData.winRate < _sessWR) {
+    const msg = `🧠 Brain block: ${symbol} ${session} session only ${sessionData.winRate}% WR (${sessionData.total} trades) — below ${_sessWR}% threshold, skipping`;
     pushEnforcementLog(userId, { symbol, rule: 'session_block', direction: proposedDirection, reason: msg });
     return { ...passthrough, allowed: false, reason: msg };
   }
@@ -5320,8 +5324,11 @@ async function processDecision(userId: number, decision: any, newsCtx?: any): Pr
     // ── Confluence count gate ─────────────────────────────────────────────────
     const confluences: string[] = Array.isArray(decision.confluences) ? decision.confluences : [];
     const strategy = (decision.strategy || '').toLowerCase();
+    // 2026-11-04: sniper tier 5 → 4 (user, after two no-trade days; 11-03 had
+    // 64 confluence rejections, mostly 3/5). Restore with SNIPER_MIN_CONFLUENCES=5.
+    const _sniperMin = Number(process.env.SNIPER_MIN_CONFLUENCES ?? 4);
     const minConf = (strategy === 'scalping') ? 4
-      : (strategy === 'sniper' || strategy === 'ict_ote' || strategy === 'smc_demand_supply' || strategy === 'prop_firm_sniper') ? 5
+      : (strategy === 'sniper' || strategy === 'ict_ote' || strategy === 'smc_demand_supply' || strategy === 'prop_firm_sniper') ? _sniperMin
       : 3;
     if (confluences.length < minConf) {
       addActivity(userId, {

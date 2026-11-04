@@ -61,9 +61,13 @@ function listFromEnv(name: string, fallback: string): string[] {
 // 2026-10-23: user resumed USDJPY (both directions). Its 30-day loss was 93%
 // one day (2026-10-13, oversized after a safety block was removed); since
 // then it is roughly flat. GBPJPY stays paused.
-const BLOCKED_PAIRS = listFromEnv('BLOCKED_PAIRS', 'GBPJPY');
+// 2026-11-04: user narrowed GBPJPY to SELL only after two days of no trades.
+// The loss is one-sided (SELL 25.5% WR vs BUY 45.7%); the 10-26→11-03 replay
+// had blocked BUYs ~0R vs SELLs −6.5R, and on 11-03 every rejected GBPJPY BUY
+// reached +2R. Put 'GBPJPY' back here to pause the whole pair again.
+const BLOCKED_PAIRS = listFromEnv('BLOCKED_PAIRS', '');
 // One side only, as SYMBOL:DIRECTION (e.g. "USDJPY:SELL").
-const BLOCKED_DIRECTIONS = listFromEnv('BLOCKED_PAIR_DIRECTIONS', '');
+const BLOCKED_DIRECTIONS = listFromEnv('BLOCKED_PAIR_DIRECTIONS', 'GBPJPY:SELL');
 
 // Say what is in force at boot. Without this the only way to tell a working
 // filter from an empty one was to notice the absence of block rows.
