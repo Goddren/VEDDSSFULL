@@ -8874,6 +8874,17 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
       
       // Process closed trades for history learning
       const { closedTrades } = req.body;
+      // 2026-11-04: some EA builds send closeTime/timestamp as epoch SECONDS; read as
+      // ms they land in 1970 (ai_trade_results #3236). Normalize once at ingest.
+      if (Array.isArray(closedTrades)) {
+        for (const t of closedTrades) {
+          for (const k of ['closeTime', 'timestamp', 'openTime']) {
+            const v = t?.[k];
+            if (typeof v === 'number' && v > 0 && v < 1e11) t[k] = v * 1000;
+            else if (typeof v === 'string' && /^[0-9]{9,10}$/.test(v)) t[k] = Number(v) * 1000;
+          }
+        }
+      }
       if (closedTrades && Array.isArray(closedTrades) && closedTrades.length > 0) {
         (global as any).mt5ClosedTrades = (global as any).mt5ClosedTrades || {};
         // Merge incoming trades into existing cache by ticket — never overwrite/lose older trades
@@ -8927,7 +8938,10 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
                 const { clearLearningCache } = await import('./services/confirmation-learning');
                 clearLearningCache(token.userId);
               } catch (_lcErr) { /* non-critical */ }
-            } else if (!existingResult && closedTrade.symbol && closedTrade.profit !== undefined) {
+            } else if (!existingResult && closedTrade.symbol && closedTrade.profit !== undefined
+              // Skip deal fragments (commission/fee/partial legs): no open price and a
+              // sub-$1 amount was being recorded as a LOSS row (#3236, -$0.01).
+              && !(!(Number(closedTrade.openPrice) > 0) && Math.abs(Number(closedTrade.profit) || 0) < 1)) {
               // No DB record (EA path trade) — create a closed record so history is complete
               try {
                 await storage.createAiTradeResult({

@@ -67909,9 +67909,9 @@ async function getStopOrdersForUser(userId, filters = {}) {
 init_schema();
 
 // server/build-info.ts
-var BUILD_COMMIT = "bba5319b-dirty";
+var BUILD_COMMIT = "dc0eec5c-dirty";
 var BUILD_BRANCH = "HEAD";
-var BUILT_AT = "2026-11-04T07:48:31.336Z";
+var BUILT_AT = "2026-11-04T08:01:29.384Z";
 
 // server/stripe.ts
 init_db();
@@ -78655,6 +78655,15 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
         }
       }
       const { closedTrades } = req.body;
+      if (Array.isArray(closedTrades)) {
+        for (const t of closedTrades) {
+          for (const k2 of ["closeTime", "timestamp", "openTime"]) {
+            const v = t?.[k2];
+            if (typeof v === "number" && v > 0 && v < 1e11) t[k2] = v * 1e3;
+            else if (typeof v === "string" && /^[0-9]{9,10}$/.test(v)) t[k2] = Number(v) * 1e3;
+          }
+        }
+      }
       if (closedTrades && Array.isArray(closedTrades) && closedTrades.length > 0) {
         global.mt5ClosedTrades = global.mt5ClosedTrades || {};
         const existing = global.mt5ClosedTrades[token.userId]?.trades || [];
@@ -78702,7 +78711,7 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
                 clearLearningCache2(token.userId);
               } catch (_lcErr) {
               }
-            } else if (!existingResult && closedTrade.symbol && closedTrade.profit !== void 0) {
+            } else if (!existingResult && closedTrade.symbol && closedTrade.profit !== void 0 && !(!(Number(closedTrade.openPrice) > 0) && Math.abs(Number(closedTrade.profit) || 0) < 1)) {
               try {
                 await storage.createAiTradeResult({
                   userId: token.userId,
