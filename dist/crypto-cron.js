@@ -20484,7 +20484,8 @@ async function _feedEngineBrain(userId, symbol, profit, direction, closeTime, ti
       strategy: "unknown",
       session: session2,
       direction,
-      ...ticket ? { tradeKey: `tl:${ticket}` } : {}
+      ...ticket ? { tradeKey: `tl:${ticket}` } : {},
+      closedAt: closeTime || null
     });
   } catch (_) {
   }
@@ -24881,7 +24882,10 @@ function recordTradeResult(userId, result) {
       delete state.pairDirectionLock[result.symbol];
     }
   }
-  runAutonomousAdaptation(userId, {
+  const _closedMs = result.closedAt != null ? new Date(result.closedAt).getTime() : NaN;
+  const _startMs = state.startedAt ? Date.parse(state.startedAt) : NaN;
+  const _staleClose = Number.isFinite(_closedMs) && Number.isFinite(_startMs) && _closedMs < _startMs - 2 * 6e4;
+  if (!_staleClose) runAutonomousAdaptation(userId, {
     profit: result.profit,
     symbol: result.symbol || "",
     strategy: result.strategy || "unknown"

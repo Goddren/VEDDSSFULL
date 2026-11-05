@@ -8973,9 +8973,12 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
             // the daily-loss halt. A row already holding a final result was
             // counted when it closed; counting it again is the bug.
             const alreadyCounted = !!existingResult && !!existingResult.result && existingResult.result !== 'PENDING';
-            if (recordEngineResult && !alreadyCounted) {
+            // Fee/commission legs (no open price, under $1) are not trades.
+            const _feeLeg = !(Number(closedTrade.openPrice) > 0) && Math.abs(Number(closedTrade.profit) || 0) < 1;
+            if (recordEngineResult && !alreadyCounted && !_feeLeg) {
               recordEngineResult(token.userId, {
                 tradeKey: `mt5:${closedTrade.ticket}`,
+                closedAt: closedTrade.closeTime || closedTrade.timestamp || null,
                 symbol: tradeSymbol,
                 profit: closedTrade.profit || 0,
                 strategy: existingResult?.notes?.includes('strategy:')

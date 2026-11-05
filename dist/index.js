@@ -23103,7 +23103,8 @@ async function _feedEngineBrain(userId, symbol, profit, direction, closeTime, ti
       strategy: "unknown",
       session: session3,
       direction,
-      ...ticket ? { tradeKey: `tl:${ticket}` } : {}
+      ...ticket ? { tradeKey: `tl:${ticket}` } : {},
+      closedAt: closeTime || null
     });
   } catch (_) {
   }
@@ -28514,7 +28515,10 @@ function recordTradeResult(userId, result) {
       delete state.pairDirectionLock[result.symbol];
     }
   }
-  runAutonomousAdaptation(userId, {
+  const _closedMs = result.closedAt != null ? new Date(result.closedAt).getTime() : NaN;
+  const _startMs = state.startedAt ? Date.parse(state.startedAt) : NaN;
+  const _staleClose = Number.isFinite(_closedMs) && Number.isFinite(_startMs) && _closedMs < _startMs - 2 * 6e4;
+  if (!_staleClose) runAutonomousAdaptation(userId, {
     profit: result.profit,
     symbol: result.symbol || "",
     strategy: result.strategy || "unknown"
@@ -68113,9 +68117,9 @@ async function getStopOrdersForUser(userId, filters = {}) {
 init_schema();
 
 // server/build-info.ts
-var BUILD_COMMIT = "b6d681c1-dirty";
+var BUILD_COMMIT = "81546c82-dirty";
 var BUILD_BRANCH = "HEAD";
-var BUILT_AT = "2026-11-05T03:43:01.149Z";
+var BUILT_AT = "2026-11-05T04:19:42.601Z";
 
 // server/stripe.ts
 init_db();
@@ -78938,9 +78942,11 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
               }
             }
             const alreadyCounted = !!existingResult && !!existingResult.result && existingResult.result !== "PENDING";
-            if (recordEngineResult && !alreadyCounted) {
+            const _feeLeg = !(Number(closedTrade.openPrice) > 0) && Math.abs(Number(closedTrade.profit) || 0) < 1;
+            if (recordEngineResult && !alreadyCounted && !_feeLeg) {
               recordEngineResult(token.userId, {
                 tradeKey: `mt5:${closedTrade.ticket}`,
+                closedAt: closedTrade.closeTime || closedTrade.timestamp || null,
                 symbol: tradeSymbol,
                 profit: closedTrade.profit || 0,
                 strategy: existingResult?.notes?.includes("strategy:") ? existingResult.notes.split("strategy:")[1].trim().split(" ")[0] : "auto",

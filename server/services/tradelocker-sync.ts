@@ -376,6 +376,7 @@ async function _feedEngineBrain(userId: number, symbol: string, profit: number, 
       session,
       direction,
       ...(ticket ? { tradeKey: `tl:${ticket}` } : {}),
+      closedAt: closeTime || null,
     });
   } catch (_) { /* non-fatal — learning must never break the sync */ }
 }

@@ -1235,6 +1235,10 @@ export function recordTradeResult(userId: number, result: {
   // Broker ticket (e.g. "mt5:123", "tl:tl_2449855_432...") — the same close
   // arriving twice (EA re-send, sync reconciliation pass) is counted once.
   tradeKey?: string;
+  // When the trade actually closed. A close from before this engine started is
+  // a replay (the EA re-sends its recent deals after every restart and the
+  // counted-key set is in-memory): it must not drive the Mind's cool-offs.
+  closedAt?: string | number | Date | null;
 }) {
   const state = engineStates[userId];
   if (!state) return;
@@ -1502,7 +1506,14 @@ export function recordTradeResult(userId: number, result: {
   }
 
   // ── Autonomous adaptation — fires on every trade close ────────────
-  runAutonomousAdaptation(userId, {
+  // 2026-11-05: after the 03:47 restart a replay of old EA deals fired "5
+  // consecutive losses — COOLING OFF 45 min", an 85% floor and 4 pair
+  // soft-blocks within one second. Only closes newer than the engine start
+  // (2-min grace) adapt the Mind.
+  const _closedMs = result.closedAt != null ? new Date(result.closedAt as any).getTime() : NaN;
+  const _startMs = state.startedAt ? Date.parse(state.startedAt) : NaN;
+  const _staleClose = Number.isFinite(_closedMs) && Number.isFinite(_startMs) && _closedMs < _startMs - 2 * 60_000;
+  if (!_staleClose) runAutonomousAdaptation(userId, {
     profit: result.profit,
     symbol: result.symbol || '',
     strategy: result.strategy || 'unknown',
