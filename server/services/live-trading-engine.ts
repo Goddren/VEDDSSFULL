@@ -3,6 +3,7 @@ import { lookupPairKnowledge } from '../utils/pair-key';
 import { marketDataService } from '../market-data/service';
 import { logGuard } from './guard-events';
 import { recordShadow, resolveShadows, getShadowSessionStat, SHADOW_WEIGHT } from './brain-shadow';
+import { getPacePlan, paceWindowFor, pacePromptSection, computePacePlan } from './goal-pace';
 import { getAiLevelSync } from './ai-level';
 import { executeMT5SignalOnTradeLocker, warmTradeLockerConnection, getTLAccountValue, getOrCreateService as getTradeLockerService, setUsdJpyRate } from '../tradelocker';
 import { refreshTlAfterTrade } from './tradelocker-sync';
@@ -206,6 +207,7 @@ interface LiveEngineConfig {
   // tripping into a full loss. Default on.
   reversalExitEnabled: boolean;
   // 2026-11-05: in-app toggles (were Render-only env vars).
+  goalPaceEnabled: boolean;      // Goal Pace Agent steers pair/session choice (never size)
   brainShadowEnabled: boolean;   // blend shadow outcomes into brain session blocks (BRAIN_SHADOW_WEIGHT)
   stopHoldUntilR: number;        // AI/trail may not tighten a stop until the trade is this many R in profit (0 = off)
   reversalSensitivity: number; // 2-5: how many of the 5 reversal confluences must align to auto-exit (default 3)
@@ -1022,6 +1024,7 @@ function getDefaultConfig(userId: number): LiveEngineConfig {
                                 // routine trend noise. Opt-in via the weekly-strategy toggle.
     brainShadowEnabled: true,
     stopHoldUntilR: 1,
+    goalPaceEnabled: true,
     reversalSensitivity: 4,     // if opted in, default to conservative (4 of 5) not 3
     dailyProfitTarget: 0,
     maxDailyTrades: 0,
@@ -1242,6 +1245,16 @@ export function recordTradeResult(userId: number, result: {
 }) {
   const state = engineStates[userId];
   if (!state) return;
+
+  // 2026-11-05: a close from before this engine started is a replay (EA
+  // re-send after restart). It used to inflate the weekly tracker's W/L and
+  // P&L and fire Mind cool-offs. Day P&L and the weekly tracker are rebuilt
+  // from ai_trade_results at start, so a replay is skipped entirely.
+  {
+    const _cMs = result.closedAt != null ? new Date(result.closedAt as any).getTime() : NaN;
+    const _sMs = state.startedAt ? Date.parse(state.startedAt) : NaN;
+    if (Number.isFinite(_cMs) && Number.isFinite(_sMs) && _cMs < _sMs - 2 * 60_000) return;
+  }
 
   if (result.tradeKey) {
     let seen = countedTradeKeys.get(userId);
@@ -3976,6 +3989,7 @@ INSTRUCTION: Signals that ALIGN with ${promptHTFLabel} bias are high-quality ins
     const adjustedBaseLot = Math.round((config.baseLotSize * compMult) * 100) / 100;
     const effectiveMaxLot = config.maxLotSize;
 
+    const goalPaceSection = (config as any).goalPaceEnabled !== false ? pacePromptSection(getPacePlan(userId, config)) : '';
     const goalSection = config.weeklyProfitTarget > 0 ? `
 WEEKLY PROFIT GOAL SYSTEM:
 - Weekly Target: $${config.weeklyProfitTarget} | Current Profit: $${tracker.currentProfit} | Progress: ${tracker.progressPercent}%
@@ -4174,7 +4188,7 @@ ${brainInsights}
 
 PAIR-SPECIFIC KNOWLEDGE:
 ${pairKnowledge}
-${weightsSection}${htfBiasSection}${shieldSection}${dualModeSection}${goalSection}
+${weightsSection}${htfBiasSection}${shieldSection}${dualModeSection}${goalSection}${goalPaceSection}
 REAL-TIME NEWS & MARKET SENTIMENT:
 ${newsContext && newsContext.headlines.length > 0 ? `Market Sentiment: ${newsContext.marketSentiment.toUpperCase()}
 Recent Headlines:
@@ -5203,6 +5217,16 @@ async function processDecision(userId: number, decision: any, newsCtx?: any): Pr
     // Apply brain-tuned lot multiplier and strategy override
     if (postEnforcement.forcedStrategy && !decision.strategy) {
       decision.strategy = postEnforcement.forcedStrategy;
+    }
+    // Goal Pace AVOID: a pair+session+direction with a proven losing record
+    // (6+ signals, <35% WR, negative expectancy) needs 85%+ to enter.
+    if ((state.config as any).goalPaceEnabled !== false) {
+      const _pw = paceWindowFor(getPacePlan(userId, state.config), decision.symbol, decision.direction);
+      const _pc = typeof decision.confidence === 'number' ? decision.confidence : parseFloat(decision.confidence) || 0;
+      if (_pw?.verdict === 'AVOID' && _pc < 85) {
+        addActivity(userId, { type: 'info', symbol: decision.symbol, message: `🎯 Goal pace: ${decision.symbol} ${decision.direction} in ${_pw.session} is a proven losing window (${_pw.winRate}% over ${_pw.signals}, ${_pw.expectancy}/signal) — needs 85%+, have ${_pc}%. Skipped.` });
+        return;
+      }
     }
     (decision as any)._brainLotMultiplier = postEnforcement.adjustedLotMultiplier;
     (decision as any)._brainTrailPips = postEnforcement.recommendedTrailPips;
@@ -8076,6 +8100,34 @@ export function startLiveEngine(userId: number, config?: Partial<LiveEngineConfi
         st.pnlToday = st.challengeDailyPnL[todayStr];
         (st as any)._pnlTodayDate = todayStr;
       }
+
+      // Weekly goal tracker from the ledger (2026-11-05). It lived only in
+      // memory: a restart zeroed it and EA replays then refilled it with old
+      // closes. Rebuild W/L, P&L and per-day P&L for this trading week.
+      try {
+        const wk = (await _cPool.query(
+          `SELECT result, profit_loss, (closed_at AT TIME ZONE 'UTC')::date AS d
+             FROM ai_trade_results
+            WHERE user_id=$1 AND source IN ${_sources} AND closed_at >= $2
+              AND result IN ('WIN','LOSS') AND COALESCE(entry_price,0) > 0
+            ORDER BY closed_at`, [userId, tradingWeekStartISO()])).rows;
+        const tr = st.goalTracker;
+        if (tr && tr.weekStartedAt === tradingWeekStartISO()) {
+          tr.wins = 0; tr.losses = 0; tr.consecutiveWins = 0; tr.consecutiveLosses = 0; tr.currentProfit = 0; tr.dailyPnL = {};
+          for (const r of wk) {
+            const p = Number(r.profit_loss) || 0;
+            const dk = new Date(r.d).toISOString().split('T')[0];
+            tr.currentProfit += p;
+            tr.dailyPnL[dk] = Math.round(((tr.dailyPnL[dk] || 0) + p) * 100) / 100;
+            if (p > 0) { tr.wins++; tr.consecutiveWins++; tr.consecutiveLosses = 0; }
+            else { tr.losses++; tr.consecutiveLosses++; tr.consecutiveWins = 0; }
+          }
+          tr.currentProfit = Math.round(tr.currentProfit * 100) / 100;
+          tr.winRate = tr.wins + tr.losses > 0 ? Math.round((tr.wins / (tr.wins + tr.losses)) * 100) : 0;
+          tr.progressPercent = tr.weeklyTarget > 0 ? Math.min(100, Math.max(0, Math.round((tr.currentProfit / tr.weeklyTarget) * 100))) : 0;
+        }
+      } catch (_) { /* keep the in-memory tracker */ }
+      void computePacePlan(userId, fullConfig).catch(() => {});
 
       // Trades already opened today — otherwise the daily cap restarts at 0 and
       // the engine can open a second full day's worth of positions.

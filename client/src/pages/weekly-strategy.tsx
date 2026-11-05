@@ -1416,6 +1416,7 @@ export default function WeeklyStrategyPage() {
   const [engineAutoFlatten, setEngineAutoFlatten] = useState(false);
   const [engineReversalExit, setEngineReversalExit] = useState(true);
   const [engineBrainShadow, setEngineBrainShadow] = useState(true);
+  const [engineGoalPace, setEngineGoalPace] = useState(true);
   const [engineStopHoldR, setEngineStopHoldR] = useState(1);
   const [engineReversalSensitivity, setEngineReversalSensitivity] = useState(3);
   const [enginePairLimitMode, setEnginePairLimitMode] = useState<'ai' | 'fixed'>('ai');
@@ -1579,6 +1580,7 @@ export default function WeeklyStrategyPage() {
     if (c.reversalExitEnabled != null) setEngineReversalExit(c.reversalExitEnabled);
     if (c.reversalSensitivity != null) setEngineReversalSensitivity(c.reversalSensitivity);
     if (c.brainShadowEnabled != null) setEngineBrainShadow(c.brainShadowEnabled);
+    if (c.goalPaceEnabled != null) setEngineGoalPace(c.goalPaceEnabled);
     if (c.stopHoldUntilR != null) setEngineStopHoldR(Number(c.stopHoldUntilR));
     if (c.pairDailyLimitMode) setEnginePairLimitMode(c.pairDailyLimitMode);
     if (c.maxTradesPerPairPerDay != null) setEnginePairLimit(c.maxTradesPerPairPerDay);
@@ -2589,6 +2591,16 @@ export default function WeeklyStrategyPage() {
                         <span className="text-[11px] text-gray-300">Paper-track brain-blocked sessions and let results lift or keep the block</span>
                       </label>
                       <p className="text-[10px] text-violet-400/70 mt-0.5">No orders are placed. Shadow wins/losses count at half weight next to real trades.</p>
+                    </div>
+                    <div>
+                      <Label className="text-orange-400 text-xs font-semibold flex items-center gap-1"><Target className="w-3 h-3" /> Goal Pace Agent steers engine</Label>
+                      <label className="mt-1 flex items-center gap-2 cursor-pointer h-8">
+                        <input type="checkbox" checked={engineGoalPace}
+                          onChange={async e => { const v = e.target.checked; setEngineGoalPace(v); try { await apiRequest('PATCH', '/api/vedd-live-engine/config', { goalPaceEnabled: v }); } catch { /* applied on start */ } }}
+                          className="accent-orange-500 w-4 h-4" />
+                        <span className="text-[11px] text-gray-300">Favour proven pair/session windows; proven losing windows need 85%+</span>
+                      </label>
+                      <p className="text-[10px] text-orange-400/70 mt-0.5">Chooses WHERE and WHEN to trade to catch up — never raises lot size, risk or the consistency cap.</p>
                     </div>
                     <div>
                       <Label className="text-emerald-400 text-xs font-semibold">Let trades breathe (stop hold)</Label>
@@ -6684,6 +6696,45 @@ export default function WeeklyStrategyPage() {
                 </Button>
               </div>
             </div>
+
+            {/* ── Pair & session windows (same plan the live engine reads) ── */}
+            {pacingResult?.paceWindows && (() => {
+              const pw = pacingResult.paceWindows;
+              const shown = (pw.windows || []).filter((w: any) => w.verdict !== 'OK');
+              const sessions = ['Asian', 'London', 'New York', 'Late NY'];
+              return (
+                <div className="rounded-2xl border border-orange-500/30 bg-gray-900/60 p-4 space-y-3">
+                  <div className="flex items-center justify-between flex-wrap gap-2">
+                    <span className="text-white font-bold text-sm">Where & when to trade — {pw.mode}</span>
+                    <span className="text-[11px] text-gray-400">
+                      Week ${pw.weekPnl} / ${pw.weekTarget} · need ~${pw.neededPerDay}/day · {pw.daysLeft} day(s) left
+                      {pw.todayCap != null ? ` · consistency cap $${pw.todayCap}/day` : ''}
+                    </span>
+                  </div>
+                  {pw.mode === 'CAPPED' && (
+                    <p className="text-[11px] text-amber-300">The remaining goal is bigger than the consistency rule allows per day — the engine aims for the cap, not the full deficit, and never raises size.</p>
+                  )}
+                  {sessions.map(sess => {
+                    const rows = shown.filter((w: any) => w.session === sess);
+                    if (!rows.length) return null;
+                    return (
+                      <div key={sess}>
+                        <div className="text-[11px] text-gray-400 font-semibold mb-1">{sess}</div>
+                        <div className="flex flex-wrap gap-1.5">
+                          {rows.map((w: any) => (
+                            <span key={`${w.symbol}${w.direction}`} className={`text-[11px] px-2 py-0.5 rounded-md border ${w.verdict === 'FOCUS' ? 'border-emerald-500/40 text-emerald-300 bg-emerald-500/10' : 'border-red-500/40 text-red-300 bg-red-500/10'}`}>
+                              {w.verdict === 'FOCUS' ? '✓' : '✕'} {w.symbol} {w.direction} · {w.winRate}% / {w.signals} · ${w.expectancy}
+                            </span>
+                          ))}
+                        </div>
+                      </div>
+                    );
+                  })}
+                  {!shown.length && <p className="text-[11px] text-gray-400">Not enough history yet to rank windows.</p>}
+                  <p className="text-[10px] text-gray-500">✓ FOCUS = 5+ signals, 50%+ win rate, positive $/signal. ✕ AVOID = 6+ signals, under 35%, losing — the engine needs 85%+ there. Last 60 days, one count per signal (not per account).</p>
+                </div>
+              );
+            })()}
 
             {/* ── AI Path Control Status Banner ── */}
             {aiPathStatus?.enabled && (

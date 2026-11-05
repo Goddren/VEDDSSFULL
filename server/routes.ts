@@ -15750,6 +15750,18 @@ Respond with ONLY valid JSON:
     const balance = strategy.accountBalance || 0;
     const planPairs = (strategy.pairs || []).map((p: string) => p.toUpperCase().replace('/', ''));
 
+    // Pair/session/direction windows from real trades — the same plan the live
+    // engine reads (services/goal-pace.ts). Steers WHERE to trade, never size.
+    let paceWindows: any = null;
+    try {
+      const { computePacePlan } = await import('./services/goal-pace');
+      const { getLiveEngineState } = await import('./services/live-trading-engine');
+      const ec: any = getLiveEngineState(userId)?.config || {};
+      paceWindows = await computePacePlan(userId, { weeklyProfitTarget: ec.weeklyProfitTarget || strategy.profitTarget, maxDailyProfitPctOfTotal: ec.maxDailyProfitPctOfTotal, pairs: ec.pairs || planPairs });
+    } catch (_) { /* windows optional */ }
+    const windowLines = (paceWindows?.windows || []).filter((w: any) => w.verdict !== 'OK').slice(0, 24)
+      .map((w: any) => `${w.verdict} ${w.symbol} ${w.direction} ${w.session}: ${w.winRate}% over ${w.signals} signals, $${w.expectancy}/signal`).join('\n');
+
     // ── AI Analysis ────────────────────────────────────────────────────
     let aiResult: any = null;
     try {
@@ -15780,6 +15792,10 @@ ${solTarget > 0 ? `- SOL Engine: ${solTradeHistory.length} trades, ${solCurrentP
 
 TRADES THIS WEEK (most recent first):
 ${tradeLines || 'No trades recorded yet'}
+
+PAIR × SESSION × DIRECTION WINDOWS (last 60 days, per signal):
+${windowLines || 'Not enough history'}
+HARD LIMITS — plans must respect them: risk per trade is fixed (do not raise lots to catch up); daily loss limit is fixed;${paceWindows?.todayCap != null ? ` consistency rule caps any single day at about ${paceWindows.todayCap}.` : ''} Build the plan around FOCUS windows and away from AVOID windows, and name the session (Asian/London/New York/Late NY) for each pair.
 
 Return this EXACT JSON (no markdown, no commentary):
 {
@@ -15897,6 +15913,7 @@ Return this EXACT JSON (no markdown, no commentary):
     }
 
     res.json({
+      paceWindows,
       pace: { status: paceStatus, pacePct, closedProfit: Math.round(closedProfit * 100) / 100, weekTarget, deficit: Math.round(deficit * 100) / 100, daysLeft, requiredPerDay },
       metrics: { totalTrades, wins, losses, winRate, avgLotSize, avgProfitPerTrade: Math.round(avgProfitPerTrade * 100) / 100, avgWinProfit: Math.round(avgWinProfit * 100) / 100, avgLossProfit: Math.round(avgLossProfit * 100) / 100, profitFactor: Math.round(profitFactor * 100) / 100 },
       weekTrades: allWeekTrades.slice(0, 50),

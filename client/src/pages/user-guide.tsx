@@ -749,6 +749,23 @@ const guideSections: GuideSection[] = [
         ]
       },
       {
+        heading: 'Brain Shadow Learning, Stop Hold & Goal Pace Agent',
+        steps: [
+          'Brain session block: when a pair has lost most of its trades in a session (under 40% win rate over 8+ trades, e.g. GBPUSD in the Asian session), the Brain stops NEW entries there. Open positions are still managed.',
+          'Brain Shadow Learning (Engine settings → Brain shadow learning): while a session is blocked, the engine paper-tracks the setups it skipped — no order is placed. Each shadow trade uses a 1.5× ATR stop and a 2R target and is scored against real 15-minute candles.',
+          'Shadow wins and losses count at half weight next to real trades. If the blended win rate climbs back above 40% the block lifts on its own; if shadows keep losing, the block stays. The skip log shows it, e.g. "33% (12) + shadow 75%/4 → blended 42%".',
+          'Let trades breathe (Engine settings → Stop hold): the AI may not tighten your stop until the trade is in profit by the chosen amount (Off / 0.5R / 1R / 1.5R / 2R; default 1R). Stops are never loosened. Works on TradeLocker and DXtrade.',
+          'Goal Pace Agent (Goal Pacing tab + Engine settings → Goal Pace Agent steers engine): ranks every pair × session × direction from the last 60 days of real trades. FOCUS windows (5+ signals, 50%+ win rate, profitable) are favoured; AVOID windows (6+ signals, under 35%, losing) need 85%+ confidence.',
+          'The Goal Pace Agent catches up on your weekly goal by choosing WHERE and WHEN to trade — it never raises lot size, risk per trade, the daily loss limit or the consistency cap. If the remaining goal is larger than the consistency rule allows per day, it shows CAPPED and aims for the cap.',
+          "After a redeploy the engine rebuilds today's P&L and the weekly win/loss tracker from your trade history, and ignores old closes the broker re-sends — so a restart no longer triggers a false cool-off."
+        ],
+        tips: [
+          'Leave Brain shadow learning ON — it is how a blocked session earns its way back without risking money',
+          'If you see more full stop-outs after trades went slightly green, lower Stop hold to 0.5R',
+          'Run the Goal Pacing Agent on Monday and mid-week: the FOCUS chips per session are the best map of when your pairs actually pay'
+        ]
+      },
+      {
         heading: 'SS AI Engine — Phase System',
         steps: [
           'The engine operates through 6 goal phases that adjust lot sizes automatically:',

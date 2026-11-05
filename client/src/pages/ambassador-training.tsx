@@ -2627,6 +2627,95 @@ const trainingModules: TrainingModule[] = [
     ]
   },
   {
+    id: 'fx-brain-guards',
+    title: 'FX Engine Brain: Shadows, Stop Hold & Goal Pace',
+    description: 'Become the expert on how the SS AI FX engine learns, protects trades and paces the weekly goal without breaking prop-firm rules',
+    duration: '20 min',
+    icon: Brain,
+    lessons: [
+      {
+        id: 'fxbg-1',
+        title: 'Brain Session Blocks & Shadow Learning',
+        content: [
+          'The FX Brain learns per pair AND per session (Asian, London, New York, Late NY). A pair that wins under 40% of 8+ trades in a session is blocked for new entries in that session only.',
+          'Problem it solves: a blocked session never trades, so it never gets new data and could stay blocked forever — even after conditions improve.',
+          'Brain Shadow Learning fixes this: while blocked, the engine paper-trades the skipped setup (1.5× ATR stop, 2R target) and scores it against real 15-minute candles. No money is risked.',
+          'Shadow results count at HALF weight next to real trades. If the blended win rate rises above 40%, the block lifts automatically; if shadows keep losing, the block stays with even stronger evidence.',
+          'Members can switch it off any time in Engine settings → Brain shadow learning.'
+        ],
+        keyPoints: [
+          { title: 'Session-Smart Brain', description: 'Blocks only the losing session for a pair — the pair still trades in its good sessions.', icon: Brain },
+          { title: 'Learns Without Risk', description: 'Skipped setups are paper-tracked against real prices, so the Brain keeps learning while protected.', icon: Shield },
+          { title: 'Self-Healing Blocks', description: 'Blocks lift on their own when shadow results prove the session has turned profitable.', icon: TrendingUp }
+        ],
+        realWorldExamples: [
+          { scenario: 'GBPUSD was blocked in the Asian session at 33% over 12 trades', outcome: 'Shadow trades kept tracking the skipped setups; the skip log showed the blended win rate each scan', lesson: 'Members can SEE why a pair is blocked and what it needs to unblock — transparency builds trust', type: 'insight' },
+          { scenario: "A member asked \"why didn't the engine take that trade?\"", outcome: 'Ambassador opened the skip log: "Brain block … + shadow 60%/5 → blended 38%" — two more shadow wins would lift it', lesson: 'The skip log answers "why no trade" with numbers, not guesses', type: 'success' }
+        ],
+        tips: [
+          "Pitch line: \"The engine keeps learning even when it's protecting you — blocked sessions are paper-traded until they prove themselves.\"",
+          'Never promise a block will lift — it lifts only if the shadow results earn it'
+        ]
+      },
+      {
+        id: 'fxbg-2',
+        title: 'Let Trades Breathe: Stop Hold',
+        content: [
+          'A common way good trades die: the stop is pulled up to breakeven too early, a normal pullback taps it, then price runs to target without you.',
+          'Stop Hold stops that: the AI may not tighten the stop until the trade is in profit by a chosen amount — Off, 0.5R, 1R (default), 1.5R or 2R. "R" is the original risk (entry to first stop).',
+          'Stops are NEVER loosened, at any time. Daily loss limits and the prop-firm drawdown limit still apply.',
+          'Trade-off to explain honestly: a trade that goes slightly green then reverses now takes the full original stop instead of closing near zero. If a member sees more full stop-outs, set it to 0.5R.'
+        ],
+        keyPoints: [
+          { title: 'Room to Breathe', description: 'The original stop stays put until the trade reaches the chosen profit in R.', icon: Target },
+          { title: 'Never Loosens', description: 'Stops can only ever move in the protective direction.', icon: Shield },
+          { title: 'Member-Controlled', description: 'Engine settings → Let trades breathe. One dropdown, applies instantly.', icon: Zap }
+        ],
+        realWorldExamples: [
+          { scenario: 'A GBPJPY buy was stopped out minutes after the AI tightened the stop while the trade was still slightly negative', outcome: 'With Stop Hold at 1R the stop stays at its original level until the trade is +1R', lesson: 'Early stop tightening turns normal noise into losses — give the trade its planned room', type: 'warning' }
+        ],
+        tips: [
+          'Explain R simply: "If your stop is 50 pips away, 1R is +50 pips of profit."',
+          '1R is the recommended default for prop-firm members'
+        ]
+      },
+      {
+        id: 'fxbg-3',
+        title: 'Goal Pace Agent: Catch Up the Smart Way',
+        content: [
+          'The Goal Pace Agent ranks every pair × session × direction from the last 60 days of real trades (counted once per signal, not per account).',
+          'FOCUS windows (5+ signals, 50%+ win rate, positive $/signal) are what the live engine is told to prefer. AVOID windows (6+ signals, under 35%, losing) need 85%+ confidence to trade.',
+          'It shows the weekly picture: profit vs target, $/day needed, days left, and the consistency cap per day.',
+          'Golden rule: it catches up by picking BETTER windows, never by bigger size. Lot size, risk per trade, daily loss limit and the consistency rule are untouched.',
+          'If the remaining goal is bigger than the consistency rule allows per day it shows CAPPED — the engine aims for the cap instead of forcing the full deficit and risking the payout.'
+        ],
+        keyPoints: [
+          { title: 'Where & When', description: "Per-session FOCUS / AVOID map built from the member's own results.", icon: BarChart2 },
+          { title: 'Rules First', description: 'Never raises risk; respects daily loss, drawdown and the consistency rule.', icon: Shield },
+          { title: 'Connected to the Engine', description: 'The same plan steers the live engine (toggle in Engine settings).', icon: Target }
+        ],
+        realWorldExamples: [
+          { scenario: 'A member was behind on a $12,000 weekly goal with a 30% consistency rule', outcome: 'The agent showed CAPPED: at most ~$3,600 in a day — the engine paced toward that instead of oversizing', lesson: 'Protecting payout eligibility beats chasing a number in one day', type: 'insight' },
+          { scenario: 'A member kept trading a pair in a session where it historically lost', outcome: 'The AVOID chip made the pattern obvious; the engine now needs 85%+ there', lesson: 'Show members their own data — it changes behaviour faster than advice', type: 'success' }
+        ],
+        tips: [
+          'Demo the Goal Pacing tab on camera: the session chips are a clear visual of "when my pairs pay"',
+          'Remind members: results depend on market conditions; the agent improves selection, it does not guarantee the goal'
+        ],
+        quiz: {
+          question: 'How does the Goal Pace Agent help a member catch up on a weekly goal?',
+          options: [
+            'By doubling lot size when behind',
+            'By choosing better pair/session windows while keeping risk and consistency rules fixed',
+            'By turning off the daily loss limit',
+            'By trading every pair in every session'
+          ],
+          correct: 1
+        }
+      }
+    ]
+  },
+  {
     id: 'full-platform-overview',
     title: 'Full Platform Features & Tokenomics',
     description: 'Every tool in the VEDD ecosystem — trading, business, AI, community, and token rewards',

@@ -4755,8 +4755,8 @@ var init_storage = __esm({
             tierUp = true;
             newTier = newTierValue;
           }
-          const weekStart = streak.weekStartDate ? new Date(streak.weekStartDate) : null;
-          const shouldResetWeekly = !weekStart || now.getTime() - weekStart.getTime() > 7 * 24 * 60 * 60 * 1e3;
+          const weekStart2 = streak.weekStartDate ? new Date(streak.weekStartDate) : null;
+          const shouldResetWeekly = !weekStart2 || now.getTime() - weekStart2.getTime() > 7 * 24 * 60 * 60 * 1e3;
           streak = await this.createOrUpdateStreak(userId, {
             currentStreak: newCurrentStreak,
             longestStreak: Math.max(streak.longestStreak, newCurrentStreak),
@@ -5565,7 +5565,7 @@ var init_storage = __esm({
       async getAiTradeAccuracy(userId) {
         const now = /* @__PURE__ */ new Date();
         const dayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-        const weekStart = new Date(now.setDate(now.getDate() - now.getDay()));
+        const weekStart2 = new Date(now.setDate(now.getDate() - now.getDay()));
         const monthStart2 = new Date(now.getFullYear(), now.getMonth(), 1);
         const yearStart = new Date(now.getFullYear(), 0, 1);
         const allTrades = await db.select().from(aiTradeResults).where(and(
@@ -5578,7 +5578,7 @@ var init_storage = __esm({
           return Math.round(wins / trades.length * 100);
         };
         const dailyTrades = allTrades.filter((t) => t.closedAt && new Date(t.closedAt) >= dayStart);
-        const weeklyTrades = allTrades.filter((t) => t.closedAt && new Date(t.closedAt) >= weekStart);
+        const weeklyTrades = allTrades.filter((t) => t.closedAt && new Date(t.closedAt) >= weekStart2);
         const monthlyTrades = allTrades.filter((t) => t.closedAt && new Date(t.closedAt) >= monthStart2);
         const yearlyTrades = allTrades.filter((t) => t.closedAt && new Date(t.closedAt) >= yearStart);
         return {
@@ -7557,23 +7557,23 @@ async function getEffectiveAiCostCapCents(userId) {
   try {
     const [user] = await db.select().from(users).where(eq4(users.id, userId));
     if (!user) return 50;
-    const plans = await db.select().from(subscriptionPlans).where(eq4(subscriptionPlans.isActive, true));
-    let cap = plans.find((p2) => p2.name === "Free")?.aiMonthlyCostCapCents ?? 50;
+    const plans2 = await db.select().from(subscriptionPlans).where(eq4(subscriptionPlans.isActive, true));
+    let cap = plans2.find((p2) => p2.name === "Free")?.aiMonthlyCostCapCents ?? 50;
     if (user.subscriptionPlanId) {
-      const plan = plans.find((p2) => p2.id === user.subscriptionPlanId);
+      const plan = plans2.find((p2) => p2.id === user.subscriptionPlanId);
       if (plan) cap = Math.max(cap, plan.aiMonthlyCostCapCents);
     }
     const membershipTier = user.membershipTier || "none";
     const TIER_PLAN_MAP = { basic: "Starter", pro: "Premium", elite: "Yearly" };
     const equivalentPlanName = TIER_PLAN_MAP[membershipTier];
     if (equivalentPlanName) {
-      const plan = plans.find((p2) => p2.name === equivalentPlanName);
+      const plan = plans2.find((p2) => p2.name === equivalentPlanName);
       if (plan) cap = Math.max(cap, plan.aiMonthlyCostCapCents);
     }
     try {
       const { isProfitSplitEnrolled: isProfitSplitEnrolled2 } = await Promise.resolve().then(() => (init_profit_split(), profit_split_exports));
       if (await isProfitSplitEnrolled2(userId)) {
-        const topCap = plans.reduce((m, p2) => Math.max(m, p2.aiMonthlyCostCapCents ?? 0), cap);
+        const topCap = plans2.reduce((m, p2) => Math.max(m, p2.aiMonthlyCostCapCents ?? 0), cap);
         cap = Math.max(cap, topCap);
       }
     } catch {
@@ -19457,6 +19457,121 @@ var init_brain_shadow = __esm({
   }
 });
 
+// server/services/goal-pace.ts
+var goal_pace_exports = {};
+__export(goal_pace_exports, {
+  computePacePlan: () => computePacePlan,
+  getPacePlan: () => getPacePlan,
+  pacePromptSection: () => pacePromptSection,
+  paceWindowFor: () => paceWindowFor
+});
+function weekStart() {
+  const now = /* @__PURE__ */ new Date();
+  const d = new Date(now);
+  d.setUTCHours(21, 0, 0, 0);
+  d.setUTCDate(d.getUTCDate() - d.getUTCDay());
+  if (d > now) d.setUTCDate(d.getUTCDate() - 7);
+  return d;
+}
+function tradingDaysLeft() {
+  const dow = (/* @__PURE__ */ new Date()).getUTCDay();
+  if (dow === 6) return 5;
+  if (dow === 0) return 5;
+  return 6 - dow;
+}
+async function computePacePlan(userId, cfg) {
+  const { pool: pool2 } = await Promise.resolve().then(() => (init_db(), db_exports));
+  const pairs = (cfg.pairs || []).map((p2) => String(p2).toUpperCase().replace("/", ""));
+  const sig = await pool2.query(
+    `SELECT upper(replace(symbol,'/','')) symbol, upper(direction) direction,
+            extract(hour from min(created_at))::int h, sum(profit_loss) pnl
+       FROM ai_trade_results
+      WHERE user_id=$1 AND source = ANY($2) AND result IN ('WIN','LOSS')
+        AND created_at > now() - interval '60 days' AND coalesce(entry_price,0) > 0
+      GROUP BY 1, 2, date_trunc('minute', created_at)`,
+    [userId, SOURCES]
+  );
+  const agg = /* @__PURE__ */ new Map();
+  for (const r of sig.rows) {
+    if (r.direction !== "BUY" && r.direction !== "SELL") continue;
+    if (pairs.length && !pairs.includes(r.symbol)) continue;
+    const sess = sessionForHour(r.h);
+    const k2 = `${r.symbol}|${sess}|${r.direction}`;
+    const a = agg.get(k2) || { s: r.symbol, sess, d: r.direction, n: 0, w: 0, pnl: 0 };
+    a.n++;
+    if (Number(r.pnl) > 0) a.w++;
+    a.pnl += Number(r.pnl) || 0;
+    agg.set(k2, a);
+  }
+  const windows = Array.from(agg.values()).map((a) => {
+    const winRate2 = Math.round(a.w / a.n * 100);
+    const expectancy = Math.round(a.pnl / a.n * 100) / 100;
+    const verdict = a.n >= 5 && winRate2 >= 50 && expectancy > 0 ? "FOCUS" : a.n >= 6 && winRate2 < 35 && expectancy < 0 ? "AVOID" : "OK";
+    return { symbol: a.s, session: a.sess, direction: a.d, signals: a.n, wins: a.w, winRate: winRate2, expectancy, pnl: Math.round(a.pnl), verdict };
+  }).sort((x, y) => y.expectancy - x.expectancy);
+  const ws = weekStart();
+  const wk = await pool2.query(
+    `SELECT coalesce(sum(profit_loss),0) week,
+            coalesce(sum(profit_loss) FILTER (WHERE coalesce(closed_at, created_at) >= date_trunc('day', now())),0) today
+       FROM ai_trade_results
+      WHERE user_id=$1 AND source = ANY($2) AND result IN ('WIN','LOSS','BREAKEVEN')
+        AND coalesce(closed_at, created_at) >= $3 AND coalesce(entry_price,0) > 0`,
+    [userId, SOURCES, ws]
+  );
+  const weekPnl = Math.round(Number(wk.rows[0]?.week) || 0);
+  const todayPnl = Math.round(Number(wk.rows[0]?.today) || 0);
+  const weekTarget = Number(cfg.weeklyProfitTarget) || 0;
+  const deficit = Math.max(0, weekTarget - weekPnl);
+  const daysLeft = tradingDaysLeft();
+  const neededPerDay = Math.round(deficit / Math.max(1, daysLeft));
+  const consistencyPct = Number(cfg.maxDailyProfitPctOfTotal) || 0;
+  const todayCap = consistencyPct > 0 && weekTarget > 0 ? Math.round(weekTarget * consistencyPct / 100) : null;
+  const mode = weekTarget > 0 && deficit <= 0 ? "AHEAD" : todayCap != null && neededPerDay > todayCap ? "CAPPED" : weekTarget > 0 && weekPnl >= weekTarget * (1 - daysLeft / 5) ? "ON_PACE" : "BEHIND";
+  return { computedAt: (/* @__PURE__ */ new Date()).toISOString(), weekTarget, weekPnl, todayPnl, deficit, daysLeft, neededPerDay, consistencyPct, todayCap, mode, windows };
+}
+function getPacePlan(userId, cfg) {
+  const p2 = plans.get(userId);
+  if ((!p2 || Date.now() - Date.parse(p2.computedAt) > TTL_MS3) && !loading.has(userId)) {
+    loading.add(userId);
+    computePacePlan(userId, cfg).then((r) => plans.set(userId, r)).catch(() => {
+    }).finally(() => loading.delete(userId));
+  }
+  return p2 || null;
+}
+function paceWindowFor(plan, symbol, direction, hourUtc = (/* @__PURE__ */ new Date()).getUTCHours()) {
+  if (!plan) return null;
+  const sym2 = String(symbol || "").toUpperCase().replace("/", "");
+  const sess = sessionForHour(hourUtc);
+  return plan.windows.find((w) => w.symbol === sym2 && w.direction === String(direction).toUpperCase() && sameSession(w.session, sess)) || null;
+}
+function pacePromptSection(plan) {
+  if (!plan) return "";
+  const sess = sessionForHour((/* @__PURE__ */ new Date()).getUTCHours());
+  const fmt = (w) => `${w.symbol} ${w.direction} (${w.winRate}% over ${w.signals}, $${w.expectancy}/signal)`;
+  const now = plan.windows.filter((w) => sameSession(w.session, sess));
+  const focus = now.filter((w) => w.verdict === "FOCUS").slice(0, 6).map(fmt);
+  const avoid = now.filter((w) => w.verdict === "AVOID").slice(-6).map(fmt);
+  const later = plan.windows.filter((w) => w.verdict === "FOCUS" && !sameSession(w.session, sess)).slice(0, 5).map((w) => `${w.symbol} ${w.direction} in ${w.session}`);
+  return `
+GOAL PACE AGENT (week $${plan.weekPnl} / $${plan.weekTarget}, ${plan.mode}; need ~$${plan.neededPerDay}/day over ${plan.daysLeft} day(s); today $${plan.todayPnl}${plan.todayCap != null ? `, consistency cap $${plan.todayCap} today` : ""}):
+- Current session: ${sess}. Prefer these proven windows: ${focus.join("; ") || "none with enough history"}.
+- Proven losers this session (need 85%+ or skip): ${avoid.join("; ") || "none"}.
+${later.length ? `- Best windows later: ${later.join("; ")}.
+` : ""}- Catch up by picking BETTER windows, never by bigger size: risk per trade, daily loss limit and the consistency cap are fixed.${plan.mode === "CAPPED" ? " The goal cannot be closed inside the consistency cap this week \u2014 aim for the cap, not the full deficit." : ""}${plan.mode === "AHEAD" ? " Goal reached \u2014 only A+ setups." : ""}
+`;
+}
+var SOURCES, TTL_MS3, plans, loading;
+var init_goal_pace = __esm({
+  "server/services/goal-pace.ts"() {
+    "use strict";
+    init_session();
+    SOURCES = ["tradelocker_auto", "tradelocker", "mt5_ea", "dxtrade"];
+    TTL_MS3 = 15 * 6e4;
+    plans = /* @__PURE__ */ new Map();
+    loading = /* @__PURE__ */ new Set();
+  }
+});
+
 // server/tradelocker.ts
 var tradelocker_exports = {};
 __export(tradelocker_exports, {
@@ -26655,12 +26770,12 @@ async function computeShadowLessons(userId, days = 30) {
 }
 async function getShadowLessons(userId, force = false) {
   const hit = _mem.get(userId);
-  if (!force && hit && Date.now() - hit.at < TTL_MS3()) return hit;
+  if (!force && hit && Date.now() - hit.at < TTL_MS4()) return hit;
   try {
     if (!force) {
       const { getRuntimeStateStrict: getRuntimeStateStrict2 } = await Promise.resolve().then(() => (init_runtime_state(), runtime_state_exports));
       const stored = await getRuntimeStateStrict2("shadow_lessons", String(userId)).catch(() => null);
-      if (stored && Date.now() - Number(stored.at) < TTL_MS3() && Array.isArray(stored.lessons)) {
+      if (stored && Date.now() - Number(stored.at) < TTL_MS4() && Array.isArray(stored.lessons)) {
         _mem.set(userId, stored);
         return stored;
       }
@@ -26688,7 +26803,7 @@ Lean toward setups matching FAVOR lessons and be much more selective with setups
     return "";
   }
 }
-var MIN_TRADES3, EDGE_R, TTL_MS3, SOURCE_LABEL, ENGINE_SOURCES, _mem;
+var MIN_TRADES3, EDGE_R, TTL_MS4, SOURCE_LABEL, ENGINE_SOURCES, _mem;
 var init_shadow_lessons = __esm({
   "server/services/shadow-lessons.ts"() {
     "use strict";
@@ -26696,7 +26811,7 @@ var init_shadow_lessons = __esm({
     init_shadow_ledger();
     MIN_TRADES3 = () => Number(process.env.SHADOW_LESSON_MIN_TRADES ?? 8);
     EDGE_R = () => Number(process.env.SHADOW_LESSON_EDGE_R ?? 0.3);
-    TTL_MS3 = () => Math.max(1, Number(process.env.SHADOW_LESSONS_TTL_H ?? 6)) * 36e5;
+    TTL_MS4 = () => Math.max(1, Number(process.env.SHADOW_LESSONS_TTL_H ?? 6)) * 36e5;
     SOURCE_LABEL = {
       fx_shadow: "FX shadow models",
       crypto_shadow: "Crypto shadow models",
@@ -27548,7 +27663,7 @@ async function hourFilterVerdict(userId, hourUtc) {
   if (process.env.HOUR_FILTER_ENABLED === "false") return null;
   try {
     let entry = cache6.get(userId);
-    if (!entry || Date.now() - entry.at > TTL_MS4) {
+    if (!entry || Date.now() - entry.at > TTL_MS5) {
       const fresh = await compute2(userId);
       entry = { at: Date.now(), ...fresh };
       cache6.set(userId, entry);
@@ -27567,13 +27682,13 @@ async function hourFilterTable(userId) {
   const { stats, blocked } = await compute2(userId);
   return { stats: stats.sort((a, b) => a.hour - b.hour), blocked: Array.from(blocked).sort((a, b) => a - b) };
 }
-var MIN_SAMPLE, WR_FLOOR, TTL_MS4, LOOKBACK_DAYS3, cache6;
+var MIN_SAMPLE, WR_FLOOR, TTL_MS5, LOOKBACK_DAYS3, cache6;
 var init_hour_filter = __esm({
   "server/services/hour-filter.ts"() {
     "use strict";
     MIN_SAMPLE = Number(process.env.HOUR_FILTER_MIN_TRADES ?? 15);
     WR_FLOOR = Number(process.env.HOUR_FILTER_MIN_WINRATE ?? 45);
-    TTL_MS4 = Number(process.env.HOUR_FILTER_TTL_MS ?? 60 * 60 * 1e3);
+    TTL_MS5 = Number(process.env.HOUR_FILTER_TTL_MS ?? 60 * 60 * 1e3);
     LOOKBACK_DAYS3 = Number(process.env.HOUR_FILTER_LOOKBACK_DAYS ?? 180);
     cache6 = /* @__PURE__ */ new Map();
   }
@@ -28152,6 +28267,7 @@ function getDefaultConfig(userId) {
     // routine trend noise. Opt-in via the weekly-strategy toggle.
     brainShadowEnabled: true,
     stopHoldUntilR: 1,
+    goalPaceEnabled: true,
     reversalSensitivity: 4,
     // if opted in, default to conservative (4 of 5) not 3
     dailyProfitTarget: 0,
@@ -28321,6 +28437,11 @@ function htfTurnedAgainst(state, symbol, direction) {
 function recordTradeResult(userId, result) {
   const state = engineStates[userId];
   if (!state) return;
+  {
+    const _cMs = result.closedAt != null ? new Date(result.closedAt).getTime() : NaN;
+    const _sMs = state.startedAt ? Date.parse(state.startedAt) : NaN;
+    if (Number.isFinite(_cMs) && Number.isFinite(_sMs) && _cMs < _sMs - 2 * 6e4) return;
+  }
   if (result.tradeKey) {
     let seen = countedTradeKeys.get(userId);
     if (!seen) {
@@ -30470,6 +30591,7 @@ ${_btc.btcContextLine(crossAssets, state.lastFridayClose?.[_bk], marketAnalysis[
     const compMult = tracker.compoundMultiplier;
     const adjustedBaseLot = Math.round(config.baseLotSize * compMult * 100) / 100;
     const effectiveMaxLot2 = config.maxLotSize;
+    const goalPaceSection = config.goalPaceEnabled !== false ? pacePromptSection(getPacePlan(userId, config)) : "";
     const goalSection = config.weeklyProfitTarget > 0 ? `
 WEEKLY PROFIT GOAL SYSTEM:
 - Weekly Target: $${config.weeklyProfitTarget} | Current Profit: $${tracker.currentProfit} | Progress: ${tracker.progressPercent}%
@@ -30639,7 +30761,7 @@ ${brainInsights}
 
 PAIR-SPECIFIC KNOWLEDGE:
 ${pairKnowledge}
-${weightsSection}${htfBiasSection}${shieldSection}${dualModeSection}${goalSection}
+${weightsSection}${htfBiasSection}${shieldSection}${dualModeSection}${goalSection}${goalPaceSection}
 REAL-TIME NEWS & MARKET SENTIMENT:
 ${newsContext && newsContext.headlines.length > 0 ? `Market Sentiment: ${newsContext.marketSentiment.toUpperCase()}
 Recent Headlines:
@@ -31549,6 +31671,14 @@ async function processDecision(userId, decision, newsCtx) {
     }
     if (postEnforcement.forcedStrategy && !decision.strategy) {
       decision.strategy = postEnforcement.forcedStrategy;
+    }
+    if (state.config.goalPaceEnabled !== false) {
+      const _pw = paceWindowFor(getPacePlan(userId, state.config), decision.symbol, decision.direction);
+      const _pc = typeof decision.confidence === "number" ? decision.confidence : parseFloat(decision.confidence) || 0;
+      if (_pw?.verdict === "AVOID" && _pc < 85) {
+        addActivity(userId, { type: "info", symbol: decision.symbol, message: `\u{1F3AF} Goal pace: ${decision.symbol} ${decision.direction} in ${_pw.session} is a proven losing window (${_pw.winRate}% over ${_pw.signals}, ${_pw.expectancy}/signal) \u2014 needs 85%+, have ${_pc}%. Skipped.` });
+        return;
+      }
     }
     decision._brainLotMultiplier = postEnforcement.adjustedLotMultiplier;
     decision._brainTrailPips = postEnforcement.recommendedTrailPips;
@@ -33746,6 +33876,46 @@ function startLiveEngine(userId, config) {
         st._pnlTodayDate = todayStr;
       }
       try {
+        const wk = (await _cPool.query(
+          `SELECT result, profit_loss, (closed_at AT TIME ZONE 'UTC')::date AS d
+             FROM ai_trade_results
+            WHERE user_id=$1 AND source IN ${_sources} AND closed_at >= $2
+              AND result IN ('WIN','LOSS') AND COALESCE(entry_price,0) > 0
+            ORDER BY closed_at`,
+          [userId, tradingWeekStartISO()]
+        )).rows;
+        const tr = st.goalTracker;
+        if (tr && tr.weekStartedAt === tradingWeekStartISO()) {
+          tr.wins = 0;
+          tr.losses = 0;
+          tr.consecutiveWins = 0;
+          tr.consecutiveLosses = 0;
+          tr.currentProfit = 0;
+          tr.dailyPnL = {};
+          for (const r of wk) {
+            const p2 = Number(r.profit_loss) || 0;
+            const dk = new Date(r.d).toISOString().split("T")[0];
+            tr.currentProfit += p2;
+            tr.dailyPnL[dk] = Math.round(((tr.dailyPnL[dk] || 0) + p2) * 100) / 100;
+            if (p2 > 0) {
+              tr.wins++;
+              tr.consecutiveWins++;
+              tr.consecutiveLosses = 0;
+            } else {
+              tr.losses++;
+              tr.consecutiveLosses++;
+              tr.consecutiveWins = 0;
+            }
+          }
+          tr.currentProfit = Math.round(tr.currentProfit * 100) / 100;
+          tr.winRate = tr.wins + tr.losses > 0 ? Math.round(tr.wins / (tr.wins + tr.losses) * 100) : 0;
+          tr.progressPercent = tr.weeklyTarget > 0 ? Math.min(100, Math.max(0, Math.round(tr.currentProfit / tr.weeklyTarget * 100))) : 0;
+        }
+      } catch (_) {
+      }
+      void computePacePlan(userId, fullConfig).catch(() => {
+      });
+      try {
         const _tc = (await _cPool.query(
           `SELECT count(*)::int AS n FROM ai_trade_results
             WHERE user_id=$1 AND source IN ${_sources}
@@ -34298,6 +34468,7 @@ var init_live_trading_engine = __esm({
     init_service();
     init_guard_events();
     init_brain_shadow();
+    init_goal_pace();
     init_ai_level();
     init_tradelocker();
     init_tradelocker_sync();
@@ -39781,10 +39952,10 @@ async function applySetup(userId, p2) {
   if (p2.title) {
     try {
       const prev = await storage.getActiveWeeklyStrategy(userId).catch(() => void 0);
-      const weekStart = /* @__PURE__ */ new Date();
-      weekStart.setUTCHours(0, 0, 0, 0);
-      const dow = weekStart.getUTCDay();
-      weekStart.setUTCDate(weekStart.getUTCDate() + (dow === 0 ? 1 : dow === 6 ? 2 : 1 - dow));
+      const weekStart2 = /* @__PURE__ */ new Date();
+      weekStart2.setUTCHours(0, 0, 0, 0);
+      const dow = weekStart2.getUTCDay();
+      weekStart2.setUTCDate(weekStart2.getUTCDate() + (dow === 0 ? 1 : dow === 6 ? 2 : 1 - dow));
       const balance = Number(getEffectiveEngineConfig(userId).accountBalance || prev?.accountBalance || 0);
       await storage.saveWeeklyStrategy(userId, {
         profitTarget: p2.weeklyTarget ?? prev?.profitTarget ?? Number(getEffectiveEngineConfig(userId).weeklyProfitTarget || 0),
@@ -39795,7 +39966,7 @@ async function applySetup(userId, p2) {
         plan: { ...prev?.plan || {}, abbaGenerated: true, abbaSetup: { title: p2.title, rationale: p2.rationale, proposal: p2, appliedAt: (/* @__PURE__ */ new Date()).toISOString() } },
         pairStats: prev?.pairStats || null,
         generatedAt: (/* @__PURE__ */ new Date()).toISOString(),
-        weekStart: weekStart.toISOString().slice(0, 10)
+        weekStart: weekStart2.toISOString().slice(0, 10)
       });
       applied.push(`Weekly plan "${p2.title}" is now your active plan`);
     } catch (e) {
@@ -40588,7 +40759,7 @@ function getCachedConfirmation(userId, symbol, timeframe, direction, eaConfidenc
   const now = Date.now();
   const k2 = bandKey(userId, symbol, timeframe, direction, eaConfidence, price);
   const hit = cache7.get(k2);
-  if (hit && now - hit.at < TTL_MS5) {
+  if (hit && now - hit.at < TTL_MS6) {
     hits++;
     return { verdict: hit.verdict, reason: `cached ${Math.round((now - hit.at) / 1e3)}s ago (same setup)` };
   }
@@ -40621,11 +40792,11 @@ function confirmationCacheStats() {
   const total = hits + misses + throttled;
   return { hits, misses, throttled, total, savedPct: total ? Math.round((hits + throttled) / total * 100) : 0, entries: cache7.size };
 }
-var TTL_MS5, FLOOR_MS, STALE_USABLE_MS, CONF_BAND, cache7, lastCallAt2, hits, misses, throttled;
+var TTL_MS6, FLOOR_MS, STALE_USABLE_MS, CONF_BAND, cache7, lastCallAt2, hits, misses, throttled;
 var init_ai_confirmation_cache = __esm({
   "server/services/ai-confirmation-cache.ts"() {
     "use strict";
-    TTL_MS5 = Number(process.env.AI_CONFIRM_CACHE_TTL_MS ?? 3 * 60 * 1e3);
+    TTL_MS6 = Number(process.env.AI_CONFIRM_CACHE_TTL_MS ?? 3 * 60 * 1e3);
     FLOOR_MS = Number(process.env.AI_CONFIRM_MIN_INTERVAL_MS ?? 60 * 1e3);
     STALE_USABLE_MS = Number(process.env.AI_CONFIRM_STALE_MS ?? 10 * 60 * 1e3);
     CONF_BAND = Number(process.env.AI_CONFIRM_CONF_BAND ?? 5);
@@ -41308,12 +41479,12 @@ var init_vedd_token_service = __esm({
         const now = /* @__PURE__ */ new Date();
         const day = now.getDay();
         const diffToMon = day === 0 ? -6 : 1 - day;
-        const weekStart = new Date(now);
-        weekStart.setDate(now.getDate() + diffToMon);
-        weekStart.setHours(0, 0, 0, 0);
+        const weekStart2 = new Date(now);
+        weekStart2.setDate(now.getDate() + diffToMon);
+        weekStart2.setHours(0, 0, 0, 0);
         const rows = await db.select({ total: sql8`coalesce(sum(total_reward), 0)` }).from(ambassadorActionRewards).where(and6(
           eq9(ambassadorActionRewards.userId, userId),
-          gte5(ambassadorActionRewards.createdAt, weekStart)
+          gte5(ambassadorActionRewards.createdAt, weekStart2)
         ));
         return Number(rows[0]?.total || 0);
       }
@@ -46858,7 +47029,7 @@ async function cryptocomTicker(sym2) {
 async function getAggregatedQuote(symbol) {
   const sym2 = symbol.toUpperCase().replace(/[^A-Z0-9]/g, "");
   const hit = _cache3.get(sym2);
-  if (hit && Date.now() - hit.ts < TTL_MS6) return hit.q;
+  if (hit && Date.now() - hit.ts < TTL_MS7) return hit.q;
   const venues = await Promise.all([coinbaseSpot(sym2), krakenTicker(sym2), geminiTicker(sym2), cryptocomTicker(sym2)]);
   const priced = venues.filter((v) => typeof v.price === "number" && v.price > 0);
   let best = null;
@@ -46877,11 +47048,11 @@ async function getAggregatedQuotes(symbols) {
   const uniq = Array.from(new Set(symbols.map((s) => s.toUpperCase().replace(/[^A-Z0-9]/g, "")))).slice(0, 25);
   return Promise.all(uniq.map(getAggregatedQuote));
 }
-var TTL_MS6, _cache3;
+var TTL_MS7, _cache3;
 var init_crypto_market_data = __esm({
   "server/services/crypto-market-data.ts"() {
     "use strict";
-    TTL_MS6 = 15e3;
+    TTL_MS7 = 15e3;
     _cache3 = /* @__PURE__ */ new Map();
   }
 });
@@ -68117,9 +68288,9 @@ async function getStopOrdersForUser(userId, filters = {}) {
 init_schema();
 
 // server/build-info.ts
-var BUILD_COMMIT = "81546c82-dirty";
+var BUILD_COMMIT = "7bdddc93-dirty";
 var BUILD_BRANCH = "HEAD";
-var BUILT_AT = "2026-11-05T04:19:42.601Z";
+var BUILT_AT = "2026-11-05T04:43:08.587Z";
 
 // server/stripe.ts
 init_db();
@@ -68658,11 +68829,11 @@ async function lsSetPlanVariantId(planId, variantId) {
   await db.update(subscriptionPlans).set({ lsVariantId: variantId }).where(eq8(subscriptionPlans.id, planId));
 }
 async function lsGetPlanVariants() {
-  const plans = await db.select({
+  const plans2 = await db.select({
     id: subscriptionPlans.id,
     lsVariantId: subscriptionPlans.lsVariantId
   }).from(subscriptionPlans);
-  return Object.fromEntries(plans.map((p2) => [p2.id, p2.lsVariantId ?? null]));
+  return Object.fromEntries(plans2.map((p2) => [p2.id, p2.lsVariantId ?? null]));
 }
 
 // server/routes.ts
@@ -69214,9 +69385,9 @@ router.get("/daily-missions", async (req, res) => {
     const now = /* @__PURE__ */ new Date();
     const day = now.getDay();
     const diffToMon = day === 0 ? -6 : 1 - day;
-    const weekStart = new Date(now);
-    weekStart.setDate(now.getDate() + diffToMon);
-    weekStart.setHours(0, 0, 0, 0);
+    const weekStart2 = new Date(now);
+    weekStart2.setDate(now.getDate() + diffToMon);
+    weekStart2.setHours(0, 0, 0, 0);
     const rawToday = await db.execute(sql9`
       SELECT action_type, COUNT(*) as count, COALESCE(SUM(total_reward),0) as earned
       FROM ambassador_action_rewards
@@ -69229,7 +69400,7 @@ router.get("/daily-missions", async (req, res) => {
     const rawWeek = await db.execute(sql9`
       SELECT action_type, COUNT(*) as count, COALESCE(SUM(total_reward),0) as earned
       FROM ambassador_action_rewards
-      WHERE user_id = ${userId} AND created_at >= ${weekStart.toISOString()}
+      WHERE user_id = ${userId} AND created_at >= ${weekStart2.toISOString()}
       GROUP BY action_type
     `);
     const weekRows = Array.isArray(rawWeek) ? rawWeek : rawWeek.rows || [];
@@ -69266,7 +69437,7 @@ router.get("/daily-missions", async (req, res) => {
       FROM ambassador_action_rewards
       WHERE user_id = ${userId}
         AND action_type IN ('devotional_solo','devotional_group')
-        AND created_at >= ${weekStart.toISOString()}
+        AND created_at >= ${weekStart2.toISOString()}
     `);
     const devDaysRows = Array.isArray(rawDevDays) ? rawDevDays : rawDevDays.rows || [];
     const devotionalDaysThisWeek = Number(devDaysRows[0]?.days || 0);
@@ -74083,8 +74254,8 @@ Respond ONLY in valid JSON format with these exact keys:
   });
   app2.get("/api/subscription/plans", async (_req, res) => {
     try {
-      const plans = await getSubscriptionPlans();
-      res.json(plans);
+      const plans2 = await getSubscriptionPlans();
+      res.json(plans2);
     } catch (error) {
       console.error("Error fetching subscription plans:", error);
       res.status(500).json({ message: "Error fetching subscription plans" });
@@ -74104,8 +74275,8 @@ Respond ONLY in valid JSON format with these exact keys:
         const TIER_PLAN_MAP = { basic: "Starter", pro: "Premium", elite: "Yearly" };
         const equivalentPlan = TIER_PLAN_MAP[membershipTier];
         if (equivalentPlan) {
-          const plans = await getSubscriptionPlans();
-          const tokenPlan = plans.find((p2) => p2.name === equivalentPlan);
+          const plans2 = await getSubscriptionPlans();
+          const tokenPlan = plans2.find((p2) => p2.name === equivalentPlan);
           if (tokenPlan) {
             baseResponse.tokenGatedPlanName = equivalentPlan;
             baseResponse.tokenGatedAnalysisLimit = tokenPlan.analysisLimit;
@@ -74214,8 +74385,8 @@ Respond ONLY in valid JSON format with these exact keys:
         return res.status(400).json({ message: `Insufficient credits. Need ${cost}, have ${balance}.` });
       }
       await storage.updateUser(userId, { referralCredits: balance - cost });
-      const plans = await storage.getSubscriptionPlans();
-      const plan = plans.find((p2) => p2.id === planId);
+      const plans2 = await storage.getSubscriptionPlans();
+      const plan = plans2.find((p2) => p2.id === planId);
       if (!plan) return res.status(404).json({ message: "Plan not found" });
       await storage.updateUserSubscription(userId, {
         planId,
@@ -74481,8 +74652,8 @@ Respond ONLY in valid JSON format with these exact keys:
         return res.status(400).json({ message: "Plan ID is required" });
       }
       const user = req.user;
-      const plans = await getSubscriptionPlans();
-      const plan = plans.find((p2) => p2.id === planId);
+      const plans2 = await getSubscriptionPlans();
+      const plan = plans2.find((p2) => p2.id === planId);
       if (!plan) {
         return res.status(404).json({ message: "Plan not found" });
       }
@@ -74926,17 +75097,17 @@ Respond ONLY in valid JSON format with these exact keys:
       const _progFresh = strategy?.progressWeekStart === _wkNow.toISOString() || strategy?.weekStart && new Date(strategy.weekStart) >= _wkNow;
       const weekProfit = strategy ? _progFresh ? strategy.currentProfit ?? 0 : 0 : todayProfit;
       const weekPct = weekTarget > 0 ? Math.min(100, Math.round(weekProfit / weekTarget * 100)) : 0;
-      const weekStart = strategy?.weekStart ? new Date(strategy.weekStart) : null;
+      const weekStart2 = strategy?.weekStart ? new Date(strategy.weekStart) : null;
       const dayNames = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
       const today = dayNames[(/* @__PURE__ */ new Date()).getUTCDay()];
-      const tradingDaysLeft = Math.max(1, (() => {
+      const tradingDaysLeft2 = Math.max(1, (() => {
         const days = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday"];
         const todayIdx = days.indexOf(today);
         return todayIdx >= 0 ? 5 - todayIdx : 1;
       })());
       const dailyTarget = weekTarget > 0 ? Math.round(weekTarget / 5 * 100) / 100 : 0;
       const targetRemaining = Math.max(0, Math.round((weekTarget - weekProfit) * 100) / 100);
-      const pacingNeededPerDay = tradingDaysLeft > 0 ? Math.round(targetRemaining / tradingDaysLeft * 100) / 100 : 0;
+      const pacingNeededPerDay = tradingDaysLeft2 > 0 ? Math.round(targetRemaining / tradingDaysLeft2 * 100) / 100 : 0;
       const _mt5Bal = sumFreshMt5Balances(userId);
       const _tlCacheAbba = global.tlAccountData?.[userId] || {};
       const _tlBalAbba = Object.values(_tlCacheAbba).reduce((s, a) => s + (a?.balance || 0), 0);
@@ -75069,7 +75240,7 @@ CURRENT USER CONTEXT (live data \u2014 speak these numbers like you know them co
 - Weekly Profit (closed): $${weekProfit} (${weekPct}% of goal)
 - Unrealized P&L (open positions): $${unrealizedPnL}
 - Today's Closed P&L: $${todayProfit} / $${dailyTarget} daily target
-- Days Left This Week: ${tradingDaysLeft}
+- Days Left This Week: ${tradingDaysLeft2}
 - Remaining to Hit Goal: $${targetRemaining}
 - Needed Per Day to Hit Goal: $${pacingNeededPerDay}
 - Week Trades: ${weekTrades} trades | Win Rate: ${weekWinRate}%
@@ -75508,14 +75679,14 @@ data: ${JSON.stringify(data)}
       const weekPct = weekTarget > 0 ? Math.min(100, Math.round(weekProfit / weekTarget * 100)) : 0;
       const dayNames = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
       const today = dayNames[(/* @__PURE__ */ new Date()).getUTCDay()];
-      const tradingDaysLeft = Math.max(1, (() => {
+      const tradingDaysLeft2 = Math.max(1, (() => {
         const d = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday"];
         const i = d.indexOf(today);
         return i >= 0 ? 5 - i : 1;
       })());
       const dailyTarget = weekTarget > 0 ? Math.round(weekTarget / 5 * 100) / 100 : 0;
       const targetRemaining = Math.max(0, Math.round((weekTarget - weekProfit) * 100) / 100);
-      const pacingNeededPerDay = tradingDaysLeft > 0 ? Math.round(targetRemaining / tradingDaysLeft * 100) / 100 : 0;
+      const pacingNeededPerDay = tradingDaysLeft2 > 0 ? Math.round(targetRemaining / tradingDaysLeft2 * 100) / 100 : 0;
       const _mt5BalS = sumFreshMt5Balances(userId);
       const _tlCacheS = global.tlAccountData?.[userId] || {};
       const _tlBalS = Object.values(_tlCacheS).reduce((s, a) => s + (a?.balance || 0), 0);
@@ -75586,7 +75757,7 @@ data: ${JSON.stringify(data)}
       }
       const systemPrompt = `You are ABBA \u2014 VEDD AI. God Body intelligence meets fund manager precision. Built for ${firstName}. No fluff. No corporate speak. Just real knowledge, right and exact.
 
-LIVE NUMBERS (speak these cold): Balance $${balance.toLocaleString("en-US", { minimumFractionDigits: 2 })} (MT5 $${_mt5BalS.toLocaleString()} + TradeLocker $${_tlBalS.toLocaleString()}) | TL accounts: ${tlAcctLine} | Week ${weekPct}% ($${weekProfit}/$${weekTarget}) | Today $${todayProfit}/$${dailyTarget} | ${tradingDaysLeft}d left | Need $${pacingNeededPerDay}/day | Open(${openPositions.length}): ${openSummary || "None"} | Pairs: ${planPairs.join(",") || "None"} | Today: ${today} | Page: ${currentPage}
+LIVE NUMBERS (speak these cold): Balance $${balance.toLocaleString("en-US", { minimumFractionDigits: 2 })} (MT5 $${_mt5BalS.toLocaleString()} + TradeLocker $${_tlBalS.toLocaleString()}) | TL accounts: ${tlAcctLine} | Week ${weekPct}% ($${weekProfit}/$${weekTarget}) | Today $${todayProfit}/$${dailyTarget} | ${tradingDaysLeft2}d left | Need $${pacingNeededPerDay}/day | Open(${openPositions.length}): ${openSummary || "None"} | Pairs: ${planPairs.join(",") || "None"} | Today: ${today} | Page: ${currentPage}
 BRAIN (live \u2014 learns from MT5 + TradeLocker closed trades): ${(() => {
         const b = global.veddAIBrain?.[userId];
         return b ? `${b.overallWinRate ?? "?"}% WR over ${b.totalTradesAnalyzed ?? "?"} trades \xB7 ${(b.learningInsights ?? []).slice(0, 3).join(" / ") || "building insights"}` : "still learning \u2014 no closed trades analyzed yet";
@@ -75869,11 +76040,11 @@ IMPORTANT:
       const planRaw = planCompletion.choices[0].message.content || "{}";
       const planClean = planRaw.replace(/^```[a-z]*\n?/i, "").replace(/\n?```$/i, "").trim();
       const planData = JSON.parse(planClean);
-      const weekStart = /* @__PURE__ */ new Date();
-      weekStart.setUTCHours(0, 0, 0, 0);
-      const dayOfWeek = weekStart.getUTCDay();
+      const weekStart2 = /* @__PURE__ */ new Date();
+      weekStart2.setUTCHours(0, 0, 0, 0);
+      const dayOfWeek = weekStart2.getUTCDay();
       const daysToMonday = dayOfWeek === 0 ? 1 : dayOfWeek === 1 ? 0 : -(dayOfWeek - 1);
-      weekStart.setUTCDate(weekStart.getUTCDate() + daysToMonday);
+      weekStart2.setUTCDate(weekStart2.getUTCDate() + daysToMonday);
       const existingStrategy = await storage.getActiveWeeklyStrategy(userId);
       let savedStrategy;
       if (existingStrategy) {
@@ -75905,7 +76076,7 @@ IMPORTANT:
           plan: mergedPlan,
           pairStats,
           generatedAt: /* @__PURE__ */ new Date(),
-          weekStart,
+          weekStart: weekStart2,
           currentProfit: existingStrategy.currentProfit || 0,
           progressTrades: existingStrategy.progressTrades || 0,
           progressWinRate: existingStrategy.progressWinRate || 0,
@@ -75925,7 +76096,7 @@ IMPORTANT:
           plan: planData,
           pairStats,
           generatedAt: /* @__PURE__ */ new Date(),
-          weekStart,
+          weekStart: weekStart2,
           currentProfit: 0,
           progressTrades: 0,
           progressWinRate: 0,
@@ -75947,7 +76118,7 @@ IMPORTANT:
         strategyMode: hftMode || savedStrategy?.strategyType || "aggressive",
         pairStats,
         generatedAt: /* @__PURE__ */ new Date(),
-        weekStart,
+        weekStart: weekStart2,
         currentProfit: savedStrategy?.currentProfit || 0,
         progressTrades: savedStrategy?.progressTrades || 0,
         progressWinRate: savedStrategy?.progressWinRate || 0,
@@ -82757,7 +82928,7 @@ BEAR CASE: ${_bearCase || "n/a"}` : aiConfirmation.reasoning;
     }
     const now = /* @__PURE__ */ new Date();
     const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-    const weekStart = tradingWeekStartUTC();
+    const weekStart2 = tradingWeekStartUTC();
     const allDbTrades = await storage.getAiTradeResults(userId, 5e3);
     const cachedTrades = global.mt5ClosedTrades?.[userId]?.trades || [];
     const todayDb = allDbTrades.filter((t) => {
@@ -82772,13 +82943,13 @@ BEAR CASE: ${_bearCase || "n/a"}` : aiConfirmation.reasoning;
     });
     const weekDb = allDbTrades.filter((t) => {
       const d = new Date(t.closedAt || t.createdAt);
-      return d >= weekStart && t.result && t.result !== "PENDING";
+      return d >= weekStart2 && t.result && t.result !== "PENDING";
     });
     const weekDbTickets = new Set(weekDb.map((t) => t.mt5Ticket).filter(Boolean));
     const weekCache = cachedTrades.filter((t) => {
       const d = new Date(t.closeTime || t.timestamp || 0);
       const ticket = t.ticket?.toString();
-      return d >= weekStart && (!ticket || !weekDbTickets.has(ticket));
+      return d >= weekStart2 && (!ticket || !weekDbTickets.has(ticket));
     });
     const openPositions = global.mt5OpenPositions?.[userId]?.positions || [];
     const mt5UnrealizedPnL = openPositions.reduce((s, p2) => s + (p2.profit || 0), 0);
@@ -82789,7 +82960,7 @@ BEAR CASE: ${_bearCase || "n/a"}` : aiConfirmation.reasoning;
       const tlConnections = await storage.getUserTradelockerConnections(userId);
       const activeTlConns = tlConnections.filter((c) => c.isActive);
       const todayStartTs = Math.floor(todayStart.getTime() / 1e3);
-      const weekStartTs = Math.floor(weekStart.getTime() / 1e3);
+      const weekStartTs = Math.floor(weekStart2.getTime() / 1e3);
       for (const conn of activeTlConns) {
         try {
           const tlSvc = await getOrCreateService(conn);
@@ -82803,7 +82974,7 @@ BEAR CASE: ${_bearCase || "n/a"}` : aiConfirmation.reasoning;
           for (const trade of closedTrades) {
             const closeTs = trade.closeTime ? new Date(trade.closeTime).getTime() : 0;
             if (closeTs >= todayStart.getTime()) connTodayPnL += trade.profit || 0;
-            if (closeTs >= weekStart.getTime()) connWeekPnL += trade.profit || 0;
+            if (closeTs >= weekStart2.getTime()) connWeekPnL += trade.profit || 0;
           }
           console.log(`[daily-summary] TL ${conn.accountId}: today=$${connTodayPnL.toFixed(2)} week=$${connWeekPnL.toFixed(2)} (${closedTrades.length} closed trades)`);
         } catch (connErr) {
@@ -84003,20 +84174,20 @@ Respond with ONLY valid JSON:
       global.mt5WeeklyStrategies = global.mt5WeeklyStrategies || {};
       global.mt5WeeklyStrategies[userId] = strategy;
     }
-    const weekStart = tradingWeekStartUTC();
-    strategy.progressWeekStart = weekStart.toISOString();
+    const weekStart2 = tradingWeekStartUTC();
+    strategy.progressWeekStart = weekStart2.toISOString();
     const planPairs = (strategy.pairs || []).map((p2) => p2.toUpperCase().replace("/", ""));
     const dbTrades = await storage.getAiTradeResults(userId, 500);
     const dbWeekTrades = dbTrades.filter((t) => {
       const tradeDate = new Date(t.closedAt || t.createdAt);
-      return tradeDate >= weekStart && t.result && t.result !== "PENDING";
+      return tradeDate >= weekStart2 && t.result && t.result !== "PENDING";
     });
     const cachedTrades = global.mt5ClosedTrades?.[userId]?.trades || [];
     const dbTickets = new Set(dbWeekTrades.map((t) => t.mt5Ticket).filter(Boolean));
     const cacheWeekTrades = cachedTrades.filter((t) => {
       const tradeDate = new Date(t.closeTime || t.timestamp || 0);
       const ticket = t.ticket?.toString();
-      return tradeDate >= weekStart && (!ticket || !dbTickets.has(ticket));
+      return tradeDate >= weekStart2 && (!ticket || !dbTickets.has(ticket));
     });
     const dbProfit = dbWeekTrades.reduce((s, t) => s + (t.profitLoss || 0), 0);
     const cacheProfit = cacheWeekTrades.reduce((s, t) => s + (t.profit || 0), 0);
@@ -84260,18 +84431,18 @@ Respond with ONLY valid JSON:
         weekStart: dbStrat.weekStart
       };
     }
-    const weekStart = tradingWeekStartUTC();
+    const weekStart2 = tradingWeekStartUTC();
     const dbTrades = await storage.getAiTradeResults(userId, 500);
     const dbWeekTrades = dbTrades.filter((t) => {
       const d = new Date(t.closedAt || t.createdAt);
-      return d >= weekStart && t.result && t.result !== "PENDING";
+      return d >= weekStart2 && t.result && t.result !== "PENDING";
     });
     const cachedTrades = global.mt5ClosedTrades?.[userId]?.trades || [];
     const dbTickets = new Set(dbWeekTrades.map((t) => t.mt5Ticket).filter(Boolean));
     const cacheWeekTrades = cachedTrades.filter((t) => {
       const d = new Date(t.closeTime || t.timestamp || 0);
       const ticket = t.ticket?.toString();
-      return d >= weekStart && (!ticket || !dbTickets.has(ticket));
+      return d >= weekStart2 && (!ticket || !dbTickets.has(ticket));
     });
     const allWeekTrades = [
       ...dbWeekTrades.map((t) => ({
@@ -84316,6 +84487,15 @@ Respond with ONLY valid JSON:
     const paceStatus = pacePct < 25 && daysLeft <= 2 ? "CRITICAL" : pacePct < 100 - daysLeft * 20 ? "BEHIND" : pacePct >= 100 ? "AHEAD" : "ON_TRACK";
     const balance = strategy.accountBalance || 0;
     const planPairs = (strategy.pairs || []).map((p2) => p2.toUpperCase().replace("/", ""));
+    let paceWindows = null;
+    try {
+      const { computePacePlan: computePacePlan2 } = await Promise.resolve().then(() => (init_goal_pace(), goal_pace_exports));
+      const { getLiveEngineState: getLiveEngineState3 } = await Promise.resolve().then(() => (init_live_trading_engine(), live_trading_engine_exports));
+      const ec = getLiveEngineState3(userId)?.config || {};
+      paceWindows = await computePacePlan2(userId, { weeklyProfitTarget: ec.weeklyProfitTarget || strategy.profitTarget, maxDailyProfitPctOfTotal: ec.maxDailyProfitPctOfTotal, pairs: ec.pairs || planPairs });
+    } catch (_) {
+    }
+    const windowLines = (paceWindows?.windows || []).filter((w) => w.verdict !== "OK").slice(0, 24).map((w) => `${w.verdict} ${w.symbol} ${w.direction} ${w.session}: ${w.winRate}% over ${w.signals} signals, $${w.expectancy}/signal`).join("\n");
     let aiResult = null;
     try {
       const { getUniversalAIClientForUser: getUniversalAIClientForUser2 } = await Promise.resolve().then(() => (init_openai(), openai_exports));
@@ -84344,6 +84524,10 @@ ${solTarget > 0 ? `- SOL Engine: ${solTradeHistory.length} trades, ${solCurrentP
 
 TRADES THIS WEEK (most recent first):
 ${tradeLines || "No trades recorded yet"}
+
+PAIR \xD7 SESSION \xD7 DIRECTION WINDOWS (last 60 days, per signal):
+${windowLines || "Not enough history"}
+HARD LIMITS \u2014 plans must respect them: risk per trade is fixed (do not raise lots to catch up); daily loss limit is fixed;${paceWindows?.todayCap != null ? ` consistency rule caps any single day at about ${paceWindows.todayCap}.` : ""} Build the plan around FOCUS windows and away from AVOID windows, and name the session (Asian/London/New York/Late NY) for each pair.
 
 Return this EXACT JSON (no markdown, no commentary):
 {
@@ -84469,6 +84653,7 @@ Return this EXACT JSON (no markdown, no commentary):
       };
     }
     res.json({
+      paceWindows,
       pace: { status: paceStatus, pacePct, closedProfit: Math.round(closedProfit * 100) / 100, weekTarget, deficit: Math.round(deficit * 100) / 100, daysLeft, requiredPerDay },
       metrics: { totalTrades, wins, losses, winRate: winRate2, avgLotSize, avgProfitPerTrade: Math.round(avgProfitPerTrade * 100) / 100, avgWinProfit: Math.round(avgWinProfit * 100) / 100, avgLossProfit: Math.round(avgLossProfit * 100) / 100, profitFactor: Math.round(profitFactor * 100) / 100 },
       weekTrades: allWeekTrades.slice(0, 50),
@@ -88776,16 +88961,16 @@ Respond with ONLY valid JSON:
       const strategy = global.mt5WeeklyStrategies?.[userId];
       const goalIntelligence = global.veddGoalIntelligence?.[userId];
       const aiPathControl = global.veddAiPathControl?.[userId];
-      const weekStart = tradingWeekStartUTC();
+      const weekStart2 = tradingWeekStartUTC();
       const dbTrades = await storage.getAiTradeResults(userId, 500);
       const weekDbTrades = dbTrades.filter((t) => {
         const d = new Date(t.closedAt || t.createdAt);
-        return d >= weekStart && t.result && t.result !== "PENDING";
+        return d >= weekStart2 && t.result && t.result !== "PENDING";
       });
       const cacheTrades = global.mt5ClosedTrades?.[userId]?.trades || [];
       const weekCacheTrades = cacheTrades.filter((t) => {
         const d = new Date(t.closeTime || t.timestamp || 0);
-        return d >= weekStart;
+        return d >= weekStart2;
       });
       const allWeekTrades = [
         ...weekDbTrades.map((t) => ({
@@ -91574,9 +91759,9 @@ Return ONLY JSON: {"topPicks":[{"market":"","winProbability":<0-100>,"whyItWins"
     }
     const todayStart = /* @__PURE__ */ new Date();
     todayStart.setUTCHours(0, 0, 0, 0);
-    const weekStart = new Date(getWeekStart());
+    const weekStart2 = new Date(getWeekStart());
     const todayStartTs = Math.floor(todayStart.getTime() / 1e3);
-    const weekStartTs = Math.floor(weekStart.getTime() / 1e3);
+    const weekStartTs = Math.floor(weekStart2.getTime() / 1e3);
     const _allClosed = await storage.getAiTradeResults(userId, 500).then(
       (rows) => rows.filter((t) => t.result && t.result !== "PENDING" && t.closedAt)
     ).catch(() => []);
@@ -91589,7 +91774,7 @@ Return ONLY JSON: {"topPicks":[{"market":"","winProbability":<0-100>,"whyItWins"
       const eq21 = mt5Acct?.equity ?? bal;
       const mt5Results = _allClosed.filter((t) => !_tlSources.has(t.source || "manual"));
       const dailyPnl = Math.round(mt5Results.filter((t) => new Date(t.closedAt) >= todayStart).reduce((s, t) => s + (t.profitLoss || 0), 0) * 100) / 100;
-      const weeklyPnl = Math.round(mt5Results.filter((t) => new Date(t.closedAt) >= weekStart).reduce((s, t) => s + (t.profitLoss || 0), 0) * 100) / 100;
+      const weeklyPnl = Math.round(mt5Results.filter((t) => new Date(t.closedAt) >= weekStart2).reduce((s, t) => s + (t.profitLoss || 0), 0) * 100) / 100;
       mt5 = { balance: bal, equity: eq21, dailyPnl, weeklyPnl, isOnline };
     } catch {
       mt5 = { balance: 0, equity: 0, dailyPnl: 0, weeklyPnl: 0, isOnline: false };
@@ -91603,7 +91788,7 @@ Return ONLY JSON: {"topPicks":[{"market":"","winProbability":<0-100>,"whyItWins"
       await Promise.all(active.map(async (conn) => {
         const connResults = tlDbResults.filter((t) => t.connectionId === conn.id);
         const dailyPnl = Math.round(connResults.filter((t) => new Date(t.closedAt) >= todayStart).reduce((s, t) => s + (t.profitLoss || 0), 0) * 100) / 100;
-        const weeklyPnl = Math.round(connResults.filter((t) => new Date(t.closedAt) >= weekStart).reduce((s, t) => s + (t.profitLoss || 0), 0) * 100) / 100;
+        const weeklyPnl = Math.round(connResults.filter((t) => new Date(t.closedAt) >= weekStart2).reduce((s, t) => s + (t.profitLoss || 0), 0) * 100) / 100;
         try {
           const svc = await getOrCreateService(conn);
           const positions = await svc.getPositions().catch(() => []);
@@ -91681,7 +91866,7 @@ Return ONLY JSON: {"topPicks":[{"market":"","winProbability":<0-100>,"whyItWins"
       const polyState = getEngineState2(userId);
       const closed = polyState.closedPositions ?? [];
       const dailyRealizedPnl = closed.filter((p2) => p2.closedAt && new Date(p2.closedAt) >= todayStart).reduce((s, p2) => s + (p2.realizedPnl ?? 0), 0);
-      const weeklyRealizedPnl = closed.filter((p2) => p2.closedAt && new Date(p2.closedAt) >= weekStart).reduce((s, p2) => s + (p2.realizedPnl ?? 0), 0);
+      const weeklyRealizedPnl = closed.filter((p2) => p2.closedAt && new Date(p2.closedAt) >= weekStart2).reduce((s, p2) => s + (p2.realizedPnl ?? 0), 0);
       polymarket = {
         isRunning: polyState.isRunning,
         openPositions: polyState.openPositions.length,
@@ -91716,7 +91901,7 @@ Return ONLY JSON: {"topPicks":[{"market":"","winProbability":<0-100>,"whyItWins"
     const { type } = req.params;
     const todayStart = /* @__PURE__ */ new Date();
     todayStart.setHours(0, 0, 0, 0);
-    const weekStart = tradingWeekStartUTC();
+    const weekStart2 = tradingWeekStartUTC();
     try {
       if (type === "tradelocker") {
         const connId = parseInt(req.params.id, 10);
@@ -91734,7 +91919,7 @@ Return ONLY JSON: {"topPicks":[{"market":"","winProbability":<0-100>,"whyItWins"
           (rows) => rows.filter((t) => t.result && t.result !== "PENDING" && t.closedAt)
         ).catch(() => []);
         const dailyPnl = Math.round(closed.filter((t) => new Date(t.closedAt) >= todayStart).reduce((s, t) => s + (t.profitLoss || 0), 0) * 100) / 100;
-        const weeklyPnl = Math.round(closed.filter((t) => new Date(t.closedAt) >= weekStart).reduce((s, t) => s + (t.profitLoss || 0), 0) * 100) / 100;
+        const weeklyPnl = Math.round(closed.filter((t) => new Date(t.closedAt) >= weekStart2).reduce((s, t) => s + (t.profitLoss || 0), 0) * 100) / 100;
         const allTimePnl = Math.round(closed.reduce((s, t) => s + (t.profitLoss || 0), 0) * 100) / 100;
         const wins = closed.filter((t) => t.result === "WIN").length;
         const winRate2 = closed.length > 0 ? Math.round(wins / closed.length * 100) : 0;
@@ -91783,7 +91968,7 @@ Return ONLY JSON: {"topPicks":[{"market":"","winProbability":<0-100>,"whyItWins"
           (rows) => rows.filter((t) => t.result && t.result !== "PENDING" && t.closedAt && !["tradelocker", "kalshi", "polymarket", "solana"].includes(t.source || "manual"))
         ).catch(() => []);
         const dailyPnl = Math.round(closed.filter((t) => new Date(t.closedAt) >= todayStart).reduce((s, t) => s + (t.profitLoss || 0), 0) * 100) / 100;
-        const weeklyPnl = Math.round(closed.filter((t) => new Date(t.closedAt) >= weekStart).reduce((s, t) => s + (t.profitLoss || 0), 0) * 100) / 100;
+        const weeklyPnl = Math.round(closed.filter((t) => new Date(t.closedAt) >= weekStart2).reduce((s, t) => s + (t.profitLoss || 0), 0) * 100) / 100;
         const allTimePnl = Math.round(closed.reduce((s, t) => s + (t.profitLoss || 0), 0) * 100) / 100;
         const wins = closed.filter((t) => t.result === "WIN").length;
         const winRate2 = closed.length > 0 ? Math.round(wins / closed.length * 100) : 0;
@@ -91845,7 +92030,7 @@ Return ONLY JSON: {"topPicks":[{"market":"","winProbability":<0-100>,"whyItWins"
         }
         const closed = await db.select().from(optionsEngineTrades).where(and11(eq18(optionsEngineTrades.userId, userId), eq18(optionsEngineTrades.connectionId, connId), eq18(optionsEngineTrades.broker, type))).orderBy(desc11(optionsEngineTrades.closedAt)).then((rows) => rows.filter((t) => t.status === "closed" && t.closedAt)).catch(() => []);
         const dailyPnl = Math.round(closed.filter((t) => new Date(t.closedAt) >= todayStart).reduce((s, t) => s + (t.realizedPnl || 0), 0) * 100) / 100;
-        const weeklyPnl = Math.round(closed.filter((t) => new Date(t.closedAt) >= weekStart).reduce((s, t) => s + (t.realizedPnl || 0), 0) * 100) / 100;
+        const weeklyPnl = Math.round(closed.filter((t) => new Date(t.closedAt) >= weekStart2).reduce((s, t) => s + (t.realizedPnl || 0), 0) * 100) / 100;
         const allTimePnl = Math.round(closed.reduce((s, t) => s + (t.realizedPnl || 0), 0) * 100) / 100;
         const wins = closed.filter((t) => (t.realizedPnl || 0) > 0).length;
         const winRate2 = closed.length > 0 ? Math.round(wins / closed.length * 100) : 0;
@@ -92577,9 +92762,9 @@ Generate a JSON object with these fields:
       (c) => c.weekNumber === weekNumber || c.weekNumber === 0
     );
     const now = /* @__PURE__ */ new Date();
-    const weekStart = new Date(now);
-    weekStart.setDate(weekStart.getDate() - weekStart.getDay());
-    const weekEnd = new Date(weekStart);
+    const weekStart2 = new Date(now);
+    weekStart2.setDate(weekStart2.getDate() - weekStart2.getDay());
+    const weekEnd = new Date(weekStart2);
     weekEnd.setDate(weekEnd.getDate() + 7);
     for (const challenge of weekChallenges) {
       await storage.createChallenge({
@@ -92593,7 +92778,7 @@ Generate a JSON object with these fields:
         tokenReward: challenge.totalTokenReward,
         bonusReward: challenge.bonusTokens,
         badgeReward: `${challenge.title} Champion`,
-        startDate: weekStart,
+        startDate: weekStart2,
         endDate: weekEnd,
         weekNumber,
         status: "active",
@@ -92609,9 +92794,9 @@ Generate a JSON object with these fields:
         { type: "learning", title: "Trading Knowledge Challenge" }
       ];
       const now2 = /* @__PURE__ */ new Date();
-      const weekStart2 = new Date(now2);
-      weekStart2.setDate(weekStart2.getDate() - weekStart2.getDay());
-      const weekEnd2 = new Date(weekStart2);
+      const weekStart3 = new Date(now2);
+      weekStart3.setDate(weekStart3.getDate() - weekStart3.getDay());
+      const weekEnd2 = new Date(weekStart3);
       weekEnd2.setDate(weekEnd2.getDate() + 7);
       for (const ct of challengeTypes) {
         const completion = await openai2.chat.completions.create({
@@ -92650,7 +92835,7 @@ Generate a JSON object with:
           tokenReward: content.tokenReward || 50,
           bonusReward: content.bonusReward || 0,
           badgeReward: content.badgeReward || null,
-          startDate: weekStart2,
+          startDate: weekStart3,
           endDate: weekEnd2,
           weekNumber,
           status: "active",
@@ -92841,10 +93026,10 @@ Generate a JSON object with:
       (e) => e.weekNumber === weekNumber || e.weekNumber === 0
     );
     const now = /* @__PURE__ */ new Date();
-    const weekStart = new Date(now);
-    weekStart.setDate(weekStart.getDate() - weekStart.getDay() + (weekNumber - 1) * 7);
+    const weekStart2 = new Date(now);
+    weekStart2.setDate(weekStart2.getDate() - weekStart2.getDay() + (weekNumber - 1) * 7);
     for (const event of weekEvents) {
-      const eventDate = new Date(weekStart);
+      const eventDate = new Date(weekStart2);
       eventDate.setDate(eventDate.getDate() + event.dayNumber % 7);
       eventDate.setHours(19, 0, 0, 0);
       await storage.createEvent({
@@ -96259,7 +96444,7 @@ This request will not trigger a transaction or cost any fees.`;
       if (!req.isAuthenticated()) return res.status(401).json({ error: "Auth required" });
       const weekAgo = /* @__PURE__ */ new Date();
       weekAgo.setDate(weekAgo.getDate() - 7);
-      const weekStart = weekAgo.toISOString().slice(0, 10);
+      const weekStart2 = weekAgo.toISOString().slice(0, 10);
       const rows = await db2.execute(drizzleSql2`
         SELECT
           u.id,
@@ -96270,7 +96455,7 @@ This request will not trigger a transaction or cost any fees.`;
           COALESCE(nfc.nfc_vedd, 0)           AS nfc_vedd,
           COALESCE(SUM(dc.reward_amount), 0) + COALESCE(nfc.nfc_vedd, 0) AS total_vedd
         FROM users u
-        LEFT JOIN daily_checkins dc ON dc.user_id = u.id AND dc.day_string >= ${weekStart}
+        LEFT JOIN daily_checkins dc ON dc.user_id = u.id AND dc.day_string >= ${weekStart2}
         LEFT JOIN (
           SELECT user_id, SUM(reward_amount) AS nfc_vedd
           FROM nfc_daily_taps
@@ -101572,7 +101757,7 @@ async function seedSubscriptionPlans() {
     return;
   }
   console.log("No subscription plans found, seeding initial plans...");
-  const plans = [
+  const plans2 = [
     {
       name: "Free",
       description: "Perfect for getting started with AI-powered chart analysis",
@@ -101672,10 +101857,10 @@ async function seedSubscriptionPlans() {
       isActive: true
     }
   ];
-  for (const plan of plans) {
+  for (const plan of plans2) {
     await db.insert(subscriptionPlans).values(plan);
   }
-  console.log(`Successfully seeded ${plans.length} subscription plans!`);
+  console.log(`Successfully seeded ${plans2.length} subscription plans!`);
 }
 async function seedAchievements() {
   console.log("Checking if achievements need to be seeded...");
