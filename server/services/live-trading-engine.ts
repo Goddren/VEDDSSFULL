@@ -2,6 +2,7 @@ import { sessionForHour, sameSession } from '../utils/session';
 import { lookupPairKnowledge } from '../utils/pair-key';
 import { marketDataService } from '../market-data/service';
 import { logGuard } from './guard-events';
+import { recordShadow, resolveShadows, getShadowSessionStat, SHADOW_WEIGHT } from './brain-shadow';
 import { getAiLevelSync } from './ai-level';
 import { executeMT5SignalOnTradeLocker, warmTradeLockerConnection, getTLAccountValue, getOrCreateService as getTradeLockerService, setUsdJpyRate } from '../tradelocker';
 import { refreshTlAfterTrade } from './tradelocker-sync';
@@ -596,8 +597,20 @@ function applyBrainEnforcement(
   if (sessionData && sessionData.total >= 3 && sessionData.total < _minN && sessionData.winRate < _sessWR) {
     logGuard(userId, 'brain_block_thin_data', symbol, `${session} session ${sessionData.winRate}% over only ${sessionData.total} trades — not blocking (needs ${_minN})`);
   }
-  if (sessionData && sessionData.total >= _minN && sessionData.winRate < _sessWR) {
-    const msg = `🧠 Brain block: ${symbol} ${session} session only ${sessionData.winRate}% WR (${sessionData.total} trades) — below ${_sessWR}% threshold, skipping`;
+  // 2026-11-05: blend in shadow outcomes (brain-shadow.ts) so a blocked session
+  // can earn its way back (or confirm the block) instead of freezing forever.
+  const _shadow = sessionData ? getShadowSessionStat(userId, symbol, session) : null;
+  const _sw = SHADOW_WEIGHT();
+  const _shN = _shadow ? _shadow.wins + _shadow.losses : 0;
+  const _blendWR = sessionData && _shN > 0
+    ? Math.round(((sessionData.winRate / 100) * sessionData.total + _sw * _shadow!.wins) / (sessionData.total + _sw * _shN) * 100)
+    : sessionData?.winRate;
+  const _shadowTxt = _shN > 0 ? ` + shadow ${Math.round(_shadow!.wins / _shN * 100)}%/${_shN} → blended ${_blendWR}%` : '';
+  if (sessionData && sessionData.total >= _minN && sessionData.winRate < _sessWR && _blendWR >= _sessWR) {
+    logGuard(userId, 'brain_block_shadow_lift', symbol, `${session} real ${sessionData.winRate}%/${sessionData.total}${_shadowTxt} — unblocked by shadow results`);
+  }
+  if (sessionData && sessionData.total >= _minN && _blendWR < _sessWR) {
+    const msg = `🧠 Brain block: ${symbol} ${session} session only ${sessionData.winRate}% WR (${sessionData.total} trades)${_shadowTxt} — below ${_sessWR}% threshold, skipping`;
     pushEnforcementLog(userId, { symbol, rule: 'session_block', direction: proposedDirection, reason: msg });
     return { ...passthrough, allowed: false, reason: msg };
   }
@@ -1855,6 +1868,15 @@ async function scanMarkets(userId: number): Promise<void> {
         const preScanEnforcement = applyBrainEnforcement(userId, symbol, null, atr, undefined);
         const _entryBlockedReason = preScanEnforcement.allowed ? null : preScanEnforcement.reason;
         if (_entryBlockedReason) addActivity(userId, { type: 'info', symbol, message: `${_entryBlockedReason} (entries only — still analysed for open positions and models)` });
+        // Shadow tracking (brain-shadow.ts): resolve open shadows on fresh bars, and
+        // while a SESSION block is on, shadow the H1+H4-aligned direction.
+        resolveShadows(userId, symbol, confirmedBars);
+        if (_entryBlockedReason && _entryBlockedReason.includes(' session only ')) {
+          const { h1: _sh1, h4: _sh4 } = mtfStack(state, symbol);
+          if (_sh1 && _sh4 && _sh1.trend !== 'NEUTRAL' && _sh1.trend === _sh4.trend) {
+            recordShadow(userId, { symbol, direction: _sh1.trend === 'BULLISH' ? 'BUY' : 'SELL', entry: currentPrice, atr, source: 'trend', reason: _entryBlockedReason });
+          }
+        }
 
         // ── Build Markov transition matrix for this symbol ───────────────
         // Runs synchronously on confirmedBars — pure math, no I/O, ~1ms per pair.
@@ -5126,6 +5148,14 @@ async function processDecision(userId: number, decision: any, newsCtx?: any): Pr
         symbol: decision.symbol,
         message: postEnforcement.reason,
       });
+      if (postEnforcement.reason.includes(' session only ') && (decision.direction === 'BUY' || decision.direction === 'SELL')) {
+        recordShadow(userId, {
+          symbol: decision.symbol, direction: decision.direction,
+          entry: Number(decision.entryPrice) || state.marketSnapshot?.[decision.symbol]?.price || 0,
+          atr: currentATR, stopLoss: Number(decision.stopLoss) || null, takeProfit: Number(decision.takeProfit) || null,
+          source: 'ai', reason: postEnforcement.reason,
+        });
+      }
       return;
     }
     // Apply brain-tuned lot multiplier and strategy override

@@ -6147,9 +6147,9 @@ var init_storage = __esm({
       // snapshot; a different pair scope is a distinct, coexisting listing.
       async getUserActiveBrainListingBySymbols(sellerId, sourceCategory, symbols) {
         const listings = await db.select().from(brainDataListings).where(and(eq(brainDataListings.sellerId, sellerId), eq(brainDataListings.isActive, true), eq(brainDataListings.sourceCategory, sourceCategory)));
-        const norm4 = (s) => Array.isArray(s) && s.length ? [...s].map((x) => x.toUpperCase()).sort().join(",") : "";
-        const target = norm4(symbols);
-        return listings.find((l) => norm4(l.symbolFilter) === target);
+        const norm5 = (s) => Array.isArray(s) && s.length ? [...s].map((x) => x.toUpperCase()).sort().join(",") : "";
+        const target = norm5(symbols);
+        return listings.find((l) => norm5(l.symbolFilter) === target);
       }
       async importBrainDataSnapshot(buyerId, snapshotData) {
         if (!snapshotData.length) return 0;
@@ -19306,6 +19306,157 @@ var init_pair_key = __esm({
   }
 });
 
+// server/services/brain-shadow.ts
+async function ensureTable() {
+  const { pool: pool2 } = await Promise.resolve().then(() => (init_db(), db_exports));
+  if (!_tableReady) {
+    await pool2.query(`CREATE TABLE IF NOT EXISTS brain_shadow_trades (
+      id serial primary key, user_id int not null, symbol text not null, session text not null,
+      direction text not null, entry real not null, stop_loss real not null, take_profit real not null,
+      source text, reason text, status text not null default 'open', r_multiple real,
+      created_at timestamptz default now(), resolved_at timestamptz)`);
+    await pool2.query(`CREATE INDEX IF NOT EXISTS brain_shadow_open ON brain_shadow_trades (user_id, symbol, status)`);
+    _tableReady = true;
+  }
+  if (!_openKeysLoaded) {
+    const r = await pool2.query(`SELECT user_id, symbol, direction FROM brain_shadow_trades WHERE status='open'`);
+    for (const row of r.rows) _openKeys.add(`${row.user_id}|${norm3(row.symbol)}|${row.direction}`);
+    _openKeysLoaded = true;
+  }
+  return pool2;
+}
+function recordShadow(userId, p2) {
+  void (async () => {
+    try {
+      const sym2 = norm3(p2.symbol);
+      const key = `${userId}|${sym2}|${p2.direction}`;
+      const pool2 = await ensureTable();
+      if (_openKeys.has(key) || !(p2.entry > 0)) return;
+      const buy = p2.direction === "BUY";
+      let sl = Number(p2.stopLoss), tp = Number(p2.takeProfit);
+      const validSL = sl > 0 && (buy ? sl < p2.entry : sl > p2.entry);
+      if (!validSL) {
+        if (!(Number(p2.atr) > 0)) return;
+        const risk2 = 1.5 * Number(p2.atr);
+        sl = buy ? p2.entry - risk2 : p2.entry + risk2;
+      }
+      const risk = Math.abs(p2.entry - sl);
+      const validTP = tp > 0 && (buy ? tp > p2.entry : tp < p2.entry);
+      if (!validTP) tp = buy ? p2.entry + 2 * risk : p2.entry - 2 * risk;
+      const session3 = sessionForHour((/* @__PURE__ */ new Date()).getUTCHours());
+      _openKeys.add(key);
+      await pool2.query(
+        `INSERT INTO brain_shadow_trades (user_id, symbol, session, direction, entry, stop_loss, take_profit, source, reason)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)`,
+        [userId, sym2, session3, p2.direction, p2.entry, sl, tp, p2.source, String(p2.reason).slice(0, 300)]
+      );
+    } catch (_) {
+    }
+  })();
+}
+function resolveShadows(userId, symbol, bars) {
+  const sym2 = norm3(symbol);
+  if (!_openKeysLoaded) {
+    void ensureTable().catch(() => {
+    });
+    return;
+  }
+  if (!_openKeys.has(`${userId}|${sym2}|BUY`) && !_openKeys.has(`${userId}|${sym2}|SELL`)) return;
+  void (async () => {
+    try {
+      const pool2 = await ensureTable();
+      const r = await pool2.query(
+        `SELECT id, direction, entry, stop_loss, take_profit, created_at FROM brain_shadow_trades
+         WHERE user_id=$1 AND symbol=$2 AND status='open'`,
+        [userId, sym2]
+      );
+      for (const s of r.rows) {
+        const opened = new Date(s.created_at).getTime();
+        const buy = s.direction === "BUY";
+        let outcome = null;
+        for (const b of bars) {
+          if (!(b.timestamp > opened)) continue;
+          const hitSL = buy ? b.low <= s.stop_loss : b.high >= s.stop_loss;
+          const hitTP = buy ? b.high >= s.take_profit : b.low <= s.take_profit;
+          if (hitSL) {
+            outcome = "loss";
+            break;
+          }
+          if (hitTP) {
+            outcome = "win";
+            break;
+          }
+        }
+        let status = outcome;
+        if (!status && Date.now() - opened > EXPIRE_MS) status = "expired";
+        if (!status) continue;
+        const rr = Math.abs(s.take_profit - s.entry) / (Math.abs(s.entry - s.stop_loss) || 1);
+        await pool2.query(
+          `UPDATE brain_shadow_trades SET status=$1, r_multiple=$2, resolved_at=now() WHERE id=$3 AND status='open'`,
+          [status, status === "win" ? rr : status === "loss" ? -1 : 0, s.id]
+        );
+        _openKeys.delete(`${userId}|${sym2}|${s.direction}`);
+        _statsAt = 0;
+      }
+    } catch (_) {
+    }
+  })();
+}
+function refreshStats() {
+  if (_statsLoading || Date.now() - _statsAt < STATS_TTL_MS) return;
+  _statsLoading = true;
+  void (async () => {
+    try {
+      const pool2 = await ensureTable();
+      const r = await pool2.query(
+        `SELECT user_id, symbol, session, count(*) FILTER (WHERE status='win')::int w, count(*) FILTER (WHERE status='loss')::int l
+         FROM brain_shadow_trades WHERE status IN ('win','loss') AND created_at > now() - interval '${LOOKBACK_DAYS2} days'
+         GROUP BY 1,2,3`
+      );
+      const m = /* @__PURE__ */ new Map();
+      for (const row of r.rows) m.set(`${row.user_id}|${norm3(row.symbol)}|${row.session}`, { wins: row.w, losses: row.l });
+      _stats = m;
+      _statsAt = Date.now();
+    } catch (_) {
+    } finally {
+      _statsLoading = false;
+    }
+  })();
+}
+function getShadowSessionStat(userId, symbol, session3) {
+  refreshStats();
+  const sym2 = norm3(symbol);
+  let hit = null;
+  _stats.forEach((v, k2) => {
+    const [u, s, sess] = k2.split("|");
+    if (Number(u) === userId && s === sym2 && sameSession(sess, session3)) {
+      hit = hit ? { wins: hit.wins + v.wins, losses: hit.losses + v.losses } : { ...v };
+    }
+  });
+  return hit;
+}
+var _tableReady, _statsAt, _statsLoading, _stats, _openKeys, _openKeysLoaded, STATS_TTL_MS, EXPIRE_MS, LOOKBACK_DAYS2, norm3, SHADOW_WEIGHT;
+var init_brain_shadow = __esm({
+  "server/services/brain-shadow.ts"() {
+    "use strict";
+    init_session();
+    _tableReady = false;
+    _statsAt = 0;
+    _statsLoading = false;
+    _stats = /* @__PURE__ */ new Map();
+    _openKeys = /* @__PURE__ */ new Set();
+    _openKeysLoaded = false;
+    STATS_TTL_MS = 10 * 6e4;
+    EXPIRE_MS = 24 * 36e5;
+    LOOKBACK_DAYS2 = 60;
+    norm3 = (s) => String(s || "").toUpperCase().replace("/", "");
+    SHADOW_WEIGHT = () => {
+      const w = Number(process.env.BRAIN_SHADOW_WEIGHT ?? 0.5);
+      return Number.isFinite(w) && w >= 0 ? w : 0.5;
+    };
+  }
+});
+
 // server/tradelocker.ts
 var tradelocker_exports = {};
 __export(tradelocker_exports, {
@@ -19663,8 +19814,8 @@ async function warmTradeLockerConnection(connection2) {
 async function tlAccountRiskGuard(service, connection2, signal) {
   if (process.env.TL_RISK_GUARD_DISABLED === "true") return {};
   const connKey = String(connection2.id ?? connection2.accountId);
-  const norm4 = (s) => String(s || "").toUpperCase().split(".")[0].replace(/[^A-Z0-9]/g, "");
-  const want = norm4(signal.symbol);
+  const norm5 = (s) => String(s || "").toUpperCase().split(".")[0].replace(/[^A-Z0-9]/g, "");
+  const want = norm5(signal.symbol);
   let equity;
   try {
     const info2 = await guardRead(`acct:${connKey}`, () => service.getAccountInfo({ fresh: true }));
@@ -19705,7 +19856,7 @@ async function tlAccountRiskGuard(service, connection2, signal) {
   }
   if (!want) return { block: "order has no symbol" };
   const held = positions.find((p2) => {
-    const s = norm4(p2.symbol);
+    const s = norm5(p2.symbol);
     return s === want || s.startsWith(want) || s.length >= 6 && want.startsWith(s);
   });
   if (held) return { block: `already holding ${held.symbol} ${String(held.side || "").toUpperCase()} ${held.qty} on this account (one position per pair)` };
@@ -21218,7 +21369,7 @@ var init_tradelocker = __esm({
           }
         } catch {
         }
-        const norm4 = (v) => parseFloat(v) || 0;
+        const norm5 = (v) => parseFloat(v) || 0;
         const toIsoDate = (v) => {
           if (v == null || v === "") return void 0;
           const n = typeof v === "number" ? v : /^\d+(\.\d+)?$/.test(String(v).trim()) ? Number(v) : NaN;
@@ -21237,12 +21388,12 @@ var init_tradelocker = __esm({
             symbol: p2.s || p2.symbol || instMap.get(String(p2.tradableInstrumentId ?? "")) || String(p2.tradableInstrumentId ?? ""),
             instrumentId: p2.tradableInstrumentId != null ? String(p2.tradableInstrumentId) : void 0,
             side: (p2.side || "").toString().toLowerCase(),
-            qty: norm4(p2.qty),
-            avgPrice: norm4(p2.avgPrice ?? p2.openPrice ?? p2.price),
-            unrealizedPl: norm4(p2.unrealizedPl ?? p2.unrealizedPnL ?? p2.uPnL ?? p2.pl),
+            qty: norm5(p2.qty),
+            avgPrice: norm5(p2.avgPrice ?? p2.openPrice ?? p2.price),
+            unrealizedPl: norm5(p2.unrealizedPl ?? p2.unrealizedPnL ?? p2.uPnL ?? p2.pl),
             openDate: toIsoDate(p2.openDate || p2.createdDate),
-            stopLoss: sanePrice(norm4(p2.stopLoss ?? p2.sl ?? p2.stopLossPrice), norm4(p2.avgPrice ?? p2.openPrice ?? p2.price)),
-            takeProfit: sanePrice(norm4(p2.takeProfit ?? p2.tp ?? p2.takeProfitPrice), norm4(p2.avgPrice ?? p2.openPrice ?? p2.price))
+            stopLoss: sanePrice(norm5(p2.stopLoss ?? p2.sl ?? p2.stopLossPrice), norm5(p2.avgPrice ?? p2.openPrice ?? p2.price)),
+            takeProfit: sanePrice(norm5(p2.takeProfit ?? p2.tp ?? p2.takeProfitPrice), norm5(p2.avgPrice ?? p2.openPrice ?? p2.price))
           }));
         }
         let columns = [];
@@ -21290,15 +21441,15 @@ var init_tradelocker = __esm({
             symbol: instMap.get(instId) || instId,
             instrumentId: instId || void 0,
             side: iSide >= 0 ? String(row[iSide]).toLowerCase() : "",
-            qty: iQty >= 0 ? norm4(row[iQty]) : 0,
-            avgPrice: iAvg >= 0 ? norm4(row[iAvg]) : 0,
-            unrealizedPl: iPl >= 0 ? norm4(row[iPl]) : 0,
+            qty: iQty >= 0 ? norm5(row[iQty]) : 0,
+            avgPrice: iAvg >= 0 ? norm5(row[iAvg]) : 0,
+            unrealizedPl: iPl >= 0 ? norm5(row[iPl]) : 0,
             openDate: iDate >= 0 ? toIsoDate(row[iDate]) : void 0,
             // Second line of defence, independent of column naming: a protective
             // level sits near the entry. Anything orders of magnitude away is an id
             // or a sentinel, not a price, and must not be recorded as protection.
-            stopLoss: sanePrice(iSl >= 0 ? norm4(row[iSl]) : 0, iAvg >= 0 ? norm4(row[iAvg]) : 0),
-            takeProfit: sanePrice(iTp >= 0 ? norm4(row[iTp]) : 0, iAvg >= 0 ? norm4(row[iAvg]) : 0)
+            stopLoss: sanePrice(iSl >= 0 ? norm5(row[iSl]) : 0, iAvg >= 0 ? norm5(row[iAvg]) : 0),
+            takeProfit: sanePrice(iTp >= 0 ? norm5(row[iTp]) : 0, iAvg >= 0 ? norm5(row[iAvg]) : 0)
           };
         });
       }
@@ -24895,8 +25046,8 @@ async function executeSignalOnDxtrade(conn, signal) {
     await svc.ensureLoggedIn();
     const acct = conn.account_code || extractAccountCode(await svc.getAccounts());
     if (!acct) return { success: false, error: "could not resolve DXtrade account code" };
-    const norm4 = (s) => String(s ?? "").replace(/\//g, "").toUpperCase();
-    const symbol = norm4(signal.symbol);
+    const norm5 = (s) => String(s ?? "").replace(/\//g, "").toUpperCase();
+    const symbol = norm5(signal.symbol);
     const positions = await svc.getPositions(acct);
     const code = signal.positionCode || signal.positionId || void 0;
     let pos = code ? positions.find((p2) => p2.positionId === String(code)) : void 0;
@@ -25092,9 +25243,9 @@ var init_dxtrade = __esm({
         let code = o.positionCode;
         if (!code) {
           try {
-            const norm4 = (s) => s.replace(/\//g, "").toUpperCase();
+            const norm5 = (s) => s.replace(/\//g, "").toUpperCase();
             const positions = await this.getPositions(accountCode);
-            code = positions.find((p2) => p2.instrument === norm4(o.instrument) && p2.side === o.positionSide)?.positionId;
+            code = positions.find((p2) => p2.instrument === norm5(o.instrument) && p2.side === o.positionSide)?.positionId;
           } catch {
           }
         }
@@ -25181,12 +25332,12 @@ var init_dxtrade = __esm({
        *  avoid ever cancelling a genuine entry order. Best-effort — never throws. */
       async cancelProtectiveOrders(accountCode, instrument) {
         try {
-          const norm4 = (s) => String(s ?? "").replace(/\//g, "").toUpperCase();
-          const target = norm4(instrument);
+          const norm5 = (s) => String(s ?? "").replace(/\//g, "").toUpperCase();
+          const target = norm5(instrument);
           const orders = await this.getWorkingOrders(accountCode);
           let n = 0;
           for (const o of orders) {
-            const sym2 = norm4(o.instrument ?? o.symbol);
+            const sym2 = norm5(o.instrument ?? o.symbol);
             const effect = String(o.positionEffect ?? o.legs?.[0]?.positionEffect ?? "").toUpperCase();
             if (sym2 !== target || effect !== "CLOSE") continue;
             const id = o.orderId ?? o.id ?? o.orderCode ?? o.code;
@@ -25213,9 +25364,9 @@ var init_dxtrade = __esm({
         let code = positionCode;
         if (!code) {
           try {
-            const norm4 = (s) => s.replace(/\//g, "").toUpperCase();
+            const norm5 = (s) => s.replace(/\//g, "").toUpperCase();
             const positions = await this.getPositions(accountCode);
-            const match = positions.find((p2) => p2.instrument === norm4(instrument) && p2.side === side);
+            const match = positions.find((p2) => p2.instrument === norm5(instrument) && p2.side === side);
             code = match?.positionId;
           } catch {
           }
@@ -27366,7 +27517,7 @@ async function compute2(userId) {
         -- 13:00 (26.7% over 15 trades).
         AND connection_id IN (SELECT id FROM tradelocker_connections WHERE is_active = true)
         AND created_at > now() - ($2 || ' days')::interval`,
-    [userId, String(LOOKBACK_DAYS2)]
+    [userId, String(LOOKBACK_DAYS3)]
   );
   const { collapseToSignals: collapseToSignals2 } = await Promise.resolve().then(() => (init_signal_groups(), signal_groups_exports));
   const signals = collapseToSignals2(fillRows.map((r) => ({
@@ -27401,7 +27552,7 @@ async function hourFilterVerdict(userId, hourUtc) {
       entry = { at: Date.now(), ...fresh };
       cache6.set(userId, entry);
       const list = Array.from(fresh.blocked).sort((a, b) => a - b).map((h) => `${h}:00`).join(", ");
-      console.log(`[HourFilter] user ${userId}: recomputed over ${LOOKBACK_DAYS2}d \u2014 blocking ${fresh.blocked.size} hour(s)${list ? ": " + list : ""} (floor ${WR_FLOOR}% on ${MIN_SAMPLE}+ trades)`);
+      console.log(`[HourFilter] user ${userId}: recomputed over ${LOOKBACK_DAYS3}d \u2014 blocking ${fresh.blocked.size} hour(s)${list ? ": " + list : ""} (floor ${WR_FLOOR}% on ${MIN_SAMPLE}+ trades)`);
     }
     if (!entry.blocked.has(hourUtc)) return null;
     const s = entry.stats.find((x) => x.hour === hourUtc);
@@ -27415,14 +27566,14 @@ async function hourFilterTable(userId) {
   const { stats, blocked } = await compute2(userId);
   return { stats: stats.sort((a, b) => a.hour - b.hour), blocked: Array.from(blocked).sort((a, b) => a - b) };
 }
-var MIN_SAMPLE, WR_FLOOR, TTL_MS4, LOOKBACK_DAYS2, cache6;
+var MIN_SAMPLE, WR_FLOOR, TTL_MS4, LOOKBACK_DAYS3, cache6;
 var init_hour_filter = __esm({
   "server/services/hour-filter.ts"() {
     "use strict";
     MIN_SAMPLE = Number(process.env.HOUR_FILTER_MIN_TRADES ?? 15);
     WR_FLOOR = Number(process.env.HOUR_FILTER_MIN_WINRATE ?? 45);
     TTL_MS4 = Number(process.env.HOUR_FILTER_TTL_MS ?? 60 * 60 * 1e3);
-    LOOKBACK_DAYS2 = Number(process.env.HOUR_FILTER_LOOKBACK_DAYS ?? 180);
+    LOOKBACK_DAYS3 = Number(process.env.HOUR_FILTER_LOOKBACK_DAYS ?? 180);
     cache6 = /* @__PURE__ */ new Map();
   }
 });
@@ -27656,8 +27807,16 @@ function applyBrainEnforcement(userId, symbol, proposedDirection, currentATR, ne
   if (sessionData && sessionData.total >= 3 && sessionData.total < _minN && sessionData.winRate < _sessWR) {
     logGuard(userId, "brain_block_thin_data", symbol, `${session3} session ${sessionData.winRate}% over only ${sessionData.total} trades \u2014 not blocking (needs ${_minN})`);
   }
-  if (sessionData && sessionData.total >= _minN && sessionData.winRate < _sessWR) {
-    const msg = `\u{1F9E0} Brain block: ${symbol} ${session3} session only ${sessionData.winRate}% WR (${sessionData.total} trades) \u2014 below ${_sessWR}% threshold, skipping`;
+  const _shadow = sessionData ? getShadowSessionStat(userId, symbol, session3) : null;
+  const _sw = SHADOW_WEIGHT();
+  const _shN = _shadow ? _shadow.wins + _shadow.losses : 0;
+  const _blendWR = sessionData && _shN > 0 ? Math.round((sessionData.winRate / 100 * sessionData.total + _sw * _shadow.wins) / (sessionData.total + _sw * _shN) * 100) : sessionData?.winRate;
+  const _shadowTxt = _shN > 0 ? ` + shadow ${Math.round(_shadow.wins / _shN * 100)}%/${_shN} \u2192 blended ${_blendWR}%` : "";
+  if (sessionData && sessionData.total >= _minN && sessionData.winRate < _sessWR && _blendWR >= _sessWR) {
+    logGuard(userId, "brain_block_shadow_lift", symbol, `${session3} real ${sessionData.winRate}%/${sessionData.total}${_shadowTxt} \u2014 unblocked by shadow results`);
+  }
+  if (sessionData && sessionData.total >= _minN && _blendWR < _sessWR) {
+    const msg = `\u{1F9E0} Brain block: ${symbol} ${session3} session only ${sessionData.winRate}% WR (${sessionData.total} trades)${_shadowTxt} \u2014 below ${_sessWR}% threshold, skipping`;
     pushEnforcementLog(userId, { symbol, rule: "session_block", direction: proposedDirection, reason: msg });
     return { ...passthrough, allowed: false, reason: msg };
   }
@@ -28612,6 +28771,13 @@ async function scanMarkets(userId) {
         const preScanEnforcement = applyBrainEnforcement(userId, symbol, null, atr3, void 0);
         const _entryBlockedReason = preScanEnforcement.allowed ? null : preScanEnforcement.reason;
         if (_entryBlockedReason) addActivity(userId, { type: "info", symbol, message: `${_entryBlockedReason} (entries only \u2014 still analysed for open positions and models)` });
+        resolveShadows(userId, symbol, confirmedBars);
+        if (_entryBlockedReason && _entryBlockedReason.includes(" session only ")) {
+          const { h1: _sh1, h4: _sh4 } = mtfStack(state, symbol);
+          if (_sh1 && _sh4 && _sh1.trend !== "NEUTRAL" && _sh1.trend === _sh4.trend) {
+            recordShadow(userId, { symbol, direction: _sh1.trend === "BULLISH" ? "BUY" : "SELL", entry: currentPrice, atr: atr3, source: "trend", reason: _entryBlockedReason });
+          }
+        }
         try {
           buildTransitionMatrix(symbol, confirmedBars.map((b) => ({ open: b.open, close: b.close })));
         } catch {
@@ -31343,6 +31509,18 @@ async function processDecision(userId, decision, newsCtx) {
         symbol: decision.symbol,
         message: postEnforcement.reason
       });
+      if (postEnforcement.reason.includes(" session only ") && (decision.direction === "BUY" || decision.direction === "SELL")) {
+        recordShadow(userId, {
+          symbol: decision.symbol,
+          direction: decision.direction,
+          entry: Number(decision.entryPrice) || state.marketSnapshot?.[decision.symbol]?.price || 0,
+          atr: currentATR,
+          stopLoss: Number(decision.stopLoss) || null,
+          takeProfit: Number(decision.takeProfit) || null,
+          source: "ai",
+          reason: postEnforcement.reason
+        });
+      }
       return;
     }
     if (postEnforcement.forcedStrategy && !decision.strategy) {
@@ -34092,6 +34270,7 @@ var init_live_trading_engine = __esm({
     init_pair_key();
     init_service();
     init_guard_events();
+    init_brain_shadow();
     init_ai_level();
     init_tradelocker();
     init_tradelocker_sync();
@@ -35078,7 +35257,7 @@ function sanitizeRule(r) {
   const arr2 = (v) => Array.isArray(v) ? v : v ? [v] : [];
   const rule = {
     action: r.action === "only" ? "only" : "block",
-    symbols: arr2(r.symbols).map(norm3).filter((s) => s.length >= 3 && s.length <= 12).slice(0, 20),
+    symbols: arr2(r.symbols).map(norm4).filter((s) => s.length >= 3 && s.length <= 12).slice(0, 20),
     directions: arr2(r.directions).map((d) => String(d).toUpperCase()).filter((d) => d === "BUY" || d === "SELL"),
     sessions: arr2(r.sessions).map((s) => IDEA_SESSIONS.find((x) => x.toLowerCase() === String(s).toLowerCase())).filter(Boolean),
     hoursUtc: arr2(r.hoursUtc).map((h) => Number(h)).filter((h) => Number.isInteger(h) && h >= 0 && h <= 23),
@@ -35090,7 +35269,7 @@ function sanitizeRule(r) {
 }
 function ruleMatches(rule, s) {
   if (rule.models.length && !rule.models.includes(s.model)) return false;
-  if (rule.symbols.length && !rule.symbols.includes(norm3(s.symbol))) return false;
+  if (rule.symbols.length && !rule.symbols.includes(norm4(s.symbol))) return false;
   if (rule.directions.length && !rule.directions.includes(String(s.direction || "").toUpperCase())) return false;
   if (rule.sessions.length && !rule.sessions.includes(sessionFor(s.at))) return false;
   if (rule.hoursUtc.length && !rule.hoursUtc.includes(s.at.getUTCHours())) return false;
@@ -35205,7 +35384,7 @@ async function whatIfAnalysis(userId, from, to, limit = 5) {
     if (!keys.has(k2)) keys.set(k2, r);
   };
   for (const t of rows) {
-    const s = norm3(t.symbol), d = String(t.direction).toUpperCase(), sess = sessionFor(new Date(t.created_at));
+    const s = norm4(t.symbol), d = String(t.direction).toUpperCase(), sess = sessionFor(new Date(t.created_at));
     add({ action: "block", symbols: [s] });
     add({ action: "block", sessions: [sess] });
     add({ action: "block", symbols: [s], sessions: [sess] });
@@ -35253,7 +35432,7 @@ function whatIfText(label, w) {
   return `${label}: ${w.trades} trades, ${w.periodPnl >= 0 ? "+" : "-"}$${Math.abs(w.periodPnl)}. Single changes that would have helped (replayed on real trades):
 ` + w.options.map((o, i) => `${i + 1}. ${o.summary} \u2192 skips ${o.periodSkipped} trades, saves $${o.periodSaved}, period ends ${o.periodPnlAfter >= 0 ? "+" : "-"}$${Math.abs(o.periodPnlAfter)}. Prior 90 days: ${o.ninetyDaySkipped} trades, ${o.ninetyDaySaved >= 0 ? "saved" : "would have COST"} $${Math.abs(o.ninetyDaySaved)} \u2192 ${o.robust ? "HELD UP" : "did NOT hold up (likely a fluke)"}.`).join("\n");
 }
-var IDEA_SESSIONS, IDEA_DAY_TYPES, IDEA_MODELS, ensured4, norm3;
+var IDEA_SESSIONS, IDEA_DAY_TYPES, IDEA_MODELS, ensured4, norm4;
 var init_brain_ideas = __esm({
   "server/services/brain-ideas.ts"() {
     "use strict";
@@ -35263,7 +35442,7 @@ var init_brain_ideas = __esm({
     IDEA_DAY_TYPES = ["range", "trend", "mixed"];
     IDEA_MODELS = ["M1", "M2", "engine"];
     ensured4 = null;
-    norm3 = (s) => String(s || "").toUpperCase().replace(/[^A-Z0-9]/g, "");
+    norm4 = (s) => String(s || "").toUpperCase().replace(/[^A-Z0-9]/g, "");
   }
 });
 
@@ -35699,7 +35878,7 @@ async function runWizardBacktest(opts) {
   notes.push("Entries at the next candle's open, stop 1.5 ATR, one trade at a time. Spread and commission are not included, so real results will be a bit lower.");
   return summarize({ strategyId: opts.strategyId, symbol: opts.symbol.toUpperCase(), timeframe: tf, from: new Date(b[0].t).toISOString(), to: new Date(b[b.length - 1].t).toISOString(), bars: b.length, trades, notes });
 }
-function ensureTable() {
+function ensureTable2() {
   if (!ensured5) {
     ensured5 = pool.query(`
 CREATE TABLE IF NOT EXISTS user_wizard_strategies (
@@ -35724,7 +35903,7 @@ CREATE INDEX IF NOT EXISTS user_wizard_strategies_user_idx ON user_wizard_strate
   return ensured5;
 }
 async function saveWizardStrategy(userId, body) {
-  await ensureTable();
+  await ensureTable2();
   const bt = await runWizardBacktest({ strategyId: body.strategyId, params: body.params, symbol: body.symbol, timeframe: body.timeframe, period: body.period, rr: body.rr });
   const name = String(body.name || `${body.strategyId} ${bt.symbol} ${bt.timeframe}`).slice(0, 80);
   const { rows } = await pool.query(`INSERT INTO user_wizard_strategies (user_id, name, strategy_id, params, symbol, timeframe, rr, backtest)
@@ -35748,7 +35927,7 @@ function paperVerdict(pt) {
   return { ready: true, label: `Paper test passed: +${pt.totalR}R over ${pt.trades.length} trades (${pt.winRate}% wins). Ready to add to your brain.` };
 }
 async function listWizardStrategies(userId) {
-  await ensureTable();
+  await ensureTable2();
   const { rows } = await pool.query(`SELECT * FROM user_wizard_strategies WHERE user_id = $1 AND status <> 'retired' ORDER BY created_at DESC LIMIT 20`, [userId]);
   return Promise.all(rows.map(async (r) => {
     const pt = await paperTest(r);
@@ -35769,7 +35948,7 @@ async function listWizardStrategies(userId) {
   }));
 }
 async function promoteToBrain(userId, id) {
-  await ensureTable();
+  await ensureTable2();
   const { rows } = await pool.query(`SELECT * FROM user_wizard_strategies WHERE id = $1 AND user_id = $2`, [id, userId]);
   const row = rows[0];
   if (!row) throw new Error("Strategy not found.");
@@ -35795,12 +35974,12 @@ async function promoteToBrain(userId, id) {
   return idea;
 }
 async function retireWizardStrategy(userId, id) {
-  await ensureTable();
+  await ensureTable2();
   await pool.query(`UPDATE user_wizard_strategies SET status = 'retired' WHERE id = $1 AND user_id = $2`, [id, userId]);
 }
 async function wizardContextText(userId) {
   try {
-    await ensureTable();
+    await ensureTable2();
     const { rows } = await pool.query(`SELECT name, symbol, timeframe, status, backtest->>'totalR' AS r, created_at FROM user_wizard_strategies
       WHERE user_id = $1 AND status <> 'retired' ORDER BY created_at DESC LIMIT 8`, [userId]);
     if (!rows.length) return "";
@@ -36536,7 +36715,7 @@ var init_solana_scanner = __esm({
 });
 
 // server/services/sol-brain.ts
-async function ensureTable2() {
+async function ensureTable3() {
   if (_ensured3) return;
   try {
     await pool.query(`
@@ -36597,7 +36776,7 @@ async function backfillIfEmpty2(userId) {
   }
 }
 async function learnFromSolTrades(userId) {
-  await ensureTable2();
+  await ensureTable3();
   await backfillIfEmpty2(userId).catch(() => {
   });
   const { rows } = await pool.query(
@@ -36680,7 +36859,7 @@ function solBrainGate(userId, symbol, strategy, hourUtc) {
 }
 async function recordSolBrainOutcome(o) {
   try {
-    await ensureTable2();
+    await ensureTable3();
     if (o.returnPct != null && (o.returnPct > 1e3 || o.returnPct < -100)) {
       console.warn(`[sol-brain] rejected impossible return ${o.returnPct}% for ${o.symbol} \u2014 not recorded (bad price data)`);
       return;
@@ -40932,7 +41111,7 @@ __export(cred_store_exports, {
 });
 import * as fs4 from "fs";
 import * as path4 from "path";
-function ensureTable3() {
+function ensureTable4() {
   if (!tableReady) {
     tableReady = pool.query(`CREATE TABLE IF NOT EXISTS durable_files (
         name        text PRIMARY KEY,
@@ -40947,7 +41126,7 @@ function ensureTable3() {
 }
 async function restoreDurableFiles() {
   try {
-    await ensureTable3();
+    await ensureTable4();
     if (!fs4.existsSync(DATA_DIR)) fs4.mkdirSync(DATA_DIR, { recursive: true });
     const { rows } = await pool.query("SELECT name, content FROM durable_files");
     for (const r of rows) {
@@ -40964,7 +41143,7 @@ async function restoreDurableFiles() {
   }
 }
 function backupDurableFile(name, content) {
-  ensureTable3().then(
+  ensureTable4().then(
     () => pool.query(
       `INSERT INTO durable_files (name, content, updated_at)
          VALUES ($1, $2, now())
@@ -45905,9 +46084,9 @@ async function getLatestMarketBriefing() {
 }
 function findBriefingPair(briefing, symbol) {
   if (!briefing) return null;
-  const norm4 = symbol.toUpperCase().replace("/", "");
+  const norm5 = symbol.toUpperCase().replace("/", "");
   const pairs = briefing.pairs || [];
-  const match = pairs.find((p2) => (p2.symbol || "").toUpperCase().replace("/", "") === norm4);
+  const match = pairs.find((p2) => (p2.symbol || "").toUpperCase().replace("/", "") === norm5);
   return match ?? null;
 }
 var MAX_CONFIDENCE_BOOST;
@@ -51083,7 +51262,7 @@ __export(wizard_spec_strategies_exports, {
   recordWizardEa: () => recordWizardEa,
   updateWizardStrategySpec: () => updateWizardStrategySpec
 });
-function ensureTable4() {
+function ensureTable5() {
   return tableReady2 ??= (async () => {
     await pool.query(`CREATE TABLE IF NOT EXISTS wizard_strategies (
       id SERIAL PRIMARY KEY,
@@ -51124,7 +51303,7 @@ function rowToStrategy(r) {
   };
 }
 async function createWizardStrategy(userId, spec) {
-  await ensureTable4();
+  await ensureTable5();
   const { rows } = await pool.query(
     `INSERT INTO wizard_strategies (user_id, name, source, template_id, spec)
      VALUES ($1,$2,$3,$4,$5) RETURNING ${COLS}`,
@@ -51133,7 +51312,7 @@ async function createWizardStrategy(userId, spec) {
   return rowToStrategy(rows[0]);
 }
 async function listWizardStrategies2(userId) {
-  await ensureTable4();
+  await ensureTable5();
   const { rows } = await pool.query(
     `SELECT ${COLS} FROM wizard_strategies WHERE user_id=$1 ORDER BY id DESC LIMIT 100`,
     [userId]
@@ -51141,7 +51320,7 @@ async function listWizardStrategies2(userId) {
   return rows.map(rowToStrategy);
 }
 async function getWizardStrategy(userId, id) {
-  await ensureTable4();
+  await ensureTable5();
   const { rows } = await pool.query(
     `SELECT ${COLS} FROM wizard_strategies WHERE id=$1 AND user_id=$2`,
     [id, userId]
@@ -51149,7 +51328,7 @@ async function getWizardStrategy(userId, id) {
   return rows.length ? rowToStrategy(rows[0]) : null;
 }
 async function updateWizardStrategySpec(userId, id, spec) {
-  await ensureTable4();
+  await ensureTable5();
   const { rows } = await pool.query(
     `UPDATE wizard_strategies SET name=$3, source=$4, template_id=$5, spec=$6, updated_at=now()
      WHERE id=$1 AND user_id=$2 RETURNING ${COLS}`,
@@ -51158,7 +51337,7 @@ async function updateWizardStrategySpec(userId, id, spec) {
   return rows.length ? rowToStrategy(rows[0]) : null;
 }
 async function deleteWizardStrategy(userId, id) {
-  await ensureTable4();
+  await ensureTable5();
   const { rowCount } = await pool.query(
     `DELETE FROM wizard_strategies WHERE id=$1 AND user_id=$2`,
     [id, userId]
@@ -51166,7 +51345,7 @@ async function deleteWizardStrategy(userId, id) {
   return (rowCount ?? 0) > 0;
 }
 async function recordWizardBrain(userId, id, patch) {
-  await ensureTable4();
+  await ensureTable5();
   const sets = [];
   const params = [id, userId];
   if (patch.profile !== void 0) {
@@ -51186,7 +51365,7 @@ async function recordWizardBrain(userId, id, patch) {
   return (r.rowCount ?? 0) > 0;
 }
 async function recordWizardEa(userId, id, code) {
-  await ensureTable4();
+  await ensureTable5();
   const { rowCount } = await pool.query(
     `UPDATE wizard_strategies SET ea_code=$3, updated_at=now() WHERE id=$1 AND user_id=$2`,
     [id, userId, code]
@@ -51194,7 +51373,7 @@ async function recordWizardEa(userId, id, code) {
   return (rowCount ?? 0) > 0;
 }
 async function recordWizardBacktest(userId, id, summary) {
-  await ensureTable4();
+  await ensureTable5();
   const { rows } = await pool.query(
     `UPDATE wizard_strategies SET last_backtest=$3, status='backtested', updated_at=now()
      WHERE id=$1 AND user_id=$2 RETURNING ${COLS}`,
@@ -59462,7 +59641,7 @@ __export(presenters_exports, {
   listPresenters: () => listPresenters,
   presenterAbsoluteUrl: () => presenterAbsoluteUrl
 });
-function ensureTable5() {
+function ensureTable6() {
   return tableReady5 ??= pool.query(`CREATE TABLE IF NOT EXISTS content_presenters (
       id SERIAL PRIMARY KEY,
       user_id INTEGER NOT NULL,
@@ -59478,7 +59657,7 @@ function rowToPresenter(r) {
   return { id: r.id, name: r.name, imageUrl: r.image_url, createdAt: r.created_at };
 }
 async function listPresenters(userId) {
-  await ensureTable5();
+  await ensureTable6();
   const { rows } = await pool.query(
     `SELECT id, name, image_url, created_at FROM content_presenters WHERE user_id=$1 ORDER BY created_at DESC`,
     [userId]
@@ -59486,7 +59665,7 @@ async function listPresenters(userId) {
   return rows.map(rowToPresenter);
 }
 async function createPresenter(userId, name, imageUrl) {
-  await ensureTable5();
+  await ensureTable6();
   const { rows } = await pool.query(
     `INSERT INTO content_presenters (user_id, name, image_url) VALUES ($1,$2,$3)
      RETURNING id, name, image_url, created_at`,
@@ -59495,7 +59674,7 @@ async function createPresenter(userId, name, imageUrl) {
   return rowToPresenter(rows[0]);
 }
 async function getPresenter(userId, id) {
-  await ensureTable5();
+  await ensureTable6();
   const { rows } = await pool.query(
     `SELECT id, name, image_url, created_at FROM content_presenters WHERE id=$1 AND user_id=$2`,
     [id, userId]
@@ -59503,7 +59682,7 @@ async function getPresenter(userId, id) {
   return rows.length ? rowToPresenter(rows[0]) : null;
 }
 async function deletePresenter(userId, id) {
-  await ensureTable5();
+  await ensureTable6();
   const { rowCount } = await pool.query(
     `DELETE FROM content_presenters WHERE id=$1 AND user_id=$2`,
     [id, userId]
@@ -67909,9 +68088,9 @@ async function getStopOrdersForUser(userId, filters = {}) {
 init_schema();
 
 // server/build-info.ts
-var BUILD_COMMIT = "dc0eec5c-dirty";
+var BUILD_COMMIT = "5439ebf0-dirty";
 var BUILD_BRANCH = "HEAD";
-var BUILT_AT = "2026-11-04T08:01:29.384Z";
+var BUILT_AT = "2026-11-05T02:34:47.861Z";
 
 // server/stripe.ts
 init_db();

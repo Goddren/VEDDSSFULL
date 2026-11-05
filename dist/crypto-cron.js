@@ -6248,9 +6248,9 @@ var init_storage = __esm({
       // snapshot; a different pair scope is a distinct, coexisting listing.
       async getUserActiveBrainListingBySymbols(sellerId, sourceCategory, symbols) {
         const listings = await db.select().from(brainDataListings).where(and(eq(brainDataListings.sellerId, sellerId), eq(brainDataListings.isActive, true), eq(brainDataListings.sourceCategory, sourceCategory)));
-        const norm3 = (s) => Array.isArray(s) && s.length ? [...s].map((x) => x.toUpperCase()).sort().join(",") : "";
-        const target = norm3(symbols);
-        return listings.find((l) => norm3(l.symbolFilter) === target);
+        const norm4 = (s) => Array.isArray(s) && s.length ? [...s].map((x) => x.toUpperCase()).sort().join(",") : "";
+        const target = norm4(symbols);
+        return listings.find((l) => norm4(l.symbolFilter) === target);
       }
       async importBrainDataSnapshot(buyerId, snapshotData) {
         if (!snapshotData.length) return 0;
@@ -17868,6 +17868,157 @@ var init_pair_key = __esm({
   }
 });
 
+// server/services/brain-shadow.ts
+async function ensureTable() {
+  const { pool: pool2 } = await Promise.resolve().then(() => (init_db(), db_exports));
+  if (!_tableReady) {
+    await pool2.query(`CREATE TABLE IF NOT EXISTS brain_shadow_trades (
+      id serial primary key, user_id int not null, symbol text not null, session text not null,
+      direction text not null, entry real not null, stop_loss real not null, take_profit real not null,
+      source text, reason text, status text not null default 'open', r_multiple real,
+      created_at timestamptz default now(), resolved_at timestamptz)`);
+    await pool2.query(`CREATE INDEX IF NOT EXISTS brain_shadow_open ON brain_shadow_trades (user_id, symbol, status)`);
+    _tableReady = true;
+  }
+  if (!_openKeysLoaded) {
+    const r = await pool2.query(`SELECT user_id, symbol, direction FROM brain_shadow_trades WHERE status='open'`);
+    for (const row of r.rows) _openKeys.add(`${row.user_id}|${norm2(row.symbol)}|${row.direction}`);
+    _openKeysLoaded = true;
+  }
+  return pool2;
+}
+function recordShadow(userId, p) {
+  void (async () => {
+    try {
+      const sym = norm2(p.symbol);
+      const key = `${userId}|${sym}|${p.direction}`;
+      const pool2 = await ensureTable();
+      if (_openKeys.has(key) || !(p.entry > 0)) return;
+      const buy = p.direction === "BUY";
+      let sl = Number(p.stopLoss), tp = Number(p.takeProfit);
+      const validSL = sl > 0 && (buy ? sl < p.entry : sl > p.entry);
+      if (!validSL) {
+        if (!(Number(p.atr) > 0)) return;
+        const risk2 = 1.5 * Number(p.atr);
+        sl = buy ? p.entry - risk2 : p.entry + risk2;
+      }
+      const risk = Math.abs(p.entry - sl);
+      const validTP = tp > 0 && (buy ? tp > p.entry : tp < p.entry);
+      if (!validTP) tp = buy ? p.entry + 2 * risk : p.entry - 2 * risk;
+      const session2 = sessionForHour((/* @__PURE__ */ new Date()).getUTCHours());
+      _openKeys.add(key);
+      await pool2.query(
+        `INSERT INTO brain_shadow_trades (user_id, symbol, session, direction, entry, stop_loss, take_profit, source, reason)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)`,
+        [userId, sym, session2, p.direction, p.entry, sl, tp, p.source, String(p.reason).slice(0, 300)]
+      );
+    } catch (_) {
+    }
+  })();
+}
+function resolveShadows(userId, symbol, bars) {
+  const sym = norm2(symbol);
+  if (!_openKeysLoaded) {
+    void ensureTable().catch(() => {
+    });
+    return;
+  }
+  if (!_openKeys.has(`${userId}|${sym}|BUY`) && !_openKeys.has(`${userId}|${sym}|SELL`)) return;
+  void (async () => {
+    try {
+      const pool2 = await ensureTable();
+      const r = await pool2.query(
+        `SELECT id, direction, entry, stop_loss, take_profit, created_at FROM brain_shadow_trades
+         WHERE user_id=$1 AND symbol=$2 AND status='open'`,
+        [userId, sym]
+      );
+      for (const s of r.rows) {
+        const opened = new Date(s.created_at).getTime();
+        const buy = s.direction === "BUY";
+        let outcome = null;
+        for (const b of bars) {
+          if (!(b.timestamp > opened)) continue;
+          const hitSL = buy ? b.low <= s.stop_loss : b.high >= s.stop_loss;
+          const hitTP = buy ? b.high >= s.take_profit : b.low <= s.take_profit;
+          if (hitSL) {
+            outcome = "loss";
+            break;
+          }
+          if (hitTP) {
+            outcome = "win";
+            break;
+          }
+        }
+        let status = outcome;
+        if (!status && Date.now() - opened > EXPIRE_MS) status = "expired";
+        if (!status) continue;
+        const rr = Math.abs(s.take_profit - s.entry) / (Math.abs(s.entry - s.stop_loss) || 1);
+        await pool2.query(
+          `UPDATE brain_shadow_trades SET status=$1, r_multiple=$2, resolved_at=now() WHERE id=$3 AND status='open'`,
+          [status, status === "win" ? rr : status === "loss" ? -1 : 0, s.id]
+        );
+        _openKeys.delete(`${userId}|${sym}|${s.direction}`);
+        _statsAt = 0;
+      }
+    } catch (_) {
+    }
+  })();
+}
+function refreshStats() {
+  if (_statsLoading || Date.now() - _statsAt < STATS_TTL_MS) return;
+  _statsLoading = true;
+  void (async () => {
+    try {
+      const pool2 = await ensureTable();
+      const r = await pool2.query(
+        `SELECT user_id, symbol, session, count(*) FILTER (WHERE status='win')::int w, count(*) FILTER (WHERE status='loss')::int l
+         FROM brain_shadow_trades WHERE status IN ('win','loss') AND created_at > now() - interval '${LOOKBACK_DAYS2} days'
+         GROUP BY 1,2,3`
+      );
+      const m = /* @__PURE__ */ new Map();
+      for (const row of r.rows) m.set(`${row.user_id}|${norm2(row.symbol)}|${row.session}`, { wins: row.w, losses: row.l });
+      _stats = m;
+      _statsAt = Date.now();
+    } catch (_) {
+    } finally {
+      _statsLoading = false;
+    }
+  })();
+}
+function getShadowSessionStat(userId, symbol, session2) {
+  refreshStats();
+  const sym = norm2(symbol);
+  let hit = null;
+  _stats.forEach((v, k) => {
+    const [u, s, sess] = k.split("|");
+    if (Number(u) === userId && s === sym && sameSession(sess, session2)) {
+      hit = hit ? { wins: hit.wins + v.wins, losses: hit.losses + v.losses } : { ...v };
+    }
+  });
+  return hit;
+}
+var _tableReady, _statsAt, _statsLoading, _stats, _openKeys, _openKeysLoaded, STATS_TTL_MS, EXPIRE_MS, LOOKBACK_DAYS2, norm2, SHADOW_WEIGHT;
+var init_brain_shadow = __esm({
+  "server/services/brain-shadow.ts"() {
+    "use strict";
+    init_session();
+    _tableReady = false;
+    _statsAt = 0;
+    _statsLoading = false;
+    _stats = /* @__PURE__ */ new Map();
+    _openKeys = /* @__PURE__ */ new Set();
+    _openKeysLoaded = false;
+    STATS_TTL_MS = 10 * 6e4;
+    EXPIRE_MS = 24 * 36e5;
+    LOOKBACK_DAYS2 = 60;
+    norm2 = (s) => String(s || "").toUpperCase().replace("/", "");
+    SHADOW_WEIGHT = () => {
+      const w = Number(process.env.BRAIN_SHADOW_WEIGHT ?? 0.5);
+      return Number.isFinite(w) && w >= 0 ? w : 0.5;
+    };
+  }
+});
+
 // server/tradelocker.ts
 var tradelocker_exports = {};
 __export(tradelocker_exports, {
@@ -18225,8 +18376,8 @@ async function warmTradeLockerConnection(connection) {
 async function tlAccountRiskGuard(service, connection, signal) {
   if (process.env.TL_RISK_GUARD_DISABLED === "true") return {};
   const connKey = String(connection.id ?? connection.accountId);
-  const norm3 = (s) => String(s || "").toUpperCase().split(".")[0].replace(/[^A-Z0-9]/g, "");
-  const want = norm3(signal.symbol);
+  const norm4 = (s) => String(s || "").toUpperCase().split(".")[0].replace(/[^A-Z0-9]/g, "");
+  const want = norm4(signal.symbol);
   let equity;
   try {
     const info2 = await guardRead(`acct:${connKey}`, () => service.getAccountInfo({ fresh: true }));
@@ -18267,7 +18418,7 @@ async function tlAccountRiskGuard(service, connection, signal) {
   }
   if (!want) return { block: "order has no symbol" };
   const held = positions.find((p) => {
-    const s = norm3(p.symbol);
+    const s = norm4(p.symbol);
     return s === want || s.startsWith(want) || s.length >= 6 && want.startsWith(s);
   });
   if (held) return { block: `already holding ${held.symbol} ${String(held.side || "").toUpperCase()} ${held.qty} on this account (one position per pair)` };
@@ -19780,7 +19931,7 @@ var init_tradelocker = __esm({
           }
         } catch {
         }
-        const norm3 = (v) => parseFloat(v) || 0;
+        const norm4 = (v) => parseFloat(v) || 0;
         const toIsoDate = (v) => {
           if (v == null || v === "") return void 0;
           const n = typeof v === "number" ? v : /^\d+(\.\d+)?$/.test(String(v).trim()) ? Number(v) : NaN;
@@ -19799,12 +19950,12 @@ var init_tradelocker = __esm({
             symbol: p.s || p.symbol || instMap.get(String(p.tradableInstrumentId ?? "")) || String(p.tradableInstrumentId ?? ""),
             instrumentId: p.tradableInstrumentId != null ? String(p.tradableInstrumentId) : void 0,
             side: (p.side || "").toString().toLowerCase(),
-            qty: norm3(p.qty),
-            avgPrice: norm3(p.avgPrice ?? p.openPrice ?? p.price),
-            unrealizedPl: norm3(p.unrealizedPl ?? p.unrealizedPnL ?? p.uPnL ?? p.pl),
+            qty: norm4(p.qty),
+            avgPrice: norm4(p.avgPrice ?? p.openPrice ?? p.price),
+            unrealizedPl: norm4(p.unrealizedPl ?? p.unrealizedPnL ?? p.uPnL ?? p.pl),
             openDate: toIsoDate(p.openDate || p.createdDate),
-            stopLoss: sanePrice(norm3(p.stopLoss ?? p.sl ?? p.stopLossPrice), norm3(p.avgPrice ?? p.openPrice ?? p.price)),
-            takeProfit: sanePrice(norm3(p.takeProfit ?? p.tp ?? p.takeProfitPrice), norm3(p.avgPrice ?? p.openPrice ?? p.price))
+            stopLoss: sanePrice(norm4(p.stopLoss ?? p.sl ?? p.stopLossPrice), norm4(p.avgPrice ?? p.openPrice ?? p.price)),
+            takeProfit: sanePrice(norm4(p.takeProfit ?? p.tp ?? p.takeProfitPrice), norm4(p.avgPrice ?? p.openPrice ?? p.price))
           }));
         }
         let columns = [];
@@ -19852,15 +20003,15 @@ var init_tradelocker = __esm({
             symbol: instMap.get(instId) || instId,
             instrumentId: instId || void 0,
             side: iSide >= 0 ? String(row[iSide]).toLowerCase() : "",
-            qty: iQty >= 0 ? norm3(row[iQty]) : 0,
-            avgPrice: iAvg >= 0 ? norm3(row[iAvg]) : 0,
-            unrealizedPl: iPl >= 0 ? norm3(row[iPl]) : 0,
+            qty: iQty >= 0 ? norm4(row[iQty]) : 0,
+            avgPrice: iAvg >= 0 ? norm4(row[iAvg]) : 0,
+            unrealizedPl: iPl >= 0 ? norm4(row[iPl]) : 0,
             openDate: iDate >= 0 ? toIsoDate(row[iDate]) : void 0,
             // Second line of defence, independent of column naming: a protective
             // level sits near the entry. Anything orders of magnitude away is an id
             // or a sentinel, not a price, and must not be recorded as protection.
-            stopLoss: sanePrice(iSl >= 0 ? norm3(row[iSl]) : 0, iAvg >= 0 ? norm3(row[iAvg]) : 0),
-            takeProfit: sanePrice(iTp >= 0 ? norm3(row[iTp]) : 0, iAvg >= 0 ? norm3(row[iAvg]) : 0)
+            stopLoss: sanePrice(iSl >= 0 ? norm4(row[iSl]) : 0, iAvg >= 0 ? norm4(row[iAvg]) : 0),
+            takeProfit: sanePrice(iTp >= 0 ? norm4(row[iTp]) : 0, iAvg >= 0 ? norm4(row[iAvg]) : 0)
           };
         });
       }
@@ -22032,8 +22183,8 @@ async function executeSignalOnDxtrade(conn, signal) {
     await svc.ensureLoggedIn();
     const acct = conn.account_code || extractAccountCode(await svc.getAccounts());
     if (!acct) return { success: false, error: "could not resolve DXtrade account code" };
-    const norm3 = (s) => String(s ?? "").replace(/\//g, "").toUpperCase();
-    const symbol = norm3(signal.symbol);
+    const norm4 = (s) => String(s ?? "").replace(/\//g, "").toUpperCase();
+    const symbol = norm4(signal.symbol);
     const positions = await svc.getPositions(acct);
     const code = signal.positionCode || signal.positionId || void 0;
     let pos = code ? positions.find((p) => p.positionId === String(code)) : void 0;
@@ -22229,9 +22380,9 @@ var init_dxtrade = __esm({
         let code = o.positionCode;
         if (!code) {
           try {
-            const norm3 = (s) => s.replace(/\//g, "").toUpperCase();
+            const norm4 = (s) => s.replace(/\//g, "").toUpperCase();
             const positions = await this.getPositions(accountCode);
-            code = positions.find((p) => p.instrument === norm3(o.instrument) && p.side === o.positionSide)?.positionId;
+            code = positions.find((p) => p.instrument === norm4(o.instrument) && p.side === o.positionSide)?.positionId;
           } catch {
           }
         }
@@ -22318,12 +22469,12 @@ var init_dxtrade = __esm({
        *  avoid ever cancelling a genuine entry order. Best-effort — never throws. */
       async cancelProtectiveOrders(accountCode, instrument) {
         try {
-          const norm3 = (s) => String(s ?? "").replace(/\//g, "").toUpperCase();
-          const target = norm3(instrument);
+          const norm4 = (s) => String(s ?? "").replace(/\//g, "").toUpperCase();
+          const target = norm4(instrument);
           const orders = await this.getWorkingOrders(accountCode);
           let n = 0;
           for (const o of orders) {
-            const sym = norm3(o.instrument ?? o.symbol);
+            const sym = norm4(o.instrument ?? o.symbol);
             const effect = String(o.positionEffect ?? o.legs?.[0]?.positionEffect ?? "").toUpperCase();
             if (sym !== target || effect !== "CLOSE") continue;
             const id = o.orderId ?? o.id ?? o.orderCode ?? o.code;
@@ -22350,9 +22501,9 @@ var init_dxtrade = __esm({
         let code = positionCode;
         if (!code) {
           try {
-            const norm3 = (s) => s.replace(/\//g, "").toUpperCase();
+            const norm4 = (s) => s.replace(/\//g, "").toUpperCase();
             const positions = await this.getPositions(accountCode);
-            const match = positions.find((p) => p.instrument === norm3(instrument) && p.side === side);
+            const match = positions.find((p) => p.instrument === norm4(instrument) && p.side === side);
             code = match?.positionId;
           } catch {
           }
@@ -23679,17 +23830,17 @@ function listFromEnv(name, fallback) {
 }
 function pairFilterVerdict(symbol, direction) {
   if (process.env.PAIR_FILTER_ENABLED === "false") return null;
-  const sym = norm2(symbol);
+  const sym = norm3(symbol);
   const dir = String(direction || "").toUpperCase();
   for (const b of BLOCKED_PAIRS) {
-    if (norm2(b) === sym) {
+    if (norm3(b) === sym) {
       const reason = sym === "GBPJPY" ? `Pair filter: ${sym} is on the blocked list (34% WR over 310 trades, avg win $59 vs avg loss $100)` : `Pair filter: ${sym} is on the blocked list`;
       return { blocked: true, reason };
     }
   }
   for (const entry of BLOCKED_DIRECTIONS) {
     const [s, d] = entry.split(":");
-    if (s && d && norm2(s) === sym && d.toUpperCase() === dir) {
+    if (s && d && norm3(s) === sym && d.toUpperCase() === dir) {
       return { blocked: true, reason: `Pair filter: ${sym} ${dir} is on the blocked list` };
     }
   }
@@ -23698,11 +23849,11 @@ function pairFilterVerdict(symbol, direction) {
 function pairFilterConfig() {
   return { enabled: process.env.PAIR_FILTER_ENABLED !== "false", pairs: BLOCKED_PAIRS, directions: BLOCKED_DIRECTIONS };
 }
-var norm2, BLOCKED_PAIRS, BLOCKED_DIRECTIONS;
+var norm3, BLOCKED_PAIRS, BLOCKED_DIRECTIONS;
 var init_pair_filter = __esm({
   "server/services/pair-filter.ts"() {
     "use strict";
-    norm2 = (s) => String(s || "").toUpperCase().replace(/[^A-Z0-9]/g, "");
+    norm3 = (s) => String(s || "").toUpperCase().replace(/[^A-Z0-9]/g, "");
     BLOCKED_PAIRS = listFromEnv("BLOCKED_PAIRS", "");
     BLOCKED_DIRECTIONS = listFromEnv("BLOCKED_PAIR_DIRECTIONS", "GBPJPY:SELL");
     console.log(`[PairFilter] enabled=${process.env.PAIR_FILTER_ENABLED !== "false"} pairs=[${BLOCKED_PAIRS.join(", ") || "none"}] directions=[${BLOCKED_DIRECTIONS.join(", ") || "none"}]`);
@@ -23733,7 +23884,7 @@ async function compute2(userId) {
         -- 13:00 (26.7% over 15 trades).
         AND connection_id IN (SELECT id FROM tradelocker_connections WHERE is_active = true)
         AND created_at > now() - ($2 || ' days')::interval`,
-    [userId, String(LOOKBACK_DAYS2)]
+    [userId, String(LOOKBACK_DAYS3)]
   );
   const { collapseToSignals: collapseToSignals2 } = await Promise.resolve().then(() => (init_signal_groups(), signal_groups_exports));
   const signals = collapseToSignals2(fillRows.map((r) => ({
@@ -23768,7 +23919,7 @@ async function hourFilterVerdict(userId, hourUtc) {
       entry = { at: Date.now(), ...fresh };
       cache6.set(userId, entry);
       const list = Array.from(fresh.blocked).sort((a, b) => a - b).map((h) => `${h}:00`).join(", ");
-      console.log(`[HourFilter] user ${userId}: recomputed over ${LOOKBACK_DAYS2}d \u2014 blocking ${fresh.blocked.size} hour(s)${list ? ": " + list : ""} (floor ${WR_FLOOR}% on ${MIN_SAMPLE}+ trades)`);
+      console.log(`[HourFilter] user ${userId}: recomputed over ${LOOKBACK_DAYS3}d \u2014 blocking ${fresh.blocked.size} hour(s)${list ? ": " + list : ""} (floor ${WR_FLOOR}% on ${MIN_SAMPLE}+ trades)`);
     }
     if (!entry.blocked.has(hourUtc)) return null;
     const s = entry.stats.find((x) => x.hour === hourUtc);
@@ -23782,14 +23933,14 @@ async function hourFilterTable(userId) {
   const { stats, blocked } = await compute2(userId);
   return { stats: stats.sort((a, b) => a.hour - b.hour), blocked: Array.from(blocked).sort((a, b) => a - b) };
 }
-var MIN_SAMPLE, WR_FLOOR, TTL_MS5, LOOKBACK_DAYS2, cache6;
+var MIN_SAMPLE, WR_FLOOR, TTL_MS5, LOOKBACK_DAYS3, cache6;
 var init_hour_filter = __esm({
   "server/services/hour-filter.ts"() {
     "use strict";
     MIN_SAMPLE = Number(process.env.HOUR_FILTER_MIN_TRADES ?? 15);
     WR_FLOOR = Number(process.env.HOUR_FILTER_MIN_WINRATE ?? 45);
     TTL_MS5 = Number(process.env.HOUR_FILTER_TTL_MS ?? 60 * 60 * 1e3);
-    LOOKBACK_DAYS2 = Number(process.env.HOUR_FILTER_LOOKBACK_DAYS ?? 180);
+    LOOKBACK_DAYS3 = Number(process.env.HOUR_FILTER_LOOKBACK_DAYS ?? 180);
     cache6 = /* @__PURE__ */ new Map();
   }
 });
@@ -24023,8 +24174,16 @@ function applyBrainEnforcement(userId, symbol, proposedDirection, currentATR, ne
   if (sessionData && sessionData.total >= 3 && sessionData.total < _minN && sessionData.winRate < _sessWR) {
     logGuard(userId, "brain_block_thin_data", symbol, `${session2} session ${sessionData.winRate}% over only ${sessionData.total} trades \u2014 not blocking (needs ${_minN})`);
   }
-  if (sessionData && sessionData.total >= _minN && sessionData.winRate < _sessWR) {
-    const msg = `\u{1F9E0} Brain block: ${symbol} ${session2} session only ${sessionData.winRate}% WR (${sessionData.total} trades) \u2014 below ${_sessWR}% threshold, skipping`;
+  const _shadow = sessionData ? getShadowSessionStat(userId, symbol, session2) : null;
+  const _sw = SHADOW_WEIGHT();
+  const _shN = _shadow ? _shadow.wins + _shadow.losses : 0;
+  const _blendWR = sessionData && _shN > 0 ? Math.round((sessionData.winRate / 100 * sessionData.total + _sw * _shadow.wins) / (sessionData.total + _sw * _shN) * 100) : sessionData?.winRate;
+  const _shadowTxt = _shN > 0 ? ` + shadow ${Math.round(_shadow.wins / _shN * 100)}%/${_shN} \u2192 blended ${_blendWR}%` : "";
+  if (sessionData && sessionData.total >= _minN && sessionData.winRate < _sessWR && _blendWR >= _sessWR) {
+    logGuard(userId, "brain_block_shadow_lift", symbol, `${session2} real ${sessionData.winRate}%/${sessionData.total}${_shadowTxt} \u2014 unblocked by shadow results`);
+  }
+  if (sessionData && sessionData.total >= _minN && _blendWR < _sessWR) {
+    const msg = `\u{1F9E0} Brain block: ${symbol} ${session2} session only ${sessionData.winRate}% WR (${sessionData.total} trades)${_shadowTxt} \u2014 below ${_sessWR}% threshold, skipping`;
     pushEnforcementLog(userId, { symbol, rule: "session_block", direction: proposedDirection, reason: msg });
     return { ...passthrough, allowed: false, reason: msg };
   }
@@ -24979,6 +25138,13 @@ async function scanMarkets(userId) {
         const preScanEnforcement = applyBrainEnforcement(userId, symbol, null, atr, void 0);
         const _entryBlockedReason = preScanEnforcement.allowed ? null : preScanEnforcement.reason;
         if (_entryBlockedReason) addActivity(userId, { type: "info", symbol, message: `${_entryBlockedReason} (entries only \u2014 still analysed for open positions and models)` });
+        resolveShadows(userId, symbol, confirmedBars);
+        if (_entryBlockedReason && _entryBlockedReason.includes(" session only ")) {
+          const { h1: _sh1, h4: _sh4 } = mtfStack(state, symbol);
+          if (_sh1 && _sh4 && _sh1.trend !== "NEUTRAL" && _sh1.trend === _sh4.trend) {
+            recordShadow(userId, { symbol, direction: _sh1.trend === "BULLISH" ? "BUY" : "SELL", entry: currentPrice, atr, source: "trend", reason: _entryBlockedReason });
+          }
+        }
         try {
           buildTransitionMatrix(symbol, confirmedBars.map((b) => ({ open: b.open, close: b.close })));
         } catch {
@@ -27710,6 +27876,18 @@ async function processDecision(userId, decision, newsCtx) {
         symbol: decision.symbol,
         message: postEnforcement.reason
       });
+      if (postEnforcement.reason.includes(" session only ") && (decision.direction === "BUY" || decision.direction === "SELL")) {
+        recordShadow(userId, {
+          symbol: decision.symbol,
+          direction: decision.direction,
+          entry: Number(decision.entryPrice) || state.marketSnapshot?.[decision.symbol]?.price || 0,
+          atr: currentATR,
+          stopLoss: Number(decision.stopLoss) || null,
+          takeProfit: Number(decision.takeProfit) || null,
+          source: "ai",
+          reason: postEnforcement.reason
+        });
+      }
       return;
     }
     if (postEnforcement.forcedStrategy && !decision.strategy) {
@@ -30459,6 +30637,7 @@ var init_live_trading_engine = __esm({
     init_pair_key();
     init_service();
     init_guard_events();
+    init_brain_shadow();
     init_ai_level();
     init_tradelocker();
     init_tradelocker_sync();
