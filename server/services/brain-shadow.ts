@@ -97,13 +97,21 @@ export function resolveShadows(userId: number, symbol: string, bars: ShadowBar[]
       const r = await pool.query(
         `SELECT id, direction, entry, stop_loss, take_profit, created_at FROM brain_shadow_trades
          WHERE user_id=$1 AND symbol=$2 AND status='open'`, [userId, sym]);
+      // Feeds can stamp bars in broker time (e.g. UTC+2), which makes OLD bars
+      // look newer than the shadow (11-05: GBPUSD shadow "lost" 12s after opening).
+      // If the newest bar is in the future, shift every bar back by whole hours;
+      // and only score bars that have fully closed (open + 15m <= now).
+      const _now = Date.now();
+      const _last = bars.length ? Math.max(...bars.map(b => b.timestamp)) : 0;
+      const _shift = _last > _now + 60_000 ? Math.round((_last - _now) / 3_600_000) * 3_600_000 : 0;
+      const _bars = bars.map(b => ({ ...b, timestamp: b.timestamp - _shift })).filter(b => b.timestamp + 15 * 60_000 <= _now);
       for (const s of r.rows) {
         const opened = new Date(s.created_at).getTime();
         const buy = s.direction === 'BUY';
         let outcome: 'win' | 'loss' | null = null;
         // Bar timestamp = bar open; only bars that opened after the shadow count.
-        for (const b of bars) {
-          if (!(b.timestamp > opened)) continue;
+        for (const b of _bars) {
+          if (!(b.timestamp >= opened)) continue; // bar opened at/after the shadow
           const hitSL = buy ? b.low <= s.stop_loss : b.high >= s.stop_loss;
           const hitTP = buy ? b.high >= s.take_profit : b.low <= s.take_profit;
           if (hitSL) { outcome = 'loss'; break; }   // both in one bar → loss

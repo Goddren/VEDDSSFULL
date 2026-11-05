@@ -17760,12 +17760,16 @@ function resolveShadows(userId, symbol, bars) {
          WHERE user_id=$1 AND symbol=$2 AND status='open'`,
         [userId, sym]
       );
+      const _now = Date.now();
+      const _last = bars.length ? Math.max(...bars.map((b) => b.timestamp)) : 0;
+      const _shift = _last > _now + 6e4 ? Math.round((_last - _now) / 36e5) * 36e5 : 0;
+      const _bars = bars.map((b) => ({ ...b, timestamp: b.timestamp - _shift })).filter((b) => b.timestamp + 15 * 6e4 <= _now);
       for (const s of r.rows) {
         const opened = new Date(s.created_at).getTime();
         const buy = s.direction === "BUY";
         let outcome = null;
-        for (const b of bars) {
-          if (!(b.timestamp > opened)) continue;
+        for (const b of _bars) {
+          if (!(b.timestamp >= opened)) continue;
           const hitSL = buy ? b.low <= s.stop_loss : b.high >= s.stop_loss;
           const hitTP = buy ? b.high >= s.take_profit : b.low <= s.take_profit;
           if (hitSL) {
