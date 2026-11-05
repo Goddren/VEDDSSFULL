@@ -1916,6 +1916,9 @@ async function scanMarkets(userId: number): Promise<void> {
           const { h1: _sh1, h4: _sh4 } = mtfStack(state, symbol);
           if (_sh1 && _sh4 && _sh1.trend !== 'NEUTRAL' && _sh1.trend === _sh4.trend) {
             recordShadow(userId, { symbol, direction: _sh1.trend === 'BULLISH' ? 'BUY' : 'SELL', entry: currentPrice, atr, source: 'trend', reason: _entryBlockedReason });
+          } else {
+            // Why no shadow — H1/H4 must agree on a direction (2026-11-05 diagnostic).
+            addActivity(userId, { type: 'info', symbol, message: `👻 Shadow skipped: ${symbol} H1 ${_sh1?.trend ?? 'n/a'} / H4 ${_sh4?.trend ?? 'n/a'} — needs both trending the same way` });
           }
         }
 

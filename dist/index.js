@@ -28907,6 +28907,8 @@ async function scanMarkets(userId) {
           const { h1: _sh1, h4: _sh4 } = mtfStack(state, symbol);
           if (_sh1 && _sh4 && _sh1.trend !== "NEUTRAL" && _sh1.trend === _sh4.trend) {
             recordShadow(userId, { symbol, direction: _sh1.trend === "BULLISH" ? "BUY" : "SELL", entry: currentPrice, atr: atr3, source: "trend", reason: _entryBlockedReason });
+          } else {
+            addActivity(userId, { type: "info", symbol, message: `\u{1F47B} Shadow skipped: ${symbol} H1 ${_sh1?.trend ?? "n/a"} / H4 ${_sh4?.trend ?? "n/a"} \u2014 needs both trending the same way` });
           }
         }
         try {
@@ -68340,9 +68342,9 @@ async function getStopOrdersForUser(userId, filters = {}) {
 init_schema();
 
 // server/build-info.ts
-var BUILD_COMMIT = "d4334648-dirty";
+var BUILD_COMMIT = "f08ca2f3-dirty";
 var BUILD_BRANCH = "HEAD";
-var BUILT_AT = "2026-11-05T05:13:30.799Z";
+var BUILT_AT = "2026-11-05T05:54:03.673Z";
 
 // server/stripe.ts
 init_db();
