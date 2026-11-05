@@ -1415,6 +1415,8 @@ export default function WeeklyStrategyPage() {
   const [engineMaxLot, setEngineMaxLot] = useState(0);
   const [engineAutoFlatten, setEngineAutoFlatten] = useState(false);
   const [engineReversalExit, setEngineReversalExit] = useState(true);
+  const [engineBrainShadow, setEngineBrainShadow] = useState(true);
+  const [engineStopHoldR, setEngineStopHoldR] = useState(1);
   const [engineReversalSensitivity, setEngineReversalSensitivity] = useState(3);
   const [enginePairLimitMode, setEnginePairLimitMode] = useState<'ai' | 'fixed'>('ai');
   const [enginePairLimit, setEnginePairLimit] = useState(2);
@@ -1576,6 +1578,8 @@ export default function WeeklyStrategyPage() {
     if (c.autoFlattenOnBreach != null) setEngineAutoFlatten(c.autoFlattenOnBreach);
     if (c.reversalExitEnabled != null) setEngineReversalExit(c.reversalExitEnabled);
     if (c.reversalSensitivity != null) setEngineReversalSensitivity(c.reversalSensitivity);
+    if (c.brainShadowEnabled != null) setEngineBrainShadow(c.brainShadowEnabled);
+    if (c.stopHoldUntilR != null) setEngineStopHoldR(Number(c.stopHoldUntilR));
     if (c.pairDailyLimitMode) setEnginePairLimitMode(c.pairDailyLimitMode);
     if (c.maxTradesPerPairPerDay != null) setEnginePairLimit(c.maxTradesPerPairPerDay);
     if (c.pairDailyLimitOverrides) setEnginePairLimitOverrides(Object.entries(c.pairDailyLimitOverrides).map(([k, v]) => `${k}:${v}`).join(', '));
@@ -2576,6 +2580,29 @@ export default function WeeklyStrategyPage() {
                         <p className="text-[10px] text-cyan-400/70 mt-0.5">Confluences: DI cross · MACD flip · RSI vs 50 · trend flip · volume. More required = fewer, higher-conviction exits.</p>
                       </div>
                     )}
+                    <div>
+                      <Label className="text-violet-400 text-xs font-semibold flex items-center gap-1"><AlertCircle className="w-3 h-3" /> Brain shadow learning</Label>
+                      <label className="mt-1 flex items-center gap-2 cursor-pointer h-8">
+                        <input type="checkbox" checked={engineBrainShadow}
+                          onChange={async e => { const v = e.target.checked; setEngineBrainShadow(v); try { await apiRequest('PATCH', '/api/vedd-live-engine/config', { brainShadowEnabled: v }); } catch { /* applied on start */ } }}
+                          className="accent-violet-500 w-4 h-4" />
+                        <span className="text-[11px] text-gray-300">Paper-track brain-blocked sessions and let results lift or keep the block</span>
+                      </label>
+                      <p className="text-[10px] text-violet-400/70 mt-0.5">No orders are placed. Shadow wins/losses count at half weight next to real trades.</p>
+                    </div>
+                    <div>
+                      <Label className="text-emerald-400 text-xs font-semibold">Let trades breathe (stop hold)</Label>
+                      <select value={engineStopHoldR}
+                        onChange={async e => { const v = Number(e.target.value); setEngineStopHoldR(v); try { await apiRequest('PATCH', '/api/vedd-live-engine/config', { stopHoldUntilR: v }); } catch { /* applied on start */ } }}
+                        className="mt-1 w-full bg-gray-800 border border-emerald-900/50 text-white text-sm rounded-md h-8 px-2">
+                        <option value={0}>Off — AI may tighten the stop any time</option>
+                        <option value={0.5}>Hold until +0.5R profit</option>
+                        <option value={1}>Hold until +1R profit (recommended)</option>
+                        <option value={1.5}>Hold until +1.5R profit</option>
+                        <option value={2}>Hold until +2R profit</option>
+                      </select>
+                      <p className="text-[10px] text-emerald-400/70 mt-0.5">The original stop stays put until the trade is this far in profit. Never loosens a stop; daily loss limits still apply.</p>
+                    </div>
                     <div>
                       <Label className="text-amber-400 text-xs font-semibold">Pair daily limit</Label>
                       <select value={enginePairLimitMode}

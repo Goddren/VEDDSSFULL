@@ -24174,7 +24174,8 @@ function applyBrainEnforcement(userId, symbol, proposedDirection, currentATR, ne
   if (sessionData && sessionData.total >= 3 && sessionData.total < _minN && sessionData.winRate < _sessWR) {
     logGuard(userId, "brain_block_thin_data", symbol, `${session2} session ${sessionData.winRate}% over only ${sessionData.total} trades \u2014 not blocking (needs ${_minN})`);
   }
-  const _shadow = sessionData ? getShadowSessionStat(userId, symbol, session2) : null;
+  const _shadowOn = engineStates[userId]?.config?.brainShadowEnabled !== false;
+  const _shadow = sessionData && _shadowOn ? getShadowSessionStat(userId, symbol, session2) : null;
   const _sw = SHADOW_WEIGHT();
   const _shN = _shadow ? _shadow.wins + _shadow.losses : 0;
   const _blendWR = sessionData && _shN > 0 ? Math.round((sessionData.winRate / 100 * sessionData.total + _sw * _shadow.wins) / (sessionData.total + _sw * _shN) * 100) : sessionData?.winRate;
@@ -24515,6 +24516,8 @@ function getDefaultConfig(userId) {
     reversalExitEnabled: false,
     // OFF by default — it was closing winners too early on
     // routine trend noise. Opt-in via the weekly-strategy toggle.
+    brainShadowEnabled: true,
+    stopHoldUntilR: 1,
     reversalSensitivity: 4,
     // if opted in, default to conservative (4 of 5) not 3
     dailyProfitTarget: 0,
@@ -25139,7 +25142,7 @@ async function scanMarkets(userId) {
         const _entryBlockedReason = preScanEnforcement.allowed ? null : preScanEnforcement.reason;
         if (_entryBlockedReason) addActivity(userId, { type: "info", symbol, message: `${_entryBlockedReason} (entries only \u2014 still analysed for open positions and models)` });
         resolveShadows(userId, symbol, confirmedBars);
-        if (_entryBlockedReason && _entryBlockedReason.includes(" session only ")) {
+        if (_entryBlockedReason && _entryBlockedReason.includes(" session only ") && state.config.brainShadowEnabled !== false) {
           const { h1: _sh1, h4: _sh4 } = mtfStack(state, symbol);
           if (_sh1 && _sh4 && _sh1.trend !== "NEUTRAL" && _sh1.trend === _sh4.trend) {
             recordShadow(userId, { symbol, direction: _sh1.trend === "BULLISH" ? "BUY" : "SELL", entry: currentPrice, atr, source: "trend", reason: _entryBlockedReason });
@@ -25661,12 +25664,29 @@ async function loadDxConnections(userId) {
     return [];
   }
 }
-function stopHoldUntilR() {
-  const v = Number(process.env.STOP_HOLD_UNTIL_R ?? 1);
+async function tlKnownStops(userId, positionId) {
+  const key = `${userId}:${positionId}`;
+  if (!tlStopInitial.has(key) && positionId) {
+    try {
+      const { pool: pool2 } = await Promise.resolve().then(() => (init_db(), db_exports));
+      const r = await pool2.query(
+        `SELECT stop_loss FROM ai_trade_results WHERE user_id=$1 AND mt5_ticket LIKE $2 AND stop_loss > 0 ORDER BY id LIMIT 1`,
+        [userId, `tl%${positionId}`]
+      );
+      tlStopInitial.set(key, Number(r.rows[0]?.stop_loss) || 0);
+    } catch (_) {
+    }
+  }
+  const initial = tlStopInitial.get(key) || 0;
+  return { initial, latest: tlStopLatest.get(key) || initial };
+}
+function stopHoldUntilR(userId) {
+  const c = userId != null ? engineStates[userId]?.config?.stopHoldUntilR : void 0;
+  const v = Number(c ?? process.env.STOP_HOLD_UNTIL_R ?? 1);
   return Number.isFinite(v) && v > 0 ? v : 0;
 }
-function stopHoldActive(isBuy, entry, stop, price) {
-  const need = stopHoldUntilR();
+function stopHoldActive(isBuy, entry, stop, price, userId) {
+  const need = stopHoldUntilR(userId);
   if (!need || !(entry > 0) || !(stop > 0) || !(price > 0)) return { hold: false, rNow: 0 };
   const risk = isBuy ? entry - stop : stop - entry;
   if (!(risk > 0)) return { hold: false, rNow: 0 };
@@ -25705,7 +25725,7 @@ async function manageBtcTrail(userId, openPositions, marketAnalysis) {
     const _stops = [btcLastStop.get(key), brokerSl].filter((x) => Number(x) > 0);
     const _tightest = _stops.length ? _isBuyPos ? Math.max(..._stops) : Math.min(..._stops) : null;
     const price = Number(marketAnalysis?.[pos.symbol]?.currentPrice) || 0;
-    if (stopHoldActive(_isBuyPos, entry, initial, price).hold) continue;
+    if (stopHoldActive(_isBuyPos, entry, initial, price, userId).hold) continue;
     const h1 = await btc.btcH1(pos.symbol);
     if (!h1) continue;
     const want = btc.btcTrailStop({ direction: pos.direction, entry, initialStop: initial, price, currentStop: _tightest, bars: h1.bars });
@@ -25768,7 +25788,7 @@ async function manageXauProfitLock(userId, openPositions) {
     {
       const _bs0 = Number(pos.brokerSl) || 0;
       const _riskPts = pos.direction === "BUY" ? entry - _bs0 : _bs0 - entry;
-      const _need = stopHoldUntilR();
+      const _need = stopHoldUntilR(userId);
       if (_need && _bs0 > 0 && _riskPts > 0 && favPts < _need * _riskPts) continue;
     }
     const peak = Math.max(xauPeakPts.get(key) ?? 0, favPts);
@@ -27876,7 +27896,7 @@ async function processDecision(userId, decision, newsCtx) {
         symbol: decision.symbol,
         message: postEnforcement.reason
       });
-      if (postEnforcement.reason.includes(" session only ") && (decision.direction === "BUY" || decision.direction === "SELL")) {
+      if (postEnforcement.reason.includes(" session only ") && state.config.brainShadowEnabled !== false && (decision.direction === "BUY" || decision.direction === "SELL")) {
         recordShadow(userId, {
           symbol: decision.symbol,
           direction: decision.direction,
@@ -29393,14 +29413,16 @@ async function processDecision(userId, decision, newsCtx) {
               let _sl = newSL;
               {
                 const _buy = String(tlMatch.side || decision.direction || "BUY").toUpperCase() === "BUY";
-                const _cur = Number(tlMatch.stopLoss) || 0;
+                const _stops = await tlKnownStops(userId, String(tlMatch.id));
+                const _cur = Number(tlMatch.stopLoss) || _stops.latest || 0;
+                const _orig = _stops.initial || _cur;
                 const _px = Number(state.marketSnapshot?.[decision.symbol]?.price) || 0;
                 {
                   const _ownE = Number(tlMatch.avgPrice) || 0;
                   const _tighter = _sl && _cur > 0 && (_buy ? _sl > _cur : _sl < _cur);
-                  const _h = _tighter ? stopHoldActive(_buy, _ownE, _cur, _px) : { hold: false, rNow: 0 };
+                  const _h = _tighter ? stopHoldActive(_buy, _ownE, _orig, _px, userId) : { hold: false, rNow: 0 };
                   if (_tighter && _h.hold) {
-                    logGuard(userId, "stop_hold_breathe", decision.symbol, `AI stop ${_sl} held on ${acctLabel} \u2014 trade at ${_h.rNow.toFixed(2)}R, stop stays at ${_cur} until +${stopHoldUntilR()}R`);
+                    logGuard(userId, "stop_hold_breathe", decision.symbol, `AI stop ${_sl} held on ${acctLabel} \u2014 trade at ${_h.rNow.toFixed(2)}R, stop stays at ${_cur} until +${stopHoldUntilR(userId)}R`);
                     _sl = void 0;
                   }
                 }
@@ -29434,6 +29456,7 @@ async function processDecision(userId, decision, newsCtx) {
                 addActivity(userId, { type: "info", symbol: decision.symbol, message: `\u{1F6E1}\uFE0F ${acctLabel}: AI stop change for ${decision.symbol} refused (would loosen or cross price).` });
                 return;
               }
+              if (_sl) tlStopLatest.set(`${userId}:${tlMatch.id}`, _sl);
               const tradeResult = await executeMT5SignalOnTradeLocker(tlConn, {
                 action: "MODIFY",
                 symbol: decision.symbol,
@@ -29506,9 +29529,9 @@ async function processDecision(userId, decision, newsCtx) {
               const _px = Number(state.marketSnapshot?.[decision.symbol]?.price) || 0;
               const _entry = Number(dxMatch.openPrice) || 0;
               if (_sl && _cur > 0 && (_buy ? _sl > _cur : _sl < _cur)) {
-                const _h = stopHoldActive(_buy, _entry, _cur, _px);
+                const _h = stopHoldActive(_buy, _entry, _cur, _px, userId);
                 if (_h.hold) {
-                  logGuard(userId, "stop_hold_breathe", decision.symbol, `AI stop ${_sl} held on ${acctLabel} \u2014 trade at ${_h.rNow.toFixed(2)}R, stop stays at ${_cur} until +${stopHoldUntilR()}R`);
+                  logGuard(userId, "stop_hold_breathe", decision.symbol, `AI stop ${_sl} held on ${acctLabel} \u2014 trade at ${_h.rNow.toFixed(2)}R, stop stays at ${_cur} until +${stopHoldUntilR(userId)}R`);
                   _sl = void 0;
                 }
               }
@@ -30629,7 +30652,7 @@ function getModelLockStatus(userId) {
   if (!state) return { locked: false, openPositions: 0 };
   return { locked: state.modelLocked, openPositions: state.openPositionCount };
 }
-var FX_MAX_OPEN_PER_SYMBOL, FX_SYMBOL_COOLDOWN_MS, mt5AccountQueues, mt5AccountRegistry, engineStates, engineIntervals, engineTimers, brainLearningIntervals, positionMonitorIntervals, _monitorBusy, persistedConfigOverrides, goalTrackerCache, ALL_STRATEGY_KEYS, _activityTableReady, _activityLastPrune, _activitySeen, _dxSkipTableReady, countedTradeKeys, h4BiasCache, H4_REFRESH_MS, TRAIL_METHOD_LABELS, xauPeakPts, xauLockedPts, btcInitialStop, btcLastStop, NY_TIME_FMT, INDEX_BROKER_ALIASES, FX_LEADER_LOCK_KEY, FX_LEADER_STALE_MS, _fxLeaderClient, _fxIsLeader, _fxLeaderLoop, hardHalted;
+var FX_MAX_OPEN_PER_SYMBOL, FX_SYMBOL_COOLDOWN_MS, mt5AccountQueues, mt5AccountRegistry, engineStates, engineIntervals, engineTimers, brainLearningIntervals, positionMonitorIntervals, _monitorBusy, persistedConfigOverrides, goalTrackerCache, ALL_STRATEGY_KEYS, _activityTableReady, _activityLastPrune, _activitySeen, _dxSkipTableReady, countedTradeKeys, h4BiasCache, H4_REFRESH_MS, TRAIL_METHOD_LABELS, xauPeakPts, xauLockedPts, btcInitialStop, btcLastStop, tlStopLatest, tlStopInitial, NY_TIME_FMT, INDEX_BROKER_ALIASES, FX_LEADER_LOCK_KEY, FX_LEADER_STALE_MS, _fxLeaderClient, _fxIsLeader, _fxLeaderLoop, hardHalted;
 var init_live_trading_engine = __esm({
   "server/services/live-trading-engine.ts"() {
     "use strict";
@@ -30706,6 +30729,8 @@ var init_live_trading_engine = __esm({
     xauLockedPts = /* @__PURE__ */ new Map();
     btcInitialStop = /* @__PURE__ */ new Map();
     btcLastStop = /* @__PURE__ */ new Map();
+    tlStopLatest = /* @__PURE__ */ new Map();
+    tlStopInitial = /* @__PURE__ */ new Map();
     NY_TIME_FMT = new Intl.DateTimeFormat("en-US", {
       timeZone: "America/New_York",
       hour12: false,

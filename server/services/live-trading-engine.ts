@@ -205,6 +205,9 @@ interface LiveEngineConfig {
   // AI to notice the direction change. Protects winners/scratches from round-
   // tripping into a full loss. Default on.
   reversalExitEnabled: boolean;
+  // 2026-11-05: in-app toggles (were Render-only env vars).
+  brainShadowEnabled: boolean;   // blend shadow outcomes into brain session blocks (BRAIN_SHADOW_WEIGHT)
+  stopHoldUntilR: number;        // AI/trail may not tighten a stop until the trade is this many R in profit (0 = off)
   reversalSensitivity: number; // 2-5: how many of the 5 reversal confluences must align to auto-exit (default 3)
   dailyProfitTarget: number;                   // stop trading when daily gain % hits this (0 = disabled)
   maxDailyTrades: number;                      // hard daily trade cap across all pairs (0 = unlimited)
@@ -599,7 +602,8 @@ function applyBrainEnforcement(
   }
   // 2026-11-05: blend in shadow outcomes (brain-shadow.ts) so a blocked session
   // can earn its way back (or confirm the block) instead of freezing forever.
-  const _shadow = sessionData ? getShadowSessionStat(userId, symbol, session) : null;
+  const _shadowOn = (engineStates[userId]?.config as any)?.brainShadowEnabled !== false; // in-app toggle
+  const _shadow = sessionData && _shadowOn ? getShadowSessionStat(userId, symbol, session) : null;
   const _sw = SHADOW_WEIGHT();
   const _shN = _shadow ? _shadow.wins + _shadow.losses : 0;
   const _blendWR = sessionData && _shN > 0
@@ -1016,6 +1020,8 @@ function getDefaultConfig(userId: number): LiveEngineConfig {
     autoFlattenOnBreach: false, // opt-in — also CLOSE open positions when a breaker trips
     reversalExitEnabled: false, // OFF by default — it was closing winners too early on
                                 // routine trend noise. Opt-in via the weekly-strategy toggle.
+    brainShadowEnabled: true,
+    stopHoldUntilR: 1,
     reversalSensitivity: 4,     // if opted in, default to conservative (4 of 5) not 3
     dailyProfitTarget: 0,
     maxDailyTrades: 0,
@@ -1871,7 +1877,7 @@ async function scanMarkets(userId: number): Promise<void> {
         // Shadow tracking (brain-shadow.ts): resolve open shadows on fresh bars, and
         // while a SESSION block is on, shadow the H1+H4-aligned direction.
         resolveShadows(userId, symbol, confirmedBars);
-        if (_entryBlockedReason && _entryBlockedReason.includes(' session only ')) {
+        if (_entryBlockedReason && _entryBlockedReason.includes(' session only ') && (state.config as any).brainShadowEnabled !== false) {
           const { h1: _sh1, h4: _sh4 } = mtfStack(state, symbol);
           if (_sh1 && _sh4 && _sh1.trend !== 'NEUTRAL' && _sh1.trend === _sh4.trend) {
             recordShadow(userId, { symbol, direction: _sh1.trend === 'BULLISH' ? 'BUY' : 'SELL', entry: currentPrice, atr, source: 'trend', reason: _entryBlockedReason });
@@ -2605,9 +2611,34 @@ async function loadDxConnections(userId: number): Promise<any[]> {
 // trail already waits for max(15 pips, 1R). STOP_HOLD_UNTIL_R=0 disables.
 // Trade-off (user informed): a trade that never reaches 1R can lose its full
 // planned stop; on 10-22/23 refusing AI tightening let two run to full stops.
-function stopHoldUntilR(): number { const v = Number(process.env.STOP_HOLD_UNTIL_R ?? 1); return Number.isFinite(v) && v > 0 ? v : 0; }
-function stopHoldActive(isBuy: boolean, entry: number, stop: number, price: number): { hold: boolean; rNow: number } {
-  const need = stopHoldUntilR();
+// Known stop levels for a TradeLocker position (its API gives no stop price).
+// initial = the stop recorded at entry (ai_trade_results, ticket tl_<order>_<position>);
+// latest  = the last stop this engine sent for it.
+const tlStopLatest = new Map<string, number>();
+const tlStopInitial = new Map<string, number>();
+async function tlKnownStops(userId: number, positionId: string): Promise<{ initial: number; latest: number }> {
+  const key = `${userId}:${positionId}`;
+  if (!tlStopInitial.has(key) && positionId) {
+    try {
+      const { pool } = await import('../db');
+      const r = await pool.query(
+        `SELECT stop_loss FROM ai_trade_results WHERE user_id=$1 AND mt5_ticket LIKE $2 AND stop_loss > 0 ORDER BY id LIMIT 1`,
+        [userId, `tl%${positionId}`]);
+      tlStopInitial.set(key, Number(r.rows[0]?.stop_loss) || 0);
+    } catch (_) { /* unknown — hold falls back to the latest stop */ }
+  }
+  const initial = tlStopInitial.get(key) || 0;
+  return { initial, latest: tlStopLatest.get(key) || initial };
+}
+
+// App setting (config.stopHoldUntilR) wins; STOP_HOLD_UNTIL_R env is the fallback.
+function stopHoldUntilR(userId?: number): number {
+  const c = userId != null ? (engineStates[userId]?.config as any)?.stopHoldUntilR : undefined;
+  const v = Number(c ?? process.env.STOP_HOLD_UNTIL_R ?? 1);
+  return Number.isFinite(v) && v > 0 ? v : 0;
+}
+function stopHoldActive(isBuy: boolean, entry: number, stop: number, price: number, userId?: number): { hold: boolean; rNow: number } {
+  const need = stopHoldUntilR(userId);
   if (!need || !(entry > 0) || !(stop > 0) || !(price > 0)) return { hold: false, rNow: 0 };
   const risk = isBuy ? entry - stop : stop - entry;
   if (!(risk > 0)) return { hold: false, rNow: 0 }; // stop already at/beyond entry — not the original risk
@@ -2648,7 +2679,7 @@ async function manageBtcTrail(userId: number, openPositions: any[], marketAnalys
     const _stops = [btcLastStop.get(key), brokerSl].filter((x) => Number(x) > 0) as number[];
     const _tightest = _stops.length ? (_isBuyPos ? Math.max(..._stops) : Math.min(..._stops)) : null;
     const price = Number(marketAnalysis?.[pos.symbol]?.currentPrice) || 0;
-    if (stopHoldActive(_isBuyPos, entry, initial, price).hold) continue; // let it breathe until 1R
+    if (stopHoldActive(_isBuyPos, entry, initial, price, userId).hold) continue; // let it breathe until 1R
     const h1 = await btc.btcH1(pos.symbol);
     if (!h1) continue;
     const want = btc.btcTrailStop({ direction: pos.direction, entry, initialStop: initial, price, currentStop: _tightest, bars: h1.bars });
@@ -2717,7 +2748,7 @@ async function manageXauProfitLock(userId: number, openPositions: any[]): Promis
       // Let it breathe: no lock until the move is ≥ STOP_HOLD_UNTIL_R × the original stop distance.
       const _bs0 = Number(pos.brokerSl) || 0;
       const _riskPts = pos.direction === 'BUY' ? entry - _bs0 : _bs0 - entry;
-      const _need = stopHoldUntilR();
+      const _need = stopHoldUntilR(userId);
       if (_need && _bs0 > 0 && _riskPts > 0 && favPts < _need * _riskPts) continue;
     }
     const peak = Math.max(xauPeakPts.get(key) ?? 0, favPts);
@@ -5148,7 +5179,7 @@ async function processDecision(userId: number, decision: any, newsCtx?: any): Pr
         symbol: decision.symbol,
         message: postEnforcement.reason,
       });
-      if (postEnforcement.reason.includes(' session only ') && (decision.direction === 'BUY' || decision.direction === 'SELL')) {
+      if (postEnforcement.reason.includes(' session only ') && (state.config as any).brainShadowEnabled !== false && (decision.direction === 'BUY' || decision.direction === 'SELL')) {
         recordShadow(userId, {
           symbol: decision.symbol, direction: decision.direction,
           entry: Number(decision.entryPrice) || state.marketSnapshot?.[decision.symbol]?.price || 0,
@@ -7125,16 +7156,23 @@ async function processDecision(userId: number, decision: any, newsCtx?: any): Pr
               let _sl = newSL;
               {
                 const _buy = String(tlMatch.side || decision.direction || 'BUY').toUpperCase() === 'BUY';
-                const _cur = Number((tlMatch as any).stopLoss) || 0;
+                // TradeLocker positions report a stop ORDER ID, not a price, so
+                // stopLoss was always 0 here and the breathe hold + loosen check
+                // never ran (0 stop_hold_breathe events in 14 days; 11-05 GBPJPY
+                // stops were tightened at a loss and all 3 accounts stopped out).
+                const _stops = await tlKnownStops(userId, String(tlMatch.id));
+                const _cur = Number((tlMatch as any).stopLoss) || _stops.latest || 0;
+                const _orig = _stops.initial || _cur;
                 const _px = Number(state.marketSnapshot?.[decision.symbol]?.price) || 0;
                 // Let it breathe: refuse any AI stop TIGHTER than the current one
                 // until this account's trade is ≥ STOP_HOLD_UNTIL_R in profit.
                 {
                   const _ownE = Number((tlMatch as any).avgPrice) || 0;
                   const _tighter = _sl && _cur > 0 && (_buy ? _sl > _cur : _sl < _cur);
-                  const _h = _tighter ? stopHoldActive(_buy, _ownE, _cur, _px) : { hold: false, rNow: 0 };
+                  // R measured against the ORIGINAL stop, not an already-tightened one.
+                  const _h = _tighter ? stopHoldActive(_buy, _ownE, _orig, _px, userId) : { hold: false, rNow: 0 };
                   if (_tighter && _h.hold) {
-                    logGuard(userId, 'stop_hold_breathe', decision.symbol, `AI stop ${_sl} held on ${acctLabel} — trade at ${_h.rNow.toFixed(2)}R, stop stays at ${_cur} until +${stopHoldUntilR()}R`);
+                    logGuard(userId, 'stop_hold_breathe', decision.symbol, `AI stop ${_sl} held on ${acctLabel} — trade at ${_h.rNow.toFixed(2)}R, stop stays at ${_cur} until +${stopHoldUntilR(userId)}R`);
                     _sl = undefined;
                   }
                 }
@@ -7183,6 +7221,7 @@ async function processDecision(userId: number, decision: any, newsCtx?: any): Pr
                 if (_sl && _cur > 0 && (_buy ? _sl <= _cur : _sl >= _cur)) { logGuard(userId, 'stop_loosen_refused', decision.symbol, `AI SL ${_sl} looser than ${_cur} on ${acctLabel}`); _sl = undefined; }
               }
               if (!_sl && !newTP) { addActivity(userId, { type: 'info', symbol: decision.symbol, message: `🛡️ ${acctLabel}: AI stop change for ${decision.symbol} refused (would loosen or cross price).` }); return; }
+              if (_sl) tlStopLatest.set(`${userId}:${tlMatch.id}`, _sl);
               const tradeResult = await executeMT5SignalOnTradeLocker(tlConn, {
                 action: 'MODIFY',
                 symbol: decision.symbol,
@@ -7269,9 +7308,9 @@ async function processDecision(userId: number, decision: any, newsCtx?: any): Pr
               const _px = Number(state.marketSnapshot?.[decision.symbol]?.price) || 0;
               const _entry = Number(dxMatch.openPrice) || 0;
               if (_sl && _cur > 0 && (_buy ? _sl > _cur : _sl < _cur)) {
-                const _h = stopHoldActive(_buy, _entry, _cur, _px);
+                const _h = stopHoldActive(_buy, _entry, _cur, _px, userId);
                 if (_h.hold) {
-                  logGuard(userId, 'stop_hold_breathe', decision.symbol, `AI stop ${_sl} held on ${acctLabel} — trade at ${_h.rNow.toFixed(2)}R, stop stays at ${_cur} until +${stopHoldUntilR()}R`);
+                  logGuard(userId, 'stop_hold_breathe', decision.symbol, `AI stop ${_sl} held on ${acctLabel} — trade at ${_h.rNow.toFixed(2)}R, stop stays at ${_cur} until +${stopHoldUntilR(userId)}R`);
                   _sl = undefined;
                 }
               }
