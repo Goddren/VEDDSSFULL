@@ -15589,6 +15589,10 @@ Respond with ONLY valid JSON:
 
     if (!enabled) {
       (global as any).veddAiPathControl[userId] = { enabled: false };
+      try {
+        const { updateLiveEngineConfig } = await import('./services/live-trading-engine');
+        updateLiveEngineConfig(userId, { aiPathControl: { enabled: false } } as any);
+      } catch (_) { /* engine may not be running */ }
       return res.json({ success: true, enabled: false });
     }
 
@@ -15636,12 +15640,10 @@ Respond with ONLY valid JSON:
     // Also sync to live engine config if it's running
     try {
       const { updateLiveEngineConfig } = await import('./services/live-trading-engine');
-      if (enabled && resolvedPairs.length > 0) {
-        updateLiveEngineConfig(userId, {
-          pairs: resolvedPairs,
-          // Don't override lot size directly — let the path control multiplier handle it
-        });
-      }
+      // 2026-11-05: this used to OVERWRITE config.pairs with the path's pairs
+      // (and never restore them). The path is now its own config field the
+      // engine filters by; the pair list is left alone.
+      updateLiveEngineConfig(userId, { aiPathControl: { enabled: true, pathType: resolvedPathType, pairs: resolvedPairs, lotMultiplier: resolvedLotMult } } as any);
     } catch (_) { /* live engine may not be loaded */ }
 
     console.log(`[AI Path Control] User ${userId} activated path=${resolvedPathType} pairs=${resolvedPairs.join(',')} lotMult=${resolvedLotMult}`);
@@ -15652,7 +15654,14 @@ Respond with ONLY valid JSON:
   app.get("/api/goal-pacing/ai-path-status", async (req: Request, res: Response) => {
     if (!req.isAuthenticated()) return res.status(401).json({ error: "Authentication required" });
     const userId = (req.user as User).id;
-    const state = (global as any).veddAiPathControl?.[userId];
+    let state = (global as any).veddAiPathControl?.[userId];
+    if (!state) {
+      // Survives a deploy via the engine config.
+      try {
+        const { getLiveEngineState } = await import('./services/live-trading-engine');
+        state = (getLiveEngineState(userId)?.config as any)?.aiPathControl || null;
+      } catch (_) { /* none */ }
+    }
     if (!state || !state.enabled) return res.json({ enabled: false });
     res.json(state);
   });

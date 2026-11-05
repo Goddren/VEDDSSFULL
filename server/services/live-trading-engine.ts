@@ -207,7 +207,15 @@ interface LiveEngineConfig {
   // tripping into a full loss. Default on.
   reversalExitEnabled: boolean;
   // 2026-11-05: in-app toggles (were Render-only env vars).
-  goalPaceEnabled: boolean;      // Goal Pace Agent steers pair/session choice (never size)
+  goalPaceEnabled: boolean;      // Goal Pace Agent steers pair/session choice
+  // Goal Pace lot modes (ported from the MT5 Goal Intelligence, 2026-11-05).
+  // Boost applies ONLY to TradeLocker accounts with consistency OFF, only on
+  // FOCUS windows while behind, and never past maxRiskPerTradePct. When the
+  // week's goal is reached every account is trimmed to 0.75x (lock-in).
+  goalPaceLotBoost: boolean;
+  goalPaceMaxBoost: number;      // ceiling for the boost, e.g. 1.5
+  // AI Path Control (Goal Pacing tab). Persisted here so a deploy keeps it.
+  aiPathControl?: { enabled: boolean; pathType?: string; pairs?: string[]; lotMultiplier?: number } | null;
   brainShadowEnabled: boolean;   // blend shadow outcomes into brain session blocks (BRAIN_SHADOW_WEIGHT)
   stopHoldUntilR: number;        // AI/trail may not tighten a stop until the trade is this many R in profit (0 = off)
   reversalSensitivity: number; // 2-5: how many of the 5 reversal confluences must align to auto-exit (default 3)
@@ -1025,6 +1033,9 @@ function getDefaultConfig(userId: number): LiveEngineConfig {
     brainShadowEnabled: true,
     stopHoldUntilR: 1,
     goalPaceEnabled: true,
+    goalPaceLotBoost: false,
+    goalPaceMaxBoost: 1.5,
+    aiPathControl: null,
     reversalSensitivity: 4,     // if opted in, default to conservative (4 of 5) not 3
     dailyProfitTarget: 0,
     maxDailyTrades: 0,
@@ -5228,6 +5239,34 @@ async function processDecision(userId: number, decision: any, newsCtx?: any): Pr
         return;
       }
     }
+    // AI Path Control: only pairs on the active path may open new trades.
+    {
+      const _path = (state.config as any).aiPathControl || (global as any).veddAiPathControl?.[userId];
+      const _pp: string[] = (_path?.enabled && Array.isArray(_path.pairs)) ? _path.pairs.map((p: string) => String(p).toUpperCase().replace('/', '')) : [];
+      if (_pp.length && !_pp.includes(String(decision.symbol).toUpperCase().replace('/', ''))) {
+        addActivity(userId, { type: 'info', symbol: decision.symbol, message: `🎯 AI Path Control: ${decision.symbol} is not on your ${_path.pathType || ''} path (${_pp.join(', ')}) — skipped.` });
+        return;
+      }
+      // Goal pace lot modes → per-account multipliers applied in the TL fan-out.
+      let _up = 1, _down = 1;
+      if ((state.config as any).goalPaceEnabled !== false) {
+        const _plan = getPacePlan(userId, state.config);
+        if (_plan?.mode === 'AHEAD') _down = 0.75;
+        const _maxB = Math.max(1, Math.min(3, Number((state.config as any).goalPaceMaxBoost) || 1.5));
+        if ((state.config as any).goalPaceLotBoost === true && _plan && (_plan.mode === 'BEHIND' || _plan.mode === 'CAPPED')) {
+          const _w = paceWindowFor(_plan, decision.symbol, decision.direction);
+          if (_w?.verdict === 'FOCUS' && _plan.weekTarget > 0) {
+            const _share = Math.max(0, Math.min(1, _plan.deficit / _plan.weekTarget));
+            _up = Math.min(_maxB, 1 + _share * 0.5);
+          }
+        }
+        const _pm = Number(_path?.enabled ? _path.lotMultiplier : 0) || 0;
+        if (_pm > 0 && _pm < 1) _down = Math.min(_down, _pm);
+        if (_pm > 1 && (state.config as any).goalPaceLotBoost === true) _up = Math.min(_maxB, Math.max(_up, _pm));
+      }
+      (decision as any)._paceUp = _up;
+      (decision as any)._paceDown = _down;
+    }
     (decision as any)._brainLotMultiplier = postEnforcement.adjustedLotMultiplier;
     (decision as any)._brainTrailPips = postEnforcement.recommendedTrailPips;
 
@@ -6815,6 +6854,29 @@ async function processDecision(userId: number, decision: any, newsCtx?: any): Pr
             if (_lw > 0 && _lw < 1) acctLot = Math.max(0.01, Math.floor(acctLot * _lw * 100) / 100);
             const _sm = Number((decision as any)._sizeMult);
             if (_sm > 0 && _sm < 1) acctLot = Math.max(0.01, Math.floor(acctLot * _sm * 100) / 100);
+          }
+          // Goal pace lot modes (per account). Trim applies to every account;
+          // the boost only where this account has NO consistency rule, and is
+          // re-capped so a stop-out never loses more than maxRiskPerTradePct.
+          {
+            const _pd = Number((decision as any)._paceDown) || 1;
+            if (_pd < 1) { acctLot = Math.max(0.01, Math.floor(acctLot * _pd * 100) / 100); acctSizeLabel += ` · goal lock-in ${_pd}×`; }
+            const _pu = Number((decision as any)._paceUp) || 1;
+            if (_pu > 1 && (tlConn as any).consistencyEnabled === false) {
+              let _boosted = Math.round(acctLot * _pu * 100) / 100;
+              const _maxPct = Number(config.maxRiskPerTradePct) || 2;
+              if (_tlAcctEq && _tlAcctEq > 0 && _slPips > 0 && _pipValue > 0) {
+                const _capLot = Math.floor(((_tlAcctEq * _maxPct / 100) / (_slPips * _pipValue)) * 100) / 100;
+                if (_capLot > 0) _boosted = Math.min(_boosted, Math.max(acctLot, _capLot));
+              } else {
+                _boosted = acctLot; // can't prove the risk — no boost
+              }
+              if (_boosted > acctLot) {
+                logGuard(userId, 'goal_pace_boost', decision.symbol, `TL ${tlConn.accountId || tlConn.id}: ${acctLot} → ${_boosted} (×${_pu.toFixed(2)}, cap ${_maxPct}% risk, no consistency rule)`);
+                acctSizeLabel += ` · goal boost ×${(_boosted / acctLot).toFixed(2)}`;
+                acctLot = _boosted;
+              }
+            }
           }
           // Still respect volatile pair hard cap per account
           if (_volCap && acctLot > _volCap.hardMaxLot) { logGuard(userId, 'size_cap', decision.symbol, `TL ${tlConn.accountId}: ${acctLot} → volatile cap ${_volCap.hardMaxLot}`); acctLot = _volCap.hardMaxLot; }

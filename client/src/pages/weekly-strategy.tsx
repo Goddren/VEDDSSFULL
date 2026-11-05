@@ -1417,6 +1417,8 @@ export default function WeeklyStrategyPage() {
   const [engineReversalExit, setEngineReversalExit] = useState(true);
   const [engineBrainShadow, setEngineBrainShadow] = useState(true);
   const [engineGoalPace, setEngineGoalPace] = useState(true);
+  const [engineGoalBoost, setEngineGoalBoost] = useState(false);
+  const [engineGoalMaxBoost, setEngineGoalMaxBoost] = useState(1.5);
   const [engineStopHoldR, setEngineStopHoldR] = useState(1);
   const [engineReversalSensitivity, setEngineReversalSensitivity] = useState(3);
   const [enginePairLimitMode, setEnginePairLimitMode] = useState<'ai' | 'fixed'>('ai');
@@ -1581,6 +1583,8 @@ export default function WeeklyStrategyPage() {
     if (c.reversalSensitivity != null) setEngineReversalSensitivity(c.reversalSensitivity);
     if (c.brainShadowEnabled != null) setEngineBrainShadow(c.brainShadowEnabled);
     if (c.goalPaceEnabled != null) setEngineGoalPace(c.goalPaceEnabled);
+    if (c.goalPaceLotBoost != null) setEngineGoalBoost(c.goalPaceLotBoost);
+    if (c.goalPaceMaxBoost != null) setEngineGoalMaxBoost(Number(c.goalPaceMaxBoost));
     if (c.stopHoldUntilR != null) setEngineStopHoldR(Number(c.stopHoldUntilR));
     if (c.pairDailyLimitMode) setEnginePairLimitMode(c.pairDailyLimitMode);
     if (c.maxTradesPerPairPerDay != null) setEnginePairLimit(c.maxTradesPerPairPerDay);
@@ -2602,6 +2606,27 @@ export default function WeeklyStrategyPage() {
                       </label>
                       <p className="text-[10px] text-orange-400/70 mt-0.5">Chooses WHERE and WHEN to trade to catch up — never raises lot size, risk or the consistency cap.</p>
                     </div>
+                    {engineGoalPace && (
+                      <div>
+                        <Label className="text-orange-400 text-xs font-semibold">Goal pace lot boost</Label>
+                        <label className="mt-1 flex items-center gap-2 cursor-pointer h-8">
+                          <input type="checkbox" checked={engineGoalBoost}
+                            onChange={async e => { const v = e.target.checked; setEngineGoalBoost(v); try { await apiRequest('PATCH', '/api/vedd-live-engine/config', { goalPaceLotBoost: v }); } catch { /* applied on start */ } }}
+                            className="accent-orange-500 w-4 h-4" />
+                          <span className="text-[11px] text-gray-300">When behind, size up on FOCUS windows — only accounts with NO consistency rule</span>
+                        </label>
+                        {engineGoalBoost && (
+                          <select value={engineGoalMaxBoost}
+                            onChange={async e => { const v = Number(e.target.value); setEngineGoalMaxBoost(v); try { await apiRequest('PATCH', '/api/vedd-live-engine/config', { goalPaceMaxBoost: v }); } catch { /* applied on start */ } }}
+                            className="mt-1 w-full bg-gray-800 border border-orange-900/50 text-white text-sm rounded-md h-8 px-2">
+                            <option value={1.25}>Max ×1.25</option>
+                            <option value={1.5}>Max ×1.5 (recommended)</option>
+                            <option value={2}>Max ×2</option>
+                          </select>
+                        )}
+                        <p className="text-[10px] text-orange-400/70 mt-0.5">Never past Max risk per trade. Accounts with a consistency rule are never boosted. When the week's goal is hit, all accounts trim to 0.75× (lock-in).</p>
+                      </div>
+                    )}
                     <div>
                       <Label className="text-emerald-400 text-xs font-semibold">Let trades breathe (stop hold)</Label>
                       <select value={engineStopHoldR}

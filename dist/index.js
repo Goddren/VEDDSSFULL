@@ -28268,6 +28268,9 @@ function getDefaultConfig(userId) {
     brainShadowEnabled: true,
     stopHoldUntilR: 1,
     goalPaceEnabled: true,
+    goalPaceLotBoost: false,
+    goalPaceMaxBoost: 1.5,
+    aiPathControl: null,
     reversalSensitivity: 4,
     // if opted in, default to conservative (4 of 5) not 3
     dailyProfitTarget: 0,
@@ -31680,6 +31683,32 @@ async function processDecision(userId, decision, newsCtx) {
         return;
       }
     }
+    {
+      const _path = state.config.aiPathControl || global.veddAiPathControl?.[userId];
+      const _pp = _path?.enabled && Array.isArray(_path.pairs) ? _path.pairs.map((p2) => String(p2).toUpperCase().replace("/", "")) : [];
+      if (_pp.length && !_pp.includes(String(decision.symbol).toUpperCase().replace("/", ""))) {
+        addActivity(userId, { type: "info", symbol: decision.symbol, message: `\u{1F3AF} AI Path Control: ${decision.symbol} is not on your ${_path.pathType || ""} path (${_pp.join(", ")}) \u2014 skipped.` });
+        return;
+      }
+      let _up = 1, _down = 1;
+      if (state.config.goalPaceEnabled !== false) {
+        const _plan = getPacePlan(userId, state.config);
+        if (_plan?.mode === "AHEAD") _down = 0.75;
+        const _maxB = Math.max(1, Math.min(3, Number(state.config.goalPaceMaxBoost) || 1.5));
+        if (state.config.goalPaceLotBoost === true && _plan && (_plan.mode === "BEHIND" || _plan.mode === "CAPPED")) {
+          const _w = paceWindowFor(_plan, decision.symbol, decision.direction);
+          if (_w?.verdict === "FOCUS" && _plan.weekTarget > 0) {
+            const _share = Math.max(0, Math.min(1, _plan.deficit / _plan.weekTarget));
+            _up = Math.min(_maxB, 1 + _share * 0.5);
+          }
+        }
+        const _pm = Number(_path?.enabled ? _path.lotMultiplier : 0) || 0;
+        if (_pm > 0 && _pm < 1) _down = Math.min(_down, _pm);
+        if (_pm > 1 && state.config.goalPaceLotBoost === true) _up = Math.min(_maxB, Math.max(_up, _pm));
+      }
+      decision._paceUp = _up;
+      decision._paceDown = _down;
+    }
     decision._brainLotMultiplier = postEnforcement.adjustedLotMultiplier;
     decision._brainTrailPips = postEnforcement.recommendedTrailPips;
     const HARD_CONFIDENCE_FLOOR = 74;
@@ -32890,6 +32919,29 @@ async function processDecision(userId, decision, newsCtx) {
             if (_lw > 0 && _lw < 1) acctLot = Math.max(0.01, Math.floor(acctLot * _lw * 100) / 100);
             const _sm = Number(decision._sizeMult);
             if (_sm > 0 && _sm < 1) acctLot = Math.max(0.01, Math.floor(acctLot * _sm * 100) / 100);
+          }
+          {
+            const _pd = Number(decision._paceDown) || 1;
+            if (_pd < 1) {
+              acctLot = Math.max(0.01, Math.floor(acctLot * _pd * 100) / 100);
+              acctSizeLabel += ` \xB7 goal lock-in ${_pd}\xD7`;
+            }
+            const _pu = Number(decision._paceUp) || 1;
+            if (_pu > 1 && tlConn.consistencyEnabled === false) {
+              let _boosted = Math.round(acctLot * _pu * 100) / 100;
+              const _maxPct = Number(config.maxRiskPerTradePct) || 2;
+              if (_tlAcctEq && _tlAcctEq > 0 && _slPips > 0 && _pipValue > 0) {
+                const _capLot = Math.floor(_tlAcctEq * _maxPct / 100 / (_slPips * _pipValue) * 100) / 100;
+                if (_capLot > 0) _boosted = Math.min(_boosted, Math.max(acctLot, _capLot));
+              } else {
+                _boosted = acctLot;
+              }
+              if (_boosted > acctLot) {
+                logGuard(userId, "goal_pace_boost", decision.symbol, `TL ${tlConn.accountId || tlConn.id}: ${acctLot} \u2192 ${_boosted} (\xD7${_pu.toFixed(2)}, cap ${_maxPct}% risk, no consistency rule)`);
+                acctSizeLabel += ` \xB7 goal boost \xD7${(_boosted / acctLot).toFixed(2)}`;
+                acctLot = _boosted;
+              }
+            }
           }
           if (_volCap && acctLot > _volCap.hardMaxLot) {
             logGuard(userId, "size_cap", decision.symbol, `TL ${tlConn.accountId}: ${acctLot} \u2192 volatile cap ${_volCap.hardMaxLot}`);
@@ -68288,9 +68340,9 @@ async function getStopOrdersForUser(userId, filters = {}) {
 init_schema();
 
 // server/build-info.ts
-var BUILD_COMMIT = "7bdddc93-dirty";
+var BUILD_COMMIT = "d4334648-dirty";
 var BUILD_BRANCH = "HEAD";
-var BUILT_AT = "2026-11-05T04:43:08.587Z";
+var BUILT_AT = "2026-11-05T05:13:30.799Z";
 
 // server/stripe.ts
 init_db();
@@ -84357,6 +84409,11 @@ Respond with ONLY valid JSON:
     global.veddAiPathControl = global.veddAiPathControl || {};
     if (!enabled) {
       global.veddAiPathControl[userId] = { enabled: false };
+      try {
+        const { updateLiveEngineConfig: updateLiveEngineConfig3 } = await Promise.resolve().then(() => (init_live_trading_engine(), live_trading_engine_exports));
+        updateLiveEngineConfig3(userId, { aiPathControl: { enabled: false } });
+      } catch (_) {
+      }
       return res.json({ success: true, enabled: false });
     }
     let resolvedPathType = pathType || "AUTO";
@@ -84393,12 +84450,7 @@ Respond with ONLY valid JSON:
     global.veddAiPathControl[userId] = pathState;
     try {
       const { updateLiveEngineConfig: updateLiveEngineConfig3 } = await Promise.resolve().then(() => (init_live_trading_engine(), live_trading_engine_exports));
-      if (enabled && resolvedPairs.length > 0) {
-        updateLiveEngineConfig3(userId, {
-          pairs: resolvedPairs
-          // Don't override lot size directly — let the path control multiplier handle it
-        });
-      }
+      updateLiveEngineConfig3(userId, { aiPathControl: { enabled: true, pathType: resolvedPathType, pairs: resolvedPairs, lotMultiplier: resolvedLotMult } });
     } catch (_) {
     }
     console.log(`[AI Path Control] User ${userId} activated path=${resolvedPathType} pairs=${resolvedPairs.join(",")} lotMult=${resolvedLotMult}`);
@@ -84407,7 +84459,14 @@ Respond with ONLY valid JSON:
   app2.get("/api/goal-pacing/ai-path-status", async (req, res) => {
     if (!req.isAuthenticated()) return res.status(401).json({ error: "Authentication required" });
     const userId = req.user.id;
-    const state = global.veddAiPathControl?.[userId];
+    let state = global.veddAiPathControl?.[userId];
+    if (!state) {
+      try {
+        const { getLiveEngineState: getLiveEngineState3 } = await Promise.resolve().then(() => (init_live_trading_engine(), live_trading_engine_exports));
+        state = getLiveEngineState3(userId)?.config?.aiPathControl || null;
+      } catch (_) {
+      }
+    }
     if (!state || !state.enabled) return res.json({ enabled: false });
     res.json(state);
   });
