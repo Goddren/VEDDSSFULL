@@ -56,18 +56,19 @@ async function ensureTable(): Promise<any> {
 export function recordShadow(userId: number, p: {
   symbol: string; direction: 'BUY' | 'SELL'; entry: number; atr?: number;
   stopLoss?: number | null; takeProfit?: number | null; source: string; reason: string;
-}): void {
+}, onSkip?: (why: string) => void, onOpen?: (msg: string) => void): void {
   void (async () => {
     try {
       const sym = norm(p.symbol);
       const key = `${userId}|${sym}|${p.direction}`;
       const pool = await ensureTable();
-      if (_openKeys.has(key) || !(p.entry > 0)) return;
+      if (_openKeys.has(key)) return; // one open shadow per pair/direction — normal
+      if (!(p.entry > 0)) { onSkip?.(`no entry price`); return; }
       const buy = p.direction === 'BUY';
       let sl = Number(p.stopLoss), tp = Number(p.takeProfit);
       const validSL = sl > 0 && (buy ? sl < p.entry : sl > p.entry);
       if (!validSL) {
-        if (!(Number(p.atr) > 0)) return;
+        if (!(Number(p.atr) > 0)) { onSkip?.(`no ATR (got ${p.atr}) and no stop`); return; }
         const risk = 1.5 * Number(p.atr);
         sl = buy ? p.entry - risk : p.entry + risk;
       }
@@ -80,8 +81,8 @@ export function recordShadow(userId: number, p: {
         `INSERT INTO brain_shadow_trades (user_id, symbol, session, direction, entry, stop_loss, take_profit, source, reason)
          VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)`,
         [userId, sym, session, p.direction, p.entry, sl, tp, p.source, String(p.reason).slice(0, 300)],
-      );
-    } catch (_) { /* non-fatal — shadow tracking must never break trading */ }
+      ).catch((e: any) => { _openKeys.delete(key); throw e; }); onOpen?.(`${p.direction} @ ${p.entry} SL ${+sl.toFixed(5)} TP ${+tp.toFixed(5)} (${session})`);
+    } catch (e: any) { onSkip?.(`error: ${String(e?.message || e).slice(0, 120)}`); /* never breaks trading */ }
   })();
 }
 

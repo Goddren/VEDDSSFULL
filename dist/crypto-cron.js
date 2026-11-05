@@ -17887,18 +17887,25 @@ async function ensureTable() {
   }
   return pool2;
 }
-function recordShadow(userId, p) {
+function recordShadow(userId, p, onSkip, onOpen) {
   void (async () => {
     try {
       const sym = norm2(p.symbol);
       const key = `${userId}|${sym}|${p.direction}`;
       const pool2 = await ensureTable();
-      if (_openKeys.has(key) || !(p.entry > 0)) return;
+      if (_openKeys.has(key)) return;
+      if (!(p.entry > 0)) {
+        onSkip?.(`no entry price`);
+        return;
+      }
       const buy = p.direction === "BUY";
       let sl = Number(p.stopLoss), tp = Number(p.takeProfit);
       const validSL = sl > 0 && (buy ? sl < p.entry : sl > p.entry);
       if (!validSL) {
-        if (!(Number(p.atr) > 0)) return;
+        if (!(Number(p.atr) > 0)) {
+          onSkip?.(`no ATR (got ${p.atr}) and no stop`);
+          return;
+        }
         const risk2 = 1.5 * Number(p.atr);
         sl = buy ? p.entry - risk2 : p.entry + risk2;
       }
@@ -17911,8 +17918,13 @@ function recordShadow(userId, p) {
         `INSERT INTO brain_shadow_trades (user_id, symbol, session, direction, entry, stop_loss, take_profit, source, reason)
          VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)`,
         [userId, sym, session2, p.direction, p.entry, sl, tp, p.source, String(p.reason).slice(0, 300)]
-      );
-    } catch (_) {
+      ).catch((e) => {
+        _openKeys.delete(key);
+        throw e;
+      });
+      onOpen?.(`${p.direction} @ ${p.entry} SL ${+sl.toFixed(5)} TP ${+tp.toFixed(5)} (${session2})`);
+    } catch (e) {
+      onSkip?.(`error: ${String(e?.message || e).slice(0, 120)}`);
     }
   })();
 }
@@ -25266,7 +25278,20 @@ async function scanMarkets(userId) {
         if (_entryBlockedReason && _entryBlockedReason.includes(" session only ") && state.config.brainShadowEnabled !== false) {
           const { h1: _sh1, h4: _sh4 } = mtfStack(state, symbol);
           if (_sh1 && _sh4 && _sh1.trend !== "NEUTRAL" && _sh1.trend === _sh4.trend) {
-            recordShadow(userId, { symbol, direction: _sh1.trend === "BULLISH" ? "BUY" : "SELL", entry: currentPrice, atr, source: "trend", reason: _entryBlockedReason });
+            let _shAtr = atr;
+            if (!(_shAtr > 0) && confirmedBars.length > 15) {
+              const _b = confirmedBars.slice(-15);
+              let _tr = 0;
+              for (let i = 1; i < _b.length; i++) _tr += Math.max(_b[i].high - _b[i].low, Math.abs(_b[i].high - _b[i - 1].close), Math.abs(_b[i].low - _b[i - 1].close));
+              _shAtr = _tr / (_b.length - 1);
+            }
+            const _shDir = _sh1.trend === "BULLISH" ? "BUY" : "SELL";
+            recordShadow(
+              userId,
+              { symbol, direction: _shDir, entry: currentPrice, atr: _shAtr, source: "trend", reason: _entryBlockedReason },
+              (why) => addActivity(userId, { type: "info", symbol, message: `\u{1F47B} Shadow not opened: ${symbol} ${_shDir} \u2014 ${why}` }),
+              (msg) => addActivity(userId, { type: "info", symbol, message: `\u{1F47B} Shadow opened: ${symbol} ${msg}` })
+            );
           } else {
             addActivity(userId, { type: "info", symbol, message: `\u{1F47B} Shadow skipped: ${symbol} H1 ${_sh1?.trend ?? "n/a"} / H4 ${_sh4?.trend ?? "n/a"} \u2014 needs both trending the same way` });
           }

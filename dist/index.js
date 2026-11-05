@@ -19325,18 +19325,25 @@ async function ensureTable() {
   }
   return pool2;
 }
-function recordShadow(userId, p2) {
+function recordShadow(userId, p2, onSkip, onOpen) {
   void (async () => {
     try {
       const sym2 = norm3(p2.symbol);
       const key = `${userId}|${sym2}|${p2.direction}`;
       const pool2 = await ensureTable();
-      if (_openKeys.has(key) || !(p2.entry > 0)) return;
+      if (_openKeys.has(key)) return;
+      if (!(p2.entry > 0)) {
+        onSkip?.(`no entry price`);
+        return;
+      }
       const buy = p2.direction === "BUY";
       let sl = Number(p2.stopLoss), tp = Number(p2.takeProfit);
       const validSL = sl > 0 && (buy ? sl < p2.entry : sl > p2.entry);
       if (!validSL) {
-        if (!(Number(p2.atr) > 0)) return;
+        if (!(Number(p2.atr) > 0)) {
+          onSkip?.(`no ATR (got ${p2.atr}) and no stop`);
+          return;
+        }
         const risk2 = 1.5 * Number(p2.atr);
         sl = buy ? p2.entry - risk2 : p2.entry + risk2;
       }
@@ -19349,8 +19356,13 @@ function recordShadow(userId, p2) {
         `INSERT INTO brain_shadow_trades (user_id, symbol, session, direction, entry, stop_loss, take_profit, source, reason)
          VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)`,
         [userId, sym2, session3, p2.direction, p2.entry, sl, tp, p2.source, String(p2.reason).slice(0, 300)]
-      );
-    } catch (_) {
+      ).catch((e) => {
+        _openKeys.delete(key);
+        throw e;
+      });
+      onOpen?.(`${p2.direction} @ ${p2.entry} SL ${+sl.toFixed(5)} TP ${+tp.toFixed(5)} (${session3})`);
+    } catch (e) {
+      onSkip?.(`error: ${String(e?.message || e).slice(0, 120)}`);
     }
   })();
 }
@@ -28906,7 +28918,20 @@ async function scanMarkets(userId) {
         if (_entryBlockedReason && _entryBlockedReason.includes(" session only ") && state.config.brainShadowEnabled !== false) {
           const { h1: _sh1, h4: _sh4 } = mtfStack(state, symbol);
           if (_sh1 && _sh4 && _sh1.trend !== "NEUTRAL" && _sh1.trend === _sh4.trend) {
-            recordShadow(userId, { symbol, direction: _sh1.trend === "BULLISH" ? "BUY" : "SELL", entry: currentPrice, atr: atr3, source: "trend", reason: _entryBlockedReason });
+            let _shAtr = atr3;
+            if (!(_shAtr > 0) && confirmedBars.length > 15) {
+              const _b = confirmedBars.slice(-15);
+              let _tr = 0;
+              for (let i = 1; i < _b.length; i++) _tr += Math.max(_b[i].high - _b[i].low, Math.abs(_b[i].high - _b[i - 1].close), Math.abs(_b[i].low - _b[i - 1].close));
+              _shAtr = _tr / (_b.length - 1);
+            }
+            const _shDir = _sh1.trend === "BULLISH" ? "BUY" : "SELL";
+            recordShadow(
+              userId,
+              { symbol, direction: _shDir, entry: currentPrice, atr: _shAtr, source: "trend", reason: _entryBlockedReason },
+              (why) => addActivity(userId, { type: "info", symbol, message: `\u{1F47B} Shadow not opened: ${symbol} ${_shDir} \u2014 ${why}` }),
+              (msg) => addActivity(userId, { type: "info", symbol, message: `\u{1F47B} Shadow opened: ${symbol} ${msg}` })
+            );
           } else {
             addActivity(userId, { type: "info", symbol, message: `\u{1F47B} Shadow skipped: ${symbol} H1 ${_sh1?.trend ?? "n/a"} / H4 ${_sh4?.trend ?? "n/a"} \u2014 needs both trending the same way` });
           }
@@ -68342,9 +68367,9 @@ async function getStopOrdersForUser(userId, filters = {}) {
 init_schema();
 
 // server/build-info.ts
-var BUILD_COMMIT = "f08ca2f3-dirty";
+var BUILD_COMMIT = "739d4f8e-dirty";
 var BUILD_BRANCH = "HEAD";
-var BUILT_AT = "2026-11-05T05:54:03.673Z";
+var BUILT_AT = "2026-11-05T06:52:18.395Z";
 
 // server/stripe.ts
 init_db();
