@@ -29281,7 +29281,7 @@ function adxOrNull(src) {
   const n = Number(v);
   return isFinite(n) && n > 0 ? n : null;
 }
-function getAccountSafetySnapshot(userId, state) {
+function getAccountSafetySnapshot(userId, state, only) {
   const _raw = global.mt5AccountData?.[userId];
   let _mt5 = null;
   if (_raw) {
@@ -29293,7 +29293,7 @@ function getAccountSafetySnapshot(userId, state) {
       }
     }
   }
-  if (_mt5?.lastUpdated && Date.now() - new Date(_mt5.lastUpdated).getTime() < 15 * 60 * 1e3 && _mt5.balance > 0) {
+  if (only !== "tradelocker" && _mt5?.lastUpdated && Date.now() - new Date(_mt5.lastUpdated).getTime() < 15 * 60 * 1e3 && _mt5.balance > 0) {
     const positions = global.mt5OpenPositions?.[userId]?.positions ?? [];
     return {
       balance: _mt5.balance,
@@ -29305,7 +29305,7 @@ function getAccountSafetySnapshot(userId, state) {
       source: "mt5"
     };
   }
-  const _tl = global.tlAccountData?.[userId];
+  const _tl = only === "mt5" ? null : global.tlAccountData?.[userId];
   if (_tl) {
     let balance = 0, equity = 0, margin = 0, freeMargin = 0, seen = 0, freshest = 0;
     for (const acct of Object.values(_tl)) {
@@ -31882,31 +31882,39 @@ async function processDecision(userId, decision, newsCtx) {
       });
       return;
     }
+    let _mt5EntryBlocked = false;
     {
-      const _snap = getAccountSafetySnapshot(userId, state);
+      const _tlSnap = getAccountSafetySnapshot(userId, state, "tradelocker");
+      const _mt5Snap = getAccountSafetySnapshot(userId, state, "mt5");
+      const _snap = _tlSnap ?? _mt5Snap;
       if (!_snap) {
         addActivity(userId, { type: "info", symbol: decision.symbol, message: `\u{1F6E1}\uFE0F RISK BLOCK: no live account data from any broker \u2014 cannot verify margin/daily-loss, trade skipped` });
         return;
       }
+      const _effectiveDailyLimit = config.propFirmMode && config.propFirmDailyDrawdownLimit > 0 ? config.propFirmDailyDrawdownLimit * 0.8 : config.dailyLossLimit ?? 0;
+      const _limitLabel = config.propFirmMode ? `prop firm limit ${config.propFirmDailyDrawdownLimit}% (80% buffer)` : `-${config.dailyLossLimit}%`;
+      const _safetyBlock = (sn) => {
+        if (sn.freeMargin !== null && sn.freeMargin <= 0) return `no free margin available`;
+        if (sn.marginLevel !== null && sn.marginLevel > 0 && sn.marginLevel < 200) return `margin level ${sn.marginLevel.toFixed(0)}% < 200% safety floor`;
+        const bal = sn.balance > 0 ? sn.balance : config.accountBalance || 0;
+        if (_effectiveDailyLimit > 0 && bal > 0) {
+          const lossPct = (sn.realizedToday + sn.floating) / bal * 100;
+          if (lossPct <= -_effectiveDailyLimit) return `daily loss ${lossPct.toFixed(1)}% \u2264 ${_limitLabel} (incl. floating, via ${sn.source})`;
+        }
+        return null;
+      };
       {
-        const _freeMargin = _snap.freeMargin;
-        const _marginLevel = _snap.marginLevel;
-        if (_freeMargin !== null && _freeMargin <= 0) {
-          addActivity(userId, { type: "info", symbol: decision.symbol, message: `\u{1F6E1}\uFE0F RISK BLOCK: no free margin available \u2014 trade skipped` });
-          return;
-        }
-        if (_marginLevel !== null && _marginLevel > 0 && _marginLevel < 200) {
-          addActivity(userId, { type: "info", symbol: decision.symbol, message: `\u{1F6E1}\uFE0F RISK BLOCK: margin level ${_marginLevel.toFixed(0)}% < 200% safety floor \u2014 trade skipped` });
-          return;
-        }
         const _bal = _snap.balance > 0 ? _snap.balance : config.accountBalance || 0;
-        const _effectiveDailyLimit = config.propFirmMode && config.propFirmDailyDrawdownLimit > 0 ? config.propFirmDailyDrawdownLimit * 0.8 : config.dailyLossLimit ?? 0;
-        if (_effectiveDailyLimit > 0 && _bal > 0) {
-          const _lossPct = (_snap.realizedToday + _snap.floating) / _bal * 100;
-          if (_lossPct <= -_effectiveDailyLimit) {
-            const _limitLabel = config.propFirmMode ? `prop firm limit ${config.propFirmDailyDrawdownLimit}% (80% buffer)` : `-${config.dailyLossLimit}%`;
-            addActivity(userId, { type: "info", symbol: decision.symbol, message: `\u{1F6E1}\uFE0F RISK BLOCK: daily loss ${_lossPct.toFixed(1)}% \u2264 ${_limitLabel} (incl. floating, via ${_snap.source}) \u2014 trade skipped` });
-            return;
+        const _block = _safetyBlock(_snap);
+        if (_block) {
+          addActivity(userId, { type: "info", symbol: decision.symbol, message: `\u{1F6E1}\uFE0F RISK BLOCK: ${_block} \u2014 trade skipped` });
+          return;
+        }
+        if (_tlSnap && _mt5Snap) {
+          const _mt5Block = _safetyBlock(_mt5Snap);
+          if (_mt5Block) {
+            _mt5EntryBlocked = true;
+            addActivity(userId, { type: "info", symbol: decision.symbol, message: `\u{1F6E1}\uFE0F MT5-only RISK BLOCK: ${_mt5Block} \u2014 MT5 entry suppressed, TradeLocker continues` });
           }
         }
         if (config.singleStrategyMode && config.strategyMode === "orb_breakout") {
@@ -32422,7 +32430,7 @@ async function processDecision(userId, decision, newsCtx) {
         confluences: decision.confluences || [],
         status: "pending"
       };
-      broadcastMT5Signal(userId, mt5SigShield);
+      if (!_mt5EntryBlocked) broadcastMT5Signal(userId, mt5SigShield);
       state.signalsGenerated++;
       addActivity(userId, {
         type: "signal",
@@ -32660,7 +32668,7 @@ async function processDecision(userId, decision, newsCtx) {
       confluences: decision.confluences || [],
       status: "pending"
     };
-    broadcastMT5Signal(userId, mt5Signal);
+    if (!_mt5EntryBlocked) broadcastMT5Signal(userId, mt5Signal);
     try {
       const { pool: _dxPool } = await Promise.resolve().then(() => (init_db(), db_exports));
       const dxRows = (await _dxPool.query(
@@ -68481,9 +68489,9 @@ async function getStopOrdersForUser(userId, filters = {}) {
 init_schema();
 
 // server/build-info.ts
-var BUILD_COMMIT = "1f8c29d9-dirty";
-var BUILD_BRANCH = "HEAD";
-var BUILT_AT = "2026-11-06T04:53:18.220Z";
+var BUILD_COMMIT = "7c627803-dirty";
+var BUILD_BRANCH = "fix/mt5-dailyloss-scope";
+var BUILT_AT = "2026-11-06T15:55:13.960Z";
 
 // server/stripe.ts
 init_db();

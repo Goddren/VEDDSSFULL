@@ -2432,10 +2432,13 @@ function adxOrNull(src: any): number | null {
  * Returns null ONLY when no broker reports anything, in which case the caller
  * must fail CLOSED rather than trade unprotected.
  */
-export function getAccountSafetySnapshot(userId: number, state: any): {
+export function getAccountSafetySnapshot(userId: number, state: any, only?: 'mt5' | 'tradelocker'): {
   balance: number; equity: number; freeMargin: number | null; marginLevel: number | null;
   realizedToday: number; floating: number; source: string;
 } | null {
+  // `only` scopes the snapshot to one broker. The engine gate uses it so an
+  // MT5 terminal's own daily loss blocks only MT5 entries, not the
+  // TradeLocker prop accounts (2026-11-06: MT5 at -9.7% blocked all 3 TL accounts all day).
   // 1. Prefer a FRESH MT5 snapshot — it carries real margin figures.
   const _raw = (global as any).mt5AccountData?.[userId];
   let _mt5: any = null;
@@ -2448,7 +2451,7 @@ export function getAccountSafetySnapshot(userId: number, state: any): {
       }
     }
   }
-  if (_mt5?.lastUpdated && Date.now() - new Date(_mt5.lastUpdated).getTime() < 15 * 60 * 1000 && _mt5.balance > 0) {
+  if (only !== 'tradelocker' && _mt5?.lastUpdated && Date.now() - new Date(_mt5.lastUpdated).getTime() < 15 * 60 * 1000 && _mt5.balance > 0) {
     const positions = (global as any).mt5OpenPositions?.[userId]?.positions ?? [];
     return {
       balance: _mt5.balance,
@@ -2463,7 +2466,7 @@ export function getAccountSafetySnapshot(userId: number, state: any): {
 
   // 2. Fall back to the live TradeLocker cache (tradelocker-sync refreshes it
   //    every ~20s and persists across restarts), aggregated across connections.
-  const _tl = (global as any).tlAccountData?.[userId];
+  const _tl = only === 'mt5' ? null : (global as any).tlAccountData?.[userId];
   if (_tl) {
     let balance = 0, equity = 0, margin = 0, freeMargin = 0, seen = 0, freshest = 0;
     for (const acct of Object.values(_tl as Record<string, any>)) {
@@ -5442,13 +5445,19 @@ async function processDecision(userId: number, decision: any, newsCtx?: any): Pr
       return;
     }
 
+    let _mt5EntryBlocked = false;
     // ── Account-safety gate (ports Gate 0 from the chart-data path so ORB and ALL
     //    engine trades get identical margin-health + daily-loss protection) ──
     {
       // Works for MT5 **and** TradeLocker now — see getAccountSafetySnapshot.
       // Previously this whole block was gated on a fresh MT5 snapshot, so every
       // check below was skipped entirely on a TradeLocker/DXtrade-only account.
-      const _snap = getAccountSafetySnapshot(userId, state);
+      // Each broker is judged on its OWN account. TradeLocker data (when present)
+      // governs the engine-wide gate; a breach seen only on MT5 suppresses the
+      // MT5 entry broadcast below instead of halting every account.
+      const _tlSnap  = getAccountSafetySnapshot(userId, state, 'tradelocker');
+      const _mt5Snap = getAccountSafetySnapshot(userId, state, 'mt5');
+      const _snap = _tlSnap ?? _mt5Snap;
       if (!_snap) {
         // FAIL CLOSED: no broker could tell us the account state, so we cannot
         // prove this trade is safe. Skipping is always recoverable; trading
@@ -5456,30 +5465,35 @@ async function processDecision(userId: number, decision: any, newsCtx?: any): Pr
         addActivity(userId, { type: 'info', symbol: decision.symbol, message: `🛡️ RISK BLOCK: no live account data from any broker — cannot verify margin/daily-loss, trade skipped` });
         return;
       }
-      {
-        const _freeMargin  = _snap.freeMargin;
-        const _marginLevel = _snap.marginLevel;
-        if (_freeMargin !== null && _freeMargin <= 0) {
-          addActivity(userId, { type: 'info', symbol: decision.symbol, message: `🛡️ RISK BLOCK: no free margin available — trade skipped` });
-          return;
-        }
-        if (_marginLevel !== null && _marginLevel > 0 && _marginLevel < 200) {
-          addActivity(userId, { type: 'info', symbol: decision.symbol, message: `🛡️ RISK BLOCK: margin level ${_marginLevel.toFixed(0)}% < 200% safety floor — trade skipped` });
-          return;
-        }
-        const _bal = _snap.balance > 0 ? _snap.balance : (config.accountBalance || 0);
+      const _effectiveDailyLimit = config.propFirmMode && config.propFirmDailyDrawdownLimit > 0
+        ? config.propFirmDailyDrawdownLimit * 0.8
+        : (config.dailyLossLimit ?? 0);
+      const _limitLabel = config.propFirmMode ? `prop firm limit ${config.propFirmDailyDrawdownLimit}% (80% buffer)` : `-${config.dailyLossLimit}%`;
+      // Returns the block reason for one broker snapshot, or null if it is safe.
+      const _safetyBlock = (sn: NonNullable<typeof _snap>): string | null => {
+        if (sn.freeMargin !== null && sn.freeMargin <= 0) return `no free margin available`;
+        if (sn.marginLevel !== null && sn.marginLevel > 0 && sn.marginLevel < 200) return `margin level ${sn.marginLevel.toFixed(0)}% < 200% safety floor`;
         // Prop-firm accounts use the FIRM's actual daily drawdown rule, not the
-        // generic engine default — and stop at 80% of it, not the exact edge,
-        // the way an experienced prop-firm trader leaves margin before the wall.
-        const _effectiveDailyLimit = config.propFirmMode && config.propFirmDailyDrawdownLimit > 0
-          ? config.propFirmDailyDrawdownLimit * 0.8
-          : (config.dailyLossLimit ?? 0);
-        if (_effectiveDailyLimit > 0 && _bal > 0) {
-          const _lossPct = ((_snap.realizedToday + _snap.floating) / _bal) * 100;
-          if (_lossPct <= -_effectiveDailyLimit) {
-            const _limitLabel = config.propFirmMode ? `prop firm limit ${config.propFirmDailyDrawdownLimit}% (80% buffer)` : `-${config.dailyLossLimit}%`;
-            addActivity(userId, { type: 'info', symbol: decision.symbol, message: `🛡️ RISK BLOCK: daily loss ${_lossPct.toFixed(1)}% ≤ ${_limitLabel} (incl. floating, via ${_snap.source}) — trade skipped` });
-            return;
+        // generic engine default — and stop at 80% of it, not the exact edge.
+        const bal = sn.balance > 0 ? sn.balance : (config.accountBalance || 0);
+        if (_effectiveDailyLimit > 0 && bal > 0) {
+          const lossPct = ((sn.realizedToday + sn.floating) / bal) * 100;
+          if (lossPct <= -_effectiveDailyLimit) return `daily loss ${lossPct.toFixed(1)}% ≤ ${_limitLabel} (incl. floating, via ${sn.source})`;
+        }
+        return null;
+      };
+      {
+        const _bal = _snap.balance > 0 ? _snap.balance : (config.accountBalance || 0);
+        const _block = _safetyBlock(_snap);
+        if (_block) {
+          addActivity(userId, { type: 'info', symbol: decision.symbol, message: `🛡️ RISK BLOCK: ${_block} — trade skipped` });
+          return;
+        }
+        if (_tlSnap && _mt5Snap) {
+          const _mt5Block = _safetyBlock(_mt5Snap);
+          if (_mt5Block) {
+            _mt5EntryBlocked = true;
+            addActivity(userId, { type: 'info', symbol: decision.symbol, message: `🛡️ MT5-only RISK BLOCK: ${_mt5Block} — MT5 entry suppressed, TradeLocker continues` });
           }
         }
         // Single strategy lock: block AI signals when ORB-only mode is active
@@ -6189,7 +6203,7 @@ async function processDecision(userId: number, decision: any, newsCtx?: any): Pr
         confluences: decision.confluences || [],
         status: 'pending',
       };
-      broadcastMT5Signal(userId, mt5SigShield);
+      if (!_mt5EntryBlocked) broadcastMT5Signal(userId, mt5SigShield);
       state.signalsGenerated++;
       addActivity(userId, {
         type: 'signal',
@@ -6484,7 +6498,7 @@ async function processDecision(userId: number, decision: any, newsCtx?: any): Pr
       confluences: decision.confluences || [],
       status: 'pending',
     };
-    broadcastMT5Signal(userId, mt5Signal);
+    if (!_mt5EntryBlocked) broadcastMT5Signal(userId, mt5Signal);
 
     // ── DXtrade (Velotrade) auto-execution — runs independently of TradeLocker ──
     // Fires the SAME signal on every DXtrade connection that has auto-trade ON,
