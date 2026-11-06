@@ -261,6 +261,11 @@ export class DxtradeService {
     if (o.stopLoss != null) body.stopLoss = o.stopLoss;
     if (o.takeProfit != null) body.takeProfit = o.takeProfit;
     if (o.positionEffect === 'CLOSE' && o.positionCode) body.positionCode = o.positionCode;
+    // Closing STOP/LIMIT legs tied to a positionCode must NOT carry a quantity —
+    // DXtrade rejects them with errorCode 33 "Closing STOP/LIMIT orders should not
+    // have specified quantity" (2026-11-04/05: every SL attach failed, so the
+    // fan-out closed each new DXtrade position immediately). They size to the position.
+    if (o.positionEffect === 'CLOSE' && o.positionCode && (body.type === 'STOP' || body.type === 'LIMIT')) delete body.quantity;
     const res = await this.authed(`/accounts/${encodeURIComponent(accountCode)}/orders`, {
       method: 'POST', body: JSON.stringify(body),
     });

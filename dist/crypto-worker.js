@@ -22297,6 +22297,7 @@ var init_dxtrade = __esm({
         if (o.stopLoss != null) body.stopLoss = o.stopLoss;
         if (o.takeProfit != null) body.takeProfit = o.takeProfit;
         if (o.positionEffect === "CLOSE" && o.positionCode) body.positionCode = o.positionCode;
+        if (o.positionEffect === "CLOSE" && o.positionCode && (body.type === "STOP" || body.type === "LIMIT")) delete body.quantity;
         const res = await this.authed(`/accounts/${encodeURIComponent(accountCode)}/orders`, {
           method: "POST",
           body: JSON.stringify(body)

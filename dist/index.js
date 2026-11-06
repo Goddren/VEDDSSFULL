@@ -25351,6 +25351,7 @@ var init_dxtrade = __esm({
         if (o.stopLoss != null) body.stopLoss = o.stopLoss;
         if (o.takeProfit != null) body.takeProfit = o.takeProfit;
         if (o.positionEffect === "CLOSE" && o.positionCode) body.positionCode = o.positionCode;
+        if (o.positionEffect === "CLOSE" && o.positionCode && (body.type === "STOP" || body.type === "LIMIT")) delete body.quantity;
         const res = await this.authed(`/accounts/${encodeURIComponent(accountCode)}/orders`, {
           method: "POST",
           body: JSON.stringify(body)
@@ -68480,9 +68481,9 @@ async function getStopOrdersForUser(userId, filters = {}) {
 init_schema();
 
 // server/build-info.ts
-var BUILD_COMMIT = "a4869973-dirty";
+var BUILD_COMMIT = "1f8c29d9-dirty";
 var BUILD_BRANCH = "HEAD";
-var BUILT_AT = "2026-11-06T02:48:56.829Z";
+var BUILT_AT = "2026-11-06T04:53:18.220Z";
 
 // server/stripe.ts
 init_db();
