@@ -2650,7 +2650,7 @@ export default function WeeklyStrategyPage() {
                           className="accent-emerald-500 w-4 h-4" />
                         <span className="text-[11px] text-gray-300">At +1R, move the stop to lock half the open profit, and keep ratcheting</span>
                       </label>
-                      <p className="text-[10px] text-emerald-400/70 mt-0.5">TradeLocker accounts. Below 1R only breakeven +2 pips is locked so trades keep room. Never loosens a stop.</p>
+                      <p className="text-[10px] text-emerald-400/70 mt-0.5">TradeLocker + DXtrade accounts. Below 1R only breakeven +2 pips is locked so trades keep room. Never loosens a stop.</p>
                     </div>
                     <div>
                       <Label className="text-amber-400 text-xs font-semibold">Pair daily limit</Label>

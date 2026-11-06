@@ -2715,9 +2715,12 @@ function isProfitBreakeven(symbol: string, isBuy: boolean, entry: number, newSto
 async function manageProfitLock(userId: number, openPositions: any[], marketAnalysis: Record<string, any>): Promise<void> {
   if ((engineStates[userId]?.config as any)?.profitLockEnabled === false) return;
   let tlConns: any[] | null = null;
+  let dxConns: any[] | null = null;
   const btc = await import('./btc-profile');
   for (const pos of openPositions) {
-    if (pos.source !== 'tl' || btc.isBtc(pos.symbol)) continue;
+    if (btc.isBtc(pos.symbol)) continue;
+    if (pos.source === 'dx') { await profitLockDx(userId, pos, marketAnalysis, dxConns ??= await loadDxConnections(userId)); continue; }
+    if (pos.source !== 'tl') continue;
     const m = String(pos.ticket).match(/^tl_(\d+)_(.+)$/);
     if (!m) continue;
     const entry = Number(pos.openPrice) || 0;
@@ -2754,6 +2757,56 @@ async function manageProfitLock(userId: number, openPositions: any[], marketAnal
     } catch (e: any) {
       addActivity(userId, { type: 'error', symbol: pos.symbol, message: `⚠️ Profit lock error on ${tlConn.accountId}: ${e?.message ?? e}` });
     }
+  }
+}
+
+// DXtrade reports the stop as a price; the ORIGINAL stop is stored durably
+// (runtime_state 'fx_initial_stop') the first time a position is seen so R
+// survives deploys and is never measured from an already-locked stop.
+const dxLockInitial = new Map<string, number>();
+async function profitLockDx(userId: number, pos: any, marketAnalysis: Record<string, any>, dxConns: any[]): Promise<void> {
+  const key = `${userId}:dx:${pos.ticket}`;
+  const entry = Number(pos.openPrice) || 0;
+  const brokerSl = Number(pos.brokerSl) || 0;
+  const price = Number(marketAnalysis?.[pos.symbol]?.currentPrice) || 0;
+  const pip = getPipSize(pos.symbol);
+  if (!(entry > 0) || !(price > 0) || !(pip > 0) || !(brokerSl > 0)) return;
+  if (!dxLockInitial.has(key)) {
+    try {
+      const { getRuntimeStateStrict, insertRuntimeStateIfAbsent } = await import('./runtime-state');
+      const stored = await getRuntimeStateStrict('fx_initial_stop', key);
+      if (Number(stored?.sl) > 0) dxLockInitial.set(key, Number(stored.sl));
+      else {
+        const v = await insertRuntimeStateIfAbsent('fx_initial_stop', key, { sl: brokerSl, entry });
+        dxLockInitial.set(key, Number(v?.sl) || brokerSl);
+      }
+    } catch { return; } // DB unreadable → skip this pass rather than guess
+  }
+  const initial = dxLockInitial.get(key)!;
+  const isBuy = String(pos.direction).toUpperCase() === 'BUY';
+  const risk = isBuy ? entry - initial : initial - entry;
+  if (!(risk > 2 * pip)) return;
+  const gain = isBuy ? price - entry : entry - price;
+  if (gain / risk < 1) return;
+  const dp = pip >= 0.01 ? 3 : 5;
+  const want = Number((isBuy ? entry + gain / 2 : entry - gain / 2).toFixed(dp));
+  const step = Math.max(pip, 0.1 * risk);
+  if (isBuy ? want < brokerSl + step : want > brokerSl - step) return;
+  const t = dxTargetOf(pos, dxConns);
+  if (!t) return;
+  const label = `DXtrade [conn ${t.conn.id}]`;
+  try {
+    const { executeSignalOnDxtrade } = await import('../dxtrade');
+    const r = await executeSignalOnDxtrade(t.conn, { action: 'MODIFY', symbol: pos.symbol, direction: pos.direction, stopLoss: want, positionCode: t.positionCode });
+    if (r.success) {
+      const lockedPips = ((isBuy ? want - entry : entry - want) / pip).toFixed(1);
+      logGuard(userId, 'profit_lock', pos.symbol, `Stop → ${want} on ${label} at ${(gain / risk).toFixed(2)}R — locks +${lockedPips} pips`);
+      addActivity(userId, { type: 'position_update', symbol: pos.symbol, message: `🔒 Profit lock on ${label}: ${pos.symbol} ${pos.direction} at ${(gain / risk).toFixed(2)}R → stop ${want} (+${lockedPips} pips locked)` });
+    } else {
+      addActivity(userId, { type: 'error', symbol: pos.symbol, message: `⚠️ Profit lock failed on ${label}: ${r.error}` });
+    }
+  } catch (e: any) {
+    addActivity(userId, { type: 'error', symbol: pos.symbol, message: `⚠️ Profit lock error on ${label}: ${e?.message ?? e}` });
   }
 }
 

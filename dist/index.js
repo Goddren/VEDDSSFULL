@@ -29495,9 +29495,15 @@ function isProfitBreakeven(symbol, isBuy, entry, newStop, rNow) {
 async function manageProfitLock(userId, openPositions, marketAnalysis) {
   if (engineStates[userId]?.config?.profitLockEnabled === false) return;
   let tlConns = null;
+  let dxConns = null;
   const btc = await Promise.resolve().then(() => (init_btc_profile(), btc_profile_exports));
   for (const pos of openPositions) {
-    if (pos.source !== "tl" || btc.isBtc(pos.symbol)) continue;
+    if (btc.isBtc(pos.symbol)) continue;
+    if (pos.source === "dx") {
+      await profitLockDx(userId, pos, marketAnalysis, dxConns ??= await loadDxConnections(userId));
+      continue;
+    }
+    if (pos.source !== "tl") continue;
     const m = String(pos.ticket).match(/^tl_(\d+)_(.+)$/);
     if (!m) continue;
     const entry = Number(pos.openPrice) || 0;
@@ -29533,6 +29539,53 @@ async function manageProfitLock(userId, openPositions, marketAnalysis) {
     } catch (e) {
       addActivity(userId, { type: "error", symbol: pos.symbol, message: `\u26A0\uFE0F Profit lock error on ${tlConn.accountId}: ${e?.message ?? e}` });
     }
+  }
+}
+async function profitLockDx(userId, pos, marketAnalysis, dxConns) {
+  const key = `${userId}:dx:${pos.ticket}`;
+  const entry = Number(pos.openPrice) || 0;
+  const brokerSl = Number(pos.brokerSl) || 0;
+  const price = Number(marketAnalysis?.[pos.symbol]?.currentPrice) || 0;
+  const pip = getPipSize(pos.symbol);
+  if (!(entry > 0) || !(price > 0) || !(pip > 0) || !(brokerSl > 0)) return;
+  if (!dxLockInitial.has(key)) {
+    try {
+      const { getRuntimeStateStrict: getRuntimeStateStrict2, insertRuntimeStateIfAbsent: insertRuntimeStateIfAbsent2 } = await Promise.resolve().then(() => (init_runtime_state(), runtime_state_exports));
+      const stored = await getRuntimeStateStrict2("fx_initial_stop", key);
+      if (Number(stored?.sl) > 0) dxLockInitial.set(key, Number(stored.sl));
+      else {
+        const v = await insertRuntimeStateIfAbsent2("fx_initial_stop", key, { sl: brokerSl, entry });
+        dxLockInitial.set(key, Number(v?.sl) || brokerSl);
+      }
+    } catch {
+      return;
+    }
+  }
+  const initial = dxLockInitial.get(key);
+  const isBuy = String(pos.direction).toUpperCase() === "BUY";
+  const risk = isBuy ? entry - initial : initial - entry;
+  if (!(risk > 2 * pip)) return;
+  const gain = isBuy ? price - entry : entry - price;
+  if (gain / risk < 1) return;
+  const dp = pip >= 0.01 ? 3 : 5;
+  const want = Number((isBuy ? entry + gain / 2 : entry - gain / 2).toFixed(dp));
+  const step = Math.max(pip, 0.1 * risk);
+  if (isBuy ? want < brokerSl + step : want > brokerSl - step) return;
+  const t = dxTargetOf(pos, dxConns);
+  if (!t) return;
+  const label = `DXtrade [conn ${t.conn.id}]`;
+  try {
+    const { executeSignalOnDxtrade: executeSignalOnDxtrade2 } = await Promise.resolve().then(() => (init_dxtrade(), dxtrade_exports));
+    const r = await executeSignalOnDxtrade2(t.conn, { action: "MODIFY", symbol: pos.symbol, direction: pos.direction, stopLoss: want, positionCode: t.positionCode });
+    if (r.success) {
+      const lockedPips = ((isBuy ? want - entry : entry - want) / pip).toFixed(1);
+      logGuard(userId, "profit_lock", pos.symbol, `Stop \u2192 ${want} on ${label} at ${(gain / risk).toFixed(2)}R \u2014 locks +${lockedPips} pips`);
+      addActivity(userId, { type: "position_update", symbol: pos.symbol, message: `\u{1F512} Profit lock on ${label}: ${pos.symbol} ${pos.direction} at ${(gain / risk).toFixed(2)}R \u2192 stop ${want} (+${lockedPips} pips locked)` });
+    } else {
+      addActivity(userId, { type: "error", symbol: pos.symbol, message: `\u26A0\uFE0F Profit lock failed on ${label}: ${r.error}` });
+    }
+  } catch (e) {
+    addActivity(userId, { type: "error", symbol: pos.symbol, message: `\u26A0\uFE0F Profit lock error on ${label}: ${e?.message ?? e}` });
   }
 }
 async function manageBtcTrail(userId, openPositions, marketAnalysis) {
@@ -34597,7 +34650,7 @@ function getModelLockStatus(userId) {
   if (!state) return { locked: false, openPositions: 0 };
   return { locked: state.modelLocked, openPositions: state.openPositionCount };
 }
-var FX_MAX_OPEN_PER_SYMBOL, FX_SYMBOL_COOLDOWN_MS, mt5AccountQueues, mt5AccountRegistry, engineStates, engineIntervals, engineTimers, brainLearningIntervals, positionMonitorIntervals, _monitorBusy, persistedConfigOverrides, goalTrackerCache, ALL_STRATEGY_KEYS, _activityTableReady, _activityLastPrune, _activitySeen, _dxSkipTableReady, countedTradeKeys, h4BiasCache, H4_REFRESH_MS, TRAIL_METHOD_LABELS, xauPeakPts, xauLockedPts, btcInitialStop, btcLastStop, tlStopLatest, tlStopInitial, NY_TIME_FMT, INDEX_BROKER_ALIASES, FX_LEADER_LOCK_KEY, FX_LEADER_STALE_MS, _fxLeaderClient, _fxIsLeader, _fxLeaderLoop, hardHalted;
+var FX_MAX_OPEN_PER_SYMBOL, FX_SYMBOL_COOLDOWN_MS, mt5AccountQueues, mt5AccountRegistry, engineStates, engineIntervals, engineTimers, brainLearningIntervals, positionMonitorIntervals, _monitorBusy, persistedConfigOverrides, goalTrackerCache, ALL_STRATEGY_KEYS, _activityTableReady, _activityLastPrune, _activitySeen, _dxSkipTableReady, countedTradeKeys, h4BiasCache, H4_REFRESH_MS, TRAIL_METHOD_LABELS, xauPeakPts, xauLockedPts, btcInitialStop, btcLastStop, tlStopLatest, tlStopInitial, dxLockInitial, NY_TIME_FMT, INDEX_BROKER_ALIASES, FX_LEADER_LOCK_KEY, FX_LEADER_STALE_MS, _fxLeaderClient, _fxIsLeader, _fxLeaderLoop, hardHalted;
 var init_live_trading_engine = __esm({
   "server/services/live-trading-engine.ts"() {
     "use strict";
@@ -34677,6 +34730,7 @@ var init_live_trading_engine = __esm({
     btcLastStop = /* @__PURE__ */ new Map();
     tlStopLatest = /* @__PURE__ */ new Map();
     tlStopInitial = /* @__PURE__ */ new Map();
+    dxLockInitial = /* @__PURE__ */ new Map();
     NY_TIME_FMT = new Intl.DateTimeFormat("en-US", {
       timeZone: "America/New_York",
       hour12: false,
@@ -68426,9 +68480,9 @@ async function getStopOrdersForUser(userId, filters = {}) {
 init_schema();
 
 // server/build-info.ts
-var BUILD_COMMIT = "119a6e15-dirty";
+var BUILD_COMMIT = "a4869973-dirty";
 var BUILD_BRANCH = "HEAD";
-var BUILT_AT = "2026-11-06T01:58:34.412Z";
+var BUILT_AT = "2026-11-06T02:48:56.829Z";
 
 // server/stripe.ts
 init_db();
