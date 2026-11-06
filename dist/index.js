@@ -36706,44 +36706,61 @@ var init_weekly_review = __esm({
 
 // server/solana-scanner.ts
 import OpenAI4 from "openai";
+async function fetchJsonRetry(url, tries = 2) {
+  for (let i = 0; i < tries; i++) {
+    try {
+      const res = await fetch(url);
+      if (res.ok) return await res.json();
+    } catch {
+    }
+    if (i < tries - 1) await new Promise((r) => setTimeout(r, 600));
+  }
+  return null;
+}
 async function fetchTrendingSolanaTokens() {
   try {
-    const boostedResponse = await fetch("https://api.dexscreener.com/token-boosts/top/v1");
+    const boostedData = await fetchJsonRetry("https://api.dexscreener.com/token-boosts/top/v1");
     let tokenAddresses = [];
-    if (boostedResponse.ok) {
-      const boostedData = await boostedResponse.json();
+    if (Array.isArray(boostedData)) {
       const solanaTokens = boostedData.filter((t) => t.chainId === "solana");
       tokenAddresses = solanaTokens.slice(0, 20).map((t) => t.tokenAddress);
     }
     if (tokenAddresses.length === 0) {
-      const searchResponse = await fetch("https://api.dexscreener.com/latest/dex/search?q=sol");
-      if (searchResponse.ok) {
-        const searchData = await searchResponse.json();
+      const searchData = await fetchJsonRetry("https://api.dexscreener.com/latest/dex/search?q=sol");
+      if (searchData) {
         const solanaPairs = (searchData.pairs || []).filter((p2) => p2.chainId === "solana");
-        return solanaPairs.slice(0, 30).map((pair) => mapPairToToken(pair));
+        const fromSearch = solanaPairs.slice(0, 30).map((pair) => mapPairToToken(pair));
+        if (fromSearch.length > 0) {
+          lastGoodTrending = fromSearch;
+          return fromSearch;
+        }
       }
-      return [];
+      return lastGoodTrending;
     }
     const batchAddresses = tokenAddresses.slice(0, 30).join(",");
-    const tokensResponse = await fetch(`https://api.dexscreener.com/latest/dex/tokens/${batchAddresses}`);
-    if (!tokensResponse.ok) {
-      console.error("Failed to fetch token data");
-      return [];
+    const tokensData = await fetchJsonRetry(`https://api.dexscreener.com/latest/dex/tokens/${batchAddresses}`);
+    if (!tokensData) {
+      console.error("Failed to fetch token data \u2014 serving last good trending snapshot");
+      return lastGoodTrending;
     }
-    const tokensData = await tokensResponse.json();
     const pairs = tokensData.pairs || [];
-    const seen = /* @__PURE__ */ new Set();
-    const uniquePairs = [];
+    const bestByAddress = /* @__PURE__ */ new Map();
     for (const pair of pairs) {
-      if (pair.chainId === "solana" && !seen.has(pair.baseToken?.address)) {
-        seen.add(pair.baseToken?.address);
-        uniquePairs.push(pair);
+      if (pair.chainId !== "solana" || !pair.baseToken?.address) continue;
+      const existing = bestByAddress.get(pair.baseToken.address);
+      if (!existing || (pair.liquidity?.usd || 0) > (existing.liquidity?.usd || 0)) {
+        bestByAddress.set(pair.baseToken.address, pair);
       }
     }
-    return uniquePairs.slice(0, 30).map((pair) => mapPairToToken(pair));
+    const result = Array.from(bestByAddress.values()).slice(0, 30).map((pair) => mapPairToToken(pair));
+    if (result.length > 0) {
+      lastGoodTrending = result;
+      return result;
+    }
+    return lastGoodTrending;
   } catch (error) {
     console.error("Error fetching trending tokens:", error);
-    return [];
+    return lastGoodTrending;
   }
 }
 function mapPairToToken(pair) {
@@ -36835,7 +36852,7 @@ async function fetchPumpFunTokens() {
     const response = await fetch("https://api.dexscreener.com/latest/dex/search?q=pump.fun");
     if (!response.ok) return [];
     const data = await response.json();
-    const pairs = (data.pairs || []).filter((p2) => p2.chainId === "solana" && (p2.dexId?.toLowerCase().includes("pump") || p2.url?.includes("pump.fun") || p2.baseToken?.name?.toLowerCase().includes("pump")));
+    const pairs = (data.pairs || []).filter((p2) => p2.chainId === "solana" && p2.dexId?.toLowerCase().includes("pump"));
     return pairs.slice(0, 20).map((pair) => {
       const token = mapPairToToken(pair);
       token.dexSource = "pumpfun";
@@ -36928,8 +36945,8 @@ function calculateWhaleScore(token) {
   const buyRatio = token.txns24h.buys / totalTxns;
   if (buyRatio > 0.7) score += 20;
   else if (buyRatio > 0.6) score += 10;
-  else if (buyRatio < 0.4) score -= 15;
   else if (buyRatio < 0.3) score -= 25;
+  else if (buyRatio < 0.4) score -= 15;
   if (token.volume24h > 0 && totalTxns > 0) {
     const avgTxSize = token.volume24h / totalTxns;
     if (avgTxSize > 5e3) score += 15;
@@ -37116,17 +37133,19 @@ async function scanAndAnalyzeTokens(limit = 10, dexFilter = "all", options = {})
   if (options.minConfidence && options.minConfidence > 0) {
     results = results.filter((a) => a.confidence >= options.minConfidence);
   }
-  return results.slice(0, limit).sort((a, b) => {
+  return results.sort((a, b) => {
     const signalOrder = { "STRONG_BUY": 0, "BUY": 1, "HOLD": 2, "SELL": 3, "STRONG_SELL": 4 };
     if (signalOrder[a.signal] !== signalOrder[b.signal]) {
       return signalOrder[a.signal] - signalOrder[b.signal];
     }
     return b.confidence - a.confidence;
-  });
+  }).slice(0, limit);
 }
+var lastGoodTrending;
 var init_solana_scanner = __esm({
   "server/solana-scanner.ts"() {
     "use strict";
+    lastGoodTrending = [];
   }
 });
 
@@ -69616,9 +69635,9 @@ async function getStopOrdersForUser(userId, filters = {}) {
 init_schema();
 
 // server/build-info.ts
-var BUILD_COMMIT = "716c6ca-dirty";
-var BUILD_BRANCH = "main";
-var BUILT_AT = "2026-11-06T21:32:08.368Z";
+var BUILD_COMMIT = "b726ff0-dirty";
+var BUILD_BRANCH = "fix/sol-scanner-bugs";
+var BUILT_AT = "2026-11-06T22:04:19.648Z";
 
 // server/stripe.ts
 init_db();

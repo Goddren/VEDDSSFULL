@@ -61,55 +61,81 @@ export interface AnalyzeTokenOptions {
   openai?: OpenAI | UniversalAIClient;
 }
 
+// Last good trending result — served when DexScreener rate-limits or errors so
+// the trending feed degrades to slightly stale data instead of going blank
+// (observed live Nov 6, 2026: /api/solana/trending returned zero tokens twice
+// in a row while /api/solana/scan worked — failures were swallowed into []).
+let lastGoodTrending: SolanaToken[] = [];
+
+async function fetchJsonRetry(url: string, tries = 2): Promise<any | null> {
+  for (let i = 0; i < tries; i++) {
+    try {
+      const res = await fetch(url);
+      if (res.ok) return await res.json();
+    } catch { /* fall through to retry */ }
+    if (i < tries - 1) await new Promise(r => setTimeout(r, 600));
+  }
+  return null;
+}
+
 export async function fetchTrendingSolanaTokens(): Promise<SolanaToken[]> {
   try {
     // Use boosted tokens endpoint and fetch full data for each
-    const boostedResponse = await fetch('https://api.dexscreener.com/token-boosts/top/v1');
+    const boostedData = await fetchJsonRetry('https://api.dexscreener.com/token-boosts/top/v1');
     let tokenAddresses: string[] = [];
-    
-    if (boostedResponse.ok) {
-      const boostedData = await boostedResponse.json();
+
+    if (Array.isArray(boostedData)) {
       const solanaTokens = boostedData.filter((t: any) => t.chainId === 'solana');
       tokenAddresses = solanaTokens.slice(0, 20).map((t: any) => t.tokenAddress);
     }
-    
+
     // If no boosted tokens, try search for popular tokens
     if (tokenAddresses.length === 0) {
-      const searchResponse = await fetch('https://api.dexscreener.com/latest/dex/search?q=sol');
-      if (searchResponse.ok) {
-        const searchData = await searchResponse.json();
+      const searchData = await fetchJsonRetry('https://api.dexscreener.com/latest/dex/search?q=sol');
+      if (searchData) {
         const solanaPairs = (searchData.pairs || []).filter((p: any) => p.chainId === 'solana');
-        return solanaPairs.slice(0, 30).map((pair: any) => mapPairToToken(pair));
+        const fromSearch = solanaPairs.slice(0, 30).map((pair: any) => mapPairToToken(pair));
+        if (fromSearch.length > 0) {
+          lastGoodTrending = fromSearch;
+          return fromSearch;
+        }
       }
-      return [];
+      return lastGoodTrending;
     }
-    
+
     // Fetch full token data for boosted tokens (batch up to 30 addresses)
     const batchAddresses = tokenAddresses.slice(0, 30).join(',');
-    const tokensResponse = await fetch(`https://api.dexscreener.com/latest/dex/tokens/${batchAddresses}`);
-    
-    if (!tokensResponse.ok) {
-      console.error('Failed to fetch token data');
-      return [];
+    const tokensData = await fetchJsonRetry(`https://api.dexscreener.com/latest/dex/tokens/${batchAddresses}`);
+
+    if (!tokensData) {
+      console.error('Failed to fetch token data — serving last good trending snapshot');
+      return lastGoodTrending;
     }
-    
-    const tokensData = await tokensResponse.json();
+
     const pairs = tokensData.pairs || [];
-    
-    // Filter to Solana and dedupe by base token address
-    const seen = new Set<string>();
-    const uniquePairs: any[] = [];
+
+    // Filter to Solana and dedupe by base token address, keeping the
+    // HIGHEST-LIQUIDITY pair per token. The first pair returned can be a tiny
+    // junk pool whose price is meaningless — same root cause as the Nov 6
+    // fake-win price bug fixed in the engine (8dd6a74).
+    const bestByAddress = new Map<string, any>();
     for (const pair of pairs) {
-      if (pair.chainId === 'solana' && !seen.has(pair.baseToken?.address)) {
-        seen.add(pair.baseToken?.address);
-        uniquePairs.push(pair);
+      if (pair.chainId !== 'solana' || !pair.baseToken?.address) continue;
+      const existing = bestByAddress.get(pair.baseToken.address);
+      if (!existing || (pair.liquidity?.usd || 0) > (existing.liquidity?.usd || 0)) {
+        bestByAddress.set(pair.baseToken.address, pair);
       }
     }
-    
-    return uniquePairs.slice(0, 30).map((pair: any) => mapPairToToken(pair));
+
+    const result = Array.from(bestByAddress.values()).slice(0, 30).map((pair: any) => mapPairToToken(pair));
+    if (result.length > 0) {
+      lastGoodTrending = result;
+      return result;
+    }
+    return lastGoodTrending;
   } catch (error) {
     console.error('Error fetching trending tokens:', error);
-    return [];
+    return lastGoodTrending;
   }
 }
 
@@ -210,12 +236,14 @@ async function fetchPumpFunTokens(): Promise<SolanaToken[]> {
     const response = await fetch('https://api.dexscreener.com/latest/dex/search?q=pump.fun');
     if (!response.ok) return [];
     const data = await response.json();
+    // pump.fun membership comes from the DEX id ONLY ('pumpfun' bonding curve,
+    // 'pumpswap' after graduation). The old filter also accepted any pair whose
+    // token NAME contained "pump" — a Raydium pair for a token named Pump was
+    // observed tagged 'pumpfun' in live data, which can feed Pump Scalp 60's
+    // pump.fun-only gate with a token that never launched there.
     const pairs = (data.pairs || [])
-      .filter((p: any) => p.chainId === 'solana' && (
-        p.dexId?.toLowerCase().includes('pump') ||
-        p.url?.includes('pump.fun') ||
-        p.baseToken?.name?.toLowerCase().includes('pump')
-      ));
+      .filter((p: any) => p.chainId === 'solana' &&
+        p.dexId?.toLowerCase().includes('pump'));
     return pairs.slice(0, 20).map((pair: any) => {
       const token = mapPairToToken(pair);
       token.dexSource = 'pumpfun';
@@ -347,8 +375,11 @@ function calculateWhaleScore(token: SolanaToken): number {
   const buyRatio = token.txns24h.buys / totalTxns;
   if (buyRatio > 0.7) score += 20;
   else if (buyRatio > 0.6) score += 10;
-  else if (buyRatio < 0.4) score -= 15;
+  // Order matters: the < 0.3 branch must be checked BEFORE < 0.4 — previously
+  // it sat after it and could never fire, so the harshest sell-pressure
+  // penalty was dead code.
   else if (buyRatio < 0.3) score -= 25;
+  else if (buyRatio < 0.4) score -= 15;
   
   if (token.volume24h > 0 && totalTxns > 0) {
     const avgTxSize = token.volume24h / totalTxns;
@@ -605,11 +636,14 @@ export async function scanAndAnalyzeTokens(limit: number = 10, dexFilter: DexSou
     results = results.filter(a => a.confidence >= options.minConfidence!);
   }
   
-  return results.slice(0, limit).sort((a, b) => {
+  // Sort BEFORE slicing: previously the list was cut to `limit` in fetch order
+  // and only then sorted, so the "top N" was whatever came first off the wire
+  // and stronger signals ranked just past the cut never surfaced.
+  return results.sort((a, b) => {
     const signalOrder: Record<string, number> = { 'STRONG_BUY': 0, 'BUY': 1, 'HOLD': 2, 'SELL': 3, 'STRONG_SELL': 4 };
     if (signalOrder[a.signal] !== signalOrder[b.signal]) {
       return signalOrder[a.signal] - signalOrder[b.signal];
     }
     return b.confidence - a.confidence;
-  });
+  }).slice(0, limit);
 }
