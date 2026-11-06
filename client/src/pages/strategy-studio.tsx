@@ -23,7 +23,8 @@ import { motion } from 'framer-motion';
 import { apiRequest } from '@/lib/queryClient';
 import { StrategyBuilder } from '@/components/trading/strategy-builder';
 import type { StrategySpec, EngineStrategyInfo } from '@/lib/strategy-spec';
-import { templatePreset, defaultBuilderSpec, engineNativeSpec, ENGINE_STRATEGIES } from '@/lib/strategy-spec';
+import { templatePreset, defaultBuilderSpec, engineNativeSpec, ENGINE_STRATEGIES, ADVANCED_PRESETS } from '@/lib/strategy-spec';
+import type { AdvancedPreset } from '@/lib/strategy-spec';
 
 // Types for trading strategy
 interface StrategyParameter {
@@ -1152,6 +1153,20 @@ export default function StrategyStudio() {
     setCurrentStep('configure');
   };
 
+  // Pick an advanced preset (Volume Profile, ORB, ICT, Supertrend...).
+  // Loads as a fully editable spec at the preset's natural timeframe.
+  const handleSelectAdvanced = (preset: AdvancedPreset) => {
+    setMode('template');
+    setSelectedStrategy(null);
+    setCustomizedStrategy(null);
+    setSavedId(null);
+    setRealResults(null);
+    setBtError(null);
+    setSpec(preset.build(symbol, preset.defaultTimeframe));
+    setTimeframe(preset.defaultTimeframe);
+    setCurrentStep('configure');
+  };
+
   // Pick one of the FX engine's built-in strategies.
   const handleSelectEngineStrategy = (info: EngineStrategyInfo) => {
     setMode('engine');
@@ -1435,6 +1450,36 @@ export default function StrategyStudio() {
                     </CardHeader>
                     <CardFooter className="pt-0">
                       <span className="text-xs text-muted-foreground">{info.category} · FX Engine</span>
+                    </CardFooter>
+                  </Card>
+                ))}
+              </div>
+            </div>
+
+            {/* Advanced Strategies */}
+            <div className="pt-2">
+              <h3 className="text-lg font-medium mb-1">Advanced Strategies</h3>
+              <p className="text-sm text-muted-foreground mb-4">
+                Volume Profile, opening-range breakouts, ICT concepts (liquidity sweeps, fair value gaps,
+                order blocks, break of structure), Supertrend, Ichimoku, VWAP and multi-timeframe systems —
+                each one loads as editable rules you can tune, backtest, deploy, or compile to an EA.
+              </p>
+              <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
+                {ADVANCED_PRESETS.map((preset) => (
+                  <Card
+                    key={preset.id}
+                    className={`cursor-pointer hover:border-primary/60 transition-colors ${spec?.templateId === preset.id ? 'border-2 border-primary' : ''}`}
+                    onClick={() => handleSelectAdvanced(preset)}
+                  >
+                    <CardHeader className="pb-2">
+                      <CardTitle className="text-base flex items-center justify-between gap-2">
+                        {preset.name}
+                        <Badge variant="outline" className="shrink-0">{preset.defaultTimeframe}</Badge>
+                      </CardTitle>
+                      <CardDescription>{preset.tagline}</CardDescription>
+                    </CardHeader>
+                    <CardFooter className="pt-0">
+                      <span className="text-xs text-muted-foreground">{preset.family} · backtestable · deployable</span>
                     </CardFooter>
                   </Card>
                 ))}

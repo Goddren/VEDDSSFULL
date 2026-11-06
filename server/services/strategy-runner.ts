@@ -32,7 +32,7 @@
 import { getWizardStrategy } from './wizard-spec-strategies';
 import {
   listRunningDeployments, touchDeployment, openStrategyTrade,
-  getOpenStrategyTrade, closeStrategyTrade, type StrategyDeployment,
+  getOpenStrategyTrade, closeStrategyTrade, markStrategyTradeBreakeven, type StrategyDeployment,
 } from './strategy-deployments';
 import { evaluateSpecSignals, type BacktestBar } from './strategy-backtest';
 import { specWarmupBars, type StrategySpec } from './strategy-spec';
@@ -109,6 +109,25 @@ async function runDeployment(dep: StrategyDeployment): Promise<void> {
       if (vanished) { await touchDeployment(dep.id, { error: null, lastSignalAt: true }); return; }
     }
     const isLong = String(open.direction).toUpperCase() === 'BUY';
+    // Breakeven: once the last closed bar is trigger-pips in profit, move
+    // the broker stop to entry + offset (bar-close granularity — the EA
+    // and backtester manage this intrabar; the runner sees closes).
+    if (spec.risk.breakevenTriggerPips && !open.breakeven_applied) {
+      const pip = getPipSize(spec.symbol);
+      const entry = Number(open.entry_price);
+      const trig = spec.risk.breakevenTriggerPips * pip;
+      const hit = isLong ? sig.close >= entry + trig : sig.close <= entry - trig;
+      if (hit && entry > 0) {
+        const off = (spec.risk.breakevenOffsetPips ?? 0) * pip;
+        const round5 = (n: number) => Math.round(n * 100000) / 100000;
+        const newStop = round5(isLong ? entry + off : entry - off);
+        const tpDist = spec.risk.takeProfitAtrMult && sig.atr ? spec.risk.takeProfitAtrMult * sig.atr
+          : spec.risk.takeProfitPips ? spec.risk.takeProfitPips * pip : null;
+        const newTp = tpDist ? round5(isLong ? entry + tpDist : entry - tpDist) : null;
+        const moved = await dispatchBreakeven(dep, open, newStop, newTp);
+        if (moved) await markStrategyTradeBreakeven(open.id).catch(() => {});
+      }
+    }
     const exitNow = isLong ? sig.exitLong : sig.exitShort;
     if (!exitNow) { await touchDeployment(dep.id, { error: null }); return; }
     const ok = await dispatchClose(dep, open);
@@ -331,6 +350,51 @@ async function dispatchClose(dep: StrategyDeployment, open: any): Promise<boolea
       const r = await executeSignalOnDxtrade(rows[0], {
         action: 'CLOSE', symbol: open.symbol, direction: open.direction,
         positionCode: open.platform_ref || undefined,
+      });
+      return !!r.success;
+    }
+  } catch { return false; }
+  return false;
+}
+
+/** Move an open position's stop (breakeven) on the deployment's account. */
+async function dispatchBreakeven(dep: StrategyDeployment, open: any, newStop: number, newTp: number | null): Promise<boolean> {
+  try {
+    if (dep.platform === 'mt5') {
+      const { broadcastMT5Signal } = await import('./live-trading-engine');
+      broadcastMT5Signal(dep.userId, {
+        id: `wiz_be_${dep.id}_${Date.now()}`,
+        timestamp: new Date().toISOString(),
+        symbol: open.symbol, direction: open.direction, action: 'MODIFY',
+        lotSize: 0, entryPrice: null, stopLoss: newStop, takeProfit: newTp, confidence: 100,
+        reason: 'Wizard strategy breakeven', holdTime: '', strategy: 'wizard_strategy',
+        confluences: [], status: 'pending', positionId: null,
+      } as any);
+      return true;
+    }
+    if (dep.platform === 'tradelocker') {
+      const { storage } = await import('../storage');
+      const { executeMT5SignalOnTradeLocker } = await import('../tradelocker');
+      const conns = (await storage.getUserTradelockerConnections(dep.userId)).filter((c: any) => c.isActive);
+      const conn = conns.find((c: any) => c.id === Number(dep.connectionRef));
+      if (!conn) return false;
+      const r = await executeMT5SignalOnTradeLocker(conn, {
+        action: 'MODIFY', symbol: open.symbol, direction: open.direction, volume: 0,
+        positionId: open.platform_ref || undefined, stopLoss: newStop, takeProfit: newTp ?? undefined,
+      });
+      return !!r.success;
+    }
+    if (dep.platform === 'dxtrade') {
+      const { pool } = await import('../db');
+      const { rows } = await pool.query(
+        `SELECT id, host, username, encrypted_password, domain, account_code FROM dxtrade_connections WHERE id=$1 AND user_id=$2 AND is_active=true`,
+        [Number(dep.connectionRef), dep.userId],
+      );
+      if (!rows.length) return false;
+      const { executeSignalOnDxtrade } = await import('../dxtrade');
+      const r = await executeSignalOnDxtrade(rows[0], {
+        action: 'MODIFY', symbol: open.symbol, direction: open.direction,
+        positionCode: open.platform_ref || undefined, stopLoss: newStop, takeProfit: newTp ?? undefined,
       });
       return !!r.success;
     }

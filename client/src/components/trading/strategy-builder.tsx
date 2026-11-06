@@ -25,7 +25,11 @@ const OPERATORS: Array<{ value: Condition['operator']; label: string }> = [
   { value: 'below', label: 'is below' },
   { value: 'rising', label: 'is rising' },
   { value: 'falling', label: 'is falling' },
+  { value: 'turns_up', label: 'turns up (bottoms)' },
+  { value: 'turns_down', label: 'turns down (tops)' },
 ];
+
+const TF_ORDER = ['M1', 'M5', 'M15', 'M30', 'H1', 'H4', 'D1'];
 
 const smallSelect = 'h-9 text-sm';
 
@@ -72,11 +76,16 @@ export function StrategyBuilder({ value, onChange }: { value: StrategySpec; onCh
       g ? { ...g, conditions: g.conditions.filter((c) => c.indicatorId !== id && !(c.compare.kind === 'indicator' && c.compare.indicatorId === id)) } : g;
     onChange({
       ...spec,
-      indicators: spec.indicators.filter((i) => i.id !== id),
+      indicators: spec.indicators.filter((i) => i.id !== id).map((i) => (i.sourceId === id ? { ...i, sourceId: undefined } : i)),
       entryLong: strip(spec.entryLong) as ConditionGroup,
       entryShort: strip(spec.entryShort) as ConditionGroup,
       exitLong: strip(spec.exitLong) ?? null,
       exitShort: strip(spec.exitShort) ?? null,
+      trendFilter: spec.trendFilter ? {
+        ...spec.trendFilter,
+        longGroup: strip(spec.trendFilter.longGroup) ?? null,
+        shortGroup: strip(spec.trendFilter.shortGroup) ?? null,
+      } : spec.trendFilter,
     });
   };
 
@@ -97,7 +106,7 @@ export function StrategyBuilder({ value, onChange }: { value: StrategySpec; onCh
       </div>
       {group.conditions.map((c, idx) => {
         const series = seriesOptions.find((s) => s.id === c.indicatorId) ?? seriesOptions[0];
-        const needsCompare = c.operator !== 'rising' && c.operator !== 'falling';
+        const needsCompare = !['rising', 'falling', 'turns_up', 'turns_down'].includes(c.operator);
         const cmpSeries = c.compare.kind === 'indicator'
           ? seriesOptions.find((s) => s.id === (c.compare as any).indicatorId) : null;
         const update = (patch: Partial<Condition>) =>
@@ -158,6 +167,19 @@ export function StrategyBuilder({ value, onChange }: { value: StrategySpec; onCh
                     )}
                   </>
                 )}
+              </>
+            )}
+            {needsCompare && (
+              <>
+                <span className="text-xs text-muted-foreground" title="Condition must hold this many bars in a row">for</span>
+                <div className="w-14" title="Sustain: consecutive bars the condition must hold">
+                  <NumInput value={c.sustainBars} onChange={(v) => update({ sustainBars: v ?? undefined })} placeholder="1" min="1" />
+                </div>
+                <span className="text-xs text-muted-foreground">bars, gap ≥</span>
+                <div className="w-16" title="Minimum gap past the level, in pips">
+                  <NumInput value={c.minGapPips} onChange={(v) => update({ minGapPips: v ?? undefined })} placeholder="0" min="0" />
+                </div>
+                <span className="text-xs text-muted-foreground">pips</span>
               </>
             )}
             <Button variant="ghost" size="icon" className="h-9 w-9" onClick={() => apply({ ...group, conditions: group.conditions.filter((_, i) => i !== idx) })}>
@@ -252,9 +274,21 @@ export function StrategyBuilder({ value, onChange }: { value: StrategySpec; onCh
                 <div key={ind.id} className="flex flex-wrap items-center gap-2 border rounded-lg p-3">
                   <Badge variant="secondary" className="text-sm">{ind.kind}</Badge>
                   <span className="text-xs text-muted-foreground">id: {ind.id}</span>
-                  {(ind.kind === 'EMA' || ind.kind === 'SMA' || ind.kind === 'RSI' || ind.kind === 'ATR') && (
+                  {(ind.kind === 'EMA' || ind.kind === 'SMA' || ind.kind === 'RSI' || ind.kind === 'ATR' || ind.kind === 'CCI' || ind.kind === 'WILLIAMS_R' || ind.kind === 'ADX' || ind.kind === 'DONCHIAN') && (
                     <div className="flex items-center gap-2"><Label className="text-xs">Period</Label>
                       <div className="w-20"><NumInput value={ind.period} onChange={(v) => updateIndicator(ind.id, { period: v ?? 14 })} min="1" /></div></div>
+                  )}
+                  {(ind.kind === 'EMA' || ind.kind === 'SMA') && (
+                    <div className="flex items-center gap-2"><Label className="text-xs">Smooths</Label>
+                      <Select value={ind.sourceId ?? 'price'} onValueChange={(v) => updateIndicator(ind.id, { sourceId: v === 'price' ? undefined : v })}>
+                        <SelectTrigger className="w-36 h-9"><SelectValue /></SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="price">price</SelectItem>
+                          {spec.indicators.filter((o) => o.id !== ind.id).map((o) => (
+                            <SelectItem key={o.id} value={o.id}>{o.kind} ({o.id})</SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select></div>
                   )}
                   {ind.kind === 'MACD' && (<>
                     <div className="flex items-center gap-2"><Label className="text-xs">Fast</Label>
@@ -276,6 +310,51 @@ export function StrategyBuilder({ value, onChange }: { value: StrategySpec; onCh
                     <div className="flex items-center gap-2"><Label className="text-xs">Std dev</Label>
                       <div className="w-16"><NumInput value={ind.stdDev} onChange={(v) => updateIndicator(ind.id, { stdDev: v ?? 2 })} step="0.1" /></div></div>
                   </>)}
+                  {ind.kind === 'SUPERTREND' && (<>
+                    <div className="flex items-center gap-2"><Label className="text-xs">ATR period</Label>
+                      <div className="w-16"><NumInput value={ind.period} onChange={(v) => updateIndicator(ind.id, { period: v ?? 10 })} min="1" /></div></div>
+                    <div className="flex items-center gap-2"><Label className="text-xs">Multiplier</Label>
+                      <div className="w-16"><NumInput value={ind.stdDev} onChange={(v) => updateIndicator(ind.id, { stdDev: v ?? 3 })} step="0.1" /></div></div>
+                  </>)}
+                  {ind.kind === 'ICHIMOKU' && (<>
+                    <div className="flex items-center gap-2"><Label className="text-xs">Tenkan</Label>
+                      <div className="w-16"><NumInput value={ind.period} onChange={(v) => updateIndicator(ind.id, { period: v ?? 9 })} min="1" /></div></div>
+                    <div className="flex items-center gap-2"><Label className="text-xs">Kijun</Label>
+                      <div className="w-16"><NumInput value={ind.fastPeriod} onChange={(v) => updateIndicator(ind.id, { fastPeriod: v ?? 26 })} min="1" /></div></div>
+                    <div className="flex items-center gap-2"><Label className="text-xs">Senkou B</Label>
+                      <div className="w-16"><NumInput value={ind.slowPeriod} onChange={(v) => updateIndicator(ind.id, { slowPeriod: v ?? 52 })} min="1" /></div></div>
+                  </>)}
+                  {ind.kind === 'VOLUME_PROFILE' && (<>
+                    <div className="flex items-center gap-2"><Label className="text-xs">Lookback bars</Label>
+                      <div className="w-20"><NumInput value={ind.lookbackBars} onChange={(v) => updateIndicator(ind.id, { lookbackBars: v ?? 100 })} min="10" /></div></div>
+                    <div className="flex items-center gap-2"><Label className="text-xs">Value area %</Label>
+                      <div className="w-16"><NumInput value={ind.valueAreaPct} onChange={(v) => updateIndicator(ind.id, { valueAreaPct: v ?? 70 })} min="10" /></div></div>
+                  </>)}
+                  {ind.kind === 'ORB' && (<>
+                    <div className="flex items-center gap-2"><Label className="text-xs">Start (UTC)</Label>
+                      <div className="w-16"><NumInput value={ind.sessionStartHourUtc} onChange={(v) => updateIndicator(ind.id, { sessionStartHourUtc: v ?? 14 })} min="0" /></div>
+                      <span className="text-xs">:</span>
+                      <div className="w-16"><NumInput value={ind.sessionStartMinuteUtc} onChange={(v) => updateIndicator(ind.id, { sessionStartMinuteUtc: v ?? 30 })} min="0" /></div></div>
+                    <div className="flex items-center gap-2"><Label className="text-xs">Range minutes</Label>
+                      <div className="w-16"><NumInput value={ind.rangeMinutes} onChange={(v) => updateIndicator(ind.id, { rangeMinutes: v ?? 30 })} min="1" /></div></div>
+                  </>)}
+                  {ind.kind === 'SWINGS' && (<>
+                    <div className="flex items-center gap-2"><Label className="text-xs">Pivot left</Label>
+                      <div className="w-16"><NumInput value={ind.pivotLeft} onChange={(v) => updateIndicator(ind.id, { pivotLeft: v ?? 3 })} min="1" /></div></div>
+                    <div className="flex items-center gap-2"><Label className="text-xs">Pivot right</Label>
+                      <div className="w-16"><NumInput value={ind.pivotRight} onChange={(v) => updateIndicator(ind.id, { pivotRight: v ?? 3 })} min="1" /></div></div>
+                  </>)}
+                  {(ind.kind === 'FVG' || ind.kind === 'ORDER_BLOCK') && (
+                    <div className="flex items-center gap-2"><Label className="text-xs">Max age (bars)</Label>
+                      <div className="w-20"><NumInput value={ind.lookbackBars} onChange={(v) => updateIndicator(ind.id, { lookbackBars: v ?? 100 })} min="10" /></div></div>
+                  )}
+                  {ind.kind === 'ORDER_BLOCK' && (
+                    <div className="flex items-center gap-2"><Label className="text-xs">Confirm window</Label>
+                      <div className="w-16"><NumInput value={ind.pivotLeft} onChange={(v) => updateIndicator(ind.id, { pivotLeft: v ?? 5 })} min="1" /></div></div>
+                  )}
+                  {(ind.kind === 'VWAP' || ind.kind === 'PIVOTS') && (
+                    <span className="text-xs text-muted-foreground">{ind.kind === 'VWAP' ? 'Daily-reset VWAP from bar volume.' : 'Classic floor pivots from the prior UTC day.'}</span>
+                  )}
                   <Button variant="ghost" size="icon" className="h-8 w-8 ml-auto" onClick={() => removeIndicator(ind.id)}>
                     <Trash2 className="h-4 w-4" />
                   </Button>
@@ -283,8 +362,8 @@ export function StrategyBuilder({ value, onChange }: { value: StrategySpec; onCh
               ))}
               <div className="flex flex-wrap gap-2">
                 {(Object.keys(INDICATOR_DEFAULTS) as IndicatorKind[]).map((kind) => (
-                  <Button key={kind} variant="outline" size="sm" disabled={spec.indicators.length >= 8} onClick={() => addIndicator(kind)}>
-                    <Plus className="h-4 w-4 mr-1" /> {kind}
+                  <Button key={kind} variant="outline" size="sm" disabled={spec.indicators.length >= 10} onClick={() => addIndicator(kind)}>
+                    <Plus className="h-4 w-4 mr-1" /> {kind.replace(/_/g, ' ')}
                   </Button>
                 ))}
               </div>
@@ -301,6 +380,84 @@ export function StrategyBuilder({ value, onChange }: { value: StrategySpec; onCh
               {renderGroup('Entry — Short (sell)', spec.entryShort, (g) => set({ entryShort: g }), 'All/any of these fire → open a short at the bar close.')}
               {renderOptionalGroup('Exit — Long', spec.exitLong, (g) => set({ exitLong: g }), 'Close the long early when these fire.')}
               {renderOptionalGroup('Exit — Short', spec.exitShort, (g) => set({ exitShort: g }), 'Close the short early when these fire.')}
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader>
+              <CardTitle>Filters — Session & Higher Timeframe</CardTitle>
+              <CardDescription>Optional gates on top of your entry rules: only trade inside a UTC session window, and/or only when a higher timeframe agrees with the trade direction.</CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              {spec.sessionFilter == null ? (
+                <div className="border rounded-lg p-3 flex items-center justify-between">
+                  <div>
+                    <div className="font-medium text-sm">Session filter (UTC)</div>
+                    <div className="text-xs text-muted-foreground">Entries only inside a daily window — e.g. London/NY hours only.</div>
+                  </div>
+                  <Button variant="outline" size="sm" onClick={() => set({ sessionFilter: { startHourUtc: 7, endHourUtc: 21, daysUtc: [1, 2, 3, 4, 5] } })}>
+                    <Plus className="h-4 w-4 mr-1" /> Add session filter
+                  </Button>
+                </div>
+              ) : (
+                <div className="border rounded-lg p-3 space-y-3">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <span className="font-medium text-sm">Session (UTC)</span>
+                    <span className="text-xs text-muted-foreground">from</span>
+                    <div className="w-16"><NumInput value={spec.sessionFilter.startHourUtc} onChange={(v) => set({ sessionFilter: { ...spec.sessionFilter!, startHourUtc: v ?? 0 } })} min="0" /></div>
+                    <span className="text-xs text-muted-foreground">:00 to</span>
+                    <div className="w-16"><NumInput value={spec.sessionFilter.endHourUtc} onChange={(v) => set({ sessionFilter: { ...spec.sessionFilter!, endHourUtc: v ?? 24 } })} min="0" /></div>
+                    <span className="text-xs text-muted-foreground">:00 (end before start = wraps midnight)</span>
+                    <Button variant="ghost" size="sm" className="ml-auto" onClick={() => set({ sessionFilter: null })}>Remove</Button>
+                  </div>
+                  <div className="flex flex-wrap gap-1">
+                    {['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].map((d, di) => {
+                      const days = spec.sessionFilter!.daysUtc ?? [];
+                      const on = days.length === 0 || days.includes(di);
+                      return (
+                        <Button key={d} variant={on ? 'default' : 'outline'} size="sm" className="h-7 px-2 text-xs" onClick={() => {
+                          const cur = days.length === 0 ? [0, 1, 2, 3, 4, 5, 6] : [...days];
+                          const next = cur.includes(di) ? cur.filter((x) => x !== di) : [...cur, di].sort();
+                          set({ sessionFilter: { ...spec.sessionFilter!, daysUtc: next.length === 7 ? [] : next } });
+                        }}>{d}</Button>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
+
+              {spec.trendFilter == null ? (
+                <div className="border rounded-lg p-3 flex items-center justify-between">
+                  <div>
+                    <div className="font-medium text-sm">Higher-timeframe trend filter</div>
+                    <div className="text-xs text-muted-foreground">The same indicators, computed on a higher timeframe, must agree before any entry fires.</div>
+                  </div>
+                  <Button variant="outline" size="sm" onClick={() => {
+                    const higher = TIMEFRAMES.filter((t) => TF_ORDER.indexOf(t) > TF_ORDER.indexOf(spec.timeframe));
+                    set({ trendFilter: { timeframe: (higher[0] ?? 'H4') as StrategySpec['timeframe'], longGroup: { logic: 'AND', conditions: [] }, shortGroup: { logic: 'AND', conditions: [] } } });
+                  }}>
+                    <Plus className="h-4 w-4 mr-1" /> Add trend filter
+                  </Button>
+                </div>
+              ) : (
+                <div className="space-y-3">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <span className="font-medium text-sm">Trend filter timeframe</span>
+                    <Select value={spec.trendFilter.timeframe} onValueChange={(v) => set({ trendFilter: { ...spec.trendFilter!, timeframe: v as StrategySpec['timeframe'] } })}>
+                      <SelectTrigger className="w-28 h-9"><SelectValue /></SelectTrigger>
+                      <SelectContent>
+                        {TIMEFRAMES.filter((t) => TF_ORDER.indexOf(t) > TF_ORDER.indexOf(spec.timeframe)).map((t) => (
+                          <SelectItem key={t} value={t}>{t}</SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                    <span className="text-xs text-muted-foreground">evaluated on the last closed {spec.trendFilter.timeframe} bar</span>
+                    <Button variant="ghost" size="sm" className="ml-auto" onClick={() => set({ trendFilter: null })}>Remove filter</Button>
+                  </div>
+                  {renderOptionalGroup('HTF gate — Longs', spec.trendFilter.longGroup, (g) => set({ trendFilter: { ...spec.trendFilter!, longGroup: g } }), `Must hold on ${spec.trendFilter.timeframe} for long entries.`)}
+                  {renderOptionalGroup('HTF gate — Shorts', spec.trendFilter.shortGroup, (g) => set({ trendFilter: { ...spec.trendFilter!, shortGroup: g } }), `Must hold on ${spec.trendFilter.timeframe} for short entries.`)}
+                </div>
+              )}
             </CardContent>
           </Card>
         </>
@@ -322,6 +479,10 @@ export function StrategyBuilder({ value, onChange }: { value: StrategySpec; onCh
             <NumInput value={spec.risk.trailingStopPips} onChange={(v) => set({ risk: { ...spec.risk, trailingStopPips: v } })} placeholder="off" /></div>
           <div className="space-y-2"><Label>Max trades per day</Label>
             <NumInput value={spec.risk.maxTradesPerDay} onChange={(v) => set({ risk: { ...spec.risk, maxTradesPerDay: v } })} placeholder="no cap" /></div>
+          <div className="space-y-2"><Label>Breakeven trigger (pips profit)</Label>
+            <NumInput value={spec.risk.breakevenTriggerPips} onChange={(v) => set({ risk: { ...spec.risk, breakevenTriggerPips: v } })} placeholder="off" /></div>
+          <div className="space-y-2"><Label>Breakeven offset (pips)</Label>
+            <NumInput value={spec.risk.breakevenOffsetPips} onChange={(v) => set({ risk: { ...spec.risk, breakevenOffsetPips: v } })} placeholder="0" /></div>
           {spec.indicators.some((i) => i.kind === 'ATR') && (<>
             <div className="space-y-2"><Label>Stop loss (× ATR)</Label>
               <NumInput value={spec.risk.stopLossAtrMult} onChange={(v) => set({ risk: { ...spec.risk, stopLossAtrMult: v } })} step="0.1" placeholder="off" /></div>
