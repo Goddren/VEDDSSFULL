@@ -59273,8 +59273,10 @@ __export(explainer_video_exports, {
   assembleFiles: () => assembleFiles,
   ensureJobTable: () => ensureJobTable,
   getJob: () => getJob,
+  jobsToday: () => jobsToday,
   rendersToday: () => rendersToday,
   startExplainerJob: () => startExplainerJob,
+  updateContentJob: () => updateContentJob,
   writeScript: () => writeScript
 });
 import fs14 from "fs";
@@ -59317,12 +59319,18 @@ async function getJob(id, userId) {
   return rows[0] ?? null;
 }
 async function rendersToday(userId) {
+  return jobsToday(userId, "explainer");
+}
+async function jobsToday(userId, kind) {
   await ensureJobTable();
   const { rows } = await pool.query(
-    `SELECT count(*)::int n FROM content_video_jobs WHERE user_id=$1 AND created_at > now() - interval '24 hours' AND status <> 'failed'`,
-    [userId]
+    `SELECT count(*)::int n FROM content_video_jobs WHERE user_id=$1 AND kind=$2 AND created_at > now() - interval '24 hours' AND status <> 'failed'`,
+    [userId, kind]
   );
   return rows[0]?.n ?? 0;
+}
+async function updateContentJob(id, patch) {
+  await update(id, patch);
 }
 async function startExplainerJob(userId, input, aspect, opts = {}) {
   await ensureJobTable();
@@ -60653,11 +60661,6 @@ var init_video_generation = __esm({
 });
 
 // server/services/content-video.ts
-var content_video_exports = {};
-__export(content_video_exports, {
-  SOCIAL_SIZES: () => SOCIAL_SIZES,
-  renderContentVideo: () => renderContentVideo
-});
 async function renderContentVideo(prompt, o = {}) {
   const aspect = o.aspect && o.aspect in SOCIAL_SIZES ? o.aspect : "9:16";
   let shot = (o.shot || "").trim();
@@ -60705,6 +60708,126 @@ var init_content_video = __esm({
       "4:5": "Instagram / Facebook feed (portrait)",
       "16:9": "YouTube / landscape"
     };
+  }
+});
+
+// server/services/content-clip-jobs.ts
+var content_clip_jobs_exports = {};
+__export(content_clip_jobs_exports, {
+  startClipJob: () => startClipJob,
+  startReelJob: () => startReelJob
+});
+function friendlyError2(e) {
+  const m = String(e?.message || e);
+  if (/REPLICATE_API_TOKEN|FAL/.test(m) && /not configured|missing|no .* key/i.test(m)) return "Video service is not configured.";
+  if (/402/.test(m)) return "The video service is out of credit. Ask VEDD to top it up.";
+  if (/429/.test(m)) return "The video service is busy right now. Please try again in a few minutes.";
+  if (/timed out/i.test(m)) return "The video took too long to make. Please try again.";
+  return m.slice(0, 300) || "The video could not be made right now. Please try again in a few minutes.";
+}
+async function insertJob(userId, kind, aspect, payload2, firstStep) {
+  await ensureJobTable();
+  const { rows } = await pool.query(
+    `INSERT INTO content_video_jobs (user_id, kind, input, aspect, status, step) VALUES ($1,$2,$3,$4,'running',$5) RETURNING id`,
+    [userId, kind, JSON.stringify(payload2).slice(0, 8e3), aspect, firstStep]
+  );
+  return rows[0].id;
+}
+async function failJob(id, e) {
+  console.error(`[content-jobs] job ${id} failed:`, e?.message || e);
+  await updateContentJob(id, {
+    status: "failed",
+    error: friendlyError2(e),
+    meta: { error_detail: String(e?.message || e).slice(0, 1e3) }
+  }).catch(() => {
+  });
+}
+async function saveGeneration(userId, rec) {
+  try {
+    const { storage: storage2 } = await Promise.resolve().then(() => (init_storage(), storage_exports));
+    await storage2.createContentStudioGeneration({ userId, ...rec });
+  } catch (e) {
+    console.error("[content-jobs] failed to save generation record:", e?.message || e);
+  }
+}
+async function startClipJob(userId, payload2) {
+  const id = await insertJob(userId, "clip", payload2.aspect || "9:16", payload2, "Planning the shot");
+  (async () => {
+    await updateContentJob(id, { step: "Rendering the clip", progress: 25 });
+    const video = await renderContentVideo(payload2.prompt || payload2.shot || "", {
+      userId,
+      shot: payload2.shot,
+      exact: payload2.exact,
+      aspect: payload2.aspect,
+      brand: payload2.brand,
+      duration: payload2.duration,
+      quality: payload2.quality,
+      image: payload2.image,
+      backgroundScene: payload2.backgroundScene
+    });
+    if (!video) throw new Error("The video couldn't be made right now. Please try again in a minute.");
+    if (video.persisted) {
+      await saveGeneration(userId, {
+        contentType: "video",
+        prompt: payload2.prompt || payload2.shot,
+        title: video.hook || null,
+        assetUrl: video.url,
+        metadata: { provider: video.provider, shot: video.shot, aspect: video.aspect, branded: video.branded }
+      });
+    }
+    await updateContentJob(id, {
+      status: "done",
+      step: "Ready",
+      progress: 100,
+      result_url: video.url,
+      meta: { result: video }
+    });
+  })().catch((e) => failJob(id, e));
+  return id;
+}
+async function startReelJob(userId, payload2) {
+  const id = await insertJob(userId, "reel", payload2.aspect || "9:16", payload2, "Writing the script");
+  (async () => {
+    const { generateReelScript: generateReelScript2 } = await Promise.resolve().then(() => (init_openai(), openai_exports));
+    const script = await generateReelScript2(payload2.topic, userId, payload2.format, payload2.syncStyleNote);
+    await updateContentJob(id, { step: "Rendering the clip", progress: 40, script });
+    const video = await renderContentVideo(`Topic: ${payload2.topic}
+Scene idea: ${script.videoPrompt}`, {
+      userId,
+      aspect: payload2.aspect,
+      duration: payload2.duration,
+      quality: payload2.quality,
+      image: payload2.image,
+      backgroundScene: payload2.backgroundScene
+    });
+    if (!video) throw new Error("The video couldn't be made right now. Please try again in a minute.");
+    if (video.persisted) {
+      await saveGeneration(userId, {
+        contentType: "reel",
+        prompt: payload2.topic,
+        title: script.hook ?? null,
+        caption: script.caption ?? null,
+        assetUrl: video.url,
+        metadata: { provider: video.provider, script, shot: video.shot, aspect: video.aspect, branded: video.branded }
+      });
+    }
+    const result = { ...script, url: video.url, persisted: video.persisted, branded: video.branded, shot: video.shot, aspect: video.aspect };
+    await updateContentJob(id, {
+      status: "done",
+      step: "Ready",
+      progress: 100,
+      result_url: video.url,
+      meta: { result }
+    });
+  })().catch((e) => failJob(id, e));
+  return id;
+}
+var init_content_clip_jobs = __esm({
+  "server/services/content-clip-jobs.ts"() {
+    "use strict";
+    init_db();
+    init_explainer_video();
+    init_content_video();
   }
 });
 
@@ -68561,9 +68684,9 @@ async function getStopOrdersForUser(userId, filters = {}) {
 init_schema();
 
 // server/build-info.ts
-var BUILD_COMMIT = "d4590252-dirty";
-var BUILD_BRANCH = "fix/sol-bad-prices";
-var BUILT_AT = "2026-11-06T19:00:59.768Z";
+var BUILD_COMMIT = "8dd6a74-dirty";
+var BUILD_BRANCH = "main";
+var BUILT_AT = "2026-11-06T21:28:18.544Z";
 
 // server/stripe.ts
 init_db();
@@ -98260,7 +98383,11 @@ Sitemap: ${SEO_BASE_URL}/sitemap.xml
     try {
       const { prompt, shot, exact, aspect, brand, duration, quality, image, presenterId, backgroundId } = req.body;
       if (!prompt && !shot) return res.status(400).json({ error: "prompt is required" });
-      const { renderContentVideo: renderContentVideo2 } = await Promise.resolve().then(() => (init_content_video(), content_video_exports));
+      const { jobsToday: jobsToday2 } = await Promise.resolve().then(() => (init_explainer_video(), explainer_video_exports));
+      const clipLimit = Number(process.env.CLIP_DAILY_LIMIT ?? 10);
+      if (!u.isAdmin && await jobsToday2(u.id, "clip") >= clipLimit) {
+        return res.status(429).json({ error: `You've made ${clipLimit} clips today. You can make more tomorrow.` });
+      }
       let startImage = image;
       if (presenterId) {
         const { getPresenter: getPresenter2, presenterAbsoluteUrl: presenterAbsoluteUrl2 } = await Promise.resolve().then(() => (init_presenters(), presenters_exports));
@@ -98272,19 +98399,19 @@ Sitemap: ${SEO_BASE_URL}/sitemap.xml
         const { getBackgroundPreset: getBackgroundPreset2 } = await Promise.resolve().then(() => (init_backgrounds(), backgrounds_exports));
         backgroundScene = getBackgroundPreset2(backgroundId)?.scene;
       }
-      const video = await renderContentVideo2(prompt || shot || "", { userId: u.id, shot, exact, aspect, brand, duration, quality, image: startImage, backgroundScene });
-      if (!video) return res.status(502).json({ error: "The video couldn't be made right now. Please try again in a minute." });
-      if (video.persisted) {
-        await storage.createContentStudioGeneration({
-          userId: u.id,
-          contentType: "video",
-          prompt: prompt || shot,
-          title: video.hook || null,
-          assetUrl: video.url,
-          metadata: { provider: video.provider, shot: video.shot, aspect: video.aspect, branded: video.branded }
-        }).catch((e) => console.error("[content-studio] failed to save generation record:", e.message));
-      }
-      res.json(video);
+      const { startClipJob: startClipJob2 } = await Promise.resolve().then(() => (init_content_clip_jobs(), content_clip_jobs_exports));
+      const jobId = await startClipJob2(u.id, {
+        prompt: prompt || "",
+        shot,
+        exact,
+        aspect,
+        brand,
+        duration,
+        quality,
+        image: startImage,
+        backgroundScene
+      });
+      res.json({ jobId, kind: "clip" });
     } catch (err) {
       res.status(500).json({ error: err.message });
     }
@@ -98297,12 +98424,14 @@ Sitemap: ${SEO_BASE_URL}/sitemap.xml
     try {
       const { topic, duration, quality, image, presenterId, backgroundId, format } = req.body;
       if (!topic) return res.status(400).json({ error: "topic is required" });
-      const { generateReelScript: generateReelScript2 } = await Promise.resolve().then(() => (init_openai(), openai_exports));
+      const { jobsToday: jobsToday2 } = await Promise.resolve().then(() => (init_explainer_video(), explainer_video_exports));
+      const reelLimit = Number(process.env.REEL_DAILY_LIMIT ?? 10);
+      if (!u.isAdmin && await jobsToday2(u.id, "reel") >= reelLimit) {
+        return res.status(429).json({ error: `You've made ${reelLimit} reels today. You can make more tomorrow.` });
+      }
       const reelFormat = format === "product-ad" || format === "got-milk" ? format : "standard";
       const { getSyncAdStyle: getSyncAdStyle2 } = await Promise.resolve().then(() => (init_sync_ads(), sync_ads_exports));
       const syncStyle = getSyncAdStyle2(req.body?.syncStyleId);
-      const script = await generateReelScript2(topic, u?.id, reelFormat, syncStyle?.styleNote);
-      const { renderContentVideo: renderContentVideo2 } = await Promise.resolve().then(() => (init_content_video(), content_video_exports));
       let startImage = image;
       if (presenterId) {
         const { getPresenter: getPresenter2, presenterAbsoluteUrl: presenterAbsoluteUrl2 } = await Promise.resolve().then(() => (init_presenters(), presenters_exports));
@@ -98314,31 +98443,37 @@ Sitemap: ${SEO_BASE_URL}/sitemap.xml
         const { getBackgroundPreset: getBackgroundPreset2 } = await Promise.resolve().then(() => (init_backgrounds(), backgrounds_exports));
         backgroundScene = getBackgroundPreset2(backgroundId)?.scene;
       }
-      const video = await renderContentVideo2(`Topic: ${topic}
-Scene idea: ${script.videoPrompt}`, {
-        userId: u.id,
-        aspect: req.body.aspect,
+      const { startReelJob: startReelJob2 } = await Promise.resolve().then(() => (init_content_clip_jobs(), content_clip_jobs_exports));
+      const jobId = await startReelJob2(u.id, {
+        topic,
         duration,
         quality,
+        aspect: req.body.aspect,
         image: startImage,
-        backgroundScene
+        backgroundScene,
+        format: reelFormat,
+        syncStyleNote: syncStyle?.styleNote
       });
-      if (!video) return res.status(502).json({ error: "The video couldn't be made right now. Please try again in a minute." });
-      if (video.persisted) {
-        await storage.createContentStudioGeneration({
-          userId: u.id,
-          contentType: "reel",
-          prompt: topic,
-          title: script.hook ?? null,
-          caption: script.caption ?? null,
-          assetUrl: video.url,
-          metadata: { provider: video.provider, script, shot: video.shot, aspect: video.aspect, branded: video.branded }
-        }).catch((e) => console.error("[content-studio] failed to save generation record:", e.message));
-      }
-      res.json({ ...script, url: video.url, persisted: video.persisted, branded: video.branded, shot: video.shot, aspect: video.aspect });
+      res.json({ jobId, kind: "reel" });
     } catch (err) {
       res.status(500).json({ error: err.message });
     }
+  });
+  app2.get("/api/content-studio/jobs/:id", async (req, res) => {
+    if (!req.isAuthenticated()) return res.status(401).json({ error: "Authentication required" });
+    const ex = await Promise.resolve().then(() => (init_explainer_video(), explainer_video_exports));
+    const job = await ex.getJob(Number(req.params.id), req.user.id);
+    if (!job) return res.status(404).json({ error: "Not found" });
+    res.json({
+      id: job.id,
+      kind: job.kind,
+      status: job.status,
+      step: job.step,
+      progress: job.progress,
+      url: job.result_url,
+      error: job.error,
+      result: job.meta?.result ?? null
+    });
   });
   app2.post("/api/content-studio/generate-carousel", async (req, res) => {
     const u = req.user;

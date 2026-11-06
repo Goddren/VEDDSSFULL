@@ -40,6 +40,43 @@ export function useExplainerJob(jobId: number | null, onDone?: (job: ExplainerJo
   return job;
 }
 
+export interface ContentJob {
+  id: number; kind: string; status: 'queued' | 'running' | 'done' | 'failed'; step: string | null; progress: number;
+  url: string | null; error: string | null; result: any;
+}
+
+/** Poll a clip/reel job (server/services/content-clip-jobs.ts). onDone
+ *  receives the finished job; job.result is the payload the old
+ *  synchronous generate-video / generate-reel routes used to return. */
+export function useContentJob(
+  jobId: number | null,
+  onDone?: (job: ContentJob) => void,
+  onFailed?: (job: ContentJob) => void,
+) {
+  const [job, setJob] = useState<ContentJob | null>(null);
+  useEffect(() => {
+    if (!jobId) { setJob(null); return; }
+    let stop = false;
+    const tick = async () => {
+      try {
+        const res = await fetch(`/api/content-studio/jobs/${jobId}`, { credentials: 'include' });
+        if (res.ok) {
+          const j: ContentJob = await res.json();
+          if (stop) return;
+          setJob(j);
+          if (j.status === 'done') { onDone?.(j); return; }
+          if (j.status === 'failed') { onFailed?.(j); return; }
+        }
+      } catch { /* keep polling */ }
+      if (!stop) setTimeout(tick, 5000);
+    };
+    tick();
+    return () => { stop = true; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [jobId]);
+  return job;
+}
+
 export function JobProgress({ job }: { job: ExplainerJob | null }) {
   if (!job || job.status === 'done') return null;
   if (job.status === 'failed') return <p className="text-sm text-red-400">{job.error || 'The video could not be made.'}</p>;

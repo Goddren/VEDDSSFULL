@@ -31471,8 +31471,14 @@ Generate an agenda with timing, topics, and hosting tips. Return JSON: {
         duration?: number; quality?: 'fast' | 'high'; image?: string; presenterId?: number; backgroundId?: string;
       };
       if (!prompt && !shot) return res.status(400).json({ error: "prompt is required" });
-      // prompt -> one filmable shot -> render -> VEDD branding + social size (content-video.ts)
-      const { renderContentVideo } = await import('./services/content-video');
+      // Clips run as jobs now (like explainers): the POST returns a jobId,
+      // the render happens server-side, the client polls /jobs/:id. Daily
+      // cap per user (cost guard) — admins exempt.
+      const { jobsToday } = await import('./services/explainer-video');
+      const clipLimit = Number(process.env.CLIP_DAILY_LIMIT ?? 10);
+      if (!u.isAdmin && (await jobsToday(u.id, 'clip')) >= clipLimit) {
+        return res.status(429).json({ error: `You've made ${clipLimit} clips today. You can make more tomorrow.` });
+      }
       // A saved presenter beats a one-off upload: resolve it to the public
       // URL the video providers fetch the start image from.
       let startImage = image;
@@ -31486,16 +31492,11 @@ Generate an agenda with timing, topics, and hosting tips. Return JSON: {
         const { getBackgroundPreset } = await import('./services/backgrounds');
         backgroundScene = getBackgroundPreset(backgroundId)?.scene;
       }
-      const video = await renderContentVideo(prompt || shot || '', { userId: u.id, shot, exact, aspect, brand, duration, quality, image: startImage, backgroundScene });
-      if (!video) return res.status(502).json({ error: "The video couldn't be made right now. Please try again in a minute." });
-
-      if (video.persisted) {
-        await storage.createContentStudioGeneration({
-          userId: u.id, contentType: 'video', prompt: prompt || shot, title: video.hook || null, assetUrl: video.url,
-          metadata: { provider: video.provider, shot: video.shot, aspect: video.aspect, branded: video.branded },
-        }).catch((e: any) => console.error('[content-studio] failed to save generation record:', e.message));
-      }
-      res.json(video);
+      const { startClipJob } = await import('./services/content-clip-jobs');
+      const jobId = await startClipJob(u.id, {
+        prompt: prompt || '', shot, exact, aspect, brand, duration, quality, image: startImage, backgroundScene,
+      });
+      res.json({ jobId, kind: 'clip' });
     } catch (err: any) {
       res.status(500).json({ error: err.message });
     }
@@ -31513,14 +31514,16 @@ Generate an agenda with timing, topics, and hosting tips. Return JSON: {
       const { topic, duration, quality, image, presenterId, backgroundId, format } = req.body as { topic?: string; duration?: number; quality?: 'fast' | 'high'; image?: string; presenterId?: number; backgroundId?: string; format?: string };
       if (!topic) return res.status(400).json({ error: "topic is required" });
 
-      const { generateReelScript } = await import('./openai');
+      // Reels run as jobs (script + render server-side, client polls
+      // /jobs/:id) with a per-user daily cap — admins exempt.
+      const { jobsToday } = await import('./services/explainer-video');
+      const reelLimit = Number(process.env.REEL_DAILY_LIMIT ?? 10);
+      if (!u.isAdmin && (await jobsToday(u.id, 'reel')) >= reelLimit) {
+        return res.status(429).json({ error: `You've made ${reelLimit} reels today. You can make more tomorrow.` });
+      }
       const reelFormat = format === 'product-ad' || format === 'got-milk' ? format : 'standard';
       const { getSyncAdStyle } = await import('./services/sync-ads');
       const syncStyle = getSyncAdStyle((req.body as any)?.syncStyleId);
-      const script = await generateReelScript(topic, u?.id, reelFormat, syncStyle?.styleNote);
-
-      const { renderContentVideo } = await import('./services/content-video');
-      // The reel's videoPrompt is still planned into one shot, anchored on the topic.
       let startImage = image;
       if (presenterId) {
         const { getPresenter, presenterAbsoluteUrl } = await import('./services/presenters');
@@ -31532,22 +31535,29 @@ Generate an agenda with timing, topics, and hosting tips. Return JSON: {
         const { getBackgroundPreset } = await import('./services/backgrounds');
         backgroundScene = getBackgroundPreset(backgroundId)?.scene;
       }
-      const video = await renderContentVideo(`Topic: ${topic}
-Scene idea: ${script.videoPrompt}`, {
-        userId: u.id, aspect: (req.body as any).aspect, duration, quality, image: startImage, backgroundScene,
+      const { startReelJob } = await import('./services/content-clip-jobs');
+      const jobId = await startReelJob(u.id, {
+        topic, duration, quality, aspect: (req.body as any).aspect, image: startImage, backgroundScene,
+        format: reelFormat as 'standard' | 'product-ad' | 'got-milk', syncStyleNote: syncStyle?.styleNote,
       });
-      if (!video) return res.status(502).json({ error: "The video couldn't be made right now. Please try again in a minute." });
-
-      if (video.persisted) {
-        await storage.createContentStudioGeneration({
-          userId: u.id, contentType: 'reel', prompt: topic, title: script.hook ?? null, caption: script.caption ?? null,
-          assetUrl: video.url, metadata: { provider: video.provider, script, shot: video.shot, aspect: video.aspect, branded: video.branded },
-        }).catch((e: any) => console.error('[content-studio] failed to save generation record:', e.message));
-      }
-      res.json({ ...script, url: video.url, persisted: video.persisted, branded: video.branded, shot: video.shot, aspect: video.aspect });
+      res.json({ jobId, kind: 'reel' });
     } catch (err: any) {
       res.status(500).json({ error: err.message });
     }
+  });
+
+  // GET /api/content-studio/jobs/:id — poll a clip/reel job (explainers
+  // keep their own poll route; clip/reel results ride in meta.result,
+  // the exact payload the old synchronous routes returned).
+  app.get("/api/content-studio/jobs/:id", async (req, res) => {
+    if (!req.isAuthenticated()) return res.status(401).json({ error: "Authentication required" });
+    const ex = await import('./services/explainer-video');
+    const job = await ex.getJob(Number(req.params.id), (req.user as any).id);
+    if (!job) return res.status(404).json({ error: "Not found" });
+    res.json({
+      id: job.id, kind: job.kind, status: job.status, step: job.step, progress: job.progress,
+      url: job.result_url, error: job.error, result: job.meta?.result ?? null,
+    });
   });
 
   // POST /api/content-studio/generate-carousel — full AI slide carousel:

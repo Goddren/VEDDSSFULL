@@ -81,10 +81,22 @@ export async function getJob(id: number, userId: number) {
 
 /** Explainer renders started by this user in the last 24h (cost guard). */
 export async function rendersToday(userId: number): Promise<number> {
+  return jobsToday(userId, 'explainer');
+}
+
+/** Jobs of one kind started by this user in the last 24h (cost guard).
+ *  Kind-filtered: clips/reels/explainers share the jobs table but each
+ *  carries its own daily cap. */
+export async function jobsToday(userId: number, kind: string): Promise<number> {
   await ensureJobTable();
   const { rows } = await pool.query(
-    `SELECT count(*)::int n FROM content_video_jobs WHERE user_id=$1 AND created_at > now() - interval '24 hours' AND status <> 'failed'`, [userId]);
+    `SELECT count(*)::int n FROM content_video_jobs WHERE user_id=$1 AND kind=$2 AND created_at > now() - interval '24 hours' AND status <> 'failed'`, [userId, kind]);
   return rows[0]?.n ?? 0;
+}
+
+/** Shared job-row updater for the other content job runners. */
+export async function updateContentJob(id: number, patch: Record<string, unknown>): Promise<void> {
+  await update(id, patch);
 }
 
 export async function startExplainerJob(
