@@ -150,7 +150,11 @@ export interface SolAutoPosition {
   txHash?: string;
   openedAt: string;
   closedAt?: string;
-  closePnlPct?: number;
+  closePnlPct?: number;      // NET of costPct for paper/shadow (2026-11-06)
+  /** Paper/shadow only: estimated round-trip cost, % of position (paper-costs.ts). */
+  costPct?: number;
+  /** Paper/shadow only: the raw price move before costs. */
+  grossPnlPct?: number;
   status: 'open' | 'closed';
   // Trailing stop — staged volume-momentum model
   peakPrice?: number;
@@ -557,6 +561,8 @@ async function upsertPosition(userId: number, pos: SolAutoPosition): Promise<voi
       openedAt: pos.openedAt,
       closedAt: pos.closedAt,
       closePnlPct: pos.closePnlPct,
+      costPct: pos.costPct,
+      grossPnlPct: pos.grossPnlPct,
       updatedAt: new Date(),
     }).onConflictDoUpdate({
       target: solEnginePositions.positionId,
@@ -565,6 +571,8 @@ async function upsertPosition(userId: number, pos: SolAutoPosition): Promise<voi
         status: pos.status,
         closedAt: pos.closedAt,
         closePnlPct: pos.closePnlPct,
+        costPct: pos.costPct,
+        grossPnlPct: pos.grossPnlPct,
         tokenAmount: pos.tokenAmount,
         updatedAt: new Date(),
       },
@@ -636,7 +644,9 @@ async function loadEngineStateFromDb(userId: number, state: SolEngineState): Pro
         status: row.status as 'open' | 'closed',
         openedAt: row.openedAt,
         closedAt: row.closedAt || undefined,
-        closePnlPct: row.closePnlPct || undefined,
+        closePnlPct: row.closePnlPct ?? undefined,
+        costPct: row.costPct ?? undefined,
+        grossPnlPct: row.grossPnlPct ?? undefined,
       };
       if (pos.mode === 'paper') {
         if (pos.status === 'open') state.paperPositions.push(pos);
@@ -1053,6 +1063,24 @@ async function executeServerSideBuy(
     console.error('[SolEngine] executeServerSideBuy error:', err);
     return false;
   }
+}
+
+// ── Paper / shadow trading costs (2026-11-06) ────────────────────────────────
+// Round-trip cost (DEX fee + slippage + price impact + tx fee, both sides) is
+// stamped on each paper/shadow position at entry and taken off its recorded
+// result at close. Model + env overrides: paper-costs.ts. Live is untouched.
+const SOL_MINT_ADDR = 'So11111111111111111111111111111111111111112';
+let _solUsdCache: { v: number; at: number } | null = null;
+async function solUsdCached(): Promise<number | null> {
+  if (_solUsdCache && Date.now() - _solUsdCache.at < 10 * 60_000) return _solUsdCache.v;
+  const px = (await fetchPricesByMint([SOL_MINT_ADDR]).catch(() => ({} as Record<string, number>)))[SOL_MINT_ADDR];
+  if (px > 0) { _solUsdCache = { v: px, at: Date.now() }; return px; }
+  return _solUsdCache?.v ?? (Number(process.env.SOL_PAPER_SOL_USD_FALLBACK) || 150);
+}
+async function solPaperCostPct(dex: string | undefined, sizeSol: number, liquidityUsd: number | undefined): Promise<number> {
+  const { estimateSolRoundTripCost } = await import('./paper-costs');
+  const c = estimateSolRoundTripCost({ dex, sizeSol, solUsd: await solUsdCached(), liquidityUsd: liquidityUsd ?? null });
+  return Math.round(c.roundTripPct * 100) / 100;
 }
 
 // ── Pump Scalp 60 gate ──────────────────────────────────────────────────────
@@ -1819,7 +1847,11 @@ async function monitorPaperPositions(userId: number, state: SolEngineState) {
       const reason = isMaxHold ? 'max_hold' : isTrailHit ? 'trail' : isWin ? 'tp' : 'sl';
       pos.status = 'closed';
       pos.closedAt = new Date().toISOString();
-      pos.closePnlPct = gainPct;
+      // Costs (2026-11-06): exits trigger on the price move, but the recorded
+      // result is NET of the round-trip cost stamped at entry.
+      const netPct = gainPct - (pos.costPct ?? 0);
+      pos.grossPnlPct = gainPct;
+      pos.closePnlPct = netPct;
       pos.closeReason = reason;
 
       if (unpriced) {
@@ -1842,25 +1874,25 @@ async function monitorPaperPositions(userId: number, state: SolEngineState) {
       // Feed the self-learning brain (paper keeps learning even when live is gated).
       recordSolBrainOutcome({
         userId, symbol: pos.symbol, strategy: pos.strategyId || 'unknown', direction: 'long',
-        returnPct: gainPct, holdingMinutes: Math.max(0, Math.round((Date.now() - new Date(pos.openedAt).getTime()) / 60000)),
-        exitReason: reason, profitLoss: pos.size * (gainPct / 100), source: 'paper',
+        returnPct: netPct, holdingMinutes: Math.max(0, Math.round((Date.now() - new Date(pos.openedAt).getTime()) / 60000)),
+        exitReason: reason, profitLoss: pos.size * (netPct / 100), source: 'paper',
       }).catch(() => {});
 
       state.autoTradeStats.totalTrades++;
-      state.autoTradeStats.totalPnlPct += gainPct;
-      const isProfit = gainPct > 0;
+      state.autoTradeStats.totalPnlPct += netPct;
+      const isProfit = netPct > 0;
       if (isProfit) {
         state.autoTradeStats.wins++;
-        if (gainPct > state.autoTradeStats.bestTradePct) state.autoTradeStats.bestTradePct = gainPct;
+        if (netPct > state.autoTradeStats.bestTradePct) state.autoTradeStats.bestTradePct = netPct;
       } else {
         state.autoTradeStats.losses++;
-        if (gainPct < state.autoTradeStats.worstTradePct) state.autoTradeStats.worstTradePct = gainPct;
+        if (netPct < state.autoTradeStats.worstTradePct) state.autoTradeStats.worstTradePct = netPct;
       }
 
       // Compounding: fold P&L back into the paper portfolio
       if (state.compoundMode && state.paperPortfolioValue > 0) {
         const tradeSol = pos.size;
-        const rawPnlSol = tradeSol * (gainPct / 100);
+        const rawPnlSol = tradeSol * (netPct / 100);
         const compoundedPnl = rawPnlSol * (state.compoundRate / 100);
         const prev = state.paperPortfolioValue;
         state.paperPortfolioValue = Math.max(0.001, prev + compoundedPnl);
@@ -1877,7 +1909,7 @@ async function monitorPaperPositions(userId: number, state: SolEngineState) {
       const label = isMaxHold ? `TIME EXIT` : isTrailHit ? `TRAIL EXIT` : isWin ? 'WIN' : 'LOSS';
       addActivity(state, {
         type: 'paper_sell',
-        message: `${emoji} Paper ${label}: ${pos.symbol} closed @ $${currentPrice.toFixed(6)} — ${gainPct >= 0 ? '+' : ''}${gainPct.toFixed(2)}% | ${pos.size.toFixed(3)} SOL ${isMaxHold ? `(${effHoldP.label} over — out per strategy)` : isTrailHit ? '(trailing stop hit)' : isWin ? 'profit sealed' : 'lesson built'}`,
+        message: `${emoji} Paper ${label}: ${pos.symbol} closed @ $${currentPrice.toFixed(6)} — ${netPct >= 0 ? '+' : ''}${netPct.toFixed(2)}% net (${gainPct >= 0 ? '+' : ''}${gainPct.toFixed(2)}% gross) | ${pos.size.toFixed(3)} SOL ${isMaxHold ? `(${effHoldP.label} over — out per strategy)` : isTrailHit ? '(trailing stop hit)' : isWin ? 'profit sealed' : 'lesson built'}`,
       });
 
       // Update DEX signal weights and Kelly stats from auto-closes
@@ -1888,7 +1920,7 @@ async function monitorPaperPositions(userId: number, state: SolEngineState) {
       if (isProfit) {
         state.signalWeights[dexKeyClose] = Math.min(2.0, state.signalWeights[dexKeyClose] + 0.05);
         state.kellyStats[dexKeyClose].wins++;
-        state.kellyStats[dexKeyClose].totalGainPct += Math.abs(gainPct);
+        state.kellyStats[dexKeyClose].totalGainPct += Math.abs(netPct);
         state.weeklyGoal.winStreak = (state.weeklyGoal.winStreak || 0) + 1;
       } else {
         state.signalWeights[dexKeyClose] = Math.max(0.2, state.signalWeights[dexKeyClose] - 0.08);
@@ -1897,12 +1929,12 @@ async function monitorPaperPositions(userId: number, state: SolEngineState) {
       }
       // Update weekly goal P&L with actual gain
       if (state.weeklyGoal.phase !== 'idle') {
-        state.weeklyGoal.currentProfitSol += pos.size * (gainPct / 100);
+        state.weeklyGoal.currentProfitSol += pos.size * (netPct / 100);
         state.weeklyGoal.tradeHistory.unshift({
           timestamp: new Date().toISOString(),
           symbol: pos.symbol,
           sol: pos.size,
-          gainPct,
+          gainPct: netPct,
           outcome: isProfit ? 'WIN' : 'LOSS',
           strategy: pos.strategyId || state.activeStrategy,
         });
@@ -1977,6 +2009,7 @@ async function evaluateShadowEntries(userId: number, state: SolEngineState, scan
       trailingActive: false,
       breakevenActive: false,
       entryVolume24h: analysis.token.volume24h || 0,
+      costPct: await solPaperCostPct(dexKey, sized > 0 ? sized : 0.25, analysis.token.liquidity),
     };
     state.shadowPositions.push(pos);
     upsertPosition(userId, pos).catch(() => {});
@@ -2012,7 +2045,9 @@ async function monitorShadowPositions(userId: number, state: SolEngineState) {
       const reason = isMaxHold ? 'max_hold' : isWin ? 'tp' : 'sl';
       pos.status = 'closed';
       pos.closedAt = new Date().toISOString();
-      pos.closePnlPct = unpriced ? undefined : gainPct; // NULL = no result (shadow_ledger skips it)
+      // NET of the round-trip cost stamped at entry; NULL = no result (shadow_ledger skips it).
+      pos.grossPnlPct = unpriced ? undefined : gainPct;
+      pos.closePnlPct = unpriced ? undefined : gainPct - (pos.costPct ?? 0);
       if (unpriced) pos.exitReason = 'max_hold_unpriced';
       pos.closeReason = reason as SolAutoPosition['closeReason'];
       state.closedShadowPositions.unshift(pos);
@@ -2020,7 +2055,7 @@ async function monitorShadowPositions(userId: number, state: SolEngineState) {
       upsertPosition(userId, pos).catch(() => {});
       addActivity(state, {
         type: 'info',
-        message: `🕶️ SHADOW exit (${reason === 'max_hold' ? '60-min window over' : reason === 'tp' ? 'target hit' : 'stop hit'}): ${pos.symbol} closed @ $${currentPrice.toFixed(6)} — ${gainPct >= 0 ? '+' : ''}${gainPct.toFixed(2)}% (shadow test, no real money)`,
+        message: `🕶️ SHADOW exit (${reason === 'max_hold' ? '60-min window over' : reason === 'tp' ? 'target hit' : 'stop hit'}): ${pos.symbol} closed @ $${currentPrice.toFixed(6)} — ${gainPct >= 0 ? '+' : ''}${gainPct.toFixed(2)}% gross, ${(gainPct - (pos.costPct ?? 0)).toFixed(2)}% after ${(pos.costPct ?? 0).toFixed(2)}% costs (shadow test, no real money)`,
       });
     }
   }
@@ -2550,6 +2585,7 @@ async function runScan(userId: number, state: SolEngineState, triggerToken?: str
               entryVolume24h: analysis.token.volume24h || 0,
               stopLossPrice: paperStop,
               takeProfitPrice: paperTp,
+              costPct: await solPaperCostPct(dexKey, paperSizeSOL, analysis.token.liquidity),
             };
             state.paperPositions.push(pos);
             // Persist paper positions (2026-10-30): they were in-memory only,

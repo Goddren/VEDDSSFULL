@@ -1280,6 +1280,9 @@ async function withRetry<T>(
         opened_at timestamp DEFAULT now() NOT NULL,
         closed_at timestamp
       )`);
+      // Paper/shadow costs (2026-11-06): close_pnl_pct is net; these hold cost + gross.
+      await db.execute(sql`ALTER TABLE sol_engine_positions ADD COLUMN IF NOT EXISTS cost_pct real`);
+      await db.execute(sql`ALTER TABLE sol_engine_positions ADD COLUMN IF NOT EXISTS gross_pnl_pct real`);
       console.log('[startup] SOL Engine tables created/verified.');
     } catch (err) {
       console.error('[startup] SOL Engine tables migration (non-fatal):', (err as Error).message);

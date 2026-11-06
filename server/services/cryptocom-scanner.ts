@@ -66,13 +66,13 @@ function universeKey(chain: string, symbol: string): string {
 
 export function getDefiUniverseEntry(symbol: string, chain: string) { return defiUniverse.get(universeKey(chain, symbol)); }
 /** The chain's most liquid discovered tokens (for the crypto ORB paper shadow). */
-function topDefiUniverse(chain: string, n: number): Array<{ symbol: string; poolAddress: string; address: string }> {
+function topDefiUniverse(chain: string, n: number): Array<{ symbol: string; poolAddress: string; address: string; liquidityUsd: number }> {
   const pre = `${chain.toLowerCase()}::`;
   return Array.from(defiUniverse.entries())
     .filter(([k]) => k.startsWith(pre))
     .sort((a, b) => (b[1].liquidityUsd || 0) - (a[1].liquidityUsd || 0))
     .slice(0, n)
-    .map(([k, v]) => ({ symbol: k.slice(pre.length), poolAddress: v.poolAddress, address: v.address }));
+    .map(([k, v]) => ({ symbol: k.slice(pre.length), poolAddress: v.poolAddress, address: v.address, liquidityUsd: v.liquidityUsd || 0 }));
 }
 
 /** Candles for a symbol from whichever venue owns it, on THIS chain. */
@@ -1357,6 +1357,7 @@ async function executeSignalSingle(service: CryptoComService, connection: Crypto
         userId, symbol, chain, tokenAddress: discP?.address ?? null, poolAddress: discP?.poolAddress ?? null,
         strategy: result.strategy, score: result.score ?? null, entry: result.price, slPct: slPctD, tpPct: tpPctD,
         notionalUsd: notionalD, slippageBps: slip, reasoning: result.reasoning,
+        liquidityUsd: discP?.liquidityUsd ?? null,
         direction: result.direction === 'SELL' ? 'short' : 'long',
       }).catch((e: any) => ({ ok: false, reason: e?.message ?? String(e) }));
       await storage.createCryptocomEngineActivity({

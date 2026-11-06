@@ -8,7 +8,8 @@
 //
 // Each open paper trade is marked to the pool price every scan cycle and
 // closes at its stop, its target, or after PAPER_MAX_HOURS. Round-trip costs
-// (DEX fee + the engine's slippage setting) come off every result so the
+// (pool fee + slippage + price impact from pool liquidity + gas, both sides;
+// paper-costs.ts) come off every result so the
 // record is realistic for Base. Every close feeds the crypto brain
 // (crypto_brain_outcomes source='paper'), so it learns per token / strategy /
 // hour before any real money is used.
@@ -21,7 +22,6 @@ import { pool } from '../db';
 export interface PaperSettings { enabled: boolean; startBalance: number; walletAddress?: string | null; startedAt?: number }
 const DEFAULTS: PaperSettings = { enabled: false, startBalance: 1000 };
 const PAPER_MAX_HOURS = () => Math.max(1, Number(process.env.CRYPTO_PAPER_MAX_HOURS ?? 72));
-const DEX_FEE_BPS = 30; // typical Base pool fee per swap
 
 let _ensured: Promise<void> | null = null;
 export function ensurePaperTable(): Promise<void> {
@@ -35,6 +35,10 @@ export function ensurePaperTable(): Promise<void> {
       return_pct double precision, r_multiple double precision, pnl_usd double precision,
       opened_at timestamptz NOT NULL DEFAULT now(), closed_at timestamptz)`)
       .then(() => pool.query(`CREATE INDEX IF NOT EXISTS crypto_paper_trades_user_status ON crypto_paper_trades (user_id, status)`))
+      // Gross vs net (2026-11-06): return_pct stays NET of costs; these show the
+      // raw price move, the dollar cost, and the pool liquidity the cost used.
+      .then(() => pool.query(`ALTER TABLE crypto_paper_trades ADD COLUMN IF NOT EXISTS gross_return_pct double precision,
+                                ADD COLUMN IF NOT EXISTS cost_usd double precision, ADD COLUMN IF NOT EXISTS liquidity_usd double precision`))
       .then(() => undefined)
       .catch((e) => { _ensured = null; throw e; });
   }
@@ -74,6 +78,8 @@ export async function openPaperTrade(t: {
   userId: number; symbol: string; chain: string; tokenAddress?: string | null; poolAddress?: string | null;
   strategy?: string | null; score?: number | null; entry: number; slPct: number; tpPct: number;
   notionalUsd: number; slippageBps: number; reasoning?: string | null;
+  /** Pool liquidity at entry — drives the per-pool cost estimate (paper-costs.ts). */
+  liquidityUsd?: number | null;
   /** 'long' (default) or 'short'. Shorts are PAPER-ONLY (DeFi spot on Base can't short) so the brain learns from falling markets too. */
   direction?: 'long' | 'short';
 }): Promise<{ ok: boolean; reason?: string; id?: number }> {
@@ -83,12 +89,16 @@ export async function openPaperTrade(t: {
   const dir = t.direction === 'short' ? 'short' : 'long';
   const stop = dir === 'short' ? t.entry * (1 + t.slPct / 100) : t.entry * (1 - t.slPct / 100);
   const target = dir === 'short' ? t.entry * (1 - t.tpPct / 100) : t.entry * (1 + t.tpPct / 100);
-  const costBps = 2 * (DEX_FEE_BPS + Math.max(0, Number(t.slippageBps) || 0) / 2); // round trip: fee each way + ~half the slippage cap each way
+  // Round-trip cost from the pool's liquidity (fee tier + slippage + impact + gas,
+  // both sides). Falls back to fee + half the slippage cap when liquidity is unknown.
+  const { estimateCryptoRoundTripBps } = await import('./paper-costs');
+  const costBps = estimateCryptoRoundTripBps({ notionalUsd: t.notionalUsd, liquidityUsd: t.liquidityUsd, slippageCapBps: Number(t.slippageBps) || 0 }).roundTripBps;
   const { rows } = await pool.query(
-    `INSERT INTO crypto_paper_trades (user_id, symbol, chain, token_address, pool_address, strategy, score, entry_price, stop_loss, take_profit, notional_usd, cost_bps, reasoning, direction)
-     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14) RETURNING id`,
+    `INSERT INTO crypto_paper_trades (user_id, symbol, chain, token_address, pool_address, strategy, score, entry_price, stop_loss, take_profit, notional_usd, cost_bps, reasoning, direction, liquidity_usd)
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15) RETURNING id`,
     [t.userId, t.symbol, t.chain, t.tokenAddress ?? null, t.poolAddress ?? null, t.strategy ?? null, t.score ?? null,
-     t.entry, stop, target, t.notionalUsd, Math.round(costBps), (t.reasoning || '').slice(0, 2000), dir],
+     t.entry, stop, target, t.notionalUsd, Math.max(1, Math.round(costBps)), (t.reasoning || '').slice(0, 2000), dir,
+     t.liquidityUsd && t.liquidityUsd > 0 ? t.liquidityUsd : null],
   );
   return { ok: true, id: rows[0]?.id };
 }
@@ -120,9 +130,10 @@ export async function resolvePaperTrades(userId: number): Promise<number> {
     const r = riskPct > 0 ? net / riskPct : 0;
     const pnl = Number(t.notional_usd) * net / 100;
     const upd = await pool.query(
-      `UPDATE crypto_paper_trades SET status='closed', exit_price=$2, exit_reason=$3, return_pct=$4, r_multiple=$5, pnl_usd=$6, closed_at=now()
+      `UPDATE crypto_paper_trades SET status='closed', exit_price=$2, exit_reason=$3, return_pct=$4, r_multiple=$5, pnl_usd=$6, closed_at=now(),
+              gross_return_pct=$7, cost_usd=$8
         WHERE id=$1 AND status='open'`,
-      [t.id, exit, why, net, r, pnl],
+      [t.id, exit, why, net, r, pnl, gross, Number(t.notional_usd) * Number(t.cost_bps || 0) / 10_000],
     );
     if (!upd.rowCount) continue; // another process closed it
     closed++;
@@ -178,7 +189,7 @@ export async function paperSummary(userId: number): Promise<any> {
 const _orbLastRun = new Map<number, number>();
 export async function runCryptoOrbShadow(
   userId: number,
-  candidates: Array<{ symbol: string; poolAddress: string; address?: string }>,
+  candidates: Array<{ symbol: string; poolAddress: string; address?: string; liquidityUsd?: number }>,
   chain: string, notionalUsd: number, slippageBps: number,
 ): Promise<number> {
   if (process.env.CRYPTO_ORB_SHADOW === 'off') return 0;
@@ -220,7 +231,7 @@ export async function runCryptoOrbShadow(
       if (!(slPct > 0.05) || slPct > 15) continue;               // degenerate or absurd range
       const r = await openPaperTrade({
         userId, symbol: c.symbol, chain, tokenAddress: c.address ?? null, poolAddress: c.poolAddress,
-        strategy: 'orb_breakout', score: null, entry: px, slPct, tpPct: slPct * 2, notionalUsd, slippageBps,
+        strategy: 'orb_breakout', score: null, entry: px, slPct, tpPct: slPct * 2, notionalUsd, slippageBps, liquidityUsd: c.liquidityUsd ?? null,
         reasoning: `ORB shadow: NY-open range ${lo}–${hi} (13:30–13:45 UTC), ${dir === 'long' ? 'breakout above' : 'breakdown below'} then retest of ${level}; stop beyond the range, 2R target.`,
         direction: dir,
       });
