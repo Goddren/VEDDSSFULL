@@ -2694,6 +2694,15 @@ function stopHoldActive(isBuy: boolean, entry: number, stop: number, price: numb
   const rNow = (isBuy ? price - entry : entry - price) / risk;
   return { hold: rNow < need, rNow };
 }
+// Breakeven-or-better while in profit is always allowed past the hold
+// (2026-11-05 GBPUSD: AI asked breakeven at +0.6R, the 1R hold refused it,
+// trade ran to a full stop, −$1.9k). Only tightening while losing is held.
+// "Breakeven" = new stop within 5 pips of entry or beyond it on the profit side.
+function isProfitBreakeven(symbol: string, isBuy: boolean, entry: number, newStop: number, rNow: number): boolean {
+  const pip = getPipSize(symbol);
+  if (!(rNow > 0) || !(entry > 0) || !(newStop > 0) || !(pip > 0)) return false;
+  return isBuy ? newStop >= entry - 5 * pip : newStop <= entry + 5 * pip;
+}
 
 async function manageBtcTrail(userId: number, openPositions: any[], marketAnalysis: Record<string, any>): Promise<void> {
   const btc = await import('./btc-profile');
@@ -7282,7 +7291,9 @@ async function processDecision(userId: number, decision: any, newsCtx?: any): Pr
                   const _tighter = _sl && _cur > 0 && (_buy ? _sl > _cur : _sl < _cur);
                   // R measured against the ORIGINAL stop, not an already-tightened one.
                   const _h = _tighter ? stopHoldActive(_buy, _ownE, _orig, _px, userId) : { hold: false, rNow: 0 };
-                  if (_tighter && _h.hold) {
+                  if (_tighter && _h.hold && isProfitBreakeven(decision.symbol, _buy, _ownE, Number(_sl), _h.rNow)) {
+                    logGuard(userId, 'stop_hold_breakeven_allowed', decision.symbol, `AI breakeven ${_sl} allowed on ${acctLabel} — trade in profit at ${_h.rNow.toFixed(2)}R`);
+                  } else if (_tighter && _h.hold) {
                     logGuard(userId, 'stop_hold_breathe', decision.symbol, `AI stop ${_sl} held on ${acctLabel} — trade at ${_h.rNow.toFixed(2)}R, stop stays at ${_cur} until +${stopHoldUntilR(userId)}R`);
                     _sl = undefined;
                   }
@@ -7420,7 +7431,9 @@ async function processDecision(userId: number, decision: any, newsCtx?: any): Pr
               const _entry = Number(dxMatch.openPrice) || 0;
               if (_sl && _cur > 0 && (_buy ? _sl > _cur : _sl < _cur)) {
                 const _h = stopHoldActive(_buy, _entry, _cur, _px, userId);
-                if (_h.hold) {
+                if (_h.hold && isProfitBreakeven(decision.symbol, _buy, _entry, Number(_sl), _h.rNow)) {
+                  logGuard(userId, 'stop_hold_breakeven_allowed', decision.symbol, `AI breakeven ${_sl} allowed on ${acctLabel} — trade in profit at ${_h.rNow.toFixed(2)}R`);
+                } else if (_h.hold) {
                   logGuard(userId, 'stop_hold_breathe', decision.symbol, `AI stop ${_sl} held on ${acctLabel} — trade at ${_h.rNow.toFixed(2)}R, stop stays at ${_cur} until +${stopHoldUntilR(userId)}R`);
                   _sl = undefined;
                 }

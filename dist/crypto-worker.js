@@ -25661,6 +25661,11 @@ function stopHoldActive(isBuy, entry, stop, price, userId) {
   const rNow = (isBuy ? price - entry : entry - price) / risk;
   return { hold: rNow < need, rNow };
 }
+function isProfitBreakeven(symbol, isBuy, entry, newStop, rNow) {
+  const pip = getPipSize(symbol);
+  if (!(rNow > 0) || !(entry > 0) || !(newStop > 0) || !(pip > 0)) return false;
+  return isBuy ? newStop >= entry - 5 * pip : newStop <= entry + 5 * pip;
+}
 async function manageBtcTrail(userId, openPositions, marketAnalysis) {
   const btc = await Promise.resolve().then(() => (init_btc_profile(), btc_profile_exports));
   if (!btc.BTC_PROFILE_ON()) return;
@@ -29447,7 +29452,9 @@ async function processDecision(userId, decision, newsCtx) {
                   const _ownE = Number(tlMatch.avgPrice) || 0;
                   const _tighter = _sl && _cur > 0 && (_buy ? _sl > _cur : _sl < _cur);
                   const _h = _tighter ? stopHoldActive(_buy, _ownE, _orig, _px, userId) : { hold: false, rNow: 0 };
-                  if (_tighter && _h.hold) {
+                  if (_tighter && _h.hold && isProfitBreakeven(decision.symbol, _buy, _ownE, Number(_sl), _h.rNow)) {
+                    logGuard(userId, "stop_hold_breakeven_allowed", decision.symbol, `AI breakeven ${_sl} allowed on ${acctLabel} \u2014 trade in profit at ${_h.rNow.toFixed(2)}R`);
+                  } else if (_tighter && _h.hold) {
                     logGuard(userId, "stop_hold_breathe", decision.symbol, `AI stop ${_sl} held on ${acctLabel} \u2014 trade at ${_h.rNow.toFixed(2)}R, stop stays at ${_cur} until +${stopHoldUntilR(userId)}R`);
                     _sl = void 0;
                   }
@@ -29556,7 +29563,9 @@ async function processDecision(userId, decision, newsCtx) {
               const _entry = Number(dxMatch.openPrice) || 0;
               if (_sl && _cur > 0 && (_buy ? _sl > _cur : _sl < _cur)) {
                 const _h = stopHoldActive(_buy, _entry, _cur, _px, userId);
-                if (_h.hold) {
+                if (_h.hold && isProfitBreakeven(decision.symbol, _buy, _entry, Number(_sl), _h.rNow)) {
+                  logGuard(userId, "stop_hold_breakeven_allowed", decision.symbol, `AI breakeven ${_sl} allowed on ${acctLabel} \u2014 trade in profit at ${_h.rNow.toFixed(2)}R`);
+                } else if (_h.hold) {
                   logGuard(userId, "stop_hold_breathe", decision.symbol, `AI stop ${_sl} held on ${acctLabel} \u2014 trade at ${_h.rNow.toFixed(2)}R, stop stays at ${_cur} until +${stopHoldUntilR(userId)}R`);
                   _sl = void 0;
                 }
