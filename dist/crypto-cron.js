@@ -24643,6 +24643,7 @@ function getDefaultConfig(userId) {
     // routine trend noise. Opt-in via the weekly-strategy toggle.
     brainShadowEnabled: true,
     stopHoldUntilR: 1,
+    profitLockEnabled: true,
     goalPaceEnabled: true,
     goalPaceLotBoost: false,
     goalPaceMaxBoost: 1.5,
@@ -25476,6 +25477,7 @@ async function scanMarkets(userId) {
     const currentOpenPositions = await getMergedOpenPositions(userId, marketAnalysis);
     await manageXauProfitLock(userId, currentOpenPositions).catch((e) => console.error("[XAU lock] scan pass failed (non-fatal):", e?.message));
     await manageBtcTrail(userId, currentOpenPositions, marketAnalysis).catch((e) => console.error("[BTC trail] scan pass failed (non-fatal):", e?.message));
+    await manageProfitLock(userId, currentOpenPositions, marketAnalysis).catch((e) => console.error("[Profit lock] scan pass failed (non-fatal):", e?.message));
     await applyServerSideTrails(userId, currentOpenPositions, marketAnalysis);
     try {
       await runORBAutonomousScan(userId);
@@ -25849,6 +25851,49 @@ function isProfitBreakeven(symbol, isBuy, entry, newStop, rNow) {
   const pip = getPipSize(symbol);
   if (!(rNow > 0) || !(entry > 0) || !(newStop > 0) || !(pip > 0)) return false;
   return isBuy ? newStop >= entry - 5 * pip : newStop <= entry + 5 * pip;
+}
+async function manageProfitLock(userId, openPositions, marketAnalysis) {
+  if (engineStates[userId]?.config?.profitLockEnabled === false) return;
+  let tlConns = null;
+  const btc = await Promise.resolve().then(() => (init_btc_profile(), btc_profile_exports));
+  for (const pos of openPositions) {
+    if (pos.source !== "tl" || btc.isBtc(pos.symbol)) continue;
+    const m = String(pos.ticket).match(/^tl_(\d+)_(.+)$/);
+    if (!m) continue;
+    const entry = Number(pos.openPrice) || 0;
+    const price = Number(marketAnalysis?.[pos.symbol]?.currentPrice) || 0;
+    const pip = getPipSize(pos.symbol);
+    if (!(entry > 0) || !(price > 0) || !(pip > 0)) continue;
+    const isBuy = String(pos.direction).toUpperCase() === "BUY";
+    const stops = await tlKnownStops(userId, m[2]);
+    const initial = stops.initial;
+    if (!(initial > 0)) continue;
+    const risk = isBuy ? entry - initial : initial - entry;
+    if (!(risk > 2 * pip)) continue;
+    const gain = isBuy ? price - entry : entry - price;
+    if (gain / risk < 1) continue;
+    const dp = pip >= 0.01 ? 3 : 5;
+    const want = Number((isBuy ? entry + gain / 2 : entry - gain / 2).toFixed(dp));
+    const cur = stops.latest || initial;
+    const step = Math.max(pip, 0.1 * risk);
+    if (isBuy ? want < cur + step : want > cur - step) continue;
+    if (!tlConns) tlConns = (await storage.getUserTradelockerConnections(userId)).filter((c) => c.isActive);
+    const tlConn = tlConns.find((c) => c.id === Number(m[1]));
+    if (!tlConn) continue;
+    try {
+      const r = await executeMT5SignalOnTradeLocker(tlConn, { action: "MODIFY", symbol: pos.symbol, direction: pos.direction, volume: 0, stopLoss: want, positionId: m[2] });
+      if (r.success) {
+        tlStopLatest.set(`${userId}:${m[2]}`, want);
+        const lockedPips = ((isBuy ? want - entry : entry - want) / pip).toFixed(1);
+        logGuard(userId, "profit_lock", pos.symbol, `Stop \u2192 ${want} on ${tlConn.accountId} at ${(gain / risk).toFixed(2)}R \u2014 locks +${lockedPips} pips`);
+        addActivity(userId, { type: "position_update", symbol: pos.symbol, message: `\u{1F512} Profit lock on ${tlConn.accountId}: ${pos.symbol} ${pos.direction} at ${(gain / risk).toFixed(2)}R \u2192 stop ${want} (+${lockedPips} pips locked)` });
+      } else {
+        addActivity(userId, { type: "error", symbol: pos.symbol, message: `\u26A0\uFE0F Profit lock failed on ${tlConn.accountId}: ${r.error}` });
+      }
+    } catch (e) {
+      addActivity(userId, { type: "error", symbol: pos.symbol, message: `\u26A0\uFE0F Profit lock error on ${tlConn.accountId}: ${e?.message ?? e}` });
+    }
+  }
 }
 async function manageBtcTrail(userId, openPositions, marketAnalysis) {
   const btc = await Promise.resolve().then(() => (init_btc_profile(), btc_profile_exports));
@@ -26328,6 +26373,7 @@ async function monitorPositions(userId) {
     if (positions.length) {
       await manageXauProfitLock(userId, positions).catch((e) => console.error("[XAU lock] monitor pass failed (non-fatal):", e?.message));
       await manageBtcTrail(userId, positions, lastAnalysis).catch((e) => console.error("[BTC trail] monitor pass failed (non-fatal):", e?.message));
+      await manageProfitLock(userId, positions, lastAnalysis).catch((e) => console.error("[Profit lock] monitor pass failed (non-fatal):", e?.message));
       await applyServerSideTrails(userId, positions, lastAnalysis);
     } else if (state.status === "stopped" && positionMonitorIntervals[userId]) {
       clearInterval(positionMonitorIntervals[userId]);

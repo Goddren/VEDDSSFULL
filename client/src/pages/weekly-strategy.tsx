@@ -1420,6 +1420,7 @@ export default function WeeklyStrategyPage() {
   const [engineGoalBoost, setEngineGoalBoost] = useState(false);
   const [engineGoalMaxBoost, setEngineGoalMaxBoost] = useState(1.5);
   const [engineStopHoldR, setEngineStopHoldR] = useState(1);
+  const [engineProfitLock, setEngineProfitLock] = useState(true);
   const [engineReversalSensitivity, setEngineReversalSensitivity] = useState(3);
   const [enginePairLimitMode, setEnginePairLimitMode] = useState<'ai' | 'fixed'>('ai');
   const [enginePairLimit, setEnginePairLimit] = useState(2);
@@ -1586,6 +1587,7 @@ export default function WeeklyStrategyPage() {
     if (c.goalPaceLotBoost != null) setEngineGoalBoost(c.goalPaceLotBoost);
     if (c.goalPaceMaxBoost != null) setEngineGoalMaxBoost(Number(c.goalPaceMaxBoost));
     if (c.stopHoldUntilR != null) setEngineStopHoldR(Number(c.stopHoldUntilR));
+    if (c.profitLockEnabled != null) setEngineProfitLock(c.profitLockEnabled);
     if (c.pairDailyLimitMode) setEnginePairLimitMode(c.pairDailyLimitMode);
     if (c.maxTradesPerPairPerDay != null) setEnginePairLimit(c.maxTradesPerPairPerDay);
     if (c.pairDailyLimitOverrides) setEnginePairLimitOverrides(Object.entries(c.pairDailyLimitOverrides).map(([k, v]) => `${k}:${v}`).join(', '));
@@ -2639,6 +2641,16 @@ export default function WeeklyStrategyPage() {
                         <option value={2}>Hold until +2R profit</option>
                       </select>
                       <p className="text-[10px] text-emerald-400/70 mt-0.5">The original stop stays put until the trade is this far in profit. Never loosens a stop; daily loss limits still apply.</p>
+                    </div>
+                    <div>
+                      <Label className="text-emerald-400 text-xs font-semibold">Profit lock from +1R</Label>
+                      <label className="mt-1 flex items-center gap-2 cursor-pointer h-8">
+                        <input type="checkbox" checked={engineProfitLock}
+                          onChange={async e => { const v = e.target.checked; setEngineProfitLock(v); try { await apiRequest('PATCH', '/api/vedd-live-engine/config', { profitLockEnabled: v }); } catch { /* applied on start */ } }}
+                          className="accent-emerald-500 w-4 h-4" />
+                        <span className="text-[11px] text-gray-300">At +1R, move the stop to lock half the open profit, and keep ratcheting</span>
+                      </label>
+                      <p className="text-[10px] text-emerald-400/70 mt-0.5">TradeLocker accounts. Below 1R only breakeven +2 pips is locked so trades keep room. Never loosens a stop.</p>
                     </div>
                     <div>
                       <Label className="text-amber-400 text-xs font-semibold">Pair daily limit</Label>

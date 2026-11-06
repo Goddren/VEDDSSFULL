@@ -218,6 +218,7 @@ interface LiveEngineConfig {
   aiPathControl?: { enabled: boolean; pathType?: string; pairs?: string[]; lotMultiplier?: number } | null;
   brainShadowEnabled: boolean;   // blend shadow outcomes into brain session blocks (BRAIN_SHADOW_WEIGHT)
   stopHoldUntilR: number;        // AI/trail may not tighten a stop until the trade is this many R in profit (0 = off)
+  profitLockEnabled: boolean;    // from +1R, engine trails the TL stop to lock half the open profit
   reversalSensitivity: number; // 2-5: how many of the 5 reversal confluences must align to auto-exit (default 3)
   dailyProfitTarget: number;                   // stop trading when daily gain % hits this (0 = disabled)
   maxDailyTrades: number;                      // hard daily trade cap across all pairs (0 = unlimited)
@@ -1032,6 +1033,7 @@ function getDefaultConfig(userId: number): LiveEngineConfig {
                                 // routine trend noise. Opt-in via the weekly-strategy toggle.
     brainShadowEnabled: true,
     stopHoldUntilR: 1,
+    profitLockEnabled: true,
     goalPaceEnabled: true,
     goalPaceLotBoost: false,
     goalPaceMaxBoost: 1.5,
@@ -2137,6 +2139,7 @@ async function scanMarkets(userId: number): Promise<void> {
     const currentOpenPositions = await getMergedOpenPositions(userId, marketAnalysis);
     await manageXauProfitLock(userId, currentOpenPositions).catch((e: any) => console.error('[XAU lock] scan pass failed (non-fatal):', e?.message));
     await manageBtcTrail(userId, currentOpenPositions, marketAnalysis).catch((e: any) => console.error('[BTC trail] scan pass failed (non-fatal):', e?.message));
+    await manageProfitLock(userId, currentOpenPositions, marketAnalysis).catch((e: any) => console.error('[Profit lock] scan pass failed (non-fatal):', e?.message));
     await applyServerSideTrails(userId, currentOpenPositions, marketAnalysis);
 
     // NOTE: Composite Autonomous (Markov × Polymarket) trading has been moved to
@@ -2704,6 +2707,56 @@ function isProfitBreakeven(symbol: string, isBuy: boolean, entry: number, newSto
   return isBuy ? newStop >= entry - 5 * pip : newStop <= entry + 5 * pip;
 }
 
+// Profit lock (2026-11-06, user request): once a TradeLocker trade is +1R
+// (vs its ORIGINAL stop), move the stop to lock half the open profit, and
+// keep ratcheting as price runs. Never loosens. Below 1R the AI's breakeven
+// (+2 pips) is the only lock, so young trades keep room for normal pullbacks.
+// BTC has its own trail (manageBtcTrail) and is skipped.
+async function manageProfitLock(userId: number, openPositions: any[], marketAnalysis: Record<string, any>): Promise<void> {
+  if ((engineStates[userId]?.config as any)?.profitLockEnabled === false) return;
+  let tlConns: any[] | null = null;
+  const btc = await import('./btc-profile');
+  for (const pos of openPositions) {
+    if (pos.source !== 'tl' || btc.isBtc(pos.symbol)) continue;
+    const m = String(pos.ticket).match(/^tl_(\d+)_(.+)$/);
+    if (!m) continue;
+    const entry = Number(pos.openPrice) || 0;
+    const price = Number(marketAnalysis?.[pos.symbol]?.currentPrice) || 0;
+    const pip = getPipSize(pos.symbol);
+    if (!(entry > 0) || !(price > 0) || !(pip > 0)) continue;
+    const isBuy = String(pos.direction).toUpperCase() === 'BUY';
+    const stops = await tlKnownStops(userId, m[2]);
+    const initial = stops.initial;
+    if (!(initial > 0)) continue;
+    const risk = isBuy ? entry - initial : initial - entry;
+    if (!(risk > 2 * pip)) continue;
+    const gain = isBuy ? price - entry : entry - price;
+    if (gain / risk < 1) continue;
+    const dp = pip >= 0.01 ? 3 : 5;
+    const want = Number((isBuy ? entry + gain / 2 : entry - gain / 2).toFixed(dp));
+    const cur = stops.latest || initial;
+    // Only move when it improves the stop by ≥ max(1 pip, 0.1R) — avoids modify spam.
+    const step = Math.max(pip, 0.1 * risk);
+    if (isBuy ? want < cur + step : want > cur - step) continue;
+    if (!tlConns) tlConns = (await storage.getUserTradelockerConnections(userId)).filter((c: any) => c.isActive);
+    const tlConn = tlConns.find((c: any) => c.id === Number(m[1]));
+    if (!tlConn) continue;
+    try {
+      const r = await executeMT5SignalOnTradeLocker(tlConn, { action: 'MODIFY', symbol: pos.symbol, direction: pos.direction, volume: 0, stopLoss: want, positionId: m[2] });
+      if (r.success) {
+        tlStopLatest.set(`${userId}:${m[2]}`, want);
+        const lockedPips = ((isBuy ? want - entry : entry - want) / pip).toFixed(1);
+        logGuard(userId, 'profit_lock', pos.symbol, `Stop → ${want} on ${tlConn.accountId} at ${(gain / risk).toFixed(2)}R — locks +${lockedPips} pips`);
+        addActivity(userId, { type: 'position_update', symbol: pos.symbol, message: `🔒 Profit lock on ${tlConn.accountId}: ${pos.symbol} ${pos.direction} at ${(gain / risk).toFixed(2)}R → stop ${want} (+${lockedPips} pips locked)` });
+      } else {
+        addActivity(userId, { type: 'error', symbol: pos.symbol, message: `⚠️ Profit lock failed on ${tlConn.accountId}: ${r.error}` });
+      }
+    } catch (e: any) {
+      addActivity(userId, { type: 'error', symbol: pos.symbol, message: `⚠️ Profit lock error on ${tlConn.accountId}: ${e?.message ?? e}` });
+    }
+  }
+}
+
 async function manageBtcTrail(userId: number, openPositions: any[], marketAnalysis: Record<string, any>): Promise<void> {
   const btc = await import('./btc-profile');
   if (!btc.BTC_PROFILE_ON()) return;
@@ -3220,6 +3273,7 @@ async function monitorPositions(userId: number): Promise<void> {
     if (positions.length) {
       await manageXauProfitLock(userId, positions).catch((e: any) => console.error('[XAU lock] monitor pass failed (non-fatal):', e?.message));
       await manageBtcTrail(userId, positions, lastAnalysis).catch((e: any) => console.error('[BTC trail] monitor pass failed (non-fatal):', e?.message));
+      await manageProfitLock(userId, positions, lastAnalysis).catch((e: any) => console.error('[Profit lock] monitor pass failed (non-fatal):', e?.message));
       await applyServerSideTrails(userId, positions, lastAnalysis);
     } else if (state.status === 'stopped' && positionMonitorIntervals[userId]) {
       // Engine stopped and the book is flat → stand the monitor down.
