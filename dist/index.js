@@ -37384,6 +37384,46 @@ function isBadPriceSample(next, lastGood) {
   if (!(next > 0) || !(lastGood > 0)) return false;
   return next / lastGood > MAX_PRICE_SPIKE || lastGood / next > MAX_PRICE_SPIKE;
 }
+function pctApart(a, b) {
+  return Math.abs(a - b) / Math.min(a, b) * 100;
+}
+async function fetchJupiterPrices(mints) {
+  const out = {};
+  const unique2 = Array.from(new Set(mints.filter(Boolean)));
+  for (let i = 0; i < unique2.length; i += 50) {
+    const batch = unique2.slice(i, i + 50);
+    try {
+      const resp = await fetch(`https://lite-api.jup.ag/price/v3?ids=${batch.join(",")}`);
+      if (!resp.ok) continue;
+      const data = await resp.json();
+      for (const mint of batch) {
+        const p2 = Number(data?.[mint]?.usdPrice) || 0;
+        if (p2 > 0) out[mint] = p2;
+      }
+    } catch (err) {
+      console.warn("[SolEngine] Jupiter v3 price fetch failed:", err instanceof Error ? err.message : err);
+    }
+  }
+  return out;
+}
+async function confirmBigUpMove(mint, sample, lastGood) {
+  if (!(lastGood > 0) || !(sample > lastGood * (1 + SOL_BIG_MOVE_PCT / 100))) return true;
+  const jp = (await fetchJupiterPrices([mint]).catch(() => ({})))[mint];
+  return !!jp && pctApart(sample, jp) <= SOL_SOURCE_AGREE_PCT;
+}
+async function referenceEntryPrice(state, symbol, mint, scanPrice) {
+  if (!mint || !(scanPrice > 0)) return null;
+  const ref = (await fetchPricesByMint([mint]).catch(() => ({})))[mint];
+  if (!(ref > 0)) {
+    addActivity2(state, { type: "info", message: `\u26A0\uFE0F ${symbol}: no reliable by-mint price \u2014 entry skipped` });
+    return null;
+  }
+  if (pctApart(scanPrice, ref) > SOL_ENTRY_PRICE_MAX_DIFF_PCT) {
+    addActivity2(state, { type: "info", message: `\u26A0\uFE0F ${symbol}: scan price $${scanPrice} vs reference $${ref} (${pctApart(scanPrice, ref).toFixed(0)}% apart) \u2014 entry skipped` });
+    return null;
+  }
+  return ref;
+}
 function getEncryptionKey4() {
   const seed = (process.env.DATABASE_URL || "vedd-sol-engine-fallback") + "sol-v1";
   return crypto4.createHash("sha256").update(seed).digest();
@@ -37573,19 +37613,8 @@ async function fetchPricesByMint(mints) {
   }
   const missing = unique2.filter((m) => !(out[m] > 0));
   if (missing.length > 0) {
-    try {
-      const resp = await fetch(`https://lite-api.jup.ag/price/v2?ids=${missing.join(",")}`);
-      if (resp.ok) {
-        const data = await resp.json();
-        const priceData = data?.data || {};
-        for (const mint of missing) {
-          const p2 = parseFloat(priceData?.[mint]?.price) || 0;
-          if (p2 > 0) out[mint] = p2;
-        }
-      }
-    } catch (err) {
-      console.warn("[SolEngine] fetchPricesByMint Jupiter fallback failed:", err instanceof Error ? err.message : err);
-    }
+    const jp = await fetchJupiterPrices(missing).catch(() => ({}));
+    for (const mint of missing) if (jp[mint] > 0) out[mint] = jp[mint];
   }
   return out;
 }
@@ -38401,17 +38430,20 @@ async function monitorPaperPositions(userId, state) {
     if (r.token.address) volumeMap[r.token.address] = r.token.volume24h || 0;
   }
   const priceMap = await fetchPricesByMint(openPositions.map((p2) => p2.mint)).catch(() => ({}));
-  for (const r of state.lastResults) {
-    const m = r.token.address;
-    if (m && !(priceMap[m] > 0)) priceMap[m] = parseFloat(r.token.priceUsd) || 0;
-  }
   for (const pos of openPositions) {
     const effHoldP = effectiveMaxHoldMs(pos);
     const isMaxHold = Date.now() - new Date(pos.openedAt).getTime() > effHoldP.ms;
-    const currentPrice = priceMap[pos.mint] || (isMaxHold ? pos.currentPrice : 0);
+    const fresh = priceMap[pos.mint] > 0 ? priceMap[pos.mint] : 0;
+    const currentPrice = fresh || (isMaxHold ? pos.currentPrice : 0);
     if (!currentPrice || currentPrice <= 0) continue;
-    if (isBadPriceSample(currentPrice, pos.currentPrice > 0 ? pos.currentPrice : pos.entryPrice)) {
-      addActivity2(state, { type: "info", message: `\u26A0\uFE0F ${pos.symbol}: bad price sample ignored ($${currentPrice} vs $${pos.currentPrice > 0 ? pos.currentPrice : pos.entryPrice}) \u2014 skipping this cycle` });
+    const unpriced = !fresh && pos.currentPrice === pos.entryPrice;
+    const lastGood = pos.currentPrice > 0 ? pos.currentPrice : pos.entryPrice;
+    if (isBadPriceSample(currentPrice, lastGood)) {
+      addActivity2(state, { type: "info", message: `\u26A0\uFE0F ${pos.symbol}: bad price sample ignored ($${currentPrice} vs $${lastGood}) \u2014 skipping this cycle` });
+      continue;
+    }
+    if (fresh && !await confirmBigUpMove(pos.mint, fresh, lastGood)) {
+      addActivity2(state, { type: "info", message: `\u26A0\uFE0F ${pos.symbol}: +${((fresh - lastGood) / lastGood * 100).toFixed(0)}% jump ($${lastGood} \u2192 $${fresh}) not confirmed by a second source \u2014 ignored this cycle` });
       continue;
     }
     pos.currentPrice = currentPrice;
@@ -38455,6 +38487,16 @@ async function monitorPaperPositions(userId, state) {
       pos.closedAt = (/* @__PURE__ */ new Date()).toISOString();
       pos.closePnlPct = gainPct;
       pos.closeReason = reason;
+      if (unpriced) {
+        pos.closePnlPct = void 0;
+        pos.exitReason = "max_hold_unpriced";
+        state.closedPaperPositions.unshift(pos);
+        if (state.closedPaperPositions.length > 50) state.closedPaperPositions = state.closedPaperPositions.slice(0, 50);
+        upsertPosition(userId, pos).catch(() => {
+        });
+        addActivity2(state, { type: "info", message: `\u23F1\uFE0F ${pos.symbol}: max-hold reached but never priced since entry \u2014 closed with no result recorded` });
+        continue;
+      }
       state.closedPaperPositions.unshift(pos);
       if (state.closedPaperPositions.length > 50) state.closedPaperPositions = state.closedPaperPositions.slice(0, 50);
       upsertPosition(userId, pos).catch(() => {
@@ -38549,8 +38591,11 @@ async function evaluateShadowEntries(userId, state, scanResult) {
     const mint = analysis.token.address;
     if (!mint) continue;
     if (state.shadowPositions.some((p2) => p2.mint === mint && p2.status === "open")) continue;
-    const tokenPrice = parseFloat(analysis.token.priceUsd) || 0;
-    if (tokenPrice <= 0) continue;
+    if (state.closedShadowPositions.some((p2) => p2.mint === mint && !!p2.closedAt && Date.now() - new Date(p2.closedAt).getTime() < SOL_REENTRY_COOLDOWN_MS)) continue;
+    const scanPrice = parseFloat(analysis.token.priceUsd) || 0;
+    if (scanPrice <= 0) continue;
+    const tokenPrice = await referenceEntryPrice(state, analysis.token.symbol, mint, scanPrice);
+    if (!tokenPrice) continue;
     const dexKey = (analysis.token.dexId || "").toLowerCase().split("_")[0];
     const sized = computeAutoSolSize(state, dexKey, strat, "paper");
     const pos = {
@@ -38588,16 +38633,16 @@ async function monitorShadowPositions(userId, state) {
   const openPositions = state.shadowPositions.filter((p2) => p2.status === "open");
   if (openPositions.length === 0) return;
   const priceMap = await fetchPricesByMint(openPositions.map((p2) => p2.mint)).catch(() => ({}));
-  for (const r of state.lastResults) {
-    const m = r.token.address;
-    if (m && !(priceMap[m] > 0)) priceMap[m] = parseFloat(r.token.priceUsd) || 0;
-  }
   for (const pos of openPositions) {
     const effHold = effectiveMaxHoldMs(pos);
     const isMaxHold = Date.now() - new Date(pos.openedAt).getTime() > effHold.ms;
-    const currentPrice = priceMap[pos.mint] || (isMaxHold ? pos.currentPrice : 0);
+    const fresh = priceMap[pos.mint] > 0 ? priceMap[pos.mint] : 0;
+    const currentPrice = fresh || (isMaxHold ? pos.currentPrice : 0);
     if (!currentPrice || currentPrice <= 0) continue;
-    if (isBadPriceSample(currentPrice, pos.currentPrice > 0 ? pos.currentPrice : pos.entryPrice)) continue;
+    const unpriced = !fresh && pos.currentPrice === pos.entryPrice;
+    const lastGood = pos.currentPrice > 0 ? pos.currentPrice : pos.entryPrice;
+    if (isBadPriceSample(currentPrice, lastGood)) continue;
+    if (fresh && !await confirmBigUpMove(pos.mint, fresh, lastGood)) continue;
     pos.currentPrice = currentPrice;
     if (!pos.peakPrice || currentPrice > pos.peakPrice) pos.peakPrice = currentPrice;
     const gainPct = (currentPrice - pos.entryPrice) / pos.entryPrice * 100;
@@ -38607,7 +38652,8 @@ async function monitorShadowPositions(userId, state) {
       const reason = isMaxHold ? "max_hold" : isWin ? "tp" : "sl";
       pos.status = "closed";
       pos.closedAt = (/* @__PURE__ */ new Date()).toISOString();
-      pos.closePnlPct = gainPct;
+      pos.closePnlPct = unpriced ? void 0 : gainPct;
+      if (unpriced) pos.exitReason = "max_hold_unpriced";
       pos.closeReason = reason;
       state.closedShadowPositions.unshift(pos);
       if (state.closedShadowPositions.length > 50) state.closedShadowPositions = state.closedShadowPositions.slice(0, 50);
@@ -38638,10 +38684,6 @@ async function monitorLivePositions(userId, state) {
     if (r.token.address) volumeMap[r.token.address] = r.token.volume24h || 0;
   }
   const priceMap = await fetchPricesByMint(openPositions.map((p2) => p2.mint)).catch(() => ({}));
-  for (const r of state.lastResults) {
-    const m = r.token.address;
-    if (m && !(priceMap[m] > 0)) priceMap[m] = parseFloat(r.token.priceUsd) || 0;
-  }
   for (const pos of openPositions) {
     const ageMs = Date.now() - new Date(pos.openedAt).getTime();
     const effHold = effectiveMaxHoldMs(pos);
@@ -38674,6 +38716,13 @@ async function monitorLivePositions(userId, state) {
     if (isBadPriceSample(currentPrice, pos.currentPrice > 0 ? pos.currentPrice : pos.entryPrice)) {
       addActivity2(state, { type: "live_signal", message: `\u26A0\uFE0F ${pos.symbol}: bad price sample ignored ($${currentPrice} vs $${pos.currentPrice > 0 ? pos.currentPrice : pos.entryPrice}) \u2014 not acting this cycle` });
       continue;
+    }
+    {
+      const _lastGood = pos.currentPrice > 0 ? pos.currentPrice : pos.entryPrice;
+      if (!await confirmBigUpMove(pos.mint, currentPrice, _lastGood)) {
+        addActivity2(state, { type: "live_signal", message: `\u26A0\uFE0F ${pos.symbol}: +${((currentPrice - _lastGood) / _lastGood * 100).toFixed(0)}% jump not confirmed by a second source \u2014 not acting this cycle` });
+        continue;
+      }
     }
     pos.currentPrice = currentPrice;
     const gainPct = (currentPrice - pos.entryPrice) / pos.entryPrice * 100;
@@ -38957,14 +39006,18 @@ async function runScan(userId, state, triggerToken) {
           takeProfitPrice = tokenPrice * (1 + state.autoTradeTP / 100);
         }
         if (state.autoTradeEnabled && paperSizeSOL > 0 && tokenPrice > 0) {
-          const alreadyOpen = state.paperPositions.some((p2) => p2.symbol === analysis.token.symbol && p2.status === "open");
-          if (!alreadyOpen) {
+          const alreadyOpen = state.paperPositions.some((p2) => p2.status === "open" && (p2.mint === tokenMint || p2.symbol === analysis.token.symbol));
+          const recentlyClosed = state.closedPaperPositions.some((p2) => p2.mint === tokenMint && !!p2.closedAt && Date.now() - new Date(p2.closedAt).getTime() < SOL_REENTRY_COOLDOWN_MS);
+          const paperEntryPrice = !alreadyOpen && !recentlyClosed ? await referenceEntryPrice(state, analysis.token.symbol, tokenMint, tokenPrice) : null;
+          if (paperEntryPrice) {
+            const paperStop = state.config.stopOrdersEnabled ? paperEntryPrice * (1 - state.autoTradeSL / 100) : void 0;
+            const paperTp = state.config.stopOrdersEnabled ? paperEntryPrice * (1 + state.autoTradeTP / 100) : void 0;
             const pos = {
               id: `paper_${Date.now()}_${analysis.token.symbol}`,
               symbol: analysis.token.symbol,
               mint: tokenMint,
-              entryPrice: tokenPrice,
-              currentPrice: tokenPrice,
+              entryPrice: paperEntryPrice,
+              currentPrice: paperEntryPrice,
               targetPct: state.autoTradeTP,
               slPct: state.autoTradeSL,
               size: paperSizeSOL,
@@ -38976,24 +39029,24 @@ async function runScan(userId, state, triggerToken) {
               mode: "paper",
               openedAt: now2,
               status: "open",
-              peakPrice: tokenPrice,
+              peakPrice: paperEntryPrice,
               trailingActive: false,
               breakevenActive: false,
               trailActivationPct: state.autoTrailActivationPct,
               trailDistancePct: state.autoTrailDistancePct,
               entryVolume24h: analysis.token.volume24h || 0,
-              stopLossPrice,
-              takeProfitPrice
+              stopLossPrice: paperStop,
+              takeProfitPrice: paperTp
             };
             state.paperPositions.push(pos);
             upsertPosition(userId, pos).catch(() => {
             });
             state.dailyTradeCount++;
             const compoundNote = state.compoundMode ? ` [\u{1F4B9} Compounding ON \u2014 ${state.paperPortfolioValue.toFixed(3)} SOL pool]` : "";
-            const stopNote = state.config.stopOrdersEnabled && stopLossPrice ? ` | \u{1F6D1} Stop @$${stopLossPrice.toFixed(6)} \xB7 \u{1F3AF} TP @$${takeProfitPrice?.toFixed(6)}` : ` | TP: +${state.autoTradeTP}% | SL: -${state.autoTradeSL}%`;
+            const stopNote = state.config.stopOrdersEnabled && paperStop ? ` | \u{1F6D1} Stop @$${paperStop.toFixed(6)} \xB7 \u{1F3AF} TP @$${paperTp?.toFixed(6)}` : ` | TP: +${state.autoTradeTP}% | SL: -${state.autoTradeSL}%`;
             addActivity2(state, {
               type: "paper_buy",
-              message: `\u{1F4C4} Paper BUY: ${analysis.token.symbol} \u2014 ${paperSizeSOL.toFixed(3)} SOL @ $${tokenPrice.toFixed(6)} [${topStrat.icon}${topStrat.name}]${stopNote} | Breakeven @+8% \xB7 Trail @+20% (vol-adjusted)${compoundNote}`
+              message: `\u{1F4C4} Paper BUY: ${analysis.token.symbol} \u2014 ${paperSizeSOL.toFixed(3)} SOL @ $${paperEntryPrice.toFixed(6)} [${topStrat.icon}${topStrat.name}]${stopNote} | Breakeven @+8% \xB7 Trail @+20% (vol-adjusted)${compoundNote}`
             });
           }
         }
@@ -39774,7 +39827,7 @@ async function getServerWalletStatus(userId) {
     return { hasServerWallet: false };
   }
 }
-var SOL_BRAIN_ENABLED, SOL_BRAIN_GATING, SOL_CONFLUENCE_REQUIRED, SOL_COMPOSITE_FLOOR, SOL_CONFLUENCE_BONUS, SOL_MAX_HOLD_HOURS, SOL_MAX_HOLD_MS, MAX_PRICE_SPIKE, DEX_NAMES, SOL_STRATEGIES, DEFAULT_CONFIG, DEFAULT_WEEKLY_GOAL, engineStates2, startingSolUsers, PUMP_SCALP_MIN_GAIN_1H_PCT, PUMP_SCALP_MIN_LIQ_USD, PUMP_SCALP_MIN_BUY_RATIO, PAPER_DEFAULT_PORTFOLIO_SOL, SHADOW_MAX_OPEN, SOL_PAPER_MAX_SOL;
+var SOL_BRAIN_ENABLED, SOL_BRAIN_GATING, SOL_CONFLUENCE_REQUIRED, SOL_COMPOSITE_FLOOR, SOL_CONFLUENCE_BONUS, SOL_MAX_HOLD_HOURS, SOL_MAX_HOLD_MS, MAX_PRICE_SPIKE, SOL_ENTRY_PRICE_MAX_DIFF_PCT, SOL_BIG_MOVE_PCT, SOL_SOURCE_AGREE_PCT, SOL_REENTRY_COOLDOWN_MS, DEX_NAMES, SOL_STRATEGIES, DEFAULT_CONFIG, DEFAULT_WEEKLY_GOAL, engineStates2, startingSolUsers, PUMP_SCALP_MIN_GAIN_1H_PCT, PUMP_SCALP_MIN_LIQ_USD, PUMP_SCALP_MIN_BUY_RATIO, PAPER_DEFAULT_PORTFOLIO_SOL, SHADOW_MAX_OPEN, SOL_PAPER_MAX_SOL;
 var init_sol_engine = __esm({
   "server/services/sol-engine.ts"() {
     "use strict";
@@ -39791,6 +39844,10 @@ var init_sol_engine = __esm({
     SOL_MAX_HOLD_HOURS = Number(process.env.SOL_MAX_HOLD_HOURS) || 12;
     SOL_MAX_HOLD_MS = SOL_MAX_HOLD_HOURS * 60 * 60 * 1e3;
     MAX_PRICE_SPIKE = 10;
+    SOL_ENTRY_PRICE_MAX_DIFF_PCT = Number(process.env.SOL_ENTRY_PRICE_MAX_DIFF_PCT) || 15;
+    SOL_BIG_MOVE_PCT = Number(process.env.SOL_BIG_MOVE_PCT) || 40;
+    SOL_SOURCE_AGREE_PCT = Number(process.env.SOL_SOURCE_AGREE_PCT) || 15;
+    SOL_REENTRY_COOLDOWN_MS = (Number(process.env.SOL_REENTRY_COOLDOWN_MIN) || 30) * 60 * 1e3;
     DEX_NAMES = ["raydium", "orca", "meteora", "pumpfun", "jupiter"];
     SOL_STRATEGIES = [
       {
@@ -68504,9 +68561,9 @@ async function getStopOrdersForUser(userId, filters = {}) {
 init_schema();
 
 // server/build-info.ts
-var BUILD_COMMIT = "62f2afda-dirty";
-var BUILD_BRANCH = "fix/engine-tl-cache-fresh";
-var BUILT_AT = "2026-11-06T17:59:18.485Z";
+var BUILD_COMMIT = "d4590252-dirty";
+var BUILD_BRANCH = "fix/sol-bad-prices";
+var BUILT_AT = "2026-11-06T19:00:59.768Z";
 
 // server/stripe.ts
 init_db();
@@ -95133,13 +95190,13 @@ This request will not trigger a transaction or cost any fees.`;
         const [{ rows: agg }, { rows: open }, { rows: recent }, { rows: byStrat }, { rows: weeks }, { rows: st }] = await Promise.all([
           _p.query(`SELECT count(*)::int n, count(*) FILTER (WHERE close_pnl_pct > 0)::int w, COALESCE(avg(close_pnl_pct),0)::float avg_pct,
                            COALESCE(sum(size * close_pnl_pct / 100),0)::float pnl_sol
-                      FROM sol_engine_positions WHERE user_id=$1 AND mode='paper' AND status='closed'`, [userId]),
+                      FROM sol_engine_positions WHERE user_id=$1 AND mode='paper' AND status='closed' AND close_pnl_pct IS NOT NULL`, [userId]),
           _p.query(`SELECT position_id, symbol, strategy_id, entry_price, current_price, size, target_pct, sl_pct, opened_at
                       FROM sol_engine_positions WHERE user_id=$1 AND mode='paper' AND status='open' ORDER BY opened_at DESC`, [userId]),
           _p.query(`SELECT position_id, symbol, strategy_id, entry_price, size, close_pnl_pct, opened_at, closed_at
                       FROM sol_engine_positions WHERE user_id=$1 AND mode='paper' AND status='closed' ORDER BY closed_at DESC NULLS LAST LIMIT 25`, [userId]),
           _p.query(`SELECT strategy_id, count(*)::int n, count(*) FILTER (WHERE close_pnl_pct > 0)::int w, COALESCE(avg(close_pnl_pct),0)::float avg_pct
-                      FROM sol_engine_positions WHERE user_id=$1 AND mode='paper' AND status='closed' GROUP BY 1 ORDER BY 4 DESC`, [userId]),
+                      FROM sol_engine_positions WHERE user_id=$1 AND mode='paper' AND status='closed' AND close_pnl_pct IS NOT NULL GROUP BY 1 ORDER BY 4 DESC`, [userId]),
           _p.query(`SELECT date_trunc('week', closed_at::timestamptz) wk, COALESCE(sum(close_pnl_pct),0)::float s
                       FROM sol_engine_positions WHERE user_id=$1 AND mode='paper' AND status='closed' AND closed_at IS NOT NULL
                        AND closed_at::timestamptz >= date_trunc('week', now()) - interval '7 days' GROUP BY 1`, [userId]),

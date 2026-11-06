@@ -31,6 +31,75 @@ function isBadPriceSample(next: number, lastGood: number): boolean {
   return next / lastGood > MAX_PRICE_SPIKE || lastGood / next > MAX_PRICE_SPIKE;
 }
 
+// ── Price sanity (2026-11-06) ────────────────────────────────────────────────
+// Scan prices come from whichever DexScreener pool a SEARCH returned first for
+// a token, which can be a tiny junk pool. Paper/shadow entries were priced from
+// it, and every monitor fell back to it whenever the by-mint fetch missed (the
+// Jupiter v2 fallback had started returning 404, so misses were common). Result:
+// RAY marked at exactly $4.00 (real ~$1.61) and mSOL at 331.87 (real ~136);
+// RAY paper trades opened and "hit TP" 0.2s later at +148%, and those fake wins
+// went into sol_brain_outcomes and the shadow lessons fed to the AI prompts.
+// The 10× guard above misses a 2.4× print.
+//   • entries are priced from the by-mint reference (highest-liquidity pair),
+//     and skipped when the scan price disagrees by > SOL_ENTRY_PRICE_MAX_DIFF_PCT
+//   • monitors no longer fall back to the scan price
+//   • an UPWARD jump > SOL_BIG_MOVE_PCT vs the last mark must be confirmed by
+//     Jupiter within SOL_SOURCE_AGREE_PCT before it counts. Downward moves are
+//     deliberately not held back — a real crash must still reach the stop.
+const SOL_ENTRY_PRICE_MAX_DIFF_PCT = Number(process.env.SOL_ENTRY_PRICE_MAX_DIFF_PCT) || 15;
+const SOL_BIG_MOVE_PCT = Number(process.env.SOL_BIG_MOVE_PCT) || 40;
+const SOL_SOURCE_AGREE_PCT = Number(process.env.SOL_SOURCE_AGREE_PCT) || 15;
+// After a paper position on a mint closes, don't re-enter that mint for this long.
+const SOL_REENTRY_COOLDOWN_MS = (Number(process.env.SOL_REENTRY_COOLDOWN_MIN) || 30) * 60 * 1000;
+
+function pctApart(a: number, b: number): number {
+  return (Math.abs(a - b) / Math.min(a, b)) * 100;
+}
+
+async function fetchJupiterPrices(mints: string[]): Promise<Record<string, number>> {
+  const out: Record<string, number> = {};
+  const unique = Array.from(new Set(mints.filter(Boolean)));
+  for (let i = 0; i < unique.length; i += 50) {
+    const batch = unique.slice(i, i + 50);
+    try {
+      // v2 (lite-api.jup.ag/price/v2) returns 404 since ~2026-10; v3 keys by mint with `usdPrice`.
+      const resp = await fetch(`https://lite-api.jup.ag/price/v3?ids=${batch.join(',')}`);
+      if (!resp.ok) continue;
+      const data = await resp.json();
+      for (const mint of batch) {
+        const p = Number(data?.[mint]?.usdPrice) || 0;
+        if (p > 0) out[mint] = p;
+      }
+    } catch (err) {
+      console.warn('[SolEngine] Jupiter v3 price fetch failed:', err instanceof Error ? err.message : err);
+    }
+  }
+  return out;
+}
+
+/** True unless `sample` is an upward jump > SOL_BIG_MOVE_PCT over `lastGood`
+ *  that Jupiter does not confirm (missing Jupiter price = not confirmed). */
+async function confirmBigUpMove(mint: string, sample: number, lastGood: number): Promise<boolean> {
+  if (!(lastGood > 0) || !(sample > lastGood * (1 + SOL_BIG_MOVE_PCT / 100))) return true;
+  const jp = (await fetchJupiterPrices([mint]).catch(() => ({} as Record<string, number>)))[mint];
+  return !!jp && pctApart(sample, jp) <= SOL_SOURCE_AGREE_PCT;
+}
+
+/** Reference entry price for a paper/shadow entry, or null (skip the entry). */
+async function referenceEntryPrice(state: SolEngineState, symbol: string, mint: string, scanPrice: number): Promise<number | null> {
+  if (!mint || !(scanPrice > 0)) return null;
+  const ref = (await fetchPricesByMint([mint]).catch(() => ({} as Record<string, number>)))[mint];
+  if (!(ref > 0)) {
+    addActivity(state, { type: 'info', message: `⚠️ ${symbol}: no reliable by-mint price — entry skipped` });
+    return null;
+  }
+  if (pctApart(scanPrice, ref) > SOL_ENTRY_PRICE_MAX_DIFF_PCT) {
+    addActivity(state, { type: 'info', message: `⚠️ ${symbol}: scan price $${scanPrice} vs reference $${ref} (${pctApart(scanPrice, ref).toFixed(0)}% apart) — entry skipped` });
+    return null;
+  }
+  return ref;
+}
+
 interface OpenPositionSummary {
   symbol: string;
   entryPrice: number;
@@ -624,22 +693,11 @@ async function fetchPricesByMint(mints: string[]): Promise<Record<string, number
     }
   }
 
-  // Jupiter fallback for any mint DexScreener missed.
+  // Jupiter fallback for any mint DexScreener missed (v3; v2 is gone).
   const missing = unique.filter(m => !(out[m] > 0));
   if (missing.length > 0) {
-    try {
-      const resp = await fetch(`https://lite-api.jup.ag/price/v2?ids=${missing.join(',')}`);
-      if (resp.ok) {
-        const data = await resp.json();
-        const priceData = data?.data || {};
-        for (const mint of missing) {
-          const p = parseFloat(priceData?.[mint]?.price) || 0;
-          if (p > 0) out[mint] = p;
-        }
-      }
-    } catch (err) {
-      console.warn('[SolEngine] fetchPricesByMint Jupiter fallback failed:', err instanceof Error ? err.message : err);
-    }
+    const jp = await fetchJupiterPrices(missing).catch(() => ({} as Record<string, number>));
+    for (const mint of missing) if (jp[mint] > 0) out[mint] = jp[mint];
   }
 
   return out;
@@ -1681,23 +1739,28 @@ async function monitorPaperPositions(userId: number, state: SolEngineState) {
   for (const r of state.lastResults) {
     if (r.token.address) volumeMap[r.token.address] = r.token.volume24h || 0;
   }
+  // No fallback to the scan price: it comes from an arbitrary search-result
+  // pool and was the source of the fake RAY/mSOL wins (see SOL_BIG_MOVE_PCT).
   const priceMap = await fetchPricesByMint(openPositions.map(p => p.mint)).catch(() => ({} as Record<string, number>));
-  // Fall back to the scan price (by mint) for any mint the fresh fetch missed.
-  for (const r of state.lastResults) {
-    const m = r.token.address;
-    if (m && !(priceMap[m] > 0)) priceMap[m] = parseFloat(r.token.priceUsd) || 0;
-  }
 
   for (const pos of openPositions) {
     // Strategy time stop (Pump Scalp 60: out at 60 minutes, win or lose).
     // Fires even without a fresh print — the last mark prices the exit.
     const effHoldP = effectiveMaxHoldMs(pos);
     const isMaxHold = Date.now() - new Date(pos.openedAt).getTime() > effHoldP.ms;
-    const currentPrice = priceMap[pos.mint] || (isMaxHold ? pos.currentPrice : 0);
+    const fresh = priceMap[pos.mint] > 0 ? priceMap[pos.mint] : 0;
+    const currentPrice = fresh || (isMaxHold ? pos.currentPrice : 0);
     if (!currentPrice || currentPrice <= 0) continue;
+    // Never priced since entry and no print now: the "result" would be a fake 0%.
+    const unpriced = !fresh && pos.currentPrice === pos.entryPrice;
+    const lastGood = pos.currentPrice > 0 ? pos.currentPrice : pos.entryPrice;
     // Reject a corrupt price print before it can trigger a phantom TP/SL.
-    if (isBadPriceSample(currentPrice, pos.currentPrice > 0 ? pos.currentPrice : pos.entryPrice)) {
-      addActivity(state, { type: 'info', message: `⚠️ ${pos.symbol}: bad price sample ignored ($${currentPrice} vs $${(pos.currentPrice > 0 ? pos.currentPrice : pos.entryPrice)}) — skipping this cycle` });
+    if (isBadPriceSample(currentPrice, lastGood)) {
+      addActivity(state, { type: 'info', message: `⚠️ ${pos.symbol}: bad price sample ignored ($${currentPrice} vs $${lastGood}) — skipping this cycle` });
+      continue;
+    }
+    if (fresh && !(await confirmBigUpMove(pos.mint, fresh, lastGood))) {
+      addActivity(state, { type: 'info', message: `⚠️ ${pos.symbol}: +${(((fresh - lastGood) / lastGood) * 100).toFixed(0)}% jump ($${lastGood} → $${fresh}) not confirmed by a second source — ignored this cycle` });
       continue;
     }
 
@@ -1758,6 +1821,19 @@ async function monitorPaperPositions(userId: number, state: SolEngineState) {
       pos.closedAt = new Date().toISOString();
       pos.closePnlPct = gainPct;
       pos.closeReason = reason;
+
+      if (unpriced) {
+        // Close it (frees the slot) but record NO result: close_pnl_pct stays
+        // NULL, which the scorecard and shadow_ledger skip, and nothing goes to
+        // the brain or the stats. 20 such 0% "BREAKEVEN" rows were in the brain.
+        pos.closePnlPct = undefined;
+        pos.exitReason = 'max_hold_unpriced';
+        state.closedPaperPositions.unshift(pos);
+        if (state.closedPaperPositions.length > 50) state.closedPaperPositions = state.closedPaperPositions.slice(0, 50);
+        upsertPosition(userId, pos).catch(() => {});
+        addActivity(state, { type: 'info', message: `⏱️ ${pos.symbol}: max-hold reached but never priced since entry — closed with no result recorded` });
+        continue;
+      }
 
       state.closedPaperPositions.unshift(pos);
       if (state.closedPaperPositions.length > 50) state.closedPaperPositions = state.closedPaperPositions.slice(0, 50);
@@ -1872,8 +1948,12 @@ async function evaluateShadowEntries(userId: number, state: SolEngineState, scan
     const mint = analysis.token.address;
     if (!mint) continue;
     if (state.shadowPositions.some(p => p.mint === mint && p.status === 'open')) continue;
-    const tokenPrice = parseFloat(analysis.token.priceUsd) || 0;
-    if (tokenPrice <= 0) continue;
+    if (state.closedShadowPositions.some(p => p.mint === mint && !!p.closedAt && Date.now() - new Date(p.closedAt).getTime() < SOL_REENTRY_COOLDOWN_MS)) continue;
+    const scanPrice = parseFloat(analysis.token.priceUsd) || 0;
+    if (scanPrice <= 0) continue;
+    // Price from the by-mint reference, not the scan's search-result pool.
+    const tokenPrice = await referenceEntryPrice(state, analysis.token.symbol, mint, scanPrice);
+    if (!tokenPrice) continue;
     const dexKey = (analysis.token.dexId || '').toLowerCase().split('_')[0];
     const sized = computeAutoSolSize(state, dexKey, strat, 'paper');
     const pos: SolAutoPosition = {
@@ -1910,18 +1990,19 @@ async function evaluateShadowEntries(userId: number, state: SolEngineState, scan
 async function monitorShadowPositions(userId: number, state: SolEngineState) {
   const openPositions = state.shadowPositions.filter(p => p.status === 'open');
   if (openPositions.length === 0) return;
+  // No scan-price fallback (see SOL_BIG_MOVE_PCT).
   const priceMap = await fetchPricesByMint(openPositions.map(p => p.mint)).catch(() => ({} as Record<string, number>));
-  for (const r of state.lastResults) {
-    const m = r.token.address;
-    if (m && !(priceMap[m] > 0)) priceMap[m] = parseFloat(r.token.priceUsd) || 0;
-  }
   for (const pos of openPositions) {
     const effHold = effectiveMaxHoldMs(pos);
     const isMaxHold = Date.now() - new Date(pos.openedAt).getTime() > effHold.ms;
     // The 60-minute stop fires even without a fresh print — last mark prices it.
-    const currentPrice = priceMap[pos.mint] || (isMaxHold ? pos.currentPrice : 0);
+    const fresh = priceMap[pos.mint] > 0 ? priceMap[pos.mint] : 0;
+    const currentPrice = fresh || (isMaxHold ? pos.currentPrice : 0);
     if (!currentPrice || currentPrice <= 0) continue;
-    if (isBadPriceSample(currentPrice, pos.currentPrice > 0 ? pos.currentPrice : pos.entryPrice)) continue;
+    const unpriced = !fresh && pos.currentPrice === pos.entryPrice;
+    const lastGood = pos.currentPrice > 0 ? pos.currentPrice : pos.entryPrice;
+    if (isBadPriceSample(currentPrice, lastGood)) continue;
+    if (fresh && !(await confirmBigUpMove(pos.mint, fresh, lastGood))) continue;
     pos.currentPrice = currentPrice;
     if (!pos.peakPrice || currentPrice > pos.peakPrice) pos.peakPrice = currentPrice;
     const gainPct = ((currentPrice - pos.entryPrice) / pos.entryPrice) * 100;
@@ -1931,7 +2012,8 @@ async function monitorShadowPositions(userId: number, state: SolEngineState) {
       const reason = isMaxHold ? 'max_hold' : isWin ? 'tp' : 'sl';
       pos.status = 'closed';
       pos.closedAt = new Date().toISOString();
-      pos.closePnlPct = gainPct;
+      pos.closePnlPct = unpriced ? undefined : gainPct; // NULL = no result (shadow_ledger skips it)
+      if (unpriced) pos.exitReason = 'max_hold_unpriced';
       pos.closeReason = reason as SolAutoPosition['closeReason'];
       state.closedShadowPositions.unshift(pos);
       if (state.closedShadowPositions.length > 50) state.closedShadowPositions = state.closedShadowPositions.slice(0, 50);
@@ -1972,11 +2054,10 @@ async function monitorLivePositions(userId: number, state: SolEngineState) {
   for (const r of state.lastResults) {
     if (r.token.address) volumeMap[r.token.address] = r.token.volume24h || 0;
   }
+  // No scan-price fallback (see SOL_BIG_MOVE_PCT): a junk-pool print could
+  // fire a live TP/trail. A missed mint simply isn't acted on this cycle;
+  // the max-hold stop below still forces an exit.
   const priceMap = await fetchPricesByMint(openPositions.map(p => p.mint)).catch(() => ({} as Record<string, number>));
-  for (const r of state.lastResults) {
-    const m = r.token.address;
-    if (m && !(priceMap[m] > 0)) priceMap[m] = parseFloat(r.token.priceUsd) || 0;
-  }
 
   for (const pos of openPositions) {
     // FIX 8: max-hold time stop — force-exit anything older than the limit so a
@@ -2012,6 +2093,14 @@ async function monitorLivePositions(userId: number, state: SolEngineState) {
     if (isBadPriceSample(currentPrice, pos.currentPrice > 0 ? pos.currentPrice : pos.entryPrice)) {
       addActivity(state, { type: 'live_signal', message: `⚠️ ${pos.symbol}: bad price sample ignored ($${currentPrice} vs $${(pos.currentPrice > 0 ? pos.currentPrice : pos.entryPrice)}) — not acting this cycle` });
       continue;
+    }
+    // Upward jumps need a second source (never blocks a falling price → stops still fire).
+    {
+      const _lastGood = pos.currentPrice > 0 ? pos.currentPrice : pos.entryPrice;
+      if (!(await confirmBigUpMove(pos.mint, currentPrice, _lastGood))) {
+        addActivity(state, { type: 'live_signal', message: `⚠️ ${pos.symbol}: +${(((currentPrice - _lastGood) / _lastGood) * 100).toFixed(0)}% jump not confirmed by a second source — not acting this cycle` });
+        continue;
+      }
     }
 
     pos.currentPrice = currentPrice;
@@ -2423,14 +2512,25 @@ async function runScan(userId: number, state: SolEngineState, triggerToken?: str
 
         // Paper auto-trade
         if (state.autoTradeEnabled && paperSizeSOL > 0 && tokenPrice > 0) {
-          const alreadyOpen = state.paperPositions.some(p => p.symbol === analysis.token.symbol && p.status === 'open');
-          if (!alreadyOpen) {
+          const alreadyOpen = state.paperPositions.some(p => p.status === 'open' && (p.mint === tokenMint || p.symbol === analysis.token.symbol));
+          // Same mint closed moments ago → don't churn straight back in (RAY was
+          // entered 3× in 4 min, each closed instantly on a bad print).
+          const recentlyClosed = state.closedPaperPositions.some(p =>
+            p.mint === tokenMint && !!p.closedAt && Date.now() - new Date(p.closedAt).getTime() < SOL_REENTRY_COOLDOWN_MS);
+          const paperEntryPrice = (!alreadyOpen && !recentlyClosed)
+            ? await referenceEntryPrice(state, analysis.token.symbol, tokenMint, tokenPrice)
+            : null;
+          if (paperEntryPrice) {
+            // Paper's own stop levels from its reference entry; the shared
+            // stopLossPrice/takeProfitPrice stay as-is for the live path below.
+            const paperStop = state.config.stopOrdersEnabled ? paperEntryPrice * (1 - state.autoTradeSL / 100) : undefined;
+            const paperTp = state.config.stopOrdersEnabled ? paperEntryPrice * (1 + state.autoTradeTP / 100) : undefined;
             const pos: SolAutoPosition = {
               id: `paper_${Date.now()}_${analysis.token.symbol}`,
               symbol: analysis.token.symbol,
               mint: tokenMint,
-              entryPrice: tokenPrice,
-              currentPrice: tokenPrice,
+              entryPrice: paperEntryPrice,
+              currentPrice: paperEntryPrice,
               targetPct: state.autoTradeTP,
               slPct: state.autoTradeSL,
               size: paperSizeSOL,
@@ -2442,14 +2542,14 @@ async function runScan(userId: number, state: SolEngineState, triggerToken?: str
               mode: 'paper',
               openedAt: now2,
               status: 'open',
-              peakPrice: tokenPrice,
+              peakPrice: paperEntryPrice,
               trailingActive: false,
               breakevenActive: false,
               trailActivationPct: state.autoTrailActivationPct,
               trailDistancePct: state.autoTrailDistancePct,
               entryVolume24h: analysis.token.volume24h || 0,
-              stopLossPrice,
-              takeProfitPrice,
+              stopLossPrice: paperStop,
+              takeProfitPrice: paperTp,
             };
             state.paperPositions.push(pos);
             // Persist paper positions (2026-10-30): they were in-memory only,
@@ -2458,12 +2558,12 @@ async function runScan(userId: number, state: SolEngineState, triggerToken?: str
             upsertPosition(userId, pos).catch(() => {});
             state.dailyTradeCount++;
             const compoundNote = state.compoundMode ? ` [💹 Compounding ON — ${state.paperPortfolioValue.toFixed(3)} SOL pool]` : '';
-            const stopNote = state.config.stopOrdersEnabled && stopLossPrice
-              ? ` | 🛑 Stop @$${stopLossPrice.toFixed(6)} · 🎯 TP @$${takeProfitPrice?.toFixed(6)}`
+            const stopNote = state.config.stopOrdersEnabled && paperStop
+              ? ` | 🛑 Stop @$${paperStop.toFixed(6)} · 🎯 TP @$${paperTp?.toFixed(6)}`
               : ` | TP: +${state.autoTradeTP}% | SL: -${state.autoTradeSL}%`;
             addActivity(state, {
               type: 'paper_buy',
-              message: `📄 Paper BUY: ${analysis.token.symbol} — ${paperSizeSOL.toFixed(3)} SOL @ $${tokenPrice.toFixed(6)} [${topStrat.icon}${topStrat.name}]${stopNote} | Breakeven @+8% · Trail @+20% (vol-adjusted)${compoundNote}`,
+              message: `📄 Paper BUY: ${analysis.token.symbol} — ${paperSizeSOL.toFixed(3)} SOL @ $${paperEntryPrice.toFixed(6)} [${topStrat.icon}${topStrat.name}]${stopNote} | Breakeven @+8% · Trail @+20% (vol-adjusted)${compoundNote}`,
             });
           }
         }

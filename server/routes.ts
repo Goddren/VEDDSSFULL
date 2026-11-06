@@ -27853,13 +27853,13 @@ Generate an agenda with timing, topics, and hosting tips. Return JSON: {
         const [{ rows: agg }, { rows: open }, { rows: recent }, { rows: byStrat }, { rows: weeks }, { rows: st }] = await Promise.all([
           _p.query(`SELECT count(*)::int n, count(*) FILTER (WHERE close_pnl_pct > 0)::int w, COALESCE(avg(close_pnl_pct),0)::float avg_pct,
                            COALESCE(sum(size * close_pnl_pct / 100),0)::float pnl_sol
-                      FROM sol_engine_positions WHERE user_id=$1 AND mode='paper' AND status='closed'`, [userId]),
+                      FROM sol_engine_positions WHERE user_id=$1 AND mode='paper' AND status='closed' AND close_pnl_pct IS NOT NULL`, [userId]),
           _p.query(`SELECT position_id, symbol, strategy_id, entry_price, current_price, size, target_pct, sl_pct, opened_at
                       FROM sol_engine_positions WHERE user_id=$1 AND mode='paper' AND status='open' ORDER BY opened_at DESC`, [userId]),
           _p.query(`SELECT position_id, symbol, strategy_id, entry_price, size, close_pnl_pct, opened_at, closed_at
                       FROM sol_engine_positions WHERE user_id=$1 AND mode='paper' AND status='closed' ORDER BY closed_at DESC NULLS LAST LIMIT 25`, [userId]),
           _p.query(`SELECT strategy_id, count(*)::int n, count(*) FILTER (WHERE close_pnl_pct > 0)::int w, COALESCE(avg(close_pnl_pct),0)::float avg_pct
-                      FROM sol_engine_positions WHERE user_id=$1 AND mode='paper' AND status='closed' GROUP BY 1 ORDER BY 4 DESC`, [userId]),
+                      FROM sol_engine_positions WHERE user_id=$1 AND mode='paper' AND status='closed' AND close_pnl_pct IS NOT NULL GROUP BY 1 ORDER BY 4 DESC`, [userId]),
           _p.query(`SELECT date_trunc('week', closed_at::timestamptz) wk, COALESCE(sum(close_pnl_pct),0)::float s
                       FROM sol_engine_positions WHERE user_id=$1 AND mode='paper' AND status='closed' AND closed_at IS NOT NULL
                        AND closed_at::timestamptz >= date_trunc('week', now()) - interval '7 days' GROUP BY 1`, [userId]),
