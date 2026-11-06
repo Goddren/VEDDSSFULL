@@ -1577,6 +1577,12 @@ async function scanMarkets(userId: number): Promise<void> {
   if (!state || state.status !== 'running' || state.currentlyScanning) return;
   if (!isFxLeader()) return; // another instance owns the FX engines — see fxLeader below
 
+  // Keep the TradeLocker balance cache live while the engine runs. The
+  // tradelocker-sync loop only refreshes users marked active (UI or a trade in
+  // the last 15 min); without this the account-safety gate saw no TL data
+  // whenever the app was closed and fell back to the MT5 terminal's numbers.
+  import('./tradelocker-sync').then(m => m.markTlUserActive(userId)).catch(() => {});
+
   state.currentlyScanning = true;
   state.scanCount++;
   state.lastScanAt = new Date().toISOString();
@@ -2464,8 +2470,9 @@ export function getAccountSafetySnapshot(userId: number, state: any, only?: 'mt5
     };
   }
 
-  // 2. Fall back to the live TradeLocker cache (tradelocker-sync refreshes it
-  //    every ~20s and persists across restarts), aggregated across connections.
+  // 2. Fall back to the live TradeLocker cache, aggregated across connections.
+  //    tradelocker-sync refreshes it every ~20s, but ONLY for users marked
+  //    active; scanMarkets marks the engine's user active each scan.
   const _tl = only === 'mt5' ? null : (global as any).tlAccountData?.[userId];
   if (_tl) {
     let balance = 0, equity = 0, margin = 0, freeMargin = 0, seen = 0, freshest = 0;
@@ -5455,7 +5462,24 @@ async function processDecision(userId: number, decision: any, newsCtx?: any): Pr
       // Each broker is judged on its OWN account. TradeLocker data (when present)
       // governs the engine-wide gate; a breach seen only on MT5 suppresses the
       // MT5 entry broadcast below instead of halting every account.
-      const _tlSnap  = getAccountSafetySnapshot(userId, state, 'tradelocker');
+      let _tlSnap  = getAccountSafetySnapshot(userId, state, 'tradelocker');
+      if (!_tlSnap) {
+        // The TL cache is only refreshed for "active" users (a UI fetch or a
+        // trade in the last 15 min). After a deploy, or with the app closed, it
+        // is empty or >30 min stale, and the gate fell back to the MT5 terminal's
+        // own daily loss for every account (2026-11-06 17:54, after 62f2afda).
+        // Refresh once here, bounded, then re-read. A failed refresh leaves the
+        // previous behaviour (MT5, or fail closed) in place.
+        try {
+          const { markTlUserActive, syncUserTradeLocker } = await import('./tradelocker-sync');
+          markTlUserActive(userId);
+          await Promise.race([
+            syncUserTradeLocker(userId).catch(() => {}),
+            new Promise(r => setTimeout(r, 15_000)),
+          ]);
+          _tlSnap = getAccountSafetySnapshot(userId, state, 'tradelocker');
+        } catch { /* keep _tlSnap null */ }
+      }
       const _mt5Snap = getAccountSafetySnapshot(userId, state, 'mt5');
       const _snap = _tlSnap ?? _mt5Snap;
       if (!_snap) {

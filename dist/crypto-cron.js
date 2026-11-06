@@ -20435,6 +20435,14 @@ var init_signal_confidence = __esm({
 });
 
 // server/services/tradelocker-sync.ts
+var tradelocker_sync_exports = {};
+__export(tradelocker_sync_exports, {
+  getTlAccountData: () => getTlAccountData,
+  markTlUserActive: () => markTlUserActive,
+  refreshTlAfterTrade: () => refreshTlAfterTrade,
+  startTradeLockerSync: () => startTradeLockerSync,
+  syncUserTradeLocker: () => syncUserTradeLocker
+});
 async function _recordOrBackfillConfirmationOutcome(userId, symbol, direction, result, closeTime) {
   try {
     const resolved = await storage.resolveConfirmationOutcome(userId, symbol, direction, result, null, closeTime ?? null);
@@ -21074,12 +21082,45 @@ async function syncUserTradeLocker(userId, force = false) {
     inFlight.delete(userId);
   }
 }
+function getTlAccountData(userId) {
+  markTlUserActive(userId);
+  const store = cache5()[userId] || {};
+  const now = Date.now();
+  const accounts = Object.values(store).map((a) => {
+    const secondsAgo = Math.floor((now - new Date(a.lastUpdated).getTime()) / 1e3);
+    return { ...a, secondsAgo, isConnected: secondsAgo < 120 && !a.error };
+  });
+  return {
+    connected: accounts.some((a) => a.isConnected),
+    accounts,
+    totalBalance: accounts.reduce((s, a) => s + (a.balance || 0), 0),
+    totalEquity: accounts.reduce((s, a) => s + (a.equity || 0), 0)
+  };
+}
 function refreshTlAfterTrade(userId) {
   markTlUserActive(userId);
   syncUserTradeLocker(userId, true).catch(() => {
   });
 }
-var lastOpenTickets, lastOutcomeReconcile, OUTCOME_RECONCILE_MS, lastDeepBackfill, DEEP_BACKFILL_MS, lastBalancePersist, BALANCE_PERSIST_MS, activeUsers, ACTIVE_WINDOW_MS, SYNC_INTERVAL_MS, MIN_RESYNC_GAP_MS, lastSyncAt, inFlight, PENDING_SWEEP_MS, _lastPendingSweep;
+function startTradeLockerSync() {
+  if (started) return;
+  started = true;
+  setInterval(async () => {
+    const now = Date.now();
+    for (const [userId, seenAt] of Array.from(activeUsers.entries())) {
+      if (now - seenAt > ACTIVE_WINDOW_MS) {
+        activeUsers.delete(userId);
+        continue;
+      }
+      try {
+        await syncUserTradeLocker(userId);
+      } catch {
+      }
+    }
+  }, SYNC_INTERVAL_MS);
+  console.log("[TL-sync] Background TradeLocker balance sync started (20s interval).");
+}
+var lastOpenTickets, lastOutcomeReconcile, OUTCOME_RECONCILE_MS, lastDeepBackfill, DEEP_BACKFILL_MS, lastBalancePersist, BALANCE_PERSIST_MS, activeUsers, ACTIVE_WINDOW_MS, SYNC_INTERVAL_MS, MIN_RESYNC_GAP_MS, lastSyncAt, inFlight, PENDING_SWEEP_MS, _lastPendingSweep, started;
 var init_tradelocker_sync = __esm({
   "server/services/tradelocker-sync.ts"() {
     "use strict";
@@ -21102,6 +21143,7 @@ var init_tradelocker_sync = __esm({
     inFlight = /* @__PURE__ */ new Set();
     PENDING_SWEEP_MS = 5 * 6e4;
     _lastPendingSweep = /* @__PURE__ */ new Map();
+    started = false;
   }
 });
 
@@ -25049,6 +25091,8 @@ async function scanMarkets(userId) {
   const state = engineStates[userId];
   if (!state || state.status !== "running" || state.currentlyScanning) return;
   if (!isFxLeader()) return;
+  Promise.resolve().then(() => (init_tradelocker_sync(), tradelocker_sync_exports)).then((m) => m.markTlUserActive(userId)).catch(() => {
+  });
   state.currentlyScanning = true;
   state.scanCount++;
   state.lastScanAt = (/* @__PURE__ */ new Date()).toISOString();
@@ -28244,7 +28288,20 @@ async function processDecision(userId, decision, newsCtx) {
     }
     let _mt5EntryBlocked = false;
     {
-      const _tlSnap = getAccountSafetySnapshot(userId, state, "tradelocker");
+      let _tlSnap = getAccountSafetySnapshot(userId, state, "tradelocker");
+      if (!_tlSnap) {
+        try {
+          const { markTlUserActive: markTlUserActive2, syncUserTradeLocker: syncUserTradeLocker2 } = await Promise.resolve().then(() => (init_tradelocker_sync(), tradelocker_sync_exports));
+          markTlUserActive2(userId);
+          await Promise.race([
+            syncUserTradeLocker2(userId).catch(() => {
+            }),
+            new Promise((r) => setTimeout(r, 15e3))
+          ]);
+          _tlSnap = getAccountSafetySnapshot(userId, state, "tradelocker");
+        } catch {
+        }
+      }
       const _mt5Snap = getAccountSafetySnapshot(userId, state, "mt5");
       const _snap = _tlSnap ?? _mt5Snap;
       if (!_snap) {
@@ -33734,8 +33791,8 @@ async function releaseCryptoRunLock() {
   }
 }
 function startCryptocomEngineScanner() {
-  if (started) return;
-  started = true;
+  if (started2) return;
+  started2 = true;
   const RETRY_MS = 6e4;
   const tryStart = () => {
     acquireCryptoRunLock().then((locked) => {
@@ -33787,7 +33844,7 @@ function startCryptocomEngineScanner() {
   };
   tryStart();
 }
-var MIN_SCAN_INTERVAL_MS, lastScanAt, MAX_SYMBOLS_PER_CYCLE, scanCursor, defiUniverse, CRYPTO_SL_ATR_MULT, CRYPTO_MIN_RR, _modelUniverse, _gasStatus, ROTATE_AFTER_H, ROTATE_FLAT_PCT, ROTATE_MIN_SCORE, STRATEGY_RUNNERS, AUTO_STRATEGIES, sessionPeakEquity, EXIT_BUDGET_MS, ENTRY_BUDGET_MS, userInFlight, _cycleNo, USER_CONCURRENCY, started, scanInFlight, _skippedTicks, _scansCompleted, WORKER_ID, _hbBooted, CRYPTO_RUN_LOCK_KEY, _holdsRunLock, STALE_AFTER_MS;
+var MIN_SCAN_INTERVAL_MS, lastScanAt, MAX_SYMBOLS_PER_CYCLE, scanCursor, defiUniverse, CRYPTO_SL_ATR_MULT, CRYPTO_MIN_RR, _modelUniverse, _gasStatus, ROTATE_AFTER_H, ROTATE_FLAT_PCT, ROTATE_MIN_SCORE, STRATEGY_RUNNERS, AUTO_STRATEGIES, sessionPeakEquity, EXIT_BUDGET_MS, ENTRY_BUDGET_MS, userInFlight, _cycleNo, USER_CONCURRENCY, started2, scanInFlight, _skippedTicks, _scansCompleted, WORKER_ID, _hbBooted, CRYPTO_RUN_LOCK_KEY, _holdsRunLock, STALE_AFTER_MS;
 var init_cryptocom_scanner = __esm({
   "server/services/cryptocom-scanner.ts"() {
     "use strict";
@@ -33827,7 +33884,7 @@ var init_cryptocom_scanner = __esm({
     userInFlight = /* @__PURE__ */ new Set();
     _cycleNo = 0;
     USER_CONCURRENCY = Math.max(1, Math.floor(Number(process.env.CRYPTO_USER_CONCURRENCY) || 4));
-    started = false;
+    started2 = false;
     scanInFlight = false;
     _skippedTicks = 0;
     _scansCompleted = 0;
@@ -33847,7 +33904,7 @@ var _killTimer = setTimeout(() => {
 }, MAX_RUNTIME_MS);
 _killTimer.unref();
 async function main() {
-  const started2 = Date.now();
+  const started3 = Date.now();
   console.log(`[crypto-cron] start ${(/* @__PURE__ */ new Date()).toISOString()}`);
   try {
     const { ensureCryptocomEngineTables: ensureCryptocomEngineTables2 } = await Promise.resolve().then(() => (init_ensure_cryptocom_engine_tables(), ensure_cryptocom_engine_tables_exports));
@@ -33857,7 +33914,7 @@ async function main() {
   }
   const { runCryptocomEngineScan: runCryptocomEngineScan2 } = await Promise.resolve().then(() => (init_cryptocom_scanner(), cryptocom_scanner_exports));
   await runCryptocomEngineScan2();
-  console.log(`[crypto-cron] scan complete in ${Date.now() - started2}ms`);
+  console.log(`[crypto-cron] scan complete in ${Date.now() - started3}ms`);
 }
 main().then(() => {
   clearTimeout(_killTimer);

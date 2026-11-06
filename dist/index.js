@@ -28689,6 +28689,8 @@ async function scanMarkets(userId) {
   const state = engineStates[userId];
   if (!state || state.status !== "running" || state.currentlyScanning) return;
   if (!isFxLeader()) return;
+  Promise.resolve().then(() => (init_tradelocker_sync(), tradelocker_sync_exports)).then((m) => m.markTlUserActive(userId)).catch(() => {
+  });
   state.currentlyScanning = true;
   state.scanCount++;
   state.lastScanAt = (/* @__PURE__ */ new Date()).toISOString();
@@ -31884,7 +31886,20 @@ async function processDecision(userId, decision, newsCtx) {
     }
     let _mt5EntryBlocked = false;
     {
-      const _tlSnap = getAccountSafetySnapshot(userId, state, "tradelocker");
+      let _tlSnap = getAccountSafetySnapshot(userId, state, "tradelocker");
+      if (!_tlSnap) {
+        try {
+          const { markTlUserActive: markTlUserActive2, syncUserTradeLocker: syncUserTradeLocker2 } = await Promise.resolve().then(() => (init_tradelocker_sync(), tradelocker_sync_exports));
+          markTlUserActive2(userId);
+          await Promise.race([
+            syncUserTradeLocker2(userId).catch(() => {
+            }),
+            new Promise((r) => setTimeout(r, 15e3))
+          ]);
+          _tlSnap = getAccountSafetySnapshot(userId, state, "tradelocker");
+        } catch {
+        }
+      }
       const _mt5Snap = getAccountSafetySnapshot(userId, state, "mt5");
       const _snap = _tlSnap ?? _mt5Snap;
       if (!_snap) {
@@ -68489,9 +68504,9 @@ async function getStopOrdersForUser(userId, filters = {}) {
 init_schema();
 
 // server/build-info.ts
-var BUILD_COMMIT = "7c627803-dirty";
-var BUILD_BRANCH = "fix/mt5-dailyloss-scope";
-var BUILT_AT = "2026-11-06T15:55:13.960Z";
+var BUILD_COMMIT = "62f2afda-dirty";
+var BUILD_BRANCH = "fix/engine-tl-cache-fresh";
+var BUILT_AT = "2026-11-06T17:59:18.485Z";
 
 // server/stripe.ts
 init_db();
