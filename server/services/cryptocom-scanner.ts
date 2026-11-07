@@ -98,6 +98,7 @@ async function fetchBars(symbol: string, timeframe: string, count: number, chain
  */
 async function refreshDefiUniverse(chain: string): Promise<string[]> {
   const { discoverDefiTokens } = await import('./defi-market-data');
+  const { isTokenizedAsset: _isTokenizedAsset } = await import('./crypto-paper');
   // Stablecoins never trend — scanning them wastes candle/AI budget and can
   // only produce noise trades. Drop known stables and anything USD-named
   // that trades within 1.5% of $1.
@@ -111,6 +112,8 @@ async function refreshDefiUniverse(chain: string): Promise<string[]> {
     if (/^(S|W|ST|A|C|Y)?USD[A-Z0-9.+]*$/i.test(sym)) return false;
     const px = Number(t.priceUsd);
     if (/USD|EUR/.test(sym) && px > 0 && Math.abs(px - 1) < 0.015) return false;
+    // Tokenized stocks / RWAs (2026-11-07, CRYPTO_EXCLUDE_RWA=off disables).
+    if (_isTokenizedAsset(sym)) return false;
     return true;
   });
   for (const t of tokens) {
@@ -1340,6 +1343,20 @@ async function executeSignalSingle(service: CryptoComService, connection: Crypto
         }
       }
       tpPctD = Math.max(tpPctD, slPctD * CRYPTO_MIN_RR);
+      // Paper (2026-11-07): levels from the token's own volatility instead of
+      // the flat config %: stop = CRYPTO_SL_ATR_MULT x H1 ATR clamped to
+      // CRYPTO_PAPER_SL_MIN..MAX (1.5..12%), target = CRYPTO_MIN_RR x stop.
+      // Size scales so the dollar risk matches the configured stop. Live
+      // swaps keep the logic above. CRYPTO_ATR_LEVELS=off restores it.
+      if ((cfg as any)._paper && process.env.CRYPTO_ATR_LEVELS !== 'off' && ax && result.price && ax.atr > 0) {
+        const cfgSl = Number((cfg as any).cefiStopLossPct ?? 2);
+        const lo = Number(process.env.CRYPTO_PAPER_SL_MIN ?? 1.5), hi = Number(process.env.CRYPTO_PAPER_SL_MAX ?? 12);
+        const atrSl = Math.min(hi, Math.max(lo, (ax.atr * CRYPTO_SL_ATR_MULT / result.price) * 100));
+        notionalD = Math.max(1, _baseN * (gateD.riskMultiplier < 1 ? gateD.riskMultiplier : 1) * Math.min(1, cfgSl / atrSl));
+        slPctD = atrSl;
+        tpPctD = atrSl * CRYPTO_MIN_RR;
+        _sizeNote = ` ATR levels: stop ${atrSl.toFixed(1)}% (${CRYPTO_SL_ATR_MULT}x H1 ATR), target ${tpPctD.toFixed(1)}%.`;
+      }
     }
     // A swap this small is eaten by gas + slippage and still takes a slot.
     {

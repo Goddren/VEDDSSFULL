@@ -9041,6 +9041,495 @@ var init_defi_market_data = __esm({
   }
 });
 
+// server/services/runtime-state.ts
+var runtime_state_exports = {};
+__export(runtime_state_exports, {
+  ensureRuntimeStateTable: () => ensureRuntimeStateTable,
+  getRuntimeStateStrict: () => getRuntimeStateStrict,
+  insertRuntimeStateIfAbsent: () => insertRuntimeStateIfAbsent,
+  loadRuntimeState: () => loadRuntimeState,
+  saveRuntimeState: () => saveRuntimeState
+});
+function ensureRuntimeStateTable() {
+  if (!ensured) {
+    ensured = pool.query(DDL).then(() => void 0).catch((err) => {
+      console.error("[runtime-state] ensure table failed (non-fatal):", err?.message ?? err);
+      ensured = null;
+    });
+  }
+  return ensured;
+}
+function saveRuntimeState(scope, key, value) {
+  void (async () => {
+    try {
+      await ensureRuntimeStateTable();
+      await pool.query(
+        `INSERT INTO runtime_state (scope, key, value, updated_at) VALUES ($1, $2, $3::jsonb, now())
+         ON CONFLICT (scope, key) DO UPDATE SET value = EXCLUDED.value, updated_at = now()`,
+        [scope, key, JSON.stringify(value)]
+      );
+    } catch (err) {
+      console.error(`[runtime-state] save ${scope}/${key} failed (non-fatal):`, err?.message ?? err);
+    }
+  })();
+}
+async function loadRuntimeState(scope) {
+  try {
+    await ensureRuntimeStateTable();
+    const { rows } = await pool.query(`SELECT key, value FROM runtime_state WHERE scope = $1`, [scope]);
+    return rows;
+  } catch (err) {
+    console.error(`[runtime-state] load ${scope} failed (non-fatal):`, err?.message ?? err);
+    return [];
+  }
+}
+async function getRuntimeStateStrict(scope, key) {
+  await ensureRuntimeStateTable();
+  const { rows } = await pool.query(`SELECT value FROM runtime_state WHERE scope = $1 AND key = $2`, [scope, key]);
+  return rows[0]?.value ?? null;
+}
+async function insertRuntimeStateIfAbsent(scope, key, value) {
+  await ensureRuntimeStateTable();
+  await pool.query(
+    `INSERT INTO runtime_state (scope, key, value) VALUES ($1, $2, $3::jsonb) ON CONFLICT (scope, key) DO NOTHING`,
+    [scope, key, JSON.stringify(value)]
+  );
+  return getRuntimeStateStrict(scope, key);
+}
+var DDL, ensured;
+var init_runtime_state = __esm({
+  "server/services/runtime-state.ts"() {
+    "use strict";
+    init_db();
+    DDL = `
+CREATE TABLE IF NOT EXISTS "runtime_state" (
+  "scope" text NOT NULL,
+  "key" text NOT NULL,
+  "value" jsonb NOT NULL,
+  "updated_at" timestamp NOT NULL DEFAULT now(),
+  PRIMARY KEY ("scope", "key")
+);
+`;
+    ensured = null;
+  }
+});
+
+// server/services/paper-costs.ts
+var paper_costs_exports = {};
+__export(paper_costs_exports, {
+  estimateCryptoRoundTripBps: () => estimateCryptoRoundTripBps,
+  estimateSolRoundTripCost: () => estimateSolRoundTripCost,
+  priceImpactPct: () => priceImpactPct,
+  solDexFeePct: () => solDexFeePct
+});
+function priceImpactPct(notionalUsd, liquidityUsd) {
+  if (!(liquidityUsd && liquidityUsd > 0) || !(notionalUsd > 0)) return null;
+  return Math.min(50, 2 * notionalUsd / liquidityUsd * 100);
+}
+function solDexFeePct(dex) {
+  const d = (dex || "").toLowerCase();
+  if (d.startsWith("pumpswap")) return num("SOL_PAPER_FEE_PUMPSWAP_PCT", 0.25);
+  if (d.startsWith("pump")) return num("SOL_PAPER_FEE_PUMPFUN_PCT", 1);
+  if (d.startsWith("raydium")) return num("SOL_PAPER_FEE_RAYDIUM_PCT", 0.25);
+  if (d.startsWith("orca")) return num("SOL_PAPER_FEE_ORCA_PCT", 0.3);
+  if (d.startsWith("meteora")) return num("SOL_PAPER_FEE_METEORA_PCT", 0.3);
+  return num("SOL_PAPER_FEE_DEFAULT_PCT", 0.3);
+}
+function estimateSolRoundTripCost(i) {
+  const feePct = solDexFeePct(i.dex);
+  const slippagePct = num("SOL_PAPER_SLIPPAGE_PCT", 0.5);
+  const notionalUsd = i.solUsd && i.solUsd > 0 ? i.sizeSol * i.solUsd : 0;
+  const impactPct = priceImpactPct(notionalUsd, i.liquidityUsd) ?? num("SOL_PAPER_IMPACT_FALLBACK_PCT", 1);
+  const txSol = num("SOL_PAPER_TX_FEE_SOL", 1e-4);
+  const networkPct = i.sizeSol > 0 ? Math.min(5, txSol / i.sizeSol * 100) : 0;
+  const side = feePct + slippagePct + impactPct + networkPct;
+  return { roundTripPct: 2 * side, perSide: { feePct, slippagePct, impactPct, networkPct } };
+}
+function estimateCryptoRoundTripBps(i) {
+  const cap = Math.max(0, i.slippageCapBps || 0);
+  const liq = i.liquidityUsd && i.liquidityUsd > 0 ? i.liquidityUsd : null;
+  if (!liq) {
+    const perSide2 = num("CRYPTO_PAPER_FEE_BPS", 30) + cap / 2;
+    return { roundTripBps: 2 * perSide2, perSideBps: perSide2, liquidityKnown: false };
+  }
+  const deep = liq >= num("CRYPTO_PAPER_DEEP_LIQ_USD", 5e6);
+  const feeBps = deep ? num("CRYPTO_PAPER_FEE_DEEP_BPS", 5) : num("CRYPTO_PAPER_FEE_BPS", 30);
+  const slipBps = num("CRYPTO_PAPER_SLIPPAGE_BPS", 5);
+  const impactBps = Math.min(cap || Infinity, (priceImpactPct(i.notionalUsd, liq) ?? 0) * 100);
+  const gasBps = i.notionalUsd > 0 ? Math.min(100, num("CRYPTO_PAPER_GAS_USD", 0.02) / i.notionalUsd * 1e4) : 0;
+  const perSide = feeBps + slipBps + impactBps + gasBps;
+  return { roundTripBps: 2 * perSide, perSideBps: perSide, liquidityKnown: true };
+}
+var num;
+var init_paper_costs = __esm({
+  "server/services/paper-costs.ts"() {
+    "use strict";
+    num = (name, dflt) => {
+      const v = Number(process.env[name]);
+      return Number.isFinite(v) && v >= 0 ? v : dflt;
+    };
+  }
+});
+
+// server/services/crypto-paper.ts
+var crypto_paper_exports = {};
+__export(crypto_paper_exports, {
+  PAPER_MAX_OPEN: () => PAPER_MAX_OPEN,
+  ensurePaperTable: () => ensurePaperTable,
+  getPaperSettings: () => getPaperSettings,
+  isTokenizedAsset: () => isTokenizedAsset,
+  openPaperTrade: () => openPaperTrade,
+  paperMaxHoursFor: () => paperMaxHoursFor,
+  paperShortsAllowed: () => paperShortsAllowed,
+  paperSummary: () => paperSummary,
+  resolvePaperTrades: () => resolvePaperTrades,
+  runCryptoOrbShadow: () => runCryptoOrbShadow,
+  savePaperSettings: () => savePaperSettings,
+  underlyingOf: () => underlyingOf
+});
+function paperMaxHoursFor(strategy) {
+  const cap = PAPER_MAX_HOURS();
+  const s = (strategy || "").toLowerCase();
+  const slow = ["trend_following", "structure", "composite_autonomous", "composite"];
+  const h = slow.includes(s) ? Number(process.env.CRYPTO_PAPER_SLOW_HOURS ?? 72) : Number(process.env.CRYPTO_PAPER_FAST_HOURS ?? 24);
+  return Math.max(1, Math.min(cap, h > 0 ? h : cap));
+}
+function isTokenizedAsset(symbol) {
+  if (process.env.CRYPTO_EXCLUDE_RWA === "off") return false;
+  const s = (symbol || "").toUpperCase();
+  const extra = (process.env.CRYPTO_RWA_EXTRA || "").split(",").map((x) => x.trim().toUpperCase()).filter(Boolean);
+  return RWA_RE.test(s) || RWA_NAMED.has(s) || extra.includes(s);
+}
+function underlyingOf(symbol) {
+  const s = (symbol || "").toUpperCase();
+  return UNDERLYING[s] ?? s;
+}
+function ensurePaperTable() {
+  if (!_ensured) {
+    _ensured = pool.query(`CREATE TABLE IF NOT EXISTS crypto_paper_trades (
+      id serial PRIMARY KEY, user_id int NOT NULL, symbol text NOT NULL, chain text, token_address text, pool_address text,
+      strategy text, score real, direction text NOT NULL DEFAULT 'long',
+      entry_price double precision NOT NULL, stop_loss double precision NOT NULL, take_profit double precision NOT NULL,
+      notional_usd double precision NOT NULL, cost_bps int NOT NULL DEFAULT 0, reasoning text,
+      status text NOT NULL DEFAULT 'open', exit_price double precision, exit_reason text,
+      return_pct double precision, r_multiple double precision, pnl_usd double precision,
+      opened_at timestamptz NOT NULL DEFAULT now(), closed_at timestamptz)`).then(() => pool.query(`CREATE INDEX IF NOT EXISTS crypto_paper_trades_user_status ON crypto_paper_trades (user_id, status)`)).then(() => pool.query(`ALTER TABLE crypto_paper_trades ADD COLUMN IF NOT EXISTS gross_return_pct double precision,
+                                ADD COLUMN IF NOT EXISTS cost_usd double precision, ADD COLUMN IF NOT EXISTS liquidity_usd double precision`)).then(() => void 0).catch((e) => {
+      _ensured = null;
+      throw e;
+    });
+  }
+  return _ensured;
+}
+async function getPaperSettings(userId) {
+  try {
+    const { getRuntimeStateStrict: getRuntimeStateStrict2 } = await Promise.resolve().then(() => (init_runtime_state(), runtime_state_exports));
+    const v = await getRuntimeStateStrict2("crypto_paper", String(userId));
+    return { ...DEFAULTS, ...v || {} };
+  } catch {
+    return { ...DEFAULTS };
+  }
+}
+async function savePaperSettings(userId, patch) {
+  const cur = await getPaperSettings(userId);
+  const next = {
+    enabled: typeof patch.enabled === "boolean" ? patch.enabled : cur.enabled,
+    startBalance: Number(patch.startBalance) > 0 ? Math.min(1e6, Number(patch.startBalance)) : cur.startBalance,
+    walletAddress: patch.walletAddress !== void 0 ? patch.walletAddress : cur.walletAddress ?? null,
+    startedAt: cur.startedAt ?? (patch.enabled ? Date.now() : void 0)
+  };
+  const { ensureRuntimeStateTable: ensureRuntimeStateTable2 } = await Promise.resolve().then(() => (init_runtime_state(), runtime_state_exports));
+  await ensureRuntimeStateTable2();
+  await pool.query(
+    `INSERT INTO runtime_state (scope, key, value, updated_at) VALUES ('crypto_paper', $1, $2::jsonb, now())
+     ON CONFLICT (scope, key) DO UPDATE SET value = EXCLUDED.value, updated_at = now()`,
+    [String(userId), JSON.stringify(next)]
+  );
+  return next;
+}
+async function openPaperTrade(t) {
+  await ensurePaperTable();
+  const dir = t.direction === "short" ? "short" : "long";
+  if (dir === "short" && !paperShortsAllowed()) return { ok: false, reason: "short signal not recorded \u2014 Base spot is long-only (CRYPTO_PAPER_SHORTS=on to record)" };
+  if (isTokenizedAsset(t.symbol)) return { ok: false, reason: "tokenized stock / RWA excluded (CRYPTO_EXCLUDE_RWA)" };
+  const { rows: openRows } = await pool.query(`SELECT id, symbol FROM crypto_paper_trades WHERE user_id=$1 AND status='open'`, [t.userId]);
+  const und = underlyingOf(t.symbol);
+  const same = openRows.find((r) => underlyingOf(r.symbol) === und);
+  if (same) return { ok: false, reason: same.symbol.toUpperCase() === t.symbol.toUpperCase() ? "already holding a paper position in this token" : `already holding ${same.symbol} (same underlying ${und})` };
+  const stop = dir === "short" ? t.entry * (1 + t.slPct / 100) : t.entry * (1 - t.slPct / 100);
+  const target = dir === "short" ? t.entry * (1 - t.tpPct / 100) : t.entry * (1 + t.tpPct / 100);
+  const { estimateCryptoRoundTripBps: estimateCryptoRoundTripBps2 } = await Promise.resolve().then(() => (init_paper_costs(), paper_costs_exports));
+  const costBps = estimateCryptoRoundTripBps2({ notionalUsd: t.notionalUsd, liquidityUsd: t.liquidityUsd, slippageCapBps: Number(t.slippageBps) || 0 }).roundTripBps;
+  const costFloorMult = Number(process.env.CRYPTO_PAPER_COST_FLOOR_MULT ?? 3);
+  if (process.env.CRYPTO_ATR_LEVELS !== "off" && costFloorMult > 0 && t.slPct < costFloorMult * costBps / 100) {
+    return { ok: false, reason: `stop ${t.slPct.toFixed(2)}% is under ${costFloorMult}x the ${(costBps / 100).toFixed(2)}% round-trip cost` };
+  }
+  if (openRows.length >= PAPER_MAX_OPEN()) {
+    const freed = await evictOldestFlat(t.userId);
+    if (!freed) return { ok: false, reason: `paper slots full (${PAPER_MAX_OPEN()}) and no flat trade to evict` };
+  }
+  const { rows } = await pool.query(
+    `INSERT INTO crypto_paper_trades (user_id, symbol, chain, token_address, pool_address, strategy, score, entry_price, stop_loss, take_profit, notional_usd, cost_bps, reasoning, direction, liquidity_usd)
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15) RETURNING id`,
+    [
+      t.userId,
+      t.symbol,
+      t.chain,
+      t.tokenAddress ?? null,
+      t.poolAddress ?? null,
+      t.strategy ?? null,
+      t.score ?? null,
+      t.entry,
+      stop,
+      target,
+      t.notionalUsd,
+      Math.max(1, Math.round(costBps)),
+      (t.reasoning || "").slice(0, 2e3),
+      dir,
+      t.liquidityUsd && t.liquidityUsd > 0 ? t.liquidityUsd : null
+    ]
+  );
+  return { ok: true, id: rows[0]?.id };
+}
+async function resolvePaperTrades(userId) {
+  await ensurePaperTable();
+  const { rows } = await pool.query(`SELECT * FROM crypto_paper_trades WHERE user_id=$1 AND status='open'`, [userId]);
+  if (!rows.length) return 0;
+  const { getDefiPrice: getDefiPrice2 } = await Promise.resolve().then(() => (init_defi_market_data(), defi_market_data_exports));
+  let closed = 0;
+  for (const t of rows) {
+    const px = t.pool_address ? await getDefiPrice2(t.chain || "base", t.pool_address).catch(() => null) : null;
+    const ageH = (Date.now() - new Date(t.opened_at).getTime()) / 36e5;
+    let exit = null, why = "";
+    const short = t.direction === "short";
+    if (px != null && px > 0) {
+      if (short ? px >= t.stop_loss : px <= t.stop_loss) {
+        exit = t.stop_loss;
+        why = "stop";
+      } else if (short ? px <= t.take_profit : px >= t.take_profit) {
+        exit = t.take_profit;
+        why = "target";
+      } else if (ageH >= paperMaxHoursFor(t.strategy)) {
+        exit = px;
+        why = "time limit";
+      }
+    } else if (ageH >= paperMaxHoursFor(t.strategy) + 24) {
+      exit = t.entry_price;
+      why = "no price (closed flat)";
+    }
+    if (exit == null) continue;
+    const gross = (short ? t.entry_price - exit : exit - t.entry_price) / t.entry_price * 100;
+    const net = gross - Number(t.cost_bps || 0) / 100;
+    const riskPct = Math.abs(t.entry_price - t.stop_loss) / t.entry_price * 100;
+    const r = riskPct > 0 ? net / riskPct : 0;
+    const pnl = Number(t.notional_usd) * net / 100;
+    const upd = await pool.query(
+      `UPDATE crypto_paper_trades SET status='closed', exit_price=$2, exit_reason=$3, return_pct=$4, r_multiple=$5, pnl_usd=$6, closed_at=now(),
+              gross_return_pct=$7, cost_usd=$8
+        WHERE id=$1 AND status='open'`,
+      [t.id, exit, why, net, r, pnl, gross, Number(t.notional_usd) * Number(t.cost_bps || 0) / 1e4]
+    );
+    if (!upd.rowCount) continue;
+    closed++;
+    try {
+      const { recordCryptoBrainOutcome: recordCryptoBrainOutcome2 } = await Promise.resolve().then(() => (init_crypto_brain(), crypto_brain_exports));
+      await recordCryptoBrainOutcome2({
+        userId,
+        symbol: t.symbol,
+        strategy: t.strategy || "unknown",
+        direction: short ? "short" : "long",
+        entryConfidence: t.score ?? null,
+        returnPct: net,
+        holdingMinutes: Math.round(ageH * 60),
+        exitReason: `paper ${why}`,
+        profitLoss: pnl,
+        source: "paper"
+      });
+    } catch {
+    }
+  }
+  return closed;
+}
+async function evictOldestFlat(userId) {
+  const { rows } = await pool.query(`SELECT * FROM crypto_paper_trades WHERE user_id=$1 AND status='open' ORDER BY opened_at ASC`, [userId]);
+  const { getDefiPrice: getDefiPrice2 } = await Promise.resolve().then(() => (init_defi_market_data(), defi_market_data_exports));
+  for (const t of rows) {
+    const px = t.pool_address ? await getDefiPrice2(t.chain || "base", t.pool_address).catch(() => null) : null;
+    if (!(px && px > 0)) continue;
+    const stopDist = Math.abs(t.entry_price - t.stop_loss);
+    if (!(stopDist > 0) || Math.abs(px - t.entry_price) > stopDist * 0.5) continue;
+    const short = t.direction === "short";
+    const gross = (short ? t.entry_price - px : px - t.entry_price) / t.entry_price * 100;
+    const net = gross - Number(t.cost_bps || 0) / 100;
+    const riskPct = stopDist / t.entry_price * 100;
+    const pnl = Number(t.notional_usd) * net / 100;
+    const upd = await pool.query(
+      `UPDATE crypto_paper_trades SET status='closed', exit_price=$2, exit_reason='evicted', return_pct=$3, r_multiple=$4, pnl_usd=$5, closed_at=now(),
+              gross_return_pct=$6, cost_usd=$7 WHERE id=$1 AND status='open'`,
+      [t.id, px, net, riskPct > 0 ? net / riskPct : 0, pnl, gross, Number(t.notional_usd) * Number(t.cost_bps || 0) / 1e4]
+    );
+    if (!upd.rowCount) continue;
+    try {
+      const { recordCryptoBrainOutcome: recordCryptoBrainOutcome2 } = await Promise.resolve().then(() => (init_crypto_brain(), crypto_brain_exports));
+      await recordCryptoBrainOutcome2({
+        userId,
+        symbol: t.symbol,
+        strategy: t.strategy || "unknown",
+        direction: short ? "short" : "long",
+        entryConfidence: t.score ?? null,
+        returnPct: net,
+        holdingMinutes: Math.round((Date.now() - new Date(t.opened_at).getTime()) / 6e4),
+        exitReason: "paper evicted",
+        profitLoss: pnl,
+        source: "paper"
+      });
+    } catch {
+    }
+    return true;
+  }
+  return false;
+}
+async function paperSummary(userId) {
+  await ensurePaperTable();
+  const settings = await getPaperSettings(userId);
+  const [{ rows: agg }, { rows: open }, { rows: recent }, { rows: byToken }, { rows: weeks }] = await Promise.all([
+    pool.query(`SELECT count(*)::int n, count(*) FILTER (WHERE pnl_usd > 0)::int w, COALESCE(sum(pnl_usd),0)::float pnl,
+                       COALESCE(avg(r_multiple),0)::float avg_r FROM crypto_paper_trades WHERE user_id=$1 AND status='closed'`, [userId]),
+    pool.query(`SELECT id, symbol, direction, strategy, entry_price, stop_loss, take_profit, notional_usd, opened_at FROM crypto_paper_trades WHERE user_id=$1 AND status='open' ORDER BY opened_at DESC`, [userId]),
+    pool.query(`SELECT id, symbol, direction, strategy, entry_price, exit_price, exit_reason, return_pct, r_multiple, pnl_usd, opened_at, closed_at FROM crypto_paper_trades WHERE user_id=$1 AND status='closed' ORDER BY closed_at DESC LIMIT 25`, [userId]),
+    pool.query(`SELECT symbol, count(*)::int n, count(*) FILTER (WHERE pnl_usd > 0)::int w, COALESCE(sum(r_multiple),0)::float r
+                  FROM crypto_paper_trades WHERE user_id=$1 AND status='closed' GROUP BY 1 ORDER BY 4 DESC`, [userId]),
+    pool.query(`SELECT date_trunc('week', closed_at) wk, COALESCE(sum(r_multiple),0)::float r FROM crypto_paper_trades
+                 WHERE user_id=$1 AND status='closed' AND closed_at >= date_trunc('week', now()) - interval '7 days' GROUP BY 1`, [userId])
+  ]);
+  const a = agg[0] || { n: 0, w: 0, pnl: 0, avg_r: 0 };
+  const winRate = a.n ? a.w / a.n : 0;
+  const noLosingWeek = weeks.every((x) => Number(x.r) >= 0);
+  const bar = { trades: 50, avgR: 0.2, winRate: 0.4 };
+  const ready = a.n >= bar.trades && a.avg_r >= bar.avgR && winRate >= bar.winRate && noLosingWeek;
+  return {
+    settings,
+    balance: settings.startBalance + Number(a.pnl || 0),
+    stats: { trades: a.n, wins: a.w, winRate, avgR: a.avg_r, pnlUsd: a.pnl },
+    readiness: { ready, bar, progressTrades: Math.min(1, a.n / bar.trades), noLosingWeek },
+    open,
+    recent,
+    best: byToken.slice(0, 5),
+    worst: byToken.slice(-5).reverse()
+  };
+}
+async function runCryptoOrbShadow(userId, candidates, chain, notionalUsd, slippageBps) {
+  if (process.env.CRYPTO_ORB_SHADOW === "off") return 0;
+  const now = /* @__PURE__ */ new Date();
+  const mins = now.getUTCHours() * 60 + now.getUTCMinutes();
+  if (mins < 13 * 60 + 50 || mins > 20 * 60) return 0;
+  if (Date.now() - (_orbLastRun.get(userId) || 0) < 5 * 6e4) return 0;
+  _orbLastRun.set(userId, Date.now());
+  await ensurePaperTable();
+  const day0 = Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate());
+  const rStart = day0 + (13 * 60 + 30) * 6e4, rEnd = day0 + (13 * 60 + 45) * 6e4;
+  const { getDefiCandles: getDefiCandles2 } = await Promise.resolve().then(() => (init_defi_market_data(), defi_market_data_exports));
+  let opened = 0;
+  for (const c of candidates.slice(0, Number(process.env.CRYPTO_ORB_MAX_TOKENS ?? 6))) {
+    if (!c.poolAddress) continue;
+    try {
+      const done = await pool.query(
+        `SELECT 1 FROM crypto_paper_trades WHERE user_id=$1 AND symbol=$2 AND strategy='orb_breakout' AND opened_at >= to_timestamp($3/1000.0) LIMIT 1`,
+        [userId, c.symbol, day0]
+      );
+      if (done.rows.length) continue;
+      const bars = await getDefiCandles2(chain, c.poolAddress, "5m", 100);
+      const range = bars.filter((b) => b.t >= rStart && b.t < rEnd);
+      if (range.length < 2) continue;
+      const hi = Math.max(...range.map((b) => b.h)), lo = Math.min(...range.map((b) => b.l)), size = hi - lo;
+      if (!(size > 0)) continue;
+      const after = bars.filter((b) => b.t >= rEnd).slice(0, -1);
+      let dir = null;
+      for (const b of after) {
+        if (Math.min(b.o, b.c) > hi) {
+          dir = "long";
+          break;
+        }
+        if (Math.max(b.o, b.c) < lo) {
+          dir = "short";
+          break;
+        }
+      }
+      if (!dir) continue;
+      const px = bars[bars.length - 1].c;
+      const level = dir === "long" ? hi : lo;
+      if (Math.abs(px - level) > size * 0.25) continue;
+      if (dir === "long" ? px < lo : px > hi) continue;
+      const stop = dir === "long" ? lo - size * 0.1 : hi + size * 0.1;
+      const slPct = Math.abs(px - stop) / px * 100;
+      if (!(slPct > 0.05) || slPct > 15) continue;
+      const r = await openPaperTrade({
+        userId,
+        symbol: c.symbol,
+        chain,
+        tokenAddress: c.address ?? null,
+        poolAddress: c.poolAddress,
+        strategy: "orb_breakout",
+        score: null,
+        entry: px,
+        slPct,
+        tpPct: slPct * 2,
+        notionalUsd,
+        slippageBps,
+        liquidityUsd: c.liquidityUsd ?? null,
+        reasoning: `ORB shadow: NY-open range ${lo}\u2013${hi} (13:30\u201313:45 UTC), ${dir === "long" ? "breakout above" : "breakdown below"} then retest of ${level}; stop beyond the range, 2R target.`,
+        direction: dir
+      });
+      if (r.ok) opened++;
+    } catch {
+    }
+  }
+  return opened;
+}
+var DEFAULTS, PAPER_MAX_HOURS, PAPER_MAX_OPEN, paperShortsAllowed, EQUITY_TICKERS, RWA_RE, RWA_NAMED, UNDERLYING, _ensured, _orbLastRun;
+var init_crypto_paper = __esm({
+  "server/services/crypto-paper.ts"() {
+    "use strict";
+    init_db();
+    DEFAULTS = { enabled: false, startBalance: 1e3 };
+    PAPER_MAX_HOURS = () => Math.max(1, Number(process.env.CRYPTO_PAPER_MAX_HOURS ?? 72));
+    PAPER_MAX_OPEN = () => Math.max(1, Math.floor(Number(process.env.CRYPTO_PAPER_MAX_OPEN ?? 12)));
+    paperShortsAllowed = () => process.env.CRYPTO_PAPER_SHORTS === "on";
+    EQUITY_TICKERS = "TSLA|AAPL|GOOGL|GOOG|MSFT|AMZN|META|NVDA|NFLX|AMD|INTC|MU|SNDK|SPCX|COIN|MSTR|HOOD|CRCL|PLTR|ORCL|AVGO|TSM|BABA|SPY|QQQ|IVV|VOO|GLD|SLV|IBIT|DIS|UBER|SHOP|PYPL|V|MA|JPM|BAC|GS|WMT|COST|KO|PEP|NKE|BRKB|LLY|UNH|XOM|CVX|ABNB|RDDT|ARM|SMCI";
+    RWA_RE = new RegExp(`^(${EQUITY_TICKERS})(C|X|ON|B)$`, "i");
+    RWA_NAMED = /* @__PURE__ */ new Set(["XAUG", "XAUT", "PAXG", "ANTHROPIC", "OPENAI", "SPACEX", "STRIPE", "XAI", "TBILL", "USTB", "OUSG", "BUIDL"]);
+    UNDERLYING = {
+      ETH: "ETH",
+      WETH: "ETH",
+      CBETH: "ETH",
+      WSTETH: "ETH",
+      STETH: "ETH",
+      RETH: "ETH",
+      WEETH: "ETH",
+      EZETH: "ETH",
+      SUPEROETHB: "ETH",
+      BTC: "BTC",
+      WBTC: "BTC",
+      CBBTC: "BTC",
+      TBTC: "BTC",
+      LBTC: "BTC",
+      SOL: "SOL",
+      CBSOL: "SOL",
+      WSOL: "SOL",
+      XRP: "XRP",
+      CBXRP: "XRP",
+      DOGE: "DOGE",
+      CBDOGE: "DOGE",
+      LTC: "LTC",
+      CBLTC: "LTC",
+      ADA: "ADA",
+      CBADA: "ADA"
+    };
+    _ensured = null;
+    _orbLastRun = /* @__PURE__ */ new Map();
+  }
+});
+
 // server/utils/smcUtils.ts
 var smcUtils_exports = {};
 __export(smcUtils_exports, {
@@ -9820,79 +10309,6 @@ var init_defi_swap = __esm({
       MATIC: ["WMATIC", "POL"],
       POL: ["POL", "WMATIC"]
     };
-  }
-});
-
-// server/services/runtime-state.ts
-var runtime_state_exports = {};
-__export(runtime_state_exports, {
-  ensureRuntimeStateTable: () => ensureRuntimeStateTable,
-  getRuntimeStateStrict: () => getRuntimeStateStrict,
-  insertRuntimeStateIfAbsent: () => insertRuntimeStateIfAbsent,
-  loadRuntimeState: () => loadRuntimeState,
-  saveRuntimeState: () => saveRuntimeState
-});
-function ensureRuntimeStateTable() {
-  if (!ensured) {
-    ensured = pool.query(DDL).then(() => void 0).catch((err) => {
-      console.error("[runtime-state] ensure table failed (non-fatal):", err?.message ?? err);
-      ensured = null;
-    });
-  }
-  return ensured;
-}
-function saveRuntimeState(scope, key, value) {
-  void (async () => {
-    try {
-      await ensureRuntimeStateTable();
-      await pool.query(
-        `INSERT INTO runtime_state (scope, key, value, updated_at) VALUES ($1, $2, $3::jsonb, now())
-         ON CONFLICT (scope, key) DO UPDATE SET value = EXCLUDED.value, updated_at = now()`,
-        [scope, key, JSON.stringify(value)]
-      );
-    } catch (err) {
-      console.error(`[runtime-state] save ${scope}/${key} failed (non-fatal):`, err?.message ?? err);
-    }
-  })();
-}
-async function loadRuntimeState(scope) {
-  try {
-    await ensureRuntimeStateTable();
-    const { rows } = await pool.query(`SELECT key, value FROM runtime_state WHERE scope = $1`, [scope]);
-    return rows;
-  } catch (err) {
-    console.error(`[runtime-state] load ${scope} failed (non-fatal):`, err?.message ?? err);
-    return [];
-  }
-}
-async function getRuntimeStateStrict(scope, key) {
-  await ensureRuntimeStateTable();
-  const { rows } = await pool.query(`SELECT value FROM runtime_state WHERE scope = $1 AND key = $2`, [scope, key]);
-  return rows[0]?.value ?? null;
-}
-async function insertRuntimeStateIfAbsent(scope, key, value) {
-  await ensureRuntimeStateTable();
-  await pool.query(
-    `INSERT INTO runtime_state (scope, key, value) VALUES ($1, $2, $3::jsonb) ON CONFLICT (scope, key) DO NOTHING`,
-    [scope, key, JSON.stringify(value)]
-  );
-  return getRuntimeStateStrict(scope, key);
-}
-var DDL, ensured;
-var init_runtime_state = __esm({
-  "server/services/runtime-state.ts"() {
-    "use strict";
-    init_db();
-    DDL = `
-CREATE TABLE IF NOT EXISTS "runtime_state" (
-  "scope" text NOT NULL,
-  "key" text NOT NULL,
-  "value" jsonb NOT NULL,
-  "updated_at" timestamp NOT NULL DEFAULT now(),
-  PRIMARY KEY ("scope", "key")
-);
-`;
-    ensured = null;
   }
 });
 
@@ -16587,317 +17003,6 @@ Your writing is:
 - Formatted for skimmability (strong headers, strategic bullet use, clear paragraph breaks)
 
 You ALWAYS produce proposals that are ready to submit \u2014 no placeholders like [INSERT DATA HERE], no generic language, no filler content. Every sentence earns its place.`;
-  }
-});
-
-// server/services/paper-costs.ts
-var paper_costs_exports = {};
-__export(paper_costs_exports, {
-  estimateCryptoRoundTripBps: () => estimateCryptoRoundTripBps,
-  estimateSolRoundTripCost: () => estimateSolRoundTripCost,
-  priceImpactPct: () => priceImpactPct,
-  solDexFeePct: () => solDexFeePct
-});
-function priceImpactPct(notionalUsd, liquidityUsd) {
-  if (!(liquidityUsd && liquidityUsd > 0) || !(notionalUsd > 0)) return null;
-  return Math.min(50, 2 * notionalUsd / liquidityUsd * 100);
-}
-function solDexFeePct(dex) {
-  const d = (dex || "").toLowerCase();
-  if (d.startsWith("pumpswap")) return num("SOL_PAPER_FEE_PUMPSWAP_PCT", 0.25);
-  if (d.startsWith("pump")) return num("SOL_PAPER_FEE_PUMPFUN_PCT", 1);
-  if (d.startsWith("raydium")) return num("SOL_PAPER_FEE_RAYDIUM_PCT", 0.25);
-  if (d.startsWith("orca")) return num("SOL_PAPER_FEE_ORCA_PCT", 0.3);
-  if (d.startsWith("meteora")) return num("SOL_PAPER_FEE_METEORA_PCT", 0.3);
-  return num("SOL_PAPER_FEE_DEFAULT_PCT", 0.3);
-}
-function estimateSolRoundTripCost(i) {
-  const feePct = solDexFeePct(i.dex);
-  const slippagePct = num("SOL_PAPER_SLIPPAGE_PCT", 0.5);
-  const notionalUsd = i.solUsd && i.solUsd > 0 ? i.sizeSol * i.solUsd : 0;
-  const impactPct = priceImpactPct(notionalUsd, i.liquidityUsd) ?? num("SOL_PAPER_IMPACT_FALLBACK_PCT", 1);
-  const txSol = num("SOL_PAPER_TX_FEE_SOL", 1e-4);
-  const networkPct = i.sizeSol > 0 ? Math.min(5, txSol / i.sizeSol * 100) : 0;
-  const side = feePct + slippagePct + impactPct + networkPct;
-  return { roundTripPct: 2 * side, perSide: { feePct, slippagePct, impactPct, networkPct } };
-}
-function estimateCryptoRoundTripBps(i) {
-  const cap = Math.max(0, i.slippageCapBps || 0);
-  const liq = i.liquidityUsd && i.liquidityUsd > 0 ? i.liquidityUsd : null;
-  if (!liq) {
-    const perSide2 = num("CRYPTO_PAPER_FEE_BPS", 30) + cap / 2;
-    return { roundTripBps: 2 * perSide2, perSideBps: perSide2, liquidityKnown: false };
-  }
-  const deep = liq >= num("CRYPTO_PAPER_DEEP_LIQ_USD", 5e6);
-  const feeBps = deep ? num("CRYPTO_PAPER_FEE_DEEP_BPS", 5) : num("CRYPTO_PAPER_FEE_BPS", 30);
-  const slipBps = num("CRYPTO_PAPER_SLIPPAGE_BPS", 5);
-  const impactBps = Math.min(cap || Infinity, (priceImpactPct(i.notionalUsd, liq) ?? 0) * 100);
-  const gasBps = i.notionalUsd > 0 ? Math.min(100, num("CRYPTO_PAPER_GAS_USD", 0.02) / i.notionalUsd * 1e4) : 0;
-  const perSide = feeBps + slipBps + impactBps + gasBps;
-  return { roundTripBps: 2 * perSide, perSideBps: perSide, liquidityKnown: true };
-}
-var num;
-var init_paper_costs = __esm({
-  "server/services/paper-costs.ts"() {
-    "use strict";
-    num = (name, dflt) => {
-      const v = Number(process.env[name]);
-      return Number.isFinite(v) && v >= 0 ? v : dflt;
-    };
-  }
-});
-
-// server/services/crypto-paper.ts
-var crypto_paper_exports = {};
-__export(crypto_paper_exports, {
-  ensurePaperTable: () => ensurePaperTable,
-  getPaperSettings: () => getPaperSettings,
-  openPaperTrade: () => openPaperTrade,
-  paperSummary: () => paperSummary,
-  resolvePaperTrades: () => resolvePaperTrades,
-  runCryptoOrbShadow: () => runCryptoOrbShadow,
-  savePaperSettings: () => savePaperSettings
-});
-function ensurePaperTable() {
-  if (!_ensured) {
-    _ensured = pool.query(`CREATE TABLE IF NOT EXISTS crypto_paper_trades (
-      id serial PRIMARY KEY, user_id int NOT NULL, symbol text NOT NULL, chain text, token_address text, pool_address text,
-      strategy text, score real, direction text NOT NULL DEFAULT 'long',
-      entry_price double precision NOT NULL, stop_loss double precision NOT NULL, take_profit double precision NOT NULL,
-      notional_usd double precision NOT NULL, cost_bps int NOT NULL DEFAULT 0, reasoning text,
-      status text NOT NULL DEFAULT 'open', exit_price double precision, exit_reason text,
-      return_pct double precision, r_multiple double precision, pnl_usd double precision,
-      opened_at timestamptz NOT NULL DEFAULT now(), closed_at timestamptz)`).then(() => pool.query(`CREATE INDEX IF NOT EXISTS crypto_paper_trades_user_status ON crypto_paper_trades (user_id, status)`)).then(() => pool.query(`ALTER TABLE crypto_paper_trades ADD COLUMN IF NOT EXISTS gross_return_pct double precision,
-                                ADD COLUMN IF NOT EXISTS cost_usd double precision, ADD COLUMN IF NOT EXISTS liquidity_usd double precision`)).then(() => void 0).catch((e) => {
-      _ensured = null;
-      throw e;
-    });
-  }
-  return _ensured;
-}
-async function getPaperSettings(userId) {
-  try {
-    const { getRuntimeStateStrict: getRuntimeStateStrict2 } = await Promise.resolve().then(() => (init_runtime_state(), runtime_state_exports));
-    const v = await getRuntimeStateStrict2("crypto_paper", String(userId));
-    return { ...DEFAULTS, ...v || {} };
-  } catch {
-    return { ...DEFAULTS };
-  }
-}
-async function savePaperSettings(userId, patch) {
-  const cur = await getPaperSettings(userId);
-  const next = {
-    enabled: typeof patch.enabled === "boolean" ? patch.enabled : cur.enabled,
-    startBalance: Number(patch.startBalance) > 0 ? Math.min(1e6, Number(patch.startBalance)) : cur.startBalance,
-    walletAddress: patch.walletAddress !== void 0 ? patch.walletAddress : cur.walletAddress ?? null,
-    startedAt: cur.startedAt ?? (patch.enabled ? Date.now() : void 0)
-  };
-  const { ensureRuntimeStateTable: ensureRuntimeStateTable2 } = await Promise.resolve().then(() => (init_runtime_state(), runtime_state_exports));
-  await ensureRuntimeStateTable2();
-  await pool.query(
-    `INSERT INTO runtime_state (scope, key, value, updated_at) VALUES ('crypto_paper', $1, $2::jsonb, now())
-     ON CONFLICT (scope, key) DO UPDATE SET value = EXCLUDED.value, updated_at = now()`,
-    [String(userId), JSON.stringify(next)]
-  );
-  return next;
-}
-async function openPaperTrade(t) {
-  await ensurePaperTable();
-  const held = await pool.query(`SELECT 1 FROM crypto_paper_trades WHERE user_id=$1 AND status='open' AND symbol=$2 LIMIT 1`, [t.userId, t.symbol]);
-  if (held.rows.length) return { ok: false, reason: "already holding a paper position in this token" };
-  const dir = t.direction === "short" ? "short" : "long";
-  const stop = dir === "short" ? t.entry * (1 + t.slPct / 100) : t.entry * (1 - t.slPct / 100);
-  const target = dir === "short" ? t.entry * (1 - t.tpPct / 100) : t.entry * (1 + t.tpPct / 100);
-  const { estimateCryptoRoundTripBps: estimateCryptoRoundTripBps2 } = await Promise.resolve().then(() => (init_paper_costs(), paper_costs_exports));
-  const costBps = estimateCryptoRoundTripBps2({ notionalUsd: t.notionalUsd, liquidityUsd: t.liquidityUsd, slippageCapBps: Number(t.slippageBps) || 0 }).roundTripBps;
-  const { rows } = await pool.query(
-    `INSERT INTO crypto_paper_trades (user_id, symbol, chain, token_address, pool_address, strategy, score, entry_price, stop_loss, take_profit, notional_usd, cost_bps, reasoning, direction, liquidity_usd)
-     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15) RETURNING id`,
-    [
-      t.userId,
-      t.symbol,
-      t.chain,
-      t.tokenAddress ?? null,
-      t.poolAddress ?? null,
-      t.strategy ?? null,
-      t.score ?? null,
-      t.entry,
-      stop,
-      target,
-      t.notionalUsd,
-      Math.max(1, Math.round(costBps)),
-      (t.reasoning || "").slice(0, 2e3),
-      dir,
-      t.liquidityUsd && t.liquidityUsd > 0 ? t.liquidityUsd : null
-    ]
-  );
-  return { ok: true, id: rows[0]?.id };
-}
-async function resolvePaperTrades(userId) {
-  await ensurePaperTable();
-  const { rows } = await pool.query(`SELECT * FROM crypto_paper_trades WHERE user_id=$1 AND status='open'`, [userId]);
-  if (!rows.length) return 0;
-  const { getDefiPrice: getDefiPrice2 } = await Promise.resolve().then(() => (init_defi_market_data(), defi_market_data_exports));
-  let closed = 0;
-  for (const t of rows) {
-    const px = t.pool_address ? await getDefiPrice2(t.chain || "base", t.pool_address).catch(() => null) : null;
-    const ageH = (Date.now() - new Date(t.opened_at).getTime()) / 36e5;
-    let exit = null, why = "";
-    const short = t.direction === "short";
-    if (px != null && px > 0) {
-      if (short ? px >= t.stop_loss : px <= t.stop_loss) {
-        exit = t.stop_loss;
-        why = "stop";
-      } else if (short ? px <= t.take_profit : px >= t.take_profit) {
-        exit = t.take_profit;
-        why = "target";
-      } else if (ageH >= PAPER_MAX_HOURS()) {
-        exit = px;
-        why = "time limit";
-      }
-    } else if (ageH >= PAPER_MAX_HOURS() + 24) {
-      exit = t.entry_price;
-      why = "no price (closed flat)";
-    }
-    if (exit == null) continue;
-    const gross = (short ? t.entry_price - exit : exit - t.entry_price) / t.entry_price * 100;
-    const net = gross - Number(t.cost_bps || 0) / 100;
-    const riskPct = Math.abs(t.entry_price - t.stop_loss) / t.entry_price * 100;
-    const r = riskPct > 0 ? net / riskPct : 0;
-    const pnl = Number(t.notional_usd) * net / 100;
-    const upd = await pool.query(
-      `UPDATE crypto_paper_trades SET status='closed', exit_price=$2, exit_reason=$3, return_pct=$4, r_multiple=$5, pnl_usd=$6, closed_at=now(),
-              gross_return_pct=$7, cost_usd=$8
-        WHERE id=$1 AND status='open'`,
-      [t.id, exit, why, net, r, pnl, gross, Number(t.notional_usd) * Number(t.cost_bps || 0) / 1e4]
-    );
-    if (!upd.rowCount) continue;
-    closed++;
-    try {
-      const { recordCryptoBrainOutcome: recordCryptoBrainOutcome2 } = await Promise.resolve().then(() => (init_crypto_brain(), crypto_brain_exports));
-      await recordCryptoBrainOutcome2({
-        userId,
-        symbol: t.symbol,
-        strategy: t.strategy || "unknown",
-        direction: short ? "short" : "long",
-        entryConfidence: t.score ?? null,
-        returnPct: net,
-        holdingMinutes: Math.round(ageH * 60),
-        exitReason: `paper ${why}`,
-        profitLoss: pnl,
-        source: "paper"
-      });
-    } catch {
-    }
-  }
-  return closed;
-}
-async function paperSummary(userId) {
-  await ensurePaperTable();
-  const settings = await getPaperSettings(userId);
-  const [{ rows: agg }, { rows: open }, { rows: recent }, { rows: byToken }, { rows: weeks }] = await Promise.all([
-    pool.query(`SELECT count(*)::int n, count(*) FILTER (WHERE pnl_usd > 0)::int w, COALESCE(sum(pnl_usd),0)::float pnl,
-                       COALESCE(avg(r_multiple),0)::float avg_r FROM crypto_paper_trades WHERE user_id=$1 AND status='closed'`, [userId]),
-    pool.query(`SELECT id, symbol, direction, strategy, entry_price, stop_loss, take_profit, notional_usd, opened_at FROM crypto_paper_trades WHERE user_id=$1 AND status='open' ORDER BY opened_at DESC`, [userId]),
-    pool.query(`SELECT id, symbol, direction, strategy, entry_price, exit_price, exit_reason, return_pct, r_multiple, pnl_usd, opened_at, closed_at FROM crypto_paper_trades WHERE user_id=$1 AND status='closed' ORDER BY closed_at DESC LIMIT 25`, [userId]),
-    pool.query(`SELECT symbol, count(*)::int n, count(*) FILTER (WHERE pnl_usd > 0)::int w, COALESCE(sum(r_multiple),0)::float r
-                  FROM crypto_paper_trades WHERE user_id=$1 AND status='closed' GROUP BY 1 ORDER BY 4 DESC`, [userId]),
-    pool.query(`SELECT date_trunc('week', closed_at) wk, COALESCE(sum(r_multiple),0)::float r FROM crypto_paper_trades
-                 WHERE user_id=$1 AND status='closed' AND closed_at >= date_trunc('week', now()) - interval '7 days' GROUP BY 1`, [userId])
-  ]);
-  const a = agg[0] || { n: 0, w: 0, pnl: 0, avg_r: 0 };
-  const winRate = a.n ? a.w / a.n : 0;
-  const noLosingWeek = weeks.every((x) => Number(x.r) >= 0);
-  const bar = { trades: 50, avgR: 0.2, winRate: 0.4 };
-  const ready = a.n >= bar.trades && a.avg_r >= bar.avgR && winRate >= bar.winRate && noLosingWeek;
-  return {
-    settings,
-    balance: settings.startBalance + Number(a.pnl || 0),
-    stats: { trades: a.n, wins: a.w, winRate, avgR: a.avg_r, pnlUsd: a.pnl },
-    readiness: { ready, bar, progressTrades: Math.min(1, a.n / bar.trades), noLosingWeek },
-    open,
-    recent,
-    best: byToken.slice(0, 5),
-    worst: byToken.slice(-5).reverse()
-  };
-}
-async function runCryptoOrbShadow(userId, candidates, chain, notionalUsd, slippageBps) {
-  if (process.env.CRYPTO_ORB_SHADOW === "off") return 0;
-  const now = /* @__PURE__ */ new Date();
-  const mins = now.getUTCHours() * 60 + now.getUTCMinutes();
-  if (mins < 13 * 60 + 50 || mins > 20 * 60) return 0;
-  if (Date.now() - (_orbLastRun.get(userId) || 0) < 5 * 6e4) return 0;
-  _orbLastRun.set(userId, Date.now());
-  await ensurePaperTable();
-  const day0 = Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate());
-  const rStart = day0 + (13 * 60 + 30) * 6e4, rEnd = day0 + (13 * 60 + 45) * 6e4;
-  const { getDefiCandles: getDefiCandles2 } = await Promise.resolve().then(() => (init_defi_market_data(), defi_market_data_exports));
-  let opened = 0;
-  for (const c of candidates.slice(0, Number(process.env.CRYPTO_ORB_MAX_TOKENS ?? 6))) {
-    if (!c.poolAddress) continue;
-    try {
-      const done = await pool.query(
-        `SELECT 1 FROM crypto_paper_trades WHERE user_id=$1 AND symbol=$2 AND strategy='orb_breakout' AND opened_at >= to_timestamp($3/1000.0) LIMIT 1`,
-        [userId, c.symbol, day0]
-      );
-      if (done.rows.length) continue;
-      const bars = await getDefiCandles2(chain, c.poolAddress, "5m", 100);
-      const range = bars.filter((b) => b.t >= rStart && b.t < rEnd);
-      if (range.length < 2) continue;
-      const hi = Math.max(...range.map((b) => b.h)), lo = Math.min(...range.map((b) => b.l)), size = hi - lo;
-      if (!(size > 0)) continue;
-      const after = bars.filter((b) => b.t >= rEnd).slice(0, -1);
-      let dir = null;
-      for (const b of after) {
-        if (Math.min(b.o, b.c) > hi) {
-          dir = "long";
-          break;
-        }
-        if (Math.max(b.o, b.c) < lo) {
-          dir = "short";
-          break;
-        }
-      }
-      if (!dir) continue;
-      const px = bars[bars.length - 1].c;
-      const level = dir === "long" ? hi : lo;
-      if (Math.abs(px - level) > size * 0.25) continue;
-      if (dir === "long" ? px < lo : px > hi) continue;
-      const stop = dir === "long" ? lo - size * 0.1 : hi + size * 0.1;
-      const slPct = Math.abs(px - stop) / px * 100;
-      if (!(slPct > 0.05) || slPct > 15) continue;
-      const r = await openPaperTrade({
-        userId,
-        symbol: c.symbol,
-        chain,
-        tokenAddress: c.address ?? null,
-        poolAddress: c.poolAddress,
-        strategy: "orb_breakout",
-        score: null,
-        entry: px,
-        slPct,
-        tpPct: slPct * 2,
-        notionalUsd,
-        slippageBps,
-        liquidityUsd: c.liquidityUsd ?? null,
-        reasoning: `ORB shadow: NY-open range ${lo}\u2013${hi} (13:30\u201313:45 UTC), ${dir === "long" ? "breakout above" : "breakdown below"} then retest of ${level}; stop beyond the range, 2R target.`,
-        direction: dir
-      });
-      if (r.ok) opened++;
-    } catch {
-    }
-  }
-  return opened;
-}
-var DEFAULTS, PAPER_MAX_HOURS, _ensured, _orbLastRun;
-var init_crypto_paper = __esm({
-  "server/services/crypto-paper.ts"() {
-    "use strict";
-    init_db();
-    DEFAULTS = { enabled: false, startBalance: 1e3 };
-    PAPER_MAX_HOURS = () => Math.max(1, Number(process.env.CRYPTO_PAPER_MAX_HOURS ?? 72));
-    _ensured = null;
-    _orbLastRun = /* @__PURE__ */ new Map();
   }
 });
 
@@ -32129,6 +32234,7 @@ async function fetchBars(symbol, timeframe, count, chain) {
 }
 async function refreshDefiUniverse(chain) {
   const { discoverDefiTokens: discoverDefiTokens2 } = await Promise.resolve().then(() => (init_defi_market_data(), defi_market_data_exports));
+  const { isTokenizedAsset: _isTokenizedAsset } = await Promise.resolve().then(() => (init_crypto_paper(), crypto_paper_exports));
   const STABLE = /^(USDT|USDC|USDBC|USDC\.E|DAI|USDE|SUSDE|FDUSD|TUSD|USDS|PYUSD|EURC|EURS|LUSD|CRVUSD|GHO|USD\+|USDZ|FRAX|MIM|USDP|BUSD|USD0|USDX|DOLA|AXLUSDC|USDM|USDB)$/i;
   const tokens = (await discoverDefiTokens2(chain)).filter((t) => {
     const sym = String(t.symbol || "").toUpperCase();
@@ -32136,6 +32242,7 @@ async function refreshDefiUniverse(chain) {
     if (/^(S|W|ST|A|C|Y)?USD[A-Z0-9.+]*$/i.test(sym)) return false;
     const px = Number(t.priceUsd);
     if (/USD|EUR/.test(sym) && px > 0 && Math.abs(px - 1) < 0.015) return false;
+    if (_isTokenizedAsset(sym)) return false;
     return true;
   });
   for (const t of tokens) {
@@ -33151,6 +33258,15 @@ async function executeSignalSingle(service, connection, userId, symbol, result, 
         }
       }
       tpPctD = Math.max(tpPctD, slPctD * CRYPTO_MIN_RR);
+      if (cfg._paper && process.env.CRYPTO_ATR_LEVELS !== "off" && ax && result.price && ax.atr > 0) {
+        const cfgSl = Number(cfg.cefiStopLossPct ?? 2);
+        const lo = Number(process.env.CRYPTO_PAPER_SL_MIN ?? 1.5), hi = Number(process.env.CRYPTO_PAPER_SL_MAX ?? 12);
+        const atrSl = Math.min(hi, Math.max(lo, ax.atr * CRYPTO_SL_ATR_MULT / result.price * 100));
+        notionalD = Math.max(1, _baseN * (gateD.riskMultiplier < 1 ? gateD.riskMultiplier : 1) * Math.min(1, cfgSl / atrSl));
+        slPctD = atrSl;
+        tpPctD = atrSl * CRYPTO_MIN_RR;
+        _sizeNote = ` ATR levels: stop ${atrSl.toFixed(1)}% (${CRYPTO_SL_ATR_MULT}x H1 ATR), target ${tpPctD.toFixed(1)}%.`;
+      }
     }
     {
       const minN = Number(process.env.CRYPTO_MIN_NOTIONAL_USD ?? 3);

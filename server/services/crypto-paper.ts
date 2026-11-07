@@ -23,6 +23,53 @@ export interface PaperSettings { enabled: boolean; startBalance: number; walletA
 const DEFAULTS: PaperSettings = { enabled: false, startBalance: 1000 };
 const PAPER_MAX_HOURS = () => Math.max(1, Number(process.env.CRYPTO_PAPER_MAX_HOURS ?? 72));
 
+// ── Step 1 paper rules (2026-11-07) ─────────────────────────────────────────
+// Paper is the "what live would do" record, so it only holds trades the live
+// DeFi rail could actually take. Each rule has an env kill switch.
+
+/** Open paper trade cap (paper had none; 24 sat open for days). */
+export const PAPER_MAX_OPEN = () => Math.max(1, Math.floor(Number(process.env.CRYPTO_PAPER_MAX_OPEN ?? 12)));
+
+/** Time limit by the runner's timeframe: 5m/15m runners 24h, 1h runners 72h.
+ *  CRYPTO_PAPER_MAX_HOURS still caps both. */
+export function paperMaxHoursFor(strategy: string | null | undefined): number {
+  const cap = PAPER_MAX_HOURS();
+  const s = (strategy || '').toLowerCase();
+  const slow = ['trend_following', 'structure', 'composite_autonomous', 'composite'];
+  const h = slow.includes(s) ? Number(process.env.CRYPTO_PAPER_SLOW_HOURS ?? 72) : Number(process.env.CRYPTO_PAPER_FAST_HOURS ?? 24);
+  return Math.max(1, Math.min(cap, h > 0 ? h : cap));
+}
+
+/** Shorts can't be executed on Base spot. Off unless CRYPTO_PAPER_SHORTS=on. */
+export const paperShortsAllowed = () => process.env.CRYPTO_PAPER_SHORTS === 'on';
+
+// Tokenized stocks / RWAs: their price follows NAV and stock hours, so 24/7
+// momentum signals on them are noise. Matches equity tickers with the
+// Backed/xStocks-style suffixes seen on Base (TSLAC, MUC, AAPLX…) plus named
+// RWAs. CRYPTO_RWA_EXTRA adds symbols (comma list). CRYPTO_EXCLUDE_RWA=off disables.
+const EQUITY_TICKERS = 'TSLA|AAPL|GOOGL|GOOG|MSFT|AMZN|META|NVDA|NFLX|AMD|INTC|MU|SNDK|SPCX|COIN|MSTR|HOOD|CRCL|PLTR|ORCL|AVGO|TSM|BABA|SPY|QQQ|IVV|VOO|GLD|SLV|IBIT|DIS|UBER|SHOP|PYPL|V|MA|JPM|BAC|GS|WMT|COST|KO|PEP|NKE|BRKB|LLY|UNH|XOM|CVX|ABNB|RDDT|ARM|SMCI';
+const RWA_RE = new RegExp(`^(${EQUITY_TICKERS})(C|X|ON|B)$`, 'i');
+const RWA_NAMED = new Set(['XAUG', 'XAUT', 'PAXG', 'ANTHROPIC', 'OPENAI', 'SPACEX', 'STRIPE', 'XAI', 'TBILL', 'USTB', 'OUSG', 'BUIDL']);
+export function isTokenizedAsset(symbol: string): boolean {
+  if (process.env.CRYPTO_EXCLUDE_RWA === 'off') return false;
+  const s = (symbol || '').toUpperCase();
+  const extra = (process.env.CRYPTO_RWA_EXTRA || '').split(',').map((x) => x.trim().toUpperCase()).filter(Boolean);
+  return RWA_RE.test(s) || RWA_NAMED.has(s) || extra.includes(s);
+}
+
+/** Underlying asset for dedupe (one open paper position per underlying). */
+const UNDERLYING: Record<string, string> = {
+  ETH: 'ETH', WETH: 'ETH', CBETH: 'ETH', WSTETH: 'ETH', STETH: 'ETH', RETH: 'ETH', WEETH: 'ETH', EZETH: 'ETH', SUPEROETHB: 'ETH',
+  BTC: 'BTC', WBTC: 'BTC', CBBTC: 'BTC', TBTC: 'BTC', LBTC: 'BTC',
+  SOL: 'SOL', CBSOL: 'SOL', WSOL: 'SOL',
+  XRP: 'XRP', CBXRP: 'XRP',
+  DOGE: 'DOGE', CBDOGE: 'DOGE', LTC: 'LTC', CBLTC: 'LTC', ADA: 'ADA', CBADA: 'ADA',
+};
+export function underlyingOf(symbol: string): string {
+  const s = (symbol || '').toUpperCase();
+  return UNDERLYING[s] ?? s;
+}
+
 let _ensured: Promise<void> | null = null;
 export function ensurePaperTable(): Promise<void> {
   if (!_ensured) {
@@ -84,15 +131,28 @@ export async function openPaperTrade(t: {
   direction?: 'long' | 'short';
 }): Promise<{ ok: boolean; reason?: string; id?: number }> {
   await ensurePaperTable();
-  const held = await pool.query(`SELECT 1 FROM crypto_paper_trades WHERE user_id=$1 AND status='open' AND symbol=$2 LIMIT 1`, [t.userId, t.symbol]);
-  if (held.rows.length) return { ok: false, reason: 'already holding a paper position in this token' };
   const dir = t.direction === 'short' ? 'short' : 'long';
+  if (dir === 'short' && !paperShortsAllowed()) return { ok: false, reason: 'short signal not recorded — Base spot is long-only (CRYPTO_PAPER_SHORTS=on to record)' };
+  if (isTokenizedAsset(t.symbol)) return { ok: false, reason: 'tokenized stock / RWA excluded (CRYPTO_EXCLUDE_RWA)' };
+  const { rows: openRows } = await pool.query(`SELECT id, symbol FROM crypto_paper_trades WHERE user_id=$1 AND status='open'`, [t.userId]);
+  const und = underlyingOf(t.symbol);
+  const same = openRows.find((r: any) => underlyingOf(r.symbol) === und);
+  if (same) return { ok: false, reason: same.symbol.toUpperCase() === t.symbol.toUpperCase() ? 'already holding a paper position in this token' : `already holding ${same.symbol} (same underlying ${und})` };
   const stop = dir === 'short' ? t.entry * (1 + t.slPct / 100) : t.entry * (1 - t.slPct / 100);
   const target = dir === 'short' ? t.entry * (1 - t.tpPct / 100) : t.entry * (1 + t.tpPct / 100);
   // Round-trip cost from the pool's liquidity (fee tier + slippage + impact + gas,
   // both sides). Falls back to fee + half the slippage cap when liquidity is unknown.
   const { estimateCryptoRoundTripBps } = await import('./paper-costs');
   const costBps = estimateCryptoRoundTripBps({ notionalUsd: t.notionalUsd, liquidityUsd: t.liquidityUsd, slippageCapBps: Number(t.slippageBps) || 0 }).roundTripBps;
+  // A stop inside ~3x the round-trip cost is decided by costs, not the market.
+  const costFloorMult = Number(process.env.CRYPTO_PAPER_COST_FLOOR_MULT ?? 3);
+  if (process.env.CRYPTO_ATR_LEVELS !== 'off' && costFloorMult > 0 && t.slPct < costFloorMult * costBps / 100) {
+    return { ok: false, reason: `stop ${t.slPct.toFixed(2)}% is under ${costFloorMult}x the ${(costBps / 100).toFixed(2)}% round-trip cost` };
+  }
+  if (openRows.length >= PAPER_MAX_OPEN()) {
+    const freed = await evictOldestFlat(t.userId);
+    if (!freed) return { ok: false, reason: `paper slots full (${PAPER_MAX_OPEN()}) and no flat trade to evict` };
+  }
   const { rows } = await pool.query(
     `INSERT INTO crypto_paper_trades (user_id, symbol, chain, token_address, pool_address, strategy, score, entry_price, stop_loss, take_profit, notional_usd, cost_bps, reasoning, direction, liquidity_usd)
      VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15) RETURNING id`,
@@ -118,8 +178,8 @@ export async function resolvePaperTrades(userId: number): Promise<number> {
     if (px != null && px > 0) {
       if (short ? px >= t.stop_loss : px <= t.stop_loss) { exit = t.stop_loss; why = 'stop'; }
       else if (short ? px <= t.take_profit : px >= t.take_profit) { exit = t.take_profit; why = 'target'; }
-      else if (ageH >= PAPER_MAX_HOURS()) { exit = px; why = 'time limit'; }
-    } else if (ageH >= PAPER_MAX_HOURS() + 24) {
+      else if (ageH >= paperMaxHoursFor(t.strategy)) { exit = px; why = 'time limit'; }
+    } else if (ageH >= paperMaxHoursFor(t.strategy) + 24) {
       // No price for a day past the limit — close flat rather than leave it open forever.
       exit = t.entry_price; why = 'no price (closed flat)';
     }
@@ -146,6 +206,40 @@ export async function resolvePaperTrades(userId: number): Promise<number> {
     } catch { /* learning must never break the paper loop */ }
   }
   return closed;
+}
+
+/** Free one slot: close the OLDEST open paper trade that is still "flat" —
+ *  within half its stop distance of entry — at the pool price, exit reason
+ *  'evicted'. Trades moving toward a stop or target are never evicted.
+ *  Returns true when a slot was freed. */
+async function evictOldestFlat(userId: number): Promise<boolean> {
+  const { rows } = await pool.query(`SELECT * FROM crypto_paper_trades WHERE user_id=$1 AND status='open' ORDER BY opened_at ASC`, [userId]);
+  const { getDefiPrice } = await import('./defi-market-data');
+  for (const t of rows) {
+    const px = t.pool_address ? await getDefiPrice(t.chain || 'base', t.pool_address).catch(() => null) : null;
+    if (!(px && px > 0)) continue;
+    const stopDist = Math.abs(t.entry_price - t.stop_loss);
+    if (!(stopDist > 0) || Math.abs(px - t.entry_price) > stopDist * 0.5) continue;
+    const short = t.direction === 'short';
+    const gross = ((short ? t.entry_price - px : px - t.entry_price) / t.entry_price) * 100;
+    const net = gross - Number(t.cost_bps || 0) / 100;
+    const riskPct = (stopDist / t.entry_price) * 100;
+    const pnl = Number(t.notional_usd) * net / 100;
+    const upd = await pool.query(
+      `UPDATE crypto_paper_trades SET status='closed', exit_price=$2, exit_reason='evicted', return_pct=$3, r_multiple=$4, pnl_usd=$5, closed_at=now(),
+              gross_return_pct=$6, cost_usd=$7 WHERE id=$1 AND status='open'`,
+      [t.id, px, net, riskPct > 0 ? net / riskPct : 0, pnl, gross, Number(t.notional_usd) * Number(t.cost_bps || 0) / 10_000]);
+    if (!upd.rowCount) continue;
+    try {
+      const { recordCryptoBrainOutcome } = await import('./crypto-brain');
+      await recordCryptoBrainOutcome({
+        userId, symbol: t.symbol, strategy: t.strategy || 'unknown', direction: short ? 'short' : 'long', entryConfidence: t.score ?? null,
+        returnPct: net, holdingMinutes: Math.round((Date.now() - new Date(t.opened_at).getTime()) / 60000), exitReason: 'paper evicted', profitLoss: pnl, source: 'paper',
+      });
+    } catch { /* learning must never break the paper loop */ }
+    return true;
+  }
+  return false;
 }
 
 /** Scorecard + readiness for the UI, using the same go-live bar as the FX shadow models. */
