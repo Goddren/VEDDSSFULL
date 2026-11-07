@@ -26,12 +26,27 @@
 // getDefiCandles caches per pool+timeframe at depth 300, so these add no
 // GeckoTerminal calls. Kill switches: CRYPTO_PORTS=off (all),
 // CRYPTO_RUNNER_<ID>=off (one; also works for the original runners).
+// Step 4 adds dip_sniper, volume_explosion, flow_follower (pool buy/sell
+// counts parsed from the discovery pages already fetched — no extra calls)
+// and meme_velocity (new Base pools >= $25k, one shared new_pools call per
+// discovery TTL, extra MEV cost CRYPTO_MEME_EXTRA_COST_BPS).
 // The HTF alignment filter is not a runner: crypto-shadow.ts records
 // htf_aligned + tags per entry and the stats judge it ('htf' bucket).
 // ─────────────────────────────────────────────────────────────────────────────
 
 type Bar = { t: number; o: number; h: number; l: number; c: number; v: number };
 type Fetch = (symbol: string, tf: string, count: number, chain: string) => Promise<Bar[]>;
+type Flow = import('./defi-market-data').PoolFlow;
+type Entry = { liquidityUsd: number; priceUsd: number; volume24Usd?: number; flow?: Flow; newToken?: boolean } | undefined;
+
+/** Step-4 flow runners: need the pool's buy/sell counts (no candles). */
+export const FLOW_RUNNERS = new Set(['dip_sniper', 'volume_explosion', 'flow_follower', 'meme_velocity']);
+/** Runs ONLY on new-pool tokens; every other runner skips them. */
+export const NEW_TOKEN_RUNNERS = new Set(['meme_velocity']);
+export function buyShare(w: { buys: number; sells: number } | undefined): number | null {
+  const t = (w?.buys ?? 0) + (w?.sells ?? 0);
+  return t > 0 ? (w!.buys / t) : null;
+}
 export interface PortResult { decision: 'signal' | 'watching' | 'error'; reasoning: string; score: number | null; price: number | null; dailyChangePercent: number | null; strategy: string; direction?: 'BUY' | 'SELL' }
 
 /** Shadow-only tests: kept out of the AI prompt's evidence block. */
@@ -85,7 +100,7 @@ const res = (strategy: string, decision: PortResult['decision'], reasoning: stri
 const chainOf = (cfg: any) => cfg?.defiChain || 'base';
 
 // ── runners ─────────────────────────────────────────────────────────────────
-export function makePortRunners(fetchBars: Fetch): Record<string, (symbol: string, cfg: any) => Promise<PortResult>> {
+export function makePortRunners(fetchBars: Fetch, entryOf: (symbol: string) => Entry = () => undefined): Record<string, (symbol: string, cfg: any) => Promise<PortResult>> {
   const sniper = async (symbol: string, cfg: any): Promise<PortResult> => {
     const S = 'sniper';
     const m15 = await fetchBars(symbol, '15m', 120, chainOf(cfg)); const h1 = await fetchBars(symbol, '1h', 200, chainOf(cfg));
@@ -208,9 +223,58 @@ export function makePortRunners(fetchBars: Fetch): Record<string, (symbol: strin
     return res(S, 'signal', `${symbol}: Saturday 00–12 UTC range ${lo.toFixed(0)}–${hi.toFixed(0)} broken ${dir === 'BUY' ? 'up' : 'down'} on a 1h close`, price, 62, dir);
   };
 
+  // ── Step 4 flow runners (pool buy/sell counts from discovery; long only) ──
+  const minTx = () => Number(process.env.CRYPTO_FLOW_MIN_TXNS_H1 ?? 20);
+  const flowOf = (symbol: string, S: string): { f: Flow; e: NonNullable<Entry> } | PortResult => {
+    const e = entryOf(symbol);
+    if (!e?.flow) return res(S, 'watching', `${symbol}: no pool flow data`, e?.priceUsd ?? null, 0);
+    return { f: e.flow, e };
+  };
+  const isRes = (x: any): x is PortResult => !!x && typeof x.decision === 'string';
+
+  // Sol dip_sniper: price down on the day while buyers dominate the last hour.
+  const dipSniper = async (symbol: string): Promise<PortResult> => {
+    const S = 'dip_sniper'; const x = flowOf(symbol, S); if (isRes(x)) return x;
+    const ch = x.f.change24hPct, bs = buyShare(x.f.h1), n = x.f.h1.buys + x.f.h1.sells;
+    if (ch != null && ch <= -4 && ch >= -40 && bs != null && bs > 0.62 && n >= minTx())
+      return res(S, 'signal', `${symbol}: ${ch.toFixed(1)}% on 24h but ${(bs * 100).toFixed(0)}% of ${n} trades in the last hour are buys — accumulation into the dip`, x.e.priceUsd, 66, 'BUY');
+    return res(S, 'watching', `${symbol}: 24h ${ch?.toFixed(1) ?? 'n/a'}%, 1h buys ${bs != null ? (bs * 100).toFixed(0) : 'n/a'}%`, x.e.priceUsd, 30);
+  };
+  // Sol volume_explosion: last-hour volume >= 4x the 24h hourly average, buyers ahead.
+  const volumeExplosion = async (symbol: string): Promise<PortResult> => {
+    const S = 'volume_explosion'; const x = flowOf(symbol, S); if (isRes(x)) return x;
+    const v1 = x.f.volume1hUsd ?? 0, avg = (x.e.volume24Usd ?? 0) / 24, bs = buyShare(x.f.h1);
+    const mult = avg > 0 ? v1 / avg : 0;
+    if (mult >= Number(process.env.CRYPTO_VOLX_MULT ?? 4) && bs != null && bs > 0.52)
+      return res(S, 'signal', `${symbol}: last-hour volume ${mult.toFixed(1)}x the 24h hourly average, ${(bs * 100).toFixed(0)}% buys`, x.e.priceUsd, 64, 'BUY');
+    return res(S, 'watching', `${symbol}: 1h volume ${mult.toFixed(1)}x average`, x.e.priceUsd, 30);
+  };
+  // Sol whale/smart-money flow: unusually large average trade, buyers ahead,
+  // price not yet run (proxy: 1h avg trade size vs the 24h average; no 7d data).
+  const flowFollower = async (symbol: string): Promise<PortResult> => {
+    const S = 'flow_follower'; const x = flowOf(symbol, S); if (isRes(x)) return x;
+    const n1 = x.f.h1.buys + x.f.h1.sells, n24 = x.f.h24.buys + x.f.h24.sells;
+    const avg1 = n1 > 0 && x.f.volume1hUsd ? x.f.volume1hUsd / n1 : 0, avg24 = n24 > 0 ? (x.e.volume24Usd ?? 0) / n24 : 0;
+    const sizeX = avg24 > 0 ? avg1 / avg24 : 0, bs = buyShare(x.f.h1), ch = x.f.change1hPct;
+    if (sizeX >= 1.5 && bs != null && bs > 0.58 && n1 >= minTx() && ch != null && ch >= -5 && ch <= 20)
+      return res(S, 'signal', `${symbol}: average trade ${sizeX.toFixed(1)}x the 24h norm, ${(bs * 100).toFixed(0)}% buys, 1h ${ch.toFixed(1)}% — large buyers before the move`, x.e.priceUsd, 64, 'BUY');
+    return res(S, 'watching', `${symbol}: trade size ${sizeX.toFixed(1)}x norm`, x.e.priceUsd, 30);
+  };
+  // Sol meme_velocity / pump scalp: NEW Base pools only (>= $25k liquidity,
+  // < 72h old), exploding in the last hour with buyers dominating.
+  const memeVelocity = async (symbol: string): Promise<PortResult> => {
+    const S = 'meme_velocity'; const x = flowOf(symbol, S); if (isRes(x)) return x;
+    if (!x.e.newToken) return res(S, 'watching', `${symbol}: not a new pool`, x.e.priceUsd, 0);
+    const ch = x.f.change1hPct, bs = buyShare(x.f.h1), n = x.f.h1.buys + x.f.h1.sells;
+    if (ch != null && ch >= Number(process.env.CRYPTO_MEME_MIN_1H_PCT ?? 20) && bs != null && bs > 0.55 && n >= minTx())
+      return res(S, 'signal', `${symbol}: new pool up ${ch.toFixed(0)}% in the last hour, ${(bs * 100).toFixed(0)}% buys over ${n} trades`, x.e.priceUsd, 60, 'BUY');
+    return res(S, 'watching', `${symbol}: new pool, 1h ${ch?.toFixed(0) ?? 'n/a'}%`, x.e.priceUsd, 25);
+  };
+
   const all: Record<string, (s: string, c: any) => Promise<PortResult>> = {
     sniper, smc_ote: smcOte, vwap_reversion: vwapReversion, liquidity_sweep: liquiditySweep,
     session_breakout: sessionBreakout, btc_weekend_range: btcWeekendRange,
+    dip_sniper: dipSniper, volume_explosion: volumeExplosion, flow_follower: flowFollower, meme_velocity: memeVelocity,
   };
   if (!portsEnabled()) return {};
   return Object.fromEntries(Object.entries(all).filter(([id]) => runnerEnabled(id)));

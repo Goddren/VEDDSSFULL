@@ -32,7 +32,7 @@ export interface ShadowDeps {
   runners: Record<string, (sym: string, cfg: any) => Promise<ShadowRunnerResult>>;
   /** The engine's signal gates (HTF bias etc.); used only to record whether live would have blocked it. */
   gate: (sym: string, r: ShadowRunnerResult, cfg: any) => Promise<ShadowRunnerResult>;
-  universe: (sym: string) => { address: string; poolAddress: string; liquidityUsd: number; priceUsd: number } | undefined;
+  universe: (sym: string) => { address: string; poolAddress: string; liquidityUsd: number; priceUsd: number; volume24Usd?: number; flow?: import('./defi-market-data').PoolFlow; newToken?: boolean } | undefined;
   h1: (sym: string) => Promise<{ atr: number; bars: Bar[] } | null>;
 }
 
@@ -63,6 +63,13 @@ export function ensureCryptoShadowTables(): Promise<void> {
       atr_pct double precision, h1_trend text, h4_trend text, htf_aligned boolean, live_gate_blocked boolean,
       btc_change_24h double precision, hour_utc int, day_of_week int, score real, tags text[], advice_at_entry text,
       closed_at timestamptz, exit_reason text, hold_minutes double precision, net_pct double precision)`))
+      // Step 4 (2026-11-07): pool order flow + token basics.
+      .then(() => pool.query(`ALTER TABLE crypto_shadow_context
+        ADD COLUMN IF NOT EXISTS buy_share_h1 double precision, ADD COLUMN IF NOT EXISTS buy_share_h24 double precision,
+        ADD COLUMN IF NOT EXISTS txns_h1 int, ADD COLUMN IF NOT EXISTS txns_h24 int,
+        ADD COLUMN IF NOT EXISTS buyers_h1 int, ADD COLUMN IF NOT EXISTS sellers_h1 int,
+        ADD COLUMN IF NOT EXISTS market_cap_usd double precision, ADD COLUMN IF NOT EXISTS token_age_hours double precision,
+        ADD COLUMN IF NOT EXISTS new_token boolean`))
       .then(() => undefined)
       .catch((e) => { _ensured = null; throw e; });
   }
@@ -89,8 +96,13 @@ function pctChange(bars: Bar[], hoursBack: number): number | null {
   return then > 0 ? ((now - then) / then) * 100 : null;
 }
 
-export function bucketsOf(c: { hour_utc?: number | null; liquidity_usd?: number | null; change_24h?: number | null; atr_pct?: number | null; htf_aligned?: boolean | null; btc_change_24h?: number | null; direction?: string | null }): Record<string, string> {
+export function bucketsOf(c: { hour_utc?: number | null; liquidity_usd?: number | null; change_24h?: number | null; atr_pct?: number | null; htf_aligned?: boolean | null; btc_change_24h?: number | null; direction?: string | null;
+  buy_share_h1?: number | null; txns_h1?: number | null; market_cap_usd?: number | null; token_age_hours?: number | null }): Record<string, string> {
   const b: Record<string, string> = {};
+  if (c.buy_share_h1 != null) b.buyShare = c.buy_share_h1 < 0.45 ? 'sellers<45%' : c.buy_share_h1 < 0.55 ? 'balanced' : c.buy_share_h1 < 0.65 ? 'buyers55-65%' : 'buyers65%+';
+  if (c.txns_h1 != null) b.activity = c.txns_h1 < 20 ? 'quiet<20tx/h' : c.txns_h1 < 100 ? '20-100tx/h' : c.txns_h1 < 500 ? '100-500tx/h' : '500+tx/h';
+  if (c.market_cap_usd != null && c.market_cap_usd > 0) b.mcap = c.market_cap_usd < 10e6 ? '<10M' : c.market_cap_usd < 100e6 ? '10-100M' : c.market_cap_usd < 1e9 ? '100M-1B' : '1B+';
+  if (c.token_age_hours != null) b.age = c.token_age_hours < 72 ? '<3d' : c.token_age_hours < 720 ? '3-30d' : '30d+';
   if (c.direction) b.side = c.direction;
   if (c.hour_utc != null) { const s = Math.floor(c.hour_utc / 4) * 4; b.hour = `${String(s).padStart(2, '0')}-${String(s + 4).padStart(2, '0')}UTC`; }
   const liq = c.liquidity_usd ?? 0;
@@ -125,7 +137,7 @@ export async function computeCryptoShadowStats(userId: number, force = false): P
   if (!force && hit && Date.now() - hit.at < 15 * 60_000) return hit.stats;
   await ensureCryptoShadowTables();
   const { rows } = await pool.query(
-    `SELECT strategy, direction, hour_utc, liquidity_usd, change_24h, atr_pct, htf_aligned, btc_change_24h, net_pct FROM crypto_shadow_context
+    `SELECT strategy, direction, hour_utc, liquidity_usd, change_24h, atr_pct, htf_aligned, btc_change_24h, buy_share_h1, txns_h1, market_cap_usd, token_age_hours, net_pct FROM crypto_shadow_context
       WHERE user_id=$1 AND closed_at IS NOT NULL AND net_pct IS NOT NULL AND closed_at >= now() - interval '60 days'`, [userId]);
   const stats = aggregate(rows);
   _statsCache.set(userId, { at: Date.now(), stats });
@@ -217,7 +229,11 @@ export async function runCryptoShadowAll(userId: number, cfg: any, symbols: stri
     const uni = deps.universe(symbol);
     if (!uni?.poolAddress) continue;
     const und = underlyingOf(symbol);
-    const results = (await Promise.all(Object.entries(deps.runners).map(([k, fn]) => fn(symbol, shadowCfg).then((r) => ({ ...r, strategy: r.strategy || k })).catch(() => null))))
+    // New-pool tokens are evaluated ONLY by the new-token runner (meme);
+    // established tokens never by it.
+    const { NEW_TOKEN_RUNNERS, buyShare } = await import('./crypto-ports');
+    const runnersFor = Object.entries(deps.runners).filter(([k]) => uni.newToken ? NEW_TOKEN_RUNNERS.has(k) : !NEW_TOKEN_RUNNERS.has(k));
+    const results = (await Promise.all(runnersFor.map(([k, fn]) => fn(symbol, shadowCfg).then((r) => ({ ...r, strategy: r.strategy || k })).catch(() => null))))
       .filter((r): r is ShadowRunnerResult => !!r);
     // Composite (same rule as auto mode): >=2 runners agree, blended score >= floor.
     const ORIGINAL = new Set(['trend_following', 'momentum', 'order_flow', 'volume_profile', 'breakout', 'structure', 'divergence']);
@@ -250,14 +266,21 @@ export async function runCryptoShadowAll(userId: number, cfg: any, symbols: stri
       const direction = sig.direction === 'SELL' ? 'hypothetical_short' : 'long';
       const short = direction !== 'long';
       const slPct = Math.min(hi, Math.max(lo, (h1.atr * atrMult / price) * 100));
-      const costBps = estimateCryptoRoundTripBps({ notionalUsd: NOTIONAL(), liquidityUsd: uni.liquidityUsd, slippageCapBps }).roundTripBps;
+      const costBps = estimateCryptoRoundTripBps({ notionalUsd: NOTIONAL(), liquidityUsd: uni.liquidityUsd, slippageCapBps }).roundTripBps
+        // New pools: sniping bots, MEV and launch taxes — the high-cost model.
+        + (uni.newToken ? Number(process.env.CRYPTO_MEME_EXTRA_COST_BPS ?? 200) : 0);
       if (floorMult > 0 && slPct < floorMult * costBps / 100) continue;
       const stop = short ? price * (1 + slPct / 100) : price * (1 - slPct / 100);
       const target = short ? price * (1 - slPct * rr / 100) : price * (1 + slPct * rr / 100);
       const aligned = h4Trend == null ? null : short ? h4Trend === 'BEARISH' : h4Trend === 'BULLISH';
       const gated = await deps.gate(symbol, sig, cfg).then((g) => g.decision !== 'signal').catch(() => null);
       const hourUtc = new Date().getUTCHours();
-      const ctx = { hour_utc: hourUtc, liquidity_usd: uni.liquidityUsd, change_24h: ch24, atr_pct: (h1.atr / price) * 100, htf_aligned: aligned, btc_change_24h: btcChange, direction: short ? 'short' : 'long' };
+      const fl = uni.flow;
+      const created = fl?.poolCreatedAt ? new Date(fl.poolCreatedAt).getTime() : NaN;
+      const ctx = { hour_utc: hourUtc, liquidity_usd: uni.liquidityUsd, change_24h: ch24, atr_pct: (h1.atr / price) * 100, htf_aligned: aligned, btc_change_24h: btcChange, direction: short ? 'short' : 'long',
+        buy_share_h1: fl ? buyShare(fl.h1) : null, txns_h1: fl ? fl.h1.buys + fl.h1.sells : null,
+        market_cap_usd: fl ? (fl.marketCapUsd ?? fl.fdvUsd) : null,
+        token_age_hours: Number.isFinite(created) ? (Date.now() - created) / 3_600_000 : null };
       const advice = adviceFor(stats, strat, ctx);
       const tags: string[] = [];
       if (ch1 != null && Math.abs(ch1) >= 3) tags.push(ch1 > 0 ? 'hot_hour' : 'dump_hour');
@@ -267,6 +290,9 @@ export async function runCryptoShadowAll(userId: number, cfg: any, symbols: stri
       if (aligned === true) tags.push('htf_aligned');
       if (gated) tags.push('live_gate_would_block');
       if (uni.liquidityUsd < 250_000) tags.push('thin_pool');
+      if (uni.newToken) tags.push('new_token');
+      if (ctx.buy_share_h1 != null && ctx.buy_share_h1 > 0.65) tags.push('buyers_dominant');
+      if (ctx.buy_share_h1 != null && ctx.buy_share_h1 < 0.45) tags.push('sellers_dominant');
       const ins = await pool.query(
         `INSERT INTO crypto_shadow_trades (user_id, strategy, symbol, underlying, chain, token_address, pool_address, direction, entry_price, stop_loss, take_profit,
            sl_pct, notional_usd, cost_bps, score, max_hours) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16) RETURNING id`,
@@ -275,10 +301,13 @@ export async function runCryptoShadowAll(userId: number, cfg: any, symbols: stri
       if (!id) continue;
       await pool.query(
         `INSERT INTO crypto_shadow_context (trade_id, user_id, strategy, symbol, direction, liquidity_usd, change_1h, change_24h, volume_24h_usd, atr_pct,
-           h1_trend, h4_trend, htf_aligned, live_gate_blocked, btc_change_24h, hour_utc, day_of_week, score, tags, advice_at_entry)
-         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20) ON CONFLICT (trade_id) DO NOTHING`,
+           h1_trend, h4_trend, htf_aligned, live_gate_blocked, btc_change_24h, hour_utc, day_of_week, score, tags, advice_at_entry,
+           buy_share_h1, buy_share_h24, txns_h1, txns_h24, buyers_h1, sellers_h1, market_cap_usd, token_age_hours, new_token)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25,$26,$27,$28,$29) ON CONFLICT (trade_id) DO NOTHING`,
         [id, userId, strat, symbol, ctx.direction, uni.liquidityUsd, ch1, ch24, vol24 || null, ctx.atr_pct, h1Trend, h4Trend, aligned, gated, btcChange,
-         hourUtc, new Date().getUTCDay(), sig.score ?? null, tags, advice]).catch(() => {});
+         hourUtc, new Date().getUTCDay(), sig.score ?? null, tags, advice,
+         ctx.buy_share_h1, fl ? buyShare(fl.h24) : null, ctx.txns_h1, fl ? fl.h24.buys + fl.h24.sells : null,
+         fl?.h1.buyers ?? null, fl?.h1.sellers ?? null, ctx.market_cap_usd, ctx.token_age_hours, !!uni.newToken]).catch(() => {});
       open.push({ strategy: strat, underlying: und });
       opened++;
     }

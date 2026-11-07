@@ -9075,8 +9075,10 @@ var defi_market_data_exports = {};
 __export(defi_market_data_exports, {
   callBudget: () => callBudget,
   discoverDefiTokens: () => discoverDefiTokens,
+  discoverNewPoolTokens: () => discoverNewPoolTokens,
   getDefiCandles: () => getDefiCandles,
-  getDefiPrice: () => getDefiPrice
+  getDefiPrice: () => getDefiPrice,
+  parsePoolFlow: () => parsePoolFlow
 });
 function cgHeaders() {
   const h = { accept: "application/json" };
@@ -9095,6 +9097,52 @@ function callBudget() {
     discoveryTtlMs: Number(process.env.COINGECKO_DISCOVERY_TTL_MS ?? (hasKey ? 60 * 60 * 1e3 : 6 * 60 * 60 * 1e3)),
     candleTtlMs: Number(process.env.COINGECKO_CANDLE_TTL_MS ?? (hasKey ? 10 * 60 * 1e3 : 30 * 60 * 1e3))
   };
+}
+function parsePoolFlow(a) {
+  const n = (x) => {
+    const v = Number(x);
+    return Number.isFinite(v) ? v : null;
+  };
+  const tx = (w) => ({ buys: Number(w?.buys) || 0, sells: Number(w?.sells) || 0, buyers: n(w?.buyers), sellers: n(w?.sellers) });
+  return {
+    h1: tx(a?.transactions?.h1),
+    h24: tx(a?.transactions?.h24),
+    volume1hUsd: n(a?.volume_usd?.h1),
+    change1hPct: n(a?.price_change_percentage?.h1),
+    change24hPct: n(a?.price_change_percentage?.h24),
+    fdvUsd: n(a?.fdv_usd),
+    marketCapUsd: n(a?.market_cap_usd),
+    poolCreatedAt: a?.pool_created_at ?? null,
+    at: Date.now()
+  };
+}
+async function discoverNewPoolTokens(chainKey, minLiquidityUsd = 25e3, maxAgeHours = 72, maxTokens = 5) {
+  const net = GT_NETWORK[chainKey];
+  if (!net) return [];
+  const key = `${chainKey}:${minLiquidityUsd}:${maxAgeHours}:${maxTokens}`;
+  if (newPoolsCache && newPoolsCache.key === key && Date.now() - newPoolsCache.at < callBudget().discoveryTtlMs) return newPoolsCache.tokens;
+  const out = /* @__PURE__ */ new Map();
+  try {
+    const d = await gt(`/networks/${net}/new_pools?page=1`);
+    for (const p of d?.data ?? []) {
+      const a = p?.attributes ?? {};
+      const liq = Number(a.reserve_in_usd ?? 0), price = Number(a.base_token_price_usd ?? 0);
+      const created = a.pool_created_at ? new Date(a.pool_created_at).getTime() : NaN;
+      if (!a.address || !price || liq < minLiquidityUsd) continue;
+      if (!Number.isFinite(created) || Date.now() - created > maxAgeHours * 36e5) continue;
+      const symbol = String(a.name ?? "").split("/")[0].trim().toUpperCase();
+      if (!symbol || SETTLEMENT.has(symbol)) continue;
+      const address = String(p?.relationships?.base_token?.data?.id ?? "").split("_").pop() ?? "";
+      if (!/^0x[a-fA-F0-9]{40}$/.test(address)) continue;
+      const prev = out.get(address);
+      if (!prev || liq > prev.liquidityUsd) out.set(address, { symbol, address, poolAddress: a.address, priceUsd: price, liquidityUsd: liq, volume24Usd: Number(a.volume_usd?.h24 ?? 0), flow: parsePoolFlow(a) });
+    }
+  } catch (e) {
+    console.warn(`[defi-market-data] new_pools failed for ${chainKey}: ${e?.message ?? e}`);
+  }
+  const tokens = Array.from(out.values()).sort((x, y) => y.liquidityUsd - x.liquidityUsd).slice(0, maxTokens);
+  newPoolsCache = { key, at: Date.now(), tokens };
+  return tokens;
 }
 async function gt(path2) {
   const run = async () => {
@@ -9154,7 +9202,7 @@ async function discoverDefiTokens(chainKey, opts = {}) {
         if (!/^0x[a-fA-F0-9]{40}$/.test(address)) continue;
         const prev = best.get(address);
         if (!prev || liq > prev.liquidityUsd) {
-          best.set(address, { symbol, address, poolAddress, priceUsd: price, liquidityUsd: liq, volume24Usd: vol });
+          best.set(address, { symbol, address, poolAddress, priceUsd: price, liquidityUsd: liq, volume24Usd: vol, flow: parsePoolFlow(a) });
         }
       }
     } catch (e) {
@@ -9196,7 +9244,7 @@ async function getDefiPrice(chainKey, poolAddress) {
   const last2 = bars[bars.length - 1];
   return last2?.c && last2.c > 0 ? last2.c : null;
 }
-var GT, GT_NETWORK, SETTLEMENT, callChain, lastCallAt, discoveryCache, TF, candleCache, candleInFlight;
+var GT, GT_NETWORK, newPoolsCache, SETTLEMENT, callChain, lastCallAt, discoveryCache, TF, candleCache, candleInFlight;
 var init_defi_market_data = __esm({
   "server/services/defi-market-data.ts"() {
     "use strict";
@@ -9208,6 +9256,7 @@ var init_defi_market_data = __esm({
       optimism: "optimism",
       polygon: "polygon_pos"
     };
+    newPoolsCache = null;
     SETTLEMENT = /* @__PURE__ */ new Set(["USDC", "USDBC", "USDC.E"]);
     callChain = Promise.resolve();
     lastCallAt = 0;
@@ -17213,11 +17262,18 @@ You ALWAYS produce proposals that are ready to submit \u2014 no placeholders lik
 // server/services/crypto-ports.ts
 var crypto_ports_exports = {};
 __export(crypto_ports_exports, {
+  FLOW_RUNNERS: () => FLOW_RUNNERS,
+  NEW_TOKEN_RUNNERS: () => NEW_TOKEN_RUNNERS,
   SHADOW_ONLY_TESTS: () => SHADOW_ONLY_TESTS,
+  buyShare: () => buyShare,
   makePortRunners: () => makePortRunners,
   portsEnabled: () => portsEnabled,
   runnerEnabled: () => runnerEnabled
 });
+function buyShare(w) {
+  const t = (w?.buys ?? 0) + (w?.sells ?? 0);
+  return t > 0 ? w.buys / t : null;
+}
 function runnerEnabled(id) {
   return process.env[`CRYPTO_RUNNER_${id.toUpperCase()}`] !== "off";
 }
@@ -17276,7 +17332,7 @@ function bias(closes, f, s) {
   if (a == null || b == null) return null;
   return a > b ? "BUY" : a < b ? "SELL" : null;
 }
-function makePortRunners(fetchBars2) {
+function makePortRunners(fetchBars2, entryOf = () => void 0) {
   const sniper = async (symbol, cfg) => {
     const S = "sniper";
     const m15 = await fetchBars2(symbol, "15m", 120, chainOf(cfg));
@@ -17412,21 +17468,74 @@ function makePortRunners(fetchBars2) {
     const dir = brk.c > hi ? "BUY" : "SELL";
     return res(S, "signal", `${symbol}: Saturday 00\u201312 UTC range ${lo.toFixed(0)}\u2013${hi.toFixed(0)} broken ${dir === "BUY" ? "up" : "down"} on a 1h close`, price, 62, dir);
   };
+  const minTx = () => Number(process.env.CRYPTO_FLOW_MIN_TXNS_H1 ?? 20);
+  const flowOf = (symbol, S) => {
+    const e = entryOf(symbol);
+    if (!e?.flow) return res(S, "watching", `${symbol}: no pool flow data`, e?.priceUsd ?? null, 0);
+    return { f: e.flow, e };
+  };
+  const isRes = (x) => !!x && typeof x.decision === "string";
+  const dipSniper = async (symbol) => {
+    const S = "dip_sniper";
+    const x = flowOf(symbol, S);
+    if (isRes(x)) return x;
+    const ch = x.f.change24hPct, bs = buyShare(x.f.h1), n = x.f.h1.buys + x.f.h1.sells;
+    if (ch != null && ch <= -4 && ch >= -40 && bs != null && bs > 0.62 && n >= minTx())
+      return res(S, "signal", `${symbol}: ${ch.toFixed(1)}% on 24h but ${(bs * 100).toFixed(0)}% of ${n} trades in the last hour are buys \u2014 accumulation into the dip`, x.e.priceUsd, 66, "BUY");
+    return res(S, "watching", `${symbol}: 24h ${ch?.toFixed(1) ?? "n/a"}%, 1h buys ${bs != null ? (bs * 100).toFixed(0) : "n/a"}%`, x.e.priceUsd, 30);
+  };
+  const volumeExplosion = async (symbol) => {
+    const S = "volume_explosion";
+    const x = flowOf(symbol, S);
+    if (isRes(x)) return x;
+    const v1 = x.f.volume1hUsd ?? 0, avg = (x.e.volume24Usd ?? 0) / 24, bs = buyShare(x.f.h1);
+    const mult = avg > 0 ? v1 / avg : 0;
+    if (mult >= Number(process.env.CRYPTO_VOLX_MULT ?? 4) && bs != null && bs > 0.52)
+      return res(S, "signal", `${symbol}: last-hour volume ${mult.toFixed(1)}x the 24h hourly average, ${(bs * 100).toFixed(0)}% buys`, x.e.priceUsd, 64, "BUY");
+    return res(S, "watching", `${symbol}: 1h volume ${mult.toFixed(1)}x average`, x.e.priceUsd, 30);
+  };
+  const flowFollower = async (symbol) => {
+    const S = "flow_follower";
+    const x = flowOf(symbol, S);
+    if (isRes(x)) return x;
+    const n1 = x.f.h1.buys + x.f.h1.sells, n24 = x.f.h24.buys + x.f.h24.sells;
+    const avg1 = n1 > 0 && x.f.volume1hUsd ? x.f.volume1hUsd / n1 : 0, avg24 = n24 > 0 ? (x.e.volume24Usd ?? 0) / n24 : 0;
+    const sizeX = avg24 > 0 ? avg1 / avg24 : 0, bs = buyShare(x.f.h1), ch = x.f.change1hPct;
+    if (sizeX >= 1.5 && bs != null && bs > 0.58 && n1 >= minTx() && ch != null && ch >= -5 && ch <= 20)
+      return res(S, "signal", `${symbol}: average trade ${sizeX.toFixed(1)}x the 24h norm, ${(bs * 100).toFixed(0)}% buys, 1h ${ch.toFixed(1)}% \u2014 large buyers before the move`, x.e.priceUsd, 64, "BUY");
+    return res(S, "watching", `${symbol}: trade size ${sizeX.toFixed(1)}x norm`, x.e.priceUsd, 30);
+  };
+  const memeVelocity = async (symbol) => {
+    const S = "meme_velocity";
+    const x = flowOf(symbol, S);
+    if (isRes(x)) return x;
+    if (!x.e.newToken) return res(S, "watching", `${symbol}: not a new pool`, x.e.priceUsd, 0);
+    const ch = x.f.change1hPct, bs = buyShare(x.f.h1), n = x.f.h1.buys + x.f.h1.sells;
+    if (ch != null && ch >= Number(process.env.CRYPTO_MEME_MIN_1H_PCT ?? 20) && bs != null && bs > 0.55 && n >= minTx())
+      return res(S, "signal", `${symbol}: new pool up ${ch.toFixed(0)}% in the last hour, ${(bs * 100).toFixed(0)}% buys over ${n} trades`, x.e.priceUsd, 60, "BUY");
+    return res(S, "watching", `${symbol}: new pool, 1h ${ch?.toFixed(0) ?? "n/a"}%`, x.e.priceUsd, 25);
+  };
   const all = {
     sniper,
     smc_ote: smcOte,
     vwap_reversion: vwapReversion,
     liquidity_sweep: liquiditySweep,
     session_breakout: sessionBreakout,
-    btc_weekend_range: btcWeekendRange
+    btc_weekend_range: btcWeekendRange,
+    dip_sniper: dipSniper,
+    volume_explosion: volumeExplosion,
+    flow_follower: flowFollower,
+    meme_velocity: memeVelocity
   };
   if (!portsEnabled()) return {};
   return Object.fromEntries(Object.entries(all).filter(([id]) => runnerEnabled(id)));
 }
-var SHADOW_ONLY_TESTS, portsEnabled, last, res, chainOf;
+var FLOW_RUNNERS, NEW_TOKEN_RUNNERS, SHADOW_ONLY_TESTS, portsEnabled, last, res, chainOf;
 var init_crypto_ports = __esm({
   "server/services/crypto-ports.ts"() {
     "use strict";
+    FLOW_RUNNERS = /* @__PURE__ */ new Set(["dip_sniper", "volume_explosion", "flow_follower", "meme_velocity"]);
+    NEW_TOKEN_RUNNERS = /* @__PURE__ */ new Set(["meme_velocity"]);
     SHADOW_ONLY_TESTS = /* @__PURE__ */ new Set(["session_breakout", "btc_weekend_range"]);
     portsEnabled = () => process.env.CRYPTO_PORTS !== "off";
     last = (a) => a[a.length - 1];
@@ -17463,7 +17572,12 @@ function ensureCryptoShadowTables() {
       liquidity_usd double precision, change_1h double precision, change_24h double precision, volume_24h_usd double precision,
       atr_pct double precision, h1_trend text, h4_trend text, htf_aligned boolean, live_gate_blocked boolean,
       btc_change_24h double precision, hour_utc int, day_of_week int, score real, tags text[], advice_at_entry text,
-      closed_at timestamptz, exit_reason text, hold_minutes double precision, net_pct double precision)`)).then(() => void 0).catch((e) => {
+      closed_at timestamptz, exit_reason text, hold_minutes double precision, net_pct double precision)`)).then(() => pool.query(`ALTER TABLE crypto_shadow_context
+        ADD COLUMN IF NOT EXISTS buy_share_h1 double precision, ADD COLUMN IF NOT EXISTS buy_share_h24 double precision,
+        ADD COLUMN IF NOT EXISTS txns_h1 int, ADD COLUMN IF NOT EXISTS txns_h24 int,
+        ADD COLUMN IF NOT EXISTS buyers_h1 int, ADD COLUMN IF NOT EXISTS sellers_h1 int,
+        ADD COLUMN IF NOT EXISTS market_cap_usd double precision, ADD COLUMN IF NOT EXISTS token_age_hours double precision,
+        ADD COLUMN IF NOT EXISTS new_token boolean`)).then(() => void 0).catch((e) => {
       _ensured2 = null;
       throw e;
     });
@@ -17492,6 +17606,10 @@ function pctChange(bars, hoursBack) {
 }
 function bucketsOf(c) {
   const b = {};
+  if (c.buy_share_h1 != null) b.buyShare = c.buy_share_h1 < 0.45 ? "sellers<45%" : c.buy_share_h1 < 0.55 ? "balanced" : c.buy_share_h1 < 0.65 ? "buyers55-65%" : "buyers65%+";
+  if (c.txns_h1 != null) b.activity = c.txns_h1 < 20 ? "quiet<20tx/h" : c.txns_h1 < 100 ? "20-100tx/h" : c.txns_h1 < 500 ? "100-500tx/h" : "500+tx/h";
+  if (c.market_cap_usd != null && c.market_cap_usd > 0) b.mcap = c.market_cap_usd < 1e7 ? "<10M" : c.market_cap_usd < 1e8 ? "10-100M" : c.market_cap_usd < 1e9 ? "100M-1B" : "1B+";
+  if (c.token_age_hours != null) b.age = c.token_age_hours < 72 ? "<3d" : c.token_age_hours < 720 ? "3-30d" : "30d+";
   if (c.direction) b.side = c.direction;
   if (c.hour_utc != null) {
     const s = Math.floor(c.hour_utc / 4) * 4;
@@ -17534,7 +17652,7 @@ async function computeCryptoShadowStats(userId, force = false) {
   if (!force && hit && Date.now() - hit.at < 15 * 6e4) return hit.stats;
   await ensureCryptoShadowTables();
   const { rows } = await pool.query(
-    `SELECT strategy, direction, hour_utc, liquidity_usd, change_24h, atr_pct, htf_aligned, btc_change_24h, net_pct FROM crypto_shadow_context
+    `SELECT strategy, direction, hour_utc, liquidity_usd, change_24h, atr_pct, htf_aligned, btc_change_24h, buy_share_h1, txns_h1, market_cap_usd, token_age_hours, net_pct FROM crypto_shadow_context
       WHERE user_id=$1 AND closed_at IS NOT NULL AND net_pct IS NOT NULL AND closed_at >= now() - interval '60 days'`,
     [userId]
   );
@@ -17635,7 +17753,9 @@ async function runCryptoShadowAll(userId, cfg, symbols, chain, slippageCapBps, d
     const uni = deps.universe(symbol);
     if (!uni?.poolAddress) continue;
     const und = underlyingOf2(symbol);
-    const results = (await Promise.all(Object.entries(deps.runners).map(([k, fn]) => fn(symbol, shadowCfg).then((r) => ({ ...r, strategy: r.strategy || k })).catch(() => null)))).filter((r) => !!r);
+    const { NEW_TOKEN_RUNNERS: NEW_TOKEN_RUNNERS2, buyShare: buyShare2 } = await Promise.resolve().then(() => (init_crypto_ports(), crypto_ports_exports));
+    const runnersFor = Object.entries(deps.runners).filter(([k]) => uni.newToken ? NEW_TOKEN_RUNNERS2.has(k) : !NEW_TOKEN_RUNNERS2.has(k));
+    const results = (await Promise.all(runnersFor.map(([k, fn]) => fn(symbol, shadowCfg).then((r) => ({ ...r, strategy: r.strategy || k })).catch(() => null)))).filter((r) => !!r);
     const ORIGINAL = /* @__PURE__ */ new Set(["trend_following", "momentum", "order_flow", "volume_profile", "breakout", "structure", "divergence"]);
     const dirs = results.filter((r) => r.direction && ORIGINAL.has(r.strategy));
     const buys = dirs.filter((r) => r.direction === "BUY"), sells = dirs.filter((r) => r.direction === "SELL");
@@ -17665,14 +17785,28 @@ async function runCryptoShadowAll(userId, cfg, symbols, chain, slippageCapBps, d
       const direction = sig.direction === "SELL" ? "hypothetical_short" : "long";
       const short = direction !== "long";
       const slPct = Math.min(hi, Math.max(lo, h1.atr * atrMult / price * 100));
-      const costBps = estimateCryptoRoundTripBps2({ notionalUsd: NOTIONAL(), liquidityUsd: uni.liquidityUsd, slippageCapBps }).roundTripBps;
+      const costBps = estimateCryptoRoundTripBps2({ notionalUsd: NOTIONAL(), liquidityUsd: uni.liquidityUsd, slippageCapBps }).roundTripBps + (uni.newToken ? Number(process.env.CRYPTO_MEME_EXTRA_COST_BPS ?? 200) : 0);
       if (floorMult > 0 && slPct < floorMult * costBps / 100) continue;
       const stop = short ? price * (1 + slPct / 100) : price * (1 - slPct / 100);
       const target = short ? price * (1 - slPct * rr / 100) : price * (1 + slPct * rr / 100);
       const aligned = h4Trend == null ? null : short ? h4Trend === "BEARISH" : h4Trend === "BULLISH";
       const gated = await deps.gate(symbol, sig, cfg).then((g) => g.decision !== "signal").catch(() => null);
       const hourUtc = (/* @__PURE__ */ new Date()).getUTCHours();
-      const ctx = { hour_utc: hourUtc, liquidity_usd: uni.liquidityUsd, change_24h: ch24, atr_pct: h1.atr / price * 100, htf_aligned: aligned, btc_change_24h: btcChange, direction: short ? "short" : "long" };
+      const fl = uni.flow;
+      const created = fl?.poolCreatedAt ? new Date(fl.poolCreatedAt).getTime() : NaN;
+      const ctx = {
+        hour_utc: hourUtc,
+        liquidity_usd: uni.liquidityUsd,
+        change_24h: ch24,
+        atr_pct: h1.atr / price * 100,
+        htf_aligned: aligned,
+        btc_change_24h: btcChange,
+        direction: short ? "short" : "long",
+        buy_share_h1: fl ? buyShare2(fl.h1) : null,
+        txns_h1: fl ? fl.h1.buys + fl.h1.sells : null,
+        market_cap_usd: fl ? fl.marketCapUsd ?? fl.fdvUsd : null,
+        token_age_hours: Number.isFinite(created) ? (Date.now() - created) / 36e5 : null
+      };
       const advice = adviceFor(stats, strat, ctx);
       const tags = [];
       if (ch1 != null && Math.abs(ch1) >= 3) tags.push(ch1 > 0 ? "hot_hour" : "dump_hour");
@@ -17681,6 +17815,9 @@ async function runCryptoShadowAll(userId, cfg, symbols, chain, slippageCapBps, d
       if (aligned === true) tags.push("htf_aligned");
       if (gated) tags.push("live_gate_would_block");
       if (uni.liquidityUsd < 25e4) tags.push("thin_pool");
+      if (uni.newToken) tags.push("new_token");
+      if (ctx.buy_share_h1 != null && ctx.buy_share_h1 > 0.65) tags.push("buyers_dominant");
+      if (ctx.buy_share_h1 != null && ctx.buy_share_h1 < 0.45) tags.push("sellers_dominant");
       const ins = await pool.query(
         `INSERT INTO crypto_shadow_trades (user_id, strategy, symbol, underlying, chain, token_address, pool_address, direction, entry_price, stop_loss, take_profit,
            sl_pct, notional_usd, cost_bps, score, max_hours) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16) RETURNING id`,
@@ -17690,8 +17827,9 @@ async function runCryptoShadowAll(userId, cfg, symbols, chain, slippageCapBps, d
       if (!id) continue;
       await pool.query(
         `INSERT INTO crypto_shadow_context (trade_id, user_id, strategy, symbol, direction, liquidity_usd, change_1h, change_24h, volume_24h_usd, atr_pct,
-           h1_trend, h4_trend, htf_aligned, live_gate_blocked, btc_change_24h, hour_utc, day_of_week, score, tags, advice_at_entry)
-         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20) ON CONFLICT (trade_id) DO NOTHING`,
+           h1_trend, h4_trend, htf_aligned, live_gate_blocked, btc_change_24h, hour_utc, day_of_week, score, tags, advice_at_entry,
+           buy_share_h1, buy_share_h24, txns_h1, txns_h24, buyers_h1, sellers_h1, market_cap_usd, token_age_hours, new_token)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25,$26,$27,$28,$29) ON CONFLICT (trade_id) DO NOTHING`,
         [
           id,
           userId,
@@ -17712,7 +17850,16 @@ async function runCryptoShadowAll(userId, cfg, symbols, chain, slippageCapBps, d
           (/* @__PURE__ */ new Date()).getUTCDay(),
           sig.score ?? null,
           tags,
-          advice
+          advice,
+          ctx.buy_share_h1,
+          fl ? buyShare2(fl.h24) : null,
+          ctx.txns_h1,
+          fl ? fl.h24.buys + fl.h24.sells : null,
+          fl?.h1.buyers ?? null,
+          fl?.h1.sellers ?? null,
+          ctx.market_cap_usd,
+          ctx.token_age_hours,
+          !!uni.newToken
         ]
       ).catch(() => {
       });
@@ -18896,6 +19043,96 @@ var init_goal_pace = __esm({
     TTL_MS5 = 15 * 6e4;
     plans = /* @__PURE__ */ new Map();
     loading = /* @__PURE__ */ new Set();
+  }
+});
+
+// server/services/fx-rules-score.ts
+function fxDecisionMode() {
+  const m = String(process.env.FX_DECISION_MODE || "ai").toLowerCase();
+  return m === "rules" || m === "hybrid" ? m : "ai";
+}
+function fxRulesMinScore(configMin) {
+  const env = Number(process.env.FX_RULES_MIN_SCORE);
+  if (process.env.FX_RULES_MIN_SCORE && Number.isFinite(env)) return env;
+  return Number(configMin) > 0 ? Number(configMin) : 70;
+}
+function rulesWeights() {
+  const raw = process.env.FX_RULES_WEIGHTS || "";
+  if (_wCache && _wCache.raw === raw) return _wCache.w;
+  let w = { ...DEFAULT_RULES_WEIGHTS };
+  if (raw) {
+    try {
+      const o = JSON.parse(raw);
+      for (const k of Object.keys(w)) {
+        if (typeof o?.[k] === "number" && Number.isFinite(o[k])) w[k] = o[k];
+      }
+    } catch {
+    }
+  }
+  _wCache = { raw, w };
+  return w;
+}
+function scoreFxPair(i, w = rulesWeights()) {
+  const direction = i.bull >= i.bear ? "BUY" : "SELL";
+  const votes = Math.max(i.bull, i.bear);
+  const want = direction === "BUY" ? "BULLISH" : "BEARISH";
+  const against = direction === "BUY" ? "BEARISH" : "BULLISH";
+  const t = { base: w.base };
+  t.votes = Math.min(w.voteCap, Math.max(0, votes - 3) * w.votePerExtra);
+  t.day = i.dayType === "trend" ? w.dayTrend : i.dayType === "mixed" ? w.dayMixed : i.dayType === "range" ? w.dayRange : 0;
+  const h1 = i.h1 || "NEUTRAL", h4 = i.h4 || "NEUTRAL";
+  if (h1 === want && h4 === want) t.mtf = w.mtfBoth;
+  else if (h1 === against && h4 === against) t.mtf = w.mtfOpposed;
+  else if (h1 === against || h4 === against) t.mtf = w.mtfPartial;
+  else t.mtf = w.mtfNeutral;
+  t.adx = i.adx == null ? 0 : i.adx >= 35 ? w.adx35 : i.adx >= 25 ? w.adx25 : i.adx >= 18 ? w.adx18 : w.adxLow;
+  t.m15 = i.m15Trend === against ? w.m15Conflict : 0;
+  t.sniper = (i.strategyPriority === "high" ? w.sniperHigh : 0) + (i.minConfluences > 0 ? votes >= i.minConfluences ? w.confluenceMet : w.confluenceShort : 0);
+  t.brain = i.brainEdge == null ? 0 : Math.max(-w.brainCap, Math.min(w.brainCap, i.brainEdge / 2));
+  t.pace = i.pace === "FOCUS" ? w.paceFocus : 0;
+  t.model = !i.model || i.model.n < 20 || !(i.model.avgR > 0) ? 0 : String(i.model.direction).toUpperCase() === direction ? w.modelAgree : w.modelOppose;
+  const raw = Object.values(t).reduce((a, b) => a + b, 0);
+  const score = Math.max(0, Math.min(99, Math.round(raw)));
+  let skip = null;
+  if (!i.h1 && !i.h4) skip = "no_htf_data";
+  else if (i.newsSoon) skip = "high_impact_news";
+  else if (i.pace === "AVOID") skip = "pace_avoid";
+  else if (i.brainFail) skip = `brain_fails:${i.brainFail}`;
+  else if (i.relVolume != null && i.relVolume < 0.5 && votes < 5) skip = "dry_volume";
+  return { symbol: i.symbol, direction, score, terms: t, skip };
+}
+var fxRulesShadowOn, DEFAULT_RULES_WEIGHTS, _wCache;
+var init_fx_rules_score = __esm({
+  "server/services/fx-rules-score.ts"() {
+    "use strict";
+    fxRulesShadowOn = () => String(process.env.FX_RULES_SHADOW || "on").toLowerCase() !== "off";
+    DEFAULT_RULES_WEIGHTS = {
+      base: 50,
+      votePerExtra: 6,
+      // per vote above 3 (4→6, 5→12, 6→18, 7+→24)
+      voteCap: 24,
+      dayTrend: 8,
+      dayMixed: -8,
+      dayRange: -15,
+      mtfBoth: 10,
+      mtfNeutral: -5,
+      mtfPartial: -10,
+      mtfOpposed: -20,
+      adx35: 6,
+      adx25: 0,
+      adx18: -4,
+      adxLow: -10,
+      m15Conflict: -10,
+      sniperHigh: 4,
+      confluenceMet: 4,
+      confluenceShort: -8,
+      brainCap: 10,
+      // |pair×session/hour/direction edge| / 2, capped
+      paceFocus: 5,
+      modelAgree: 5,
+      modelOppose: -5
+    };
+    _wCache = null;
   }
 });
 
@@ -23006,6 +23243,237 @@ var init_markov_chain = __esm({
   }
 });
 
+// server/services/fx-decision-shadow.ts
+var fx_decision_shadow_exports = {};
+__export(fx_decision_shadow_exports, {
+  decisionShadowReport: () => decisionShadowReport,
+  ensureDecisionShadowTable: () => ensureDecisionShadowTable,
+  logDecisionShadow: () => logDecisionShadow,
+  resolveDecisionShadow: () => resolveDecisionShadow
+});
+function ensureDecisionShadowTable() {
+  if (!ensured3) {
+    ensured3 = pool.query(DDL4).then(() => void 0).catch((e) => {
+      console.error("[fx-decision-shadow] ensure table failed (non-fatal):", e?.message || e);
+      ensured3 = null;
+    });
+  }
+  return ensured3;
+}
+function logDecisionShadow(r) {
+  if (!r.picked && r.symbol) {
+    const k = `${r.userId}|${r.lane}|${r.symbol}|${r.direction}`;
+    const last2 = _seen.get(k) || 0;
+    if (Date.now() - last2 < NONPICK_DEDUPE_MS) return;
+    _seen.set(k, Date.now());
+    if (_seen.size > 5e3) _seen.clear();
+  }
+  const num4 = (v) => typeof v === "number" && Number.isFinite(v) ? v : null;
+  void ensureDecisionShadowTable().then(() => pool.query(
+    `INSERT INTO fx_decision_shadow (user_id, scan_id, symbol, session, hour_utc, lane, mode, acted, picked, ai_status,
+       direction, score, terms, entry, sl, tp, gate_result)
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17)`,
+    [
+      r.userId,
+      r.scanId,
+      r.symbol ?? null,
+      r.session ?? null,
+      r.hourUtc ?? (/* @__PURE__ */ new Date()).getUTCHours(),
+      r.lane,
+      r.mode,
+      !!r.acted,
+      !!r.picked,
+      r.aiStatus ?? null,
+      r.direction ?? null,
+      num4(r.score),
+      r.terms == null ? null : JSON.stringify(r.terms),
+      num4(r.entry),
+      num4(r.sl),
+      num4(r.tp),
+      r.gateResult ?? null
+    ]
+  )).catch(() => {
+  });
+}
+async function resolveDecisionShadow() {
+  if (resolving || Date.now() - lastResolveAt < 15 * 6e4) return;
+  resolving = true;
+  lastResolveAt = Date.now();
+  try {
+    await ensureDecisionShadowTable();
+    if (Date.now() - lastPruneAt > 24 * 36e5) {
+      lastPruneAt = Date.now();
+      await pool.query(`DELETE FROM fx_decision_shadow WHERE created_at < now() - interval '60 days'`).catch(() => {
+      });
+    }
+    await pool.query(
+      `UPDATE fx_decision_shadow SET resolved_at = now(), outcome = 'unpriced'
+        WHERE resolved_at IS NULL AND picked AND (entry IS NULL OR sl IS NULL OR tp IS NULL OR entry = sl)`
+    ).catch(() => {
+    });
+    const { rows } = await pool.query(
+      `SELECT id, symbol, direction, entry, sl, tp, created_at FROM fx_decision_shadow
+        WHERE resolved_at IS NULL AND picked AND created_at < now() - interval '15 minutes'
+        ORDER BY created_at LIMIT 120`
+    );
+    const bySym = /* @__PURE__ */ new Map();
+    for (const r of rows) {
+      const a = bySym.get(r.symbol) || [];
+      a.push(r);
+      bySym.set(r.symbol, a);
+    }
+    for (const [symbol, list] of Array.from(bySym.entries()).slice(0, 6)) {
+      let bars = [];
+      try {
+        bars = await barsFor("fx")(symbol, "15m", 200);
+      } catch {
+        continue;
+      }
+      if (!bars.length) continue;
+      const cost = costPrice(symbol);
+      for (const r of list) {
+        const t0 = new Date(r.created_at).getTime();
+        const entry = Number(r.entry), sl = Number(r.sl), tp = Number(r.tp);
+        const risk = Math.abs(entry - sl);
+        if (!(risk > 0)) continue;
+        const buy = String(r.direction).toUpperCase() === "BUY";
+        let outcome = null, exit = 0, mfe = 0, mae = 0, lastClose = entry;
+        const horizon = t0 + 24 * 36e5;
+        for (const b of bars) {
+          const ts = Number(b.timestamp) < 1e12 ? Number(b.timestamp) * 1e3 : Number(b.timestamp);
+          if (ts < t0) continue;
+          if (ts > horizon) break;
+          lastClose = Number(b.close) || lastClose;
+          const fav = buy ? b.high - entry : entry - b.low;
+          const adv = buy ? entry - b.low : b.high - entry;
+          mfe = Math.max(mfe, fav / risk);
+          mae = Math.max(mae, adv / risk);
+          const hitSl = buy ? b.low <= sl : b.high >= sl;
+          const hitTp = buy ? b.high >= tp : b.low <= tp;
+          if (hitSl) {
+            outcome = "sl";
+            exit = sl;
+            break;
+          }
+          if (hitTp) {
+            outcome = "tp";
+            exit = tp;
+            break;
+          }
+        }
+        if (!outcome && Date.now() > horizon) {
+          outcome = "timeout";
+          exit = lastClose;
+        }
+        if (!outcome) continue;
+        const move = (buy ? exit - entry : entry - exit) - cost;
+        await pool.query(
+          `UPDATE fx_decision_shadow SET resolved_at = now(), outcome = $2, r_multiple = $3, mfe_r = $4, mae_r = $5
+            WHERE id = $1 AND resolved_at IS NULL`,
+          [r.id, outcome, move / risk, mfe, mae]
+        ).catch(() => {
+        });
+      }
+    }
+  } catch (e) {
+    console.error("[fx-decision-shadow] resolve failed (non-fatal):", e?.message || e);
+  } finally {
+    resolving = false;
+  }
+}
+async function decisionShadowReport(userId, days = 14) {
+  await ensureDecisionShadowTable();
+  const d = Math.max(1, Math.min(90, Math.floor(Number(days) || 14)));
+  const q = (sql5) => pool.query(sql5, [userId, d]).then((r) => r.rows);
+  const W = `user_id = $1 AND created_at > now() - ($2 || ' days')::interval`;
+  const [coverage, lanes, agreement, disagreement, deciles, bySession, byPair] = await Promise.all([
+    q(`SELECT count(DISTINCT scan_id) scans,
+              count(DISTINCT scan_id) FILTER (WHERE lane='ai' AND (ai_status LIKE 'failed%' OR ai_status = 'timeout')) ai_failed_scans,
+              count(DISTINCT scan_id) FILTER (WHERE lane='rules' AND acted) rules_acted_scans
+         FROM fx_decision_shadow WHERE ${W}`),
+    q(`SELECT lane, count(*) FILTER (WHERE picked) picks,
+              count(*) FILTER (WHERE picked AND gate_result = 'filled') filled,
+              count(*) FILTER (WHERE picked AND outcome IN ('tp','sl','timeout')) resolved,
+              round(100.0 * avg((r_multiple > 0)::int) FILTER (WHERE outcome IN ('tp','sl','timeout')), 1) win_rate,
+              round(avg(r_multiple) FILTER (WHERE outcome IN ('tp','sl','timeout'))::numeric, 3) avg_r,
+              round(sum(r_multiple) FILTER (WHERE outcome IN ('tp','sl','timeout'))::numeric, 2) total_r
+         FROM fx_decision_shadow WHERE ${W} GROUP BY lane`),
+    q(`WITH p AS (SELECT scan_id, symbol,
+                         max(direction) FILTER (WHERE lane='ai')    ai_dir,
+                         max(direction) FILTER (WHERE lane='rules') rules_dir
+                    FROM fx_decision_shadow WHERE ${W} AND picked GROUP BY 1,2)
+       SELECT count(*) pair_scans,
+              count(*) FILTER (WHERE ai_dir = rules_dir) agree,
+              count(*) FILTER (WHERE ai_dir IS NOT NULL AND rules_dir IS NULL) ai_only,
+              count(*) FILTER (WHERE rules_dir IS NOT NULL AND ai_dir IS NULL) rules_only,
+              count(*) FILTER (WHERE ai_dir <> rules_dir) opposite
+         FROM p`),
+    q(`WITH p AS (SELECT scan_id, symbol, lane, r_multiple, outcome,
+                         count(*) OVER (PARTITION BY scan_id, symbol) lanes_here
+                    FROM fx_decision_shadow WHERE ${W} AND picked)
+       SELECT lane || '_only' slice, count(*) n,
+              round(avg(r_multiple) FILTER (WHERE outcome IN ('tp','sl','timeout'))::numeric, 3) avg_r
+         FROM p WHERE lanes_here = 1 GROUP BY lane`),
+    q(`SELECT lane, width_bucket(score, 0, 100, 10) decile, count(*) n,
+              round(100.0 * avg((r_multiple > 0)::int), 1) win_rate, round(avg(r_multiple)::numeric, 3) avg_r
+         FROM fx_decision_shadow WHERE ${W} AND picked AND outcome IN ('tp','sl','timeout') GROUP BY 1,2 ORDER BY 1,2`),
+    q(`SELECT lane, session, direction, count(*) n, round(avg(r_multiple)::numeric, 3) avg_r
+         FROM fx_decision_shadow WHERE ${W} AND picked AND outcome IN ('tp','sl','timeout') GROUP BY 1,2,3 ORDER BY 1,2,3`),
+    q(`SELECT lane, symbol, count(*) n, round(sum(r_multiple)::numeric, 2) total_r
+         FROM fx_decision_shadow WHERE ${W} AND picked AND outcome IN ('tp','sl','timeout') GROUP BY 1,2 ORDER BY 1,3 DESC`)
+  ]);
+  return { days: d, coverage: coverage[0], lanes, agreement: agreement[0], disagreement, deciles, bySession, byPair };
+}
+var DDL4, ensured3, _seen, NONPICK_DEDUPE_MS, costPrice, lastResolveAt, lastPruneAt, resolving;
+var init_fx_decision_shadow = __esm({
+  "server/services/fx-decision-shadow.ts"() {
+    "use strict";
+    init_db();
+    init_fx_models();
+    DDL4 = `
+CREATE TABLE IF NOT EXISTS fx_decision_shadow (
+  id serial PRIMARY KEY,
+  user_id integer NOT NULL,
+  scan_id text NOT NULL,
+  created_at timestamptz NOT NULL DEFAULT now(),
+  symbol text,
+  session text,
+  hour_utc smallint,
+  lane text NOT NULL,
+  mode text NOT NULL,
+  acted boolean NOT NULL DEFAULT false,
+  picked boolean NOT NULL DEFAULT false,
+  ai_status text,
+  direction text,
+  score real,
+  terms jsonb,
+  entry real, sl real, tp real,
+  gate_result text,
+  resolved_at timestamptz,
+  outcome text,
+  r_multiple real,
+  mfe_r real,
+  mae_r real
+);
+CREATE INDEX IF NOT EXISTS fx_decision_shadow_user_idx ON fx_decision_shadow (user_id, created_at);
+CREATE INDEX IF NOT EXISTS fx_decision_shadow_open_idx ON fx_decision_shadow (created_at) WHERE resolved_at IS NULL AND picked;
+`;
+    ensured3 = null;
+    _seen = /* @__PURE__ */ new Map();
+    NONPICK_DEDUPE_MS = 15 * 6e4;
+    costPrice = (sym) => {
+      const s = sym.toUpperCase();
+      const env = Number(process.env.FX_SHADOW_COST_PIPS);
+      const pips = Number.isFinite(env) && process.env.FX_SHADOW_COST_PIPS ? env : /^XAU/.test(s) ? 3.5 : 1.5;
+      const pip = /JPY/.test(s) ? 0.01 : /^XAU/.test(s) ? 0.1 : 1e-4;
+      return pips * pip;
+    };
+    lastResolveAt = 0;
+    lastPruneAt = 0;
+    resolving = false;
+  }
+});
+
 // server/dxtrade.ts
 var dxtrade_exports = {};
 __export(dxtrade_exports, {
@@ -26284,13 +26752,30 @@ async function scanMarkets(userId) {
       await runORBAutonomousScan(userId);
     } catch {
     }
-    await Promise.race([
-      runAILiveAnalysis(userId, marketAnalysis, brain, newsContext, crossAssets, triggerPairs, htfMarketData),
-      new Promise((_, reject) => setTimeout(
-        () => reject(new Error("AI live analysis exceeded 150s wall-clock cap \u2014 abandoning this scan cycle")),
-        15e4
-      ))
-    ]);
+    const _scanCtl = { scanId: `${userId}-${Date.now()}`, cancelled: false, fallbackDone: false };
+    if (fxRulesShadowOn()) void Promise.resolve().then(() => (init_fx_decision_shadow(), fx_decision_shadow_exports)).then((m) => m.resolveDecisionShadow()).catch(() => {
+    });
+    try {
+      await Promise.race([
+        runAILiveAnalysis(userId, marketAnalysis, brain, newsContext, crossAssets, triggerPairs, htfMarketData, _scanCtl),
+        new Promise((_, reject) => setTimeout(
+          () => reject(new Error("AI live analysis exceeded 150s wall-clock cap \u2014 abandoning this scan cycle")),
+          15e4
+        ))
+      ]);
+    } catch (capErr) {
+      _scanCtl.cancelled = true;
+      if (fxDecisionMode() === "hybrid" && _scanCtl.fallback) {
+        try {
+          await _scanCtl.fallback("timeout");
+        } catch {
+        }
+      } else if (fxRulesShadowOn()) {
+        void Promise.resolve().then(() => (init_fx_decision_shadow(), fx_decision_shadow_exports)).then((m) => m.logDecisionShadow({ userId, scanId: _scanCtl.scanId, lane: "ai", mode: fxDecisionMode(), aiStatus: "timeout" })).catch(() => {
+        });
+      }
+      throw capErr;
+    }
   } catch (err) {
     addActivity(userId, { type: "error", message: `Scan cycle error: ${err.message}` });
   } finally {
@@ -27401,6 +27886,226 @@ function generateRuleBasedSignals(indicators, config, symbol) {
     tradingWindowQuality: "good"
   };
 }
+async function recentModelIdeas(userId) {
+  const c = _modelIdeaCache.get(userId);
+  if (c && Date.now() - c.at < 5 * 6e4) return c;
+  const fresh = { at: Date.now(), ideas: {}, stats: {} };
+  try {
+    const { pool: pool2 } = await Promise.resolve().then(() => (init_db(), db_exports));
+    const a = await pool2.query(
+      `SELECT DISTINCT ON (symbol) symbol, model, direction FROM fx_model_decisions
+        WHERE user_id = $1 AND engine = 'fx' AND direction IN ('BUY','SELL') AND created_at > now() - interval '60 minutes'
+        ORDER BY symbol, created_at DESC`,
+      [userId]
+    );
+    for (const r of a.rows) fresh.ideas[String(r.symbol).toUpperCase().replace("/", "")] = { direction: r.direction, model: r.model };
+    const b = await pool2.query(
+      `SELECT model, avg(r_multiple) avg_r, count(*) n FROM fx_model_decisions
+        WHERE user_id = $1 AND engine = 'fx' AND result IN ('WIN','LOSS','EXPIRED') AND created_at > now() - interval '30 days'
+        GROUP BY model`,
+      [userId]
+    );
+    for (const r of b.rows) fresh.stats[r.model] = { avgR: Number(r.avg_r) || 0, n: Number(r.n) || 0 };
+  } catch {
+  }
+  _modelIdeaCache.set(userId, fresh);
+  return fresh;
+}
+async function buildRulesPicks(userId, marketAnalysis, htfMarketData, newsContext) {
+  const state = engineStates[userId];
+  if (!state) return [];
+  const now = /* @__PURE__ */ new Date();
+  const hour = now.getUTCHours();
+  const session2 = sessionForHour(hour);
+  const minScore = fxRulesMinScore(state.config.minConfidence);
+  const { classifyDayType: classifyDayType2, sessionFor: sessionFor2 } = await Promise.resolve().then(() => (init_fx_models(), fx_models_exports));
+  const { canonSession: canonSession2 } = await Promise.resolve().then(() => (init_session(), session_exports));
+  let brains = {};
+  try {
+    const { getFxBrain: getFxBrain2 } = await Promise.resolve().then(() => (init_fx_brain(), fx_brain_exports));
+    brains = await getFxBrain2(userId);
+  } catch {
+  }
+  const models = await recentModelIdeas(userId);
+  const paceOn = state.config.goalPaceEnabled !== false;
+  const plan = paceOn ? getPacePlan(userId, state.config) : null;
+  const shadowOn = state.config?.brainShadowEnabled !== false;
+  const out = [];
+  for (const [symbol, data] of Object.entries(marketAnalysis)) {
+    try {
+      const sym = String(symbol).toUpperCase().replace("/", "");
+      const { bull, bear } = countIndicatorAlignment(data);
+      const direction = bull >= bear ? "BUY" : "SELL";
+      const { h1, h4 } = mtfStack(state, symbol);
+      const adx = adxOrNull(data);
+      const relVolume = data.volumeMetrics?.relativeVolume ?? null;
+      const dayType = h1 || h4 ? classifyDayType2({ adx, relVolume, h1: h1?.trend, h4: h4?.trend, session: sessionFor2(now) }).dayType : null;
+      const rec = selectStrategyForPair(
+        symbol,
+        data,
+        htfMarketData?.[symbol],
+        state.asiaRangeHigh?.[symbol],
+        state.asiaRangeLow?.[symbol],
+        hour,
+        now.getUTCMinutes(),
+        state.lastHighImpactNewsAt,
+        state.config.strategyMode
+      );
+      const b = brains[sym.split(".")[0].replace(/[^A-Z0-9]/g, "")];
+      let brainEdge = null, brainFail = null;
+      if (b) {
+        const hourLabel = `${hour}:00 UTC`;
+        const hits = (p) => p.dimension === "session" && canonSession2(p.value, hour) === canonSession2(session2, hour) || p.dimension === "hour" && p.value === hourLabel || p.dimension === "direction" && String(p.value).toUpperCase() === direction;
+        let edge = 0, any = false;
+        for (const p of [...b.works || [], ...b.fails || []]) {
+          if (!hits(p) || p.trades < 10) continue;
+          edge += Number(p.edgeVsPair) || 0;
+          any = true;
+        }
+        const failHit = (b.fails || []).find((p) => hits(p) && (p.dimension !== "direction" || p.trades >= Number(process.env.FX_BRAIN_GATE_MIN_DIR_TRADES ?? 20)));
+        if (failHit && process.env.FX_BRAIN_GATE_ENABLED !== "false") brainFail = `${failHit.dimension}=${failHit.value}`;
+        const sh = shadowOn ? getShadowSessionStat(userId, symbol, session2) : null;
+        const shN = sh ? sh.wins + sh.losses : 0;
+        if (sh && shN >= 5) {
+          edge += SHADOW_WEIGHT() * (sh.wins / shN * 100 - (Number(b.winRate) || 0));
+          any = true;
+        }
+        brainEdge = any ? edge : null;
+      }
+      const pw = plan ? paceWindowFor(plan, symbol, direction, hour) : null;
+      const idea = models.ideas[sym];
+      const mstat = idea ? models.stats[idea.model] : null;
+      const rs = scoreFxPair({
+        symbol,
+        bull,
+        bear,
+        dayType,
+        h1: h1?.trend ?? null,
+        h4: h4?.trend ?? null,
+        adx,
+        m15Trend: data.trend ?? null,
+        strategy: rec.strategy,
+        strategyPriority: rec.priority,
+        minConfluences: rec.minConfluences || 0,
+        brainEdge,
+        brainFail,
+        pace: pw ? pw.verdict : null,
+        model: idea && mstat ? { direction: idea.direction, avgR: mstat.avgR, n: mstat.n } : null,
+        newsSoon: !!newsContext?.highImpactSoon,
+        relVolume
+      });
+      let decision = null;
+      const price = Number(data.currentPrice) || 0;
+      if (!rs.skip && rs.score >= minScore && price > 0) {
+        const atr = Number(data.atr?.value ?? data.atr) || price * 5e-4;
+        const pipSize2 = getPipSize(symbol);
+        const minSlPips = symbol.includes("XAU") ? 300 : symbol.includes("JPY") ? 22 : 16;
+        const slDist = Math.max(atr * (rs.score >= 86 ? 2 : 1.8), minSlPips * pipSize2);
+        const tpDist = Math.max(atr * (rs.score >= 86 ? 4 : 3.6), slDist * 2);
+        const isBuy = rs.direction === "BUY";
+        decision = {
+          action: "OPEN_TRADE",
+          strategy: rec.priority !== "none" && rec.strategy ? rec.strategy : "momentum",
+          symbol,
+          direction: rs.direction,
+          confidence: rs.score,
+          reason: `Rules lane ${rs.score}/99 \u2014 ${Object.entries(rs.terms).filter(([k, v]) => k !== "base" && v !== 0).map(([k, v]) => `${k}${v > 0 ? "+" : ""}${Math.round(v)}`).join(" ")}`,
+          confluences: [`${Math.max(bull, bear)}/7 indicator votes`, `H1 ${h1?.trend ?? "n/a"} / H4 ${h4?.trend ?? "n/a"}`, `day ${dayType ?? "n/a"}`],
+          entryPrice: price,
+          stopLoss: isBuy ? price - slDist : price + slDist,
+          takeProfit: isBuy ? price + tpDist : price - tpDist,
+          lotSize: state.config.baseLotSize,
+          holdTime: "30min",
+          urgency: "IMMEDIATE",
+          decisionLane: "rules"
+        };
+      }
+      out.push({ rs, decision, session: session2, hour });
+    } catch {
+    }
+  }
+  return out;
+}
+function logRulesPicks(userId, scanId, mode, picks, acted) {
+  void Promise.resolve().then(() => (init_fx_decision_shadow(), fx_decision_shadow_exports)).then(({ logDecisionShadow: logDecisionShadow2 }) => {
+    for (const p of picks) {
+      logDecisionShadow2({
+        userId,
+        scanId,
+        lane: "rules",
+        mode,
+        symbol: p.rs.symbol,
+        session: p.session,
+        hourUtc: p.hour,
+        picked: !!p.decision,
+        acted: !!(acted && p.decision && acted[p.rs.symbol] !== void 0),
+        direction: p.rs.direction,
+        score: p.rs.score,
+        terms: { ...p.rs.terms, skip: p.rs.skip },
+        entry: p.decision?.entryPrice,
+        sl: p.decision?.stopLoss,
+        tp: p.decision?.takeProfit,
+        gateResult: acted && p.decision ? acted[p.rs.symbol] ?? null : null
+      });
+    }
+  }).catch(() => {
+  });
+}
+async function actOnRulesPicks(userId, scanId, mode, picks, newsContext, why) {
+  const state = engineStates[userId];
+  if (!state) return;
+  const acted = {};
+  const live = picks.filter((p) => p.decision);
+  addActivity(userId, { type: "ai_decision", message: `\u2699\uFE0F Rules lane (${why}) | ${live.length} decision(s): ${live.map((p) => `${p.rs.direction} ${p.rs.symbol} ${p.rs.score}`).join(", ") || "none"} \u2014 no AI call` });
+  for (const p of live) {
+    const before = state.tradesExecuted;
+    try {
+      await processDecision(userId, p.decision, newsContext);
+    } catch (e) {
+      addActivity(userId, { type: "error", message: `Rules lane decision error: ${e?.message || e}` });
+    }
+    acted[p.rs.symbol] = state.tradesExecuted > before ? "filled" : "not_filled";
+  }
+  state.lastSignalAt = (/* @__PURE__ */ new Date()).toISOString();
+  if (fxRulesShadowOn()) logRulesPicks(userId, scanId, mode, picks, acted);
+}
+function logAiShadow(userId, scanId, mode, status, decisions, gate) {
+  void Promise.resolve().then(() => (init_fx_decision_shadow(), fx_decision_shadow_exports)).then(({ logDecisionShadow: logDecisionShadow2 }) => {
+    const hour = (/* @__PURE__ */ new Date()).getUTCHours();
+    const session2 = sessionForHour(hour);
+    const opens = (decisions || []).map((d, i) => ({ d, i })).filter(({ d }) => d?.action === "OPEN_TRADE" && d?.symbol);
+    if (!opens.length) {
+      logDecisionShadow2({ userId, scanId, lane: "ai", mode, aiStatus: status, session: session2, hourUtc: hour });
+      return;
+    }
+    const n = (v) => {
+      const x = typeof v === "number" ? v : parseFloat(String(v ?? "").replace(/[^0-9.\-]/g, ""));
+      return Number.isFinite(x) ? x : null;
+    };
+    for (const { d, i } of opens) {
+      logDecisionShadow2({
+        userId,
+        scanId,
+        lane: "ai",
+        mode,
+        aiStatus: status,
+        session: session2,
+        hourUtc: hour,
+        symbol: String(d.symbol),
+        direction: String(d.direction || "").toUpperCase() || null,
+        picked: true,
+        acted: mode !== "rules",
+        score: n(d.confidence),
+        terms: { strategy: d.strategy ?? null, reason: String(d.reason || "").slice(0, 300) },
+        entry: n(d.entryPrice),
+        sl: n(d.stopLoss),
+        tp: n(d.takeProfit),
+        gateResult: gate?.[i] ?? null
+      });
+    }
+  }).catch(() => {
+  });
+}
 function countIndicatorAlignment(data) {
   let bull = 0;
   let bear = 0;
@@ -27677,7 +28382,7 @@ function selectStrategyForPair(symbol, data, htfBias, asiaHigh, asiaLow, utcHour
     minConfluences: 0
   };
 }
-async function runAILiveAnalysis(userId, marketAnalysis, brain, newsContext, crossAssets, triggerAlerts, htfMarketData) {
+async function runAILiveAnalysis(userId, marketAnalysis, brain, newsContext, crossAssets, triggerAlerts, htfMarketData, scanCtl) {
   const state = engineStates[userId];
   if (!state) return;
   const aiMode = state.config.aiMode || "full";
@@ -27720,6 +28425,30 @@ async function runAILiveAnalysis(userId, marketAnalysis, brain, newsContext, cro
     }
     marketAnalysis = filteredAnalysis;
   }
+  const _fxMode = fxDecisionMode();
+  const _fxShadow = fxRulesShadowOn();
+  const _scanId = scanCtl?.scanId || `${userId}-${Date.now()}`;
+  let _rulesP = null;
+  if (_fxMode !== "ai" || _fxShadow) {
+    _rulesP = buildRulesPicks(userId, { ...marketAnalysis }, htfMarketData, newsContext).catch(() => []);
+  }
+  if (_fxMode === "rules") {
+    await actOnRulesPicks(userId, _scanId, _fxMode, await _rulesP, newsContext, "FX_DECISION_MODE=rules");
+    return;
+  }
+  if (_fxMode === "ai" && _rulesP) {
+    const _p = _rulesP;
+    void _p.then((picks) => logRulesPicks(userId, _scanId, _fxMode, picks, null)).catch(() => {
+    });
+  }
+  const _aiFailed = async (status) => {
+    if (_fxShadow) logAiShadow(userId, _scanId, _fxMode, status, null);
+    if (_fxMode !== "hybrid" || !_rulesP) return;
+    if (scanCtl?.fallbackDone) return;
+    if (scanCtl) scanCtl.fallbackDone = true;
+    await actOnRulesPicks(userId, _scanId, _fxMode, await _rulesP, newsContext, `hybrid fallback \u2014 AI ${status}`);
+  };
+  if (scanCtl) scanCtl.fallback = (reason) => _aiFailed(reason);
   let openai2;
   try {
     const { getUniversalAIClientForUser: getUniversalAIClientForUser2 } = await Promise.resolve().then(() => (init_openai(), openai_exports));
@@ -27727,6 +28456,7 @@ async function runAILiveAnalysis(userId, marketAnalysis, brain, newsContext, cro
       openai2 = await getUniversalAIClientForUser2(userId);
     } catch {
       addActivity(userId, { type: "error", message: "No AI API key configured. Cannot analyze." });
+      if (_fxMode !== "ai" || _fxShadow) await _aiFailed("failed:no_client");
       return;
     }
     const _primaryClient = openai2;
@@ -28495,6 +29225,7 @@ Keep it natural \u2014 not every sentence. Weave it in where it fits. ALL prices
           if (jsonMatch) decisions = JSON.parse(jsonMatch[0]);
           else {
             addActivity(userId, { type: "error", message: "AI returned invalid response" });
+            if (_fxMode !== "ai" || _fxShadow) await _aiFailed("failed:invalid_json");
             return;
           }
         }
@@ -28517,12 +29248,35 @@ Keep it natural \u2014 not every sentence. Weave it in where it fits. ALL prices
       }
     });
     state.lastSignalAt = (/* @__PURE__ */ new Date()).toISOString();
-    if (decisions.decisions && decisions.decisions.length > 0) {
-      for (const decision of decisions.decisions) {
-        await processDecision(userId, decision, newsContext);
+    if (_fxMode === "hybrid") {
+      if (scanCtl?.cancelled || scanCtl?.fallbackDone) {
+        if (_fxShadow) logAiShadow(userId, _scanId, _fxMode, "late_after_cap", decisions.decisions || null);
+        return;
+      }
+      if (scanCtl) scanCtl.fallbackDone = true;
+      if (_fxShadow && _rulesP) {
+        const _p = _rulesP;
+        void _p.then((picks) => logRulesPicks(userId, _scanId, _fxMode, picks, null)).catch(() => {
+        });
       }
     }
+    const _gate = {};
+    if (decisions.decisions && decisions.decisions.length > 0) {
+      let _i = 0;
+      for (const decision of decisions.decisions) {
+        const _before = state.tradesExecuted;
+        await processDecision(userId, decision, newsContext);
+        _gate[_i++] = state.tradesExecuted > _before ? "filled" : "not_filled";
+      }
+    }
+    if (_fxShadow) logAiShadow(userId, _scanId, _fxMode, usedMultiModel ? "ok:multi" : "ok", decisions.decisions || null, _gate);
   } catch (err) {
+    if (_fxMode !== "ai" || _fxShadow) {
+      try {
+        await _aiFailed(`failed:${String(err?.status || err?.statusCode || "")} ${String(err?.message || "").slice(0, 60)}`);
+      } catch {
+      }
+    }
     const errMsg = err.message || "";
     const errStatus = err.status || err.statusCode || 0;
     const isAuthError = errStatus === 401 || errMsg.includes("Incorrect API key") || errMsg.includes("invalid_api_key") || errMsg.includes("authentication_error") || errMsg.includes("401");
@@ -31832,7 +32586,7 @@ function getModelLockStatus(userId) {
   if (!state) return { locked: false, openPositions: 0 };
   return { locked: state.modelLocked, openPositions: state.openPositionCount };
 }
-var FX_MAX_OPEN_PER_SYMBOL, FX_SYMBOL_COOLDOWN_MS, mt5AccountQueues, mt5AccountRegistry, engineStates, engineIntervals, engineTimers, brainLearningIntervals, positionMonitorIntervals, _monitorBusy, persistedConfigOverrides, goalTrackerCache, ALL_STRATEGY_KEYS, _activityTableReady, _activityLastPrune, _activitySeen, _dxSkipTableReady, countedTradeKeys, h4BiasCache, H4_REFRESH_MS, TRAIL_METHOD_LABELS, xauPeakPts, xauLockedPts, btcInitialStop, btcLastStop, tlStopLatest, tlStopInitial, dxLockInitial, NY_TIME_FMT, INDEX_BROKER_ALIASES, FX_LEADER_LOCK_KEY, FX_LEADER_STALE_MS, _fxLeaderClient, _fxIsLeader, _fxLeaderLoop, hardHalted;
+var FX_MAX_OPEN_PER_SYMBOL, FX_SYMBOL_COOLDOWN_MS, mt5AccountQueues, mt5AccountRegistry, engineStates, engineIntervals, engineTimers, brainLearningIntervals, positionMonitorIntervals, _monitorBusy, persistedConfigOverrides, goalTrackerCache, ALL_STRATEGY_KEYS, _activityTableReady, _activityLastPrune, _activitySeen, _dxSkipTableReady, countedTradeKeys, h4BiasCache, H4_REFRESH_MS, TRAIL_METHOD_LABELS, xauPeakPts, xauLockedPts, btcInitialStop, btcLastStop, tlStopLatest, tlStopInitial, dxLockInitial, _modelIdeaCache, NY_TIME_FMT, INDEX_BROKER_ALIASES, FX_LEADER_LOCK_KEY, FX_LEADER_STALE_MS, _fxLeaderClient, _fxIsLeader, _fxLeaderLoop, hardHalted;
 var init_live_trading_engine = __esm({
   "server/services/live-trading-engine.ts"() {
     "use strict";
@@ -31843,6 +32597,7 @@ var init_live_trading_engine = __esm({
     init_brain_shadow();
     init_goal_pace();
     init_ai_level();
+    init_fx_rules_score();
     init_tradelocker();
     init_tradelocker_sync();
     init_indicators();
@@ -31913,6 +32668,7 @@ var init_live_trading_engine = __esm({
     tlStopLatest = /* @__PURE__ */ new Map();
     tlStopInitial = /* @__PURE__ */ new Map();
     dxLockInitial = /* @__PURE__ */ new Map();
+    _modelIdeaCache = /* @__PURE__ */ new Map();
     NY_TIME_FMT = new Intl.DateTimeFormat("en-US", {
       timeZone: "America/New_York",
       hour12: false,
@@ -31940,6 +32696,7 @@ var init_live_trading_engine = __esm({
 var fx_models_exports = {};
 __export(fx_models_exports, {
   FX_MODEL_MIN_TO_LIST: () => FX_MODEL_MIN_TO_LIST,
+  barsFor: () => barsFor,
   classifyDayType: () => classifyDayType,
   ensureFxModelTables: () => ensureFxModelTables,
   fxModelRowsForStats: () => fxModelRowsForStats,
@@ -31962,13 +32719,13 @@ __export(fx_models_exports, {
   sessionFor: () => sessionFor
 });
 function ensureFxModelTables() {
-  if (!ensured3) {
-    ensured3 = pool.query(DDL4).then(() => void 0).catch((e) => {
+  if (!ensured4) {
+    ensured4 = pool.query(DDL5).then(() => void 0).catch((e) => {
       console.error("[fx-models] ensure tables failed (non-fatal):", e?.message || e);
-      ensured3 = null;
+      ensured4 = null;
     });
   }
-  return ensured3;
+  return ensured4;
 }
 function sessionFor(d = /* @__PURE__ */ new Date()) {
   const h = d.getUTCHours();
@@ -32046,8 +32803,8 @@ async function runFxModelsCycle(userId, ctx) {
     } catch {
     }
     if (pairs.length && hour % _fxEvery === 0) await shadowDecide(userId, session2, pairs);
-    if (Date.now() - lastResolveAt > 15 * 6e4) {
-      lastResolveAt = Date.now();
+    if (Date.now() - lastResolveAt2 > 15 * 6e4) {
+      lastResolveAt2 = Date.now();
       await resolveShadowDecisions("fx");
     }
   } catch (e) {
@@ -32700,13 +33457,13 @@ async function getModelMastery(userId, opts = {}) {
     slices: (await agg("model, day_type, symbol, session")).map(shape)
   };
 }
-var DDL4, ensured3, barsProviders, barsFor, pipSize, lastShadowCandle, lastResolveAt, M1_PAIRS_EXCLUDED, rangeCache, M2_PAIRS_EXCLUDED, M2_SESSIONS, M2_MAX_ADX, M2_MIN_RR, FX_MODEL_MIN_TO_LIST, DEFAULT_SETTINGS, LIVE_LEVELS, GO_LIVE, emaLast;
+var DDL5, ensured4, barsProviders, barsFor, pipSize, lastShadowCandle, lastResolveAt2, M1_PAIRS_EXCLUDED, rangeCache, M2_PAIRS_EXCLUDED, M2_SESSIONS, M2_MAX_ADX, M2_MIN_RR, FX_MODEL_MIN_TO_LIST, DEFAULT_SETTINGS, LIVE_LEVELS, GO_LIVE, emaLast;
 var init_fx_models = __esm({
   "server/services/fx-models.ts"() {
     "use strict";
     init_db();
     init_service();
-    DDL4 = `
+    DDL5 = `
 CREATE TABLE IF NOT EXISTS fx_day_regimes (
   id serial PRIMARY KEY,
   user_id integer NOT NULL,
@@ -32755,7 +33512,7 @@ ALTER TABLE fx_model_decisions ADD COLUMN IF NOT EXISTS source text NOT NULL DEF
 ALTER TABLE fx_model_decisions ADD COLUMN IF NOT EXISTS engine text NOT NULL DEFAULT 'fx';
 ALTER TABLE fx_day_regimes ADD COLUMN IF NOT EXISTS engine text NOT NULL DEFAULT 'fx';
 `;
-    ensured3 = null;
+    ensured4 = null;
     barsProviders = {
       fx: async (symbol, tf, n) => {
         const r = await marketDataService.fetchMarketData({ symbol, assetType: marketDataService.detectAssetType(symbol), timeframe: tf, limit: n });
@@ -32765,7 +33522,7 @@ ALTER TABLE fx_day_regimes ADD COLUMN IF NOT EXISTS engine text NOT NULL DEFAULT
     barsFor = (engine) => barsProviders[engine] || barsProviders.fx;
     pipSize = (sym) => /JPY/.test(sym) ? 0.01 : /^XAU/.test(sym) ? 0.1 : /^(BTC|ETH)/.test(sym) ? 1 : /^(US30|NAS|SPX|GER|UK1|JP2)/.test(sym) ? 1 : 1e-4;
     lastShadowCandle = /* @__PURE__ */ new Map();
-    lastResolveAt = 0;
+    lastResolveAt2 = 0;
     M1_PAIRS_EXCLUDED = (process.env.FX_M1_EXCLUDED_PAIRS || "GBPJPY,XAUUSD,BTCUSD,US30,NAS100").split(",").map((x) => x.trim().toUpperCase()).filter(Boolean);
     rangeCache = /* @__PURE__ */ new Map();
     M2_PAIRS_EXCLUDED = (process.env.FX_M2_EXCLUDED_PAIRS || "USDJPY").split(",").map((x) => x.trim().toUpperCase()).filter(Boolean);
@@ -32835,7 +33592,9 @@ async function refreshDefiUniverse(chain) {
       address: t.address,
       poolAddress: t.poolAddress,
       priceUsd: t.priceUsd,
-      liquidityUsd: t.liquidityUsd
+      liquidityUsd: t.liquidityUsd,
+      volume24Usd: t.volume24Usd,
+      flow: t.flow
     });
   }
   return tokens.map((t) => t.symbol.toUpperCase());
@@ -34291,12 +35050,25 @@ async function scanOneUser(userId) {
   try {
     const _chainS = config.defiChain || "base";
     const _defiSyms = symbols.filter((s) => !!getDefiUniverseEntry(s, _chainS));
+    if (process.env.CRYPTO_PORTS !== "off" && process.env.CRYPTO_RUNNER_MEME_VELOCITY !== "off") {
+      try {
+        const { discoverNewPoolTokens: discoverNewPoolTokens2 } = await Promise.resolve().then(() => (init_defi_market_data(), defi_market_data_exports));
+        const { isTokenizedAsset: _rwa } = await Promise.resolve().then(() => (init_crypto_paper(), crypto_paper_exports));
+        for (const t of await discoverNewPoolTokens2(_chainS, Number(process.env.CRYPTO_MEME_MIN_LIQ_USD ?? 25e3))) {
+          const k = universeKey(_chainS, t.symbol);
+          if (_rwa(t.symbol) || defiUniverse.has(k) && !defiUniverse.get(k).newToken) continue;
+          defiUniverse.set(k, { chain: _chainS, address: t.address, poolAddress: t.poolAddress, priceUsd: t.priceUsd, liquidityUsd: t.liquidityUsd, volume24Usd: t.volume24Usd, flow: t.flow, newToken: true });
+          if (!_defiSyms.includes(t.symbol)) _defiSyms.push(t.symbol);
+        }
+      } catch {
+      }
+    }
     if (_defiSyms.length) {
       const { runCryptoShadowAll: runCryptoShadowAll2 } = await Promise.resolve().then(() => (init_crypto_shadow(), crypto_shadow_exports));
       const { makePortRunners: makePortRunners2, runnerEnabled: runnerEnabled2 } = await Promise.resolve().then(() => (init_crypto_ports(), crypto_ports_exports));
       const _shadowRunners = {
         ...Object.fromEntries(Object.entries(STRATEGY_RUNNERS).filter(([id]) => runnerEnabled2(id))),
-        ...makePortRunners2(fetchBars)
+        ...makePortRunners2(fetchBars, (sym) => getDefiUniverseEntry(sym, _chainS))
       };
       const _r = await runCryptoShadowAll2(userId, config, _defiSyms, _chainS, config.defiSlippageBps ?? 100, {
         runners: _shadowRunners,
