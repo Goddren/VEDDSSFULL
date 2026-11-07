@@ -26790,6 +26790,11 @@ CREATE OR REPLACE VIEW shadow_ledger AS
          s.close_pnl_pct::float
     FROM sol_engine_positions s
    WHERE s.mode IN ('paper', 'shadow') AND s.status = 'closed' AND s.close_pnl_pct IS NOT NULL
+     AND NOT (
+       NULLIF(s.closed_at, '')::timestamptz < TIMESTAMPTZ '2026-11-06 19:15:00+00'
+       AND extract(epoch from (NULLIF(s.closed_at, '')::timestamptz - s.opened_at::timestamptz)) < 120
+       AND abs(s.close_pnl_pct) >= 40
+     )
 `;
     _ensured2 = null;
   }
@@ -37214,6 +37219,9 @@ var init_solana_scanner = __esm({
 });
 
 // server/services/sol-brain.ts
+function isFakeWinSignature(holdingMinutes, returnPct) {
+  return holdingMinutes != null && holdingMinutes <= QUARANTINE_MAX_HOLD_MIN && returnPct != null && Math.abs(returnPct) >= QUARANTINE_MIN_ABS_RETURN_PCT;
+}
 async function ensureTable3() {
   if (_ensured3) return;
   try {
@@ -37258,13 +37266,16 @@ async function backfillIfEmpty2(userId) {
   const { rows } = await pool.query(`SELECT count(*)::int n FROM sol_brain_outcomes WHERE user_id=$1`, [userId]);
   if (rows[0].n > 0) return;
   const { rows: trades } = await pool.query(
-    `SELECT token_symbol, strategy_id, close_pnl_pct, closed_at FROM sol_engine_positions
+    `SELECT token_symbol, strategy_id, close_pnl_pct, opened_at, closed_at FROM sol_engine_positions
      WHERE user_id=$1 AND status='closed' AND close_pnl_pct IS NOT NULL ORDER BY closed_at DESC LIMIT 1000`,
     [userId]
   );
   if (!trades.length) return;
   for (const t of trades) {
     const pnl = Number(t.close_pnl_pct) || 0;
+    const openedMs = t.opened_at ? new Date(t.opened_at).getTime() : NaN;
+    const closedMs = t.closed_at ? new Date(t.closed_at).getTime() : NaN;
+    if (Number.isFinite(openedMs) && Number.isFinite(closedMs) && closedMs < Date.parse("2026-11-06T19:15:00Z") && closedMs - openedMs < 12e4 && Math.abs(pnl) >= QUARANTINE_MIN_ABS_RETURN_PCT) continue;
     const d = t.closed_at ? new Date(t.closed_at) : /* @__PURE__ */ new Date();
     await pool.query(
       `INSERT INTO sol_brain_outcomes (user_id, symbol, strategy, direction, result, profit_loss, return_pct, hour_utc, source, closed_at)
@@ -37280,7 +37291,10 @@ async function learnFromSolTrades(userId) {
   });
   const { rows } = await pool.query(
     `SELECT symbol, strategy, direction, result, profit_loss, hour_utc FROM sol_brain_outcomes
-     WHERE user_id=$1 ORDER BY closed_at DESC LIMIT 2000`,
+     WHERE user_id=$1
+       AND NOT (closed_at < TIMESTAMP '${BAD_PRICE_ERA_END}' AND holding_minutes IS NOT NULL
+                AND holding_minutes <= ${QUARANTINE_MAX_HOLD_MIN} AND abs(profit_loss) >= ${QUARANTINE_MIN_ABS_RETURN_PCT})
+     ORDER BY closed_at DESC LIMIT 2000`,
     [userId]
   );
   const symbols = {};
@@ -37363,6 +37377,10 @@ async function recordSolBrainOutcome(o) {
       console.warn(`[sol-brain] rejected impossible return ${o.returnPct}% for ${o.symbol} \u2014 not recorded (bad price data)`);
       return;
     }
+    if (isFakeWinSignature(o.holdingMinutes, o.returnPct)) {
+      console.warn(`[sol-brain] rejected instant-huge outcome ${o.returnPct}% in ${o.holdingMinutes}min for ${o.symbol} \u2014 quarantined (bad-price signature)`);
+      return;
+    }
     await pool.query(
       `INSERT INTO sol_brain_outcomes (user_id, symbol, strategy, direction, entry_confidence, return_pct, hour_utc, holding_minutes, exit_reason, result, profit_loss, source)
        VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)`,
@@ -37386,13 +37404,16 @@ async function recordSolBrainOutcome(o) {
     console.error("[sol-brain] recordSolBrainOutcome failed (non-fatal):", err?.message ?? err);
   }
 }
-var MIN_TRADES4, REFRESH_TTL_MS2, _ensured3, _cache2;
+var MIN_TRADES4, REFRESH_TTL_MS2, BAD_PRICE_ERA_END, QUARANTINE_MAX_HOLD_MIN, QUARANTINE_MIN_ABS_RETURN_PCT, _ensured3, _cache2;
 var init_sol_brain = __esm({
   "server/services/sol-brain.ts"() {
     "use strict";
     init_db();
     MIN_TRADES4 = 10;
     REFRESH_TTL_MS2 = 60 * 1e3;
+    BAD_PRICE_ERA_END = "2026-11-06 19:15:00";
+    QUARANTINE_MAX_HOLD_MIN = 1;
+    QUARANTINE_MIN_ABS_RETURN_PCT = 40;
     _ensured3 = false;
     _cache2 = /* @__PURE__ */ new Map();
   }
@@ -69727,9 +69748,9 @@ async function getStopOrdersForUser(userId, filters = {}) {
 init_schema();
 
 // server/build-info.ts
-var BUILD_COMMIT = "c7a82fe-dirty";
-var BUILD_BRANCH = "main";
-var BUILT_AT = "2026-11-06T23:37:45.914Z";
+var BUILD_COMMIT = "7f32989-dirty";
+var BUILD_BRANCH = "fix/sol-fake-win-quarantine";
+var BUILT_AT = "2026-11-07T00:33:08.372Z";
 
 // server/stripe.ts
 init_db();
