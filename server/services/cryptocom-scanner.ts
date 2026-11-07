@@ -1827,8 +1827,16 @@ async function scanOneUser(userId: number): Promise<void> {
     const _defiSyms = symbols.filter((s) => !!getDefiUniverseEntry(s, _chainS));
     if (_defiSyms.length) {
       const { runCryptoShadowAll } = await import('./crypto-shadow');
+      // Original runners + the step-3 ports (crypto-ports.ts). Ports live ONLY
+      // here — not in AUTO_STRATEGIES, paper or live. CRYPTO_PORTS=off drops
+      // the ports; CRYPTO_RUNNER_<ID>=off drops any one runner from the lane.
+      const { makePortRunners, runnerEnabled } = await import('./crypto-ports');
+      const _shadowRunners: Record<string, any> = {
+        ...Object.fromEntries(Object.entries(STRATEGY_RUNNERS).filter(([id]) => runnerEnabled(id))),
+        ...makePortRunners(fetchBars),
+      };
       const _r = await runCryptoShadowAll(userId, config, _defiSyms, _chainS, (config as any).defiSlippageBps ?? 100, {
-        runners: STRATEGY_RUNNERS as any,
+        runners: _shadowRunners as any,
         gate: (sym, r, c) => applySignalGates(sym, r as any, c) as any,
         universe: (sym) => getDefiUniverseEntry(sym, _chainS) as any,
         h1: (sym) => h1Atr(sym, _chainS, getDefiUniverseEntry(sym, _chainS)?.poolAddress) as any,
