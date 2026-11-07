@@ -142,7 +142,10 @@ export function adviceFor(stats: BucketStat[], strategy: string, ctx: Parameters
 /** Prompt block for crypto AI confirmation. Advice only. */
 export async function getCryptoShadowStatsText(userId: number, max = 12): Promise<string> {
   try {
-    const st = (await computeCryptoShadowStats(userId)).filter((s) => s.verdict !== 'learning' && s.dim !== 'all');
+    // Shadow-only tests (session_breakout, btc_weekend_range) and the hour
+    // buckets stay out of the prompt: no FX-style session language in crypto.
+    const { SHADOW_ONLY_TESTS } = await import('./crypto-ports');
+    const st = (await computeCryptoShadowStats(userId)).filter((s) => s.verdict !== 'learning' && s.dim !== 'all' && s.dim !== 'hour' && !SHADOW_ONLY_TESTS.has(s.strategy));
     if (!st.length) return '';
     const top = st.sort((a, b) => Math.abs(b.medianNet) * Math.sqrt(b.n) - Math.abs(a.medianNet) * Math.sqrt(a.n)).slice(0, max);
     return `CRYPTO SHADOW EVIDENCE (virtual trades of every strategy, net of costs, judged by MEDIAN; advice only; 'short' rows are hypothetical — Base spot can't short):\n` +
@@ -217,7 +220,8 @@ export async function runCryptoShadowAll(userId: number, cfg: any, symbols: stri
     const results = (await Promise.all(Object.entries(deps.runners).map(([k, fn]) => fn(symbol, shadowCfg).then((r) => ({ ...r, strategy: r.strategy || k })).catch(() => null))))
       .filter((r): r is ShadowRunnerResult => !!r);
     // Composite (same rule as auto mode): >=2 runners agree, blended score >= floor.
-    const dirs = results.filter((r) => r.direction);
+    const ORIGINAL = new Set(['trend_following', 'momentum', 'order_flow', 'volume_profile', 'breakout', 'structure', 'divergence']);
+    const dirs = results.filter((r) => r.direction && ORIGINAL.has(r.strategy));
     const buys = dirs.filter((r) => r.direction === 'BUY'), sells = dirs.filter((r) => r.direction === 'SELL');
     const side = buys.length > sells.length ? buys : sells.length > buys.length ? sells : [];
     const signals = results.filter((r) => r.decision === 'signal' && r.direction && r.price);
@@ -258,7 +262,9 @@ export async function runCryptoShadowAll(userId: number, cfg: any, symbols: stri
       const tags: string[] = [];
       if (ch1 != null && Math.abs(ch1) >= 3) tags.push(ch1 > 0 ? 'hot_hour' : 'dump_hour');
       if (ch24 != null && ch24 >= 20) tags.push('extended_24h');
+      // HTF alignment filter (design step 3): tag + stats only, never a block.
       if (aligned === false) tags.push('against_htf');
+      if (aligned === true) tags.push('htf_aligned');
       if (gated) tags.push('live_gate_would_block');
       if (uni.liquidityUsd < 250_000) tags.push('thin_pool');
       const ins = await pool.query(

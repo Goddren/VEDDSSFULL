@@ -8,8 +8,8 @@ var __require = /* @__PURE__ */ ((x) => typeof require !== "undefined" ? require
   if (typeof require !== "undefined") return require.apply(this, arguments);
   throw Error('Dynamic require of "' + x + '" is not supported');
 });
-var __esm = (fn, res) => function __init() {
-  return fn && (res = (0, fn[__getOwnPropNames(fn)[0]])(fn = 0)), res;
+var __esm = (fn, res2) => function __init() {
+  return fn && (res2 = (0, fn[__getOwnPropNames(fn)[0]])(fn = 0)), res2;
 };
 var __export = (target, all) => {
   for (var name in all)
@@ -6902,18 +6902,18 @@ var init_cryptocom = __esm({
       // candles/price without a per-user connection/credentials. ─────────────────
       static async getCandles(instrumentName, timeframe, count) {
         const url = `https://api.crypto.com/exchange/v1/public/get-candlestick?instrument_name=${encodeURIComponent(instrumentName)}&timeframe=${encodeURIComponent(timeframe)}&count=${count}`;
-        const res = await fetch(url, { signal: AbortSignal.timeout(15e3) });
-        if (!res.ok) throw new Error(`Crypto.com candlestick fetch failed: ${res.status}`);
-        const data = await res.json();
+        const res2 = await fetch(url, { signal: AbortSignal.timeout(15e3) });
+        if (!res2.ok) throw new Error(`Crypto.com candlestick fetch failed: ${res2.status}`);
+        const data = await res2.json();
         if (data.code !== void 0 && data.code !== 0) throw new Error(`Crypto.com candlestick error ${data.code}: ${data.message}`);
         const rows = data.result?.data ?? [];
         return rows.map((r) => ({ t: Number(r.t), o: parseFloat(r.o), h: parseFloat(r.h), l: parseFloat(r.l), c: parseFloat(r.c), v: parseFloat(r.v) }));
       }
       static async getTicker(instrumentName) {
         const url = `https://api.crypto.com/exchange/v1/public/get-tickers?instrument_name=${encodeURIComponent(instrumentName)}`;
-        const res = await fetch(url, { signal: AbortSignal.timeout(1e4) });
-        if (!res.ok) return null;
-        const data = await res.json();
+        const res2 = await fetch(url, { signal: AbortSignal.timeout(1e4) });
+        if (!res2.ok) return null;
+        const data = await res2.json();
         const t = data.result?.data?.[0];
         return t ? parseFloat(t.a ?? t.k ?? "0") || null : null;
       }
@@ -8408,27 +8408,27 @@ var init_coinbase = __esm({
       }
       async get(path2) {
         const token = buildJwt(this.keyName, this.privateKey, "GET", path2);
-        const res = await fetch(`https://${API_HOST}${path2}`, {
+        const res2 = await fetch(`https://${API_HOST}${path2}`, {
           method: "GET",
           headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
           signal: AbortSignal.timeout(12e3)
         });
-        if (!res.ok) {
-          const text2 = await res.text();
-          throw new Error(`Coinbase ${res.status}: ${text2.slice(0, 300)}`);
+        if (!res2.ok) {
+          const text2 = await res2.text();
+          throw new Error(`Coinbase ${res2.status}: ${text2.slice(0, 300)}`);
         }
-        return res.json();
+        return res2.json();
       }
       async post(path2, body) {
         const token = buildJwt(this.keyName, this.privateKey, "POST", path2);
-        const res = await fetch(`https://${API_HOST}${path2}`, {
+        const res2 = await fetch(`https://${API_HOST}${path2}`, {
           method: "POST",
           headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
           body: JSON.stringify(body),
           signal: AbortSignal.timeout(12e3)
         });
-        const data = await res.json().catch(() => ({}));
-        if (!res.ok) throw new Error(`Coinbase ${res.status}: ${JSON.stringify(data).slice(0, 300)}`);
+        const data = await res2.json().catch(() => ({}));
+        if (!res2.ok) throw new Error(`Coinbase ${res2.status}: ${JSON.stringify(data).slice(0, 300)}`);
         return data;
       }
       /**
@@ -8544,7 +8544,7 @@ var init_kraken = __esm({
         const nonce = String(Date.now() * 1e3);
         const body = new URLSearchParams({ nonce, ...params });
         const postData = body.toString();
-        const res = await fetch(`${API_HOST2}${path2}`, {
+        const res2 = await fetch(`${API_HOST2}${path2}`, {
           method: "POST",
           headers: {
             "API-Key": this.apiKey,
@@ -8555,7 +8555,7 @@ var init_kraken = __esm({
           body: postData,
           signal: AbortSignal.timeout(12e3)
         });
-        const data = await res.json();
+        const data = await res2.json();
         if (data?.error?.length) throw new Error(`Kraken: ${data.error.join(", ")}`);
         return data?.result ?? {};
       }
@@ -8603,8 +8603,8 @@ var init_kraken = __esm({
           if (!o.price) throw new Error("limit orders require a price");
           params.price = String(o.price);
         }
-        const res = await this.privatePost("AddOrder", params);
-        return { txids: res?.txid ?? [], descr: res?.descr?.order ?? "", raw: res };
+        const res2 = await this.privatePost("AddOrder", params);
+        return { txids: res2?.txid ?? [], descr: res2?.descr?.order ?? "", raw: res2 };
       }
       async test() {
         const raw = await this.privatePost("Balance");
@@ -8640,7 +8640,7 @@ var init_gemini = __esm({
         const payload = { request: endpoint, nonce, ...params };
         const b64 = Buffer.from(JSON.stringify(payload)).toString("base64");
         const signature = crypto5.createHmac("sha384", this.secret).update(b64).digest("hex");
-        const res = await fetch(`${API_HOST3}${endpoint}`, {
+        const res2 = await fetch(`${API_HOST3}${endpoint}`, {
           method: "POST",
           headers: {
             "Content-Type": "text/plain",
@@ -8653,9 +8653,9 @@ var init_gemini = __esm({
           },
           signal: AbortSignal.timeout(12e3)
         });
-        const data = await res.json();
-        if (!res.ok || data?.result === "error") {
-          throw new Error(`Gemini: ${data?.reason || data?.message || res.status}`);
+        const data = await res2.json();
+        if (!res2.ok || data?.result === "error") {
+          throw new Error(`Gemini: ${data?.reason || data?.message || res2.status}`);
         }
         return data;
       }
@@ -9102,19 +9102,19 @@ async function gt(path2) {
       const wait = Math.max(0, callBudget().minIntervalMs - (Date.now() - lastCallAt));
       if (wait > 0) await new Promise((r) => setTimeout(r, wait));
       lastCallAt = Date.now();
-      const res = await fetch(`${GT}${path2}`, {
+      const res2 = await fetch(`${GT}${path2}`, {
         headers: cgHeaders(),
         signal: AbortSignal.timeout(2e4)
       });
-      if (res.ok) return res.json();
-      if (res.status === 429) {
-        const retryAfter = Number(res.headers.get("retry-after")) || 0;
+      if (res2.ok) return res2.json();
+      if (res2.status === 429) {
+        const retryAfter = Number(res2.headers.get("retry-after")) || 0;
         const backoff = retryAfter > 0 ? retryAfter * 1e3 : 3e3 * (attempt + 1);
         console.warn(`[defi-market-data] rate limited on ${path2}; waiting ${backoff}ms (attempt ${attempt + 1}/3)`);
         await new Promise((r) => setTimeout(r, backoff));
         continue;
       }
-      throw new Error(`GeckoTerminal ${res.status} on ${path2}`);
+      throw new Error(`GeckoTerminal ${res2.status} on ${path2}`);
     }
     throw new Error(`GeckoTerminal rate limited after 3 attempts on ${path2}`);
   };
@@ -9193,8 +9193,8 @@ async function getDefiCandles(chainKey, poolAddress, timeframe, count) {
 }
 async function getDefiPrice(chainKey, poolAddress) {
   const bars = await getDefiCandles(chainKey, poolAddress, "5m", 2).catch(() => []);
-  const last = bars[bars.length - 1];
-  return last?.c && last.c > 0 ? last.c : null;
+  const last2 = bars[bars.length - 1];
+  return last2?.c && last2.c > 0 ? last2.c : null;
 }
 var GT, GT_NETWORK, SETTLEMENT, callChain, lastCallAt, discoveryCache, TF, candleCache, candleInFlight;
 var init_defi_market_data = __esm({
@@ -10131,16 +10131,16 @@ function assessPriceAnomaly(bars, opts = {}) {
   if (!bars || bars.length < 3) {
     return { suspect: false, reason: "insufficient history to assess", movePct: 0, volumeRatio: 0, splitLike: null };
   }
-  const last = bars[bars.length - 1];
+  const last2 = bars[bars.length - 1];
   const prev = bars[bars.length - 2];
-  if (!(prev.c > 0) || !(last.c > 0)) return none;
-  const ratio = last.c / prev.c;
+  if (!(prev.c > 0) || !(last2.c > 0)) return none;
+  const ratio = last2.c / prev.c;
   const movePct = (ratio - 1) * 100;
   if (Math.abs(movePct) < moveThreshold) return none;
   const hist = bars.slice(Math.max(0, bars.length - 1 - lookback), bars.length - 1);
   const vols = hist.map((b) => b.v ?? 0).filter((v) => v > 0);
   const avgVol = vols.length ? vols.reduce((a, b) => a + b, 0) / vols.length : 0;
-  const lastVol = last.v ?? 0;
+  const lastVol = last2.v ?? 0;
   const volumeRatio = avgVol > 0 ? lastVol / avgVol : 0;
   const splitLike = nearestSplit(ratio);
   if (avgVol > 0 && volumeRatio >= volConfirm) {
@@ -10227,13 +10227,13 @@ async function loadTokenIndex(chainKey) {
   const errors = [];
   for (const url of sourcesFor(chainKey)) {
     try {
-      const res = await fetch(url, { signal: AbortSignal.timeout(15e3) });
-      const ct = res.headers.get("content-type") ?? "";
-      if (!res.ok || !ct.includes("json")) {
-        errors.push(`${url} -> ${res.status} ${ct || "no content-type"}`);
+      const res2 = await fetch(url, { signal: AbortSignal.timeout(15e3) });
+      const ct = res2.headers.get("content-type") ?? "";
+      if (!res2.ok || !ct.includes("json")) {
+        errors.push(`${url} -> ${res2.status} ${ct || "no content-type"}`);
         continue;
       }
-      const data = await res.json();
+      const data = await res2.json();
       const idx = /* @__PURE__ */ new Map();
       for (const t of data?.tokens ?? []) {
         if (!t?.symbol || !t?.address) continue;
@@ -10286,12 +10286,12 @@ async function isTokenTradeable(chainKey, token) {
 }
 async function zeroXQuote(chainId, params) {
   const qs = new URLSearchParams({ chainId: String(chainId), ...params });
-  const res = await fetch(`https://api.0x.org/swap/allowance-holder/quote?${qs.toString()}`, {
+  const res2 = await fetch(`https://api.0x.org/swap/allowance-holder/quote?${qs.toString()}`, {
     headers: { "0x-api-key": process.env.ZEROX_API_KEY || "", "0x-version": "v2" },
     signal: AbortSignal.timeout(15e3)
   });
-  const data = await res.json();
-  if (!res.ok) throw new Error(`0x ${res.status}: ${JSON.stringify(data).slice(0, 300)}`);
+  const data = await res2.json();
+  if (!res2.ok) throw new Error(`0x ${res2.status}: ${JSON.stringify(data).slice(0, 300)}`);
   return data;
 }
 async function executeDefiSwap(opts) {
@@ -10555,8 +10555,8 @@ async function manageGas(userId, chainKey, openPositions) {
     const refillLine = Math.max(REFILL_BELOW(), exitBudget * 2);
     if (swapsLeft >= refillLine) return st;
     if (swapsLeft < 1.5) {
-      const last = await readState(`warn:${userId}`);
-      if (!last || Date.now() - Number(last.at) > 36e5) {
+      const last2 = await readState(`warn:${userId}`);
+      if (!last2 || Date.now() - Number(last2.at) > 36e5) {
         writeState(`warn:${userId}`, { at: Date.now() });
         st.action = "manual_topup_needed";
       }
@@ -11019,14 +11019,14 @@ function fetchGitHubRaw(url) {
     const req = https.get(url, {
       headers: { "User-Agent": "VEDD-Trading-AI/1.0" },
       timeout: 5e3
-    }, (res) => {
-      if (res.statusCode !== 200) {
-        reject(new Error(`HTTP ${res.statusCode}`));
+    }, (res2) => {
+      if (res2.statusCode !== 200) {
+        reject(new Error(`HTTP ${res2.statusCode}`));
         return;
       }
       let body = "";
-      res.on("data", (chunk) => body += chunk);
-      res.on("end", () => resolve(body));
+      res2.on("data", (chunk) => body += chunk);
+      res2.on("end", () => resolve(body));
     });
     req.on("error", reject);
     req.on("timeout", () => {
@@ -15085,8 +15085,8 @@ function logAiFailure(userId, c, model, e, fellBackTo) {
   if (!userId) return;
   const status = e?.status ?? e?.statusCode ?? e?.response?.status ?? "err";
   const key = `${userId}|${c?.provider}|${c?.usedPlatformKey ? "platform" : "user"}|${status}`;
-  const last = _aiFailSeen.get(key) || 0;
-  if (Date.now() - last < 10 * 6e4) return;
+  const last2 = _aiFailSeen.get(key) || 0;
+  if (Date.now() - last2 < 10 * 6e4) return;
   _aiFailSeen.set(key, Date.now());
   const msg = String(e?.error?.message || e?.message || e || "").replace(/sk-[A-Za-z0-9_-]+/g, "[key]").slice(0, 220);
   void Promise.resolve().then(() => (init_guard_events(), guard_events_exports)).then((g) => g.logGuard(
@@ -15413,8 +15413,8 @@ async function analyzeChartImage(base64Image, knownSymbol, userId) {
       const fenced = text2.match(/```(?:json)?\s*([\s\S]*?)\s*```/);
       if (fenced) return fenced[1];
       const first = text2.indexOf("{");
-      const last = text2.lastIndexOf("}");
-      if (first !== -1 && last > first) return text2.slice(first, last + 1);
+      const last2 = text2.lastIndexOf("}");
+      if (first !== -1 && last2 > first) return text2.slice(first, last2 + 1);
       return text2;
     };
     var extractJsonContent = extractJsonContent2;
@@ -17210,6 +17210,231 @@ You ALWAYS produce proposals that are ready to submit \u2014 no placeholders lik
   }
 });
 
+// server/services/crypto-ports.ts
+var crypto_ports_exports = {};
+__export(crypto_ports_exports, {
+  SHADOW_ONLY_TESTS: () => SHADOW_ONLY_TESTS,
+  makePortRunners: () => makePortRunners,
+  portsEnabled: () => portsEnabled,
+  runnerEnabled: () => runnerEnabled
+});
+function runnerEnabled(id) {
+  return process.env[`CRYPTO_RUNNER_${id.toUpperCase()}`] !== "off";
+}
+function emaSeries(v, n) {
+  const out = [];
+  if (v.length < n) return out;
+  const k = 2 / (n + 1);
+  let e = v.slice(0, n).reduce((a, b) => a + b, 0) / n;
+  out[n - 1] = e;
+  for (let i = n; i < v.length; i++) {
+    e = v[i] * k + e * (1 - k);
+    out[i] = e;
+  }
+  return out;
+}
+function rsi(c, n = 14) {
+  if (c.length <= n) return null;
+  let g = 0, l = 0;
+  for (let i = 1; i <= n; i++) {
+    const d = c[i] - c[i - 1];
+    if (d >= 0) g += d;
+    else l -= d;
+  }
+  g /= n;
+  l /= n;
+  for (let i = n + 1; i < c.length; i++) {
+    const d = c[i] - c[i - 1];
+    g = (g * (n - 1) + Math.max(0, d)) / n;
+    l = (l * (n - 1) + Math.max(0, -d)) / n;
+  }
+  return l === 0 ? 100 : 100 - 100 / (1 + g / l);
+}
+function macdHist(c) {
+  const f = emaSeries(c, 12), s = emaSeries(c, 26);
+  if (s.length < c.length || c.length < 35) return null;
+  const macd = c.map((_, i) => (f[i] ?? NaN) - (s[i] ?? NaN)).slice(25);
+  const sig = emaSeries(macd, 9);
+  return sig.length ? last(macd) - last(sig) : null;
+}
+function to4h(h1) {
+  const out = [];
+  for (const b of h1) {
+    const t4 = Math.floor(b.t / 144e5) * 144e5;
+    const cur = out[out.length - 1];
+    if (cur && cur.t === t4) {
+      cur.h = Math.max(cur.h, b.h);
+      cur.l = Math.min(cur.l, b.l);
+      cur.c = b.c;
+      cur.v += b.v;
+    } else out.push({ t: t4, o: b.o, h: b.h, l: b.l, c: b.c, v: b.v });
+  }
+  return out;
+}
+function bias(closes, f, s) {
+  const a = last(emaSeries(closes, f)), b = last(emaSeries(closes, s));
+  if (a == null || b == null) return null;
+  return a > b ? "BUY" : a < b ? "SELL" : null;
+}
+function makePortRunners(fetchBars2) {
+  const sniper = async (symbol, cfg) => {
+    const S = "sniper";
+    const m15 = await fetchBars2(symbol, "15m", 120, chainOf(cfg));
+    const h1 = await fetchBars2(symbol, "1h", 200, chainOf(cfg));
+    if (m15.length < 60 || h1.length < 60) return res(S, "error", `${symbol}: not enough history for sniper`, null);
+    const c = m15.map((b) => b.c), price = last(c);
+    const dir = bias(c, 9, 21);
+    if (!dir) return res(S, "watching", `${symbol}: no 15m trend`, price, 30);
+    const { detectBOSCHOCH: detectBOSCHOCH2 } = await Promise.resolve().then(() => (init_smcUtils(), smcUtils_exports));
+    const nf = m15.slice().reverse();
+    const r = rsi(c), mh = macdHist(c);
+    const bos = detectBOSCHOCH2(nf, dir);
+    const vRecent = m15.slice(-3).reduce((a, b) => a + b.v, 0) / 3, vBase = m15.slice(-23, -3).reduce((a, b) => a + b.v, 0) / 20;
+    const checks = {
+      ema: true,
+      rsi: r != null && (dir === "BUY" ? r >= 45 && r <= 68 : r >= 32 && r <= 55),
+      macd: mh != null && (dir === "BUY" ? mh > 0 : mh < 0),
+      structure: !!bos.detected && bos.direction === (dir === "BUY" ? "BULLISH" : "BEARISH"),
+      volume: vBase > 0 && vRecent > vBase * 1.2
+    };
+    const n = Object.values(checks).filter(Boolean).length;
+    const h4 = bias(to4h(h1).map((b) => b.c), 5, 10);
+    const why = `${n}/5 (${Object.entries(checks).filter(([, v]) => v).map(([k]) => k).join(", ")}), 4h bias ${h4 ?? "n/a"}`;
+    if (n >= 4 && h4 === dir) return res(S, "signal", `${symbol}: sniper ${dir} \u2014 ${why}`, price, 60 + n * 7, dir);
+    return res(S, "watching", `${symbol}: sniper ${dir} \u2014 ${why}`, price, 40 + n * 5);
+  };
+  const smcOte = async (symbol, cfg) => {
+    const S = "smc_ote";
+    const h1 = await fetchBars2(symbol, "1h", 120, chainOf(cfg));
+    const m15 = await fetchBars2(symbol, "15m", 120, chainOf(cfg));
+    if (h1.length < 40 || m15.length < 40) return res(S, "error", `${symbol}: not enough history for smc_ote`, null);
+    const { detectBOSCHOCH: detectBOSCHOCH2, detectOrderBlock: detectOrderBlock2, detectFairValueGap: detectFairValueGap2 } = await Promise.resolve().then(() => (init_smcUtils(), smcUtils_exports));
+    const nf = (bars) => bars.slice().reverse();
+    const h1nf = nf(h1), m15nf = nf(m15), price = last(m15).c;
+    for (const dir of ["BUY", "SELL"]) {
+      const bos = detectBOSCHOCH2(h1nf, dir);
+      if (!bos.detected || bos.direction !== (dir === "BUY" ? "BULLISH" : "BEARISH")) continue;
+      const leg = h1.slice(-24);
+      let lo = Infinity, hi = -Infinity, loI = 0, hiI = 0;
+      leg.forEach((b, i) => {
+        if (b.l < lo) {
+          lo = b.l;
+          loI = i;
+        }
+        if (b.h > hi) {
+          hi = b.h;
+          hiI = i;
+        }
+      });
+      const range = hi - lo;
+      if (!(range > 0)) continue;
+      if (dir === "BUY" && loI >= hiI) continue;
+      if (dir === "SELL" && hiI >= loI) continue;
+      const zTop = dir === "BUY" ? hi - 0.62 * range : lo + 0.79 * range;
+      const zBot = dir === "BUY" ? hi - 0.79 * range : lo + 0.62 * range;
+      if (price < zBot || price > zTop) return res(S, "watching", `${symbol}: ${dir} ${bos.type}, price outside OTE ${zBot.toPrecision(5)}\u2013${zTop.toPrecision(5)}`, price, 45);
+      const ob = detectOrderBlock2(m15nf, dir), fvg = detectFairValueGap2(m15nf, dir);
+      const poi = ob.detected && ob.aligns || fvg.detected && fvg.direction === (dir === "BUY" ? "BULLISH" : "BEARISH");
+      if (!poi) return res(S, "watching", `${symbol}: ${dir} in OTE but no aligned 15m order block/FVG`, price, 55);
+      return res(S, "signal", `${symbol}: ${dir} ${bos.type} on 1h, price in the 62\u201379% OTE with an aligned 15m ${ob.detected && ob.aligns ? "order block" : "FVG"}`, price, 75, dir);
+    }
+    return res(S, "watching", `${symbol}: no 1h structure break`, price, 30);
+  };
+  const vwapReversion = async (symbol, cfg) => {
+    const S = "vwap_reversion";
+    const m15 = await fetchBars2(symbol, "15m", 120, chainOf(cfg));
+    if (m15.length < 40) return res(S, "error", `${symbol}: not enough history for vwap_reversion`, null);
+    const day0 = Math.floor(Date.now() / 864e5) * 864e5;
+    let win = m15.filter((b) => b.t >= day0);
+    if (win.length < 8) win = m15.slice(-32);
+    let pv = 0, vv = 0;
+    for (const b of win) {
+      const tp = (b.h + b.l + b.c) / 3;
+      pv += tp * b.v;
+      vv += b.v;
+    }
+    if (!(vv > 0)) return res(S, "watching", `${symbol}: no volume for VWAP`, last(m15).c, 20);
+    const vwap = pv / vv;
+    let varSum = 0;
+    for (const b of win) {
+      const tp = (b.h + b.l + b.c) / 3;
+      varSum += b.v * (tp - vwap) ** 2;
+    }
+    const sd = Math.sqrt(varSum / vv), price = last(m15).c, r = rsi(m15.map((b) => b.c));
+    const z2 = sd > 0 ? (price - vwap) / sd : 0;
+    if (z2 <= -2 && r != null && r <= 35) return res(S, "signal", `${symbol}: ${z2.toFixed(1)}\u03C3 below VWAP ${vwap.toPrecision(5)}, RSI ${r.toFixed(0)} \u2014 mean-reversion long`, price, 70, "BUY");
+    return res(S, "watching", `${symbol}: ${z2.toFixed(1)}\u03C3 from VWAP, RSI ${r?.toFixed(0) ?? "n/a"}`, price, 35);
+  };
+  const liquiditySweep = async (symbol, cfg) => {
+    const S = "liquidity_sweep";
+    const m15 = await fetchBars2(symbol, "15m", 60, chainOf(cfg));
+    if (m15.length < 35) return res(S, "error", `${symbol}: not enough history for liquidity_sweep`, null);
+    const prior = m15.slice(-33, -3), recent = m15.slice(-3), price = last(m15).c;
+    const swingLo = Math.min(...prior.map((b) => b.l)), swingHi = Math.max(...prior.map((b) => b.h));
+    const bull = recent.some((b) => b.l < swingLo && b.c > swingLo) && price > swingLo;
+    const bear = recent.some((b) => b.h > swingHi && b.c < swingHi) && price < swingHi;
+    if (bull && !bear) return res(S, "signal", `${symbol}: swept the 15m swing low ${swingLo.toPrecision(5)} and closed back above`, price, 68, "BUY");
+    if (bear && !bull) return res(S, "signal", `${symbol}: swept the 15m swing high ${swingHi.toPrecision(5)} and closed back below`, price, 68, "SELL");
+    return res(S, "watching", `${symbol}: no sweep`, price, 30);
+  };
+  const sessionBreakout = async (symbol, cfg) => {
+    const S = "session_breakout";
+    const now = /* @__PURE__ */ new Date(), h = now.getUTCHours();
+    const m15 = await fetchBars2(symbol, "15m", 120, chainOf(cfg));
+    const price = m15.length ? last(m15).c : null;
+    if (h < 7 || h >= 12) return res(S, "watching", `${symbol}: outside the 07\u201312 UTC window`, price, 0);
+    const day0 = Math.floor(now.getTime() / 864e5) * 864e5;
+    const range = m15.filter((b) => b.t >= day0 && b.t < day0 + 7 * 36e5);
+    if (range.length < 20 || price == null) return res(S, "watching", `${symbol}: no complete 00\u201307 UTC range`, price, 0);
+    const hi = Math.max(...range.map((b) => b.h)), lo = Math.min(...range.map((b) => b.l)), size = hi - lo;
+    const after = m15.filter((b) => b.t >= day0 + 7 * 36e5).slice(0, -1);
+    const brk = after.find((b) => b.c > hi || b.c < lo);
+    if (!brk || !(size > 0)) return res(S, "watching", `${symbol}: 00\u201307 UTC range intact`, price, 30);
+    const dir = brk.c > hi ? "BUY" : "SELL";
+    const level = dir === "BUY" ? hi : lo;
+    if (Math.abs(price - level) > size * 0.5) return res(S, "watching", `${symbol}: broke ${dir === "BUY" ? "up" : "down"} but price is extended from the level`, price, 45);
+    return res(S, "signal", `${symbol}: 00\u201307 UTC range ${lo.toPrecision(5)}\u2013${hi.toPrecision(5)} broken ${dir === "BUY" ? "up" : "down"}, near the level`, price, 65, dir);
+  };
+  const btcWeekendRange = async (symbol, cfg) => {
+    const S = "btc_weekend_range";
+    if (symbol.toUpperCase() !== "CBBTC") return res(S, "watching", `${symbol}: BTC only`, null, 0);
+    const now = /* @__PURE__ */ new Date(), dow = now.getUTCDay();
+    const h1 = await fetchBars2(symbol, "1h", 72, chainOf(cfg));
+    const price = h1.length ? last(h1).c : null;
+    if (!(dow === 6 || dow === 0) || price == null) return res(S, "watching", `${symbol}: weekday`, price, 0);
+    const sat0 = Math.floor(now.getTime() / 864e5) * 864e5 - (dow === 0 ? 864e5 : 0);
+    const range = h1.filter((b) => b.t >= sat0 && b.t < sat0 + 12 * 36e5);
+    if (range.length < 10) return res(S, "watching", `${symbol}: Saturday range not complete`, price, 0);
+    const hi = Math.max(...range.map((b) => b.h)), lo = Math.min(...range.map((b) => b.l));
+    const after = h1.filter((b) => b.t >= sat0 + 12 * 36e5).slice(0, -1);
+    const brk = after.find((b) => b.c > hi || b.c < lo);
+    if (!brk) return res(S, "watching", `${symbol}: weekend range intact`, price, 30);
+    const dir = brk.c > hi ? "BUY" : "SELL";
+    return res(S, "signal", `${symbol}: Saturday 00\u201312 UTC range ${lo.toFixed(0)}\u2013${hi.toFixed(0)} broken ${dir === "BUY" ? "up" : "down"} on a 1h close`, price, 62, dir);
+  };
+  const all = {
+    sniper,
+    smc_ote: smcOte,
+    vwap_reversion: vwapReversion,
+    liquidity_sweep: liquiditySweep,
+    session_breakout: sessionBreakout,
+    btc_weekend_range: btcWeekendRange
+  };
+  if (!portsEnabled()) return {};
+  return Object.fromEntries(Object.entries(all).filter(([id]) => runnerEnabled(id)));
+}
+var SHADOW_ONLY_TESTS, portsEnabled, last, res, chainOf;
+var init_crypto_ports = __esm({
+  "server/services/crypto-ports.ts"() {
+    "use strict";
+    SHADOW_ONLY_TESTS = /* @__PURE__ */ new Set(["session_breakout", "btc_weekend_range"]);
+    portsEnabled = () => process.env.CRYPTO_PORTS !== "off";
+    last = (a) => a[a.length - 1];
+    res = (strategy, decision, reasoning, price, score = null, direction) => ({ decision, reasoning, score, price, dailyChangePercent: null, strategy, ...direction ? { direction } : {} });
+    chainOf = (cfg) => cfg?.defiChain || "base";
+  }
+});
+
 // server/services/crypto-shadow.ts
 var crypto_shadow_exports = {};
 __export(crypto_shadow_exports, {
@@ -17327,7 +17552,8 @@ function adviceFor(stats, strategy, ctx) {
 }
 async function getCryptoShadowStatsText(userId, max = 12) {
   try {
-    const st = (await computeCryptoShadowStats(userId)).filter((s) => s.verdict !== "learning" && s.dim !== "all");
+    const { SHADOW_ONLY_TESTS: SHADOW_ONLY_TESTS2 } = await Promise.resolve().then(() => (init_crypto_ports(), crypto_ports_exports));
+    const st = (await computeCryptoShadowStats(userId)).filter((s) => s.verdict !== "learning" && s.dim !== "all" && s.dim !== "hour" && !SHADOW_ONLY_TESTS2.has(s.strategy));
     if (!st.length) return "";
     const top = st.sort((a, b) => Math.abs(b.medianNet) * Math.sqrt(b.n) - Math.abs(a.medianNet) * Math.sqrt(a.n)).slice(0, max);
     return `CRYPTO SHADOW EVIDENCE (virtual trades of every strategy, net of costs, judged by MEDIAN; advice only; 'short' rows are hypothetical \u2014 Base spot can't short):
@@ -17410,7 +17636,8 @@ async function runCryptoShadowAll(userId, cfg, symbols, chain, slippageCapBps, d
     if (!uni?.poolAddress) continue;
     const und = underlyingOf2(symbol);
     const results = (await Promise.all(Object.entries(deps.runners).map(([k, fn]) => fn(symbol, shadowCfg).then((r) => ({ ...r, strategy: r.strategy || k })).catch(() => null)))).filter((r) => !!r);
-    const dirs = results.filter((r) => r.direction);
+    const ORIGINAL = /* @__PURE__ */ new Set(["trend_following", "momentum", "order_flow", "volume_profile", "breakout", "structure", "divergence"]);
+    const dirs = results.filter((r) => r.direction && ORIGINAL.has(r.strategy));
     const buys = dirs.filter((r) => r.direction === "BUY"), sells = dirs.filter((r) => r.direction === "SELL");
     const side = buys.length > sells.length ? buys : sells.length > buys.length ? sells : [];
     const signals = results.filter((r) => r.decision === "signal" && r.direction && r.price);
@@ -17451,6 +17678,7 @@ async function runCryptoShadowAll(userId, cfg, symbols, chain, slippageCapBps, d
       if (ch1 != null && Math.abs(ch1) >= 3) tags.push(ch1 > 0 ? "hot_hour" : "dump_hour");
       if (ch24 != null && ch24 >= 20) tags.push("extended_24h");
       if (aligned === false) tags.push("against_htf");
+      if (aligned === true) tags.push("htf_aligned");
       if (gated) tags.push("live_gate_would_block");
       if (uni.liquidityUsd < 25e4) tags.push("thin_pool");
       const ins = await pool.query(
@@ -18201,11 +18429,11 @@ async function fetchIndexFromYahoo(req) {
   const r = await fetch(url, { headers: { "User-Agent": "Mozilla/5.0" }, signal: AbortSignal.timeout(12e3) });
   if (!r.ok) return null;
   const j = await r.json();
-  const res = j?.chart?.result?.[0];
-  const q = res?.indicators?.quote?.[0];
-  if (!res?.timestamp || !q) return null;
+  const res2 = j?.chart?.result?.[0];
+  const q = res2?.indicators?.quote?.[0];
+  if (!res2?.timestamp || !q) return null;
   let bars = [];
-  res.timestamp.forEach((t, i) => {
+  res2.timestamp.forEach((t, i) => {
     if (q.close[i] == null || q.open[i] == null || q.high[i] == null || q.low[i] == null) return;
     bars.push({ timestamp: t * 1e3, open: q.open[i], high: q.high[i], low: q.low[i], close: q.close[i], volume: q.volume?.[i] ?? 0 });
   });
@@ -19570,7 +19798,7 @@ var init_tradelocker = __esm({
        */
       async loadAccountDetailsConfig(accNum) {
         if (this.accountDetailsConfig) return this.accountDetailsConfig;
-        const res = await fetch(`${this.baseUrl}/trade/config`, {
+        const res2 = await fetch(`${this.baseUrl}/trade/config`, {
           method: "GET",
           headers: {
             "Authorization": `Bearer ${this.accessToken}`,
@@ -19579,8 +19807,8 @@ var init_tradelocker = __esm({
           },
           signal: AbortSignal.timeout(8e3)
         });
-        if (!res.ok) throw new Error(`config ${res.status}`);
-        const json2 = await res.json();
+        if (!res2.ok) throw new Error(`config ${res2.status}`);
+        const json2 = await res2.json();
         const cfg = json2?.d?.accountDetailsConfig ?? json2?.accountDetailsConfig ?? [];
         const cols = Array.isArray(cfg) ? cfg : cfg?.columns ?? [];
         this.accountDetailsConfig = cols;
@@ -19594,13 +19822,13 @@ var init_tradelocker = __esm({
       tradeConfigCache = null;
       async loadTradeConfig() {
         if (this.tradeConfigCache) return this.tradeConfigCache;
-        const res = await fetch(`${this.baseUrl}/trade/config`, {
+        const res2 = await fetch(`${this.baseUrl}/trade/config`, {
           method: "GET",
           headers: { "Authorization": `Bearer ${this.accessToken}`, "Content-Type": "application/json", "accNum": this.accNum },
           signal: AbortSignal.timeout(8e3)
         });
-        if (!res.ok) throw new Error(`trade/config ${res.status}`);
-        const json2 = await res.json();
+        if (!res2.ok) throw new Error(`trade/config ${res2.status}`);
+        const json2 = await res2.json();
         this.tradeConfigCache = json2?.d ?? json2 ?? {};
         return this.tradeConfigCache;
       }
@@ -19906,18 +20134,18 @@ var init_tradelocker = __esm({
         };
         try {
           await waitOutBan();
-          let res;
+          let res2;
           try {
-            res = await this.placeOrderRaw(order);
+            res2 = await this.placeOrderRaw(order);
           } catch (e) {
             if (!_tlIsRateLimit(e)) throw e;
             tlBannedUntil = Math.max(tlBannedUntil, Date.now() + TL_BAN_MS);
             write("failed", `RATE LIMITED, retrying after ban: ${String(e?.message || e).slice(0, 120)}`);
             if (!await waitOutBan()) throw e;
-            res = await this.placeOrderRaw(order);
+            res2 = await this.placeOrderRaw(order);
           }
-          write(res.status === "rejected" ? "failed" : "executed", `order ${res.orderId || "-"}${res.status === "rejected" ? ` | REJECTED: ${String(res.message || "").slice(0, 200)}` : ""}`);
-          return res;
+          write(res2.status === "rejected" ? "failed" : "executed", `order ${res2.orderId || "-"}${res2.status === "rejected" ? ` | REJECTED: ${String(res2.message || "").slice(0, 200)}` : ""}`);
+          return res2;
         } catch (e) {
           write("failed", `ERROR: ${String(e?.message || e).slice(0, 200)}`);
           throw e;
@@ -20686,10 +20914,10 @@ var init_tradelocker = __esm({
         modifyChain.set(positionId, chained);
         await prev;
         try {
-          const last = lastStopSet.get(positionId);
+          const last2 = lastStopSet.get(positionId);
           const sl = Number(stopLoss);
-          if (last && sl > 0 && last.sl > 0 && Date.now() - last.at < TL_STOP_DEDUPE_MS && (takeProfit == null || takeProfit === last.tp) && Math.abs(sl - last.sl) <= stopTolerance(sl)) {
-            console.log(`[TradeLocker] modify ${positionId} SL ${sl} skipped \u2014 within tolerance of ${last.sl} set ${Math.round((Date.now() - last.at) / 1e3)}s ago by ${last.by}`);
+          if (last2 && sl > 0 && last2.sl > 0 && Date.now() - last2.at < TL_STOP_DEDUPE_MS && (takeProfit == null || takeProfit === last2.tp) && Math.abs(sl - last2.sl) <= stopTolerance(sl)) {
+            console.log(`[TradeLocker] modify ${positionId} SL ${sl} skipped \u2014 within tolerance of ${last2.sl} set ${Math.round((Date.now() - last2.at) / 1e3)}s ago by ${last2.by}`);
             return { success: true };
           }
           const r = await this.modifyPositionInner(positionId, stopLoss, takeProfit, caller);
@@ -20701,24 +20929,24 @@ var init_tradelocker = __esm({
         }
       }
       async modifyPositionInner(positionId, stopLoss, takeProfit, caller) {
-        const res = await this.modifyPositionRaw(positionId, stopLoss, takeProfit);
+        const res2 = await this.modifyPositionRaw(positionId, stopLoss, takeProfit);
         void (async () => {
           try {
             const c = this.logConn;
             const userId = Number(c?.userId);
             if (!(userId > 0) || !(Number(c?.id) > 0)) return;
             const { pool: pool2 } = await Promise.resolve().then(() => (init_db(), db_exports));
-            const msg = `MODIFY by ${caller} | position ${positionId} | SL ${stopLoss ?? "-"} TP ${takeProfit ?? "-"}${res.success ? "" : ` | FAILED: ${String(res.error || "").slice(0, 200)}`}`;
+            const msg = `MODIFY by ${caller} | position ${positionId} | SL ${stopLoss ?? "-"} TP ${takeProfit ?? "-"}${res2.success ? "" : ` | FAILED: ${String(res2.error || "").slice(0, 200)}`}`;
             await pool2.query(
               `INSERT INTO tradelocker_trade_logs (user_id, connection_id, action, symbol, direction, volume, stop_loss, take_profit, status, error_message, created_at)
            VALUES ($1, $2, 'MODIFY', '', '', 0, $3, $4, $5, $6, now())`,
-              [userId, c?.id ?? null, Number(stopLoss) > 0 ? stopLoss : null, Number(takeProfit) > 0 ? takeProfit : null, res.success ? "executed" : "failed", msg.slice(0, 1e3)]
+              [userId, c?.id ?? null, Number(stopLoss) > 0 ? stopLoss : null, Number(takeProfit) > 0 ? takeProfit : null, res2.success ? "executed" : "failed", msg.slice(0, 1e3)]
             );
           } catch (e) {
             console.error("[TradeLocker] modify log write failed (non-fatal):", e?.message || e);
           }
         })();
-        return res;
+        return res2;
       }
       async modifyPositionRaw(positionId, stopLoss, takeProfit) {
         await this.ensureAuthenticated();
@@ -21501,8 +21729,8 @@ async function syncTradeLockerTrades(userId, conn, svc) {
 async function syncUserTradeLocker(userId, force = false) {
   const now = Date.now();
   if (!force) {
-    const last = lastSyncAt.get(userId) || 0;
-    if (now - last < MIN_RESYNC_GAP_MS) {
+    const last2 = lastSyncAt.get(userId) || 0;
+    if (now - last2 < MIN_RESYNC_GAP_MS) {
       return Object.values(cache5()[userId] || {});
     }
   }
@@ -22895,10 +23123,10 @@ async function executeSignalOnDxtrade(conn, signal) {
     const wireInstrument = String(pos.raw?.instrument ?? pos.raw?.symbol ?? dxWireSymbol(symbol));
     if (signal.action === "CLOSE") {
       const qty = signal.volume && signal.volume > 0 ? Math.min(signal.volume, pos.quantity) : pos.quantity;
-      const res2 = await svc.closePosition(acct, wireInstrument, pos.side, qty, pos.positionId);
-      return { success: true, result: res2 };
+      const res3 = await svc.closePosition(acct, wireInstrument, pos.side, qty, pos.positionId);
+      return { success: true, result: res3 };
     }
-    const res = await svc.modifyProtection(acct, {
+    const res2 = await svc.modifyProtection(acct, {
       instrument: wireInstrument,
       positionSide: pos.side,
       quantity: pos.quantity,
@@ -22906,8 +23134,8 @@ async function executeSignalOnDxtrade(conn, signal) {
       takeProfit: signal.takeProfit ?? void 0,
       positionCode: pos.positionId
     });
-    if (res.stopError || res.tpError) return { success: false, error: res.stopError || res.tpError, result: res };
-    return { success: true, result: res };
+    if (res2.stopError || res2.tpError) return { success: false, error: res2.stopError || res2.tpError, result: res2 };
+    return { success: true, result: res2 };
   } catch (e) {
     return { success: false, error: e?.message ?? String(e) };
   }
@@ -22943,20 +23171,20 @@ var init_dxtrade = __esm({
       async login() {
         if (this.loginPromise) return this.loginPromise;
         this.loginPromise = (async () => {
-          const res = await fetch(`${this.base}/login`, {
+          const res2 = await fetch(`${this.base}/login`, {
             method: "POST",
             headers: { "Content-Type": "application/json", "Accept": "application/json" },
             body: JSON.stringify({ username: this.username, domain: this.domain, password: this.password }),
             signal: AbortSignal.timeout(2e4)
           });
-          const text2 = await res.text();
-          if (!res.ok) throw new Error(`DXtrade login ${res.status}: ${text2.slice(0, 200)}`);
+          const text2 = await res2.text();
+          if (!res2.ok) throw new Error(`DXtrade login ${res2.status}: ${text2.slice(0, 200)}`);
           let token = "";
           try {
             token = JSON.parse(text2)?.sessionToken || "";
           } catch {
           }
-          if (!token) token = res.headers.get("authorization")?.replace(/^DXAPI\s+/i, "") || "";
+          if (!token) token = res2.headers.get("authorization")?.replace(/^DXAPI\s+/i, "") || "";
           if (!token) throw new Error("DXtrade login succeeded but no sessionToken returned");
           this.token = token;
           return token;
@@ -22981,21 +23209,21 @@ var init_dxtrade = __esm({
           headers: { "Accept": "application/json", "Content-Type": "application/json", "Authorization": `DXAPI ${this.token}`, ...init.headers || {} },
           signal: AbortSignal.timeout(2e4)
         });
-        let res = await doFetch();
-        if (res.status === 401) {
+        let res2 = await doFetch();
+        if (res2.status === 401) {
           this.token = null;
           await this.login();
-          res = await doFetch();
+          res2 = await doFetch();
         }
-        return res;
+        return res2;
       }
       /** Current user + their accounts. dxsca exposes this at /users/self (there is no
        *  bare /accounts list endpoint — that path 404s). Account codes look like
        *  'default:12345' and appear in the returned `accounts` array. */
       async getAccounts() {
-        const res = await this.authed("/users/self");
-        const text2 = await res.text();
-        if (!res.ok) throw new Error(`DXtrade users/self ${res.status}: ${text2.slice(0, 200)}`);
+        const res2 = await this.authed("/users/self");
+        const text2 = await res2.text();
+        if (!res2.ok) throw new Error(`DXtrade users/self ${res2.status}: ${text2.slice(0, 200)}`);
         try {
           return JSON.parse(text2);
         } catch {
@@ -23005,10 +23233,10 @@ var init_dxtrade = __esm({
       /** Portfolio (positions + balances) for one account. Falls back across the two
        *  common dxsca shapes. Returns the raw payload too so we can lock field names. */
       async getPortfolio(accountCode) {
-        let res = await this.authed(`/accounts/${encodeURIComponent(accountCode)}/portfolio`);
-        if (res.status === 404) res = await this.authed(`/accounts/${encodeURIComponent(accountCode)}/positions`);
-        const text2 = await res.text();
-        if (!res.ok) throw new Error(`DXtrade portfolio ${res.status}: ${text2.slice(0, 200)}`);
+        let res2 = await this.authed(`/accounts/${encodeURIComponent(accountCode)}/portfolio`);
+        if (res2.status === 404) res2 = await this.authed(`/accounts/${encodeURIComponent(accountCode)}/positions`);
+        const text2 = await res2.text();
+        if (!res2.ok) throw new Error(`DXtrade portfolio ${res2.status}: ${text2.slice(0, 200)}`);
         try {
           return JSON.parse(text2);
         } catch {
@@ -23017,9 +23245,9 @@ var init_dxtrade = __esm({
       }
       /** Account metrics/balance (equity, balance) for one account. Tolerant of shape. */
       async getMetrics(accountCode) {
-        const res = await this.authed(`/accounts/${encodeURIComponent(accountCode)}/metrics`);
-        const text2 = await res.text();
-        if (!res.ok) return { error: `metrics ${res.status}` };
+        const res2 = await this.authed(`/accounts/${encodeURIComponent(accountCode)}/metrics`);
+        const text2 = await res2.text();
+        if (!res2.ok) return { error: `metrics ${res2.status}` };
         try {
           return JSON.parse(text2);
         } catch {
@@ -23052,12 +23280,12 @@ var init_dxtrade = __esm({
         if (o.takeProfit != null) body.takeProfit = o.takeProfit;
         if (o.positionEffect === "CLOSE" && o.positionCode) body.positionCode = o.positionCode;
         if (o.positionEffect === "CLOSE" && o.positionCode && (body.type === "STOP" || body.type === "LIMIT")) delete body.quantity;
-        const res = await this.authed(`/accounts/${encodeURIComponent(accountCode)}/orders`, {
+        const res2 = await this.authed(`/accounts/${encodeURIComponent(accountCode)}/orders`, {
           method: "POST",
           body: JSON.stringify(body)
         });
-        const text2 = await res.text();
-        if (!res.ok) throw new Error(`DXtrade order ${res.status}: ${text2.slice(0, 300)}`);
+        const text2 = await res2.text();
+        if (!res2.ok) throw new Error(`DXtrade order ${res2.status}: ${text2.slice(0, 300)}`);
         let data;
         try {
           data = JSON.parse(text2);
@@ -23148,9 +23376,9 @@ var init_dxtrade = __esm({
         ];
         for (const p of paths) {
           try {
-            const res = await this.authed(p, { method: "DELETE" });
-            if (res.ok || res.status === 404) {
-              console.log(`[dxtrade] cancelOrder ${id} via ${p} \u2192 ${res.status}`);
+            const res2 = await this.authed(p, { method: "DELETE" });
+            if (res2.ok || res2.status === 404) {
+              console.log(`[dxtrade] cancelOrder ${id} via ${p} \u2192 ${res2.status}`);
               return true;
             }
           } catch {
@@ -23204,32 +23432,32 @@ var init_dxtrade = __esm({
           } catch {
           }
         }
-        const res = await this.placeOrder(accountCode, { instrument, side: opposite, quantity, type: "MARKET", positionEffect: "CLOSE", positionCode: code });
+        const res2 = await this.placeOrder(accountCode, { instrument, side: opposite, quantity, type: "MARKET", positionEffect: "CLOSE", positionCode: code });
         try {
           await this.cancelProtectiveOrders(accountCode, instrument);
         } catch {
         }
-        return res;
+        return res2;
       }
       /** Search tradable instruments (dxsca /instruments/query). Used to discover the
        *  exact symbol format for this broker (Velotrade). Tries a couple of param
        *  shapes and returns the raw payload. */
       async getInstruments(query = "") {
         const attempts = query ? [`/instruments/query?text=${encodeURIComponent(query)}`, `/instruments/query?symbol=${encodeURIComponent(query)}`, `/instruments/query?symbols=${encodeURIComponent(query)}`] : ["/instruments/query"];
-        let last = "";
+        let last2 = "";
         for (const path2 of attempts) {
-          const res = await this.authed(path2);
-          const text2 = await res.text();
-          if (res.ok) {
+          const res2 = await this.authed(path2);
+          const text2 = await res2.text();
+          if (res2.ok) {
             try {
               return JSON.parse(text2);
             } catch {
               return { raw: text2 };
             }
           }
-          last = `${res.status}: ${text2.slice(0, 150)}`;
+          last2 = `${res2.status}: ${text2.slice(0, 150)}`;
         }
-        throw new Error(`DXtrade instruments ${last}`);
+        throw new Error(`DXtrade instruments ${last2}`);
       }
       /** Fetch a single instrument's spec (multiplier, increments) by exact symbol. */
       async getInstrument(symbol) {
@@ -23315,16 +23543,16 @@ var init_dxtrade = __esm({
           `/accounts/${enc}/positions/history?from=${encodeURIComponent(fromIso)}&to=${encodeURIComponent(toIso)}`
         ];
         for (const path2 of candidates) {
-          let res;
+          let res2;
           try {
-            res = await this.authed(path2);
+            res2 = await this.authed(path2);
           } catch {
             continue;
           }
-          if (!res.ok) continue;
+          if (!res2.ok) continue;
           let data;
           try {
-            data = JSON.parse(await res.text());
+            data = JSON.parse(await res2.text());
           } catch {
             continue;
           }
@@ -23417,8 +23645,8 @@ async function btcDailyTrend(symbol) {
       for (const c of closes.slice(n)) e = c * k + e * (1 - k);
       return e;
     };
-    const e20 = ema2(20), e50 = ema2(50), last = closes[closes.length - 1];
-    const trend = e20 > e50 && last > e20 ? "BULLISH" : e20 < e50 && last < e20 ? "BEARISH" : "NEUTRAL";
+    const e20 = ema2(20), e50 = ema2(50), last2 = closes[closes.length - 1];
+    const trend = e20 > e50 && last2 > e20 ? "BULLISH" : e20 < e50 && last2 < e20 ? "BEARISH" : "NEUTRAL";
     d1Cache.set(symbol, { at: Date.now(), trend });
     return trend;
   } catch {
@@ -24177,12 +24405,12 @@ async function fetchCLOBPrices(tokenIds) {
   if (!tokenIds.length) return map;
   try {
     const ids = tokenIds.slice(0, 20).join(",");
-    const res = await fetch(`${CLOB_BASE}/prices?token_ids=${ids}`, {
+    const res2 = await fetch(`${CLOB_BASE}/prices?token_ids=${ids}`, {
       headers: { "Accept": "application/json", "User-Agent": "VEDD-Trading-AI/1.0" },
       signal: AbortSignal.timeout(6e3)
     });
-    if (!res.ok) return map;
-    const data = await res.json();
+    if (!res2.ok) return map;
+    const data = await res2.json();
     if (Array.isArray(data)) {
       for (const item of data) {
         if (item?.token_id && item?.price != null) {
@@ -24197,18 +24425,18 @@ async function fetchCLOBPrices(tokenIds) {
 async function fetchBTCMarketsFromGamma(limit = 30) {
   const urlSorted = `${GAMMA_BASE}/markets?tag=bitcoin&active=true&closed=false&limit=${limit}&sort_by=end_date_min&order=asc`;
   const urlFallback = `${GAMMA_BASE}/markets?tag=bitcoin&active=true&closed=false&limit=${limit}`;
-  let res = await fetch(urlSorted, {
+  let res2 = await fetch(urlSorted, {
     headers: { "Accept": "application/json", "User-Agent": "VEDD-Trading-AI/1.0" },
     signal: AbortSignal.timeout(1e4)
   });
-  if (!res.ok) {
-    res = await fetch(urlFallback, {
+  if (!res2.ok) {
+    res2 = await fetch(urlFallback, {
       headers: { "Accept": "application/json", "User-Agent": "VEDD-Trading-AI/1.0" },
       signal: AbortSignal.timeout(1e4)
     });
   }
-  if (!res.ok) throw new Error(`Polymarket Gamma API ${res.status}`);
-  const raw = await res.json();
+  if (!res2.ok) throw new Error(`Polymarket Gamma API ${res2.status}`);
+  const raw = await res2.json();
   if (!Array.isArray(raw)) throw new Error("Unexpected Gamma response");
   const now = Date.now();
   const markets = [];
@@ -25130,8 +25358,8 @@ function addActivity(userId, activity) {
 function persistActivity(userId, a) {
   const now = Date.now();
   const shape = `${userId}|${a.symbol ?? ""}|${a.type}|${String(a.message).replace(/[0-9.,]+/g, "#")}`;
-  const last = _activitySeen.get(shape);
-  if (last && now - last < 15 * 6e4) return;
+  const last2 = _activitySeen.get(shape);
+  if (last2 && now - last2 < 15 * 6e4) return;
   _activitySeen.set(shape, now);
   if (_activitySeen.size > 5e3) {
     _activitySeen.forEach((t, k) => {
@@ -25811,7 +26039,7 @@ async function scanMarkets(userId) {
         } else if (adxStrength > 12 && diSeparation > 8) {
           trend = plusDI > minusDI ? "BULLISH" : "BEARISH";
         }
-        const rsi = indicators.stochastic?.k || 50;
+        const rsi2 = indicators.stochastic?.k || 50;
         const atr = indicators.volatilityContext?.currentATR || 0;
         const volumeMetrics = computeVolumeMetrics(confirmedBars);
         const _symUpper = symbol.replace(/[^A-Za-z]/g, "").toUpperCase();
@@ -25831,7 +26059,7 @@ async function scanMarkets(userId) {
           price: currentPrice,
           change: Math.round(change * 100) / 100,
           trend,
-          rsi: Math.round(rsi),
+          rsi: Math.round(rsi2),
           atr: Math.round(atr * 1e5) / 1e5,
           adx: _adxSnapRaw ?? void 0,
           // undefined = indicator unavailable (NOT flat)
@@ -27019,28 +27247,28 @@ function generateRuleBasedSignals(indicators, config, symbol) {
   const adxVal = _adxRaw ?? 0;
   const trend = indicators.trend ?? "NEUTRAL";
   const trendIsStrong = adxKnown && adxVal > 18 && trend !== "NEUTRAL";
-  const rsi = indicators.rsi?.value ?? indicators.stochastic?.k ?? 50;
+  const rsi2 = indicators.rsi?.value ?? indicators.stochastic?.k ?? 50;
   if (trendIsStrong) {
-    if (trend === "BULLISH" && rsi > 50) {
+    if (trend === "BULLISH" && rsi2 > 50) {
       bull++;
-      votes.push(`RSI ${rsi.toFixed(1)} above 50 (bullish trend confirmation)`);
-    } else if (trend === "BEARISH" && rsi < 50) {
+      votes.push(`RSI ${rsi2.toFixed(1)} above 50 (bullish trend confirmation)`);
+    } else if (trend === "BEARISH" && rsi2 < 50) {
       bear++;
-      votes.push(`RSI ${rsi.toFixed(1)} below 50 (bearish trend confirmation)`);
-    } else if (trend === "BULLISH" && rsi < 30) {
+      votes.push(`RSI ${rsi2.toFixed(1)} below 50 (bearish trend confirmation)`);
+    } else if (trend === "BULLISH" && rsi2 < 30) {
       bear++;
-      votes.push(`RSI ${rsi.toFixed(1)} extreme oversold (exhaustion warning)`);
-    } else if (trend === "BEARISH" && rsi > 70) {
+      votes.push(`RSI ${rsi2.toFixed(1)} extreme oversold (exhaustion warning)`);
+    } else if (trend === "BEARISH" && rsi2 > 70) {
       bull++;
-      votes.push(`RSI ${rsi.toFixed(1)} extreme overbought (exhaustion warning)`);
+      votes.push(`RSI ${rsi2.toFixed(1)} extreme overbought (exhaustion warning)`);
     }
   } else if (adxKnown) {
-    if (rsi < 35) {
+    if (rsi2 < 35) {
       bull++;
-      votes.push(`RSI oversold (${rsi.toFixed(1)})`);
-    } else if (rsi > 65) {
+      votes.push(`RSI oversold (${rsi2.toFixed(1)})`);
+    } else if (rsi2 > 65) {
       bear++;
-      votes.push(`RSI overbought (${rsi.toFixed(1)})`);
+      votes.push(`RSI overbought (${rsi2.toFixed(1)})`);
     }
   }
   const stochK = indicators.stochastic?.k ?? 50;
@@ -27067,11 +27295,11 @@ function generateRuleBasedSignals(indicators, config, symbol) {
       votes.push(`Stoch K overbought (${stochK.toFixed(1)})`);
     }
   }
-  const macdHist = indicators.macd?.histogram ?? 0;
-  if (macdHist > 0) {
+  const macdHist2 = indicators.macd?.histogram ?? 0;
+  if (macdHist2 > 0) {
     bull++;
     votes.push("MACD histogram positive");
-  } else if (macdHist < 0) {
+  } else if (macdHist2 < 0) {
     bear++;
     votes.push("MACD histogram negative");
   }
@@ -27201,9 +27429,9 @@ function countIndicatorAlignment(data) {
     if (stochK < 28) bull++;
     else if (stochK > 72) bear++;
   }
-  const macdHist = data.macd?.histogram ?? 0;
-  if (macdHist > 0) bull++;
-  else if (macdHist < 0) bear++;
+  const macdHist2 = data.macd?.histogram ?? 0;
+  if (macdHist2 > 0) bull++;
+  else if (macdHist2 < 0) bear++;
   const macdLine = data.macd?.macd ?? data.macd?.value ?? null;
   if (macdLine !== null) {
     if (macdLine > 0) bull++;
@@ -27240,7 +27468,7 @@ function selectStrategyForPair(symbol, data, htfBias, asiaHigh, asiaLow, utcHour
   const sr = data.supportResistance;
   const fib = data.fibonacci?.retracementLevels;
   const patterns = data.candlePatterns ?? [];
-  const macdHist = data.macd?.histogram ?? 0;
+  const macdHist2 = data.macd?.histogram ?? 0;
   const obvTrend = data.obv?.trend ?? "";
   const isJpy = symbol.includes("JPY");
   const isXau2 = symbol.includes("XAU");
@@ -29699,7 +29927,7 @@ async function processDecision(userId, decision, newsCtx) {
             let _pos = null;
             let _verifyError = false;
             for (let _att = 0; _att < 5 && !_pos; _att++) {
-              await new Promise((res) => setTimeout(res, 1e3));
+              await new Promise((res2) => setTimeout(res2, 1e3));
               try {
                 const _poss = await svc.getPositions(acct);
                 _pos = _poss.find((p) => p.instrument === _dxSymNorm && p.side === _dxSide) || null;
@@ -31849,13 +32077,13 @@ async function rangeFeatures(symbol, engine = "fx") {
   const tol = width * 0.15;
   const touchesHigh = box.filter((b) => b.high >= hi - tol).length;
   const touchesLow = box.filter((b) => b.low <= lo + tol).length;
-  const last = bars[bars.length - 1];
-  const price = Number(last.close);
+  const last2 = bars[bars.length - 1];
+  const price = Number(last2.close);
   const posPct = (price - lo) / width * 100;
   const prior = bars.slice(-25, -1);
   const pHi = Math.max(...prior.map((b) => b.high)), pLo = Math.min(...prior.map((b) => b.low));
-  const sweepHigh = last.high > pHi && last.close < pHi;
-  const sweepLow = last.low < pLo && last.close > pLo;
+  const sweepHigh = last2.high > pHi && last2.close < pHi;
+  const sweepLow = last2.low < pLo && last2.close > pLo;
   const closes = bars.map((b) => Number(b.close));
   const bw = (i) => {
     const w = closes.slice(i - 20, i);
@@ -32338,10 +32566,10 @@ async function maybeGoLive(userId, idea) {
 }
 function barTrend(bars) {
   const c = bars.map((b) => Number(b.close));
-  const e20 = emaLast(c, 20), e50 = emaLast(c, 50), last = c[c.length - 1];
+  const e20 = emaLast(c, 20), e50 = emaLast(c, 50), last2 = c[c.length - 1];
   if (!(e20 > 0) || !(e50 > 0)) return "NEUTRAL";
-  if (e20 > e50 && last > e20) return "BULLISH";
-  if (e20 < e50 && last < e20) return "BEARISH";
+  if (e20 > e50 && last2 > e20) return "BULLISH";
+  if (e20 < e50 && last2 < e20) return "BEARISH";
   return "NEUTRAL";
 }
 function adx14(bars) {
@@ -32360,8 +32588,8 @@ function adx14(bars) {
       dxs.push(pdi + mdi > 0 ? 100 * Math.abs(pdi - mdi) / (pdi + mdi) : 0);
     }
   }
-  const last = dxs.slice(-14);
-  return last.length ? last.reduce((a, c) => a + c, 0) / last.length : null;
+  const last2 = dxs.slice(-14);
+  return last2.length ? last2.reduce((a, c) => a + c, 0) / last2.length : null;
 }
 async function runCryptoModelsCycle(userId, symbols) {
   if (process.env.CRYPTO_MODELS_SHADOW === "off") return;
@@ -32638,9 +32866,9 @@ async function tfTrend(symbol, tf, chain, pool2) {
     const bars = (await barsFor2(symbol, tf, 80, chain, pool2)).slice(0, -1);
     if (bars.length < 55) return null;
     const c = bars.map((b) => b.c);
-    const e20 = emaOf(c, 20), e50 = emaOf(c, 50), last = c[c.length - 1];
+    const e20 = emaOf(c, 20), e50 = emaOf(c, 50), last2 = c[c.length - 1];
     if (!(e20 > 0) || !(e50 > 0)) return null;
-    return e20 > e50 && last > e20 ? "BULLISH" : e20 < e50 && last < e20 ? "BEARISH" : "NEUTRAL";
+    return e20 > e50 && last2 > e20 ? "BULLISH" : e20 < e50 && last2 < e20 ? "BEARISH" : "NEUTRAL";
   } catch {
     return null;
   }
@@ -32667,22 +32895,22 @@ async function runTrendFollowing(symbol, cfg) {
   const adx = indicators.adx?.adx || 0;
   const plusDI = indicators.adx?.plusDI || 0;
   const minusDI = indicators.adx?.minusDI || 0;
-  const rsi = indicators.rsi?.value || 50;
-  const macdHist = indicators.macd?.histogram || 0;
+  const rsi2 = indicators.rsi?.value || 50;
+  const macdHist2 = indicators.macd?.histogram || 0;
   let direction = null;
   let score = 0;
   const confluences = [];
-  if (adx > 25 && plusDI > minusDI && rsi < 68 && macdHist > 0) {
+  if (adx > 25 && plusDI > minusDI && rsi2 < 68 && macdHist2 > 0) {
     direction = "BUY";
     score = 60 + Math.min(20, adx - 25);
     confluences.push(`ADX ${adx.toFixed(1)} trend`, "DI+ dominant", "MACD bullish");
-  } else if (adx > 25 && minusDI > plusDI && rsi > 32 && macdHist < 0) {
+  } else if (adx > 25 && minusDI > plusDI && rsi2 > 32 && macdHist2 < 0) {
     direction = "SELL";
     score = 60 + Math.min(20, adx - 25);
     confluences.push(`ADX ${adx.toFixed(1)} trend`, "DI- dominant", "MACD bearish");
   }
   if (!direction) {
-    return { decision: "watching", reasoning: `${symbol}: no clear trend confluence (ADX ${adx.toFixed(1)}, RSI ${rsi.toFixed(1)}).`, score: Math.round(score), price, dailyChangePercent, strategy: "trend_following" };
+    return { decision: "watching", reasoning: `${symbol}: no clear trend confluence (ADX ${adx.toFixed(1)}, RSI ${rsi2.toFixed(1)}).`, score: Math.round(score), price, dailyChangePercent, strategy: "trend_following" };
   }
   const directionAllowed = cfg.directionFilter === "both" || cfg.directionFilter === "long_only" && direction === "BUY" || cfg.directionFilter === "short_only" && direction === "SELL";
   if (!directionAllowed) {
@@ -32739,10 +32967,10 @@ async function runOrderFlow(symbol, cfg) {
   const cvdSecond = delta.slice(mid).reduce((s, d) => s + d, 0);
   const cvdShiftPct = vv > 0 ? (cvdSecond - cvdFirst) / vv * 100 : 0;
   const rangePct = (Math.max(...win.map((b) => b.h)) - Math.min(...win.map((b) => b.l))) / price * 100;
-  const last = win[win.length - 1];
+  const last2 = win[win.length - 1];
   let direction = null;
-  if (rangePct >= 0.8 && price > vwap && cvdShiftPct > 0 && last.c >= last.o) direction = "BUY";
-  else if (rangePct >= 0.8 && price < vwap && cvdShiftPct < 0 && last.c <= last.o) direction = "SELL";
+  if (rangePct >= 0.8 && price > vwap && cvdShiftPct > 0 && last2.c >= last2.o) direction = "BUY";
+  else if (rangePct >= 0.8 && price < vwap && cvdShiftPct < 0 && last2.c <= last2.o) direction = "SELL";
   if (!direction) return { decision: "watching", reasoning: `${symbol}: order flow balanced (range ${rangePct.toFixed(2)}%, CVD shift ${cvdShiftPct.toFixed(1)}%, price ${price > vwap ? "above" : "below"} VWAP).`, score: 45, price, dailyChangePercent, strategy: "order_flow" };
   const score = Math.round(Math.min(92, 60 + Math.min(20, Math.abs(cvdShiftPct)) + Math.min(12, rangePct)));
   const directionAllowed = cfg.directionFilter === "both" || cfg.directionFilter === "long_only" && direction === "BUY" || cfg.directionFilter === "short_only" && direction === "SELL";
@@ -32804,14 +33032,14 @@ async function runBreakout(symbol, cfg) {
   const prior = c.slice(-(lookback + 1), -1);
   const priorHigh = Math.max(...prior.map((b) => b.h)), priorLow = Math.min(...prior.map((b) => b.l));
   const avgVol = prior.reduce((s, b) => s + (b.v ?? 0), 0) / prior.length;
-  const last = c[c.length - 1];
+  const last2 = c[c.length - 1];
   let direction = null;
-  if (last.c > priorHigh) direction = "BUY";
-  else if (last.c < priorLow) direction = "SELL";
+  if (last2.c > priorHigh) direction = "BUY";
+  else if (last2.c < priorLow) direction = "SELL";
   if (!direction) return { decision: "watching", reasoning: `${symbol}: inside its ${lookback}h range $${priorLow.toFixed(2)}\u2013$${priorHigh.toFixed(2)} \u2014 no breakout.`, score: 45, price, dailyChangePercent, strategy: "breakout" };
-  const volConfirm = (last.v ?? 0) > avgVol;
-  if (!volConfirm) return { decision: "watching", reasoning: `${symbol}: ${direction} breakout of ${lookback}h range but volume not confirming (${Math.round(last.v ?? 0)} vs avg ${Math.round(avgVol)}).`, score: 52, price, dailyChangePercent, strategy: "breakout" };
-  const score = Math.round(Math.min(90, 65 + Math.min(20, Math.abs(last.c - (direction === "BUY" ? priorHigh : priorLow)) / price * 2e3)));
+  const volConfirm = (last2.v ?? 0) > avgVol;
+  if (!volConfirm) return { decision: "watching", reasoning: `${symbol}: ${direction} breakout of ${lookback}h range but volume not confirming (${Math.round(last2.v ?? 0)} vs avg ${Math.round(avgVol)}).`, score: 52, price, dailyChangePercent, strategy: "breakout" };
+  const score = Math.round(Math.min(90, 65 + Math.min(20, Math.abs(last2.c - (direction === "BUY" ? priorHigh : priorLow)) / price * 2e3)));
   const directionAllowed = cfg.directionFilter === "both" || cfg.directionFilter === "long_only" && direction === "BUY" || cfg.directionFilter === "short_only" && direction === "SELL";
   if (!directionAllowed) return { decision: "skipped", reasoning: `${symbol}: ${direction} breakout, but direction filter is "${cfg.directionFilter}".`, score, price, dailyChangePercent, strategy: "breakout" };
   if (score < cfg.minConfidence) return { decision: "watching", reasoning: `${symbol}: ${direction} volume-confirmed breakout but score ${score}/100 below ${cfg.minConfidence}.`, score, price, dailyChangePercent, strategy: "breakout" };
@@ -33713,8 +33941,8 @@ async function executeSignalSingle(service, connection, userId, symbol, result, 
           }
           if (_rotOk) {
             const { getRuntimeStateStrict: getRuntimeStateStrict2 } = await Promise.resolve().then(() => (init_runtime_state(), runtime_state_exports));
-            const last = await getRuntimeStateStrict2("crypto_rotation", String(userId)).catch(() => ({ at: Date.now() }));
-            if (last && Date.now() - Number(last.at) < 36e5) _rotOk = false;
+            const last2 = await getRuntimeStateStrict2("crypto_rotation", String(userId)).catch(() => ({ at: Date.now() }));
+            if (last2 && Date.now() - Number(last2.at) < 36e5) _rotOk = false;
           }
           if (_rotOk && usdc != null) {
             const { getDefiPrice: getDefiPrice2 } = await Promise.resolve().then(() => (init_defi_market_data(), defi_market_data_exports));
@@ -33939,8 +34167,8 @@ async function scanOneUser(userId) {
   } catch {
   }
   const now = Date.now();
-  const last = lastScanAt.get(userId) || 0;
-  if (now - last < Math.max(MIN_SCAN_INTERVAL_MS, config.scanIntervalMs)) return;
+  const last2 = lastScanAt.get(userId) || 0;
+  if (now - last2 < Math.max(MIN_SCAN_INTERVAL_MS, config.scanIntervalMs)) return;
   lastScanAt.set(userId, now);
   const isDefi = config.executionVenue === "defi";
   const isHyperliquid = config.executionVenue === "hyperliquid";
@@ -34065,8 +34293,13 @@ async function scanOneUser(userId) {
     const _defiSyms = symbols.filter((s) => !!getDefiUniverseEntry(s, _chainS));
     if (_defiSyms.length) {
       const { runCryptoShadowAll: runCryptoShadowAll2 } = await Promise.resolve().then(() => (init_crypto_shadow(), crypto_shadow_exports));
+      const { makePortRunners: makePortRunners2, runnerEnabled: runnerEnabled2 } = await Promise.resolve().then(() => (init_crypto_ports(), crypto_ports_exports));
+      const _shadowRunners = {
+        ...Object.fromEntries(Object.entries(STRATEGY_RUNNERS).filter(([id]) => runnerEnabled2(id))),
+        ...makePortRunners2(fetchBars)
+      };
       const _r = await runCryptoShadowAll2(userId, config, _defiSyms, _chainS, config.defiSlippageBps ?? 100, {
-        runners: STRATEGY_RUNNERS,
+        runners: _shadowRunners,
         gate: (sym, r, c) => applySignalGates(sym, r, c),
         universe: (sym) => getDefiUniverseEntry(sym, _chainS),
         h1: (sym) => h1Atr(sym, _chainS, getDefiUniverseEntry(sym, _chainS)?.poolAddress)
