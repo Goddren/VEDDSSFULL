@@ -22614,11 +22614,11 @@ function calculateRSI(candles, period = 14) {
 }
 function calcEMA(values, period) {
   const k2 = 2 / (period + 1);
-  const ema5 = [values[0]];
+  const ema6 = [values[0]];
   for (let i = 1; i < values.length; i++) {
-    ema5.push(values[i] * k2 + ema5[i - 1] * (1 - k2));
+    ema6.push(values[i] * k2 + ema6[i - 1] * (1 - k2));
   }
-  return ema5;
+  return ema6;
 }
 function calculateMACD(candles, fast = 12, slow = 26, signalPeriod = 9) {
   if (candles.length < slow + signalPeriod) return void 0;
@@ -22806,9 +22806,9 @@ function computeKeltnerChannels(candles, emaPeriod = 20, atrPeriod = 10, multipl
   if (candles.length < emaPeriod + 2) return void 0;
   const chronological = [...candles].reverse();
   const k2 = 2 / (emaPeriod + 1);
-  let ema5 = chronological.slice(0, emaPeriod).reduce((s, c) => s + c.c, 0) / emaPeriod;
+  let ema6 = chronological.slice(0, emaPeriod).reduce((s, c) => s + c.c, 0) / emaPeriod;
   for (let i = emaPeriod; i < chronological.length; i++) {
-    ema5 = chronological[i].c * k2 + ema5 * (1 - k2);
+    ema6 = chronological[i].c * k2 + ema6 * (1 - k2);
   }
   const trValues = [];
   for (let i = 1; i < chronological.length; i++) {
@@ -22818,10 +22818,10 @@ function computeKeltnerChannels(candles, emaPeriod = 20, atrPeriod = 10, multipl
   const atrSlice = trValues.slice(-atrPeriod);
   const atr3 = atrSlice.length > 0 ? atrSlice.reduce((s, v) => s + v, 0) / atrSlice.length : 0;
   if (atr3 === 0) return void 0;
-  const upper = ema5 + multiplier * atr3;
-  const lower = ema5 - multiplier * atr3;
+  const upper = ema6 + multiplier * atr3;
+  const lower = ema6 - multiplier * atr3;
   const currentPrice = chronological[chronological.length - 1].c;
-  const bandwidth = (upper - lower) / ema5 * 100;
+  const bandwidth = (upper - lower) / ema6 * 100;
   const prevBandwidths = [];
   let prevEma = chronological.slice(0, emaPeriod).reduce((s, c) => s + c.c, 0) / emaPeriod;
   for (let i = emaPeriod; i < chronological.length - 5; i++) {
@@ -22878,7 +22878,7 @@ function computeKeltnerChannels(candles, emaPeriod = 20, atrPeriod = 10, multipl
   }
   return {
     upper: Math.round(upper * 1e5) / 1e5,
-    middle: Math.round(ema5 * 1e5) / 1e5,
+    middle: Math.round(ema6 * 1e5) / 1e5,
     lower: Math.round(lower * 1e5) / 1e5,
     bandwidth: Math.round(bandwidth * 100) / 100,
     position,
@@ -25716,13 +25716,13 @@ async function btcDailyTrend(symbol) {
     const r = await marketDataService.fetchMarketData({ symbol, assetType: marketDataService.detectAssetType(symbol), timeframe: "1d", limit: 80 });
     const closes = (r?.bars || []).slice(0, -1).map((b) => Number(b.close));
     if (closes.length < 55) return null;
-    const ema5 = (n) => {
+    const ema6 = (n) => {
       const k2 = 2 / (n + 1);
       let e = closes.slice(0, n).reduce((a, c) => a + c, 0) / n;
       for (const c of closes.slice(n)) e = c * k2 + e * (1 - k2);
       return e;
     };
-    const e20 = ema5(20), e50 = ema5(50), last = closes[closes.length - 1];
+    const e20 = ema6(20), e50 = ema6(50), last = closes[closes.length - 1];
     const trend = e20 > e50 && last > e20 ? "BULLISH" : e20 < e50 && last < e20 ? "BEARISH" : "NEUTRAL";
     d1Cache.set(symbol, { at: Date.now(), trend });
     return trend;
@@ -26228,15 +26228,15 @@ async function discoverDefiTokens(chainKey, opts = {}) {
 async function getDefiCandles(chainKey, poolAddress, timeframe, count) {
   const net = GT_NETWORK[chainKey];
   if (!net) throw new Error(`no GeckoTerminal network mapping for chain "${chainKey}"`);
-  const [endpoint, aggregate2] = TF[timeframe] ?? TF["5m"];
+  const [endpoint, aggregate3] = TF[timeframe] ?? TF["5m"];
   const FETCH_DEPTH = 300;
-  const key = `${net}:${poolAddress}:${endpoint}:${aggregate2}`;
+  const key = `${net}:${poolAddress}:${endpoint}:${aggregate3}`;
   const hit = candleCache.get(key);
   if (hit && Date.now() - hit.at < callBudget().candleTtlMs) return hit.bars.slice(-count);
   let pending = candleInFlight.get(key);
   if (!pending) {
     pending = (async () => {
-      const d = await gt(`/networks/${net}/pools/${poolAddress}/ohlcv/${endpoint}?aggregate=${aggregate2}&limit=${FETCH_DEPTH}`);
+      const d = await gt(`/networks/${net}/pools/${poolAddress}/ohlcv/${endpoint}?aggregate=${aggregate3}&limit=${FETCH_DEPTH}`);
       const list = d?.data?.attributes?.ohlcv_list ?? [];
       const bars2 = list.map((r) => ({ t: Number(r[0]) * 1e3, o: Number(r[1]), h: Number(r[2]), l: Number(r[3]), c: Number(r[4]), v: Number(r[5]) })).filter((b) => Number.isFinite(b.c) && b.c > 0).reverse();
       candleCache.set(key, { at: Date.now(), bars: bars2 });
@@ -26802,6 +26802,311 @@ var init_crypto_paper = __esm({
   }
 });
 
+// server/services/crypto-shadow.ts
+var crypto_shadow_exports = {};
+__export(crypto_shadow_exports, {
+  adviceFor: () => adviceFor,
+  aggregate: () => aggregate,
+  bucketsOf: () => bucketsOf,
+  computeCryptoShadowStats: () => computeCryptoShadowStats,
+  ensureCryptoShadowTables: () => ensureCryptoShadowTables,
+  getCryptoShadowStatsText: () => getCryptoShadowStatsText,
+  resolveCryptoShadowTrades: () => resolveCryptoShadowTrades,
+  runCryptoShadowAll: () => runCryptoShadowAll,
+  shadowAllEnabled: () => shadowAllEnabled
+});
+function ensureCryptoShadowTables() {
+  if (!_ensured2) {
+    _ensured2 = pool.query(`CREATE TABLE IF NOT EXISTS crypto_shadow_trades (
+      id serial PRIMARY KEY, user_id int NOT NULL, strategy text NOT NULL, symbol text NOT NULL, underlying text NOT NULL,
+      chain text, token_address text, pool_address text, direction text NOT NULL,
+      entry_price double precision NOT NULL, stop_loss double precision NOT NULL, take_profit double precision NOT NULL,
+      sl_pct double precision NOT NULL, notional_usd double precision NOT NULL, cost_bps double precision NOT NULL,
+      score real, max_hours double precision NOT NULL, status text NOT NULL DEFAULT 'open',
+      exit_price double precision, exit_reason text, gross_return_pct double precision, return_pct double precision,
+      r_multiple double precision, peak_gain_pct double precision,
+      opened_at timestamptz NOT NULL DEFAULT now(), closed_at timestamptz)`).then(() => pool.query(`CREATE INDEX IF NOT EXISTS crypto_shadow_trades_user_status ON crypto_shadow_trades (user_id, status)`)).then(() => pool.query(`CREATE TABLE IF NOT EXISTS crypto_shadow_context (
+      trade_id int PRIMARY KEY, user_id int NOT NULL, strategy text NOT NULL, symbol text NOT NULL, direction text NOT NULL,
+      liquidity_usd double precision, change_1h double precision, change_24h double precision, volume_24h_usd double precision,
+      atr_pct double precision, h1_trend text, h4_trend text, htf_aligned boolean, live_gate_blocked boolean,
+      btc_change_24h double precision, hour_utc int, day_of_week int, score real, tags text[], advice_at_entry text,
+      closed_at timestamptz, exit_reason text, hold_minutes double precision, net_pct double precision)`)).then(() => void 0).catch((e) => {
+      _ensured2 = null;
+      throw e;
+    });
+  }
+  return _ensured2;
+}
+function ema(vals, n) {
+  if (vals.length < n) return null;
+  const k2 = 2 / (n + 1);
+  let e = vals.slice(0, n).reduce((a, b) => a + b, 0) / n;
+  for (let i = n; i < vals.length; i++) e = vals[i] * k2 + e * (1 - k2);
+  return e;
+}
+function oldestFirst(bars) {
+  return bars.length > 1 && bars[0].t > bars[bars.length - 1].t ? bars.slice().reverse() : bars;
+}
+function trendOf(closes, fast, slow) {
+  const f = ema(closes, fast), s = ema(closes, slow);
+  if (f == null || s == null) return null;
+  return f > s * 1.002 ? "BULLISH" : f < s * 0.998 ? "BEARISH" : "NEUTRAL";
+}
+function pctChange(bars, hoursBack) {
+  if (bars.length <= hoursBack) return null;
+  const now = bars[bars.length - 1].c, then = bars[bars.length - 1 - hoursBack].c;
+  return then > 0 ? (now - then) / then * 100 : null;
+}
+function bucketsOf(c) {
+  const b = {};
+  if (c.direction) b.side = c.direction;
+  if (c.hour_utc != null) {
+    const s = Math.floor(c.hour_utc / 4) * 4;
+    b.hour = `${String(s).padStart(2, "0")}-${String(s + 4).padStart(2, "0")}UTC`;
+  }
+  const liq = c.liquidity_usd ?? 0;
+  if (liq > 0) b.liquidity = liq < 25e4 ? "<250k" : liq < 1e6 ? "250k-1M" : liq < 5e6 ? "1-5M" : "5M+";
+  if (c.change_24h != null) b.change24h = c.change_24h < -10 ? "<-10%" : c.change_24h < -2 ? "-10--2%" : c.change_24h < 2 ? "flat" : c.change_24h < 10 ? "2-10%" : "10%+";
+  if (c.atr_pct != null) b.volatility = c.atr_pct < 1 ? "atr<1%" : c.atr_pct < 3 ? "atr1-3%" : "atr3%+";
+  if (c.htf_aligned != null) b.htf = c.htf_aligned ? "aligned" : "against";
+  if (c.btc_change_24h != null) b.btc = c.btc_change_24h < -2 ? "btc_down" : c.btc_change_24h > 2 ? "btc_up" : "btc_flat";
+  return b;
+}
+function quantile(s, q) {
+  if (!s.length) return 0;
+  const p2 = (s.length - 1) * q, lo2 = Math.floor(p2), hi2 = Math.ceil(p2);
+  return s[lo2] + (s[hi2] - s[lo2]) * (p2 - lo2);
+}
+function aggregate(rows) {
+  const g = /* @__PURE__ */ new Map();
+  for (const r of rows) {
+    const v = Number(r.net_pct);
+    if (!Number.isFinite(v)) continue;
+    for (const [dim, bucket] of Object.entries({ ...bucketsOf(r), all: "all" })) {
+      const k2 = `${r.strategy}|${dim}|${bucket}`;
+      (g.get(k2) ?? g.set(k2, []).get(k2)).push(v);
+    }
+  }
+  const minN = num2("CRYPTO_SHADOW_STATS_MIN_N", 15), fav = num2("CRYPTO_SHADOW_FAVOR_MEDIAN_PCT", 0.5), avd = num2("CRYPTO_SHADOW_AVOID_MEDIAN_PCT", 1);
+  return Array.from(g.entries()).map(([k2, v]) => {
+    const [strategy, dim, bucket] = k2.split("|");
+    const s = v.slice().sort((a, b) => a - b);
+    const med = quantile(s, 0.5);
+    const verdict = s.length >= minN ? med > fav ? "favor" : med < -avd ? "avoid" : "learning" : "learning";
+    return { strategy, dim, bucket, n: s.length, medianNet: med, winRate: s.filter((x) => x > 0).length / s.length, verdict };
+  });
+}
+async function computeCryptoShadowStats(userId, force = false) {
+  const hit = _statsCache.get(userId);
+  if (!force && hit && Date.now() - hit.at < 15 * 6e4) return hit.stats;
+  await ensureCryptoShadowTables();
+  const { rows } = await pool.query(
+    `SELECT strategy, direction, hour_utc, liquidity_usd, change_24h, atr_pct, htf_aligned, btc_change_24h, net_pct FROM crypto_shadow_context
+      WHERE user_id=$1 AND closed_at IS NOT NULL AND net_pct IS NOT NULL AND closed_at >= now() - interval '60 days'`,
+    [userId]
+  );
+  const stats = aggregate(rows);
+  _statsCache.set(userId, { at: Date.now(), stats });
+  return stats;
+}
+function adviceFor(stats, strategy, ctx) {
+  const bs2 = bucketsOf(ctx);
+  const hits2 = stats.filter((s) => s.strategy === strategy && s.verdict !== "learning" && bs2[s.dim] === s.bucket);
+  if (!hits2.length) return "learning";
+  const avoid = hits2.filter((s) => s.verdict === "avoid");
+  const f = (s) => `${s.verdict}: ${s.dim} ${s.bucket} (n=${s.n}, median ${s.medianNet.toFixed(1)}%)`;
+  return `${avoid.length ? "avoid" : "favor"} \u2014 ${[...avoid, ...hits2.filter((s) => s.verdict === "favor")].map(f).join("; ")}`.slice(0, 500);
+}
+async function getCryptoShadowStatsText(userId, max = 12) {
+  try {
+    const st = (await computeCryptoShadowStats(userId)).filter((s) => s.verdict !== "learning" && s.dim !== "all");
+    if (!st.length) return "";
+    const top = st.sort((a, b) => Math.abs(b.medianNet) * Math.sqrt(b.n) - Math.abs(a.medianNet) * Math.sqrt(a.n)).slice(0, max);
+    return `CRYPTO SHADOW EVIDENCE (virtual trades of every strategy, net of costs, judged by MEDIAN; advice only; 'short' rows are hypothetical \u2014 Base spot can't short):
+` + top.map((s) => `- ${s.strategy} ${s.verdict.toUpperCase()} when ${s.dim}=${s.bucket}: n=${s.n}, median ${s.medianNet >= 0 ? "+" : ""}${s.medianNet.toFixed(2)}%, win ${(s.winRate * 100).toFixed(0)}%`).join("\n");
+  } catch {
+    return "";
+  }
+}
+async function resolveCryptoShadowTrades(userId) {
+  await ensureCryptoShadowTables();
+  const { rows } = await pool.query(`SELECT * FROM crypto_shadow_trades WHERE user_id=$1 AND status='open'`, [userId]);
+  if (!rows.length) return 0;
+  const { getDefiPrice: getDefiPrice2 } = await Promise.resolve().then(() => (init_defi_market_data(), defi_market_data_exports));
+  let closed = 0;
+  for (const t of rows) {
+    const px = t.pool_address ? await getDefiPrice2(t.chain || "base", t.pool_address).catch(() => null) : null;
+    const ageH = (Date.now() - new Date(t.opened_at).getTime()) / 36e5;
+    const short = t.direction !== "long";
+    let exit = null, why = "";
+    if (px != null && px > 0) {
+      const move = (short ? t.entry_price - px : px - t.entry_price) / t.entry_price * 100;
+      if (t.peak_gain_pct == null || move > t.peak_gain_pct) await pool.query(`UPDATE crypto_shadow_trades SET peak_gain_pct=$2 WHERE id=$1`, [t.id, move]);
+      if (short ? px >= t.stop_loss : px <= t.stop_loss) {
+        exit = short ? Math.max(px, t.stop_loss) : Math.min(px, t.stop_loss);
+        why = "stop";
+      } else if (short ? px <= t.take_profit : px >= t.take_profit) {
+        exit = t.take_profit;
+        why = "target";
+      } else if (ageH >= t.max_hours) {
+        exit = px;
+        why = "time limit";
+      }
+    } else if (ageH >= t.max_hours + 24) {
+      exit = null;
+      why = "no price";
+    }
+    if (!why) continue;
+    const gross = exit != null ? (short ? t.entry_price - exit : exit - t.entry_price) / t.entry_price * 100 : null;
+    const net = gross != null ? gross - Number(t.cost_bps) / 100 : null;
+    const r = net != null && t.sl_pct > 0 ? net / t.sl_pct : null;
+    const upd = await pool.query(
+      `UPDATE crypto_shadow_trades SET status='closed', exit_price=$2, exit_reason=$3, gross_return_pct=$4, return_pct=$5, r_multiple=$6, closed_at=now()
+        WHERE id=$1 AND status='open'`,
+      [t.id, exit, why, gross, net, r]
+    );
+    if (!upd.rowCount) continue;
+    closed++;
+    await pool.query(
+      `UPDATE crypto_shadow_context SET closed_at=now(), exit_reason=$2, hold_minutes=$3, net_pct=$4 WHERE trade_id=$1`,
+      [t.id, why, ageH * 60, net]
+    ).catch(() => {
+    });
+  }
+  return closed;
+}
+async function runCryptoShadowAll(userId, cfg, symbols, chain, slippageCapBps, deps) {
+  if (!shadowAllEnabled()) return { opened: 0, closed: 0 };
+  await ensureCryptoShadowTables();
+  const closed = await resolveCryptoShadowTrades(userId).catch(() => 0);
+  if (Date.now() - (_lastRun.get(userId) || 0) < EVERY_MS()) return { opened: 0, closed };
+  _lastRun.set(userId, Date.now());
+  const { isTokenizedAsset: isTokenizedAsset2, underlyingOf: underlyingOf2, paperMaxHoursFor: paperMaxHoursFor2 } = await Promise.resolve().then(() => (init_crypto_paper(), crypto_paper_exports));
+  const { estimateCryptoRoundTripBps: estimateCryptoRoundTripBps2 } = await Promise.resolve().then(() => (init_paper_costs(), paper_costs_exports));
+  const stats = await computeCryptoShadowStats(userId).catch(() => []);
+  const { rows: open } = await pool.query(`SELECT strategy, underlying FROM crypto_shadow_trades WHERE user_id=$1 AND status='open'`, [userId]);
+  const { rows: recent } = await pool.query(
+    `SELECT strategy, underlying FROM crypto_shadow_trades WHERE user_id=$1 AND status='closed' AND closed_at >= now() - ($2::text || ' milliseconds')::interval`,
+    [userId, String(COOLDOWN_MS())]
+  );
+  const btc = deps.universe("CBBTC") ? await deps.h1("CBBTC").catch(() => null) : null;
+  const btcChange = btc ? pctChange(oldestFirst(btc.bars), 24) : null;
+  const lo2 = num2("CRYPTO_PAPER_SL_MIN", 1.5), hi2 = num2("CRYPTO_PAPER_SL_MAX", 12), atrMult = num2("CRYPTO_SL_ATR_MULT", 1.5), rr = num2("CRYPTO_MIN_RR", 2);
+  const floorMult = Number(process.env.CRYPTO_PAPER_COST_FLOOR_MULT ?? 3);
+  let opened = 0;
+  const shadowCfg = { ...cfg, directionFilter: "both" };
+  for (const symbol of symbols) {
+    if (open.length >= MAX_OPEN()) break;
+    if (isTokenizedAsset2(symbol)) continue;
+    const uni = deps.universe(symbol);
+    if (!uni?.poolAddress) continue;
+    const und = underlyingOf2(symbol);
+    const results = (await Promise.all(Object.entries(deps.runners).map(([k2, fn]) => fn(symbol, shadowCfg).then((r) => ({ ...r, strategy: r.strategy || k2 })).catch(() => null)))).filter((r) => !!r);
+    const dirs = results.filter((r) => r.direction);
+    const buys = dirs.filter((r) => r.direction === "BUY"), sells = dirs.filter((r) => r.direction === "SELL");
+    const side = buys.length > sells.length ? buys : sells.length > buys.length ? sells : [];
+    const signals = results.filter((r) => r.decision === "signal" && r.direction && r.price);
+    if (side.length >= 2) {
+      const comp = Math.round(side.reduce((s, r) => s + (r.score ?? 0), 0) / side.length);
+      if (comp >= (cfg.compositeMinEdgeScore ?? 72)) signals.push({ ...side[0], decision: "signal", score: comp, strategy: "composite_autonomous", reasoning: `${side.length} runners agree` });
+    }
+    if (!signals.length) continue;
+    const h1 = await deps.h1(symbol).catch(() => null);
+    if (!h1 || !(h1.atr > 0)) continue;
+    const bars = oldestFirst(h1.bars), closes = bars.map((b) => b.c);
+    const h1Trend = trendOf(closes, 9, 21);
+    const h4Closes = closes.filter((_, i) => (closes.length - 1 - i) % 4 === 0);
+    const h4Trend = trendOf(h4Closes, 5, 10);
+    const ch1 = pctChange(bars, 1), ch24 = pctChange(bars, 24);
+    const vol24 = bars.slice(-24).reduce((a, b) => a + (b.v || 0) * (b.c || 0), 0);
+    for (const sig of signals) {
+      if (open.length >= MAX_OPEN()) break;
+      const strat = sig.strategy;
+      if (open.filter((o) => o.strategy === strat).length >= MAX_PER_STRAT()) continue;
+      if (open.some((o) => o.strategy === strat && o.underlying === und)) continue;
+      if (recent.some((o) => o.strategy === strat && o.underlying === und)) continue;
+      const price = Number(sig.price) || Number(uni.priceUsd);
+      if (!(price > 0)) continue;
+      const direction = sig.direction === "SELL" ? "hypothetical_short" : "long";
+      const short = direction !== "long";
+      const slPct = Math.min(hi2, Math.max(lo2, h1.atr * atrMult / price * 100));
+      const costBps = estimateCryptoRoundTripBps2({ notionalUsd: NOTIONAL(), liquidityUsd: uni.liquidityUsd, slippageCapBps }).roundTripBps;
+      if (floorMult > 0 && slPct < floorMult * costBps / 100) continue;
+      const stop = short ? price * (1 + slPct / 100) : price * (1 - slPct / 100);
+      const target = short ? price * (1 - slPct * rr / 100) : price * (1 + slPct * rr / 100);
+      const aligned = h4Trend == null ? null : short ? h4Trend === "BEARISH" : h4Trend === "BULLISH";
+      const gated = await deps.gate(symbol, sig, cfg).then((g) => g.decision !== "signal").catch(() => null);
+      const hourUtc = (/* @__PURE__ */ new Date()).getUTCHours();
+      const ctx = { hour_utc: hourUtc, liquidity_usd: uni.liquidityUsd, change_24h: ch24, atr_pct: h1.atr / price * 100, htf_aligned: aligned, btc_change_24h: btcChange, direction: short ? "short" : "long" };
+      const advice = adviceFor(stats, strat, ctx);
+      const tags = [];
+      if (ch1 != null && Math.abs(ch1) >= 3) tags.push(ch1 > 0 ? "hot_hour" : "dump_hour");
+      if (ch24 != null && ch24 >= 20) tags.push("extended_24h");
+      if (aligned === false) tags.push("against_htf");
+      if (gated) tags.push("live_gate_would_block");
+      if (uni.liquidityUsd < 25e4) tags.push("thin_pool");
+      const ins = await pool.query(
+        `INSERT INTO crypto_shadow_trades (user_id, strategy, symbol, underlying, chain, token_address, pool_address, direction, entry_price, stop_loss, take_profit,
+           sl_pct, notional_usd, cost_bps, score, max_hours) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16) RETURNING id`,
+        [userId, strat, symbol, und, chain, uni.address ?? null, uni.poolAddress, direction, price, stop, target, slPct, NOTIONAL(), costBps, sig.score ?? null, paperMaxHoursFor2(strat)]
+      );
+      const id = ins.rows[0]?.id;
+      if (!id) continue;
+      await pool.query(
+        `INSERT INTO crypto_shadow_context (trade_id, user_id, strategy, symbol, direction, liquidity_usd, change_1h, change_24h, volume_24h_usd, atr_pct,
+           h1_trend, h4_trend, htf_aligned, live_gate_blocked, btc_change_24h, hour_utc, day_of_week, score, tags, advice_at_entry)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20) ON CONFLICT (trade_id) DO NOTHING`,
+        [
+          id,
+          userId,
+          strat,
+          symbol,
+          ctx.direction,
+          uni.liquidityUsd,
+          ch1,
+          ch24,
+          vol24 || null,
+          ctx.atr_pct,
+          h1Trend,
+          h4Trend,
+          aligned,
+          gated,
+          btcChange,
+          hourUtc,
+          (/* @__PURE__ */ new Date()).getUTCDay(),
+          sig.score ?? null,
+          tags,
+          advice
+        ]
+      ).catch(() => {
+      });
+      open.push({ strategy: strat, underlying: und });
+      opened++;
+    }
+  }
+  return { opened, closed };
+}
+var num2, shadowAllEnabled, MAX_OPEN, MAX_PER_STRAT, COOLDOWN_MS, EVERY_MS, NOTIONAL, _ensured2, _statsCache, _lastRun;
+var init_crypto_shadow = __esm({
+  "server/services/crypto-shadow.ts"() {
+    "use strict";
+    init_db();
+    num2 = (n, d) => {
+      const v = Number(process.env[n]);
+      return Number.isFinite(v) && v > 0 ? v : d;
+    };
+    shadowAllEnabled = () => process.env.CRYPTO_SHADOW_ALL !== "off";
+    MAX_OPEN = () => Math.floor(num2("CRYPTO_SHADOW_MAX_OPEN", 30));
+    MAX_PER_STRAT = () => Math.floor(num2("CRYPTO_SHADOW_MAX_PER_STRATEGY", 3));
+    COOLDOWN_MS = () => num2("CRYPTO_SHADOW_COOLDOWN_MIN", 60) * 6e4;
+    EVERY_MS = () => num2("CRYPTO_SHADOW_EVERY_MIN", 10) * 6e4;
+    NOTIONAL = () => num2("CRYPTO_SHADOW_NOTIONAL_USD", 20);
+    _ensured2 = null;
+    _statsCache = /* @__PURE__ */ new Map();
+    _lastRun = /* @__PURE__ */ new Map();
+  }
+});
+
 // server/services/shadow-ledger.ts
 var shadow_ledger_exports = {};
 __export(shadow_ledger_exports, {
@@ -26809,20 +27114,25 @@ __export(shadow_ledger_exports, {
   shadowLedgerSummary: () => shadowLedgerSummary
 });
 function ensureShadowLedger() {
-  if (!_ensured2) {
-    _ensured2 = (async () => {
+  if (!_ensured3) {
+    _ensured3 = (async () => {
       try {
         const { ensurePaperTable: ensurePaperTable2 } = await Promise.resolve().then(() => (init_crypto_paper(), crypto_paper_exports));
         await ensurePaperTable2();
       } catch {
       }
+      try {
+        const { ensureCryptoShadowTables: ensureCryptoShadowTables2 } = await Promise.resolve().then(() => (init_crypto_shadow(), crypto_shadow_exports));
+        await ensureCryptoShadowTables2();
+      } catch {
+      }
       await pool.query(VIEW_SQL);
     })().catch((e) => {
-      _ensured2 = null;
+      _ensured3 = null;
       throw e;
     });
   }
-  return _ensured2;
+  return _ensured3;
 }
 async function shadowLedgerSummary(userId, days = 30) {
   await ensureShadowLedger();
@@ -26841,7 +27151,7 @@ async function shadowLedgerSummary(userId, days = 30) {
   ]);
   return { days, bySource, bySession, byDirection, best: slices.slice(0, 10), worst: slices.slice(-10).reverse(), h4Alignment: alignment };
 }
-var SESSION_SQL, VIEW_SQL, _ensured2;
+var SESSION_SQL, VIEW_SQL, _ensured3;
 var init_shadow_ledger = __esm({
   "server/services/shadow-ledger.ts"() {
     "use strict";
@@ -26904,8 +27214,23 @@ CREATE OR REPLACE VIEW shadow_ledger AS
             -- known junk-priced symbols (sol-brain.ts BAD_PRICE_SYMBOLS), any hold
             OR s.symbol IN ('RAY', 'mSOL'))
      )
+  UNION ALL
+  -- Crypto all-strategy shadow lane (crypto-shadow.ts). Shorts are hypothetical
+  -- (Base spot can't short) and get their own source so they are reported apart.
+  SELECT ('crypto_shadow_all:' || x.id)::text,
+         CASE WHEN x.direction = 'long' THEN 'crypto_shadow_all' ELSE 'crypto_shadow_short' END, 'crypto', x.user_id,
+         x.strategy, x.symbol, CASE WHEN x.direction = 'long' THEN 'LONG' ELSE 'SHORT' END,
+         x.opened_at, x.closed_at,
+         extract(hour from x.opened_at AT TIME ZONE 'UTC')::int,
+         ${SESSION_SQL("(x.opened_at AT TIME ZONE 'UTC')")},
+         NULL, xc.h1_trend, xc.h4_trend, xc.htf_aligned, true,
+         CASE WHEN x.exit_reason = 'time limit' THEN 'EXPIRED' WHEN x.r_multiple > 0 THEN 'WIN' WHEN x.r_multiple < 0 THEN 'LOSS' ELSE 'FLAT' END,
+         x.r_multiple::float, x.return_pct::float
+    FROM crypto_shadow_trades x
+    LEFT JOIN crypto_shadow_context xc ON xc.trade_id = x.id
+   WHERE x.status = 'closed' AND x.return_pct IS NOT NULL
 `;
-    _ensured2 = null;
+    _ensured3 = null;
   }
 });
 
@@ -27011,12 +27336,14 @@ var init_shadow_lessons = __esm({
       fx_shadow: "FX shadow models",
       crypto_shadow: "Crypto shadow models",
       crypto_paper: "Crypto paper engine",
+      crypto_shadow_all: "Crypto shadow (all strategies, longs)",
+      crypto_shadow_short: "Crypto shadow (hypothetical shorts)",
       sol_paper: "Sol paper engine",
       sol_shadow: "Sol shadow tests"
     };
     ENGINE_SOURCES = {
       fx: ["fx_shadow"],
-      crypto: ["crypto_paper", "crypto_shadow"],
+      crypto: ["crypto_paper", "crypto_shadow", "crypto_shadow_all"],
       sol: ["sol_paper", "sol_shadow"]
     };
     _mem = /* @__PURE__ */ new Map();
@@ -35050,7 +35377,7 @@ async function runFxModelsCycle(userId, ctx) {
          ON CONFLICT (user_id, symbol, day, hour_utc) DO UPDATE SET day_type=EXCLUDED.day_type, auto_model=EXCLUDED.auto_model,
            trend_score=EXCLUDED.trend_score, adx_m15=EXCLUDED.adx_m15, rel_volume=EXCLUDED.rel_volume, atr=EXCLUDED.atr,
            h1_trend=EXCLUDED.h1_trend, h4_trend=EXCLUDED.h4_trend, features=EXCLUDED.features`,
-        [userId, symbol, day, hour, session3, cls.dayType, cls.autoModel, cls.score, num2(snap.adx), num2(snap.relativeVolume), num2(snap.atr), h1?.trend ?? null, h4?.trend ?? null, JSON.stringify(features)]
+        [userId, symbol, day, hour, session3, cls.dayType, cls.autoModel, cls.score, num3(snap.adx), num3(snap.relativeVolume), num3(snap.atr), h1?.trend ?? null, h4?.trend ?? null, JSON.stringify(features)]
       ).catch(() => {
       });
       const candle = Math.floor(now.getTime() / 36e5);
@@ -35074,7 +35401,7 @@ async function runFxModelsCycle(userId, ctx) {
     console.error("[fx-models] cycle failed (non-fatal):", e?.message || e);
   }
 }
-function num2(x) {
+function num3(x) {
   const n = Number(x);
   return Number.isFinite(n) ? n : null;
 }
@@ -35666,7 +35993,7 @@ async function runCryptoModelsCycle(userId, symbols) {
          VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,NULL,$11,$12,$13::jsonb,'crypto')
          ON CONFLICT (user_id, symbol, day, hour_utc) DO UPDATE SET day_type=EXCLUDED.day_type, auto_model=EXCLUDED.auto_model, trend_score=EXCLUDED.trend_score,
            adx_m15=EXCLUDED.adx_m15, rel_volume=EXCLUDED.rel_volume, h1_trend=EXCLUDED.h1_trend, h4_trend=EXCLUDED.h4_trend, features=EXCLUDED.features, engine='crypto'`,
-        [userId, symbol, day, hour, session3, cls.dayType, cls.autoModel, cls.score, num2(adx), num2(relVolume), t1, t4, JSON.stringify(features)]
+        [userId, symbol, day, hour, session3, cls.dayType, cls.autoModel, cls.score, num3(adx), num3(relVolume), t1, t4, JSON.stringify(features)]
       ).catch(() => {
       });
       lastShadowCandle.set(key, candle);
@@ -36051,7 +36378,7 @@ __export(wizard_strategies_exports, {
   saveWizardStrategy: () => saveWizardStrategy,
   wizardContextText: () => wizardContextText
 });
-function ema(src, n) {
+function ema2(src, n) {
   const out = [];
   const k2 = 2 / (n + 1);
   src.forEach((x, i) => out.push(i === 0 ? x : x * k2 + out[i - 1] * (1 - k2)));
@@ -36091,7 +36418,7 @@ function rsi(c, n) {
 }
 function atr2(b, n = 14) {
   const tr = b.map((x, i) => i === 0 ? x.h - x.l : Math.max(x.h - x.l, Math.abs(x.h - b[i - 1].c), Math.abs(x.l - b[i - 1].c)));
-  return ema(tr, n);
+  return ema2(tr, n);
 }
 function pivotScan(b, k2, cb) {
   const P = [];
@@ -36119,9 +36446,9 @@ function buildSignals(id, b, params) {
   const cross = (a, s, i) => a[i - 1] <= s[i - 1] && a[i] > s[i] ? "BUY" : a[i - 1] >= s[i - 1] && a[i] < s[i] ? "SELL" : null;
   switch (id) {
     case "moving-average-crossover": {
-      const ma = params?.["ma-type"] === "sma" ? sma : ema;
+      const ma = params?.["ma-type"] === "sma" ? sma : ema2;
       const f = ma(c, p(params, "fast-period", 10)), s = ma(c, p(params, "slow-period", 20));
-      const trend = ema(c, 200);
+      const trend = ema2(c, 200);
       const filt = params?.["use-filters"] !== false;
       for (let i = 1; i < b.length; i++) {
         const d = cross(f, s, i);
@@ -36151,9 +36478,9 @@ function buildSignals(id, b, params) {
       break;
     }
     case "macd-signal-crossover": {
-      const f = ema(c, p(params, "fast-ema", 12)), s = ema(c, p(params, "slow-ema", 26));
+      const f = ema2(c, p(params, "fast-ema", 12)), s = ema2(c, p(params, "slow-ema", 26));
       const m = f.map((x, i) => x - s[i]);
-      const sg = ema(m, p(params, "signal-period", 9));
+      const sg = ema2(m, p(params, "signal-period", 9));
       const conf = params?.["histogram-confirmation"] !== false;
       for (let i = 35; i < b.length; i++) {
         const d = cross(m, sg, i);
@@ -37332,7 +37659,7 @@ function isFakeWinSignature(holdingMinutes, returnPct) {
   return holdingMinutes != null && holdingMinutes <= QUARANTINE_MAX_HOLD_MIN && returnPct != null && Math.abs(returnPct) >= QUARANTINE_MIN_ABS_RETURN_PCT;
 }
 async function ensureTable3() {
-  if (_ensured3) return;
+  if (_ensured4) return;
   try {
     await pool.query(`
       CREATE TABLE IF NOT EXISTS "sol_brain_outcomes" (
@@ -37354,7 +37681,7 @@ async function ensureTable3() {
       );
       CREATE INDEX IF NOT EXISTS "idx_sol_brain_outcomes_user_symbol" ON "sol_brain_outcomes" ("user_id", "symbol");
     `);
-    _ensured3 = true;
+    _ensured4 = true;
   } catch (err) {
     console.error("[sol-brain] ensureTable failed (non-fatal):", err?.message ?? err);
   }
@@ -37514,7 +37841,7 @@ async function recordSolBrainOutcome(o) {
     console.error("[sol-brain] recordSolBrainOutcome failed (non-fatal):", err?.message ?? err);
   }
 }
-var MIN_TRADES4, REFRESH_TTL_MS2, BAD_PRICE_ERA_END, QUARANTINE_MAX_HOLD_MIN, QUARANTINE_MIN_ABS_RETURN_PCT, BAD_PRICE_SYMBOLS, _ensured3, _cache2;
+var MIN_TRADES4, REFRESH_TTL_MS2, BAD_PRICE_ERA_END, QUARANTINE_MAX_HOLD_MIN, QUARANTINE_MIN_ABS_RETURN_PCT, BAD_PRICE_SYMBOLS, _ensured4, _cache2;
 var init_sol_brain = __esm({
   "server/services/sol-brain.ts"() {
     "use strict";
@@ -37525,7 +37852,7 @@ var init_sol_brain = __esm({
     QUARANTINE_MAX_HOLD_MIN = 1;
     QUARANTINE_MIN_ABS_RETURN_PCT = 40;
     BAD_PRICE_SYMBOLS = ["RAY", "mSOL"];
-    _ensured3 = false;
+    _ensured4 = false;
     _cache2 = /* @__PURE__ */ new Map();
   }
 });
@@ -37559,9 +37886,9 @@ var init_weekend_boost = __esm({
 // server/services/sol-shadow-stats.ts
 var sol_shadow_stats_exports = {};
 __export(sol_shadow_stats_exports, {
-  adviceFor: () => adviceFor,
-  aggregate: () => aggregate,
-  bucketsOf: () => bucketsOf,
+  adviceFor: () => adviceFor2,
+  aggregate: () => aggregate2,
+  bucketsOf: () => bucketsOf2,
   computeSolShadowStats: () => computeSolShadowStats,
   deriveTags: () => deriveTags,
   ensureSolShadowContextTable: () => ensureSolShadowContextTable,
@@ -37571,8 +37898,8 @@ __export(sol_shadow_stats_exports, {
   sessionOf: () => sessionOf
 });
 function ensureSolShadowContextTable() {
-  if (!_ensured4) {
-    _ensured4 = pool.query(`CREATE TABLE IF NOT EXISTS sol_shadow_context (
+  if (!_ensured5) {
+    _ensured5 = pool.query(`CREATE TABLE IF NOT EXISTS sol_shadow_context (
       id serial PRIMARY KEY, user_id int NOT NULL, position_id text NOT NULL UNIQUE,
       strategy_id text NOT NULL, symbol text NOT NULL, mint text, dex text,
       liquidity_usd double precision, price_change_1h double precision, price_change_24h double precision,
@@ -37586,11 +37913,11 @@ function ensureSolShadowContextTable() {
       opened_at timestamptz NOT NULL DEFAULT now(),
       closed_at timestamptz, exit_reason text, hold_minutes double precision,
       gross_pct double precision, net_pct double precision, peak_gain_pct double precision)`).then(() => pool.query(`CREATE INDEX IF NOT EXISTS sol_shadow_context_user_closed ON sol_shadow_context (user_id, closed_at)`)).then(() => void 0).catch((e) => {
-      _ensured4 = null;
+      _ensured5 = null;
       throw e;
     });
   }
-  return _ensured4;
+  return _ensured5;
 }
 function sessionOf(hourUtc) {
   if (hourUtc < 7) return "Asian";
@@ -37612,7 +37939,7 @@ function deriveTags(c) {
   if (c.tokenAgeHours != null && c.tokenAgeHours < 24) t.push("new_token");
   return t;
 }
-function bucketsOf(c) {
+function bucketsOf2(c) {
   const b = {};
   if (c.hour_utc != null) {
     const s = Math.floor(c.hour_utc / 4) * 4;
@@ -37631,16 +37958,16 @@ function bucketsOf(c) {
   if (br != null) b.buyRatio = br < 0.5 ? "<50%" : br < 0.6 ? "50-60%" : br < 0.7 ? "60-70%" : "70%+";
   return b;
 }
-function quantile(sorted, q) {
+function quantile2(sorted, q) {
   if (!sorted.length) return 0;
   const pos = (sorted.length - 1) * q, lo2 = Math.floor(pos), hi2 = Math.ceil(pos);
   return sorted[lo2] + (sorted[hi2] - sorted[lo2]) * (pos - lo2);
 }
-function aggregate(rows) {
+function aggregate2(rows) {
   const groups = /* @__PURE__ */ new Map();
   for (const r of rows) {
     if (r.net_pct == null || !Number.isFinite(Number(r.net_pct))) continue;
-    const bs2 = { ...bucketsOf(r), all: "all" };
+    const bs2 = { ...bucketsOf2(r), all: "all" };
     for (const [dim, bucket] of Object.entries(bs2)) {
       const k2 = `${r.strategy_id}|${dim}|${bucket}`;
       (groups.get(k2) ?? groups.set(k2, []).get(k2)).push(Number(r.net_pct));
@@ -37650,9 +37977,9 @@ function aggregate(rows) {
   for (const [k2, v] of Array.from(groups.entries())) {
     const [strategy, dim, bucket] = k2.split("|");
     const s = v.slice().sort((a, b) => a - b);
-    const med = quantile(s, 0.5);
+    const med = quantile2(s, 0.5);
     const verdict = s.length >= MIN_N() ? med > FAVOR_PCT() ? "favor" : med < -AVOID_PCT() ? "avoid" : "learning" : "learning";
-    out.push({ strategy, dim, bucket, n: s.length, medianNet: med, p25: quantile(s, 0.25), p75: quantile(s, 0.75), winRate: s.filter((x) => x > 0).length / s.length, verdict });
+    out.push({ strategy, dim, bucket, n: s.length, medianNet: med, p25: quantile2(s, 0.25), p75: quantile2(s, 0.75), winRate: s.filter((x) => x > 0).length / s.length, verdict });
   }
   return out.sort((a, b) => b.n - a.n);
 }
@@ -37725,12 +38052,12 @@ async function computeSolShadowStats(userId, force = false) {
       WHERE user_id=$1 AND closed_at IS NOT NULL AND net_pct IS NOT NULL AND closed_at >= now() - interval '60 days'`,
     [userId]
   );
-  const stats = aggregate(rows);
+  const stats = aggregate2(rows);
   _cache3.set(userId, { at: Date.now(), stats });
   return stats;
 }
-function adviceFor(stats, strategyId, ctx) {
-  const bs2 = bucketsOf(ctx);
+function adviceFor2(stats, strategyId, ctx) {
+  const bs2 = bucketsOf2(ctx);
   const hits2 = stats.filter((s) => s.strategy === strategyId && s.verdict !== "learning" && bs2[s.dim] === s.bucket);
   const fmt = (s) => `${s.verdict}: ${s.dim} ${s.bucket} (n=${s.n}, median ${s.medianNet >= 0 ? "+" : ""}${s.medianNet.toFixed(1)}%)`;
   const avoid = hits2.filter((s) => s.verdict === "avoid"), favor = hits2.filter((s) => s.verdict === "favor");
@@ -37748,19 +38075,19 @@ async function getSolShadowStatsText(userId, max = 12) {
     return "";
   }
 }
-var num3, MIN_N, FAVOR_PCT, AVOID_PCT, _ensured4, _cache3;
+var num4, MIN_N, FAVOR_PCT, AVOID_PCT, _ensured5, _cache3;
 var init_sol_shadow_stats = __esm({
   "server/services/sol-shadow-stats.ts"() {
     "use strict";
     init_db();
-    num3 = (name, dflt) => {
+    num4 = (name, dflt) => {
       const v = Number(process.env[name]);
       return Number.isFinite(v) && v > 0 ? v : dflt;
     };
-    MIN_N = () => num3("SOL_SHADOW_STATS_MIN_N", 15);
-    FAVOR_PCT = () => num3("SOL_SHADOW_FAVOR_MEDIAN_PCT", 1);
-    AVOID_PCT = () => num3("SOL_SHADOW_AVOID_MEDIAN_PCT", 2);
-    _ensured4 = null;
+    MIN_N = () => num4("SOL_SHADOW_STATS_MIN_N", 15);
+    FAVOR_PCT = () => num4("SOL_SHADOW_FAVOR_MEDIAN_PCT", 1);
+    AVOID_PCT = () => num4("SOL_SHADOW_AVOID_MEDIAN_PCT", 2);
+    _ensured5 = null;
     _cache3 = /* @__PURE__ */ new Map();
   }
 });
@@ -41392,8 +41719,8 @@ async function addTradeSetupAnnotations(originalImagePath, analysis, outputFilen
         analysis.takeProfit,
         ...supportResistanceLevels
       ].map((p2) => {
-        const num4 = parseFloat(p2.replace(/[^0-9.-]/g, ""));
-        return isNaN(num4) ? 0 : num4;
+        const num5 = parseFloat(p2.replace(/[^0-9.-]/g, ""));
+        return isNaN(num5) ? 0 : num5;
       }).filter((p2) => p2 > 0);
       if (prices.length === 0) return chartArea.top + chartArea.height * 0.5;
       const minPrice = Math.min(...prices);
@@ -49712,7 +50039,10 @@ async function getCryptoAiConfirmation(opts) {
     ].join("\n  ");
     const system = 'You are a disciplined crypto perpetual futures trader giving a second, independent opinion on a signal a technical scanner already produced. Judge this on trend strength, momentum, volume/order-flow confirmation, and recent price structure. This is a 24/7 market with no session close or reopen -- do NOT reach for forex/ICT concepts like order blocks, liquidity sweeps, discount/premium zones, or session/macro-window timing; none of that describes how crypto perpetuals actually trade, and grading a setup down for lacking FX-specific structure it was never going to have is not a real assessment. Respond ONLY with JSON: {"confirmed": boolean, "direction": "BUY"|"SELL"|"NEUTRAL", "confidence": number (0-100), "reasoning": string}.';
     const _lessons = await Promise.resolve().then(() => (init_shadow_lessons(), shadow_lessons_exports)).then((m) => m.getShadowLessonsText(opts.userId, "crypto", 8)).catch(() => "");
+    const _shadowStats = await Promise.resolve().then(() => (init_crypto_shadow(), crypto_shadow_exports)).then((m) => m.getCryptoShadowStatsText(opts.userId, 12)).catch(() => "");
     const user = `${_lessons ? `${_lessons}
+
+` : ""}${_shadowStats ? `${_shadowStats}
 
 ` : ""}SYMBOL: ${opts.symbol}
 PROPOSED: ${opts.direction} @ ${opts.price}
@@ -51301,6 +51631,23 @@ async function scanOneUser(userId) {
       await storage.createCryptocomEngineActivity({ userId, symbol, decision: "error", reasoning: `Scan failed for ${symbol}: ${err.message}`, score: null, price: null, dailyChangePercent: null, source: "cryptocom", strategy: config.strategyMode });
     }
   }
+  try {
+    const _chainS = config.defiChain || "base";
+    const _defiSyms = symbols.filter((s) => !!getDefiUniverseEntry(s, _chainS));
+    if (_defiSyms.length) {
+      const { runCryptoShadowAll: runCryptoShadowAll2 } = await Promise.resolve().then(() => (init_crypto_shadow(), crypto_shadow_exports));
+      const _r = await runCryptoShadowAll2(userId, config, _defiSyms, _chainS, config.defiSlippageBps ?? 100, {
+        runners: STRATEGY_RUNNERS,
+        gate: (sym2, r, c) => applySignalGates(sym2, r, c),
+        universe: (sym2) => getDefiUniverseEntry(sym2, _chainS),
+        h1: (sym2) => h1Atr(sym2, _chainS, getDefiUniverseEntry(sym2, _chainS)?.poolAddress)
+      });
+      if (_r.opened > 0) await storage.createCryptocomEngineActivity({ userId, symbol: "\u2014", decision: "watching", strategy: "shadow_all", reasoning: `\u{1F576}\uFE0F SHADOW (all strategies): ${_r.opened} virtual entr${_r.opened > 1 ? "ies" : "y"} recorded \u2014 no wallet, not paper.`, score: null, price: null, dailyChangePercent: null, source: "cryptocom" }).catch(() => {
+      });
+    }
+  } catch (e) {
+    console.error("[crypto-shadow] lane failed (non-fatal):", e?.message ?? e);
+  }
 }
 async function runInPool(items, limit, fn) {
   let next = 0;
@@ -52017,7 +52364,7 @@ function sma2(values, period) {
   }
   return out;
 }
-function ema2(values, period) {
+function ema3(values, period) {
   const out = new Array(values.length).fill(null);
   const k2 = 2 / (period + 1);
   let prev = null;
@@ -52446,11 +52793,11 @@ function buildSeries(spec, bars) {
           const src = map.get(`${ind.sourceId}:value`);
           if (!src) return;
           const nums = src.map((v) => v ?? NaN);
-          const raw = ind.kind === "EMA" ? ema2(nums, ind.period ?? 21) : sma2(nums, ind.period ?? 50);
+          const raw = ind.kind === "EMA" ? ema3(nums, ind.period ?? 21) : sma2(nums, ind.period ?? 50);
           map.set(key("value"), raw.map((v, i) => src[i] == null || v == null || Number.isNaN(v) ? null : v));
           return;
         }
-        map.set(key("value"), ind.kind === "EMA" ? ema2(closes, ind.period ?? 21) : sma2(closes, ind.period ?? 50));
+        map.set(key("value"), ind.kind === "EMA" ? ema3(closes, ind.period ?? 21) : sma2(closes, ind.period ?? 50));
         break;
       }
       case "RSI":
@@ -52460,12 +52807,12 @@ function buildSeries(spec, bars) {
         map.set(key("value"), atrSeries(bars, ind.period ?? 14));
         break;
       case "MACD": {
-        const fast = ema2(closes, ind.fastPeriod ?? 12);
-        const slow = ema2(closes, ind.slowPeriod ?? 26);
+        const fast = ema3(closes, ind.fastPeriod ?? 12);
+        const slow = ema3(closes, ind.slowPeriod ?? 26);
         const macd2 = closes.map((_, i) => fast[i] != null && slow[i] != null ? fast[i] - slow[i] : null);
         const macdNums = macd2.map((v) => v ?? 0);
         const firstValid = macd2.findIndex((v) => v != null);
-        const sigRaw = ema2(macdNums, ind.signalPeriod ?? 9);
+        const sigRaw = ema3(macdNums, ind.signalPeriod ?? 9);
         const signal = macd2.map((v, i) => v == null || i < firstValid + (ind.signalPeriod ?? 9) - 1 ? null : sigRaw[i]);
         map.set(key("value"), macd2);
         map.set(key("signal"), signal);
@@ -53978,7 +54325,7 @@ __export(btc_5min_predictor_exports, {
   getCryptoCandles: () => getCryptoCandles,
   getCryptoPrediction: () => getCryptoPrediction
 });
-function ema3(values, period) {
+function ema4(values, period) {
   const k2 = 2 / (period + 1);
   const result = [];
   let e = values[0];
@@ -54004,10 +54351,10 @@ function rsi2(closes, period = 14) {
   return Math.round(100 - 100 / (1 + rs));
 }
 function macd(closes) {
-  const ema12 = ema3(closes, 12);
-  const ema26 = ema3(closes, 26);
+  const ema12 = ema4(closes, 12);
+  const ema26 = ema4(closes, 26);
   const macdLine = ema12.map((v, i) => v - ema26[i]);
-  const signalLine = ema3(macdLine, 9);
+  const signalLine = ema4(macdLine, 9);
   const last = closes.length - 1;
   return {
     macdLine: macdLine[last],
@@ -54101,9 +54448,9 @@ function buildPrediction(candles, fromCache, source = "binance", binanceSymbol =
   const currentPrice = last.close;
   const priceChange5m = (last.close - prev.close) / prev.close * 100;
   const priceChange1h = (last.close - candles[candles.length - 13].close) / candles[candles.length - 13].close * 100;
-  const ema9Val = ema3(closes, 9)[closes.length - 1];
-  const ema21Val = ema3(closes, 21)[closes.length - 1];
-  const ema50Val = ema3(closes, 50)[closes.length - 1];
+  const ema9Val = ema4(closes, 9)[closes.length - 1];
+  const ema21Val = ema4(closes, 21)[closes.length - 1];
+  const ema50Val = ema4(closes, 50)[closes.length - 1];
   const rsiVal = rsi2(closes, 14);
   const { macdLine, signalLine, histogram } = macd(closes);
   const volSma20 = sma3(volumes, 20);
@@ -54954,7 +55301,7 @@ function orderFlowSignal(candles) {
     strategy: "order_flow"
   };
 }
-function ema4(values, period) {
+function ema5(values, period) {
   if (!values.length) return 0;
   const k2 = 2 / (period + 1);
   let e = values[0];
@@ -54995,12 +55342,12 @@ function linregSlope(values) {
   const xs = values.map((_, i) => i);
   const mx = xs.reduce((a, b) => a + b, 0) / n;
   const my = values.reduce((a, b) => a + b, 0) / n;
-  let num4 = 0, den = 0;
+  let num5 = 0, den = 0;
   for (let i = 0; i < n; i++) {
-    num4 += (xs[i] - mx) * (values[i] - my);
+    num5 += (xs[i] - mx) * (values[i] - my);
     den += (xs[i] - mx) ** 2;
   }
-  return den === 0 ? 0 : num4 / den;
+  return den === 0 ? 0 : num5 / den;
 }
 function ensembleSignal(candles) {
   const price = candles[candles.length - 1].close;
@@ -55010,9 +55357,9 @@ function ensembleSignal(candles) {
   }
   const closes = candles.map((c) => c.close);
   const recent = candles.slice(-30);
-  const ema9 = ema4(closes.slice(-40), 9);
-  const ema21 = ema4(closes.slice(-60), 21);
-  const ema50 = ema4(closes.slice(-80), 50);
+  const ema9 = ema5(closes.slice(-40), 9);
+  const ema21 = ema5(closes.slice(-60), 21);
+  const ema50 = ema5(closes.slice(-80), 50);
   const trendUp = ema9 > ema21 && ema21 > ema50 && price > ema50;
   const trendDn = ema9 < ema21 && ema21 < ema50 && price < ema50;
   const r = rsi3(closes);
@@ -70158,9 +70505,9 @@ async function getStopOrdersForUser(userId, filters = {}) {
 init_schema();
 
 // server/build-info.ts
-var BUILD_COMMIT = "cc75de85-dirty";
-var BUILD_BRANCH = "feat/crypto-paper-prereqs";
-var BUILT_AT = "2026-11-07T01:10:20.163Z";
+var BUILD_COMMIT = "e980f5f5-dirty";
+var BUILD_BRANCH = "feat/crypto-shadow-all";
+var BUILT_AT = "2026-11-07T01:19:19.173Z";
 
 // server/stripe.ts
 init_db();
@@ -91287,11 +91634,11 @@ Respond with ONLY valid JSON:
       }, computeEMA2 = function(closes2, i, period) {
         if (i < period - 1) return closes2[i];
         const k2 = 2 / (period + 1);
-        let ema5 = closes2[i - period + 1];
+        let ema6 = closes2[i - period + 1];
         for (let j = i - period + 2; j <= i; j++) {
-          ema5 = closes2[j] * k2 + ema5 * (1 - k2);
+          ema6 = closes2[j] * k2 + ema6 * (1 - k2);
         }
-        return ema5;
+        return ema6;
       };
       var computeRSI = computeRSI2, computeEMA = computeEMA2;
       let bars = [];
@@ -92924,16 +93271,16 @@ Respond with ONLY valid JSON:
     try {
       const { runRuinConeSimulation: runRuinConeSimulation2 } = await Promise.resolve().then(() => (init_ruin_cone(), ruin_cone_exports));
       const q = req.query;
-      const num4 = (v) => v != null && v !== "" ? Number(v) : void 0;
+      const num5 = (v) => v != null && v !== "" ? Number(v) : void 0;
       const result = await runRuinConeSimulation2(userId, {
-        numSimulations: num4(q.numSimulations),
-        numTrades: num4(q.numTrades),
-        startingEquity: num4(q.startingEquity),
-        dailyLossLimit: num4(q.dailyLossLimit),
-        maxDrawdownLimit: num4(q.maxDrawdownLimit),
-        consistencyRuleThreshold: num4(q.consistencyRuleThreshold),
-        profitTarget: num4(q.profitTarget),
-        sourceLimit: num4(q.sourceLimit),
+        numSimulations: num5(q.numSimulations),
+        numTrades: num5(q.numTrades),
+        startingEquity: num5(q.startingEquity),
+        dailyLossLimit: num5(q.dailyLossLimit),
+        maxDrawdownLimit: num5(q.maxDrawdownLimit),
+        consistencyRuleThreshold: num5(q.consistencyRuleThreshold),
+        profitTarget: num5(q.profitTarget),
+        sourceLimit: num5(q.sourceLimit),
         source: q.source ? String(q.source) : void 0,
         noCache: q.nocache === "1" || q.noCache === "true"
       });
@@ -105125,6 +105472,7 @@ async function withRetry(fn, label, maxAttempts = 6, baseDelayMs = 2e3) {
       await db.execute(sql17`ALTER TABLE sol_engine_positions ADD COLUMN IF NOT EXISTS gross_pnl_pct real`);
       await db.execute(sql17`ALTER TABLE sol_engine_positions ADD COLUMN IF NOT EXISTS exit_reason text`);
       await Promise.resolve().then(() => (init_sol_shadow_stats(), sol_shadow_stats_exports)).then((m) => m.ensureSolShadowContextTable());
+      await Promise.resolve().then(() => (init_crypto_shadow(), crypto_shadow_exports)).then((m) => m.ensureCryptoShadowTables()).catch((e) => console.error("[startup] crypto shadow tables (non-fatal):", e?.message ?? e));
       console.log("[startup] SOL Engine tables created/verified.");
     } catch (err) {
       console.error("[startup] SOL Engine tables migration (non-fatal):", err.message);

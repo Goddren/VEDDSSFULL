@@ -1817,6 +1817,25 @@ async function scanOneUser(userId: number): Promise<void> {
       await storage.createCryptocomEngineActivity({ userId, symbol, decision: 'error', reasoning: `Scan failed for ${symbol}: ${err.message}`, score: null, price: null, dailyChangePercent: null, source: 'cryptocom', strategy: config.strategyMode });
     }
   }
+
+  // ── All-strategy shadow lane (crypto-shadow.ts, 2026-11-07) ──────────────
+  // Every runner on this cycle's DeFi symbols, traded virtually into
+  // crypto_shadow_trades. Never live orders, never the paper table.
+  // CRYPTO_SHADOW_ALL=off disables. Non-fatal.
+  try {
+    const _chainS = (config as any).defiChain || 'base';
+    const _defiSyms = symbols.filter((s) => !!getDefiUniverseEntry(s, _chainS));
+    if (_defiSyms.length) {
+      const { runCryptoShadowAll } = await import('./crypto-shadow');
+      const _r = await runCryptoShadowAll(userId, config, _defiSyms, _chainS, (config as any).defiSlippageBps ?? 100, {
+        runners: STRATEGY_RUNNERS as any,
+        gate: (sym, r, c) => applySignalGates(sym, r as any, c) as any,
+        universe: (sym) => getDefiUniverseEntry(sym, _chainS) as any,
+        h1: (sym) => h1Atr(sym, _chainS, getDefiUniverseEntry(sym, _chainS)?.poolAddress) as any,
+      });
+      if (_r.opened > 0) await storage.createCryptocomEngineActivity({ userId, symbol: '—', decision: 'watching', strategy: 'shadow_all', reasoning: `🕶️ SHADOW (all strategies): ${_r.opened} virtual entr${_r.opened > 1 ? 'ies' : 'y'} recorded — no wallet, not paper.`, score: null, price: null, dailyChangePercent: null, source: 'cryptocom' }).catch(() => {});
+    }
+  } catch (e: any) { console.error('[crypto-shadow] lane failed (non-fatal):', e?.message ?? e); }
 }
 
 /**
