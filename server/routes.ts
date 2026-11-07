@@ -17444,6 +17444,16 @@ Rules:
       res.json(await getModelMastery((req.user as User).id, { engine: req.query.engine === 'crypto' ? 'crypto' : 'fx' }));
     } catch (e: any) { res.status(500).json({ error: e?.message || 'failed' }); }
   });
+  // FX decision shadow: AI lane vs rules lane comparison (2026-11-07). Read-only.
+  app.get("/api/fx-engine/decision-shadow/report", async (req: Request, res: Response) => {
+    if (!req.isAuthenticated()) return res.status(401).json({ error: "Authentication required" });
+    try {
+      const { decisionShadowReport } = await import('./services/fx-decision-shadow');
+      const { fxDecisionMode, fxRulesShadowOn, rulesWeights } = await import('./services/fx-rules-score');
+      const report = await decisionShadowReport((req.user as User).id, Number(req.query.days) || 14);
+      res.json({ mode: fxDecisionMode(), shadow: fxRulesShadowOn(), weights: rulesWeights(), ...report });
+    } catch (e: any) { res.status(500).json({ error: e?.message || 'failed' }); }
+  });
   app.get("/api/fx-models/settings", async (req: Request, res: Response) => {
     if (!req.isAuthenticated()) return res.status(401).json({ error: "Authentication required" });
     try {

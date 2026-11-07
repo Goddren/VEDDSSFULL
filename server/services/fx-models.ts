@@ -108,7 +108,7 @@ const barsProviders: Record<string, BarsFn> = {
   },
 };
 export function registerBarsProvider(engine: ModelEngine, fn: BarsFn): void { barsProviders[engine] = fn; }
-const barsFor = (engine: string): BarsFn => barsProviders[engine] || barsProviders.fx;
+export const barsFor = (engine: string): BarsFn => barsProviders[engine] || barsProviders.fx;
 
 const pipSize = (sym: string) => /JPY/.test(sym) ? 0.01 : /^XAU/.test(sym) ? 0.1 : /^(BTC|ETH)/.test(sym) ? 1 : /^(US30|NAS|SPX|GER|UK1|JP2)/.test(sym) ? 1 : 0.0001;
 

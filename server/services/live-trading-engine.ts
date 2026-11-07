@@ -5,6 +5,7 @@ import { logGuard } from './guard-events';
 import { recordShadow, resolveShadows, getShadowSessionStat, SHADOW_WEIGHT } from './brain-shadow';
 import { getPacePlan, paceWindowFor, pacePromptSection, computePacePlan } from './goal-pace';
 import { getAiLevelSync } from './ai-level';
+import { scoreFxPair, fxDecisionMode, fxRulesShadowOn, fxRulesMinScore, type RulesScore } from './fx-rules-score';
 import { executeMT5SignalOnTradeLocker, warmTradeLockerConnection, getTLAccountValue, getOrCreateService as getTradeLockerService, setUsdJpyRate } from '../tradelocker';
 import { refreshTlAfterTrade } from './tradelocker-sync';
 import { computeAllAdvancedIndicators, type CandleData } from '../indicators';
@@ -2164,13 +2165,27 @@ async function scanMarkets(userId: number): Promise<void> {
     // fixed-interval tick returns early every time while the guard is held). Bound
     // the whole AI-analysis step; on timeout we abandon this cycle and the finally
     // resets the guard so the next interval scans fresh.
-    await Promise.race([
-      runAILiveAnalysis(userId, marketAnalysis, brain, newsContext, crossAssets, triggerPairs, htfMarketData),
-      new Promise((_, reject) => setTimeout(
-        () => reject(new Error('AI live analysis exceeded 150s wall-clock cap — abandoning this scan cycle')),
-        150_000,
-      )),
-    ]);
+    const _scanCtl: ScanCtl = { scanId: `${userId}-${Date.now()}`, cancelled: false, fallbackDone: false };
+    if (fxRulesShadowOn()) void import('./fx-decision-shadow').then(m => m.resolveDecisionShadow()).catch(() => {});
+    try {
+      await Promise.race([
+        runAILiveAnalysis(userId, marketAnalysis, brain, newsContext, crossAssets, triggerPairs, htfMarketData, _scanCtl),
+        new Promise((_, reject) => setTimeout(
+          () => reject(new Error('AI live analysis exceeded 150s wall-clock cap — abandoning this scan cycle')),
+          150_000,
+        )),
+      ]);
+    } catch (capErr) {
+      // Per-scan cancel: a late AI answer is dropped in hybrid mode; in ai mode
+      // behaviour is unchanged (the error propagates exactly as before).
+      _scanCtl.cancelled = true;
+      if (fxDecisionMode() === 'hybrid' && _scanCtl.fallback) {
+        try { await _scanCtl.fallback('timeout'); } catch { /* fall through to the original error */ }
+      } else if (fxRulesShadowOn()) {
+        void import('./fx-decision-shadow').then(m => m.logDecisionShadow({ userId, scanId: _scanCtl.scanId, lane: 'ai', mode: fxDecisionMode(), aiStatus: 'timeout' })).catch(() => {});
+      }
+      throw capErr;
+    }
 
   } catch (err: any) {
     addActivity(userId, { type: 'error', message: `Scan cycle error: ${err.message}` });
@@ -3476,6 +3491,190 @@ export function generateRuleBasedSignals(indicators: Record<string, any>, config
   };
 }
 
+// ── FX rules lane (no-AI decision) — 2026-11-07 ─────────────────────────────
+// Scores each pre-filtered pair with fx-rules-score.ts and builds the SAME
+// decision object the AI returns, so processDecision's gates all apply. With
+// FX_DECISION_MODE=ai (the default) these picks are only logged to
+// fx_decision_shadow — they never reach processDecision.
+interface RulesPick { rs: RulesScore; decision: any | null; session: string; hour: number }
+type ScanCtl = { scanId: string; cancelled: boolean; fallbackDone: boolean; fallback?: (reason: string) => Promise<void> };
+
+const _modelIdeaCache = new Map<number, { at: number; ideas: Record<string, { direction: string; model: string }>; stats: Record<string, { avgR: number; n: number }> }>();
+async function recentModelIdeas(userId: number) {
+  const c = _modelIdeaCache.get(userId);
+  if (c && Date.now() - c.at < 5 * 60_000) return c;
+  const fresh = { at: Date.now(), ideas: {} as Record<string, { direction: string; model: string }>, stats: {} as Record<string, { avgR: number; n: number }> };
+  try {
+    const { pool } = await import('../db');
+    const a = await pool.query(
+      `SELECT DISTINCT ON (symbol) symbol, model, direction FROM fx_model_decisions
+        WHERE user_id = $1 AND engine = 'fx' AND direction IN ('BUY','SELL') AND created_at > now() - interval '60 minutes'
+        ORDER BY symbol, created_at DESC`, [userId]);
+    for (const r of a.rows) fresh.ideas[String(r.symbol).toUpperCase().replace('/', '')] = { direction: r.direction, model: r.model };
+    const b = await pool.query(
+      `SELECT model, avg(r_multiple) avg_r, count(*) n FROM fx_model_decisions
+        WHERE user_id = $1 AND engine = 'fx' AND result IN ('WIN','LOSS','EXPIRED') AND created_at > now() - interval '30 days'
+        GROUP BY model`, [userId]);
+    for (const r of b.rows) fresh.stats[r.model] = { avgR: Number(r.avg_r) || 0, n: Number(r.n) || 0 };
+  } catch { /* table missing / DB hiccup → no model term */ }
+  _modelIdeaCache.set(userId, fresh);
+  return fresh;
+}
+
+async function buildRulesPicks(userId: number, marketAnalysis: Record<string, any>, htfMarketData?: Record<string, HTFBiasData>, newsContext?: NewsContext): Promise<RulesPick[]> {
+  const state = engineStates[userId];
+  if (!state) return [];
+  const now = new Date();
+  const hour = now.getUTCHours();
+  const session = sessionForHour(hour);
+  const minScore = fxRulesMinScore(state.config.minConfidence);
+  const { classifyDayType, sessionFor } = await import('./fx-models');
+  const { canonSession } = await import('../utils/session');
+  let brains: Record<string, any> = {};
+  try { const { getFxBrain } = await import('./fx-brain'); brains = await getFxBrain(userId); } catch { /* no brain term */ }
+  const models = await recentModelIdeas(userId);
+  const paceOn = (state.config as any).goalPaceEnabled !== false;
+  const plan = paceOn ? getPacePlan(userId, state.config) : null;
+  const shadowOn = (state.config as any)?.brainShadowEnabled !== false;
+  const out: RulesPick[] = [];
+
+  for (const [symbol, data] of Object.entries(marketAnalysis) as [string, any][]) {
+    try {
+      const sym = String(symbol).toUpperCase().replace('/', '');
+      const { bull, bear } = countIndicatorAlignment(data);
+      const direction = bull >= bear ? 'BUY' : 'SELL';
+      const { h1, h4 } = mtfStack(state, symbol);
+      const adx = adxOrNull(data);
+      const relVolume = (data.volumeMetrics?.relativeVolume ?? null) as number | null;
+      const dayType = (h1 || h4) ? classifyDayType({ adx, relVolume, h1: h1?.trend, h4: h4?.trend, session: sessionFor(now) }).dayType : null;
+      const rec = selectStrategyForPair(symbol, data, htfMarketData?.[symbol], state.asiaRangeHigh?.[symbol], state.asiaRangeLow?.[symbol],
+        hour, now.getUTCMinutes(), state.lastHighImpactNewsAt, state.config.strategyMode);
+
+      // fx-brain: edge of the conditions this pick sits in vs the pair baseline,
+      // and whether it sits in a FAILS condition (same predicate as fxBrainGateVerdict).
+      const b = brains[sym.split('.')[0].replace(/[^A-Z0-9]/g, '')];
+      let brainEdge: number | null = null, brainFail: string | null = null;
+      if (b) {
+        const hourLabel = `${hour}:00 UTC`;
+        const hits = (p: any) =>
+          (p.dimension === 'session' && canonSession(p.value, hour) === canonSession(session, hour)) ||
+          (p.dimension === 'hour' && p.value === hourLabel) ||
+          (p.dimension === 'direction' && String(p.value).toUpperCase() === direction);
+        let edge = 0, any = false;
+        for (const p of [...(b.works || []), ...(b.fails || [])]) {
+          if (!hits(p) || p.trades < 10) continue;
+          edge += Number(p.edgeVsPair) || 0; any = true;
+        }
+        const failHit = (b.fails || []).find((p: any) => hits(p) && (p.dimension !== 'direction' || p.trades >= Number(process.env.FX_BRAIN_GATE_MIN_DIR_TRADES ?? 20)));
+        if (failHit && process.env.FX_BRAIN_GATE_ENABLED !== 'false') brainFail = `${failHit.dimension}=${failHit.value}`;
+        // Brain shadow outcomes for this session, blended at BRAIN_SHADOW_WEIGHT.
+        const sh = shadowOn ? getShadowSessionStat(userId, symbol, session) : null;
+        const shN = sh ? sh.wins + sh.losses : 0;
+        if (sh && shN >= 5) { edge += SHADOW_WEIGHT() * ((sh.wins / shN) * 100 - (Number(b.winRate) || 0)); any = true; }
+        brainEdge = any ? edge : null;
+      }
+
+      const pw = plan ? paceWindowFor(plan, symbol, direction, hour) : null;
+      const idea = models.ideas[sym];
+      const mstat = idea ? models.stats[idea.model] : null;
+
+      const rs = scoreFxPair({
+        symbol, bull, bear, dayType,
+        h1: h1?.trend ?? null, h4: h4?.trend ?? null,
+        adx, m15Trend: data.trend ?? null,
+        strategy: rec.strategy, strategyPriority: rec.priority, minConfluences: rec.minConfluences || 0,
+        brainEdge, brainFail,
+        pace: pw ? pw.verdict : null,
+        model: idea && mstat ? { direction: idea.direction, avgR: mstat.avgR, n: mstat.n } : null,
+        newsSoon: !!newsContext?.highImpactSoon,
+        relVolume,
+      });
+
+      let decision: any = null;
+      const price = Number(data.currentPrice) || 0;
+      if (!rs.skip && rs.score >= minScore && price > 0) {
+        // SL/TP: same ATR + pip-floor logic as generateRuleBasedSignals.
+        const atr = Number(data.atr?.value ?? data.atr) || price * 0.0005;
+        const pipSize = getPipSize(symbol);
+        const minSlPips = symbol.includes('XAU') ? 300 : symbol.includes('JPY') ? 22 : 16;
+        const slDist = Math.max(atr * (rs.score >= 86 ? 2.0 : 1.8), minSlPips * pipSize);
+        const tpDist = Math.max(atr * (rs.score >= 86 ? 4.0 : 3.6), slDist * 2.0);
+        const isBuy = rs.direction === 'BUY';
+        decision = {
+          action: 'OPEN_TRADE',
+          strategy: rec.priority !== 'none' && rec.strategy ? rec.strategy : 'momentum',
+          symbol,
+          direction: rs.direction,
+          confidence: rs.score,
+          reason: `Rules lane ${rs.score}/99 — ${Object.entries(rs.terms).filter(([k, v]) => k !== 'base' && v !== 0).map(([k, v]) => `${k}${v > 0 ? '+' : ''}${Math.round(v)}`).join(' ')}`,
+          confluences: [`${Math.max(bull, bear)}/7 indicator votes`, `H1 ${h1?.trend ?? 'n/a'} / H4 ${h4?.trend ?? 'n/a'}`, `day ${dayType ?? 'n/a'}`],
+          entryPrice: price,
+          stopLoss: isBuy ? price - slDist : price + slDist,
+          takeProfit: isBuy ? price + tpDist : price - tpDist,
+          lotSize: state.config.baseLotSize,
+          holdTime: '30min',
+          urgency: 'IMMEDIATE',
+          decisionLane: 'rules',
+        };
+      }
+      out.push({ rs, decision, session, hour });
+    } catch { /* one pair failing never blocks the others */ }
+  }
+  return out;
+}
+
+function logRulesPicks(userId: number, scanId: string, mode: string, picks: RulesPick[], acted: Record<string, string> | null): void {
+  void import('./fx-decision-shadow').then(({ logDecisionShadow }) => {
+    for (const p of picks) {
+      logDecisionShadow({
+        userId, scanId, lane: 'rules', mode, symbol: p.rs.symbol, session: p.session, hourUtc: p.hour,
+        picked: !!p.decision, acted: !!(acted && p.decision && acted[p.rs.symbol] !== undefined),
+        direction: p.rs.direction, score: p.rs.score, terms: { ...p.rs.terms, skip: p.rs.skip },
+        entry: p.decision?.entryPrice, sl: p.decision?.stopLoss, tp: p.decision?.takeProfit,
+        gateResult: acted && p.decision ? (acted[p.rs.symbol] ?? null) : null,
+      });
+    }
+  }).catch(() => {});
+}
+
+/** Send rules picks through the normal decision path (rules mode / hybrid fallback). */
+async function actOnRulesPicks(userId: number, scanId: string, mode: string, picks: RulesPick[], newsContext: any, why: string): Promise<void> {
+  const state = engineStates[userId];
+  if (!state) return;
+  const acted: Record<string, string> = {};
+  const live = picks.filter(p => p.decision);
+  addActivity(userId, { type: 'ai_decision', message: `⚙️ Rules lane (${why}) | ${live.length} decision(s): ${live.map(p => `${p.rs.direction} ${p.rs.symbol} ${p.rs.score}`).join(', ') || 'none'} — no AI call` });
+  for (const p of live) {
+    const before = state.tradesExecuted;
+    try { await processDecision(userId, p.decision, newsContext); } catch (e: any) { addActivity(userId, { type: 'error', message: `Rules lane decision error: ${e?.message || e}` }); }
+    acted[p.rs.symbol] = state.tradesExecuted > before ? 'filled' : 'not_filled';
+  }
+  state.lastSignalAt = new Date().toISOString();
+  if (fxRulesShadowOn()) logRulesPicks(userId, scanId, mode, picks, acted);
+}
+
+function logAiShadow(userId: number, scanId: string, mode: string, status: string, decisions: any[] | null, gate?: Record<number, string>): void {
+  void import('./fx-decision-shadow').then(({ logDecisionShadow }) => {
+    const hour = new Date().getUTCHours();
+    const session = sessionForHour(hour);
+    const opens = (decisions || []).map((d, i) => ({ d, i })).filter(({ d }) => d?.action === 'OPEN_TRADE' && d?.symbol);
+    if (!opens.length) {
+      logDecisionShadow({ userId, scanId, lane: 'ai', mode, aiStatus: status, session, hourUtc: hour });
+      return;
+    }
+    const n = (v: any) => { const x = typeof v === 'number' ? v : parseFloat(String(v ?? '').replace(/[^0-9.\-]/g, '')); return Number.isFinite(x) ? x : null; };
+    for (const { d, i } of opens) {
+      logDecisionShadow({
+        userId, scanId, lane: 'ai', mode, aiStatus: status, session, hourUtc: hour,
+        symbol: String(d.symbol), direction: String(d.direction || '').toUpperCase() || null,
+        picked: true, acted: mode !== 'rules', score: n(d.confidence),
+        terms: { strategy: d.strategy ?? null, reason: String(d.reason || '').slice(0, 300) },
+        entry: n(d.entryPrice), sl: n(d.stopLoss), tp: n(d.takeProfit), gateResult: gate?.[i] ?? null,
+      });
+    }
+  }).catch(() => {});
+}
+
 // ── Indicator pre-filter: count indicator direction votes ────────────────────
 // TREND-AWARE LOGIC: In a confirmed trending market (ADX > 22), oscillators like
 // RSI and Stochastic CONFIRM the trend rather than signal reversals. Treating
@@ -3872,7 +4071,7 @@ function selectStrategyForPair(
   };
 }
 
-async function runAILiveAnalysis(userId: number, marketAnalysis: Record<string, any>, brain: any, newsContext?: NewsContext, crossAssets?: Record<string, any>, triggerAlerts?: string[], htfMarketData?: Record<string, HTFBiasData>): Promise<void> {
+async function runAILiveAnalysis(userId: number, marketAnalysis: Record<string, any>, brain: any, newsContext?: NewsContext, crossAssets?: Record<string, any>, triggerAlerts?: string[], htfMarketData?: Record<string, HTFBiasData>, scanCtl?: ScanCtl): Promise<void> {
   const state = engineStates[userId];
   if (!state) return;
 
@@ -3924,6 +4123,36 @@ async function runAILiveAnalysis(userId: number, marketAnalysis: Record<string, 
     marketAnalysis = filteredAnalysis;
   }
 
+  // ── FX decision lanes (2026-11-07): FX_DECISION_MODE=ai|rules|hybrid ──────
+  // ai (default): unchanged AI path; the rules lane is scored in the
+  //   background and only LOGGED to fx_decision_shadow (FX_RULES_SHADOW).
+  // rules: no AI call; rules decisions go through processDecision.
+  // hybrid: AI decides; when the AI fails (no client, bad reply, error,
+  //   150s cap) the rules decisions are used for this scan instead.
+  const _fxMode = fxDecisionMode();
+  const _fxShadow = fxRulesShadowOn();
+  const _scanId = scanCtl?.scanId || `${userId}-${Date.now()}`;
+  let _rulesP: Promise<RulesPick[]> | null = null;
+  if (_fxMode !== 'ai' || _fxShadow) {
+    _rulesP = buildRulesPicks(userId, { ...marketAnalysis }, htfMarketData, newsContext).catch(() => [] as RulesPick[]);
+  }
+  if (_fxMode === 'rules') {
+    await actOnRulesPicks(userId, _scanId, _fxMode, await _rulesP!, newsContext, 'FX_DECISION_MODE=rules');
+    return;
+  }
+  if (_fxMode === 'ai' && _rulesP) {
+    const _p = _rulesP;
+    void _p.then(picks => logRulesPicks(userId, _scanId, _fxMode, picks, null)).catch(() => {});
+  }
+  const _aiFailed = async (status: string) => {
+    if (_fxShadow) logAiShadow(userId, _scanId, _fxMode, status, null);
+    if (_fxMode !== 'hybrid' || !_rulesP) return;
+    if (scanCtl?.fallbackDone) return;
+    if (scanCtl) scanCtl.fallbackDone = true;
+    await actOnRulesPicks(userId, _scanId, _fxMode, await _rulesP, newsContext, `hybrid fallback — AI ${status}`);
+  };
+  if (scanCtl) scanCtl.fallback = (reason: string) => _aiFailed(reason);
+
   let openai: any;
   try {
     const { getUniversalAIClientForUser } = await import('../openai');
@@ -3931,6 +4160,7 @@ async function runAILiveAnalysis(userId: number, marketAnalysis: Record<string, 
       openai = await getUniversalAIClientForUser(userId);
     } catch {
       addActivity(userId, { type: 'error', message: 'No AI API key configured. Cannot analyze.' });
+      if (_fxMode !== 'ai' || _fxShadow) await _aiFailed('failed:no_client');
       return;
     }
 
@@ -4777,6 +5007,7 @@ Respond ONLY with valid JSON. Generate MULTIPLE decisions when opportunities exi
           if (jsonMatch) decisions = JSON.parse(jsonMatch[0]);
           else {
             addActivity(userId, { type: 'error', message: 'AI returned invalid response' });
+            if (_fxMode !== 'ai' || _fxShadow) await _aiFailed('failed:invalid_json');
             return;
           }
         }
@@ -4804,12 +5035,28 @@ Respond ONLY with valid JSON. Generate MULTIPLE decisions when opportunities exi
 
     state.lastSignalAt = new Date().toISOString();
 
+    if (_fxMode === 'hybrid') {
+      if (scanCtl?.cancelled || scanCtl?.fallbackDone) {
+        // The 150s cap already fired and the rules fallback took this scan —
+        // a late AI answer must not trade on top of it.
+        if (_fxShadow) logAiShadow(userId, _scanId, _fxMode, 'late_after_cap', decisions.decisions || null);
+        return;
+      }
+      if (scanCtl) scanCtl.fallbackDone = true; // AI owns this scan now
+      if (_fxShadow && _rulesP) { const _p = _rulesP; void _p.then(picks => logRulesPicks(userId, _scanId, _fxMode, picks, null)).catch(() => {}); }
+    }
+    const _gate: Record<number, string> = {};
     if (decisions.decisions && decisions.decisions.length > 0) {
+      let _i = 0;
       for (const decision of decisions.decisions) {
+        const _before = state.tradesExecuted;
         await processDecision(userId, decision, newsContext);
+        _gate[_i++] = state.tradesExecuted > _before ? 'filled' : 'not_filled';
       }
     }
+    if (_fxShadow) logAiShadow(userId, _scanId, _fxMode, usedMultiModel ? 'ok:multi' : 'ok', decisions.decisions || null, _gate);
   } catch (err: any) {
+    if (_fxMode !== 'ai' || _fxShadow) { try { await _aiFailed(`failed:${String(err?.status || err?.statusCode || '')} ${String(err?.message || '').slice(0, 60)}`); } catch { /* never mask the original error */ } }
     const errMsg = err.message || '';
     const errStatus = err.status || err.statusCode || 0;
     const isAuthError = errStatus === 401 || errMsg.includes('Incorrect API key') || errMsg.includes('invalid_api_key') || errMsg.includes('authentication_error') || errMsg.includes('401');

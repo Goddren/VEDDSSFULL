@@ -19046,6 +19046,96 @@ var init_goal_pace = __esm({
   }
 });
 
+// server/services/fx-rules-score.ts
+function fxDecisionMode() {
+  const m = String(process.env.FX_DECISION_MODE || "ai").toLowerCase();
+  return m === "rules" || m === "hybrid" ? m : "ai";
+}
+function fxRulesMinScore(configMin) {
+  const env = Number(process.env.FX_RULES_MIN_SCORE);
+  if (process.env.FX_RULES_MIN_SCORE && Number.isFinite(env)) return env;
+  return Number(configMin) > 0 ? Number(configMin) : 70;
+}
+function rulesWeights() {
+  const raw = process.env.FX_RULES_WEIGHTS || "";
+  if (_wCache && _wCache.raw === raw) return _wCache.w;
+  let w = { ...DEFAULT_RULES_WEIGHTS };
+  if (raw) {
+    try {
+      const o = JSON.parse(raw);
+      for (const k of Object.keys(w)) {
+        if (typeof o?.[k] === "number" && Number.isFinite(o[k])) w[k] = o[k];
+      }
+    } catch {
+    }
+  }
+  _wCache = { raw, w };
+  return w;
+}
+function scoreFxPair(i, w = rulesWeights()) {
+  const direction = i.bull >= i.bear ? "BUY" : "SELL";
+  const votes = Math.max(i.bull, i.bear);
+  const want = direction === "BUY" ? "BULLISH" : "BEARISH";
+  const against = direction === "BUY" ? "BEARISH" : "BULLISH";
+  const t = { base: w.base };
+  t.votes = Math.min(w.voteCap, Math.max(0, votes - 3) * w.votePerExtra);
+  t.day = i.dayType === "trend" ? w.dayTrend : i.dayType === "mixed" ? w.dayMixed : i.dayType === "range" ? w.dayRange : 0;
+  const h1 = i.h1 || "NEUTRAL", h4 = i.h4 || "NEUTRAL";
+  if (h1 === want && h4 === want) t.mtf = w.mtfBoth;
+  else if (h1 === against && h4 === against) t.mtf = w.mtfOpposed;
+  else if (h1 === against || h4 === against) t.mtf = w.mtfPartial;
+  else t.mtf = w.mtfNeutral;
+  t.adx = i.adx == null ? 0 : i.adx >= 35 ? w.adx35 : i.adx >= 25 ? w.adx25 : i.adx >= 18 ? w.adx18 : w.adxLow;
+  t.m15 = i.m15Trend === against ? w.m15Conflict : 0;
+  t.sniper = (i.strategyPriority === "high" ? w.sniperHigh : 0) + (i.minConfluences > 0 ? votes >= i.minConfluences ? w.confluenceMet : w.confluenceShort : 0);
+  t.brain = i.brainEdge == null ? 0 : Math.max(-w.brainCap, Math.min(w.brainCap, i.brainEdge / 2));
+  t.pace = i.pace === "FOCUS" ? w.paceFocus : 0;
+  t.model = !i.model || i.model.n < 20 || !(i.model.avgR > 0) ? 0 : String(i.model.direction).toUpperCase() === direction ? w.modelAgree : w.modelOppose;
+  const raw = Object.values(t).reduce((a, b) => a + b, 0);
+  const score = Math.max(0, Math.min(99, Math.round(raw)));
+  let skip = null;
+  if (!i.h1 && !i.h4) skip = "no_htf_data";
+  else if (i.newsSoon) skip = "high_impact_news";
+  else if (i.pace === "AVOID") skip = "pace_avoid";
+  else if (i.brainFail) skip = `brain_fails:${i.brainFail}`;
+  else if (i.relVolume != null && i.relVolume < 0.5 && votes < 5) skip = "dry_volume";
+  return { symbol: i.symbol, direction, score, terms: t, skip };
+}
+var fxRulesShadowOn, DEFAULT_RULES_WEIGHTS, _wCache;
+var init_fx_rules_score = __esm({
+  "server/services/fx-rules-score.ts"() {
+    "use strict";
+    fxRulesShadowOn = () => String(process.env.FX_RULES_SHADOW || "on").toLowerCase() !== "off";
+    DEFAULT_RULES_WEIGHTS = {
+      base: 50,
+      votePerExtra: 6,
+      // per vote above 3 (4→6, 5→12, 6→18, 7+→24)
+      voteCap: 24,
+      dayTrend: 8,
+      dayMixed: -8,
+      dayRange: -15,
+      mtfBoth: 10,
+      mtfNeutral: -5,
+      mtfPartial: -10,
+      mtfOpposed: -20,
+      adx35: 6,
+      adx25: 0,
+      adx18: -4,
+      adxLow: -10,
+      m15Conflict: -10,
+      sniperHigh: 4,
+      confluenceMet: 4,
+      confluenceShort: -8,
+      brainCap: 10,
+      // |pair×session/hour/direction edge| / 2, capped
+      paceFocus: 5,
+      modelAgree: 5,
+      modelOppose: -5
+    };
+    _wCache = null;
+  }
+});
+
 // server/tradelocker.ts
 var tradelocker_exports = {};
 __export(tradelocker_exports, {
@@ -23153,6 +23243,237 @@ var init_markov_chain = __esm({
   }
 });
 
+// server/services/fx-decision-shadow.ts
+var fx_decision_shadow_exports = {};
+__export(fx_decision_shadow_exports, {
+  decisionShadowReport: () => decisionShadowReport,
+  ensureDecisionShadowTable: () => ensureDecisionShadowTable,
+  logDecisionShadow: () => logDecisionShadow,
+  resolveDecisionShadow: () => resolveDecisionShadow
+});
+function ensureDecisionShadowTable() {
+  if (!ensured3) {
+    ensured3 = pool.query(DDL4).then(() => void 0).catch((e) => {
+      console.error("[fx-decision-shadow] ensure table failed (non-fatal):", e?.message || e);
+      ensured3 = null;
+    });
+  }
+  return ensured3;
+}
+function logDecisionShadow(r) {
+  if (!r.picked && r.symbol) {
+    const k = `${r.userId}|${r.lane}|${r.symbol}|${r.direction}`;
+    const last2 = _seen.get(k) || 0;
+    if (Date.now() - last2 < NONPICK_DEDUPE_MS) return;
+    _seen.set(k, Date.now());
+    if (_seen.size > 5e3) _seen.clear();
+  }
+  const num4 = (v) => typeof v === "number" && Number.isFinite(v) ? v : null;
+  void ensureDecisionShadowTable().then(() => pool.query(
+    `INSERT INTO fx_decision_shadow (user_id, scan_id, symbol, session, hour_utc, lane, mode, acted, picked, ai_status,
+       direction, score, terms, entry, sl, tp, gate_result)
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17)`,
+    [
+      r.userId,
+      r.scanId,
+      r.symbol ?? null,
+      r.session ?? null,
+      r.hourUtc ?? (/* @__PURE__ */ new Date()).getUTCHours(),
+      r.lane,
+      r.mode,
+      !!r.acted,
+      !!r.picked,
+      r.aiStatus ?? null,
+      r.direction ?? null,
+      num4(r.score),
+      r.terms == null ? null : JSON.stringify(r.terms),
+      num4(r.entry),
+      num4(r.sl),
+      num4(r.tp),
+      r.gateResult ?? null
+    ]
+  )).catch(() => {
+  });
+}
+async function resolveDecisionShadow() {
+  if (resolving || Date.now() - lastResolveAt < 15 * 6e4) return;
+  resolving = true;
+  lastResolveAt = Date.now();
+  try {
+    await ensureDecisionShadowTable();
+    if (Date.now() - lastPruneAt > 24 * 36e5) {
+      lastPruneAt = Date.now();
+      await pool.query(`DELETE FROM fx_decision_shadow WHERE created_at < now() - interval '60 days'`).catch(() => {
+      });
+    }
+    await pool.query(
+      `UPDATE fx_decision_shadow SET resolved_at = now(), outcome = 'unpriced'
+        WHERE resolved_at IS NULL AND picked AND (entry IS NULL OR sl IS NULL OR tp IS NULL OR entry = sl)`
+    ).catch(() => {
+    });
+    const { rows } = await pool.query(
+      `SELECT id, symbol, direction, entry, sl, tp, created_at FROM fx_decision_shadow
+        WHERE resolved_at IS NULL AND picked AND created_at < now() - interval '15 minutes'
+        ORDER BY created_at LIMIT 120`
+    );
+    const bySym = /* @__PURE__ */ new Map();
+    for (const r of rows) {
+      const a = bySym.get(r.symbol) || [];
+      a.push(r);
+      bySym.set(r.symbol, a);
+    }
+    for (const [symbol, list] of Array.from(bySym.entries()).slice(0, 6)) {
+      let bars = [];
+      try {
+        bars = await barsFor("fx")(symbol, "15m", 200);
+      } catch {
+        continue;
+      }
+      if (!bars.length) continue;
+      const cost = costPrice(symbol);
+      for (const r of list) {
+        const t0 = new Date(r.created_at).getTime();
+        const entry = Number(r.entry), sl = Number(r.sl), tp = Number(r.tp);
+        const risk = Math.abs(entry - sl);
+        if (!(risk > 0)) continue;
+        const buy = String(r.direction).toUpperCase() === "BUY";
+        let outcome = null, exit = 0, mfe = 0, mae = 0, lastClose = entry;
+        const horizon = t0 + 24 * 36e5;
+        for (const b of bars) {
+          const ts = Number(b.timestamp) < 1e12 ? Number(b.timestamp) * 1e3 : Number(b.timestamp);
+          if (ts < t0) continue;
+          if (ts > horizon) break;
+          lastClose = Number(b.close) || lastClose;
+          const fav = buy ? b.high - entry : entry - b.low;
+          const adv = buy ? entry - b.low : b.high - entry;
+          mfe = Math.max(mfe, fav / risk);
+          mae = Math.max(mae, adv / risk);
+          const hitSl = buy ? b.low <= sl : b.high >= sl;
+          const hitTp = buy ? b.high >= tp : b.low <= tp;
+          if (hitSl) {
+            outcome = "sl";
+            exit = sl;
+            break;
+          }
+          if (hitTp) {
+            outcome = "tp";
+            exit = tp;
+            break;
+          }
+        }
+        if (!outcome && Date.now() > horizon) {
+          outcome = "timeout";
+          exit = lastClose;
+        }
+        if (!outcome) continue;
+        const move = (buy ? exit - entry : entry - exit) - cost;
+        await pool.query(
+          `UPDATE fx_decision_shadow SET resolved_at = now(), outcome = $2, r_multiple = $3, mfe_r = $4, mae_r = $5
+            WHERE id = $1 AND resolved_at IS NULL`,
+          [r.id, outcome, move / risk, mfe, mae]
+        ).catch(() => {
+        });
+      }
+    }
+  } catch (e) {
+    console.error("[fx-decision-shadow] resolve failed (non-fatal):", e?.message || e);
+  } finally {
+    resolving = false;
+  }
+}
+async function decisionShadowReport(userId, days = 14) {
+  await ensureDecisionShadowTable();
+  const d = Math.max(1, Math.min(90, Math.floor(Number(days) || 14)));
+  const q = (sql5) => pool.query(sql5, [userId, d]).then((r) => r.rows);
+  const W = `user_id = $1 AND created_at > now() - ($2 || ' days')::interval`;
+  const [coverage, lanes, agreement, disagreement, deciles, bySession, byPair] = await Promise.all([
+    q(`SELECT count(DISTINCT scan_id) scans,
+              count(DISTINCT scan_id) FILTER (WHERE lane='ai' AND (ai_status LIKE 'failed%' OR ai_status = 'timeout')) ai_failed_scans,
+              count(DISTINCT scan_id) FILTER (WHERE lane='rules' AND acted) rules_acted_scans
+         FROM fx_decision_shadow WHERE ${W}`),
+    q(`SELECT lane, count(*) FILTER (WHERE picked) picks,
+              count(*) FILTER (WHERE picked AND gate_result = 'filled') filled,
+              count(*) FILTER (WHERE picked AND outcome IN ('tp','sl','timeout')) resolved,
+              round(100.0 * avg((r_multiple > 0)::int) FILTER (WHERE outcome IN ('tp','sl','timeout')), 1) win_rate,
+              round(avg(r_multiple) FILTER (WHERE outcome IN ('tp','sl','timeout'))::numeric, 3) avg_r,
+              round(sum(r_multiple) FILTER (WHERE outcome IN ('tp','sl','timeout'))::numeric, 2) total_r
+         FROM fx_decision_shadow WHERE ${W} GROUP BY lane`),
+    q(`WITH p AS (SELECT scan_id, symbol,
+                         max(direction) FILTER (WHERE lane='ai')    ai_dir,
+                         max(direction) FILTER (WHERE lane='rules') rules_dir
+                    FROM fx_decision_shadow WHERE ${W} AND picked GROUP BY 1,2)
+       SELECT count(*) pair_scans,
+              count(*) FILTER (WHERE ai_dir = rules_dir) agree,
+              count(*) FILTER (WHERE ai_dir IS NOT NULL AND rules_dir IS NULL) ai_only,
+              count(*) FILTER (WHERE rules_dir IS NOT NULL AND ai_dir IS NULL) rules_only,
+              count(*) FILTER (WHERE ai_dir <> rules_dir) opposite
+         FROM p`),
+    q(`WITH p AS (SELECT scan_id, symbol, lane, r_multiple, outcome,
+                         count(*) OVER (PARTITION BY scan_id, symbol) lanes_here
+                    FROM fx_decision_shadow WHERE ${W} AND picked)
+       SELECT lane || '_only' slice, count(*) n,
+              round(avg(r_multiple) FILTER (WHERE outcome IN ('tp','sl','timeout'))::numeric, 3) avg_r
+         FROM p WHERE lanes_here = 1 GROUP BY lane`),
+    q(`SELECT lane, width_bucket(score, 0, 100, 10) decile, count(*) n,
+              round(100.0 * avg((r_multiple > 0)::int), 1) win_rate, round(avg(r_multiple)::numeric, 3) avg_r
+         FROM fx_decision_shadow WHERE ${W} AND picked AND outcome IN ('tp','sl','timeout') GROUP BY 1,2 ORDER BY 1,2`),
+    q(`SELECT lane, session, direction, count(*) n, round(avg(r_multiple)::numeric, 3) avg_r
+         FROM fx_decision_shadow WHERE ${W} AND picked AND outcome IN ('tp','sl','timeout') GROUP BY 1,2,3 ORDER BY 1,2,3`),
+    q(`SELECT lane, symbol, count(*) n, round(sum(r_multiple)::numeric, 2) total_r
+         FROM fx_decision_shadow WHERE ${W} AND picked AND outcome IN ('tp','sl','timeout') GROUP BY 1,2 ORDER BY 1,3 DESC`)
+  ]);
+  return { days: d, coverage: coverage[0], lanes, agreement: agreement[0], disagreement, deciles, bySession, byPair };
+}
+var DDL4, ensured3, _seen, NONPICK_DEDUPE_MS, costPrice, lastResolveAt, lastPruneAt, resolving;
+var init_fx_decision_shadow = __esm({
+  "server/services/fx-decision-shadow.ts"() {
+    "use strict";
+    init_db();
+    init_fx_models();
+    DDL4 = `
+CREATE TABLE IF NOT EXISTS fx_decision_shadow (
+  id serial PRIMARY KEY,
+  user_id integer NOT NULL,
+  scan_id text NOT NULL,
+  created_at timestamptz NOT NULL DEFAULT now(),
+  symbol text,
+  session text,
+  hour_utc smallint,
+  lane text NOT NULL,
+  mode text NOT NULL,
+  acted boolean NOT NULL DEFAULT false,
+  picked boolean NOT NULL DEFAULT false,
+  ai_status text,
+  direction text,
+  score real,
+  terms jsonb,
+  entry real, sl real, tp real,
+  gate_result text,
+  resolved_at timestamptz,
+  outcome text,
+  r_multiple real,
+  mfe_r real,
+  mae_r real
+);
+CREATE INDEX IF NOT EXISTS fx_decision_shadow_user_idx ON fx_decision_shadow (user_id, created_at);
+CREATE INDEX IF NOT EXISTS fx_decision_shadow_open_idx ON fx_decision_shadow (created_at) WHERE resolved_at IS NULL AND picked;
+`;
+    ensured3 = null;
+    _seen = /* @__PURE__ */ new Map();
+    NONPICK_DEDUPE_MS = 15 * 6e4;
+    costPrice = (sym) => {
+      const s = sym.toUpperCase();
+      const env = Number(process.env.FX_SHADOW_COST_PIPS);
+      const pips = Number.isFinite(env) && process.env.FX_SHADOW_COST_PIPS ? env : /^XAU/.test(s) ? 3.5 : 1.5;
+      const pip = /JPY/.test(s) ? 0.01 : /^XAU/.test(s) ? 0.1 : 1e-4;
+      return pips * pip;
+    };
+    lastResolveAt = 0;
+    lastPruneAt = 0;
+    resolving = false;
+  }
+});
+
 // server/dxtrade.ts
 var dxtrade_exports = {};
 __export(dxtrade_exports, {
@@ -26431,13 +26752,30 @@ async function scanMarkets(userId) {
       await runORBAutonomousScan(userId);
     } catch {
     }
-    await Promise.race([
-      runAILiveAnalysis(userId, marketAnalysis, brain, newsContext, crossAssets, triggerPairs, htfMarketData),
-      new Promise((_, reject) => setTimeout(
-        () => reject(new Error("AI live analysis exceeded 150s wall-clock cap \u2014 abandoning this scan cycle")),
-        15e4
-      ))
-    ]);
+    const _scanCtl = { scanId: `${userId}-${Date.now()}`, cancelled: false, fallbackDone: false };
+    if (fxRulesShadowOn()) void Promise.resolve().then(() => (init_fx_decision_shadow(), fx_decision_shadow_exports)).then((m) => m.resolveDecisionShadow()).catch(() => {
+    });
+    try {
+      await Promise.race([
+        runAILiveAnalysis(userId, marketAnalysis, brain, newsContext, crossAssets, triggerPairs, htfMarketData, _scanCtl),
+        new Promise((_, reject) => setTimeout(
+          () => reject(new Error("AI live analysis exceeded 150s wall-clock cap \u2014 abandoning this scan cycle")),
+          15e4
+        ))
+      ]);
+    } catch (capErr) {
+      _scanCtl.cancelled = true;
+      if (fxDecisionMode() === "hybrid" && _scanCtl.fallback) {
+        try {
+          await _scanCtl.fallback("timeout");
+        } catch {
+        }
+      } else if (fxRulesShadowOn()) {
+        void Promise.resolve().then(() => (init_fx_decision_shadow(), fx_decision_shadow_exports)).then((m) => m.logDecisionShadow({ userId, scanId: _scanCtl.scanId, lane: "ai", mode: fxDecisionMode(), aiStatus: "timeout" })).catch(() => {
+        });
+      }
+      throw capErr;
+    }
   } catch (err) {
     addActivity(userId, { type: "error", message: `Scan cycle error: ${err.message}` });
   } finally {
@@ -27548,6 +27886,226 @@ function generateRuleBasedSignals(indicators, config, symbol) {
     tradingWindowQuality: "good"
   };
 }
+async function recentModelIdeas(userId) {
+  const c = _modelIdeaCache.get(userId);
+  if (c && Date.now() - c.at < 5 * 6e4) return c;
+  const fresh = { at: Date.now(), ideas: {}, stats: {} };
+  try {
+    const { pool: pool2 } = await Promise.resolve().then(() => (init_db(), db_exports));
+    const a = await pool2.query(
+      `SELECT DISTINCT ON (symbol) symbol, model, direction FROM fx_model_decisions
+        WHERE user_id = $1 AND engine = 'fx' AND direction IN ('BUY','SELL') AND created_at > now() - interval '60 minutes'
+        ORDER BY symbol, created_at DESC`,
+      [userId]
+    );
+    for (const r of a.rows) fresh.ideas[String(r.symbol).toUpperCase().replace("/", "")] = { direction: r.direction, model: r.model };
+    const b = await pool2.query(
+      `SELECT model, avg(r_multiple) avg_r, count(*) n FROM fx_model_decisions
+        WHERE user_id = $1 AND engine = 'fx' AND result IN ('WIN','LOSS','EXPIRED') AND created_at > now() - interval '30 days'
+        GROUP BY model`,
+      [userId]
+    );
+    for (const r of b.rows) fresh.stats[r.model] = { avgR: Number(r.avg_r) || 0, n: Number(r.n) || 0 };
+  } catch {
+  }
+  _modelIdeaCache.set(userId, fresh);
+  return fresh;
+}
+async function buildRulesPicks(userId, marketAnalysis, htfMarketData, newsContext) {
+  const state = engineStates[userId];
+  if (!state) return [];
+  const now = /* @__PURE__ */ new Date();
+  const hour = now.getUTCHours();
+  const session2 = sessionForHour(hour);
+  const minScore = fxRulesMinScore(state.config.minConfidence);
+  const { classifyDayType: classifyDayType2, sessionFor: sessionFor2 } = await Promise.resolve().then(() => (init_fx_models(), fx_models_exports));
+  const { canonSession: canonSession2 } = await Promise.resolve().then(() => (init_session(), session_exports));
+  let brains = {};
+  try {
+    const { getFxBrain: getFxBrain2 } = await Promise.resolve().then(() => (init_fx_brain(), fx_brain_exports));
+    brains = await getFxBrain2(userId);
+  } catch {
+  }
+  const models = await recentModelIdeas(userId);
+  const paceOn = state.config.goalPaceEnabled !== false;
+  const plan = paceOn ? getPacePlan(userId, state.config) : null;
+  const shadowOn = state.config?.brainShadowEnabled !== false;
+  const out = [];
+  for (const [symbol, data] of Object.entries(marketAnalysis)) {
+    try {
+      const sym = String(symbol).toUpperCase().replace("/", "");
+      const { bull, bear } = countIndicatorAlignment(data);
+      const direction = bull >= bear ? "BUY" : "SELL";
+      const { h1, h4 } = mtfStack(state, symbol);
+      const adx = adxOrNull(data);
+      const relVolume = data.volumeMetrics?.relativeVolume ?? null;
+      const dayType = h1 || h4 ? classifyDayType2({ adx, relVolume, h1: h1?.trend, h4: h4?.trend, session: sessionFor2(now) }).dayType : null;
+      const rec = selectStrategyForPair(
+        symbol,
+        data,
+        htfMarketData?.[symbol],
+        state.asiaRangeHigh?.[symbol],
+        state.asiaRangeLow?.[symbol],
+        hour,
+        now.getUTCMinutes(),
+        state.lastHighImpactNewsAt,
+        state.config.strategyMode
+      );
+      const b = brains[sym.split(".")[0].replace(/[^A-Z0-9]/g, "")];
+      let brainEdge = null, brainFail = null;
+      if (b) {
+        const hourLabel = `${hour}:00 UTC`;
+        const hits = (p) => p.dimension === "session" && canonSession2(p.value, hour) === canonSession2(session2, hour) || p.dimension === "hour" && p.value === hourLabel || p.dimension === "direction" && String(p.value).toUpperCase() === direction;
+        let edge = 0, any = false;
+        for (const p of [...b.works || [], ...b.fails || []]) {
+          if (!hits(p) || p.trades < 10) continue;
+          edge += Number(p.edgeVsPair) || 0;
+          any = true;
+        }
+        const failHit = (b.fails || []).find((p) => hits(p) && (p.dimension !== "direction" || p.trades >= Number(process.env.FX_BRAIN_GATE_MIN_DIR_TRADES ?? 20)));
+        if (failHit && process.env.FX_BRAIN_GATE_ENABLED !== "false") brainFail = `${failHit.dimension}=${failHit.value}`;
+        const sh = shadowOn ? getShadowSessionStat(userId, symbol, session2) : null;
+        const shN = sh ? sh.wins + sh.losses : 0;
+        if (sh && shN >= 5) {
+          edge += SHADOW_WEIGHT() * (sh.wins / shN * 100 - (Number(b.winRate) || 0));
+          any = true;
+        }
+        brainEdge = any ? edge : null;
+      }
+      const pw = plan ? paceWindowFor(plan, symbol, direction, hour) : null;
+      const idea = models.ideas[sym];
+      const mstat = idea ? models.stats[idea.model] : null;
+      const rs = scoreFxPair({
+        symbol,
+        bull,
+        bear,
+        dayType,
+        h1: h1?.trend ?? null,
+        h4: h4?.trend ?? null,
+        adx,
+        m15Trend: data.trend ?? null,
+        strategy: rec.strategy,
+        strategyPriority: rec.priority,
+        minConfluences: rec.minConfluences || 0,
+        brainEdge,
+        brainFail,
+        pace: pw ? pw.verdict : null,
+        model: idea && mstat ? { direction: idea.direction, avgR: mstat.avgR, n: mstat.n } : null,
+        newsSoon: !!newsContext?.highImpactSoon,
+        relVolume
+      });
+      let decision = null;
+      const price = Number(data.currentPrice) || 0;
+      if (!rs.skip && rs.score >= minScore && price > 0) {
+        const atr = Number(data.atr?.value ?? data.atr) || price * 5e-4;
+        const pipSize2 = getPipSize(symbol);
+        const minSlPips = symbol.includes("XAU") ? 300 : symbol.includes("JPY") ? 22 : 16;
+        const slDist = Math.max(atr * (rs.score >= 86 ? 2 : 1.8), minSlPips * pipSize2);
+        const tpDist = Math.max(atr * (rs.score >= 86 ? 4 : 3.6), slDist * 2);
+        const isBuy = rs.direction === "BUY";
+        decision = {
+          action: "OPEN_TRADE",
+          strategy: rec.priority !== "none" && rec.strategy ? rec.strategy : "momentum",
+          symbol,
+          direction: rs.direction,
+          confidence: rs.score,
+          reason: `Rules lane ${rs.score}/99 \u2014 ${Object.entries(rs.terms).filter(([k, v]) => k !== "base" && v !== 0).map(([k, v]) => `${k}${v > 0 ? "+" : ""}${Math.round(v)}`).join(" ")}`,
+          confluences: [`${Math.max(bull, bear)}/7 indicator votes`, `H1 ${h1?.trend ?? "n/a"} / H4 ${h4?.trend ?? "n/a"}`, `day ${dayType ?? "n/a"}`],
+          entryPrice: price,
+          stopLoss: isBuy ? price - slDist : price + slDist,
+          takeProfit: isBuy ? price + tpDist : price - tpDist,
+          lotSize: state.config.baseLotSize,
+          holdTime: "30min",
+          urgency: "IMMEDIATE",
+          decisionLane: "rules"
+        };
+      }
+      out.push({ rs, decision, session: session2, hour });
+    } catch {
+    }
+  }
+  return out;
+}
+function logRulesPicks(userId, scanId, mode, picks, acted) {
+  void Promise.resolve().then(() => (init_fx_decision_shadow(), fx_decision_shadow_exports)).then(({ logDecisionShadow: logDecisionShadow2 }) => {
+    for (const p of picks) {
+      logDecisionShadow2({
+        userId,
+        scanId,
+        lane: "rules",
+        mode,
+        symbol: p.rs.symbol,
+        session: p.session,
+        hourUtc: p.hour,
+        picked: !!p.decision,
+        acted: !!(acted && p.decision && acted[p.rs.symbol] !== void 0),
+        direction: p.rs.direction,
+        score: p.rs.score,
+        terms: { ...p.rs.terms, skip: p.rs.skip },
+        entry: p.decision?.entryPrice,
+        sl: p.decision?.stopLoss,
+        tp: p.decision?.takeProfit,
+        gateResult: acted && p.decision ? acted[p.rs.symbol] ?? null : null
+      });
+    }
+  }).catch(() => {
+  });
+}
+async function actOnRulesPicks(userId, scanId, mode, picks, newsContext, why) {
+  const state = engineStates[userId];
+  if (!state) return;
+  const acted = {};
+  const live = picks.filter((p) => p.decision);
+  addActivity(userId, { type: "ai_decision", message: `\u2699\uFE0F Rules lane (${why}) | ${live.length} decision(s): ${live.map((p) => `${p.rs.direction} ${p.rs.symbol} ${p.rs.score}`).join(", ") || "none"} \u2014 no AI call` });
+  for (const p of live) {
+    const before = state.tradesExecuted;
+    try {
+      await processDecision(userId, p.decision, newsContext);
+    } catch (e) {
+      addActivity(userId, { type: "error", message: `Rules lane decision error: ${e?.message || e}` });
+    }
+    acted[p.rs.symbol] = state.tradesExecuted > before ? "filled" : "not_filled";
+  }
+  state.lastSignalAt = (/* @__PURE__ */ new Date()).toISOString();
+  if (fxRulesShadowOn()) logRulesPicks(userId, scanId, mode, picks, acted);
+}
+function logAiShadow(userId, scanId, mode, status, decisions, gate) {
+  void Promise.resolve().then(() => (init_fx_decision_shadow(), fx_decision_shadow_exports)).then(({ logDecisionShadow: logDecisionShadow2 }) => {
+    const hour = (/* @__PURE__ */ new Date()).getUTCHours();
+    const session2 = sessionForHour(hour);
+    const opens = (decisions || []).map((d, i) => ({ d, i })).filter(({ d }) => d?.action === "OPEN_TRADE" && d?.symbol);
+    if (!opens.length) {
+      logDecisionShadow2({ userId, scanId, lane: "ai", mode, aiStatus: status, session: session2, hourUtc: hour });
+      return;
+    }
+    const n = (v) => {
+      const x = typeof v === "number" ? v : parseFloat(String(v ?? "").replace(/[^0-9.\-]/g, ""));
+      return Number.isFinite(x) ? x : null;
+    };
+    for (const { d, i } of opens) {
+      logDecisionShadow2({
+        userId,
+        scanId,
+        lane: "ai",
+        mode,
+        aiStatus: status,
+        session: session2,
+        hourUtc: hour,
+        symbol: String(d.symbol),
+        direction: String(d.direction || "").toUpperCase() || null,
+        picked: true,
+        acted: mode !== "rules",
+        score: n(d.confidence),
+        terms: { strategy: d.strategy ?? null, reason: String(d.reason || "").slice(0, 300) },
+        entry: n(d.entryPrice),
+        sl: n(d.stopLoss),
+        tp: n(d.takeProfit),
+        gateResult: gate?.[i] ?? null
+      });
+    }
+  }).catch(() => {
+  });
+}
 function countIndicatorAlignment(data) {
   let bull = 0;
   let bear = 0;
@@ -27824,7 +28382,7 @@ function selectStrategyForPair(symbol, data, htfBias, asiaHigh, asiaLow, utcHour
     minConfluences: 0
   };
 }
-async function runAILiveAnalysis(userId, marketAnalysis, brain, newsContext, crossAssets, triggerAlerts, htfMarketData) {
+async function runAILiveAnalysis(userId, marketAnalysis, brain, newsContext, crossAssets, triggerAlerts, htfMarketData, scanCtl) {
   const state = engineStates[userId];
   if (!state) return;
   const aiMode = state.config.aiMode || "full";
@@ -27867,6 +28425,30 @@ async function runAILiveAnalysis(userId, marketAnalysis, brain, newsContext, cro
     }
     marketAnalysis = filteredAnalysis;
   }
+  const _fxMode = fxDecisionMode();
+  const _fxShadow = fxRulesShadowOn();
+  const _scanId = scanCtl?.scanId || `${userId}-${Date.now()}`;
+  let _rulesP = null;
+  if (_fxMode !== "ai" || _fxShadow) {
+    _rulesP = buildRulesPicks(userId, { ...marketAnalysis }, htfMarketData, newsContext).catch(() => []);
+  }
+  if (_fxMode === "rules") {
+    await actOnRulesPicks(userId, _scanId, _fxMode, await _rulesP, newsContext, "FX_DECISION_MODE=rules");
+    return;
+  }
+  if (_fxMode === "ai" && _rulesP) {
+    const _p = _rulesP;
+    void _p.then((picks) => logRulesPicks(userId, _scanId, _fxMode, picks, null)).catch(() => {
+    });
+  }
+  const _aiFailed = async (status) => {
+    if (_fxShadow) logAiShadow(userId, _scanId, _fxMode, status, null);
+    if (_fxMode !== "hybrid" || !_rulesP) return;
+    if (scanCtl?.fallbackDone) return;
+    if (scanCtl) scanCtl.fallbackDone = true;
+    await actOnRulesPicks(userId, _scanId, _fxMode, await _rulesP, newsContext, `hybrid fallback \u2014 AI ${status}`);
+  };
+  if (scanCtl) scanCtl.fallback = (reason) => _aiFailed(reason);
   let openai2;
   try {
     const { getUniversalAIClientForUser: getUniversalAIClientForUser2 } = await Promise.resolve().then(() => (init_openai(), openai_exports));
@@ -27874,6 +28456,7 @@ async function runAILiveAnalysis(userId, marketAnalysis, brain, newsContext, cro
       openai2 = await getUniversalAIClientForUser2(userId);
     } catch {
       addActivity(userId, { type: "error", message: "No AI API key configured. Cannot analyze." });
+      if (_fxMode !== "ai" || _fxShadow) await _aiFailed("failed:no_client");
       return;
     }
     const _primaryClient = openai2;
@@ -28642,6 +29225,7 @@ Keep it natural \u2014 not every sentence. Weave it in where it fits. ALL prices
           if (jsonMatch) decisions = JSON.parse(jsonMatch[0]);
           else {
             addActivity(userId, { type: "error", message: "AI returned invalid response" });
+            if (_fxMode !== "ai" || _fxShadow) await _aiFailed("failed:invalid_json");
             return;
           }
         }
@@ -28664,12 +29248,35 @@ Keep it natural \u2014 not every sentence. Weave it in where it fits. ALL prices
       }
     });
     state.lastSignalAt = (/* @__PURE__ */ new Date()).toISOString();
-    if (decisions.decisions && decisions.decisions.length > 0) {
-      for (const decision of decisions.decisions) {
-        await processDecision(userId, decision, newsContext);
+    if (_fxMode === "hybrid") {
+      if (scanCtl?.cancelled || scanCtl?.fallbackDone) {
+        if (_fxShadow) logAiShadow(userId, _scanId, _fxMode, "late_after_cap", decisions.decisions || null);
+        return;
+      }
+      if (scanCtl) scanCtl.fallbackDone = true;
+      if (_fxShadow && _rulesP) {
+        const _p = _rulesP;
+        void _p.then((picks) => logRulesPicks(userId, _scanId, _fxMode, picks, null)).catch(() => {
+        });
       }
     }
+    const _gate = {};
+    if (decisions.decisions && decisions.decisions.length > 0) {
+      let _i = 0;
+      for (const decision of decisions.decisions) {
+        const _before = state.tradesExecuted;
+        await processDecision(userId, decision, newsContext);
+        _gate[_i++] = state.tradesExecuted > _before ? "filled" : "not_filled";
+      }
+    }
+    if (_fxShadow) logAiShadow(userId, _scanId, _fxMode, usedMultiModel ? "ok:multi" : "ok", decisions.decisions || null, _gate);
   } catch (err) {
+    if (_fxMode !== "ai" || _fxShadow) {
+      try {
+        await _aiFailed(`failed:${String(err?.status || err?.statusCode || "")} ${String(err?.message || "").slice(0, 60)}`);
+      } catch {
+      }
+    }
     const errMsg = err.message || "";
     const errStatus = err.status || err.statusCode || 0;
     const isAuthError = errStatus === 401 || errMsg.includes("Incorrect API key") || errMsg.includes("invalid_api_key") || errMsg.includes("authentication_error") || errMsg.includes("401");
@@ -31979,7 +32586,7 @@ function getModelLockStatus(userId) {
   if (!state) return { locked: false, openPositions: 0 };
   return { locked: state.modelLocked, openPositions: state.openPositionCount };
 }
-var FX_MAX_OPEN_PER_SYMBOL, FX_SYMBOL_COOLDOWN_MS, mt5AccountQueues, mt5AccountRegistry, engineStates, engineIntervals, engineTimers, brainLearningIntervals, positionMonitorIntervals, _monitorBusy, persistedConfigOverrides, goalTrackerCache, ALL_STRATEGY_KEYS, _activityTableReady, _activityLastPrune, _activitySeen, _dxSkipTableReady, countedTradeKeys, h4BiasCache, H4_REFRESH_MS, TRAIL_METHOD_LABELS, xauPeakPts, xauLockedPts, btcInitialStop, btcLastStop, tlStopLatest, tlStopInitial, dxLockInitial, NY_TIME_FMT, INDEX_BROKER_ALIASES, FX_LEADER_LOCK_KEY, FX_LEADER_STALE_MS, _fxLeaderClient, _fxIsLeader, _fxLeaderLoop, hardHalted;
+var FX_MAX_OPEN_PER_SYMBOL, FX_SYMBOL_COOLDOWN_MS, mt5AccountQueues, mt5AccountRegistry, engineStates, engineIntervals, engineTimers, brainLearningIntervals, positionMonitorIntervals, _monitorBusy, persistedConfigOverrides, goalTrackerCache, ALL_STRATEGY_KEYS, _activityTableReady, _activityLastPrune, _activitySeen, _dxSkipTableReady, countedTradeKeys, h4BiasCache, H4_REFRESH_MS, TRAIL_METHOD_LABELS, xauPeakPts, xauLockedPts, btcInitialStop, btcLastStop, tlStopLatest, tlStopInitial, dxLockInitial, _modelIdeaCache, NY_TIME_FMT, INDEX_BROKER_ALIASES, FX_LEADER_LOCK_KEY, FX_LEADER_STALE_MS, _fxLeaderClient, _fxIsLeader, _fxLeaderLoop, hardHalted;
 var init_live_trading_engine = __esm({
   "server/services/live-trading-engine.ts"() {
     "use strict";
@@ -31990,6 +32597,7 @@ var init_live_trading_engine = __esm({
     init_brain_shadow();
     init_goal_pace();
     init_ai_level();
+    init_fx_rules_score();
     init_tradelocker();
     init_tradelocker_sync();
     init_indicators();
@@ -32060,6 +32668,7 @@ var init_live_trading_engine = __esm({
     tlStopLatest = /* @__PURE__ */ new Map();
     tlStopInitial = /* @__PURE__ */ new Map();
     dxLockInitial = /* @__PURE__ */ new Map();
+    _modelIdeaCache = /* @__PURE__ */ new Map();
     NY_TIME_FMT = new Intl.DateTimeFormat("en-US", {
       timeZone: "America/New_York",
       hour12: false,
@@ -32087,6 +32696,7 @@ var init_live_trading_engine = __esm({
 var fx_models_exports = {};
 __export(fx_models_exports, {
   FX_MODEL_MIN_TO_LIST: () => FX_MODEL_MIN_TO_LIST,
+  barsFor: () => barsFor,
   classifyDayType: () => classifyDayType,
   ensureFxModelTables: () => ensureFxModelTables,
   fxModelRowsForStats: () => fxModelRowsForStats,
@@ -32109,13 +32719,13 @@ __export(fx_models_exports, {
   sessionFor: () => sessionFor
 });
 function ensureFxModelTables() {
-  if (!ensured3) {
-    ensured3 = pool.query(DDL4).then(() => void 0).catch((e) => {
+  if (!ensured4) {
+    ensured4 = pool.query(DDL5).then(() => void 0).catch((e) => {
       console.error("[fx-models] ensure tables failed (non-fatal):", e?.message || e);
-      ensured3 = null;
+      ensured4 = null;
     });
   }
-  return ensured3;
+  return ensured4;
 }
 function sessionFor(d = /* @__PURE__ */ new Date()) {
   const h = d.getUTCHours();
@@ -32193,8 +32803,8 @@ async function runFxModelsCycle(userId, ctx) {
     } catch {
     }
     if (pairs.length && hour % _fxEvery === 0) await shadowDecide(userId, session2, pairs);
-    if (Date.now() - lastResolveAt > 15 * 6e4) {
-      lastResolveAt = Date.now();
+    if (Date.now() - lastResolveAt2 > 15 * 6e4) {
+      lastResolveAt2 = Date.now();
       await resolveShadowDecisions("fx");
     }
   } catch (e) {
@@ -32847,13 +33457,13 @@ async function getModelMastery(userId, opts = {}) {
     slices: (await agg("model, day_type, symbol, session")).map(shape)
   };
 }
-var DDL4, ensured3, barsProviders, barsFor, pipSize, lastShadowCandle, lastResolveAt, M1_PAIRS_EXCLUDED, rangeCache, M2_PAIRS_EXCLUDED, M2_SESSIONS, M2_MAX_ADX, M2_MIN_RR, FX_MODEL_MIN_TO_LIST, DEFAULT_SETTINGS, LIVE_LEVELS, GO_LIVE, emaLast;
+var DDL5, ensured4, barsProviders, barsFor, pipSize, lastShadowCandle, lastResolveAt2, M1_PAIRS_EXCLUDED, rangeCache, M2_PAIRS_EXCLUDED, M2_SESSIONS, M2_MAX_ADX, M2_MIN_RR, FX_MODEL_MIN_TO_LIST, DEFAULT_SETTINGS, LIVE_LEVELS, GO_LIVE, emaLast;
 var init_fx_models = __esm({
   "server/services/fx-models.ts"() {
     "use strict";
     init_db();
     init_service();
-    DDL4 = `
+    DDL5 = `
 CREATE TABLE IF NOT EXISTS fx_day_regimes (
   id serial PRIMARY KEY,
   user_id integer NOT NULL,
@@ -32902,7 +33512,7 @@ ALTER TABLE fx_model_decisions ADD COLUMN IF NOT EXISTS source text NOT NULL DEF
 ALTER TABLE fx_model_decisions ADD COLUMN IF NOT EXISTS engine text NOT NULL DEFAULT 'fx';
 ALTER TABLE fx_day_regimes ADD COLUMN IF NOT EXISTS engine text NOT NULL DEFAULT 'fx';
 `;
-    ensured3 = null;
+    ensured4 = null;
     barsProviders = {
       fx: async (symbol, tf, n) => {
         const r = await marketDataService.fetchMarketData({ symbol, assetType: marketDataService.detectAssetType(symbol), timeframe: tf, limit: n });
@@ -32912,7 +33522,7 @@ ALTER TABLE fx_day_regimes ADD COLUMN IF NOT EXISTS engine text NOT NULL DEFAULT
     barsFor = (engine) => barsProviders[engine] || barsProviders.fx;
     pipSize = (sym) => /JPY/.test(sym) ? 0.01 : /^XAU/.test(sym) ? 0.1 : /^(BTC|ETH)/.test(sym) ? 1 : /^(US30|NAS|SPX|GER|UK1|JP2)/.test(sym) ? 1 : 1e-4;
     lastShadowCandle = /* @__PURE__ */ new Map();
-    lastResolveAt = 0;
+    lastResolveAt2 = 0;
     M1_PAIRS_EXCLUDED = (process.env.FX_M1_EXCLUDED_PAIRS || "GBPJPY,XAUUSD,BTCUSD,US30,NAS100").split(",").map((x) => x.trim().toUpperCase()).filter(Boolean);
     rangeCache = /* @__PURE__ */ new Map();
     M2_PAIRS_EXCLUDED = (process.env.FX_M2_EXCLUDED_PAIRS || "USDJPY").split(",").map((x) => x.trim().toUpperCase()).filter(Boolean);
