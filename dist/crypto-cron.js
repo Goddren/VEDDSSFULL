@@ -9075,8 +9075,10 @@ var defi_market_data_exports = {};
 __export(defi_market_data_exports, {
   callBudget: () => callBudget,
   discoverDefiTokens: () => discoverDefiTokens,
+  discoverNewPoolTokens: () => discoverNewPoolTokens,
   getDefiCandles: () => getDefiCandles,
-  getDefiPrice: () => getDefiPrice
+  getDefiPrice: () => getDefiPrice,
+  parsePoolFlow: () => parsePoolFlow
 });
 function cgHeaders() {
   const h = { accept: "application/json" };
@@ -9095,6 +9097,52 @@ function callBudget() {
     discoveryTtlMs: Number(process.env.COINGECKO_DISCOVERY_TTL_MS ?? (hasKey ? 60 * 60 * 1e3 : 6 * 60 * 60 * 1e3)),
     candleTtlMs: Number(process.env.COINGECKO_CANDLE_TTL_MS ?? (hasKey ? 10 * 60 * 1e3 : 30 * 60 * 1e3))
   };
+}
+function parsePoolFlow(a) {
+  const n = (x) => {
+    const v = Number(x);
+    return Number.isFinite(v) ? v : null;
+  };
+  const tx = (w) => ({ buys: Number(w?.buys) || 0, sells: Number(w?.sells) || 0, buyers: n(w?.buyers), sellers: n(w?.sellers) });
+  return {
+    h1: tx(a?.transactions?.h1),
+    h24: tx(a?.transactions?.h24),
+    volume1hUsd: n(a?.volume_usd?.h1),
+    change1hPct: n(a?.price_change_percentage?.h1),
+    change24hPct: n(a?.price_change_percentage?.h24),
+    fdvUsd: n(a?.fdv_usd),
+    marketCapUsd: n(a?.market_cap_usd),
+    poolCreatedAt: a?.pool_created_at ?? null,
+    at: Date.now()
+  };
+}
+async function discoverNewPoolTokens(chainKey, minLiquidityUsd = 25e3, maxAgeHours = 72, maxTokens = 5) {
+  const net = GT_NETWORK[chainKey];
+  if (!net) return [];
+  const key = `${chainKey}:${minLiquidityUsd}:${maxAgeHours}:${maxTokens}`;
+  if (newPoolsCache && newPoolsCache.key === key && Date.now() - newPoolsCache.at < callBudget().discoveryTtlMs) return newPoolsCache.tokens;
+  const out = /* @__PURE__ */ new Map();
+  try {
+    const d = await gt(`/networks/${net}/new_pools?page=1`);
+    for (const p of d?.data ?? []) {
+      const a = p?.attributes ?? {};
+      const liq = Number(a.reserve_in_usd ?? 0), price = Number(a.base_token_price_usd ?? 0);
+      const created = a.pool_created_at ? new Date(a.pool_created_at).getTime() : NaN;
+      if (!a.address || !price || liq < minLiquidityUsd) continue;
+      if (!Number.isFinite(created) || Date.now() - created > maxAgeHours * 36e5) continue;
+      const symbol = String(a.name ?? "").split("/")[0].trim().toUpperCase();
+      if (!symbol || SETTLEMENT.has(symbol)) continue;
+      const address = String(p?.relationships?.base_token?.data?.id ?? "").split("_").pop() ?? "";
+      if (!/^0x[a-fA-F0-9]{40}$/.test(address)) continue;
+      const prev = out.get(address);
+      if (!prev || liq > prev.liquidityUsd) out.set(address, { symbol, address, poolAddress: a.address, priceUsd: price, liquidityUsd: liq, volume24Usd: Number(a.volume_usd?.h24 ?? 0), flow: parsePoolFlow(a) });
+    }
+  } catch (e) {
+    console.warn(`[defi-market-data] new_pools failed for ${chainKey}: ${e?.message ?? e}`);
+  }
+  const tokens = Array.from(out.values()).sort((x, y) => y.liquidityUsd - x.liquidityUsd).slice(0, maxTokens);
+  newPoolsCache = { key, at: Date.now(), tokens };
+  return tokens;
 }
 async function gt(path2) {
   const run = async () => {
@@ -9154,7 +9202,7 @@ async function discoverDefiTokens(chainKey, opts = {}) {
         if (!/^0x[a-fA-F0-9]{40}$/.test(address)) continue;
         const prev = best.get(address);
         if (!prev || liq > prev.liquidityUsd) {
-          best.set(address, { symbol, address, poolAddress, priceUsd: price, liquidityUsd: liq, volume24Usd: vol });
+          best.set(address, { symbol, address, poolAddress, priceUsd: price, liquidityUsd: liq, volume24Usd: vol, flow: parsePoolFlow(a) });
         }
       }
     } catch (e) {
@@ -9196,7 +9244,7 @@ async function getDefiPrice(chainKey, poolAddress) {
   const last2 = bars[bars.length - 1];
   return last2?.c && last2.c > 0 ? last2.c : null;
 }
-var GT, GT_NETWORK, SETTLEMENT, callChain, lastCallAt, discoveryCache, TF, candleCache, candleInFlight;
+var GT, GT_NETWORK, newPoolsCache, SETTLEMENT, callChain, lastCallAt, discoveryCache, TF, candleCache, candleInFlight;
 var init_defi_market_data = __esm({
   "server/services/defi-market-data.ts"() {
     "use strict";
@@ -9208,6 +9256,7 @@ var init_defi_market_data = __esm({
       optimism: "optimism",
       polygon: "polygon_pos"
     };
+    newPoolsCache = null;
     SETTLEMENT = /* @__PURE__ */ new Set(["USDC", "USDBC", "USDC.E"]);
     callChain = Promise.resolve();
     lastCallAt = 0;
@@ -17213,11 +17262,18 @@ You ALWAYS produce proposals that are ready to submit \u2014 no placeholders lik
 // server/services/crypto-ports.ts
 var crypto_ports_exports = {};
 __export(crypto_ports_exports, {
+  FLOW_RUNNERS: () => FLOW_RUNNERS,
+  NEW_TOKEN_RUNNERS: () => NEW_TOKEN_RUNNERS,
   SHADOW_ONLY_TESTS: () => SHADOW_ONLY_TESTS,
+  buyShare: () => buyShare,
   makePortRunners: () => makePortRunners,
   portsEnabled: () => portsEnabled,
   runnerEnabled: () => runnerEnabled
 });
+function buyShare(w) {
+  const t = (w?.buys ?? 0) + (w?.sells ?? 0);
+  return t > 0 ? w.buys / t : null;
+}
 function runnerEnabled(id) {
   return process.env[`CRYPTO_RUNNER_${id.toUpperCase()}`] !== "off";
 }
@@ -17276,7 +17332,7 @@ function bias(closes, f, s) {
   if (a == null || b == null) return null;
   return a > b ? "BUY" : a < b ? "SELL" : null;
 }
-function makePortRunners(fetchBars2) {
+function makePortRunners(fetchBars2, entryOf = () => void 0) {
   const sniper = async (symbol, cfg) => {
     const S = "sniper";
     const m15 = await fetchBars2(symbol, "15m", 120, chainOf(cfg));
@@ -17412,21 +17468,74 @@ function makePortRunners(fetchBars2) {
     const dir = brk.c > hi ? "BUY" : "SELL";
     return res(S, "signal", `${symbol}: Saturday 00\u201312 UTC range ${lo.toFixed(0)}\u2013${hi.toFixed(0)} broken ${dir === "BUY" ? "up" : "down"} on a 1h close`, price, 62, dir);
   };
+  const minTx = () => Number(process.env.CRYPTO_FLOW_MIN_TXNS_H1 ?? 20);
+  const flowOf = (symbol, S) => {
+    const e = entryOf(symbol);
+    if (!e?.flow) return res(S, "watching", `${symbol}: no pool flow data`, e?.priceUsd ?? null, 0);
+    return { f: e.flow, e };
+  };
+  const isRes = (x) => !!x && typeof x.decision === "string";
+  const dipSniper = async (symbol) => {
+    const S = "dip_sniper";
+    const x = flowOf(symbol, S);
+    if (isRes(x)) return x;
+    const ch = x.f.change24hPct, bs = buyShare(x.f.h1), n = x.f.h1.buys + x.f.h1.sells;
+    if (ch != null && ch <= -4 && ch >= -40 && bs != null && bs > 0.62 && n >= minTx())
+      return res(S, "signal", `${symbol}: ${ch.toFixed(1)}% on 24h but ${(bs * 100).toFixed(0)}% of ${n} trades in the last hour are buys \u2014 accumulation into the dip`, x.e.priceUsd, 66, "BUY");
+    return res(S, "watching", `${symbol}: 24h ${ch?.toFixed(1) ?? "n/a"}%, 1h buys ${bs != null ? (bs * 100).toFixed(0) : "n/a"}%`, x.e.priceUsd, 30);
+  };
+  const volumeExplosion = async (symbol) => {
+    const S = "volume_explosion";
+    const x = flowOf(symbol, S);
+    if (isRes(x)) return x;
+    const v1 = x.f.volume1hUsd ?? 0, avg = (x.e.volume24Usd ?? 0) / 24, bs = buyShare(x.f.h1);
+    const mult = avg > 0 ? v1 / avg : 0;
+    if (mult >= Number(process.env.CRYPTO_VOLX_MULT ?? 4) && bs != null && bs > 0.52)
+      return res(S, "signal", `${symbol}: last-hour volume ${mult.toFixed(1)}x the 24h hourly average, ${(bs * 100).toFixed(0)}% buys`, x.e.priceUsd, 64, "BUY");
+    return res(S, "watching", `${symbol}: 1h volume ${mult.toFixed(1)}x average`, x.e.priceUsd, 30);
+  };
+  const flowFollower = async (symbol) => {
+    const S = "flow_follower";
+    const x = flowOf(symbol, S);
+    if (isRes(x)) return x;
+    const n1 = x.f.h1.buys + x.f.h1.sells, n24 = x.f.h24.buys + x.f.h24.sells;
+    const avg1 = n1 > 0 && x.f.volume1hUsd ? x.f.volume1hUsd / n1 : 0, avg24 = n24 > 0 ? (x.e.volume24Usd ?? 0) / n24 : 0;
+    const sizeX = avg24 > 0 ? avg1 / avg24 : 0, bs = buyShare(x.f.h1), ch = x.f.change1hPct;
+    if (sizeX >= 1.5 && bs != null && bs > 0.58 && n1 >= minTx() && ch != null && ch >= -5 && ch <= 20)
+      return res(S, "signal", `${symbol}: average trade ${sizeX.toFixed(1)}x the 24h norm, ${(bs * 100).toFixed(0)}% buys, 1h ${ch.toFixed(1)}% \u2014 large buyers before the move`, x.e.priceUsd, 64, "BUY");
+    return res(S, "watching", `${symbol}: trade size ${sizeX.toFixed(1)}x norm`, x.e.priceUsd, 30);
+  };
+  const memeVelocity = async (symbol) => {
+    const S = "meme_velocity";
+    const x = flowOf(symbol, S);
+    if (isRes(x)) return x;
+    if (!x.e.newToken) return res(S, "watching", `${symbol}: not a new pool`, x.e.priceUsd, 0);
+    const ch = x.f.change1hPct, bs = buyShare(x.f.h1), n = x.f.h1.buys + x.f.h1.sells;
+    if (ch != null && ch >= Number(process.env.CRYPTO_MEME_MIN_1H_PCT ?? 20) && bs != null && bs > 0.55 && n >= minTx())
+      return res(S, "signal", `${symbol}: new pool up ${ch.toFixed(0)}% in the last hour, ${(bs * 100).toFixed(0)}% buys over ${n} trades`, x.e.priceUsd, 60, "BUY");
+    return res(S, "watching", `${symbol}: new pool, 1h ${ch?.toFixed(0) ?? "n/a"}%`, x.e.priceUsd, 25);
+  };
   const all = {
     sniper,
     smc_ote: smcOte,
     vwap_reversion: vwapReversion,
     liquidity_sweep: liquiditySweep,
     session_breakout: sessionBreakout,
-    btc_weekend_range: btcWeekendRange
+    btc_weekend_range: btcWeekendRange,
+    dip_sniper: dipSniper,
+    volume_explosion: volumeExplosion,
+    flow_follower: flowFollower,
+    meme_velocity: memeVelocity
   };
   if (!portsEnabled()) return {};
   return Object.fromEntries(Object.entries(all).filter(([id]) => runnerEnabled(id)));
 }
-var SHADOW_ONLY_TESTS, portsEnabled, last, res, chainOf;
+var FLOW_RUNNERS, NEW_TOKEN_RUNNERS, SHADOW_ONLY_TESTS, portsEnabled, last, res, chainOf;
 var init_crypto_ports = __esm({
   "server/services/crypto-ports.ts"() {
     "use strict";
+    FLOW_RUNNERS = /* @__PURE__ */ new Set(["dip_sniper", "volume_explosion", "flow_follower", "meme_velocity"]);
+    NEW_TOKEN_RUNNERS = /* @__PURE__ */ new Set(["meme_velocity"]);
     SHADOW_ONLY_TESTS = /* @__PURE__ */ new Set(["session_breakout", "btc_weekend_range"]);
     portsEnabled = () => process.env.CRYPTO_PORTS !== "off";
     last = (a) => a[a.length - 1];
@@ -17463,7 +17572,12 @@ function ensureCryptoShadowTables() {
       liquidity_usd double precision, change_1h double precision, change_24h double precision, volume_24h_usd double precision,
       atr_pct double precision, h1_trend text, h4_trend text, htf_aligned boolean, live_gate_blocked boolean,
       btc_change_24h double precision, hour_utc int, day_of_week int, score real, tags text[], advice_at_entry text,
-      closed_at timestamptz, exit_reason text, hold_minutes double precision, net_pct double precision)`)).then(() => void 0).catch((e) => {
+      closed_at timestamptz, exit_reason text, hold_minutes double precision, net_pct double precision)`)).then(() => pool.query(`ALTER TABLE crypto_shadow_context
+        ADD COLUMN IF NOT EXISTS buy_share_h1 double precision, ADD COLUMN IF NOT EXISTS buy_share_h24 double precision,
+        ADD COLUMN IF NOT EXISTS txns_h1 int, ADD COLUMN IF NOT EXISTS txns_h24 int,
+        ADD COLUMN IF NOT EXISTS buyers_h1 int, ADD COLUMN IF NOT EXISTS sellers_h1 int,
+        ADD COLUMN IF NOT EXISTS market_cap_usd double precision, ADD COLUMN IF NOT EXISTS token_age_hours double precision,
+        ADD COLUMN IF NOT EXISTS new_token boolean`)).then(() => void 0).catch((e) => {
       _ensured2 = null;
       throw e;
     });
@@ -17492,6 +17606,10 @@ function pctChange(bars, hoursBack) {
 }
 function bucketsOf(c) {
   const b = {};
+  if (c.buy_share_h1 != null) b.buyShare = c.buy_share_h1 < 0.45 ? "sellers<45%" : c.buy_share_h1 < 0.55 ? "balanced" : c.buy_share_h1 < 0.65 ? "buyers55-65%" : "buyers65%+";
+  if (c.txns_h1 != null) b.activity = c.txns_h1 < 20 ? "quiet<20tx/h" : c.txns_h1 < 100 ? "20-100tx/h" : c.txns_h1 < 500 ? "100-500tx/h" : "500+tx/h";
+  if (c.market_cap_usd != null && c.market_cap_usd > 0) b.mcap = c.market_cap_usd < 1e7 ? "<10M" : c.market_cap_usd < 1e8 ? "10-100M" : c.market_cap_usd < 1e9 ? "100M-1B" : "1B+";
+  if (c.token_age_hours != null) b.age = c.token_age_hours < 72 ? "<3d" : c.token_age_hours < 720 ? "3-30d" : "30d+";
   if (c.direction) b.side = c.direction;
   if (c.hour_utc != null) {
     const s = Math.floor(c.hour_utc / 4) * 4;
@@ -17534,7 +17652,7 @@ async function computeCryptoShadowStats(userId, force = false) {
   if (!force && hit && Date.now() - hit.at < 15 * 6e4) return hit.stats;
   await ensureCryptoShadowTables();
   const { rows } = await pool.query(
-    `SELECT strategy, direction, hour_utc, liquidity_usd, change_24h, atr_pct, htf_aligned, btc_change_24h, net_pct FROM crypto_shadow_context
+    `SELECT strategy, direction, hour_utc, liquidity_usd, change_24h, atr_pct, htf_aligned, btc_change_24h, buy_share_h1, txns_h1, market_cap_usd, token_age_hours, net_pct FROM crypto_shadow_context
       WHERE user_id=$1 AND closed_at IS NOT NULL AND net_pct IS NOT NULL AND closed_at >= now() - interval '60 days'`,
     [userId]
   );
@@ -17635,7 +17753,9 @@ async function runCryptoShadowAll(userId, cfg, symbols, chain, slippageCapBps, d
     const uni = deps.universe(symbol);
     if (!uni?.poolAddress) continue;
     const und = underlyingOf2(symbol);
-    const results = (await Promise.all(Object.entries(deps.runners).map(([k, fn]) => fn(symbol, shadowCfg).then((r) => ({ ...r, strategy: r.strategy || k })).catch(() => null)))).filter((r) => !!r);
+    const { NEW_TOKEN_RUNNERS: NEW_TOKEN_RUNNERS2, buyShare: buyShare2 } = await Promise.resolve().then(() => (init_crypto_ports(), crypto_ports_exports));
+    const runnersFor = Object.entries(deps.runners).filter(([k]) => uni.newToken ? NEW_TOKEN_RUNNERS2.has(k) : !NEW_TOKEN_RUNNERS2.has(k));
+    const results = (await Promise.all(runnersFor.map(([k, fn]) => fn(symbol, shadowCfg).then((r) => ({ ...r, strategy: r.strategy || k })).catch(() => null)))).filter((r) => !!r);
     const ORIGINAL = /* @__PURE__ */ new Set(["trend_following", "momentum", "order_flow", "volume_profile", "breakout", "structure", "divergence"]);
     const dirs = results.filter((r) => r.direction && ORIGINAL.has(r.strategy));
     const buys = dirs.filter((r) => r.direction === "BUY"), sells = dirs.filter((r) => r.direction === "SELL");
@@ -17665,14 +17785,28 @@ async function runCryptoShadowAll(userId, cfg, symbols, chain, slippageCapBps, d
       const direction = sig.direction === "SELL" ? "hypothetical_short" : "long";
       const short = direction !== "long";
       const slPct = Math.min(hi, Math.max(lo, h1.atr * atrMult / price * 100));
-      const costBps = estimateCryptoRoundTripBps2({ notionalUsd: NOTIONAL(), liquidityUsd: uni.liquidityUsd, slippageCapBps }).roundTripBps;
+      const costBps = estimateCryptoRoundTripBps2({ notionalUsd: NOTIONAL(), liquidityUsd: uni.liquidityUsd, slippageCapBps }).roundTripBps + (uni.newToken ? Number(process.env.CRYPTO_MEME_EXTRA_COST_BPS ?? 200) : 0);
       if (floorMult > 0 && slPct < floorMult * costBps / 100) continue;
       const stop = short ? price * (1 + slPct / 100) : price * (1 - slPct / 100);
       const target = short ? price * (1 - slPct * rr / 100) : price * (1 + slPct * rr / 100);
       const aligned = h4Trend == null ? null : short ? h4Trend === "BEARISH" : h4Trend === "BULLISH";
       const gated = await deps.gate(symbol, sig, cfg).then((g) => g.decision !== "signal").catch(() => null);
       const hourUtc = (/* @__PURE__ */ new Date()).getUTCHours();
-      const ctx = { hour_utc: hourUtc, liquidity_usd: uni.liquidityUsd, change_24h: ch24, atr_pct: h1.atr / price * 100, htf_aligned: aligned, btc_change_24h: btcChange, direction: short ? "short" : "long" };
+      const fl = uni.flow;
+      const created = fl?.poolCreatedAt ? new Date(fl.poolCreatedAt).getTime() : NaN;
+      const ctx = {
+        hour_utc: hourUtc,
+        liquidity_usd: uni.liquidityUsd,
+        change_24h: ch24,
+        atr_pct: h1.atr / price * 100,
+        htf_aligned: aligned,
+        btc_change_24h: btcChange,
+        direction: short ? "short" : "long",
+        buy_share_h1: fl ? buyShare2(fl.h1) : null,
+        txns_h1: fl ? fl.h1.buys + fl.h1.sells : null,
+        market_cap_usd: fl ? fl.marketCapUsd ?? fl.fdvUsd : null,
+        token_age_hours: Number.isFinite(created) ? (Date.now() - created) / 36e5 : null
+      };
       const advice = adviceFor(stats, strat, ctx);
       const tags = [];
       if (ch1 != null && Math.abs(ch1) >= 3) tags.push(ch1 > 0 ? "hot_hour" : "dump_hour");
@@ -17681,6 +17815,9 @@ async function runCryptoShadowAll(userId, cfg, symbols, chain, slippageCapBps, d
       if (aligned === true) tags.push("htf_aligned");
       if (gated) tags.push("live_gate_would_block");
       if (uni.liquidityUsd < 25e4) tags.push("thin_pool");
+      if (uni.newToken) tags.push("new_token");
+      if (ctx.buy_share_h1 != null && ctx.buy_share_h1 > 0.65) tags.push("buyers_dominant");
+      if (ctx.buy_share_h1 != null && ctx.buy_share_h1 < 0.45) tags.push("sellers_dominant");
       const ins = await pool.query(
         `INSERT INTO crypto_shadow_trades (user_id, strategy, symbol, underlying, chain, token_address, pool_address, direction, entry_price, stop_loss, take_profit,
            sl_pct, notional_usd, cost_bps, score, max_hours) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16) RETURNING id`,
@@ -17690,8 +17827,9 @@ async function runCryptoShadowAll(userId, cfg, symbols, chain, slippageCapBps, d
       if (!id) continue;
       await pool.query(
         `INSERT INTO crypto_shadow_context (trade_id, user_id, strategy, symbol, direction, liquidity_usd, change_1h, change_24h, volume_24h_usd, atr_pct,
-           h1_trend, h4_trend, htf_aligned, live_gate_blocked, btc_change_24h, hour_utc, day_of_week, score, tags, advice_at_entry)
-         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20) ON CONFLICT (trade_id) DO NOTHING`,
+           h1_trend, h4_trend, htf_aligned, live_gate_blocked, btc_change_24h, hour_utc, day_of_week, score, tags, advice_at_entry,
+           buy_share_h1, buy_share_h24, txns_h1, txns_h24, buyers_h1, sellers_h1, market_cap_usd, token_age_hours, new_token)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25,$26,$27,$28,$29) ON CONFLICT (trade_id) DO NOTHING`,
         [
           id,
           userId,
@@ -17712,7 +17850,16 @@ async function runCryptoShadowAll(userId, cfg, symbols, chain, slippageCapBps, d
           (/* @__PURE__ */ new Date()).getUTCDay(),
           sig.score ?? null,
           tags,
-          advice
+          advice,
+          ctx.buy_share_h1,
+          fl ? buyShare2(fl.h24) : null,
+          ctx.txns_h1,
+          fl ? fl.h24.buys + fl.h24.sells : null,
+          fl?.h1.buyers ?? null,
+          fl?.h1.sellers ?? null,
+          ctx.market_cap_usd,
+          ctx.token_age_hours,
+          !!uni.newToken
         ]
       ).catch(() => {
       });
@@ -32835,7 +32982,9 @@ async function refreshDefiUniverse(chain) {
       address: t.address,
       poolAddress: t.poolAddress,
       priceUsd: t.priceUsd,
-      liquidityUsd: t.liquidityUsd
+      liquidityUsd: t.liquidityUsd,
+      volume24Usd: t.volume24Usd,
+      flow: t.flow
     });
   }
   return tokens.map((t) => t.symbol.toUpperCase());
@@ -34291,12 +34440,25 @@ async function scanOneUser(userId) {
   try {
     const _chainS = config.defiChain || "base";
     const _defiSyms = symbols.filter((s) => !!getDefiUniverseEntry(s, _chainS));
+    if (process.env.CRYPTO_PORTS !== "off" && process.env.CRYPTO_RUNNER_MEME_VELOCITY !== "off") {
+      try {
+        const { discoverNewPoolTokens: discoverNewPoolTokens2 } = await Promise.resolve().then(() => (init_defi_market_data(), defi_market_data_exports));
+        const { isTokenizedAsset: _rwa } = await Promise.resolve().then(() => (init_crypto_paper(), crypto_paper_exports));
+        for (const t of await discoverNewPoolTokens2(_chainS, Number(process.env.CRYPTO_MEME_MIN_LIQ_USD ?? 25e3))) {
+          const k = universeKey(_chainS, t.symbol);
+          if (_rwa(t.symbol) || defiUniverse.has(k) && !defiUniverse.get(k).newToken) continue;
+          defiUniverse.set(k, { chain: _chainS, address: t.address, poolAddress: t.poolAddress, priceUsd: t.priceUsd, liquidityUsd: t.liquidityUsd, volume24Usd: t.volume24Usd, flow: t.flow, newToken: true });
+          if (!_defiSyms.includes(t.symbol)) _defiSyms.push(t.symbol);
+        }
+      } catch {
+      }
+    }
     if (_defiSyms.length) {
       const { runCryptoShadowAll: runCryptoShadowAll2 } = await Promise.resolve().then(() => (init_crypto_shadow(), crypto_shadow_exports));
       const { makePortRunners: makePortRunners2, runnerEnabled: runnerEnabled2 } = await Promise.resolve().then(() => (init_crypto_ports(), crypto_ports_exports));
       const _shadowRunners = {
         ...Object.fromEntries(Object.entries(STRATEGY_RUNNERS).filter(([id]) => runnerEnabled2(id))),
-        ...makePortRunners2(fetchBars)
+        ...makePortRunners2(fetchBars, (sym) => getDefiUniverseEntry(sym, _chainS))
       };
       const _r = await runCryptoShadowAll2(userId, config, _defiSyms, _chainS, config.defiSlippageBps ?? 100, {
         runners: _shadowRunners,

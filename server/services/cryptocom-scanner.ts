@@ -49,7 +49,7 @@ interface StrategyResult {
 //
 // Registered per cycle by refreshDefiUniverse(). Keyed by the symbol the rest of
 // the engine passes around, so strategy code is unchanged.
-const defiUniverse = new Map<string, { chain: string; address: string; poolAddress: string; priceUsd: number; liquidityUsd: number }>();
+const defiUniverse = new Map<string, { chain: string; address: string; poolAddress: string; priceUsd: number; liquidityUsd: number; volume24Usd?: number; flow?: import('./defi-market-data').PoolFlow; newToken?: boolean }>();
 
 // Compound key: CHAIN + symbol. A single process serves every user, and this
 // map is rebuilt per user per cycle from whatever chain their config points
@@ -119,7 +119,7 @@ async function refreshDefiUniverse(chain: string): Promise<string[]> {
   for (const t of tokens) {
     defiUniverse.set(universeKey(chain, t.symbol), {
       chain, address: t.address, poolAddress: t.poolAddress,
-      priceUsd: t.priceUsd, liquidityUsd: t.liquidityUsd,
+      priceUsd: t.priceUsd, liquidityUsd: t.liquidityUsd, volume24Usd: t.volume24Usd, flow: t.flow,
     });
   }
   return tokens.map((t) => t.symbol.toUpperCase());
@@ -1825,6 +1825,22 @@ async function scanOneUser(userId: number): Promise<void> {
   try {
     const _chainS = (config as any).defiChain || 'base';
     const _defiSyms = symbols.filter((s) => !!getDefiUniverseEntry(s, _chainS));
+    // Meme/new-token shadow test (step 4): new Base pools >= $25k liquidity,
+    // one shared GeckoTerminal call per discovery TTL. Registered in the
+    // universe flagged newToken so ONLY the meme runner evaluates them (the
+    // lane, crypto-shadow.ts) — never the main scan, paper or live.
+    if (process.env.CRYPTO_PORTS !== 'off' && process.env.CRYPTO_RUNNER_MEME_VELOCITY !== 'off') {
+      try {
+        const { discoverNewPoolTokens } = await import('./defi-market-data');
+        const { isTokenizedAsset: _rwa } = await import('./crypto-paper');
+        for (const t of await discoverNewPoolTokens(_chainS, Number(process.env.CRYPTO_MEME_MIN_LIQ_USD ?? 25_000))) {
+          const k = universeKey(_chainS, t.symbol);
+          if (_rwa(t.symbol) || (defiUniverse.has(k) && !defiUniverse.get(k)!.newToken)) continue;
+          defiUniverse.set(k, { chain: _chainS, address: t.address, poolAddress: t.poolAddress, priceUsd: t.priceUsd, liquidityUsd: t.liquidityUsd, volume24Usd: t.volume24Usd, flow: t.flow, newToken: true });
+          if (!_defiSyms.includes(t.symbol)) _defiSyms.push(t.symbol);
+        }
+      } catch { /* new-pool discovery is optional */ }
+    }
     if (_defiSyms.length) {
       const { runCryptoShadowAll } = await import('./crypto-shadow');
       // Original runners + the step-3 ports (crypto-ports.ts). Ports live ONLY
@@ -1833,7 +1849,7 @@ async function scanOneUser(userId: number): Promise<void> {
       const { makePortRunners, runnerEnabled } = await import('./crypto-ports');
       const _shadowRunners: Record<string, any> = {
         ...Object.fromEntries(Object.entries(STRATEGY_RUNNERS).filter(([id]) => runnerEnabled(id))),
-        ...makePortRunners(fetchBars),
+        ...makePortRunners(fetchBars, (sym) => getDefiUniverseEntry(sym, _chainS)),
       };
       const _r = await runCryptoShadowAll(userId, config, _defiSyms, _chainS, (config as any).defiSlippageBps ?? 100, {
         runners: _shadowRunners as any,

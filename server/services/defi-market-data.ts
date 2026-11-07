@@ -65,6 +65,66 @@ export interface DefiToken {
   priceUsd: number;
   liquidityUsd: number;
   volume24Usd: number;
+  /** Order-flow snapshot from the same pool page (no extra API call). */
+  flow?: PoolFlow;
+}
+
+/** Buy/sell activity + basics GeckoTerminal returns on every pool row. */
+export interface PoolFlow {
+  h1: { buys: number; sells: number; buyers: number | null; sellers: number | null };
+  h24: { buys: number; sells: number; buyers: number | null; sellers: number | null };
+  volume1hUsd: number | null;
+  change1hPct: number | null;
+  change24hPct: number | null;
+  fdvUsd: number | null;
+  marketCapUsd: number | null;
+  poolCreatedAt: string | null;
+  at: number;
+}
+
+export function parsePoolFlow(a: any): PoolFlow {
+  const n = (x: any) => { const v = Number(x); return Number.isFinite(v) ? v : null; };
+  const tx = (w: any) => ({ buys: Number(w?.buys) || 0, sells: Number(w?.sells) || 0, buyers: n(w?.buyers), sellers: n(w?.sellers) });
+  return {
+    h1: tx(a?.transactions?.h1), h24: tx(a?.transactions?.h24),
+    volume1hUsd: n(a?.volume_usd?.h1),
+    change1hPct: n(a?.price_change_percentage?.h1), change24hPct: n(a?.price_change_percentage?.h24),
+    fdvUsd: n(a?.fdv_usd), marketCapUsd: n(a?.market_cap_usd),
+    poolCreatedAt: a?.pool_created_at ?? null, at: Date.now(),
+  };
+}
+
+let newPoolsCache: { key: string; at: number; tokens: DefiToken[] } | null = null;
+/**
+ * Newly created pools on a chain (meme/new-token shadow tests). ONE
+ * GeckoTerminal call per discovery TTL, shared by every user; tokens below
+ * minLiquidityUsd (25k) or older than maxAgeHours (72) are dropped.
+ */
+export async function discoverNewPoolTokens(chainKey: string, minLiquidityUsd = 25_000, maxAgeHours = 72, maxTokens = 5): Promise<DefiToken[]> {
+  const net = GT_NETWORK[chainKey];
+  if (!net) return [];
+  const key = `${chainKey}:${minLiquidityUsd}:${maxAgeHours}:${maxTokens}`;
+  if (newPoolsCache && newPoolsCache.key === key && Date.now() - newPoolsCache.at < callBudget().discoveryTtlMs) return newPoolsCache.tokens;
+  const out = new Map<string, DefiToken>();
+  try {
+    const d = await gt(`/networks/${net}/new_pools?page=1`);
+    for (const p of (d?.data ?? [])) {
+      const a = p?.attributes ?? {};
+      const liq = Number(a.reserve_in_usd ?? 0), price = Number(a.base_token_price_usd ?? 0);
+      const created = a.pool_created_at ? new Date(a.pool_created_at).getTime() : NaN;
+      if (!a.address || !price || liq < minLiquidityUsd) continue;
+      if (!Number.isFinite(created) || Date.now() - created > maxAgeHours * 3_600_000) continue;
+      const symbol = String(a.name ?? '').split('/')[0].trim().toUpperCase();
+      if (!symbol || SETTLEMENT.has(symbol)) continue;
+      const address = String(p?.relationships?.base_token?.data?.id ?? '').split('_').pop() ?? '';
+      if (!/^0x[a-fA-F0-9]{40}$/.test(address)) continue;
+      const prev = out.get(address);
+      if (!prev || liq > prev.liquidityUsd) out.set(address, { symbol, address, poolAddress: a.address, priceUsd: price, liquidityUsd: liq, volume24Usd: Number(a.volume_usd?.h24 ?? 0), flow: parsePoolFlow(a) });
+    }
+  } catch (e: any) { console.warn(`[defi-market-data] new_pools failed for ${chainKey}: ${e?.message ?? e}`); }
+  const tokens = Array.from(out.values()).sort((x, y) => y.liquidityUsd - x.liquidityUsd).slice(0, maxTokens);
+  newPoolsCache = { key, at: Date.now(), tokens };
+  return tokens;
 }
 
 /**
@@ -173,7 +233,7 @@ export async function discoverDefiTokens(chainKey: string, opts: DiscoveryOption
 
         const prev = best.get(address);
         if (!prev || liq > prev.liquidityUsd) {
-          best.set(address, { symbol, address, poolAddress, priceUsd: price, liquidityUsd: liq, volume24Usd: vol });
+          best.set(address, { symbol, address, poolAddress, priceUsd: price, liquidityUsd: liq, volume24Usd: vol, flow: parsePoolFlow(a) });
         }
       }
     } catch (e: any) {
