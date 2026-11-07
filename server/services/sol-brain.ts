@@ -27,6 +27,11 @@ const REFRESH_TTL_MS = 60 * 1000;
 const BAD_PRICE_ERA_END = '2026-11-06 19:15:00';
 const QUARANTINE_MAX_HOLD_MIN = 1;
 const QUARANTINE_MIN_ABS_RETURN_PCT = 40;
+// Tokens the junk-pool scan price is known to have mispriced (RAY $4.00 vs
+// ~$1.61, mSOL 331.87 vs ~136.5). Their bad prints also landed hours into a
+// hold (rows held 9-35h booked +142-148%), which the hold-time signature
+// misses, so pre-fix ≥40% moves on these symbols are quarantined at ANY hold.
+export const BAD_PRICE_SYMBOLS = ['RAY', 'mSOL'];
 function isFakeWinSignature(holdingMinutes: number | null | undefined, returnPct: number | null | undefined): boolean {
   return holdingMinutes != null && holdingMinutes <= QUARANTINE_MAX_HOLD_MIN
     && returnPct != null && Math.abs(returnPct) >= QUARANTINE_MIN_ABS_RETURN_PCT;
@@ -108,7 +113,8 @@ async function backfillIfEmpty(userId: number): Promise<void> {
     const closedMs = t.closed_at ? new Date(t.closed_at).getTime() : NaN;
     if (Number.isFinite(openedMs) && Number.isFinite(closedMs)
         && closedMs < Date.parse('2026-11-06T19:15:00Z')
-        && closedMs - openedMs < 120_000 && Math.abs(pnl) >= QUARANTINE_MIN_ABS_RETURN_PCT) continue;
+        && Math.abs(pnl) >= QUARANTINE_MIN_ABS_RETURN_PCT
+        && (closedMs - openedMs < 120_000 || BAD_PRICE_SYMBOLS.includes(t.token_symbol))) continue;
     const d = t.closed_at ? new Date(t.closed_at) : new Date();
     await pool.query(
       `INSERT INTO sol_brain_outcomes (user_id, symbol, strategy, direction, result, profit_loss, return_pct, hour_utc, source, closed_at)
@@ -124,9 +130,10 @@ export async function learnFromSolTrades(userId: number): Promise<SolBrain> {
   const { rows } = await pool.query(
     `SELECT symbol, strategy, direction, result, profit_loss, hour_utc FROM sol_brain_outcomes
      WHERE user_id=$1
-       AND NOT (closed_at < TIMESTAMP '${BAD_PRICE_ERA_END}' AND holding_minutes IS NOT NULL
-                AND holding_minutes <= ${QUARANTINE_MAX_HOLD_MIN} AND abs(profit_loss) >= ${QUARANTINE_MIN_ABS_RETURN_PCT})
-     ORDER BY closed_at DESC LIMIT 2000`, [userId]);
+       -- return_pct, not profit_loss: profit_loss is in SOL (~0.09) and never reached 40.
+       AND NOT (closed_at < TIMESTAMP '${BAD_PRICE_ERA_END}' AND abs(COALESCE(return_pct, 0)) >= ${QUARANTINE_MIN_ABS_RETURN_PCT}
+                AND ((holding_minutes IS NOT NULL AND holding_minutes <= ${QUARANTINE_MAX_HOLD_MIN}) OR symbol = ANY($2::text[])))
+     ORDER BY closed_at DESC LIMIT 2000`, [userId, BAD_PRICE_SYMBOLS]);
 
   const symbols: Record<string, SymbolKnowledge> = {};
   const winSum: Record<string, number> = {}, winN: Record<string, number> = {}, lossSum: Record<string, number> = {}, lossN: Record<string, number> = {};

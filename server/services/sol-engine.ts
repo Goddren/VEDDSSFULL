@@ -563,6 +563,7 @@ async function upsertPosition(userId: number, pos: SolAutoPosition): Promise<voi
       closePnlPct: pos.closePnlPct,
       costPct: pos.costPct,
       grossPnlPct: pos.grossPnlPct,
+      exitReason: pos.exitReason ?? pos.closeReason ?? null,
       updatedAt: new Date(),
     }).onConflictDoUpdate({
       target: solEnginePositions.positionId,
@@ -573,6 +574,7 @@ async function upsertPosition(userId: number, pos: SolAutoPosition): Promise<voi
         closePnlPct: pos.closePnlPct,
         costPct: pos.costPct,
         grossPnlPct: pos.grossPnlPct,
+        exitReason: pos.exitReason ?? pos.closeReason ?? null,
         tokenAmount: pos.tokenAmount,
         updatedAt: new Date(),
       },
@@ -647,6 +649,7 @@ async function loadEngineStateFromDb(userId: number, state: SolEngineState): Pro
         closePnlPct: row.closePnlPct ?? undefined,
         costPct: row.costPct ?? undefined,
         grossPnlPct: row.grossPnlPct ?? undefined,
+        exitReason: row.exitReason ?? undefined,
       };
       if (pos.mode === 'paper') {
         if (pos.status === 'open') state.paperPositions.push(pos);
@@ -1635,7 +1638,8 @@ Output a JSON array only (no markdown):
 
     // Shadow lessons (shadow-lessons.ts): Sol paper evidence, advice only.
     const _solLessons = await import('./shadow-lessons').then((m) => m.getShadowLessonsText(userId, 'sol', 8)).catch(() => '');
-    const userPrompt = `${_solLessons ? `${_solLessons}\n\n` : ''}SIGNALS:\n${signalsText}\n\nOPEN POSITIONS:\n${positionsText}`;
+    const _solShadowStats = await import('./sol-shadow-stats').then((m) => m.getSolShadowStatsText(userId, 12)).catch(() => '');
+    const userPrompt = `${_solLessons ? `${_solLessons}\n\n` : ''}${_solShadowStats ? `${_solShadowStats}\n\n` : ''}SIGNALS:\n${signalsText}\n\nOPEN POSITIONS:\n${positionsText}`;
 
     const response = await openai.chat.completions.create({
       model: (openai as any).defaultModel || 'gpt-4o',
@@ -1853,6 +1857,7 @@ async function monitorPaperPositions(userId: number, state: SolEngineState) {
       pos.grossPnlPct = gainPct;
       pos.closePnlPct = netPct;
       pos.closeReason = reason;
+      pos.exitReason = reason;
 
       if (unpriced) {
         // Close it (frees the slot) but record NO result: close_pnl_pct stays
@@ -1947,24 +1952,41 @@ async function monitorPaperPositions(userId: number, state: SolEngineState) {
 }
 
 // ── Shadow-test lane ────────────────────────────────────────────────────────
-// Strategies flagged shadowTest (Pump Scalp 60) are evaluated on EVERY scan
-// and traded virtually — mode 'shadow' rows in sol_engine_positions —
+// Since 2026-11-07 EVERY strategy in SOL_STRATEGIES (except 'adaptive', which
+// only picks among the others) is evaluated on EVERY scan with its own entry
+// filter and traded virtually — mode 'shadow' rows in sol_engine_positions —
 // whether or not the user selected the strategy and whether paper/live
 // trading is on. A running engine is the only requirement. Shadow trades
 // never touch the paper portfolio, the live wallet, the daily trade count
 // or the auto-trade stats; closed ones land in the shadow ledger (source
 // 'sol_shadow') where the lessons job and the weekly review read them.
-// Kill switch: SOL_PUMP_SHADOW=off.
-export const SHADOW_MAX_OPEN = 5;
+// Each entry also writes its market context to sol_shadow_context
+// (sol-shadow-stats.ts), which the AI review reads as per-strategy advice.
+// Caps: SOL_SHADOW_MAX_PER_STRATEGY (3) open per strategy, SOL_SHADOW_MAX_OPEN
+// (20) in total; no duplicate token within a strategy; 30-min re-entry
+// cooldown per strategy+token. Sized at a nominal SOL_SHADOW_SIZE_SOL (0.25).
+// Kill switches: SOL_PUMP_SHADOW=off (whole lane), SOL_SHADOW_ALL=off (back
+// to Pump Scalp 60 only).
+const _envInt = (n: string, d: number) => { const v = Number(process.env[n]); return Number.isFinite(v) && v > 0 ? Math.floor(v) : d; };
+export const SHADOW_MAX_OPEN = _envInt('SOL_SHADOW_MAX_OPEN', 20);
+export const SHADOW_MAX_PER_STRATEGY = _envInt('SOL_SHADOW_MAX_PER_STRATEGY', 3);
+const SHADOW_SIZE_SOL = Number(process.env.SOL_SHADOW_SIZE_SOL) > 0 ? Number(process.env.SOL_SHADOW_SIZE_SOL) : 0.25;
 
 export function shadowTestEnabled(): boolean {
   return process.env.SOL_PUMP_SHADOW !== 'off';
+}
+
+/** Strategies traded in the shadow lane. */
+export function shadowStrategies(): SolStrategy[] {
+  if (process.env.SOL_SHADOW_ALL === 'off') return SOL_STRATEGIES.filter(s => s.shadowTest);
+  return SOL_STRATEGIES.filter(s => s.id !== 'adaptive');
 }
 
 /** Pure entry decision for the shadow lane: buy signal + the strategy's
  *  confidence bar + its own gate (Pump Scalp 60: the hot-hour pump gate). */
 export function shadowEntryCandidate(analysis: TokenAnalysis, strat: SolStrategy): boolean {
   if (!(analysis.signal === 'BUY' || analysis.signal === 'STRONG_BUY')) return false;
+  if (strat.minSignal === 'STRONG_BUY' && analysis.signal !== 'STRONG_BUY') return false;
   if (analysis.confidence < strat.minConfidence) return false;
   if (strat.id === 'pump_scalp_60') return passesPumpScalpGate(analysis.token);
   return passesStrategyFilter(analysis, strat);
@@ -1972,51 +1994,80 @@ export function shadowEntryCandidate(analysis: TokenAnalysis, strat: SolStrategy
 
 async function evaluateShadowEntries(userId: number, state: SolEngineState, scanResult: TokenAnalysis[]) {
   if (!shadowTestEnabled()) return;
-  const strat = SOL_STRATEGIES.find(s => s.id === 'pump_scalp_60' && s.shadowTest);
-  if (!strat) return;
-  for (const analysis of scanResult) {
-    if (state.shadowPositions.filter(p => p.status === 'open').length >= SHADOW_MAX_OPEN) break;
-    if (!shadowEntryCandidate(analysis, strat)) continue;
-    const mint = analysis.token.address;
-    if (!mint) continue;
-    if (state.shadowPositions.some(p => p.mint === mint && p.status === 'open')) continue;
-    if (state.closedShadowPositions.some(p => p.mint === mint && !!p.closedAt && Date.now() - new Date(p.closedAt).getTime() < SOL_REENTRY_COOLDOWN_MS)) continue;
-    const scanPrice = parseFloat(analysis.token.priceUsd) || 0;
-    if (scanPrice <= 0) continue;
-    // Price from the by-mint reference, not the scan's search-result pool.
-    const tokenPrice = await referenceEntryPrice(state, analysis.token.symbol, mint, scanPrice);
-    if (!tokenPrice) continue;
-    const dexKey = (analysis.token.dexId || '').toLowerCase().split('_')[0];
-    const sized = computeAutoSolSize(state, dexKey, strat, 'paper');
-    const pos: SolAutoPosition = {
-      id: `shadow_${Date.now()}_${analysis.token.symbol}`,
-      symbol: analysis.token.symbol,
-      mint,
-      entryPrice: tokenPrice,
-      currentPrice: tokenPrice,
-      targetPct: state.autoTradeTP,
-      slPct: state.autoTradeSL,
-      size: sized > 0 ? sized : 0.25,
-      tokenAmount: 0,
-      decimals: 9,
-      strategyId: strat.id,
-      maxHoldMinutes: strat.maxHoldMinutes,
-      dex: dexKey,
-      mode: 'shadow',
-      openedAt: new Date().toISOString(),
-      status: 'open',
-      peakPrice: tokenPrice,
-      trailingActive: false,
-      breakevenActive: false,
-      entryVolume24h: analysis.token.volume24h || 0,
-      costPct: await solPaperCostPct(dexKey, sized > 0 ? sized : 0.25, analysis.token.liquidity),
-    };
-    state.shadowPositions.push(pos);
-    upsertPosition(userId, pos).catch(() => {});
-    addActivity(state, {
-      type: 'strategy',
-      message: `🕶️ SHADOW entry (Pump Scalp 60 test): ${analysis.token.symbol} — +${(analysis.token.priceChange1h ?? 0).toFixed(0)}% in the last hour, virtual ${pos.size.toFixed(3)} SOL @ $${tokenPrice.toFixed(6)} | 60-min clock running, TP +${state.autoTradeTP}% / SL -${state.autoTradeSL}%`,
-    });
+  const strategies = shadowStrategies();
+  if (!strategies.length) return;
+  const statsMod = await import('./sol-shadow-stats');
+  const stats = await statsMod.computeSolShadowStats(userId).catch(() => [] as Awaited<ReturnType<typeof statsMod.computeSolShadowStats>>);
+  for (const strat of strategies) {
+    for (const analysis of scanResult) {
+      const openAll = state.shadowPositions.filter(p => p.status === 'open');
+      if (openAll.length >= SHADOW_MAX_OPEN) return;
+      if (openAll.filter(p => p.strategyId === strat.id).length >= SHADOW_MAX_PER_STRATEGY) break;
+      if (!shadowEntryCandidate(analysis, strat)) continue;
+      const mint = analysis.token.address;
+      if (!mint) continue;
+      if (openAll.some(p => p.mint === mint && p.strategyId === strat.id)) continue;
+      if (state.closedShadowPositions.some(p => p.mint === mint && p.strategyId === strat.id && !!p.closedAt && Date.now() - new Date(p.closedAt).getTime() < SOL_REENTRY_COOLDOWN_MS)) continue;
+      const scanPrice = parseFloat(analysis.token.priceUsd) || 0;
+      if (scanPrice <= 0) continue;
+      // Price from the by-mint reference, not the scan's search-result pool.
+      const tokenPrice = await referenceEntryPrice(state, analysis.token.symbol, mint, scanPrice);
+      if (!tokenPrice) continue;
+      const tk = analysis.token;
+      const dexKey = (tk.dexId || '').toLowerCase().split('_')[0];
+      const now = new Date();
+      const pos: SolAutoPosition = {
+        id: `shadow_${strat.id}_${Date.now()}_${tk.symbol}`,
+        symbol: tk.symbol,
+        mint,
+        entryPrice: tokenPrice,
+        currentPrice: tokenPrice,
+        targetPct: state.autoTradeTP,
+        slPct: state.autoTradeSL,
+        size: SHADOW_SIZE_SOL,
+        tokenAmount: 0,
+        decimals: 9,
+        strategyId: strat.id,
+        maxHoldMinutes: strat.maxHoldMinutes,
+        dex: dexKey,
+        mode: 'shadow',
+        openedAt: now.toISOString(),
+        status: 'open',
+        peakPrice: tokenPrice,
+        trailingActive: false,
+        breakevenActive: false,
+        entryVolume24h: tk.volume24h || 0,
+        costPct: await solPaperCostPct(dexKey, SHADOW_SIZE_SOL, tk.liquidity),
+      };
+      // Context for the learning table (sol-shadow-stats.ts).
+      const h1Total = (tk.txnsH1?.buys ?? 0) + (tk.txnsH1?.sells ?? 0);
+      const d1Total = (tk.txns24h?.buys ?? 0) + (tk.txns24h?.sells ?? 0);
+      const createdMs = tk.createdAt ? new Date(tk.createdAt).getTime() : NaN;
+      const ctx = {
+        userId, positionId: pos.id, strategyId: strat.id, symbol: tk.symbol, mint, dex: dexKey,
+        liquidityUsd: tk.liquidity ?? null, priceChange1h: tk.priceChange1h ?? null, priceChange24h: tk.priceChange24h ?? null,
+        buyRatio1h: h1Total >= 10 ? tk.txnsH1.buys / h1Total : null, buyRatio24h: d1Total > 0 ? tk.txns24h.buys / d1Total : null,
+        volume24h: tk.volume24h ?? null, marketCapUsd: tk.fdv || null,
+        tokenAgeHours: Number.isFinite(createdMs) && createdMs > 0 ? (Date.now() - createdMs) / 3_600_000 : null,
+        signal: analysis.signal, confidence: analysis.confidence, riskLevel: analysis.riskLevel,
+        whaleScore: analysis.whaleScore, sentimentScore: analysis.sentimentScore, tokenomicsScore: analysis.tokenomicsScore,
+        entryPrice: tokenPrice, sizeSol: SHADOW_SIZE_SOL, costPct: pos.costPct ?? null, openedAt: now,
+      };
+      const advice = statsMod.adviceFor(stats, strat.id, {
+        hour_utc: now.getUTCHours(), liquidity_usd: ctx.liquidityUsd, dex: dexKey, price_change_1h: ctx.priceChange1h,
+        price_change_24h: ctx.priceChange24h, token_age_hours: ctx.tokenAgeHours, buy_ratio_1h: ctx.buyRatio1h, buy_ratio_24h: ctx.buyRatio24h,
+      });
+      state.shadowPositions.push(pos);
+      upsertPosition(userId, pos).catch(() => {});
+      statsMod.recordSolShadowEntry(ctx, advice.verdict === 'learning' ? 'learning' : `${advice.verdict}: ${advice.reasons.join('; ')}`.slice(0, 500)).catch(() => {});
+      // Only Pump Scalp 60 narrates every entry; the other strategies would flood the feed.
+      if (strat.id === 'pump_scalp_60') {
+        addActivity(state, {
+          type: 'strategy',
+          message: `🕶️ SHADOW entry (Pump Scalp 60 test): ${tk.symbol} — +${(tk.priceChange1h ?? 0).toFixed(0)}% in the last hour, virtual ${pos.size.toFixed(3)} SOL @ $${tokenPrice.toFixed(6)} | 60-min clock running, TP +${state.autoTradeTP}% / SL -${state.autoTradeSL}%`,
+        });
+      }
+    }
   }
 }
 
@@ -2048,12 +2099,18 @@ async function monitorShadowPositions(userId: number, state: SolEngineState) {
       // NET of the round-trip cost stamped at entry; NULL = no result (shadow_ledger skips it).
       pos.grossPnlPct = unpriced ? undefined : gainPct;
       pos.closePnlPct = unpriced ? undefined : gainPct - (pos.costPct ?? 0);
-      if (unpriced) pos.exitReason = 'max_hold_unpriced';
+      pos.exitReason = unpriced ? 'max_hold_unpriced' : reason;
       pos.closeReason = reason as SolAutoPosition['closeReason'];
+      import('./sol-shadow-stats').then((m) => m.recordSolShadowClose({
+        positionId: pos.id, exitReason: pos.exitReason || reason,
+        holdMinutes: (Date.now() - new Date(pos.openedAt).getTime()) / 60000,
+        grossPct: unpriced ? null : gainPct, netPct: pos.closePnlPct ?? null,
+        peakGainPct: pos.peakPrice && pos.entryPrice > 0 ? ((pos.peakPrice - pos.entryPrice) / pos.entryPrice) * 100 : null,
+      })).catch(() => {});
       state.closedShadowPositions.unshift(pos);
       if (state.closedShadowPositions.length > 50) state.closedShadowPositions = state.closedShadowPositions.slice(0, 50);
       upsertPosition(userId, pos).catch(() => {});
-      addActivity(state, {
+      if (pos.strategyId === 'pump_scalp_60') addActivity(state, {
         type: 'info',
         message: `🕶️ SHADOW exit (${reason === 'max_hold' ? '60-min window over' : reason === 'tp' ? 'target hit' : 'stop hit'}): ${pos.symbol} closed @ $${currentPrice.toFixed(6)} — ${gainPct >= 0 ? '+' : ''}${gainPct.toFixed(2)}% gross, ${(gainPct - (pos.costPct ?? 0)).toFixed(2)}% after ${(pos.costPct ?? 0).toFixed(2)}% costs (shadow test, no real money)`,
       });

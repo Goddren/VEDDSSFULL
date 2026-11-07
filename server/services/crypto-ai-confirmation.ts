@@ -87,7 +87,8 @@ export async function getCryptoAiConfirmation(opts: {
 
     // Shadow lessons (shadow-lessons.ts): crypto paper + crypto shadow evidence, advice only.
     const _lessons = await import('./shadow-lessons').then((m) => m.getShadowLessonsText(opts.userId, 'crypto', 8)).catch(() => '');
-    const user = `${_lessons ? `${_lessons}\n\n` : ''}SYMBOL: ${opts.symbol}
+    const _shadowStats = await import('./crypto-shadow').then((m) => m.getCryptoShadowStatsText(opts.userId, 12)).catch(() => '');
+    const user = `${_lessons ? `${_lessons}\n\n` : ''}${_shadowStats ? `${_shadowStats}\n\n` : ''}SYMBOL: ${opts.symbol}
 PROPOSED: ${opts.direction} @ ${opts.price}
 SCANNER STRATEGY: ${opts.strategy} (score ${opts.quantScore}/100)
 SCANNER REASONING: ${opts.quantReasoning}

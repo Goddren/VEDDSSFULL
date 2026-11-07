@@ -98,6 +98,7 @@ async function fetchBars(symbol: string, timeframe: string, count: number, chain
  */
 async function refreshDefiUniverse(chain: string): Promise<string[]> {
   const { discoverDefiTokens } = await import('./defi-market-data');
+  const { isTokenizedAsset: _isTokenizedAsset } = await import('./crypto-paper');
   // Stablecoins never trend — scanning them wastes candle/AI budget and can
   // only produce noise trades. Drop known stables and anything USD-named
   // that trades within 1.5% of $1.
@@ -111,6 +112,8 @@ async function refreshDefiUniverse(chain: string): Promise<string[]> {
     if (/^(S|W|ST|A|C|Y)?USD[A-Z0-9.+]*$/i.test(sym)) return false;
     const px = Number(t.priceUsd);
     if (/USD|EUR/.test(sym) && px > 0 && Math.abs(px - 1) < 0.015) return false;
+    // Tokenized stocks / RWAs (2026-11-07, CRYPTO_EXCLUDE_RWA=off disables).
+    if (_isTokenizedAsset(sym)) return false;
     return true;
   });
   for (const t of tokens) {
@@ -1340,6 +1343,20 @@ async function executeSignalSingle(service: CryptoComService, connection: Crypto
         }
       }
       tpPctD = Math.max(tpPctD, slPctD * CRYPTO_MIN_RR);
+      // Paper (2026-11-07): levels from the token's own volatility instead of
+      // the flat config %: stop = CRYPTO_SL_ATR_MULT x H1 ATR clamped to
+      // CRYPTO_PAPER_SL_MIN..MAX (1.5..12%), target = CRYPTO_MIN_RR x stop.
+      // Size scales so the dollar risk matches the configured stop. Live
+      // swaps keep the logic above. CRYPTO_ATR_LEVELS=off restores it.
+      if ((cfg as any)._paper && process.env.CRYPTO_ATR_LEVELS !== 'off' && ax && result.price && ax.atr > 0) {
+        const cfgSl = Number((cfg as any).cefiStopLossPct ?? 2);
+        const lo = Number(process.env.CRYPTO_PAPER_SL_MIN ?? 1.5), hi = Number(process.env.CRYPTO_PAPER_SL_MAX ?? 12);
+        const atrSl = Math.min(hi, Math.max(lo, (ax.atr * CRYPTO_SL_ATR_MULT / result.price) * 100));
+        notionalD = Math.max(1, _baseN * (gateD.riskMultiplier < 1 ? gateD.riskMultiplier : 1) * Math.min(1, cfgSl / atrSl));
+        slPctD = atrSl;
+        tpPctD = atrSl * CRYPTO_MIN_RR;
+        _sizeNote = ` ATR levels: stop ${atrSl.toFixed(1)}% (${CRYPTO_SL_ATR_MULT}x H1 ATR), target ${tpPctD.toFixed(1)}%.`;
+      }
     }
     // A swap this small is eaten by gas + slippage and still takes a slot.
     {
@@ -1800,6 +1817,25 @@ async function scanOneUser(userId: number): Promise<void> {
       await storage.createCryptocomEngineActivity({ userId, symbol, decision: 'error', reasoning: `Scan failed for ${symbol}: ${err.message}`, score: null, price: null, dailyChangePercent: null, source: 'cryptocom', strategy: config.strategyMode });
     }
   }
+
+  // ── All-strategy shadow lane (crypto-shadow.ts, 2026-11-07) ──────────────
+  // Every runner on this cycle's DeFi symbols, traded virtually into
+  // crypto_shadow_trades. Never live orders, never the paper table.
+  // CRYPTO_SHADOW_ALL=off disables. Non-fatal.
+  try {
+    const _chainS = (config as any).defiChain || 'base';
+    const _defiSyms = symbols.filter((s) => !!getDefiUniverseEntry(s, _chainS));
+    if (_defiSyms.length) {
+      const { runCryptoShadowAll } = await import('./crypto-shadow');
+      const _r = await runCryptoShadowAll(userId, config, _defiSyms, _chainS, (config as any).defiSlippageBps ?? 100, {
+        runners: STRATEGY_RUNNERS as any,
+        gate: (sym, r, c) => applySignalGates(sym, r as any, c) as any,
+        universe: (sym) => getDefiUniverseEntry(sym, _chainS) as any,
+        h1: (sym) => h1Atr(sym, _chainS, getDefiUniverseEntry(sym, _chainS)?.poolAddress) as any,
+      });
+      if (_r.opened > 0) await storage.createCryptocomEngineActivity({ userId, symbol: '—', decision: 'watching', strategy: 'shadow_all', reasoning: `🕶️ SHADOW (all strategies): ${_r.opened} virtual entr${_r.opened > 1 ? 'ies' : 'y'} recorded — no wallet, not paper.`, score: null, price: null, dailyChangePercent: null, source: 'cryptocom' }).catch(() => {});
+    }
+  } catch (e: any) { console.error('[crypto-shadow] lane failed (non-fatal):', e?.message ?? e); }
 }
 
 /**

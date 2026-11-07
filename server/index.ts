@@ -1283,6 +1283,9 @@ async function withRetry<T>(
       // Paper/shadow costs (2026-11-06): close_pnl_pct is net; these hold cost + gross.
       await db.execute(sql`ALTER TABLE sol_engine_positions ADD COLUMN IF NOT EXISTS cost_pct real`);
       await db.execute(sql`ALTER TABLE sol_engine_positions ADD COLUMN IF NOT EXISTS gross_pnl_pct real`);
+      await db.execute(sql`ALTER TABLE sol_engine_positions ADD COLUMN IF NOT EXISTS exit_reason text`);
+      await import('./services/sol-shadow-stats').then((m) => m.ensureSolShadowContextTable());
+      await import('./services/crypto-shadow').then((m) => m.ensureCryptoShadowTables()).catch((e: any) => console.error('[startup] crypto shadow tables (non-fatal):', e?.message ?? e));
       console.log('[startup] SOL Engine tables created/verified.');
     } catch (err) {
       console.error('[startup] SOL Engine tables migration (non-fatal):', (err as Error).message);

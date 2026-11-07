@@ -2466,6 +2466,8 @@ export const solEnginePositions = pgTable("sol_engine_positions", {
   // Paper/shadow costs (2026-11-06): close_pnl_pct is NET; gross is the raw move.
   costPct: real("cost_pct"),
   grossPnlPct: real("gross_pnl_pct"),
+  // tp | sl | trail | max_hold | max_hold_unpriced | abandoned ... (2026-11-07)
+  exitReason: text("exit_reason"),
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
 });
 

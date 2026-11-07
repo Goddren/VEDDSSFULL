@@ -84,9 +84,26 @@ CREATE OR REPLACE VIEW shadow_ledger AS
    WHERE s.mode IN ('paper', 'shadow') AND s.status = 'closed' AND s.close_pnl_pct IS NOT NULL
      AND NOT (
        NULLIF(s.closed_at, '')::timestamptz < TIMESTAMPTZ '2026-11-06 19:15:00+00'
-       AND extract(epoch from (NULLIF(s.closed_at, '')::timestamptz - s.opened_at::timestamptz)) < 120
        AND abs(s.close_pnl_pct) >= 40
+       AND (extract(epoch from (NULLIF(s.closed_at, '')::timestamptz - s.opened_at::timestamptz)) < 120
+            -- known junk-priced symbols (sol-brain.ts BAD_PRICE_SYMBOLS), any hold
+            OR s.symbol IN ('RAY', 'mSOL'))
      )
+  UNION ALL
+  -- Crypto all-strategy shadow lane (crypto-shadow.ts). Shorts are hypothetical
+  -- (Base spot can't short) and get their own source so they are reported apart.
+  SELECT ('crypto_shadow_all:' || x.id)::text,
+         CASE WHEN x.direction = 'long' THEN 'crypto_shadow_all' ELSE 'crypto_shadow_short' END, 'crypto', x.user_id,
+         x.strategy, x.symbol, CASE WHEN x.direction = 'long' THEN 'LONG' ELSE 'SHORT' END,
+         x.opened_at, x.closed_at,
+         extract(hour from x.opened_at AT TIME ZONE 'UTC')::int,
+         ${SESSION_SQL("(x.opened_at AT TIME ZONE 'UTC')")},
+         NULL, xc.h1_trend, xc.h4_trend, xc.htf_aligned, true,
+         CASE WHEN x.exit_reason = 'time limit' THEN 'EXPIRED' WHEN x.r_multiple > 0 THEN 'WIN' WHEN x.r_multiple < 0 THEN 'LOSS' ELSE 'FLAT' END,
+         x.r_multiple::float, x.return_pct::float
+    FROM crypto_shadow_trades x
+    LEFT JOIN crypto_shadow_context xc ON xc.trade_id = x.id
+   WHERE x.status = 'closed' AND x.return_pct IS NOT NULL
 `;
 
 let _ensured: Promise<void> | null = null;
@@ -95,6 +112,7 @@ export function ensureShadowLedger(): Promise<void> {
   if (!_ensured) {
     _ensured = (async () => {
       try { const { ensurePaperTable } = await import('./crypto-paper'); await ensurePaperTable(); } catch { /* table may already exist */ }
+      try { const { ensureCryptoShadowTables } = await import('./crypto-shadow'); await ensureCryptoShadowTables(); } catch { /* table may already exist */ }
       await pool.query(VIEW_SQL);
     })().catch((e) => { _ensured = null; throw e; });
   }
