@@ -10,9 +10,15 @@
 //       gated        — no closes ≥24h, but guard events and/or shadow-model
 //                      AI decisions kept firing: the engine is ALIVE, the
 //                      guards are blocking everything
-//       silent       — no closes, no guard events, no AI decisions ≥24h:
-//                      likely stopped / emergency-stopped / leader down
-//       weekend_hold — stale, but the FX market is closed (Sat/Sun UTC)
+//       silent       — no closes, no guard events, no AI decisions for
+//                      ≥24 market-open hours: likely stopped /
+//                      emergency-stopped / leader down
+//       market_closed — stale, but the FX market is closed right now
+//                      (Fri 21:00 – Sun 21:00 UTC): no alert until reopen
+//
+// FX staleness is measured in MARKET-OPEN hours, not wall-clock hours — a
+// Friday-evening close is not "24h stale" until the market has actually
+// been open for 24 more hours, so weekends never false-alarm.
 //   Sol ok / stale   — no position (live/paper/shadow) closed in 48h
 //
 // Alerts go to the owner by email (first configured channel from
@@ -30,12 +36,36 @@ const MAX_ALERTS_PER_EPISODE = 3;
 const REALERT_MS = 24 * 3_600_000;
 const REPORT_EMAIL = process.env.REPORT_EMAIL || 'donchismkos@gmail.com';
 
+// FX market hours — the same window the app's own market_closed_skip guard
+// uses: the market is closed Friday 21:00 UTC → Sunday 21:00 UTC.
+function isFxMarketOpenAt(d: Date): boolean {
+  const day = d.getUTCDay();
+  const hour = d.getUTCHours();
+  if (day === 6) return false;               // Saturday
+  if (day === 5 && hour >= 21) return false; // Friday after the 21:00 UTC close
+  if (day === 0 && hour < 21) return false;  // Sunday before the 21:00 UTC reopen
+  return true;
+}
+
+/** Hours between two instants counting only FX market-open time. */
+function fxMarketHoursBetween(from: Date, to: Date): number {
+  if (to.getTime() <= from.getTime()) return 0;
+  const STEP_MS = 5 * 60 * 1000;
+  let openMs = 0;
+  for (let t = from.getTime(); t < to.getTime(); t += STEP_MS) {
+    if (isFxMarketOpenAt(new Date(t))) openMs += Math.min(STEP_MS, to.getTime() - t);
+  }
+  return Math.round((openMs / 36e5) * 10) / 10;
+}
+
 export interface EngineWatchdogStatus {
   checkedAt: string;
   fx: {
-    state: 'ok' | 'gated' | 'silent' | 'weekend_hold' | 'no_data';
+    state: 'ok' | 'gated' | 'silent' | 'market_closed' | 'no_data';
     lastCloseAt: string | null;
     hoursSinceLastClose: number | null;
+    marketHoursSinceLastClose: number | null;
+    marketOpen: boolean;
     guardEvents24h: number;
     aiDecisions24h: number;
     message: string;
@@ -70,26 +100,26 @@ async function computeStatus(): Promise<EngineWatchdogStatus> {
 
   const fxLast = fxHealth?.lastBrainRowAt ?? null;
   const fxHours = fxHealth?.hoursSinceLastBrainRow ?? null;
-  const utcDay = new Date().getUTCDay();
-  const weekend = utcDay === 0 || utcDay === 6;
+  const marketOpen = isFxMarketOpenAt(new Date());
+  const fxMarketHours = fxLast ? fxMarketHoursBetween(new Date(fxLast), new Date()) : null;
 
   let fxState: EngineWatchdogStatus['fx']['state'];
   let fxMessage: string;
-  if (!fxLast || fxHours == null) {
+  if (!fxLast || fxHours == null || fxMarketHours == null) {
     fxState = 'no_data';
     fxMessage = 'FX: no brain outcomes on record — nothing to watch yet.';
-  } else if (fxHours < FX_STALE_HOURS) {
+  } else if (fxMarketHours < FX_STALE_HOURS) {
     fxState = 'ok';
-    fxMessage = `FX OK — last close ${fxHours}h ago.`;
-  } else if (weekend) {
-    fxState = 'weekend_hold';
-    fxMessage = `FX: no close in ${fxHours}h, but the market is closed for the weekend — recheck Monday.`;
+    fxMessage = `FX OK — last close ${fxHours}h ago (${fxMarketHours} market-open hours).`;
+  } else if (!marketOpen) {
+    fxState = 'market_closed';
+    fxMessage = `FX: no close for ${fxMarketHours} market-open hours, and the market is closed right now (Fri 21:00 – Sun 21:00 UTC) — no alert; the watchdog rechecks when the market reopens.`;
   } else if (guardEvents24h + aiDecisions24h > 0) {
     fxState = 'gated';
-    fxMessage = `FX RUNNING BUT FULLY GATED — no close in ${fxHours}h, yet ${guardEvents24h} guard firing(s) and ${aiDecisions24h} AI analysis decision(s) in the last 24h. The engine is alive; the guards are blocking everything. See the guard fire-rate view for which ones.`;
+    fxMessage = `FX RUNNING BUT FULLY GATED — no close in ${fxMarketHours} market-open hours, yet ${guardEvents24h} guard firing(s) and ${aiDecisions24h} AI analysis decision(s) in the last 24h. The engine is alive; the guards are blocking everything. See the guard fire-rate view for which ones.`;
   } else {
     fxState = 'silent';
-    fxMessage = `FX SILENT — no close in ${fxHours}h and no guard or AI activity in the last 24h. Likely stopped or emergency-stopped (an emergency stop does not auto-resume). Check the FX engine page and press Start if it shows Stopped.`;
+    fxMessage = `FX SILENT — no close in ${fxMarketHours} market-open hours and no guard or AI activity in the last 24h. Likely stopped or emergency-stopped (an emergency stop does not auto-resume). Check the FX engine page and press Start if it shows Stopped.`;
   }
 
   let solLast: string | null = null;
@@ -114,7 +144,7 @@ async function computeStatus(): Promise<EngineWatchdogStatus> {
 
   return {
     checkedAt: new Date().toISOString(),
-    fx: { state: fxState, lastCloseAt: fxLast, hoursSinceLastClose: fxHours, guardEvents24h, aiDecisions24h, message: fxMessage },
+    fx: { state: fxState, lastCloseAt: fxLast, hoursSinceLastClose: fxHours, marketHoursSinceLastClose: fxMarketHours, marketOpen, guardEvents24h, aiDecisions24h, message: fxMessage },
     sol: { state: solState, lastCloseAt: solLast, hoursSinceLastClose: solHours, message: solMessage },
   };
 }

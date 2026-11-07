@@ -45453,6 +45453,23 @@ __export(engine_watchdog_exports, {
   getEngineWatchdogStatus: () => getEngineWatchdogStatus,
   startEngineWatchdog: () => startEngineWatchdog
 });
+function isFxMarketOpenAt(d) {
+  const day = d.getUTCDay();
+  const hour = d.getUTCHours();
+  if (day === 6) return false;
+  if (day === 5 && hour >= 21) return false;
+  if (day === 0 && hour < 21) return false;
+  return true;
+}
+function fxMarketHoursBetween(from, to) {
+  if (to.getTime() <= from.getTime()) return 0;
+  const STEP_MS = 5 * 60 * 1e3;
+  let openMs = 0;
+  for (let t = from.getTime(); t < to.getTime(); t += STEP_MS) {
+    if (isFxMarketOpenAt(new Date(t))) openMs += Math.min(STEP_MS, to.getTime() - t);
+  }
+  return Math.round(openMs / 36e5 * 10) / 10;
+}
 async function computeStatus() {
   const { checkFxBrainHealth: checkFxBrainHealth2 } = await Promise.resolve().then(() => (init_fx_brain(), fx_brain_exports));
   const fxHealth = await checkFxBrainHealth2(24).catch(() => null);
@@ -45474,25 +45491,25 @@ async function computeStatus() {
   }
   const fxLast = fxHealth?.lastBrainRowAt ?? null;
   const fxHours = fxHealth?.hoursSinceLastBrainRow ?? null;
-  const utcDay2 = (/* @__PURE__ */ new Date()).getUTCDay();
-  const weekend = utcDay2 === 0 || utcDay2 === 6;
+  const marketOpen = isFxMarketOpenAt(/* @__PURE__ */ new Date());
+  const fxMarketHours = fxLast ? fxMarketHoursBetween(new Date(fxLast), /* @__PURE__ */ new Date()) : null;
   let fxState;
   let fxMessage;
-  if (!fxLast || fxHours == null) {
+  if (!fxLast || fxHours == null || fxMarketHours == null) {
     fxState = "no_data";
     fxMessage = "FX: no brain outcomes on record \u2014 nothing to watch yet.";
-  } else if (fxHours < FX_STALE_HOURS) {
+  } else if (fxMarketHours < FX_STALE_HOURS) {
     fxState = "ok";
-    fxMessage = `FX OK \u2014 last close ${fxHours}h ago.`;
-  } else if (weekend) {
-    fxState = "weekend_hold";
-    fxMessage = `FX: no close in ${fxHours}h, but the market is closed for the weekend \u2014 recheck Monday.`;
+    fxMessage = `FX OK \u2014 last close ${fxHours}h ago (${fxMarketHours} market-open hours).`;
+  } else if (!marketOpen) {
+    fxState = "market_closed";
+    fxMessage = `FX: no close for ${fxMarketHours} market-open hours, and the market is closed right now (Fri 21:00 \u2013 Sun 21:00 UTC) \u2014 no alert; the watchdog rechecks when the market reopens.`;
   } else if (guardEvents24h + aiDecisions24h > 0) {
     fxState = "gated";
-    fxMessage = `FX RUNNING BUT FULLY GATED \u2014 no close in ${fxHours}h, yet ${guardEvents24h} guard firing(s) and ${aiDecisions24h} AI analysis decision(s) in the last 24h. The engine is alive; the guards are blocking everything. See the guard fire-rate view for which ones.`;
+    fxMessage = `FX RUNNING BUT FULLY GATED \u2014 no close in ${fxMarketHours} market-open hours, yet ${guardEvents24h} guard firing(s) and ${aiDecisions24h} AI analysis decision(s) in the last 24h. The engine is alive; the guards are blocking everything. See the guard fire-rate view for which ones.`;
   } else {
     fxState = "silent";
-    fxMessage = `FX SILENT \u2014 no close in ${fxHours}h and no guard or AI activity in the last 24h. Likely stopped or emergency-stopped (an emergency stop does not auto-resume). Check the FX engine page and press Start if it shows Stopped.`;
+    fxMessage = `FX SILENT \u2014 no close in ${fxMarketHours} market-open hours and no guard or AI activity in the last 24h. Likely stopped or emergency-stopped (an emergency stop does not auto-resume). Check the FX engine page and press Start if it shows Stopped.`;
   }
   let solLast = null;
   try {
@@ -45517,7 +45534,7 @@ async function computeStatus() {
   }
   return {
     checkedAt: (/* @__PURE__ */ new Date()).toISOString(),
-    fx: { state: fxState, lastCloseAt: fxLast, hoursSinceLastClose: fxHours, guardEvents24h, aiDecisions24h, message: fxMessage },
+    fx: { state: fxState, lastCloseAt: fxLast, hoursSinceLastClose: fxHours, marketHoursSinceLastClose: fxMarketHours, marketOpen, guardEvents24h, aiDecisions24h, message: fxMessage },
     sol: { state: solState, lastCloseAt: solLast, hoursSinceLastClose: solHours, message: solMessage }
   };
 }
@@ -70932,9 +70949,9 @@ async function getStopOrdersForUser(userId, filters = {}) {
 init_schema();
 
 // server/build-info.ts
-var BUILD_COMMIT = "1e7a2e0e-dirty";
-var BUILD_BRANCH = "feat/crypto-ports";
-var BUILT_AT = "2026-11-07T01:39:01.267Z";
+var BUILD_COMMIT = "4a30137-dirty";
+var BUILD_BRANCH = "fix/watchdog-market-hours";
+var BUILT_AT = "2026-11-07T01:46:23.806Z";
 
 // server/stripe.ts
 init_db();
