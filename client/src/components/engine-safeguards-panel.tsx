@@ -73,6 +73,44 @@ export function SkippedTradesPanel({ className = "" }: { className?: string }) {
   );
 }
 
+/** Per-guard fire rates (engine report rec #3): which protections fire most,
+ *  this week vs last — a guard that fires constantly is a recalibration
+ *  candidate; one that never fires is dead weight. */
+export function GuardFireRatesPanel({ className = "" }: { className?: string }) {
+  const { data } = useQuery<{ days: number; rates: Array<{ engine: string; kind: string; fires: number; prev_fires: number; last_fired: string; top_symbol: string | null }> }>({
+    queryKey: ["/api/engine/guard-events?view=rates&days=7"],
+    refetchInterval: 60000,
+  });
+  const rates = (data?.rates || []).filter((r) => r.fires > 0 || r.prev_fires > 0);
+  return (
+    <div className={`rounded-2xl p-4 ${className}`} style={{ background: "rgba(17,24,39,0.5)", border: "1.5px solid rgba(75,85,99,0.5)" }} data-testid="guard-fire-rates-panel">
+      <h3 className="text-sm font-bold text-gray-100 mb-1">Guard fire rates</h3>
+      <p className="text-[10px] text-gray-500 mb-3">How often each protection fired — last 7 days vs the 7 before. Guards at the top are shaping your results most.</p>
+      {!rates.length ? (
+        <p className="text-[11px] text-gray-500 py-2">No guard activity in the last two weeks.</p>
+      ) : (
+        <div className="space-y-1 max-h-64 overflow-y-auto pr-1">
+          {rates.map((r) => {
+            const delta = r.fires - r.prev_fires;
+            return (
+              <div key={`${r.engine}:${r.kind}`} className="text-[10px] rounded bg-black/20 px-2 py-1.5 flex items-baseline gap-2">
+                <span className="text-gray-200 font-semibold">{LABEL[r.kind] || r.kind}</span>
+                <span className="text-gray-500">{r.engine}</span>
+                <span className="ml-auto text-gray-300 font-semibold">{r.fires}×</span>
+                <span className={delta > 0 ? "text-amber-300" : delta < 0 ? "text-emerald-300" : "text-gray-500"}>
+                  {delta > 0 ? `▲ +${delta}` : delta < 0 ? `▼ ${delta}` : "— 0"} vs prior
+                </span>
+                {r.top_symbol ? <span className="text-gray-500">mostly {r.top_symbol}</span> : null}
+                <span className="text-gray-600">{new Date(r.last_fired).toLocaleDateString()}</span>
+              </div>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+}
+
 export function EngineSafeguardsPanel({ className = "" }: { className?: string }) {
   const { data } = useQuery<{ events: Array<{ id: number; kind: string; symbol: string | null; detail: string; created_at: string }>; summary: Array<{ kind: string; n: number; last: string }> }>({
     queryKey: ["/api/engine/guard-events?limit=40"],

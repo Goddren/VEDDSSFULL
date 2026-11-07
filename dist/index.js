@@ -9295,6 +9295,7 @@ var init_breakoutEngine = __esm({
 // server/services/guard-events.ts
 var guard_events_exports = {};
 __export(guard_events_exports, {
+  guardFireRates: () => guardFireRates,
   logGuard: () => logGuard,
   recentGuardEvents: () => recentGuardEvents
 });
@@ -9330,6 +9331,25 @@ function logGuard(userId, kind, symbol, detail, data, engine = "fx") {
     } catch {
     }
   })();
+}
+async function guardFireRates(userId, days = 7) {
+  await ensure();
+  const d = Math.max(1, Math.min(90, days));
+  const { rows } = await pool.query(
+    `SELECT e.engine, e.kind,
+            count(*) FILTER (WHERE e.created_at > now() - ($2 || ' days')::interval)::int AS fires,
+            count(*) FILTER (WHERE e.created_at <= now() - ($2 || ' days')::interval)::int AS prev_fires,
+            max(e.created_at) AS last_fired,
+            (SELECT e2.symbol FROM engine_guard_events e2
+              WHERE e2.user_id = $1 AND e2.engine = e.engine AND e2.kind = e.kind AND e2.symbol IS NOT NULL
+              GROUP BY e2.symbol ORDER BY count(*) DESC LIMIT 1) AS top_symbol
+       FROM engine_guard_events e
+      WHERE e.user_id = $1 AND e.created_at > now() - (2 * ($2 || ' days')::interval)
+      GROUP BY e.engine, e.kind
+      ORDER BY fires DESC`,
+    [userId, String(d)]
+  );
+  return { days: d, rates: rows };
 }
 async function recentGuardEvents(userId, limit = 100, kinds) {
   await ensure();
@@ -44767,6 +44787,180 @@ var init_messaging = __esm({
   }
 });
 
+// server/services/engine-watchdog.ts
+var engine_watchdog_exports = {};
+__export(engine_watchdog_exports, {
+  getEngineWatchdogStatus: () => getEngineWatchdogStatus,
+  startEngineWatchdog: () => startEngineWatchdog
+});
+async function computeStatus() {
+  const { checkFxBrainHealth: checkFxBrainHealth2 } = await Promise.resolve().then(() => (init_fx_brain(), fx_brain_exports));
+  const fxHealth = await checkFxBrainHealth2(24).catch(() => null);
+  let guardEvents24h = 0;
+  let aiDecisions24h = 0;
+  try {
+    const { rows } = await pool.query(
+      `SELECT count(*)::int AS n FROM engine_guard_events WHERE engine='fx' AND created_at > now() - interval '24 hours'`
+    );
+    guardEvents24h = rows[0]?.n ?? 0;
+  } catch {
+  }
+  try {
+    const { rows } = await pool.query(
+      `SELECT count(*)::int AS n FROM fx_model_decisions WHERE created_at > now() - interval '24 hours'`
+    );
+    aiDecisions24h = rows[0]?.n ?? 0;
+  } catch {
+  }
+  const fxLast = fxHealth?.lastBrainRowAt ?? null;
+  const fxHours = fxHealth?.hoursSinceLastBrainRow ?? null;
+  const utcDay2 = (/* @__PURE__ */ new Date()).getUTCDay();
+  const weekend = utcDay2 === 0 || utcDay2 === 6;
+  let fxState;
+  let fxMessage;
+  if (!fxLast || fxHours == null) {
+    fxState = "no_data";
+    fxMessage = "FX: no brain outcomes on record \u2014 nothing to watch yet.";
+  } else if (fxHours < FX_STALE_HOURS) {
+    fxState = "ok";
+    fxMessage = `FX OK \u2014 last close ${fxHours}h ago.`;
+  } else if (weekend) {
+    fxState = "weekend_hold";
+    fxMessage = `FX: no close in ${fxHours}h, but the market is closed for the weekend \u2014 recheck Monday.`;
+  } else if (guardEvents24h + aiDecisions24h > 0) {
+    fxState = "gated";
+    fxMessage = `FX RUNNING BUT FULLY GATED \u2014 no close in ${fxHours}h, yet ${guardEvents24h} guard firing(s) and ${aiDecisions24h} AI analysis decision(s) in the last 24h. The engine is alive; the guards are blocking everything. See the guard fire-rate view for which ones.`;
+  } else {
+    fxState = "silent";
+    fxMessage = `FX SILENT \u2014 no close in ${fxHours}h and no guard or AI activity in the last 24h. Likely stopped or emergency-stopped (an emergency stop does not auto-resume). Check the FX engine page and press Start if it shows Stopped.`;
+  }
+  let solLast = null;
+  try {
+    const { rows } = await pool.query(
+      `SELECT max(NULLIF(closed_at, '')::timestamptz) AS last_at FROM sol_engine_positions WHERE status='closed'`
+    );
+    solLast = rows[0]?.last_at ? new Date(rows[0].last_at).toISOString() : null;
+  } catch {
+  }
+  const solHours = solLast ? Math.round((Date.now() - new Date(solLast).getTime()) / 36e5 * 10) / 10 : null;
+  let solState;
+  let solMessage;
+  if (!solLast || solHours == null) {
+    solState = "no_data";
+    solMessage = "Sol: no closed positions on record \u2014 nothing to watch yet.";
+  } else if (solHours < SOL_STALE_HOURS) {
+    solState = "ok";
+    solMessage = `Sol OK \u2014 last position closed ${solHours}h ago.`;
+  } else {
+    solState = "stale";
+    solMessage = `Sol STALE \u2014 no position (live, paper or shadow) has closed in ${solHours}h. If the Sol engine should be running, check its page.`;
+  }
+  return {
+    checkedAt: (/* @__PURE__ */ new Date()).toISOString(),
+    fx: { state: fxState, lastCloseAt: fxLast, hoursSinceLastClose: fxHours, guardEvents24h, aiDecisions24h, message: fxMessage },
+    sol: { state: solState, lastCloseAt: solLast, hoursSinceLastClose: solHours, message: solMessage }
+  };
+}
+async function getEngineWatchdogStatus() {
+  if (_lastStatus && Date.now() - _lastStatusAt < TICK_MS) return _lastStatus;
+  const status = await computeStatus();
+  _lastStatus = status;
+  _lastStatusAt = Date.now();
+  return status;
+}
+async function maybeAlert(status) {
+  const alerts = [];
+  if (status.fx.state === "gated" || status.fx.state === "silent") alerts.push(status.fx.message);
+  if (status.sol.state === "stale") alerts.push(status.sol.message);
+  if (!alerts.length) return;
+  console.warn(`[engine-watchdog] ${alerts.join(" | ")}`);
+  let episodes = {};
+  try {
+    const { getRuntimeStateStrict: getRuntimeStateStrict2, saveRuntimeState: saveRuntimeState2 } = await Promise.resolve().then(() => (init_runtime_state(), runtime_state_exports));
+    const stored = await getRuntimeStateStrict2("engine_watchdog", "episodes").catch(() => null);
+    if (stored && typeof stored === "object") episodes = stored;
+    saveRuntimeState2("engine_watchdog", "status", status);
+  } catch {
+  }
+  const due = [];
+  const check = (engine, key, text2) => {
+    if (!text2 || !key) return;
+    const ep = episodes[engine];
+    if (!ep || ep.key !== key) episodes[engine] = { key, sent: 0, lastAt: 0 };
+    const e = episodes[engine];
+    if (e.sent < MAX_ALERTS_PER_EPISODE && Date.now() - e.lastAt >= REALERT_MS) {
+      e.sent++;
+      e.lastAt = Date.now();
+      due.push(text2);
+    }
+  };
+  check("fx", status.fx.lastCloseAt, status.fx.state === "gated" || status.fx.state === "silent" ? status.fx.message : null);
+  check("sol", status.sol.lastCloseAt, status.sol.state === "stale" ? status.sol.message : null);
+  try {
+    const { saveRuntimeState: saveRuntimeState2 } = await Promise.resolve().then(() => (init_runtime_state(), runtime_state_exports));
+    saveRuntimeState2("engine_watchdog", "episodes", episodes);
+  } catch {
+  }
+  if (!due.length) return;
+  try {
+    const { sendMessage: sendMessage2, getChannelStatus: getChannelStatus2 } = await Promise.resolve().then(() => (init_messaging(), messaging_exports));
+    const configured = getChannelStatus2();
+    const channel = ["resend", "sendgrid", "gmail"].find((c) => configured[c]?.configured);
+    if (!channel) {
+      console.warn("[engine-watchdog] alert due but no email channel is configured \u2014 alert recorded in health/runtime_state only.");
+      return;
+    }
+    const result = await sendMessage2({
+      channel,
+      email: REPORT_EMAIL,
+      subject: "\u26A0\uFE0F VEDD engine watchdog: an engine has gone silent",
+      message: `Engine watchdog alert (${status.checkedAt})
+
+${due.join("\n\n")}
+
+The watchdog only observes \u2014 it never starts or reconfigures an engine. If the stop was intentional, ignore this; alerts repeat at most ${MAX_ALERTS_PER_EPISODE} times per silence episode.`
+    });
+    if (!result.success) console.warn(`[engine-watchdog] alert email failed via ${channel}: ${result.error || "unknown error"}`);
+  } catch (e) {
+    console.warn("[engine-watchdog] alert email threw (non-fatal):", e?.message || e);
+  }
+}
+function startEngineWatchdog() {
+  if (_started) return;
+  _started = true;
+  const tick3 = async () => {
+    try {
+      const status = await computeStatus();
+      _lastStatus = status;
+      _lastStatusAt = Date.now();
+      const { saveRuntimeState: saveRuntimeState2 } = await Promise.resolve().then(() => (init_runtime_state(), runtime_state_exports));
+      saveRuntimeState2("engine_watchdog", "status", status);
+      await maybeAlert(status);
+    } catch (e) {
+      console.error("[engine-watchdog] tick failed (non-fatal):", e?.message || e);
+    }
+  };
+  setTimeout(tick3, 5 * 60 * 1e3).unref?.();
+  setInterval(tick3, TICK_MS).unref?.();
+  console.log("[engine-watchdog] started \u2014 FX 24h / Sol 48h silence checks every 30 min.");
+}
+var TICK_MS, FX_STALE_HOURS, SOL_STALE_HOURS, MAX_ALERTS_PER_EPISODE, REALERT_MS, REPORT_EMAIL, _lastStatus, _lastStatusAt, _started;
+var init_engine_watchdog = __esm({
+  "server/services/engine-watchdog.ts"() {
+    "use strict";
+    init_db();
+    TICK_MS = 30 * 60 * 1e3;
+    FX_STALE_HOURS = 24;
+    SOL_STALE_HOURS = 48;
+    MAX_ALERTS_PER_EPISODE = 3;
+    REALERT_MS = 24 * 36e5;
+    REPORT_EMAIL = process.env.REPORT_EMAIL || "donchismkos@gmail.com";
+    _lastStatus = null;
+    _lastStatusAt = 0;
+    _started = false;
+  }
+});
+
 // server/services/persona-content-engine.ts
 var persona_content_engine_exports = {};
 __export(persona_content_engine_exports, {
@@ -45042,7 +45236,7 @@ async function sendPersonaContentEmail(subject, html) {
     try {
       const { default: sgMail3 } = await import("@sendgrid/mail");
       sgMail3.setApiKey(sgKey);
-      await sgMail3.send({ to: REPORT_EMAIL, from: "noreply@veddbuild.com", subject, html });
+      await sgMail3.send({ to: REPORT_EMAIL2, from: "noreply@veddbuild.com", subject, html });
       return { success: true };
     } catch (e) {
       const errDetail = e?.response?.body?.errors;
@@ -45053,7 +45247,7 @@ async function sendPersonaContentEmail(subject, html) {
   }
   if (gmailUser && gmailPass) {
     const { sendGmail: sendGmail2 } = await Promise.resolve().then(() => (init_messaging(), messaging_exports));
-    const result = await sendGmail2(REPORT_EMAIL, subject, "Full content package is in the HTML body of this email.", html);
+    const result = await sendGmail2(REPORT_EMAIL2, subject, "Full content package is in the HTML body of this email.", html);
     if (result.success) return { success: true };
     sgErrors.push(`Gmail: ${result.error}`);
   }
@@ -45134,13 +45328,13 @@ function startPersonaContentScheduler() {
   }
   scheduleNext2();
 }
-var REFERRAL_LINK, REPORT_EMAIL, ARC_STAGES, PLATFORMS, BANNED_PHRASES, BRAND_DNA, PLATFORM_RULES, TARGET_UTC_DAYS;
+var REFERRAL_LINK, REPORT_EMAIL2, ARC_STAGES, PLATFORMS, BANNED_PHRASES, BRAND_DNA, PLATFORM_RULES, TARGET_UTC_DAYS;
 var init_persona_content_engine = __esm({
   "server/services/persona-content-engine.ts"() {
     "use strict";
     init_db();
     REFERRAL_LINK = "https://veddbuild.com/auth?ref=DONCHISMKOS@GMAIL.COM511";
-    REPORT_EMAIL = "donchismkos@gmail.com";
+    REPORT_EMAIL2 = "donchismkos@gmail.com";
     ARC_STAGES = [
       "Reintroduce Don",
       "Explain why he disappeared",
@@ -64949,7 +65143,7 @@ async function sendAmbassadorPrimeReport(data) {
     try {
       const { default: sgMail3 } = await import("@sendgrid/mail");
       sgMail3.setApiKey(sgKey);
-      await sgMail3.send({ to: REPORT_EMAIL2, from: "noreply@veddbuild.com", subject, html });
+      await sgMail3.send({ to: REPORT_EMAIL3, from: "noreply@veddbuild.com", subject, html });
       return { success: true };
     } catch (e) {
       const errDetail = e?.response?.body?.errors;
@@ -64968,7 +65162,7 @@ Skipped steps: ${data.skippedSteps.join(", ") || "none"}
 ` + (data.errors.length ? `Errors: ${data.errors.join(" | ")}
 ` : "") + `
 Full report is in the HTML body of this email.`;
-    const result = await sendGmail2(REPORT_EMAIL2, subject, plainSummary, html);
+    const result = await sendGmail2(REPORT_EMAIL3, subject, plainSummary, html);
     if (result.success) return { success: true };
     sgErrors.push(`Gmail: ${result.error}`);
   }
@@ -64998,7 +65192,7 @@ function startAmbassadorPrimeScheduler() {
   }
   scheduleNext2();
 }
-var REFERRAL_LINK2, REPORT_EMAIL2, LINKEDIN_AUTHOR_URN, WEEKLY_THEMES;
+var REFERRAL_LINK2, REPORT_EMAIL3, LINKEDIN_AUTHOR_URN, WEEKLY_THEMES;
 var init_ambassador_prime = __esm({
   "server/services/ambassador-prime.ts"() {
     "use strict";
@@ -65007,7 +65201,7 @@ var init_ambassador_prime = __esm({
     init_ambassador_market_briefing();
     init_image_generation();
     REFERRAL_LINK2 = "https://veddbuild.com/auth?ref=DONCHISMKOS@GMAIL.COM511";
-    REPORT_EMAIL2 = "donchismkos@gmail.com";
+    REPORT_EMAIL3 = "donchismkos@gmail.com";
     LINKEDIN_AUTHOR_URN = "urn:li:person:tmH3fnyYMl";
     WEEKLY_THEMES = {
       0: {
@@ -67063,7 +67257,7 @@ function scheduleNext() {
     await grantMonthlyTierCreditsOncePerMonth().catch(() => {
     });
     scheduleNext();
-  }, TICK_MS);
+  }, TICK_MS2);
 }
 async function startTierCreditScheduler() {
   try {
@@ -67076,7 +67270,7 @@ async function startTierCreditScheduler() {
     console.error("[TierCredits] scheduler start failed (non-fatal):", e?.message ?? e);
   }
 }
-var _timer, TICK_MS;
+var _timer, TICK_MS2;
 var init_tier_credit_scheduler = __esm({
   "server/services/tier-credit-scheduler.ts"() {
     "use strict";
@@ -67085,7 +67279,7 @@ var init_tier_credit_scheduler = __esm({
     init_storage();
     init_token_rewards();
     _timer = null;
-    TICK_MS = 24 * 60 * 60 * 1e3;
+    TICK_MS2 = 24 * 60 * 60 * 1e3;
   }
 });
 
@@ -67227,7 +67421,7 @@ function startStrategyRunner() {
   setInterval(() => {
     tick().catch(() => {
     });
-  }, TICK_MS2);
+  }, TICK_MS3);
   console.log("[Strategy Runner] Deployment runner started (30s interval).");
 }
 async function tick() {
@@ -67630,7 +67824,7 @@ async function dispatchBreakeven(dep, open, newStop, newTp) {
   }
   return false;
 }
-var TICK_MS2, TF_API, TF_MS, CRYPTOS, CONTRACT_SIZE2, started4, ticking;
+var TICK_MS3, TF_API, TF_MS, CRYPTOS, CONTRACT_SIZE2, started4, ticking;
 var init_strategy_runner = __esm({
   "server/services/strategy-runner.ts"() {
     "use strict";
@@ -67639,7 +67833,7 @@ var init_strategy_runner = __esm({
     init_strategy_backtest();
     init_strategy_spec();
     init_pipUtils();
-    TICK_MS2 = 3e4;
+    TICK_MS3 = 3e4;
     TF_API = { M1: "1min", M5: "5min", M15: "15min", M30: "30min", H1: "1h", H4: "4h", D1: "1day" };
     TF_MS = { M1: 6e4, M5: 3e5, M15: 9e5, M30: 18e5, H1: 36e5, H4: 144e5, D1: 864e5 };
     CRYPTOS = /* @__PURE__ */ new Set(["BTCUSD", "ETHUSD", "SOLUSD", "XRPUSD", "LTCUSD", "DOGEUSD"]);
@@ -69418,22 +69612,22 @@ async function tick2() {
 function startFxPaperMonitor() {
   if (started6) return;
   started6 = true;
-  console.log(`[fx-paper-monitor] started \u2014 closing open FX paper trades on SL/TP every ${TICK_MS3 / 6e4} min (max-hold ${MAX_HOLD_MS / 36e5}h).`);
+  console.log(`[fx-paper-monitor] started \u2014 closing open FX paper trades on SL/TP every ${TICK_MS4 / 6e4} min (max-hold ${MAX_HOLD_MS / 36e5}h).`);
   setInterval(() => {
     tick2().catch((e) => console.error("[fx-paper-monitor] tick error:", e?.message ?? e));
-  }, TICK_MS3);
+  }, TICK_MS4);
   setTimeout(() => {
     tick2().catch(() => {
     });
   }, 15e3);
 }
-var TICK_MS3, MAX_HOLD_MS, started6;
+var TICK_MS4, MAX_HOLD_MS, started6;
 var init_fx_paper_monitor = __esm({
   "server/services/fx-paper-monitor.ts"() {
     "use strict";
     init_db();
     init_service();
-    TICK_MS3 = 3 * 60 * 1e3;
+    TICK_MS4 = 3 * 60 * 1e3;
     MAX_HOLD_MS = 3 * 24 * 60 * 60 * 1e3;
     started6 = false;
   }
@@ -70042,9 +70236,9 @@ async function getStopOrdersForUser(userId, filters = {}) {
 init_schema();
 
 // server/build-info.ts
-var BUILD_COMMIT = "b76f5166-dirty";
-var BUILD_BRANCH = "feat/sol-shadow-all";
-var BUILT_AT = "2026-11-07T00:48:26.188Z";
+var BUILD_COMMIT = "cc75de8-dirty";
+var BUILD_BRANCH = "fix/engine-watchdog-guard-rates";
+var BUILT_AT = "2026-11-07T01:01:43.892Z";
 
 // server/stripe.ts
 init_db();
@@ -74419,6 +74613,17 @@ async function registerRoutes(app2, existingServer) {
         try {
           const { checkFxBrainHealth: checkFxBrainHealth2 } = await Promise.resolve().then(() => (init_fx_brain(), fx_brain_exports));
           return await checkFxBrainHealth2();
+        } catch {
+          return null;
+        }
+      })(),
+      // Engine watchdog (2026-11-06): is any engine silently dead? Distinguishes
+      // "running but fully gated" from "stopped / emergency-stopped" so a stall
+      // is a health-check glance, not a 3-day mystery (see engine-watchdog.ts).
+      engineWatchdog: await (async () => {
+        try {
+          const { getEngineWatchdogStatus: getEngineWatchdogStatus2 } = await Promise.resolve().then(() => (init_engine_watchdog(), engine_watchdog_exports));
+          return await getEngineWatchdogStatus2();
         } catch {
           return null;
         }
@@ -93018,7 +93223,10 @@ Return ONLY JSON: {"topPicks":[{"market":"","winProbability":<0-100>,"whyItWins"
   app2.get("/api/engine/guard-events", async (req, res) => {
     if (!req.isAuthenticated()) return res.status(401).json({ error: "Authentication required" });
     try {
-      const { recentGuardEvents: recentGuardEvents2 } = await Promise.resolve().then(() => (init_guard_events(), guard_events_exports));
+      const { recentGuardEvents: recentGuardEvents2, guardFireRates: guardFireRates2 } = await Promise.resolve().then(() => (init_guard_events(), guard_events_exports));
+      if (String(req.query.view || "") === "rates") {
+        return res.json(await guardFireRates2(req.user.id, Number(req.query.days) || 7));
+      }
       res.json(await recentGuardEvents2(req.user.id, Number(req.query.limit) || 60, req.query.kinds ? String(req.query.kinds).split(",") : void 0));
     } catch (err) {
       res.status(500).json({ error: err.message });
@@ -105267,6 +105475,8 @@ async function withRetry(fn, label, maxAttempts = 6, baseDelayMs = 2e3) {
     startFuturesEngineScanner2();
     const { startFxPaperMonitor: startFxPaperMonitor2 } = await Promise.resolve().then(() => (init_fx_paper_monitor(), fx_paper_monitor_exports));
     startFxPaperMonitor2();
+    const { startEngineWatchdog: startEngineWatchdog2 } = await Promise.resolve().then(() => (init_engine_watchdog(), engine_watchdog_exports));
+    startEngineWatchdog2();
     try {
       const { pool: pool2 } = await Promise.resolve().then(() => (init_db(), db_exports));
       const { rows } = await pool2.query(`SELECT user_id FROM sol_engine_settings WHERE auto_trade_enabled = true`);

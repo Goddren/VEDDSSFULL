@@ -1614,6 +1614,12 @@ async function withRetry<T>(
     const { startFxPaperMonitor } = await import('./services/fx-paper-monitor');
     startFxPaperMonitor();
 
+    // Start the engine watchdog — checks every 30 min whether FX / Sol have
+    // gone silent (no closes + no AI activity) and emails the owner, so a
+    // stall like Oct 30 – Nov 2, 2026 is a same-day alert, not a user report.
+    const { startEngineWatchdog } = await import('./services/engine-watchdog');
+    startEngineWatchdog();
+
     // SOL engine — AUTO-RESUME for users who left auto-trade on. Previously the
     // Sol engine had NO boot-resume (unlike FX/futures/options), so its scan loop
     // silently died on every deploy and stayed dark until manually re-Started —

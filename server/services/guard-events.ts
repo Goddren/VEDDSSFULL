@@ -38,6 +38,33 @@ export function logGuard(userId: number, kind: string, symbol: string | null, de
   })();
 }
 
+/**
+ * Per-guard fire rates (2026-11-06, engine report rec #3): for each engine +
+ * guard kind, how many times it fired in the current window vs the previous
+ * one, when it last fired, and the symbol it fires on most. A guard that
+ * fires constantly is a recalibration candidate; a guard that never fires is
+ * dead weight — this turns guard tuning from opinion into measurement.
+ */
+export async function guardFireRates(userId: number, days = 7): Promise<{ days: number; rates: any[] }> {
+  await ensure();
+  const d = Math.max(1, Math.min(90, days));
+  const { rows } = await pool.query(
+    `SELECT e.engine, e.kind,
+            count(*) FILTER (WHERE e.created_at > now() - ($2 || ' days')::interval)::int AS fires,
+            count(*) FILTER (WHERE e.created_at <= now() - ($2 || ' days')::interval)::int AS prev_fires,
+            max(e.created_at) AS last_fired,
+            (SELECT e2.symbol FROM engine_guard_events e2
+              WHERE e2.user_id = $1 AND e2.engine = e.engine AND e2.kind = e.kind AND e2.symbol IS NOT NULL
+              GROUP BY e2.symbol ORDER BY count(*) DESC LIMIT 1) AS top_symbol
+       FROM engine_guard_events e
+      WHERE e.user_id = $1 AND e.created_at > now() - (2 * ($2 || ' days')::interval)
+      GROUP BY e.engine, e.kind
+      ORDER BY fires DESC`,
+    [userId, String(d)],
+  );
+  return { days: d, rates: rows };
+}
+
 export async function recentGuardEvents(userId: number, limit = 100, kinds?: string[]): Promise<{ events: any[]; summary: any[] }> {
   await ensure();
   const _k = (kinds || []).filter((k) => /^[a-z_]{1,40}$/.test(k));
