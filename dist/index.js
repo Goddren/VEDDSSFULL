@@ -2752,6 +2752,8 @@ var init_schema = __esm({
       // Paper/shadow costs (2026-11-06): close_pnl_pct is NET; gross is the raw move.
       costPct: real("cost_pct"),
       grossPnlPct: real("gross_pnl_pct"),
+      // tp | sl | trail | max_hold | max_hold_unpriced | abandoned ... (2026-11-07)
+      exitReason: text("exit_reason"),
       updatedAt: timestamp("updated_at").defaultNow().notNull()
     });
     wearToEarnClaims = pgTable("wear_to_earn_claims", {
@@ -26226,15 +26228,15 @@ async function discoverDefiTokens(chainKey, opts = {}) {
 async function getDefiCandles(chainKey, poolAddress, timeframe, count) {
   const net = GT_NETWORK[chainKey];
   if (!net) throw new Error(`no GeckoTerminal network mapping for chain "${chainKey}"`);
-  const [endpoint, aggregate] = TF[timeframe] ?? TF["5m"];
+  const [endpoint, aggregate2] = TF[timeframe] ?? TF["5m"];
   const FETCH_DEPTH = 300;
-  const key = `${net}:${poolAddress}:${endpoint}:${aggregate}`;
+  const key = `${net}:${poolAddress}:${endpoint}:${aggregate2}`;
   const hit = candleCache.get(key);
   if (hit && Date.now() - hit.at < callBudget().candleTtlMs) return hit.bars.slice(-count);
   let pending = candleInFlight.get(key);
   if (!pending) {
     pending = (async () => {
-      const d = await gt(`/networks/${net}/pools/${poolAddress}/ohlcv/${endpoint}?aggregate=${aggregate}&limit=${FETCH_DEPTH}`);
+      const d = await gt(`/networks/${net}/pools/${poolAddress}/ohlcv/${endpoint}?aggregate=${aggregate2}&limit=${FETCH_DEPTH}`);
       const list = d?.data?.attributes?.ohlcv_list ?? [];
       const bars2 = list.map((r) => ({ t: Number(r[0]) * 1e3, o: Number(r[1]), h: Number(r[2]), l: Number(r[3]), c: Number(r[4]), v: Number(r[5]) })).filter((b) => Number.isFinite(b.c) && b.c > 0).reverse();
       candleCache.set(key, { at: Date.now(), bars: bars2 });
@@ -26792,8 +26794,10 @@ CREATE OR REPLACE VIEW shadow_ledger AS
    WHERE s.mode IN ('paper', 'shadow') AND s.status = 'closed' AND s.close_pnl_pct IS NOT NULL
      AND NOT (
        NULLIF(s.closed_at, '')::timestamptz < TIMESTAMPTZ '2026-11-06 19:15:00+00'
-       AND extract(epoch from (NULLIF(s.closed_at, '')::timestamptz - s.opened_at::timestamptz)) < 120
        AND abs(s.close_pnl_pct) >= 40
+       AND (extract(epoch from (NULLIF(s.closed_at, '')::timestamptz - s.opened_at::timestamptz)) < 120
+            -- known junk-priced symbols (sol-brain.ts BAD_PRICE_SYMBOLS), any hold
+            OR s.symbol IN ('RAY', 'mSOL'))
      )
 `;
     _ensured2 = null;
@@ -37275,7 +37279,7 @@ async function backfillIfEmpty2(userId) {
     const pnl = Number(t.close_pnl_pct) || 0;
     const openedMs = t.opened_at ? new Date(t.opened_at).getTime() : NaN;
     const closedMs = t.closed_at ? new Date(t.closed_at).getTime() : NaN;
-    if (Number.isFinite(openedMs) && Number.isFinite(closedMs) && closedMs < Date.parse("2026-11-06T19:15:00Z") && closedMs - openedMs < 12e4 && Math.abs(pnl) >= QUARANTINE_MIN_ABS_RETURN_PCT) continue;
+    if (Number.isFinite(openedMs) && Number.isFinite(closedMs) && closedMs < Date.parse("2026-11-06T19:15:00Z") && Math.abs(pnl) >= QUARANTINE_MIN_ABS_RETURN_PCT && (closedMs - openedMs < 12e4 || BAD_PRICE_SYMBOLS.includes(t.token_symbol))) continue;
     const d = t.closed_at ? new Date(t.closed_at) : /* @__PURE__ */ new Date();
     await pool.query(
       `INSERT INTO sol_brain_outcomes (user_id, symbol, strategy, direction, result, profit_loss, return_pct, hour_utc, source, closed_at)
@@ -37292,10 +37296,11 @@ async function learnFromSolTrades(userId) {
   const { rows } = await pool.query(
     `SELECT symbol, strategy, direction, result, profit_loss, hour_utc FROM sol_brain_outcomes
      WHERE user_id=$1
-       AND NOT (closed_at < TIMESTAMP '${BAD_PRICE_ERA_END}' AND holding_minutes IS NOT NULL
-                AND holding_minutes <= ${QUARANTINE_MAX_HOLD_MIN} AND abs(profit_loss) >= ${QUARANTINE_MIN_ABS_RETURN_PCT})
+       -- return_pct, not profit_loss: profit_loss is in SOL (~0.09) and never reached 40.
+       AND NOT (closed_at < TIMESTAMP '${BAD_PRICE_ERA_END}' AND abs(COALESCE(return_pct, 0)) >= ${QUARANTINE_MIN_ABS_RETURN_PCT}
+                AND ((holding_minutes IS NOT NULL AND holding_minutes <= ${QUARANTINE_MAX_HOLD_MIN}) OR symbol = ANY($2::text[])))
      ORDER BY closed_at DESC LIMIT 2000`,
-    [userId]
+    [userId, BAD_PRICE_SYMBOLS]
   );
   const symbols = {};
   const winSum = {}, winN = {}, lossSum = {}, lossN = {};
@@ -37404,7 +37409,7 @@ async function recordSolBrainOutcome(o) {
     console.error("[sol-brain] recordSolBrainOutcome failed (non-fatal):", err?.message ?? err);
   }
 }
-var MIN_TRADES4, REFRESH_TTL_MS2, BAD_PRICE_ERA_END, QUARANTINE_MAX_HOLD_MIN, QUARANTINE_MIN_ABS_RETURN_PCT, _ensured3, _cache2;
+var MIN_TRADES4, REFRESH_TTL_MS2, BAD_PRICE_ERA_END, QUARANTINE_MAX_HOLD_MIN, QUARANTINE_MIN_ABS_RETURN_PCT, BAD_PRICE_SYMBOLS, _ensured3, _cache2;
 var init_sol_brain = __esm({
   "server/services/sol-brain.ts"() {
     "use strict";
@@ -37414,6 +37419,7 @@ var init_sol_brain = __esm({
     BAD_PRICE_ERA_END = "2026-11-06 19:15:00";
     QUARANTINE_MAX_HOLD_MIN = 1;
     QUARANTINE_MIN_ABS_RETURN_PCT = 40;
+    BAD_PRICE_SYMBOLS = ["RAY", "mSOL"];
     _ensured3 = false;
     _cache2 = /* @__PURE__ */ new Map();
   }
@@ -37445,6 +37451,215 @@ var init_weekend_boost = __esm({
   }
 });
 
+// server/services/sol-shadow-stats.ts
+var sol_shadow_stats_exports = {};
+__export(sol_shadow_stats_exports, {
+  adviceFor: () => adviceFor,
+  aggregate: () => aggregate,
+  bucketsOf: () => bucketsOf,
+  computeSolShadowStats: () => computeSolShadowStats,
+  deriveTags: () => deriveTags,
+  ensureSolShadowContextTable: () => ensureSolShadowContextTable,
+  getSolShadowStatsText: () => getSolShadowStatsText,
+  recordSolShadowClose: () => recordSolShadowClose,
+  recordSolShadowEntry: () => recordSolShadowEntry,
+  sessionOf: () => sessionOf
+});
+function ensureSolShadowContextTable() {
+  if (!_ensured4) {
+    _ensured4 = pool.query(`CREATE TABLE IF NOT EXISTS sol_shadow_context (
+      id serial PRIMARY KEY, user_id int NOT NULL, position_id text NOT NULL UNIQUE,
+      strategy_id text NOT NULL, symbol text NOT NULL, mint text, dex text,
+      liquidity_usd double precision, price_change_1h double precision, price_change_24h double precision,
+      buy_ratio_1h double precision, buy_ratio_24h double precision, volume_24h double precision,
+      market_cap_usd double precision, token_age_hours double precision,
+      hour_utc int, session text, day_of_week int,
+      signal text, confidence double precision, risk_level text,
+      whale_score double precision, sentiment_score double precision, tokenomics_score double precision,
+      tags text[], advice_at_entry text,
+      entry_price double precision, size_sol double precision, cost_pct double precision,
+      opened_at timestamptz NOT NULL DEFAULT now(),
+      closed_at timestamptz, exit_reason text, hold_minutes double precision,
+      gross_pct double precision, net_pct double precision, peak_gain_pct double precision)`).then(() => pool.query(`CREATE INDEX IF NOT EXISTS sol_shadow_context_user_closed ON sol_shadow_context (user_id, closed_at)`)).then(() => void 0).catch((e) => {
+      _ensured4 = null;
+      throw e;
+    });
+  }
+  return _ensured4;
+}
+function sessionOf(hourUtc) {
+  if (hourUtc < 7) return "Asian";
+  if (hourUtc < 12) return "London";
+  if (hourUtc < 16) return "Overlap";
+  if (hourUtc < 21) return "New York";
+  return "Late";
+}
+function deriveTags(c) {
+  const t = [];
+  const h1 = c.priceChange1h ?? 0, d1 = c.priceChange24h ?? 0;
+  const br = c.buyRatio1h ?? c.buyRatio24h ?? 0.5;
+  if (h1 >= 40) t.push("hot_hour");
+  if (d1 >= 100) t.push("overextended");
+  if (d1 <= -4 && br > 0.6) t.push("dip_accumulation");
+  if (br > 0.65) t.push("buyers_dominant");
+  if (br < 0.45) t.push("sellers_dominant");
+  if ((c.liquidityUsd ?? 0) > 0 && (c.liquidityUsd ?? 0) < 25e3) t.push("thin_pool");
+  if (c.tokenAgeHours != null && c.tokenAgeHours < 24) t.push("new_token");
+  return t;
+}
+function bucketsOf(c) {
+  const b = {};
+  if (c.hour_utc != null) {
+    const s = Math.floor(c.hour_utc / 4) * 4;
+    b.hour = `${String(s).padStart(2, "0")}-${String(s + 4).padStart(2, "0")}UTC`;
+  }
+  const liq = c.liquidity_usd ?? 0;
+  if (liq > 0) b.liquidity = liq < 25e3 ? "<25k" : liq < 1e5 ? "25-100k" : liq < 5e5 ? "100-500k" : "500k+";
+  if (c.dex) b.dex = c.dex.toLowerCase();
+  const m = c.price_change_1h ?? null;
+  if (m != null) b.momentum1h = m < -10 ? "<-10%" : m < 0 ? "-10-0%" : m < 10 ? "0-10%" : m < 40 ? "10-40%" : "40%+";
+  const d = c.price_change_24h ?? null;
+  if (d != null) b.change24h = d < -10 ? "<-10%" : d < 10 ? "-10-10%" : d < 50 ? "10-50%" : "50%+";
+  const age = c.token_age_hours ?? null;
+  if (age != null) b.age = age < 24 ? "<1d" : age < 168 ? "1-7d" : "7d+";
+  const br = c.buy_ratio_1h ?? c.buy_ratio_24h ?? null;
+  if (br != null) b.buyRatio = br < 0.5 ? "<50%" : br < 0.6 ? "50-60%" : br < 0.7 ? "60-70%" : "70%+";
+  return b;
+}
+function quantile(sorted, q) {
+  if (!sorted.length) return 0;
+  const pos = (sorted.length - 1) * q, lo2 = Math.floor(pos), hi2 = Math.ceil(pos);
+  return sorted[lo2] + (sorted[hi2] - sorted[lo2]) * (pos - lo2);
+}
+function aggregate(rows) {
+  const groups = /* @__PURE__ */ new Map();
+  for (const r of rows) {
+    if (r.net_pct == null || !Number.isFinite(Number(r.net_pct))) continue;
+    const bs2 = { ...bucketsOf(r), all: "all" };
+    for (const [dim, bucket] of Object.entries(bs2)) {
+      const k2 = `${r.strategy_id}|${dim}|${bucket}`;
+      (groups.get(k2) ?? groups.set(k2, []).get(k2)).push(Number(r.net_pct));
+    }
+  }
+  const out = [];
+  for (const [k2, v] of Array.from(groups.entries())) {
+    const [strategy, dim, bucket] = k2.split("|");
+    const s = v.slice().sort((a, b) => a - b);
+    const med = quantile(s, 0.5);
+    const verdict = s.length >= MIN_N() ? med > FAVOR_PCT() ? "favor" : med < -AVOID_PCT() ? "avoid" : "learning" : "learning";
+    out.push({ strategy, dim, bucket, n: s.length, medianNet: med, p25: quantile(s, 0.25), p75: quantile(s, 0.75), winRate: s.filter((x) => x > 0).length / s.length, verdict });
+  }
+  return out.sort((a, b) => b.n - a.n);
+}
+async function recordSolShadowEntry(c, adviceAtEntry) {
+  try {
+    await ensureSolShadowContextTable();
+    const at = c.openedAt ?? /* @__PURE__ */ new Date();
+    const hour = at.getUTCHours();
+    await pool.query(
+      `INSERT INTO sol_shadow_context (user_id, position_id, strategy_id, symbol, mint, dex, liquidity_usd, price_change_1h, price_change_24h,
+         buy_ratio_1h, buy_ratio_24h, volume_24h, market_cap_usd, token_age_hours, hour_utc, session, day_of_week, signal, confidence,
+         risk_level, whale_score, sentiment_score, tokenomics_score, tags, advice_at_entry, entry_price, size_sol, cost_pct, opened_at)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25,$26,$27,$28,$29)
+       ON CONFLICT (position_id) DO NOTHING`,
+      [
+        c.userId,
+        c.positionId,
+        c.strategyId,
+        c.symbol,
+        c.mint ?? null,
+        c.dex ?? null,
+        c.liquidityUsd ?? null,
+        c.priceChange1h ?? null,
+        c.priceChange24h ?? null,
+        c.buyRatio1h ?? null,
+        c.buyRatio24h ?? null,
+        c.volume24h ?? null,
+        c.marketCapUsd ?? null,
+        c.tokenAgeHours ?? null,
+        hour,
+        sessionOf(hour),
+        at.getUTCDay(),
+        c.signal ?? null,
+        c.confidence ?? null,
+        c.riskLevel ?? null,
+        c.whaleScore ?? null,
+        c.sentimentScore ?? null,
+        c.tokenomicsScore ?? null,
+        deriveTags(c),
+        adviceAtEntry,
+        c.entryPrice,
+        c.sizeSol,
+        c.costPct ?? null,
+        at
+      ]
+    );
+  } catch (e) {
+    console.error("[sol-shadow-stats] entry write failed (non-fatal):", e?.message ?? e);
+  }
+}
+async function recordSolShadowClose(o) {
+  try {
+    await ensureSolShadowContextTable();
+    await pool.query(
+      `UPDATE sol_shadow_context SET closed_at=now(), exit_reason=$2, hold_minutes=$3, gross_pct=$4, net_pct=$5, peak_gain_pct=$6
+        WHERE position_id=$1 AND closed_at IS NULL`,
+      [o.positionId, o.exitReason, o.holdMinutes, o.grossPct, o.netPct, o.peakGainPct]
+    );
+  } catch (e) {
+    console.error("[sol-shadow-stats] close write failed (non-fatal):", e?.message ?? e);
+  }
+}
+async function computeSolShadowStats(userId, force = false) {
+  const hit = _cache3.get(userId);
+  if (!force && hit && Date.now() - hit.at < 15 * 6e4) return hit.stats;
+  await ensureSolShadowContextTable();
+  const { rows } = await pool.query(
+    `SELECT strategy_id, hour_utc, liquidity_usd, dex, price_change_1h, price_change_24h, token_age_hours, buy_ratio_1h, buy_ratio_24h, net_pct
+       FROM sol_shadow_context
+      WHERE user_id=$1 AND closed_at IS NOT NULL AND net_pct IS NOT NULL AND closed_at >= now() - interval '60 days'`,
+    [userId]
+  );
+  const stats = aggregate(rows);
+  _cache3.set(userId, { at: Date.now(), stats });
+  return stats;
+}
+function adviceFor(stats, strategyId, ctx) {
+  const bs2 = bucketsOf(ctx);
+  const hits2 = stats.filter((s) => s.strategy === strategyId && s.verdict !== "learning" && bs2[s.dim] === s.bucket);
+  const fmt = (s) => `${s.verdict}: ${s.dim} ${s.bucket} (n=${s.n}, median ${s.medianNet >= 0 ? "+" : ""}${s.medianNet.toFixed(1)}%)`;
+  const avoid = hits2.filter((s) => s.verdict === "avoid"), favor = hits2.filter((s) => s.verdict === "favor");
+  const verdict = avoid.length ? "avoid" : favor.length ? "favor" : "learning";
+  return { verdict, reasons: [...avoid, ...favor].map(fmt) };
+}
+async function getSolShadowStatsText(userId, max = 12) {
+  try {
+    const stats = (await computeSolShadowStats(userId)).filter((s) => s.verdict !== "learning" && s.dim !== "all");
+    if (!stats.length) return "";
+    const top = stats.sort((a, b) => Math.abs(b.medianNet) * Math.sqrt(b.n) - Math.abs(a.medianNet) * Math.sqrt(a.n)).slice(0, max);
+    return `SOL SHADOW EVIDENCE (virtual trades of every strategy, net of costs, judged by MEDIAN; advice only):
+` + top.map((s) => `- ${s.strategy} ${s.verdict.toUpperCase()} when ${s.dim}=${s.bucket}: n=${s.n}, median ${s.medianNet >= 0 ? "+" : ""}${s.medianNet.toFixed(1)}%, win ${(s.winRate * 100).toFixed(0)}%`).join("\n");
+  } catch {
+    return "";
+  }
+}
+var num3, MIN_N, FAVOR_PCT, AVOID_PCT, _ensured4, _cache3;
+var init_sol_shadow_stats = __esm({
+  "server/services/sol-shadow-stats.ts"() {
+    "use strict";
+    init_db();
+    num3 = (name, dflt) => {
+      const v = Number(process.env[name]);
+      return Number.isFinite(v) && v > 0 ? v : dflt;
+    };
+    MIN_N = () => num3("SOL_SHADOW_STATS_MIN_N", 15);
+    FAVOR_PCT = () => num3("SOL_SHADOW_FAVOR_MEDIAN_PCT", 1);
+    AVOID_PCT = () => num3("SOL_SHADOW_AVOID_MEDIAN_PCT", 2);
+    _ensured4 = null;
+    _cache3 = /* @__PURE__ */ new Map();
+  }
+});
+
 // server/services/sol-engine.ts
 var sol_engine_exports = {};
 __export(sol_engine_exports, {
@@ -37452,6 +37667,7 @@ __export(sol_engine_exports, {
   PUMP_SCALP_MIN_GAIN_1H_PCT: () => PUMP_SCALP_MIN_GAIN_1H_PCT,
   PUMP_SCALP_MIN_LIQ_USD: () => PUMP_SCALP_MIN_LIQ_USD,
   SHADOW_MAX_OPEN: () => SHADOW_MAX_OPEN,
+  SHADOW_MAX_PER_STRATEGY: () => SHADOW_MAX_PER_STRATEGY,
   SOL_PAPER_MAX_SOL: () => SOL_PAPER_MAX_SOL,
   SOL_STRATEGIES: () => SOL_STRATEGIES,
   cancelSignal: () => cancelSignal,
@@ -37476,6 +37692,7 @@ __export(sol_engine_exports, {
   setSolStrategy: () => setSolStrategy,
   setSolWeeklyGoal: () => setSolWeeklyGoal,
   shadowEntryCandidate: () => shadowEntryCandidate,
+  shadowStrategies: () => shadowStrategies,
   shadowTestEnabled: () => shadowTestEnabled,
   startSolEngine: () => startSolEngine,
   stopSolEngine: () => stopSolEngine,
@@ -37599,6 +37816,7 @@ async function upsertPosition(userId, pos) {
       closePnlPct: pos.closePnlPct,
       costPct: pos.costPct,
       grossPnlPct: pos.grossPnlPct,
+      exitReason: pos.exitReason ?? pos.closeReason ?? null,
       updatedAt: /* @__PURE__ */ new Date()
     }).onConflictDoUpdate({
       target: solEnginePositions.positionId,
@@ -37609,6 +37827,7 @@ async function upsertPosition(userId, pos) {
         closePnlPct: pos.closePnlPct,
         costPct: pos.costPct,
         grossPnlPct: pos.grossPnlPct,
+        exitReason: pos.exitReason ?? pos.closeReason ?? null,
         tokenAmount: pos.tokenAmount,
         updatedAt: /* @__PURE__ */ new Date()
       }
@@ -37675,7 +37894,8 @@ async function loadEngineStateFromDb(userId, state) {
         closedAt: row.closedAt || void 0,
         closePnlPct: row.closePnlPct ?? void 0,
         costPct: row.costPct ?? void 0,
-        grossPnlPct: row.grossPnlPct ?? void 0
+        grossPnlPct: row.grossPnlPct ?? void 0,
+        exitReason: row.exitReason ?? void 0
       };
       if (pos.mode === "paper") {
         if (pos.status === "open") state.paperPositions.push(pos);
@@ -38444,7 +38664,10 @@ Output a JSON array only (no markdown):
       (p2) => `${p2.symbol}: entry $${p2.entryPrice.toFixed(8)} \u2192 now $${p2.currentPrice.toFixed(8)} | ${p2.gainPct >= 0 ? "+" : ""}${p2.gainPct.toFixed(1)}% | vol:${p2.volumeStatus}`
     ).join("\n") : "None";
     const _solLessons = await Promise.resolve().then(() => (init_shadow_lessons(), shadow_lessons_exports)).then((m) => m.getShadowLessonsText(userId, "sol", 8)).catch(() => "");
+    const _solShadowStats = await Promise.resolve().then(() => (init_sol_shadow_stats(), sol_shadow_stats_exports)).then((m) => m.getSolShadowStatsText(userId, 12)).catch(() => "");
     const userPrompt = `${_solLessons ? `${_solLessons}
+
+` : ""}${_solShadowStats ? `${_solShadowStats}
 
 ` : ""}SIGNALS:
 ${signalsText}
@@ -38613,6 +38836,7 @@ async function monitorPaperPositions(userId, state) {
       pos.grossPnlPct = gainPct;
       pos.closePnlPct = netPct;
       pos.closeReason = reason;
+      pos.exitReason = reason;
       if (unpriced) {
         pos.closePnlPct = void 0;
         pos.exitReason = "max_hold_unpriced";
@@ -38701,59 +38925,114 @@ async function monitorPaperPositions(userId, state) {
 function shadowTestEnabled() {
   return process.env.SOL_PUMP_SHADOW !== "off";
 }
+function shadowStrategies() {
+  if (process.env.SOL_SHADOW_ALL === "off") return SOL_STRATEGIES.filter((s) => s.shadowTest);
+  return SOL_STRATEGIES.filter((s) => s.id !== "adaptive");
+}
 function shadowEntryCandidate(analysis, strat) {
   if (!(analysis.signal === "BUY" || analysis.signal === "STRONG_BUY")) return false;
+  if (strat.minSignal === "STRONG_BUY" && analysis.signal !== "STRONG_BUY") return false;
   if (analysis.confidence < strat.minConfidence) return false;
   if (strat.id === "pump_scalp_60") return passesPumpScalpGate(analysis.token);
   return passesStrategyFilter(analysis, strat);
 }
 async function evaluateShadowEntries(userId, state, scanResult) {
   if (!shadowTestEnabled()) return;
-  const strat = SOL_STRATEGIES.find((s) => s.id === "pump_scalp_60" && s.shadowTest);
-  if (!strat) return;
-  for (const analysis of scanResult) {
-    if (state.shadowPositions.filter((p2) => p2.status === "open").length >= SHADOW_MAX_OPEN) break;
-    if (!shadowEntryCandidate(analysis, strat)) continue;
-    const mint = analysis.token.address;
-    if (!mint) continue;
-    if (state.shadowPositions.some((p2) => p2.mint === mint && p2.status === "open")) continue;
-    if (state.closedShadowPositions.some((p2) => p2.mint === mint && !!p2.closedAt && Date.now() - new Date(p2.closedAt).getTime() < SOL_REENTRY_COOLDOWN_MS)) continue;
-    const scanPrice = parseFloat(analysis.token.priceUsd) || 0;
-    if (scanPrice <= 0) continue;
-    const tokenPrice = await referenceEntryPrice(state, analysis.token.symbol, mint, scanPrice);
-    if (!tokenPrice) continue;
-    const dexKey = (analysis.token.dexId || "").toLowerCase().split("_")[0];
-    const sized = computeAutoSolSize(state, dexKey, strat, "paper");
-    const pos = {
-      id: `shadow_${Date.now()}_${analysis.token.symbol}`,
-      symbol: analysis.token.symbol,
-      mint,
-      entryPrice: tokenPrice,
-      currentPrice: tokenPrice,
-      targetPct: state.autoTradeTP,
-      slPct: state.autoTradeSL,
-      size: sized > 0 ? sized : 0.25,
-      tokenAmount: 0,
-      decimals: 9,
-      strategyId: strat.id,
-      maxHoldMinutes: strat.maxHoldMinutes,
-      dex: dexKey,
-      mode: "shadow",
-      openedAt: (/* @__PURE__ */ new Date()).toISOString(),
-      status: "open",
-      peakPrice: tokenPrice,
-      trailingActive: false,
-      breakevenActive: false,
-      entryVolume24h: analysis.token.volume24h || 0,
-      costPct: await solPaperCostPct(dexKey, sized > 0 ? sized : 0.25, analysis.token.liquidity)
-    };
-    state.shadowPositions.push(pos);
-    upsertPosition(userId, pos).catch(() => {
-    });
-    addActivity2(state, {
-      type: "strategy",
-      message: `\u{1F576}\uFE0F SHADOW entry (Pump Scalp 60 test): ${analysis.token.symbol} \u2014 +${(analysis.token.priceChange1h ?? 0).toFixed(0)}% in the last hour, virtual ${pos.size.toFixed(3)} SOL @ $${tokenPrice.toFixed(6)} | 60-min clock running, TP +${state.autoTradeTP}% / SL -${state.autoTradeSL}%`
-    });
+  const strategies = shadowStrategies();
+  if (!strategies.length) return;
+  const statsMod = await Promise.resolve().then(() => (init_sol_shadow_stats(), sol_shadow_stats_exports));
+  const stats = await statsMod.computeSolShadowStats(userId).catch(() => []);
+  for (const strat of strategies) {
+    for (const analysis of scanResult) {
+      const openAll = state.shadowPositions.filter((p2) => p2.status === "open");
+      if (openAll.length >= SHADOW_MAX_OPEN) return;
+      if (openAll.filter((p2) => p2.strategyId === strat.id).length >= SHADOW_MAX_PER_STRATEGY) break;
+      if (!shadowEntryCandidate(analysis, strat)) continue;
+      const mint = analysis.token.address;
+      if (!mint) continue;
+      if (openAll.some((p2) => p2.mint === mint && p2.strategyId === strat.id)) continue;
+      if (state.closedShadowPositions.some((p2) => p2.mint === mint && p2.strategyId === strat.id && !!p2.closedAt && Date.now() - new Date(p2.closedAt).getTime() < SOL_REENTRY_COOLDOWN_MS)) continue;
+      const scanPrice = parseFloat(analysis.token.priceUsd) || 0;
+      if (scanPrice <= 0) continue;
+      const tokenPrice = await referenceEntryPrice(state, analysis.token.symbol, mint, scanPrice);
+      if (!tokenPrice) continue;
+      const tk = analysis.token;
+      const dexKey = (tk.dexId || "").toLowerCase().split("_")[0];
+      const now = /* @__PURE__ */ new Date();
+      const pos = {
+        id: `shadow_${strat.id}_${Date.now()}_${tk.symbol}`,
+        symbol: tk.symbol,
+        mint,
+        entryPrice: tokenPrice,
+        currentPrice: tokenPrice,
+        targetPct: state.autoTradeTP,
+        slPct: state.autoTradeSL,
+        size: SHADOW_SIZE_SOL,
+        tokenAmount: 0,
+        decimals: 9,
+        strategyId: strat.id,
+        maxHoldMinutes: strat.maxHoldMinutes,
+        dex: dexKey,
+        mode: "shadow",
+        openedAt: now.toISOString(),
+        status: "open",
+        peakPrice: tokenPrice,
+        trailingActive: false,
+        breakevenActive: false,
+        entryVolume24h: tk.volume24h || 0,
+        costPct: await solPaperCostPct(dexKey, SHADOW_SIZE_SOL, tk.liquidity)
+      };
+      const h1Total = (tk.txnsH1?.buys ?? 0) + (tk.txnsH1?.sells ?? 0);
+      const d1Total = (tk.txns24h?.buys ?? 0) + (tk.txns24h?.sells ?? 0);
+      const createdMs = tk.createdAt ? new Date(tk.createdAt).getTime() : NaN;
+      const ctx = {
+        userId,
+        positionId: pos.id,
+        strategyId: strat.id,
+        symbol: tk.symbol,
+        mint,
+        dex: dexKey,
+        liquidityUsd: tk.liquidity ?? null,
+        priceChange1h: tk.priceChange1h ?? null,
+        priceChange24h: tk.priceChange24h ?? null,
+        buyRatio1h: h1Total >= 10 ? tk.txnsH1.buys / h1Total : null,
+        buyRatio24h: d1Total > 0 ? tk.txns24h.buys / d1Total : null,
+        volume24h: tk.volume24h ?? null,
+        marketCapUsd: tk.fdv || null,
+        tokenAgeHours: Number.isFinite(createdMs) && createdMs > 0 ? (Date.now() - createdMs) / 36e5 : null,
+        signal: analysis.signal,
+        confidence: analysis.confidence,
+        riskLevel: analysis.riskLevel,
+        whaleScore: analysis.whaleScore,
+        sentimentScore: analysis.sentimentScore,
+        tokenomicsScore: analysis.tokenomicsScore,
+        entryPrice: tokenPrice,
+        sizeSol: SHADOW_SIZE_SOL,
+        costPct: pos.costPct ?? null,
+        openedAt: now
+      };
+      const advice = statsMod.adviceFor(stats, strat.id, {
+        hour_utc: now.getUTCHours(),
+        liquidity_usd: ctx.liquidityUsd,
+        dex: dexKey,
+        price_change_1h: ctx.priceChange1h,
+        price_change_24h: ctx.priceChange24h,
+        token_age_hours: ctx.tokenAgeHours,
+        buy_ratio_1h: ctx.buyRatio1h,
+        buy_ratio_24h: ctx.buyRatio24h
+      });
+      state.shadowPositions.push(pos);
+      upsertPosition(userId, pos).catch(() => {
+      });
+      statsMod.recordSolShadowEntry(ctx, advice.verdict === "learning" ? "learning" : `${advice.verdict}: ${advice.reasons.join("; ")}`.slice(0, 500)).catch(() => {
+      });
+      if (strat.id === "pump_scalp_60") {
+        addActivity2(state, {
+          type: "strategy",
+          message: `\u{1F576}\uFE0F SHADOW entry (Pump Scalp 60 test): ${tk.symbol} \u2014 +${(tk.priceChange1h ?? 0).toFixed(0)}% in the last hour, virtual ${pos.size.toFixed(3)} SOL @ $${tokenPrice.toFixed(6)} | 60-min clock running, TP +${state.autoTradeTP}% / SL -${state.autoTradeSL}%`
+        });
+      }
+    }
   }
 }
 async function monitorShadowPositions(userId, state) {
@@ -38781,13 +39060,22 @@ async function monitorShadowPositions(userId, state) {
       pos.closedAt = (/* @__PURE__ */ new Date()).toISOString();
       pos.grossPnlPct = unpriced ? void 0 : gainPct;
       pos.closePnlPct = unpriced ? void 0 : gainPct - (pos.costPct ?? 0);
-      if (unpriced) pos.exitReason = "max_hold_unpriced";
+      pos.exitReason = unpriced ? "max_hold_unpriced" : reason;
       pos.closeReason = reason;
+      Promise.resolve().then(() => (init_sol_shadow_stats(), sol_shadow_stats_exports)).then((m) => m.recordSolShadowClose({
+        positionId: pos.id,
+        exitReason: pos.exitReason || reason,
+        holdMinutes: (Date.now() - new Date(pos.openedAt).getTime()) / 6e4,
+        grossPct: unpriced ? null : gainPct,
+        netPct: pos.closePnlPct ?? null,
+        peakGainPct: pos.peakPrice && pos.entryPrice > 0 ? (pos.peakPrice - pos.entryPrice) / pos.entryPrice * 100 : null
+      })).catch(() => {
+      });
       state.closedShadowPositions.unshift(pos);
       if (state.closedShadowPositions.length > 50) state.closedShadowPositions = state.closedShadowPositions.slice(0, 50);
       upsertPosition(userId, pos).catch(() => {
       });
-      addActivity2(state, {
+      if (pos.strategyId === "pump_scalp_60") addActivity2(state, {
         type: "info",
         message: `\u{1F576}\uFE0F SHADOW exit (${reason === "max_hold" ? "60-min window over" : reason === "tp" ? "target hit" : "stop hit"}): ${pos.symbol} closed @ $${currentPrice.toFixed(6)} \u2014 ${gainPct >= 0 ? "+" : ""}${gainPct.toFixed(2)}% gross, ${(gainPct - (pos.costPct ?? 0)).toFixed(2)}% after ${(pos.costPct ?? 0).toFixed(2)}% costs (shadow test, no real money)`
       });
@@ -39956,7 +40244,7 @@ async function getServerWalletStatus(userId) {
     return { hasServerWallet: false };
   }
 }
-var SOL_BRAIN_ENABLED, SOL_BRAIN_GATING, SOL_CONFLUENCE_REQUIRED, SOL_COMPOSITE_FLOOR, SOL_CONFLUENCE_BONUS, SOL_MAX_HOLD_HOURS, SOL_MAX_HOLD_MS, MAX_PRICE_SPIKE, SOL_ENTRY_PRICE_MAX_DIFF_PCT, SOL_BIG_MOVE_PCT, SOL_SOURCE_AGREE_PCT, SOL_REENTRY_COOLDOWN_MS, DEX_NAMES, SOL_STRATEGIES, DEFAULT_CONFIG, DEFAULT_WEEKLY_GOAL, engineStates2, startingSolUsers, SOL_MINT_ADDR, _solUsdCache, PUMP_SCALP_MIN_GAIN_1H_PCT, PUMP_SCALP_MIN_LIQ_USD, PUMP_SCALP_MIN_BUY_RATIO, PAPER_DEFAULT_PORTFOLIO_SOL, SHADOW_MAX_OPEN, SOL_PAPER_MAX_SOL;
+var SOL_BRAIN_ENABLED, SOL_BRAIN_GATING, SOL_CONFLUENCE_REQUIRED, SOL_COMPOSITE_FLOOR, SOL_CONFLUENCE_BONUS, SOL_MAX_HOLD_HOURS, SOL_MAX_HOLD_MS, MAX_PRICE_SPIKE, SOL_ENTRY_PRICE_MAX_DIFF_PCT, SOL_BIG_MOVE_PCT, SOL_SOURCE_AGREE_PCT, SOL_REENTRY_COOLDOWN_MS, DEX_NAMES, SOL_STRATEGIES, DEFAULT_CONFIG, DEFAULT_WEEKLY_GOAL, engineStates2, startingSolUsers, SOL_MINT_ADDR, _solUsdCache, PUMP_SCALP_MIN_GAIN_1H_PCT, PUMP_SCALP_MIN_LIQ_USD, PUMP_SCALP_MIN_BUY_RATIO, PAPER_DEFAULT_PORTFOLIO_SOL, _envInt, SHADOW_MAX_OPEN, SHADOW_MAX_PER_STRATEGY, SHADOW_SIZE_SOL, SOL_PAPER_MAX_SOL;
 var init_sol_engine = __esm({
   "server/services/sol-engine.ts"() {
     "use strict";
@@ -40148,7 +40436,13 @@ var init_sol_engine = __esm({
     PUMP_SCALP_MIN_LIQ_USD = Number(process.env.PUMP_SCALP_MIN_LIQ_USD ?? 1e4);
     PUMP_SCALP_MIN_BUY_RATIO = Number(process.env.PUMP_SCALP_MIN_BUY_RATIO ?? 0.55);
     PAPER_DEFAULT_PORTFOLIO_SOL = 10;
-    SHADOW_MAX_OPEN = 5;
+    _envInt = (n, d) => {
+      const v = Number(process.env[n]);
+      return Number.isFinite(v) && v > 0 ? Math.floor(v) : d;
+    };
+    SHADOW_MAX_OPEN = _envInt("SOL_SHADOW_MAX_OPEN", 20);
+    SHADOW_MAX_PER_STRATEGY = _envInt("SOL_SHADOW_MAX_PER_STRATEGY", 3);
+    SHADOW_SIZE_SOL = Number(process.env.SOL_SHADOW_SIZE_SOL) > 0 ? Number(process.env.SOL_SHADOW_SIZE_SOL) : 0.25;
     SOL_PAPER_MAX_SOL = Number(process.env.SOL_PAPER_MAX_SOL ?? 1e3);
   }
 });
@@ -40487,7 +40781,7 @@ async function buildAbbaContext(userId) {
         })()
       },
       byPair: group(closed, (t) => (t.symbol || "").toUpperCase()).map((g) => ({ pair: g.key, trades: g.trades, winRate: g.winRate, pnl: g.pnl })).sort((a, b) => a.pnl - b.pnl),
-      bySession: group(closed, (t) => sessionOf(new Date(t.closedAt))).map((g) => ({ session: g.key, trades: g.trades, winRate: g.winRate, pnl: g.pnl })).sort((a, b) => a.pnl - b.pnl),
+      bySession: group(closed, (t) => sessionOf2(new Date(t.closedAt))).map((g) => ({ session: g.key, trades: g.trades, winRate: g.winRate, pnl: g.pnl })).sort((a, b) => a.pnl - b.pnl),
       avgConfWinners: avgConf(wins),
       avgConfLosers: avgConf(losses)
     },
@@ -40498,7 +40792,7 @@ async function buildAbbaContext(userId) {
       pnl: Math.round((t.profitLoss || 0) * 100) / 100,
       conf: t.aiConfidence || 0,
       source: t.source === "tradelocker" ? "TradeLocker" : "MT5",
-      session: sessionOf(new Date(t.closedAt)),
+      session: sessionOf2(new Date(t.closedAt)),
       when: t.closedAt
     })),
     brain: global.veddAIBrain?.[userId] ?? null,
@@ -40892,7 +41186,7 @@ ${contextSummary(ctx)}`;
     res.status(500).json({ error: err.message });
   }
 }
-var sessionOf, IDEA_MARKER, SETUP_MARKER, YES;
+var sessionOf2, IDEA_MARKER, SETUP_MARKER, YES;
 var init_abba_strategist = __esm({
   "server/abba-strategist.ts"() {
     "use strict";
@@ -40901,7 +41195,7 @@ var init_abba_strategist = __esm({
     init_engine_updates();
     init_weekly_review();
     init_brain_ideas();
-    sessionOf = (d) => {
+    sessionOf2 = (d) => {
       const h = d.getUTCHours();
       return h < 7 ? "Asian" : h < 13 ? "London" : h < 20 ? "New York" : "Late NY";
     };
@@ -40993,8 +41287,8 @@ async function addTradeSetupAnnotations(originalImagePath, analysis, outputFilen
         analysis.takeProfit,
         ...supportResistanceLevels
       ].map((p2) => {
-        const num3 = parseFloat(p2.replace(/[^0-9.-]/g, ""));
-        return isNaN(num3) ? 0 : num3;
+        const num4 = parseFloat(p2.replace(/[^0-9.-]/g, ""));
+        return isNaN(num4) ? 0 : num4;
       }).filter((p2) => p2 > 0);
       if (prices.length === 0) return chartArea.top + chartArea.height * 0.5;
       const minPrice = Math.min(...prices);
@@ -47432,7 +47726,7 @@ async function cryptocomTicker(sym2) {
 }
 async function getAggregatedQuote(symbol) {
   const sym2 = symbol.toUpperCase().replace(/[^A-Z0-9]/g, "");
-  const hit = _cache3.get(sym2);
+  const hit = _cache4.get(sym2);
   if (hit && Date.now() - hit.ts < TTL_MS7) return hit.q;
   const venues = await Promise.all([coinbaseSpot(sym2), krakenTicker(sym2), geminiTicker(sym2), cryptocomTicker(sym2)]);
   const priced = venues.filter((v) => typeof v.price === "number" && v.price > 0);
@@ -47445,19 +47739,19 @@ async function getAggregatedQuote(symbol) {
     spreadPct = lo2.price > 0 ? Math.round((hi2.price - lo2.price) / lo2.price * 1e4) / 100 : null;
   }
   const q = { symbol: sym2, best, spreadPct, venues, fetchedAt: (/* @__PURE__ */ new Date()).toISOString() };
-  _cache3.set(sym2, { q, ts: Date.now() });
+  _cache4.set(sym2, { q, ts: Date.now() });
   return q;
 }
 async function getAggregatedQuotes(symbols) {
   const uniq = Array.from(new Set(symbols.map((s) => s.toUpperCase().replace(/[^A-Z0-9]/g, "")))).slice(0, 25);
   return Promise.all(uniq.map(getAggregatedQuote));
 }
-var TTL_MS7, _cache3;
+var TTL_MS7, _cache4;
 var init_crypto_market_data = __esm({
   "server/services/crypto-market-data.ts"() {
     "use strict";
     TTL_MS7 = 15e3;
-    _cache3 = /* @__PURE__ */ new Map();
+    _cache4 = /* @__PURE__ */ new Map();
   }
 });
 
@@ -54585,12 +54879,12 @@ function linregSlope(values) {
   const xs = values.map((_, i) => i);
   const mx = xs.reduce((a, b) => a + b, 0) / n;
   const my = values.reduce((a, b) => a + b, 0) / n;
-  let num3 = 0, den = 0;
+  let num4 = 0, den = 0;
   for (let i = 0; i < n; i++) {
-    num3 += (xs[i] - mx) * (values[i] - my);
+    num4 += (xs[i] - mx) * (values[i] - my);
     den += (xs[i] - mx) ** 2;
   }
-  return den === 0 ? 0 : num3 / den;
+  return den === 0 ? 0 : num4 / den;
 }
 function ensembleSignal(candles) {
   const price = candles[candles.length - 1].close;
@@ -55242,24 +55536,24 @@ async function learnFromKalshiTrades(userId) {
     coinKnowledge: coins,
     insights
   };
-  _cache4.set(userId, { brain, at: Date.now() });
+  _cache5.set(userId, { brain, at: Date.now() });
   return brain;
 }
 async function getOrRefreshKalshiBrain(userId, force = false) {
-  const hit = _cache4.get(userId);
+  const hit = _cache5.get(userId);
   if (!force && hit && Date.now() - hit.at < REFRESH_TTL_MS3) return hit.brain;
   return learnFromKalshiTrades(userId);
 }
 function cachedKalshiBrain(userId) {
-  return _cache4.get(userId)?.brain ?? null;
+  return _cache5.get(userId)?.brain ?? null;
 }
 function kalshiBrainSizeMultiplier(userId, coin) {
-  const b = _cache4.get(userId)?.brain;
+  const b = _cache5.get(userId)?.brain;
   const k2 = b?.coinKnowledge[coin];
   return k2 ? k2.recommendedSizeMultiplier : 1;
 }
 function kalshiBrainGate(userId, coin, strikeType, hourUtc, confidence2) {
-  const k2 = _cache4.get(userId)?.brain?.coinKnowledge[coin];
+  const k2 = _cache5.get(userId)?.brain?.coinKnowledge[coin];
   if (!k2) return { blocked: false, reason: "" };
   const decided = k2.wins + k2.losses;
   if (decided >= 15 && k2.winRate < 35) {
@@ -55286,7 +55580,7 @@ function kalshiBrainGate(userId, coin, strikeType, hourUtc, confidence2) {
   return { blocked: false, reason: "" };
 }
 function kalshiBrainValueWeight(userId, coin, strikeType) {
-  const k2 = _cache4.get(userId)?.brain?.coinKnowledge[coin];
+  const k2 = _cache5.get(userId)?.brain?.coinKnowledge[coin];
   if (!k2) return 1;
   let w = k2.valueScoreWeight;
   if (strikeType) {
@@ -55295,7 +55589,7 @@ function kalshiBrainValueWeight(userId, coin, strikeType) {
   }
   return Math.max(0.6, Math.min(1.4, Math.round(w * 100) / 100));
 }
-var MIN_TRADES_FOR_COIN, REFRESH_TTL_MS3, _cache4;
+var MIN_TRADES_FOR_COIN, REFRESH_TTL_MS3, _cache5;
 var init_kalshi_brain = __esm({
   "server/services/kalshi-brain.ts"() {
     "use strict";
@@ -55303,7 +55597,7 @@ var init_kalshi_brain = __esm({
     init_schema();
     MIN_TRADES_FOR_COIN = 10;
     REFRESH_TTL_MS3 = 60 * 1e3;
-    _cache4 = /* @__PURE__ */ new Map();
+    _cache5 = /* @__PURE__ */ new Map();
   }
 });
 
@@ -57100,7 +57394,7 @@ async function runRuinConeSimulation(userId, params = {}) {
     source
   };
   if (!params.noCache) {
-    const hit = _cache5.get(_cacheKey(userId, resolved));
+    const hit = _cache6.get(_cacheKey(userId, resolved));
     if (hit && hit.expires > Date.now()) return hit.result;
   }
   const rows = await db.select({ pnl: aiTradeResults.profitLoss, closedAt: aiTradeResults.closedAt }).from(aiTradeResults).where(and10(
@@ -57148,7 +57442,7 @@ async function runRuinConeSimulation(userId, params = {}) {
       },
       warning: `Only ${sourceTradeCount} closed '${source}' trade(s) on record \u2014 need at least 2 to simulate. Let the scanner build more history.`
     };
-    _cache5.set(_cacheKey(userId, resolved), { expires: Date.now() + CACHE_TTL_MS7, result: result2 });
+    _cache6.set(_cacheKey(userId, resolved), { expires: Date.now() + CACHE_TTL_MS7, result: result2 });
     return result2;
   }
   const paths = new Array(numSimulations);
@@ -57248,10 +57542,10 @@ async function runRuinConeSimulation(userId, params = {}) {
     },
     warning: sourceTradeCount < 20 ? `Thin history: only ${sourceTradeCount} closed '${source}' trade(s). Results are indicative only until more trades accumulate.` : void 0
   };
-  _cache5.set(_cacheKey(userId, resolved), { expires: Date.now() + CACHE_TTL_MS7, result });
+  _cache6.set(_cacheKey(userId, resolved), { expires: Date.now() + CACHE_TTL_MS7, result });
   return result;
 }
-var FTUK_DEFAULTS, DEFAULT_NUM_SIMULATIONS, DEFAULT_NUM_TRADES, DEFAULT_SOURCE_LIMIT, CACHE_TTL_MS7, _cache5;
+var FTUK_DEFAULTS, DEFAULT_NUM_SIMULATIONS, DEFAULT_NUM_TRADES, DEFAULT_SOURCE_LIMIT, CACHE_TTL_MS7, _cache6;
 var init_ruin_cone = __esm({
   "server/services/ruin-cone.ts"() {
     "use strict";
@@ -57272,7 +57566,7 @@ var init_ruin_cone = __esm({
     DEFAULT_NUM_TRADES = 100;
     DEFAULT_SOURCE_LIMIT = 200;
     CACHE_TTL_MS7 = 5 * 60 * 1e3;
-    _cache5 = /* @__PURE__ */ new Map();
+    _cache6 = /* @__PURE__ */ new Map();
   }
 });
 
@@ -69748,9 +70042,9 @@ async function getStopOrdersForUser(userId, filters = {}) {
 init_schema();
 
 // server/build-info.ts
-var BUILD_COMMIT = "7f32989-dirty";
-var BUILD_BRANCH = "fix/sol-fake-win-quarantine";
-var BUILT_AT = "2026-11-07T00:33:08.372Z";
+var BUILD_COMMIT = "b76f5166-dirty";
+var BUILD_BRANCH = "feat/sol-shadow-all";
+var BUILT_AT = "2026-11-07T00:48:26.188Z";
 
 // server/stripe.ts
 init_db();
@@ -89568,13 +89862,13 @@ Format each recommendation as a clear, concise action item.`;
         }
         return Object.entries(m).map(([k2, v]) => ({ key: k2, ...v, pnl: Math.round(v.pnl * 100) / 100 }));
       };
-      const sessionOf2 = (t) => {
+      const sessionOf3 = (t) => {
         const h = new Date(t.closedAt).getUTCHours();
         return h < 7 ? "Asian" : h < 13 ? "London" : h < 20 ? "New York" : "Late NY";
       };
       const byPair = groupPnl((t) => (t.symbol || "").toUpperCase()).sort((a, b) => a.pnl - b.pnl);
       const bySource = groupPnl((t) => t.source === "tradelocker" ? "TradeLocker" : "MT5").sort((a, b) => a.pnl - b.pnl);
-      const bySession = groupPnl(sessionOf2).sort((a, b) => a.pnl - b.pnl);
+      const bySession = groupPnl(sessionOf3).sort((a, b) => a.pnl - b.pnl);
       const biggestLoss = losses.slice().sort((a, b) => (a.profitLoss || 0) - (b.profitLoss || 0))[0];
       const reasons = [];
       reasons.push(`${today.length} trades closed today \u2014 ${wins.length}W / ${losses.length}L (${winRate2}% win rate), net ${pnl >= 0 ? "+" : ""}$${pnl.toFixed(2)}.`);
@@ -92514,16 +92808,16 @@ Respond with ONLY valid JSON:
     try {
       const { runRuinConeSimulation: runRuinConeSimulation2 } = await Promise.resolve().then(() => (init_ruin_cone(), ruin_cone_exports));
       const q = req.query;
-      const num3 = (v) => v != null && v !== "" ? Number(v) : void 0;
+      const num4 = (v) => v != null && v !== "" ? Number(v) : void 0;
       const result = await runRuinConeSimulation2(userId, {
-        numSimulations: num3(q.numSimulations),
-        numTrades: num3(q.numTrades),
-        startingEquity: num3(q.startingEquity),
-        dailyLossLimit: num3(q.dailyLossLimit),
-        maxDrawdownLimit: num3(q.maxDrawdownLimit),
-        consistencyRuleThreshold: num3(q.consistencyRuleThreshold),
-        profitTarget: num3(q.profitTarget),
-        sourceLimit: num3(q.sourceLimit),
+        numSimulations: num4(q.numSimulations),
+        numTrades: num4(q.numTrades),
+        startingEquity: num4(q.startingEquity),
+        dailyLossLimit: num4(q.dailyLossLimit),
+        maxDrawdownLimit: num4(q.maxDrawdownLimit),
+        consistencyRuleThreshold: num4(q.consistencyRuleThreshold),
+        profitTarget: num4(q.profitTarget),
+        sourceLimit: num4(q.sourceLimit),
         source: q.source ? String(q.source) : void 0,
         noCache: q.nocache === "1" || q.noCache === "true"
       });
@@ -104713,6 +105007,8 @@ async function withRetry(fn, label, maxAttempts = 6, baseDelayMs = 2e3) {
       )`);
       await db.execute(sql17`ALTER TABLE sol_engine_positions ADD COLUMN IF NOT EXISTS cost_pct real`);
       await db.execute(sql17`ALTER TABLE sol_engine_positions ADD COLUMN IF NOT EXISTS gross_pnl_pct real`);
+      await db.execute(sql17`ALTER TABLE sol_engine_positions ADD COLUMN IF NOT EXISTS exit_reason text`);
+      await Promise.resolve().then(() => (init_sol_shadow_stats(), sol_shadow_stats_exports)).then((m) => m.ensureSolShadowContextTable());
       console.log("[startup] SOL Engine tables created/verified.");
     } catch (err) {
       console.error("[startup] SOL Engine tables migration (non-fatal):", err.message);

@@ -2704,6 +2704,8 @@ var init_schema = __esm({
       // Paper/shadow costs (2026-11-06): close_pnl_pct is NET; gross is the raw move.
       costPct: real("cost_pct"),
       grossPnlPct: real("gross_pnl_pct"),
+      // tp | sl | trail | max_hold | max_hold_unpriced | abandoned ... (2026-11-07)
+      exitReason: text("exit_reason"),
       updatedAt: timestamp("updated_at").defaultNow().notNull()
     });
     wearToEarnClaims = pgTable("wear_to_earn_claims", {
@@ -16974,8 +16976,10 @@ CREATE OR REPLACE VIEW shadow_ledger AS
    WHERE s.mode IN ('paper', 'shadow') AND s.status = 'closed' AND s.close_pnl_pct IS NOT NULL
      AND NOT (
        NULLIF(s.closed_at, '')::timestamptz < TIMESTAMPTZ '2026-11-06 19:15:00+00'
-       AND extract(epoch from (NULLIF(s.closed_at, '')::timestamptz - s.opened_at::timestamptz)) < 120
        AND abs(s.close_pnl_pct) >= 40
+       AND (extract(epoch from (NULLIF(s.closed_at, '')::timestamptz - s.opened_at::timestamptz)) < 120
+            -- known junk-priced symbols (sol-brain.ts BAD_PRICE_SYMBOLS), any hold
+            OR s.symbol IN ('RAY', 'mSOL'))
      )
 `;
     _ensured2 = null;
