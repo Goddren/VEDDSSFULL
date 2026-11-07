@@ -13,6 +13,25 @@ import { pool } from '../db';
 const MIN_TRADES = 10;
 const REFRESH_TTL_MS = 60 * 1000;
 
+// ── Bad-price-era quarantine (2026-11-06) ────────────────────────────────────
+// Before the 8dd6a74 fix, paper closes were priced from junk-pool scan prices
+// (RAY marked $4.00 vs real ~$1.61) and booked impossible outcomes — RAY "hit
+// TP" at +148% in 0.2 seconds. Those rows sit in sol_brain_outcomes forever:
+// brain aggregates have no aging, so without this filter the brain would keep
+// sizing and gating from wins that never happened. The signature of the
+// artifact is an instant, huge move: held ≤1 minute with |return| ≥ 40%.
+// Rows closed before the fixed deploy (started 2026-11-06 19:10 UTC) matching
+// that signature are excluded from learning, the backfill skips them, and the
+// same signature is rejected at write time so a future bad-price recurrence
+// can never re-poison the store.
+const BAD_PRICE_ERA_END = '2026-11-06 19:15:00';
+const QUARANTINE_MAX_HOLD_MIN = 1;
+const QUARANTINE_MIN_ABS_RETURN_PCT = 40;
+function isFakeWinSignature(holdingMinutes: number | null | undefined, returnPct: number | null | undefined): boolean {
+  return holdingMinutes != null && holdingMinutes <= QUARANTINE_MAX_HOLD_MIN
+    && returnPct != null && Math.abs(returnPct) >= QUARANTINE_MIN_ABS_RETURN_PCT;
+}
+
 // Lazy table guard — ensures the feature store exists even if the boot ensure
 // (server/index.ts) has not run yet. Idempotent; runs at most once per process.
 let _ensured = false;
@@ -78,11 +97,18 @@ async function backfillIfEmpty(userId: number): Promise<void> {
   const { rows } = await pool.query(`SELECT count(*)::int n FROM sol_brain_outcomes WHERE user_id=$1`, [userId]);
   if (rows[0].n > 0) return;
   const { rows: trades } = await pool.query(
-    `SELECT token_symbol, strategy_id, close_pnl_pct, closed_at FROM sol_engine_positions
+    `SELECT token_symbol, strategy_id, close_pnl_pct, opened_at, closed_at FROM sol_engine_positions
      WHERE user_id=$1 AND status='closed' AND close_pnl_pct IS NOT NULL ORDER BY closed_at DESC LIMIT 1000`, [userId]);
   if (!trades.length) return;
   for (const t of trades) {
     const pnl = Number(t.close_pnl_pct) || 0;
+    // Quarantine: never seed the brain with bad-price-era artifacts (same
+    // signature as the ledger view: <2-minute hold, ≥40% move, closed pre-fix).
+    const openedMs = t.opened_at ? new Date(t.opened_at).getTime() : NaN;
+    const closedMs = t.closed_at ? new Date(t.closed_at).getTime() : NaN;
+    if (Number.isFinite(openedMs) && Number.isFinite(closedMs)
+        && closedMs < Date.parse('2026-11-06T19:15:00Z')
+        && closedMs - openedMs < 120_000 && Math.abs(pnl) >= QUARANTINE_MIN_ABS_RETURN_PCT) continue;
     const d = t.closed_at ? new Date(t.closed_at) : new Date();
     await pool.query(
       `INSERT INTO sol_brain_outcomes (user_id, symbol, strategy, direction, result, profit_loss, return_pct, hour_utc, source, closed_at)
@@ -97,7 +123,10 @@ export async function learnFromSolTrades(userId: number): Promise<SolBrain> {
   await backfillIfEmpty(userId).catch(() => {});
   const { rows } = await pool.query(
     `SELECT symbol, strategy, direction, result, profit_loss, hour_utc FROM sol_brain_outcomes
-     WHERE user_id=$1 ORDER BY closed_at DESC LIMIT 2000`, [userId]);
+     WHERE user_id=$1
+       AND NOT (closed_at < TIMESTAMP '${BAD_PRICE_ERA_END}' AND holding_minutes IS NOT NULL
+                AND holding_minutes <= ${QUARANTINE_MAX_HOLD_MIN} AND abs(profit_loss) >= ${QUARANTINE_MIN_ABS_RETURN_PCT})
+     ORDER BY closed_at DESC LIMIT 2000`, [userId]);
 
   const symbols: Record<string, SymbolKnowledge> = {};
   const winSum: Record<string, number> = {}, winN: Record<string, number> = {}, lossSum: Record<string, number> = {}, lossN: Record<string, number> = {};
@@ -173,6 +202,14 @@ export async function recordSolBrainOutcome(o: {
     // poison the self-learning brain (the RAY +484,517% incident).
     if (o.returnPct != null && (o.returnPct > 1000 || o.returnPct < -100)) {
       console.warn(`[sol-brain] rejected impossible return ${o.returnPct}% for ${o.symbol} — not recorded (bad price data)`);
+      return;
+    }
+    // Quarantine signature: a ≤1-minute hold with a ≥40% return is the
+    // bad-price artifact shape (RAY +148% in 0.2s), whatever the era — no real
+    // pool moved like that between monitor samples, so the outcome teaches a
+    // price move that never happened. Never recorded.
+    if (isFakeWinSignature(o.holdingMinutes, o.returnPct)) {
+      console.warn(`[sol-brain] rejected instant-huge outcome ${o.returnPct}% in ${o.holdingMinutes}min for ${o.symbol} — quarantined (bad-price signature)`);
       return;
     }
     await pool.query(

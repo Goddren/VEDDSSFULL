@@ -20,6 +20,13 @@
 // UTC came from oldest-first (week-stale) reads (fixed d1d1f932) — the
 // RESULTS are fine, the trend context is not. Lessons must not use those
 // trend fields when context_reliable is false.
+//
+// Sol bad-price quarantine (2026-11-06): Sol paper/shadow rows closed before
+// the 8dd6a74 deploy (2026-11-06 19:10 UTC) with a <2-minute hold and a ≥40%
+// move either way are junk-pool price artifacts, not trade evidence (RAY
+// "hit TP" at +148% in 0.2s). They are excluded from the Sol arm below so
+// lessons, summaries and the weekly review never learn from them. The
+// positions themselves are untouched — only this learning view filters them.
 // ─────────────────────────────────────────────────────────────────────────────
 import { pool } from '../db';
 
@@ -75,6 +82,11 @@ CREATE OR REPLACE VIEW shadow_ledger AS
          s.close_pnl_pct::float
     FROM sol_engine_positions s
    WHERE s.mode IN ('paper', 'shadow') AND s.status = 'closed' AND s.close_pnl_pct IS NOT NULL
+     AND NOT (
+       NULLIF(s.closed_at, '')::timestamptz < TIMESTAMPTZ '2026-11-06 19:15:00+00'
+       AND extract(epoch from (NULLIF(s.closed_at, '')::timestamptz - s.opened_at::timestamptz)) < 120
+       AND abs(s.close_pnl_pct) >= 40
+     )
 `;
 
 let _ensured: Promise<void> | null = null;
