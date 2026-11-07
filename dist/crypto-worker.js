@@ -12553,6 +12553,7 @@ var init_breakoutEngine = __esm({
 // server/services/guard-events.ts
 var guard_events_exports = {};
 __export(guard_events_exports, {
+  guardFireRates: () => guardFireRates,
   logGuard: () => logGuard,
   recentGuardEvents: () => recentGuardEvents
 });
@@ -12588,6 +12589,25 @@ function logGuard(userId, kind, symbol, detail, data, engine = "fx") {
     } catch {
     }
   })();
+}
+async function guardFireRates(userId, days = 7) {
+  await ensure();
+  const d = Math.max(1, Math.min(90, days));
+  const { rows } = await pool.query(
+    `SELECT e.engine, e.kind,
+            count(*) FILTER (WHERE e.created_at > now() - ($2 || ' days')::interval)::int AS fires,
+            count(*) FILTER (WHERE e.created_at <= now() - ($2 || ' days')::interval)::int AS prev_fires,
+            max(e.created_at) AS last_fired,
+            (SELECT e2.symbol FROM engine_guard_events e2
+              WHERE e2.user_id = $1 AND e2.engine = e.engine AND e2.kind = e.kind AND e2.symbol IS NOT NULL
+              GROUP BY e2.symbol ORDER BY count(*) DESC LIMIT 1) AS top_symbol
+       FROM engine_guard_events e
+      WHERE e.user_id = $1 AND e.created_at > now() - (2 * ($2 || ' days')::interval)
+      GROUP BY e.engine, e.kind
+      ORDER BY fires DESC`,
+    [userId, String(d)]
+  );
+  return { days: d, rates: rows };
 }
 async function recentGuardEvents(userId, limit = 100, kinds) {
   await ensure();

@@ -1324,6 +1324,15 @@ export async function registerRoutes(app: Express, existingServer?: Server): Pro
           return await checkFxBrainHealth();
         } catch { return null; }
       })(),
+      // Engine watchdog (2026-11-06): is any engine silently dead? Distinguishes
+      // "running but fully gated" from "stopped / emergency-stopped" so a stall
+      // is a health-check glance, not a 3-day mystery (see engine-watchdog.ts).
+      engineWatchdog: await (async () => {
+        try {
+          const { getEngineWatchdogStatus } = await import('./services/engine-watchdog');
+          return await getEngineWatchdogStatus();
+        } catch { return null; }
+      })(),
     });
   });
 
@@ -23345,7 +23354,10 @@ Return ONLY JSON: {"topPicks":[{"market":"","winProbability":<0-100>,"whyItWins"
   app.get("/api/engine/guard-events", async (req: Request, res: Response) => {
     if (!req.isAuthenticated()) return res.status(401).json({ error: "Authentication required" });
     try {
-      const { recentGuardEvents } = await import('./services/guard-events');
+      const { recentGuardEvents, guardFireRates } = await import('./services/guard-events');
+      if (String(req.query.view || '') === 'rates') {
+        return res.json(await guardFireRates((req.user as User).id, Number(req.query.days) || 7));
+      }
       res.json(await recentGuardEvents((req.user as User).id, Number(req.query.limit) || 60, req.query.kinds ? String(req.query.kinds).split(',') : undefined));
     } catch (err: any) {
       res.status(500).json({ error: err.message });
