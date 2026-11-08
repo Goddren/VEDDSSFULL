@@ -23417,6 +23417,10 @@ Return ONLY JSON: {"topPicks":[{"market":"","winProbability":<0-100>,"whyItWins"
         const { practiceCostReport } = await import('./services/practice-costs-report');
         return res.json(await practiceCostReport((req.user as User).id, Number(req.query.days) || 90));
       }
+      if (String(req.query.view || '') === 'trails') {
+        const { trailStudyReport } = await import('./services/trail-study');
+        return res.json(await trailStudyReport((req.user as User).id, Number(req.query.days) || 90));
+      }
       res.json(await recentGuardEvents((req.user as User).id, Number(req.query.limit) || 60, req.query.kinds ? String(req.query.kinds).split(',') : undefined));
     } catch (err: any) {
       res.status(500).json({ error: err.message });

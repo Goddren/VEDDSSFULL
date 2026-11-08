@@ -1,5 +1,5 @@
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { ShieldCheck, Settings2, GraduationCap, Receipt } from "lucide-react";
+import { ShieldCheck, Settings2, GraduationCap, Receipt, Route } from "lucide-react";
 import { apiRequest } from "@/lib/queryClient";
 
 // Shows what the engine's safeguards (2026-10-19 bug-scan fixes) actually did:
@@ -315,6 +315,78 @@ export function PracticeCostPanel({ className = "" }: { className?: string }) {
       <div className="text-[9px] text-gray-600 mt-1.5">
         The model assumes: crypto fee {c.cryptoFeeBps} bps ({c.cryptoFeeDeepBps} bps in deep pools), cost floor ×{c.cryptoFloorMult}; Sol slippage {c.solSlippagePct}%/side, pump.fun fee {c.solFeePumpfunPct}%, other DEX fees {c.solFeeDefaultPct}%, thin-pool impact fallback {c.solImpactFallbackPct}%. Real fills carry costs inside their execution prices, so there is no stored "real cost" series to compare against — this panel is the practice side, measured exactly.
       </div>
+    </div>
+  );
+}
+
+type TrailGroupT = { key: string; trades: number; winRate: number | null; avgFinal: number | null; avgPeak: number | null; avgGiveback: number | null; trailExitShare: number | null; verdict: string | null };
+
+function TrailGroupRows({ groups, unit }: { groups: TrailGroupT[]; unit: string }) {
+  if (!groups.length) return null;
+  return (
+    <div className="space-y-0.5">
+      {groups.map((g) => (
+        <div key={g.key} className="rounded bg-black/20 px-2 py-1">
+          <div className="text-[10px] flex items-baseline gap-2">
+            <span className="text-gray-200 font-medium truncate">{g.key}</span>
+            <span className="ml-auto text-gray-500 shrink-0">{g.trades} trades</span>
+            <span className="text-gray-300 shrink-0">{g.avgFinal != null ? `${g.avgFinal > 0 ? "+" : ""}${g.avgFinal}${unit} avg close` : "—"}</span>
+            <span className="text-gray-500 shrink-0">{g.avgPeak != null ? `peak ${g.avgPeak}${unit}` : ""}</span>
+            <span className="text-amber-300/90 shrink-0">{g.avgGiveback != null ? `gave back ${g.avgGiveback}${unit}` : ""}</span>
+            <span className="text-gray-500 shrink-0">{g.trailExitShare != null ? `${Math.round(g.trailExitShare * 100)}% trail exits` : ""}</span>
+          </div>
+          {g.verdict ? <div className="text-[9px] text-sky-300/80 mt-0.5">{g.verdict}</div> : null}
+        </div>
+      ))}
+    </div>
+  );
+}
+
+export function TrailStudyPanel({ className = "" }: { className?: string }) {
+  const { data } = useQuery<{
+    days: number;
+    crypto: { settings: { method: string; activationR: number; fixedR: number; stepR: number; profitLockPct: number; sarInitialAf: number; sarMaxAf: number; breakevenBufferR: number } | null; overall: TrailGroupT | null; byStrategy: TrailGroupT[]; bySymbol: TrailGroupT[]; note: string };
+    sol: { settings: { learnedRulesOn: boolean; breakevenAtPct: number; partialAtPct: number; partialFraction: number; trailDistPct: number; stagedTrail: string }; overall: TrailGroupT | null; byStrategy: TrailGroupT[]; bySymbol: TrailGroupT[]; note: string };
+  }>({
+    queryKey: ["/api/engine/guard-events?view=trails&days=90"],
+    refetchInterval: 60000,
+  });
+  if (!data) return null;
+  const cs = data.crypto.settings;
+  const ss = data.sol.settings;
+  return (
+    <div className={`rounded-md border border-white/10 bg-white/[0.03] p-2 ${className}`}>
+      <div className="flex items-center gap-2 mb-1.5">
+        <Route className="w-3.5 h-3.5 text-sky-300" />
+        <span className="text-[11px] font-bold text-gray-200">Trail study — which trail fits which pair & strategy</span>
+        <span className="text-[9px] text-gray-500 ml-auto">last {data.days} days</span>
+      </div>
+
+      <div className="text-[10px] font-semibold text-gray-300 mt-1 mb-1">Crypto engine {cs ? <span className="text-gray-500 font-normal">— your trail now: {cs.method}, arms at {cs.activationR}R, fixed {cs.fixedR}R / step {cs.stepR}R / locks {cs.profitLockPct}%</span> : <span className="text-gray-500 font-normal">— no saved trail settings</span>}</div>
+      {data.crypto.overall ? (
+        <>
+          <div className="text-[10px] text-gray-400 mb-1">By strategy</div>
+          <TrailGroupRows groups={data.crypto.byStrategy} unit="R" />
+          <div className="text-[10px] text-gray-400 mt-1.5 mb-1">By pair</div>
+          <TrailGroupRows groups={data.crypto.bySymbol} unit="R" />
+        </>
+      ) : (
+        <div className="text-[10px] text-gray-500">No closed live crypto trades in the last {data.days} days yet — the study fills in as trades close.</div>
+      )}
+      <div className="text-[9px] text-gray-600 mt-1">{data.crypto.note}</div>
+
+      <div className="text-[10px] font-semibold text-gray-300 mt-2.5 mb-1">Sol engine <span className="text-gray-500 font-normal">— learned rules {ss.learnedRulesOn ? "on" : "off"}: breakeven at +{ss.breakevenAtPct}%, half off at +{ss.partialAtPct}%, trail {ss.trailDistPct}% under the peak. {ss.stagedTrail}</span></div>
+      {data.sol.overall ? (
+        <>
+          <div className="text-[10px] text-gray-400 mb-1">By strategy</div>
+          <TrailGroupRows groups={data.sol.byStrategy} unit="%" />
+          <div className="text-[10px] text-gray-400 mt-1.5 mb-1">By token</div>
+          <TrailGroupRows groups={data.sol.bySymbol} unit="%" />
+        </>
+      ) : (
+        <div className="text-[10px] text-gray-500">No closed Sol paper/shadow trades in the last {data.days} days yet.</div>
+      )}
+      <div className="text-[9px] text-gray-600 mt-1">{data.sol.note}</div>
     </div>
   );
 }
