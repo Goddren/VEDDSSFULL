@@ -5341,6 +5341,31 @@ async function processDecision(userId: number, decision: any, newsCtx?: any): Pr
       }
     }
 
+    // ── Promoted lesson guards (Stage D, 2026-11-08) ─────────────────────
+    // A shadow lesson the owner promoted after it proved itself (50+ trades,
+    // avg R ≤ −0.2, ≤40% wins, no winning week) hard-blocks matching entries.
+    // Fails open; retirable any time from the Weekly Strategy page.
+    if (decision.direction) {
+      try {
+        const { checkPromotedRules } = await import('./promoted-rules');
+        const { sessionFor } = await import('./fx-models');
+        const _hit = await checkPromotedRules(userId, {
+          strategy: decision.fxModel || decision.model || null,
+          symbol: decision.symbol,
+          direction: decision.direction,
+          session: sessionFor(new Date()),
+          dayType: (decision as any).dayType ?? null,
+        });
+        if (_hit) {
+          addActivity(userId, { type: 'info', symbol: decision.symbol, message: `🛡️ ${decision.symbol} ${decision.direction} blocked by a promoted lesson — ${_hit.dimension} "${_hit.key}" lost ${_hit.avgR.toFixed(2)}R on average over ${_hit.trades} practice trades. You made this a guard on the Weekly Strategy page; retire it there any time.` });
+          logGuard(userId, 'promoted_rule_block', decision.symbol, `${decision.direction} blocked by promoted lesson (${_hit.dimension}: ${_hit.key})`, { ruleId: _hit.id });
+          recordBlockedTrade(userId, 'promoted_rule_block', decision.symbol, { direction: decision.direction, entryPrice: decision.entryPrice, stopLoss: decision.stopLoss, takeProfit: decision.takeProfit, confidence: decision.confidence, model: decision.fxModel || decision.model, setup: decision.setup }, `promoted lesson: ${_hit.dimension} ${_hit.key}`);
+          state.signalsGenerated++;
+          return;
+        }
+      } catch { /* promoted guards fail open */ }
+    }
+
     // ── Multi-timeframe entry rule (H1 + H4) ─────────────────────────────
     {
       // Default no_conflict: block only when H1/H4 actively OPPOSE the entry.

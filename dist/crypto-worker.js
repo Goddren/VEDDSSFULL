@@ -20004,6 +20004,158 @@ var init_ai_model_service = __esm({
   }
 });
 
+// server/services/promoted-rules.ts
+var promoted_rules_exports = {};
+__export(promoted_rules_exports, {
+  checkPromotedRules: () => checkPromotedRules,
+  getPromotableLessons: () => getPromotableLessons,
+  getPromotedRules: () => getPromotedRules,
+  lessonEligibility: () => lessonEligibility,
+  promoteLesson: () => promoteLesson,
+  retireRule: () => retireRule
+});
+async function getPromotedRules(userId) {
+  const hit = _cache3.get(userId);
+  if (hit && Date.now() - hit.at < CACHE_MS) return hit.rules;
+  let rules = [];
+  try {
+    const v = await getRuntimeStateStrict(SCOPE, String(userId));
+    if (Array.isArray(v)) rules = v;
+  } catch {
+  }
+  _cache3.set(userId, { at: Date.now(), rules });
+  return rules;
+}
+async function storeRules(userId, rules) {
+  _cache3.set(userId, { at: Date.now(), rules });
+  saveRuntimeState(SCOPE, String(userId), rules);
+}
+async function hasWinningWeek(userId, lesson) {
+  const dim = DIM_EXPR[lesson.dimension];
+  if (!dim) return true;
+  await ensureShadowLedger();
+  const { rows } = await pool.query(
+    `SELECT avg(r_multiple)::float AS avg_r
+       FROM shadow_ledger
+      WHERE user_id = $1 AND source = $2 AND ${dim.expr} = $3
+        AND closed_at >= now() - interval '30 days' AND r_multiple IS NOT NULL ${dim.where ? `AND ${dim.where}` : ""}
+      GROUP BY date_trunc('week', closed_at)`,
+    [userId, lesson.source, lesson.key]
+  );
+  return rows.some((r) => Number(r.avg_r) > 0);
+}
+async function lessonEligibility(userId, lesson, rules) {
+  const reasons = [];
+  if (lesson.source !== "fx_shadow") reasons.push("v1 promotes FX lessons only");
+  if (lesson.verdict !== "avoid") reasons.push("only proven losing setups (AVOID lessons) can be promoted");
+  if (!PROMOTABLE_DIMS.includes(lesson.dimension)) reasons.push(`the ${lesson.dimension} dimension cannot be checked at entry yet`);
+  if (lesson.trades < MIN_TRADES4()) reasons.push(`needs ${MIN_TRADES4()}+ practice trades (has ${lesson.trades})`);
+  if (lesson.avgR > MAX_AVG_R()) reasons.push(`needs avg R \u2264 ${MAX_AVG_R()} (is ${lesson.avgR.toFixed(2)})`);
+  if (lesson.winRate > MAX_WIN_RATE()) reasons.push(`needs win rate \u2264 ${Math.round(MAX_WIN_RATE() * 100)}% (is ${Math.round(lesson.winRate * 100)}%)`);
+  if (rules.some((r) => r.active && r.source === lesson.source && r.dimension === lesson.dimension && r.key === lesson.key)) {
+    reasons.push("already a guard");
+  }
+  if (reasons.length === 0) {
+    try {
+      if (await hasWinningWeek(userId, lesson)) reasons.push("had a winning week in the last 30 days");
+    } catch {
+      reasons.push("weekly check failed \u2014 cannot verify");
+    }
+  }
+  return { eligible: reasons.length === 0, reasons };
+}
+async function getPromotableLessons(userId) {
+  const [lessons, rules] = await Promise.all([computeShadowLessons(userId), getPromotedRules(userId)]);
+  const fx = lessons.filter((l) => l.source === "fx_shadow");
+  const withEligibility = await Promise.all(fx.map(async (l) => ({ ...l, eligibility: await lessonEligibility(userId, l, rules) })));
+  return { lessons: withEligibility, rules };
+}
+async function promoteLesson(userId, sel) {
+  const lessons = await computeShadowLessons(userId);
+  const lesson = lessons.find((l) => l.source === sel.source && l.dimension === sel.dimension && l.key === sel.key);
+  if (!lesson) return { ok: false, reasons: ["lesson not found in the current 30-day evidence"] };
+  const rules = await getPromotedRules(userId);
+  const elig = await lessonEligibility(userId, lesson, rules);
+  if (!elig.eligible) return { ok: false, reasons: elig.reasons };
+  const rule = {
+    id: `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`,
+    source: lesson.source,
+    dimension: lesson.dimension,
+    key: lesson.key,
+    trades: lesson.trades,
+    avgR: lesson.avgR,
+    winRate: lesson.winRate,
+    promotedAt: (/* @__PURE__ */ new Date()).toISOString(),
+    active: true
+  };
+  await storeRules(userId, [...rules, rule]);
+  return { ok: true, rule };
+}
+async function retireRule(userId, id) {
+  const rules = await getPromotedRules(userId);
+  const next = rules.map((r) => r.id === id ? { ...r, active: false, retiredAt: (/* @__PURE__ */ new Date()).toISOString() } : r);
+  if (!next.some((r) => r.id === id)) return { ok: false };
+  await storeRules(userId, next);
+  return { ok: true };
+}
+async function checkPromotedRules(userId, ctx) {
+  if (process.env.PROMOTED_RULES === "off") return null;
+  const rules = (await getPromotedRules(userId)).filter((r) => r.active);
+  if (!rules.length) return null;
+  const dir = (ctx.direction || "").toUpperCase();
+  const strat = ctx.strategy || "";
+  const sym = ctx.symbol ? normSym(ctx.symbol) : "";
+  for (const r of rules) {
+    switch (r.dimension) {
+      case "session":
+        if (ctx.session && r.key === ctx.session) return r;
+        break;
+      case "direction":
+        if (dir && r.key === dir) return r;
+        break;
+      case "strategy":
+        if (strat && r.key === strat) return r;
+        break;
+      case "strategy+symbol":
+        if (strat && sym && r.key === `${strat} \xB7 ${sym}`) return r;
+        break;
+      case "strategy+direction":
+        if (strat && dir && r.key === `${strat} \xB7 ${dir}`) return r;
+        break;
+      case "day_type":
+        if (ctx.dayType && r.key === ctx.dayType) return r;
+        break;
+    }
+  }
+  return null;
+}
+var SCOPE, PROMOTABLE_DIMS, MIN_TRADES4, MAX_AVG_R, MAX_WIN_RATE, DIM_EXPR, _cache3, CACHE_MS, normSym;
+var init_promoted_rules = __esm({
+  "server/services/promoted-rules.ts"() {
+    "use strict";
+    init_db();
+    init_runtime_state();
+    init_shadow_lessons();
+    init_shadow_ledger();
+    SCOPE = "promoted_rules";
+    PROMOTABLE_DIMS = ["session", "direction", "strategy", "strategy+symbol", "strategy+direction", "day_type"];
+    MIN_TRADES4 = () => Number(process.env.PROMOTED_RULE_MIN_TRADES ?? 50);
+    MAX_AVG_R = () => Number(process.env.PROMOTED_RULE_MAX_AVG_R ?? -0.2);
+    MAX_WIN_RATE = () => Number(process.env.PROMOTED_RULE_MAX_WIN_RATE ?? 0.4);
+    DIM_EXPR = {
+      session: { expr: `session` },
+      strategy: { expr: `strategy` },
+      "strategy+symbol": { expr: `strategy || ' \xB7 ' || symbol` },
+      direction: { expr: `direction` },
+      day_type: { expr: `day_type`, where: `day_type IS NOT NULL` },
+      "strategy+direction": { expr: `strategy || ' \xB7 ' || direction` }
+    };
+    _cache3 = /* @__PURE__ */ new Map();
+    CACHE_MS = 3e4;
+    normSym = (s) => s.toUpperCase().replace("/", "");
+  }
+});
+
 // server/services/polymarket.ts
 function classifyDirection(question) {
   const q = question.toLowerCase();
@@ -24670,6 +24822,27 @@ async function processDecision(userId, decision, newsCtx) {
           symbol: decision.symbol,
           message: `\u{1F4CA} HTF CONFLICT: ${signalDir} on ${decision.symbol} vs ${htfTFLabel} ${htfBias.trend} \u2014 ${confidence}% \u2265 90% threshold cleared. Allowing high-confidence counter-trend.`
         });
+      }
+    }
+    if (decision.direction) {
+      try {
+        const { checkPromotedRules: checkPromotedRules2 } = await Promise.resolve().then(() => (init_promoted_rules(), promoted_rules_exports));
+        const { sessionFor: sessionFor2 } = await Promise.resolve().then(() => (init_fx_models(), fx_models_exports));
+        const _hit = await checkPromotedRules2(userId, {
+          strategy: decision.fxModel || decision.model || null,
+          symbol: decision.symbol,
+          direction: decision.direction,
+          session: sessionFor2(/* @__PURE__ */ new Date()),
+          dayType: decision.dayType ?? null
+        });
+        if (_hit) {
+          addActivity(userId, { type: "info", symbol: decision.symbol, message: `\u{1F6E1}\uFE0F ${decision.symbol} ${decision.direction} blocked by a promoted lesson \u2014 ${_hit.dimension} "${_hit.key}" lost ${_hit.avgR.toFixed(2)}R on average over ${_hit.trades} practice trades. You made this a guard on the Weekly Strategy page; retire it there any time.` });
+          logGuard(userId, "promoted_rule_block", decision.symbol, `${decision.direction} blocked by promoted lesson (${_hit.dimension}: ${_hit.key})`, { ruleId: _hit.id });
+          recordBlockedTrade(userId, "promoted_rule_block", decision.symbol, { direction: decision.direction, entryPrice: decision.entryPrice, stopLoss: decision.stopLoss, takeProfit: decision.takeProfit, confidence: decision.confidence, model: decision.fxModel || decision.model, setup: decision.setup }, `promoted lesson: ${_hit.dimension} ${_hit.key}`);
+          state.signalsGenerated++;
+          return;
+        }
+      } catch {
       }
     }
     {

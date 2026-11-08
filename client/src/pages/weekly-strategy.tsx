@@ -35,7 +35,7 @@ import ConnectedAccountPicker, {
 } from "@/components/connected-account-picker";
 import { TradePerformanceCard, TodayReviewPanel } from "@/components/trade-performance-card";
 import { FxModelsPanel } from "@/components/fx-models-panel";
-import { EngineSafeguardsPanel, SkippedTradesPanel, GuardFireRatesPanel, SettingsOverviewPanel } from "@/components/engine-safeguards-panel";
+import { EngineSafeguardsPanel, SkippedTradesPanel, GuardFireRatesPanel, SettingsOverviewPanel, PromotedRulesPanel } from "@/components/engine-safeguards-panel";
 
 const POPULAR_PAIRS = [
   "EURUSD", "GBPUSD", "USDJPY", "USDCHF", "AUDUSD", "NZDUSD", "USDCAD",
@@ -5061,6 +5061,7 @@ export default function WeeklyStrategyPage() {
                   <EngineSafeguardsPanel className="mt-3" />
                   <GuardFireRatesPanel className="mt-3" />
                   <SettingsOverviewPanel className="mt-3" />
+                  <PromotedRulesPanel className="mt-3" />
                   {brainStatus.learningInsights?.length > 0 && (
                     <div className="space-y-1">
                       <p className="text-xs text-gray-400 font-semibold">Brain Insights:</p>
