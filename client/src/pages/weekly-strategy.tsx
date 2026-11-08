@@ -3231,7 +3231,7 @@ export default function WeeklyStrategyPage() {
 
                   {/* ── Brain Learning Mode Toggle ── */}
                   <div className={`rounded-xl border p-3 transition-all ${engineBrainLearningMode ? 'border-blue-500/60 bg-blue-500/10' : 'border-gray-700 bg-gray-900/30'}`}>
-                    <label className="flex items-center gap-2 cursor-pointer" onClick={() => setEngineBrainLearningMode(p => !p)}>
+                    <label className="flex items-center gap-2 cursor-pointer" onClick={() => { const next = !engineBrainLearningMode; setEngineBrainLearningMode(next); apiRequest('PATCH', '/api/vedd-live-engine/config', { brainLearningMode: next }).catch(() => { /* engine may not be running yet — still persisted server-side, applied on start */ }); }}>
                       <input type="checkbox" checked={engineBrainLearningMode} onChange={() => {}} className="accent-blue-500" />
                       <div>
                         <span className="text-xs font-semibold text-blue-300">🧠 Brain Learning Mode</span>
