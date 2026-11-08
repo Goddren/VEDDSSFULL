@@ -39157,24 +39157,27 @@ function cappedSlPct(slPct) {
   if (!solLearnedRulesOn()) return slPct;
   return slPct > 0 ? Math.min(slPct, SOL_LR.maxSlPct) : SOL_LR.maxSlPct;
 }
-function learnedExitStep(s, currentPrice) {
+function learnedExitStep(s, currentPrice, ov) {
+  const partialAtPct = ov?.partialAtPct ?? SOL_LR.partialAtPct;
+  const breakevenAtPct = ov?.breakevenAtPct ?? SOL_LR.breakevenAtPct;
+  const trailDistPct = ov?.trailDistPct ?? SOL_LR.trailDistPct;
   const gain = (currentPrice - s.entryPrice) / s.entryPrice * 100;
   const peak = Math.max(s.peakPrice ?? s.entryPrice, currentPrice);
   const peakGain = (peak - s.entryPrice) / s.entryPrice * 100;
   let partialJustTaken;
   let breakevenJustSet = false;
   let partial = s.partialGainPct;
-  if (partial == null && gain >= SOL_LR.partialAtPct) {
+  if (partial == null && gain >= partialAtPct) {
     partial = gain;
     partialJustTaken = gain;
   }
   let be = !!s.breakevenActive;
-  if (!be && peakGain >= SOL_LR.breakevenAtPct) {
+  if (!be && peakGain >= breakevenAtPct) {
     be = true;
     breakevenJustSet = true;
   }
   if (partial != null && partialJustTaken == null) {
-    const floor = Math.max(peak * (1 - SOL_LR.trailDistPct / 100), s.entryPrice);
+    const floor = Math.max(peak * (1 - trailDistPct / 100), s.entryPrice);
     if (currentPrice <= floor) return { action: "exit", reason: "trail", blendedGainPct: blendGain(gain, partial) };
   }
   if (be && partial == null && currentPrice <= s.entryPrice) {
@@ -39217,6 +39220,377 @@ var init_sol_learned_rules = __esm({
       }
     };
     DEFAULT_PAUSED = "momentum_surfer,trend_rider,breakout_hunter,order_flow_scalper";
+  }
+});
+
+// server/services/trail-study.ts
+var trail_study_exports = {};
+__export(trail_study_exports, {
+  trailStudyReport: () => trailStudyReport
+});
+function cryptoVerdict(g, activationR) {
+  if (g.trades < 8) return null;
+  if (g.avgPeak != null && g.avgPeak < activationR) {
+    return `Peaks average ${g.avgPeak}R \u2014 below the ${activationR}R trail activation, so the trail rarely switches on here.`;
+  }
+  if (g.trailExitShare != null && g.trailExitShare >= 0.25 && g.avgFinal != null && g.avgFinal >= 0.3) {
+    return "Trailing is earning its keep here \u2014 trail exits are common and close positive on average.";
+  }
+  if (g.avgGiveback != null && g.avgGiveback >= 1) {
+    return `Winners give back about ${g.avgGiveback}R from their peak on average \u2014 a tighter trail or earlier activation is the candidate to test.`;
+  }
+  return "Mixed picture \u2014 no clear trail change suggested yet.";
+}
+function solVerdict(g) {
+  if (g.trades < 8) return null;
+  if (g.trailExitShare != null && g.trailExitShare >= 0.3 && g.avgFinal != null && g.avgFinal > 0) {
+    return "The trail fits this group \u2014 trail exits are common and net-positive.";
+  }
+  if (g.avgGiveback != null && g.avgGiveback >= 8) {
+    return `About ${g.avgGiveback}% is given back from the peak on average \u2014 a tighter trail distance or earlier activation is the candidate to test.`;
+  }
+  if (g.avgPeak != null && g.avgPeak < SOL_LR.breakevenAtPct) {
+    return `Peaks rarely reach the +${SOL_LR.breakevenAtPct}% breakeven stage \u2014 trails barely engage here.`;
+  }
+  return "Mixed picture \u2014 no clear trail change suggested yet.";
+}
+async function trailStudyReport(userId, days = 90) {
+  const d = Math.min(365, Math.max(1, Math.floor(days) || 90));
+  const cfgRows = await pool.query(
+    `SELECT trail_method, trail_activation_r, trail_fixed_r, trail_step_r, trail_profit_lock_pct,
+            trail_sar_initial_af, trail_sar_max_af, breakeven_buffer_r
+       FROM cryptocom_engine_configs WHERE user_id = $1`,
+    [userId]
+  ).then((r) => r.rows).catch(() => []);
+  const cfg = cfgRows[0] ?? null;
+  const activationR = cfg ? Number(cfg.trail_activation_r) || 1 : 1;
+  const cryptoAgg = async (groupCol) => {
+    const sel = groupCol ? `${groupCol} AS key,` : `'all' AS key,`;
+    const grp = groupCol ? `GROUP BY ${groupCol}` : "";
+    const rows = await pool.query(
+      `SELECT ${sel} COUNT(*)::int AS trades,
+              AVG(CASE WHEN realized_pnl > 0 THEN 1.0 ELSE 0.0 END) AS win_rate,
+              AVG(${FINAL_R}) AS avg_final_r,
+              AVG(NULLIF(peak_r_multiple, 0)) AS avg_peak_r,
+              AVG(CASE WHEN peak_r_multiple > 0 THEN peak_r_multiple - ${FINAL_R} END) AS avg_giveback_r,
+              AVG(CASE WHEN exit_reason = 'trailing_stop' THEN 1.0 ELSE 0.0 END) AS trail_share
+         FROM cryptocom_engine_trades t
+        WHERE user_id = $1 AND status = 'closed' AND closed_at >= now() - ($2 || ' days')::interval
+        ${grp}`,
+      [userId, String(d)]
+    ).then((r) => r.rows).catch(() => []);
+    return rows.map((row) => {
+      const g = {
+        key: String(row.key ?? "all"),
+        trades: Number(row.trades) || 0,
+        winRate: r2(row.win_rate),
+        avgFinal: r2(row.avg_final_r),
+        avgPeak: r2(row.avg_peak_r),
+        avgGiveback: r2(row.avg_giveback_r),
+        trailExitShare: r2(row.trail_share),
+        verdict: null
+      };
+      g.verdict = cryptoVerdict(g, activationR);
+      return g;
+    }).filter((g) => g.trades > 0).sort((a, b) => b.trades - a.trades);
+  };
+  const [cOverall, cByStrategy, cBySymbol] = await Promise.all([
+    cryptoAgg(null),
+    cryptoAgg("strategy"),
+    cryptoAgg("symbol")
+  ]);
+  const solAgg = async (groupCol) => {
+    const sel = groupCol ? `${groupCol} AS key,` : `'all' AS key,`;
+    const grp = groupCol ? `GROUP BY ${groupCol}` : "";
+    const rows = await pool.query(
+      `SELECT ${sel} COUNT(*)::int AS trades,
+              AVG(CASE WHEN net_pct > 0 THEN 1.0 ELSE 0.0 END) AS win_rate,
+              AVG(net_pct) AS avg_net, AVG(peak_gain_pct) AS avg_peak,
+              AVG(CASE WHEN peak_gain_pct IS NOT NULL AND gross_pct IS NOT NULL
+                       THEN peak_gain_pct - gross_pct END) AS avg_giveback,
+              AVG(CASE WHEN exit_reason = 'trail' THEN 1.0 ELSE 0.0 END) AS trail_share
+         FROM sol_shadow_context
+        WHERE user_id = $1 AND closed_at >= now() - ($2 || ' days')::interval
+        ${grp}`,
+      [userId, String(d)]
+    ).then((r) => r.rows).catch(() => []);
+    return rows.map((row) => {
+      const g = {
+        key: String(row.key ?? "all"),
+        trades: Number(row.trades) || 0,
+        winRate: r2(row.win_rate),
+        avgFinal: r2(row.avg_net),
+        avgPeak: r2(row.avg_peak),
+        avgGiveback: r2(row.avg_giveback),
+        trailExitShare: r2(row.trail_share),
+        verdict: null
+      };
+      g.verdict = solVerdict(g);
+      return g;
+    }).filter((g) => g.trades > 0).sort((a, b) => b.trades - a.trades);
+  };
+  const [sOverall, sByStrategy, sBySymbol] = await Promise.all([
+    solAgg(null),
+    solAgg("strategy_id"),
+    solAgg("symbol")
+  ]);
+  return {
+    days: d,
+    crypto: {
+      settings: cfg ? {
+        method: cfg.trail_method,
+        activationR: Number(cfg.trail_activation_r),
+        fixedR: Number(cfg.trail_fixed_r),
+        stepR: Number(cfg.trail_step_r),
+        profitLockPct: Number(cfg.trail_profit_lock_pct),
+        sarInitialAf: Number(cfg.trail_sar_initial_af),
+        sarMaxAf: Number(cfg.trail_sar_max_af),
+        breakevenBufferR: Number(cfg.breakeven_buffer_r)
+      } : null,
+      overall: cOverall[0] ?? null,
+      byStrategy: cByStrategy.slice(0, 12),
+      bySymbol: cBySymbol.slice(0, 12),
+      note: "Live trades only \u2014 crypto paper trades have no trailing (TP/SL exits, no peak tracking), so there is nothing to study there yet."
+    },
+    sol: {
+      settings: {
+        learnedRulesOn: solLearnedRulesOn(),
+        breakevenAtPct: SOL_LR.breakevenAtPct,
+        partialAtPct: SOL_LR.partialAtPct,
+        partialFraction: SOL_LR.partialFraction,
+        trailDistPct: SOL_LR.trailDistPct,
+        stagedTrail: "Breakeven floor from +8% gain; active trail from +20% gain (per-position setting) with a volume-adjusted distance of 6\u201315% under the peak."
+      },
+      overall: sOverall[0] ?? null,
+      byStrategy: sByStrategy.slice(0, 12),
+      bySymbol: sBySymbol.slice(0, 12),
+      note: "From paper + shadow closes (sol_shadow_context). Settings are not stamped per position, so groups compare outcomes under the settings in force during the window."
+    }
+  };
+}
+var r2, FINAL_R;
+var init_trail_study = __esm({
+  "server/services/trail-study.ts"() {
+    "use strict";
+    init_db();
+    init_sol_learned_rules();
+    r2 = (v) => v == null || isNaN(Number(v)) ? null : Math.round(Number(v) * 100) / 100;
+    FINAL_R = `
+  CASE WHEN t.stop_loss IS NULL OR t.exit_price IS NULL THEN NULL
+       WHEN lower(t.direction) IN ('long','buy') AND t.entry_price > t.stop_loss
+         THEN (t.exit_price - t.entry_price) / (t.entry_price - t.stop_loss)
+       WHEN lower(t.direction) IN ('short','sell') AND t.stop_loss > t.entry_price
+         THEN (t.entry_price - t.exit_price) / (t.stop_loss - t.entry_price)
+       ELSE NULL END`;
+  }
+});
+
+// server/services/trail-guards.ts
+var trail_guards_exports = {};
+__export(trail_guards_exports, {
+  cryptoTrailProfileFor: () => cryptoTrailProfileFor,
+  getTrailGuardCandidates: () => getTrailGuardCandidates,
+  getTrailGuards: () => getTrailGuards,
+  promoteTrailGuard: () => promoteTrailGuard,
+  retireTrailGuard: () => retireTrailGuard,
+  solTrailOverridesFor: () => solTrailOverridesFor,
+  trailGuardsOn: () => trailGuardsOn
+});
+function trailGuardsOn() {
+  return process.env.TRAIL_GUARDS !== "off";
+}
+async function getTrailGuards(userId) {
+  const hit = _cache4.get(userId);
+  if (hit && Date.now() - hit.at < CACHE_MS2) return hit.guards;
+  let guards = [];
+  try {
+    const v = await getRuntimeStateStrict(SCOPE2, String(userId));
+    if (Array.isArray(v)) guards = v;
+  } catch {
+  }
+  _cache4.set(userId, { at: Date.now(), guards });
+  return guards;
+}
+async function storeGuards(userId, guards) {
+  _cache4.set(userId, { at: Date.now(), guards });
+  saveRuntimeState(SCOPE2, String(userId), guards);
+}
+async function currentCryptoProfile(userId) {
+  const rows = await pool.query(
+    `SELECT trail_method, trail_activation_r, trail_fixed_r, trail_step_r, trail_profit_lock_pct,
+            trail_sar_initial_af, trail_sar_max_af, breakeven_buffer_r
+       FROM cryptocom_engine_configs WHERE user_id = $1`,
+    [userId]
+  ).then((r) => r.rows).catch(() => []);
+  const c = rows[0];
+  return {
+    method: c?.trail_method ?? "none",
+    activationR: Number(c?.trail_activation_r ?? 1),
+    fixedR: Number(c?.trail_fixed_r ?? 0.5),
+    stepR: Number(c?.trail_step_r ?? 0.5),
+    profitLockPct: Number(c?.trail_profit_lock_pct ?? 60),
+    sarInitialAF: Number(c?.trail_sar_initial_af ?? 0.02),
+    sarMaxAF: Number(c?.trail_sar_max_af ?? 0.2),
+    breakevenBufferR: Number(c?.breakeven_buffer_r ?? 0)
+  };
+}
+function tightenCryptoProfile(base) {
+  return {
+    ...base,
+    method: base.method === "none" ? "fixed_r" : base.method,
+    activationR: Math.min(base.activationR, 0.75),
+    fixedR: Math.min(base.fixedR, 0.4),
+    stepR: Math.min(base.stepR, 0.4),
+    profitLockPct: Math.max(base.profitLockPct, 70)
+  };
+}
+function currentSolProfile() {
+  return { breakevenAtPct: SOL_LR.breakevenAtPct, partialAtPct: SOL_LR.partialAtPct, trailDistPct: SOL_LR.trailDistPct };
+}
+function tightenSolProfile() {
+  return { breakevenAtPct: 5, partialAtPct: 12, trailDistPct: 5 };
+}
+function profileSummary(engine, p2) {
+  if (engine === "crypto") {
+    const c = p2;
+    return `${c.method}, arms at ${c.activationR}R, fixed ${c.fixedR}R / step ${c.stepR}R / locks ${c.profitLockPct}%`;
+  }
+  const s = p2;
+  return `breakeven +${s.breakevenAtPct}%, half off +${s.partialAtPct}%, trail ${s.trailDistPct}% under peak`;
+}
+function candidatesFrom(engine, dimension, groups, guarded) {
+  const out = [];
+  for (const g of groups) {
+    if (g.trades < MIN_TRADES6()) continue;
+    const givebackBar = engine === "crypto" ? CRYPTO_GIVEBACK_R : SOL_GIVEBACK_PCT;
+    const lockShare = engine === "crypto" ? 0.25 : 0.3;
+    const lockFinal = engine === "crypto" ? 0.3 : 0;
+    const id = `${engine}:${dimension}:${g.key}`;
+    if (g.avgGiveback != null && g.avgGiveback >= givebackBar) {
+      out.push({
+        engine,
+        dimension,
+        key: g.key,
+        action: "tighten",
+        trades: g.trades,
+        avgFinal: g.avgFinal,
+        avgPeak: g.avgPeak,
+        avgGiveback: g.avgGiveback,
+        trailExitShare: g.trailExitShare,
+        reason: engine === "crypto" ? `Gives back ${g.avgGiveback}R from peak on average over ${g.trades} trades \u2014 a tighter trail fits.` : `Gives back ${g.avgGiveback}% from peak on average over ${g.trades} trades \u2014 a tighter trail fits.`,
+        alreadyGuarded: guarded.has(`${id}:tighten`)
+      });
+    } else if (g.trailExitShare != null && g.trailExitShare >= lockShare && g.avgFinal != null && g.avgFinal >= lockFinal) {
+      out.push({
+        engine,
+        dimension,
+        key: g.key,
+        action: "lock_profile",
+        trades: g.trades,
+        avgFinal: g.avgFinal,
+        avgPeak: g.avgPeak,
+        avgGiveback: g.avgGiveback,
+        trailExitShare: g.trailExitShare,
+        reason: `Trailing works here \u2014 ${Math.round(g.trailExitShare * 100)}% of exits are trail exits, closing ${g.avgFinal}${engine === "crypto" ? "R" : "%"} on average. Lock the profile in for this group.`,
+        alreadyGuarded: guarded.has(`${id}:lock_profile`)
+      });
+    }
+  }
+  return out;
+}
+async function getTrailGuardCandidates(userId) {
+  const [report, guards] = await Promise.all([trailStudyReport(userId, 90), getTrailGuards(userId)]);
+  const guarded = new Set(guards.filter((g) => g.active).map((g) => `${g.engine}:${g.dimension}:${g.key}:${g.action}`));
+  const candidates = [
+    ...candidatesFrom("crypto", "strategy", report.crypto.byStrategy, guarded),
+    ...candidatesFrom("crypto", "symbol", report.crypto.bySymbol, guarded),
+    ...candidatesFrom("sol", "strategy", report.sol.byStrategy, guarded),
+    ...candidatesFrom("sol", "symbol", report.sol.bySymbol, guarded)
+  ];
+  return { candidates, guards };
+}
+async function promoteTrailGuard(userId, sel) {
+  const { candidates, guards } = await getTrailGuardCandidates(userId);
+  const cand = candidates.find((c) => c.engine === sel.engine && c.dimension === sel.dimension && c.key === sel.key && c.action === sel.action);
+  if (!cand) return { ok: false, status: 422, error: "That trail lesson no longer qualifies (evidence changed since the list was built). Refresh and check the current numbers." };
+  if (cand.alreadyGuarded) return { ok: false, status: 409, error: "An active guard already covers this group and action." };
+  let profile;
+  if (sel.engine === "crypto") {
+    const base = await currentCryptoProfile(userId);
+    if (sel.action === "lock_profile" && base.method === "none") {
+      return { ok: false, status: 422, error: "Trailing is off in your crypto settings right now \u2014 there is no active profile to lock in." };
+    }
+    profile = sel.action === "tighten" ? tightenCryptoProfile(base) : base;
+  } else {
+    profile = sel.action === "tighten" ? tightenSolProfile() : currentSolProfile();
+  }
+  const guard = {
+    id: `tg_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 7)}`,
+    engine: sel.engine,
+    dimension: sel.dimension,
+    key: sel.key,
+    action: sel.action,
+    trades: cand.trades,
+    avgFinal: cand.avgFinal,
+    avgPeak: cand.avgPeak,
+    avgGiveback: cand.avgGiveback,
+    trailExitShare: cand.trailExitShare,
+    profile,
+    profileSummary: profileSummary(sel.engine, profile),
+    promotedAt: (/* @__PURE__ */ new Date()).toISOString(),
+    active: true
+  };
+  await storeGuards(userId, [...guards, guard]);
+  return { ok: true, guard };
+}
+async function retireTrailGuard(userId, id) {
+  const guards = await getTrailGuards(userId);
+  const g = guards.find((x) => x.id === id);
+  if (!g) return { ok: false, status: 404, error: "Guard not found." };
+  g.active = false;
+  g.retiredAt = (/* @__PURE__ */ new Date()).toISOString();
+  await storeGuards(userId, guards);
+  return { ok: true, guard: g };
+}
+function matchGuard(guards, engine, strategy, symbol) {
+  const active = guards.filter((g) => g.active && g.engine === engine);
+  const strat = strategy ? active.find((g) => g.dimension === "strategy" && g.key === strategy) : void 0;
+  const sym2 = symbol ? active.find((g) => g.dimension === "symbol" && g.key === symbol) : void 0;
+  if (strat && sym2) return strat.action === "tighten" ? strat : sym2.action === "tighten" ? sym2 : strat;
+  return strat ?? sym2 ?? null;
+}
+async function cryptoTrailProfileFor(userId, strategy, symbol) {
+  if (!trailGuardsOn()) return null;
+  try {
+    const g = matchGuard(await getTrailGuards(userId), "crypto", strategy, symbol);
+    return g ? g.profile : null;
+  } catch {
+    return null;
+  }
+}
+async function solTrailOverridesFor(userId, strategyId, symbol) {
+  if (!trailGuardsOn()) return null;
+  try {
+    const g = matchGuard(await getTrailGuards(userId), "sol", strategyId, symbol);
+    return g ? g.profile : null;
+  } catch {
+    return null;
+  }
+}
+var SCOPE2, MIN_TRADES6, CRYPTO_GIVEBACK_R, SOL_GIVEBACK_PCT, _cache4, CACHE_MS2;
+var init_trail_guards = __esm({
+  "server/services/trail-guards.ts"() {
+    "use strict";
+    init_runtime_state();
+    init_trail_study();
+    init_sol_learned_rules();
+    init_db();
+    SCOPE2 = "trail_guards";
+    MIN_TRADES6 = () => Number(process.env.TRAIL_GUARD_MIN_TRADES ?? 10);
+    CRYPTO_GIVEBACK_R = 1;
+    SOL_GIVEBACK_PCT = 8;
+    _cache4 = /* @__PURE__ */ new Map();
+    CACHE_MS2 = 3e4;
   }
 });
 
@@ -39380,7 +39754,7 @@ async function recordSolShadowClose(o) {
   }
 }
 async function computeSolShadowStats(userId, force = false) {
-  const hit = _cache4.get(userId);
+  const hit = _cache5.get(userId);
   if (!force && hit && Date.now() - hit.at < 15 * 6e4) return hit.stats;
   await ensureSolShadowContextTable();
   const { rows } = await pool.query(
@@ -39390,7 +39764,7 @@ async function computeSolShadowStats(userId, force = false) {
     [userId]
   );
   const stats = aggregate2(rows);
-  _cache4.set(userId, { at: Date.now(), stats });
+  _cache5.set(userId, { at: Date.now(), stats });
   return stats;
 }
 function adviceFor2(stats, strategyId, ctx) {
@@ -39412,7 +39786,7 @@ async function getSolShadowStatsText(userId, max = 12) {
     return "";
   }
 }
-var num5, MIN_N, FAVOR_PCT, AVOID_PCT, _ensured5, _cache4;
+var num5, MIN_N, FAVOR_PCT, AVOID_PCT, _ensured5, _cache5;
 var init_sol_shadow_stats = __esm({
   "server/services/sol-shadow-stats.ts"() {
     "use strict";
@@ -39425,7 +39799,7 @@ var init_sol_shadow_stats = __esm({
     FAVOR_PCT = () => num5("SOL_SHADOW_FAVOR_MEDIAN_PCT", 1);
     AVOID_PCT = () => num5("SOL_SHADOW_AVOID_MEDIAN_PCT", 2);
     _ensured5 = null;
-    _cache4 = /* @__PURE__ */ new Map();
+    _cache5 = /* @__PURE__ */ new Map();
   }
 });
 
@@ -40599,7 +40973,7 @@ async function monitorPaperPositions(userId, state) {
     const isLoss = gainPct <= -pos.slPct;
     let lrBreakeven = false;
     if (solLearnedRulesOn()) {
-      const step = learnedExitStep(pos, currentPrice);
+      const step = learnedExitStep(pos, currentPrice, await solTrailOverridesFor(userId, pos.strategyId, pos.symbol) ?? void 0);
       if (step.action === "exit") {
         isTrailHit = true;
         lrBreakeven = step.reason === "breakeven";
@@ -40841,7 +41215,7 @@ async function monitorShadowPositions(userId, state) {
     const isLoss = rawGainPct <= -pos.slPct;
     let lrReason = null;
     if (solLearnedRulesOn() && !isWin && !isLoss && !isMaxHold) {
-      const step = learnedExitStep(pos, currentPrice);
+      const step = learnedExitStep(pos, currentPrice, await solTrailOverridesFor(userId, pos.strategyId, pos.symbol) ?? void 0);
       if (step.action === "exit") lrReason = step.reason;
       else {
         if (step.breakevenJustSet) pos.breakevenActive = true;
@@ -42053,6 +42427,7 @@ var init_sol_engine = __esm({
     init_sol_brain();
     init_weekend_boost();
     init_sol_learned_rules();
+    init_trail_guards();
     SOL_BRAIN_ENABLED = true;
     SOL_BRAIN_GATING = true;
     SOL_CONFLUENCE_REQUIRED = 2;
@@ -49805,7 +50180,7 @@ async function cryptocomTicker(sym2) {
 }
 async function getAggregatedQuote(symbol) {
   const sym2 = symbol.toUpperCase().replace(/[^A-Z0-9]/g, "");
-  const hit = _cache5.get(sym2);
+  const hit = _cache6.get(sym2);
   if (hit && Date.now() - hit.ts < TTL_MS7) return hit.q;
   const venues = await Promise.all([coinbaseSpot(sym2), krakenTicker(sym2), geminiTicker(sym2), cryptocomTicker(sym2)]);
   const priced = venues.filter((v) => typeof v.price === "number" && v.price > 0);
@@ -49818,19 +50193,19 @@ async function getAggregatedQuote(symbol) {
     spreadPct = lo2.price > 0 ? Math.round((hi2.price - lo2.price) / lo2.price * 1e4) / 100 : null;
   }
   const q = { symbol: sym2, best, spreadPct, venues, fetchedAt: (/* @__PURE__ */ new Date()).toISOString() };
-  _cache5.set(sym2, { q, ts: Date.now() });
+  _cache6.set(sym2, { q, ts: Date.now() });
   return q;
 }
 async function getAggregatedQuotes(symbols) {
   const uniq = Array.from(new Set(symbols.map((s) => s.toUpperCase().replace(/[^A-Z0-9]/g, "")))).slice(0, 25);
   return Promise.all(uniq.map(getAggregatedQuote));
 }
-var TTL_MS7, _cache5;
+var TTL_MS7, _cache6;
 var init_crypto_market_data = __esm({
   "server/services/crypto-market-data.ts"() {
     "use strict";
     TTL_MS7 = 15e3;
-    _cache5 = /* @__PURE__ */ new Map();
+    _cache6 = /* @__PURE__ */ new Map();
   }
 });
 
@@ -52390,13 +52765,15 @@ async function monitorOpenPositions(userId, cfg) {
       if (riskDistance <= 0) continue;
       const currentR = isLong ? (currentPrice - trade.entryPrice) / riskDistance : (trade.entryPrice - currentPrice) / riskDistance;
       const peakR = Math.max(trade.peakRMultiple, currentR);
-      const armed = trade.trailArmed || peakR >= cfg.trailActivationR;
+      const tgProfile = await cryptoTrailProfileFor(userId, trade.strategy, trade.symbol);
+      const tCfg = tgProfile ? { ...cfg, trailMethod: tgProfile.method, trailActivationR: tgProfile.activationR, trailFixedR: tgProfile.fixedR, trailStepR: tgProfile.stepR, trailProfitLockPct: tgProfile.profitLockPct, trailSarInitialAF: tgProfile.sarInitialAF, trailSarMaxAF: tgProfile.sarMaxAF, breakevenBufferR: tgProfile.breakevenBufferR } : cfg;
+      const armed = trade.trailArmed || peakR >= tCfg.trailActivationR;
       if (currentR <= -1) {
         await closePosition(userId, trade, currentPrice, "stop_loss");
         continue;
       }
-      if (cfg.trailMethod !== "none" && armed) {
-        const floor = Math.max(computeTrailFloorR(cfg, peakR), cfg.breakevenBufferR);
+      if (tCfg.trailMethod !== "none" && armed) {
+        const floor = Math.max(computeTrailFloorR(tCfg, peakR), tCfg.breakevenBufferR);
         if (currentR <= floor) {
           await closePosition(userId, trade, currentPrice, "trailing_stop");
           continue;
@@ -53650,6 +54027,7 @@ var init_cryptocom_scanner = __esm({
     init_prop_firm_consistency();
     init_weekend_boost();
     init_process_fingerprint();
+    init_trail_guards();
     init_cefi_executor();
     MIN_SCAN_INTERVAL_MS = 6e4;
     lastScanAt = /* @__PURE__ */ new Map();
@@ -57666,24 +58044,24 @@ async function learnFromKalshiTrades(userId) {
     coinKnowledge: coins,
     insights
   };
-  _cache6.set(userId, { brain, at: Date.now() });
+  _cache7.set(userId, { brain, at: Date.now() });
   return brain;
 }
 async function getOrRefreshKalshiBrain(userId, force = false) {
-  const hit = _cache6.get(userId);
+  const hit = _cache7.get(userId);
   if (!force && hit && Date.now() - hit.at < REFRESH_TTL_MS3) return hit.brain;
   return learnFromKalshiTrades(userId);
 }
 function cachedKalshiBrain(userId) {
-  return _cache6.get(userId)?.brain ?? null;
+  return _cache7.get(userId)?.brain ?? null;
 }
 function kalshiBrainSizeMultiplier(userId, coin) {
-  const b = _cache6.get(userId)?.brain;
+  const b = _cache7.get(userId)?.brain;
   const k2 = b?.coinKnowledge[coin];
   return k2 ? k2.recommendedSizeMultiplier : 1;
 }
 function kalshiBrainGate(userId, coin, strikeType, hourUtc, confidence2) {
-  const k2 = _cache6.get(userId)?.brain?.coinKnowledge[coin];
+  const k2 = _cache7.get(userId)?.brain?.coinKnowledge[coin];
   if (!k2) return { blocked: false, reason: "" };
   const decided = k2.wins + k2.losses;
   if (decided >= 15 && k2.winRate < 35) {
@@ -57710,7 +58088,7 @@ function kalshiBrainGate(userId, coin, strikeType, hourUtc, confidence2) {
   return { blocked: false, reason: "" };
 }
 function kalshiBrainValueWeight(userId, coin, strikeType) {
-  const k2 = _cache6.get(userId)?.brain?.coinKnowledge[coin];
+  const k2 = _cache7.get(userId)?.brain?.coinKnowledge[coin];
   if (!k2) return 1;
   let w = k2.valueScoreWeight;
   if (strikeType) {
@@ -57719,7 +58097,7 @@ function kalshiBrainValueWeight(userId, coin, strikeType) {
   }
   return Math.max(0.6, Math.min(1.4, Math.round(w * 100) / 100));
 }
-var MIN_TRADES_FOR_COIN, REFRESH_TTL_MS3, _cache6;
+var MIN_TRADES_FOR_COIN, REFRESH_TTL_MS3, _cache7;
 var init_kalshi_brain = __esm({
   "server/services/kalshi-brain.ts"() {
     "use strict";
@@ -57727,7 +58105,7 @@ var init_kalshi_brain = __esm({
     init_schema();
     MIN_TRADES_FOR_COIN = 10;
     REFRESH_TTL_MS3 = 60 * 1e3;
-    _cache6 = /* @__PURE__ */ new Map();
+    _cache7 = /* @__PURE__ */ new Map();
   }
 });
 
@@ -59524,7 +59902,7 @@ async function runRuinConeSimulation(userId, params = {}) {
     source
   };
   if (!params.noCache) {
-    const hit = _cache7.get(_cacheKey(userId, resolved));
+    const hit = _cache8.get(_cacheKey(userId, resolved));
     if (hit && hit.expires > Date.now()) return hit.result;
   }
   const rows = await db.select({ pnl: aiTradeResults.profitLoss, closedAt: aiTradeResults.closedAt }).from(aiTradeResults).where(and10(
@@ -59572,7 +59950,7 @@ async function runRuinConeSimulation(userId, params = {}) {
       },
       warning: `Only ${sourceTradeCount} closed '${source}' trade(s) on record \u2014 need at least 2 to simulate. Let the scanner build more history.`
     };
-    _cache7.set(_cacheKey(userId, resolved), { expires: Date.now() + CACHE_TTL_MS7, result: result2 });
+    _cache8.set(_cacheKey(userId, resolved), { expires: Date.now() + CACHE_TTL_MS7, result: result2 });
     return result2;
   }
   const paths = new Array(numSimulations);
@@ -59672,10 +60050,10 @@ async function runRuinConeSimulation(userId, params = {}) {
     },
     warning: sourceTradeCount < 20 ? `Thin history: only ${sourceTradeCount} closed '${source}' trade(s). Results are indicative only until more trades accumulate.` : void 0
   };
-  _cache7.set(_cacheKey(userId, resolved), { expires: Date.now() + CACHE_TTL_MS7, result });
+  _cache8.set(_cacheKey(userId, resolved), { expires: Date.now() + CACHE_TTL_MS7, result });
   return result;
 }
-var FTUK_DEFAULTS, DEFAULT_NUM_SIMULATIONS, DEFAULT_NUM_TRADES, DEFAULT_SOURCE_LIMIT, CACHE_TTL_MS7, _cache7;
+var FTUK_DEFAULTS, DEFAULT_NUM_SIMULATIONS, DEFAULT_NUM_TRADES, DEFAULT_SOURCE_LIMIT, CACHE_TTL_MS7, _cache8;
 var init_ruin_cone = __esm({
   "server/services/ruin-cone.ts"() {
     "use strict";
@@ -59696,7 +60074,7 @@ var init_ruin_cone = __esm({
     DEFAULT_NUM_TRADES = 100;
     DEFAULT_SOURCE_LIMIT = 200;
     CACHE_TTL_MS7 = 5 * 60 * 1e3;
-    _cache7 = /* @__PURE__ */ new Map();
+    _cache8 = /* @__PURE__ */ new Map();
   }
 });
 
@@ -59933,168 +60311,6 @@ var init_practice_costs_report = __esm({
        WHEN liquidity_usd < 50000 THEN 'thin (<$50K)'
        WHEN liquidity_usd < 250000 THEN 'mid ($50\u2013250K)'
        ELSE 'deep (>$250K)' END`;
-  }
-});
-
-// server/services/trail-study.ts
-var trail_study_exports = {};
-__export(trail_study_exports, {
-  trailStudyReport: () => trailStudyReport
-});
-function cryptoVerdict(g, activationR) {
-  if (g.trades < 8) return null;
-  if (g.avgPeak != null && g.avgPeak < activationR) {
-    return `Peaks average ${g.avgPeak}R \u2014 below the ${activationR}R trail activation, so the trail rarely switches on here.`;
-  }
-  if (g.trailExitShare != null && g.trailExitShare >= 0.25 && g.avgFinal != null && g.avgFinal >= 0.3) {
-    return "Trailing is earning its keep here \u2014 trail exits are common and close positive on average.";
-  }
-  if (g.avgGiveback != null && g.avgGiveback >= 1) {
-    return `Winners give back about ${g.avgGiveback}R from their peak on average \u2014 a tighter trail or earlier activation is the candidate to test.`;
-  }
-  return "Mixed picture \u2014 no clear trail change suggested yet.";
-}
-function solVerdict(g) {
-  if (g.trades < 8) return null;
-  if (g.trailExitShare != null && g.trailExitShare >= 0.3 && g.avgFinal != null && g.avgFinal > 0) {
-    return "The trail fits this group \u2014 trail exits are common and net-positive.";
-  }
-  if (g.avgGiveback != null && g.avgGiveback >= 8) {
-    return `About ${g.avgGiveback}% is given back from the peak on average \u2014 a tighter trail distance or earlier activation is the candidate to test.`;
-  }
-  if (g.avgPeak != null && g.avgPeak < SOL_LR.breakevenAtPct) {
-    return `Peaks rarely reach the +${SOL_LR.breakevenAtPct}% breakeven stage \u2014 trails barely engage here.`;
-  }
-  return "Mixed picture \u2014 no clear trail change suggested yet.";
-}
-async function trailStudyReport(userId, days = 90) {
-  const d = Math.min(365, Math.max(1, Math.floor(days) || 90));
-  const cfgRows = await pool.query(
-    `SELECT trail_method, trail_activation_r, trail_fixed_r, trail_step_r, trail_profit_lock_pct,
-            trail_sar_initial_af, trail_sar_max_af, breakeven_buffer_r
-       FROM cryptocom_engine_configs WHERE user_id = $1`,
-    [userId]
-  ).then((r) => r.rows).catch(() => []);
-  const cfg = cfgRows[0] ?? null;
-  const activationR = cfg ? Number(cfg.trail_activation_r) || 1 : 1;
-  const cryptoAgg = async (groupCol) => {
-    const sel = groupCol ? `${groupCol} AS key,` : `'all' AS key,`;
-    const grp = groupCol ? `GROUP BY ${groupCol}` : "";
-    const rows = await pool.query(
-      `SELECT ${sel} COUNT(*)::int AS trades,
-              AVG(CASE WHEN realized_pnl > 0 THEN 1.0 ELSE 0.0 END) AS win_rate,
-              AVG(${FINAL_R}) AS avg_final_r,
-              AVG(NULLIF(peak_r_multiple, 0)) AS avg_peak_r,
-              AVG(CASE WHEN peak_r_multiple > 0 THEN peak_r_multiple - ${FINAL_R} END) AS avg_giveback_r,
-              AVG(CASE WHEN exit_reason = 'trailing_stop' THEN 1.0 ELSE 0.0 END) AS trail_share
-         FROM cryptocom_engine_trades t
-        WHERE user_id = $1 AND status = 'closed' AND closed_at >= now() - ($2 || ' days')::interval
-        ${grp}`,
-      [userId, String(d)]
-    ).then((r) => r.rows).catch(() => []);
-    return rows.map((row) => {
-      const g = {
-        key: String(row.key ?? "all"),
-        trades: Number(row.trades) || 0,
-        winRate: r2(row.win_rate),
-        avgFinal: r2(row.avg_final_r),
-        avgPeak: r2(row.avg_peak_r),
-        avgGiveback: r2(row.avg_giveback_r),
-        trailExitShare: r2(row.trail_share),
-        verdict: null
-      };
-      g.verdict = cryptoVerdict(g, activationR);
-      return g;
-    }).filter((g) => g.trades > 0).sort((a, b) => b.trades - a.trades);
-  };
-  const [cOverall, cByStrategy, cBySymbol] = await Promise.all([
-    cryptoAgg(null),
-    cryptoAgg("strategy"),
-    cryptoAgg("symbol")
-  ]);
-  const solAgg = async (groupCol) => {
-    const sel = groupCol ? `${groupCol} AS key,` : `'all' AS key,`;
-    const grp = groupCol ? `GROUP BY ${groupCol}` : "";
-    const rows = await pool.query(
-      `SELECT ${sel} COUNT(*)::int AS trades,
-              AVG(CASE WHEN net_pct > 0 THEN 1.0 ELSE 0.0 END) AS win_rate,
-              AVG(net_pct) AS avg_net, AVG(peak_gain_pct) AS avg_peak,
-              AVG(CASE WHEN peak_gain_pct IS NOT NULL AND gross_pct IS NOT NULL
-                       THEN peak_gain_pct - gross_pct END) AS avg_giveback,
-              AVG(CASE WHEN exit_reason = 'trail' THEN 1.0 ELSE 0.0 END) AS trail_share
-         FROM sol_shadow_context
-        WHERE user_id = $1 AND closed_at >= now() - ($2 || ' days')::interval
-        ${grp}`,
-      [userId, String(d)]
-    ).then((r) => r.rows).catch(() => []);
-    return rows.map((row) => {
-      const g = {
-        key: String(row.key ?? "all"),
-        trades: Number(row.trades) || 0,
-        winRate: r2(row.win_rate),
-        avgFinal: r2(row.avg_net),
-        avgPeak: r2(row.avg_peak),
-        avgGiveback: r2(row.avg_giveback),
-        trailExitShare: r2(row.trail_share),
-        verdict: null
-      };
-      g.verdict = solVerdict(g);
-      return g;
-    }).filter((g) => g.trades > 0).sort((a, b) => b.trades - a.trades);
-  };
-  const [sOverall, sByStrategy, sBySymbol] = await Promise.all([
-    solAgg(null),
-    solAgg("strategy_id"),
-    solAgg("symbol")
-  ]);
-  return {
-    days: d,
-    crypto: {
-      settings: cfg ? {
-        method: cfg.trail_method,
-        activationR: Number(cfg.trail_activation_r),
-        fixedR: Number(cfg.trail_fixed_r),
-        stepR: Number(cfg.trail_step_r),
-        profitLockPct: Number(cfg.trail_profit_lock_pct),
-        sarInitialAf: Number(cfg.trail_sar_initial_af),
-        sarMaxAf: Number(cfg.trail_sar_max_af),
-        breakevenBufferR: Number(cfg.breakeven_buffer_r)
-      } : null,
-      overall: cOverall[0] ?? null,
-      byStrategy: cByStrategy.slice(0, 12),
-      bySymbol: cBySymbol.slice(0, 12),
-      note: "Live trades only \u2014 crypto paper trades have no trailing (TP/SL exits, no peak tracking), so there is nothing to study there yet."
-    },
-    sol: {
-      settings: {
-        learnedRulesOn: solLearnedRulesOn(),
-        breakevenAtPct: SOL_LR.breakevenAtPct,
-        partialAtPct: SOL_LR.partialAtPct,
-        partialFraction: SOL_LR.partialFraction,
-        trailDistPct: SOL_LR.trailDistPct,
-        stagedTrail: "Breakeven floor from +8% gain; active trail from +20% gain (per-position setting) with a volume-adjusted distance of 6\u201315% under the peak."
-      },
-      overall: sOverall[0] ?? null,
-      byStrategy: sByStrategy.slice(0, 12),
-      bySymbol: sBySymbol.slice(0, 12),
-      note: "From paper + shadow closes (sol_shadow_context). Settings are not stamped per position, so groups compare outcomes under the settings in force during the window."
-    }
-  };
-}
-var r2, FINAL_R;
-var init_trail_study = __esm({
-  "server/services/trail-study.ts"() {
-    "use strict";
-    init_db();
-    init_sol_learned_rules();
-    r2 = (v) => v == null || isNaN(Number(v)) ? null : Math.round(Number(v) * 100) / 100;
-    FINAL_R = `
-  CASE WHEN t.stop_loss IS NULL OR t.exit_price IS NULL THEN NULL
-       WHEN lower(t.direction) IN ('long','buy') AND t.entry_price > t.stop_loss
-         THEN (t.exit_price - t.entry_price) / (t.entry_price - t.stop_loss)
-       WHEN lower(t.direction) IN ('short','sell') AND t.stop_loss > t.entry_price
-         THEN (t.entry_price - t.exit_price) / (t.stop_loss - t.entry_price)
-       ELSE NULL END`;
   }
 });
 
@@ -72570,9 +72786,9 @@ async function getStopOrdersForUser(userId, filters = {}) {
 init_schema();
 
 // server/build-info.ts
-var BUILD_COMMIT = "2cc3f49-dirty";
-var BUILD_BRANCH = "main";
-var BUILT_AT = "2026-11-08T17:58:09.686Z";
+var BUILD_COMMIT = "f2180bb-dirty";
+var BUILD_BRANCH = "fix/trail-guards";
+var BUILT_AT = "2026-11-08T18:46:57.664Z";
 
 // server/stripe.ts
 init_db();
@@ -90873,6 +91089,43 @@ Rules:
       if (!id) return res2.status(400).json({ error: "id is required" });
       const out = await retireRule2(req.user.id, String(id));
       if (!out.ok) return res2.status(404).json({ error: "rule not found" });
+      res2.json(out);
+    } catch (err) {
+      res2.status(500).json({ error: err.message });
+    }
+  });
+  app2.get("/api/engine/trail-guards", async (req, res2) => {
+    if (!req.isAuthenticated()) return res2.status(401).json({ error: "Authentication required" });
+    try {
+      const { getTrailGuardCandidates: getTrailGuardCandidates2 } = await Promise.resolve().then(() => (init_trail_guards(), trail_guards_exports));
+      res2.json(await getTrailGuardCandidates2(req.user.id));
+    } catch (err) {
+      res2.status(500).json({ error: err.message });
+    }
+  });
+  app2.post("/api/engine/trail-guards", async (req, res2) => {
+    if (!req.isAuthenticated()) return res2.status(401).json({ error: "Authentication required" });
+    try {
+      const { promoteTrailGuard: promoteTrailGuard2 } = await Promise.resolve().then(() => (init_trail_guards(), trail_guards_exports));
+      const { engine, dimension, key, action } = req.body || {};
+      if (!["crypto", "sol"].includes(engine) || !["strategy", "symbol"].includes(dimension) || !key || !["tighten", "lock_profile"].includes(action)) {
+        return res2.status(400).json({ error: "engine (crypto|sol), dimension (strategy|symbol), key and action (tighten|lock_profile) are required" });
+      }
+      const out = await promoteTrailGuard2(req.user.id, { engine, dimension, key: String(key), action });
+      if (!out.ok) return res2.status(out.status).json({ error: out.error });
+      res2.json(out);
+    } catch (err) {
+      res2.status(500).json({ error: err.message });
+    }
+  });
+  app2.post("/api/engine/trail-guards/retire", async (req, res2) => {
+    if (!req.isAuthenticated()) return res2.status(401).json({ error: "Authentication required" });
+    try {
+      const { retireTrailGuard: retireTrailGuard2 } = await Promise.resolve().then(() => (init_trail_guards(), trail_guards_exports));
+      const { id } = req.body || {};
+      if (!id) return res2.status(400).json({ error: "id is required" });
+      const out = await retireTrailGuard2(req.user.id, String(id));
+      if (!out.ok) return res2.status(out.status).json({ error: out.error });
       res2.json(out);
     } catch (err) {
       res2.status(500).json({ error: err.message });

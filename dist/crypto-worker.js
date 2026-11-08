@@ -8100,6 +8100,79 @@ var init_prop_firm_consistency = __esm({
   }
 });
 
+// server/services/runtime-state.ts
+var runtime_state_exports = {};
+__export(runtime_state_exports, {
+  ensureRuntimeStateTable: () => ensureRuntimeStateTable,
+  getRuntimeStateStrict: () => getRuntimeStateStrict,
+  insertRuntimeStateIfAbsent: () => insertRuntimeStateIfAbsent,
+  loadRuntimeState: () => loadRuntimeState,
+  saveRuntimeState: () => saveRuntimeState
+});
+function ensureRuntimeStateTable() {
+  if (!ensured) {
+    ensured = pool.query(DDL).then(() => void 0).catch((err) => {
+      console.error("[runtime-state] ensure table failed (non-fatal):", err?.message ?? err);
+      ensured = null;
+    });
+  }
+  return ensured;
+}
+function saveRuntimeState(scope, key, value) {
+  void (async () => {
+    try {
+      await ensureRuntimeStateTable();
+      await pool.query(
+        `INSERT INTO runtime_state (scope, key, value, updated_at) VALUES ($1, $2, $3::jsonb, now())
+         ON CONFLICT (scope, key) DO UPDATE SET value = EXCLUDED.value, updated_at = now()`,
+        [scope, key, JSON.stringify(value)]
+      );
+    } catch (err) {
+      console.error(`[runtime-state] save ${scope}/${key} failed (non-fatal):`, err?.message ?? err);
+    }
+  })();
+}
+async function loadRuntimeState(scope) {
+  try {
+    await ensureRuntimeStateTable();
+    const { rows } = await pool.query(`SELECT key, value FROM runtime_state WHERE scope = $1`, [scope]);
+    return rows;
+  } catch (err) {
+    console.error(`[runtime-state] load ${scope} failed (non-fatal):`, err?.message ?? err);
+    return [];
+  }
+}
+async function getRuntimeStateStrict(scope, key) {
+  await ensureRuntimeStateTable();
+  const { rows } = await pool.query(`SELECT value FROM runtime_state WHERE scope = $1 AND key = $2`, [scope, key]);
+  return rows[0]?.value ?? null;
+}
+async function insertRuntimeStateIfAbsent(scope, key, value) {
+  await ensureRuntimeStateTable();
+  await pool.query(
+    `INSERT INTO runtime_state (scope, key, value) VALUES ($1, $2, $3::jsonb) ON CONFLICT (scope, key) DO NOTHING`,
+    [scope, key, JSON.stringify(value)]
+  );
+  return getRuntimeStateStrict(scope, key);
+}
+var DDL, ensured;
+var init_runtime_state = __esm({
+  "server/services/runtime-state.ts"() {
+    "use strict";
+    init_db();
+    DDL = `
+CREATE TABLE IF NOT EXISTS "runtime_state" (
+  "scope" text NOT NULL,
+  "key" text NOT NULL,
+  "value" jsonb NOT NULL,
+  "updated_at" timestamp NOT NULL DEFAULT now(),
+  PRIMARY KEY ("scope", "key")
+);
+`;
+    ensured = null;
+  }
+});
+
 // server/services/crypto-market-data.ts
 var crypto_market_data_exports = {};
 __export(crypto_market_data_exports, {
@@ -8162,7 +8235,7 @@ async function cryptocomTicker(sym) {
 }
 async function getAggregatedQuote(symbol) {
   const sym = symbol.toUpperCase().replace(/[^A-Z0-9]/g, "");
-  const hit = _cache2.get(sym);
+  const hit = _cache3.get(sym);
   if (hit && Date.now() - hit.ts < TTL_MS) return hit.q;
   const venues = await Promise.all([coinbaseSpot(sym), krakenTicker(sym), geminiTicker(sym), cryptocomTicker(sym)]);
   const priced = venues.filter((v) => typeof v.price === "number" && v.price > 0);
@@ -8175,19 +8248,19 @@ async function getAggregatedQuote(symbol) {
     spreadPct = lo.price > 0 ? Math.round((hi.price - lo.price) / lo.price * 1e4) / 100 : null;
   }
   const q = { symbol: sym, best, spreadPct, venues, fetchedAt: (/* @__PURE__ */ new Date()).toISOString() };
-  _cache2.set(sym, { q, ts: Date.now() });
+  _cache3.set(sym, { q, ts: Date.now() });
   return q;
 }
 async function getAggregatedQuotes(symbols) {
   const uniq = Array.from(new Set(symbols.map((s) => s.toUpperCase().replace(/[^A-Z0-9]/g, "")))).slice(0, 25);
   return Promise.all(uniq.map(getAggregatedQuote));
 }
-var TTL_MS, _cache2;
+var TTL_MS, _cache3;
 var init_crypto_market_data = __esm({
   "server/services/crypto-market-data.ts"() {
     "use strict";
     TTL_MS = 15e3;
-    _cache2 = /* @__PURE__ */ new Map();
+    _cache3 = /* @__PURE__ */ new Map();
   }
 });
 
@@ -9087,79 +9160,6 @@ var init_defi_market_data = __esm({
     };
     candleCache = /* @__PURE__ */ new Map();
     candleInFlight = /* @__PURE__ */ new Map();
-  }
-});
-
-// server/services/runtime-state.ts
-var runtime_state_exports = {};
-__export(runtime_state_exports, {
-  ensureRuntimeStateTable: () => ensureRuntimeStateTable,
-  getRuntimeStateStrict: () => getRuntimeStateStrict,
-  insertRuntimeStateIfAbsent: () => insertRuntimeStateIfAbsent,
-  loadRuntimeState: () => loadRuntimeState,
-  saveRuntimeState: () => saveRuntimeState
-});
-function ensureRuntimeStateTable() {
-  if (!ensured) {
-    ensured = pool.query(DDL).then(() => void 0).catch((err) => {
-      console.error("[runtime-state] ensure table failed (non-fatal):", err?.message ?? err);
-      ensured = null;
-    });
-  }
-  return ensured;
-}
-function saveRuntimeState(scope, key, value) {
-  void (async () => {
-    try {
-      await ensureRuntimeStateTable();
-      await pool.query(
-        `INSERT INTO runtime_state (scope, key, value, updated_at) VALUES ($1, $2, $3::jsonb, now())
-         ON CONFLICT (scope, key) DO UPDATE SET value = EXCLUDED.value, updated_at = now()`,
-        [scope, key, JSON.stringify(value)]
-      );
-    } catch (err) {
-      console.error(`[runtime-state] save ${scope}/${key} failed (non-fatal):`, err?.message ?? err);
-    }
-  })();
-}
-async function loadRuntimeState(scope) {
-  try {
-    await ensureRuntimeStateTable();
-    const { rows } = await pool.query(`SELECT key, value FROM runtime_state WHERE scope = $1`, [scope]);
-    return rows;
-  } catch (err) {
-    console.error(`[runtime-state] load ${scope} failed (non-fatal):`, err?.message ?? err);
-    return [];
-  }
-}
-async function getRuntimeStateStrict(scope, key) {
-  await ensureRuntimeStateTable();
-  const { rows } = await pool.query(`SELECT value FROM runtime_state WHERE scope = $1 AND key = $2`, [scope, key]);
-  return rows[0]?.value ?? null;
-}
-async function insertRuntimeStateIfAbsent(scope, key, value) {
-  await ensureRuntimeStateTable();
-  await pool.query(
-    `INSERT INTO runtime_state (scope, key, value) VALUES ($1, $2, $3::jsonb) ON CONFLICT (scope, key) DO NOTHING`,
-    [scope, key, JSON.stringify(value)]
-  );
-  return getRuntimeStateStrict(scope, key);
-}
-var DDL, ensured;
-var init_runtime_state = __esm({
-  "server/services/runtime-state.ts"() {
-    "use strict";
-    init_db();
-    DDL = `
-CREATE TABLE IF NOT EXISTS "runtime_state" (
-  "scope" text NOT NULL,
-  "key" text NOT NULL,
-  "value" jsonb NOT NULL,
-  "updated_at" timestamp NOT NULL DEFAULT now(),
-  PRIMARY KEY ("scope", "key")
-);
-`;
-    ensured = null;
   }
 });
 
@@ -20015,20 +20015,20 @@ __export(promoted_rules_exports, {
   retireRule: () => retireRule
 });
 async function getPromotedRules(userId) {
-  const hit = _cache3.get(userId);
-  if (hit && Date.now() - hit.at < CACHE_MS) return hit.rules;
+  const hit = _cache4.get(userId);
+  if (hit && Date.now() - hit.at < CACHE_MS2) return hit.rules;
   let rules = [];
   try {
-    const v = await getRuntimeStateStrict(SCOPE, String(userId));
+    const v = await getRuntimeStateStrict(SCOPE2, String(userId));
     if (Array.isArray(v)) rules = v;
   } catch {
   }
-  _cache3.set(userId, { at: Date.now(), rules });
+  _cache4.set(userId, { at: Date.now(), rules });
   return rules;
 }
 async function storeRules(userId, rules) {
-  _cache3.set(userId, { at: Date.now(), rules });
-  saveRuntimeState(SCOPE, String(userId), rules);
+  _cache4.set(userId, { at: Date.now(), rules });
+  saveRuntimeState(SCOPE2, String(userId), rules);
 }
 async function hasWinningWeek(userId, lesson) {
   const dim = DIM_EXPR[lesson.dimension];
@@ -20129,7 +20129,7 @@ async function checkPromotedRules(userId, ctx) {
   }
   return null;
 }
-var SCOPE, PROMOTABLE_DIMS, MIN_TRADES4, MAX_AVG_R, MAX_WIN_RATE, DIM_EXPR, _cache3, CACHE_MS, normSym;
+var SCOPE2, PROMOTABLE_DIMS, MIN_TRADES4, MAX_AVG_R, MAX_WIN_RATE, DIM_EXPR, _cache4, CACHE_MS2, normSym;
 var init_promoted_rules = __esm({
   "server/services/promoted-rules.ts"() {
     "use strict";
@@ -20137,7 +20137,7 @@ var init_promoted_rules = __esm({
     init_runtime_state();
     init_shadow_lessons();
     init_shadow_ledger();
-    SCOPE = "promoted_rules";
+    SCOPE2 = "promoted_rules";
     PROMOTABLE_DIMS = ["session", "direction", "strategy", "strategy+symbol", "strategy+direction", "day_type"];
     MIN_TRADES4 = () => Number(process.env.PROMOTED_RULE_MIN_TRADES ?? 50);
     MAX_AVG_R = () => Number(process.env.PROMOTED_RULE_MAX_AVG_R ?? -0.2);
@@ -20150,8 +20150,8 @@ var init_promoted_rules = __esm({
       day_type: { expr: `day_type`, where: `day_type IS NOT NULL` },
       "strategy+direction": { expr: `strategy || ' \xB7 ' || direction` }
     };
-    _cache3 = /* @__PURE__ */ new Map();
-    CACHE_MS = 3e4;
+    _cache4 = /* @__PURE__ */ new Map();
+    CACHE_MS2 = 3e4;
     normSym = (s) => s.toUpperCase().replace("/", "");
   }
 });
@@ -33778,6 +33778,49 @@ function weekendBoostSizeMultiplier(d = /* @__PURE__ */ new Date()) {
 // server/services/process-fingerprint.ts
 var PROCESS_BOOT_ID = `pid${process.pid}@${(/* @__PURE__ */ new Date()).toISOString()}`;
 
+// server/services/trail-guards.ts
+init_runtime_state();
+
+// server/services/trail-study.ts
+init_db();
+
+// server/services/trail-guards.ts
+init_db();
+var SCOPE = "trail_guards";
+function trailGuardsOn() {
+  return process.env.TRAIL_GUARDS !== "off";
+}
+var _cache2 = /* @__PURE__ */ new Map();
+var CACHE_MS = 3e4;
+async function getTrailGuards(userId) {
+  const hit = _cache2.get(userId);
+  if (hit && Date.now() - hit.at < CACHE_MS) return hit.guards;
+  let guards = [];
+  try {
+    const v = await getRuntimeStateStrict(SCOPE, String(userId));
+    if (Array.isArray(v)) guards = v;
+  } catch {
+  }
+  _cache2.set(userId, { at: Date.now(), guards });
+  return guards;
+}
+function matchGuard(guards, engine, strategy, symbol) {
+  const active = guards.filter((g) => g.active && g.engine === engine);
+  const strat = strategy ? active.find((g) => g.dimension === "strategy" && g.key === strategy) : void 0;
+  const sym = symbol ? active.find((g) => g.dimension === "symbol" && g.key === symbol) : void 0;
+  if (strat && sym) return strat.action === "tighten" ? strat : sym.action === "tighten" ? sym : strat;
+  return strat ?? sym ?? null;
+}
+async function cryptoTrailProfileFor(userId, strategy, symbol) {
+  if (!trailGuardsOn()) return null;
+  try {
+    const g = matchGuard(await getTrailGuards(userId), "crypto", strategy, symbol);
+    return g ? g.profile : null;
+  } catch {
+    return null;
+  }
+}
+
 // server/services/cryptocom-scanner.ts
 init_cefi_executor();
 var MIN_SCAN_INTERVAL_MS = 6e4;
@@ -34408,13 +34451,15 @@ async function monitorOpenPositions(userId, cfg) {
       if (riskDistance <= 0) continue;
       const currentR = isLong ? (currentPrice - trade.entryPrice) / riskDistance : (trade.entryPrice - currentPrice) / riskDistance;
       const peakR = Math.max(trade.peakRMultiple, currentR);
-      const armed = trade.trailArmed || peakR >= cfg.trailActivationR;
+      const tgProfile = await cryptoTrailProfileFor(userId, trade.strategy, trade.symbol);
+      const tCfg = tgProfile ? { ...cfg, trailMethod: tgProfile.method, trailActivationR: tgProfile.activationR, trailFixedR: tgProfile.fixedR, trailStepR: tgProfile.stepR, trailProfitLockPct: tgProfile.profitLockPct, trailSarInitialAF: tgProfile.sarInitialAF, trailSarMaxAF: tgProfile.sarMaxAF, breakevenBufferR: tgProfile.breakevenBufferR } : cfg;
+      const armed = trade.trailArmed || peakR >= tCfg.trailActivationR;
       if (currentR <= -1) {
         await closePosition(userId, trade, currentPrice, "stop_loss");
         continue;
       }
-      if (cfg.trailMethod !== "none" && armed) {
-        const floor = Math.max(computeTrailFloorR(cfg, peakR), cfg.breakevenBufferR);
+      if (tCfg.trailMethod !== "none" && armed) {
+        const floor = Math.max(computeTrailFloorR(tCfg, peakR), tCfg.breakevenBufferR);
         if (currentR <= floor) {
           await closePosition(userId, trade, currentPrice, "trailing_stop");
           continue;

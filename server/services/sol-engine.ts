@@ -6,6 +6,7 @@ import crypto from 'crypto';
 import { getOrRefreshSolBrain, solBrainSizeMultiplier, solBrainGate, recordSolBrainOutcome } from './sol-brain';
 import { weekendBoostActive, boostedMinConfidence, weekendBoostSizeMultiplier } from './weekend-boost';
 import { solLearnedRulesOn, SOL_LR, learnedExitStep, blendGain, cappedSlPct, isFallingEntry, isSolStrategyPaused } from './sol-learned-rules';
+import { solTrailOverridesFor } from './trail-guards';
 
 // ── Sol-engine "edge" config (ported from the proven crypto engine) ──────────
 // Brain + gating default ON to match the crypto engine. Confluence gate applies
@@ -1854,7 +1855,7 @@ async function monitorPaperPositions(userId: number, state: SolEngineState) {
     // Learned rules: breakeven floor, half off at +15%, trail the rest.
     let lrBreakeven = false;
     if (solLearnedRulesOn()) {
-      const step = learnedExitStep(pos, currentPrice);
+      const step = learnedExitStep(pos, currentPrice, (await solTrailOverridesFor(userId, pos.strategyId, pos.symbol)) ?? undefined);
       if (step.action === 'exit') {
         isTrailHit = true;
         lrBreakeven = step.reason === 'breakeven';
@@ -2119,7 +2120,7 @@ async function monitorShadowPositions(userId: number, state: SolEngineState) {
     // Learned rules: breakeven floor, half off at +15%, trail the rest.
     let lrReason: 'breakeven' | 'trail' | null = null;
     if (solLearnedRulesOn() && !isWin && !isLoss && !isMaxHold) {
-      const step = learnedExitStep(pos, currentPrice);
+      const step = learnedExitStep(pos, currentPrice, (await solTrailOverridesFor(userId, pos.strategyId, pos.symbol)) ?? undefined);
       if (step.action === 'exit') lrReason = step.reason;
       else {
         if (step.breakevenJustSet) pos.breakevenActive = true;
