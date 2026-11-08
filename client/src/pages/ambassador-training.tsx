@@ -66,6 +66,7 @@ import {
   ExternalLink,
   Copy,
   Shield,
+  ShieldCheck,
   Download,
   AlertCircle,
   Zap,
@@ -3004,6 +3005,83 @@ const trainingModules: TrainingModule[] = [
             '30% of the user\'s prop-firm net profit',
             '100% of the first month\'s profit',
             'Nothing — it is fully free',
+          ],
+          correct: 1,
+        },
+      },
+    ],
+  },
+  {
+    id: 'self-learning-engine',
+    title: 'Selling the Self-Learning Engine',
+    description: 'How to explain VEDD\'s newest edge: engines that practice in shadow mode, prove their lessons with hard numbers, and let users turn those lessons into real guards and trail rules.',
+    duration: '15 min',
+    icon: Brain,
+    lessons: [
+      {
+        id: 'what-shipped',
+        title: 'What Shipped: Engines That Keep Receipts',
+        content: [
+          'Every VEDD engine now shows its work on the Weekly Strategy page. The guard scoreboard records every time a protection acted — a stop kept tight, a size capped, a trade refused — and the skipped-trades feed names the reason for every pass.',
+          'Blocked trades are not memory-holed: when a guard refuses a trade with a full plan, the system scores that plan against real prices later. Those would-be results tell the user whether each guard is earning its keep or costing them wins.',
+          'Practice results become lessons, and proven lessons become rules. An FX pattern that lost across 50+ practice trades (avg R at or below \u22120.2, 40% wins or less, no winning week in 30 days) can be promoted — by the user\'s own tap — into a real guard that refuses matching live trades.',
+          'The Trail study does the same for exits: it measures how much of each trade\'s peak gain was given back, per pair and per strategy, and proven patterns become trail guards — a tighter trail for pairs that round-trip, or a locked-in profile for pairs where trailing works.',
+          'A watchdog checks every engine every 30 minutes, and a settings-vs-standard panel shows exactly what a user changed from the built-in defaults. Nothing about the learning is hidden or hand-waved.',
+        ],
+        tips: [
+          'Your strongest demo is your own Weekly Strategy page: open the guard panels and let the receipts talk',
+          'Learn the phrase "would-be results" — it is the feature nobody else shows',
+        ],
+        keyPoints: [
+          { title: 'Guard Scoreboard', description: 'Every protection that acted, counted and listed — the engine keeps receipts for its own decisions.', icon: ShieldCheck },
+          { title: 'Would-Be Results', description: 'Blocked trades are scored against real prices later, so users can prove whether a guard helps or hurts.', icon: Target },
+          { title: 'Lessons \u2192 Guards', description: 'Proven practice patterns (50+ trades, hard statistical bar) become real entry guards and trail guards — only by the user\'s tap.', icon: Brain },
+          { title: 'Fitted Trails', description: 'The Trail study fits exit rules per pair and per strategy from measured giveback, not one-size-fits-all.', icon: TrendingUp },
+        ],
+        guideLink: { text: 'Read the full guide: How Your Engines Learn', section: 'engine-learning' },
+      },
+      {
+        id: 'explain-in-30-seconds',
+        title: 'Explain It in 30 Seconds',
+        content: [
+          'Say it like this: "Most trading bots just trade. VEDD practices first — every signal is rehearsed against real prices in shadow mode. When a pattern proves itself a loser across fifty or more practice trades, you can promote it into a guard that blocks it live. And when a guard blocks a trade, VEDD still scores what that trade would have done, so you can see whether the guard deserved to fire."',
+          'Then the trail version: "It also studies your exits. If a pair keeps giving back its gains, you tighten its trail. If trailing is printing for a pair, you lock that profile in. The exits get fitted to the pair, not guessed."',
+          'Close with the watchdog: "And the app watches itself — every 30 minutes it checks each engine is alive, counting FX silence in market hours only, so you are never guessing whether it is running."',
+        ],
+        tips: [
+          'Never promise profits or win rates — sell the process: practice, proof, promotion, receipts',
+          'If a prospect asks "does it work?", show panels and would-be results, not adjectives',
+          'Guards reduce repeated mistakes; they do not remove risk. Saying so plainly builds trust',
+        ],
+        realWorldExamples: [
+          {
+            scenario: 'A prospect says: "Every AI trader claims it learns. What is different here?"',
+            outcome: 'You open your own Weekly Strategy page and show the guard scoreboard plus a blocked trade with its would-be result — evidence on screen, not a pitch.',
+            lesson: 'Proof beats adjectives. The product demonstrates its learning; your job is to point at it.',
+            type: 'insight',
+          },
+        ],
+      },
+      {
+        id: 'trail-story',
+        title: 'The Trail Story: Fitting the Exit to the Pair',
+        content: [
+          'Entries get the glory, but exits decide the account. Two traders can take the same entry and finish in different postcodes purely on how the exit was managed.',
+          'VEDD\'s Trail study measures giveback — peak gain handed back before the close — for every strategy and pair. Crypto is measured in R on live trades; Sol in percent on paper and shadow trades.',
+          'With 10 or more closed trades, a pattern can become a trail guard: Tighten for groups that round-trip their gains, Lock profile for groups where the current trail is provably right. Exits only — guards never touch entries or sizing.',
+          'That is a story a prospect can repeat to a friend in one sentence: "VEDD fits the exit to the pair using its own trade history." Repeatable stories are what grow your downline.',
+        ],
+        tips: [
+          'Use the one-sentence version in posts and DMs; save the full mechanics for people who ask',
+          'Point prospects to the guide section "How Your Engines Learn" for the self-serve deep dive',
+        ],
+        quiz: {
+          question: 'What must a losing FX pattern prove before a user can promote it into a real guard?',
+          options: [
+            'It lost three trades in a row',
+            '50+ practice trades, average R at or below \u22120.2, win rate 40% or less, and no winning week in the last 30 days',
+            'One very large loss',
+            'Nothing — lessons become guards automatically',
           ],
           correct: 1,
         },
