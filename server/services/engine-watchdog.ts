@@ -76,6 +76,12 @@ export interface EngineWatchdogStatus {
     hoursSinceLastClose: number | null;
     message: string;
   };
+  crypto: {
+    state: 'ok' | 'stale' | 'never';
+    lastActivityAt: string | null;
+    ageMinutes: number | null;
+    message: string;
+  };
 }
 
 let _lastStatus: EngineWatchdogStatus | null = null;
@@ -142,10 +148,27 @@ async function computeStatus(): Promise<EngineWatchdogStatus> {
     solMessage = `Sol STALE — no position (live, paper or shadow) has closed in ${solHours}h. If the Sol engine should be running, check its page.`;
   }
 
+  // Crypto runs as an external cron — its pulse is the cron heartbeat plus
+  // crypto DB artifacts (see crypto-health.ts). A stopped timer must not be
+  // a silent failure, so the watchdog classifies and alerts on it too.
+  let cryptoState: EngineWatchdogStatus['crypto']['state'] = 'never';
+  let cryptoLast: string | null = null;
+  let cryptoAge: number | null = null;
+  let cryptoMessage = 'Crypto: health check unavailable.';
+  try {
+    const { getCryptoEngineHealth } = await import('./crypto-health');
+    const ch = await getCryptoEngineHealth();
+    cryptoState = ch.status;
+    cryptoLast = ch.lastActivityAt;
+    cryptoAge = ch.ageMinutes;
+    cryptoMessage = ch.message;
+  } catch { /* keep defaults */ }
+
   return {
     checkedAt: new Date().toISOString(),
     fx: { state: fxState, lastCloseAt: fxLast, hoursSinceLastClose: fxHours, marketHoursSinceLastClose: fxMarketHours, marketOpen, guardEvents24h, aiDecisions24h, message: fxMessage },
     sol: { state: solState, lastCloseAt: solLast, hoursSinceLastClose: solHours, message: solMessage },
+    crypto: { state: cryptoState, lastActivityAt: cryptoLast, ageMinutes: cryptoAge, message: cryptoMessage },
   };
 }
 
@@ -164,6 +187,7 @@ async function maybeAlert(status: EngineWatchdogStatus): Promise<void> {
   const alerts: string[] = [];
   if (status.fx.state === 'gated' || status.fx.state === 'silent') alerts.push(status.fx.message);
   if (status.sol.state === 'stale') alerts.push(status.sol.message);
+  if (status.crypto.state === 'stale') alerts.push(status.crypto.message);
   if (!alerts.length) return;
 
   console.warn(`[engine-watchdog] ${alerts.join(' | ')}`);
@@ -179,7 +203,7 @@ async function maybeAlert(status: EngineWatchdogStatus): Promise<void> {
   } catch { /* state is best-effort; alerting still proceeds in-memory-safe below */ }
 
   const due: string[] = [];
-  const check = (engine: 'fx' | 'sol', key: string | null, text: string | null) => {
+  const check = (engine: string, key: string | null, text: string | null) => {
     if (!text || !key) return;
     const ep = episodes[engine];
     if (!ep || ep.key !== key) episodes[engine] = { key, sent: 0, lastAt: 0 };
@@ -192,6 +216,7 @@ async function maybeAlert(status: EngineWatchdogStatus): Promise<void> {
   };
   check('fx', status.fx.lastCloseAt, (status.fx.state === 'gated' || status.fx.state === 'silent') ? status.fx.message : null);
   check('sol', status.sol.lastCloseAt, status.sol.state === 'stale' ? status.sol.message : null);
+  check('crypto', status.crypto.lastActivityAt, status.crypto.state === 'stale' ? status.crypto.message : null);
 
   try {
     const { saveRuntimeState } = await import('./runtime-state');

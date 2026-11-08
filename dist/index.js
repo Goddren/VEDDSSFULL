@@ -46204,6 +46204,60 @@ var init_futures_brain = __esm({
   }
 });
 
+// server/services/crypto-health.ts
+var crypto_health_exports = {};
+__export(crypto_health_exports, {
+  getCryptoEngineHealth: () => getCryptoEngineHealth
+});
+async function getCryptoEngineHealth() {
+  const staleAfterMin = STALE_MIN();
+  let hb2 = null;
+  try {
+    const { getRuntimeStateStrict: getRuntimeStateStrict2 } = await Promise.resolve().then(() => (init_runtime_state(), runtime_state_exports));
+    hb2 = await getRuntimeStateStrict2("crypto_cron", "heartbeat").catch(() => null);
+  } catch {
+  }
+  let artifactAt = null;
+  try {
+    const { rows } = await pool.query(
+      `SELECT greatest(
+         (SELECT max(opened_at) FROM crypto_paper_trades),
+         (SELECT max(created_at) FROM fx_model_decisions WHERE engine = 'crypto')
+       ) AS last_at`
+    );
+    artifactAt = rows[0]?.last_at ? new Date(rows[0].last_at) : null;
+  } catch {
+  }
+  const lastRunAt = hb2?.finishedAt ?? null;
+  const lastRunState = hb2?.state ?? null;
+  const lastOkAt = hb2?.state === "ok" ? hb2?.finishedAt ?? null : hb2?.lastOkAt ?? null;
+  const candidates = [lastOkAt ? new Date(lastOkAt).getTime() : 0, artifactAt?.getTime() ?? 0].filter((n) => n > 0);
+  const lastActivityMs = candidates.length ? Math.max(...candidates) : null;
+  const lastActivityAt = lastActivityMs ? new Date(lastActivityMs).toISOString() : null;
+  const ageMinutes = lastActivityMs ? Math.round((Date.now() - lastActivityMs) / 6e4 * 10) / 10 : null;
+  let status;
+  let message;
+  if (lastActivityMs == null || ageMinutes == null) {
+    status = "never";
+    message = "Crypto: no cron heartbeat and no crypto trades/decisions on record \u2014 the cron may never have run, or its schedule is not set up.";
+  } else if (ageMinutes <= staleAfterMin) {
+    status = "ok";
+    message = `Crypto OK \u2014 last activity ${ageMinutes} min ago${lastRunState === "error" ? " (note: the latest cron run reported an error \u2014 see the cron log)" : ""}.`;
+  } else {
+    status = "stale";
+    message = `Crypto STALE \u2014 no successful run or crypto activity for ${ageMinutes} min (expected every few minutes). The Render cron job may be paused, deleted, or failing \u2014 check the cron service. Last run: ${lastRunAt ?? "unknown"}${lastRunState ? ` (${lastRunState})` : ""}.`;
+  }
+  return { status, lastRunAt, lastRunState, lastActivityAt, ageMinutes, staleAfterMin, message };
+}
+var STALE_MIN;
+var init_crypto_health = __esm({
+  "server/services/crypto-health.ts"() {
+    "use strict";
+    init_db();
+    STALE_MIN = () => Math.max(5, Number(process.env.CRYPTO_HEALTH_STALE_MIN ?? 20));
+  }
+});
+
 // server/messaging.ts
 var messaging_exports = {};
 __export(messaging_exports, {
@@ -46412,10 +46466,24 @@ async function computeStatus() {
     solState = "stale";
     solMessage = `Sol STALE \u2014 no position (live, paper or shadow) has closed in ${solHours}h. If the Sol engine should be running, check its page.`;
   }
+  let cryptoState = "never";
+  let cryptoLast = null;
+  let cryptoAge = null;
+  let cryptoMessage = "Crypto: health check unavailable.";
+  try {
+    const { getCryptoEngineHealth: getCryptoEngineHealth2 } = await Promise.resolve().then(() => (init_crypto_health(), crypto_health_exports));
+    const ch = await getCryptoEngineHealth2();
+    cryptoState = ch.status;
+    cryptoLast = ch.lastActivityAt;
+    cryptoAge = ch.ageMinutes;
+    cryptoMessage = ch.message;
+  } catch {
+  }
   return {
     checkedAt: (/* @__PURE__ */ new Date()).toISOString(),
     fx: { state: fxState, lastCloseAt: fxLast, hoursSinceLastClose: fxHours, marketHoursSinceLastClose: fxMarketHours, marketOpen, guardEvents24h, aiDecisions24h, message: fxMessage },
-    sol: { state: solState, lastCloseAt: solLast, hoursSinceLastClose: solHours, message: solMessage }
+    sol: { state: solState, lastCloseAt: solLast, hoursSinceLastClose: solHours, message: solMessage },
+    crypto: { state: cryptoState, lastActivityAt: cryptoLast, ageMinutes: cryptoAge, message: cryptoMessage }
   };
 }
 async function getEngineWatchdogStatus() {
@@ -46429,6 +46497,7 @@ async function maybeAlert(status) {
   const alerts = [];
   if (status.fx.state === "gated" || status.fx.state === "silent") alerts.push(status.fx.message);
   if (status.sol.state === "stale") alerts.push(status.sol.message);
+  if (status.crypto.state === "stale") alerts.push(status.crypto.message);
   if (!alerts.length) return;
   console.warn(`[engine-watchdog] ${alerts.join(" | ")}`);
   let episodes = {};
@@ -46453,6 +46522,7 @@ async function maybeAlert(status) {
   };
   check("fx", status.fx.lastCloseAt, status.fx.state === "gated" || status.fx.state === "silent" ? status.fx.message : null);
   check("sol", status.sol.lastCloseAt, status.sol.state === "stale" ? status.sol.message : null);
+  check("crypto", status.crypto.lastActivityAt, status.crypto.state === "stale" ? status.crypto.message : null);
   try {
     const { saveRuntimeState: saveRuntimeState2 } = await Promise.resolve().then(() => (init_runtime_state(), runtime_state_exports));
     saveRuntimeState2("engine_watchdog", "episodes", episodes);
@@ -71844,9 +71914,9 @@ async function getStopOrdersForUser(userId, filters = {}) {
 init_schema();
 
 // server/build-info.ts
-var BUILD_COMMIT = "627a6a74-dirty";
-var BUILD_BRANCH = "feat/shadow-learned-defaults";
-var BUILT_AT = "2026-11-08T08:07:21.760Z";
+var BUILD_COMMIT = "1753aa9-dirty";
+var BUILD_BRANCH = "main";
+var BUILT_AT = "2026-11-08T15:51:47.589Z";
 
 // server/stripe.ts
 init_db();
@@ -76232,6 +76302,17 @@ async function registerRoutes(app2, existingServer) {
         try {
           const { getEngineWatchdogStatus: getEngineWatchdogStatus2 } = await Promise.resolve().then(() => (init_engine_watchdog(), engine_watchdog_exports));
           return await getEngineWatchdogStatus2();
+        } catch {
+          return null;
+        }
+      })(),
+      // Crypto engine health (2026-11-08): the crypto engine is a standalone
+      // cron outside this process — this is its pulse (heartbeat + artifacts),
+      // so a stopped timer is visible instead of silent (see crypto-health.ts).
+      cryptoEngine: await (async () => {
+        try {
+          const { getCryptoEngineHealth: getCryptoEngineHealth2 } = await Promise.resolve().then(() => (init_crypto_health(), crypto_health_exports));
+          return await getCryptoEngineHealth2();
         } catch {
           return null;
         }
