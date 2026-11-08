@@ -1,6 +1,7 @@
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { ShieldCheck, Settings2, GraduationCap, Receipt, Route } from "lucide-react";
 import { apiRequest } from "@/lib/queryClient";
+import { InfoExplainer } from "@/components/info-explainer";
 
 // Shows what the engine's safeguards (2026-10-19 bug-scan fixes) actually did:
 // stops it refused to loosen, sizes it capped, partial closes refused, thin-data
@@ -54,7 +55,10 @@ export function SkippedTradesPanel({ className = "" }: { className?: string }) {
   const events = data?.events || [];
   return (
     <div className={`rounded-2xl p-4 ${className}`} style={{ background: "rgba(17,24,39,0.5)", border: "1.5px solid rgba(75,85,99,0.5)" }} data-testid="skipped-trades-panel">
-      <h3 className="text-sm font-bold text-gray-100 mb-1">Why trades were skipped</h3>
+      <h3 className="text-sm font-bold text-gray-100 mb-1">Why trades were skipped <InfoExplainer title="Why trades were skipped">
+          <p>These are signals the engine <b>wanted</b> to trade but deliberately passed on — a guard or quality check said no. Each row names the reason: chasing a moved price, fighting the higher-timeframe trend, a range-bound day, a stale entry, and so on.</p>
+          <p>Skips are the system working as designed, not missed chances by default. If one guard seems to skip everything, check its would-be results in Guard fire rates — blocked trades are scored later against real prices.</p>
+        </InfoExplainer></h3>
       <p className="text-[10px] text-gray-500 mb-3">Signals the engine wanted to take but deliberately didn't — and why.</p>
       {!events.length ? (
         <p className="text-[11px] text-gray-500 py-2">No skipped trades recently.</p>
@@ -106,7 +110,11 @@ export function GuardFireRatesPanel({ className = "" }: { className?: string }) 
   };
   return (
     <div className={`rounded-2xl p-4 ${className}`} style={{ background: "rgba(17,24,39,0.5)", border: "1.5px solid rgba(75,85,99,0.5)" }} data-testid="guard-fire-rates-panel">
-      <h3 className="text-sm font-bold text-gray-100 mb-1">Guard fire rates</h3>
+      <h3 className="text-sm font-bold text-gray-100 mb-1">Guard fire rates <InfoExplainer title="Guard fire rates & would-be results">
+          <p>This counts how often each protection fired in the last 7 days versus the 7 before, so you can see which guards are shaping your results most.</p>
+          <p><b>Would-be results</b> are the important part: when a guard blocks a trade that had a full plan (entry, stop, target), the system keeps watching that plan against real prices and scores it later — win or loss — exactly as if the trade had been taken. That turns "the guard blocked me" into evidence:</p>
+          <p>• Blocked trades losing on average → the guard is <b>earning its keep</b>.<br/>• Blocked trades winning on average → that guard may be <b>too tight</b> and worth loosening.<br/>• Near zero → mixed; leave it alone.</p>
+        </InfoExplainer></h3>
       <p className="text-[10px] text-gray-500 mb-3">How often each protection fired — last 7 days vs the 7 before. Guards at the top are shaping your results most.</p>
       {!rates.length ? (
         <p className="text-[11px] text-gray-500 py-2">No guard activity in the last two weeks.</p>
@@ -169,6 +177,11 @@ export function SettingsOverviewPanel({ className = "" }: { className?: string }
         <Settings2 className="w-3.5 h-3.5 text-sky-300" />
         <span className="text-[11px] font-bold text-gray-200">Your settings vs standard</span>
         <span className="text-[9px] text-gray-500 ml-auto">read-only — change settings on each engine's page</span>
+        <InfoExplainer title="Your settings vs standard">
+          <p>Every guard setting for the FX, Sol, Kalshi and Crypto engines, in one place. <b>Standard</b> is what the app ships with; <b>Yours</b> is what your engine is actually running right now.</p>
+          <p>Anything you have changed is highlighted, and each engine header counts its changes. This panel never changes anything — it exists so a surprise in engine behavior can be traced to the setting that caused it.</p>
+          <p>To change a value, use that engine's own settings page.</p>
+        </InfoExplainer>
       </div>
       <div className="space-y-2.5">
         {engines.map((e) => (
@@ -226,6 +239,11 @@ export function PromotedRulesPanel({ className = "" }: { className?: string }) {
         <GraduationCap className="w-3.5 h-3.5 text-violet-300" />
         <span className="text-[11px] font-bold text-gray-200">Proven lessons → real guards</span>
         <span className="text-[9px] text-gray-500 ml-auto">bar: 50+ practice trades · avg R ≤ −0.2 · ≤40% wins · no winning week</span>
+        <InfoExplainer title="Proven lessons → real guards">
+          <p>Your engines practice constantly in shadow mode — every signal is scored against real prices without risking money. Patterns in those results become <b>lessons</b>.</p>
+          <p>Most lessons stay advice. But a pattern that has proven itself a loser — 50 or more practice trades, losing at least 0.2R on average, winning 40% or less, and not one winning week in the last 30 days — can be promoted into a <b>real guard</b>: the FX engine will refuse live trades matching it.</p>
+          <p>Promotion is always your tap, one guard at a time, and the server re-checks the evidence when you tap. Retire a guard anytime and matching trades flow again. Promoted guards' blocks are also scored as would-be results, so you can see whether each guard keeps earning its place.</p>
+        </InfoExplainer>
       </div>
       {active.length > 0 && (
         <div className="space-y-1 mb-2">
@@ -288,6 +306,11 @@ export function PracticeCostPanel({ className = "" }: { className?: string }) {
         <Receipt className="w-3.5 h-3.5 text-emerald-300" />
         <span className="text-[11px] font-bold text-gray-200">Practice cost check</span>
         <span className="text-[9px] text-gray-500 ml-auto">last {data.days} days · crypto paper trades</span>
+        <InfoExplainer title="Practice cost check">
+          <p>Practice trades are charged simulated fees and slippage so their results stay honest. This panel measures what those charges actually were: the average charge in basis points (100 bps = 1%), what a typical trade paid, and how much return the costs ate.</p>
+          <p><b>Flipped trades</b> are the warning sign — trades that would have won before costs but lost after. A lot of flips in thin pools usually means the cost model is doing its job of warning you off bad fills, not that it is too harsh.</p>
+          <p>Live fills carry their costs inside the execution price, so there is no separate live cost series to compare against — this panel is the practice side, measured exactly.</p>
+        </InfoExplainer>
       </div>
       {cp && cp.n > 0 ? (
         <>
@@ -360,6 +383,11 @@ export function TrailStudyPanel({ className = "" }: { className?: string }) {
         <Route className="w-3.5 h-3.5 text-sky-300" />
         <span className="text-[11px] font-bold text-gray-200">Trail study — which trail fits which pair & strategy</span>
         <span className="text-[9px] text-gray-500 ml-auto">last {data.days} days</span>
+        <InfoExplainer title="Trail study & trail guards">
+          <p>A trailing stop follows a winning trade's peak and locks in a floor behind it. The key number in this study is <b>giveback</b>: how much of the peak gain a trade handed back before it closed. Small giveback with frequent trail exits means the trail fits; large giveback means winners are round-tripping.</p>
+          <p>Crypto is measured in <b>R</b> (multiples of the trade's planned risk) on live trades; Sol is measured in <b>%</b> on paper and shadow trades. Results are grouped by strategy and by pair/token so you can see which trail fits where.</p>
+          <p>Groups with a proven pattern can become <b>trail guards</b> below: <b>Tighten</b> for groups that give back too much, <b>Lock profile in</b> for groups where trailing provably works. Guards change exit management only — never entries or sizing — and can be retired anytime.</p>
+        </InfoExplainer>
       </div>
 
       <div className="text-[10px] font-semibold text-gray-300 mt-1 mb-1">Crypto engine {cs ? <span className="text-gray-500 font-normal">— your trail now: {cs.method}, arms at {cs.activationR}R, fixed {cs.fixedR}R / step {cs.stepR}R / locks {cs.profitLockPct}%</span> : <span className="text-gray-500 font-normal">— no saved trail settings</span>}</div>
@@ -464,6 +492,11 @@ export function EngineSafeguardsPanel({ className = "" }: { className?: string }
       <div className="flex items-center gap-2 mb-1">
         <ShieldCheck className="w-4 h-4 text-emerald-300" />
         <h3 className="text-sm font-bold text-gray-100">Engine safeguards</h3>
+        <InfoExplainer title="Engine safeguards">
+          <p>This is the receipt feed for your engines' safety systems. Every time a protection steps in — refusing to loosen a stop, capping a position size to your limits, refusing a risky close, retrying a flatten — it is written here.</p>
+          <p>Nothing here is an error. A busy feed on a wild day means the guards were doing their job while the market moved.</p>
+          <p>The chips at the top count each kind of action over the last 7 days, newest events below.</p>
+        </InfoExplainer>
       </div>
       <p className="text-[10px] text-gray-500 mb-3">What the protections did — stops kept tight, sizes kept inside your caps, risky closes refused. Last 7 days.</p>
       {!data?.summary?.length ? (

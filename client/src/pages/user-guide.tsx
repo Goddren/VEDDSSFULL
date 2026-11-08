@@ -25,6 +25,7 @@ import {
   Star,
   Code2,
   ShieldCheck,
+  Brain,
   Bot,
   Wallet,
   Coins,
@@ -1810,6 +1811,71 @@ const guideSections: GuideSection[] = [
         tips: [
           'These were added after a heavy options day where order-flow stacked correlated puts — the concentration and correlated-basket caps exist to prevent exactly that',
           'The unrealized-drawdown halt is what stops an engine from "hoping" a bag of losing open trades back to green'
+        ]
+      }
+    ]
+  },
+  {
+    id: 'engine-learning',
+    title: 'How Your Engines Learn: Lessons, Guards & Trails',
+    icon: Brain,
+    description: 'The learning panels on the Weekly Strategy page — blocked trades scored honestly, your settings at a glance, and turning proven practice lessons into real guards and trail rules',
+    content: [
+      {
+        heading: 'Where to Find Everything',
+        steps: [
+          'Open the Weekly Strategy page and scroll to the engine panels below your engine controls',
+          'Engine safeguards: a live feed of every protection that acted — stops kept tight, sizes capped, risky closes refused',
+          'Why trades were skipped: the signals the engine wanted but a guard turned away, each with its reason',
+          'Guard fire rates: how often each protection fired this week vs last — and what the blocked trades would have done',
+          'Your settings vs standard, Proven lessons, Practice cost check, and the Trail study complete the set — every panel has an info (i) button that slides out a plain-language explainer'
+        ]
+      },
+      {
+        heading: 'Blocked Trades Get Scored (Would-Be Results)',
+        steps: [
+          'When a guard blocks a trade that had a full plan — entry, stop, target — the system keeps watching that plan against real prices',
+          'The blocked trade is later scored win or loss, exactly as if it had been taken; these are the would-be results in Guard fire rates',
+          'If blocked trades lose on average, the guard is earning its keep; if they win on average, that guard may be too tight',
+          'This turns every "why didn\'t it trade?" into evidence instead of a guess'
+        ],
+        tips: ['Judge a guard by its would-be results over weeks, not by one blocked trade you agreed with']
+      },
+      {
+        heading: 'Proven Lessons \u2192 Real Guards (FX Engine)',
+        steps: [
+          'Your FX engine practices in shadow mode: signals are scored against real prices without risking money, and the patterns become lessons',
+          'A losing pattern can be promoted to a real guard only after hard proof: 50+ practice trades, average R at or below \u22120.2, win rate 40% or less, and no winning week in the last 30 days',
+          'In the Proven lessons panel, tap Make it a guard — the server re-checks the evidence at that moment before anything is saved',
+          'From then on, live FX trades matching that pattern (by session, direction, strategy, pair, or day type) are refused before they open',
+          'Retire a guard anytime in the same panel; its blocks keep being scored so you can see whether it earned its place'
+        ],
+        tips: ['Promote one guard at a time and give it a few weeks of would-be results before judging it']
+      },
+      {
+        heading: 'Trail Study & Trail Guards (Crypto + Sol)',
+        steps: [
+          'The Trail study measures giveback: how much of a trade\'s peak gain was handed back before it closed, grouped by strategy and by pair or token',
+          'Crypto is measured in R (multiples of planned risk) on live trades; Sol is measured in percent on paper and shadow trades',
+          'A group that gives back too much (Crypto 1R or more on average, Sol 8% or more, over 10+ trades) can be given a Tighten guard — a closer trail for just that group',
+          'A group where trailing provably works can get a Lock profile guard, freezing its working trail settings so later global changes can\'t loosen them',
+          'Trail guards change exit management only — never entries, never position sizing — and can be retired anytime'
+        ]
+      },
+      {
+        heading: 'Your Settings vs Standard',
+        steps: [
+          'This panel lists the guard settings that matter for the FX, Sol, Kalshi and Crypto engines: the built-in standard beside your live value',
+          'Anything you changed is highlighted, with a count per engine — the fastest way to answer "what did I change?"',
+          'It is read-only by design; change values on each engine\'s own settings page'
+        ]
+      },
+      {
+        heading: 'Practice Costs, the Watchdog & Brain Learning',
+        steps: [
+          'Practice cost check: what your crypto practice trades were charged in fees and slippage, how much return the costs ate, and how many trades costs flipped from win to loss',
+          'The engine watchdog checks every 30 minutes that each engine is alive — FX silence is counted in market-open hours only, so weekends don\'t cry wolf — and the Crypto health reading comes from the scanner\'s own heartbeat',
+          'Brain Learning Mode on the FX page locks lot size at 0.01 while the brain is unproven, unlocking full sizing at 10+ trades and a 65%+ win rate; the switch now saves live — flip it and the running engine obeys immediately, no restart needed'
         ]
       }
     ]
