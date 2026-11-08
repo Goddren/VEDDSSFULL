@@ -13167,12 +13167,12 @@ function calculatePivotPoints(candles) {
   const pp = (prevCandle.h + prevCandle.l + prevCandle.c) / 3;
   const r1 = 2 * pp - prevCandle.l;
   const s1 = 2 * pp - prevCandle.h;
-  const r2 = pp + (prevCandle.h - prevCandle.l);
+  const r22 = pp + (prevCandle.h - prevCandle.l);
   const s2 = pp - (prevCandle.h - prevCandle.l);
   const r3 = prevCandle.h + 2 * (pp - prevCandle.l);
   const s3 = prevCandle.l - 2 * (prevCandle.h - pp);
   const round = (n) => Math.round(n * 1e5) / 1e5;
-  return { pp: round(pp), r1: round(r1), r2: round(r2), r3: round(r3), s1: round(s1), s2: round(s2), s3: round(s3) };
+  return { pp: round(pp), r1: round(r1), r2: round(r22), r3: round(r3), s1: round(s1), s2: round(s2), s3: round(s3) };
 }
 function calculateFibonacci(candles, lookback = 50) {
   const len = Math.min(lookback, candles.length);
@@ -42815,13 +42815,13 @@ Return JSON with EXACTLY these keys:
     }
     if (!isValidPlan(plan)) {
       try {
-        const r2 = await ai.client.chat.completions.create({
+        const r22 = await ai.client.chat.completions.create({
           model: ai.model,
           messages: [{ role: "system", content: system }, { role: "user", content: prompt + "\n\nIMPORTANT: reply with ONLY the JSON object, nothing else." }],
           max_tokens: 1400,
           temperature: 0.3
         });
-        plan = parsePlan(r2.choices[0]?.message?.content || "{}");
+        plan = parsePlan(r22.choices[0]?.message?.content || "{}");
       } catch (e) {
         console.log("[Abba strategist] retry attempt failed:", e.message);
       }
@@ -47853,13 +47853,13 @@ async function sendMorningSocialEmail(force = false) {
   if (!rows.length) return { sent: false, count: 0, note: "nothing new to send" };
   const esc2 = (t) => String(t || "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
   const byKind = /* @__PURE__ */ new Map();
-  for (const r2 of rows) {
-    const k2 = `${r2.kind}|${new Date(r2.created_at).toISOString().slice(0, 13)}`;
-    (byKind.get(k2) || byKind.set(k2, []).get(k2)).push(r2);
+  for (const r3 of rows) {
+    const k2 = `${r3.kind}|${new Date(r3.created_at).toISOString().slice(0, 13)}`;
+    (byKind.get(k2) || byKind.set(k2, []).get(k2)).push(r3);
   }
   const LABEL = { challenge_daily: "$100K challenge \u2014 daily result", daily_update: "Daily update", weekly_recap: "Weekly recap", shadow_progress: "Shadow progress", engine_insight: "Engine insight", milestone: "Milestone" };
   const blocks = Array.from(byKind.values()).map((g) => {
-    const ig = g.find((r2) => r2.platform === "instagram"), x = g.find((r2) => r2.platform === "x");
+    const ig = g.find((r3) => r3.platform === "instagram"), x = g.find((r3) => r3.platform === "x");
     const img = ig || x ? `${SITE()}/api/social/image/${(ig || x).id}.png` : "";
     const thread = Array.isArray(x?.thread) ? x.thread : x?.caption ? [x.caption] : [];
     return `<div style="border:1px solid #e5e7eb;border-radius:12px;padding:16px;margin:0 0 20px">
@@ -54297,7 +54297,7 @@ function volumeProfileSeries(bars, lookback, vaPct) {
 function pivotsSeries(bars) {
   const n = bars.length;
   const mk = () => new Array(n).fill(null);
-  const pp = mk(), r1 = mk(), r2 = mk(), s1 = mk(), s2 = mk();
+  const pp = mk(), r1 = mk(), r22 = mk(), s1 = mk(), s2 = mk();
   let prevDay = "", pH = 0, pL = 0, pC = 0, curH = -Infinity, curL = Infinity;
   let levels = null;
   for (let i = 0; i < n; i++) {
@@ -54314,7 +54314,7 @@ function pivotsSeries(bars) {
     if (levels) {
       pp[i] = levels.pp;
       r1[i] = levels.r1;
-      r2[i] = levels.r2;
+      r22[i] = levels.r2;
       s1[i] = levels.s1;
       s2[i] = levels.s2;
     }
@@ -54324,7 +54324,7 @@ function pivotsSeries(bars) {
     pL = curL;
     pC = bars[i].close;
   }
-  return { pp, r1, r2, s1, s2 };
+  return { pp, r1, r2: r22, s1, s2 };
 }
 function orbSeries(bars, startH, startM, rangeMinutes, barMs) {
   const n = bars.length;
@@ -55167,14 +55167,14 @@ function generateSpecMT5EA(spec) {
   const hasCustom = customInds.length > 0;
   const atrInd = spec.indicators.find((i) => i.kind === "ATR");
   const useAtrStops = (spec.risk.stopLossAtrMult != null || spec.risk.takeProfitAtrMult != null) && !!atrInd;
-  if (useAtrStops && !refs.some((r2) => r2.id === atrInd.id && r2.field === "value")) {
+  if (useAtrStops && !refs.some((r3) => r3.id === atrInd.id && r3.field === "value")) {
     refs.push({ id: atrInd.id, field: "value" });
   }
   const indById = new Map(spec.indicators.map((i) => [i.id, i]));
   for (const ref of [...refs]) {
     if (indById.get(ref.id)?.kind === "MACD") {
       for (const f of ["value", "signal"]) {
-        if (!refs.some((r2) => r2.id === ref.id && r2.field === f)) refs.push({ id: ref.id, field: f });
+        if (!refs.some((r3) => r3.id === ref.id && r3.field === f)) refs.push({ id: ref.id, field: f });
       }
     }
   }
@@ -55259,9 +55259,9 @@ function generateSpecMT5EA(spec) {
     }
     getters.push(`double ${seriesFn(ref.id, ref.field)}(int shift) { return g_${ref.id}_${ref.field}[shift]; }`);
   }
-  const hasHistogram = refs.some((r2) => indById.get(r2.id)?.kind === "MACD" && r2.field === "histogram");
+  const hasHistogram = refs.some((r3) => indById.get(r3.id)?.kind === "MACD" && r3.field === "histogram");
   const histogramCode = hasHistogram ? (() => {
-    const mid = refs.find((r2) => indById.get(r2.id)?.kind === "MACD" && r2.field === "histogram").id;
+    const mid = refs.find((r3) => indById.get(r3.id)?.kind === "MACD" && r3.field === "histogram").id;
     return `
    // MACD histogram = main - signal
    if(ArraySize(g_${mid}_value) >= 3 && ArraySize(g_${mid}_signal) >= 3) {
@@ -58190,14 +58190,14 @@ async function _placeKalshiYes(userId, s, p2) {
       kalshiOrderId = result.orderId;
       const filled = result.status === "executed" ? true : await _verifyKalshiFill(userId, result.orderId);
       if (!filled) {
-        const r2 = `Order for "${p2.subtitle}" didn't fill (price moved) \u2014 canceled, no position opened.`;
-        s.lastScanResult = r2;
-        return { fired: false, reason: r2 };
+        const r3 = `Order for "${p2.subtitle}" didn't fill (price moved) \u2014 canceled, no position opened.`;
+        s.lastScanResult = r3;
+        return { fired: false, reason: r3 };
       }
     } catch (err) {
-      const r2 = `Order failed: ${err.message}`;
-      s.lastScanResult = r2;
-      return { fired: false, reason: r2 };
+      const r3 = `Order failed: ${err.message}`;
+      s.lastScanResult = r3;
+      return { fired: false, reason: r3 };
     }
   }
   const trade = {
@@ -59340,9 +59340,9 @@ async function _runScan2(userId, manual = false) {
     if (s.config.strategy === "auto") {
       const scan = await scanAllKalshiStrategies(userId);
       if (!scan.selected) {
-        const r2 = "Auto: all strategies NEUTRAL";
-        s.lastScanResult = r2;
-        return { fired: false, reason: r2 };
+        const r3 = "Auto: all strategies NEUTRAL";
+        s.lastScanResult = r3;
+        return { fired: false, reason: r3 };
       }
       strat = scan.selected;
       label = `Auto\u2192${STRATEGY_LABELS2[strat]}`;
@@ -59352,36 +59352,36 @@ async function _runScan2(userId, manual = false) {
     }
     const pred = await getKalshiSignal(strat);
     if (!pred || pred.direction === "NEUTRAL") {
-      const r2 = `${label}: NEUTRAL`;
-      s.lastScanResult = r2;
-      return { fired: false, reason: r2 };
+      const r3 = `${label}: NEUTRAL`;
+      s.lastScanResult = r3;
+      return { fired: false, reason: r3 };
     }
     if (pred.confidence < s.config.minConfidence) {
-      const r2 = `${label}: ${pred.confidence}% < ${s.config.minConfidence}%`;
-      s.lastScanResult = r2;
-      return { fired: false, reason: r2 };
+      const r3 = `${label}: ${pred.confidence}% < ${s.config.minConfidence}%`;
+      s.lastScanResult = r3;
+      return { fired: false, reason: r3 };
     }
     if (s.config.requireAlignedHourly) {
       const aligned = pred.direction === "BUY" && pred.priceChange1h > 0 || pred.direction === "SELL" && pred.priceChange1h < 0;
       if (!aligned) {
-        const r2 = `1h trend conflicts with ${pred.direction}`;
-        s.lastScanResult = r2;
-        return { fired: false, reason: r2 };
+        const r3 = `1h trend conflicts with ${pred.direction}`;
+        s.lastScanResult = r3;
+        return { fired: false, reason: r3 };
       }
     }
     if (s.config.requireConfluence) {
       const c = await getKalshiConsensus();
       if (!(c.direction === pred.direction && c.agreement >= 0.6)) {
-        const r2 = `Confluence fail (consensus ${c.direction} ${Math.round(c.agreement * 100)}%)`;
-        s.lastScanResult = r2;
-        return { fired: false, reason: r2 };
+        const r3 = `Confluence fail (consensus ${c.direction} ${Math.round(c.agreement * 100)}%)`;
+        s.lastScanResult = r3;
+        return { fired: false, reason: r3 };
       }
     }
     const market = await findPmUsCryptoMarket(s.config.asset);
     if (!market) {
-      const r2 = `\u{1F7E2} Engine live \u2014 no ${s.config.asset.toUpperCase()} market on Polymarket US yet (waiting). Signal was ${label} ${pred.direction} ${pred.confidence}%.`;
-      s.lastScanResult = r2;
-      return { fired: false, reason: r2 };
+      const r3 = `\u{1F7E2} Engine live \u2014 no ${s.config.asset.toUpperCase()} market on Polymarket US yet (waiting). Signal was ${label} ${pred.direction} ${pred.confidence}%.`;
+      s.lastScanResult = r3;
+      return { fired: false, reason: r3 };
     }
     const bbo = await getPmUsBbo(market.slug);
     const rawYesAsk = bbo && bbo.bestAsk > 0 ? Math.round(bbo.bestAsk * 100) : Math.round(toPmUsNum(market.bestAsk) * 100);
@@ -59390,26 +59390,26 @@ async function _runScan2(userId, manual = false) {
     const intent = pred.direction === "BUY" ? "ORDER_INTENT_BUY_LONG" : "ORDER_INTENT_BUY_SHORT";
     const askCents = side === "yes" ? rawYesAsk : rawYesBid > 0 ? 100 - rawYesBid : 0;
     if (!askCents || askCents >= 97) {
-      const r2 = `${market.slug}: no/expensive price (${askCents}\xA2)`;
-      s.lastScanResult = r2;
-      return { fired: false, reason: r2 };
+      const r3 = `${market.slug}: no/expensive price (${askCents}\xA2)`;
+      s.lastScanResult = r3;
+      return { fired: false, reason: r3 };
     }
     if (askCents > pred.confidence - 5) {
-      const r2 = `No edge: ${askCents}\xA2 vs ~${pred.confidence}% \u2014 skip`;
-      s.lastScanResult = r2;
-      return { fired: false, reason: r2 };
+      const r3 = `No edge: ${askCents}\xA2 vs ~${pred.confidence}% \u2014 skip`;
+      s.lastScanResult = r3;
+      return { fired: false, reason: r3 };
     }
     const contracts = pmUsContractsFor(s, askCents);
     const stake = askCents / 100 * contracts;
     if (!s.isPaperMode) {
-      const r2 = await placePmUsOrder(userId, {
+      const r3 = await placePmUsOrder(userId, {
         marketSlug: market.slug,
         intent,
         type: "ORDER_TYPE_MARKET",
         quantity: contracts
       });
-      if (!r2.ok) {
-        const msg = `Order failed (HTTP ${r2.status}): ${JSON.stringify(r2.data).slice(0, 160)}`;
+      if (!r3.ok) {
+        const msg = `Order failed (HTTP ${r3.status}): ${JSON.stringify(r3.data).slice(0, 160)}`;
         s.lastScanResult = msg;
         return { fired: false, reason: msg };
       }
@@ -59933,6 +59933,168 @@ var init_practice_costs_report = __esm({
        WHEN liquidity_usd < 50000 THEN 'thin (<$50K)'
        WHEN liquidity_usd < 250000 THEN 'mid ($50\u2013250K)'
        ELSE 'deep (>$250K)' END`;
+  }
+});
+
+// server/services/trail-study.ts
+var trail_study_exports = {};
+__export(trail_study_exports, {
+  trailStudyReport: () => trailStudyReport
+});
+function cryptoVerdict(g, activationR) {
+  if (g.trades < 8) return null;
+  if (g.avgPeak != null && g.avgPeak < activationR) {
+    return `Peaks average ${g.avgPeak}R \u2014 below the ${activationR}R trail activation, so the trail rarely switches on here.`;
+  }
+  if (g.trailExitShare != null && g.trailExitShare >= 0.25 && g.avgFinal != null && g.avgFinal >= 0.3) {
+    return "Trailing is earning its keep here \u2014 trail exits are common and close positive on average.";
+  }
+  if (g.avgGiveback != null && g.avgGiveback >= 1) {
+    return `Winners give back about ${g.avgGiveback}R from their peak on average \u2014 a tighter trail or earlier activation is the candidate to test.`;
+  }
+  return "Mixed picture \u2014 no clear trail change suggested yet.";
+}
+function solVerdict(g) {
+  if (g.trades < 8) return null;
+  if (g.trailExitShare != null && g.trailExitShare >= 0.3 && g.avgFinal != null && g.avgFinal > 0) {
+    return "The trail fits this group \u2014 trail exits are common and net-positive.";
+  }
+  if (g.avgGiveback != null && g.avgGiveback >= 8) {
+    return `About ${g.avgGiveback}% is given back from the peak on average \u2014 a tighter trail distance or earlier activation is the candidate to test.`;
+  }
+  if (g.avgPeak != null && g.avgPeak < SOL_LR.breakevenAtPct) {
+    return `Peaks rarely reach the +${SOL_LR.breakevenAtPct}% breakeven stage \u2014 trails barely engage here.`;
+  }
+  return "Mixed picture \u2014 no clear trail change suggested yet.";
+}
+async function trailStudyReport(userId, days = 90) {
+  const d = Math.min(365, Math.max(1, Math.floor(days) || 90));
+  const cfgRows = await pool.query(
+    `SELECT trail_method, trail_activation_r, trail_fixed_r, trail_step_r, trail_profit_lock_pct,
+            trail_sar_initial_af, trail_sar_max_af, breakeven_buffer_r
+       FROM cryptocom_engine_configs WHERE user_id = $1`,
+    [userId]
+  ).then((r) => r.rows).catch(() => []);
+  const cfg = cfgRows[0] ?? null;
+  const activationR = cfg ? Number(cfg.trail_activation_r) || 1 : 1;
+  const cryptoAgg = async (groupCol) => {
+    const sel = groupCol ? `${groupCol} AS key,` : `'all' AS key,`;
+    const grp = groupCol ? `GROUP BY ${groupCol}` : "";
+    const rows = await pool.query(
+      `SELECT ${sel} COUNT(*)::int AS trades,
+              AVG(CASE WHEN realized_pnl > 0 THEN 1.0 ELSE 0.0 END) AS win_rate,
+              AVG(${FINAL_R}) AS avg_final_r,
+              AVG(NULLIF(peak_r_multiple, 0)) AS avg_peak_r,
+              AVG(CASE WHEN peak_r_multiple > 0 THEN peak_r_multiple - ${FINAL_R} END) AS avg_giveback_r,
+              AVG(CASE WHEN exit_reason = 'trailing_stop' THEN 1.0 ELSE 0.0 END) AS trail_share
+         FROM cryptocom_engine_trades t
+        WHERE user_id = $1 AND status = 'closed' AND closed_at >= now() - ($2 || ' days')::interval
+        ${grp}`,
+      [userId, String(d)]
+    ).then((r) => r.rows).catch(() => []);
+    return rows.map((row) => {
+      const g = {
+        key: String(row.key ?? "all"),
+        trades: Number(row.trades) || 0,
+        winRate: r2(row.win_rate),
+        avgFinal: r2(row.avg_final_r),
+        avgPeak: r2(row.avg_peak_r),
+        avgGiveback: r2(row.avg_giveback_r),
+        trailExitShare: r2(row.trail_share),
+        verdict: null
+      };
+      g.verdict = cryptoVerdict(g, activationR);
+      return g;
+    }).filter((g) => g.trades > 0).sort((a, b) => b.trades - a.trades);
+  };
+  const [cOverall, cByStrategy, cBySymbol] = await Promise.all([
+    cryptoAgg(null),
+    cryptoAgg("strategy"),
+    cryptoAgg("symbol")
+  ]);
+  const solAgg = async (groupCol) => {
+    const sel = groupCol ? `${groupCol} AS key,` : `'all' AS key,`;
+    const grp = groupCol ? `GROUP BY ${groupCol}` : "";
+    const rows = await pool.query(
+      `SELECT ${sel} COUNT(*)::int AS trades,
+              AVG(CASE WHEN net_pct > 0 THEN 1.0 ELSE 0.0 END) AS win_rate,
+              AVG(net_pct) AS avg_net, AVG(peak_gain_pct) AS avg_peak,
+              AVG(CASE WHEN peak_gain_pct IS NOT NULL AND gross_pct IS NOT NULL
+                       THEN peak_gain_pct - gross_pct END) AS avg_giveback,
+              AVG(CASE WHEN exit_reason = 'trail' THEN 1.0 ELSE 0.0 END) AS trail_share
+         FROM sol_shadow_context
+        WHERE user_id = $1 AND closed_at >= now() - ($2 || ' days')::interval
+        ${grp}`,
+      [userId, String(d)]
+    ).then((r) => r.rows).catch(() => []);
+    return rows.map((row) => {
+      const g = {
+        key: String(row.key ?? "all"),
+        trades: Number(row.trades) || 0,
+        winRate: r2(row.win_rate),
+        avgFinal: r2(row.avg_net),
+        avgPeak: r2(row.avg_peak),
+        avgGiveback: r2(row.avg_giveback),
+        trailExitShare: r2(row.trail_share),
+        verdict: null
+      };
+      g.verdict = solVerdict(g);
+      return g;
+    }).filter((g) => g.trades > 0).sort((a, b) => b.trades - a.trades);
+  };
+  const [sOverall, sByStrategy, sBySymbol] = await Promise.all([
+    solAgg(null),
+    solAgg("strategy_id"),
+    solAgg("symbol")
+  ]);
+  return {
+    days: d,
+    crypto: {
+      settings: cfg ? {
+        method: cfg.trail_method,
+        activationR: Number(cfg.trail_activation_r),
+        fixedR: Number(cfg.trail_fixed_r),
+        stepR: Number(cfg.trail_step_r),
+        profitLockPct: Number(cfg.trail_profit_lock_pct),
+        sarInitialAf: Number(cfg.trail_sar_initial_af),
+        sarMaxAf: Number(cfg.trail_sar_max_af),
+        breakevenBufferR: Number(cfg.breakeven_buffer_r)
+      } : null,
+      overall: cOverall[0] ?? null,
+      byStrategy: cByStrategy.slice(0, 12),
+      bySymbol: cBySymbol.slice(0, 12),
+      note: "Live trades only \u2014 crypto paper trades have no trailing (TP/SL exits, no peak tracking), so there is nothing to study there yet."
+    },
+    sol: {
+      settings: {
+        learnedRulesOn: solLearnedRulesOn(),
+        breakevenAtPct: SOL_LR.breakevenAtPct,
+        partialAtPct: SOL_LR.partialAtPct,
+        partialFraction: SOL_LR.partialFraction,
+        trailDistPct: SOL_LR.trailDistPct,
+        stagedTrail: "Breakeven floor from +8% gain; active trail from +20% gain (per-position setting) with a volume-adjusted distance of 6\u201315% under the peak."
+      },
+      overall: sOverall[0] ?? null,
+      byStrategy: sByStrategy.slice(0, 12),
+      bySymbol: sBySymbol.slice(0, 12),
+      note: "From paper + shadow closes (sol_shadow_context). Settings are not stamped per position, so groups compare outcomes under the settings in force during the window."
+    }
+  };
+}
+var r2, FINAL_R;
+var init_trail_study = __esm({
+  "server/services/trail-study.ts"() {
+    "use strict";
+    init_db();
+    init_sol_learned_rules();
+    r2 = (v) => v == null || isNaN(Number(v)) ? null : Math.round(Number(v) * 100) / 100;
+    FINAL_R = `
+  CASE WHEN t.stop_loss IS NULL OR t.exit_price IS NULL THEN NULL
+       WHEN lower(t.direction) IN ('long','buy') AND t.entry_price > t.stop_loss
+         THEN (t.exit_price - t.entry_price) / (t.entry_price - t.stop_loss)
+       WHEN lower(t.direction) IN ('short','sell') AND t.stop_loss > t.entry_price
+         THEN (t.entry_price - t.exit_price) / (t.stop_loss - t.entry_price)
+       ELSE NULL END`;
   }
 });
 
@@ -63312,11 +63474,11 @@ async function nextDayNumber(userId, date2) {
     [userId, date2]
   );
   if (rows[0]) return rows[0].day_number;
-  const { rows: r2 } = await pool.query(
+  const { rows: r22 } = await pool.query(
     `SELECT count(DISTINCT queue_date)::int n FROM ambassador_post_queue WHERE user_id=$1 AND queue_date < $2`,
     [userId, date2]
   );
-  return (r2[0]?.n ?? 0) % 44 + 1;
+  return (r22[0]?.n ?? 0) % 44 + 1;
 }
 function sanitizePost(text3) {
   let s = String(text3 || "");
@@ -65414,17 +65576,17 @@ async function _runScan3(userId, manual = false) {
   s.lastScanAt = (/* @__PURE__ */ new Date()).toISOString();
   await _updateOpenTrades2(s);
   if (s.openTrades.length >= s.config.maxOpenTrades) {
-    const r2 = `Max open trades (${s.config.maxOpenTrades}) reached`;
-    s.lastScanResult = r2;
-    return { fired: 0, reason: r2, trades: [] };
+    const r3 = `Max open trades (${s.config.maxOpenTrades}) reached`;
+    s.lastScanResult = r3;
+    return { fired: 0, reason: r3, trades: [] };
   }
   let predictions;
   try {
     predictions = manual ? await refreshSportsPredictions() : await getSportsPredictions();
   } catch (err) {
-    const r2 = `Prediction fetch error: ${err.message}`;
-    s.lastScanResult = r2;
-    return { fired: 0, reason: r2, trades: [] };
+    const r3 = `Prediction fetch error: ${err.message}`;
+    s.lastScanResult = r3;
+    return { fired: 0, reason: r3, trades: [] };
   }
   const openGameIds = new Set(s.openTrades.map((t) => t.gameId));
   const confOrder = { high: 2, medium: 1, low: 0 };
@@ -65433,9 +65595,9 @@ async function _runScan3(userId, manual = false) {
     (p2) => p2.polymarketMarketId && p2.polymarketHomePrice != null && Math.abs(p2.edgePct ?? 0) >= s.config.minEdgePct && (confOrder[p2.confidence] ?? 0) >= minConfOrder && !openGameIds.has(p2.gameId) && p2.status === "scheduled"
   ).sort((a, b) => Math.abs(b.edgePct ?? 0) - Math.abs(a.edgePct ?? 0));
   if (eligible.length === 0) {
-    const r2 = `No eligible games (need edge \u2265${s.config.minEdgePct}%, confidence \u2265${s.config.minConfidence}, Polymarket market found)`;
-    s.lastScanResult = r2;
-    return { fired: 0, reason: r2, trades: [] };
+    const r3 = `No eligible games (need edge \u2265${s.config.minEdgePct}%, confidence \u2265${s.config.minConfidence}, Polymarket market found)`;
+    s.lastScanResult = r3;
+    return { fired: 0, reason: r3, trades: [] };
   }
   const newTrades = [];
   const slots = s.config.maxOpenTrades - s.openTrades.length;
@@ -72408,9 +72570,9 @@ async function getStopOrdersForUser(userId, filters = {}) {
 init_schema();
 
 // server/build-info.ts
-var BUILD_COMMIT = "3b66557-dirty";
-var BUILD_BRANCH = "fix/crypto-heartbeat-in-scanner";
-var BUILT_AT = "2026-11-08T16:54:54.513Z";
+var BUILD_COMMIT = "41c235b-dirty";
+var BUILD_BRANCH = "fix/trail-study";
+var BUILT_AT = "2026-11-08T17:43:22.933Z";
 
 // server/stripe.ts
 init_db();
@@ -95467,6 +95629,10 @@ Return ONLY JSON: {"topPicks":[{"market":"","winProbability":<0-100>,"whyItWins"
         const { practiceCostReport: practiceCostReport2 } = await Promise.resolve().then(() => (init_practice_costs_report(), practice_costs_report_exports));
         return res2.json(await practiceCostReport2(req.user.id, Number(req.query.days) || 90));
       }
+      if (String(req.query.view || "") === "trails") {
+        const { trailStudyReport: trailStudyReport2 } = await Promise.resolve().then(() => (init_trail_study(), trail_study_exports));
+        return res2.json(await trailStudyReport2(req.user.id, Number(req.query.days) || 90));
+      }
       res2.json(await recentGuardEvents2(req.user.id, Number(req.query.limit) || 60, req.query.kinds ? String(req.query.kinds).split(",") : void 0));
     } catch (err) {
       res2.status(500).json({ error: err.message });
@@ -99697,8 +99863,8 @@ This request will not trigger a transaction or cost any fees.`;
             const r = await fetch("https://api.elevenlabs.io/v1/models", { headers: { "xi-api-key": trimmedKey } });
             isValid = r.ok;
             if (!r.ok && r.status !== 401 && r.status !== 403) {
-              const r2 = await fetch("https://api.elevenlabs.io/v1/voices", { headers: { "xi-api-key": trimmedKey } });
-              isValid = r2.ok;
+              const r22 = await fetch("https://api.elevenlabs.io/v1/voices", { headers: { "xi-api-key": trimmedKey } });
+              isValid = r22.ok;
             }
           } catch {
             isValid = false;
@@ -99759,8 +99925,8 @@ This request will not trigger a transaction or cost any fees.`;
             const r = await fetch("https://api.elevenlabs.io/v1/models", { headers: { "xi-api-key": decryptedKey } });
             isValid = r.ok;
             if (!r.ok && r.status !== 401 && r.status !== 403) {
-              const r2 = await fetch("https://api.elevenlabs.io/v1/voices", { headers: { "xi-api-key": decryptedKey } });
-              isValid = r2.ok;
+              const r22 = await fetch("https://api.elevenlabs.io/v1/voices", { headers: { "xi-api-key": decryptedKey } });
+              isValid = r22.ok;
             }
           } catch {
             isValid = false;
