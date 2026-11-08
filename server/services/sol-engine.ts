@@ -5,6 +5,7 @@ import { eq, sql } from 'drizzle-orm';
 import crypto from 'crypto';
 import { getOrRefreshSolBrain, solBrainSizeMultiplier, solBrainGate, recordSolBrainOutcome } from './sol-brain';
 import { weekendBoostActive, boostedMinConfidence, weekendBoostSizeMultiplier } from './weekend-boost';
+import { solLearnedRulesOn, SOL_LR, learnedExitStep, blendGain, cappedSlPct, isFallingEntry, isSolStrategyPaused } from './sol-learned-rules';
 
 // ── Sol-engine "edge" config (ported from the proven crypto engine) ──────────
 // Brain + gating default ON to match the crypto engine. Confluence gate applies
@@ -160,9 +161,11 @@ export interface SolAutoPosition {
   peakPrice?: number;
   trailingActive?: boolean;
   breakevenActive?: boolean;
+  /** Learned rules: gain % at which half the paper/shadow position was banked. */
+  partialGainPct?: number;
   trailActivationPct?: number;
   trailDistancePct?: number;
-  closeReason?: 'tp' | 'sl' | 'trail' | 'abandoned' | 'max_hold';
+  closeReason?: 'tp' | 'sl' | 'trail' | 'abandoned' | 'max_hold' | 'breakeven';
   exitReason?: string;       // distinct terminal reason (e.g. 'abandoned_sell_failed')
   entryVolume24h?: number;
   stopLossPrice?: number;    // absolute price-level stop order (when stopOrdersEnabled)
@@ -1816,7 +1819,8 @@ async function monitorPaperPositions(userId: number, state: SolEngineState) {
     const trailActivation = (pos.trailActivationPct && pos.trailActivationPct > 0) ? pos.trailActivationPct : 20;
     let isTrailHit = false;
 
-    if (gainPct >= trailActivation) {
+    // Learned rules (sol-learned-rules.ts) replace the staged model for paper.
+    if (!solLearnedRulesOn() && gainPct >= trailActivation) {
       // Stage 3 — activate real trail
       if (!pos.trailingActive) {
         pos.trailingActive = true;
@@ -1833,7 +1837,7 @@ async function monitorPaperPositions(userId: number, state: SolEngineState) {
       if (currentPrice <= effectiveFloor) {
         isTrailHit = true;
       }
-    } else if (gainPct >= 8) {
+    } else if (!solLearnedRulesOn() && gainPct >= 8) {
       // Stage 2 — breakeven protection, no trail exit yet
       if (!pos.breakevenActive) {
         pos.breakevenActive = true;
@@ -1847,14 +1851,32 @@ async function monitorPaperPositions(userId: number, state: SolEngineState) {
     const isWin = gainPct >= pos.targetPct;
     const isLoss = gainPct <= -pos.slPct;
 
+    // Learned rules: breakeven floor, half off at +15%, trail the rest.
+    let lrBreakeven = false;
+    if (solLearnedRulesOn()) {
+      const step = learnedExitStep(pos, currentPrice);
+      if (step.action === 'exit') {
+        isTrailHit = true;
+        lrBreakeven = step.reason === 'breakeven';
+      } else {
+        if (step.breakevenJustSet) pos.breakevenActive = true;
+        if (step.partialJustTaken != null) {
+          pos.partialGainPct = step.partialJustTaken;
+          addActivity(state, { type: 'info', message: `💰 Paper partial: ${pos.symbol} half closed at +${step.partialJustTaken.toFixed(1)}% — rest trails ${SOL_LR.trailDistPct}% under the peak` });
+        }
+      }
+    }
+
     if (isWin || isLoss || isTrailHit || isMaxHold) {
-      const reason = isMaxHold ? 'max_hold' : isTrailHit ? 'trail' : isWin ? 'tp' : 'sl';
+      const reason = isMaxHold ? 'max_hold' : lrBreakeven ? 'breakeven' : isTrailHit ? 'trail' : isWin ? 'tp' : 'sl';
       pos.status = 'closed';
       pos.closedAt = new Date().toISOString();
       // Costs (2026-11-06): exits trigger on the price move, but the recorded
       // result is NET of the round-trip cost stamped at entry.
-      const netPct = gainPct - (pos.costPct ?? 0);
-      pos.grossPnlPct = gainPct;
+      // With a partial banked, the result blends both halves.
+      const wholeGain = blendGain(gainPct, pos.partialGainPct);
+      const netPct = wholeGain - (pos.costPct ?? 0);
+      pos.grossPnlPct = wholeGain;
       pos.closePnlPct = netPct;
       pos.closeReason = reason;
       pos.exitReason = reason;
@@ -2004,6 +2026,8 @@ async function evaluateShadowEntries(userId: number, state: SolEngineState, scan
       if (openAll.length >= SHADOW_MAX_OPEN) return;
       if (openAll.filter(p => p.strategyId === strat.id).length >= SHADOW_MAX_PER_STRATEGY) break;
       if (!shadowEntryCandidate(analysis, strat)) continue;
+      // Learned rule: no entries on a falling hour (losers avg −6.9% 1h).
+      if (isFallingEntry(analysis.token.priceChange1h)) continue;
       const mint = analysis.token.address;
       if (!mint) continue;
       if (openAll.some(p => p.mint === mint && p.strategyId === strat.id)) continue;
@@ -2023,7 +2047,7 @@ async function evaluateShadowEntries(userId: number, state: SolEngineState, scan
         entryPrice: tokenPrice,
         currentPrice: tokenPrice,
         targetPct: state.autoTradeTP,
-        slPct: state.autoTradeSL,
+        slPct: cappedSlPct(state.autoTradeSL),
         size: SHADOW_SIZE_SOL,
         tokenAmount: 0,
         decimals: 9,
@@ -2089,11 +2113,23 @@ async function monitorShadowPositions(userId: number, state: SolEngineState) {
     if (fresh && !(await confirmBigUpMove(pos.mint, fresh, lastGood))) continue;
     pos.currentPrice = currentPrice;
     if (!pos.peakPrice || currentPrice > pos.peakPrice) pos.peakPrice = currentPrice;
-    const gainPct = ((currentPrice - pos.entryPrice) / pos.entryPrice) * 100;
-    const isWin = gainPct >= pos.targetPct;
-    const isLoss = gainPct <= -pos.slPct;
-    if (isWin || isLoss || isMaxHold) {
-      const reason = isMaxHold ? 'max_hold' : isWin ? 'tp' : 'sl';
+    const rawGainPct = ((currentPrice - pos.entryPrice) / pos.entryPrice) * 100;
+    const isWin = rawGainPct >= pos.targetPct;
+    const isLoss = rawGainPct <= -pos.slPct;
+    // Learned rules: breakeven floor, half off at +15%, trail the rest.
+    let lrReason: 'breakeven' | 'trail' | null = null;
+    if (solLearnedRulesOn() && !isWin && !isLoss && !isMaxHold) {
+      const step = learnedExitStep(pos, currentPrice);
+      if (step.action === 'exit') lrReason = step.reason;
+      else {
+        if (step.breakevenJustSet) pos.breakevenActive = true;
+        if (step.partialJustTaken != null) pos.partialGainPct = step.partialJustTaken;
+      }
+    }
+    // Whole-position gain (blends the banked half when a partial was taken).
+    const gainPct = blendGain(rawGainPct, pos.partialGainPct);
+    if (isWin || isLoss || isMaxHold || lrReason) {
+      const reason = isMaxHold ? 'max_hold' : isWin ? 'tp' : isLoss ? 'sl' : lrReason!;
       pos.status = 'closed';
       pos.closedAt = new Date().toISOString();
       // NET of the round-trip cost stamped at entry; NULL = no result (shadow_ledger skips it).
@@ -2543,9 +2579,16 @@ async function runScan(userId: number, state: SolEngineState, triggerToken?: str
         }
 
         // Multi-strategy: find all confirming strategies (standard gates + strategy-specific filter)
-        const confirmingStrats = activeStrats
+        // Learned rules: no entries on a falling hour.
+        if (isFallingEntry(analysis.token.priceChange1h)) continue;
+        const _resolvedStrats = activeStrats
           .map(id => SOL_STRATEGIES.find(s => s.id === id))
-          .filter((s): s is SolStrategy => !!s)
+          .filter((s): s is SolStrategy => !!s);
+        // Learned rules: paused strategies stay shadow-only. If every active
+        // strategy is paused, skip the token rather than fall back to one.
+        const _unpaused = _resolvedStrats.filter(s => !isSolStrategyPaused(s.id));
+        if (_resolvedStrats.length > 0 && _unpaused.length === 0) continue;
+        const confirmingStrats = _unpaused
           .filter(s => {
             if (analysis.confidence < _effMinConf(s)) return false;
             if (s.minSignal === 'STRONG_BUY' && analysis.signal !== 'STRONG_BUY') return false;
@@ -2615,7 +2658,7 @@ async function runScan(userId: number, state: SolEngineState, triggerToken?: str
           if (paperEntryPrice) {
             // Paper's own stop levels from its reference entry; the shared
             // stopLossPrice/takeProfitPrice stay as-is for the live path below.
-            const paperStop = state.config.stopOrdersEnabled ? paperEntryPrice * (1 - state.autoTradeSL / 100) : undefined;
+            const paperStop = state.config.stopOrdersEnabled ? paperEntryPrice * (1 - cappedSlPct(state.autoTradeSL) / 100) : undefined;
             const paperTp = state.config.stopOrdersEnabled ? paperEntryPrice * (1 + state.autoTradeTP / 100) : undefined;
             const pos: SolAutoPosition = {
               id: `paper_${Date.now()}_${analysis.token.symbol}`,
@@ -2624,7 +2667,7 @@ async function runScan(userId: number, state: SolEngineState, triggerToken?: str
               entryPrice: paperEntryPrice,
               currentPrice: paperEntryPrice,
               targetPct: state.autoTradeTP,
-              slPct: state.autoTradeSL,
+              slPct: cappedSlPct(state.autoTradeSL),
               size: paperSizeSOL,
               tokenAmount: 0,
               decimals: 9,

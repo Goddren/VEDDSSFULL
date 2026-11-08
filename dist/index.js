@@ -25088,7 +25088,7 @@ function logDecisionShadow(r) {
     _seen.set(k2, Date.now());
     if (_seen.size > 5e3) _seen.clear();
   }
-  const num5 = (v) => typeof v === "number" && Number.isFinite(v) ? v : null;
+  const num6 = (v) => typeof v === "number" && Number.isFinite(v) ? v : null;
   void ensureDecisionShadowTable().then(() => pool.query(
     `INSERT INTO fx_decision_shadow (user_id, scan_id, symbol, session, hour_utc, lane, mode, acted, picked, ai_status,
        direction, score, terms, entry, sl, tp, gate_result)
@@ -25105,11 +25105,11 @@ function logDecisionShadow(r) {
       !!r.picked,
       r.aiStatus ?? null,
       r.direction ?? null,
-      num5(r.score),
+      num6(r.score),
       r.terms == null ? null : JSON.stringify(r.terms),
-      num5(r.entry),
-      num5(r.sl),
-      num5(r.tp),
+      num6(r.entry),
+      num6(r.sl),
+      num6(r.tp),
       r.gateResult ?? null
     ]
   )).catch(() => {
@@ -38897,6 +38897,89 @@ var init_weekend_boost = __esm({
   }
 });
 
+// server/services/sol-learned-rules.ts
+function solLearnedRulesOn() {
+  return process.env.SOL_LEARNED_RULES !== "off";
+}
+function pausedSolStrategies() {
+  const raw = process.env.SOL_PAUSED_STRATEGIES ?? DEFAULT_PAUSED;
+  return new Set(raw.split(",").map((s) => s.trim()).filter(Boolean));
+}
+function isSolStrategyPaused(id) {
+  return solLearnedRulesOn() && pausedSolStrategies().has(id);
+}
+function isFallingEntry(priceChange1h) {
+  if (!solLearnedRulesOn()) return false;
+  if (priceChange1h == null || !Number.isFinite(priceChange1h)) return false;
+  return priceChange1h < SOL_LR.min1hChangePct;
+}
+function cappedSlPct(slPct) {
+  if (!solLearnedRulesOn()) return slPct;
+  return slPct > 0 ? Math.min(slPct, SOL_LR.maxSlPct) : SOL_LR.maxSlPct;
+}
+function learnedExitStep(s, currentPrice) {
+  const gain = (currentPrice - s.entryPrice) / s.entryPrice * 100;
+  const peak = Math.max(s.peakPrice ?? s.entryPrice, currentPrice);
+  const peakGain = (peak - s.entryPrice) / s.entryPrice * 100;
+  let partialJustTaken;
+  let breakevenJustSet = false;
+  let partial = s.partialGainPct;
+  if (partial == null && gain >= SOL_LR.partialAtPct) {
+    partial = gain;
+    partialJustTaken = gain;
+  }
+  let be = !!s.breakevenActive;
+  if (!be && peakGain >= SOL_LR.breakevenAtPct) {
+    be = true;
+    breakevenJustSet = true;
+  }
+  if (partial != null && partialJustTaken == null) {
+    const floor = Math.max(peak * (1 - SOL_LR.trailDistPct / 100), s.entryPrice);
+    if (currentPrice <= floor) return { action: "exit", reason: "trail", blendedGainPct: blendGain(gain, partial) };
+  }
+  if (be && partial == null && currentPrice <= s.entryPrice) {
+    return { action: "exit", reason: "breakeven", blendedGainPct: gain };
+  }
+  return { action: "hold", partialJustTaken, breakevenJustSet };
+}
+function blendGain(gainPct, partialGainPct) {
+  if (partialGainPct == null) return gainPct;
+  const f = SOL_LR.partialFraction;
+  return f * partialGainPct + (1 - f) * gainPct;
+}
+var num4, SOL_LR, DEFAULT_PAUSED;
+var init_sol_learned_rules = __esm({
+  "server/services/sol-learned-rules.ts"() {
+    "use strict";
+    num4 = (n, d) => {
+      const v = Number(process.env[n]);
+      return Number.isFinite(v) && v >= 0 ? v : d;
+    };
+    SOL_LR = {
+      get maxSlPct() {
+        return num4("SOL_MAX_SL_PCT", 15);
+      },
+      get breakevenAtPct() {
+        return num4("SOL_BREAKEVEN_AT_PCT", 8);
+      },
+      get partialAtPct() {
+        return num4("SOL_PARTIAL_AT_PCT", 15);
+      },
+      get partialFraction() {
+        return Math.min(1, num4("SOL_PARTIAL_FRACTION", 0.5));
+      },
+      get trailDistPct() {
+        return num4("SOL_TRAIL_DIST_PCT", 8);
+      },
+      /** Minimum 1h price change to enter (default 0 = no falling tokens). */
+      get min1hChangePct() {
+        return Number.isFinite(Number(process.env.SOL_MIN_1H_CHANGE_PCT)) && process.env.SOL_MIN_1H_CHANGE_PCT !== void 0 && process.env.SOL_MIN_1H_CHANGE_PCT !== "" ? Number(process.env.SOL_MIN_1H_CHANGE_PCT) : 0;
+      }
+    };
+    DEFAULT_PAUSED = "momentum_surfer,trend_rider,breakout_hunter,order_flow_scalper";
+  }
+});
+
 // server/services/sol-shadow-stats.ts
 var sol_shadow_stats_exports = {};
 __export(sol_shadow_stats_exports, {
@@ -39089,18 +39172,18 @@ async function getSolShadowStatsText(userId, max = 12) {
     return "";
   }
 }
-var num4, MIN_N, FAVOR_PCT, AVOID_PCT, _ensured5, _cache3;
+var num5, MIN_N, FAVOR_PCT, AVOID_PCT, _ensured5, _cache3;
 var init_sol_shadow_stats = __esm({
   "server/services/sol-shadow-stats.ts"() {
     "use strict";
     init_db();
-    num4 = (name, dflt) => {
+    num5 = (name, dflt) => {
       const v = Number(process.env[name]);
       return Number.isFinite(v) && v > 0 ? v : dflt;
     };
-    MIN_N = () => num4("SOL_SHADOW_STATS_MIN_N", 15);
-    FAVOR_PCT = () => num4("SOL_SHADOW_FAVOR_MEDIAN_PCT", 1);
-    AVOID_PCT = () => num4("SOL_SHADOW_AVOID_MEDIAN_PCT", 2);
+    MIN_N = () => num5("SOL_SHADOW_STATS_MIN_N", 15);
+    FAVOR_PCT = () => num5("SOL_SHADOW_FAVOR_MEDIAN_PCT", 1);
+    AVOID_PCT = () => num5("SOL_SHADOW_AVOID_MEDIAN_PCT", 2);
     _ensured5 = null;
     _cache3 = /* @__PURE__ */ new Map();
   }
@@ -40248,7 +40331,7 @@ async function monitorPaperPositions(userId, state) {
     const volStatus = getVolStatus(pos.entryVolume24h || 0, currentVol);
     const trailActivation = pos.trailActivationPct && pos.trailActivationPct > 0 ? pos.trailActivationPct : 20;
     let isTrailHit = false;
-    if (gainPct >= trailActivation) {
+    if (!solLearnedRulesOn() && gainPct >= trailActivation) {
       if (!pos.trailingActive) {
         pos.trailingActive = true;
         const dist2 = computeServerTrailDist(gainPct, volStatus);
@@ -40263,7 +40346,7 @@ async function monitorPaperPositions(userId, state) {
       if (currentPrice <= effectiveFloor) {
         isTrailHit = true;
       }
-    } else if (gainPct >= 8) {
+    } else if (!solLearnedRulesOn() && gainPct >= 8) {
       if (!pos.breakevenActive) {
         pos.breakevenActive = true;
         addActivity2(state, {
@@ -40274,12 +40357,27 @@ async function monitorPaperPositions(userId, state) {
     }
     const isWin = gainPct >= pos.targetPct;
     const isLoss = gainPct <= -pos.slPct;
+    let lrBreakeven = false;
+    if (solLearnedRulesOn()) {
+      const step = learnedExitStep(pos, currentPrice);
+      if (step.action === "exit") {
+        isTrailHit = true;
+        lrBreakeven = step.reason === "breakeven";
+      } else {
+        if (step.breakevenJustSet) pos.breakevenActive = true;
+        if (step.partialJustTaken != null) {
+          pos.partialGainPct = step.partialJustTaken;
+          addActivity2(state, { type: "info", message: `\u{1F4B0} Paper partial: ${pos.symbol} half closed at +${step.partialJustTaken.toFixed(1)}% \u2014 rest trails ${SOL_LR.trailDistPct}% under the peak` });
+        }
+      }
+    }
     if (isWin || isLoss || isTrailHit || isMaxHold) {
-      const reason = isMaxHold ? "max_hold" : isTrailHit ? "trail" : isWin ? "tp" : "sl";
+      const reason = isMaxHold ? "max_hold" : lrBreakeven ? "breakeven" : isTrailHit ? "trail" : isWin ? "tp" : "sl";
       pos.status = "closed";
       pos.closedAt = (/* @__PURE__ */ new Date()).toISOString();
-      const netPct = gainPct - (pos.costPct ?? 0);
-      pos.grossPnlPct = gainPct;
+      const wholeGain = blendGain(gainPct, pos.partialGainPct);
+      const netPct = wholeGain - (pos.costPct ?? 0);
+      pos.grossPnlPct = wholeGain;
       pos.closePnlPct = netPct;
       pos.closeReason = reason;
       pos.exitReason = reason;
@@ -40394,6 +40492,7 @@ async function evaluateShadowEntries(userId, state, scanResult) {
       if (openAll.length >= SHADOW_MAX_OPEN) return;
       if (openAll.filter((p2) => p2.strategyId === strat.id).length >= SHADOW_MAX_PER_STRATEGY) break;
       if (!shadowEntryCandidate(analysis, strat)) continue;
+      if (isFallingEntry(analysis.token.priceChange1h)) continue;
       const mint = analysis.token.address;
       if (!mint) continue;
       if (openAll.some((p2) => p2.mint === mint && p2.strategyId === strat.id)) continue;
@@ -40412,7 +40511,7 @@ async function evaluateShadowEntries(userId, state, scanResult) {
         entryPrice: tokenPrice,
         currentPrice: tokenPrice,
         targetPct: state.autoTradeTP,
-        slPct: state.autoTradeSL,
+        slPct: cappedSlPct(state.autoTradeSL),
         size: SHADOW_SIZE_SOL,
         tokenAmount: 0,
         decimals: 9,
@@ -40497,11 +40596,21 @@ async function monitorShadowPositions(userId, state) {
     if (fresh && !await confirmBigUpMove(pos.mint, fresh, lastGood)) continue;
     pos.currentPrice = currentPrice;
     if (!pos.peakPrice || currentPrice > pos.peakPrice) pos.peakPrice = currentPrice;
-    const gainPct = (currentPrice - pos.entryPrice) / pos.entryPrice * 100;
-    const isWin = gainPct >= pos.targetPct;
-    const isLoss = gainPct <= -pos.slPct;
-    if (isWin || isLoss || isMaxHold) {
-      const reason = isMaxHold ? "max_hold" : isWin ? "tp" : "sl";
+    const rawGainPct = (currentPrice - pos.entryPrice) / pos.entryPrice * 100;
+    const isWin = rawGainPct >= pos.targetPct;
+    const isLoss = rawGainPct <= -pos.slPct;
+    let lrReason = null;
+    if (solLearnedRulesOn() && !isWin && !isLoss && !isMaxHold) {
+      const step = learnedExitStep(pos, currentPrice);
+      if (step.action === "exit") lrReason = step.reason;
+      else {
+        if (step.breakevenJustSet) pos.breakevenActive = true;
+        if (step.partialJustTaken != null) pos.partialGainPct = step.partialJustTaken;
+      }
+    }
+    const gainPct = blendGain(rawGainPct, pos.partialGainPct);
+    if (isWin || isLoss || isMaxHold || lrReason) {
+      const reason = isMaxHold ? "max_hold" : isWin ? "tp" : isLoss ? "sl" : lrReason;
       pos.status = "closed";
       pos.closedAt = (/* @__PURE__ */ new Date()).toISOString();
       pos.grossPnlPct = unpriced ? void 0 : gainPct;
@@ -40825,7 +40934,11 @@ async function runScan(userId, state, triggerToken) {
           }
           activeStrats = [autoRec.strategyId];
         }
-        const confirmingStrats = activeStrats.map((id) => SOL_STRATEGIES.find((s) => s.id === id)).filter((s) => !!s).filter((s) => {
+        if (isFallingEntry(analysis.token.priceChange1h)) continue;
+        const _resolvedStrats = activeStrats.map((id) => SOL_STRATEGIES.find((s) => s.id === id)).filter((s) => !!s);
+        const _unpaused = _resolvedStrats.filter((s) => !isSolStrategyPaused(s.id));
+        if (_resolvedStrats.length > 0 && _unpaused.length === 0) continue;
+        const confirmingStrats = _unpaused.filter((s) => {
           if (analysis.confidence < _effMinConf(s)) return false;
           if (s.minSignal === "STRONG_BUY" && analysis.signal !== "STRONG_BUY") return false;
           if (s.maxRisk === "LOW" && (analysis.riskLevel === "HIGH" || analysis.riskLevel === "EXTREME")) return false;
@@ -40872,7 +40985,7 @@ async function runScan(userId, state, triggerToken) {
           const recentlyClosed = state.closedPaperPositions.some((p2) => p2.mint === tokenMint && !!p2.closedAt && Date.now() - new Date(p2.closedAt).getTime() < SOL_REENTRY_COOLDOWN_MS);
           const paperEntryPrice = !alreadyOpen && !recentlyClosed ? await referenceEntryPrice(state, analysis.token.symbol, tokenMint, tokenPrice) : null;
           if (paperEntryPrice) {
-            const paperStop = state.config.stopOrdersEnabled ? paperEntryPrice * (1 - state.autoTradeSL / 100) : void 0;
+            const paperStop = state.config.stopOrdersEnabled ? paperEntryPrice * (1 - cappedSlPct(state.autoTradeSL) / 100) : void 0;
             const paperTp = state.config.stopOrdersEnabled ? paperEntryPrice * (1 + state.autoTradeTP / 100) : void 0;
             const pos = {
               id: `paper_${Date.now()}_${analysis.token.symbol}`,
@@ -40881,7 +40994,7 @@ async function runScan(userId, state, triggerToken) {
               entryPrice: paperEntryPrice,
               currentPrice: paperEntryPrice,
               targetPct: state.autoTradeTP,
-              slPct: state.autoTradeSL,
+              slPct: cappedSlPct(state.autoTradeSL),
               size: paperSizeSOL,
               tokenAmount: 0,
               decimals: 9,
@@ -41699,6 +41812,7 @@ var init_sol_engine = __esm({
     init_schema();
     init_sol_brain();
     init_weekend_boost();
+    init_sol_learned_rules();
     SOL_BRAIN_ENABLED = true;
     SOL_BRAIN_GATING = true;
     SOL_CONFLUENCE_REQUIRED = 2;
@@ -42733,8 +42847,8 @@ async function addTradeSetupAnnotations(originalImagePath, analysis, outputFilen
         analysis.takeProfit,
         ...supportResistanceLevels
       ].map((p2) => {
-        const num5 = parseFloat(p2.replace(/[^0-9.-]/g, ""));
-        return isNaN(num5) ? 0 : num5;
+        const num6 = parseFloat(p2.replace(/[^0-9.-]/g, ""));
+        return isNaN(num6) ? 0 : num6;
       }).filter((p2) => p2 > 0);
       if (prices.length === 0) return chartArea.top + chartArea.height * 0.5;
       const minPrice = Math.min(...prices);
@@ -56567,12 +56681,12 @@ function linregSlope(values) {
   const xs = values.map((_, i) => i);
   const mx = xs.reduce((a, b) => a + b, 0) / n;
   const my = values.reduce((a, b) => a + b, 0) / n;
-  let num5 = 0, den = 0;
+  let num6 = 0, den = 0;
   for (let i = 0; i < n; i++) {
-    num5 += (xs[i] - mx) * (values[i] - my);
+    num6 += (xs[i] - mx) * (values[i] - my);
     den += (xs[i] - mx) ** 2;
   }
-  return den === 0 ? 0 : num5 / den;
+  return den === 0 ? 0 : num6 / den;
 }
 function ensembleSignal(candles) {
   const price = candles[candles.length - 1].close;
@@ -71730,9 +71844,9 @@ async function getStopOrdersForUser(userId, filters = {}) {
 init_schema();
 
 // server/build-info.ts
-var BUILD_COMMIT = "6c1ec13-dirty";
-var BUILD_BRANCH = "main";
-var BUILT_AT = "2026-11-07T02:26:14.242Z";
+var BUILD_COMMIT = "627a6a74-dirty";
+var BUILD_BRANCH = "feat/shadow-learned-defaults";
+var BUILT_AT = "2026-11-08T08:07:21.760Z";
 
 // server/stripe.ts
 init_db();
@@ -94518,16 +94632,16 @@ Respond with ONLY valid JSON:
     try {
       const { runRuinConeSimulation: runRuinConeSimulation2 } = await Promise.resolve().then(() => (init_ruin_cone(), ruin_cone_exports));
       const q = req.query;
-      const num5 = (v) => v != null && v !== "" ? Number(v) : void 0;
+      const num6 = (v) => v != null && v !== "" ? Number(v) : void 0;
       const result = await runRuinConeSimulation2(userId, {
-        numSimulations: num5(q.numSimulations),
-        numTrades: num5(q.numTrades),
-        startingEquity: num5(q.startingEquity),
-        dailyLossLimit: num5(q.dailyLossLimit),
-        maxDrawdownLimit: num5(q.maxDrawdownLimit),
-        consistencyRuleThreshold: num5(q.consistencyRuleThreshold),
-        profitTarget: num5(q.profitTarget),
-        sourceLimit: num5(q.sourceLimit),
+        numSimulations: num6(q.numSimulations),
+        numTrades: num6(q.numTrades),
+        startingEquity: num6(q.startingEquity),
+        dailyLossLimit: num6(q.dailyLossLimit),
+        maxDrawdownLimit: num6(q.maxDrawdownLimit),
+        consistencyRuleThreshold: num6(q.consistencyRuleThreshold),
+        profitTarget: num6(q.profitTarget),
+        sourceLimit: num6(q.sourceLimit),
         source: q.source ? String(q.source) : void 0,
         noCache: q.nocache === "1" || q.noCache === "true"
       });
