@@ -15,6 +15,7 @@ import { getOrRefreshCryptoBrain, cryptoBrainSizeMultiplier, cryptoBrainGate, cr
 import { recordRealizedPnl } from './prop-firm-consistency';
 import { weekendBoostActive, boostedMinConfidence, weekendBoostSizeMultiplier } from './weekend-boost';
 import { PROCESS_BOOT_ID } from './process-fingerprint';
+import { cryptoTrailProfileFor } from './trail-guards';
 import { cefiEntryBuy, cefiExitSell, baseCoin, type CefiVenue } from './cefi-executor';
 // NOTE: defi-executor is imported LAZILY (dynamic import at the two call sites
 // below) — it pulls in defi-swap → ethers, a heavy stack. Keeping it out of the
@@ -783,14 +784,18 @@ async function monitorOpenPositions(userId: number, cfg: CryptocomEngineConfig):
       if (riskDistance <= 0) continue;
       const currentR = isLong ? (currentPrice - trade.entryPrice) / riskDistance : (trade.entryPrice - currentPrice) / riskDistance;
       const peakR = Math.max(trade.peakRMultiple, currentR);
-      const armed = trade.trailArmed || peakR >= cfg.trailActivationR;
+      // Trail guards: a promoted per-group profile overrides the global
+      // trail settings for this trade's strategy/symbol (fails open).
+      const tgProfile = await cryptoTrailProfileFor(userId, trade.strategy, trade.symbol);
+      const tCfg = tgProfile ? { ...cfg, trailMethod: tgProfile.method, trailActivationR: tgProfile.activationR, trailFixedR: tgProfile.fixedR, trailStepR: tgProfile.stepR, trailProfitLockPct: tgProfile.profitLockPct, trailSarInitialAF: tgProfile.sarInitialAF, trailSarMaxAF: tgProfile.sarMaxAF, breakevenBufferR: tgProfile.breakevenBufferR } : cfg;
+      const armed = trade.trailArmed || peakR >= tCfg.trailActivationR;
 
       if (currentR <= -1) { // hard stop already breached
         await closePosition(userId, trade, currentPrice, 'stop_loss');
         continue;
       }
-      if (cfg.trailMethod !== 'none' && armed) {
-        const floor = Math.max(computeTrailFloorR(cfg, peakR), cfg.breakevenBufferR);
+      if (tCfg.trailMethod !== 'none' && armed) {
+        const floor = Math.max(computeTrailFloorR(tCfg, peakR), tCfg.breakevenBufferR);
         if (currentR <= floor) { await closePosition(userId, trade, currentPrice, 'trailing_stop'); continue; }
       }
       if (peakR !== trade.peakRMultiple || armed !== trade.trailArmed) {

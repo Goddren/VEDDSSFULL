@@ -74,19 +74,24 @@ export type LearnedExitDecision =
  * partial. Callers use it as the gross % for the close (and for TP / SL / max
  * hold closes after a partial, call blendGain()).
  */
-export function learnedExitStep(s: LearnedExitState, currentPrice: number): LearnedExitDecision {
+export interface LearnedExitOverrides { breakevenAtPct?: number; partialAtPct?: number; trailDistPct?: number; }
+
+export function learnedExitStep(s: LearnedExitState, currentPrice: number, ov?: LearnedExitOverrides): LearnedExitDecision {
+  const partialAtPct = ov?.partialAtPct ?? SOL_LR.partialAtPct;
+  const breakevenAtPct = ov?.breakevenAtPct ?? SOL_LR.breakevenAtPct;
+  const trailDistPct = ov?.trailDistPct ?? SOL_LR.trailDistPct;
   const gain = ((currentPrice - s.entryPrice) / s.entryPrice) * 100;
   const peak = Math.max(s.peakPrice ?? s.entryPrice, currentPrice);
   const peakGain = ((peak - s.entryPrice) / s.entryPrice) * 100;
   let partialJustTaken: number | undefined;
   let breakevenJustSet = false;
   let partial = s.partialGainPct;
-  if (partial == null && gain >= SOL_LR.partialAtPct) { partial = gain; partialJustTaken = gain; }
+  if (partial == null && gain >= partialAtPct) { partial = gain; partialJustTaken = gain; }
   let be = !!s.breakevenActive;
-  if (!be && peakGain >= SOL_LR.breakevenAtPct) { be = true; breakevenJustSet = true; }
+  if (!be && peakGain >= breakevenAtPct) { be = true; breakevenJustSet = true; }
   // Trail only once the partial is banked.
   if (partial != null && partialJustTaken == null) {
-    const floor = Math.max(peak * (1 - SOL_LR.trailDistPct / 100), s.entryPrice);
+    const floor = Math.max(peak * (1 - trailDistPct / 100), s.entryPrice);
     if (currentPrice <= floor) return { action: 'exit', reason: 'trail', blendedGainPct: blendGain(gain, partial) };
   }
   if (be && partial == null && currentPrice <= s.entryPrice) {

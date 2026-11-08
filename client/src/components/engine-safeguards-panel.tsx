@@ -387,6 +387,69 @@ export function TrailStudyPanel({ className = "" }: { className?: string }) {
         <div className="text-[10px] text-gray-500">No closed Sol paper/shadow trades in the last {data.days} days yet.</div>
       )}
       <div className="text-[9px] text-gray-600 mt-1">{data.sol.note}</div>
+      <TrailGuardsSection />
+    </div>
+  );
+}
+
+type TrailCandidateT = { engine: "crypto" | "sol"; dimension: "strategy" | "symbol"; key: string; action: "tighten" | "lock_profile"; trades: number; reason: string; alreadyGuarded: boolean };
+type TrailGuardT = { id: string; engine: "crypto" | "sol"; dimension: "strategy" | "symbol"; key: string; action: "tighten" | "lock_profile"; trades: number; profileSummary: string; active: boolean };
+
+function TrailGuardsSection() {
+  const qc = useQueryClient();
+  const { data } = useQuery<{ candidates: TrailCandidateT[]; guards: TrailGuardT[] }>({
+    queryKey: ["/api/engine/trail-guards"],
+    refetchInterval: 60000,
+  });
+  const promote = useMutation({
+    mutationFn: (c: TrailCandidateT) => apiRequest("POST", "/api/engine/trail-guards", { engine: c.engine, dimension: c.dimension, key: c.key, action: c.action }),
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ["/api/engine/trail-guards"] }); },
+  });
+  const retire = useMutation({
+    mutationFn: (id: string) => apiRequest("POST", "/api/engine/trail-guards/retire", { id }),
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ["/api/engine/trail-guards"] }); },
+  });
+  if (!data) return null;
+  const fresh = data.candidates.filter((c) => !c.alreadyGuarded);
+  const active = data.guards.filter((g) => g.active);
+  if (!fresh.length && !active.length) return null;
+  const eng = (e: string) => (e === "crypto" ? "Crypto" : "Sol");
+  return (
+    <div className="mt-2.5 border-t border-white/10 pt-2">
+      <div className="text-[10px] font-semibold text-gray-300 mb-1">Proven trail lessons → real trail guards</div>
+      {fresh.map((c) => (
+        <div key={`${c.engine}:${c.dimension}:${c.key}:${c.action}`} className="rounded bg-black/20 px-2 py-1 mb-0.5">
+          <div className="text-[10px] flex items-baseline gap-2">
+            <span className="text-gray-200 font-medium">{eng(c.engine)} · {c.dimension} · {c.key}</span>
+            <span className={`shrink-0 ${c.action === "tighten" ? "text-amber-300" : "text-emerald-300"}`}>{c.action === "tighten" ? "Tighten trail" : "Lock this profile in"}</span>
+            <button
+              className="ml-auto shrink-0 text-[10px] px-2 py-0.5 rounded bg-sky-500/20 text-sky-200 border border-sky-500/40 disabled:opacity-50"
+              disabled={promote.isPending}
+              onClick={() => {
+                const msg = c.action === "tighten"
+                  ? `Make this a trail guard? Future ${eng(c.engine)} exits for ${c.dimension} "${c.key}" will use a TIGHTER trail profile (earlier arm, closer floor). Entries and sizing do not change. You can retire it anytime.`
+                  : `Make this a trail guard? The trail profile that works for ${eng(c.engine)} ${c.dimension} "${c.key}" gets frozen for this group, so later global changes can't loosen it. You can retire it anytime.`;
+                if (window.confirm(msg)) promote.mutate(c);
+              }}
+            >Make it a guard</button>
+          </div>
+          <div className="text-[9px] text-gray-500 mt-0.5">{c.reason}</div>
+        </div>
+      ))}
+      {active.map((g) => (
+        <div key={g.id} className="rounded bg-sky-500/10 border border-sky-500/25 px-2 py-1 mb-0.5">
+          <div className="text-[10px] flex items-baseline gap-2">
+            <span className="text-sky-200 font-medium">🛡️ {eng(g.engine)} · {g.dimension} · {g.key}</span>
+            <span className="text-gray-400">{g.action === "tighten" ? "tightened" : "profile locked"}: {g.profileSummary}</span>
+            <button
+              className="ml-auto shrink-0 text-[10px] px-2 py-0.5 rounded bg-white/5 text-gray-300 border border-white/15 disabled:opacity-50"
+              disabled={retire.isPending}
+              onClick={() => { if (window.confirm(`Retire this trail guard for ${eng(g.engine)} ${g.dimension} "${g.key}"? Exits for this group go back to the global trail settings.`)) retire.mutate(g.id); }}
+            >Retire</button>
+          </div>
+        </div>
+      ))}
+      <div className="text-[9px] text-gray-600 mt-1">Guards change exit management only — never entries or sizing. Evidence bar: 10+ closed trades with a clear giveback problem (tighten) or a proven trail record (lock in).</div>
     </div>
   );
 }

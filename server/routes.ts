@@ -17930,6 +17930,37 @@ Rules:
       res.json(out);
     } catch (err: any) { res.status(500).json({ error: err.message }); }
   });
+  app.get("/api/engine/trail-guards", async (req: Request, res: Response) => {
+    if (!req.isAuthenticated()) return res.status(401).json({ error: "Authentication required" });
+    try {
+      const { getTrailGuardCandidates } = await import('./services/trail-guards');
+      res.json(await getTrailGuardCandidates((req.user as User).id));
+    } catch (err: any) { res.status(500).json({ error: err.message }); }
+  });
+  app.post("/api/engine/trail-guards", async (req: Request, res: Response) => {
+    if (!req.isAuthenticated()) return res.status(401).json({ error: "Authentication required" });
+    try {
+      const { promoteTrailGuard } = await import('./services/trail-guards');
+      const { engine, dimension, key, action } = req.body || {};
+      if (!['crypto', 'sol'].includes(engine) || !['strategy', 'symbol'].includes(dimension) || !key || !['tighten', 'lock_profile'].includes(action)) {
+        return res.status(400).json({ error: "engine (crypto|sol), dimension (strategy|symbol), key and action (tighten|lock_profile) are required" });
+      }
+      const out = await promoteTrailGuard((req.user as User).id, { engine, dimension, key: String(key), action });
+      if (!out.ok) return res.status(out.status).json({ error: out.error });
+      res.json(out);
+    } catch (err: any) { res.status(500).json({ error: err.message }); }
+  });
+  app.post("/api/engine/trail-guards/retire", async (req: Request, res: Response) => {
+    if (!req.isAuthenticated()) return res.status(401).json({ error: "Authentication required" });
+    try {
+      const { retireTrailGuard } = await import('./services/trail-guards');
+      const { id } = req.body || {};
+      if (!id) return res.status(400).json({ error: "id is required" });
+      const out = await retireTrailGuard((req.user as User).id, String(id));
+      if (!out.ok) return res.status(out.status).json({ error: out.error });
+      res.json(out);
+    } catch (err: any) { res.status(500).json({ error: err.message }); }
+  });
   app.get("/api/shadow-ledger", async (req: Request, res: Response) => {
     if (!req.isAuthenticated()) return res.status(401).json({ error: "Authentication required" });
     try {
