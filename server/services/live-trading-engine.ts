@@ -1,7 +1,7 @@
 import { sessionForHour, sameSession } from '../utils/session';
 import { lookupPairKnowledge } from '../utils/pair-key';
 import { marketDataService } from '../market-data/service';
-import { logGuard } from './guard-events';
+import { logGuard, recordBlockedTrade } from './guard-events';
 import { recordShadow, resolveShadows, getShadowSessionStat, SHADOW_WEIGHT } from './brain-shadow';
 import { getPacePlan, paceWindowFor, pacePromptSection, computePacePlan } from './goal-pace';
 import { getAiLevelSync } from './ai-level';
@@ -5369,6 +5369,7 @@ async function processDecision(userId: number, decision: any, newsCtx?: any): Pr
             : _tfs.some(([, b]) => !b) ? 'data missing' : 'neutral';
           addActivity(userId, { type: 'info', symbol: decision.symbol, message: `🧭 MTF BLOCK (${_why}): ${_dir} ${decision.symbol} (${_rule === 'strict' ? 'H1 and H4 must both agree' : 'H1/H4 oppose it'}: ${_desc}). Not entering.` });
           logGuard(userId, 'mtf_skip', decision.symbol, `${_dir} skipped — ${_rule === 'strict' ? 'H1 and H4 must both agree' : 'H1/H4 oppose it'} (${_desc})`);
+          recordBlockedTrade(userId, 'mtf_skip', decision.symbol, { direction: _dir, entryPrice: decision.entryPrice, stopLoss: decision.stopLoss, takeProfit: decision.takeProfit, confidence: decision.confidence, model: decision.fxModel || decision.model, setup: decision.setup }, _desc);
           state.signalsGenerated++;
           return;
         }
@@ -5390,6 +5391,7 @@ async function processDecision(userId: number, decision: any, newsCtx?: any): Pr
         const _why = `${_dir} ${decision.symbol} at RSI ${Math.round(_rsi)} — ${_dir === 'BUY' ? `overbought (>${_buyMax})` : `oversold (<${_sellMin})`}; waiting for a pullback`;
         addActivity(userId, { type: 'info', symbol: decision.symbol, message: `🏃 NO CHASE: ${_why}.` });
         logGuard(userId, 'chase_skip', decision.symbol, _why);
+        recordBlockedTrade(userId, 'chase_skip', decision.symbol, { direction: decision.direction, entryPrice: decision.entryPrice, stopLoss: decision.stopLoss, takeProfit: decision.takeProfit, confidence: decision.confidence, model: decision.fxModel || decision.model, setup: decision.setup }, _why);
         state.signalsGenerated++;
         return;
       }
@@ -5416,6 +5418,7 @@ async function processDecision(userId: number, decision: any, newsCtx?: any): Pr
         if (!h4.bosChoch?.detected && !h4.wyckoff?.detected && process.env.H4_NO_STRUCTURE_SKIP !== 'off') {
           addActivity(userId, { type: 'info', symbol: decision.symbol, message: `🧱 H4 FILTER: ${_dir} ${decision.symbol} skipped — no clear 4-hour structure.` });
           logGuard(userId, 'h4_filter_skip', decision.symbol, `${_dir} skipped — no clear H4 structure (no BOS/CHOCH, no Wyckoff phase)`);
+          recordBlockedTrade(userId, 'h4_filter_skip', decision.symbol, { direction: _dir, entryPrice: decision.entryPrice, stopLoss: decision.stopLoss, takeProfit: decision.takeProfit, confidence: decision.confidence, model: decision.fxModel || decision.model, setup: decision.setup }, 'no clear H4 structure');
           state.signalsGenerated++;
           return;
         }
@@ -5426,6 +5429,7 @@ async function processDecision(userId: number, decision: any, newsCtx?: any): Pr
           ].filter(Boolean).join(' + ');
           addActivity(userId, { type: 'info', symbol: decision.symbol, message: `🧱 H4 FILTER: ${_dir} ${decision.symbol} skipped — ${_why} points the other way.` });
           logGuard(userId, 'h4_filter_skip', decision.symbol, `${_dir} skipped — ${_why} points the other way`);
+          recordBlockedTrade(userId, 'h4_filter_skip', decision.symbol, { direction: _dir, entryPrice: decision.entryPrice, stopLoss: decision.stopLoss, takeProfit: decision.takeProfit, confidence: decision.confidence, model: decision.fxModel || decision.model, setup: decision.setup }, `${_why} points the other way`);
           state.signalsGenerated++;
           return;
         }
@@ -5456,6 +5460,7 @@ async function processDecision(userId: number, decision: any, newsCtx?: any): Pr
             if (_rdMode === 'block') {
               addActivity(userId, { type: 'info', symbol: decision.symbol, message: `📦 RANGE DAY BLOCK: ${_dir} ${decision.symbol} — range day (score ${_cls.score}); range days lost −$12.5k over 90 days.` });
               logGuard(userId, 'range_day_skip', decision.symbol, `${_dir} skipped — range day (score ${_cls.score}); trend entries on range days lost −$12.5k over 90 days`);
+              recordBlockedTrade(userId, 'range_day_skip', decision.symbol, { direction: _dir, entryPrice: decision.entryPrice, stopLoss: decision.stopLoss, takeProfit: decision.takeProfit, confidence: decision.confidence, model: decision.fxModel || decision.model, setup: decision.setup }, `range day (score ${_cls.score})`);
               state.signalsGenerated++;
               return;
             }
@@ -6717,6 +6722,7 @@ async function processDecision(userId: number, decision: any, newsCtx?: any): Pr
           const _sun = _n.getUTCDay() === 0;
           addActivity(userId, { type: 'info', symbol: decision.symbol, message: `🌙 ${decision.symbol} ${_gDir}: ${_sun ? 'Sunday reopen' : 'late session'} (21:00–24:00 UTC, thin liquidity) — skipped.` });
           logGuard(userId, 'late_session_skip', decision.symbol, `${_gDir} skipped — ${_sun ? 'Sunday reopen' : 'late session'} 21:00–24:00 UTC (past entries here: 38% win rate, −$3.5k over 120 days)`);
+          recordBlockedTrade(userId, 'late_session_skip', decision.symbol, { direction: _gDir, entryPrice, stopLoss, takeProfit, confidence: decision.confidence, model: decision.fxModel || decision.model, setup: decision.setup }, _sun ? 'Sunday reopen' : 'late session');
           return;
         }
       }
@@ -7110,6 +7116,7 @@ async function processDecision(userId: number, decision: any, newsCtx?: any): Pr
             : `the plan's entry (${entryPrice}) is ${(_gap / _slD).toFixed(1)}× the stop distance away from the live price (${_livePx.toFixed(_dp)})`;
           addActivity(userId, { type: 'info', symbol: decision.symbol, message: `⏭️ ${decision.symbol} ${decision.direction} skipped — plan is stale: ${_why}. Waiting for a fresh plan at the current price.` });
           logGuard(userId, 'stale_entry_skip', decision.symbol, `${decision.direction}: ${_why}`, { entryPrice, stopLoss, takeProfit, livePrice: _livePx });
+          recordBlockedTrade(userId, 'stale_entry_skip', decision.symbol, { direction: decision.direction, entryPrice, stopLoss, takeProfit, confidence: decision.confidence, model: decision.fxModel || decision.model, setup: decision.setup }, _why);
           if (_leReleaseCooldown) _leReleaseCooldown();
           return;
         }

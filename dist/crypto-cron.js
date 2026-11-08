@@ -12783,5569 +12783,6 @@ var init_breakoutEngine = __esm({
   }
 });
 
-// server/services/guard-events.ts
-var guard_events_exports = {};
-__export(guard_events_exports, {
-  guardFireRates: () => guardFireRates,
-  logGuard: () => logGuard,
-  recentGuardEvents: () => recentGuardEvents
-});
-function ensure() {
-  if (!ensured2) {
-    ensured2 = pool.query(`
-      CREATE TABLE IF NOT EXISTS engine_guard_events (
-        id serial PRIMARY KEY,
-        user_id integer NOT NULL,
-        engine text NOT NULL DEFAULT 'fx',
-        kind text NOT NULL,
-        symbol text,
-        detail text,
-        data jsonb,
-        created_at timestamp NOT NULL DEFAULT now()
-      );
-      CREATE INDEX IF NOT EXISTS engine_guard_events_user_idx ON engine_guard_events (user_id, created_at DESC);
-    `).then(() => void 0).catch((e) => {
-      console.error("[guard-events] ensure failed:", e?.message || e);
-      ensured2 = null;
-    });
-  }
-  return ensured2;
-}
-function logGuard(userId, kind, symbol, detail, data, engine = "fx") {
-  void (async () => {
-    try {
-      await ensure();
-      await pool.query(
-        `INSERT INTO engine_guard_events (user_id, engine, kind, symbol, detail, data) VALUES ($1,$2,$3,$4,$5,$6::jsonb)`,
-        [userId, engine, kind, symbol, String(detail).slice(0, 500), JSON.stringify(data ?? null)]
-      );
-    } catch {
-    }
-  })();
-}
-async function guardFireRates(userId, days = 7) {
-  await ensure();
-  const d = Math.max(1, Math.min(90, days));
-  const { rows } = await pool.query(
-    `SELECT e.engine, e.kind,
-            count(*) FILTER (WHERE e.created_at > now() - ($2 || ' days')::interval)::int AS fires,
-            count(*) FILTER (WHERE e.created_at <= now() - ($2 || ' days')::interval)::int AS prev_fires,
-            max(e.created_at) AS last_fired,
-            (SELECT e2.symbol FROM engine_guard_events e2
-              WHERE e2.user_id = $1 AND e2.engine = e.engine AND e2.kind = e.kind AND e2.symbol IS NOT NULL
-              GROUP BY e2.symbol ORDER BY count(*) DESC LIMIT 1) AS top_symbol
-       FROM engine_guard_events e
-      WHERE e.user_id = $1 AND e.created_at > now() - (2 * ($2 || ' days')::interval)
-      GROUP BY e.engine, e.kind
-      ORDER BY fires DESC`,
-    [userId, String(d)]
-  );
-  return { days: d, rates: rows };
-}
-async function recentGuardEvents(userId, limit = 100, kinds) {
-  await ensure();
-  const _k = (kinds || []).filter((k) => /^[a-z_]{1,40}$/.test(k));
-  const [ev, sum] = await Promise.all([
-    _k.length ? pool.query(`SELECT id, engine, kind, symbol, detail, created_at FROM engine_guard_events WHERE user_id=$1 AND kind = ANY($3) ORDER BY created_at DESC LIMIT $2`, [userId, Math.min(500, Math.max(1, limit)), _k]) : pool.query(`SELECT id, engine, kind, symbol, detail, created_at FROM engine_guard_events WHERE user_id=$1 ORDER BY created_at DESC LIMIT $2`, [userId, Math.min(500, Math.max(1, limit))]),
-    pool.query(`SELECT kind, count(*)::int AS n, max(created_at) AS last FROM engine_guard_events WHERE user_id=$1 AND created_at > now() - interval '7 days' GROUP BY kind ORDER BY n DESC`, [userId])
-  ]);
-  return { events: ev.rows, summary: sum.rows };
-}
-var ensured2;
-var init_guard_events = __esm({
-  "server/services/guard-events.ts"() {
-    "use strict";
-    init_db();
-    ensured2 = null;
-  }
-});
-
-// server/openai.ts
-var openai_exports = {};
-__export(openai_exports, {
-  AVAILABLE_VISION_MODELS: () => AVAILABLE_VISION_MODELS,
-  addAiConfirmationLog: () => addAiConfirmationLog,
-  analyzeChartImage: () => analyzeChartImage,
-  analyzeORBSignal: () => analyzeORBSignal,
-  coerceConfidence: () => coerceConfidence,
-  detectMarketRegime: () => detectMarketRegime,
-  enrichLeadWithAI: () => enrichLeadWithAI,
-  extractFirstJsonObject: () => extractFirstJsonObject,
-  extractTextFromImage: () => extractTextFromImage,
-  generateDailyDevotional: () => generateDailyDevotional,
-  generateGrantProposal: () => generateGrantProposal,
-  generateMarketTrendPredictions: () => generateMarketTrendPredictions,
-  generatePresentationOutline: () => generatePresentationOutline,
-  generateReelScript: () => generateReelScript,
-  generateSlideCarouselScript: () => generateSlideCarouselScript,
-  generateSocialOutreachKit: () => generateSocialOutreachKit,
-  generateTradingTip: () => generateTradingTip,
-  generateVeddBlogPost: () => generateVeddBlogPost,
-  generateWorkforceCurriculum: () => generateWorkforceCurriculum,
-  getAiConfirmationLogs: () => getAiConfirmationLogs,
-  getAiHealth: () => getAiHealth,
-  getAiMinConfidence: () => getAiMinConfidence,
-  getAiVisionConfirmation: () => getAiVisionConfirmation,
-  getAllStrategiesForPairs: () => getAllStrategiesForPairs,
-  getAssetSpecificConfig: () => getAssetSpecificConfig,
-  getAssetSpecificPrompt: () => getAssetSpecificPrompt,
-  getBreakoutConfirmation: () => getBreakoutConfirmation,
-  getDefaultOpenAIClient: () => getDefaultOpenAIClient,
-  getOpenAIInstanceForUser: () => getOpenAIInstanceForUser,
-  getPlatformOpenAIClient: () => getPlatformOpenAIClient,
-  getPropFirmContext: () => getPropFirmContext,
-  getUniversalAIClientForUser: () => getUniversalAIClientForUser,
-  getUniversalVisionClientForUser: () => getUniversalVisionClientForUser,
-  getUserModelPreference: () => getUserModelPreference,
-  hasHiddenReasoningOverhead: () => hasHiddenReasoningOverhead,
-  hydrateAdaptiveRegimeMap: () => hydrateAdaptiveRegimeMap,
-  hydrateAiVisionMap: () => hydrateAiVisionMap,
-  hydrateBreakoutModeMap: () => hydrateBreakoutModeMap,
-  hydrateFxTogglesFromDb: () => hydrateFxTogglesFromDb,
-  inferModelProvider: () => inferModelProvider,
-  isAdaptiveRegimeEnabled: () => isAdaptiveRegimeEnabled,
-  isAiVisionConfirmationEnabled: () => isAiVisionConfirmationEnabled,
-  isBreakoutModeEnabled: () => isBreakoutModeEnabled,
-  isICTStrategyEnabled: () => isICTStrategyEnabled,
-  isPropFirmModeEnabled: () => isPropFirmModeEnabled,
-  isReasoningModel: () => isReasoningModel,
-  isSMCStrategyEnabled: () => isSMCStrategyEnabled,
-  isTrailingStopEnabled: () => isTrailingStopEnabled,
-  noteConfidenceSample: () => noteConfidenceSample,
-  openai: () => openai,
-  scanGrantsWithAI: () => scanGrantsWithAI,
-  setAdaptiveRegimeEnabled: () => setAdaptiveRegimeEnabled,
-  setAiMinConfidence: () => setAiMinConfidence,
-  setAiVisionConfirmation: () => setAiVisionConfirmation,
-  setBreakoutModeEnabled: () => setBreakoutModeEnabled,
-  setICTStrategyEnabled: () => setICTStrategyEnabled,
-  setPropFirmContext: () => setPropFirmContext,
-  setPropFirmMode: () => setPropFirmMode,
-  setSMCStrategyEnabled: () => setSMCStrategyEnabled,
-  setTrailingStopEnabled: () => setTrailingStopEnabled,
-  setUserModelPreference: () => setUserModelPreference,
-  testOpenAIApiKey: () => testOpenAIApiKey
-});
-import OpenAI from "openai";
-function getRelevantStrategies(symbol) {
-  const relevant = TOP_PROFITABLE_STRATEGIES.filter(
-    (s) => s.pairs.some((p) => symbol.toUpperCase().includes(p) || p.includes(symbol.toUpperCase().replace("USD", "").replace("PIPS", ""))) || s.pairs.includes(symbol.toUpperCase())
-  ).slice(0, 3);
-  if (relevant.length === 0) return TOP_PROFITABLE_STRATEGIES.slice(0, 3).map((s) => `\u2022 ${s.name}: ${s.winConditions}`).join("\n");
-  return relevant.map((s) => `\u2022 ${s.name}
-  Setup: ${s.description}
-  Win conditions: ${s.winConditions}
-  Risk note: ${s.riskNote}`).join("\n\n");
-}
-function getAllStrategiesForPairs(pairList) {
-  const seen = /* @__PURE__ */ new Set();
-  const results = [];
-  for (const pair of pairList) {
-    const relevant = TOP_PROFITABLE_STRATEGIES.filter(
-      (s) => s.pairs.some((p) => pair.toUpperCase().replace("/", "").includes(p) || p.includes(pair.toUpperCase().replace("/", "").replace("USD", "").replace("PIPS", ""))) || s.pairs.includes(pair.toUpperCase().replace("/", ""))
-    );
-    for (const s of relevant) {
-      if (!seen.has(s.name)) {
-        seen.add(s.name);
-        results.push(`\u2022 ${s.name} (${s.pairs.join(", ")})
-  Setup: ${s.description}
-  Win conditions: ${s.winConditions}
-  Risk note: ${s.riskNote}`);
-      }
-    }
-  }
-  if (results.length < 4) {
-    for (const s of TOP_PROFITABLE_STRATEGIES) {
-      if (!seen.has(s.name)) {
-        seen.add(s.name);
-        results.push(`\u2022 ${s.name} (${s.pairs.join(", ")})
-  Setup: ${s.description}
-  Win conditions: ${s.winConditions}
-  Risk note: ${s.riskNote}`);
-        if (results.length >= 5) break;
-      }
-    }
-  }
-  return results.join("\n\n");
-}
-function getAssetSpecificConfig(symbol) {
-  const cleanSymbol = symbol.toUpperCase().replace(/[^A-Z0-9]/g, "");
-  if (cleanSymbol.includes("XAU") || cleanSymbol.includes("GOLD")) {
-    return {
-      assetType: "gold",
-      volatilityMultiplier: 1.5,
-      atrMultiplier: 2,
-      minimumConfirmations: 3,
-      sessionBias: ["London Session", "New York Session"],
-      correlationAssets: ["DXY (inverse)", "US Treasury Yields (inverse)", "Silver XAG"],
-      specialConsiderations: [
-        "Gold is a safe-haven asset - analyze risk sentiment",
-        "Strong inverse correlation with USD strength (DXY)",
-        "Reacts sharply to Fed rate decisions and inflation data",
-        "Higher volatility during London/NY session overlap",
-        "Consider geopolitical tensions as bullish catalyst",
-        "Widen stop losses by 1.5-2x due to higher pip value volatility",
-        "Look for exhaustion patterns at psychological levels ($1900, $2000, $2100)",
-        "Volume spikes often precede major reversals"
-      ]
-    };
-  }
-  if (cleanSymbol.includes("BTC") || cleanSymbol.includes("BITCOIN") || cleanSymbol.includes("ETH") || cleanSymbol.includes("CRYPTO")) {
-    return {
-      assetType: "crypto",
-      volatilityMultiplier: 2,
-      atrMultiplier: 2.5,
-      minimumConfirmations: 4,
-      sessionBias: ["24/7 - Focus on high volume periods"],
-      correlationAssets: ["NASDAQ/Tech stocks", "Ethereum ETH", "Total Crypto Market Cap"],
-      specialConsiderations: [
-        "BTC trades 24/7 - volatility can spike any time",
-        "Weekend volatility often higher with lower liquidity",
-        "Whale wallet movements can cause sudden price swings",
-        "ETF inflows/outflows significantly impact price",
-        "Halving cycles create long-term bullish bias every 4 years",
-        "Regulatory news causes extreme volatility - widen stops by 2x minimum",
-        "Key psychological levels: $30k, $40k, $50k, $60k, $70k, $100k",
-        "Look for CME gap fills as potential targets",
-        "Funding rates indicate market sentiment (high = potential reversal)",
-        "On-chain metrics (active addresses, exchange flows) provide context",
-        "Correlation with risk assets during macro uncertainty"
-      ]
-    };
-  }
-  const INDEX_SYMBOLS = ["US30", "NAS100", "SPX500", "UK100", "GER40", "DAX", "AUS200", "HK50", "JP225", "FRA40", "NASDAQ", "DOW", "SP500", "WALLST", "DJ30", "USTEC"];
-  if (INDEX_SYMBOLS.some((idx) => cleanSymbol.includes(idx))) {
-    return {
-      assetType: "index",
-      volatilityMultiplier: 1.2,
-      atrMultiplier: 1.5,
-      minimumConfirmations: 2,
-      sessionBias: ["New York Session (09:30\u201316:00 EST)", "London Session (08:00\u201317:00 GMT)"],
-      correlationAssets: ["VIX (inverse)", "USD strength", "Treasury yields", "SPX leads NAS100/US30"],
-      specialConsiderations: [
-        "Entry prices must be within 15\u201350 points of current price \u2014 not hundreds of points away",
-        "Stop loss: 50\u2013150 points from entry depending on ATR",
-        "Take profit: 100\u2013400 points targeting key levels",
-        "US30 moves 200\u2013500 points on a typical day \u2014 scale entries accordingly",
-        "Avoid entries more than 100 points from current price \u2014 they will never fill",
-        "NY open (09:30 EST) and EU open (08:00 GMT) are highest probability windows",
-        "VIX above 25 = elevated volatility, widen SL by 1.5x",
-        "SPX500 direction often leads US30 and NAS100",
-        "Psychological round numbers (e.g., 40000, 44500) act as magnets and resistance"
-      ]
-    };
-  }
-  return {
-    assetType: "forex",
-    volatilityMultiplier: 1,
-    atrMultiplier: 1.5,
-    minimumConfirmations: 2,
-    sessionBias: ["Session depends on pair"],
-    correlationAssets: ["Related pairs"],
-    specialConsiderations: ["Standard forex analysis applies"]
-  };
-}
-function getAssetSpecificPrompt(symbol) {
-  const config = getAssetSpecificConfig(symbol);
-  if (config.assetType === "gold") {
-    return `
-    
-    GOLD/XAU SPECIFIC ANALYSIS (CRITICAL FOR ACCURACY):
-    
-    Gold is a HIGH-VOLATILITY precious metal with unique characteristics:
-    
-    1. VOLATILITY ADJUSTMENT:
-       - Gold moves in larger pip increments than forex
-       - Standard stop losses often get hit prematurely
-       - MANDATORY: Widen all stop losses by 1.5-2x compared to forex
-       - Use ATR 2x minimum for stop loss calculations
-       
-    2. CORRELATION CHECK (Must analyze):
-       - Check USD strength context (strong USD = bearish gold)
-       - Consider Treasury yield direction (rising yields = bearish gold)
-       - Evaluate overall risk sentiment (risk-off = bullish gold)
-       
-    3. SESSION TIMING:
-       - Best trading: London-NY overlap (13:00-17:00 GMT)
-       - Avoid: Low liquidity Asian session for entries
-       - News: Fed speeches, CPI data cause extreme moves
-       
-    4. PATTERN RELIABILITY:
-       - Candlestick patterns need STRONGER confirmation on gold
-       - Wait for volume confirmation before entry
-       - Psychological levels ($1900, $2000, $2100) act as magnets
-       
-    5. SIGNAL REQUIREMENTS:
-       - Require minimum 3 confirmations before signaling BUY/SELL
-       - Single indicator signals are NOT sufficient for gold
-       - If unsure, signal should be NEUTRAL with reduced confidence
-       
-    6. STOP LOSS RULES FOR GOLD:
-       - Minimum 200-300 pips from entry (gold pips are 0.01)
-       - Place below/above significant swing points
-       - Never use tight stops on gold - they will get hunted`;
-  }
-  if (config.assetType === "crypto") {
-    return `
-    
-    BITCOIN/CRYPTO SPECIFIC ANALYSIS (CRITICAL FOR ACCURACY):
-    
-    Bitcoin is an EXTREMELY HIGH-VOLATILITY asset with unique characteristics:
-    
-    1. VOLATILITY ADJUSTMENT:
-       - BTC can move 2-5% in hours, 10%+ on volatile days
-       - Standard forex stop losses are COMPLETELY INADEQUATE
-       - MANDATORY: Use ATR 2.5x minimum for stop loss calculations
-       - Accept wider stops to avoid premature stop-outs
-       
-    2. MARKET STRUCTURE:
-       - 24/7 trading means no session gaps (except CME futures)
-       - Weekend often sees lower liquidity + higher volatility
-       - Whale movements create sudden wicks - plan for them
-       
-    3. CONFIRMATION REQUIREMENTS:
-       - Require minimum 4 confirmations for BTC signals
-       - Single timeframe analysis is INSUFFICIENT
-       - Volume must strongly confirm the direction
-       - RSI extremes (>80, <20) more reliable than mid-range
-       
-    4. KEY LEVELS:
-       - Psychological: $30k, $40k, $50k, $60k, $70k, $100k
-       - CME gap levels often get filled
-       - Previous all-time highs become strong support/resistance
-       
-    5. SENTIMENT FACTORS:
-       - ETF flows (Blackrock, Fidelity) significantly move price
-       - Funding rates: High positive = potential short squeeze, high negative = potential long squeeze
-       - Fear & Greed Index provides context
-       
-    6. STOP LOSS RULES FOR BTC:
-       - Minimum $1,000-$2,000 from entry point
-       - Place below/above significant swing points
-       - Use percentage-based stops (2-5% from entry)
-       - Factor in potential wick hunting before major moves
-       
-    7. SIGNAL CONFIDENCE:
-       - Be MORE CONSERVATIVE with confidence ratings
-       - "High" confidence requires 4+ confirmations
-       - Single indicator signals should be "Low" confidence maximum`;
-  }
-  if (config.assetType === "index") {
-    return `
-
-    EQUITY INDEX SPECIFIC ANALYSIS (CRITICAL FOR ACCURACY \u2014 US30/NAS100/SPX500/UK100/GER40):
-
-    Equity indices move in POINTS, not forex pips. Entry prices MUST be realistic:
-
-    1. ENTRY PRICE RULES (MOST IMPORTANT):
-       - Entry must be within 15\u201350 points of CURRENT price for US30/NAS100
-       - NEVER suggest an entry more than 100 points from current price \u2014 it will NEVER trigger
-       - For limit orders: entry 10\u201330 points from current price (pullback to key level)
-       - For stop orders: entry 10\u201325 points beyond current price (breakout confirmation)
-       - US30 typical daily range: 200\u2013500 points \u2014 calibrate entries to this scale
-
-    2. STOP LOSS RULES:
-       - US30/NAS100: Stop loss 50\u2013150 points from entry
-       - SPX500: Stop loss 15\u201350 points from entry
-       - Place stops below/above the nearest swing high/low or session open
-       - Avoid stops tighter than 30 points on US30 (noise will stop you out)
-
-    3. TAKE PROFIT RULES:
-       - Minimum 1.5:1 R:R required
-       - US30: TP targets 100\u2013400 points from entry
-       - Target the nearest round number (e.g., 44000, 44500, 45000)
-       - Multi-target: partial at 100 pts, full at 200\u2013300 pts
-
-    4. SESSION TIMING:
-       - Best: NY open 09:30\u201311:00 EST, EU open 08:00\u201310:00 GMT
-       - Avoid: 12:00\u201314:00 EST lunch lull (low liquidity, choppy)
-       - Watch: Fed speeches, CPI, NFP cause 200\u2013500 pt spikes
-
-    5. CORRELATION:
-       - Check SPX direction before US30 entries (SPX leads)
-       - VIX rising = bearish pressure; VIX falling = bullish confirmation
-       - Strong USD often weighs on indices
-
-    6. ALL PRICE LEVELS IN YOUR RESPONSE must be realistic index values:
-       - US30 is currently near ${symbol.includes("US30") || symbol.includes("DOW") ? "~44,000\u201345,000" : "check current price"} \u2014 use real nearby levels
-       - Return entry/SL/TP as actual price values, NOT pip distances`;
-  }
-  return "";
-}
-function remapBareModelForOpenRouter(model, hasImage) {
-  const m = (model || "").toString();
-  if (m.includes("/") || m.endsWith(":free")) return m;
-  return hasImage ? VISION_FALLBACK.openrouter || "google/gemma-3-4b-it" : "openai/gpt-oss-20b";
-}
-function messagesHaveImage(messages) {
-  return Array.isArray(messages) && messages.some((msg) => Array.isArray(msg?.content) && msg.content.some((part) => part?.type === "image_url"));
-}
-function getPlatformOpenAIClient() {
-  const oaiKey = process.env.OPENAI_API_KEY;
-  const orKey = process.env.OPENROUTER_API_KEY;
-  const realOpenAI = new OpenAI({ apiKey: oaiKey || "not-configured", maxRetries: 4, timeout: 9e4 });
-  if (!orKey) return realOpenAI;
-  const orClient = new OpenAI({
-    apiKey: orKey,
-    baseURL: "https://openrouter.ai/api/v1",
-    maxRetries: 4,
-    timeout: 9e4,
-    defaultHeaders: { "HTTP-Referer": "https://veddbuild.com", "X-Title": "VEDDBuild" }
-  });
-  const wrappedChat = {
-    completions: {
-      create: async (params) => {
-        const p = { ...params };
-        p.model = remapBareModelForOpenRouter(params.model, messagesHaveImage(params.messages));
-        try {
-          return await orClient.chat.completions.create(p);
-        } catch (e) {
-          if (oaiKey) {
-            console.warn(`[AI] OpenRouter failed (${e?.status ?? e?.message}); falling back to OpenAI`);
-            return await realOpenAI.chat.completions.create(params);
-          }
-          throw e;
-        }
-      }
-    }
-  };
-  return new Proxy(realOpenAI, {
-    get(target, prop) {
-      if (prop === "chat") return wrappedChat;
-      return target[prop];
-    }
-  });
-}
-function getDefaultOpenAIClient() {
-  if (!_openaiInstance) {
-    _openaiInstance = getPlatformOpenAIClient();
-  }
-  return _openaiInstance;
-}
-function setUserModelPreference(userId, model) {
-  userModelPreferences.set(userId, model);
-}
-function getUserModelPreference(userId) {
-  const pref = userModelPreferences.get(userId) || DEFAULT_AI_MODEL;
-  if (DEPRECATED_MODEL_MAP[pref]) {
-    const updated = DEPRECATED_MODEL_MAP[pref];
-    userModelPreferences.set(userId, updated);
-    console.log(`[AI Model] Migrated user ${userId} from deprecated ${pref} to ${updated}`);
-    return updated;
-  }
-  return pref;
-}
-function getModelProvider(modelId) {
-  const model = AVAILABLE_VISION_MODELS.find((m) => m.id === modelId);
-  return model?.provider || "openai";
-}
-function inferModelProvider(modelId) {
-  const m = (modelId || "").toLowerCase();
-  if (m.endsWith(":free") || m.startsWith("openrouter/")) return "openrouter";
-  if (m.includes("/")) return "openrouter";
-  if (m.startsWith("gpt") || m.startsWith("o1") || m.startsWith("o3") || m.startsWith("o4") || m.startsWith("chatgpt")) return "openai";
-  if (m.startsWith("claude")) return "anthropic";
-  if (m.startsWith("gemini")) return "google";
-  if (m.startsWith("mistral") || m.startsWith("mixtral") || m.startsWith("magistral")) return "mistral";
-  if (m.includes("gpt-oss") || m.includes("llama") || m.includes("groq") || m.includes("gemma") || m.includes("qwen") || m.includes("deepseek")) return "groq";
-  return getModelProvider(modelId);
-}
-function extractFirstJsonObject(text2) {
-  const start = text2.indexOf("{");
-  if (start === -1) return null;
-  let depth = 0;
-  let inString = false;
-  let escaped = false;
-  for (let i = start; i < text2.length; i++) {
-    const ch = text2[i];
-    if (inString) {
-      if (escaped) escaped = false;
-      else if (ch === "\\") escaped = true;
-      else if (ch === '"') inString = false;
-      continue;
-    }
-    if (ch === '"') {
-      inString = true;
-      continue;
-    }
-    if (ch === "{") depth++;
-    else if (ch === "}") {
-      depth--;
-      if (depth === 0) return text2.slice(start, i + 1);
-    }
-  }
-  return null;
-}
-function coerceConfidence(raw) {
-  let c = typeof raw === "string" ? parseFloat(raw) : raw;
-  if (typeof c !== "number" || !Number.isFinite(c)) return 50;
-  if (c > 0 && c < 1) c *= 100;
-  return Math.max(0, Math.min(100, Math.round(c)));
-}
-function resolveVisionModel(modelId) {
-  if (KNOWN_VISION_MODEL_IDS.has(modelId)) return modelId;
-  const provider = inferModelProvider(modelId);
-  const fallback = VISION_FALLBACK[provider] || "gpt-4o-mini";
-  console.log(`[AI Model] ${modelId} is not vision-capable (${provider}) \u2014 switching to ${fallback} for chart confirmation`);
-  return fallback;
-}
-function setAiVisionConfirmation(userId, enabled) {
-  aiVisionConfirmationEnabled.set(userId, enabled);
-}
-function hydrateAiVisionMap(userId, enabled) {
-  aiVisionConfirmationEnabled.set(userId, enabled);
-}
-function isAiVisionConfirmationEnabled(userId) {
-  const val = aiVisionConfirmationEnabled.get(userId);
-  return val === void 0 ? true : val;
-}
-function setAiMinConfidence(userId, minConfidence) {
-  const clamped = Math.max(0, Math.min(100, Math.round(minConfidence)));
-  aiMinConfidenceThreshold.set(userId, clamped);
-}
-function getAiMinConfidence(userId) {
-  return aiMinConfidenceThreshold.get(userId) ?? 70;
-}
-function noteConfidenceSample(value) {
-  if (!Number.isFinite(value)) return;
-  _recentConfidence.push(value);
-  if (_recentConfidence.length > 40) _recentConfidence.shift();
-  if (_recentConfidence.length < 20) return;
-  const uniq = new Set(_recentConfidence);
-  if (uniq.size === 1) {
-    console.error(`[AI-GATE] WARNING: the last ${_recentConfidence.length} confirmations all returned confidence ${_recentConfidence[0]} \u2014 the model is not producing a real score, so the approval gate is not filtering anything. Check the prompt for a numeric anchor.`);
-  } else if (uniq.size <= 2) {
-    console.warn(`[AI-GATE] confidence has only ${uniq.size} distinct values across ${_recentConfidence.length} confirmations (${Array.from(uniq).join(", ")}) \u2014 suspiciously flat.`);
-  }
-}
-function setICTStrategyEnabled(userId, enabled) {
-  ictStrategyEnabledMap.set(userId, enabled);
-  persistFxToggles(userId);
-}
-function persistFxToggles(userId) {
-  const v = {};
-  if (ictStrategyEnabledMap.has(userId)) v.ict = !!ictStrategyEnabledMap.get(userId);
-  if (smcStrategyEnabledMap.has(userId)) v.smc = !!smcStrategyEnabledMap.get(userId);
-  if (trailingStopEnabledMap.has(userId)) v.trail = !!trailingStopEnabledMap.get(userId);
-  if (propFirmModeMap.has(userId)) v.propFirm = !!propFirmModeMap.get(userId);
-  const snap = JSON.stringify(v);
-  if (_lastSavedToggles.get(userId) === snap) return;
-  _lastSavedToggles.set(userId, snap);
-  void Promise.resolve().then(() => (init_runtime_state(), runtime_state_exports)).then((m) => m.saveRuntimeState("fx_toggles", String(userId), v)).catch(() => {
-  });
-}
-async function hydrateFxTogglesFromDb() {
-  try {
-    const { loadRuntimeState: loadRuntimeState2 } = await Promise.resolve().then(() => (init_runtime_state(), runtime_state_exports));
-    const rows = await loadRuntimeState2("fx_toggles");
-    for (const r of rows) {
-      const uid = Number(r.key);
-      const v = r.value || {};
-      if (!Number.isFinite(uid)) continue;
-      if (typeof v.ict === "boolean" && !ictStrategyEnabledMap.has(uid)) ictStrategyEnabledMap.set(uid, v.ict);
-      if (typeof v.smc === "boolean" && !smcStrategyEnabledMap.has(uid)) smcStrategyEnabledMap.set(uid, v.smc);
-      if (typeof v.trail === "boolean" && !trailingStopEnabledMap.has(uid)) trailingStopEnabledMap.set(uid, v.trail);
-      if (typeof v.propFirm === "boolean" && !propFirmModeMap.has(uid)) propFirmModeMap.set(uid, v.propFirm);
-    }
-    if (rows.length) console.log(`[startup] restored strategy toggles for ${rows.length} user(s).`);
-  } catch (err) {
-    console.error("[startup] strategy toggle restore failed (non-fatal):", err?.message ?? err);
-  }
-}
-function isICTStrategyEnabled(userId) {
-  const val = ictStrategyEnabledMap.get(userId);
-  return val === void 0 ? true : val;
-}
-function setSMCStrategyEnabled(userId, enabled) {
-  smcStrategyEnabledMap.set(userId, enabled);
-  persistFxToggles(userId);
-}
-function isSMCStrategyEnabled(userId) {
-  const val = smcStrategyEnabledMap.get(userId);
-  return val === void 0 ? true : val;
-}
-function setBreakoutModeEnabled(userId, enabled) {
-  if (enabled) {
-    if (!breakoutModeEnabledMap.get(userId)) {
-      breakoutModePriorState.set(userId, {
-        ict: isICTStrategyEnabled(userId),
-        smc: isSMCStrategyEnabled(userId),
-        trail: isTrailingStopEnabled(userId)
-      });
-    }
-    ictStrategyEnabledMap.set(userId, false);
-    smcStrategyEnabledMap.set(userId, false);
-    trailingStopEnabledMap.set(userId, false);
-  } else {
-    if (breakoutModeEnabledMap.get(userId)) {
-      const prior = breakoutModePriorState.get(userId);
-      if (prior) {
-        ictStrategyEnabledMap.set(userId, prior.ict);
-        smcStrategyEnabledMap.set(userId, prior.smc);
-        trailingStopEnabledMap.set(userId, prior.trail);
-        breakoutModePriorState.delete(userId);
-      } else {
-        ictStrategyEnabledMap.set(userId, true);
-        smcStrategyEnabledMap.set(userId, true);
-        trailingStopEnabledMap.set(userId, true);
-      }
-    }
-  }
-  breakoutModeEnabledMap.set(userId, enabled);
-  persistFxToggles(userId);
-}
-function hydrateBreakoutModeMap(userId, enabled) {
-  if (!breakoutModeEnabledMap.has(userId)) {
-    breakoutModeEnabledMap.set(userId, enabled);
-  }
-}
-function isBreakoutModeEnabled(userId) {
-  return breakoutModeEnabledMap.get(userId) ?? false;
-}
-function setTrailingStopEnabled(userId, enabled) {
-  trailingStopEnabledMap.set(userId, enabled);
-  persistFxToggles(userId);
-}
-function isTrailingStopEnabled(userId) {
-  const val = trailingStopEnabledMap.get(userId);
-  return val === void 0 ? true : val;
-}
-function setPropFirmMode(userId, enabled) {
-  propFirmModeMap.set(userId, enabled);
-  persistFxToggles(userId);
-}
-function isPropFirmModeEnabled(userId) {
-  const val = propFirmModeMap.get(userId);
-  return val === void 0 ? false : val;
-}
-function setPropFirmContext(userId, ctx) {
-  propFirmContextMap.set(userId, ctx);
-}
-function getPropFirmContext(userId) {
-  return propFirmContextMap.get(userId) ?? null;
-}
-function addAiConfirmationLog(userId, entry) {
-  if (!aiConfirmationLogs2.has(userId)) {
-    aiConfirmationLogs2.set(userId, []);
-  }
-  const logs = aiConfirmationLogs2.get(userId);
-  logs.unshift({ ...entry, id: logIdCounter++ });
-  if (logs.length > 50) logs.pop();
-  Promise.resolve().then(() => (init_storage(), storage_exports)).then(
-    ({ storage: storage2 }) => storage2.createAiConfirmationLogEntry(userId, entry)
-  ).catch((err) => console.error("[AI Confirmation Log] DB persist failed (non-fatal):", err?.message));
-}
-function getAiConfirmationLogs(userId) {
-  return aiConfirmationLogs2.get(userId) || [];
-}
-function estimatePipSize(symbol) {
-  const s = symbol.toUpperCase();
-  if (s.includes("XAU") || s.includes("GOLD")) return 0.1;
-  if (s.includes("JPY")) return 0.01;
-  if (["US30", "NAS100", "GER40", "UK100", "SPX500", "DAX", "AUS200", "HK50", "JP225", "FRA40"].some((idx) => s.includes(idx))) return 1;
-  if (s.includes("BTC") || s.includes("ETH") || s.includes("XBT")) return 1;
-  return 1e-4;
-}
-function buildTrailSignalSummary(symbol, proposedSignal, tradePlan, ictContext, smcContext) {
-  if (!ictContext && !smcContext) return "\u25BA No ICT/SMC context available \u2014 use ADX/ATR baseline only";
-  const pipSize2 = estimatePipSize(symbol);
-  const entry = tradePlan?.entry || 0;
-  const signals = [];
-  const crt = ictContext?.crtPattern;
-  if (crt?.detected) {
-    if (crt.stage === "EXPANSION") {
-      signals.push(`\u25BA CRT EXPANSION stage \u2014 institutional directional move just launched, high-probability run in progress \u2014 bias WIDE or AGGRESSIVE`);
-    } else if (crt.stage === "MANIPULATION") {
-      signals.push(`\u25BA CRT MANIPULATION stage \u2014 price still faking out before expansion, trail not appropriate yet \u2014 bias NONE`);
-    } else if (crt.stage === "RANGE") {
-      signals.push(`\u25BA CRT RANGE stage \u2014 accumulation/distribution in progress, no directional momentum yet \u2014 bias STANDARD`);
-    }
-  } else {
-    signals.push(`\u25BA No CRT pattern detected \u2014 use ADX/ATR baseline for trail type`);
-  }
-  const wyc = smcContext?.wyckoff;
-  if (wyc?.detected) {
-    if (wyc.phase === "MARKUP" || wyc.phase === "MARKDOWN") {
-      signals.push(`\u25BA Wyckoff ${wyc.phase} \u2014 sustained trend confirmed by institutional phase, let profits run \u2014 bias WIDE`);
-    } else if (wyc.phase === "ACCUMULATION" && wyc.stage === "SPRING") {
-      signals.push(`\u25BA Wyckoff Accumulation SPRING \u2014 fresh bullish launch, give the trade room \u2014 bias STANDARD to WIDE`);
-    } else if (wyc.phase === "DISTRIBUTION" && wyc.stage === "UPTHRUST") {
-      signals.push(`\u25BA Wyckoff Distribution UPTHRUST \u2014 fresh bearish launch, give the trade room \u2014 bias STANDARD to WIDE`);
-    } else if (wyc.phase === "ACCUMULATION" && wyc.stage === "SOS") {
-      signals.push(`\u25BA Wyckoff Sign of Strength (SOS) \u2014 bullish trend accelerating out of range \u2014 bias WIDE`);
-    } else if (wyc.phase === "DISTRIBUTION" && wyc.stage === "SOW") {
-      signals.push(`\u25BA Wyckoff Sign of Weakness (SOW) \u2014 bearish trend accelerating out of range \u2014 bias WIDE`);
-    } else {
-      signals.push(`\u25BA Wyckoff phase detected (${wyc.phase}/${wyc.stage || "ranging"}) \u2014 ${wyc.description}`);
-    }
-  } else {
-    signals.push(`\u25BA No Wyckoff phase detected \u2014 use ADX baseline`);
-  }
-  const eql = smcContext?.equalHighsLows;
-  if (eql && entry > 0 && pipSize2 > 0) {
-    if (proposedSignal === "BUY" && eql.equalHighs.detected && eql.equalHighs.level) {
-      const distPips = Math.abs(eql.equalHighs.level - entry) / pipSize2;
-      const tightThreshold = pipSize2 === 1e-4 ? 30 : pipSize2 === 0.1 ? 300 : pipSize2 === 0.01 ? 3 : 100;
-      if (distPips < tightThreshold) {
-        signals.push(`\u25BA Equal Highs (Buy-Side Liquidity) at ${eql.equalHighs.level.toFixed(5)} \u2014 only ~${Math.round(distPips)} pips away \u2014 TIGHTEN trail to lock in profits before sweep`);
-      } else {
-        signals.push(`\u25BA Equal Highs (BSL) at ${eql.equalHighs.level.toFixed(5)} \u2014 ${Math.round(distPips)} pips away \u2014 TP target, trail width unconstrained`);
-      }
-    } else if (proposedSignal === "SELL" && eql.equalLows.detected && eql.equalLows.level) {
-      const distPips = Math.abs(entry - eql.equalLows.level) / pipSize2;
-      const tightThreshold = pipSize2 === 1e-4 ? 30 : pipSize2 === 0.1 ? 300 : pipSize2 === 0.01 ? 3 : 100;
-      if (distPips < tightThreshold) {
-        signals.push(`\u25BA Equal Lows (Sell-Side Liquidity) at ${eql.equalLows.level.toFixed(5)} \u2014 only ~${Math.round(distPips)} pips away \u2014 TIGHTEN trail to lock in profits before sweep`);
-      } else {
-        signals.push(`\u25BA Equal Lows (SSL) at ${eql.equalLows.level.toFixed(5)} \u2014 ${Math.round(distPips)} pips away \u2014 TP target, trail width unconstrained`);
-      }
-    } else {
-      signals.push(`\u25BA No nearby liquidity pool in trade direction \u2014 trail width unconstrained`);
-    }
-  } else {
-    signals.push(`\u25BA No liquidity pool data available`);
-  }
-  const mw = ictContext?.macroWindow;
-  if (mw) {
-    if (mw.isInMacroWindow) {
-      signals.push(`\u25BA ICT macro window ACTIVE (${mw.macroName}) \u2014 institutional engine running, high-probability directional flow \u2014 bias WIDE`);
-    } else {
-      signals.push(`\u25BA ICT macro window INACTIVE \u2014 impulse may exhaust sooner, next window: ${mw.nextMacroName} in ${mw.minutesUntilNextMacro}min \u2014 bias STANDARD`);
-    }
-  }
-  if (mw) {
-    const session2 = mw.session;
-    const timeLabel = mw.currentNYTime ? ` (${mw.currentNYTime} NY)` : "";
-    if (session2 === "LONDON") {
-      signals.push(`\u25BA Session: London Kill Zone${timeLabel} \u2014 institutional range highs/lows being set, high-volatility institutional flow \u2014 bias WIDE`);
-    } else if (session2 === "NY_AM") {
-      signals.push(`\u25BA Session: New York AM${timeLabel} \u2014 peak trending session, highest volume of the day \u2014 bias WIDE to AGGRESSIVE`);
-    } else if (session2 === "NY_PM") {
-      signals.push(`\u25BA Session: New York PM${timeLabel} \u2014 continuation or late exhaustion \u2014 bias STANDARD`);
-    } else if (session2 === "ASIAN") {
-      signals.push(`\u25BA Session: Asian session${timeLabel} \u2014 low momentum, range-bound, avoid wide trails \u2014 bias TIGHT`);
-    } else if (session2 === "OVERNIGHT") {
-      signals.push(`\u25BA Session: Off-hours / Overnight${timeLabel} \u2014 minimal volume, erratic moves \u2014 bias TIGHT or NONE`);
-    } else if (mw.currentNYTime) {
-      const match = mw.currentNYTime.match(/(\d+):(\d+)\s*(AM|PM)/i);
-      if (match) {
-        let hours = parseInt(match[1]);
-        const mins = parseInt(match[2]);
-        const ampm = match[3].toUpperCase();
-        if (ampm === "PM" && hours !== 12) hours += 12;
-        if (ampm === "AM" && hours === 12) hours = 0;
-        const totalMins = hours * 60 + mins;
-        if (totalMins >= 7 * 60 && totalMins < 11 * 60 + 30) {
-          signals.push(`\u25BA Session: London/NY overlap${timeLabel} \u2014 peak trending window \u2014 bias WIDE to AGGRESSIVE`);
-        } else if (totalMins >= 12 * 60 && totalMins < 14 * 60 + 30) {
-          signals.push(`\u25BA Session: NY Lunch${timeLabel} \u2014 low momentum, chop risk \u2014 reduce trail one level (WIDE\u2192STANDARD, STANDARD\u2192TIGHT)`);
-        } else if (totalMins >= 14 * 60 + 30 && totalMins < 17 * 60) {
-          signals.push(`\u25BA Session: NY PM${timeLabel} \u2014 steady continuation or late reversal \u2014 bias STANDARD`);
-        } else {
-          signals.push(`\u25BA Session: Asian/off-hours${timeLabel} \u2014 low momentum, tight spreads \u2014 bias TIGHT`);
-        }
-      }
-    }
-  }
-  const bos = smcContext?.bosCHOCH;
-  if (bos?.detected) {
-    if (bos.type === "CHOCH") {
-      signals.push(`\u25BA ${bos.direction} CHOCH detected \u2014 fresh trend reversal just confirmed, plenty of room to run \u2014 bias WIDE`);
-    } else if (bos.type === "BOS") {
-      signals.push(`\u25BA ${bos.direction} BOS continuation \u2014 trend is mature, watch for exhaustion near next structure \u2014 bias STANDARD`);
-    }
-  } else {
-    signals.push(`\u25BA No BOS/CHOCH \u2014 ranging environment, no clear trend direction \u2014 bias TIGHT`);
-  }
-  if (tradePlan?.entry && tradePlan?.stopLoss && tradePlan?.takeProfit) {
-    const rrEntry = tradePlan.entry;
-    const rrSL = tradePlan.stopLoss;
-    const rrTP = tradePlan.takeProfit;
-    const risk = Math.abs(rrEntry - rrSL);
-    const reward = Math.abs(rrTP - rrEntry);
-    const rr = risk > 0 ? reward / risk : 0;
-    if (rr >= 3) {
-      signals.push(`\u25BA Trade R:R is ${rr.toFixed(1)}R \u2014 high reward trade, use WIDE or AGGRESSIVE trail to let profits compound; only tighten after 2R secured`);
-    } else if (rr >= 2) {
-      signals.push(`\u25BA Trade R:R is ${rr.toFixed(1)}R \u2014 solid trade, STANDARD to WIDE trail; move to breakeven at 1R`);
-    } else if (rr >= 1.5) {
-      signals.push(`\u25BA Trade R:R is ${rr.toFixed(1)}R \u2014 acceptable trade, TIGHT trail preferred; target is relatively close, protect quickly`);
-    } else if (rr > 0) {
-      signals.push(`\u25BA Trade R:R is ${rr.toFixed(1)}R \u2014 low reward, TIGHT or NONE; risk/reward doesn't justify a wide trail`);
-    }
-  }
-  return signals.join("\n");
-}
-function resolveIctThresholds(accountBalance) {
-  if (accountBalance < 1e3) return { aPlus: 10, a: 8, b: 5, c: 3, minGrade: "C" };
-  if (accountBalance < 5e3) return { aPlus: 10, a: 8, b: 6, c: 4, minGrade: "B" };
-  if (accountBalance < 2e4) return { aPlus: 10, a: 7, b: 5, c: 4, minGrade: "A" };
-  return { aPlus: 9, a: 7, b: 5, c: 4, minGrade: "A+" };
-}
-function computeConfluenceScore(signal, ictContext, smcContext, accountBalance = 0) {
-  let score = 0;
-  const summary = [];
-  if (ictContext) {
-    if (ictContext.premiumDiscount.aligns) {
-      score++;
-      summary.push(`\u2705 PD Array: ${ictContext.premiumDiscount.zone} zone aligns with ${signal}`);
-    } else {
-      summary.push(`\u274C PD Array: ${ictContext.premiumDiscount.zone} zone conflicts with ${signal}`);
-    }
-    if (ictContext.stopHunt.detected) {
-      score++;
-      summary.push(`\u2705 Stop Hunt: Liquidity sweep detected before entry`);
-    } else {
-      summary.push(`\u26A0 Stop Hunt: No liquidity sweep detected`);
-    }
-    if (ictContext.crtPattern.detected) {
-      if (ictContext.crtPattern.stage === "EXPANSION") {
-        score++;
-        summary.push(`\u2705 CRT: EXPANSION phase confirmed \u2014 institutional move launched`);
-      } else if (ictContext.crtPattern.stage === "MANIPULATION") {
-        summary.push(`\u274C CRT: MANIPULATION phase \u2014 fakeout risk, no score`);
-      } else {
-        summary.push(`\u26A0 CRT: RANGE forming \u2014 no directional confirmation yet`);
-      }
-    }
-    if (ictContext.macroWindow.isInMacroWindow) {
-      score++;
-      summary.push(`\u2705 ICT Macro: Active window (${ictContext.macroWindow.macroName})`);
-    } else {
-      summary.push(`\u26A0 ICT Macro: Inactive \u2014 ${ictContext.macroWindow.minutesUntilNextMacro}min to next window`);
-    }
-    const sess = ictContext.macroWindow.session;
-    if (sess === "LONDON" || sess === "NY_AM") {
-      score++;
-      summary.push(`\u2705 Session: ${sess} \u2014 peak institutional session`);
-    } else {
-      summary.push(`\u26A0 Session: ${sess || "UNKNOWN"} \u2014 lower volume session`);
-    }
-    if (ictContext.oteZone?.detected && ictContext.oteZone.inOTEZone) {
-      score++;
-      summary.push(`\u2705 OTE: Price in 61.8\u201379% retracement zone \u2014 institutional entry sweet spot`);
-    } else if (ictContext.oteZone?.detected) {
-      summary.push(`\u26A0 OTE: Zone identified but price not in it (${ictContext.oteZone.description.slice(0, 60)}...)`);
-    }
-    if (ictContext.keyLevels) {
-      const kl = ictContext.keyLevels;
-      const bearishPDH = signal === "SELL" && kl.abovePDH;
-      const bullishPDL = signal === "BUY" && kl.belowPDL;
-      if (bearishPDH || bullishPDL) {
-        score++;
-        summary.push(`\u2705 PDH/PDL: Price ${bearishPDH ? "above PDH \u2014 bearish bias confirmed" : "below PDL \u2014 bullish bias confirmed"}`);
-      } else {
-        summary.push(`\u26A0 PDH/PDL: ${kl.description.slice(0, 80)}`);
-      }
-    }
-  }
-  if (smcContext) {
-    if (smcContext.bosCHOCH.detected) {
-      const bosAligns = signal === "BUY" && smcContext.bosCHOCH.direction === "BULLISH" || signal === "SELL" && smcContext.bosCHOCH.direction === "BEARISH";
-      if (bosAligns) {
-        score++;
-        summary.push(`\u2705 Structure: ${smcContext.bosCHOCH.type} ${smcContext.bosCHOCH.direction} aligns with ${signal}`);
-      } else {
-        summary.push(`\u274C Structure: ${smcContext.bosCHOCH.type} ${smcContext.bosCHOCH.direction} conflicts with ${signal}`);
-      }
-    } else {
-      summary.push(`\u26A0 Structure: No BOS/CHOCH \u2014 ranging`);
-    }
-    if (smcContext.fvg.detected && smcContext.fvg.inZone) {
-      score++;
-      summary.push(`\u2705 FVG: Price inside Fair Value Gap \u2014 imbalance zone entry`);
-    } else if (smcContext.fvg.detected) {
-      summary.push(`\u26A0 FVG: Detected but price not in zone`);
-    } else {
-      summary.push(`\u26A0 FVG: No aligned Fair Value Gap`);
-    }
-    if (smcContext.orderBlock.detected && smcContext.orderBlock.aligns && smcContext.orderBlock.mitigation === "FRESH") {
-      score++;
-      summary.push(`\u2705 Order Block: FRESH ${smcContext.orderBlock.type} \u2014 maximum institutional interest`);
-    } else if (smcContext.orderBlock.detected && smcContext.orderBlock.aligns) {
-      summary.push(`\u26A0 Order Block: Aligned but ${smcContext.orderBlock.mitigation} \u2014 partially consumed`);
-    } else {
-      summary.push(`\u26A0 Order Block: No aligned fresh order block`);
-    }
-    if (smcContext.wyckoff.detected && smcContext.wyckoff.aligns) {
-      score++;
-      summary.push(`\u2705 Wyckoff: ${smcContext.wyckoff.phase}/${smcContext.wyckoff.stage || "phase"} aligns`);
-    } else if (smcContext.wyckoff.detected) {
-      summary.push(`\u26A0 Wyckoff: Detected but conflicts \u2014 ${smcContext.wyckoff.phase}`);
-    } else {
-      summary.push(`\u26A0 Wyckoff: No clear phase`);
-    }
-    const eqAligns = signal === "BUY" ? smcContext.equalHighsLows.equalHighs.detected : smcContext.equalHighsLows.equalLows.detected;
-    if (eqAligns) {
-      score++;
-      summary.push(`\u2705 Liquidity Target: Equal ${signal === "BUY" ? "highs (BSL)" : "lows (SSL)"} above \u2014 clear institutional draw on liquidity`);
-    } else {
-      summary.push(`\u26A0 Liquidity: No equal ${signal === "BUY" ? "highs" : "lows"} as TP target`);
-    }
-  }
-  const ictThresholds = resolveIctThresholds(accountBalance);
-  let grade;
-  if (score >= ictThresholds.aPlus) grade = "A+";
-  else if (score >= ictThresholds.a) grade = "A";
-  else if (score >= ictThresholds.b) grade = "B";
-  else if (score >= ictThresholds.c) grade = "C";
-  else grade = "D";
-  const gradeOrder = ["D", "C", "B", "A", "A+"];
-  const belowMinGrade = gradeOrder.indexOf(grade) < gradeOrder.indexOf(ictThresholds.minGrade);
-  if (belowMinGrade) {
-    console.log(`[ICT] Grade ${grade} below min ${ictThresholds.minGrade} for $${accountBalance} account \u2014 blocking`);
-  }
-  return { score, maxScore: 12, grade, summary, belowMinGrade, minGrade: ictThresholds.minGrade };
-}
-function computeNewsProximity(upcomingEvents, blockThresholdMinutes = 15) {
-  if (!upcomingEvents || upcomingEvents.length === 0) {
-    return { minutesToNext: null, eventName: null, isBlocked: false, isWarning: false, summary: "" };
-  }
-  const highImpact = upcomingEvents.filter((e) => {
-    const imp = (e.impact || "").toLowerCase();
-    return imp === "high" || imp === "3" || imp === "red";
-  });
-  if (highImpact.length === 0) {
-    return { minutesToNext: null, eventName: null, isBlocked: false, isWarning: false, summary: "" };
-  }
-  const now = Date.now();
-  let closestMinutes = null;
-  let closestName = null;
-  for (const ev of highImpact) {
-    try {
-      let eventMs = null;
-      const t = ev.time || "";
-      const iso = new Date(t);
-      if (!isNaN(iso.getTime())) {
-        eventMs = iso.getTime();
-      } else {
-        const relMatch = t.match(/in\s+(\d+)\s*min/i);
-        if (relMatch) eventMs = now + parseInt(relMatch[1]) * 6e4;
-        const todayMatch = t.match(/today\s+(\d{1,2}):(\d{2})/i);
-        if (todayMatch) {
-          const d = /* @__PURE__ */ new Date();
-          d.setHours(parseInt(todayMatch[1]), parseInt(todayMatch[2]), 0, 0);
-          eventMs = d.getTime();
-        }
-      }
-      if (eventMs !== null) {
-        const mins2 = (eventMs - now) / 6e4;
-        if (mins2 >= -5 && (closestMinutes === null || mins2 < closestMinutes)) {
-          closestMinutes = mins2;
-          closestName = ev.event;
-        }
-      }
-    } catch {
-    }
-  }
-  if (closestMinutes === null || closestMinutes < -5) {
-    return { minutesToNext: null, eventName: null, isBlocked: false, isWarning: false, summary: "" };
-  }
-  const mins = Math.round(closestMinutes);
-  const isBlocked = mins < blockThresholdMinutes;
-  const isWarning = mins < 60;
-  const summary = isBlocked ? `\u26D4 ${closestName} in ${mins} min \u2014 BLOCKED (within ${blockThresholdMinutes}-min prop firm news window)` : isWarning ? `\u26A0 ${closestName} in ${mins} min \u2014 CAUTION: reduce size and tighten SL` : "";
-  return { minutesToNext: mins, eventName: closestName, isBlocked, isWarning, summary };
-}
-function detectWeekendRolloverRisk() {
-  const now = /* @__PURE__ */ new Date();
-  const jan = new Date(now.getFullYear(), 0, 1);
-  const jul = new Date(now.getFullYear(), 6, 1);
-  const isDST = now.getTimezoneOffset() < Math.max(jan.getTimezoneOffset(), jul.getTimezoneOffset());
-  const nyOffset = isDST ? -4 : -5;
-  const nyMs = now.getTime() + (now.getTimezoneOffset() + nyOffset * 60) * 6e4;
-  const nyDate = new Date(nyMs);
-  const nyDay = nyDate.getDay();
-  const nyHour = nyDate.getHours();
-  const nyMin = nyDate.getMinutes();
-  const isFridayPM = nyDay === 5 && nyHour >= 16;
-  const minutesToRollover = Math.max(0, 17 * 60 - (nyHour * 60 + nyMin));
-  const isNearRollover = minutesToRollover <= 15 && minutesToRollover >= 0 && nyDay >= 1 && nyDay <= 5;
-  let warning = null;
-  if (isFridayPM) {
-    warning = `\u26A0 WEEKEND HOLD RISK: It is Friday ${nyHour}:${String(nyMin).padStart(2, "0")} NY time \u2014 most prop firms prohibit holding positions over the weekend. If this trade cannot reach TP before Friday 5 PM NY, REDUCE size or skip entirely.`;
-  } else if (isNearRollover) {
-    warning = `\u26A0 ROLLOVER WARNING: 5 PM NY rollover in ${minutesToRollover} minutes \u2014 swap charges apply. Consider reducing trail width to TIGHT.`;
-  }
-  return { isFridayPM, isNearRollover, minutesToRollover, warning };
-}
-function detectMarketRegime(indicators) {
-  const adx = indicators?.adx?.value ?? (typeof indicators?.adx === "number" ? indicators.adx : null);
-  if (adx == null || !Number.isFinite(adx)) {
-    return { regime: "TRANSITIONAL", adx: null, reason: "ADX unavailable \u2014 treat as transitional" };
-  }
-  if (adx >= 25) return { regime: "TRENDING", adx, reason: `ADX ${adx.toFixed(1)} \u2265 25 \u2014 trending/impulsive` };
-  if (adx < 20) return { regime: "RANGING", adx, reason: `ADX ${adx.toFixed(1)} < 20 \u2014 ranging/mean-reverting` };
-  return { regime: "TRANSITIONAL", adx, reason: `ADX ${adx.toFixed(1)} in 20\u201325 \u2014 transitional` };
-}
-function setAdaptiveRegimeEnabled(userId, enabled) {
-  adaptiveRegimeEnabledMap.set(userId, enabled);
-}
-function isAdaptiveRegimeEnabled(userId) {
-  return adaptiveRegimeEnabledMap.get(userId) ?? false;
-}
-function hydrateAdaptiveRegimeMap(userId, enabled) {
-  adaptiveRegimeEnabledMap.set(userId, enabled);
-}
-function buildRegimeAdaptationSection(regime, adx, strategyMode) {
-  const isSniperFamily = strategyMode === "sniper" || strategyMode === "prop_firm_sniper";
-  if (!isSniperFamily) return "";
-  const adxStr = adx != null ? adx.toFixed(1) : "n/a";
-  if (regime === "RANGING") {
-    return `
-\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550
-\u{1F9ED} ADAPTIVE REGIME: RANGING (ADX ${adxStr})
-\u26A0\uFE0F PRECEDENCE: this ADAPTIVE REGIME block OVERRIDES any earlier rule in the
-strategy filter that says "BOS/CHOCH must be confirmed" or "no ranging market
-entries." When the two conflict, follow THIS block \u2014 do NOT reject a valid
-range-reversal setup just because no BOS/CHOCH is present.
-The market is RANGE-BOUND, not trending. In a range, waiting for a Break of
-Structure is WRONG \u2014 the highest-quality range trade is a REVERSAL at the edge.
-OVERRIDE the sniper's trending rules as follows:
-\u2022 BOS/CHOCH is NO LONGER required (do not reject for "no BOS/CHOCH \u2014 ranging").
-\u2022 ICT macro window is a bonus, NOT a hard requirement.
-Instead, CONFIRM only if ALL of these range-reversal criteria are met:
-1. Price is AT or sweeping a VALIDATED range extreme \u2014 support/resistance,
-   PDH/PDL, or equal highs/lows (BUY at range low, SELL at range high ONLY).
-2. A fresh Order Block OR Fair Value Gap sits at that extreme in the trade direction.
-3. A rejection signal is present: liquidity sweep of the extreme + close back
-   inside, RSI extreme (>70 for SELL, <30 for BUY), or bullish/bearish engulf.
-4. Target is the OPPOSITE range boundary; R:R must be >= 1:2 (ranges give tighter targets than trends).
-REJECT if price is in the MIDDLE of the range (no edge), or the setup is trading
-INTO the range boundary rather than reversing off it (that's chop = no trade).
-\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550`;
-  }
-  if (regime === "TRENDING") {
-    return `
-\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550
-\u{1F9ED} ADAPTIVE REGIME: TRENDING (ADX ${adxStr})
-Impulsive/trending conditions confirmed \u2014 the FULL sniper breakout rules apply:
-BOS/CHOCH is REQUIRED, favor continuation in the trend direction, and treat
-counter-trend reversals as LOW quality unless a CHOCH confirms the shift.
-\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550`;
-  }
-  return `
-\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550
-\u{1F9ED} ADAPTIVE REGIME: TRANSITIONAL (ADX ${adxStr})
-\u26A0\uFE0F PRECEDENCE: this block OVERRIDES any earlier "BOS/CHOCH must be confirmed /
-no ranging entries" hard rule in the strategy filter \u2014 follow the guidance here.
-Neither cleanly trending nor ranging. Demand EXTRA confirmation: either a
-confirmed BOS/CHOCH (trend path) OR a clean range-edge reversal with OB/FVG +
-sweep (range path). If the setup fits neither cleanly, REJECT \u2014 no forcing.
-\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550`;
-}
-function buildStrategyFilterSection(strategyMode) {
-  if (!strategyMode || strategyMode === "aggressive") return "";
-  const filters = {
-    sniper: `
-\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550
-\u{1F3AF} ACTIVE STRATEGY FILTER: SNIPER MODE
-Your job is to confirm ONLY the highest-quality setups. Apply all of the following as hard requirements:
-1. BOS or CHOCH must be CONFIRMED on the trading timeframe (no confirmation = REJECT)
-2. Entry must be AT or INSIDE an Order Block, Fair Value Gap, or OTE zone (61.8\u201378.6% retrace)
-3. ICT macro window must be ACTIVE (NY 8:30\u201311:00 or 13:30\u201316:00, London 7:00\u201310:00 UTC)
-4. At least 2 higher timeframes must align with the trade direction
-5. R:R must be >= 1:3. If TP gives less than 3\xD7 the SL distance, REJECT.
-6. Minimum 3 independent confluences (OB + FVG + multi-TF counts as 3)
-If ANY of these 6 criteria is missing, your verdict must be REJECT.
-\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550`,
-    ict_order_blocks: `
-\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550
-\u{1F3AF} ACTIVE STRATEGY FILTER: ICT ORDER BLOCKS
-You are ONLY confirming Order Block entries. Apply these rules:
-1. There must be a clear Order Block visible (last bullish candle before bearish displacement for SELL OBs, last bearish candle before bullish displacement for BUY OBs)
-2. Price must currently be RETURNING to the OB zone (retrace/pull-back, not continuation)
-3. The OB must be from a structural move \u2014 a BOS or significant displacement
-4. OB must be UNMITIGATED (price has not fully traded through it before)
-5. Look in smcContext for orderBlocks array \u2014 if none are detected, confidence should be < 50
-If no valid Order Block is present in the data, REJECT with low confidence.
-\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550`,
-    ict_fvg: `
-\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550
-\u{1F3AF} ACTIVE STRATEGY FILTER: ICT FAIR VALUE GAP (FVG)
-You are ONLY confirming Fair Value Gap entries. Rules:
-1. An active, unfilled FVG must exist in the direction of the trade (bullish FVG for BUY, bearish FVG for SELL)
-2. Price must currently be ENTERING or sitting INSIDE the FVG zone
-3. Check smcContext.fairValueGaps \u2014 if none detected, significantly lower confidence
-4. A FVG created after a BOS/CHOCH is the highest quality
-5. FVG entries against the HTF trend are LOW quality \u2014 require multi-TF alignment
-6. Partial fills of FVG are allowed if other confluences agree
-If no FVG is present in the candle data or smcContext, REJECT.
-\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550`,
-    ict_liquidity_sweep: `
-\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550
-\u{1F3AF} ACTIVE STRATEGY FILTER: ICT LIQUIDITY SWEEP
-You are confirming stop-hunt / liquidity sweep reversals. Rules:
-1. There MUST be a visible sweep of equal highs (for SELL) or equal lows (for BUY) within the last 10 candles
-2. The sweep candle should show a wick through the level with a close back inside the range (stop hunt anatomy)
-3. After the sweep, look for a reversal confirmation: engulfing candle, BOS on LTF, displacement
-4. Check ictContext for stopHuntData \u2014 a sweep without confirmation is a fake-out risk
-5. The swept level should be a resting liquidity pool (prior swing highs/lows, equal highs/lows)
-6. Do NOT confirm if the sweep is WITH the trend (continuation sweeps have lower probability)
-If no liquidity sweep is detectable, REJECT.
-\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550`,
-    ict_bos: `
-\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550
-\u{1F3AF} ACTIVE STRATEGY FILTER: ICT BREAK OF STRUCTURE (BOS)
-You are confirming BOS continuation entries. Rules:
-1. A clear BOS must have occurred recently \u2014 price took out a prior swing high (bullish BOS for BUY) or swing low (bearish BOS for SELL)
-2. After the BOS, price should be pulling back (retracing) \u2014 entry is on the PULLBACK, not on the initial BOS candle
-3. Ideal entry: pullback to 50% retracement of the BOS leg, OB or FVG within that zone
-4. Check smcContext for bos/choch detection
-5. A CHOCH (Change of Character) without a BOS confirmation = lower quality, reduce confidence
-6. BOS entries aligned with HTF trend = highest quality
-If no BOS is detected in smcContext, confidence must be below 55.
-\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550`,
-    ict_ote: `
-\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550
-\u{1F3AF} ACTIVE STRATEGY FILTER: ICT OPTIMAL TRADE ENTRY (OTE)
-You are confirming OTE zone entries. Rules:
-1. A clear swing structure must exist \u2014 identify the recent swing high and swing low
-2. For BUY: price must be in the 61.8\u201378.6% Fibonacci retracement zone of the most recent bullish swing
-   For SELL: price must be in the 61.8\u201378.6% zone of the most recent bearish swing
-3. Check indicators.fibonacci \u2014 the OTE zone is typically between fib 0.618 and 0.786
-4. ICT macro timing is critical for OTE \u2014 confirm the ICT macro window is active
-5. HTF must show the trend direction aligned with the OTE entry
-6. OTE without HTF alignment = WATCH only, not CONFIRM
-If price is NOT in the 61.8\u201378.6% zone, REJECT.
-\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550`,
-    smc_demand_supply: `
-\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550
-\u{1F3AF} ACTIVE STRATEGY FILTER: SMC DEMAND/SUPPLY ZONES
-You are confirming supply and demand zone entries. Rules:
-1. There must be a clear supply zone (for SELL) or demand zone (for BUY) visible in the chart
-2. Price should be RETURNING to a fresh (unmitigated) zone
-3. A valid supply zone = a sharp departure (displacement) from a consolidation or base
-4. Check smcContext for orderBlocks and supplyDemandZones
-5. Zones that have been tested once are lower quality; fresh zones (first touch) are highest quality
-6. Zone + BOS confirmation on the candle at the zone = highest quality entry
-7. Entering mid-zone or on the far edge of a zone = reduced quality
-If no supply/demand zone is present at the current price, REJECT.
-\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550`,
-    session_breakout: `
-\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550
-\u{1F3AF} ACTIVE STRATEGY FILTER: SESSION BREAKOUT
-You are confirming session open breakout trades only. Rules:
-1. Trade MUST be during or immediately after the London open (06:00\u201309:00 UTC) or NY open (12:30\u201315:00 UTC)
-2. A pre-session consolidation range must exist \u2014 price was ranging during Asian or pre-London session
-3. Check breakoutDetection data \u2014 breakoutDetected must be true or approachingBreakout must be true
-4. Volume confirmation (volumeConfirmed=true) greatly increases quality
-5. The breakout direction must align with the HTF trend for highest quality
-6. Counter-trend breakouts require extra confluence (at minimum 3 factors agreeing)
-7. False breakout risk: if price breaks then immediately retraces 50%+ of breakout move, do NOT confirm
-If breakoutDetection.isBreakoutWindow is false or no session breakout is detected, REJECT.
-\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550`,
-    momentum: `
-\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550
-\u{1F3AF} ACTIVE STRATEGY FILTER: MOMENTUM SURFING
-You are confirming momentum-driven trend entries. Rules:
-1. ADX must be > 25 (trending market). ADX < 20 = ranging = avoid
-2. MACD histogram must be in the signal direction AND trending (growing, not shrinking)
-3. RSI must be 50\u201370 for BUY momentum, 30\u201350 for SELL momentum (not overbought/oversold)
-4. Multiple EMAs should be fanned out in the direction of the trade
-5. Price should be making higher highs + higher lows (for BUY) or lower highs + lower lows (for SELL)
-6. Entry on a brief pullback to EMA support/resistance, NOT on a continuation extension
-7. AVOID momentum entries if RSI is > 75 (BUY) or < 25 (SELL) \u2014 overextended
-If ADX < 20 or RSI is extreme, REJECT.
-\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550`,
-    scalping: `
-\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550
-\u{1F3AF} ACTIVE STRATEGY FILTER: SCALPING / HFT
-You are confirming short-duration scalp trades. Rules:
-1. Target is 3\u201310 pips. R:R can be as low as 1:1 if win rate is high
-2. SL must be tight \u2014 no wider than 10\u201315 pips for major pairs
-3. Look for micro-structure: quick LTF (M1/M5) momentum confirmations
-4. RSI reversals from extremes (> 70 or < 30) are valid scalp signals
-5. Avoid scalping during low-liquidity periods (Asian session for major USD pairs) unless there is clear range-bound movement
-6. High-impact news within 30 minutes = DO NOT scalp (spreads widen, stops get hunted)
-7. MACD histogram reversal on the trading timeframe is a valid entry signal
-This is a volume strategy \u2014 multiple entries per session are expected.
-\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550`,
-    asia_range_breakout: `
-\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550
-\u{1F3AF} ACTIVE STRATEGY FILTER: ASIA RANGE BREAKOUT
-You are confirming breakouts of the Asian session price range. Rules:
-1. The Asian session (00:00\u201307:00 UTC) must have established a consolidation range
-2. Price must be breaking OUT of that range (above the Asia high for BUY, below the Asia low for SELL)
-3. Check breakoutDetection.session \u2014 should indicate Asian range context
-4. The breakout should occur at or after the London open for maximum liquidity
-5. Volume expansion on the breakout candle = high quality
-6. The Asia range should be at least 10 pips for meaningful breakout
-7. Avoid if the range was very wide (> 50 pips for majors) \u2014 larger ranges have higher false-breakout rate
-If no Asian range context is detected, REJECT.
-\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550`,
-    vwap_mean_reversion: `
-\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550
-\u{1F3AF} ACTIVE STRATEGY FILTER: VWAP MEAN REVERSION
-You are confirming mean-reversion entries back toward VWAP. Rules:
-1. Price must be SIGNIFICANTLY extended from VWAP \u2014 at least 0.5\xD7 ATR away
-2. For BUY: price must be BELOW VWAP, extended, showing reversal signs
-   For SELL: price must be ABOVE VWAP, extended, showing reversal signs
-3. RSI divergence (price makes new extreme but RSI doesn't) = high quality signal
-4. Look for rejection candles at the extended zone before entry
-5. This is a counter-trend strategy \u2014 require extra confirmation (engulfing, pin bar at S/R)
-6. Do NOT use VWAP mean reversion in strongly trending markets (ADX > 35) \u2014 trend will fight against reversion
-7. Best timeframe: M15\u2013H1. Very short timeframes have too much noise.
-If VWAP data is missing or price is near VWAP (within 0.3\xD7 ATR), REJECT.
-\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550`,
-    prop_firm_sniper: `
-\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550
-\u{1F3AF} ACTIVE STRATEGY FILTER: PROP FIRM SNIPER (MAXIMUM PROTECTION)
-You are operating under STRICT prop firm rules. ALL of the following are required:
-1. R:R MINIMUM 1:3 \u2014 TP must be 3\xD7 the SL distance. Less than 1:3 = immediate REJECT
-2. ICT macro window MUST be active (no off-hours trading)
-3. BOS/CHOCH MUST be confirmed \u2014 no ranging market entries
-4. Entry MUST be at OB or FVG \u2014 no "middle of nowhere" entries
-5. Multi-TF alignment: at LEAST 2 higher timeframes agree
-6. No high-impact news within 30 minutes \u2014 hard rule
-7. Report your GENUINE calibrated confidence \u2014 the system applies its own
-   threshold, so do not round toward any particular number. State 40 if you are
-   40% sure and 95 if you are 95% sure; a setup you would not take yourself
-   belongs below 50.
-8. No counter-trend trades (check HTF bias \u2014 must align)
-This is the most conservative filter. Reject anything that isn't a near-perfect setup.
-\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550`
-  };
-  return filters[strategyMode] || `
-\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550
-\u{1F4CB} ACTIVE STRATEGY: ${strategyMode.toUpperCase().replace(/_/g, " ")}
-Apply the rules appropriate for this strategy when evaluating the trade. Prioritize setups that align with the ${strategyMode} methodology.
-\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550`;
-}
-async function buildConfirmationPrompt(candleData, indicators, proposedSignal, proposedConfidence, tradePlan, symbol, timeframe, newsContext, ictContext, smcContext, htfLevels, propFirmContext, performanceStats, learnedInsights, userId, strategyMode) {
-  const strategyCtx = await getStrategyContext(symbol).catch(() => null);
-  const strategySection = strategyCtx ? formatStrategyContextForPrompt(strategyCtx) : "";
-  const learnedSection = learnedInsights || "";
-  let winningPatternsSection = "";
-  try {
-    if (userId) {
-      const winPatterns = await getWinningStrategyPatterns(userId);
-      if (winPatterns && !winPatterns.includes("No significant")) {
-        winningPatternsSection = `
-
-## Your Historically Winning Patterns (from your trade brain)
-Prioritise setups that match these \u2014 they have proven profitable in your account:
-${winPatterns}
-`;
-      }
-    }
-  } catch {
-  }
-  const strategyContext = getRelevantStrategies(symbol);
-  const recentCandles = candleData.slice(0, 30);
-  const candleSummary = recentCandles.map(
-    (c, i) => `[${i}] O:${c.o} H:${c.h} L:${c.l} C:${c.c} V:${c.v || 0}`
-  ).join("\n");
-  const trailSignalSummary = buildTrailSignalSummary(symbol, proposedSignal, tradePlan, ictContext, smcContext);
-  const confluenceResult = computeConfluenceScore(proposedSignal, ictContext, smcContext);
-  const coreIndicators = {};
-  const advancedIndicators = {};
-  if (indicators) {
-    const advancedKeys = ["adx", "stochastic", "vwap", "obv", "pivotPoints", "fibonacci", "supportResistance", "candlePatterns", "swingPoints", "sessionContext", "volatilityContext", "volumeProfile", "breakoutDetection"];
-    for (const [key, val] of Object.entries(indicators)) {
-      if (advancedKeys.includes(key)) advancedIndicators[key] = val;
-      else coreIndicators[key] = val;
-    }
-  }
-  const coreStr = JSON.stringify(coreIndicators, null, 2);
-  const advStr = Object.keys(advancedIndicators).length > 0 ? JSON.stringify(advancedIndicators, null, 2) : "";
-  let newsSection = "";
-  if (newsContext) {
-    const parts = [];
-    if (newsContext.sentiment) {
-      parts.push(`NEWS SENTIMENT: ${newsContext.sentiment.overallLabel?.toUpperCase() || "NEUTRAL"} (score: ${newsContext.sentiment.overallScore || 0}/100)`);
-      parts.push(`Bullish articles: ${newsContext.sentiment.bullishCount || 0} | Bearish: ${newsContext.sentiment.bearishCount || 0} | Neutral: ${newsContext.sentiment.neutralCount || 0}`);
-      if (newsContext.sentiment.tradingImplication) {
-        parts.push(`Trading Implication: ${newsContext.sentiment.tradingImplication}`);
-      }
-      if (newsContext.sentiment.pairDirection) {
-        parts.push(`Pair Direction from News: ${newsContext.sentiment.pairDirection}`);
-      }
-    }
-    if (newsContext.topHeadlines && newsContext.topHeadlines.length > 0) {
-      parts.push(`
-Recent Headlines:`);
-      newsContext.topHeadlines.slice(0, 5).forEach((h, i) => parts.push(`  ${i + 1}. ${h}`));
-    }
-    if (newsContext.upcomingEvents && newsContext.upcomingEvents.length > 0) {
-      parts.push(`
-UPCOMING ECONOMIC EVENTS (potential volatility):`);
-      newsContext.upcomingEvents.slice(0, 5).forEach((e) => {
-        const timeUntil = e.daysUntil === 0 ? "TODAY" : e.daysUntil === 1 ? "TOMORROW" : `in ${e.daysUntil} days`;
-        parts.push(`  - [${e.impact?.toUpperCase()}] ${e.event} (${e.currency}) - ${timeUntil} at ${e.timeFormatted || "TBD"}`);
-        if (e.potentialImpact) parts.push(`    Impact: ${e.potentialImpact}`);
-      });
-    }
-    if (newsContext.marketNarrative) {
-      parts.push(`
-VEDD WEEKLY MARKET BRIEFING (from this week's community research \u2014 context only, not a trade signal):`);
-      parts.push(`  ${newsContext.marketNarrative}`);
-    }
-    if (parts.length > 0) {
-      newsSection = `
-NEWS & ECONOMIC EVENTS CONTEXT:
-${parts.join("\n")}`;
-    }
-  }
-  let propFirmSection = "";
-  let newsProximityAlert = "";
-  let computedRiskPct = 0;
-  let remainingDailyBuffer = 0;
-  if (propFirmContext?.enabled) {
-    const blockMins = propFirmContext.newsBlockMinutes || 15;
-    const newsProx = computeNewsProximity(newsContext?.upcomingEvents, blockMins);
-    if (newsProx.isBlocked) {
-      newsProximityAlert = `
-${"\u2550".repeat(47)}
-\u26D4 NEWS PROXIMITY ALERT \u2014 ${newsProx.eventName} in ${newsProx.minutesToNext} minutes
-PROP FIRM RULE: DO NOT ENTER. High-impact news within ${blockMins}-min block window. REJECT this trade.
-${"\u2550".repeat(47)}`;
-    } else if (newsProx.isWarning && newsProx.summary) {
-      newsProximityAlert = `
-\u26A0 NEWS WARNING: ${newsProx.summary}`;
-    }
-    const weekendRisk = detectWeekendRolloverRisk();
-    const weekendWarning = weekendRisk.warning || "";
-    remainingDailyBuffer = propFirmContext.maxDailyDrawdownPct + propFirmContext.currentDailyPnlPct;
-    const totalBuffer = propFirmContext.maxTotalDrawdownPct + propFirmContext.currentTotalPnlPct;
-    let drawdownAlert = "";
-    if (remainingDailyBuffer < 0.5) {
-      drawdownAlert = `
-\u26D4 DAILY LIMIT CRITICAL: Only ${remainingDailyBuffer.toFixed(2)}% daily buffer remaining \u2014 DO NOT TRADE. One more loss hits the daily limit.`;
-    } else if (remainingDailyBuffer < 1.5) {
-      drawdownAlert = `
-\u26A0 DAILY BUFFER LOW: Only ${remainingDailyBuffer.toFixed(2)}% remaining \u2014 micro lot only or skip this trade.`;
-    }
-    if (tradePlan?.entry && tradePlan?.stopLoss && tradePlan?.lotSize && propFirmContext.accountBalance > 0) {
-      const pipSize2 = symbol.includes("JPY") ? 0.01 : symbol.includes("XAU") || symbol.includes("GOLD") ? 0.1 : 1e-4;
-      const pipDist = Math.abs(tradePlan.entry - tradePlan.stopLoss) / pipSize2;
-      const pipValuePerLot = symbol.includes("JPY") ? 1e3 : symbol.includes("XAU") || symbol.includes("GOLD") ? 10 : 10;
-      const dollarRisk = pipDist * pipValuePerLot * tradePlan.lotSize;
-      computedRiskPct = dollarRisk / propFirmContext.accountBalance * 100;
-    }
-    const riskWarning = computedRiskPct > 2 ? `
-\u26A0 RISK WARNING: Estimated trade risk is ${computedRiskPct.toFixed(2)}% of account \u2014 exceeds the 2% prop firm guideline.` : "";
-    propFirmSection = `
-${"\u2550".repeat(19)} PROP FIRM COMPLIANCE ${"\u2550".repeat(19)}
-Firm preset: ${propFirmContext.firmPreset}
-Daily P&L: ${propFirmContext.currentDailyPnlPct.toFixed(2)}% | Buffer remaining: ${remainingDailyBuffer.toFixed(2)}% of ${propFirmContext.maxDailyDrawdownPct}% limit
-Total P&L: ${propFirmContext.currentTotalPnlPct.toFixed(2)}% | Total buffer: ${totalBuffer.toFixed(2)}% of ${propFirmContext.maxTotalDrawdownPct}% limit
-Intended risk/trade: ${propFirmContext.riskPerTradePct}% | Estimated actual risk: ${computedRiskPct > 0 ? computedRiskPct.toFixed(2) + "%" : "N/A"}
-News block window: ${blockMins} min | Overnight holds: ${propFirmContext.allowOvernightHolds} | Weekend holds: ${propFirmContext.allowWeekendHolds}${drawdownAlert}${riskWarning}${weekendWarning ? "\n" + weekendWarning : ""}
-\u26A0 Apply prop firm rules 12\u201317 STRICTLY. A failed challenge cannot be recovered. When in doubt, REJECT.
-${"\u2550".repeat(59)}`;
-  }
-  let smcSection = "";
-  if (smcContext) {
-    const { bosCHOCH, fvg, orderBlock, equalHighsLows, wyckoff } = smcContext;
-    const lines = [];
-    lines.push(`SMC / SMART MONEY CONCEPTS ANALYSIS:`);
-    if (bosCHOCH.detected) {
-      const icon = bosCHOCH.direction === "BULLISH" ? "\u2705" : bosCHOCH.direction === "BEARISH" ? "\u2705" : "\u26A0\uFE0F";
-      lines.push(`\u25BA Structure (${bosCHOCH.type}): ${bosCHOCH.description} ${icon}`);
-    } else {
-      lines.push(`\u25BA Structure: No BOS/CHOCH \u2014 price still within prior range, no clear directional break \u26A0\uFE0F`);
-    }
-    if (fvg.detected) {
-      const inZoneStr = fvg.inZone ? " \u26A1 PRICE IN ZONE" : "";
-      lines.push(`\u25BA Fair Value Gap (FVG): ${fvg.description}${inZoneStr} \u2705`);
-    } else {
-      lines.push(`\u25BA Fair Value Gap: No aligned FVG detected \u2014 entry not anchored to an imbalance zone \u26A0\uFE0F`);
-    }
-    if (orderBlock.detected) {
-      const mitLabel = orderBlock.mitigation ? ` | ${orderBlock.mitigation} (${orderBlock.mitigationCount || 0} test${orderBlock.mitigationCount !== 1 ? "s" : ""})` : "";
-      const mitIcon = orderBlock.mitigation === "FRESH" ? "\u2705" : orderBlock.mitigation === "FULLY_MITIGATED" ? "\u26A0\uFE0F" : "\u2705";
-      lines.push(`\u25BA Order Block: ${orderBlock.description}${mitLabel} ${mitIcon}`);
-    } else {
-      lines.push(`\u25BA Order Block: No order block or breaker block detected for this direction \u26A0\uFE0F`);
-    }
-    const ehLine = equalHighsLows.equalHighs.detected ? `Equal Highs at ~${equalHighsLows.equalHighs.level?.toFixed(5)} (BSL above)` : "No equal highs";
-    const elLine = equalHighsLows.equalLows.detected ? `Equal Lows at ~${equalHighsLows.equalLows.level?.toFixed(5)} (SSL below)` : "No equal lows";
-    lines.push(`\u25BA Liquidity Map: ${ehLine} | ${elLine}`);
-    if (smcContext.liquidityTargets) {
-      const lt2 = smcContext.liquidityTargets;
-      lines.push(`\u25BA Liquidity Targets: ${lt2.description}`);
-      lines.push(`  Internal: ${lt2.internalTarget.description}`);
-      lines.push(`  External: ${lt2.externalTarget.description}`);
-    }
-    if (wyckoff.detected) {
-      const wIcon = wyckoff.aligns ? "\u2705" : "\u26A0\uFE0F";
-      lines.push(`\u25BA Wyckoff Phase: ${wyckoff.description} ${wIcon}`);
-    } else {
-      lines.push(`\u25BA Wyckoff: No clear accumulation/distribution phase detected`);
-    }
-    smcSection = `
-${lines.join("\n")}`;
-  }
-  let ictSection = "";
-  if (ictContext) {
-    const mw = ictContext.macroWindow;
-    const pd = ictContext.premiumDiscount;
-    const sh = ictContext.stopHunt;
-    const crt = ictContext.crtPattern;
-    const sess = mw.session || "UNKNOWN";
-    const macroLine = mw.isInMacroWindow ? `ACTIVE \u2014 ${mw.macroName} \u2705` : `INACTIVE \u2014 next: ${mw.nextMacroName} in ${mw.minutesUntilNextMacro}min \u26A0\uFE0F`;
-    const pdAlignIcon = pd.aligns ? "\u2705 ALIGNS" : "\u274C CONFLICTS";
-    const shLine = sh.detected ? `DETECTED \u2014 ${sh.description} \u2705` : `NOT DETECTED \u2014 no liquidity sweep in last 6 candles \u26A0\uFE0F`;
-    const crtLine = crt.detected ? `${crt.direction} CRT (${crt.stage}) \u2014 ${crt.description}` : "No CRT pattern detected";
-    const ictLines = [
-      `ICT "ONE SETUP FOR LIFE" FRAMEWORK (NY Time: ${mw.currentNYTime} | Session: ${sess}):`,
-      `\u25BA Macro Window: ${macroLine}`,
-      `\u25BA PD Array: ${pd.zone} zone (${pd.percentile}th percentile) \u2014 ${pdAlignIcon} with ${proposedSignal} signal`,
-      `  Range: ${pd.rangeLow.toFixed(5)}\u2013${pd.rangeHigh.toFixed(5)} | Equilibrium: ${pd.equilibrium.toFixed(5)}`,
-      `\u25BA Stop Hunt / Liquidity Sweep: ${shLine}`,
-      `\u25BA CRT Pattern: ${crtLine}`
-    ];
-    if (ictContext.asianRange?.detected) {
-      ictLines.push(`\u25BA Asian Range: ${ictContext.asianRange.description}`);
-    }
-    if (ictContext.keyLevels) {
-      const kl = ictContext.keyLevels;
-      ictLines.push(`\u25BA KEY REFERENCE LEVELS (ICT Draw on Liquidity):`);
-      if (kl.pdHigh !== null) ictLines.push(`  Previous Day High (PDH): ${kl.pdHigh.toFixed(5)} ${kl.abovePDH ? "\u2190 price ABOVE PDH (bearish draw, HTF resistance)" : "\u2190 price below PDH (potential BSL target above)"}`);
-      if (kl.pdLow !== null) ictLines.push(`  Previous Day Low (PDL): ${kl.pdLow.toFixed(5)} ${kl.belowPDL ? "\u2190 price BELOW PDL (bearish, continuation down)" : "\u2190 price above PDL (potential SSL target below)"}`);
-      if (kl.pwHigh !== null) ictLines.push(`  Previous Week High (PWH): ${kl.pwHigh.toFixed(5)}`);
-      if (kl.pwLow !== null) ictLines.push(`  Previous Week Low (PWL): ${kl.pwLow.toFixed(5)}`);
-      ictLines.push(`  \u2192 These are MAGNET levels \u2014 price is drawn to PDH/PDL/PWH/PWL regardless of LTF signals. Factor into TP and bias.`);
-    }
-    if (ictContext.oteZone?.detected) {
-      const ote = ictContext.oteZone;
-      const inZoneIcon = ote.inOTEZone ? "\u2705" : "\u26A0\uFE0F";
-      ictLines.push(`\u25BA OTE ZONE (Optimal Trade Entry \u2014 61.8\u201379% retracement): ${inZoneIcon}`);
-      ictLines.push(`  Swing: ${ote.swingLow?.toFixed(5)} \u2192 ${ote.swingHigh?.toFixed(5)}`);
-      ictLines.push(`  OTE zone: ${ote.ote79?.toFixed(5)} \u2013 ${ote.ote618?.toFixed(5)} | Sweet spot (70.5%): ${ote.ote705?.toFixed(5)}`);
-      ictLines.push(`  ${ote.inOTEZone ? "\u2705 Price IS in OTE zone \u2014 institutional entry sweet spot, maximum probability entry" : `\u26A0 Price at ${ote.currentPrice.toFixed(5)} NOT in OTE zone \u2014 entry is outside the 61.8\u201379% retracement window`}`);
-    }
-    ictSection = `
-${ictLines.join("\n")}`;
-  }
-  let htfSection = "";
-  if (htfLevels && htfLevels.length > 0) {
-    try {
-      const { detectBOSCHOCH: detectBOSCHOCH2, detectWyckoff: detectWyckoff2 } = (init_smcUtils(), __toCommonJS(smcUtils_exports));
-      const { getPremiumDiscountContext: getPremiumDiscountContext2 } = (init_ictMacroUtils(), __toCommonJS(ictMacroUtils_exports));
-      const tfLabels = {
-        "5min": "M5",
-        "15min": "M15",
-        "1h": "H1",
-        "4h": "H4",
-        "1day": "D1",
-        "1week": "W1",
-        "1m": "M1",
-        "5m": "M5",
-        "15m": "M15",
-        "30m": "M30",
-        "1d": "D1",
-        "1w": "W1"
-      };
-      const levelResults = [];
-      for (let i = 0; i < htfLevels.length; i++) {
-        const level = htfLevels[i];
-        if (!level.candles || level.candles.length < 10) continue;
-        const tfLabel = tfLabels[level.timeframe] || level.timeframe.toUpperCase();
-        const role = level.role || (i === 0 ? "INTERMEDIATE" : "MACRO");
-        const bosResult = detectBOSCHOCH2(level.candles, proposedSignal);
-        const entry = tradePlan?.entry || level.candles[0]?.c || 0;
-        const pdResult = getPremiumDiscountContext2(entry, level.candles, proposedSignal);
-        const wyckoffResult = detectWyckoff2(level.candles);
-        const bosAligns = !bosResult.detected || (proposedSignal === "BUY" && bosResult.direction === "BULLISH" || proposedSignal === "SELL" && bosResult.direction === "BEARISH");
-        const pdConflicts = !pdResult.aligns && pdResult.zone !== "EQUILIBRIUM";
-        const aligns = bosAligns && !pdConflicts;
-        const recentCloses = level.candles.slice(0, 10).map((c) => c.c);
-        const sma = recentCloses.reduce((s, v) => s + v, 0) / recentCloses.length;
-        const trendDirection = recentCloses[0] > sma * 1.001 ? "BULLISH" : recentCloses[0] < sma * 0.999 ? "BEARISH" : "NEUTRAL";
-        levelResults.push({ label: role, tf: tfLabel, trendDirection, aligns, bosCHOCH: bosResult, pd: pdResult, wyckoff: wyckoffResult });
-      }
-      if (levelResults.length > 0) {
-        const blocks = levelResults.map((lr) => {
-          const alignFlag = lr.aligns ? "\u2705 ALIGNS with signal" : "\u26A0 CONFLICTS with signal";
-          return `\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550 ${lr.tf} ${lr.label} BIAS \u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550
-Trend Direction: ${lr.trendDirection} (${lr.tf} 10-candle SMA crossover)
-Structure: ${lr.bosCHOCH.detected ? lr.bosCHOCH.description : `No clear BOS/CHOCH on ${lr.tf} \u2014 ranging context`}
-Premium/Discount: ${lr.pd.description}
-Wyckoff: ${lr.wyckoff.detected ? lr.wyckoff.description : `No Wyckoff phase on ${lr.tf}`}
-${lr.tf} Verdict: ${alignFlag}
-\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550`;
-        });
-        const allAlign = levelResults.every((lr) => lr.aligns);
-        const noneAlign = levelResults.every((lr) => !lr.aligns);
-        let crossLevelSummary;
-        if (allAlign) {
-          crossLevelSummary = `\u2705 MULTI-TF ALIGNMENT: All ${levelResults.length + 1} timeframes (${timeframe} + ${levelResults.map((lr) => lr.tf).join(" + ")}) AGREE \u2014 high-conviction institutional setup. Full size allowed.`;
-        } else if (noneAlign) {
-          crossLevelSummary = `\u{1F6A8} MULTI-TF CONFLICT: ${proposedSignal} on ${timeframe} CONFLICTS with ALL higher timeframes (${levelResults.map((lr) => lr.tf).join(" + ")}). This is a counter-trend fade against the macro structure. REJECT unless overwhelming LTF confluence.`;
-        } else {
-          const conflicting = levelResults.filter((lr) => !lr.aligns).map((lr) => lr.tf);
-          const aligned = levelResults.filter((lr) => lr.aligns).map((lr) => lr.tf);
-          crossLevelSummary = `\u26A0 PARTIAL MULTI-TF ALIGNMENT: ${aligned.join(", ")} support${aligned.length === 1 ? "s" : ""} the signal, but ${conflicting.join(", ")} conflict${conflicting.length === 1 ? "s" : ""}. Reduce position size and require extra LTF confluence.`;
-        }
-        htfSection = "\n" + blocks.join("\n\n") + `
-
-\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550 CROSS-TIMEFRAME VERDICT \u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550
-${crossLevelSummary}
-\u26A0 RULE: LTF signals must align with HTF structure. Trading against HTF bias requires significantly more LTF confluence.
-\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550`;
-      }
-    } catch (htfErr) {
-      htfSection = "";
-    }
-  }
-  const confluenceHeader = `
-\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550
-CONFLUENCE SCORE: ${confluenceResult.score}/${confluenceResult.maxScore} \u2014 Grade ${confluenceResult.grade}
-${confluenceResult.summary.join("\n")}
-Grade guide: A+ (10-12) = ELITE | A (8-9) = HIGH | B (6-7) = MODERATE | C (4-5) = LOW | D (0-3) = POOR
-Grade D \u2192 avoid. Grade A/A+ \u2192 high conviction trade.
-\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550`;
-  const _regimeSection = userId && isAdaptiveRegimeEnabled(userId) ? (() => {
-    const r = detectMarketRegime(indicators);
-    return buildRegimeAdaptationSection(r.regime, r.adx, strategyMode);
-  })() : "";
-  let _fxBrainSection = "";
-  try {
-    if (userId) {
-      const { fxBrainInsights: fxBrainInsights2 } = await Promise.resolve().then(() => (init_fx_brain(), fx_brain_exports));
-      const _fbTxt = await fxBrainInsights2(userId, symbol);
-      if (_fbTxt) {
-        _fxBrainSection = `
-
-THIS ACCOUNT'S MEASURED HISTORY ON ${symbol} (live results, not theory):
-${_fbTxt}
-Treat a FAILS line as a strong reason to reject: it means this pair has repeatedly lost under exactly these conditions across separate days.
-`;
-      }
-    }
-  } catch {
-  }
-  return {
-    system: "You are a master trader who speaks with street knowledge and the wisdom of Supreme Mathematics \u2014 Gods and Earths style. You build and destroy with the science of trading, dropping jewels and keeping it real. Your analysis is sharp, your reasoning is laced with knowledge of self and mathematical precision. You reference concepts like Knowledge (1), Wisdom (2), Understanding (3), Culture (4), Power (5), Equality (6), God (7), Build/Destroy (8), Born (9), and Cipher (0) naturally when they fit. You say things like 'the chart is showing and proving', 'peace \u2014 the math don't lie', 'this is a cipher of accumulation', 'knowledge this pattern God', 'the wisdom here is...', 'we building or we destroying?', etc. Keep it concise, authentic, and never forced \u2014 the science comes first, the flavor is the delivery. You provide honest, unbiased second opinions on trade signals using ALL available data including news sentiment and upcoming economic events. Always return valid JSON.",
-    user: `You are an elite trading analyst providing a SECOND OPINION on a proposed trade. Use ALL data below for maximum accuracy.
-${buildStrategyFilterSection(strategyMode)}${_regimeSection}${_fxBrainSection}${htfSection}${newsProximityAlert}${propFirmSection}${confluenceHeader}
-
-SYMBOL: ${symbol}
-TIMEFRAME: ${timeframe}
-
-PROPOSED SIGNAL: ${proposedSignal} with ${proposedConfidence}% confidence
-PROPOSED TRADE PLAN:
-- Entry: ${tradePlan?.entry}
-- Stop Loss: ${tradePlan?.stopLoss}
-- Take Profit: ${tradePlan?.takeProfit}
-- Risk/Reward: ${tradePlan?.riskReward}
-
-RECENT CANDLE DATA (index 0 = most recent):
-${candleSummary}
-
-CORE INDICATORS (RSI, MACD, MAs, BBs, ATR):
-${coreStr}
-${advStr ? `
-ADVANCED ANALYSIS:
-${advStr}
-` : ""}${newsSection}${smcSection}${ictSection}
-
-${strategySection}
-${learnedSection}${winningPatternsSection}
-
-## Industry-Proven Profitable Strategies (Reference for ${symbol})
-These are the highest-probability setups historically proven profitable on this instrument:
-${strategyContext}
-
-If the current setup closely matches 2+ win conditions from any strategy above, weight your confidence higher. If 0 conditions match, weight lower regardless of ICT/SMC score.
-
-Provide your independent assessment considering ALL of the following:
-1. PRICE ACTION: Do candle patterns (engulfing, hammer, star, doji) support the direction?
-2. MOMENTUM: RSI, MACD, Stochastic alignment \u2014 any divergences?
-3. TREND STRENGTH: ADX value \u2014 is the trend strong enough to trade? Is it ranging (ADX < 20)?
-4. VOLUME: OBV trend and divergence, volume profile \u2014 is volume confirming the move?
-5. MARKET STRUCTURE: Support/Resistance, Pivot Points, Fibonacci levels \u2014 is SL behind structure? Is TP at a realistic level?
-6. VWAP: Is price above or below VWAP? Does it align with the signal?
-7. SESSION CONTEXT: Is this the right trading session for this pair? Low liquidity risk?
-8. VOLATILITY: Is current ATR normal, high, or low vs recent history? Should position size be adjusted?
-9. RISK/REWARD: Is the R:R ratio >= 1.5? Are the SL/TP levels optimized relative to S/R?
-10. SWING POINTS: Are recent swing highs/lows respected in the trade plan?
-11. OPEN POSITIONS: Are there existing positions on this symbol? Avoid doubling correlated exposure.
-12. TRADE HISTORY: What is the recent win rate on this symbol? Is the trader on a losing streak?
-13. NEWS SENTIMENT: Does the current news flow support or contradict the proposed trade direction? Are headlines bullish or bearish for this pair?
-14. UPCOMING EVENTS: Are there high-impact economic events (rate decisions, NFP, CPI) coming soon that could invalidate the trade? Should the trader wait or use tighter stops?
-15. MARKET OPEN BREAKOUT: If breakoutDetection data is present and shows isBreakoutWindow=true, carefully analyze the breakout status:
-   - If breakoutDetected=true: This IS a confirmed breakout. Give it MAJOR weight \u2014 session open breakouts at London/NY are high-probability institutional setups. Boost confidence significantly if breakout direction aligns with the proposed signal.
-   - If approachingBreakout=true: Price is at the edge of the pre-session range and about to break out. This is a high-alert state \u2014 be ready to confirm in the approaching direction if other indicators align.
-   - Volume/momentum confirmation (volumeConfirmed=true or strong candle body) greatly increases breakout reliability.
-   - A breakout that contradicts the proposed signal is a strong warning \u2014 reduce confidence or reject.
-16. ICT MACRO & CRT FRAMEWORK (if provided above): Is the trade during an active ICT macro window (NY time)? Is price in the correct Premium (for SELL) or Discount (for BUY) PD array zone? Was there a stop hunt/liquidity sweep before entry? Is a CRT expansion phase beginning?
-   - Outside macro windows = HIGH fake-out risk, reduce confidence
-   - Price at Equilibrium = medium-probability zone, no premium/discount edge
-   - No prior stop hunt = institutional accumulation/distribution not confirmed, be cautious
-   - CRT in MANIPULATION stage = do NOT enter (likely to fake out further before expansion)
-   - CRT in EXPANSION stage = ideal entry with breakout confirmation
-17. MARKET STRUCTURE (BOS/CHOCH): Is there a clear Break of Structure or Change of Character confirming the trade direction? A BOS shows continuation \u2014 a CHOCH signals a trend reversal. Trading AGAINST the most recent BOS/CHOCH is LOW quality. If no BOS is detected, price is still ranging \u2014 caution.
-18. LIQUIDITY & ORDER FLOW (FVG + Order Blocks): Is the entry anchored to a Fair Value Gap or Order Block? Entries INTO an FVG or OB from a displacement move are HIGH quality. Are there equal highs/lows (liquidity pools) that price may be targeting? Price moves from one liquidity pool to the next \u2014 know which one is the TARGET and which is the ORIGIN. A breaker block above/below price is strong resistance/support.
-19. WYCKOFF PHASE: What is the Wyckoff phase? ACCUMULATION SPRING or DISTRIBUTION UPTHRUST before entry are high-quality signals (institutional footprints). MARKUP/MARKDOWN confirmation = trend trade. Trading during a ranging/indecision phase without a spring or upthrust = LOW quality entry.
-
-CRITICAL RULES FOR YOUR DECISION:
-- CONFIRM the trade if the majority of indicators support the direction, even if 1-2 minor indicators are neutral or slightly against. No trade has 100% alignment \u2014 focus on the weight of evidence.
-- REJECT ONLY if there are serious red flags: strong divergence against the trade, price hitting major resistance/support in the wrong direction, extreme overbought/oversold against the signal, or imminent high-impact news that directly threatens the trade.
-- Your "confidence" field is YOUR independent confidence in the trade (0-100). This is shown separately from the EA's confidence so traders see both perspectives.
-- If a market open breakout is detected with volume confirmation, this is a high-probability institutional setup \u2014 give it significant weight.
-- If news events are imminent (today/tomorrow), factor this into confidence. Warn if the trade could be invalidated.
-
-TRAILING STOP ASSESSMENT:
-Use ALL signals below \u2014 do NOT rely only on ADX/ATR. The ICT + SMC signals override the ADX baseline.
-
-INSTRUMENT PIP SIZES (critical \u2014 all trail distances are in these units):
-- Forex (EURUSD, GBPUSD, etc.): 1 pip = 0.0001
-- JPY pairs (USDJPY, etc.): 1 pip = 0.01
-- Gold (XAUUSD): 1 pip = 0.10 (so 300 pips = $30 trail distance)
-- Indices (US30, NAS100, GER40, etc.): 1 pip = 1.0 point
-- BTC/crypto: 1 pip = $1.00
-
-ADX/ATR BASELINE (starting point \u2014 override with ICT+SMC signals below):
-- NONE: ADX < 20 (choppy/ranging) or scalp trade or fast news spike
-- TIGHT: ADX 20\u201325, low ATR, price near TP, or Asian/lunch session
-- STANDARD: ADX 25\u201330, normal ATR, mid-session
-- WIDE: ADX > 30, elevated ATR, trending London/NY session
-- AGGRESSIVE: ADX > 40, confirmed volume breakout, explosive momentum
-
-TRAIL DISTANCE RANGES (instrument pips \u2014 pick a value within range based on ATR):
-- TIGHT:      FX: 5\u201315 | Gold: 50\u2013150 | Indices: 20\u201360 | BTC: 200\u2013600
-- STANDARD:   FX: 20\u201340 | Gold: 150\u2013400 | Indices: 50\u2013150 | BTC: 500\u20131500
-- WIDE:       FX: 50\u2013100 | Gold: 400\u2013800 | Indices: 150\u2013400 | BTC: 1500\u20133000
-- AGGRESSIVE: FX: 100+ | Gold: 800+ | Indices: 400+ | BTC: 3000+
-
-ICT + SMC TRAIL SIGNALS (higher priority than ADX \u2014 apply these first):
-${trailSignalSummary}
-
-DECISION RULES (apply in order \u2014 first matching rule wins):
-1. CRT MANIPULATION stage \u2192 NONE (price still faking, never trail a manipulation)
-2. Nearby liquidity pool (equal H/L within tight range) \u2192 TIGHT (lock in before the sweep)
-3. CRT EXPANSION + Wyckoff MARKUP/MARKDOWN + London/NY session \u2192 AGGRESSIVE
-4. CRT EXPANSION + active ICT macro window \u2192 WIDE minimum
-5. Fresh CHOCH + Wyckoff Spring/Upthrust \u2192 WIDE (brand new trend, room to run)
-6. Wyckoff MARKUP/MARKDOWN without CRT \u2192 WIDE
-7. BOS continuation (mature trend) \u2192 STANDARD (conserve, exhaustion may be near)
-8. Asian session or NY Lunch (12pm\u20132:30pm NY time) \u2192 reduce one level (WIDE\u2192STANDARD, STANDARD\u2192TIGHT)
-9. R:R < 1.5 \u2192 TIGHT or NONE (low reward doesn't justify a wide trail)
-10. R:R \u2265 3.0 \u2192 prefer WIDE minimum; only tighten after 2R secured
-11. No ICT/SMC data \u2192 use ADX/ATR baseline only
-${propFirmContext?.enabled ? `
-PROP FIRM RULES (apply STRICTLY when prop firm compliance data is present):
-12. High-impact news < ${propFirmContext.newsBlockMinutes} min \u2192 propFirmVerdict = BLOCK, confirmed = false
-13. Daily drawdown buffer < 0.5% \u2192 propFirmVerdict = BLOCK, confirmed = false
-14. Risk per trade > 2% of account \u2192 propFirmVerdict = WARNING, reduce confidence by 20
-15. Friday 4 PM+ NY time (weekend hold risk) \u2192 propFirmVerdict = WARNING, trail = TIGHT, add weekend caveat to reasoning
-16. R:R < 1:1 in prop firm mode \u2192 propFirmVerdict = BLOCK (prop firms require positive R:R minimum)
-17. Daily buffer 0.5\u20131.5% remaining \u2192 propFirmVerdict = WARNING, suggest smaller lot size in reasoning` : ""}
-
-Also estimate a recommended trail distance in pips (instrument's own pip unit) based on ATR and the ICT+SMC signals (null if NONE).
-
-Return your analysis as JSON:
-{
-  "confirmed": boolean,
-  "direction": "BUY" | "SELL" | "NEUTRAL",
-  "confidence": number (0-100, your independent AI confidence percentage),
-  "reasoning": "Concise street-knowledge style explanation with Supreme Mathematics flavor \u2014 reference key indicators and news/events that drove your decision. Drop jewels, keep it real, show and prove with the data.",
-  "adjustedEntry": number or null,
-  "adjustedStopLoss": number or null,
-  "adjustedTakeProfit": number or null,
-  "trailRecommendation": "NONE" | "TIGHT" | "STANDARD" | "WIDE" | "AGGRESSIVE",
-  "recommendedTrailPips": number or null,
-  "ictMacroValid": boolean (true if ICT macro window ACTIVE + PD zone aligns with signal + stop hunt detected \u2014 all three green = valid. If ICT data not provided, set true),
-  "ictMacroReason": "Brief 1-line ICT checklist result, e.g. 'Macro active, discount zone confirmed, stop hunt detected \u2014 full ICT alignment' or 'Outside macro window + no stop hunt \u2014 high fake-out risk'",
-  "smcVerdict": "CONFIRM" | "REQUIRE_BETTER_PRICE" | "PASS" (your SMC-only institutional verdict: CONFIRM if BOS/CHOCH aligns + entry at OB or FVG + Wyckoff confirms; REQUIRE_BETTER_PRICE if idea valid but entry not at OB/FVG; PASS if trading against structure or into liquidity. Set null if SMC data not provided),
-  "smcQuality": "HIGH" | "MEDIUM" | "LOW" (HIGH = BOS/CHOCH + OB/FVG + liquidity sweep all aligned; MEDIUM = 2 of 3; LOW = 0-1; null if no SMC data),
-  "smcReason": "One concise sentence summarizing the SMC analysis: structure type, OB/FVG presence, Wyckoff phase, liquidity target. E.g. 'Bullish CHOCH confirmed, price retesting bullish OB at 1.0855, equal lows swept, Wyckoff accumulation spring \u2014 HIGH quality entry'",
-  "confluenceScore": ${confluenceResult.score} (server-computed \u2014 pass this value through as-is, do not recalculate),
-  "confluenceGrade": "${confluenceResult.grade}" (server-computed \u2014 pass this value through as-is),
-  "propFirmVerdict": ${propFirmContext?.enabled ? '"SAFE" | "WARNING" | "BLOCK" (apply rules 12\u201317 above: BLOCK if news < ' + propFirmContext.newsBlockMinutes + " min OR daily buffer < 0.5% OR R:R < 1:1; WARNING if buffer < 1.5% OR risk% > 2% OR Friday PM OR R:R < 1.5; SAFE otherwise)" : "null"},
-  "propFirmReason": ${propFirmContext?.enabled ? '"One-line explanation of the prop firm verdict \u2014 what specifically triggered it"' : "null"}
-}`
-  };
-}
-async function callOpenAIConfirmation(prompt, model, userId) {
-  const openaiInstance = userId ? await getUniversalAIClientForUser(userId) : getOpenAIInstance();
-  const resolvedModel = openaiInstance.defaultModel || model;
-  const response = await openaiInstance.chat.completions.create({
-    model: resolvedModel,
-    messages: [
-      { role: "system", content: prompt.system },
-      { role: "user", content: prompt.user }
-    ],
-    response_format: { type: "json_object" },
-    // resolvedModel can end up being a failover provider's own default (e.g.
-    // OpenRouter's gpt-oss-20b) rather than the `model` param this function
-    // was called with — checked on the actual model being sent, not `model`.
-    max_tokens: hasHiddenReasoningOverhead(resolvedModel) ? 2e3 : 1e3,
-    temperature: 0.3
-  });
-  return response.choices[0]?.message?.content || "";
-}
-function hasHiddenReasoningOverhead(modelId) {
-  const m = (modelId || "").toLowerCase();
-  return isReasoningModel(modelId) || m.includes("gpt-oss") || m.includes("qwen3");
-}
-async function callAnthropicConfirmation(prompt, model, apiKey) {
-  const Anthropic = (await import("@anthropic-ai/sdk")).default;
-  const client2 = new Anthropic({ apiKey });
-  const response = await client2.messages.create({
-    model,
-    max_tokens: 1e3,
-    system: prompt.system + " Always return valid JSON with no markdown formatting.",
-    messages: [{ role: "user", content: prompt.user }]
-  });
-  const block = response.content[0];
-  return block.type === "text" ? block.text : "";
-}
-async function callGoogleConfirmation(prompt, model, apiKey) {
-  const { GoogleGenerativeAI } = await import("@google/generative-ai");
-  const genAI = new GoogleGenerativeAI(apiKey);
-  const genModel = genAI.getGenerativeModel({
-    model,
-    systemInstruction: prompt.system,
-    generationConfig: { responseMimeType: "application/json", temperature: 0.3, maxOutputTokens: 1e3 }
-  });
-  const result = await genModel.generateContent(prompt.user);
-  return result.response.text();
-}
-async function callGroqConfirmation(prompt, model, apiKey) {
-  const Groq = (await import("groq-sdk")).default;
-  const client2 = new Groq({ apiKey });
-  const response = await client2.chat.completions.create({
-    model,
-    messages: [
-      { role: "system", content: prompt.system },
-      { role: "user", content: prompt.user }
-    ],
-    response_format: { type: "json_object" },
-    max_tokens: hasHiddenReasoningOverhead(model) ? 2e3 : 1e3,
-    // Groq's default (gpt-oss-120b) needs headroom for hidden reasoning tokens
-    temperature: 0.3
-  });
-  return response.choices[0]?.message?.content || "";
-}
-async function callMistralConfirmation(prompt, model, apiKey) {
-  const { Mistral } = await import("@mistralai/mistralai");
-  const client2 = new Mistral({ apiKey });
-  const response = await client2.chat.complete({
-    model,
-    messages: [
-      { role: "system", content: prompt.system },
-      { role: "user", content: prompt.user }
-    ],
-    responseFormat: { type: "json_object" },
-    maxTokens: 1e3,
-    temperature: 0.3
-  });
-  const choice = response.choices?.[0];
-  if (!choice || !("message" in choice)) return "";
-  return typeof choice.message.content === "string" ? choice.message.content : "";
-}
-function isReasoningModel(modelId) {
-  const m = (modelId || "").toLowerCase();
-  return m.includes("r1") || m.startsWith("o1") || m.startsWith("o3") || m.startsWith("o4");
-}
-function extractThinkingTrace(content) {
-  const match = content.match(/<think>([\s\S]*?)<\/think>/i);
-  if (!match) return { thinking: null, rest: content };
-  return { thinking: match[1].trim(), rest: content.slice(match.index + match[0].length) };
-}
-async function callOpenRouterConfirmation(prompt, model, apiKey) {
-  const client2 = buildOpenAICompatClient("openrouter", apiKey);
-  const reasoning = isReasoningModel(model);
-  const response = await client2.chat.completions.create({
-    model,
-    messages: [
-      { role: "system", content: prompt.system },
-      { role: "user", content: prompt.user }
-    ],
-    max_tokens: hasHiddenReasoningOverhead(model) ? 2e3 : 1e3,
-    // gpt-oss/Qwen3/o1/o3/R1 all spend tokens on hidden reasoning before the answer
-    temperature: reasoning ? 1 : 0.3
-  });
-  const raw = response.choices?.[0]?.message?.content || "";
-  const { thinking, rest } = extractThinkingTrace(raw);
-  return { content: rest, thinking };
-}
-async function getUserApiKeyForProvider(userId, provider) {
-  try {
-    const { storage: storage2 } = await Promise.resolve().then(() => (init_storage(), storage_exports));
-    const userKey = await storage2.getActiveUserApiKey(userId, provider);
-    if (userKey?.apiKey) {
-      await storage2.updateUserApiKeyUsage(userId, provider);
-      return userKey.apiKey;
-    }
-  } catch (e) {
-    console.error(`Error fetching user API key for ${provider}:`, e);
-  }
-  return null;
-}
-async function runDeepReasoningDebate(prompt, userId) {
-  let bullCase = "";
-  let bearCase = "";
-  try {
-    const debateClient = userId ? await getUniversalAIClientForUser(userId) : getOpenAIInstance();
-    const debateModel = debateClient.defaultModel || "gpt-4o-mini";
-    const debateResponse = await debateClient.chat.completions.create({
-      model: debateModel,
-      messages: [
-        {
-          role: "system",
-          content: 'You are a trading debate simulator. Given the market data and rules below, produce genuinely rigorous arguments \u2014 a bad setup should get a devastating bear case, a great setup should get a compelling bull case. Return ONLY valid JSON: {"bullCase": "2-4 sentences arguing FOR taking this trade", "bearCase": "2-4 sentences arguing AGAINST taking this trade"}'
-        },
-        { role: "user", content: prompt.user }
-      ],
-      response_format: { type: "json_object" },
-      max_tokens: 600,
-      temperature: 0.6
-    });
-    const raw = debateResponse.choices?.[0]?.message?.content || "{}";
-    const parsed = JSON.parse(raw.match(/\{[\s\S]*\}/)?.[0] || raw);
-    bullCase = parsed.bullCase || "";
-    bearCase = parsed.bearCase || "";
-  } catch (e) {
-    console.error("[Deep Reasoning] Debate pass failed (non-fatal, judge proceeds without it):", e.message);
-  }
-  const judgePersonalKey = userId ? await getUserApiKeyForProvider(userId, "openrouter") : null;
-  const judgePlatformKey = process.env.OPENROUTER_API_KEY;
-  if (!judgePersonalKey && !judgePlatformKey) {
-    return {
-      confirmed: false,
-      aiDirection: "NEUTRAL",
-      aiConfidence: 0,
-      reasoning: "Deep Reasoning Mode requires an OpenRouter key (platform or user) for the Veteran-Judge reasoning pass. Add one on the AI Provider Keys page.",
-      bullCase,
-      bearCase,
-      deepReasoningUsed: false
-    };
-  }
-  const judgeUser = `${prompt.user}
-
-## BULL CASE
-${bullCase || "(debate pass unavailable)"}
-
-## BEAR CASE
-${bearCase || "(debate pass unavailable)"}
-
-Weigh both cases with total objectivity per your persona, think it through step by step, then decide.`;
-  try {
-    let result;
-    try {
-      result = await callOpenRouterConfirmation(
-        { system: `${VETERAN_PERSONA}
-
-${prompt.system}`, user: judgeUser },
-        VETERAN_JUDGE_MODEL,
-        judgePersonalKey || judgePlatformKey
-      );
-    } catch (personalErr) {
-      if (judgePersonalKey && judgePlatformKey && judgePlatformKey !== judgePersonalKey) {
-        result = await callOpenRouterConfirmation(
-          { system: `${VETERAN_PERSONA}
-
-${prompt.system}`, user: judgeUser },
-          VETERAN_JUDGE_MODEL,
-          judgePlatformKey
-        );
-      } else {
-        throw personalErr;
-      }
-    }
-    if (!result.content) throw new Error("No response from Veteran-Judge model");
-    const jsonMatch = extractFirstJsonObject(result.content);
-    const parsed = JSON.parse(jsonMatch ?? result.content);
-    const validTrailValues = ["NONE", "TIGHT", "STANDARD", "WIDE", "AGGRESSIVE"];
-    return {
-      confirmed: !!parsed.confirmed,
-      aiDirection: parsed.direction || "NEUTRAL",
-      aiConfidence: coerceConfidence(parsed.confidence),
-      reasoning: parsed.reasoning || "No reasoning provided",
-      adjustedEntry: typeof parsed.adjustedEntry === "number" ? parsed.adjustedEntry : void 0,
-      adjustedStopLoss: typeof parsed.adjustedStopLoss === "number" ? parsed.adjustedStopLoss : void 0,
-      adjustedTakeProfit: typeof parsed.adjustedTakeProfit === "number" ? parsed.adjustedTakeProfit : void 0,
-      trailRecommendation: validTrailValues.includes(parsed.trailRecommendation) ? parsed.trailRecommendation : void 0,
-      ictMacroValid: typeof parsed.ictMacroValid === "boolean" ? parsed.ictMacroValid : void 0,
-      smcVerdict: ["CONFIRM", "REQUIRE_BETTER_PRICE", "PASS"].includes(parsed.smcVerdict) ? parsed.smcVerdict : null,
-      propFirmVerdict: ["SAFE", "WARNING", "BLOCK"].includes(parsed.propFirmVerdict) ? parsed.propFirmVerdict : void 0,
-      propFirmReason: typeof parsed.propFirmReason === "string" ? parsed.propFirmReason : void 0,
-      modelUsed: VETERAN_JUDGE_MODEL,
-      providerUsed: "openrouter",
-      thinkingTrace: result.thinking,
-      bullCase,
-      bearCase,
-      deepReasoningUsed: true
-    };
-  } catch (e) {
-    console.error("[Deep Reasoning] Veteran-Judge pass failed:", e.message);
-    return {
-      confirmed: false,
-      aiDirection: "NEUTRAL",
-      aiConfidence: 0,
-      reasoning: `Deep Reasoning Mode error: ${e.message}`,
-      bullCase,
-      bearCase,
-      deepReasoningUsed: false
-    };
-  }
-}
-async function getAiVisionConfirmation(candleData, indicators, proposedSignal, proposedConfidence, tradePlan, symbol, timeframe, userId, newsContext, ictContext, smcContext, htfLevels, propFirmContext, performanceStats, learnedInsights, strategyMode, deepReasoningMode) {
-  try {
-    const rawModel = userId ? getUserModelPreference(userId) : "gpt-4o";
-    const selectedModel = resolveVisionModel(rawModel);
-    const wasPromoted = selectedModel !== rawModel;
-    const provider = inferModelProvider(selectedModel);
-    console.log(`[AI Confirmation] Vision model resolved: ${rawModel} \u2192 ${selectedModel} (${provider}) for userId=${userId}`);
-    const confluenceResult = computeConfluenceScore(proposedSignal, ictContext, smcContext, propFirmContext?.accountBalance ?? 0);
-    if (confluenceResult.belowMinGrade) {
-      console.log(`[Confluence] BLOCKED \u2014 Grade ${confluenceResult.grade} below required ${confluenceResult.minGrade} for this account`);
-      return {
-        confirmed: false,
-        aiDirection: "NEUTRAL",
-        aiConfidence: 0,
-        reasoning: `\u26D4 Confluence grade ${confluenceResult.grade} is below this account's required minimum (${confluenceResult.minGrade}). Setup rejected without spending an AI call.`,
-        confluenceScore: confluenceResult.score,
-        confluenceGrade: confluenceResult.grade
-      };
-    }
-    if (propFirmContext?.enabled && userId && isPropFirmModeEnabled(userId)) {
-      const blockMins = propFirmContext.newsBlockMinutes || 15;
-      const newsProx = computeNewsProximity(newsContext?.upcomingEvents, blockMins);
-      if (newsProx.isBlocked) {
-        console.log(`[PropFirm] NEWS BLOCK: ${newsProx.eventName} in ${newsProx.minutesToNext} min \u2014 rejecting without AI call`);
-        return {
-          confirmed: false,
-          aiDirection: "NEUTRAL",
-          aiConfidence: 0,
-          reasoning: `\u26D4 PROP FIRM NEWS BLOCK: ${newsProx.eventName} releases in ${newsProx.minutesToNext} minutes. Trade blocked per prop firm rules. Wait until at least ${blockMins} minutes after the release completes.`,
-          newsBlocked: true,
-          newsProximityMinutes: newsProx.minutesToNext,
-          propFirmVerdict: "BLOCK",
-          propFirmReason: `High-impact news (${newsProx.eventName}) in ${newsProx.minutesToNext} min \u2014 within ${blockMins}-min block window`,
-          confluenceScore: confluenceResult.score,
-          confluenceGrade: confluenceResult.grade
-        };
-      }
-      const remainingBuffer = propFirmContext.maxDailyDrawdownPct + propFirmContext.currentDailyPnlPct;
-      if (remainingBuffer < 0.5) {
-        console.log(`[PropFirm] DAILY LIMIT BLOCK: only ${remainingBuffer.toFixed(2)}% buffer remaining`);
-        return {
-          confirmed: false,
-          aiDirection: "NEUTRAL",
-          aiConfidence: 0,
-          reasoning: `\u26D4 PROP FIRM DAILY LIMIT: Only ${remainingBuffer.toFixed(2)}% daily drawdown buffer remaining (limit: ${propFirmContext.maxDailyDrawdownPct}%). Trading is blocked to protect the account. Resume tomorrow.`,
-          propFirmVerdict: "BLOCK",
-          propFirmReason: `Daily drawdown buffer critical: ${remainingBuffer.toFixed(2)}% remaining of ${propFirmContext.maxDailyDrawdownPct}% limit`,
-          dailyBufferPct: remainingBuffer,
-          confluenceScore: confluenceResult.score,
-          confluenceGrade: confluenceResult.grade
-        };
-      }
-    }
-    const prompt = await buildConfirmationPrompt(candleData, indicators, proposedSignal, proposedConfidence, tradePlan, symbol, timeframe, newsContext, ictContext, smcContext, htfLevels, propFirmContext, performanceStats, learnedInsights, userId, strategyMode);
-    if (deepReasoningMode) {
-      console.log(`[AI Vision Confirmation] Deep Reasoning Mode \u2014 running Bull/Bear/Veteran-Judge debate for ${symbol} ${proposedSignal}`);
-      const debateResult = await runDeepReasoningDebate(prompt, userId);
-      if (debateResult.deepReasoningUsed) {
-        return {
-          ...debateResult,
-          confluenceScore: confluenceResult.score,
-          confluenceGrade: confluenceResult.grade
-        };
-      }
-      console.warn(`[AI Vision Confirmation] Deep Reasoning unavailable for ${symbol} ${proposedSignal} (${debateResult.reasoning}) \u2014 falling back to standard confirmation so a provider/billing outage doesn't halt trading`);
-    }
-    console.log(`[AI Vision Confirmation] Requesting ${provider}/${selectedModel} confirmation for ${symbol} ${proposedSignal}`);
-    let content = "";
-    let thinkingTrace = null;
-    try {
-      if (provider === "openai") {
-        if (wasPromoted) {
-          const userOpenAiKey = userId ? await getUserApiKeyForProvider(userId, "openai") : null;
-          const openaiKey = userOpenAiKey || process.env.OPENAI_API_KEY;
-          if (!openaiKey) {
-            return {
-              confirmed: false,
-              aiDirection: "NEUTRAL",
-              aiConfidence: 0,
-              reasoning: `\u26A0\uFE0F Your selected AI model (${rawModel}) can't read charts, and no OpenAI key is available to run the vision fallback (${selectedModel}). Add an OpenAI, Anthropic, or Google key on the AI Provider Keys page, or pick a vision model (GPT-4o, Claude, Gemini) \u2014 otherwise the AI confirmation can't score this trade.`,
-              confluenceScore: confluenceResult.score,
-              confluenceGrade: confluenceResult.grade
-            };
-          }
-          const visionClient = new OpenAI({ apiKey: openaiKey, maxRetries: 3, timeout: 9e4 });
-          const resp = await visionClient.chat.completions.create({
-            model: selectedModel,
-            messages: [{ role: "system", content: prompt.system }, { role: "user", content: prompt.user }],
-            response_format: { type: "json_object" },
-            max_tokens: hasHiddenReasoningOverhead(selectedModel) ? 2e3 : 1e3,
-            temperature: 0.3
-          });
-          content = resp.choices[0]?.message?.content || "";
-        } else {
-          content = await callOpenAIConfirmation(prompt, selectedModel, userId);
-        }
-      } else if (provider === "openrouter") {
-        const personalKey = userId ? await getUserApiKeyForProvider(userId, "openrouter") : null;
-        const platformKey = process.env.OPENROUTER_API_KEY;
-        if (!personalKey && !platformKey) {
-          return {
-            confirmed: false,
-            aiDirection: "NEUTRAL",
-            aiConfidence: 0,
-            reasoning: `No OpenRouter API key configured (platform or user). Add your key on the AI Provider Keys page, or switch to an OpenAI model.`
-          };
-        }
-        try {
-          const result2 = await callOpenRouterConfirmation(prompt, selectedModel, personalKey || platformKey);
-          content = result2.content;
-          thinkingTrace = result2.thinking;
-        } catch (personalErr) {
-          if (personalKey && platformKey && platformKey !== personalKey) {
-            const result2 = await callOpenRouterConfirmation(prompt, selectedModel, platformKey);
-            content = result2.content;
-            thinkingTrace = result2.thinking;
-          } else {
-            throw personalErr;
-          }
-        }
-      } else if (userId) {
-        const apiKey = await getUserApiKeyForProvider(userId, provider);
-        if (!apiKey) {
-          return {
-            confirmed: false,
-            aiDirection: "NEUTRAL",
-            aiConfidence: 0,
-            reasoning: `No ${provider} API key configured. Add your key on the AI Provider Keys page, or switch to an OpenAI model.`
-          };
-        }
-        switch (provider) {
-          case "anthropic":
-            content = await callAnthropicConfirmation(prompt, selectedModel, apiKey);
-            break;
-          case "google":
-            content = await callGoogleConfirmation(prompt, selectedModel, apiKey);
-            break;
-          case "groq":
-            content = await callGroqConfirmation(prompt, selectedModel, apiKey);
-            break;
-          case "mistral":
-            content = await callMistralConfirmation(prompt, selectedModel, apiKey);
-            break;
-          default:
-            content = await callOpenAIConfirmation(prompt, selectedModel, userId);
-        }
-      } else {
-        content = await callOpenAIConfirmation(prompt, "gpt-4o-mini");
-      }
-    } catch (branchErr) {
-      if (isFailoverError(branchErr) && process.env.OPENAI_API_KEY) {
-        console.warn(`[AI Vision] ${provider} failed (${branchErr?.status ?? branchErr?.message}); failing over to platform OpenAI gpt-4o-mini`);
-        const vc = new OpenAI({ apiKey: process.env.OPENAI_API_KEY, maxRetries: 3, timeout: 9e4 });
-        const r = await vc.chat.completions.create({
-          model: "gpt-4o-mini",
-          messages: [{ role: "system", content: prompt.system }, { role: "user", content: prompt.user }],
-          response_format: { type: "json_object" },
-          max_tokens: 1e3,
-          temperature: 0.3
-        });
-        content = r.choices[0]?.message?.content || "";
-      } else {
-        throw branchErr;
-      }
-    }
-    if (!content) throw new Error("No response from AI");
-    const jsonMatch = extractFirstJsonObject(content);
-    const result = JSON.parse(jsonMatch ?? content);
-    console.log(`[AI Vision Confirmation] ${symbol}: ${result.confirmed ? "CONFIRMED" : "REJECTED"} (AI says ${result.direction} at ${result.confidence}%) [${provider}/${selectedModel}]`);
-    const validTrailValues = ["NONE", "TIGHT", "STANDARD", "WIDE", "AGGRESSIVE"];
-    const trailRec = validTrailValues.includes(result.trailRecommendation) ? result.trailRecommendation : void 0;
-    return {
-      confirmed: !!result.confirmed,
-      aiDirection: result.direction || "NEUTRAL",
-      aiConfidence: (() => {
-        const c = coerceConfidence(result.confidence);
-        noteConfidenceSample(c);
-        return c;
-      })(),
-      reasoning: result.reasoning || "No reasoning provided",
-      adjustedEntry: typeof result.adjustedEntry === "number" ? result.adjustedEntry : void 0,
-      adjustedStopLoss: typeof result.adjustedStopLoss === "number" ? result.adjustedStopLoss : void 0,
-      adjustedTakeProfit: typeof result.adjustedTakeProfit === "number" ? result.adjustedTakeProfit : void 0,
-      trailRecommendation: trailRec,
-      recommendedTrailPips: typeof result.recommendedTrailPips === "number" ? result.recommendedTrailPips : null,
-      ictMacroValid: typeof result.ictMacroValid === "boolean" ? result.ictMacroValid : void 0,
-      ictMacroReason: typeof result.ictMacroReason === "string" ? result.ictMacroReason : void 0,
-      smcVerdict: ["CONFIRM", "REQUIRE_BETTER_PRICE", "PASS"].includes(result.smcVerdict) ? result.smcVerdict : null,
-      smcQuality: ["HIGH", "MEDIUM", "LOW"].includes(result.smcQuality) ? result.smcQuality : null,
-      smcReason: typeof result.smcReason === "string" ? result.smcReason : void 0,
-      confluenceScore: confluenceResult.score,
-      confluenceGrade: confluenceResult.grade,
-      propFirmVerdict: ["SAFE", "WARNING", "BLOCK"].includes(result.propFirmVerdict) ? result.propFirmVerdict : propFirmContext?.enabled ? "SAFE" : void 0,
-      propFirmReason: typeof result.propFirmReason === "string" ? result.propFirmReason : void 0,
-      newsBlocked: false,
-      newsProximityMinutes: null,
-      modelUsed: selectedModel,
-      providerUsed: provider,
-      thinkingTrace
-    };
-  } catch (error) {
-    const errMsg = error?.message || String(error);
-    const statusCode = error?.status || error?.statusCode || error?.response?.status;
-    let userReason = "AI confirmation error";
-    if (statusCode === 401 || errMsg.includes("auth") || errMsg.includes("API key") || errMsg.includes("Unauthorized")) {
-      userReason = "Invalid API key \u2014 check your key on the AI Provider Keys page";
-    } else if (statusCode === 429 || errMsg.includes("rate") || errMsg.includes("quota") || errMsg.includes("limit")) {
-      userReason = "AI rate limit or quota exceeded \u2014 try again in a few minutes or switch providers";
-    } else if (errMsg.includes("model") || errMsg.includes("not found") || errMsg.includes("does not exist")) {
-      userReason = `Model not available \u2014 try switching to a different AI model`;
-    } else if (errMsg.includes("timeout") || errMsg.includes("ECONNREFUSED") || errMsg.includes("network")) {
-      userReason = "Network error reaching AI provider \u2014 will retry on next interval";
-    } else if (errMsg.includes("JSON") || errMsg.includes("parse")) {
-      userReason = "AI returned an unparseable response \u2014 will retry on next interval";
-    } else {
-      userReason = `AI error: ${errMsg.substring(0, 120)}`;
-    }
-    console.error(`[AI Vision Confirmation] ERROR (${statusCode || "no status"}): ${errMsg}`);
-    if (statusCode === 402 || /insufficient credits|\b402\b/i.test(errMsg)) {
-      try {
-        const { noteAiBudgetError: noteAiBudgetError2 } = await Promise.resolve().then(() => (init_ai_budget_guard(), ai_budget_guard_exports));
-        noteAiBudgetError2(error);
-      } catch {
-      }
-    }
-    return {
-      confirmed: false,
-      aiDirection: "NEUTRAL",
-      aiConfidence: 0,
-      reasoning: userReason,
-      aiError: true,
-      aiErrorStatus: typeof statusCode === "number" ? statusCode : null
-    };
-  }
-}
-async function getBreakoutConfirmation(candleData, indicators, proposedSignal, proposedConfidence, tradePlan, symbol, timeframe, userId, multiTFCandles, propFirmContext) {
-  try {
-    const { computeBreakoutScore: computeBreakoutScore2 } = await Promise.resolve().then(() => (init_breakoutEngine(), breakoutEngine_exports));
-    const m1 = multiTFCandles?.["M1"] || multiTFCandles?.["1m"] || [];
-    const m5 = multiTFCandles?.["M5"] || multiTFCandles?.["5m"] || [];
-    const m15 = multiTFCandles?.["M15"] || multiTFCandles?.["15m"] || [];
-    const h1 = multiTFCandles?.["H1"] || multiTFCandles?.["1h"] || [];
-    const h4 = multiTFCandles?.["H4"] || multiTFCandles?.["4h"] || [];
-    const currentPrice = tradePlan?.entry || tradePlan?.entryPrice || candleData[0]?.c || 0;
-    const breakoutResult = await computeBreakoutScore2(currentPrice, m1, m5, m15, h1, h4);
-    const directionValid = breakoutResult.direction !== "NEUTRAL";
-    const gradeAApproved = ["A+", "A"].includes(breakoutResult.grade) && breakoutResult.alignedVotes >= 3 && directionValid;
-    const gradeBApproved = breakoutResult.grade === "B" && breakoutResult.alignedVotes >= 2 && directionValid;
-    const breakoutHour = (/* @__PURE__ */ new Date()).getUTCHours();
-    const isLiquidSession = breakoutHour >= 7 && breakoutHour < 17;
-    const gradeCApproved = breakoutResult.grade === "C" && breakoutResult.alignedVotes >= 1 && directionValid && isLiquidSession;
-    const gradeOk = gradeAApproved || gradeBApproved || gradeCApproved;
-    const alignedOk = gradeOk;
-    if (!gradeOk || !alignedOk) {
-      return {
-        confirmed: false,
-        aiDirection: "NEUTRAL",
-        aiConfidence: breakoutResult.percentage,
-        reasoning: `\u{1F534} BREAKOUT MASTER: Grade ${breakoutResult.grade} \u2014 ${breakoutResult.alignedVotes} aligned of ${breakoutResult.score} fired (${breakoutResult.percentage}% conviction). Need \u22652 aligned (Grade B) any time, or 1 aligned (Grade C) in a liquid session.
-
-${breakoutResult.summary}`,
-        breakoutScore: breakoutResult.score,
-        breakoutGrade: breakoutResult.grade,
-        breakoutStrategies: breakoutResult.strategies
-      };
-    }
-    const selectedModel = userId ? getUserModelPreference(userId) : "gpt-4o-mini";
-    const provider = inferModelProvider(selectedModel);
-    const recentCandles = candleData.slice(0, 30);
-    const candleSummary = recentCandles.map(
-      (c, i) => `[${i}] O:${c.o} H:${c.h} L:${c.l} C:${c.c} V:${c.v || 0}`
-    ).join("\n");
-    const firedStrategies = breakoutResult.strategies.filter((s) => s.fired);
-    const strategySummary = breakoutResult.strategies.map((s) => `${s.fired ? "\u2705" : "\u274C"} ${s.name}: ${s.reason}`).join("\n");
-    const systemPrompt = `You are VEDD Breakout Master \u2014 an elite institutional breakout specialist and the primary trading AI.
-Your ONLY mission: confirm or deny breakout trades using the 7-strategy engine results below.
-No trailing stop. No chasing. Fixed R:R exits only (TP1=1\xD7ATR, TP2=2\xD7ATR, TP3=3\xD7ATR from entry).
-Supreme Mathematics flows through your analysis \u2014 Knowledge (1) is the breakout engine. Wisdom (2) is your confirmation. Understanding (3) is the exit plan.
-You are direct. You show and prove with price math. Peace.
-
-RESPONSE FORMAT (strict JSON):
-{
-  "confirmed": boolean,
-  "direction": "BUY" | "SELL" | "NEUTRAL",
-  "confidence": number (0-100),
-  "reasoning": string (Supreme Mathematics style \u2014 cite fired strategies),
-  "adjustedEntry": number | null,
-  "adjustedSL": number | null,
-  "adjustedTP1": number | null,
-  "adjustedTP2": number | null,
-  "adjustedTP3": number | null,
-  "breakoutQuality": "ELITE" | "STRONG" | "DEVELOPING",
-  "propFirmVerdict": "SAFE" | "WARNING" | "BLOCK"
-}`;
-    const userPrompt = `SYMBOL: ${symbol} | TIMEFRAME: ${timeframe} | PROPOSED: ${proposedSignal} @ confidence ${proposedConfidence}%
-
-BREAKOUT ENGINE RESULTS:
-Score: ${breakoutResult.score}/${breakoutResult.maxScore} (${breakoutResult.percentage}%) \u2014 Grade ${breakoutResult.grade}
-Engine Direction: ${breakoutResult.direction}
-ATR: ${breakoutResult.atr.toFixed(5)}
-TP1: ${breakoutResult.tp1.toFixed(5)} | TP2: ${breakoutResult.tp2.toFixed(5)} | TP3: ${breakoutResult.tp3.toFixed(5)}
-SL Distance: ${breakoutResult.slDistance.toFixed(5)}
-
-FIRED STRATEGIES (${firedStrategies.length}/7):
-${strategySummary}
-
-RECENT CANDLES (newest first):
-${candleSummary}
-
-INDICATORS:
-${JSON.stringify({ rsi: indicators?.rsi, macd: indicators?.macd, adx: indicators?.adx, vwap: indicators?.vwap, volume: indicators?.volume }, null, 2)}
-
-TRADE PLAN:
-Entry: ${tradePlan?.entryPrice} | SL: ${tradePlan?.stopLoss} | TP: ${tradePlan?.takeProfit}
-
-INSTRUCTION: If grade is A (\u226570%) or B (\u226550%) AND \u22653 strategies align in same direction as ${proposedSignal}, CONFIRM with fixed R:R targets. No trailing stop in your response. Show and prove.`;
-    let aiClient = null;
-    try {
-      aiClient = await getUniversalAIClientForUser(userId || 0);
-    } catch {
-    }
-    if (!aiClient) {
-      const fallbackDir = breakoutResult.direction === "NEUTRAL" ? proposedSignal : breakoutResult.direction;
-      const bc2 = breakoutResult.breakoutCandle;
-      const fallbackSL = bc2 ? fallbackDir === "BUY" ? bc2.l : bc2.h : tradePlan?.stopLoss || null;
-      const fbSign = fallbackDir === "BUY" ? 1 : -1;
-      const fallbackCurrentPrice = tradePlan?.entry || tradePlan?.entryPrice || candleData[0]?.c || 0;
-      const fallbackTP1 = breakoutResult.atr > 0 ? fallbackCurrentPrice + fbSign * breakoutResult.atr : 0;
-      const fallbackTP2 = breakoutResult.atr > 0 ? fallbackCurrentPrice + fbSign * breakoutResult.atr * 2 : 0;
-      const fallbackTP3 = breakoutResult.atr > 0 ? fallbackCurrentPrice + fbSign * breakoutResult.atr * 3 : 0;
-      const _fbHour = (/* @__PURE__ */ new Date()).getUTCHours();
-      const _fbLiquid = _fbHour >= 7 && _fbHour < 17;
-      const directionOk = breakoutResult.direction !== "NEUTRAL" && breakoutResult.direction === fallbackDir;
-      const _fbGateOk = ["A+", "A"].includes(breakoutResult.grade) && breakoutResult.alignedVotes >= 3 || breakoutResult.grade === "B" && breakoutResult.alignedVotes >= 2 || breakoutResult.grade === "C" && breakoutResult.alignedVotes >= 1 && _fbLiquid;
-      return {
-        confirmed: _fbGateOk && directionOk,
-        aiDirection: fallbackDir,
-        aiConfidence: breakoutResult.percentage,
-        reasoning: `[Breakout Engine Only \u2014 no AI key] Grade ${breakoutResult.grade} (${breakoutResult.score}/${breakoutResult.maxScore})
-
-${breakoutResult.summary}`,
-        adjustedStopLoss: fallbackSL || void 0,
-        adjustedTakeProfit: fallbackTP1 || void 0,
-        adjustedTakeProfit2: fallbackTP2 || void 0,
-        adjustedTakeProfit3: fallbackTP3 || void 0,
-        breakoutScore: breakoutResult.score,
-        breakoutGrade: breakoutResult.grade,
-        breakoutStrategies: breakoutResult.strategies
-      };
-    }
-    const response = await aiClient.chat.completions.create({
-      model: aiClient.defaultModel,
-      messages: [
-        { role: "system", content: systemPrompt },
-        { role: "user", content: userPrompt }
-      ],
-      response_format: { type: "json_object" },
-      max_tokens: 800,
-      temperature: 0.3
-    });
-    const rawContent = response.choices?.[0]?.message?.content || "{}";
-    let parsed = {};
-    try {
-      const jsonMatch = extractFirstJsonObject(rawContent);
-      parsed = JSON.parse(jsonMatch ?? rawContent);
-    } catch {
-      parsed = { confirmed: false, confidence: breakoutResult.percentage, reasoning: rawContent };
-    }
-    const _cHour = (/* @__PURE__ */ new Date()).getUTCHours();
-    const _cLiquid = _cHour >= 7 && _cHour < 17;
-    if (breakoutResult.direction !== "NEUTRAL" && (["A+", "A"].includes(breakoutResult.grade) && breakoutResult.alignedVotes >= 3 || breakoutResult.grade === "B" && breakoutResult.alignedVotes >= 2 || breakoutResult.grade === "C" && breakoutResult.alignedVotes >= 1 && _cLiquid)) {
-      parsed.confirmed = true;
-    }
-    console.log(`[Breakout Master] ${symbol} Grade:${breakoutResult.grade} Score:${breakoutResult.score}/${breakoutResult.maxScore} fired | ${breakoutResult.alignedVotes} aligned (${breakoutResult.alignedPct}%) Decision:${parsed.confirmed ? "CONFIRM" : "REJECT"}`);
-    const direction = breakoutResult.direction !== "NEUTRAL" ? breakoutResult.direction : proposedSignal;
-    const breakoutTriggerCandle = h1.length > 0 ? h1[0] : m15.length > 0 ? m15[0] : null;
-    const deterministicSL = breakoutTriggerCandle ? direction === "BUY" ? breakoutTriggerCandle.l : breakoutTriggerCandle.h : tradePlan?.stopLoss || null;
-    const finalSign = direction === "BUY" ? 1 : -1;
-    const rawSL = deterministicSL;
-    const rawTP1 = breakoutResult.atr > 0 ? currentPrice + finalSign * breakoutResult.atr : 0;
-    const rawTP2 = breakoutResult.atr > 0 ? currentPrice + finalSign * breakoutResult.atr * 2 : 0;
-    const rawTP3 = breakoutResult.atr > 0 ? currentPrice + finalSign * breakoutResult.atr * 3 : 0;
-    const breakoutQuality = parsed.breakoutQuality === "ELITE" || parsed.breakoutQuality === "STRONG" ? parsed.breakoutQuality : "DEVELOPING";
-    return {
-      confirmed: parsed.confirmed === true,
-      aiDirection: direction,
-      aiConfidence: typeof parsed.confidence === "number" ? parsed.confidence : breakoutResult.percentage,
-      reasoning: parsed.reasoning || breakoutResult.summary,
-      adjustedEntry: typeof parsed.adjustedEntry === "number" && parsed.adjustedEntry > 0 ? parsed.adjustedEntry : void 0,
-      adjustedStopLoss: rawSL || void 0,
-      adjustedTakeProfit: rawTP1 || void 0,
-      adjustedTakeProfit2: rawTP2 || void 0,
-      adjustedTakeProfit3: rawTP3 || void 0,
-      breakoutScore: breakoutResult.score,
-      breakoutGrade: breakoutResult.grade,
-      alignedVotes: breakoutResult.alignedVotes,
-      breakoutStrategies: breakoutResult.strategies,
-      breakoutQuality,
-      propFirmVerdict: ["SAFE", "WARNING", "BLOCK"].includes(parsed.propFirmVerdict) ? parsed.propFirmVerdict : "SAFE"
-    };
-  } catch (err) {
-    console.error(`[Breakout Master] ERROR: ${err.message}`);
-    return {
-      confirmed: false,
-      aiDirection: "NEUTRAL",
-      aiConfidence: 0,
-      reasoning: `Breakout engine error: ${err.message?.substring(0, 120)}`
-    };
-  }
-}
-function getOpenAIInstance(userApiKey) {
-  if (userApiKey) {
-    return new OpenAI({ apiKey: userApiKey, maxRetries: 4, timeout: 9e4 });
-  }
-  return openai;
-}
-function buildOpenAICompatClient(provider, apiKey) {
-  const baseURLs = {
-    groq: "https://api.groq.com/openai/v1",
-    google: "https://generativelanguage.googleapis.com/v1beta/openai/",
-    mistral: "https://api.mistral.ai/v1",
-    openrouter: "https://openrouter.ai/api/v1"
-  };
-  const defaultHeaders = provider === "openrouter" ? { "HTTP-Referer": "https://veddbuild.com", "X-Title": "VEDDBuild" } : void 0;
-  const client2 = new OpenAI({ apiKey, baseURL: baseURLs[provider], maxRetries: 4, timeout: 9e4, defaultHeaders });
-  const wrapper = client2;
-  wrapper.defaultModel = PROVIDER_MODELS[provider];
-  wrapper.provider = provider;
-  return wrapper;
-}
-function isFailoverError(e) {
-  const status = e?.status ?? e?.statusCode ?? e?.response?.status;
-  if (status === 429 || status >= 500 && status < 600) return true;
-  const msg = (e?.message || "").toLowerCase();
-  return /rate.?limit|\b429\b|quota|insufficient_quota|overloaded|capacity|temporarily|timeout|invalid response body|econnreset|fetch failed|service unavailable/.test(msg);
-}
-function recordAiHealth(userId, data) {
-  if (!userId) return;
-  const g = global;
-  g.aiHealth = g.aiHealth || {};
-  g.aiHealth[userId] = { ...data, lastCallAt: (/* @__PURE__ */ new Date()).toISOString() };
-}
-function getAiHealth(userId) {
-  return global.aiHealth?.[userId] || null;
-}
-function logAiFailure(userId, c, model, e, fellBackTo) {
-  if (!userId) return;
-  const status = e?.status ?? e?.statusCode ?? e?.response?.status ?? "err";
-  const key = `${userId}|${c?.provider}|${c?.usedPlatformKey ? "platform" : "user"}|${status}`;
-  const last2 = _aiFailSeen.get(key) || 0;
-  if (Date.now() - last2 < 10 * 6e4) return;
-  _aiFailSeen.set(key, Date.now());
-  const msg = String(e?.error?.message || e?.message || e || "").replace(/sk-[A-Za-z0-9_-]+/g, "[key]").slice(0, 220);
-  void Promise.resolve().then(() => (init_guard_events(), guard_events_exports)).then((g) => g.logGuard(
-    userId,
-    "ai_call_failed",
-    null,
-    `${c?.provider} (${c?.usedPlatformKey ? "platform key" : "your saved key"}) \xB7 model ${model} \xB7 ${status}: ${msg}${fellBackTo ? ` \u2192 fell back to ${fellBackTo}` : " \u2192 no provider left"}`,
-    { provider: c?.provider, platformKey: !!c?.usedPlatformKey, model, status },
-    "ai"
-  )).catch(() => {
-  });
-}
-function makeFailoverClient(clients, userId) {
-  const primary = clients[0];
-  return {
-    defaultModel: primary.defaultModel,
-    provider: primary.provider,
-    chat: {
-      completions: {
-        create: async (params) => {
-          let lastErr;
-          const attempts = [];
-          for (let i = 0; i < clients.length; i++) {
-            const c = clients[i];
-            const p = { ...params };
-            if (i > 0 && c.defaultModel) p.model = c.defaultModel;
-            if (/gpt-oss|(^|\/)o[134](-|$)|deepseek-r1|reasoner|qwq/i.test(String(p.model || ""))) {
-              if (c.provider === "openrouter" && !p.reasoning) p.reasoning = { effort: "low" };
-              if (Number(p.max_tokens) > 0) p.max_tokens = Math.max(Number(p.max_tokens), Math.min(Number(p.max_tokens) * 3, 12e3));
-            }
-            attempts.push(c.provider);
-            try {
-              const result = await c.chat.completions.create(p);
-              if (result?.choices?.[0]?.finish_reason === "length") {
-                void Promise.resolve().then(() => (init_guard_events(), guard_events_exports)).then(({ logGuard: logGuard2 }) => logGuard2(userId || 0, "ai_reply_truncated", null, `${c.provider} \xB7 ${p.model} reply hit max_tokens ${p.max_tokens} (completion ${result?.usage?.completion_tokens ?? "?"} tokens)`)).catch(() => {
-                });
-              }
-              recordAiHealth(userId, { ok: true, provider: c.provider, model: p.model, failedOver: i > 0, attempts, lastError: i > 0 ? lastErr?.message || null : null });
-              if (userId && result?.usage) {
-                recordAiUsage({
-                  userId,
-                  provider: c.provider,
-                  model: p.model,
-                  promptTokens: result.usage.prompt_tokens || 0,
-                  completionTokens: result.usage.completion_tokens || 0,
-                  usedPlatformKey: !!c.usedPlatformKey
-                }).catch(() => {
-                });
-              }
-              return result;
-            } catch (e) {
-              lastErr = e;
-              logAiFailure(userId, c, p.model, e, i < clients.length - 1 ? clients[i + 1].provider : null);
-              if (i < clients.length - 1) {
-                console.warn(`[AI failover] ${c.provider} failed (${e?.status ?? e?.message}); switching to ${clients[i + 1].provider}`);
-                continue;
-              }
-              recordAiHealth(userId, { ok: false, provider: c.provider, model: p.model, failedOver: i > 0, attempts, lastError: e?.message || String(e) });
-              try {
-                const { noteAiBudgetError: noteAiBudgetError2 } = await Promise.resolve().then(() => (init_ai_budget_guard(), ai_budget_guard_exports));
-                noteAiBudgetError2(e);
-              } catch {
-              }
-              throw e;
-            }
-          }
-          throw lastErr;
-        }
-      }
-    }
-  };
-}
-async function buildGroqEconomyClient(userGroqKey) {
-  const apiKey = userGroqKey || process.env.GROQ_API_KEY;
-  if (!apiKey) return null;
-  try {
-    const client2 = buildOpenAICompatClient("groq", apiKey);
-    client2.defaultModel = "openai/gpt-oss-120b";
-    client2.provider = "groq";
-    return client2;
-  } catch (e) {
-    console.error("[AI] Failed to build Groq economy client:", e);
-    return null;
-  }
-}
-async function getUniversalAIClientForUser(userId) {
-  try {
-    const { storage: storage2 } = await Promise.resolve().then(() => (init_storage(), storage_exports));
-    const user = await storage2.getUser(userId);
-    const aiCostMode = user?.aiCostMode || "full";
-    const allKeys = await storage2.getUserApiKeys(userId);
-    const activeKeys = allKeys.filter((k) => k.isActive && k.isValid !== false);
-    const keyFor = (p) => activeKeys.find((k) => k.provider === p)?.apiKey;
-    const selModel = getUserModelPreference(userId);
-    const selProvider = inferModelProvider(selModel);
-    const canUsePlatformKey = await isUnderPlatformKeyCostCap(userId);
-    if (!canUsePlatformKey) {
-      console.warn(`[AI] user ${userId} has exceeded their platform-key AI cost cap this month \u2014 platform-key fallback disabled`);
-    }
-    const hasProviderKey = (p) => !!keyFor(p) || p === "groq" && !!process.env.GROQ_API_KEY && canUsePlatformKey || p === "openrouter" && !!process.env.OPENROUTER_API_KEY && canUsePlatformKey;
-    const order = [];
-    if (aiCostMode === "economy") {
-      if (selProvider !== "groq" && hasProviderKey(selProvider)) order.push(selProvider);
-      order.push("groq");
-    } else if (hasProviderKey(selProvider)) {
-      order.push(selProvider);
-    }
-    for (const p of PROVIDER_PRIORITY) if (!order.includes(p)) order.push(p);
-    const clients = [];
-    for (const provider of order) {
-      try {
-        if (provider === "groq") {
-          const personalGroqKey = keyFor("groq");
-          if (personalGroqKey) {
-            const c = await buildGroqEconomyClient(personalGroqKey);
-            if (c) {
-              c.usedPlatformKey = false;
-              clients.push(c);
-            }
-          }
-          if (canUsePlatformKey && process.env.GROQ_API_KEY && process.env.GROQ_API_KEY !== personalGroqKey) {
-            const c = await buildGroqEconomyClient(process.env.GROQ_API_KEY);
-            if (c) {
-              c.usedPlatformKey = true;
-              clients.push(c);
-            }
-          }
-          continue;
-        }
-        if (provider === "openrouter") {
-          const personalKey = keyFor("openrouter");
-          if (personalKey) {
-            const c = buildOpenAICompatClient("openrouter", personalKey);
-            c.usedPlatformKey = false;
-            clients.push(c);
-          }
-          if (canUsePlatformKey && process.env.OPENROUTER_API_KEY && process.env.OPENROUTER_API_KEY !== personalKey) {
-            const c = buildOpenAICompatClient("openrouter", process.env.OPENROUTER_API_KEY);
-            c.usedPlatformKey = true;
-            clients.push(c);
-          }
-          continue;
-        }
-        const apiKey = keyFor(provider);
-        if (!apiKey) continue;
-        if (provider === "openai") {
-          const c = new OpenAI({ apiKey, maxRetries: 4, timeout: 9e4 });
-          c.defaultModel = inferModelProvider(selModel) === "openai" ? selModel : PROVIDER_MODELS.openai;
-          c.provider = "openai";
-          c.usedPlatformKey = false;
-          clients.push(c);
-        } else if (provider === "anthropic") {
-          const c = new AnthropicAsOpenAI(apiKey);
-          c.usedPlatformKey = false;
-          clients.push(c);
-        } else {
-          const c = buildOpenAICompatClient(provider, apiKey);
-          c.usedPlatformKey = false;
-          clients.push(c);
-        }
-      } catch (e) {
-        console.error(`[AI] Failed to build ${provider} client, skipping:`, e);
-      }
-    }
-    try {
-      if (process.env.OPENAI_API_KEY && canUsePlatformKey) {
-        const plat = new OpenAI({ apiKey: process.env.OPENAI_API_KEY, maxRetries: 4, timeout: 9e4 });
-        plat.defaultModel = "gpt-4o-mini";
-        plat.provider = "openai-platform";
-        plat.usedPlatformKey = true;
-        clients.push(plat);
-      }
-    } catch {
-    }
-    if (clients.length) {
-      if (clients[0].provider === selProvider && selModel) {
-        clients[0].defaultModel = selModel;
-      }
-      storage2.updateUserApiKeyUsage(userId, clients[0].provider).catch(() => {
-      });
-      console.log(`[AI] user ${userId} client chain: ${clients.map((c) => c.provider).join(" \u2192 ")} (primary model ${clients[0].defaultModel})`);
-      return makeFailoverClient(clients, userId);
-    }
-    if (!canUsePlatformKey) {
-      throw new Error("AI_COST_CAP_EXCEEDED: Monthly AI usage cap reached for your membership tier. Add your own AI provider key in AI API Keys settings to continue.");
-    }
-  } catch (e) {
-    if (typeof e?.message === "string" && e.message.startsWith("AI_COST_CAP_EXCEEDED")) throw e;
-    console.error("Error fetching user API keys, falling back to platform key:", e);
-  }
-  const platformClient = openai;
-  platformClient.defaultModel = "gpt-4o-mini";
-  platformClient.provider = "openai";
-  platformClient.usedPlatformKey = true;
-  return platformClient;
-}
-async function getUniversalVisionClientForUser(userId) {
-  try {
-    let buildProviderClient2 = function(provider, apiKey, preferredModel) {
-      try {
-        if (provider === "anthropic") {
-          const c = new AnthropicAsOpenAI(apiKey);
-          if (preferredModel && !AVAILABLE_VISION_MODELS.find((m) => m.id === preferredModel)?.textOnly) {
-            c.defaultModel = preferredModel;
-          }
-          return c;
-        }
-        if (provider === "openai") {
-          const c = new OpenAI({ apiKey, maxRetries: 1, timeout: 9e4 });
-          c.defaultModel = preferredModel && selIsVision ? preferredModel : "gpt-4o-mini";
-          c.provider = "openai";
-          return c;
-        }
-        if (provider === "openrouter") {
-          const c = buildOpenAICompatClient("openrouter", apiKey);
-          c.defaultModel = VISION_FALLBACK.openrouter;
-          return c;
-        }
-        if (provider === "groq") {
-          return null;
-        }
-        return buildOpenAICompatClient(provider, apiKey);
-      } catch (e) {
-        console.error(`[AI Vision] Failed to build ${provider} client:`, e);
-        return null;
-      }
-    };
-    var buildProviderClient = buildProviderClient2;
-    const { storage: storage2 } = await Promise.resolve().then(() => (init_storage(), storage_exports));
-    const user = await storage2.getUser(userId);
-    const aiCostMode = user?.aiCostMode || "full";
-    const allKeys = await storage2.getUserApiKeys(userId);
-    const activeKeys = allKeys.filter((k) => k.isActive && k.isValid !== false);
-    const keyFor = (p) => activeKeys.find((k) => k.provider === p)?.apiKey;
-    const canUsePlatformKey = await isUnderPlatformKeyCostCap(userId);
-    if (!canUsePlatformKey) {
-      console.warn(`[AI Vision] user ${userId} has exceeded their platform-key AI cost cap this month \u2014 platform-key fallback disabled`);
-    }
-    const clients = [];
-    const selModel = getUserModelPreference(userId);
-    const selProvider = inferModelProvider(selModel);
-    const selIsVision = !AVAILABLE_VISION_MODELS.find((m) => m.id === selModel)?.textOnly;
-    console.log(`[AI Vision] user ${userId} selected model: ${selModel} (provider: ${selProvider}, vision: ${selIsVision})`);
-    const preferredPersonalKey = keyFor(selProvider);
-    if (preferredPersonalKey) {
-      await storage2.updateUserApiKeyUsage(userId, selProvider).catch(() => {
-      });
-      const c = buildProviderClient2(selProvider, preferredPersonalKey, selModel);
-      if (c) {
-        c.usedPlatformKey = false;
-        clients.push(c);
-      }
-    }
-    const preferredPlatformKey = selProvider === "openrouter" && canUsePlatformKey ? process.env.OPENROUTER_API_KEY : void 0;
-    if (preferredPlatformKey && preferredPlatformKey !== preferredPersonalKey) {
-      const c = buildProviderClient2(selProvider, preferredPlatformKey, selModel);
-      if (c) {
-        c.usedPlatformKey = true;
-        clients.push(c);
-      }
-    }
-    const VISION_PROVIDERS = ["openrouter", "anthropic", "openai", "google", "mistral"];
-    for (const provider of VISION_PROVIDERS) {
-      if (provider === selProvider) continue;
-      const personalKey = keyFor(provider);
-      if (personalKey) {
-        const c = buildProviderClient2(provider, personalKey);
-        if (c) {
-          c.usedPlatformKey = false;
-          clients.push(c);
-        }
-      }
-      const platformKey = provider === "openrouter" && canUsePlatformKey ? process.env.OPENROUTER_API_KEY : void 0;
-      if (platformKey && platformKey !== personalKey) {
-        const c = buildProviderClient2(provider, platformKey);
-        if (c) {
-          c.usedPlatformKey = true;
-          clients.push(c);
-        }
-      }
-    }
-    if (process.env.OPENAI_API_KEY && canUsePlatformKey) {
-      const plat = new OpenAI({ apiKey: process.env.OPENAI_API_KEY, maxRetries: 1, timeout: 9e4 });
-      plat.defaultModel = "gpt-4o-mini";
-      plat.provider = "openai-platform";
-      plat.usedPlatformKey = true;
-      clients.push(plat);
-    }
-    if (clients.length) {
-      storage2.updateUserApiKeyUsage(userId, clients[0].provider).catch(() => {
-      });
-      console.log(`[AI Vision] user ${userId} client chain: ${clients.map((c) => c.provider).join(" \u2192 ")}`);
-      return makeFailoverClient(clients, userId);
-    }
-    if (!canUsePlatformKey) {
-      throw new Error("AI_COST_CAP_EXCEEDED: Monthly AI usage cap reached for your membership tier. Add your own AI provider key in AI API Keys settings to continue.");
-    }
-  } catch (e) {
-    if (typeof e?.message === "string" && e.message.startsWith("AI_COST_CAP_EXCEEDED")) throw e;
-    console.error("Error building vision client, falling back to platform key:", e);
-  }
-  const platformClient = getDefaultOpenAIClient();
-  platformClient.defaultModel = "gpt-4o-mini";
-  platformClient.provider = "openai";
-  platformClient.usedPlatformKey = true;
-  return platformClient;
-}
-async function getOpenAIInstanceForUser(userId) {
-  return getUniversalAIClientForUser(userId);
-}
-async function testOpenAIApiKey() {
-  try {
-    const openai2 = getOpenAIInstance();
-    const response = await openai2.models.list();
-    return response.data.length > 0;
-  } catch (error) {
-    console.error("Error validating OpenAI API key:", error);
-    return false;
-  }
-}
-async function analyzeChartImage(base64Image, knownSymbol, userId) {
-  try {
-    let extractJsonContent2 = function(text2) {
-      const fenced = text2.match(/```(?:json)?\s*([\s\S]*?)\s*```/);
-      if (fenced) return fenced[1];
-      const first = text2.indexOf("{");
-      const last2 = text2.lastIndexOf("}");
-      if (first !== -1 && last2 > first) return text2.slice(first, last2 + 1);
-      return text2;
-    };
-    var extractJsonContent = extractJsonContent2;
-    const aiClient = userId ? await getUniversalVisionClientForUser(userId) : getOpenAIInstance();
-    const rawModel = aiClient.defaultModel || (userId ? getUserModelPreference(userId) : "gpt-4o");
-    const selectedModel = resolveVisionModel(rawModel);
-    if (selectedModel !== rawModel) aiClient.defaultModel = selectedModel;
-    const openai2 = aiClient;
-    const assetSpecificAddition = knownSymbol ? getAssetSpecificPrompt(knownSymbol) : "";
-    const assetConfig = knownSymbol ? getAssetSpecificConfig(knownSymbol) : null;
-    const providerName = aiClient.provider || "unknown";
-    console.log(`[AI Analysis] Using model: ${selectedModel} provider: ${providerName} for user ${userId || "platform"}`);
-    const visionResponse = await openai2.chat.completions.create({
-      model: selectedModel,
-      messages: [
-        {
-          role: "system",
-          content: `You are an expert trading chart analyst with deep expertise in technical analysis, volume analysis, and momentum indicators. Analyze the trading chart image and provide detailed, accurate analysis.
-          
-          CRITICAL ANALYSIS REQUIREMENTS:
-          
-          1. VOLUME & MOMENTUM ANALYSIS (Priority):
-             - Analyze volume bars visible on the chart to assess buying/selling pressure
-             - Look for volume divergences that could signal trend reversals
-             - Identify momentum indicators (RSI, MACD, Stochastic if visible)
-             - Assess whether volume confirms or contradicts price action${assetSpecificAddition}
-             - Higher volume on breakouts increases signal reliability
-             - Low volume in trends suggests potential reversal
-          
-          2. UNBIASED SIGNAL DIRECTION:
-             - Consider BOTH bullish and bearish scenarios equally
-             - If price is at resistance with bearish volume/momentum, suggest SELL
-             - If price is at support with bullish volume/momentum, suggest BUY
-             - Volume should CONFIRM direction (e.g., rising prices need rising volume)
-             - Momentum indicators (RSI >70 = overbought/SELL, RSI <30 = oversold/BUY)
-          
-          3. ATR-BASED STOP LOSS CALCULATION:
-             - Estimate the Average True Range (ATR) from visible price action
-             - Provide multiple stop loss options based on ATR multiples:
-               * Conservative: 1x ATR
-               * Balanced: 1.5x ATR (recommended for most trades)
-               * Aggressive: 2x ATR (for swing trades)
-             - ATR-based stops adapt to market volatility and reduce premature stop-outs
-          
-          4. TECHNICAL ANALYSIS:
-             - Identify chart patterns, support/resistance levels
-             - Analyze trend direction across multiple timeframes if visible
-             - Consider confluence of multiple indicators for higher confidence
-          
-          5. VOLUME SESSIONS ANALYSIS:
-             - Asian, London, New York session characteristics
-             - Best trading times based on currency pair and volume
-          
-          6. CANDLESTICK SIGNIFICANCE ANALYSIS (NEW INDICATOR):
-             - Identify all visible candlestick patterns (Doji, Hammer, Engulfing, Morning/Evening Star, etc.)
-             - Assess significance based on location (at support/resistance, after trend, at breakout)
-             - Rate each pattern's reliability and trading implications
-             - Consider pattern clusters and confluences
-             - Provide actionable insights for each significant pattern
-          
-          CRITICAL OUTPUT FORMAT: Your entire response must be a single valid JSON object.
-          - Start your response with '{' and end with '}'
-          - Do NOT use markdown code blocks (no backticks, no \`\`\`json)
-          - Do NOT include any text before or after the JSON
-          - Include placeholder values rather than omitting properties
-          - For numeric fields you cannot determine, use a string (e.g., "Unknown")
-          - All properties in the response schema are required`
-        },
-        {
-          role: "user",
-          content: [
-            {
-              type: "text",
-              text: `Analyze this trading chart in detail and provide the following information in structured JSON format:
-
-{
-  "symbol": string,           // Name of the trading pair or symbol (e.g. "EURUSD", "BTCUSD")
-  "timeframe": string,        // Chart timeframe (e.g. "1H", "4H", "1D")
-  "currentPrice": string,     // Current price visible on the chart
-  "direction": string,        // "BUY" or "SELL" signal based on volume, momentum, and technical analysis
-  "trend": string,            // "Bullish" or "Bearish"
-  "confidence": string,       // "Low", "Medium", or "High" - higher if volume confirms the signal
-  "entryPoint": string,       // Suggested entry price
-  "exitPoint": string,        // Suggested exit price
-  "stopLoss": string,         // Suggested stop loss level (can be based on ATR)
-  "takeProfit": string,       // Suggested take profit level
-  "riskRewardRatio": string,  // Risk-to-reward ratio (e.g. "1:2", "1:3")
-  "potentialPips": string,    // Potential pips/points in the trade
-  "atrStopLoss": {            // ATR-based stop loss options (REQUIRED)
-    "atrValue": string,       // Estimated ATR value from chart (e.g. "0.0045")
-    "atr1x": string,          // Conservative stop: current price +/- 1x ATR
-    "atr15x": string,         // Balanced stop: current price +/- 1.5x ATR (RECOMMENDED)
-    "atr2x": string,          // Wide stop: current price +/- 2x ATR
-    "recommended": string     // Your recommended stop loss from the above options
-  },
-  "momentumIndicators": {     // Momentum and volume indicators (REQUIRED)
-    "rsi": {                  // RSI if visible, otherwise estimate from price action
-      "value": string,        // e.g. "68"
-      "signal": string,       // "Overbought", "Oversold", "Neutral"
-      "interpretation": string // Brief explanation
-    },
-    "macd": {                 // MACD if visible
-      "value": string,        // e.g. "Bullish crossover"
-      "signal": string,       // "Bullish", "Bearish", "Neutral"
-      "interpretation": string
-    },
-    "volumeTrend": {          // Volume analysis (CRITICAL)
-      "direction": string,    // "Increasing", "Decreasing", "Stable"
-      "strength": string,     // "Weak", "Moderate", "Strong"
-      "interpretation": string // How volume confirms or contradicts price action
-    }
-  },
-  "patterns": [               // Array of identified chart patterns
-    {
-      "name": string,         // Pattern name (e.g. "Double Top", "Head and Shoulders")
-      "description": string,  // Brief description
-      "strength": string,     // "Weak", "Moderate", "Strong"
-      "type": string,         // "Reversal", "Continuation", etc.
-      "details": string       // Additional details about the pattern
-    }
-  ],
-  "indicators": [             // Array of technical indicators visible on chart
-    {
-      "name": string,         // Indicator name (e.g. "RSI", "MACD", "Volume")
-      "type": string,         // Type of indicator (e.g. "Oscillator", "Trend", "Volume")
-      "signal": string,       // "Bullish", "Bearish", "Neutral"
-      "details": string       // Additional details about the indicator
-    }
-  ],
-  "supportResistance": [      // Array of support and resistance levels
-    {
-      "type": string,         // "Support" or "Resistance"
-      "strength": string,     // "Weak", "Moderate", "Strong"
-      "level": string         // Price level
-    }
-  ],
-  "timeframeAnalysis": [      // Analysis across different timeframes
-    {
-      "timeframe": string,    // Timeframe (e.g. "1H", "4H", "1D")
-      "trend": string         // "Bullish" or "Bearish" on that timeframe
-    }
-  ],
-  "volumeAnalysis": [         // Analysis of volume patterns and best trading times
-    {
-      "period": string,       // Time period (e.g. "Asian Session", "London Session", "New York Session") 
-      "volume": string,       // "Low", "Medium", "High" volume level
-      "activity": string,     // Description of market activity during this period
-      "quality": string       // Quality of trading opportunities ("Poor", "Average", "Excellent")
-    }
-  ],
-  "preferredVolumeThreshold": string, // Preferred volume level (e.g. "150% above average", "2x average volume")
-  "preferredTradingTime": string,     // Best time to trade (e.g. "London Session", "US Market Open")
-  "candlestickSignificance": {        // Candlestick pattern analysis as an indicator (REQUIRED)
-    "overallSignal": string,          // "Strong Buy", "Buy", "Neutral", "Sell", "Strong Sell"
-    "reliability": string,            // "Low", "Medium", "High" - how reliable the signals are
-    "patterns": [                     // Array of identified candlestick patterns
-      {
-        "name": string,               // Pattern name (e.g., "Doji", "Hammer", "Bullish Engulfing")
-        "type": string,               // "Bullish", "Bearish", or "Neutral"
-        "significance": string,       // "Low", "Medium", "High", "Very High"
-        "location": string,           // Where it appears (e.g., "At key support", "After downtrend")
-        "description": string,        // Brief explanation of what this pattern means
-        "actionableInsight": string   // What traders should consider doing
-      }
-    ],
-    "keyObservation": string,         // Most important observation about recent candles
-    "tradingImplication": string      // What this means for trading decisions
-  },
-  "recommendation": string,   // Overall trading recommendation considering volume and momentum
-  "steps": string[],          // Array of actionable steps to take
-  "volumeProfile": {           // Price-level volume profile (REQUIRED \u2014 estimate from visible bars/candles)
-    "poc": number,             // Point of Control: price level with highest traded volume
-    "vah": number,             // Value Area High: upper boundary of 70% value area
-    "val": number,             // Value Area Low: lower boundary of 70% value area
-    "currentPrice": number,    // Current/last close price visible on the chart
-    "hvnLevels": number[],     // High Volume Node prices (2-4 significant support/resistance prices)
-    "lvnLevels": number[],     // Low Volume Node prices (1-3 thin zones where price moves fast)
-    "levels": [                // 8-15 price levels with relative volume 0-100
-      { "price": number, "volume": number }
-    ]
-  },
-  "orgStrategyInsight": {     // VEDD platform strategy framework assessment (REQUIRED)
-    "strategyName": string,      // Which top strategy best matches this setup: "ICT AMD Kill Zone", "SMC Order Block Raid", "Wyckoff Accumulation/Distribution", "Fibonacci OTE Reversal", "Session Breakout Momentum", "Trend Continuation Pullback", or similar
-    "alignment": string,         // How well price action aligns: "Strong", "Moderate", "Weak", or "None"
-    "institutionalBias": string, // Smart money directional lean: "Bullish", "Bearish", or "Neutral"
-    "keyFactor": string,         // The single most important factor confirming or negating the strategy (e.g. "Price swept Asian low and reclaimed OB" or "Volume absent on breakout")
-    "insight": string,           // 1-2 sentence expert institutional analysis of this specific setup
-    "actionNote": string         // One concrete thing the trader should watch for or do right now based on this strategy framework
-  }
-}
-
-IMPORTANT: All fields marked as REQUIRED must be included in your response with actual data, not "Unknown".`
-            },
-            {
-              type: "image_url",
-              image_url: {
-                url: `data:image/jpeg;base64,${base64Image}`
-              }
-            }
-          ]
-        }
-      ],
-      max_tokens: 8192
-    });
-    const rawLen = visionResponse.choices[0].message.content?.length ?? 0;
-    const finishReason = visionResponse.choices[0].finish_reason;
-    console.log(`OpenAI JSON Response (${rawLen} chars, finish_reason=${finishReason}):`, visionResponse.choices[0].message.content?.slice(0, 300));
-    const rawContent = visionResponse.choices[0].message.content;
-    const contentStr = extractJsonContent2(rawContent);
-    let response;
-    try {
-      response = JSON.parse(contentStr);
-      console.log("Parsed response successfully");
-    } catch (parseError) {
-      console.error("Failed to parse JSON response:", parseError);
-      console.log("Response content:", rawContent.slice(0, 500));
-      response = {};
-    }
-    const symbol = typeof response.symbol === "string" ? response.symbol : "Unknown";
-    const analysisResponse = {
-      symbol,
-      timeframe: typeof response.timeframe === "string" ? response.timeframe : "Unknown",
-      currentPrice: typeof response.currentPrice === "string" ? response.currentPrice : "Unknown",
-      direction: typeof response.direction === "string" ? response.direction : "Unknown",
-      trend: typeof response.trend === "string" ? response.trend : "Unknown",
-      confidence: typeof response.confidence === "string" ? response.confidence : "Medium",
-      entryPoint: typeof response.entryPoint === "string" ? response.entryPoint : "Unknown",
-      exitPoint: typeof response.exitPoint === "string" ? response.exitPoint : "Unknown",
-      stopLoss: typeof response.stopLoss === "string" ? response.stopLoss : "Unknown",
-      takeProfit: typeof response.takeProfit === "string" ? response.takeProfit : "Unknown",
-      riskRewardRatio: typeof response.riskRewardRatio === "string" ? response.riskRewardRatio : "Unknown",
-      potentialPips: typeof response.potentialPips === "string" ? response.potentialPips : "Unknown",
-      volatilityScore: 50,
-      // Default medium volatility, client will recalculate
-      volatilityData: {
-        score: 50,
-        atr: 1e-3,
-        standardDeviation: 15e-4,
-        range: 0.01,
-        historicalRank: 50,
-        riskFactor: 50
-      },
-      // ATR-based stop loss options
-      atrStopLoss: response.atrStopLoss && typeof response.atrStopLoss === "object" ? {
-        atrValue: response.atrStopLoss.atrValue || "0.0010",
-        atr1x: response.atrStopLoss.atr1x || "Unknown",
-        atr15x: response.atrStopLoss.atr15x || "Unknown",
-        atr2x: response.atrStopLoss.atr2x || "Unknown",
-        recommended: response.atrStopLoss.recommended || "Unknown"
-      } : void 0,
-      // Momentum indicators
-      momentumIndicators: response.momentumIndicators && typeof response.momentumIndicators === "object" ? {
-        rsi: response.momentumIndicators.rsi,
-        macd: response.momentumIndicators.macd,
-        stochastic: response.momentumIndicators.stochastic,
-        volumeTrend: response.momentumIndicators.volumeTrend
-      } : void 0,
-      // Candlestick significance analysis
-      candlestickSignificance: response.candlestickSignificance && typeof response.candlestickSignificance === "object" ? {
-        overallSignal: response.candlestickSignificance.overallSignal || "Neutral",
-        reliability: response.candlestickSignificance.reliability || "Medium",
-        patterns: Array.isArray(response.candlestickSignificance.patterns) ? response.candlestickSignificance.patterns : [],
-        keyObservation: response.candlestickSignificance.keyObservation || "No significant patterns detected",
-        tradingImplication: response.candlestickSignificance.tradingImplication || "Continue monitoring for clearer signals"
-      } : void 0,
-      // Generate market trend data for related pairs
-      marketTrends: await generateMarketTrendPredictions(symbol),
-      patterns: Array.isArray(response.patterns) ? response.patterns : [],
-      indicators: Array.isArray(response.indicators) ? response.indicators : [],
-      supportResistance: Array.isArray(response.supportResistance) ? response.supportResistance : [],
-      timeframeAnalysis: Array.isArray(response.timeframeAnalysis) ? response.timeframeAnalysis : [],
-      volumeAnalysis: Array.isArray(response.volumeAnalysis) && response.volumeAnalysis.length > 0 ? response.volumeAnalysis : (() => {
-        const symbol2 = typeof response.symbol === "string" ? response.symbol : "Unknown";
-        const defaultVolume = [
-          {
-            period: "Asian Session",
-            volume: "Medium",
-            activity: "Moderate price action with occasional breakouts during Tokyo open",
-            quality: "Average"
-          },
-          {
-            period: "London Session",
-            volume: "High",
-            activity: "Increased volatility and liquidity as European markets open",
-            quality: "Excellent"
-          },
-          {
-            period: "New York Session",
-            volume: "High",
-            activity: "Peak trading volume when both European and US markets are active",
-            quality: "Excellent"
-          }
-        ];
-        if (symbol2.includes("JPY") || symbol2.includes("AUD") || symbol2.includes("NZD")) {
-          defaultVolume[0].volume = "High";
-          defaultVolume[0].quality = "Excellent";
-          defaultVolume[0].activity = "Strong price movements and liquidity during Tokyo/Sydney sessions";
-        } else if (symbol2.includes("GBP") || symbol2.includes("EUR") || symbol2.includes("CHF")) {
-          defaultVolume[1].volume = "Very High";
-          defaultVolume[1].activity = "Peak liquidity and volatility for European currencies";
-        } else if (symbol2.includes("CAD")) {
-          defaultVolume[2].volume = "Very High";
-          defaultVolume[2].activity = "Highest volatility during New York and Toronto market hours";
-        }
-        return defaultVolume;
-      })(),
-      recommendation: typeof response.recommendation === "string" ? response.recommendation : "No recommendation available",
-      steps: Array.isArray(response.steps) ? response.steps : [],
-      orgStrategyInsight: response.orgStrategyInsight && typeof response.orgStrategyInsight === "object" ? {
-        strategyName: typeof response.orgStrategyInsight.strategyName === "string" ? response.orgStrategyInsight.strategyName : "Unknown",
-        alignment: typeof response.orgStrategyInsight.alignment === "string" ? response.orgStrategyInsight.alignment : "Weak",
-        institutionalBias: typeof response.orgStrategyInsight.institutionalBias === "string" ? response.orgStrategyInsight.institutionalBias : "Neutral",
-        keyFactor: typeof response.orgStrategyInsight.keyFactor === "string" ? response.orgStrategyInsight.keyFactor : "",
-        insight: typeof response.orgStrategyInsight.insight === "string" ? response.orgStrategyInsight.insight : "",
-        actionNote: typeof response.orgStrategyInsight.actionNote === "string" ? response.orgStrategyInsight.actionNote : ""
-      } : void 0,
-      volumeProfile: (() => {
-        const vp = response.volumeProfile;
-        if (!vp || typeof vp !== "object" || !vp.poc || !Array.isArray(vp.levels) || vp.levels.length === 0) return void 0;
-        return {
-          poc: Number(vp.poc),
-          vah: Number(vp.vah || vp.poc),
-          val: Number(vp.val || vp.poc),
-          currentPrice: vp.currentPrice ? Number(vp.currentPrice) : void 0,
-          hvnLevels: Array.isArray(vp.hvnLevels) ? vp.hvnLevels.map(Number).filter(Boolean) : [],
-          lvnLevels: Array.isArray(vp.lvnLevels) ? vp.lvnLevels.map(Number).filter(Boolean) : [],
-          levels: vp.levels.filter((l) => l && typeof l.price === "number" && typeof l.volume === "number").map((l) => ({ price: Number(l.price), volume: Number(l.volume) }))
-        };
-      })()
-    };
-    return analysisResponse;
-  } catch (error) {
-    console.error("Error analyzing chart:", error);
-    if (error instanceof Error) {
-      throw error;
-    } else {
-      throw new Error("Failed to analyze chart image");
-    }
-  }
-}
-async function generateTradingTip(symbol, timeframe = "4H", marketContext = "") {
-  const openai2 = getOpenAIInstance();
-  const prompt = `Generate a concise trading tip for ${symbol} on the ${timeframe} timeframe.
-${marketContext ? `Current market context: ${marketContext}` : ""}
-
-Analyze potential trade opportunities for ${symbol} based on recent price action, key support/resistance levels, 
-and relevant indicators. Focus on actionable advice for traders.
-
-Format your response as a JSON object with these fields:
-- tip: A concise 1-2 sentence trading recommendation
-- direction: Either "buy", "sell", or "neutral"
-- confidence: A number from 1-100 representing confidence in this tip
-- key_levels: An object containing "support" and "resistance" price levels
-
-Keep the tip under 150 characters - direct and actionable.`;
-  try {
-    const response = await openai2.chat.completions.create({
-      model: "gpt-4o",
-      // use the newest model
-      messages: [
-        { role: "system", content: "You are a professional forex and crypto trading advisor with 15+ years of experience." },
-        { role: "user", content: prompt }
-      ],
-      response_format: { type: "json_object" }
-    });
-    const content = response.choices[0].message.content;
-    if (!content) {
-      throw new Error("Failed to generate trading tip");
-    }
-    try {
-      const tipData = JSON.parse(content);
-      return {
-        tip: tipData.tip || "No tip available",
-        direction: tipData.direction || "neutral",
-        confidence: Number(tipData.confidence) || 50,
-        key_levels: {
-          support: tipData.key_levels?.support || "N/A",
-          resistance: tipData.key_levels?.resistance || "N/A"
-        }
-      };
-    } catch (parseError) {
-      console.error("Error parsing AI response:", parseError);
-      throw new Error("Failed to parse trading tip");
-    }
-  } catch (error) {
-    console.error("Error generating trading tip:", error);
-    throw error;
-  }
-}
-async function extractTextFromImage(base64Image) {
-  try {
-    const openai2 = getOpenAIInstance();
-    const visionResponse = await openai2.chat.completions.create({
-      model: "gpt-4o",
-      messages: [
-        {
-          role: "user",
-          content: [
-            {
-              type: "text",
-              text: "Extract all text visible in this trading chart image. Focus on price values, indicators, timeframes, and any other relevant information."
-            },
-            {
-              type: "image_url",
-              image_url: {
-                url: `data:image/jpeg;base64,${base64Image}`
-              }
-            }
-          ]
-        }
-      ],
-      max_tokens: 1e3
-    });
-    return visionResponse.choices[0].message.content || "";
-  } catch (error) {
-    console.error("Error extracting text from image:", error);
-    if (error instanceof Error) {
-      throw error;
-    } else {
-      throw new Error("Failed to extract text from image");
-    }
-  }
-}
-async function generateMarketTrendPredictions(mainSymbol) {
-  try {
-    const openai2 = getOpenAIInstance();
-    const response = await openai2.chat.completions.create({
-      model: "gpt-4o",
-      messages: [
-        {
-          role: "system",
-          content: "You are a professional forex and trading market analyst with deep technical analysis expertise. Generate accurate trend predictions for currency pairs related to the main pair being analyzed. Your predictions should be based on recent market patterns, economic data, and technical indicators."
-        },
-        {
-          role: "user",
-          content: `Based on the current analysis of ${mainSymbol}, predict the market trends for 8-12 related trading pairs. For each pair, provide: pair name, probability (0-100), direction (bullish/bearish/neutral), and signal strength (0-100). Format your response as a JSON array of objects with the field name 'predictions'.`
-        }
-      ],
-      response_format: { type: "json_object" },
-      temperature: 0.7
-    });
-    const parsedResponse = JSON.parse(response.choices[0].message.content || "{}");
-    if (Array.isArray(parsedResponse.predictions)) {
-      return parsedResponse.predictions.map((pred) => ({
-        pair: pred.pair || "Unknown Pair",
-        probability: typeof pred.probability === "number" ? pred.probability : parseInt(pred.probability) || 50,
-        direction: pred.direction === "bullish" || pred.direction === "bearish" || pred.direction === "neutral" ? pred.direction : "neutral",
-        strength: typeof pred.strength === "number" ? pred.strength : parseInt(pred.strength) || 50,
-        timestamp: Date.now()
-      }));
-    }
-    return generateFallbackTrendData(mainSymbol);
-  } catch (error) {
-    console.error("Error generating market trend predictions:", error);
-    return generateFallbackTrendData(mainSymbol);
-  }
-}
-function generateFallbackTrendData(mainSymbol) {
-  const currencyPairs = [
-    "EUR/USD",
-    "GBP/USD",
-    "USD/JPY",
-    "USD/CHF",
-    "USD/CAD",
-    "AUD/USD",
-    "NZD/USD",
-    "EUR/GBP"
-  ];
-  const relatedPairs = currencyPairs.filter((pair) => pair !== mainSymbol).slice(0, 8);
-  return relatedPairs.map((pair) => {
-    const random = Math.random();
-    let direction;
-    if (random < 0.4) {
-      direction = "bullish";
-    } else if (random < 0.8) {
-      direction = "bearish";
-    } else {
-      direction = "neutral";
-    }
-    return {
-      pair,
-      probability: Math.round(60 + Math.random() * 35),
-      // 60-95%
-      direction,
-      strength: Math.round(20 + Math.random() * 75),
-      // 20-95
-      timestamp: Date.now()
-    };
-  });
-}
-async function generatePresentationOutline(eventTitle, eventDescription, talkingPoints, agenda, duration) {
-  if (!openai) {
-    throw new Error("OpenAI API key is not configured");
-  }
-  const prompt = `You are creating a professional presentation outline for a live trading/educational event. 
-  
-EVENT DETAILS:
-- Title: ${eventTitle}
-- Description: ${eventDescription}
-- Duration: ${duration} minutes
-- Key Talking Points: ${talkingPoints.join(", ")}
-- Agenda: ${agenda.map((a) => `${a.time}: ${a.topic}`).join("; ")}
-
-Create a visually engaging presentation outline with ${Math.max(3, Math.min(10, Math.floor(duration / 5)))} slides.
-
-Each slide MUST have:
-1. A compelling title (short, impactful)
-2. 2-4 bullet points (concise, action-oriented)
-3. An EXPLAINER EXAMPLE - a simple analogy or everyday comparison that makes the concept click (e.g., "A stop loss is like a safety net for a trapeze artist - you hope you never need it, but it saves you when things go wrong")
-4. A REAL-WORLD EXAMPLE - a specific, concrete scenario with names/numbers (e.g., "When Bitcoin dropped 40% in May 2021, traders using 3% stop losses preserved 97% of capital")
-5. A NOTABLE INCIDENT - a famous trading story or market event (e.g., "Nick Leeson lost $1.3B and collapsed Barings Bank by hiding losses")
-6. KEY REASONS - 2-3 specific reasons WHY this matters with data (e.g., "Studies show 90% of day traders lose money due to emotional trading")
-7. Brief speaker notes
-8. Visual suggestion (icon/graphic idea)
-9. Approximate duration
-
-CRITICAL: 
-- Explainer examples should use everyday analogies (cooking, sports, driving, etc.) to make complex trading concepts easy to understand
-- Real-world examples, incidents, and reasons must be SPECIFIC and MEMORABLE with real names, numbers, and events
-
-Style guidelines:
-- Professional trading/finance theme
-- Clear, educational tone
-- Actionable insights with proof
-- Memorable stories that stick
-
-Return a JSON object with this exact structure:
-{
-  "eventTitle": "string",
-  "totalSlides": number,
-  "estimatedDuration": "string",
-  "slides": [
-    {
-      "slideNumber": 1,
-      "title": "string",
-      "bulletPoints": ["point1", "point2", "point3"],
-      "explainerExample": "Simple analogy using everyday concepts to explain the topic",
-      "realWorldExample": "Specific example with names and numbers",
-      "notableIncident": "Famous trading story or market event",
-      "keyReasons": ["Reason 1 with data", "Reason 2 with statistics"],
-      "speakerNotes": "string",
-      "visualSuggestion": "string",
-      "duration": "2 min"
-    }
-  ]
-}`;
-  try {
-    const response = await openai.chat.completions.create({
-      model: "gpt-4o-mini",
-      messages: [
-        {
-          role: "system",
-          content: "You are an expert presentation designer for trading and financial education. Create compelling, professional slide outlines. Always return valid JSON."
-        },
-        { role: "user", content: prompt }
-      ],
-      response_format: { type: "json_object" },
-      max_tokens: 2e3,
-      // was 4000 — slide outlines don't need that many tokens
-      temperature: 0.7
-    });
-    const content = response.choices[0]?.message?.content;
-    if (!content) {
-      throw new Error("No response from OpenAI");
-    }
-    const result = JSON.parse(content);
-    return result;
-  } catch (error) {
-    console.error("Error generating presentation outline:", error);
-    return {
-      eventTitle,
-      totalSlides: 3,
-      estimatedDuration: `${duration} minutes`,
-      slides: [
-        {
-          slideNumber: 1,
-          title: "Welcome & Overview",
-          bulletPoints: ["Session objectives", "What you'll learn today", "Key takeaways"],
-          speakerNotes: "Introduce yourself and set expectations",
-          visualSuggestion: "Welcome graphic with logo",
-          duration: "3 min"
-        },
-        {
-          slideNumber: 2,
-          title: eventTitle,
-          bulletPoints: talkingPoints.slice(0, 4),
-          speakerNotes: "Cover the main content",
-          visualSuggestion: "Chart or diagram",
-          duration: `${Math.floor(duration * 0.7)} min`
-        },
-        {
-          slideNumber: 3,
-          title: "Summary & Next Steps",
-          bulletPoints: ["Key points recap", "Action items", "Questions?"],
-          speakerNotes: "Wrap up and take questions",
-          visualSuggestion: "Checklist graphic",
-          duration: "5 min"
-        }
-      ]
-    };
-  }
-}
-async function scanGrantsWithAI(grantTypes, isAdmin, userId) {
-  const typeLabels = {
-    business_fintech: "Business Development & Fintech",
-    community_dev: "Community Development & Economic Empowerment",
-    ambassador_education: "Ambassador Programs & Financial Education",
-    international: "International Expansion & Global Programs",
-    ai_focused: "AI & Technology Innovation"
-  };
-  const typesText = grantTypes.map((t) => typeLabels[t] || t).join(", ");
-  const systemPrompt = "You are an expert grant researcher specializing in fintech, community development, and technology education funding. Return only valid JSON with a 'grants' array.";
-  const userPrompt = `Based on your knowledge of real grant programs, foundations, and government initiatives, identify ${isAdmin ? "20-25" : "10-15"} grants relevant to this organization:
-
-${VEDD_IDENTITY_CONTEXT}
-
-Focus on grant categories: ${typesText}
-
-Include: Federal programs (SBA, CDFI Fund, EDA, NSF, HUD), private foundations (Kauffman, JPMorgan Chase, etc.), corporate grants, fintech accelerators.
-
-Return JSON: { "grants": [ { "title", "funder", "description", "fundingAmount", "deadline" (null or YYYY-MM-DD), "eligibilityCriteria" (array), "applicationUrl", "grantType" (business_fintech|community_dev|ambassador_education|international|ai_focused), "targetAudience" (business|ambassador|both), "geographicScope", "relevanceScore" (60-100), "aiScanNotes" } ] }`;
-  try {
-    const aiClient = userId ? await getUniversalAIClientForUser(userId) : null;
-    let content = null;
-    const client2 = aiClient || openai;
-    const model = aiClient ? aiClient.defaultModel : "gpt-4o";
-    const response = await client2.chat.completions.create({
-      model,
-      messages: [
-        { role: "system", content: systemPrompt },
-        { role: "user", content: userPrompt }
-      ],
-      response_format: { type: "json_object" },
-      max_tokens: 6e3,
-      temperature: 0.4
-    });
-    content = response.choices[0]?.message?.content || null;
-    if (!content) throw new Error("No response from AI");
-    const parsed = JSON.parse(content);
-    return parsed.grants || [];
-  } catch (error) {
-    console.error("Grant scan AI error:", error);
-    throw error;
-  }
-}
-async function generateGrantProposal(grant, mode, options) {
-  const eligibilityText = Array.isArray(grant.eligibilityCriteria) ? grant.eligibilityCriteria.join(", ") : grant.eligibilityCriteria || "See grant requirements";
-  const fundingAmt = grant.fundingAmount || "Amount not specified";
-  const baseContext = `
-\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550
-GRANT OPPORTUNITY DETAILS
-\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550
-Grant Title: ${grant.title}
-Funding Organization: ${grant.funder}
-Grant Description: ${grant.description}
-Funding Amount Available: ${fundingAmt}
-Eligibility Requirements: ${eligibilityText}
-Grant Category: ${grant.grantType}
-
-\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550
-APPLICANT ORGANIZATION \u2014 VEDD AI TRADING
-\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550
-${VEDD_IDENTITY_CONTEXT}
-
-DIFFERENTIATORS (use these to stand out):
-- First-mover AI trading education platform integrated with Solana blockchain infrastructure
-- Proprietary 44-day Ambassador Certification Program with NFT-based credentialing
-- Faith-based community trust networks across multiple U.S. cities \u2014 channels that traditional fintech cannot access
-- Ambassador network model creates self-sustaining economic micro-ecosystems in underserved areas
-- Dual revenue model (subscriptions + VEDD token ecosystem) demonstrates financial sustainability
-- Technology democratizes tools previously available only to institutional traders ($50/month vs. $10,000+/year for institutional platforms)
-- Measurable community outcomes: each ambassador directly impacts 50-200 community members in financial literacy
-`;
-  const aiClient = options?.userId ? await getUniversalAIClientForUser(options.userId) : null;
-  const client2 = aiClient || openai;
-  const model = aiClient ? aiClient.defaultModel : "gpt-4o";
-  const callAI = async (systemMsg, userMsg, maxTokens = 4500) => {
-    const response = await client2.chat.completions.create({
-      model,
-      messages: [{ role: "system", content: systemMsg }, { role: "user", content: userMsg }],
-      max_tokens: maxTokens,
-      temperature: 0.65
-    });
-    return response.choices[0]?.message?.content || "";
-  };
-  if (mode === "auto") {
-    const content = await callAI(
-      MASTER_GRANT_WRITER_SYSTEM,
-      `Write a complete, competition-winning grant proposal for VEDD AI Trading to submit to ${grant.funder} for the "${grant.title}" grant.
-
-${baseContext}
-
-PROPOSAL REQUIREMENTS:
-Write a 2,200\u20133,000 word professional grant proposal with the following clearly formatted sections. Each section must be substantive, specific, and funder-aligned. Do NOT use placeholders. Write as if this is the final submission.
-
-## EXECUTIVE SUMMARY
-(250\u2013300 words) Lead with the funder's mission. State: who VEDD is, what specific problem this grant will solve, what VEDD will do with the funding, the measurable outcomes, and the funding amount requested. Make the first sentence impossible to ignore.
-
-## STATEMENT OF NEED
-(300\u2013400 words) Build an urgent, data-grounded case for the problem. Use national and community-level statistics on financial exclusion, the wealth gap, lack of access to investment tools in underserved communities, and the cost of financial illiteracy. Connect this directly to ${grant.funder}'s stated priorities. This is where reviewers decide whether your project matters.
-
-## ORGANIZATIONAL BACKGROUND & CAPACITY
-(250\u2013350 words) Establish VEDD's credibility and readiness. Highlight: founding mission, platform capabilities, ambassador network scale, technical infrastructure, team expertise, and any existing community partnerships. Include specific metrics where possible. Demonstrate you have the organizational muscle to deliver.
-
-## PROJECT DESCRIPTION
-(400\u2013500 words) Describe exactly what VEDD will do with this grant funding. Be specific: activities, timelines, team responsibilities, community partners, and delivery methods. Use a Theory of Change frame: Activities \u2192 Outputs \u2192 Outcomes \u2192 Long-term Impact. Make this feel real and executable, not theoretical.
-
-## GOALS, OBJECTIVES & EVALUATION PLAN
-(300\u2013350 words) List 4\u20135 SMART objectives (Specific, Measurable, Achievable, Relevant, Time-bound). For each, include: the target number, how it will be measured, and the reporting timeline. Include a brief evaluation methodology: how VEDD will collect data, track progress, and report to the funder.
-
-## BUDGET NARRATIVE
-(200\u2013300 words) Justify the use of ${fundingAmt} with line-item categories (personnel, technology infrastructure, training materials, community outreach, evaluation, indirect costs). Show cost-effectiveness by noting what each dollar achieves in terms of community impact. Demonstrate fiscal responsibility.
-
-## SUSTAINABILITY PLAN
-(200\u2013250 words) Explain how this program continues after the grant period ends. Reference VEDD's subscription revenue model, token ecosystem, growing ambassador network, and plans for follow-on funding. Funders need to know their investment won't disappear.
-
-## COMMUNITY IMPACT & EQUITY STATEMENT
-(200\u2013250 words) Paint a vivid, specific picture of who benefits and how. Name the communities. Use "before and after" language. Connect to themes of equity, access, and economic justice that resonate with ${grant.funder}'s values.
-
-## CONCLUSION
-(150\u2013200 words) End with bold, forward-looking vision. Reinforce the partnership frame \u2014 VEDD and ${grant.funder} together accomplishing something that neither could alone. Express genuine gratitude and confidence. Leave the reviewer feeling inspired, not just informed.
-
-CRITICAL RULES:
-- Mirror ${grant.funder}'s language and values throughout
-- Every statistic must be plausible and consistent with publicly known data
-- Active voice, present/future tense throughout
-- No filler sentences \u2014 every sentence must add value
-- Professional but human \u2014 avoid academic jargon
-- This proposal must stand alone as a complete, ready-to-submit document`,
-      4500
-    );
-    return { content };
-  }
-  if (mode === "guided") {
-    const sectionKey = options?.sectionKey || "executiveSummary";
-    const userInputs = options?.userInputs || {};
-    const sectionInstructions = {
-      executiveSummary: {
-        title: "Executive Summary",
-        words: "250\u2013300",
-        tokens: 900,
-        prompt: `Write a 250\u2013300 word Executive Summary that opens with ${grant.funder}'s mission and immediately connects it to VEDD's work.
-${userInputs.focus ? `Reviewer focus areas to emphasize: ${userInputs.focus}` : ""}
-The summary must cover: the community problem, VEDD's solution, specific activities, measurable outcomes, and the funding amount requested (${fundingAmt}).
-The first sentence must be a powerful hook \u2014 a statistic, a human reality, or a bold vision statement.
-End with a clear ask that makes approving this proposal feel like the obvious decision.`
-      },
-      orgBackground: {
-        title: "Organizational Background & Capacity",
-        words: "250\u2013350",
-        tokens: 900,
-        prompt: `Write a 250\u2013350 word Organizational Background section that positions VEDD AI Trading as the most capable, credible organization to execute this project.
-${userInputs.achievements ? `Key achievements/milestones to highlight: ${userInputs.achievements}` : ""}
-Include: founding story, core platform capabilities, ambassador network reach, technical infrastructure, leadership expertise, and community trust. Use specific metrics wherever possible. Avoid generalities \u2014 reviewers have seen "passionate team committed to change" a thousand times.`
-      },
-      statementOfNeed: {
-        title: "Statement of Need",
-        words: "300\u2013400",
-        tokens: 1e3,
-        prompt: `Write a compelling 300\u2013400 word Statement of Need using real, plausible statistics about financial exclusion, the racial wealth gap, lack of investment access in underserved communities, and the cost of financial illiteracy in America.
-Connect these statistics directly to the communities VEDD serves and to ${grant.funder}'s stated mission.
-Build urgency: why does this need to be addressed NOW? What worsens if it isn't?
-${userInputs.communityData ? `Local/community data to incorporate: ${userInputs.communityData}` : ""}`
-      },
-      projectDescription: {
-        title: "Project Description",
-        words: "400\u2013500",
-        tokens: 1100,
-        prompt: `Write a 400\u2013500 word Project Description that reads like a crisp operational plan.
-${userInputs.projectDetails ? `Additional project context: ${userInputs.projectDetails}` : ""}
-Structure it as a Theory of Change: Activities (what VEDD will do) \u2192 Outputs (what will be produced) \u2192 Outcomes (what will change) \u2192 Impact (the lasting difference).
-Be specific about: timelines, who delivers what, community partner roles, technology deployment, and training delivery methods.
-Make this feel real \u2014 not "we will work to" but "we will deliver."`
-      },
-      goalsObjectives: {
-        title: "Goals, Objectives & Evaluation Plan",
-        words: "300\u2013350",
-        tokens: 900,
-        prompt: `Write 4\u20135 SMART objectives for VEDD's grant project, followed by an evaluation methodology.
-${userInputs.goals ? `Applicant-provided goals to incorporate: ${userInputs.goals}` : ""}
-Each objective must include: specific number/target, measurement method, responsible party, and deadline.
-Follow with 150 words on evaluation: how will data be collected, who collects it, how frequently, and how results will be reported to ${grant.funder}.
-Avoid soft language like "increase awareness" \u2014 every objective must be quantifiable.`
-      },
-      budgetNarrative: {
-        title: "Budget Narrative",
-        words: "250\u2013300",
-        tokens: 850,
-        prompt: `Write a 250\u2013300 word Budget Narrative justifying the use of ${fundingAmt} in grant funding.
-${userInputs.budgetItems ? `Specific budget items/priorities: ${userInputs.budgetItems}` : ""}
-Use these category headings: Personnel & Training, Technology Infrastructure, Community Outreach & Marketing, Program Materials, Evaluation & Reporting, Administrative/Indirect (max 15%).
-For each category, explain what it covers and why it is necessary to achieve the stated outcomes.
-Show cost-effectiveness: what community impact does each major expenditure produce?
-Close by noting how VEDD's existing infrastructure reduces grant overhead \u2014 demonstrating efficient use of funds.`
-      },
-      impactStatement: {
-        title: "Community Impact & Equity Statement",
-        words: "250\u2013300",
-        tokens: 850,
-        prompt: `Write a 250\u2013300 word Community Impact and Equity Statement that paints a specific, vivid picture of who benefits and how their lives improve.
-${userInputs.impactMetrics ? `Impact metrics/data to include: ${userInputs.impactMetrics}` : ""}
-Name the communities. Use "before and after" framing. Connect to systemic equity themes that resonate with ${grant.funder}.
-Include 3\u20134 specific measurable impact metrics (e.g., number of households reached, average income change, number of new investors onboarded).
-Close with a line about the ripple effect: how each VEDD ambassador impacts their broader network.`
-      },
-      sustainability: {
-        title: "Sustainability Plan",
-        words: "200\u2013250",
-        tokens: 700,
-        prompt: `Write a 200\u2013250 word Sustainability Plan explaining how VEDD's programs continue and grow after the grant period ends.
-Reference: VEDD's subscription revenue model, VEDD token ecosystem, growing ambassador network self-funding capacity, diversified grant pipeline, and potential earned revenue from ambassador-led events.
-Be specific about year 2 and year 3 funding projections.
-Funders invest in programs with futures \u2014 reassure ${grant.funder} that their investment compounds over time.`
-      },
-      conclusion: {
-        title: "Conclusion",
-        words: "150\u2013200",
-        tokens: 600,
-        prompt: `Write a 150\u2013200 word Conclusion that closes the proposal with vision, gratitude, and momentum.
-Don't summarize \u2014 project forward. Describe what the world looks like in 3 years if this grant is funded.
-Frame this as a partnership between VEDD and ${grant.funder} \u2014 two organizations with aligned missions creating outcomes neither could achieve alone.
-Express authentic appreciation for the funder's consideration.
-End with a confident, forward-looking sentence that makes approving this proposal feel like joining a movement.`
-      }
-    };
-    const section = sectionInstructions[sectionKey] || sectionInstructions.executiveSummary;
-    const content = await callAI(
-      MASTER_GRANT_WRITER_SYSTEM,
-      `Write the "${section.title}" section (${section.words} words) for a grant proposal from VEDD AI Trading to ${grant.funder} for "${grant.title}".
-
-${baseContext}
-
-SECTION INSTRUCTIONS:
-${section.prompt}
-
-CRITICAL: Write the section content only \u2014 no meta-commentary, no "here is the section," no headers other than the section title. This section must be ready to paste directly into the final proposal.`,
-      section.tokens
-    );
-    return { content, sections: { [sectionKey]: content } };
-  }
-  if (mode === "template") {
-    const templateType = options?.templateType || (grant.grantType === "ambassador_education" ? "ambassador_program" : grant.grantType === "community_dev" ? "community_dev" : "fintech_expansion");
-    const templateFocus = {
-      ambassador_program: `
-TEMPLATE FOCUS \u2014 Ambassador Education & Financial Literacy:
-This proposal emphasizes VEDD's 44-day Ambassador Certification Program, the train-the-trainer multiplier model, NFT credentialing system, and the measurable ripple effect of each certified ambassador reaching 50\u2013200 community members.
-Lead with the financial literacy crisis in underserved communities. Show how VEDD's ambassador model is uniquely scalable and self-sustaining.
-Key metrics to build around: ambassadors certified, community members reached per ambassador, financial literacy scores improved, new investors onboarded, inter-city expansion milestones.`,
-      fintech_expansion: `
-TEMPLATE FOCUS \u2014 Fintech Innovation & Technology Access:
-This proposal emphasizes VEDD's full AI trading infrastructure \u2014 live multi-broker execution (MT5 + TradeLocker), the ABBA AI strategist/voice assistant, Solana blockchain integration, an AI prediction-markets engine (Kalshi/Polymarket), and copy-trading with token profit-sharing \u2014 all delivered at democratized pricing versus institutional platforms.
-Lead with the technological exclusion of retail and minority investors from AI-powered financial tools. Show how VEDD closes this gap at scale across multiple asset classes (forex, crypto, prediction markets) from one platform.
-Key metrics: platform users reached, trades analyzed by AI, subscription growth, cost-per-user vs. institutional alternatives, technology adoption in underserved markets.`,
-      community_dev: `
-TEMPLATE FOCUS \u2014 Community Economic Development & Financial Inclusion:
-This proposal emphasizes VEDD's faith-based community trust networks, inter-city economic ecosystem building, minority entrepreneur financial empowerment, and long-term wealth creation in historically disinvested communities.
-Lead with the racial wealth gap and the specific barriers that VEDD is dismantling. Show how VEDD's community-embedded model works where traditional fintech cannot reach.
-Key metrics: household income impact, new investor accounts opened, community GDP contribution, ambassador business development outcomes, generational wealth indicators.`
-    };
-    const content = await callAI(
-      MASTER_GRANT_WRITER_SYSTEM,
-      `Write a complete, ready-to-submit grant proposal (2,000\u20132,500 words) for VEDD AI Trading applying to ${grant.funder} for "${grant.title}."
-
-${baseContext}
-
-${templateFocus[templateType]}
-
-PROPOSAL SECTIONS REQUIRED (all fully written, no placeholders):
-1. Executive Summary (250 words) \u2014 funder-aligned opener, problem, solution, ask
-2. Statement of Need (300 words) \u2014 data-backed urgency, community context
-3. Organizational Background (250 words) \u2014 capacity proof, credibility, track record
-4. Project Description (350 words) \u2014 Theory of Change, activities, deliverables, timeline
-5. Goals & Objectives (250 words) \u2014 4 SMART goals with evaluation method
-6. Budget Narrative (200 words) \u2014 justified use of ${fundingAmt}
-7. Sustainability Plan (150 words) \u2014 post-grant continuity
-8. Impact Statement (200 words) \u2014 specific community outcomes
-9. Conclusion (150 words) \u2014 visionary close, partnership frame
-
-This proposal must read like a veteran wrote it \u2014 specific, compelling, funder-centric, ready to submit.`,
-      4e3
-    );
-    return { content };
-  }
-  return { content: "" };
-}
-async function generateSocialOutreachKit(platform, keywords, ambassadorName, userId) {
-  let resolvedApiKey = process.env.OPENAI_API_KEY;
-  if (userId) {
-    try {
-      const { storage: storage2 } = await Promise.resolve().then(() => (init_storage(), storage_exports));
-      const keys = await storage2.getUserApiKeys(userId);
-      const userKey = keys.find((k) => k.provider === "openai" && k.isActive && k.isValid !== false);
-      if (userKey?.apiKey) resolvedApiKey = userKey.apiKey;
-    } catch {
-    }
-  }
-  if (!resolvedApiKey) {
-    throw new Error("No OpenAI API key available. Please add your OpenAI key in Settings \u2192 API Keys.");
-  }
-  const openai2 = getPlatformOpenAIClient();
-  const encodedKeywords = encodeURIComponent(keywords);
-  const firstHashtag = keywords.split(/[\s,]+/)[0]?.replace("#", "") || "trading";
-  const systemPrompt = `You are a social media lead generation expert for VEDD Trading AI \u2014 a fintech/forex/crypto trading education platform with AI signal tools, an ambassador program, and Solana token investments. You help ambassadors find and convert prospects into VEDD subscribers.`;
-  const userPrompt = `Generate a complete lead generation outreach kit for ambassador "${ambassadorName}" targeting ${platform} using these keywords/interests: "${keywords}".
-
-Return a JSON object with these exact fields:
-- hashtags: string[] \u2014 10-15 best hashtags for ${platform} matching these interests
-- searchQueries: string[] \u2014 8-10 specific search query strings to find trading/finance prospects
-- searchUrls: { label: string, url: string, description: string }[] \u2014 4-6 deep-link search URLs for ${platform}. Use these URL patterns:
-  * Twitter/X: https://twitter.com/search?q={encoded_query}&f=people
-  * Instagram: https://www.instagram.com/explore/tags/{hashtag}/
-  * LinkedIn: https://www.linkedin.com/search/results/people/?keywords={encoded_query}
-  * Facebook: https://www.facebook.com/search/people/?q={encoded_query}
-  * TikTok: https://www.tiktok.com/search?q={encoded_query}
-- dmScript: string \u2014 150-200 word personalized DM template for ${platform}, referencing trading/financial freedom, signed by ${ambassadorName}. Include [NAME] placeholder.
-- commentScript: string \u2014 2-3 sentence comment to leave on target posts, curiosity-driven
-- profileKeywords: string[] \u2014 8-10 keywords to look for in bios when scanning profiles
-- bestTimeToPost: string \u2014 best times to engage on ${platform} for this audience
-- tips: string[] \u2014 3-4 platform-specific tactics for finding and converting prospects on ${platform}
-
-Pre-generate the URLs using encoded versions of: "${encodedKeywords}" and hashtag: "${firstHashtag}"`;
-  const response = await openai2.chat.completions.create({
-    model: "gpt-4o",
-    messages: [
-      { role: "system", content: systemPrompt },
-      { role: "user", content: userPrompt }
-    ],
-    response_format: { type: "json_object" },
-    max_tokens: 2e3
-  });
-  const raw = response.choices[0]?.message?.content || "{}";
-  try {
-    return JSON.parse(raw);
-  } catch {
-    return {
-      hashtags: [],
-      searchQueries: [],
-      searchUrls: [],
-      dmScript: "",
-      commentScript: "",
-      profileKeywords: [],
-      bestTimeToPost: "",
-      tips: []
-    };
-  }
-}
-async function enrichLeadWithAI(lead) {
-  const openai2 = getPlatformOpenAIClient();
-  const answersText = lead.answers && lead.answers.length > 0 ? `Quiz answers: ${lead.answers.map((a) => `Q${a.questionId}: ${a.answer}`).join(", ")}` : "No quiz answers provided.";
-  const bioText = lead.bioSnippet ? `Bio/Profile snippet: "${lead.bioSnippet}"` : "No bio provided.";
-  const platformText = lead.platform ? `Found on: ${lead.platform}` : "";
-  const prompt = `Analyze this VEDD Trading AI prospect and return a JSON assessment (max 150 words total across all fields):
-
-Name: ${lead.firstName}
-${platformText}
-${bioText}
-${answersText}
-
-Return JSON with:
-- interestLevel: "High" | "Medium" | "Low"
-- approach: string \u2014 1-2 sentence best outreach approach for this person
-- talkingPoints: string[] \u2014 3 key talking points based on their profile/answers
-- suggestedOpener: string \u2014 a specific first message opener (1-2 sentences, natural, not salesy)
-- summary: string \u2014 1 sentence overall assessment
-
-Base on VEDD's offerings: AI trading signals, financial education, passive income through referrals, trading community.`;
-  const response = await openai2.chat.completions.create({
-    model: "gpt-4o",
-    messages: [
-      { role: "system", content: "You are a lead qualification expert for VEDD Trading AI. Be concise and actionable." },
-      { role: "user", content: prompt }
-    ],
-    response_format: { type: "json_object" },
-    max_tokens: 400
-  });
-  const raw = response.choices[0]?.message?.content || "{}";
-  try {
-    return JSON.parse(raw);
-  } catch {
-    return {
-      interestLevel: "Medium",
-      approach: "Standard outreach recommended.",
-      talkingPoints: ["AI trading signals", "Financial freedom", "Ambassador income"],
-      suggestedOpener: `Hey ${lead.firstName}, noticed you're interested in trading \u2014 have you seen what AI can do for your charts?`,
-      summary: "Prospect requires manual review."
-    };
-  }
-}
-function generateSlug(title) {
-  const base = title.toLowerCase().replace(/[^a-z0-9\s-]/g, "").replace(/\s+/g, "-").replace(/-+/g, "-").trim().substring(0, 60);
-  return `${base}-${Date.now().toString(36)}`;
-}
-function estimateReadTime(html) {
-  const text2 = html.replace(/<[^>]+>/g, " ");
-  const wordCount = text2.trim().split(/\s+/).length;
-  const minutes = Math.ceil(wordCount / 200);
-  return `${minutes} min read`;
-}
-async function generateVeddBlogPost(topic, userId) {
-  let openai2;
-  let blogModel = "gpt-4o";
-  try {
-    openai2 = await getUniversalAIClientForUser(userId || 0);
-    blogModel = openai2.defaultModel || "gpt-4o";
-  } catch {
-  }
-  if (!openai2) {
-    const apiKey = process.env.OPENAI_API_KEY || process.env.GROQ_API_KEY;
-    if (!apiKey) throw new Error("No AI key configured. Add any AI key (OpenAI, Groq, or free OpenRouter) in AI Settings.");
-    const isGroq = !process.env.OPENAI_API_KEY;
-    openai2 = new OpenAI({ apiKey, ...isGroq ? { baseURL: "https://api.groq.com/openai/v1" } : {}, maxRetries: 4, timeout: 9e4 });
-    blogModel = isGroq ? "openai/gpt-oss-120b" : "gpt-4o";
-  }
-  const today = (/* @__PURE__ */ new Date()).toISOString().split("T")[0];
-  let chosenTopic;
-  let currentEventsContext;
-  if (topic) {
-    chosenTopic = topic;
-    currentEventsContext = `User-specified topic: ${topic}`;
-  } else {
-    const topicsResponse = await openai2.chat.completions.create({
-      model: blogModel,
-      messages: [
-        {
-          role: "system",
-          content: "You are a financial market analyst. Identify current hot topics in trading and finance based on your training data. Focus on what is trending, volatile, or widely discussed among traders right now."
-        },
-        {
-          role: "user",
-          content: `Today is ${today}. Identify 3 current hot topics in trading/finance/crypto that traders are most interested in. Consider: ongoing market trends, economic events, interest rate decisions, crypto movements, forex volatility, gold/commodities, AI in trading, economic uncertainty, major indices performance. Return a JSON object with: { "topics": ["topic1", "topic2", "topic3"], "chosen": "the single best topic for a VEDD Trading AI blog post", "context": "1-2 sentences describing the current market context for the chosen topic" }`
-        }
-      ],
-      response_format: { type: "json_object" },
-      // Reasoning models (Groq gpt-oss/Qwen3/etc.) spend tokens on hidden
-      // reasoning before the JSON, so 300 truncated the topic selection.
-      max_tokens: hasHiddenReasoningOverhead(blogModel) ? 1200 : 400
-    });
-    const topicsRaw = topicsResponse.choices[0]?.message?.content || "{}";
-    let topicsData = {};
-    try {
-      topicsData = JSON.parse(topicsRaw);
-    } catch {
-      topicsData = { chosen: "Forex market volatility and AI trading strategies", context: "Markets are experiencing significant volatility creating opportunities for disciplined traders." };
-    }
-    chosenTopic = topicsData.chosen || "Forex market volatility and AI trading strategies";
-    currentEventsContext = topicsData.context || `Auto-selected topic based on current market conditions as of ${today}`;
-  }
-  const systemPrompt = `You are the content writer for VEDD Trading AI, a faith-driven financial education platform.
-
-VEDD BRAND VOICE:
-- Brand: VEDD Trading AI (AI signal engine called "VEDD SS AI")
-- Tone: Confident, empowering, faith-driven, educational \u2014 with a street-urban authenticity: direct, real, from-the-block, no fluff. Talk to the reader like you know their hustle, not like a textbook.
-- Key phrases: "financial freedom", "God's timing", "discipline", "strategic", "abundance mindset", "the come-up", "getting your mind right before your money right"
-- Occasionally reference scripture naturally (not forced) \u2014 e.g., Proverbs, Philippians 4:13
-- Weave in Supreme Mathematics (Five Percent Nation numerology) as natural thematic language where it fits the point being made \u2014 not a rigid 9-part structure, just vocabulary and framing pulled in when it lands:
-  Knowledge (1) = the base \u2014 knowing the setup, the data, yourself before you risk anything
-  Wisdom (2) = applying what you know \u2014 turning knowledge into a decision
-  Understanding (3) = the "aha," clarity earned after Knowledge meets Wisdom in real trades
-  Culture/Freedom (4) = building your own way of moving, breaking from what's been holding you back
-  Power/Refinement (5) = the strength that comes from repetition and discipline, sharpened over time
-  Equality (6) = balance \u2014 risk vs. reward, work vs. rest, staying even-keeled through wins and losses
-  God (7) = the highest self \u2014 the version of you that shows up disciplined every single day
-  Build or Destroy (8) = every trade either builds your account/character or destroys it \u2014 there's no neutral
-  Born (9) = the new you that comes out the other side of doing the work
-  Cipher (0) = the full circle \u2014 the community, the exchange of game, VEDD's ecosystem itself
-  Use these sparingly and naturally (one or two per article at most) \u2014 never force all ten into a single post.
-- Target audience: Everyday people learning forex/crypto trading, aspiring ambassadors, side-hustle seekers
-- Always tie current events back to VEDD tools: VEDD SS AI signal engine, Weekly Strategy Plan, Solana scanner, Ambassador program, 44-day trading system
-- Every article ends with a CTA to join VEDD or try a free demo
-
-CONTENT RULES:
-- Length: 600-900 words
-- Use HTML tags: <h2>, <h3>, <p>, <ul>/<li>, <strong>, <em>
-- Use headings to break up sections
-- Bold key trading terms and important phrases
-- Write in second person ("you", "your trades")
-- Practical, actionable advice \u2014 not just theory
-- CTA at the end linking to sign up or the platform
-
-OUTPUT: Return a JSON object with these exact fields:
-{
-  "title": "compelling SEO-friendly title (max 80 chars)",
-  "excerpt": "2-sentence summary that hooks readers (max 200 chars)",
-  "category": one of: "Trading Strategy" | "Trading Psychology" | "Technical Analysis" | "Crypto Trading" | "Forex Trading" | "Market Analysis" | "Financial Education",
-  "tags": ["tag1", "tag2", "tag3", "tag4"],
-  "content": "full HTML article content"
-}`;
-  const articleResponse = await openai2.chat.completions.create({
-    model: blogModel,
-    messages: [
-      { role: "system", content: systemPrompt },
-      {
-        role: "user",
-        content: `Write a VEDD Trading AI blog post about: ${chosenTopic}
-
-Market context: ${currentEventsContext}
-
-Make it timely, relevant to current market conditions, and show how VEDD's tools help traders navigate these conditions. Include practical takeaways.`
-      }
-    ],
-    response_format: { type: "json_object" },
-    // A 600-900 word HTML article wrapped in JSON needs real headroom — 1800
-    // truncated the JSON mid-article, which failed JSON.parse and fell back to a
-    // tiny stub (the "articles aren't full" bug). Reasoning models need even more
-    // since they burn tokens on hidden reasoning before emitting the article.
-    max_tokens: hasHiddenReasoningOverhead(blogModel) ? 6e3 : 4e3
-  });
-  const articleRaw = articleResponse.choices[0]?.message?.content || "{}";
-  if (articleResponse.choices[0]?.finish_reason === "length") {
-    console.warn("[Blog] Article generation hit the token limit \u2014 output may be truncated; consider raising max_tokens.");
-  }
-  let articleData = {};
-  try {
-    articleData = JSON.parse(articleRaw);
-  } catch {
-    articleData = {
-      title: `Market Insight: ${chosenTopic}`,
-      excerpt: "VEDD Trading AI brings you the latest market analysis to help you trade with confidence and precision.",
-      category: "Market Analysis",
-      tags: ["Trading", "VEDD", "Market Analysis"],
-      content: `<p>Markets are moving. Are you positioned to take advantage? With VEDD Trading AI, you have the tools, signals, and community to make informed decisions every day.</p><p><a href="/auth">Join VEDD today and start your journey to financial freedom.</a></p>`
-    };
-  }
-  const title = articleData.title || `Trading Insight: ${chosenTopic}`;
-  const content = articleData.content || "";
-  return {
-    title,
-    slug: generateSlug(title),
-    excerpt: articleData.excerpt || `Discover how ${chosenTopic} creates opportunities for disciplined traders using VEDD's AI-powered tools.`,
-    content,
-    category: articleData.category || "Trading Strategy",
-    tags: articleData.tags || ["Trading", "VEDD", "Market Analysis"],
-    readTime: estimateReadTime(content),
-    currentEventsContext
-  };
-}
-async function generateReelScript(topic, userId, format, styleNote) {
-  let openai2;
-  let model = "gpt-4o";
-  try {
-    openai2 = await getUniversalAIClientForUser(userId || 0);
-    model = openai2.defaultModel || "gpt-4o";
-  } catch {
-  }
-  if (!openai2) {
-    const apiKey = process.env.OPENAI_API_KEY || process.env.GROQ_API_KEY;
-    if (!apiKey) throw new Error("No AI key configured. Add any AI key (OpenAI, Groq, or free OpenRouter) in AI Settings.");
-    const isGroq = !process.env.OPENAI_API_KEY;
-    openai2 = new OpenAI({ apiKey, ...isGroq ? { baseURL: "https://api.groq.com/openai/v1" } : {}, maxRetries: 4, timeout: 9e4 });
-    model = isGroq ? "openai/gpt-oss-120b" : "gpt-4o";
-  }
-  const systemPrompt = `You write short-form social reel scripts for VEDD Trading AI, a faith-driven financial education platform (brand voice: confident, empowering, street-urban authentic, no fluff \u2014 talk to the reader like you know their hustle).
-
-The reel clip itself is only 5-6 seconds of AI-generated video, so the script is a voiceover/on-screen-text script meant to be read over that clip plus following text cards \u2014 it does not need to match the clip's runtime exactly.
-
-Return a JSON object with these exact fields:
-{
-  "hook": "one punchy opening line (max 100 chars) that stops the scroll",
-  "script": ["3-5 short lines/beats after the hook, building to a CTA to join VEDD"],
-  "caption": "a social caption for the post (2-4 sentences, includes a CTA to veddbuild.com, no hashtags \u2014 those get added separately)",
-  "videoPrompt": "a vivid, concrete visual SCENE (1-2 sentences) for an AI video generator, staying FAITHFUL to the topic above \u2014 describe the setting, subject and mood only. Do NOT describe film style, grain, color grade or camera settings (those are applied automatically). No text overlays, captions, signage, logos or readable words. If the scene includes people, they are young Black people in contemporary streetwear in an authentic inner-city/urban setting."
-}`;
-  const FORMAT_INSTRUCTIONS = {
-    "product-ad": `FORMAT \u2014 PRODUCT AD (direct response):
-- The hook names a painful trading problem as a question or a blunt statement.
-- Beats: (1) the problem up close, (2) the presenter pulls out their phone / turns to their screen where a candlestick chart is being analyzed for them, (3) what the VEDD AI Trading Vault does with that chart, in plain words, (4) the call to action: start free at veddbuild.com.
-- The videoPrompt scene is a product-demo moment: the presenter in frame, phone or chart screen beside them, energy like showing a friend something that works.
-- No income or profit promises, no win-rate claims.`,
-    "got-milk": `FORMAT \u2014 "GOT MILK?"-STYLE PARODY AD:
-- Playful 90s TV-spot energy. The hook is a relatable stuck moment for a trader (missed the entry, ten charts open, analysis paralysis) played for comedy, never mocking the viewer.
-- Beats: the frustration builds, then the turn \u2014 the presenter looks straight at the camera, holds up their phone, deadpan. The final script line is the closer: "got VEDD?"
-- The caption MUST end with the exact closer: got VEDD?
-- The videoPrompt scene matches the stuck moment, then the turn to camera.
-- No income or profit promises \u2014 the joke is the situation, never the money.`
-  };
-  const withFormat = format && FORMAT_INSTRUCTIONS[format] ? `${systemPrompt}
-
-${FORMAT_INSTRUCTIONS[format]}` : systemPrompt;
-  const system = styleNote?.trim() ? `${withFormat}
-
-ADAPT THIS PROVEN AD STRUCTURE \u2014 copy the shape only, written for VEDD in the brand voice above:
-${styleNote.trim().slice(0, 900)}` : withFormat;
-  const response = await openai2.chat.completions.create({
-    model,
-    messages: [
-      { role: "system", content: system },
-      { role: "user", content: `Write a VEDD reel script about: ${topic}` }
-    ],
-    response_format: { type: "json_object" },
-    max_tokens: 700
-  });
-  const raw = response.choices[0]?.message?.content || "{}";
-  let data = {};
-  try {
-    data = JSON.parse(raw);
-  } catch {
-    data = {};
-  }
-  if (format === "got-milk" && data.caption && !/got vedd\?\s*$/i.test(data.caption.trim())) {
-    data.caption = `${data.caption.trim()} got VEDD?`;
-  }
-  return {
-    hook: data.hook || `Stop scrolling \u2014 this is about ${topic}.`,
-    script: Array.isArray(data.script) && data.script.length > 0 ? data.script : [
-      `Here's what most traders get wrong about ${topic}.`,
-      `VEDD's AI signal engine keeps you disciplined when the charts get emotional.`,
-      `Build your vault before this window closes.`
-    ],
-    caption: data.caption || `${topic} \u2014 here's how VEDD's AI keeps traders disciplined through it. Start free at veddbuild.com.`,
-    videoPrompt: data.videoPrompt || `Inner-city scene evoking "${topic}": a young person in contemporary streetwear in a moody urban interior, lit by one warm gold light source, holding a phone that glows with a rising green chart, quiet and contemplative`
-  };
-}
-async function generateSlideCarouselScript(topic, slideCount, userId) {
-  let openai2;
-  let model = "gpt-4o";
-  try {
-    openai2 = await getUniversalAIClientForUser(userId || 0);
-    model = openai2.defaultModel || "gpt-4o";
-  } catch {
-  }
-  if (!openai2) {
-    const apiKey = process.env.OPENAI_API_KEY || process.env.GROQ_API_KEY;
-    if (!apiKey) throw new Error("No AI key configured. Add any AI key (OpenAI, Groq, or free OpenRouter) in AI Settings.");
-    const isGroq = !process.env.OPENAI_API_KEY;
-    openai2 = new OpenAI({ apiKey, ...isGroq ? { baseURL: "https://api.groq.com/openai/v1" } : {}, maxRetries: 4, timeout: 9e4 });
-    model = isGroq ? "openai/gpt-oss-120b" : "gpt-4o";
-  }
-  const systemPrompt = `You write slide carousels for VEDD Trading AI, a faith-driven financial education platform (brand voice: confident, empowering, street-urban authentic, no fluff \u2014 talk to the reader like you know their hustle). Write them in the style of top Instagram finance/motivation pages like @wealth and @entrepreneursonig: each slide is ONE bold declarative statement that could stand alone as a quote card \u2014 short, punchy, scroll-stopping. Not paragraphs, not lecture notes.
-
-Return a JSON object with these exact fields:
-{
-  "title": "short title for the whole carousel (max 60 chars)",
-  "caption": "a social caption for the post introducing the carousel (2-4 sentences), includes a CTA to veddbuild.com, no hashtags",
-  "slides": [
-    {
-      "heading": "the slide's BIG bold statement (max 60 chars) \u2014 one punchy declarative line, e.g. 'Most traders lose to their own emotions.' or 'Step 1: Connect your broker.'",
-      "body": "one short supporting line (max 100 chars) \u2014 sharpens or proves the heading, never repeats it",
-      "imagePrompt": "a vivid, concrete visual scene description (1 sentence) for an AI image generator to render as this slide's dark, moody background. Dark/cinematic tones only. No text overlays, no logos, no UI screenshots. If the scene includes people, they should be Black, Brown, or Indigenous people of color in contemporary urban/hip-hop-inspired style (streetwear, sneakers, fitted caps), with smartphones and modern tech woven in naturally \u2014 this reflects VEDD's inner-city audience, not a generic stock-photo cast."
-    }
-  ]
-}
-
-Write exactly ${slideCount} slides, in logical order (slide 1 is a hook that stops the scroll, the last slide is always a CTA to join VEDD).`;
-  const response = await openai2.chat.completions.create({
-    model,
-    messages: [
-      { role: "system", content: systemPrompt },
-      { role: "user", content: `Write a VEDD slide carousel about: ${topic}` }
-    ],
-    response_format: { type: "json_object" },
-    max_tokens: 1500
-  });
-  const raw = response.choices[0]?.message?.content || "{}";
-  let data = {};
-  try {
-    data = JSON.parse(raw);
-  } catch {
-    data = {};
-  }
-  const fallbackSlides = Array.from({ length: slideCount }, (_, i) => ({
-    heading: i === 0 ? `Let's talk about ${topic}` : i === slideCount - 1 ? "Start free today" : `Step ${i}`,
-    body: i === slideCount - 1 ? "Join VEDD and put this to work in your own account." : `Here's what you need to know about ${topic}.`,
-    imagePrompt: `A clean, modern trading desk scene, warm natural light, cinematic depth of field`
-  }));
-  const slides = Array.isArray(data.slides) && data.slides.length > 0 ? data.slides.slice(0, slideCount).map((s, i) => ({
-    heading: s.heading || fallbackSlides[i]?.heading || `Step ${i + 1}`,
-    body: s.body || fallbackSlides[i]?.body || "",
-    imagePrompt: s.imagePrompt || fallbackSlides[i]?.imagePrompt || "A clean, modern trading desk scene, warm natural light"
-  })) : fallbackSlides;
-  return {
-    title: data.title || `How ${topic} Works`,
-    caption: data.caption || `Here's exactly how ${topic} works on VEDD \u2014 swipe through, then start free at veddbuild.com.`,
-    slides
-  };
-}
-async function generateDailyDevotional(date2) {
-  let client2;
-  try {
-    client2 = await getUniversalAIClientForUser(0);
-  } catch {
-  }
-  if (!client2) {
-    const apiKey = process.env.OPENAI_API_KEY || process.env.GROQ_API_KEY;
-    if (apiKey) {
-      const isGroq = !process.env.OPENAI_API_KEY;
-      client2 = new OpenAI({ apiKey, ...isGroq ? { baseURL: "https://api.groq.com/openai/v1" } : {}, maxRetries: 4, timeout: 9e4 });
-    }
-  }
-  const devotionalModel = client2?.defaultModel || "gpt-4o-mini";
-  const systemPrompt = `You are the VEDD Trading AI spiritual coach. VEDD is a faith-based, community-driven fintech and trading AI platform built around mindset, discipline, and excellence. Our ambassador network spans cities worldwide. Our values: faith, resilience, discipline, community, generosity, and excellence in trading.
-
-Generate a daily devotional for ambassadors and users that:
-1. Ties Christian/faith-based scripture to trading mindset and financial discipline
-2. Speaks to our inter-city ambassador community building vision
-3. Is motivational, grounded, and practical
-4. Connects spiritual growth with professional growth in trading/finance
-5. Encourages community and collaboration between ambassadors
-
-Return ONLY valid JSON, no markdown, no extra text.`;
-  const userPrompt = `Generate a daily devotional for ${date2}. Return JSON with exactly these fields:
-{
-  "title": "Compelling devotional title (max 10 words)",
-  "theme": "One-word or short theme (e.g. 'Discipline', 'Community', 'Excellence', 'Patience', 'Vision')",
-  "scripture": "Book Chapter:Verse reference (e.g. 'Proverbs 16:3')",
-  "scriptureText": "The full scripture verse text",
-  "reflection": "A 3-4 paragraph devotional reflection (300-400 words) connecting the scripture to trading mindset, financial discipline, and the ambassador community mission. Write in second person ('you'). Mention VEDD's mission of building inter-city ambassador communities.",
-  "prayerPoints": ["Prayer point 1", "Prayer point 2", "Prayer point 3", "Prayer point 4"],
-  "affirmation": "A powerful one-sentence daily affirmation the ambassador/user can speak aloud. Start with 'I am' or 'Today I'.",
-  "tradingTieIn": "2-3 sentences specifically connecting today's scripture theme to trading discipline, risk management, patience in the markets, or the mindset needed to succeed as a VEDD trader/ambassador."
-}`;
-  try {
-    if (!client2) throw new Error("No AI provider configured (add an AI key in AI Settings)");
-    const response = await client2.chat.completions.create({
-      model: devotionalModel,
-      messages: [
-        { role: "system", content: systemPrompt },
-        { role: "user", content: userPrompt }
-      ],
-      temperature: 0.8,
-      max_tokens: 1200,
-      response_format: { type: "json_object" }
-    });
-    const raw = response.choices[0]?.message?.content || "{}";
-    const data = JSON.parse(raw);
-    return {
-      title: data.title || `Daily Devotional \u2014 ${date2}`,
-      theme: data.theme || "Excellence",
-      scripture: data.scripture || "Philippians 4:13",
-      scriptureText: data.scriptureText || "I can do all things through Christ who strengthens me.",
-      reflection: data.reflection || "Today, embrace the discipline that separates great traders from average ones.",
-      prayerPoints: Array.isArray(data.prayerPoints) ? data.prayerPoints : ["Clarity in decisions", "Strength in discipline", "Unity in community", "Wisdom in trading"],
-      affirmation: data.affirmation || "I am disciplined, focused, and aligned with excellence today.",
-      tradingTieIn: data.tradingTieIn || "Faith-based discipline applies directly to the markets \u2014 patience, trust in your system, and community accountability all drive long-term trading success."
-    };
-  } catch (err) {
-    console.error("[devotional] AI generation failed, using rotating static fallback:", err);
-    const FALLBACKS = [
-      { theme: "Faith", scripture: "Proverbs 16:3", scriptureText: "Commit to the LORD whatever you do, and he will establish your plans.", reflection: "Every trade you place, every analysis you run, every ambassador you recruit \u2014 all of it flows from a foundation of discipline and purpose. When you commit your work to God, you trade not from fear or greed, but from a place of peace and clarity. The markets will fluctuate, but your foundation does not have to.", prayerPoints: ["For clarity in decision-making", "For patience in volatile markets", "For unity among VEDD ambassadors", "For financial breakthrough in our community"], affirmation: "I am disciplined, focused, and committed to excellence in every trade and every relationship.", tradingTieIn: "Committing your trading plan to a higher purpose removes emotional noise from your decisions. When you follow your system with faith and discipline, you trade with confidence regardless of market conditions." },
-      { theme: "Patience", scripture: "James 1:4", scriptureText: "Let perseverance finish its work so that you may be mature and complete, not lacking anything.", reflection: "The trader who exits a winning system too early, or abandons a strategy after one losing week, never gives perseverance the chance to finish its work. Maturity in trading \u2014 and in life \u2014 comes from staying the course through the parts that test you, not just the parts that reward you instantly.", prayerPoints: ["For endurance through drawdowns", "For trust in a proven process", "For a community that holds each other accountable", "For steady, compounding growth"], affirmation: "Today I trust the process and let perseverance finish its work in me.", tradingTieIn: "Every profitable system has losing streaks built into its math. Patience is not passive \u2014 it is the active decision to let your edge play out over enough trades to matter." },
-      { theme: "Community", scripture: "Ecclesiastes 4:9-10", scriptureText: "Two are better than one, because they have a good return for their labor. If either of them falls down, one can help the other up.", reflection: "No ambassador builds alone. The trader isolated from community makes decisions in an echo chamber \u2014 fear and greed with no one to check them. VEDD was built on the belief that shared discipline, shared wins, and shared accountability produce a return no individual can match alone.", prayerPoints: ["For ambassadors who lift each other up", "For humility to ask for help", "For generosity in sharing what works", "For a community that grows together"], affirmation: "Today I show up for my community, and I let my community show up for me.", tradingTieIn: "Sharing your trade journal, your wins, and your losses with a community keeps you honest in a way that trading alone never will." },
-      { theme: "Excellence", scripture: "Colossians 3:23", scriptureText: "Whatever you do, work at it with all your heart, as working for the Lord, not for men.", reflection: "Excellence in trading is not about being right every time \u2014 it is about the quality of your process regardless of outcome. A well-executed losing trade, following your rules to the letter, is excellence. A lucky winning trade taken outside your system is not. Work your process with your whole heart, and let the results follow.", prayerPoints: ["For discipline in following your own rules", "For integrity when no one is watching your trades", "For excellence that does not depend on outcome", "For a legacy built on process, not luck"], affirmation: "Today I trade my process with excellence, and I let the results take care of themselves.", tradingTieIn: "A trader who journals every trade, honors every stop loss, and reviews every week regardless of P&L is practicing excellence \u2014 and that is what compounds over years." },
-      { theme: "Wisdom", scripture: "Proverbs 4:7", scriptureText: "The beginning of wisdom is this: Get wisdom. Though it cost all you have, get understanding.", reflection: "Every dollar spent on education, every hour spent studying charts and reviewing losing trades, is an investment in wisdom that compounds far beyond any single trade. The ambassadors who last in this business are the ones who never stop being students of the market and of themselves.", prayerPoints: ["For a teachable spirit", "For wisdom to know when to act and when to wait", "For discernment between signal and noise", "For growth that outlasts any one trade"], affirmation: "Today I choose to learn, even from my losses, and I let wisdom guide my next decision.", tradingTieIn: "The market is the most honest teacher there is \u2014 it will show you exactly where your discipline breaks down, if you are humble enough to look." },
-      { theme: "Resilience", scripture: "Romans 5:3-4", scriptureText: "We also glory in our sufferings, because we know that suffering produces perseverance; perseverance, character; and character, hope.", reflection: "Every trader has a drawdown story. What separates the ones who make it from the ones who quit is not the absence of losing streaks \u2014 it is what those losing streaks build in them. Let this season, whatever it looks like in your account, build character rather than despair.", prayerPoints: ["For hope in the middle of a drawdown", "For character built through hard seasons", "For the strength to keep showing up", "For a testimony that helps the next ambassador"], affirmation: "Today I choose resilience, and I trust that this season is building something in me that a shortcut never could.", tradingTieIn: "Risk management exists precisely so a losing streak builds your character instead of ending your account \u2014 protect your capital so you live to apply the lesson." },
-      { theme: "Generosity", scripture: "2 Corinthians 9:6", scriptureText: "Whoever sows sparingly will also reap sparingly, and whoever sows generously will also reap generously.", reflection: "The ambassadors who share their signals, their knowledge, and their referral links generously are the ones who see the community \u2014 and their own results \u2014 grow fastest. Generosity is not just a spiritual principle here; it is the literal growth engine of this platform.", prayerPoints: ["For a generous spirit toward new ambassadors", "For willingness to share what took you years to learn", "For a harvest that matches your sowing", "For a community defined by giving, not just taking"], affirmation: "Today I sow generously into my community, trusting the harvest that generosity produces.", tradingTieIn: "Every ambassador who mentors a new trader, or shares an honest losing trade instead of only wins, sows into the credibility of this entire community." }
-    ];
-    const idx = new Date(date2).getDay();
-    const f = FALLBACKS[idx] ?? FALLBACKS[0];
-    return {
-      title: `Daily Devotional \u2014 ${f.theme}`,
-      theme: f.theme,
-      scripture: f.scripture,
-      scriptureText: f.scriptureText,
-      reflection: f.reflection,
-      prayerPoints: f.prayerPoints,
-      affirmation: f.affirmation,
-      tradingTieIn: f.tradingTieIn
-    };
-  }
-}
-async function generateWorkforceCurriculum(params) {
-  const client2 = await getUniversalAIClientForUser(params.userId || 0).catch(() => null);
-  const systemPrompt = `You are an expert workforce development curriculum designer for VEDD Technologies, LLC \u2014 an AI trading education and community finance platform. VEDD serves underrepresented communities, offering AI literacy, digital skills, financial planning, and trading education aligned with DOL WIOA, NSF AI Workforce, SBA, CDFI Fund, and EDA grant programs. All curricula must be inclusive, practical, and measurable for grant reporting.`;
-  const userPrompt = `Design a complete workforce training curriculum with these parameters:
-
-Title: ${params.title}
-Category: ${params.category}
-Target Audience: ${params.targetAudience}
-Difficulty: ${params.difficulty}
-Estimated Duration: ${params.estimatedMinutes} minutes
-Learning Objectives: ${params.objectives}
-Grant Alignment: ${params.grantTags.join(", ")}
-
-Return a JSON object with exactly this structure:
-{
-  "overview": "2-3 sentence course overview",
-  "objectives": ["measurable learning objective 1", "objective 2", "objective 3", "objective 4"],
-  "modules": [
-    { "title": "Module 1 title", "duration": "X minutes", "content": "Detailed module description and key topics covered" },
-    { "title": "Module 2 title", "duration": "X minutes", "content": "..." }
-  ],
-  "assessmentQuestions": [
-    { "question": "Question text", "options": ["A", "B", "C", "D"], "correct": 0, "explanation": "Why this answer is correct" }
-  ],
-  "grantAlignment": "Explanation of how this curriculum aligns with specified grant programs and their workforce development goals",
-  "instructorNotes": "Facilitation tips, differentiation strategies for diverse learners, and accommodations for underserved populations"
-}
-
-Create 4-6 modules and 5 assessment questions. Make objectives measurable (Bloom's taxonomy verbs). Ensure content is practical and immediately applicable.`;
-  try {
-    const aiClient = client2 || getPlatformOpenAIClient();
-    const response = await aiClient.chat.completions.create({
-      model: "gpt-4o-mini",
-      messages: [
-        { role: "system", content: systemPrompt },
-        { role: "user", content: userPrompt }
-      ],
-      response_format: { type: "json_object" },
-      temperature: 0.7
-    });
-    const content = response.choices[0].message.content;
-    return JSON.parse(content || "{}");
-  } catch (err) {
-    console.error("generateWorkforceCurriculum error:", err);
-    return {
-      overview: `${params.title} is a ${params.difficulty}-level course designed to build ${params.category.replace(/_/g, " ")} skills for ${params.targetAudience} learners.`,
-      objectives: [
-        `Define key concepts in ${params.category.replace(/_/g, " ")}`,
-        `Apply learned skills to real-world scenarios`,
-        `Demonstrate competency through practical exercises`,
-        `Connect skills to career and financial opportunities`
-      ],
-      modules: [
-        { title: "Introduction & Foundations", duration: `${Math.floor(params.estimatedMinutes * 0.2)} minutes`, content: "Course overview, learning expectations, and foundational concepts." },
-        { title: "Core Concepts", duration: `${Math.floor(params.estimatedMinutes * 0.3)} minutes`, content: "Deep dive into primary subject matter with examples and case studies." },
-        { title: "Practical Application", duration: `${Math.floor(params.estimatedMinutes * 0.3)} minutes`, content: "Hands-on exercises and real-world application of learned concepts." },
-        { title: "Assessment & Next Steps", duration: `${Math.floor(params.estimatedMinutes * 0.2)} minutes`, content: "Knowledge check, certificate preparation, and career pathway guidance." }
-      ],
-      assessmentQuestions: [
-        { question: "Which best describes the primary goal of this course?", options: ["Build technical skills", "Develop financial literacy", "Improve career readiness", "All of the above"], correct: 3, explanation: "This course addresses all three areas as part of VEDD's holistic workforce development approach." }
-      ],
-      grantAlignment: `This curriculum aligns with ${params.grantTags.join(" and ")} grant requirements for workforce development, skills training, and community economic empowerment.`,
-      instructorNotes: "Accommodate diverse learning styles with visual aids, real-world examples, and peer discussion. Provide additional support resources for participants with limited prior exposure to digital tools."
-    };
-  }
-}
-async function analyzeORBSignal(params) {
-  const isIndex2 = ["US30", "NAS100", "SPX500", "UK100", "DAX40"].includes(params.symbol.toUpperCase());
-  const isCommodity = ["XAUUSD", "XAGUSD", "USOIL"].includes(params.symbol.toUpperCase());
-  let rangeMinPct = 0.1;
-  let rangeMaxPct = 2.5;
-  if (isIndex2) {
-    rangeMinPct = 0.08;
-    rangeMaxPct = 1.5;
-  }
-  if (isCommodity) {
-    rangeMinPct = 0.1;
-    rangeMaxPct = 1.2;
-  }
-  const rangeOk = params.orbRangePct >= rangeMinPct && params.orbRangePct <= rangeMaxPct;
-  const now = /* @__PURE__ */ new Date();
-  const utc = now.getTime() + now.getTimezoneOffset() * 6e4;
-  const est = new Date(utc + -5 * 36e5);
-  const h = est.getHours();
-  const m = est.getMinutes();
-  const totalMin = h * 60 + m;
-  const peakWindowStart = 9 * 60 + 45;
-  const peakWindowEnd = 11 * 60 + 30;
-  const extWindowEnd = 14 * 60;
-  const inPeakWindow = totalMin >= peakWindowStart && totalMin <= peakWindowEnd;
-  const inExtWindow = totalMin > peakWindowEnd && totalMin <= extWindowEnd;
-  const isBreakout = params.phase.includes("BREAKOUT");
-  const isRetest = params.phase.includes("RETEST");
-  const hasPattern = !!(params.pattern && params.pattern !== "" && params.pattern !== "None detected yet");
-  const biasMatches = params.tradeDirection === "LONG" && params.preMarketBias !== "bearish" || params.tradeDirection === "SHORT" && params.preMarketBias !== "bullish" || params.preMarketBias === "neutral";
-  const systemPrompt = `You are the VEDD SS AI Bot \u2014 a professional institutional-grade ORB (Opening Range Breakout) trade analyzer.
-You specialize in the 9:30 AM NYSE open strategy: 15-min opening range, 6-minute breakout confirmation, retest entry.
-You are objective, data-driven, and always prioritize risk management over trade frequency.
-Respond ONLY with valid JSON. No extra text.`;
-  const userPrompt = `Analyze this ORB setup and provide a second confirmation score.
-
-INSTRUMENT: ${params.symbol}
-ORB HIGH: ${params.orbHigh}
-ORB LOW: ${params.orbLow}
-ORB RANGE: ${params.orbRange} (${params.orbRangePct.toFixed(2)}% of price)
-CURRENT PRICE: ${params.currentPrice}
-PHASE: ${params.phase}
-TRADE DIRECTION: ${params.tradeDirection || "Not determined"}
-PRE-MARKET BIAS: ${params.preMarketBias}
-BREAKOUT CANDLE TF: ${params.breakoutCandle || "6min"}
-CANDLESTICK PATTERN ON RETEST: ${params.pattern || "None observed"}
-CURRENT EST TIME: ${h}:${m.toString().padStart(2, "0")}
-
-CONTEXT:
-- Range quality: ${rangeOk ? "GOOD (within ideal range)" : `CONCERN \u2014 ${params.orbRangePct.toFixed(2)}% is ${params.orbRangePct < rangeMinPct ? "too narrow (false break risk)" : "too wide (risk too large)"}`}
-- Time window: ${inPeakWindow ? "PEAK (9:45\u201311:30 AM)" : inExtWindow ? "EXTENDED (marginal)" : "OUTSIDE WINDOW"}
-- Bias alignment: ${biasMatches ? "ALIGNED" : "CONFLICTING with trade direction"}
-
-Evaluate these 6 checks and score the overall setup 0-100:
-1. ORB Range Quality \u2014 Is ${params.orbRangePct.toFixed(2)}% within optimal parameters for ${params.symbol}?
-2. Breakout Candle Strength \u2014 Was the breakout on a ${params.breakoutCandle || "6min"} full-body close? Rate strength.
-3. Retest Validity \u2014 Is price respecting the broken ORB level as new support/resistance? Phase is "${params.phase}".
-4. Pattern Confirmation \u2014 Is "${params.pattern || "none"}" a valid pattern for a ${params.tradeDirection || "directional"} retest entry?
-5. Trading Window \u2014 ${inPeakWindow ? "In peak window" : inExtWindow ? "Extended window" : "Outside standard window"} \u2014 rate timing quality.
-6. Pre-Market Bias Alignment \u2014 ${params.preMarketBias} bias with ${params.tradeDirection || "unknown"} direction trade.
-
-SCORING:
-- 80\u2013100: High confidence, all major criteria met
-- 60\u201379: Marginal, proceed with reduced size
-- 0\u201359: Pass \u2014 one or more critical criteria failed
-
-Respond with this exact JSON structure:
-{
-  "score": <number 0-100>,
-  "verdict": "<TAKE TRADE | MARGINAL \u2014 CAUTION | PASS \u2014 SKIP THIS>",
-  "checks": [
-    { "label": "ORB Range Quality", "pass": <boolean>, "note": "<specific note about this setup>" },
-    { "label": "Breakout Candle Strength", "pass": <boolean>, "note": "<specific note>" },
-    { "label": "Retest Validity", "pass": <boolean>, "note": "<specific note>" },
-    { "label": "Pattern Confirmation", "pass": <boolean>, "note": "<specific note>" },
-    { "label": "Trading Window", "pass": <boolean>, "note": "<specific note>" },
-    { "label": "Pre-Market Bias Alignment", "pass": <boolean>, "note": "<specific note>" }
-  ],
-  "note": "<2-3 sentence SS AI Bot summary \u2014 specific to this exact setup, mention the symbol, key level, and what to watch for on the retest>"
-}`;
-  try {
-    const client2 = getPlatformOpenAIClient();
-    const completion = await client2.chat.completions.create({
-      model: "gpt-4o-mini",
-      messages: [
-        { role: "system", content: systemPrompt },
-        { role: "user", content: userPrompt }
-      ],
-      response_format: { type: "json_object" },
-      temperature: 0.3,
-      max_tokens: 800
-    });
-    const result = JSON.parse(completion.choices[0].message.content || "{}");
-    return {
-      score: Math.max(0, Math.min(100, result.score || 0)),
-      verdict: result.verdict || "PASS \u2014 SKIP THIS",
-      checks: result.checks || [],
-      note: result.note || ""
-    };
-  } catch {
-    const checks = [
-      { label: "ORB Range Quality", pass: rangeOk, note: rangeOk ? `${params.orbRangePct.toFixed(2)}% is within optimal parameters` : `${params.orbRangePct.toFixed(2)}% is outside the ideal range \u2014 skip` },
-      { label: "Breakout Candle Strength", pass: isBreakout || isRetest, note: isRetest ? "Price has broken out and is retesting \u2014 breakout confirmed" : isBreakout ? "Breakout detected, waiting for retest" : "No confirmed breakout yet" },
-      { label: "Retest Validity", pass: isRetest, note: isRetest ? "Price is at the retest zone \u2014 entry condition met" : "Wait for price to pull back to ORB level" },
-      { label: "Pattern Confirmation", pass: hasPattern, note: hasPattern ? `${params.pattern} detected on retest \u2014 valid confirmation` : "No candlestick pattern detected yet \u2014 wait for confirmation candle" },
-      { label: "Trading Window", pass: inPeakWindow || inExtWindow, note: inPeakWindow ? "In peak ORB window (9:45\u201311:30 AM)" : inExtWindow ? "Extended window \u2014 valid but lower probability" : "Outside trading window \u2014 wait for next session" },
-      { label: "Pre-Market Bias Alignment", pass: biasMatches, note: biasMatches ? `${params.preMarketBias} bias aligns with ${params.tradeDirection} direction` : "Bias conflicts with trade direction \u2014 proceed with caution" }
-    ];
-    const passing = checks.filter((c) => c.pass).length;
-    const score = Math.round(passing / 6 * 100);
-    return {
-      score,
-      verdict: score >= 80 ? "TAKE TRADE" : score >= 60 ? "MARGINAL \u2014 CAUTION" : "PASS \u2014 SKIP THIS",
-      checks,
-      note: `Rule-based analysis (AI unavailable): ${passing}/6 checks passed. ${score >= 80 ? "Setup meets criteria \u2014 enter on retest with pattern confirmation." : score >= 60 ? "Marginal setup \u2014 consider half size or wait for stronger confirmation." : "Critical criteria not met \u2014 skip this setup."}`
-    };
-  }
-}
-var TOP_PROFITABLE_STRATEGIES, _openaiInstance, openai, AVAILABLE_VISION_MODELS, userModelPreferences, DEPRECATED_MODEL_MAP, DEFAULT_AI_MODEL, VISION_FALLBACK, KNOWN_VISION_MODEL_IDS, aiVisionConfirmationEnabled, aiMinConfidenceThreshold, ictStrategyEnabledMap, breakoutModeEnabledMap, trailingStopEnabledMap, breakoutModePriorState, _recentConfidence, _lastSavedToggles, smcStrategyEnabledMap, propFirmModeMap, propFirmContextMap, aiConfirmationLogs2, logIdCounter, adaptiveRegimeEnabledMap, VETERAN_JUDGE_MODEL, VETERAN_PERSONA, PROVIDER_MODELS, AnthropicAsOpenAI, PROVIDER_PRIORITY, _aiFailSeen, VEDD_IDENTITY_CONTEXT, MASTER_GRANT_WRITER_SYSTEM;
-var init_openai = __esm({
-  "server/openai.ts"() {
-    "use strict";
-    init_github_strategy_context();
-    init_confirmation_learning();
-    init_ai_usage();
-    TOP_PROFITABLE_STRATEGIES = [
-      { name: "ICT AMD Kill Zone", pairs: ["XAUUSD", "GBPUSD", "EURUSD"], description: "Asian Range defined 02:00\u201305:00 UTC. London open (06:00\u201308:00) raids Asian low, price reverses. Entry on M15 OB inside Asian boundary + FVG fill. NY session sweeps AMD high.", winConditions: "FVG fill + bullish engulf at OB, ADX > 25, ictMacroValid = true", riskNote: "Avoid if NFP/FOMC within 4h" },
-      { name: "SMC Order Block Raid", pairs: ["GBPJPY", "USDJPY", "XAUUSD"], description: "Weekly/Daily OB identified. H4 price sweeps below OB, wicks back inside. Enter on M15 BOS above OB bottom.", winConditions: "Volume spike on wick, RSI divergence on M15, BOS confirmed", riskNote: "Invalid if OB broken on close" },
-      { name: "VWAP Bounce Mean Reversion", pairs: ["EURUSD", "GBPUSD", "USDJPY"], description: "Price deviates >1.5 SD from VWAP during NY session (13:00\u201317:00 UTC). Fade at VWAP SD band when RSI > 75 or < 25.", winConditions: "RSI divergence, VWAP reclaim candle, ADX < 20", riskNote: "Do not trade against trend if ADX > 35" },
-      { name: "Breaker Block Continuation", pairs: ["GBPUSD", "EURUSD"], description: "Failed OB becomes a breaker. Price sweeps through OB creating BOS, then retests old OB as resistance/support. Trade continuation.", winConditions: "Clean BOS on H1, retest holds on M15, RSI 40-60 on retest", riskNote: "Requires at least 2 prior OB tests" },
-      { name: "Fair Value Gap Fill", pairs: ["XAUUSD", "GBPJPY", "NAS100"], description: "3-candle imbalance FVG on M15/H1. Price returns to 50% gap level. Trade continuation after 50% fill holds.", winConditions: "FVG from strong impulsive move, ADX > 30, volume on imbalance candles", riskNote: "Full-fill FVGs (100%) less reliable" },
-      { name: "London-NY Overlap Momentum", pairs: ["GBPUSD", "EURUSD", "GBPJPY"], description: "10:00\u201312:00 UTC peak liquidity. Breakout of London AM range (07:00\u201310:00). 15m close outside range is entry trigger.", winConditions: "15m close + retest of range, ADX > 28, volume above 20-period avg", riskNote: "High false-breakout rate without NY catalyst" },
-      { name: "PDH/PDL Liquidity Sweep", pairs: ["EURUSD", "GBPUSD", "USDJPY", "XAUUSD"], description: "PDH or PDL swept by 5\u201315 pips at session open. Immediate rejection pin bar/engulf on M5/M15. Enter reversal targeting 50% of prior day range.", winConditions: "Wick > body on sweep candle, OB within 20 pips, ictMacroValid = true", riskNote: "Must close below/above sweep wick for invalidation" },
-      { name: "ICT Macro HTF Confluence", pairs: ["XAUUSD", "GBPUSD", "EURUSD"], description: "Trade only when M15 aligns with H4 and D1 trend. Active ICT macro time (02:00, 08:30, 10:00, 14:00 UTC). OB + FVG + EQ levels on H4.", winConditions: "All 3 timeframes aligned, minimum 2 confluence factors, London/NY session", riskNote: "Skip if only 1 confluence factor present" }
-    ];
-    _openaiInstance = null;
-    openai = new Proxy({}, {
-      get(_target, prop) {
-        return getDefaultOpenAIClient()[prop];
-      }
-    });
-    AVAILABLE_VISION_MODELS = [
-      { id: "gpt-4o", name: "GPT-4o", description: "Best accuracy for chart analysis", tier: "premium", provider: "openai" },
-      { id: "gpt-4o-mini", name: "GPT-4o Mini", description: "Budget-friendly, good accuracy", tier: "budget", provider: "openai" },
-      { id: "claude-sonnet-4-6", name: "Claude Sonnet 4.6", description: "Excellent reasoning and analysis", tier: "premium", provider: "anthropic" },
-      { id: "claude-haiku-4-5-20251001", name: "Claude Haiku 4.5", description: "Fast and affordable", tier: "budget", provider: "anthropic" },
-      { id: "gemini-2.0-flash", name: "Gemini 2.0 Flash", description: "Fast multimodal analysis", tier: "budget", provider: "google" },
-      { id: "gemini-1.5-pro-latest", name: "Gemini 1.5 Pro", description: "Advanced reasoning", tier: "premium", provider: "google" },
-      { id: "openai/gpt-oss-120b", name: "GPT-OSS 120B (Groq)", description: "Groq flagship open model \u2014 fast & reliable (text/confirmation)", tier: "budget", provider: "groq", textOnly: true },
-      { id: "qwen/qwen3.6-27b", name: "Qwen 3.6 27B (Groq)", description: "Strong reasoning, fast on Groq (text/confirmation)", tier: "budget", provider: "groq", textOnly: true },
-      { id: "openai/gpt-oss-20b", name: "GPT-OSS 20B (Groq)", description: "Fastest Groq model \u2014 ultra-low latency (text/confirmation)", tier: "budget", provider: "groq", textOnly: true },
-      { id: "qwen/qwen3-vl-32b-instruct", name: "Qwen 3 VL (Vision, Groq)", description: "Groq vision model \u2014 use OpenAI/Anthropic for chart analysis", tier: "budget", provider: "groq", textOnly: true },
-      { id: "mistral-large-latest", name: "Mistral Large", description: "Top-tier reasoning", tier: "premium", provider: "mistral" },
-      { id: "mistral-small-latest", name: "Mistral Small", description: "Efficient and affordable", tier: "budget", provider: "mistral" },
-      // OpenRouter — 100% FREE open-source models (get a free key at openrouter.ai)
-      // NOTE: OpenRouter rotates which models are free — verify against
-      // https://openrouter.ai/api/v1/models before adding new entries here.
-      { id: "openai/gpt-oss-20b", name: "GPT-OSS 20B (OpenRouter)", description: "OpenAI open-weight model via OpenRouter \u2014 ultra-cheap (~$4/1M calls), no daily cap", tier: "budget", provider: "openrouter", textOnly: true },
-      { id: "nvidia/nemotron-3-super-120b-a12b:free", name: "Nemotron 3 Super 120B (FREE)", description: "NVIDIA large reasoning model \u2014 free via OpenRouter", tier: "budget", provider: "openrouter", textOnly: true },
-      { id: "google/gemma-4-26b-a4b-it:free", name: "Gemma 4 26B (FREE)", description: "Google efficient MoE model \u2014 free via OpenRouter", tier: "budget", provider: "openrouter", textOnly: true },
-      { id: "google/gemma-4-31b-it:free", name: "Gemma 4 31B Vision (FREE)", description: "Multimodal vision \u2014 reads chart images, completely free via OpenRouter", tier: "budget", provider: "openrouter" },
-      // Cheaper OpenRouter vision picks (selectable; honored as-is, not promoted).
-      { id: "openai/gpt-4o-mini", name: "GPT-4o Mini (OpenRouter)", description: "GPT-4o Mini via OpenRouter \u2014 capable chart vision, cheaper than OpenAI-direct, no daily cap", tier: "budget", provider: "openrouter" },
-      { id: "google/gemma-3-4b-it", name: "Gemma 3 4B Vision (OpenRouter)", description: "Ultra-cheap OpenRouter vision (~$0.0000009/call, no daily cap) \u2014 lowest cost, lighter confidence scoring", tier: "budget", provider: "openrouter" }
-    ];
-    userModelPreferences = /* @__PURE__ */ new Map();
-    DEPRECATED_MODEL_MAP = {
-      "claude-3-5-haiku-20241022": "claude-haiku-4-5-20251001",
-      "claude-sonnet-4-20250514": "claude-sonnet-4-6",
-      "claude-3-5-sonnet-20241022": "claude-sonnet-4-6",
-      // Groq models decommissioned 2026-06-17 → migrate to current Groq models
-      "llama-3.3-70b-versatile": "openai/gpt-oss-120b",
-      "llama-3.1-8b-instant": "openai/gpt-4o-mini",
-      "meta-llama/llama-4-scout-17b-16e-instruct": "qwen/qwen3-vl-32b-instruct",
-      "mixtral-8x7b-32768": "openai/gpt-oss-120b",
-      "qwen/qwen3-32b": "qwen/qwen3.6-27b",
-      // OpenRouter retired these free slugs (confirmed 404 on live test 2026-07-26) → migrate to a live model.
-      // These land on a user's MODEL PREFERENCE, which is what trade confirmation
-      // runs on, so they must not point at a text-only model: gpt-oss-20b cannot read
-      // a chart and returned a constant 75 on 298/298 calls (2026-09-22), making a
-      // minConfidence of 85 unreachable and confirming nothing.
-      "deepseek/deepseek-chat-v3-0324:free": "openai/gpt-4o-mini",
-      "deepseek/deepseek-r1:free": "openai/gpt-4o-mini",
-      "meta-llama/llama-3.3-70b-instruct:free": "openai/gpt-4o-mini",
-      "qwen/qwen3-235b-a22b:free": "openai/gpt-4o-mini",
-      // Anyone already sitting on the text-only Groq model gets migrated off it too.
-      "openai/gpt-oss-20b": "openai/gpt-4o-mini"
-    };
-    DEFAULT_AI_MODEL = "openai/gpt-4o-mini";
-    VISION_FALLBACK = {
-      "groq": "gpt-4o-mini",
-      "openai": "gpt-4o-mini",
-      "anthropic": "claude-sonnet-4-6",
-      // gpt-4o-mini via OpenRouter — a genuinely capable model that scores the trade
-      // confirmation reliably. Was 'google/gemma-3-4b-it', a 4B model that returned
-      // uniformly junk-low confidence (~12% ceiling) which failed the min-confidence
-      // gate and REJECTED EVERY TRADE. The default pick (openai/gpt-oss-20b) routes
-      // through OpenRouter, so nearly every user hit that weak fallback. gpt-4o-mini
-      // is what line ~452 already treats as the OpenRouter vision model.
-      "openrouter": "openai/gpt-4o-mini"
-    };
-    KNOWN_VISION_MODEL_IDS = /* @__PURE__ */ new Set([
-      ...AVAILABLE_VISION_MODELS.filter((m) => !m.textOnly).map((m) => m.id),
-      ...Object.values(VISION_FALLBACK)
-    ]);
-    aiVisionConfirmationEnabled = /* @__PURE__ */ new Map();
-    aiMinConfidenceThreshold = /* @__PURE__ */ new Map();
-    ictStrategyEnabledMap = /* @__PURE__ */ new Map();
-    breakoutModeEnabledMap = /* @__PURE__ */ new Map();
-    trailingStopEnabledMap = /* @__PURE__ */ new Map();
-    breakoutModePriorState = /* @__PURE__ */ new Map();
-    _recentConfidence = [];
-    _lastSavedToggles = /* @__PURE__ */ new Map();
-    smcStrategyEnabledMap = /* @__PURE__ */ new Map();
-    propFirmModeMap = /* @__PURE__ */ new Map();
-    propFirmContextMap = /* @__PURE__ */ new Map();
-    aiConfirmationLogs2 = /* @__PURE__ */ new Map();
-    logIdCounter = 1;
-    adaptiveRegimeEnabledMap = /* @__PURE__ */ new Map();
-    VETERAN_JUDGE_MODEL = "openai/gpt-oss-120b";
-    VETERAN_PERSONA = `You are a trader with over 30 years of unbroken, consistently profitable trading experience across every market regime \u2014 bull runs, bear markets, chop, and black-swan crashes. Early in your career you blew up two accounts by over-trading and chasing marginal setups; you have never repeated that mistake. Your hallmarks:
-- Capital preservation is priority #1, always \u2014 profit is priority #2.
-- You are far more likely to skip a setup than take it. Most trades that look "pretty good" get passed on. You only act on genuine, high-probability confluence.
-- Consistency beats occasional brilliance \u2014 you would rather bank ten small, disciplined wins than swing for one big one and risk the account.
-- You have zero ego. If the Bear Case is stronger than the Bull Case, you say no, full stop, regardless of how the setup "feels."
-- You never revenge trade, never widen risk to chase a loss back, and never let a strong bull case override a real structural risk.`;
-    PROVIDER_MODELS = {
-      openai: "gpt-4o-mini",
-      // was gpt-4o: as a failover link it silently upgraded every call ~16× in price
-      groq: "openai/gpt-oss-120b",
-      anthropic: "claude-sonnet-4-6",
-      // was claude-3-5-sonnet-20241022 (retired → 404'd every Anthropic-routed confirmation)
-      google: "gemini-2.0-flash",
-      // was gemini-1.5-pro (deprecated id)
-      mistral: "mistral-large-latest",
-      openrouter: "openai/gpt-oss-20b"
-      // cheap paid (~$4/1M calls), NO free-tier daily cap — confirmed live
-    };
-    AnthropicAsOpenAI = class {
-      defaultModel;
-      provider = "anthropic";
-      client;
-      constructor(apiKey) {
-        const Anthropic = __require("@anthropic-ai/sdk");
-        this.client = new Anthropic.default({ apiKey });
-        this.defaultModel = PROVIDER_MODELS.anthropic;
-      }
-      get chat() {
-        return {
-          completions: {
-            create: async (params) => {
-              const messages = (params.messages || []).filter((m) => m.role !== "system");
-              const systemMsg = (params.messages || []).find((m) => m.role === "system");
-              const maxTokens = params.max_tokens || 4096;
-              const model = params.model || this.defaultModel;
-              const wantsJson = params.response_format?.type === "json_object";
-              let systemContent = systemMsg?.content || "";
-              if (wantsJson) {
-                systemContent = systemContent ? `${systemContent}
-
-Respond with valid JSON only. No markdown, no explanation.` : "Respond with valid JSON only. No markdown, no explanation.";
-              }
-              const response = await this.client.messages.create({
-                model,
-                max_tokens: maxTokens,
-                ...systemContent ? { system: systemContent } : {},
-                messages: messages.map((m) => ({
-                  role: m.role,
-                  content: typeof m.content === "string" ? m.content : Array.isArray(m.content) ? m.content.map((c) => {
-                    if (c.type === "text") return { type: "text", text: c.text };
-                    if (c.type === "image_url") {
-                      const url = c.image_url?.url || "";
-                      if (url.startsWith("data:")) {
-                        const [meta, data] = url.split(",");
-                        const mediaType = meta.split(":")[1].split(";")[0];
-                        return { type: "image", source: { type: "base64", media_type: mediaType, data } };
-                      }
-                      return { type: "image", source: { type: "url", url } };
-                    }
-                    return c;
-                  }) : m.content
-                }))
-              });
-              const text2 = response.content?.[0]?.text || "";
-              return {
-                choices: [{ message: { role: "assistant", content: text2 }, finish_reason: response.stop_reason }],
-                usage: { prompt_tokens: response.usage?.input_tokens, completion_tokens: response.usage?.output_tokens }
-              };
-            }
-          }
-        };
-      }
-    };
-    PROVIDER_PRIORITY = ["openrouter", "openai", "groq", "anthropic", "google", "mistral"];
-    _aiFailSeen = /* @__PURE__ */ new Map();
-    VEDD_IDENTITY_CONTEXT = `
-VEDD AI Trading (VEDDBuild) is a fintech AI trading education platform with the following characteristics:
-- Mission: Democratizing access to institutional-grade AI trading tools and financial education for underserved communities
-- Faith-based community values with inter-city economic empowerment focus
-- Legal structure: Technology company / EdTech platform
-- Geographic focus: United States (with international ambassador expansion)
-- Key impact areas: Financial inclusion, STEM/fintech education, community economic development, prediction-market literacy
-
-CORE AI TRADING ENGINES (current platform capability):
-- AI Chart Analysis: upload any chart screenshot (MT4/MT5/TradingView/TradeLocker) for AI-generated entry/exit/stop/target signals, pattern recognition, and multi-timeframe confluence scoring
-- VEDD SS AI Engine: fully automated forex trading engine connected live to both MT5 and TradeLocker brokers simultaneously \u2014 scans, scores, and auto-executes trades with configurable risk, session windows, and confidence thresholds; includes a paper-trading mode for risk-free onboarding
-- Live TradeLocker + MT5 multi-broker execution with real-time balance/equity sync (background-synced every 20 seconds), supporting multiple broker accounts per user concurrently
-- ORB (Opening Range Breakout) Engine: automated NY-session breakout strategy with live AI scoring, auto-detected retest entries, and mobile-optimized live status monitoring
-- ABBA \u2014 proprietary AI trading strategist and voice assistant: gives users a personalized daily/weekly trading plan grounded in their real closed-trade history, diagnoses win/loss patterns by pair/session/confidence, and answers questions conversationally (with live speech) about their account, strategy, and the platform
-- Micro Account Growth Engine: a higher-risk, concentrated-pair (1-2 pairs at a time) AI engine purpose-built to grow small FX accounts quickly, including automatic weekend crypto-pair trading (BTC/ETH) when traditional FX markets are closed \u2014 kept fully separate from prop-firm challenge accounts to protect funded-account compliance
-- Prop Firm Challenge Mode: enforces funded-account rules automatically (daily loss limits, consistency requirements, session filters) so ambassadors and users can safely pursue funded trading accounts
-- Copy Trading: a live leaderboard of verified trader performance (win rate, P&L, best trade) that any user can subscribe to and auto-mirror, with a built-in VEDD-token profit-share model that lets top traders earn passive income from followers' wins
-- Solana (SOL) Token Scanner: autonomous on-chain token-scanning engine with multiple selectable trading strategies (momentum, order-flow, trend-following, adaptive auto-selection) and configurable auto-trade execution against a connected Solana wallet
-- AI Prediction Markets Engine (Kalshi + Polymarket): scans live prediction-market contracts, ranks the highest win-probability opportunities using an AI edge model plus learned historical strategy accuracy, and supports an automatic bankroll-compounding mode that scales stake size as the account grows
-- EA/Expert Advisor Generator: converts plain-English trading rules into ready-to-run MQL5 (MT5) or Pine Script (TradingView) code, with a marketplace for sharing/downloading community-built EAs
-- AI Trade Performance Dashboard: unified live performance tracking across every connected broker/account (MT5, TradeLocker, prop-firm, copy-trading), with per-account and per-strategy breakdowns
-
-COMMUNITY, EDUCATION & AMBASSADOR INFRASTRUCTURE:
-- Ambassador Network: a 44-day certification training program with NFT-based credentialing, quiz-gated modules, and a referral/commission structure that creates self-sustaining local economic micro-ecosystems
-- Lead Hunter: an AI-powered outreach system that scans social platforms (Reddit, StockTwits, X, Instagram, LinkedIn, Facebook) for high-intent prospects, scores and drafts personalized outreach for each ambassador, and can auto-engage where platform APIs allow
-- Content Studio: AI-generated branded social content (posts + educational reels) with one-tap, per-platform-formatted sharing to 8 platforms
-- AI-generated Blog/Insights: automated market-relevant educational articles published on a rotating schedule
-- VEDD Token Ecosystem: on-chain Solana token used for platform rewards, ambassador commissions, and a profit-share mechanism between copy-trading followers and the traders they mirror
-- Gamification: XP/tier progression, daily missions, streak tracking, and achievement badges that drive sustained engagement with financial-literacy content
-- Multi-provider AI infrastructure: the platform is provider-agnostic (OpenAI, Anthropic, Google, Groq, Mistral, and free open-source models via OpenRouter), which keeps the cost of delivering AI-driven education low and sustainable at scale
-
-DIFFERENTIATORS (use these to stand out):
-- First-mover AI trading education platform integrated with live multi-broker execution (MT5 + TradeLocker) AND Solana blockchain infrastructure AND regulated prediction markets (Kalshi/Polymarket) in a single platform
-- Proprietary 44-day Ambassador Certification Program with NFT-based credentialing
-- Faith-based community trust networks across multiple U.S. cities \u2014 channels that traditional fintech cannot access
-- Ambassador network model creates self-sustaining economic micro-ecosystems in underserved areas, reinforced by a token profit-share model between traders and their followers
-- Dual revenue model (subscriptions + VEDD token ecosystem) demonstrates financial sustainability
-- Technology democratizes tools previously available only to institutional traders ($50/month vs. $10,000+/year for institutional platforms)
-- Purpose-built risk segmentation: separate engines for aggressive small-account growth vs. compliance-strict prop-firm accounts, showing responsible, segmented risk design rather than one-size-fits-all automation
-- Measurable community outcomes: each ambassador directly impacts 50-200 community members in financial literacy
-`;
-    MASTER_GRANT_WRITER_SYSTEM = `You are Dr. Ren\xE9e Hargrove, a senior grant strategist and proposal writer with 10 years of experience and a 98% funding success rate. You have secured over $47 million in competitive grants for fintech companies, community development organizations, EdTech platforms, and minority-owned enterprises.
-
-Your proposals consistently win because you:
-
-1. **Mirror the funder's language and priorities exactly** \u2014 You study what the funder cares about most and lead with their values before introducing the applicant.
-
-2. **Lead with urgency and a data-backed problem statement** \u2014 Reviewers decide in the first 30 seconds. Your openings are precise, emotionally resonant, and grounded in real data.
-
-3. **Demonstrate organizational credibility immediately** \u2014 You front-load proof of capacity: team expertise, existing infrastructure, past success metrics, and community relationships.
-
-4. **Write SMART, measurable objectives** \u2014 Every goal has a number, a timeline, and a responsible party. Reviewers hate vague language; you never use it.
-
-5. **Build a compelling Theory of Change** \u2014 You always show the causal chain: Activities \u2192 Outputs \u2192 Short-term Outcomes \u2192 Long-term Impact. Funders fund logic, not hope.
-
-6. **Tell human stories** \u2014 You weave real community narratives into technical sections to create emotional connection without sacrificing professionalism.
-
-7. **Write budget narratives that justify every dollar** \u2014 You show cost-effectiveness by benchmarking against industry standards and demonstrating efficiency.
-
-8. **Address sustainability proactively** \u2014 You always explain how the work continues post-grant, reducing perceived risk for the funder.
-
-9. **Include a strong evaluation plan** \u2014 Funders want to see how success will be measured. You always include specific KPIs, data collection methods, and reporting timelines.
-
-10. **Close with vision, not summary** \u2014 Your conclusions paint a picture of the world after the grant succeeds, creating a lasting impression on reviewers.
-
-Your writing is:
-- Professional but accessible (8th-grade readability, not academic jargon)
-- Specific (concrete numbers, names, places \u2014 never vague generalities)
-- Funder-centric (their mission first, applicant's needs second)
-- Action-oriented (present tense, active voice)
-- Formatted for skimmability (strong headers, strategic bullet use, clear paragraph breaks)
-
-You ALWAYS produce proposals that are ready to submit \u2014 no placeholders like [INSERT DATA HERE], no generic language, no filler content. Every sentence earns its place.`;
-  }
-});
-
-// server/services/crypto-ports.ts
-var crypto_ports_exports = {};
-__export(crypto_ports_exports, {
-  FLOW_RUNNERS: () => FLOW_RUNNERS,
-  NEW_TOKEN_RUNNERS: () => NEW_TOKEN_RUNNERS,
-  SHADOW_ONLY_TESTS: () => SHADOW_ONLY_TESTS,
-  buyShare: () => buyShare,
-  makePortRunners: () => makePortRunners,
-  portsEnabled: () => portsEnabled,
-  runnerEnabled: () => runnerEnabled
-});
-function buyShare(w) {
-  const t = (w?.buys ?? 0) + (w?.sells ?? 0);
-  return t > 0 ? w.buys / t : null;
-}
-function runnerEnabled(id) {
-  return process.env[`CRYPTO_RUNNER_${id.toUpperCase()}`] !== "off";
-}
-function emaSeries(v, n) {
-  const out = [];
-  if (v.length < n) return out;
-  const k = 2 / (n + 1);
-  let e = v.slice(0, n).reduce((a, b) => a + b, 0) / n;
-  out[n - 1] = e;
-  for (let i = n; i < v.length; i++) {
-    e = v[i] * k + e * (1 - k);
-    out[i] = e;
-  }
-  return out;
-}
-function rsi(c, n = 14) {
-  if (c.length <= n) return null;
-  let g = 0, l = 0;
-  for (let i = 1; i <= n; i++) {
-    const d = c[i] - c[i - 1];
-    if (d >= 0) g += d;
-    else l -= d;
-  }
-  g /= n;
-  l /= n;
-  for (let i = n + 1; i < c.length; i++) {
-    const d = c[i] - c[i - 1];
-    g = (g * (n - 1) + Math.max(0, d)) / n;
-    l = (l * (n - 1) + Math.max(0, -d)) / n;
-  }
-  return l === 0 ? 100 : 100 - 100 / (1 + g / l);
-}
-function macdHist(c) {
-  const f = emaSeries(c, 12), s = emaSeries(c, 26);
-  if (s.length < c.length || c.length < 35) return null;
-  const macd = c.map((_, i) => (f[i] ?? NaN) - (s[i] ?? NaN)).slice(25);
-  const sig = emaSeries(macd, 9);
-  return sig.length ? last(macd) - last(sig) : null;
-}
-function to4h(h1) {
-  const out = [];
-  for (const b of h1) {
-    const t4 = Math.floor(b.t / 144e5) * 144e5;
-    const cur = out[out.length - 1];
-    if (cur && cur.t === t4) {
-      cur.h = Math.max(cur.h, b.h);
-      cur.l = Math.min(cur.l, b.l);
-      cur.c = b.c;
-      cur.v += b.v;
-    } else out.push({ t: t4, o: b.o, h: b.h, l: b.l, c: b.c, v: b.v });
-  }
-  return out;
-}
-function bias(closes, f, s) {
-  const a = last(emaSeries(closes, f)), b = last(emaSeries(closes, s));
-  if (a == null || b == null) return null;
-  return a > b ? "BUY" : a < b ? "SELL" : null;
-}
-function makePortRunners(fetchBars2, entryOf = () => void 0) {
-  const sniper = async (symbol, cfg) => {
-    const S = "sniper";
-    const m15 = await fetchBars2(symbol, "15m", 120, chainOf(cfg));
-    const h1 = await fetchBars2(symbol, "1h", 200, chainOf(cfg));
-    if (m15.length < 60 || h1.length < 60) return res(S, "error", `${symbol}: not enough history for sniper`, null);
-    const c = m15.map((b) => b.c), price = last(c);
-    const dir = bias(c, 9, 21);
-    if (!dir) return res(S, "watching", `${symbol}: no 15m trend`, price, 30);
-    const { detectBOSCHOCH: detectBOSCHOCH2 } = await Promise.resolve().then(() => (init_smcUtils(), smcUtils_exports));
-    const nf = m15.slice().reverse();
-    const r = rsi(c), mh = macdHist(c);
-    const bos = detectBOSCHOCH2(nf, dir);
-    const vRecent = m15.slice(-3).reduce((a, b) => a + b.v, 0) / 3, vBase = m15.slice(-23, -3).reduce((a, b) => a + b.v, 0) / 20;
-    const checks = {
-      ema: true,
-      rsi: r != null && (dir === "BUY" ? r >= 45 && r <= 68 : r >= 32 && r <= 55),
-      macd: mh != null && (dir === "BUY" ? mh > 0 : mh < 0),
-      structure: !!bos.detected && bos.direction === (dir === "BUY" ? "BULLISH" : "BEARISH"),
-      volume: vBase > 0 && vRecent > vBase * 1.2
-    };
-    const n = Object.values(checks).filter(Boolean).length;
-    const h4 = bias(to4h(h1).map((b) => b.c), 5, 10);
-    const why = `${n}/5 (${Object.entries(checks).filter(([, v]) => v).map(([k]) => k).join(", ")}), 4h bias ${h4 ?? "n/a"}`;
-    if (n >= 4 && h4 === dir) return res(S, "signal", `${symbol}: sniper ${dir} \u2014 ${why}`, price, 60 + n * 7, dir);
-    return res(S, "watching", `${symbol}: sniper ${dir} \u2014 ${why}`, price, 40 + n * 5);
-  };
-  const smcOte = async (symbol, cfg) => {
-    const S = "smc_ote";
-    const h1 = await fetchBars2(symbol, "1h", 120, chainOf(cfg));
-    const m15 = await fetchBars2(symbol, "15m", 120, chainOf(cfg));
-    if (h1.length < 40 || m15.length < 40) return res(S, "error", `${symbol}: not enough history for smc_ote`, null);
-    const { detectBOSCHOCH: detectBOSCHOCH2, detectOrderBlock: detectOrderBlock2, detectFairValueGap: detectFairValueGap2 } = await Promise.resolve().then(() => (init_smcUtils(), smcUtils_exports));
-    const nf = (bars) => bars.slice().reverse();
-    const h1nf = nf(h1), m15nf = nf(m15), price = last(m15).c;
-    for (const dir of ["BUY", "SELL"]) {
-      const bos = detectBOSCHOCH2(h1nf, dir);
-      if (!bos.detected || bos.direction !== (dir === "BUY" ? "BULLISH" : "BEARISH")) continue;
-      const leg = h1.slice(-24);
-      let lo = Infinity, hi = -Infinity, loI = 0, hiI = 0;
-      leg.forEach((b, i) => {
-        if (b.l < lo) {
-          lo = b.l;
-          loI = i;
-        }
-        if (b.h > hi) {
-          hi = b.h;
-          hiI = i;
-        }
-      });
-      const range = hi - lo;
-      if (!(range > 0)) continue;
-      if (dir === "BUY" && loI >= hiI) continue;
-      if (dir === "SELL" && hiI >= loI) continue;
-      const zTop = dir === "BUY" ? hi - 0.62 * range : lo + 0.79 * range;
-      const zBot = dir === "BUY" ? hi - 0.79 * range : lo + 0.62 * range;
-      if (price < zBot || price > zTop) return res(S, "watching", `${symbol}: ${dir} ${bos.type}, price outside OTE ${zBot.toPrecision(5)}\u2013${zTop.toPrecision(5)}`, price, 45);
-      const ob = detectOrderBlock2(m15nf, dir), fvg = detectFairValueGap2(m15nf, dir);
-      const poi = ob.detected && ob.aligns || fvg.detected && fvg.direction === (dir === "BUY" ? "BULLISH" : "BEARISH");
-      if (!poi) return res(S, "watching", `${symbol}: ${dir} in OTE but no aligned 15m order block/FVG`, price, 55);
-      return res(S, "signal", `${symbol}: ${dir} ${bos.type} on 1h, price in the 62\u201379% OTE with an aligned 15m ${ob.detected && ob.aligns ? "order block" : "FVG"}`, price, 75, dir);
-    }
-    return res(S, "watching", `${symbol}: no 1h structure break`, price, 30);
-  };
-  const vwapReversion = async (symbol, cfg) => {
-    const S = "vwap_reversion";
-    const m15 = await fetchBars2(symbol, "15m", 120, chainOf(cfg));
-    if (m15.length < 40) return res(S, "error", `${symbol}: not enough history for vwap_reversion`, null);
-    const day0 = Math.floor(Date.now() / 864e5) * 864e5;
-    let win = m15.filter((b) => b.t >= day0);
-    if (win.length < 8) win = m15.slice(-32);
-    let pv = 0, vv = 0;
-    for (const b of win) {
-      const tp = (b.h + b.l + b.c) / 3;
-      pv += tp * b.v;
-      vv += b.v;
-    }
-    if (!(vv > 0)) return res(S, "watching", `${symbol}: no volume for VWAP`, last(m15).c, 20);
-    const vwap = pv / vv;
-    let varSum = 0;
-    for (const b of win) {
-      const tp = (b.h + b.l + b.c) / 3;
-      varSum += b.v * (tp - vwap) ** 2;
-    }
-    const sd = Math.sqrt(varSum / vv), price = last(m15).c, r = rsi(m15.map((b) => b.c));
-    const z2 = sd > 0 ? (price - vwap) / sd : 0;
-    if (z2 <= -2 && r != null && r <= 35) return res(S, "signal", `${symbol}: ${z2.toFixed(1)}\u03C3 below VWAP ${vwap.toPrecision(5)}, RSI ${r.toFixed(0)} \u2014 mean-reversion long`, price, 70, "BUY");
-    return res(S, "watching", `${symbol}: ${z2.toFixed(1)}\u03C3 from VWAP, RSI ${r?.toFixed(0) ?? "n/a"}`, price, 35);
-  };
-  const liquiditySweep = async (symbol, cfg) => {
-    const S = "liquidity_sweep";
-    const m15 = await fetchBars2(symbol, "15m", 60, chainOf(cfg));
-    if (m15.length < 35) return res(S, "error", `${symbol}: not enough history for liquidity_sweep`, null);
-    const prior = m15.slice(-33, -3), recent = m15.slice(-3), price = last(m15).c;
-    const swingLo = Math.min(...prior.map((b) => b.l)), swingHi = Math.max(...prior.map((b) => b.h));
-    const bull = recent.some((b) => b.l < swingLo && b.c > swingLo) && price > swingLo;
-    const bear = recent.some((b) => b.h > swingHi && b.c < swingHi) && price < swingHi;
-    if (bull && !bear) return res(S, "signal", `${symbol}: swept the 15m swing low ${swingLo.toPrecision(5)} and closed back above`, price, 68, "BUY");
-    if (bear && !bull) return res(S, "signal", `${symbol}: swept the 15m swing high ${swingHi.toPrecision(5)} and closed back below`, price, 68, "SELL");
-    return res(S, "watching", `${symbol}: no sweep`, price, 30);
-  };
-  const sessionBreakout = async (symbol, cfg) => {
-    const S = "session_breakout";
-    const now = /* @__PURE__ */ new Date(), h = now.getUTCHours();
-    const m15 = await fetchBars2(symbol, "15m", 120, chainOf(cfg));
-    const price = m15.length ? last(m15).c : null;
-    if (h < 7 || h >= 12) return res(S, "watching", `${symbol}: outside the 07\u201312 UTC window`, price, 0);
-    const day0 = Math.floor(now.getTime() / 864e5) * 864e5;
-    const range = m15.filter((b) => b.t >= day0 && b.t < day0 + 7 * 36e5);
-    if (range.length < 20 || price == null) return res(S, "watching", `${symbol}: no complete 00\u201307 UTC range`, price, 0);
-    const hi = Math.max(...range.map((b) => b.h)), lo = Math.min(...range.map((b) => b.l)), size = hi - lo;
-    const after = m15.filter((b) => b.t >= day0 + 7 * 36e5).slice(0, -1);
-    const brk = after.find((b) => b.c > hi || b.c < lo);
-    if (!brk || !(size > 0)) return res(S, "watching", `${symbol}: 00\u201307 UTC range intact`, price, 30);
-    const dir = brk.c > hi ? "BUY" : "SELL";
-    const level = dir === "BUY" ? hi : lo;
-    if (Math.abs(price - level) > size * 0.5) return res(S, "watching", `${symbol}: broke ${dir === "BUY" ? "up" : "down"} but price is extended from the level`, price, 45);
-    return res(S, "signal", `${symbol}: 00\u201307 UTC range ${lo.toPrecision(5)}\u2013${hi.toPrecision(5)} broken ${dir === "BUY" ? "up" : "down"}, near the level`, price, 65, dir);
-  };
-  const btcWeekendRange = async (symbol, cfg) => {
-    const S = "btc_weekend_range";
-    if (symbol.toUpperCase() !== "CBBTC") return res(S, "watching", `${symbol}: BTC only`, null, 0);
-    const now = /* @__PURE__ */ new Date(), dow = now.getUTCDay();
-    const h1 = await fetchBars2(symbol, "1h", 72, chainOf(cfg));
-    const price = h1.length ? last(h1).c : null;
-    if (!(dow === 6 || dow === 0) || price == null) return res(S, "watching", `${symbol}: weekday`, price, 0);
-    const sat0 = Math.floor(now.getTime() / 864e5) * 864e5 - (dow === 0 ? 864e5 : 0);
-    const range = h1.filter((b) => b.t >= sat0 && b.t < sat0 + 12 * 36e5);
-    if (range.length < 10) return res(S, "watching", `${symbol}: Saturday range not complete`, price, 0);
-    const hi = Math.max(...range.map((b) => b.h)), lo = Math.min(...range.map((b) => b.l));
-    const after = h1.filter((b) => b.t >= sat0 + 12 * 36e5).slice(0, -1);
-    const brk = after.find((b) => b.c > hi || b.c < lo);
-    if (!brk) return res(S, "watching", `${symbol}: weekend range intact`, price, 30);
-    const dir = brk.c > hi ? "BUY" : "SELL";
-    return res(S, "signal", `${symbol}: Saturday 00\u201312 UTC range ${lo.toFixed(0)}\u2013${hi.toFixed(0)} broken ${dir === "BUY" ? "up" : "down"} on a 1h close`, price, 62, dir);
-  };
-  const minTx = () => Number(process.env.CRYPTO_FLOW_MIN_TXNS_H1 ?? 20);
-  const flowOf = (symbol, S) => {
-    const e = entryOf(symbol);
-    if (!e?.flow) return res(S, "watching", `${symbol}: no pool flow data`, e?.priceUsd ?? null, 0);
-    return { f: e.flow, e };
-  };
-  const isRes = (x) => !!x && typeof x.decision === "string";
-  const dipSniper = async (symbol) => {
-    const S = "dip_sniper";
-    const x = flowOf(symbol, S);
-    if (isRes(x)) return x;
-    const ch = x.f.change24hPct, bs = buyShare(x.f.h1), n = x.f.h1.buys + x.f.h1.sells;
-    if (ch != null && ch <= -4 && ch >= -40 && bs != null && bs > 0.62 && n >= minTx())
-      return res(S, "signal", `${symbol}: ${ch.toFixed(1)}% on 24h but ${(bs * 100).toFixed(0)}% of ${n} trades in the last hour are buys \u2014 accumulation into the dip`, x.e.priceUsd, 66, "BUY");
-    return res(S, "watching", `${symbol}: 24h ${ch?.toFixed(1) ?? "n/a"}%, 1h buys ${bs != null ? (bs * 100).toFixed(0) : "n/a"}%`, x.e.priceUsd, 30);
-  };
-  const volumeExplosion = async (symbol) => {
-    const S = "volume_explosion";
-    const x = flowOf(symbol, S);
-    if (isRes(x)) return x;
-    const v1 = x.f.volume1hUsd ?? 0, avg = (x.e.volume24Usd ?? 0) / 24, bs = buyShare(x.f.h1);
-    const mult = avg > 0 ? v1 / avg : 0;
-    if (mult >= Number(process.env.CRYPTO_VOLX_MULT ?? 4) && bs != null && bs > 0.52)
-      return res(S, "signal", `${symbol}: last-hour volume ${mult.toFixed(1)}x the 24h hourly average, ${(bs * 100).toFixed(0)}% buys`, x.e.priceUsd, 64, "BUY");
-    return res(S, "watching", `${symbol}: 1h volume ${mult.toFixed(1)}x average`, x.e.priceUsd, 30);
-  };
-  const flowFollower = async (symbol) => {
-    const S = "flow_follower";
-    const x = flowOf(symbol, S);
-    if (isRes(x)) return x;
-    const n1 = x.f.h1.buys + x.f.h1.sells, n24 = x.f.h24.buys + x.f.h24.sells;
-    const avg1 = n1 > 0 && x.f.volume1hUsd ? x.f.volume1hUsd / n1 : 0, avg24 = n24 > 0 ? (x.e.volume24Usd ?? 0) / n24 : 0;
-    const sizeX = avg24 > 0 ? avg1 / avg24 : 0, bs = buyShare(x.f.h1), ch = x.f.change1hPct;
-    if (sizeX >= 1.5 && bs != null && bs > 0.58 && n1 >= minTx() && ch != null && ch >= -5 && ch <= 20)
-      return res(S, "signal", `${symbol}: average trade ${sizeX.toFixed(1)}x the 24h norm, ${(bs * 100).toFixed(0)}% buys, 1h ${ch.toFixed(1)}% \u2014 large buyers before the move`, x.e.priceUsd, 64, "BUY");
-    return res(S, "watching", `${symbol}: trade size ${sizeX.toFixed(1)}x norm`, x.e.priceUsd, 30);
-  };
-  const memeVelocity = async (symbol) => {
-    const S = "meme_velocity";
-    const x = flowOf(symbol, S);
-    if (isRes(x)) return x;
-    if (!x.e.newToken) return res(S, "watching", `${symbol}: not a new pool`, x.e.priceUsd, 0);
-    const ch = x.f.change1hPct, bs = buyShare(x.f.h1), n = x.f.h1.buys + x.f.h1.sells;
-    if (ch != null && ch >= Number(process.env.CRYPTO_MEME_MIN_1H_PCT ?? 20) && bs != null && bs > 0.55 && n >= minTx())
-      return res(S, "signal", `${symbol}: new pool up ${ch.toFixed(0)}% in the last hour, ${(bs * 100).toFixed(0)}% buys over ${n} trades`, x.e.priceUsd, 60, "BUY");
-    return res(S, "watching", `${symbol}: new pool, 1h ${ch?.toFixed(0) ?? "n/a"}%`, x.e.priceUsd, 25);
-  };
-  const all = {
-    sniper,
-    smc_ote: smcOte,
-    vwap_reversion: vwapReversion,
-    liquidity_sweep: liquiditySweep,
-    session_breakout: sessionBreakout,
-    btc_weekend_range: btcWeekendRange,
-    dip_sniper: dipSniper,
-    volume_explosion: volumeExplosion,
-    flow_follower: flowFollower,
-    meme_velocity: memeVelocity
-  };
-  if (!portsEnabled()) return {};
-  return Object.fromEntries(Object.entries(all).filter(([id]) => runnerEnabled(id)));
-}
-var FLOW_RUNNERS, NEW_TOKEN_RUNNERS, SHADOW_ONLY_TESTS, portsEnabled, last, res, chainOf;
-var init_crypto_ports = __esm({
-  "server/services/crypto-ports.ts"() {
-    "use strict";
-    FLOW_RUNNERS = /* @__PURE__ */ new Set(["dip_sniper", "volume_explosion", "flow_follower", "meme_velocity"]);
-    NEW_TOKEN_RUNNERS = /* @__PURE__ */ new Set(["meme_velocity"]);
-    SHADOW_ONLY_TESTS = /* @__PURE__ */ new Set(["session_breakout", "btc_weekend_range"]);
-    portsEnabled = () => process.env.CRYPTO_PORTS !== "off";
-    last = (a) => a[a.length - 1];
-    res = (strategy, decision, reasoning, price, score = null, direction) => ({ decision, reasoning, score, price, dailyChangePercent: null, strategy, ...direction ? { direction } : {} });
-    chainOf = (cfg) => cfg?.defiChain || "base";
-  }
-});
-
-// server/services/crypto-shadow.ts
-var crypto_shadow_exports = {};
-__export(crypto_shadow_exports, {
-  adviceFor: () => adviceFor,
-  aggregate: () => aggregate,
-  bucketsOf: () => bucketsOf,
-  computeCryptoShadowStats: () => computeCryptoShadowStats,
-  ensureCryptoShadowTables: () => ensureCryptoShadowTables,
-  getCryptoShadowStatsText: () => getCryptoShadowStatsText,
-  resolveCryptoShadowTrades: () => resolveCryptoShadowTrades,
-  runCryptoShadowAll: () => runCryptoShadowAll,
-  shadowAllEnabled: () => shadowAllEnabled
-});
-function ensureCryptoShadowTables() {
-  if (!_ensured2) {
-    _ensured2 = pool.query(`CREATE TABLE IF NOT EXISTS crypto_shadow_trades (
-      id serial PRIMARY KEY, user_id int NOT NULL, strategy text NOT NULL, symbol text NOT NULL, underlying text NOT NULL,
-      chain text, token_address text, pool_address text, direction text NOT NULL,
-      entry_price double precision NOT NULL, stop_loss double precision NOT NULL, take_profit double precision NOT NULL,
-      sl_pct double precision NOT NULL, notional_usd double precision NOT NULL, cost_bps double precision NOT NULL,
-      score real, max_hours double precision NOT NULL, status text NOT NULL DEFAULT 'open',
-      exit_price double precision, exit_reason text, gross_return_pct double precision, return_pct double precision,
-      r_multiple double precision, peak_gain_pct double precision,
-      opened_at timestamptz NOT NULL DEFAULT now(), closed_at timestamptz)`).then(() => pool.query(`CREATE INDEX IF NOT EXISTS crypto_shadow_trades_user_status ON crypto_shadow_trades (user_id, status)`)).then(() => pool.query(`CREATE TABLE IF NOT EXISTS crypto_shadow_context (
-      trade_id int PRIMARY KEY, user_id int NOT NULL, strategy text NOT NULL, symbol text NOT NULL, direction text NOT NULL,
-      liquidity_usd double precision, change_1h double precision, change_24h double precision, volume_24h_usd double precision,
-      atr_pct double precision, h1_trend text, h4_trend text, htf_aligned boolean, live_gate_blocked boolean,
-      btc_change_24h double precision, hour_utc int, day_of_week int, score real, tags text[], advice_at_entry text,
-      closed_at timestamptz, exit_reason text, hold_minutes double precision, net_pct double precision)`)).then(() => pool.query(`ALTER TABLE crypto_shadow_context
-        ADD COLUMN IF NOT EXISTS buy_share_h1 double precision, ADD COLUMN IF NOT EXISTS buy_share_h24 double precision,
-        ADD COLUMN IF NOT EXISTS txns_h1 int, ADD COLUMN IF NOT EXISTS txns_h24 int,
-        ADD COLUMN IF NOT EXISTS buyers_h1 int, ADD COLUMN IF NOT EXISTS sellers_h1 int,
-        ADD COLUMN IF NOT EXISTS market_cap_usd double precision, ADD COLUMN IF NOT EXISTS token_age_hours double precision,
-        ADD COLUMN IF NOT EXISTS new_token boolean`)).then(() => void 0).catch((e) => {
-      _ensured2 = null;
-      throw e;
-    });
-  }
-  return _ensured2;
-}
-function ema(vals, n) {
-  if (vals.length < n) return null;
-  const k = 2 / (n + 1);
-  let e = vals.slice(0, n).reduce((a, b) => a + b, 0) / n;
-  for (let i = n; i < vals.length; i++) e = vals[i] * k + e * (1 - k);
-  return e;
-}
-function oldestFirst(bars) {
-  return bars.length > 1 && bars[0].t > bars[bars.length - 1].t ? bars.slice().reverse() : bars;
-}
-function trendOf(closes, fast, slow) {
-  const f = ema(closes, fast), s = ema(closes, slow);
-  if (f == null || s == null) return null;
-  return f > s * 1.002 ? "BULLISH" : f < s * 0.998 ? "BEARISH" : "NEUTRAL";
-}
-function pctChange(bars, hoursBack) {
-  if (bars.length <= hoursBack) return null;
-  const now = bars[bars.length - 1].c, then = bars[bars.length - 1 - hoursBack].c;
-  return then > 0 ? (now - then) / then * 100 : null;
-}
-function bucketsOf(c) {
-  const b = {};
-  if (c.buy_share_h1 != null) b.buyShare = c.buy_share_h1 < 0.45 ? "sellers<45%" : c.buy_share_h1 < 0.55 ? "balanced" : c.buy_share_h1 < 0.65 ? "buyers55-65%" : "buyers65%+";
-  if (c.txns_h1 != null) b.activity = c.txns_h1 < 20 ? "quiet<20tx/h" : c.txns_h1 < 100 ? "20-100tx/h" : c.txns_h1 < 500 ? "100-500tx/h" : "500+tx/h";
-  if (c.market_cap_usd != null && c.market_cap_usd > 0) b.mcap = c.market_cap_usd < 1e7 ? "<10M" : c.market_cap_usd < 1e8 ? "10-100M" : c.market_cap_usd < 1e9 ? "100M-1B" : "1B+";
-  if (c.token_age_hours != null) b.age = c.token_age_hours < 72 ? "<3d" : c.token_age_hours < 720 ? "3-30d" : "30d+";
-  if (c.direction) b.side = c.direction;
-  if (c.hour_utc != null) {
-    const s = Math.floor(c.hour_utc / 4) * 4;
-    b.hour = `${String(s).padStart(2, "0")}-${String(s + 4).padStart(2, "0")}UTC`;
-  }
-  const liq = c.liquidity_usd ?? 0;
-  if (liq > 0) b.liquidity = liq < 25e4 ? "<250k" : liq < 1e6 ? "250k-1M" : liq < 5e6 ? "1-5M" : "5M+";
-  if (c.change_24h != null) b.change24h = c.change_24h < -10 ? "<-10%" : c.change_24h < -2 ? "-10--2%" : c.change_24h < 2 ? "flat" : c.change_24h < 10 ? "2-10%" : "10%+";
-  if (c.atr_pct != null) b.volatility = c.atr_pct < 1 ? "atr<1%" : c.atr_pct < 3 ? "atr1-3%" : "atr3%+";
-  if (c.htf_aligned != null) b.htf = c.htf_aligned ? "aligned" : "against";
-  if (c.btc_change_24h != null) b.btc = c.btc_change_24h < -2 ? "btc_down" : c.btc_change_24h > 2 ? "btc_up" : "btc_flat";
-  return b;
-}
-function quantile(s, q) {
-  if (!s.length) return 0;
-  const p = (s.length - 1) * q, lo = Math.floor(p), hi = Math.ceil(p);
-  return s[lo] + (s[hi] - s[lo]) * (p - lo);
-}
-function aggregate(rows) {
-  const g = /* @__PURE__ */ new Map();
-  for (const r of rows) {
-    const v = Number(r.net_pct);
-    if (!Number.isFinite(v)) continue;
-    for (const [dim, bucket] of Object.entries({ ...bucketsOf(r), all: "all" })) {
-      const k = `${r.strategy}|${dim}|${bucket}`;
-      (g.get(k) ?? g.set(k, []).get(k)).push(v);
-    }
-  }
-  const minN = num2("CRYPTO_SHADOW_STATS_MIN_N", 15), fav = num2("CRYPTO_SHADOW_FAVOR_MEDIAN_PCT", 0.5), avd = num2("CRYPTO_SHADOW_AVOID_MEDIAN_PCT", 1);
-  return Array.from(g.entries()).map(([k, v]) => {
-    const [strategy, dim, bucket] = k.split("|");
-    const s = v.slice().sort((a, b) => a - b);
-    const med = quantile(s, 0.5);
-    const verdict = s.length >= minN ? med > fav ? "favor" : med < -avd ? "avoid" : "learning" : "learning";
-    return { strategy, dim, bucket, n: s.length, medianNet: med, winRate: s.filter((x) => x > 0).length / s.length, verdict };
-  });
-}
-async function computeCryptoShadowStats(userId, force = false) {
-  const hit = _statsCache.get(userId);
-  if (!force && hit && Date.now() - hit.at < 15 * 6e4) return hit.stats;
-  await ensureCryptoShadowTables();
-  const { rows } = await pool.query(
-    `SELECT strategy, direction, hour_utc, liquidity_usd, change_24h, atr_pct, htf_aligned, btc_change_24h, buy_share_h1, txns_h1, market_cap_usd, token_age_hours, net_pct FROM crypto_shadow_context
-      WHERE user_id=$1 AND closed_at IS NOT NULL AND net_pct IS NOT NULL AND closed_at >= now() - interval '60 days'`,
-    [userId]
-  );
-  const stats = aggregate(rows);
-  _statsCache.set(userId, { at: Date.now(), stats });
-  return stats;
-}
-function adviceFor(stats, strategy, ctx) {
-  const bs = bucketsOf(ctx);
-  const hits = stats.filter((s) => s.strategy === strategy && s.verdict !== "learning" && bs[s.dim] === s.bucket);
-  if (!hits.length) return "learning";
-  const avoid = hits.filter((s) => s.verdict === "avoid");
-  const f = (s) => `${s.verdict}: ${s.dim} ${s.bucket} (n=${s.n}, median ${s.medianNet.toFixed(1)}%)`;
-  return `${avoid.length ? "avoid" : "favor"} \u2014 ${[...avoid, ...hits.filter((s) => s.verdict === "favor")].map(f).join("; ")}`.slice(0, 500);
-}
-async function getCryptoShadowStatsText(userId, max = 12) {
-  try {
-    const { SHADOW_ONLY_TESTS: SHADOW_ONLY_TESTS2 } = await Promise.resolve().then(() => (init_crypto_ports(), crypto_ports_exports));
-    const st = (await computeCryptoShadowStats(userId)).filter((s) => s.verdict !== "learning" && s.dim !== "all" && s.dim !== "hour" && !SHADOW_ONLY_TESTS2.has(s.strategy));
-    if (!st.length) return "";
-    const top = st.sort((a, b) => Math.abs(b.medianNet) * Math.sqrt(b.n) - Math.abs(a.medianNet) * Math.sqrt(a.n)).slice(0, max);
-    return `CRYPTO SHADOW EVIDENCE (virtual trades of every strategy, net of costs, judged by MEDIAN; advice only; 'short' rows are hypothetical \u2014 Base spot can't short):
-` + top.map((s) => `- ${s.strategy} ${s.verdict.toUpperCase()} when ${s.dim}=${s.bucket}: n=${s.n}, median ${s.medianNet >= 0 ? "+" : ""}${s.medianNet.toFixed(2)}%, win ${(s.winRate * 100).toFixed(0)}%`).join("\n");
-  } catch {
-    return "";
-  }
-}
-async function resolveCryptoShadowTrades(userId) {
-  await ensureCryptoShadowTables();
-  const { rows } = await pool.query(`SELECT * FROM crypto_shadow_trades WHERE user_id=$1 AND status='open'`, [userId]);
-  if (!rows.length) return 0;
-  const { getDefiPrice: getDefiPrice2 } = await Promise.resolve().then(() => (init_defi_market_data(), defi_market_data_exports));
-  let closed = 0;
-  for (const t of rows) {
-    const px = t.pool_address ? await getDefiPrice2(t.chain || "base", t.pool_address).catch(() => null) : null;
-    const ageH = (Date.now() - new Date(t.opened_at).getTime()) / 36e5;
-    const short = t.direction !== "long";
-    let exit = null, why = "";
-    if (px != null && px > 0) {
-      const move = (short ? t.entry_price - px : px - t.entry_price) / t.entry_price * 100;
-      if (t.peak_gain_pct == null || move > t.peak_gain_pct) await pool.query(`UPDATE crypto_shadow_trades SET peak_gain_pct=$2 WHERE id=$1`, [t.id, move]);
-      if (short ? px >= t.stop_loss : px <= t.stop_loss) {
-        exit = short ? Math.max(px, t.stop_loss) : Math.min(px, t.stop_loss);
-        why = "stop";
-      } else if (short ? px <= t.take_profit : px >= t.take_profit) {
-        exit = t.take_profit;
-        why = "target";
-      } else if (ageH >= t.max_hours) {
-        exit = px;
-        why = "time limit";
-      }
-    } else if (ageH >= t.max_hours + 24) {
-      exit = null;
-      why = "no price";
-    }
-    if (!why) continue;
-    const gross = exit != null ? (short ? t.entry_price - exit : exit - t.entry_price) / t.entry_price * 100 : null;
-    const net = gross != null ? gross - Number(t.cost_bps) / 100 : null;
-    const r = net != null && t.sl_pct > 0 ? net / t.sl_pct : null;
-    const upd = await pool.query(
-      `UPDATE crypto_shadow_trades SET status='closed', exit_price=$2, exit_reason=$3, gross_return_pct=$4, return_pct=$5, r_multiple=$6, closed_at=now()
-        WHERE id=$1 AND status='open'`,
-      [t.id, exit, why, gross, net, r]
-    );
-    if (!upd.rowCount) continue;
-    closed++;
-    await pool.query(
-      `UPDATE crypto_shadow_context SET closed_at=now(), exit_reason=$2, hold_minutes=$3, net_pct=$4 WHERE trade_id=$1`,
-      [t.id, why, ageH * 60, net]
-    ).catch(() => {
-    });
-  }
-  return closed;
-}
-async function runCryptoShadowAll(userId, cfg, symbols, chain, slippageCapBps, deps) {
-  if (!shadowAllEnabled()) return { opened: 0, closed: 0 };
-  await ensureCryptoShadowTables();
-  const closed = await resolveCryptoShadowTrades(userId).catch(() => 0);
-  if (Date.now() - (_lastRun.get(userId) || 0) < EVERY_MS()) return { opened: 0, closed };
-  _lastRun.set(userId, Date.now());
-  const { isTokenizedAsset: isTokenizedAsset2, underlyingOf: underlyingOf2, paperMaxHoursFor: paperMaxHoursFor2 } = await Promise.resolve().then(() => (init_crypto_paper(), crypto_paper_exports));
-  const { estimateCryptoRoundTripBps: estimateCryptoRoundTripBps2 } = await Promise.resolve().then(() => (init_paper_costs(), paper_costs_exports));
-  const stats = await computeCryptoShadowStats(userId).catch(() => []);
-  const { rows: open } = await pool.query(`SELECT strategy, underlying FROM crypto_shadow_trades WHERE user_id=$1 AND status='open'`, [userId]);
-  const { rows: recent } = await pool.query(
-    `SELECT strategy, underlying FROM crypto_shadow_trades WHERE user_id=$1 AND status='closed' AND closed_at >= now() - ($2::text || ' milliseconds')::interval`,
-    [userId, String(COOLDOWN_MS())]
-  );
-  const btc = deps.universe("CBBTC") ? await deps.h1("CBBTC").catch(() => null) : null;
-  const btcChange = btc ? pctChange(oldestFirst(btc.bars), 24) : null;
-  const lo = num2("CRYPTO_PAPER_SL_MIN", 1.5), hi = num2("CRYPTO_PAPER_SL_MAX", 12), atrMult = num2("CRYPTO_SL_ATR_MULT", 1.5), rr = num2("CRYPTO_MIN_RR", 2);
-  const floorMult = Number(process.env.CRYPTO_PAPER_COST_FLOOR_MULT ?? 3);
-  let opened = 0;
-  const shadowCfg = { ...cfg, directionFilter: "both" };
-  for (const symbol of symbols) {
-    if (open.length >= MAX_OPEN()) break;
-    if (isTokenizedAsset2(symbol)) continue;
-    const uni = deps.universe(symbol);
-    if (!uni?.poolAddress) continue;
-    const und = underlyingOf2(symbol);
-    const { NEW_TOKEN_RUNNERS: NEW_TOKEN_RUNNERS2, buyShare: buyShare2 } = await Promise.resolve().then(() => (init_crypto_ports(), crypto_ports_exports));
-    const runnersFor = Object.entries(deps.runners).filter(([k]) => uni.newToken ? NEW_TOKEN_RUNNERS2.has(k) : !NEW_TOKEN_RUNNERS2.has(k));
-    const results = (await Promise.all(runnersFor.map(([k, fn]) => fn(symbol, shadowCfg).then((r) => ({ ...r, strategy: r.strategy || k })).catch(() => null)))).filter((r) => !!r);
-    const ORIGINAL = /* @__PURE__ */ new Set(["trend_following", "momentum", "order_flow", "volume_profile", "breakout", "structure", "divergence"]);
-    const dirs = results.filter((r) => r.direction && ORIGINAL.has(r.strategy));
-    const buys = dirs.filter((r) => r.direction === "BUY"), sells = dirs.filter((r) => r.direction === "SELL");
-    const side = buys.length > sells.length ? buys : sells.length > buys.length ? sells : [];
-    const signals = results.filter((r) => r.decision === "signal" && r.direction && r.price);
-    if (side.length >= 2) {
-      const comp = Math.round(side.reduce((s, r) => s + (r.score ?? 0), 0) / side.length);
-      if (comp >= (cfg.compositeMinEdgeScore ?? 72)) signals.push({ ...side[0], decision: "signal", score: comp, strategy: "composite_autonomous", reasoning: `${side.length} runners agree` });
-    }
-    if (!signals.length) continue;
-    const h1 = await deps.h1(symbol).catch(() => null);
-    if (!h1 || !(h1.atr > 0)) continue;
-    const bars = oldestFirst(h1.bars), closes = bars.map((b) => b.c);
-    const h1Trend = trendOf(closes, 9, 21);
-    const h4Closes = closes.filter((_, i) => (closes.length - 1 - i) % 4 === 0);
-    const h4Trend = trendOf(h4Closes, 5, 10);
-    const ch1 = pctChange(bars, 1), ch24 = pctChange(bars, 24);
-    const vol24 = bars.slice(-24).reduce((a, b) => a + (b.v || 0) * (b.c || 0), 0);
-    for (const sig of signals) {
-      if (open.length >= MAX_OPEN()) break;
-      const strat = sig.strategy;
-      if (open.filter((o) => o.strategy === strat).length >= MAX_PER_STRAT()) continue;
-      if (open.some((o) => o.strategy === strat && o.underlying === und)) continue;
-      if (recent.some((o) => o.strategy === strat && o.underlying === und)) continue;
-      const price = Number(sig.price) || Number(uni.priceUsd);
-      if (!(price > 0)) continue;
-      const direction = sig.direction === "SELL" ? "hypothetical_short" : "long";
-      const short = direction !== "long";
-      const slPct = Math.min(hi, Math.max(lo, h1.atr * atrMult / price * 100));
-      const costBps = estimateCryptoRoundTripBps2({ notionalUsd: NOTIONAL(), liquidityUsd: uni.liquidityUsd, slippageCapBps }).roundTripBps + (uni.newToken ? Number(process.env.CRYPTO_MEME_EXTRA_COST_BPS ?? 200) : 0);
-      if (floorMult > 0 && slPct < floorMult * costBps / 100) continue;
-      const stop = short ? price * (1 + slPct / 100) : price * (1 - slPct / 100);
-      const target = short ? price * (1 - slPct * rr / 100) : price * (1 + slPct * rr / 100);
-      const aligned = h4Trend == null ? null : short ? h4Trend === "BEARISH" : h4Trend === "BULLISH";
-      const gated = await deps.gate(symbol, sig, cfg).then((g) => g.decision !== "signal").catch(() => null);
-      const hourUtc = (/* @__PURE__ */ new Date()).getUTCHours();
-      const fl = uni.flow;
-      const created = fl?.poolCreatedAt ? new Date(fl.poolCreatedAt).getTime() : NaN;
-      const ctx = {
-        hour_utc: hourUtc,
-        liquidity_usd: uni.liquidityUsd,
-        change_24h: ch24,
-        atr_pct: h1.atr / price * 100,
-        htf_aligned: aligned,
-        btc_change_24h: btcChange,
-        direction: short ? "short" : "long",
-        buy_share_h1: fl ? buyShare2(fl.h1) : null,
-        txns_h1: fl ? fl.h1.buys + fl.h1.sells : null,
-        market_cap_usd: fl ? fl.marketCapUsd ?? fl.fdvUsd : null,
-        token_age_hours: Number.isFinite(created) ? (Date.now() - created) / 36e5 : null
-      };
-      const advice = adviceFor(stats, strat, ctx);
-      const tags = [];
-      if (ch1 != null && Math.abs(ch1) >= 3) tags.push(ch1 > 0 ? "hot_hour" : "dump_hour");
-      if (ch24 != null && ch24 >= 20) tags.push("extended_24h");
-      if (aligned === false) tags.push("against_htf");
-      if (aligned === true) tags.push("htf_aligned");
-      if (gated) tags.push("live_gate_would_block");
-      if (uni.liquidityUsd < 25e4) tags.push("thin_pool");
-      if (uni.newToken) tags.push("new_token");
-      if (ctx.buy_share_h1 != null && ctx.buy_share_h1 > 0.65) tags.push("buyers_dominant");
-      if (ctx.buy_share_h1 != null && ctx.buy_share_h1 < 0.45) tags.push("sellers_dominant");
-      const ins = await pool.query(
-        `INSERT INTO crypto_shadow_trades (user_id, strategy, symbol, underlying, chain, token_address, pool_address, direction, entry_price, stop_loss, take_profit,
-           sl_pct, notional_usd, cost_bps, score, max_hours) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16) RETURNING id`,
-        [userId, strat, symbol, und, chain, uni.address ?? null, uni.poolAddress, direction, price, stop, target, slPct, NOTIONAL(), costBps, sig.score ?? null, paperMaxHoursFor2(strat)]
-      );
-      const id = ins.rows[0]?.id;
-      if (!id) continue;
-      await pool.query(
-        `INSERT INTO crypto_shadow_context (trade_id, user_id, strategy, symbol, direction, liquidity_usd, change_1h, change_24h, volume_24h_usd, atr_pct,
-           h1_trend, h4_trend, htf_aligned, live_gate_blocked, btc_change_24h, hour_utc, day_of_week, score, tags, advice_at_entry,
-           buy_share_h1, buy_share_h24, txns_h1, txns_h24, buyers_h1, sellers_h1, market_cap_usd, token_age_hours, new_token)
-         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25,$26,$27,$28,$29) ON CONFLICT (trade_id) DO NOTHING`,
-        [
-          id,
-          userId,
-          strat,
-          symbol,
-          ctx.direction,
-          uni.liquidityUsd,
-          ch1,
-          ch24,
-          vol24 || null,
-          ctx.atr_pct,
-          h1Trend,
-          h4Trend,
-          aligned,
-          gated,
-          btcChange,
-          hourUtc,
-          (/* @__PURE__ */ new Date()).getUTCDay(),
-          sig.score ?? null,
-          tags,
-          advice,
-          ctx.buy_share_h1,
-          fl ? buyShare2(fl.h24) : null,
-          ctx.txns_h1,
-          fl ? fl.h24.buys + fl.h24.sells : null,
-          fl?.h1.buyers ?? null,
-          fl?.h1.sellers ?? null,
-          ctx.market_cap_usd,
-          ctx.token_age_hours,
-          !!uni.newToken
-        ]
-      ).catch(() => {
-      });
-      open.push({ strategy: strat, underlying: und });
-      opened++;
-    }
-  }
-  return { opened, closed };
-}
-var num2, shadowAllEnabled, MAX_OPEN, MAX_PER_STRAT, COOLDOWN_MS, EVERY_MS, NOTIONAL, _ensured2, _statsCache, _lastRun;
-var init_crypto_shadow = __esm({
-  "server/services/crypto-shadow.ts"() {
-    "use strict";
-    init_db();
-    num2 = (n, d) => {
-      const v = Number(process.env[n]);
-      return Number.isFinite(v) && v > 0 ? v : d;
-    };
-    shadowAllEnabled = () => process.env.CRYPTO_SHADOW_ALL !== "off";
-    MAX_OPEN = () => Math.floor(num2("CRYPTO_SHADOW_MAX_OPEN", 30));
-    MAX_PER_STRAT = () => Math.floor(num2("CRYPTO_SHADOW_MAX_PER_STRATEGY", 3));
-    COOLDOWN_MS = () => num2("CRYPTO_SHADOW_COOLDOWN_MIN", 60) * 6e4;
-    EVERY_MS = () => num2("CRYPTO_SHADOW_EVERY_MIN", 10) * 6e4;
-    NOTIONAL = () => num2("CRYPTO_SHADOW_NOTIONAL_USD", 20);
-    _ensured2 = null;
-    _statsCache = /* @__PURE__ */ new Map();
-    _lastRun = /* @__PURE__ */ new Map();
-  }
-});
-
-// server/services/shadow-ledger.ts
-function ensureShadowLedger() {
-  if (!_ensured3) {
-    _ensured3 = (async () => {
-      try {
-        const { ensurePaperTable: ensurePaperTable2 } = await Promise.resolve().then(() => (init_crypto_paper(), crypto_paper_exports));
-        await ensurePaperTable2();
-      } catch {
-      }
-      try {
-        const { ensureCryptoShadowTables: ensureCryptoShadowTables2 } = await Promise.resolve().then(() => (init_crypto_shadow(), crypto_shadow_exports));
-        await ensureCryptoShadowTables2();
-      } catch {
-      }
-      await pool.query(VIEW_SQL);
-    })().catch((e) => {
-      _ensured3 = null;
-      throw e;
-    });
-  }
-  return _ensured3;
-}
-var SESSION_SQL, VIEW_SQL, _ensured3;
-var init_shadow_ledger = __esm({
-  "server/services/shadow-ledger.ts"() {
-    "use strict";
-    init_db();
-    SESSION_SQL = (ts) => `CASE
-  WHEN extract(hour from ${ts}) < 7  THEN 'Asian'
-  WHEN extract(hour from ${ts}) < 12 THEN 'London'
-  WHEN extract(hour from ${ts}) < 16 THEN 'Overlap'
-  WHEN extract(hour from ${ts}) < 21 THEN 'NewYork'
-  ELSE 'Late' END`;
-    VIEW_SQL = `
-CREATE OR REPLACE VIEW shadow_ledger AS
-  SELECT ('fx_model:' || d.id)::text AS ledger_id,
-         CASE WHEN d.engine = 'crypto' THEN 'crypto_shadow' ELSE 'fx_shadow' END AS source,
-         COALESCE(d.engine, 'fx') AS engine, d.user_id,
-         d.model AS strategy, d.symbol,
-         CASE WHEN upper(d.direction) = 'SELL' THEN 'SHORT' ELSE 'LONG' END AS direction,
-         (d.created_at AT TIME ZONE 'UTC') AS opened_at, (d.resolved_at AT TIME ZONE 'UTC') AS closed_at,
-         extract(hour from d.created_at)::int AS hour_utc,
-         ${SESSION_SQL("d.created_at")} AS session,
-         d.day_type,
-         d.context->'h1'->>'trend' AS h1_trend, d.context->'h4'->>'trend' AS h4_trend,
-         CASE WHEN d.context->'h4'->>'trend' IS NULL THEN NULL
-              WHEN upper(d.direction) = 'BUY'  THEN (d.context->'h4'->>'trend') = 'BULLISH'
-              WHEN upper(d.direction) = 'SELL' THEN (d.context->'h4'->>'trend') = 'BEARISH' END AS h4_aligned,
-         (d.created_at >= TIMESTAMP '2026-10-23 04:00:00') AS context_reliable,
-         CASE WHEN d.result = 'EXPIRED' THEN 'EXPIRED' WHEN d.r_multiple > 0 THEN 'WIN' WHEN d.r_multiple < 0 THEN 'LOSS' ELSE d.result END AS result,
-         d.r_multiple::float AS r_multiple, NULL::float AS return_pct
-    FROM fx_model_decisions d
-   WHERE d.result IN ('WIN','LOSS','EXPIRED') AND d.direction IN ('BUY','SELL') AND d.source = 'own'
-  UNION ALL
-  SELECT ('crypto_paper:' || c.id)::text, 'crypto_paper', 'crypto', c.user_id,
-         c.strategy, c.symbol,
-         CASE WHEN c.direction = 'short' THEN 'SHORT' ELSE 'LONG' END,
-         c.opened_at, c.closed_at,
-         extract(hour from c.opened_at AT TIME ZONE 'UTC')::int,
-         ${SESSION_SQL("(c.opened_at AT TIME ZONE 'UTC')")},
-         NULL, NULL, NULL, NULL, true,
-         CASE WHEN c.exit_reason = 'time limit' THEN 'EXPIRED' WHEN c.r_multiple > 0 THEN 'WIN' WHEN c.r_multiple < 0 THEN 'LOSS' ELSE 'FLAT' END,
-         c.r_multiple::float, c.return_pct::float
-    FROM crypto_paper_trades c
-   WHERE c.status = 'closed'
-  UNION ALL
-  SELECT ('sol_' || s.mode || ':' || s.id)::text,
-         CASE WHEN s.mode = 'shadow' THEN 'sol_shadow' ELSE 'sol_paper' END, 'sol', s.user_id,
-         s.strategy_id, s.symbol, 'LONG',
-         s.opened_at::timestamptz, NULLIF(s.closed_at, '')::timestamptz,
-         extract(hour from s.opened_at::timestamptz AT TIME ZONE 'UTC')::int,
-         ${SESSION_SQL("(s.opened_at::timestamptz AT TIME ZONE 'UTC')")},
-         NULL, NULL, NULL, NULL, true,
-         CASE WHEN s.close_pnl_pct > 0 THEN 'WIN' WHEN s.close_pnl_pct < 0 THEN 'LOSS' ELSE 'FLAT' END,
-         CASE WHEN s.sl_pct > 0 THEN (s.close_pnl_pct / s.sl_pct)::float END,
-         s.close_pnl_pct::float
-    FROM sol_engine_positions s
-   WHERE s.mode IN ('paper', 'shadow') AND s.status = 'closed' AND s.close_pnl_pct IS NOT NULL
-     AND NOT (
-       NULLIF(s.closed_at, '')::timestamptz < TIMESTAMPTZ '2026-11-06 19:15:00+00'
-       AND abs(s.close_pnl_pct) >= 40
-       AND (extract(epoch from (NULLIF(s.closed_at, '')::timestamptz - s.opened_at::timestamptz)) < 120
-            -- known junk-priced symbols (sol-brain.ts BAD_PRICE_SYMBOLS), any hold
-            OR s.symbol IN ('RAY', 'mSOL'))
-     )
-  UNION ALL
-  -- Crypto all-strategy shadow lane (crypto-shadow.ts). Shorts are hypothetical
-  -- (Base spot can't short) and get their own source so they are reported apart.
-  SELECT ('crypto_shadow_all:' || x.id)::text,
-         CASE WHEN x.direction = 'long' THEN 'crypto_shadow_all' ELSE 'crypto_shadow_short' END, 'crypto', x.user_id,
-         x.strategy, x.symbol, CASE WHEN x.direction = 'long' THEN 'LONG' ELSE 'SHORT' END,
-         x.opened_at, x.closed_at,
-         extract(hour from x.opened_at AT TIME ZONE 'UTC')::int,
-         ${SESSION_SQL("(x.opened_at AT TIME ZONE 'UTC')")},
-         NULL, xc.h1_trend, xc.h4_trend, xc.htf_aligned, true,
-         CASE WHEN x.exit_reason = 'time limit' THEN 'EXPIRED' WHEN x.r_multiple > 0 THEN 'WIN' WHEN x.r_multiple < 0 THEN 'LOSS' ELSE 'FLAT' END,
-         x.r_multiple::float, x.return_pct::float
-    FROM crypto_shadow_trades x
-    LEFT JOIN crypto_shadow_context xc ON xc.trade_id = x.id
-   WHERE x.status = 'closed' AND x.return_pct IS NOT NULL
-`;
-    _ensured3 = null;
-  }
-});
-
-// server/services/shadow-lessons.ts
-var shadow_lessons_exports = {};
-__export(shadow_lessons_exports, {
-  computeShadowLessons: () => computeShadowLessons,
-  getShadowLessons: () => getShadowLessons,
-  getShadowLessonsText: () => getShadowLessonsText
-});
-async function computeShadowLessons(userId, days = 30) {
-  await ensureShadowLedger();
-  const dims = [
-    { dimension: "session", expr: `session` },
-    { dimension: "strategy", expr: `strategy` },
-    { dimension: "strategy+symbol", expr: `strategy || ' \xB7 ' || symbol` },
-    { dimension: "direction", expr: `direction` },
-    { dimension: "day_type", expr: `day_type`, where: `day_type IS NOT NULL` },
-    { dimension: "h4_aligned", expr: `CASE WHEN h4_aligned THEN 'with the H4 trend' ELSE 'against the H4 trend' END`, where: `context_reliable AND h4_aligned IS NOT NULL` },
-    { dimension: "strategy+direction", expr: `strategy || ' \xB7 ' || direction` }
-  ];
-  const out = [];
-  for (const d of dims) {
-    const { rows } = await pool.query(
-      `SELECT source, ${d.expr} AS key, count(*)::int AS trades, count(*) FILTER (WHERE result='WIN')::int AS wins,
-              avg(r_multiple)::float AS avg_r, sum(r_multiple)::float AS total_r
-         FROM shadow_ledger
-        WHERE user_id=$1 AND closed_at >= now() - ($2 || ' days')::interval AND r_multiple IS NOT NULL ${d.where ? `AND ${d.where}` : ""}
-        GROUP BY 1,2 HAVING count(*) >= $3`,
-      [userId, String(days), MIN_TRADES3()]
-    );
-    for (const r of rows) {
-      const avgR = Number(r.avg_r) || 0;
-      if (Math.abs(avgR) < EDGE_R() || r.key == null) continue;
-      const winRate = r.trades ? r.wins / r.trades : 0;
-      const verdict = avgR > 0 ? "favor" : "avoid";
-      const strength = r.trades >= 30 ? "strong" : r.trades >= 15 ? "moderate" : "early";
-      const keyLabel = String(r.key).replace(/\bM1\b/g, "Model 1 (range)").replace(/\bM2\b/g, "Model 2 (trend)");
-      const label = `${SOURCE_LABEL[r.source] || r.source} \xB7 ${d.dimension.replace("+", " + ").replace("_", " ")} ${keyLabel}`;
-      out.push({
-        source: r.source,
-        dimension: d.dimension,
-        key: String(r.key),
-        trades: r.trades,
-        wins: r.wins,
-        winRate,
-        avgR,
-        totalR: Number(r.total_r) || 0,
-        verdict,
-        strength,
-        text: `${label}: ${r.trades} trades, ${Math.round(winRate * 100)}% wins, ${avgR >= 0 ? "+" : ""}${avgR.toFixed(2)}R avg \u2192 ${verdict === "favor" ? "FAVOR" : "AVOID"} (${strength} evidence)`
-      });
-    }
-  }
-  out.sort((a, b) => b.trades - a.trades || Math.abs(b.avgR) - Math.abs(a.avgR));
-  return out;
-}
-async function getShadowLessons(userId, force = false) {
-  const hit = _mem.get(userId);
-  if (!force && hit && Date.now() - hit.at < TTL_MS4()) return hit;
-  try {
-    if (!force) {
-      const { getRuntimeStateStrict: getRuntimeStateStrict2 } = await Promise.resolve().then(() => (init_runtime_state(), runtime_state_exports));
-      const stored = await getRuntimeStateStrict2("shadow_lessons", String(userId)).catch(() => null);
-      if (stored && Date.now() - Number(stored.at) < TTL_MS4() && Array.isArray(stored.lessons)) {
-        _mem.set(userId, stored);
-        return stored;
-      }
-    }
-    const fresh = { at: Date.now(), lessons: await computeShadowLessons(userId) };
-    _mem.set(userId, fresh);
-    const { saveRuntimeState: saveRuntimeState2 } = await Promise.resolve().then(() => (init_runtime_state(), runtime_state_exports));
-    saveRuntimeState2("shadow_lessons", String(userId), fresh);
-    return fresh;
-  } catch (e) {
-    console.error("[shadow-lessons] compute failed (non-fatal):", e?.message || e);
-    return hit || { at: 0, lessons: [] };
-  }
-}
-async function getShadowLessonsText(userId, engine, max = 10) {
-  if (process.env.SHADOW_LESSONS === "off") return "";
-  try {
-    const { lessons } = await getShadowLessons(userId);
-    const mine = lessons.filter((l) => (ENGINE_SOURCES[engine] || []).includes(l.source)).slice(0, max);
-    if (!mine.length) return "";
-    return `WHAT OUR SHADOW / PAPER TRADING HAS LEARNED (last 30 days, real outcomes \u2014 weigh these; don't ignore strong ones):
-${mine.map((l) => `- ${l.text}`).join("\n")}
-Lean toward setups matching FAVOR lessons and be much more selective with setups matching AVOID lessons. "Early" evidence is a hint, "strong" evidence is reliable.`;
-  } catch {
-    return "";
-  }
-}
-var MIN_TRADES3, EDGE_R, TTL_MS4, SOURCE_LABEL, ENGINE_SOURCES, _mem;
-var init_shadow_lessons = __esm({
-  "server/services/shadow-lessons.ts"() {
-    "use strict";
-    init_db();
-    init_shadow_ledger();
-    MIN_TRADES3 = () => Number(process.env.SHADOW_LESSON_MIN_TRADES ?? 8);
-    EDGE_R = () => Number(process.env.SHADOW_LESSON_EDGE_R ?? 0.3);
-    TTL_MS4 = () => Math.max(1, Number(process.env.SHADOW_LESSONS_TTL_H ?? 6)) * 36e5;
-    SOURCE_LABEL = {
-      fx_shadow: "FX shadow models",
-      crypto_shadow: "Crypto shadow models",
-      crypto_paper: "Crypto paper engine",
-      crypto_shadow_all: "Crypto shadow (all strategies, longs)",
-      crypto_shadow_short: "Crypto shadow (hypothetical shorts)",
-      sol_paper: "Sol paper engine",
-      sol_shadow: "Sol shadow tests"
-    };
-    ENGINE_SOURCES = {
-      fx: ["fx_shadow"],
-      crypto: ["crypto_paper", "crypto_shadow", "crypto_shadow_all"],
-      sol: ["sol_paper", "sol_shadow"]
-    };
-    _mem = /* @__PURE__ */ new Map();
-  }
-});
-
-// server/services/crypto-ai-confirmation.ts
-var crypto_ai_confirmation_exports = {};
-__export(crypto_ai_confirmation_exports, {
-  getCryptoAiConfirmation: () => getCryptoAiConfirmation
-});
-async function getCryptoAiConfirmation(opts) {
-  try {
-    const client2 = await getUniversalAIClientForUser(opts.userId);
-    const recent = opts.candles.slice(-20);
-    const candleSummary = recent.map((c) => {
-      const tNum = Number(c.t);
-      const t = Number.isFinite(tNum) && tNum > 0 ? new Date(tNum * 1e3).toISOString().slice(11, 16) : "?";
-      return `${t} O:${c.o} H:${c.h} L:${c.l} C:${c.c} V:${Math.round(c.v ?? 0)}`;
-    }).join("\n");
-    const ind = opts.indicators || {};
-    const indicatorSummary = [
-      `RSI: ${ind.rsi ?? "n/a"}`,
-      `ADX: ${ind.adx ?? "n/a"}  +DI: ${ind.plusDI ?? "n/a"}  -DI: ${ind.minusDI ?? "n/a"}`,
-      `MACD histogram: ${ind.macdHistogram ?? ind.macd?.histogram ?? "n/a"}`,
-      `Trend: ${ind.trend ?? "n/a"}`,
-      `Relative volume: ${ind.relativeVolume ?? "n/a"}`,
-      `Volume trend: ${ind.volumeTrend ?? "n/a"}`
-    ].join("\n  ");
-    const system = 'You are a disciplined crypto perpetual futures trader giving a second, independent opinion on a signal a technical scanner already produced. Judge this on trend strength, momentum, volume/order-flow confirmation, and recent price structure. This is a 24/7 market with no session close or reopen -- do NOT reach for forex/ICT concepts like order blocks, liquidity sweeps, discount/premium zones, or session/macro-window timing; none of that describes how crypto perpetuals actually trade, and grading a setup down for lacking FX-specific structure it was never going to have is not a real assessment. Respond ONLY with JSON: {"confirmed": boolean, "direction": "BUY"|"SELL"|"NEUTRAL", "confidence": number (0-100), "reasoning": string}.';
-    const _lessons = await Promise.resolve().then(() => (init_shadow_lessons(), shadow_lessons_exports)).then((m) => m.getShadowLessonsText(opts.userId, "crypto", 8)).catch(() => "");
-    const _shadowStats = await Promise.resolve().then(() => (init_crypto_shadow(), crypto_shadow_exports)).then((m) => m.getCryptoShadowStatsText(opts.userId, 12)).catch(() => "");
-    const user = `${_lessons ? `${_lessons}
-
-` : ""}${_shadowStats ? `${_shadowStats}
-
-` : ""}SYMBOL: ${opts.symbol}
-PROPOSED: ${opts.direction} @ ${opts.price}
-SCANNER STRATEGY: ${opts.strategy} (score ${opts.quantScore}/100)
-SCANNER REASONING: ${opts.quantReasoning}
-
-INDICATORS:
-  ${indicatorSummary}
-
-RECENT CANDLES (oldest to most recent):
-${candleSummary}
-
-Would you independently confirm this ${opts.direction} setup on its own merits as a crypto perpetual trade?`;
-    const modelId = client2.defaultModel || "gpt-4o-mini";
-    const baseRequest = {
-      model: modelId,
-      messages: [
-        { role: "system", content: system },
-        { role: "user", content: user }
-      ],
-      response_format: { type: "json_object" },
-      temperature: 0.3
-    };
-    let r = await client2.chat.completions.create({ ...baseRequest, max_tokens: 700 });
-    let content = r.choices?.[0]?.message?.content || "";
-    if (!content && r.choices?.[0]?.finish_reason === "length") {
-      console.warn(`[crypto-ai-confirmation] ${opts.symbol}: 700-token budget produced zero content (finish_reason=length) on ${modelId} -- retrying once at 2500.`);
-      r = await client2.chat.completions.create({ ...baseRequest, max_tokens: 2500 });
-      content = r.choices?.[0]?.message?.content || "";
-    }
-    let parsed;
-    try {
-      parsed = JSON.parse(content);
-    } catch {
-      const m = content.match(/\{[\s\S]*\}/);
-      try {
-        if (!m) throw new Error("no braces found");
-        parsed = JSON.parse(m[0]);
-      } catch {
-        console.warn(
-          `[crypto-ai-confirmation] ${opts.symbol}: primary JSON parse failed. finish_reason=${r.choices?.[0]?.finish_reason ?? "unknown"} model=${client2.defaultModel ?? "unknown"} contentLength=${content.length} content=${JSON.stringify(content)}`
-        );
-        const confirmedM = content.match(/"confirmed"\s*:\s*(true|false)/i);
-        const directionM = content.match(/"direction"\s*:\s*"(BUY|SELL|NEUTRAL)"/i);
-        const confidenceM = content.match(/"confidence"\s*:\s*(-?\d+(?:\.\d+)?)/i);
-        const reasoningM = content.match(/"reasoning"\s*:\s*"([\s\S]*)$/i);
-        if (!confirmedM && !directionM && !confidenceM) {
-          throw new Error(`AI returned no parseable JSON (truncated, ${content.length} chars)`);
-        }
-        parsed = {
-          confirmed: confirmedM ? confirmedM[1].toLowerCase() === "true" : false,
-          direction: directionM ? directionM[1].toUpperCase() : "NEUTRAL",
-          confidence: confidenceM ? Number(confidenceM[1]) : 0,
-          reasoning: reasoningM ? reasoningM[1].replace(/\\"/g, '"').trim() + " [reasoning cut off \u2014 response truncated]" : "[response truncated before reasoning was written]"
-        };
-      }
-    }
-    const confidence = coerceConfidence(parsed.confidence);
-    noteConfidenceSample(confidence);
-    const direction = ["BUY", "SELL", "NEUTRAL"].includes(parsed.direction) ? parsed.direction : "NEUTRAL";
-    return {
-      confirmed: !!parsed.confirmed,
-      aiDirection: direction,
-      aiConfidence: confidence,
-      reasoning: String(parsed.reasoning || "no reasoning returned"),
-      modelUsed: client2.defaultModel
-    };
-  } catch (err) {
-    const statusCode = err?.status || err?.statusCode || err?.response?.status;
-    return {
-      confirmed: false,
-      aiDirection: "NEUTRAL",
-      aiConfidence: 0,
-      reasoning: `Crypto AI confirmation error: ${err?.message ?? err}`,
-      aiError: true,
-      aiErrorStatus: typeof statusCode === "number" ? statusCode : null
-    };
-  }
-}
-var init_crypto_ai_confirmation = __esm({
-  "server/services/crypto-ai-confirmation.ts"() {
-    "use strict";
-    init_openai();
-  }
-});
-
-// server/services/engine-consensus.ts
-var engine_consensus_exports = {};
-__export(engine_consensus_exports, {
-  getEngineConsensusForUser: () => getEngineConsensusForUser,
-  recordEngineConsensus: () => recordEngineConsensus
-});
-async function recordEngineConsensus(userId, engine, entry) {
-  try {
-    await pool.query(
-      `INSERT INTO engine_consensus_log
-         (user_id, engine, symbol, strategy, quant_verdict, quant_score, ai_verdict, ai_confidence, ai_reasoning, consensus, trade_allowed, updated_at)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, now())
-       ON CONFLICT (user_id, engine, symbol) DO UPDATE SET
-         strategy = $4, quant_verdict = $5, quant_score = $6, ai_verdict = $7,
-         ai_confidence = $8, ai_reasoning = $9, consensus = $10, trade_allowed = $11, updated_at = now()`,
-      [
-        userId,
-        engine,
-        entry.symbol,
-        entry.strategy,
-        entry.quantVerdict,
-        entry.quantScore,
-        entry.aiVerdict,
-        entry.aiConfidence,
-        entry.aiReasoning,
-        entry.consensus,
-        entry.tradeAllowed
-      ]
-    );
-  } catch (err) {
-    console.error(`[engine-consensus] Failed to record consensus for ${engine}/${entry.symbol} (non-fatal):`, err?.message ?? err);
-  }
-}
-async function getEngineConsensusForUser(userId, engine) {
-  try {
-    const { rows } = await pool.query(
-      `SELECT symbol, strategy, quant_verdict, quant_score, ai_verdict, ai_confidence, ai_reasoning, consensus, trade_allowed, updated_at
-       FROM engine_consensus_log WHERE user_id = $1 AND engine = $2 ORDER BY updated_at DESC LIMIT 20`,
-      [userId, engine]
-    );
-    return rows.map((r) => ({
-      symbol: r.symbol,
-      strategy: r.strategy,
-      quantVerdict: r.quant_verdict,
-      quantScore: r.quant_score,
-      aiVerdict: r.ai_verdict,
-      aiConfidence: r.ai_confidence,
-      aiReasoning: r.ai_reasoning,
-      consensus: r.consensus,
-      tradeAllowed: r.trade_allowed,
-      timestamp: new Date(r.updated_at).toISOString()
-    }));
-  } catch (err) {
-    console.error(`[engine-consensus] Failed to read consensus for ${engine} (non-fatal):`, err?.message ?? err);
-    return [];
-  }
-}
-var init_engine_consensus = __esm({
-  "server/services/engine-consensus.ts"() {
-    "use strict";
-    init_db();
-  }
-});
-
-// server/services/ai-level.ts
-var ai_level_exports = {};
-__export(ai_level_exports, {
-  AI_LEVELS: () => AI_LEVELS,
-  getAiLevel: () => getAiLevel,
-  getAiLevelSync: () => getAiLevelSync,
-  setAiLevel: () => setAiLevel
-});
-function getAiLevelSync(userId) {
-  const hit = cache4.get(userId);
-  if (!hit || Date.now() - hit.at > 6e4) void refresh(userId);
-  return AI_LEVELS[hit?.level ?? "balanced"];
-}
-async function getAiLevel(userId) {
-  const hit = cache4.get(userId);
-  if (hit && Date.now() - hit.at < 6e4) return AI_LEVELS[hit.level];
-  return AI_LEVELS[await refresh(userId)];
-}
-async function refresh(userId) {
-  try {
-    const { getRuntimeStateStrict: getRuntimeStateStrict2 } = await Promise.resolve().then(() => (init_runtime_state(), runtime_state_exports));
-    const v = await getRuntimeStateStrict2("ai_level", String(userId));
-    const level = v?.level === "eco" || v?.level === "turbo" ? v.level : "balanced";
-    cache4.set(userId, { at: Date.now(), level });
-    return level;
-  } catch {
-    const prev = cache4.get(userId)?.level ?? "balanced";
-    cache4.set(userId, { at: Date.now(), level: prev });
-    return prev;
-  }
-}
-async function setAiLevel(userId, level) {
-  const { pool: pool2 } = await Promise.resolve().then(() => (init_db(), db_exports));
-  const { ensureRuntimeStateTable: ensureRuntimeStateTable2 } = await Promise.resolve().then(() => (init_runtime_state(), runtime_state_exports));
-  await ensureRuntimeStateTable2();
-  await pool2.query(
-    `INSERT INTO runtime_state (scope, key, value, updated_at) VALUES ('ai_level', $1, $2::jsonb, now())
-     ON CONFLICT (scope, key) DO UPDATE SET value = EXCLUDED.value, updated_at = now()`,
-    [String(userId), JSON.stringify({ level })]
-  );
-  cache4.set(userId, { at: Date.now(), level });
-  return AI_LEVELS[level];
-}
-var AI_LEVELS, cache4;
-var init_ai_level = __esm({
-  "server/services/ai-level.ts"() {
-    "use strict";
-    AI_LEVELS = {
-      eco: { level: "eco", scanMult: 2, cacheMs: 5 * 6e4, cachePips: 8, fxModelsEveryH: 2, cryptoSkipMemoryMin: 120, cryptoModelsEveryH: 4 },
-      balanced: { level: "balanced", scanMult: 1, cacheMs: 6e4, cachePips: 3, fxModelsEveryH: 1, cryptoSkipMemoryMin: 60, cryptoModelsEveryH: 2 },
-      turbo: { level: "turbo", scanMult: 0.67, cacheMs: 3e4, cachePips: 1.5, fxModelsEveryH: 1, cryptoSkipMemoryMin: 30, cryptoModelsEveryH: 1 }
-    };
-    cache4 = /* @__PURE__ */ new Map();
-  }
-});
-
 // server/market-data/cache.ts
 var MarketDataCache, marketDataCache;
 var init_cache = __esm({
@@ -18750,6 +13187,62 @@ var init_service = __esm({
   }
 });
 
+// server/services/ai-level.ts
+var ai_level_exports = {};
+__export(ai_level_exports, {
+  AI_LEVELS: () => AI_LEVELS,
+  getAiLevel: () => getAiLevel,
+  getAiLevelSync: () => getAiLevelSync,
+  setAiLevel: () => setAiLevel
+});
+function getAiLevelSync(userId) {
+  const hit = cache4.get(userId);
+  if (!hit || Date.now() - hit.at > 6e4) void refresh(userId);
+  return AI_LEVELS[hit?.level ?? "balanced"];
+}
+async function getAiLevel(userId) {
+  const hit = cache4.get(userId);
+  if (hit && Date.now() - hit.at < 6e4) return AI_LEVELS[hit.level];
+  return AI_LEVELS[await refresh(userId)];
+}
+async function refresh(userId) {
+  try {
+    const { getRuntimeStateStrict: getRuntimeStateStrict2 } = await Promise.resolve().then(() => (init_runtime_state(), runtime_state_exports));
+    const v = await getRuntimeStateStrict2("ai_level", String(userId));
+    const level = v?.level === "eco" || v?.level === "turbo" ? v.level : "balanced";
+    cache4.set(userId, { at: Date.now(), level });
+    return level;
+  } catch {
+    const prev = cache4.get(userId)?.level ?? "balanced";
+    cache4.set(userId, { at: Date.now(), level: prev });
+    return prev;
+  }
+}
+async function setAiLevel(userId, level) {
+  const { pool: pool2 } = await Promise.resolve().then(() => (init_db(), db_exports));
+  const { ensureRuntimeStateTable: ensureRuntimeStateTable2 } = await Promise.resolve().then(() => (init_runtime_state(), runtime_state_exports));
+  await ensureRuntimeStateTable2();
+  await pool2.query(
+    `INSERT INTO runtime_state (scope, key, value, updated_at) VALUES ('ai_level', $1, $2::jsonb, now())
+     ON CONFLICT (scope, key) DO UPDATE SET value = EXCLUDED.value, updated_at = now()`,
+    [String(userId), JSON.stringify({ level })]
+  );
+  cache4.set(userId, { at: Date.now(), level });
+  return AI_LEVELS[level];
+}
+var AI_LEVELS, cache4;
+var init_ai_level = __esm({
+  "server/services/ai-level.ts"() {
+    "use strict";
+    AI_LEVELS = {
+      eco: { level: "eco", scanMult: 2, cacheMs: 5 * 6e4, cachePips: 8, fxModelsEveryH: 2, cryptoSkipMemoryMin: 120, cryptoModelsEveryH: 4 },
+      balanced: { level: "balanced", scanMult: 1, cacheMs: 6e4, cachePips: 3, fxModelsEveryH: 1, cryptoSkipMemoryMin: 60, cryptoModelsEveryH: 2 },
+      turbo: { level: "turbo", scanMult: 0.67, cacheMs: 3e4, cachePips: 1.5, fxModelsEveryH: 1, cryptoSkipMemoryMin: 30, cryptoModelsEveryH: 1 }
+    };
+    cache4 = /* @__PURE__ */ new Map();
+  }
+});
+
 // server/utils/pair-key.ts
 function basePairKey(symbol) {
   return String(symbol ?? "").split(".")[0].toUpperCase().replace(/[^A-Z0-9]/g, "");
@@ -19005,7 +13498,7 @@ async function computePacePlan(userId, cfg) {
 }
 function getPacePlan(userId, cfg) {
   const p = plans.get(userId);
-  if ((!p || Date.now() - Date.parse(p.computedAt) > TTL_MS5) && !loading.has(userId)) {
+  if ((!p || Date.now() - Date.parse(p.computedAt) > TTL_MS4) && !loading.has(userId)) {
     loading.add(userId);
     computePacePlan(userId, cfg).then((r) => plans.set(userId, r)).catch(() => {
     }).finally(() => loading.delete(userId));
@@ -19034,13 +13527,13 @@ ${later.length ? `- Best windows later: ${later.join("; ")}.
 ` : ""}- Catch up by picking BETTER windows, never by bigger size: risk per trade, daily loss limit and the consistency cap are fixed.${plan.mode === "CAPPED" ? " The goal cannot be closed inside the consistency cap this week \u2014 aim for the cap, not the full deficit." : ""}${plan.mode === "AHEAD" ? " Goal reached \u2014 only A+ setups." : ""}
 `;
 }
-var SOURCES, TTL_MS5, plans, loading;
+var SOURCES, TTL_MS4, plans, loading;
 var init_goal_pace = __esm({
   "server/services/goal-pace.ts"() {
     "use strict";
     init_session();
     SOURCES = ["tradelocker_auto", "tradelocker", "mt5_ea", "dxtrade"];
-    TTL_MS5 = 15 * 6e4;
+    TTL_MS4 = 15 * 6e4;
     plans = /* @__PURE__ */ new Map();
     loading = /* @__PURE__ */ new Set();
   }
@@ -22141,7 +16634,7 @@ var init_tradelocker_sync = __esm({
 });
 
 // server/news-service.ts
-import OpenAI2 from "openai";
+import OpenAI from "openai";
 var FINNHUB_BASE_URL, NewsService, newsService;
 var init_news_service = __esm({
   "server/news-service.ts"() {
@@ -22157,10 +16650,10 @@ var init_news_service = __esm({
         const orKey = process.env.OPENROUTER_API_KEY;
         try {
           if (orKey) {
-            this.openai = new OpenAI2({ apiKey: orKey, baseURL: "https://openrouter.ai/api/v1", defaultHeaders: { "HTTP-Referer": "https://veddbuild.com", "X-Title": "VEDDBuild" } });
+            this.openai = new OpenAI({ apiKey: orKey, baseURL: "https://openrouter.ai/api/v1", defaultHeaders: { "HTTP-Referer": "https://veddbuild.com", "X-Title": "VEDDBuild" } });
             this.openai.defaultModel = "openai/gpt-oss-20b";
           } else if (oaiKey) {
-            this.openai = new OpenAI2({ apiKey: oaiKey });
+            this.openai = new OpenAI({ apiKey: oaiKey });
           }
         } catch (e) {
           console.log("Failed to initialize AI client for news sentiment:", e);
@@ -23252,13 +17745,13 @@ __export(fx_decision_shadow_exports, {
   resolveDecisionShadow: () => resolveDecisionShadow
 });
 function ensureDecisionShadowTable() {
-  if (!ensured3) {
-    ensured3 = pool.query(DDL4).then(() => void 0).catch((e) => {
+  if (!ensured2) {
+    ensured2 = pool.query(DDL4).then(() => void 0).catch((e) => {
       console.error("[fx-decision-shadow] ensure table failed (non-fatal):", e?.message || e);
-      ensured3 = null;
+      ensured2 = null;
     });
   }
-  return ensured3;
+  return ensured2;
 }
 function logDecisionShadow(r) {
   if (!r.picked && r.symbol) {
@@ -23424,7 +17917,7 @@ async function decisionShadowReport(userId, days = 14) {
   ]);
   return { days: d, coverage: coverage[0], lanes, agreement: agreement[0], disagreement, deciles, bySession, byPair };
 }
-var DDL4, ensured3, _seen, NONPICK_DEDUPE_MS, costPrice, lastResolveAt, lastPruneAt, resolving;
+var DDL4, ensured2, _seen, NONPICK_DEDUPE_MS, costPrice, lastResolveAt, lastPruneAt, resolving;
 var init_fx_decision_shadow = __esm({
   "server/services/fx-decision-shadow.ts"() {
     "use strict";
@@ -23458,7 +17951,7 @@ CREATE TABLE IF NOT EXISTS fx_decision_shadow (
 CREATE INDEX IF NOT EXISTS fx_decision_shadow_user_idx ON fx_decision_shadow (user_id, created_at);
 CREATE INDEX IF NOT EXISTS fx_decision_shadow_open_idx ON fx_decision_shadow (created_at) WHERE resolved_at IS NULL AND picked;
 `;
-    ensured3 = null;
+    ensured2 = null;
     _seen = /* @__PURE__ */ new Map();
     NONPICK_DEDUPE_MS = 15 * 6e4;
     costPrice = (sym) => {
@@ -24460,6 +18953,858 @@ var init_orderflow_strategy = __esm({
   }
 });
 
+// server/services/crypto-ports.ts
+var crypto_ports_exports = {};
+__export(crypto_ports_exports, {
+  FLOW_RUNNERS: () => FLOW_RUNNERS,
+  NEW_TOKEN_RUNNERS: () => NEW_TOKEN_RUNNERS,
+  SHADOW_ONLY_TESTS: () => SHADOW_ONLY_TESTS,
+  buyShare: () => buyShare,
+  makePortRunners: () => makePortRunners,
+  portsEnabled: () => portsEnabled,
+  runnerEnabled: () => runnerEnabled
+});
+function buyShare(w) {
+  const t = (w?.buys ?? 0) + (w?.sells ?? 0);
+  return t > 0 ? w.buys / t : null;
+}
+function runnerEnabled(id) {
+  return process.env[`CRYPTO_RUNNER_${id.toUpperCase()}`] !== "off";
+}
+function emaSeries(v, n) {
+  const out = [];
+  if (v.length < n) return out;
+  const k = 2 / (n + 1);
+  let e = v.slice(0, n).reduce((a, b) => a + b, 0) / n;
+  out[n - 1] = e;
+  for (let i = n; i < v.length; i++) {
+    e = v[i] * k + e * (1 - k);
+    out[i] = e;
+  }
+  return out;
+}
+function rsi(c, n = 14) {
+  if (c.length <= n) return null;
+  let g = 0, l = 0;
+  for (let i = 1; i <= n; i++) {
+    const d = c[i] - c[i - 1];
+    if (d >= 0) g += d;
+    else l -= d;
+  }
+  g /= n;
+  l /= n;
+  for (let i = n + 1; i < c.length; i++) {
+    const d = c[i] - c[i - 1];
+    g = (g * (n - 1) + Math.max(0, d)) / n;
+    l = (l * (n - 1) + Math.max(0, -d)) / n;
+  }
+  return l === 0 ? 100 : 100 - 100 / (1 + g / l);
+}
+function macdHist(c) {
+  const f = emaSeries(c, 12), s = emaSeries(c, 26);
+  if (s.length < c.length || c.length < 35) return null;
+  const macd = c.map((_, i) => (f[i] ?? NaN) - (s[i] ?? NaN)).slice(25);
+  const sig = emaSeries(macd, 9);
+  return sig.length ? last(macd) - last(sig) : null;
+}
+function to4h(h1) {
+  const out = [];
+  for (const b of h1) {
+    const t4 = Math.floor(b.t / 144e5) * 144e5;
+    const cur = out[out.length - 1];
+    if (cur && cur.t === t4) {
+      cur.h = Math.max(cur.h, b.h);
+      cur.l = Math.min(cur.l, b.l);
+      cur.c = b.c;
+      cur.v += b.v;
+    } else out.push({ t: t4, o: b.o, h: b.h, l: b.l, c: b.c, v: b.v });
+  }
+  return out;
+}
+function bias(closes, f, s) {
+  const a = last(emaSeries(closes, f)), b = last(emaSeries(closes, s));
+  if (a == null || b == null) return null;
+  return a > b ? "BUY" : a < b ? "SELL" : null;
+}
+function makePortRunners(fetchBars2, entryOf = () => void 0) {
+  const sniper = async (symbol, cfg) => {
+    const S = "sniper";
+    const m15 = await fetchBars2(symbol, "15m", 120, chainOf(cfg));
+    const h1 = await fetchBars2(symbol, "1h", 200, chainOf(cfg));
+    if (m15.length < 60 || h1.length < 60) return res(S, "error", `${symbol}: not enough history for sniper`, null);
+    const c = m15.map((b) => b.c), price = last(c);
+    const dir = bias(c, 9, 21);
+    if (!dir) return res(S, "watching", `${symbol}: no 15m trend`, price, 30);
+    const { detectBOSCHOCH: detectBOSCHOCH2 } = await Promise.resolve().then(() => (init_smcUtils(), smcUtils_exports));
+    const nf = m15.slice().reverse();
+    const r = rsi(c), mh = macdHist(c);
+    const bos = detectBOSCHOCH2(nf, dir);
+    const vRecent = m15.slice(-3).reduce((a, b) => a + b.v, 0) / 3, vBase = m15.slice(-23, -3).reduce((a, b) => a + b.v, 0) / 20;
+    const checks = {
+      ema: true,
+      rsi: r != null && (dir === "BUY" ? r >= 45 && r <= 68 : r >= 32 && r <= 55),
+      macd: mh != null && (dir === "BUY" ? mh > 0 : mh < 0),
+      structure: !!bos.detected && bos.direction === (dir === "BUY" ? "BULLISH" : "BEARISH"),
+      volume: vBase > 0 && vRecent > vBase * 1.2
+    };
+    const n = Object.values(checks).filter(Boolean).length;
+    const h4 = bias(to4h(h1).map((b) => b.c), 5, 10);
+    const why = `${n}/5 (${Object.entries(checks).filter(([, v]) => v).map(([k]) => k).join(", ")}), 4h bias ${h4 ?? "n/a"}`;
+    if (n >= 4 && h4 === dir) return res(S, "signal", `${symbol}: sniper ${dir} \u2014 ${why}`, price, 60 + n * 7, dir);
+    return res(S, "watching", `${symbol}: sniper ${dir} \u2014 ${why}`, price, 40 + n * 5);
+  };
+  const smcOte = async (symbol, cfg) => {
+    const S = "smc_ote";
+    const h1 = await fetchBars2(symbol, "1h", 120, chainOf(cfg));
+    const m15 = await fetchBars2(symbol, "15m", 120, chainOf(cfg));
+    if (h1.length < 40 || m15.length < 40) return res(S, "error", `${symbol}: not enough history for smc_ote`, null);
+    const { detectBOSCHOCH: detectBOSCHOCH2, detectOrderBlock: detectOrderBlock2, detectFairValueGap: detectFairValueGap2 } = await Promise.resolve().then(() => (init_smcUtils(), smcUtils_exports));
+    const nf = (bars) => bars.slice().reverse();
+    const h1nf = nf(h1), m15nf = nf(m15), price = last(m15).c;
+    for (const dir of ["BUY", "SELL"]) {
+      const bos = detectBOSCHOCH2(h1nf, dir);
+      if (!bos.detected || bos.direction !== (dir === "BUY" ? "BULLISH" : "BEARISH")) continue;
+      const leg = h1.slice(-24);
+      let lo = Infinity, hi = -Infinity, loI = 0, hiI = 0;
+      leg.forEach((b, i) => {
+        if (b.l < lo) {
+          lo = b.l;
+          loI = i;
+        }
+        if (b.h > hi) {
+          hi = b.h;
+          hiI = i;
+        }
+      });
+      const range = hi - lo;
+      if (!(range > 0)) continue;
+      if (dir === "BUY" && loI >= hiI) continue;
+      if (dir === "SELL" && hiI >= loI) continue;
+      const zTop = dir === "BUY" ? hi - 0.62 * range : lo + 0.79 * range;
+      const zBot = dir === "BUY" ? hi - 0.79 * range : lo + 0.62 * range;
+      if (price < zBot || price > zTop) return res(S, "watching", `${symbol}: ${dir} ${bos.type}, price outside OTE ${zBot.toPrecision(5)}\u2013${zTop.toPrecision(5)}`, price, 45);
+      const ob = detectOrderBlock2(m15nf, dir), fvg = detectFairValueGap2(m15nf, dir);
+      const poi = ob.detected && ob.aligns || fvg.detected && fvg.direction === (dir === "BUY" ? "BULLISH" : "BEARISH");
+      if (!poi) return res(S, "watching", `${symbol}: ${dir} in OTE but no aligned 15m order block/FVG`, price, 55);
+      return res(S, "signal", `${symbol}: ${dir} ${bos.type} on 1h, price in the 62\u201379% OTE with an aligned 15m ${ob.detected && ob.aligns ? "order block" : "FVG"}`, price, 75, dir);
+    }
+    return res(S, "watching", `${symbol}: no 1h structure break`, price, 30);
+  };
+  const vwapReversion = async (symbol, cfg) => {
+    const S = "vwap_reversion";
+    const m15 = await fetchBars2(symbol, "15m", 120, chainOf(cfg));
+    if (m15.length < 40) return res(S, "error", `${symbol}: not enough history for vwap_reversion`, null);
+    const day0 = Math.floor(Date.now() / 864e5) * 864e5;
+    let win = m15.filter((b) => b.t >= day0);
+    if (win.length < 8) win = m15.slice(-32);
+    let pv = 0, vv = 0;
+    for (const b of win) {
+      const tp = (b.h + b.l + b.c) / 3;
+      pv += tp * b.v;
+      vv += b.v;
+    }
+    if (!(vv > 0)) return res(S, "watching", `${symbol}: no volume for VWAP`, last(m15).c, 20);
+    const vwap = pv / vv;
+    let varSum = 0;
+    for (const b of win) {
+      const tp = (b.h + b.l + b.c) / 3;
+      varSum += b.v * (tp - vwap) ** 2;
+    }
+    const sd = Math.sqrt(varSum / vv), price = last(m15).c, r = rsi(m15.map((b) => b.c));
+    const z2 = sd > 0 ? (price - vwap) / sd : 0;
+    if (z2 <= -2 && r != null && r <= 35) return res(S, "signal", `${symbol}: ${z2.toFixed(1)}\u03C3 below VWAP ${vwap.toPrecision(5)}, RSI ${r.toFixed(0)} \u2014 mean-reversion long`, price, 70, "BUY");
+    return res(S, "watching", `${symbol}: ${z2.toFixed(1)}\u03C3 from VWAP, RSI ${r?.toFixed(0) ?? "n/a"}`, price, 35);
+  };
+  const liquiditySweep = async (symbol, cfg) => {
+    const S = "liquidity_sweep";
+    const m15 = await fetchBars2(symbol, "15m", 60, chainOf(cfg));
+    if (m15.length < 35) return res(S, "error", `${symbol}: not enough history for liquidity_sweep`, null);
+    const prior = m15.slice(-33, -3), recent = m15.slice(-3), price = last(m15).c;
+    const swingLo = Math.min(...prior.map((b) => b.l)), swingHi = Math.max(...prior.map((b) => b.h));
+    const bull = recent.some((b) => b.l < swingLo && b.c > swingLo) && price > swingLo;
+    const bear = recent.some((b) => b.h > swingHi && b.c < swingHi) && price < swingHi;
+    if (bull && !bear) return res(S, "signal", `${symbol}: swept the 15m swing low ${swingLo.toPrecision(5)} and closed back above`, price, 68, "BUY");
+    if (bear && !bull) return res(S, "signal", `${symbol}: swept the 15m swing high ${swingHi.toPrecision(5)} and closed back below`, price, 68, "SELL");
+    return res(S, "watching", `${symbol}: no sweep`, price, 30);
+  };
+  const sessionBreakout = async (symbol, cfg) => {
+    const S = "session_breakout";
+    const now = /* @__PURE__ */ new Date(), h = now.getUTCHours();
+    const m15 = await fetchBars2(symbol, "15m", 120, chainOf(cfg));
+    const price = m15.length ? last(m15).c : null;
+    if (h < 7 || h >= 12) return res(S, "watching", `${symbol}: outside the 07\u201312 UTC window`, price, 0);
+    const day0 = Math.floor(now.getTime() / 864e5) * 864e5;
+    const range = m15.filter((b) => b.t >= day0 && b.t < day0 + 7 * 36e5);
+    if (range.length < 20 || price == null) return res(S, "watching", `${symbol}: no complete 00\u201307 UTC range`, price, 0);
+    const hi = Math.max(...range.map((b) => b.h)), lo = Math.min(...range.map((b) => b.l)), size = hi - lo;
+    const after = m15.filter((b) => b.t >= day0 + 7 * 36e5).slice(0, -1);
+    const brk = after.find((b) => b.c > hi || b.c < lo);
+    if (!brk || !(size > 0)) return res(S, "watching", `${symbol}: 00\u201307 UTC range intact`, price, 30);
+    const dir = brk.c > hi ? "BUY" : "SELL";
+    const level = dir === "BUY" ? hi : lo;
+    if (Math.abs(price - level) > size * 0.5) return res(S, "watching", `${symbol}: broke ${dir === "BUY" ? "up" : "down"} but price is extended from the level`, price, 45);
+    return res(S, "signal", `${symbol}: 00\u201307 UTC range ${lo.toPrecision(5)}\u2013${hi.toPrecision(5)} broken ${dir === "BUY" ? "up" : "down"}, near the level`, price, 65, dir);
+  };
+  const btcWeekendRange = async (symbol, cfg) => {
+    const S = "btc_weekend_range";
+    if (symbol.toUpperCase() !== "CBBTC") return res(S, "watching", `${symbol}: BTC only`, null, 0);
+    const now = /* @__PURE__ */ new Date(), dow = now.getUTCDay();
+    const h1 = await fetchBars2(symbol, "1h", 72, chainOf(cfg));
+    const price = h1.length ? last(h1).c : null;
+    if (!(dow === 6 || dow === 0) || price == null) return res(S, "watching", `${symbol}: weekday`, price, 0);
+    const sat0 = Math.floor(now.getTime() / 864e5) * 864e5 - (dow === 0 ? 864e5 : 0);
+    const range = h1.filter((b) => b.t >= sat0 && b.t < sat0 + 12 * 36e5);
+    if (range.length < 10) return res(S, "watching", `${symbol}: Saturday range not complete`, price, 0);
+    const hi = Math.max(...range.map((b) => b.h)), lo = Math.min(...range.map((b) => b.l));
+    const after = h1.filter((b) => b.t >= sat0 + 12 * 36e5).slice(0, -1);
+    const brk = after.find((b) => b.c > hi || b.c < lo);
+    if (!brk) return res(S, "watching", `${symbol}: weekend range intact`, price, 30);
+    const dir = brk.c > hi ? "BUY" : "SELL";
+    return res(S, "signal", `${symbol}: Saturday 00\u201312 UTC range ${lo.toFixed(0)}\u2013${hi.toFixed(0)} broken ${dir === "BUY" ? "up" : "down"} on a 1h close`, price, 62, dir);
+  };
+  const minTx = () => Number(process.env.CRYPTO_FLOW_MIN_TXNS_H1 ?? 20);
+  const flowOf = (symbol, S) => {
+    const e = entryOf(symbol);
+    if (!e?.flow) return res(S, "watching", `${symbol}: no pool flow data`, e?.priceUsd ?? null, 0);
+    return { f: e.flow, e };
+  };
+  const isRes = (x) => !!x && typeof x.decision === "string";
+  const dipSniper = async (symbol) => {
+    const S = "dip_sniper";
+    const x = flowOf(symbol, S);
+    if (isRes(x)) return x;
+    const ch = x.f.change24hPct, bs = buyShare(x.f.h1), n = x.f.h1.buys + x.f.h1.sells;
+    if (ch != null && ch <= -4 && ch >= -40 && bs != null && bs > 0.62 && n >= minTx())
+      return res(S, "signal", `${symbol}: ${ch.toFixed(1)}% on 24h but ${(bs * 100).toFixed(0)}% of ${n} trades in the last hour are buys \u2014 accumulation into the dip`, x.e.priceUsd, 66, "BUY");
+    return res(S, "watching", `${symbol}: 24h ${ch?.toFixed(1) ?? "n/a"}%, 1h buys ${bs != null ? (bs * 100).toFixed(0) : "n/a"}%`, x.e.priceUsd, 30);
+  };
+  const volumeExplosion = async (symbol) => {
+    const S = "volume_explosion";
+    const x = flowOf(symbol, S);
+    if (isRes(x)) return x;
+    const v1 = x.f.volume1hUsd ?? 0, avg = (x.e.volume24Usd ?? 0) / 24, bs = buyShare(x.f.h1);
+    const mult = avg > 0 ? v1 / avg : 0;
+    if (mult >= Number(process.env.CRYPTO_VOLX_MULT ?? 4) && bs != null && bs > 0.52)
+      return res(S, "signal", `${symbol}: last-hour volume ${mult.toFixed(1)}x the 24h hourly average, ${(bs * 100).toFixed(0)}% buys`, x.e.priceUsd, 64, "BUY");
+    return res(S, "watching", `${symbol}: 1h volume ${mult.toFixed(1)}x average`, x.e.priceUsd, 30);
+  };
+  const flowFollower = async (symbol) => {
+    const S = "flow_follower";
+    const x = flowOf(symbol, S);
+    if (isRes(x)) return x;
+    const n1 = x.f.h1.buys + x.f.h1.sells, n24 = x.f.h24.buys + x.f.h24.sells;
+    const avg1 = n1 > 0 && x.f.volume1hUsd ? x.f.volume1hUsd / n1 : 0, avg24 = n24 > 0 ? (x.e.volume24Usd ?? 0) / n24 : 0;
+    const sizeX = avg24 > 0 ? avg1 / avg24 : 0, bs = buyShare(x.f.h1), ch = x.f.change1hPct;
+    if (sizeX >= 1.5 && bs != null && bs > 0.58 && n1 >= minTx() && ch != null && ch >= -5 && ch <= 20)
+      return res(S, "signal", `${symbol}: average trade ${sizeX.toFixed(1)}x the 24h norm, ${(bs * 100).toFixed(0)}% buys, 1h ${ch.toFixed(1)}% \u2014 large buyers before the move`, x.e.priceUsd, 64, "BUY");
+    return res(S, "watching", `${symbol}: trade size ${sizeX.toFixed(1)}x norm`, x.e.priceUsd, 30);
+  };
+  const memeVelocity = async (symbol) => {
+    const S = "meme_velocity";
+    const x = flowOf(symbol, S);
+    if (isRes(x)) return x;
+    if (!x.e.newToken) return res(S, "watching", `${symbol}: not a new pool`, x.e.priceUsd, 0);
+    const ch = x.f.change1hPct, bs = buyShare(x.f.h1), n = x.f.h1.buys + x.f.h1.sells;
+    if (ch != null && ch >= Number(process.env.CRYPTO_MEME_MIN_1H_PCT ?? 20) && bs != null && bs > 0.55 && n >= minTx())
+      return res(S, "signal", `${symbol}: new pool up ${ch.toFixed(0)}% in the last hour, ${(bs * 100).toFixed(0)}% buys over ${n} trades`, x.e.priceUsd, 60, "BUY");
+    return res(S, "watching", `${symbol}: new pool, 1h ${ch?.toFixed(0) ?? "n/a"}%`, x.e.priceUsd, 25);
+  };
+  const all = {
+    sniper,
+    smc_ote: smcOte,
+    vwap_reversion: vwapReversion,
+    liquidity_sweep: liquiditySweep,
+    session_breakout: sessionBreakout,
+    btc_weekend_range: btcWeekendRange,
+    dip_sniper: dipSniper,
+    volume_explosion: volumeExplosion,
+    flow_follower: flowFollower,
+    meme_velocity: memeVelocity
+  };
+  if (!portsEnabled()) return {};
+  return Object.fromEntries(Object.entries(all).filter(([id]) => runnerEnabled(id)));
+}
+var FLOW_RUNNERS, NEW_TOKEN_RUNNERS, SHADOW_ONLY_TESTS, portsEnabled, last, res, chainOf;
+var init_crypto_ports = __esm({
+  "server/services/crypto-ports.ts"() {
+    "use strict";
+    FLOW_RUNNERS = /* @__PURE__ */ new Set(["dip_sniper", "volume_explosion", "flow_follower", "meme_velocity"]);
+    NEW_TOKEN_RUNNERS = /* @__PURE__ */ new Set(["meme_velocity"]);
+    SHADOW_ONLY_TESTS = /* @__PURE__ */ new Set(["session_breakout", "btc_weekend_range"]);
+    portsEnabled = () => process.env.CRYPTO_PORTS !== "off";
+    last = (a) => a[a.length - 1];
+    res = (strategy, decision, reasoning, price, score = null, direction) => ({ decision, reasoning, score, price, dailyChangePercent: null, strategy, ...direction ? { direction } : {} });
+    chainOf = (cfg) => cfg?.defiChain || "base";
+  }
+});
+
+// server/services/crypto-shadow.ts
+var crypto_shadow_exports = {};
+__export(crypto_shadow_exports, {
+  adviceFor: () => adviceFor,
+  aggregate: () => aggregate,
+  bucketsOf: () => bucketsOf,
+  computeCryptoShadowStats: () => computeCryptoShadowStats,
+  ensureCryptoShadowTables: () => ensureCryptoShadowTables,
+  getCryptoShadowStatsText: () => getCryptoShadowStatsText,
+  resolveCryptoShadowTrades: () => resolveCryptoShadowTrades,
+  runCryptoShadowAll: () => runCryptoShadowAll,
+  shadowAllEnabled: () => shadowAllEnabled
+});
+function ensureCryptoShadowTables() {
+  if (!_ensured2) {
+    _ensured2 = pool.query(`CREATE TABLE IF NOT EXISTS crypto_shadow_trades (
+      id serial PRIMARY KEY, user_id int NOT NULL, strategy text NOT NULL, symbol text NOT NULL, underlying text NOT NULL,
+      chain text, token_address text, pool_address text, direction text NOT NULL,
+      entry_price double precision NOT NULL, stop_loss double precision NOT NULL, take_profit double precision NOT NULL,
+      sl_pct double precision NOT NULL, notional_usd double precision NOT NULL, cost_bps double precision NOT NULL,
+      score real, max_hours double precision NOT NULL, status text NOT NULL DEFAULT 'open',
+      exit_price double precision, exit_reason text, gross_return_pct double precision, return_pct double precision,
+      r_multiple double precision, peak_gain_pct double precision,
+      opened_at timestamptz NOT NULL DEFAULT now(), closed_at timestamptz)`).then(() => pool.query(`CREATE INDEX IF NOT EXISTS crypto_shadow_trades_user_status ON crypto_shadow_trades (user_id, status)`)).then(() => pool.query(`CREATE TABLE IF NOT EXISTS crypto_shadow_context (
+      trade_id int PRIMARY KEY, user_id int NOT NULL, strategy text NOT NULL, symbol text NOT NULL, direction text NOT NULL,
+      liquidity_usd double precision, change_1h double precision, change_24h double precision, volume_24h_usd double precision,
+      atr_pct double precision, h1_trend text, h4_trend text, htf_aligned boolean, live_gate_blocked boolean,
+      btc_change_24h double precision, hour_utc int, day_of_week int, score real, tags text[], advice_at_entry text,
+      closed_at timestamptz, exit_reason text, hold_minutes double precision, net_pct double precision)`)).then(() => pool.query(`ALTER TABLE crypto_shadow_context
+        ADD COLUMN IF NOT EXISTS buy_share_h1 double precision, ADD COLUMN IF NOT EXISTS buy_share_h24 double precision,
+        ADD COLUMN IF NOT EXISTS txns_h1 int, ADD COLUMN IF NOT EXISTS txns_h24 int,
+        ADD COLUMN IF NOT EXISTS buyers_h1 int, ADD COLUMN IF NOT EXISTS sellers_h1 int,
+        ADD COLUMN IF NOT EXISTS market_cap_usd double precision, ADD COLUMN IF NOT EXISTS token_age_hours double precision,
+        ADD COLUMN IF NOT EXISTS new_token boolean`)).then(() => void 0).catch((e) => {
+      _ensured2 = null;
+      throw e;
+    });
+  }
+  return _ensured2;
+}
+function ema(vals, n) {
+  if (vals.length < n) return null;
+  const k = 2 / (n + 1);
+  let e = vals.slice(0, n).reduce((a, b) => a + b, 0) / n;
+  for (let i = n; i < vals.length; i++) e = vals[i] * k + e * (1 - k);
+  return e;
+}
+function oldestFirst(bars) {
+  return bars.length > 1 && bars[0].t > bars[bars.length - 1].t ? bars.slice().reverse() : bars;
+}
+function trendOf(closes, fast, slow) {
+  const f = ema(closes, fast), s = ema(closes, slow);
+  if (f == null || s == null) return null;
+  return f > s * 1.002 ? "BULLISH" : f < s * 0.998 ? "BEARISH" : "NEUTRAL";
+}
+function pctChange(bars, hoursBack) {
+  if (bars.length <= hoursBack) return null;
+  const now = bars[bars.length - 1].c, then = bars[bars.length - 1 - hoursBack].c;
+  return then > 0 ? (now - then) / then * 100 : null;
+}
+function bucketsOf(c) {
+  const b = {};
+  if (c.buy_share_h1 != null) b.buyShare = c.buy_share_h1 < 0.45 ? "sellers<45%" : c.buy_share_h1 < 0.55 ? "balanced" : c.buy_share_h1 < 0.65 ? "buyers55-65%" : "buyers65%+";
+  if (c.txns_h1 != null) b.activity = c.txns_h1 < 20 ? "quiet<20tx/h" : c.txns_h1 < 100 ? "20-100tx/h" : c.txns_h1 < 500 ? "100-500tx/h" : "500+tx/h";
+  if (c.market_cap_usd != null && c.market_cap_usd > 0) b.mcap = c.market_cap_usd < 1e7 ? "<10M" : c.market_cap_usd < 1e8 ? "10-100M" : c.market_cap_usd < 1e9 ? "100M-1B" : "1B+";
+  if (c.token_age_hours != null) b.age = c.token_age_hours < 72 ? "<3d" : c.token_age_hours < 720 ? "3-30d" : "30d+";
+  if (c.direction) b.side = c.direction;
+  if (c.hour_utc != null) {
+    const s = Math.floor(c.hour_utc / 4) * 4;
+    b.hour = `${String(s).padStart(2, "0")}-${String(s + 4).padStart(2, "0")}UTC`;
+  }
+  const liq = c.liquidity_usd ?? 0;
+  if (liq > 0) b.liquidity = liq < 25e4 ? "<250k" : liq < 1e6 ? "250k-1M" : liq < 5e6 ? "1-5M" : "5M+";
+  if (c.change_24h != null) b.change24h = c.change_24h < -10 ? "<-10%" : c.change_24h < -2 ? "-10--2%" : c.change_24h < 2 ? "flat" : c.change_24h < 10 ? "2-10%" : "10%+";
+  if (c.atr_pct != null) b.volatility = c.atr_pct < 1 ? "atr<1%" : c.atr_pct < 3 ? "atr1-3%" : "atr3%+";
+  if (c.htf_aligned != null) b.htf = c.htf_aligned ? "aligned" : "against";
+  if (c.btc_change_24h != null) b.btc = c.btc_change_24h < -2 ? "btc_down" : c.btc_change_24h > 2 ? "btc_up" : "btc_flat";
+  return b;
+}
+function quantile(s, q) {
+  if (!s.length) return 0;
+  const p = (s.length - 1) * q, lo = Math.floor(p), hi = Math.ceil(p);
+  return s[lo] + (s[hi] - s[lo]) * (p - lo);
+}
+function aggregate(rows) {
+  const g = /* @__PURE__ */ new Map();
+  for (const r of rows) {
+    const v = Number(r.net_pct);
+    if (!Number.isFinite(v)) continue;
+    for (const [dim, bucket] of Object.entries({ ...bucketsOf(r), all: "all" })) {
+      const k = `${r.strategy}|${dim}|${bucket}`;
+      (g.get(k) ?? g.set(k, []).get(k)).push(v);
+    }
+  }
+  const minN = num2("CRYPTO_SHADOW_STATS_MIN_N", 15), fav = num2("CRYPTO_SHADOW_FAVOR_MEDIAN_PCT", 0.5), avd = num2("CRYPTO_SHADOW_AVOID_MEDIAN_PCT", 1);
+  return Array.from(g.entries()).map(([k, v]) => {
+    const [strategy, dim, bucket] = k.split("|");
+    const s = v.slice().sort((a, b) => a - b);
+    const med = quantile(s, 0.5);
+    const verdict = s.length >= minN ? med > fav ? "favor" : med < -avd ? "avoid" : "learning" : "learning";
+    return { strategy, dim, bucket, n: s.length, medianNet: med, winRate: s.filter((x) => x > 0).length / s.length, verdict };
+  });
+}
+async function computeCryptoShadowStats(userId, force = false) {
+  const hit = _statsCache.get(userId);
+  if (!force && hit && Date.now() - hit.at < 15 * 6e4) return hit.stats;
+  await ensureCryptoShadowTables();
+  const { rows } = await pool.query(
+    `SELECT strategy, direction, hour_utc, liquidity_usd, change_24h, atr_pct, htf_aligned, btc_change_24h, buy_share_h1, txns_h1, market_cap_usd, token_age_hours, net_pct FROM crypto_shadow_context
+      WHERE user_id=$1 AND closed_at IS NOT NULL AND net_pct IS NOT NULL AND closed_at >= now() - interval '60 days'`,
+    [userId]
+  );
+  const stats = aggregate(rows);
+  _statsCache.set(userId, { at: Date.now(), stats });
+  return stats;
+}
+function adviceFor(stats, strategy, ctx) {
+  const bs = bucketsOf(ctx);
+  const hits = stats.filter((s) => s.strategy === strategy && s.verdict !== "learning" && bs[s.dim] === s.bucket);
+  if (!hits.length) return "learning";
+  const avoid = hits.filter((s) => s.verdict === "avoid");
+  const f = (s) => `${s.verdict}: ${s.dim} ${s.bucket} (n=${s.n}, median ${s.medianNet.toFixed(1)}%)`;
+  return `${avoid.length ? "avoid" : "favor"} \u2014 ${[...avoid, ...hits.filter((s) => s.verdict === "favor")].map(f).join("; ")}`.slice(0, 500);
+}
+async function getCryptoShadowStatsText(userId, max = 12) {
+  try {
+    const { SHADOW_ONLY_TESTS: SHADOW_ONLY_TESTS2 } = await Promise.resolve().then(() => (init_crypto_ports(), crypto_ports_exports));
+    const st = (await computeCryptoShadowStats(userId)).filter((s) => s.verdict !== "learning" && s.dim !== "all" && s.dim !== "hour" && !SHADOW_ONLY_TESTS2.has(s.strategy));
+    if (!st.length) return "";
+    const top = st.sort((a, b) => Math.abs(b.medianNet) * Math.sqrt(b.n) - Math.abs(a.medianNet) * Math.sqrt(a.n)).slice(0, max);
+    return `CRYPTO SHADOW EVIDENCE (virtual trades of every strategy, net of costs, judged by MEDIAN; advice only; 'short' rows are hypothetical \u2014 Base spot can't short):
+` + top.map((s) => `- ${s.strategy} ${s.verdict.toUpperCase()} when ${s.dim}=${s.bucket}: n=${s.n}, median ${s.medianNet >= 0 ? "+" : ""}${s.medianNet.toFixed(2)}%, win ${(s.winRate * 100).toFixed(0)}%`).join("\n");
+  } catch {
+    return "";
+  }
+}
+async function resolveCryptoShadowTrades(userId) {
+  await ensureCryptoShadowTables();
+  const { rows } = await pool.query(`SELECT * FROM crypto_shadow_trades WHERE user_id=$1 AND status='open'`, [userId]);
+  if (!rows.length) return 0;
+  const { getDefiPrice: getDefiPrice2 } = await Promise.resolve().then(() => (init_defi_market_data(), defi_market_data_exports));
+  let closed = 0;
+  for (const t of rows) {
+    const px = t.pool_address ? await getDefiPrice2(t.chain || "base", t.pool_address).catch(() => null) : null;
+    const ageH = (Date.now() - new Date(t.opened_at).getTime()) / 36e5;
+    const short = t.direction !== "long";
+    let exit = null, why = "";
+    if (px != null && px > 0) {
+      const move = (short ? t.entry_price - px : px - t.entry_price) / t.entry_price * 100;
+      if (t.peak_gain_pct == null || move > t.peak_gain_pct) await pool.query(`UPDATE crypto_shadow_trades SET peak_gain_pct=$2 WHERE id=$1`, [t.id, move]);
+      if (short ? px >= t.stop_loss : px <= t.stop_loss) {
+        exit = short ? Math.max(px, t.stop_loss) : Math.min(px, t.stop_loss);
+        why = "stop";
+      } else if (short ? px <= t.take_profit : px >= t.take_profit) {
+        exit = t.take_profit;
+        why = "target";
+      } else if (ageH >= t.max_hours) {
+        exit = px;
+        why = "time limit";
+      }
+    } else if (ageH >= t.max_hours + 24) {
+      exit = null;
+      why = "no price";
+    }
+    if (!why) continue;
+    const gross = exit != null ? (short ? t.entry_price - exit : exit - t.entry_price) / t.entry_price * 100 : null;
+    const net = gross != null ? gross - Number(t.cost_bps) / 100 : null;
+    const r = net != null && t.sl_pct > 0 ? net / t.sl_pct : null;
+    const upd = await pool.query(
+      `UPDATE crypto_shadow_trades SET status='closed', exit_price=$2, exit_reason=$3, gross_return_pct=$4, return_pct=$5, r_multiple=$6, closed_at=now()
+        WHERE id=$1 AND status='open'`,
+      [t.id, exit, why, gross, net, r]
+    );
+    if (!upd.rowCount) continue;
+    closed++;
+    await pool.query(
+      `UPDATE crypto_shadow_context SET closed_at=now(), exit_reason=$2, hold_minutes=$3, net_pct=$4 WHERE trade_id=$1`,
+      [t.id, why, ageH * 60, net]
+    ).catch(() => {
+    });
+  }
+  return closed;
+}
+async function runCryptoShadowAll(userId, cfg, symbols, chain, slippageCapBps, deps) {
+  if (!shadowAllEnabled()) return { opened: 0, closed: 0 };
+  await ensureCryptoShadowTables();
+  const closed = await resolveCryptoShadowTrades(userId).catch(() => 0);
+  if (Date.now() - (_lastRun.get(userId) || 0) < EVERY_MS()) return { opened: 0, closed };
+  _lastRun.set(userId, Date.now());
+  const { isTokenizedAsset: isTokenizedAsset2, underlyingOf: underlyingOf2, paperMaxHoursFor: paperMaxHoursFor2 } = await Promise.resolve().then(() => (init_crypto_paper(), crypto_paper_exports));
+  const { estimateCryptoRoundTripBps: estimateCryptoRoundTripBps2 } = await Promise.resolve().then(() => (init_paper_costs(), paper_costs_exports));
+  const stats = await computeCryptoShadowStats(userId).catch(() => []);
+  const { rows: open } = await pool.query(`SELECT strategy, underlying FROM crypto_shadow_trades WHERE user_id=$1 AND status='open'`, [userId]);
+  const { rows: recent } = await pool.query(
+    `SELECT strategy, underlying FROM crypto_shadow_trades WHERE user_id=$1 AND status='closed' AND closed_at >= now() - ($2::text || ' milliseconds')::interval`,
+    [userId, String(COOLDOWN_MS())]
+  );
+  const btc = deps.universe("CBBTC") ? await deps.h1("CBBTC").catch(() => null) : null;
+  const btcChange = btc ? pctChange(oldestFirst(btc.bars), 24) : null;
+  const lo = num2("CRYPTO_PAPER_SL_MIN", 1.5), hi = num2("CRYPTO_PAPER_SL_MAX", 12), atrMult = num2("CRYPTO_SL_ATR_MULT", 1.5), rr = num2("CRYPTO_MIN_RR", 2);
+  const floorMult = Number(process.env.CRYPTO_PAPER_COST_FLOOR_MULT ?? 3);
+  let opened = 0;
+  const shadowCfg = { ...cfg, directionFilter: "both" };
+  for (const symbol of symbols) {
+    if (open.length >= MAX_OPEN()) break;
+    if (isTokenizedAsset2(symbol)) continue;
+    const uni = deps.universe(symbol);
+    if (!uni?.poolAddress) continue;
+    const und = underlyingOf2(symbol);
+    const { NEW_TOKEN_RUNNERS: NEW_TOKEN_RUNNERS2, buyShare: buyShare2 } = await Promise.resolve().then(() => (init_crypto_ports(), crypto_ports_exports));
+    const runnersFor = Object.entries(deps.runners).filter(([k]) => uni.newToken ? NEW_TOKEN_RUNNERS2.has(k) : !NEW_TOKEN_RUNNERS2.has(k));
+    const results = (await Promise.all(runnersFor.map(([k, fn]) => fn(symbol, shadowCfg).then((r) => ({ ...r, strategy: r.strategy || k })).catch(() => null)))).filter((r) => !!r);
+    const ORIGINAL = /* @__PURE__ */ new Set(["trend_following", "momentum", "order_flow", "volume_profile", "breakout", "structure", "divergence"]);
+    const dirs = results.filter((r) => r.direction && ORIGINAL.has(r.strategy));
+    const buys = dirs.filter((r) => r.direction === "BUY"), sells = dirs.filter((r) => r.direction === "SELL");
+    const side = buys.length > sells.length ? buys : sells.length > buys.length ? sells : [];
+    const signals = results.filter((r) => r.decision === "signal" && r.direction && r.price);
+    if (side.length >= 2) {
+      const comp = Math.round(side.reduce((s, r) => s + (r.score ?? 0), 0) / side.length);
+      if (comp >= (cfg.compositeMinEdgeScore ?? 72)) signals.push({ ...side[0], decision: "signal", score: comp, strategy: "composite_autonomous", reasoning: `${side.length} runners agree` });
+    }
+    if (!signals.length) continue;
+    const h1 = await deps.h1(symbol).catch(() => null);
+    if (!h1 || !(h1.atr > 0)) continue;
+    const bars = oldestFirst(h1.bars), closes = bars.map((b) => b.c);
+    const h1Trend = trendOf(closes, 9, 21);
+    const h4Closes = closes.filter((_, i) => (closes.length - 1 - i) % 4 === 0);
+    const h4Trend = trendOf(h4Closes, 5, 10);
+    const ch1 = pctChange(bars, 1), ch24 = pctChange(bars, 24);
+    const vol24 = bars.slice(-24).reduce((a, b) => a + (b.v || 0) * (b.c || 0), 0);
+    for (const sig of signals) {
+      if (open.length >= MAX_OPEN()) break;
+      const strat = sig.strategy;
+      if (open.filter((o) => o.strategy === strat).length >= MAX_PER_STRAT()) continue;
+      if (open.some((o) => o.strategy === strat && o.underlying === und)) continue;
+      if (recent.some((o) => o.strategy === strat && o.underlying === und)) continue;
+      const price = Number(sig.price) || Number(uni.priceUsd);
+      if (!(price > 0)) continue;
+      const direction = sig.direction === "SELL" ? "hypothetical_short" : "long";
+      const short = direction !== "long";
+      const slPct = Math.min(hi, Math.max(lo, h1.atr * atrMult / price * 100));
+      const costBps = estimateCryptoRoundTripBps2({ notionalUsd: NOTIONAL(), liquidityUsd: uni.liquidityUsd, slippageCapBps }).roundTripBps + (uni.newToken ? Number(process.env.CRYPTO_MEME_EXTRA_COST_BPS ?? 200) : 0);
+      if (floorMult > 0 && slPct < floorMult * costBps / 100) continue;
+      const stop = short ? price * (1 + slPct / 100) : price * (1 - slPct / 100);
+      const target = short ? price * (1 - slPct * rr / 100) : price * (1 + slPct * rr / 100);
+      const aligned = h4Trend == null ? null : short ? h4Trend === "BEARISH" : h4Trend === "BULLISH";
+      const gated = await deps.gate(symbol, sig, cfg).then((g) => g.decision !== "signal").catch(() => null);
+      const hourUtc = (/* @__PURE__ */ new Date()).getUTCHours();
+      const fl = uni.flow;
+      const created = fl?.poolCreatedAt ? new Date(fl.poolCreatedAt).getTime() : NaN;
+      const ctx = {
+        hour_utc: hourUtc,
+        liquidity_usd: uni.liquidityUsd,
+        change_24h: ch24,
+        atr_pct: h1.atr / price * 100,
+        htf_aligned: aligned,
+        btc_change_24h: btcChange,
+        direction: short ? "short" : "long",
+        buy_share_h1: fl ? buyShare2(fl.h1) : null,
+        txns_h1: fl ? fl.h1.buys + fl.h1.sells : null,
+        market_cap_usd: fl ? fl.marketCapUsd ?? fl.fdvUsd : null,
+        token_age_hours: Number.isFinite(created) ? (Date.now() - created) / 36e5 : null
+      };
+      const advice = adviceFor(stats, strat, ctx);
+      const tags = [];
+      if (ch1 != null && Math.abs(ch1) >= 3) tags.push(ch1 > 0 ? "hot_hour" : "dump_hour");
+      if (ch24 != null && ch24 >= 20) tags.push("extended_24h");
+      if (aligned === false) tags.push("against_htf");
+      if (aligned === true) tags.push("htf_aligned");
+      if (gated) tags.push("live_gate_would_block");
+      if (uni.liquidityUsd < 25e4) tags.push("thin_pool");
+      if (uni.newToken) tags.push("new_token");
+      if (ctx.buy_share_h1 != null && ctx.buy_share_h1 > 0.65) tags.push("buyers_dominant");
+      if (ctx.buy_share_h1 != null && ctx.buy_share_h1 < 0.45) tags.push("sellers_dominant");
+      const ins = await pool.query(
+        `INSERT INTO crypto_shadow_trades (user_id, strategy, symbol, underlying, chain, token_address, pool_address, direction, entry_price, stop_loss, take_profit,
+           sl_pct, notional_usd, cost_bps, score, max_hours) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16) RETURNING id`,
+        [userId, strat, symbol, und, chain, uni.address ?? null, uni.poolAddress, direction, price, stop, target, slPct, NOTIONAL(), costBps, sig.score ?? null, paperMaxHoursFor2(strat)]
+      );
+      const id = ins.rows[0]?.id;
+      if (!id) continue;
+      await pool.query(
+        `INSERT INTO crypto_shadow_context (trade_id, user_id, strategy, symbol, direction, liquidity_usd, change_1h, change_24h, volume_24h_usd, atr_pct,
+           h1_trend, h4_trend, htf_aligned, live_gate_blocked, btc_change_24h, hour_utc, day_of_week, score, tags, advice_at_entry,
+           buy_share_h1, buy_share_h24, txns_h1, txns_h24, buyers_h1, sellers_h1, market_cap_usd, token_age_hours, new_token)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25,$26,$27,$28,$29) ON CONFLICT (trade_id) DO NOTHING`,
+        [
+          id,
+          userId,
+          strat,
+          symbol,
+          ctx.direction,
+          uni.liquidityUsd,
+          ch1,
+          ch24,
+          vol24 || null,
+          ctx.atr_pct,
+          h1Trend,
+          h4Trend,
+          aligned,
+          gated,
+          btcChange,
+          hourUtc,
+          (/* @__PURE__ */ new Date()).getUTCDay(),
+          sig.score ?? null,
+          tags,
+          advice,
+          ctx.buy_share_h1,
+          fl ? buyShare2(fl.h24) : null,
+          ctx.txns_h1,
+          fl ? fl.h24.buys + fl.h24.sells : null,
+          fl?.h1.buyers ?? null,
+          fl?.h1.sellers ?? null,
+          ctx.market_cap_usd,
+          ctx.token_age_hours,
+          !!uni.newToken
+        ]
+      ).catch(() => {
+      });
+      open.push({ strategy: strat, underlying: und });
+      opened++;
+    }
+  }
+  return { opened, closed };
+}
+var num2, shadowAllEnabled, MAX_OPEN, MAX_PER_STRAT, COOLDOWN_MS, EVERY_MS, NOTIONAL, _ensured2, _statsCache, _lastRun;
+var init_crypto_shadow = __esm({
+  "server/services/crypto-shadow.ts"() {
+    "use strict";
+    init_db();
+    num2 = (n, d) => {
+      const v = Number(process.env[n]);
+      return Number.isFinite(v) && v > 0 ? v : d;
+    };
+    shadowAllEnabled = () => process.env.CRYPTO_SHADOW_ALL !== "off";
+    MAX_OPEN = () => Math.floor(num2("CRYPTO_SHADOW_MAX_OPEN", 30));
+    MAX_PER_STRAT = () => Math.floor(num2("CRYPTO_SHADOW_MAX_PER_STRATEGY", 3));
+    COOLDOWN_MS = () => num2("CRYPTO_SHADOW_COOLDOWN_MIN", 60) * 6e4;
+    EVERY_MS = () => num2("CRYPTO_SHADOW_EVERY_MIN", 10) * 6e4;
+    NOTIONAL = () => num2("CRYPTO_SHADOW_NOTIONAL_USD", 20);
+    _ensured2 = null;
+    _statsCache = /* @__PURE__ */ new Map();
+    _lastRun = /* @__PURE__ */ new Map();
+  }
+});
+
+// server/services/shadow-ledger.ts
+function ensureShadowLedger() {
+  if (!_ensured3) {
+    _ensured3 = (async () => {
+      try {
+        const { ensurePaperTable: ensurePaperTable2 } = await Promise.resolve().then(() => (init_crypto_paper(), crypto_paper_exports));
+        await ensurePaperTable2();
+      } catch {
+      }
+      try {
+        const { ensureCryptoShadowTables: ensureCryptoShadowTables2 } = await Promise.resolve().then(() => (init_crypto_shadow(), crypto_shadow_exports));
+        await ensureCryptoShadowTables2();
+      } catch {
+      }
+      await pool.query(VIEW_SQL);
+    })().catch((e) => {
+      _ensured3 = null;
+      throw e;
+    });
+  }
+  return _ensured3;
+}
+var SESSION_SQL, VIEW_SQL, _ensured3;
+var init_shadow_ledger = __esm({
+  "server/services/shadow-ledger.ts"() {
+    "use strict";
+    init_db();
+    SESSION_SQL = (ts) => `CASE
+  WHEN extract(hour from ${ts}) < 7  THEN 'Asian'
+  WHEN extract(hour from ${ts}) < 12 THEN 'London'
+  WHEN extract(hour from ${ts}) < 16 THEN 'Overlap'
+  WHEN extract(hour from ${ts}) < 21 THEN 'NewYork'
+  ELSE 'Late' END`;
+    VIEW_SQL = `
+CREATE OR REPLACE VIEW shadow_ledger AS
+  SELECT ('fx_model:' || d.id)::text AS ledger_id,
+         CASE WHEN d.engine = 'crypto' THEN 'crypto_shadow' ELSE 'fx_shadow' END AS source,
+         COALESCE(d.engine, 'fx') AS engine, d.user_id,
+         d.model AS strategy, d.symbol,
+         CASE WHEN upper(d.direction) = 'SELL' THEN 'SHORT' ELSE 'LONG' END AS direction,
+         (d.created_at AT TIME ZONE 'UTC') AS opened_at, (d.resolved_at AT TIME ZONE 'UTC') AS closed_at,
+         extract(hour from d.created_at)::int AS hour_utc,
+         ${SESSION_SQL("d.created_at")} AS session,
+         d.day_type,
+         d.context->'h1'->>'trend' AS h1_trend, d.context->'h4'->>'trend' AS h4_trend,
+         CASE WHEN d.context->'h4'->>'trend' IS NULL THEN NULL
+              WHEN upper(d.direction) = 'BUY'  THEN (d.context->'h4'->>'trend') = 'BULLISH'
+              WHEN upper(d.direction) = 'SELL' THEN (d.context->'h4'->>'trend') = 'BEARISH' END AS h4_aligned,
+         (d.created_at >= TIMESTAMP '2026-10-23 04:00:00') AS context_reliable,
+         CASE WHEN d.result = 'EXPIRED' THEN 'EXPIRED' WHEN d.r_multiple > 0 THEN 'WIN' WHEN d.r_multiple < 0 THEN 'LOSS' ELSE d.result END AS result,
+         d.r_multiple::float AS r_multiple, NULL::float AS return_pct
+    FROM fx_model_decisions d
+   WHERE d.result IN ('WIN','LOSS','EXPIRED') AND d.direction IN ('BUY','SELL') AND d.source = 'own'
+  UNION ALL
+  SELECT ('crypto_paper:' || c.id)::text, 'crypto_paper', 'crypto', c.user_id,
+         c.strategy, c.symbol,
+         CASE WHEN c.direction = 'short' THEN 'SHORT' ELSE 'LONG' END,
+         c.opened_at, c.closed_at,
+         extract(hour from c.opened_at AT TIME ZONE 'UTC')::int,
+         ${SESSION_SQL("(c.opened_at AT TIME ZONE 'UTC')")},
+         NULL, NULL, NULL, NULL, true,
+         CASE WHEN c.exit_reason = 'time limit' THEN 'EXPIRED' WHEN c.r_multiple > 0 THEN 'WIN' WHEN c.r_multiple < 0 THEN 'LOSS' ELSE 'FLAT' END,
+         c.r_multiple::float, c.return_pct::float
+    FROM crypto_paper_trades c
+   WHERE c.status = 'closed'
+  UNION ALL
+  SELECT ('sol_' || s.mode || ':' || s.id)::text,
+         CASE WHEN s.mode = 'shadow' THEN 'sol_shadow' ELSE 'sol_paper' END, 'sol', s.user_id,
+         s.strategy_id, s.symbol, 'LONG',
+         s.opened_at::timestamptz, NULLIF(s.closed_at, '')::timestamptz,
+         extract(hour from s.opened_at::timestamptz AT TIME ZONE 'UTC')::int,
+         ${SESSION_SQL("(s.opened_at::timestamptz AT TIME ZONE 'UTC')")},
+         NULL, NULL, NULL, NULL, true,
+         CASE WHEN s.close_pnl_pct > 0 THEN 'WIN' WHEN s.close_pnl_pct < 0 THEN 'LOSS' ELSE 'FLAT' END,
+         CASE WHEN s.sl_pct > 0 THEN (s.close_pnl_pct / s.sl_pct)::float END,
+         s.close_pnl_pct::float
+    FROM sol_engine_positions s
+   WHERE s.mode IN ('paper', 'shadow') AND s.status = 'closed' AND s.close_pnl_pct IS NOT NULL
+     AND NOT (
+       NULLIF(s.closed_at, '')::timestamptz < TIMESTAMPTZ '2026-11-06 19:15:00+00'
+       AND abs(s.close_pnl_pct) >= 40
+       AND (extract(epoch from (NULLIF(s.closed_at, '')::timestamptz - s.opened_at::timestamptz)) < 120
+            -- known junk-priced symbols (sol-brain.ts BAD_PRICE_SYMBOLS), any hold
+            OR s.symbol IN ('RAY', 'mSOL'))
+     )
+  UNION ALL
+  -- Crypto all-strategy shadow lane (crypto-shadow.ts). Shorts are hypothetical
+  -- (Base spot can't short) and get their own source so they are reported apart.
+  SELECT ('crypto_shadow_all:' || x.id)::text,
+         CASE WHEN x.direction = 'long' THEN 'crypto_shadow_all' ELSE 'crypto_shadow_short' END, 'crypto', x.user_id,
+         x.strategy, x.symbol, CASE WHEN x.direction = 'long' THEN 'LONG' ELSE 'SHORT' END,
+         x.opened_at, x.closed_at,
+         extract(hour from x.opened_at AT TIME ZONE 'UTC')::int,
+         ${SESSION_SQL("(x.opened_at AT TIME ZONE 'UTC')")},
+         NULL, xc.h1_trend, xc.h4_trend, xc.htf_aligned, true,
+         CASE WHEN x.exit_reason = 'time limit' THEN 'EXPIRED' WHEN x.r_multiple > 0 THEN 'WIN' WHEN x.r_multiple < 0 THEN 'LOSS' ELSE 'FLAT' END,
+         x.r_multiple::float, x.return_pct::float
+    FROM crypto_shadow_trades x
+    LEFT JOIN crypto_shadow_context xc ON xc.trade_id = x.id
+   WHERE x.status = 'closed' AND x.return_pct IS NOT NULL
+`;
+    _ensured3 = null;
+  }
+});
+
+// server/services/shadow-lessons.ts
+var shadow_lessons_exports = {};
+__export(shadow_lessons_exports, {
+  computeShadowLessons: () => computeShadowLessons,
+  getShadowLessons: () => getShadowLessons,
+  getShadowLessonsText: () => getShadowLessonsText
+});
+async function computeShadowLessons(userId, days = 30) {
+  await ensureShadowLedger();
+  const dims = [
+    { dimension: "session", expr: `session` },
+    { dimension: "strategy", expr: `strategy` },
+    { dimension: "strategy+symbol", expr: `strategy || ' \xB7 ' || symbol` },
+    { dimension: "direction", expr: `direction` },
+    { dimension: "day_type", expr: `day_type`, where: `day_type IS NOT NULL` },
+    { dimension: "h4_aligned", expr: `CASE WHEN h4_aligned THEN 'with the H4 trend' ELSE 'against the H4 trend' END`, where: `context_reliable AND h4_aligned IS NOT NULL` },
+    { dimension: "strategy+direction", expr: `strategy || ' \xB7 ' || direction` }
+  ];
+  const out = [];
+  for (const d of dims) {
+    const { rows } = await pool.query(
+      `SELECT source, ${d.expr} AS key, count(*)::int AS trades, count(*) FILTER (WHERE result='WIN')::int AS wins,
+              avg(r_multiple)::float AS avg_r, sum(r_multiple)::float AS total_r
+         FROM shadow_ledger
+        WHERE user_id=$1 AND closed_at >= now() - ($2 || ' days')::interval AND r_multiple IS NOT NULL ${d.where ? `AND ${d.where}` : ""}
+        GROUP BY 1,2 HAVING count(*) >= $3`,
+      [userId, String(days), MIN_TRADES3()]
+    );
+    for (const r of rows) {
+      const avgR = Number(r.avg_r) || 0;
+      if (Math.abs(avgR) < EDGE_R() || r.key == null) continue;
+      const winRate = r.trades ? r.wins / r.trades : 0;
+      const verdict = avgR > 0 ? "favor" : "avoid";
+      const strength = r.trades >= 30 ? "strong" : r.trades >= 15 ? "moderate" : "early";
+      const keyLabel = String(r.key).replace(/\bM1\b/g, "Model 1 (range)").replace(/\bM2\b/g, "Model 2 (trend)");
+      const label = `${SOURCE_LABEL[r.source] || r.source} \xB7 ${d.dimension.replace("+", " + ").replace("_", " ")} ${keyLabel}`;
+      out.push({
+        source: r.source,
+        dimension: d.dimension,
+        key: String(r.key),
+        trades: r.trades,
+        wins: r.wins,
+        winRate,
+        avgR,
+        totalR: Number(r.total_r) || 0,
+        verdict,
+        strength,
+        text: `${label}: ${r.trades} trades, ${Math.round(winRate * 100)}% wins, ${avgR >= 0 ? "+" : ""}${avgR.toFixed(2)}R avg \u2192 ${verdict === "favor" ? "FAVOR" : "AVOID"} (${strength} evidence)`
+      });
+    }
+  }
+  out.sort((a, b) => b.trades - a.trades || Math.abs(b.avgR) - Math.abs(a.avgR));
+  return out;
+}
+async function getShadowLessons(userId, force = false) {
+  const hit = _mem.get(userId);
+  if (!force && hit && Date.now() - hit.at < TTL_MS5()) return hit;
+  try {
+    if (!force) {
+      const { getRuntimeStateStrict: getRuntimeStateStrict2 } = await Promise.resolve().then(() => (init_runtime_state(), runtime_state_exports));
+      const stored = await getRuntimeStateStrict2("shadow_lessons", String(userId)).catch(() => null);
+      if (stored && Date.now() - Number(stored.at) < TTL_MS5() && Array.isArray(stored.lessons)) {
+        _mem.set(userId, stored);
+        return stored;
+      }
+    }
+    const fresh = { at: Date.now(), lessons: await computeShadowLessons(userId) };
+    _mem.set(userId, fresh);
+    const { saveRuntimeState: saveRuntimeState2 } = await Promise.resolve().then(() => (init_runtime_state(), runtime_state_exports));
+    saveRuntimeState2("shadow_lessons", String(userId), fresh);
+    return fresh;
+  } catch (e) {
+    console.error("[shadow-lessons] compute failed (non-fatal):", e?.message || e);
+    return hit || { at: 0, lessons: [] };
+  }
+}
+async function getShadowLessonsText(userId, engine, max = 10) {
+  if (process.env.SHADOW_LESSONS === "off") return "";
+  try {
+    const { lessons } = await getShadowLessons(userId);
+    const mine = lessons.filter((l) => (ENGINE_SOURCES[engine] || []).includes(l.source)).slice(0, max);
+    if (!mine.length) return "";
+    return `WHAT OUR SHADOW / PAPER TRADING HAS LEARNED (last 30 days, real outcomes \u2014 weigh these; don't ignore strong ones):
+${mine.map((l) => `- ${l.text}`).join("\n")}
+Lean toward setups matching FAVOR lessons and be much more selective with setups matching AVOID lessons. "Early" evidence is a hint, "strong" evidence is reliable.`;
+  } catch {
+    return "";
+  }
+}
+var MIN_TRADES3, EDGE_R, TTL_MS5, SOURCE_LABEL, ENGINE_SOURCES, _mem;
+var init_shadow_lessons = __esm({
+  "server/services/shadow-lessons.ts"() {
+    "use strict";
+    init_db();
+    init_shadow_ledger();
+    MIN_TRADES3 = () => Number(process.env.SHADOW_LESSON_MIN_TRADES ?? 8);
+    EDGE_R = () => Number(process.env.SHADOW_LESSON_EDGE_R ?? 0.3);
+    TTL_MS5 = () => Math.max(1, Number(process.env.SHADOW_LESSONS_TTL_H ?? 6)) * 36e5;
+    SOURCE_LABEL = {
+      fx_shadow: "FX shadow models",
+      crypto_shadow: "Crypto shadow models",
+      crypto_paper: "Crypto paper engine",
+      crypto_shadow_all: "Crypto shadow (all strategies, longs)",
+      crypto_shadow_short: "Crypto shadow (hypothetical shorts)",
+      sol_paper: "Sol paper engine",
+      sol_shadow: "Sol shadow tests"
+    };
+    ENGINE_SOURCES = {
+      fx: ["fx_shadow"],
+      crypto: ["crypto_paper", "crypto_shadow", "crypto_shadow_all"],
+      sol: ["sol_paper", "sol_shadow"]
+    };
+    _mem = /* @__PURE__ */ new Map();
+  }
+});
+
 // server/services/ai-model-service.ts
 var ai_model_service_exports = {};
 __export(ai_model_service_exports, {
@@ -24467,11 +19812,11 @@ __export(ai_model_service_exports, {
   DEFAULT_ROUTING_CONFIG: () => DEFAULT_ROUTING_CONFIG,
   runMultiModelAnalysis: () => runMultiModelAnalysis
 });
-import OpenAI3 from "openai";
+import OpenAI2 from "openai";
 async function callProvider(provider, model, systemPrompt, userPrompt, apiKey, openaiInstance) {
   switch (provider) {
     case "openai": {
-      const client2 = openaiInstance || new OpenAI3({ apiKey: apiKey || void 0 });
+      const client2 = openaiInstance || new OpenAI2({ apiKey: apiKey || void 0 });
       const supportsJson = model.startsWith("gpt");
       const response = await client2.chat.completions.create({
         model,
@@ -24545,7 +19890,7 @@ async function callProvider(provider, model, systemPrompt, userPrompt, apiKey, o
     }
     case "deepseek": {
       if (!apiKey) throw new Error("DeepSeek API key required");
-      const client2 = new OpenAI3({ apiKey, baseURL: "https://api.deepseek.com" });
+      const client2 = new OpenAI2({ apiKey, baseURL: "https://api.deepseek.com" });
       const response = await client2.chat.completions.create({
         model,
         messages: [
@@ -29526,6 +24871,7 @@ async function processDecision(userId, decision, newsCtx) {
           const _why = _tfs.some(([, b]) => b && b.trend === _opp) ? "opposed" : _tfs.some(([, b]) => !b) ? "data missing" : "neutral";
           addActivity(userId, { type: "info", symbol: decision.symbol, message: `\u{1F9ED} MTF BLOCK (${_why}): ${_dir} ${decision.symbol} (${_rule === "strict" ? "H1 and H4 must both agree" : "H1/H4 oppose it"}: ${_desc}). Not entering.` });
           logGuard(userId, "mtf_skip", decision.symbol, `${_dir} skipped \u2014 ${_rule === "strict" ? "H1 and H4 must both agree" : "H1/H4 oppose it"} (${_desc})`);
+          recordBlockedTrade(userId, "mtf_skip", decision.symbol, { direction: _dir, entryPrice: decision.entryPrice, stopLoss: decision.stopLoss, takeProfit: decision.takeProfit, confidence: decision.confidence, model: decision.fxModel || decision.model, setup: decision.setup }, _desc);
           state.signalsGenerated++;
           return;
         }
@@ -29540,6 +24886,7 @@ async function processDecision(userId, decision, newsCtx) {
         const _why = `${_dir} ${decision.symbol} at RSI ${Math.round(_rsi)} \u2014 ${_dir === "BUY" ? `overbought (>${_buyMax})` : `oversold (<${_sellMin})`}; waiting for a pullback`;
         addActivity(userId, { type: "info", symbol: decision.symbol, message: `\u{1F3C3} NO CHASE: ${_why}.` });
         logGuard(userId, "chase_skip", decision.symbol, _why);
+        recordBlockedTrade(userId, "chase_skip", decision.symbol, { direction: decision.direction, entryPrice: decision.entryPrice, stopLoss: decision.stopLoss, takeProfit: decision.takeProfit, confidence: decision.confidence, model: decision.fxModel || decision.model, setup: decision.setup }, _why);
         state.signalsGenerated++;
         return;
       }
@@ -29557,6 +24904,7 @@ async function processDecision(userId, decision, newsCtx) {
         if (!h4.bosChoch?.detected && !h4.wyckoff?.detected && process.env.H4_NO_STRUCTURE_SKIP !== "off") {
           addActivity(userId, { type: "info", symbol: decision.symbol, message: `\u{1F9F1} H4 FILTER: ${_dir} ${decision.symbol} skipped \u2014 no clear 4-hour structure.` });
           logGuard(userId, "h4_filter_skip", decision.symbol, `${_dir} skipped \u2014 no clear H4 structure (no BOS/CHOCH, no Wyckoff phase)`);
+          recordBlockedTrade(userId, "h4_filter_skip", decision.symbol, { direction: _dir, entryPrice: decision.entryPrice, stopLoss: decision.stopLoss, takeProfit: decision.takeProfit, confidence: decision.confidence, model: decision.fxModel || decision.model, setup: decision.setup }, "no clear H4 structure");
           state.signalsGenerated++;
           return;
         }
@@ -29567,6 +24915,7 @@ async function processDecision(userId, decision, newsCtx) {
           ].filter(Boolean).join(" + ");
           addActivity(userId, { type: "info", symbol: decision.symbol, message: `\u{1F9F1} H4 FILTER: ${_dir} ${decision.symbol} skipped \u2014 ${_why} points the other way.` });
           logGuard(userId, "h4_filter_skip", decision.symbol, `${_dir} skipped \u2014 ${_why} points the other way`);
+          recordBlockedTrade(userId, "h4_filter_skip", decision.symbol, { direction: _dir, entryPrice: decision.entryPrice, stopLoss: decision.stopLoss, takeProfit: decision.takeProfit, confidence: decision.confidence, model: decision.fxModel || decision.model, setup: decision.setup }, `${_why} points the other way`);
           state.signalsGenerated++;
           return;
         }
@@ -29589,6 +24938,7 @@ async function processDecision(userId, decision, newsCtx) {
             if (_rdMode === "block") {
               addActivity(userId, { type: "info", symbol: decision.symbol, message: `\u{1F4E6} RANGE DAY BLOCK: ${_dir} ${decision.symbol} \u2014 range day (score ${_cls.score}); range days lost \u2212$12.5k over 90 days.` });
               logGuard(userId, "range_day_skip", decision.symbol, `${_dir} skipped \u2014 range day (score ${_cls.score}); trend entries on range days lost \u2212$12.5k over 90 days`);
+              recordBlockedTrade(userId, "range_day_skip", decision.symbol, { direction: _dir, entryPrice: decision.entryPrice, stopLoss: decision.stopLoss, takeProfit: decision.takeProfit, confidence: decision.confidence, model: decision.fxModel || decision.model, setup: decision.setup }, `range day (score ${_cls.score})`);
               state.signalsGenerated++;
               return;
             }
@@ -30525,6 +25875,7 @@ async function processDecision(userId, decision, newsCtx) {
           const _sun = _n.getUTCDay() === 0;
           addActivity(userId, { type: "info", symbol: decision.symbol, message: `\u{1F319} ${decision.symbol} ${_gDir}: ${_sun ? "Sunday reopen" : "late session"} (21:00\u201324:00 UTC, thin liquidity) \u2014 skipped.` });
           logGuard(userId, "late_session_skip", decision.symbol, `${_gDir} skipped \u2014 ${_sun ? "Sunday reopen" : "late session"} 21:00\u201324:00 UTC (past entries here: 38% win rate, \u2212$3.5k over 120 days)`);
+          recordBlockedTrade(userId, "late_session_skip", decision.symbol, { direction: _gDir, entryPrice, stopLoss, takeProfit, confidence: decision.confidence, model: decision.fxModel || decision.model, setup: decision.setup }, _sun ? "Sunday reopen" : "late session");
           return;
         }
       }
@@ -30869,6 +26220,7 @@ async function processDecision(userId, decision, newsCtx) {
           const _why = _wrongSide ? `the stop (${stopLoss}) is ${_isBuy ? "above" : "below"} the live price (${_livePx.toFixed(_dp)}) \u2014 the broker would refuse it` : `the plan's entry (${entryPrice}) is ${(_gap / _slD).toFixed(1)}\xD7 the stop distance away from the live price (${_livePx.toFixed(_dp)})`;
           addActivity(userId, { type: "info", symbol: decision.symbol, message: `\u23ED\uFE0F ${decision.symbol} ${decision.direction} skipped \u2014 plan is stale: ${_why}. Waiting for a fresh plan at the current price.` });
           logGuard(userId, "stale_entry_skip", decision.symbol, `${decision.direction}: ${_why}`, { entryPrice, stopLoss, takeProfit, livePrice: _livePx });
+          recordBlockedTrade(userId, "stale_entry_skip", decision.symbol, { direction: decision.direction, entryPrice, stopLoss, takeProfit, confidence: decision.confidence, model: decision.fxModel || decision.model, setup: decision.setup }, _why);
           if (_leReleaseCooldown) _leReleaseCooldown();
           return;
         }
@@ -32719,13 +28071,13 @@ __export(fx_models_exports, {
   sessionFor: () => sessionFor
 });
 function ensureFxModelTables() {
-  if (!ensured4) {
-    ensured4 = pool.query(DDL5).then(() => void 0).catch((e) => {
+  if (!ensured3) {
+    ensured3 = pool.query(DDL5).then(() => void 0).catch((e) => {
       console.error("[fx-models] ensure tables failed (non-fatal):", e?.message || e);
-      ensured4 = null;
+      ensured3 = null;
     });
   }
-  return ensured4;
+  return ensured3;
 }
 function sessionFor(d = /* @__PURE__ */ new Date()) {
   const h = d.getUTCHours();
@@ -33430,7 +28782,7 @@ async function getModelMastery(userId, opts = {}) {
             COALESCE(AVG(r_multiple),0)::float AS avg_r,
             COALESCE(SUM(r_multiple),0)::float AS total_r
        FROM fx_model_decisions
-      WHERE user_id=$1 AND engine='${_eng}' AND result IN ('WIN','LOSS','EXPIRED')${opts.ownOnly ? " AND source='own'" : ""}
+      WHERE user_id=$1 AND engine='${_eng}' AND result IN ('WIN','LOSS','EXPIRED') AND source <> 'guard_block'${opts.ownOnly ? " AND source='own'" : ""}
       GROUP BY ${group} ORDER BY trades DESC`,
     [userId]
   )).rows;
@@ -33457,7 +28809,7 @@ async function getModelMastery(userId, opts = {}) {
     slices: (await agg("model, day_type, symbol, session")).map(shape)
   };
 }
-var DDL5, ensured4, barsProviders, barsFor, pipSize, lastShadowCandle, lastResolveAt2, M1_PAIRS_EXCLUDED, rangeCache, M2_PAIRS_EXCLUDED, M2_SESSIONS, M2_MAX_ADX, M2_MIN_RR, FX_MODEL_MIN_TO_LIST, DEFAULT_SETTINGS, LIVE_LEVELS, GO_LIVE, emaLast;
+var DDL5, ensured3, barsProviders, barsFor, pipSize, lastShadowCandle, lastResolveAt2, M1_PAIRS_EXCLUDED, rangeCache, M2_PAIRS_EXCLUDED, M2_SESSIONS, M2_MAX_ADX, M2_MIN_RR, FX_MODEL_MIN_TO_LIST, DEFAULT_SETTINGS, LIVE_LEVELS, GO_LIVE, emaLast;
 var init_fx_models = __esm({
   "server/services/fx-models.ts"() {
     "use strict";
@@ -33512,7 +28864,7 @@ ALTER TABLE fx_model_decisions ADD COLUMN IF NOT EXISTS source text NOT NULL DEF
 ALTER TABLE fx_model_decisions ADD COLUMN IF NOT EXISTS engine text NOT NULL DEFAULT 'fx';
 ALTER TABLE fx_day_regimes ADD COLUMN IF NOT EXISTS engine text NOT NULL DEFAULT 'fx';
 `;
-    ensured4 = null;
+    ensured3 = null;
     barsProviders = {
       fx: async (symbol, tf, n) => {
         const r = await marketDataService.fetchMarketData({ symbol, assetType: marketDataService.detectAssetType(symbol), timeframe: tf, limit: n });
@@ -33540,6 +28892,4721 @@ ALTER TABLE fx_day_regimes ADD COLUMN IF NOT EXISTS engine text NOT NULL DEFAULT
       for (const x of xs.slice(n)) e = x * k + e * (1 - k);
       return e;
     };
+  }
+});
+
+// server/services/guard-events.ts
+var guard_events_exports = {};
+__export(guard_events_exports, {
+  guardCounterfactuals: () => guardCounterfactuals,
+  guardFireRates: () => guardFireRates,
+  logGuard: () => logGuard,
+  recentGuardEvents: () => recentGuardEvents,
+  recordBlockedTrade: () => recordBlockedTrade
+});
+function ensure() {
+  if (!ensured4) {
+    ensured4 = pool.query(`
+      CREATE TABLE IF NOT EXISTS engine_guard_events (
+        id serial PRIMARY KEY,
+        user_id integer NOT NULL,
+        engine text NOT NULL DEFAULT 'fx',
+        kind text NOT NULL,
+        symbol text,
+        detail text,
+        data jsonb,
+        created_at timestamp NOT NULL DEFAULT now()
+      );
+      CREATE INDEX IF NOT EXISTS engine_guard_events_user_idx ON engine_guard_events (user_id, created_at DESC);
+    `).then(() => void 0).catch((e) => {
+      console.error("[guard-events] ensure failed:", e?.message || e);
+      ensured4 = null;
+    });
+  }
+  return ensured4;
+}
+function logGuard(userId, kind, symbol, detail, data, engine = "fx") {
+  void (async () => {
+    try {
+      await ensure();
+      await pool.query(
+        `INSERT INTO engine_guard_events (user_id, engine, kind, symbol, detail, data) VALUES ($1,$2,$3,$4,$5,$6::jsonb)`,
+        [userId, engine, kind, symbol, String(detail).slice(0, 500), JSON.stringify(data ?? null)]
+      );
+    } catch {
+    }
+  })();
+}
+async function guardFireRates(userId, days = 7) {
+  await ensure();
+  const d = Math.max(1, Math.min(90, days));
+  const { rows } = await pool.query(
+    `SELECT e.engine, e.kind,
+            count(*) FILTER (WHERE e.created_at > now() - ($2 || ' days')::interval)::int AS fires,
+            count(*) FILTER (WHERE e.created_at <= now() - ($2 || ' days')::interval)::int AS prev_fires,
+            max(e.created_at) AS last_fired,
+            (SELECT e2.symbol FROM engine_guard_events e2
+              WHERE e2.user_id = $1 AND e2.engine = e.engine AND e2.kind = e.kind AND e2.symbol IS NOT NULL
+              GROUP BY e2.symbol ORDER BY count(*) DESC LIMIT 1) AS top_symbol
+       FROM engine_guard_events e
+      WHERE e.user_id = $1 AND e.created_at > now() - (2 * ($2 || ' days')::interval)
+      GROUP BY e.engine, e.kind
+      ORDER BY fires DESC`,
+    [userId, String(d)]
+  );
+  return { days: d, rates: rows };
+}
+function recordBlockedTrade(userId, kind, symbol, plan, detail) {
+  if (process.env.GUARD_COUNTERFACTUALS === "off") return;
+  void (async () => {
+    try {
+      const dir = String(plan.direction ?? "").toUpperCase();
+      if (dir !== "BUY" && dir !== "SELL") return;
+      const entry = Number(plan.entryPrice), sl = Number(plan.stopLoss), tp = Number(plan.takeProfit);
+      if (!(entry > 0) || !(sl > 0) || !(tp > 0)) return;
+      if (!(Math.abs(entry - sl) > 0)) return;
+      if (dir === "BUY" ? !(sl < entry && tp > entry) : !(sl > entry && tp < entry)) return;
+      const { ensureFxModelTables: ensureFxModelTables2 } = await Promise.resolve().then(() => (init_fx_models(), fx_models_exports));
+      await ensureFxModelTables2();
+      const conf = Number(plan.confidence);
+      await pool.query(
+        `INSERT INTO fx_model_decisions (user_id, symbol, model, mode, direction, entry_price, stop_loss, take_profit, confidence, setup, reasoning, context, source, engine)
+         VALUES ($1,$2,$3,'blocked',$4,$5,$6,$7,$8,$9,$10,$11::jsonb,'guard_block','fx')`,
+        [
+          userId,
+          symbol,
+          String(plan.model ?? "engine").slice(0, 60),
+          dir,
+          entry,
+          sl,
+          tp,
+          Number.isFinite(conf) ? Math.round(conf) : null,
+          plan.setup ? String(plan.setup).slice(0, 120) : null,
+          `Blocked by ${kind}${detail ? `: ${String(detail).slice(0, 300)}` : ""}`.slice(0, 500),
+          JSON.stringify({ guard: kind })
+        ]
+      );
+    } catch {
+    }
+  })();
+}
+async function guardCounterfactuals(userId, days = 30) {
+  const d = Math.max(1, Math.min(90, days));
+  try {
+    const { ensureFxModelTables: ensureFxModelTables2 } = await Promise.resolve().then(() => (init_fx_models(), fx_models_exports));
+    await ensureFxModelTables2();
+    const { rows } = await pool.query(
+      `SELECT context->>'guard' AS kind,
+              count(*)::int AS recorded,
+              count(*) FILTER (WHERE result IN ('WIN','LOSS','EXPIRED'))::int AS resolved,
+              count(*) FILTER (WHERE result = 'WIN')::int AS would_win,
+              count(*) FILTER (WHERE result = 'LOSS')::int AS would_lose,
+              count(*) FILTER (WHERE result = 'EXPIRED')::int AS expired,
+              count(*) FILTER (WHERE result IS NULL)::int AS pending,
+              avg(r_multiple) FILTER (WHERE result IN ('WIN','LOSS','EXPIRED'))::float AS avg_r
+         FROM fx_model_decisions
+        WHERE user_id = $1 AND source = 'guard_block' AND created_at > now() - ($2 || ' days')::interval
+        GROUP BY 1 ORDER BY resolved DESC, recorded DESC`,
+      [userId, String(d)]
+    );
+    return { days: d, guards: rows };
+  } catch {
+    return { days: d, guards: [] };
+  }
+}
+async function recentGuardEvents(userId, limit = 100, kinds) {
+  await ensure();
+  const _k = (kinds || []).filter((k) => /^[a-z_]{1,40}$/.test(k));
+  const [ev, sum] = await Promise.all([
+    _k.length ? pool.query(`SELECT id, engine, kind, symbol, detail, created_at FROM engine_guard_events WHERE user_id=$1 AND kind = ANY($3) ORDER BY created_at DESC LIMIT $2`, [userId, Math.min(500, Math.max(1, limit)), _k]) : pool.query(`SELECT id, engine, kind, symbol, detail, created_at FROM engine_guard_events WHERE user_id=$1 ORDER BY created_at DESC LIMIT $2`, [userId, Math.min(500, Math.max(1, limit))]),
+    pool.query(`SELECT kind, count(*)::int AS n, max(created_at) AS last FROM engine_guard_events WHERE user_id=$1 AND created_at > now() - interval '7 days' GROUP BY kind ORDER BY n DESC`, [userId])
+  ]);
+  return { events: ev.rows, summary: sum.rows };
+}
+var ensured4;
+var init_guard_events = __esm({
+  "server/services/guard-events.ts"() {
+    "use strict";
+    init_db();
+    ensured4 = null;
+  }
+});
+
+// server/openai.ts
+var openai_exports = {};
+__export(openai_exports, {
+  AVAILABLE_VISION_MODELS: () => AVAILABLE_VISION_MODELS,
+  addAiConfirmationLog: () => addAiConfirmationLog,
+  analyzeChartImage: () => analyzeChartImage,
+  analyzeORBSignal: () => analyzeORBSignal,
+  coerceConfidence: () => coerceConfidence,
+  detectMarketRegime: () => detectMarketRegime,
+  enrichLeadWithAI: () => enrichLeadWithAI,
+  extractFirstJsonObject: () => extractFirstJsonObject,
+  extractTextFromImage: () => extractTextFromImage,
+  generateDailyDevotional: () => generateDailyDevotional,
+  generateGrantProposal: () => generateGrantProposal,
+  generateMarketTrendPredictions: () => generateMarketTrendPredictions,
+  generatePresentationOutline: () => generatePresentationOutline,
+  generateReelScript: () => generateReelScript,
+  generateSlideCarouselScript: () => generateSlideCarouselScript,
+  generateSocialOutreachKit: () => generateSocialOutreachKit,
+  generateTradingTip: () => generateTradingTip,
+  generateVeddBlogPost: () => generateVeddBlogPost,
+  generateWorkforceCurriculum: () => generateWorkforceCurriculum,
+  getAiConfirmationLogs: () => getAiConfirmationLogs,
+  getAiHealth: () => getAiHealth,
+  getAiMinConfidence: () => getAiMinConfidence,
+  getAiVisionConfirmation: () => getAiVisionConfirmation,
+  getAllStrategiesForPairs: () => getAllStrategiesForPairs,
+  getAssetSpecificConfig: () => getAssetSpecificConfig,
+  getAssetSpecificPrompt: () => getAssetSpecificPrompt,
+  getBreakoutConfirmation: () => getBreakoutConfirmation,
+  getDefaultOpenAIClient: () => getDefaultOpenAIClient,
+  getOpenAIInstanceForUser: () => getOpenAIInstanceForUser,
+  getPlatformOpenAIClient: () => getPlatformOpenAIClient,
+  getPropFirmContext: () => getPropFirmContext,
+  getUniversalAIClientForUser: () => getUniversalAIClientForUser,
+  getUniversalVisionClientForUser: () => getUniversalVisionClientForUser,
+  getUserModelPreference: () => getUserModelPreference,
+  hasHiddenReasoningOverhead: () => hasHiddenReasoningOverhead,
+  hydrateAdaptiveRegimeMap: () => hydrateAdaptiveRegimeMap,
+  hydrateAiVisionMap: () => hydrateAiVisionMap,
+  hydrateBreakoutModeMap: () => hydrateBreakoutModeMap,
+  hydrateFxTogglesFromDb: () => hydrateFxTogglesFromDb,
+  inferModelProvider: () => inferModelProvider,
+  isAdaptiveRegimeEnabled: () => isAdaptiveRegimeEnabled,
+  isAiVisionConfirmationEnabled: () => isAiVisionConfirmationEnabled,
+  isBreakoutModeEnabled: () => isBreakoutModeEnabled,
+  isICTStrategyEnabled: () => isICTStrategyEnabled,
+  isPropFirmModeEnabled: () => isPropFirmModeEnabled,
+  isReasoningModel: () => isReasoningModel,
+  isSMCStrategyEnabled: () => isSMCStrategyEnabled,
+  isTrailingStopEnabled: () => isTrailingStopEnabled,
+  noteConfidenceSample: () => noteConfidenceSample,
+  openai: () => openai,
+  scanGrantsWithAI: () => scanGrantsWithAI,
+  setAdaptiveRegimeEnabled: () => setAdaptiveRegimeEnabled,
+  setAiMinConfidence: () => setAiMinConfidence,
+  setAiVisionConfirmation: () => setAiVisionConfirmation,
+  setBreakoutModeEnabled: () => setBreakoutModeEnabled,
+  setICTStrategyEnabled: () => setICTStrategyEnabled,
+  setPropFirmContext: () => setPropFirmContext,
+  setPropFirmMode: () => setPropFirmMode,
+  setSMCStrategyEnabled: () => setSMCStrategyEnabled,
+  setTrailingStopEnabled: () => setTrailingStopEnabled,
+  setUserModelPreference: () => setUserModelPreference,
+  testOpenAIApiKey: () => testOpenAIApiKey
+});
+import OpenAI3 from "openai";
+function getRelevantStrategies(symbol) {
+  const relevant = TOP_PROFITABLE_STRATEGIES.filter(
+    (s) => s.pairs.some((p) => symbol.toUpperCase().includes(p) || p.includes(symbol.toUpperCase().replace("USD", "").replace("PIPS", ""))) || s.pairs.includes(symbol.toUpperCase())
+  ).slice(0, 3);
+  if (relevant.length === 0) return TOP_PROFITABLE_STRATEGIES.slice(0, 3).map((s) => `\u2022 ${s.name}: ${s.winConditions}`).join("\n");
+  return relevant.map((s) => `\u2022 ${s.name}
+  Setup: ${s.description}
+  Win conditions: ${s.winConditions}
+  Risk note: ${s.riskNote}`).join("\n\n");
+}
+function getAllStrategiesForPairs(pairList) {
+  const seen = /* @__PURE__ */ new Set();
+  const results = [];
+  for (const pair of pairList) {
+    const relevant = TOP_PROFITABLE_STRATEGIES.filter(
+      (s) => s.pairs.some((p) => pair.toUpperCase().replace("/", "").includes(p) || p.includes(pair.toUpperCase().replace("/", "").replace("USD", "").replace("PIPS", ""))) || s.pairs.includes(pair.toUpperCase().replace("/", ""))
+    );
+    for (const s of relevant) {
+      if (!seen.has(s.name)) {
+        seen.add(s.name);
+        results.push(`\u2022 ${s.name} (${s.pairs.join(", ")})
+  Setup: ${s.description}
+  Win conditions: ${s.winConditions}
+  Risk note: ${s.riskNote}`);
+      }
+    }
+  }
+  if (results.length < 4) {
+    for (const s of TOP_PROFITABLE_STRATEGIES) {
+      if (!seen.has(s.name)) {
+        seen.add(s.name);
+        results.push(`\u2022 ${s.name} (${s.pairs.join(", ")})
+  Setup: ${s.description}
+  Win conditions: ${s.winConditions}
+  Risk note: ${s.riskNote}`);
+        if (results.length >= 5) break;
+      }
+    }
+  }
+  return results.join("\n\n");
+}
+function getAssetSpecificConfig(symbol) {
+  const cleanSymbol = symbol.toUpperCase().replace(/[^A-Z0-9]/g, "");
+  if (cleanSymbol.includes("XAU") || cleanSymbol.includes("GOLD")) {
+    return {
+      assetType: "gold",
+      volatilityMultiplier: 1.5,
+      atrMultiplier: 2,
+      minimumConfirmations: 3,
+      sessionBias: ["London Session", "New York Session"],
+      correlationAssets: ["DXY (inverse)", "US Treasury Yields (inverse)", "Silver XAG"],
+      specialConsiderations: [
+        "Gold is a safe-haven asset - analyze risk sentiment",
+        "Strong inverse correlation with USD strength (DXY)",
+        "Reacts sharply to Fed rate decisions and inflation data",
+        "Higher volatility during London/NY session overlap",
+        "Consider geopolitical tensions as bullish catalyst",
+        "Widen stop losses by 1.5-2x due to higher pip value volatility",
+        "Look for exhaustion patterns at psychological levels ($1900, $2000, $2100)",
+        "Volume spikes often precede major reversals"
+      ]
+    };
+  }
+  if (cleanSymbol.includes("BTC") || cleanSymbol.includes("BITCOIN") || cleanSymbol.includes("ETH") || cleanSymbol.includes("CRYPTO")) {
+    return {
+      assetType: "crypto",
+      volatilityMultiplier: 2,
+      atrMultiplier: 2.5,
+      minimumConfirmations: 4,
+      sessionBias: ["24/7 - Focus on high volume periods"],
+      correlationAssets: ["NASDAQ/Tech stocks", "Ethereum ETH", "Total Crypto Market Cap"],
+      specialConsiderations: [
+        "BTC trades 24/7 - volatility can spike any time",
+        "Weekend volatility often higher with lower liquidity",
+        "Whale wallet movements can cause sudden price swings",
+        "ETF inflows/outflows significantly impact price",
+        "Halving cycles create long-term bullish bias every 4 years",
+        "Regulatory news causes extreme volatility - widen stops by 2x minimum",
+        "Key psychological levels: $30k, $40k, $50k, $60k, $70k, $100k",
+        "Look for CME gap fills as potential targets",
+        "Funding rates indicate market sentiment (high = potential reversal)",
+        "On-chain metrics (active addresses, exchange flows) provide context",
+        "Correlation with risk assets during macro uncertainty"
+      ]
+    };
+  }
+  const INDEX_SYMBOLS = ["US30", "NAS100", "SPX500", "UK100", "GER40", "DAX", "AUS200", "HK50", "JP225", "FRA40", "NASDAQ", "DOW", "SP500", "WALLST", "DJ30", "USTEC"];
+  if (INDEX_SYMBOLS.some((idx) => cleanSymbol.includes(idx))) {
+    return {
+      assetType: "index",
+      volatilityMultiplier: 1.2,
+      atrMultiplier: 1.5,
+      minimumConfirmations: 2,
+      sessionBias: ["New York Session (09:30\u201316:00 EST)", "London Session (08:00\u201317:00 GMT)"],
+      correlationAssets: ["VIX (inverse)", "USD strength", "Treasury yields", "SPX leads NAS100/US30"],
+      specialConsiderations: [
+        "Entry prices must be within 15\u201350 points of current price \u2014 not hundreds of points away",
+        "Stop loss: 50\u2013150 points from entry depending on ATR",
+        "Take profit: 100\u2013400 points targeting key levels",
+        "US30 moves 200\u2013500 points on a typical day \u2014 scale entries accordingly",
+        "Avoid entries more than 100 points from current price \u2014 they will never fill",
+        "NY open (09:30 EST) and EU open (08:00 GMT) are highest probability windows",
+        "VIX above 25 = elevated volatility, widen SL by 1.5x",
+        "SPX500 direction often leads US30 and NAS100",
+        "Psychological round numbers (e.g., 40000, 44500) act as magnets and resistance"
+      ]
+    };
+  }
+  return {
+    assetType: "forex",
+    volatilityMultiplier: 1,
+    atrMultiplier: 1.5,
+    minimumConfirmations: 2,
+    sessionBias: ["Session depends on pair"],
+    correlationAssets: ["Related pairs"],
+    specialConsiderations: ["Standard forex analysis applies"]
+  };
+}
+function getAssetSpecificPrompt(symbol) {
+  const config = getAssetSpecificConfig(symbol);
+  if (config.assetType === "gold") {
+    return `
+    
+    GOLD/XAU SPECIFIC ANALYSIS (CRITICAL FOR ACCURACY):
+    
+    Gold is a HIGH-VOLATILITY precious metal with unique characteristics:
+    
+    1. VOLATILITY ADJUSTMENT:
+       - Gold moves in larger pip increments than forex
+       - Standard stop losses often get hit prematurely
+       - MANDATORY: Widen all stop losses by 1.5-2x compared to forex
+       - Use ATR 2x minimum for stop loss calculations
+       
+    2. CORRELATION CHECK (Must analyze):
+       - Check USD strength context (strong USD = bearish gold)
+       - Consider Treasury yield direction (rising yields = bearish gold)
+       - Evaluate overall risk sentiment (risk-off = bullish gold)
+       
+    3. SESSION TIMING:
+       - Best trading: London-NY overlap (13:00-17:00 GMT)
+       - Avoid: Low liquidity Asian session for entries
+       - News: Fed speeches, CPI data cause extreme moves
+       
+    4. PATTERN RELIABILITY:
+       - Candlestick patterns need STRONGER confirmation on gold
+       - Wait for volume confirmation before entry
+       - Psychological levels ($1900, $2000, $2100) act as magnets
+       
+    5. SIGNAL REQUIREMENTS:
+       - Require minimum 3 confirmations before signaling BUY/SELL
+       - Single indicator signals are NOT sufficient for gold
+       - If unsure, signal should be NEUTRAL with reduced confidence
+       
+    6. STOP LOSS RULES FOR GOLD:
+       - Minimum 200-300 pips from entry (gold pips are 0.01)
+       - Place below/above significant swing points
+       - Never use tight stops on gold - they will get hunted`;
+  }
+  if (config.assetType === "crypto") {
+    return `
+    
+    BITCOIN/CRYPTO SPECIFIC ANALYSIS (CRITICAL FOR ACCURACY):
+    
+    Bitcoin is an EXTREMELY HIGH-VOLATILITY asset with unique characteristics:
+    
+    1. VOLATILITY ADJUSTMENT:
+       - BTC can move 2-5% in hours, 10%+ on volatile days
+       - Standard forex stop losses are COMPLETELY INADEQUATE
+       - MANDATORY: Use ATR 2.5x minimum for stop loss calculations
+       - Accept wider stops to avoid premature stop-outs
+       
+    2. MARKET STRUCTURE:
+       - 24/7 trading means no session gaps (except CME futures)
+       - Weekend often sees lower liquidity + higher volatility
+       - Whale movements create sudden wicks - plan for them
+       
+    3. CONFIRMATION REQUIREMENTS:
+       - Require minimum 4 confirmations for BTC signals
+       - Single timeframe analysis is INSUFFICIENT
+       - Volume must strongly confirm the direction
+       - RSI extremes (>80, <20) more reliable than mid-range
+       
+    4. KEY LEVELS:
+       - Psychological: $30k, $40k, $50k, $60k, $70k, $100k
+       - CME gap levels often get filled
+       - Previous all-time highs become strong support/resistance
+       
+    5. SENTIMENT FACTORS:
+       - ETF flows (Blackrock, Fidelity) significantly move price
+       - Funding rates: High positive = potential short squeeze, high negative = potential long squeeze
+       - Fear & Greed Index provides context
+       
+    6. STOP LOSS RULES FOR BTC:
+       - Minimum $1,000-$2,000 from entry point
+       - Place below/above significant swing points
+       - Use percentage-based stops (2-5% from entry)
+       - Factor in potential wick hunting before major moves
+       
+    7. SIGNAL CONFIDENCE:
+       - Be MORE CONSERVATIVE with confidence ratings
+       - "High" confidence requires 4+ confirmations
+       - Single indicator signals should be "Low" confidence maximum`;
+  }
+  if (config.assetType === "index") {
+    return `
+
+    EQUITY INDEX SPECIFIC ANALYSIS (CRITICAL FOR ACCURACY \u2014 US30/NAS100/SPX500/UK100/GER40):
+
+    Equity indices move in POINTS, not forex pips. Entry prices MUST be realistic:
+
+    1. ENTRY PRICE RULES (MOST IMPORTANT):
+       - Entry must be within 15\u201350 points of CURRENT price for US30/NAS100
+       - NEVER suggest an entry more than 100 points from current price \u2014 it will NEVER trigger
+       - For limit orders: entry 10\u201330 points from current price (pullback to key level)
+       - For stop orders: entry 10\u201325 points beyond current price (breakout confirmation)
+       - US30 typical daily range: 200\u2013500 points \u2014 calibrate entries to this scale
+
+    2. STOP LOSS RULES:
+       - US30/NAS100: Stop loss 50\u2013150 points from entry
+       - SPX500: Stop loss 15\u201350 points from entry
+       - Place stops below/above the nearest swing high/low or session open
+       - Avoid stops tighter than 30 points on US30 (noise will stop you out)
+
+    3. TAKE PROFIT RULES:
+       - Minimum 1.5:1 R:R required
+       - US30: TP targets 100\u2013400 points from entry
+       - Target the nearest round number (e.g., 44000, 44500, 45000)
+       - Multi-target: partial at 100 pts, full at 200\u2013300 pts
+
+    4. SESSION TIMING:
+       - Best: NY open 09:30\u201311:00 EST, EU open 08:00\u201310:00 GMT
+       - Avoid: 12:00\u201314:00 EST lunch lull (low liquidity, choppy)
+       - Watch: Fed speeches, CPI, NFP cause 200\u2013500 pt spikes
+
+    5. CORRELATION:
+       - Check SPX direction before US30 entries (SPX leads)
+       - VIX rising = bearish pressure; VIX falling = bullish confirmation
+       - Strong USD often weighs on indices
+
+    6. ALL PRICE LEVELS IN YOUR RESPONSE must be realistic index values:
+       - US30 is currently near ${symbol.includes("US30") || symbol.includes("DOW") ? "~44,000\u201345,000" : "check current price"} \u2014 use real nearby levels
+       - Return entry/SL/TP as actual price values, NOT pip distances`;
+  }
+  return "";
+}
+function remapBareModelForOpenRouter(model, hasImage) {
+  const m = (model || "").toString();
+  if (m.includes("/") || m.endsWith(":free")) return m;
+  return hasImage ? VISION_FALLBACK.openrouter || "google/gemma-3-4b-it" : "openai/gpt-oss-20b";
+}
+function messagesHaveImage(messages) {
+  return Array.isArray(messages) && messages.some((msg) => Array.isArray(msg?.content) && msg.content.some((part) => part?.type === "image_url"));
+}
+function getPlatformOpenAIClient() {
+  const oaiKey = process.env.OPENAI_API_KEY;
+  const orKey = process.env.OPENROUTER_API_KEY;
+  const realOpenAI = new OpenAI3({ apiKey: oaiKey || "not-configured", maxRetries: 4, timeout: 9e4 });
+  if (!orKey) return realOpenAI;
+  const orClient = new OpenAI3({
+    apiKey: orKey,
+    baseURL: "https://openrouter.ai/api/v1",
+    maxRetries: 4,
+    timeout: 9e4,
+    defaultHeaders: { "HTTP-Referer": "https://veddbuild.com", "X-Title": "VEDDBuild" }
+  });
+  const wrappedChat = {
+    completions: {
+      create: async (params) => {
+        const p = { ...params };
+        p.model = remapBareModelForOpenRouter(params.model, messagesHaveImage(params.messages));
+        try {
+          return await orClient.chat.completions.create(p);
+        } catch (e) {
+          if (oaiKey) {
+            console.warn(`[AI] OpenRouter failed (${e?.status ?? e?.message}); falling back to OpenAI`);
+            return await realOpenAI.chat.completions.create(params);
+          }
+          throw e;
+        }
+      }
+    }
+  };
+  return new Proxy(realOpenAI, {
+    get(target, prop) {
+      if (prop === "chat") return wrappedChat;
+      return target[prop];
+    }
+  });
+}
+function getDefaultOpenAIClient() {
+  if (!_openaiInstance) {
+    _openaiInstance = getPlatformOpenAIClient();
+  }
+  return _openaiInstance;
+}
+function setUserModelPreference(userId, model) {
+  userModelPreferences.set(userId, model);
+}
+function getUserModelPreference(userId) {
+  const pref = userModelPreferences.get(userId) || DEFAULT_AI_MODEL;
+  if (DEPRECATED_MODEL_MAP[pref]) {
+    const updated = DEPRECATED_MODEL_MAP[pref];
+    userModelPreferences.set(userId, updated);
+    console.log(`[AI Model] Migrated user ${userId} from deprecated ${pref} to ${updated}`);
+    return updated;
+  }
+  return pref;
+}
+function getModelProvider(modelId) {
+  const model = AVAILABLE_VISION_MODELS.find((m) => m.id === modelId);
+  return model?.provider || "openai";
+}
+function inferModelProvider(modelId) {
+  const m = (modelId || "").toLowerCase();
+  if (m.endsWith(":free") || m.startsWith("openrouter/")) return "openrouter";
+  if (m.includes("/")) return "openrouter";
+  if (m.startsWith("gpt") || m.startsWith("o1") || m.startsWith("o3") || m.startsWith("o4") || m.startsWith("chatgpt")) return "openai";
+  if (m.startsWith("claude")) return "anthropic";
+  if (m.startsWith("gemini")) return "google";
+  if (m.startsWith("mistral") || m.startsWith("mixtral") || m.startsWith("magistral")) return "mistral";
+  if (m.includes("gpt-oss") || m.includes("llama") || m.includes("groq") || m.includes("gemma") || m.includes("qwen") || m.includes("deepseek")) return "groq";
+  return getModelProvider(modelId);
+}
+function extractFirstJsonObject(text2) {
+  const start = text2.indexOf("{");
+  if (start === -1) return null;
+  let depth = 0;
+  let inString = false;
+  let escaped = false;
+  for (let i = start; i < text2.length; i++) {
+    const ch = text2[i];
+    if (inString) {
+      if (escaped) escaped = false;
+      else if (ch === "\\") escaped = true;
+      else if (ch === '"') inString = false;
+      continue;
+    }
+    if (ch === '"') {
+      inString = true;
+      continue;
+    }
+    if (ch === "{") depth++;
+    else if (ch === "}") {
+      depth--;
+      if (depth === 0) return text2.slice(start, i + 1);
+    }
+  }
+  return null;
+}
+function coerceConfidence(raw) {
+  let c = typeof raw === "string" ? parseFloat(raw) : raw;
+  if (typeof c !== "number" || !Number.isFinite(c)) return 50;
+  if (c > 0 && c < 1) c *= 100;
+  return Math.max(0, Math.min(100, Math.round(c)));
+}
+function resolveVisionModel(modelId) {
+  if (KNOWN_VISION_MODEL_IDS.has(modelId)) return modelId;
+  const provider = inferModelProvider(modelId);
+  const fallback = VISION_FALLBACK[provider] || "gpt-4o-mini";
+  console.log(`[AI Model] ${modelId} is not vision-capable (${provider}) \u2014 switching to ${fallback} for chart confirmation`);
+  return fallback;
+}
+function setAiVisionConfirmation(userId, enabled) {
+  aiVisionConfirmationEnabled.set(userId, enabled);
+}
+function hydrateAiVisionMap(userId, enabled) {
+  aiVisionConfirmationEnabled.set(userId, enabled);
+}
+function isAiVisionConfirmationEnabled(userId) {
+  const val = aiVisionConfirmationEnabled.get(userId);
+  return val === void 0 ? true : val;
+}
+function setAiMinConfidence(userId, minConfidence) {
+  const clamped = Math.max(0, Math.min(100, Math.round(minConfidence)));
+  aiMinConfidenceThreshold.set(userId, clamped);
+}
+function getAiMinConfidence(userId) {
+  return aiMinConfidenceThreshold.get(userId) ?? 70;
+}
+function noteConfidenceSample(value) {
+  if (!Number.isFinite(value)) return;
+  _recentConfidence.push(value);
+  if (_recentConfidence.length > 40) _recentConfidence.shift();
+  if (_recentConfidence.length < 20) return;
+  const uniq = new Set(_recentConfidence);
+  if (uniq.size === 1) {
+    console.error(`[AI-GATE] WARNING: the last ${_recentConfidence.length} confirmations all returned confidence ${_recentConfidence[0]} \u2014 the model is not producing a real score, so the approval gate is not filtering anything. Check the prompt for a numeric anchor.`);
+  } else if (uniq.size <= 2) {
+    console.warn(`[AI-GATE] confidence has only ${uniq.size} distinct values across ${_recentConfidence.length} confirmations (${Array.from(uniq).join(", ")}) \u2014 suspiciously flat.`);
+  }
+}
+function setICTStrategyEnabled(userId, enabled) {
+  ictStrategyEnabledMap.set(userId, enabled);
+  persistFxToggles(userId);
+}
+function persistFxToggles(userId) {
+  const v = {};
+  if (ictStrategyEnabledMap.has(userId)) v.ict = !!ictStrategyEnabledMap.get(userId);
+  if (smcStrategyEnabledMap.has(userId)) v.smc = !!smcStrategyEnabledMap.get(userId);
+  if (trailingStopEnabledMap.has(userId)) v.trail = !!trailingStopEnabledMap.get(userId);
+  if (propFirmModeMap.has(userId)) v.propFirm = !!propFirmModeMap.get(userId);
+  const snap = JSON.stringify(v);
+  if (_lastSavedToggles.get(userId) === snap) return;
+  _lastSavedToggles.set(userId, snap);
+  void Promise.resolve().then(() => (init_runtime_state(), runtime_state_exports)).then((m) => m.saveRuntimeState("fx_toggles", String(userId), v)).catch(() => {
+  });
+}
+async function hydrateFxTogglesFromDb() {
+  try {
+    const { loadRuntimeState: loadRuntimeState2 } = await Promise.resolve().then(() => (init_runtime_state(), runtime_state_exports));
+    const rows = await loadRuntimeState2("fx_toggles");
+    for (const r of rows) {
+      const uid = Number(r.key);
+      const v = r.value || {};
+      if (!Number.isFinite(uid)) continue;
+      if (typeof v.ict === "boolean" && !ictStrategyEnabledMap.has(uid)) ictStrategyEnabledMap.set(uid, v.ict);
+      if (typeof v.smc === "boolean" && !smcStrategyEnabledMap.has(uid)) smcStrategyEnabledMap.set(uid, v.smc);
+      if (typeof v.trail === "boolean" && !trailingStopEnabledMap.has(uid)) trailingStopEnabledMap.set(uid, v.trail);
+      if (typeof v.propFirm === "boolean" && !propFirmModeMap.has(uid)) propFirmModeMap.set(uid, v.propFirm);
+    }
+    if (rows.length) console.log(`[startup] restored strategy toggles for ${rows.length} user(s).`);
+  } catch (err) {
+    console.error("[startup] strategy toggle restore failed (non-fatal):", err?.message ?? err);
+  }
+}
+function isICTStrategyEnabled(userId) {
+  const val = ictStrategyEnabledMap.get(userId);
+  return val === void 0 ? true : val;
+}
+function setSMCStrategyEnabled(userId, enabled) {
+  smcStrategyEnabledMap.set(userId, enabled);
+  persistFxToggles(userId);
+}
+function isSMCStrategyEnabled(userId) {
+  const val = smcStrategyEnabledMap.get(userId);
+  return val === void 0 ? true : val;
+}
+function setBreakoutModeEnabled(userId, enabled) {
+  if (enabled) {
+    if (!breakoutModeEnabledMap.get(userId)) {
+      breakoutModePriorState.set(userId, {
+        ict: isICTStrategyEnabled(userId),
+        smc: isSMCStrategyEnabled(userId),
+        trail: isTrailingStopEnabled(userId)
+      });
+    }
+    ictStrategyEnabledMap.set(userId, false);
+    smcStrategyEnabledMap.set(userId, false);
+    trailingStopEnabledMap.set(userId, false);
+  } else {
+    if (breakoutModeEnabledMap.get(userId)) {
+      const prior = breakoutModePriorState.get(userId);
+      if (prior) {
+        ictStrategyEnabledMap.set(userId, prior.ict);
+        smcStrategyEnabledMap.set(userId, prior.smc);
+        trailingStopEnabledMap.set(userId, prior.trail);
+        breakoutModePriorState.delete(userId);
+      } else {
+        ictStrategyEnabledMap.set(userId, true);
+        smcStrategyEnabledMap.set(userId, true);
+        trailingStopEnabledMap.set(userId, true);
+      }
+    }
+  }
+  breakoutModeEnabledMap.set(userId, enabled);
+  persistFxToggles(userId);
+}
+function hydrateBreakoutModeMap(userId, enabled) {
+  if (!breakoutModeEnabledMap.has(userId)) {
+    breakoutModeEnabledMap.set(userId, enabled);
+  }
+}
+function isBreakoutModeEnabled(userId) {
+  return breakoutModeEnabledMap.get(userId) ?? false;
+}
+function setTrailingStopEnabled(userId, enabled) {
+  trailingStopEnabledMap.set(userId, enabled);
+  persistFxToggles(userId);
+}
+function isTrailingStopEnabled(userId) {
+  const val = trailingStopEnabledMap.get(userId);
+  return val === void 0 ? true : val;
+}
+function setPropFirmMode(userId, enabled) {
+  propFirmModeMap.set(userId, enabled);
+  persistFxToggles(userId);
+}
+function isPropFirmModeEnabled(userId) {
+  const val = propFirmModeMap.get(userId);
+  return val === void 0 ? false : val;
+}
+function setPropFirmContext(userId, ctx) {
+  propFirmContextMap.set(userId, ctx);
+}
+function getPropFirmContext(userId) {
+  return propFirmContextMap.get(userId) ?? null;
+}
+function addAiConfirmationLog(userId, entry) {
+  if (!aiConfirmationLogs2.has(userId)) {
+    aiConfirmationLogs2.set(userId, []);
+  }
+  const logs = aiConfirmationLogs2.get(userId);
+  logs.unshift({ ...entry, id: logIdCounter++ });
+  if (logs.length > 50) logs.pop();
+  Promise.resolve().then(() => (init_storage(), storage_exports)).then(
+    ({ storage: storage2 }) => storage2.createAiConfirmationLogEntry(userId, entry)
+  ).catch((err) => console.error("[AI Confirmation Log] DB persist failed (non-fatal):", err?.message));
+}
+function getAiConfirmationLogs(userId) {
+  return aiConfirmationLogs2.get(userId) || [];
+}
+function estimatePipSize(symbol) {
+  const s = symbol.toUpperCase();
+  if (s.includes("XAU") || s.includes("GOLD")) return 0.1;
+  if (s.includes("JPY")) return 0.01;
+  if (["US30", "NAS100", "GER40", "UK100", "SPX500", "DAX", "AUS200", "HK50", "JP225", "FRA40"].some((idx) => s.includes(idx))) return 1;
+  if (s.includes("BTC") || s.includes("ETH") || s.includes("XBT")) return 1;
+  return 1e-4;
+}
+function buildTrailSignalSummary(symbol, proposedSignal, tradePlan, ictContext, smcContext) {
+  if (!ictContext && !smcContext) return "\u25BA No ICT/SMC context available \u2014 use ADX/ATR baseline only";
+  const pipSize2 = estimatePipSize(symbol);
+  const entry = tradePlan?.entry || 0;
+  const signals = [];
+  const crt = ictContext?.crtPattern;
+  if (crt?.detected) {
+    if (crt.stage === "EXPANSION") {
+      signals.push(`\u25BA CRT EXPANSION stage \u2014 institutional directional move just launched, high-probability run in progress \u2014 bias WIDE or AGGRESSIVE`);
+    } else if (crt.stage === "MANIPULATION") {
+      signals.push(`\u25BA CRT MANIPULATION stage \u2014 price still faking out before expansion, trail not appropriate yet \u2014 bias NONE`);
+    } else if (crt.stage === "RANGE") {
+      signals.push(`\u25BA CRT RANGE stage \u2014 accumulation/distribution in progress, no directional momentum yet \u2014 bias STANDARD`);
+    }
+  } else {
+    signals.push(`\u25BA No CRT pattern detected \u2014 use ADX/ATR baseline for trail type`);
+  }
+  const wyc = smcContext?.wyckoff;
+  if (wyc?.detected) {
+    if (wyc.phase === "MARKUP" || wyc.phase === "MARKDOWN") {
+      signals.push(`\u25BA Wyckoff ${wyc.phase} \u2014 sustained trend confirmed by institutional phase, let profits run \u2014 bias WIDE`);
+    } else if (wyc.phase === "ACCUMULATION" && wyc.stage === "SPRING") {
+      signals.push(`\u25BA Wyckoff Accumulation SPRING \u2014 fresh bullish launch, give the trade room \u2014 bias STANDARD to WIDE`);
+    } else if (wyc.phase === "DISTRIBUTION" && wyc.stage === "UPTHRUST") {
+      signals.push(`\u25BA Wyckoff Distribution UPTHRUST \u2014 fresh bearish launch, give the trade room \u2014 bias STANDARD to WIDE`);
+    } else if (wyc.phase === "ACCUMULATION" && wyc.stage === "SOS") {
+      signals.push(`\u25BA Wyckoff Sign of Strength (SOS) \u2014 bullish trend accelerating out of range \u2014 bias WIDE`);
+    } else if (wyc.phase === "DISTRIBUTION" && wyc.stage === "SOW") {
+      signals.push(`\u25BA Wyckoff Sign of Weakness (SOW) \u2014 bearish trend accelerating out of range \u2014 bias WIDE`);
+    } else {
+      signals.push(`\u25BA Wyckoff phase detected (${wyc.phase}/${wyc.stage || "ranging"}) \u2014 ${wyc.description}`);
+    }
+  } else {
+    signals.push(`\u25BA No Wyckoff phase detected \u2014 use ADX baseline`);
+  }
+  const eql = smcContext?.equalHighsLows;
+  if (eql && entry > 0 && pipSize2 > 0) {
+    if (proposedSignal === "BUY" && eql.equalHighs.detected && eql.equalHighs.level) {
+      const distPips = Math.abs(eql.equalHighs.level - entry) / pipSize2;
+      const tightThreshold = pipSize2 === 1e-4 ? 30 : pipSize2 === 0.1 ? 300 : pipSize2 === 0.01 ? 3 : 100;
+      if (distPips < tightThreshold) {
+        signals.push(`\u25BA Equal Highs (Buy-Side Liquidity) at ${eql.equalHighs.level.toFixed(5)} \u2014 only ~${Math.round(distPips)} pips away \u2014 TIGHTEN trail to lock in profits before sweep`);
+      } else {
+        signals.push(`\u25BA Equal Highs (BSL) at ${eql.equalHighs.level.toFixed(5)} \u2014 ${Math.round(distPips)} pips away \u2014 TP target, trail width unconstrained`);
+      }
+    } else if (proposedSignal === "SELL" && eql.equalLows.detected && eql.equalLows.level) {
+      const distPips = Math.abs(entry - eql.equalLows.level) / pipSize2;
+      const tightThreshold = pipSize2 === 1e-4 ? 30 : pipSize2 === 0.1 ? 300 : pipSize2 === 0.01 ? 3 : 100;
+      if (distPips < tightThreshold) {
+        signals.push(`\u25BA Equal Lows (Sell-Side Liquidity) at ${eql.equalLows.level.toFixed(5)} \u2014 only ~${Math.round(distPips)} pips away \u2014 TIGHTEN trail to lock in profits before sweep`);
+      } else {
+        signals.push(`\u25BA Equal Lows (SSL) at ${eql.equalLows.level.toFixed(5)} \u2014 ${Math.round(distPips)} pips away \u2014 TP target, trail width unconstrained`);
+      }
+    } else {
+      signals.push(`\u25BA No nearby liquidity pool in trade direction \u2014 trail width unconstrained`);
+    }
+  } else {
+    signals.push(`\u25BA No liquidity pool data available`);
+  }
+  const mw = ictContext?.macroWindow;
+  if (mw) {
+    if (mw.isInMacroWindow) {
+      signals.push(`\u25BA ICT macro window ACTIVE (${mw.macroName}) \u2014 institutional engine running, high-probability directional flow \u2014 bias WIDE`);
+    } else {
+      signals.push(`\u25BA ICT macro window INACTIVE \u2014 impulse may exhaust sooner, next window: ${mw.nextMacroName} in ${mw.minutesUntilNextMacro}min \u2014 bias STANDARD`);
+    }
+  }
+  if (mw) {
+    const session2 = mw.session;
+    const timeLabel = mw.currentNYTime ? ` (${mw.currentNYTime} NY)` : "";
+    if (session2 === "LONDON") {
+      signals.push(`\u25BA Session: London Kill Zone${timeLabel} \u2014 institutional range highs/lows being set, high-volatility institutional flow \u2014 bias WIDE`);
+    } else if (session2 === "NY_AM") {
+      signals.push(`\u25BA Session: New York AM${timeLabel} \u2014 peak trending session, highest volume of the day \u2014 bias WIDE to AGGRESSIVE`);
+    } else if (session2 === "NY_PM") {
+      signals.push(`\u25BA Session: New York PM${timeLabel} \u2014 continuation or late exhaustion \u2014 bias STANDARD`);
+    } else if (session2 === "ASIAN") {
+      signals.push(`\u25BA Session: Asian session${timeLabel} \u2014 low momentum, range-bound, avoid wide trails \u2014 bias TIGHT`);
+    } else if (session2 === "OVERNIGHT") {
+      signals.push(`\u25BA Session: Off-hours / Overnight${timeLabel} \u2014 minimal volume, erratic moves \u2014 bias TIGHT or NONE`);
+    } else if (mw.currentNYTime) {
+      const match = mw.currentNYTime.match(/(\d+):(\d+)\s*(AM|PM)/i);
+      if (match) {
+        let hours = parseInt(match[1]);
+        const mins = parseInt(match[2]);
+        const ampm = match[3].toUpperCase();
+        if (ampm === "PM" && hours !== 12) hours += 12;
+        if (ampm === "AM" && hours === 12) hours = 0;
+        const totalMins = hours * 60 + mins;
+        if (totalMins >= 7 * 60 && totalMins < 11 * 60 + 30) {
+          signals.push(`\u25BA Session: London/NY overlap${timeLabel} \u2014 peak trending window \u2014 bias WIDE to AGGRESSIVE`);
+        } else if (totalMins >= 12 * 60 && totalMins < 14 * 60 + 30) {
+          signals.push(`\u25BA Session: NY Lunch${timeLabel} \u2014 low momentum, chop risk \u2014 reduce trail one level (WIDE\u2192STANDARD, STANDARD\u2192TIGHT)`);
+        } else if (totalMins >= 14 * 60 + 30 && totalMins < 17 * 60) {
+          signals.push(`\u25BA Session: NY PM${timeLabel} \u2014 steady continuation or late reversal \u2014 bias STANDARD`);
+        } else {
+          signals.push(`\u25BA Session: Asian/off-hours${timeLabel} \u2014 low momentum, tight spreads \u2014 bias TIGHT`);
+        }
+      }
+    }
+  }
+  const bos = smcContext?.bosCHOCH;
+  if (bos?.detected) {
+    if (bos.type === "CHOCH") {
+      signals.push(`\u25BA ${bos.direction} CHOCH detected \u2014 fresh trend reversal just confirmed, plenty of room to run \u2014 bias WIDE`);
+    } else if (bos.type === "BOS") {
+      signals.push(`\u25BA ${bos.direction} BOS continuation \u2014 trend is mature, watch for exhaustion near next structure \u2014 bias STANDARD`);
+    }
+  } else {
+    signals.push(`\u25BA No BOS/CHOCH \u2014 ranging environment, no clear trend direction \u2014 bias TIGHT`);
+  }
+  if (tradePlan?.entry && tradePlan?.stopLoss && tradePlan?.takeProfit) {
+    const rrEntry = tradePlan.entry;
+    const rrSL = tradePlan.stopLoss;
+    const rrTP = tradePlan.takeProfit;
+    const risk = Math.abs(rrEntry - rrSL);
+    const reward = Math.abs(rrTP - rrEntry);
+    const rr = risk > 0 ? reward / risk : 0;
+    if (rr >= 3) {
+      signals.push(`\u25BA Trade R:R is ${rr.toFixed(1)}R \u2014 high reward trade, use WIDE or AGGRESSIVE trail to let profits compound; only tighten after 2R secured`);
+    } else if (rr >= 2) {
+      signals.push(`\u25BA Trade R:R is ${rr.toFixed(1)}R \u2014 solid trade, STANDARD to WIDE trail; move to breakeven at 1R`);
+    } else if (rr >= 1.5) {
+      signals.push(`\u25BA Trade R:R is ${rr.toFixed(1)}R \u2014 acceptable trade, TIGHT trail preferred; target is relatively close, protect quickly`);
+    } else if (rr > 0) {
+      signals.push(`\u25BA Trade R:R is ${rr.toFixed(1)}R \u2014 low reward, TIGHT or NONE; risk/reward doesn't justify a wide trail`);
+    }
+  }
+  return signals.join("\n");
+}
+function resolveIctThresholds(accountBalance) {
+  if (accountBalance < 1e3) return { aPlus: 10, a: 8, b: 5, c: 3, minGrade: "C" };
+  if (accountBalance < 5e3) return { aPlus: 10, a: 8, b: 6, c: 4, minGrade: "B" };
+  if (accountBalance < 2e4) return { aPlus: 10, a: 7, b: 5, c: 4, minGrade: "A" };
+  return { aPlus: 9, a: 7, b: 5, c: 4, minGrade: "A+" };
+}
+function computeConfluenceScore(signal, ictContext, smcContext, accountBalance = 0) {
+  let score = 0;
+  const summary = [];
+  if (ictContext) {
+    if (ictContext.premiumDiscount.aligns) {
+      score++;
+      summary.push(`\u2705 PD Array: ${ictContext.premiumDiscount.zone} zone aligns with ${signal}`);
+    } else {
+      summary.push(`\u274C PD Array: ${ictContext.premiumDiscount.zone} zone conflicts with ${signal}`);
+    }
+    if (ictContext.stopHunt.detected) {
+      score++;
+      summary.push(`\u2705 Stop Hunt: Liquidity sweep detected before entry`);
+    } else {
+      summary.push(`\u26A0 Stop Hunt: No liquidity sweep detected`);
+    }
+    if (ictContext.crtPattern.detected) {
+      if (ictContext.crtPattern.stage === "EXPANSION") {
+        score++;
+        summary.push(`\u2705 CRT: EXPANSION phase confirmed \u2014 institutional move launched`);
+      } else if (ictContext.crtPattern.stage === "MANIPULATION") {
+        summary.push(`\u274C CRT: MANIPULATION phase \u2014 fakeout risk, no score`);
+      } else {
+        summary.push(`\u26A0 CRT: RANGE forming \u2014 no directional confirmation yet`);
+      }
+    }
+    if (ictContext.macroWindow.isInMacroWindow) {
+      score++;
+      summary.push(`\u2705 ICT Macro: Active window (${ictContext.macroWindow.macroName})`);
+    } else {
+      summary.push(`\u26A0 ICT Macro: Inactive \u2014 ${ictContext.macroWindow.minutesUntilNextMacro}min to next window`);
+    }
+    const sess = ictContext.macroWindow.session;
+    if (sess === "LONDON" || sess === "NY_AM") {
+      score++;
+      summary.push(`\u2705 Session: ${sess} \u2014 peak institutional session`);
+    } else {
+      summary.push(`\u26A0 Session: ${sess || "UNKNOWN"} \u2014 lower volume session`);
+    }
+    if (ictContext.oteZone?.detected && ictContext.oteZone.inOTEZone) {
+      score++;
+      summary.push(`\u2705 OTE: Price in 61.8\u201379% retracement zone \u2014 institutional entry sweet spot`);
+    } else if (ictContext.oteZone?.detected) {
+      summary.push(`\u26A0 OTE: Zone identified but price not in it (${ictContext.oteZone.description.slice(0, 60)}...)`);
+    }
+    if (ictContext.keyLevels) {
+      const kl = ictContext.keyLevels;
+      const bearishPDH = signal === "SELL" && kl.abovePDH;
+      const bullishPDL = signal === "BUY" && kl.belowPDL;
+      if (bearishPDH || bullishPDL) {
+        score++;
+        summary.push(`\u2705 PDH/PDL: Price ${bearishPDH ? "above PDH \u2014 bearish bias confirmed" : "below PDL \u2014 bullish bias confirmed"}`);
+      } else {
+        summary.push(`\u26A0 PDH/PDL: ${kl.description.slice(0, 80)}`);
+      }
+    }
+  }
+  if (smcContext) {
+    if (smcContext.bosCHOCH.detected) {
+      const bosAligns = signal === "BUY" && smcContext.bosCHOCH.direction === "BULLISH" || signal === "SELL" && smcContext.bosCHOCH.direction === "BEARISH";
+      if (bosAligns) {
+        score++;
+        summary.push(`\u2705 Structure: ${smcContext.bosCHOCH.type} ${smcContext.bosCHOCH.direction} aligns with ${signal}`);
+      } else {
+        summary.push(`\u274C Structure: ${smcContext.bosCHOCH.type} ${smcContext.bosCHOCH.direction} conflicts with ${signal}`);
+      }
+    } else {
+      summary.push(`\u26A0 Structure: No BOS/CHOCH \u2014 ranging`);
+    }
+    if (smcContext.fvg.detected && smcContext.fvg.inZone) {
+      score++;
+      summary.push(`\u2705 FVG: Price inside Fair Value Gap \u2014 imbalance zone entry`);
+    } else if (smcContext.fvg.detected) {
+      summary.push(`\u26A0 FVG: Detected but price not in zone`);
+    } else {
+      summary.push(`\u26A0 FVG: No aligned Fair Value Gap`);
+    }
+    if (smcContext.orderBlock.detected && smcContext.orderBlock.aligns && smcContext.orderBlock.mitigation === "FRESH") {
+      score++;
+      summary.push(`\u2705 Order Block: FRESH ${smcContext.orderBlock.type} \u2014 maximum institutional interest`);
+    } else if (smcContext.orderBlock.detected && smcContext.orderBlock.aligns) {
+      summary.push(`\u26A0 Order Block: Aligned but ${smcContext.orderBlock.mitigation} \u2014 partially consumed`);
+    } else {
+      summary.push(`\u26A0 Order Block: No aligned fresh order block`);
+    }
+    if (smcContext.wyckoff.detected && smcContext.wyckoff.aligns) {
+      score++;
+      summary.push(`\u2705 Wyckoff: ${smcContext.wyckoff.phase}/${smcContext.wyckoff.stage || "phase"} aligns`);
+    } else if (smcContext.wyckoff.detected) {
+      summary.push(`\u26A0 Wyckoff: Detected but conflicts \u2014 ${smcContext.wyckoff.phase}`);
+    } else {
+      summary.push(`\u26A0 Wyckoff: No clear phase`);
+    }
+    const eqAligns = signal === "BUY" ? smcContext.equalHighsLows.equalHighs.detected : smcContext.equalHighsLows.equalLows.detected;
+    if (eqAligns) {
+      score++;
+      summary.push(`\u2705 Liquidity Target: Equal ${signal === "BUY" ? "highs (BSL)" : "lows (SSL)"} above \u2014 clear institutional draw on liquidity`);
+    } else {
+      summary.push(`\u26A0 Liquidity: No equal ${signal === "BUY" ? "highs" : "lows"} as TP target`);
+    }
+  }
+  const ictThresholds = resolveIctThresholds(accountBalance);
+  let grade;
+  if (score >= ictThresholds.aPlus) grade = "A+";
+  else if (score >= ictThresholds.a) grade = "A";
+  else if (score >= ictThresholds.b) grade = "B";
+  else if (score >= ictThresholds.c) grade = "C";
+  else grade = "D";
+  const gradeOrder = ["D", "C", "B", "A", "A+"];
+  const belowMinGrade = gradeOrder.indexOf(grade) < gradeOrder.indexOf(ictThresholds.minGrade);
+  if (belowMinGrade) {
+    console.log(`[ICT] Grade ${grade} below min ${ictThresholds.minGrade} for $${accountBalance} account \u2014 blocking`);
+  }
+  return { score, maxScore: 12, grade, summary, belowMinGrade, minGrade: ictThresholds.minGrade };
+}
+function computeNewsProximity(upcomingEvents, blockThresholdMinutes = 15) {
+  if (!upcomingEvents || upcomingEvents.length === 0) {
+    return { minutesToNext: null, eventName: null, isBlocked: false, isWarning: false, summary: "" };
+  }
+  const highImpact = upcomingEvents.filter((e) => {
+    const imp = (e.impact || "").toLowerCase();
+    return imp === "high" || imp === "3" || imp === "red";
+  });
+  if (highImpact.length === 0) {
+    return { minutesToNext: null, eventName: null, isBlocked: false, isWarning: false, summary: "" };
+  }
+  const now = Date.now();
+  let closestMinutes = null;
+  let closestName = null;
+  for (const ev of highImpact) {
+    try {
+      let eventMs = null;
+      const t = ev.time || "";
+      const iso = new Date(t);
+      if (!isNaN(iso.getTime())) {
+        eventMs = iso.getTime();
+      } else {
+        const relMatch = t.match(/in\s+(\d+)\s*min/i);
+        if (relMatch) eventMs = now + parseInt(relMatch[1]) * 6e4;
+        const todayMatch = t.match(/today\s+(\d{1,2}):(\d{2})/i);
+        if (todayMatch) {
+          const d = /* @__PURE__ */ new Date();
+          d.setHours(parseInt(todayMatch[1]), parseInt(todayMatch[2]), 0, 0);
+          eventMs = d.getTime();
+        }
+      }
+      if (eventMs !== null) {
+        const mins2 = (eventMs - now) / 6e4;
+        if (mins2 >= -5 && (closestMinutes === null || mins2 < closestMinutes)) {
+          closestMinutes = mins2;
+          closestName = ev.event;
+        }
+      }
+    } catch {
+    }
+  }
+  if (closestMinutes === null || closestMinutes < -5) {
+    return { minutesToNext: null, eventName: null, isBlocked: false, isWarning: false, summary: "" };
+  }
+  const mins = Math.round(closestMinutes);
+  const isBlocked = mins < blockThresholdMinutes;
+  const isWarning = mins < 60;
+  const summary = isBlocked ? `\u26D4 ${closestName} in ${mins} min \u2014 BLOCKED (within ${blockThresholdMinutes}-min prop firm news window)` : isWarning ? `\u26A0 ${closestName} in ${mins} min \u2014 CAUTION: reduce size and tighten SL` : "";
+  return { minutesToNext: mins, eventName: closestName, isBlocked, isWarning, summary };
+}
+function detectWeekendRolloverRisk() {
+  const now = /* @__PURE__ */ new Date();
+  const jan = new Date(now.getFullYear(), 0, 1);
+  const jul = new Date(now.getFullYear(), 6, 1);
+  const isDST = now.getTimezoneOffset() < Math.max(jan.getTimezoneOffset(), jul.getTimezoneOffset());
+  const nyOffset = isDST ? -4 : -5;
+  const nyMs = now.getTime() + (now.getTimezoneOffset() + nyOffset * 60) * 6e4;
+  const nyDate = new Date(nyMs);
+  const nyDay = nyDate.getDay();
+  const nyHour = nyDate.getHours();
+  const nyMin = nyDate.getMinutes();
+  const isFridayPM = nyDay === 5 && nyHour >= 16;
+  const minutesToRollover = Math.max(0, 17 * 60 - (nyHour * 60 + nyMin));
+  const isNearRollover = minutesToRollover <= 15 && minutesToRollover >= 0 && nyDay >= 1 && nyDay <= 5;
+  let warning = null;
+  if (isFridayPM) {
+    warning = `\u26A0 WEEKEND HOLD RISK: It is Friday ${nyHour}:${String(nyMin).padStart(2, "0")} NY time \u2014 most prop firms prohibit holding positions over the weekend. If this trade cannot reach TP before Friday 5 PM NY, REDUCE size or skip entirely.`;
+  } else if (isNearRollover) {
+    warning = `\u26A0 ROLLOVER WARNING: 5 PM NY rollover in ${minutesToRollover} minutes \u2014 swap charges apply. Consider reducing trail width to TIGHT.`;
+  }
+  return { isFridayPM, isNearRollover, minutesToRollover, warning };
+}
+function detectMarketRegime(indicators) {
+  const adx = indicators?.adx?.value ?? (typeof indicators?.adx === "number" ? indicators.adx : null);
+  if (adx == null || !Number.isFinite(adx)) {
+    return { regime: "TRANSITIONAL", adx: null, reason: "ADX unavailable \u2014 treat as transitional" };
+  }
+  if (adx >= 25) return { regime: "TRENDING", adx, reason: `ADX ${adx.toFixed(1)} \u2265 25 \u2014 trending/impulsive` };
+  if (adx < 20) return { regime: "RANGING", adx, reason: `ADX ${adx.toFixed(1)} < 20 \u2014 ranging/mean-reverting` };
+  return { regime: "TRANSITIONAL", adx, reason: `ADX ${adx.toFixed(1)} in 20\u201325 \u2014 transitional` };
+}
+function setAdaptiveRegimeEnabled(userId, enabled) {
+  adaptiveRegimeEnabledMap.set(userId, enabled);
+}
+function isAdaptiveRegimeEnabled(userId) {
+  return adaptiveRegimeEnabledMap.get(userId) ?? false;
+}
+function hydrateAdaptiveRegimeMap(userId, enabled) {
+  adaptiveRegimeEnabledMap.set(userId, enabled);
+}
+function buildRegimeAdaptationSection(regime, adx, strategyMode) {
+  const isSniperFamily = strategyMode === "sniper" || strategyMode === "prop_firm_sniper";
+  if (!isSniperFamily) return "";
+  const adxStr = adx != null ? adx.toFixed(1) : "n/a";
+  if (regime === "RANGING") {
+    return `
+\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550
+\u{1F9ED} ADAPTIVE REGIME: RANGING (ADX ${adxStr})
+\u26A0\uFE0F PRECEDENCE: this ADAPTIVE REGIME block OVERRIDES any earlier rule in the
+strategy filter that says "BOS/CHOCH must be confirmed" or "no ranging market
+entries." When the two conflict, follow THIS block \u2014 do NOT reject a valid
+range-reversal setup just because no BOS/CHOCH is present.
+The market is RANGE-BOUND, not trending. In a range, waiting for a Break of
+Structure is WRONG \u2014 the highest-quality range trade is a REVERSAL at the edge.
+OVERRIDE the sniper's trending rules as follows:
+\u2022 BOS/CHOCH is NO LONGER required (do not reject for "no BOS/CHOCH \u2014 ranging").
+\u2022 ICT macro window is a bonus, NOT a hard requirement.
+Instead, CONFIRM only if ALL of these range-reversal criteria are met:
+1. Price is AT or sweeping a VALIDATED range extreme \u2014 support/resistance,
+   PDH/PDL, or equal highs/lows (BUY at range low, SELL at range high ONLY).
+2. A fresh Order Block OR Fair Value Gap sits at that extreme in the trade direction.
+3. A rejection signal is present: liquidity sweep of the extreme + close back
+   inside, RSI extreme (>70 for SELL, <30 for BUY), or bullish/bearish engulf.
+4. Target is the OPPOSITE range boundary; R:R must be >= 1:2 (ranges give tighter targets than trends).
+REJECT if price is in the MIDDLE of the range (no edge), or the setup is trading
+INTO the range boundary rather than reversing off it (that's chop = no trade).
+\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550`;
+  }
+  if (regime === "TRENDING") {
+    return `
+\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550
+\u{1F9ED} ADAPTIVE REGIME: TRENDING (ADX ${adxStr})
+Impulsive/trending conditions confirmed \u2014 the FULL sniper breakout rules apply:
+BOS/CHOCH is REQUIRED, favor continuation in the trend direction, and treat
+counter-trend reversals as LOW quality unless a CHOCH confirms the shift.
+\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550`;
+  }
+  return `
+\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550
+\u{1F9ED} ADAPTIVE REGIME: TRANSITIONAL (ADX ${adxStr})
+\u26A0\uFE0F PRECEDENCE: this block OVERRIDES any earlier "BOS/CHOCH must be confirmed /
+no ranging entries" hard rule in the strategy filter \u2014 follow the guidance here.
+Neither cleanly trending nor ranging. Demand EXTRA confirmation: either a
+confirmed BOS/CHOCH (trend path) OR a clean range-edge reversal with OB/FVG +
+sweep (range path). If the setup fits neither cleanly, REJECT \u2014 no forcing.
+\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550`;
+}
+function buildStrategyFilterSection(strategyMode) {
+  if (!strategyMode || strategyMode === "aggressive") return "";
+  const filters = {
+    sniper: `
+\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550
+\u{1F3AF} ACTIVE STRATEGY FILTER: SNIPER MODE
+Your job is to confirm ONLY the highest-quality setups. Apply all of the following as hard requirements:
+1. BOS or CHOCH must be CONFIRMED on the trading timeframe (no confirmation = REJECT)
+2. Entry must be AT or INSIDE an Order Block, Fair Value Gap, or OTE zone (61.8\u201378.6% retrace)
+3. ICT macro window must be ACTIVE (NY 8:30\u201311:00 or 13:30\u201316:00, London 7:00\u201310:00 UTC)
+4. At least 2 higher timeframes must align with the trade direction
+5. R:R must be >= 1:3. If TP gives less than 3\xD7 the SL distance, REJECT.
+6. Minimum 3 independent confluences (OB + FVG + multi-TF counts as 3)
+If ANY of these 6 criteria is missing, your verdict must be REJECT.
+\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550`,
+    ict_order_blocks: `
+\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550
+\u{1F3AF} ACTIVE STRATEGY FILTER: ICT ORDER BLOCKS
+You are ONLY confirming Order Block entries. Apply these rules:
+1. There must be a clear Order Block visible (last bullish candle before bearish displacement for SELL OBs, last bearish candle before bullish displacement for BUY OBs)
+2. Price must currently be RETURNING to the OB zone (retrace/pull-back, not continuation)
+3. The OB must be from a structural move \u2014 a BOS or significant displacement
+4. OB must be UNMITIGATED (price has not fully traded through it before)
+5. Look in smcContext for orderBlocks array \u2014 if none are detected, confidence should be < 50
+If no valid Order Block is present in the data, REJECT with low confidence.
+\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550`,
+    ict_fvg: `
+\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550
+\u{1F3AF} ACTIVE STRATEGY FILTER: ICT FAIR VALUE GAP (FVG)
+You are ONLY confirming Fair Value Gap entries. Rules:
+1. An active, unfilled FVG must exist in the direction of the trade (bullish FVG for BUY, bearish FVG for SELL)
+2. Price must currently be ENTERING or sitting INSIDE the FVG zone
+3. Check smcContext.fairValueGaps \u2014 if none detected, significantly lower confidence
+4. A FVG created after a BOS/CHOCH is the highest quality
+5. FVG entries against the HTF trend are LOW quality \u2014 require multi-TF alignment
+6. Partial fills of FVG are allowed if other confluences agree
+If no FVG is present in the candle data or smcContext, REJECT.
+\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550`,
+    ict_liquidity_sweep: `
+\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550
+\u{1F3AF} ACTIVE STRATEGY FILTER: ICT LIQUIDITY SWEEP
+You are confirming stop-hunt / liquidity sweep reversals. Rules:
+1. There MUST be a visible sweep of equal highs (for SELL) or equal lows (for BUY) within the last 10 candles
+2. The sweep candle should show a wick through the level with a close back inside the range (stop hunt anatomy)
+3. After the sweep, look for a reversal confirmation: engulfing candle, BOS on LTF, displacement
+4. Check ictContext for stopHuntData \u2014 a sweep without confirmation is a fake-out risk
+5. The swept level should be a resting liquidity pool (prior swing highs/lows, equal highs/lows)
+6. Do NOT confirm if the sweep is WITH the trend (continuation sweeps have lower probability)
+If no liquidity sweep is detectable, REJECT.
+\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550`,
+    ict_bos: `
+\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550
+\u{1F3AF} ACTIVE STRATEGY FILTER: ICT BREAK OF STRUCTURE (BOS)
+You are confirming BOS continuation entries. Rules:
+1. A clear BOS must have occurred recently \u2014 price took out a prior swing high (bullish BOS for BUY) or swing low (bearish BOS for SELL)
+2. After the BOS, price should be pulling back (retracing) \u2014 entry is on the PULLBACK, not on the initial BOS candle
+3. Ideal entry: pullback to 50% retracement of the BOS leg, OB or FVG within that zone
+4. Check smcContext for bos/choch detection
+5. A CHOCH (Change of Character) without a BOS confirmation = lower quality, reduce confidence
+6. BOS entries aligned with HTF trend = highest quality
+If no BOS is detected in smcContext, confidence must be below 55.
+\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550`,
+    ict_ote: `
+\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550
+\u{1F3AF} ACTIVE STRATEGY FILTER: ICT OPTIMAL TRADE ENTRY (OTE)
+You are confirming OTE zone entries. Rules:
+1. A clear swing structure must exist \u2014 identify the recent swing high and swing low
+2. For BUY: price must be in the 61.8\u201378.6% Fibonacci retracement zone of the most recent bullish swing
+   For SELL: price must be in the 61.8\u201378.6% zone of the most recent bearish swing
+3. Check indicators.fibonacci \u2014 the OTE zone is typically between fib 0.618 and 0.786
+4. ICT macro timing is critical for OTE \u2014 confirm the ICT macro window is active
+5. HTF must show the trend direction aligned with the OTE entry
+6. OTE without HTF alignment = WATCH only, not CONFIRM
+If price is NOT in the 61.8\u201378.6% zone, REJECT.
+\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550`,
+    smc_demand_supply: `
+\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550
+\u{1F3AF} ACTIVE STRATEGY FILTER: SMC DEMAND/SUPPLY ZONES
+You are confirming supply and demand zone entries. Rules:
+1. There must be a clear supply zone (for SELL) or demand zone (for BUY) visible in the chart
+2. Price should be RETURNING to a fresh (unmitigated) zone
+3. A valid supply zone = a sharp departure (displacement) from a consolidation or base
+4. Check smcContext for orderBlocks and supplyDemandZones
+5. Zones that have been tested once are lower quality; fresh zones (first touch) are highest quality
+6. Zone + BOS confirmation on the candle at the zone = highest quality entry
+7. Entering mid-zone or on the far edge of a zone = reduced quality
+If no supply/demand zone is present at the current price, REJECT.
+\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550`,
+    session_breakout: `
+\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550
+\u{1F3AF} ACTIVE STRATEGY FILTER: SESSION BREAKOUT
+You are confirming session open breakout trades only. Rules:
+1. Trade MUST be during or immediately after the London open (06:00\u201309:00 UTC) or NY open (12:30\u201315:00 UTC)
+2. A pre-session consolidation range must exist \u2014 price was ranging during Asian or pre-London session
+3. Check breakoutDetection data \u2014 breakoutDetected must be true or approachingBreakout must be true
+4. Volume confirmation (volumeConfirmed=true) greatly increases quality
+5. The breakout direction must align with the HTF trend for highest quality
+6. Counter-trend breakouts require extra confluence (at minimum 3 factors agreeing)
+7. False breakout risk: if price breaks then immediately retraces 50%+ of breakout move, do NOT confirm
+If breakoutDetection.isBreakoutWindow is false or no session breakout is detected, REJECT.
+\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550`,
+    momentum: `
+\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550
+\u{1F3AF} ACTIVE STRATEGY FILTER: MOMENTUM SURFING
+You are confirming momentum-driven trend entries. Rules:
+1. ADX must be > 25 (trending market). ADX < 20 = ranging = avoid
+2. MACD histogram must be in the signal direction AND trending (growing, not shrinking)
+3. RSI must be 50\u201370 for BUY momentum, 30\u201350 for SELL momentum (not overbought/oversold)
+4. Multiple EMAs should be fanned out in the direction of the trade
+5. Price should be making higher highs + higher lows (for BUY) or lower highs + lower lows (for SELL)
+6. Entry on a brief pullback to EMA support/resistance, NOT on a continuation extension
+7. AVOID momentum entries if RSI is > 75 (BUY) or < 25 (SELL) \u2014 overextended
+If ADX < 20 or RSI is extreme, REJECT.
+\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550`,
+    scalping: `
+\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550
+\u{1F3AF} ACTIVE STRATEGY FILTER: SCALPING / HFT
+You are confirming short-duration scalp trades. Rules:
+1. Target is 3\u201310 pips. R:R can be as low as 1:1 if win rate is high
+2. SL must be tight \u2014 no wider than 10\u201315 pips for major pairs
+3. Look for micro-structure: quick LTF (M1/M5) momentum confirmations
+4. RSI reversals from extremes (> 70 or < 30) are valid scalp signals
+5. Avoid scalping during low-liquidity periods (Asian session for major USD pairs) unless there is clear range-bound movement
+6. High-impact news within 30 minutes = DO NOT scalp (spreads widen, stops get hunted)
+7. MACD histogram reversal on the trading timeframe is a valid entry signal
+This is a volume strategy \u2014 multiple entries per session are expected.
+\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550`,
+    asia_range_breakout: `
+\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550
+\u{1F3AF} ACTIVE STRATEGY FILTER: ASIA RANGE BREAKOUT
+You are confirming breakouts of the Asian session price range. Rules:
+1. The Asian session (00:00\u201307:00 UTC) must have established a consolidation range
+2. Price must be breaking OUT of that range (above the Asia high for BUY, below the Asia low for SELL)
+3. Check breakoutDetection.session \u2014 should indicate Asian range context
+4. The breakout should occur at or after the London open for maximum liquidity
+5. Volume expansion on the breakout candle = high quality
+6. The Asia range should be at least 10 pips for meaningful breakout
+7. Avoid if the range was very wide (> 50 pips for majors) \u2014 larger ranges have higher false-breakout rate
+If no Asian range context is detected, REJECT.
+\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550`,
+    vwap_mean_reversion: `
+\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550
+\u{1F3AF} ACTIVE STRATEGY FILTER: VWAP MEAN REVERSION
+You are confirming mean-reversion entries back toward VWAP. Rules:
+1. Price must be SIGNIFICANTLY extended from VWAP \u2014 at least 0.5\xD7 ATR away
+2. For BUY: price must be BELOW VWAP, extended, showing reversal signs
+   For SELL: price must be ABOVE VWAP, extended, showing reversal signs
+3. RSI divergence (price makes new extreme but RSI doesn't) = high quality signal
+4. Look for rejection candles at the extended zone before entry
+5. This is a counter-trend strategy \u2014 require extra confirmation (engulfing, pin bar at S/R)
+6. Do NOT use VWAP mean reversion in strongly trending markets (ADX > 35) \u2014 trend will fight against reversion
+7. Best timeframe: M15\u2013H1. Very short timeframes have too much noise.
+If VWAP data is missing or price is near VWAP (within 0.3\xD7 ATR), REJECT.
+\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550`,
+    prop_firm_sniper: `
+\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550
+\u{1F3AF} ACTIVE STRATEGY FILTER: PROP FIRM SNIPER (MAXIMUM PROTECTION)
+You are operating under STRICT prop firm rules. ALL of the following are required:
+1. R:R MINIMUM 1:3 \u2014 TP must be 3\xD7 the SL distance. Less than 1:3 = immediate REJECT
+2. ICT macro window MUST be active (no off-hours trading)
+3. BOS/CHOCH MUST be confirmed \u2014 no ranging market entries
+4. Entry MUST be at OB or FVG \u2014 no "middle of nowhere" entries
+5. Multi-TF alignment: at LEAST 2 higher timeframes agree
+6. No high-impact news within 30 minutes \u2014 hard rule
+7. Report your GENUINE calibrated confidence \u2014 the system applies its own
+   threshold, so do not round toward any particular number. State 40 if you are
+   40% sure and 95 if you are 95% sure; a setup you would not take yourself
+   belongs below 50.
+8. No counter-trend trades (check HTF bias \u2014 must align)
+This is the most conservative filter. Reject anything that isn't a near-perfect setup.
+\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550`
+  };
+  return filters[strategyMode] || `
+\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550
+\u{1F4CB} ACTIVE STRATEGY: ${strategyMode.toUpperCase().replace(/_/g, " ")}
+Apply the rules appropriate for this strategy when evaluating the trade. Prioritize setups that align with the ${strategyMode} methodology.
+\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550`;
+}
+async function buildConfirmationPrompt(candleData, indicators, proposedSignal, proposedConfidence, tradePlan, symbol, timeframe, newsContext, ictContext, smcContext, htfLevels, propFirmContext, performanceStats, learnedInsights, userId, strategyMode) {
+  const strategyCtx = await getStrategyContext(symbol).catch(() => null);
+  const strategySection = strategyCtx ? formatStrategyContextForPrompt(strategyCtx) : "";
+  const learnedSection = learnedInsights || "";
+  let winningPatternsSection = "";
+  try {
+    if (userId) {
+      const winPatterns = await getWinningStrategyPatterns(userId);
+      if (winPatterns && !winPatterns.includes("No significant")) {
+        winningPatternsSection = `
+
+## Your Historically Winning Patterns (from your trade brain)
+Prioritise setups that match these \u2014 they have proven profitable in your account:
+${winPatterns}
+`;
+      }
+    }
+  } catch {
+  }
+  const strategyContext = getRelevantStrategies(symbol);
+  const recentCandles = candleData.slice(0, 30);
+  const candleSummary = recentCandles.map(
+    (c, i) => `[${i}] O:${c.o} H:${c.h} L:${c.l} C:${c.c} V:${c.v || 0}`
+  ).join("\n");
+  const trailSignalSummary = buildTrailSignalSummary(symbol, proposedSignal, tradePlan, ictContext, smcContext);
+  const confluenceResult = computeConfluenceScore(proposedSignal, ictContext, smcContext);
+  const coreIndicators = {};
+  const advancedIndicators = {};
+  if (indicators) {
+    const advancedKeys = ["adx", "stochastic", "vwap", "obv", "pivotPoints", "fibonacci", "supportResistance", "candlePatterns", "swingPoints", "sessionContext", "volatilityContext", "volumeProfile", "breakoutDetection"];
+    for (const [key, val] of Object.entries(indicators)) {
+      if (advancedKeys.includes(key)) advancedIndicators[key] = val;
+      else coreIndicators[key] = val;
+    }
+  }
+  const coreStr = JSON.stringify(coreIndicators, null, 2);
+  const advStr = Object.keys(advancedIndicators).length > 0 ? JSON.stringify(advancedIndicators, null, 2) : "";
+  let newsSection = "";
+  if (newsContext) {
+    const parts = [];
+    if (newsContext.sentiment) {
+      parts.push(`NEWS SENTIMENT: ${newsContext.sentiment.overallLabel?.toUpperCase() || "NEUTRAL"} (score: ${newsContext.sentiment.overallScore || 0}/100)`);
+      parts.push(`Bullish articles: ${newsContext.sentiment.bullishCount || 0} | Bearish: ${newsContext.sentiment.bearishCount || 0} | Neutral: ${newsContext.sentiment.neutralCount || 0}`);
+      if (newsContext.sentiment.tradingImplication) {
+        parts.push(`Trading Implication: ${newsContext.sentiment.tradingImplication}`);
+      }
+      if (newsContext.sentiment.pairDirection) {
+        parts.push(`Pair Direction from News: ${newsContext.sentiment.pairDirection}`);
+      }
+    }
+    if (newsContext.topHeadlines && newsContext.topHeadlines.length > 0) {
+      parts.push(`
+Recent Headlines:`);
+      newsContext.topHeadlines.slice(0, 5).forEach((h, i) => parts.push(`  ${i + 1}. ${h}`));
+    }
+    if (newsContext.upcomingEvents && newsContext.upcomingEvents.length > 0) {
+      parts.push(`
+UPCOMING ECONOMIC EVENTS (potential volatility):`);
+      newsContext.upcomingEvents.slice(0, 5).forEach((e) => {
+        const timeUntil = e.daysUntil === 0 ? "TODAY" : e.daysUntil === 1 ? "TOMORROW" : `in ${e.daysUntil} days`;
+        parts.push(`  - [${e.impact?.toUpperCase()}] ${e.event} (${e.currency}) - ${timeUntil} at ${e.timeFormatted || "TBD"}`);
+        if (e.potentialImpact) parts.push(`    Impact: ${e.potentialImpact}`);
+      });
+    }
+    if (newsContext.marketNarrative) {
+      parts.push(`
+VEDD WEEKLY MARKET BRIEFING (from this week's community research \u2014 context only, not a trade signal):`);
+      parts.push(`  ${newsContext.marketNarrative}`);
+    }
+    if (parts.length > 0) {
+      newsSection = `
+NEWS & ECONOMIC EVENTS CONTEXT:
+${parts.join("\n")}`;
+    }
+  }
+  let propFirmSection = "";
+  let newsProximityAlert = "";
+  let computedRiskPct = 0;
+  let remainingDailyBuffer = 0;
+  if (propFirmContext?.enabled) {
+    const blockMins = propFirmContext.newsBlockMinutes || 15;
+    const newsProx = computeNewsProximity(newsContext?.upcomingEvents, blockMins);
+    if (newsProx.isBlocked) {
+      newsProximityAlert = `
+${"\u2550".repeat(47)}
+\u26D4 NEWS PROXIMITY ALERT \u2014 ${newsProx.eventName} in ${newsProx.minutesToNext} minutes
+PROP FIRM RULE: DO NOT ENTER. High-impact news within ${blockMins}-min block window. REJECT this trade.
+${"\u2550".repeat(47)}`;
+    } else if (newsProx.isWarning && newsProx.summary) {
+      newsProximityAlert = `
+\u26A0 NEWS WARNING: ${newsProx.summary}`;
+    }
+    const weekendRisk = detectWeekendRolloverRisk();
+    const weekendWarning = weekendRisk.warning || "";
+    remainingDailyBuffer = propFirmContext.maxDailyDrawdownPct + propFirmContext.currentDailyPnlPct;
+    const totalBuffer = propFirmContext.maxTotalDrawdownPct + propFirmContext.currentTotalPnlPct;
+    let drawdownAlert = "";
+    if (remainingDailyBuffer < 0.5) {
+      drawdownAlert = `
+\u26D4 DAILY LIMIT CRITICAL: Only ${remainingDailyBuffer.toFixed(2)}% daily buffer remaining \u2014 DO NOT TRADE. One more loss hits the daily limit.`;
+    } else if (remainingDailyBuffer < 1.5) {
+      drawdownAlert = `
+\u26A0 DAILY BUFFER LOW: Only ${remainingDailyBuffer.toFixed(2)}% remaining \u2014 micro lot only or skip this trade.`;
+    }
+    if (tradePlan?.entry && tradePlan?.stopLoss && tradePlan?.lotSize && propFirmContext.accountBalance > 0) {
+      const pipSize2 = symbol.includes("JPY") ? 0.01 : symbol.includes("XAU") || symbol.includes("GOLD") ? 0.1 : 1e-4;
+      const pipDist = Math.abs(tradePlan.entry - tradePlan.stopLoss) / pipSize2;
+      const pipValuePerLot = symbol.includes("JPY") ? 1e3 : symbol.includes("XAU") || symbol.includes("GOLD") ? 10 : 10;
+      const dollarRisk = pipDist * pipValuePerLot * tradePlan.lotSize;
+      computedRiskPct = dollarRisk / propFirmContext.accountBalance * 100;
+    }
+    const riskWarning = computedRiskPct > 2 ? `
+\u26A0 RISK WARNING: Estimated trade risk is ${computedRiskPct.toFixed(2)}% of account \u2014 exceeds the 2% prop firm guideline.` : "";
+    propFirmSection = `
+${"\u2550".repeat(19)} PROP FIRM COMPLIANCE ${"\u2550".repeat(19)}
+Firm preset: ${propFirmContext.firmPreset}
+Daily P&L: ${propFirmContext.currentDailyPnlPct.toFixed(2)}% | Buffer remaining: ${remainingDailyBuffer.toFixed(2)}% of ${propFirmContext.maxDailyDrawdownPct}% limit
+Total P&L: ${propFirmContext.currentTotalPnlPct.toFixed(2)}% | Total buffer: ${totalBuffer.toFixed(2)}% of ${propFirmContext.maxTotalDrawdownPct}% limit
+Intended risk/trade: ${propFirmContext.riskPerTradePct}% | Estimated actual risk: ${computedRiskPct > 0 ? computedRiskPct.toFixed(2) + "%" : "N/A"}
+News block window: ${blockMins} min | Overnight holds: ${propFirmContext.allowOvernightHolds} | Weekend holds: ${propFirmContext.allowWeekendHolds}${drawdownAlert}${riskWarning}${weekendWarning ? "\n" + weekendWarning : ""}
+\u26A0 Apply prop firm rules 12\u201317 STRICTLY. A failed challenge cannot be recovered. When in doubt, REJECT.
+${"\u2550".repeat(59)}`;
+  }
+  let smcSection = "";
+  if (smcContext) {
+    const { bosCHOCH, fvg, orderBlock, equalHighsLows, wyckoff } = smcContext;
+    const lines = [];
+    lines.push(`SMC / SMART MONEY CONCEPTS ANALYSIS:`);
+    if (bosCHOCH.detected) {
+      const icon = bosCHOCH.direction === "BULLISH" ? "\u2705" : bosCHOCH.direction === "BEARISH" ? "\u2705" : "\u26A0\uFE0F";
+      lines.push(`\u25BA Structure (${bosCHOCH.type}): ${bosCHOCH.description} ${icon}`);
+    } else {
+      lines.push(`\u25BA Structure: No BOS/CHOCH \u2014 price still within prior range, no clear directional break \u26A0\uFE0F`);
+    }
+    if (fvg.detected) {
+      const inZoneStr = fvg.inZone ? " \u26A1 PRICE IN ZONE" : "";
+      lines.push(`\u25BA Fair Value Gap (FVG): ${fvg.description}${inZoneStr} \u2705`);
+    } else {
+      lines.push(`\u25BA Fair Value Gap: No aligned FVG detected \u2014 entry not anchored to an imbalance zone \u26A0\uFE0F`);
+    }
+    if (orderBlock.detected) {
+      const mitLabel = orderBlock.mitigation ? ` | ${orderBlock.mitigation} (${orderBlock.mitigationCount || 0} test${orderBlock.mitigationCount !== 1 ? "s" : ""})` : "";
+      const mitIcon = orderBlock.mitigation === "FRESH" ? "\u2705" : orderBlock.mitigation === "FULLY_MITIGATED" ? "\u26A0\uFE0F" : "\u2705";
+      lines.push(`\u25BA Order Block: ${orderBlock.description}${mitLabel} ${mitIcon}`);
+    } else {
+      lines.push(`\u25BA Order Block: No order block or breaker block detected for this direction \u26A0\uFE0F`);
+    }
+    const ehLine = equalHighsLows.equalHighs.detected ? `Equal Highs at ~${equalHighsLows.equalHighs.level?.toFixed(5)} (BSL above)` : "No equal highs";
+    const elLine = equalHighsLows.equalLows.detected ? `Equal Lows at ~${equalHighsLows.equalLows.level?.toFixed(5)} (SSL below)` : "No equal lows";
+    lines.push(`\u25BA Liquidity Map: ${ehLine} | ${elLine}`);
+    if (smcContext.liquidityTargets) {
+      const lt2 = smcContext.liquidityTargets;
+      lines.push(`\u25BA Liquidity Targets: ${lt2.description}`);
+      lines.push(`  Internal: ${lt2.internalTarget.description}`);
+      lines.push(`  External: ${lt2.externalTarget.description}`);
+    }
+    if (wyckoff.detected) {
+      const wIcon = wyckoff.aligns ? "\u2705" : "\u26A0\uFE0F";
+      lines.push(`\u25BA Wyckoff Phase: ${wyckoff.description} ${wIcon}`);
+    } else {
+      lines.push(`\u25BA Wyckoff: No clear accumulation/distribution phase detected`);
+    }
+    smcSection = `
+${lines.join("\n")}`;
+  }
+  let ictSection = "";
+  if (ictContext) {
+    const mw = ictContext.macroWindow;
+    const pd = ictContext.premiumDiscount;
+    const sh = ictContext.stopHunt;
+    const crt = ictContext.crtPattern;
+    const sess = mw.session || "UNKNOWN";
+    const macroLine = mw.isInMacroWindow ? `ACTIVE \u2014 ${mw.macroName} \u2705` : `INACTIVE \u2014 next: ${mw.nextMacroName} in ${mw.minutesUntilNextMacro}min \u26A0\uFE0F`;
+    const pdAlignIcon = pd.aligns ? "\u2705 ALIGNS" : "\u274C CONFLICTS";
+    const shLine = sh.detected ? `DETECTED \u2014 ${sh.description} \u2705` : `NOT DETECTED \u2014 no liquidity sweep in last 6 candles \u26A0\uFE0F`;
+    const crtLine = crt.detected ? `${crt.direction} CRT (${crt.stage}) \u2014 ${crt.description}` : "No CRT pattern detected";
+    const ictLines = [
+      `ICT "ONE SETUP FOR LIFE" FRAMEWORK (NY Time: ${mw.currentNYTime} | Session: ${sess}):`,
+      `\u25BA Macro Window: ${macroLine}`,
+      `\u25BA PD Array: ${pd.zone} zone (${pd.percentile}th percentile) \u2014 ${pdAlignIcon} with ${proposedSignal} signal`,
+      `  Range: ${pd.rangeLow.toFixed(5)}\u2013${pd.rangeHigh.toFixed(5)} | Equilibrium: ${pd.equilibrium.toFixed(5)}`,
+      `\u25BA Stop Hunt / Liquidity Sweep: ${shLine}`,
+      `\u25BA CRT Pattern: ${crtLine}`
+    ];
+    if (ictContext.asianRange?.detected) {
+      ictLines.push(`\u25BA Asian Range: ${ictContext.asianRange.description}`);
+    }
+    if (ictContext.keyLevels) {
+      const kl = ictContext.keyLevels;
+      ictLines.push(`\u25BA KEY REFERENCE LEVELS (ICT Draw on Liquidity):`);
+      if (kl.pdHigh !== null) ictLines.push(`  Previous Day High (PDH): ${kl.pdHigh.toFixed(5)} ${kl.abovePDH ? "\u2190 price ABOVE PDH (bearish draw, HTF resistance)" : "\u2190 price below PDH (potential BSL target above)"}`);
+      if (kl.pdLow !== null) ictLines.push(`  Previous Day Low (PDL): ${kl.pdLow.toFixed(5)} ${kl.belowPDL ? "\u2190 price BELOW PDL (bearish, continuation down)" : "\u2190 price above PDL (potential SSL target below)"}`);
+      if (kl.pwHigh !== null) ictLines.push(`  Previous Week High (PWH): ${kl.pwHigh.toFixed(5)}`);
+      if (kl.pwLow !== null) ictLines.push(`  Previous Week Low (PWL): ${kl.pwLow.toFixed(5)}`);
+      ictLines.push(`  \u2192 These are MAGNET levels \u2014 price is drawn to PDH/PDL/PWH/PWL regardless of LTF signals. Factor into TP and bias.`);
+    }
+    if (ictContext.oteZone?.detected) {
+      const ote = ictContext.oteZone;
+      const inZoneIcon = ote.inOTEZone ? "\u2705" : "\u26A0\uFE0F";
+      ictLines.push(`\u25BA OTE ZONE (Optimal Trade Entry \u2014 61.8\u201379% retracement): ${inZoneIcon}`);
+      ictLines.push(`  Swing: ${ote.swingLow?.toFixed(5)} \u2192 ${ote.swingHigh?.toFixed(5)}`);
+      ictLines.push(`  OTE zone: ${ote.ote79?.toFixed(5)} \u2013 ${ote.ote618?.toFixed(5)} | Sweet spot (70.5%): ${ote.ote705?.toFixed(5)}`);
+      ictLines.push(`  ${ote.inOTEZone ? "\u2705 Price IS in OTE zone \u2014 institutional entry sweet spot, maximum probability entry" : `\u26A0 Price at ${ote.currentPrice.toFixed(5)} NOT in OTE zone \u2014 entry is outside the 61.8\u201379% retracement window`}`);
+    }
+    ictSection = `
+${ictLines.join("\n")}`;
+  }
+  let htfSection = "";
+  if (htfLevels && htfLevels.length > 0) {
+    try {
+      const { detectBOSCHOCH: detectBOSCHOCH2, detectWyckoff: detectWyckoff2 } = (init_smcUtils(), __toCommonJS(smcUtils_exports));
+      const { getPremiumDiscountContext: getPremiumDiscountContext2 } = (init_ictMacroUtils(), __toCommonJS(ictMacroUtils_exports));
+      const tfLabels = {
+        "5min": "M5",
+        "15min": "M15",
+        "1h": "H1",
+        "4h": "H4",
+        "1day": "D1",
+        "1week": "W1",
+        "1m": "M1",
+        "5m": "M5",
+        "15m": "M15",
+        "30m": "M30",
+        "1d": "D1",
+        "1w": "W1"
+      };
+      const levelResults = [];
+      for (let i = 0; i < htfLevels.length; i++) {
+        const level = htfLevels[i];
+        if (!level.candles || level.candles.length < 10) continue;
+        const tfLabel = tfLabels[level.timeframe] || level.timeframe.toUpperCase();
+        const role = level.role || (i === 0 ? "INTERMEDIATE" : "MACRO");
+        const bosResult = detectBOSCHOCH2(level.candles, proposedSignal);
+        const entry = tradePlan?.entry || level.candles[0]?.c || 0;
+        const pdResult = getPremiumDiscountContext2(entry, level.candles, proposedSignal);
+        const wyckoffResult = detectWyckoff2(level.candles);
+        const bosAligns = !bosResult.detected || (proposedSignal === "BUY" && bosResult.direction === "BULLISH" || proposedSignal === "SELL" && bosResult.direction === "BEARISH");
+        const pdConflicts = !pdResult.aligns && pdResult.zone !== "EQUILIBRIUM";
+        const aligns = bosAligns && !pdConflicts;
+        const recentCloses = level.candles.slice(0, 10).map((c) => c.c);
+        const sma = recentCloses.reduce((s, v) => s + v, 0) / recentCloses.length;
+        const trendDirection = recentCloses[0] > sma * 1.001 ? "BULLISH" : recentCloses[0] < sma * 0.999 ? "BEARISH" : "NEUTRAL";
+        levelResults.push({ label: role, tf: tfLabel, trendDirection, aligns, bosCHOCH: bosResult, pd: pdResult, wyckoff: wyckoffResult });
+      }
+      if (levelResults.length > 0) {
+        const blocks = levelResults.map((lr) => {
+          const alignFlag = lr.aligns ? "\u2705 ALIGNS with signal" : "\u26A0 CONFLICTS with signal";
+          return `\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550 ${lr.tf} ${lr.label} BIAS \u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550
+Trend Direction: ${lr.trendDirection} (${lr.tf} 10-candle SMA crossover)
+Structure: ${lr.bosCHOCH.detected ? lr.bosCHOCH.description : `No clear BOS/CHOCH on ${lr.tf} \u2014 ranging context`}
+Premium/Discount: ${lr.pd.description}
+Wyckoff: ${lr.wyckoff.detected ? lr.wyckoff.description : `No Wyckoff phase on ${lr.tf}`}
+${lr.tf} Verdict: ${alignFlag}
+\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550`;
+        });
+        const allAlign = levelResults.every((lr) => lr.aligns);
+        const noneAlign = levelResults.every((lr) => !lr.aligns);
+        let crossLevelSummary;
+        if (allAlign) {
+          crossLevelSummary = `\u2705 MULTI-TF ALIGNMENT: All ${levelResults.length + 1} timeframes (${timeframe} + ${levelResults.map((lr) => lr.tf).join(" + ")}) AGREE \u2014 high-conviction institutional setup. Full size allowed.`;
+        } else if (noneAlign) {
+          crossLevelSummary = `\u{1F6A8} MULTI-TF CONFLICT: ${proposedSignal} on ${timeframe} CONFLICTS with ALL higher timeframes (${levelResults.map((lr) => lr.tf).join(" + ")}). This is a counter-trend fade against the macro structure. REJECT unless overwhelming LTF confluence.`;
+        } else {
+          const conflicting = levelResults.filter((lr) => !lr.aligns).map((lr) => lr.tf);
+          const aligned = levelResults.filter((lr) => lr.aligns).map((lr) => lr.tf);
+          crossLevelSummary = `\u26A0 PARTIAL MULTI-TF ALIGNMENT: ${aligned.join(", ")} support${aligned.length === 1 ? "s" : ""} the signal, but ${conflicting.join(", ")} conflict${conflicting.length === 1 ? "s" : ""}. Reduce position size and require extra LTF confluence.`;
+        }
+        htfSection = "\n" + blocks.join("\n\n") + `
+
+\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550 CROSS-TIMEFRAME VERDICT \u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550
+${crossLevelSummary}
+\u26A0 RULE: LTF signals must align with HTF structure. Trading against HTF bias requires significantly more LTF confluence.
+\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550`;
+      }
+    } catch (htfErr) {
+      htfSection = "";
+    }
+  }
+  const confluenceHeader = `
+\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550
+CONFLUENCE SCORE: ${confluenceResult.score}/${confluenceResult.maxScore} \u2014 Grade ${confluenceResult.grade}
+${confluenceResult.summary.join("\n")}
+Grade guide: A+ (10-12) = ELITE | A (8-9) = HIGH | B (6-7) = MODERATE | C (4-5) = LOW | D (0-3) = POOR
+Grade D \u2192 avoid. Grade A/A+ \u2192 high conviction trade.
+\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550`;
+  const _regimeSection = userId && isAdaptiveRegimeEnabled(userId) ? (() => {
+    const r = detectMarketRegime(indicators);
+    return buildRegimeAdaptationSection(r.regime, r.adx, strategyMode);
+  })() : "";
+  let _fxBrainSection = "";
+  try {
+    if (userId) {
+      const { fxBrainInsights: fxBrainInsights2 } = await Promise.resolve().then(() => (init_fx_brain(), fx_brain_exports));
+      const _fbTxt = await fxBrainInsights2(userId, symbol);
+      if (_fbTxt) {
+        _fxBrainSection = `
+
+THIS ACCOUNT'S MEASURED HISTORY ON ${symbol} (live results, not theory):
+${_fbTxt}
+Treat a FAILS line as a strong reason to reject: it means this pair has repeatedly lost under exactly these conditions across separate days.
+`;
+      }
+    }
+  } catch {
+  }
+  return {
+    system: "You are a master trader who speaks with street knowledge and the wisdom of Supreme Mathematics \u2014 Gods and Earths style. You build and destroy with the science of trading, dropping jewels and keeping it real. Your analysis is sharp, your reasoning is laced with knowledge of self and mathematical precision. You reference concepts like Knowledge (1), Wisdom (2), Understanding (3), Culture (4), Power (5), Equality (6), God (7), Build/Destroy (8), Born (9), and Cipher (0) naturally when they fit. You say things like 'the chart is showing and proving', 'peace \u2014 the math don't lie', 'this is a cipher of accumulation', 'knowledge this pattern God', 'the wisdom here is...', 'we building or we destroying?', etc. Keep it concise, authentic, and never forced \u2014 the science comes first, the flavor is the delivery. You provide honest, unbiased second opinions on trade signals using ALL available data including news sentiment and upcoming economic events. Always return valid JSON.",
+    user: `You are an elite trading analyst providing a SECOND OPINION on a proposed trade. Use ALL data below for maximum accuracy.
+${buildStrategyFilterSection(strategyMode)}${_regimeSection}${_fxBrainSection}${htfSection}${newsProximityAlert}${propFirmSection}${confluenceHeader}
+
+SYMBOL: ${symbol}
+TIMEFRAME: ${timeframe}
+
+PROPOSED SIGNAL: ${proposedSignal} with ${proposedConfidence}% confidence
+PROPOSED TRADE PLAN:
+- Entry: ${tradePlan?.entry}
+- Stop Loss: ${tradePlan?.stopLoss}
+- Take Profit: ${tradePlan?.takeProfit}
+- Risk/Reward: ${tradePlan?.riskReward}
+
+RECENT CANDLE DATA (index 0 = most recent):
+${candleSummary}
+
+CORE INDICATORS (RSI, MACD, MAs, BBs, ATR):
+${coreStr}
+${advStr ? `
+ADVANCED ANALYSIS:
+${advStr}
+` : ""}${newsSection}${smcSection}${ictSection}
+
+${strategySection}
+${learnedSection}${winningPatternsSection}
+
+## Industry-Proven Profitable Strategies (Reference for ${symbol})
+These are the highest-probability setups historically proven profitable on this instrument:
+${strategyContext}
+
+If the current setup closely matches 2+ win conditions from any strategy above, weight your confidence higher. If 0 conditions match, weight lower regardless of ICT/SMC score.
+
+Provide your independent assessment considering ALL of the following:
+1. PRICE ACTION: Do candle patterns (engulfing, hammer, star, doji) support the direction?
+2. MOMENTUM: RSI, MACD, Stochastic alignment \u2014 any divergences?
+3. TREND STRENGTH: ADX value \u2014 is the trend strong enough to trade? Is it ranging (ADX < 20)?
+4. VOLUME: OBV trend and divergence, volume profile \u2014 is volume confirming the move?
+5. MARKET STRUCTURE: Support/Resistance, Pivot Points, Fibonacci levels \u2014 is SL behind structure? Is TP at a realistic level?
+6. VWAP: Is price above or below VWAP? Does it align with the signal?
+7. SESSION CONTEXT: Is this the right trading session for this pair? Low liquidity risk?
+8. VOLATILITY: Is current ATR normal, high, or low vs recent history? Should position size be adjusted?
+9. RISK/REWARD: Is the R:R ratio >= 1.5? Are the SL/TP levels optimized relative to S/R?
+10. SWING POINTS: Are recent swing highs/lows respected in the trade plan?
+11. OPEN POSITIONS: Are there existing positions on this symbol? Avoid doubling correlated exposure.
+12. TRADE HISTORY: What is the recent win rate on this symbol? Is the trader on a losing streak?
+13. NEWS SENTIMENT: Does the current news flow support or contradict the proposed trade direction? Are headlines bullish or bearish for this pair?
+14. UPCOMING EVENTS: Are there high-impact economic events (rate decisions, NFP, CPI) coming soon that could invalidate the trade? Should the trader wait or use tighter stops?
+15. MARKET OPEN BREAKOUT: If breakoutDetection data is present and shows isBreakoutWindow=true, carefully analyze the breakout status:
+   - If breakoutDetected=true: This IS a confirmed breakout. Give it MAJOR weight \u2014 session open breakouts at London/NY are high-probability institutional setups. Boost confidence significantly if breakout direction aligns with the proposed signal.
+   - If approachingBreakout=true: Price is at the edge of the pre-session range and about to break out. This is a high-alert state \u2014 be ready to confirm in the approaching direction if other indicators align.
+   - Volume/momentum confirmation (volumeConfirmed=true or strong candle body) greatly increases breakout reliability.
+   - A breakout that contradicts the proposed signal is a strong warning \u2014 reduce confidence or reject.
+16. ICT MACRO & CRT FRAMEWORK (if provided above): Is the trade during an active ICT macro window (NY time)? Is price in the correct Premium (for SELL) or Discount (for BUY) PD array zone? Was there a stop hunt/liquidity sweep before entry? Is a CRT expansion phase beginning?
+   - Outside macro windows = HIGH fake-out risk, reduce confidence
+   - Price at Equilibrium = medium-probability zone, no premium/discount edge
+   - No prior stop hunt = institutional accumulation/distribution not confirmed, be cautious
+   - CRT in MANIPULATION stage = do NOT enter (likely to fake out further before expansion)
+   - CRT in EXPANSION stage = ideal entry with breakout confirmation
+17. MARKET STRUCTURE (BOS/CHOCH): Is there a clear Break of Structure or Change of Character confirming the trade direction? A BOS shows continuation \u2014 a CHOCH signals a trend reversal. Trading AGAINST the most recent BOS/CHOCH is LOW quality. If no BOS is detected, price is still ranging \u2014 caution.
+18. LIQUIDITY & ORDER FLOW (FVG + Order Blocks): Is the entry anchored to a Fair Value Gap or Order Block? Entries INTO an FVG or OB from a displacement move are HIGH quality. Are there equal highs/lows (liquidity pools) that price may be targeting? Price moves from one liquidity pool to the next \u2014 know which one is the TARGET and which is the ORIGIN. A breaker block above/below price is strong resistance/support.
+19. WYCKOFF PHASE: What is the Wyckoff phase? ACCUMULATION SPRING or DISTRIBUTION UPTHRUST before entry are high-quality signals (institutional footprints). MARKUP/MARKDOWN confirmation = trend trade. Trading during a ranging/indecision phase without a spring or upthrust = LOW quality entry.
+
+CRITICAL RULES FOR YOUR DECISION:
+- CONFIRM the trade if the majority of indicators support the direction, even if 1-2 minor indicators are neutral or slightly against. No trade has 100% alignment \u2014 focus on the weight of evidence.
+- REJECT ONLY if there are serious red flags: strong divergence against the trade, price hitting major resistance/support in the wrong direction, extreme overbought/oversold against the signal, or imminent high-impact news that directly threatens the trade.
+- Your "confidence" field is YOUR independent confidence in the trade (0-100). This is shown separately from the EA's confidence so traders see both perspectives.
+- If a market open breakout is detected with volume confirmation, this is a high-probability institutional setup \u2014 give it significant weight.
+- If news events are imminent (today/tomorrow), factor this into confidence. Warn if the trade could be invalidated.
+
+TRAILING STOP ASSESSMENT:
+Use ALL signals below \u2014 do NOT rely only on ADX/ATR. The ICT + SMC signals override the ADX baseline.
+
+INSTRUMENT PIP SIZES (critical \u2014 all trail distances are in these units):
+- Forex (EURUSD, GBPUSD, etc.): 1 pip = 0.0001
+- JPY pairs (USDJPY, etc.): 1 pip = 0.01
+- Gold (XAUUSD): 1 pip = 0.10 (so 300 pips = $30 trail distance)
+- Indices (US30, NAS100, GER40, etc.): 1 pip = 1.0 point
+- BTC/crypto: 1 pip = $1.00
+
+ADX/ATR BASELINE (starting point \u2014 override with ICT+SMC signals below):
+- NONE: ADX < 20 (choppy/ranging) or scalp trade or fast news spike
+- TIGHT: ADX 20\u201325, low ATR, price near TP, or Asian/lunch session
+- STANDARD: ADX 25\u201330, normal ATR, mid-session
+- WIDE: ADX > 30, elevated ATR, trending London/NY session
+- AGGRESSIVE: ADX > 40, confirmed volume breakout, explosive momentum
+
+TRAIL DISTANCE RANGES (instrument pips \u2014 pick a value within range based on ATR):
+- TIGHT:      FX: 5\u201315 | Gold: 50\u2013150 | Indices: 20\u201360 | BTC: 200\u2013600
+- STANDARD:   FX: 20\u201340 | Gold: 150\u2013400 | Indices: 50\u2013150 | BTC: 500\u20131500
+- WIDE:       FX: 50\u2013100 | Gold: 400\u2013800 | Indices: 150\u2013400 | BTC: 1500\u20133000
+- AGGRESSIVE: FX: 100+ | Gold: 800+ | Indices: 400+ | BTC: 3000+
+
+ICT + SMC TRAIL SIGNALS (higher priority than ADX \u2014 apply these first):
+${trailSignalSummary}
+
+DECISION RULES (apply in order \u2014 first matching rule wins):
+1. CRT MANIPULATION stage \u2192 NONE (price still faking, never trail a manipulation)
+2. Nearby liquidity pool (equal H/L within tight range) \u2192 TIGHT (lock in before the sweep)
+3. CRT EXPANSION + Wyckoff MARKUP/MARKDOWN + London/NY session \u2192 AGGRESSIVE
+4. CRT EXPANSION + active ICT macro window \u2192 WIDE minimum
+5. Fresh CHOCH + Wyckoff Spring/Upthrust \u2192 WIDE (brand new trend, room to run)
+6. Wyckoff MARKUP/MARKDOWN without CRT \u2192 WIDE
+7. BOS continuation (mature trend) \u2192 STANDARD (conserve, exhaustion may be near)
+8. Asian session or NY Lunch (12pm\u20132:30pm NY time) \u2192 reduce one level (WIDE\u2192STANDARD, STANDARD\u2192TIGHT)
+9. R:R < 1.5 \u2192 TIGHT or NONE (low reward doesn't justify a wide trail)
+10. R:R \u2265 3.0 \u2192 prefer WIDE minimum; only tighten after 2R secured
+11. No ICT/SMC data \u2192 use ADX/ATR baseline only
+${propFirmContext?.enabled ? `
+PROP FIRM RULES (apply STRICTLY when prop firm compliance data is present):
+12. High-impact news < ${propFirmContext.newsBlockMinutes} min \u2192 propFirmVerdict = BLOCK, confirmed = false
+13. Daily drawdown buffer < 0.5% \u2192 propFirmVerdict = BLOCK, confirmed = false
+14. Risk per trade > 2% of account \u2192 propFirmVerdict = WARNING, reduce confidence by 20
+15. Friday 4 PM+ NY time (weekend hold risk) \u2192 propFirmVerdict = WARNING, trail = TIGHT, add weekend caveat to reasoning
+16. R:R < 1:1 in prop firm mode \u2192 propFirmVerdict = BLOCK (prop firms require positive R:R minimum)
+17. Daily buffer 0.5\u20131.5% remaining \u2192 propFirmVerdict = WARNING, suggest smaller lot size in reasoning` : ""}
+
+Also estimate a recommended trail distance in pips (instrument's own pip unit) based on ATR and the ICT+SMC signals (null if NONE).
+
+Return your analysis as JSON:
+{
+  "confirmed": boolean,
+  "direction": "BUY" | "SELL" | "NEUTRAL",
+  "confidence": number (0-100, your independent AI confidence percentage),
+  "reasoning": "Concise street-knowledge style explanation with Supreme Mathematics flavor \u2014 reference key indicators and news/events that drove your decision. Drop jewels, keep it real, show and prove with the data.",
+  "adjustedEntry": number or null,
+  "adjustedStopLoss": number or null,
+  "adjustedTakeProfit": number or null,
+  "trailRecommendation": "NONE" | "TIGHT" | "STANDARD" | "WIDE" | "AGGRESSIVE",
+  "recommendedTrailPips": number or null,
+  "ictMacroValid": boolean (true if ICT macro window ACTIVE + PD zone aligns with signal + stop hunt detected \u2014 all three green = valid. If ICT data not provided, set true),
+  "ictMacroReason": "Brief 1-line ICT checklist result, e.g. 'Macro active, discount zone confirmed, stop hunt detected \u2014 full ICT alignment' or 'Outside macro window + no stop hunt \u2014 high fake-out risk'",
+  "smcVerdict": "CONFIRM" | "REQUIRE_BETTER_PRICE" | "PASS" (your SMC-only institutional verdict: CONFIRM if BOS/CHOCH aligns + entry at OB or FVG + Wyckoff confirms; REQUIRE_BETTER_PRICE if idea valid but entry not at OB/FVG; PASS if trading against structure or into liquidity. Set null if SMC data not provided),
+  "smcQuality": "HIGH" | "MEDIUM" | "LOW" (HIGH = BOS/CHOCH + OB/FVG + liquidity sweep all aligned; MEDIUM = 2 of 3; LOW = 0-1; null if no SMC data),
+  "smcReason": "One concise sentence summarizing the SMC analysis: structure type, OB/FVG presence, Wyckoff phase, liquidity target. E.g. 'Bullish CHOCH confirmed, price retesting bullish OB at 1.0855, equal lows swept, Wyckoff accumulation spring \u2014 HIGH quality entry'",
+  "confluenceScore": ${confluenceResult.score} (server-computed \u2014 pass this value through as-is, do not recalculate),
+  "confluenceGrade": "${confluenceResult.grade}" (server-computed \u2014 pass this value through as-is),
+  "propFirmVerdict": ${propFirmContext?.enabled ? '"SAFE" | "WARNING" | "BLOCK" (apply rules 12\u201317 above: BLOCK if news < ' + propFirmContext.newsBlockMinutes + " min OR daily buffer < 0.5% OR R:R < 1:1; WARNING if buffer < 1.5% OR risk% > 2% OR Friday PM OR R:R < 1.5; SAFE otherwise)" : "null"},
+  "propFirmReason": ${propFirmContext?.enabled ? '"One-line explanation of the prop firm verdict \u2014 what specifically triggered it"' : "null"}
+}`
+  };
+}
+async function callOpenAIConfirmation(prompt, model, userId) {
+  const openaiInstance = userId ? await getUniversalAIClientForUser(userId) : getOpenAIInstance();
+  const resolvedModel = openaiInstance.defaultModel || model;
+  const response = await openaiInstance.chat.completions.create({
+    model: resolvedModel,
+    messages: [
+      { role: "system", content: prompt.system },
+      { role: "user", content: prompt.user }
+    ],
+    response_format: { type: "json_object" },
+    // resolvedModel can end up being a failover provider's own default (e.g.
+    // OpenRouter's gpt-oss-20b) rather than the `model` param this function
+    // was called with — checked on the actual model being sent, not `model`.
+    max_tokens: hasHiddenReasoningOverhead(resolvedModel) ? 2e3 : 1e3,
+    temperature: 0.3
+  });
+  return response.choices[0]?.message?.content || "";
+}
+function hasHiddenReasoningOverhead(modelId) {
+  const m = (modelId || "").toLowerCase();
+  return isReasoningModel(modelId) || m.includes("gpt-oss") || m.includes("qwen3");
+}
+async function callAnthropicConfirmation(prompt, model, apiKey) {
+  const Anthropic = (await import("@anthropic-ai/sdk")).default;
+  const client2 = new Anthropic({ apiKey });
+  const response = await client2.messages.create({
+    model,
+    max_tokens: 1e3,
+    system: prompt.system + " Always return valid JSON with no markdown formatting.",
+    messages: [{ role: "user", content: prompt.user }]
+  });
+  const block = response.content[0];
+  return block.type === "text" ? block.text : "";
+}
+async function callGoogleConfirmation(prompt, model, apiKey) {
+  const { GoogleGenerativeAI } = await import("@google/generative-ai");
+  const genAI = new GoogleGenerativeAI(apiKey);
+  const genModel = genAI.getGenerativeModel({
+    model,
+    systemInstruction: prompt.system,
+    generationConfig: { responseMimeType: "application/json", temperature: 0.3, maxOutputTokens: 1e3 }
+  });
+  const result = await genModel.generateContent(prompt.user);
+  return result.response.text();
+}
+async function callGroqConfirmation(prompt, model, apiKey) {
+  const Groq = (await import("groq-sdk")).default;
+  const client2 = new Groq({ apiKey });
+  const response = await client2.chat.completions.create({
+    model,
+    messages: [
+      { role: "system", content: prompt.system },
+      { role: "user", content: prompt.user }
+    ],
+    response_format: { type: "json_object" },
+    max_tokens: hasHiddenReasoningOverhead(model) ? 2e3 : 1e3,
+    // Groq's default (gpt-oss-120b) needs headroom for hidden reasoning tokens
+    temperature: 0.3
+  });
+  return response.choices[0]?.message?.content || "";
+}
+async function callMistralConfirmation(prompt, model, apiKey) {
+  const { Mistral } = await import("@mistralai/mistralai");
+  const client2 = new Mistral({ apiKey });
+  const response = await client2.chat.complete({
+    model,
+    messages: [
+      { role: "system", content: prompt.system },
+      { role: "user", content: prompt.user }
+    ],
+    responseFormat: { type: "json_object" },
+    maxTokens: 1e3,
+    temperature: 0.3
+  });
+  const choice = response.choices?.[0];
+  if (!choice || !("message" in choice)) return "";
+  return typeof choice.message.content === "string" ? choice.message.content : "";
+}
+function isReasoningModel(modelId) {
+  const m = (modelId || "").toLowerCase();
+  return m.includes("r1") || m.startsWith("o1") || m.startsWith("o3") || m.startsWith("o4");
+}
+function extractThinkingTrace(content) {
+  const match = content.match(/<think>([\s\S]*?)<\/think>/i);
+  if (!match) return { thinking: null, rest: content };
+  return { thinking: match[1].trim(), rest: content.slice(match.index + match[0].length) };
+}
+async function callOpenRouterConfirmation(prompt, model, apiKey) {
+  const client2 = buildOpenAICompatClient("openrouter", apiKey);
+  const reasoning = isReasoningModel(model);
+  const response = await client2.chat.completions.create({
+    model,
+    messages: [
+      { role: "system", content: prompt.system },
+      { role: "user", content: prompt.user }
+    ],
+    max_tokens: hasHiddenReasoningOverhead(model) ? 2e3 : 1e3,
+    // gpt-oss/Qwen3/o1/o3/R1 all spend tokens on hidden reasoning before the answer
+    temperature: reasoning ? 1 : 0.3
+  });
+  const raw = response.choices?.[0]?.message?.content || "";
+  const { thinking, rest } = extractThinkingTrace(raw);
+  return { content: rest, thinking };
+}
+async function getUserApiKeyForProvider(userId, provider) {
+  try {
+    const { storage: storage2 } = await Promise.resolve().then(() => (init_storage(), storage_exports));
+    const userKey = await storage2.getActiveUserApiKey(userId, provider);
+    if (userKey?.apiKey) {
+      await storage2.updateUserApiKeyUsage(userId, provider);
+      return userKey.apiKey;
+    }
+  } catch (e) {
+    console.error(`Error fetching user API key for ${provider}:`, e);
+  }
+  return null;
+}
+async function runDeepReasoningDebate(prompt, userId) {
+  let bullCase = "";
+  let bearCase = "";
+  try {
+    const debateClient = userId ? await getUniversalAIClientForUser(userId) : getOpenAIInstance();
+    const debateModel = debateClient.defaultModel || "gpt-4o-mini";
+    const debateResponse = await debateClient.chat.completions.create({
+      model: debateModel,
+      messages: [
+        {
+          role: "system",
+          content: 'You are a trading debate simulator. Given the market data and rules below, produce genuinely rigorous arguments \u2014 a bad setup should get a devastating bear case, a great setup should get a compelling bull case. Return ONLY valid JSON: {"bullCase": "2-4 sentences arguing FOR taking this trade", "bearCase": "2-4 sentences arguing AGAINST taking this trade"}'
+        },
+        { role: "user", content: prompt.user }
+      ],
+      response_format: { type: "json_object" },
+      max_tokens: 600,
+      temperature: 0.6
+    });
+    const raw = debateResponse.choices?.[0]?.message?.content || "{}";
+    const parsed = JSON.parse(raw.match(/\{[\s\S]*\}/)?.[0] || raw);
+    bullCase = parsed.bullCase || "";
+    bearCase = parsed.bearCase || "";
+  } catch (e) {
+    console.error("[Deep Reasoning] Debate pass failed (non-fatal, judge proceeds without it):", e.message);
+  }
+  const judgePersonalKey = userId ? await getUserApiKeyForProvider(userId, "openrouter") : null;
+  const judgePlatformKey = process.env.OPENROUTER_API_KEY;
+  if (!judgePersonalKey && !judgePlatformKey) {
+    return {
+      confirmed: false,
+      aiDirection: "NEUTRAL",
+      aiConfidence: 0,
+      reasoning: "Deep Reasoning Mode requires an OpenRouter key (platform or user) for the Veteran-Judge reasoning pass. Add one on the AI Provider Keys page.",
+      bullCase,
+      bearCase,
+      deepReasoningUsed: false
+    };
+  }
+  const judgeUser = `${prompt.user}
+
+## BULL CASE
+${bullCase || "(debate pass unavailable)"}
+
+## BEAR CASE
+${bearCase || "(debate pass unavailable)"}
+
+Weigh both cases with total objectivity per your persona, think it through step by step, then decide.`;
+  try {
+    let result;
+    try {
+      result = await callOpenRouterConfirmation(
+        { system: `${VETERAN_PERSONA}
+
+${prompt.system}`, user: judgeUser },
+        VETERAN_JUDGE_MODEL,
+        judgePersonalKey || judgePlatformKey
+      );
+    } catch (personalErr) {
+      if (judgePersonalKey && judgePlatformKey && judgePlatformKey !== judgePersonalKey) {
+        result = await callOpenRouterConfirmation(
+          { system: `${VETERAN_PERSONA}
+
+${prompt.system}`, user: judgeUser },
+          VETERAN_JUDGE_MODEL,
+          judgePlatformKey
+        );
+      } else {
+        throw personalErr;
+      }
+    }
+    if (!result.content) throw new Error("No response from Veteran-Judge model");
+    const jsonMatch = extractFirstJsonObject(result.content);
+    const parsed = JSON.parse(jsonMatch ?? result.content);
+    const validTrailValues = ["NONE", "TIGHT", "STANDARD", "WIDE", "AGGRESSIVE"];
+    return {
+      confirmed: !!parsed.confirmed,
+      aiDirection: parsed.direction || "NEUTRAL",
+      aiConfidence: coerceConfidence(parsed.confidence),
+      reasoning: parsed.reasoning || "No reasoning provided",
+      adjustedEntry: typeof parsed.adjustedEntry === "number" ? parsed.adjustedEntry : void 0,
+      adjustedStopLoss: typeof parsed.adjustedStopLoss === "number" ? parsed.adjustedStopLoss : void 0,
+      adjustedTakeProfit: typeof parsed.adjustedTakeProfit === "number" ? parsed.adjustedTakeProfit : void 0,
+      trailRecommendation: validTrailValues.includes(parsed.trailRecommendation) ? parsed.trailRecommendation : void 0,
+      ictMacroValid: typeof parsed.ictMacroValid === "boolean" ? parsed.ictMacroValid : void 0,
+      smcVerdict: ["CONFIRM", "REQUIRE_BETTER_PRICE", "PASS"].includes(parsed.smcVerdict) ? parsed.smcVerdict : null,
+      propFirmVerdict: ["SAFE", "WARNING", "BLOCK"].includes(parsed.propFirmVerdict) ? parsed.propFirmVerdict : void 0,
+      propFirmReason: typeof parsed.propFirmReason === "string" ? parsed.propFirmReason : void 0,
+      modelUsed: VETERAN_JUDGE_MODEL,
+      providerUsed: "openrouter",
+      thinkingTrace: result.thinking,
+      bullCase,
+      bearCase,
+      deepReasoningUsed: true
+    };
+  } catch (e) {
+    console.error("[Deep Reasoning] Veteran-Judge pass failed:", e.message);
+    return {
+      confirmed: false,
+      aiDirection: "NEUTRAL",
+      aiConfidence: 0,
+      reasoning: `Deep Reasoning Mode error: ${e.message}`,
+      bullCase,
+      bearCase,
+      deepReasoningUsed: false
+    };
+  }
+}
+async function getAiVisionConfirmation(candleData, indicators, proposedSignal, proposedConfidence, tradePlan, symbol, timeframe, userId, newsContext, ictContext, smcContext, htfLevels, propFirmContext, performanceStats, learnedInsights, strategyMode, deepReasoningMode) {
+  try {
+    const rawModel = userId ? getUserModelPreference(userId) : "gpt-4o";
+    const selectedModel = resolveVisionModel(rawModel);
+    const wasPromoted = selectedModel !== rawModel;
+    const provider = inferModelProvider(selectedModel);
+    console.log(`[AI Confirmation] Vision model resolved: ${rawModel} \u2192 ${selectedModel} (${provider}) for userId=${userId}`);
+    const confluenceResult = computeConfluenceScore(proposedSignal, ictContext, smcContext, propFirmContext?.accountBalance ?? 0);
+    if (confluenceResult.belowMinGrade) {
+      console.log(`[Confluence] BLOCKED \u2014 Grade ${confluenceResult.grade} below required ${confluenceResult.minGrade} for this account`);
+      return {
+        confirmed: false,
+        aiDirection: "NEUTRAL",
+        aiConfidence: 0,
+        reasoning: `\u26D4 Confluence grade ${confluenceResult.grade} is below this account's required minimum (${confluenceResult.minGrade}). Setup rejected without spending an AI call.`,
+        confluenceScore: confluenceResult.score,
+        confluenceGrade: confluenceResult.grade
+      };
+    }
+    if (propFirmContext?.enabled && userId && isPropFirmModeEnabled(userId)) {
+      const blockMins = propFirmContext.newsBlockMinutes || 15;
+      const newsProx = computeNewsProximity(newsContext?.upcomingEvents, blockMins);
+      if (newsProx.isBlocked) {
+        console.log(`[PropFirm] NEWS BLOCK: ${newsProx.eventName} in ${newsProx.minutesToNext} min \u2014 rejecting without AI call`);
+        return {
+          confirmed: false,
+          aiDirection: "NEUTRAL",
+          aiConfidence: 0,
+          reasoning: `\u26D4 PROP FIRM NEWS BLOCK: ${newsProx.eventName} releases in ${newsProx.minutesToNext} minutes. Trade blocked per prop firm rules. Wait until at least ${blockMins} minutes after the release completes.`,
+          newsBlocked: true,
+          newsProximityMinutes: newsProx.minutesToNext,
+          propFirmVerdict: "BLOCK",
+          propFirmReason: `High-impact news (${newsProx.eventName}) in ${newsProx.minutesToNext} min \u2014 within ${blockMins}-min block window`,
+          confluenceScore: confluenceResult.score,
+          confluenceGrade: confluenceResult.grade
+        };
+      }
+      const remainingBuffer = propFirmContext.maxDailyDrawdownPct + propFirmContext.currentDailyPnlPct;
+      if (remainingBuffer < 0.5) {
+        console.log(`[PropFirm] DAILY LIMIT BLOCK: only ${remainingBuffer.toFixed(2)}% buffer remaining`);
+        return {
+          confirmed: false,
+          aiDirection: "NEUTRAL",
+          aiConfidence: 0,
+          reasoning: `\u26D4 PROP FIRM DAILY LIMIT: Only ${remainingBuffer.toFixed(2)}% daily drawdown buffer remaining (limit: ${propFirmContext.maxDailyDrawdownPct}%). Trading is blocked to protect the account. Resume tomorrow.`,
+          propFirmVerdict: "BLOCK",
+          propFirmReason: `Daily drawdown buffer critical: ${remainingBuffer.toFixed(2)}% remaining of ${propFirmContext.maxDailyDrawdownPct}% limit`,
+          dailyBufferPct: remainingBuffer,
+          confluenceScore: confluenceResult.score,
+          confluenceGrade: confluenceResult.grade
+        };
+      }
+    }
+    const prompt = await buildConfirmationPrompt(candleData, indicators, proposedSignal, proposedConfidence, tradePlan, symbol, timeframe, newsContext, ictContext, smcContext, htfLevels, propFirmContext, performanceStats, learnedInsights, userId, strategyMode);
+    if (deepReasoningMode) {
+      console.log(`[AI Vision Confirmation] Deep Reasoning Mode \u2014 running Bull/Bear/Veteran-Judge debate for ${symbol} ${proposedSignal}`);
+      const debateResult = await runDeepReasoningDebate(prompt, userId);
+      if (debateResult.deepReasoningUsed) {
+        return {
+          ...debateResult,
+          confluenceScore: confluenceResult.score,
+          confluenceGrade: confluenceResult.grade
+        };
+      }
+      console.warn(`[AI Vision Confirmation] Deep Reasoning unavailable for ${symbol} ${proposedSignal} (${debateResult.reasoning}) \u2014 falling back to standard confirmation so a provider/billing outage doesn't halt trading`);
+    }
+    console.log(`[AI Vision Confirmation] Requesting ${provider}/${selectedModel} confirmation for ${symbol} ${proposedSignal}`);
+    let content = "";
+    let thinkingTrace = null;
+    try {
+      if (provider === "openai") {
+        if (wasPromoted) {
+          const userOpenAiKey = userId ? await getUserApiKeyForProvider(userId, "openai") : null;
+          const openaiKey = userOpenAiKey || process.env.OPENAI_API_KEY;
+          if (!openaiKey) {
+            return {
+              confirmed: false,
+              aiDirection: "NEUTRAL",
+              aiConfidence: 0,
+              reasoning: `\u26A0\uFE0F Your selected AI model (${rawModel}) can't read charts, and no OpenAI key is available to run the vision fallback (${selectedModel}). Add an OpenAI, Anthropic, or Google key on the AI Provider Keys page, or pick a vision model (GPT-4o, Claude, Gemini) \u2014 otherwise the AI confirmation can't score this trade.`,
+              confluenceScore: confluenceResult.score,
+              confluenceGrade: confluenceResult.grade
+            };
+          }
+          const visionClient = new OpenAI3({ apiKey: openaiKey, maxRetries: 3, timeout: 9e4 });
+          const resp = await visionClient.chat.completions.create({
+            model: selectedModel,
+            messages: [{ role: "system", content: prompt.system }, { role: "user", content: prompt.user }],
+            response_format: { type: "json_object" },
+            max_tokens: hasHiddenReasoningOverhead(selectedModel) ? 2e3 : 1e3,
+            temperature: 0.3
+          });
+          content = resp.choices[0]?.message?.content || "";
+        } else {
+          content = await callOpenAIConfirmation(prompt, selectedModel, userId);
+        }
+      } else if (provider === "openrouter") {
+        const personalKey = userId ? await getUserApiKeyForProvider(userId, "openrouter") : null;
+        const platformKey = process.env.OPENROUTER_API_KEY;
+        if (!personalKey && !platformKey) {
+          return {
+            confirmed: false,
+            aiDirection: "NEUTRAL",
+            aiConfidence: 0,
+            reasoning: `No OpenRouter API key configured (platform or user). Add your key on the AI Provider Keys page, or switch to an OpenAI model.`
+          };
+        }
+        try {
+          const result2 = await callOpenRouterConfirmation(prompt, selectedModel, personalKey || platformKey);
+          content = result2.content;
+          thinkingTrace = result2.thinking;
+        } catch (personalErr) {
+          if (personalKey && platformKey && platformKey !== personalKey) {
+            const result2 = await callOpenRouterConfirmation(prompt, selectedModel, platformKey);
+            content = result2.content;
+            thinkingTrace = result2.thinking;
+          } else {
+            throw personalErr;
+          }
+        }
+      } else if (userId) {
+        const apiKey = await getUserApiKeyForProvider(userId, provider);
+        if (!apiKey) {
+          return {
+            confirmed: false,
+            aiDirection: "NEUTRAL",
+            aiConfidence: 0,
+            reasoning: `No ${provider} API key configured. Add your key on the AI Provider Keys page, or switch to an OpenAI model.`
+          };
+        }
+        switch (provider) {
+          case "anthropic":
+            content = await callAnthropicConfirmation(prompt, selectedModel, apiKey);
+            break;
+          case "google":
+            content = await callGoogleConfirmation(prompt, selectedModel, apiKey);
+            break;
+          case "groq":
+            content = await callGroqConfirmation(prompt, selectedModel, apiKey);
+            break;
+          case "mistral":
+            content = await callMistralConfirmation(prompt, selectedModel, apiKey);
+            break;
+          default:
+            content = await callOpenAIConfirmation(prompt, selectedModel, userId);
+        }
+      } else {
+        content = await callOpenAIConfirmation(prompt, "gpt-4o-mini");
+      }
+    } catch (branchErr) {
+      if (isFailoverError(branchErr) && process.env.OPENAI_API_KEY) {
+        console.warn(`[AI Vision] ${provider} failed (${branchErr?.status ?? branchErr?.message}); failing over to platform OpenAI gpt-4o-mini`);
+        const vc = new OpenAI3({ apiKey: process.env.OPENAI_API_KEY, maxRetries: 3, timeout: 9e4 });
+        const r = await vc.chat.completions.create({
+          model: "gpt-4o-mini",
+          messages: [{ role: "system", content: prompt.system }, { role: "user", content: prompt.user }],
+          response_format: { type: "json_object" },
+          max_tokens: 1e3,
+          temperature: 0.3
+        });
+        content = r.choices[0]?.message?.content || "";
+      } else {
+        throw branchErr;
+      }
+    }
+    if (!content) throw new Error("No response from AI");
+    const jsonMatch = extractFirstJsonObject(content);
+    const result = JSON.parse(jsonMatch ?? content);
+    console.log(`[AI Vision Confirmation] ${symbol}: ${result.confirmed ? "CONFIRMED" : "REJECTED"} (AI says ${result.direction} at ${result.confidence}%) [${provider}/${selectedModel}]`);
+    const validTrailValues = ["NONE", "TIGHT", "STANDARD", "WIDE", "AGGRESSIVE"];
+    const trailRec = validTrailValues.includes(result.trailRecommendation) ? result.trailRecommendation : void 0;
+    return {
+      confirmed: !!result.confirmed,
+      aiDirection: result.direction || "NEUTRAL",
+      aiConfidence: (() => {
+        const c = coerceConfidence(result.confidence);
+        noteConfidenceSample(c);
+        return c;
+      })(),
+      reasoning: result.reasoning || "No reasoning provided",
+      adjustedEntry: typeof result.adjustedEntry === "number" ? result.adjustedEntry : void 0,
+      adjustedStopLoss: typeof result.adjustedStopLoss === "number" ? result.adjustedStopLoss : void 0,
+      adjustedTakeProfit: typeof result.adjustedTakeProfit === "number" ? result.adjustedTakeProfit : void 0,
+      trailRecommendation: trailRec,
+      recommendedTrailPips: typeof result.recommendedTrailPips === "number" ? result.recommendedTrailPips : null,
+      ictMacroValid: typeof result.ictMacroValid === "boolean" ? result.ictMacroValid : void 0,
+      ictMacroReason: typeof result.ictMacroReason === "string" ? result.ictMacroReason : void 0,
+      smcVerdict: ["CONFIRM", "REQUIRE_BETTER_PRICE", "PASS"].includes(result.smcVerdict) ? result.smcVerdict : null,
+      smcQuality: ["HIGH", "MEDIUM", "LOW"].includes(result.smcQuality) ? result.smcQuality : null,
+      smcReason: typeof result.smcReason === "string" ? result.smcReason : void 0,
+      confluenceScore: confluenceResult.score,
+      confluenceGrade: confluenceResult.grade,
+      propFirmVerdict: ["SAFE", "WARNING", "BLOCK"].includes(result.propFirmVerdict) ? result.propFirmVerdict : propFirmContext?.enabled ? "SAFE" : void 0,
+      propFirmReason: typeof result.propFirmReason === "string" ? result.propFirmReason : void 0,
+      newsBlocked: false,
+      newsProximityMinutes: null,
+      modelUsed: selectedModel,
+      providerUsed: provider,
+      thinkingTrace
+    };
+  } catch (error) {
+    const errMsg = error?.message || String(error);
+    const statusCode = error?.status || error?.statusCode || error?.response?.status;
+    let userReason = "AI confirmation error";
+    if (statusCode === 401 || errMsg.includes("auth") || errMsg.includes("API key") || errMsg.includes("Unauthorized")) {
+      userReason = "Invalid API key \u2014 check your key on the AI Provider Keys page";
+    } else if (statusCode === 429 || errMsg.includes("rate") || errMsg.includes("quota") || errMsg.includes("limit")) {
+      userReason = "AI rate limit or quota exceeded \u2014 try again in a few minutes or switch providers";
+    } else if (errMsg.includes("model") || errMsg.includes("not found") || errMsg.includes("does not exist")) {
+      userReason = `Model not available \u2014 try switching to a different AI model`;
+    } else if (errMsg.includes("timeout") || errMsg.includes("ECONNREFUSED") || errMsg.includes("network")) {
+      userReason = "Network error reaching AI provider \u2014 will retry on next interval";
+    } else if (errMsg.includes("JSON") || errMsg.includes("parse")) {
+      userReason = "AI returned an unparseable response \u2014 will retry on next interval";
+    } else {
+      userReason = `AI error: ${errMsg.substring(0, 120)}`;
+    }
+    console.error(`[AI Vision Confirmation] ERROR (${statusCode || "no status"}): ${errMsg}`);
+    if (statusCode === 402 || /insufficient credits|\b402\b/i.test(errMsg)) {
+      try {
+        const { noteAiBudgetError: noteAiBudgetError2 } = await Promise.resolve().then(() => (init_ai_budget_guard(), ai_budget_guard_exports));
+        noteAiBudgetError2(error);
+      } catch {
+      }
+    }
+    return {
+      confirmed: false,
+      aiDirection: "NEUTRAL",
+      aiConfidence: 0,
+      reasoning: userReason,
+      aiError: true,
+      aiErrorStatus: typeof statusCode === "number" ? statusCode : null
+    };
+  }
+}
+async function getBreakoutConfirmation(candleData, indicators, proposedSignal, proposedConfidence, tradePlan, symbol, timeframe, userId, multiTFCandles, propFirmContext) {
+  try {
+    const { computeBreakoutScore: computeBreakoutScore2 } = await Promise.resolve().then(() => (init_breakoutEngine(), breakoutEngine_exports));
+    const m1 = multiTFCandles?.["M1"] || multiTFCandles?.["1m"] || [];
+    const m5 = multiTFCandles?.["M5"] || multiTFCandles?.["5m"] || [];
+    const m15 = multiTFCandles?.["M15"] || multiTFCandles?.["15m"] || [];
+    const h1 = multiTFCandles?.["H1"] || multiTFCandles?.["1h"] || [];
+    const h4 = multiTFCandles?.["H4"] || multiTFCandles?.["4h"] || [];
+    const currentPrice = tradePlan?.entry || tradePlan?.entryPrice || candleData[0]?.c || 0;
+    const breakoutResult = await computeBreakoutScore2(currentPrice, m1, m5, m15, h1, h4);
+    const directionValid = breakoutResult.direction !== "NEUTRAL";
+    const gradeAApproved = ["A+", "A"].includes(breakoutResult.grade) && breakoutResult.alignedVotes >= 3 && directionValid;
+    const gradeBApproved = breakoutResult.grade === "B" && breakoutResult.alignedVotes >= 2 && directionValid;
+    const breakoutHour = (/* @__PURE__ */ new Date()).getUTCHours();
+    const isLiquidSession = breakoutHour >= 7 && breakoutHour < 17;
+    const gradeCApproved = breakoutResult.grade === "C" && breakoutResult.alignedVotes >= 1 && directionValid && isLiquidSession;
+    const gradeOk = gradeAApproved || gradeBApproved || gradeCApproved;
+    const alignedOk = gradeOk;
+    if (!gradeOk || !alignedOk) {
+      return {
+        confirmed: false,
+        aiDirection: "NEUTRAL",
+        aiConfidence: breakoutResult.percentage,
+        reasoning: `\u{1F534} BREAKOUT MASTER: Grade ${breakoutResult.grade} \u2014 ${breakoutResult.alignedVotes} aligned of ${breakoutResult.score} fired (${breakoutResult.percentage}% conviction). Need \u22652 aligned (Grade B) any time, or 1 aligned (Grade C) in a liquid session.
+
+${breakoutResult.summary}`,
+        breakoutScore: breakoutResult.score,
+        breakoutGrade: breakoutResult.grade,
+        breakoutStrategies: breakoutResult.strategies
+      };
+    }
+    const selectedModel = userId ? getUserModelPreference(userId) : "gpt-4o-mini";
+    const provider = inferModelProvider(selectedModel);
+    const recentCandles = candleData.slice(0, 30);
+    const candleSummary = recentCandles.map(
+      (c, i) => `[${i}] O:${c.o} H:${c.h} L:${c.l} C:${c.c} V:${c.v || 0}`
+    ).join("\n");
+    const firedStrategies = breakoutResult.strategies.filter((s) => s.fired);
+    const strategySummary = breakoutResult.strategies.map((s) => `${s.fired ? "\u2705" : "\u274C"} ${s.name}: ${s.reason}`).join("\n");
+    const systemPrompt = `You are VEDD Breakout Master \u2014 an elite institutional breakout specialist and the primary trading AI.
+Your ONLY mission: confirm or deny breakout trades using the 7-strategy engine results below.
+No trailing stop. No chasing. Fixed R:R exits only (TP1=1\xD7ATR, TP2=2\xD7ATR, TP3=3\xD7ATR from entry).
+Supreme Mathematics flows through your analysis \u2014 Knowledge (1) is the breakout engine. Wisdom (2) is your confirmation. Understanding (3) is the exit plan.
+You are direct. You show and prove with price math. Peace.
+
+RESPONSE FORMAT (strict JSON):
+{
+  "confirmed": boolean,
+  "direction": "BUY" | "SELL" | "NEUTRAL",
+  "confidence": number (0-100),
+  "reasoning": string (Supreme Mathematics style \u2014 cite fired strategies),
+  "adjustedEntry": number | null,
+  "adjustedSL": number | null,
+  "adjustedTP1": number | null,
+  "adjustedTP2": number | null,
+  "adjustedTP3": number | null,
+  "breakoutQuality": "ELITE" | "STRONG" | "DEVELOPING",
+  "propFirmVerdict": "SAFE" | "WARNING" | "BLOCK"
+}`;
+    const userPrompt = `SYMBOL: ${symbol} | TIMEFRAME: ${timeframe} | PROPOSED: ${proposedSignal} @ confidence ${proposedConfidence}%
+
+BREAKOUT ENGINE RESULTS:
+Score: ${breakoutResult.score}/${breakoutResult.maxScore} (${breakoutResult.percentage}%) \u2014 Grade ${breakoutResult.grade}
+Engine Direction: ${breakoutResult.direction}
+ATR: ${breakoutResult.atr.toFixed(5)}
+TP1: ${breakoutResult.tp1.toFixed(5)} | TP2: ${breakoutResult.tp2.toFixed(5)} | TP3: ${breakoutResult.tp3.toFixed(5)}
+SL Distance: ${breakoutResult.slDistance.toFixed(5)}
+
+FIRED STRATEGIES (${firedStrategies.length}/7):
+${strategySummary}
+
+RECENT CANDLES (newest first):
+${candleSummary}
+
+INDICATORS:
+${JSON.stringify({ rsi: indicators?.rsi, macd: indicators?.macd, adx: indicators?.adx, vwap: indicators?.vwap, volume: indicators?.volume }, null, 2)}
+
+TRADE PLAN:
+Entry: ${tradePlan?.entryPrice} | SL: ${tradePlan?.stopLoss} | TP: ${tradePlan?.takeProfit}
+
+INSTRUCTION: If grade is A (\u226570%) or B (\u226550%) AND \u22653 strategies align in same direction as ${proposedSignal}, CONFIRM with fixed R:R targets. No trailing stop in your response. Show and prove.`;
+    let aiClient = null;
+    try {
+      aiClient = await getUniversalAIClientForUser(userId || 0);
+    } catch {
+    }
+    if (!aiClient) {
+      const fallbackDir = breakoutResult.direction === "NEUTRAL" ? proposedSignal : breakoutResult.direction;
+      const bc2 = breakoutResult.breakoutCandle;
+      const fallbackSL = bc2 ? fallbackDir === "BUY" ? bc2.l : bc2.h : tradePlan?.stopLoss || null;
+      const fbSign = fallbackDir === "BUY" ? 1 : -1;
+      const fallbackCurrentPrice = tradePlan?.entry || tradePlan?.entryPrice || candleData[0]?.c || 0;
+      const fallbackTP1 = breakoutResult.atr > 0 ? fallbackCurrentPrice + fbSign * breakoutResult.atr : 0;
+      const fallbackTP2 = breakoutResult.atr > 0 ? fallbackCurrentPrice + fbSign * breakoutResult.atr * 2 : 0;
+      const fallbackTP3 = breakoutResult.atr > 0 ? fallbackCurrentPrice + fbSign * breakoutResult.atr * 3 : 0;
+      const _fbHour = (/* @__PURE__ */ new Date()).getUTCHours();
+      const _fbLiquid = _fbHour >= 7 && _fbHour < 17;
+      const directionOk = breakoutResult.direction !== "NEUTRAL" && breakoutResult.direction === fallbackDir;
+      const _fbGateOk = ["A+", "A"].includes(breakoutResult.grade) && breakoutResult.alignedVotes >= 3 || breakoutResult.grade === "B" && breakoutResult.alignedVotes >= 2 || breakoutResult.grade === "C" && breakoutResult.alignedVotes >= 1 && _fbLiquid;
+      return {
+        confirmed: _fbGateOk && directionOk,
+        aiDirection: fallbackDir,
+        aiConfidence: breakoutResult.percentage,
+        reasoning: `[Breakout Engine Only \u2014 no AI key] Grade ${breakoutResult.grade} (${breakoutResult.score}/${breakoutResult.maxScore})
+
+${breakoutResult.summary}`,
+        adjustedStopLoss: fallbackSL || void 0,
+        adjustedTakeProfit: fallbackTP1 || void 0,
+        adjustedTakeProfit2: fallbackTP2 || void 0,
+        adjustedTakeProfit3: fallbackTP3 || void 0,
+        breakoutScore: breakoutResult.score,
+        breakoutGrade: breakoutResult.grade,
+        breakoutStrategies: breakoutResult.strategies
+      };
+    }
+    const response = await aiClient.chat.completions.create({
+      model: aiClient.defaultModel,
+      messages: [
+        { role: "system", content: systemPrompt },
+        { role: "user", content: userPrompt }
+      ],
+      response_format: { type: "json_object" },
+      max_tokens: 800,
+      temperature: 0.3
+    });
+    const rawContent = response.choices?.[0]?.message?.content || "{}";
+    let parsed = {};
+    try {
+      const jsonMatch = extractFirstJsonObject(rawContent);
+      parsed = JSON.parse(jsonMatch ?? rawContent);
+    } catch {
+      parsed = { confirmed: false, confidence: breakoutResult.percentage, reasoning: rawContent };
+    }
+    const _cHour = (/* @__PURE__ */ new Date()).getUTCHours();
+    const _cLiquid = _cHour >= 7 && _cHour < 17;
+    if (breakoutResult.direction !== "NEUTRAL" && (["A+", "A"].includes(breakoutResult.grade) && breakoutResult.alignedVotes >= 3 || breakoutResult.grade === "B" && breakoutResult.alignedVotes >= 2 || breakoutResult.grade === "C" && breakoutResult.alignedVotes >= 1 && _cLiquid)) {
+      parsed.confirmed = true;
+    }
+    console.log(`[Breakout Master] ${symbol} Grade:${breakoutResult.grade} Score:${breakoutResult.score}/${breakoutResult.maxScore} fired | ${breakoutResult.alignedVotes} aligned (${breakoutResult.alignedPct}%) Decision:${parsed.confirmed ? "CONFIRM" : "REJECT"}`);
+    const direction = breakoutResult.direction !== "NEUTRAL" ? breakoutResult.direction : proposedSignal;
+    const breakoutTriggerCandle = h1.length > 0 ? h1[0] : m15.length > 0 ? m15[0] : null;
+    const deterministicSL = breakoutTriggerCandle ? direction === "BUY" ? breakoutTriggerCandle.l : breakoutTriggerCandle.h : tradePlan?.stopLoss || null;
+    const finalSign = direction === "BUY" ? 1 : -1;
+    const rawSL = deterministicSL;
+    const rawTP1 = breakoutResult.atr > 0 ? currentPrice + finalSign * breakoutResult.atr : 0;
+    const rawTP2 = breakoutResult.atr > 0 ? currentPrice + finalSign * breakoutResult.atr * 2 : 0;
+    const rawTP3 = breakoutResult.atr > 0 ? currentPrice + finalSign * breakoutResult.atr * 3 : 0;
+    const breakoutQuality = parsed.breakoutQuality === "ELITE" || parsed.breakoutQuality === "STRONG" ? parsed.breakoutQuality : "DEVELOPING";
+    return {
+      confirmed: parsed.confirmed === true,
+      aiDirection: direction,
+      aiConfidence: typeof parsed.confidence === "number" ? parsed.confidence : breakoutResult.percentage,
+      reasoning: parsed.reasoning || breakoutResult.summary,
+      adjustedEntry: typeof parsed.adjustedEntry === "number" && parsed.adjustedEntry > 0 ? parsed.adjustedEntry : void 0,
+      adjustedStopLoss: rawSL || void 0,
+      adjustedTakeProfit: rawTP1 || void 0,
+      adjustedTakeProfit2: rawTP2 || void 0,
+      adjustedTakeProfit3: rawTP3 || void 0,
+      breakoutScore: breakoutResult.score,
+      breakoutGrade: breakoutResult.grade,
+      alignedVotes: breakoutResult.alignedVotes,
+      breakoutStrategies: breakoutResult.strategies,
+      breakoutQuality,
+      propFirmVerdict: ["SAFE", "WARNING", "BLOCK"].includes(parsed.propFirmVerdict) ? parsed.propFirmVerdict : "SAFE"
+    };
+  } catch (err) {
+    console.error(`[Breakout Master] ERROR: ${err.message}`);
+    return {
+      confirmed: false,
+      aiDirection: "NEUTRAL",
+      aiConfidence: 0,
+      reasoning: `Breakout engine error: ${err.message?.substring(0, 120)}`
+    };
+  }
+}
+function getOpenAIInstance(userApiKey) {
+  if (userApiKey) {
+    return new OpenAI3({ apiKey: userApiKey, maxRetries: 4, timeout: 9e4 });
+  }
+  return openai;
+}
+function buildOpenAICompatClient(provider, apiKey) {
+  const baseURLs = {
+    groq: "https://api.groq.com/openai/v1",
+    google: "https://generativelanguage.googleapis.com/v1beta/openai/",
+    mistral: "https://api.mistral.ai/v1",
+    openrouter: "https://openrouter.ai/api/v1"
+  };
+  const defaultHeaders = provider === "openrouter" ? { "HTTP-Referer": "https://veddbuild.com", "X-Title": "VEDDBuild" } : void 0;
+  const client2 = new OpenAI3({ apiKey, baseURL: baseURLs[provider], maxRetries: 4, timeout: 9e4, defaultHeaders });
+  const wrapper = client2;
+  wrapper.defaultModel = PROVIDER_MODELS[provider];
+  wrapper.provider = provider;
+  return wrapper;
+}
+function isFailoverError(e) {
+  const status = e?.status ?? e?.statusCode ?? e?.response?.status;
+  if (status === 429 || status >= 500 && status < 600) return true;
+  const msg = (e?.message || "").toLowerCase();
+  return /rate.?limit|\b429\b|quota|insufficient_quota|overloaded|capacity|temporarily|timeout|invalid response body|econnreset|fetch failed|service unavailable/.test(msg);
+}
+function recordAiHealth(userId, data) {
+  if (!userId) return;
+  const g = global;
+  g.aiHealth = g.aiHealth || {};
+  g.aiHealth[userId] = { ...data, lastCallAt: (/* @__PURE__ */ new Date()).toISOString() };
+}
+function getAiHealth(userId) {
+  return global.aiHealth?.[userId] || null;
+}
+function logAiFailure(userId, c, model, e, fellBackTo) {
+  if (!userId) return;
+  const status = e?.status ?? e?.statusCode ?? e?.response?.status ?? "err";
+  const key = `${userId}|${c?.provider}|${c?.usedPlatformKey ? "platform" : "user"}|${status}`;
+  const last2 = _aiFailSeen.get(key) || 0;
+  if (Date.now() - last2 < 10 * 6e4) return;
+  _aiFailSeen.set(key, Date.now());
+  const msg = String(e?.error?.message || e?.message || e || "").replace(/sk-[A-Za-z0-9_-]+/g, "[key]").slice(0, 220);
+  void Promise.resolve().then(() => (init_guard_events(), guard_events_exports)).then((g) => g.logGuard(
+    userId,
+    "ai_call_failed",
+    null,
+    `${c?.provider} (${c?.usedPlatformKey ? "platform key" : "your saved key"}) \xB7 model ${model} \xB7 ${status}: ${msg}${fellBackTo ? ` \u2192 fell back to ${fellBackTo}` : " \u2192 no provider left"}`,
+    { provider: c?.provider, platformKey: !!c?.usedPlatformKey, model, status },
+    "ai"
+  )).catch(() => {
+  });
+}
+function makeFailoverClient(clients, userId) {
+  const primary = clients[0];
+  return {
+    defaultModel: primary.defaultModel,
+    provider: primary.provider,
+    chat: {
+      completions: {
+        create: async (params) => {
+          let lastErr;
+          const attempts = [];
+          for (let i = 0; i < clients.length; i++) {
+            const c = clients[i];
+            const p = { ...params };
+            if (i > 0 && c.defaultModel) p.model = c.defaultModel;
+            if (/gpt-oss|(^|\/)o[134](-|$)|deepseek-r1|reasoner|qwq/i.test(String(p.model || ""))) {
+              if (c.provider === "openrouter" && !p.reasoning) p.reasoning = { effort: "low" };
+              if (Number(p.max_tokens) > 0) p.max_tokens = Math.max(Number(p.max_tokens), Math.min(Number(p.max_tokens) * 3, 12e3));
+            }
+            attempts.push(c.provider);
+            try {
+              const result = await c.chat.completions.create(p);
+              if (result?.choices?.[0]?.finish_reason === "length") {
+                void Promise.resolve().then(() => (init_guard_events(), guard_events_exports)).then(({ logGuard: logGuard2 }) => logGuard2(userId || 0, "ai_reply_truncated", null, `${c.provider} \xB7 ${p.model} reply hit max_tokens ${p.max_tokens} (completion ${result?.usage?.completion_tokens ?? "?"} tokens)`)).catch(() => {
+                });
+              }
+              recordAiHealth(userId, { ok: true, provider: c.provider, model: p.model, failedOver: i > 0, attempts, lastError: i > 0 ? lastErr?.message || null : null });
+              if (userId && result?.usage) {
+                recordAiUsage({
+                  userId,
+                  provider: c.provider,
+                  model: p.model,
+                  promptTokens: result.usage.prompt_tokens || 0,
+                  completionTokens: result.usage.completion_tokens || 0,
+                  usedPlatformKey: !!c.usedPlatformKey
+                }).catch(() => {
+                });
+              }
+              return result;
+            } catch (e) {
+              lastErr = e;
+              logAiFailure(userId, c, p.model, e, i < clients.length - 1 ? clients[i + 1].provider : null);
+              if (i < clients.length - 1) {
+                console.warn(`[AI failover] ${c.provider} failed (${e?.status ?? e?.message}); switching to ${clients[i + 1].provider}`);
+                continue;
+              }
+              recordAiHealth(userId, { ok: false, provider: c.provider, model: p.model, failedOver: i > 0, attempts, lastError: e?.message || String(e) });
+              try {
+                const { noteAiBudgetError: noteAiBudgetError2 } = await Promise.resolve().then(() => (init_ai_budget_guard(), ai_budget_guard_exports));
+                noteAiBudgetError2(e);
+              } catch {
+              }
+              throw e;
+            }
+          }
+          throw lastErr;
+        }
+      }
+    }
+  };
+}
+async function buildGroqEconomyClient(userGroqKey) {
+  const apiKey = userGroqKey || process.env.GROQ_API_KEY;
+  if (!apiKey) return null;
+  try {
+    const client2 = buildOpenAICompatClient("groq", apiKey);
+    client2.defaultModel = "openai/gpt-oss-120b";
+    client2.provider = "groq";
+    return client2;
+  } catch (e) {
+    console.error("[AI] Failed to build Groq economy client:", e);
+    return null;
+  }
+}
+async function getUniversalAIClientForUser(userId) {
+  try {
+    const { storage: storage2 } = await Promise.resolve().then(() => (init_storage(), storage_exports));
+    const user = await storage2.getUser(userId);
+    const aiCostMode = user?.aiCostMode || "full";
+    const allKeys = await storage2.getUserApiKeys(userId);
+    const activeKeys = allKeys.filter((k) => k.isActive && k.isValid !== false);
+    const keyFor = (p) => activeKeys.find((k) => k.provider === p)?.apiKey;
+    const selModel = getUserModelPreference(userId);
+    const selProvider = inferModelProvider(selModel);
+    const canUsePlatformKey = await isUnderPlatformKeyCostCap(userId);
+    if (!canUsePlatformKey) {
+      console.warn(`[AI] user ${userId} has exceeded their platform-key AI cost cap this month \u2014 platform-key fallback disabled`);
+    }
+    const hasProviderKey = (p) => !!keyFor(p) || p === "groq" && !!process.env.GROQ_API_KEY && canUsePlatformKey || p === "openrouter" && !!process.env.OPENROUTER_API_KEY && canUsePlatformKey;
+    const order = [];
+    if (aiCostMode === "economy") {
+      if (selProvider !== "groq" && hasProviderKey(selProvider)) order.push(selProvider);
+      order.push("groq");
+    } else if (hasProviderKey(selProvider)) {
+      order.push(selProvider);
+    }
+    for (const p of PROVIDER_PRIORITY) if (!order.includes(p)) order.push(p);
+    const clients = [];
+    for (const provider of order) {
+      try {
+        if (provider === "groq") {
+          const personalGroqKey = keyFor("groq");
+          if (personalGroqKey) {
+            const c = await buildGroqEconomyClient(personalGroqKey);
+            if (c) {
+              c.usedPlatformKey = false;
+              clients.push(c);
+            }
+          }
+          if (canUsePlatformKey && process.env.GROQ_API_KEY && process.env.GROQ_API_KEY !== personalGroqKey) {
+            const c = await buildGroqEconomyClient(process.env.GROQ_API_KEY);
+            if (c) {
+              c.usedPlatformKey = true;
+              clients.push(c);
+            }
+          }
+          continue;
+        }
+        if (provider === "openrouter") {
+          const personalKey = keyFor("openrouter");
+          if (personalKey) {
+            const c = buildOpenAICompatClient("openrouter", personalKey);
+            c.usedPlatformKey = false;
+            clients.push(c);
+          }
+          if (canUsePlatformKey && process.env.OPENROUTER_API_KEY && process.env.OPENROUTER_API_KEY !== personalKey) {
+            const c = buildOpenAICompatClient("openrouter", process.env.OPENROUTER_API_KEY);
+            c.usedPlatformKey = true;
+            clients.push(c);
+          }
+          continue;
+        }
+        const apiKey = keyFor(provider);
+        if (!apiKey) continue;
+        if (provider === "openai") {
+          const c = new OpenAI3({ apiKey, maxRetries: 4, timeout: 9e4 });
+          c.defaultModel = inferModelProvider(selModel) === "openai" ? selModel : PROVIDER_MODELS.openai;
+          c.provider = "openai";
+          c.usedPlatformKey = false;
+          clients.push(c);
+        } else if (provider === "anthropic") {
+          const c = new AnthropicAsOpenAI(apiKey);
+          c.usedPlatformKey = false;
+          clients.push(c);
+        } else {
+          const c = buildOpenAICompatClient(provider, apiKey);
+          c.usedPlatformKey = false;
+          clients.push(c);
+        }
+      } catch (e) {
+        console.error(`[AI] Failed to build ${provider} client, skipping:`, e);
+      }
+    }
+    try {
+      if (process.env.OPENAI_API_KEY && canUsePlatformKey) {
+        const plat = new OpenAI3({ apiKey: process.env.OPENAI_API_KEY, maxRetries: 4, timeout: 9e4 });
+        plat.defaultModel = "gpt-4o-mini";
+        plat.provider = "openai-platform";
+        plat.usedPlatformKey = true;
+        clients.push(plat);
+      }
+    } catch {
+    }
+    if (clients.length) {
+      if (clients[0].provider === selProvider && selModel) {
+        clients[0].defaultModel = selModel;
+      }
+      storage2.updateUserApiKeyUsage(userId, clients[0].provider).catch(() => {
+      });
+      console.log(`[AI] user ${userId} client chain: ${clients.map((c) => c.provider).join(" \u2192 ")} (primary model ${clients[0].defaultModel})`);
+      return makeFailoverClient(clients, userId);
+    }
+    if (!canUsePlatformKey) {
+      throw new Error("AI_COST_CAP_EXCEEDED: Monthly AI usage cap reached for your membership tier. Add your own AI provider key in AI API Keys settings to continue.");
+    }
+  } catch (e) {
+    if (typeof e?.message === "string" && e.message.startsWith("AI_COST_CAP_EXCEEDED")) throw e;
+    console.error("Error fetching user API keys, falling back to platform key:", e);
+  }
+  const platformClient = openai;
+  platformClient.defaultModel = "gpt-4o-mini";
+  platformClient.provider = "openai";
+  platformClient.usedPlatformKey = true;
+  return platformClient;
+}
+async function getUniversalVisionClientForUser(userId) {
+  try {
+    let buildProviderClient2 = function(provider, apiKey, preferredModel) {
+      try {
+        if (provider === "anthropic") {
+          const c = new AnthropicAsOpenAI(apiKey);
+          if (preferredModel && !AVAILABLE_VISION_MODELS.find((m) => m.id === preferredModel)?.textOnly) {
+            c.defaultModel = preferredModel;
+          }
+          return c;
+        }
+        if (provider === "openai") {
+          const c = new OpenAI3({ apiKey, maxRetries: 1, timeout: 9e4 });
+          c.defaultModel = preferredModel && selIsVision ? preferredModel : "gpt-4o-mini";
+          c.provider = "openai";
+          return c;
+        }
+        if (provider === "openrouter") {
+          const c = buildOpenAICompatClient("openrouter", apiKey);
+          c.defaultModel = VISION_FALLBACK.openrouter;
+          return c;
+        }
+        if (provider === "groq") {
+          return null;
+        }
+        return buildOpenAICompatClient(provider, apiKey);
+      } catch (e) {
+        console.error(`[AI Vision] Failed to build ${provider} client:`, e);
+        return null;
+      }
+    };
+    var buildProviderClient = buildProviderClient2;
+    const { storage: storage2 } = await Promise.resolve().then(() => (init_storage(), storage_exports));
+    const user = await storage2.getUser(userId);
+    const aiCostMode = user?.aiCostMode || "full";
+    const allKeys = await storage2.getUserApiKeys(userId);
+    const activeKeys = allKeys.filter((k) => k.isActive && k.isValid !== false);
+    const keyFor = (p) => activeKeys.find((k) => k.provider === p)?.apiKey;
+    const canUsePlatformKey = await isUnderPlatformKeyCostCap(userId);
+    if (!canUsePlatformKey) {
+      console.warn(`[AI Vision] user ${userId} has exceeded their platform-key AI cost cap this month \u2014 platform-key fallback disabled`);
+    }
+    const clients = [];
+    const selModel = getUserModelPreference(userId);
+    const selProvider = inferModelProvider(selModel);
+    const selIsVision = !AVAILABLE_VISION_MODELS.find((m) => m.id === selModel)?.textOnly;
+    console.log(`[AI Vision] user ${userId} selected model: ${selModel} (provider: ${selProvider}, vision: ${selIsVision})`);
+    const preferredPersonalKey = keyFor(selProvider);
+    if (preferredPersonalKey) {
+      await storage2.updateUserApiKeyUsage(userId, selProvider).catch(() => {
+      });
+      const c = buildProviderClient2(selProvider, preferredPersonalKey, selModel);
+      if (c) {
+        c.usedPlatformKey = false;
+        clients.push(c);
+      }
+    }
+    const preferredPlatformKey = selProvider === "openrouter" && canUsePlatformKey ? process.env.OPENROUTER_API_KEY : void 0;
+    if (preferredPlatformKey && preferredPlatformKey !== preferredPersonalKey) {
+      const c = buildProviderClient2(selProvider, preferredPlatformKey, selModel);
+      if (c) {
+        c.usedPlatformKey = true;
+        clients.push(c);
+      }
+    }
+    const VISION_PROVIDERS = ["openrouter", "anthropic", "openai", "google", "mistral"];
+    for (const provider of VISION_PROVIDERS) {
+      if (provider === selProvider) continue;
+      const personalKey = keyFor(provider);
+      if (personalKey) {
+        const c = buildProviderClient2(provider, personalKey);
+        if (c) {
+          c.usedPlatformKey = false;
+          clients.push(c);
+        }
+      }
+      const platformKey = provider === "openrouter" && canUsePlatformKey ? process.env.OPENROUTER_API_KEY : void 0;
+      if (platformKey && platformKey !== personalKey) {
+        const c = buildProviderClient2(provider, platformKey);
+        if (c) {
+          c.usedPlatformKey = true;
+          clients.push(c);
+        }
+      }
+    }
+    if (process.env.OPENAI_API_KEY && canUsePlatformKey) {
+      const plat = new OpenAI3({ apiKey: process.env.OPENAI_API_KEY, maxRetries: 1, timeout: 9e4 });
+      plat.defaultModel = "gpt-4o-mini";
+      plat.provider = "openai-platform";
+      plat.usedPlatformKey = true;
+      clients.push(plat);
+    }
+    if (clients.length) {
+      storage2.updateUserApiKeyUsage(userId, clients[0].provider).catch(() => {
+      });
+      console.log(`[AI Vision] user ${userId} client chain: ${clients.map((c) => c.provider).join(" \u2192 ")}`);
+      return makeFailoverClient(clients, userId);
+    }
+    if (!canUsePlatformKey) {
+      throw new Error("AI_COST_CAP_EXCEEDED: Monthly AI usage cap reached for your membership tier. Add your own AI provider key in AI API Keys settings to continue.");
+    }
+  } catch (e) {
+    if (typeof e?.message === "string" && e.message.startsWith("AI_COST_CAP_EXCEEDED")) throw e;
+    console.error("Error building vision client, falling back to platform key:", e);
+  }
+  const platformClient = getDefaultOpenAIClient();
+  platformClient.defaultModel = "gpt-4o-mini";
+  platformClient.provider = "openai";
+  platformClient.usedPlatformKey = true;
+  return platformClient;
+}
+async function getOpenAIInstanceForUser(userId) {
+  return getUniversalAIClientForUser(userId);
+}
+async function testOpenAIApiKey() {
+  try {
+    const openai2 = getOpenAIInstance();
+    const response = await openai2.models.list();
+    return response.data.length > 0;
+  } catch (error) {
+    console.error("Error validating OpenAI API key:", error);
+    return false;
+  }
+}
+async function analyzeChartImage(base64Image, knownSymbol, userId) {
+  try {
+    let extractJsonContent2 = function(text2) {
+      const fenced = text2.match(/```(?:json)?\s*([\s\S]*?)\s*```/);
+      if (fenced) return fenced[1];
+      const first = text2.indexOf("{");
+      const last2 = text2.lastIndexOf("}");
+      if (first !== -1 && last2 > first) return text2.slice(first, last2 + 1);
+      return text2;
+    };
+    var extractJsonContent = extractJsonContent2;
+    const aiClient = userId ? await getUniversalVisionClientForUser(userId) : getOpenAIInstance();
+    const rawModel = aiClient.defaultModel || (userId ? getUserModelPreference(userId) : "gpt-4o");
+    const selectedModel = resolveVisionModel(rawModel);
+    if (selectedModel !== rawModel) aiClient.defaultModel = selectedModel;
+    const openai2 = aiClient;
+    const assetSpecificAddition = knownSymbol ? getAssetSpecificPrompt(knownSymbol) : "";
+    const assetConfig = knownSymbol ? getAssetSpecificConfig(knownSymbol) : null;
+    const providerName = aiClient.provider || "unknown";
+    console.log(`[AI Analysis] Using model: ${selectedModel} provider: ${providerName} for user ${userId || "platform"}`);
+    const visionResponse = await openai2.chat.completions.create({
+      model: selectedModel,
+      messages: [
+        {
+          role: "system",
+          content: `You are an expert trading chart analyst with deep expertise in technical analysis, volume analysis, and momentum indicators. Analyze the trading chart image and provide detailed, accurate analysis.
+          
+          CRITICAL ANALYSIS REQUIREMENTS:
+          
+          1. VOLUME & MOMENTUM ANALYSIS (Priority):
+             - Analyze volume bars visible on the chart to assess buying/selling pressure
+             - Look for volume divergences that could signal trend reversals
+             - Identify momentum indicators (RSI, MACD, Stochastic if visible)
+             - Assess whether volume confirms or contradicts price action${assetSpecificAddition}
+             - Higher volume on breakouts increases signal reliability
+             - Low volume in trends suggests potential reversal
+          
+          2. UNBIASED SIGNAL DIRECTION:
+             - Consider BOTH bullish and bearish scenarios equally
+             - If price is at resistance with bearish volume/momentum, suggest SELL
+             - If price is at support with bullish volume/momentum, suggest BUY
+             - Volume should CONFIRM direction (e.g., rising prices need rising volume)
+             - Momentum indicators (RSI >70 = overbought/SELL, RSI <30 = oversold/BUY)
+          
+          3. ATR-BASED STOP LOSS CALCULATION:
+             - Estimate the Average True Range (ATR) from visible price action
+             - Provide multiple stop loss options based on ATR multiples:
+               * Conservative: 1x ATR
+               * Balanced: 1.5x ATR (recommended for most trades)
+               * Aggressive: 2x ATR (for swing trades)
+             - ATR-based stops adapt to market volatility and reduce premature stop-outs
+          
+          4. TECHNICAL ANALYSIS:
+             - Identify chart patterns, support/resistance levels
+             - Analyze trend direction across multiple timeframes if visible
+             - Consider confluence of multiple indicators for higher confidence
+          
+          5. VOLUME SESSIONS ANALYSIS:
+             - Asian, London, New York session characteristics
+             - Best trading times based on currency pair and volume
+          
+          6. CANDLESTICK SIGNIFICANCE ANALYSIS (NEW INDICATOR):
+             - Identify all visible candlestick patterns (Doji, Hammer, Engulfing, Morning/Evening Star, etc.)
+             - Assess significance based on location (at support/resistance, after trend, at breakout)
+             - Rate each pattern's reliability and trading implications
+             - Consider pattern clusters and confluences
+             - Provide actionable insights for each significant pattern
+          
+          CRITICAL OUTPUT FORMAT: Your entire response must be a single valid JSON object.
+          - Start your response with '{' and end with '}'
+          - Do NOT use markdown code blocks (no backticks, no \`\`\`json)
+          - Do NOT include any text before or after the JSON
+          - Include placeholder values rather than omitting properties
+          - For numeric fields you cannot determine, use a string (e.g., "Unknown")
+          - All properties in the response schema are required`
+        },
+        {
+          role: "user",
+          content: [
+            {
+              type: "text",
+              text: `Analyze this trading chart in detail and provide the following information in structured JSON format:
+
+{
+  "symbol": string,           // Name of the trading pair or symbol (e.g. "EURUSD", "BTCUSD")
+  "timeframe": string,        // Chart timeframe (e.g. "1H", "4H", "1D")
+  "currentPrice": string,     // Current price visible on the chart
+  "direction": string,        // "BUY" or "SELL" signal based on volume, momentum, and technical analysis
+  "trend": string,            // "Bullish" or "Bearish"
+  "confidence": string,       // "Low", "Medium", or "High" - higher if volume confirms the signal
+  "entryPoint": string,       // Suggested entry price
+  "exitPoint": string,        // Suggested exit price
+  "stopLoss": string,         // Suggested stop loss level (can be based on ATR)
+  "takeProfit": string,       // Suggested take profit level
+  "riskRewardRatio": string,  // Risk-to-reward ratio (e.g. "1:2", "1:3")
+  "potentialPips": string,    // Potential pips/points in the trade
+  "atrStopLoss": {            // ATR-based stop loss options (REQUIRED)
+    "atrValue": string,       // Estimated ATR value from chart (e.g. "0.0045")
+    "atr1x": string,          // Conservative stop: current price +/- 1x ATR
+    "atr15x": string,         // Balanced stop: current price +/- 1.5x ATR (RECOMMENDED)
+    "atr2x": string,          // Wide stop: current price +/- 2x ATR
+    "recommended": string     // Your recommended stop loss from the above options
+  },
+  "momentumIndicators": {     // Momentum and volume indicators (REQUIRED)
+    "rsi": {                  // RSI if visible, otherwise estimate from price action
+      "value": string,        // e.g. "68"
+      "signal": string,       // "Overbought", "Oversold", "Neutral"
+      "interpretation": string // Brief explanation
+    },
+    "macd": {                 // MACD if visible
+      "value": string,        // e.g. "Bullish crossover"
+      "signal": string,       // "Bullish", "Bearish", "Neutral"
+      "interpretation": string
+    },
+    "volumeTrend": {          // Volume analysis (CRITICAL)
+      "direction": string,    // "Increasing", "Decreasing", "Stable"
+      "strength": string,     // "Weak", "Moderate", "Strong"
+      "interpretation": string // How volume confirms or contradicts price action
+    }
+  },
+  "patterns": [               // Array of identified chart patterns
+    {
+      "name": string,         // Pattern name (e.g. "Double Top", "Head and Shoulders")
+      "description": string,  // Brief description
+      "strength": string,     // "Weak", "Moderate", "Strong"
+      "type": string,         // "Reversal", "Continuation", etc.
+      "details": string       // Additional details about the pattern
+    }
+  ],
+  "indicators": [             // Array of technical indicators visible on chart
+    {
+      "name": string,         // Indicator name (e.g. "RSI", "MACD", "Volume")
+      "type": string,         // Type of indicator (e.g. "Oscillator", "Trend", "Volume")
+      "signal": string,       // "Bullish", "Bearish", "Neutral"
+      "details": string       // Additional details about the indicator
+    }
+  ],
+  "supportResistance": [      // Array of support and resistance levels
+    {
+      "type": string,         // "Support" or "Resistance"
+      "strength": string,     // "Weak", "Moderate", "Strong"
+      "level": string         // Price level
+    }
+  ],
+  "timeframeAnalysis": [      // Analysis across different timeframes
+    {
+      "timeframe": string,    // Timeframe (e.g. "1H", "4H", "1D")
+      "trend": string         // "Bullish" or "Bearish" on that timeframe
+    }
+  ],
+  "volumeAnalysis": [         // Analysis of volume patterns and best trading times
+    {
+      "period": string,       // Time period (e.g. "Asian Session", "London Session", "New York Session") 
+      "volume": string,       // "Low", "Medium", "High" volume level
+      "activity": string,     // Description of market activity during this period
+      "quality": string       // Quality of trading opportunities ("Poor", "Average", "Excellent")
+    }
+  ],
+  "preferredVolumeThreshold": string, // Preferred volume level (e.g. "150% above average", "2x average volume")
+  "preferredTradingTime": string,     // Best time to trade (e.g. "London Session", "US Market Open")
+  "candlestickSignificance": {        // Candlestick pattern analysis as an indicator (REQUIRED)
+    "overallSignal": string,          // "Strong Buy", "Buy", "Neutral", "Sell", "Strong Sell"
+    "reliability": string,            // "Low", "Medium", "High" - how reliable the signals are
+    "patterns": [                     // Array of identified candlestick patterns
+      {
+        "name": string,               // Pattern name (e.g., "Doji", "Hammer", "Bullish Engulfing")
+        "type": string,               // "Bullish", "Bearish", or "Neutral"
+        "significance": string,       // "Low", "Medium", "High", "Very High"
+        "location": string,           // Where it appears (e.g., "At key support", "After downtrend")
+        "description": string,        // Brief explanation of what this pattern means
+        "actionableInsight": string   // What traders should consider doing
+      }
+    ],
+    "keyObservation": string,         // Most important observation about recent candles
+    "tradingImplication": string      // What this means for trading decisions
+  },
+  "recommendation": string,   // Overall trading recommendation considering volume and momentum
+  "steps": string[],          // Array of actionable steps to take
+  "volumeProfile": {           // Price-level volume profile (REQUIRED \u2014 estimate from visible bars/candles)
+    "poc": number,             // Point of Control: price level with highest traded volume
+    "vah": number,             // Value Area High: upper boundary of 70% value area
+    "val": number,             // Value Area Low: lower boundary of 70% value area
+    "currentPrice": number,    // Current/last close price visible on the chart
+    "hvnLevels": number[],     // High Volume Node prices (2-4 significant support/resistance prices)
+    "lvnLevels": number[],     // Low Volume Node prices (1-3 thin zones where price moves fast)
+    "levels": [                // 8-15 price levels with relative volume 0-100
+      { "price": number, "volume": number }
+    ]
+  },
+  "orgStrategyInsight": {     // VEDD platform strategy framework assessment (REQUIRED)
+    "strategyName": string,      // Which top strategy best matches this setup: "ICT AMD Kill Zone", "SMC Order Block Raid", "Wyckoff Accumulation/Distribution", "Fibonacci OTE Reversal", "Session Breakout Momentum", "Trend Continuation Pullback", or similar
+    "alignment": string,         // How well price action aligns: "Strong", "Moderate", "Weak", or "None"
+    "institutionalBias": string, // Smart money directional lean: "Bullish", "Bearish", or "Neutral"
+    "keyFactor": string,         // The single most important factor confirming or negating the strategy (e.g. "Price swept Asian low and reclaimed OB" or "Volume absent on breakout")
+    "insight": string,           // 1-2 sentence expert institutional analysis of this specific setup
+    "actionNote": string         // One concrete thing the trader should watch for or do right now based on this strategy framework
+  }
+}
+
+IMPORTANT: All fields marked as REQUIRED must be included in your response with actual data, not "Unknown".`
+            },
+            {
+              type: "image_url",
+              image_url: {
+                url: `data:image/jpeg;base64,${base64Image}`
+              }
+            }
+          ]
+        }
+      ],
+      max_tokens: 8192
+    });
+    const rawLen = visionResponse.choices[0].message.content?.length ?? 0;
+    const finishReason = visionResponse.choices[0].finish_reason;
+    console.log(`OpenAI JSON Response (${rawLen} chars, finish_reason=${finishReason}):`, visionResponse.choices[0].message.content?.slice(0, 300));
+    const rawContent = visionResponse.choices[0].message.content;
+    const contentStr = extractJsonContent2(rawContent);
+    let response;
+    try {
+      response = JSON.parse(contentStr);
+      console.log("Parsed response successfully");
+    } catch (parseError) {
+      console.error("Failed to parse JSON response:", parseError);
+      console.log("Response content:", rawContent.slice(0, 500));
+      response = {};
+    }
+    const symbol = typeof response.symbol === "string" ? response.symbol : "Unknown";
+    const analysisResponse = {
+      symbol,
+      timeframe: typeof response.timeframe === "string" ? response.timeframe : "Unknown",
+      currentPrice: typeof response.currentPrice === "string" ? response.currentPrice : "Unknown",
+      direction: typeof response.direction === "string" ? response.direction : "Unknown",
+      trend: typeof response.trend === "string" ? response.trend : "Unknown",
+      confidence: typeof response.confidence === "string" ? response.confidence : "Medium",
+      entryPoint: typeof response.entryPoint === "string" ? response.entryPoint : "Unknown",
+      exitPoint: typeof response.exitPoint === "string" ? response.exitPoint : "Unknown",
+      stopLoss: typeof response.stopLoss === "string" ? response.stopLoss : "Unknown",
+      takeProfit: typeof response.takeProfit === "string" ? response.takeProfit : "Unknown",
+      riskRewardRatio: typeof response.riskRewardRatio === "string" ? response.riskRewardRatio : "Unknown",
+      potentialPips: typeof response.potentialPips === "string" ? response.potentialPips : "Unknown",
+      volatilityScore: 50,
+      // Default medium volatility, client will recalculate
+      volatilityData: {
+        score: 50,
+        atr: 1e-3,
+        standardDeviation: 15e-4,
+        range: 0.01,
+        historicalRank: 50,
+        riskFactor: 50
+      },
+      // ATR-based stop loss options
+      atrStopLoss: response.atrStopLoss && typeof response.atrStopLoss === "object" ? {
+        atrValue: response.atrStopLoss.atrValue || "0.0010",
+        atr1x: response.atrStopLoss.atr1x || "Unknown",
+        atr15x: response.atrStopLoss.atr15x || "Unknown",
+        atr2x: response.atrStopLoss.atr2x || "Unknown",
+        recommended: response.atrStopLoss.recommended || "Unknown"
+      } : void 0,
+      // Momentum indicators
+      momentumIndicators: response.momentumIndicators && typeof response.momentumIndicators === "object" ? {
+        rsi: response.momentumIndicators.rsi,
+        macd: response.momentumIndicators.macd,
+        stochastic: response.momentumIndicators.stochastic,
+        volumeTrend: response.momentumIndicators.volumeTrend
+      } : void 0,
+      // Candlestick significance analysis
+      candlestickSignificance: response.candlestickSignificance && typeof response.candlestickSignificance === "object" ? {
+        overallSignal: response.candlestickSignificance.overallSignal || "Neutral",
+        reliability: response.candlestickSignificance.reliability || "Medium",
+        patterns: Array.isArray(response.candlestickSignificance.patterns) ? response.candlestickSignificance.patterns : [],
+        keyObservation: response.candlestickSignificance.keyObservation || "No significant patterns detected",
+        tradingImplication: response.candlestickSignificance.tradingImplication || "Continue monitoring for clearer signals"
+      } : void 0,
+      // Generate market trend data for related pairs
+      marketTrends: await generateMarketTrendPredictions(symbol),
+      patterns: Array.isArray(response.patterns) ? response.patterns : [],
+      indicators: Array.isArray(response.indicators) ? response.indicators : [],
+      supportResistance: Array.isArray(response.supportResistance) ? response.supportResistance : [],
+      timeframeAnalysis: Array.isArray(response.timeframeAnalysis) ? response.timeframeAnalysis : [],
+      volumeAnalysis: Array.isArray(response.volumeAnalysis) && response.volumeAnalysis.length > 0 ? response.volumeAnalysis : (() => {
+        const symbol2 = typeof response.symbol === "string" ? response.symbol : "Unknown";
+        const defaultVolume = [
+          {
+            period: "Asian Session",
+            volume: "Medium",
+            activity: "Moderate price action with occasional breakouts during Tokyo open",
+            quality: "Average"
+          },
+          {
+            period: "London Session",
+            volume: "High",
+            activity: "Increased volatility and liquidity as European markets open",
+            quality: "Excellent"
+          },
+          {
+            period: "New York Session",
+            volume: "High",
+            activity: "Peak trading volume when both European and US markets are active",
+            quality: "Excellent"
+          }
+        ];
+        if (symbol2.includes("JPY") || symbol2.includes("AUD") || symbol2.includes("NZD")) {
+          defaultVolume[0].volume = "High";
+          defaultVolume[0].quality = "Excellent";
+          defaultVolume[0].activity = "Strong price movements and liquidity during Tokyo/Sydney sessions";
+        } else if (symbol2.includes("GBP") || symbol2.includes("EUR") || symbol2.includes("CHF")) {
+          defaultVolume[1].volume = "Very High";
+          defaultVolume[1].activity = "Peak liquidity and volatility for European currencies";
+        } else if (symbol2.includes("CAD")) {
+          defaultVolume[2].volume = "Very High";
+          defaultVolume[2].activity = "Highest volatility during New York and Toronto market hours";
+        }
+        return defaultVolume;
+      })(),
+      recommendation: typeof response.recommendation === "string" ? response.recommendation : "No recommendation available",
+      steps: Array.isArray(response.steps) ? response.steps : [],
+      orgStrategyInsight: response.orgStrategyInsight && typeof response.orgStrategyInsight === "object" ? {
+        strategyName: typeof response.orgStrategyInsight.strategyName === "string" ? response.orgStrategyInsight.strategyName : "Unknown",
+        alignment: typeof response.orgStrategyInsight.alignment === "string" ? response.orgStrategyInsight.alignment : "Weak",
+        institutionalBias: typeof response.orgStrategyInsight.institutionalBias === "string" ? response.orgStrategyInsight.institutionalBias : "Neutral",
+        keyFactor: typeof response.orgStrategyInsight.keyFactor === "string" ? response.orgStrategyInsight.keyFactor : "",
+        insight: typeof response.orgStrategyInsight.insight === "string" ? response.orgStrategyInsight.insight : "",
+        actionNote: typeof response.orgStrategyInsight.actionNote === "string" ? response.orgStrategyInsight.actionNote : ""
+      } : void 0,
+      volumeProfile: (() => {
+        const vp = response.volumeProfile;
+        if (!vp || typeof vp !== "object" || !vp.poc || !Array.isArray(vp.levels) || vp.levels.length === 0) return void 0;
+        return {
+          poc: Number(vp.poc),
+          vah: Number(vp.vah || vp.poc),
+          val: Number(vp.val || vp.poc),
+          currentPrice: vp.currentPrice ? Number(vp.currentPrice) : void 0,
+          hvnLevels: Array.isArray(vp.hvnLevels) ? vp.hvnLevels.map(Number).filter(Boolean) : [],
+          lvnLevels: Array.isArray(vp.lvnLevels) ? vp.lvnLevels.map(Number).filter(Boolean) : [],
+          levels: vp.levels.filter((l) => l && typeof l.price === "number" && typeof l.volume === "number").map((l) => ({ price: Number(l.price), volume: Number(l.volume) }))
+        };
+      })()
+    };
+    return analysisResponse;
+  } catch (error) {
+    console.error("Error analyzing chart:", error);
+    if (error instanceof Error) {
+      throw error;
+    } else {
+      throw new Error("Failed to analyze chart image");
+    }
+  }
+}
+async function generateTradingTip(symbol, timeframe = "4H", marketContext = "") {
+  const openai2 = getOpenAIInstance();
+  const prompt = `Generate a concise trading tip for ${symbol} on the ${timeframe} timeframe.
+${marketContext ? `Current market context: ${marketContext}` : ""}
+
+Analyze potential trade opportunities for ${symbol} based on recent price action, key support/resistance levels, 
+and relevant indicators. Focus on actionable advice for traders.
+
+Format your response as a JSON object with these fields:
+- tip: A concise 1-2 sentence trading recommendation
+- direction: Either "buy", "sell", or "neutral"
+- confidence: A number from 1-100 representing confidence in this tip
+- key_levels: An object containing "support" and "resistance" price levels
+
+Keep the tip under 150 characters - direct and actionable.`;
+  try {
+    const response = await openai2.chat.completions.create({
+      model: "gpt-4o",
+      // use the newest model
+      messages: [
+        { role: "system", content: "You are a professional forex and crypto trading advisor with 15+ years of experience." },
+        { role: "user", content: prompt }
+      ],
+      response_format: { type: "json_object" }
+    });
+    const content = response.choices[0].message.content;
+    if (!content) {
+      throw new Error("Failed to generate trading tip");
+    }
+    try {
+      const tipData = JSON.parse(content);
+      return {
+        tip: tipData.tip || "No tip available",
+        direction: tipData.direction || "neutral",
+        confidence: Number(tipData.confidence) || 50,
+        key_levels: {
+          support: tipData.key_levels?.support || "N/A",
+          resistance: tipData.key_levels?.resistance || "N/A"
+        }
+      };
+    } catch (parseError) {
+      console.error("Error parsing AI response:", parseError);
+      throw new Error("Failed to parse trading tip");
+    }
+  } catch (error) {
+    console.error("Error generating trading tip:", error);
+    throw error;
+  }
+}
+async function extractTextFromImage(base64Image) {
+  try {
+    const openai2 = getOpenAIInstance();
+    const visionResponse = await openai2.chat.completions.create({
+      model: "gpt-4o",
+      messages: [
+        {
+          role: "user",
+          content: [
+            {
+              type: "text",
+              text: "Extract all text visible in this trading chart image. Focus on price values, indicators, timeframes, and any other relevant information."
+            },
+            {
+              type: "image_url",
+              image_url: {
+                url: `data:image/jpeg;base64,${base64Image}`
+              }
+            }
+          ]
+        }
+      ],
+      max_tokens: 1e3
+    });
+    return visionResponse.choices[0].message.content || "";
+  } catch (error) {
+    console.error("Error extracting text from image:", error);
+    if (error instanceof Error) {
+      throw error;
+    } else {
+      throw new Error("Failed to extract text from image");
+    }
+  }
+}
+async function generateMarketTrendPredictions(mainSymbol) {
+  try {
+    const openai2 = getOpenAIInstance();
+    const response = await openai2.chat.completions.create({
+      model: "gpt-4o",
+      messages: [
+        {
+          role: "system",
+          content: "You are a professional forex and trading market analyst with deep technical analysis expertise. Generate accurate trend predictions for currency pairs related to the main pair being analyzed. Your predictions should be based on recent market patterns, economic data, and technical indicators."
+        },
+        {
+          role: "user",
+          content: `Based on the current analysis of ${mainSymbol}, predict the market trends for 8-12 related trading pairs. For each pair, provide: pair name, probability (0-100), direction (bullish/bearish/neutral), and signal strength (0-100). Format your response as a JSON array of objects with the field name 'predictions'.`
+        }
+      ],
+      response_format: { type: "json_object" },
+      temperature: 0.7
+    });
+    const parsedResponse = JSON.parse(response.choices[0].message.content || "{}");
+    if (Array.isArray(parsedResponse.predictions)) {
+      return parsedResponse.predictions.map((pred) => ({
+        pair: pred.pair || "Unknown Pair",
+        probability: typeof pred.probability === "number" ? pred.probability : parseInt(pred.probability) || 50,
+        direction: pred.direction === "bullish" || pred.direction === "bearish" || pred.direction === "neutral" ? pred.direction : "neutral",
+        strength: typeof pred.strength === "number" ? pred.strength : parseInt(pred.strength) || 50,
+        timestamp: Date.now()
+      }));
+    }
+    return generateFallbackTrendData(mainSymbol);
+  } catch (error) {
+    console.error("Error generating market trend predictions:", error);
+    return generateFallbackTrendData(mainSymbol);
+  }
+}
+function generateFallbackTrendData(mainSymbol) {
+  const currencyPairs = [
+    "EUR/USD",
+    "GBP/USD",
+    "USD/JPY",
+    "USD/CHF",
+    "USD/CAD",
+    "AUD/USD",
+    "NZD/USD",
+    "EUR/GBP"
+  ];
+  const relatedPairs = currencyPairs.filter((pair) => pair !== mainSymbol).slice(0, 8);
+  return relatedPairs.map((pair) => {
+    const random = Math.random();
+    let direction;
+    if (random < 0.4) {
+      direction = "bullish";
+    } else if (random < 0.8) {
+      direction = "bearish";
+    } else {
+      direction = "neutral";
+    }
+    return {
+      pair,
+      probability: Math.round(60 + Math.random() * 35),
+      // 60-95%
+      direction,
+      strength: Math.round(20 + Math.random() * 75),
+      // 20-95
+      timestamp: Date.now()
+    };
+  });
+}
+async function generatePresentationOutline(eventTitle, eventDescription, talkingPoints, agenda, duration) {
+  if (!openai) {
+    throw new Error("OpenAI API key is not configured");
+  }
+  const prompt = `You are creating a professional presentation outline for a live trading/educational event. 
+  
+EVENT DETAILS:
+- Title: ${eventTitle}
+- Description: ${eventDescription}
+- Duration: ${duration} minutes
+- Key Talking Points: ${talkingPoints.join(", ")}
+- Agenda: ${agenda.map((a) => `${a.time}: ${a.topic}`).join("; ")}
+
+Create a visually engaging presentation outline with ${Math.max(3, Math.min(10, Math.floor(duration / 5)))} slides.
+
+Each slide MUST have:
+1. A compelling title (short, impactful)
+2. 2-4 bullet points (concise, action-oriented)
+3. An EXPLAINER EXAMPLE - a simple analogy or everyday comparison that makes the concept click (e.g., "A stop loss is like a safety net for a trapeze artist - you hope you never need it, but it saves you when things go wrong")
+4. A REAL-WORLD EXAMPLE - a specific, concrete scenario with names/numbers (e.g., "When Bitcoin dropped 40% in May 2021, traders using 3% stop losses preserved 97% of capital")
+5. A NOTABLE INCIDENT - a famous trading story or market event (e.g., "Nick Leeson lost $1.3B and collapsed Barings Bank by hiding losses")
+6. KEY REASONS - 2-3 specific reasons WHY this matters with data (e.g., "Studies show 90% of day traders lose money due to emotional trading")
+7. Brief speaker notes
+8. Visual suggestion (icon/graphic idea)
+9. Approximate duration
+
+CRITICAL: 
+- Explainer examples should use everyday analogies (cooking, sports, driving, etc.) to make complex trading concepts easy to understand
+- Real-world examples, incidents, and reasons must be SPECIFIC and MEMORABLE with real names, numbers, and events
+
+Style guidelines:
+- Professional trading/finance theme
+- Clear, educational tone
+- Actionable insights with proof
+- Memorable stories that stick
+
+Return a JSON object with this exact structure:
+{
+  "eventTitle": "string",
+  "totalSlides": number,
+  "estimatedDuration": "string",
+  "slides": [
+    {
+      "slideNumber": 1,
+      "title": "string",
+      "bulletPoints": ["point1", "point2", "point3"],
+      "explainerExample": "Simple analogy using everyday concepts to explain the topic",
+      "realWorldExample": "Specific example with names and numbers",
+      "notableIncident": "Famous trading story or market event",
+      "keyReasons": ["Reason 1 with data", "Reason 2 with statistics"],
+      "speakerNotes": "string",
+      "visualSuggestion": "string",
+      "duration": "2 min"
+    }
+  ]
+}`;
+  try {
+    const response = await openai.chat.completions.create({
+      model: "gpt-4o-mini",
+      messages: [
+        {
+          role: "system",
+          content: "You are an expert presentation designer for trading and financial education. Create compelling, professional slide outlines. Always return valid JSON."
+        },
+        { role: "user", content: prompt }
+      ],
+      response_format: { type: "json_object" },
+      max_tokens: 2e3,
+      // was 4000 — slide outlines don't need that many tokens
+      temperature: 0.7
+    });
+    const content = response.choices[0]?.message?.content;
+    if (!content) {
+      throw new Error("No response from OpenAI");
+    }
+    const result = JSON.parse(content);
+    return result;
+  } catch (error) {
+    console.error("Error generating presentation outline:", error);
+    return {
+      eventTitle,
+      totalSlides: 3,
+      estimatedDuration: `${duration} minutes`,
+      slides: [
+        {
+          slideNumber: 1,
+          title: "Welcome & Overview",
+          bulletPoints: ["Session objectives", "What you'll learn today", "Key takeaways"],
+          speakerNotes: "Introduce yourself and set expectations",
+          visualSuggestion: "Welcome graphic with logo",
+          duration: "3 min"
+        },
+        {
+          slideNumber: 2,
+          title: eventTitle,
+          bulletPoints: talkingPoints.slice(0, 4),
+          speakerNotes: "Cover the main content",
+          visualSuggestion: "Chart or diagram",
+          duration: `${Math.floor(duration * 0.7)} min`
+        },
+        {
+          slideNumber: 3,
+          title: "Summary & Next Steps",
+          bulletPoints: ["Key points recap", "Action items", "Questions?"],
+          speakerNotes: "Wrap up and take questions",
+          visualSuggestion: "Checklist graphic",
+          duration: "5 min"
+        }
+      ]
+    };
+  }
+}
+async function scanGrantsWithAI(grantTypes, isAdmin, userId) {
+  const typeLabels = {
+    business_fintech: "Business Development & Fintech",
+    community_dev: "Community Development & Economic Empowerment",
+    ambassador_education: "Ambassador Programs & Financial Education",
+    international: "International Expansion & Global Programs",
+    ai_focused: "AI & Technology Innovation"
+  };
+  const typesText = grantTypes.map((t) => typeLabels[t] || t).join(", ");
+  const systemPrompt = "You are an expert grant researcher specializing in fintech, community development, and technology education funding. Return only valid JSON with a 'grants' array.";
+  const userPrompt = `Based on your knowledge of real grant programs, foundations, and government initiatives, identify ${isAdmin ? "20-25" : "10-15"} grants relevant to this organization:
+
+${VEDD_IDENTITY_CONTEXT}
+
+Focus on grant categories: ${typesText}
+
+Include: Federal programs (SBA, CDFI Fund, EDA, NSF, HUD), private foundations (Kauffman, JPMorgan Chase, etc.), corporate grants, fintech accelerators.
+
+Return JSON: { "grants": [ { "title", "funder", "description", "fundingAmount", "deadline" (null or YYYY-MM-DD), "eligibilityCriteria" (array), "applicationUrl", "grantType" (business_fintech|community_dev|ambassador_education|international|ai_focused), "targetAudience" (business|ambassador|both), "geographicScope", "relevanceScore" (60-100), "aiScanNotes" } ] }`;
+  try {
+    const aiClient = userId ? await getUniversalAIClientForUser(userId) : null;
+    let content = null;
+    const client2 = aiClient || openai;
+    const model = aiClient ? aiClient.defaultModel : "gpt-4o";
+    const response = await client2.chat.completions.create({
+      model,
+      messages: [
+        { role: "system", content: systemPrompt },
+        { role: "user", content: userPrompt }
+      ],
+      response_format: { type: "json_object" },
+      max_tokens: 6e3,
+      temperature: 0.4
+    });
+    content = response.choices[0]?.message?.content || null;
+    if (!content) throw new Error("No response from AI");
+    const parsed = JSON.parse(content);
+    return parsed.grants || [];
+  } catch (error) {
+    console.error("Grant scan AI error:", error);
+    throw error;
+  }
+}
+async function generateGrantProposal(grant, mode, options) {
+  const eligibilityText = Array.isArray(grant.eligibilityCriteria) ? grant.eligibilityCriteria.join(", ") : grant.eligibilityCriteria || "See grant requirements";
+  const fundingAmt = grant.fundingAmount || "Amount not specified";
+  const baseContext = `
+\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550
+GRANT OPPORTUNITY DETAILS
+\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550
+Grant Title: ${grant.title}
+Funding Organization: ${grant.funder}
+Grant Description: ${grant.description}
+Funding Amount Available: ${fundingAmt}
+Eligibility Requirements: ${eligibilityText}
+Grant Category: ${grant.grantType}
+
+\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550
+APPLICANT ORGANIZATION \u2014 VEDD AI TRADING
+\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550
+${VEDD_IDENTITY_CONTEXT}
+
+DIFFERENTIATORS (use these to stand out):
+- First-mover AI trading education platform integrated with Solana blockchain infrastructure
+- Proprietary 44-day Ambassador Certification Program with NFT-based credentialing
+- Faith-based community trust networks across multiple U.S. cities \u2014 channels that traditional fintech cannot access
+- Ambassador network model creates self-sustaining economic micro-ecosystems in underserved areas
+- Dual revenue model (subscriptions + VEDD token ecosystem) demonstrates financial sustainability
+- Technology democratizes tools previously available only to institutional traders ($50/month vs. $10,000+/year for institutional platforms)
+- Measurable community outcomes: each ambassador directly impacts 50-200 community members in financial literacy
+`;
+  const aiClient = options?.userId ? await getUniversalAIClientForUser(options.userId) : null;
+  const client2 = aiClient || openai;
+  const model = aiClient ? aiClient.defaultModel : "gpt-4o";
+  const callAI = async (systemMsg, userMsg, maxTokens = 4500) => {
+    const response = await client2.chat.completions.create({
+      model,
+      messages: [{ role: "system", content: systemMsg }, { role: "user", content: userMsg }],
+      max_tokens: maxTokens,
+      temperature: 0.65
+    });
+    return response.choices[0]?.message?.content || "";
+  };
+  if (mode === "auto") {
+    const content = await callAI(
+      MASTER_GRANT_WRITER_SYSTEM,
+      `Write a complete, competition-winning grant proposal for VEDD AI Trading to submit to ${grant.funder} for the "${grant.title}" grant.
+
+${baseContext}
+
+PROPOSAL REQUIREMENTS:
+Write a 2,200\u20133,000 word professional grant proposal with the following clearly formatted sections. Each section must be substantive, specific, and funder-aligned. Do NOT use placeholders. Write as if this is the final submission.
+
+## EXECUTIVE SUMMARY
+(250\u2013300 words) Lead with the funder's mission. State: who VEDD is, what specific problem this grant will solve, what VEDD will do with the funding, the measurable outcomes, and the funding amount requested. Make the first sentence impossible to ignore.
+
+## STATEMENT OF NEED
+(300\u2013400 words) Build an urgent, data-grounded case for the problem. Use national and community-level statistics on financial exclusion, the wealth gap, lack of access to investment tools in underserved communities, and the cost of financial illiteracy. Connect this directly to ${grant.funder}'s stated priorities. This is where reviewers decide whether your project matters.
+
+## ORGANIZATIONAL BACKGROUND & CAPACITY
+(250\u2013350 words) Establish VEDD's credibility and readiness. Highlight: founding mission, platform capabilities, ambassador network scale, technical infrastructure, team expertise, and any existing community partnerships. Include specific metrics where possible. Demonstrate you have the organizational muscle to deliver.
+
+## PROJECT DESCRIPTION
+(400\u2013500 words) Describe exactly what VEDD will do with this grant funding. Be specific: activities, timelines, team responsibilities, community partners, and delivery methods. Use a Theory of Change frame: Activities \u2192 Outputs \u2192 Outcomes \u2192 Long-term Impact. Make this feel real and executable, not theoretical.
+
+## GOALS, OBJECTIVES & EVALUATION PLAN
+(300\u2013350 words) List 4\u20135 SMART objectives (Specific, Measurable, Achievable, Relevant, Time-bound). For each, include: the target number, how it will be measured, and the reporting timeline. Include a brief evaluation methodology: how VEDD will collect data, track progress, and report to the funder.
+
+## BUDGET NARRATIVE
+(200\u2013300 words) Justify the use of ${fundingAmt} with line-item categories (personnel, technology infrastructure, training materials, community outreach, evaluation, indirect costs). Show cost-effectiveness by noting what each dollar achieves in terms of community impact. Demonstrate fiscal responsibility.
+
+## SUSTAINABILITY PLAN
+(200\u2013250 words) Explain how this program continues after the grant period ends. Reference VEDD's subscription revenue model, token ecosystem, growing ambassador network, and plans for follow-on funding. Funders need to know their investment won't disappear.
+
+## COMMUNITY IMPACT & EQUITY STATEMENT
+(200\u2013250 words) Paint a vivid, specific picture of who benefits and how. Name the communities. Use "before and after" language. Connect to themes of equity, access, and economic justice that resonate with ${grant.funder}'s values.
+
+## CONCLUSION
+(150\u2013200 words) End with bold, forward-looking vision. Reinforce the partnership frame \u2014 VEDD and ${grant.funder} together accomplishing something that neither could alone. Express genuine gratitude and confidence. Leave the reviewer feeling inspired, not just informed.
+
+CRITICAL RULES:
+- Mirror ${grant.funder}'s language and values throughout
+- Every statistic must be plausible and consistent with publicly known data
+- Active voice, present/future tense throughout
+- No filler sentences \u2014 every sentence must add value
+- Professional but human \u2014 avoid academic jargon
+- This proposal must stand alone as a complete, ready-to-submit document`,
+      4500
+    );
+    return { content };
+  }
+  if (mode === "guided") {
+    const sectionKey = options?.sectionKey || "executiveSummary";
+    const userInputs = options?.userInputs || {};
+    const sectionInstructions = {
+      executiveSummary: {
+        title: "Executive Summary",
+        words: "250\u2013300",
+        tokens: 900,
+        prompt: `Write a 250\u2013300 word Executive Summary that opens with ${grant.funder}'s mission and immediately connects it to VEDD's work.
+${userInputs.focus ? `Reviewer focus areas to emphasize: ${userInputs.focus}` : ""}
+The summary must cover: the community problem, VEDD's solution, specific activities, measurable outcomes, and the funding amount requested (${fundingAmt}).
+The first sentence must be a powerful hook \u2014 a statistic, a human reality, or a bold vision statement.
+End with a clear ask that makes approving this proposal feel like the obvious decision.`
+      },
+      orgBackground: {
+        title: "Organizational Background & Capacity",
+        words: "250\u2013350",
+        tokens: 900,
+        prompt: `Write a 250\u2013350 word Organizational Background section that positions VEDD AI Trading as the most capable, credible organization to execute this project.
+${userInputs.achievements ? `Key achievements/milestones to highlight: ${userInputs.achievements}` : ""}
+Include: founding story, core platform capabilities, ambassador network reach, technical infrastructure, leadership expertise, and community trust. Use specific metrics wherever possible. Avoid generalities \u2014 reviewers have seen "passionate team committed to change" a thousand times.`
+      },
+      statementOfNeed: {
+        title: "Statement of Need",
+        words: "300\u2013400",
+        tokens: 1e3,
+        prompt: `Write a compelling 300\u2013400 word Statement of Need using real, plausible statistics about financial exclusion, the racial wealth gap, lack of investment access in underserved communities, and the cost of financial illiteracy in America.
+Connect these statistics directly to the communities VEDD serves and to ${grant.funder}'s stated mission.
+Build urgency: why does this need to be addressed NOW? What worsens if it isn't?
+${userInputs.communityData ? `Local/community data to incorporate: ${userInputs.communityData}` : ""}`
+      },
+      projectDescription: {
+        title: "Project Description",
+        words: "400\u2013500",
+        tokens: 1100,
+        prompt: `Write a 400\u2013500 word Project Description that reads like a crisp operational plan.
+${userInputs.projectDetails ? `Additional project context: ${userInputs.projectDetails}` : ""}
+Structure it as a Theory of Change: Activities (what VEDD will do) \u2192 Outputs (what will be produced) \u2192 Outcomes (what will change) \u2192 Impact (the lasting difference).
+Be specific about: timelines, who delivers what, community partner roles, technology deployment, and training delivery methods.
+Make this feel real \u2014 not "we will work to" but "we will deliver."`
+      },
+      goalsObjectives: {
+        title: "Goals, Objectives & Evaluation Plan",
+        words: "300\u2013350",
+        tokens: 900,
+        prompt: `Write 4\u20135 SMART objectives for VEDD's grant project, followed by an evaluation methodology.
+${userInputs.goals ? `Applicant-provided goals to incorporate: ${userInputs.goals}` : ""}
+Each objective must include: specific number/target, measurement method, responsible party, and deadline.
+Follow with 150 words on evaluation: how will data be collected, who collects it, how frequently, and how results will be reported to ${grant.funder}.
+Avoid soft language like "increase awareness" \u2014 every objective must be quantifiable.`
+      },
+      budgetNarrative: {
+        title: "Budget Narrative",
+        words: "250\u2013300",
+        tokens: 850,
+        prompt: `Write a 250\u2013300 word Budget Narrative justifying the use of ${fundingAmt} in grant funding.
+${userInputs.budgetItems ? `Specific budget items/priorities: ${userInputs.budgetItems}` : ""}
+Use these category headings: Personnel & Training, Technology Infrastructure, Community Outreach & Marketing, Program Materials, Evaluation & Reporting, Administrative/Indirect (max 15%).
+For each category, explain what it covers and why it is necessary to achieve the stated outcomes.
+Show cost-effectiveness: what community impact does each major expenditure produce?
+Close by noting how VEDD's existing infrastructure reduces grant overhead \u2014 demonstrating efficient use of funds.`
+      },
+      impactStatement: {
+        title: "Community Impact & Equity Statement",
+        words: "250\u2013300",
+        tokens: 850,
+        prompt: `Write a 250\u2013300 word Community Impact and Equity Statement that paints a specific, vivid picture of who benefits and how their lives improve.
+${userInputs.impactMetrics ? `Impact metrics/data to include: ${userInputs.impactMetrics}` : ""}
+Name the communities. Use "before and after" framing. Connect to systemic equity themes that resonate with ${grant.funder}.
+Include 3\u20134 specific measurable impact metrics (e.g., number of households reached, average income change, number of new investors onboarded).
+Close with a line about the ripple effect: how each VEDD ambassador impacts their broader network.`
+      },
+      sustainability: {
+        title: "Sustainability Plan",
+        words: "200\u2013250",
+        tokens: 700,
+        prompt: `Write a 200\u2013250 word Sustainability Plan explaining how VEDD's programs continue and grow after the grant period ends.
+Reference: VEDD's subscription revenue model, VEDD token ecosystem, growing ambassador network self-funding capacity, diversified grant pipeline, and potential earned revenue from ambassador-led events.
+Be specific about year 2 and year 3 funding projections.
+Funders invest in programs with futures \u2014 reassure ${grant.funder} that their investment compounds over time.`
+      },
+      conclusion: {
+        title: "Conclusion",
+        words: "150\u2013200",
+        tokens: 600,
+        prompt: `Write a 150\u2013200 word Conclusion that closes the proposal with vision, gratitude, and momentum.
+Don't summarize \u2014 project forward. Describe what the world looks like in 3 years if this grant is funded.
+Frame this as a partnership between VEDD and ${grant.funder} \u2014 two organizations with aligned missions creating outcomes neither could achieve alone.
+Express authentic appreciation for the funder's consideration.
+End with a confident, forward-looking sentence that makes approving this proposal feel like joining a movement.`
+      }
+    };
+    const section = sectionInstructions[sectionKey] || sectionInstructions.executiveSummary;
+    const content = await callAI(
+      MASTER_GRANT_WRITER_SYSTEM,
+      `Write the "${section.title}" section (${section.words} words) for a grant proposal from VEDD AI Trading to ${grant.funder} for "${grant.title}".
+
+${baseContext}
+
+SECTION INSTRUCTIONS:
+${section.prompt}
+
+CRITICAL: Write the section content only \u2014 no meta-commentary, no "here is the section," no headers other than the section title. This section must be ready to paste directly into the final proposal.`,
+      section.tokens
+    );
+    return { content, sections: { [sectionKey]: content } };
+  }
+  if (mode === "template") {
+    const templateType = options?.templateType || (grant.grantType === "ambassador_education" ? "ambassador_program" : grant.grantType === "community_dev" ? "community_dev" : "fintech_expansion");
+    const templateFocus = {
+      ambassador_program: `
+TEMPLATE FOCUS \u2014 Ambassador Education & Financial Literacy:
+This proposal emphasizes VEDD's 44-day Ambassador Certification Program, the train-the-trainer multiplier model, NFT credentialing system, and the measurable ripple effect of each certified ambassador reaching 50\u2013200 community members.
+Lead with the financial literacy crisis in underserved communities. Show how VEDD's ambassador model is uniquely scalable and self-sustaining.
+Key metrics to build around: ambassadors certified, community members reached per ambassador, financial literacy scores improved, new investors onboarded, inter-city expansion milestones.`,
+      fintech_expansion: `
+TEMPLATE FOCUS \u2014 Fintech Innovation & Technology Access:
+This proposal emphasizes VEDD's full AI trading infrastructure \u2014 live multi-broker execution (MT5 + TradeLocker), the ABBA AI strategist/voice assistant, Solana blockchain integration, an AI prediction-markets engine (Kalshi/Polymarket), and copy-trading with token profit-sharing \u2014 all delivered at democratized pricing versus institutional platforms.
+Lead with the technological exclusion of retail and minority investors from AI-powered financial tools. Show how VEDD closes this gap at scale across multiple asset classes (forex, crypto, prediction markets) from one platform.
+Key metrics: platform users reached, trades analyzed by AI, subscription growth, cost-per-user vs. institutional alternatives, technology adoption in underserved markets.`,
+      community_dev: `
+TEMPLATE FOCUS \u2014 Community Economic Development & Financial Inclusion:
+This proposal emphasizes VEDD's faith-based community trust networks, inter-city economic ecosystem building, minority entrepreneur financial empowerment, and long-term wealth creation in historically disinvested communities.
+Lead with the racial wealth gap and the specific barriers that VEDD is dismantling. Show how VEDD's community-embedded model works where traditional fintech cannot reach.
+Key metrics: household income impact, new investor accounts opened, community GDP contribution, ambassador business development outcomes, generational wealth indicators.`
+    };
+    const content = await callAI(
+      MASTER_GRANT_WRITER_SYSTEM,
+      `Write a complete, ready-to-submit grant proposal (2,000\u20132,500 words) for VEDD AI Trading applying to ${grant.funder} for "${grant.title}."
+
+${baseContext}
+
+${templateFocus[templateType]}
+
+PROPOSAL SECTIONS REQUIRED (all fully written, no placeholders):
+1. Executive Summary (250 words) \u2014 funder-aligned opener, problem, solution, ask
+2. Statement of Need (300 words) \u2014 data-backed urgency, community context
+3. Organizational Background (250 words) \u2014 capacity proof, credibility, track record
+4. Project Description (350 words) \u2014 Theory of Change, activities, deliverables, timeline
+5. Goals & Objectives (250 words) \u2014 4 SMART goals with evaluation method
+6. Budget Narrative (200 words) \u2014 justified use of ${fundingAmt}
+7. Sustainability Plan (150 words) \u2014 post-grant continuity
+8. Impact Statement (200 words) \u2014 specific community outcomes
+9. Conclusion (150 words) \u2014 visionary close, partnership frame
+
+This proposal must read like a veteran wrote it \u2014 specific, compelling, funder-centric, ready to submit.`,
+      4e3
+    );
+    return { content };
+  }
+  return { content: "" };
+}
+async function generateSocialOutreachKit(platform, keywords, ambassadorName, userId) {
+  let resolvedApiKey = process.env.OPENAI_API_KEY;
+  if (userId) {
+    try {
+      const { storage: storage2 } = await Promise.resolve().then(() => (init_storage(), storage_exports));
+      const keys = await storage2.getUserApiKeys(userId);
+      const userKey = keys.find((k) => k.provider === "openai" && k.isActive && k.isValid !== false);
+      if (userKey?.apiKey) resolvedApiKey = userKey.apiKey;
+    } catch {
+    }
+  }
+  if (!resolvedApiKey) {
+    throw new Error("No OpenAI API key available. Please add your OpenAI key in Settings \u2192 API Keys.");
+  }
+  const openai2 = getPlatformOpenAIClient();
+  const encodedKeywords = encodeURIComponent(keywords);
+  const firstHashtag = keywords.split(/[\s,]+/)[0]?.replace("#", "") || "trading";
+  const systemPrompt = `You are a social media lead generation expert for VEDD Trading AI \u2014 a fintech/forex/crypto trading education platform with AI signal tools, an ambassador program, and Solana token investments. You help ambassadors find and convert prospects into VEDD subscribers.`;
+  const userPrompt = `Generate a complete lead generation outreach kit for ambassador "${ambassadorName}" targeting ${platform} using these keywords/interests: "${keywords}".
+
+Return a JSON object with these exact fields:
+- hashtags: string[] \u2014 10-15 best hashtags for ${platform} matching these interests
+- searchQueries: string[] \u2014 8-10 specific search query strings to find trading/finance prospects
+- searchUrls: { label: string, url: string, description: string }[] \u2014 4-6 deep-link search URLs for ${platform}. Use these URL patterns:
+  * Twitter/X: https://twitter.com/search?q={encoded_query}&f=people
+  * Instagram: https://www.instagram.com/explore/tags/{hashtag}/
+  * LinkedIn: https://www.linkedin.com/search/results/people/?keywords={encoded_query}
+  * Facebook: https://www.facebook.com/search/people/?q={encoded_query}
+  * TikTok: https://www.tiktok.com/search?q={encoded_query}
+- dmScript: string \u2014 150-200 word personalized DM template for ${platform}, referencing trading/financial freedom, signed by ${ambassadorName}. Include [NAME] placeholder.
+- commentScript: string \u2014 2-3 sentence comment to leave on target posts, curiosity-driven
+- profileKeywords: string[] \u2014 8-10 keywords to look for in bios when scanning profiles
+- bestTimeToPost: string \u2014 best times to engage on ${platform} for this audience
+- tips: string[] \u2014 3-4 platform-specific tactics for finding and converting prospects on ${platform}
+
+Pre-generate the URLs using encoded versions of: "${encodedKeywords}" and hashtag: "${firstHashtag}"`;
+  const response = await openai2.chat.completions.create({
+    model: "gpt-4o",
+    messages: [
+      { role: "system", content: systemPrompt },
+      { role: "user", content: userPrompt }
+    ],
+    response_format: { type: "json_object" },
+    max_tokens: 2e3
+  });
+  const raw = response.choices[0]?.message?.content || "{}";
+  try {
+    return JSON.parse(raw);
+  } catch {
+    return {
+      hashtags: [],
+      searchQueries: [],
+      searchUrls: [],
+      dmScript: "",
+      commentScript: "",
+      profileKeywords: [],
+      bestTimeToPost: "",
+      tips: []
+    };
+  }
+}
+async function enrichLeadWithAI(lead) {
+  const openai2 = getPlatformOpenAIClient();
+  const answersText = lead.answers && lead.answers.length > 0 ? `Quiz answers: ${lead.answers.map((a) => `Q${a.questionId}: ${a.answer}`).join(", ")}` : "No quiz answers provided.";
+  const bioText = lead.bioSnippet ? `Bio/Profile snippet: "${lead.bioSnippet}"` : "No bio provided.";
+  const platformText = lead.platform ? `Found on: ${lead.platform}` : "";
+  const prompt = `Analyze this VEDD Trading AI prospect and return a JSON assessment (max 150 words total across all fields):
+
+Name: ${lead.firstName}
+${platformText}
+${bioText}
+${answersText}
+
+Return JSON with:
+- interestLevel: "High" | "Medium" | "Low"
+- approach: string \u2014 1-2 sentence best outreach approach for this person
+- talkingPoints: string[] \u2014 3 key talking points based on their profile/answers
+- suggestedOpener: string \u2014 a specific first message opener (1-2 sentences, natural, not salesy)
+- summary: string \u2014 1 sentence overall assessment
+
+Base on VEDD's offerings: AI trading signals, financial education, passive income through referrals, trading community.`;
+  const response = await openai2.chat.completions.create({
+    model: "gpt-4o",
+    messages: [
+      { role: "system", content: "You are a lead qualification expert for VEDD Trading AI. Be concise and actionable." },
+      { role: "user", content: prompt }
+    ],
+    response_format: { type: "json_object" },
+    max_tokens: 400
+  });
+  const raw = response.choices[0]?.message?.content || "{}";
+  try {
+    return JSON.parse(raw);
+  } catch {
+    return {
+      interestLevel: "Medium",
+      approach: "Standard outreach recommended.",
+      talkingPoints: ["AI trading signals", "Financial freedom", "Ambassador income"],
+      suggestedOpener: `Hey ${lead.firstName}, noticed you're interested in trading \u2014 have you seen what AI can do for your charts?`,
+      summary: "Prospect requires manual review."
+    };
+  }
+}
+function generateSlug(title) {
+  const base = title.toLowerCase().replace(/[^a-z0-9\s-]/g, "").replace(/\s+/g, "-").replace(/-+/g, "-").trim().substring(0, 60);
+  return `${base}-${Date.now().toString(36)}`;
+}
+function estimateReadTime(html) {
+  const text2 = html.replace(/<[^>]+>/g, " ");
+  const wordCount = text2.trim().split(/\s+/).length;
+  const minutes = Math.ceil(wordCount / 200);
+  return `${minutes} min read`;
+}
+async function generateVeddBlogPost(topic, userId) {
+  let openai2;
+  let blogModel = "gpt-4o";
+  try {
+    openai2 = await getUniversalAIClientForUser(userId || 0);
+    blogModel = openai2.defaultModel || "gpt-4o";
+  } catch {
+  }
+  if (!openai2) {
+    const apiKey = process.env.OPENAI_API_KEY || process.env.GROQ_API_KEY;
+    if (!apiKey) throw new Error("No AI key configured. Add any AI key (OpenAI, Groq, or free OpenRouter) in AI Settings.");
+    const isGroq = !process.env.OPENAI_API_KEY;
+    openai2 = new OpenAI3({ apiKey, ...isGroq ? { baseURL: "https://api.groq.com/openai/v1" } : {}, maxRetries: 4, timeout: 9e4 });
+    blogModel = isGroq ? "openai/gpt-oss-120b" : "gpt-4o";
+  }
+  const today = (/* @__PURE__ */ new Date()).toISOString().split("T")[0];
+  let chosenTopic;
+  let currentEventsContext;
+  if (topic) {
+    chosenTopic = topic;
+    currentEventsContext = `User-specified topic: ${topic}`;
+  } else {
+    const topicsResponse = await openai2.chat.completions.create({
+      model: blogModel,
+      messages: [
+        {
+          role: "system",
+          content: "You are a financial market analyst. Identify current hot topics in trading and finance based on your training data. Focus on what is trending, volatile, or widely discussed among traders right now."
+        },
+        {
+          role: "user",
+          content: `Today is ${today}. Identify 3 current hot topics in trading/finance/crypto that traders are most interested in. Consider: ongoing market trends, economic events, interest rate decisions, crypto movements, forex volatility, gold/commodities, AI in trading, economic uncertainty, major indices performance. Return a JSON object with: { "topics": ["topic1", "topic2", "topic3"], "chosen": "the single best topic for a VEDD Trading AI blog post", "context": "1-2 sentences describing the current market context for the chosen topic" }`
+        }
+      ],
+      response_format: { type: "json_object" },
+      // Reasoning models (Groq gpt-oss/Qwen3/etc.) spend tokens on hidden
+      // reasoning before the JSON, so 300 truncated the topic selection.
+      max_tokens: hasHiddenReasoningOverhead(blogModel) ? 1200 : 400
+    });
+    const topicsRaw = topicsResponse.choices[0]?.message?.content || "{}";
+    let topicsData = {};
+    try {
+      topicsData = JSON.parse(topicsRaw);
+    } catch {
+      topicsData = { chosen: "Forex market volatility and AI trading strategies", context: "Markets are experiencing significant volatility creating opportunities for disciplined traders." };
+    }
+    chosenTopic = topicsData.chosen || "Forex market volatility and AI trading strategies";
+    currentEventsContext = topicsData.context || `Auto-selected topic based on current market conditions as of ${today}`;
+  }
+  const systemPrompt = `You are the content writer for VEDD Trading AI, a faith-driven financial education platform.
+
+VEDD BRAND VOICE:
+- Brand: VEDD Trading AI (AI signal engine called "VEDD SS AI")
+- Tone: Confident, empowering, faith-driven, educational \u2014 with a street-urban authenticity: direct, real, from-the-block, no fluff. Talk to the reader like you know their hustle, not like a textbook.
+- Key phrases: "financial freedom", "God's timing", "discipline", "strategic", "abundance mindset", "the come-up", "getting your mind right before your money right"
+- Occasionally reference scripture naturally (not forced) \u2014 e.g., Proverbs, Philippians 4:13
+- Weave in Supreme Mathematics (Five Percent Nation numerology) as natural thematic language where it fits the point being made \u2014 not a rigid 9-part structure, just vocabulary and framing pulled in when it lands:
+  Knowledge (1) = the base \u2014 knowing the setup, the data, yourself before you risk anything
+  Wisdom (2) = applying what you know \u2014 turning knowledge into a decision
+  Understanding (3) = the "aha," clarity earned after Knowledge meets Wisdom in real trades
+  Culture/Freedom (4) = building your own way of moving, breaking from what's been holding you back
+  Power/Refinement (5) = the strength that comes from repetition and discipline, sharpened over time
+  Equality (6) = balance \u2014 risk vs. reward, work vs. rest, staying even-keeled through wins and losses
+  God (7) = the highest self \u2014 the version of you that shows up disciplined every single day
+  Build or Destroy (8) = every trade either builds your account/character or destroys it \u2014 there's no neutral
+  Born (9) = the new you that comes out the other side of doing the work
+  Cipher (0) = the full circle \u2014 the community, the exchange of game, VEDD's ecosystem itself
+  Use these sparingly and naturally (one or two per article at most) \u2014 never force all ten into a single post.
+- Target audience: Everyday people learning forex/crypto trading, aspiring ambassadors, side-hustle seekers
+- Always tie current events back to VEDD tools: VEDD SS AI signal engine, Weekly Strategy Plan, Solana scanner, Ambassador program, 44-day trading system
+- Every article ends with a CTA to join VEDD or try a free demo
+
+CONTENT RULES:
+- Length: 600-900 words
+- Use HTML tags: <h2>, <h3>, <p>, <ul>/<li>, <strong>, <em>
+- Use headings to break up sections
+- Bold key trading terms and important phrases
+- Write in second person ("you", "your trades")
+- Practical, actionable advice \u2014 not just theory
+- CTA at the end linking to sign up or the platform
+
+OUTPUT: Return a JSON object with these exact fields:
+{
+  "title": "compelling SEO-friendly title (max 80 chars)",
+  "excerpt": "2-sentence summary that hooks readers (max 200 chars)",
+  "category": one of: "Trading Strategy" | "Trading Psychology" | "Technical Analysis" | "Crypto Trading" | "Forex Trading" | "Market Analysis" | "Financial Education",
+  "tags": ["tag1", "tag2", "tag3", "tag4"],
+  "content": "full HTML article content"
+}`;
+  const articleResponse = await openai2.chat.completions.create({
+    model: blogModel,
+    messages: [
+      { role: "system", content: systemPrompt },
+      {
+        role: "user",
+        content: `Write a VEDD Trading AI blog post about: ${chosenTopic}
+
+Market context: ${currentEventsContext}
+
+Make it timely, relevant to current market conditions, and show how VEDD's tools help traders navigate these conditions. Include practical takeaways.`
+      }
+    ],
+    response_format: { type: "json_object" },
+    // A 600-900 word HTML article wrapped in JSON needs real headroom — 1800
+    // truncated the JSON mid-article, which failed JSON.parse and fell back to a
+    // tiny stub (the "articles aren't full" bug). Reasoning models need even more
+    // since they burn tokens on hidden reasoning before emitting the article.
+    max_tokens: hasHiddenReasoningOverhead(blogModel) ? 6e3 : 4e3
+  });
+  const articleRaw = articleResponse.choices[0]?.message?.content || "{}";
+  if (articleResponse.choices[0]?.finish_reason === "length") {
+    console.warn("[Blog] Article generation hit the token limit \u2014 output may be truncated; consider raising max_tokens.");
+  }
+  let articleData = {};
+  try {
+    articleData = JSON.parse(articleRaw);
+  } catch {
+    articleData = {
+      title: `Market Insight: ${chosenTopic}`,
+      excerpt: "VEDD Trading AI brings you the latest market analysis to help you trade with confidence and precision.",
+      category: "Market Analysis",
+      tags: ["Trading", "VEDD", "Market Analysis"],
+      content: `<p>Markets are moving. Are you positioned to take advantage? With VEDD Trading AI, you have the tools, signals, and community to make informed decisions every day.</p><p><a href="/auth">Join VEDD today and start your journey to financial freedom.</a></p>`
+    };
+  }
+  const title = articleData.title || `Trading Insight: ${chosenTopic}`;
+  const content = articleData.content || "";
+  return {
+    title,
+    slug: generateSlug(title),
+    excerpt: articleData.excerpt || `Discover how ${chosenTopic} creates opportunities for disciplined traders using VEDD's AI-powered tools.`,
+    content,
+    category: articleData.category || "Trading Strategy",
+    tags: articleData.tags || ["Trading", "VEDD", "Market Analysis"],
+    readTime: estimateReadTime(content),
+    currentEventsContext
+  };
+}
+async function generateReelScript(topic, userId, format, styleNote) {
+  let openai2;
+  let model = "gpt-4o";
+  try {
+    openai2 = await getUniversalAIClientForUser(userId || 0);
+    model = openai2.defaultModel || "gpt-4o";
+  } catch {
+  }
+  if (!openai2) {
+    const apiKey = process.env.OPENAI_API_KEY || process.env.GROQ_API_KEY;
+    if (!apiKey) throw new Error("No AI key configured. Add any AI key (OpenAI, Groq, or free OpenRouter) in AI Settings.");
+    const isGroq = !process.env.OPENAI_API_KEY;
+    openai2 = new OpenAI3({ apiKey, ...isGroq ? { baseURL: "https://api.groq.com/openai/v1" } : {}, maxRetries: 4, timeout: 9e4 });
+    model = isGroq ? "openai/gpt-oss-120b" : "gpt-4o";
+  }
+  const systemPrompt = `You write short-form social reel scripts for VEDD Trading AI, a faith-driven financial education platform (brand voice: confident, empowering, street-urban authentic, no fluff \u2014 talk to the reader like you know their hustle).
+
+The reel clip itself is only 5-6 seconds of AI-generated video, so the script is a voiceover/on-screen-text script meant to be read over that clip plus following text cards \u2014 it does not need to match the clip's runtime exactly.
+
+Return a JSON object with these exact fields:
+{
+  "hook": "one punchy opening line (max 100 chars) that stops the scroll",
+  "script": ["3-5 short lines/beats after the hook, building to a CTA to join VEDD"],
+  "caption": "a social caption for the post (2-4 sentences, includes a CTA to veddbuild.com, no hashtags \u2014 those get added separately)",
+  "videoPrompt": "a vivid, concrete visual SCENE (1-2 sentences) for an AI video generator, staying FAITHFUL to the topic above \u2014 describe the setting, subject and mood only. Do NOT describe film style, grain, color grade or camera settings (those are applied automatically). No text overlays, captions, signage, logos or readable words. If the scene includes people, they are young Black people in contemporary streetwear in an authentic inner-city/urban setting."
+}`;
+  const FORMAT_INSTRUCTIONS = {
+    "product-ad": `FORMAT \u2014 PRODUCT AD (direct response):
+- The hook names a painful trading problem as a question or a blunt statement.
+- Beats: (1) the problem up close, (2) the presenter pulls out their phone / turns to their screen where a candlestick chart is being analyzed for them, (3) what the VEDD AI Trading Vault does with that chart, in plain words, (4) the call to action: start free at veddbuild.com.
+- The videoPrompt scene is a product-demo moment: the presenter in frame, phone or chart screen beside them, energy like showing a friend something that works.
+- No income or profit promises, no win-rate claims.`,
+    "got-milk": `FORMAT \u2014 "GOT MILK?"-STYLE PARODY AD:
+- Playful 90s TV-spot energy. The hook is a relatable stuck moment for a trader (missed the entry, ten charts open, analysis paralysis) played for comedy, never mocking the viewer.
+- Beats: the frustration builds, then the turn \u2014 the presenter looks straight at the camera, holds up their phone, deadpan. The final script line is the closer: "got VEDD?"
+- The caption MUST end with the exact closer: got VEDD?
+- The videoPrompt scene matches the stuck moment, then the turn to camera.
+- No income or profit promises \u2014 the joke is the situation, never the money.`
+  };
+  const withFormat = format && FORMAT_INSTRUCTIONS[format] ? `${systemPrompt}
+
+${FORMAT_INSTRUCTIONS[format]}` : systemPrompt;
+  const system = styleNote?.trim() ? `${withFormat}
+
+ADAPT THIS PROVEN AD STRUCTURE \u2014 copy the shape only, written for VEDD in the brand voice above:
+${styleNote.trim().slice(0, 900)}` : withFormat;
+  const response = await openai2.chat.completions.create({
+    model,
+    messages: [
+      { role: "system", content: system },
+      { role: "user", content: `Write a VEDD reel script about: ${topic}` }
+    ],
+    response_format: { type: "json_object" },
+    max_tokens: 700
+  });
+  const raw = response.choices[0]?.message?.content || "{}";
+  let data = {};
+  try {
+    data = JSON.parse(raw);
+  } catch {
+    data = {};
+  }
+  if (format === "got-milk" && data.caption && !/got vedd\?\s*$/i.test(data.caption.trim())) {
+    data.caption = `${data.caption.trim()} got VEDD?`;
+  }
+  return {
+    hook: data.hook || `Stop scrolling \u2014 this is about ${topic}.`,
+    script: Array.isArray(data.script) && data.script.length > 0 ? data.script : [
+      `Here's what most traders get wrong about ${topic}.`,
+      `VEDD's AI signal engine keeps you disciplined when the charts get emotional.`,
+      `Build your vault before this window closes.`
+    ],
+    caption: data.caption || `${topic} \u2014 here's how VEDD's AI keeps traders disciplined through it. Start free at veddbuild.com.`,
+    videoPrompt: data.videoPrompt || `Inner-city scene evoking "${topic}": a young person in contemporary streetwear in a moody urban interior, lit by one warm gold light source, holding a phone that glows with a rising green chart, quiet and contemplative`
+  };
+}
+async function generateSlideCarouselScript(topic, slideCount, userId) {
+  let openai2;
+  let model = "gpt-4o";
+  try {
+    openai2 = await getUniversalAIClientForUser(userId || 0);
+    model = openai2.defaultModel || "gpt-4o";
+  } catch {
+  }
+  if (!openai2) {
+    const apiKey = process.env.OPENAI_API_KEY || process.env.GROQ_API_KEY;
+    if (!apiKey) throw new Error("No AI key configured. Add any AI key (OpenAI, Groq, or free OpenRouter) in AI Settings.");
+    const isGroq = !process.env.OPENAI_API_KEY;
+    openai2 = new OpenAI3({ apiKey, ...isGroq ? { baseURL: "https://api.groq.com/openai/v1" } : {}, maxRetries: 4, timeout: 9e4 });
+    model = isGroq ? "openai/gpt-oss-120b" : "gpt-4o";
+  }
+  const systemPrompt = `You write slide carousels for VEDD Trading AI, a faith-driven financial education platform (brand voice: confident, empowering, street-urban authentic, no fluff \u2014 talk to the reader like you know their hustle). Write them in the style of top Instagram finance/motivation pages like @wealth and @entrepreneursonig: each slide is ONE bold declarative statement that could stand alone as a quote card \u2014 short, punchy, scroll-stopping. Not paragraphs, not lecture notes.
+
+Return a JSON object with these exact fields:
+{
+  "title": "short title for the whole carousel (max 60 chars)",
+  "caption": "a social caption for the post introducing the carousel (2-4 sentences), includes a CTA to veddbuild.com, no hashtags",
+  "slides": [
+    {
+      "heading": "the slide's BIG bold statement (max 60 chars) \u2014 one punchy declarative line, e.g. 'Most traders lose to their own emotions.' or 'Step 1: Connect your broker.'",
+      "body": "one short supporting line (max 100 chars) \u2014 sharpens or proves the heading, never repeats it",
+      "imagePrompt": "a vivid, concrete visual scene description (1 sentence) for an AI image generator to render as this slide's dark, moody background. Dark/cinematic tones only. No text overlays, no logos, no UI screenshots. If the scene includes people, they should be Black, Brown, or Indigenous people of color in contemporary urban/hip-hop-inspired style (streetwear, sneakers, fitted caps), with smartphones and modern tech woven in naturally \u2014 this reflects VEDD's inner-city audience, not a generic stock-photo cast."
+    }
+  ]
+}
+
+Write exactly ${slideCount} slides, in logical order (slide 1 is a hook that stops the scroll, the last slide is always a CTA to join VEDD).`;
+  const response = await openai2.chat.completions.create({
+    model,
+    messages: [
+      { role: "system", content: systemPrompt },
+      { role: "user", content: `Write a VEDD slide carousel about: ${topic}` }
+    ],
+    response_format: { type: "json_object" },
+    max_tokens: 1500
+  });
+  const raw = response.choices[0]?.message?.content || "{}";
+  let data = {};
+  try {
+    data = JSON.parse(raw);
+  } catch {
+    data = {};
+  }
+  const fallbackSlides = Array.from({ length: slideCount }, (_, i) => ({
+    heading: i === 0 ? `Let's talk about ${topic}` : i === slideCount - 1 ? "Start free today" : `Step ${i}`,
+    body: i === slideCount - 1 ? "Join VEDD and put this to work in your own account." : `Here's what you need to know about ${topic}.`,
+    imagePrompt: `A clean, modern trading desk scene, warm natural light, cinematic depth of field`
+  }));
+  const slides = Array.isArray(data.slides) && data.slides.length > 0 ? data.slides.slice(0, slideCount).map((s, i) => ({
+    heading: s.heading || fallbackSlides[i]?.heading || `Step ${i + 1}`,
+    body: s.body || fallbackSlides[i]?.body || "",
+    imagePrompt: s.imagePrompt || fallbackSlides[i]?.imagePrompt || "A clean, modern trading desk scene, warm natural light"
+  })) : fallbackSlides;
+  return {
+    title: data.title || `How ${topic} Works`,
+    caption: data.caption || `Here's exactly how ${topic} works on VEDD \u2014 swipe through, then start free at veddbuild.com.`,
+    slides
+  };
+}
+async function generateDailyDevotional(date2) {
+  let client2;
+  try {
+    client2 = await getUniversalAIClientForUser(0);
+  } catch {
+  }
+  if (!client2) {
+    const apiKey = process.env.OPENAI_API_KEY || process.env.GROQ_API_KEY;
+    if (apiKey) {
+      const isGroq = !process.env.OPENAI_API_KEY;
+      client2 = new OpenAI3({ apiKey, ...isGroq ? { baseURL: "https://api.groq.com/openai/v1" } : {}, maxRetries: 4, timeout: 9e4 });
+    }
+  }
+  const devotionalModel = client2?.defaultModel || "gpt-4o-mini";
+  const systemPrompt = `You are the VEDD Trading AI spiritual coach. VEDD is a faith-based, community-driven fintech and trading AI platform built around mindset, discipline, and excellence. Our ambassador network spans cities worldwide. Our values: faith, resilience, discipline, community, generosity, and excellence in trading.
+
+Generate a daily devotional for ambassadors and users that:
+1. Ties Christian/faith-based scripture to trading mindset and financial discipline
+2. Speaks to our inter-city ambassador community building vision
+3. Is motivational, grounded, and practical
+4. Connects spiritual growth with professional growth in trading/finance
+5. Encourages community and collaboration between ambassadors
+
+Return ONLY valid JSON, no markdown, no extra text.`;
+  const userPrompt = `Generate a daily devotional for ${date2}. Return JSON with exactly these fields:
+{
+  "title": "Compelling devotional title (max 10 words)",
+  "theme": "One-word or short theme (e.g. 'Discipline', 'Community', 'Excellence', 'Patience', 'Vision')",
+  "scripture": "Book Chapter:Verse reference (e.g. 'Proverbs 16:3')",
+  "scriptureText": "The full scripture verse text",
+  "reflection": "A 3-4 paragraph devotional reflection (300-400 words) connecting the scripture to trading mindset, financial discipline, and the ambassador community mission. Write in second person ('you'). Mention VEDD's mission of building inter-city ambassador communities.",
+  "prayerPoints": ["Prayer point 1", "Prayer point 2", "Prayer point 3", "Prayer point 4"],
+  "affirmation": "A powerful one-sentence daily affirmation the ambassador/user can speak aloud. Start with 'I am' or 'Today I'.",
+  "tradingTieIn": "2-3 sentences specifically connecting today's scripture theme to trading discipline, risk management, patience in the markets, or the mindset needed to succeed as a VEDD trader/ambassador."
+}`;
+  try {
+    if (!client2) throw new Error("No AI provider configured (add an AI key in AI Settings)");
+    const response = await client2.chat.completions.create({
+      model: devotionalModel,
+      messages: [
+        { role: "system", content: systemPrompt },
+        { role: "user", content: userPrompt }
+      ],
+      temperature: 0.8,
+      max_tokens: 1200,
+      response_format: { type: "json_object" }
+    });
+    const raw = response.choices[0]?.message?.content || "{}";
+    const data = JSON.parse(raw);
+    return {
+      title: data.title || `Daily Devotional \u2014 ${date2}`,
+      theme: data.theme || "Excellence",
+      scripture: data.scripture || "Philippians 4:13",
+      scriptureText: data.scriptureText || "I can do all things through Christ who strengthens me.",
+      reflection: data.reflection || "Today, embrace the discipline that separates great traders from average ones.",
+      prayerPoints: Array.isArray(data.prayerPoints) ? data.prayerPoints : ["Clarity in decisions", "Strength in discipline", "Unity in community", "Wisdom in trading"],
+      affirmation: data.affirmation || "I am disciplined, focused, and aligned with excellence today.",
+      tradingTieIn: data.tradingTieIn || "Faith-based discipline applies directly to the markets \u2014 patience, trust in your system, and community accountability all drive long-term trading success."
+    };
+  } catch (err) {
+    console.error("[devotional] AI generation failed, using rotating static fallback:", err);
+    const FALLBACKS = [
+      { theme: "Faith", scripture: "Proverbs 16:3", scriptureText: "Commit to the LORD whatever you do, and he will establish your plans.", reflection: "Every trade you place, every analysis you run, every ambassador you recruit \u2014 all of it flows from a foundation of discipline and purpose. When you commit your work to God, you trade not from fear or greed, but from a place of peace and clarity. The markets will fluctuate, but your foundation does not have to.", prayerPoints: ["For clarity in decision-making", "For patience in volatile markets", "For unity among VEDD ambassadors", "For financial breakthrough in our community"], affirmation: "I am disciplined, focused, and committed to excellence in every trade and every relationship.", tradingTieIn: "Committing your trading plan to a higher purpose removes emotional noise from your decisions. When you follow your system with faith and discipline, you trade with confidence regardless of market conditions." },
+      { theme: "Patience", scripture: "James 1:4", scriptureText: "Let perseverance finish its work so that you may be mature and complete, not lacking anything.", reflection: "The trader who exits a winning system too early, or abandons a strategy after one losing week, never gives perseverance the chance to finish its work. Maturity in trading \u2014 and in life \u2014 comes from staying the course through the parts that test you, not just the parts that reward you instantly.", prayerPoints: ["For endurance through drawdowns", "For trust in a proven process", "For a community that holds each other accountable", "For steady, compounding growth"], affirmation: "Today I trust the process and let perseverance finish its work in me.", tradingTieIn: "Every profitable system has losing streaks built into its math. Patience is not passive \u2014 it is the active decision to let your edge play out over enough trades to matter." },
+      { theme: "Community", scripture: "Ecclesiastes 4:9-10", scriptureText: "Two are better than one, because they have a good return for their labor. If either of them falls down, one can help the other up.", reflection: "No ambassador builds alone. The trader isolated from community makes decisions in an echo chamber \u2014 fear and greed with no one to check them. VEDD was built on the belief that shared discipline, shared wins, and shared accountability produce a return no individual can match alone.", prayerPoints: ["For ambassadors who lift each other up", "For humility to ask for help", "For generosity in sharing what works", "For a community that grows together"], affirmation: "Today I show up for my community, and I let my community show up for me.", tradingTieIn: "Sharing your trade journal, your wins, and your losses with a community keeps you honest in a way that trading alone never will." },
+      { theme: "Excellence", scripture: "Colossians 3:23", scriptureText: "Whatever you do, work at it with all your heart, as working for the Lord, not for men.", reflection: "Excellence in trading is not about being right every time \u2014 it is about the quality of your process regardless of outcome. A well-executed losing trade, following your rules to the letter, is excellence. A lucky winning trade taken outside your system is not. Work your process with your whole heart, and let the results follow.", prayerPoints: ["For discipline in following your own rules", "For integrity when no one is watching your trades", "For excellence that does not depend on outcome", "For a legacy built on process, not luck"], affirmation: "Today I trade my process with excellence, and I let the results take care of themselves.", tradingTieIn: "A trader who journals every trade, honors every stop loss, and reviews every week regardless of P&L is practicing excellence \u2014 and that is what compounds over years." },
+      { theme: "Wisdom", scripture: "Proverbs 4:7", scriptureText: "The beginning of wisdom is this: Get wisdom. Though it cost all you have, get understanding.", reflection: "Every dollar spent on education, every hour spent studying charts and reviewing losing trades, is an investment in wisdom that compounds far beyond any single trade. The ambassadors who last in this business are the ones who never stop being students of the market and of themselves.", prayerPoints: ["For a teachable spirit", "For wisdom to know when to act and when to wait", "For discernment between signal and noise", "For growth that outlasts any one trade"], affirmation: "Today I choose to learn, even from my losses, and I let wisdom guide my next decision.", tradingTieIn: "The market is the most honest teacher there is \u2014 it will show you exactly where your discipline breaks down, if you are humble enough to look." },
+      { theme: "Resilience", scripture: "Romans 5:3-4", scriptureText: "We also glory in our sufferings, because we know that suffering produces perseverance; perseverance, character; and character, hope.", reflection: "Every trader has a drawdown story. What separates the ones who make it from the ones who quit is not the absence of losing streaks \u2014 it is what those losing streaks build in them. Let this season, whatever it looks like in your account, build character rather than despair.", prayerPoints: ["For hope in the middle of a drawdown", "For character built through hard seasons", "For the strength to keep showing up", "For a testimony that helps the next ambassador"], affirmation: "Today I choose resilience, and I trust that this season is building something in me that a shortcut never could.", tradingTieIn: "Risk management exists precisely so a losing streak builds your character instead of ending your account \u2014 protect your capital so you live to apply the lesson." },
+      { theme: "Generosity", scripture: "2 Corinthians 9:6", scriptureText: "Whoever sows sparingly will also reap sparingly, and whoever sows generously will also reap generously.", reflection: "The ambassadors who share their signals, their knowledge, and their referral links generously are the ones who see the community \u2014 and their own results \u2014 grow fastest. Generosity is not just a spiritual principle here; it is the literal growth engine of this platform.", prayerPoints: ["For a generous spirit toward new ambassadors", "For willingness to share what took you years to learn", "For a harvest that matches your sowing", "For a community defined by giving, not just taking"], affirmation: "Today I sow generously into my community, trusting the harvest that generosity produces.", tradingTieIn: "Every ambassador who mentors a new trader, or shares an honest losing trade instead of only wins, sows into the credibility of this entire community." }
+    ];
+    const idx = new Date(date2).getDay();
+    const f = FALLBACKS[idx] ?? FALLBACKS[0];
+    return {
+      title: `Daily Devotional \u2014 ${f.theme}`,
+      theme: f.theme,
+      scripture: f.scripture,
+      scriptureText: f.scriptureText,
+      reflection: f.reflection,
+      prayerPoints: f.prayerPoints,
+      affirmation: f.affirmation,
+      tradingTieIn: f.tradingTieIn
+    };
+  }
+}
+async function generateWorkforceCurriculum(params) {
+  const client2 = await getUniversalAIClientForUser(params.userId || 0).catch(() => null);
+  const systemPrompt = `You are an expert workforce development curriculum designer for VEDD Technologies, LLC \u2014 an AI trading education and community finance platform. VEDD serves underrepresented communities, offering AI literacy, digital skills, financial planning, and trading education aligned with DOL WIOA, NSF AI Workforce, SBA, CDFI Fund, and EDA grant programs. All curricula must be inclusive, practical, and measurable for grant reporting.`;
+  const userPrompt = `Design a complete workforce training curriculum with these parameters:
+
+Title: ${params.title}
+Category: ${params.category}
+Target Audience: ${params.targetAudience}
+Difficulty: ${params.difficulty}
+Estimated Duration: ${params.estimatedMinutes} minutes
+Learning Objectives: ${params.objectives}
+Grant Alignment: ${params.grantTags.join(", ")}
+
+Return a JSON object with exactly this structure:
+{
+  "overview": "2-3 sentence course overview",
+  "objectives": ["measurable learning objective 1", "objective 2", "objective 3", "objective 4"],
+  "modules": [
+    { "title": "Module 1 title", "duration": "X minutes", "content": "Detailed module description and key topics covered" },
+    { "title": "Module 2 title", "duration": "X minutes", "content": "..." }
+  ],
+  "assessmentQuestions": [
+    { "question": "Question text", "options": ["A", "B", "C", "D"], "correct": 0, "explanation": "Why this answer is correct" }
+  ],
+  "grantAlignment": "Explanation of how this curriculum aligns with specified grant programs and their workforce development goals",
+  "instructorNotes": "Facilitation tips, differentiation strategies for diverse learners, and accommodations for underserved populations"
+}
+
+Create 4-6 modules and 5 assessment questions. Make objectives measurable (Bloom's taxonomy verbs). Ensure content is practical and immediately applicable.`;
+  try {
+    const aiClient = client2 || getPlatformOpenAIClient();
+    const response = await aiClient.chat.completions.create({
+      model: "gpt-4o-mini",
+      messages: [
+        { role: "system", content: systemPrompt },
+        { role: "user", content: userPrompt }
+      ],
+      response_format: { type: "json_object" },
+      temperature: 0.7
+    });
+    const content = response.choices[0].message.content;
+    return JSON.parse(content || "{}");
+  } catch (err) {
+    console.error("generateWorkforceCurriculum error:", err);
+    return {
+      overview: `${params.title} is a ${params.difficulty}-level course designed to build ${params.category.replace(/_/g, " ")} skills for ${params.targetAudience} learners.`,
+      objectives: [
+        `Define key concepts in ${params.category.replace(/_/g, " ")}`,
+        `Apply learned skills to real-world scenarios`,
+        `Demonstrate competency through practical exercises`,
+        `Connect skills to career and financial opportunities`
+      ],
+      modules: [
+        { title: "Introduction & Foundations", duration: `${Math.floor(params.estimatedMinutes * 0.2)} minutes`, content: "Course overview, learning expectations, and foundational concepts." },
+        { title: "Core Concepts", duration: `${Math.floor(params.estimatedMinutes * 0.3)} minutes`, content: "Deep dive into primary subject matter with examples and case studies." },
+        { title: "Practical Application", duration: `${Math.floor(params.estimatedMinutes * 0.3)} minutes`, content: "Hands-on exercises and real-world application of learned concepts." },
+        { title: "Assessment & Next Steps", duration: `${Math.floor(params.estimatedMinutes * 0.2)} minutes`, content: "Knowledge check, certificate preparation, and career pathway guidance." }
+      ],
+      assessmentQuestions: [
+        { question: "Which best describes the primary goal of this course?", options: ["Build technical skills", "Develop financial literacy", "Improve career readiness", "All of the above"], correct: 3, explanation: "This course addresses all three areas as part of VEDD's holistic workforce development approach." }
+      ],
+      grantAlignment: `This curriculum aligns with ${params.grantTags.join(" and ")} grant requirements for workforce development, skills training, and community economic empowerment.`,
+      instructorNotes: "Accommodate diverse learning styles with visual aids, real-world examples, and peer discussion. Provide additional support resources for participants with limited prior exposure to digital tools."
+    };
+  }
+}
+async function analyzeORBSignal(params) {
+  const isIndex2 = ["US30", "NAS100", "SPX500", "UK100", "DAX40"].includes(params.symbol.toUpperCase());
+  const isCommodity = ["XAUUSD", "XAGUSD", "USOIL"].includes(params.symbol.toUpperCase());
+  let rangeMinPct = 0.1;
+  let rangeMaxPct = 2.5;
+  if (isIndex2) {
+    rangeMinPct = 0.08;
+    rangeMaxPct = 1.5;
+  }
+  if (isCommodity) {
+    rangeMinPct = 0.1;
+    rangeMaxPct = 1.2;
+  }
+  const rangeOk = params.orbRangePct >= rangeMinPct && params.orbRangePct <= rangeMaxPct;
+  const now = /* @__PURE__ */ new Date();
+  const utc = now.getTime() + now.getTimezoneOffset() * 6e4;
+  const est = new Date(utc + -5 * 36e5);
+  const h = est.getHours();
+  const m = est.getMinutes();
+  const totalMin = h * 60 + m;
+  const peakWindowStart = 9 * 60 + 45;
+  const peakWindowEnd = 11 * 60 + 30;
+  const extWindowEnd = 14 * 60;
+  const inPeakWindow = totalMin >= peakWindowStart && totalMin <= peakWindowEnd;
+  const inExtWindow = totalMin > peakWindowEnd && totalMin <= extWindowEnd;
+  const isBreakout = params.phase.includes("BREAKOUT");
+  const isRetest = params.phase.includes("RETEST");
+  const hasPattern = !!(params.pattern && params.pattern !== "" && params.pattern !== "None detected yet");
+  const biasMatches = params.tradeDirection === "LONG" && params.preMarketBias !== "bearish" || params.tradeDirection === "SHORT" && params.preMarketBias !== "bullish" || params.preMarketBias === "neutral";
+  const systemPrompt = `You are the VEDD SS AI Bot \u2014 a professional institutional-grade ORB (Opening Range Breakout) trade analyzer.
+You specialize in the 9:30 AM NYSE open strategy: 15-min opening range, 6-minute breakout confirmation, retest entry.
+You are objective, data-driven, and always prioritize risk management over trade frequency.
+Respond ONLY with valid JSON. No extra text.`;
+  const userPrompt = `Analyze this ORB setup and provide a second confirmation score.
+
+INSTRUMENT: ${params.symbol}
+ORB HIGH: ${params.orbHigh}
+ORB LOW: ${params.orbLow}
+ORB RANGE: ${params.orbRange} (${params.orbRangePct.toFixed(2)}% of price)
+CURRENT PRICE: ${params.currentPrice}
+PHASE: ${params.phase}
+TRADE DIRECTION: ${params.tradeDirection || "Not determined"}
+PRE-MARKET BIAS: ${params.preMarketBias}
+BREAKOUT CANDLE TF: ${params.breakoutCandle || "6min"}
+CANDLESTICK PATTERN ON RETEST: ${params.pattern || "None observed"}
+CURRENT EST TIME: ${h}:${m.toString().padStart(2, "0")}
+
+CONTEXT:
+- Range quality: ${rangeOk ? "GOOD (within ideal range)" : `CONCERN \u2014 ${params.orbRangePct.toFixed(2)}% is ${params.orbRangePct < rangeMinPct ? "too narrow (false break risk)" : "too wide (risk too large)"}`}
+- Time window: ${inPeakWindow ? "PEAK (9:45\u201311:30 AM)" : inExtWindow ? "EXTENDED (marginal)" : "OUTSIDE WINDOW"}
+- Bias alignment: ${biasMatches ? "ALIGNED" : "CONFLICTING with trade direction"}
+
+Evaluate these 6 checks and score the overall setup 0-100:
+1. ORB Range Quality \u2014 Is ${params.orbRangePct.toFixed(2)}% within optimal parameters for ${params.symbol}?
+2. Breakout Candle Strength \u2014 Was the breakout on a ${params.breakoutCandle || "6min"} full-body close? Rate strength.
+3. Retest Validity \u2014 Is price respecting the broken ORB level as new support/resistance? Phase is "${params.phase}".
+4. Pattern Confirmation \u2014 Is "${params.pattern || "none"}" a valid pattern for a ${params.tradeDirection || "directional"} retest entry?
+5. Trading Window \u2014 ${inPeakWindow ? "In peak window" : inExtWindow ? "Extended window" : "Outside standard window"} \u2014 rate timing quality.
+6. Pre-Market Bias Alignment \u2014 ${params.preMarketBias} bias with ${params.tradeDirection || "unknown"} direction trade.
+
+SCORING:
+- 80\u2013100: High confidence, all major criteria met
+- 60\u201379: Marginal, proceed with reduced size
+- 0\u201359: Pass \u2014 one or more critical criteria failed
+
+Respond with this exact JSON structure:
+{
+  "score": <number 0-100>,
+  "verdict": "<TAKE TRADE | MARGINAL \u2014 CAUTION | PASS \u2014 SKIP THIS>",
+  "checks": [
+    { "label": "ORB Range Quality", "pass": <boolean>, "note": "<specific note about this setup>" },
+    { "label": "Breakout Candle Strength", "pass": <boolean>, "note": "<specific note>" },
+    { "label": "Retest Validity", "pass": <boolean>, "note": "<specific note>" },
+    { "label": "Pattern Confirmation", "pass": <boolean>, "note": "<specific note>" },
+    { "label": "Trading Window", "pass": <boolean>, "note": "<specific note>" },
+    { "label": "Pre-Market Bias Alignment", "pass": <boolean>, "note": "<specific note>" }
+  ],
+  "note": "<2-3 sentence SS AI Bot summary \u2014 specific to this exact setup, mention the symbol, key level, and what to watch for on the retest>"
+}`;
+  try {
+    const client2 = getPlatformOpenAIClient();
+    const completion = await client2.chat.completions.create({
+      model: "gpt-4o-mini",
+      messages: [
+        { role: "system", content: systemPrompt },
+        { role: "user", content: userPrompt }
+      ],
+      response_format: { type: "json_object" },
+      temperature: 0.3,
+      max_tokens: 800
+    });
+    const result = JSON.parse(completion.choices[0].message.content || "{}");
+    return {
+      score: Math.max(0, Math.min(100, result.score || 0)),
+      verdict: result.verdict || "PASS \u2014 SKIP THIS",
+      checks: result.checks || [],
+      note: result.note || ""
+    };
+  } catch {
+    const checks = [
+      { label: "ORB Range Quality", pass: rangeOk, note: rangeOk ? `${params.orbRangePct.toFixed(2)}% is within optimal parameters` : `${params.orbRangePct.toFixed(2)}% is outside the ideal range \u2014 skip` },
+      { label: "Breakout Candle Strength", pass: isBreakout || isRetest, note: isRetest ? "Price has broken out and is retesting \u2014 breakout confirmed" : isBreakout ? "Breakout detected, waiting for retest" : "No confirmed breakout yet" },
+      { label: "Retest Validity", pass: isRetest, note: isRetest ? "Price is at the retest zone \u2014 entry condition met" : "Wait for price to pull back to ORB level" },
+      { label: "Pattern Confirmation", pass: hasPattern, note: hasPattern ? `${params.pattern} detected on retest \u2014 valid confirmation` : "No candlestick pattern detected yet \u2014 wait for confirmation candle" },
+      { label: "Trading Window", pass: inPeakWindow || inExtWindow, note: inPeakWindow ? "In peak ORB window (9:45\u201311:30 AM)" : inExtWindow ? "Extended window \u2014 valid but lower probability" : "Outside trading window \u2014 wait for next session" },
+      { label: "Pre-Market Bias Alignment", pass: biasMatches, note: biasMatches ? `${params.preMarketBias} bias aligns with ${params.tradeDirection} direction` : "Bias conflicts with trade direction \u2014 proceed with caution" }
+    ];
+    const passing = checks.filter((c) => c.pass).length;
+    const score = Math.round(passing / 6 * 100);
+    return {
+      score,
+      verdict: score >= 80 ? "TAKE TRADE" : score >= 60 ? "MARGINAL \u2014 CAUTION" : "PASS \u2014 SKIP THIS",
+      checks,
+      note: `Rule-based analysis (AI unavailable): ${passing}/6 checks passed. ${score >= 80 ? "Setup meets criteria \u2014 enter on retest with pattern confirmation." : score >= 60 ? "Marginal setup \u2014 consider half size or wait for stronger confirmation." : "Critical criteria not met \u2014 skip this setup."}`
+    };
+  }
+}
+var TOP_PROFITABLE_STRATEGIES, _openaiInstance, openai, AVAILABLE_VISION_MODELS, userModelPreferences, DEPRECATED_MODEL_MAP, DEFAULT_AI_MODEL, VISION_FALLBACK, KNOWN_VISION_MODEL_IDS, aiVisionConfirmationEnabled, aiMinConfidenceThreshold, ictStrategyEnabledMap, breakoutModeEnabledMap, trailingStopEnabledMap, breakoutModePriorState, _recentConfidence, _lastSavedToggles, smcStrategyEnabledMap, propFirmModeMap, propFirmContextMap, aiConfirmationLogs2, logIdCounter, adaptiveRegimeEnabledMap, VETERAN_JUDGE_MODEL, VETERAN_PERSONA, PROVIDER_MODELS, AnthropicAsOpenAI, PROVIDER_PRIORITY, _aiFailSeen, VEDD_IDENTITY_CONTEXT, MASTER_GRANT_WRITER_SYSTEM;
+var init_openai = __esm({
+  "server/openai.ts"() {
+    "use strict";
+    init_github_strategy_context();
+    init_confirmation_learning();
+    init_ai_usage();
+    TOP_PROFITABLE_STRATEGIES = [
+      { name: "ICT AMD Kill Zone", pairs: ["XAUUSD", "GBPUSD", "EURUSD"], description: "Asian Range defined 02:00\u201305:00 UTC. London open (06:00\u201308:00) raids Asian low, price reverses. Entry on M15 OB inside Asian boundary + FVG fill. NY session sweeps AMD high.", winConditions: "FVG fill + bullish engulf at OB, ADX > 25, ictMacroValid = true", riskNote: "Avoid if NFP/FOMC within 4h" },
+      { name: "SMC Order Block Raid", pairs: ["GBPJPY", "USDJPY", "XAUUSD"], description: "Weekly/Daily OB identified. H4 price sweeps below OB, wicks back inside. Enter on M15 BOS above OB bottom.", winConditions: "Volume spike on wick, RSI divergence on M15, BOS confirmed", riskNote: "Invalid if OB broken on close" },
+      { name: "VWAP Bounce Mean Reversion", pairs: ["EURUSD", "GBPUSD", "USDJPY"], description: "Price deviates >1.5 SD from VWAP during NY session (13:00\u201317:00 UTC). Fade at VWAP SD band when RSI > 75 or < 25.", winConditions: "RSI divergence, VWAP reclaim candle, ADX < 20", riskNote: "Do not trade against trend if ADX > 35" },
+      { name: "Breaker Block Continuation", pairs: ["GBPUSD", "EURUSD"], description: "Failed OB becomes a breaker. Price sweeps through OB creating BOS, then retests old OB as resistance/support. Trade continuation.", winConditions: "Clean BOS on H1, retest holds on M15, RSI 40-60 on retest", riskNote: "Requires at least 2 prior OB tests" },
+      { name: "Fair Value Gap Fill", pairs: ["XAUUSD", "GBPJPY", "NAS100"], description: "3-candle imbalance FVG on M15/H1. Price returns to 50% gap level. Trade continuation after 50% fill holds.", winConditions: "FVG from strong impulsive move, ADX > 30, volume on imbalance candles", riskNote: "Full-fill FVGs (100%) less reliable" },
+      { name: "London-NY Overlap Momentum", pairs: ["GBPUSD", "EURUSD", "GBPJPY"], description: "10:00\u201312:00 UTC peak liquidity. Breakout of London AM range (07:00\u201310:00). 15m close outside range is entry trigger.", winConditions: "15m close + retest of range, ADX > 28, volume above 20-period avg", riskNote: "High false-breakout rate without NY catalyst" },
+      { name: "PDH/PDL Liquidity Sweep", pairs: ["EURUSD", "GBPUSD", "USDJPY", "XAUUSD"], description: "PDH or PDL swept by 5\u201315 pips at session open. Immediate rejection pin bar/engulf on M5/M15. Enter reversal targeting 50% of prior day range.", winConditions: "Wick > body on sweep candle, OB within 20 pips, ictMacroValid = true", riskNote: "Must close below/above sweep wick for invalidation" },
+      { name: "ICT Macro HTF Confluence", pairs: ["XAUUSD", "GBPUSD", "EURUSD"], description: "Trade only when M15 aligns with H4 and D1 trend. Active ICT macro time (02:00, 08:30, 10:00, 14:00 UTC). OB + FVG + EQ levels on H4.", winConditions: "All 3 timeframes aligned, minimum 2 confluence factors, London/NY session", riskNote: "Skip if only 1 confluence factor present" }
+    ];
+    _openaiInstance = null;
+    openai = new Proxy({}, {
+      get(_target, prop) {
+        return getDefaultOpenAIClient()[prop];
+      }
+    });
+    AVAILABLE_VISION_MODELS = [
+      { id: "gpt-4o", name: "GPT-4o", description: "Best accuracy for chart analysis", tier: "premium", provider: "openai" },
+      { id: "gpt-4o-mini", name: "GPT-4o Mini", description: "Budget-friendly, good accuracy", tier: "budget", provider: "openai" },
+      { id: "claude-sonnet-4-6", name: "Claude Sonnet 4.6", description: "Excellent reasoning and analysis", tier: "premium", provider: "anthropic" },
+      { id: "claude-haiku-4-5-20251001", name: "Claude Haiku 4.5", description: "Fast and affordable", tier: "budget", provider: "anthropic" },
+      { id: "gemini-2.0-flash", name: "Gemini 2.0 Flash", description: "Fast multimodal analysis", tier: "budget", provider: "google" },
+      { id: "gemini-1.5-pro-latest", name: "Gemini 1.5 Pro", description: "Advanced reasoning", tier: "premium", provider: "google" },
+      { id: "openai/gpt-oss-120b", name: "GPT-OSS 120B (Groq)", description: "Groq flagship open model \u2014 fast & reliable (text/confirmation)", tier: "budget", provider: "groq", textOnly: true },
+      { id: "qwen/qwen3.6-27b", name: "Qwen 3.6 27B (Groq)", description: "Strong reasoning, fast on Groq (text/confirmation)", tier: "budget", provider: "groq", textOnly: true },
+      { id: "openai/gpt-oss-20b", name: "GPT-OSS 20B (Groq)", description: "Fastest Groq model \u2014 ultra-low latency (text/confirmation)", tier: "budget", provider: "groq", textOnly: true },
+      { id: "qwen/qwen3-vl-32b-instruct", name: "Qwen 3 VL (Vision, Groq)", description: "Groq vision model \u2014 use OpenAI/Anthropic for chart analysis", tier: "budget", provider: "groq", textOnly: true },
+      { id: "mistral-large-latest", name: "Mistral Large", description: "Top-tier reasoning", tier: "premium", provider: "mistral" },
+      { id: "mistral-small-latest", name: "Mistral Small", description: "Efficient and affordable", tier: "budget", provider: "mistral" },
+      // OpenRouter — 100% FREE open-source models (get a free key at openrouter.ai)
+      // NOTE: OpenRouter rotates which models are free — verify against
+      // https://openrouter.ai/api/v1/models before adding new entries here.
+      { id: "openai/gpt-oss-20b", name: "GPT-OSS 20B (OpenRouter)", description: "OpenAI open-weight model via OpenRouter \u2014 ultra-cheap (~$4/1M calls), no daily cap", tier: "budget", provider: "openrouter", textOnly: true },
+      { id: "nvidia/nemotron-3-super-120b-a12b:free", name: "Nemotron 3 Super 120B (FREE)", description: "NVIDIA large reasoning model \u2014 free via OpenRouter", tier: "budget", provider: "openrouter", textOnly: true },
+      { id: "google/gemma-4-26b-a4b-it:free", name: "Gemma 4 26B (FREE)", description: "Google efficient MoE model \u2014 free via OpenRouter", tier: "budget", provider: "openrouter", textOnly: true },
+      { id: "google/gemma-4-31b-it:free", name: "Gemma 4 31B Vision (FREE)", description: "Multimodal vision \u2014 reads chart images, completely free via OpenRouter", tier: "budget", provider: "openrouter" },
+      // Cheaper OpenRouter vision picks (selectable; honored as-is, not promoted).
+      { id: "openai/gpt-4o-mini", name: "GPT-4o Mini (OpenRouter)", description: "GPT-4o Mini via OpenRouter \u2014 capable chart vision, cheaper than OpenAI-direct, no daily cap", tier: "budget", provider: "openrouter" },
+      { id: "google/gemma-3-4b-it", name: "Gemma 3 4B Vision (OpenRouter)", description: "Ultra-cheap OpenRouter vision (~$0.0000009/call, no daily cap) \u2014 lowest cost, lighter confidence scoring", tier: "budget", provider: "openrouter" }
+    ];
+    userModelPreferences = /* @__PURE__ */ new Map();
+    DEPRECATED_MODEL_MAP = {
+      "claude-3-5-haiku-20241022": "claude-haiku-4-5-20251001",
+      "claude-sonnet-4-20250514": "claude-sonnet-4-6",
+      "claude-3-5-sonnet-20241022": "claude-sonnet-4-6",
+      // Groq models decommissioned 2026-06-17 → migrate to current Groq models
+      "llama-3.3-70b-versatile": "openai/gpt-oss-120b",
+      "llama-3.1-8b-instant": "openai/gpt-4o-mini",
+      "meta-llama/llama-4-scout-17b-16e-instruct": "qwen/qwen3-vl-32b-instruct",
+      "mixtral-8x7b-32768": "openai/gpt-oss-120b",
+      "qwen/qwen3-32b": "qwen/qwen3.6-27b",
+      // OpenRouter retired these free slugs (confirmed 404 on live test 2026-07-26) → migrate to a live model.
+      // These land on a user's MODEL PREFERENCE, which is what trade confirmation
+      // runs on, so they must not point at a text-only model: gpt-oss-20b cannot read
+      // a chart and returned a constant 75 on 298/298 calls (2026-09-22), making a
+      // minConfidence of 85 unreachable and confirming nothing.
+      "deepseek/deepseek-chat-v3-0324:free": "openai/gpt-4o-mini",
+      "deepseek/deepseek-r1:free": "openai/gpt-4o-mini",
+      "meta-llama/llama-3.3-70b-instruct:free": "openai/gpt-4o-mini",
+      "qwen/qwen3-235b-a22b:free": "openai/gpt-4o-mini",
+      // Anyone already sitting on the text-only Groq model gets migrated off it too.
+      "openai/gpt-oss-20b": "openai/gpt-4o-mini"
+    };
+    DEFAULT_AI_MODEL = "openai/gpt-4o-mini";
+    VISION_FALLBACK = {
+      "groq": "gpt-4o-mini",
+      "openai": "gpt-4o-mini",
+      "anthropic": "claude-sonnet-4-6",
+      // gpt-4o-mini via OpenRouter — a genuinely capable model that scores the trade
+      // confirmation reliably. Was 'google/gemma-3-4b-it', a 4B model that returned
+      // uniformly junk-low confidence (~12% ceiling) which failed the min-confidence
+      // gate and REJECTED EVERY TRADE. The default pick (openai/gpt-oss-20b) routes
+      // through OpenRouter, so nearly every user hit that weak fallback. gpt-4o-mini
+      // is what line ~452 already treats as the OpenRouter vision model.
+      "openrouter": "openai/gpt-4o-mini"
+    };
+    KNOWN_VISION_MODEL_IDS = /* @__PURE__ */ new Set([
+      ...AVAILABLE_VISION_MODELS.filter((m) => !m.textOnly).map((m) => m.id),
+      ...Object.values(VISION_FALLBACK)
+    ]);
+    aiVisionConfirmationEnabled = /* @__PURE__ */ new Map();
+    aiMinConfidenceThreshold = /* @__PURE__ */ new Map();
+    ictStrategyEnabledMap = /* @__PURE__ */ new Map();
+    breakoutModeEnabledMap = /* @__PURE__ */ new Map();
+    trailingStopEnabledMap = /* @__PURE__ */ new Map();
+    breakoutModePriorState = /* @__PURE__ */ new Map();
+    _recentConfidence = [];
+    _lastSavedToggles = /* @__PURE__ */ new Map();
+    smcStrategyEnabledMap = /* @__PURE__ */ new Map();
+    propFirmModeMap = /* @__PURE__ */ new Map();
+    propFirmContextMap = /* @__PURE__ */ new Map();
+    aiConfirmationLogs2 = /* @__PURE__ */ new Map();
+    logIdCounter = 1;
+    adaptiveRegimeEnabledMap = /* @__PURE__ */ new Map();
+    VETERAN_JUDGE_MODEL = "openai/gpt-oss-120b";
+    VETERAN_PERSONA = `You are a trader with over 30 years of unbroken, consistently profitable trading experience across every market regime \u2014 bull runs, bear markets, chop, and black-swan crashes. Early in your career you blew up two accounts by over-trading and chasing marginal setups; you have never repeated that mistake. Your hallmarks:
+- Capital preservation is priority #1, always \u2014 profit is priority #2.
+- You are far more likely to skip a setup than take it. Most trades that look "pretty good" get passed on. You only act on genuine, high-probability confluence.
+- Consistency beats occasional brilliance \u2014 you would rather bank ten small, disciplined wins than swing for one big one and risk the account.
+- You have zero ego. If the Bear Case is stronger than the Bull Case, you say no, full stop, regardless of how the setup "feels."
+- You never revenge trade, never widen risk to chase a loss back, and never let a strong bull case override a real structural risk.`;
+    PROVIDER_MODELS = {
+      openai: "gpt-4o-mini",
+      // was gpt-4o: as a failover link it silently upgraded every call ~16× in price
+      groq: "openai/gpt-oss-120b",
+      anthropic: "claude-sonnet-4-6",
+      // was claude-3-5-sonnet-20241022 (retired → 404'd every Anthropic-routed confirmation)
+      google: "gemini-2.0-flash",
+      // was gemini-1.5-pro (deprecated id)
+      mistral: "mistral-large-latest",
+      openrouter: "openai/gpt-oss-20b"
+      // cheap paid (~$4/1M calls), NO free-tier daily cap — confirmed live
+    };
+    AnthropicAsOpenAI = class {
+      defaultModel;
+      provider = "anthropic";
+      client;
+      constructor(apiKey) {
+        const Anthropic = __require("@anthropic-ai/sdk");
+        this.client = new Anthropic.default({ apiKey });
+        this.defaultModel = PROVIDER_MODELS.anthropic;
+      }
+      get chat() {
+        return {
+          completions: {
+            create: async (params) => {
+              const messages = (params.messages || []).filter((m) => m.role !== "system");
+              const systemMsg = (params.messages || []).find((m) => m.role === "system");
+              const maxTokens = params.max_tokens || 4096;
+              const model = params.model || this.defaultModel;
+              const wantsJson = params.response_format?.type === "json_object";
+              let systemContent = systemMsg?.content || "";
+              if (wantsJson) {
+                systemContent = systemContent ? `${systemContent}
+
+Respond with valid JSON only. No markdown, no explanation.` : "Respond with valid JSON only. No markdown, no explanation.";
+              }
+              const response = await this.client.messages.create({
+                model,
+                max_tokens: maxTokens,
+                ...systemContent ? { system: systemContent } : {},
+                messages: messages.map((m) => ({
+                  role: m.role,
+                  content: typeof m.content === "string" ? m.content : Array.isArray(m.content) ? m.content.map((c) => {
+                    if (c.type === "text") return { type: "text", text: c.text };
+                    if (c.type === "image_url") {
+                      const url = c.image_url?.url || "";
+                      if (url.startsWith("data:")) {
+                        const [meta, data] = url.split(",");
+                        const mediaType = meta.split(":")[1].split(";")[0];
+                        return { type: "image", source: { type: "base64", media_type: mediaType, data } };
+                      }
+                      return { type: "image", source: { type: "url", url } };
+                    }
+                    return c;
+                  }) : m.content
+                }))
+              });
+              const text2 = response.content?.[0]?.text || "";
+              return {
+                choices: [{ message: { role: "assistant", content: text2 }, finish_reason: response.stop_reason }],
+                usage: { prompt_tokens: response.usage?.input_tokens, completion_tokens: response.usage?.output_tokens }
+              };
+            }
+          }
+        };
+      }
+    };
+    PROVIDER_PRIORITY = ["openrouter", "openai", "groq", "anthropic", "google", "mistral"];
+    _aiFailSeen = /* @__PURE__ */ new Map();
+    VEDD_IDENTITY_CONTEXT = `
+VEDD AI Trading (VEDDBuild) is a fintech AI trading education platform with the following characteristics:
+- Mission: Democratizing access to institutional-grade AI trading tools and financial education for underserved communities
+- Faith-based community values with inter-city economic empowerment focus
+- Legal structure: Technology company / EdTech platform
+- Geographic focus: United States (with international ambassador expansion)
+- Key impact areas: Financial inclusion, STEM/fintech education, community economic development, prediction-market literacy
+
+CORE AI TRADING ENGINES (current platform capability):
+- AI Chart Analysis: upload any chart screenshot (MT4/MT5/TradingView/TradeLocker) for AI-generated entry/exit/stop/target signals, pattern recognition, and multi-timeframe confluence scoring
+- VEDD SS AI Engine: fully automated forex trading engine connected live to both MT5 and TradeLocker brokers simultaneously \u2014 scans, scores, and auto-executes trades with configurable risk, session windows, and confidence thresholds; includes a paper-trading mode for risk-free onboarding
+- Live TradeLocker + MT5 multi-broker execution with real-time balance/equity sync (background-synced every 20 seconds), supporting multiple broker accounts per user concurrently
+- ORB (Opening Range Breakout) Engine: automated NY-session breakout strategy with live AI scoring, auto-detected retest entries, and mobile-optimized live status monitoring
+- ABBA \u2014 proprietary AI trading strategist and voice assistant: gives users a personalized daily/weekly trading plan grounded in their real closed-trade history, diagnoses win/loss patterns by pair/session/confidence, and answers questions conversationally (with live speech) about their account, strategy, and the platform
+- Micro Account Growth Engine: a higher-risk, concentrated-pair (1-2 pairs at a time) AI engine purpose-built to grow small FX accounts quickly, including automatic weekend crypto-pair trading (BTC/ETH) when traditional FX markets are closed \u2014 kept fully separate from prop-firm challenge accounts to protect funded-account compliance
+- Prop Firm Challenge Mode: enforces funded-account rules automatically (daily loss limits, consistency requirements, session filters) so ambassadors and users can safely pursue funded trading accounts
+- Copy Trading: a live leaderboard of verified trader performance (win rate, P&L, best trade) that any user can subscribe to and auto-mirror, with a built-in VEDD-token profit-share model that lets top traders earn passive income from followers' wins
+- Solana (SOL) Token Scanner: autonomous on-chain token-scanning engine with multiple selectable trading strategies (momentum, order-flow, trend-following, adaptive auto-selection) and configurable auto-trade execution against a connected Solana wallet
+- AI Prediction Markets Engine (Kalshi + Polymarket): scans live prediction-market contracts, ranks the highest win-probability opportunities using an AI edge model plus learned historical strategy accuracy, and supports an automatic bankroll-compounding mode that scales stake size as the account grows
+- EA/Expert Advisor Generator: converts plain-English trading rules into ready-to-run MQL5 (MT5) or Pine Script (TradingView) code, with a marketplace for sharing/downloading community-built EAs
+- AI Trade Performance Dashboard: unified live performance tracking across every connected broker/account (MT5, TradeLocker, prop-firm, copy-trading), with per-account and per-strategy breakdowns
+
+COMMUNITY, EDUCATION & AMBASSADOR INFRASTRUCTURE:
+- Ambassador Network: a 44-day certification training program with NFT-based credentialing, quiz-gated modules, and a referral/commission structure that creates self-sustaining local economic micro-ecosystems
+- Lead Hunter: an AI-powered outreach system that scans social platforms (Reddit, StockTwits, X, Instagram, LinkedIn, Facebook) for high-intent prospects, scores and drafts personalized outreach for each ambassador, and can auto-engage where platform APIs allow
+- Content Studio: AI-generated branded social content (posts + educational reels) with one-tap, per-platform-formatted sharing to 8 platforms
+- AI-generated Blog/Insights: automated market-relevant educational articles published on a rotating schedule
+- VEDD Token Ecosystem: on-chain Solana token used for platform rewards, ambassador commissions, and a profit-share mechanism between copy-trading followers and the traders they mirror
+- Gamification: XP/tier progression, daily missions, streak tracking, and achievement badges that drive sustained engagement with financial-literacy content
+- Multi-provider AI infrastructure: the platform is provider-agnostic (OpenAI, Anthropic, Google, Groq, Mistral, and free open-source models via OpenRouter), which keeps the cost of delivering AI-driven education low and sustainable at scale
+
+DIFFERENTIATORS (use these to stand out):
+- First-mover AI trading education platform integrated with live multi-broker execution (MT5 + TradeLocker) AND Solana blockchain infrastructure AND regulated prediction markets (Kalshi/Polymarket) in a single platform
+- Proprietary 44-day Ambassador Certification Program with NFT-based credentialing
+- Faith-based community trust networks across multiple U.S. cities \u2014 channels that traditional fintech cannot access
+- Ambassador network model creates self-sustaining economic micro-ecosystems in underserved areas, reinforced by a token profit-share model between traders and their followers
+- Dual revenue model (subscriptions + VEDD token ecosystem) demonstrates financial sustainability
+- Technology democratizes tools previously available only to institutional traders ($50/month vs. $10,000+/year for institutional platforms)
+- Purpose-built risk segmentation: separate engines for aggressive small-account growth vs. compliance-strict prop-firm accounts, showing responsible, segmented risk design rather than one-size-fits-all automation
+- Measurable community outcomes: each ambassador directly impacts 50-200 community members in financial literacy
+`;
+    MASTER_GRANT_WRITER_SYSTEM = `You are Dr. Ren\xE9e Hargrove, a senior grant strategist and proposal writer with 10 years of experience and a 98% funding success rate. You have secured over $47 million in competitive grants for fintech companies, community development organizations, EdTech platforms, and minority-owned enterprises.
+
+Your proposals consistently win because you:
+
+1. **Mirror the funder's language and priorities exactly** \u2014 You study what the funder cares about most and lead with their values before introducing the applicant.
+
+2. **Lead with urgency and a data-backed problem statement** \u2014 Reviewers decide in the first 30 seconds. Your openings are precise, emotionally resonant, and grounded in real data.
+
+3. **Demonstrate organizational credibility immediately** \u2014 You front-load proof of capacity: team expertise, existing infrastructure, past success metrics, and community relationships.
+
+4. **Write SMART, measurable objectives** \u2014 Every goal has a number, a timeline, and a responsible party. Reviewers hate vague language; you never use it.
+
+5. **Build a compelling Theory of Change** \u2014 You always show the causal chain: Activities \u2192 Outputs \u2192 Short-term Outcomes \u2192 Long-term Impact. Funders fund logic, not hope.
+
+6. **Tell human stories** \u2014 You weave real community narratives into technical sections to create emotional connection without sacrificing professionalism.
+
+7. **Write budget narratives that justify every dollar** \u2014 You show cost-effectiveness by benchmarking against industry standards and demonstrating efficiency.
+
+8. **Address sustainability proactively** \u2014 You always explain how the work continues post-grant, reducing perceived risk for the funder.
+
+9. **Include a strong evaluation plan** \u2014 Funders want to see how success will be measured. You always include specific KPIs, data collection methods, and reporting timelines.
+
+10. **Close with vision, not summary** \u2014 Your conclusions paint a picture of the world after the grant succeeds, creating a lasting impression on reviewers.
+
+Your writing is:
+- Professional but accessible (8th-grade readability, not academic jargon)
+- Specific (concrete numbers, names, places \u2014 never vague generalities)
+- Funder-centric (their mission first, applicant's needs second)
+- Action-oriented (present tense, active voice)
+- Formatted for skimmability (strong headers, strategic bullet use, clear paragraph breaks)
+
+You ALWAYS produce proposals that are ready to submit \u2014 no placeholders like [INSERT DATA HERE], no generic language, no filler content. Every sentence earns its place.`;
+  }
+});
+
+// server/services/crypto-ai-confirmation.ts
+var crypto_ai_confirmation_exports = {};
+__export(crypto_ai_confirmation_exports, {
+  getCryptoAiConfirmation: () => getCryptoAiConfirmation
+});
+async function getCryptoAiConfirmation(opts) {
+  try {
+    const client2 = await getUniversalAIClientForUser(opts.userId);
+    const recent = opts.candles.slice(-20);
+    const candleSummary = recent.map((c) => {
+      const tNum = Number(c.t);
+      const t = Number.isFinite(tNum) && tNum > 0 ? new Date(tNum * 1e3).toISOString().slice(11, 16) : "?";
+      return `${t} O:${c.o} H:${c.h} L:${c.l} C:${c.c} V:${Math.round(c.v ?? 0)}`;
+    }).join("\n");
+    const ind = opts.indicators || {};
+    const indicatorSummary = [
+      `RSI: ${ind.rsi ?? "n/a"}`,
+      `ADX: ${ind.adx ?? "n/a"}  +DI: ${ind.plusDI ?? "n/a"}  -DI: ${ind.minusDI ?? "n/a"}`,
+      `MACD histogram: ${ind.macdHistogram ?? ind.macd?.histogram ?? "n/a"}`,
+      `Trend: ${ind.trend ?? "n/a"}`,
+      `Relative volume: ${ind.relativeVolume ?? "n/a"}`,
+      `Volume trend: ${ind.volumeTrend ?? "n/a"}`
+    ].join("\n  ");
+    const system = 'You are a disciplined crypto perpetual futures trader giving a second, independent opinion on a signal a technical scanner already produced. Judge this on trend strength, momentum, volume/order-flow confirmation, and recent price structure. This is a 24/7 market with no session close or reopen -- do NOT reach for forex/ICT concepts like order blocks, liquidity sweeps, discount/premium zones, or session/macro-window timing; none of that describes how crypto perpetuals actually trade, and grading a setup down for lacking FX-specific structure it was never going to have is not a real assessment. Respond ONLY with JSON: {"confirmed": boolean, "direction": "BUY"|"SELL"|"NEUTRAL", "confidence": number (0-100), "reasoning": string}.';
+    const _lessons = await Promise.resolve().then(() => (init_shadow_lessons(), shadow_lessons_exports)).then((m) => m.getShadowLessonsText(opts.userId, "crypto", 8)).catch(() => "");
+    const _shadowStats = await Promise.resolve().then(() => (init_crypto_shadow(), crypto_shadow_exports)).then((m) => m.getCryptoShadowStatsText(opts.userId, 12)).catch(() => "");
+    const user = `${_lessons ? `${_lessons}
+
+` : ""}${_shadowStats ? `${_shadowStats}
+
+` : ""}SYMBOL: ${opts.symbol}
+PROPOSED: ${opts.direction} @ ${opts.price}
+SCANNER STRATEGY: ${opts.strategy} (score ${opts.quantScore}/100)
+SCANNER REASONING: ${opts.quantReasoning}
+
+INDICATORS:
+  ${indicatorSummary}
+
+RECENT CANDLES (oldest to most recent):
+${candleSummary}
+
+Would you independently confirm this ${opts.direction} setup on its own merits as a crypto perpetual trade?`;
+    const modelId = client2.defaultModel || "gpt-4o-mini";
+    const baseRequest = {
+      model: modelId,
+      messages: [
+        { role: "system", content: system },
+        { role: "user", content: user }
+      ],
+      response_format: { type: "json_object" },
+      temperature: 0.3
+    };
+    let r = await client2.chat.completions.create({ ...baseRequest, max_tokens: 700 });
+    let content = r.choices?.[0]?.message?.content || "";
+    if (!content && r.choices?.[0]?.finish_reason === "length") {
+      console.warn(`[crypto-ai-confirmation] ${opts.symbol}: 700-token budget produced zero content (finish_reason=length) on ${modelId} -- retrying once at 2500.`);
+      r = await client2.chat.completions.create({ ...baseRequest, max_tokens: 2500 });
+      content = r.choices?.[0]?.message?.content || "";
+    }
+    let parsed;
+    try {
+      parsed = JSON.parse(content);
+    } catch {
+      const m = content.match(/\{[\s\S]*\}/);
+      try {
+        if (!m) throw new Error("no braces found");
+        parsed = JSON.parse(m[0]);
+      } catch {
+        console.warn(
+          `[crypto-ai-confirmation] ${opts.symbol}: primary JSON parse failed. finish_reason=${r.choices?.[0]?.finish_reason ?? "unknown"} model=${client2.defaultModel ?? "unknown"} contentLength=${content.length} content=${JSON.stringify(content)}`
+        );
+        const confirmedM = content.match(/"confirmed"\s*:\s*(true|false)/i);
+        const directionM = content.match(/"direction"\s*:\s*"(BUY|SELL|NEUTRAL)"/i);
+        const confidenceM = content.match(/"confidence"\s*:\s*(-?\d+(?:\.\d+)?)/i);
+        const reasoningM = content.match(/"reasoning"\s*:\s*"([\s\S]*)$/i);
+        if (!confirmedM && !directionM && !confidenceM) {
+          throw new Error(`AI returned no parseable JSON (truncated, ${content.length} chars)`);
+        }
+        parsed = {
+          confirmed: confirmedM ? confirmedM[1].toLowerCase() === "true" : false,
+          direction: directionM ? directionM[1].toUpperCase() : "NEUTRAL",
+          confidence: confidenceM ? Number(confidenceM[1]) : 0,
+          reasoning: reasoningM ? reasoningM[1].replace(/\\"/g, '"').trim() + " [reasoning cut off \u2014 response truncated]" : "[response truncated before reasoning was written]"
+        };
+      }
+    }
+    const confidence = coerceConfidence(parsed.confidence);
+    noteConfidenceSample(confidence);
+    const direction = ["BUY", "SELL", "NEUTRAL"].includes(parsed.direction) ? parsed.direction : "NEUTRAL";
+    return {
+      confirmed: !!parsed.confirmed,
+      aiDirection: direction,
+      aiConfidence: confidence,
+      reasoning: String(parsed.reasoning || "no reasoning returned"),
+      modelUsed: client2.defaultModel
+    };
+  } catch (err) {
+    const statusCode = err?.status || err?.statusCode || err?.response?.status;
+    return {
+      confirmed: false,
+      aiDirection: "NEUTRAL",
+      aiConfidence: 0,
+      reasoning: `Crypto AI confirmation error: ${err?.message ?? err}`,
+      aiError: true,
+      aiErrorStatus: typeof statusCode === "number" ? statusCode : null
+    };
+  }
+}
+var init_crypto_ai_confirmation = __esm({
+  "server/services/crypto-ai-confirmation.ts"() {
+    "use strict";
+    init_openai();
+  }
+});
+
+// server/services/engine-consensus.ts
+var engine_consensus_exports = {};
+__export(engine_consensus_exports, {
+  getEngineConsensusForUser: () => getEngineConsensusForUser,
+  recordEngineConsensus: () => recordEngineConsensus
+});
+async function recordEngineConsensus(userId, engine, entry) {
+  try {
+    await pool.query(
+      `INSERT INTO engine_consensus_log
+         (user_id, engine, symbol, strategy, quant_verdict, quant_score, ai_verdict, ai_confidence, ai_reasoning, consensus, trade_allowed, updated_at)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, now())
+       ON CONFLICT (user_id, engine, symbol) DO UPDATE SET
+         strategy = $4, quant_verdict = $5, quant_score = $6, ai_verdict = $7,
+         ai_confidence = $8, ai_reasoning = $9, consensus = $10, trade_allowed = $11, updated_at = now()`,
+      [
+        userId,
+        engine,
+        entry.symbol,
+        entry.strategy,
+        entry.quantVerdict,
+        entry.quantScore,
+        entry.aiVerdict,
+        entry.aiConfidence,
+        entry.aiReasoning,
+        entry.consensus,
+        entry.tradeAllowed
+      ]
+    );
+  } catch (err) {
+    console.error(`[engine-consensus] Failed to record consensus for ${engine}/${entry.symbol} (non-fatal):`, err?.message ?? err);
+  }
+}
+async function getEngineConsensusForUser(userId, engine) {
+  try {
+    const { rows } = await pool.query(
+      `SELECT symbol, strategy, quant_verdict, quant_score, ai_verdict, ai_confidence, ai_reasoning, consensus, trade_allowed, updated_at
+       FROM engine_consensus_log WHERE user_id = $1 AND engine = $2 ORDER BY updated_at DESC LIMIT 20`,
+      [userId, engine]
+    );
+    return rows.map((r) => ({
+      symbol: r.symbol,
+      strategy: r.strategy,
+      quantVerdict: r.quant_verdict,
+      quantScore: r.quant_score,
+      aiVerdict: r.ai_verdict,
+      aiConfidence: r.ai_confidence,
+      aiReasoning: r.ai_reasoning,
+      consensus: r.consensus,
+      tradeAllowed: r.trade_allowed,
+      timestamp: new Date(r.updated_at).toISOString()
+    }));
+  } catch (err) {
+    console.error(`[engine-consensus] Failed to read consensus for ${engine} (non-fatal):`, err?.message ?? err);
+    return [];
+  }
+}
+var init_engine_consensus = __esm({
+  "server/services/engine-consensus.ts"() {
+    "use strict";
+    init_db();
   }
 });
 

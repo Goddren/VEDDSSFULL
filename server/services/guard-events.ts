@@ -65,6 +65,77 @@ export async function guardFireRates(userId: number, days = 7): Promise<{ days: 
   return { days: d, rates: rows };
 }
 
+/**
+ * Blocked-trade counterfactuals (2026-11-08, engine report follow-up):
+ * when an entry guard stops a trade that had a complete plan (entry, stop,
+ * target), record the plan as a shadow decision the existing resolver
+ * (fx-models.ts resolveShadowDecisions) scores against real prices — so the
+ * scoreboard can say whether each guard mostly stops winners or losers.
+ *
+ * Safety: rows are stored with source='guard_block', which every learning
+ * consumer already excludes — the shadow ledger view and the fx-models
+ * stats queries all filter source='own', and getModelMastery explicitly
+ * excludes 'guard_block'. These rows can never teach the brain anything;
+ * they only measure the guards. Fire-and-forget; a malformed plan (missing
+ * prices, stop/target on the wrong side) is skipped silently. Kill switch:
+ * GUARD_COUNTERFACTUALS=off.
+ */
+export function recordBlockedTrade(userId: number, kind: string, symbol: string | null, plan: {
+  direction?: unknown; entryPrice?: unknown; stopLoss?: unknown; takeProfit?: unknown;
+  confidence?: unknown; model?: unknown; setup?: unknown;
+}, detail?: string): void {
+  if (process.env.GUARD_COUNTERFACTUALS === 'off') return;
+  void (async () => {
+    try {
+      const dir = String(plan.direction ?? '').toUpperCase();
+      if (dir !== 'BUY' && dir !== 'SELL') return;
+      const entry = Number(plan.entryPrice), sl = Number(plan.stopLoss), tp = Number(plan.takeProfit);
+      if (!(entry > 0) || !(sl > 0) || !(tp > 0)) return;
+      if (!(Math.abs(entry - sl) > 0)) return;
+      if (dir === 'BUY' ? !(sl < entry && tp > entry) : !(sl > entry && tp < entry)) return;
+      const { ensureFxModelTables } = await import('./fx-models');
+      await ensureFxModelTables();
+      const conf = Number(plan.confidence);
+      await pool.query(
+        `INSERT INTO fx_model_decisions (user_id, symbol, model, mode, direction, entry_price, stop_loss, take_profit, confidence, setup, reasoning, context, source, engine)
+         VALUES ($1,$2,$3,'blocked',$4,$5,$6,$7,$8,$9,$10,$11::jsonb,'guard_block','fx')`,
+        [userId, symbol, String(plan.model ?? 'engine').slice(0, 60), dir, entry, sl, tp,
+         Number.isFinite(conf) ? Math.round(conf) : null,
+         plan.setup ? String(plan.setup).slice(0, 120) : null,
+         `Blocked by ${kind}${detail ? `: ${String(detail).slice(0, 300)}` : ''}`.slice(0, 500),
+         JSON.stringify({ guard: kind })],
+      );
+    } catch { /* counterfactuals never block trading */ }
+  })();
+}
+
+/** Per-guard counterfactual scoreboard: of the trades each guard stopped,
+ *  how many would have won / lost (resolved by the shadow resolver). */
+export async function guardCounterfactuals(userId: number, days = 30): Promise<{ days: number; guards: any[] }> {
+  const d = Math.max(1, Math.min(90, days));
+  try {
+    const { ensureFxModelTables } = await import('./fx-models');
+    await ensureFxModelTables();
+    const { rows } = await pool.query(
+      `SELECT context->>'guard' AS kind,
+              count(*)::int AS recorded,
+              count(*) FILTER (WHERE result IN ('WIN','LOSS','EXPIRED'))::int AS resolved,
+              count(*) FILTER (WHERE result = 'WIN')::int AS would_win,
+              count(*) FILTER (WHERE result = 'LOSS')::int AS would_lose,
+              count(*) FILTER (WHERE result = 'EXPIRED')::int AS expired,
+              count(*) FILTER (WHERE result IS NULL)::int AS pending,
+              avg(r_multiple) FILTER (WHERE result IN ('WIN','LOSS','EXPIRED'))::float AS avg_r
+         FROM fx_model_decisions
+        WHERE user_id = $1 AND source = 'guard_block' AND created_at > now() - ($2 || ' days')::interval
+        GROUP BY 1 ORDER BY resolved DESC, recorded DESC`,
+      [userId, String(d)],
+    );
+    return { days: d, guards: rows };
+  } catch {
+    return { days: d, guards: [] };
+  }
+}
+
 export async function recentGuardEvents(userId: number, limit = 100, kinds?: string[]): Promise<{ events: any[]; summary: any[] }> {
   await ensure();
   const _k = (kinds || []).filter((k) => /^[a-z_]{1,40}$/.test(k));
