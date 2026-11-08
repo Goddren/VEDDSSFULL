@@ -1,5 +1,5 @@
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { ShieldCheck, Settings2, GraduationCap } from "lucide-react";
+import { ShieldCheck, Settings2, GraduationCap, Receipt } from "lucide-react";
 import { apiRequest } from "@/lib/queryClient";
 
 // Shows what the engine's safeguards (2026-10-19 bug-scan fixes) actually did:
@@ -264,6 +264,57 @@ export function PromotedRulesPanel({ className = "" }: { className?: string }) {
       {(promote.isError || retire.isError) && (
         <div className="text-[10px] text-red-300 mt-1">That didn't go through — the lesson may no longer be eligible. The list refreshes automatically.</div>
       )}
+    </div>
+  );
+}
+
+// Practice cost check (Nov 8, 2026): what practice trades actually get
+// charged vs what the cost model assumes — the evidence base for tuning
+// the model. Live fills carry their costs inside execution prices (no
+// stored fee series), so this reports the practice side exactly and says
+// so.
+export function PracticeCostPanel({ className = "" }: { className?: string }) {
+  const { data } = useQuery<{ days: number; constants: { cryptoFeeBps: number; cryptoFeeDeepBps: number; cryptoFloorMult: number; solSlippagePct: number; solFeePumpfunPct: number; solFeeDefaultPct: number; solImpactFallbackPct: number }; cryptoPaper: { n: number; avg_bps: number | null; median_bps: number | null; avg_cost_usd: number | null; avg_cost_pct: number | null; avg_drag_pct: number | null; flipped: number } | null; bands: Array<{ band: string; n: number; avg_bps: number | null; avg_drag_pct: number | null }> }>({
+    queryKey: ["/api/engine/guard-events?view=costs&days=90"],
+    refetchInterval: 60000,
+  });
+  if (!data) return null;
+  const cp = data.cryptoPaper;
+  const c = data.constants;
+  const pct = (v: number | null | undefined, dp = 2) => v == null ? "—" : `${(v * 100).toFixed(dp)}%`;
+  return (
+    <div className={`rounded-md border border-white/10 bg-white/[0.03] p-2 ${className}`}>
+      <div className="flex items-center gap-2 mb-1.5">
+        <Receipt className="w-3.5 h-3.5 text-emerald-300" />
+        <span className="text-[11px] font-bold text-gray-200">Practice cost check</span>
+        <span className="text-[9px] text-gray-500 ml-auto">last {data.days} days · crypto paper trades</span>
+      </div>
+      {cp && cp.n > 0 ? (
+        <>
+          <div className="text-[10px] text-gray-300 rounded bg-black/20 px-2 py-1.5 mb-1">
+            {cp.n} closed practice trades · average charge <span className="text-gray-100 font-semibold">{cp.avg_bps != null ? `${Math.round(cp.avg_bps)} bps` : "—"}</span>
+            {cp.median_bps != null ? <span className="text-gray-500"> (typical {Math.round(cp.median_bps)} bps)</span> : null}
+            {cp.avg_cost_pct != null ? <span> · {pct(cp.avg_cost_pct)} of the trade size</span> : null}
+            {cp.avg_drag_pct != null ? <span> · costs ate <span className="text-amber-300">{cp.avg_drag_pct.toFixed(2)}%</span> of return on average</span> : null}
+            {cp.flipped > 0 ? <span> · <span className="text-red-300">{cp.flipped} trade{cp.flipped === 1 ? "" : "s"} would have won before costs</span></span> : null}
+          </div>
+          <div className="space-y-0.5">
+            {data.bands.map((b) => (
+              <div key={b.band} className="text-[10px] flex items-baseline gap-2 rounded bg-black/20 px-2 py-1">
+                <span className="text-gray-400">Pool {b.band}</span>
+                <span className="ml-auto text-gray-500">{b.n} trades</span>
+                <span className="text-gray-300">{b.avg_bps != null ? `${Math.round(b.avg_bps)} bps avg` : "—"}</span>
+                {b.avg_drag_pct != null ? <span className="text-gray-500">drag {b.avg_drag_pct.toFixed(2)}%</span> : null}
+              </div>
+            ))}
+          </div>
+        </>
+      ) : (
+        <div className="text-[10px] text-gray-500">No closed crypto practice trades in the last {data.days} days yet — the check fills in as practice trades close.</div>
+      )}
+      <div className="text-[9px] text-gray-600 mt-1.5">
+        The model assumes: crypto fee {c.cryptoFeeBps} bps ({c.cryptoFeeDeepBps} bps in deep pools), cost floor ×{c.cryptoFloorMult}; Sol slippage {c.solSlippagePct}%/side, pump.fun fee {c.solFeePumpfunPct}%, other DEX fees {c.solFeeDefaultPct}%, thin-pool impact fallback {c.solImpactFallbackPct}%. Real fills carry costs inside their execution prices, so there is no stored "real cost" series to compare against — this panel is the practice side, measured exactly.
+      </div>
     </div>
   );
 }

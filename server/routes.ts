@@ -23413,6 +23413,10 @@ Return ONLY JSON: {"topPicks":[{"market":"","winProbability":<0-100>,"whyItWins"
         const { getSettingsOverview } = await import('./services/settings-overview');
         return res.json(await getSettingsOverview((req.user as User).id));
       }
+      if (String(req.query.view || '') === 'costs') {
+        const { practiceCostReport } = await import('./services/practice-costs-report');
+        return res.json(await practiceCostReport((req.user as User).id, Number(req.query.days) || 90));
+      }
       res.json(await recentGuardEvents((req.user as User).id, Number(req.query.limit) || 60, req.query.kinds ? String(req.query.kinds).split(',') : undefined));
     } catch (err: any) {
       res.status(500).json({ error: err.message });
