@@ -23373,9 +23373,12 @@ Return ONLY JSON: {"topPicks":[{"market":"","winProbability":<0-100>,"whyItWins"
   app.get("/api/engine/guard-events", async (req: Request, res: Response) => {
     if (!req.isAuthenticated()) return res.status(401).json({ error: "Authentication required" });
     try {
-      const { recentGuardEvents, guardFireRates } = await import('./services/guard-events');
+      const { recentGuardEvents, guardFireRates, guardCounterfactuals } = await import('./services/guard-events');
       if (String(req.query.view || '') === 'rates') {
         return res.json(await guardFireRates((req.user as User).id, Number(req.query.days) || 7));
+      }
+      if (String(req.query.view || '') === 'counterfactuals') {
+        return res.json(await guardCounterfactuals((req.user as User).id, Number(req.query.days) || 30));
       }
       res.json(await recentGuardEvents((req.user as User).id, Number(req.query.limit) || 60, req.query.kinds ? String(req.query.kinds).split(',') : undefined));
     } catch (err: any) {

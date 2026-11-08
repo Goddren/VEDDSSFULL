@@ -798,7 +798,7 @@ export async function getModelMastery(userId: number, opts: { ownOnly?: boolean;
             COALESCE(AVG(r_multiple),0)::float AS avg_r,
             COALESCE(SUM(r_multiple),0)::float AS total_r
        FROM fx_model_decisions
-      WHERE user_id=$1 AND engine='${_eng}' AND result IN ('WIN','LOSS','EXPIRED')${opts.ownOnly ? " AND source='own'" : ''}
+      WHERE user_id=$1 AND engine='${_eng}' AND result IN ('WIN','LOSS','EXPIRED') AND source <> 'guard_block'${opts.ownOnly ? " AND source='own'" : ''}
       GROUP BY ${group} ORDER BY trades DESC`, [userId])).rows;
   const shape = (r: any) => {
     const winRate = r.trades ? r.wins / r.trades : 0;

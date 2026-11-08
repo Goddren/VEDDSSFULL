@@ -81,7 +81,27 @@ export function GuardFireRatesPanel({ className = "" }: { className?: string }) 
     queryKey: ["/api/engine/guard-events?view=rates&days=7"],
     refetchInterval: 60000,
   });
+  const { data: cf } = useQuery<{ days: number; guards: Array<{ kind: string; resolved: number; would_win: number; would_lose: number; expired: number; pending: number; avg_r: number | null }> }>({
+    queryKey: ["/api/engine/guard-events?view=counterfactuals&days=30"],
+    refetchInterval: 60000,
+  });
   const rates = (data?.rates || []).filter((r) => r.fires > 0 || r.prev_fires > 0);
+  const cfByKind = new Map((cf?.guards || []).map((g) => [g.kind, g]));
+  const cfOnly = (cf?.guards || []).filter((g) => g.resolved > 0 && !rates.some((r) => r.kind === g.kind));
+  const verdict = (avgR: number | null) => avgR == null ? "" : avgR <= -0.1 ? " — earning its keep" : avgR >= 0.1 ? " — mostly stops winners; loosening candidate" : " — mixed results";
+  const cfLine = (kind: string) => {
+    const g = cfByKind.get(kind);
+    if (!g || g.resolved === 0) return null;
+    return (
+      <div className="text-[10px] text-gray-400 pl-2 pb-1">
+        Would-be results (30d): <span className="text-emerald-300">{g.would_win} won</span> · <span className="text-red-300">{g.would_lose} lost</span>
+        {g.expired > 0 ? <span> · {g.expired} expired flat</span> : null}
+        {g.avg_r != null ? <span> · avg {g.avg_r >= 0 ? "+" : ""}{g.avg_r.toFixed(2)}R</span> : null}
+        <span className="text-gray-500">{verdict(g.avg_r)}</span>
+        {g.pending > 0 ? <span className="text-gray-600"> · {g.pending} still open</span> : null}
+      </div>
+    );
+  };
   return (
     <div className={`rounded-2xl p-4 ${className}`} style={{ background: "rgba(17,24,39,0.5)", border: "1.5px solid rgba(75,85,99,0.5)" }} data-testid="guard-fire-rates-panel">
       <h3 className="text-sm font-bold text-gray-100 mb-1">Guard fire rates</h3>
@@ -93,18 +113,30 @@ export function GuardFireRatesPanel({ className = "" }: { className?: string }) 
           {rates.map((r) => {
             const delta = r.fires - r.prev_fires;
             return (
-              <div key={`${r.engine}:${r.kind}`} className="text-[10px] rounded bg-black/20 px-2 py-1.5 flex items-baseline gap-2">
-                <span className="text-gray-200 font-semibold">{LABEL[r.kind] || r.kind}</span>
-                <span className="text-gray-500">{r.engine}</span>
-                <span className="ml-auto text-gray-300 font-semibold">{r.fires}×</span>
-                <span className={delta > 0 ? "text-amber-300" : delta < 0 ? "text-emerald-300" : "text-gray-500"}>
-                  {delta > 0 ? `▲ +${delta}` : delta < 0 ? `▼ ${delta}` : "— 0"} vs prior
-                </span>
-                {r.top_symbol ? <span className="text-gray-500">mostly {r.top_symbol}</span> : null}
-                <span className="text-gray-600">{new Date(r.last_fired).toLocaleDateString()}</span>
+              <div key={`${r.engine}:${r.kind}`} className="rounded bg-black/20 px-2 py-1.5">
+                <div className="text-[10px] flex items-baseline gap-2">
+                  <span className="text-gray-200 font-semibold">{LABEL[r.kind] || r.kind}</span>
+                  <span className="text-gray-500">{r.engine}</span>
+                  <span className="ml-auto text-gray-300 font-semibold">{r.fires}×</span>
+                  <span className={delta > 0 ? "text-amber-300" : delta < 0 ? "text-emerald-300" : "text-gray-500"}>
+                    {delta > 0 ? `▲ +${delta}` : delta < 0 ? `▼ ${delta}` : "— 0"} vs prior
+                  </span>
+                  {r.top_symbol ? <span className="text-gray-500">mostly {r.top_symbol}</span> : null}
+                  <span className="text-gray-600">{new Date(r.last_fired).toLocaleDateString()}</span>
+                </div>
+                {cfLine(r.kind)}
               </div>
             );
           })}
+          {cfOnly.map((g) => (
+            <div key={`cf:${g.kind}`} className="rounded bg-black/20 px-2 py-1.5">
+              <div className="text-[10px] flex items-baseline gap-2">
+                <span className="text-gray-200 font-semibold">{LABEL[g.kind] || g.kind}</span>
+                <span className="text-gray-500">fx</span>
+              </div>
+              {cfLine(g.kind)}
+            </div>
+          ))}
         </div>
       )}
     </div>
