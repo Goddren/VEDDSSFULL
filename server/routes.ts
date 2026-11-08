@@ -17901,6 +17901,35 @@ Rules:
       res.json(await getShadowLessons((req.user as User).id, req.query.refresh === '1'));
     } catch (err: any) { res.status(500).json({ error: err.message }); }
   });
+  app.get("/api/engine/promoted-rules", async (req: Request, res: Response) => {
+    if (!req.isAuthenticated()) return res.status(401).json({ error: "Authentication required" });
+    try {
+      const { getPromotableLessons } = await import('./services/promoted-rules');
+      res.json(await getPromotableLessons((req.user as User).id));
+    } catch (err: any) { res.status(500).json({ error: err.message }); }
+  });
+  app.post("/api/engine/promoted-rules", async (req: Request, res: Response) => {
+    if (!req.isAuthenticated()) return res.status(401).json({ error: "Authentication required" });
+    try {
+      const { promoteLesson } = await import('./services/promoted-rules');
+      const { source, dimension, key } = req.body || {};
+      if (!source || !dimension || !key) return res.status(400).json({ error: "source, dimension and key are required" });
+      const out = await promoteLesson((req.user as User).id, { source, dimension, key });
+      if (!out.ok) return res.status(422).json({ error: "Lesson is not eligible for promotion", reasons: out.reasons });
+      res.json(out);
+    } catch (err: any) { res.status(500).json({ error: err.message }); }
+  });
+  app.post("/api/engine/promoted-rules/retire", async (req: Request, res: Response) => {
+    if (!req.isAuthenticated()) return res.status(401).json({ error: "Authentication required" });
+    try {
+      const { retireRule } = await import('./services/promoted-rules');
+      const { id } = req.body || {};
+      if (!id) return res.status(400).json({ error: "id is required" });
+      const out = await retireRule((req.user as User).id, String(id));
+      if (!out.ok) return res.status(404).json({ error: "rule not found" });
+      res.json(out);
+    } catch (err: any) { res.status(500).json({ error: err.message }); }
+  });
   app.get("/api/shadow-ledger", async (req: Request, res: Response) => {
     if (!req.isAuthenticated()) return res.status(401).json({ error: "Authentication required" });
     try {

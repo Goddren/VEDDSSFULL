@@ -1,5 +1,6 @@
-import { useQuery } from "@tanstack/react-query";
-import { ShieldCheck, Settings2 } from "lucide-react";
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { ShieldCheck, Settings2, GraduationCap } from "lucide-react";
+import { apiRequest } from "@/lib/queryClient";
 
 // Shows what the engine's safeguards (2026-10-19 bug-scan fixes) actually did:
 // stops it refused to loosen, sizes it capped, partial closes refused, thin-data
@@ -24,6 +25,7 @@ const LABEL: Record<string, string> = {
   h4_filter_skip: "Against H4 structure / Wyckoff",
   market_closed_skip: "Market closed (weekend)",
   late_session_skip: "Late session (21:00–24:00 UTC)",
+  promoted_rule_block: "Promoted lesson guard",
   mtf_skip: "H1 and H4 don't both agree",
   range_day_skip: "Range day (no trend)",
   chase_skip: "No chasing (stretched market)",
@@ -191,6 +193,77 @@ export function SettingsOverviewPanel({ className = "" }: { className?: string }
           </div>
         ))}
       </div>
+    </div>
+  );
+}
+
+// Promoted rules (Nov 8, 2026): shadow lessons that cleared the proof bar
+// (50+ practice trades, avg R ≤ −0.2, ≤40% wins, no winning week) can be
+// promoted — one at a time — into real entry guards, and retired any time.
+export function PromotedRulesPanel({ className = "" }: { className?: string }) {
+  const qc = useQueryClient();
+  const { data } = useQuery<{ lessons: Array<{ source: string; dimension: string; key: string; trades: number; winRate: number; avgR: number; verdict: string; text: string; eligibility: { eligible: boolean; reasons: string[] } }>; rules: Array<{ id: string; dimension: string; key: string; trades: number; avgR: number; winRate: number; promotedAt: string; active: boolean }> }>({
+    queryKey: ["/api/engine/promoted-rules"],
+    refetchInterval: 60000,
+  });
+  const invalidate = () => qc.invalidateQueries({ queryKey: ["/api/engine/promoted-rules"] });
+  const promote = useMutation({
+    mutationFn: async (l: { source: string; dimension: string; key: string }) => apiRequest("POST", "/api/engine/promoted-rules", l),
+    onSuccess: invalidate,
+  });
+  const retire = useMutation({
+    mutationFn: async (id: string) => apiRequest("POST", "/api/engine/promoted-rules/retire", { id }),
+    onSuccess: invalidate,
+  });
+  const lessons = data?.lessons || [];
+  const eligible = lessons.filter((l) => l.eligibility?.eligible);
+  const active = (data?.rules || []).filter((r) => r.active);
+  const retiredCount = (data?.rules || []).filter((r) => !r.active).length;
+  if (!lessons.length && !active.length) return null;
+  return (
+    <div className={`rounded-md border border-white/10 bg-white/[0.03] p-2 ${className}`}>
+      <div className="flex items-center gap-2 mb-1.5">
+        <GraduationCap className="w-3.5 h-3.5 text-violet-300" />
+        <span className="text-[11px] font-bold text-gray-200">Proven lessons → real guards</span>
+        <span className="text-[9px] text-gray-500 ml-auto">bar: 50+ practice trades · avg R ≤ −0.2 · ≤40% wins · no winning week</span>
+      </div>
+      {active.length > 0 && (
+        <div className="space-y-1 mb-2">
+          {active.map((r) => (
+            <div key={r.id} className="text-[10px] flex items-center gap-2 rounded bg-violet-500/10 border border-violet-400/20 px-2 py-1.5">
+              <span className="text-violet-200 font-semibold">GUARD: {r.dimension} — {r.key}</span>
+              <span className="text-gray-400">{r.trades} trades · {Math.round(r.winRate * 100)}% wins · {r.avgR.toFixed(2)}R avg</span>
+              <button
+                className="ml-auto text-[10px] px-2 py-0.5 rounded bg-white/10 text-gray-200 hover:bg-white/20 disabled:opacity-50"
+                disabled={retire.isPending}
+                onClick={() => { if (window.confirm(`Retire this guard? The engine will stop blocking on "${r.key}" right away.`)) retire.mutate(r.id); }}
+              >Retire</button>
+            </div>
+          ))}
+        </div>
+      )}
+      {eligible.length > 0 ? (
+        <div className="space-y-1">
+          {eligible.map((l) => (
+            <div key={`${l.dimension}:${l.key}`} className="text-[10px] flex items-center gap-2 rounded bg-black/20 px-2 py-1.5">
+              <span className="text-gray-300">{l.text}</span>
+              <button
+                className="ml-auto shrink-0 text-[10px] px-2 py-0.5 rounded bg-violet-500/30 text-violet-100 hover:bg-violet-500/50 disabled:opacity-50"
+                disabled={promote.isPending}
+                onClick={() => { if (window.confirm(`Make this a real guard?\n\n${l.text}\n\nThe FX engine will hard-block matching live entries until you retire the guard. This changes live trading behavior.`)) promote.mutate({ source: l.source, dimension: l.dimension, key: l.key }); }}
+              >Make it a guard</button>
+            </div>
+          ))}
+        </div>
+      ) : (
+        <div className="text-[10px] text-gray-500">
+          No lesson has cleared the proof bar yet — {lessons.length} FX lesson{lessons.length === 1 ? "" : "s"} still gathering evidence. Lessons appear here when one proves itself.
+          {retiredCount > 0 ? ` (${retiredCount} retired guard${retiredCount === 1 ? "" : "s"} on record.)` : ""}
+        </div>
+      )}
+      {(promote.isError || retire.isError) && (
+        <div className="text-[10px] text-red-300 mt-1">That didn't go through — the lesson may no longer be eligible. The list refreshes automatically.</div>
+      )}
     </div>
   );
 }

@@ -19196,6 +19196,158 @@ var init_ai_model_service = __esm({
   }
 });
 
+// server/services/promoted-rules.ts
+var promoted_rules_exports = {};
+__export(promoted_rules_exports, {
+  checkPromotedRules: () => checkPromotedRules,
+  getPromotableLessons: () => getPromotableLessons,
+  getPromotedRules: () => getPromotedRules,
+  lessonEligibility: () => lessonEligibility,
+  promoteLesson: () => promoteLesson,
+  retireRule: () => retireRule
+});
+async function getPromotedRules(userId) {
+  const hit = _cache2.get(userId);
+  if (hit && Date.now() - hit.at < CACHE_MS) return hit.rules;
+  let rules = [];
+  try {
+    const v = await getRuntimeStateStrict(SCOPE, String(userId));
+    if (Array.isArray(v)) rules = v;
+  } catch {
+  }
+  _cache2.set(userId, { at: Date.now(), rules });
+  return rules;
+}
+async function storeRules(userId, rules) {
+  _cache2.set(userId, { at: Date.now(), rules });
+  saveRuntimeState(SCOPE, String(userId), rules);
+}
+async function hasWinningWeek(userId, lesson) {
+  const dim = DIM_EXPR[lesson.dimension];
+  if (!dim) return true;
+  await ensureShadowLedger();
+  const { rows } = await pool.query(
+    `SELECT avg(r_multiple)::float AS avg_r
+       FROM shadow_ledger
+      WHERE user_id = $1 AND source = $2 AND ${dim.expr} = $3
+        AND closed_at >= now() - interval '30 days' AND r_multiple IS NOT NULL ${dim.where ? `AND ${dim.where}` : ""}
+      GROUP BY date_trunc('week', closed_at)`,
+    [userId, lesson.source, lesson.key]
+  );
+  return rows.some((r) => Number(r.avg_r) > 0);
+}
+async function lessonEligibility(userId, lesson, rules) {
+  const reasons = [];
+  if (lesson.source !== "fx_shadow") reasons.push("v1 promotes FX lessons only");
+  if (lesson.verdict !== "avoid") reasons.push("only proven losing setups (AVOID lessons) can be promoted");
+  if (!PROMOTABLE_DIMS.includes(lesson.dimension)) reasons.push(`the ${lesson.dimension} dimension cannot be checked at entry yet`);
+  if (lesson.trades < MIN_TRADES4()) reasons.push(`needs ${MIN_TRADES4()}+ practice trades (has ${lesson.trades})`);
+  if (lesson.avgR > MAX_AVG_R()) reasons.push(`needs avg R \u2264 ${MAX_AVG_R()} (is ${lesson.avgR.toFixed(2)})`);
+  if (lesson.winRate > MAX_WIN_RATE()) reasons.push(`needs win rate \u2264 ${Math.round(MAX_WIN_RATE() * 100)}% (is ${Math.round(lesson.winRate * 100)}%)`);
+  if (rules.some((r) => r.active && r.source === lesson.source && r.dimension === lesson.dimension && r.key === lesson.key)) {
+    reasons.push("already a guard");
+  }
+  if (reasons.length === 0) {
+    try {
+      if (await hasWinningWeek(userId, lesson)) reasons.push("had a winning week in the last 30 days");
+    } catch {
+      reasons.push("weekly check failed \u2014 cannot verify");
+    }
+  }
+  return { eligible: reasons.length === 0, reasons };
+}
+async function getPromotableLessons(userId) {
+  const [lessons, rules] = await Promise.all([computeShadowLessons(userId), getPromotedRules(userId)]);
+  const fx = lessons.filter((l) => l.source === "fx_shadow");
+  const withEligibility = await Promise.all(fx.map(async (l) => ({ ...l, eligibility: await lessonEligibility(userId, l, rules) })));
+  return { lessons: withEligibility, rules };
+}
+async function promoteLesson(userId, sel) {
+  const lessons = await computeShadowLessons(userId);
+  const lesson = lessons.find((l) => l.source === sel.source && l.dimension === sel.dimension && l.key === sel.key);
+  if (!lesson) return { ok: false, reasons: ["lesson not found in the current 30-day evidence"] };
+  const rules = await getPromotedRules(userId);
+  const elig = await lessonEligibility(userId, lesson, rules);
+  if (!elig.eligible) return { ok: false, reasons: elig.reasons };
+  const rule = {
+    id: `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`,
+    source: lesson.source,
+    dimension: lesson.dimension,
+    key: lesson.key,
+    trades: lesson.trades,
+    avgR: lesson.avgR,
+    winRate: lesson.winRate,
+    promotedAt: (/* @__PURE__ */ new Date()).toISOString(),
+    active: true
+  };
+  await storeRules(userId, [...rules, rule]);
+  return { ok: true, rule };
+}
+async function retireRule(userId, id) {
+  const rules = await getPromotedRules(userId);
+  const next = rules.map((r) => r.id === id ? { ...r, active: false, retiredAt: (/* @__PURE__ */ new Date()).toISOString() } : r);
+  if (!next.some((r) => r.id === id)) return { ok: false };
+  await storeRules(userId, next);
+  return { ok: true };
+}
+async function checkPromotedRules(userId, ctx) {
+  if (process.env.PROMOTED_RULES === "off") return null;
+  const rules = (await getPromotedRules(userId)).filter((r) => r.active);
+  if (!rules.length) return null;
+  const dir = (ctx.direction || "").toUpperCase();
+  const strat = ctx.strategy || "";
+  const sym2 = ctx.symbol ? normSym(ctx.symbol) : "";
+  for (const r of rules) {
+    switch (r.dimension) {
+      case "session":
+        if (ctx.session && r.key === ctx.session) return r;
+        break;
+      case "direction":
+        if (dir && r.key === dir) return r;
+        break;
+      case "strategy":
+        if (strat && r.key === strat) return r;
+        break;
+      case "strategy+symbol":
+        if (strat && sym2 && r.key === `${strat} \xB7 ${sym2}`) return r;
+        break;
+      case "strategy+direction":
+        if (strat && dir && r.key === `${strat} \xB7 ${dir}`) return r;
+        break;
+      case "day_type":
+        if (ctx.dayType && r.key === ctx.dayType) return r;
+        break;
+    }
+  }
+  return null;
+}
+var SCOPE, PROMOTABLE_DIMS, MIN_TRADES4, MAX_AVG_R, MAX_WIN_RATE, DIM_EXPR, _cache2, CACHE_MS, normSym;
+var init_promoted_rules = __esm({
+  "server/services/promoted-rules.ts"() {
+    "use strict";
+    init_db();
+    init_runtime_state();
+    init_shadow_lessons();
+    init_shadow_ledger();
+    SCOPE = "promoted_rules";
+    PROMOTABLE_DIMS = ["session", "direction", "strategy", "strategy+symbol", "strategy+direction", "day_type"];
+    MIN_TRADES4 = () => Number(process.env.PROMOTED_RULE_MIN_TRADES ?? 50);
+    MAX_AVG_R = () => Number(process.env.PROMOTED_RULE_MAX_AVG_R ?? -0.2);
+    MAX_WIN_RATE = () => Number(process.env.PROMOTED_RULE_MAX_WIN_RATE ?? 0.4);
+    DIM_EXPR = {
+      session: { expr: `session` },
+      strategy: { expr: `strategy` },
+      "strategy+symbol": { expr: `strategy || ' \xB7 ' || symbol` },
+      direction: { expr: `direction` },
+      day_type: { expr: `day_type`, where: `day_type IS NOT NULL` },
+      "strategy+direction": { expr: `strategy || ' \xB7 ' || direction` }
+    };
+    _cache2 = /* @__PURE__ */ new Map();
+    CACHE_MS = 3e4;
+    normSym = (s) => s.toUpperCase().replace("/", "");
+  }
+});
+
 // server/services/polymarket.ts
 var polymarket_exports = {};
 __export(polymarket_exports, {
@@ -23851,6 +24003,27 @@ async function processDecision(userId, decision, newsCtx) {
           symbol: decision.symbol,
           message: `\u{1F4CA} HTF CONFLICT: ${signalDir} on ${decision.symbol} vs ${htfTFLabel} ${htfBias.trend} \u2014 ${confidence2}% \u2265 90% threshold cleared. Allowing high-confidence counter-trend.`
         });
+      }
+    }
+    if (decision.direction) {
+      try {
+        const { checkPromotedRules: checkPromotedRules2 } = await Promise.resolve().then(() => (init_promoted_rules(), promoted_rules_exports));
+        const { sessionFor: sessionFor2 } = await Promise.resolve().then(() => (init_fx_models(), fx_models_exports));
+        const _hit = await checkPromotedRules2(userId, {
+          strategy: decision.fxModel || decision.model || null,
+          symbol: decision.symbol,
+          direction: decision.direction,
+          session: sessionFor2(/* @__PURE__ */ new Date()),
+          dayType: decision.dayType ?? null
+        });
+        if (_hit) {
+          addActivity(userId, { type: "info", symbol: decision.symbol, message: `\u{1F6E1}\uFE0F ${decision.symbol} ${decision.direction} blocked by a promoted lesson \u2014 ${_hit.dimension} "${_hit.key}" lost ${_hit.avgR.toFixed(2)}R on average over ${_hit.trades} practice trades. You made this a guard on the Weekly Strategy page; retire it there any time.` });
+          logGuard(userId, "promoted_rule_block", decision.symbol, `${decision.direction} blocked by promoted lesson (${_hit.dimension}: ${_hit.key})`, { ruleId: _hit.id });
+          recordBlockedTrade(userId, "promoted_rule_block", decision.symbol, { direction: decision.direction, entryPrice: decision.entryPrice, stopLoss: decision.stopLoss, takeProfit: decision.takeProfit, confidence: decision.confidence, model: decision.fxModel || decision.model, setup: decision.setup }, `promoted lesson: ${_hit.dimension} ${_hit.key}`);
+          state.signalsGenerated++;
+          return;
+        }
+      } catch {
       }
     }
     {
@@ -38774,7 +38947,7 @@ function bump2(map, key, win) {
   s.winRate = Math.round(s.wins / s.trades * 100);
 }
 function sizeMult2(winRate2, rr, trades) {
-  if (trades < MIN_TRADES4) return 1;
+  if (trades < MIN_TRADES5) return 1;
   const w = winRate2 / 100, r = rr > 0 ? rr : 1;
   const kelly = w - (1 - w) / r;
   return Math.max(0.25, Math.min(1.5, 1 + kelly));
@@ -38857,24 +39030,24 @@ async function learnFromSolTrades(userId) {
   }
   const insights = [];
   for (const [sym2, k2] of Object.entries(symbols)) {
-    if (k2.wins + k2.losses >= MIN_TRADES4) insights.push(`${sym2}: ${k2.winRate}% WR over ${k2.wins + k2.losses} \u2192 sizing \xD7${k2.recommendedSizeMultiplier}${k2.bestStrategy ? `, best on ${k2.bestStrategy}` : ""}.`);
-    else insights.push(`${sym2}: still learning (${k2.wins + k2.losses}/${MIN_TRADES4}).`);
+    if (k2.wins + k2.losses >= MIN_TRADES5) insights.push(`${sym2}: ${k2.winRate}% WR over ${k2.wins + k2.losses} \u2192 sizing \xD7${k2.recommendedSizeMultiplier}${k2.bestStrategy ? `, best on ${k2.bestStrategy}` : ""}.`);
+    else insights.push(`${sym2}: still learning (${k2.wins + k2.losses}/${MIN_TRADES5}).`);
   }
   const brain = { userId, lastLearned: (/* @__PURE__ */ new Date()).toISOString(), totalTrades: rows.length, overallWinRate: totalDecided ? Math.round(totalWins / totalDecided * 100) : 0, totalPnl: Math.round(totalPnl * 100) / 100, symbolKnowledge: symbols, insights };
-  _cache2.set(userId, { brain, at: Date.now() });
+  _cache3.set(userId, { brain, at: Date.now() });
   return brain;
 }
 async function getOrRefreshSolBrain(userId, force = false) {
-  const hit = _cache2.get(userId);
+  const hit = _cache3.get(userId);
   if (!force && hit && Date.now() - hit.at < REFRESH_TTL_MS2) return hit.brain;
   return learnFromSolTrades(userId);
 }
 function solBrainSizeMultiplier(userId, symbol) {
-  const k2 = _cache2.get(userId)?.brain?.symbolKnowledge[symbol];
+  const k2 = _cache3.get(userId)?.brain?.symbolKnowledge[symbol];
   return k2 ? k2.recommendedSizeMultiplier : 1;
 }
 function solBrainGate(userId, symbol, strategy, hourUtc) {
-  const k2 = _cache2.get(userId)?.brain?.symbolKnowledge[symbol];
+  const k2 = _cache3.get(userId)?.brain?.symbolKnowledge[symbol];
   if (!k2) return { blocked: false, reason: "" };
   const decided = k2.wins + k2.losses;
   if (decided >= 15 && k2.winRate < 35) return { blocked: true, reason: `\u{1F9E0} Sol brain: ${symbol} ${k2.winRate}% WR over ${decided} \u2014 skipping symbol` };
@@ -38922,19 +39095,19 @@ async function recordSolBrainOutcome(o) {
     console.error("[sol-brain] recordSolBrainOutcome failed (non-fatal):", err?.message ?? err);
   }
 }
-var MIN_TRADES4, REFRESH_TTL_MS2, BAD_PRICE_ERA_END, QUARANTINE_MAX_HOLD_MIN, QUARANTINE_MIN_ABS_RETURN_PCT, BAD_PRICE_SYMBOLS, _ensured4, _cache2;
+var MIN_TRADES5, REFRESH_TTL_MS2, BAD_PRICE_ERA_END, QUARANTINE_MAX_HOLD_MIN, QUARANTINE_MIN_ABS_RETURN_PCT, BAD_PRICE_SYMBOLS, _ensured4, _cache3;
 var init_sol_brain = __esm({
   "server/services/sol-brain.ts"() {
     "use strict";
     init_db();
-    MIN_TRADES4 = 10;
+    MIN_TRADES5 = 10;
     REFRESH_TTL_MS2 = 60 * 1e3;
     BAD_PRICE_ERA_END = "2026-11-06 19:15:00";
     QUARANTINE_MAX_HOLD_MIN = 1;
     QUARANTINE_MIN_ABS_RETURN_PCT = 40;
     BAD_PRICE_SYMBOLS = ["RAY", "mSOL"];
     _ensured4 = false;
-    _cache2 = /* @__PURE__ */ new Map();
+    _cache3 = /* @__PURE__ */ new Map();
   }
 });
 
@@ -39207,7 +39380,7 @@ async function recordSolShadowClose(o) {
   }
 }
 async function computeSolShadowStats(userId, force = false) {
-  const hit = _cache3.get(userId);
+  const hit = _cache4.get(userId);
   if (!force && hit && Date.now() - hit.at < 15 * 6e4) return hit.stats;
   await ensureSolShadowContextTable();
   const { rows } = await pool.query(
@@ -39217,7 +39390,7 @@ async function computeSolShadowStats(userId, force = false) {
     [userId]
   );
   const stats = aggregate2(rows);
-  _cache3.set(userId, { at: Date.now(), stats });
+  _cache4.set(userId, { at: Date.now(), stats });
   return stats;
 }
 function adviceFor2(stats, strategyId, ctx) {
@@ -39239,7 +39412,7 @@ async function getSolShadowStatsText(userId, max = 12) {
     return "";
   }
 }
-var num5, MIN_N, FAVOR_PCT, AVOID_PCT, _ensured5, _cache3;
+var num5, MIN_N, FAVOR_PCT, AVOID_PCT, _ensured5, _cache4;
 var init_sol_shadow_stats = __esm({
   "server/services/sol-shadow-stats.ts"() {
     "use strict";
@@ -39252,7 +39425,7 @@ var init_sol_shadow_stats = __esm({
     FAVOR_PCT = () => num5("SOL_SHADOW_FAVOR_MEDIAN_PCT", 1);
     AVOID_PCT = () => num5("SOL_SHADOW_AVOID_MEDIAN_PCT", 2);
     _ensured5 = null;
-    _cache3 = /* @__PURE__ */ new Map();
+    _cache4 = /* @__PURE__ */ new Map();
   }
 });
 
@@ -49614,7 +49787,7 @@ async function cryptocomTicker(sym2) {
 }
 async function getAggregatedQuote(symbol) {
   const sym2 = symbol.toUpperCase().replace(/[^A-Z0-9]/g, "");
-  const hit = _cache4.get(sym2);
+  const hit = _cache5.get(sym2);
   if (hit && Date.now() - hit.ts < TTL_MS7) return hit.q;
   const venues = await Promise.all([coinbaseSpot(sym2), krakenTicker(sym2), geminiTicker(sym2), cryptocomTicker(sym2)]);
   const priced = venues.filter((v) => typeof v.price === "number" && v.price > 0);
@@ -49627,19 +49800,19 @@ async function getAggregatedQuote(symbol) {
     spreadPct = lo2.price > 0 ? Math.round((hi2.price - lo2.price) / lo2.price * 1e4) / 100 : null;
   }
   const q = { symbol: sym2, best, spreadPct, venues, fetchedAt: (/* @__PURE__ */ new Date()).toISOString() };
-  _cache4.set(sym2, { q, ts: Date.now() });
+  _cache5.set(sym2, { q, ts: Date.now() });
   return q;
 }
 async function getAggregatedQuotes(symbols) {
   const uniq = Array.from(new Set(symbols.map((s) => s.toUpperCase().replace(/[^A-Z0-9]/g, "")))).slice(0, 25);
   return Promise.all(uniq.map(getAggregatedQuote));
 }
-var TTL_MS7, _cache4;
+var TTL_MS7, _cache5;
 var init_crypto_market_data = __esm({
   "server/services/crypto-market-data.ts"() {
     "use strict";
     TTL_MS7 = 15e3;
-    _cache4 = /* @__PURE__ */ new Map();
+    _cache5 = /* @__PURE__ */ new Map();
   }
 });
 
@@ -57475,24 +57648,24 @@ async function learnFromKalshiTrades(userId) {
     coinKnowledge: coins,
     insights
   };
-  _cache5.set(userId, { brain, at: Date.now() });
+  _cache6.set(userId, { brain, at: Date.now() });
   return brain;
 }
 async function getOrRefreshKalshiBrain(userId, force = false) {
-  const hit = _cache5.get(userId);
+  const hit = _cache6.get(userId);
   if (!force && hit && Date.now() - hit.at < REFRESH_TTL_MS3) return hit.brain;
   return learnFromKalshiTrades(userId);
 }
 function cachedKalshiBrain(userId) {
-  return _cache5.get(userId)?.brain ?? null;
+  return _cache6.get(userId)?.brain ?? null;
 }
 function kalshiBrainSizeMultiplier(userId, coin) {
-  const b = _cache5.get(userId)?.brain;
+  const b = _cache6.get(userId)?.brain;
   const k2 = b?.coinKnowledge[coin];
   return k2 ? k2.recommendedSizeMultiplier : 1;
 }
 function kalshiBrainGate(userId, coin, strikeType, hourUtc, confidence2) {
-  const k2 = _cache5.get(userId)?.brain?.coinKnowledge[coin];
+  const k2 = _cache6.get(userId)?.brain?.coinKnowledge[coin];
   if (!k2) return { blocked: false, reason: "" };
   const decided = k2.wins + k2.losses;
   if (decided >= 15 && k2.winRate < 35) {
@@ -57519,7 +57692,7 @@ function kalshiBrainGate(userId, coin, strikeType, hourUtc, confidence2) {
   return { blocked: false, reason: "" };
 }
 function kalshiBrainValueWeight(userId, coin, strikeType) {
-  const k2 = _cache5.get(userId)?.brain?.coinKnowledge[coin];
+  const k2 = _cache6.get(userId)?.brain?.coinKnowledge[coin];
   if (!k2) return 1;
   let w = k2.valueScoreWeight;
   if (strikeType) {
@@ -57528,7 +57701,7 @@ function kalshiBrainValueWeight(userId, coin, strikeType) {
   }
   return Math.max(0.6, Math.min(1.4, Math.round(w * 100) / 100));
 }
-var MIN_TRADES_FOR_COIN, REFRESH_TTL_MS3, _cache5;
+var MIN_TRADES_FOR_COIN, REFRESH_TTL_MS3, _cache6;
 var init_kalshi_brain = __esm({
   "server/services/kalshi-brain.ts"() {
     "use strict";
@@ -57536,7 +57709,7 @@ var init_kalshi_brain = __esm({
     init_schema();
     MIN_TRADES_FOR_COIN = 10;
     REFRESH_TTL_MS3 = 60 * 1e3;
-    _cache5 = /* @__PURE__ */ new Map();
+    _cache6 = /* @__PURE__ */ new Map();
   }
 });
 
@@ -59333,7 +59506,7 @@ async function runRuinConeSimulation(userId, params = {}) {
     source
   };
   if (!params.noCache) {
-    const hit = _cache6.get(_cacheKey(userId, resolved));
+    const hit = _cache7.get(_cacheKey(userId, resolved));
     if (hit && hit.expires > Date.now()) return hit.result;
   }
   const rows = await db.select({ pnl: aiTradeResults.profitLoss, closedAt: aiTradeResults.closedAt }).from(aiTradeResults).where(and10(
@@ -59381,7 +59554,7 @@ async function runRuinConeSimulation(userId, params = {}) {
       },
       warning: `Only ${sourceTradeCount} closed '${source}' trade(s) on record \u2014 need at least 2 to simulate. Let the scanner build more history.`
     };
-    _cache6.set(_cacheKey(userId, resolved), { expires: Date.now() + CACHE_TTL_MS7, result: result2 });
+    _cache7.set(_cacheKey(userId, resolved), { expires: Date.now() + CACHE_TTL_MS7, result: result2 });
     return result2;
   }
   const paths = new Array(numSimulations);
@@ -59481,10 +59654,10 @@ async function runRuinConeSimulation(userId, params = {}) {
     },
     warning: sourceTradeCount < 20 ? `Thin history: only ${sourceTradeCount} closed '${source}' trade(s). Results are indicative only until more trades accumulate.` : void 0
   };
-  _cache6.set(_cacheKey(userId, resolved), { expires: Date.now() + CACHE_TTL_MS7, result });
+  _cache7.set(_cacheKey(userId, resolved), { expires: Date.now() + CACHE_TTL_MS7, result });
   return result;
 }
-var FTUK_DEFAULTS, DEFAULT_NUM_SIMULATIONS, DEFAULT_NUM_TRADES, DEFAULT_SOURCE_LIMIT, CACHE_TTL_MS7, _cache6;
+var FTUK_DEFAULTS, DEFAULT_NUM_SIMULATIONS, DEFAULT_NUM_TRADES, DEFAULT_SOURCE_LIMIT, CACHE_TTL_MS7, _cache7;
 var init_ruin_cone = __esm({
   "server/services/ruin-cone.ts"() {
     "use strict";
@@ -59505,7 +59678,7 @@ var init_ruin_cone = __esm({
     DEFAULT_NUM_TRADES = 100;
     DEFAULT_SOURCE_LIMIT = 200;
     CACHE_TTL_MS7 = 5 * 60 * 1e3;
-    _cache6 = /* @__PURE__ */ new Map();
+    _cache7 = /* @__PURE__ */ new Map();
   }
 });
 
@@ -72152,9 +72325,9 @@ async function getStopOrdersForUser(userId, filters = {}) {
 init_schema();
 
 // server/build-info.ts
-var BUILD_COMMIT = "1162c2b-dirty";
-var BUILD_BRANCH = "fix/settings-overview";
-var BUILT_AT = "2026-11-08T16:17:57.602Z";
+var BUILD_COMMIT = "a6131c1-dirty";
+var BUILD_BRANCH = "fix/lesson-promotion";
+var BUILT_AT = "2026-11-08T16:30:42.540Z";
 
 // server/stripe.ts
 init_db();
@@ -86463,21 +86636,21 @@ BEAR CASE: ${_bearCase || "n/a"}` : aiConfirmation.reasoning;
           const todayNameCap = dayNames[(/* @__PURE__ */ new Date()).getUTCDay()];
           const todayPlanCap = veddStrategyForCap.plan.weeklyPlan[todayNameCap];
           if (todayPlanCap?.pairs) {
-            const normSym = sanitizedSymbol.toUpperCase().replace("/", "");
+            const normSym2 = sanitizedSymbol.toUpperCase().replace("/", "");
             const pairPlanCap = todayPlanCap.pairs.find(
-              (p2) => (p2.symbol || "").toUpperCase().replace("/", "") === normSym
+              (p2) => (p2.symbol || "").toUpperCase().replace("/", "") === normSym2
             );
             const capFromPair = pairPlanCap?.maxTrades;
             const capFromPlan = veddStrategyForCap.plan?.maxTradesPerDay ?? veddStrategyForCap.maxTradesPerDay;
             const effectiveCap = capFromPair ?? capFromPlan;
             if (effectiveCap && effectiveCap > 0 && analysis.signal !== "NEUTRAL") {
               const todayDateStr = (/* @__PURE__ */ new Date()).toISOString().slice(0, 10);
-              const todayCount = await getDailyTradeCountForPair(token.userId, normSym, todayDateStr);
+              const todayCount = await getDailyTradeCountForPair(token.userId, normSym2, todayDateStr);
               if (todayCount >= effectiveCap) {
                 globalDailyCapBlocked = true;
-                console.log(`[Global Cap] BLOCKED ${normSym} \u2014 ${todayCount}/${effectiveCap} daily trades reached (plan-level enforcement)`);
+                console.log(`[Global Cap] BLOCKED ${normSym2} \u2014 ${todayCount}/${effectiveCap} daily trades reached (plan-level enforcement)`);
                 analysis.alerts = analysis.alerts || [];
-                analysis.alerts.push(`Daily trade cap reached for ${normSym}: ${todayCount}/${effectiveCap} trades today. Cap resets at midnight UTC.`);
+                analysis.alerts.push(`Daily trade cap reached for ${normSym2}: ${todayCount}/${effectiveCap} trades today. Cap resets at midnight UTC.`);
               }
             }
           }
@@ -90421,6 +90594,41 @@ Rules:
     try {
       const { getShadowLessons: getShadowLessons2 } = await Promise.resolve().then(() => (init_shadow_lessons(), shadow_lessons_exports));
       res2.json(await getShadowLessons2(req.user.id, req.query.refresh === "1"));
+    } catch (err) {
+      res2.status(500).json({ error: err.message });
+    }
+  });
+  app2.get("/api/engine/promoted-rules", async (req, res2) => {
+    if (!req.isAuthenticated()) return res2.status(401).json({ error: "Authentication required" });
+    try {
+      const { getPromotableLessons: getPromotableLessons2 } = await Promise.resolve().then(() => (init_promoted_rules(), promoted_rules_exports));
+      res2.json(await getPromotableLessons2(req.user.id));
+    } catch (err) {
+      res2.status(500).json({ error: err.message });
+    }
+  });
+  app2.post("/api/engine/promoted-rules", async (req, res2) => {
+    if (!req.isAuthenticated()) return res2.status(401).json({ error: "Authentication required" });
+    try {
+      const { promoteLesson: promoteLesson2 } = await Promise.resolve().then(() => (init_promoted_rules(), promoted_rules_exports));
+      const { source, dimension, key } = req.body || {};
+      if (!source || !dimension || !key) return res2.status(400).json({ error: "source, dimension and key are required" });
+      const out = await promoteLesson2(req.user.id, { source, dimension, key });
+      if (!out.ok) return res2.status(422).json({ error: "Lesson is not eligible for promotion", reasons: out.reasons });
+      res2.json(out);
+    } catch (err) {
+      res2.status(500).json({ error: err.message });
+    }
+  });
+  app2.post("/api/engine/promoted-rules/retire", async (req, res2) => {
+    if (!req.isAuthenticated()) return res2.status(401).json({ error: "Authentication required" });
+    try {
+      const { retireRule: retireRule2 } = await Promise.resolve().then(() => (init_promoted_rules(), promoted_rules_exports));
+      const { id } = req.body || {};
+      if (!id) return res2.status(400).json({ error: "id is required" });
+      const out = await retireRule2(req.user.id, String(id));
+      if (!out.ok) return res2.status(404).json({ error: "rule not found" });
+      res2.json(out);
     } catch (err) {
       res2.status(500).json({ error: err.message });
     }
