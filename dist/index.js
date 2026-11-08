@@ -15826,7 +15826,7 @@ function logDecisionShadow(r) {
     _seen.set(k2, Date.now());
     if (_seen.size > 5e3) _seen.clear();
   }
-  const num7 = (v) => typeof v === "number" && Number.isFinite(v) ? v : null;
+  const num8 = (v) => typeof v === "number" && Number.isFinite(v) ? v : null;
   void ensureDecisionShadowTable().then(() => pool.query(
     `INSERT INTO fx_decision_shadow (user_id, scan_id, symbol, session, hour_utc, lane, mode, acted, picked, ai_status,
        direction, score, terms, entry, sl, tp, gate_result)
@@ -15843,11 +15843,11 @@ function logDecisionShadow(r) {
       !!r.picked,
       r.aiStatus ?? null,
       r.direction ?? null,
-      num7(r.score),
+      num8(r.score),
       r.terms == null ? null : JSON.stringify(r.terms),
-      num7(r.entry),
-      num7(r.sl),
-      num7(r.tp),
+      num8(r.entry),
+      num8(r.sl),
+      num8(r.tp),
       r.gateResult ?? null
     ]
   )).catch(() => {
@@ -43087,8 +43087,8 @@ async function addTradeSetupAnnotations(originalImagePath, analysis, outputFilen
         analysis.takeProfit,
         ...supportResistanceLevels
       ].map((p2) => {
-        const num7 = parseFloat(p2.replace(/[^0-9.-]/g, ""));
-        return isNaN(num7) ? 0 : num7;
+        const num8 = parseFloat(p2.replace(/[^0-9.-]/g, ""));
+        return isNaN(num8) ? 0 : num8;
       }).filter((p2) => p2 > 0);
       if (prices.length === 0) return chartArea.top + chartArea.height * 0.5;
       const minPrice = Math.min(...prices);
@@ -56991,12 +56991,12 @@ function linregSlope(values) {
   const xs = values.map((_, i) => i);
   const mx = xs.reduce((a, b) => a + b, 0) / n;
   const my = values.reduce((a, b) => a + b, 0) / n;
-  let num7 = 0, den = 0;
+  let num8 = 0, den = 0;
   for (let i = 0; i < n; i++) {
-    num7 += (xs[i] - mx) * (values[i] - my);
+    num8 += (xs[i] - mx) * (values[i] - my);
     den += (xs[i] - mx) ** 2;
   }
-  return den === 0 ? 0 : num7 / den;
+  return den === 0 ? 0 : num8 / den;
 }
 function ensembleSignal(candles) {
   const price = candles[candles.length - 1].close;
@@ -59850,6 +59850,71 @@ var init_settings_overview = __esm({
         }
       }
     ];
+  }
+});
+
+// server/services/practice-costs-report.ts
+var practice_costs_report_exports = {};
+__export(practice_costs_report_exports, {
+  costModelConstants: () => costModelConstants,
+  practiceCostReport: () => practiceCostReport
+});
+function costModelConstants() {
+  return {
+    cryptoFeeBps: num7("CRYPTO_PAPER_FEE_BPS", 30),
+    cryptoFeeDeepBps: num7("CRYPTO_PAPER_FEE_DEEP_BPS", 5),
+    cryptoFloorMult: num7("CRYPTO_PAPER_COST_FLOOR_MULT", 3),
+    solSlippagePct: num7("SOL_PAPER_SLIPPAGE_PCT", 0.5),
+    solFeePumpfunPct: num7("SOL_PAPER_FEE_PUMPFUN_PCT", 1),
+    solFeeDefaultPct: num7("SOL_PAPER_FEE_DEFAULT_PCT", 0.3),
+    solImpactFallbackPct: num7("SOL_PAPER_IMPACT_FALLBACK_PCT", 1)
+  };
+}
+async function practiceCostReport(userId, days = 90) {
+  const d = Math.max(7, Math.min(365, days));
+  const out = { days: d, constants: costModelConstants(), cryptoPaper: null, bands: [] };
+  try {
+    const { rows } = await pool.query(
+      `SELECT count(*)::int AS n,
+              avg(cost_bps)::float AS avg_bps,
+              percentile_cont(0.5) WITHIN GROUP (ORDER BY cost_bps)::float AS median_bps,
+              avg(cost_usd)::float AS avg_cost_usd,
+              avg(notional_usd)::float AS avg_notional,
+              avg(CASE WHEN notional_usd > 0 THEN cost_usd / notional_usd END)::float AS avg_cost_pct,
+              avg(gross_return_pct - return_pct)::float AS avg_drag_pct,
+              count(*) FILTER (WHERE gross_return_pct > 0 AND return_pct <= 0)::int AS flipped
+         FROM crypto_paper_trades
+        WHERE user_id = $1 AND status = 'closed' AND closed_at > now() - ($2 || ' days')::interval`,
+      [userId, String(d)]
+    );
+    out.cryptoPaper = rows[0];
+    const bands = await pool.query(
+      `SELECT ${BANDS} AS band, count(*)::int AS n, avg(cost_bps)::float AS avg_bps,
+              avg(gross_return_pct - return_pct)::float AS avg_drag_pct
+         FROM crypto_paper_trades
+        WHERE user_id = $1 AND status = 'closed' AND closed_at > now() - ($2 || ' days')::interval
+        GROUP BY 1 ORDER BY n DESC`,
+      [userId, String(d)]
+    );
+    out.bands = bands.rows;
+  } catch {
+  }
+  return out;
+}
+var num7, BANDS;
+var init_practice_costs_report = __esm({
+  "server/services/practice-costs-report.ts"() {
+    "use strict";
+    init_db();
+    num7 = (name, dflt) => {
+      const v = Number(process.env[name]);
+      return Number.isFinite(v) && v >= 0 ? v : dflt;
+    };
+    BANDS = `
+  CASE WHEN liquidity_usd IS NULL THEN 'unknown'
+       WHEN liquidity_usd < 50000 THEN 'thin (<$50K)'
+       WHEN liquidity_usd < 250000 THEN 'mid ($50\u2013250K)'
+       ELSE 'deep (>$250K)' END`;
   }
 });
 
@@ -72325,9 +72390,9 @@ async function getStopOrdersForUser(userId, filters = {}) {
 init_schema();
 
 // server/build-info.ts
-var BUILD_COMMIT = "a6131c1-dirty";
-var BUILD_BRANCH = "fix/lesson-promotion";
-var BUILT_AT = "2026-11-08T16:30:42.540Z";
+var BUILD_COMMIT = "36f4a8f-dirty";
+var BUILD_BRANCH = "fix/practice-cost-check";
+var BUILT_AT = "2026-11-08T16:40:39.774Z";
 
 // server/stripe.ts
 init_db();
@@ -95159,16 +95224,16 @@ Respond with ONLY valid JSON:
     try {
       const { runRuinConeSimulation: runRuinConeSimulation2 } = await Promise.resolve().then(() => (init_ruin_cone(), ruin_cone_exports));
       const q = req.query;
-      const num7 = (v) => v != null && v !== "" ? Number(v) : void 0;
+      const num8 = (v) => v != null && v !== "" ? Number(v) : void 0;
       const result = await runRuinConeSimulation2(userId, {
-        numSimulations: num7(q.numSimulations),
-        numTrades: num7(q.numTrades),
-        startingEquity: num7(q.startingEquity),
-        dailyLossLimit: num7(q.dailyLossLimit),
-        maxDrawdownLimit: num7(q.maxDrawdownLimit),
-        consistencyRuleThreshold: num7(q.consistencyRuleThreshold),
-        profitTarget: num7(q.profitTarget),
-        sourceLimit: num7(q.sourceLimit),
+        numSimulations: num8(q.numSimulations),
+        numTrades: num8(q.numTrades),
+        startingEquity: num8(q.startingEquity),
+        dailyLossLimit: num8(q.dailyLossLimit),
+        maxDrawdownLimit: num8(q.maxDrawdownLimit),
+        consistencyRuleThreshold: num8(q.consistencyRuleThreshold),
+        profitTarget: num8(q.profitTarget),
+        sourceLimit: num8(q.sourceLimit),
         source: q.source ? String(q.source) : void 0,
         noCache: q.nocache === "1" || q.noCache === "true"
       });
@@ -95379,6 +95444,10 @@ Return ONLY JSON: {"topPicks":[{"market":"","winProbability":<0-100>,"whyItWins"
       if (String(req.query.view || "") === "settings") {
         const { getSettingsOverview: getSettingsOverview2 } = await Promise.resolve().then(() => (init_settings_overview(), settings_overview_exports));
         return res2.json(await getSettingsOverview2(req.user.id));
+      }
+      if (String(req.query.view || "") === "costs") {
+        const { practiceCostReport: practiceCostReport2 } = await Promise.resolve().then(() => (init_practice_costs_report(), practice_costs_report_exports));
+        return res2.json(await practiceCostReport2(req.user.id, Number(req.query.days) || 90));
       }
       res2.json(await recentGuardEvents2(req.user.id, Number(req.query.limit) || 60, req.query.kinds ? String(req.query.kinds).split(",") : void 0));
     } catch (err) {
