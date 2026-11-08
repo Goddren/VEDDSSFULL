@@ -1,5 +1,5 @@
 import { useQuery } from "@tanstack/react-query";
-import { ShieldCheck } from "lucide-react";
+import { ShieldCheck, Settings2 } from "lucide-react";
 
 // Shows what the engine's safeguards (2026-10-19 bug-scan fixes) actually did:
 // stops it refused to loosen, sizes it capped, partial closes refused, thin-data
@@ -139,6 +139,58 @@ export function GuardFireRatesPanel({ className = "" }: { className?: string }) 
           ))}
         </div>
       )}
+    </div>
+  );
+}
+
+// Settings overview (Nov 8, 2026): per engine, every guard setting as
+// Standard (the app's built-in default) vs Yours (your live value), with
+// anything you changed highlighted. Read-only — edit settings on each
+// engine's own page.
+export function SettingsOverviewPanel({ className = "" }: { className?: string }) {
+  const { data } = useQuery<{ engines: Array<{ id: string; name: string; available: boolean; changed: number; rows: Array<{ key: string; label: string; fmt: string; standard: unknown; yours: unknown; differs: boolean }> }> }>({
+    queryKey: ["/api/engine/guard-events?view=settings"],
+    refetchInterval: 60000,
+  });
+  const engines = data?.engines || [];
+  const fmtVal = (v: unknown, fmt: string): string => {
+    if (v === null || v === undefined) return "—";
+    if (fmt === "bool") return v ? "On" : "Off";
+    if (fmt === "secs") { const s = Math.round(Number(v) / 1000); return s >= 60 ? `${Math.round(s / 60)}m` : `${s}s`; }
+    if (fmt === "num") { const n = Number(v); return Number.isFinite(n) ? String(Math.round(n * 100) / 100) : String(v); }
+    return String(v);
+  };
+  if (!engines.length) return null;
+  return (
+    <div className={`rounded-md border border-white/10 bg-white/[0.03] p-2 ${className}`}>
+      <div className="flex items-center gap-2 mb-1.5">
+        <Settings2 className="w-3.5 h-3.5 text-sky-300" />
+        <span className="text-[11px] font-bold text-gray-200">Your settings vs standard</span>
+        <span className="text-[9px] text-gray-500 ml-auto">read-only — change settings on each engine's page</span>
+      </div>
+      <div className="space-y-2.5">
+        {engines.map((e) => (
+          <div key={e.id}>
+            <div className="flex items-baseline gap-2 mb-1">
+              <span className="text-[10px] font-bold text-gray-300">{e.name}</span>
+              {e.available
+                ? <span className={e.changed > 0 ? "text-[9px] text-amber-300" : "text-[9px] text-gray-500"}>{e.changed > 0 ? `${e.changed} changed from standard` : "all standard"}</span>
+                : <span className="text-[9px] text-gray-600">engine off — showing standard</span>}
+            </div>
+            <div className="space-y-0.5">
+              {e.rows.map((r) => (
+                <div key={r.key} className="text-[10px] flex items-baseline gap-2 rounded bg-black/20 px-2 py-1">
+                  <span className="text-gray-400">{r.label}</span>
+                  <span className="ml-auto text-gray-500">standard {fmtVal(r.standard, r.fmt)}</span>
+                  <span className={r.differs ? "text-amber-300 font-semibold" : "text-gray-300"}>
+                    yours {e.available ? fmtVal(r.yours, r.fmt) : fmtVal(r.standard, r.fmt)}
+                  </span>
+                </div>
+              ))}
+            </div>
+          </div>
+        ))}
+      </div>
     </div>
   );
 }

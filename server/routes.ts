@@ -23380,6 +23380,10 @@ Return ONLY JSON: {"topPicks":[{"market":"","winProbability":<0-100>,"whyItWins"
       if (String(req.query.view || '') === 'counterfactuals') {
         return res.json(await guardCounterfactuals((req.user as User).id, Number(req.query.days) || 30));
       }
+      if (String(req.query.view || '') === 'settings') {
+        const { getSettingsOverview } = await import('./services/settings-overview');
+        return res.json(await getSettingsOverview((req.user as User).id));
+      }
       res.json(await recentGuardEvents((req.user as User).id, Number(req.query.limit) || 60, req.query.kinds ? String(req.query.kinds).split(',') : undefined));
     } catch (err: any) {
       res.status(500).json({ error: err.message });
