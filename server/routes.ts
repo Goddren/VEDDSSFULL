@@ -1333,6 +1333,15 @@ export async function registerRoutes(app: Express, existingServer?: Server): Pro
           return await getEngineWatchdogStatus();
         } catch { return null; }
       })(),
+      // Crypto engine health (2026-11-08): the crypto engine is a standalone
+      // cron outside this process — this is its pulse (heartbeat + artifacts),
+      // so a stopped timer is visible instead of silent (see crypto-health.ts).
+      cryptoEngine: await (async () => {
+        try {
+          const { getCryptoEngineHealth } = await import('./services/crypto-health');
+          return await getCryptoEngineHealth();
+        } catch { return null; }
+      })(),
     });
   });
 

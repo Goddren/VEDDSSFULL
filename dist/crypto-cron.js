@@ -81,6 +81,79 @@ var init_db = __esm({
   }
 });
 
+// server/services/runtime-state.ts
+var runtime_state_exports = {};
+__export(runtime_state_exports, {
+  ensureRuntimeStateTable: () => ensureRuntimeStateTable,
+  getRuntimeStateStrict: () => getRuntimeStateStrict,
+  insertRuntimeStateIfAbsent: () => insertRuntimeStateIfAbsent,
+  loadRuntimeState: () => loadRuntimeState,
+  saveRuntimeState: () => saveRuntimeState
+});
+function ensureRuntimeStateTable() {
+  if (!ensured) {
+    ensured = pool.query(DDL).then(() => void 0).catch((err) => {
+      console.error("[runtime-state] ensure table failed (non-fatal):", err?.message ?? err);
+      ensured = null;
+    });
+  }
+  return ensured;
+}
+function saveRuntimeState(scope, key, value) {
+  void (async () => {
+    try {
+      await ensureRuntimeStateTable();
+      await pool.query(
+        `INSERT INTO runtime_state (scope, key, value, updated_at) VALUES ($1, $2, $3::jsonb, now())
+         ON CONFLICT (scope, key) DO UPDATE SET value = EXCLUDED.value, updated_at = now()`,
+        [scope, key, JSON.stringify(value)]
+      );
+    } catch (err) {
+      console.error(`[runtime-state] save ${scope}/${key} failed (non-fatal):`, err?.message ?? err);
+    }
+  })();
+}
+async function loadRuntimeState(scope) {
+  try {
+    await ensureRuntimeStateTable();
+    const { rows } = await pool.query(`SELECT key, value FROM runtime_state WHERE scope = $1`, [scope]);
+    return rows;
+  } catch (err) {
+    console.error(`[runtime-state] load ${scope} failed (non-fatal):`, err?.message ?? err);
+    return [];
+  }
+}
+async function getRuntimeStateStrict(scope, key) {
+  await ensureRuntimeStateTable();
+  const { rows } = await pool.query(`SELECT value FROM runtime_state WHERE scope = $1 AND key = $2`, [scope, key]);
+  return rows[0]?.value ?? null;
+}
+async function insertRuntimeStateIfAbsent(scope, key, value) {
+  await ensureRuntimeStateTable();
+  await pool.query(
+    `INSERT INTO runtime_state (scope, key, value) VALUES ($1, $2, $3::jsonb) ON CONFLICT (scope, key) DO NOTHING`,
+    [scope, key, JSON.stringify(value)]
+  );
+  return getRuntimeStateStrict(scope, key);
+}
+var DDL, ensured;
+var init_runtime_state = __esm({
+  "server/services/runtime-state.ts"() {
+    "use strict";
+    init_db();
+    DDL = `
+CREATE TABLE IF NOT EXISTS "runtime_state" (
+  "scope" text NOT NULL,
+  "key" text NOT NULL,
+  "value" jsonb NOT NULL,
+  "updated_at" timestamp NOT NULL DEFAULT now(),
+  PRIMARY KEY ("scope", "key")
+);
+`;
+    ensured = null;
+  }
+});
+
 // server/services/ensure-cryptocom-engine-tables.ts
 var ensure_cryptocom_engine_tables_exports = {};
 __export(ensure_cryptocom_engine_tables_exports, {
@@ -88,18 +161,18 @@ __export(ensure_cryptocom_engine_tables_exports, {
 });
 async function ensureCryptocomEngineTables() {
   try {
-    await pool.query(DDL);
+    await pool.query(DDL2);
     console.log("[startup] Crypto.com Engine tables ensured (cryptocom_engine_configs/activity/trades).");
   } catch (err) {
     console.error("[startup] ensureCryptocomEngineTables failed (non-fatal):", err?.message ?? err);
   }
 }
-var DDL;
+var DDL2;
 var init_ensure_cryptocom_engine_tables = __esm({
   "server/services/ensure-cryptocom-engine-tables.ts"() {
     "use strict";
     init_db();
-    DDL = `
+    DDL2 = `
 CREATE TABLE IF NOT EXISTS "cryptocom_engine_configs" (
   "id" serial PRIMARY KEY,
   "user_id" integer NOT NULL UNIQUE REFERENCES "users"("id"),
@@ -9271,79 +9344,6 @@ var init_defi_market_data = __esm({
     };
     candleCache = /* @__PURE__ */ new Map();
     candleInFlight = /* @__PURE__ */ new Map();
-  }
-});
-
-// server/services/runtime-state.ts
-var runtime_state_exports = {};
-__export(runtime_state_exports, {
-  ensureRuntimeStateTable: () => ensureRuntimeStateTable,
-  getRuntimeStateStrict: () => getRuntimeStateStrict,
-  insertRuntimeStateIfAbsent: () => insertRuntimeStateIfAbsent,
-  loadRuntimeState: () => loadRuntimeState,
-  saveRuntimeState: () => saveRuntimeState
-});
-function ensureRuntimeStateTable() {
-  if (!ensured) {
-    ensured = pool.query(DDL2).then(() => void 0).catch((err) => {
-      console.error("[runtime-state] ensure table failed (non-fatal):", err?.message ?? err);
-      ensured = null;
-    });
-  }
-  return ensured;
-}
-function saveRuntimeState(scope, key, value) {
-  void (async () => {
-    try {
-      await ensureRuntimeStateTable();
-      await pool.query(
-        `INSERT INTO runtime_state (scope, key, value, updated_at) VALUES ($1, $2, $3::jsonb, now())
-         ON CONFLICT (scope, key) DO UPDATE SET value = EXCLUDED.value, updated_at = now()`,
-        [scope, key, JSON.stringify(value)]
-      );
-    } catch (err) {
-      console.error(`[runtime-state] save ${scope}/${key} failed (non-fatal):`, err?.message ?? err);
-    }
-  })();
-}
-async function loadRuntimeState(scope) {
-  try {
-    await ensureRuntimeStateTable();
-    const { rows } = await pool.query(`SELECT key, value FROM runtime_state WHERE scope = $1`, [scope]);
-    return rows;
-  } catch (err) {
-    console.error(`[runtime-state] load ${scope} failed (non-fatal):`, err?.message ?? err);
-    return [];
-  }
-}
-async function getRuntimeStateStrict(scope, key) {
-  await ensureRuntimeStateTable();
-  const { rows } = await pool.query(`SELECT value FROM runtime_state WHERE scope = $1 AND key = $2`, [scope, key]);
-  return rows[0]?.value ?? null;
-}
-async function insertRuntimeStateIfAbsent(scope, key, value) {
-  await ensureRuntimeStateTable();
-  await pool.query(
-    `INSERT INTO runtime_state (scope, key, value) VALUES ($1, $2, $3::jsonb) ON CONFLICT (scope, key) DO NOTHING`,
-    [scope, key, JSON.stringify(value)]
-  );
-  return getRuntimeStateStrict(scope, key);
-}
-var DDL2, ensured;
-var init_runtime_state = __esm({
-  "server/services/runtime-state.ts"() {
-    "use strict";
-    init_db();
-    DDL2 = `
-CREATE TABLE IF NOT EXISTS "runtime_state" (
-  "scope" text NOT NULL,
-  "key" text NOT NULL,
-  "value" jsonb NOT NULL,
-  "updated_at" timestamp NOT NULL DEFAULT now(),
-  PRIMARY KEY ("scope", "key")
-);
-`;
-    ensured = null;
   }
 });
 
@@ -35467,15 +35467,43 @@ var _killTimer = setTimeout(() => {
 _killTimer.unref();
 async function main() {
   const started3 = Date.now();
-  console.log(`[crypto-cron] start ${(/* @__PURE__ */ new Date()).toISOString()}`);
+  const startedAt = (/* @__PURE__ */ new Date()).toISOString();
+  console.log(`[crypto-cron] start ${startedAt}`);
+  const writeHeartbeat = async (value) => {
+    try {
+      const { ensureRuntimeStateTable: ensureRuntimeStateTable2 } = await Promise.resolve().then(() => (init_runtime_state(), runtime_state_exports));
+      const { pool: pool2 } = await Promise.resolve().then(() => (init_db(), db_exports));
+      await ensureRuntimeStateTable2();
+      await pool2.query(
+        `INSERT INTO runtime_state (scope, key, value, updated_at) VALUES ('crypto_cron', 'heartbeat', $1::jsonb, now())
+         ON CONFLICT (scope, key) DO UPDATE SET value = EXCLUDED.value, updated_at = now()`,
+        [JSON.stringify(value)]
+      );
+    } catch {
+    }
+  };
+  let prevOkAt = null;
   try {
-    const { ensureCryptocomEngineTables: ensureCryptocomEngineTables2 } = await Promise.resolve().then(() => (init_ensure_cryptocom_engine_tables(), ensure_cryptocom_engine_tables_exports));
-    await ensureCryptocomEngineTables2();
-  } catch (err) {
-    console.error("[crypto-cron] ensureCryptocomEngineTables (non-fatal):", err?.message ?? err);
+    const { getRuntimeStateStrict: getRuntimeStateStrict2 } = await Promise.resolve().then(() => (init_runtime_state(), runtime_state_exports));
+    const prev = await getRuntimeStateStrict2("crypto_cron", "heartbeat").catch(() => null);
+    prevOkAt = prev?.state === "ok" ? prev?.finishedAt ?? null : prev?.lastOkAt ?? null;
+  } catch {
   }
-  const { runCryptocomEngineScan: runCryptocomEngineScan2 } = await Promise.resolve().then(() => (init_cryptocom_scanner(), cryptocom_scanner_exports));
-  await runCryptocomEngineScan2();
+  await writeHeartbeat({ state: "running", startedAt, lastOkAt: prevOkAt });
+  try {
+    try {
+      const { ensureCryptocomEngineTables: ensureCryptocomEngineTables2 } = await Promise.resolve().then(() => (init_ensure_cryptocom_engine_tables(), ensure_cryptocom_engine_tables_exports));
+      await ensureCryptocomEngineTables2();
+    } catch (err) {
+      console.error("[crypto-cron] ensureCryptocomEngineTables (non-fatal):", err?.message ?? err);
+    }
+    const { runCryptocomEngineScan: runCryptocomEngineScan2 } = await Promise.resolve().then(() => (init_cryptocom_scanner(), cryptocom_scanner_exports));
+    await runCryptocomEngineScan2();
+  } catch (err) {
+    await writeHeartbeat({ state: "error", startedAt, finishedAt: (/* @__PURE__ */ new Date()).toISOString(), durationMs: Date.now() - started3, error: String(err?.message ?? err).slice(0, 300), lastOkAt: prevOkAt });
+    throw err;
+  }
+  await writeHeartbeat({ state: "ok", startedAt, finishedAt: (/* @__PURE__ */ new Date()).toISOString(), durationMs: Date.now() - started3, lastOkAt: (/* @__PURE__ */ new Date()).toISOString() });
   console.log(`[crypto-cron] scan complete in ${Date.now() - started3}ms`);
 }
 main().then(() => {
