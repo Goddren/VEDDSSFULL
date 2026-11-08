@@ -14792,9 +14792,9 @@ ${headlines}`
         let bearishCount = 0;
         let neutralCount = 0;
         for (const item of news) {
-          const text2 = (item.headline + " " + item.summary).toLowerCase();
-          const bullishMatches = bullishWords.filter((w) => text2.includes(w)).length;
-          const bearishMatches = bearishWords.filter((w) => text2.includes(w)).length;
+          const text3 = (item.headline + " " + item.summary).toLowerCase();
+          const bullishMatches = bullishWords.filter((w) => text3.includes(w)).length;
+          const bearishMatches = bearishWords.filter((w) => text3.includes(w)).length;
           if (bullishMatches > bearishMatches) {
             bullishCount++;
           } else if (bearishMatches > bullishMatches) {
@@ -15286,9 +15286,9 @@ ${headlines}`
           /\btumble/i,
           /\bdown\b/i
         ];
-        const text2 = (item.headline + " " + item.summary).toLowerCase();
-        const bullishMatches = bullishPatterns.filter((pattern) => pattern.test(text2)).length;
-        const bearishMatches = bearishPatterns.filter((pattern) => pattern.test(text2)).length;
+        const text3 = (item.headline + " " + item.summary).toLowerCase();
+        const bullishMatches = bullishPatterns.filter((pattern) => pattern.test(text3)).length;
+        const bearishMatches = bearishPatterns.filter((pattern) => pattern.test(text3)).length;
         let label = "neutral";
         let score = 0;
         if (bullishMatches > bearishMatches) {
@@ -15826,7 +15826,7 @@ function logDecisionShadow(r) {
     _seen.set(k2, Date.now());
     if (_seen.size > 5e3) _seen.clear();
   }
-  const num6 = (v) => typeof v === "number" && Number.isFinite(v) ? v : null;
+  const num7 = (v) => typeof v === "number" && Number.isFinite(v) ? v : null;
   void ensureDecisionShadowTable().then(() => pool.query(
     `INSERT INTO fx_decision_shadow (user_id, scan_id, symbol, session, hour_utc, lane, mode, acted, picked, ai_status,
        direction, score, terms, entry, sl, tp, gate_result)
@@ -15843,11 +15843,11 @@ function logDecisionShadow(r) {
       !!r.picked,
       r.aiStatus ?? null,
       r.direction ?? null,
-      num6(r.score),
+      num7(r.score),
       r.terms == null ? null : JSON.stringify(r.terms),
-      num6(r.entry),
-      num6(r.sl),
-      num6(r.tp),
+      num7(r.entry),
+      num7(r.sl),
+      num7(r.tp),
       r.gateResult ?? null
     ]
   )).catch(() => {
@@ -16103,8 +16103,8 @@ var init_cryptocom = __esm({
           signal: AbortSignal.timeout(12e3)
         });
         if (!response.ok) {
-          const text2 = await response.text();
-          throw new Error(`Crypto.com API failed: ${response.status} - ${text2}`);
+          const text3 = await response.text();
+          throw new Error(`Crypto.com API failed: ${response.status} - ${text3}`);
         }
         const data = await response.json();
         if (data.code !== void 0 && data.code !== 0) {
@@ -16342,11 +16342,11 @@ var init_dxtrade = __esm({
             body: JSON.stringify({ username: this.username, domain: this.domain, password: this.password }),
             signal: AbortSignal.timeout(2e4)
           });
-          const text2 = await res2.text();
-          if (!res2.ok) throw new Error(`DXtrade login ${res2.status}: ${text2.slice(0, 200)}`);
+          const text3 = await res2.text();
+          if (!res2.ok) throw new Error(`DXtrade login ${res2.status}: ${text3.slice(0, 200)}`);
           let token = "";
           try {
-            token = JSON.parse(text2)?.sessionToken || "";
+            token = JSON.parse(text3)?.sessionToken || "";
           } catch {
           }
           if (!token) token = res2.headers.get("authorization")?.replace(/^DXAPI\s+/i, "") || "";
@@ -16387,12 +16387,12 @@ var init_dxtrade = __esm({
        *  'default:12345' and appear in the returned `accounts` array. */
       async getAccounts() {
         const res2 = await this.authed("/users/self");
-        const text2 = await res2.text();
-        if (!res2.ok) throw new Error(`DXtrade users/self ${res2.status}: ${text2.slice(0, 200)}`);
+        const text3 = await res2.text();
+        if (!res2.ok) throw new Error(`DXtrade users/self ${res2.status}: ${text3.slice(0, 200)}`);
         try {
-          return JSON.parse(text2);
+          return JSON.parse(text3);
         } catch {
-          return { raw: text2 };
+          return { raw: text3 };
         }
       }
       /** Portfolio (positions + balances) for one account. Falls back across the two
@@ -16400,23 +16400,23 @@ var init_dxtrade = __esm({
       async getPortfolio(accountCode) {
         let res2 = await this.authed(`/accounts/${encodeURIComponent(accountCode)}/portfolio`);
         if (res2.status === 404) res2 = await this.authed(`/accounts/${encodeURIComponent(accountCode)}/positions`);
-        const text2 = await res2.text();
-        if (!res2.ok) throw new Error(`DXtrade portfolio ${res2.status}: ${text2.slice(0, 200)}`);
+        const text3 = await res2.text();
+        if (!res2.ok) throw new Error(`DXtrade portfolio ${res2.status}: ${text3.slice(0, 200)}`);
         try {
-          return JSON.parse(text2);
+          return JSON.parse(text3);
         } catch {
-          return { raw: text2 };
+          return { raw: text3 };
         }
       }
       /** Account metrics/balance (equity, balance) for one account. Tolerant of shape. */
       async getMetrics(accountCode) {
         const res2 = await this.authed(`/accounts/${encodeURIComponent(accountCode)}/metrics`);
-        const text2 = await res2.text();
+        const text3 = await res2.text();
         if (!res2.ok) return { error: `metrics ${res2.status}` };
         try {
-          return JSON.parse(text2);
+          return JSON.parse(text3);
         } catch {
-          return { raw: text2 };
+          return { raw: text3 };
         }
       }
       /**
@@ -16449,13 +16449,13 @@ var init_dxtrade = __esm({
           method: "POST",
           body: JSON.stringify(body)
         });
-        const text2 = await res2.text();
-        if (!res2.ok) throw new Error(`DXtrade order ${res2.status}: ${text2.slice(0, 300)}`);
+        const text3 = await res2.text();
+        if (!res2.ok) throw new Error(`DXtrade order ${res2.status}: ${text3.slice(0, 300)}`);
         let data;
         try {
-          data = JSON.parse(text2);
+          data = JSON.parse(text3);
         } catch {
-          data = { raw: text2 };
+          data = { raw: text3 };
         }
         return { ...data, _sent: body };
       }
@@ -16612,15 +16612,15 @@ var init_dxtrade = __esm({
         let last2 = "";
         for (const path20 of attempts) {
           const res2 = await this.authed(path20);
-          const text2 = await res2.text();
+          const text3 = await res2.text();
           if (res2.ok) {
             try {
-              return JSON.parse(text2);
+              return JSON.parse(text3);
             } catch {
-              return { raw: text2 };
+              return { raw: text3 };
             }
           }
-          last2 = `${res2.status}: ${text2.slice(0, 150)}`;
+          last2 = `${res2.status}: ${text3.slice(0, 150)}`;
         }
         throw new Error(`DXtrade instruments ${last2}`);
       }
@@ -28419,14 +28419,14 @@ function inferModelProvider(modelId) {
   if (m.includes("gpt-oss") || m.includes("llama") || m.includes("groq") || m.includes("gemma") || m.includes("qwen") || m.includes("deepseek")) return "groq";
   return getModelProvider(modelId);
 }
-function extractFirstJsonObject(text2) {
-  const start = text2.indexOf("{");
+function extractFirstJsonObject(text3) {
+  const start = text3.indexOf("{");
   if (start === -1) return null;
   let depth = 0;
   let inString = false;
   let escaped = false;
-  for (let i = start; i < text2.length; i++) {
-    const ch = text2[i];
+  for (let i = start; i < text3.length; i++) {
+    const ch = text3[i];
     if (inString) {
       if (escaped) escaped = false;
       else if (ch === "\\") escaped = true;
@@ -28440,7 +28440,7 @@ function extractFirstJsonObject(text2) {
     if (ch === "{") depth++;
     else if (ch === "}") {
       depth--;
-      if (depth === 0) return text2.slice(start, i + 1);
+      if (depth === 0) return text3.slice(start, i + 1);
     }
   }
   return null;
@@ -30627,13 +30627,13 @@ async function testOpenAIApiKey() {
 }
 async function analyzeChartImage(base64Image, knownSymbol, userId) {
   try {
-    let extractJsonContent2 = function(text2) {
-      const fenced = text2.match(/```(?:json)?\s*([\s\S]*?)\s*```/);
+    let extractJsonContent2 = function(text3) {
+      const fenced = text3.match(/```(?:json)?\s*([\s\S]*?)\s*```/);
       if (fenced) return fenced[1];
-      const first = text2.indexOf("{");
-      const last2 = text2.lastIndexOf("}");
-      if (first !== -1 && last2 > first) return text2.slice(first, last2 + 1);
-      return text2;
+      const first = text3.indexOf("{");
+      const last2 = text3.lastIndexOf("}");
+      if (first !== -1 && last2 > first) return text3.slice(first, last2 + 1);
+      return text3;
     };
     var extractJsonContent = extractJsonContent2;
     const aiClient = userId ? await getUniversalVisionClientForUser(userId) : getOpenAIInstance();
@@ -31626,8 +31626,8 @@ function generateSlug(title) {
   return `${base}-${Date.now().toString(36)}`;
 }
 function estimateReadTime(html) {
-  const text2 = html.replace(/<[^>]+>/g, " ");
-  const wordCount = text2.trim().split(/\s+/).length;
+  const text3 = html.replace(/<[^>]+>/g, " ");
+  const wordCount = text3.trim().split(/\s+/).length;
   const minutes = Math.ceil(wordCount / 200);
   return `${minutes} min read`;
 }
@@ -32340,9 +32340,9 @@ Respond with valid JSON only. No markdown, no explanation.` : "Respond with vali
                   }) : m.content
                 }))
               });
-              const text2 = response.content?.[0]?.text || "";
+              const text3 = response.content?.[0]?.text || "";
               return {
-                choices: [{ message: { role: "assistant", content: text2 }, finish_reason: response.stop_reason }],
+                choices: [{ message: { role: "assistant", content: text3 }, finish_reason: response.stop_reason }],
                 usage: { prompt_tokens: response.usage?.input_tokens, completion_tokens: response.usage?.output_tokens }
               };
             }
@@ -42914,8 +42914,8 @@ async function addTradeSetupAnnotations(originalImagePath, analysis, outputFilen
         analysis.takeProfit,
         ...supportResistanceLevels
       ].map((p2) => {
-        const num6 = parseFloat(p2.replace(/[^0-9.-]/g, ""));
-        return isNaN(num6) ? 0 : num6;
+        const num7 = parseFloat(p2.replace(/[^0-9.-]/g, ""));
+        return isNaN(num7) ? 0 : num7;
       }).filter((p2) => p2 > 0);
       if (prices.length === 0) return chartArea.top + chartArea.height * 0.5;
       const minPrice = Math.min(...prices);
@@ -43237,8 +43237,8 @@ var init_alpaca = __esm({
       async getAccountInfo() {
         const response = await this.request(`${this.baseUrl}/v2/account`, { method: "GET" });
         if (!response.ok) {
-          const text2 = await response.text();
-          throw new Error(`Alpaca account fetch failed: ${response.status} - ${text2}`);
+          const text3 = await response.text();
+          throw new Error(`Alpaca account fetch failed: ${response.status} - ${text3}`);
         }
         const data = await response.json();
         return {
@@ -43304,9 +43304,9 @@ var init_alpaca = __esm({
             { method: "GET" }
           );
           if (!response.ok) {
-            const text2 = await response.text();
+            const text3 = await response.text();
             if (page > 0) break;
-            throw new Error(`Alpaca options chain fetch failed: ${response.status} - ${text2}`);
+            throw new Error(`Alpaca options chain fetch failed: ${response.status} - ${text3}`);
           }
           const data = await response.json();
           Object.assign(snapshots, data.snapshots || {});
@@ -43373,8 +43373,8 @@ var init_alpaca = __esm({
           })
         });
         if (!response.ok) {
-          const text2 = await response.text();
-          throw new Error(`Alpaca order placement failed: ${response.status} - ${text2}`);
+          const text3 = await response.text();
+          throw new Error(`Alpaca order placement failed: ${response.status} - ${text3}`);
         }
         const data = await response.json();
         return {
@@ -43406,8 +43406,8 @@ var init_alpaca = __esm({
           })
         });
         if (!response.ok) {
-          const text2 = await response.text();
-          throw new Error(`Alpaca multi-leg order failed: ${response.status} - ${text2}`);
+          const text3 = await response.text();
+          throw new Error(`Alpaca multi-leg order failed: ${response.status} - ${text3}`);
         }
         const data = await response.json();
         return {
@@ -43519,8 +43519,8 @@ var init_tastytrade = __esm({
           signal: AbortSignal.timeout(12e3)
         });
         if (!response.ok) {
-          const text2 = await response.text();
-          throw new Error(`TastyTrade login failed: ${response.status} - ${text2}`);
+          const text3 = await response.text();
+          throw new Error(`TastyTrade login failed: ${response.status} - ${text3}`);
         }
         const data = await response.json();
         const token = data.data?.["session-token"];
@@ -43543,8 +43543,8 @@ var init_tastytrade = __esm({
       async getAccountInfo() {
         const accountsRes = await this.request("/customers/me/accounts");
         if (!accountsRes.ok) {
-          const text2 = await accountsRes.text();
-          throw new Error(`TastyTrade accounts fetch failed: ${accountsRes.status} - ${text2}`);
+          const text3 = await accountsRes.text();
+          throw new Error(`TastyTrade accounts fetch failed: ${accountsRes.status} - ${text3}`);
         }
         const accountsData = await accountsRes.json();
         const items = accountsData.data?.items || [];
@@ -43552,8 +43552,8 @@ var init_tastytrade = __esm({
         const accountNumber = items[0].account["account-number"];
         const balancesRes = await this.request(`/accounts/${accountNumber}/balances`);
         if (!balancesRes.ok) {
-          const text2 = await balancesRes.text();
-          throw new Error(`TastyTrade balances fetch failed: ${balancesRes.status} - ${text2}`);
+          const text3 = await balancesRes.text();
+          throw new Error(`TastyTrade balances fetch failed: ${balancesRes.status} - ${text3}`);
         }
         const balances = (await balancesRes.json()).data;
         return {
@@ -43568,8 +43568,8 @@ var init_tastytrade = __esm({
       async getOptionsChain(underlyingSymbol) {
         const response = await this.request(`/option-chains/${encodeURIComponent(underlyingSymbol)}/nested`);
         if (!response.ok) {
-          const text2 = await response.text();
-          throw new Error(`TastyTrade options chain fetch failed: ${response.status} - ${text2}`);
+          const text3 = await response.text();
+          throw new Error(`TastyTrade options chain fetch failed: ${response.status} - ${text3}`);
         }
         const data = await response.json();
         const expirations = data.data?.items?.[0]?.expirations || [];
@@ -43615,8 +43615,8 @@ var init_tastytrade = __esm({
           })
         });
         if (!response.ok) {
-          const text2 = await response.text();
-          throw new Error(`TastyTrade order placement failed: ${response.status} - ${text2}`);
+          const text3 = await response.text();
+          throw new Error(`TastyTrade order placement failed: ${response.status} - ${text3}`);
         }
         const data = await response.json();
         return {
@@ -44381,8 +44381,8 @@ var init_tradovate = __esm({
           body: JSON.stringify(body)
         });
         if (!response.ok) {
-          const text2 = await response.text();
-          throw new Error(`Tradovate auth HTTP ${response.status}: ${text2}`);
+          const text3 = await response.text();
+          throw new Error(`Tradovate auth HTTP ${response.status}: ${text3}`);
         }
         const data = await response.json();
         if (!data.accessToken || data.p === "error") {
@@ -44402,8 +44402,8 @@ var init_tradovate = __esm({
           headers: { "Authorization": `Bearer ${this.accessToken}`, "Accept": "application/json" }
         });
         if (!response.ok) {
-          const text2 = await response.text();
-          throw new Error(`Tradovate GET ${path20} failed (${response.status}): ${text2}`);
+          const text3 = await response.text();
+          throw new Error(`Tradovate GET ${path20} failed (${response.status}): ${text3}`);
         }
         return response.json();
       }
@@ -44419,8 +44419,8 @@ var init_tradovate = __esm({
           body: JSON.stringify(body)
         });
         if (!response.ok) {
-          const text2 = await response.text();
-          throw new Error(`Tradovate POST ${path20} failed (${response.status}): ${text2}`);
+          const text3 = await response.text();
+          throw new Error(`Tradovate POST ${path20} failed (${response.status}): ${text3}`);
         }
         return response.json();
       }
@@ -46337,7 +46337,7 @@ __export(messaging_exports, {
   sendTwilioSms: () => sendTwilioSms
 });
 import nodemailer from "nodemailer";
-async function sendGmail(to, subject, text2, html) {
+async function sendGmail(to, subject, text3, html) {
   const user = process.env.GMAIL_USER;
   const pass = process.env.GMAIL_APP_PASSWORD;
   if (!user || !pass) return { success: false, channel: "gmail", error: "GMAIL_USER and GMAIL_APP_PASSWORD not set. Create a Gmail App Password at myaccount.google.com/security \u2192 App Passwords." };
@@ -46350,22 +46350,22 @@ async function sendGmail(to, subject, text2, html) {
       from: `"VEDD | Abba" <${user}>`,
       to,
       subject,
-      text: text2,
-      html: html || `<div style="font-family:sans-serif;max-width:600px;margin:0 auto"><h2 style="color:#7c3aed">VEDD \u2014 Abba AI</h2><div>${text2.replace(/\n/g, "<br/>")}</div></div>`
+      text: text3,
+      html: html || `<div style="font-family:sans-serif;max-width:600px;margin:0 auto"><h2 style="color:#7c3aed">VEDD \u2014 Abba AI</h2><div>${text3.replace(/\n/g, "<br/>")}</div></div>`
     });
     return { success: true, channel: "gmail", id: info2.messageId };
   } catch (e) {
     return { success: false, channel: "gmail", error: e.message };
   }
 }
-async function sendResend(to, subject, text2, html) {
+async function sendResend(to, subject, text3, html) {
   const apiKey = process.env.RESEND_API_KEY;
   if (!apiKey) return { success: false, channel: "resend", error: "RESEND_API_KEY not set. Sign up free at resend.com and add your API key." };
   try {
     const { Resend } = await import("resend");
     const resend = new Resend(apiKey);
     const from = process.env.RESEND_FROM_EMAIL || "Abba <onboarding@resend.dev>";
-    const result = await resend.emails.send({ from, to, subject, text: text2, html });
+    const result = await resend.emails.send({ from, to, subject, text: text3, html });
     if (result.error) return { success: false, channel: "resend", error: result.error.message };
     return { success: true, channel: "resend", id: result.data?.id };
   } catch (e) {
@@ -46392,7 +46392,7 @@ async function sendTwilioSms(to, body) {
   const result = await sendSmsRaw3(to, body);
   return { ...result, channel: "twilio" };
 }
-async function sendSendGrid(to, subject, text2, html) {
+async function sendSendGrid(to, subject, text3, html) {
   const apiKey = process.env.SENDGRID_API_KEY;
   if (!apiKey) return { success: false, channel: "sendgrid", error: "SENDGRID_API_KEY not set. Sign up at sendgrid.com (100/day free)." };
   try {
@@ -46403,8 +46403,8 @@ async function sendSendGrid(to, subject, text2, html) {
       to,
       from: process.env.SENDGRID_FROM_EMAIL || "abba@vedd.app",
       subject,
-      text: text2,
-      html: html || text2
+      text: text3,
+      html: html || text3
     });
     return { success: true, channel: "sendgrid" };
   } catch (e) {
@@ -46576,15 +46576,15 @@ async function maybeAlert(status) {
   } catch {
   }
   const due = [];
-  const check = (engine, key, text2) => {
-    if (!text2 || !key) return;
+  const check = (engine, key, text3) => {
+    if (!text3 || !key) return;
     const ep = episodes[engine];
     if (!ep || ep.key !== key) episodes[engine] = { key, sent: 0, lastAt: 0 };
     const e = episodes[engine];
     if (e.sent < MAX_ALERTS_PER_EPISODE && Date.now() - e.lastAt >= REALERT_MS) {
       e.sent++;
       e.lastAt = Date.now();
-      due.push(text2);
+      due.push(text3);
     }
   };
   check("fx", status.fx.lastCloseAt, status.fx.state === "gated" || status.fx.state === "silent" ? status.fx.message : null);
@@ -47794,9 +47794,9 @@ async function createWhopCheckout(userId, veddPlanId) {
     }),
     signal: AbortSignal.timeout(15e3)
   });
-  const text2 = await res2.text();
-  if (!res2.ok) throw new Error(`Whop checkout failed (${res2.status}): ${text2.slice(0, 300)}`);
-  const j = JSON.parse(text2);
+  const text3 = await res2.text();
+  if (!res2.ok) throw new Error(`Whop checkout failed (${res2.status}): ${text3.slice(0, 300)}`);
+  const j = JSON.parse(text3);
   const pu = String(j?.purchase_url || "");
   if (!pu) throw new Error("Whop returned no purchase_url");
   return { id: String(j.id || ""), url: /^https?:\/\//.test(pu) ? pu : `https://whop.com${pu.startsWith("/") ? "" : "/"}${pu}` };
@@ -48519,8 +48519,8 @@ function roundRect(ctx, x, y, width, height, radius) {
   ctx.quadraticCurveTo(x, y, x + radius, y);
   ctx.closePath();
 }
-function wrapText(ctx, text2, maxWidth) {
-  const words = text2.split(" ");
+function wrapText(ctx, text3, maxWidth) {
+  const words = text3.split(" ");
   const lines = [];
   let currentLine = "";
   for (const word of words) {
@@ -49932,8 +49932,8 @@ var init_coinbase = __esm({
           signal: AbortSignal.timeout(12e3)
         });
         if (!res2.ok) {
-          const text2 = await res2.text();
-          throw new Error(`Coinbase ${res2.status}: ${text2.slice(0, 300)}`);
+          const text3 = await res2.text();
+          throw new Error(`Coinbase ${res2.status}: ${text3.slice(0, 300)}`);
         }
         return res2.json();
       }
@@ -50347,14 +50347,14 @@ async function post(testnet, path20, body) {
     body: JSON.stringify(body),
     signal: AbortSignal.timeout(15e3)
   });
-  const text2 = await r.text();
+  const text3 = await r.text();
   let j;
   try {
-    j = JSON.parse(text2);
+    j = JSON.parse(text3);
   } catch {
-    throw new Error(`Hyperliquid ${path20} HTTP ${r.status}: ${text2.slice(0, 200)}`);
+    throw new Error(`Hyperliquid ${path20} HTTP ${r.status}: ${text3.slice(0, 200)}`);
   }
-  if (!r.ok) throw new Error(`Hyperliquid ${path20} HTTP ${r.status}: ${text2.slice(0, 200)}`);
+  if (!r.ok) throw new Error(`Hyperliquid ${path20} HTTP ${r.status}: ${text3.slice(0, 200)}`);
   return j;
 }
 async function getMeta(testnet) {
@@ -56818,12 +56818,12 @@ function linregSlope(values) {
   const xs = values.map((_, i) => i);
   const mx = xs.reduce((a, b) => a + b, 0) / n;
   const my = values.reduce((a, b) => a + b, 0) / n;
-  let num6 = 0, den = 0;
+  let num7 = 0, den = 0;
   for (let i = 0; i < n; i++) {
-    num6 += (xs[i] - mx) * (values[i] - my);
+    num7 += (xs[i] - mx) * (values[i] - my);
     den += (xs[i] - mx) ** 2;
   }
-  return den === 0 ? 0 : num6 / den;
+  return den === 0 ? 0 : num7 / den;
 }
 function ensembleSignal(candles) {
   const price = candles[candles.length - 1].close;
@@ -57146,8 +57146,8 @@ async function kalshiPost(userId, endpoint, body) {
     signal: AbortSignal.timeout(1e4)
   });
   if (!res2.ok) {
-    const text2 = await res2.text();
-    throw new Error(`Kalshi POST ${endpoint} failed (${res2.status}): ${text2.slice(0, 300)}`);
+    const text3 = await res2.text();
+    throw new Error(`Kalshi POST ${endpoint} failed (${res2.status}): ${text3.slice(0, 300)}`);
   }
   return res2.json();
 }
@@ -58833,12 +58833,12 @@ async function pmUsRequest(userId, method, reqPath, body) {
   if (body !== void 0) init.body = JSON.stringify(body);
   try {
     const res2 = await fetch(`${BASE_URL}${reqPath}`, init);
-    const text2 = await res2.text();
+    const text3 = await res2.text();
     let data;
     try {
-      data = text2 ? JSON.parse(text2) : {};
+      data = text3 ? JSON.parse(text3) : {};
     } catch {
-      data = { raw: text2 };
+      data = { raw: text3 };
     }
     return { ok: res2.ok, status: res2.status, data };
   } catch (e) {
@@ -59506,6 +59506,177 @@ var init_ruin_cone = __esm({
     DEFAULT_SOURCE_LIMIT = 200;
     CACHE_TTL_MS7 = 5 * 60 * 1e3;
     _cache6 = /* @__PURE__ */ new Map();
+  }
+});
+
+// server/services/settings-overview.ts
+var settings_overview_exports = {};
+__export(settings_overview_exports, {
+  getSettingsOverview: () => getSettingsOverview
+});
+function differs(standard, yours) {
+  if (yours === void 0 || yours === null) return false;
+  const a = Number(standard), b = Number(yours);
+  if (Number.isFinite(a) && Number.isFinite(b) && typeof standard !== "boolean" && typeof yours !== "boolean") return a !== b;
+  return String(standard) !== String(yours);
+}
+async function getSettingsOverview(userId) {
+  const engines = [];
+  for (const spec of ENGINES) {
+    let live = null;
+    try {
+      live = await spec.load(userId);
+    } catch {
+      live = null;
+    }
+    const rows = spec.fields.map((f) => {
+      const yours = live ? live[f.from ?? f.key] : void 0;
+      return {
+        key: f.key,
+        label: f.label,
+        fmt: f.fmt,
+        standard: f.standard,
+        yours: yours === void 0 ? null : yours,
+        differs: live ? differs(f.standard, yours) : false
+      };
+    });
+    engines.push({
+      id: spec.id,
+      name: spec.name,
+      available: live !== null,
+      changed: rows.filter((r) => r.differs).length,
+      rows
+    });
+  }
+  return { engines };
+}
+var num6, bool, text2, secs, ENGINES;
+var init_settings_overview = __esm({
+  "server/services/settings-overview.ts"() {
+    "use strict";
+    init_db();
+    num6 = (key, label, standard, from) => ({ key, from, label, standard, fmt: "num" });
+    bool = (key, label, standard, from) => ({ key, from, label, standard, fmt: "bool" });
+    text2 = (key, label, standard, from) => ({ key, from, label, standard, fmt: "text" });
+    secs = (key, label, standard, from) => ({ key, from, label, standard, fmt: "secs" });
+    ENGINES = [
+      {
+        id: "fx",
+        name: "FX Engine",
+        // Standards: getDefaultConfig() literal in live-trading-engine.ts.
+        fields: [
+          num6("minConfidence", "Minimum confidence to trade", 70),
+          text2("strategyMode", "Strategy mode", "aggressive"),
+          num6("maxOpenTrades", "Max open trades at once", 5),
+          num6("riskPerTrade", "Risk per trade (%)", 1),
+          num6("maxRiskPerTradePct", "Hard cap: risk per trade (%)", 2),
+          num6("maxDailyLossPct", "Daily loss breaker (%)", 4),
+          num6("dailyLossLimit", "Daily loss limit (%)", 5),
+          num6("maxDrawdownPct", "Drawdown breaker below peak (%)", 8),
+          num6("drawdownShieldThreshold", "Drawdown shield (%)", 3),
+          num6("maxLotSize", "Max lot size", 0.1),
+          num6("maxLot", "Absolute lot ceiling (0 = none)", 0),
+          num6("maxDailyTrades", "Max trades per day (0 = unlimited)", 0),
+          num6("maxTradesPerPairPerDay", "Max trades per pair per day", 2),
+          bool("trailingStopEnabled", "Trailing stops", true),
+          bool("profitLockEnabled", "Profit lock from +1R", true),
+          num6("stopHoldUntilR", "Stop cannot tighten before (R)", 1),
+          bool("propFirmMode", "Prop firm mode", false),
+          num6("propFirmDailyDrawdownLimit", "Prop firm daily drawdown (%)", 4),
+          bool("autoFlattenOnBreach", "Close trades when a breaker trips", false),
+          bool("brainLearningMode", "Brain learning", true),
+          bool("brainShadowEnabled", "Practice results feed the brain", true),
+          text2("directionFilter", "Direction filter", "both"),
+          secs("scanIntervalMs", "Scan interval", 6e4)
+        ],
+        load: async (userId) => {
+          const { getEffectiveEngineConfig: getEffectiveEngineConfig2 } = await Promise.resolve().then(() => (init_live_trading_engine(), live_trading_engine_exports));
+          return getEffectiveEngineConfig2(userId);
+        }
+      },
+      {
+        id: "sol",
+        name: "Sol Engine",
+        // Standards: DEFAULT_CONFIG in sol-engine.ts.
+        fields: [
+          num6("minConfidence", "Minimum confidence to trade", 65),
+          num6("riskPerTradePct", "Risk per trade (%)", 1),
+          num6("maxDailyTrades", "Max trades per day (0 = unlimited)", 0),
+          num6("maxTokens", "Max tokens tracked at once", 10),
+          bool("shieldEnabled", "Loss shield", true),
+          num6("shieldThreshold", "Shield trips at drawdown (%)", 10),
+          bool("useKelly", "Kelly position sizing", false),
+          text2("directionFilter", "Direction filter", "buy_only"),
+          bool("stopOrdersEnabled", "Stop orders", false),
+          bool("adaptiveScan", "Adaptive scanning", true),
+          text2("aiMode", "AI mode", "full"),
+          text2("dexFilter", "DEX filter", "all")
+        ],
+        load: async (userId) => {
+          const { getSolEngineStatus: getSolEngineStatus2 } = await Promise.resolve().then(() => (init_sol_engine(), sol_engine_exports));
+          const s = getSolEngineStatus2(userId);
+          return s?.config ?? null;
+        }
+      },
+      {
+        id: "kalshi",
+        name: "Kalshi Engine",
+        // Standards: DEFAULT_CONFIG in kalshi-engine.ts.
+        fields: [
+          num6("minConfidence", "Minimum confidence to trade", 70),
+          num6("maxOpenTrades", "Max open trades at once", 3),
+          num6("maxTradesPerDay", "Max trades per day", 10),
+          num6("contractsPerTrade", "Contracts per trade", 5),
+          num6("riskPctPerTrade", "Risk per trade (%)", 5),
+          num6("takeProfitCents", "Take profit (%)", 50),
+          num6("stopLossCents", "Stop loss (%)", 40),
+          num6("minEntryPriceCents", "Cheapest entry allowed (cents)", 30),
+          bool("requireConfluence", "Requires confluence", true),
+          bool("ruinGuardEnabled", "Ruin guard (bad-day halt)", true),
+          num6("dailyLossLimitPct", "Daily loss limit (%)", 5),
+          num6("maxDrawdownLimitPct", "Max drawdown limit (%)", 10),
+          bool("kalshiBrainGating", "Brain can hard-block setups", true),
+          bool("brainLearningMode", "Brain learning", true),
+          bool("weatherEnabled", "Weather engine", false),
+          num6("cooldownMinutes", "Cooldown between trades (min)", 20)
+        ],
+        load: async (userId) => {
+          const { getKalshiEngineState: getKalshiEngineState2 } = await Promise.resolve().then(() => (init_kalshi_engine(), kalshi_engine_exports));
+          return getKalshiEngineState2(userId)?.config ?? null;
+        }
+      },
+      {
+        id: "crypto",
+        name: "Crypto Engine",
+        // Standards: column defaults in ensure-cryptocom-engine-tables.ts.
+        fields: [
+          num6("minConfidence", "Minimum confidence to trade", 70, "min_confidence"),
+          num6("maxOpenTrades", "Max open trades at once", 3, "max_open_trades"),
+          num6("riskPerTrade", "Risk per trade (%)", 1, "risk_per_trade"),
+          num6("dailyLossLimit", "Daily loss limit (%)", 5, "daily_loss_limit"),
+          num6("maxDailyTrades", "Max trades per day (0 = unlimited)", 0, "max_daily_trades"),
+          num6("drawdownShield", "Drawdown shield (%)", 3, "drawdown_shield_threshold"),
+          num6("leverage", "Leverage", 3, "leverage"),
+          text2("directionFilter", "Direction filter", "both", "direction_filter"),
+          bool("brainLearning", "Brain learning", true, "brain_learning_mode"),
+          bool("cryptoBrain", "Crypto brain", true, "crypto_brain_enabled"),
+          num6("compositeScore", "Composite entry score needed", 72, "composite_min_edge_score"),
+          bool("autoExecution", "Auto execution", false, "enable_auto_execution"),
+          bool("kelly", "Kelly position sizing", false, "use_kelly_criterion"),
+          secs("scanInterval", "Scan interval", 12e4, "scan_interval_ms"),
+          text2("strategyMode", "Strategy mode", "auto", "strategy_mode"),
+          text2("trailMethod", "Trailing method", "none", "trail_method")
+        ],
+        load: async (userId) => {
+          try {
+            const { rows } = await pool.query(`SELECT * FROM cryptocom_engine_configs WHERE user_id = $1`, [userId]);
+            return rows[0] ?? {};
+          } catch {
+            return null;
+          }
+        }
+      }
+    ];
   }
 });
 
@@ -62891,8 +63062,8 @@ async function nextDayNumber(userId, date2) {
   );
   return (r2[0]?.n ?? 0) % 44 + 1;
 }
-function sanitizePost(text2) {
-  let s = String(text2 || "");
+function sanitizePost(text3) {
+  let s = String(text3 || "");
   for (const [re, rep] of BANNED) s = s.replace(re, rep);
   return s.replace(/[ \t]{2,}/g, " ").trim();
 }
@@ -63102,8 +63273,8 @@ var blog_og_image_exports = {};
 __export(blog_og_image_exports, {
   generateBlogOgImage: () => generateBlogOgImage
 });
-function wrapText2(ctx, text2, maxWidth, maxLines) {
-  const words = text2.split(" ");
+function wrapText2(ctx, text3, maxWidth, maxLines) {
+  const words = text3.split(" ");
   const lines = [];
   let current = "";
   for (const word of words) {
@@ -63606,8 +63777,8 @@ function fallbackShot(input) {
   return (lines.join(" ") || input).slice(0, MAX_SHOT_CHARS);
 }
 async function planVideoShot(input, userId) {
-  const text2 = String(input || "").trim();
-  if (!text2) throw new Error("prompt is required");
+  const text3 = String(input || "").trim();
+  if (!text3) throw new Error("prompt is required");
   try {
     const { getUniversalAIClientForUser: getUniversalAIClientForUser2 } = await Promise.resolve().then(() => (init_openai(), openai_exports));
     const ai = await getUniversalAIClientForUser2(userId || 0);
@@ -63628,7 +63799,7 @@ Rules:
 Also write "hook": the 3-8 word caption to overlay on the video, in the input's language.
 
 Input:
-"""${text2.slice(0, 4e3)}"""
+"""${text3.slice(0, 4e3)}"""
 
 JSON: {"shot":"...","hook":"..."}` }
       ],
@@ -63642,7 +63813,7 @@ JSON: {"shot":"...","hook":"..."}` }
   } catch (e) {
     console.warn("[video-shot] planning failed, using fallback:", e?.message || e);
   }
-  return { shot: fallbackShot(text2), hook: "", planned: false };
+  return { shot: fallbackShot(text3), hook: "", planned: false };
 }
 var MAX_SHOT_CHARS;
 var init_video_shot = __esm({
@@ -64059,8 +64230,8 @@ import * as fs15 from "fs";
 function escapeXml(s) {
   return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
 }
-function wrapText3(text2, maxCharsPerLine, maxLines) {
-  const words = text2.split(/\s+/).filter(Boolean);
+function wrapText3(text3, maxCharsPerLine, maxLines) {
+  const words = text3.split(/\s+/).filter(Boolean);
   const lines = [];
   let current = "";
   for (const word of words) {
@@ -65897,7 +66068,7 @@ function buildOAuthHeader(method, url, params) {
   const headerValue = Object.keys(oauthParams).sort().map((k2) => `${encodeURIComponent(k2)}="${encodeURIComponent(oauthParams[k2])}"`).join(", ");
   return `OAuth ${headerValue}`;
 }
-async function postTweet(text2) {
+async function postTweet(text3) {
   try {
     const url = "https://api.twitter.com/2/tweets";
     const oauthHeader = buildOAuthHeader("POST", url, {});
@@ -65908,7 +66079,7 @@ async function postTweet(text2) {
         Authorization: oauthHeader,
         "Content-Type": "application/json"
       },
-      body: JSON.stringify({ text: text2 })
+      body: JSON.stringify({ text: text3 })
     });
     if (!res2.ok) {
       const err = await res2.text();
@@ -65922,7 +66093,7 @@ async function postTweet(text2) {
     return null;
   }
 }
-async function postLinkedIn(text2) {
+async function postLinkedIn(text3) {
   const token = process.env.LINKEDIN_ACCESS_TOKEN;
   if (!token) return null;
   try {
@@ -65938,7 +66109,7 @@ async function postLinkedIn(text2) {
         lifecycleState: "PUBLISHED",
         specificContent: {
           "com.linkedin.ugc.ShareContent": {
-            shareCommentary: { text: text2 },
+            shareCommentary: { text: text3 },
             shareMediaCategory: "NONE"
           }
         },
@@ -66869,10 +67040,10 @@ async function sendAmbassadorPrimeReport(data) {
     ["\u{1F4DA}", "Knowledge Post", data.knowledgePost],
     ["\u{1F4CA}", "Results Post", data.resultsPost],
     ["\u{1F4E2}", "Update Post", data.updatePost]
-  ].filter(([, , text2]) => !!text2).map(([icon, label, text2]) => `
+  ].filter(([, , text3]) => !!text3).map(([icon, label, text3]) => `
   <div style="background:#111;border:1px solid #222;border-radius:8px;padding:16px;margin-bottom:16px;">
     <div style="font-size:13px;font-weight:600;color:#fff;margin-bottom:8px;">${icon} ${label}</div>
-    <div style="font-size:12px;color:#ccc;white-space:pre-wrap;padding:8px;background:#0a0a0a;border-radius:4px;">${escHtml2(text2)}</div>
+    <div style="font-size:12px;color:#ccc;white-space:pre-wrap;padding:8px;background:#0a0a0a;border-radius:4px;">${escHtml2(text3)}</div>
   </div>`).join("")}
 
   <!-- Footer -->
@@ -71981,9 +72152,9 @@ async function getStopOrdersForUser(userId, filters = {}) {
 init_schema();
 
 // server/build-info.ts
-var BUILD_COMMIT = "d09bd0c-dirty";
-var BUILD_BRANCH = "fix/guard-counterfactuals";
-var BUILT_AT = "2026-11-08T16:03:37.574Z";
+var BUILD_COMMIT = "1162c2b-dirty";
+var BUILD_BRANCH = "fix/settings-overview";
+var BUILT_AT = "2026-11-08T16:17:57.602Z";
 
 // server/stripe.ts
 init_db();
@@ -72334,8 +72505,8 @@ async function fireConversionHook(payload2) {
       signal: AbortSignal.timeout(8e3)
     });
     if (!res2.ok) {
-      const text2 = await res2.text().catch(() => "");
-      console.warn(`[VEDDHook] Conversion webhook returned ${res2.status}: ${text2}`);
+      const text3 = await res2.text().catch(() => "");
+      console.warn(`[VEDDHook] Conversion webhook returned ${res2.status}: ${text3}`);
     } else {
       console.log(`[VEDDHook] Conversion recorded \u2014 ${payload2.webhookSource} \u2014 ${payload2.signupEmail}`);
     }
@@ -79922,9 +80093,9 @@ IMPORTANT:
   app2.post("/api/abba/tts", async (req, res2) => {
     if (!req.isAuthenticated()) return res2.status(401).json({ error: "Authentication required" });
     const userId = req.user.id;
-    const { text: text2 } = req.body;
-    if (!text2?.trim()) return res2.status(400).json({ error: "text required" });
-    const clean = text2.replace(/\[NAV:.*?\]/g, "").replace(/\[PLAN_PROPOSAL:.*?\]/gs, "").replace(/https?:\/\/\S+/g, "").replace(/[*_~`#>]/g, "").replace(/\n{3,}/g, "\n\n").trim().slice(0, 4096);
+    const { text: text3 } = req.body;
+    if (!text3?.trim()) return res2.status(400).json({ error: "text required" });
+    const clean = text3.replace(/\[NAV:.*?\]/g, "").replace(/\[PLAN_PROPOSAL:.*?\]/gs, "").replace(/https?:\/\/\S+/g, "").replace(/[*_~`#>]/g, "").replace(/\n{3,}/g, "\n\n").trim().slice(0, 4096);
     if (!clean) return res2.status(400).json({ error: "No speakable text" });
     try {
       const allKeys = await storage.getUserApiKeys(userId);
@@ -90671,14 +90842,14 @@ Rules:
         const dateB = b.createdAt ? new Date(b.createdAt).getTime() : 0;
         return dateB - dateA;
       });
-      const parseConfidence = (text2) => {
-        if (!text2) return 50;
-        const lower = text2.toLowerCase();
+      const parseConfidence = (text3) => {
+        if (!text3) return 50;
+        const lower = text3.toLowerCase();
         if (lower.includes("very high") || lower.includes("extremely")) return 90;
         if (lower.includes("high")) return 75;
         if (lower.includes("medium") || lower.includes("moderate")) return 55;
         if (lower.includes("low")) return 35;
-        const match = text2.match(/(\d+)/);
+        const match = text3.match(/(\d+)/);
         return match ? parseInt(match[1]) : 50;
       };
       const reversals = [];
@@ -94780,16 +94951,16 @@ Respond with ONLY valid JSON:
     try {
       const { runRuinConeSimulation: runRuinConeSimulation2 } = await Promise.resolve().then(() => (init_ruin_cone(), ruin_cone_exports));
       const q = req.query;
-      const num6 = (v) => v != null && v !== "" ? Number(v) : void 0;
+      const num7 = (v) => v != null && v !== "" ? Number(v) : void 0;
       const result = await runRuinConeSimulation2(userId, {
-        numSimulations: num6(q.numSimulations),
-        numTrades: num6(q.numTrades),
-        startingEquity: num6(q.startingEquity),
-        dailyLossLimit: num6(q.dailyLossLimit),
-        maxDrawdownLimit: num6(q.maxDrawdownLimit),
-        consistencyRuleThreshold: num6(q.consistencyRuleThreshold),
-        profitTarget: num6(q.profitTarget),
-        sourceLimit: num6(q.sourceLimit),
+        numSimulations: num7(q.numSimulations),
+        numTrades: num7(q.numTrades),
+        startingEquity: num7(q.startingEquity),
+        dailyLossLimit: num7(q.dailyLossLimit),
+        maxDrawdownLimit: num7(q.maxDrawdownLimit),
+        consistencyRuleThreshold: num7(q.consistencyRuleThreshold),
+        profitTarget: num7(q.profitTarget),
+        sourceLimit: num7(q.sourceLimit),
         source: q.source ? String(q.source) : void 0,
         noCache: q.nocache === "1" || q.noCache === "true"
       });
@@ -94996,6 +95167,10 @@ Return ONLY JSON: {"topPicks":[{"market":"","winProbability":<0-100>,"whyItWins"
       }
       if (String(req.query.view || "") === "counterfactuals") {
         return res2.json(await guardCounterfactuals2(req.user.id, Number(req.query.days) || 30));
+      }
+      if (String(req.query.view || "") === "settings") {
+        const { getSettingsOverview: getSettingsOverview2 } = await Promise.resolve().then(() => (init_settings_overview(), settings_overview_exports));
+        return res2.json(await getSettingsOverview2(req.user.id));
       }
       res2.json(await recentGuardEvents2(req.user.id, Number(req.query.limit) || 60, req.query.kinds ? String(req.query.kinds).split(",") : void 0));
     } catch (err) {
