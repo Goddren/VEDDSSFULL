@@ -32,31 +32,12 @@ async function main(): Promise<void> {
   const startedAt = new Date().toISOString();
   console.log(`[crypto-cron] start ${startedAt}`);
 
-  // Heartbeat (2026-11-08): this job is the crypto engine's only pulse, and
-  // it lives outside the web service — if the schedule ever stops, nothing
-  // would notice. Record every run in runtime_state so /api/health and the
-  // engine watchdog can see the pulse (services/crypto-health.ts reads it).
-  // Awaited (not the fire-and-forget helper) because this process exits
-  // immediately after main() returns.
-  const writeHeartbeat = async (value: Record<string, unknown>): Promise<void> => {
-    try {
-      const { ensureRuntimeStateTable } = await import('./services/runtime-state');
-      const { pool } = await import('./db');
-      await ensureRuntimeStateTable();
-      await pool.query(
-        `INSERT INTO runtime_state (scope, key, value, updated_at) VALUES ('crypto_cron', 'heartbeat', $1::jsonb, now())
-         ON CONFLICT (scope, key) DO UPDATE SET value = EXCLUDED.value, updated_at = now()`,
-        [JSON.stringify(value)],
-      );
-    } catch { /* heartbeat is best-effort — never fail the scan over it */ }
-  };
-  let prevOkAt: string | null = null;
-  try {
-    const { getRuntimeStateStrict } = await import('./services/runtime-state');
-    const prev: any = await getRuntimeStateStrict('crypto_cron', 'heartbeat').catch(() => null);
-    prevOkAt = prev?.state === 'ok' ? (prev?.finishedAt ?? null) : (prev?.lastOkAt ?? null);
-  } catch { /* first run */ }
-  await writeHeartbeat({ state: 'running', startedAt, lastOkAt: prevOkAt });
+  // Liveness: the scanner writes its own heartbeat row
+  // (crypto_engine_heartbeat) on every scan, whichever entry point started
+  // it; services/crypto-health.ts reads that table for /api/health and the
+  // watchdog. (A runtime_state heartbeat written from this entry point in
+  // Nov 2026 was removed — it duplicated the scanner's pulse and, being
+  // tied to this one entry point, was the wrong place for it.)
 
   try {
     // Ensure the core crypto tables exist (cheap CREATE IF NOT EXISTS). The main
@@ -75,11 +56,10 @@ async function main(): Promise<void> {
     const { runCryptocomEngineScan } = await import('./services/cryptocom-scanner');
     await runCryptocomEngineScan();
   } catch (err: any) {
-    await writeHeartbeat({ state: 'error', startedAt, finishedAt: new Date().toISOString(), durationMs: Date.now() - started, error: String(err?.message ?? err).slice(0, 300), lastOkAt: prevOkAt });
+    console.error('[crypto-cron] scan failed:', err?.message ?? err);
     throw err;
   }
 
-  await writeHeartbeat({ state: 'ok', startedAt, finishedAt: new Date().toISOString(), durationMs: Date.now() - started, lastOkAt: new Date().toISOString() });
   console.log(`[crypto-cron] scan complete in ${Date.now() - started}ms`);
 }
 

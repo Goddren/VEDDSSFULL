@@ -46451,10 +46451,10 @@ __export(crypto_health_exports, {
 });
 async function getCryptoEngineHealth() {
   const staleAfterMin = STALE_MIN();
-  let hb2 = null;
+  let row = null;
   try {
-    const { getRuntimeStateStrict: getRuntimeStateStrict2 } = await Promise.resolve().then(() => (init_runtime_state(), runtime_state_exports));
-    hb2 = await getRuntimeStateStrict2("crypto_cron", "heartbeat").catch(() => null);
+    const { rows } = await pool.query(`SELECT * FROM crypto_engine_heartbeat WHERE id = 1`);
+    row = rows[0] ?? null;
   } catch {
   }
   let artifactAt = null;
@@ -46468,26 +46468,44 @@ async function getCryptoEngineHealth() {
     artifactAt = rows[0]?.last_at ? new Date(rows[0].last_at) : null;
   } catch {
   }
-  const lastRunAt = hb2?.finishedAt ?? null;
-  const lastRunState = hb2?.state ?? null;
-  const lastOkAt = hb2?.state === "ok" ? hb2?.finishedAt ?? null : hb2?.lastOkAt ?? null;
-  const candidates = [lastOkAt ? new Date(lastOkAt).getTime() : 0, artifactAt?.getTime() ?? 0].filter((n) => n > 0);
-  const lastActivityMs = candidates.length ? Math.max(...candidates) : null;
+  const iso = (v) => v ? new Date(v).toISOString() : null;
+  let lastRunAt = null;
+  let lastRunState = null;
+  let runner = null;
+  let phase2 = null;
+  let scansCompleted = null;
+  let wedged = false;
+  let hbMs = 0;
+  if (row) {
+    runner = row.booted_at ? "background worker" : "cron job";
+    phase2 = row.phase ?? null;
+    scansCompleted = row.scans_completed ?? null;
+    wedged = (row.skipped_ticks ?? 0) >= 3;
+    lastRunAt = iso(row.scan_finished_at ?? row.scan_started_at ?? row.tick_at);
+    lastRunState = row.last_error ? "error" : phase2 === "idle" ? "ok" : phase2;
+    hbMs = Math.max(0, ...[row.tick_at, row.scan_finished_at, row.scan_started_at, row.updated_at].filter(Boolean).map((d) => new Date(d).getTime()));
+  }
+  const lastActivityMs = Math.max(hbMs, artifactAt?.getTime() ?? 0) || null;
   const lastActivityAt = lastActivityMs ? new Date(lastActivityMs).toISOString() : null;
   const ageMinutes = lastActivityMs ? Math.round((Date.now() - lastActivityMs) / 6e4 * 10) / 10 : null;
   let status;
   let message;
   if (lastActivityMs == null || ageMinutes == null) {
     status = "never";
-    message = "Crypto: no cron heartbeat and no crypto trades/decisions on record \u2014 the cron may never have run, or its schedule is not set up.";
+    message = "Crypto: no scanner heartbeat and no crypto trades/decisions on record \u2014 the engine may never have run against this database, or its schedule is not set up.";
   } else if (ageMinutes <= staleAfterMin) {
     status = "ok";
-    message = `Crypto OK \u2014 last activity ${ageMinutes} min ago${lastRunState === "error" ? " (note: the latest cron run reported an error \u2014 see the cron log)" : ""}.`;
+    const bits = [`Crypto OK \u2014 last activity ${ageMinutes} min ago`];
+    if (runner) bits.push(`runner: ${runner}`);
+    if (scansCompleted != null) bits.push(`${scansCompleted} scans completed`);
+    if (wedged) bits.push(`WARNING: the scan may be wedged at phase "${phase2}" (${row?.skipped_ticks} skipped ticks)`);
+    if (row?.last_error) bits.push(`last error: ${String(row.last_error).slice(0, 140)}`);
+    message = bits.join(" \xB7 ") + ".";
   } else {
     status = "stale";
-    message = `Crypto STALE \u2014 no successful run or crypto activity for ${ageMinutes} min (expected every few minutes). The Render cron job may be paused, deleted, or failing \u2014 check the cron service. Last run: ${lastRunAt ?? "unknown"}${lastRunState ? ` (${lastRunState})` : ""}.`;
+    message = `Crypto STALE \u2014 no scanner tick or crypto activity for ${ageMinutes} min (threshold ${staleAfterMin} min). ${runner === "background worker" ? "The worker service may be down or wedged" : "The Render cron job may be paused, deleted, or failing"} \u2014 check the service. Last scan: ${lastRunAt ?? "unknown"}${phase2 ? ` (phase ${phase2})` : ""}.`;
   }
-  return { status, lastRunAt, lastRunState, lastActivityAt, ageMinutes, staleAfterMin, message };
+  return { status, lastRunAt, lastRunState, lastActivityAt, ageMinutes, staleAfterMin, message, runner, phase: phase2, scansCompleted, wedged };
 }
 var STALE_MIN;
 var init_crypto_health = __esm({
@@ -72390,9 +72408,9 @@ async function getStopOrdersForUser(userId, filters = {}) {
 init_schema();
 
 // server/build-info.ts
-var BUILD_COMMIT = "36f4a8f-dirty";
-var BUILD_BRANCH = "fix/practice-cost-check";
-var BUILT_AT = "2026-11-08T16:40:39.774Z";
+var BUILD_COMMIT = "3b66557-dirty";
+var BUILD_BRANCH = "fix/crypto-heartbeat-in-scanner";
+var BUILT_AT = "2026-11-08T16:54:54.513Z";
 
 // server/stripe.ts
 init_db();
