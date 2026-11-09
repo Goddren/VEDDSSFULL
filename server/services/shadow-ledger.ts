@@ -104,6 +104,25 @@ CREATE OR REPLACE VIEW shadow_ledger AS
     FROM crypto_shadow_trades x
     LEFT JOIN crypto_shadow_context xc ON xc.trade_id = x.id
    WHERE x.status = 'closed' AND x.return_pct IS NOT NULL
+  UNION ALL
+  -- Kalshi stock-perp shadow lane (kalshi-stock-shadow.ts). Perps short
+  -- natively, so shorts are real reads, not hypothetical. Corporate-action
+  -- closes are excluded (the price series adjusts across the action — any
+  -- return spanning it is fiction), as are sub-2-minute ≥40% prints (the
+  -- Sol quarantine discipline: a large-cap perp does not legitimately move
+  -- 40% in 2 minutes outside a split print, and splits are handled above).
+  SELECT ('kalshi_stock_shadow:' || k.id)::text, 'kalshi_stock_shadow', 'kalshi_perp', k.user_id,
+         k.strategy, k.ticker, CASE WHEN k.direction = 'short' THEN 'SHORT' ELSE 'LONG' END,
+         k.opened_at, k.closed_at,
+         extract(hour from k.opened_at AT TIME ZONE 'UTC')::int,
+         ${SESSION_SQL("(k.opened_at AT TIME ZONE 'UTC')")},
+         NULL, kc.h1_trend, kc.h4_trend, kc.htf_aligned, true,
+         CASE WHEN k.exit_reason = 'time limit' THEN 'EXPIRED' WHEN k.r_multiple > 0 THEN 'WIN' WHEN k.r_multiple < 0 THEN 'LOSS' ELSE 'FLAT' END,
+         k.r_multiple::float, k.return_pct::float
+    FROM kalshi_perp_shadow_trades k
+    LEFT JOIN kalshi_perp_shadow_context kc ON kc.trade_id = k.id
+   WHERE k.status = 'closed' AND k.return_pct IS NOT NULL AND k.exclude_from_stats IS NOT TRUE
+     AND NOT (abs(k.return_pct) >= 40 AND extract(epoch from (k.closed_at - k.opened_at)) < 120)
 `;
 
 let _ensured: Promise<void> | null = null;
@@ -113,6 +132,7 @@ export function ensureShadowLedger(): Promise<void> {
     _ensured = (async () => {
       try { const { ensurePaperTable } = await import('./crypto-paper'); await ensurePaperTable(); } catch { /* table may already exist */ }
       try { const { ensureCryptoShadowTables } = await import('./crypto-shadow'); await ensureCryptoShadowTables(); } catch { /* table may already exist */ }
+      try { const { ensureKalshiPerpShadowTables } = await import('./ensure-kalshi-perp-shadow-tables'); await ensureKalshiPerpShadowTables(); } catch { /* table may already exist */ }
       await pool.query(VIEW_SQL);
     })().catch((e) => { _ensured = null; throw e; });
   }

@@ -13206,9 +13206,9 @@ function calculateFibonacci(candles, lookback = 50) {
   let nearestIdx = 0;
   let nearestDist = Infinity;
   levels.forEach((l, i) => {
-    const dist = Math.abs(currentPrice - l.price);
-    if (dist < nearestDist) {
-      nearestDist = dist;
+    const dist2 = Math.abs(currentPrice - l.price);
+    if (dist2 < nearestDist) {
+      nearestDist = dist2;
       nearestIdx = i;
     }
   });
@@ -13485,11 +13485,11 @@ function calculateRSI(candles, period = 14) {
 }
 function calcEMA(values, period) {
   const k2 = 2 / (period + 1);
-  const ema6 = [values[0]];
+  const ema7 = [values[0]];
   for (let i = 1; i < values.length; i++) {
-    ema6.push(values[i] * k2 + ema6[i - 1] * (1 - k2));
+    ema7.push(values[i] * k2 + ema7[i - 1] * (1 - k2));
   }
-  return ema6;
+  return ema7;
 }
 function calculateMACD(candles, fast = 12, slow = 26, signalPeriod = 9) {
   if (candles.length < slow + signalPeriod) return void 0;
@@ -13677,9 +13677,9 @@ function computeKeltnerChannels(candles, emaPeriod = 20, atrPeriod = 10, multipl
   if (candles.length < emaPeriod + 2) return void 0;
   const chronological = [...candles].reverse();
   const k2 = 2 / (emaPeriod + 1);
-  let ema6 = chronological.slice(0, emaPeriod).reduce((s, c) => s + c.c, 0) / emaPeriod;
+  let ema7 = chronological.slice(0, emaPeriod).reduce((s, c) => s + c.c, 0) / emaPeriod;
   for (let i = emaPeriod; i < chronological.length; i++) {
-    ema6 = chronological[i].c * k2 + ema6 * (1 - k2);
+    ema7 = chronological[i].c * k2 + ema7 * (1 - k2);
   }
   const trValues = [];
   for (let i = 1; i < chronological.length; i++) {
@@ -13689,10 +13689,10 @@ function computeKeltnerChannels(candles, emaPeriod = 20, atrPeriod = 10, multipl
   const atrSlice = trValues.slice(-atrPeriod);
   const atr3 = atrSlice.length > 0 ? atrSlice.reduce((s, v) => s + v, 0) / atrSlice.length : 0;
   if (atr3 === 0) return void 0;
-  const upper = ema6 + multiplier * atr3;
-  const lower = ema6 - multiplier * atr3;
+  const upper = ema7 + multiplier * atr3;
+  const lower = ema7 - multiplier * atr3;
   const currentPrice = chronological[chronological.length - 1].c;
-  const bandwidth = (upper - lower) / ema6 * 100;
+  const bandwidth = (upper - lower) / ema7 * 100;
   const prevBandwidths = [];
   let prevEma = chronological.slice(0, emaPeriod).reduce((s, c) => s + c.c, 0) / emaPeriod;
   for (let i = emaPeriod; i < chronological.length - 5; i++) {
@@ -13749,7 +13749,7 @@ function computeKeltnerChannels(candles, emaPeriod = 20, atrPeriod = 10, multipl
   }
   return {
     upper: Math.round(upper * 1e5) / 1e5,
-    middle: Math.round(ema6 * 1e5) / 1e5,
+    middle: Math.round(ema7 * 1e5) / 1e5,
     lower: Math.round(lower * 1e5) / 1e5,
     bandwidth: Math.round(bandwidth * 100) / 100,
     position,
@@ -15840,7 +15840,7 @@ function logDecisionShadow(r) {
     _seen.set(k2, Date.now());
     if (_seen.size > 5e3) _seen.clear();
   }
-  const num8 = (v) => typeof v === "number" && Number.isFinite(v) ? v : null;
+  const num10 = (v) => typeof v === "number" && Number.isFinite(v) ? v : null;
   void ensureDecisionShadowTable().then(() => pool.query(
     `INSERT INTO fx_decision_shadow (user_id, scan_id, symbol, session, hour_utc, lane, mode, acted, picked, ai_status,
        direction, score, terms, entry, sl, tp, gate_result)
@@ -15857,11 +15857,11 @@ function logDecisionShadow(r) {
       !!r.picked,
       r.aiStatus ?? null,
       r.direction ?? null,
-      num8(r.score),
+      num10(r.score),
       r.terms == null ? null : JSON.stringify(r.terms),
-      num8(r.entry),
-      num8(r.sl),
-      num8(r.tp),
+      num10(r.entry),
+      num10(r.sl),
+      num10(r.tp),
       r.gateResult ?? null
     ]
   )).catch(() => {
@@ -16818,13 +16818,13 @@ async function btcDailyTrend(symbol) {
     const r = await marketDataService.fetchMarketData({ symbol, assetType: marketDataService.detectAssetType(symbol), timeframe: "1d", limit: 80 });
     const closes = (r?.bars || []).slice(0, -1).map((b) => Number(b.close));
     if (closes.length < 55) return null;
-    const ema6 = (n) => {
+    const ema7 = (n) => {
       const k2 = 2 / (n + 1);
       let e = closes.slice(0, n).reduce((a, c) => a + c, 0) / n;
       for (const c of closes.slice(n)) e = c * k2 + e * (1 - k2);
       return e;
     };
-    const e20 = ema6(20), e50 = ema6(50), last2 = closes[closes.length - 1];
+    const e20 = ema7(20), e50 = ema7(50), last2 = closes[closes.length - 1];
     const trend = e20 > e50 && last2 > e20 ? "BULLISH" : e20 < e50 && last2 < e20 ? "BEARISH" : "NEUTRAL";
     d1Cache.set(symbol, { at: Date.now(), trend });
     return trend;
@@ -18584,6 +18584,47 @@ var init_crypto_shadow = __esm({
   }
 });
 
+// server/services/ensure-kalshi-perp-shadow-tables.ts
+var ensure_kalshi_perp_shadow_tables_exports = {};
+__export(ensure_kalshi_perp_shadow_tables_exports, {
+  ensureKalshiPerpShadowTables: () => ensureKalshiPerpShadowTables
+});
+function ensureKalshiPerpShadowTables() {
+  if (!_ensured3) {
+    _ensured3 = pool.query(`CREATE TABLE IF NOT EXISTS kalshi_perp_shadow_trades (
+      id serial PRIMARY KEY, user_id int NOT NULL, strategy text NOT NULL, ticker text NOT NULL, underlying text NOT NULL,
+      direction text NOT NULL,
+      entry_price double precision NOT NULL, entry_bid double precision, entry_ask double precision,
+      stop_loss double precision NOT NULL, take_profit double precision NOT NULL,
+      sl_pct double precision NOT NULL, contracts double precision NOT NULL, notional_usd double precision NOT NULL,
+      cost_bps double precision NOT NULL, cost_model text NOT NULL DEFAULT 'placeholder',
+      funding_accrued_usd double precision NOT NULL DEFAULT 0, funding_through_ms bigint NOT NULL DEFAULT 0,
+      score real, max_hours double precision NOT NULL, status text NOT NULL DEFAULT 'open',
+      exit_price double precision, exit_reason text, gross_return_pct double precision, return_pct double precision,
+      r_multiple double precision, peak_gain_pct double precision, exclude_from_stats boolean NOT NULL DEFAULT false,
+      opened_at timestamptz NOT NULL DEFAULT now(), closed_at timestamptz)`).then(() => pool.query(`CREATE INDEX IF NOT EXISTS kalshi_perp_shadow_trades_user_status ON kalshi_perp_shadow_trades (user_id, status)`)).then(() => pool.query(`CREATE TABLE IF NOT EXISTS kalshi_perp_shadow_context (
+      trade_id int PRIMARY KEY, user_id int NOT NULL, strategy text NOT NULL, ticker text NOT NULL, direction text NOT NULL,
+      spread_bps double precision, volume_24h_usd double precision, open_interest double precision,
+      atr_pct double precision, h1_trend text, h4_trend text, htf_aligned boolean,
+      funding_rate_at_entry double precision, session_et text, hour_utc int, hour_et int, day_of_week int,
+      earnings_within_48h boolean, corporate_action_pending boolean, live_gate_blocked boolean,
+      leverage_estimate double precision, tags text[], advice_at_entry text,
+      closed_at timestamptz, exit_reason text, hold_minutes double precision, net_pct double precision, funding_paid_usd double precision)`)).then(() => void 0).catch((e) => {
+      _ensured3 = null;
+      throw e;
+    });
+  }
+  return _ensured3;
+}
+var _ensured3;
+var init_ensure_kalshi_perp_shadow_tables = __esm({
+  "server/services/ensure-kalshi-perp-shadow-tables.ts"() {
+    "use strict";
+    init_db();
+    _ensured3 = null;
+  }
+});
+
 // server/services/shadow-ledger.ts
 var shadow_ledger_exports = {};
 __export(shadow_ledger_exports, {
@@ -18591,8 +18632,8 @@ __export(shadow_ledger_exports, {
   shadowLedgerSummary: () => shadowLedgerSummary
 });
 function ensureShadowLedger() {
-  if (!_ensured3) {
-    _ensured3 = (async () => {
+  if (!_ensured4) {
+    _ensured4 = (async () => {
       try {
         const { ensurePaperTable: ensurePaperTable2 } = await Promise.resolve().then(() => (init_crypto_paper(), crypto_paper_exports));
         await ensurePaperTable2();
@@ -18603,13 +18644,18 @@ function ensureShadowLedger() {
         await ensureCryptoShadowTables2();
       } catch {
       }
+      try {
+        const { ensureKalshiPerpShadowTables: ensureKalshiPerpShadowTables2 } = await Promise.resolve().then(() => (init_ensure_kalshi_perp_shadow_tables(), ensure_kalshi_perp_shadow_tables_exports));
+        await ensureKalshiPerpShadowTables2();
+      } catch {
+      }
       await pool.query(VIEW_SQL);
     })().catch((e) => {
-      _ensured3 = null;
+      _ensured4 = null;
       throw e;
     });
   }
-  return _ensured3;
+  return _ensured4;
 }
 async function shadowLedgerSummary(userId, days = 30) {
   await ensureShadowLedger();
@@ -18628,7 +18674,7 @@ async function shadowLedgerSummary(userId, days = 30) {
   ]);
   return { days, bySource, bySession, byDirection, best: slices.slice(0, 10), worst: slices.slice(-10).reverse(), h4Alignment: alignment };
 }
-var SESSION_SQL, VIEW_SQL, _ensured3;
+var SESSION_SQL, VIEW_SQL, _ensured4;
 var init_shadow_ledger = __esm({
   "server/services/shadow-ledger.ts"() {
     "use strict";
@@ -18706,8 +18752,27 @@ CREATE OR REPLACE VIEW shadow_ledger AS
     FROM crypto_shadow_trades x
     LEFT JOIN crypto_shadow_context xc ON xc.trade_id = x.id
    WHERE x.status = 'closed' AND x.return_pct IS NOT NULL
+  UNION ALL
+  -- Kalshi stock-perp shadow lane (kalshi-stock-shadow.ts). Perps short
+  -- natively, so shorts are real reads, not hypothetical. Corporate-action
+  -- closes are excluded (the price series adjusts across the action \u2014 any
+  -- return spanning it is fiction), as are sub-2-minute \u226540% prints (the
+  -- Sol quarantine discipline: a large-cap perp does not legitimately move
+  -- 40% in 2 minutes outside a split print, and splits are handled above).
+  SELECT ('kalshi_stock_shadow:' || k.id)::text, 'kalshi_stock_shadow', 'kalshi_perp', k.user_id,
+         k.strategy, k.ticker, CASE WHEN k.direction = 'short' THEN 'SHORT' ELSE 'LONG' END,
+         k.opened_at, k.closed_at,
+         extract(hour from k.opened_at AT TIME ZONE 'UTC')::int,
+         ${SESSION_SQL("(k.opened_at AT TIME ZONE 'UTC')")},
+         NULL, kc.h1_trend, kc.h4_trend, kc.htf_aligned, true,
+         CASE WHEN k.exit_reason = 'time limit' THEN 'EXPIRED' WHEN k.r_multiple > 0 THEN 'WIN' WHEN k.r_multiple < 0 THEN 'LOSS' ELSE 'FLAT' END,
+         k.r_multiple::float, k.return_pct::float
+    FROM kalshi_perp_shadow_trades k
+    LEFT JOIN kalshi_perp_shadow_context kc ON kc.trade_id = k.id
+   WHERE k.status = 'closed' AND k.return_pct IS NOT NULL AND k.exclude_from_stats IS NOT TRUE
+     AND NOT (abs(k.return_pct) >= 40 AND extract(epoch from (k.closed_at - k.opened_at)) < 120)
 `;
-    _ensured3 = null;
+    _ensured4 = null;
   }
 });
 
@@ -38963,7 +39028,7 @@ function isFakeWinSignature(holdingMinutes, returnPct) {
   return holdingMinutes != null && holdingMinutes <= QUARANTINE_MAX_HOLD_MIN && returnPct != null && Math.abs(returnPct) >= QUARANTINE_MIN_ABS_RETURN_PCT;
 }
 async function ensureTable3() {
-  if (_ensured4) return;
+  if (_ensured5) return;
   try {
     await pool.query(`
       CREATE TABLE IF NOT EXISTS "sol_brain_outcomes" (
@@ -38985,7 +39050,7 @@ async function ensureTable3() {
       );
       CREATE INDEX IF NOT EXISTS "idx_sol_brain_outcomes_user_symbol" ON "sol_brain_outcomes" ("user_id", "symbol");
     `);
-    _ensured4 = true;
+    _ensured5 = true;
   } catch (err) {
     console.error("[sol-brain] ensureTable failed (non-fatal):", err?.message ?? err);
   }
@@ -39145,7 +39210,7 @@ async function recordSolBrainOutcome(o) {
     console.error("[sol-brain] recordSolBrainOutcome failed (non-fatal):", err?.message ?? err);
   }
 }
-var MIN_TRADES5, REFRESH_TTL_MS2, BAD_PRICE_ERA_END, QUARANTINE_MAX_HOLD_MIN, QUARANTINE_MIN_ABS_RETURN_PCT, BAD_PRICE_SYMBOLS, _ensured4, _cache3;
+var MIN_TRADES5, REFRESH_TTL_MS2, BAD_PRICE_ERA_END, QUARANTINE_MAX_HOLD_MIN, QUARANTINE_MIN_ABS_RETURN_PCT, BAD_PRICE_SYMBOLS, _ensured5, _cache3;
 var init_sol_brain = __esm({
   "server/services/sol-brain.ts"() {
     "use strict";
@@ -39156,7 +39221,7 @@ var init_sol_brain = __esm({
     QUARANTINE_MAX_HOLD_MIN = 1;
     QUARANTINE_MIN_ABS_RETURN_PCT = 40;
     BAD_PRICE_SYMBOLS = ["RAY", "mSOL"];
-    _ensured4 = false;
+    _ensured5 = false;
     _cache3 = /* @__PURE__ */ new Map();
   }
 });
@@ -39659,8 +39724,8 @@ __export(sol_shadow_stats_exports, {
   sessionOf: () => sessionOf
 });
 function ensureSolShadowContextTable() {
-  if (!_ensured5) {
-    _ensured5 = pool.query(`CREATE TABLE IF NOT EXISTS sol_shadow_context (
+  if (!_ensured6) {
+    _ensured6 = pool.query(`CREATE TABLE IF NOT EXISTS sol_shadow_context (
       id serial PRIMARY KEY, user_id int NOT NULL, position_id text NOT NULL UNIQUE,
       strategy_id text NOT NULL, symbol text NOT NULL, mint text, dex text,
       liquidity_usd double precision, price_change_1h double precision, price_change_24h double precision,
@@ -39674,11 +39739,11 @@ function ensureSolShadowContextTable() {
       opened_at timestamptz NOT NULL DEFAULT now(),
       closed_at timestamptz, exit_reason text, hold_minutes double precision,
       gross_pct double precision, net_pct double precision, peak_gain_pct double precision)`).then(() => pool.query(`CREATE INDEX IF NOT EXISTS sol_shadow_context_user_closed ON sol_shadow_context (user_id, closed_at)`)).then(() => void 0).catch((e) => {
-      _ensured5 = null;
+      _ensured6 = null;
       throw e;
     });
   }
-  return _ensured5;
+  return _ensured6;
 }
 function sessionOf(hourUtc) {
   if (hourUtc < 7) return "Asian";
@@ -39836,7 +39901,7 @@ async function getSolShadowStatsText(userId, max = 12) {
     return "";
   }
 }
-var num5, MIN_N, FAVOR_PCT, AVOID_PCT, _ensured5, _cache5;
+var num5, MIN_N, FAVOR_PCT, AVOID_PCT, _ensured6, _cache5;
 var init_sol_shadow_stats = __esm({
   "server/services/sol-shadow-stats.ts"() {
     "use strict";
@@ -39848,7 +39913,7 @@ var init_sol_shadow_stats = __esm({
     MIN_N = () => num5("SOL_SHADOW_STATS_MIN_N", 15);
     FAVOR_PCT = () => num5("SOL_SHADOW_FAVOR_MEDIAN_PCT", 1);
     AVOID_PCT = () => num5("SOL_SHADOW_AVOID_MEDIAN_PCT", 2);
-    _ensured5 = null;
+    _ensured6 = null;
     _cache5 = /* @__PURE__ */ new Map();
   }
 });
@@ -40998,14 +41063,14 @@ async function monitorPaperPositions(userId, state) {
     if (!solLearnedRulesOn() && gainPct >= trailActivation) {
       if (!pos.trailingActive) {
         pos.trailingActive = true;
-        const dist2 = computeServerTrailDist(gainPct, volStatus);
+        const dist3 = computeServerTrailDist(gainPct, volStatus);
         addActivity2(state, {
           type: "info",
-          message: `\u{1F512} Trail LOCKED: ${pos.symbol} hit +${gainPct.toFixed(1)}% (activation: ${trailActivation}%) \u2014 staged trail active | vol: ${volStatus} | dist: ${dist2}% from peak`
+          message: `\u{1F512} Trail LOCKED: ${pos.symbol} hit +${gainPct.toFixed(1)}% (activation: ${trailActivation}%) \u2014 staged trail active | vol: ${volStatus} | dist: ${dist3}% from peak`
         });
       }
-      const dist = computeServerTrailDist(gainPct, volStatus);
-      const trailFloor = pos.peakPrice * (1 - dist / 100);
+      const dist2 = computeServerTrailDist(gainPct, volStatus);
+      const trailFloor = pos.peakPrice * (1 - dist2 / 100);
       const effectiveFloor = Math.max(trailFloor, pos.entryPrice);
       if (currentPrice <= effectiveFloor) {
         isTrailHit = true;
@@ -41372,8 +41437,8 @@ async function monitorLivePositions(userId, state) {
         pos.trailingActive = true;
         addActivity2(state, { type: "info", message: `\u{1F512} Live Trail LOCKED: ${pos.symbol} hit +${gainPct.toFixed(1)}% (activation: ${liveTrailActivation}%) \u2014 staged trail active (${volStatus} vol)` });
       }
-      const dist = computeServerTrailDist(gainPct, volStatus);
-      const effectiveFloor = Math.max(pos.peakPrice * (1 - dist / 100), pos.entryPrice);
+      const dist2 = computeServerTrailDist(gainPct, volStatus);
+      const effectiveFloor = Math.max(pos.peakPrice * (1 - dist2 / 100), pos.entryPrice);
       if (currentPrice <= effectiveFloor) trailHit = true;
     }
     const tpHit = gainPct >= pos.targetPct;
@@ -45404,13 +45469,13 @@ function volumeProfileSignal(candles) {
   let reason;
   if (price > VAH && volConfirm) {
     direction = "BUY";
-    const dist = (price - VAH) / binSize;
-    confidence2 = clamp3(Math.round(60 + dist * 8), 55, 90);
+    const dist2 = (price - VAH) / binSize;
+    confidence2 = clamp3(Math.round(60 + dist2 * 8), 55, 90);
     reason = `VP breakout: price $${price.toFixed(0)} above value-area-high $${VAH.toFixed(0)} (POC $${pocPrice.toFixed(0)}), volume confirming`;
   } else if (price < VAL && volConfirm) {
     direction = "SELL";
-    const dist = (VAL - price) / binSize;
-    confidence2 = clamp3(Math.round(60 + dist * 8), 55, 90);
+    const dist2 = (VAL - price) / binSize;
+    confidence2 = clamp3(Math.round(60 + dist2 * 8), 55, 90);
     reason = `VP breakdown: price $${price.toFixed(0)} below value-area-low $${VAL.toFixed(0)} (POC $${pocPrice.toFixed(0)}), volume confirming`;
   } else if (price > VAH || price < VAL) {
     direction = "NEUTRAL";
@@ -45516,12 +45581,12 @@ function linregSlope(values) {
   const xs = values.map((_, i) => i);
   const mx = xs.reduce((a, b) => a + b, 0) / n;
   const my = values.reduce((a, b) => a + b, 0) / n;
-  let num8 = 0, den = 0;
+  let num10 = 0, den = 0;
   for (let i = 0; i < n; i++) {
-    num8 += (xs[i] - mx) * (values[i] - my);
+    num10 += (xs[i] - mx) * (values[i] - my);
     den += (xs[i] - mx) ** 2;
   }
-  return den === 0 ? 0 : num8 / den;
+  return den === 0 ? 0 : num10 / den;
 }
 function ensembleSignal(candles) {
   const price = candles[candles.length - 1].close;
@@ -51607,8 +51672,8 @@ async function addTradeSetupAnnotations(originalImagePath, analysis, outputFilen
         analysis.takeProfit,
         ...supportResistanceLevels
       ].map((p2) => {
-        const num8 = parseFloat(p2.replace(/[^0-9.-]/g, ""));
-        return isNaN(num8) ? 0 : num8;
+        const num10 = parseFloat(p2.replace(/[^0-9.-]/g, ""));
+        return isNaN(num10) ? 0 : num10;
       }).filter((p2) => p2 > 0);
       if (prices.length === 0) return chartArea.top + chartArea.height * 0.5;
       const minPrice = Math.min(...prices);
@@ -55887,6 +55952,256 @@ var init_cefi_executor = __esm({
   }
 });
 
+// server/services/kalshi-perps.ts
+var kalshi_perps_exports = {};
+__export(kalshi_perps_exports, {
+  aggregateBars: () => aggregateBars,
+  getLiquidStockPerps: () => getLiquidStockPerps,
+  getPerpBars: () => getPerpBars,
+  getPerpCandles: () => getPerpCandles,
+  getPerpCorporateActions: () => getPerpCorporateActions,
+  getPerpFundingEstimate: () => getPerpFundingEstimate,
+  getPerpFundingHistory: () => getPerpFundingHistory,
+  getPerpMarkets: () => getPerpMarkets,
+  getPerpRiskParams: () => getPerpRiskParams,
+  getPerpTouch: () => getPerpTouch,
+  indexExcludeSet: () => indexExcludeSet,
+  perpHost: () => perpHost,
+  underlyingOfPerpTicker: () => underlyingOfPerpTicker
+});
+function perpHost() {
+  return process.env.KALSHI_PERP_HOST === "demo" ? DEMO_HOST : PROD_HOST;
+}
+async function getJson(path20) {
+  const ctrl = new AbortController();
+  const to = setTimeout(() => ctrl.abort(), 15e3);
+  try {
+    const res2 = await fetch(`${perpHost()}${path20}`, { signal: ctrl.signal, headers: { accept: "application/json" } });
+    if (!res2.ok) throw new Error(`kalshi-perps GET ${path20} -> ${res2.status}`);
+    return await res2.json();
+  } finally {
+    clearTimeout(to);
+  }
+}
+function underlyingOfPerpTicker(ticker) {
+  const m = /^KX([A-Z][A-Z0-9.]*)PERP1?$/.exec(ticker || "");
+  return m ? m[1] : null;
+}
+function indexExcludeSet() {
+  const env = (process.env.KALSHI_STOCK_PERP_EXCLUDE || "").split(",").map((s) => s.trim().toUpperCase()).filter(Boolean);
+  return env.length ? new Set(env) : DEFAULT_INDEX_EXCLUDE;
+}
+async function getPerpMarkets() {
+  if (_marketsCache && Date.now() - _marketsCache.at < MARKETS_TTL_MS) return _marketsCache.markets;
+  const out = [];
+  let cursor = null;
+  for (let page = 0; page < 10; page++) {
+    const q = `/margin/markets?limit=1000${cursor ? `&cursor=${encodeURIComponent(cursor)}` : ""}`;
+    const data = await getJson(q);
+    for (const m of data?.markets ?? []) {
+      out.push({
+        ticker: String(m.ticker || ""),
+        underlying: underlyingOfPerpTicker(String(m.ticker || "")) || "",
+        title: String(m.title || ""),
+        status: String(m.status || ""),
+        bid: num6(m.bid),
+        ask: num6(m.ask),
+        price: num6(m.price),
+        contractSize: num6(m.contract_size),
+        leverageEstimate: num6(m.leverage_estimate),
+        volume24hContracts: num6(m.volume_24h),
+        volume24hNotionalUsd: num6(m.volume_24h_notional_value_dollars),
+        openInterest: num6(m.open_interest),
+        openInterestNotionalUsd: num6(m.open_interest_notional_value_dollars),
+        tickSize: num6(m.tick_size),
+        fundingCap: num6(m.funding_cap),
+        scheduleOpen: m.schedule?.is_open !== false,
+        haltSources: Array.isArray(m.halt_sources) ? m.halt_sources.map(String) : []
+      });
+    }
+    cursor = data?.cursor || null;
+    if (!cursor) break;
+  }
+  _marketsCache = { at: Date.now(), markets: out };
+  return out;
+}
+async function getLiquidStockPerps() {
+  const minVol = Number(process.env.KALSHI_STOCK_SHADOW_MIN_VOL24_USD ?? 25e3);
+  const minOi = Number(process.env.KALSHI_STOCK_SHADOW_MIN_OI_USD ?? 1e4);
+  const maxTickers = Math.max(1, Math.floor(Number(process.env.KALSHI_STOCK_SHADOW_MAX_TICKERS ?? 20)));
+  const exclude = indexExcludeSet();
+  const all = await getPerpMarkets();
+  return all.filter((m) => m.status === "active" && m.underlying && !exclude.has(m.underlying)).filter((m) => m.price > 0 && m.bid > 0 && m.ask > m.bid).filter((m) => m.volume24hNotionalUsd >= minVol && m.openInterestNotionalUsd >= minOi).sort((a, b) => b.volume24hNotionalUsd - a.volume24hNotionalUsd).slice(0, maxTickers);
+}
+async function getPerpRiskParams() {
+  if (_riskCache && Date.now() - _riskCache.at < 10 * 6e4) return _riskCache.map;
+  const data = await getJson("/margin/risk_parameters");
+  const map = /* @__PURE__ */ new Map();
+  const src = data?.risk_parameters ?? data ?? {};
+  for (const [ticker, v] of Object.entries(src)) {
+    map.set(ticker, {
+      initialMarginMultiplier: v?.initial_margin_multiplier != null ? num6(v.initial_margin_multiplier) : null,
+      liquidationThreshold: v?.liquidation_margin_ratio_threshold != null ? num6(v.liquidation_margin_ratio_threshold) : null
+    });
+  }
+  _riskCache = { at: Date.now(), map };
+  return map;
+}
+function dist(d) {
+  const f = (x) => x == null || x === "" ? null : num6(x);
+  return { o: f(d?.open), h: f(d?.high), l: f(d?.low), c: f(d?.close) };
+}
+function toBar(raw, intervalMin) {
+  const endTs = Number(raw?.end_period_ts);
+  if (!Number.isFinite(endTs) || endTs <= 0) return null;
+  const bid = dist(raw.bid), ask = dist(raw.ask), px = dist(raw.price);
+  const prev = raw.price?.previous != null && raw.price.previous !== "" ? num6(raw.price.previous) : null;
+  const mid = bid.c != null && ask.c != null ? (bid.c + ask.c) / 2 : bid.c ?? ask.c;
+  const c = px.c ?? prev ?? mid;
+  if (c == null || !(c > 0)) return null;
+  const o = px.o ?? prev ?? c;
+  const h = px.h ?? Math.max(o, c);
+  const l = px.l ?? Math.min(o, c);
+  const z3 = { o: 0, h: 0, l: 0, c: 0 };
+  return {
+    t: (endTs - intervalMin * 60) * 1e3,
+    o,
+    h,
+    l,
+    c,
+    v: num6(raw.volume),
+    bid: { o: bid.o ?? c, h: bid.h ?? c, l: bid.l ?? c, c: bid.c ?? c },
+    ask: { o: ask.o ?? c, h: ask.h ?? c, l: ask.l ?? c, c: ask.c ?? c },
+    openInterest: num6(raw.open_interest)
+  };
+}
+async function getPerpCandles(ticker, intervalMin, minutesBack) {
+  const capped = Math.min(Math.max(intervalMin, minutesBack), 5e3 * intervalMin);
+  const key = `${ticker}|${intervalMin}|${capped}`;
+  const hit = _candleCache.get(key);
+  if (hit && Date.now() - hit.at < CANDLE_TTL_MS) return hit.bars;
+  const end = Math.floor(Date.now() / 1e3);
+  const start = end - capped * 60;
+  const data = await getJson(`/margin/markets/${encodeURIComponent(ticker)}/candlesticks?start_ts=${start}&end_ts=${end}&period_interval=${intervalMin}`);
+  const bars = (data?.candlesticks ?? []).map((r) => toBar(r, intervalMin)).filter((b) => !!b).sort((a, b) => a.t - b.t);
+  _candleCache.set(key, { at: Date.now(), bars });
+  return bars;
+}
+function aggregateBars(bars, factor) {
+  if (factor <= 1) return bars;
+  const span = factor * 6e4;
+  const out = [];
+  let cur = null;
+  let bucket = -1;
+  for (const b of bars) {
+    const bk = Math.floor(b.t / span);
+    if (!cur || bk !== bucket) {
+      if (cur) out.push(cur);
+      bucket = bk;
+      cur = { ...b, bid: { ...b.bid }, ask: { ...b.ask } };
+    } else {
+      cur.h = Math.max(cur.h, b.h);
+      cur.l = Math.min(cur.l, b.l);
+      cur.c = b.c;
+      cur.v += b.v;
+      cur.bid.h = Math.max(cur.bid.h, b.bid.h);
+      cur.bid.l = Math.min(cur.bid.l, b.bid.l);
+      cur.bid.c = b.bid.c;
+      cur.ask.h = Math.max(cur.ask.h, b.ask.h);
+      cur.ask.l = Math.min(cur.ask.l, b.ask.l);
+      cur.ask.c = b.ask.c;
+      cur.openInterest = b.openInterest;
+    }
+  }
+  if (cur) out.push(cur);
+  return out;
+}
+async function getPerpBars(ticker, timeframe, count) {
+  const tf = TF_MINUTES[timeframe] ?? 15;
+  const strip = (bars2) => bars2.slice(-count).map((b) => ({ t: b.t, o: b.o, h: b.h, l: b.l, c: b.c, v: b.v }));
+  if (tf === 60 || tf === 1440) {
+    const bars2 = await getPerpCandles(ticker, tf === 60 ? 60 : 1440, (count + 6) * tf);
+    return strip(bars2);
+  }
+  if (tf === 240) {
+    const bars2 = await getPerpCandles(ticker, 60, (Math.ceil(count / 4) + 6) * 60);
+    return strip(aggregateBars(bars2, 4));
+  }
+  let minutes = Math.min(5e3, Math.ceil(count * tf * 2));
+  let bars = aggregateBars(await getPerpCandles(ticker, 1, minutes), tf);
+  if (bars.length < count && minutes < 5e3) {
+    minutes = 5e3;
+    bars = aggregateBars(await getPerpCandles(ticker, 1, minutes), tf);
+  }
+  return strip(bars);
+}
+async function getPerpTouch(ticker) {
+  try {
+    const data = await getJson(`/margin/markets/${encodeURIComponent(ticker)}/orderbook`);
+    const bids = data?.orderbook?.bids ?? [];
+    const asks = data?.orderbook?.asks ?? [];
+    const bid = bids.reduce((mx, lvl2) => Math.max(mx, num6(lvl2?.[0])), 0);
+    const ask = asks.reduce((mn, lvl2) => {
+      const p2 = num6(lvl2?.[0]);
+      return p2 > 0 && (mn === 0 || p2 < mn) ? p2 : mn;
+    }, 0);
+    return bid > 0 && ask > bid ? { bid, ask } : null;
+  } catch {
+    return null;
+  }
+}
+async function getPerpFundingHistory(ticker) {
+  const data = await getJson(`/margin/funding_rates/historical?ticker=${encodeURIComponent(ticker)}`);
+  return (data?.funding_rates ?? []).map((r) => ({ fundingTimeMs: new Date(r.funding_time).getTime(), rate: num6(r.funding_rate), markPrice: num6(r.mark_price) })).filter((r) => Number.isFinite(r.fundingTimeMs) && r.fundingTimeMs > 0).sort((a, b) => a.fundingTimeMs - b.fundingTimeMs);
+}
+async function getPerpFundingEstimate(ticker) {
+  try {
+    const data = await getJson(`/margin/funding_rates/estimate?ticker=${encodeURIComponent(ticker)}`);
+    const next = new Date(data?.next_funding_time).getTime();
+    return { rate: num6(data?.funding_rate), nextFundingTimeMs: Number.isFinite(next) ? next : 0 };
+  } catch {
+    return null;
+  }
+}
+async function getPerpCorporateActions() {
+  if (_caCache && Date.now() - _caCache.at < 10 * 6e4) return _caCache.actions;
+  const data = await getJson("/margin/corporate_actions");
+  const list = Array.isArray(data) ? data : data?.corporate_actions ?? data?.notices ?? [];
+  const actions = list.map((a) => {
+    const t = a?.effective_ts ?? a?.effective_time ?? a?.scheduled_ts ?? a?.scheduled_time ?? a?.ex_date ?? a?.pay_date ?? a?.record_date ?? null;
+    const ms = t == null ? null : typeof t === "number" ? t > 1e12 ? t : t * 1e3 : new Date(t).getTime();
+    return {
+      ticker: String(a?.market_ticker ?? a?.ticker ?? ""),
+      type: String(a?.type ?? a?.action_type ?? ""),
+      status: String(a?.status ?? "").toLowerCase(),
+      effectiveMs: ms != null && Number.isFinite(ms) ? ms : null,
+      raw: a
+    };
+  }).filter((a) => !!a.ticker);
+  _caCache = { at: Date.now(), actions };
+  return actions;
+}
+var PROD_HOST, DEMO_HOST, num6, DEFAULT_INDEX_EXCLUDE, _marketsCache, MARKETS_TTL_MS, _riskCache, _candleCache, CANDLE_TTL_MS, TF_MINUTES, _caCache;
+var init_kalshi_perps = __esm({
+  "server/services/kalshi-perps.ts"() {
+    "use strict";
+    PROD_HOST = "https://external-api.kalshi.com/trade-api/v2";
+    DEMO_HOST = "https://external-api.demo.kalshi.co/trade-api/v2";
+    num6 = (v) => {
+      const n = typeof v === "string" ? parseFloat(v) : Number(v);
+      return Number.isFinite(n) ? n : 0;
+    };
+    DEFAULT_INDEX_EXCLUDE = /* @__PURE__ */ new Set(["SPY", "QQQ", "DIA", "IWM", "US500", "USTECH100", "SPX", "NDX", "VIX"]);
+    _marketsCache = null;
+    MARKETS_TTL_MS = 6e4;
+    _riskCache = null;
+    _candleCache = /* @__PURE__ */ new Map();
+    CANDLE_TTL_MS = 45e3;
+    TF_MINUTES = { "1m": 1, "5m": 5, "15m": 15, "30m": 30, "1h": 60, "4h": 240, "1d": 1440 };
+    _caCache = null;
+  }
+});
+
 // server/services/hyperliquid.ts
 var hyperliquid_exports = {};
 __export(hyperliquid_exports, {
@@ -57197,6 +57512,7 @@ var init_crypto_ai_confirmation = __esm({
 // server/services/cryptocom-scanner.ts
 var cryptocom_scanner_exports = {};
 __export(cryptocom_scanner_exports, {
+  STRATEGY_RUNNERS: () => STRATEGY_RUNNERS,
   getDefiUniverseEntry: () => getDefiUniverseEntry,
   manualCloseCryptoTrade: () => manualCloseCryptoTrade,
   runCryptocomEngineScan: () => runCryptocomEngineScan,
@@ -57213,6 +57529,10 @@ function topDefiUniverse(chain, n) {
   return Array.from(defiUniverse.entries()).filter(([k2]) => k2.startsWith(pre)).sort((a, b) => (b[1].liquidityUsd || 0) - (a[1].liquidityUsd || 0)).slice(0, n).map(([k2, v]) => ({ symbol: k2.slice(pre.length), poolAddress: v.poolAddress, address: v.address, liquidityUsd: v.liquidityUsd || 0 }));
 }
 async function fetchBars(symbol, timeframe, count, chain) {
+  if (symbol.toUpperCase().startsWith("KALSHI:")) {
+    const { getPerpBars: getPerpBars2 } = await Promise.resolve().then(() => (init_kalshi_perps(), kalshi_perps_exports));
+    return getPerpBars2(symbol.slice(7), timeframe, count);
+  }
   if (symbol.toUpperCase().startsWith("HL:")) {
     const { getCandles: getCandles2 } = await Promise.resolve().then(() => (init_hyperliquid(), hyperliquid_exports));
     return getCandles2(symbol.slice(3), timeframe, count, false);
@@ -57425,8 +57745,8 @@ async function runVolumeProfile(symbol, cfg) {
   if (price > VAH && volConfirm) direction = "BUY";
   else if (price < VAL && volConfirm) direction = "SELL";
   if (!direction) return { decision: "watching", reasoning: `${symbol}: inside/at value area $${VAL.toFixed(2)}\u2013$${VAH.toFixed(2)} or volume not confirming \u2014 no VP edge.`, score: 46, price, dailyChangePercent, strategy: "volume_profile" };
-  const dist = direction === "BUY" ? (price - VAH) / binSize : (VAL - price) / binSize;
-  const score = Math.round(Math.max(55, Math.min(90, 60 + dist * 8)));
+  const dist2 = direction === "BUY" ? (price - VAH) / binSize : (VAL - price) / binSize;
+  const score = Math.round(Math.max(55, Math.min(90, 60 + dist2 * 8)));
   const directionAllowed = cfg.directionFilter === "both" || cfg.directionFilter === "long_only" && direction === "BUY" || cfg.directionFilter === "short_only" && direction === "SELL";
   if (!directionAllowed) return { decision: "skipped", reasoning: `${symbol}: ${direction} VP breakout, but direction filter is "${cfg.directionFilter}".`, score, price, dailyChangePercent, strategy: "volume_profile" };
   if (score < cfg.minConfidence) return { decision: "watching", reasoning: `${symbol}: ${direction} VP breakout but score ${score}/100 below ${cfg.minConfidence}.`, score, price, dailyChangePercent, strategy: "volume_profile" };
@@ -59206,7 +59526,7 @@ var strategy_spec_exports = {};
 __export(strategy_spec_exports, {
   ENGINE_STRATEGY_KEYS: () => ENGINE_STRATEGY_KEYS,
   INDICATOR_CATALOG: () => INDICATOR_CATALOG,
-  TF_MINUTES: () => TF_MINUTES,
+  TF_MINUTES: () => TF_MINUTES2,
   specWarmupBars: () => specWarmupBars,
   validateStrategySpec: () => validateStrategySpec
 });
@@ -59283,7 +59603,7 @@ function validateStrategySpec(x) {
   if (s.trendFilter != null) {
     const tf = s.trendFilter;
     if (!TIMEFRAMES.includes(tf.timeframe)) return { ok: false, error: "trendFilter: bad timeframe" };
-    if (TF_MINUTES[tf.timeframe] <= TF_MINUTES[s.timeframe]) {
+    if (TF_MINUTES2[tf.timeframe] <= TF_MINUTES2[s.timeframe]) {
       return { ok: false, error: "trendFilter timeframe must be HIGHER than the strategy timeframe" };
     }
     if (tf.timeframe === "D1" && s.timeframe !== "H4" && s.timeframe !== "H1") {
@@ -59328,7 +59648,7 @@ function specWarmupBars(spec) {
     w = Math.max(w, need + 2);
   }
   if (spec.trendFilter) {
-    const ratio = Math.max(1, Math.round(TF_MINUTES[spec.trendFilter.timeframe] / TF_MINUTES[spec.timeframe]));
+    const ratio = Math.max(1, Math.round(TF_MINUTES2[spec.trendFilter.timeframe] / TF_MINUTES2[spec.timeframe]));
     let htfWarm = 2;
     for (const ind of spec.indicators) {
       const need = ind.kind === "MACD" ? (ind.slowPeriod ?? 26) + (ind.signalPeriod ?? 9) : ind.period ?? 14;
@@ -59338,7 +59658,7 @@ function specWarmupBars(spec) {
   }
   return w;
 }
-var ENGINE_STRATEGY_KEYS, INDICATOR_CATALOG, TIMEFRAMES, OPERATORS, FIELDS, TF_MINUTES;
+var ENGINE_STRATEGY_KEYS, INDICATOR_CATALOG, TIMEFRAMES, OPERATORS, FIELDS, TF_MINUTES2;
 var init_strategy_spec = __esm({
   "server/services/strategy-spec.ts"() {
     "use strict";
@@ -59420,7 +59740,7 @@ var init_strategy_spec = __esm({
       "s1",
       "s2"
     ];
-    TF_MINUTES = {
+    TF_MINUTES2 = {
       M1: 1,
       M5: 5,
       M15: 15,
@@ -59998,7 +60318,7 @@ function buildSeries(spec, bars) {
         break;
       }
       case "ORB": {
-        const p2 = orbSeries(bars, ind.sessionStartHourUtc ?? 14, ind.sessionStartMinuteUtc ?? 30, ind.rangeMinutes ?? 30, TF_MINUTES[spec.timeframe] * 6e4);
+        const p2 = orbSeries(bars, ind.sessionStartHourUtc ?? 14, ind.sessionStartMinuteUtc ?? 30, ind.rangeMinutes ?? 30, TF_MINUTES2[spec.timeframe] * 6e4);
         map.set(key("or_high"), p2.orHigh);
         map.set(key("or_low"), p2.orLow);
         map.set(key("value"), p2.orHigh);
@@ -60096,9 +60416,9 @@ function sessionAllows(spec, barTs) {
   return sf.endHourUtc > sf.startHourUtc ? h >= sf.startHourUtc && h < sf.endHourUtc : h >= sf.startHourUtc || h < sf.endHourUtc;
 }
 function resampleBars(bars, baseTf, htfTf) {
-  const ratio = Math.max(1, Math.round(TF_MINUTES[htfTf] / TF_MINUTES[baseTf]));
+  const ratio = Math.max(1, Math.round(TF_MINUTES2[htfTf] / TF_MINUTES2[baseTf]));
   if (ratio <= 1) return bars.slice();
-  const bucketMs = TF_MINUTES[htfTf] * 6e4;
+  const bucketMs = TF_MINUTES2[htfTf] * 6e4;
   const out = [];
   let cur = null;
   for (const b of bars) {
@@ -60122,7 +60442,7 @@ function buildFilterCtx(spec, bars) {
   return {
     htfSeries: buildSeries(spec, htfBars),
     htfBars,
-    htfMs: TF_MINUTES[spec.trendFilter.timeframe] * 6e4
+    htfMs: TF_MINUTES2[spec.trendFilter.timeframe] * 6e4
   };
 }
 function entryAllowed(spec, ctx, series, bars, i, pipSize2, side) {
@@ -60130,7 +60450,7 @@ function entryAllowed(spec, ctx, series, bars, i, pipSize2, side) {
   if (!spec.trendFilter || !ctx.htfSeries) return true;
   const group = side === "long" ? spec.trendFilter.longGroup : spec.trendFilter.shortGroup;
   if (!group || !group.conditions?.length) return true;
-  const barClose = bars[i].timestamp + TF_MINUTES[spec.timeframe] * 6e4;
+  const barClose = bars[i].timestamp + TF_MINUTES2[spec.timeframe] * 6e4;
   let h = -1;
   for (let k2 = 0; k2 < ctx.htfBars.length; k2++) {
     if (ctx.htfBars[k2].timestamp + ctx.htfMs <= barClose) h = k2;
@@ -61663,12 +61983,12 @@ async function getSettingsOverview(userId) {
   }
   return { engines };
 }
-var num6, bool, text2, secs, ENGINES;
+var num7, bool, text2, secs, ENGINES;
 var init_settings_overview = __esm({
   "server/services/settings-overview.ts"() {
     "use strict";
     init_db();
-    num6 = (key, label, standard, from) => ({ key, from, label, standard, fmt: "num" });
+    num7 = (key, label, standard, from) => ({ key, from, label, standard, fmt: "num" });
     bool = (key, label, standard, from) => ({ key, from, label, standard, fmt: "bool" });
     text2 = (key, label, standard, from) => ({ key, from, label, standard, fmt: "text" });
     secs = (key, label, standard, from) => ({ key, from, label, standard, fmt: "secs" });
@@ -61678,24 +61998,24 @@ var init_settings_overview = __esm({
         name: "FX Engine",
         // Standards: getDefaultConfig() literal in live-trading-engine.ts.
         fields: [
-          num6("minConfidence", "Minimum confidence to trade", 70),
+          num7("minConfidence", "Minimum confidence to trade", 70),
           text2("strategyMode", "Strategy mode", "aggressive"),
-          num6("maxOpenTrades", "Max open trades at once", 5),
-          num6("riskPerTrade", "Risk per trade (%)", 1),
-          num6("maxRiskPerTradePct", "Hard cap: risk per trade (%)", 2),
-          num6("maxDailyLossPct", "Daily loss breaker (%)", 4),
-          num6("dailyLossLimit", "Daily loss limit (%)", 5),
-          num6("maxDrawdownPct", "Drawdown breaker below peak (%)", 8),
-          num6("drawdownShieldThreshold", "Drawdown shield (%)", 3),
-          num6("maxLotSize", "Max lot size", 0.1),
-          num6("maxLot", "Absolute lot ceiling (0 = none)", 0),
-          num6("maxDailyTrades", "Max trades per day (0 = unlimited)", 0),
-          num6("maxTradesPerPairPerDay", "Max trades per pair per day", 2),
+          num7("maxOpenTrades", "Max open trades at once", 5),
+          num7("riskPerTrade", "Risk per trade (%)", 1),
+          num7("maxRiskPerTradePct", "Hard cap: risk per trade (%)", 2),
+          num7("maxDailyLossPct", "Daily loss breaker (%)", 4),
+          num7("dailyLossLimit", "Daily loss limit (%)", 5),
+          num7("maxDrawdownPct", "Drawdown breaker below peak (%)", 8),
+          num7("drawdownShieldThreshold", "Drawdown shield (%)", 3),
+          num7("maxLotSize", "Max lot size", 0.1),
+          num7("maxLot", "Absolute lot ceiling (0 = none)", 0),
+          num7("maxDailyTrades", "Max trades per day (0 = unlimited)", 0),
+          num7("maxTradesPerPairPerDay", "Max trades per pair per day", 2),
           bool("trailingStopEnabled", "Trailing stops", true),
           bool("profitLockEnabled", "Profit lock from +1R", true),
-          num6("stopHoldUntilR", "Stop cannot tighten before (R)", 1),
+          num7("stopHoldUntilR", "Stop cannot tighten before (R)", 1),
           bool("propFirmMode", "Prop firm mode", false),
-          num6("propFirmDailyDrawdownLimit", "Prop firm daily drawdown (%)", 4),
+          num7("propFirmDailyDrawdownLimit", "Prop firm daily drawdown (%)", 4),
           bool("autoFlattenOnBreach", "Close trades when a breaker trips", false),
           bool("brainLearningMode", "Brain learning", true),
           bool("brainShadowEnabled", "Practice results feed the brain", true),
@@ -61712,12 +62032,12 @@ var init_settings_overview = __esm({
         name: "Sol Engine",
         // Standards: DEFAULT_CONFIG in sol-engine.ts.
         fields: [
-          num6("minConfidence", "Minimum confidence to trade", 65),
-          num6("riskPerTradePct", "Risk per trade (%)", 1),
-          num6("maxDailyTrades", "Max trades per day (0 = unlimited)", 0),
-          num6("maxTokens", "Max tokens tracked at once", 10),
+          num7("minConfidence", "Minimum confidence to trade", 65),
+          num7("riskPerTradePct", "Risk per trade (%)", 1),
+          num7("maxDailyTrades", "Max trades per day (0 = unlimited)", 0),
+          num7("maxTokens", "Max tokens tracked at once", 10),
           bool("shieldEnabled", "Loss shield", true),
-          num6("shieldThreshold", "Shield trips at drawdown (%)", 10),
+          num7("shieldThreshold", "Shield trips at drawdown (%)", 10),
           bool("useKelly", "Kelly position sizing", false),
           text2("directionFilter", "Direction filter", "buy_only"),
           bool("stopOrdersEnabled", "Stop orders", false),
@@ -61736,22 +62056,22 @@ var init_settings_overview = __esm({
         name: "Kalshi Engine",
         // Standards: DEFAULT_CONFIG in kalshi-engine.ts.
         fields: [
-          num6("minConfidence", "Minimum confidence to trade", 70),
-          num6("maxOpenTrades", "Max open trades at once", 3),
-          num6("maxTradesPerDay", "Max trades per day", 10),
-          num6("contractsPerTrade", "Contracts per trade", 5),
-          num6("riskPctPerTrade", "Risk per trade (%)", 5),
-          num6("takeProfitCents", "Take profit (%)", 50),
-          num6("stopLossCents", "Stop loss (%)", 40),
-          num6("minEntryPriceCents", "Cheapest entry allowed (cents)", 30),
+          num7("minConfidence", "Minimum confidence to trade", 70),
+          num7("maxOpenTrades", "Max open trades at once", 3),
+          num7("maxTradesPerDay", "Max trades per day", 10),
+          num7("contractsPerTrade", "Contracts per trade", 5),
+          num7("riskPctPerTrade", "Risk per trade (%)", 5),
+          num7("takeProfitCents", "Take profit (%)", 50),
+          num7("stopLossCents", "Stop loss (%)", 40),
+          num7("minEntryPriceCents", "Cheapest entry allowed (cents)", 30),
           bool("requireConfluence", "Requires confluence", true),
           bool("ruinGuardEnabled", "Ruin guard (bad-day halt)", true),
-          num6("dailyLossLimitPct", "Daily loss limit (%)", 5),
-          num6("maxDrawdownLimitPct", "Max drawdown limit (%)", 10),
+          num7("dailyLossLimitPct", "Daily loss limit (%)", 5),
+          num7("maxDrawdownLimitPct", "Max drawdown limit (%)", 10),
           bool("kalshiBrainGating", "Brain can hard-block setups", true),
           bool("brainLearningMode", "Brain learning", true),
           bool("weatherEnabled", "Weather engine", false),
-          num6("cooldownMinutes", "Cooldown between trades (min)", 20)
+          num7("cooldownMinutes", "Cooldown between trades (min)", 20)
         ],
         load: async (userId) => {
           const { getKalshiEngineState: getKalshiEngineState2 } = await Promise.resolve().then(() => (init_kalshi_engine(), kalshi_engine_exports));
@@ -61763,17 +62083,17 @@ var init_settings_overview = __esm({
         name: "Crypto Engine",
         // Standards: column defaults in ensure-cryptocom-engine-tables.ts.
         fields: [
-          num6("minConfidence", "Minimum confidence to trade", 70, "min_confidence"),
-          num6("maxOpenTrades", "Max open trades at once", 3, "max_open_trades"),
-          num6("riskPerTrade", "Risk per trade (%)", 1, "risk_per_trade"),
-          num6("dailyLossLimit", "Daily loss limit (%)", 5, "daily_loss_limit"),
-          num6("maxDailyTrades", "Max trades per day (0 = unlimited)", 0, "max_daily_trades"),
-          num6("drawdownShield", "Drawdown shield (%)", 3, "drawdown_shield_threshold"),
-          num6("leverage", "Leverage", 3, "leverage"),
+          num7("minConfidence", "Minimum confidence to trade", 70, "min_confidence"),
+          num7("maxOpenTrades", "Max open trades at once", 3, "max_open_trades"),
+          num7("riskPerTrade", "Risk per trade (%)", 1, "risk_per_trade"),
+          num7("dailyLossLimit", "Daily loss limit (%)", 5, "daily_loss_limit"),
+          num7("maxDailyTrades", "Max trades per day (0 = unlimited)", 0, "max_daily_trades"),
+          num7("drawdownShield", "Drawdown shield (%)", 3, "drawdown_shield_threshold"),
+          num7("leverage", "Leverage", 3, "leverage"),
           text2("directionFilter", "Direction filter", "both", "direction_filter"),
           bool("brainLearning", "Brain learning", true, "brain_learning_mode"),
           bool("cryptoBrain", "Crypto brain", true, "crypto_brain_enabled"),
-          num6("compositeScore", "Composite entry score needed", 72, "composite_min_edge_score"),
+          num7("compositeScore", "Composite entry score needed", 72, "composite_min_edge_score"),
           bool("autoExecution", "Auto execution", false, "enable_auto_execution"),
           bool("kelly", "Kelly position sizing", false, "use_kelly_criterion"),
           secs("scanInterval", "Scan interval", 12e4, "scan_interval_ms"),
@@ -61801,13 +62121,13 @@ __export(practice_costs_report_exports, {
 });
 function costModelConstants() {
   return {
-    cryptoFeeBps: num7("CRYPTO_PAPER_FEE_BPS", 30),
-    cryptoFeeDeepBps: num7("CRYPTO_PAPER_FEE_DEEP_BPS", 5),
-    cryptoFloorMult: num7("CRYPTO_PAPER_COST_FLOOR_MULT", 3),
-    solSlippagePct: num7("SOL_PAPER_SLIPPAGE_PCT", 0.5),
-    solFeePumpfunPct: num7("SOL_PAPER_FEE_PUMPFUN_PCT", 1),
-    solFeeDefaultPct: num7("SOL_PAPER_FEE_DEFAULT_PCT", 0.3),
-    solImpactFallbackPct: num7("SOL_PAPER_IMPACT_FALLBACK_PCT", 1)
+    cryptoFeeBps: num8("CRYPTO_PAPER_FEE_BPS", 30),
+    cryptoFeeDeepBps: num8("CRYPTO_PAPER_FEE_DEEP_BPS", 5),
+    cryptoFloorMult: num8("CRYPTO_PAPER_COST_FLOOR_MULT", 3),
+    solSlippagePct: num8("SOL_PAPER_SLIPPAGE_PCT", 0.5),
+    solFeePumpfunPct: num8("SOL_PAPER_FEE_PUMPFUN_PCT", 1),
+    solFeeDefaultPct: num8("SOL_PAPER_FEE_DEFAULT_PCT", 0.3),
+    solImpactFallbackPct: num8("SOL_PAPER_IMPACT_FALLBACK_PCT", 1)
   };
 }
 async function practiceCostReport(userId, days = 90) {
@@ -61841,12 +62161,12 @@ async function practiceCostReport(userId, days = 90) {
   }
   return out;
 }
-var num7, BANDS;
+var num8, BANDS;
 var init_practice_costs_report = __esm({
   "server/services/practice-costs-report.ts"() {
     "use strict";
     init_db();
-    num7 = (name, dflt) => {
+    num8 = (name, dflt) => {
       const v = Number(process.env[name]);
       return Number.isFinite(v) && v >= 0 ? v : dflt;
     };
@@ -71532,6 +71852,7 @@ var init_iv_rank = __esm({
 // server/services/options-scanner.ts
 var options_scanner_exports = {};
 __export(options_scanner_exports, {
+  OPTIONS_STRATEGY_RUNNERS: () => OPTIONS_STRATEGY_RUNNERS,
   runOptionsEngineScan: () => runOptionsEngineScan,
   startOptionsEngineScanner: () => startOptionsEngineScanner
 });
@@ -72928,7 +73249,7 @@ function startOptionsEngineScanner() {
   }, LOOP_INTERVAL_MS);
   console.log("[options-scanner] Background options-engine scan loop started (60s tick, per-user throttled, strategies: orb/volume_profile/breakout/momentum/order_flow/auto).");
 }
-var MIN_SCAN_INTERVAL_MS2, lastScanAt2, MAX_OPEN_PER_SYMBOL2, MAX_DAILY_ENTRIES_PER_SYMBOL2, SYMBOL_COOLDOWN_MS2, CORRELATED_BASKET_CAP, CORRELATED_BASKETS, STRATEGY_RUNNERS2, sessionPeakEquity2, OPTIONS_USER_BUDGET_MS, optionsUserInFlight, optionsScanRunning, optionsCycle, started5;
+var MIN_SCAN_INTERVAL_MS2, lastScanAt2, MAX_OPEN_PER_SYMBOL2, MAX_DAILY_ENTRIES_PER_SYMBOL2, SYMBOL_COOLDOWN_MS2, CORRELATED_BASKET_CAP, CORRELATED_BASKETS, STRATEGY_RUNNERS2, OPTIONS_STRATEGY_RUNNERS, sessionPeakEquity2, OPTIONS_USER_BUDGET_MS, optionsUserInFlight, optionsScanRunning, optionsCycle, started5;
 var init_options_scanner = __esm({
   "server/services/options-scanner.ts"() {
     "use strict";
@@ -72958,6 +73279,7 @@ var init_options_scanner = __esm({
       momentum: runMomentum2,
       order_flow: runOrderFlow2
     };
+    OPTIONS_STRATEGY_RUNNERS = STRATEGY_RUNNERS2;
     sessionPeakEquity2 = /* @__PURE__ */ new Map();
     OPTIONS_USER_BUDGET_MS = 45e3;
     optionsUserInFlight = /* @__PURE__ */ new Set();
@@ -73120,6 +73442,495 @@ var init_fx_paper_monitor = __esm({
     TICK_MS4 = 3 * 60 * 1e3;
     MAX_HOLD_MS = 3 * 24 * 60 * 60 * 1e3;
     started6 = false;
+  }
+});
+
+// server/services/kalshi-stock-shadow.ts
+var kalshi_stock_shadow_exports = {};
+__export(kalshi_stock_shadow_exports, {
+  aggregateKalshiStats: () => aggregateKalshiStats,
+  computeKalshiStockShadowStats: () => computeKalshiStockShadowStats,
+  kalshiBucketsOf: () => kalshiBucketsOf,
+  resolveKalshiStockShadowTrades: () => resolveKalshiStockShadowTrades,
+  runKalshiStockShadowCycle: () => runKalshiStockShadowCycle,
+  sessionEt: () => sessionEt,
+  startKalshiStockShadow: () => startKalshiStockShadow,
+  stockShadowEnabled: () => stockShadowEnabled
+});
+function etParts(ts) {
+  const parts = etFmt.formatToParts(new Date(ts));
+  const g = (t) => parts.find((p2) => p2.type === t)?.value || "";
+  const dowMap = { Sun: 0, Mon: 1, Tue: 2, Wed: 3, Thu: 4, Fri: 5, Sat: 6 };
+  return { hour: Number(g("hour")) % 24, minute: Number(g("minute")), dow: dowMap[g("weekday")] ?? 0 };
+}
+function sessionEt(ts) {
+  const { hour, minute } = etParts(ts);
+  const m = hour * 60 + minute;
+  if (m >= 240 && m < 570) return "premarket";
+  if (m >= 570 && m < 960) return "regular";
+  if (m >= 960 && m < 1200) return "after_hours";
+  return "overnight";
+}
+function ema6(vals, n) {
+  if (vals.length < n) return null;
+  const k2 = 2 / (n + 1);
+  let e = vals.slice(0, n).reduce((a, b) => a + b, 0) / n;
+  for (let i = n; i < vals.length; i++) e = vals[i] * k2 + e * (1 - k2);
+  return e;
+}
+function trendOf2(closes, fast, slow) {
+  const f = ema6(closes, fast), s = ema6(closes, slow);
+  if (f == null || s == null) return null;
+  return f > s * 1.002 ? "BULLISH" : f < s * 0.998 ? "BEARISH" : "NEUTRAL";
+}
+function atrOf(bars, n = 14) {
+  if (bars.length < n + 1) return null;
+  const trs = [];
+  for (let i = bars.length - n; i < bars.length; i++) {
+    const b = bars[i], pc = bars[i - 1].c;
+    trs.push(Math.max(b.h - b.l, Math.abs(b.h - pc), Math.abs(b.l - pc)));
+  }
+  return trs.reduce((a, b) => a + b, 0) / n;
+}
+function kalshiBucketsOf(c) {
+  const b = {};
+  if (c.session_et) b.session = c.session_et;
+  if (c.ticker) b.ticker = c.ticker;
+  if (c.direction) b.side = c.direction;
+  if (c.spread_bps != null) b.spread = c.spread_bps < 10 ? "<10bps" : c.spread_bps < 25 ? "10-25bps" : c.spread_bps < 50 ? "25-50bps" : "50bps+";
+  if (c.atr_pct != null) b.volatility = c.atr_pct < 0.5 ? "atr<0.5%" : c.atr_pct < 1 ? "atr0.5-1%" : c.atr_pct < 2 ? "atr1-2%" : "atr2%+";
+  if (c.funding_rate_at_entry != null) b.funding = c.funding_rate_at_entry < 0 ? "negative" : c.funding_rate_at_entry > 0 ? "positive" : "zero";
+  if (c.htf_aligned != null) b.htf = c.htf_aligned ? "aligned" : "against";
+  if (c.hour_et != null) {
+    const s = Math.floor(c.hour_et / 4) * 4;
+    b.hourEt = `${String(s).padStart(2, "0")}-${String(s + 4).padStart(2, "0")}ET`;
+  }
+  return b;
+}
+function quantile3(s, q) {
+  if (!s.length) return 0;
+  const p2 = (s.length - 1) * q, lo2 = Math.floor(p2), hi2 = Math.ceil(p2);
+  return s[lo2] + (s[hi2] - s[lo2]) * (p2 - lo2);
+}
+function aggregateKalshiStats(rows) {
+  const g = /* @__PURE__ */ new Map();
+  for (const r of rows) {
+    const v = Number(r.net_pct);
+    if (!Number.isFinite(v)) continue;
+    for (const [dim, bucket] of Object.entries({ ...kalshiBucketsOf(r), all: "all" })) {
+      const k2 = `${r.strategy}|${dim}|${bucket}`;
+      (g.get(k2) ?? g.set(k2, []).get(k2)).push(v);
+    }
+  }
+  const minN = num9("KALSHI_STOCK_SHADOW_STATS_MIN_N", 15), fav = num9("KALSHI_STOCK_SHADOW_FAVOR_MEDIAN_PCT", 0.5), avd = num9("KALSHI_STOCK_SHADOW_AVOID_MEDIAN_PCT", 1);
+  return Array.from(g.entries()).map(([k2, v]) => {
+    const [strategy, dim, bucket] = k2.split("|");
+    const s = v.slice().sort((a, b) => a - b);
+    const med = quantile3(s, 0.5);
+    const verdict = s.length >= minN ? med > fav ? "favor" : med < -avd ? "avoid" : "learning" : "learning";
+    return { strategy, dim, bucket, n: s.length, medianNet: med, winRate: s.filter((x) => x > 0).length / s.length, verdict };
+  });
+}
+async function computeKalshiStockShadowStats(userId, force = false) {
+  const hit = _statsCache2.get(userId);
+  if (!force && hit && Date.now() - hit.at < 15 * 6e4) return hit.stats;
+  await ensureKalshiPerpShadowTables();
+  const { rows } = await pool.query(
+    `SELECT c.strategy, c.ticker, c.direction, c.session_et, c.spread_bps, c.atr_pct, c.funding_rate_at_entry, c.htf_aligned, c.hour_et, c.net_pct
+       FROM kalshi_perp_shadow_context c JOIN kalshi_perp_shadow_trades t ON t.id = c.trade_id
+      WHERE c.user_id=$1 AND c.closed_at IS NOT NULL AND c.net_pct IS NOT NULL AND t.exclude_from_stats IS NOT TRUE
+        AND c.closed_at >= now() - interval '60 days'`,
+    [userId]
+  );
+  const stats = aggregateKalshiStats(rows);
+  _statsCache2.set(userId, { at: Date.now(), stats });
+  return stats;
+}
+function adviceFor3(stats, strategy, ctx) {
+  const bs2 = kalshiBucketsOf(ctx);
+  const hits = stats.filter((s) => s.strategy === strategy && s.verdict !== "learning" && bs2[s.dim] === s.bucket);
+  if (!hits.length) return "learning";
+  const avoid = hits.filter((s) => s.verdict === "avoid");
+  const f = (s) => `${s.verdict}: ${s.dim} ${s.bucket} (n=${s.n}, median ${s.medianNet.toFixed(1)}%)`;
+  return `${avoid.length ? "avoid" : "favor"} \u2014 ${[...avoid, ...hits.filter((s) => s.verdict === "favor")].map(f).join("; ")}`.slice(0, 500);
+}
+function fxSpec(key, name, timeframe, indicators, long, short, symbol) {
+  return {
+    name: `${name} (mechanical approximation)`,
+    source: "engine",
+    engineStrategyKey: key,
+    symbol,
+    timeframe,
+    indicators,
+    entryLong: { logic: "AND", conditions: long },
+    entryShort: { logic: "AND", conditions: short },
+    risk: { lotSize: 0.1 }
+  };
+}
+function optionsAdapter(ticker) {
+  const inRange = (bars, start, end) => bars.filter((b) => b.t >= start.getTime() && b.t < end.getTime());
+  const shape = (bars, limit) => bars.slice(-limit).map((b) => ({ t: new Date(b.t).toISOString(), o: b.o, h: b.h, l: b.l, c: b.c, v: b.v, vw: b.c, n: 0 }));
+  return {
+    getBars: async (_sym, timeframe, start, end, limit = 1e3) => {
+      const spanMin = Math.max(1, Math.round((end.getTime() - start.getTime()) / 6e4));
+      if (timeframe === "1Day") return shape(inRange(await getPerpCandles(ticker, 1440, Math.min(5e3, spanMin + 1440)), start, end), limit);
+      if (timeframe === "5Min") return shape(inRange(aggregateBars(await getPerpCandles(ticker, 1, Math.min(5e3, spanMin + 30)), 5), start, end), limit);
+      return shape(inRange(await getPerpCandles(ticker, 1, Math.min(5e3, spanMin + 30)), start, end), limit);
+    },
+    getSnapshot: async (_sym) => {
+      const daily = await getPerpCandles(ticker, 1440, 5e3);
+      if (daily.length < 2) return null;
+      const prevClose = daily[daily.length - 2].c;
+      const touch = await getPerpTouch(ticker);
+      const price = touch ? (touch.bid + touch.ask) / 2 : daily[daily.length - 1].c;
+      if (!(prevClose > 0) || !(price > 0)) return null;
+      return { price, prevClose, dailyChangePercent: (price - prevClose) / prevClose * 100 };
+    }
+  };
+}
+async function accrueFunding(t) {
+  const since = Math.max(new Date(t.opened_at).getTime(), Number(t.funding_through_ms) || 0);
+  const rates = await getPerpFundingHistory(t.ticker).catch(() => []);
+  let accrued = Number(t.funding_accrued_usd) || 0;
+  let through = since;
+  for (const r of rates) {
+    if (r.fundingTimeMs <= since || r.fundingTimeMs > Date.now()) continue;
+    const notionalAtFunding = r.markPrice * Number(t.contracts);
+    accrued += (t.direction === "long" ? -1 : 1) * r.rate * notionalAtFunding;
+    through = Math.max(through, r.fundingTimeMs);
+  }
+  if (through !== since) {
+    await pool.query(`UPDATE kalshi_perp_shadow_trades SET funding_accrued_usd=$2, funding_through_ms=$3 WHERE id=$1`, [t.id, accrued, through]);
+  }
+  return accrued;
+}
+async function closeTrade(t, exit, why, fundingUsd, exclude) {
+  const short = t.direction === "short";
+  const gross = exit != null ? (short ? t.entry_price - exit : exit - t.entry_price) / t.entry_price * 100 : null;
+  const fundingPct = gross != null && t.notional_usd > 0 ? fundingUsd / t.notional_usd * 100 : null;
+  const net = gross != null ? gross + (fundingPct ?? 0) - Number(t.cost_bps) / 100 : null;
+  const r = net != null && t.sl_pct > 0 ? net / t.sl_pct : null;
+  const upd = await pool.query(
+    `UPDATE kalshi_perp_shadow_trades SET status='closed', exit_price=$2, exit_reason=$3, gross_return_pct=$4, return_pct=$5,
+       r_multiple=$6, funding_accrued_usd=$7, exclude_from_stats=$8, closed_at=now() WHERE id=$1 AND status='open'`,
+    [t.id, exit, why, gross, net, r, fundingUsd, exclude]
+  );
+  if (!upd.rowCount) return false;
+  const ageH = (Date.now() - new Date(t.opened_at).getTime()) / 36e5;
+  await pool.query(
+    `UPDATE kalshi_perp_shadow_context SET closed_at=now(), exit_reason=$2, hold_minutes=$3, net_pct=$4, funding_paid_usd=$5 WHERE trade_id=$1`,
+    [t.id, why, ageH * 60, exclude ? null : net, fundingUsd]
+  ).catch(() => {
+  });
+  return true;
+}
+async function resolveKalshiStockShadowTrades(userId) {
+  await ensureKalshiPerpShadowTables();
+  const { rows } = await pool.query(`SELECT * FROM kalshi_perp_shadow_trades WHERE user_id=$1 AND status='open'`, [userId]);
+  if (!rows.length) return 0;
+  const actions = await getPerpCorporateActions().catch(() => []);
+  let closed = 0;
+  for (const t of rows) {
+    const funding = await accrueFunding(t).catch(() => Number(t.funding_accrued_usd) || 0);
+    const openedMs = new Date(t.opened_at).getTime();
+    const ca = actions.find((a) => a.ticker === t.ticker && a.status !== "cancelled" && a.status !== "lapsed" && a.effectiveMs != null && a.effectiveMs > openedMs && a.effectiveMs <= Date.now());
+    const minsSinceOpen = Math.max(1, Math.min(5e3, Math.ceil((Date.now() - openedMs) / 6e4) + 5));
+    const candles = await getPerpCandles(t.ticker, 1, minsSinceOpen).catch(() => []);
+    const latest = candles[candles.length - 1];
+    if (ca) {
+      if (await closeTrade(t, latest ? latest.c : Number(t.entry_price), "corporate_action", funding, true)) closed++;
+      continue;
+    }
+    const short = t.direction === "short";
+    const ageH = (Date.now() - openedMs) / 36e5;
+    let exit = null, why = "";
+    if (candles.length) {
+      for (const cd of candles) {
+        if (cd.t + 6e4 <= openedMs) continue;
+        const gain = short ? (t.entry_price - cd.ask.l) / t.entry_price * 100 : (cd.bid.h - t.entry_price) / t.entry_price * 100;
+        if (t.peak_gain_pct == null || gain > t.peak_gain_pct) {
+          await pool.query(`UPDATE kalshi_perp_shadow_trades SET peak_gain_pct=$2 WHERE id=$1`, [t.id, gain]).catch(() => {
+          });
+          t.peak_gain_pct = gain;
+        }
+        if (short ? cd.ask.h >= t.stop_loss : cd.bid.l <= t.stop_loss) {
+          exit = short ? Math.max(t.stop_loss, cd.ask.o) : Math.min(t.stop_loss, cd.bid.o);
+          why = "stop";
+          break;
+        }
+        if (short ? cd.ask.l <= t.take_profit : cd.bid.h >= t.take_profit) {
+          exit = Number(t.take_profit);
+          why = "target";
+          break;
+        }
+      }
+      if (!why && ageH >= t.max_hours) {
+        const touch = await getPerpTouch(t.ticker).catch(() => null);
+        exit = touch ? short ? touch.ask : touch.bid : latest.c;
+        why = "time limit";
+      }
+    } else if (ageH >= t.max_hours + 24) {
+      exit = null;
+      why = "no price";
+    }
+    if (!why) continue;
+    if (await closeTrade(t, exit, why, funding, false)) closed++;
+  }
+  return closed;
+}
+async function runKalshiStockShadowCycle(userId) {
+  if (!stockShadowEnabled()) return { opened: 0, closed: 0 };
+  await ensureKalshiPerpShadowTables();
+  const closed = await resolveKalshiStockShadowTrades(userId).catch((e) => {
+    console.error("[kalshi-stock-shadow] resolver failed (non-fatal):", e?.message ?? e);
+    return 0;
+  });
+  if (Date.now() - (_lastEntryRun.get(userId) || 0) < EVERY_MS2()) return { opened: 0, closed };
+  _lastEntryRun.set(userId, Date.now());
+  const [{ STRATEGY_RUNNERS: STRATEGY_RUNNERS3 }, { OPTIONS_STRATEGY_RUNNERS: OPTIONS_STRATEGY_RUNNERS2 }, { evaluateSpecSignals: evaluateSpecSignals2 }, { paperMaxHoursFor: paperMaxHoursFor2 }, { assessPriceAnomaly: assessPriceAnomaly2 }] = await Promise.all([
+    Promise.resolve().then(() => (init_cryptocom_scanner(), cryptocom_scanner_exports)),
+    Promise.resolve().then(() => (init_options_scanner(), options_scanner_exports)),
+    Promise.resolve().then(() => (init_strategy_backtest(), strategy_backtest_exports)),
+    Promise.resolve().then(() => (init_crypto_paper(), crypto_paper_exports)),
+    Promise.resolve().then(() => (init_corporateActionGuard(), corporateActionGuard_exports))
+  ]);
+  const stats = await computeKalshiStockShadowStats(userId).catch(() => []);
+  const markets = await getLiquidStockPerps().catch(() => []);
+  if (!markets.length) return { opened: 0, closed };
+  const actions = await getPerpCorporateActions().catch(() => []);
+  const pendingCa = new Set(actions.filter((a) => a.status === "scheduled" && a.effectiveMs != null && a.effectiveMs <= Date.now() + 24 * 36e5).map((a) => a.ticker));
+  const { rows: open } = await pool.query(`SELECT strategy, underlying FROM kalshi_perp_shadow_trades WHERE user_id=$1 AND status='open'`, [userId]);
+  const { rows: recent } = await pool.query(
+    `SELECT strategy, underlying FROM kalshi_perp_shadow_trades WHERE user_id=$1 AND status='closed' AND closed_at >= now() - ($2::text || ' milliseconds')::interval`,
+    [userId, String(COOLDOWN_MS2())]
+  );
+  const cryptoCfg = { defiChain: "kalshi", directionFilter: "both", minConfidence: MIN_CONF(), compositeMinEdgeScore: 72 };
+  const optCfg = { ...OPTIONS_CFG, minConfidence: MIN_CONF() };
+  let opened = 0;
+  for (const mkt of markets) {
+    if (open.length >= MAX_OPEN2()) break;
+    if (!mkt.scheduleOpen || pendingCa.has(mkt.ticker)) continue;
+    const symbol = `KALSHI:${mkt.ticker}`;
+    const bars15 = await getPerpBars(mkt.ticker, "15m", 40).catch(() => []);
+    if (bars15.length >= 3 && assessPriceAnomaly2(bars15).suspect) continue;
+    const signals = [];
+    const cryptoResults = await Promise.all(CRYPTO_PORTS.map((k2) => STRATEGY_RUNNERS3[k2](symbol, cryptoCfg).then((r) => ({ k: k2, r })).catch(() => null)));
+    for (const cr of cryptoResults) {
+      if (cr?.r?.decision === "signal" && cr.r.direction) {
+        signals.push({ strategy: cr.k, direction: cr.r.direction === "SELL" ? "short" : "long", score: cr.r.score ?? null });
+      }
+    }
+    const dirs = signals.filter((s) => CRYPTO_PORTS.includes(s.strategy));
+    const longs = dirs.filter((s) => s.direction === "long"), shorts = dirs.filter((s) => s.direction === "short");
+    const side = longs.length > shorts.length ? longs : shorts.length > longs.length ? shorts : [];
+    if (side.length >= 2) {
+      const blend = Math.round(side.reduce((a, s) => a + (s.score ?? 0), 0) / side.length);
+      if (blend >= 72) signals.push({ strategy: "composite_autonomous", direction: side[0].direction, score: blend });
+    }
+    const adapter = optionsAdapter(mkt.ticker);
+    for (const k2 of OPTIONS_PORTS) {
+      const r = await OPTIONS_STRATEGY_RUNNERS2[k2](adapter, mkt.underlying, optCfg).catch(() => null);
+      if (r?.decision === "signal" && r.direction) {
+        signals.push({ strategy: `opt_${k2}`, direction: r.direction === "SELL" || r.direction === "down" ? "short" : "long", score: r.score ?? null });
+      }
+    }
+    for (const fx of FX_PORTS) {
+      const raw = await getPerpBars(mkt.ticker, fx.tf, fx.bars + 2).catch(() => []);
+      const tfMs = (fx.tf === "5m" ? 5 : 60) * 6e4;
+      const closedBars = raw.filter((b) => b.t + tfMs <= Date.now()).slice(-fx.bars);
+      if (closedBars.length < 30) continue;
+      const sig = evaluateSpecSignals2(fx.make(mkt.ticker), closedBars.map((b) => ({ timestamp: b.t, open: b.o, high: b.h, low: b.l, close: b.c, volume: b.v })));
+      if (!sig) continue;
+      if (sig.enterLong && !sig.enterShort) signals.push({ strategy: fx.id, direction: "long", score: null });
+      else if (sig.enterShort && !sig.enterLong) signals.push({ strategy: fx.id, direction: "short", score: null });
+    }
+    if (!signals.length) continue;
+    const h1Bars = await getPerpBars(mkt.ticker, "1h", 60).catch(() => []);
+    if (h1Bars.length < 16) continue;
+    const lastClose = h1Bars[h1Bars.length - 1].c;
+    const atr3 = atrOf(h1Bars);
+    if (!atr3 || !(lastClose > 0)) continue;
+    const atrPct = atr3 / lastClose * 100;
+    const h1Trend = trendOf2(h1Bars.map((b) => b.c), 9, 21);
+    const h4Closes = aggregateBars(await getPerpCandles(mkt.ticker, 60, 60 * 60).catch(() => []), 4).map((b) => b.c);
+    const h4Trend = trendOf2(h4Closes, 5, 10);
+    const touch = await getPerpTouch(mkt.ticker).catch(() => null);
+    const bid = touch?.bid ?? mkt.bid, ask = touch?.ask ?? mkt.ask;
+    if (!(bid > 0) || !(ask > bid)) continue;
+    const spreadBps = (ask - bid) / ((ask + bid) / 2) * 1e4;
+    const fundEst = await getPerpFundingEstimate(mkt.ticker).catch(() => null);
+    const slPct = Math.min(SL_HI(), Math.max(SL_LO(), ATR_MULT2() * atrPct));
+    const costBps = FEE_BPS();
+    if (slPct < 3 * (costBps / 100)) continue;
+    const now = Date.now();
+    const et = etParts(now);
+    for (const sig of signals) {
+      if (open.length >= MAX_OPEN2()) break;
+      if (open.filter((o) => o.strategy === sig.strategy).length >= MAX_PER_STRAT2()) continue;
+      if (open.some((o) => o.strategy === sig.strategy && o.underlying === mkt.underlying)) continue;
+      if (recent.some((o) => o.strategy === sig.strategy && o.underlying === mkt.underlying)) continue;
+      const short = sig.direction === "short";
+      const entry = short ? bid : ask;
+      const stop = short ? entry * (1 + slPct / 100) : entry * (1 - slPct / 100);
+      const target = short ? entry * (1 - slPct * RR() / 100) : entry * (1 + slPct * RR() / 100);
+      const contracts = Math.max(1, Math.round(NOTIONAL2() / entry));
+      const notional = contracts * entry;
+      const aligned = h4Trend == null ? null : short ? h4Trend === "BEARISH" : h4Trend === "BULLISH";
+      const agreeing = signals.filter((s) => s.direction === sig.direction).length;
+      const ctx = {
+        session_et: sessionEt(now),
+        ticker: mkt.ticker,
+        spread_bps: spreadBps,
+        atr_pct: atrPct,
+        funding_rate_at_entry: fundEst?.rate ?? null,
+        htf_aligned: aligned,
+        direction: sig.direction,
+        hour_et: et.hour
+      };
+      const tags = [];
+      if (aligned === false) tags.push("against_htf");
+      if (aligned === true) tags.push("htf_aligned");
+      if (agreeing < 2) tags.push("single_runner_no_confluence");
+      if (spreadBps > 25) tags.push("wide_spread");
+      if (ctx.session_et === "overnight") tags.push("overnight_session");
+      const ins = await pool.query(
+        `INSERT INTO kalshi_perp_shadow_trades (user_id, strategy, ticker, underlying, direction, entry_price, entry_bid, entry_ask,
+           stop_loss, take_profit, sl_pct, contracts, notional_usd, cost_bps, cost_model, score, max_hours)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,'placeholder',$15,$16) RETURNING id`,
+        [userId, sig.strategy, mkt.ticker, mkt.underlying, sig.direction, entry, bid, ask, stop, target, slPct, contracts, notional, costBps, sig.score, paperMaxHoursFor2(sig.strategy)]
+      );
+      const id = ins.rows[0]?.id;
+      if (!id) continue;
+      await pool.query(
+        `INSERT INTO kalshi_perp_shadow_context (trade_id, user_id, strategy, ticker, direction, spread_bps, volume_24h_usd, open_interest,
+           atr_pct, h1_trend, h4_trend, htf_aligned, funding_rate_at_entry, session_et, hour_utc, hour_et, day_of_week,
+           earnings_within_48h, corporate_action_pending, live_gate_blocked, leverage_estimate, tags, advice_at_entry)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23) ON CONFLICT (trade_id) DO NOTHING`,
+        [
+          id,
+          userId,
+          sig.strategy,
+          mkt.ticker,
+          sig.direction,
+          spreadBps,
+          mkt.volume24hNotionalUsd,
+          mkt.openInterest,
+          atrPct,
+          h1Trend,
+          h4Trend,
+          aligned,
+          fundEst?.rate ?? null,
+          ctx.session_et,
+          new Date(now).getUTCHours(),
+          et.hour,
+          et.dow,
+          null,
+          pendingCa.has(mkt.ticker),
+          agreeing < 2,
+          mkt.leverageEstimate,
+          tags,
+          adviceFor3(stats, sig.strategy, ctx)
+        ]
+      ).catch(() => {
+      });
+      open.push({ strategy: sig.strategy, underlying: mkt.underlying });
+      opened++;
+    }
+  }
+  return { opened, closed };
+}
+async function resolveOwnerUserId() {
+  if (_ownerId) return _ownerId;
+  const env = Number(process.env.KALSHI_STOCK_SHADOW_USER_ID);
+  if (Number.isFinite(env) && env > 0) {
+    _ownerId = env;
+    return _ownerId;
+  }
+  try {
+    const { rows } = await pool.query(`SELECT id FROM users WHERE is_admin = true ORDER BY id LIMIT 1`);
+    _ownerId = rows[0]?.id ?? 1;
+  } catch {
+    _ownerId = 1;
+  }
+  return _ownerId;
+}
+function startKalshiStockShadow() {
+  if (_started2) return;
+  _started2 = true;
+  if (!stockShadowEnabled()) {
+    console.log("[kalshi-stock-shadow] disabled (KALSHI_STOCK_SHADOW=off).");
+    return;
+  }
+  const tick3 = async () => {
+    try {
+      const uid2 = await resolveOwnerUserId();
+      if (uid2) await runKalshiStockShadowCycle(uid2);
+    } catch (e) {
+      console.error("[kalshi-stock-shadow] tick failed (non-fatal):", e?.message ?? e);
+    }
+  };
+  setTimeout(tick3, 3 * 6e4).unref?.();
+  setInterval(tick3, 5 * 6e4).unref?.();
+  console.log("[kalshi-stock-shadow] started \u2014 SHADOW lane on public Kalshi perp data (no credentials, no orders).");
+}
+var num9, stockShadowEnabled, MAX_OPEN2, MAX_PER_STRAT2, COOLDOWN_MS2, EVERY_MS2, NOTIONAL2, MIN_CONF, FEE_BPS, SL_LO, SL_HI, ATR_MULT2, RR, CRYPTO_PORTS, OPTIONS_PORTS, etFmt, _statsCache2, emaTrend, crossUp, crossDown, rsiAbove, rsiBelow, rsiCrossUp, rsiCrossDown, emaAbove, emaBelow, FX_PORTS, OPTIONS_CFG, _lastEntryRun, _ownerId, _started2;
+var init_kalshi_stock_shadow = __esm({
+  "server/services/kalshi-stock-shadow.ts"() {
+    "use strict";
+    init_db();
+    init_ensure_kalshi_perp_shadow_tables();
+    init_kalshi_perps();
+    num9 = (n, d) => {
+      const v = Number(process.env[n]);
+      return Number.isFinite(v) && v > 0 ? v : d;
+    };
+    stockShadowEnabled = () => process.env.KALSHI_STOCK_SHADOW !== "off";
+    MAX_OPEN2 = () => Math.floor(num9("KALSHI_STOCK_SHADOW_MAX_OPEN", 30));
+    MAX_PER_STRAT2 = () => Math.floor(num9("KALSHI_STOCK_SHADOW_MAX_PER_STRATEGY", 3));
+    COOLDOWN_MS2 = () => num9("KALSHI_STOCK_SHADOW_COOLDOWN_MIN", 60) * 6e4;
+    EVERY_MS2 = () => num9("KALSHI_STOCK_SHADOW_EVERY_MIN", 10) * 6e4;
+    NOTIONAL2 = () => num9("KALSHI_STOCK_SHADOW_NOTIONAL_USD", 250);
+    MIN_CONF = () => num9("KALSHI_STOCK_SHADOW_MIN_CONFIDENCE", 70);
+    FEE_BPS = () => num9("KALSHI_STOCK_SHADOW_FEE_BPS", 20);
+    SL_LO = () => num9("KALSHI_STOCK_SHADOW_SL_MIN_PCT", 0.8);
+    SL_HI = () => num9("KALSHI_STOCK_SHADOW_SL_MAX_PCT", 4);
+    ATR_MULT2 = () => num9("KALSHI_STOCK_SHADOW_SL_ATR_MULT", 1.5);
+    RR = () => num9("KALSHI_STOCK_SHADOW_RR", 2);
+    CRYPTO_PORTS = ["breakout", "trend_following", "structure", "divergence", "order_flow", "volume_profile"];
+    OPTIONS_PORTS = ["orb", "volume_profile", "breakout", "momentum", "order_flow"];
+    etFmt = new Intl.DateTimeFormat("en-US", { timeZone: "America/New_York", hour12: false, hour: "2-digit", minute: "2-digit", weekday: "short" });
+    _statsCache2 = /* @__PURE__ */ new Map();
+    emaTrend = (fast, slow) => [
+      { id: "emaFast", kind: "EMA", period: fast },
+      { id: "emaSlow", kind: "EMA", period: slow }
+    ];
+    crossUp = { indicatorId: "emaFast", field: "value", operator: "crosses_above", compare: { kind: "indicator", indicatorId: "emaSlow", field: "value" } };
+    crossDown = { indicatorId: "emaFast", field: "value", operator: "crosses_below", compare: { kind: "indicator", indicatorId: "emaSlow", field: "value" } };
+    rsiAbove = (v) => ({ indicatorId: "rsi", field: "value", operator: "above", compare: { kind: "value", value: v } });
+    rsiBelow = (v) => ({ indicatorId: "rsi", field: "value", operator: "below", compare: { kind: "value", value: v } });
+    rsiCrossUp = (v) => ({ indicatorId: "rsi", field: "value", operator: "crosses_above", compare: { kind: "value", value: v } });
+    rsiCrossDown = (v) => ({ indicatorId: "rsi", field: "value", operator: "crosses_below", compare: { kind: "value", value: v } });
+    emaAbove = { indicatorId: "emaFast", field: "value", operator: "above", compare: { kind: "indicator", indicatorId: "emaSlow", field: "value" } };
+    emaBelow = { indicatorId: "emaFast", field: "value", operator: "below", compare: { kind: "indicator", indicatorId: "emaSlow", field: "value" } };
+    FX_PORTS = [
+      { id: "fx_scalping", tf: "5m", bars: 60, make: (s) => fxSpec("scalping", "Scalping", "M5", emaTrend(5, 13), [crossUp], [crossDown], s) },
+      { id: "fx_momentum", tf: "1h", bars: 120, make: (s) => fxSpec("momentum", "Momentum Surfing", "H1", [...emaTrend(9, 21), { id: "rsi", kind: "RSI", period: 14 }], [crossUp, rsiAbove(50)], [crossDown, rsiBelow(50)], s) },
+      { id: "fx_aggressive", tf: "1h", bars: 120, make: (s) => fxSpec("aggressive", "Aggressive Compound", "H1", [...emaTrend(9, 21), { id: "rsi", kind: "RSI", period: 14 }], [crossUp, rsiAbove(50)], [crossDown, rsiBelow(50)], s) },
+      { id: "fx_sniper", tf: "1h", bars: 120, make: (s) => fxSpec("sniper", "Sniper Mode", "H1", [...emaTrend(9, 21), { id: "rsi", kind: "RSI", period: 14 }], [emaAbove, rsiCrossUp(40)], [emaBelow, rsiCrossDown(60)], s) },
+      { id: "fx_prop_firm_sniper", tf: "1h", bars: 120, make: (s) => fxSpec("prop_firm_sniper", "Prop Firm Sniper", "H1", [...emaTrend(9, 21), { id: "rsi", kind: "RSI", period: 14 }], [emaAbove, rsiCrossUp(35)], [emaBelow, rsiCrossDown(65)], s) }
+    ];
+    OPTIONS_CFG = {
+      orbRangeMinutes: 15,
+      volumeProfileLookbackDays: 10,
+      breakoutLookbackDays: 20,
+      directionFilter: "both",
+      strikeSelectionMode: "atm",
+      targetDelta: 0.3,
+      expiryPreference: "weekly"
+    };
+    _lastEntryRun = /* @__PURE__ */ new Map();
+    _ownerId = null;
+    _started2 = false;
   }
 });
 
@@ -73727,9 +74538,9 @@ async function getStopOrdersForUser(userId, filters = {}) {
 init_schema();
 
 // server/build-info.ts
-var BUILD_COMMIT = "8debbe3-dirty";
-var BUILD_BRANCH = "feat/abba-unify-engine-room";
-var BUILT_AT = "2026-11-09T03:47:29.269Z";
+var BUILD_COMMIT = "9b9b897-dirty";
+var BUILD_BRANCH = "feat/kalshi-stock-perp-shadow";
+var BUILT_AT = "2026-11-09T04:37:55.248Z";
 
 // server/stripe.ts
 init_db();
@@ -94391,11 +95202,11 @@ Respond with ONLY valid JSON:
       }, computeEMA2 = function(closes2, i, period) {
         if (i < period - 1) return closes2[i];
         const k2 = 2 / (period + 1);
-        let ema6 = closes2[i - period + 1];
+        let ema7 = closes2[i - period + 1];
         for (let j = i - period + 2; j <= i; j++) {
-          ema6 = closes2[j] * k2 + ema6 * (1 - k2);
+          ema7 = closes2[j] * k2 + ema7 * (1 - k2);
         }
-        return ema6;
+        return ema7;
       };
       var computeRSI = computeRSI2, computeEMA = computeEMA2;
       let bars = [];
@@ -96028,16 +96839,16 @@ Respond with ONLY valid JSON:
     try {
       const { runRuinConeSimulation: runRuinConeSimulation2 } = await Promise.resolve().then(() => (init_ruin_cone(), ruin_cone_exports));
       const q = req.query;
-      const num8 = (v) => v != null && v !== "" ? Number(v) : void 0;
+      const num10 = (v) => v != null && v !== "" ? Number(v) : void 0;
       const result = await runRuinConeSimulation2(userId, {
-        numSimulations: num8(q.numSimulations),
-        numTrades: num8(q.numTrades),
-        startingEquity: num8(q.startingEquity),
-        dailyLossLimit: num8(q.dailyLossLimit),
-        maxDrawdownLimit: num8(q.maxDrawdownLimit),
-        consistencyRuleThreshold: num8(q.consistencyRuleThreshold),
-        profitTarget: num8(q.profitTarget),
-        sourceLimit: num8(q.sourceLimit),
+        numSimulations: num10(q.numSimulations),
+        numTrades: num10(q.numTrades),
+        startingEquity: num10(q.startingEquity),
+        dailyLossLimit: num10(q.dailyLossLimit),
+        maxDrawdownLimit: num10(q.maxDrawdownLimit),
+        consistencyRuleThreshold: num10(q.consistencyRuleThreshold),
+        profitTarget: num10(q.profitTarget),
+        sourceLimit: num10(q.sourceLimit),
         source: q.source ? String(q.source) : void 0,
         noCache: q.nocache === "1" || q.noCache === "true"
       });
@@ -108273,6 +109084,7 @@ async function withRetry(fn, label, maxAttempts = 6, baseDelayMs = 2e3) {
       await db.execute(sql17`ALTER TABLE sol_engine_positions ADD COLUMN IF NOT EXISTS exit_reason text`);
       await Promise.resolve().then(() => (init_sol_shadow_stats(), sol_shadow_stats_exports)).then((m) => m.ensureSolShadowContextTable());
       await Promise.resolve().then(() => (init_crypto_shadow(), crypto_shadow_exports)).then((m) => m.ensureCryptoShadowTables()).catch((e) => console.error("[startup] crypto shadow tables (non-fatal):", e?.message ?? e));
+      await Promise.resolve().then(() => (init_ensure_kalshi_perp_shadow_tables(), ensure_kalshi_perp_shadow_tables_exports)).then((m) => m.ensureKalshiPerpShadowTables()).catch((e) => console.error("[startup] kalshi perp shadow tables (non-fatal):", e?.message ?? e));
       console.log("[startup] SOL Engine tables created/verified.");
     } catch (err) {
       console.error("[startup] SOL Engine tables migration (non-fatal):", err.message);
@@ -108533,6 +109345,8 @@ async function withRetry(fn, label, maxAttempts = 6, baseDelayMs = 2e3) {
     startFxPaperMonitor2();
     const { startEngineWatchdog: startEngineWatchdog2 } = await Promise.resolve().then(() => (init_engine_watchdog(), engine_watchdog_exports));
     startEngineWatchdog2();
+    const { startKalshiStockShadow: startKalshiStockShadow2 } = await Promise.resolve().then(() => (init_kalshi_stock_shadow(), kalshi_stock_shadow_exports));
+    startKalshiStockShadow2();
     try {
       const { pool: pool2 } = await Promise.resolve().then(() => (init_db(), db_exports));
       const { rows } = await pool2.query(`SELECT user_id FROM sol_engine_settings WHERE auto_trade_enabled = true`);
